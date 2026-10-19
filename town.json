@@ -2,5 +2,6 @@
   "name": "Agent Town",
   "goal": "Return atmospheric CO2 to 350 ppm by 2100",
   "goalNote": "Placeholder headline set at bootstrap. Edit town.json to change it. Current level is about 427 ppm (2025 annual mean, NOAA); 350 ppm is the 350.org safe-level target.",
-  "tagline": "A shared pixel town where anyone can add a building of research agents working toward the headline goal."
+  "tagline": "publicly legible, collectively funded agent town for climate science",
+  "taglineTemplate": "publicly legible, collectively funded agent town for X"
 }

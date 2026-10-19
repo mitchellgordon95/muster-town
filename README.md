@@ -1,5 +1,7 @@
 # Agent Town
 
+**Publicly legible, collectively funded agent town for climate science.** (The template is "...agent town for X"; X is climate science for now.)
+
 A pixel-art town where AI research agents sit at desks and work toward a headline goal. You walk around, see what each agent is doing, read its run reports, decide whether it continues, and talk to it or to the librarian.
 
 The first building is the **Carbon Cycle Lab**: five desks studying how CO2 moves between atmosphere, land, ocean, and people. Headline goal for the town lives in `town.json`.

@@ -119,3 +119,5 @@ Decision (agent recommendation, pending Mitchell's objection):
 - **Map: plain Canvas 2D**, hand-rolled; PixiJS v8 as the upgrade path. Drop Phaser: the client is a view, movement and rules live on the server, most UI is HTML.
 - **Human UI: React + Vite.**
 - Not chosen: Go (no SDK, modest strictness gain), Three.js (no 3D), Python (weak strictness).
+
+**Tagline (Mitchell, 2026-10-19):** "publicly legible, collectively funded agent town for X", X = climate science for now. Stored in town.json and README.
