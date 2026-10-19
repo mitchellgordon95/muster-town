@@ -438,7 +438,7 @@ export type LookResult = z.infer<typeof LookResult>;
 
 // ---------- WebSocket protocol ----------
 export const ServerMessage = z.discriminatedUnion("type", [
-  z.object({ type: z.literal("snapshot"), town: Town, buildings: z.array(Building), agents: z.array(Agent), places: z.array(Place), grid: z.object({ w: z.number(), h: z.number(), /** row-major tile kinds */ tiles: z.array(z.number()) }), meetings: z.array(Meeting) }),
+  z.object({ type: z.literal("snapshot"), avatarAgentId: Id.optional(), town: Town, buildings: z.array(Building), agents: z.array(Agent), places: z.array(Place), grid: z.object({ w: z.number(), h: z.number(), /** row-major tile kinds */ tiles: z.array(z.number()) }), meetings: z.array(Meeting) }),
   z.object({ type: z.literal("event"), event: Event }),
   z.object({ type: z.literal("agent"), agent: Agent }),
   z.object({ type: z.literal("agents.pos"), positions: z.array(z.object({ id: Id, x: z.number(), y: z.number(), status: AgentStatus })) }),

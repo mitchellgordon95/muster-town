@@ -25,7 +25,7 @@ const bootOnce = () => (booting ??= boot());
 async function boot(): Promise<Phase> {
   const a = await getApi();
   let token = tokenStore.get();
-  if (!token && (import.meta.env.DEV || isMock)) { token = await a.devAdminToken(); if (token) tokenStore.set(token); }
+  if (!token) { token = await a.devAdminToken(); if (token) tokenStore.set(token); }
   if (!token) return { k: "login" };
   try {
     store.set({ me: await a.me() });
