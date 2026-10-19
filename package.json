@@ -2,11 +2,13 @@
   "name": "agent-town",
   "private": true,
   "type": "module",
+  "workspaces": ["packages/*"],
   "scripts": {
-    "install:all": "cd server && npm install && cd ../town && npm install",
-    "dev": "npm run dev --prefix server & npm run dev --prefix town & wait",
-    "build": "npm run build --prefix town",
-    "start": "npm run build && npm start --prefix server",
-    "typecheck": "npm run typecheck --prefix server && npx --prefix town tsc --noEmit -p town"
-  }
+    "build": "npm run build -ws --if-present",
+    "typecheck": "npm run typecheck -ws --if-present",
+    "test": "npm run test -ws --if-present",
+    "dev": "npm run dev -w @agent-town/server",
+    "start": "npm run start -w @agent-town/server"
+  },
+  "engines": { "node": ">=20" }
 }
