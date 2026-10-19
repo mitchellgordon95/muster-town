@@ -41,12 +41,12 @@ One function per verb in `VerbInputs`, signature `(world, actor: Agent, input) =
 - `look` → `LookResult`. Nearby includes humans (kind `human`) so agents can see people.
 - `say` → event `agent.said`; delivered as `heard` messages to the inboxes of nearby agents (not humans; humans see the event live).
 - `tell` → message `tell`; if the recipient is a human avatar, the UI shows it as a chat bubble/notification.
-- `write` → creates/updates a doc; authorId = actor; state `building` requires `doc.write_building` in the actor's building; `type: 'source'` docs are the provenance targets. Returns `{id}`.
+- `write` → creates/updates a doc; authorId = actor; state `building` requires `doc.write_building` in the actor's building; `type: 'source'` docs are the provenance targets and, once published, land in state `library` directly (references, not claims). Returns `{id}`.
 - `submit_report` → doc type `report`, state `building`, verdict, decision `pending` (or `approve` if the building policy is `auto`). Links `assignmentId` (current) and marks the assignment `done`. Sets agent status `awaiting-review` (policy human/moderator) or `idle` (auto). The runtime ends the session after this verb. A session that ends without `submit_report` gets a fallback report written by the runtime (verdict continue, body = final message), so the invariant "every session ends in a report" holds.
 - `review` → requires `building.review`; sets decision/note/decidedBy. On `approve`/`redirect`, creates the next assignment for that agent from the report's "Proposal" section (title = first line of the proposal, description = proposal + note). On `stop`, status `stopped`. Humans call the same code via REST.
 - `request_human` → doc type `request`, state `building`, `requestStatus: proposed`. Moderator/admin `approve` makes it `approved` and visible in the Town Hall outbox. Humans claim and submit `human-report` docs via REST; those land in the library as sources (state `library`).
 - `propose_trophy` → marks the doc with `trophyProposedBy/why`; `town.approve_trophy` holders move it to state `trophy`.
-- `meeting` → see Meetings.
+- `meeting` → see Meetings. A meeting decision that assigns work to an agent approves (and notes as superseded) that agent's pending report, so every report still gets a decision.
 - Permission errors throw `{code: 'forbidden', permission}`; the MCP layer returns them as tool errors with a readable message.
 
 ## Permissions & roles
@@ -55,7 +55,7 @@ Discord-style. A role has permissions and a scope. Town-scoped built-ins: `admin
 
 ## Budgets
 
-Users donate tokens (`DonateInput`) into an allocation for a building, optionally with their own Anthropic API key (stored in `users.apiKey`, never returned by the API). A building's spendable budget is the sum of its allocations' remaining tokens. The runtime picks the allocation to charge (oldest with remaining tokens) and, if that allocation's user has an API key, runs the session with `env.ANTHROPIC_API_KEY` set to it; otherwise the server's own login (Claude Code) is used. Session usage (input+output+cache tokens, cost from the SDK result) is charged after each session. A resident whose daily tokens or whose building's budget is exhausted goes `out-of-budget` and won't start sessions until midnight (daily) or a new allocation. Seed creates a large allocation ("house budget", 50M tokens) for the Carbon Cycle Lab so local dev isn't blocked.
+Users donate tokens (`DonateInput`) into an allocation for a building, optionally with their own Anthropic API key (stored in `users.apiKey`, never returned by the API). A building's spendable budget is the sum of its allocations' remaining tokens. The runtime picks the allocation to charge (oldest with remaining tokens) and, if that allocation's user has an API key, runs the session with `env.ANTHROPIC_API_KEY` set to it; otherwise the server's own login (Claude Code) is used. Session usage (input+output+cache tokens, cost from the SDK result) is charged after each session. A resident whose daily tokens or whose building's budget is exhausted goes `out-of-budget` and won't start sessions until midnight (daily) or a new allocation. Seed creates a large allocation ("house budget", 50M tokens) for the Carbon Cycle Lab so local dev isn't blocked. Default `dailyTokensPerAgent` is 10M: an Opus session with cache reads counted is roughly 1M tokens / $1, so that is about ten sessions per agent per day.
 
 ## Server (HTTP + WS + MCP)
 
