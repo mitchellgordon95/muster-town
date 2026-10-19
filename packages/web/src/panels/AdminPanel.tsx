@@ -1,0 +1,178 @@
+/** Admin: create buildings and residents, donate tokens, see allocations, manage town roles, export. */
+import { useState } from "react";
+import type { Building } from "@agent-town/schema";
+import { api } from "../api";
+import { store, useTown } from "../state";
+import { Glyph, PanelShell } from "./PanelShell";
+import { RolesTab } from "./BuildingPanel";
+import { Meter } from "./AgentPanel";
+import { Act, Empty, ErrorLine, Field, Loading, Section, fmtTokens, usd, useLoad } from "./ui";
+import { PALETTES, portraitUrl } from "../map/sprites";
+
+export function AdminPanel({ tab }: { tab?: string }) {
+  const me = useTown((s) => s.me);
+  const tabs = ["Buildings", "Residents", "Budget", "Roles", "System"];
+  return (
+    <PanelShell icon={<Glyph kind="admin" />} title="Town admin" subtitle={me ? `Signed in as ${me.user.name}${me.isAdmin ? " · admin" : ""}` : ""} tabs={tabs} initialTab={tab && tabs.includes(tab) ? tab : "Buildings"}>
+      {(t) => (
+        <>
+          {t === "Buildings" ? <Buildings /> : null}
+          {t === "Residents" ? <Residents /> : null}
+          {t === "Budget" ? <BudgetTab /> : null}
+          {t === "Roles" ? <RolesTab /> : null}
+          {t === "System" ? <System /> : null}
+        </>
+      )}
+    </PanelShell>
+  );
+}
+
+function Buildings() {
+  const buildings = useTown((s) => s.buildings);
+  const [name, setName] = useState("");
+  const [goal, setGoal] = useState("");
+  const [headcount, setHeadcount] = useState(6);
+  const [policy, setPolicy] = useState<Building["reviewPolicy"]>("human");
+  const can = store.can("town.manage_buildings");
+  return (
+    <>
+      <Section title="Buildings">
+        {buildings.map((b) => (
+          <button key={b.id} className="doc-row" onClick={() => store.open({ kind: "building", id: b.id })}>
+            <div className="doc-row-title">{b.name}</div>
+            <div className="doc-row-meta"><span>{b.kind} · {b.headcount} desks · review {b.reviewPolicy}</span></div>
+          </button>
+        ))}
+      </Section>
+      {can ? (
+        <Section title="New building">
+          <form className="form" onSubmit={(e) => e.preventDefault()}>
+            <Field label="Name"><input value={name} onChange={(e) => setName(e.target.value)} placeholder="e.g. Ocean Alkalinity Lab" /></Field>
+            <Field label="Goal"><textarea rows={2} value={goal} onChange={(e) => setGoal(e.target.value)} placeholder="What should this building figure out?" /></Field>
+            <div className="row2">
+              <Field label="Desks"><input type="number" min={1} max={24} value={headcount} onChange={(e) => setHeadcount(+e.target.value)} /></Field>
+              <Field label="Review policy">
+                <select value={policy} onChange={(e) => setPolicy(e.target.value as Building["reviewPolicy"])}>
+                  <option value="human">human</option><option value="moderator">moderator</option><option value="auto">auto</option>
+                </select>
+              </Field>
+            </div>
+            <div className="actions"><Act tone="primary" disabled={!name.trim()} run={async () => {
+              const b = await api().createBuilding({ name: name.trim(), goal: goal.trim(), headcount, reviewPolicy: policy });
+              setName(""); setGoal("");
+              store.toast(`${b.name} is under construction`, "ok");
+            }}>Create building</Act></div>
+          </form>
+        </Section>
+      ) : <Empty>You need town.manage_buildings to create buildings.</Empty>}
+    </>
+  );
+}
+
+function Residents() {
+  const buildings = useTown((s) => s.buildings).filter((b) => b.kind !== "town-hall");
+  const [buildingId, setBuildingId] = useState(buildings[0]?.id ?? "");
+  const [name, setName] = useState("");
+  const [title, setTitle] = useState("");
+  const [direction, setDirection] = useState("");
+  const [sprite, setSprite] = useState(1);
+  const can = store.can("building.manage", buildingId);
+  return (
+    <Section title="New resident">
+      <form className="form" onSubmit={(e) => e.preventDefault()}>
+        <Field label="Building">
+          <select value={buildingId} onChange={(e) => setBuildingId(e.target.value)}>
+            {buildings.map((b) => <option key={b.id} value={b.id}>{b.name}</option>)}
+          </select>
+        </Field>
+        <div className="row2">
+          <Field label="Name"><input value={name} onChange={(e) => setName(e.target.value)} placeholder="e.g. Lena" /></Field>
+          <Field label="Title"><input value={title} onChange={(e) => setTitle(e.target.value)} placeholder="e.g. Permafrost" /></Field>
+        </div>
+        <Field label="Standing direction" hint="Shown on the agent card and used in every prompt.">
+          <textarea rows={3} value={direction} onChange={(e) => setDirection(e.target.value)} />
+        </Field>
+        <Field label="Look">
+          <div className="sprites">
+            {PALETTES.map((_, i) => i === 7 ? null : (
+              <button type="button" key={i} className={i === sprite ? "on" : ""} onClick={() => setSprite(i)}><img src={portraitUrl(i, 2)} alt={`sprite ${i}`} /></button>
+            ))}
+          </div>
+        </Field>
+        <div className="actions">
+          <Act tone="primary" disabled={!can || !name.trim() || !title.trim() || !buildingId} title={can ? undefined : "Needs building.manage"} run={async () => {
+            const a = await api().createResident({ buildingId, name: name.trim(), title: title.trim(), direction: direction.trim(), sprite });
+            setName(""); setTitle(""); setDirection("");
+            store.toast(`${a.name} moved in`, "ok", { kind: "agent", id: a.id });
+          }}>Add resident</Act>
+        </div>
+      </form>
+    </Section>
+  );
+}
+
+function BudgetTab() {
+  const buildings = useTown((s) => s.buildings).filter((b) => b.kind !== "town-hall");
+  const budget = useLoad(() => api().budget(), []);
+  const [tokens, setTokens] = useState(1_000_000);
+  const [buildingId, setBuildingId] = useState(buildings[0]?.id ?? "");
+  const [apiKey, setApiKey] = useState("");
+  return (
+    <>
+      <Section title="Allocations">
+        <ErrorLine error={budget.error} />
+        {budget.loading && !budget.data ? <Loading /> : (
+          <table className="table">
+            <thead><tr><th>Building</th><th>Allocated</th><th>Spent</th><th /></tr></thead>
+            <tbody>
+              {(budget.data?.buildings ?? []).map((r) => (
+                <tr key={r.buildingId}>
+                  <td>{buildings.find((b) => b.id === r.buildingId)?.name ?? r.buildingId}</td>
+                  <td>{fmtTokens(r.allocated)}</td>
+                  <td>{fmtTokens(r.spent)}{r.spentUsd !== undefined ? ` · ${usd(r.spentUsd)}` : ""}</td>
+                  <td><Meter v={r.allocated ? r.spent / r.allocated : 0} /></td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        )}
+        {budget.data?.users.length ? <div className="foot-note">Donors: {budget.data.users.map((u) => `${u.name ?? u.userId} (${fmtTokens(u.donated)})`).join(", ")}</div> : null}
+      </Section>
+      <Section title="Donate tokens">
+        <form className="form" onSubmit={(e) => e.preventDefault()}>
+          <div className="row2">
+            <Field label="Tokens"><input type="number" min={1} step={100000} value={tokens} onChange={(e) => setTokens(+e.target.value)} /></Field>
+            <Field label="Building">
+              <select value={buildingId} onChange={(e) => setBuildingId(e.target.value)}>{buildings.map((b) => <option key={b.id} value={b.id}>{b.name}</option>)}</select>
+            </Field>
+          </div>
+          <Field label="Anthropic API key (optional)" hint="Sessions charged to this donation run on your key. Stored server-side, never shown again.">
+            <input type="password" autoComplete="off" value={apiKey} onChange={(e) => setApiKey(e.target.value)} placeholder="sk-ant-…" />
+          </Field>
+          <div className="actions"><Act tone="primary" disabled={tokens < 1 || !buildingId} run={async () => {
+            await api().donate({ tokens, buildingId, apiKey: apiKey.trim() || undefined });
+            setApiKey(""); budget.reload();
+            store.toast(`Donated ${fmtTokens(tokens)} tokens`, "ok");
+          }}>Donate</Act></div>
+        </form>
+      </Section>
+    </>
+  );
+}
+
+function System() {
+  const [commit, setCommit] = useState<string | null>(null);
+  const conn = useTown((s) => s.conn);
+  return (
+    <>
+      <Section title="Git export">
+        <p className="direction">Writes the town to a readable git mirror (buildings, docs, meetings, events) and commits if anything changed.</p>
+        <div className="actions"><Act run={async () => { setCommit((await api().exportNow()) ?? "nothing to commit"); }}>Export now</Act>{commit ? <code>{commit}</code> : null}</div>
+      </Section>
+      <Section title="Session">
+        <p className="direction">Connection: {conn}{api().mock ? " (mock server)" : ""}</p>
+        <div className="actions"><button className="btn" onClick={() => { localStorage.removeItem("agentTown.token"); location.reload(); }}>Sign out</button></div>
+      </Section>
+    </>
+  );
+}

@@ -1,0 +1,95 @@
+/** Outbox: agents' requests for humans. Moderators approve/reject; anyone can claim and report back. */
+import { useMemo, useState } from "react";
+import type { Doc } from "@agent-town/schema";
+import { api, type RequestAction } from "../api";
+import { store, useTown } from "../state";
+import { DocView } from "./DocView";
+import { Glyph, PanelShell } from "./PanelShell";
+import { Act, Empty, ErrorLine, Loading, Pill, Section, nameOf, timeAgo, useLoad } from "./ui";
+import { Markdown } from "./Markdown";
+
+const GROUPS: { status: NonNullable<Doc["requestStatus"]>; title: string; empty: string }[] = [
+  { status: "approved", title: "Open requests", empty: "Nothing open. When an agent needs something done in the world, it shows up here." },
+  { status: "claimed", title: "Claimed", empty: "Nobody is working on a request right now." },
+  { status: "proposed", title: "Awaiting moderator approval", empty: "No proposals waiting." },
+  { status: "done", title: "Done", empty: "No requests completed yet." },
+];
+
+export function OutboxPanel() {
+  const rev = useTown((s) => s.rev);
+  const list = useLoad(() => api().docs({ type: "request", limit: 200 }), [rev]);
+  const reports = useLoad(() => api().docs({ type: "human-report", limit: 50 }), [rev]);
+  const [open, setOpen] = useState<Doc | null>(null);
+  const grouped = useMemo(() => {
+    const m = new Map<string, Doc[]>();
+    for (const d of list.data ?? []) { const k = d.requestStatus ?? "proposed"; m.set(k, [...(m.get(k) ?? []), d]); }
+    return m;
+  }, [list.data]);
+  return (
+    <PanelShell icon={<Glyph kind="outbox" />} title="Outbox" subtitle="Requests from agents for humans to do in the real world" tabs={["Requests", "Human reports"]}>
+      {(t) => t === "Requests" ? (
+        open ? <DocView doc={open} onBack={() => setOpen(null)} backLabel="Outbox" /> : (
+          <>
+            <ErrorLine error={list.error} />
+            {list.loading && !list.data ? <Loading /> : GROUPS.map((g) => {
+              const items = grouped.get(g.status) ?? [];
+              if (g.status === "proposed" && !items.length && !store.can("town.approve_request")) return null;
+              return (
+                <Section key={g.status} title={`${g.title} (${items.length})`}>
+                  {!items.length ? <Empty>{g.empty}</Empty> : items.map((d) => <RequestCard key={d.id} doc={d} onOpen={() => setOpen(d)} />)}
+                </Section>
+              );
+            })}
+          </>
+        )
+      ) : (
+        reports.loading && !reports.data ? <Loading /> : !reports.data?.length ? <Empty>No human reports yet. Finish a request to add one; it lands in the library as a source.</Empty> : (
+          <div className="doc-list">
+            {reports.data.map((d) => (
+              <button key={d.id} className="doc-row" onClick={() => store.open({ kind: "library", docId: d.id })}>
+                <div className="doc-row-title">{d.title}</div>
+                <div className="doc-row-meta"><span>{nameOf(d.authorId)} · {timeAgo(d.createdAt)}</span></div>
+              </button>
+            ))}
+          </div>
+        )
+      )}
+    </PanelShell>
+  );
+}
+
+function RequestCard({ doc, onOpen }: { doc: Doc; onOpen: () => void }) {
+  const me = useTown((s) => s.me);
+  const [body, setBody] = useState("");
+  const [finishing, setFinishing] = useState(false);
+  const canModerate = store.can("town.approve_request") || store.can("building.review", doc.buildingId);
+  const mine = doc.claimedByUserId && doc.claimedByUserId === me?.user.id;
+  const act = (a: RequestAction, msg: string, b?: string) => async () => { const d = await api().request(doc.id, a, b); store.putDocs([d]); store.toast(msg, "ok"); };
+  return (
+    <div className="request">
+      <div className="request-head">
+        <button className="link title" onClick={onOpen}>{doc.title}</button>
+        <Pill tone={doc.requestStatus === "proposed" ? "warn" : doc.requestStatus === "rejected" ? "bad" : "ok"}>{doc.requestStatus}</Pill>
+      </div>
+      <div className="request-meta">from {nameOf(doc.authorId)} · {timeAgo(doc.createdAt)}{doc.location ? ` · ${doc.location}` : ""}{doc.claimedByUserId ? ` · claimed by ${mine ? "you" : nameOf(doc.claimedByUserId)}` : ""}</div>
+      <Markdown text={doc.body.length > 360 ? doc.body.slice(0, 360) + "…" : doc.body} className="compact" />
+      <div className="actions">
+        {doc.requestStatus === "proposed" && canModerate ? <>
+          <Act small tone="ok" run={act("approve", "Request approved; it's now open to humans")}>Approve</Act>
+          <Act small tone="bad" run={act("reject", "Request rejected")}>Reject</Act>
+        </> : null}
+        {doc.requestStatus === "approved" ? <Act small tone="primary" run={act("claim", "Claimed. Report back when you're done.")}>Claim</Act> : null}
+        {doc.requestStatus === "claimed" && (mine || canModerate) && !finishing ? <button className="btn sm ok" onClick={() => setFinishing(true)}>Report back…</button> : null}
+      </div>
+      {finishing ? (
+        <div className="finish">
+          <textarea rows={4} value={body} onChange={(e) => setBody(e.target.value)} placeholder="What you did, what you observed, links, numbers with units…" />
+          <div className="actions">
+            <Act small tone="ok" disabled={!body.trim()} run={async () => { await act("done", "Thanks! Your report is in the library.", body.trim())(); setFinishing(false); }}>Submit report</Act>
+            <button className="btn sm" onClick={() => setFinishing(false)}>Cancel</button>
+          </div>
+        </div>
+      ) : null}
+    </div>
+  );
+}
