@@ -1,0 +1,50 @@
+{
+  "id": "carbon-cycle",
+  "name": "Carbon Cycle Lab",
+  "owner": "Mitchell",
+  "goal": "Understand the carbon cycle well enough to say what it would take to get to 350 ppm",
+  "description": "Understanding how CO2 moves between the atmosphere, land, ocean, and people: the fluxes, the stocks, the measurements, and the feedbacks.",
+  "maxTurns": 40,
+  "librarian": {
+    "id": "librarian",
+    "name": "Ada",
+    "sprite": 0
+  },
+  "desks": [
+    {
+      "id": "atmosphere",
+      "name": "Noor",
+      "sprite": 1,
+      "title": "Atmospheric CO2",
+      "direction": "How atmospheric CO2 is measured and what the record shows: Mauna Loa and the NOAA global network, the annual growth rate, seasonal cycle, isotopic fingerprints (13C, 14C) that attribute the rise to fossil fuels, and the airborne fraction over time."
+    },
+    {
+      "id": "land",
+      "name": "Tomas",
+      "sprite": 2,
+      "title": "Land sink",
+      "direction": "The terrestrial carbon sink: photosynthesis vs respiration, CO2 fertilization, forest regrowth, soil carbon, how big the land sink is and how uncertain, why it varies year to year (ENSO, drought, fire), and whether it is weakening."
+    },
+    {
+      "id": "ocean",
+      "name": "Mei",
+      "sprite": 3,
+      "title": "Ocean sink",
+      "direction": "Ocean carbon uptake: the solubility pump and biological pump, surface pCO2 measurements (SOCAT), how much the ocean has absorbed, acidification as the signature, regional patterns (Southern Ocean), and what could slow the uptake."
+    },
+    {
+      "id": "sources",
+      "name": "Ravi",
+      "sprite": 4,
+      "title": "Human emissions",
+      "direction": "Anthropogenic fluxes: fossil fuel and cement emissions by fuel and country, land-use change emissions (deforestation), how these are estimated and their uncertainty, and how the Global Carbon Budget closes the books each year (the budget imbalance)."
+    },
+    {
+      "id": "feedbacks",
+      "name": "Ingrid",
+      "sprite": 5,
+      "title": "Feedbacks & futures",
+      "direction": "Carbon-climate feedbacks: permafrost thaw, wildfire, Amazon dieback, ocean warming reducing solubility, methane links, what Earth system models project for sink strength under different emissions pathways, and the implications for remaining carbon budgets."
+    }
+  ]
+}

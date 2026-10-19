@@ -1,0 +1,61 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Agent Town</title>
+  <style>
+    :root { --bg:#14151c; --panel:#1d1f2a; --line:#2e3142; --text:#e8e9f0; --muted:#9a9db3; --accent:#7cc4ff; --ok:#6fdc8c; --warn:#ffcf5e; --bad:#ff7b7b; }
+    * { box-sizing: border-box; }
+    html, body { margin:0; height:100%; background:var(--bg); color:var(--text); font: 14px/1.45 ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, sans-serif; overflow:hidden; }
+    #game { position:absolute; inset:0; }
+    #game canvas { image-rendering: pixelated; }
+    #hud { position:absolute; top:12px; left:12px; background:rgba(20,21,28,.85); border:1px solid var(--line); border-radius:8px; padding:10px 12px; max-width:320px; pointer-events:auto; }
+    #hud h1 { font-size:15px; margin:0 0 4px; }
+    #hud .muted { color:var(--muted); font-size:12px; }
+    #hud button { margin-top:8px; }
+    #hint { position:absolute; bottom:16px; left:50%; transform:translateX(-50%); background:rgba(20,21,28,.9); border:1px solid var(--line); border-radius:8px; padding:6px 12px; font-size:13px; display:none; }
+    #panel { position:absolute; top:0; right:0; height:100%; width:min(480px, 100%); background:var(--panel); border-left:1px solid var(--line); display:none; flex-direction:column; }
+    #panel.open { display:flex; }
+    #panel header { padding:12px 14px; border-bottom:1px solid var(--line); display:flex; align-items:center; gap:10px; }
+    #panel header .who { flex:1; }
+    #panel header .who b { font-size:15px; }
+    #panel header .who span { color:var(--muted); font-size:12px; display:block; }
+    #panel header .close { background:none; border:none; color:var(--muted); font-size:18px; cursor:pointer; }
+    #tabs { display:flex; border-bottom:1px solid var(--line); }
+    #tabs button { flex:1; background:none; border:none; color:var(--muted); padding:8px; cursor:pointer; border-bottom:2px solid transparent; }
+    #tabs button.active { color:var(--text); border-bottom-color:var(--accent); }
+    #body { flex:1; overflow:auto; padding:14px; }
+    .state { display:inline-block; padding:1px 7px; border-radius:10px; font-size:11px; font-weight:600; }
+    .state.working { background:#1f3b2a; color:var(--ok); } .state.awaiting-review { background:#3d3418; color:var(--warn); }
+    .state.stopped { background:#3b2626; color:var(--bad); } .state.idle { background:#2a2d3a; color:var(--muted); } .state.error { background:#3b2626; color:var(--bad); }
+    .feed { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size:12px; }
+    .feed div { padding:3px 0; border-bottom:1px dashed var(--line); color:var(--muted); }
+    .feed div.tool { color:var(--accent); } .feed div.status { color:var(--warn); } .feed div.text { color:var(--text); }
+    .feed time { color:#666a80; margin-right:6px; }
+    .md h1 { font-size:18px; margin:4px 0 8px; } .md h2 { font-size:14px; margin:14px 0 4px; color:var(--accent); } .md p, .md li { font-size:13px; } .md a { color:var(--accent); } .md code { background:#2a2d3a; padding:1px 4px; border-radius:3px; font-size:12px; }
+    .md table { border-collapse:collapse; font-size:12px; } .md td, .md th { border:1px solid var(--line); padding:3px 6px; }
+    .actions { display:flex; gap:8px; flex-wrap:wrap; margin:10px 0; }
+    button.btn { background:#2a2d3a; color:var(--text); border:1px solid var(--line); border-radius:6px; padding:6px 10px; cursor:pointer; font-size:13px; }
+    button.btn.ok { background:#1f3b2a; border-color:#2f5c3f; } button.btn.warn { background:#3d3418; border-color:#5f5226; } button.btn.bad { background:#3b2626; border-color:#5c3434; }
+    button.btn:disabled { opacity:.5; cursor:default; }
+    textarea, select { width:100%; background:#14151c; color:var(--text); border:1px solid var(--line); border-radius:6px; padding:8px; font:inherit; }
+    .chat { display:flex; flex-direction:column; gap:8px; }
+    .msg { padding:8px 10px; border-radius:8px; max-width:92%; font-size:13px; white-space:pre-wrap; }
+    .msg.me { align-self:flex-end; background:#2a3f5c; } .msg.them { align-self:flex-start; background:#2a2d3a; }
+    .chatbar { display:flex; gap:6px; margin-top:10px; } .chatbar textarea { flex:1; height:60px; }
+    .frontmatter { font-size:11px; color:var(--muted); margin-bottom:8px; }
+  </style>
+</head>
+<body>
+  <div id="game"></div>
+  <div id="hud"><h1>Agent Town</h1><div class="muted">Loading…</div></div>
+  <div id="hint"></div>
+  <aside id="panel">
+    <header><div class="who"><b id="p-name"></b><span id="p-role"></span></div><button class="close" id="p-close" title="Esc">✕</button></header>
+    <nav id="tabs"></nav>
+    <div id="body"></div>
+  </aside>
+  <script type="module" src="/src/main.ts"></script>
+</body>
+</html>

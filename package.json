@@ -1,0 +1,12 @@
+{
+  "name": "agent-town",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "install:all": "cd server && npm install && cd ../town && npm install",
+    "dev": "npm run dev --prefix server & npm run dev --prefix town & wait",
+    "build": "npm run build --prefix town",
+    "start": "npm run build && npm start --prefix server",
+    "typecheck": "npm run typecheck --prefix server && npx --prefix town tsc --noEmit -p town"
+  }
+}
