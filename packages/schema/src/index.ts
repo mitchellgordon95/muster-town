@@ -116,7 +116,7 @@ export const Building = z.object({
   /** safety rail per work session, not a design parameter */
   maxTurnsPerSession: z.number().int().positive().default(80),
   /** tokens each resident may spend per day */
-  dailyTokensPerAgent: z.number().int().positive().default(2_000_000),
+  dailyTokensPerAgent: z.number().int().positive().default(10_000_000),
   meetings: z.array(MeetingCadence).default([]),
   /** tile rectangle on the town grid; assigned by the server if absent */
   lot: Lot.optional(),
