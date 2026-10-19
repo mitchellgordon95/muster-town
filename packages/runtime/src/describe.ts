@@ -1,0 +1,59 @@
+/** Readable one-liners for tool calls (drive `agent.tool` events and the live bubbles). */
+import type { World } from "@agent-town/core";
+
+const clip = (s: unknown, n = 80) => {
+  const t = String(s ?? "").replace(/\s+/g, " ").trim();
+  return t.length > n ? t.slice(0, n - 1) + "…" : t;
+};
+
+export function hostOf(url: unknown): string {
+  try { return new URL(String(url)).hostname.replace(/^www\./, ""); } catch { return clip(url, 40); }
+}
+
+function placeName(world: World, to: string): string {
+  const p = world.layout.place(to);
+  if (p) return ["library", "trophy-room", "outbox", "plaza"].includes(p.id) ? p.name.toLowerCase() : p.name;
+  const a = world.agents.get(to);
+  return a ? a.name : to;
+}
+
+export function describeTool(world: World, name: string, input: unknown): string {
+  const i = (input ?? {}) as Record<string, unknown>;
+  if (name === "WebSearch") return `Searching the web: ${clip(i.query)}`;
+  if (name === "WebFetch") return `Reading ${hostOf(i.url)}`;
+  const verb = name.startsWith("mcp__town__") ? name.slice("mcp__town__".length) : null;
+  if (!verb) return `Using ${name}`;
+  switch (verb) {
+    case "look": return "Looking around";
+    case "go": return `Walking to ${placeName(world, String(i.to ?? ""))}`;
+    case "say": return `Saying: ${clip(i.text)}`;
+    case "tell": return `Messaging ${world.nameOf(String(i.to ?? ""))}`;
+    case "inbox": return "Checking inbox";
+    case "board": return "Reading the board";
+    case "search": return `Searching the library: ${clip(i.query)}`;
+    case "read": {
+      const d = world.docs.get(String(i.id ?? ""));
+      return d ? `Reading "${clip(d.title, 60)}"` : `Reading doc ${clip(i.id, 20)}`;
+    }
+    case "write": return `Writing ${String(i.type ?? "note")} "${clip(i.title, 60)}"`;
+    case "submit_report": return `Submitting report: ${clip(i.title, 60)}`;
+    case "propose_trophy": return "Proposing a trophy";
+    case "request_human": return `Asking humans for help: ${clip(i.title, 60)}`;
+    case "assignments": return "Checking assignments";
+    case "accept_assignment": return "Accepting an assignment";
+    case "meeting": {
+      const a = String(i.action ?? "status");
+      if (a === "speak") return `In the meeting: ${clip(i.text)}`;
+      if (a === "listen") return "Listening in the meeting";
+      if (a === "decide") return "Recording meeting decisions";
+      if (a === "end") return "Closing the meeting";
+      if (a === "summary") return "Submitting a meeting summary";
+      return "Checking the meeting";
+    }
+    case "review": return `Reviewing a report: ${String(i.decision ?? "")}`;
+    case "assign": return `Assigning work to ${world.nameOf(String(i.agentId ?? ""))}`;
+    case "promote": return `Promoting a doc to the ${i.state === "library" ? "library" : "board"}`;
+    case "ban": return `Banning ${world.nameOf(String(i.agentId ?? ""))}`;
+    default: return `Using ${verb}`;
+  }
+}
