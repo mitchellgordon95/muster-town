@@ -1,0 +1,151 @@
+import { TILE, type Building, type Lot, type Place, type Tile } from "@agent-town/schema";
+
+/** Row-major tile grid, same shape as the WS snapshot's `grid`. */
+export interface Grid { w: number; h: number; tiles: number[] }
+
+/** y of the main road (2 tiles tall). Buildings sit above it; fixed so lots stay stable. */
+export const ROAD_Y = 40;
+/** x of the Town Hall's left edge. Labs alternate left/right of it. */
+export const TOWN_HALL_X = 48;
+export const LOT_GAP = 4;
+export const TOWN_HALL_SIZE = { w: 17, h: 11 } as const;
+/** Largest headcount that fits under the fixed road (rows*3 + 6 <= ROAD_Y - 2). */
+export const MAX_HEADCOUNT = 3 * Math.floor((ROAD_Y - 2 - 6) / 3);
+
+export const TOWN_HALL_ID = "town-hall";
+
+export function labSize(headcount: number): { w: number; h: number } {
+  const n = Math.max(1, headcount);
+  const cols = Math.min(3, n), rows = Math.ceil(n / cols);
+  return { w: Math.max(cols * 4 + 3, 13), h: rows * 3 + 6 };
+}
+export function sizeFor(b: Building): { w: number; h: number } {
+  return b.kind === "town-hall" ? { ...TOWN_HALL_SIZE } : labSize(b.headcount);
+}
+function lotFits(lot: Lot, need: { w: number; h: number }) {
+  return lot.w >= need.w && lot.h >= need.h;
+}
+
+/**
+ * Assign lots to buildings without one (or whose lot is now too small). Existing fitting lots never move.
+ * Labs alternate left/right of the Town Hall in creation order; a lab goes right if the left is full.
+ * New lots are placed beyond the current extremes, so lots never overlap.
+ * Returns the buildings whose lot changed.
+ */
+export function assignLots(buildings: Building[]): Building[] {
+  const sorted = [...buildings].sort((a, b) => (a.kind === "town-hall" ? -1 : b.kind === "town-hall" ? 1 : a.createdAt.localeCompare(b.createdAt) || a.id.localeCompare(b.id)));
+  const placed: Lot[] = [];
+  const pending: Building[] = [];
+  for (const b of sorted) {
+    if (b.lot && lotFits(b.lot, sizeFor(b))) placed.push(b.lot);
+    else pending.push(b);
+  }
+  const changed: Building[] = [];
+  let labIndex = sorted.filter((b) => b.kind !== "town-hall" && b.lot && lotFits(b.lot, sizeFor(b))).length;
+  for (const b of pending) {
+    const { w, h } = sizeFor(b);
+    const y = ROAD_Y - 2 - h;
+    let x: number;
+    const minX = placed.length ? Math.min(...placed.map((l) => l.x)) : TOWN_HALL_X;
+    const maxX = placed.length ? Math.max(...placed.map((l) => l.x + l.w)) : TOWN_HALL_X + TOWN_HALL_SIZE.w;
+    if (b.kind === "town-hall" && !placed.some((l) => l.x < TOWN_HALL_X + TOWN_HALL_SIZE.w && l.x + l.w > TOWN_HALL_X)) {
+      x = TOWN_HALL_X;
+    } else {
+      const left = minX - LOT_GAP - w;
+      x = labIndex % 2 === 0 && left >= 2 ? left : maxX + LOT_GAP;
+      if (b.kind !== "town-hall") labIndex++;
+    }
+    const lot = { x, y, w, h };
+    placed.push(lot);
+    changed.push({ ...b, lot });
+  }
+  return changed;
+}
+
+export interface DeskSlot { buildingId: string; n: number; pos: Tile; agentId: string | null }
+export interface LayoutResult {
+  grid: Grid;
+  places: Place[];
+  /** standing tiles for every desk, by building */
+  desks: Map<string, DeskSlot[]>;
+  /** door tile per building */
+  doors: Map<string, Tile>;
+}
+
+/**
+ * Build the tile grid and places from buildings (with lots) and desk occupancy.
+ * `occupancy`: buildingId -> (deskIndex -> agentId); `names`: agentId -> name.
+ */
+export function computeLayout(buildings: Building[], occupancy: Map<string, Map<number, string>>, names: Map<string, string>): LayoutResult {
+  const lots = buildings.filter((b) => b.lot);
+  const right = Math.max(TOWN_HALL_X + TOWN_HALL_SIZE.w, ...lots.map((b) => b.lot!.x + b.lot!.w));
+  const w = Math.max(64, right + 6);
+  const h = ROAD_Y + 6;
+  const tiles = new Array<number>(w * h).fill(TILE.GRASS);
+  const set = (x: number, y: number, t: number) => { if (x >= 0 && y >= 0 && x < w && y < h) tiles[y * w + x] = t; };
+  const places: Place[] = [];
+  const desks = new Map<string, DeskSlot[]>();
+  const doors = new Map<string, Tile>();
+
+  // road and trees
+  for (let x = 0; x < w; x++) { set(x, ROAD_Y, TILE.PATH); set(x, ROAD_Y + 1, TILE.PATH); }
+  for (let x = 2; x < w; x += 6) set(x, ROAD_Y + 3, TILE.PLANT);
+
+  for (const b of lots) {
+    const { x: x0, y: y0, w: bw, h: bh } = b.lot!;
+    for (let y = 0; y < bh; y++) for (let x = 0; x < bw; x++) {
+      const edge = x === 0 || y === 0 || x === bw - 1 || y === bh - 1;
+      set(x0 + x, y0 + y, edge ? TILE.WALL : TILE.FLOOR);
+    }
+    const door = { x: x0 + Math.floor(bw / 2), y: y0 + bh - 1 };
+    set(door.x, door.y, TILE.DOOR);
+    for (let y = y0 + bh; y < ROAD_Y; y++) set(door.x, y, TILE.PATH);
+    doors.set(b.id, door);
+    places.push({ id: `door:${b.id}`, kind: "door", name: `${b.name} door`, buildingId: b.id, pos: door });
+
+    if (b.kind === "town-hall") {
+      for (let x = 2; x <= 6; x++) set(x0 + x, y0 + 2, TILE.SHELF);
+      for (let x = 10; x <= 14; x++) set(x0 + x, y0 + 2, TILE.TROPHY);
+      for (let x = 2; x <= 5; x++) set(x0 + x, y0 + 6, TILE.COUNTER);
+      for (let x = 10; x <= 13; x++) set(x0 + x, y0 + 6, TILE.TABLE);
+      set(x0 + 1, y0 + 1, TILE.PLANT); set(x0 + bw - 2, y0 + 1, TILE.PLANT);
+      places.push(
+        { id: "library", kind: "library", name: "Library", buildingId: b.id, pos: { x: x0 + 4, y: y0 + 3 } },
+        { id: "trophy-room", kind: "trophy-room", name: "Trophy room", buildingId: b.id, pos: { x: x0 + 12, y: y0 + 3 } },
+        { id: "outbox", kind: "outbox", name: "Outbox", buildingId: b.id, pos: { x: x0 + 3, y: y0 + 7 } },
+        { id: `meeting-room:${b.id}`, kind: "meeting-room", name: "Town Hall meeting room", buildingId: b.id, pos: { x: x0 + 11, y: y0 + 7 } },
+        { id: "plaza", kind: "plaza", name: "Plaza", buildingId: null, pos: { x: door.x, y: ROAD_Y } },
+      );
+      continue;
+    }
+
+    // lab: desks in rows of up to 3 (desk = 2 tiles, agent stands below the left half)
+    const n = Math.max(1, b.headcount);
+    const cols = Math.min(3, n);
+    const occ = occupancy.get(b.id) ?? new Map<number, string>();
+    const slots: DeskSlot[] = [];
+    for (let i = 0; i < b.headcount; i++) {
+      const c = i % cols, r = Math.floor(i / cols);
+      const dx = x0 + 2 + c * 4, dy = y0 + 2 + r * 3;
+      set(dx, dy, TILE.DESK); set(dx + 1, dy, TILE.DESK);
+      const pos = { x: dx, y: dy + 1 };
+      const agentId = occ.get(i) ?? null;
+      slots.push({ buildingId: b.id, n: i, pos, agentId });
+      places.push(agentId
+        ? { id: `desk:${agentId}`, kind: "desk", name: `${names.get(agentId) ?? agentId}'s desk`, buildingId: b.id, pos }
+        : { id: `desk:free:${b.id}:${i}`, kind: "desk", name: "Free desk", buildingId: b.id, pos });
+    }
+    desks.set(b.id, slots);
+    // meeting table bottom-right, plant bottom-left
+    const yMeet = y0 + bh - 4;
+    for (let x = bw - 5; x <= bw - 3; x++) set(x0 + x, yMeet, TILE.TABLE);
+    set(x0 + 1, yMeet, TILE.PLANT);
+    places.push({ id: `meeting-room:${b.id}`, kind: "meeting-room", name: `${b.name} meeting room`, buildingId: b.id, pos: { x: x0 + bw - 4, y: yMeet + 1 } });
+  }
+  return { grid: { w, h, tiles }, places, desks, doors };
+}
+
+export function tileAt(grid: Grid, x: number, y: number): number {
+  if (x < 0 || y < 0 || x >= grid.w || y >= grid.h) return TILE.WALL;
+  return grid.tiles[y * grid.w + x];
+}
