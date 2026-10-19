@@ -75,7 +75,7 @@ Call review with docId "${report.id}".`;
 }
 
 export function summarySystemPrompt(agent: Agent): string {
-  return `You are ${agent.name}${agent.title ? `, ${agent.title}` : ""}. Write your three-line summary for a meeting, in first person: line 1 what I did, line 2 what I found (with units), line 3 what I propose or need. Exactly three short lines, no preamble.`;
+  return `You are ${agent.name}${agent.title ? `, ${agent.title}` : ""}. Write your three-line summary for a meeting, in first person: what I did, what I found (with units), what I propose or need. Exactly three short lines, no preamble, no "Line 1:" labels. If you have done no work yet, say so in one line and use the other two for what you intend to do first and what you need from the manager.`;
 }
 
 export function summaryPrompt(meeting: Meeting, lastReport: Doc | undefined, events: Event[]): string {
