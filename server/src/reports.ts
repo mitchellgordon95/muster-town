@@ -12,6 +12,13 @@ export function runFile(building: string, desk: string, run: number): string {
   return path.join(reportsDir(building, desk), `run-${String(run).padStart(3, "0")}.md`);
 }
 
+function iso(v: unknown): string {
+  if (!v) return "";
+  if (v instanceof Date) return v.toISOString();
+  const d = new Date(String(v));
+  return isNaN(d.getTime()) ? String(v) : d.toISOString();
+}
+
 function parse(file: string, desk: string): Report {
   const raw = fs.readFileSync(file, "utf8");
   const { data, content } = matter(raw);
@@ -20,8 +27,8 @@ function parse(file: string, desk: string): Report {
   return {
     desk: String(data.desk ?? desk),
     run: Number(data.run ?? runFromName),
-    started: String(data.started ?? ""),
-    ended: String(data.ended ?? ""),
+    started: iso(data.started),
+    ended: iso(data.ended),
     verdict: (data.verdict as Report["verdict"]) ?? "continue",
     decision: (data.decision as Decision) ?? "pending",
     note: String(data.note ?? ""),

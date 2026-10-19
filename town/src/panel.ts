@@ -116,7 +116,7 @@ export class Panel {
     }
     const latest = reports[reports.length - 1];
     const sel = document.createElement("select");
-    for (const r of [...reports].reverse()) { const o = document.createElement("option"); o.value = String(r.run); o.textContent = `Run ${r.run} — ${r.title} (${r.verdict} / ${r.decision})`; sel.appendChild(o); }
+    for (const r of [...reports].reverse()) { const o = document.createElement("option"); o.value = String(r.run); o.textContent = `${r.title.replace(/^Run \d+\s*[—-]\s*/, `Run ${r.run} — `)} (${r.verdict} / ${r.decision})`; sel.appendChild(o); }
     body.appendChild(sel);
     const view = document.createElement("div"); view.className = "md"; view.dataset.base = `reports/${d.id}/x.md`;
     body.appendChild(view);
