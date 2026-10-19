@@ -25,6 +25,8 @@ function parse(file: string, desk: string): Report {
     verdict: (data.verdict as Report["verdict"]) ?? "continue",
     decision: (data.decision as Decision) ?? "pending",
     note: String(data.note ?? ""),
+    cost_usd: data.cost_usd != null ? Number(data.cost_usd) : undefined,
+    turns: data.turns != null ? Number(data.turns) : undefined,
     title: m ? m[1].trim() : path.basename(file, ".md"),
     file: path.basename(file),
     body: content,
@@ -102,4 +104,14 @@ ${summary || "(empty)"}
 Re-run with the same direction. Consider lowering scope.
 `;
   fs.writeFileSync(file, matter.stringify(body, data));
+}
+
+/** Merge extra frontmatter fields (cost, turns, ended) into a run report after the agent wrote it. */
+export function stampRun(building: string, desk: string, run: number, fields: Record<string, unknown>): void {
+  const file = runFile(building, desk, run);
+  if (!fs.existsSync(file)) return;
+  const { data, content } = matter(fs.readFileSync(file, "utf8"));
+  for (const [k, v] of Object.entries(fields)) if (v !== undefined) data[k] = v;
+  if (!data.decision) data.decision = "pending";
+  fs.writeFileSync(file, matter.stringify(content, data));
 }

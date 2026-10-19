@@ -4,7 +4,7 @@ import path from "node:path";
 import { query } from "@anthropic-ai/claude-agent-sdk";
 import type { ActivityEvent, BuildingConfig, DeskConfig, DeskStatus, Report } from "./types.js";
 import { buildingDir, loadBuildings } from "./town.js";
-import { latestReport, nextRunNumber, runFile, writeFallbackReport } from "./reports.js";
+import { latestReport, nextRunNumber, runFile, stampRun, writeFallbackReport } from "./reports.js";
 import { runPrompt } from "./prompts.js";
 
 const MAX_ACTIVITY = 40;
@@ -94,6 +94,8 @@ export class Runner extends EventEmitter {
     this.emit("state");
     let finalText = "";
     let error: string | undefined;
+    let costUsd: number | undefined;
+    let turns: number | undefined;
     try {
       const q = query({
         prompt: runPrompt(b, d, run, prev, note),
@@ -115,6 +117,8 @@ export class Runner extends EventEmitter {
           }
         } else if (m.type === "result") {
           finalText = (m as any).result ?? "";
+          costUsd = (m as any).total_cost_usd;
+          turns = (m as any).num_turns;
           if ((m as any).is_error) error = (m as any).errors?.join("; ") || "run ended with error";
         }
       }
@@ -125,8 +129,9 @@ export class Runner extends EventEmitter {
       writeFallbackReport(b.id, d.id, run, started, finalText, error);
       say("status", `Run ${run} ended without a report; fallback report written`);
     } else {
-      say("status", `Run ${run} finished: report ready for review`);
+      say("status", `Run ${run} finished: report ready for review${costUsd != null ? ` ($${costUsd.toFixed(2)})` : ""}`);
     }
+    stampRun(b.id, d.id, run, { cost_usd: costUsd != null ? Number(costUsd.toFixed(4)) : undefined, turns, ended: new Date().toISOString() });
     if (error) this.errors.set(k, error);
     this.running.delete(k);
     this.emit("state");

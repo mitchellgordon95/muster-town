@@ -121,7 +121,7 @@ export class Panel {
     const view = document.createElement("div"); view.className = "md"; view.dataset.base = `reports/${d.id}/x.md`;
     body.appendChild(view);
     const show = (r: Report) => {
-      view.innerHTML = `<div class="frontmatter">run ${r.run} · verdict <b>${r.verdict}</b> · decision <b>${r.decision}</b>${r.note ? ` · note: ${esc(r.note)}` : ""}<br>${r.started.slice(0, 16)} → ${r.ended.slice(0, 16)}</div>` + marked.parse(r.body) as string;
+      view.innerHTML = `<div class="frontmatter">run ${r.run} · verdict <b>${r.verdict}</b> · decision <b>${r.decision}</b>${r.note ? ` · note: ${esc(r.note)}` : ""}${r.cost_usd != null ? ` · $${r.cost_usd.toFixed(2)}` : ""}${r.turns ? ` · ${r.turns} turns` : ""}<br>${r.started.slice(0, 16)} → ${r.ended.slice(0, 16)}</div>` + marked.parse(r.body) as string;
     };
     show(latest);
     sel.onchange = () => show(reports.find((r) => r.run === Number(sel.value))!);

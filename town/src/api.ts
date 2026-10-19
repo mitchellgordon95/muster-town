@@ -1,7 +1,7 @@
 export interface Desk { id: string; name: string; sprite: number; title: string; direction: string; status: DeskStatus; }
 export interface Building { id: string; name: string; owner: string; goal?: string; description: string; librarian: { id: string; name: string; sprite: number }; desks: Desk[]; }
 export interface Activity { building: string; desk: string; run: number; ts: string; kind: "tool" | "text" | "status"; text: string; }
-export interface ReportMeta { desk: string; run: number; started: string; ended: string; verdict: string; decision: string; note: string; title: string; file: string; }
+export interface ReportMeta { desk: string; run: number; started: string; ended: string; verdict: string; decision: string; note: string; title: string; file: string; cost_usd?: number; turns?: number; }
 export interface Report extends ReportMeta { body: string; }
 export interface DeskStatus { state: "idle" | "working" | "awaiting-review" | "stopped" | "error"; run: number; activity: Activity[]; latestReport?: ReportMeta; error?: string; }
 export interface TownState { town?: { name: string; goal: string; tagline?: string }; buildings: Building[]; }

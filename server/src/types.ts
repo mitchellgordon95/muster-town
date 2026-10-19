@@ -22,6 +22,8 @@ export type Verdict = "continue" | "pivot" | "stop";
 export type Decision = "pending" | "approve" | "redirect" | "stop";
 
 export interface ReportMeta {
+  cost_usd?: number;
+  turns?: number;
   desk: string;
   run: number;
   started: string;
