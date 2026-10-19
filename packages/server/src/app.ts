@@ -70,6 +70,6 @@ export async function buildApp(opts: BuildAppOptions): Promise<FastifyInstance> 
     return reply.code(404).send({ error: `Not found: ${req.method} ${path}`, code: "not_found" });
   });
 
-  app.addHook("onClose", async () => { await opts.runtime?.close?.(); });
+  app.addHook("onClose", async () => { await (opts.runtime?.close?.() ?? opts.runtime?.stop?.()); });
   return app;
 }

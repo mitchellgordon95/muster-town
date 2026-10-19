@@ -74,14 +74,13 @@ export async function agentRoutes(app: FastifyInstance) {
 
   app.post<{ Params: Params }>("/api/agents/:id/stop", async (req) => {
     const agent = world.ops.stopAgent(actorOf(world, req), req.params.id);
-    await app.runtime?.stop?.(agent.id);
+    // The runtime aborts the agent's live session itself from the agent.status/agent.banned event.
     return { agent };
   });
 
   app.post<{ Params: Params }>("/api/agents/:id/ban", async (req) => {
     const { reason } = parse(z.object({ reason: z.string().default("Banned by a human") }), req.body);
     await world.verbs.ban(actorOf(world, req), { agentId: req.params.id, reason });
-    await app.runtime?.stop?.(req.params.id);
     return { agent: world.agents.require(req.params.id, "agent") };
   });
 }

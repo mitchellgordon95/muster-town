@@ -12,7 +12,7 @@ export interface RuntimeHooks {
   /** A meeting moved to `discussing` via REST: run the facilitator. */
   onMeetingStart?(meetingId: string): Promise<unknown> | unknown;
   /** An agent was stopped via REST: abort its running session, if any. */
-  stop?(agentId: string): Promise<unknown> | unknown;
+  stop?(): Promise<unknown> | unknown;
   /** Shut down timers/sessions. */
   close?(): Promise<unknown> | unknown;
 }
