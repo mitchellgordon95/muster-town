@@ -13,8 +13,10 @@ export function latestReport(ctx: Ctx, agentId: string): Doc | undefined {
 /** Walk the body back to its desk (fire and forget; the session doesn't wait for the walk). */
 function walkToDesk(ctx: Ctx, agent: Agent): void {
   const desk = ctx.world.layout.deskOf(agent.id);
-  if (!desk || (desk.pos.x === agent.pos.x && desk.pos.y === agent.pos.y) || ctx.world.movement.isWalking(agent.id)) return;
-  ctx.world.movement.go(agent, desk.pos, desk.name).catch(() => undefined);
+  if (!desk || (desk.pos.x === agent.pos.x && desk.pos.y === agent.pos.y)) return;
+  // A leftover walk (e.g. to the meeting room) must not keep the body away from the desk during a work session.
+  if (ctx.world.movement.isWalking(agent.id)) ctx.world.movement.cancel(agent.id, "Heading back to the desk to work.");
+  ctx.world.movement.go(ctx.world.agents.get(agent.id) ?? agent, desk.pos, desk.name).catch(() => undefined);
 }
 
 /**

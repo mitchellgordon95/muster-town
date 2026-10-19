@@ -1,5 +1,5 @@
 import { CreateMeetingInput, Meeting, type Agent } from "@agent-town/schema";
-import { createAssignment, createDoc, sendMessage } from "./domain.ts";
+import { applyDecision, createAssignment, createDoc, sendMessage } from "./domain.ts";
 import { AppError, badRequest, forbidden } from "./errors.ts";
 import { buildingRoleId } from "./permissions.ts";
 import { newId, nowIso } from "./util.ts";
@@ -94,6 +94,10 @@ export function meetingDecide(world: World, actor: Agent | null, meetingId: stri
   const by = actor ? world.holderOf(actor) : { kind: "system" as const, id: "system" };
   const made = decisions.map((d) => {
     if (!d.assigneeId || d.assignmentId) return d;
+    // A meeting decision is a review: a pending report by the assignee is approved and superseded, so the
+    // invariant "every report gets a decision" holds and the agent isn't both awaiting-review and working.
+    const pending = world.docs.first("authorId = ? AND type = 'report' AND decision = 'pending'", [d.assigneeId], "ORDER BY createdAt DESC");
+    if (pending) applyDecision(world, pending.id, "approve", `Superseded by a decision in meeting "${m.title}": ${d.text.split("\n")[0].slice(0, 160)}`, by);
     const a = createAssignment(world, { agentId: d.assigneeId, title: d.text.split("\n")[0].slice(0, 120), description: `${d.text}\n\nDecided in meeting "${m.title}".`, createdBy: by, fromMeetingId: m.id });
     return { ...d, assignmentId: a.id };
   });
