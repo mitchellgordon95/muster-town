@@ -58,7 +58,7 @@ export async function write(world: World, me: Agent, input: VerbIn<"write">) {
     const cur = world.docs.get(input.id);
     if (!cur) throw new AppError("not_found", `No document ${input.id}.`);
     if (cur.authorId !== holder.id) throw new AppError("forbidden", "You can only update documents you wrote.");
-    const state = cur.state === "library" || cur.state === "trophy" ? cur.state : input.state;
+    const state = cur.state === "library" || cur.state === "trophy" ? cur.state : (input.type === "source" && input.state === "building" ? "library" : input.state);
     const doc = updateDoc(world, cur.id, {
       type: input.type, title: input.title, body: input.body, state,
       provenance: input.provenance ?? cur.provenance, tags: input.tags ?? cur.tags,
@@ -66,8 +66,10 @@ export async function write(world: World, me: Agent, input: VerbIn<"write">) {
     world.events.append({ type: "doc.updated", agentId: holder.kind === "agent" ? me.id : null, buildingId: doc.buildingId, text: `${me.name} updated "${doc.title}"`, payload: { docId: doc.id } });
     return { id: doc.id, state: doc.state };
   }
+  // Source cards are references, not claims: once published they go straight to the library so every building can cite them.
+  const state = input.type === "source" && input.state === "building" ? "library" : input.state;
   const doc = createDoc(world, {
-    type: input.type, title: input.title, body: input.body, state: input.state, authorId: holder.id, authorKind: holder.kind,
+    type: input.type, title: input.title, body: input.body, state, authorId: holder.id, authorKind: holder.kind,
     buildingId: bid, provenance: input.provenance, tags: input.tags,
   });
   return { id: doc.id, state: doc.state };
