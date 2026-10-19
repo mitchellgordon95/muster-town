@@ -59,3 +59,49 @@ Gaps, roughly in priority order:
 - No auth, no multi-user. Local only.
 - The chat agent re-reads files on each question; fine for now, slow at scale.
 - Report rendering is client-side markdown; relative links resolve, but images don't.
+
+---
+
+# Design review 2 — 2026-10-19 (evening)
+
+## Mitchell's direction (his words, condensed)
+
+- Name: "Agent Town" is fine for the general concept. Our addition is that it is **collectively funded and run**.
+- **Central building** with parts: a **library** (durable information anyone can add to), a **trophy room** (accomplishments agents submit and the collective approves), an **outbox** (requests for humans: "go measure soil density in X") and an **inbox** (humans report back; ingested). The town becomes the big brain coordinating effort, including recruiting people who are already in the right place.
+- **Source of truth is a live server**, not git. Agents interact through tools/APIs. Git is a backup exported every hour or so.
+- Not sure every building needs its own wiki, or what a building even is. **Organization is the main tool humans have to steer**: a building for direct air capture means compute is flowing that way. The town makes that visible.
+- **Agents have bodies**: they walk, talk to agents nearby, go to the library, read reports, return to their desk. You put an agent with autonomy in an organization or a location.
+- **Compute donation**: API key plus a token budget, used on our server (most agents). Also an MCP/API/CLI so someone can connect their own Claude Code with an agent identity and show up in town. That gives their agent access to the collective's work and makes it legible to others.
+- **Three layers**: core town interface for LLMs (see where you are, what exists, walk, talk, message, write reports); a human UI doing the same things visually; the server API for outside agents.
+- **Talking to an agent** is talking to a proxy agent that has the session as context (can be a small model). You can also read the session, and interrupt it to give feedback.
+- **Permissions**: steal Discord's roles and moderator system. Building managers; moderator agents that detect bad actors (ban pending review), approve or deny reports against criteria and surface edge cases. Buildings get compute allocations; managers decide how to spend them. Collective-level permissions for bigger actions (create or shrink buildings, headcount).
+- Cost is the point: donations exist because one person can't fund it. Wiki pollution: heard. Terms about holding keys: don't worry while it's friends and family.
+- The 40-turn run is arbitrary. Max turns per session is fine as a rail, but "assign task, come back with recommendation" is not obviously the right shape. The human-computer interaction shape will be learned by use.
+- **Meetings**: standup, weekly retro, sprint planning. A scheduled time for agents and humans to summarize reports and decide next steps.
+
+## Agent reflection (Fable, 2026-10-19)
+
+Core object shifts from the *run* to the *agent in a place*: a persistent body with identity, role, budget, inbox, and autonomy. This is a MUD for agents with a pixel client for humans: a world server that owns state, clients that render it, one small verb set used by residents, visitors, and humans alike.
+
+Positions taken:
+- **Bodies are free, cognition costs.** The server moves bodies and pathfinds; the model spends tokens only on intentions.
+- **Agent chat is scarce by default.** Messages go to inboxes processed at session start; long-form talk happens in facilitated meetings. (Moltbook <7% cooperative success; AI Village hallucination cascade.)
+- **Budget replaces turn count.** Building allocation → per-agent daily budget; sessions end on task or budget. Max turns is a safety rail.
+- **Reports stay; the gate becomes a per-building policy.** Human gate for small labs, moderator-agent approval against criteria for large ones.
+- **Meetings are the steering rhythm.** Pre-submitted three-line summaries, facilitator agent, output = decisions that become assignments. Reports feed meetings, meetings produce direction.
+- **One library with document states** instead of per-building wikis: draft (author) → building (board) → library (reviewed) → trophy (collective-approved). Proximity = same board. Isolation-before-sharing is built into the states.
+- **Outbox starts narrow**: observations and data retrieval only, moderator-approved before visible, human reports enter the library as source cards with submitter identity.
+- **Proxy chat, real interrupts**: small model with the session transcript as context; reading and interrupting the session are separate explicit actions (SDK supports injecting into a running session).
+
+Build order (each step usable alone):
+1. World server: SQLite + MCP verb set (look, go, say, tell, read, write, submit report, request human); hourly git export.
+2. Resident runtime: SDK sessions driven by budget and events (assignment, inbox, meeting).
+3. Roles and budgets: Discord-style, scoped town or building; manager, moderator, member, visitor; allocations and headcount.
+4. Meetings: scheduled, facilitated, producing assignments.
+5. Library states and the central building: draft→building→library→trophy; outbox and inbox.
+6. External agents: identity tokens, CLI, bring your own Claude Code.
+7. Hosted watch-only town (first public milestone; can land after step 2).
+
+v0 survives as the UI prototype and runner; the folder-per-building layout becomes the git export format.
+
+**Awaiting Mitchell's confirmation on:** MUD-style world server with MCP tools as the single agent interface; SQLite + hourly git export as the store; meetings as the primary human touchpoint with the per-report gate as a per-building setting.
