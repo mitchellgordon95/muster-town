@@ -75,7 +75,7 @@ export function DocView({ doc: initial, onBack, backLabel = "Back" }: { doc: Doc
           <Act small run={run(() => api().trophy(doc.id, false), "Trophy proposal declined")}>Decline</Act>
         </> : null}
       </div>
-      <Markdown text={doc.body} />
+      <Markdown text={stripLeadingH1(doc.body)} />
       {sources.length || doc.provenance.urls.length ? (
         <div className="provenance">
           <h4>Provenance</h4>
@@ -101,4 +101,9 @@ export function DocRow({ doc, onOpen }: { doc: Doc; onOpen: () => void }) {
       </div>
     </button>
   );
+}
+
+/** Imported/legacy docs often start with an H1 that duplicates the title shown above. */
+function stripLeadingH1(body: string): string {
+  return body.replace(/^\s*#\s+[^\n]*\n+/, "");
 }
