@@ -1,5 +1,5 @@
 # Agent Town — Repo Root
 
-Read `AGENTS.md` first. Product code is `server/` (Node, Claude Agent SDK) and `town/` (Vite + Phaser). Research buildings live in `buildings/<id>/` and each has its own `AGENTS.md` that the desk agents follow; don't edit a building's wiki by hand unless Mitchell asks.
+Read `AGENTS.md` first. Then `docs/architecture.md` (the build contract) and `docs/design.md` (vision and decisions).
 
-Build and typecheck from the repo root: `npm run typecheck`, `npm run build`. Dev: `npm run dev`.
+Monorepo (npm workspaces): `packages/schema`, `core`, `server`, `runtime`, `web`, `cli`. Run everything from the repo root: `npm run typecheck`, `npm test`, `npm run build`, `npm start`. Research content lives in the SQLite world (`data/`) and its git export (`export/`), never edit those by hand.

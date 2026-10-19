@@ -3,3 +3,5 @@ dist/
 .tmp/
 *.log
 .DS_Store
+data/
+export/
