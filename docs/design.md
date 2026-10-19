@@ -105,3 +105,17 @@ Build order (each step usable alone):
 v0 survives as the UI prototype and runner; the folder-per-building layout becomes the git export format.
 
 **Awaiting Mitchell's confirmation on:** MUD-style world server with MCP tools as the single agent interface; SQLite + hourly git export as the store; meetings as the primary human touchpoint with the per-report gate as a per-building setting.
+
+## Language and framework decision (2026-10-19, evening)
+
+Mitchell confirmed the world-server shape ("MUD style is exactly what I'm thinking"; call it a world server in docs) and meetings as the primary human touchpoint. He asked whether to use a stricter language (Rust) given agents will write most code, and whether to keep Phaser.
+
+Facts: Claude Agent SDK is TypeScript and Python only. Official Rust MCP SDK (rmcp) is mature (stdio/HTTP/websocket transports). Phaser 4 shipped April 2026.
+
+Decision (agent recommendation, pending Mitchell's objection):
+- **World server: TypeScript now**, strict, one Zod schema for world state + events exported to JSON Schema and shared by server, client, MCP tools. World core is a pure module with no framework imports. **Port to Rust** when the verb set has been stable for a month and we host outside agents. Rationale: SDK constraint means a TS process exists anyway; we are at peak design churn; the bugs will be logic bugs.
+- **Resident runtime: TypeScript** (Agent SDK), stays.
+- **Store: SQLite + hourly git export**; Postgres if hosted multi-tenant.
+- **Map: plain Canvas 2D**, hand-rolled; PixiJS v8 as the upgrade path. Drop Phaser: the client is a view, movement and rules live on the server, most UI is HTML.
+- **Human UI: React + Vite.**
+- Not chosen: Go (no SDK, modest strictness gain), Three.js (no 3D), Python (weak strictness).
