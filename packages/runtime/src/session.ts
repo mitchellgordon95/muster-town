@@ -96,7 +96,7 @@ export interface Funding {
   /** the API key to run on (donor-key: the donor's; api-key: the input's or the env's ANTHROPIC_API_KEY); null for the subscription */
   apiKey: string | null;
   /** subscription sessions: the donor-key / api-key allocation a desk fails over to when the subscription hits its spend limit */
-  fallback?: { allocationId: string; apiKey: string };
+  fallback?: { allocationId: string | null; apiKey: string };
 }
 
 /**
@@ -113,7 +113,11 @@ export function fundingFor(world: World, agentId: string, env: NodeJS.ProcessEnv
     if (f.auth !== "subscription") return f;
     const fb = world.budget.fallbackAllocation(bid);
     const key = fb ? world.budget.apiKeyFor(fb) ?? envKey : null;
-    return fb && key ? { ...f, fallback: { allocationId: fb.id, apiKey: key } } : f;
+    if (fb && key) return { ...f, fallback: { allocationId: fb.id, apiKey: key } };
+    // no allocation to fall back to: the Bank's durable API-key input (the town's own key) serves instead
+    const input = world.bank.fallbackInput(bid);
+    const bankKey = input ? world.bank.apiKeyFor(input.id) ?? envKey : null;
+    return input && bankKey ? { ...f, fallback: { allocationId: null, apiKey: bankKey } } : f;
   };
   const sub = world.budget.pickAllocation(bid, ["subscription"]);
   if (sub) return withFallback({ allocationId: sub.id, auth: "subscription", apiKey: null });

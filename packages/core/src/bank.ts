@@ -236,6 +236,15 @@ export class Bank {
     return a.expiring + Math.max(0, a.durable);
   }
 
+  /**
+   * The API-key input a subscription-funded session can fail over to when the plan hits its spend limit:
+   * the oldest live api-key input with a key, if the building still has a durable share to draw (else null).
+   */
+  fallbackInput(buildingId: string, now = new Date()): BankInput | null {
+    if (this.available(buildingId, now).durable <= 0) return null;
+    return this.repos.bankInputs.first("source = 'api-key' AND hasApiKey = 1 AND cancelledAt IS NULL", [], "ORDER BY createdAt, rowid") ?? null;
+  }
+
   /** Where the building's next session should be funded from, or null when its Bank share is used up. */
   fundingFor(buildingId: string, now = new Date()): BankFunding | null {
     const a = this.available(buildingId, now);
