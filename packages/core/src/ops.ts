@@ -3,6 +3,7 @@ import { createAssignment, createDoc, homeOf, intrayOf, sendMessage, setAssignme
 import { createBuilding, createResident, createUser, ensureAvatar, registerVisitor, updateBuilding } from "./entities.ts";
 import { AppError, badRequest, forbidden } from "./errors.ts";
 import { createMeeting, endMeeting, meetingDecide, meetingSpeak, setMeetingPhase } from "./meetings.ts";
+import { replyToReport, type ReplyResult } from "./reply.ts";
 import { newId, nowIso } from "./util.ts";
 import type { World } from "./world.ts";
 
@@ -95,6 +96,21 @@ export class Ops {
   intray(buildingId: string): Doc[] {
     this.world.buildings.require(buildingId, "building");
     return intrayOf(this.world, buildingId);
+  }
+
+  /**
+   * POST /api/docs/:id/reply. Needs building.review on the report's building (or admin). Appends a dated
+   * "Reply from" section, acknowledges the report, and (non-empty text) mentions the author and gives it a
+   * `Reply on: …` assignment (`fromReportId` set). Empty text = archive.
+   */
+  replyToReport(actor: Actor, docId: string, text: string): ReplyResult {
+    const doc = this.world.docs.require(docId, "doc");
+    if (actor && !this.world.permissions.isAdmin(actor) && !this.world.permissions.can(actor, "building.review", doc.buildingId)) throw forbidden("building.review");
+    return replyToReport(this.world, actor, docId, text);
+  }
+  /** POST /api/docs/:id/archive: a reply with no text (acknowledge, no assignment). */
+  archiveReport(actor: Actor, docId: string): ReplyResult {
+    return this.replyToReport(actor, docId, "");
   }
 
   // ---- reconcile (runtime startup) ----

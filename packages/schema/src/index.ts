@@ -287,6 +287,8 @@ export const Doc = z.object({
   assignmentId: Id.optional(),
   costUsd: z.number().optional(),
   tokens: z.number().int().optional(),
+  /** report-specific: SDK turns of the session that produced it */
+  turns: z.number().int().optional(),
   // request-specific (outbox)
   requestStatus: RequestStatus.optional(),
   location: z.string().optional(),
@@ -555,10 +557,16 @@ export const CreateResidentInput = z.object({ buildingId: Id, name: z.string(), 
 export const RegisterVisitorInput = z.object({ name: z.string(), buildingId: Id.optional(), title: z.string().optional() });
 export const ReviewInput = z.object({ decision: ReviewDecision, note: z.string().default("") });
 export const ChatInput = z.object({ message: z.string(), history: z.array(z.object({ role: z.enum(["user", "assistant"]), text: z.string() })).default([]) });
+/** POST /api/docs/:id/reply: the reply text (empty = archive). */
+export const ReplyInput = z.object({ text: z.string().default("") });
+/** POST /api/docs/:id/ask: a question about a report, answered by a cheap-model proxy (not the author). */
+export const AskInput = z.object({ question: z.string().min(1), history: z.array(z.object({ role: z.enum(["user", "assistant"]), text: z.string() })).default([]) });
 export const InterruptInput = z.object({ text: z.string() });
 export const WorkInput = z.object({ title: z.string().optional(), description: z.string().optional() });
 export const DonateInput = z.object({ tokens: z.number().int().positive(), buildingId: Id, apiKey: z.string().optional() });
-export const CreateMeetingInput = z.object({ kind: MeetingKind, buildingId: Id.nullable(), title: z.string().optional(), scheduledAt: Iso.optional(), agenda: z.string().optional(), startNow: z.boolean().default(false) });
+export const CreateMeetingInput = z.object({ kind: MeetingKind, buildingId: Id.nullable(), title: z.string().optional(), scheduledAt: Iso.optional(), agenda: z.string().optional(), startNow: z.boolean().default(false),
+  /** who to invite; omitted = the building's residents (town hall: managers, reviewers, moderators) */
+  attendeeIds: z.array(Id).min(1).optional() });
 export const MeetingSayInput = z.object({ text: z.string() });
 export const SeedInput = z.object({ importDir: z.string().optional() });
 

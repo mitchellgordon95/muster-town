@@ -56,6 +56,7 @@ export function createAssignment(world: World, a: { agentId: string; title: stri
 
 export function setAssignmentStatus(world: World, id: string, status: Assignment["status"], extra: Partial<Assignment> = {}): Assignment {
   const cur = world.assignments.require(id, "assignment");
+  if (cur.status !== status && (cur.status === "done" || cur.status === "cancelled")) throw new AppError("conflict", `Assignment "${cur.title}" is already ${cur.status}.`);
   const a = world.assignments.upsert({ ...cur, ...extra, status, updatedAt: nowIso() });
   if (cur.status !== status) world.events.append({ type: "assignment.status", agentId: a.agentId, buildingId: a.buildingId, text: `Assignment "${a.title}" is ${status}`, payload: { assignmentId: id, status, from: cur.status } });
   return a;

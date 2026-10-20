@@ -103,6 +103,25 @@ describe("proxy chat", () => {
   });
 });
 
+describe("ask about a report", () => {
+  test("answers from the report, the author's events and the building goal with cheapModel, not as the author", async () => {
+    const { world, runtime, sdk, by, lab, seed } = setup(async function* () {
+      yield result(30, 0.0003, "The report says growth is 2.4 ppm/yr.");
+    });
+    const noor = by("Noor");
+    const report = world.docs.upsert({ ...world.docs.first("type = 'report'")!, id: "dc_ask", authorId: noor.id, buildingId: lab.id, title: "Growth rate", body: "## Findings\nGrowth 2.4 ppm/yr." });
+    const r = await runtime.askAbout(report.id, "What growth did they find?", seed.admin.id);
+    expect(r.reply).toBe("The report says growth is 2.4 ppm/yr.");
+    const s = sdk.sessions[0];
+    expect(s.options.model).toBe(lab.cheapModel);
+    expect(s.options.tools).toEqual([]);
+    expect(systemOf(s)).toContain("You are not Noor");
+    expect(s.received[0]).toContain("Growth 2.4 ppm/yr.");
+    expect(s.received[0]).toContain(`Goal: ${lab.goal || "(none)"}`);
+    expect(s.received[0]).toContain("Visitor: What growth did they find?");
+  });
+});
+
 describe("scheduler", () => {
   test("tickOnce starts a session for an idle resident with a pending assignment, once", async () => {
     const gate = deferred();
