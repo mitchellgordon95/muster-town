@@ -215,6 +215,8 @@ kbd { font-family: var(--mono); font-size: 11px; background: #2a2d3a; border: 1p
 .row2 { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
 .inline-form { display: flex; gap: 8px; align-items: center; margin-bottom: 12px; }
 .inline-form select { flex: 1; }
+.name-pick { display: flex; gap: 6px; align-items: center; }
+.name-pick input { flex: 1; min-width: 0; }
 .search input { padding: 9px 11px; font-size: 14px; }
 .filters { display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px; margin-top: 8px; }
 .filters select { font-size: 12.5px; }

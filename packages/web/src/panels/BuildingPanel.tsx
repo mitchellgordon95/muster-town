@@ -1,5 +1,5 @@
 /** Building panel (E at the door): overview, members + roles, meetings, settings (managers: building fields). Members lists residents (managers add and dismiss there) and roles. Board, filing cabinet and in-tray are places. */
-import { useMemo, useState, type ReactNode } from "react";
+import { useEffect, useMemo, useState, type ReactNode } from "react";
 import type { Meeting, SnapshotBuilding, Workspace } from "@muster-town/schema";
 import { api } from "../api";
 import { store, useTown, roleOf } from "../state";
@@ -245,10 +245,22 @@ function Settings({ b }: { b: SnapshotBuilding }) {
 function NewResident({ buildingId }: { buildingId: string }) {
   const [name, setName] = useState("");
   const [sprite, setSprite] = useState(1);
+  const [seen, setSeen] = useState<string[]>([]);
+  const suggest = async (avoid: string[]) => {
+    const n = await api().suggestName(avoid);
+    setName(n);
+    setSeen([...avoid, n]);
+  };
+  useEffect(() => { suggest([]).catch(() => {}); }, [buildingId]);
   return (
     <Section title="New resident">
       <form className="form" onSubmit={(e) => e.preventDefault()}>
-        <Field label="Name" hint="Residents have no title or job description: they take whatever assignment they're given, end to end."><input value={name} onChange={(e) => setName(e.target.value)} placeholder="e.g. Lena" /></Field>
+        <Field label="Name" hint="The town suggests an unused name; reroll it or type your own. Residents have no title or job description: they take whatever assignment they're given, end to end.">
+          <div className="name-pick">
+            <input value={name} onChange={(e) => setName(e.target.value)} placeholder="Leave blank and the town picks one" />
+            <Act small title="Suggest another name" run={() => suggest(seen)}>Reroll</Act>
+          </div>
+        </Field>
         <Field label="Look">
           <div className="sprites">
             {PALETTES.map((_, i) => i === 7 ? null : (
@@ -257,9 +269,9 @@ function NewResident({ buildingId }: { buildingId: string }) {
           </div>
         </Field>
         <div className="actions">
-          <Act tone="primary" disabled={!name.trim()} run={async () => {
-            const a = await api().createResident({ buildingId, name: name.trim(), sprite });
-            setName("");
+          <Act tone="primary" run={async () => {
+            const a = await api().createResident({ buildingId, name: name.trim() || undefined, sprite });
+            await suggest([a.name]).catch(() => setName(""));
             store.toast(`${a.name} moved in`, "ok", { kind: "agent", id: a.id });
           }}>Add resident</Act>
         </div>
