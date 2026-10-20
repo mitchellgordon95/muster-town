@@ -5,6 +5,9 @@
 import type { Agent, Assignment, Building, DeskBrief, DeskWorkspace, Doc, Event, Meeting, Town } from "@agent-town/schema";
 import type { World } from "./world.ts";
 
+/** What an agent does when started without a task. */
+export const CHECK_IN = "No specific task. Check your inbox and the board; if something needs you, do it. If nothing does, submit a short report saying so: don't invent work.";
+
 const trunc = (s: string, n: number) => (s.length > n ? s.slice(0, n) + "\n…(truncated)" : s);
 
 export const WORLD_RULES = `How the town works:
@@ -20,15 +23,17 @@ export const RESEARCH_RULES = `Research rules:
 - Sources first: primary sources (agency data, IPCC, Global Carbon Budget, peer-reviewed papers) over secondary. Cite every source you rely on in provenance.
 - Three voices, kept apart: what the source says, what you infer, what you don't know.
 - Every number carries units and an uncertainty or range. Don't invent numbers; if you couldn't verify something, say so.
-- One question per session. Pick one concrete question and go deep; don't try to cover your whole direction.`;
+- One question per session. Pick one concrete question and go deep; don't try to cover everything.`;
 
-export const REPORT_FORMAT = `Report body (markdown) sections: ## Summary (readable in two minutes), ## What I did, ## Findings, ## Proposal for next session (first line = one concrete question; then why it matters, which sources, what would change our picture) — or ## Post-mortem with verdict "stop" if the direction is exhausted or wrongly framed, ## For others, ## Questions for humans. Verdict: continue | pivot | stop.`;
+export const REPORT_FORMAT = `Report body (markdown) sections: ## Summary (readable in two minutes), ## What I did, ## Findings, ## Proposal for next session (optional: only if there is a follow-up you would genuinely recommend; first line = one concrete question or task, then why it matters. Don't invent work to fill it: when the assignment is done, leave this section out and say so) — or ## Post-mortem with verdict "stop" if the work was wrongly framed, ## For others, ## Questions for humans. Verdict: continue (worth more work) | pivot | stop (done, or not worth pursuing).`;
+
+/** Nobody has a lane: an agent owns its assignment across the whole system. */
+const OWNERSHIP = `You own your assignment end to end. There are no lanes: do whatever it needs, in any part of the system, rather than handing pieces to others.`;
 
 export function workSystemPrompt(agent: Agent, building: Building, town: Town, opts: { desk?: boolean } = {}): string {
-  return `You are ${agent.name}${agent.title ? `, ${agent.title}` : ""}, a resident researcher in the ${building.name} of ${town.name}.
+  return `You are ${agent.name}, a resident of the ${building.name} of ${town.name}. ${OWNERSHIP}
 Town goal: ${town.goal || "(none set)"}
 Building goal: ${building.goal || "(none set)"}
-Your standing direction: ${agent.direction || "(none)"}
 Your agent id: ${agent.id}. Your building id: ${building.id}.
 
 ${WORLD_RULES}
@@ -59,21 +64,21 @@ export function reviewSystemPrompt(reviewer: Agent, building: Building): string 
 Criteria:
 1. Sources present: claims are backed by cited sources (provenance or links).
 2. Numbers carry units and uncertainty.
-3. The proposal is one concrete question that serves the building goal.
+3. If there is a proposal, it is one concrete question or task that serves the building goal. No proposal is fine: finished work doesn't need a follow-up.
 4. It doesn't duplicate work already on the board.
 
-Decide (agents only work when given an assignment, so your decision is what keeps them going):
-- "continue" if it meets the criteria and its proposal should be the author's next assignment.
-- "approve" to acknowledge a sound report that needs no follow-up (no new assignment).
+Decide (agents only work when given an assignment; idle is a fine outcome when the work is done):
+- "approve" to acknowledge a sound report that needs no follow-up (no new assignment). This is the default for finished work.
+- "continue" only if its proposal is clearly worth doing next; it becomes the author's next assignment.
 - "redirect" with a specific, actionable note when it is fixable or the proposal is off; the note becomes the next assignment.
-- "stop" when the direction is exhausted or off-goal.
+- "stop" when the work is off-goal or should not continue.
 Call \`review\` exactly once, then stop.`;
 }
 
 export function reviewPrompt(report: Doc, author: Agent, assignment: Assignment | undefined, building: Building, board: Doc[]): string {
   return `Review this report. Building goal: ${building.goal || "(none)"}
 
-Author: ${author.name} (${author.title}); direction: ${author.direction || "(none)"}
+Author: ${author.name}
 Assignment: ${assignment ? `${assignment.title}\n${trunc(assignment.description, 1500)}` : "(none)"}
 
 Report ${report.id}: "${report.title}" (verdict ${report.verdict ?? "?"})
@@ -87,7 +92,7 @@ Call review with docId "${report.id}".`;
 }
 
 export function summarySystemPrompt(agent: Agent): string {
-  return `You are ${agent.name}${agent.title ? `, ${agent.title}` : ""}. Write your three-line summary for a meeting, in first person: what I did, what I found (with units), what I propose or need. Exactly three short lines, no preamble, no "Line 1:" labels. If you have done no work yet, say so in one line and use the other two for what you intend to do first and what you need from the manager.`;
+  return `You are ${agent.name}. Write your three-line summary for a meeting, in first person: what I did, what I found (with units), what I need or what is left to do (say "nothing" if nothing is). Exactly three short lines, no preamble, no "Line 1:" labels. If you have done no work yet, say so in one line and use the other two for what you intend to do first and what you need from the manager.`;
 }
 
 export function summaryPrompt(meeting: Meeting, lastReport: Doc | undefined, events: Event[]): string {
@@ -100,7 +105,7 @@ ${events.map((e) => `- ${e.ts.slice(0, 16)} ${e.text}`).join("\n") || "(none)"}`
 }
 
 export function facilitateSystemPrompt(facilitator: Agent, building: Building | undefined, town: Town): string {
-  return `You are ${facilitator.name}${facilitator.title ? `, ${facilitator.title}` : ""}, facilitating a meeting in ${building?.name ?? "Town Hall"} of ${town.name}. Building goal: ${building?.goal || town.goal || "(none)"}
+  return `You are ${facilitator.name}, facilitating a meeting in ${building?.name ?? "Town Hall"} of ${town.name}. Building goal: ${building?.goal || town.goal || "(none)"}
 
 You run the meeting with the \`meeting\` tool (mcp__town__meeting) like everyone else. Be brief and concrete. Humans may speak in the meeting; their words carry weight. Do not call submit_report.`;
 }
@@ -129,7 +134,7 @@ export function chatSystemPrompt(agent: Agent): string {
 }
 
 export function chatContext(agent: Agent, assignment: Assignment | undefined, report: Doc | undefined, events: Event[]): string {
-  return `Agent card: ${agent.name}, ${agent.title}. Status: ${agent.status}. Doing: ${agent.activity || "(nothing)"}. Direction: ${agent.direction || "(none)"}
+  return `Agent card: ${agent.name}. Status: ${agent.status}. Doing: ${agent.activity || "(nothing)"}.
 Current assignment: ${assignment ? `${assignment.title}: ${trunc(assignment.description, 800)}` : "(none)"}
 Latest report: ${report ? `"${report.title}" (${report.decision ?? "?"})\n${trunc(report.body, 3000)}` : "(none)"}
 Recent activity:
@@ -162,7 +167,7 @@ Assignment: ${assignment ? assignment.title : "(none)"}
 ${finalText.trim() || "(no final message)"}
 
 ## Proposal for next session
-${assignment ? `Continue: ${assignment.title}` : "Continue the standing direction"}
+${assignment ? `Continue: ${assignment.title}` : "Check in"}
 `;
 }
 
@@ -227,6 +232,6 @@ export function composeWorkBrief(world: World, sessionId: string): DeskBrief {
   const system = workSystemPrompt(agent, building, town, { desk: true }) + (workspace ? workshopPrompt(workspace, repoNameOf(workspace.repoUrl)) : "");
   const prompt = assignment
     ? workPrompt(assignment, world.docs.first("authorId = ? AND type = 'report' AND (sessionId IS NULL OR sessionId != ?)", [agent.id, session.id], "ORDER BY createdAt DESC, rowid DESC"))
-    : `Continue your standing direction: ${agent.direction || "(none)"}\n\nStart with \`look\`, then the board. End with \`submit_report\`.`;
+    : `${CHECK_IN}\n\nStart with \`look\`, then the board. End with \`submit_report\`.`;
   return { agent, building, town, assignment, session, system, prompt, ...(workspace ? { workspace } : {}) };
 }
