@@ -245,3 +245,22 @@ describe("waiting assignments", () => {
     expect(world.assignments.require(third.id)).toMatchObject({ waitFor: { assignment: blocker.id }, status: "pending" });
   });
 });
+
+describe("agent memory", () => {
+  test("a work session's system prompt carries the notebook and its prompt the recent-work block", async () => {
+    const { world, runtime, sdk, by } = setup(happyWork);
+    const noor = by("Noor");
+    await world.verbs.write(noor.id, { type: "notebook", title: "", body: "Waiting on Mitchell: 0.44 or the 2024 value.", state: "draft" });
+    await world.verbs.write(noor.id, { type: "note", title: "Dashboard number", body: "Use the 10-year mean 0.44 ± 0.03.", state: "building" });
+    const asg = world.ops.createWork(null, noor.id, { title: "Reply to Mitchell", description: "Which number did you pick?" });
+    await runtime.runWorkSession(noor.id, asg.id);
+    const system = JSON.stringify(sdk.sessions[0].options.systemPrompt);
+    expect(system).toContain("## Your notebook");
+    expect(system).toContain("Waiting on Mitchell: 0.44 or the 2024 value.");
+    expect(system).toContain("Your notebook is your memory between sessions");
+    const prompt = sdk.sessions[0].received[0];
+    expect(prompt).toContain("## Your recent work");
+    expect(prompt).toMatch(/- note "Dashboard number" \(dc_[\w-]+, just now\): Use the 10-year mean 0\.44 ± 0\.03\./);
+    expect(prompt).toContain("`read` the documents above that are relevant");
+  });
+});

@@ -1,5 +1,5 @@
 /** Resident work sessions (host backend + shared end-of-session logic), interrupts, and reviewer sessions over the in-tray. */
-import { AppError, buildingRoleId, codeWorkspace, createDoc, fallbackReportBody, latestReportOf, reviewPrompt, reviewSystemPrompt, setAssignmentStatus, workPrompt, workSystemPrompt } from "@muster-town/core";
+import { AppError, buildingRoleId, codeWorkspace, createDoc, fallbackReportBody, FALLBACK_REPORT_PREFIX, latestReportOf, notebookOf, recentWorkBlock, reviewPrompt, reviewSystemPrompt, setAssignmentStatus, workPrompt, workSystemPrompt } from "@muster-town/core";
 import type { Agent, AllocationAuth, Assignment, Building, Doc, Session } from "@muster-town/schema";
 import { chargeUsage, fundingFor, homeOf, runAgentSession, type Ctx } from "./session.ts";
 
@@ -49,7 +49,8 @@ export async function runWorkSession(ctx: Ctx, starting: Set<string>, agentId: s
     walkToDesk(ctx, agent);
     const out = await runAgentSession(ctx, {
       agentId, purpose: "work", model: agent.model ?? building.model, maxTurns: building.maxTurnsPerSession, web: true,
-      assignmentId, system: workSystemPrompt(agent, building, world.town.get()), prompt: workPrompt(assignment, latestReport(ctx, agentId)),
+      assignmentId, system: workSystemPrompt(agent, building, world.town.get(), { notebook: notebookOf(world, agentId) }),
+      prompt: workPrompt(assignment, latestReport(ctx, agentId), recentWorkBlock(world, agentId)),
       finish: (o, allocationId) => finishWorkSession(ctx, o.session.id, { ...o }, allocationId),
     });
     return out.session;
@@ -97,7 +98,7 @@ export async function finishWorkSession(ctx: Ctx, sessionId: string, o: WorkOutc
     try {
       const assignment = session.assignmentId ? world.assignments.get(session.assignmentId) : undefined;
       const body = fallbackReportBody(o.finalText ?? "", error, assignment);
-      const title = `Session ended without a report: ${assignment?.title ?? "work session"}`.slice(0, 200);
+      const title = `${FALLBACK_REPORT_PREFIX} ${assignment?.title ?? "work session"}`.slice(0, 200);
       if (stopped) {
         const doc = createDoc(world, {
           type: "report", state: "building", title, body, verdict: "continue", decision: "stop", decidedBy: "system", decidedAt: new Date().toISOString(),

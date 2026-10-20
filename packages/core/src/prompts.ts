@@ -18,6 +18,7 @@ export const WORLD_RULES = `How the town works:
 - A human may interrupt you mid-session with a message; treat it as direction from your building's manager.
 - Messages from humans arrive in your inbox as \`tell\`s; when a human messages you, reply with \`tell\` before anything else.
 - If someone mentions you (@YourName) you'll see it in \`inbox\`; a mention is a request to look, not an assignment; reply with \`tell\` or ask your manager for an assignment. Write @Name to point a colleague at your doc, report or meeting remark.
+- Your notebook is your memory between sessions: before \`submit_report\`, update it (\`write\` type "notebook") with what you learned, decided, are waiting on, and the ids of documents you'll need again. Keep it under a page; rewrite, don't append forever.
 - Finish with \`submit_report\`. It is mandatory, it must be your last action, and your session ends after it. The report goes to your manager's in-tray and you go idle; you work again when someone gives you an assignment.
 - You can't wait inside a session: when your turn ends, the session ends, and background tasks, timers and monitors won't wake you. If you can't finish because you're waiting on something, park the work: \`submit_report\` with \`resumeWhen\` (\`{deploy: "<your commit sha>"}\` once you've pushed and need it live, \`{assignment: id}\` for a colleague's work, \`{decision: reportId}\` for a review, \`{after: iso}\`) and \`next\` (one line); your continuation then starts by itself when that holds. \`GET /api/health\` gives the live server's \`commit\`; a change is live when \`git merge-base --is-ancestor <sha> <commit>\` succeeds.`;
 
@@ -38,7 +39,80 @@ export function standingRules(building: Building | undefined): string {
   return r ? `\n\nStanding rules for the ${building!.name} (from its manager; they apply to every session here and outrank your defaults, but not your assignment's explicit instructions):\n${trunc(r, 8000)}` : "";
 }
 
-export function workSystemPrompt(agent: Agent, building: Building, town: Town, opts: { desk?: boolean } = {}): string {
+/** The agent's notebook (one per agent, private draft), if it has written one. */
+export function notebookOf(world: World, agentId: string): Doc | undefined {
+  return world.docs.first("authorId = ? AND type = 'notebook'", [agentId], "ORDER BY createdAt ASC, rowid ASC");
+}
+
+/** How much of the notebook goes into a session's system prompt. */
+export const NOTEBOOK_CAP = 2500;
+
+/** Title prefix of the runtime's fallback reports (sessions that ended without \`submit_report\`). */
+export const FALLBACK_REPORT_PREFIX = "Session ended without a report:";
+
+/** "just now" | "5m ago" | "3h ago" | "2d ago". */
+export function relativeTime(iso: string, now = Date.now()): string {
+  const s = Math.max(0, Math.round((now - Date.parse(iso)) / 1000));
+  if (s < 60) return "just now";
+  if (s < 3600) return `${Math.floor(s / 60)}m ago`;
+  if (s < 86400) return `${Math.floor(s / 3600)}h ago`;
+  return `${Math.floor(s / 86400)}d ago`;
+}
+
+/** "## Your notebook" block: the body, capped at \`cap\` chars (the last \`cap\` with a note when longer). */
+export function notebookBlock(nb: Doc | undefined | null, cap = NOTEBOOK_CAP, now = Date.now()): string {
+  const body = nb?.body.trim() ?? "";
+  if (!nb || !body) return `## Your notebook\n(empty: you haven't written one yet. Create it with \`write\` type "notebook" before you submit your report.)`;
+  const shown = body.length > cap ? `(Your notebook is ${body.length} chars; only the last ${cap} are shown. Rewrite it shorter.)\n…${body.slice(-cap)}` : body;
+  return `## Your notebook\n(${nb.id}, updated ${relativeTime(nb.updatedAt, now)})\n${shown}`;
+}
+
+/** The body of a markdown \`## heading\` section (up to the next \`#\`/\`##\` heading), trimmed; "" when absent. */
+export function sectionOf(body: string, heading: string): string {
+  const lines = body.split("\n");
+  const at = lines.findIndex((l) => l.trim().replace(/^#+\s*/, "").toLowerCase() === heading.toLowerCase() && /^#{1,6}\s/.test(l.trim()));
+  if (at < 0) return "";
+  const end = lines.findIndex((l, i) => i > at && /^#{1,2}\s/.test(l.trim()));
+  return lines.slice(at + 1, end < 0 ? undefined : end).join("\n").trim();
+}
+
+const NEED = "What I need from you";
+const oneLine = (s: string, n = 140) => { const t = s.replace(/\s+/g, " ").trim(); return t.length > n ? t.slice(0, n - 1) + "…" : t; };
+
+/** One line describing a doc: a report's "What I need from you" first line, else the body's first non-heading line. */
+export function docGist(d: Doc): string {
+  const firstText = (s: string) => s.split("\n").map((l) => l.trim()).find((l) => l && !/^#{1,6}\s/.test(l) && !/^[-*_]{3,}$/.test(l)) ?? "";
+  const line = (d.type === "report" ? firstText(sectionOf(d.body, NEED)) : "") || firstText(d.body);
+  return oneLine(line) || "(empty)";
+}
+
+export const READ_FIRST = "Before answering a human or starting work, `read` the documents above that are relevant; don't restate from memory what you wrote down.";
+
+/**
+ * "## Your recent work": the agent's last \`limit\` docs (any type but its notebook and fallback reports; most recently
+ * updated first), the full "What I need from you" of its last report, and its unread mentions.
+ * \`short\` (meetings): just the doc lines. \`readHint\` (default on) adds the "read before answering" sentence.
+ */
+export function recentWorkBlock(world: World, agentId: string, opts: { limit?: number; short?: boolean; readHint?: boolean; excludeSessionId?: string; now?: number } = {}): string {
+  const limit = opts.limit ?? (opts.short ? 3 : 6);
+  const now = opts.now ?? Date.now();
+  const where = "authorId = ? AND type != 'notebook' AND NOT (type = 'report' AND title LIKE ?) AND (sessionId IS NULL OR sessionId != ?)";
+  const params = [agentId, `${FALLBACK_REPORT_PREFIX}%`, opts.excludeSessionId ?? ""];
+  const docs = world.docs.where(where, params, `ORDER BY updatedAt DESC, rowid DESC LIMIT ${Math.max(1, Math.floor(limit))}`);
+  const lines = docs.map((d) => `- ${d.type} "${d.title}" (${d.id}, ${relativeTime(d.updatedAt, now)}): ${docGist(d)}`);
+  const out = [`## Your recent work`, lines.join("\n") || "(you haven't written anything yet)"];
+  if (!opts.short) {
+    const last = world.docs.first(`${where} AND type = 'report'`, params, "ORDER BY createdAt DESC, rowid DESC");
+    const need = last ? sectionOf(last.body, NEED) : "";
+    if (last && need) out.push(`\nYour last report "${last.title}" (${last.id}, decision ${last.decision ?? "?"}${last.decisionNote ? `: ${oneLine(last.decisionNote, 300)}` : ""}) said under "${NEED}":\n${trunc(need, 1500)}`);
+    const mentions = world.messages.count("toId = ? AND readAt IS NULL AND kind = 'mention'", [agentId]);
+    if (mentions) out.push(`\nYou have ${mentions} unread mention${mentions === 1 ? "" : "s"}: check \`inbox\`.`);
+  }
+  if (opts.readHint ?? true) out.push(`\n${READ_FIRST}`);
+  return out.join("\n");
+}
+
+export function workSystemPrompt(agent: Agent, building: Building, town: Town, opts: { desk?: boolean; notebook?: Doc | null } = {}): string {
   return `You are ${agent.name}, a resident of the ${building.name} of ${town.name}. ${OWNERSHIP}
 Town goal: ${town.goal || "(none set)"}
 Building goal: ${building.goal || "(none set)"}
@@ -52,16 +126,18 @@ ${REPORT_FORMAT}
 
 You have about ${building.maxTurnsPerSession} turns; budget them. ${opts.desk
     ? "You work at your own desk: a private sandbox computer with your home directory (/home/agent), a shell, Python with the usual scientific libraries, and the web. Files you keep there persist between sessions; the town library is still where shared work goes."
-    : "Your only tools are the town tools (mcp__town__*), WebSearch and WebFetch."}${standingRules(building)}`;
+    : "Your only tools are the town tools (mcp__town__*), WebSearch and WebFetch."}${standingRules(building)}
+
+${notebookBlock(opts.notebook)}`;
 }
 
-export function workPrompt(assignment: Assignment, lastReport: Doc | undefined): string {
+export function workPrompt(assignment: Assignment, lastReport: Doc | undefined, recentWork?: string): string {
   const prev = lastReport
     ? `\n\nYour previous report: "${lastReport.title}" (${lastReport.id}, verdict ${lastReport.verdict ?? "?"}, decision ${lastReport.decision ?? "?"}${lastReport.decisionNote ? `, note: ${lastReport.decisionNote}` : ""}). \`read\` it if you need the details.`
     : "\n\nThis is your first session.";
   return `Your assignment (${assignment.id}): ${assignment.title}
 
-${assignment.description}${prev}
+${assignment.description}${prev}${recentWork ? `\n\n${recentWork}` : ""}
 
 Start with \`look\`, then the board. End with \`submit_report\`.`;
 }
@@ -106,11 +182,11 @@ Next: what I'll do next, in one sentence.
 Add a third line "Need: ..." only if something blocks you or a human must act. Keep each line under 20 words. No ids, file paths, jargon, or long numbers; at most one key number with its unit if it matters. No preamble, no markdown. If you have done nothing yet, say so on the Did line.`;
 }
 
-export function summaryPrompt(meeting: Meeting, lastReport: Doc | undefined, events: Event[]): string {
+export function summaryPrompt(meeting: Meeting, lastReport: Doc | undefined, events: Event[], recentWork?: string): string {
   return `Meeting: ${meeting.title} (${meeting.kind}). Agenda: ${meeting.agenda || "(none)"}
 
 My latest report: ${lastReport ? `"${lastReport.title}" (decision ${lastReport.decision ?? "?"})\n${trunc(lastReport.body, 4000)}` : "(none yet)"}
-
+${recentWork ? `\n${recentWork}\n` : ""}
 My recent activity:
 ${events.map((e) => `- ${e.ts.slice(0, 16)} ${e.text}`).join("\n") || "(none)"}`;
 }
@@ -144,7 +220,7 @@ export function meetingReplySystemPrompt(agent: Agent): string {
   return `You are ${agent.name}, an attendee of a meeting. Someone addressed you with @${agent.name}. Reply to them in the meeting chat, in first person, from your own work context below: 1-4 short sentences, no preamble, no @tags unless you are asking someone something. Numbers carry units. If you don't know or haven't done the work, say so; never invent findings. You have no tools in this turn.`;
 }
 
-export function meetingReplyPrompt(meeting: Meeting, nameOf: (id: string) => string, ctx: { assignment: Assignment | undefined; lastReport: Doc | undefined; events: Event[] }): string {
+export function meetingReplyPrompt(meeting: Meeting, nameOf: (id: string) => string, ctx: { assignment: Assignment | undefined; lastReport: Doc | undefined; events: Event[]; recentWork?: string }): string {
   const transcript = meeting.transcript.slice(-20).map((u) => `- ${nameOf(u.speakerId)}: ${u.text}`).join("\n");
   return `Meeting: ${meeting.title} (${meeting.kind}). Agenda: ${meeting.agenda || "(none)"}
 
@@ -154,7 +230,7 @@ ${transcript || "(empty)"}
 My current assignment: ${ctx.assignment ? `${ctx.assignment.title} (${ctx.assignment.status})\n${trunc(ctx.assignment.description, 1000)}` : "(none)"}
 
 My latest report: ${ctx.lastReport ? `"${ctx.lastReport.title}" (decision ${ctx.lastReport.decision ?? "?"})\n${trunc(ctx.lastReport.body, 3000)}` : "(none yet)"}
-
+${ctx.recentWork ? `\n${ctx.recentWork}\n` : ""}
 My recent activity:
 ${ctx.events.map((e) => `- ${e.ts.slice(0, 16)} ${e.text}`).join("\n") || "(none)"}`;
 }
@@ -163,11 +239,11 @@ export function chatSystemPrompt(agent: Agent): string {
   return `You are ${agent.name}'s desk assistant. Answer as ${agent.name}, in first person, about what ${agent.name} is doing and has found, using only the context provided. Be brief (2-5 sentences). If you don't know, say so; never invent findings. If asked to change direction, say the human should use Interrupt (during a session) or Redirect (on a report).`;
 }
 
-export function chatContext(agent: Agent, assignment: Assignment | undefined, report: Doc | undefined, events: Event[]): string {
+export function chatContext(agent: Agent, assignment: Assignment | undefined, report: Doc | undefined, events: Event[], memory: { recentWork?: string; notebook?: Doc | null } = {}): string {
   return `Agent card: ${agent.name}. Status: ${agent.status}. Doing: ${agent.activity || "(nothing)"}.
 Current assignment: ${assignment ? `${assignment.title}: ${trunc(assignment.description, 800)}` : "(none)"}
 Latest report: ${report ? `"${report.title}" (${report.decision ?? "?"})\n${trunc(report.body, 3000)}` : "(none)"}
-Recent activity:
+${memory.recentWork ? `${memory.recentWork}\n` : ""}${"notebook" in memory ? `${notebookBlock(memory.notebook).replace("## Your notebook", `## ${agent.name}'s notebook (private working notes)`)}\n` : ""}Recent activity:
 ${events.map((e) => `- ${e.ts.slice(0, 16)} [${e.type}] ${e.text}`).join("\n") || "(none)"}`;
 }
 
@@ -260,9 +336,10 @@ export function composeWorkBrief(world: World, sessionId: string): DeskBrief {
   const town = world.town.get();
   const assignment = session.assignmentId ? world.assignments.get(session.assignmentId) ?? null : null;
   const workspace = deskWorkspace(town, building, agent, assignment);
-  const system = workSystemPrompt(agent, building, town, { desk: true }) + (workspace ? workshopPrompt(workspace, repoNameOf(workspace.repoUrl)) : "");
+  const system = workSystemPrompt(agent, building, town, { desk: true, notebook: notebookOf(world, agent.id) }) + (workspace ? workshopPrompt(workspace, repoNameOf(workspace.repoUrl)) : "");
+  const recent = recentWorkBlock(world, agent.id, { excludeSessionId: session.id });
   const prompt = assignment
-    ? workPrompt(assignment, world.docs.first("authorId = ? AND type = 'report' AND (sessionId IS NULL OR sessionId != ?)", [agent.id, session.id], "ORDER BY createdAt DESC, rowid DESC"))
-    : `${CHECK_IN}\n\nStart with \`look\`, then the board. End with \`submit_report\`.`;
+    ? workPrompt(assignment, world.docs.first("authorId = ? AND type = 'report' AND (sessionId IS NULL OR sessionId != ?)", [agent.id, session.id], "ORDER BY createdAt DESC, rowid DESC"), recent)
+    : `${CHECK_IN}\n\n${recent}\n\nStart with \`look\`, then the board. End with \`submit_report\`.`;
   return { agent, building, town, assignment, session, system, prompt, ...(workspace ? { workspace } : {}) };
 }

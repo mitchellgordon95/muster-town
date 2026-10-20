@@ -1,7 +1,7 @@
 /** Proxy chat: one cheap call, no tools. The librarian (`service`) answers from the library index + search hits. */
 import { AppError, codeWorkspace, searchDocs } from "@muster-town/core";
 import { ChatInput } from "@muster-town/schema";
-import { chatContext, chatSystemPrompt, historyBlock, librarianContext, librarianSystemPrompt } from "@muster-town/core";
+import { chatContext, chatSystemPrompt, historyBlock, librarianContext, librarianSystemPrompt, notebookOf, recentWorkBlock } from "@muster-town/core";
 import { oneShot } from "./sdk.ts";
 import { chargeUsage, fundingFor, homeOf, type Ctx } from "./session.ts";
 import { latestReport } from "./work.ts";
@@ -27,7 +27,8 @@ export async function chat(ctx: Ctx, agentId: string, raw: (typeof ChatInput)["_
   } else {
     const assignment = agent.currentAssignmentId ? world.assignments.get(agent.currentAssignmentId) : undefined;
     system = chatSystemPrompt(agent);
-    context = chatContext(agent, assignment, latestReport(ctx, agentId), world.events.recent({ agentId, limit: 40 }));
+    context = chatContext(agent, assignment, latestReport(ctx, agentId), world.events.recent({ agentId, limit: 40 }),
+      { recentWork: recentWorkBlock(world, agentId, { readHint: false }), notebook: notebookOf(world, agentId) ?? null });
   }
   const funding = fundingFor(world, agentId);
   const out = await oneShot(ctx.sdk, { model, system, prompt: `${context}\n\n${historyBlock(input.history, input.message)}`, apiKey: funding.apiKey });

@@ -45,7 +45,7 @@ export function LibraryPanel({ docId }: { docId?: string }) {
           <div className="filters">
             <select value={type} onChange={(e) => setType(e.target.value)} aria-label="Type">
               <option value="">All types</option>
-              {DocType.options.filter((t) => t !== "assignment-proposal").map((t) => <option key={t} value={t}>{t.replace(/-/g, " ")}</option>)}
+              {DocType.options.filter((t) => t !== "assignment-proposal" && t !== "notebook").map((t) => <option key={t} value={t}>{t.replace(/-/g, " ")}</option>)}
             </select>
             <select value={state} onChange={(e) => setState(e.target.value)} aria-label="State">
               <option value="">Any state</option>

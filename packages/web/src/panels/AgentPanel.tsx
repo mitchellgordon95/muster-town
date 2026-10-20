@@ -1,6 +1,6 @@
 /** Agent panel: status, model, budget; tabs Talk (thread + live activity + one message box) | Assignments. Reports live in the in-tray and library. */
 import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
-import type { Agent, Assignment, Event, Permission } from "@muster-town/schema";
+import type { Agent, Assignment, Doc, Event, Permission } from "@muster-town/schema";
 import { api, type AgentPermissionsView, type ThreadMessage } from "../api";
 import { store, useTown, roleOf } from "../state";
 import { DismissButton, canDismiss } from "./Dismiss";
@@ -41,7 +41,7 @@ export function AgentPanel({ id, tab }: { id: string; tab?: string }) {
       {(t) => (
         <>
           {t === "Talk" ? <TalkTab agent={agent} /> : null}
-          {t === "Assignments" ? <AssignmentsTab agent={agent} /> : null}
+          {t === "Assignments" ? <AssignmentsTab agent={agent} notebook={detail.data?.agent.id === id ? detail.data.notebook : undefined} /> : null}
         </>
       )}
     </PanelShell>
@@ -295,7 +295,7 @@ export function Meter({ v }: { v: number }) {
  * Assignments: Active (the running one, with Stop), Queue (pending, in run order: reorder, Start next, Cancel), History
  * (done and cancelled, newest first, with Retry). A stopped agent with a queue gets a "Resume queue" banner.
  */
-function AssignmentsTab({ agent }: { agent: Agent }) {
+function AssignmentsTab({ agent, notebook }: { agent: Agent; notebook?: Doc | null }) {
   const all = useTown((s) => s.assignments);
   const { active, queue, history } = useMemo(() => {
     const mine = Object.values(all).filter((a) => a.agentId === agent.id);
@@ -360,6 +360,16 @@ function AssignmentsTab({ agent }: { agent: Agent }) {
           ) : null} />
         ))}
       </Section>
+      {notebook !== undefined ? (
+        <Section title="Notebook">
+          {notebook ? (
+            <div className="notebook">
+              <div className="asg-meta">Private to {agent.name}; updated {timeAgo(notebook.updatedAt)}. {agent.name} reads it at the start of every session.</div>
+              <Markdown text={notebook.body} />
+            </div>
+          ) : <Empty>No notebook yet.</Empty>}
+        </Section>
+      ) : null}
       {canDismiss(agent) ? (
         <Section title="Manager">
           <p className="direction">Dismissing retires {agent.name}: the desk is freed and they leave the map. Reports and notes stay in the library under their name.</p>

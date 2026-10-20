@@ -5,6 +5,7 @@ import type { Api, AgentDetail, AllocationRow, Bank, Budget, Cabinet, CabinetQue
 import { ApiError } from "../api";
 import type { CreateBuildingInput, UpdateBuildingInput, CreateResidentInput, ReviewInput, ChatInput, WorkInput, DonateInput, CreateMeetingInput, DocState, AddBankInput, BankInput } from "@muster-town/schema";
 import { Sim, newId } from "./sim";
+import { notebooks } from "./fixture";
 
 const wait = (ms = 120) => new Promise((r) => setTimeout(r, ms));
 const now = () => new Date().toISOString();
@@ -92,6 +93,7 @@ export class MockApi implements Api {
       agent, recentEvents: this.sim.events.filter((e) => e.agentId === id).slice(-50),
       currentSession: agent.status === "working" ? { id: `se_${id}`, agentId: id, assignmentId: agent.currentAssignmentId, meetingId: null, purpose: "work" as const, backend: "host" as const, status: "running" as const, model: agent.model ?? "claude-opus-5-5", sdkSessionId: null, tokens: agent.spentTokensToday, costUsd: agent.spentUsdTotal, turns: 12, reportId: null, error: null, startedAt: new Date(Date.now() - 15 * 60_000).toISOString(), endedAt: null } : null,
       latestReport: reports[0] ?? null,
+      notebook: notebooks.find((d) => d.authorId === id) ?? null,
       assignments: [...this.sim.assignments.values()].filter((a) => a.agentId === id).sort((a, b) => {
         const rank = (x: Assignment) => (x.status === "active" ? 0 : x.status === "pending" ? 1 : 2);
         return rank(a) - rank(b) || (a.status === "pending" && b.status === "pending" ? a.position - b.position : b.updatedAt.localeCompare(a.updatedAt));

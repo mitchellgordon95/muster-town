@@ -92,6 +92,11 @@ Does the airborne fraction show a statistically significant trend once ENSO and 
 ## Questions for humans
 Is "0.44" the number we want on the town dashboard, or the 10-year mean?`;
 
+/** Agents' private notebooks (drafts): shown only in the agent panel, never in the library. */
+export const notebooks: Doc[] = [
+  { ...docBase, id: "dc_noor_nb", type: "notebook", state: "draft", title: "Noor's notebook", authorId: "ag_noor", buildingId: "bl_carbon", body: "## Working on\nAirborne fraction 1959–2024: done, report dc_noor_r2 is in the in-tray.\n\n## Learned\n- The 10-year mean airborne fraction is 0.44 ± 0.03; single years swing ±0.1 with ENSO.\n- NOAA GML global growth rates are the series to cite, not Mauna Loa alone.\n\n## Waiting on\n- Mitchell: 0.44 (10-year mean) or the 2024 value for the dashboard?\n\n## Docs I'll need again\n- dc_gcb_essd (GCB 2025 ESSD), dc_gcb_data (budget spreadsheets)", createdAt: ago(400), updatedAt: ago(12) },
+];
+
 export const docs: Doc[] = [
   { ...docBase, id: "dc_gcb_essd", type: "source", state: "library", title: "GCB 2025 ESSD", tags: ["gcb-2025-essd"], authorId: "ag_ravi", buildingId: "bl_carbon", body: "# Global Carbon Budget 2025 (ESSD)\n\n**Says:** fossil CO2 emissions 10.2 ± 0.5 GtC in 2024; ocean sink 2.9 ± 0.4 GtC/yr; land sink 3.2 ± 0.9 GtC/yr (2014–2023).\n\n**Link:** https://essd.copernicus.org/\n\nSee also the [data note](gcb-2025-data.md).", provenance: { sourceIds: [], urls: ["https://essd.copernicus.org/"] }, createdAt: ago(5000), updatedAt: ago(5000) },
   { ...docBase, id: "dc_gcb_data", type: "source", state: "library", title: "GCB 2025 data", tags: ["gcb-2025-data"], authorId: "ag_ravi", buildingId: "bl_carbon", body: "# GCB 2025 data files\n\nNational and global budget spreadsheets (v1.0). Budget imbalance for the last decade: −0.4 GtC/yr.", createdAt: ago(5000), updatedAt: ago(5000) },

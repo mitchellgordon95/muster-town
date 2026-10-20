@@ -321,6 +321,7 @@ export const DocType = z.enum([
   "request",       // outbox: a request for a human to do something in the world
   "human-report",  // inbox: a human's report back
   "assignment-proposal", // reserved
+  "notebook",      // an agent's private memory between sessions: one per agent, always a draft, injected into its sessions
 ]);
 export type DocType = z.infer<typeof DocType>;
 
@@ -563,8 +564,8 @@ export const VerbInputs = {
   search: z.object({ query: z.string(), type: DocType.optional(), state: DocState.optional(), buildingId: Id.optional(), limit: z.number().int().positive().max(50).default(10) }),
   read: z.object({ id: Id }),
   write: z.object({
-    id: Id.optional().describe("update an existing doc you authored"),
-    type: DocType.default("note"),
+    id: Id.optional().describe("update an existing doc you authored (ignored for type 'notebook')"),
+    type: DocType.default("note").describe("'notebook' rewrites your own private notebook (one per agent, always private; it's shown to you at the start of every session)"),
     title: z.string(),
     body: z.string(),
     state: z.enum(["draft", "building"]).default("draft").describe("'building' publishes it: type 'fyi' goes on the building's board, anything else is filed in its filing cabinet"),

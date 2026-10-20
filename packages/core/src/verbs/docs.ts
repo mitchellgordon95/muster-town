@@ -5,6 +5,7 @@ import {
 } from "../domain.ts";
 import { AppError, badRequest, forbidden } from "../errors.ts";
 import { docWhere, notifyMentions } from "../mentions.ts";
+import { notebookOf } from "../prompts.ts";
 import { describeWait, validateWait } from "../waits.ts";
 import type { World } from "../world.ts";
 import type { VerbIn } from "./types.ts";
@@ -77,11 +78,13 @@ export async function write(world: World, me: Agent, input: VerbIn<"write">) {
   if (WRITE_FORBIDDEN_TYPES.has(input.type)) throw badRequest(`Use ${input.type === "report" ? "submit_report" : input.type === "request" ? "request_human" : "the dedicated flow"} for ${input.type} docs.`);
   const holder = world.holderOf(me);
   const bid = me.buildingId ?? me.homeBuildingId;
+  if (input.type === "notebook") return writeNotebook(world, me, holder, input.body);
   if (input.state === "building" && !world.permissions.can(me, "doc.write_building", bid)) throw forbidden("doc.write_building", "Not allowed to publish to this building's board (needs doc.write_building). Save it as a draft instead.");
   if (input.id) {
     const cur = world.docs.get(input.id);
     if (!cur) throw new AppError("not_found", `No document ${input.id}.`);
     if (cur.authorId !== holder.id) throw new AppError("forbidden", "You can only update documents you wrote.");
+    if (cur.type === "notebook") throw badRequest("That's your notebook; update it with type \"notebook\".");
     const state = cur.state === "library" || cur.state === "trophy" ? cur.state : (input.type === "source" && input.state === "building" ? "library" : input.state);
     const doc = updateDoc(world, cur.id, {
       type: input.type, title: input.title, body: input.body, state,
@@ -100,6 +103,24 @@ export async function write(world: World, me: Agent, input: VerbIn<"write">) {
   });
   if (doc.state !== "draft") notifyMentions(world, me, `${doc.title}\n${doc.body}`, { where: docWhere(doc), docId: doc.id, buildingId: doc.buildingId });
   return { id: doc.id, state: doc.state };
+}
+
+/**
+ * The author's notebook: exactly one per author, always a private draft titled "<name>'s notebook", created on first
+ * write and rewritten in place after that (upsert by author; \`id\`, \`title\` and \`state\` are ignored).
+ */
+function writeNotebook(world: World, me: Agent, holder: { id: string; kind: "agent" | "user" }, body: string) {
+  const cur = notebookOf(world, holder.id);
+  const title = `${me.name}'s notebook`;
+  if (cur) {
+    const doc = updateDoc(world, cur.id, { title, body, state: "draft" });
+    world.events.append({ type: "doc.updated", agentId: holder.kind === "agent" ? me.id : null, buildingId: doc.buildingId, text: `${me.name} updated their notebook`, payload: { docId: doc.id, notebook: true } });
+    return { id: doc.id, state: doc.state, note: "Notebook updated." };
+  }
+  const doc = createDoc(world, {
+    type: "notebook", state: "draft", title, body, authorId: holder.id, authorKind: holder.kind, buildingId: me.homeBuildingId ?? me.buildingId,
+  }, `${me.name} started a notebook`);
+  return { id: doc.id, state: doc.state, note: "Notebook created." };
 }
 
 /** How many times in a row one piece of work may park itself (`submit_report` resumeWhen) before a human must decide. */

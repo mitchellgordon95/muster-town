@@ -157,6 +157,19 @@ describe("proxy chat", () => {
     expect(world.agents.require(noor.id).spentTokensToday).toBe(40);
   });
 
+  test("the proxy sees the agent's recent work and notebook", async () => {
+    const { world, runtime, sdk, by } = setup(async function* () { yield result(10, 0.0001, "ok"); });
+    const noor = by("Noor");
+    await world.verbs.write(noor.id, { type: "notebook", title: "", body: "Picked the 10-year mean.", state: "draft" });
+    await world.verbs.write(noor.id, { type: "note", title: "Dashboard number", body: "0.44 ± 0.03", state: "building" });
+    await runtime.chat(noor.id, { message: "Which number did you pick?" });
+    const ctx = sdk.sessions[0].received[0];
+    expect(ctx).toContain("## Your recent work");
+    expect(ctx).toContain('note "Dashboard number"');
+    expect(ctx).toContain("## Noor's notebook (private working notes)");
+    expect(ctx).toContain("Picked the 10-year mean.");
+  });
+
   test("librarian answers from the library index and search hits", async () => {
     const { world, runtime, sdk, seed } = setup(async function* () {
       yield result(40, 0.0005, "See the Global Carbon Budget source card.");

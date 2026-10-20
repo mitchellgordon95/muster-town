@@ -1,6 +1,7 @@
 /** Meetings: summaries while collecting (cheapModel, no tools), then a facilitated discussion over MCP. */
 import { TOWN_HALL_ID } from "@muster-town/core";
 import type { Meeting } from "@muster-town/schema";
+import { recentWorkBlock } from "@muster-town/core";
 import { facilitatePrompt, facilitateSystemPrompt, meetingReplyPrompt, meetingReplySystemPrompt, summaryPrompt, summarySystemPrompt } from "@muster-town/core";
 import { oneShot } from "./sdk.ts";
 import { chargeUsage, fundingFor, homeOf, runAgentSession, type Ctx } from "./session.ts";
@@ -41,7 +42,7 @@ async function summarize(ctx: Ctx, m: Meeting, agentId: string): Promise<void> {
   const funding = fundingFor(world, agentId);
   const session = world.ops.startSession(agentId, { purpose: "summary", model, meetingId: m.id });
   const events = world.events.recent({ agentId, limit: 20 });
-  const out = await oneShot(ctx.sdk, { model, system: summarySystemPrompt(agent), prompt: summaryPrompt(m, latestReport(ctx, agentId), events), apiKey: funding.apiKey });
+  const out = await oneShot(ctx.sdk, { model, system: summarySystemPrompt(agent), prompt: summaryPrompt(m, latestReport(ctx, agentId), events, recentWorkBlock(world, agentId, { short: true, readHint: false })), apiKey: funding.apiKey });
   const text = out.text.split("\n").map((l) => l.trim()).filter(Boolean).slice(0, 3).join("\n");
   let error = out.error;
   if (text && !error) { // a failed call's text is its error message ("Not logged in"), not a summary
@@ -94,7 +95,7 @@ async function replyInMeeting(ctx: Ctx, meetingId: string, agentId: string): Pro
   const funding = fundingFor(world, agentId);
   const session = world.ops.startSession(agentId, { purpose: "meeting-reply", model, meetingId });
   const assignment = agent.currentAssignmentId ? world.assignments.get(agent.currentAssignmentId) : undefined;
-  const prompt = meetingReplyPrompt(m, (id) => world.nameOf(id), { assignment, lastReport: latestReport(ctx, agentId), events: world.events.recent({ agentId, limit: 20 }) });
+  const prompt = meetingReplyPrompt(m, (id) => world.nameOf(id), { assignment, lastReport: latestReport(ctx, agentId), events: world.events.recent({ agentId, limit: 20 }), recentWork: recentWorkBlock(world, agentId, { short: true, readHint: false }) });
   const out = await oneShot(ctx.sdk, { model, system: meetingReplySystemPrompt(agent), prompt, apiKey: funding.apiKey });
   const text = out.text.trim().slice(0, MEETING_REPLY_MAX_CHARS);
   let error = out.error;

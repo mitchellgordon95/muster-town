@@ -18,6 +18,8 @@ export interface AgentDetail {
   recentEvents: Event[];
   currentSession: Session | null;
   latestReport: Doc | null;
+  /** the agent's private notebook: present (null when it has none) only for its owner, its building's managers and admins */
+  notebook?: Doc | null;
   assignments: Assignment[];
   /** v1.4, visitors only: unread inbox messages, unread mentions, open offers */
   mailbox?: Mailbox;
