@@ -269,11 +269,17 @@ export function startRuntime(opts: RuntimeOptions): Runtime {
   });
   const redeploy = (o: RedeployRequest) => redeployer.redeploy(o);
   world.host.redeploy = redeploy;
+  const hostIsWorking = (agentId: string) => ctx.live.has(agentId) || starting.has(agentId);
+  const hostInterrupt = (agentId: string, text: string, from?: string, now?: boolean) => interrupt(ctx, agentId, text, from, now);
+  world.host.isWorking = hostIsWorking;
+  world.host.interrupt = hostInterrupt;
 
   return {
     async stop() {
       stopped = true;
       if (world.host.redeploy === redeploy) delete world.host.redeploy;
+      if (world.host.isWorking === hostIsWorking) delete world.host.isWorking;
+      if (world.host.interrupt === hostInterrupt) delete world.host.interrupt;
       if (timer) clearInterval(timer);
       unsubscribe();
       for (const id of [...ctx.live.keys()]) abortWork(ctx, id);

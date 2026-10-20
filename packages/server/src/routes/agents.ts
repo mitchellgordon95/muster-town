@@ -1,5 +1,5 @@
 import { AppError, type World } from "@agent-town/core";
-import { ChatInput, CreateResidentInput, Event, InterruptInput, RegisterVisitorInput, WorkInput, type Session } from "@agent-town/schema";
+import { ChatInput, CreateResidentInput, Event, InterruptInput, MessageAgentInput, RegisterVisitorInput, WorkInput, type Session } from "@agent-town/schema";
 import type { FastifyInstance } from "fastify";
 import { z } from "zod";
 import { actorOf, parse, requireAuth, requireUser, type Params } from "../context.ts";
@@ -70,6 +70,26 @@ export async function agentRoutes(app: FastifyInstance) {
       return { ok: true, queued: true, interruptId: it.id };
     }
     return { ok: true, result: result ?? null };
+  });
+
+  /**
+   * Talk to an agent (any signed-in user). The text becomes a `tell` from the user's avatar. A working agent is
+   * interrupted (`now`, default true) or finds it in its inbox; an idle/stopped one gets a `Message from …` assignment.
+   * → { mode: 'interrupted' | 'queued' | 'started', messageId, assignmentId? }
+   */
+  app.post<{ Params: Params }>("/api/agents/:id/message", async (req) => {
+    const user = requireUser(req);
+    const { text, now } = parse(MessageAgentInput, req.body);
+    return world.ops.messageAgent(user.id, req.params.id, text, { now });
+  });
+
+  /** The `tell`s between this agent and the user's avatar, oldest first (last 200). `?userId=` defaults to the caller (another user's needs admin). → { messages } */
+  app.get<{ Params: Params }>("/api/agents/:id/thread", async (req) => {
+    const { userId } = parse(z.object({ userId: z.string().optional() }), req.query);
+    const me = requireUser(req);
+    const uid = userId ?? me.id;
+    if (uid !== me.id && !world.permissions.isAdmin(world.ops.ensureAvatar(me.id))) throw new AppError("forbidden", "You can only read your own threads.");
+    return { messages: world.ops.thread(req.params.id, uid) };
   });
 
   app.post<{ Params: Params }>("/api/agents/:id/chat", async (req) => {

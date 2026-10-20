@@ -10,7 +10,7 @@ export { Memberships, Tokens, Users, TownMeta, type Repos, type TokenRow, type T
 export { EventLog, type NewEvent, type EventQuery, type EventType } from "./events.ts";
 export { Permissions, holderOf, isAgent, townRoleId, buildingRoleId, type Holder, type BuildingRoleName, type TownRoleName } from "./permissions.ts";
 export { Budget, type ChargeResult, type BudgetSummary } from "./budget.ts";
-export { Ops, type Actor, type RequestAction } from "./ops.ts";
+export { Ops, type Actor, type MessageAgentOptions, type MessageAgentResult, type RequestAction, type ThreadMessage } from "./ops.ts";
 export { createBuilding, updateBuilding, createResident, registerVisitor, ensureAvatar, createUser, createServiceAgent, createTownModerator } from "./entities.ts";
 export { migrateRoles, type MigrateRolesResult } from "./migrate-roles.ts";
 export {

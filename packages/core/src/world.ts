@@ -21,6 +21,10 @@ export type SnapshotMessage = Extract<ServerMessage, { type: "snapshot" }>;
 export interface HostHooks {
   /** Pull main, reinstall, rebuild, restart (runtime/redeploy.ts). Single-flight: `{ running: true }` while one runs. */
   redeploy?(o: { image: boolean; requestedBy: string }): Promise<RedeployResult> | RedeployResult;
+  /** Whether the agent has a live (or starting) work session. Without it, a running work Session row counts. */
+  isWorking?(agentId: string): boolean;
+  /** Hand `text` to the agent's in-process session. False = not in-process (the caller queues it for a desk). */
+  interrupt?(agentId: string, text: string, from?: string, now?: boolean): boolean;
 }
 
 export class World {

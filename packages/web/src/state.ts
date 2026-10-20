@@ -157,10 +157,11 @@ class Store {
     // a message addressed to the human's avatar
     const me = this.avatarId;
     const to = e.payload.toId ?? e.payload.to;
-    if (e.type === "agent.told" && me && to === me) {
+    const viewing = s.panel?.kind === "agent" && s.panel.id === e.agentId;
+    if (e.type === "agent.told" && me && to === me && !viewing) {
       const from = e.agentId ? s.agents[e.agentId]?.name ?? "Someone" : "Someone";
       const body = typeof e.payload.text === "string" ? e.payload.text : e.text;
-      this.toast(`${from}: ${body}`, "info", e.agentId ? { kind: "agent", id: e.agentId, tab: "Activity" } : undefined);
+      this.toast(`${from}: ${body}`, "info", e.agentId ? { kind: "agent", id: e.agentId, tab: "Talk" } : undefined);
     }
   }
 

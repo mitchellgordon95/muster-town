@@ -585,6 +585,8 @@ export const ReplyInput = z.object({ text: z.string().default("") });
 /** POST /api/docs/:id/ask: a question about a report, answered by a cheap-model proxy (not the author). */
 export const AskInput = z.object({ question: z.string().min(1), history: z.array(z.object({ role: z.enum(["user", "assistant"]), text: z.string() })).default([]) });
 export const InterruptInput = z.object({ text: z.string(), now: z.boolean().optional() });
+/** POST /api/agents/:id/message: a human messages an agent (a `tell` from their avatar). `now` (default true) interrupts a working agent; false leaves it in the inbox. */
+export const MessageAgentInput = z.object({ text: z.string().trim().min(1), now: z.boolean().default(true) });
 export const WorkInput = z.object({ title: z.string().optional(), description: z.string().optional() });
 export const DonateInput = z.object({ tokens: z.number().int().positive(), buildingId: Id, apiKey: z.string().optional() });
 export const CreateMeetingInput = z.object({ kind: MeetingKind, buildingId: Id.nullable(), title: z.string().optional(), scheduledAt: Iso.optional(), agenda: z.string().optional(), startNow: z.boolean().default(false),

@@ -1,7 +1,7 @@
 /** `Api` implemented against the in-memory Sim. Same interface as HttpApi, so every panel works offline. */
 import type { Agent, AuthMe, Doc, Event, Meeting, Membership } from "@agent-town/schema";
 import { BOARD_TYPES } from "@agent-town/schema";
-import type { Api, AgentDetail, Budget, Cabinet, CabinetQuery, DocQuery, EventQuery, In, RequestAction, Snapshot, Socket, SocketHandlers, WriteDocInput } from "../api";
+import type { Api, AgentDetail, Budget, Cabinet, CabinetQuery, DocQuery, EventQuery, In, MessageResult, RequestAction, Snapshot, Socket, SocketHandlers, ThreadMessage, WriteDocInput } from "../api";
 import { ApiError } from "../api";
 import type { CreateBuildingInput, UpdateBuildingInput, CreateResidentInput, ReviewInput, ChatInput, WorkInput, DonateInput, CreateMeetingInput, DocState } from "@agent-town/schema";
 import { Sim, newId } from "./sim";
@@ -107,11 +107,49 @@ export class MockApi implements Api {
       return hits.length ? `I found ${hits.length} in the library: ${hits.map((d) => `"${d.title}"`).join(", ")}. Open the Library tab to read them.` : `Nothing in the library matches that yet. The closest thing is "GCB 2025 ESSD", our main source for the carbon budget.`;
     }
     const asg = a.currentAssignmentId ? this.sim.assignments.get(a.currentAssignmentId) : null;
-    if (/redirect|instead|change|switch/.test(i.message.toLowerCase())) return `I can't change direction from chat. Message me from the Activity tab while I work, or Redirect on my report at the in-tray.`;
+    if (/redirect|instead|change|switch/.test(i.message.toLowerCase())) return `I can't change direction from chat. Message me from the Talk tab, or Redirect on my report at the in-tray.`;
     if (a.status === "working") return `I'm working on "${asg?.title}". Right now: ${a.activity.toLowerCase()}. I expect to submit a report in a few minutes.`;
     const pending = [...this.sim.docs.values()].find((d) => d.type === "report" && d.authorId === a.id && d.decision === "pending");
     if (pending) return `My last report, "${pending.title}", is in the in-tray on the manager's desk. I'm idle until someone gives me an assignment.`;
     return `I'm ${a.status} at my desk. My standing direction: ${a.direction.split(":")[0]}. Give me an assignment with Start work and I'll get going.`;
+  }
+  private tells: { id: string; fromId: string; toId: string; body: string; at: string }[] = [];
+  private tell(fromId: string, toId: string, body: string, extra: Record<string, unknown> = {}) {
+    const m = { id: newId("ms"), fromId, toId, body, at: now() };
+    this.tells.push(m);
+    const from = this.sim.agents.get(fromId), to = this.sim.agents.get(toId);
+    this.sim.event("agent.told", fromId, `${from?.name ?? "Someone"} → ${to?.name ?? "someone"}: ${body.slice(0, 200)}`, { to: toId, toId, messageId: m.id, text: body, ...extra }, from?.homeBuildingId ?? null);
+    return m;
+  }
+  async message(id: string, raw: string, nowFlag = true): Promise<MessageResult> {
+    await wait();
+    const a = this.need(this.sim.agents.get(id), "agent");
+    const text = raw.trim();
+    if (!text) throw new ApiError("Message is empty.", "bad_request", 400);
+    const m = this.tell("ag_me", id, text, { fromUser: "us_mitchell" });
+    const wasWorking = a.status === "working";
+    // scripted reply: a short `tell` back, then (idle) the session runs as usual
+    const reply = (ms: number) => setTimeout(() => this.tell(id, "ag_me", /\?\s*$/.test(text)
+      ? `Good question. I'll check the cabinet and the GCB source, then report back in this session.`
+      : `Got it, thanks. I'll ${wasWorking ? "fold that into what I'm doing now" : "start on it right away"}.`), ms);
+    if (a.status === "working") {
+      if (!nowFlag) return { mode: "queued", messageId: m.id };
+      this.sim.event("system", id, `Interrupt for ${a.name}: ${text}`, { interrupt: true, text, now: true, sessionId: `se_${id}` });
+      setTimeout(() => this.sim.event("agent.thought", id, "A message from Mitchell. Replying first, then adjusting course."), 700);
+      reply(1500);
+      return { mode: "interrupted", messageId: m.id };
+    }
+    if (a.status === "stopped") this.sim.patchAgent(id, { status: "idle" });
+    const first = text.split("\n")[0];
+    const asg = this.sim.startWork(id, `Message from Mitchell: ${first.length > 80 ? first.slice(0, 79) + "…" : first}`, `Mitchell messaged you:\n\n${text}`);
+    setTimeout(() => this.sim.event("agent.tool", id, "inbox · 1 unread", { tool: "inbox" }), 600);
+    reply(1600);
+    return { mode: "started", messageId: m.id, assignmentId: asg.id };
+  }
+  async thread(id: string): Promise<ThreadMessage[]> {
+    await wait(60);
+    return this.tells.filter((m) => (m.fromId === "ag_me" && m.toId === id) || (m.fromId === id && m.toId === "ag_me"))
+      .map((m) => ({ ...m, from: this.sim.agents.get(m.fromId)?.name ?? "Someone", mine: m.fromId === "ag_me" }));
   }
   async stop(id: string) { await wait(); this.sim.patchAgent(id, { status: "stopped", activity: "" }); this.sim.event("agent.status", id, "Stopped by Mitchell"); }
   async resume(id: string) { await wait(); if (this.sim.agents.get(id)?.status === "stopped") { this.sim.patchAgent(id, { status: "idle" }); this.sim.event("agent.status", id, "Resumed by Mitchell"); } }

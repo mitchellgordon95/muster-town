@@ -20,6 +20,10 @@ export interface AgentDetail {
   latestReport: Doc | null;
   assignments: Assignment[];
 }
+/** POST /api/agents/:id/message result: how the message reached the agent. */
+export interface MessageResult { mode: "interrupted" | "queued" | "started"; messageId: string; assignmentId?: string }
+/** One `tell` between an agent and your avatar (GET /api/agents/:id/thread). */
+export interface ThreadMessage { id: string; fromId: string; toId: string; from: string; mine: boolean; body: string; at: string }
 export interface DocQuery { state?: DocState; type?: DocType; buildingId?: string; q?: string; limit?: number }
 export interface CabinetQuery { type?: DocType; authorId?: string; limit?: number }
 /** `GET /api/buildings/:id/cabinet`: the matching docs (newest first) and unfiltered counts per (type, author). */
@@ -61,6 +65,10 @@ export interface Api {
   /** Message the agent's session: queued for the next turn boundary, or `now` to stop the current turn first. */
   interrupt(id: string, text: string, now?: boolean): Promise<void>;
   chat(id: string, input: In<typeof ChatInput>): Promise<string>;
+  /** Talk: a `tell` from your avatar. Idle → starts a session; working → interrupts (`now`) or waits in the inbox. */
+  message(id: string, text: string, now?: boolean): Promise<MessageResult>;
+  /** The `tell`s between the agent and your avatar, oldest first. */
+  thread(id: string): Promise<ThreadMessage[]>;
   stop(id: string): Promise<void>;
   /** Un-stop: back to idle without creating an assignment. */
   resume(id: string): Promise<void>;
@@ -167,6 +175,8 @@ export class HttpApi implements Api {
   async work(id: string, i: In<typeof WorkInput>) { return unwrap<Assignment | null>(await this.post(`/api/agents/${id}/work`, i), "assignment"); }
   async interrupt(id: string, text: string, now = false) { await this.post(`/api/agents/${id}/interrupt`, { text, now }); }
   async chat(id: string, i: In<typeof ChatInput>) { return (await this.post<{ reply: string }>(`/api/agents/${id}/chat`, i)).reply; }
+  message(id: string, text: string, now = true) { return this.post<MessageResult>(`/api/agents/${id}/message`, { text, now }); }
+  async thread(id: string) { return (await this.get<{ messages: ThreadMessage[] }>(`/api/agents/${id}/thread`)).messages; }
   async stop(id: string) { await this.post(`/api/agents/${id}/stop`); }
   async resume(id: string) { await this.post(`/api/agents/${id}/resume`); }
   async docs(q: DocQuery) { return unwrap<Doc[]>(await this.get(`/api/docs${qs(q)}`), "docs"); }

@@ -69,7 +69,7 @@ export async function tell(world: World, me: Agent, input: VerbIn<"tell">) {
   if (!to) throw new AppError("not_found", `No agent with id ${input.to}.`);
   if (to.id === me.id) throw badRequest("You can't tell yourself.");
   const msg = sendMessage(world, { kind: "tell", fromId: me.id, fromKind: "agent", toId: to.id, body: input.text });
-  world.events.append({ type: "agent.told", agentId: me.id, buildingId: me.buildingId, text: `${me.name} → ${to.name}: ${input.text.slice(0, 200)}`, payload: { to: to.id, toKind: to.kind, messageId: msg.id, text: input.text } });
+  world.events.append({ type: "agent.told", agentId: me.id, buildingId: me.buildingId, text: `${me.name} → ${to.name}: ${input.text.slice(0, 200)}`, payload: { to: to.id, toId: to.id, toKind: to.kind, messageId: msg.id, text: input.text } });
   // the recipient already has the message; third parties named with @Name get a mention
   notifyMentions(world, me, input.text, { where: `a message to ${to.name}`, buildingId: me.buildingId, skip: [to.id] });
   return { sent: true, to: to.id, messageId: msg.id };

@@ -16,6 +16,7 @@ export const WORLD_RULES = `How the town works:
 - \`go\` walks your body to a place (walking is free). \`say\` is heard only within 3 tiles. \`tell\` sends a direct message; use it sparingly, only when a colleague needs to know something now.
 - Use \`write\` for source cards (type "source": what the source says, separate from your analysis, with its URL in provenance) and articles. State "building" files it in the building's filing cabinet. Only post to the board (type "fyi", state "building") when everyone in the building needs to know it; if only one colleague does, \`tell\` them instead.
 - A human may interrupt you mid-session with a message; treat it as direction from your building's manager.
+- Messages from humans arrive in your inbox as \`tell\`s; when a human messages you, reply with \`tell\` before anything else.
 - If someone mentions you (@YourName) you'll see it in \`inbox\`; a mention is a request to look, not an assignment; reply with \`tell\` or ask your manager for an assignment. Write @Name to point a colleague at your doc, report or meeting remark.
 - Finish with \`submit_report\`. It is mandatory, it must be your last action, and your session ends after it. The report goes to your manager's in-tray and you go idle; you work again when someone gives you an assignment.`;
 

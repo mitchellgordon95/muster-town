@@ -8,6 +8,19 @@ import { replyToReport, type ReplyResult } from "./reply.ts";
 import { newId, nowIso } from "./util.ts";
 import type { World } from "./world.ts";
 
+export interface MessageAgentOptions {
+  /** interrupt a working agent now (default true); false leaves the message in its inbox */
+  now?: boolean;
+  /** live-session check (default `world.host.isWorking`, else a running work Session row) */
+  isWorking?: (agentId: string) => boolean;
+  /** in-process delivery (default `world.host.interrupt`); false/absent → queued for the desk */
+  interrupt?: (agentId: string, text: string, from: string, now: boolean) => boolean | Promise<boolean>;
+}
+export interface MessageAgentResult { mode: "interrupted" | "queued" | "started"; messageId: string; assignmentId?: string }
+export interface ThreadMessage { id: string; fromId: string; toId: string; from: string; mine: boolean; body: string; at: string }
+
+const messageTail = (avatarId: string) => `\n\nReply to them first with \`tell\` (their avatar id is ${avatarId}), keep it short, then do what the message asks. If it asks you to delegate and you hold the assign permission, use \`assign\`. If it is just a conversation, reply and finish with a short report ending "Nothing needed".`;
+
 export type RequestAction = "approve" | "reject" | "claim" | "done";
 /** `null` actor = system (scheduler/runtime): no permission checks. */
 export type Actor = Agent | null;
@@ -174,6 +187,65 @@ export class Ops {
     if (agent.status !== "stopped") return agent;
     return this.world.setStatus(agentId, "idle", `${agent.name} was resumed`);
   }
+  // ---- talk: a human messages an agent ----
+  /**
+   * POST /api/agents/:id/message. The text lands in the agent's inbox as a `tell` from the user's avatar (so `look`
+   * counts it like any colleague's message). Then:
+   * - live work session + `now` → interrupt (in-process via `interrupt`/`world.host.interrupt`, else queued for the desk);
+   * - live + !now → nothing more: the agent reads it at its next `inbox`/`look`;
+   * - not working (stopped → revived) → a `Message from …` assignment, so the scheduler starts a session for it
+   *   (a still-pending one from the same user gets the new text appended instead of a second assignment);
+   * - out of budget → the same assignment, mode `queued` (it starts when budget returns).
+   */
+  async messageAgent(userId: string, agentId: string, text: string, opts: MessageAgentOptions = {}): Promise<MessageAgentResult> {
+    const body = text.trim();
+    if (!body) throw badRequest("Message is empty.");
+    const user = this.world.users.require(userId, "user");
+    const avatar = this.ensureAvatar(userId);
+    const agent = this.world.agents.require(agentId, "agent");
+    if (agent.status === "banned" || agent.status === "retired") throw new AppError("conflict", `${agent.name} is ${agent.status === "retired" ? "dismissed" : "banned"}.`);
+    if (agent.kind !== "resident") throw badRequest(`${agent.name} isn't a resident; only residents can be messaged.`);
+    const msg = sendMessage(this.world, { kind: "tell", fromId: avatar.id, fromKind: "agent", toId: agent.id, body });
+    this.world.events.append({ type: "agent.told", agentId: avatar.id, buildingId: avatar.buildingId, text: `${user.name} → ${agent.name}: ${body.slice(0, 200)}`, payload: { to: agent.id, toId: agent.id, toKind: agent.kind, messageId: msg.id, text: body, fromUser: userId } });
+
+    const isWorking = opts.isWorking ?? this.world.host.isWorking?.bind(this.world.host);
+    const working = isWorking ? isWorking(agent.id) : this.world.sessions.count("agentId = ? AND status = 'running' AND purpose = 'work'", [agent.id]) > 0;
+    if (working) {
+      if (opts.now === false) return { mode: "queued", messageId: msg.id };
+      const itext = `${user.name} messaged you (it is also in your inbox):\n\n${body}\n\nReply to them first with \`tell\` (their avatar id is ${avatar.id}).`;
+      const deliver = opts.interrupt ?? this.world.host.interrupt?.bind(this.world.host);
+      const delivered = deliver ? await deliver(agent.id, itext, user.name, true) : false;
+      if (!delivered) this.enqueueInterrupt(agent.id, itext, user.name, true);
+      return { mode: "interrupted", messageId: msg.id };
+    }
+
+    if (agent.status === "stopped") this.world.setStatus(agent.id, "idle", `${agent.name} was woken by a message from ${user.name}`);
+    const prefix = `Message from ${user.name}: `;
+    const pending = this.world.assignments.first("agentId = ? AND status = 'pending' AND createdBy = ? AND title LIKE ?", [agent.id, userId, `${prefix}%`], "ORDER BY createdAt DESC, rowid DESC");
+    let assignment: Assignment;
+    if (pending) {
+      assignment = this.world.assignments.upsert({ ...pending, description: pending.description.replace(/\n\nReply to them first[\s\S]*$/, "") + `\n\nThen they added:\n\n${body}` + messageTail(avatar.id), updatedAt: nowIso() });
+    } else {
+      const first = body.split("\n")[0].trim();
+      assignment = createAssignment(this.world, {
+        agentId: agent.id, title: prefix + (first.length > 80 ? first.slice(0, 79) + "…" : first),
+        description: `${user.name} messaged you:\n\n${body}` + messageTail(avatar.id),
+        createdBy: { kind: "user", id: userId },
+      });
+    }
+    return { mode: this.world.budget.canStart(agent.id) ? "started" : "queued", messageId: msg.id, assignmentId: assignment.id };
+  }
+
+  /** GET /api/agents/:id/thread: `tell`s between the agent and the user's avatar, both directions, oldest first (last `limit`). */
+  thread(agentId: string, userId: string, limit = 200): ThreadMessage[] {
+    const agent = this.world.agents.require(agentId, "agent");
+    const avatar = this.world.agents.first("kind = 'human' AND ownerUserId = ?", [userId]);
+    if (!avatar) return [];
+    const rows = this.world.messages.where("kind = 'tell' AND ((fromId = ? AND toId = ?) OR (fromId = ? AND toId = ?))",
+      [avatar.id, agent.id, agent.id, avatar.id], `ORDER BY createdAt DESC, rowid DESC LIMIT ${Math.max(1, Math.min(500, Math.floor(limit)))}`);
+    return rows.reverse().map((m) => ({ id: m.id, fromId: m.fromId, toId: m.toId, from: this.world.nameOf(m.fromId), mine: m.fromId === avatar.id, body: m.body, at: m.createdAt }));
+  }
+
   requireAgentControl(actor: Agent, agent: Agent): void {
     const h = this.world.holderOf(actor);
     const owner = h.kind === "user" && agent.ownerUserId === h.id;
