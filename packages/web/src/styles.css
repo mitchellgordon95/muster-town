@@ -181,6 +181,8 @@ kbd { font-family: var(--mono); font-size: 11px; background: #2a2d3a; border: 1p
 .doc-list .doc-row { margin-bottom: 0; }
 .doc-row:hover { border-color: var(--line-2); background: #252838; }
 .doc-row-title { font-weight: 600; font-size: 13.5px; }
+.doc-row-act { display: flex; gap: 6px; align-items: center; }
+.doc-row-act > .doc-row { flex: 1; min-width: 0; }
 .doc-row-meta { display: flex; gap: 6px; align-items: center; margin-top: 3px; color: var(--muted); font-size: 12px; flex-wrap: wrap; }
 .doc .back { font-size: 12.5px; margin-bottom: 8px; }
 .doc-title { font-size: 18px; margin: 2px 0 8px; line-height: 1.3; }

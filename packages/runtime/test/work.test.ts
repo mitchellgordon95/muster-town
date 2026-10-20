@@ -54,6 +54,8 @@ describe("work session", () => {
     const s = world.sessions.require(session.id);
     expect(s).toMatchObject({ status: "done", tokens: 1200, sdkSessionId: "sdk-session-1", purpose: "work" });
     expect(s.reportId).toBeTruthy();
+    // the session's usage is stamped onto the report it produced
+    expect(world.docs.require(s.reportId!)).toMatchObject({ sessionId: session.id, tokens: 1200, costUsd: 0.42, turns: 4 });
     const after = world.agents.require(noor.id);
     expect(after.status).toBe("idle");
     expect(world.ops.intray(lab.id).map((d) => d.id)).toContain(s.reportId);
@@ -91,6 +93,7 @@ describe("work session", () => {
     expect(report).toMatchObject({ type: "report", verdict: "continue", decision: "pending", authorId: tomas.id, assignmentId: asg.id });
     expect(report.body).toContain("2.4 ppm/yr");
     expect(report.body).toContain("without `submit_report`");
+    expect(report).toMatchObject({ sessionId: session.id, tokens: 300, costUsd: 0.01, turns: 4 });
     expect(world.agents.require(tomas.id).status).toBe("idle");
     expect(world.events.list({ agentId: tomas.id, types: ["system"] }).some((e) => e.payload.fallback)).toBe(true);
   });
@@ -158,7 +161,7 @@ describe("work session", () => {
     expect(sdk.sessions[0].interrupted).toBe(true);
     expect(session.status).toBe("interrupted");
     expect(world.agents.require(ravi.id).status).toBe("stopped");
-    expect(world.docs.require(session.reportId!).decision).toBe("stop");
+    expect(world.docs.require(session.reportId!)).toMatchObject({ decision: "stop", tokens: 50, costUsd: 0.001, turns: 4 });
     expect(world.assignments.require(asg.id).status).toBe("cancelled");
   });
 });

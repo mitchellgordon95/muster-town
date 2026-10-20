@@ -1,3 +1,4 @@
+import { execFileSync } from "node:child_process";
 import { writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, test } from "vitest";
@@ -78,6 +79,26 @@ describe("seed", () => {
     expect(world.buildings.require("ws").workspace?.repoUrl).toBe(expected);
     expect(world.buildings.require("nogit").workspace?.repoUrl).toBeUndefined();
     expect(world.desksConfig()).toEqual({ backend: "host", image: "agent-town-desk", ghToken: "gh-cli" });
+  });
+
+  test("an ssh origin is stored as-is and handed to desks as https", () => {
+    const { world, dir } = freshWorld();
+    const repo = join(dir, "repo");
+    execFileSync("git", ["init", "-q", repo]);
+    execFileSync("git", ["-C", repo, "remote", "add", "origin", "git@github.com:me/agent-town.git"]);
+    const cfg = join(dir, "collective.json");
+    writeFileSync(cfg, JSON.stringify({
+      name: "T", goal: "",
+      buildings: [{ id: "ws", name: "WS", workspace: { path: repo }, residents: [{ name: "Pix", title: "x", direction: "y" }] }],
+    }));
+    world.seedDefaults({ collectivePath: cfg });
+    expect(world.buildings.require("ws").workspace?.repoUrl).toBe("git@github.com:me/agent-town.git");
+    const pix = world.agents.first("name = ?", ["Pix"])!;
+    const asg = world.ops.createWork(null, pix.id, { title: "Fix it" });
+    const s = world.ops.startSession(pix.id, { purpose: "work", model: "m", assignmentId: asg.id });
+    const b = composeWorkBrief(world, s.id);
+    expect(b.workspace?.repoUrl).toBe("https://github.com/me/agent-town.git");
+    expect(b.workspace?.dir).toBe("/home/agent/work/agent-town");
   });
 
   test("desks config defaults to auto", () => {
