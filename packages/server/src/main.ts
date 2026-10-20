@@ -1,9 +1,10 @@
 /**
  * Process entry: open the world, seed if empty, start the tick, the HTTP/WS/MCP server, and the runtime.
- * Env: AGENT_TOWN_COLLECTIVE (collectives/climate), PORT (collective.json port or 4321), AGENT_TOWN_DATA (<collective>/data),
- * AGENT_TOWN_EXPORT (<collective>/export), AGENT_TOWN_DEV, AGENT_TOWN_ADMIN_NAME.
+ * Env (MUSTER_TOWN_<X>, or the old AGENT_TOWN_<X>): COLLECTIVE (collectives/climate), PORT (collective.json port or 4321),
+ * DATA (<collective>/data), EXPORT (<collective>/export), DEV, ADMIN_NAME.
  */
 import { World } from "@muster-town/core";
+import { townEnv } from "@muster-town/schema";
 import { existsSync, mkdirSync, readFileSync } from "node:fs";
 import { basename, dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -14,7 +15,7 @@ import type { RuntimeHooks } from "./context.ts";
 
 const REPO_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "../../..");
 /** A collective = one instance of the town: <dir>/collective.json + <dir>/data + <dir>/export. */
-const COLLECTIVE_DIR = resolve(REPO_ROOT, process.env.AGENT_TOWN_COLLECTIVE ?? "collectives/climate");
+const COLLECTIVE_DIR = resolve(REPO_ROOT, townEnv("COLLECTIVE") ?? "collectives/climate");
 const COLLECTIVE_JSON = join(COLLECTIVE_DIR, "collective.json");
 
 const envKeys = loadEnvFile(join(COLLECTIVE_DIR, ".env"));
@@ -22,17 +23,19 @@ if (envKeys.length) console.log(`[server] loaded ${envKeys.length} key(s) from $
 const collectiveCfg = existsSync(COLLECTIVE_JSON) ? (JSON.parse(readFileSync(COLLECTIVE_JSON, "utf8")) as { port?: number; name?: string }) : {};
 const PORT = Number(process.env.PORT ?? collectiveCfg.port ?? 4321);
 const HOST = process.env.HOST ?? "0.0.0.0";
-const DATA_DIR = resolve(REPO_ROOT, process.env.AGENT_TOWN_DATA ?? join(COLLECTIVE_DIR, "data"));
-process.env.AGENT_TOWN_EXPORT = resolve(REPO_ROOT, process.env.AGENT_TOWN_EXPORT ?? join(COLLECTIVE_DIR, "export"));
-const DEV = process.env.AGENT_TOWN_DEV !== undefined
-  ? !["0", "false", "no", ""].includes(process.env.AGENT_TOWN_DEV.toLowerCase())
+const DATA_DIR = resolve(REPO_ROOT, townEnv("DATA") ?? join(COLLECTIVE_DIR, "data"));
+// world.export() and the export route read it back through townEnv; set both names so either spelling sees it
+process.env.MUSTER_TOWN_EXPORT = process.env.AGENT_TOWN_EXPORT = resolve(REPO_ROOT, townEnv("EXPORT") ?? join(COLLECTIVE_DIR, "export"));
+const DEV_ENV = townEnv("DEV");
+const DEV = DEV_ENV !== undefined
+  ? !["0", "false", "no", ""].includes(DEV_ENV.toLowerCase())
   : process.env.NODE_ENV !== "production";
 
 async function main() {
   mkdirSync(DATA_DIR, { recursive: true });
   const world = World.open(join(DATA_DIR, "town.db"));
   const seed = world.seedDefaults({
-    adminName: process.env.AGENT_TOWN_ADMIN_NAME,
+    adminName: townEnv("ADMIN_NAME"),
     townJsonPath: COLLECTIVE_JSON,
     collectivePath: COLLECTIVE_JSON,
     dataDir: DATA_DIR,

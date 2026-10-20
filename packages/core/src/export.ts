@@ -72,7 +72,7 @@ export function exportWorld(world: World, dirIn: string): ExportResult {
     git(dir, ["add", "-A"]);
     changed = git(dir, ["status", "--porcelain"]).length > 0;
     if (changed) {
-      git(dir, ["-c", "user.name=Agent Town", "-c", "user.email=export@agent-town.local", "commit", "-q", "-m", `export ${new Date().toISOString()}`]);
+      git(dir, ["-c", "user.name=Muster Town", "-c", "user.email=export@muster-town.local", "commit", "-q", "-m", `export ${new Date().toISOString()}`]);
     }
     try { commit = git(dir, ["rev-parse", "HEAD"]); } catch { commit = null; }
   } catch (e) {

@@ -8,7 +8,7 @@ if [[ $# -lt 1 ]]; then
   exit 2
 fi
 cd "${0:A:h}/.." || exit 1
-export AGENT_TOWN_COLLECTIVE="$1"
+export MUSTER_TOWN_COLLECTIVE="$1"
 while true; do
   npx tsx packages/server/src/main.ts
   code=$?

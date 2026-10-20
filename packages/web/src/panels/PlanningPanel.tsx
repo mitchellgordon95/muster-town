@@ -1,7 +1,7 @@
 /** Planning desk (Town Hall): create buildings, add and dismiss residents, roles, export. Donations live at the donation box. */
 import { useMemo, useState } from "react";
 import type { Building } from "@muster-town/schema";
-import { api } from "../api";
+import { api, tokenStore } from "../api";
 import { store, useTown, roleOf } from "../state";
 import { Glyph, PanelShell } from "./PanelShell";
 import { RolesTab } from "./BuildingPanel";
@@ -173,7 +173,7 @@ function System() {
       </Section>
       <Section title="Session">
         <p className="direction">Connection: {conn}{api().mock ? " (mock server)" : ""}</p>
-        <div className="actions"><button className="btn" onClick={() => { localStorage.removeItem("agentTown.token"); location.reload(); }}>Sign out</button></div>
+        <div className="actions"><button className="btn" onClick={() => { tokenStore.set(null); location.reload(); }}>Sign out</button></div>
       </Section>
     </>
   );

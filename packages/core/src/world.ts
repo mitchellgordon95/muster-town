@@ -1,4 +1,4 @@
-import type { Agent, AgentStatus, DesksConfig, RedeployResult, ServerMessage, Tile } from "@muster-town/schema";
+import { townEnv, type Agent, type AgentStatus, type DesksConfig, type RedeployResult, type ServerMessage, type Tile } from "@muster-town/schema";
 import { Bank } from "./bank.ts";
 import { Budget } from "./budget.ts";
 import { intrayCounts, intrayOf } from "./domain.ts";
@@ -107,7 +107,7 @@ export class World {
     this.layout.rebuild();
   }
 
-  /** collective.json `desks` as stored at seed (defaults: backend auto, image agent-town-desk, ghToken gh-cli). */
+  /** collective.json `desks` as stored at seed (defaults: backend auto, image muster-town-desk, ghToken gh-cli). */
   desksConfig(): DesksConfig {
     return this.town.desks();
   }
@@ -203,7 +203,7 @@ export class World {
     return this.buildings.all().map((b) => ({ ...b, intray: counts.get(b.id) ?? 0, budget: this.budget.of(b.id) }));
   }
 
-  export(dir = process.env.AGENT_TOWN_EXPORT ?? "./export"): ExportResult {
+  export(dir = townEnv("EXPORT") ?? "./export"): ExportResult {
     return exportWorld(this, dir);
   }
   importV0(dir: string, opts: ImportV0Options = {}): ImportV0Result {

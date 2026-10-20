@@ -1,5 +1,5 @@
 import { AppError, boardDocs, cabinetCounts, cabinetDocs } from "@muster-town/core";
-import { AddBankInput, CreateBuildingInput, SetBankShareInput, DocType, DonateInput, LayoutInput, Membership, RedeployInput, UpdateBuildingInput, type AuthMe } from "@muster-town/schema";
+import { AddBankInput, CreateBuildingInput, SetBankShareInput, DocType, DonateInput, LayoutInput, Membership, RedeployInput, UpdateBuildingInput, townEnv, type AuthMe } from "@muster-town/schema";
 import type { FastifyInstance } from "fastify";
 import { z } from "zod";
 import { actorOf, adminToken, parse, requireAuth, requireUser, type Params } from "../context.ts";
@@ -166,7 +166,7 @@ export async function townRoutes(app: FastifyInstance) {
       throw new AppError("forbidden", "Only admins can run the export.");
     }
     requireAuth(req);
-    const r = world.export(process.env.AGENT_TOWN_EXPORT ?? "./export");
+    const r = world.export(townEnv("EXPORT") ?? "./export");
     return { commit: r.commit, changed: r.changed, files: r.files, dir: r.dir };
   });
 

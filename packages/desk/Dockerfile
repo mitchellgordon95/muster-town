@@ -31,14 +31,16 @@ RUN npm i -g @anthropic-ai/claude-code && npm cache clean --force
 
 # the desk package (+ schema) as a tiny workspace
 WORKDIR /opt/agent-town
-RUN printf '%s\n' '{ "name": "agent-town-desk-image", "private": true, "type": "module", "workspaces": ["packages/schema", "packages/desk"] }' > package.json
+RUN printf '%s\n' '{ "name": "muster-town-desk-image", "private": true, "type": "module", "workspaces": ["packages/schema", "packages/desk"] }' > package.json
 COPY packages/schema/package.json packages/schema/package.json
 COPY packages/desk/package.json packages/desk/package.json
 RUN npm install --omit=dev --no-audit --no-fund && npm cache clean --force
 COPY packages/schema/src packages/schema/src
 COPY packages/desk/src packages/desk/src
-RUN printf '%s\n' '#!/bin/sh' 'exec node --import file:///opt/agent-town/node_modules/tsx/dist/esm/index.mjs /opt/agent-town/packages/desk/src/cli.ts "$@"' > /usr/local/bin/agent-town-desk \
- && chmod 755 /usr/local/bin/agent-town-desk
+# muster-town-desk; agent-town-desk stays as an alias until rename P6 (the runtime still execs the old name, which old images have)
+RUN printf '%s\n' '#!/bin/sh' 'exec node --import file:///opt/agent-town/node_modules/tsx/dist/esm/index.mjs /opt/agent-town/packages/desk/src/cli.ts "$@"' > /usr/local/bin/muster-town-desk \
+ && chmod 755 /usr/local/bin/muster-town-desk \
+ && ln -s muster-town-desk /usr/local/bin/agent-town-desk
 
 # non-root user `agent` (uid 1000): the base image's `node` user, renamed
 RUN groupmod -n agent node \

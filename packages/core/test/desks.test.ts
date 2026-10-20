@@ -78,7 +78,7 @@ describe("seed", () => {
     const expected = originUrl(REPO_ROOT);
     expect(world.buildings.require("ws").workspace?.repoUrl).toBe(expected);
     expect(world.buildings.require("nogit").workspace?.repoUrl).toBeUndefined();
-    expect(world.desksConfig()).toEqual({ backend: "host", image: "agent-town-desk", ghToken: "gh-cli" });
+    expect(world.desksConfig()).toEqual({ backend: "host", image: "muster-town-desk", ghToken: "gh-cli" });
   });
 
   test("an ssh origin is stored as-is and handed to desks as https", () => {

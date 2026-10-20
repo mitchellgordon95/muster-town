@@ -148,10 +148,25 @@ export class ApiError extends Error {
   constructor(message: string, readonly code: string, readonly status: number) { super(message); }
 }
 
-const TOKEN_KEY = "agentTown.token";
+const TOKEN_KEY = "musterTown.token";
+/** pre-rename key: read once and moved to TOKEN_KEY, so nobody is signed out by the rename (drop in P6) */
+const OLD_TOKEN_KEY = "agentTown.token";
 export const tokenStore = {
-  get(): string | null { try { return localStorage.getItem(TOKEN_KEY); } catch { return null; } },
-  set(t: string | null) { try { t ? localStorage.setItem(TOKEN_KEY, t) : localStorage.removeItem(TOKEN_KEY); } catch { /* private mode */ } },
+  get(): string | null {
+    try {
+      const t = localStorage.getItem(TOKEN_KEY);
+      if (t !== null) return t;
+      const old = localStorage.getItem(OLD_TOKEN_KEY);
+      if (old !== null) { localStorage.setItem(TOKEN_KEY, old); localStorage.removeItem(OLD_TOKEN_KEY); }
+      return old;
+    } catch { return null; }
+  },
+  set(t: string | null) {
+    try {
+      localStorage.removeItem(OLD_TOKEN_KEY);
+      t ? localStorage.setItem(TOKEN_KEY, t) : localStorage.removeItem(TOKEN_KEY);
+    } catch { /* private mode */ }
+  },
 };
 
 /** Single-object endpoints aren't pinned down in the contract: accept `{doc}` or the bare object. */

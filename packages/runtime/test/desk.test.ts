@@ -35,12 +35,12 @@ describe("DockerBackend", () => {
 
   test("ensure creates a missing desk with volume, host gateway and limits", async () => {
     const f = fakeRunner((a) => (a[0] === "inspect" ? { code: 1, stdout: "", stderr: "No such object" } : ok("cid")));
-    const h = await new DockerBackend({ collective: "Workshop Collective", image: "agent-town-desk", runner: f.runner }).ensure(agent, building);
+    const h = await new DockerBackend({ collective: "Workshop Collective", runner: f.runner }).ensure(agent, building);
     expect(h).toEqual({ name: "desk-workshop-collective-ag_abc123", agentId: "ag_abc123" });
     expect(f.calls.map((c) => c.args.join(" "))).toEqual([
       "inspect -f {{.State.Running}} desk-workshop-collective-ag_abc123",
       "run -d --name desk-workshop-collective-ag_abc123 -v deskhome-ag_abc123:/home/agent --add-host=host.docker.internal:host-gateway --memory 2g --cpus 2"
-        + " --label agent-town.desk=1 --label agent-town.agent=ag_abc123 --label agent-town.collective=workshop-collective agent-town-desk sleep infinity",
+        + " --label muster-town.desk=1 --label muster-town.agent=ag_abc123 --label muster-town.collective=workshop-collective muster-town-desk sleep infinity",
     ]);
   });
 
@@ -118,7 +118,9 @@ describe("desk work sessions", () => {
     expect(desk.ensured).toEqual([noor.id]);
     const ex = desk.execs[0];
     expect(ex.argv).toEqual(["agent-town-desk", "run", "--session", s.id]);
-    expect(ex.env).toMatchObject({ AGENT_TOWN_URL: "http://host.docker.internal:4321", AGENT_TOWN_TOKEN: world.tokens.getOrCreate("agent", noor.id), DESK_MODEL: lab.model, DESK_MAX_TURNS: String(lab.maxTurnsPerSession) });
+    const tok = world.tokens.getOrCreate("agent", noor.id);
+    // both env spellings for one release (rename P3): the desk image may predate the rename
+    expect(ex.env).toMatchObject({ MUSTER_TOWN_URL: "http://host.docker.internal:4321", MUSTER_TOWN_TOKEN: tok, AGENT_TOWN_URL: "http://host.docker.internal:4321", AGENT_TOWN_TOKEN: tok, DESK_MODEL: lab.model, DESK_MAX_TURNS: String(lab.maxTurnsPerSession) });
     expect(ex.env.GH_TOKEN).toBeUndefined(); // no workspace
     expect(world.agents.require(noor.id).status).toBe("working");
     expect(runtime.isWorking(noor.id)).toBe(true);

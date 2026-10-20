@@ -1,10 +1,11 @@
 #!/usr/bin/env node
 /**
- * agent-town-desk — the resident host that runs inside a desk container.
- *   agent-town-desk run --session <id>   (env: AGENT_TOWN_URL, AGENT_TOWN_TOKEN, ANTHROPIC_API_KEY, GH_TOKEN?, DESK_MODEL?, DESK_MAX_TURNS?)
- *   agent-town-desk doctor
+ * muster-town-desk (alias agent-town-desk) — the resident host that runs inside a desk container.
+ *   muster-town-desk run --session <id>   (env: MUSTER_TOWN_URL, MUSTER_TOWN_TOKEN (or AGENT_TOWN_*), ANTHROPIC_API_KEY, GH_TOKEN?, DESK_MODEL?, DESK_MAX_TURNS?)
+ *   muster-town-desk doctor
  */
 import { execFileSync } from "node:child_process";
+import { townEnv } from "@muster-town/schema";
 import { Command } from "commander";
 import { runSession, EXIT_ERROR } from "./run.ts";
 import { realSdk } from "./sdk.ts";
@@ -21,17 +22,17 @@ function version(cmd: string, args: string[]): string {
 }
 
 const program = new Command();
-program.name("agent-town-desk").description("Muster Town resident host: runs one work session inside a desk");
+program.name("muster-town-desk").description("Muster Town resident host: runs one work session inside a desk");
 
 program
   .command("run")
   .description("run one work session against the town")
   .requiredOption("--session <id>", "session id created by the town runtime")
   .action(async (opts: { session: string }) => {
-    const url = process.env.AGENT_TOWN_URL;
-    const token = process.env.AGENT_TOWN_TOKEN;
+    const url = townEnv("URL");
+    const token = townEnv("TOKEN");
     if (!url || !token) {
-      log("AGENT_TOWN_URL and AGENT_TOWN_TOKEN must be set");
+      log("MUSTER_TOWN_URL and MUSTER_TOWN_TOKEN (or AGENT_TOWN_URL and AGENT_TOWN_TOKEN) must be set");
       process.exit(EXIT_ERROR);
     }
     if (!process.env.ANTHROPIC_API_KEY) log("warning: ANTHROPIC_API_KEY is not set");
@@ -53,8 +54,8 @@ program
       ["numpy", version("python3", ["-c", "import numpy; print(numpy.__version__)"])],
       ["claude", version("claude", ["--version"])],
     ];
-    const url = process.env.AGENT_TOWN_URL;
-    let town = "AGENT_TOWN_URL not set";
+    const url = townEnv("URL");
+    let town = "MUSTER_TOWN_URL not set";
     if (url) {
       try {
         const res = await fetch(`${url.replace(/\/+$/, "")}/api/health`, { signal: AbortSignal.timeout(3000) });

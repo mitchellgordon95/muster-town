@@ -1,5 +1,5 @@
 import { execFile } from "node:child_process";
-import { mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { createServer, type IncomingMessage, type Server } from "node:http";
 import type { AddressInfo } from "node:net";
 import { tmpdir } from "node:os";
@@ -81,7 +81,9 @@ afterAll(() => {
 beforeEach(() => { seen = []; digest = null; });
 
 function run(args: string[], env: Record<string, string | undefined> = {}): Promise<{ code: number; stdout: string; stderr: string }> {
-  const base: Record<string, string | undefined> = { ...process.env, AGENT_TOWN_HOME: home, AGENT_TOWN_URL: url, AGENT_TOWN_TOKEN: AGENT };
+  // the host's own town env (either spelling) must not leak into the CLI under test
+  const host = Object.fromEntries(Object.entries(process.env).filter(([k]) => !/^(MUSTER|AGENT)_TOWN_/.test(k)));
+  const base: Record<string, string | undefined> = { ...host, AGENT_TOWN_HOME: home, AGENT_TOWN_URL: url, AGENT_TOWN_TOKEN: AGENT };
   for (const [k, v] of Object.entries(env)) if (v === undefined) delete base[k]; else base[k] = v;
   return new Promise((ok) => {
     execFile(TSX, [CLI, ...args], { env: base as NodeJS.ProcessEnv, timeout: 20_000 }, (err, stdout, stderr) => {
@@ -187,8 +189,11 @@ describe("profiles", () => {
     const r = await run(["register", "--name", "Wren", "--profile", "wren"], { AGENT_TOWN_TOKEN: USER });
     expect(r.code).toBe(0);
     const p = join(home, "wren.env");
-    expect(readFileSync(p, "utf8")).toContain("AGENT_TOWN_TOKEN=tok_new_agent_secret");
-    expect(readFileSync(p, "utf8")).toContain(`AGENT_TOWN_URL=${url}`);
+    // both spellings for one release, so a pre-rename CLI can still read it
+    for (const k of ["MUSTER_TOWN", "AGENT_TOWN"]) {
+      expect(readFileSync(p, "utf8")).toContain(`${k}_TOKEN=tok_new_agent_secret`);
+      expect(readFileSync(p, "utf8")).toContain(`${k}_URL=${url}`);
+    }
     expect(statSync(p).mode & 0o777).toBe(0o600);
     expect(r.stdout).not.toContain("tok_new_agent_secret");
     expect(r.stdout).toContain("--profile wren");
@@ -208,6 +213,27 @@ describe("profiles", () => {
     rmSync(join(home, "default.env"));
   });
 
+  it("reads a new-style profile (MUSTER_TOWN_* keys)", async () => {
+    writeFileSync(join(home, "p2.env"), `MUSTER_TOWN_URL=${url}\nMUSTER_TOWN_TOKEN=${AGENT}\nAGENT_TOWN_TOKEN=stale\n`);
+    const r = await run(["look", "--profile", "p2"], { AGENT_TOWN_TOKEN: "wrong" });
+    expect(r.code).toBe(0);
+    expect(lastVerb().auth).toBe(`Bearer ${AGENT}`);
+  });
+
+  it("finds a profile in the old ~/.agent-town when ~/.muster-town doesn't have it, and writes new ones to ~/.muster-town", async () => {
+    const fakeHome = mkdtempSync(join(tmpdir(), "cli-home-"));
+    mkdirSync(join(fakeHome, ".agent-town"));
+    writeFileSync(join(fakeHome, ".agent-town", "legacy.env"), `AGENT_TOWN_URL=${url}\nAGENT_TOWN_TOKEN=${AGENT}\n`);
+    const env = { HOME: fakeHome, AGENT_TOWN_HOME: undefined };
+    const r = await run(["look", "--profile", "legacy"], env);
+    expect(r.code).toBe(0);
+    expect(lastVerb().auth).toBe(`Bearer ${AGENT}`);
+    const w = await run(["register", "--name", "Fern", "--profile", "fern"], { ...env, AGENT_TOWN_TOKEN: USER });
+    expect(w.code).toBe(0);
+    expect(existsSync(join(fakeHome, ".muster-town", "fern.env"))).toBe(true);
+    rmSync(fakeHome, { recursive: true, force: true });
+  });
+
   it("a missing profile is an error", async () => {
     const r = await run(["look", "--profile", "ghost"]);
     expect(r.code).toBe(2);
@@ -223,6 +249,12 @@ describe("errors", () => {
     expect(r.stderr).not.toContain(AGENT);
   });
 
+  it("MUSTER_TOWN_TOKEN wins over AGENT_TOWN_TOKEN", async () => {
+    const r = await run(["look"], { MUSTER_TOWN_TOKEN: AGENT, AGENT_TOWN_TOKEN: "nope" });
+    expect(r.code).toBe(0);
+    expect(lastVerb().auth).toBe(`Bearer ${AGENT}`);
+  });
+
   it("bad token → 401 message, exit 1", async () => {
     const r = await run(["look"], { AGENT_TOWN_TOKEN: "nope" });
     expect(r.code).toBe(1);
@@ -232,7 +264,7 @@ describe("errors", () => {
   it("no token at all → exit 2 with a hint", async () => {
     const r = await run(["look"], { AGENT_TOWN_TOKEN: undefined });
     expect(r.code).toBe(2);
-    expect(r.stderr).toContain("AGENT_TOWN_TOKEN");
+    expect(r.stderr).toContain("MUSTER_TOWN_TOKEN");
   });
 
   it("unreachable server → exit 1", async () => {

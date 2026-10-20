@@ -16,8 +16,11 @@ import { MeetingPanel } from "./panels/MeetingPanel";
 import { PlanningPanel } from "./panels/PlanningPanel";
 import { BoardPanel, CabinetPanel, DonationPanel, IntrayPanel, ModStationPanel, SchedulePanel } from "./panels/Places";
 
+type TownHooks = { teleportTo(agentId: string): boolean; walkTo(placeId: string): boolean; openPanel(kind: PanelKind, id?: string): void; store: typeof store };
+
 declare global {
-  interface Window { agentTown?: { teleportTo(agentId: string): boolean; walkTo(placeId: string): boolean; openPanel(kind: PanelKind, id?: string): void; store: typeof store } }
+  /** dev/test hooks; `agentTown` is the pre-rename alias of `musterTown` (drop in P6) */
+  interface Window { musterTown?: TownHooks; agentTown?: TownHooks }
 }
 
 type Phase = { k: "booting" } | { k: "login"; error?: string } | { k: "ready" };
@@ -131,7 +134,7 @@ export function App() {
   useEffect(() => { bootOnce().then(setPhase, (e) => setPhase({ k: "login", error: String(e) })); }, []);
   useEffect(() => { const r = () => setPw(panelWidth()); window.addEventListener("resize", r); return () => window.removeEventListener("resize", r); }, []);
   useEffect(() => {
-    window.agentTown = {
+    window.musterTown = window.agentTown = {
       teleportTo: (id) => mapRenderer()?.teleportTo(id) ?? false,
       walkTo: (placeId) => store.walkTo(placeId),
       openPanel: (kind, id) => store.open(kind === "library" && id ? { kind, docId: id } : { kind, id }),

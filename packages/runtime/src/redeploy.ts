@@ -5,10 +5,11 @@
  * Every step's start/end is a `system` event (output tail in the payload). Single-flight; runs in the background.
  */
 import { execFile } from "node:child_process";
-import { closeSync, openSync, readFileSync, statSync, unlinkSync, writeFileSync } from "node:fs";
+import { closeSync, existsSync, openSync, readFileSync, statSync, unlinkSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import type { World } from "@muster-town/core";
 import type { RedeployResult, RedeployRun } from "@muster-town/schema";
+import { DESK_IMAGE, DESK_LABEL_PREFIXES, OLD_DESK_IMAGE } from "./desk/backend.ts";
 
 export interface CmdResult { code: number; stdout: string; stderr: string }
 /** Runs one command (no shell). Injected in tests. */
@@ -33,7 +34,7 @@ export interface RedeployDeps {
   world: World;
   /** Agent Town repo root (the server's REPO_ROOT) */
   repoRoot: string;
-  /** desk container label value (`agent-town.collective`), already docker-safe */
+  /** desk container label value (`muster-town.collective`), already docker-safe */
   collective: string;
   /** desk image tag to build */
   image: string;
@@ -81,10 +82,13 @@ export function makeRedeployer(deps: RedeployDeps): Redeployer {
 
   // The restart's marker (written just before exit 75): the new server announces the redeploy finished.
   // Per collective, since several share one checkout.
-  const donePath = join(cwd, `.agent-town-redeploy-done-${deps.collective}.json`);
+  const donePath = join(cwd, `.muster-town-redeploy-done-${deps.collective}.json`);
+  // the first restart after the rename was written by the old code under the old name (drop in rename P6)
+  const oldDonePath = join(cwd, `.agent-town-redeploy-done-${deps.collective}.json`);
   try {
-    const prev = JSON.parse(readFileSync(donePath, "utf8")) as Partial<RedeployRun>;
-    unlinkSync(donePath);
+    const path = existsSync(donePath) ? donePath : oldDonePath;
+    const prev = JSON.parse(readFileSync(path, "utf8")) as Partial<RedeployRun>;
+    unlinkSync(path);
     run_ = { state: "done", requestedBy: String(prev.requestedBy ?? ""), commits: typeof prev.commits === "number" ? prev.commits : null, working: [], blocked: [] };
     const n = run_.commits;
     say(`Redeploy finished: the server is back up${n === null ? "" : ` with ${n} new change${n === 1 ? "" : "s"}`}`, { phase: "done" });
@@ -137,7 +141,7 @@ export function makeRedeployer(deps: RedeployDeps): Redeployer {
     if (!(await step("build web", "npm", ["run", "build", "--workspace", "@muster-town/web"], 600_000))) return;
 
     // (d) desk image
-    if (o.image && !(await step("docker build desk image", "docker", ["build", "-t", deps.image, "-f", "packages/desk/Dockerfile", "."], 3_600_000))) return;
+    if (o.image && !(await step("docker build desk image", "docker", ["build", ...imageTags(deps.image).flatMap((t) => ["-t", t]), "-f", "packages/desk/Dockerfile", "."], 3_600_000))) return;
 
     // (e) drain: no new work sessions; wait for the running ones to end (a restart would orphan them)
     deps.hold?.(true);
@@ -167,12 +171,14 @@ export function makeRedeployer(deps: RedeployDeps): Redeployer {
 
     // (f) recreate idle desks (home volumes kept; a desk is recreated from the new image on next use)
     if (o.image) {
-      const ps = await run("docker", ["ps", "-a", "--filter", `label=agent-town.collective=${deps.collective}`, "--filter", "label=agent-town.desk=1",
-        "--format", '{{.Names}}\t{{.Label "agent-town.agent"}}'], { cwd, timeoutMs: 60_000 });
-      const removed: string[] = [], kept: string[] = [];
-      for (const line of ps.stdout.split("\n").map((l) => l.trim()).filter(Boolean)) {
+      // desks made before the rename carry agent-town.* labels, newer ones muster-town.*: list both (drop the old in P6)
+      const lines: string[] = [];
+      for (const args of deskListArgs(deps.collective)) lines.push(...(await run("docker", args, { cwd, timeoutMs: 60_000 })).stdout.split("\n"));
+      const removed: string[] = [], kept: string[] = [], seen = new Set<string>();
+      for (const line of lines.map((l) => l.trim()).filter(Boolean)) {
         const [name, agentId] = line.split("\t");
-        if (!name) continue;
+        if (!name || seen.has(name)) continue;
+        seen.add(name);
         if (agentId && deps.isWorking(agentId)) { kept.push(name); continue; }
         const rm = await run("docker", ["rm", "-f", name], { cwd, timeoutMs: 60_000 });
         (rm.code === 0 ? removed : kept).push(name);
@@ -193,22 +199,25 @@ export function makeRedeployer(deps: RedeployDeps): Redeployer {
    * Several collectives share one checkout; two redeploys at once corrupt each other's git state
    * ("Cannot rebase onto multiple branches"). A lock file in the repo root serialises them across processes.
    */
-  const lockPath = join(cwd, ".agent-town-redeploy.lock");
+  const lockPath = join(cwd, ".muster-town-redeploy.lock");
+  /** a collective still on pre-rename code locks under the old name: wait for it too (drop in rename P6) */
+  const oldLockPath = join(cwd, ".agent-town-redeploy.lock");
   async function withRepoLock<T>(fn: () => Promise<T>): Promise<T> {
     const started = Date.now();
     let locked = false;
+    const isStale = (p: string) => { try { return Date.now() - statSync(p).mtimeMs > (deps.lockStaleMs ?? 20 * 60_000); } catch { return true; } };
     for (;;) {
-      try { closeSync(openSync(lockPath, "wx")); locked = true; break; } catch (e) {
-        const code = (e as NodeJS.ErrnoException).code;
-        if (code === "ENOENT") break; // no such repo dir (tests with a fake root): nothing to lock
-        if (code !== "EEXIST") throw e;
-        let stale = false;
-        try { stale = Date.now() - statSync(lockPath).mtimeMs > (deps.lockStaleMs ?? 20 * 60_000); } catch { stale = true; }
-        if (stale) { try { unlinkSync(lockPath); } catch { /* raced */ } continue; }
-        if (Date.now() - started > (deps.lockWaitMs ?? 10 * 60_000)) throw new Error(`another redeploy holds ${lockPath}`);
-        if (Date.now() - started < 1000) say("Redeploy: waiting for another collective's redeploy to finish", { step: "lock", phase: "wait" });
-        await new Promise((r) => setTimeout(r, deps.lockPollMs ?? 3000));
+      if (!existsSync(oldLockPath) || isStale(oldLockPath)) {
+        try { closeSync(openSync(lockPath, "wx")); locked = true; break; } catch (e) {
+          const code = (e as NodeJS.ErrnoException).code;
+          if (code === "ENOENT") break; // no such repo dir (tests with a fake root): nothing to lock
+          if (code !== "EEXIST") throw e;
+          if (isStale(lockPath)) { try { unlinkSync(lockPath); } catch { /* raced */ } continue; }
+        }
       }
+      if (Date.now() - started > (deps.lockWaitMs ?? 10 * 60_000)) throw new Error(`another redeploy holds ${lockPath}`);
+      if (Date.now() - started < 1000) say("Redeploy: waiting for another collective's redeploy to finish", { step: "lock", phase: "wait" });
+      await new Promise((r) => setTimeout(r, deps.lockPollMs ?? 3000));
     }
     try { return await fn(); } finally { if (locked) { try { unlinkSync(lockPath); } catch { /* already gone */ } } }
   }
@@ -229,4 +238,15 @@ export function makeRedeployer(deps: RedeployDeps): Redeployer {
     running: () => !!flight,
     done: () => flight ?? Promise.resolve(),
   };
+}
+
+/** `docker build` tags: the default desk image is also tagged with its pre-rename name, so either name in desks.image works (drop in P6). */
+export function imageTags(image: string): string[] {
+  return image === DESK_IMAGE || image === OLD_DESK_IMAGE ? [image, image === DESK_IMAGE ? OLD_DESK_IMAGE : DESK_IMAGE] : [image];
+}
+
+/** `docker ps` argv listing a collective's desks as `<name>\t<agentId>`, once per label prefix (docker ANDs label filters, so one query can't OR them). */
+export function deskListArgs(collective: string): string[][] {
+  return DESK_LABEL_PREFIXES.map((p) => ["ps", "-a", "--filter", `label=${p}.collective=${collective}`, "--filter", `label=${p}.desk=1`,
+    "--format", `{{.Names}}\t{{.Label "${p}.agent"}}`]);
 }

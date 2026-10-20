@@ -12,3 +12,5 @@ collectives/*/export/
 collectives/*/.env
 .agent-town-redeploy.lock
 .agent-town-redeploy-done-*.json
+.muster-town-redeploy.lock
+.muster-town-redeploy-done-*.json

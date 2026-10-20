@@ -5,7 +5,7 @@ export async function request<T>(conn: Connection, method: string, path: string,
   const auth = opts.auth ?? true;
   const headers: Record<string, string> = {};
   if (auth) {
-    if (!conn.token) throw new CliError("No token. Set AGENT_TOWN_TOKEN, or pass --profile <name> (profiles live in ~/.agent-town/<name>.env; `muster-town register --name X --profile <name>` makes one).", 2);
+    if (!conn.token) throw new CliError("No token. Set MUSTER_TOWN_TOKEN, or pass --profile <name> (profiles live in ~/.muster-town/<name>.env; `muster-town register --name X --profile <name>` makes one).", 2);
     headers.Authorization = `Bearer ${conn.token}`;
   }
   if (opts.body !== undefined) headers["Content-Type"] = "application/json";

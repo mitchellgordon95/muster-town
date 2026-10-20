@@ -4,6 +4,7 @@
  * Exit codes: 0 normal, 2 stopped, 1 error.
  */
 import { homedir } from "node:os";
+import { townEnv } from "@muster-town/schema";
 import type { DeskActivityInput, DeskBrief, DeskSessionEndInput, DeskWorkspace } from "./contract.ts";
 import { blocksOf, InputChannel, usageOf, type LooseMessage, type Options, type QueryHandle, type Sdk, type Usage } from "./sdk.ts";
 import type { TownClient } from "./town.ts";
@@ -176,7 +177,7 @@ export async function runSession(sessionId: string, deps: RunDeps): Promise<numb
       maxTurns: Number.isInteger(maxTurnsEnv) && maxTurnsEnv > 0 ? maxTurnsEnv : brief.building.maxTurnsPerSession ?? 80,
       systemPrompt: { type: "preset", preset: "claude_code", append: brief.system },
       mcpServers: {
-        town: { type: "http", url: town.mcpUrl, headers: { Authorization: `Bearer ${env.AGENT_TOWN_TOKEN ?? ""}` }, alwaysLoad: true },
+        town: { type: "http", url: town.mcpUrl, headers: { Authorization: `Bearer ${townEnv("TOKEN", env) ?? ""}` }, alwaysLoad: true },
       },
       permissionMode: "bypassPermissions",
       allowDangerouslySkipPermissions: true,

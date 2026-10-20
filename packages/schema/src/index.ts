@@ -764,7 +764,7 @@ export const CollectiveBuildingSpec = z.object({
 /** How resident work sessions run: in a desk container (docker), in-process (host), or docker when available (auto). */
 export const DesksConfig = z.object({
   backend: z.enum(["docker", "host", "auto"]).default("auto"),
-  image: z.string().default("agent-town-desk"),
+  image: z.string().default("muster-town-desk"),
   /** where desks get GH_TOKEN: `gh auth token` on the host, the host's GH_TOKEN env, or none */
   ghToken: z.enum(["gh-cli", "env", "none"]).default("gh-cli"),
 });
@@ -841,3 +841,4 @@ export const DeskSessionEndInput = z.object({
 export type DeskSessionEndInput = z.infer<typeof DeskSessionEndInput>;
 
 export { toJsonSchema } from "./json-schema.ts";
+export { townEnv, townEnvBoth, ENV_PREFIX, OLD_ENV_PREFIX, type TownEnvName } from "./env.ts";

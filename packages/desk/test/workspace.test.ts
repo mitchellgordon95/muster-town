@@ -40,7 +40,7 @@ describe("setupWorkspace", () => {
     expect(existsSync(join(dir, "README.md"))).toBe(true);
     expect(git(dir, "branch", "--show-current")).toBe("agent/ada/co2");
     expect(git(dir, "rev-parse", "HEAD")).toBe(git(bare, "rev-parse", "main"));
-    expect(git(dir, "config", "user.email")).toBe("ada-lovelace@agent-town.local");
+    expect(git(dir, "config", "user.email")).toBe("ada-lovelace@muster-town.local");
 
     // work on the branch, then a second session must keep it
     writeFileSync(join(dir, "notes.md"), "wip\n");

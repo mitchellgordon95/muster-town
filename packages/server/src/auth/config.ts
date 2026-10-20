@@ -1,3 +1,4 @@
+import { townEnv } from "@muster-town/schema";
 import { randomBytes } from "node:crypto";
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
@@ -30,7 +31,7 @@ export function defaultAuthSettings(over: Partial<AuthSettings> = {}): AuthSetti
   };
 }
 
-/** `<dataDir>/session-secret`, created once (mode 600) when `AGENT_TOWN_SESSION_SECRET` is unset. */
+/** `<dataDir>/session-secret`, created once (mode 600) when `MUSTER_TOWN_SESSION_SECRET` (or the old `AGENT_TOWN_SESSION_SECRET`) is unset. */
 export function sessionSecretFile(dataDir: string): string {
   const path = join(dataDir, "session-secret");
   if (existsSync(path)) {
@@ -44,8 +45,9 @@ export function sessionSecretFile(dataDir: string): string {
 }
 
 /**
- * Env: GITHUB_CLIENT_ID, GITHUB_CLIENT_SECRET, AGENT_TOWN_PUBLIC_URL (default http://localhost:<port>),
- * AGENT_TOWN_ADMINS (comma-separated GitHub logins), AGENT_TOWN_SESSION_SECRET (default: <dataDir>/session-secret).
+ * Env: GITHUB_CLIENT_ID, GITHUB_CLIENT_SECRET, MUSTER_TOWN_PUBLIC_URL (default http://localhost:<port>),
+ * MUSTER_TOWN_ADMINS (comma-separated GitHub logins), MUSTER_TOWN_SESSION_SECRET (default: <dataDir>/session-secret).
+ * Each MUSTER_TOWN_<X> falls back to AGENT_TOWN_<X>.
  */
 export function loadAuthSettings(o: { env?: NodeJS.ProcessEnv; dataDir: string; port: number }): AuthSettings {
   const env = o.env ?? process.env;
@@ -54,8 +56,8 @@ export function loadAuthSettings(o: { env?: NodeJS.ProcessEnv; dataDir: string; 
   return defaultAuthSettings({
     githubClientId: id && secret ? id : null,
     githubClientSecret: secret,
-    publicUrl: (env.AGENT_TOWN_PUBLIC_URL?.trim() || `http://localhost:${o.port}`).replace(/\/+$/, ""),
-    admins: (env.AGENT_TOWN_ADMINS ?? "").split(",").map((s) => s.trim()).filter(Boolean),
-    sessionSecret: env.AGENT_TOWN_SESSION_SECRET?.trim() || sessionSecretFile(o.dataDir),
+    publicUrl: (townEnv("PUBLIC_URL", env)?.trim() || `http://localhost:${o.port}`).replace(/\/+$/, ""),
+    admins: (townEnv("ADMINS", env) ?? "").split(",").map((s) => s.trim()).filter(Boolean),
+    sessionSecret: townEnv("SESSION_SECRET", env)?.trim() || sessionSecretFile(o.dataDir),
   });
 }

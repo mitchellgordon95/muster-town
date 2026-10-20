@@ -2,12 +2,12 @@
 /**
  * `muster-town` CLI.
  * For agents: every town verb as a command (`muster-town look`, `muster-town tell --to ag_x --text hi`, …), plus
- * `whoami`, `digest`, `verbs` and `call <verb> <json>`. Auth: AGENT_TOWN_TOKEN (agent token) + AGENT_TOWN_URL, or
- * `--profile <name>` reading ~/.agent-town/<name>.env (default profile: `default`).
+ * `whoami`, `digest`, `verbs` and `call <verb> <json>`. Auth: MUSTER_TOWN_TOKEN (agent token) + MUSTER_TOWN_URL (or the old AGENT_TOWN_*), or
+ * `--profile <name>` reading ~/.muster-town/<name>.env (default profile: `default`).
  * For humans: register a visitor agent (`--profile` saves its token), show desk status, run the export, start the server.
  */
 import type { Agent, Building, ServerMessage } from "@muster-town/schema";
-import { VERB_DESCRIPTIONS, VERB_NAMES, VerbInputs, type VerbName } from "@muster-town/schema";
+import { townEnv, VERB_DESCRIPTIONS, VERB_NAMES, VerbInputs, type VerbName } from "@muster-town/schema";
 import { Command } from "commander";
 import { spawn } from "node:child_process";
 import { existsSync } from "node:fs";
@@ -28,11 +28,11 @@ const REPO_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "../../..");
  * `muster-town login` writes; never a saved agent profile.
  */
 const userConnection = (): Connection => {
-  const saved = process.env.AGENT_TOWN_TOKEN?.trim() ? null : readProfile(LOGIN_PROFILE);
+  const saved = townEnv("TOKEN")?.trim() ? null : readProfile(LOGIN_PROFILE);
   return {
-    url: (process.env.AGENT_TOWN_URL?.trim() || saved?.AGENT_TOWN_URL || DEFAULT_URL).replace(/\/+$/, ""),
-    token: process.env.AGENT_TOWN_TOKEN?.trim() || saved?.AGENT_TOWN_TOKEN || null,
-    source: saved?.AGENT_TOWN_TOKEN ? `profile ${LOGIN_PROFILE}` : "AGENT_TOWN_TOKEN",
+    url: (townEnv("URL")?.trim() || saved?.URL || DEFAULT_URL).replace(/\/+$/, ""),
+    token: townEnv("TOKEN")?.trim() || saved?.TOKEN || null,
+    source: saved?.TOKEN ? `profile ${LOGIN_PROFILE}` : "MUSTER_TOWN_TOKEN",
   };
 };
 
@@ -49,7 +49,7 @@ for (const verb of VERB_NAMES as VerbName[]) {
   const desc = VERB_DESCRIPTIONS[verb];
   const cmd = program.command(verb).description(desc).summary(desc.match(/^.*?[.;:](\s|$)/)?.[0].trim().replace(/[;:]$/, ".") ?? desc);
   addFieldOptions(cmd, fields);
-  cmd.option("--profile <name>", "use ~/.agent-town/<name>.env").option("--json-out", "print the raw JSON result");
+  cmd.option("--profile <name>", "use ~/.muster-town/<name>.env").option("--json-out", "print the raw JSON result");
   cmd.action(async (opts: Record<string, unknown>) => {
     const input = inputFromOptions(fields, opts);
     const result = await callVerb(resolveConnection(opts.profile as string | undefined), verb, input);
@@ -62,7 +62,7 @@ program
   .description("Call any verb by name with a JSON input (for verbs this CLI doesn't know yet)")
   .argument("<verb>")
   .argument("[json]", "input object", "{}")
-  .option("--profile <name>", "use ~/.agent-town/<name>.env")
+  .option("--profile <name>", "use ~/.muster-town/<name>.env")
   .option("--json-out", "print the raw JSON result")
   .action(async (verb: string, json: string, opts: { profile?: string; jsonOut?: boolean }) => {
     const input = inputFromOptions([], { json });
@@ -73,7 +73,7 @@ program
 program
   .command("whoami")
   .description("Who and where this token is (calls `look`)")
-  .option("--profile <name>", "use ~/.agent-town/<name>.env")
+  .option("--profile <name>", "use ~/.muster-town/<name>.env")
   .option("--json-out", "print the raw JSON")
   .action(async (opts: { profile?: string; jsonOut?: boolean }) => {
     const conn = resolveConnection(opts.profile);
@@ -88,7 +88,7 @@ program
 program
   .command("digest")
   .description("What happened while you were offline: messages, mentions, assignments offered, meetings missed")
-  .option("--profile <name>", "use ~/.agent-town/<name>.env")
+  .option("--profile <name>", "use ~/.muster-town/<name>.env")
   .option("--json-out", "print the raw JSON")
   .action(async (opts: { profile?: string; jsonOut?: boolean }) => {
     const d = await request<Record<string, unknown> | null>(resolveConnection(opts.profile), "GET", "/api/agents/me/digest");
@@ -98,7 +98,7 @@ program
 program
   .command("verbs")
   .description("List the verbs the server offers")
-  .option("--profile <name>", "use ~/.agent-town/<name>.env")
+  .option("--profile <name>", "use ~/.muster-town/<name>.env")
   .option("--json-out", "print the raw JSON")
   .action(async (opts: { profile?: string; jsonOut?: boolean }) => {
     const conn = resolveConnection(opts.profile);
@@ -111,11 +111,11 @@ program
 // ---------- human commands ----------
 program
   .command("register")
-  .description("Register a visitor agent (uses your user token in AGENT_TOWN_TOKEN)")
+  .description("Register a visitor agent (uses your user token in MUSTER_TOWN_TOKEN)")
   .requiredOption("--name <name>", "display name for the agent")
   .option("--building <id>", "building to start in (e.g. carbon-cycle)")
   .option("--title <title>", "short title shown on the agent card")
-  .option("--profile <name>", "save the agent's URL and token to ~/.agent-town/<name>.env (mode 600) instead of printing the token")
+  .option("--profile <name>", "save the agent's URL and token to ~/.muster-town/<name>.env (mode 600) instead of printing the token")
   .action(async (o: { name: string; building?: string; title?: string; profile?: string }) => {
     const conn = userConnection();
     const r = await request<{ agent: Agent; token: string }>(conn, "POST", "/api/agents/visitors", { body: { name: o.name, buildingId: o.building, title: o.title } });
@@ -129,13 +129,13 @@ program
       print(`  muster-town whoami${flag}`);
       print(`  muster-town digest${flag}`);
       print(`  muster-town look${flag}`);
-      print(`\nOr connect Claude Code over MCP:\n  claude mcp add --transport http town ${mcp} --header "Authorization: Bearer $(grep '^AGENT_TOWN_TOKEN=' ${path} | cut -d= -f2-)"`);
+      print(`\nOr connect Claude Code over MCP:\n  claude mcp add --transport http town ${mcp} --header "Authorization: Bearer $(grep '^MUSTER_TOWN_TOKEN=' ${path} | cut -d= -f2-)"`);
       return;
     }
     print(`\nAgent token (keep it secret):\n  ${r.token}\n`);
     print("Add it to Claude Code:\n");
     print(`claude mcp add --transport http town ${mcp} --header "Authorization: Bearer ${r.token}"`);
-    print(`\n(Next time pass --profile <name> to save it to ~/.agent-town/<name>.env instead.)`);
+    print(`\n(Next time pass --profile <name> to save it to ~/.muster-town/<name>.env instead.)`);
   });
 
 program

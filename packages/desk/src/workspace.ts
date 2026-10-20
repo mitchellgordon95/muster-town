@@ -85,7 +85,7 @@ export function setupWorkspace(ws: DeskWorkspace, opts: WorkspaceOptions = {}): 
   if (opts.agentName && !tryRun("git", ["config", "user.email"], dir)) {
     const slug = opts.agentName.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "") || "agent";
     tryRun("git", ["config", "user.name", opts.agentName], dir);
-    tryRun("git", ["config", "user.email", `${slug}@agent-town.local`], dir);
+    tryRun("git", ["config", "user.email", `${slug}@muster-town.local`], dir);
   }
 
   if (opts.npmInstall !== false && existsSync(join(dir, "package.json")) && !existsSync(join(dir, "node_modules"))) {

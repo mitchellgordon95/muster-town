@@ -4,10 +4,10 @@
  * 2. GitHub `POST /login/device/code` → print the verification URL and user code.
  * 3. Poll GitHub `POST /login/oauth/access_token` until the user approves.
  * 4. `POST <town>/api/auth/github/device { accessToken }` → `{ token, user }` (the server checks GitHub `/user` and
- *    never stores the GitHub token) → `~/.agent-town/<profile>.env` (mode 600).
- * AGENT_TOWN_GITHUB_URL overrides https://github.com (tests).
+ *    never stores the GitHub token) → `~/.muster-town/<profile>.env` (mode 600).
+ * MUSTER_TOWN_GITHUB_URL (or AGENT_TOWN_GITHUB_URL) overrides https://github.com (tests).
  */
-import type { AuthConfig, User } from "@muster-town/schema";
+import { townEnv, type AuthConfig, type User } from "@muster-town/schema";
 import type { Command } from "commander";
 import { request } from "./client.ts";
 import { CliError, DEFAULT_URL, writeProfile } from "./profile.ts";
@@ -41,7 +41,7 @@ export async function login(o: { url: string; profile: string }, deps: LoginDeps
   const f = deps.fetch ?? globalThis.fetch;
   const sleep = deps.sleep ?? ((ms: number) => new Promise<void>((r) => setTimeout(r, ms)));
   const print = deps.print ?? ((s: string) => process.stdout.write(s + "\n"));
-  const gh = (deps.githubUrl ?? process.env.AGENT_TOWN_GITHUB_URL?.trim() ?? "https://github.com").replace(/\/+$/, "");
+  const gh = (deps.githubUrl ?? townEnv("GITHUB_URL")?.trim() ?? "https://github.com").replace(/\/+$/, "");
   const conn = { url: o.url.replace(/\/+$/, ""), token: null, source: "login" };
 
   const cfg = await request<AuthConfig>(conn, "GET", "/api/auth/config", { auth: false });
@@ -83,9 +83,9 @@ export function registerLogin(program: Command, deps: LoginDeps = {}): void {
   program
     .command("login")
     .description("Sign in with GitHub (device code) and save your user token to a profile")
-    .option("--profile <name>", "profile to save to (~/.agent-town/<name>.env)", LOGIN_PROFILE)
-    .option("--url <url>", "town server URL (default AGENT_TOWN_URL or http://localhost:4321)")
+    .option("--profile <name>", "profile to save to (~/.muster-town/<name>.env)", LOGIN_PROFILE)
+    .option("--url <url>", "town server URL (default MUSTER_TOWN_URL or http://localhost:4321)")
     .action(async (o: { profile: string; url?: string }) => {
-      await login({ url: o.url ?? (process.env.AGENT_TOWN_URL?.trim() || DEFAULT_URL), profile: o.profile }, deps);
+      await login({ url: o.url ?? (townEnv("URL")?.trim() || DEFAULT_URL), profile: o.profile }, deps);
     });
 }

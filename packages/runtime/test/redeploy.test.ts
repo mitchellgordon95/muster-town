@@ -5,6 +5,7 @@ import { join } from "node:path";
 import { describe, expect, test, vi } from "vitest";
 import { townRoleId } from "@muster-town/core";
 import { makeRedeployer, type CmdResult, type CommandRunner, type RedeployDeps } from "../src/index.ts";
+import { imageTags } from "../src/redeploy.ts";
 import { result, setup } from "./helpers.ts";
 
 const ok = (stdout = ""): CmdResult => ({ code: 0, stdout, stderr: "" });
@@ -31,7 +32,7 @@ function harness(answers: [string, CmdResult][], working: string[] = [], drain: 
   const { world } = setup(async function* () { yield result(1, 0); });
   const runner = fakeRunner(answers);
   const exit = vi.fn();
-  const r = makeRedeployer({ world, repoRoot: "/repo", collective: "climate", image: "agent-town-desk", isWorking: (id) => working.includes(id), run: runner.run, exit, exitDelayMs: 1, drainPollMs: 1, ...drain });
+  const r = makeRedeployer({ world, repoRoot: "/repo", collective: "climate", image: "muster-town-desk", isWorking: (id) => working.includes(id), run: runner.run, exit, exitDelayMs: 1, drainPollMs: 1, ...drain });
   const texts = () => world.events.recent({ limit: 200 }).filter((e) => (e.payload as { redeploy?: boolean }).redeploy).map((e) => e.text);
   return { world, runner, exit, r, texts };
 }
@@ -91,18 +92,28 @@ describe("redeploy", () => {
     expect(h.exit).not.toHaveBeenCalled();
   });
 
-  test("image=true builds the desk image and removes only idle desk containers (volumes kept)", async () => {
-    const ps: [string, CmdResult] = ["docker ps -a", ok("desk-climate-ag_1\tag_1\ndesk-climate-ag_2\tag_2\ndesk-climate-ag_3\tag_3\n")];
-    const h = harness([ps, ...BASE], ["ag_2"]);
+  test("image=true builds the desk image (both tags) and removes only idle desk containers, old and new labels (volumes kept)", async () => {
+    // desks from before the rename carry agent-town.* labels; ag_1 shows up under both to check de-duplication
+    const psNew: [string, CmdResult] = ["docker ps -a --filter label=muster-town.", ok("desk-climate-ag_3\tag_3\ndesk-climate-ag_1\tag_1\n")];
+    const psOld: [string, CmdResult] = ["docker ps -a --filter label=agent-town.", ok("desk-climate-ag_1\tag_1\ndesk-climate-ag_2\tag_2\n")];
+    const h = harness([psNew, psOld, ...BASE], ["ag_2"]);
     h.r.redeploy({ image: true, requestedBy: "Pix" });
     await h.r.done();
     const docker = h.runner.calls.filter((c) => c.startsWith("docker"));
-    expect(docker[0]).toBe("docker build -t agent-town-desk -f packages/desk/Dockerfile .");
-    expect(docker[1]).toContain("label=agent-town.collective=climate");
-    expect(docker.slice(2)).toEqual(["docker rm -f desk-climate-ag_1", "docker rm -f desk-climate-ag_3"]);
+    const build = "docker build -t muster-town-desk -t agent-town-desk -f packages/desk/Dockerfile .";
+    expect(docker[0]).toBe(build);
+    expect(docker[1]).toBe('docker ps -a --filter label=muster-town.collective=climate --filter label=muster-town.desk=1 --format {{.Names}}\t{{.Label "muster-town.agent"}}');
+    expect(docker[2]).toBe('docker ps -a --filter label=agent-town.collective=climate --filter label=agent-town.desk=1 --format {{.Names}}\t{{.Label "agent-town.agent"}}');
+    expect(docker.slice(3)).toEqual(["docker rm -f desk-climate-ag_3", "docker rm -f desk-climate-ag_1"]);
     expect(docker.some((c) => c.includes("volume"))).toBe(false);
-    expect(h.runner.calls.indexOf("docker build -t agent-town-desk -f packages/desk/Dockerfile .")).toBeGreaterThan(h.runner.calls.indexOf("npm run build --workspace @muster-town/web"));
+    expect(h.runner.calls.indexOf(build)).toBeGreaterThan(h.runner.calls.indexOf("npm run build --workspace @muster-town/web"));
     expect(h.exit).toHaveBeenCalledWith(75);
+  });
+
+  test("imageTags: the default image is tagged under both names; a custom image only under its own", () => {
+    expect(imageTags("muster-town-desk")).toEqual(["muster-town-desk", "agent-town-desk"]);
+    expect(imageTags("agent-town-desk")).toEqual(["agent-town-desk", "muster-town-desk"]);
+    expect(imageTags("my-desk")).toEqual(["my-desk"]);
   });
 
   test("drain: holds new sessions and waits for running ones to end before restarting", async () => {

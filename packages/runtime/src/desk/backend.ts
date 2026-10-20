@@ -1,6 +1,6 @@
 /**
  * Where resident work sessions run. `DockerBackend`: a persistent container per agent (the desk), with
- * the agent's home on a volume; the runtime `docker exec`s `agent-town-desk run --session <id>` in it.
+ * the agent's home on a volume; the runtime `docker exec`s `agent-town-desk run --session <id>` in it (DESK_BIN).
  * `HostBackend`: the in-process SDK session (no code tools), the fallback when there is no container runtime.
  */
 import { execFile, spawn } from "node:child_process";
@@ -87,6 +87,17 @@ export interface DockerBackendOptions {
   runner?: DockerRunner;
 }
 
+/** Default desk image. Rename compat: hosts may still have only the old tag (see imageTags in redeploy.ts). */
+export const DESK_IMAGE = "muster-town-desk";
+export const OLD_DESK_IMAGE = "agent-town-desk";
+/**
+ * The desk's resident host binary. New images have `muster-town-desk` with `agent-town-desk` as an alias; images built
+ * before the rename only have the old name, so exec that until rename P6 (then switch to muster-town-desk).
+ */
+export const DESK_BIN = "agent-town-desk";
+/** Desk container labels are `<prefix>.desk|agent|collective`. New desks get the first; the second is pre-rename (drop in P6). */
+export const DESK_LABEL_PREFIXES = ["muster-town", "agent-town"] as const;
+
 export const dockerSafe = (s: string) => s.toLowerCase().replace(/[^a-z0-9_.-]+/g, "-").replace(/^[-.]+|[-.]+$/g, "") || "town";
 
 export class DockerBackend implements DeskBackend {
@@ -99,7 +110,7 @@ export class DockerBackend implements DeskBackend {
 
   constructor(opts: DockerBackendOptions) {
     this.collective = dockerSafe(opts.collective);
-    this.image = opts.image ?? "agent-town-desk";
+    this.image = opts.image ?? DESK_IMAGE;
     this.memory = opts.memory ?? "2g";
     this.cpus = opts.cpus ?? "2";
     this.runner = opts.runner ?? realDockerRunner;
@@ -129,7 +140,7 @@ export class DockerBackend implements DeskBackend {
         "-v", `${this.volumeName(agent.id)}:/home/agent`,
         "--add-host=host.docker.internal:host-gateway",
         "--memory", this.memory, "--cpus", this.cpus,
-        "--label", "agent-town.desk=1", "--label", `agent-town.agent=${agent.id}`, "--label", `agent-town.collective=${this.collective}`,
+        "--label", "muster-town.desk=1", "--label", `muster-town.agent=${agent.id}`, "--label", `muster-town.collective=${this.collective}`,
         this.image, "sleep", "infinity",
       ]);
       if (r.code !== 0) throw new Error(`docker run ${name} failed: ${r.stderr.trim().slice(0, 300)}`);
@@ -173,7 +184,7 @@ export class DockerBackend implements DeskBackend {
 
   /** The container (and a `docker exec`'d session in it) outlives the server process; after a restart, stop the leftover session. */
   async killOrphan(agentId: string, sessionId: string): Promise<void> {
-    await this.killExec({ name: this.containerName(agentId), agentId }, ["agent-town-desk", "run", "--session", sessionId]);
+    await this.killExec({ name: this.containerName(agentId), agentId }, [DESK_BIN, "run", "--session", sessionId]);
   }
 
   /** `docker exec <name> pkill -TERM -f "<argv>"`: killing the CLI doesn't stop the process inside the container. */

@@ -1,4 +1,4 @@
-import { CollectiveConfig, Town, type Agent, type Building, type User } from "@muster-town/schema";
+import { CollectiveConfig, Town, townEnv, type Agent, type Building, type User } from "@muster-town/schema";
 import { execFileSync } from "node:child_process";
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
@@ -10,7 +10,7 @@ import type { World } from "./world.ts";
 export const HOUSE_BUDGET_TOKENS = 50_000_000;
 
 export interface SeedOptions {
-  /** admin display name (default env AGENT_TOWN_ADMIN_NAME or "Mitchell") */
+  /** admin display name (default env MUSTER_TOWN_ADMIN_NAME or "Mitchell") */
   adminName?: string;
   /** path to town.json (name/goal/tagline); defaults used if absent */
   townJsonPath?: string;
@@ -97,7 +97,7 @@ export function seedDefaults(world: World, opts: SeedOptions = {}): SeedResult {
     }
     world.town.set(town);
     world.permissions.ensureTownRoles();
-    const { user: admin, token: adminToken } = createUser(world, opts.adminName ?? process.env.AGENT_TOWN_ADMIN_NAME ?? "Mitchell");
+    const { user: admin, token: adminToken } = createUser(world, opts.adminName ?? townEnv("ADMIN_NAME") ?? "Mitchell");
     world.permissions.grant({ kind: "user", id: admin.id }, townRoleId("admin"));
 
     const townHall = createBuilding(world, {

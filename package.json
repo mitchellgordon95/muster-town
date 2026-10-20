@@ -13,7 +13,7 @@
     "start": "npm run build && npm run start:climate",
     "start:climate": "scripts/serve.sh collectives/climate",
     "start:workshop": "scripts/serve.sh collectives/workshop",
-    "desk:build": "docker build -t agent-town-desk -f packages/desk/Dockerfile ."
+    "desk:build": "docker build -t muster-town-desk -t agent-town-desk -f packages/desk/Dockerfile ."
   },
   "engines": {
     "node": ">=20"

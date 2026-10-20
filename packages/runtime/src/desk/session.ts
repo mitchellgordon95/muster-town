@@ -5,12 +5,12 @@
  */
 import { execFileSync } from "node:child_process";
 import { AppError } from "@muster-town/core";
-import type { DeskActivityInput, Session } from "@muster-town/schema";
+import { townEnvBoth, type DeskActivityInput, type Session } from "@muster-town/schema";
 import { describeTool } from "../describe.ts";
 import { InputChannel } from "../sdk.ts";
 import { clipJson, clipThought, fundingFor, homeOf, type Ctx, type LiveSession } from "../session.ts";
 import { finishWorkSession, preflightWork, walkToDesk } from "../work.ts";
-import type { DeskBackend } from "./backend.ts";
+import { DESK_BIN, type DeskBackend } from "./backend.ts";
 
 export interface DeskSessionOptions {
   /** GH_TOKEN for workspace buildings (default: per `desks.ghToken`, cached) */
@@ -60,8 +60,9 @@ export function deskEnv(ctx: Ctx, session: Session, opts: DeskSessionOptions = {
   const agent = world.agents.require(session.agentId, "agent");
   const building = world.buildings.require(homeOf(world, agent.id)!, "building");
   const env: Record<string, string> = {
-    AGENT_TOWN_URL: `http://host.docker.internal:${portOf(ctx.mcpUrl)}`,
-    AGENT_TOWN_TOKEN: world.tokens.getOrCreate("agent", agent.id),
+    // both spellings for one release: the desk may run an image from before or after the rename
+    ...townEnvBoth("URL", `http://host.docker.internal:${portOf(ctx.mcpUrl)}`),
+    ...townEnvBoth("TOKEN", world.tokens.getOrCreate("agent", agent.id)),
     DESK_MODEL: session.model,
     DESK_MAX_TURNS: String(building.maxTurnsPerSession),
   };
@@ -93,7 +94,7 @@ export async function runDeskSession(ctx: Ctx, backend: DeskBackend, starting: S
     const funding = fundingFor(world, agentId);
     session = world.ops.startSession(agentId, { purpose: "work", model: agent.model ?? building.model, assignmentId, backend: "docker" });
     ctx.deskAllocations.set(session.id, funding.allocationId);
-    const argv = ["agent-town-desk", "run", "--session", session.id];
+    const argv = [DESK_BIN, "run", "--session", session.id];
     const child = backend.exec(handle, argv, deskEnv(ctx, session, opts), (stream, line) => {
       (stream === "stderr" ? console.warn : console.log)(`[desk ${handle.name}] ${line}`);
     });

@@ -4,6 +4,7 @@
   "private": true,
   "type": "module",
   "bin": {
+    "muster-town-desk": "./src/cli.ts",
     "agent-town-desk": "./src/cli.ts"
   },
   "main": "./src/index.ts",
