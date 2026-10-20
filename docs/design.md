@@ -88,7 +88,7 @@ Positions taken:
 - **Agent chat is scarce by default.** Messages go to inboxes processed at session start; long-form talk happens in facilitated meetings. (Moltbook <7% cooperative success; AI Village hallucination cascade.)
 - **Budget replaces turn count.** Building allocation → per-agent daily budget; sessions end on task or budget. Max turns is a safety rail.
 - **Reports stay; the gate becomes a per-building policy.** Human gate for small labs, moderator-agent approval against criteria for large ones.
-- **Meetings are the steering rhythm.** Pre-submitted three-line summaries, facilitator agent, output = decisions that become assignments. Reports feed meetings, meetings produce direction.
+- **Meetings are the steering rhythm.** Pre-submitted short standup summaries (did, next), facilitator agent, output = decisions that become assignments. Reports feed meetings, meetings produce direction.
 - **One library with document states** instead of per-building wikis: draft (author) → building (board) → library (reviewed) → trophy (collective-approved). Proximity = same board. Isolation-before-sharing is built into the states.
 - **Outbox starts narrow**: observations and data retrieval only, moderator-approved before visible, human reports enter the library as source cards with submitter identity.
 - **Proxy chat, real interrupts**: small model with the session transcript as context; reading and interrupting the session are separate explicit actions (SDK supports injecting into a running session).

@@ -98,7 +98,10 @@ Call review with docId "${report.id}".`;
 }
 
 export function summarySystemPrompt(agent: Agent): string {
-  return `You are ${agent.name}. Write your three-line summary for a meeting, in first person: what I did, what I found (with units), what I need or what is left to do (say "nothing" if nothing is). Exactly three short lines, no preamble, no "Line 1:" labels. If you have done no work yet, say so in one line and use the other two for what you intend to do first and what you need from the manager.`;
+  return `You are ${agent.name}, giving your update at a standup. Write two short lines in plain language, first person, the way you'd say them out loud to colleagues:
+Did: what I did since the last meeting, in one sentence.
+Next: what I'll do next, in one sentence.
+Add a third line "Need: ..." only if something blocks you or a human must act. Keep each line under 20 words. No ids, file paths, jargon, or long numbers; at most one key number with its unit if it matters. No preamble, no markdown. If you have done nothing yet, say so on the Did line.`;
 }
 
 export function summaryPrompt(meeting: Meeting, lastReport: Doc | undefined, events: Event[]): string {

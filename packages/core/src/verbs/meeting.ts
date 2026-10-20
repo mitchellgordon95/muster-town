@@ -1,6 +1,6 @@
 import type { Agent, Meeting } from "@agent-town/schema";
 import { AppError, badRequest } from "../errors.ts";
-import { endMeeting, humanStillTalking, meetingDecide, meetingSpeak } from "../meetings.ts";
+import { endMeeting, humanStillTalking, meetingDecide, meetingSpeak, setMeetingPhase } from "../meetings.ts";
 import type { World } from "../world.ts";
 import type { VerbIn } from "./types.ts";
 
@@ -30,10 +30,12 @@ export async function meeting(world: World, me: Agent, input: VerbIn<"meeting">)
         decisions: m.decisions,
       };
     case "summary": {
-      if (!input.text?.trim()) throw badRequest("summary needs text (three lines).");
+      if (!input.text?.trim()) throw badRequest("summary needs text (up to three short lines).");
       if (m.phase === "done" || m.phase === "cancelled") throw new AppError("conflict", `Meeting is ${m.phase}.`);
-      world.meetings.upsert({ ...m, summaries: { ...m.summaries, [me.id]: input.text } });
+      const updated = world.meetings.upsert({ ...m, summaries: { ...m.summaries, [me.id]: input.text } });
       world.events.append({ type: "meeting.utterance", agentId: me.id, buildingId: m.buildingId, text: `${me.name} submitted a summary for ${m.title}`, payload: { meetingId: m.id, summary: true } });
+      // the last summary in starts the discussion; nobody waits out the collecting window
+      if (updated.phase === "collecting" && updated.attendeeIds.every((id) => updated.summaries[id])) setMeetingPhase(world, m.id, "discussing");
       return { ok: true };
     }
     case "speak":

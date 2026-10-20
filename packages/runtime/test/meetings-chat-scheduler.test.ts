@@ -19,7 +19,7 @@ describe("meetings", () => {
     expect(world.sessions.count("purpose = 'summary' AND status = 'error'")).toBe(m.attendeeIds.length);
   });
 
-  test("collecting → summaries → discussing → decisions create assignments → notes doc", async () => {
+  test("collecting → summaries → discussing (as soon as all are in) → decisions create assignments → notes doc", async () => {
     let mossId = "", noorId = "";
     const { world, runtime, sdk, clock, by, lab } = setup(async function* (s) {
       if (!s.agentId) { // one-shot summary (no tools)
@@ -43,9 +43,10 @@ describe("meetings", () => {
     noorId = by("Noor").id;
     const m = world.ops.createMeeting(null, { kind: "standup", buildingId: lab.id, startNow: true });
     expect(m.phase).toBe("collecting");
+    await expect(world.verbs.meeting(by("Noor").id, { meetingId: m.id, action: "speak", text: "early" })).rejects.toMatchObject({ code: "conflict" });
     await runtime.onMeetingStart(m.id);
     await runtime.whenIdle();
-    let cur = world.meetings.require(m.id);
+    const cur = world.meetings.require(m.id);
     expect(Object.keys(cur.summaries).sort()).toEqual([...cur.attendeeIds].sort());
     expect(cur.summaries[noorId]).toBe("Did: read the board.\nFound: growth 2.4 ± 0.1 ppm/yr.\nNeed: 13C data.");
     const summarySession = sdk.sessions.find((s) => !s.agentId)!;
@@ -54,14 +55,9 @@ describe("meetings", () => {
     expect(world.sessions.count("purpose = 'summary' AND status = 'done'")).toBe(cur.attendeeIds.length);
     expect(sdk.sessions.filter((s) => !s.agentId)).toHaveLength(cur.attendeeIds.length); // no double summaries
 
-    await runtime.tickOnce(); // not yet 3 min
-    expect(world.meetings.require(m.id).phase).toBe("collecting");
-    clock.t += COLLECTING_MS;
-    await runtime.tickOnce();
-    await runtime.whenIdle();
-
-    cur = world.meetings.require(m.id);
+    // the last summary started the discussion without waiting out COLLECTING_MS; the facilitator ran and ended it
     expect(cur.phase).toBe("done");
+    expect(cur.transcript.some((u) => u.text === "early")).toBe(false);
     expect(sdk.sessions.filter((s) => s.agentId === mossId)).toHaveLength(1);
     expect(cur.transcript.map((u) => u.text)).toContain("Agenda: growth rate, then 13C.");
     expect(cur.decisions).toHaveLength(2);
@@ -220,7 +216,8 @@ describe("scheduler", () => {
   });
 
   test("cadence creates a meeting when due and midnight resets daily spend", async () => {
-    const { world, runtime, clock, by, lab } = setup(async function* () { yield text("a\nb\nc"); yield result(1, 0); });
+    // summaries come back empty, so the meeting stays live (collecting) and the next tick must not call another
+    const { world, runtime, clock, by, lab } = setup(async function* () { yield result(1, 0, ""); });
     world.ops.updateBuilding(null, lab.id, { meetings: [{ kind: "standup", everyMinutes: 60 }] });
     await runtime.tickOnce();
     expect(world.meetings.count("buildingId = ?", [lab.id])).toBe(0);

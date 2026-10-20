@@ -191,6 +191,8 @@ describe("meetings, roles, budget, events, human moves", () => {
     const m = await json(app, "POST", "/api/meetings", { headers: auth, body: { kind: "standup", buildingId: "carbon-cycle", startNow: true } });
     expect(m.status).toBe(201);
     expect(m.body.meeting).toMatchObject({ phase: "collecting", buildingId: "carbon-cycle" });
+    expect((await json(app, "POST", `/api/meetings/${m.body.meeting.id}/say`, { headers: auth, body: { text: "Too early" } })).status).toBe(409);
+    await json(app, "POST", `/api/meetings/${m.body.meeting.id}/start`, { headers: auth });
     const said = await json(app, "POST", `/api/meetings/${m.body.meeting.id}/say`, { headers: auth, body: { text: "Hello all" } });
     expect(said.body.meeting.transcript.at(-1)).toMatchObject({ text: "Hello all", speakerKind: "user" });
     const list = await json(app, "GET", "/api/meetings?buildingId=carbon-cycle");

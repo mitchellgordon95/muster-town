@@ -36,6 +36,20 @@ describe("meetings", () => {
     expect(world.agents.require(by("Mei").id).status).toBe("idle");
   });
 
+  it("nobody speaks while collecting; the last summary in starts the discussion", async () => {
+    const { world, by, admin } = seededWorld();
+    const m = world.ops.createMeeting(admin, { kind: "standup", buildingId: "carbon-cycle", startNow: true });
+    expect(() => world.ops.meetingSay(admin, m.id, "Hello?")).toThrow(/collecting summaries/);
+    await expect(world.verbs.meeting(by("Mei"), { meetingId: m.id, action: "speak", text: "Hi" })).rejects.toMatchObject({ code: "conflict" });
+    const [last, ...rest] = m.attendeeIds;
+    for (const id of rest) await world.verbs.meeting(id, { meetingId: m.id, action: "summary", text: "Did: x\nNext: y" });
+    expect(world.meetings.require(m.id).phase).toBe("collecting");
+    await world.verbs.meeting(last, { meetingId: m.id, action: "summary", text: "Did: x\nNext: y" });
+    expect(world.meetings.require(m.id)).toMatchObject({ phase: "discussing", transcript: [] });
+    world.ops.meetingSay(admin, m.id, "Now we talk.");
+    expect(world.meetings.require(m.id).transcript).toHaveLength(1);
+  });
+
   it("listen with waitSeconds waits for the next utterance; a human ends the meeting", async () => {
     const { world, by, admin } = seededWorld();
     const m = world.ops.createMeeting(admin, { kind: "standup", buildingId: "carbon-cycle", startNow: true });
