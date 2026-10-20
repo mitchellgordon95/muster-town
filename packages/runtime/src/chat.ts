@@ -1,5 +1,5 @@
 /** Proxy chat: one cheap call, no tools. The librarian (`service`) answers from the library index + search hits. */
-import { AppError, searchDocs } from "@muster-town/core";
+import { AppError, codeWorkspace, searchDocs } from "@muster-town/core";
 import { ChatInput } from "@muster-town/schema";
 import { chatContext, chatSystemPrompt, historyBlock, librarianContext, librarianSystemPrompt } from "@muster-town/core";
 import { oneShot } from "./sdk.ts";
@@ -52,11 +52,11 @@ export async function askAbout(ctx: Ctx, docId: string, question: string, userId
   const authorName = author?.name ?? world.nameOf(doc.authorId);
   const system = `You help ${asker} review a report written by ${authorName}${building ? ` in ${building.name}` : ""}. You are not ${authorName}; answer in your own voice about what the report says and what ${authorName} has been doing, using only the context provided. Be brief (2-5 sentences). Quote the report when it helps. If the context doesn't answer the question, say so plainly; never invent findings. If ${asker} wants ${authorName} to do something, tell them to write it as a reply.`;
   const events = author ? world.events.recent({ agentId: author.id, limit: 15 }) : [];
-  const ws = building?.workspace;
+  const ws = codeWorkspace(world.town.get(), building);
   const rules = building ? [
     `Building: ${building.name}. Goal: ${building.goal || "(none)"}.`,
     ...(building.description ? [`About: ${building.description}`] : []),
-    `Review policy: ${building.reviewPolicy}.${ws ? ` Workspace repo: ${ws.repoUrl ?? "(none)"}.` : ""}`,
+    `Review policy: ${building.reviewPolicy}.${ws ? ` Code access to the collective repo: ${ws.repoUrl ?? "(none)"}.` : ""}`,
   ].join("\n") : "Building: (none)";
   const body = doc.body.length > 8000 ? `${doc.body.slice(0, 8000)}\n…(truncated)` : doc.body;
   const context = `${rules}

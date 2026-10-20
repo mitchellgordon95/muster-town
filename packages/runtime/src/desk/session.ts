@@ -4,7 +4,7 @@
  * The desk itself talks to the town over the agent-scoped API (brief, activity, control, session-end).
  */
 import { execFileSync } from "node:child_process";
-import { AppError } from "@muster-town/core";
+import { AppError, codeWorkspace } from "@muster-town/core";
 import { townEnvBoth, type AllocationAuth, type DeskActivityInput, type Session } from "@muster-town/schema";
 import { describeTool } from "../describe.ts";
 import { InputChannel } from "../sdk.ts";
@@ -86,7 +86,7 @@ export function deskEnv(ctx: Ctx, session: Session, opts: DeskSessionOptions = {
   Object.assign(env, auth.env);
   env.DESK_AUTH = auth.mode; // a label, not a secret: the desk logs it
   console.log(`[runtime] ${agent.name} session ${session.id} auth: ${auth.mode}${auth.env[FALLBACK_KEY_ENV] ? " (API-key fallback ready)" : ""}`);
-  if (building.workspace) {
+  if (codeWorkspace(world.town.get(), building)) {
     const mode = ctx.desks.ghToken;
     const gh = opts.ghToken ? opts.ghToken() : mode === "gh-cli" ? ghCliToken() : mode === "env" ? process.env.GH_TOKEN ?? null : null;
     if (gh) env.GH_TOKEN = gh;

@@ -1,6 +1,6 @@
 /** Building panel (E at the door): overview, members + roles, meetings, settings (managers: building fields, then residents: add and dismiss). Board, filing cabinet and in-tray are places. */
 import { useMemo, useState, type ReactNode } from "react";
-import type { Meeting, SnapshotBuilding } from "@muster-town/schema";
+import type { Meeting, SnapshotBuilding, Workspace } from "@muster-town/schema";
 import { api } from "../api";
 import { store, useTown, roleOf } from "../state";
 import { Glyph, PanelShell } from "./PanelShell";
@@ -36,8 +36,14 @@ export function walk(placeId: string, panel: Parameters<typeof store.open>[0]) {
   if (!store.walkTo(placeId, panel ?? undefined)) store.open(panel);
 }
 
+/** "owner/repo" for a GitHub remote, else the URL or path. */
+function repoLabel(ws: Workspace): string {
+  return ws.repoUrl ? ws.repoUrl.replace(/^(?:https:\/\/|ssh:\/\/)?(?:git@)?github\.com[:/]/, "").replace(/\.git$/, "") : ws.path;
+}
+
 function Overview({ b }: { b: SnapshotBuilding }) {
   const agents = useTown((s) => s.agents);
+  const repo = useTown((s) => s.town?.workspace);
   const members = useMemo(() => Object.values(agents).filter((a) => (a.homeBuildingId ?? a.buildingId) === b.id && a.kind === "resident"), [agents, b.id]);
   const budget = useLoad(() => api().budget(), [b.id]);
   const row = budget.data?.buildings.find((x) => x.buildingId === b.id);
@@ -75,7 +81,7 @@ function Overview({ b }: { b: SnapshotBuilding }) {
           ["Daily / agent", `${fmtTokens(b.dailyTokensPerAgent)} tokens`],
           ["Desks", `${members.length} / ${b.headcount}`],
           ["Review", b.reviewPolicy === "human" ? "the manager works the in-tray" : b.reviewPolicy === "reviewer" ? "the reviewer agent works the in-tray" : "reports are acknowledged on arrival"],
-          ...(b.workspace ? [["Workspace", <code>{b.workspace.path}</code>] as [string, ReactNode]] : []),
+          ...(b.codeAccess && repo ? [["Code", <>the collective repo <code>{repoLabel(repo)}</code></>] as [string, ReactNode]] : []),
         ]} />
       ) : null}
     </>
@@ -187,8 +193,9 @@ function AddHolder({ onAdd }: { onAdd: (kind: "agent" | "user", id: string) => P
 }
 
 function Settings({ b }: { b: SnapshotBuilding }) {
-  const [f, setF] = useState({ goal: b.goal, description: b.description, reviewPolicy: b.reviewPolicy, headcount: b.headcount, model: b.model, cheapModel: b.cheapModel, dailyTokensPerAgent: b.dailyTokensPerAgent, maxTurnsPerSession: b.maxTurnsPerSession, managerAgentId: b.managerAgentId });
+  const [f, setF] = useState({ goal: b.goal, description: b.description, reviewPolicy: b.reviewPolicy, headcount: b.headcount, model: b.model, cheapModel: b.cheapModel, dailyTokensPerAgent: b.dailyTokensPerAgent, maxTurnsPerSession: b.maxTurnsPerSession, managerAgentId: b.managerAgentId, codeAccess: b.codeAccess });
   const agents = useTown((s) => s.agents);
+  const repo = useTown((s) => s.town?.workspace);
   const residents = useMemo(() => Object.values(agents).filter((a) => a.kind === "resident" && a.homeBuildingId === b.id).sort((x, y) => x.name.localeCompare(y.name)), [agents, b.id]);
   const set = <K extends keyof typeof f>(k: K, v: (typeof f)[K]) => setF((x) => ({ ...x, [k]: v }));
   return (<>
@@ -218,7 +225,11 @@ function Settings({ b }: { b: SnapshotBuilding }) {
         <Field label="Daily tokens / agent"><input type="number" min={1} value={f.dailyTokensPerAgent} onChange={(e) => set("dailyTokensPerAgent", +e.target.value)} /></Field>
         <Field label="Max turns / session" hint="Safety rail"><input type="number" min={1} value={f.maxTurnsPerSession} onChange={(e) => set("maxTurnsPerSession", +e.target.value)} /></Field>
       </div>
-      {b.workspace ? <Field label="Workspace"><input value={b.workspace.path} disabled /></Field> : null}
+      <Field label="Code access" hint={repo
+        ? "Residents work on the collective's repo, each on their own branch. Every building shares this one repo; it's set for the whole collective."
+        : "This collective has no repo yet (collective.json `workspace`), so there is nothing to give code access to."}>
+        <span className="check"><input type="checkbox" checked={f.codeAccess} disabled={!repo && !f.codeAccess} onChange={(e) => set("codeAccess", e.target.checked)} /> {repo ? <>Work on <code>{repoLabel(repo)}</code></> : "No collective repo"}</span>
+      </Field>
       <div className="actions"><Act tone="primary" run={async () => {
         await api().updateBuilding(b.id, f);
         store.toast("Settings saved", "ok");

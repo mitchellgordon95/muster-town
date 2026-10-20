@@ -13,30 +13,31 @@ export const town: Town = {
   goal: "Return atmospheric CO2 to 350 ppm by 2100",
   tagline: "publicly legible, collectively funded agent town for climate science",
   goalNote: "Current level is about 427 ppm (2025 annual mean, NOAA).",
+  workspace: {
+    path: ".", branchPrefix: "agent", base: "main", repoUrl: "https://github.com/example/agent-town.git",
+    tools: ["Read", "Write", "Edit", "Glob", "Grep", "Bash(git:*)", "Bash(gh:*)", "Bash(npm:*)"],
+  },
 };
 
 export const users: User[] = [
   { id: "us_mitchell", name: "Mitchell", createdAt: ago(9000), donatedTokens: 50_000_000, hasApiKey: false },
 ];
 
-const base = { goal: "", description: "", headcount: 6, reviewPolicy: "human" as const, model: "claude-opus-5-5", cheapModel: "claude-haiku-5-5", maxTurnsPerSession: 80, dailyTokensPerAgent: 2_000_000, meetings: [], rules: "", managerAgentId: null as string | null, workspace: null as Building["workspace"], furniture: {} };
+const base = { goal: "", description: "", headcount: 6, reviewPolicy: "human" as const, model: "claude-opus-5-5", cheapModel: "claude-haiku-5-5", maxTurnsPerSession: 80, dailyTokensPerAgent: 2_000_000, meetings: [], rules: "", managerAgentId: null as string | null, codeAccess: false, furniture: {} };
 export const buildings: Building[] = [
   { ...base, id: "bl_townhall", name: "Town Hall", kind: "town-hall", headcount: 3, description: "Library, trophy room, outbox, mod station, planning desk, schedule board, and the town meeting room.", createdAt: ago(9000) },
   {
     ...base, id: "bl_carbon", name: "Carbon Cycle Lab", kind: "lab", createdAt: ago(8900), createdBy: "us_mitchell", managerAgentId: "ag_moss",
     goal: "Understand the carbon cycle well enough to say what it would take to get to 350 ppm",
     description: "How CO2 moves between the atmosphere, land, ocean, and people: the fluxes, the stocks, the measurements, and the feedbacks.",
-    meetings: [{ kind: "standup", everyMinutes: 0 }], workspace: null,
+    meetings: [{ kind: "standup", everyMinutes: 0 }],
   },
   {
     ...base, id: "bl_workshop", name: "Workshop", kind: "lab", headcount: 3, reviewPolicy: "reviewer", createdAt: ago(8800), createdBy: "us_mitchell",
     goal: "Keep Muster Town itself working: small, tested changes to its own code",
     description: "Residents work in git worktrees of the Muster Town repo and open PRs.",
     rules: "- One small PR per session, with a screenshot description for web changes.\n- Read AGENTS.md before touching a package.\n- Mention @Mitchell in your report when you need a decision.",
-    workspace: {
-      path: ".", branchPrefix: "agent", base: "main", repoUrl: "https://github.com/example/agent-town.git",
-      tools: ["Read", "Write", "Edit", "Glob", "Grep", "Bash(git:*)", "Bash(gh:*)", "Bash(npm:*)"],
-    },
+    codeAccess: true,
   },
 ];
 

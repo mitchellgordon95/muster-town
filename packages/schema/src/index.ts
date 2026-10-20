@@ -12,11 +12,32 @@ export const Tile = z.object({ x: z.number().int(), y: z.number().int() });
 export type Tile = z.infer<typeof Tile>;
 
 // ---------- town ----------
+/** The collective's code repo: residents of buildings with code access edit it on a per-agent branch, with scoped tools. */
+export const Workspace = z.object({
+  /** repo root; relative paths resolve from the Muster Town repo root */
+  path: z.string(),
+  /** Claude Code tool permission patterns added to allowedTools for work sessions */
+  tools: z.array(z.string()).default([
+    "Read", "Write", "Edit", "Glob", "Grep",
+    "Bash(git:*)", "Bash(gh:*)", "Bash(npm:*)", "Bash(npx:*)", "Bash(node:*)",
+    "Bash(ls:*)", "Bash(cat:*)", "Bash(mkdir:*)", "Bash(sed:*)", "Bash(grep:*)", "Bash(find:*)", "Bash(wc:*)", "Bash(head:*)", "Bash(tail:*)",
+  ]),
+  /** branches are named <branchPrefix>/<agent>/<slug> */
+  branchPrefix: z.string().default("agent"),
+  /** base branch to fork worktrees from */
+  base: z.string().default("main"),
+  /** clone URL desks use (set at seed from `git remote get-url origin` of `path`, or given directly) */
+  repoUrl: z.string().optional(),
+});
+export type Workspace = z.infer<typeof Workspace>;
+
 export const Town = z.object({
   name: z.string(),
   goal: z.string(),
   tagline: z.string().default(""),
   goalNote: z.string().optional(),
+  /** the collective's repo; every building with `codeAccess` works on it (there are no per-building repos) */
+  workspace: Workspace.optional(),
 });
 export type Town = z.infer<typeof Town>;
 
@@ -113,24 +134,6 @@ export const MeetingCadence = z.object({
 export const Lot = z.object({ x: z.number().int(), y: z.number().int(), w: z.number().int(), h: z.number().int() });
 export type Lot = z.infer<typeof Lot>;
 
-/** Code access for a building's residents: a repo they may edit in a per-agent git worktree, with scoped tools. */
-export const Workspace = z.object({
-  /** repo root; relative paths resolve from the Muster Town repo root */
-  path: z.string(),
-  /** Claude Code tool permission patterns added to allowedTools for work sessions */
-  tools: z.array(z.string()).default([
-    "Read", "Write", "Edit", "Glob", "Grep",
-    "Bash(git:*)", "Bash(gh:*)", "Bash(npm:*)", "Bash(npx:*)", "Bash(node:*)",
-    "Bash(ls:*)", "Bash(cat:*)", "Bash(mkdir:*)", "Bash(sed:*)", "Bash(grep:*)", "Bash(find:*)", "Bash(wc:*)", "Bash(head:*)", "Bash(tail:*)",
-  ]),
-  /** branches are named <branchPrefix>/<agent>/<slug> */
-  branchPrefix: z.string().default("agent"),
-  /** base branch to fork worktrees from */
-  base: z.string().default("main"),
-  /** clone URL desks use (set at seed from `git remote get-url origin` of `path`, or given directly) */
-  repoUrl: z.string().optional(),
-});
-export type Workspace = z.infer<typeof Workspace>;
 
 export const Building = z.object({
   id: Id,
@@ -153,8 +156,8 @@ export const Building = z.object({
   rules: z.string().max(8000).default(""),
   /** the resident a human set as this building's manager: it facilitates meetings and wears a manager badge; null = none set */
   managerAgentId: Id.nullable().default(null),
-  /** when set, residents get code tools in a worktree of this repo during work sessions */
-  workspace: Workspace.nullable().default(null),
+  /** residents get code tools on the collective's repo (`Town.workspace`) during work sessions */
+  codeAccess: z.boolean().default(false),
   /** tile rectangle on the town grid; assigned by the server if absent */
   lot: Lot.optional(),
   /** moved furniture: piece key (`board`, `desk:3`, `meeting`, …) -> anchor tile relative to the lot; absent = default spot */
@@ -739,7 +742,7 @@ export const BANK_FIXTURES = {
 export const WALKABLE = new Set<number>([TILE.GRASS, TILE.PATH, TILE.FLOOR, TILE.DOOR]);
 
 // ---------- REST payloads ----------
-export const CreateBuildingInput = Building.pick({ name: true, goal: true, description: true, headcount: true, reviewPolicy: true, model: true, cheapModel: true, maxTurnsPerSession: true, dailyTokensPerAgent: true, meetings: true, rules: true, workspace: true, managerAgentId: true }).partial({ goal: true, description: true, headcount: true, reviewPolicy: true, model: true, cheapModel: true, maxTurnsPerSession: true, dailyTokensPerAgent: true, meetings: true, rules: true, workspace: true, managerAgentId: true });
+export const CreateBuildingInput = Building.pick({ name: true, goal: true, description: true, headcount: true, reviewPolicy: true, model: true, cheapModel: true, maxTurnsPerSession: true, dailyTokensPerAgent: true, meetings: true, rules: true, codeAccess: true, managerAgentId: true }).partial({ goal: true, description: true, headcount: true, reviewPolicy: true, model: true, cheapModel: true, maxTurnsPerSession: true, dailyTokensPerAgent: true, meetings: true, rules: true, codeAccess: true, managerAgentId: true });
 export const UpdateBuildingInput = CreateBuildingInput.partial();
 /** PUT /api/buildings/:id/layout: lot-relative anchors for moved pieces (left out = stays put); `dryRun` only checks it. */
 export const LayoutInput = z.object({ furniture: z.record(Tile), dryRun: z.boolean().default(false) });
@@ -840,8 +843,8 @@ export const CollectiveBuildingSpec = z.object({
   maxTurnsPerSession: z.number().int().positive().optional(),
   dailyTokensPerAgent: z.number().int().positive().optional(),
   meetings: z.array(MeetingCadence).optional(),
-  /** workspace.path is relative to the collective dir */
-  workspace: Workspace.optional(),
+  /** residents get code tools on the collective's repo (collective.json `workspace`) */
+  codeAccess: z.boolean().optional(),
   residents: z.array(z.object({
     name: z.string(), title: z.string().default(""), direction: z.string().default(""), sprite: z.number().int().optional(), model: z.string().optional(),
     /** town role names granted at seed (e.g. `deployer`) */
@@ -862,6 +865,8 @@ export const DesksConfig = z.object({
 export type DesksConfig = z.infer<typeof DesksConfig>;
 
 export const CollectiveConfig = Town.extend({
+  /** the collective's repo (path relative to the collective dir); buildings opt in with `codeAccess` */
+  workspace: Workspace.optional(),
   port: z.number().int().positive().optional(),
   desks: DesksConfig.optional(),
   /** town moderators: Town Hall residents holding the town `moderator` role, seated at the mod station */

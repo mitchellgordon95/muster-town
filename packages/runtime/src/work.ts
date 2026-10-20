@@ -1,5 +1,5 @@
 /** Resident work sessions (host backend + shared end-of-session logic), interrupts, and reviewer sessions over the in-tray. */
-import { AppError, buildingRoleId, createDoc, fallbackReportBody, latestReportOf, reviewPrompt, reviewSystemPrompt, setAssignmentStatus, workPrompt, workSystemPrompt } from "@muster-town/core";
+import { AppError, buildingRoleId, codeWorkspace, createDoc, fallbackReportBody, latestReportOf, reviewPrompt, reviewSystemPrompt, setAssignmentStatus, workPrompt, workSystemPrompt } from "@muster-town/core";
 import type { Agent, AllocationAuth, Assignment, Building, Doc, Session } from "@muster-town/schema";
 import { chargeUsage, fundingFor, homeOf, runAgentSession, type Ctx } from "./session.ts";
 
@@ -38,12 +38,12 @@ export function preflightWork(ctx: Ctx, starting: Set<string>, agentId: string, 
 
 /**
  * Host backend: run one in-process work session for `agentId` on `assignmentId`. Resolves with the ended session.
- * Buildings with a workspace need a desk (docker backend); the host backend refuses them.
+ * Buildings with code access need a desk (docker backend); the host backend refuses them.
  */
 export async function runWorkSession(ctx: Ctx, starting: Set<string>, agentId: string, assignmentId: string): Promise<Session> {
   const { world } = ctx;
   const { agent, building, assignment } = preflightWork(ctx, starting, agentId, assignmentId);
-  if (building.workspace) throw new AppError("conflict", `${building.name} has a code workspace; its residents need a desk (docker backend).`);
+  if (codeWorkspace(world.town.get(), building)) throw new AppError("conflict", `${building.name} has code access; its residents need a desk (docker backend).`);
   starting.add(agentId);
   try {
     walkToDesk(ctx, agent);

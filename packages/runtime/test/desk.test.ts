@@ -195,9 +195,10 @@ describe("desk work sessions", () => {
     expect(world.agents.require(mei.id).status).toBe("idle");
   });
 
-  test("workspace buildings get GH_TOKEN; the host backend won't schedule them", async () => {
+  test("buildings with code access get GH_TOKEN; the host backend won't schedule them", async () => {
     const { world, runtime, desk, by, lab } = deskSetup();
-    world.ops.updateBuilding(null, lab.id, { workspace: { path: ".", repoUrl: "git@github.com:o/agent-town.git", base: "main", branchPrefix: "agent", tools: [] } });
+    world.town.set({ workspace: { path: ".", repoUrl: "git@github.com:o/agent-town.git", base: "main", branchPrefix: "agent", tools: [] } });
+    world.ops.updateBuilding(null, lab.id, { codeAccess: true });
     const noor = by("Noor");
     const asg = world.ops.createWork(null, noor.id, {});
     void runtime.runWorkSession(noor.id, asg.id);
@@ -207,13 +208,14 @@ describe("desk work sessions", () => {
     await runtime.whenIdle();
 
     const host = setup(async function* () { yield result(1, 0); });
-    host.world.ops.updateBuilding(null, host.lab.id, { workspace: { path: ".", base: "main", branchPrefix: "agent", tools: [] } });
+    host.world.town.set({ workspace: { path: ".", base: "main", branchPrefix: "agent", tools: [] } });
+    host.world.ops.updateBuilding(null, host.lab.id, { codeAccess: true });
     const warn = vi.spyOn(console, "warn").mockImplementation(() => undefined);
     host.world.ops.createWork(null, host.by("Noor").id, {});
     await host.runtime.tickOnce();
     await host.runtime.whenIdle();
     expect(host.sdk.sessions).toHaveLength(0);
-    expect(warn.mock.calls.some((c) => String(c[0]).includes("code workspace"))).toBe(true);
+    expect(warn.mock.calls.some((c) => String(c[0]).includes("has code access"))).toBe(true);
     warn.mockRestore();
     await expect(host.runtime.runWorkSession(host.by("Noor").id, host.world.assignments.first("agentId = ?", [host.by("Noor").id])!.id)).rejects.toThrow(/need a desk/);
   });

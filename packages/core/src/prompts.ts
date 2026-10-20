@@ -2,7 +2,7 @@
  * Persona, world rules, and task prompts for every kind of session. Keep them tight.
  * Lives in core so the server can brief desks (`composeWorkBrief`) and the runtime can brief in-process sessions.
  */
-import type { Agent, Assignment, Building, DeskBrief, DeskWorkspace, Doc, Event, Meeting, Town } from "@muster-town/schema";
+import type { Agent, Assignment, Building, DeskBrief, DeskWorkspace, Doc, Event, Meeting, Town, Workspace } from "@muster-town/schema";
 import type { World } from "./world.ts";
 
 /** What an agent does when started without a task. */
@@ -230,9 +230,14 @@ export function repoNameOf(repoUrl: string): string {
   return repoUrl.replace(/\/+$/, "").split(/[/:]/).pop()!.replace(/\.git$/, "") || "repo";
 }
 
-/** Where a desk checks out the building's repo for this agent + assignment (undefined if no workspace/repoUrl). */
-export function deskWorkspace(building: Building, agent: Agent, assignment: Assignment | null | undefined): DeskWorkspace | undefined {
-  const ws = building.workspace;
+/** The collective repo a building's residents work on: the town's workspace when the building has code access. */
+export function codeWorkspace(town: Town, building: Building | undefined): Workspace | undefined {
+  return building?.codeAccess ? town.workspace : undefined;
+}
+
+/** Where a desk checks out the collective's repo for this agent + assignment (undefined without code access or repoUrl). */
+export function deskWorkspace(town: Town, building: Building, agent: Agent, assignment: Assignment | null | undefined): DeskWorkspace | undefined {
+  const ws = codeWorkspace(town, building);
   if (!ws?.repoUrl) return undefined;
   const branch = `${ws.branchPrefix}/${branchSlug(agent.name, 20)}/${branchSlug(assignment?.title ?? "work")}`;
   return {
@@ -254,7 +259,7 @@ export function composeWorkBrief(world: World, sessionId: string): DeskBrief {
   const building = world.buildings.require(bid, "building");
   const town = world.town.get();
   const assignment = session.assignmentId ? world.assignments.get(session.assignmentId) ?? null : null;
-  const workspace = deskWorkspace(building, agent, assignment);
+  const workspace = deskWorkspace(town, building, agent, assignment);
   const system = workSystemPrompt(agent, building, town, { desk: true }) + (workspace ? workshopPrompt(workspace, repoNameOf(workspace.repoUrl)) : "");
   const prompt = assignment
     ? workPrompt(assignment, world.docs.first("authorId = ? AND type = 'report' AND (sessionId IS NULL OR sessionId != ?)", [agent.id, session.id], "ORDER BY createdAt DESC, rowid DESC"))

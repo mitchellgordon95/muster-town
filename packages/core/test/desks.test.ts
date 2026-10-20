@@ -2,7 +2,7 @@ import { execFileSync } from "node:child_process";
 import { writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, test } from "vitest";
-import { composeWorkBrief, originUrl } from "../src/index.ts";
+import { composeWorkBrief, deskWorkspace, originUrl } from "../src/index.ts";
 import { freshWorld, REPO_ROOT, seededWorld } from "./helpers.ts";
 
 describe("interrupt queue", () => {
@@ -51,10 +51,12 @@ describe("work brief", () => {
     expect(b.workspace).toBeUndefined();
   });
 
-  test("workspace buildings get repoUrl/base/branch/dir", () => {
+  test("buildings with code access get the collective repo's repoUrl/base/branch/dir", () => {
     const { world, by, seed } = seededWorld();
-    world.ops.updateBuilding(null, seed.lab!.id, { workspace: { path: REPO_ROOT, repoUrl: "git@github.com:me/agent-town.git", base: "main", branchPrefix: "agent", tools: [] } });
+    world.town.set({ workspace: { path: REPO_ROOT, repoUrl: "git@github.com:me/agent-town.git", base: "main", branchPrefix: "agent", tools: [] } });
     const noor = by("Noor");
+    expect(deskWorkspace(world.town.get(), seed.lab!, noor, null)).toBeUndefined(); // a collective repo alone grants nothing
+    world.ops.updateBuilding(null, seed.lab!.id, { codeAccess: true });
     const asg = world.ops.createWork(null, noor.id, { title: "Fix the HUD!" });
     const s = world.ops.startSession(noor.id, { purpose: "work", model: "m", assignmentId: asg.id });
     const b = composeWorkBrief(world, s.id);
@@ -64,20 +66,23 @@ describe("work brief", () => {
 });
 
 describe("seed", () => {
-  test("collective workspace path gets repoUrl from origin; desks config is stored", () => {
+  test("the collective repo gets repoUrl from origin; buildings opt in with codeAccess; desks config is stored", () => {
     const { world, dir } = freshWorld();
     const cfg = join(dir, "collective.json");
     writeFileSync(cfg, JSON.stringify({
-      name: "T", goal: "", desks: { backend: "host" },
+      name: "T", goal: "", desks: { backend: "host" }, workspace: { path: REPO_ROOT },
       buildings: [
-        { id: "ws", name: "WS", workspace: { path: REPO_ROOT }, residents: [{ name: "Pix", title: "x", direction: "y" }] },
-        { id: "nogit", name: "No git", workspace: { path: dir } },
+        { id: "ws", name: "WS", codeAccess: true, residents: [{ name: "Pix", title: "x", direction: "y" }] },
+        { id: "research", name: "Research", codeAccess: false },
+        { id: "later", name: "Later" },
       ],
     }));
     world.seedDefaults({ collectivePath: cfg });
-    const expected = originUrl(REPO_ROOT);
-    expect(world.buildings.require("ws").workspace?.repoUrl).toBe(expected);
-    expect(world.buildings.require("nogit").workspace?.repoUrl).toBeUndefined();
+    expect(world.town.get().workspace?.repoUrl).toBe(originUrl(REPO_ROOT));
+    expect(world.buildings.require("ws").codeAccess).toBe(true);
+    expect(world.buildings.require("research").codeAccess).toBe(false);
+    expect(world.buildings.require("later").codeAccess).toBe(true); // inherits the collective repo by default
+    expect(world.buildings.first("kind = 'town-hall'")!.codeAccess).toBe(false);
     expect(world.desksConfig()).toEqual({ backend: "host", image: "muster-town-desk", ghToken: "gh-cli" });
   });
 
@@ -88,11 +93,11 @@ describe("seed", () => {
     execFileSync("git", ["-C", repo, "remote", "add", "origin", "git@github.com:me/agent-town.git"]);
     const cfg = join(dir, "collective.json");
     writeFileSync(cfg, JSON.stringify({
-      name: "T", goal: "",
-      buildings: [{ id: "ws", name: "WS", workspace: { path: repo }, residents: [{ name: "Pix", title: "x", direction: "y" }] }],
+      name: "T", goal: "", workspace: { path: repo },
+      buildings: [{ id: "ws", name: "WS", codeAccess: true, residents: [{ name: "Pix", title: "x", direction: "y" }] }],
     }));
     world.seedDefaults({ collectivePath: cfg });
-    expect(world.buildings.require("ws").workspace?.repoUrl).toBe("git@github.com:me/agent-town.git");
+    expect(world.town.get().workspace?.repoUrl).toBe("git@github.com:me/agent-town.git");
     const pix = world.agents.first("name = ?", ["Pix"])!;
     const asg = world.ops.createWork(null, pix.id, { title: "Fix it" });
     const s = world.ops.startSession(pix.id, { purpose: "work", model: "m", assignmentId: asg.id });
@@ -108,10 +113,18 @@ describe("seed", () => {
 });
 
 describe("seed backfill", () => {
-  test("re-opening a seeded DB fills workspace.repoUrl from origin", () => {
-    const { world, seed } = seededWorld();
-    world.buildings.patch(seed.lab!.id, { workspace: { path: REPO_ROOT, base: "main", branchPrefix: "agent", tools: [] } });
+  test("re-opening a seeded DB fills the collective repo's repoUrl from origin", () => {
+    const { world } = seededWorld();
+    world.town.set({ workspace: { path: REPO_ROOT, base: "main", branchPrefix: "agent", tools: [] } });
     world.seedDefaults({});
-    expect(world.buildings.require(seed.lab!.id).workspace?.repoUrl).toBe(originUrl(REPO_ROOT));
+    expect(world.town.get().workspace?.repoUrl).toBe(originUrl(REPO_ROOT));
+  });
+
+  test("re-opening a seeded DB without a collective repo takes collective.json's", () => {
+    const { world, dir } = seededWorld();
+    const cfg = join(dir, "collective.json");
+    writeFileSync(cfg, JSON.stringify({ name: "T", goal: "", workspace: { path: REPO_ROOT } }));
+    world.seedDefaults({ collectivePath: cfg });
+    expect(world.town.get().workspace?.path).toBe(REPO_ROOT);
   });
 });

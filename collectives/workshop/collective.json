@@ -4,6 +4,11 @@
   "goalNote": "Placeholder name and goal set 2026-10-19; Mitchell wants a better name.",
   "tagline": "publicly legible, collectively funded agent town for building Muster Town",
   "port": 4322,
+  "workspace": {
+    "path": "../..",
+    "base": "main",
+    "branchPrefix": "agent"
+  },
   "moderators": [
     {
       "name": "Harbor",
@@ -18,11 +23,7 @@
       "description": "The building that works on Muster Town itself. Each resident works at a desk (a sandbox container) with a clone of this repo on their own branch: they run typecheck and tests and open draft PRs against main, and a human merges. Read docs/design.md for what the town is for, docs/architecture.md for how it is built, and docs/log.md for what happened recently.",
       "reviewPolicy": "human",
       "maxTurnsPerSession": 120,
-      "workspace": {
-        "path": "../..",
-        "base": "main",
-        "branchPrefix": "agent"
-      },
+      "codeAccess": true,
       "residents": [
         {
           "name": "Pix",

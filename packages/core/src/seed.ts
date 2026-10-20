@@ -1,4 +1,4 @@
-import { CollectiveConfig, Town, townEnv, type Agent, type Building, type User } from "@muster-town/schema";
+import { CollectiveConfig, Town, townEnv, type Agent, type Building, type User, type Workspace } from "@muster-town/schema";
 import { execFileSync } from "node:child_process";
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
@@ -64,22 +64,30 @@ function withRepoUrl<W extends { path: string; repoUrl?: string }>(ws: W): W {
   return repoUrl ? { ...ws, repoUrl } : ws;
 }
 
+/** collective.json's `workspace`, its path resolved from the collective dir. */
+function collectiveWorkspace(collectivePath: string | undefined): Workspace | undefined {
+  if (!collectivePath || !existsSync(collectivePath)) return undefined;
+  const cfg = CollectiveConfig.parse(JSON.parse(readFileSync(collectivePath, "utf8")));
+  return cfg.workspace ? { ...cfg.workspace, path: resolve(dirname(resolve(collectivePath)), cfg.workspace.path) } : undefined;
+}
+
 /**
  * Seed an empty town: town.json, admin user + token, built-in roles, Town Hall with Ada (service
  * librarian at the library), optional v0 lab import + Moss (reviewer) + house allocation; admin manages the lab;
  * collective.json buildings and town moderators (seated at the mod station).
- * Re-running on a seeded DB returns the existing admin/token and creates no agents (it backfills workspace repoUrl
+ * Re-running on a seeded DB returns the existing admin/token and creates no agents (it sets the collective repo
+ * from collective.json if the town has none, backfills its repoUrl
  * and makes sure the built-in town roles, including v1.2's `moderator`, exist).
  */
 export function seedDefaults(world: World, opts: SeedOptions = {}): SeedResult {
   const existing = world.users.first("1=1", [], "ORDER BY createdAt, rowid");
   if (existing) {
-    // backfill repoUrl for workspaces seeded before desks existed
-    for (const b of world.buildings.all()) {
-      if (b.workspace && !b.workspace.repoUrl && b.workspace.path) {
-        const ws = withRepoUrl(b.workspace);
-        if (ws.repoUrl) world.buildings.patch(b.id, { workspace: ws });
-      }
+    // the collective repo: from collective.json when the town has none yet; backfill repoUrl seeded before desks existed
+    const town = world.town.get();
+    const ws = town.workspace ?? collectiveWorkspace(opts.collectivePath);
+    if (ws) {
+      const filled = withRepoUrl(ws);
+      if (filled !== town.workspace) world.town.set({ workspace: filled });
     }
     // v1.2: the town moderator role (no moderator agents are created in existing DBs)
     world.permissions.ensureTownRoles();
@@ -119,6 +127,8 @@ export function seedDefaults(world: World, opts: SeedOptions = {}): SeedResult {
       const cfg = CollectiveConfig.parse(JSON.parse(readFileSync(opts.collectivePath, "utf8")));
       const dir = dirname(resolve(opts.collectivePath));
       if (cfg.desks) world.town.setDesks(cfg.desks);
+      const ws = collectiveWorkspace(opts.collectivePath);
+      if (ws) world.town.set({ workspace: withRepoUrl(ws) });
       for (const spec of cfg.buildings) {
         let b: Building;
         if (spec.import) {
@@ -129,7 +139,7 @@ export function seedDefaults(world: World, opts: SeedOptions = {}): SeedResult {
             name: spec.name ?? id, goal: spec.goal ?? "", description: spec.description ?? "", headcount: spec.headcount ?? Math.max(spec.residents.length + 1, 3),
             reviewPolicy: spec.reviewPolicy ?? "human", model: spec.model, cheapModel: spec.cheapModel, maxTurnsPerSession: spec.maxTurnsPerSession,
             dailyTokensPerAgent: spec.dailyTokensPerAgent, meetings: spec.meetings,
-            workspace: spec.workspace ? withRepoUrl({ ...spec.workspace, path: resolve(dir, spec.workspace.path) }) : undefined,
+            codeAccess: spec.codeAccess,
           }, admin.id, { id });
           spec.residents.forEach((r, i) => {
             const a = createResident(world, { buildingId: b.id, name: r.name, title: r.title, direction: r.direction, sprite: r.sprite ?? (i + 1) % 7, model: r.model });

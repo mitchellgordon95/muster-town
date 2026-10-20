@@ -3,7 +3,7 @@
  * reviewer sessions over the in-tray, meeting summaries + facilitation, proxy chat, interrupts, scheduler,
  * startup reconcile, dismissal (onAgentRetired), host redeploy (v1.3).
  */
-import { checkWaits, nextPending, PRESENCE_TICK_MS, slugify, type World } from "@muster-town/core";
+import { checkWaits, codeWorkspace, nextPending, PRESENCE_TICK_MS, slugify, type World } from "@muster-town/core";
 import { DesksConfig, type ChatInput, type DeskActivityInput, type Event, type RedeployResult, type Session } from "@muster-town/schema";
 import { askAbout, chat } from "./chat.ts";
 import { DockerBackend, dockerSafe, HostBackend, type WorkBackend } from "./desk/backend.ts";
@@ -240,8 +240,8 @@ export function startRuntime(opts: RuntimeOptions): Runtime {
       if (!next || !world.budget.canStart(a.id)) continue;
       const bid = a.homeBuildingId ?? a.buildingId;
       const b = bid ? world.buildings.get(bid) : undefined;
-      if (backend?.kind === "host" && b?.workspace) {
-        if (!warnedHost.has(b.id)) console.warn(`[runtime] WARNING: ${b.name} has a code workspace; its work sessions need docker desks. Not scheduling them on the host backend.`);
+      if (backend?.kind === "host" && b && codeWorkspace(world.town.get(), b)) {
+        if (!warnedHost.has(b.id)) console.warn(`[runtime] WARNING: ${b.name} has code access; its work sessions need docker desks. Not scheduling them on the host backend.`);
         warnedHost.add(b.id);
         continue;
       }

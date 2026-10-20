@@ -20,7 +20,7 @@ export function createUser(world: World, name: string, opts: { id?: string } = {
 
 /**
  * Create a building: built-in building roles (manager/reviewer/member), creator gets `manager`,
- * lot assigned, `building.created` event.
+ * lot assigned, `building.created` event. It gets code access to the collective repo when the town has one, unless told otherwise.
  */
 export function createBuilding(
   world: World,
@@ -36,7 +36,7 @@ export function createBuilding(
   if (creatorUserId) world.users.require(creatorUserId, "user");
   return world.transaction(() => {
     const building = world.buildings.upsert({
-      ...inp, id, kind: opts.kind ?? "lab", createdAt: nowIso(), createdBy: creatorUserId ?? undefined, ...(opts.lot ? { lot: opts.lot } : {}),
+      ...inp, codeAccess: inp.codeAccess ?? (opts.kind !== "town-hall" && !!world.town.get().workspace), id, kind: opts.kind ?? "lab", createdAt: nowIso(), createdBy: creatorUserId ?? undefined, ...(opts.lot ? { lot: opts.lot } : {}),
     } as Building);
     world.permissions.ensureTownRoles();
     world.permissions.ensureBuildingRoles(id);

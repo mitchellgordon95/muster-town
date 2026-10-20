@@ -44,7 +44,7 @@ describe("deployer role + redeploy verb", () => {
 });
 
 describe("v1.3 data fix on open", () => {
-  /** A workshop DB from before v1.3: no deployer role, no memberships, merge/checks inside the workspace JSON. */
+  /** A workshop DB from before v1.3: no deployer role, no memberships. */
   function preV13(): string {
     const { world, dbPath } = freshWorld();
     world.seedDefaults({ collectivePath: WORKSHOP });
@@ -52,8 +52,6 @@ describe("v1.3 data fix on open", () => {
     const db = new Database(dbPath);
     db.prepare("DELETE FROM memberships WHERE roleId = 'role:deployer'").run();
     db.prepare("DELETE FROM roles WHERE id = 'role:deployer'").run();
-    const ws = JSON.parse((db.prepare("SELECT workspace FROM buildings WHERE id = 'workshop'").get() as { workspace: string }).workspace);
-    db.prepare("UPDATE buildings SET workspace = ? WHERE id = 'workshop'").run(JSON.stringify({ ...ws, merge: "green", checks: ["npm test"] }));
     db.prepare("UPDATE agents SET status = 'retired' WHERE name = 'Sage'").run();
     db.close();
     return dbPath;
@@ -73,12 +71,23 @@ describe("v1.3 data fix on open", () => {
     w.close();
   });
 
-  it("old merge/checks keys in a building's workspace JSON are stripped on read", () => {
-    const w = World.open(preV13());
-    const ws = w.buildings.require("workshop").workspace as Record<string, unknown>;
-    expect(ws.base).toBe("main");
-    expect("merge" in ws).toBe(false);
-    expect("checks" in ws).toBe(false);
+  it("migration 022 lifts a building's workspace to the collective repo and gives that building code access", () => {
+    const { world, dbPath } = freshWorld();
+    world.seedDefaults({ collectivePath: WORKSHOP });
+    world.close();
+    const db = new Database(dbPath);
+    const ws = { path: "/srv/agent-town", base: "main", branchPrefix: "agent", repoUrl: "git@github.com:o/agent-town.git", merge: "green" };
+    db.prepare("UPDATE buildings SET workspace = ? WHERE id = 'workshop'").run(JSON.stringify(ws));
+    db.prepare("UPDATE meta SET value = json_remove(value, '$.workspace') WHERE key = 'town'").run();
+    db.exec("ALTER TABLE buildings DROP COLUMN codeAccess");
+    db.prepare("DELETE FROM schema_version WHERE version = 22").run();
+    db.close();
+    const w = World.open(dbPath);
+    const town = w.town.get().workspace as Record<string, unknown>;
+    expect(town.repoUrl).toBe(ws.repoUrl);
+    expect("merge" in town).toBe(false);
+    expect(w.buildings.require("workshop").codeAccess).toBe(true);
+    expect(w.buildings.first("kind = 'town-hall'")!.codeAccess).toBe(false);
     w.close();
   });
 });

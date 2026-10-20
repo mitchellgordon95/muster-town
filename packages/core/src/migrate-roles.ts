@@ -58,7 +58,7 @@ export function migrateRoles(db: DB): MigrateRolesResult {
       const residents = db.prepare(`
         SELECT a.id FROM agents a JOIN buildings b ON b.id = a.homeBuildingId
         WHERE a.kind = 'resident' AND a.status NOT IN ('retired', 'banned')
-          AND b.workspace IS NOT NULL AND b.workspace NOT IN ('', 'null')
+          AND b.codeAccess = 1
           AND NOT EXISTS (SELECT 1 FROM memberships m WHERE m.roleId = 'role:deployer' AND m.holderKind = 'agent' AND m.holderId = a.id)
           AND NOT EXISTS (SELECT 1 FROM memberships m WHERE m.roleId = 'role:' || b.id || ':reviewer' AND m.holderKind = 'agent' AND m.holderId = a.id)`).all() as { id: string }[];
       for (const r of residents) {
