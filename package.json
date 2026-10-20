@@ -12,7 +12,8 @@
     "dev": "npx tsx watch packages/server/src/main.ts",
     "start": "npm run build && npm run start:climate",
     "start:climate": "AGENT_TOWN_COLLECTIVE=collectives/climate npx tsx packages/server/src/main.ts",
-    "start:workshop": "AGENT_TOWN_COLLECTIVE=collectives/workshop npx tsx packages/server/src/main.ts"
+    "start:workshop": "AGENT_TOWN_COLLECTIVE=collectives/workshop npx tsx packages/server/src/main.ts",
+    "desk:build": "docker build -t agent-town-desk -f packages/desk/Dockerfile ."
   },
   "engines": {
     "node": ">=20"
