@@ -1,10 +1,13 @@
 /**
  * v1.3 redeploy (host-executed): pull main, reinstall when the lockfile changed, rebuild the web client,
  * optionally rebuild the desk image, drain (hold new work sessions and wait, up to `drainTimeoutMs`, for running ones
- * to end), recreate idle desks, then exit 75 so `scripts/serve.sh` restarts the server.
- * Every step's start/end is a `system` event (output tail in the payload). Single-flight; runs in the background.
+ * to end), pull again (the sessions drained are usually the ones about to push) and rebuild if that moved HEAD,
+ * recreate idle desks, then exit 75 so `scripts/serve.sh` restarts the server.
+ * Every step's start/end is a `system` event (output tail in the payload). Single-flight: a request while one runs joins
+ * it (the post-drain pull picks up its commits); past that pull it is carried in the done-file and the restarted server
+ * runs once more. Runs in the background.
  */
-import { execFile } from "node:child_process";
+import { execFile, execFileSync } from "node:child_process";
 import { closeSync, existsSync, openSync, readFileSync, statSync, unlinkSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import type { World } from "@muster-town/core";
@@ -54,6 +57,8 @@ export interface RedeployDeps {
   /** called with 75 after `exitDelayMs`; default process.exit (tests always inject one) */
   exit?: (code: number) => void;
   exitDelayMs?: number;
+  /** delay before running a request the previous server carried over (it joined past the final pull). Default 10 s. */
+  againDelayMs?: number;
 }
 
 export interface RedeployRequest { image: boolean; requestedBy: string }
@@ -75,6 +80,13 @@ export function makeRedeployer(deps: RedeployDeps): Redeployer {
   let flight: Promise<void> | null = null;
   let held = false;
   let run_: RedeployRun = { state: "running", requestedBy: "", commits: null, working: [], blocked: [] };
+  /** the in-flight request (a joining request may turn on its image) */
+  let cur: RedeployRequest | null = null;
+  /** set once the run is past its final pull: a request then needs another run after the restart */
+  let finalPulled = false;
+  let again: RedeployRequest | null = null;
+  /** a request the previous server carried over in its done-file: started shortly after this one is up */
+  let carried: RedeployRequest | null = null;
 
   const say = (text: string, payload: Record<string, unknown> = {}) =>
     deps.world.events.append({ type: "system", text, payload: { redeploy: true, run: { ...run_ }, ...payload } });
@@ -87,11 +99,13 @@ export function makeRedeployer(deps: RedeployDeps): Redeployer {
   const oldDonePath = join(cwd, `.agent-town-redeploy-done-${deps.collective}.json`);
   try {
     const path = existsSync(donePath) ? donePath : oldDonePath;
-    const prev = JSON.parse(readFileSync(path, "utf8")) as Partial<RedeployRun>;
+    const prev = JSON.parse(readFileSync(path, "utf8")) as Partial<RedeployRun> & { again?: RedeployRequest };
     unlinkSync(path);
-    run_ = { state: "done", requestedBy: String(prev.requestedBy ?? ""), commits: typeof prev.commits === "number" ? prev.commits : null, working: [], blocked: [] };
+    const head = typeof prev.head === "string" ? prev.head : undefined;
+    run_ = { state: "done", requestedBy: String(prev.requestedBy ?? ""), commits: typeof prev.commits === "number" ? prev.commits : null, working: [], blocked: [], ...(head ? { head } : {}) };
     const n = run_.commits;
-    say(`Redeploy finished: the server is back up${n === null ? "" : ` with ${n} new change${n === 1 ? "" : "s"}`}`, { phase: "done" });
+    say(`Redeploy finished: the server is back up${n === null ? "" : ` with ${n} new change${n === 1 ? "" : "s"}`}${head ? ` at ${head.slice(0, 7)}` : ""}`, { phase: "done", head: head ?? null });
+    if (prev.again) carried = { image: !!prev.again.image, requestedBy: String(prev.again.requestedBy ?? "") };
   } catch { /* no restart pending */ }
 
   /** One step: start event, run, end event. Returns the result, or null (after a failure event) on a non-zero exit. */
@@ -119,29 +133,39 @@ export function makeRedeployer(deps: RedeployDeps): Redeployer {
         { step: "git status", phase: "end", ok: false, code: status.code, output: tail(status) });
       return;
     }
-    const before = (await run("git", ["rev-parse", "HEAD"], { cwd, timeoutMs: 30_000 })).stdout.trim();
+    const head = async () => (await run("git", ["rev-parse", "HEAD"], { cwd, timeoutMs: 30_000 })).stdout.trim();
+    const before = await head();
+    /** commits since `from`, and whether package-lock.json changed */
+    const since = async (from: string) => ({
+      count: Number((await run("git", ["rev-list", "--count", `${from}..HEAD`], { cwd, timeoutMs: 30_000 })).stdout.trim()) || 0,
+      lock: !!(await run("git", ["diff", "--name-only", from, "HEAD", "--", "package-lock.json"], { cwd, timeoutMs: 30_000 })).stdout.trim(),
+    });
     let lockChanged = false;
     const pulled = await step("git pull --rebase origin main", "git", ["pull", "--rebase", "origin", "main"], 300_000, async () => {
       if (!before) return "";
-      const count = Number((await run("git", ["rev-list", "--count", `${before}..HEAD`], { cwd, timeoutMs: 30_000 })).stdout.trim()) || 0;
-      run_ = { ...run_, commits: count };
-      lockChanged = !!(await run("git", ["diff", "--name-only", before, "HEAD", "--", "package-lock.json"], { cwd, timeoutMs: 30_000 })).stdout.trim();
-      return `${count} commit${count === 1 ? "" : "s"}`;
+      const d = await since(before);
+      run_ = { ...run_, commits: d.count };
+      lockChanged = d.lock;
+      return `${d.count} commit${d.count === 1 ? "" : "s"}`;
     });
     if (!pulled) return;
 
-    // (b) reinstall only when the lockfile changed
-    if (lockChanged) {
-      if (!(await step("npm install", "npm", ["install", "--no-audit", "--no-fund"], 900_000))) return;
-    } else {
-      say("Redeploy: npm install … skipped (package-lock.json unchanged)", { step: "npm install", phase: "end", ok: true, skipped: true });
+    /** (b) reinstall only when the lockfile changed, (c) the web client, (d) the desk image when asked (and not built yet) */
+    let imageBuilt = false;
+    async function rebuild(lock: boolean, label = ""): Promise<boolean> {
+      if (lock) {
+        if (!(await step(`npm install${label}`, "npm", ["install", "--no-audit", "--no-fund"], 900_000))) return false;
+      } else {
+        say(`Redeploy: npm install${label} … skipped (package-lock.json unchanged)`, { step: "npm install", phase: "end", ok: true, skipped: true });
+      }
+      if (!(await step(`build web${label}`, "npm", ["run", "build", "--workspace", "packages/web"], 600_000))) return false;
+      if (o.image) {
+        if (!(await step(`docker build desk image${label}`, "docker", ["build", ...imageTags(deps.image).flatMap((t) => ["-t", t]), "-f", "packages/desk/Dockerfile", "."], 3_600_000))) return false;
+        imageBuilt = true;
+      }
+      return true;
     }
-
-    // (c) web client
-    if (!(await step("build web", "npm", ["run", "build", "--workspace", "packages/web"], 600_000))) return;
-
-    // (d) desk image
-    if (o.image && !(await step("docker build desk image", "docker", ["build", ...imageTags(deps.image).flatMap((t) => ["-t", t]), "-f", "packages/desk/Dockerfile", "."], 3_600_000))) return;
+    if (!(await rebuild(lockChanged))) return;
 
     // (e) drain: no new work sessions; wait for the running ones to end (a restart would orphan them)
     deps.hold?.(true);
@@ -169,6 +193,26 @@ export function makeRedeployer(deps: RedeployDeps): Redeployer {
         { step: "drain", phase: "end", ok: !left.length, working: left });
     }
 
+    // (e2) pull again: the sessions just drained usually pushed on their way out. A failed pull keeps the preflight's
+    // build; a failed rebuild of what it pulled fails the run (the tree is past the build).
+    const mid = await head();
+    finalPulled = true;
+    const again2 = await run("git", ["pull", "--rebase", "origin", "main"], { cwd, timeoutMs: 300_000 });
+    if (again2.code !== 0) {
+      say(`Redeploy: pull again after the drain … failed (exit ${again2.code}); restarting with what was pulled before`, { step: "git pull again", phase: "end", ok: false, code: again2.code, output: tail(again2) });
+    } else {
+      const d = mid ? await since(mid) : { count: 0, lock: false };
+      if (d.count) {
+        run_ = { ...run_, commits: (run_.commits ?? 0) + d.count };
+        say(`Redeploy: pull again after the drain … ok (${d.count} more commit${d.count === 1 ? "" : "s"})`, { step: "git pull again", phase: "end", ok: true, code: 0, output: tail(again2) });
+        if (!(await rebuild(d.lock, " (again)"))) return;
+      } else {
+        say("Redeploy: pull again after the drain … ok (no new commits)", { step: "git pull again", phase: "end", ok: true, code: 0 });
+        // a request that joined during the drain may have asked for the image
+        if (o.image && !imageBuilt && !(await rebuild(false, " (again)"))) return;
+      }
+    }
+
     // (f) recreate idle desks (home volumes kept; a desk is recreated from the new image on next use)
     if (o.image) {
       // desks made before the rename carry agent-town.* labels, newer ones muster-town.*: list both (drop the old in P6)
@@ -187,8 +231,9 @@ export function makeRedeployer(deps: RedeployDeps): Redeployer {
     }
 
     // (g) restart: give the HTTP response and the events a moment to flush
-    run_ = { ...run_, state: "restarting", working: [], blocked: [] };
-    try { writeFileSync(donePath, JSON.stringify(run_)); } catch { /* no repo dir (tests): the UI just won't hear "done" */ }
+    const live = await head();
+    run_ = { ...run_, state: "restarting", working: [], blocked: [], ...(live ? { head: live } : {}) };
+    try { writeFileSync(donePath, JSON.stringify({ ...run_, ...(again ? { again } : {}) })); } catch { /* no repo dir (tests): the UI just won't hear "done" */ }
     say("Redeploy: restarting server", { step: "restart", phase: "end", ok: true });
     await new Promise<void>((r) => setTimeout(r, deps.exitDelayMs ?? 500));
     try { unlinkSync(lockPath); } catch { /* already gone */ }
@@ -222,14 +267,30 @@ export function makeRedeployer(deps: RedeployDeps): Redeployer {
     try { return await fn(); } finally { if (locked) { try { unlinkSync(lockPath); } catch { /* already gone */ } } }
   }
 
-  return {
+  const self: Redeployer = {
     redeploy(o) {
-      if (flight) return { running: true };
+      if (flight && cur) {
+        // join the running one: its post-drain pull picks up anything pushed by now. Past that pull, run again after the restart.
+        if (!finalPulled) {
+          if (o.image) cur.image = true;
+          say(`Redeploy: ${o.requestedBy}'s request joins the running one`, { phase: "joined", requestedBy: o.requestedBy, image: o.image });
+        } else {
+          again = { image: !!(again?.image || o.image), requestedBy: o.requestedBy };
+          say(`Redeploy: ${o.requestedBy}'s request will run again after this restart`, { phase: "joined", requestedBy: o.requestedBy, image: o.image, again: true });
+        }
+        return { queued: true };
+      }
+      cur = { ...o };
+      finalPulled = false;
       run_ = { state: "running", requestedBy: o.requestedBy, commits: null, working: [], blocked: [] };
-      flight = withRepoLock(() => go(o))
+      const req = cur;
+      flight = withRepoLock(() => go(req))
         .catch((e) => { fail(); say(`Redeploy: failed (${e instanceof Error ? e.message : String(e)})`, { ok: false }); })
         .finally(() => {
           flight = null;
+          cur = null;
+          // a failed run drops the requests that joined it (they saw the failure event)
+          again = null;
           // only reached without a real exit (failure, or tests): let the scheduler start sessions again
           if (held) { held = false; deps.hold?.(false); }
         });
@@ -238,6 +299,16 @@ export function makeRedeployer(deps: RedeployDeps): Redeployer {
     running: () => !!flight,
     done: () => flight ?? Promise.resolve(),
   };
+  if (carried) {
+    const o = carried;
+    setTimeout(() => { if (!flight) self.redeploy(o); }, deps.againDelayMs ?? 10_000).unref?.();
+  }
+  return self;
+}
+
+/** HEAD of the checkout at `repoRoot` (the code this server started from), or null when it isn't a git checkout. */
+export function gitHead(repoRoot: string): string | null {
+  try { return execFileSync("git", ["rev-parse", "HEAD"], { cwd: repoRoot, timeout: 10_000, stdio: ["ignore", "pipe", "ignore"] }).toString().trim() || null; } catch { return null; }
 }
 
 /** `docker build` tags: the default desk image is also tagged with its pre-rename name, so either name in desks.image works (drop in P6). */

@@ -742,8 +742,12 @@ export const MeetingSayInput = z.object({ text: z.string() });
 export const SeedInput = z.object({ importDir: z.string().optional() });
 /** POST /api/admin/redeploy (permission `town.redeploy`); also the `redeploy` verb's input */
 export const RedeployInput = z.object({ image: z.boolean().default(false) });
-/** `{ started: true }` (runs in the background, progress as `system` events) or `{ running: true }` when one is in flight */
-export const RedeployResult = z.object({ started: z.boolean().optional(), running: z.boolean().optional() });
+/**
+ * `{ started: true }` (runs in the background, progress as `system` events) or `{ queued: true }` when one is in flight:
+ * the request joins it (its post-drain pull takes the latest main; past that pull, it runs again after the restart).
+ * `running` is the pre-join answer, kept for old clients.
+ */
+export const RedeployResult = z.object({ started: z.boolean().optional(), queued: z.boolean().optional(), running: z.boolean().optional() });
 export type RedeployResult = z.infer<typeof RedeployResult>;
 /**
  * Where a redeploy is, carried as `payload.run` on every redeploy `system` event so a client reads the latest one:
@@ -758,6 +762,8 @@ export interface RedeployRun {
   working: string[];
   /** agent ids with pending work the drain is holding */
   blocked: string[];
+  /** the commit being restarted into (`restarting`) or now live (`done`) */
+  head?: string;
 }
 
 export const AuthMe = z.object({ user: User, roles: z.array(Role), avatarAgentId: Id.nullable(), isAdmin: z.boolean() });

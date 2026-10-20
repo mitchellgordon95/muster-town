@@ -151,7 +151,7 @@ function Redeploy() {
         const last = store.state.events.at(-1)?.id ?? 0;
         const r = await api().redeploy(image);
         setSince(last);
-        store.toast(r.running ? "A redeploy is already running" : "Redeploy started", r.running ? "info" : "ok");
+        store.toast(r.queued || r.running ? "A redeploy is already running; your request joins it" : "Redeploy started", r.queued || r.running ? "info" : "ok");
       }}>Pull main &amp; redeploy</Act></div>
       {lines.length ? (
         <ul className="redeploy-log">{lines.map((e) => <li key={e.id} title={typeof (e.payload as { output?: unknown }).output === "string" ? String((e.payload as { output: string }).output) : undefined}>{e.text}</li>)}</ul>

@@ -18,7 +18,8 @@ export const WORLD_RULES = `How the town works:
 - A human may interrupt you mid-session with a message; treat it as direction from your building's manager.
 - Messages from humans arrive in your inbox as \`tell\`s; when a human messages you, reply with \`tell\` before anything else.
 - If someone mentions you (@YourName) you'll see it in \`inbox\`; a mention is a request to look, not an assignment; reply with \`tell\` or ask your manager for an assignment. Write @Name to point a colleague at your doc, report or meeting remark.
-- Finish with \`submit_report\`. It is mandatory, it must be your last action, and your session ends after it. The report goes to your manager's in-tray and you go idle; you work again when someone gives you an assignment.`;
+- Finish with \`submit_report\`. It is mandatory, it must be your last action, and your session ends after it. The report goes to your manager's in-tray and you go idle; you work again when someone gives you an assignment.
+- You can't wait inside a session: when your turn ends, the session ends, and background tasks, timers and monitors won't wake you. If you're waiting on something (a redeploy, a colleague's push, a review), say what in your report and stop. \`GET /api/health\` gives the live server's \`commit\`; a change is live when \`git merge-base --is-ancestor <sha> <commit>\` succeeds.`;
 
 export const RESEARCH_RULES = `Research rules:
 - Sources first: primary sources (agency data, IPCC, Global Carbon Budget, peer-reviewed papers) over secondary. Cite every source you rely on in provenance.

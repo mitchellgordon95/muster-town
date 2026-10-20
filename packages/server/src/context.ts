@@ -19,7 +19,7 @@ export interface RuntimeHooks {
   onAgentRetired?(agentId: string, opts?: { purge?: boolean }): Promise<unknown> | unknown;
   /** A meeting moved to `discussing` via REST: run the facilitator. */
   onMeetingStart?(meetingId: string): Promise<unknown> | unknown;
-  /** v1.3: pull main, reinstall, rebuild, restart (exit 75) in the background. `{ running: true }` while one runs. */
+  /** v1.3: pull main, reinstall, rebuild, restart (exit 75) in the background. A request while one runs joins it (`{ queued: true }`). */
   redeploy?(o: { image: boolean; requestedBy: string }): Promise<RedeployResult> | RedeployResult;
   /** An agent was stopped via REST: abort its running session, if any. */
   stop?(): Promise<unknown> | unknown;

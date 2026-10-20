@@ -7,7 +7,7 @@ import { nextPending, PRESENCE_TICK_MS, slugify, type World } from "@muster-town
 import { DesksConfig, type ChatInput, type DeskActivityInput, type Event, type RedeployResult, type Session } from "@muster-town/schema";
 import { askAbout, chat } from "./chat.ts";
 import { DockerBackend, dockerSafe, HostBackend, type WorkBackend } from "./desk/backend.ts";
-import { makeRedeployer, type RedeployDeps, type RedeployRequest } from "./redeploy.ts";
+import { gitHead, makeRedeployer, type RedeployDeps, type RedeployRequest } from "./redeploy.ts";
 import { onDeskActivity, runDeskSession, type DeskSessionOptions } from "./desk/session.ts";
 import { advanceCollecting, facilitate, newMeetingState, onMeetingMention, onMeetingStart } from "./meetings.ts";
 import { realSdk, type Sdk } from "./sdk.ts";
@@ -49,7 +49,7 @@ export interface RuntimeOptions {
   /** a stopped/banned agent's desk process gets this long to exit on its own before it is killed. Default 10000. */
   killGraceMs?: number;
   /** redeploy knobs (tests inject the command runner and `exit`; never the real process.exit) */
-  redeploy?: Pick<RedeployDeps, "run" | "exit" | "exitDelayMs" | "drainTimeoutMs" | "drainPollMs">;
+  redeploy?: Pick<RedeployDeps, "run" | "exit" | "exitDelayMs" | "drainTimeoutMs" | "drainPollMs" | "againDelayMs">;
 }
 
 export interface Runtime {
@@ -303,6 +303,8 @@ export function startRuntime(opts: RuntimeOptions): Runtime {
   const hostInterrupt = (agentId: string, text: string, from?: string, now?: boolean) => interrupt(ctx, agentId, text, from, now);
   world.host.isWorking = hostIsWorking;
   world.host.interrupt = hostInterrupt;
+  const commit = gitHead(ctx.repoRoot);
+  if (commit) world.host.commit = commit;
 
   return {
     async stop() {
@@ -310,6 +312,7 @@ export function startRuntime(opts: RuntimeOptions): Runtime {
       if (world.host.redeploy === redeploy) delete world.host.redeploy;
       if (world.host.isWorking === hostIsWorking) delete world.host.isWorking;
       if (world.host.interrupt === hostInterrupt) delete world.host.interrupt;
+      if (commit && world.host.commit === commit) delete world.host.commit;
       if (timer) clearInterval(timer);
       unsubscribe();
       for (const id of [...ctx.live.keys()]) abortWork(ctx, id);

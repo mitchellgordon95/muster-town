@@ -160,7 +160,7 @@ export interface Api {
   setBankShare(buildingId: string, pct: number | null): Promise<Bank>;
   exportNow(): Promise<string | null>;
   /** v1.3: pull main, rebuild, restart (needs town.redeploy); progress arrives as `system` events */
-  redeploy(image: boolean): Promise<{ started?: boolean; running?: boolean }>;
+  redeploy(image: boolean): Promise<{ started?: boolean; queued?: boolean; running?: boolean }>;
   connect(handlers: SocketHandlers): Socket;
 }
 
@@ -296,7 +296,7 @@ export class HttpApi implements Api {
   async cancelBankInput(id: string) { return unwrap<BankInput>(await this.call("DELETE", `/api/bank/inputs/${id}`), "input"); }
   async setBankShare(buildingId: string, pct: number | null) { return this.call<Bank>("PUT", `/api/bank/shares/${buildingId}`, { pct }); }
   async exportNow() { return (await this.post<{ commit?: string | null }>("/api/export")).commit ?? null; }
-  async redeploy(image: boolean) { return this.post<{ started?: boolean; running?: boolean }>("/api/admin/redeploy", { image }); }
+  async redeploy(image: boolean) { return this.post<{ started?: boolean; queued?: boolean; running?: boolean }>("/api/admin/redeploy", { image }); }
 
   connect(h: SocketHandlers): Socket {
     const url = `${location.protocol === "https:" ? "wss" : "ws"}://${location.host}/ws`;

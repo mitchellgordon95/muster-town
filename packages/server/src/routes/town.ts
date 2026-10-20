@@ -17,7 +17,8 @@ const CabinetQuery = LimitQuery.extend({ type: DocType.optional(), authorId: z.s
 export async function townRoutes(app: FastifyInstance) {
   const world = app.world;
 
-  app.get("/api/health", async () => ({ ok: true, runtime: !!app.runtime, time: new Date().toISOString() }));
+  /** `commit`: the git sha the running server started from (null without a runtime); `git merge-base --is-ancestor <sha> <commit>` says whether a change is live */
+  app.get("/api/health", async () => ({ ok: true, runtime: !!app.runtime, commit: world.host.commit ?? null, time: new Date().toISOString() }));
 
   if (app.dev) {
     app.get("/api/dev/admin-token", async () => {
