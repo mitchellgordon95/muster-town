@@ -191,3 +191,60 @@ Existing `POST /api/agents/:id/interrupt` (user token): if the runtime has an in
 - runtime: `DockerBackend` unit-tested with a fake `docker` runner (command strings asserted); scheduler starts a desk session and `finishWorkSession` handles end/crash; `HostBackend` keeps existing tests green.
 - server: agent-scoped endpoints with `inject` (brief for own session, 403 for another agent's, activity → events, control with queued interrupt, session-end → session ended + budget charged).
 - Integration (lead, manual): build image, run a workshop session end to end, confirm a draft PR.
+
+---
+
+# v1.2 contract: hub semantics, dismiss, roles split, merge rule, places (2026-10-20)
+
+Mitchell's direction: reports should not be read "from the agent"; they go to a hub (the manager's desk) and the agent goes idle. Agents only pick up assignments they're given (manager, standup decision, mention). Moderators are collective-wide misuse prevention with their own station; managers are per building; every building keeps its own policies. The UI should be instantiated in the world: a board you walk up to, an in-tray on the manager's desk, a planning office, not panels floating in a HUD.
+
+## 1. Hub semantics (core, runtime, server)
+
+- `submit_report` ends the session and sets the agent **idle**. `AgentStatus` loses `awaiting-review` (migration: `UPDATE agents SET status='idle' WHERE status='awaiting-review'`). Reports keep `decision: pending` meaning "not yet handled by a manager".
+- **In-tray** = the building's pending reports. `GET /api/buildings/:id/intray` → `{ reports }` (pending, oldest first). Count exposed on the snapshot's building object as `intray` (number) so the map can badge the desk.
+- **Decisions** (`Decision` enum): `pending | approve | continue | redirect | stop`.
+  - `approve` = acknowledged. No assignment is created. (Label in UI: "Acknowledge".)
+  - `continue` = acknowledged + an assignment created from the report's Proposal section (today's approve behavior).
+  - `redirect` = acknowledged + an assignment created from the manager's note (note required; the proposal is appended as context).
+  - `stop` = acknowledged; the agent's status becomes `stopped`; its pending assignments are cancelled.
+  - Meeting decisions that assign an agent still `approve` (acknowledge) that agent's pending reports with the "superseded" note.
+- **Review policy** (`ReviewPolicy`): `human | reviewer | auto`. `reviewer` replaces `moderator`: an agent in the building holding the `reviewer` role runs a short session over the in-tray and decides (same criteria prompt as before; it may use `continue`). `auto` acknowledges every report on arrival. Migration maps stored `moderator` → `reviewer`.
+- **Scheduler reconcile at startup**: assignments `active` whose agent has no running session go back to `pending`; a running Session row with no live child is ended with `error: 'orphaned at restart'`.
+
+## 2. Dismiss (core, server, runtime, web)
+
+- `DELETE /api/agents/:id` (`building.manage` on the agent's home building, or admin). Effects: abort any live session and `docker rm -f` the desk container (volume kept unless `?purge=1`), free the desk, revoke the agent's tokens, remove memberships, cancel pending/active assignments, set `status: 'retired'` (new `AgentStatus` value). The row stays so documents keep their author. Snapshot `agents` excludes retired agents; `GET /api/agents/:id` still works. Event `agent.retired`.
+- Runtime hook `runtime.onAgentRetired(agentId)` does the session/container part; core does the rest in `ops.dismissAgent(actor, agentId, {purge})`.
+
+## 3. Roles split (schema, core, seed, server)
+
+- Town-scoped built-ins: `admin` (everything), `moderator` (new: `town.approve_trophy`, `town.approve_request`, `town.ban`, `town.moderate`), `visitor`.
+- Building-scoped built-ins: `manager` (`building.manage`, `building.assign`, `building.review`, `building.promote`, `building.dismiss`, `doc.write_building`, `doc.propose_trophy`, `doc.request_human`, `meeting.facilitate`, `meeting.attend`), `reviewer` (`building.review`, `building.assign`, `meeting.facilitate`, `meeting.attend`, `doc.write_building`), `member` (as today).
+- `Permission` enum: add `town.ban`, `town.moderate`, `building.dismiss`; `building.ban` is removed (ban is a town-level act; `ban` verb/route require `town.ban`). Migration: rename `role:<bid>:moderator` → `role:<bid>:reviewer` with the new permission set; create `role:moderator` (town); add `building.dismiss` to every manager role.
+- `collective.json`: top-level `moderators: [{ name, sprite?, direction? }]` → resident agents of Town Hall, kind `resident`, holding town `moderator`, seated at the **mod station**. Building spec: `reviewer: {...}` replaces `moderator`. Update both existing collective files: climate keeps Moss as the lab's reviewer; workshop keeps Keel as reviewer; add one town moderator to each (climate: "Wren"; workshop: "Harbor"). Existing DBs: the migration renames roles; the seed-on-open path (which already fills repoUrl) also creates the town moderator role; it does **not** create new moderator agents in existing DBs (Mitchell can add them from the planning office later).
+
+## 4. Merge rule for workshops (schema, desk)
+
+- `Workspace.merge: 'human' | 'green'` (default `human`) and `Workspace.checks: string[]` (default `["npm run typecheck", "npm test"]`).
+- Desk (`packages/desk`): after the session ends with a report, if `merge === 'green'` and the branch has an open PR (`gh pr view <branch> --json number,isDraft,state`), run each check in the checkout; if all pass: `gh pr ready <n>` then `gh pr merge <n> --squash --delete-branch`; post an activity line `Merged PR #n (checks green)` and include `merged: true, prNumber` in session-end. On failure post `Checks failed, PR left open` and `merged: false`. The brief carries `merge` and `checks`.
+- `DeskSessionEndInput` gains `merged?: boolean`, `prNumber?: number`; `finishWorkSession` appends a line to the report body ("Merged as PR #n" / "PR #n open, checks failed") when present.
+
+## 5. Places and layout (core world/layout, schema)
+
+New `PlaceKind` values and where they go:
+- `board:<buildingId>` kind `board`: a wall tile inside each lab (top wall, left of center). Reading it = the building's board.
+- `intray:<buildingId>` kind `intray`: the **manager's desk**, a distinct desk tile (TILE.DESK with a tray glyph: new `TILE.MANAGER_DESK`) at the top-right of each lab; the human stands at it to open the in-tray. Reviewer agents sit at an ordinary resident desk.
+- Town Hall gains: `mod-station` (kind `mod-station`, a desk; town moderators sit here), `planning-desk` (kind `planning`: create buildings, add/dismiss residents, roles), `donation-box` (kind `donation`), `schedule-board` (kind `schedule`: upcoming meetings for every building, next to the town meeting room).
+- `TILE` adds `MANAGER_DESK`, `BOARD`, `DONATION`, `SCHEDULE`. Grid rebuild keeps lots stable.
+- Snapshot `places` includes all of these; `look` lists them so agents can `go` to the board or the in-tray too.
+
+## Web (separate builder, after the world side lands)
+
+Every panel becomes a place: board on the wall (E → board), in-tray at the manager's desk (E → pending reports with Acknowledge / Continue as proposed / Redirect… / Stop), planning office (E → create building, add resident, Dismiss, roles), donation box (E → donate), schedule board (E → meetings across buildings), mod station (E → outbox requests awaiting approval, trophy proposals, bans). HUD keeps only: collective name, tagline, goal, status counts, and **notices** (in-tray count per building you manage, meetings starting, mentions of you) that walk you to the place. Remove "Start work" and "Needs your review" lists from the HUD; "Start work" lives on the agent panel and the in-tray. Agent panel keeps Activity / Chat / Session / Reports / Assignments and gains Dismiss for managers. Retired agents are not drawn. Settings tab gains review policy (human/reviewer/auto) and, for workspaces, merge (human/green) and checks.
+
+## Mentions (separate builder, after the world side lands)
+
+`@Name` in a report, note, meeting utterance, or `say`/`tell` creates an inbox message kind `mention` for that agent (or a notice for a human) with a link to the doc/meeting. Agents see mentions in `inbox` and `look` notices. A mention does not start work by itself; the mentioned agent (or its manager) turns it into an assignment with `accept_assignment` on a new assignment the mentioner may create via `assign` if permitted, or by replying.
+
+## Tests
+core: decision semantics (approve no assignment, continue from proposal, redirect from note, stop cancels), in-tray, dismiss (desk freed, token revoked, docs kept, retired hidden from snapshot), role migration on an old DB fixture (create a v1.1 DB in the test, migrate, assert roles), new places exist and are reachable. runtime: reconcile at startup, reviewer policy uses `continue`, retired hook. server: intray route, DELETE agent, permission checks for town.ban. desk: merge=green path with a fake `gh` and fake checks (pass and fail).
