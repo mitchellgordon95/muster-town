@@ -76,6 +76,9 @@ export class MapRenderer {
   private pendingTile: { x: number; y: number } | null = null;
   private hitboxes: { id: string; x: number; y: number; w: number; h: number }[] = [];
   hoverId: string | null = null;
+  /** Building banners on screen, for click-to-open their settings. */
+  private signHits: { id: string; x: number; y: number; w: number; h: number }[] = [];
+  hoverSign: string | null = null;
   /** last frame's camera, for screen -> tile */
   private view = { ox: 0, oy: 0, z: 3 };
   onTarget?: (t: Target | null) => void;
@@ -191,6 +194,15 @@ export class MapRenderer {
   hit(cx: number, cy: number): string | null {
     for (let i = this.hitboxes.length - 1; i >= 0; i--) {
       const h = this.hitboxes[i];
+      if (cx >= h.x && cx <= h.x + h.w && cy >= h.y && cy <= h.y + h.h) return h.id;
+    }
+    return null;
+  }
+
+  /** Building whose banner is under a screen point (CSS px). */
+  signAt(cx: number, cy: number): string | null {
+    for (let i = this.signHits.length - 1; i >= 0; i--) {
+      const h = this.signHits[i];
       if (cx >= h.x && cx <= h.x + h.w && cy >= h.y && cy <= h.y + h.h) return h.id;
     }
     return null;
@@ -464,13 +476,13 @@ export class MapRenderer {
     g.setTransform(dpr, 0, 0, dpr, 0, 0);
     if (this.flow) {
       // the town map: just the flow over the dimmed town (no signs, labels or bubbles); bodies can't be clicked
-      this.hitboxes = [];
+      this.hitboxes = []; this.signHits = [];
       drawFlow(g, now, this.flow, s.buildings, s.places, toScreen, cw, ch, this.leftInset + (viewW - this.leftInset) / 2);
       return;
     }
     if (plan) {
       // planning: each lot's name, nothing else (bodies can't be clicked)
-      this.hitboxes = [];
+      this.hitboxes = []; this.signHits = [];
       const names = new Map(s.buildings.map((b) => [b.id, b.name]));
       if (plan.create) names.set("new", plan.create.name.trim() || "New building");
       for (const [id, l] of [...Object.entries(plan.lots), ...(plan.create ? [["new", plan.create.lot] as const] : [])]) {
@@ -479,11 +491,12 @@ export class MapRenderer {
       }
       return;
     }
+    this.signHits = [];
     for (const b of s.buildings) {
       if (!b.lot) continue;
       const p = toScreen((b.lot.x + b.lot.w / 2) * T, b.lot.y * T - 3);
-      const sub = b.kind === "town-hall" ? (s.town?.name ?? "") : b.goal.length > 56 ? b.goal.slice(0, 55) + "…" : b.goal;
-      if (p.x > -300 && p.x < cw + 300 && p.y > -40 && p.y < ch + 60) drawSign(g, p.x, p.y, b.name, sub, buildingBudgetLine(b.budget));
+      const sub = b.kind === "town-hall" ? (s.town?.name ?? "") : b.goal;
+      if (p.x > -300 && p.x < cw + 300 && p.y > -40 && p.y < ch + 60) this.signHits.push({ id: b.id, ...drawSign(g, p.x, p.y, b.name, sub, buildingBudgetLine(b.budget), b.id === this.hoverSign) });
     }
     // the Bank's marquee hangs over the path, just outside its front door
     if (w.bank) {

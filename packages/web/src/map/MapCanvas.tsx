@@ -129,10 +129,11 @@ export function MapCanvas(props: { panelInset: number; onTarget: (t: Target | nu
         }
         const id = r.hit(p.x, p.y);
         r.hoverId = id;
-        ref.current!.style.cursor = id ? "pointer" : "default";
+        r.hoverSign = id ? null : r.signAt(p.x, p.y);
+        ref.current!.style.cursor = id || r.hoverSign ? "pointer" : "default";
       }}
       onMouseLeave={() => {
-        if (current) current.hoverId = null;
+        if (current) { current.hoverId = null; current.hoverSign = null; }
         endPlanDrag();
         if (drag.current) { layoutEdit.commitDrag(drag.current.before); drag.current = null; }
       }}
@@ -141,7 +142,10 @@ export function MapCanvas(props: { panelInset: number; onTarget: (t: Target | nu
         const r = current; if (!r || layoutEdit.draft || townPlan.draft) return;
         const p = local(e);
         const id = r.hit(p.x, p.y);
-        if (id) store.open({ kind: "agent", id });
+        if (id) { store.open({ kind: "agent", id }); return; }
+        // a building's banner opens its settings (the panel falls back to Overview for those who can't manage it)
+        const sign = r.signAt(p.x, p.y);
+        if (sign) store.open({ kind: "building", id: sign, tab: "Settings" });
       }}
     />
   );

@@ -143,22 +143,72 @@ export function drawPill(g: CanvasRenderingContext2D, x: number, y: number, text
   g.fillText(text, bx + 5, by + h / 2 + 0.5);
 }
 
-/** Building sign above a lot: name, subtitle (the goal), and an optional budget line. */
-export function drawSign(g: CanvasRenderingContext2D, x: number, y: number, name: string, sub: string, budget?: string | null) {
-  g.font = "700 13px ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, sans-serif";
+/** Break `text` into lines no wider than `max` px in the current font (a single over-long word gets its own line). */
+export function wrapText(g: CanvasRenderingContext2D, text: string, max: number): string[] {
+  const lines: string[] = [];
+  let line = "";
+  for (const word of text.split(/\s+/).filter(Boolean)) {
+    const next = line ? `${line} ${word}` : word;
+    if (line && g.measureText(next).width > max) { lines.push(line); line = word; } else line = next;
+  }
+  if (line) lines.push(line);
+  return lines;
+}
+
+const NFONT = "700 13px ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, sans-serif";
+/**
+ * A building's banner above its lot (bottom at y): a cloth hung from a wooden pole on two posts, with the name,
+ * the full goal wrapped (or the town's name, for the Town Hall) and an optional budget line. `hl` brightens it
+ * for hover. Returns the banner's screen rect, for click-to-open.
+ */
+export function drawSign(g: CanvasRenderingContext2D, x: number, y: number, name: string, sub: string, budget?: string | null, hl = false) {
+  g.font = NFONT;
   const nw = g.measureText(name).width;
   g.font = BFONT;
-  const w = Math.max(nw, sub ? g.measureText(sub).width : 0, budget ? g.measureText(budget).width : 0) + 20;
-  const h = 22 + (sub ? 12 : 0) + (budget ? 13 : 0);
-  const sx = Math.round(x - w / 2), sy = Math.round(y - h);
-  g.fillStyle = "rgba(16,17,24,.88)"; g.strokeStyle = "#3a3e55";
-  roundRect(g, sx + 0.5, sy + 0.5, w, h, 6); g.fill(); g.stroke();
+  const lines = sub ? wrapText(g, sub, Math.max(200, Math.min(nw, 280))) : [];
+  const tw = Math.max(nw, ...lines.map((l) => g.measureText(l).width), budget ? g.measureText(budget).width : 0);
+  const w = Math.round(Math.max(tw + 28, 110)), tail = 7, lh = 13;
+  const body = 8 + 15 + lines.length * lh + (budget ? lh + 2 : 0) + 6;
+  const ch = body + tail, rodY = Math.round(y - ch - 10);
+  const cx = Math.round(x - w / 2), top = rodY + 3, bot = top + body;
+  // posts down to the ground, then the rod with round finials
+  g.fillStyle = "#2a1a0c";
+  g.fillRect(cx - 7, rodY, 4, y - rodY); g.fillRect(cx + w + 3, rodY, 4, y - rodY);
+  g.fillStyle = "#8a5a2b";
+  g.fillRect(cx - 6, rodY + 1, 2, y - rodY - 1); g.fillRect(cx + w + 4, rodY + 1, 2, y - rodY - 1);
+  g.fillStyle = "#2a1a0c"; g.fillRect(cx - 12, rodY - 2, w + 24, 6);
+  g.fillStyle = "#b07a40"; g.fillRect(cx - 11, rodY - 1, w + 22, 4);
+  g.fillStyle = "#d9a466"; g.fillRect(cx - 11, rodY - 1, w + 22, 1);
+  for (const fx of [cx - 13, cx + w + 13]) {
+    g.beginPath(); g.arc(fx, rodY + 1, 4, 0, Math.PI * 2); g.fillStyle = "#2a1a0c"; g.fill();
+    g.beginPath(); g.arc(fx, rodY + 1, 2.8, 0, Math.PI * 2); g.fillStyle = "#e3b04b"; g.fill();
+  }
+  // the cloth: straight sides, a swallowtail hem, a fold shading across it
+  const cloth = () => {
+    g.beginPath(); g.moveTo(cx, top); g.lineTo(cx + w, top); g.lineTo(cx + w, bot + tail);
+    g.lineTo(x, bot); g.lineTo(cx, bot + tail); g.closePath();
+  };
+  const grad = g.createLinearGradient(cx, 0, cx + w, 0);
+  const [c0, c1] = hl ? ["#9a3340", "#b8424f"] : ["#6e1f2a", "#8c2a36"];
+  grad.addColorStop(0, c0); grad.addColorStop(0.35, c1); grad.addColorStop(0.65, c0); grad.addColorStop(1, c1);
+  cloth(); g.fillStyle = grad; g.fill();
+  g.strokeStyle = "#2a0d12"; g.lineWidth = 1.5; g.stroke(); g.lineWidth = 1;
+  // stitched border inset from the edge
+  g.save(); g.setLineDash([3, 2]); g.strokeStyle = "rgba(246,231,200,.45)";
+  g.beginPath(); g.moveTo(cx + 4, top + 4); g.lineTo(cx + w - 4, top + 4); g.lineTo(cx + w - 4, bot + tail - 6);
+  g.lineTo(x, bot - 4); g.lineTo(cx + 4, bot + tail - 6); g.closePath(); g.stroke(); g.restore();
+  // loops where the cloth wraps the rod
+  g.fillStyle = "#4a141c";
+  for (let i = 0, n = Math.max(2, Math.round(w / 40)); i <= n; i++) g.fillRect(Math.round(cx + 2 + ((w - 8) * i) / n), rodY - 2, 4, 7);
   g.textBaseline = "top"; g.textAlign = "center";
-  g.font = "700 13px ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, sans-serif";
-  g.fillStyle = "#e8e9f0"; g.fillText(name, x, sy + 5);
-  if (sub) { g.font = BFONT; g.fillStyle = "#ffcf5e"; g.fillText(sub, x, sy + 19); }
-  if (budget) { g.font = BFONT; g.fillStyle = "#9ff0b4"; g.fillText(budget, x, sy + (sub ? 32 : 19)); }
+  g.font = NFONT; g.fillStyle = "#2a0d12"; g.fillText(name, x, top + 8);
+  g.fillStyle = "#f6e7c8"; g.fillText(name, x, top + 7);
+  let ty = top + 7 + 16;
+  g.font = BFONT; g.fillStyle = "#ffd98a";
+  for (const l of lines) { g.fillText(l, x, ty); ty += lh; }
+  if (budget) { g.fillStyle = "#9ff0b4"; g.fillText(budget, x, ty + 2); }
   g.textAlign = "left";
+  return { x: cx - 17, y: rodY - 5, w: w + 34, h: y - rodY + 5 };
 }
 
 const SANS = "ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, sans-serif";
