@@ -10,3 +10,4 @@ collectives/*/data/
 collectives/*/export/
 .env
 collectives/*/.env
+.agent-town-redeploy.lock
