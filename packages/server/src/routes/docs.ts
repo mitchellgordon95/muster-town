@@ -1,5 +1,5 @@
 import { AppError, canSeeDoc, searchDocs } from "@agent-town/core";
-import { CreateMeetingInput, DocState, DocType, MeetingPhase, MeetingSayInput, ReviewInput, VerbInputs } from "@agent-town/schema";
+import { AskInput, CreateMeetingInput, DocState, DocType, MeetingPhase, MeetingSayInput, ReplyInput, ReviewInput, VerbInputs } from "@agent-town/schema";
 import type { FastifyInstance } from "fastify";
 import { z } from "zod";
 import { actorOf, parse, requireAuth, viewerId, type Params } from "../context.ts";
@@ -54,6 +54,25 @@ export async function docRoutes(app: FastifyInstance) {
       doc: world.docs.require(req.params.id, "doc"),
       assignment: r.assignmentId ? world.assignments.get(r.assignmentId) ?? null : null,
     };
+  });
+
+  /** Reports as replies: one text box, one button. → { doc, assignment | null }. Empty text = archive. */
+  app.post<{ Params: Params }>("/api/docs/:id/reply", async (req) => {
+    const { text } = parse(ReplyInput, req.body);
+    return world.ops.replyToReport(actorOf(world, req), req.params.id, text);
+  });
+
+  app.post<{ Params: Params }>("/api/docs/:id/archive", async (req) => world.ops.archiveReport(actorOf(world, req), req.params.id));
+
+  /** Ask about a report without bothering its author (cheap-model proxy). → { reply } */
+  app.post<{ Params: Params }>("/api/docs/:id/ask", async (req) => {
+    requireAuth(req);
+    const { question, history } = parse(AskInput, req.body);
+    const doc = world.docs.get(req.params.id);
+    if (!doc || !canSeeDoc({ kind: "user", id: viewerId(req) }, doc)) throw new AppError("not_found", `doc not found: ${req.params.id}`);
+    if (!app.runtime?.askAbout) throw new AppError("internal", "runtime not available", 503);
+    const r = await app.runtime.askAbout(doc.id, question, viewerId(req), history);
+    return { reply: typeof r === "string" ? r : r.reply };
   });
 
   app.post<{ Params: Params }>("/api/docs/:id/promote", async (req) => {

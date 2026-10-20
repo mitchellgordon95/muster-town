@@ -62,6 +62,12 @@ export interface Api {
   doc(id: string): Promise<Doc>;
   writeDoc(input: WriteDocInput): Promise<Doc>;
   review(docId: string, input: In<typeof ReviewInput>): Promise<Doc>;
+  /** POST /api/docs/:id/reply — the reply becomes the author's next assignment; empty text archives */
+  reply(docId: string, text: string): Promise<{ doc: Doc; assignment: Assignment | null }>;
+  /** POST /api/docs/:id/archive — acknowledge with no reply */
+  archive(docId: string): Promise<{ doc: Doc; assignment: Assignment | null }>;
+  /** POST /api/docs/:id/ask — a cheap-model answer about the report, without its author */
+  ask(docId: string, question: string, history?: { role: "user" | "assistant"; text: string }[]): Promise<string>;
   promote(docId: string, state: DocState): Promise<Doc>;
   trophy(docId: string, approve: boolean): Promise<Doc>;
   request(docId: string, action: RequestAction, body?: string): Promise<Doc>;
@@ -153,6 +159,9 @@ export class HttpApi implements Api {
   async doc(id: string) { return unwrap<Doc>(await this.get(`/api/docs/${id}`), "doc"); }
   async writeDoc(i: WriteDocInput) { return unwrap<Doc>(await this.post("/api/docs", i), "doc"); }
   async review(id: string, i: In<typeof ReviewInput>) { return unwrap<Doc>(await this.post(`/api/docs/${id}/review`, i), "doc"); }
+  reply(id: string, text: string) { return this.post<{ doc: Doc; assignment: Assignment | null }>(`/api/docs/${id}/reply`, { text }); }
+  archive(id: string) { return this.post<{ doc: Doc; assignment: Assignment | null }>(`/api/docs/${id}/archive`); }
+  async ask(id: string, question: string, history: { role: "user" | "assistant"; text: string }[] = []) { return (await this.post<{ reply: string }>(`/api/docs/${id}/ask`, { question, history })).reply; }
   async promote(id: string, state: DocState) { return unwrap<Doc>(await this.post(`/api/docs/${id}/promote`, { state }), "doc"); }
   async trophy(id: string, approve: boolean) { return unwrap<Doc>(await this.post(`/api/docs/${id}/trophy`, { approve }), "doc"); }
   async request(id: string, action: RequestAction, body?: string) { return unwrap<Doc>(await this.post(`/api/docs/${id}/request`, { action, body }), "doc"); }

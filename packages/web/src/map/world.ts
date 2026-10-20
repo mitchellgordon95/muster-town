@@ -2,7 +2,7 @@
 import { TILE, WALKABLE } from "@agent-town/schema";
 import type { Building, Place } from "@agent-town/schema";
 import type { Grid } from "../api";
-import { T, tiles, drawTable, drawCounter, drawDoor, drawManagerDesk, drawBoard, drawDonation, drawSchedule } from "./sprites";
+import { T, tiles, drawTable, drawCounter, drawDoor, drawManagerDesk, drawChair, drawBoard, drawDonation, drawSchedule } from "./sprites";
 
 export class World {
   readonly w: number;
@@ -116,6 +116,13 @@ export class World {
           }); break;
           case TILE.COUNTER: drawCounter(g, px, py, { l: this.at(x - 1, y) === TILE.COUNTER, r: this.at(x + 1, y) === TILE.COUNTER }, (x + y) % 2 === 0); break;
         }
+      }
+    // chairs on the free floor above and below each meeting table tile, drawn after the floor so they aren't covered
+    for (let y = 0; y < this.h; y++)
+      for (let x = 0; x < this.w; x++) {
+        if (this.at(x, y) !== TILE.TABLE) continue;
+        if (this.at(x, y - 1) === TILE.FLOOR) drawChair(g, x * T, (y - 1) * T, "down");
+        if (this.at(x, y + 1) === TILE.FLOOR) drawChair(g, x * T, (y + 1) * T, "up");
       }
     // soft shadow under the bottom wall of each building
     g.fillStyle = "rgba(0,0,0,0.18)";

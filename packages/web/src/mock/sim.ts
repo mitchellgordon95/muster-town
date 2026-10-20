@@ -176,7 +176,7 @@ export class Sim {
     const doc = this.putDoc({
       id: newId("dc"), type: "report", state: "building", title, authorId: a.id, authorKind: "agent", buildingId: a.homeBuildingId,
       provenance: { sourceIds: ["dc_gcb_essd"], urls: [] }, tags: [], verdict: "continue", decision: "pending", assignmentId: asg?.id, tokens: 108_000, costUsd: 0.84,
-      body: `# ${asg?.title ?? "Session report"}\n\n## Summary\nMock session for ${a.name}. Read the [GCB 2025 ESSD](gcb-2025-essd.md) source and wrote notes.\n\n## Findings\n- A finding with units: 2.9 ± 0.4 GtC/yr.\n\n## Proposal for next session\nFollow up on the largest uncertainty in this desk's budget term.\n\n## Questions for humans\nNone this time.`,
+      body: `# ${asg?.title ?? "Session report"}\n\n## What I did\nRead the [GCB 2025 ESSD](gcb-2025-essd.md) source and wrote notes.\n\n## Findings\n- A finding with units: 2.9 ± 0.4 GtC/yr.\n\n## What I need from you\nNothing needed.`,
       createdAt: now(), updatedAt: now(),
     });
     if (asg) { asg.status = "done"; asg.reportId = doc.id; this.putAssignment(asg); }
@@ -218,6 +218,40 @@ export class Sim {
     // the scheduler starts a given assignment on an idle agent
     window.setTimeout(() => { if (this.agents.get(a.id)?.status === "idle") this.startWork(a.id); }, 2500);
     return d;
+  }
+
+  /**
+   * Reports as replies: the reply is appended as a dated section, the author gets a mention and a `Reply on: …`
+   * assignment (merge replies prefixed with the merge instruction). Empty text = archive.
+   */
+  reply(docId: string, raw: string): { doc: Doc; assignment: Assignment | null } {
+    const d = this.docs.get(docId)!;
+    const text = raw.trim();
+    if (!text && d.decision && d.decision !== "pending") return { doc: d, assignment: null };
+    const t = new Date();
+    const p2 = (n: number) => String(n).padStart(2, "0");
+    const stamp = `${t.getFullYear()}-${p2(t.getMonth() + 1)}-${p2(t.getDate())} ${p2(t.getHours())}:${p2(t.getMinutes())}`;
+    Object.assign(d, {
+      body: text ? `${d.body.replace(/\s+$/, "")}\n\n## Reply from Mitchell (${stamp})\n\n${text}\n` : d.body,
+      decision: "approve", decisionNote: text || undefined, decidedBy: "us_mitchell", decidedAt: now(),
+    });
+    this.putDoc(d);
+    const a = this.agents.get(d.authorId);
+    this.event("doc.decision", d.authorId, text ? `Mitchell replied to "${d.title}": ${text.slice(0, 80)}` : `Archived: "${d.title}"`, { docId, decision: "approve", reply: !!text }, d.buildingId);
+    this.emitBuilding(d.buildingId);
+    if (!text || !a) return { doc: d, assignment: null };
+    this.event("agent.mentioned", a.id, `Mitchell replied to your report "${d.title}": ${text.slice(0, 200)}`, { docId }, d.buildingId);
+    if (a.status === "retired" || a.status === "banned") return { doc: d, assignment: null };
+    const merge = /^merge\b/i.test(text) ? "Merge your pull request for this report (gh pr ready <n> && gh pr merge <n> --squash --delete-branch), confirm the merge, and report back with \"Nothing needed\" unless something failed.\n\n" : "";
+    const asg = this.putAssignment({
+      id: newId("as"), agentId: a.id, buildingId: a.homeBuildingId ?? "bl_carbon", title: `Reply on: ${d.title}`.slice(0, 120),
+      description: `${merge}Mitchell's reply: ${text}\n\nThe report: ${d.title} (doc ${d.id}). Read it with \`read\`, do what the reply asks, and finish with a report whose last section says what you need next or "Nothing needed".`,
+      status: "pending", createdBy: "us_mitchell", createdByKind: "user", fromMeetingId: null, fromReportId: d.id, reportId: null, createdAt: now(), updatedAt: now(),
+    });
+    this.event("assignment.created", a.id, `Assignment for ${a.name}: ${asg.title}`, { assignmentId: asg.id }, a.homeBuildingId);
+    if (a.status === "stopped") this.patchAgent(a.id, { status: "idle" });
+    window.setTimeout(() => { if (this.agents.get(a.id)?.status === "idle") this.startWork(a.id); }, 2500);
+    return { doc: d, assignment: asg };
   }
 
   /** DELETE /api/agents/:id — retire: free the desk, cancel assignments, drop memberships; the row stays. */

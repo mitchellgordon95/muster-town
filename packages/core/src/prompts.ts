@@ -119,9 +119,9 @@ ${transcript || "(empty)"}
 
 Steps:
 1. \`meeting\` action "speak": open with a short agenda (2-4 lines) drawn from the summaries.
-2. \`meeting\` action "listen" at least twice to hear humans and attendees; respond with "speak" when someone asks something.
-3. \`meeting\` action "decide" with 1-5 decisions. Give each actionable decision an assigneeId from the attendee ids above (it becomes their next assignment); use null for general decisions.
-4. \`meeting\` action "end" with a one-line closing. Then stop.`;
+2. Loop: \`meeting\` action "listen" with waitSeconds 60, and answer with "speak" when someone asks something. A human in the meeting may send several messages; keep listening and responding to each one.
+3. \`meeting\` action "decide" with 1-5 decisions once the discussion has settled (you can decide again if more come up). Give each actionable decision an assigneeId from the attendee ids above (it becomes their next assignment); use null for general decisions.
+4. If a human is taking part, they close the meeting with the End meeting button: keep listening until listen returns phase "done", then stop. Otherwise (or once humans have been quiet for a few minutes) use \`meeting\` action "end" with a one-line closing, then stop.`;
 }
 
 export function chatSystemPrompt(agent: Agent): string {

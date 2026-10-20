@@ -141,13 +141,35 @@ export function tiles(): Record<string, HTMLCanvasElement> {
 
 /** Neighbour-aware furniture drawn with rects: meeting table, outbox counter, door. */
 export function drawTable(g: CanvasRenderingContext2D, px: number, py: number, n: { l: boolean; r: boolean; u: boolean; d: boolean }) {
-  g.fillStyle = "#7a5230"; g.fillRect(px, py, T, T);
-  g.fillStyle = "#946538"; g.fillRect(px + (n.l ? 0 : 1), py + (n.u ? 0 : 1), T - (n.l ? 0 : 1) - (n.r ? 0 : 1), T - (n.u ? 0 : 1) - (n.d ? 0 : 4));
-  g.fillStyle = "#a8774a"; if (!n.u) g.fillRect(px + (n.l ? 0 : 1), py + 1, T - (n.l ? 0 : 1) - (n.r ? 0 : 1), 1);
-  if (!n.d) { g.fillStyle = "#5a3a1f"; g.fillRect(px, py + T - 4, T, 4); }
+  const x0 = px + (n.l ? 0 : 1), x1 = px + T - (n.r ? 0 : 1), top = py + (n.u ? 0 : 2), front = py + T - (n.d ? 0 : 5);
+  // legs at the run's ends, then the apron and the top with a lighter rim
+  g.fillStyle = "#4a3018";
+  if (!n.d && !n.l) g.fillRect(x0 + 1, front, 2, py + T - front);
+  if (!n.d && !n.r) g.fillRect(x1 - 3, front, 2, py + T - front);
+  g.fillStyle = "#5a3a1f"; g.fillRect(x0, front, x1 - x0, n.d ? 0 : 2);
+  g.fillStyle = "#946538"; g.fillRect(x0, top, x1 - x0, front - top);
+  g.fillStyle = "#a8774a"; if (!n.u) g.fillRect(x0 + (n.l ? 0 : 1), top, x1 - x0 - (n.l ? 0 : 1) - (n.r ? 0 : 1), 1);
+  g.fillStyle = "#7a5230"; if (!n.l) g.fillRect(x0, top, 1, front - top); if (!n.r) g.fillRect(x1 - 1, top, 1, front - top);
   // papers and mugs so a table reads as a meeting table
-  if ((px + py) % 48 === 0) { g.fillStyle = "#e8e2d0"; g.fillRect(px + 4, py + 4, 6, 5); g.fillStyle = "#9a9db3"; g.fillRect(px + 5, py + 5, 4, 1); }
-  else { g.fillStyle = "#cfe9ff"; g.fillRect(px + 9, py + 6, 3, 3); }
+  if ((px + py) % 48 === 0) { g.fillStyle = "#e8e2d0"; g.fillRect(px + 4, top + 2, 6, 4); g.fillStyle = "#9a9db3"; g.fillRect(px + 5, top + 3, 4, 1); }
+  else { g.fillStyle = "#cfe9ff"; g.fillRect(px + 9, top + 3, 3, 3); g.fillStyle = "#7cc4ff"; g.fillRect(px + 9, top + 3, 3, 1); }
+}
+/** A chair drawn on the floor tile next to a meeting table; `facing` is where the sitter looks. */
+export function drawChair(g: CanvasRenderingContext2D, px: number, py: number, facing: "up" | "down") {
+  g.fillStyle = "rgba(0,0,0,.18)"; g.fillRect(px + 4, py + (facing === "down" ? 13 : 4), 8, 2);
+  if (facing === "down") {
+    // above the table: the back stands behind the seat
+    g.fillStyle = "#3d4a6b"; g.fillRect(px + 4, py + 4, 8, 6);
+    g.fillStyle = "#56648c"; g.fillRect(px + 5, py + 5, 6, 4);
+    g.fillStyle = "#2e3650"; g.fillRect(px + 4, py + 10, 8, 3);
+    g.fillStyle = "#56648c"; g.fillRect(px + 4, py + 10, 8, 1);
+  } else {
+    // below the table: we see the seat edge and the back from behind
+    g.fillStyle = "#2e3650"; g.fillRect(px + 4, py + 0, 8, 3);
+    g.fillStyle = "#3d4a6b"; g.fillRect(px + 4, py + 3, 8, 7);
+    g.fillStyle = "#56648c"; g.fillRect(px + 4, py + 3, 8, 1);
+    g.fillStyle = "#2e3650"; g.fillRect(px + 5, py + 10, 1, 3); g.fillRect(px + 10, py + 10, 1, 3);
+  }
 }
 export function drawCounter(g: CanvasRenderingContext2D, px: number, py: number, n: { l: boolean; r: boolean }, mail: boolean) {
   g.fillStyle = "#4a3320"; g.fillRect(px, py + 6, T, 10);
@@ -237,7 +259,7 @@ export function iconUrl(kind: IconKind): string {
     case "library": g.drawImage(tl.shelf, 0, 0); break;
     case "trophy": g.drawImage(tl.trophy, 0, 0); break;
     case "outbox": drawCounter(g, 0, 2, { l: false, r: false }, true); break;
-    case "meeting": drawTable(g, 0, 0, { l: false, r: false, u: false, d: false }); break;
+    case "meeting": drawChair(g, 0, -4, "down"); drawTable(g, 0, 2, { l: false, r: false, u: false, d: false }); break;
     case "admin": g.drawImage(tl.plant, 2, 0); break;
     case "intray": drawManagerDesk(g, 0, 0); break;
     case "board": g.drawImage(tl.wallFace, 0, 0); drawBoard(g, 0, 0); break;
