@@ -142,12 +142,18 @@ function slug(x: string, n = 40): string {
 function prepareWorkspace(ctx: Ctx, ws: NonNullable<Building["workspace"]>, agent: Agent, assignment: Assignment): { cwd: string; branch: string; base: string; repoName: string } {
   const repo = resolve(ctx.repoRoot, ws.path);
   const branch = `${ws.branchPrefix}/${slug(agent.name, 20)}/${slug(assignment.title)}`;
-  const dir = join(repo, "work", `${slug(agent.name, 20)}-${assignment.id.slice(-6)}`);
   const git = (cmd: string) => execSync(`git ${cmd}`, { cwd: repo, stdio: ["ignore", "pipe", "pipe"] }).toString().trim();
-  if (!existsSync(dir)) {
-    git(`fetch --quiet origin ${ws.base}`);
+  // One worktree per branch: a retried or continued assignment lands in the same place.
+  let dir = join(repo, "work", branch.replace(/\//g, "-"));
+  const checkedOut = git("worktree list --porcelain").split("\n\n").map((blk) => {
+    const path = /^worktree (.+)$/m.exec(blk)?.[1]; const br = /^branch refs\/heads\/(.+)$/m.exec(blk)?.[1]; return { path, br };
+  }).find((w) => w.br === branch)?.path;
+  if (checkedOut) dir = checkedOut;
+  else if (!existsSync(dir)) {
+    try { git(`fetch --quiet origin ${ws.base}`); } catch { /* offline is fine; fork from local base */ }
     const exists = git(`branch --list ${branch}`) !== "";
-    git(`worktree add --quiet ${exists ? "" : `-b ${branch}`} ${JSON.stringify(dir)} ${exists ? branch : `origin/${ws.base}`}`);
+    const base = git(`rev-parse --verify --quiet origin/${ws.base}`) ? `origin/${ws.base}` : ws.base;
+    git(`worktree add --quiet ${exists ? "" : `-b ${branch}`} ${JSON.stringify(dir)} ${exists ? branch : base}`);
   }
   const nm = join(dir, "node_modules");
   if (!existsSync(nm) && existsSync(join(repo, "node_modules"))) symlinkSync(join(repo, "node_modules"), nm, "dir");
