@@ -54,7 +54,7 @@ export interface Runtime {
   /** In-tray "Ask about this": a cheap-model answer about a report, without its author. */
   askAbout(docId: string, question: string, userId: string, history?: { role: "user" | "assistant"; text: string }[]): Promise<{ reply: string }>;
   /** Deliver `text` as the next user message of the agent's running work session. False if none. */
-  interrupt(agentId: string, text: string, from?: string): Promise<boolean>;
+  interrupt(agentId: string, text: string, from?: string, now?: boolean): Promise<boolean>;
   /** Meeting entered collecting (or scheduled → collecting): run attendees' summaries. */
   onMeetingStart(meetingId: string): Promise<void>;
   /** Run one work session now; resolves with the ended session. */
@@ -265,7 +265,7 @@ export function startRuntime(opts: RuntimeOptions): Runtime {
     },
     chat: (agentId, input) => chat(ctx, agentId, input),
     askAbout: (docId, question, userId, history) => askAbout(ctx, docId, question, userId, history),
-    interrupt: async (agentId, text, from) => interrupt(ctx, agentId, text, from),
+    interrupt: async (agentId, text, from, now) => interrupt(ctx, agentId, text, from, now),
     onMeetingStart: (meetingId) => track(onMeetingStart(ctx, mst, meetingId)),
     runWorkSession: (agentId, assignmentId) => startWork(agentId, assignmentId),
     tickOnce,

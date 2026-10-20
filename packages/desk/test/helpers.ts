@@ -102,6 +102,8 @@ export function fakeSdk(turn: Turn): Sdk & { sessions: FakeSession[] } {
       let fire!: () => void;
       const s: FakeSession = { params, received: [], interrupted: false, interruptedSignal: new Promise<void>((r) => { fire = r; }) };
       sessions.push(s);
+      // like the real SDK, interrupt() aborts only the current turn; queued user messages still run after it
+      let abort = false;
       const gen = (async function* () {
         let n = 0;
         for await (const msg of params.prompt as AsyncIterable<SDKUserMessage>) {
@@ -109,18 +111,19 @@ export function fakeSdk(turn: Turn): Sdk & { sessions: FakeSession[] } {
           s.received.push(text);
           n++;
           let sawResult = false;
+          abort = false;
           for await (const m of turn(s, text, n)) {
             if ((m as { type?: string }).type === "result") sawResult = true;
             yield m;
-            if (s.interrupted) break;
+            if (abort) break;
           }
-          if (s.interrupted) { yield result(n, { subtype: "error_during_execution", is_error: true, errors: ["interrupted"] }); return; }
+          if (abort) { yield result(n, { subtype: "error_during_execution", is_error: true, errors: ["interrupted"] }); continue; }
           if (!sawResult) yield result(n);
         }
       })();
       return {
         [Symbol.asyncIterator]: () => gen,
-        async interrupt() { s.interrupted = true; fire(); return undefined; },
+        async interrupt() { s.interrupted = true; abort = true; fire(); return undefined; },
         async return() { await gen.return(undefined); return undefined; },
       };
     },

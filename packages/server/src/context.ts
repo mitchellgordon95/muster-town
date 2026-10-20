@@ -10,7 +10,7 @@ export interface RuntimeHooks {
   /** Ask about a report without its author: cheap model over the report body, the author's recent events, and the building's goal/rules. */
   askAbout?(docId: string, question: string, userId: string, history?: { role: "user" | "assistant"; text: string }[]): Promise<string | { reply: string }>;
   /** Deliver `text` as the next user message of the agent's in-process session. `false` = none (the server queues it). */
-  interrupt(agentId: string, text: string, from?: string): Promise<unknown> | unknown;
+  interrupt(agentId: string, text: string, from?: string, now?: boolean): Promise<unknown> | unknown;
   /** A desk reported activity: append `agent.tool`/`agent.thought`/`agent.activity` events (payload.sessionId). */
   onDeskActivity?(agentId: string, input: DeskActivityInput): Promise<unknown> | unknown;
   /** End a work session (desk session-end): fallback report, status, charge. Idempotent. */

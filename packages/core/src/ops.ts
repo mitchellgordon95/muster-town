@@ -212,11 +212,11 @@ export class Ops {
 
   // ---- interrupts (queued for sessions that run outside the server process, i.e. desks) ----
   /** Queue `text` for the agent's running session (or its next one if none is running). */
-  enqueueInterrupt(agentId: string, text: string, from: string): Interrupt {
+  enqueueInterrupt(agentId: string, text: string, from: string, now = false): Interrupt {
     const agent = this.world.agents.require(agentId, "agent");
     const running = this.world.sessions.first("agentId = ? AND status = 'running' AND purpose = 'work'", [agentId], "ORDER BY startedAt DESC, rowid DESC");
-    const it = this.world.interrupts.upsert({ id: newId("in"), agentId, sessionId: running?.id ?? null, text, from, createdAt: nowIso(), deliveredAt: null });
-    this.world.events.append({ type: "system", agentId, buildingId: homeOf(agent), text: `Interrupt for ${agent.name}: ${text.slice(0, 200)}`, payload: { sessionId: it.sessionId, interrupt: true, queued: true, interruptId: it.id, text } });
+    const it = this.world.interrupts.upsert({ id: newId("in"), agentId, sessionId: running?.id ?? null, text, from, now, createdAt: nowIso(), deliveredAt: null });
+    this.world.events.append({ type: "system", agentId, buildingId: homeOf(agent), text: `Interrupt for ${agent.name}: ${text.slice(0, 200)}`, payload: { sessionId: it.sessionId, interrupt: true, queued: true, interruptId: it.id, text, now } });
     return it;
   }
   /** Undelivered interrupts for the agent, oldest first: those for `sessionId` plus unbound ones (sessionId null). */

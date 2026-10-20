@@ -90,10 +90,15 @@ describe("agent-scoped desk API", () => {
     expect(q.status).toBe(200);
     expect(q.body).toMatchObject({ ok: true, queued: true });
     const c1 = await json(app, "GET", `/api/agents/me/control?session=${sessionId}`, { headers: as(agent) });
-    expect(c1.body).toEqual({ interrupts: [{ id: q.body.interruptId, text: "Focus on 13C", from: world.users.require(world.users.first("1=1")!.id).name }], stop: false });
+    expect(c1.body).toEqual({ interrupts: [{ id: q.body.interruptId, text: "Focus on 13C", from: world.users.require(world.users.first("1=1")!.id).name, now: false }], stop: false });
     const ack = await app.inject({ method: "POST", url: "/api/agents/me/control/ack", headers: as(agent), payload: { ids: [q.body.interruptId] } });
     expect(ack.statusCode).toBe(204);
     expect((await json(app, "GET", `/api/agents/me/control?session=${sessionId}`, { headers: as(agent) })).body).toEqual({ interrupts: [], stop: false });
+    // "send now" rides along so the desk stops the current turn before delivering it
+    const n = await json(app, "POST", `/api/agents/${agent.id}/interrupt`, { headers: admin, body: { text: "Drop that", now: true } });
+    const c2 = await json(app, "GET", `/api/agents/me/control?session=${sessionId}`, { headers: as(agent) });
+    expect(c2.body.interrupts).toEqual([expect.objectContaining({ id: n.body.interruptId, text: "Drop that", now: true })]);
+    await app.inject({ method: "POST", url: "/api/agents/me/control/ack", headers: as(agent), payload: { ids: [n.body.interruptId] } });
     expect((await json(app, "POST", `/api/agents/${agent.id}/stop`, { headers: admin })).status).toBe(200);
     expect((await json(app, "GET", `/api/agents/me/control?session=${sessionId}`, { headers: as(agent) })).body.stop).toBe(true);
   });

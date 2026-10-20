@@ -116,7 +116,7 @@ export function createRepos(db: DB, changes: Emitter<ServerMessage>) {
     messages: new Table<Message>(db, "messages", Message),
     meetings: new Table<Meeting>(db, "meetings", Meeting, { json: ["attendeeIds", "summaries", "transcript", "decisions"] }, (meeting) => changes.emit({ type: "meeting", meeting })),
     sessions: new Table<Session>(db, "sessions", Session),
-    interrupts: new Table<Interrupt>(db, "interrupts", Interrupt),
+    interrupts: new Table<Interrupt>(db, "interrupts", Interrupt, { bool: ["now"] }),
     tokens: new Tokens(db),
     town: new TownMeta(db),
   };

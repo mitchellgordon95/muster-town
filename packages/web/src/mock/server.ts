@@ -78,12 +78,13 @@ export class MockApi implements Api {
     return { session: d.currentSession, transcript: clone(this.sim.events.filter((e) => e.agentId === id && e.ts >= since)) };
   }
   async work(id: string, i: In<typeof WorkInput>) { await wait(); return clone(this.sim.startWork(id, i.title, i.description)); }
-  async interrupt(id: string, text: string) {
+  async interrupt(id: string, text: string, now = false) {
     await wait();
     const a = this.need(this.sim.agents.get(id), "agent");
-    this.sim.event("agent.activity", id, `Interrupt from Mitchell: ${text}`, { activity: "Reading your interrupt" });
-    setTimeout(() => this.sim.event("agent.thought", id, `Noted, ${text.length > 40 ? "adjusting course" : `"${text}"`}. I'll fold that into this session.`), 1500);
-    void a;
+    const working = a.status === "working";
+    this.sim.event("system", id, `Interrupt for ${a.name}: ${text}`, { interrupt: true, text, now, sessionId: working ? `se_${id}` : null });
+    if (!working) return;
+    setTimeout(() => this.sim.event("agent.thought", id, `Noted, ${text.length > 40 ? "adjusting course" : `"${text}"`}. I'll fold that into this session.`), now ? 800 : 4000);
   }
   async chat(id: string, i: In<typeof ChatInput>) {
     await wait(700);
@@ -96,7 +97,7 @@ export class MockApi implements Api {
       return hits.length ? `I found ${hits.length} in the library: ${hits.map((d) => `"${d.title}"`).join(", ")}. Open the Library tab to read them.` : `Nothing in the library matches that yet. The closest thing is "GCB 2025 ESSD", our main source for the carbon budget.`;
     }
     const asg = a.currentAssignmentId ? this.sim.assignments.get(a.currentAssignmentId) : null;
-    if (/redirect|instead|change|switch/.test(i.message.toLowerCase())) return `I can't change direction from chat. Use Interrupt on the Session tab, or Redirect on my report at the in-tray.`;
+    if (/redirect|instead|change|switch/.test(i.message.toLowerCase())) return `I can't change direction from chat. Message me from the Activity tab while I work, or Redirect on my report at the in-tray.`;
     if (a.status === "working") return `I'm working on "${asg?.title}". Right now: ${a.activity.toLowerCase()}. I expect to submit a report in a few minutes.`;
     const pending = [...this.sim.docs.values()].find((d) => d.type === "report" && d.authorId === a.id && d.decision === "pending");
     if (pending) return `My last report, "${pending.title}", is in the in-tray on the manager's desk. I'm idle until someone gives me an assignment.`;
