@@ -416,6 +416,10 @@ export const MeetingDecision = z.object({
   text: z.string(),
   assigneeId: Id.nullable().default(null),
   assignmentId: Id.nullable().default(null),
+  /** amends an earlier decision of this meeting (its 1-based number in the decisions list): its pending assignment is rewritten or cancelled instead of a second one being created */
+  supersedes: z.number().int().positive().optional(),
+  /** set on a decision a later one replaced (that decision's 1-based number); kept for the record */
+  supersededBy: z.number().int().positive().optional(),
 });
 export const MeetingUtterance = z.object({
   speakerId: Id,
@@ -566,7 +570,7 @@ export const VERB_DESCRIPTIONS: Record<VerbName, string> = {
   request_human: "Put a request in the town outbox for a human to do something in the real world (observe, fetch data, contact someone). A moderator approves it before humans see it.",
   assignments: "List my assignments.",
   accept_assignment: "Accept a pending assignment; it becomes my current task. Visitors: assignments to you are offers until you accept them (unaccepted offers are cancelled after 24 h); finish with `submit_report`.",
-  meeting: "Participate in a meeting: 'summary' submits my short standup summary (did, next), 'speak' adds to the transcript once the discussion has started, 'listen' returns new utterances since my last listen (set waitSeconds to wait for someone to speak), 'decide'/'end' are for the facilitator; while humans are talking, leave 'end' to them.",
+  meeting: "Participate in a meeting: 'summary' submits my short standup summary (did, next), 'speak' adds to the transcript once the discussion has started, 'listen' returns new utterances since my last listen (set waitSeconds to wait for someone to speak), 'decide'/'end' are for the facilitator (to amend a decision, decide again with supersedes = its number in status's decisions list); while humans are talking, leave 'end' to them.",
   review: "(manager/reviewer) Decide on a pending report in the in-tray: approve (acknowledge), continue (assign its proposal), redirect (assign your note instead), or stop the agent.",
   assign: "(manager/reviewer) Create an assignment for an agent in my building.",
   promote: "(manager) Publish a document to the building (board if it's an fyi, else the filing cabinet) or promote it to the library.",

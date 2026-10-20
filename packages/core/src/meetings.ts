@@ -1,5 +1,5 @@
 import { CreateMeetingInput, Meeting, type Agent } from "@muster-town/schema";
-import { applyDecision, createAssignment, createDoc, sendMessage, updateDoc } from "./domain.ts";
+import { applyDecision, createAssignment, createDoc, sendMessage, setAssignmentStatus, updateDoc } from "./domain.ts";
 import { AppError, badRequest, forbidden, notFound } from "./errors.ts";
 import { buildingRoleId, townRoleId } from "./permissions.ts";
 import { notifyMentions } from "./mentions.ts";
@@ -115,7 +115,12 @@ export function canFacilitate(world: World, actor: Agent, m: Meeting): boolean {
   return m.facilitatorId === actor.id || world.permissions.can(actor, "meeting.facilitate", m.buildingId ?? TOWN_HALL_ID);
 }
 
-/** Record decisions; each with an assigneeId becomes an assignment (fromMeetingId set); a stopped assignee is resumed. */
+/**
+ * Record decisions; each with an assigneeId becomes an assignment (fromMeetingId set); a stopped assignee is resumed.
+ * A decision with `supersedes: n` amends this meeting's decision n instead of adding a second assignment: for the same
+ * assignee its pending (or running) assignment is rewritten in place; otherwise its pending assignment is cancelled and
+ * the new assignee (if any) gets a fresh one. The old decision stays in the record, marked `supersededBy`.
+ */
 export function meetingDecide(world: World, actor: Agent | null, meetingId: string, decisions: Meeting["decisions"]): Meeting {
   const m = world.meetings.require(meetingId, "meeting");
   if (actor && !canFacilitate(world, actor, m)) throw forbidden("meeting.facilitate", "Only the facilitator can record decisions.");
@@ -124,23 +129,59 @@ export function meetingDecide(world: World, actor: Agent | null, meetingId: stri
   const late = m.phase === "done" && !!m.endedAt && Date.now() - Date.parse(m.endedAt) <= DECIDE_GRACE_MS;
   if (m.phase === "cancelled" || (m.phase === "done" && !late)) throw new AppError("conflict", `Meeting is ${m.phase}; decisions can't be added.`);
   const by = actor ? world.holderOf(actor) : { kind: "system" as const, id: "system" };
-  const made = decisions.map((d) => {
-    if (!d.assigneeId || d.assignmentId) return d;
-    // A meeting decision that assigns an agent acknowledges (approve) its pending reports as superseded, so the
-    // invariant "every report gets a decision" holds and the in-tray doesn't hold stale reports.
-    for (const pending of world.docs.where("authorId = ? AND type = 'report' AND decision = 'pending'", [d.assigneeId], "ORDER BY createdAt")) {
-      applyDecision(world, pending.id, "approve", `Superseded by a decision in meeting "${m.title}": ${d.text.split("\n")[0].slice(0, 160)}`, by);
+  // validate every supersedes before touching anything, so a bad batch changes nothing
+  const replaced = new Set<number>();
+  for (const d of decisions) {
+    if (d.supersedes === undefined) continue;
+    const n = d.supersedes;
+    const old = m.decisions[n - 1];
+    if (!old) throw badRequest(`supersedes ${n}: this meeting has no decision ${n} yet (it has ${m.decisions.length}).`);
+    if (old.supersededBy || replaced.has(n)) throw new AppError("conflict", `Decision ${n} was already superseded${old.supersededBy ? ` by decision ${old.supersededBy}` : ""}; supersede the newer one.`);
+    replaced.add(n);
+    const prev = old.assignmentId ? world.assignments.get(old.assignmentId) : undefined;
+    if (prev?.status === "active" && d.assigneeId !== prev.agentId) {
+      throw new AppError("conflict", `${world.nameOf(prev.agentId)} is already working on "${prev.title}"; amend it for the same assignee, or stop them first.`);
     }
-    const a = createAssignment(world, { agentId: d.assigneeId, title: d.text.split("\n")[0].slice(0, 120), description: `${d.text}\n\nDecided in meeting "${m.title}".`, createdBy: by, fromMeetingId: m.id });
-    if (world.agents.get(d.assigneeId)?.status === "stopped") world.setStatus(d.assigneeId, "idle", `${world.nameOf(d.assigneeId)} was resumed by a decision in "${m.title}"`);
-    return { ...d, assignmentId: a.id };
-  });
-  const updated = world.meetings.upsert({ ...m, decisions: [...m.decisions, ...made] });
+  }
+  const all: Meeting["decisions"] = m.decisions.map((d) => ({ ...d }));
+  const made: Meeting["decisions"] = [];
+  for (const { supersededBy: _ignored, ...d } of decisions) {
+    const num = all.length + 1;
+    const title = d.text.split("\n")[0].slice(0, 120);
+    let out: Meeting["decisions"][number] = d;
+    if (d.supersedes !== undefined) {
+      const old = all[d.supersedes - 1];
+      old.supersededBy = num;
+      const prev = old.assignmentId ? world.assignments.get(old.assignmentId) : undefined;
+      if (prev && (prev.status === "pending" || prev.status === "active")) {
+        if (d.assigneeId === prev.agentId) {
+          world.assignments.upsert({ ...prev, title, description: `${d.text}\n\nDecided in meeting "${m.title}" (amended; replaces: ${old.text.split("\n")[0].slice(0, 160)}).`, updatedAt: nowIso() });
+          if (prev.status === "active") sendMessage(world, { kind: "system", fromId: "system", fromKind: "system", toId: prev.agentId, body: `Your current assignment was amended in meeting "${m.title}": ${d.text}` });
+          out = { ...d, assignmentId: prev.id };
+        } else {
+          setAssignmentStatus(world, prev.id, "cancelled");
+        }
+      }
+    }
+    if (out.assigneeId && !out.assignmentId) {
+      // A meeting decision that assigns an agent acknowledges (approve) its pending reports as superseded, so the
+      // invariant "every report gets a decision" holds and the in-tray doesn't hold stale reports.
+      for (const pending of world.docs.where("authorId = ? AND type = 'report' AND decision = 'pending'", [out.assigneeId], "ORDER BY createdAt")) {
+        applyDecision(world, pending.id, "approve", `Superseded by a decision in meeting "${m.title}": ${d.text.split("\n")[0].slice(0, 160)}`, by);
+      }
+      const a = createAssignment(world, { agentId: out.assigneeId, title, description: `${d.text}\n\nDecided in meeting "${m.title}".`, createdBy: by, fromMeetingId: m.id });
+      if (world.agents.get(out.assigneeId)?.status === "stopped") world.setStatus(out.assigneeId, "idle", `${world.nameOf(out.assigneeId)} was resumed by a decision in "${m.title}"`);
+      out = { ...out, assignmentId: a.id };
+    }
+    all.push(out);
+    made.push(out);
+  }
+  const updated = world.meetings.upsert({ ...m, decisions: all });
   world.events.append({ type: "meeting.decisions", buildingId: m.buildingId, text: `${m.title}: ${made.length} decision(s)${late ? " (recorded after close)" : ""}`, payload: { meetingId: m.id, decisions: made, late } });
   if (late && m.notesDocId) {
     // the notes were written at close; append what came in during the grace window so nothing is lost
     const notes = world.docs.get(m.notesDocId);
-    if (notes) updateDoc(world, notes.id, { body: `${notes.body.trimEnd()}\n\n## Decisions recorded after close\n${made.map((d) => `- ${d.text}${d.assigneeId ? ` (→ ${world.agents.get(d.assigneeId)?.name ?? d.assigneeId})` : ""}`).join("\n")}\n` });
+    if (notes) updateDoc(world, notes.id, { body: `${notes.body.trimEnd()}\n\n## Decisions recorded after close\n${made.map((d) => `- ${d.supersedes ? `(replaces decision ${d.supersedes}) ` : ""}${d.text}${d.assigneeId ? ` (→ ${world.agents.get(d.assigneeId)?.name ?? d.assigneeId})` : ""}`).join("\n")}\n` });
   }
   return updated;
 }
@@ -160,7 +201,7 @@ export function endMeeting(world: World, actor: Agent | null, meetingId: string,
     "", "## Agenda", "", m.agenda || "(none)",
     "", "## Summaries", "", ...(Object.entries(m.summaries).map(([id, s]) => `**${name(id)}:** ${s}`)), Object.keys(m.summaries).length ? "" : "(none)",
     "## Discussion", "", ...m.transcript.map((u) => `- **${name(u.speakerId)}:** ${u.text}`), m.transcript.length ? "" : "(none)",
-    "## Decisions", "", ...m.decisions.map((d) => `- ${d.text}${d.assigneeId ? ` → ${name(d.assigneeId)}` : ""}`), m.decisions.length ? "" : "(none)",
+    "## Decisions", "", ...m.decisions.map((d, i) => `${i + 1}. ${d.supersededBy ? `~~${d.text}~~ (superseded by ${d.supersededBy})` : d.text}${d.assigneeId ? ` → ${name(d.assigneeId)}` : ""}`), m.decisions.length ? "" : "(none)",
     ...(closing ? ["## Closing", "", closing] : []),
   ].join("\n");
   const authorAgent = actor ?? (m.facilitatorId ? world.agents.get(m.facilitatorId) ?? null : null);

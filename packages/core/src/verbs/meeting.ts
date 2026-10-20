@@ -27,7 +27,7 @@ export async function meeting(world: World, me: Agent, input: VerbIn<"meeting">)
         id: m.id, title: m.title, kind: m.kind, phase: m.phase, agenda: m.agenda, facilitator: m.facilitatorId ? name(m.facilitatorId) : null,
         attendees: m.attendeeIds.map((id) => ({ id, name: name(id), summary: m.summaries[id] ?? null })),
         transcript: m.transcript.slice(-30).map((u) => ({ speaker: name(u.speakerId), speakerKind: u.speakerKind, text: u.text, at: u.at })),
-        decisions: m.decisions,
+        decisions: m.decisions.map((d, i) => ({ n: i + 1, ...d })),
       };
     case "summary": {
       if (!input.text?.trim()) throw badRequest("summary needs text (up to three short lines).");
@@ -60,7 +60,7 @@ export async function meeting(world: World, me: Agent, input: VerbIn<"meeting">)
     }
     case "decide":
       if (!input.decisions?.length) throw badRequest("decide needs decisions.");
-      return { decisions: meetingDecide(world, me, m.id, input.decisions).decisions };
+      return { decisions: meetingDecide(world, me, m.id, input.decisions).decisions.map((d, i) => ({ n: i + 1, ...d })) };
     case "end": {
       if (me.kind !== "human" && humanStillTalking(m)) {
         throw new AppError("conflict", "A human is talking in this meeting. Keep listening (waitSeconds 60) and answer them; they'll end it with End meeting, or you can end it once they've been quiet for a few minutes.");

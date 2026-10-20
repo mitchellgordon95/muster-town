@@ -150,4 +150,38 @@ describe("meetings", () => {
     expect(world.docs.where("type = 'meeting-notes'")).toEqual([]);
     expect(world.meetings.require(m.id)).toMatchObject({ phase: "cancelled", notesDocId: null });
   });
+  it("a superseding decision rewrites or cancels the earlier assignment instead of adding a second one", async () => {
+    const { world, by, admin } = seededWorld();
+    const m = world.ops.createMeeting(admin, { kind: "standup", buildingId: "carbon-cycle", startNow: true });
+    world.ops.startMeeting(admin, m.id);
+    const decide = (decisions: { text: string; assigneeId: string | null; supersedes?: number }[]) =>
+      world.verbs.meeting(by("Moss"), { meetingId: m.id, action: "decide", decisions: decisions.map((d) => ({ assignmentId: null, ...d })) }) as Promise<{ decisions: { n: number; assignmentId: string | null; supersededBy?: number }[] }>;
+    const noor = by("Noor").id, mei = by("Mei").id;
+    const first = await decide([{ text: "Noor: reconcile growth rates", assigneeId: noor }, { text: "Mei: SOCAT check", assigneeId: mei }]);
+    const [a1, a2] = first.decisions.map((d) => d.assignmentId!);
+    // same assignee: the pending assignment is rewritten in place
+    const amended = await decide([{ text: "Noor: reconcile growth rates, NOAA only", assigneeId: noor, supersedes: 1 }]);
+    expect(amended.decisions[2]).toMatchObject({ n: 3, assignmentId: a1 });
+    expect(amended.decisions[0].supersededBy).toBe(3);
+    expect(world.assignments.require(a1)).toMatchObject({ status: "pending", title: "Noor: reconcile growth rates, NOAA only" });
+    expect(world.assignments.where("agentId = ? AND status = 'pending'", [noor])).toHaveLength(1);
+    // reassigned: the old one is cancelled, the new assignee gets a fresh one
+    const moved = await decide([{ text: "Noor takes the SOCAT check instead", assigneeId: noor, supersedes: 2 }]);
+    expect(world.assignments.require(a2).status).toBe("cancelled");
+    expect(moved.decisions[3].assignmentId).not.toBe(a2);
+    // dropped: a general decision cancels it outright
+    await decide([{ text: "Drop the NOAA reconciliation", assigneeId: null, supersedes: 3 }]);
+    expect(world.assignments.require(a1).status).toBe("cancelled");
+    // can't supersede twice or a decision that doesn't exist; a bad batch changes nothing
+    await expect(decide([{ text: "again", assigneeId: null, supersedes: 1 }])).rejects.toMatchObject({ code: "conflict" });
+    await expect(decide([{ text: "x", assigneeId: mei }, { text: "y", assigneeId: null, supersedes: 99 }])).rejects.toMatchObject({ code: "bad_request" });
+    expect(world.meetings.require(m.id).decisions).toHaveLength(5);
+    // a running assignment can only be amended for the same agent
+    world.assignments.upsert({ ...world.assignments.require(moved.decisions[3].assignmentId!), status: "active" });
+    await expect(decide([{ text: "Mei after all", assigneeId: mei, supersedes: 4 }])).rejects.toMatchObject({ code: "conflict" });
+    await decide([{ text: "Noor: SOCAT check, 2023 only", assigneeId: noor, supersedes: 4 }]);
+    expect((await world.verbs.inbox(by("Noor"), {})).messages.some((x) => x.body.includes("amended"))).toBe(true);
+    world.ops.endMeeting(admin, m.id);
+    expect(world.docs.require(world.meetings.require(m.id).notesDocId!).body).toContain("~~Mei: SOCAT check~~ (superseded by 4)");
+  });
 });
