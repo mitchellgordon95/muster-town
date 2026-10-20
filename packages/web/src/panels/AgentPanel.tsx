@@ -8,6 +8,7 @@ import { PanelShell } from "./PanelShell";
 import { Markdown } from "./Markdown";
 import { Act, Empty, KV, Pill, Section, StatusPill, clock, fmtTokens, timeAgo, usd, useLoad } from "./ui";
 import { portraitUrl } from "../map/sprites";
+import { SignInNote } from "../auth/auth";
 
 type Msg = { role: "user" | "assistant"; text: string; ts: string };
 const chats = new Map<string, Msg[]>();
@@ -130,7 +131,7 @@ function TalkTab({ agent }: { agent: Agent }) {
         <div className="callout">{agent.name} is stopped. A message wakes them, or <Act small run={async () => { await api().resume(agent.id); store.toast(`${agent.name} is idle again`, "ok"); }}>Resume</Act> without one.</div>
       ) : null}
       <Timeline items={timeline} agentName={agent.name} empty={isService ? `Ask ${agent.name} where to find something in the library.` : isVisitor && talkable ? `No messages yet. What you send waits in ${agent.name}'s inbox until their session reads it.` : talkable ? `Say something to ${agent.name}. They reply here.` : `${agent.name} hasn't done anything yet.`} />
-      {isHuman ? null : <Composer agent={agent} talkable={talkable} canControl={canControl} outOfBudget={agent.status === "out-of-budget" || (daily > 0 && agent.spentTokensToday >= daily)} log={log} setLog={setLog} />}
+      {isHuman ? null : !me ? <SignInNote to={`talk to ${agent.name}`} /> : <Composer agent={agent} talkable={talkable} canControl={canControl} outOfBudget={agent.status === "out-of-budget" || (daily > 0 && agent.spentTokensToday >= daily)} log={log} setLog={setLog} />}
     </div>
   );
 }

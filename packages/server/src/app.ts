@@ -7,6 +7,7 @@ import { existsSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { ZodError } from "zod";
+import { authRoutes, defaultAuthSettings, sessionAuth, type AuthSettings } from "./auth/index.ts";
 import { bearer, resolveToken, type RuntimeHooks } from "./context.ts";
 import { mcpRoutes } from "./mcp.ts";
 import { agentRoutes } from "./routes/agents.ts";
@@ -26,9 +27,11 @@ export interface BuildAppOptions {
   /** built web client to serve at `/` (default packages/web/dist; skipped if missing; `false` disables) */
   webDist?: string | false;
   logger?: boolean;
+  /** sign-in settings (GitHub OAuth, session secret, admin allowlist); default: no GitHub, per-process secret */
+  auth?: Partial<AuthSettings>;
 }
 
-const API_PREFIXES = ["/api", "/ws", "/mcp"];
+const API_PREFIXES = ["/api", "/ws", "/mcp", "/auth"];
 
 /** The Fastify app (not listening). Tests use `app.inject`; `main.ts` calls `listen`. */
 export async function buildApp(opts: BuildAppOptions): Promise<FastifyInstance> {
@@ -37,12 +40,14 @@ export async function buildApp(opts: BuildAppOptions): Promise<FastifyInstance> 
   app.decorate("runtime", opts.runtime ?? null);
   app.decorate("dev", !!opts.dev);
   app.decorateRequest("auth", null);
+  const authSettings = defaultAuthSettings(opts.auth);
 
   await app.register(cors, { origin: opts.dev ? true : false });
   await app.register(websocket);
 
   app.addHook("onRequest", async (req) => {
-    req.auth = resolveToken(opts.world, bearer(req.headers.authorization));
+    // bearer token first, then the browser session cookie
+    req.auth = resolveToken(opts.world, bearer(req.headers.authorization)) ?? sessionAuth(opts.world, authSettings, req);
   });
 
   app.setErrorHandler((err, req, reply) => {
@@ -55,6 +60,7 @@ export async function buildApp(opts: BuildAppOptions): Promise<FastifyInstance> 
     return reply.code(500).send({ error: "Internal server error", code: "internal" });
   });
 
+  await app.register(authRoutes(authSettings));
   await app.register(townRoutes);
   await app.register(deskRoutes);
   await app.register(agentRoutes);

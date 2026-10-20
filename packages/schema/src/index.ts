@@ -29,6 +29,11 @@ export const User = z.object({
   donatedTokens: z.number().int().nonnegative().default(0),
   /** whether an Anthropic API key is stored for this user (never expose the key) */
   hasApiKey: z.boolean().default(false),
+  /** GitHub login (set when the user signed in with GitHub) */
+  githubLogin: z.string().optional(),
+  /** GitHub numeric user id: the stable key for GitHub sign-in */
+  githubId: z.number().int().optional(),
+  avatarUrl: z.string().optional(),
 });
 export type User = z.infer<typeof User>;
 
@@ -690,6 +695,11 @@ export type RedeployResult = z.infer<typeof RedeployResult>;
 
 export const AuthMe = z.object({ user: User, roles: z.array(Role), avatarAgentId: Id.nullable(), isAdmin: z.boolean() });
 export type AuthMe = z.infer<typeof AuthMe>;
+/** `GET /api/auth/config`: what sign-in the server offers (`githubClientId` null = GitHub login not configured). */
+export const AuthConfig = z.object({ githubClientId: z.string().nullable(), publicUrl: z.string() });
+export type AuthConfig = z.infer<typeof AuthConfig>;
+/** `POST /api/auth/github/device`: a GitHub access token from the device flow (verified, never stored). */
+export const GithubDeviceInput = z.object({ accessToken: z.string().min(1) });
 
 // ---------- collective (one instance of the town: config + data dir + seed buildings) ----------
 export const CollectiveBuildingSpec = z.object({

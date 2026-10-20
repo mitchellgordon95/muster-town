@@ -7,6 +7,7 @@ import { LayoutToolbar } from "./panels/LayoutToolbar";
 import { MapCanvas, mapRenderer, typing } from "./map/MapCanvas";
 import type { Target } from "./map/renderer";
 import { Hint, Hud, SayBox, Toasts } from "./hud";
+import { authStore, forceGuest, loadAuthConfig, takeAuthError, useAuth } from "./auth/auth";
 import { AgentPanel } from "./panels/AgentPanel";
 import { BuildingPanel } from "./panels/BuildingPanel";
 import { LibraryPanel, TrophyPanel } from "./panels/LibraryPanel";
@@ -25,16 +26,36 @@ let booting: Promise<Phase> | null = null;
 /** StrictMode runs effects twice in dev; boot (and the WS) must happen once. */
 const bootOnce = () => (booting ??= boot());
 
+/**
+ * Who am I: a pasted/dev bearer token, else the GitHub session cookie, else a read-only guest (no token prompt).
+ * Guests load the town, open the WS without `auth`, and walk a local-only ghost.
+ */
 async function boot(): Promise<Phase> {
   const a = await getApi();
-  let token = tokenStore.get();
-  if (!token) { token = await a.devAdminToken(); if (token) tokenStore.set(token); }
-  if (!token) return { k: "login" };
-  try {
-    store.set({ me: await a.me() });
-  } catch (e) {
-    if (e instanceof ApiError && (e.status === 401 || e.status === 403)) { tokenStore.set(null); return { k: "login", error: "That token wasn't accepted." }; }
-    return { k: "login", error: `Can't reach the server: ${(e as Error).message}` };
+  const cfg = await loadAuthConfig();
+  authStore.set({ github: !!cfg?.githubClientId });
+  const authError = takeAuthError();
+  if (authError) store.toast(`GitHub sign-in failed: ${authError}`, "bad");
+  const guestOnly = forceGuest();
+  let token = guestOnly ? null : tokenStore.get();
+  if (!token && !guestOnly) { token = await a.devAdminToken(); if (token) tokenStore.set(token); }
+  let tokenRejected = false;
+  if (token) {
+    try {
+      store.set({ me: await a.me() });
+    } catch (e) {
+      if (!(e instanceof ApiError && (e.status === 401 || e.status === 403))) return { k: "login", error: `Can't reach the server: ${(e as Error).message}` };
+      tokenStore.set(null); token = null; tokenRejected = true;
+    }
+  }
+  // no (valid) token: a GitHub session cookie, if any, rides on the same-origin request
+  if (!token && !guestOnly && !a.mock) {
+    try { store.set({ me: await a.me() }); authStore.set({ session: true }); } catch { /* not signed in */ }
+  }
+  if (!store.state.me) {
+    authStore.set({ guest: true });
+    if (tokenRejected) store.toast("That token wasn't accepted. You're browsing as a guest.", "bad");
+    a.town().then((snap) => store.applySnapshot(snap), () => undefined);
   }
   connect(token);
   store.onLayoutChanged = () => { a.town().then((s) => store.applySnapshot(s), () => undefined); };
@@ -42,11 +63,12 @@ async function boot(): Promise<Phase> {
   return { k: "ready" };
 }
 
-function connect(token: string, attempt = 0) {
+/** With a token: `auth` first. Without one, the server signs the socket in from the session cookie, or keeps it a read-only guest. */
+function connect(token: string | null, attempt = 0) {
   store.set({ conn: "connecting" });
   let opened = false;
   socket = api().connect({
-    onOpen: () => { opened = true; socket?.send({ type: "auth", token }); store.set({ conn: "open" }); },
+    onOpen: () => { opened = true; if (token) socket?.send({ type: "auth", token }); store.set({ conn: "open" }); },
     onMessage: (m) => store.receive(m),
     onClose: () => {
       store.set({ conn: "closed" });
@@ -123,21 +145,24 @@ export function App() {
     window.addEventListener("keydown", key);
     return () => window.removeEventListener("keydown", key);
   }, []);
-  const onMove = useCallback((x: number, y: number) => socket?.send({ type: "human.move", x, y }), []);
+  const { guest } = useAuth();
+  // a guest's ghost is local-only: nothing is sent
+  const onMove = useCallback((x: number, y: number) => { if (!authStore.get().guest) socket?.send({ type: "human.move", x, y }); }, []);
   const say = useCallback((text: string) => {
+    if (authStore.get().guest) { store.toast("Sign in to talk.", "bad"); return; }
     socket?.send({ type: "human.say", text });
     store.said.set(store.avatarId ?? "__me", { text, at: performance.now() });
   }, []);
 
-  if (phase.k === "login") return <Login error={phase.error} onDone={() => { booting = null; setPhase({ k: "booting" }); bootOnce().then(setPhase); }} />;
+  if (phase.k === "login") return <Login error={phase.error} onDone={() => { location.href = "/"; }} onCancel={authStore.get().guest ? () => setPhase({ k: "ready" }) : undefined} />;
   return (
     <div className="app">
       <MapCanvas panelInset={panel ? pw : 0} onTarget={setTarget} onMove={onMove} />
       {!ready ? <div className="loading-screen"><div className="spin big" /><div>Entering town…</div></div> : null}
-      <Hud />
+      <Hud onPasteToken={() => setPhase({ k: "login" })} />
       <div className="bottom" style={{ right: panel ? pw : 0 }}>
         <Hint target={target} saying={saying} />
-        {saying ? <SayBox inputRef={sayRef} onSend={say} onCancel={() => setSaying(false)} /> : null}
+        {saying && !guest ? <SayBox inputRef={sayRef} onSend={say} onCancel={() => setSaying(false)} /> : null}
       </div>
       {panel ? <aside className="panel" style={{ width: pw }}><PanelBoundary key={`${panel.kind}:${panel.id ?? ""}:${panel.docId ?? ""}`}><PanelHost panel={panel} /></PanelBoundary></aside> : null}
       <LayoutToolbar />
@@ -147,7 +172,7 @@ export function App() {
   );
 }
 
-function Login({ error, onDone }: { error?: string; onDone: () => void }) {
+function Login({ error, onDone, onCancel }: { error?: string; onDone: () => void; onCancel?: () => void }) {
   const [t, setT] = useState("");
   return (
     <div className="login">
@@ -157,6 +182,7 @@ function Login({ error, onDone }: { error?: string; onDone: () => void }) {
         {error ? <div className="error-line">{error}</div> : null}
         <input autoFocus type="password" value={t} onChange={(e) => setT(e.target.value)} placeholder="Token" />
         <button className="btn primary" disabled={!t.trim()}>Enter town</button>
+        {onCancel ? <button type="button" className="btn" onClick={onCancel}>Back to town (guest)</button> : null}
       </form>
     </div>
   );

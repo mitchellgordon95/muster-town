@@ -5,6 +5,7 @@
 import type { Agent, Place } from "@agent-town/schema";
 import { store, type PanelRef, isManager, roleOf } from "../state";
 import { World } from "./world";
+import { authStore } from "../auth/auth";
 import { T, CHAR_W, CHAR_H, charSheet, tiles, HUMAN_SPRITE } from "./sprites";
 import { layoutEdit, type LayoutDraft } from "./layoutEdit";
 import { bubbleFor, buildingBudgetLine, drawBadge, drawBubble, drawLabel, drawSign, residentBudgetLine, type Bubble } from "./overlay";
@@ -360,7 +361,8 @@ export class MapRenderer {
       const frame = d.moving ? (tick % 2 ? 2 : 0) : d.a?.status === "working" ? tick % 2 : 0;
       g.fillStyle = "rgba(0,0,0,.28)";
       g.beginPath(); g.ellipse(d.x, d.y, 5, 2, 0, 0, Math.PI * 2); g.fill();
-      g.globalAlpha = d.a && (d.a.status === "stopped" || d.a.status === "banned") ? 0.55 : d.a?.status === "offline" ? 0.4 : 1;
+      // a guest's body is a local-only ghost
+      g.globalAlpha = d.id === "__me" && authStore.get().guest ? 0.45 : d.a && (d.a.status === "stopped" || d.a.status === "banned") ? 0.55 : d.a?.status === "offline" ? 0.4 : 1;
       g.drawImage(charSheet(sprite), frame * CHAR_W, 0, CHAR_W, CHAR_H, Math.round(d.x - CHAR_W / 2), Math.round(d.y - CHAR_H + 1), CHAR_W, CHAR_H);
       g.globalAlpha = 1;
     }
@@ -389,7 +391,7 @@ export class MapRenderer {
       const p = toScreen(d.x, d.y);
       if (p.x < -200 || p.x > cw + 200 || p.y < -100 || p.y > ch + 100) continue;
       const isMe = d.id === "__me";
-      const name = isMe ? "You" : d.a!.name;
+      const name = isMe ? (authStore.get().guest ? "You (guest)" : "You") : d.a!.name;
       const hl = d.id === targetId || d.id === this.hoverId;
       const home = d.a?.homeBuildingId ? s.buildings.find((b) => b.id === d.a!.homeBuildingId) : undefined;
       drawLabel(g, p.x, p.y + 3, name, d.a?.status ?? "idle", hl, isMe, d.a && !isMe ? residentBudgetLine(d.a, home?.dailyTokensPerAgent) : null, !!d.a && isManager(d.a, s.buildings));

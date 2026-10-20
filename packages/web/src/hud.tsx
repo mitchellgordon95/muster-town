@@ -7,6 +7,7 @@ import { iconUrl, type IconKind } from "./map/sprites";
 import type { Target } from "./map/renderer";
 import { isMock } from "./api";
 import { joinMeeting } from "./panels/Places";
+import { SignInButtons, signOut, useAuth } from "./auth/auth";
 
 const ORDER: AgentStatus[] = ["working", "in-meeting", "walking", "idle", "out-of-budget", "offline", "stopped", "banned"];
 
@@ -14,7 +15,7 @@ interface Notice { key: string; icon: IconKind; text: ReactNode; cta: string; to
 
 function walkOrOpen(placeId: string, panel: PanelRef) { if (!store.walkTo(placeId, panel)) store.open(panel); }
 
-export function Hud() {
+export function Hud({ onPasteToken }: { onPasteToken?: () => void }) {
   const town = useTown((s) => s.town);
   const agents = useTown((s) => s.agents);
   const buildings = useTown((s) => s.buildings);
@@ -22,6 +23,7 @@ export function Hud() {
   const conn = useTown((s) => s.conn);
   const me = useTown((s) => s.me);
   const [collapsed, setCollapsed] = useState(false);
+  const auth = useAuth();
   const counts = useMemo(() => {
     const c = new Map<AgentStatus, number>();
     for (const a of Object.values(agents)) if (a.kind === "resident" || a.kind === "visitor") c.set(a.status, (c.get(a.status) ?? 0) + 1);
@@ -66,6 +68,19 @@ export function Hud() {
       {collapsed ? null : (
         <>
           <div className="goal" title={town.goalNote}><span>Goal</span>{town.goal}</div>
+          {auth.guest ? (
+            <div className="hud-block guest-card">
+              <div className="hud-label">Guest · read-only</div>
+              <div className="guest-text">Look around, read boards, reports and the library. Sign in to talk, review and join meetings.</div>
+              <SignInButtons onPasteToken={onPasteToken} compact />
+            </div>
+          ) : me ? (
+            <div className="hud-me">
+              {me.user.avatarUrl ? <img src={me.user.avatarUrl} alt="" /> : null}
+              <span>{me.user.githubLogin ? `@${me.user.githubLogin}` : me.user.name}{me.isAdmin ? " · admin" : ""}</span>
+              <button className="link" onClick={() => void signOut()}>Sign out</button>
+            </div>
+          ) : null}
           <div className="counts">
             {counts.map(([s, n]) => <span key={s} className="count-chip"><i style={{ background: STATUS_COLOR[s] }} />{n} {s.replace(/-/g, " ")}</span>)}
           </div>

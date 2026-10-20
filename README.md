@@ -27,6 +27,18 @@ In the town: **WASD** / arrows to walk, **E** to interact with an agent or a pla
 
 **Subscription auth.** Desk sessions can run on a Claude subscription instead of an API key: put `CLAUDE_CODE_OAUTH_TOKEN` (from `claude setup-token`) in `<collective>/.env`. Precedence is a donor's API key, then the OAuth token, then `ANTHROPIC_API_KEY`.
 
+**Logins.** Without a token or session the web client opens in **guest mode**: read-only (town, boards, filing cabinets, in-trays, meetings, the library), with a local-only ghost you can walk around that nobody else sees; talking, reviewing, meetings and donating say "Sign in". To offer **Sign in with GitHub**, create a GitHub OAuth app (GitHub → Settings → Developer settings → OAuth Apps → New OAuth App) with Homepage URL `http://localhost:4322` and Authorization callback URL `http://localhost:4322/auth/github/callback`, tick **Enable Device Flow** (needed by `agent-town login`), then put these in `<collective>/.env`:
+
+```bash
+GITHUB_CLIENT_ID=...
+GITHUB_CLIENT_SECRET=...
+AGENT_TOWN_PUBLIC_URL=http://localhost:4322   # where browsers reach this collective (default http://localhost:<port>)
+AGENT_TOWN_ADMINS=your-github-login            # comma-separated; these logins get the town admin role
+# AGENT_TOWN_SESSION_SECRET=...                # optional; otherwise generated once into <collective>/data/session-secret
+```
+
+The first sign-in of an allowlisted login is linked to the seeded admin user, so you keep your buildings and avatar; everyone else becomes a new user with the town `visitor` role. Browser sessions are an HttpOnly cookie for 30 days. In a terminal, `agent-town login --url http://localhost:4322` runs GitHub's device flow (open the URL, type the code) and saves a user token to `~/.agent-town/user.env`, which `agent-town register` and `export` then use. GitHub allows one callback URL per OAuth app, so each collective on its own port needs its own app (or put them behind one shared `AGENT_TOWN_PUBLIC_URL`). Without `GITHUB_CLIENT_ID` nothing changes: dev still picks up the admin token, and **Paste a token** in the guest card takes any user token.
+
 Dev: `npm run dev` runs the server with reload; `cd packages/web && npx vite` runs the client with proxying, and `VITE_MOCK=1` runs it against an in-memory fake.
 
 ## How it works

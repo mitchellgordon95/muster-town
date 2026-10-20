@@ -16,18 +16,25 @@ import { fileURLToPath } from "node:url";
 import { callVerb, request } from "./client.ts";
 import { addFieldOptions, fieldsOf, inputFromOptions } from "./flags.ts";
 import { formatDigest, formatResult } from "./format.ts";
-import { CliError, DEFAULT_URL, resolveConnection, writeProfile, type Connection } from "./profile.ts";
+import { CliError, DEFAULT_URL, readProfile, resolveConnection, writeProfile, type Connection } from "./profile.ts";
+import { LOGIN_PROFILE, registerLogin } from "./login.ts";
 
 type Snapshot = Omit<Extract<ServerMessage, { type: "snapshot" }>, "type">;
 
 const REPO_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "../../..");
 
-/** Human commands (register, export) use the user token from the environment only, never a saved agent profile. */
-const userConnection = (): Connection => ({
-  url: (process.env.AGENT_TOWN_URL?.trim() || DEFAULT_URL).replace(/\/+$/, ""),
-  token: process.env.AGENT_TOWN_TOKEN?.trim() || null,
-  source: "AGENT_TOWN_TOKEN",
-});
+/**
+ * Human commands (register, export) use the user token from the environment, else the `user` profile that
+ * `agent-town login` writes; never a saved agent profile.
+ */
+const userConnection = (): Connection => {
+  const saved = process.env.AGENT_TOWN_TOKEN?.trim() ? null : readProfile(LOGIN_PROFILE);
+  return {
+    url: (process.env.AGENT_TOWN_URL?.trim() || saved?.AGENT_TOWN_URL || DEFAULT_URL).replace(/\/+$/, ""),
+    token: process.env.AGENT_TOWN_TOKEN?.trim() || saved?.AGENT_TOWN_TOKEN || null,
+    source: saved?.AGENT_TOWN_TOKEN ? `profile ${LOGIN_PROFILE}` : "AGENT_TOWN_TOKEN",
+  };
+};
 
 const print = (s: string): void => { process.stdout.write(s.endsWith("\n") ? s : s + "\n"); };
 const printJson = (v: unknown): void => print(JSON.stringify(v, null, 2));
@@ -179,6 +186,8 @@ program
     process.on("SIGTERM", forward);
     child.on("exit", (code) => process.exit(code ?? 0));
   });
+
+registerLogin(program);
 
 program.parseAsync(process.argv).catch((e) => {
   if (e instanceof CliError) {

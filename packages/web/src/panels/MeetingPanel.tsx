@@ -10,6 +10,7 @@ import { portraitUrl } from "../map/sprites";
 import { roomMeetings } from "./room";
 import { AttendeePicker, useAttendees } from "./AttendeePicker";
 import { attendeeInput } from "./attendees";
+import { SignInNote } from "../auth/auth";
 
 const PHASES: Meeting["phase"][] = ["scheduled", "collecting", "discussing", "done"];
 
@@ -124,7 +125,8 @@ function MeetingView({ m }: { m: Meeting }) {
           </div>
         )}
       </Section>
-      {open ? (
+      {open && !me ? <SignInNote to="speak in the meeting" /> : null}
+      {open && me ? (
         <form className="chatbar" onSubmit={(e) => { e.preventDefault(); void say(); }}>
           <textarea rows={2} value={text} disabled={!discussing} placeholder={discussing ? "Say something to the meeting…" : "Chat opens when the discussion starts…"} onChange={(e) => setText(e.target.value)}
             onKeyDown={(e) => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); void say(); } }} />

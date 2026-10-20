@@ -1,6 +1,6 @@
 import { isAppError } from "@agent-town/core";
 import { ClientMessage, type ServerMessage } from "@agent-town/schema";
-import type { FastifyInstance } from "fastify";
+import type { FastifyInstance, FastifyRequest } from "fastify";
 import type { WebSocket } from "ws";
 import { resolveToken } from "./context.ts";
 
@@ -8,13 +8,15 @@ import { resolveToken } from "./context.ts";
 const MAX_BUFFERED = 8 * 1024 * 1024;
 
 /**
- * WS `/ws`: first message `auth` → snapshot (+ `avatarAgentId`) → live `world.changes`.
- * Client messages: `human.move` (validated walkability), `human.say` (the `say` verb as the avatar).
+ * WS `/ws`: on connect, a snapshot and live `world.changes`. A handshake carrying a user (session cookie or bearer
+ * header) is signed in at once (snapshot has `avatarAgentId`); otherwise the socket is a read-only guest until an
+ * `auth` message (→ a fresh snapshot with `avatarAgentId`). Client messages: `human.move` (validated walkability),
+ * `human.say` (the `say` verb as the avatar); guests get an `error` frame for both.
  */
 export async function wsRoutes(app: FastifyInstance) {
   const world = app.world;
 
-  app.get("/ws", { websocket: true }, (socket: WebSocket) => {
+  app.get("/ws", { websocket: true }, (socket: WebSocket, req: FastifyRequest) => {
     let avatarId: string | null = null;
     let unsubscribe: (() => void) | null = null;
 
@@ -24,6 +26,14 @@ export async function wsRoutes(app: FastifyInstance) {
       socket.send(JSON.stringify(msg));
     };
     const fail = (message: string) => send({ type: "error", message });
+    /** snapshot first, then stream; subscribe synchronously after so nothing falls in between */
+    const stream = () => {
+      unsubscribe?.();
+      send(avatarId ? { ...world.snapshot(), avatarAgentId: avatarId } : world.snapshot());
+      unsubscribe = world.changes.subscribe(send);
+    };
+    if (req.auth?.kind === "user") avatarId = world.ops.ensureAvatar(req.auth.user.id).id;
+    stream();
 
     socket.on("message", async (raw) => {
       let msg: ClientMessage;
@@ -39,13 +49,10 @@ export async function wsRoutes(app: FastifyInstance) {
           const auth = resolveToken(world, msg.token);
           if (!auth || auth.kind !== "user") { fail("auth failed: need a valid user token"); socket.close(4001, "unauthorized"); return; }
           avatarId = world.ops.ensureAvatar(auth.user.id).id;
-          unsubscribe?.();
-          // snapshot first, then stream; subscribe synchronously after so nothing falls in between
-          send({ ...world.snapshot(), avatarAgentId: avatarId });
-          unsubscribe = world.changes.subscribe(send);
+          stream();
           return;
         }
-        if (!avatarId) return fail("send auth first");
+        if (!avatarId) return fail("read-only guest: sign in (send auth first) to move or talk");
         if (msg.type === "human.move") {
           if (!world.moveHuman(avatarId, msg.x, msg.y)) {
             const a = world.agents.get(avatarId);

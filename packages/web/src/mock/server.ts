@@ -379,13 +379,22 @@ export class MockApi implements Api {
 
   connect(h: SocketHandlers): Socket {
     let off: (() => void) | null = null;
-    setTimeout(() => h.onOpen(), 30);
+    let authed = false;
+    // like the server: every socket streams at once (guests read-only); `auth` re-sends the snapshot signed in
+    const stream = () => {
+      off?.();
+      setTimeout(() => h.onMessage(this.sim.snapshot()), 40);
+      off = this.sim.subscribe((msg) => h.onMessage(msg));
+      if (!this.started) { this.started = true; this.sim.start(); for (const m of this.sim.meetings.values()) if (m.phase === "collecting") this.collectSummaries(m); }
+    };
+    setTimeout(() => { h.onOpen(); if (!authed) stream(); }, 30);
     return {
       send: (m) => {
         if (m.type === "auth") {
-          setTimeout(() => h.onMessage(this.sim.snapshot()), 40);
-          off = (() => { const u = this.sim.subscribe((msg) => h.onMessage(msg)); return () => { u(); }; })();
-          if (!this.started) { this.started = true; this.sim.start(); for (const m of this.sim.meetings.values()) if (m.phase === "collecting") this.collectSummaries(m); }
+          authed = true;
+          stream();
+        } else if (!authed) {
+          h.onMessage({ type: "error", message: "read-only guest: sign in (send auth first) to move or talk" });
         } else if (m.type === "human.move") {
           const a = this.sim.agents.get("ag_me");
           if (a) { a.pos = { x: m.x, y: m.y }; this.sim.emit({ type: "agents.pos", positions: [{ id: a.id, x: m.x, y: m.y, status: "idle" }] }); }

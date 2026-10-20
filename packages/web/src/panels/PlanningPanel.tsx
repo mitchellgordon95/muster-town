@@ -13,7 +13,7 @@ export function PlanningPanel({ tab }: { tab?: string }) {
   const me = useTown((s) => s.me);
   const tabs = ["Buildings", "Residents", "Roles", "System"];
   return (
-    <PanelShell icon={<Glyph kind="planning" />} title="Planning desk" subtitle={me ? `Signed in as ${me.user.name}${me.isAdmin ? " · admin" : ""}` : ""} tabs={tabs} initialTab={tab && tabs.includes(tab) ? tab : "Buildings"}>
+    <PanelShell icon={<Glyph kind="planning" />} title="Planning desk" subtitle={me ? `Signed in as ${me.user.name}${me.isAdmin ? " · admin" : ""}` : "Read-only · sign in to plan"} tabs={tabs} initialTab={tab && tabs.includes(tab) ? tab : "Buildings"}>
       {(t) => (
         <>
           {t === "Buildings" ? <Buildings /> : null}

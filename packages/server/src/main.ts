@@ -8,6 +8,7 @@ import { existsSync, mkdirSync, readFileSync } from "node:fs";
 import { basename, dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { buildApp } from "./app.ts";
+import { loadAuthSettings } from "./auth/index.ts";
 import { loadEnvFile } from "./env.ts";
 import type { RuntimeHooks } from "./context.ts";
 
@@ -39,11 +40,13 @@ async function main() {
   console.log(seed.created ? `[server] seeded collective "${collectiveCfg.name ?? "?"}" in ${DATA_DIR}` : `[server] opened collective "${collectiveCfg.name ?? "?"}" from ${DATA_DIR}`);
   world.start(10);
 
-  const app = await buildApp({ world, dev: DEV });
+  const auth = loadAuthSettings({ dataDir: DATA_DIR, port: PORT });
+  const app = await buildApp({ world, dev: DEV, auth });
   await app.listen({ port: PORT, host: HOST });
   const url = `http://localhost:${PORT}`;
   console.log(`[server] Agent Town at ${url} (dev=${DEV})`);
   console.log(`[server] admin (${seed.admin.name}) token: ${seed.adminToken}`);
+  console.log(auth.githubClientId ? `[server] GitHub login on (callback ${auth.publicUrl}/auth/github/callback; ${auth.admins.length} admin login(s))` : "[server] GitHub login off (no GITHUB_CLIENT_ID/GITHUB_CLIENT_SECRET); guests are read-only");
   console.log(`[server] MCP endpoint: ${url}/mcp (agent tokens only)`);
 
   try {

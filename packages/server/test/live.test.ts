@@ -77,7 +77,7 @@ describe("WebSocket", () => {
     expect((await waitFor((m) => m.type === "error")).message).toMatch(/auth/);
 
     ws.send(JSON.stringify({ type: "auth", token: ctx.seed.adminToken }));
-    const snap = await waitFor((m) => m.type === "snapshot");
+    const snap = await waitFor((m) => m.type === "snapshot" && m.avatarAgentId);
     expect(ServerMessage.safeParse(snap).success).toBe(true);
     expect(snap.avatarAgentId).toMatch(/^ag_/);
 

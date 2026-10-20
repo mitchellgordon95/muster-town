@@ -14,6 +14,7 @@ import { RequestCard } from "./OutboxPanel";
 import { Markdown } from "./Markdown";
 import { Act, Empty, ErrorLine, Field, Loading, Pill, Section, clock, fmtTokens, nameOf, timeAgo, usd, useLoad } from "./ui";
 import { portraitUrl } from "../map/sprites";
+import { SignInNote } from "../auth/auth";
 
 // ---------- in-tray ----------
 
@@ -199,10 +200,11 @@ export function DonationPanel() {
   const [tokens, setTokens] = useState(1_000_000);
   const [buildingId, setBuildingId] = useState(buildings[0]?.id ?? "");
   const [apiKey, setApiKey] = useState("");
+  const me = useTown((s) => s.me);
   return (
     <PanelShell icon={<Glyph kind="donation" />} title="Donation box" subtitle="Fund a building's research with tokens">
       <Section title="Donate tokens">
-        <form className="form" onSubmit={(e) => e.preventDefault()}>
+        {!me ? <SignInNote to="donate" /> : <form className="form" onSubmit={(e) => e.preventDefault()}>
           <div className="row2">
             <Field label="Tokens"><input type="number" min={1} step={100000} value={tokens} onChange={(e) => setTokens(+e.target.value)} /></Field>
             <Field label="Building">
@@ -217,7 +219,7 @@ export function DonationPanel() {
             setApiKey(""); budget.reload();
             store.toast(`Donated ${fmtTokens(tokens)} tokens`, "ok");
           }}>Donate</Act></div>
-        </form>
+        </form>}
       </Section>
       <Section title="Allocations">
         <ErrorLine error={budget.error} />

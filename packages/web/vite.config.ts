@@ -10,6 +10,7 @@ export default defineConfig({
     proxy: {
       "/api": { target, changeOrigin: true },
       "/mcp": { target, changeOrigin: true },
+      "/auth": { target, changeOrigin: true },
       "/ws": { target: target.replace(/^http/, "ws"), ws: true },
     },
   },
