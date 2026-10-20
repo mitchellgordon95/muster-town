@@ -179,6 +179,15 @@ export function branchSlug(x: string, n = 40): string {
 }
 
 /** "https://github.com/o/agent-town.git" | "git@github.com:o/agent-town.git" → "agent-town". */
+/** Containers have no SSH keys: turn `git@github.com:owner/repo.git` / `ssh://git@host/owner/repo` into https. */
+export function httpsRepoUrl(url: string): string {
+  const scp = /^[\w.-]+@([\w.-]+):(.+)$/.exec(url);
+  if (scp) return `https://${scp[1]}/${scp[2].replace(/^\/+/, "")}`;
+  const ssh = /^ssh:\/\/(?:[\w.-]+@)?([\w.-]+)(?::\d+)?\/(.+)$/.exec(url);
+  if (ssh) return `https://${ssh[1]}/${ssh[2]}`;
+  return url;
+}
+
 export function repoNameOf(repoUrl: string): string {
   return repoUrl.replace(/\/+$/, "").split(/[/:]/).pop()!.replace(/\.git$/, "") || "repo";
 }
@@ -188,7 +197,7 @@ export function deskWorkspace(building: Building, agent: Agent, assignment: Assi
   const ws = building.workspace;
   if (!ws?.repoUrl) return undefined;
   const branch = `${ws.branchPrefix}/${branchSlug(agent.name, 20)}/${branchSlug(assignment?.title ?? "work")}`;
-  return { repoUrl: ws.repoUrl, base: ws.base, branch, branchPrefix: ws.branchPrefix, dir: `/home/agent/work/${repoNameOf(ws.repoUrl)}` };
+  return { repoUrl: httpsRepoUrl(ws.repoUrl), base: ws.base, branch, branchPrefix: ws.branchPrefix, dir: `/home/agent/work/${repoNameOf(ws.repoUrl)}` };
 }
 
 /** The agent's latest report (any decision), for "your previous report" in the work prompt. */
