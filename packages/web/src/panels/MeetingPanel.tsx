@@ -2,7 +2,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { Meeting } from "@agent-town/schema";
 import { api } from "../api";
-import { store, useTown } from "../state";
+import { store, useTown, roleOf } from "../state";
 import { Glyph, PanelShell } from "./PanelShell";
 import { phaseTone } from "./BuildingPanel";
 import { Act, Empty, Pill, Section, clock, nameOf, timeAgo } from "./ui";
@@ -79,7 +79,7 @@ function MeetingView({ m }: { m: Meeting }) {
             const s = m.summaries[aid];
             return (
               <div key={aid} className={`summary ${s ? "" : "waiting"}`}>
-                <div className="summary-who">{a ? <img src={portraitUrl(a.sprite, 2)} alt="" /> : null}<b>{a?.name ?? aid}</b><span>{a?.title}</span></div>
+                <div className="summary-who">{a ? <img src={portraitUrl(a.sprite, 2)} alt="" /> : null}<b>{a?.name ?? aid}</b><span>{a ? roleOf(a) : ""}</span></div>
                 {s ? <div className="summary-text">{s.split("\n").map((l, i) => <div key={i}>{l}</div>)}</div> : <div className="summary-text muted">{m.phase === "collecting" ? "writing…" : "no summary"}</div>}
               </div>
             );

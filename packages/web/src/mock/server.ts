@@ -55,7 +55,7 @@ export class MockApi implements Api {
     this.sim.event("building.updated", null, `${b.name} settings updated`, {}, id);
     return clone(b);
   }
-  async createResident(i: In<typeof CreateResidentInput>) { await wait(); return clone(this.sim.createResident(i.buildingId, i.name, i.title, i.direction, i.sprite)); }
+  async createResident(i: In<typeof CreateResidentInput>) { await wait(); return clone(this.sim.createResident(i.buildingId, i.name, i.title ?? "", i.direction ?? "", i.sprite)); }
   async agent(id: string): Promise<AgentDetail> {
     await wait();
     const agent = this.need(this.sim.agents.get(id), "agent");

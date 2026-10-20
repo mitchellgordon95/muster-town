@@ -2,7 +2,7 @@
 import { useMemo, useState, type ReactNode } from "react";
 import type { Meeting, SnapshotBuilding, Workspace } from "@agent-town/schema";
 import { api } from "../api";
-import { store, useTown } from "../state";
+import { store, useTown, roleOf } from "../state";
 import { Glyph, PanelShell } from "./PanelShell";
 import { Meter } from "./AgentPanel";
 import { DismissButton, canDismiss } from "./Dismiss";
@@ -83,7 +83,7 @@ function Members({ b }: { b: SnapshotBuilding }) {
               <div key={a.id} className="member-row">
                 <button className="member" onClick={() => store.open({ kind: "agent", id: a.id })}>
                   <img src={portraitUrl(a.sprite, 2)} alt="" />
-                  <div><b>{a.name}</b><span>{a.title}</span></div>
+                  <div><b>{a.name}</b><span>{roleOf(a)}</span></div>
                   <StatusPill status={a.status} />
                 </button>
                 {canDismiss(a) ? <DismissButton agent={a} small /> : null}

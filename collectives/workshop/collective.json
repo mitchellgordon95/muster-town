@@ -27,21 +27,15 @@
       "residents": [
         {
           "name": "Pix",
-          "title": "Frontend",
-          "sprite": 3,
-          "direction": "The web client (packages/web): the map, panels, HUD, and everything a visitor sees. Make the town legible and pleasant: clearer states, better report reading, fewer clicks to review, mobile tolerance. Every change is a small PR with a screenshot description."
+          "sprite": 3
         },
         {
           "name": "Root",
-          "title": "Backend",
-          "sprite": 1,
-          "direction": "Core, server, and runtime (packages/core, server, runtime): verbs, permissions, budgets, meetings, sessions, export. Reliability first: tests for state machines, no lost updates, clear errors. Every change is a small PR with tests."
+          "sprite": 1
         },
         {
           "name": "Sage",
-          "title": "Product & docs",
-          "sprite": 5,
-          "direction": "What Agent Town should become: the public collective, donations, onboarding, governance. Read docs/design.md and the survey, write proposals as library articles, keep README and docs true to the code, and turn agreed proposals into assignments for Pix and Root via meetings."
+          "sprite": 5
         }
       ],
       "reviewer": {
