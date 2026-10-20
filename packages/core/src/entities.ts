@@ -5,7 +5,9 @@ import {
 import { AppError, badRequest } from "./errors.ts";
 import { buildingRoleId, townRoleId } from "./permissions.ts";
 import { newId, nowIso } from "./util.ts";
+import type { Furniture } from "./world/furniture.ts";
 import { MAX_HEADCOUNT, TOWN_HALL_ID } from "./world/layout.ts";
+import { nearestWalkable } from "./world/path.ts";
 import type { World } from "./world.ts";
 
 type In<T extends { _input: unknown }> = T["_input"];
@@ -63,6 +65,43 @@ export function updateBuilding(world: World, id: string, patch: Partial<In<typeo
   world.layout.rebuild();
   world.events.append({ type: "building.updated", buildingId: id, text: `${updated.name} settings updated`, payload: { fields: Object.keys(clean) } });
   return world.buildings.require(id);
+}
+
+/**
+ * Save a building's furniture (lot-relative anchors; pieces left out stay put). Throws on an illegal room.
+ * Bodies follow: anyone at a place or meeting seat that moved goes to its new tile, anyone on a now-blocked
+ * tile steps to the nearest free one, and walks are re-planned. Place ids don't change.
+ */
+export function updateFurniture(world: World, id: string, furniture: Furniture, by: string | null): Building {
+  const b = world.buildings.require(id, "building");
+  const map = world.layout;
+  const preview = map.preview(id, furniture);
+  if (preview.errors.length) throw badRequest(preview.errors.map((e) => e.message).join(" "));
+  const before = { places: new Map(map.places.map((p) => [p.id, p.pos])), seats: new Map(map.places.map((p) => [p.id, map.seatsOf(p.id)])) };
+  return world.transaction(() => {
+    world.buildings.upsert({ ...b, furniture: preview.furniture });
+    map.rebuild();
+    const moves = new Map<string, Tile>();
+    for (const p of map.places) {
+      const old = before.places.get(p.id);
+      if (old && (old.x !== p.pos.x || old.y !== p.pos.y)) moves.set(`${old.x},${old.y}`, p.pos);
+      const now = map.seatsOf(p.id);
+      (before.seats.get(p.id) ?? []).forEach((s, i) => { if (now[i] && !moves.has(`${s.x},${s.y}`)) moves.set(`${s.x},${s.y}`, now[i]); });
+    }
+    const moved = (t: Tile) => moves.get(`${t.x},${t.y}`) ?? t;
+    const positions: { id: string; x: number; y: number; status: Agent["status"] }[] = [];
+    for (const a of world.agents.where("status != 'retired'")) {
+      if (world.movement.isWalking(a.id) || map.buildingAt(a.pos)?.id !== id) continue;
+      const pos = nearestWalkable(map.grid, moved(a.pos));
+      if (pos.x === a.pos.x && pos.y === a.pos.y) continue;
+      world.agents.upsert({ ...a, pos }, { silent: true });
+      positions.push({ id: a.id, x: pos.x, y: pos.y, status: a.status });
+    }
+    world.movement.reroute(moved);
+    if (positions.length) world.changes.emit({ type: "agents.pos", positions });
+    world.events.append({ type: "building.layout", buildingId: id, text: `${b.name} layout changed`, payload: { by, before: b.furniture, after: preview.furniture } });
+    return world.buildings.require(id);
+  });
 }
 
 /** Create a resident at the building's lowest free desk; it gets `member` in that building. */

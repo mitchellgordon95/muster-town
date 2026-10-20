@@ -10,6 +10,7 @@ import { Act, Empty, ErrorLine, Field, KV, Loading, Pill, Section, StatusPill, f
 import { portraitUrl } from "../map/sprites";
 import { AttendeePicker, useAttendees } from "./AttendeePicker";
 import { attendeeInput } from "./attendees";
+import { layoutEdit } from "../map/layoutEdit";
 
 export function BuildingPanel({ id, tab }: { id: string; tab?: string }) {
   const b = useTown((s) => s.buildings.find((x) => x.id === id));
@@ -57,6 +58,13 @@ function Overview({ b }: { b: SnapshotBuilding }) {
               <Glyph kind="intray" /><span>Walk to the in-tray</span>{b.intray ? <Pill tone="warn">{b.intray} waiting</Pill> : null}
             </button>
           ) : null}
+        </div>
+      ) : null}
+      {store.can("building.manage", b.id) && !api().mock ? (
+        <div className="walk-links">
+          <button className="walk-link" onClick={() => layoutEdit.start(b.id).catch((e) => store.toast((e as Error).message, "bad"))}>
+            <Glyph kind="building" /><span>Edit layout</span>
+          </button>
         </div>
       ) : null}
       {b.kind !== "town-hall" ? (

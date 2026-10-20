@@ -1,7 +1,8 @@
 import { WorkInput, type Agent, type Assignment, type Interrupt, type CreateBuildingInput, type CreateMeetingInput, type CreateResidentInput, type Doc, type Meeting, type Membership, type RegisterVisitorInput, type Session } from "@agent-town/schema";
 import { createAssignment, createDoc, homeOf, intrayOf, moveToFront, pendingQueue, sendMessage, setAssignmentStatus, updateDoc } from "./domain.ts";
 import { CHECK_IN } from "./prompts.ts";
-import { createBuilding, createResident, createUser, ensureAvatar, registerVisitor, updateBuilding } from "./entities.ts";
+import { createBuilding, createResident, createUser, ensureAvatar, registerVisitor, updateBuilding, updateFurniture } from "./entities.ts";
+import type { Furniture } from "./world/furniture.ts";
 import { AppError, badRequest, forbidden } from "./errors.ts";
 import { createMeeting, endMeeting, meetingDecide, meetingSpeak, setMeetingPhase } from "./meetings.ts";
 import { replyToReport, type ReplyResult } from "./reply.ts";
@@ -47,6 +48,20 @@ export class Ops {
   updateBuilding(actor: Actor, id: string, patch: Partial<(typeof CreateBuildingInput)["_input"]>) {
     if (actor) this.world.permissions.require(actor, "building.manage", id);
     return updateBuilding(this.world, id, patch);
+  }
+  /** Furniture is edited by humans only (Mitchell, 2026-10-20): an agent token is refused even with building.manage. */
+  layoutPreview(actor: Actor, id: string, furniture: Furniture) {
+    this.requireLayoutEditor(actor, id);
+    return this.world.layout.preview(id, furniture);
+  }
+  updateFurniture(actor: Actor, id: string, furniture: Furniture) {
+    this.requireLayoutEditor(actor, id);
+    return updateFurniture(this.world, id, furniture, actor ? this.world.holderOf(actor).id : null);
+  }
+  private requireLayoutEditor(actor: Actor, id: string) {
+    if (!actor) return;
+    if (actor.kind !== "human") throw new AppError("forbidden", "Only humans can rearrange furniture.");
+    this.world.permissions.require(actor, "building.manage", id);
   }
   createResident(actor: Actor, input: (typeof CreateResidentInput)["_input"]) {
     if (actor) this.world.permissions.require(actor, "building.manage", input.buildingId);

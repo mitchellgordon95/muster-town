@@ -100,8 +100,8 @@ class Store {
         const next: SnapshotBuilding = { ...m.building, intray: m.building.intray ?? known?.intray ?? 0, budget: m.building.budget ?? known?.budget };
         const buildings = known ? s.buildings.map((b) => (b.id === m.building.id ? next : b)) : [...s.buildings, next];
         this.set({ buildings, rev: s.rev + 1 });
-        // The WS protocol has no grid message: a new building or a moved lot means the layout changed.
-        const lotChanged = !known || JSON.stringify(known.lot) !== JSON.stringify(m.building.lot);
+        // The WS protocol has no grid message: a new building, a moved lot or moved furniture means the layout changed.
+        const lotChanged = !known || JSON.stringify(known.lot) !== JSON.stringify(m.building.lot) || JSON.stringify(known.furniture) !== JSON.stringify(m.building.furniture);
         if (lotChanged) this.onLayoutChanged?.();
         return;
       }

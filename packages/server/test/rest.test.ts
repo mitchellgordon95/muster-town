@@ -281,3 +281,25 @@ describe("meetings, roles, budget, events, human moves", () => {
     expect(world.moveHuman(avatar.id, -5, -5)).toBe(false);
   });
 });
+
+describe("edit layout", () => {
+  it("anyone reads the furniture; a human manager dry-runs and saves; agent tokens are refused", async () => {
+    const { app, world, auth } = await setup();
+    const room = await json(app, "GET", "/api/buildings/carbon-cycle/layout");
+    expect(room.status).toBe(200);
+    expect(room.body.pieces.map((p: any) => p.key)).toEqual(expect.arrayContaining(["board", "desk:0", "meeting", "cabinet"]));
+    const dry = await json(app, "PUT", "/api/buildings/carbon-cycle/layout", { headers: auth, body: { furniture: { board: { x: 1, y: 0 } }, dryRun: true } });
+    expect(dry.status).toBe(200);
+    expect(dry.body.errors).toEqual([]);
+    expect(world.buildings.require("carbon-cycle").furniture).toEqual({});
+    const bad = await json(app, "PUT", "/api/buildings/carbon-cycle/layout", { headers: auth, body: { furniture: { board: { x: 5, y: 5 } } } });
+    expect(bad.status).toBe(400);
+    const ok = await json(app, "PUT", "/api/buildings/carbon-cycle/layout", { headers: auth, body: { furniture: { board: { x: 1, y: 0 } } } });
+    expect(ok.status).toBe(200);
+    expect(ok.body.building.furniture).toEqual({ board: { x: 1, y: 0 } });
+    const moss = world.agents.first("name = 'Moss'")!;
+    const agent = { authorization: `Bearer ${world.tokens.getOrCreate("agent", moss.id)}` };
+    const refused = await json(app, "PUT", "/api/buildings/carbon-cycle/layout", { headers: agent, body: { furniture: {} } });
+    expect(refused.status).toBe(403);
+  });
+});

@@ -41,3 +41,19 @@ export function findPath(grid: Grid, from: Tile, to: Tile): Tile[] | null {
   }
   return null;
 }
+
+/** Nearest walkable tile to `from` (BFS over any tile), `from` itself if walkable. */
+export function nearestWalkable(grid: Grid, from: Tile): Tile {
+  if (isWalkable(grid, from.x, from.y)) return from;
+  const seen = new Set([`${from.x},${from.y}`]);
+  const q = [from];
+  for (let i = 0; i < q.length && i < grid.w * grid.h; i++) {
+    for (const [dx, dy] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) {
+      const t = { x: q[i].x + dx, y: q[i].y + dy };
+      if (t.x < 0 || t.y < 0 || t.x >= grid.w || t.y >= grid.h || seen.has(`${t.x},${t.y}`)) continue;
+      if (isWalkable(grid, t.x, t.y)) return t;
+      seen.add(`${t.x},${t.y}`); q.push(t);
+    }
+  }
+  return from;
+}

@@ -61,6 +61,17 @@ export class Movement {
     if (w) this.finish(w, new AppError("conflict", reason));
   }
 
+  /** The grid changed: re-plan every walk from where the body is now, to `moved(old destination)`. */
+  reroute(moved: (t: Tile) => Tile): void {
+    for (const w of [...this.walks.values()]) {
+      const a = this.repos.agents.get(w.agentId);
+      if (!a || !w.path.length) continue;
+      const path = findPath(this.map.grid, a.pos, moved(w.path[w.path.length - 1]));
+      if (!path) this.finish(w, new AppError("unreachable", `The room changed and ${w.label} can't be reached.`));
+      else { w.path = path; w.progress = 0; }
+    }
+  }
+
   tick(dtMs: number): void {
     if (!this.walks.size) return;
     const moved: { id: string; x: number; y: number; status: AgentStatus }[] = [];

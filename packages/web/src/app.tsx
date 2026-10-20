@@ -2,6 +2,8 @@
 import { Component, useCallback, useEffect, useRef, useState, type ReactNode } from "react";
 import { api, ApiError, getApi, isMock, tokenStore, type Socket } from "./api";
 import { store, useTown, type PanelKind, type PanelRef } from "./state";
+import { layoutEdit } from "./map/layoutEdit";
+import { LayoutToolbar } from "./panels/LayoutToolbar";
 import { MapCanvas, mapRenderer, typing } from "./map/MapCanvas";
 import type { Target } from "./map/renderer";
 import { Hint, Hud, SayBox, Toasts } from "./hud";
@@ -110,6 +112,7 @@ export function App() {
   }, []);
   useEffect(() => {
     const key = (e: KeyboardEvent) => {
+      if (layoutEdit.draft) return; // the map handles keys while editing a layout
       if (e.key === "Escape") {
         if (typing()) (document.activeElement as HTMLElement).blur();
         else if (store.state.panel) store.open(null);
@@ -137,6 +140,7 @@ export function App() {
         {saying ? <SayBox inputRef={sayRef} onSend={say} onCancel={() => setSaying(false)} /> : null}
       </div>
       {panel ? <aside className="panel" style={{ width: pw }}><PanelBoundary key={`${panel.kind}:${panel.id ?? ""}:${panel.docId ?? ""}`}><PanelHost panel={panel} /></PanelBoundary></aside> : null}
+      <LayoutToolbar />
       <Toasts />
       {isMock ? <div className="mock-badge" title="VITE_MOCK=1: in-memory fake server">mock</div> : null}
     </div>

@@ -152,6 +152,8 @@ export const Building = z.object({
   workspace: Workspace.nullable().default(null),
   /** tile rectangle on the town grid; assigned by the server if absent */
   lot: Lot.optional(),
+  /** moved furniture: piece key (`board`, `desk:3`, `meeting`, …) -> anchor tile relative to the lot; absent = default spot */
+  furniture: z.record(z.object({ x: z.number().int(), y: z.number().int() })).default({}),
   createdAt: Iso,
   createdBy: Id.optional(),
 });
@@ -464,7 +466,7 @@ export const EventType = z.enum([
   "assignment.created", "assignment.status",
   "meeting.created", "meeting.phase", "meeting.utterance", "meeting.decisions",
   "session.started", "session.ended",
-  "building.created", "building.updated", "allocation.created", "budget.exhausted", "bank.input", "bank.credited",
+  "building.created", "building.updated", "building.layout", "allocation.created", "budget.exhausted", "bank.input", "bank.credited",
   "export.done", "system",
 ]);
 export const Event = z.object({
@@ -614,6 +616,8 @@ export const WALKABLE = new Set<number>([TILE.GRASS, TILE.PATH, TILE.FLOOR, TILE
 // ---------- REST payloads ----------
 export const CreateBuildingInput = Building.pick({ name: true, goal: true, description: true, headcount: true, reviewPolicy: true, model: true, cheapModel: true, maxTurnsPerSession: true, dailyTokensPerAgent: true, meetings: true, rules: true, workspace: true, managerAgentId: true }).partial({ goal: true, description: true, headcount: true, reviewPolicy: true, model: true, cheapModel: true, maxTurnsPerSession: true, dailyTokensPerAgent: true, meetings: true, rules: true, workspace: true, managerAgentId: true });
 export const UpdateBuildingInput = CreateBuildingInput.partial();
+/** PUT /api/buildings/:id/layout: lot-relative anchors for moved pieces (left out = stays put); `dryRun` only checks it. */
+export const LayoutInput = z.object({ furniture: z.record(Tile), dryRun: z.boolean().default(false) });
 export const CreateResidentInput = z.object({ buildingId: Id, name: z.string(), title: z.string().default(""), direction: z.string().default(""), sprite: z.number().int().optional(), model: z.string().optional() });
 export const RegisterVisitorInput = z.object({ name: z.string(), buildingId: Id.optional(), title: z.string().optional() });
 export const ReviewInput = z.object({ decision: ReviewDecision, note: z.string().default("") });

@@ -1,7 +1,7 @@
 /** `Api` implemented against the in-memory Sim. Same interface as HttpApi, so every panel works offline. */
-import type { Agent, Assignment, AuthMe, Doc, Event, Meeting, Membership } from "@agent-town/schema";
+import type { Agent, Assignment, AuthMe, Building, Doc, Event, Meeting, Membership } from "@agent-town/schema";
 import { BOARD_TYPES } from "@agent-town/schema";
-import type { Api, AgentDetail, Budget, Cabinet, CabinetQuery, DocQuery, EventQuery, In, MessageResult, RequestAction, Snapshot, Socket, SocketHandlers, ThreadMessage, WriteDocInput } from "../api";
+import type { Api, AgentDetail, Budget, Cabinet, CabinetQuery, DocQuery, EventQuery, In, LayoutPreview, MessageResult, RoomLayout, RequestAction, Snapshot, Socket, SocketHandlers, ThreadMessage, WriteDocInput } from "../api";
 import { ApiError } from "../api";
 import type { CreateBuildingInput, UpdateBuildingInput, CreateResidentInput, ReviewInput, ChatInput, WorkInput, DonateInput, CreateMeetingInput, DocState } from "@agent-town/schema";
 import { Sim, newId } from "./sim";
@@ -70,6 +70,10 @@ export class MockApi implements Api {
     this.sim.event("building.updated", null, `${b.name} settings updated`, {}, id);
     return clone(b);
   }
+  // the mock has no furniture model: the editor needs the real server
+  async layout(): Promise<RoomLayout> { throw new ApiError("Edit layout needs the real server.", "unsupported", 501); }
+  async previewLayout(): Promise<LayoutPreview> { throw new ApiError("Edit layout needs the real server.", "unsupported", 501); }
+  async saveLayout(): Promise<Building> { throw new ApiError("Edit layout needs the real server.", "unsupported", 501); }
   async createResident(i: In<typeof CreateResidentInput>) { await wait(); return clone(this.sim.createResident(i.buildingId, i.name, i.title ?? "", i.direction ?? "", i.sprite)); }
   async agent(id: string): Promise<AgentDetail> {
     await wait();

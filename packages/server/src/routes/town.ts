@@ -1,5 +1,5 @@
 import { AppError, boardDocs, cabinetCounts, cabinetDocs } from "@agent-town/core";
-import { AddBankInput, CreateBuildingInput, DocType, DonateInput, Membership, RedeployInput, UpdateBuildingInput, type AuthMe } from "@agent-town/schema";
+import { AddBankInput, CreateBuildingInput, DocType, DonateInput, LayoutInput, Membership, RedeployInput, UpdateBuildingInput, type AuthMe } from "@agent-town/schema";
 import type { FastifyInstance } from "fastify";
 import { z } from "zod";
 import { actorOf, adminToken, parse, requireAuth, requireUser, type Params } from "../context.ts";
@@ -68,6 +68,17 @@ export async function townRoutes(app: FastifyInstance) {
   app.patch<{ Params: Params }>("/api/buildings/:id", async (req) => {
     const input = parse(UpdateBuildingInput, req.body);
     return { building: world.ops.updateBuilding(actorOf(world, req), req.params.id, input) };
+  });
+
+  /** Movable furniture: each piece's footprint, stand tiles, default and current anchor (lot-relative). */
+  app.get<{ Params: Params }>("/api/buildings/:id/layout", async (req) => world.layout.pieces(req.params.id));
+
+  /** Rearrange furniture (humans with building.manage). `dryRun` returns errors and the grid as it would look. */
+  app.put<{ Params: Params }>("/api/buildings/:id/layout", async (req) => {
+    const input = parse(LayoutInput, req.body);
+    const actor = actorOf(world, req);
+    if (input.dryRun) return world.ops.layoutPreview(actor, req.params.id, input.furniture);
+    return { building: world.ops.updateFurniture(actor, req.params.id, input.furniture) };
   });
 
   /** The building's in-tray: pending reports, oldest first. Readable by anyone. Reports live here, not on the board. */

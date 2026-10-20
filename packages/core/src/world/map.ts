@@ -1,7 +1,8 @@
-import type { Building, Place, Tile } from "@agent-town/schema";
+import { TILE, type Building, type Place, type Tile } from "@agent-town/schema";
 import type { DB } from "../db.ts";
 import { AppError, notFound } from "../errors.ts";
 import type { Repos } from "../store.ts";
+import { movedOnly, piecesFor, resolveFurniture, validateLayout, type Furniture, type LayoutError, type Piece } from "./furniture.ts";
 import { assignLots, computeLayout, MOD_SEATS, type DeskSlot, type Grid } from "./layout.ts";
 import { isWalkable } from "./path.ts";
 
@@ -23,13 +24,7 @@ export class WorldMap {
     const changed = assignLots(this.repos.buildings.all());
     for (const b of changed) this.repos.buildings.upsert(b);
     const buildings = this.repos.buildings.all();
-    const occupancy = new Map<string, Map<number, string>>();
-    for (const r of this.db.prepare("SELECT buildingId, n, agentId FROM desks").all() as { buildingId: string; n: number; agentId: string }[]) {
-      if (!occupancy.has(r.buildingId)) occupancy.set(r.buildingId, new Map());
-      occupancy.get(r.buildingId)!.set(r.n, r.agentId);
-    }
-    const names = new Map(this.repos.agents.all().map((a) => [a.id, a.name]));
-    const res = computeLayout(buildings, occupancy, names);
+    const res = this.compute(buildings);
     this.grid = res.grid;
     this.places = res.places;
     this.desks = res.desks;
@@ -42,6 +37,48 @@ export class WorldMap {
     })();
     this.version++;
     return changed;
+  }
+
+  private compute(buildings: Building[]) {
+    const occupancy = new Map<string, Map<number, string>>();
+    for (const r of this.db.prepare("SELECT buildingId, n, agentId FROM desks").all() as { buildingId: string; n: number; agentId: string }[]) {
+      if (!occupancy.has(r.buildingId)) occupancy.set(r.buildingId, new Map());
+      occupancy.get(r.buildingId)!.set(r.n, r.agentId);
+    }
+    const names = new Map(this.repos.agents.all().map((a) => [a.id, a.name]));
+    return computeLayout(buildings, occupancy, names);
+  }
+
+  /** The building's movable pieces, each with its default and current anchor (lot-relative). */
+  pieces(buildingId: string): { lot: Building["lot"]; pieces: (Piece & { current: Tile })[] } {
+    const b = this.repos.buildings.require(buildingId, "building");
+    if (!b.lot) return { lot: undefined, pieces: [] };
+    const pieces = piecesFor(b.kind, b.headcount, b.lot);
+    const { anchors } = resolveFurniture(b.lot, pieces, b.furniture);
+    return { lot: b.lot, pieces: pieces.map((p) => ({ ...p, current: anchors[p.key] ?? p.at })) };
+  }
+
+  /**
+   * Check a proposed room (`furniture`: lot-relative anchors; missing pieces stay where they are now) without
+   * saving it. Returns the errors, the moved-only furniture to store, and the whole grid as it would look.
+   */
+  preview(buildingId: string, furniture: Furniture): { errors: LayoutError[]; furniture: Furniture; grid: Grid; places: Place[] } {
+    const b = this.repos.buildings.require(buildingId, "building");
+    if (!b.lot) throw new AppError("conflict", `${b.name} has no lot yet.`);
+    const { pieces } = this.pieces(buildingId);
+    const unknown = Object.keys(furniture).filter((k) => !pieces.some((p) => p.key === k));
+    if (unknown.length) throw new AppError("bad_request", `Unknown furniture: ${unknown.join(", ")}.`);
+    const anchors = Object.fromEntries(pieces.map((p) => [p.key, furniture[p.key] ?? p.current]));
+    const errors = validateLayout(b.lot, pieces, anchors);
+    const moved = movedOnly(pieces, anchors);
+    const res = this.compute(this.repos.buildings.all().map((x) => (x.id === b.id ? { ...x, furniture: errors.length ? {} : moved } : x)));
+    // an illegal draft can't be built as is: show it anyway, piece by piece, so the editor sees where things are
+    if (errors.length) {
+      const put = (x: number, y: number, t: number) => { if (x >= 0 && y >= 0 && x < res.grid.w && y < res.grid.h) res.grid.tiles[y * res.grid.w + x] = t; };
+      for (const p of pieces) for (const c of p.cells) put(b.lot.x + p.at.x + c.dx, b.lot.y + p.at.y + c.dy, p.wall ? TILE.WALL : TILE.FLOOR);
+      for (const p of pieces) for (const c of p.cells) put(b.lot.x + anchors[p.key].x + c.dx, b.lot.y + anchors[p.key].y + c.dy, c.tile);
+    }
+    return { errors, furniture: moved, grid: res.grid, places: res.places.filter((p) => p.buildingId === b.id) };
   }
 
   place(id: string): Place | undefined {

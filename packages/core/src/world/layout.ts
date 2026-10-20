@@ -1,4 +1,5 @@
 import { TILE, WALKABLE, type Building, type Lot, type Place, type Tile } from "@agent-town/schema";
+import { piecesFor, resolveFurniture } from "./furniture.ts";
 
 /** Row-major tile grid, same shape as the WS snapshot's `grid`. */
 export interface Grid { w: number; h: number; tiles: number[] }
@@ -123,16 +124,23 @@ export function computeLayout(buildings: Building[], occupancy: Map<string, Map<
     doors.set(b.id, door);
     places.push({ id: `door:${b.id}`, kind: "door", name: `${b.name} door`, buildingId: b.id, pos: door });
 
+    // furniture: each piece at its stored anchor if that's legal, else its default
+    const pieces = piecesFor(b.kind, b.headcount, b.lot!);
+    const { anchors, dropped } = resolveFurniture(b.lot!, pieces, b.furniture);
+    if (dropped.length) console.warn(`[layout] ${b.id}: ${dropped.join(", ")} back at the default spot (stored spot is no longer legal)`);
+    const piece = new Map(pieces.map((p) => [p.key, p]));
+    for (const p of pieces) {
+      const a = anchors[p.key] ?? p.at;
+      for (const c of p.cells) set(x0 + a.x + c.dx, y0 + a.y + c.dy, c.tile);
+    }
+    /** absolute tile of piece `key`'s stand `i` (or of its cells, for tables) */
+    const stand = (key: string, i = 0) => { const p = piece.get(key)!, a = anchors[key] ?? p.at; return { x: x0 + a.x + p.stands[i].x, y: y0 + a.y + p.stands[i].y }; };
+    const cells = (key: string) => { const p = piece.get(key)!, a = anchors[key] ?? p.at; return p.cells.map((c) => ({ x: x0 + a.x + c.dx, y: y0 + a.y + c.dy })); };
+    const occ = occupancy.get(b.id) ?? new Map<number, string>();
+
     if (b.kind === "town-hall") {
-      const F = TOWN_HALL_FIXTURES;
-      const at = (p: { x: number; y: number }) => ({ x: x0 + p.x, y: y0 + p.y });
-      for (const p of F.modDesk) set(x0 + p.x, y0 + p.y, TILE.DESK);
-      for (const p of F.planningDesk) set(x0 + p.x, y0 + p.y, TILE.DESK);
-      set(x0 + F.donation.x, y0 + F.donation.y, TILE.DONATION);
-      set(x0 + F.schedule.x, y0 + F.schedule.y, TILE.SCHEDULE);
       // mod-station seats are the Town Hall's desks (town moderators)
-      const occ = occupancy.get(b.id) ?? new Map<number, string>();
-      const seats: DeskSlot[] = F.modSeats.map((p, n) => ({ buildingId: b.id, n, pos: at(p), agentId: occ.get(n) ?? null }));
+      const seats: DeskSlot[] = Array.from({ length: MOD_SEATS }, (_, n) => ({ buildingId: b.id, n, pos: stand("mod-station", n), agentId: occ.get(n) ?? null }));
       desks.set(b.id, seats);
       for (const s of seats) {
         places.push(s.agentId
@@ -140,37 +148,23 @@ export function computeLayout(buildings: Building[], occupancy: Map<string, Map<
           : { id: `desk:free:${b.id}:${s.n}`, kind: "desk", name: "Free mod station seat", buildingId: b.id, pos: s.pos });
       }
       places.push(
-        { id: "mod-station", kind: "mod-station", name: "Mod station", buildingId: b.id, pos: at(F.modStand) },
-        { id: "planning-desk", kind: "planning", name: "Planning desk", buildingId: b.id, pos: at(F.planningStand) },
-        { id: "donation-box", kind: "donation", name: "Donation box", buildingId: b.id, pos: at(F.donationStand) },
-        { id: "schedule-board", kind: "schedule", name: "Schedule board", buildingId: b.id, pos: at(F.scheduleStand) },
-      );
-      for (let x = 2; x <= 6; x++) set(x0 + x, y0 + 2, TILE.SHELF);
-      for (let x = 10; x <= 14; x++) set(x0 + x, y0 + 2, TILE.TROPHY);
-      for (let x = 2; x <= 5; x++) set(x0 + x, y0 + 6, TILE.COUNTER);
-      for (let x = 10; x <= 13; x++) set(x0 + x, y0 + 6, TILE.TABLE);
-      tables.set(`meeting-room:${b.id}`, [10, 11, 12, 13].map((x) => ({ x: x0 + x, y: y0 + 6 })));
-      set(x0 + 1, y0 + 1, TILE.PLANT); set(x0 + bw - 2, y0 + 1, TILE.PLANT);
-      places.push(
-        { id: "library", kind: "library", name: "Library", buildingId: b.id, pos: { x: x0 + 4, y: y0 + 3 } },
-        { id: "trophy-room", kind: "trophy-room", name: "Trophy room", buildingId: b.id, pos: { x: x0 + 12, y: y0 + 3 } },
-        { id: "outbox", kind: "outbox", name: "Outbox", buildingId: b.id, pos: { x: x0 + 3, y: y0 + 7 } },
-        { id: `meeting-room:${b.id}`, kind: "meeting-room", name: "Town Hall meeting room", buildingId: b.id, pos: { x: x0 + 11, y: y0 + 7 } },
+        { id: "mod-station", kind: "mod-station", name: "Mod station", buildingId: b.id, pos: stand("mod-station", MOD_SEATS) },
+        { id: "planning-desk", kind: "planning", name: "Planning desk", buildingId: b.id, pos: stand("planning") },
+        { id: "donation-box", kind: "donation", name: "Donation box", buildingId: b.id, pos: stand("donation") },
+        { id: "schedule-board", kind: "schedule", name: "Schedule board", buildingId: b.id, pos: stand("schedule") },
+        { id: "library", kind: "library", name: "Library", buildingId: b.id, pos: stand("library") },
+        { id: "trophy-room", kind: "trophy-room", name: "Trophy room", buildingId: b.id, pos: stand("trophy") },
+        { id: "outbox", kind: "outbox", name: "Outbox", buildingId: b.id, pos: stand("outbox") },
+        { id: `meeting-room:${b.id}`, kind: "meeting-room", name: "Town Hall meeting room", buildingId: b.id, pos: stand("meeting") },
         { id: "plaza", kind: "plaza", name: "Plaza", buildingId: null, pos: { x: door.x, y: ROAD_Y } },
       );
+      tables.set(`meeting-room:${b.id}`, cells("meeting"));
       continue;
     }
 
-    // lab: desks in rows of up to 3 (desk = 2 tiles, agent stands below the left half)
-    const n = Math.max(1, b.headcount);
-    const cols = Math.min(3, n);
-    const occ = occupancy.get(b.id) ?? new Map<number, string>();
     const slots: DeskSlot[] = [];
     for (let i = 0; i < b.headcount; i++) {
-      const c = i % cols, r = Math.floor(i / cols);
-      const dx = x0 + 2 + c * 4, dy = y0 + 2 + r * 3;
-      set(dx, dy, TILE.DESK); set(dx + 1, dy, TILE.DESK);
-      const pos = { x: dx, y: dy + 1 };
+      const pos = stand(`desk:${i}`);
       const agentId = occ.get(i) ?? null;
       slots.push({ buildingId: b.id, n: i, pos, agentId });
       places.push(agentId
@@ -178,25 +172,13 @@ export function computeLayout(buildings: Building[], occupancy: Map<string, Map<
         : { id: `desk:free:${b.id}:${i}`, kind: "desk", name: "Free desk", buildingId: b.id, pos });
     }
     desks.set(b.id, slots);
-    // the building board: a wall tile on the top wall, left of center; read it standing below
-    const boardX = x0 + Math.floor(bw / 2) - 2;
-    set(boardX, y0, TILE.BOARD);
-    places.push({ id: `board:${b.id}`, kind: "board", name: `${b.name} board`, buildingId: b.id, pos: { x: boardX, y: y0 + 1 } });
-    // the manager's desk (in-tray): top-right, one tile, stand below it
-    const mx = x0 + bw - 2, my = y0 + 2;
-    set(mx, my, TILE.MANAGER_DESK);
-    places.push({ id: `intray:${b.id}`, kind: "intray", name: `${b.name} in-tray (manager's desk)`, buildingId: b.id, pos: { x: mx, y: my + 1 } });
-    const yMeet = y0 + bh - 4;
-    // the filing cabinet (reports and meeting notes): against the right wall, between the in-tray and the meeting table
-    // (bottom-right corner when the lab is one desk row tall and there's no room); read it standing to its left
-    const cy = yMeet - 2 >= my + 2 ? yMeet - 2 : y0 + bh - 2;
-    set(mx, cy, TILE.CABINET);
-    places.push({ id: `cabinet:${b.id}`, kind: "cabinet", name: `${b.name} filing cabinet`, buildingId: b.id, pos: { x: mx - 1, y: cy } });
-    // meeting table bottom-right, plant bottom-left
-    for (let x = bw - 5; x <= bw - 3; x++) set(x0 + x, yMeet, TILE.TABLE);
-    tables.set(`meeting-room:${b.id}`, [bw - 5, bw - 4, bw - 3].map((x) => ({ x: x0 + x, y: yMeet })));
-    set(x0 + 1, yMeet, TILE.PLANT);
-    places.push({ id: `meeting-room:${b.id}`, kind: "meeting-room", name: `${b.name} meeting room`, buildingId: b.id, pos: { x: x0 + bw - 4, y: yMeet + 1 } });
+    places.push(
+      { id: `board:${b.id}`, kind: "board", name: `${b.name} board`, buildingId: b.id, pos: stand("board") },
+      { id: `intray:${b.id}`, kind: "intray", name: `${b.name} in-tray (manager's desk)`, buildingId: b.id, pos: stand("intray") },
+      { id: `cabinet:${b.id}`, kind: "cabinet", name: `${b.name} filing cabinet`, buildingId: b.id, pos: stand("cabinet") },
+      { id: `meeting-room:${b.id}`, kind: "meeting-room", name: `${b.name} meeting room`, buildingId: b.id, pos: stand("meeting") },
+    );
+    tables.set(`meeting-room:${b.id}`, cells("meeting"));
   }
   const grid = { w, h, tiles };
   const seats = new Map<string, Tile[]>();

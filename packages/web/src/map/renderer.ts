@@ -6,6 +6,7 @@ import type { Agent, Place } from "@agent-town/schema";
 import { store, type PanelRef, isManager, roleOf } from "../state";
 import { World } from "./world";
 import { T, CHAR_W, CHAR_H, charSheet, tiles, HUMAN_SPRITE } from "./sprites";
+import { layoutEdit, type LayoutDraft } from "./layoutEdit";
 import { bubbleFor, buildingBudgetLine, drawBadge, drawBubble, drawLabel, drawSign, residentBudgetLine, type Bubble } from "./overlay";
 
 /** `index`/`count`: position among everything in reach, so the HUD can show "Tab 2/3" when targets overlap. */
@@ -41,7 +42,7 @@ export const PLACE_PANEL: Partial<Record<Place["kind"], (p: Place) => PanelRef &
 export class MapRenderer {
   private g: CanvasRenderingContext2D;
   private world: World | null = null;
-  private gridVersion = -1;
+  private gridKey = "";
   private bodies = new Map<string, Body>();
   private me = { x: 0, y: 0, placed: false, moving: false, lastTile: "" };
   /** auto-walk: remaining tiles, and what to do on arrival */
@@ -63,6 +64,8 @@ export class MapRenderer {
   private pendingTile: { x: number; y: number } | null = null;
   private hitboxes: { id: string; x: number; y: number; w: number; h: number }[] = [];
   hoverId: string | null = null;
+  /** last frame's camera, for screen -> tile */
+  private view = { ox: 0, oy: 0, z: 3 };
   onTarget?: (t: Target | null) => void;
   onMove?: (x: number, y: number) => void;
 
@@ -123,6 +126,12 @@ export class MapRenderer {
     this.sendTile(true);
   }
 
+  /** The tile under a screen point (CSS px). */
+  tileAt(cx: number, cy: number): { x: number; y: number } {
+    const { ox, oy, z } = this.view;
+    return { x: Math.floor((cx / z + ox) / T), y: Math.floor((cy / z + oy) / T) };
+  }
+
   /** Agent under a screen point (CSS px), for click-to-open. */
   hit(cx: number, cy: number): string | null {
     for (let i = this.hitboxes.length - 1; i >= 0; i--) {
@@ -135,9 +144,12 @@ export class MapRenderer {
   private ensureWorld() {
     const s = store.state;
     if (!s.grid) return;
-    if (this.gridVersion === s.gridVersion && this.world) return;
-    this.world = new World(s.grid, s.buildings, s.places);
-    this.gridVersion = s.gridVersion;
+    // while editing a layout, show the server's dry-run grid for the draft
+    const ed = layoutEdit.draft;
+    const key = ed?.preview ? `edit:${ed.previewVersion}` : `snap:${s.gridVersion}`;
+    if (this.gridKey === key && this.world) return;
+    this.world = new World(ed?.preview ?? s.grid, s.buildings, s.places);
+    this.gridKey = key;
     if (!this.me.placed) {
       const av = store.avatarId ? s.agents[store.avatarId] : null;
       const plaza = s.places.find((p) => p.kind === "plaza");
@@ -170,6 +182,8 @@ export class MapRenderer {
   }
 
   private moveMe(dt: number) {
+    // the arrow keys nudge furniture while editing a layout
+    if (layoutEdit.draft) { this.me.moving = false; this.route = null; this.onArrive = null; return; }
     const k = this.keys, w = this.world!;
     let vx = 0, vy = 0;
     if (k.has("arrowleft") || k.has("a")) vx -= 1;
@@ -269,6 +283,33 @@ export class MapRenderer {
     if (!same) { this.target = best; this.onTarget?.(best); }
   }
 
+  /** Edit layout overlay (world px): dim outside the room, tile grid, piece outlines and the spots people stand on. */
+  private drawLayoutEdit(ed: LayoutDraft, ox: number, oy: number, vw: number, vh: number) {
+    const g = this.g, { lot } = ed;
+    const lx = lot.x * T, ly = lot.y * T, lw = lot.w * T, lh = lot.h * T;
+    g.fillStyle = "rgba(10,12,20,.55)";
+    g.fillRect(ox - T, oy - T, vw + 2 * T, ly - oy + T);
+    g.fillRect(ox - T, ly + lh, vw + 2 * T, oy + vh + T - ly - lh);
+    g.fillRect(ox - T, ly, lx - ox + T, lh);
+    g.fillRect(lx + lw, ly, ox + vw + T - lx - lw, lh);
+    g.strokeStyle = "rgba(255,255,255,.12)"; g.lineWidth = 0.5;
+    g.beginPath();
+    for (let x = 0; x <= lot.w; x++) { g.moveTo(lx + x * T, ly); g.lineTo(lx + x * T, ly + lh); }
+    for (let y = 0; y <= lot.h; y++) { g.moveTo(lx, ly + y * T); g.lineTo(lx + lw, ly + y * T); }
+    g.stroke();
+    const bad = new Set(ed.errors.map((e) => e.key));
+    for (const p of ed.pieces) {
+      const a = ed.anchors[p.key];
+      const color = bad.has(p.key) ? "#ff5d5d" : p.key === ed.selected ? "#ffd34d" : "rgba(255,255,255,.55)";
+      g.strokeStyle = color; g.lineWidth = p.key === ed.selected || bad.has(p.key) ? 1.5 : 0.75;
+      for (const c of p.cells) g.strokeRect(lx + (a.x + c.dx) * T + 0.5, ly + (a.y + c.dy) * T + 0.5, T - 1, T - 1);
+      g.fillStyle = color;
+      for (const st of p.stands) {
+        g.beginPath(); g.arc(lx + (a.x + st.x) * T + T / 2, ly + (a.y + st.y) * T + T / 2, 1.8, 0, Math.PI * 2); g.fill();
+      }
+    }
+  }
+
   private draw(now: number) {
     const g = this.g, w = this.world!;
     const dpr = window.devicePixelRatio || 1;
@@ -279,7 +320,10 @@ export class MapRenderer {
     // centre the avatar in the strip between the HUD and the panel
     const hud = document.querySelector(".hud")?.getBoundingClientRect();
     this.leftInset = hud ? Math.min(hud.right + 12, viewW * 0.45) : 0;
-    let cx = this.me.x - (this.leftInset + (viewW - this.leftInset) / 2) / z, cy = this.me.y - ch / 2 / z;
+    const ed = layoutEdit.draft;
+    // editing a layout: centre the room instead of the avatar
+    const fx = ed ? (ed.lot.x + ed.lot.w / 2) * T : this.me.x, fy = ed ? (ed.lot.y + ed.lot.h / 2) * T : this.me.y;
+    let cx = fx - (this.leftInset + (viewW - this.leftInset) / 2) / z, cy = fy - ch / 2 / z;
     const ww = w.w * T, wh = w.h * T;
     // let the camera pan past the left edge by the HUD's width so nothing hides under it
     const lead = this.leftInset / z;
@@ -289,6 +333,7 @@ export class MapRenderer {
     this.cam.x += (cx - this.cam.x) * 0.18; this.cam.y += (cy - this.cam.y) * 0.18;
     const ox = Math.round(this.cam.x * z * dpr) / (z * dpr), oy = Math.round(this.cam.y * z * dpr) / (z * dpr);
     const toScreen = (x: number, y: number) => ({ x: (x - ox) * z, y: (y - oy) * z });
+    this.view = { ox, oy, z };
 
     g.setTransform(z * dpr, 0, 0, z * dpr, -ox * z * dpr, -oy * z * dpr);
     g.imageSmoothingEnabled = false;
@@ -319,6 +364,8 @@ export class MapRenderer {
       g.drawImage(charSheet(sprite), frame * CHAR_W, 0, CHAR_W, CHAR_H, Math.round(d.x - CHAR_W / 2), Math.round(d.y - CHAR_H + 1), CHAR_W, CHAR_H);
       g.globalAlpha = 1;
     }
+
+    if (ed) this.drawLayoutEdit(ed, ox, oy, cw / z, ch / z);
 
     // screen-space overlay
     g.setTransform(dpr, 0, 0, dpr, 0, 0);

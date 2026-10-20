@@ -4,7 +4,7 @@
  */
 import type { z } from "zod";
 import type {
-  Agent, Assignment, AuthMe, Building, ClientMessage, Doc, Event, Meeting, Place, Role, Membership,
+  Agent, Assignment, AuthMe, Building, ClientMessage, Doc, Event, Lot, Meeting, Place, Role, Membership, Tile,
   ServerMessage, Session, Town, CreateBuildingInput, UpdateBuildingInput, CreateResidentInput,
   ReviewInput, ChatInput, WorkInput, DonateInput, CreateMeetingInput, DocState, DocType,
 } from "@agent-town/schema";
@@ -35,6 +35,14 @@ export interface Budget {
   buildings: { buildingId: string; allocated: number; spent: number; spentUsd?: number }[];
   users: { userId: string; name?: string; donated: number }[];
 }
+/** A movable piece of furniture (anchors and offsets are lot-relative tiles). */
+export interface LayoutPiece {
+  key: string; label: string; at: Tile; current: Tile;
+  cells: { dx: number; dy: number; tile: number }[]; stands: Tile[]; wall?: boolean; table?: boolean;
+}
+export interface RoomLayout { lot?: Lot; pieces: LayoutPiece[] }
+export interface LayoutPreview { errors: { key: string | null; message: string }[]; furniture: Record<string, Tile>; grid: Grid; places: Place[] }
+
 export interface WriteDocInput { type?: DocType; title: string; body: string; state?: "draft" | "building"; tags?: string[] }
 export type RequestAction = "approve" | "reject" | "claim" | "done";
 
@@ -52,6 +60,10 @@ export interface Api {
   cabinet(buildingId: string, q?: CabinetQuery): Promise<Cabinet>;
   createBuilding(input: In<typeof CreateBuildingInput>): Promise<Building>;
   updateBuilding(id: string, input: In<typeof UpdateBuildingInput>): Promise<Building>;
+  /** Furniture of a room, and the human-only editor's dry run / save (lot-relative anchors). */
+  layout(buildingId: string): Promise<RoomLayout>;
+  previewLayout(buildingId: string, furniture: Record<string, Tile>): Promise<LayoutPreview>;
+  saveLayout(buildingId: string, furniture: Record<string, Tile>): Promise<Building>;
   // agents
   /** pending reports for the building's in-tray, oldest first */
   intray(buildingId: string): Promise<Doc[]>;
@@ -175,6 +187,9 @@ export class HttpApi implements Api {
   }
   async createBuilding(i: In<typeof CreateBuildingInput>) { return unwrap<Building>(await this.post("/api/buildings", i), "building"); }
   async updateBuilding(id: string, i: In<typeof UpdateBuildingInput>) { return unwrap<Building>(await this.call("PATCH", `/api/buildings/${id}`, i), "building"); }
+  layout(id: string) { return this.get<RoomLayout>(`/api/buildings/${id}/layout`); }
+  previewLayout(id: string, furniture: Record<string, Tile>) { return this.call<LayoutPreview>("PUT", `/api/buildings/${id}/layout`, { furniture, dryRun: true }); }
+  async saveLayout(id: string, furniture: Record<string, Tile>) { return unwrap<Building>(await this.call("PUT", `/api/buildings/${id}/layout`, { furniture }), "building"); }
   async intray(id: string) { return unwrap<Doc[]>(await this.get(`/api/buildings/${id}/intray`), "reports"); }
   async createResident(i: In<typeof CreateResidentInput>) { return unwrap<Agent>(await this.post("/api/agents/residents", i), "agent"); }
   async dismiss(id: string, purge = false) { await this.call("DELETE", `/api/agents/${id}${purge ? "?purge=1" : ""}`); }
