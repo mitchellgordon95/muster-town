@@ -40,7 +40,7 @@ export const buildings: Building[] = [
   },
 ];
 
-const agentBase = { ownerUserId: "us_mitchell", status: "idle" as const, activity: "", model: null, spentTokensToday: 0, spentTokensTotal: 0, spentUsdTotal: 0, currentAssignmentId: null, currentMeetingId: null, createdAt: ago(8900), lastActiveAt: null };
+const agentBase = { ownerUserId: "us_mitchell", status: "idle" as const, activity: "", model: null, spentTokensToday: 0, spentTokensTotal: 0, spentUsdTotal: 0, currentAssignmentId: null, currentMeetingId: null, createdAt: ago(8900), lastActiveAt: null, lastSeenAt: null };
 const resident = (id: string, name: string, sprite: number, title: string, direction: string, extra: Partial<Agent> = {}): Agent => ({
   ...agentBase, id, name, kind: "resident", buildingId: "bl_carbon", homeBuildingId: "bl_carbon", title, direction, sprite, pos: { x: 0, y: 0 }, ...extra,
 });
@@ -58,6 +58,8 @@ export const agents: Agent[] = [
   resident("ag_pike", "Pike", 9, "Web client", "Small fixes to the web client: one PR per session, with a screenshot.", { buildingId: "bl_workshop", homeBuildingId: "bl_workshop", spentTokensTotal: 300_000, spentUsdTotal: 2.4, lastActiveAt: ago(30) }),
   { ...agentBase, id: "ag_wren", name: "Wren", kind: "resident", buildingId: "bl_townhall", homeBuildingId: "bl_townhall", title: "Town moderator", direction: "Collective-wide misuse prevention: approves outbox requests, reviews trophy proposals, bans abuse.", sprite: 10, pos: { x: 0, y: 0 } },
   { ...agentBase, id: "ag_ada", name: "Ada", kind: "service", buildingId: "bl_townhall", homeBuildingId: "bl_townhall", ownerUserId: null, title: "Librarian", direction: "Knows every document in the library.", sprite: 0, pos: { x: 0, y: 0 }, activity: "Ask me about the library" },
+  // v1.4: Mitchell's Claude Code session as a visitor with a Workshop desk; it's offline (laptop closed), an offer waits
+  { ...agentBase, id: "ag_visitor", name: "Mitch's Claude", kind: "visitor", buildingId: "bl_workshop", homeBuildingId: "bl_workshop", title: "Visitor", direction: "", sprite: 6, pos: { x: 0, y: 0 }, status: "offline", currentAssignmentId: "as_visit1", createdAt: ago(600), lastSeenAt: ago(95), lastActiveAt: ago(95) },
   { ...agentBase, id: "ag_me", name: "Mitchell", kind: "human", buildingId: null, homeBuildingId: null, title: "Town owner", direction: "", sprite: 7, pos: { x: 0, y: 0 } },
 ];
 
@@ -116,6 +118,8 @@ export const assignments: Assignment[] = [
   asg({ id: "as_mei2", agentId: "ag_mei", buildingId: "bl_carbon", title: "Southern Ocean: pCO2 products vs models", description: "From run 1's proposal: why do they disagree, and which should the lab trust?", status: "cancelled", fromReportId: "dc_mei_r1", createdAt: ago(50), updatedAt: ago(8) }),
   asg({ id: "as_mei3", agentId: "ag_mei", buildingId: "bl_carbon", title: "Cumulative ocean uptake since 1850", description: "Total GtC taken up by the ocean, with uncertainty, from GCB 2025.", status: "pending", createdAt: ago(45), updatedAt: ago(45) }),
   asg({ id: "as_mei4", agentId: "ag_mei", buildingId: "bl_carbon", title: "Acidification: pH trend at HOT and BATS", description: "Surface pH trend per decade at the two long time series.", status: "pending", createdAt: ago(40), updatedAt: ago(40) }),
+  asg({ id: "as_visit1", agentId: "ag_visitor", buildingId: "bl_workshop", title: "Draft the CLI help text", description: "Write the help text for `agent-town digest` and `agent-town verbs`.", status: "active", offered: false, createdAt: ago(240), updatedAt: ago(200) }),
+  asg({ id: "as_visit2", agentId: "ag_visitor", buildingId: "bl_workshop", title: "Review Pike's renderer PR", description: "Pike's PR dims offline visitors; check it against the screenshot.", status: "pending", offered: true, createdAt: ago(40), updatedAt: ago(40) }),
   asg({ id: "as_mei5", agentId: "ag_mei", buildingId: "bl_carbon", title: "Does warming weaken the solubility pump?", description: "Size the effect for 2024 vs 1990 in GtC/yr.", status: "pending", createdAt: ago(30), updatedAt: ago(30) }),
 ];
 

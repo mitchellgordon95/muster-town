@@ -207,6 +207,8 @@ export type BankCredit = z.infer<typeof BankCredit>;
 export const AgentKind = z.enum(["resident", "visitor", "human", "service"]);
 export const AgentStatus = z.enum([
   "idle", "walking", "working", "in-meeting", "out-of-budget", "stopped", "banned",
+  /** v1.4: a visitor with no authenticated call in the last 90 s (residents are never offline) */
+  "offline",
   /** dismissed: row kept so documents keep their author; hidden from the snapshot */
   "retired",
 ]);
@@ -238,6 +240,8 @@ export const Agent = z.object({
   currentMeetingId: Id.nullable().default(null),
   createdAt: Iso,
   lastActiveAt: Iso.nullable().default(null),
+  /** v1.4: last authenticated agent call (MCP tool or /api/verbs), written at most every 10 s; for an offline visitor, when it went quiet */
+  lastSeenAt: Iso.nullable().default(null),
 });
 export type Agent = z.infer<typeof Agent>;
 
@@ -258,6 +262,8 @@ export const PlaceKind = z.enum([
   "donation",
   /** schedule-board — Town Hall: upcoming meetings for every building */
   "schedule",
+  /** visitor-bench — Town Hall, beside the door: where visitors without a building desk wait */
+  "bench",
 ]);
 export type PlaceKind = z.infer<typeof PlaceKind>;
 export const Place = z.object({
@@ -362,6 +368,8 @@ export const Assignment = z.object({
   fromAssignmentId: Id.nullable().default(null),
   /** queue order among the agent's pending assignments: lower runs first (ties: createdAt, rowid). New ones get epoch ms. */
   position: z.number().default(0),
+  /** v1.4: an assignment for a visitor is an offer: the scheduler never starts it; the visitor takes it with `accept_assignment` (clears this). Cancelled after 24 h. */
+  offered: z.boolean().optional(),
   createdAt: Iso,
   updatedAt: Iso,
 });
@@ -529,7 +537,7 @@ export type VerbName = keyof typeof VerbInputs;
 export const VERB_NAMES = Object.keys(VerbInputs) as VerbName[];
 
 export const VERB_DESCRIPTIONS: Record<VerbName, string> = {
-  look: "Where am I, who is nearby (agents and humans, what they're doing), what place this is, and my notices (unread messages, unread mentions of me, pending assignments, upcoming meetings).",
+  look: "Where am I, who is nearby (agents and humans, what they're doing), what place this is, and my notices (unread messages, unread mentions of me, pending assignments, upcoming meetings). Visitors: the first look after being offline also carries notices.digest, what arrived while you were away (messages, mentions, assignments offered to you, meetings you missed with their notes doc ids).",
   go: "Walk to a place or to an agent. Returns when you arrive. Walking is free.",
   say: "Say something out loud; heard by everyone within 3 tiles (including humans).",
   tell: "Send a direct message to an agent's inbox.",
@@ -542,7 +550,7 @@ export const VERB_DESCRIPTIONS: Record<VerbName, string> = {
   propose_trophy: "Propose a library document for the trophy room (collective approval needed).",
   request_human: "Put a request in the town outbox for a human to do something in the real world (observe, fetch data, contact someone). A moderator approves it before humans see it.",
   assignments: "List my assignments.",
-  accept_assignment: "Accept a pending assignment; it becomes my current task.",
+  accept_assignment: "Accept a pending assignment; it becomes my current task. Visitors: assignments to you are offers until you accept them (unaccepted offers are cancelled after 24 h); finish with `submit_report`.",
   meeting: "Participate in a meeting: 'summary' submits my short standup summary (did, next), 'speak' adds to the transcript once the discussion has started, 'listen' returns new utterances since my last listen (set waitSeconds to wait for someone to speak), 'decide'/'end' are for the facilitator; while humans are talking, leave 'end' to them.",
   review: "(manager/reviewer) Decide on a pending report in the in-tray: approve (acknowledge), continue (assign its proposal), redirect (assign your note instead), or stop the agent.",
   assign: "(manager/reviewer) Create an assignment for an agent in my building.",
@@ -557,10 +565,33 @@ export const LookResult = z.object({
   me: z.object({ id: Id, name: z.string(), status: AgentStatus, buildingId: Id.nullable(), place: z.string().nullable(), pos: Tile }),
   building: z.object({ id: Id, name: z.string(), goal: z.string() }).nullable(),
   nearby: z.array(NearbyAgent),
-  notices: z.object({ unread: z.number().int(), mentions: z.number().int(), pendingAssignments: z.number().int(), currentAssignment: z.string().nullable(), nextMeeting: z.object({ id: Id, title: z.string(), at: Iso, phase: MeetingPhase }).nullable() }),
+  notices: z.object({ unread: z.number().int(), mentions: z.number().int(), pendingAssignments: z.number().int(), currentAssignment: z.string().nullable(), nextMeeting: z.object({ id: Id, title: z.string(), at: Iso, phase: MeetingPhase }).nullable(),
+    /** visitors only, on the first look after coming back from offline */
+    digest: z.lazy(() => MailboxDigest).optional() }),
   places: z.array(z.object({ id: Id, name: z.string(), kind: PlaceKind })).describe("places I can `go` to from here"),
 });
 export type LookResult = z.infer<typeof LookResult>;
+
+/**
+ * v1.4: what reached a visitor while it was offline (`look` notices.digest on the "back" transition, and
+ * `GET /api/agents/me/digest`). `messages` counts every inbox message received in the window (mentions included);
+ * `mentions` the mention subset; `assignmentsOffered` offers created in the window; `meetingsMissed` meetings of its
+ * building (or that invited it) that ended in the window.
+ */
+export const MailboxDigest = z.object({
+  offlineSince: Iso,
+  messages: z.number().int().nonnegative(),
+  mentions: z.number().int().nonnegative(),
+  assignmentsOffered: z.number().int().nonnegative(),
+  meetingsMissed: z.array(z.object({ id: Id, title: z.string(), notesDocId: Id.nullable() })),
+});
+export type MailboxDigest = z.infer<typeof MailboxDigest>;
+/** v1.4: `GET /api/agents/:id` → `mailbox` (visitors): unread inbox messages, unread mentions, open offers. */
+export const Mailbox = z.object({ unread: z.number().int().nonnegative(), mentions: z.number().int().nonnegative(), offered: z.number().int().nonnegative() });
+export type Mailbox = z.infer<typeof Mailbox>;
+
+/** v1.4: `GET /api/verbs` → one entry per verb (the MCP tool list, over plain HTTP). */
+export interface VerbListing { name: VerbName; description: string; inputSchema: Record<string, unknown> }
 
 // ---------- WebSocket protocol ----------
 /** A building's token budget, summed over its allocations (derived, not stored). */
@@ -610,6 +641,8 @@ export const TILE = {
   SCHEDULE: 14,
   /** filing cabinet against the top wall of each lab, two tiles right of the board */
   CABINET: 15,
+  /** v1.4: the visitor bench in the Town Hall (furniture; visitors wait on the row above it) */
+  BENCH: 16,
 } as const;
 export const WALKABLE = new Set<number>([TILE.GRASS, TILE.PATH, TILE.FLOOR, TILE.DOOR]);
 
@@ -764,3 +797,5 @@ export const DeskSessionEndInput = z.object({
   reportSubmitted: z.boolean().default(false),
 });
 export type DeskSessionEndInput = z.infer<typeof DeskSessionEndInput>;
+
+export { toJsonSchema } from "./json-schema.ts";

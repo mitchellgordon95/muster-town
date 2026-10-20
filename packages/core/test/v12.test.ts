@@ -66,6 +66,8 @@ describe("role migration (v1.1 DB)", () => {
     db.exec("ALTER TABLE assignments DROP COLUMN fromAssignmentId"); // added by 011
     db.exec("DROP TABLE bank_inputs; DROP TABLE bank_credits"); // added by 012 (bank)
     db.exec("ALTER TABLE buildings DROP COLUMN furniture"); // added by 013 (movable furniture)
+    db.exec("ALTER TABLE agents DROP COLUMN lastSeenAt"); // added by 015 (visitor presence)
+    db.exec("ALTER TABLE assignments DROP COLUMN offered"); // added by 015
     expect((db.prepare("SELECT holderId FROM memberships WHERE roleId = 'role:carbon-cycle:moderator'").all() as { holderId: string }[]).map((r) => r.holderId)).toEqual([moss.id]);
     db.close();
     return dbPath;

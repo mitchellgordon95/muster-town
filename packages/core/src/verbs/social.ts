@@ -1,4 +1,4 @@
-import type { Agent, LookResult, Message } from "@agent-town/schema";
+import type { Agent, LookResult, MailboxDigest, Message } from "@agent-town/schema";
 import { AppError, badRequest, forbidden } from "../errors.ts";
 import { homeOf, sendMessage, setAssignmentStatus } from "../domain.ts";
 import { notifyMentions } from "../mentions.ts";
@@ -27,7 +27,7 @@ export async function look(world: World, me: Agent, _input: VerbIn<"look">): Pro
   const visible = world.layout.places.filter((p) =>
     p.kind === "door" || p.kind === "plaza" || p.id === "library" || p.id === "trophy-room" || p.id === "outbox" ||
     // Town Hall stations everyone can walk to
-    p.kind === "mod-station" || p.kind === "planning" || p.kind === "donation" || p.kind === "schedule" ||
+    p.kind === "mod-station" || p.kind === "planning" || p.kind === "donation" || p.kind === "schedule" || p.kind === "bench" ||
     // the board, filing cabinet and in-tray (manager's desk) of the building I'm in / my home building
     ((p.kind === "board" || p.kind === "cabinet" || p.kind === "intray") && mine(p)) ||
     (p.kind === "meeting-room" && (mine(p) || p.buildingId === "town-hall")) ||
@@ -42,9 +42,17 @@ export async function look(world: World, me: Agent, _input: VerbIn<"look">): Pro
       pendingAssignments: world.assignments.count("agentId = ? AND status = 'pending'", [me.id]),
       currentAssignment: current?.title ?? null,
       nextMeeting: meeting ? { id: meeting.id, title: meeting.title, at: meeting.scheduledAt, phase: meeting.phase } : null,
+      ...digestFor(world, me),
     },
     places: visible.map((p) => ({ id: p.id, name: p.name, kind: p.kind })),
   };
+}
+
+/** v1.4: a visitor's first look after coming back from offline carries what arrived while it was away. */
+function digestFor(world: World, me: Agent): { digest?: MailboxDigest } {
+  if (me.kind !== "visitor") return {};
+  const digest = world.presence.takeDigest(me.id);
+  return digest ? { digest } : {};
 }
 
 export async function go(world: World, me: Agent, input: VerbIn<"go">) {
@@ -101,8 +109,10 @@ export async function accept_assignment(world: World, me: Agent, input: VerbIn<"
     const prev = world.assignments.get(me.currentAssignmentId);
     if (prev?.status === "active") setAssignmentStatus(world, prev.id, "pending");
   }
-  const updated = a.status === "active" ? a : setAssignmentStatus(world, a.id, "active");
+  // v1.4: accepting an offer clears `offered`; a visitor works while it holds an active assignment
+  const updated = a.status === "active" && !a.offered ? a : setAssignmentStatus(world, a.id, "active", a.offered ? { offered: false } : {});
   world.agents.patch(me.id, { currentAssignmentId: a.id });
+  if (me.kind === "visitor" && (me.status === "idle" || me.status === "offline")) world.setStatus(me.id, "working", `${me.name} accepted "${updated.title}"`);
   return { id: updated.id, title: updated.title, status: updated.status };
 }
 

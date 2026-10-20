@@ -90,7 +90,7 @@ export class Sim {
     const at = (id: string) => pl.find((p) => p.id === id)?.pos;
     if (a.kind === "service") return { ...(at("library") ?? { x: 2, y: 2 }) };
     if (a.kind === "human") return { ...(at("plaza") ?? { x: 2, y: 2 }) };
-    return { ...(at(`desk:${a.id}`) ?? at(`door:${a.homeBuildingId}`) ?? { x: 2, y: 2 }) };
+    return { ...(at(`desk:${a.id}`) ?? (a.kind === "visitor" ? at("visitor-bench") : undefined) ?? at(`door:${a.homeBuildingId}`) ?? { x: 2, y: 2 }) };
   }
 
   event(type: Event["type"], agentId: string | null, text: string, payload: Record<string, unknown> = {}, buildingId: string | null = "bl_carbon") {

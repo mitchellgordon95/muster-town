@@ -17,6 +17,7 @@ const F = {
   donation: { x: 6, y: 9 }, donationStand: { x: 7, y: 9 },
   planningDesk: [{ x: 12, y: 9 }, { x: 13, y: 9 }], planningStand: { x: 12, y: 8 },
   schedule: { x: 15, y: 6 }, scheduleStand: { x: 15, y: 7 },
+  bench: [{ x: 10, y: 9 }, { x: 11, y: 9 }], benchSeats: [{ x: 10, y: 8 }, { x: 11, y: 8 }],
 };
 const HALL = { w: 17, h: 11 }, GAP = 4, MARGIN = 3;
 function labSize(headcount: number) {
@@ -63,6 +64,7 @@ export function computeLayout(buildings: Building[], agents: Agent[]): Layout {
       for (const p of F.planningDesk) set(x0 + p.x, y0 + p.y, TILE.DESK);
       set(x0 + F.donation.x, y0 + F.donation.y, TILE.DONATION);
       set(x0 + F.schedule.x, y0 + F.schedule.y, TILE.SCHEDULE);
+      for (const p of F.bench) set(x0 + p.x, y0 + p.y, TILE.BENCH);
       // town moderators (Town Hall residents) sit at the mod station
       const mods = agents.filter((a) => a.homeBuildingId === b.id && a.kind === "resident" && a.status !== "retired");
       F.modSeats.forEach((p, n) => {
@@ -76,6 +78,7 @@ export function computeLayout(buildings: Building[], agents: Agent[]): Layout {
         { id: "planning-desk", kind: "planning", name: "Planning desk", buildingId: b.id, pos: at(F.planningStand) },
         { id: "donation-box", kind: "donation", name: "Donation box", buildingId: b.id, pos: at(F.donationStand) },
         { id: "schedule-board", kind: "schedule", name: "Schedule board", buildingId: b.id, pos: at(F.scheduleStand) },
+        { id: "visitor-bench", kind: "bench", name: "Visitor bench", buildingId: b.id, pos: at(F.benchSeats[0]) },
       );
       for (let x = 2; x <= 6; x++) set(x0 + x, y0 + 2, TILE.SHELF);
       for (let x = 10; x <= 14; x++) set(x0 + x, y0 + 2, TILE.TROPHY);
@@ -90,7 +93,11 @@ export function computeLayout(buildings: Building[], agents: Agent[]): Layout {
         { id: "plaza", kind: "plaza", name: "Plaza", buildingId: null, pos: { x: door.x, y: roadY } },
       );
     } else {
-      const residents = agents.filter((a) => a.homeBuildingId === b.id && a.kind === "resident" && a.status !== "retired");
+      // residents first, then visitors registered into the building (they claim free desks too)
+      const residents = [
+        ...agents.filter((a) => a.homeBuildingId === b.id && a.kind === "resident" && a.status !== "retired"),
+        ...agents.filter((a) => a.homeBuildingId === b.id && a.kind === "visitor" && a.status !== "retired"),
+      ];
       const cols = Math.min(3, Math.max(1, b.headcount));
       for (let i = 0; i < b.headcount; i++) {
         const c = i % cols, r = Math.floor(i / cols);

@@ -50,8 +50,10 @@ export function createAssignment(world: World, a: { agentId: string; title: stri
     createdBy: a.createdBy.id, createdByKind: a.createdBy.kind === "system" ? "user" : a.createdBy.kind,
     fromMeetingId: a.fromMeetingId ?? null, fromReportId: a.fromReportId ?? null, reportId: null,
     fromAssignmentId: a.fromAssignmentId ?? null, position: a.front ? frontPosition(world, agent.id) : Date.now(), createdAt: ts, updatedAt: ts,
+    // v1.4: a visitor's loop runs outside the town, so its assignments are offers it accepts (never scheduled)
+    ...(agent.kind === "visitor" ? { offered: true } : {}),
   });
-  world.events.append({ type: "assignment.created", agentId: agent.id, buildingId, text: `New assignment for ${agent.name}: ${a.title}`, payload: { assignmentId: assignment.id, createdBy: a.createdBy.id, fromReportId: a.fromReportId ?? null, fromMeetingId: a.fromMeetingId ?? null } });
+  world.events.append({ type: "assignment.created", agentId: agent.id, buildingId, text: `${assignment.offered ? "Offered to" : "New assignment for"} ${agent.name}: ${a.title}`, payload: { assignmentId: assignment.id, offered: !!assignment.offered, createdBy: a.createdBy.id, fromReportId: a.fromReportId ?? null, fromMeetingId: a.fromMeetingId ?? null } });
   return assignment;
 }
 
@@ -60,9 +62,9 @@ export function pendingQueue(world: World, agentId: string): Assignment[] {
   return world.assignments.where("agentId = ? AND status = 'pending'", [agentId], QUEUE_ORDER);
 }
 
-/** The pending assignment the scheduler runs next for this agent. */
+/** The pending assignment the scheduler runs next for this agent (offers to visitors never run). */
 export function nextPending(world: World, agentId: string): Assignment | undefined {
-  return world.assignments.first("agentId = ? AND status = 'pending'", [agentId], QUEUE_ORDER);
+  return world.assignments.first("agentId = ? AND status = 'pending' AND (offered IS NULL OR offered = 0)", [agentId], QUEUE_ORDER);
 }
 
 /** A position ahead of every pending assignment of the agent (except `exceptId`). */

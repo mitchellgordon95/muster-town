@@ -360,7 +360,7 @@ export class MapRenderer {
       const frame = d.moving ? (tick % 2 ? 2 : 0) : d.a?.status === "working" ? tick % 2 : 0;
       g.fillStyle = "rgba(0,0,0,.28)";
       g.beginPath(); g.ellipse(d.x, d.y, 5, 2, 0, 0, Math.PI * 2); g.fill();
-      g.globalAlpha = d.a && (d.a.status === "stopped" || d.a.status === "banned") ? 0.55 : 1;
+      g.globalAlpha = d.a && (d.a.status === "stopped" || d.a.status === "banned") ? 0.55 : d.a?.status === "offline" ? 0.4 : 1;
       g.drawImage(charSheet(sprite), frame * CHAR_W, 0, CHAR_W, CHAR_H, Math.round(d.x - CHAR_W / 2), Math.round(d.y - CHAR_H + 1), CHAR_W, CHAR_H);
       g.globalAlpha = 1;
     }

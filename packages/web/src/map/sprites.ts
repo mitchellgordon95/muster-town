@@ -259,6 +259,21 @@ export function drawSchedule(g: CanvasRenderingContext2D, px: number, py: number
   g.fillStyle = "#7cc4ff"; g.fillRect(px + 2, py + 9, 2, 1);
 }
 
+/** v1.4 visitor bench (Town Hall, by the door): a wooden slatted bench against the bottom wall. */
+export function drawBench(g: CanvasRenderingContext2D, px: number, py: number, n: { l: boolean; r: boolean }) {
+  g.fillStyle = "rgba(0,0,0,.22)"; g.fillRect(px, py + 13, T, 2);
+  // back rest against the wall, then the seat with slats
+  g.fillStyle = "#5a3a1f"; g.fillRect(px + (n.l ? 0 : 1), py + 2, T - (n.l ? 0 : 1) - (n.r ? 0 : 1), 5);
+  g.fillStyle = "#946538"; g.fillRect(px + (n.l ? 0 : 1), py + 3, T - (n.l ? 0 : 1) - (n.r ? 0 : 1), 1); g.fillRect(px + (n.l ? 0 : 1), py + 5, T - (n.l ? 0 : 1) - (n.r ? 0 : 1), 1);
+  g.fillStyle = "#a8774a"; g.fillRect(px + (n.l ? 0 : 1), py + 7, T - (n.l ? 0 : 1) - (n.r ? 0 : 1), 4);
+  g.fillStyle = "#c08a55"; g.fillRect(px + (n.l ? 0 : 1), py + 7, T - (n.l ? 0 : 1) - (n.r ? 0 : 1), 1);
+  g.fillStyle = "#7a5230"; g.fillRect(px + (n.l ? 0 : 1), py + 9, T - (n.l ? 0 : 1) - (n.r ? 0 : 1), 1);
+  // legs at the run's ends
+  g.fillStyle = "#4a3018";
+  if (!n.l) g.fillRect(px + 2, py + 11, 2, 3);
+  if (!n.r) g.fillRect(px + T - 4, py + 11, 2, 3);
+}
+
 export type IconKind = "library" | "trophy" | "outbox" | "meeting" | "building" | "admin" | "intray" | "board" | "cabinet" | "donation" | "schedule" | "mod" | "planning";
 const iconCache = new Map<string, string>();
 /** Tile-art icons for panel headers (2x scale). */

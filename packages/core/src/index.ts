@@ -13,6 +13,7 @@ export { Budget, type ChargeResult, type BudgetSummary } from "./budget.ts";
 export { Bank, type BankSummary } from "./bank.ts";
 export { Ops, type Actor, type MessageAgentOptions, type MessageAgentResult, type RequestAction, type ThreadMessage } from "./ops.ts";
 export { createBuilding, updateBuilding, createResident, registerVisitor, ensureAvatar, createUser, createServiceAgent, createTownModerator, updateFurniture } from "./entities.ts";
+export { Presence, STAMP_EVERY_MS, OFFLINE_AFTER_MS, PRESENCE_TICK_MS, OFFER_TTL_MS, type TouchResult } from "./presence.ts";
 export { migrateRoles, type MigrateRolesResult } from "./migrate-roles.ts";
 export {
   applyDecision, createAssignment, createDoc, updateDoc, extractProposal, summarizeDoc, canSeeDoc, sendMessage,

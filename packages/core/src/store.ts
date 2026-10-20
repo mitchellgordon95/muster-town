@@ -130,7 +130,7 @@ export function createRepos(db: DB, changes: Emitter<ServerMessage>) {
     agents: new Table<Agent>(db, "agents", Agent, { json: ["pos"] }, (agent) => changes.emit({ type: "agent", agent })),
     places: new Table<Place>(db, "places", Place, { json: ["pos"] }),
     docs: new Table<Doc>(db, "docs", Doc, { json: ["provenance", "tags"] }, (doc) => changes.emit({ type: "doc", doc })),
-    assignments: new Table<Assignment>(db, "assignments", Assignment, {}, (assignment) => changes.emit({ type: "assignment", assignment })),
+    assignments: new Table<Assignment>(db, "assignments", Assignment, { bool: ["offered"] }, (assignment) => changes.emit({ type: "assignment", assignment })),
     messages: new Table<Message>(db, "messages", Message),
     meetings: new Table<Meeting>(db, "meetings", Meeting, { json: ["attendeeIds", "summaries", "transcript", "decisions"] }, (meeting) => changes.emit({ type: "meeting", meeting })),
     sessions: new Table<Session>(db, "sessions", Session),

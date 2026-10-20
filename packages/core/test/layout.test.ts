@@ -129,7 +129,9 @@ describe("pathfinding and movement", () => {
   it("visitors' buildingId follows their body; unknown targets fail", async () => {
     const { world, seed } = seededWorld();
     const { agent } = world.ops.registerVisitor(seed.admin.id, { name: "Visitor" });
-    expect(agent.buildingId).toBeNull();
+    expect(agent.buildingId).toBe("town-hall"); // v1.4: a visitor without a building waits at the Town Hall bench
+    await tickUntil(world, world.verbs.go(agent, { to: "plaza" }));
+    expect(world.agents.require(agent.id).buildingId).toBeNull();
     await tickUntil(world, world.verbs.go(agent, { to: "library" }));
     expect(world.agents.require(agent.id).buildingId).toBe("town-hall");
     await expect(world.verbs.go(agent, { to: "nowhere" })).rejects.toMatchObject({ code: "not_found" });

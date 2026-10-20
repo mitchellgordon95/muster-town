@@ -6,7 +6,7 @@ import type { z } from "zod";
 import type {
   Agent, Assignment, AuthMe, Building, ClientMessage, Doc, Event, Lot, Meeting, Place, Role, Membership, Tile,
   ServerMessage, Session, Town, CreateBuildingInput, UpdateBuildingInput, CreateResidentInput,
-  ReviewInput, ChatInput, WorkInput, DonateInput, CreateMeetingInput, DocState, DocType,
+  ReviewInput, ChatInput, WorkInput, DonateInput, CreateMeetingInput, DocState, DocType, Mailbox,
 } from "@agent-town/schema";
 
 export type In<T extends z.ZodTypeAny> = z.input<T>;
@@ -19,6 +19,8 @@ export interface AgentDetail {
   currentSession: Session | null;
   latestReport: Doc | null;
   assignments: Assignment[];
+  /** v1.4, visitors only: unread inbox messages, unread mentions, open offers */
+  mailbox?: Mailbox;
 }
 /** POST /api/agents/:id/message result: how the message reached the agent. */
 export interface StartNextResult { assignment: Assignment; agent: Agent; when: "now" | "after-current" }

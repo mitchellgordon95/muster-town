@@ -29,6 +29,8 @@ export const TOWN_HALL_FIXTURES = {
   planningDesk: [{ x: 12, y: 9 }, { x: 13, y: 9 }], planningStand: { x: 12, y: 8 },
   /** schedule board next to the town meeting room table */
   schedule: { x: 15, y: 6 }, scheduleStand: { x: 15, y: 7 },
+  /** v1.4 visitor bench (default spot; furniture piece `bench`): visitors wait on the row above it */
+  bench: [{ x: 10, y: 9 }, { x: 11, y: 9 }], benchSeats: [{ x: 10, y: 8 }, { x: 11, y: 8 }],
 } as const;
 
 export function labSize(headcount: number): { w: number; h: number } {
@@ -152,6 +154,7 @@ export function computeLayout(buildings: Building[], occupancy: Map<string, Map<
         { id: "planning-desk", kind: "planning", name: "Planning desk", buildingId: b.id, pos: stand("planning") },
         { id: "donation-box", kind: "donation", name: "Donation box", buildingId: b.id, pos: stand("donation") },
         { id: "schedule-board", kind: "schedule", name: "Schedule board", buildingId: b.id, pos: stand("schedule") },
+        { id: "visitor-bench", kind: "bench", name: "Visitor bench", buildingId: b.id, pos: stand("bench") },
         { id: "library", kind: "library", name: "Library", buildingId: b.id, pos: stand("library") },
         { id: "trophy-room", kind: "trophy-room", name: "Trophy room", buildingId: b.id, pos: stand("trophy") },
         { id: "outbox", kind: "outbox", name: "Outbox", buildingId: b.id, pos: stand("outbox") },

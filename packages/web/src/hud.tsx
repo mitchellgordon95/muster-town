@@ -8,7 +8,7 @@ import type { Target } from "./map/renderer";
 import { isMock } from "./api";
 import { joinMeeting } from "./panels/Places";
 
-const ORDER: AgentStatus[] = ["working", "in-meeting", "walking", "idle", "out-of-budget", "stopped", "banned"];
+const ORDER: AgentStatus[] = ["working", "in-meeting", "walking", "idle", "out-of-budget", "offline", "stopped", "banned"];
 
 interface Notice { key: string; icon: IconKind; text: ReactNode; cta: string; tone: "warn" | "meet"; go: () => void }
 

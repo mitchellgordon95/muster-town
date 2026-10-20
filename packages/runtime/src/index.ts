@@ -3,7 +3,7 @@
  * reviewer sessions over the in-tray, meeting summaries + facilitation, proxy chat, interrupts, scheduler,
  * startup reconcile, dismissal (onAgentRetired), host redeploy (v1.3).
  */
-import { nextPending, slugify, type World } from "@agent-town/core";
+import { nextPending, PRESENCE_TICK_MS, slugify, type World } from "@agent-town/core";
 import { DesksConfig, type ChatInput, type DeskActivityInput, type Event, type RedeployResult, type Session } from "@agent-town/schema";
 import { askAbout, chat } from "./chat.ts";
 import { DockerBackend, dockerSafe, HostBackend, type WorkBackend } from "./desk/backend.ts";
@@ -65,6 +65,11 @@ export interface Runtime {
   runWorkSession(agentId: string, assignmentId: string): Promise<Session>;
   /** One scheduler pass. Starts sessions in the background (see whenIdle). */
   tickOnce(): Promise<void>;
+  /**
+   * v1.4 presence pass (tickOnce runs it every 30 s): visitors with no call for 90 s go `offline`; offers to visitors
+   * older than 24 h are cancelled with a note in the in-tray. Returns the agents marked offline and the offers expired.
+   */
+  presenceTick(): { offline: string[]; expiredOffers: string[] };
   /** Resolves when every background session/task has finished. */
   whenIdle(): Promise<void>;
   /** Whether the agent has a live work session. */
@@ -109,6 +114,7 @@ export function startRuntime(opts: RuntimeOptions): Runtime {
   const startedAt = now().getTime();
   let lastDate = localDate(now());
   let lastExport = startedAt;
+  let lastPresence = 0;
   let stopped = false;
   /** a redeploy is draining: no new work sessions */
   let draining = false;
@@ -242,6 +248,14 @@ export function startRuntime(opts: RuntimeOptions): Runtime {
     }
   }
 
+  function presenceTick(): { offline: string[]; expiredOffers: string[] } {
+    const at = now();
+    let offline: string[] = [], expiredOffers: string[] = [];
+    try { offline = world.presence.sweep(at); } catch (e) { log("presence")(e); }
+    try { expiredOffers = world.presence.expireOffers(at).map((a) => a.id); } catch (e) { log("offer expiry")(e); }
+    return { offline, expiredOffers };
+  }
+
   async function tickOnce(): Promise<void> {
     if (stopped) return;
     const d = now();
@@ -258,6 +272,7 @@ export function startRuntime(opts: RuntimeOptions): Runtime {
       } catch (e) { log("export")(e); }
     }
     try { world.bank.creditDue(d); } catch (e) { log("bank")(e); }
+    if (t - lastPresence >= PRESENCE_TICK_MS) { lastPresence = t; presenceTick(); }
     try { scheduleMeetings(t); } catch (e) { log("meetings")(e); }
     try { scheduleReviews(); } catch (e) { log("reviews")(e); }
     await backendReady;
@@ -304,6 +319,7 @@ export function startRuntime(opts: RuntimeOptions): Runtime {
     onMeetingStart: (meetingId) => track(onMeetingStart(ctx, mst, meetingId)),
     runWorkSession: (agentId, assignmentId) => startWork(agentId, assignmentId),
     tickOnce,
+    presenceTick,
     whenIdle,
     isWorking: (agentId) => ctx.live.has(agentId) || starting.has(agentId),
     onDeskActivity: (agentId, input) => onDeskActivity(ctx, agentId, input),

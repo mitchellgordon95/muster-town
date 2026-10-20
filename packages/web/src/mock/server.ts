@@ -15,6 +15,8 @@ export class MockApi implements Api {
   private sim = new Sim();
   private started = false;
   private prevStatus = new Map<string, Agent["status"]>();
+  /** v1.4: unread messages per visitor (the fixture visitor starts with two) */
+  private unread = new Map<string, number>([["ag_visitor", 2]]);
 
   private need<T>(x: T | undefined, what: string): T {
     if (x === undefined || x === null) throw new ApiError(`${what} not found`, "not_found", 404);
@@ -87,6 +89,10 @@ export class MockApi implements Api {
         const rank = (x: Assignment) => (x.status === "active" ? 0 : x.status === "pending" ? 1 : 2);
         return rank(a) - rank(b) || (a.status === "pending" && b.status === "pending" ? a.position - b.position : b.updatedAt.localeCompare(a.updatedAt));
       }),
+      ...(agent.kind === "visitor" ? { mailbox: {
+        unread: this.unread.get(id) ?? 0, mentions: 0,
+        offered: [...this.sim.assignments.values()].filter((a) => a.agentId === id && a.status === "pending" && a.offered).length,
+      } } : {}),
     });
   }
   async session(id: string) {
@@ -134,6 +140,8 @@ export class MockApi implements Api {
     const text = raw.trim();
     if (!text) throw new ApiError("Message is empty.", "bad_request", 400);
     const m = this.tell("ag_me", id, text, { fromUser: "us_mitchell" });
+    // v1.4: a visitor's loop runs outside the town: the message waits in its mailbox
+    if (a.kind === "visitor") { this.unread.set(id, (this.unread.get(id) ?? 0) + 1); return { mode: "queued", messageId: m.id }; }
     const wasWorking = a.status === "working";
     // scripted reply: a short `tell` back, then (idle) the session runs as usual
     const reply = (ms: number) => setTimeout(() => this.tell(id, "ag_me", /\?\s*$/.test(text)

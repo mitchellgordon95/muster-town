@@ -159,7 +159,8 @@ export class Ops {
         this.endSession(s.id, { status: "error", error: "orphaned at restart" });
         orphanedSessions.push(s.id);
       }
-      for (const a of this.world.assignments.where("status = 'active'")) {
+      // visitors hold their active assignment across restarts (their loop runs outside the town)
+      for (const a of this.world.assignments.where("status = 'active' AND agentId NOT IN (SELECT id FROM agents WHERE kind = 'visitor')")) {
         if (this.world.sessions.count("agentId = ? AND status = 'running'", [a.agentId])) continue;
         setAssignmentStatus(this.world, a.id, "pending");
         requeuedAssignments.push(a.id);
@@ -167,7 +168,7 @@ export class Ops {
         if (agent?.currentAssignmentId === a.id) this.world.agents.patch(a.agentId, { currentAssignmentId: null });
       }
       // bodies left "working" with no running session
-      for (const ag of this.world.agents.where("status = 'working'")) {
+      for (const ag of this.world.agents.where("status = 'working' AND kind != 'visitor'")) {
         if (!this.world.sessions.count("agentId = ? AND status = 'running'", [ag.id])) this.world.setStatus(ag.id, "idle");
       }
     });
@@ -279,9 +280,11 @@ export class Ops {
     const avatar = this.ensureAvatar(userId);
     const agent = this.world.agents.require(agentId, "agent");
     if (agent.status === "banned" || agent.status === "retired") throw new AppError("conflict", `${agent.name} is ${agent.status === "retired" ? "dismissed" : "banned"}.`);
-    if (agent.kind !== "resident") throw badRequest(`${agent.name} isn't a resident; only residents can be messaged.`);
+    if (agent.kind !== "resident" && agent.kind !== "visitor") throw badRequest(`${agent.name} isn't a resident or visitor; only they can be messaged.`);
     const msg = sendMessage(this.world, { kind: "tell", fromId: avatar.id, fromKind: "agent", toId: agent.id, body });
     this.world.events.append({ type: "agent.told", agentId: avatar.id, buildingId: avatar.buildingId, text: `${user.name} → ${agent.name}: ${body.slice(0, 200)}`, payload: { to: agent.id, toId: agent.id, toKind: agent.kind, messageId: msg.id, text: body, fromUser: userId } });
+    // v1.4: a visitor's loop runs outside the town: the message waits in its mailbox (inbox, look notices, digest)
+    if (agent.kind === "visitor") return { mode: "queued", messageId: msg.id };
 
     const isWorking = opts.isWorking ?? this.world.host.isWorking?.bind(this.world.host);
     const working = isWorking ? isWorking(agent.id) : this.world.sessions.count("agentId = ? AND status = 'running' AND purpose = 'work'", [agent.id]) > 0;

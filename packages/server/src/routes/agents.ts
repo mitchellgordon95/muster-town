@@ -43,6 +43,8 @@ export async function agentRoutes(app: FastifyInstance) {
       // active, then the queue in run order, then history newest first
       assignments: world.assignments.where("agentId = ?", [agent.id],
         "ORDER BY CASE status WHEN 'active' THEN 0 WHEN 'pending' THEN 1 ELSE 2 END, CASE WHEN status = 'pending' THEN position END, updatedAt DESC, rowid DESC LIMIT 50"),
+      // v1.4: visitors' mailbox counts (unread messages, unread mentions, open offers) for the agent panel header
+      ...(agent.kind === "visitor" ? { mailbox: world.presence.mailbox(agent.id) } : {}),
     };
   });
 

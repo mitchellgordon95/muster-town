@@ -9,6 +9,7 @@ import { exportWorld, importExport, type ExportResult } from "./export.ts";
 import { importV0, type ImportV0Options, type ImportV0Result } from "./import-v0.ts";
 import { Ops } from "./ops.ts";
 import { holderOf, Permissions, type Holder } from "./permissions.ts";
+import { Presence } from "./presence.ts";
 import { seedDefaults, type SeedOptions, type SeedResult } from "./seed.ts";
 import { createRepos, type Repos } from "./store.ts";
 import { Emitter } from "./util.ts";
@@ -40,6 +41,8 @@ export class World {
   readonly movement: Movement;
   readonly verbs: Verbs;
   readonly ops: Ops;
+  /** v1.4 visitor presence: lastSeenAt stamps, offline sweep, mailbox digest, offer expiry */
+  readonly presence: Presence;
   /** Host-side actions the runtime registers at start (verbs that need the host, e.g. `redeploy`). Empty without a runtime. */
   readonly host: HostHooks = {};
 
@@ -86,6 +89,7 @@ export class World {
     this.movement = new Movement(repos, this.layout, this.events, this.changes);
     this.verbs = makeVerbs(this);
     this.ops = new Ops(this);
+    this.presence = new Presence(this);
     // agent.activity is server-maintained from events
     this.events.addHook((e) => {
       if (!e.agentId || (e.type !== "agent.activity" && e.type !== "agent.tool")) return;

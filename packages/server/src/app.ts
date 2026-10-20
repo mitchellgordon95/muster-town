@@ -13,6 +13,7 @@ import { agentRoutes } from "./routes/agents.ts";
 import { deskRoutes } from "./routes/desk.ts";
 import { docRoutes } from "./routes/docs.ts";
 import { townRoutes } from "./routes/town.ts";
+import { verbRoutes } from "./routes/verbs.ts";
 import { wsRoutes } from "./ws.ts";
 
 export const DEFAULT_WEB_DIST = resolve(dirname(fileURLToPath(import.meta.url)), "../../web/dist");
@@ -58,6 +59,7 @@ export async function buildApp(opts: BuildAppOptions): Promise<FastifyInstance> 
   await app.register(deskRoutes);
   await app.register(agentRoutes);
   await app.register(docRoutes);
+  await app.register(verbRoutes);
   await app.register(wsRoutes);
   await app.register(mcpRoutes);
 

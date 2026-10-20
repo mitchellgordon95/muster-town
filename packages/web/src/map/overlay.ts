@@ -4,7 +4,7 @@ import { fmtTokens } from "../format";
 
 export const STATUS_COLOR: Record<string, string> = {
   idle: "#9a9db3", walking: "#7cc4ff", working: "#6fdc8c", "in-meeting": "#c79bff",
-  "out-of-budget": "#ff9f5e", stopped: "#ff7b7b", banned: "#ff7b7b", retired: "#5c5f73",
+  "out-of-budget": "#ff9f5e", stopped: "#ff7b7b", banned: "#ff7b7b", retired: "#5c5f73", offline: "#6b6e82",
 };
 
 export interface Bubble { text: string; tone: "speech" | "work" | "warn" | "muted" | "bad" | "meet" }
@@ -28,6 +28,8 @@ export function bubbleFor(a: Agent, said: { text: string; at: number } | undefin
   switch (a.status) {
     case "working": return { text: a.activity || "working…", tone: "work" };
     case "out-of-budget": return { text: "Out of budget", tone: "bad" };
+    // v1.4: a visitor whose loop isn't connected; it's asleep at its desk or the visitor bench
+    case "offline": return { text: "zz", tone: "bad" };
     case "stopped": return { text: "Stopped", tone: "bad" };
     case "banned": return { text: "Banned", tone: "bad" };
     case "in-meeting": return { text: a.activity || "In a meeting", tone: "meet" };

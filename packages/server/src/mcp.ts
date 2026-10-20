@@ -6,6 +6,7 @@ import type { CallToolResult } from "@modelcontextprotocol/sdk/types.js";
 import type { FastifyInstance } from "fastify";
 import type { ZodRawShape } from "zod";
 import { bearer, resolveToken } from "./context.ts";
+import { runVerb } from "./routes/verbs.ts";
 
 function text(t: string, isError = false): CallToolResult {
   return { content: [{ type: "text", text: t }], ...(isError ? { isError: true } : {}) };
@@ -16,10 +17,10 @@ export function buildMcpServer(world: World, agentId: string): McpServer {
   const server = new McpServer({ name: "agent-town", version: "0.1.0" });
   for (const name of VERB_NAMES) {
     const shape = VerbInputs[name].shape as ZodRawShape;
-    const run = world.verbs[name] as (actor: string, input: unknown) => Promise<unknown>;
     server.registerTool(name, { description: VERB_DESCRIPTIONS[name as VerbName], inputSchema: shape }, async (args: unknown) => {
       try {
-        const result = await run(agentId, args ?? {});
+        // same path as POST /api/verbs/:verb: stamps presence, then runs the verb
+        const result = await runVerb(world, agentId, name, args ?? {});
         return text(JSON.stringify(result ?? null));
       } catch (e) {
         if (!isAppError(e)) console.error(`[server] mcp tool ${name} failed`, e);

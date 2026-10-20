@@ -151,19 +151,34 @@ function spawnPoint(world: World, buildingId?: string | null): Tile {
   return p ? { ...p } : { x: 1, y: world.layout.grid.h - 3 };
 }
 
-/** A user's visitor agent (Claude Code over MCP). Returns the agent and its token. */
+/**
+ * A user's visitor agent (Claude Code over MCP or the CLI). Returns the agent and its token. With `buildingId` it
+ * claims a free desk there like a resident (`homeBuildingId` set; no free desk → it waits at the Town Hall visitor
+ * bench, still homed in the building); without one it sits at the visitor bench.
+ */
 export function registerVisitor(world: World, userId: string, input: In<typeof RegisterVisitorInput>): { agent: Agent; token: string } {
   const inp = RegisterVisitorInput.parse(input);
   world.users.require(userId, "user");
-  if (inp.buildingId) world.buildings.require(inp.buildingId, "building");
-  const agent = world.agents.upsert(Agent.parse({
-    id: newId("ag"), name: inp.name, kind: "visitor", buildingId: inp.buildingId ?? null, homeBuildingId: null,
-    ownerUserId: userId, title: inp.title ?? "Visitor", sprite: 6, pos: spawnPoint(world, inp.buildingId), createdAt: nowIso(),
-  }));
-  world.permissions.ensureTownRoles();
-  world.permissions.grant(agent, townRoleId("visitor"));
-  world.events.append({ type: "agent.created", agentId: agent.id, buildingId: agent.buildingId, text: `${agent.name} arrived as a visitor`, payload: { kind: "visitor", ownerUserId: userId } });
-  return { agent, token: world.tokens.create("agent", agent.id) };
+  const b = inp.buildingId ? world.buildings.require(inp.buildingId, "building") : null;
+  return world.transaction(() => {
+    const id = newId("ag");
+    // insert first (desk names come from the agents table), then claim the desk and move the body there
+    world.agents.upsert(Agent.parse({
+      id, name: inp.name, kind: "visitor", buildingId: b?.id ?? null, homeBuildingId: b?.id ?? null,
+      ownerUserId: userId, title: inp.title ?? "Visitor", sprite: 6, pos: spawnPoint(world, b?.id), createdAt: nowIso(),
+    }), { silent: true });
+    let desk: ReturnType<typeof world.layout.claimDesk> | null = null;
+    if (b) {
+      try { desk = world.layout.claimDesk(b.id, id); } catch (e) { if (!(e instanceof AppError) || e.code !== "conflict") throw e; }
+    }
+    const pos = desk ? desk.pos : world.presence.benchSeat(id);
+    const agent = world.agents.patch(id, { pos, buildingId: world.layout.buildingAt(pos)?.id ?? null });
+    world.permissions.ensureTownRoles();
+    world.permissions.grant(agent, townRoleId("visitor"));
+    const where = desk ? `took a desk in ${b!.name}` : "is at the visitor bench";
+    world.events.append({ type: "agent.created", agentId: agent.id, buildingId: agent.homeBuildingId ?? agent.buildingId, text: `${agent.name} arrived as a visitor and ${where}`, payload: { kind: "visitor", ownerUserId: userId, desk: !!desk } });
+    return { agent, token: world.tokens.create("agent", agent.id) };
+  });
 }
 
 /** The user's human avatar (kind `human`), created at the plaza on first call. */
