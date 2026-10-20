@@ -167,6 +167,13 @@ export class Ops {
     this.world.movement.cancel(agentId, "Stopped.");
     return this.world.setStatus(agentId, "stopped", `${agent.name} was stopped`);
   }
+  /** POST /agents/:id/resume: `stopped` → `idle` without creating an assignment. Pending assignments (if any) run as usual. */
+  resumeAgent(actor: Actor, agentId: string): Agent {
+    const agent = this.world.agents.require(agentId, "agent");
+    if (actor) this.requireAgentControl(actor, agent);
+    if (agent.status !== "stopped") return agent;
+    return this.world.setStatus(agentId, "idle", `${agent.name} was resumed`);
+  }
   requireAgentControl(actor: Agent, agent: Agent): void {
     const h = this.world.holderOf(actor);
     const owner = h.kind === "user" && agent.ownerUserId === h.id;

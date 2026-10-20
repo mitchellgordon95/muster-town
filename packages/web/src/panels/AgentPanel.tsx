@@ -87,6 +87,9 @@ function ActivityTab({ agent, detail }: { agent: Agent; detail: AgentDetail | nu
       {agent.kind === "resident" && agent.status === "idle" && !detail?.assignments.some((a) => a.status === "pending" || a.status === "active") ? (
         <div className="callout">{agent.name} has no assignment. <button className="link" onClick={() => store.open({ kind: "agent", id: agent.id, tab: "Assignments" })}>Start work →</button></div>
       ) : null}
+      {agent.status === "stopped" && canControl ? (
+        <div className="callout">{agent.name} is stopped. <Act small run={async () => { await api().resume(agent.id); store.toast(`${agent.name} is idle again`, "ok"); }}>Resume</Act></div>
+      ) : null}
       <Timeline items={timeline} empty={isService ? `Ask ${agent.name} where to find something in the library.` : `${agent.name} hasn't done anything yet.`} />
       {isHuman ? null : <Composer agent={agent} canControl={canControl} log={log} setLog={setLog} />}
     </div>

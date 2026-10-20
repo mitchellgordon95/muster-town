@@ -101,6 +101,10 @@ describe("agent-scoped desk API", () => {
     await app.inject({ method: "POST", url: "/api/agents/me/control/ack", headers: as(agent), payload: { ids: [n.body.interruptId] } });
     expect((await json(app, "POST", `/api/agents/${agent.id}/stop`, { headers: admin })).status).toBe(200);
     expect((await json(app, "GET", `/api/agents/me/control?session=${sessionId}`, { headers: as(agent) })).body.stop).toBe(true);
+    // resume: back to idle, no new assignment
+    const asgs = world.assignments.where("agentId = ?", [agent.id]).length;
+    expect((await json(app, "POST", `/api/agents/${agent.id}/resume`, { headers: admin })).body.agent.status).toBe("idle");
+    expect(world.assignments.where("agentId = ?", [agent.id]).length).toBe(asgs);
   });
 
   it("session-end ends the session, writes the fallback report and charges the budget (idempotent)", async () => {
