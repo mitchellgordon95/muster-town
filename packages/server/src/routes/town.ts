@@ -1,4 +1,4 @@
-import { AppError } from "@agent-town/core";
+import { AppError, boardDocs, cabinetDocs } from "@agent-town/core";
 import { CreateBuildingInput, DonateInput, Membership, UpdateBuildingInput, type AuthMe } from "@agent-town/schema";
 import type { FastifyInstance } from "fastify";
 import { z } from "zod";
@@ -77,8 +77,14 @@ export async function townRoutes(app: FastifyInstance) {
   app.get<{ Params: Params }>("/api/buildings/:id/board", async (req) => {
     const { limit } = parse(LimitQuery, req.query);
     world.buildings.require(req.params.id, "building");
-    const docs = world.docs.where("buildingId = ? AND state = 'building' AND type != 'report'", [req.params.id], `ORDER BY updatedAt DESC, rowid DESC LIMIT ${limit}`);
-    return { docs };
+    return { docs: boardDocs(world, req.params.id, limit) };
+  });
+
+  /** The filing cabinet: the building's reports and meeting notes, newest first. They never go on the board. */
+  app.get<{ Params: Params }>("/api/buildings/:id/cabinet", async (req) => {
+    const { limit } = parse(LimitQuery, req.query);
+    world.buildings.require(req.params.id, "building");
+    return { docs: cabinetDocs(world, req.params.id, limit) };
   });
 
   // ---- roles ----

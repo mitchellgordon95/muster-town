@@ -182,6 +182,9 @@ export function computeLayout(buildings: Building[], occupancy: Map<string, Map<
     const boardX = x0 + Math.floor(bw / 2) - 2;
     set(boardX, y0, TILE.BOARD);
     places.push({ id: `board:${b.id}`, kind: "board", name: `${b.name} board`, buildingId: b.id, pos: { x: boardX, y: y0 + 1 } });
+    // the filing cabinet (reports and meeting notes): against the top wall, two tiles right of the board
+    set(boardX + 2, y0, TILE.CABINET);
+    places.push({ id: `cabinet:${b.id}`, kind: "cabinet", name: `${b.name} filing cabinet`, buildingId: b.id, pos: { x: boardX + 2, y: y0 + 1 } });
     // the manager's desk (in-tray): top-right, one tile, stand below it
     const mx = x0 + bw - 2, my = y0 + 2;
     set(mx, my, TILE.MANAGER_DESK);

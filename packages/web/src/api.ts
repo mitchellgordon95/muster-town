@@ -41,6 +41,7 @@ export interface Api {
   events(q: EventQuery): Promise<Event[]>;
   // buildings
   board(buildingId: string, limit?: number): Promise<Doc[]>;
+  cabinet(buildingId: string, limit?: number): Promise<Doc[]>;
   createBuilding(input: In<typeof CreateBuildingInput>): Promise<Building>;
   updateBuilding(id: string, input: In<typeof UpdateBuildingInput>): Promise<Building>;
   // agents
@@ -143,6 +144,7 @@ export class HttpApi implements Api {
   async town() { return { type: "snapshot", ...(await this.get<Omit<Snapshot, "type">>("/api/town")) } as Snapshot; }
   async events(q: EventQuery) { return unwrap<Event[]>(await this.get(`/api/events${qs(q)}`), "events"); }
   async board(id: string, limit = 30) { return unwrap<Doc[]>(await this.get(`/api/buildings/${id}/board${qs({ limit })}`), "docs"); }
+  async cabinet(id: string, limit = 30) { return unwrap<Doc[]>(await this.get(`/api/buildings/${id}/cabinet${qs({ limit })}`), "docs"); }
   async createBuilding(i: In<typeof CreateBuildingInput>) { return unwrap<Building>(await this.post("/api/buildings", i), "building"); }
   async updateBuilding(id: string, i: In<typeof UpdateBuildingInput>) { return unwrap<Building>(await this.call("PATCH", `/api/buildings/${id}`, i), "building"); }
   async intray(id: string) { return unwrap<Doc[]>(await this.get(`/api/buildings/${id}/intray`), "reports"); }

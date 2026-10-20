@@ -2,7 +2,7 @@ import { mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import Database from "better-sqlite3";
 import { describe, expect, it } from "vitest";
-import { migrate, workSystemPrompt, reviewSystemPrompt } from "../src/index.ts";
+import { cabinetDocs, migrate, workSystemPrompt, reviewSystemPrompt } from "../src/index.ts";
 import { seededWorld, tempDir } from "./helpers.ts";
 
 describe("building board and standing rules", () => {
@@ -17,6 +17,23 @@ describe("building board and standing rules", () => {
     expect(ids).not.toContain(rep.id);
     expect(board.docs.some((d) => d.type === "report")).toBe(false);
     expect(world.ops.intray("carbon-cycle").map((d) => d.id)).toContain(rep.id);
+  });
+
+  it("meeting notes and reports go to the filing cabinet, not the board", async () => {
+    const { world, by } = seededWorld();
+    const mei = by("Mei");
+    const note = await world.verbs.write(mei, { type: "note", title: "guidance", body: "x", state: "building" });
+    const rep = await world.verbs.submit_report(mei, { title: "Run 1", body: "## Summary\nok", verdict: "continue" });
+    const m = world.ops.createMeeting(null, { kind: "standup", buildingId: "carbon-cycle", startNow: true });
+    const notesId = world.ops.endMeeting(null, m.id).notesDocId!;
+    const board = (await world.verbs.board(mei, { limit: 50 })).docs.map((d) => d.id);
+    expect(board).toContain(note.id);
+    expect(board).not.toContain(notesId);
+    const cabinet = cabinetDocs(world, "carbon-cycle", 50).map((d) => d.id);
+    expect(cabinet).toEqual(expect.arrayContaining([notesId, rep.id]));
+    expect(cabinet).not.toContain(note.id);
+    // still searchable by type
+    expect((await world.verbs.search(mei, { query: "", type: "meeting-notes", limit: 10 })).results.map((d) => d.id)).toContain(notesId);
   });
 
   it("a manager's standing rules go into work and review system prompts; members can't set them", async () => {

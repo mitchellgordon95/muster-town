@@ -2,7 +2,7 @@
 import { TILE, WALKABLE } from "@agent-town/schema";
 import type { Building, Place } from "@agent-town/schema";
 import type { Grid } from "../api";
-import { T, tiles, drawTable, drawCounter, drawDoor, drawManagerDesk, drawChair, drawBoard, drawDonation, drawSchedule } from "./sprites";
+import { T, tiles, drawTable, drawCounter, drawDoor, drawManagerDesk, drawChair, drawBoard, drawCabinet, drawDonation, drawSchedule } from "./sprites";
 
 export class World {
   readonly w: number;
@@ -93,7 +93,7 @@ export class World {
         // ground under furniture
         if (k === TILE.GRASS || k === TILE.PLANT && !b) g.drawImage(tl.grass, px, py);
         else if (k === TILE.PATH) g.drawImage(tl.path, px, py);
-        else if (k !== TILE.WALL && k !== TILE.BOARD) g.drawImage(floor, px, py);
+        else if (k !== TILE.WALL && k !== TILE.BOARD && k !== TILE.CABINET) g.drawImage(floor, px, py);
         switch (k) {
           case TILE.WALL: g.drawImage(this.at(x, y + 1) === TILE.WALL ? tl.wallTop : tl.wallFace, px, py); break;
           case TILE.DESK: {
@@ -108,6 +108,7 @@ export class World {
           case TILE.DOOR: drawDoor(g, px, py); break;
           case TILE.MANAGER_DESK: drawManagerDesk(g, px, py); break;
           case TILE.BOARD: g.drawImage(tl.wallFace, px, py); drawBoard(g, px, py); break;
+          case TILE.CABINET: g.drawImage(tl.wallFace, px, py); drawCabinet(g, px, py); break;
           case TILE.DONATION: drawDonation(g, px, py); break;
           case TILE.SCHEDULE: drawSchedule(g, px, py); break;
           case TILE.TABLE: drawTable(g, px, py, {

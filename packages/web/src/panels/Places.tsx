@@ -1,6 +1,6 @@
 /**
  * Panels that belong to places on the map: the in-tray (manager's desk), the building board,
- * the donation box, the schedule board and the mod station (Town Hall).
+ * the filing cabinet, the donation box, the schedule board and the mod station (Town Hall).
  */
 import { useEffect, useMemo, useState } from "react";
 import type { Doc, Meeting } from "@agent-town/schema";
@@ -71,22 +71,39 @@ function IntrayRow({ doc, onOpen }: { doc: Doc; onOpen: () => void }) {
 
 export function BoardPanel({ buildingId }: { buildingId: string }) {
   const b = useTown((s) => s.buildings.find((x) => x.id === buildingId));
+  return (
+    <PanelShell icon={<Glyph kind="board" />} title={`${b?.name ?? "Building"} board`} subtitle="Standing guidance: rules, articles and notes. Reports and meeting notes are in the filing cabinet beside it.">
+      {b ? <StandingRules buildingId={b.id} rules={b.rules ?? ""} /> : null}
+      <DocList buildingId={buildingId} />
+    </PanelShell>
+  );
+}
+
+// ---------- filing cabinet ----------
+
+export function CabinetPanel({ buildingId }: { buildingId: string }) {
+  const b = useTown((s) => s.buildings.find((x) => x.id === buildingId));
+  return (
+    <PanelShell icon={<Glyph kind="cabinet" />} title={`${b?.name ?? "Building"} filing cabinet`} subtitle="Every report and meeting note filed in this building, newest first.">
+      <DocList buildingId={buildingId} filed />
+    </PanelShell>
+  );
+}
+
+/** Board docs, or (`filed`) the filing cabinet: the building's reports and meeting notes, newest first. */
+function DocList({ buildingId, filed }: { buildingId: string; filed?: boolean }) {
   const rev = useTown((s) => s.rev);
-  const list = useLoad(() => api().board(buildingId, 50), [buildingId, rev]);
+  const list = useLoad(() => filed ? api().cabinet(buildingId, 50) : api().board(buildingId, 50), [buildingId, filed, rev]);
   const [open, setOpen] = useState<Doc | null>(null);
   useEffect(() => { if (list.data) store.putDocs(list.data); }, [list.data]);
+  if (open) return <DocView doc={open} onBack={() => setOpen(null)} backLabel={filed ? "Filing cabinet" : "Board"} />;
   return (
-    <PanelShell icon={<Glyph kind="board" />} title={`${b?.name ?? "Building"} board`} subtitle="Standing rules, articles and notes. Reports go to the in-tray.">
-      {open ? <DocView doc={open} onBack={() => setOpen(null)} backLabel="Board" /> : (
-        <>
-          {b ? <StandingRules buildingId={b.id} rules={b.rules ?? ""} /> : null}
-          <ErrorLine error={list.error} />
-          {list.loading && !list.data ? <Loading /> : !list.data?.length ? <Empty>Nothing pinned to the board yet.</Empty> : (
-            <div className="doc-list">{list.data.map((d) => <DocRow key={d.id} doc={d} onOpen={() => setOpen(d)} />)}</div>
-          )}
-        </>
+    <>
+      <ErrorLine error={list.error} />
+      {list.loading && !list.data ? <Loading /> : !list.data?.length ? <Empty>{filed ? "No reports or meeting notes filed yet." : "Nothing pinned to the board yet."}</Empty> : (
+        <div className="doc-list">{list.data.map((d) => <DocRow key={d.id} doc={d} onOpen={() => setOpen(d)} />)}</div>
       )}
-    </PanelShell>
+    </>
   );
 }
 

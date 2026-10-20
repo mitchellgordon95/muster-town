@@ -11,7 +11,7 @@ import { LibraryPanel, TrophyPanel } from "./panels/LibraryPanel";
 import { OutboxPanel } from "./panels/OutboxPanel";
 import { MeetingPanel } from "./panels/MeetingPanel";
 import { PlanningPanel } from "./panels/PlanningPanel";
-import { BoardPanel, DonationPanel, IntrayPanel, ModStationPanel, SchedulePanel } from "./panels/Places";
+import { BoardPanel, CabinetPanel, DonationPanel, IntrayPanel, ModStationPanel, SchedulePanel } from "./panels/Places";
 
 declare global {
   interface Window { agentTown?: { teleportTo(agentId: string): boolean; walkTo(placeId: string): boolean; openPanel(kind: PanelKind, id?: string): void; store: typeof store } }
@@ -80,6 +80,7 @@ function PanelHost({ panel }: { panel: PanelRef }) {
     case "meeting": return <MeetingPanel key={panel.id} id={panel.id} />;
     case "intray": return <IntrayPanel key={panel.id} buildingId={panel.id!} />;
     case "board": return <BoardPanel key={panel.id} buildingId={panel.id!} />;
+    case "cabinet": return <CabinetPanel key={panel.id} buildingId={panel.id!} />;
     case "admin":
     case "planning": return <PlanningPanel tab={panel.tab} />;
     case "donation": return <DonationPanel />;

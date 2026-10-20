@@ -19,6 +19,7 @@ const bname = (p: Place) => store.state.buildings.find((b) => b.id === p.buildin
 /** Every panel is a place: what E opens when you stand at each place kind. */
 export const PLACE_PANEL: Partial<Record<Place["kind"], (p: Place) => PanelRef & { verb: string }>> = {
   board: (p) => ({ kind: "board", id: p.buildingId ?? undefined, verb: `Read the ${bname(p)} board` }),
+  cabinet: (p) => ({ kind: "cabinet", id: p.buildingId ?? undefined, verb: `Open the ${bname(p)} filing cabinet` }),
   intray: (p) => {
     const n = store.state.buildings.find((b) => b.id === p.buildingId)?.intray ?? 0;
     return { kind: "intray", id: p.buildingId ?? undefined, verb: `Check the in-tray${n ? ` (${n} waiting)` : ""}` };
