@@ -8,6 +8,8 @@ import { Meter } from "./AgentPanel";
 import { DismissButton, canDismiss } from "./Dismiss";
 import { Act, Empty, ErrorLine, Field, KV, Loading, Pill, Section, StatusPill, fmtTokens, nameOf, timeAgo, usd, useLoad } from "./ui";
 import { portraitUrl } from "../map/sprites";
+import { AttendeePicker, useAttendees } from "./AttendeePicker";
+import { attendeeInput } from "./attendees";
 
 export function BuildingPanel({ id, tab }: { id: string; tab?: string }) {
   const b = useTown((s) => s.buildings.find((x) => x.id === id));
@@ -104,19 +106,21 @@ function MeetingsTab({ b }: { b: SnapshotBuilding }) {
   const list = useMemo(() => Object.values(all).filter((m) => m.buildingId === b.id || (b.kind === "town-hall" && m.buildingId === null)).sort((x, y) => y.createdAt.localeCompare(x.createdAt)), [all, b]);
   const can = store.can("meeting.facilitate", b.id) || store.can("building.manage", b.id);
   const [kind, setKind] = useState<Meeting["kind"]>(b.kind === "town-hall" ? "town-hall" : "standup");
+  const invite = useAttendees(b);
   return (
     <>
-      {can ? (
+      {can ? (<>
         <div className="inline-form">
           <select value={kind} onChange={(e) => setKind(e.target.value as Meeting["kind"])}>
             {(["standup", "retro", "planning", "town-hall"] as const).map((k) => <option key={k} value={k}>{k}</option>)}
           </select>
           <Act tone="primary" run={async () => {
-            const m = await api().createMeeting({ kind, buildingId: b.kind === "town-hall" ? null : b.id, startNow: true });
+            const m = await api().createMeeting({ kind, buildingId: b.kind === "town-hall" ? null : b.id, startNow: true, ...attendeeInput(invite.picked) });
             store.putMeeting(m); store.open({ kind: "meeting", id: m.id });
           }}>Call meeting</Act>
         </div>
-      ) : null}
+        <AttendeePicker state={invite} />
+      </>) : null}
       {!list.length ? <Empty>No meetings yet.</Empty> : list.map((m) => (
         <button key={m.id} className="doc-row" onClick={() => store.open({ kind: "meeting", id: m.id })}>
           <div className="doc-row-title">{m.title}</div>

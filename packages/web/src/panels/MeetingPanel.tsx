@@ -8,6 +8,8 @@ import { phaseTone } from "./BuildingPanel";
 import { Act, Empty, Pill, Section, clock, nameOf, timeAgo } from "./ui";
 import { portraitUrl } from "../map/sprites";
 import { roomMeetings } from "./room";
+import { AttendeePicker, useAttendees } from "./AttendeePicker";
+import { attendeeInput } from "./attendees";
 
 const PHASES: Meeting["phase"][] = ["scheduled", "collecting", "discussing", "done"];
 
@@ -46,14 +48,18 @@ const canCall = (buildingId: string | null) => store.can("meeting.facilitate", b
 /** "Call a standup" for a building's room (town hall for Town Hall). Shown in an empty room and under a finished meeting. */
 function CallMeeting({ building, again }: { building: SnapshotBuilding; again?: boolean }) {
   const hall = building.kind === "town-hall";
+  const invite = useAttendees(building);
   if (!canCall(building.id)) return null;
   return (
-    <div className="actions center">
-      <Act tone="primary" run={async () => {
-        const m = await api().createMeeting({ kind: hall ? "town-hall" : "standup", buildingId: hall ? null : building.id, startNow: true });
-        store.putMeeting(m); store.open({ kind: "meeting", id: m.id });
-      }}>{again ? "Call another" : "Call a"} {hall ? "town hall" : "standup"}</Act>
-    </div>
+    <>
+      <div className="actions center">
+        <Act tone="primary" run={async () => {
+          const m = await api().createMeeting({ kind: hall ? "town-hall" : "standup", buildingId: hall ? null : building.id, startNow: true, ...attendeeInput(invite.picked) });
+          store.putMeeting(m); store.open({ kind: "meeting", id: m.id });
+        }}>{again ? "Call another" : "Call a"} {hall ? "town hall" : "standup"}</Act>
+      </div>
+      <AttendeePicker state={invite} />
+    </>
   );
 }
 
@@ -82,7 +88,6 @@ function MeetingView({ m }: { m: Meeting }) {
       {m.agenda ? <div className="goal-card"><span>Agenda</span>{m.agenda}</div> : null}
       <div className="actions">
         {canRun && m.phase === "collecting" ? <Act tone="primary" run={async () => store.putMeeting(await api().startMeeting(m.id))}>Start discussion</Act> : null}
-        {canRun && open ? <Act tone="bad" run={async () => store.putMeeting(await api().endMeeting(m.id))}>End meeting</Act> : null}
         {m.notesDocId ? <button className="btn" onClick={() => store.open({ kind: "library", docId: m.notesDocId! })}>Open notes</button> : null}
       </div>
       {!open && m.phase !== "scheduled" && room ? <CallMeeting building={room} again /> : null}
@@ -123,6 +128,7 @@ function MeetingView({ m }: { m: Meeting }) {
           <textarea rows={2} value={text} placeholder="Say something to the meeting…" onChange={(e) => setText(e.target.value)}
             onKeyDown={(e) => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); void say(); } }} />
           <button className="btn primary" disabled={!text.trim()}>Say</button>
+          {canRun ? <Act tone="bad" run={async () => store.putMeeting(await api().endMeeting(m.id))}>End meeting</Act> : null}
         </form>
       ) : null}
       {open && canRun ? <div className="foot-note">The facilitator keeps listening while you talk. Press End meeting when you're done.</div> : null}

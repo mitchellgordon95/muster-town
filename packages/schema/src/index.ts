@@ -384,7 +384,7 @@ export const Session = z.object({
   agentId: Id,
   assignmentId: Id.nullable(),
   meetingId: Id.nullable().default(null),
-  purpose: z.enum(["work", "review", "facilitate", "summary"]),
+  purpose: z.enum(["work", "review", "facilitate", "summary", "meeting-reply"]),
   /** where the session runs: in-process on the host, or inside the agent's desk container */
   backend: z.enum(["host", "docker"]).default("host"),
   status: SessionStatus,

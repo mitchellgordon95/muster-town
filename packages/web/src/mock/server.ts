@@ -165,7 +165,7 @@ export class MockApi implements Api {
   }
   async createMeeting(i: In<typeof CreateMeetingInput>) {
     await wait();
-    const attendees = [...this.sim.agents.values()].filter((a) => a.kind === "resident" && (i.buildingId ? a.homeBuildingId === i.buildingId : true)).map((a) => a.id);
+    const attendees = i.attendeeIds ?? [...this.sim.agents.values()].filter((a) => a.kind === "resident" && (i.buildingId ? a.homeBuildingId === i.buildingId : true)).map((a) => a.id);
     const m: Meeting = { id: newId("mt"), kind: i.kind, buildingId: i.buildingId, title: i.title || `${i.kind[0].toUpperCase()}${i.kind.slice(1)}`, scheduledAt: i.scheduledAt ?? now(), phase: i.startNow ? "collecting" : "scheduled", facilitatorId: "ag_moss", attendeeIds: attendees, agenda: i.agenda ?? "", summaries: {}, transcript: [], decisions: [], notesDocId: null, createdAt: now(), startedAt: null, endedAt: null };
     this.sim.putMeeting(m);
     this.sim.event("meeting.created", null, `${m.title} ${m.phase === "collecting" ? "is collecting summaries" : "scheduled"}`, { meetingId: m.id }, i.buildingId);
