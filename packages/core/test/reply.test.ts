@@ -65,6 +65,17 @@ describe("replyToReport", () => {
     expect(r.doc.decision).toBe("approve");
   });
 
+  it("resumeAgent un-stops to idle without creating an assignment; no-op otherwise; needs agent control", async () => {
+    const { world, admin, mei, by } = await setup();
+    const before = world.assignments.where("agentId = ?", [mei.id]).length;
+    world.ops.stopAgent(admin, mei.id);
+    expect(world.ops.resumeAgent(admin, mei.id).status).toBe("idle");
+    expect(world.assignments.where("agentId = ?", [mei.id]).length).toBe(before);
+    world.agents.upsert({ ...world.agents.require(mei.id), status: "banned" });
+    expect(world.ops.resumeAgent(admin, mei.id).status).toBe("banned");
+    expect(() => world.ops.resumeAgent(by("Tomas"), mei.id)).toThrow(/building.assign/);
+  });
+
   it("needs building.review", async () => {
     const { world, by, docId } = await setup();
     expect(() => world.ops.replyToReport(by("Tomas"), docId, "hi")).toThrow(/building.review/);

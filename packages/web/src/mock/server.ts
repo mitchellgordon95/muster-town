@@ -104,6 +104,7 @@ export class MockApi implements Api {
     return `I'm ${a.status} at my desk. My standing direction: ${a.direction.split(":")[0]}. Give me an assignment with Start work and I'll get going.`;
   }
   async stop(id: string) { await wait(); this.sim.patchAgent(id, { status: "stopped", activity: "" }); this.sim.event("agent.status", id, "Stopped by Mitchell"); }
+  async resume(id: string) { await wait(); if (this.sim.agents.get(id)?.status === "stopped") { this.sim.patchAgent(id, { status: "idle" }); this.sim.event("agent.status", id, "Resumed by Mitchell"); } }
 
   async docs(q: DocQuery) {
     await wait();

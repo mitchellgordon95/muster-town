@@ -59,6 +59,8 @@ export interface Api {
   interrupt(id: string, text: string, now?: boolean): Promise<void>;
   chat(id: string, input: In<typeof ChatInput>): Promise<string>;
   stop(id: string): Promise<void>;
+  /** Un-stop: back to idle without creating an assignment. */
+  resume(id: string): Promise<void>;
   // docs
   docs(q: DocQuery): Promise<Doc[]>;
   doc(id: string): Promise<Doc>;
@@ -158,6 +160,7 @@ export class HttpApi implements Api {
   async interrupt(id: string, text: string, now = false) { await this.post(`/api/agents/${id}/interrupt`, { text, now }); }
   async chat(id: string, i: In<typeof ChatInput>) { return (await this.post<{ reply: string }>(`/api/agents/${id}/chat`, i)).reply; }
   async stop(id: string) { await this.post(`/api/agents/${id}/stop`); }
+  async resume(id: string) { await this.post(`/api/agents/${id}/resume`); }
   async docs(q: DocQuery) { return unwrap<Doc[]>(await this.get(`/api/docs${qs(q)}`), "docs"); }
   async doc(id: string) { return unwrap<Doc>(await this.get(`/api/docs/${id}`), "doc"); }
   async writeDoc(i: WriteDocInput) { return unwrap<Doc>(await this.post("/api/docs", i), "doc"); }

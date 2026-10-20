@@ -86,6 +86,11 @@ export async function agentRoutes(app: FastifyInstance) {
     return { agent };
   });
 
+  /** Un-stop: back to `idle` with no new assignment. A no-op unless the agent is `stopped`. → { agent } */
+  app.post<{ Params: Params }>("/api/agents/:id/resume", async (req) => {
+    return { agent: world.ops.resumeAgent(actorOf(world, req), req.params.id) };
+  });
+
   /**
    * Dismiss: building.manage on the agent's home building (or admin). `?purge=1` also deletes the desk's home volume.
    * → { agent, cancelledAssignments, revokedTokens, removedMemberships, deskFreed, purge }
