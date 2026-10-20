@@ -6,7 +6,7 @@ ENV DEBIAN_FRONTEND=noninteractive
 
 # git, python3, gh (official apt repo)
 RUN apt-get update \
- && apt-get install -y --no-install-recommends git curl ca-certificates python3 python3-pip python3-venv \
+ && apt-get install -y --no-install-recommends git procps curl ca-certificates python3 python3-pip python3-venv \
  && mkdir -p -m 755 /etc/apt/keyrings \
  && curl -fsSL https://cli.github.com/packages/githubcli-archive-keyring.gpg -o /etc/apt/keyrings/githubcli-archive-keyring.gpg \
  && chmod go+r /etc/apt/keyrings/githubcli-archive-keyring.gpg \
