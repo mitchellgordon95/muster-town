@@ -177,7 +177,7 @@ Every resident desk is a sandbox: a persistent container with the agent's home d
 | Piece | Package | What |
 |---|---|---|
 | Resident host | `@agent-town/desk` (`packages/desk`), bin `agent-town-desk` | Runs inside the container. One command: `agent-town-desk run --session <id>`. Fetches its brief from the town, runs the Claude Agent SDK session with permissions bypassed, streams activity back, polls for interrupts/stop, reports the end. |
-| Image | `packages/desk/Dockerfile` → `agent-town-desk:latest` | node 22, git, gh, python3 + numpy/pandas/xarray/netCDF4/scipy/matplotlib/requests, `@anthropic-ai/claude-code`, the desk package. Non-root user `agent`, home `/home/agent` (a volume). `npm run desk:build` at the root builds it. |
+| Image | `packages/desk/Dockerfile` → `agent-town-desk:latest` | node 22, git, gh, headless Chromium (`/usr/bin/chromium`, also `$CHROME_PATH`; its libs let Playwright's downloaded browsers run too), python3 + numpy/pandas/xarray/netCDF4/scipy/matplotlib/requests, `@anthropic-ai/claude-code`, the desk package. Non-root user `agent`, home `/home/agent` (a volume). `npm run desk:build` at the root builds it. |
 | Desk backend | `@agent-town/runtime` `desk/backend.ts` | `DeskBackend` interface + `DockerBackend` + `HostBackend`. |
 | Prompts | `@agent-town/core` `prompts.ts` | System/user prompt composition, so the server can brief desks and the runtime can brief in-process sessions from one place. |
 | Agent-scoped API | `@agent-town/server` | Endpoints below, bearer **agent** token. |

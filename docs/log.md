@@ -23,3 +23,4 @@
 - 2026-10-20 web: docCost adds "· T turns" (Doc.turns from #2); first web test (packages/web/test/docCost.test.ts) — Pix
 - 2026-10-20 web: reviewers can Acknowledge a pending report straight from the agent's Reports row (gated on building.review; Continue/Redirect/Stop stay at the in-tray) — Pix
 - 2026-10-20 (merges): PRs #4-#17 merged (1-3 via #8, 5 via #11); reports-as-replies landed (one box, one button, archive, ask-about-this); migration applier fixed to run late-merged files (004 had never run on live DBs); workshop residents titles cleared. 148 tests.
+- 2026-10-20 desk: image installs Debian `chromium` (+ fonts) so browser checks work on every desk; its libs (libnspr4, libnss3, libgbm1, ...) also cover Playwright's downloaded browsers. Existing desks need `npm run desk:build` and a container recreate — Pix
