@@ -1,4 +1,5 @@
 import type { Agent, AgentStatus, DesksConfig, RedeployResult, ServerMessage, Tile } from "@agent-town/schema";
+import { Bank } from "./bank.ts";
 import { Budget } from "./budget.ts";
 import { intrayCounts, intrayOf } from "./domain.ts";
 import { migrateRoles } from "./migrate-roles.ts";
@@ -34,6 +35,7 @@ export class World {
   readonly events: EventLog;
   readonly permissions: Permissions;
   readonly budget: Budget;
+  readonly bank: Bank;
   readonly layout: WorldMap;
   readonly movement: Movement;
   readonly verbs: Verbs;
@@ -79,6 +81,7 @@ export class World {
     this.events = new EventLog(db, this.changes);
     this.permissions = new Permissions(repos);
     this.budget = new Budget(repos, this.events, this.changes);
+    this.bank = new Bank(repos, this.events, this.permissions);
     this.layout = new WorldMap(db, repos);
     this.movement = new Movement(repos, this.layout, this.events, this.changes);
     this.verbs = makeVerbs(this);

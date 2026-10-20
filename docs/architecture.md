@@ -76,6 +76,8 @@ The first user (created at seed, name from `AGENT_TOWN_ADMIN_NAME`, default "Mit
 
 Users donate tokens (`DonateInput`) into an allocation for a building, optionally with their own Anthropic API key (stored in `users.apiKey`, never returned by the API). A building's spendable budget is the sum of its allocations' remaining tokens. The runtime picks the allocation to charge (oldest with remaining tokens) and, if that allocation's user has an API key, runs the session with `env.ANTHROPIC_API_KEY` set to it; otherwise the server's own login (Claude Code) is used. Session usage (input+output+cache tokens, cost from the SDK result) is charged after each session. A resident whose daily tokens or whose building's budget is exhausted goes `out-of-budget` and won't start sessions until midnight (daily) or a new allocation. Seed creates a large allocation ("house budget", 50M tokens) for the Carbon Cycle Lab so local dev isn't blocked. Default `dailyTokensPerAgent` is 10M: an Opus session with cache reads counted is roughly 1M tokens / $1, so that is about ten sessions per agent per day.
 
+**Town Bank** (`world.bank`, step 1 of the Bank: inputs and balance; buildings don't draw from it yet). A `BankInput` is {label, source `api-key` | `subscription`, model, tokens, recurrence `once` | `daily` | `weekly` | `monthly`, `nextCreditAt`}; its API key sits in the secret `bank_inputs.apiKey` column. A one-time input credits once when added; a recurring one credits `tokens` only when `nextCreditAt` is due, then moves it one period on (past now, so downtime never pays twice). A `subscription` is the town owner's own plan only (admin; pooling other people's subscriptions isn't allowed): daily, crediting min(tokens, `weeklyCapTokens` minus what it credited in the last 7 days). Each credit is a `bank_credits` row and a `bank.credited` event; the balance is their sum. The runtime calls `bank.creditDue()` every tick.
+
 ## Server (HTTP + WS + MCP)
 
 Fastify on `PORT` (default 4321). Static: serves `packages/web/dist` at `/` if present. CORS open in dev.
@@ -93,6 +95,7 @@ REST (all JSON, all validated; errors `{error, code}`):
 - `GET /api/meetings?buildingId=&phase=` ; `POST /api/meetings` (`CreateMeetingInput`; optional `attendeeIds` invites only those agents) ; `GET /api/meetings/:id` ; `POST /api/meetings/:id/start` ; `POST /api/meetings/:id/say` (`MeetingSayInput`; humans speak) ; `POST /api/meetings/:id/end`
 - `GET /api/roles?buildingId=` ; `POST /api/roles/assign` `{roleId, holderKind, holderId}` ; `DELETE /api/roles/assign` (same body)
 - `POST /api/donate` (`DonateInput`) ; `GET /api/budget` → per-building allocated/spent and per-user donated
+- `GET /api/bank` → `{balanceTokens, creditedTokens, dailyInflowTokens, inputs}` (inputs with `userName`, never keys); `POST /api/bank/inputs` (`AddBankInput`, signed in; `subscription` is admin-only) → 201 `{input}`; `DELETE /api/bank/inputs/:id` (owner or admin) cancels future credits and forgets the key
 - `POST /api/export` → runs git export now, returns `{commit}`
 - `POST /api/admin/redeploy` (`RedeployInput {image?}`, `town.redeploy`) → 202 `{started: true}` or 200 `{running: true}`; 503 without a runtime. See Redeploy.
 - `GET /api/health`

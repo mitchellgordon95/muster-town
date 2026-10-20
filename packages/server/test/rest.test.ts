@@ -259,6 +259,14 @@ describe("meetings, roles, budget, events, human moves", () => {
     const budget = await json(app, "GET", "/api/budget");
     expect(budget.body.buildings.find((b: any) => b.buildingId === "carbon-cycle").allocated).toBeGreaterThan(1000);
 
+    const added = await json(app, "POST", "/api/bank/inputs", { headers: auth, body: { label: "Key", source: "api-key", model: "m", tokens: 2000, apiKey: "sk-secret" } });
+    expect(added.status).toBe(201);
+    expect(JSON.stringify(added.body)).not.toContain("sk-secret");
+    const bank = await json(app, "GET", "/api/bank");
+    expect(bank.body).toMatchObject({ balanceTokens: 2000, inputs: [{ label: "Key", hasApiKey: true }] });
+    expect(JSON.stringify(bank.body)).not.toContain("sk-secret");
+    expect((await json(app, "DELETE", `/api/bank/inputs/${added.body.input.id}`, { headers: auth })).body.input.cancelledAt).toBeTruthy();
+
     const ev = await json(app, "GET", "/api/events?limit=5");
     expect(ev.body.events.length).toBe(5);
     const since = await json(app, "GET", `/api/events?since=${ev.body.events[0].id}&limit=2`);

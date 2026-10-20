@@ -1,5 +1,5 @@
 import {
-  Agent, Allocation, Assignment, Building, DesksConfig, Doc, Interrupt, Meeting, Membership, Message, Place, Role, Session, Town, User,
+  Agent, Allocation, Assignment, BankCredit, BankInput, Building, DesksConfig, Doc, Interrupt, Meeting, Membership, Message, Place, Role, Session, Town, User,
   type ServerMessage,
 } from "@agent-town/schema";
 import type { DB } from "./db.ts";
@@ -74,6 +74,22 @@ export class Users extends Table<User> {
   }
 }
 
+/** Bank inputs plus their secret apiKey column, never part of the BankInput object. */
+export class BankInputs extends Table<BankInput> {
+  constructor(private readonly rawDb: DB) {
+    super(rawDb, "bank_inputs", BankInput, { bool: ["hasApiKey"] });
+  }
+  setApiKey(inputId: string, apiKey: string | null): BankInput {
+    this.rawDb.prepare("UPDATE bank_inputs SET apiKey = ?, hasApiKey = ? WHERE id = ?").run(apiKey, apiKey ? 1 : 0, inputId);
+    return this.require(inputId);
+  }
+  /** Secret. Only the runtime should call this. */
+  getApiKey(inputId: string): string | null {
+    const r = this.rawDb.prepare("SELECT apiKey FROM bank_inputs WHERE id = ?").get(inputId) as { apiKey: string | null } | undefined;
+    return r?.apiKey ?? null;
+  }
+}
+
 export class TownMeta {
   constructor(private db: DB, private onChange?: (t: Town) => void) {}
   get(): Town {
@@ -109,6 +125,8 @@ export function createRepos(db: DB, changes: Emitter<ServerMessage>) {
     memberships: new Memberships(db),
     buildings: new Table<Building>(db, "buildings", Building, { json: ["meetings", "lot", "workspace"] }, (building) => changes.emit({ type: "building", building })),
     allocations: new Table<Allocation>(db, "allocations", Allocation),
+    bankInputs: new BankInputs(db),
+    bankCredits: new Table<BankCredit>(db, "bank_credits", BankCredit),
     agents: new Table<Agent>(db, "agents", Agent, { json: ["pos"] }, (agent) => changes.emit({ type: "agent", agent })),
     places: new Table<Place>(db, "places", Place, { json: ["pos"] }),
     docs: new Table<Doc>(db, "docs", Doc, { json: ["provenance", "tags"] }, (doc) => changes.emit({ type: "doc", doc })),

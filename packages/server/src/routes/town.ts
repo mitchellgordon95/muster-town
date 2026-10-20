@@ -1,5 +1,5 @@
 import { AppError, boardDocs, cabinetCounts, cabinetDocs } from "@agent-town/core";
-import { CreateBuildingInput, DocType, DonateInput, Membership, RedeployInput, UpdateBuildingInput, type AuthMe } from "@agent-town/schema";
+import { AddBankInput, CreateBuildingInput, DocType, DonateInput, Membership, RedeployInput, UpdateBuildingInput, type AuthMe } from "@agent-town/schema";
 import type { FastifyInstance } from "fastify";
 import { z } from "zod";
 import { actorOf, adminToken, parse, requireAuth, requireUser, type Params } from "../context.ts";
@@ -13,7 +13,7 @@ const EventsQuery = z.object({
 const LimitQuery = z.object({ limit: z.coerce.number().int().positive().max(200).default(30) });
 const CabinetQuery = LimitQuery.extend({ type: DocType.optional(), authorId: z.string().optional() });
 
-/** Town snapshot, auth info, events, buildings, roles, budget, export, redeploy. */
+/** Town snapshot, auth info, events, buildings, roles, budget, bank, export, redeploy. */
 export async function townRoutes(app: FastifyInstance) {
   const world = app.world;
 
@@ -126,6 +126,20 @@ export async function townRoutes(app: FastifyInstance) {
       buildings: s.buildings.map((b) => ({ ...b, allocated: b.allocatedTokens, spent: b.spentTokens })),
       users: s.users.map((u) => ({ ...u, donated: u.donatedTokens })),
     };
+  });
+
+  // ---- bank ----
+  app.get("/api/bank", async () => world.bank.summary());
+
+  app.post("/api/bank/inputs", async (req, reply) => {
+    const user = requireUser(req);
+    const input = world.bank.addInput(user.id, parse(AddBankInput, req.body));
+    return reply.code(201).send({ input });
+  });
+
+  app.delete<{ Params: Params }>("/api/bank/inputs/:id", async (req) => {
+    const user = requireUser(req);
+    return { input: world.bank.cancelInput(user.id, req.params.id) };
   });
 
   // ---- export ----

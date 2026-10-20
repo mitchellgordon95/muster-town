@@ -3,7 +3,7 @@ import type { Tile } from "@agent-town/schema";
 
 const alnum = customAlphabet("0123456789abcdefghijklmnopqrstuvwxyz", 10);
 
-export type IdPrefix = "ag" | "bl" | "dc" | "as" | "mt" | "ms" | "us" | "se" | "al" | "rl" | "in";
+export type IdPrefix = "ag" | "bl" | "dc" | "as" | "mt" | "ms" | "us" | "se" | "al" | "rl" | "in" | "bi" | "bc";
 /** `ag_x1y2z3...` style ids (see Conventions). */
 export function newId(prefix: IdPrefix): string {
   return `${prefix}_${alnum()}`;

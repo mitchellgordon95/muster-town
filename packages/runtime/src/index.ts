@@ -257,6 +257,7 @@ export function startRuntime(opts: RuntimeOptions): Runtime {
         world.events.append({ type: "export.done", text: r.changed ? `Exported the town (${r.commit?.slice(0, 7) ?? "no commit"})` : "Export: no changes", payload: { ...r } });
       } catch (e) { log("export")(e); }
     }
+    try { world.bank.creditDue(d); } catch (e) { log("bank")(e); }
     try { scheduleMeetings(t); } catch (e) { log("meetings")(e); }
     try { scheduleReviews(); } catch (e) { log("reviews")(e); }
     await backendReady;

@@ -169,6 +169,38 @@ export const Allocation = z.object({
 });
 export type Allocation = z.infer<typeof Allocation>;
 
+/** Where a Bank input's tokens come from: someone's API key, or the owner's own subscription. */
+export const BankSource = z.enum(["api-key", "subscription"]);
+export type BankSource = z.infer<typeof BankSource>;
+/** How often an input credits the Bank: once when added, or on each renewal. */
+export const BankRecurrence = z.enum(["once", "daily", "weekly", "monthly"]);
+export type BankRecurrence = z.infer<typeof BankRecurrence>;
+/**
+ * An input to the town Bank. A one-time input credits once when added; a recurring one credits
+ * `tokens` on each renewal (`nextCreditAt`). A subscription credits daily, at most `weeklyCapTokens`
+ * per 7 days. The API key is a secret column, never part of this object.
+ */
+export const BankInput = z.object({
+  id: Id,
+  userId: Id,
+  label: z.string(),
+  source: BankSource,
+  model: z.string(),
+  tokens: z.number().int().positive(),
+  recurrence: BankRecurrence,
+  weeklyCapTokens: z.number().int().positive().nullable().default(null),
+  /** next renewal; null once a one-time input has credited or the input is cancelled */
+  nextCreditAt: Iso.nullable().default(null),
+  creditedTokens: z.number().int().nonnegative().default(0),
+  hasApiKey: z.boolean().default(false),
+  cancelledAt: Iso.nullable().default(null),
+  createdAt: Iso,
+});
+export type BankInput = z.infer<typeof BankInput>;
+/** One credit from an input into the Bank. */
+export const BankCredit = z.object({ id: Id, inputId: Id, tokens: z.number().int().positive(), createdAt: Iso });
+export type BankCredit = z.infer<typeof BankCredit>;
+
 // ---------- agents (bodies in the world) ----------
 export const AgentKind = z.enum(["resident", "visitor", "human", "service"]);
 export const AgentStatus = z.enum([
@@ -432,7 +464,7 @@ export const EventType = z.enum([
   "assignment.created", "assignment.status",
   "meeting.created", "meeting.phase", "meeting.utterance", "meeting.decisions",
   "session.started", "session.ended",
-  "building.created", "building.updated", "allocation.created", "budget.exhausted",
+  "building.created", "building.updated", "allocation.created", "budget.exhausted", "bank.input", "bank.credited",
   "export.done", "system",
 ]);
 export const Event = z.object({
@@ -595,6 +627,19 @@ export const InterruptInput = z.object({ text: z.string(), now: z.boolean().opti
 export const MessageAgentInput = z.object({ text: z.string().trim().min(1), now: z.boolean().default(true) });
 export const WorkInput = z.object({ title: z.string().optional(), description: z.string().optional() });
 export const DonateInput = z.object({ tokens: z.number().int().positive(), buildingId: Id, apiKey: z.string().optional() });
+/** POST /api/bank/inputs. `apiKey` is required for source `api-key`; a subscription is daily and needs `weeklyCapTokens`. */
+export const AddBankInput = z.object({
+  label: z.string().min(1),
+  source: BankSource,
+  model: z.string().min(1),
+  tokens: z.number().int().positive(),
+  recurrence: BankRecurrence.default("once"),
+  weeklyCapTokens: z.number().int().positive().optional(),
+  /** first renewal for a recurring input (default: now) */
+  nextCreditAt: Iso.optional(),
+  apiKey: z.string().min(1).optional(),
+});
+export type AddBankInput = z.input<typeof AddBankInput>;
 export const CreateMeetingInput = z.object({ kind: MeetingKind, buildingId: Id.nullable(), title: z.string().optional(), scheduledAt: Iso.optional(), agenda: z.string().optional(), startNow: z.boolean().default(false),
   /** who to invite; omitted = the building's residents (town hall: managers, reviewers, moderators) */
   attendeeIds: z.array(Id).min(1).optional() });
