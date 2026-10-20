@@ -140,7 +140,7 @@ export async function facilitate(ctx: Ctx, st: MeetingState, meetingId: string):
   if (room) {
     for (const id of new Set([...m.attendeeIds, ...(m.facilitatorId ? [m.facilitatorId] : [])])) {
       const a = world.agents.get(id);
-      if (a && a.kind !== "human" && a.status !== "working" && !world.movement.isWalking(id)) world.movement.go(a, room.pos, room.name).catch(() => undefined);
+      if (a && a.kind !== "human" && a.status !== "working" && !world.movement.isWalking(id)) world.movement.go(a, world.standingTile(room.id, a.id) ?? room.pos, room.name).catch(() => undefined);
     }
   }
   const fac = m.facilitatorId ? world.agents.get(m.facilitatorId) : undefined;

@@ -14,6 +14,7 @@ export class WorldMap {
   private byId = new Map<string, Place>();
   private desks = new Map<string, DeskSlot[]>();
   private doors = new Map<string, Tile>();
+  private seats = new Map<string, Tile[]>();
 
   constructor(private db: DB, private repos: Repos) {}
 
@@ -33,6 +34,7 @@ export class WorldMap {
     this.places = res.places;
     this.desks = res.desks;
     this.doors = res.doors;
+    this.seats = res.seats;
     this.byId = new Map(res.places.map((p) => [p.id, p]));
     this.db.transaction(() => {
       this.db.prepare("DELETE FROM places").run();
@@ -84,6 +86,16 @@ export class WorldMap {
     return (this.db.prepare("SELECT COUNT(*) AS n FROM desks WHERE buildingId = ?").get(buildingId) as { n: number }).n;
   }
 
+  /** Seats around a meeting-room's table (empty for other places). */
+  seatsOf(placeId: string): Tile[] {
+    return this.seats.get(placeId) ?? [];
+  }
+  /** First seat of the meeting room not in `taken` ("x,y" keys); the room's own tile if all are taken. */
+  freeSeat(placeId: string, taken: Set<string>): Tile | undefined {
+    const seats = this.seatsOf(placeId);
+    return seats.find((s) => !taken.has(`${s.x},${s.y}`)) ?? this.place(placeId)?.pos;
+  }
+
   isWalkable(x: number, y: number): boolean {
     return isWalkable(this.grid, x, y);
   }
@@ -104,6 +116,9 @@ export class WorldMap {
       const d = Math.max(Math.abs(p.pos.x - pos.x), Math.abs(p.pos.y - pos.y));
       if (d < bd) { best = p; bd = d; }
     }
+    if (bd === 0) return best;
+    // a seat at a meeting table counts as that meeting room, even at the far end
+    for (const [id, seats] of this.seats) if (seats.some((s) => s.x === pos.x && s.y === pos.y)) return this.byId.get(id) ?? best;
     return best;
   }
 }
