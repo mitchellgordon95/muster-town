@@ -130,9 +130,28 @@ ${transcript || "(empty)"}
 
 Steps:
 1. \`meeting\` action "speak": open with a short agenda (2-4 lines) drawn from the summaries.
-2. Loop: \`meeting\` action "listen" with waitSeconds 60, and answer with "speak" when someone asks something. A human in the meeting may send several messages; keep listening and responding to each one.
+2. Loop: \`meeting\` action "listen" with waitSeconds 60, and answer with "speak" when someone asks something. A human in the meeting may send several messages; keep listening and responding to each one. To question an attendee, write @Name in a "speak": they get a short turn and answer in the meeting, and their reply shows up in your next listens.
 3. \`meeting\` action "decide" with 1-5 decisions once the discussion has settled (you can decide again if more come up). Give each actionable decision an assigneeId from the attendee ids above (it becomes their next assignment); use null for general decisions.
 4. If a human is taking part, they close the meeting with the End meeting button: keep listening until listen returns phase "done", then stop. Otherwise (or once humans have been quiet for a few minutes) use \`meeting\` action "end" with a one-line closing, then stop.`;
+}
+
+export function meetingReplySystemPrompt(agent: Agent): string {
+  return `You are ${agent.name}, an attendee of a meeting. Someone addressed you with @${agent.name}. Reply to them in the meeting chat, in first person, from your own work context below: 1-4 short sentences, no preamble, no @tags unless you are asking someone something. Numbers carry units. If you don't know or haven't done the work, say so; never invent findings. You have no tools in this turn.`;
+}
+
+export function meetingReplyPrompt(meeting: Meeting, nameOf: (id: string) => string, ctx: { assignment: Assignment | undefined; lastReport: Doc | undefined; events: Event[] }): string {
+  const transcript = meeting.transcript.slice(-20).map((u) => `- ${nameOf(u.speakerId)}: ${u.text}`).join("\n");
+  return `Meeting: ${meeting.title} (${meeting.kind}). Agenda: ${meeting.agenda || "(none)"}
+
+Transcript (latest last; answer the latest message that addresses you):
+${transcript || "(empty)"}
+
+My current assignment: ${ctx.assignment ? `${ctx.assignment.title} (${ctx.assignment.status})\n${trunc(ctx.assignment.description, 1000)}` : "(none)"}
+
+My latest report: ${ctx.lastReport ? `"${ctx.lastReport.title}" (decision ${ctx.lastReport.decision ?? "?"})\n${trunc(ctx.lastReport.body, 3000)}` : "(none yet)"}
+
+My recent activity:
+${ctx.events.map((e) => `- ${e.ts.slice(0, 16)} ${e.text}`).join("\n") || "(none)"}`;
 }
 
 export function chatSystemPrompt(agent: Agent): string {
