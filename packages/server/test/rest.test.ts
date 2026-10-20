@@ -34,7 +34,7 @@ describe("auth & town", () => {
 
   it("dev token is refused to proxied or tunnelled requests", async () => {
     const { app } = await setup();
-    for (const headers of [{ "x-forwarded-for": "203.0.113.7" }, { forwarded: "for=203.0.113.7" }, { "cf-connecting-ip": "203.0.113.7" }]) {
+    for (const headers of [{ "x-forwarded-for": "203.0.113.7" }, { forwarded: "for=203.0.113.7" }, { "cf-connecting-ip": "203.0.113.7" }] as Record<string, string>[]) {
       const r = await json(app, "GET", "/api/dev/admin-token", { headers });
       expect(r.status).toBe(403);
       expect(r.body.token).toBeUndefined();
