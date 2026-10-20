@@ -5,7 +5,7 @@
  */
 import { slugify, type World } from "@agent-town/core";
 import { DesksConfig, type ChatInput, type DeskActivityInput, type Event, type Session } from "@agent-town/schema";
-import { chat } from "./chat.ts";
+import { askAbout, chat } from "./chat.ts";
 import { DockerBackend, HostBackend, type WorkBackend } from "./desk/backend.ts";
 import { onDeskActivity, runDeskSession, type DeskSessionOptions } from "./desk/session.ts";
 import { advanceCollecting, facilitate, newMeetingState, onMeetingStart } from "./meetings.ts";
@@ -51,6 +51,8 @@ export interface RuntimeOptions {
 export interface Runtime {
   stop(): Promise<void>;
   chat(agentId: string, input: (typeof ChatInput)["_input"]): Promise<{ reply: string }>;
+  /** In-tray "Ask about this": a cheap-model answer about a report, without its author. */
+  askAbout(docId: string, question: string, userId: string, history?: { role: "user" | "assistant"; text: string }[]): Promise<{ reply: string }>;
   /** Deliver `text` as the next user message of the agent's running work session. False if none. */
   interrupt(agentId: string, text: string, from?: string): Promise<boolean>;
   /** Meeting entered collecting (or scheduled → collecting): run attendees' summaries. */
@@ -245,6 +247,7 @@ export function startRuntime(opts: RuntimeOptions): Runtime {
       await whenIdle();
     },
     chat: (agentId, input) => chat(ctx, agentId, input),
+    askAbout: (docId, question, userId, history) => askAbout(ctx, docId, question, userId, history),
     interrupt: async (agentId, text, from) => interrupt(ctx, agentId, text, from),
     onMeetingStart: (meetingId) => track(onMeetingStart(ctx, mst, meetingId)),
     runWorkSession: (agentId, assignmentId) => startWork(agentId, assignmentId),
