@@ -56,7 +56,7 @@ export async function askAbout(ctx: Ctx, docId: string, question: string, userId
   const rules = building ? [
     `Building: ${building.name}. Goal: ${building.goal || "(none)"}.`,
     ...(building.description ? [`About: ${building.description}`] : []),
-    `Review policy: ${building.reviewPolicy}.${ws ? ` Workspace repo: ${ws.repoUrl ?? "(none)"}; merge: ${ws.merge}${ws.merge === "green" ? ` (checks: ${ws.checks.join(", ")})` : ""}.` : ""}`,
+    `Review policy: ${building.reviewPolicy}.${ws ? ` Workspace repo: ${ws.repoUrl ?? "(none)"}.` : ""}`,
   ].join("\n") : "Building: (none)";
   const body = doc.body.length > 8000 ? `${doc.body.slice(0, 8000)}\n…(truncated)` : doc.body;
   const context = `${rules}

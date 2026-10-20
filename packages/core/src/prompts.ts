@@ -205,7 +205,7 @@ You can edit the ${repoName} repository. Your own checkout is at ${ws.dir} on br
 - Read the repo's AGENTS.md and CLAUDE.md first, then the files you need. Keep the change small and complete.
 - Run \`npm run typecheck\` and the relevant package's tests before you commit. Don't commit broken code.
 - Commit with a clear message, then \`git push -u origin ${ws.branch}\` and open a draft pull request with \`gh pr create --draft --fill\` (base ${ws.base}). Put the PR URL in your report.
-- Never push to ${ws.base}, never force-push, never rewrite history, never run destructive commands.
+- Never force-push, never rewrite history, never run destructive commands.
 - The town library is still where you write source cards and notes; your report must say what changed, how you verified it, and link the PR.`;
 }
 
@@ -235,7 +235,6 @@ export function deskWorkspace(building: Building, agent: Agent, assignment: Assi
   const branch = `${ws.branchPrefix}/${branchSlug(agent.name, 20)}/${branchSlug(assignment?.title ?? "work")}`;
   return {
     repoUrl: httpsRepoUrl(ws.repoUrl), base: ws.base, branch, branchPrefix: ws.branchPrefix, dir: `/home/agent/work/${repoNameOf(ws.repoUrl)}`,
-    merge: ws.merge ?? "human", checks: ws.checks ?? ["npm run typecheck", "npm test"],
   };
 }
 

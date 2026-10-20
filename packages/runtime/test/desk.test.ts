@@ -2,7 +2,7 @@ import { EventEmitter } from "node:events";
 import { PassThrough } from "node:stream";
 import { describe, expect, test, vi } from "vitest";
 import type { Agent, Building } from "@agent-town/schema";
-import { DockerBackend, type DeskBackend, type DeskChild, type DeskHandle, type DockerRunner, type RunResult, type SpawnedChild } from "../src/index.ts";
+import { deskAuth, DockerBackend, type DeskBackend, type DeskChild, type DeskHandle, type DockerRunner, type RunResult, type SpawnedChild } from "../src/index.ts";
 import { result, setup } from "./helpers.ts";
 
 // ---------- DockerBackend command lines ----------
@@ -208,5 +208,15 @@ describe("desk work sessions", () => {
     expect(warn.mock.calls.some((c) => String(c[0]).includes("code workspace"))).toBe(true);
     warn.mockRestore();
     await expect(host.runtime.runWorkSession(host.by("Noor").id, host.world.assignments.first("agentId = ?", [host.by("Noor").id])!.id)).rejects.toThrow(/need a desk/);
+  });
+});
+
+describe("deskAuth (v1.3 funding order)", () => {
+  test("donor key → CLAUDE_CODE_OAUTH_TOKEN → ANTHROPIC_API_KEY; never both a key and the token", () => {
+    const env = { CLAUDE_CODE_OAUTH_TOKEN: "oat", ANTHROPIC_API_KEY: "envkey" } as NodeJS.ProcessEnv;
+    expect(deskAuth("donor", env)).toEqual({ mode: "donor key", env: { ANTHROPIC_API_KEY: "donor" } });
+    expect(deskAuth(null, env)).toEqual({ mode: "subscription token", env: { CLAUDE_CODE_OAUTH_TOKEN: "oat" } });
+    expect(deskAuth(null, { ANTHROPIC_API_KEY: "envkey" } as NodeJS.ProcessEnv)).toEqual({ mode: "env api key", env: { ANTHROPIC_API_KEY: "envkey" } });
+    expect(deskAuth(null, {} as NodeJS.ProcessEnv)).toEqual({ mode: "none", env: {} });
   });
 });

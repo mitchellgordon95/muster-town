@@ -1,12 +1,13 @@
 /**
  * @agent-town/runtime — resident work sessions (Claude Agent SDK over the town MCP endpoint),
  * reviewer sessions over the in-tray, meeting summaries + facilitation, proxy chat, interrupts, scheduler,
- * startup reconcile, dismissal (onAgentRetired).
+ * startup reconcile, dismissal (onAgentRetired), host redeploy (v1.3).
  */
 import { slugify, type World } from "@agent-town/core";
-import { DesksConfig, type ChatInput, type DeskActivityInput, type Event, type Session } from "@agent-town/schema";
+import { DesksConfig, type ChatInput, type DeskActivityInput, type Event, type RedeployResult, type Session } from "@agent-town/schema";
 import { askAbout, chat } from "./chat.ts";
-import { DockerBackend, HostBackend, type WorkBackend } from "./desk/backend.ts";
+import { DockerBackend, dockerSafe, HostBackend, type WorkBackend } from "./desk/backend.ts";
+import { makeRedeployer, type RedeployDeps, type RedeployRequest } from "./redeploy.ts";
 import { onDeskActivity, runDeskSession, type DeskSessionOptions } from "./desk/session.ts";
 import { advanceCollecting, facilitate, newMeetingState, onMeetingMention, onMeetingStart } from "./meetings.ts";
 import { realSdk, type Sdk } from "./sdk.ts";
@@ -16,8 +17,9 @@ import { abortWork, finishWorkSession, interrupt, maybeReview, runWorkSession, t
 export { describeTool } from "./describe.ts";
 export { prompts } from "@agent-town/core";
 export { DockerBackend, HostBackend, realDockerRunner, type DeskBackend, type DeskChild, type DeskHandle, type DockerRunner, type RunResult, type SpawnedChild, type WorkBackend, type LineSink } from "./desk/backend.ts";
-export { deskEnv, portOf, type DeskSessionOptions } from "./desk/session.ts";
-export { mergeLine, type WorkOutcome } from "./work.ts";
+export { deskAuth, deskEnv, portOf, type DeskAuthMode, type DeskSessionOptions } from "./desk/session.ts";
+export { type WorkOutcome } from "./work.ts";
+export { makeRedeployer, realCommandRunner, RESTART_EXIT_CODE, type CmdResult, type CommandRunner, type RedeployDeps, type RedeployRequest, type Redeployer } from "./redeploy.ts";
 export { InputChannel, oneShot, realSdk, usageOf, userMessage, type QueryHandle, type QueryParams, type Sdk } from "./sdk.ts";
 export { DISALLOWED_TOOLS, TOWN_TOOLS, WEB_TOOLS } from "./session.ts";
 export { COLLECTING_MS, MEETING_REPLIES_MAX } from "./meetings.ts";
@@ -46,6 +48,8 @@ export interface RuntimeOptions {
   deskOptions?: DeskSessionOptions;
   /** a stopped/banned agent's desk process gets this long to exit on its own before it is killed. Default 10000. */
   killGraceMs?: number;
+  /** redeploy knobs (tests inject the command runner and `exit`; never the real process.exit) */
+  redeploy?: Pick<RedeployDeps, "run" | "exit" | "exitDelayMs">;
 }
 
 export interface Runtime {
@@ -76,6 +80,8 @@ export interface Runtime {
    * desk container. The home volume is kept unless `purge`.
    */
   onAgentRetired(agentId: string, opts?: { purge?: boolean }): Promise<void>;
+  /** Pull main, reinstall, rebuild, restart (exit 75) in the background. Single-flight: `{ running: true }` while one runs. */
+  redeploy(o: RedeployRequest): RedeployResult;
   /** What the startup reconcile did (orphaned sessions ended, active assignments re-queued). */
   readonly reconciled: { orphanedSessions: string[]; requeuedAssignments: string[] };
 }
@@ -123,7 +129,8 @@ export function startRuntime(opts: RuntimeOptions): Runtime {
   };
 
   let backend: WorkBackend | null = opts.deskBackend ?? null;
-  const dockerProbe = desks.backend === "host" ? null : new DockerBackend({ collective: opts.collective ?? slugify(world.town.get().name), image: desks.image });
+  const collectiveSlug = opts.collective ?? slugify(world.town.get().name);
+  const dockerProbe = desks.backend === "host" ? null : new DockerBackend({ collective: collectiveSlug, image: desks.image });
   const backendReady: Promise<WorkBackend> = backend ? Promise.resolve(backend) : chooseBackend().then((b) => (backend = b));
   let lastProbe = 0;
   /** `auto` must not stick on the host backend forever because docker was down at startup: re-probe before each work session. */
@@ -255,9 +262,18 @@ export function startRuntime(opts: RuntimeOptions): Runtime {
     while (tasks.size) await Promise.allSettled([...tasks]);
   }
 
+  const redeployer = makeRedeployer({
+    world, repoRoot: ctx.repoRoot, collective: dockerSafe(collectiveSlug), image: desks.image,
+    isWorking: (agentId) => ctx.live.has(agentId) || starting.has(agentId),
+    ...opts.redeploy,
+  });
+  const redeploy = (o: RedeployRequest) => redeployer.redeploy(o);
+  world.host.redeploy = redeploy;
+
   return {
     async stop() {
       stopped = true;
+      if (world.host.redeploy === redeploy) delete world.host.redeploy;
       if (timer) clearInterval(timer);
       unsubscribe();
       for (const id of [...ctx.live.keys()]) abortWork(ctx, id);
@@ -281,6 +297,7 @@ export function startRuntime(opts: RuntimeOptions): Runtime {
         try { await b.remove(agentId, { purge: !!o.purge }); } catch (e) { log(`remove desk of ${agentId}`)(e); }
       }
     },
+    redeploy,
     get reconciled() { return reconciled; },
   };
 }

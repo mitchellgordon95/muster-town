@@ -1,7 +1,7 @@
-/** v1.2 runtime: startup reconcile, dismissal hook, merge line on the report. */
+/** v1.2 runtime: startup reconcile, dismissal hook. */
 import { describe, expect, test, vi } from "vitest";
 import type { Agent } from "@agent-town/schema";
-import { DockerBackend, HostBackend, mergeLine, startRuntime, type DeskBackend, type DeskChild, type DeskHandle, type DockerRunner, type RunResult } from "../src/index.ts";
+import { DockerBackend, HostBackend, startRuntime, type DeskBackend, type DeskChild, type DeskHandle, type DockerRunner, type RunResult } from "../src/index.ts";
 import { result, setup } from "./helpers.ts";
 
 class FakeDesk implements DeskBackend {
@@ -69,28 +69,5 @@ describe("dismissal", () => {
     expect(calls).toEqual(["rm -f desk-climate-ag_1"]);
     await b.remove("ag_1", { purge: true });
     expect(calls.slice(1)).toEqual(["rm -f desk-climate-ag_1", "volume rm -f deskhome-ag_1"]);
-  });
-});
-
-describe("merge line", () => {
-  test("finishWorkSession appends the merge result to the report", async () => {
-    const desk = new FakeDesk();
-    const { world, runtime, by } = setup(async function* () { yield result(1, 0); }, { deskBackend: desk });
-    for (const [name, outcome, line] of [
-      ["Noor", { merged: true, prNumber: 12 }, "Merged as PR #12"],
-      ["Mei", { merged: false, prNumber: 13 }, "PR #13 open, checks failed"],
-    ] as const) {
-      const ag = by(name);
-      const asg = world.ops.createWork(null, ag.id, {});
-      const running = runtime.runWorkSession(ag.id, asg.id);
-      await vi.waitFor(() => expect(desk.execs.some((e) => world.sessions.get(e.argv[3])?.agentId === ag.id)).toBe(true));
-      const sid = desk.execs.find((e) => world.sessions.get(e.argv[3])?.agentId === ag.id)!.argv[3];
-      await world.verbs.submit_report(ag.id, REPORT);
-      await runtime.finishWorkSession(sid, { tokens: 1, reportSubmitted: true, ...outcome });
-      desk.execs.find((e) => e.argv[3] === sid)!.exit(0);
-      const s = await running;
-      expect(world.docs.require(s.reportId!).body.trimEnd().endsWith(line)).toBe(true);
-    }
-    expect(mergeLine({})).toBeNull();
   });
 });

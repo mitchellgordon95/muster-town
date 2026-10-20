@@ -1,7 +1,7 @@
 /**
  * Fixture world for VITE_MOCK=1 (v1.2): Town Hall (Wren at the mod station, Ada), Carbon Cycle Lab (5 residents,
  * Moss the reviewer, two reports in the in-tray, Otto who was dismissed), the Workshop (a workspace building with
- * merge=green, reviewer policy, one report in its in-tray), meetings now / upcoming / done.
+ * reviewer policy, one report in its in-tray), meetings now / upcoming / done.
  */
 import type { Agent, Assignment, Building, Doc, Event, Meeting, Membership, Role, Town, User } from "@agent-town/schema";
 import { BUILTIN_ROLES } from "@agent-town/schema";
@@ -34,7 +34,7 @@ export const buildings: Building[] = [
     description: "Residents work in git worktrees of the Agent Town repo and open PRs.",
     rules: "- One small PR per session, with a screenshot description for web changes.\n- Read AGENTS.md before touching a package.\n- Mention @Mitchell in your report when you need a decision.",
     workspace: {
-      path: ".", branchPrefix: "agent", base: "main", repoUrl: "https://github.com/example/agent-town.git", merge: "green", checks: ["npm run typecheck", "npm test"],
+      path: ".", branchPrefix: "agent", base: "main", repoUrl: "https://github.com/example/agent-town.git",
       tools: ["Read", "Write", "Edit", "Glob", "Grep", "Bash(git:*)", "Bash(gh:*)", "Bash(npm:*)"],
     },
   },

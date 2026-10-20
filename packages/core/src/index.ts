@@ -2,7 +2,7 @@
  * @agent-town/core — SQLite-backed world: store, layout/pathfinding/tick, verbs, permissions,
  * budgets, events, git export, v0 import, seed. No framework imports.
  */
-export { World, type SnapshotMessage } from "./world.ts";
+export { World, type HostHooks, type SnapshotMessage } from "./world.ts";
 export { AppError, forbidden, notFound, badRequest, isAppError, type ErrorCode } from "./errors.ts";
 export { openDb, migrate, type DB } from "./db.ts";
 export { Table, type ObjSchema, type TableOptions } from "./table.ts";

@@ -1,6 +1,6 @@
 /** Building panel (E at the door): overview, members + roles, meetings, settings (managers). Board, filing cabinet and in-tray are places. */
 import { useMemo, useState, type ReactNode } from "react";
-import type { Meeting, SnapshotBuilding, Workspace } from "@agent-town/schema";
+import type { Meeting, SnapshotBuilding } from "@agent-town/schema";
 import { api } from "../api";
 import { store, useTown, roleOf } from "../state";
 import { Glyph, PanelShell } from "./PanelShell";
@@ -17,7 +17,7 @@ export function BuildingPanel({ id, tab }: { id: string; tab?: string }) {
   if (!b) return <PanelShell title="Unknown building"><Empty>No building with id {id}.</Empty></PanelShell>;
   const tabs = ["Overview", "Members", "Meetings", ...(store.can("building.manage", id) ? ["Settings"] : [])];
   return (
-    <PanelShell icon={<Glyph kind="building" />} title={b.name} subtitle={`${b.kind === "town-hall" ? "Town Hall" : "Lab"} · review: ${b.reviewPolicy}${b.workspace ? ` · merge: ${b.workspace.merge}` : ""}`} tabs={tabs} initialTab={tab && tabs.includes(tab) ? tab : "Overview"}>
+    <PanelShell icon={<Glyph kind="building" />} title={b.name} subtitle={`${b.kind === "town-hall" ? "Town Hall" : "Lab"} · review: ${b.reviewPolicy}`} tabs={tabs} initialTab={tab && tabs.includes(tab) ? tab : "Overview"}>
       {(t) => (
         <>
           {t === "Overview" ? <Overview b={b} /> : null}
@@ -67,7 +67,7 @@ function Overview({ b }: { b: SnapshotBuilding }) {
           ["Daily / agent", `${fmtTokens(b.dailyTokensPerAgent)} tokens`],
           ["Desks", `${members.length} / ${b.headcount}`],
           ["Review", b.reviewPolicy === "human" ? "the manager works the in-tray" : b.reviewPolicy === "reviewer" ? "the reviewer agent works the in-tray" : "reports are acknowledged on arrival"],
-          ...(b.workspace ? [["Workspace", <><code>{b.workspace.path}</code> · merge {b.workspace.merge}</>] as [string, ReactNode]] : []),
+          ...(b.workspace ? [["Workspace", <code>{b.workspace.path}</code>] as [string, ReactNode]] : []),
         ]} />
       ) : null}
     </>
@@ -182,8 +182,6 @@ function Settings({ b }: { b: SnapshotBuilding }) {
   const [f, setF] = useState({ goal: b.goal, description: b.description, reviewPolicy: b.reviewPolicy, headcount: b.headcount, model: b.model, cheapModel: b.cheapModel, dailyTokensPerAgent: b.dailyTokensPerAgent, maxTurnsPerSession: b.maxTurnsPerSession, managerAgentId: b.managerAgentId });
   const agents = useTown((s) => s.agents);
   const residents = useMemo(() => Object.values(agents).filter((a) => a.kind === "resident" && a.homeBuildingId === b.id).sort((x, y) => x.name.localeCompare(y.name)), [agents, b.id]);
-  const [merge, setMerge] = useState<Workspace["merge"]>(b.workspace?.merge ?? "human");
-  const [checks, setChecks] = useState((b.workspace?.checks ?? []).join("\n"));
   const set = <K extends keyof typeof f>(k: K, v: (typeof f)[K]) => setF((x) => ({ ...x, [k]: v }));
   return (
     <form className="form" onSubmit={(e) => e.preventDefault()}>
@@ -211,24 +209,9 @@ function Settings({ b }: { b: SnapshotBuilding }) {
         <Field label="Daily tokens / agent"><input type="number" min={1} value={f.dailyTokensPerAgent} onChange={(e) => set("dailyTokensPerAgent", +e.target.value)} /></Field>
         <Field label="Max turns / session" hint="Safety rail"><input type="number" min={1} value={f.maxTurnsPerSession} onChange={(e) => set("maxTurnsPerSession", +e.target.value)} /></Field>
       </div>
-      {b.workspace ? (
-        <>
-          <div className="row2">
-            <Field label="Merge" hint={merge === "green" ? "The desk readies and squash-merges its PR when every check passes" : "PRs stay draft for a human"}>
-              <select value={merge} onChange={(e) => setMerge(e.target.value as Workspace["merge"])}>
-                <option value="human">human</option><option value="green">green</option>
-              </select>
-            </Field>
-            <Field label="Workspace"><input value={b.workspace.path} disabled /></Field>
-          </div>
-          <Field label="Checks" hint="One command per line, run in the checkout before a green merge">
-            <textarea rows={3} value={checks} onChange={(e) => setChecks(e.target.value)} placeholder={"npm run typecheck\nnpm test"} />
-          </Field>
-        </>
-      ) : null}
+      {b.workspace ? <Field label="Workspace"><input value={b.workspace.path} disabled /></Field> : null}
       <div className="actions"><Act tone="primary" run={async () => {
-        const workspace = b.workspace ? { ...b.workspace, merge, checks: checks.split("\n").map((x) => x.trim()).filter(Boolean) } : undefined;
-        await api().updateBuilding(b.id, { ...f, ...(workspace ? { workspace } : {}) });
+        await api().updateBuilding(b.id, f);
         store.toast("Settings saved", "ok");
       }}>Save settings</Act></div>
     </form>

@@ -1,5 +1,5 @@
 import { AppError, townRoleId, type World } from "@agent-town/core";
-import type { Agent, DeskActivityInput, Session, User } from "@agent-town/schema";
+import type { Agent, DeskActivityInput, RedeployResult, Session, User } from "@agent-town/schema";
 import type { FastifyReply, FastifyRequest } from "fastify";
 import type { ZodTypeAny, z } from "zod";
 
@@ -14,11 +14,13 @@ export interface RuntimeHooks {
   /** A desk reported activity: append `agent.tool`/`agent.thought`/`agent.activity` events (payload.sessionId). */
   onDeskActivity?(agentId: string, input: DeskActivityInput): Promise<unknown> | unknown;
   /** End a work session (desk session-end): fallback report, status, charge. Idempotent. */
-  finishWorkSession?(sessionId: string, outcome: { tokens?: number; costUsd?: number; turns?: number; sdkSessionId?: string | null; finalText?: string | null; error?: string | null; reportSubmitted?: boolean; merged?: boolean; prNumber?: number }): Promise<Session>;
+  finishWorkSession?(sessionId: string, outcome: { tokens?: number; costUsd?: number; turns?: number; sdkSessionId?: string | null; finalText?: string | null; error?: string | null; reportSubmitted?: boolean }): Promise<Session>;
   /** An agent was dismissed (core already retired it): abort its session, `docker rm -f` its desk (volume kept unless purge). */
   onAgentRetired?(agentId: string, opts?: { purge?: boolean }): Promise<unknown> | unknown;
   /** A meeting moved to `discussing` via REST: run the facilitator. */
   onMeetingStart?(meetingId: string): Promise<unknown> | unknown;
+  /** v1.3: pull main, reinstall, rebuild, restart (exit 75) in the background. `{ running: true }` while one runs. */
+  redeploy?(o: { image: boolean; requestedBy: string }): Promise<RedeployResult> | RedeployResult;
   /** An agent was stopped via REST: abort its running session, if any. */
   stop?(): Promise<unknown> | unknown;
   /** Shut down timers/sessions. */

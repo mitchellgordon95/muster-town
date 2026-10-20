@@ -1,5 +1,5 @@
 /** Resident work sessions (host backend + shared end-of-session logic), interrupts, and reviewer sessions over the in-tray. */
-import { AppError, buildingRoleId, createDoc, fallbackReportBody, latestReportOf, reviewPrompt, reviewSystemPrompt, setAssignmentStatus, updateDoc, workPrompt, workSystemPrompt } from "@agent-town/core";
+import { AppError, buildingRoleId, createDoc, fallbackReportBody, latestReportOf, reviewPrompt, reviewSystemPrompt, setAssignmentStatus, workPrompt, workSystemPrompt } from "@agent-town/core";
 import type { Agent, Assignment, Building, Doc, Session } from "@agent-town/schema";
 import { chargeUsage, fundingFor, homeOf, runAgentSession, type Ctx } from "./session.ts";
 
@@ -69,16 +69,6 @@ export interface WorkOutcome {
   reportSubmitted?: boolean;
   /** the runtime aborted it (agent stopped/banned/retired or runtime shutdown) */
   stopped?: boolean;
-  /** merge=green desks: whether the PR was merged after the checks (absent = no merge attempted) */
-  merged?: boolean;
-  prNumber?: number;
-}
-
-/** The line finishWorkSession appends to the report when a desk attempted a green merge. */
-export function mergeLine(o: Pick<WorkOutcome, "merged" | "prNumber">): string | null {
-  if (o.merged === undefined && o.prNumber === undefined) return null;
-  if (o.merged) return o.prNumber ? `Merged as PR #${o.prNumber}` : "Merged";
-  return o.prNumber ? `PR #${o.prNumber} open, checks failed` : "PR left open, checks failed";
 }
 
 /**
@@ -119,15 +109,6 @@ export async function finishWorkSession(ctx: Ctx, sessionId: string, o: WorkOutc
       }
     } catch (e) {
       world.events.append({ type: "system", agentId, buildingId: bid, text: `Runtime error after session: ${e instanceof Error ? e.message : String(e)}`, payload: { sessionId } });
-    }
-  }
-  const line = mergeLine(o);
-  const reportId = world.sessions.get(sessionId)?.reportId;
-  if (line && reportId) {
-    const doc = world.docs.get(reportId);
-    if (doc) {
-      updateDoc(world, doc.id, { body: `${doc.body.trimEnd()}\n\n${line}\n` });
-      world.events.append({ type: "doc.updated", agentId, buildingId: doc.buildingId, text: `${agentNow.name}: ${line}`, payload: { docId: doc.id, merged: !!o.merged, prNumber: o.prNumber ?? null } });
     }
   }
   const status: Exclude<Session["status"], "running"> = stopped ? "interrupted" : error ? "error" : "done";

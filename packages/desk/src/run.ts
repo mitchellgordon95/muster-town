@@ -7,7 +7,6 @@ import { homedir } from "node:os";
 import type { DeskActivityInput, DeskBrief, DeskSessionEndInput, DeskWorkspace } from "./contract.ts";
 import { blocksOf, InputChannel, usageOf, type LooseMessage, type Options, type QueryHandle, type Sdk, type Usage } from "./sdk.ts";
 import type { TownClient } from "./town.ts";
-import { greenMerge, type MergeResult } from "./merge.ts";
 import { setupWorkspace } from "./workspace.ts";
 
 export const EXIT_OK = 0;
@@ -27,8 +26,6 @@ export interface RunDeps {
   setupWorkspace?: (ws: DeskWorkspace, brief: DeskBrief) => string;
   controlIntervalMs?: number;
   flushMs?: number;
-  /** override the merge=green step (tests); default runs gh + the checks in the checkout */
-  merge?: (ws: DeskWorkspace & { dir: string }, log: (line: string) => void) => Promise<MergeResult | null>;
 }
 
 /** Keep tool inputs postable: long strings (file bodies, heredocs) are clipped. */
@@ -40,6 +37,23 @@ function clipInput(v: unknown, depth = 0): unknown {
 }
 
 const errMsg = (e: unknown) => (e instanceof Error ? e.message : String(e));
+
+/**
+ * Env for the Claude Code process the SDK spawns. A subscription token (`CLAUDE_CODE_OAUTH_TOKEN`, from the town's
+ * funding order) is passed through and wins: ANTHROPIC_API_KEY is dropped, since Claude Code prefers an API key
+ * when both are set. Values are secrets: never log them.
+ */
+export function sessionEnv(env: NodeJS.ProcessEnv): { env: Record<string, string>; auth: string } {
+  const out: Record<string, string> = {};
+  for (const [k, v] of Object.entries(env)) if (typeof v === "string") out[k] = v;
+  const label = env.DESK_AUTH && env.DESK_AUTH !== "none" ? env.DESK_AUTH : null;
+  if (out.CLAUDE_CODE_OAUTH_TOKEN) {
+    delete out.ANTHROPIC_API_KEY;
+    return { env: out, auth: label ?? "subscription token" };
+  }
+  if (out.ANTHROPIC_API_KEY) return { env: out, auth: label ?? "api key" };
+  return { env: out, auth: "none (the CLI's own login, if any)" };
+}
 
 export async function runSession(sessionId: string, deps: RunDeps): Promise<number> {
   const { town, sdk } = deps;
@@ -54,7 +68,6 @@ export async function runSession(sessionId: string, deps: RunDeps): Promise<numb
   let sdkSessionId: string | null = null;
   let reportSubmitted = false;
   let stopped = false;
-  let mergeResult: MergeResult | null = null;
 
   const endSession = async (): Promise<void> => {
     const body: DeskSessionEndInput = {
@@ -63,7 +76,6 @@ export async function runSession(sessionId: string, deps: RunDeps): Promise<numb
       costUsd: usage.costUsd,
       turns: usage.turns,
       reportSubmitted,
-      ...(mergeResult ? { merged: mergeResult.merged, prNumber: mergeResult.prNumber } : {}),
       ...(sdkSessionId ? { sdkSessionId } : {}),
       ...(finalText ? { finalText } : {}),
       ...(error && !stopped ? { error } : {}),
@@ -170,6 +182,9 @@ export async function runSession(sessionId: string, deps: RunDeps): Promise<numb
       allowDangerouslySkipPermissions: true,
       settingSources: [],
     };
+    const se = sessionEnv(env);
+    options.env = se.env;
+    log(`auth: ${se.auth}`);
     input.push(brief.prompt);
     log(`query: model ${options.model}, maxTurns ${options.maxTurns}, cwd ${cwd}`);
     q = sdk.query({ prompt: input, options });
@@ -221,21 +236,6 @@ export async function runSession(sessionId: string, deps: RunDeps): Promise<numb
     clearInterval(flushTimer);
     input.close();
     await polling;
-    await flush();
-  }
-
-  // ---- v1.2 merge rule: green workspaces squash-merge their PR when every check passes ----
-  if (brief.workspace?.merge === "green" && reportSubmitted && !stopped) {
-    try {
-      const ws = { ...brief.workspace, dir: cwd };
-      mergeResult = deps.merge ? await deps.merge(ws, log) : await greenMerge(ws, { log });
-      if (mergeResult) {
-        post({ kind: "status", text: mergeResult.line });
-        log(`${mergeResult.line}${mergeResult.detail ? ` (${mergeResult.detail})` : ""}`);
-      }
-    } catch (e) {
-      log(`merge step failed: ${errMsg(e)}`);
-    }
     await flush();
   }
 

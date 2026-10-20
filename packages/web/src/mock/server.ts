@@ -259,6 +259,11 @@ export class MockApi implements Api {
     return { buildings, users: this.sim.users.map((u) => ({ userId: u.id, name: u.name, donated: u.donatedTokens })) };
   }
   async exportNow() { await wait(400); this.sim.event("export.done", null, "Exported town to git", {}, null); return "a1b2c3d"; }
+  async redeploy(image: boolean) {
+    const steps = ["git pull --rebase origin main … ok (3 commits)", "npm install … skipped (package-lock.json unchanged)", "build web … ok", ...(image ? ["docker build desk image … ok"] : []), "restarting server"];
+    steps.forEach((s, i) => setTimeout(() => this.sim.event("system", null, `Redeploy: ${s}`, { redeploy: true }, null), 400 * (i + 1)));
+    return { started: true };
+  }
 
   connect(h: SocketHandlers): Socket {
     let off: (() => void) | null = null;

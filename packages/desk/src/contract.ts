@@ -11,12 +11,8 @@ export const DeskWorkspace = z.object({
   branch: z.string(),
   branchPrefix: z.string(),
   dir: z.string(),
-  /** v1.2: green → after a session that ends with a report, run `checks` and squash-merge the branch's open PR */
-  merge: z.enum(["human", "green"]).default("human"),
-  checks: z.array(z.string()).default([]),
 });
-/** Input type: `merge`/`checks` are optional (defaults human / none) so older briefs and callers still fit. */
-export type DeskWorkspace = z.input<typeof DeskWorkspace>;
+export type DeskWorkspace = z.infer<typeof DeskWorkspace>;
 
 // TODO: switch to @agent-town/schema when exported
 export const DeskBrief = z.object({
@@ -58,8 +54,5 @@ export const DeskSessionEndInput = z.object({
   finalText: z.string().optional(),
   error: z.string().optional(),
   reportSubmitted: z.boolean(),
-  /** v1.2 merge=green: whether the PR was merged after the checks (absent = no merge attempted) */
-  merged: z.boolean().optional(),
-  prNumber: z.number().int().positive().optional(),
 });
 export type DeskSessionEndInput = z.infer<typeof DeskSessionEndInput>;

@@ -128,11 +128,36 @@ function NewResident() {
   );
 }
 
+/** v1.3: "Pull main & redeploy" for holders of town.redeploy; the run's `system` events stream in below. */
+function Redeploy() {
+  const [image, setImage] = useState(false);
+  const [since, setSince] = useState<number | null>(null);
+  const events = useTown((s) => s.events);
+  const lines = useMemo(() => since === null ? [] : events.filter((e) => e.type === "system" && e.id > since && (e.payload as { redeploy?: boolean }).redeploy), [events, since]);
+  return (
+    <Section title="Redeploy">
+      <p className="direction">Pull main on the host, reinstall if the lockfile changed, rebuild the web client, then restart the server. A dirty working tree aborts.</p>
+      <label className="check"><input type="checkbox" checked={image} onChange={(e) => setImage(e.target.checked)} /> also rebuild desk image</label>
+      <div className="actions"><Act tone="primary" run={async () => {
+        const last = store.state.events.at(-1)?.id ?? 0;
+        const r = await api().redeploy(image);
+        setSince(last);
+        store.toast(r.running ? "A redeploy is already running" : "Redeploy started", r.running ? "info" : "ok");
+      }}>Pull main &amp; redeploy</Act></div>
+      {lines.length ? (
+        <ul className="redeploy-log">{lines.map((e) => <li key={e.id} title={typeof (e.payload as { output?: unknown }).output === "string" ? String((e.payload as { output: string }).output) : undefined}>{e.text}</li>)}</ul>
+      ) : null}
+    </Section>
+  );
+}
+
 function System() {
   const [commit, setCommit] = useState<string | null>(null);
   const conn = useTown((s) => s.conn);
+  useTown((s) => s.me);
   return (
     <>
+      {store.can("town.redeploy") ? <Redeploy /> : null}
       <Section title="Git export">
         <p className="direction">Writes the town to a readable git mirror (buildings, docs, meetings, events) and commits if anything changed.</p>
         <div className="actions"><Act run={async () => { setCommit((await api().exportNow()) ?? "nothing to commit"); }}>Export now</Act>{commit ? <code>{commit}</code> : null}</div>

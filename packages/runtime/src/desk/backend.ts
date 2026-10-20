@@ -85,7 +85,7 @@ export interface DockerBackendOptions {
   runner?: DockerRunner;
 }
 
-const safe = (s: string) => s.toLowerCase().replace(/[^a-z0-9_.-]+/g, "-").replace(/^[-.]+|[-.]+$/g, "") || "town";
+export const dockerSafe = (s: string) => s.toLowerCase().replace(/[^a-z0-9_.-]+/g, "-").replace(/^[-.]+|[-.]+$/g, "") || "town";
 
 export class DockerBackend implements DeskBackend {
   readonly kind = "docker" as const;
@@ -96,7 +96,7 @@ export class DockerBackend implements DeskBackend {
   private readonly cpus: string;
 
   constructor(opts: DockerBackendOptions) {
-    this.collective = safe(opts.collective);
+    this.collective = dockerSafe(opts.collective);
     this.image = opts.image ?? "agent-town-desk";
     this.memory = opts.memory ?? "2g";
     this.cpus = opts.cpus ?? "2";
@@ -104,10 +104,10 @@ export class DockerBackend implements DeskBackend {
   }
 
   containerName(agentId: string): string {
-    return `desk-${this.collective}-${safe(agentId)}`;
+    return `desk-${this.collective}-${dockerSafe(agentId)}`;
   }
   volumeName(agentId: string): string {
-    return `deskhome-${safe(agentId)}`;
+    return `deskhome-${dockerSafe(agentId)}`;
   }
 
   async available(): Promise<boolean> {

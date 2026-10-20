@@ -1,4 +1,4 @@
-import type { Agent, AgentStatus, DesksConfig, ServerMessage, Tile } from "@agent-town/schema";
+import type { Agent, AgentStatus, DesksConfig, RedeployResult, ServerMessage, Tile } from "@agent-town/schema";
 import { Budget } from "./budget.ts";
 import { intrayCounts, intrayOf } from "./domain.ts";
 import { migrateRoles } from "./migrate-roles.ts";
@@ -17,6 +17,12 @@ import { Movement } from "./world/movement.ts";
 
 export type SnapshotMessage = Extract<ServerMessage, { type: "snapshot" }>;
 
+/** Host-side hooks the runtime fills in; core verbs call them when present. */
+export interface HostHooks {
+  /** Pull main, reinstall, rebuild, restart (runtime/redeploy.ts). Single-flight: `{ running: true }` while one runs. */
+  redeploy?(o: { image: boolean; requestedBy: string }): Promise<RedeployResult> | RedeployResult;
+}
+
 export class World {
   readonly db: DB;
   /** Every live change as a WS ServerMessage: event, agent, agents.pos, doc, meeting, building, assignment. */
@@ -28,6 +34,8 @@ export class World {
   readonly movement: Movement;
   readonly verbs: Verbs;
   readonly ops: Ops;
+  /** Host-side actions the runtime registers at start (verbs that need the host, e.g. `redeploy`). Empty without a runtime. */
+  readonly host: HostHooks = {};
 
   // repositories
   readonly users: Repos["users"];

@@ -89,6 +89,8 @@ export interface Api {
   donate(input: In<typeof DonateInput>): Promise<void>;
   budget(): Promise<Budget>;
   exportNow(): Promise<string | null>;
+  /** v1.3: pull main, rebuild, restart (needs town.redeploy); progress arrives as `system` events */
+  redeploy(image: boolean): Promise<{ started?: boolean; running?: boolean }>;
   connect(handlers: SocketHandlers): Socket;
 }
 
@@ -189,6 +191,7 @@ export class HttpApi implements Api {
     return { buildings: r.buildings ?? [], users: r.users ?? [] };
   }
   async exportNow() { return (await this.post<{ commit?: string | null }>("/api/export")).commit ?? null; }
+  async redeploy(image: boolean) { return this.post<{ started?: boolean; running?: boolean }>("/api/admin/redeploy", { image }); }
 
   connect(h: SocketHandlers): Socket {
     const url = `${location.protocol === "https:" ? "wss" : "ws"}://${location.host}/ws`;

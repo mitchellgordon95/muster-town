@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { Agent, Building, Town } from "@agent-town/schema";
-import { REPORT_FORMAT, reviewSystemPrompt, summarySystemPrompt, workSystemPrompt } from "../src/prompts.ts";
+import { REPORT_FORMAT, reviewSystemPrompt, summarySystemPrompt, workshopPrompt, workSystemPrompt } from "../src/prompts.ts";
 
 const agent = { id: "ag_1", name: "Root", title: "Backend", direction: "Core, server, and runtime only." } as Agent;
 const building = { id: "workshop", name: "Town Workshop", goal: "Ship PRs", maxTurnsPerSession: 120 } as Building;
@@ -31,5 +31,13 @@ describe("no forced next step", () => {
   it("the reviewer approves finished work by default", () => {
     expect(reviewSystemPrompt(agent, building)).toMatch(/No proposal is fine/);
     expect(reviewSystemPrompt(agent, building)).toMatch(/default for finished work/);
+  });
+});
+
+describe("workshop code-access rules", () => {
+  it("forbid force-pushes and history rewrites, but not pushing to the base branch", () => {
+    const p = workshopPrompt({ dir: "/home/agent/work/agent-town", branch: "agent/root/x", base: "main" }, "agent-town");
+    expect(p).toContain("- Never force-push, never rewrite history, never run destructive commands.");
+    expect(p).not.toContain("Never push to main");
   });
 });

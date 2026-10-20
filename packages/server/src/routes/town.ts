@@ -1,5 +1,5 @@
 import { AppError, boardDocs, cabinetDocs } from "@agent-town/core";
-import { CreateBuildingInput, DonateInput, Membership, UpdateBuildingInput, type AuthMe } from "@agent-town/schema";
+import { CreateBuildingInput, DonateInput, Membership, RedeployInput, UpdateBuildingInput, type AuthMe } from "@agent-town/schema";
 import type { FastifyInstance } from "fastify";
 import { z } from "zod";
 import { actorOf, adminToken, parse, requireAuth, requireUser, type Params } from "../context.ts";
@@ -12,7 +12,7 @@ const EventsQuery = z.object({
 });
 const LimitQuery = z.object({ limit: z.coerce.number().int().positive().max(200).default(30) });
 
-/** Town snapshot, auth info, events, buildings, roles, budget, export. */
+/** Town snapshot, auth info, events, buildings, roles, budget, export, redeploy. */
 export async function townRoutes(app: FastifyInstance) {
   const world = app.world;
 
@@ -133,5 +133,15 @@ export async function townRoutes(app: FastifyInstance) {
     requireAuth(req);
     const r = world.export(process.env.AGENT_TOWN_EXPORT ?? "./export");
     return { commit: r.commit, changed: r.changed, files: r.files, dir: r.dir };
+  });
+
+  // ---- redeploy (v1.3): pull main, rebuild, restart; progress arrives as `system` events ----
+  app.post("/api/admin/redeploy", async (req, reply) => {
+    const actor = actorOf(world, req);
+    world.permissions.require(actor, "town.redeploy");
+    const input = parse(RedeployInput, req.body);
+    if (!app.runtime?.redeploy) throw new AppError("internal", "runtime not available", 503);
+    const r = await app.runtime.redeploy({ image: input.image, requestedBy: actor.name });
+    return reply.code(r.started ? 202 : 200).send(r);
   });
 }

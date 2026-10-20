@@ -5,14 +5,17 @@
  * - built-in managers lose `building.ban`, gain `building.dismiss`; admin gets every permission
  * - any other role drops permissions the schema no longer has
  * - creates the town `moderator` role once the town has roles
+ * - v1.3: creates the town `deployer` role (`town.redeploy`) once the town has roles. Data fix: in the pass that
+ *   creates it, residents of workspace buildings (the Town Workshop) who hold no deployer membership are granted it,
+ *   matching what seed does for `townRoles: ["deployer"]` in collective.json. Later opens never re-grant, so a revoke sticks.
  */
 import { BUILTIN_ROLES, Permission } from "@agent-town/schema";
 import type { DB } from "./db.ts";
 
-export interface MigrateRolesResult { renamed: number; updated: number; created: number }
+export interface MigrateRolesResult { renamed: number; updated: number; created: number; granted: number }
 
 export function migrateRoles(db: DB): MigrateRolesResult {
-  const res: MigrateRolesResult = { renamed: 0, updated: 0, created: 0 };
+  const res: MigrateRolesResult = { renamed: 0, updated: 0, created: 0, granted: 0 };
   const valid = new Set<string>(Permission.options);
   type RoleRow = { id: string; name: string; scope: string; buildingId: string | null; permissions: string; builtin: number };
   db.transaction(() => {
@@ -47,6 +50,21 @@ export function migrateRoles(db: DB): MigrateRolesResult {
     if (!db.prepare("SELECT 1 FROM roles WHERE id = 'role:moderator'").get()) {
       db.prepare("INSERT INTO roles (id, name, scope, buildingId, permissions, builtin) VALUES ('role:moderator', 'moderator', 'town', NULL, ?, 1)").run(JSON.stringify(BUILTIN_ROLES.town.moderator));
       res.created++;
+    }
+    if (!db.prepare("SELECT 1 FROM roles WHERE id = 'role:deployer'").get()) {
+      db.prepare("INSERT INTO roles (id, name, scope, buildingId, permissions, builtin) VALUES ('role:deployer', 'deployer', 'town', NULL, ?, 1)").run(JSON.stringify(BUILTIN_ROLES.town.deployer));
+      res.created++;
+      // v1.3 data fix: workshop residents get the deployer role (seed grants it from collective.json for new towns)
+      const residents = db.prepare(`
+        SELECT a.id FROM agents a JOIN buildings b ON b.id = a.homeBuildingId
+        WHERE a.kind = 'resident' AND a.status NOT IN ('retired', 'banned')
+          AND b.workspace IS NOT NULL AND b.workspace NOT IN ('', 'null')
+          AND NOT EXISTS (SELECT 1 FROM memberships m WHERE m.roleId = 'role:deployer' AND m.holderKind = 'agent' AND m.holderId = a.id)
+          AND NOT EXISTS (SELECT 1 FROM memberships m WHERE m.roleId = 'role:' || b.id || ':reviewer' AND m.holderKind = 'agent' AND m.holderId = a.id)`).all() as { id: string }[];
+      for (const r of residents) {
+        db.prepare("INSERT OR IGNORE INTO memberships (roleId, holderKind, holderId) VALUES ('role:deployer', 'agent', ?)").run(r.id);
+        res.granted++;
+      }
     }
   })();
   return res;

@@ -53,12 +53,12 @@ describe("work brief", () => {
 
   test("workspace buildings get repoUrl/base/branch/dir", () => {
     const { world, by, seed } = seededWorld();
-    world.ops.updateBuilding(null, seed.lab!.id, { workspace: { path: REPO_ROOT, repoUrl: "git@github.com:me/agent-town.git", base: "main", branchPrefix: "agent", tools: [], merge: "human", checks: [] } });
+    world.ops.updateBuilding(null, seed.lab!.id, { workspace: { path: REPO_ROOT, repoUrl: "git@github.com:me/agent-town.git", base: "main", branchPrefix: "agent", tools: [] } });
     const noor = by("Noor");
     const asg = world.ops.createWork(null, noor.id, { title: "Fix the HUD!" });
     const s = world.ops.startSession(noor.id, { purpose: "work", model: "m", assignmentId: asg.id });
     const b = composeWorkBrief(world, s.id);
-    expect(b.workspace).toEqual({ repoUrl: "https://github.com/me/agent-town.git", base: "main", branchPrefix: "agent", branch: "agent/noor/fix-the-hud", dir: "/home/agent/work/agent-town", merge: "human", checks: [] });
+    expect(b.workspace).toEqual({ repoUrl: "https://github.com/me/agent-town.git", base: "main", branchPrefix: "agent", branch: "agent/noor/fix-the-hud", dir: "/home/agent/work/agent-town" });
     expect(b.system).toContain("/home/agent/work/agent-town");
   });
 });
@@ -110,7 +110,7 @@ describe("seed", () => {
 describe("seed backfill", () => {
   test("re-opening a seeded DB fills workspace.repoUrl from origin", () => {
     const { world, seed } = seededWorld();
-    world.buildings.patch(seed.lab!.id, { workspace: { path: REPO_ROOT, base: "main", branchPrefix: "agent", tools: [], merge: "human", checks: [] } });
+    world.buildings.patch(seed.lab!.id, { workspace: { path: REPO_ROOT, base: "main", branchPrefix: "agent", tools: [] } });
     world.seedDefaults({});
     expect(world.buildings.require(seed.lab!.id).workspace?.repoUrl).toBe(originUrl(REPO_ROOT));
   });

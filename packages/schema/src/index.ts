@@ -41,6 +41,7 @@ export const Permission = z.enum([
   "town.approve_request",    // make an outbox request visible to humans
   "town.ban",                // ban an agent (town-wide; misuse prevention)
   "town.moderate",           // moderator station: review requests, trophy proposals, bans
+  "town.redeploy",           // pull main on the host, rebuild, restart the collective's server
   "building.manage",         // edit goal/description/policies, assign building roles
   "building.assign",         // create assignments for agents in the building
   "building.review",         // acknowledge/continue/redirect/stop reports (the in-tray)
@@ -73,6 +74,8 @@ export const BUILTIN_ROLES = {
     /** collective-wide misuse prevention; seated at the Town Hall mod station */
     moderator: ["town.approve_trophy", "town.approve_request", "town.ban", "town.moderate"] as Permission[],
     visitor: ["meeting.attend"] as Permission[],
+    /** may redeploy the running town from main (workshop residents) */
+    deployer: ["town.redeploy"] as Permission[],
   },
   building: {
     manager: [
@@ -121,10 +124,6 @@ export const Workspace = z.object({
   base: z.string().default("main"),
   /** clone URL desks use (set at seed from `git remote get-url origin` of `path`, or given directly) */
   repoUrl: z.string().optional(),
-  /** human: PRs stay draft for a human; green: the desk readies + squash-merges its PR when every check passes */
-  merge: z.enum(["human", "green"]).default("human"),
-  /** commands run in the checkout before a green merge */
-  checks: z.array(z.string()).default(["npm run typecheck", "npm test"]),
 });
 export type Workspace = z.infer<typeof Workspace>;
 
@@ -484,6 +483,7 @@ export const VerbInputs = {
   assign: z.object({ agentId: Id, title: z.string(), description: z.string() }),
   promote: z.object({ docId: Id, state: z.enum(["building", "library"]) }),
   ban: z.object({ agentId: Id, reason: z.string() }),
+  redeploy: z.object({ image: z.boolean().default(false).describe("also rebuild the desk image and recreate idle desk containers") }),
 } as const;
 export type VerbName = keyof typeof VerbInputs;
 export const VERB_NAMES = Object.keys(VerbInputs) as VerbName[];
@@ -508,6 +508,7 @@ export const VERB_DESCRIPTIONS: Record<VerbName, string> = {
   assign: "(manager/reviewer) Create an assignment for an agent in my building.",
   promote: "(manager) Publish a document to the building (board if it's an fyi, else the filing cabinet) or promote it to the library.",
   ban: "(town moderator) Ban an agent town-wide pending review.",
+  redeploy: "Pull main on the host, reinstall, rebuild the web client (and the desk image when image=true), then restart the collective's server. Use when Mitchell asks you to deploy or when main has changed and the running town is stale.",
 };
 
 // ---------- verb results (what the LLM sees) ----------
@@ -591,6 +592,11 @@ export const CreateMeetingInput = z.object({ kind: MeetingKind, buildingId: Id.n
   attendeeIds: z.array(Id).min(1).optional() });
 export const MeetingSayInput = z.object({ text: z.string() });
 export const SeedInput = z.object({ importDir: z.string().optional() });
+/** POST /api/admin/redeploy (permission `town.redeploy`); also the `redeploy` verb's input */
+export const RedeployInput = z.object({ image: z.boolean().default(false) });
+/** `{ started: true }` (runs in the background, progress as `system` events) or `{ running: true }` when one is in flight */
+export const RedeployResult = z.object({ started: z.boolean().optional(), running: z.boolean().optional() });
+export type RedeployResult = z.infer<typeof RedeployResult>;
 
 export const AuthMe = z.object({ user: User, roles: z.array(Role), avatarAgentId: Id.nullable(), isAdmin: z.boolean() });
 export type AuthMe = z.infer<typeof AuthMe>;
@@ -613,7 +619,11 @@ export const CollectiveBuildingSpec = z.object({
   meetings: z.array(MeetingCadence).optional(),
   /** workspace.path is relative to the collective dir */
   workspace: Workspace.optional(),
-  residents: z.array(z.object({ name: z.string(), title: z.string().default(""), direction: z.string().default(""), sprite: z.number().int().optional(), model: z.string().optional() })).default([]),
+  residents: z.array(z.object({
+    name: z.string(), title: z.string().default(""), direction: z.string().default(""), sprite: z.number().int().optional(), model: z.string().optional(),
+    /** town role names granted at seed (e.g. `deployer`) */
+    townRoles: z.array(z.string()).optional(),
+  })).default([]),
   /** the building's reviewer agent (role `reviewer`); works the in-tray when reviewPolicy is `reviewer` */
   reviewer: z.object({ name: z.string(), sprite: z.number().int().optional(), direction: z.string().optional() }).optional(),
   /** house allocation for this building, in tokens */
@@ -646,10 +656,6 @@ export const DeskWorkspace = z.object({
   branchPrefix: z.string(),
   /** checkout dir inside the desk, /home/agent/work/<repoName> */
   dir: z.string(),
-  /** Workspace.merge: green → the desk readies and squash-merges its PR when every check passes */
-  merge: z.enum(["human", "green"]).default("human"),
-  /** Workspace.checks, run in `dir` before a green merge */
-  checks: z.array(z.string()).default([]),
 });
 export type DeskWorkspace = z.infer<typeof DeskWorkspace>;
 
@@ -699,8 +705,5 @@ export const DeskSessionEndInput = z.object({
   finalText: z.string().nullable().optional(),
   error: z.string().nullable().optional(),
   reportSubmitted: z.boolean().default(false),
-  /** merge=green: whether the desk merged its PR (absent when no merge was attempted) */
-  merged: z.boolean().optional(),
-  prNumber: z.number().int().positive().optional(),
 });
 export type DeskSessionEndInput = z.infer<typeof DeskSessionEndInput>;

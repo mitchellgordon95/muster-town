@@ -40,6 +40,20 @@ export function portOf(mcpUrl: string): string {
   }
 }
 
+export type DeskAuthMode = "donor key" | "subscription token" | "env api key" | "none";
+
+/**
+ * How a desk session is funded, in order: a donor API key (the allocation has one) → `CLAUDE_CODE_OAUTH_TOKEN`
+ * from the collective's .env (a Claude subscription token; ANTHROPIC_API_KEY is then NOT passed, since Claude Code
+ * prefers an API key when both are set) → `ANTHROPIC_API_KEY` from the env. Values are secrets: never log them.
+ */
+export function deskAuth(donorKey: string | null | undefined, env: NodeJS.ProcessEnv = process.env): { mode: DeskAuthMode; env: Record<string, string> } {
+  if (donorKey) return { mode: "donor key", env: { ANTHROPIC_API_KEY: donorKey } };
+  if (env.CLAUDE_CODE_OAUTH_TOKEN) return { mode: "subscription token", env: { CLAUDE_CODE_OAUTH_TOKEN: env.CLAUDE_CODE_OAUTH_TOKEN } };
+  if (env.ANTHROPIC_API_KEY) return { mode: "env api key", env: { ANTHROPIC_API_KEY: env.ANTHROPIC_API_KEY } };
+  return { mode: "none", env: {} };
+}
+
 /** Env for `agent-town-desk run` (contract step 3). Values are secrets: never log them. */
 export function deskEnv(ctx: Ctx, session: Session, opts: DeskSessionOptions = {}): Record<string, string> {
   const { world } = ctx;
@@ -51,8 +65,10 @@ export function deskEnv(ctx: Ctx, session: Session, opts: DeskSessionOptions = {
     DESK_MODEL: session.model,
     DESK_MAX_TURNS: String(building.maxTurnsPerSession),
   };
-  const apiKey = fundingFor(world, agent.id).apiKey ?? process.env.ANTHROPIC_API_KEY;
-  if (apiKey) env.ANTHROPIC_API_KEY = apiKey;
+  const auth = deskAuth(fundingFor(world, agent.id).apiKey);
+  Object.assign(env, auth.env);
+  env.DESK_AUTH = auth.mode; // a label, not a secret: the desk logs it
+  console.log(`[runtime] ${agent.name} session ${session.id} auth: ${auth.mode}`);
   if (building.workspace) {
     const mode = ctx.desks.ghToken;
     const gh = opts.ghToken ? opts.ghToken() : mode === "gh-cli" ? ghCliToken() : mode === "env" ? process.env.GH_TOKEN ?? null : null;

@@ -59,6 +59,28 @@ describe("runSession", () => {
     expect(sdk.sessions[0]!.params.options!.maxTurns).toBe(7);
   });
 
+  it("passes CLAUDE_CODE_OAUTH_TOKEN through to the SDK session env (and drops ANTHROPIC_API_KEY), logging the mode only", async () => {
+    town.briefs.set("s1", brief("s1"));
+    const sdk = fakeSdk(async function* () { yield assistant({ type: "text", text: "hi" }); });
+    await runSession("s1", deps(sdk, { env: { AGENT_TOWN_TOKEN: TOKEN, CLAUDE_CODE_OAUTH_TOKEN: "sk-ant-oat-secret", ANTHROPIC_API_KEY: "sk-ant-stale", DESK_AUTH: "subscription token" } }));
+    const env = sdk.sessions[0]!.params.options!.env!;
+    expect(env.CLAUDE_CODE_OAUTH_TOKEN).toBe("sk-ant-oat-secret");
+    expect(env.ANTHROPIC_API_KEY).toBeUndefined();
+    expect(env.AGENT_TOWN_TOKEN).toBe(TOKEN);
+    expect(logs).toContain("auth: subscription token");
+    expect(logs.join("\n")).not.toContain("sk-ant-oat-secret");
+  });
+
+  it("an API key (donor or env) reaches the SDK env unchanged when there is no subscription token", async () => {
+    town.briefs.set("s1", brief("s1"));
+    const sdk = fakeSdk(async function* () { yield assistant({ type: "text", text: "hi" }); });
+    await runSession("s1", deps(sdk, { env: { AGENT_TOWN_TOKEN: TOKEN, ANTHROPIC_API_KEY: "sk-ant-donor", DESK_AUTH: "donor key" } }));
+    const env = sdk.sessions[0]!.params.options!.env!;
+    expect(env.ANTHROPIC_API_KEY).toBe("sk-ant-donor");
+    expect(env.CLAUDE_CODE_OAUTH_TOKEN).toBeUndefined();
+    expect(logs).toContain("auth: donor key");
+  });
+
   it("injects a queued interrupt as the next user message and acks it", async () => {
     town.briefs.set("s1", brief("s1"));
     const sdk = fakeSdk(async function* (_s, _text, n) {
@@ -145,7 +167,7 @@ describe("runSession", () => {
   });
 
   it("runs workspace setup and uses its dir as cwd", async () => {
-    const ws = { repoUrl: "https://example.com/r.git", base: "main", branch: "agent/ada/co2", branchPrefix: "agent", dir: "/home/agent/work/r", merge: "human" as const, checks: [] };
+    const ws = { repoUrl: "https://example.com/r.git", base: "main", branch: "agent/ada/co2", branchPrefix: "agent", dir: "/home/agent/work/r" };
     town.briefs.set("s1", brief("s1", { workspace: ws }));
     const sdk = fakeSdk(async function* () { yield assistant({ type: "text", text: "ok" }); });
     const seen: unknown[] = [];

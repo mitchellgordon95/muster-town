@@ -1,6 +1,7 @@
 import { VERB_NAMES, VerbInputs, type Agent, type VerbName } from "@agent-town/schema";
 import { AppError } from "../errors.ts";
 import type { World } from "../world.ts";
+import { redeploy } from "./admin.ts";
 import { assign, board, promote, propose_trophy, read, request_human, review, search, submit_report, write } from "./docs.ts";
 import { meeting } from "./meeting.ts";
 import { accept_assignment, assignments, ban, go, inbox, look, say, tell } from "./social.ts";
@@ -8,7 +9,7 @@ import type { VerbIn, VerbRawIn } from "./types.ts";
 
 export const verbImpls = {
   look, go, say, tell, inbox, board, search, read, write, submit_report, propose_trophy, request_human,
-  assignments, accept_assignment, meeting, review, assign, promote, ban,
+  assignments, accept_assignment, meeting, review, assign, promote, ban, redeploy,
 } satisfies { [K in VerbName]: (world: World, actor: Agent, input: VerbIn<K>) => Promise<unknown> };
 
 export type VerbResult<K extends VerbName> = Awaited<ReturnType<(typeof verbImpls)[K]>>;

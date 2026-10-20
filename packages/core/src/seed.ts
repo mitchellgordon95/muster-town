@@ -129,7 +129,10 @@ export function seedDefaults(world: World, opts: SeedOptions = {}): SeedResult {
             dailyTokensPerAgent: spec.dailyTokensPerAgent, meetings: spec.meetings,
             workspace: spec.workspace ? withRepoUrl({ ...spec.workspace, path: resolve(dir, spec.workspace.path) }) : undefined,
           }, admin.id, { id });
-          spec.residents.forEach((r, i) => createResident(world, { buildingId: b.id, name: r.name, title: r.title, direction: r.direction, sprite: r.sprite ?? (i + 1) % 7, model: r.model }));
+          spec.residents.forEach((r, i) => {
+            const a = createResident(world, { buildingId: b.id, name: r.name, title: r.title, direction: r.direction, sprite: r.sprite ?? (i + 1) % 7, model: r.model });
+            for (const role of r.townRoles ?? []) world.permissions.grant(a, `role:${role}`);
+          });
         }
         if (spec.reviewer) {
           const rev = createResident(world, {

@@ -21,20 +21,22 @@
       "workspace": {
         "path": "../..",
         "base": "main",
-        "branchPrefix": "agent",
-        "merge": "human"
+        "branchPrefix": "agent"
       },
       "residents": [
         {
           "name": "Pix",
+          "townRoles": ["deployer"],
           "sprite": 3
         },
         {
           "name": "Root",
+          "townRoles": ["deployer"],
           "sprite": 1
         },
         {
           "name": "Sage",
+          "townRoles": ["deployer"],
           "sprite": 5
         }
       ],
