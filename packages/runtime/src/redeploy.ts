@@ -32,7 +32,7 @@ export interface RedeployDeps {
   lockPollMs?: number;
   lockStaleMs?: number;
   world: World;
-  /** Agent Town repo root (the server's REPO_ROOT) */
+  /** Muster Town repo root (the server's REPO_ROOT) */
   repoRoot: string;
   /** desk container label value (`muster-town.collective`), already docker-safe */
   collective: string;

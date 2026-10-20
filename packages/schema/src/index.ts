@@ -115,7 +115,7 @@ export type Lot = z.infer<typeof Lot>;
 
 /** Code access for a building's residents: a repo they may edit in a per-agent git worktree, with scoped tools. */
 export const Workspace = z.object({
-  /** repo root; relative paths resolve from the Agent Town repo root */
+  /** repo root; relative paths resolve from the Muster Town repo root */
   path: z.string(),
   /** Claude Code tool permission patterns added to allowedTools for work sessions */
   tools: z.array(z.string()).default([

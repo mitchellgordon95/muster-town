@@ -1,5 +1,5 @@
 /**
- * Typed client for the Agent Town server (REST + WS). The same `Api` interface is
+ * Typed client for the Muster Town server (REST + WS). The same `Api` interface is
  * implemented by `mock/server.ts` so the whole UI runs without a backend (VITE_MOCK=1).
  */
 import type { z } from "zod";

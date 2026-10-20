@@ -34,7 +34,7 @@ export interface RuntimeOptions {
   sdk?: Sdk;
   /** scheduler period; 0 disables the timer (call tickOnce yourself). Default 5000. */
   intervalMs?: number;
-  /** Agent Town repo root; building workspaces resolve relative paths from here */
+  /** Muster Town repo root; building workspaces resolve relative paths from here */
   repoRoot?: string;
   /** hourly git export target; false disables. Default: world.export() default dir. */
   exportDir?: string | false;

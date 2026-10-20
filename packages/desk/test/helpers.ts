@@ -66,7 +66,7 @@ export function brief(sessionId: string, over: Partial<DeskBrief> = {}): DeskBri
   return {
     agent: { id: "a1", name: "Ada" },
     building: { id: "b1", name: "Carbon Lab", maxTurnsPerSession: 40 },
-    town: { name: "Agent Town" },
+    town: { name: "Muster Town" },
     assignment: { id: "as1", title: "Measure CO2" },
     session: { id: sessionId, model: "claude-opus-5-5" },
     system: "You are Ada.",
