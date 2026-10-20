@@ -39,7 +39,7 @@ export class MockApi implements Api {
   }
   async board(buildingId: string, limit = 30) {
     await wait();
-    return clone([...this.sim.docs.values()].filter((d) => d.buildingId === buildingId && d.state === "building").sort((a, b) => b.updatedAt.localeCompare(a.updatedAt)).slice(0, limit));
+    return clone([...this.sim.docs.values()].filter((d) => d.buildingId === buildingId && d.state === "building" && d.type !== "report").sort((a, b) => b.updatedAt.localeCompare(a.updatedAt)).slice(0, limit));
   }
   async createBuilding(i: In<typeof CreateBuildingInput>) { await wait(); return clone(this.sim.createBuilding(i.name, i.goal ?? "", i.headcount ?? 6, i.reviewPolicy ?? "human")); }
   async intray(buildingId: string) { await wait(); this.need(this.sim.buildings.find((b) => b.id === buildingId), "building"); return clone(this.sim.intray(buildingId)); }

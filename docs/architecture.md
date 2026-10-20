@@ -232,7 +232,7 @@ Mitchell's direction: reports should not be read "from the agent"; they go to a 
 ## 5. Places and layout (core world/layout, schema)
 
 New `PlaceKind` values and where they go:
-- `board:<buildingId>` kind `board`: a wall tile inside each lab (top wall, left of center). Reading it = the building's board.
+- `board:<buildingId>` kind `board`: a wall tile inside each lab (top wall, left of center). Reading it = the building's board: docs in state `building` **except reports** (reports live in the in-tray; `search` with `type: report` still finds them). The board panel pins the building's standing rules at the top.
 - `intray:<buildingId>` kind `intray`: the **manager's desk**, a distinct desk tile (TILE.DESK with a tray glyph: new `TILE.MANAGER_DESK`) at the top-right of each lab; the human stands at it to open the in-tray. Reviewer agents sit at an ordinary resident desk.
 - Town Hall gains: `mod-station` (kind `mod-station`, a desk; town moderators sit here), `planning-desk` (kind `planning`: create buildings, add/dismiss residents, roles), `donation-box` (kind `donation`), `schedule-board` (kind `schedule`: upcoming meetings for every building, next to the town meeting room).
 - `TILE` adds `MANAGER_DESK`, `BOARD`, `DONATION`, `SCHEDULE`. Grid rebuild keeps lots stable.
@@ -241,6 +241,10 @@ New `PlaceKind` values and where they go:
 ## Web (separate builder, after the world side lands)
 
 Every panel becomes a place: board on the wall (E → board), in-tray at the manager's desk (E → pending reports with Acknowledge / Continue as proposed / Redirect… / Stop), planning office (E → create building, add resident, Dismiss, roles), donation box (E → donate), schedule board (E → meetings across buildings), mod station (E → outbox requests awaiting approval, trophy proposals, bans). HUD keeps only: collective name, tagline, goal, status counts, and **notices** (in-tray count per building you manage, meetings starting, mentions of you) that walk you to the place. Remove "Start work" and "Needs your review" lists from the HUD; "Start work" lives on the agent panel and the in-tray. Agent panel keeps Activity / Chat / Session / Reports / Assignments and gains Dismiss for managers. Retired agents are not drawn. Settings tab gains review policy (human/reviewer/auto) and, for workspaces, merge (human/green) and checks.
+
+## Standing rules (2026-10-20)
+
+`Building.rules` (markdown, ≤ 8000 chars, default empty; migration `008_rules.sql`) is set by a holder of `building.manage` via `PATCH /api/buildings/:id { rules }` or the editor pinned to the top of the board panel. `prompts.standingRules(building)` appends them to the work, review and facilitation system prompts of every session in that building (desk and in-process alike), so edits apply from the next session. Migrations are applied by set, not by max: any numbered file not yet recorded in `schema_version` runs, so migrations from branches merged out of order still apply.
 
 ## Mentions (separate builder, after the world side lands)
 
