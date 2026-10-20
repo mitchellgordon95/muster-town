@@ -55,7 +55,8 @@ export interface Api {
   agent(id: string): Promise<AgentDetail>;
   session(id: string): Promise<{ session: Session | null; transcript: Event[] }>;
   work(id: string, input: In<typeof WorkInput>): Promise<Assignment | null>;
-  interrupt(id: string, text: string): Promise<void>;
+  /** Message the agent's session: queued for the next turn boundary, or `now` to stop the current turn first. */
+  interrupt(id: string, text: string, now?: boolean): Promise<void>;
   chat(id: string, input: In<typeof ChatInput>): Promise<string>;
   stop(id: string): Promise<void>;
   // docs
@@ -154,7 +155,7 @@ export class HttpApi implements Api {
   agent(id: string) { return this.get<AgentDetail>(`/api/agents/${id}`); }
   session(id: string) { return this.get<{ session: Session | null; transcript: Event[] }>(`/api/agents/${id}/session`); }
   async work(id: string, i: In<typeof WorkInput>) { return unwrap<Assignment | null>(await this.post(`/api/agents/${id}/work`, i), "assignment"); }
-  async interrupt(id: string, text: string) { await this.post(`/api/agents/${id}/interrupt`, { text }); }
+  async interrupt(id: string, text: string, now = false) { await this.post(`/api/agents/${id}/interrupt`, { text, now }); }
   async chat(id: string, i: In<typeof ChatInput>) { return (await this.post<{ reply: string }>(`/api/agents/${id}/chat`, i)).reply; }
   async stop(id: string) { await this.post(`/api/agents/${id}/stop`); }
   async docs(q: DocQuery) { return unwrap<Doc[]>(await this.get(`/api/docs${qs(q)}`), "docs"); }

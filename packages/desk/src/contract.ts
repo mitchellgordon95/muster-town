@@ -43,7 +43,7 @@ export type DeskActivityInput = z.infer<typeof DeskActivityInput>;
 
 // TODO: switch to @agent-town/schema when exported
 export const DeskControl = z.object({
-  interrupts: z.array(z.object({ id: z.string(), text: z.string(), from: z.string() })),
+  interrupts: z.array(z.object({ id: z.string(), text: z.string(), from: z.string(), now: z.boolean().optional() })),
   stop: z.boolean(),
 });
 export type DeskControl = z.infer<typeof DeskControl>;
