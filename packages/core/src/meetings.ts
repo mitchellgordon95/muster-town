@@ -23,11 +23,20 @@ export function defaultAttendees(world: World, buildingId: string | null): strin
   return [...ids].filter((id) => { const s = world.agents.get(id)?.status; return !!s && s !== "banned" && s !== "retired"; });
 }
 
-/** Building's reviewer agent, else its first resident. */
+/**
+ * The building's manager (set explicitly in its settings), else its reviewer agent, else the first resident by join
+ * order. Never the first *invitee*: the UI's picker sends invitees sorted by name, which made the facilitator whoever
+ * sorted first.
+ */
 export function defaultFacilitator(world: World, buildingId: string | null, attendees: string[]): string | null {
+  const active = (id: string | null | undefined): id is string => { const s = id ? world.agents.get(id)?.status : undefined; return !!s && s !== "stopped" && s !== "banned" && s !== "retired"; };
   if (buildingId && buildingId !== TOWN_HALL_ID) {
-    const mod = world.permissions.agentsWithRole(buildingRoleId(buildingId, "reviewer")).find((id) => { const s = world.agents.get(id)?.status; return !!s && s !== "banned" && s !== "retired"; });
-    if (mod) return mod;
+    const manager = world.buildings.get(buildingId)?.managerAgentId;
+    if (active(manager)) return manager;
+    const rev = world.permissions.agentsWithRole(buildingRoleId(buildingId, "reviewer")).find(active);
+    if (rev) return rev;
+    const first = defaultAttendees(world, buildingId).find((id) => attendees.includes(id));
+    if (first) return first;
   }
   return attendees[0] ?? null;
 }

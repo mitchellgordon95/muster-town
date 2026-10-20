@@ -16,6 +16,11 @@ describe("inviteCandidates", () => {
     expect(home.map((a) => a.id)).toEqual(["a2", "a1"]);
     expect(others.map((a) => a.id)).toEqual(["v1", "a3"]);
   });
+  it("lists this building's stopped residents as unavailable instead of dropping them", () => {
+    expect(inviteCandidates(agents, "workshop").unavailable.map((a) => a.id)).toEqual(["a4"]);
+    expect(inviteCandidates([...agents, ag("a6", "Old", "resident", "workshop", "retired")], "workshop").unavailable.map((a) => a.id)).toEqual(["a4"]);
+    expect(inviteCandidates(agents, null).unavailable).toEqual([]);
+  });
   it("has no home group for the town hall", () => {
     const { home, others } = inviteCandidates(agents, null);
     expect(home).toEqual([]);
