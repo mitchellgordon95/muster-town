@@ -64,4 +64,27 @@ describe("meetings", () => {
     expect(make([by("Mei").id, by("Noor").id])).toThrow(/Noor.*stopped/);
     expect(world.meetings.count("1=1")).toBe(0);
   });
+
+  it("decisions on a done or cancelled meeting are a conflict and create no assignments", async () => {
+    const { world, by, admin } = seededWorld();
+    const done = world.ops.createMeeting(admin, { kind: "standup", buildingId: "carbon-cycle", startNow: true });
+    world.ops.endMeeting(admin, done.id);
+    const cancelled = world.ops.createMeeting(admin, { kind: "standup", buildingId: "carbon-cycle", startNow: true });
+    world.ops.setMeetingPhase(cancelled.id, "cancelled");
+    const before = world.assignments.all().length;
+    for (const m of [done, cancelled]) {
+      await expect(world.verbs.meeting(by("Moss"), { meetingId: m.id, action: "decide", decisions: [{ text: "late", assigneeId: by("Noor").id, assignmentId: null }] })).rejects.toMatchObject({ code: "conflict" });
+      expect(world.meetings.require(m.id).decisions).toEqual([]);
+    }
+    expect(world.assignments.all()).toHaveLength(before);
+  });
+  it("ending a cancelled meeting is a conflict and writes no notes", async () => {
+    const { world, by, admin } = seededWorld();
+    const m = world.ops.createMeeting(admin, { kind: "standup", buildingId: "carbon-cycle", startNow: true });
+    world.ops.setMeetingPhase(m.id, "cancelled");
+    await expect(world.verbs.meeting(by("Moss"), { meetingId: m.id, action: "end" })).rejects.toMatchObject({ code: "conflict" });
+    expect(() => world.ops.endMeeting(null, m.id)).toThrow(/cancelled/);
+    expect(world.docs.where("type = 'meeting-notes'")).toEqual([]);
+    expect(world.meetings.require(m.id)).toMatchObject({ phase: "cancelled", notesDocId: null });
+  });
 });
