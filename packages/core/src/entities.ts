@@ -76,7 +76,7 @@ export function createResident(world: World, input: In<typeof CreateResidentInpu
     const desk = world.layout.claimDesk(b.id, id);
     const agent = world.agents.patch(id, { pos: desk.pos });
     world.permissions.grant(agent, buildingRoleId(b.id, "member"));
-    world.events.append({ type: "agent.created", agentId: id, buildingId: b.id, text: `${agent.name} (${agent.title}) joined ${b.name}`, payload: { kind: "resident" } });
+    world.events.append({ type: "agent.created", agentId: id, buildingId: b.id, text: `${agent.name} joined ${b.name}`, payload: { kind: "resident" } });
     return agent;
   });
 }

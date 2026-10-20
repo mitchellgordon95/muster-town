@@ -2,7 +2,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { Agent, Assignment, Doc } from "@agent-town/schema";
 import { api, type AgentDetail } from "../api";
-import { store, useTown } from "../state";
+import { store, useTown, roleOf } from "../state";
 import { DocRow, DocView } from "./DocView";
 import { DismissButton, canDismiss } from "./Dismiss";
 import { PanelShell } from "./PanelShell";
@@ -29,7 +29,7 @@ export function AgentPanel({ id, tab }: { id: string; tab?: string }) {
       key={id}
       icon={<img className="portrait" src={portraitUrl(agent.sprite)} alt="" />}
       title={<>{agent.name} <StatusPill status={agent.status} /></>}
-      subtitle={[agent.title || agent.kind, building?.name].filter(Boolean).join(" · ")}
+      subtitle={[roleOf(agent) || agent.kind, building?.name].filter(Boolean).join(" · ")}
       tabs={tabs}
       initialTab={tab && tabs.includes(tab) ? tab : defaultTab}
     >
@@ -53,7 +53,6 @@ function ActivityTab({ agent, detail }: { agent: Agent; detail: AgentDetail | nu
   const daily = building?.dailyTokensPerAgent ?? 0;
   return (
     <>
-      {agent.direction ? <p className="direction">{agent.direction}</p> : null}
       {agent.kind === "service" ? <div className="actions"><button className="btn" onClick={() => store.open({ kind: "library" })}>Browse the library</button></div> : null}
       {agent.kind !== "human" && agent.kind !== "service" ? (
         <KV items={[
@@ -219,7 +218,7 @@ export function WorkForm({ agent, onDone }: { agent: Agent; onDone?: () => void 
   const busy = agent.status === "working";
   return (
     <form className="work-form" onSubmit={(e) => e.preventDefault()}>
-      <Field label="Question for the next session" hint="Leave blank to let the agent continue from its pending assignment or standing direction.">
+      <Field label="Question for the next session" hint="Leave blank to let the agent continue from its pending assignment, or check in if it has none.">
         <input value={title} placeholder="e.g. Is the land sink weakening?" onChange={(e) => setTitle(e.target.value)} />
       </Field>
       <Field label="Details"><textarea rows={3} value={desc} onChange={(e) => setDesc(e.target.value)} placeholder="Context, scope, sources to start from…" /></Field>

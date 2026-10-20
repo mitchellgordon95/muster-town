@@ -2,7 +2,7 @@
 import { useMemo, useState } from "react";
 import type { Building } from "@agent-town/schema";
 import { api } from "../api";
-import { store, useTown } from "../state";
+import { store, useTown, roleOf } from "../state";
 import { Glyph, PanelShell } from "./PanelShell";
 import { RolesTab } from "./BuildingPanel";
 import { DismissButton, canDismiss } from "./Dismiss";
@@ -81,7 +81,7 @@ function Residents() {
             <div key={a.id} className="resident-row">
               <button className="member" onClick={() => store.open({ kind: "agent", id: a.id })}>
                 <img src={portraitUrl(a.sprite, 2)} alt="" />
-                <div><b>{a.name}</b><span>{a.title}</span></div>
+                <div><b>{a.name}</b><span>{roleOf(a)}</span></div>
                 <StatusPill status={a.status} />
               </button>
               {canDismiss(a) ? <DismissButton agent={a} small /> : null}
@@ -98,8 +98,6 @@ function NewResident() {
   const buildings = useTown((s) => s.buildings).filter((b) => b.kind !== "town-hall");
   const [buildingId, setBuildingId] = useState(buildings[0]?.id ?? "");
   const [name, setName] = useState("");
-  const [title, setTitle] = useState("");
-  const [direction, setDirection] = useState("");
   const [sprite, setSprite] = useState(1);
   const can = store.can("building.manage", buildingId);
   return (
@@ -110,13 +108,7 @@ function NewResident() {
             {buildings.map((b) => <option key={b.id} value={b.id}>{b.name}</option>)}
           </select>
         </Field>
-        <div className="row2">
-          <Field label="Name"><input value={name} onChange={(e) => setName(e.target.value)} placeholder="e.g. Lena" /></Field>
-          <Field label="Title"><input value={title} onChange={(e) => setTitle(e.target.value)} placeholder="e.g. Permafrost" /></Field>
-        </div>
-        <Field label="Standing direction" hint="Shown on the agent card and used in every prompt.">
-          <textarea rows={3} value={direction} onChange={(e) => setDirection(e.target.value)} />
-        </Field>
+        <Field label="Name" hint="Residents have no title or job description: they take whatever assignment they're given, end to end."><input value={name} onChange={(e) => setName(e.target.value)} placeholder="e.g. Lena" /></Field>
         <Field label="Look">
           <div className="sprites">
             {PALETTES.map((_, i) => i === 7 ? null : (
@@ -125,9 +117,9 @@ function NewResident() {
           </div>
         </Field>
         <div className="actions">
-          <Act tone="primary" disabled={!can || !name.trim() || !title.trim() || !buildingId} title={can ? undefined : "Needs building.manage"} run={async () => {
-            const a = await api().createResident({ buildingId, name: name.trim(), title: title.trim(), direction: direction.trim(), sprite });
-            setName(""); setTitle(""); setDirection("");
+          <Act tone="primary" disabled={!can || !name.trim() || !buildingId} title={can ? undefined : "Needs building.manage"} run={async () => {
+            const a = await api().createResident({ buildingId, name: name.trim(), sprite });
+            setName("");
             store.toast(`${a.name} moved in`, "ok", { kind: "agent", id: a.id });
           }}>Add resident</Act>
         </div>

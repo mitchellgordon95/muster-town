@@ -5,7 +5,7 @@
 import { useEffect, useMemo, useState } from "react";
 import type { Doc, Meeting } from "@agent-town/schema";
 import { api } from "../api";
-import { store, useTown } from "../state";
+import { store, useTown, roleOf } from "../state";
 import { DocRow, DocView, VERDICT_TONE, needOf } from "./DocView";
 import { Glyph, PanelShell } from "./PanelShell";
 import { Meter } from "./AgentPanel";
@@ -312,7 +312,7 @@ function ModBans({ can }: { can: boolean }) {
             <Field label="Agent">
               <select value={who} onChange={(e) => setWho(e.target.value)}>
                 <option value="">Choose…</option>
-                {targets.map((a) => <option key={a.id} value={a.id}>{a.name} · {a.title || a.kind}</option>)}
+                {targets.map((a) => <option key={a.id} value={a.id}>{a.name} · {roleOf(a) || a.kind}</option>)}
               </select>
             </Field>
             <Field label="Reason" hint="Recorded in the event log. A ban stops the agent town-wide pending review.">

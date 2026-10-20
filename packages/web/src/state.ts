@@ -209,3 +209,6 @@ export function useTown<T>(selector: (s: TownState) => T): T {
 }
 
 export function placeAt(places: Place[], id: string) { return places.find((p) => p.id === id); }
+
+/** The label next to an agent's name: service agents keep theirs ("Librarian"); residents have no title. */
+export const roleOf = (a: Pick<Agent, "kind" | "title">): string => (a.kind === "service" ? a.title : "");

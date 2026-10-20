@@ -3,7 +3,7 @@
  * interpolation of other bodies between `agents.pos` updates, and proximity targeting.
  */
 import type { Agent, Place } from "@agent-town/schema";
-import { store, type PanelRef } from "../state";
+import { store, type PanelRef, roleOf } from "../state";
 import { World } from "./world";
 import { T, CHAR_W, CHAR_H, charSheet, tiles, HUMAN_SPRITE } from "./sprites";
 import { bubbleFor, drawBadge, drawBubble, drawLabel, drawSign, type Bubble } from "./overlay";
@@ -234,7 +234,7 @@ export class MapRenderer {
       if (a.id === store.avatarId || a.status === "retired") continue;
       const b = this.bodies.get(a.id); if (!b) continue;
       const d = Math.hypot(b.x - this.me.x, b.y - this.me.y);
-      if (d < bd) { bd = d; best = { label: `Talk to ${a.name}${a.title ? ` · ${a.title}` : ""}`, panel: { kind: "agent", id: a.id }, agentId: a.id }; }
+      if (d < bd) { bd = d; best = { label: `Talk to ${a.name}${roleOf(a) ? ` · ${roleOf(a)}` : ""}`, panel: { kind: "agent", id: a.id }, agentId: a.id }; }
     }
     for (const p of s.places) {
       const f = PLACE_PANEL[p.kind]; if (!f) continue;

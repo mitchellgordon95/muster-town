@@ -187,7 +187,7 @@ export const Agent = z.object({
   homeBuildingId: Id.nullable().default(null),
   /** owner user (for visitors and humans); residents are owned by the building's manager user */
   ownerUserId: Id.nullable().default(null),
-  /** persona + standing direction; shown on the agent card and used in prompts */
+  /** legacy: service agents use `title` as their role label ("Librarian"); prompts use neither. Residents have no title or job description. */
   title: z.string().default(""),
   direction: z.string().default(""),
   sprite: z.number().int().nonnegative().default(0),
@@ -555,7 +555,7 @@ export const WALKABLE = new Set<number>([TILE.GRASS, TILE.PATH, TILE.FLOOR, TILE
 // ---------- REST payloads ----------
 export const CreateBuildingInput = Building.pick({ name: true, goal: true, description: true, headcount: true, reviewPolicy: true, model: true, cheapModel: true, maxTurnsPerSession: true, dailyTokensPerAgent: true, meetings: true, rules: true, workspace: true }).partial({ goal: true, description: true, headcount: true, reviewPolicy: true, model: true, cheapModel: true, maxTurnsPerSession: true, dailyTokensPerAgent: true, meetings: true, rules: true, workspace: true });
 export const UpdateBuildingInput = CreateBuildingInput.partial();
-export const CreateResidentInput = z.object({ buildingId: Id, name: z.string(), title: z.string(), direction: z.string(), sprite: z.number().int().optional(), model: z.string().optional() });
+export const CreateResidentInput = z.object({ buildingId: Id, name: z.string(), title: z.string().default(""), direction: z.string().default(""), sprite: z.number().int().optional(), model: z.string().optional() });
 export const RegisterVisitorInput = z.object({ name: z.string(), buildingId: Id.optional(), title: z.string().optional() });
 export const ReviewInput = z.object({ decision: ReviewDecision, note: z.string().default("") });
 export const ChatInput = z.object({ message: z.string(), history: z.array(z.object({ role: z.enum(["user", "assistant"]), text: z.string() })).default([]) });
@@ -593,7 +593,7 @@ export const CollectiveBuildingSpec = z.object({
   meetings: z.array(MeetingCadence).optional(),
   /** workspace.path is relative to the collective dir */
   workspace: Workspace.optional(),
-  residents: z.array(z.object({ name: z.string(), title: z.string(), direction: z.string(), sprite: z.number().int().optional(), model: z.string().optional() })).default([]),
+  residents: z.array(z.object({ name: z.string(), title: z.string().default(""), direction: z.string().default(""), sprite: z.number().int().optional(), model: z.string().optional() })).default([]),
   /** the building's reviewer agent (role `reviewer`); works the in-tray when reviewPolicy is `reviewer` */
   reviewer: z.object({ name: z.string(), sprite: z.number().int().optional(), direction: z.string().optional() }).optional(),
   /** house allocation for this building, in tokens */
