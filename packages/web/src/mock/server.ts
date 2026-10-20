@@ -86,7 +86,7 @@ export class MockApi implements Api {
     const asg = a.currentAssignmentId ? this.sim.assignments.get(a.currentAssignmentId) : null;
     if (/redirect|instead|change|switch/.test(i.message.toLowerCase())) return `I can't change direction from chat. Use Interrupt on the Session tab, or Redirect when you review my report.`;
     if (a.status === "working") return `I'm working on "${asg?.title}". Right now: ${a.activity.toLowerCase()}. I expect to submit a report in a few minutes.`;
-    if (a.status === "awaiting-review") return `My report is waiting for your review. Short version: the airborne fraction has held near 0.44 since 1959. Approve or redirect it from the Reports tab.`;
+    // TODO(web): v1.2 removed the awaiting-review status; the mock's "report waiting" reply went with it
     return `I'm ${a.status} at my desk. My standing direction: ${a.direction.split(":")[0]}. Give me an assignment with Start work and I'll get going.`;
   }
   async stop(id: string) { await wait(); this.sim.patchAgent(id, { status: "stopped", activity: "" }); this.sim.event("agent.status", id, "Stopped by Mitchell"); }

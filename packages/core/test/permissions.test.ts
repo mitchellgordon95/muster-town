@@ -8,7 +8,8 @@ describe("permissions", () => {
     const { world } = seededWorld();
     expect(world.roles.require(townRoleId("admin")).permissions).toEqual(Permission.options);
     expect(world.roles.require(townRoleId("visitor")).permissions).toEqual(BUILTIN_ROLES.town.visitor);
-    for (const name of ["manager", "moderator", "member"] as const) {
+    expect(world.roles.require(townRoleId("moderator")).permissions).toEqual(BUILTIN_ROLES.town.moderator);
+    for (const name of ["manager", "reviewer", "member"] as const) {
       const r = world.roles.require(buildingRoleId("carbon-cycle", name));
       expect(r).toMatchObject({ scope: "building", buildingId: "carbon-cycle", builtin: true });
       expect(r.permissions).toEqual(BUILTIN_ROLES.building[name]);
@@ -29,7 +30,7 @@ describe("permissions", () => {
     const moss = by("Moss");
     expect(world.permissions.can(moss, "building.review", "carbon-cycle")).toBe(true);
     expect(world.permissions.can(moss, "building.review", other.id)).toBe(false);
-    expect(() => world.permissions.require(mei, "building.ban", "carbon-cycle")).toThrow(expect.objectContaining({ code: "forbidden", permission: "building.ban" }));
+    expect(() => world.permissions.require(mei, "building.dismiss", "carbon-cycle")).toThrow(expect.objectContaining({ code: "forbidden", permission: "building.dismiss" }));
   });
 
   it("creator gets manager; human avatars act with their user's roles; role assignment is permissioned", () => {
@@ -41,11 +42,11 @@ describe("permissions", () => {
     expect(world.memberships.forRole(buildingRoleId(b.id, "manager"))).toEqual([{ roleId: buildingRoleId(b.id, "manager"), holderKind: "user", holderId: u.id }]);
     const nobody = world.ops.ensureAvatar(world.ops.createUser("Nobody").user.id);
     expect(() => world.ops.createBuilding(nobody, { name: "x" })).toThrow(/manage_buildings/);
-    expect(() => world.ops.assignRole(nobody, { roleId: buildingRoleId(b.id, "moderator"), holderKind: "user", holderId: nobody.ownerUserId! })).toThrow(/building.manage/);
+    expect(() => world.ops.assignRole(nobody, { roleId: buildingRoleId(b.id, "reviewer"), holderKind: "user", holderId: nobody.ownerUserId! })).toThrow(/building.manage/);
     // the lab manager (admin) can grant building roles in the lab
-    world.ops.assignRole(world.ops.ensureAvatar(seed.admin.id), { roleId: buildingRoleId("carbon-cycle", "moderator"), holderKind: "user", holderId: nobody.ownerUserId! });
+    world.ops.assignRole(world.ops.ensureAvatar(seed.admin.id), { roleId: buildingRoleId("carbon-cycle", "reviewer"), holderKind: "user", holderId: nobody.ownerUserId! });
     expect(world.permissions.can(nobody, "building.review", "carbon-cycle")).toBe(true);
-    world.ops.unassignRole(null, { roleId: buildingRoleId("carbon-cycle", "moderator"), holderKind: "user", holderId: nobody.ownerUserId! });
+    world.ops.unassignRole(null, { roleId: buildingRoleId("carbon-cycle", "reviewer"), holderKind: "user", holderId: nobody.ownerUserId! });
     expect(world.permissions.can(nobody, "building.review", "carbon-cycle")).toBe(false);
   });
 

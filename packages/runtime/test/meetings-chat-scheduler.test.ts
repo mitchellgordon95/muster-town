@@ -124,7 +124,7 @@ describe("scheduler", () => {
     expect(world.sessions.count("agentId = ? AND purpose = 'work'", [tomas.id])).toBe(1);
     gate.resolve();
     await runtime.whenIdle();
-    expect(world.agents.require(tomas.id).status).toBe("awaiting-review");
+    expect(world.agents.require(tomas.id).status).toBe("idle");
     expect(runtime.isWorking(tomas.id)).toBe(false);
   });
 

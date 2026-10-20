@@ -25,7 +25,7 @@ describe("importV0", () => {
     expect(report.createdAt).toBe("2026-10-19T22:05:00.000Z");
     expect(report.body).toMatch(/\]\(doc:dc_/); // relative links rewritten
     expect(report.provenance.sourceIds.length).toBe(4);
-    expect(world.agents.require(r.deskAgents.sources).status).toBe("awaiting-review");
+    expect(world.agents.require(r.deskAgents.sources).status).toBe("idle"); // v1.2: a pending report leaves its author idle
     expect(world.permissions.can({ kind: "user", id: u.id }, "building.manage", "carbon-cycle")).toBe(true);
     expect(() => importV0(world, CARBON_DIR)).toThrow(/already exists/);
   });

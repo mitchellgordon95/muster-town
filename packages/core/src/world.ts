@@ -1,5 +1,7 @@
 import type { Agent, AgentStatus, DesksConfig, ServerMessage } from "@agent-town/schema";
 import { Budget } from "./budget.ts";
+import { intrayCounts, intrayOf } from "./domain.ts";
+import { migrateRoles } from "./migrate-roles.ts";
 import { openDb, type DB } from "./db.ts";
 import { EventLog } from "./events.ts";
 import { exportWorld, importExport, type ExportResult } from "./export.ts";
@@ -53,6 +55,8 @@ export class World {
 
   constructor(db: DB) {
     this.db = db;
+    // v1.2 roles split: data fix on every open (idempotent), before any role is parsed through the schema
+    migrateRoles(db);
     const repos = createRepos(db, this.changes);
     this.users = repos.users; this.roles = repos.roles; this.memberships = repos.memberships;
     this.buildings = repos.buildings; this.allocations = repos.allocations; this.agents = repos.agents;
@@ -72,6 +76,14 @@ export class World {
       if (!e.agentId || (e.type !== "agent.activity" && e.type !== "agent.tool")) return;
       const a = this.agents.get(e.agentId);
       if (a) this.agents.upsert({ ...a, activity: e.text, lastActiveAt: e.ts });
+    });
+    // in-tray badge: a report arrived or was decided → resend the building with its pending count
+    this.events.addHook((e) => {
+      const p = e.payload as Record<string, unknown>;
+      const report = (e.type === "doc.created" && p.docType === "report") || e.type === "doc.decision";
+      if (!report || !e.buildingId) return;
+      const b = this.buildings.get(e.buildingId);
+      if (b) this.changes.emit({ type: "building", building: { ...b, intray: intrayOf(this, b.id).length } });
     });
     this.layout.rebuild();
   }
@@ -139,12 +151,18 @@ export class World {
     return {
       type: "snapshot",
       town: this.town.get(),
-      buildings: this.buildings.all(),
-      agents: this.agents.where("status != 'banned'"),
+      buildings: this.buildingsWithIntray(),
+      agents: this.agents.where("status NOT IN ('banned','retired')"),
       places: this.layout.places,
       grid: this.layout.grid,
       meetings: this.meetings.where("phase IN ('scheduled','collecting','discussing')", [], "ORDER BY scheduledAt"),
     };
+  }
+
+  /** Buildings as the snapshot carries them: plus `intray` (pending report count). */
+  buildingsWithIntray(): SnapshotMessage["buildings"] {
+    const counts = intrayCounts(this);
+    return this.buildings.all().map((b) => ({ ...b, intray: counts.get(b.id) ?? 0 }));
   }
 
   export(dir = process.env.AGENT_TOWN_EXPORT ?? "./export"): ExportResult {

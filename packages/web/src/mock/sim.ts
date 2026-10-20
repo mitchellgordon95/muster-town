@@ -52,7 +52,7 @@ export class Sim {
   emit(m: ServerMessage) { const c = clone(m); for (const s of this.subs) setTimeout(() => s(c), 0); }
 
   snapshot(): Snapshot {
-    return clone({ type: "snapshot", town: this.town, buildings: this.buildings, agents: [...this.agents.values()], places: this.layout.places, grid: this.layout.grid, meetings: [...this.meetings.values()] });
+    return clone({ type: "snapshot", town: this.town, buildings: this.buildings.map((b) => ({ ...b, intray: 0 })) /* TODO(web): v1.2 intray counts */, agents: [...this.agents.values()], places: this.layout.places, grid: this.layout.grid, meetings: [...this.meetings.values()] });
   }
 
   relayout(broadcast = true) {
@@ -164,12 +164,12 @@ export class Sim {
       createdAt: now(), updatedAt: now(),
     });
     if (asg) { asg.status = "done"; asg.reportId = doc.id; this.putAssignment(asg); }
-    this.patchAgent(a.id, { status: "awaiting-review", activity: "", currentAssignmentId: null });
+    this.patchAgent(a.id, { status: "idle", activity: "", currentAssignmentId: null }); // TODO(web): v1.2 hub semantics
     this.event("doc.created", a.id, `${a.name} submitted a report: ${doc.title}`, { docId: doc.id });
     this.event("session.ended", a.id, "Session ended (108k tokens, $0.84)");
   }
 
-  review(docId: string, decision: "approve" | "redirect" | "stop", note: string) {
+  review(docId: string, decision: "approve" | "continue" | "redirect" | "stop", note: string) { // TODO(web): v1.2 approve = acknowledge only
     const d = this.docs.get(docId)!;
     Object.assign(d, { decision, decisionNote: note, decidedBy: "us_mitchell", decidedAt: now() });
     this.putDoc(d);
@@ -191,7 +191,7 @@ export class Sim {
   createBuilding(name: string, goal = "", headcount = 6): Building {
     const b: Building = { ...clone(F.buildings[1]), id: newId("bl"), name, goal, description: "", headcount, meetings: [], lot: undefined, createdAt: now(), createdBy: "us_mitchell" };
     this.buildings.push(b);
-    for (const r of ["manager", "moderator", "member"] as const)
+    for (const r of ["manager", "reviewer", "member"] as const)
       this.roles.push({ id: `rl_${b.id}_${r}`, name: r, scope: "building", buildingId: b.id, permissions: [...BUILTIN_ROLES.building[r]], builtin: true });
     this.memberships.push({ roleId: `rl_${b.id}_manager`, holderKind: "user", holderId: "us_mitchell" });
     this.emit({ type: "building", building: b });

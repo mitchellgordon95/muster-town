@@ -32,6 +32,8 @@ export interface DeskBackend {
   exec(handle: DeskHandle, argv: string[], env: Record<string, string>, onLine?: LineSink): DeskChild;
   /** best-effort: stop the process started by `exec` (the CLI child is killed separately) */
   killExec?(handle: DeskHandle, argv: string[]): Promise<void>;
+  /** dismissed agent: `docker rm -f` its desk; the home volume is kept unless `purge` */
+  remove?(agentId: string, opts?: { purge?: boolean }): Promise<void>;
 }
 
 /** In-process work sessions (today's `runAgentSession` path). Always available; no code tools. */
@@ -154,6 +156,17 @@ export class DockerBackend implements DeskBackend {
         void this.killExec(handle, argv);
       },
     };
+  }
+
+  /** Dismiss: remove the desk container (`docker rm -f`); with `purge`, also the home volume. Best effort. */
+  async remove(agentId: string, opts: { purge?: boolean } = {}): Promise<void> {
+    const name = this.containerName(agentId);
+    const r = await this.runner.run(["rm", "-f", name], { timeoutMs: 60_000 });
+    if (r.code !== 0 && !/no such container/i.test(r.stderr)) console.warn(`[runtime] docker rm -f ${name} failed: ${r.stderr.trim().slice(0, 200)}`);
+    if (opts.purge) {
+      const v = await this.runner.run(["volume", "rm", "-f", this.volumeName(agentId)], { timeoutMs: 60_000 });
+      if (v.code !== 0) console.warn(`[runtime] docker volume rm ${this.volumeName(agentId)} failed: ${v.stderr.trim().slice(0, 200)}`);
+    }
   }
 
   /** `docker exec <name> pkill -TERM -f "<argv>"`: killing the CLI doesn't stop the process inside the container. */

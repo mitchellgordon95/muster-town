@@ -91,16 +91,15 @@ export async function submit_report(world: World, me: Agent, input: VerbIn<"subm
     if (assignmentId && world.assignments.get(assignmentId)) setAssignmentStatus(world, assignmentId, "done", { reportId: doc.id });
     if (session) world.sessions.upsert({ ...session, reportId: doc.id });
     world.agents.patch(me.id, { currentAssignmentId: null });
+    // Hub semantics: the report goes to the building's in-tray and the agent goes idle. It only works again
+    // when someone gives it an assignment (manager decision, reviewer `continue`, meeting decision, mention).
     let decision: Doc["decision"] = "pending";
-    let nextAssignmentId: string | null = null;
     if (policy === "auto") {
-      decision = input.verdict === "stop" ? "stop" : "approve";
-      world.setStatus(me.id, "idle");
-      nextAssignmentId = applyDecision(world, doc.id, decision, "", { kind: "agent", id: me.id }).assignment?.id ?? null;
-    } else {
-      world.setStatus(me.id, "awaiting-review", `${me.name} is waiting for review`);
+      decision = "approve";
+      applyDecision(world, doc.id, "approve", "Acknowledged automatically (review policy auto).", { kind: "system", id: "system" });
     }
-    return { id: doc.id, decision, reviewPolicy: policy, nextAssignmentId, note: "Report submitted. Your session should end now." };
+    if (world.agents.get(me.id)?.status === "working") world.setStatus(me.id, "idle", `${me.name} filed a report and is idle`);
+    return { id: doc.id, decision, reviewPolicy: policy, nextAssignmentId: null, note: "Report submitted to your manager's in-tray. Your session ends now; you'll get a new assignment if there's more to do." };
   });
 }
 

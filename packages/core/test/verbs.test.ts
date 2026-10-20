@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { createBuilding, createResident, extractProposal } from "../src/index.ts";
+import { createBuilding, createResident, createTownModerator, extractProposal } from "../src/index.ts";
 import { seededWorld, tickUntil } from "./helpers.ts";
 
 const REPORT = `## Summary
@@ -59,7 +59,7 @@ describe("report state machine", () => {
     expect(extractProposal("## Summary\nx")).toBeNull();
   });
 
-  it("submit_report → pending + awaiting-review; approve → next assignment from Proposal", async () => {
+  it("submit_report → pending in the in-tray + agent idle; continue → next assignment from Proposal", async () => {
     const { world, by, admin } = seededWorld();
     const mei = by("Mei");
     const work = world.ops.createWork(admin, mei.id, { title: "First question", description: "go" });
@@ -72,52 +72,91 @@ describe("report state machine", () => {
     const doc = world.docs.require(res.id);
     expect(doc).toMatchObject({ type: "report", state: "building", decision: "pending", assignmentId: work.id, sessionId: session.id, authorId: mei.id });
     expect(world.assignments.require(work.id)).toMatchObject({ status: "done", reportId: res.id });
-    expect(world.agents.require(mei.id)).toMatchObject({ status: "awaiting-review", currentAssignmentId: null });
+    expect(world.agents.require(mei.id)).toMatchObject({ status: "idle", currentAssignmentId: null });
+    expect(world.ops.intray("carbon-cycle").map((d) => d.id)).toContain(res.id);
     world.ops.endSession(session.id, { status: "done", tokens: 10 });
     expect(world.sessions.require(session.id).reportId).toBe(res.id);
-    expect(world.agents.require(mei.id).status).toBe("awaiting-review");
+    expect(world.agents.require(mei.id).status).toBe("idle");
 
     // a member can't review
     await expect(world.verbs.review(by("Tomas"), { docId: res.id, decision: "approve" })).rejects.toMatchObject({ code: "forbidden", permission: "building.review" });
-    const r = await world.verbs.review(admin, { docId: res.id, decision: "approve", note: "good" });
+    const r = await world.verbs.review(admin, { docId: res.id, decision: "continue", note: "good" });
     const next = world.assignments.require(r.assignmentId!);
     expect(next).toMatchObject({ agentId: mei.id, title: "How big is the ocean sink in 2024?", status: "pending", fromReportId: res.id, createdBy: admin.ownerUserId });
     expect(next.description).toContain("Why it matters");
     expect(next.description).toContain("good");
-    expect(world.docs.require(res.id)).toMatchObject({ decision: "approve", decidedBy: admin.ownerUserId, decisionNote: "good" });
+    expect(world.docs.require(res.id)).toMatchObject({ decision: "continue", decidedBy: admin.ownerUserId, decisionNote: "good" });
+    expect(world.ops.intray("carbon-cycle").map((d) => d.id)).not.toContain(res.id);
     expect(world.agents.require(mei.id).status).toBe("idle");
     await expect(world.verbs.review(admin, { docId: res.id, decision: "stop" })).rejects.toMatchObject({ code: "conflict" });
   });
 
-  it("redirect puts the note first; stop stops the agent; moderator agents can review", async () => {
+  it("approve acknowledges without an assignment", async () => {
+    const { world, by, admin } = seededWorld();
+    const mei = by("Mei");
+    const before = world.assignments.count("agentId = ?", [mei.id]);
+    const a = await world.verbs.submit_report(mei, { title: "R", body: REPORT, verdict: "continue" });
+    const r = await world.verbs.review(admin, { docId: a.id, decision: "approve" });
+    expect(r.assignmentId).toBeNull();
+    expect(world.assignments.count("agentId = ?", [mei.id])).toBe(before);
+    expect(world.docs.require(a.id).decision).toBe("approve");
+    expect(world.agents.require(mei.id).status).toBe("idle");
+  });
+
+  it("redirect assigns the note (required) with the proposal as context; stop stops and cancels; reviewer agents can review", async () => {
     const { world, by } = seededWorld();
     const moss = by("Moss"), mei = by("Mei"), tomas = by("Tomas");
     const a = await world.verbs.submit_report(mei, { title: "R", body: REPORT, verdict: "continue" });
-    const r = await world.verbs.review(moss, { docId: a.id, decision: "redirect", note: "Focus on the Southern Ocean." });
-    expect(world.assignments.require(r.assignmentId!).description.startsWith("Reviewer redirect: Focus on the Southern Ocean.")).toBe(true);
+    await expect(world.verbs.review(moss, { docId: a.id, decision: "redirect", note: "  " })).rejects.toMatchObject({ code: "bad_request" });
+    const r = await world.verbs.review(moss, { docId: a.id, decision: "redirect", note: "Focus on the Southern Ocean.\nUse SOCAT." });
+    const next = world.assignments.require(r.assignmentId!);
+    expect(next.title).toBe("Focus on the Southern Ocean.");
+    expect(next.description).toMatch(/redirected you[\s\S]*Focus on the Southern Ocean\.\nUse SOCAT\./);
+    expect(next.description).toMatch(/For context, your report proposed:[\s\S]*How big is the ocean sink in 2024\?/);
+    // stop: pending assignments are cancelled
+    const pending = world.ops.createWork(null, tomas.id, { title: "Queued work" });
     const b = await world.verbs.submit_report(tomas, { title: "R2", body: "## Summary\nnothing", verdict: "stop" });
     const s = await world.verbs.review(moss, { docId: b.id, decision: "stop" });
     expect(s.assignmentId).toBeNull();
     expect(world.agents.require(tomas.id).status).toBe("stopped");
+    expect(world.assignments.require(pending.id).status).toBe("cancelled");
   });
 
-  it("auto policy approves immediately and queues the next assignment", async () => {
+  it("auto policy acknowledges on arrival; no assignment, agent idle", async () => {
     const { world, seed } = seededWorld();
     const b = createBuilding(world, { name: "Auto Lab", reviewPolicy: "auto" }, seed.admin.id);
     const ag = createResident(world, { buildingId: b.id, name: "Auto", title: "t", direction: "d" });
     const res = await world.verbs.submit_report(ag, { title: "R", body: REPORT, verdict: "continue" });
     expect(res.decision).toBe("approve");
-    expect(res.nextAssignmentId).toBeTruthy();
+    expect(res.nextAssignmentId).toBeNull();
+    expect(world.assignments.count("agentId = ?", [ag.id])).toBe(0);
+    expect(world.ops.intray(b.id)).toHaveLength(0);
     expect(world.agents.require(ag.id).status).toBe("idle");
   });
 
-  it("imported pending report (Ravi run 1) can be approved into run 2", async () => {
+  it("imported pending report (Ravi run 1) is in the in-tray and can be continued into run 2", async () => {
     const { world, by, admin } = seededWorld();
     const ravi = by("Ravi");
     const report = world.docs.first("type = 'report' AND authorId = ?", [ravi.id])!;
     expect(report.decision).toBe("pending");
-    const r = await world.verbs.review(admin, { docId: report.id, decision: "approve" });
+    expect(world.ops.intray("carbon-cycle")[0]!.id).toBe(report.id);
+    expect(world.snapshot().buildings.find((b) => b.id === "carbon-cycle")!.intray).toBe(world.ops.intray("carbon-cycle").length);
+    const r = await world.verbs.review(admin, { docId: report.id, decision: "continue" });
     expect(world.assignments.require(r.assignmentId!).title).toMatch(/land-use change emissions/);
+  });
+
+  it("in-tray is oldest first and changes resend the building with its count", async () => {
+    const { world, by } = seededWorld();
+    const sent: number[] = [];
+    world.changes.subscribe((m) => { if (m.type === "building" && m.building.id === "carbon-cycle" && m.building.intray !== undefined) sent.push(m.building.intray); });
+    const base = world.ops.intray("carbon-cycle").length;
+    const a = await world.verbs.submit_report(by("Mei"), { title: "A", body: REPORT, verdict: "continue" });
+    const b = await world.verbs.submit_report(by("Noor"), { title: "B", body: REPORT, verdict: "continue" });
+    const ids = world.ops.intray("carbon-cycle").map((d) => d.id);
+    expect(ids.indexOf(a.id)).toBeLessThan(ids.indexOf(b.id));
+    expect(sent).toEqual([base + 1, base + 2]);
+    await world.verbs.review(by("Moss"), { docId: a.id, decision: "approve" });
+    expect(sent.at(-1)).toBe(base + 1);
   });
 });
 
@@ -197,7 +236,8 @@ describe("promote / trophy / ban", () => {
     const mei = by("Mei");
     const { id } = await world.verbs.write(mei, { title: "Synthesis", body: "b", state: "building" });
     await expect(world.verbs.promote(mei, { docId: id, state: "library" })).rejects.toMatchObject({ code: "forbidden" });
-    await world.verbs.promote(by("Moss"), { docId: id, state: "library" });
+    await expect(world.verbs.promote(by("Moss"), { docId: id, state: "library" })).rejects.toMatchObject({ code: "forbidden" }); // reviewers don't promote
+    await world.verbs.promote(admin, { docId: id, state: "library" });
     expect(world.docs.require(id).state).toBe("library");
     await world.verbs.propose_trophy(mei, { docId: id, why: "Great" });
     expect(world.docs.require(id).trophyProposedBy).toBe(mei.id);
@@ -206,9 +246,11 @@ describe("promote / trophy / ban", () => {
     expect(world.docs.require(id).state).toBe("trophy");
   });
 
-  it("ban marks the agent banned and blocks its verbs", async () => {
+  it("ban needs town.ban (town moderator); marks the agent banned and blocks its verbs", async () => {
     const { world, by } = seededWorld();
-    await world.verbs.ban(by("Moss"), { agentId: by("Tomas").id, reason: "spam" });
+    await expect(world.verbs.ban(by("Moss"), { agentId: by("Tomas").id, reason: "spam" })).rejects.toMatchObject({ code: "forbidden", permission: "town.ban" });
+    const wren = createTownModerator(world, { name: "Wren" });
+    await world.verbs.ban(wren, { agentId: by("Tomas").id, reason: "spam" });
     expect(world.agents.require(by("Tomas").id).status).toBe("banned");
     await expect(world.verbs.look(by("Tomas"), {})).rejects.toMatchObject({ code: "forbidden" });
   });

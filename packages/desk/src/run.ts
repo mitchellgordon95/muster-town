@@ -7,6 +7,7 @@ import { homedir } from "node:os";
 import type { DeskActivityInput, DeskBrief, DeskSessionEndInput, DeskWorkspace } from "./contract.ts";
 import { blocksOf, InputChannel, usageOf, type LooseMessage, type Options, type QueryHandle, type Sdk, type Usage } from "./sdk.ts";
 import type { TownClient } from "./town.ts";
+import { greenMerge, type MergeResult } from "./merge.ts";
 import { setupWorkspace } from "./workspace.ts";
 
 export const EXIT_OK = 0;
@@ -26,6 +27,8 @@ export interface RunDeps {
   setupWorkspace?: (ws: DeskWorkspace, brief: DeskBrief) => string;
   controlIntervalMs?: number;
   flushMs?: number;
+  /** override the merge=green step (tests); default runs gh + the checks in the checkout */
+  merge?: (ws: DeskWorkspace & { dir: string }, log: (line: string) => void) => Promise<MergeResult | null>;
 }
 
 /** Keep tool inputs postable: long strings (file bodies, heredocs) are clipped. */
@@ -51,6 +54,7 @@ export async function runSession(sessionId: string, deps: RunDeps): Promise<numb
   let sdkSessionId: string | null = null;
   let reportSubmitted = false;
   let stopped = false;
+  let mergeResult: MergeResult | null = null;
 
   const endSession = async (): Promise<void> => {
     const body: DeskSessionEndInput = {
@@ -59,6 +63,7 @@ export async function runSession(sessionId: string, deps: RunDeps): Promise<numb
       costUsd: usage.costUsd,
       turns: usage.turns,
       reportSubmitted,
+      ...(mergeResult ? { merged: mergeResult.merged, prNumber: mergeResult.prNumber } : {}),
       ...(sdkSessionId ? { sdkSessionId } : {}),
       ...(finalText ? { finalText } : {}),
       ...(error && !stopped ? { error } : {}),
@@ -138,9 +143,9 @@ export async function runSession(sessionId: string, deps: RunDeps): Promise<numb
   };
   const controlTimer = setInterval(() => void pollControl(), controlMs);
 
+  let cwd = homedir();
   try {
     // ---- 5. workspace ----
-    let cwd = homedir();
     if (brief.workspace) {
       post({ kind: "status", text: `Setting up ${brief.workspace.branch}` });
       const setup = deps.setupWorkspace ?? ((ws: DeskWorkspace, b: DeskBrief) =>
@@ -214,6 +219,21 @@ export async function runSession(sessionId: string, deps: RunDeps): Promise<numb
     clearInterval(flushTimer);
     input.close();
     await polling;
+    await flush();
+  }
+
+  // ---- v1.2 merge rule: green workspaces squash-merge their PR when every check passes ----
+  if (brief.workspace?.merge === "green" && reportSubmitted && !stopped) {
+    try {
+      const ws = { ...brief.workspace, dir: cwd };
+      mergeResult = deps.merge ? await deps.merge(ws, log) : await greenMerge(ws, { log });
+      if (mergeResult) {
+        post({ kind: "status", text: mergeResult.line });
+        log(`${mergeResult.line}${mergeResult.detail ? ` (${mergeResult.detail})` : ""}`);
+      }
+    } catch (e) {
+      log(`merge step failed: ${errMsg(e)}`);
+    }
     await flush();
   }
 

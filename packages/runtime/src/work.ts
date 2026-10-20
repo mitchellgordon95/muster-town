@@ -1,5 +1,5 @@
-/** Resident work sessions (host backend + shared end-of-session logic), interrupts, and moderator review sessions. */
-import { AppError, buildingRoleId, createDoc, fallbackReportBody, latestReportOf, reviewPrompt, reviewSystemPrompt, setAssignmentStatus, workPrompt, workSystemPrompt } from "@agent-town/core";
+/** Resident work sessions (host backend + shared end-of-session logic), interrupts, and reviewer sessions over the in-tray. */
+import { AppError, buildingRoleId, createDoc, fallbackReportBody, latestReportOf, reviewPrompt, reviewSystemPrompt, setAssignmentStatus, updateDoc, workPrompt, workSystemPrompt } from "@agent-town/core";
 import type { Agent, Assignment, Building, Doc, Session } from "@agent-town/schema";
 import { chargeUsage, fundingFor, homeOf, runAgentSession, type Ctx } from "./session.ts";
 
@@ -26,7 +26,7 @@ export function preflightWork(ctx: Ctx, starting: Set<string>, agentId: string, 
   const { world } = ctx;
   if (starting.has(agentId) || ctx.live.has(agentId)) throw new AppError("conflict", "Agent is already in a work session.");
   const agent = world.agents.require(agentId, "agent");
-  if (agent.status === "banned" || agent.status === "stopped") throw new AppError("conflict", `${agent.name} is ${agent.status}.`);
+  if (agent.status === "banned" || agent.status === "stopped" || agent.status === "retired") throw new AppError("conflict", `${agent.name} is ${agent.status}.`);
   const bid = homeOf(world, agentId);
   if (!bid) throw new AppError("bad_request", `${agent.name} has no building.`);
   if (!world.budget.canStart(agentId)) {
@@ -67,8 +67,18 @@ export interface WorkOutcome {
   finalText?: string | null;
   error?: string | null;
   reportSubmitted?: boolean;
-  /** the runtime aborted it (agent stopped/banned or runtime shutdown) */
+  /** the runtime aborted it (agent stopped/banned/retired or runtime shutdown) */
   stopped?: boolean;
+  /** merge=green desks: whether the PR was merged after the checks (absent = no merge attempted) */
+  merged?: boolean;
+  prNumber?: number;
+}
+
+/** The line finishWorkSession appends to the report when a desk attempted a green merge. */
+export function mergeLine(o: Pick<WorkOutcome, "merged" | "prNumber">): string | null {
+  if (o.merged === undefined && o.prNumber === undefined) return null;
+  if (o.merged) return o.prNumber ? `Merged as PR #${o.prNumber}` : "Merged";
+  return o.prNumber ? `PR #${o.prNumber} open, checks failed` : "PR left open, checks failed";
 }
 
 /**
@@ -84,7 +94,7 @@ export async function finishWorkSession(ctx: Ctx, sessionId: string, o: WorkOutc
   const bid = homeOf(world, agentId);
   const live = ctx.live.get(agentId);
   const agentNow = world.agents.require(agentId, "agent");
-  const stopped = !!o.stopped || (live?.sessionId === sessionId && live.stopped) || agentNow.status === "stopped" || agentNow.status === "banned";
+  const stopped = !!o.stopped || (live?.sessionId === sessionId && live.stopped) || agentNow.status === "stopped" || agentNow.status === "banned" || agentNow.status === "retired";
   const usage = { tokens: Math.max(0, Math.round(o.tokens ?? 0)), costUsd: Math.max(0, o.costUsd ?? 0), turns: Math.max(0, Math.round(o.turns ?? 0)) };
   const error = o.error ?? null;
   const reportSubmitted = !!o.reportSubmitted || !!world.sessions.get(sessionId)?.reportId;
@@ -97,7 +107,7 @@ export async function finishWorkSession(ctx: Ctx, sessionId: string, o: WorkOutc
       if (stopped) {
         const doc = createDoc(world, {
           type: "report", state: "building", title, body, verdict: "continue", decision: "stop", decidedBy: "system", decidedAt: new Date().toISOString(),
-          decisionNote: `${agentNow.name} was ${agentNow.status === "banned" || agentNow.status === "stopped" ? agentNow.status : "stopped"} during the session.`,
+          decisionNote: `${agentNow.name} was ${agentNow.status === "banned" || agentNow.status === "stopped" ? agentNow.status : agentNow.status === "retired" ? "dismissed" : "stopped"} during the session.`,
           authorId: agentId, authorKind: "agent", buildingId: bid, sessionId, assignmentId: session.assignmentId ?? undefined,
         }, `${agentNow.name}'s session was stopped; fallback report written`);
         world.sessions.patch(sessionId, { reportId: doc.id });
@@ -109,6 +119,15 @@ export async function finishWorkSession(ctx: Ctx, sessionId: string, o: WorkOutc
       }
     } catch (e) {
       world.events.append({ type: "system", agentId, buildingId: bid, text: `Runtime error after session: ${e instanceof Error ? e.message : String(e)}`, payload: { sessionId } });
+    }
+  }
+  const line = mergeLine(o);
+  const reportId = world.sessions.get(sessionId)?.reportId;
+  if (line && reportId) {
+    const doc = world.docs.get(reportId);
+    if (doc) {
+      updateDoc(world, doc.id, { body: `${doc.body.trimEnd()}\n\n${line}\n` });
+      world.events.append({ type: "doc.updated", agentId, buildingId: doc.buildingId, text: `${agentNow.name}: ${line}`, payload: { docId: doc.id, merged: !!o.merged, prNumber: o.prNumber ?? null } });
     }
   }
   const status: Exclude<Session["status"], "running"> = stopped ? "interrupted" : error ? "error" : "done";
@@ -148,16 +167,17 @@ export function abortWork(ctx: Ctx, agentId: string, graceMs = 0): void {
   }
 }
 
-/** The building's moderator agent able to review `doc` (not its author), if any. */
-export function moderatorFor(ctx: Ctx, buildingId: string, exclude?: string): Agent | undefined {
-  return ctx.world.permissions.agentsWithRole(buildingRoleId(buildingId, "moderator"))
+/** The building's reviewer agent able to review `doc` (not its author), if any. */
+export function reviewerFor(ctx: Ctx, buildingId: string, exclude?: string): Agent | undefined {
+  return ctx.world.permissions.agentsWithRole(buildingRoleId(buildingId, "reviewer"))
     .map((id) => ctx.world.agents.get(id))
-    .find((a): a is Agent => !!a && a.kind !== "human" && a.id !== exclude && a.status !== "banned" && a.status !== "stopped");
+    .find((a): a is Agent => !!a && a.kind !== "human" && a.id !== exclude && a.status !== "banned" && a.status !== "stopped" && a.status !== "retired");
 }
 
 /**
- * If `docId` is a pending report in a `moderator`-policy building, run a review session for the
- * building's moderator. Each report is reviewed at most once per runtime; undecided → left for humans.
+ * If `docId` is a pending report in a `reviewer`-policy building, run a short review session for the
+ * building's reviewer over that in-tray item (it may approve, continue, redirect or stop). Each report is
+ * reviewed at most once per runtime; undecided → left in the in-tray for the manager.
  */
 export async function maybeReview(ctx: Ctx, reviewed: Set<string>, docId: string): Promise<boolean> {
   const { world } = ctx;
@@ -165,8 +185,8 @@ export async function maybeReview(ctx: Ctx, reviewed: Set<string>, docId: string
   const doc = world.docs.get(docId);
   if (!doc || doc.type !== "report" || doc.decision !== "pending" || !doc.buildingId) return false;
   const building = world.buildings.get(doc.buildingId);
-  if (!building || building.reviewPolicy !== "moderator") return false;
-  const mod = moderatorFor(ctx, building.id, doc.authorId);
+  if (!building || building.reviewPolicy !== "reviewer") return false;
+  const mod = reviewerFor(ctx, building.id, doc.authorId);
   const author = world.agents.get(doc.authorId);
   if (!mod || !author || !world.budget.canStart(mod.id)) return false;
   reviewed.add(docId);
@@ -178,7 +198,7 @@ export async function maybeReview(ctx: Ctx, reviewed: Set<string>, docId: string
   });
   const after = world.docs.get(docId);
   if (after?.decision === "pending") {
-    world.events.append({ type: "system", agentId: mod.id, buildingId: building.id, text: `${mod.name} didn't decide on "${doc.title}"; it's waiting for a human`, payload: { docId } });
+    world.events.append({ type: "system", agentId: mod.id, buildingId: building.id, text: `${mod.name} didn't decide on "${doc.title}"; it stays in the in-tray`, payload: { docId } });
   }
   return true;
 }

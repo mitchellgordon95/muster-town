@@ -49,7 +49,7 @@ describe("layout", () => {
     }
     const ravi = by("Ravi");
     expect(world.layout.deskOf(ravi.id)?.pos).toEqual(ravi.pos);
-    expect(world.layout.places.some((p) => p.id.startsWith("desk:free:"))).toBe(false); // 5 residents + Moss = 6 = headcount
+    expect(world.layout.places.some((p) => p.id.startsWith("desk:free:carbon-cycle"))).toBe(false); // 5 residents + Moss = 6 = headcount
   });
 
   it("lots and desks are stable across reopen, and growing headcount re-lots without overlap", () => {

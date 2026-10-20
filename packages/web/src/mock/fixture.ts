@@ -32,7 +32,7 @@ const resident = (id: string, name: string, sprite: number, title: string, direc
 });
 
 export const agents: Agent[] = [
-  resident("ag_noor", "Noor", 1, "Atmospheric CO2", "How atmospheric CO2 is measured and what the record shows: Mauna Loa and the NOAA network, growth rate, isotopes, airborne fraction.", { status: "awaiting-review", spentTokensToday: 412_000, spentTokensTotal: 1_240_000, spentUsdTotal: 9.82, lastActiveAt: ago(12) }),
+  resident("ag_noor", "Noor", 1, "Atmospheric CO2", "How atmospheric CO2 is measured and what the record shows: Mauna Loa and the NOAA network, growth rate, isotopes, airborne fraction.", { status: "idle" /* TODO(web): v1.2, was awaiting-review */, spentTokensToday: 412_000, spentTokensTotal: 1_240_000, spentUsdTotal: 9.82, lastActiveAt: ago(12) }),
   resident("ag_tomas", "Tomas", 2, "Land sink", "The terrestrial carbon sink: photosynthesis vs respiration, CO2 fertilization, regrowth, soil carbon, interannual variability, weakening.", { status: "working", activity: "Searching: TRENDY v13 land sink 2024 anomaly", currentAssignmentId: "as_tomas2", spentTokensToday: 655_000, spentTokensTotal: 2_100_000, spentUsdTotal: 16.4, lastActiveAt: ago(0) }),
   resident("ag_mei", "Mei", 3, "Ocean sink", "Ocean carbon uptake: solubility and biological pumps, SOCAT pCO2, cumulative uptake, acidification, the Southern Ocean."),
   resident("ag_ravi", "Ravi", 4, "Human emissions", "Fossil and land-use emissions, their uncertainty, and how the Global Carbon Budget closes the books (the budget imbalance).", { spentTokensTotal: 980_000, spentUsdTotal: 7.1, lastActiveAt: ago(300) }),
@@ -124,7 +124,7 @@ export const roles: Role[] = [
   { id: "rl_admin", name: "admin", scope: "town", permissions: [...BUILTIN_ROLES.town.admin], builtin: true },
   { id: "rl_visitor", name: "visitor", scope: "town", permissions: [...BUILTIN_ROLES.town.visitor], builtin: true },
   { id: "rl_carbon_manager", name: "manager", scope: "building", buildingId: "bl_carbon", permissions: [...BUILTIN_ROLES.building.manager], builtin: true },
-  { id: "rl_carbon_moderator", name: "moderator", scope: "building", buildingId: "bl_carbon", permissions: [...BUILTIN_ROLES.building.moderator], builtin: true },
+  { id: "rl_carbon_reviewer", name: "reviewer", scope: "building", buildingId: "bl_carbon", permissions: [...BUILTIN_ROLES.building.reviewer], builtin: true }, // TODO(web): v1.2 roles split
   { id: "rl_carbon_member", name: "member", scope: "building", buildingId: "bl_carbon", permissions: [...BUILTIN_ROLES.building.member], builtin: true },
 ];
 export const memberships: Membership[] = [

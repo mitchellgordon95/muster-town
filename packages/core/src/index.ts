@@ -11,10 +11,11 @@ export { EventLog, type NewEvent, type EventQuery, type EventType } from "./even
 export { Permissions, holderOf, isAgent, townRoleId, buildingRoleId, type Holder, type BuildingRoleName, type TownRoleName } from "./permissions.ts";
 export { Budget, type ChargeResult, type BudgetSummary } from "./budget.ts";
 export { Ops, type Actor, type RequestAction } from "./ops.ts";
-export { createBuilding, updateBuilding, createResident, registerVisitor, ensureAvatar, createUser, createServiceAgent } from "./entities.ts";
+export { createBuilding, updateBuilding, createResident, registerVisitor, ensureAvatar, createUser, createServiceAgent, createTownModerator } from "./entities.ts";
+export { migrateRoles, type MigrateRolesResult } from "./migrate-roles.ts";
 export {
   applyDecision, createAssignment, createDoc, updateDoc, extractProposal, summarizeDoc, canSeeDoc, sendMessage,
-  setAssignmentStatus, type DocSummary,
+  setAssignmentStatus, intrayOf, intrayCounts, requirePendingReport, type DocSummary,
 } from "./domain.ts";
 export { createMeeting, setMeetingPhase, meetingSpeak, meetingDecide, endMeeting, defaultAttendees, defaultFacilitator } from "./meetings.ts";
 export { makeVerbs, verbImpls, type Verbs, type VerbResult } from "./verbs/index.ts";
@@ -27,7 +28,7 @@ export { seedDefaults, originUrl, HOUSE_BUDGET_TOKENS, type SeedOptions, type Se
 export * as prompts from "./prompts.ts";
 export * from "./prompts.ts";
 export {
-  computeLayout, assignLots, labSize, tileAt, ROAD_Y, TOWN_HALL_X, TOWN_HALL_ID, TOWN_HALL_SIZE, LOT_GAP, MAX_HEADCOUNT,
+  computeLayout, assignLots, labSize, tileAt, ROAD_Y, TOWN_HALL_X, TOWN_HALL_ID, TOWN_HALL_SIZE, LOT_GAP, MAX_HEADCOUNT, MOD_SEATS, TOWN_HALL_FIXTURES,
   type Grid, type DeskSlot, type LayoutResult,
 } from "./world/layout.ts";
 export { findPath, isWalkable } from "./world/path.ts";

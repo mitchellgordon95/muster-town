@@ -2,7 +2,7 @@ import { CollectiveConfig, Town, type Agent, type Building, type User } from "@a
 import { execFileSync } from "node:child_process";
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
-import { createBuilding, createResident, createServiceAgent, createUser } from "./entities.ts";
+import { createBuilding, createResident, createServiceAgent, createTownModerator, createUser } from "./entities.ts";
 import { buildingRoleId, townRoleId } from "./permissions.ts";
 import { TOWN_HALL_ID } from "./world/layout.ts";
 import type { World } from "./world.ts";
@@ -20,7 +20,7 @@ export interface SeedOptions {
   dataDir?: string;
   /** house allocation for the imported lab (default 50M tokens) */
   houseTokens?: number;
-  /** path to collective.json; its buildings (imports, residents, workspaces, moderators) are created at seed */
+  /** path to collective.json; its buildings (imports, residents, workspaces, reviewers) and town moderators are created at seed */
   collectivePath?: string;
 }
 export interface SeedResult {
@@ -31,7 +31,18 @@ export interface SeedResult {
   townHall: Building;
   ada: Agent | null;
   lab: Building | null;
+  /** the first lab's reviewer agent (historically Moss) */
   moss: Agent | null;
+  /** town moderators created at seed (none on an existing DB) */
+  moderators: Agent[];
+}
+
+const REVIEWER_DIRECTION = "Work this building's in-tray: check each report against the criteria (sources present, numbers carry units and uncertainty, the proposal is one concrete question, no duplication of the board) and decide: continue when the proposal should be the author's next assignment, approve to acknowledge without follow-up, redirect with a concrete note, stop when the direction is exhausted. Facilitate meetings.";
+
+/** The building's reviewer agent (role `reviewer`), if any. */
+function reviewerOf(world: World, buildingId: string): Agent | null {
+  const id = world.permissions.agentsWithRole(buildingRoleId(buildingId, "reviewer"))[0];
+  return id ? world.agents.get(id) ?? null : null;
 }
 
 /** `git -C <path> remote get-url origin`, or undefined when `path` isn't a git repo / has no origin. */
@@ -53,8 +64,10 @@ function withRepoUrl<W extends { path: string; repoUrl?: string }>(ws: W): W {
 
 /**
  * Seed an empty town: town.json, admin user + token, built-in roles, Town Hall with Ada (service
- * librarian at the library), optional v0 lab import + Moss (moderator) + house allocation; admin manages the lab.
- * Re-running on a seeded DB returns the existing admin/token and creates nothing.
+ * librarian at the library), optional v0 lab import + Moss (reviewer) + house allocation; admin manages the lab;
+ * collective.json buildings and town moderators (seated at the mod station).
+ * Re-running on a seeded DB returns the existing admin/token and creates no agents (it backfills workspace repoUrl
+ * and makes sure the built-in town roles, including v1.2's `moderator`, exist).
  */
 export function seedDefaults(world: World, opts: SeedOptions = {}): SeedResult {
   const existing = world.users.first("1=1", [], "ORDER BY createdAt, rowid");
@@ -66,12 +79,14 @@ export function seedDefaults(world: World, opts: SeedOptions = {}): SeedResult {
         if (ws.repoUrl) world.buildings.patch(b.id, { workspace: ws });
       }
     }
+    // v1.2: the town moderator role (no moderator agents are created in existing DBs)
+    world.permissions.ensureTownRoles();
     const th = world.buildings.get(TOWN_HALL_ID) ?? world.buildings.first("kind = 'town-hall'")!;
     const lab = world.buildings.first("kind = 'lab'", [], "ORDER BY createdAt") ?? null;
     return {
       created: false, admin: existing, adminToken: world.tokens.getOrCreate("user", existing.id), townHall: th,
       ada: world.agents.first("kind = 'service'") ?? null, lab,
-      moss: lab ? world.agents.first("homeBuildingId = ? AND title = 'Moderator'", [lab.id]) ?? null : null,
+      moss: lab ? reviewerOf(world, lab.id) : null, moderators: [],
     };
   }
   const result = world.transaction(() => {
@@ -93,13 +108,11 @@ export function seedDefaults(world: World, opts: SeedOptions = {}): SeedResult {
     let lab: Building | null = null, moss: Agent | null = null;
     if (opts.importDir && existsSync(join(opts.importDir, "building.json"))) {
       lab = world.importV0(opts.importDir, { creatorUserId: admin.id }).building;
-      moss = createResident(world, {
-        buildingId: lab.id, name: "Moss", title: "Moderator", sprite: 7,
-        direction: "Review reports for this building: sources present, numbers carry units and uncertainty, the proposal is one concrete question, and it doesn't duplicate the board. Facilitate meetings.",
-      });
-      world.permissions.grant(moss, buildingRoleId(lab.id, "moderator"));
+      moss = createResident(world, { buildingId: lab.id, name: "Moss", title: "Reviewer", sprite: 7, direction: REVIEWER_DIRECTION });
+      world.permissions.grant(moss, buildingRoleId(lab.id, "reviewer"));
       world.budget.donate(admin.id, { tokens: opts.houseTokens ?? HOUSE_BUDGET_TOKENS, buildingId: lab.id });
     }
+    const moderators: Agent[] = [];
     if (opts.collectivePath && existsSync(opts.collectivePath)) {
       const cfg = CollectiveConfig.parse(JSON.parse(readFileSync(opts.collectivePath, "utf8")));
       const dir = dirname(resolve(opts.collectivePath));
@@ -118,20 +131,21 @@ export function seedDefaults(world: World, opts: SeedOptions = {}): SeedResult {
           }, admin.id, { id });
           spec.residents.forEach((r, i) => createResident(world, { buildingId: b.id, name: r.name, title: r.title, direction: r.direction, sprite: r.sprite ?? (i + 1) % 7, model: r.model }));
         }
-        if (spec.moderator) {
-          const mod = createResident(world, {
-            buildingId: b.id, name: spec.moderator.name, title: "Moderator", sprite: spec.moderator.sprite ?? 7,
-            direction: spec.moderator.direction ?? "Review reports for this building against the criteria (sources, units and uncertainty, one concrete question, no duplication of the board). Facilitate meetings.",
+        if (spec.reviewer) {
+          const rev = createResident(world, {
+            buildingId: b.id, name: spec.reviewer.name, title: "Reviewer", sprite: spec.reviewer.sprite ?? 7,
+            direction: spec.reviewer.direction ?? REVIEWER_DIRECTION,
           });
-          world.permissions.grant(mod, buildingRoleId(b.id, "moderator"));
-          if (!moss) moss = mod;
+          world.permissions.grant(rev, buildingRoleId(b.id, "reviewer"));
+          if (!moss) moss = rev;
         }
         if (spec.houseTokens) world.budget.donate(admin.id, { tokens: spec.houseTokens, buildingId: b.id });
         if (!lab) lab = b;
       }
+      for (const m of cfg.moderators) moderators.push(createTownModerator(world, m));
     }
     world.events.append({ type: "system", text: "Town seeded", payload: { adminId: admin.id, labId: lab?.id ?? null } });
-    return { created: true, admin: world.users.require(admin.id), adminToken, townHall: world.buildings.require(townHall.id), ada, lab, moss };
+    return { created: true, admin: world.users.require(admin.id), adminToken, townHall: world.buildings.require(townHall.id), ada, lab, moss, moderators };
   });
   if (opts.dataDir) {
     mkdirSync(opts.dataDir, { recursive: true });

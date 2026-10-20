@@ -107,7 +107,7 @@ export function importV0(world: World, dirIn: string, opts: ImportV0Options = {}
     for (const r of reports) {
       const { data, body } = parseFrontmatter(r.text);
       const verdict = Verdict.safeParse(data.verdict).success ? (data.verdict as Doc["verdict"]) : "continue";
-      const decision = (["pending", "approve", "redirect", "stop"] as const).find((x) => x === data.decision) ?? "pending";
+      const decision = (["pending", "approve", "continue", "redirect", "stop"] as const).find((x) => x === data.decision) ?? "pending";
       const ts = typeof data.ended === "string" && data.ended ? data.ended : typeof data.started === "string" ? data.started : undefined;
       const createdAt = ts && !Number.isNaN(Date.parse(ts)) ? new Date(ts).toISOString() : undefined;
       const author = authorFor(r.desk);
@@ -117,7 +117,6 @@ export function importV0(world: World, dirIn: string, opts: ImportV0Options = {}
         buildingId: building.id, tags: ["v0-import", `desk:${r.desk}`, `run:${data.run ?? basename(r.file, ".md")}`], createdAt, ...author,
       }, `Imported report "${heading(body) ?? r.file}"`);
       add(r.file, doc);
-      if (decision === "pending" && author.authorKind === "agent") world.setStatus(author.authorId, "awaiting-review");
       if (decision === "stop" && author.authorKind === "agent") world.setStatus(author.authorId, "stopped");
     }
 

@@ -1,6 +1,7 @@
 /**
  * @agent-town/runtime — resident work sessions (Claude Agent SDK over the town MCP endpoint),
- * moderator review sessions, meeting summaries + facilitation, proxy chat, interrupts, scheduler.
+ * reviewer sessions over the in-tray, meeting summaries + facilitation, proxy chat, interrupts, scheduler,
+ * startup reconcile, dismissal (onAgentRetired).
  */
 import { slugify, type World } from "@agent-town/core";
 import { DesksConfig, type ChatInput, type DeskActivityInput, type Event, type Session } from "@agent-town/schema";
@@ -16,7 +17,7 @@ export { describeTool } from "./describe.ts";
 export { prompts } from "@agent-town/core";
 export { DockerBackend, HostBackend, realDockerRunner, type DeskBackend, type DeskChild, type DeskHandle, type DockerRunner, type RunResult, type SpawnedChild, type WorkBackend, type LineSink } from "./desk/backend.ts";
 export { deskEnv, portOf, type DeskSessionOptions } from "./desk/session.ts";
-export type { WorkOutcome } from "./work.ts";
+export { mergeLine, type WorkOutcome } from "./work.ts";
 export { InputChannel, oneShot, realSdk, usageOf, userMessage, type QueryHandle, type QueryParams, type Sdk } from "./sdk.ts";
 export { DISALLOWED_TOOLS, TOWN_TOOLS, WEB_TOOLS } from "./session.ts";
 export { COLLECTING_MS } from "./meetings.ts";
@@ -68,6 +69,13 @@ export interface Runtime {
   finishWorkSession(sessionId: string, outcome: WorkOutcome): Promise<Session>;
   /** The backend work sessions use (resolves once `auto` has probed docker). */
   backend(): Promise<"host" | "docker">;
+  /**
+   * An agent was dismissed (core `ops.dismissAgent` already ran): abort its live session and `docker rm -f` its
+   * desk container. The home volume is kept unless `purge`.
+   */
+  onAgentRetired(agentId: string, opts?: { purge?: boolean }): Promise<void>;
+  /** What the startup reconcile did (orphaned sessions ended, active assignments re-queued). */
+  readonly reconciled: { orphanedSessions: string[]; requeuedAssignments: string[] };
 }
 
 const HOUR_MS = 3_600_000;
@@ -95,6 +103,16 @@ export function startRuntime(opts: RuntimeOptions): Runtime {
   let lastExport = startedAt;
   let stopped = false;
   const log = (what: string) => (e: unknown) => console.log(`[runtime] ${what}:`, e instanceof Error ? e.message : e);
+
+  // A fresh runtime has no live children: running Session rows are orphans from a previous process, and their
+  // active assignments go back to pending so the scheduler picks them up again.
+  let reconciled: Runtime["reconciled"] = { orphanedSessions: [], requeuedAssignments: [] };
+  try {
+    reconciled = world.ops.reconcile(ctx.live.keys());
+    if (reconciled.orphanedSessions.length || reconciled.requeuedAssignments.length) {
+      console.log(`[runtime] reconcile: ended ${reconciled.orphanedSessions.length} orphaned session(s), ${reconciled.requeuedAssignments.length} assignment(s) back to pending`);
+    }
+  } catch (e) { log("reconcile")(e); }
 
   /** Run `fn` after the current (possibly transactional) event dispatch, tracked. */
   const later = (fn: () => Promise<unknown>, what: string) => {
@@ -164,7 +182,7 @@ export function startRuntime(opts: RuntimeOptions): Runtime {
   }
 
   function scheduleReviews(): void {
-    const ids = world.buildings.where("reviewPolicy = 'moderator'").map((b) => b.id);
+    const ids = world.buildings.where("reviewPolicy = 'reviewer'").map((b) => b.id);
     for (const bid of ids) {
       for (const d of world.docs.where("type = 'report' AND decision = 'pending' AND buildingId = ?", [bid], "ORDER BY createdAt")) {
         if (!reviewed.has(d.id)) void track(maybeReview(ctx, reviewed, d.id).catch(log("review")));
@@ -236,5 +254,13 @@ export function startRuntime(opts: RuntimeOptions): Runtime {
     onDeskActivity: (agentId, input) => onDeskActivity(ctx, agentId, input),
     finishWorkSession: (sessionId, outcome) => finishWorkSession(ctx, sessionId, outcome),
     backend: () => backendReady.then((b) => b.kind),
+    async onAgentRetired(agentId, o = {}) {
+      abortWork(ctx, agentId, 0);
+      const b = await backendReady;
+      if (b.kind === "docker" && b.remove) {
+        try { await b.remove(agentId, { purge: !!o.purge }); } catch (e) { log(`remove desk of ${agentId}`)(e); }
+      }
+    },
+    get reconciled() { return reconciled; },
   };
 }

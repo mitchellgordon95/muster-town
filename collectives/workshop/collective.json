@@ -4,6 +4,12 @@
   "goalNote": "Placeholder name and goal set 2026-10-19; Mitchell wants a better name.",
   "tagline": "publicly legible, collectively funded agent town for building Agent Town",
   "port": 4322,
+  "moderators": [
+    {
+      "name": "Harbor",
+      "sprite": 2
+    }
+  ],
   "buildings": [
     {
       "id": "workshop",
@@ -15,7 +21,8 @@
       "workspace": {
         "path": "../..",
         "base": "main",
-        "branchPrefix": "agent"
+        "branchPrefix": "agent",
+        "merge": "human"
       },
       "residents": [
         {
@@ -37,7 +44,7 @@
           "direction": "What Agent Town should become: the public collective, donations, onboarding, governance. Read docs/design.md and the survey, write proposals as library articles, keep README and docs true to the code, and turn agreed proposals into assignments for Pix and Root via meetings."
         }
       ],
-      "moderator": {
+      "reviewer": {
         "name": "Keel",
         "sprite": 7,
         "direction": "Review Workshop reports: the PR exists, is small, typechecks, has tests or a screenshot, and the report says how it was verified. Redirect anything that touches main directly or lacks verification. Facilitate meetings."

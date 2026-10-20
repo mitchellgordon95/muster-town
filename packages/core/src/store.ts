@@ -22,6 +22,10 @@ export class Memberships {
   forHolder(holderKind: "agent" | "user", holderId: string): Membership[] {
     return this.db.prepare("SELECT * FROM memberships WHERE holderKind = ? AND holderId = ?").all(holderKind, holderId) as Membership[];
   }
+  /** Remove every membership of a holder. Returns how many were removed. */
+  removeAll(holderKind: "agent" | "user", holderId: string): number {
+    return this.db.prepare("DELETE FROM memberships WHERE holderKind = ? AND holderId = ?").run(holderKind, holderId).changes;
+  }
   forRole(roleId: string): Membership[] {
     return this.db.prepare("SELECT * FROM memberships WHERE roleId = ?").all(roleId) as Membership[];
   }
@@ -47,6 +51,10 @@ export class Tokens {
   }
   revoke(token: string): void {
     this.db.prepare("DELETE FROM tokens WHERE token = ?").run(token);
+  }
+  /** Revoke every token of a holder. Returns how many were removed. */
+  revokeAll(kind: TokenKind, id: string): number {
+    return this.db.prepare("DELETE FROM tokens WHERE kind = ? AND id = ?").run(kind, id).changes;
   }
 }
 

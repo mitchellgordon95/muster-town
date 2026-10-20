@@ -124,7 +124,7 @@ describe("runSession", () => {
   });
 
   it("runs workspace setup and uses its dir as cwd", async () => {
-    const ws = { repoUrl: "https://example.com/r.git", base: "main", branch: "agent/ada/co2", branchPrefix: "agent", dir: "/home/agent/work/r" };
+    const ws = { repoUrl: "https://example.com/r.git", base: "main", branch: "agent/ada/co2", branchPrefix: "agent", dir: "/home/agent/work/r", merge: "human" as const, checks: [] };
     town.briefs.set("s1", brief("s1", { workspace: ws }));
     const sdk = fakeSdk(async function* () { yield assistant({ type: "text", text: "ok" }); });
     const seen: unknown[] = [];

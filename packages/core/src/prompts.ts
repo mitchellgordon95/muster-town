@@ -13,7 +13,7 @@ export const WORLD_RULES = `How the town works:
 - \`go\` walks your body to a place (walking is free). \`say\` is heard only within 3 tiles. \`tell\` sends a direct message; use it sparingly, only when a colleague needs to know something now.
 - Use \`write\` for source cards (type "source": what the source says, separate from your analysis, with its URL in provenance) and articles. Publish to the board with state "building" when it's useful to others.
 - A human may interrupt you mid-session with a message; treat it as direction from your building's manager.
-- Finish with \`submit_report\`. It is mandatory, it must be your last action, and your session ends after it.`;
+- Finish with \`submit_report\`. It is mandatory, it must be your last action, and your session ends after it. The report goes to your manager's in-tray and you go idle; you work again when someone gives you an assignment.`;
 
 export const RESEARCH_RULES = `Research rules:
 - Sources first: primary sources (agency data, IPCC, Global Carbon Budget, peer-reviewed papers) over secondary. Cite every source you rely on in provenance.
@@ -52,8 +52,8 @@ ${assignment.description}${prev}
 Start with \`look\`, then the board. End with \`submit_report\`.`;
 }
 
-export function reviewSystemPrompt(moderator: Agent, building: Building): string {
-  return `You are ${moderator.name}, the moderator of the ${building.name}. You review residents' session reports with the \`review\` tool (mcp__town__review). You may \`read\`, \`board\` and \`search\` to check claims and duplication. Do not do research yourself. Do not call submit_report.
+export function reviewSystemPrompt(reviewer: Agent, building: Building): string {
+  return `You are ${reviewer.name}, the reviewer of the ${building.name}. You work the building's in-tray: residents' session reports, decided with the \`review\` tool (mcp__town__review). You may \`read\`, \`board\` and \`search\` to check claims and duplication. Do not do research yourself. Do not call submit_report.
 
 Criteria:
 1. Sources present: claims are backed by cited sources (provenance or links).
@@ -61,7 +61,12 @@ Criteria:
 3. The proposal is one concrete question that serves the building goal.
 4. It doesn't duplicate work already on the board.
 
-Decide: "approve" if it meets the criteria; "redirect" with a specific, actionable note when it is fixable (the note becomes part of the next assignment); "stop" when the direction is exhausted or off-goal. Call \`review\` exactly once, then stop.`;
+Decide (agents only work when given an assignment, so your decision is what keeps them going):
+- "continue" if it meets the criteria and its proposal should be the author's next assignment.
+- "approve" to acknowledge a sound report that needs no follow-up (no new assignment).
+- "redirect" with a specific, actionable note when it is fixable or the proposal is off; the note becomes the next assignment.
+- "stop" when the direction is exhausted or off-goal.
+Call \`review\` exactly once, then stop.`;
 }
 
 export function reviewPrompt(report: Doc, author: Agent, assignment: Assignment | undefined, building: Building, board: Doc[]): string {
@@ -197,7 +202,10 @@ export function deskWorkspace(building: Building, agent: Agent, assignment: Assi
   const ws = building.workspace;
   if (!ws?.repoUrl) return undefined;
   const branch = `${ws.branchPrefix}/${branchSlug(agent.name, 20)}/${branchSlug(assignment?.title ?? "work")}`;
-  return { repoUrl: httpsRepoUrl(ws.repoUrl), base: ws.base, branch, branchPrefix: ws.branchPrefix, dir: `/home/agent/work/${repoNameOf(ws.repoUrl)}` };
+  return {
+    repoUrl: httpsRepoUrl(ws.repoUrl), base: ws.base, branch, branchPrefix: ws.branchPrefix, dir: `/home/agent/work/${repoNameOf(ws.repoUrl)}`,
+    merge: ws.merge ?? "human", checks: ws.checks ?? ["npm run typecheck", "npm test"],
+  };
 }
 
 /** The agent's latest report (any decision), for "your previous report" in the work prompt. */

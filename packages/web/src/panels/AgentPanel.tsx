@@ -21,7 +21,7 @@ export function AgentPanel({ id, tab }: { id: string; tab?: string }) {
   if (!agent) return <PanelShell title="Unknown agent"><Empty>This agent isn't in the town.</Empty></PanelShell>;
   const isService = agent.kind === "service", isHuman = agent.kind === "human";
   const tabs = isHuman ? ["Activity"] : isService ? ["Chat", "Activity"] : ["Activity", "Chat", "Session", "Reports", "Assignments"];
-  const defaultTab = isService ? "Chat" : agent.status === "awaiting-review" ? "Reports" : agent.status === "working" ? "Session" : "Activity";
+  const defaultTab = isService ? "Chat" : agent.status === "working" ? "Session" : "Activity";
   const building = buildings.find((b) => b.id === (agent.homeBuildingId ?? agent.buildingId));
   return (
     <PanelShell

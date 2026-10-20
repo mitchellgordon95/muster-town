@@ -25,7 +25,7 @@ export function bubbleFor(a: Agent, said: { text: string; at: number } | undefin
   if (said && now - said.at < 7000) return { text: said.text, tone: "speech" };
   switch (a.status) {
     case "working": return { text: a.activity || "working…", tone: "work" };
-    case "awaiting-review": return { text: "Report ready for review", tone: "warn" };
+    // TODO(web): v1.2 removed "awaiting-review"; badge the manager's desk with building.intray instead
     case "out-of-budget": return { text: "Out of budget", tone: "bad" };
     case "stopped": return { text: "Stopped", tone: "bad" };
     case "banned": return { text: "Banned", tone: "bad" };

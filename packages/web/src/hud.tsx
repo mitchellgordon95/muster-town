@@ -7,7 +7,8 @@ import { portraitUrl } from "./map/sprites";
 import type { Target } from "./map/renderer";
 import { isMock } from "./api";
 
-const ORDER: AgentStatus[] = ["working", "awaiting-review", "in-meeting", "walking", "idle", "out-of-budget", "stopped", "banned"];
+// TODO(web): v1.2 dropped "awaiting-review" (reports go to the in-tray; agents go idle); retired agents aren't in the snapshot.
+const ORDER: AgentStatus[] = ["working", "in-meeting", "walking", "idle", "out-of-budget", "stopped", "banned"];
 
 export function Hud() {
   const town = useTown((s) => s.town);
@@ -22,7 +23,7 @@ export function Hud() {
     for (const a of residents) c.set(a.status, (c.get(a.status) ?? 0) + 1);
     return ORDER.filter((s) => c.get(s)).map((s) => [s, c.get(s)!] as const);
   }, [residents]);
-  const review = residents.filter((a) => a.status === "awaiting-review");
+  const review: typeof residents = []; // TODO(web): v1.2 — "Needs your review" moves to the in-tray place (building.intray counts)
   const idle = useMemo(() => residents.filter((a) => a.kind === "resident" && a.status === "idle" && !a.currentAssignmentId
     && !Object.values(assignments).some((x) => x.agentId === a.id && (x.status === "pending" || x.status === "active"))), [residents, assignments]);
   if (!town) return null;

@@ -13,6 +13,22 @@ export const TOWN_HALL_SIZE = { w: 17, h: 11 } as const;
 export const MAX_HEADCOUNT = 3 * Math.floor((ROAD_Y - 2 - 6) / 3);
 
 export const TOWN_HALL_ID = "town-hall";
+/** Seats at the Town Hall mod station (town moderators' desks). */
+export const MOD_SEATS = 3;
+
+/** Town Hall fixtures, relative to its lot (17x11). Exported so tests and the web can reason about them. */
+export const TOWN_HALL_FIXTURES = {
+  /** mod station: desk tiles in the bottom-left; moderators sit on the row below */
+  modDesk: [{ x: 2, y: 8 }, { x: 3, y: 8 }, { x: 4, y: 8 }],
+  modSeats: [{ x: 2, y: 9 }, { x: 3, y: 9 }, { x: 4, y: 9 }],
+  modStand: { x: 5, y: 8 },
+  /** donation box left of the door corridor */
+  donation: { x: 6, y: 9 }, donationStand: { x: 7, y: 9 },
+  /** planning desk bottom-right */
+  planningDesk: [{ x: 12, y: 9 }, { x: 13, y: 9 }], planningStand: { x: 12, y: 8 },
+  /** schedule board next to the town meeting room table */
+  schedule: { x: 15, y: 6 }, scheduleStand: { x: 15, y: 7 },
+} as const;
 
 export function labSize(headcount: number): { w: number; h: number } {
   const n = Math.max(1, headcount);
@@ -104,6 +120,27 @@ export function computeLayout(buildings: Building[], occupancy: Map<string, Map<
     places.push({ id: `door:${b.id}`, kind: "door", name: `${b.name} door`, buildingId: b.id, pos: door });
 
     if (b.kind === "town-hall") {
+      const F = TOWN_HALL_FIXTURES;
+      const at = (p: { x: number; y: number }) => ({ x: x0 + p.x, y: y0 + p.y });
+      for (const p of F.modDesk) set(x0 + p.x, y0 + p.y, TILE.DESK);
+      for (const p of F.planningDesk) set(x0 + p.x, y0 + p.y, TILE.DESK);
+      set(x0 + F.donation.x, y0 + F.donation.y, TILE.DONATION);
+      set(x0 + F.schedule.x, y0 + F.schedule.y, TILE.SCHEDULE);
+      // mod-station seats are the Town Hall's desks (town moderators)
+      const occ = occupancy.get(b.id) ?? new Map<number, string>();
+      const seats: DeskSlot[] = F.modSeats.map((p, n) => ({ buildingId: b.id, n, pos: at(p), agentId: occ.get(n) ?? null }));
+      desks.set(b.id, seats);
+      for (const s of seats) {
+        places.push(s.agentId
+          ? { id: `desk:${s.agentId}`, kind: "desk", name: `${names.get(s.agentId) ?? s.agentId}'s seat at the mod station`, buildingId: b.id, pos: s.pos }
+          : { id: `desk:free:${b.id}:${s.n}`, kind: "desk", name: "Free mod station seat", buildingId: b.id, pos: s.pos });
+      }
+      places.push(
+        { id: "mod-station", kind: "mod-station", name: "Mod station", buildingId: b.id, pos: at(F.modStand) },
+        { id: "planning-desk", kind: "planning", name: "Planning desk", buildingId: b.id, pos: at(F.planningStand) },
+        { id: "donation-box", kind: "donation", name: "Donation box", buildingId: b.id, pos: at(F.donationStand) },
+        { id: "schedule-board", kind: "schedule", name: "Schedule board", buildingId: b.id, pos: at(F.scheduleStand) },
+      );
       for (let x = 2; x <= 6; x++) set(x0 + x, y0 + 2, TILE.SHELF);
       for (let x = 10; x <= 14; x++) set(x0 + x, y0 + 2, TILE.TROPHY);
       for (let x = 2; x <= 5; x++) set(x0 + x, y0 + 6, TILE.COUNTER);
@@ -136,6 +173,14 @@ export function computeLayout(buildings: Building[], occupancy: Map<string, Map<
         : { id: `desk:free:${b.id}:${i}`, kind: "desk", name: "Free desk", buildingId: b.id, pos });
     }
     desks.set(b.id, slots);
+    // the building board: a wall tile on the top wall, left of center; read it standing below
+    const boardX = x0 + Math.floor(bw / 2) - 2;
+    set(boardX, y0, TILE.BOARD);
+    places.push({ id: `board:${b.id}`, kind: "board", name: `${b.name} board`, buildingId: b.id, pos: { x: boardX, y: y0 + 1 } });
+    // the manager's desk (in-tray): top-right, one tile, stand below it
+    const mx = x0 + bw - 2, my = y0 + 2;
+    set(mx, my, TILE.MANAGER_DESK);
+    places.push({ id: `intray:${b.id}`, kind: "intray", name: `${b.name} in-tray (manager's desk)`, buildingId: b.id, pos: { x: mx, y: my + 1 } });
     // meeting table bottom-right, plant bottom-left
     const yMeet = y0 + bh - 4;
     for (let x = bw - 5; x <= bw - 3; x++) set(x0 + x, yMeet, TILE.TABLE);

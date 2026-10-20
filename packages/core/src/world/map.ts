@@ -2,7 +2,7 @@ import type { Building, Place, Tile } from "@agent-town/schema";
 import type { DB } from "../db.ts";
 import { AppError, notFound } from "../errors.ts";
 import type { Repos } from "../store.ts";
-import { assignLots, computeLayout, type DeskSlot, type Grid } from "./layout.ts";
+import { assignLots, computeLayout, MOD_SEATS, type DeskSlot, type Grid } from "./layout.ts";
 import { isWalkable } from "./path.ts";
 
 /** World geometry service: `world.layout`. Rebuilt whenever buildings or desk occupancy change. */
@@ -69,7 +69,9 @@ export class WorldMap {
     const taken = new Set((this.db.prepare("SELECT n FROM desks WHERE buildingId = ?").all(buildingId) as { n: number }[]).map((r) => r.n));
     let n = 0;
     while (taken.has(n)) n++;
-    if (n >= b.headcount) throw new AppError("conflict", `${b.name} has no free desk (headcount ${b.headcount}).`);
+    // Town Hall's desks are the mod-station seats
+    const capacity = b.kind === "town-hall" ? MOD_SEATS : b.headcount;
+    if (n >= capacity) throw new AppError("conflict", `${b.name} has no free desk (${b.kind === "town-hall" ? "mod station seats" : "headcount"} ${capacity}).`);
     this.db.prepare("INSERT INTO desks (buildingId, n, agentId) VALUES (?, ?, ?)").run(buildingId, n, agentId);
     this.rebuild();
     return this.deskOf(agentId)!;

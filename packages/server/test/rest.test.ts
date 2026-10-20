@@ -104,7 +104,7 @@ describe("buildings & agents", () => {
 });
 
 describe("docs & review", () => {
-  it("lists Ravi's imported report and reviews it (approve → next assignment)", async () => {
+  it("lists Ravi's imported report and reviews it (continue → next assignment; approve → none)", async () => {
     const { app, auth, by, world } = await setup();
     const ravi = by("Ravi");
     expect(ravi).toBeTruthy();
@@ -115,9 +115,13 @@ describe("docs & review", () => {
     // make it reviewable regardless of the decision it was imported with
     world.docs.patch(report.id, { decision: "pending" });
     const before = world.assignments.count("agentId = ?", [ravi.id]);
-    const r = await json(app, "POST", `/api/docs/${report.id}/review`, { headers: auth, body: { decision: "approve", note: "good" } });
+    const bad = await json(app, "POST", `/api/docs/${report.id}/review`, { headers: auth, body: { decision: "moderate" } });
+    expect(bad.status).toBe(400);
+    const noNote = await json(app, "POST", `/api/docs/${report.id}/review`, { headers: auth, body: { decision: "redirect" } });
+    expect(noNote.status).toBe(400);
+    const r = await json(app, "POST", `/api/docs/${report.id}/review`, { headers: auth, body: { decision: "continue", note: "good" } });
     expect(r.status).toBe(200);
-    expect(r.body.doc.decision).toBe("approve");
+    expect(r.body.doc.decision).toBe("continue");
     expect(r.body.assignment).toMatchObject({ agentId: ravi.id, status: "pending", fromReportId: report.id });
     expect(world.assignments.count("agentId = ?", [ravi.id])).toBe(before + 1);
 
@@ -158,7 +162,7 @@ describe("meetings, roles, budget, events, human moves", () => {
     expect(roles.body.roles.length).toBeGreaterThan(0);
     expect(roles.body.memberships.length).toBeGreaterThan(0);
     const mei = by("Mei");
-    const m = { roleId: roles.body.roles.find((r: any) => r.name === "moderator" && r.buildingId === "carbon-cycle").id, holderKind: "agent", holderId: mei.id };
+    const m = { roleId: roles.body.roles.find((r: any) => r.name === "reviewer" && r.buildingId === "carbon-cycle").id, holderKind: "agent", holderId: mei.id };
     expect((await json(app, "POST", "/api/roles/assign", { headers: auth, body: m })).status).toBe(200);
     expect((await json(app, "DELETE", "/api/roles/assign", { headers: auth, body: m })).status).toBe(200);
 

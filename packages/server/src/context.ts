@@ -12,7 +12,9 @@ export interface RuntimeHooks {
   /** A desk reported activity: append `agent.tool`/`agent.thought`/`agent.activity` events (payload.sessionId). */
   onDeskActivity?(agentId: string, input: DeskActivityInput): Promise<unknown> | unknown;
   /** End a work session (desk session-end): fallback report, status, charge. Idempotent. */
-  finishWorkSession?(sessionId: string, outcome: { tokens?: number; costUsd?: number; turns?: number; sdkSessionId?: string | null; finalText?: string | null; error?: string | null; reportSubmitted?: boolean }): Promise<Session>;
+  finishWorkSession?(sessionId: string, outcome: { tokens?: number; costUsd?: number; turns?: number; sdkSessionId?: string | null; finalText?: string | null; error?: string | null; reportSubmitted?: boolean; merged?: boolean; prNumber?: number }): Promise<Session>;
+  /** An agent was dismissed (core already retired it): abort its session, `docker rm -f` its desk (volume kept unless purge). */
+  onAgentRetired?(agentId: string, opts?: { purge?: boolean }): Promise<unknown> | unknown;
   /** A meeting moved to `discussing` via REST: run the facilitator. */
   onMeetingStart?(meetingId: string): Promise<unknown> | unknown;
   /** An agent was stopped via REST: abort its running session, if any. */

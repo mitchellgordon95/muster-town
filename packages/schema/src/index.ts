@@ -39,10 +39,12 @@ export const Permission = z.enum([
   "town.allocate_budget",    // move donated tokens between buildings
   "town.approve_trophy",     // accept a trophy proposal
   "town.approve_request",    // make an outbox request visible to humans
+  "town.ban",                // ban an agent (town-wide; misuse prevention)
+  "town.moderate",           // moderator station: review requests, trophy proposals, bans
   "building.manage",         // edit goal/description/policies, assign building roles
   "building.assign",         // create assignments for agents in the building
-  "building.review",         // approve/redirect/stop reports
-  "building.ban",            // ban an agent from the building (pending manager review)
+  "building.review",         // acknowledge/continue/redirect/stop reports (the in-tray)
+  "building.dismiss",        // dismiss (retire) a resident of the building
   "building.promote",        // promote a doc from building -> library
   "doc.write_building",      // publish own docs to the building board
   "doc.propose_trophy",
@@ -68,17 +70,17 @@ export type Role = z.infer<typeof Role>;
 export const BUILTIN_ROLES = {
   town: {
     admin: Permission.options, // everything
+    /** collective-wide misuse prevention; seated at the Town Hall mod station */
+    moderator: ["town.approve_trophy", "town.approve_request", "town.ban", "town.moderate"] as Permission[],
     visitor: ["meeting.attend"] as Permission[],
   },
   building: {
     manager: [
-      "building.manage", "building.assign", "building.review", "building.ban", "building.promote",
+      "building.manage", "building.assign", "building.review", "building.promote", "building.dismiss",
       "doc.write_building", "doc.propose_trophy", "doc.request_human", "meeting.facilitate", "meeting.attend",
     ] as Permission[],
-    moderator: [
-      "building.review", "building.ban", "building.promote", "building.assign",
-      "doc.write_building", "doc.propose_trophy", "meeting.attend",
-    ] as Permission[],
+    /** works the building's in-tray when reviewPolicy is `reviewer` */
+    reviewer: ["building.review", "building.assign", "meeting.facilitate", "meeting.attend", "doc.write_building"] as Permission[],
     member: ["doc.write_building", "doc.propose_trophy", "doc.request_human", "meeting.attend"] as Permission[],
   },
 } as const;
@@ -92,7 +94,9 @@ export const Membership = z.object({
 export type Membership = z.infer<typeof Membership>;
 
 // ---------- buildings ----------
-export const ReviewPolicy = z.enum(["human", "moderator", "auto"]);
+/** human: the manager works the in-tray; reviewer: the building's reviewer agent does; auto: every report is acknowledged on arrival. */
+export const ReviewPolicy = z.enum(["human", "reviewer", "auto"]);
+export type ReviewPolicy = z.infer<typeof ReviewPolicy>;
 export const MeetingCadence = z.object({
   kind: z.enum(["standup", "retro", "planning"]),
   /** minutes between meetings; 0 = manual only */
@@ -117,6 +121,10 @@ export const Workspace = z.object({
   base: z.string().default("main"),
   /** clone URL desks use (set at seed from `git remote get-url origin` of `path`, or given directly) */
   repoUrl: z.string().optional(),
+  /** human: PRs stay draft for a human; green: the desk readies + squash-merges its PR when every check passes */
+  merge: z.enum(["human", "green"]).default("human"),
+  /** commands run in the checkout before a green merge */
+  checks: z.array(z.string()).default(["npm run typecheck", "npm test"]),
 });
 export type Workspace = z.infer<typeof Workspace>;
 
@@ -161,7 +169,9 @@ export type Allocation = z.infer<typeof Allocation>;
 // ---------- agents (bodies in the world) ----------
 export const AgentKind = z.enum(["resident", "visitor", "human", "service"]);
 export const AgentStatus = z.enum([
-  "idle", "walking", "working", "in-meeting", "awaiting-review", "out-of-budget", "stopped", "banned",
+  "idle", "walking", "working", "in-meeting", "out-of-budget", "stopped", "banned",
+  /** dismissed: row kept so documents keep their author; hidden from the snapshot */
+  "retired",
 ]);
 export type AgentStatus = z.infer<typeof AgentStatus>;
 
@@ -195,9 +205,24 @@ export const Agent = z.object({
 export type Agent = z.infer<typeof Agent>;
 
 // ---------- places (named points on the map) ----------
-export const PlaceKind = z.enum(["desk", "door", "library", "trophy-room", "outbox", "meeting-room", "plaza"]);
+export const PlaceKind = z.enum([
+  "desk", "door", "library", "trophy-room", "outbox", "meeting-room", "plaza",
+  /** board:<buildingId> — wall board inside each lab */
+  "board",
+  /** intray:<buildingId> — the manager's desk (pending reports) */
+  "intray",
+  /** mod-station — Town Hall desk where town moderators sit */
+  "mod-station",
+  /** planning-desk — Town Hall: create buildings, add/dismiss residents, roles */
+  "planning",
+  /** donation-box — Town Hall */
+  "donation",
+  /** schedule-board — Town Hall: upcoming meetings for every building */
+  "schedule",
+]);
+export type PlaceKind = z.infer<typeof PlaceKind>;
 export const Place = z.object({
-  id: Id,                 // e.g. "desk:<agentId>", "door:<buildingId>", "library", "meeting-room:<buildingId>"
+  id: Id,                 // e.g. "desk:<agentId>", "door:<buildingId>", "library", "meeting-room:<buildingId>", "board:<buildingId>", "intray:<buildingId>", "mod-station"
   kind: PlaceKind,
   name: z.string(),
   buildingId: Id.nullable(),
@@ -222,7 +247,15 @@ export const DocState = z.enum(["draft", "building", "library", "trophy"]);
 export type DocState = z.infer<typeof DocState>;
 
 export const Verdict = z.enum(["continue", "pivot", "stop"]);
-export const Decision = z.enum(["pending", "approve", "redirect", "stop"]);
+/**
+ * pending = in the in-tray. approve = acknowledged (no assignment). continue = acknowledged + assignment from the
+ * report's Proposal. redirect = acknowledged + assignment from the manager's note. stop = acknowledged + agent stopped.
+ */
+export const Decision = z.enum(["pending", "approve", "continue", "redirect", "stop"]);
+export type Decision = z.infer<typeof Decision>;
+/** Decisions a reviewer can make (everything but pending). */
+export const ReviewDecision = z.enum(["approve", "continue", "redirect", "stop"]);
+export type ReviewDecision = z.infer<typeof ReviewDecision>;
 export const RequestStatus = z.enum(["proposed", "approved", "claimed", "done", "rejected"]);
 
 export const Provenance = z.object({
@@ -373,7 +406,7 @@ export type Interrupt = z.infer<typeof Interrupt>;
 // ---------- events (append-only activity log) ----------
 export const EventType = z.enum([
   "agent.created", "agent.moved", "agent.status", "agent.activity", "agent.said", "agent.told",
-  "agent.tool", "agent.thought", "agent.banned",
+  "agent.tool", "agent.thought", "agent.banned", "agent.retired",
   "doc.created", "doc.updated", "doc.state", "doc.decision",
   "assignment.created", "assignment.status",
   "meeting.created", "meeting.phase", "meeting.utterance", "meeting.decisions",
@@ -430,7 +463,7 @@ export const VerbInputs = {
     decisions: z.array(MeetingDecision).optional(),
   }),
   // permissioned
-  review: z.object({ docId: Id, decision: z.enum(["approve", "redirect", "stop"]), note: z.string().default("") }),
+  review: z.object({ docId: Id, decision: ReviewDecision.describe("approve = acknowledge only; continue = next assignment from the report's Proposal; redirect = next assignment from your note (required); stop = stop the agent"), note: z.string().default("") }),
   assign: z.object({ agentId: Id, title: z.string(), description: z.string() }),
   promote: z.object({ docId: Id, state: z.enum(["building", "library"]) }),
   ban: z.object({ agentId: Id, reason: z.string() }),
@@ -448,16 +481,16 @@ export const VERB_DESCRIPTIONS: Record<VerbName, string> = {
   search: "Full-text search over documents I can see (library, my building's board, my drafts).",
   read: "Read one document by id.",
   write: "Create or update a document. Drafts are private; state 'building' publishes to my building's board.",
-  submit_report: "End my work session with a report. Required at the end of every session. The building's review policy decides whether I continue.",
+  submit_report: "End my work session with a report. Required at the end of every session. The report goes to my manager's in-tray and I go idle until someone gives me a new assignment.",
   propose_trophy: "Propose a library document for the trophy room (collective approval needed).",
   request_human: "Put a request in the town outbox for a human to do something in the real world (observe, fetch data, contact someone). A moderator approves it before humans see it.",
   assignments: "List my assignments.",
   accept_assignment: "Accept a pending assignment; it becomes my current task.",
   meeting: "Participate in a meeting: 'summary' submits my three-line summary, 'speak' adds to the transcript, 'listen' returns new utterances since my last listen, 'decide'/'end' are for the facilitator.",
-  review: "(manager/moderator) Approve, redirect (with note), or stop an agent's report.",
-  assign: "(manager/moderator) Create an assignment for an agent in my building.",
-  promote: "(manager/moderator) Promote a document to the building board or the library.",
-  ban: "(manager/moderator) Ban an agent from the building pending manager review.",
+  review: "(manager/reviewer) Decide on a pending report in the in-tray: approve (acknowledge), continue (assign its proposal), redirect (assign your note instead), or stop the agent.",
+  assign: "(manager/reviewer) Create an assignment for an agent in my building.",
+  promote: "(manager) Promote a document to the building board or the library.",
+  ban: "(town moderator) Ban an agent town-wide pending review.",
 };
 
 // ---------- verb results (what the LLM sees) ----------
@@ -472,14 +505,21 @@ export const LookResult = z.object({
 export type LookResult = z.infer<typeof LookResult>;
 
 // ---------- WebSocket protocol ----------
+/**
+ * A building as the snapshot / WS `building` message carries it: plus `intray`, the count of its pending reports
+ * (derived, not stored; the map badges the manager's desk with it).
+ */
+export const SnapshotBuilding = Building.extend({ intray: z.number().int().nonnegative().default(0) });
+export type SnapshotBuilding = z.infer<typeof SnapshotBuilding>;
+
 export const ServerMessage = z.discriminatedUnion("type", [
-  z.object({ type: z.literal("snapshot"), avatarAgentId: Id.optional(), town: Town, buildings: z.array(Building), agents: z.array(Agent), places: z.array(Place), grid: z.object({ w: z.number(), h: z.number(), /** row-major tile kinds */ tiles: z.array(z.number()) }), meetings: z.array(Meeting) }),
+  z.object({ type: z.literal("snapshot"), avatarAgentId: Id.optional(), town: Town, buildings: z.array(SnapshotBuilding), agents: z.array(Agent), places: z.array(Place), grid: z.object({ w: z.number(), h: z.number(), /** row-major tile kinds */ tiles: z.array(z.number()) }), meetings: z.array(Meeting) }),
   z.object({ type: z.literal("event"), event: Event }),
   z.object({ type: z.literal("agent"), agent: Agent }),
   z.object({ type: z.literal("agents.pos"), positions: z.array(z.object({ id: Id, x: z.number(), y: z.number(), status: AgentStatus })) }),
   z.object({ type: z.literal("doc"), doc: Doc }),
   z.object({ type: z.literal("meeting"), meeting: Meeting }),
-  z.object({ type: z.literal("building"), building: Building }),
+  z.object({ type: z.literal("building"), building: Building.extend({ intray: z.number().int().nonnegative().optional() }) }),
   z.object({ type: z.literal("assignment"), assignment: Assignment }),
   z.object({ type: z.literal("error"), message: z.string() }),
 ]);
@@ -494,7 +534,15 @@ export const ClientMessage = z.discriminatedUnion("type", [
 export type ClientMessage = z.infer<typeof ClientMessage>;
 
 /** Tile kinds in the grid (row-major numbers). */
-export const TILE = { GRASS: 0, PATH: 1, FLOOR: 2, WALL: 3, DESK: 4, SHELF: 5, PLANT: 6, DOOR: 7, TABLE: 8, COUNTER: 9, TROPHY: 10 } as const;
+export const TILE = {
+  GRASS: 0, PATH: 1, FLOOR: 2, WALL: 3, DESK: 4, SHELF: 5, PLANT: 6, DOOR: 7, TABLE: 8, COUNTER: 9, TROPHY: 10,
+  /** a desk with a tray glyph: the manager's desk (in-tray) in each lab */
+  MANAGER_DESK: 11,
+  /** wall-mounted board (labs: the building board; Town Hall: the schedule board uses SCHEDULE) */
+  BOARD: 12,
+  DONATION: 13,
+  SCHEDULE: 14,
+} as const;
 export const WALKABLE = new Set<number>([TILE.GRASS, TILE.PATH, TILE.FLOOR, TILE.DOOR]);
 
 // ---------- REST payloads ----------
@@ -502,7 +550,7 @@ export const CreateBuildingInput = Building.pick({ name: true, goal: true, descr
 export const UpdateBuildingInput = CreateBuildingInput.partial();
 export const CreateResidentInput = z.object({ buildingId: Id, name: z.string(), title: z.string(), direction: z.string(), sprite: z.number().int().optional(), model: z.string().optional() });
 export const RegisterVisitorInput = z.object({ name: z.string(), buildingId: Id.optional(), title: z.string().optional() });
-export const ReviewInput = z.object({ decision: z.enum(["approve", "redirect", "stop"]), note: z.string().default("") });
+export const ReviewInput = z.object({ decision: ReviewDecision, note: z.string().default("") });
 export const ChatInput = z.object({ message: z.string(), history: z.array(z.object({ role: z.enum(["user", "assistant"]), text: z.string() })).default([]) });
 export const InterruptInput = z.object({ text: z.string() });
 export const WorkInput = z.object({ title: z.string().optional(), description: z.string().optional() });
@@ -533,7 +581,8 @@ export const CollectiveBuildingSpec = z.object({
   /** workspace.path is relative to the collective dir */
   workspace: Workspace.optional(),
   residents: z.array(z.object({ name: z.string(), title: z.string(), direction: z.string(), sprite: z.number().int().optional(), model: z.string().optional() })).default([]),
-  moderator: z.object({ name: z.string(), sprite: z.number().int().optional(), direction: z.string().optional() }).optional(),
+  /** the building's reviewer agent (role `reviewer`); works the in-tray when reviewPolicy is `reviewer` */
+  reviewer: z.object({ name: z.string(), sprite: z.number().int().optional(), direction: z.string().optional() }).optional(),
   /** house allocation for this building, in tokens */
   houseTokens: z.number().int().nonnegative().optional(),
 });
@@ -549,6 +598,8 @@ export type DesksConfig = z.infer<typeof DesksConfig>;
 export const CollectiveConfig = Town.extend({
   port: z.number().int().positive().optional(),
   desks: DesksConfig.optional(),
+  /** town moderators: Town Hall residents holding the town `moderator` role, seated at the mod station */
+  moderators: z.array(z.object({ name: z.string(), sprite: z.number().int().optional(), direction: z.string().optional() })).default([]),
   buildings: z.array(CollectiveBuildingSpec).default([]),
 });
 export type CollectiveConfig = z.infer<typeof CollectiveConfig>;
@@ -562,6 +613,10 @@ export const DeskWorkspace = z.object({
   branchPrefix: z.string(),
   /** checkout dir inside the desk, /home/agent/work/<repoName> */
   dir: z.string(),
+  /** Workspace.merge: green → the desk readies and squash-merges its PR when every check passes */
+  merge: z.enum(["human", "green"]).default("human"),
+  /** Workspace.checks, run in `dir` before a green merge */
+  checks: z.array(z.string()).default([]),
 });
 export type DeskWorkspace = z.infer<typeof DeskWorkspace>;
 
@@ -611,5 +666,8 @@ export const DeskSessionEndInput = z.object({
   finalText: z.string().nullable().optional(),
   error: z.string().nullable().optional(),
   reportSubmitted: z.boolean().default(false),
+  /** merge=green: whether the desk merged its PR (absent when no merge was attempted) */
+  merged: z.boolean().optional(),
+  prNumber: z.number().int().positive().optional(),
 });
 export type DeskSessionEndInput = z.infer<typeof DeskSessionEndInput>;

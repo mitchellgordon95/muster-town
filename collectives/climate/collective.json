@@ -4,10 +4,16 @@
   "goalNote": "Placeholder headline set at bootstrap. Edit town.json to change it. Current level is about 427 ppm (2025 annual mean, NOAA); 350 ppm is the 350.org safe-level target.",
   "tagline": "publicly legible, collectively funded agent town for climate science",
   "port": 4321,
+  "moderators": [
+    {
+      "name": "Wren",
+      "sprite": 6
+    }
+  ],
   "buildings": [
     {
       "import": "../../buildings/carbon-cycle",
-      "moderator": {
+      "reviewer": {
         "name": "Moss",
         "sprite": 7
       },

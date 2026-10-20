@@ -1,4 +1,4 @@
-import { Doc, type Agent, type Assignment, type Message } from "@agent-town/schema";
+import { Doc, type Agent, type Assignment, type Message, type ReviewDecision } from "@agent-town/schema";
 import { AppError } from "./errors.ts";
 import type { Holder } from "./permissions.ts";
 import { extractSection, firstLine, newId, nowIso, truncate } from "./util.ts";
@@ -73,30 +73,60 @@ export function extractProposal(body: string): { title: string; text: string } |
   return title ? { title, text } : null;
 }
 
+const DECISION_VERB: Record<ReviewDecision, string> = { approve: "Acknowledged", continue: "Continued", redirect: "Redirected", stop: "Stopped" };
+
 /**
- * Apply a review decision to a pending report. approve/redirect → next assignment from the
- * report's Proposal section; stop → author stopped. Shared by the `review` verb, REST, and auto policy.
+ * Apply a decision to a pending report (hub semantics). Every decision acknowledges the report.
+ * - approve: nothing else; no assignment.
+ * - continue: next assignment from the report's Proposal section (note appended).
+ * - redirect: next assignment from the note (required); the proposal is appended as context.
+ * - stop: author stopped; its pending/active assignments cancelled.
+ * Shared by the `review` verb, REST, the auto policy, and meeting decisions.
  */
-export function applyDecision(world: World, docId: string, decision: "approve" | "redirect" | "stop", note: string, decider: Holder | { kind: "system"; id: string }): { doc: Doc; assignment: Assignment | null } {
+export function applyDecision(world: World, docId: string, decision: ReviewDecision, note: string, decider: Holder | { kind: "system"; id: string }): { doc: Doc; assignment: Assignment | null } {
+  note = note.trim();
+  if (decision === "redirect" && !note) throw new AppError("bad_request", "Redirect needs a note: it becomes the next assignment.");
   const report = world.docs.require(docId, "doc");
   const doc = updateDoc(world, docId, { decision, decisionNote: note || undefined, decidedBy: decider.id, decidedAt: nowIso() });
   const author = world.agents.get(report.authorId);
-  world.events.append({ type: "doc.decision", agentId: author?.id ?? null, buildingId: doc.buildingId, text: `${decision === "approve" ? "Approved" : decision === "redirect" ? "Redirected" : "Stopped"}: "${doc.title}"${note ? ` (${truncate(note, 80)})` : ""}`, payload: { docId, decision, note, decidedBy: decider.id } });
+  world.events.append({ type: "doc.decision", agentId: author?.id ?? null, buildingId: doc.buildingId, text: `${DECISION_VERB[decision]}: "${doc.title}"${note ? ` (${truncate(note, 80)})` : ""}`, payload: { docId, decision, note, decidedBy: decider.id } });
   let assignment: Assignment | null = null;
-  if (!author) return { doc, assignment };
+  if (!author || decision === "approve") return { doc, assignment };
   if (decision === "stop") {
+    for (const a of world.assignments.where("agentId = ? AND status IN ('pending','active')", [author.id])) setAssignmentStatus(world, a.id, "cancelled");
+    if (author.currentAssignmentId) world.agents.patch(author.id, { currentAssignmentId: null });
     world.setStatus(author.id, "stopped", `${author.name} was stopped after review`);
-  } else {
-    const proposal = extractProposal(report.body);
-    const title = proposal?.title ?? `Continue: ${report.title}`;
-    const parts: string[] = [];
-    if (decision === "redirect" && note) parts.push(`Reviewer redirect: ${note}`);
-    parts.push(proposal ? `Proposal from your report "${report.title}":\n\n${proposal.text}` : `Continue from your report "${report.title}" (${report.id}); it had no Proposal section.`);
-    if (decision === "approve" && note) parts.push(`Reviewer note: ${note}`);
-    assignment = createAssignment(world, { agentId: author.id, title, description: parts.join("\n\n"), createdBy: decider, fromReportId: report.id });
-    if (author.status === "awaiting-review" || author.status === "stopped") world.setStatus(author.id, "idle");
+    return { doc, assignment };
   }
+  const proposal = extractProposal(report.body);
+  let title: string, description: string;
+  if (decision === "continue") {
+    title = proposal?.title ?? `Continue: ${report.title}`;
+    description = [
+      proposal ? `Proposal from your report "${report.title}":\n\n${proposal.text}` : `Continue from your report "${report.title}" (${report.id}); it had no Proposal section.`,
+      ...(note ? [`Manager's note: ${note}`] : []),
+    ].join("\n\n");
+  } else {
+    title = truncate(firstLine(note) || note, 120);
+    description = [
+      `Your manager redirected you after your report "${report.title}" (${report.id}):\n\n${note}`,
+      ...(proposal ? [`For context, your report proposed:\n\n${proposal.text}`] : []),
+    ].join("\n\n");
+  }
+  assignment = createAssignment(world, { agentId: author.id, title, description, createdBy: decider, fromReportId: report.id });
+  if (author.status === "stopped") world.setStatus(author.id, "idle");
   return { doc, assignment };
+}
+
+/** The building's in-tray: pending reports, oldest first. */
+export function intrayOf(world: World, buildingId: string): Doc[] {
+  return world.docs.where("type = 'report' AND decision = 'pending' AND buildingId = ?", [buildingId], "ORDER BY createdAt, rowid");
+}
+
+/** Pending-report counts by building id (buildings with none are absent). */
+export function intrayCounts(world: World): Map<string, number> {
+  const rows = world.db.prepare("SELECT buildingId, COUNT(*) AS n FROM docs WHERE type = 'report' AND decision = 'pending' AND buildingId IS NOT NULL GROUP BY buildingId").all() as { buildingId: string; n: number }[];
+  return new Map(rows.map((r) => [r.buildingId, r.n]));
 }
 
 /** Pending report check used by the review paths. */

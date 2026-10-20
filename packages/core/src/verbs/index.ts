@@ -27,6 +27,7 @@ export function makeVerbs(world: World): Verbs {
       const me = world.agents.get(typeof actor === "string" ? actor : actor.id);
       if (!me) throw new AppError("not_found", "Unknown agent.");
       if (me.status === "banned") throw new AppError("forbidden", "You are banned.");
+      if (me.status === "retired") throw new AppError("forbidden", "You were dismissed.");
       const impl = verbImpls[name] as (w: World, a: Agent, i: unknown) => Promise<unknown>;
       return impl(world, me, parsed.data);
     };

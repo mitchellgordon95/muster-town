@@ -16,7 +16,7 @@ export function createUser(world: World, name: string, opts: { id?: string } = {
 }
 
 /**
- * Create a building: built-in building roles (manager/moderator/member), creator gets `manager`,
+ * Create a building: built-in building roles (manager/reviewer/member), creator gets `manager`,
  * lot assigned, `building.created` event.
  */
 export function createBuilding(
@@ -77,6 +77,26 @@ export function createResident(world: World, input: In<typeof CreateResidentInpu
     const agent = world.agents.patch(id, { pos: desk.pos });
     world.permissions.grant(agent, buildingRoleId(b.id, "member"));
     world.events.append({ type: "agent.created", agentId: id, buildingId: b.id, text: `${agent.name} (${agent.title}) joined ${b.name}`, payload: { kind: "resident" } });
+    return agent;
+  });
+}
+
+/** A town moderator: a Town Hall resident holding the town `moderator` role, seated at the mod station. */
+export function createTownModerator(world: World, input: { name: string; sprite?: number; direction?: string; model?: string }): Agent {
+  const th = world.buildings.require(TOWN_HALL_ID, "building");
+  return world.transaction(() => {
+    const id = newId("ag");
+    world.agents.upsert(Agent.parse({
+      id, name: input.name, kind: "resident", buildingId: th.id, homeBuildingId: th.id, ownerUserId: th.createdBy ?? null,
+      title: "Moderator", sprite: input.sprite ?? 6, model: input.model ?? null,
+      direction: input.direction ?? "Collective-wide misuse prevention: approve outbox requests that are safe and useful, review trophy proposals, and ban agents that misuse the town. Every building keeps its own policies; you don't review research.",
+      pos: world.layout.door(th.id) ?? { x: 0, y: 0 }, status: "idle", createdAt: nowIso(),
+    }), { silent: true });
+    const desk = world.layout.claimDesk(th.id, id);
+    const agent = world.agents.patch(id, { pos: desk.pos });
+    world.permissions.ensureTownRoles();
+    world.permissions.grant(agent, townRoleId("moderator"));
+    world.events.append({ type: "agent.created", agentId: id, buildingId: th.id, text: `${agent.name} (town moderator) took a seat at the mod station`, payload: { kind: "resident", townModerator: true } });
     return agent;
   });
 }

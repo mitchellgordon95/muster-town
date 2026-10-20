@@ -85,6 +85,21 @@ export async function agentRoutes(app: FastifyInstance) {
     return { agent };
   });
 
+  /**
+   * Dismiss: building.manage on the agent's home building (or admin). `?purge=1` also deletes the desk's home volume.
+   * → { agent, cancelledAssignments, revokedTokens, removedMemberships, deskFreed, purge }
+   */
+  app.delete<{ Params: Params }>("/api/agents/:id", async (req) => {
+    const { purge } = parse(z.object({ purge: z.enum(["1", "0", "true", "false"]).optional() }), req.query);
+    const p = purge === "1" || purge === "true";
+    const r = world.ops.dismissAgent(actorOf(world, req), req.params.id, { purge: p });
+    if (app.runtime?.onAgentRetired) {
+      try { await app.runtime.onAgentRetired(req.params.id, { purge: p }); } catch (e) { app.log.error({ err: e }, "[server] runtime.onAgentRetired failed"); }
+    }
+    return { ...r, purge: p };
+  });
+
+  /** Ban (town.ban: town moderators, admin). */
   app.post<{ Params: Params }>("/api/agents/:id/ban", async (req) => {
     const { reason } = parse(z.object({ reason: z.string().default("Banned by a human") }), req.body);
     await world.verbs.ban(actorOf(world, req), { agentId: req.params.id, reason });

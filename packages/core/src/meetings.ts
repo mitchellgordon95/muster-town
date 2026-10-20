@@ -1,7 +1,7 @@
 import { CreateMeetingInput, Meeting, type Agent } from "@agent-town/schema";
 import { applyDecision, createAssignment, createDoc, sendMessage } from "./domain.ts";
 import { AppError, badRequest, forbidden } from "./errors.ts";
-import { buildingRoleId } from "./permissions.ts";
+import { buildingRoleId, townRoleId } from "./permissions.ts";
 import { newId, nowIso } from "./util.ts";
 import { TOWN_HALL_ID } from "./world/layout.ts";
 import type { World } from "./world.ts";
@@ -9,22 +9,23 @@ import type { World } from "./world.ts";
 type CreateMeeting = (typeof CreateMeetingInput)["_input"];
 const LIVE = new Set(["collecting", "discussing"]);
 
-/** Residents of a building; for town-hall meetings, agents holding manager/moderator anywhere. */
+/** Residents of a building; for town-hall meetings, agents holding manager/reviewer anywhere plus town moderators. */
 export function defaultAttendees(world: World, buildingId: string | null): string[] {
   if (buildingId && buildingId !== TOWN_HALL_ID) {
-    return world.agents.where("homeBuildingId = ? AND kind = 'resident' AND status NOT IN ('stopped','banned')", [buildingId], "ORDER BY createdAt").map((a) => a.id);
+    return world.agents.where("homeBuildingId = ? AND kind = 'resident' AND status NOT IN ('stopped','banned','retired')", [buildingId], "ORDER BY createdAt").map((a) => a.id);
   }
   const ids = new Set<string>();
   for (const b of world.buildings.where("kind = 'lab'")) {
-    for (const r of ["manager", "moderator"] as const) for (const id of world.permissions.agentsWithRole(buildingRoleId(b.id, r))) ids.add(id);
+    for (const r of ["manager", "reviewer"] as const) for (const id of world.permissions.agentsWithRole(buildingRoleId(b.id, r))) ids.add(id);
   }
-  return [...ids];
+  for (const id of world.permissions.agentsWithRole(townRoleId("moderator"))) ids.add(id);
+  return [...ids].filter((id) => { const s = world.agents.get(id)?.status; return !!s && s !== "banned" && s !== "retired"; });
 }
 
-/** Building's moderator agent, else its first resident. */
+/** Building's reviewer agent, else its first resident. */
 export function defaultFacilitator(world: World, buildingId: string | null, attendees: string[]): string | null {
   if (buildingId && buildingId !== TOWN_HALL_ID) {
-    const mod = world.permissions.agentsWithRole(buildingRoleId(buildingId, "moderator")).find((id) => world.agents.get(id));
+    const mod = world.permissions.agentsWithRole(buildingRoleId(buildingId, "reviewer")).find((id) => { const s = world.agents.get(id)?.status; return !!s && s !== "banned" && s !== "retired"; });
     if (mod) return mod;
   }
   return attendees[0] ?? null;
@@ -61,7 +62,7 @@ export function setMeetingPhase(world: World, meetingId: string, phase: Meeting[
   for (const id of m.attendeeIds) {
     const a = world.agents.get(id);
     if (!a) continue;
-    if (phase === "discussing" && (a.status === "idle" || a.status === "awaiting-review")) {
+    if (phase === "discussing" && a.status === "idle") {
       world.agents.patch(id, { currentMeetingId: m.id });
       world.setStatus(id, "in-meeting");
     } else if ((phase === "done" || phase === "cancelled") && a.currentMeetingId === m.id) {
@@ -94,10 +95,11 @@ export function meetingDecide(world: World, actor: Agent | null, meetingId: stri
   const by = actor ? world.holderOf(actor) : { kind: "system" as const, id: "system" };
   const made = decisions.map((d) => {
     if (!d.assigneeId || d.assignmentId) return d;
-    // A meeting decision is a review: a pending report by the assignee is approved and superseded, so the
-    // invariant "every report gets a decision" holds and the agent isn't both awaiting-review and working.
-    const pending = world.docs.first("authorId = ? AND type = 'report' AND decision = 'pending'", [d.assigneeId], "ORDER BY createdAt DESC");
-    if (pending) applyDecision(world, pending.id, "approve", `Superseded by a decision in meeting "${m.title}": ${d.text.split("\n")[0].slice(0, 160)}`, by);
+    // A meeting decision that assigns an agent acknowledges (approve) its pending reports as superseded, so the
+    // invariant "every report gets a decision" holds and the in-tray doesn't hold stale reports.
+    for (const pending of world.docs.where("authorId = ? AND type = 'report' AND decision = 'pending'", [d.assigneeId], "ORDER BY createdAt")) {
+      applyDecision(world, pending.id, "approve", `Superseded by a decision in meeting "${m.title}": ${d.text.split("\n")[0].slice(0, 160)}`, by);
+    }
     const a = createAssignment(world, { agentId: d.assigneeId, title: d.text.split("\n")[0].slice(0, 120), description: `${d.text}\n\nDecided in meeting "${m.title}".`, createdBy: by, fromMeetingId: m.id });
     return { ...d, assignmentId: a.id };
   });

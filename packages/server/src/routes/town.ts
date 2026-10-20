@@ -51,8 +51,8 @@ export async function townRoutes(app: FastifyInstance) {
 
   // ---- buildings ----
   app.get<{ Params: Params }>("/api/buildings/:id", async (req) => {
-    const building = world.buildings.require(req.params.id, "building");
-    const agents = world.agents.where("homeBuildingId = ? OR buildingId = ?", [building.id, building.id], "ORDER BY createdAt");
+    const building = { ...world.buildings.require(req.params.id, "building"), intray: world.ops.intray(req.params.id).length };
+    const agents = world.agents.where("(homeBuildingId = ? OR buildingId = ?) AND status != 'retired'", [building.id, building.id], "ORDER BY createdAt");
     const meetings = world.meetings.where("buildingId = ?", [building.id], "ORDER BY scheduledAt DESC LIMIT 20");
     const budget = world.budget.summary().buildings.find((b) => b.buildingId === building.id) ?? null;
     return { building, agents, meetings, budget, roles: world.permissions.rolesForBuilding(building.id).filter((r) => r.buildingId === building.id) };
@@ -67,6 +67,11 @@ export async function townRoutes(app: FastifyInstance) {
   app.patch<{ Params: Params }>("/api/buildings/:id", async (req) => {
     const input = parse(UpdateBuildingInput, req.body);
     return { building: world.ops.updateBuilding(actorOf(world, req), req.params.id, input) };
+  });
+
+  /** The building's in-tray: pending reports, oldest first. Readable by anyone (reports are on the board). */
+  app.get<{ Params: Params }>("/api/buildings/:id/intray", async (req) => {
+    return { reports: world.ops.intray(req.params.id) };
   });
 
   app.get<{ Params: Params }>("/api/buildings/:id/board", async (req) => {

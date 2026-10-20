@@ -8,7 +8,7 @@ import type { VerbIn } from "./types.ts";
 export const HEARING_RANGE = 3;
 
 export function nearbyAgents(world: World, me: Agent, range = HEARING_RANGE): (Agent & { distance: number })[] {
-  return world.agents.where("status != 'banned' AND id != ?", [me.id])
+  return world.agents.where("status NOT IN ('banned','retired') AND id != ?", [me.id])
     .map((a) => ({ ...a, distance: chebyshev(a.pos, me.pos) }))
     .filter((a) => a.distance <= range)
     .sort((a, b) => a.distance - b.distance);
@@ -22,10 +22,15 @@ export async function look(world: World, me: Agent, _input: VerbIn<"look">): Pro
   const meeting = world.meetings.first(
     "phase IN ('scheduled','collecting','discussing') AND (attendeeIds LIKE ? OR (buildingId IS NOT NULL AND buildingId = ?))",
     [`%"${me.id}"%`, home ?? "-"], "ORDER BY scheduledAt");
+  const mine = (p: { buildingId: string | null }) => p.buildingId === here?.id || p.buildingId === home;
   const visible = world.layout.places.filter((p) =>
     p.kind === "door" || p.kind === "plaza" || p.id === "library" || p.id === "trophy-room" || p.id === "outbox" ||
-    (p.kind === "meeting-room" && (p.buildingId === here?.id || p.buildingId === home || p.buildingId === "town-hall")) ||
-    (p.kind === "desk" && !p.id.startsWith("desk:free:") && (p.buildingId === here?.id || p.buildingId === home)));
+    // Town Hall stations everyone can walk to
+    p.kind === "mod-station" || p.kind === "planning" || p.kind === "donation" || p.kind === "schedule" ||
+    // the board and in-tray (manager's desk) of the building I'm in / my home building
+    ((p.kind === "board" || p.kind === "intray") && mine(p)) ||
+    (p.kind === "meeting-room" && (mine(p) || p.buildingId === "town-hall")) ||
+    (p.kind === "desk" && !p.id.startsWith("desk:free:") && mine(p)));
   return {
     me: { id: me.id, name: me.name, status: me.status, buildingId: me.buildingId, place: place?.id ?? null, pos: me.pos },
     building: here ? { id: here.id, name: here.name, goal: here.goal } : null,
@@ -99,8 +104,10 @@ export async function accept_assignment(world: World, me: Agent, input: VerbIn<"
 export async function ban(world: World, me: Agent, input: VerbIn<"ban">) {
   const target = world.agents.require(input.agentId, "agent");
   const bid = homeOf(target);
-  if (!world.permissions.can(me, "building.ban", bid)) throw forbidden("building.ban");
+  // ban is a town-level act (moderators / admin)
+  if (!world.permissions.can(me, "town.ban")) throw forbidden("town.ban");
   if (target.kind === "human") throw badRequest("Humans can't be banned with this verb.");
+  if (target.status === "retired") throw badRequest(`${target.name} was dismissed.`);
   world.movement.cancel(target.id, "Banned.");
   world.agents.patch(target.id, { status: "banned" });
   world.events.append({ type: "agent.banned", agentId: target.id, buildingId: bid, text: `${target.name} was banned by ${me.name}: ${input.reason}`, payload: { by: world.holderOf(me).id, reason: input.reason, pendingManagerReview: true } });

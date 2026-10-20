@@ -133,7 +133,7 @@ describe("desk work sessions", () => {
     const ended = await runtime.finishWorkSession(s.id, { tokens: 900, costUsd: 0.3, turns: 5, sdkSessionId: "sdk-1", reportSubmitted: true, finalText: "done" });
     expect(ended).toMatchObject({ status: "done", tokens: 900, sdkSessionId: "sdk-1" });
     expect(ended.reportId).toBeTruthy();
-    expect(world.agents.require(noor.id)).toMatchObject({ status: "awaiting-review", spentTokensToday: 900 });
+    expect(world.agents.require(noor.id)).toMatchObject({ status: "idle", spentTokensToday: 900 });
     expect(world.allocations.first("buildingId = ?", [lab.id])!.spentTokens).toBe(900);
     ex.exit(0);
     await runtime.whenIdle();
@@ -155,7 +155,7 @@ describe("desk work sessions", () => {
     const report = world.docs.require(s.reportId!);
     expect(report).toMatchObject({ decision: "pending", assignmentId: asg.id });
     expect(report.body).toContain("2.4 ppm/yr");
-    expect(world.agents.require(tomas.id).status).toBe("awaiting-review");
+    expect(world.agents.require(tomas.id).status).toBe("idle");
   });
 
   test("stop kills the desk; the exit ends the session interrupted with a stop report", async () => {
@@ -184,7 +184,7 @@ describe("desk work sessions", () => {
     const s = await running;
     expect(s).toMatchObject({ status: "error", error: "desk exited 1" });
     expect(world.docs.require(s.reportId!)).toMatchObject({ decision: "pending" });
-    expect(world.agents.require(mei.id).status).toBe("awaiting-review");
+    expect(world.agents.require(mei.id).status).toBe("idle");
   });
 
   test("workspace buildings get GH_TOKEN; the host backend won't schedule them", async () => {

@@ -1,5 +1,5 @@
 import { WorkInput, type Agent, type Assignment, type Interrupt, type CreateBuildingInput, type CreateMeetingInput, type CreateResidentInput, type Doc, type Meeting, type Membership, type RegisterVisitorInput, type Session } from "@agent-town/schema";
-import { createAssignment, createDoc, homeOf, sendMessage, setAssignmentStatus, updateDoc } from "./domain.ts";
+import { createAssignment, createDoc, homeOf, intrayOf, sendMessage, setAssignmentStatus, updateDoc } from "./domain.ts";
 import { createBuilding, createResident, createUser, ensureAvatar, registerVisitor, updateBuilding } from "./entities.ts";
 import { AppError, badRequest, forbidden } from "./errors.ts";
 import { createMeeting, endMeeting, meetingDecide, meetingSpeak, setMeetingPhase } from "./meetings.ts";
@@ -55,13 +55,88 @@ export class Ops {
     if (!ok) throw forbidden(role.scope === "town" ? "town.manage_roles" : "building.manage");
   }
 
+  // ---- dismiss ----
+  /**
+   * DELETE /api/agents/:id. Needs building.manage (or building.dismiss) on the agent's home building, or admin.
+   * Frees the desk, revokes the agent's tokens, removes its memberships, cancels pending/active assignments, sets
+   * status `retired` (row kept so documents keep their author), appends `agent.retired`. The session/container part
+   * is the runtime's (`onAgentRetired`); call it after this.
+   */
+  dismissAgent(actor: Actor, agentId: string, opts: { purge?: boolean } = {}): { agent: Agent; cancelledAssignments: string[]; revokedTokens: number; removedMemberships: number; deskFreed: boolean } {
+    const agent = this.world.agents.require(agentId, "agent");
+    const bid = homeOf(agent);
+    if (actor) {
+      const p = this.world.permissions;
+      if (!p.isAdmin(actor) && !p.can(actor, "building.manage", bid) && !p.can(actor, "building.dismiss", bid)) throw forbidden("building.manage");
+    }
+    if (agent.kind === "human") throw badRequest("Humans can't be dismissed.");
+    if (agent.status === "retired") throw new AppError("conflict", `${agent.name} was already dismissed.`);
+    return this.world.transaction(() => {
+      this.world.movement.cancel(agentId, "Dismissed.");
+      const cancelled: string[] = [];
+      for (const a of this.world.assignments.where("agentId = ? AND status IN ('pending','active')", [agentId])) {
+        setAssignmentStatus(this.world, a.id, "cancelled");
+        cancelled.push(a.id);
+      }
+      const revokedTokens = this.world.tokens.revokeAll("agent", agentId);
+      const removedMemberships = this.world.memberships.removeAll("agent", agentId);
+      const deskFreed = !!this.world.layout.deskOf(agentId);
+      if (deskFreed) this.world.layout.releaseDesk(agentId);
+      this.world.agents.patch(agentId, { currentAssignmentId: null, currentMeetingId: null, activity: "" });
+      const retired = this.world.setStatus(agentId, "retired", `${agent.name} was dismissed`);
+      const by = actor ? this.world.holderOf(actor).id : "system";
+      this.world.events.append({ type: "agent.retired", agentId, buildingId: bid, text: `${agent.name} was dismissed${actor ? ` by ${actor.name}` : ""}`, payload: { by, purge: !!opts.purge, cancelledAssignments: cancelled, deskFreed } });
+      return { agent: retired, cancelledAssignments: cancelled, revokedTokens, removedMemberships, deskFreed };
+    });
+  }
+
+  // ---- in-tray ----
+  /** The building's pending reports, oldest first (GET /api/buildings/:id/intray). */
+  intray(buildingId: string): Doc[] {
+    this.world.buildings.require(buildingId, "building");
+    return intrayOf(this.world, buildingId);
+  }
+
+  // ---- reconcile (runtime startup) ----
+  /**
+   * After a restart: running Session rows whose agent has no live child (not in `liveAgentIds`) end with
+   * `error: 'orphaned at restart'`; `active` assignments whose agent then has no running session go back to `pending`.
+   */
+  reconcile(liveAgentIds: Iterable<string> = []): { orphanedSessions: string[]; requeuedAssignments: string[] } {
+    const live = new Set(liveAgentIds);
+    const orphanedSessions: string[] = [];
+    const requeuedAssignments: string[] = [];
+    this.world.transaction(() => {
+      for (const s of this.world.sessions.where("status = 'running'")) {
+        if (live.has(s.agentId)) continue;
+        this.endSession(s.id, { status: "error", error: "orphaned at restart" });
+        orphanedSessions.push(s.id);
+      }
+      for (const a of this.world.assignments.where("status = 'active'")) {
+        if (this.world.sessions.count("agentId = ? AND status = 'running'", [a.agentId])) continue;
+        setAssignmentStatus(this.world, a.id, "pending");
+        requeuedAssignments.push(a.id);
+        const agent = this.world.agents.get(a.agentId);
+        if (agent?.currentAssignmentId === a.id) this.world.agents.patch(a.agentId, { currentAssignmentId: null });
+      }
+      // bodies left "working" with no running session
+      for (const ag of this.world.agents.where("status = 'working'")) {
+        if (!this.world.sessions.count("agentId = ? AND status = 'running'", [ag.id])) this.world.setStatus(ag.id, "idle");
+      }
+    });
+    if (orphanedSessions.length || requeuedAssignments.length) {
+      this.world.events.append({ type: "system", text: `Reconciled at startup: ${orphanedSessions.length} orphaned session(s), ${requeuedAssignments.length} assignment(s) back to pending`, payload: { orphanedSessions, requeuedAssignments } });
+    }
+    return { orphanedSessions, requeuedAssignments };
+  }
+
   // ---- work, sessions, agent control ----
   /** POST /agents/:id/work: create a pending assignment (building.assign or owner). Clears `stopped`. */
   createWork(actor: Actor, agentId: string, input: (typeof WorkInput)["_input"] = {}): Assignment {
     const inp = WorkInput.parse(input);
     const agent = this.world.agents.require(agentId, "agent");
     if (actor) this.requireAgentControl(actor, agent);
-    if (agent.status === "banned") throw new AppError("conflict", `${agent.name} is banned.`);
+    if (agent.status === "banned" || agent.status === "retired") throw new AppError("conflict", `${agent.name} is ${agent.status === "retired" ? "dismissed" : "banned"}.`);
     const a = createAssignment(this.world, {
       agentId, title: inp.title ?? "Continue your direction", description: inp.description ?? (agent.direction || "Pick the most useful next question for your direction."),
       createdBy: actor ? this.world.holderOf(actor) : { kind: "system", id: "system" },
