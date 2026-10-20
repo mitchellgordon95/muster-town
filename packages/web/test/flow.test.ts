@@ -1,13 +1,15 @@
 import { describe, expect, it } from "vitest";
-import type { SnapshotBuilding } from "@muster-town/schema";
-import { bankBuilding, fitZoom, widthFor } from "../src/map/flow";
+import type { Place, SnapshotBuilding } from "@muster-town/schema";
+import { flowSource, fitZoom, widthFor } from "../src/map/flow";
 
-const b = (id: string, kind: string) => ({ id, kind, name: id }) as unknown as SnapshotBuilding;
+const hall = { id: "town-hall", kind: "town-hall", name: "Town Hall", lot: { x: 0, y: 0, w: 10, h: 4 } } as unknown as SnapshotBuilding;
+const lab = { id: "lab", kind: "lab", name: "Lab", lot: { x: 20, y: 0, w: 10, h: 4 } } as unknown as SnapshotBuilding;
+const map: Place = { id: "bank-map", kind: "bank-map", name: "Town map", buildingId: null, pos: { x: 3, y: 9 } };
 
 describe("Bank town map", () => {
   it("streams from the Bank, or the Town Hall when there is no Bank yet", () => {
-    expect(bankBuilding([b("town-hall", "town-hall"), b("bank", "bank"), b("lab", "lab")])?.id).toBe("bank");
-    expect(bankBuilding([b("lab", "lab"), b("town-hall", "town-hall")])?.id).toBe("town-hall");
+    expect(flowSource([map], [hall, lab])).toEqual({ at: { x: 3 * 16 + 8, y: 9 * 16 + 8 }, skip: null });
+    expect(flowSource([], [lab, hall])).toEqual({ at: { x: 80, y: 32 }, skip: "town-hall" });
   });
   it("fits the whole town in the view, never zooming in past the walking zoom", () => {
     const z = fitZoom(1600, 400, 1000, 800, 3);

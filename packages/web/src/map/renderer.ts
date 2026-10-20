@@ -398,7 +398,7 @@ export class MapRenderer {
     if (this.flow) {
       // the town map: just the flow over the dimmed town (no signs, labels or bubbles); bodies can't be clicked
       this.hitboxes = [];
-      drawFlow(g, now, this.flow, s.buildings, toScreen, cw, ch, this.leftInset + (viewW - this.leftInset) / 2);
+      drawFlow(g, now, this.flow, s.buildings, s.places, toScreen, cw, ch, this.leftInset + (viewW - this.leftInset) / 2);
       return;
     }
     for (const b of s.buildings) {

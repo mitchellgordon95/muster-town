@@ -3,7 +3,7 @@
  * every building along arcs, each as wide (and as busy) as that building's % share of the Bank.
  * The renderer owns the camera; this file only draws, in screen space, over the dimmed town.
  */
-import type { SnapshotBuilding } from "@muster-town/schema";
+import type { Place, SnapshotBuilding } from "@muster-town/schema";
 import type { Bank } from "../api";
 import { fmtTokens } from "../format";
 import { roundRect } from "./overlay";
@@ -24,9 +24,15 @@ const GOLD = "#f2c94c", GOLD_DEEP = "#b8862a", INK = "#14151c";
 const COIN_SPEED = 90;
 const GROW_MS = 1100;
 
-/** The building the money comes from: the Bank, or the Town Hall in a town that doesn't have one yet. */
-export function bankBuilding(buildings: SnapshotBuilding[]): SnapshotBuilding | undefined {
-  return buildings.find((b) => (b.kind as string) === "bank" || b.id === "bank") ?? buildings.find((b) => b.kind === "town-hall");
+/**
+ * Where the money comes from (world px): the Bank (a landmark, not a building: its map stand or teller counter),
+ * else the Town Hall in a town that doesn't have a Bank yet. `skip` is the building it stands for, if any.
+ */
+export function flowSource(places: Place[], buildings: SnapshotBuilding[]): { at: { x: number; y: number }; skip: string | null } | null {
+  const p = places.find((x) => x.kind === "bank-map") ?? places.find((x) => (x.kind as string) === "bank");
+  if (p) return { at: { x: p.pos.x * T + T / 2, y: p.pos.y * T + T / 2 }, skip: p.buildingId };
+  const hall = buildings.find((b) => b.kind === "town-hall");
+  return hall?.lot ? { at: { x: (hall.lot.x + hall.lot.w / 2) * T, y: (hall.lot.y + hall.lot.h / 2) * T }, skip: hall.id } : null;
 }
 
 /** The largest zoom that shows the whole world (`ww`×`wh` world px) in the view, with a margin; never above `max`. */
@@ -96,17 +102,17 @@ function label(g: CanvasRenderingContext2D, x: number, y: number, title: string,
  * Draw the flow over the (already drawn) town. `toScreen` maps world px to CSS px; `cw`/`ch` is the canvas
  * in CSS px; `cx` is the middle of the visible strip (between the HUD and any open panel).
  */
-export function drawFlow(g: CanvasRenderingContext2D, now: number, flow: Flow, buildings: SnapshotBuilding[], toScreen: (x: number, y: number) => Pt, cw: number, ch: number, cx: number) {
+export function drawFlow(g: CanvasRenderingContext2D, now: number, flow: Flow, buildings: SnapshotBuilding[], places: Place[], toScreen: (x: number, y: number) => Pt, cw: number, ch: number, cx: number) {
   const grow = Math.min(1, (now - flow.t0) / GROW_MS), ease = 1 - (1 - grow) ** 3;
   g.fillStyle = `rgba(8,10,22,${0.6 * ease})`;
   g.fillRect(0, 0, cw, ch);
 
-  const src = bankBuilding(buildings);
+  const src = flowSource(places, buildings);
   const centre = (b: SnapshotBuilding): Pt | null => b.lot ? toScreen((b.lot.x + b.lot.w / 2) * T, (b.lot.y + b.lot.h / 2) * T) : null;
-  const from = src ? centre(src) : null;
+  const from = src ? toScreen(src.at.x, src.at.y) : null;
   const shares = new Map((flow.bank?.buildings ?? []).map((s) => [s.buildingId, s]));
   const flows = buildings
-    .filter((b) => b.id !== src?.id && b.lot)
+    .filter((b) => b.id !== src?.skip && b.lot)
     .map((b) => ({ b, s: shares.get(b.id), at: centre(b)!, foot: toScreen((b.lot!.x + b.lot!.w / 2) * T, (b.lot!.y + b.lot!.h) * T) }))
     .sort((p, q) => (q.s?.pct ?? 0) - (p.s?.pct ?? 0));
 
