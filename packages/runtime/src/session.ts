@@ -5,6 +5,7 @@
 import type { World } from "@agent-town/core";
 import { VERB_NAMES, type Session } from "@agent-town/schema";
 import { describeTool } from "./describe.ts";
+import { workspacePolicy } from "./policy.ts";
 import { blocksOf, InputChannel, sessionEnv, usageOf, type LooseMessage, type Options, type QueryHandle, type Sdk, type Usage } from "./sdk.ts";
 
 export interface Ctx {
@@ -50,6 +51,7 @@ export interface SessionWorkspace {
   /** per-agent git worktree the session runs in */
   cwd: string;
   branch: string;
+  base: string;
   /** Claude Code tool permission patterns (e.g. "Edit", "Bash(git:*)") */
   tools: string[];
 }
@@ -114,11 +116,13 @@ export function townOptions(ctx: Ctx, spec: SessionSpec, apiKey: string | null):
     mcpServers: { town: { type: "http", url: ctx.mcpUrl, headers: { Authorization: `Bearer ${token}` }, alwaysLoad: true } },
     // `tools` is the built-in tool set available to the session; `allowedTools` only auto-approves within it.
     tools: [...(spec.web ? WEB_TOOLS : []), ...workspaceBaseTools(spec.workspace)],
-    allowedTools: [...TOWN_TOOLS, ...(spec.web ? WEB_TOOLS : []), ...(spec.workspace?.tools ?? [])],
+    // Workspace tools are NOT pre-allowed: every call goes through `canUseTool` (policy.ts), which keeps
+    // file tools inside the worktree and vets each segment of a shell command.
+    allowedTools: [...TOWN_TOOLS, ...(spec.web ? WEB_TOOLS : [])],
     disallowedTools: [...DISALLOWED_TOOLS.filter((t) => !workspaceAllows(spec.workspace, t)), ...(spec.web ? [] : WEB_TOOLS)],
     settingSources: [],
     env: sessionEnv(apiKey),
-    ...(spec.workspace ? { cwd: spec.workspace.cwd } : {}),
+    ...(spec.workspace ? { cwd: spec.workspace.cwd, canUseTool: workspacePolicy({ cwd: spec.workspace.cwd, base: spec.workspace.base, tools: spec.workspace.tools }) } : {}),
   };
 }
 

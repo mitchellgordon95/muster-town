@@ -46,7 +46,7 @@ export async function runWorkSession(ctx: Ctx, starting: Set<string>, agentId: s
     if (ws) world.events.append({ type: "agent.activity", agentId, buildingId: bid, text: `${agent.name} checked out branch ${ws.branch}`, payload: { branch: ws.branch, cwd: ws.cwd } });
     const out = await runAgentSession(ctx, {
       agentId, purpose: "work", model: agent.model ?? building.model, maxTurns: building.maxTurnsPerSession, web: true,
-      workspace: ws ? { cwd: ws.cwd, branch: ws.branch, tools: building.workspace!.tools } : undefined,
+      workspace: ws ? { cwd: ws.cwd, branch: ws.branch, base: ws.base, tools: building.workspace!.tools } : undefined,
       assignmentId, system: workSystemPrompt(agent, building, world.town.get()) + (ws ? workshopPrompt(ws, ws.repoName) : ""), prompt: workPrompt(assignment, latestReport(ctx, agentId)),
       beforeEnd: async (o) => {
         if (o.reportSubmitted) return;
