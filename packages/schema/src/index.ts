@@ -370,7 +370,7 @@ export const Meeting = z.object({
   facilitatorId: Id.nullable().default(null),
   attendeeIds: z.array(Id).default([]),
   agenda: z.string().default(""),
-  /** attendeeId -> three-line summary submitted before discussion */
+  /** attendeeId -> short standup summary (did / next / need) submitted before discussion */
   summaries: z.record(z.string()).default({}),
   transcript: z.array(MeetingUtterance).default([]),
   decisions: z.array(MeetingDecision).default([]),
@@ -502,7 +502,7 @@ export const VERB_DESCRIPTIONS: Record<VerbName, string> = {
   request_human: "Put a request in the town outbox for a human to do something in the real world (observe, fetch data, contact someone). A moderator approves it before humans see it.",
   assignments: "List my assignments.",
   accept_assignment: "Accept a pending assignment; it becomes my current task.",
-  meeting: "Participate in a meeting: 'summary' submits my three-line summary, 'speak' adds to the transcript, 'listen' returns new utterances since my last listen (set waitSeconds to wait for someone to speak), 'decide'/'end' are for the facilitator; while humans are talking, leave 'end' to them.",
+  meeting: "Participate in a meeting: 'summary' submits my short standup summary (did, next), 'speak' adds to the transcript once the discussion has started, 'listen' returns new utterances since my last listen (set waitSeconds to wait for someone to speak), 'decide'/'end' are for the facilitator; while humans are talking, leave 'end' to them.",
   review: "(manager/reviewer) Decide on a pending report in the in-tray: approve (acknowledge), continue (assign its proposal), redirect (assign your note instead), or stop the agent.",
   assign: "(manager/reviewer) Create an assignment for an agent in my building.",
   promote: "(manager) Promote a document to the building board or the library.",

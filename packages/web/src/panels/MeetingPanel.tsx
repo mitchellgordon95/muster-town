@@ -74,9 +74,10 @@ function MeetingView({ m }: { m: Meeting }) {
   const bName = m.buildingId ? room?.name : "Town Hall";
   const canRun = store.can("meeting.facilitate", m.buildingId) || store.can("building.manage", m.buildingId);
   const open = m.phase === "collecting" || m.phase === "discussing";
+  const discussing = m.phase === "discussing";
   const submitted = m.attendeeIds.filter((a) => m.summaries[a]).length;
   const say = async () => {
-    const t = text.trim(); if (!t) return;
+    const t = text.trim(); if (!t || !discussing) return;
     setText("");
     try { store.putMeeting(await api().sayMeeting(m.id, t)); } catch (e) { setText(t); store.toast((e as Error).message, "bad"); }
   };
@@ -108,7 +109,7 @@ function MeetingView({ m }: { m: Meeting }) {
       </Section>
 
       <Section title="Transcript">
-        {!m.transcript.length ? <Empty>{m.phase === "collecting" ? "Discussion starts once summaries are in. You can speak now; the facilitator will read it." : "Nobody has spoken."}</Empty> : (
+        {!m.transcript.length ? <Empty>{m.phase === "collecting" ? "Discussion starts as soon as every summary is in." : "Nobody has spoken."}</Empty> : (
           <div className="transcript">
             {m.transcript.map((u, i) => {
               const isMe = u.speakerKind === "user" && u.speakerId === me?.user.id;
@@ -125,9 +126,9 @@ function MeetingView({ m }: { m: Meeting }) {
       </Section>
       {open ? (
         <form className="chatbar" onSubmit={(e) => { e.preventDefault(); void say(); }}>
-          <textarea rows={2} value={text} placeholder="Say something to the meeting…" onChange={(e) => setText(e.target.value)}
+          <textarea rows={2} value={text} disabled={!discussing} placeholder={discussing ? "Say something to the meeting…" : "Chat opens when the discussion starts…"} onChange={(e) => setText(e.target.value)}
             onKeyDown={(e) => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); void say(); } }} />
-          <button className="btn primary" disabled={!text.trim()}>Say</button>
+          <button className="btn primary" disabled={!discussing || !text.trim()}>Say</button>
           {canRun ? <Act tone="bad" run={async () => store.putMeeting(await api().endMeeting(m.id))}>End meeting</Act> : null}
         </form>
       ) : null}

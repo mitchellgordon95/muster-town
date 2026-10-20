@@ -8,7 +8,6 @@ import { TOWN_HALL_ID } from "./world/layout.ts";
 import type { World } from "./world.ts";
 
 type CreateMeeting = (typeof CreateMeetingInput)["_input"];
-const LIVE = new Set(["collecting", "discussing"]);
 
 /** Residents of a building; for town-hall meetings, agents holding manager/reviewer anywhere plus town moderators. */
 export function defaultAttendees(world: World, buildingId: string | null): string[] {
@@ -61,7 +60,7 @@ export function createMeeting(world: World, input: CreateMeeting, actor?: Agent)
     facilitatorId: defaultFacilitator(world, bid, attendeeIds), attendeeIds, agenda: inp.agenda ?? "", createdAt: ts,
   }));
   world.events.append({ type: "meeting.created", buildingId: bid, text: `Meeting called: ${meeting.title}`, payload: { meetingId: meeting.id, kind: meeting.kind, phase: meeting.phase, by: actor ? world.holderOf(actor).id : "system" } });
-  for (const id of attendeeIds) sendMessage(world, { kind: "meeting", fromId: "system", fromKind: "system", toId: id, meetingId: meeting.id, body: `You're invited to "${meeting.title}" (${meeting.id}). Submit a three-line summary with meeting action "summary".` });
+  for (const id of attendeeIds) sendMessage(world, { kind: "meeting", fromId: "system", fromKind: "system", toId: id, meetingId: meeting.id, body: `You're invited to "${meeting.title}" (${meeting.id}). Submit a short standup summary (what you did, what's next) with meeting action "summary"; the discussion starts once everyone's summary is in.` });
   return meeting;
 }
 
@@ -92,7 +91,7 @@ export function setMeetingPhase(world: World, meetingId: string, phase: Meeting[
 
 export function meetingSpeak(world: World, actor: Agent, meetingId: string, text: string): Meeting {
   const m = world.meetings.require(meetingId, "meeting");
-  if (!LIVE.has(m.phase)) throw new AppError("conflict", `Meeting is ${m.phase}; you can speak while collecting or discussing.`);
+  if (m.phase !== "discussing") throw new AppError("conflict", m.phase === "collecting" || m.phase === "scheduled" ? "The meeting is still collecting summaries; you can speak once the discussion starts." : `Meeting is ${m.phase}; you can only speak during the discussion.`);
   if (!text.trim()) throw badRequest("Nothing to say.");
   const h = world.holderOf(actor);
   const updated = world.meetings.upsert({ ...m, transcript: [...m.transcript, { speakerId: h.id, speakerKind: h.kind, text, at: nowIso() }] });
