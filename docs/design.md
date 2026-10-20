@@ -144,3 +144,16 @@ Agent assessment: yes. The tool-call permission layer (allow rules + the `policy
 - **Recommendation:** build it now, before the public version and before more research runs. Keep tonight's policy as a stopgap only.
 
 Awaiting Mitchell: container runtime choice, API key, go-ahead.
+
+## Design review 4 — reports as replies (2026-10-20, from Mitchell's rant)
+
+Mitchell, after using the workshop for an hour: the report format is weird (decision at top, body far below, findings then proposal); reports are too long; every agent proposes a tiny next step to keep going, which is wrong, "if you're done with your work, just be done"; reviewing should be one text box and one button; every report ends with "what I need from you"; typing "merge" and hitting go should tag the author who picks it up; the four decision buttons are confusing; reports should just be markdown with frontmatter, not database columns; he should be able to chat with someone while reviewing (not necessarily the author, who may be busy); reports should have an archive button; the main thing that stopped him was being unable to get agents to merge PRs and stop proposing follow-up work; residents should not start with titles (a "backend" worker declared something done because the backend part was done).
+
+Decisions (agent, agreed in chat):
+- Report = **What I did / Findings / What I need from you**. No proposal section. "Nothing needed" is a valid ending.
+- Review = **one text box, one button**. The text is a reply: appended to the report as a dated section, delivered to the author as a mention, and turned into the author's next assignment. Empty reply = archive. The four decision buttons go. Stop stays on the agent panel.
+- "merge" as a reply → the author merges its own PR next session and reports back. Merge-on-green remains a building rule.
+- Storage: SQLite stays the live store, but a report is markdown + frontmatter in substance; the git export writes exactly that. No new decision columns.
+- In-tray gets an "Ask about this" chat with the building's assistant over the building's docs.
+- No titles by default; prompt line: you own a change end to end across every package it touches. (PRs #15, #16, #17 carry the first half of this.)
+- Root's uninvited "correctness audit" came from approve-creates-next-assignment + a seeded direction; both go away with the above.
