@@ -122,6 +122,17 @@ describe("bank", () => {
     expect(r.allocation).toMatchObject({ spentTokens: 200 });
     expect(world.budget.of(b.id)).toMatchObject({ remainingTokens: 300, bankTokens: 0 });
     expect(world.bank.summary()).toMatchObject({ balanceTokens: 0, durableTokens: 0 });
+    expect(world.bank.summary().buildings.find((s) => s.buildingId === b.id)).toMatchObject({ heldTokens: 300 });
+  });
+
+  it("with no inputs the Bank is empty, but the summary counts tokens donated straight to buildings", () => {
+    const { world, seed } = seededWorld();
+    const before = world.bank.summary().heldTokens;
+    const b = createBuilding(world, { name: "Held" }, seed.admin.id);
+    world.budget.donate(seed.admin.id, { tokens: 700, buildingId: b.id });
+    const s = world.bank.summary();
+    expect(s).toMatchObject({ balanceTokens: 0, heldTokens: before + 700, townTokens: before + 700 });
+    expect(s.buildings.find((r) => r.buildingId === b.id)).toMatchObject({ heldTokens: 700 });
   });
 
   it("ranks contributors by Bank credits plus direct donations, most first", () => {

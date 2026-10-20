@@ -386,7 +386,7 @@ export class MockApi implements Api {
     const buildings = this.sim.buildings.map((b) => {
       const explicit = this.bankShares.has(b.id);
       const pct = explicit ? this.bankShares.get(b.id)! : b.kind === "lab" ? Math.max(0, 100 - used) / Math.max(1, labs.length) : 0;
-      return { buildingId: b.id, name: b.name, pct: Math.round(pct * 100) / 100, explicit, expiringTokens: Math.floor(expiringTokens * pct / 100), durableTokens: Math.floor(durableTokens * pct / 100) };
+      return { buildingId: b.id, name: b.name, pct: Math.round(pct * 100) / 100, explicit, expiringTokens: Math.floor(expiringTokens * pct / 100), durableTokens: Math.floor(durableTokens * pct / 100), heldTokens: 0 };
     });
     const contributors = this.sim.users.map((u) => {
       const bankTokens = this.bankInputs.filter((i) => i.userId === u.id).reduce((s, i) => s + i.creditedTokens, 0);
@@ -394,7 +394,7 @@ export class MockApi implements Api {
     }).filter((c) => c.tokens > 0).sort((a, b) => b.tokens - a.tokens);
     const dailyInflowTokens = live.reduce((s, i) => s + (i.recurrence === "daily" ? i.tokens : i.recurrence === "weekly" ? i.tokens / 7 : i.recurrence === "monthly" ? i.tokens / 30 : 0), 0);
     return clone({
-      balanceTokens: expiringTokens + durableTokens, expiringTokens, durableTokens, dailyInflowTokens: Math.round(dailyInflowTokens),
+      balanceTokens: expiringTokens + durableTokens, expiringTokens, durableTokens, heldTokens: 0, townTokens: expiringTokens + durableTokens, dailyInflowTokens: Math.round(dailyInflowTokens),
       creditedTokens: this.bankInputs.reduce((s, i) => s + i.creditedTokens, 0),
       inputs: this.bankInputs.map((i) => ({ ...i, userName: this.sim.users.find((u) => u.id === i.userId)?.name ?? i.userId })),
       buildings, contributors,

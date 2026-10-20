@@ -19,9 +19,11 @@ export function BankPanel() {
         {!bank ? <Loading /> : (
           <table className="table">
             <tbody>
-              <tr><td>Available now</td><td><b>{bank.balanceTokens.toLocaleString("en-US")}</b></td></tr>
+              <tr><td>Town total (Bank + held by buildings)</td><td><b>{bank.townTokens.toLocaleString("en-US")}</b></td></tr>
+              <tr><td>In the Bank (split by share)</td><td>{bank.balanceTokens.toLocaleString("en-US")}</td></tr>
               <tr><td>Expires today (daily allowance, no rollover)</td><td>{bank.expiringTokens.toLocaleString("en-US")}</td></tr>
               <tr><td>Permanent pool (stays until spent)</td><td>{bank.durableTokens.toLocaleString("en-US")}</td></tr>
+              <tr><td>Held by buildings (donated to one building)</td><td>{bank.heldTokens.toLocaleString("en-US")}</td></tr>
               <tr><td>Expected inflow per day</td><td>{fmtTokens(bank.dailyInflowTokens)}</td></tr>
             </tbody>
           </table>

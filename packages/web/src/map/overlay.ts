@@ -163,15 +163,17 @@ export function drawSign(g: CanvasRenderingContext2D, x: number, y: number, name
 
 const SANS = "ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, sans-serif";
 /**
- * The Bank's marquee, hung outside its front (bottom edge at y): the town's available tokens in big gold digits,
- * split into today's expiring daily allowance and the permanent pool. `bank` null = not loaded yet.
+ * The Bank's marquee, hung outside its front (bottom edge at y): the town's tokens in big gold digits, split into
+ * today's expiring daily allowance, the Bank's permanent pool, and what buildings hold from direct donations.
+ * `bank` null = not loaded yet.
  */
-export function drawBankSign(g: CanvasRenderingContext2D, x: number, y: number, bank: { balanceTokens: number; expiringTokens: number; durableTokens: number } | null, now: number) {
+export function drawBankSign(g: CanvasRenderingContext2D, x: number, y: number, bank: { townTokens: number; expiringTokens: number; durableTokens: number; heldTokens: number } | null, now: number) {
   const n = (v: number) => v.toLocaleString("en-US");
-  const total = bank ? n(bank.balanceTokens) : "…";
+  const total = bank ? n(bank.townTokens) : "…";
   const parts = [
     { label: "EXPIRES TODAY", value: bank ? n(bank.expiringTokens) : "…", color: "#ffb26b" },
     { label: "PERMANENT POOL", value: bank ? n(bank.durableTokens) : "…", color: "#9ff0b4" },
+    { label: "HELD BY BUILDINGS", value: bank ? n(bank.heldTokens) : "…", color: "#9fd4ff" },
   ];
   g.font = `800 30px ${SANS}`;
   const tw = g.measureText(total).width;
@@ -179,7 +181,7 @@ export function drawBankSign(g: CanvasRenderingContext2D, x: number, y: number, 
   const colW = Math.max(...parts.map((p) => g.measureText(p.value).width), 96) + 24;
   const title = "THE BANK · TOKENS AVAILABLE TO THE TOWN";
   g.font = `800 11px ${SANS}`;
-  const w = Math.round(Math.max(tw + 48, colW * 2 + 16, g.measureText(title).width + 32, 240)), h = 112;
+  const w = Math.round(Math.max(tw + 48, colW * parts.length + 16, g.measureText(title).width + 32, 240)), h = 112;
   const sx = Math.round(x - w / 2), sy = Math.round(y - h);
   // dark plate, double gold border with a slow shimmer running round it
   const grad = g.createLinearGradient(sx, sy, sx, sy + h);
@@ -199,10 +201,12 @@ export function drawBankSign(g: CanvasRenderingContext2D, x: number, y: number, 
   const gold = g.createLinearGradient(0, sy + 25, 0, sy + 57);
   gold.addColorStop(0, "#fff1b0"); gold.addColorStop(0.5, "#f2c94c"); gold.addColorStop(1, "#c8921c");
   g.fillStyle = gold; g.fillText(total, x, sy + 25);
-  // the two pools side by side
-  g.strokeStyle = "rgba(242,201,76,.3)"; g.beginPath(); g.moveTo(x + 0.5, sy + 66); g.lineTo(x + 0.5, sy + h - 10); g.stroke();
+  // the pools side by side, with a rule between each
+  const cols = parts.length;
+  g.strokeStyle = "rgba(242,201,76,.3)";
+  for (let i = 1; i < cols; i++) { const lx = Math.round(sx + (w * i) / cols) + 0.5; g.beginPath(); g.moveTo(lx, sy + 66); g.lineTo(lx, sy + h - 10); g.stroke(); }
   parts.forEach((p, i) => {
-    const cx = x + (i ? 1 : -1) * (w / 4);
+    const cx = sx + (w * (i + 0.5)) / cols;
     g.font = `700 9px ${SANS}`; g.fillStyle = "#c9b98a"; g.fillText(p.label, cx, sy + 68);
     g.font = `700 15px ${SANS}`; g.fillStyle = p.color; g.fillText(p.value, cx, sy + 81);
   });

@@ -162,7 +162,7 @@ export function BankShares({ bank, onChange }: Props) {
   return (
     <Section title="Shares">
       <table className="table">
-        <thead><tr><th>Building</th><th>Share</th><th>Can draw</th>{isAdmin ? <th /> : null}</tr></thead>
+        <thead><tr><th>Building</th><th>Share</th><th>Can draw</th><th title="Unspent tokens donated straight to this building">Held</th>{isAdmin ? <th /> : null}</tr></thead>
         <tbody>
           {rows.map((r) => {
             const draft = edit[r.buildingId];
@@ -175,6 +175,7 @@ export function BankShares({ bank, onChange }: Props) {
                     : <>{r.pct}% {r.explicit ? null : <span className="muted" title="No explicit share: splits what's left equally with the other labs">(auto)</span>}</>}
                 </td>
                 <td title={`${fmtTokens(r.expiringTokens)} expiring today · ${fmtTokens(r.durableTokens)} permanent`}>{fmtTokens(r.expiringTokens + Math.max(0, r.durableTokens))}</td>
+                <td>{fmtTokens(r.heldTokens)}</td>
                 {isAdmin ? (
                   <td className="actions">
                     {draft !== undefined ? <>

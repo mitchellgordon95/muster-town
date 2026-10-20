@@ -18,6 +18,8 @@ export interface BankBuildingShare {
   /** what the building can still draw: today's subscription share (spent first), then its API-key share */
   expiringTokens: number;
   durableTokens: number;
+  /** unspent tokens donated straight to this building (not part of the Bank; only this building draws them) */
+  heldTokens: number;
 }
 
 /** Someone who has put tokens into the town: through Bank inputs, or donated straight to a building. */
@@ -38,6 +40,10 @@ export interface BankSummary {
   /** of the balance, subscription tokens that expire at the next daily renewal (no rollover) */
   expiringTokens: number;
   durableTokens: number;
+  /** unspent tokens donated straight to buildings: outside the Bank's balance, but still the town's */
+  heldTokens: number;
+  /** balanceTokens + heldTokens: everything the town can still spend */
+  townTokens: number;
   creditedTokens: number;
   /** expected tokens per day from active recurring inputs (monthly counts as 30 days) */
   dailyInflowTokens: number;
@@ -282,8 +288,13 @@ export class Bank {
     const now = new Date();
     const pools = this.pools(now);
     const shares = this.shares();
+    const held = new Map<string, number>();
+    for (const a of this.repos.allocations.all()) held.set(a.buildingId, (held.get(a.buildingId) ?? 0) + Math.max(0, a.tokens - a.spentTokens));
+    const heldTokens = [...held.values()].reduce((s, t) => s + t, 0);
     return {
       balanceTokens: pools.expiring + pools.durable,
+      heldTokens,
+      townTokens: pools.expiring + pools.durable + heldTokens,
       expiringTokens: pools.expiring,
       durableTokens: pools.durable,
       creditedTokens,
@@ -292,7 +303,7 @@ export class Bank {
       buildings: this.repos.buildings.all().map((b) => {
         const s = shares.get(b.id) ?? { pct: 0, explicit: false };
         const a = this.available(b.id, now);
-        return { buildingId: b.id, name: b.name, pct: Math.round(s.pct * 100) / 100, explicit: s.explicit, expiringTokens: a.expiring, durableTokens: a.durable };
+        return { buildingId: b.id, name: b.name, pct: Math.round(s.pct * 100) / 100, explicit: s.explicit, expiringTokens: a.expiring, durableTokens: a.durable, heldTokens: held.get(b.id) ?? 0 };
       }),
       contributors: this.contributors(),
     };

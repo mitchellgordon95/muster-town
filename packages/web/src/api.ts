@@ -52,7 +52,7 @@ export interface Budget {
   users: { userId: string; name?: string; donated: number }[];
 }
 /** `GET /api/bank` — core's BankSummary: the pools, the inputs, each building's share, and the top contributors. */
-export interface BankBuildingShare { buildingId: string; name: string; pct: number; explicit: boolean; expiringTokens: number; durableTokens: number }
+export interface BankBuildingShare { buildingId: string; name: string; pct: number; explicit: boolean; expiringTokens: number; durableTokens: number; heldTokens: number }
 export interface BankContributor { userId: string; name: string; tokens: number; bankTokens: number; donatedTokens: number }
 export interface Bank {
   balanceTokens: number;
@@ -60,6 +60,10 @@ export interface Bank {
   expiringTokens: number;
   /** API-key tokens, kept until spent */
   durableTokens: number;
+  /** unspent tokens donated straight to buildings (outside the Bank's balance) */
+  heldTokens: number;
+  /** balanceTokens + heldTokens */
+  townTokens: number;
   creditedTokens: number;
   dailyInflowTokens: number;
   inputs: (BankInput & { userName: string })[];
