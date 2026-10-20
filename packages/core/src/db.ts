@@ -20,20 +20,21 @@ export function openDb(path: string): DB {
 
 export function migrate(db: DB, dir = MIGRATIONS_DIR): number {
   db.exec("CREATE TABLE IF NOT EXISTS schema_version (version INTEGER NOT NULL)");
-  const row = db.prepare("SELECT MAX(version) AS v FROM schema_version").get() as { v: number | null };
-  let current = row.v ?? 0;
+  // apply every file whose number isn't recorded yet (not just those above the max), so migrations
+  // from branches merged out of order still run
+  const applied = new Set((db.prepare("SELECT version FROM schema_version").all() as { version: number }[]).map((r) => r.version));
   const files = readdirSync(dir)
     .map((f) => ({ f, n: Number(/^(\d+)/.exec(f)?.[1] ?? NaN) }))
     .filter((x) => x.f.endsWith(".sql") && Number.isFinite(x.n))
     .sort((a, b) => a.n - b.n);
   for (const { f, n } of files) {
-    if (n <= current) continue;
+    if (applied.has(n)) continue;
     const sql = readFileSync(join(dir, f), "utf8");
     db.transaction(() => {
       db.exec(sql);
       db.prepare("INSERT INTO schema_version (version) VALUES (?)").run(n);
     })();
-    current = n;
+    applied.add(n);
   }
-  return current;
+  return Math.max(0, ...applied);
 }

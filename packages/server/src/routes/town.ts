@@ -69,7 +69,7 @@ export async function townRoutes(app: FastifyInstance) {
     return { building: world.ops.updateBuilding(actorOf(world, req), req.params.id, input) };
   });
 
-  /** The building's in-tray: pending reports, oldest first. Readable by anyone (reports are on the board). */
+  /** The building's in-tray: pending reports, oldest first. Readable by anyone. Reports live here, not on the board. */
   app.get<{ Params: Params }>("/api/buildings/:id/intray", async (req) => {
     return { reports: world.ops.intray(req.params.id) };
   });
@@ -77,7 +77,7 @@ export async function townRoutes(app: FastifyInstance) {
   app.get<{ Params: Params }>("/api/buildings/:id/board", async (req) => {
     const { limit } = parse(LimitQuery, req.query);
     world.buildings.require(req.params.id, "building");
-    const docs = world.docs.where("buildingId = ? AND state = 'building'", [req.params.id], `ORDER BY updatedAt DESC, rowid DESC LIMIT ${limit}`);
+    const docs = world.docs.where("buildingId = ? AND state = 'building' AND type != 'report'", [req.params.id], `ORDER BY updatedAt DESC, rowid DESC LIMIT ${limit}`);
     return { docs };
   });
 

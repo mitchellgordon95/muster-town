@@ -17,6 +17,7 @@ export {
   applyDecision, createAssignment, createDoc, updateDoc, extractProposal, summarizeDoc, canSeeDoc, sendMessage,
   setAssignmentStatus, intrayOf, intrayCounts, requirePendingReport, type DocSummary,
 } from "./domain.ts";
+export { replyToReport, replyStamp, isMergeReply, MERGE_INSTRUCTION, type ReplyResult } from "./reply.ts";
 export { extractMentions, notifyMentions, type MentionContext } from "./mentions.ts";
 export { createMeeting, setMeetingPhase, meetingSpeak, meetingDecide, endMeeting, defaultAttendees, defaultFacilitator } from "./meetings.ts";
 export { makeVerbs, verbImpls, type Verbs, type VerbResult } from "./verbs/index.ts";

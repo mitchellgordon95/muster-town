@@ -14,7 +14,7 @@ export async function board(world: World, me: Agent, input: VerbIn<"board">) {
   const bid = input.buildingId ?? me.buildingId ?? me.homeBuildingId;
   if (!bid) throw badRequest("You're not in a building; pass buildingId.");
   const b = world.buildings.require(bid, "building");
-  const docs = world.docs.where("buildingId = ? AND state = 'building'", [bid], `ORDER BY updatedAt DESC, rowid DESC LIMIT ${input.limit}`);
+  const docs = world.docs.where("buildingId = ? AND state = 'building' AND type != 'report'", [bid], `ORDER BY updatedAt DESC, rowid DESC LIMIT ${input.limit}`);
   return { building: { id: b.id, name: b.name, goal: b.goal }, docs: docs.map((d) => summarizeDoc(world, d)) };
 }
 
@@ -93,7 +93,9 @@ export async function submit_report(world: World, me: Agent, input: VerbIn<"subm
       sessionId: session?.id, assignmentId: assignmentId ?? undefined,
     }, `${me.name} submitted a report: ${input.title}`);
     notifyMentions(world, me, `${doc.title}\n${doc.body}`, { where: docWhere(doc), docId: doc.id, buildingId: doc.buildingId });
-    if (assignmentId && world.assignments.get(assignmentId)) setAssignmentStatus(world, assignmentId, "done", { reportId: doc.id });
+    // a cancelled assignment (stopped/dismissed mid-session) stays cancelled; the report still lands
+    const asg = assignmentId ? world.assignments.get(assignmentId) : undefined;
+    if (asg && (asg.status === "pending" || asg.status === "active")) setAssignmentStatus(world, asg.id, "done", { reportId: doc.id });
     if (session) world.sessions.upsert({ ...session, reportId: doc.id });
     world.agents.patch(me.id, { currentAssignmentId: null });
     // Hub semantics: the report goes to the building's in-tray and the agent goes idle. It only works again

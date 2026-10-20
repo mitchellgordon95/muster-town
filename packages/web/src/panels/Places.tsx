@@ -6,7 +6,7 @@ import { useEffect, useMemo, useState } from "react";
 import type { Doc, Meeting } from "@agent-town/schema";
 import { api } from "../api";
 import { store, useTown, roleOf } from "../state";
-import { DocRow, DocView, VERDICT_TONE, proposalOf } from "./DocView";
+import { DocRow, DocView, VERDICT_TONE, needOf } from "./DocView";
 import { Glyph, PanelShell } from "./PanelShell";
 import { Meter } from "./AgentPanel";
 import { phaseTone } from "./BuildingPanel";
@@ -53,12 +53,12 @@ export function IntrayPanel({ buildingId }: { buildingId: string }) {
 
 function IntrayRow({ doc, onOpen }: { doc: Doc; onOpen: () => void }) {
   const a = useTown((s) => s.agents[doc.authorId]);
-  const proposal = proposalOf(doc.body);
+  const need = needOf(doc.body);
   return (
     <button className="doc-row intray-row" onClick={onOpen}>
       <div className="intray-who">{a ? <img src={portraitUrl(a.sprite, 1)} alt="" /> : null}<b>{nameOf(doc.authorId)}</b><span>{timeAgo(doc.createdAt)}</span></div>
       <div className="doc-row-title">{doc.title}</div>
-      {proposal ? <div className="intray-proposal">Proposes: {proposal.length > 140 ? proposal.slice(0, 140) + "…" : proposal}</div> : null}
+      {need ? <div className="intray-proposal">Needs: {need.length > 140 ? need.slice(0, 140) + "…" : need}</div> : null}
       <div className="doc-row-meta">
         {doc.verdict ? <Pill tone={VERDICT_TONE[doc.verdict]}>verdict: {doc.verdict}</Pill> : null}
         {doc.tokens ? <span>{fmtTokens(doc.tokens)} tokens{doc.costUsd ? ` · ${usd(doc.costUsd)}` : ""}</span> : null}
@@ -76,9 +76,10 @@ export function BoardPanel({ buildingId }: { buildingId: string }) {
   const [open, setOpen] = useState<Doc | null>(null);
   useEffect(() => { if (list.data) store.putDocs(list.data); }, [list.data]);
   return (
-    <PanelShell icon={<Glyph kind="board" />} title={`${b?.name ?? "Building"} board`} subtitle="Reports, articles and notes published in this building">
+    <PanelShell icon={<Glyph kind="board" />} title={`${b?.name ?? "Building"} board`} subtitle="Standing rules, articles and notes. Reports go to the in-tray.">
       {open ? <DocView doc={open} onBack={() => setOpen(null)} backLabel="Board" /> : (
         <>
+          {b ? <StandingRules buildingId={b.id} rules={b.rules ?? ""} /> : null}
           <ErrorLine error={list.error} />
           {list.loading && !list.data ? <Loading /> : !list.data?.length ? <Empty>Nothing pinned to the board yet.</Empty> : (
             <div className="doc-list">{list.data.map((d) => <DocRow key={d.id} doc={d} onOpen={() => setOpen(d)} />)}</div>
@@ -86,6 +87,35 @@ export function BoardPanel({ buildingId }: { buildingId: string }) {
         </>
       )}
     </PanelShell>
+  );
+}
+
+/** Pinned at the top of the board: the manager's standing rules, added to every session's brief in this building. */
+function StandingRules({ buildingId, rules }: { buildingId: string; rules: string }) {
+  const canEdit = store.can("building.manage", buildingId);
+  const [draft, setDraft] = useState<string | null>(null);
+  if (!rules.trim() && !canEdit) return null;
+  return (
+    <div className="rules-card">
+      <div className="rules-head">
+        <b>Standing rules</b>
+        <span>every agent reads these when a session starts here</span>
+        {canEdit && draft === null ? <button className="link" onClick={() => setDraft(rules)}>{rules.trim() ? "Edit" : "Add rules"}</button> : null}
+      </div>
+      {draft !== null ? (
+        <form className="form" onSubmit={(e) => e.preventDefault()}>
+          <textarea rows={6} value={draft} onChange={(e) => setDraft(e.target.value)} placeholder={"- One small PR per session.\n- Mention @Name when you need a decision."} autoFocus />
+          <div className="actions">
+            <Act tone="primary" run={async () => {
+              await api().updateBuilding(buildingId, { rules: draft });
+              setDraft(null);
+              store.toast("Standing rules saved; they apply from the next session", "ok");
+            }}>Save rules</Act>
+            <button type="button" className="btn" onClick={() => setDraft(null)}>Cancel</button>
+          </div>
+        </form>
+      ) : rules.trim() ? <Markdown text={rules} /> : <div className="muted">No standing rules yet. Add some and every session in this building starts with them.</div>}
+    </div>
   );
 }
 

@@ -153,7 +153,8 @@ function SessionTab({ agent }: { agent: Agent }) {
   );
 }
 
-/** The agent's reports with their decision pills. Read-only: decisions happen at the building's in-tray. */
+/** The agent's reports with their decision pills. Reviewers get a one-click Acknowledge (archive) on pending rows;
+ *  replies are written at the building's in-tray. */
 function ReportsTab({ agent }: { agent: Agent }) {
   const rev = useTown((s) => s.rev);
   // The docs API has no author filter, so list the building's reports and filter client-side.
@@ -162,6 +163,13 @@ function ReportsTab({ agent }: { agent: Agent }) {
   const reports = (list.data ?? []).filter((d) => d.authorId === agent.id).sort((a, b) => b.createdAt.localeCompare(a.createdAt));
   const pending = reports.filter((d) => d.decision === "pending").length;
   const bid = agent.homeBuildingId;
+  useTown((s) => s.me); // re-render when permissions arrive
+  const canReview = !!bid && store.can("building.review", bid);
+  const acknowledge = (d: Doc) => async () => {
+    store.putDocs([(await api().archive(d.id)).doc]);
+    store.toast("Archived. No new assignment.", "ok");
+    list.reload();
+  };
   if (open) return <DocView doc={open} onBack={() => setOpen(null)} backLabel="All reports" />;
   if (list.loading && !list.data) return <Loading />;
   if (!reports.length) return <Empty>{agent.name} hasn't submitted a report yet. Every work session ends in one.</Empty>;
@@ -170,7 +178,12 @@ function ReportsTab({ agent }: { agent: Agent }) {
       {pending && bid ? (
         <div className="callout">{pending} of these {pending === 1 ? "is" : "are"} in the in-tray. <button className="link" onClick={() => { if (!store.walkTo(`intray:${bid}`, { kind: "intray", id: bid })) store.open({ kind: "intray", id: bid }); }}>Walk to the in-tray →</button></div>
       ) : null}
-      <div className="doc-list">{reports.map((d) => <DocRow key={d.id} doc={d} onOpen={() => setOpen(d)} />)}</div>
+      <div className="doc-list">{reports.map((d) => canReview && d.decision === "pending" ? (
+        <div key={d.id} className="doc-row-act">
+          <DocRow doc={d} onOpen={() => setOpen(d)} />
+          <Act small tone="ok" run={acknowledge(d)} title="Archive: mark handled with no reply. No assignment is created.">Acknowledge</Act>
+        </div>
+      ) : <DocRow key={d.id} doc={d} onOpen={() => setOpen(d)} />)}</div>
     </>
   );
 }

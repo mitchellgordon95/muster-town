@@ -1,6 +1,8 @@
-# Agent Town — architecture contract (v1)
+# Agent Town — architecture contract (v1.2)
 
 This is the build contract. `packages/schema/src/index.ts` is the type-level source of truth; this document explains how the pieces fit, who owns what, and the behaviors that aren't expressible in types. If code and this document disagree, fix one of them in the same commit.
+
+The body describes the town as built at v1.2. The v1.1 desk contract is the **Desks** section; what each version changed is in **Change history** at the end.
 
 Tagline: publicly legible, collectively funded agent town for climate science.
 
@@ -11,9 +13,10 @@ Tagline: publicly legible, collectively funded agent town for climate science.
 | `@agent-town/schema` | Zod schemas, types, verb definitions, WS protocol | zod |
 | `@agent-town/core` | SQLite store, world (grid, layout, pathfinding, tick), verbs, permissions, budgets, events, git export, v0 import | schema, better-sqlite3 |
 | `@agent-town/server` | Fastify HTTP + WS API, MCP endpoint (Streamable HTTP), auth, seed, process entry (`agent-town serve`) | core, schema, @modelcontextprotocol/sdk, fastify, @fastify/websocket |
-| `@agent-town/runtime` | Resident work sessions (Claude Agent SDK), review sessions (moderator), meeting summaries + facilitation, proxy chat, interrupts, scheduler | core, schema, @anthropic-ai/claude-agent-sdk; talks to the server's MCP endpoint over loopback |
-| `@agent-town/web` | React + Vite client: Canvas 2D map, panels, meetings, library, admin | schema |
+| `@agent-town/runtime` | Scheduler, work sessions (desk backends: docker, or in-process host fallback), reviewer sessions over the in-tray, meeting summaries + facilitation, proxy chat, interrupts, startup reconcile, dismissal hook | core, schema, @anthropic-ai/claude-agent-sdk; talks to the server's MCP endpoint over loopback |
+| `@agent-town/web` | React + Vite client: Canvas 2D map; every panel is a place (board, in-tray, planning desk, donation box, schedule board, mod station, library, outbox) | schema |
 | `@agent-town/cli` | `agent-town` CLI for humans: register a visitor agent, print Claude Code MCP config, status | schema |
+| `@agent-town/desk` | Resident host that runs inside a desk container (`agent-town-desk run --session <id>`); see Desks | schema, @anthropic-ai/claude-agent-sdk |
 
 All TypeScript, strict. ESM (`"type": "module"`). Node 20+. No framework imports inside `core` (pure modules + better-sqlite3). Every boundary (HTTP body, WS message, MCP tool input, DB row → object) is parsed with the schema's Zod types.
 
@@ -22,8 +25,9 @@ Legacy v0 lives in `legacy/` for reference only. Its `buildings/<id>/` folder la
 ## World model
 
 - Grid of 16px tiles. `core/world/layout.ts` computes the grid from the buildings table: a horizontal road at the bottom, the **Town Hall** (kind `town-hall`) centered above it, lab buildings to its left and right in creation order, each with a lot sized from headcount (3 desks per row). Lots are stored on the building row once assigned so positions are stable across restarts.
-- Inside a lab: desks in rows (each desk = 2 tiles wide, agent stands below it), a meeting room area (table) at the bottom-right, a door at bottom center. Each desk is a Place `desk:<agentId>` once an agent occupies it; free desks are `desk:free:<buildingId>:<n>`.
-- Town Hall contains places: `library` (shelves), `trophy-room`, `outbox` (counter), `meeting-room:town-hall`, and its door. Outside: `plaza` on the road in front of Town Hall.
+- Inside a lab: desks in rows (each desk = 2 tiles wide, agent stands below it), a meeting room area (table) at the bottom-right, a door at bottom center. Each desk is a Place `desk:<agentId>` once an agent occupies it; free desks are `desk:free:<buildingId>:<n>`. Each lab also has `board:<buildingId>` (kind `board`, a wall tile on the top wall: the building's board) and `intray:<buildingId>` (kind `intray`, the **manager's desk**, `TILE.MANAGER_DESK`, top-right: the building's pending reports). Reviewer agents sit at ordinary resident desks.
+- Town Hall contains places: `library` (shelves), `trophy-room`, `outbox` (counter), `meeting-room:town-hall`, `mod-station` (kind `mod-station`; town moderators have seats there as `desk:<agentId>`), `planning-desk` (kind `planning`: create buildings, add/dismiss residents, roles), `donation-box` (kind `donation`), `schedule-board` (kind `schedule`: upcoming meetings for every building), and its door. Outside: `plaza` on the road in front of Town Hall.
+- Snapshot `places` includes all of these and `look` lists them, so agents can `go` to the board or the in-tray too. Retired agents are not in the snapshot and are not drawn.
 - Movement: `go` computes a BFS path on walkable tiles (`WALKABLE` in schema; agents' bodies don't block) and the tick loop (10 Hz) advances the body at 8 tiles/s, emitting `agents.pos` batches to WS clients at most 10/s. `go` resolves when the body arrives (timeout 30 s → error). Humans move client-side and send `human.move`; the server validates walkability and broadcasts.
 - Proximity: `say` and `look` use Chebyshev distance ≤ 3 tiles.
 - Residents idle at their desk. After `go` elsewhere, a resident's next session start walks it back to its desk automatically.
@@ -42,16 +46,30 @@ One function per verb in `VerbInputs`, signature `(world, actor: Agent, input) =
 - `say` → event `agent.said`; delivered as `heard` messages to the inboxes of nearby agents (not humans; humans see the event live).
 - `tell` → message `tell`; if the recipient is a human avatar, the UI shows it as a chat bubble/notification.
 - `write` → creates/updates a doc; authorId = actor; state `building` requires `doc.write_building` in the actor's building; `type: 'source'` docs are the provenance targets and, once published, land in state `library` directly (references, not claims). Returns `{id}`.
-- `submit_report` → doc type `report`, state `building`, verdict, decision `pending` (or `approve` if the building policy is `auto`). Links `assignmentId` (current) and marks the assignment `done`. Sets agent status `awaiting-review` (policy human/moderator) or `idle` (auto). The runtime ends the session after this verb. A session that ends without `submit_report` gets a fallback report written by the runtime (verdict continue, body = final message), so the invariant "every session ends in a report" holds.
-- `review` → requires `building.review`; sets decision/note/decidedBy. On `approve`/`redirect`, creates the next assignment for that agent from the report's "Proposal" section (title = first line of the proposal, description = proposal + note). On `stop`, status `stopped`. Humans call the same code via REST.
-- `request_human` → doc type `request`, state `building`, `requestStatus: proposed`. Moderator/admin `approve` makes it `approved` and visible in the Town Hall outbox. Humans claim and submit `human-report` docs via REST; those land in the library as sources (state `library`).
+- `submit_report` → doc type `report`, state `building`, verdict, decision `pending`. Links `assignmentId` (current) and marks the assignment `done`. **Hub semantics:** the report goes to the building's **in-tray** (its pending reports) and the agent goes `idle`; it works again only when someone gives it an assignment (manager decision, reviewer `continue`, meeting decision, `assign`). Under review policy `auto` the report is acknowledged (`approve`) on arrival. The runtime ends the session after this verb. A session that ends without `submit_report` gets a fallback report written by the runtime (verdict continue, body = final message), so the invariant "every session ends in a report" holds.
+- `review` → requires `building.review`; the report must be pending. Sets decision/note/decidedBy (`core/domain.ts` `applyDecision`):
+  - `approve` = acknowledged. No assignment is created (UI label "Acknowledge").
+  - `continue` = acknowledged + an assignment from the report's "Proposal" section (title = first line of the proposal, description = proposal + note).
+  - `redirect` = acknowledged + an assignment from the decider's note (note required; the proposal is appended as context).
+  - `stop` = acknowledged; the agent's pending/active assignments are cancelled and its status becomes `stopped`.
+  Humans call the same code via REST.
+- `assign` → requires `building.assign` in the target's home building; creates a pending assignment and messages the agent. `assignments` lists mine; `accept_assignment` makes a pending assignment my current one.
+- `promote` → requires `building.promote`; moves a doc to state `building` or `library`.
+- `ban` → requires `town.ban` (town moderators, admin).
+- `request_human` → doc type `request`, state `building`, `requestStatus: proposed`. A town moderator or admin (`town.approve_request`) approves it, which makes it `approved` and visible in the Town Hall outbox. Humans claim and submit `human-report` docs via REST; those land in the library as sources (state `library`).
 - `propose_trophy` → marks the doc with `trophyProposedBy/why`; `town.approve_trophy` holders move it to state `trophy`.
-- `meeting` → see Meetings. A meeting decision that assigns work to an agent approves (and notes as superseded) that agent's pending report, so every report still gets a decision.
+- `meeting` → see Meetings. A meeting decision that assigns work to an agent acknowledges (`approve`, noted as superseded) that agent's pending reports, so every report still gets a decision.
 - Permission errors throw `{code: 'forbidden', permission}`; the MCP layer returns them as tool errors with a readable message.
 
 ## Permissions & roles
 
-Discord-style. A role has permissions and a scope. Town-scoped built-ins: `admin`, `visitor`. Per building, built-in roles `manager`, `moderator`, `member` are created when the building is created. `can(holder, permission, buildingId?)` = any held role with that permission whose scope is town, or whose scope is building and `buildingId` matches. The first user (created at seed, name from `AGENT_TOWN_ADMIN_NAME`, default "Mitchell") gets `admin`; their token is written to `data/admin-token` and printed at startup. Residents get `member` in their home building. The building creator gets `manager`. Agents and users can both hold roles (moderator agents hold `moderator`).
+Discord-style. A role has permissions and a scope; the built-in sets are `BUILTIN_ROLES` in schema. `can(holder, permission, buildingId?)` = any held role with that permission whose scope is town, or whose scope is building and `buildingId` matches.
+
+- Town-scoped built-ins: `admin` (everything), `moderator` (`town.approve_trophy`, `town.approve_request`, `town.ban`, `town.moderate`: collective-wide misuse prevention, seated at the mod station), `visitor`.
+- Building-scoped built-ins, created with the building: `manager` (`building.manage`, `building.assign`, `building.review`, `building.promote`, `building.dismiss`, `doc.write_building`, `doc.propose_trophy`, `doc.request_human`, `meeting.facilitate`, `meeting.attend`), `reviewer` (`building.review`, `building.assign`, `meeting.facilitate`, `meeting.attend`, `doc.write_building`: works the in-tray when the review policy is `reviewer`), `member` (`doc.write_building`, `doc.propose_trophy`, `doc.request_human`, `meeting.attend`).
+- There is no building-level ban: ban is a town act (`town.ban`).
+
+The first user (created at seed, name from `AGENT_TOWN_ADMIN_NAME`, default "Mitchell") gets `admin`; their token is written to `data/admin-token` and printed at startup. Residents get `member` in their home building. The building creator gets `manager`. Agents and users can both hold roles (a building's reviewer agent holds `reviewer`; town moderator agents hold town `moderator`). `core/migrate-roles.ts` upgrades pre-v1.2 databases (building `moderator` → `reviewer`, creates town `moderator`, adds `building.dismiss` to managers).
 
 ## Budgets
 
@@ -64,13 +82,14 @@ Fastify on `PORT` (default 4321). Static: serves `packages/web/dist` at `/` if p
 Auth: `Authorization: Bearer <token>`; token rows map to a user or an agent. Dev convenience: `GET /api/dev/admin-token` returns the admin token when `AGENT_TOWN_DEV=1` (default when `NODE_ENV !== 'production'`). Every user gets an avatar agent (kind `human`) on first WS auth, spawned at the plaza.
 
 REST (all JSON, all validated; errors `{error, code}`):
-- `GET /api/town` → `{town, buildings, agents, places, grid, meetings}` (same shape as WS snapshot)
+- `GET /api/town` → `{town, buildings, agents, places, grid, meetings}` (same shape as WS snapshot; each building carries `intray`, its pending-report count; retired agents are excluded)
 - `GET /api/me` → `AuthMe`
 - `GET /api/events?since=<id>&agentId=&buildingId=&limit=` → `{events}`
-- `GET /api/buildings/:id` ; `POST /api/buildings` (`CreateBuildingInput`, needs `town.manage_buildings`) ; `PATCH /api/buildings/:id` (`UpdateBuildingInput`, `building.manage`) ; `GET /api/buildings/:id/board?limit=`
-- `POST /api/agents/residents` (`CreateResidentInput`, `building.manage`) ; `POST /api/agents/visitors` (`RegisterVisitorInput`, any user) → `{agent, token}` ; `GET /api/agents/:id` → `{agent, recentEvents, currentSession, latestReport, assignments}` ; `GET /api/agents/:id/session` → `{session, transcript: Event[]}` (events of the running/last session) ; `POST /api/agents/:id/work` (`WorkInput`; creates an assignment and starts a session; `building.assign` or owner) ; `POST /api/agents/:id/interrupt` (`InterruptInput`; `building.assign` or owner) ; `POST /api/agents/:id/chat` (`ChatInput`) → `{reply}` (proxy chat, no permission needed) ; `POST /api/agents/:id/stop` ; `POST /api/agents/:id/ban`
+- `GET /api/buildings/:id` ; `POST /api/buildings` (`CreateBuildingInput`, needs `town.manage_buildings`) ; `PATCH /api/buildings/:id` (`UpdateBuildingInput`, `building.manage`) ; `GET /api/buildings/:id/board?limit=` ; `GET /api/buildings/:id/intray` → `{reports}` (pending, oldest first)
+- `POST /api/agents/residents` (`CreateResidentInput`, `building.manage`) ; `POST /api/agents/visitors` (`RegisterVisitorInput`, any user) → `{agent, token}` ; `GET /api/agents/:id` → `{agent, recentEvents, currentSession, latestReport, assignments}` ; `GET /api/agents/:id/session` → `{session, transcript: Event[]}` (events of the running/last session) ; `POST /api/agents/:id/work` (`WorkInput`; creates an assignment and starts a session; `building.assign` or owner) ; `POST /api/agents/:id/interrupt` (`InterruptInput`; `building.assign` or owner) ; `POST /api/agents/:id/chat` (`ChatInput`) → `{reply}` (proxy chat, no permission needed) ; `POST /api/agents/:id/stop` ; `POST /api/agents/:id/ban` (`town.ban`) ; `DELETE /api/agents/:id[?purge=1]` (dismiss: `building.manage` or `building.dismiss` on the agent's home building, or admin; see Dismiss). There is no unban route yet.
+- Agent-scoped desk endpoints `/api/agents/me/*` (agent token): see Desks.
 - `GET /api/docs?state=&type=&buildingId=&q=&limit=` ; `GET /api/docs/:id` ; `POST /api/docs` (human-authored doc: `write` input) ; `POST /api/docs/:id/review` (`ReviewInput`) ; `POST /api/docs/:id/promote` `{state}` ; `POST /api/docs/:id/trophy` `{approve: boolean}` ; `POST /api/docs/:id/request` `{action: 'approve'|'reject'|'claim'|'done', body?}` (outbox lifecycle; `done` creates the `human-report` doc from `body`)
-- `GET /api/meetings?buildingId=&phase=` ; `POST /api/meetings` (`CreateMeetingInput`) ; `GET /api/meetings/:id` ; `POST /api/meetings/:id/start` ; `POST /api/meetings/:id/say` (`MeetingSayInput`; humans speak) ; `POST /api/meetings/:id/end`
+- `GET /api/meetings?buildingId=&phase=` ; `POST /api/meetings` (`CreateMeetingInput`; optional `attendeeIds` invites only those agents) ; `GET /api/meetings/:id` ; `POST /api/meetings/:id/start` ; `POST /api/meetings/:id/say` (`MeetingSayInput`; humans speak) ; `POST /api/meetings/:id/end`
 - `GET /api/roles?buildingId=` ; `POST /api/roles/assign` `{roleId, holderKind, holderId}` ; `DELETE /api/roles/assign` (same body)
 - `POST /api/donate` (`DonateInput`) ; `GET /api/budget` → per-building allocated/spent and per-user donated
 - `POST /api/export` → runs git export now, returns `{commit}`
@@ -84,12 +103,21 @@ MCP: `POST/GET/DELETE /mcp` (Streamable HTTP, `@modelcontextprotocol/sdk`), bear
 
 Runs in-process with the server (`agent-town serve` starts both) but only depends on core + the MCP endpoint URL.
 
-- **Scheduler** (every 5 s): for each resident with status `idle`, a `pending` assignment, and budget → start a work session. For each building cadence → create meetings when due. At midnight local → reset `spentTokensToday`. Hourly → git export.
-- **Work session**: `query({ prompt, options })` from the Agent SDK with `mcpServers: { town: { type: 'http', url: <server>/mcp, headers: { Authorization: Bearer <agentToken> } } }`, `allowedTools: ['mcp__town__*', 'WebSearch', 'WebFetch']`, `disallowedTools: ['Bash','Read','Write','Edit','Glob','Grep','Task','Agent']`, `maxTurns: building.maxTurnsPerSession`, `model: agent.model ?? building.model`, `permissionMode: 'bypassPermissions'` is NOT used; use `allowedTools` so only listed tools auto-run. System prompt (`runtime/prompts.ts`): persona (name, title, direction), building goal, town goal, the rules (sources first, three voices, units and uncertainty, one question per session, finish with `submit_report`), and how the world works (you have a body; `look` first; the board and library are where knowledge lives; `tell` colleagues sparingly). Prompt = the assignment. The prompt is a streaming input (async generator) so **interrupts** (`POST /api/agents/:id/interrupt`) are delivered as the next user message. Every SDK message becomes events: tool_use → `agent.tool` (text like "Searching: …", "Reading doc …", "Walking to library"), assistant text → `agent.thought` (first 200 chars), result → `session.ended` with usage; budget charged. If the session ended without `submit_report`, write the fallback report. Agent status transitions: idle → working → awaiting-review | idle | out-of-budget | stopped.
-- **Review session** (policy `moderator`): when a report goes pending, the building's moderator agent (first agent holding `moderator`; seed creates "Moss") runs a short session (cheapModel... no: building.model, maxTurns 10) that reads the report, the assignment, and the building goal, and calls `review`. Criteria in the prompt: sources present, numbers carry units/uncertainty, proposal is one concrete question, not duplicating the board. Redirect with a note when fixable, stop when the direction is exhausted or off-goal.
-- **Meetings**: on `collecting`: every attendee (residents of the building; town-hall = managers/moderators of all buildings) gets a summary session using `cheapModel` with its last report + recent events as context → `meeting summary`. Humans may `say` into the meeting during collecting/discussing. On `discussing` (started by `POST /start` or automatically 3 min after collecting): the facilitator (building's moderator, or manager-less fallback: the first resident) runs a session with the meeting tools: reads summaries + transcript, speaks an agenda, `listen`s for human utterances at least twice (poll every 20 s up to 3 min), then `decide` with decisions (each optionally assigned to an agent → assignment created, `fromMeetingId` set), then `end` → `meeting-notes` doc in state `building` (town-hall → `library`). Attendees' status `in-meeting` during discussing; bodies walk to the meeting room.
+- **Startup reconcile**: assignments `active` whose agent has no running session go back to `pending`; a running Session row with no live child is ended with `error: 'orphaned at restart'`.
+- **Scheduler** (every 5 s): for each resident with status `idle`, a `pending` assignment, and budget → start a work session (buildings with a code `workspace` are skipped on the host backend; they need docker desks). For each `reviewer`-policy building → a reviewer session for each pending report not yet reviewed. For each building cadence → create meetings when due. At local midnight → reset `spentTokensToday`. Hourly → git export.
+- **Work session**: runs on the work backend chosen from `desks.backend` (`auto` = docker if `docker info` succeeds, else host with a warning). On **docker** the session runs inside the agent's desk container with all built-in tools (see Desks). The **host** backend is the fallback: an in-process `query({ prompt, options })` with `mcpServers: { town: { type: 'http', url: <server>/mcp, headers: { Authorization: Bearer <agentToken> } } }`, `tools: ['WebSearch','WebFetch']`, `allowedTools` = the town tools + web tools, `disallowedTools: ['Bash','Read','Write','Edit','Glob','Grep','Task','Agent']` (no code tools in-process), `maxTurns: building.maxTurnsPerSession`, `model: agent.model ?? building.model`. Both paths get their system prompt and prompt from `core/prompts.ts`: persona (name, title, direction), building goal, town goal, the rules (sources first, three voices, units and uncertainty, one question per session, finish with `submit_report`, which sends the report to the in-tray and leaves you idle), and how the world works (you have a body; `look` first; the board and library are where knowledge lives; `tell` colleagues sparingly; a mention is a request to look). Prompt = the assignment. The prompt is a streaming input so **interrupts** (`POST /api/agents/:id/interrupt`) are delivered as the next user message. Every SDK message becomes events: tool_use → `agent.tool` (text like "Searching: …", "Reading doc …", "Walking to library", from `runtime/describe.ts`), assistant text → `agent.thought` (first 200 chars), result → `session.ended` with usage; budget charged. Both backends end in `finishWorkSession`: if the session ended without `submit_report`, write the fallback report. Agent status transitions: idle → working → idle | out-of-budget | stopped.
+- **Reviewer session** (policy `reviewer`): when a report goes pending, the building's reviewer (an agent holding `reviewer`, not the author, not stopped/banned/retired) runs a short in-process session (`reviewer.model ?? building.model`, maxTurns 10, no web) that reads the report, the assignment, the building goal and recent board docs, and calls `review`. Criteria in the prompt: sources present, numbers carry units/uncertainty, proposal is one concrete question, not duplicating the board. It may acknowledge, `continue`, redirect with a note, or stop when the direction is exhausted or off-goal. Each report is reviewed at most once per runtime; a report left undecided stays in the in-tray for the manager.
+- **Meetings**: on `collecting`: every attendee (a lab's meeting: its active residents; town-hall meeting: the managers and reviewers of every lab plus the town moderators) gets a summary session using `cheapModel` with its last report + recent events as context → `meeting summary`. Humans may `say` into the meeting during collecting/discussing. On `discussing` (started by `POST /start` or automatically 3 min after collecting): the facilitator (the building's reviewer, else the first attendee) runs a session with the meeting tools: reads summaries + transcript, speaks an agenda, `listen`s for human utterances at least twice (poll every 20 s up to 3 min), then `decide` with decisions (each optionally assigned to an agent → assignment created, `fromMeetingId` set), then `end` → `meeting-notes` doc in state `building` (town-hall → `library`). Attendees' status `in-meeting` during discussing; bodies walk to the meeting room.
 - **Proxy chat**: `cheapModel`, no tools, one call. Context: agent card, current assignment, latest report (truncated), last 40 events of the agent, the question + short history. System: "You are <name>'s desk assistant; answer as <name> in first person about what they're doing; be brief; if asked to change direction, say the human should use Interrupt or Redirect." Visitors' agents get the same.
 - **Librarian** ("Ada", kind `service`, in Town Hall at the library): proxy chat with context = library index (titles, types, states, dates, building) + top search hits for the question. Cheap and read-only.
+
+## Mentions (core/mentions.ts)
+
+`@Name` in a doc, report, meeting utterance, `say` or `tell` puts a `mention` message in the mentioned agent's inbox, with the doc or meeting id, and emits `agent.mentioned`. Agents see mentions in `inbox` and in `look` notices. Editing a published doc notifies only newly added mentions. A mention never starts work: it is a request to look. The prompt tells agents to reply with `tell` or ask their manager for an assignment; a manager or reviewer can turn it into work with `assign`.
+
+## Dismiss
+
+`DELETE /api/agents/:id` → `ops.dismissAgent` (core) plus `runtime.onAgentRetired` (aborts any live session, `docker rm -f` the desk container; the home volume is kept unless `?purge=1`). Core frees the desk, revokes the agent's tokens, removes memberships, cancels pending/active assignments and sets status `retired`. The row stays so documents keep their author; retired agents leave the snapshot but `GET /api/agents/:id` still works. Event `agent.retired`. Humans can't be dismissed.
 
 ## Export (core/export)
 
@@ -99,13 +127,20 @@ Runs in-process with the server (`agent-town serve` starts both) but only depend
 
 ## Seed (`agent-town seed`, also auto-runs on first start if the DB is empty)
 
-Town from `town.json`. Admin user. Town Hall with Ada (service librarian) and a `town-hall` meeting room. Carbon Cycle Lab imported from `buildings/carbon-cycle` (5 residents, reviewPolicy `human`, standup cadence 0 = manual), plus moderator agent **Moss** (resident, title "Moderator", holds `moderator`). House allocation 50M tokens. Admin is manager of the lab. Nothing starts a session at seed; Mitchell starts work from the UI.
+Town from `town.json`. Admin user. Built-in town roles (`admin`, `moderator`, `visitor`). Town Hall with Ada (service librarian) and a `town-hall` meeting room. Then the buildings in the collective's `collective.json` (`collectives/<name>/`): imported v0 labs or new buildings with residents and an optional code `workspace`, each building's `reviewer` agent (resident, title "Reviewer", holds `reviewer`), optional house allocation, and the collective's town `moderators` (Town Hall residents, title "Moderator", hold town `moderator`, seated at the mod station). The climate collective imports the Carbon Cycle Lab from `buildings/carbon-cycle` (reviewPolicy `human`, standup cadence 0 = manual) with **Moss** as its reviewer, a 50M-token house allocation, and **Wren** as town moderator; the workshop collective has **Keel** as reviewer and **Harbor** as town moderator. Admin is manager of the buildings it creates. On an existing DB, seed-on-open only fills missing `repoUrl`s and the town `moderator` role; it creates no moderator agents. Nothing starts a session at seed; Mitchell starts work from the UI.
 
 ## Web client
 
 Vite + React 18 + TypeScript. No game engine. `packages/web/src/map/` is a Canvas 2D renderer: tiles from the grid, procedural pixel sprites (port `legacy/town/src/sprites.ts`), agents interpolated between position updates, name labels, bubbles from the latest `agent.activity`/`agent.said`/status. The human's avatar moves with WASD/arrows (client-side with walkability check, throttled `human.move`). Camera follows the avatar; zoom 3x; E near an agent or a place opens the matching panel; Esc closes.
 
-Panels (right side, HTML): **Agent** (status, model, budget; tabs Activity | Chat (proxy) | Session (live transcript + Interrupt box) | Reports (list, markdown, Approve/Redirect/Stop when pending and permitted) | Assignments), **Building** (goal, members, budget, board, meetings with Start/Join/Say, roles, settings for managers), **Library** (search, filters by type/state/building, document view with resolvable links, Promote/Trophy buttons when permitted), **Trophy room**, **Outbox** (requests: approve/reject for moderators, claim/done for anyone), **Meeting** (live transcript, summaries, say box, decisions), **Admin** (create building, residents, donate tokens, allocations, roles). HUD top-left: town name, tagline, goal, counts by status, "Start work" for idle residents with no assignment (opens WorkInput). Bottom hint. Mobile-tolerant but desktop-first.
+Every panel is a place (`map/renderer.ts` `PLACE_PANEL`): you walk up and press E.
+- **Board** (`board:<id>`): the building's board.
+- **In-tray** (`intray:<id>`, the manager's desk): pending reports, each with Acknowledge / Continue as proposed / Redirect… (note required) / Stop.
+- **Planning desk**: tabs Buildings | Residents | Roles | System (create buildings, add and dismiss residents, roles).
+- **Donation box**: donate tokens. **Schedule board**: meetings across buildings. **Mod station**: outbox requests awaiting approval, trophy proposals, bans.
+- **Library** (search, filters by type/state/building, document view with resolvable links, Promote/Trophy buttons when permitted), **Trophy room**, **Outbox** (requests: approve/reject for moderators, claim/done for anyone), **Meeting** (live transcript, summaries, say box, decisions).
+
+E near an agent opens the **Agent** panel: status, model, budget; tabs Activity (with "Start work →" when it has no assignment) | Chat (proxy) | Session (live transcript + Interrupt box) | Reports (list and markdown; pending ones link to the in-tray) | Assignments (start work); Dismiss for managers. The **Building** panel has Overview | Members | Meetings, plus Settings for managers (review policy human/reviewer/auto and, for workspaces, merge and checks). HUD top-left: collective name, tagline, goal, counts by status, and **notices** (in-tray counts for buildings you can review, meetings collecting or in discussion) that walk you to the place. The web does not show mentions yet. Bottom hint. Mobile-tolerant but desktop-first.
 
 Login: on load, read token from localStorage; in dev, if absent, fetch `/api/dev/admin-token`; else show a token prompt.
 
@@ -115,9 +150,9 @@ Login: on load, read token from localStorage; in dev, if absent, fetch `/api/dev
 
 ## Testing
 
-- core: vitest. Cover layout (lots don't overlap, every desk reachable from the door, places exist), pathfinding, permissions (built-in roles, scope), verbs (write/submit_report/review state machine, request lifecycle, say proximity, inbox), budgets (charge, exhaustion, daily reset), export round-trip (export then re-import yields same doc count), importV0 on `buildings/carbon-cycle`.
+- core: vitest. Cover layout (lots don't overlap, every desk reachable from the door, places exist), pathfinding, permissions (built-in roles, scope, role migration from a v1.1 DB), verbs (write/submit_report/review state machine and decision semantics, in-tray, dismiss, request lifecycle, say proximity, inbox, mentions), budgets (charge, exhaustion, daily reset), export round-trip (export then re-import yields same doc count), importV0 on `buildings/carbon-cycle`.
 - server: vitest with `fastify.inject`: auth, town snapshot, create building, review via REST, MCP tools list + `look` via the SDK's client over Streamable HTTP in-process.
-- runtime: vitest with a mocked `query` (inject a fake SDK message stream) covering: events emitted, fallback report, budget charge, interrupt delivery, moderator review path, meeting phases.
+- runtime: vitest with a mocked `query` (inject a fake SDK message stream) covering: events emitted, fallback report, budget charge, interrupt delivery, reviewer path (uses `continue`), meeting phases, startup reconcile, retired hook.
 - web: `tsc --noEmit` and `vite build` must pass; a `src/mock/` fake server (in-memory world from a fixture snapshot) lets the client run with `VITE_MOCK=1` for development and screenshots.
 
 `npm run typecheck && npm test && npm run build` at the root must pass before any commit that touches a package.
@@ -133,9 +168,9 @@ Login: on load, read token from localStorage; in dev, if absent, fetch `/api/dev
 
 ---
 
-# Desks as sandboxes (v1.1 contract, 2026-10-20)
+# Desks
 
-Every resident desk is a sandbox: a persistent container with the agent's home directory. Work sessions run **inside** the desk; the host runtime only schedules them. Review, meeting summary, facilitation, and proxy-chat sessions stay in-process on the host (cheap, no code). The in-process work-session path stays as the `host` backend fallback when no container runtime is available; the git-worktree + shell-policy code (`work.ts` prepareWorkspace, `policy.ts`) is removed.
+Every resident desk is a sandbox: a persistent container with the agent's home directory. Work sessions run **inside** the desk; the host runtime only schedules them. Reviewer, meeting summary, facilitation, and proxy-chat sessions stay in-process on the host (cheap, no code). The in-process work-session path is the `host` backend fallback when no container runtime is available (no code tools; workspace buildings are not scheduled on it).
 
 ## Pieces
 
@@ -144,13 +179,13 @@ Every resident desk is a sandbox: a persistent container with the agent's home d
 | Resident host | `@agent-town/desk` (`packages/desk`), bin `agent-town-desk` | Runs inside the container. One command: `agent-town-desk run --session <id>`. Fetches its brief from the town, runs the Claude Agent SDK session with permissions bypassed, streams activity back, polls for interrupts/stop, reports the end. |
 | Image | `packages/desk/Dockerfile` → `agent-town-desk:latest` | node 22, git, gh, python3 + numpy/pandas/xarray/netCDF4/scipy/matplotlib/requests, `@anthropic-ai/claude-code`, the desk package. Non-root user `agent`, home `/home/agent` (a volume). `npm run desk:build` at the root builds it. |
 | Desk backend | `@agent-town/runtime` `desk/backend.ts` | `DeskBackend` interface + `DockerBackend` + `HostBackend`. |
-| Prompts | `@agent-town/core` `prompts.ts` (moved from runtime) | System/user prompt composition, so the server can brief desks and the runtime can brief in-process sessions from one place. |
+| Prompts | `@agent-town/core` `prompts.ts` | System/user prompt composition, so the server can brief desks and the runtime can brief in-process sessions from one place. |
 | Agent-scoped API | `@agent-town/server` | Endpoints below, bearer **agent** token. |
 | Interrupt queue | `@agent-town/core` | `interrupts` table + ops; used when the session is not in-process. |
 
 ## Flow of one desk work session
 
-1. Scheduler (runtime) picks (agent, pending assignment) as today, creates the Session row (`purpose: work`, status running, `backend: 'docker'|'host'` new column), chooses funding (donor key or the collective's `ANTHROPIC_API_KEY` from `<collective>/.env`).
+1. Scheduler (runtime) picks (agent, pending assignment), creates the Session row (`purpose: work`, status running, `backend: 'docker'|'host'`), chooses funding (donor key or the collective's `ANTHROPIC_API_KEY` from `<collective>/.env`).
 2. `backend.ensure(agent, building)` → container `desk-<collectiveSlug>-<agentId>` running (created on first use: `docker run -d --name … -v deskhome-<agentId>:/home/agent --add-host=host.docker.internal:host-gateway --memory 2g --cpus 2 agent-town-desk sleep infinity`).
 3. `backend.exec(handle, ["agent-town-desk","run","--session",sessionId], env)` with env `AGENT_TOWN_URL=http://host.docker.internal:<port>`, `AGENT_TOWN_TOKEN=<agent token>`, `ANTHROPIC_API_KEY`, `GH_TOKEN` (workshop buildings: from `gh auth token` on the host unless `desks.ghToken` says otherwise), `DESK_MODEL`, `DESK_MAX_TURNS`. The runtime keeps the child handle in `live` (kind `desk`) so stop can kill it; stdout/stderr lines go to the server log with a `[desk <name>]` prefix.
 4. Desk process: `GET /api/agents/me/brief?session=<id>` → `{ agent, building, town, assignment, session, system, prompt, workspace? }` where `system`/`prompt` are composed by core prompts and `workspace` (if the building has one) = `{ repoUrl, base, branch, branchPrefix, dir: "/home/agent/work/<repoName>" }`.
@@ -158,7 +193,7 @@ Every resident desk is a sandbox: a persistent container with the agent's home d
 6. `query({ prompt: <input channel>, options: { cwd, model, maxTurns, systemPrompt: {preset:'claude_code', append: system}, mcpServers: { town: {type:'http', url: AGENT_TOWN_URL + '/mcp', headers: {Authorization: 'Bearer ' + token}, alwaysLoad: true} }, permissionMode: 'bypassPermissions', allowDangerouslySkipPermissions: true, settingSources: [] } })`. All built-in tools available; nothing to allow-list. (Confirm the exact option names in the installed SDK's `sdk.d.ts`.)
 7. For every SDK message: assistant `tool_use` → `POST /api/agents/me/activity { session, kind: 'tool', tool, input }`; assistant text → `{ kind: 'thought', text }`. The **server** turns these into `agent.tool`/`agent.thought` events using the runtime's `describeTool` (so bubbles read the same as in-process sessions) and refreshes `agent.activity`. Batch at most every 500 ms.
 8. Every 3 s and between turns: `GET /api/agents/me/control?session=<id>` → `{ interrupts: [{id, text, from}], stop: boolean }`. Interrupts are pushed as the next user message (`Interrupt from <from>: …`) and acked with `POST /api/agents/me/control/ack {ids}`. `stop: true` → `q.interrupt()`, then exit 2.
-9. After the result (or on error/stop): `POST /api/agents/me/session-end { session, tokens, costUsd, turns, sdkSessionId, finalText, error, reportSubmitted }`. The server calls `runtime.finishWorkSession(sessionId, outcome)` which does what the in-process path does today: charge usage, write the fallback report when none was submitted (stop → decision stop), set agent status, end the Session row. Exit 0.
+9. After the result (or on error/stop): `POST /api/agents/me/session-end { session, tokens, costUsd, turns, sdkSessionId, finalText, error, reportSubmitted }`. The server calls `runtime.finishWorkSession(sessionId, outcome)` which does what the in-process path does: charge usage, write the fallback report when none was submitted (stop → decision stop), set agent status, end the Session row. Exit 0. (With `merge: green`, the merge step below runs before session-end.)
 10. If the desk process dies without reporting (container killed, crash): the runtime notices the child exit and calls `finishWorkSession` with `error: 'desk exited <code>'`.
 
 ## Agent-scoped endpoints (agent token only)
@@ -169,21 +204,27 @@ Every resident desk is a sandbox: a persistent container with the agent's home d
 - `POST /api/agents/me/control/ack` `{ ids: string[] }` → 204.
 - `POST /api/agents/me/session-end` `{ session, tokens, costUsd, turns, sdkSessionId?, finalText?, error?, reportSubmitted }` → `{ session }`.
 
-Existing `POST /api/agents/:id/interrupt` (user token): if the runtime has an in-process live session → deliver as today; otherwise `world.ops.enqueueInterrupt(agentId, text, from)` (core `interrupts` table: `{id, agentId, sessionId|null, text, from, createdAt, deliveredAt|null}`); the desk picks it up via control. `POST /stop` and `/ban` unchanged (status change → control returns `stop: true`; runtime also kills the child).
+Existing `POST /api/agents/:id/interrupt` (user token): if the runtime has an in-process live session → deliver it there; otherwise `world.ops.enqueueInterrupt(agentId, text, from)` (core `interrupts` table: `{id, agentId, sessionId|null, text, from, createdAt, deliveredAt|null}`); the desk picks it up via control. `POST /stop` and `/ban`: the status change makes control return `stop: true`, and the runtime also kills the child.
 
-## Collective config additions
+## Collective config
 
 `collective.json`: `"desks": { "backend": "docker" | "host" | "auto", "image": "agent-town-desk", "ghToken": "gh-cli" | "env" | "none" }` (default `auto`: docker if `docker info` succeeds, else host with a startup warning). `<collective>/.env` is loaded into `process.env` by the server at start (KEY=VALUE lines, no quotes handling needed beyond trimming); `ANTHROPIC_API_KEY` from it is the default key for desks, overridden by a donor key. Never log env values.
 
 `building.workspace` gains `repoUrl` (string): set at seed from `git -C <path> remote get-url origin` when the collective spec gives a `path`, or given directly. The desk uses `repoUrl`; the host backend keeps using `path`.
 
-## Schema additions
+## Schema
 
 - `Session.backend: 'host' | 'docker'` (default host).
 - `MessageKind` unchanged; interrupts have their own table/type: `Interrupt { id, agentId, sessionId, text, from, createdAt, deliveredAt }`.
 - `Workspace.repoUrl?: string`.
 - `CollectiveConfig.desks?: { backend, image, ghToken }`.
 - Agent-scoped payload schemas: `DeskBrief`, `DeskActivityInput`, `DeskControl`, `DeskSessionEndInput`.
+
+## Merge rule for workshops
+
+- `Workspace.merge: 'human' | 'green'` (default `human`) and `Workspace.checks: string[]` (default `["npm run typecheck", "npm test"]`). The brief carries both.
+- Desk (`packages/desk/src/merge.ts`): after the session ends with a report, if `merge === 'green'` and the branch has an open PR (`gh pr view <branch> --json number,isDraft,state`), run each check in the checkout; if all pass: `gh pr ready <n>` then `gh pr merge <n> --squash --delete-branch`, post the activity line `Merged PR #n (checks green)` and send `merged: true, prNumber` in session-end. On failure post `Checks failed, PR left open` and send `merged: false`.
+- `DeskSessionEndInput` has `merged?: boolean`, `prNumber?: number`; `finishWorkSession` appends "Merged as PR #n" / "PR #n open, checks failed" to the report body when present.
 
 ## Testing
 
@@ -194,57 +235,17 @@ Existing `POST /api/agents/:id/interrupt` (user token): if the runtime has an in
 
 ---
 
-# v1.2 contract: hub semantics, dismiss, roles split, merge rule, places (2026-10-20)
+# Change history
 
-Mitchell's direction: reports should not be read "from the agent"; they go to a hub (the manager's desk) and the agent goes idle. Agents only pick up assignments they're given (manager, standup decision, mention). Moderators are collective-wide misuse prevention with their own station; managers are per building; every building keeps its own policies. The UI should be instantiated in the world: a board you walk up to, an in-tray on the manager's desk, a planning office, not panels floating in a HUD.
+The body above is current. This is what each version changed, so older reports and PRs can be read in context.
 
-## 1. Hub semantics (core, runtime, server)
-
-- `submit_report` ends the session and sets the agent **idle**. `AgentStatus` loses `awaiting-review` (migration: `UPDATE agents SET status='idle' WHERE status='awaiting-review'`). Reports keep `decision: pending` meaning "not yet handled by a manager".
-- **In-tray** = the building's pending reports. `GET /api/buildings/:id/intray` → `{ reports }` (pending, oldest first). Count exposed on the snapshot's building object as `intray` (number) so the map can badge the desk.
-- **Decisions** (`Decision` enum): `pending | approve | continue | redirect | stop`.
-  - `approve` = acknowledged. No assignment is created. (Label in UI: "Acknowledge".)
-  - `continue` = acknowledged + an assignment created from the report's Proposal section (today's approve behavior).
-  - `redirect` = acknowledged + an assignment created from the manager's note (note required; the proposal is appended as context).
-  - `stop` = acknowledged; the agent's status becomes `stopped`; its pending assignments are cancelled.
-  - Meeting decisions that assign an agent still `approve` (acknowledge) that agent's pending reports with the "superseded" note.
-- **Review policy** (`ReviewPolicy`): `human | reviewer | auto`. `reviewer` replaces `moderator`: an agent in the building holding the `reviewer` role runs a short session over the in-tray and decides (same criteria prompt as before; it may use `continue`). `auto` acknowledges every report on arrival. Migration maps stored `moderator` → `reviewer`.
-- **Scheduler reconcile at startup**: assignments `active` whose agent has no running session go back to `pending`; a running Session row with no live child is ended with `error: 'orphaned at restart'`.
-
-## 2. Dismiss (core, server, runtime, web)
-
-- `DELETE /api/agents/:id` (`building.manage` on the agent's home building, or admin). Effects: abort any live session and `docker rm -f` the desk container (volume kept unless `?purge=1`), free the desk, revoke the agent's tokens, remove memberships, cancel pending/active assignments, set `status: 'retired'` (new `AgentStatus` value). The row stays so documents keep their author. Snapshot `agents` excludes retired agents; `GET /api/agents/:id` still works. Event `agent.retired`.
-- Runtime hook `runtime.onAgentRetired(agentId)` does the session/container part; core does the rest in `ops.dismissAgent(actor, agentId, {purge})`.
-
-## 3. Roles split (schema, core, seed, server)
-
-- Town-scoped built-ins: `admin` (everything), `moderator` (new: `town.approve_trophy`, `town.approve_request`, `town.ban`, `town.moderate`), `visitor`.
-- Building-scoped built-ins: `manager` (`building.manage`, `building.assign`, `building.review`, `building.promote`, `building.dismiss`, `doc.write_building`, `doc.propose_trophy`, `doc.request_human`, `meeting.facilitate`, `meeting.attend`), `reviewer` (`building.review`, `building.assign`, `meeting.facilitate`, `meeting.attend`, `doc.write_building`), `member` (as today).
-- `Permission` enum: add `town.ban`, `town.moderate`, `building.dismiss`; `building.ban` is removed (ban is a town-level act; `ban` verb/route require `town.ban`). Migration: rename `role:<bid>:moderator` → `role:<bid>:reviewer` with the new permission set; create `role:moderator` (town); add `building.dismiss` to every manager role.
-- `collective.json`: top-level `moderators: [{ name, sprite?, direction? }]` → resident agents of Town Hall, kind `resident`, holding town `moderator`, seated at the **mod station**. Building spec: `reviewer: {...}` replaces `moderator`. Update both existing collective files: climate keeps Moss as the lab's reviewer; workshop keeps Keel as reviewer; add one town moderator to each (climate: "Wren"; workshop: "Harbor"). Existing DBs: the migration renames roles; the seed-on-open path (which already fills repoUrl) also creates the town moderator role; it does **not** create new moderator agents in existing DBs (Mitchell can add them from the planning office later).
-
-## 4. Merge rule for workshops (schema, desk)
-
-- `Workspace.merge: 'human' | 'green'` (default `human`) and `Workspace.checks: string[]` (default `["npm run typecheck", "npm test"]`).
-- Desk (`packages/desk`): after the session ends with a report, if `merge === 'green'` and the branch has an open PR (`gh pr view <branch> --json number,isDraft,state`), run each check in the checkout; if all pass: `gh pr ready <n>` then `gh pr merge <n> --squash --delete-branch`; post an activity line `Merged PR #n (checks green)` and include `merged: true, prNumber` in session-end. On failure post `Checks failed, PR left open` and `merged: false`. The brief carries `merge` and `checks`.
-- `DeskSessionEndInput` gains `merged?: boolean`, `prNumber?: number`; `finishWorkSession` appends a line to the report body ("Merged as PR #n" / "PR #n open, checks failed") when present.
-
-## 5. Places and layout (core world/layout, schema)
-
-New `PlaceKind` values and where they go:
-- `board:<buildingId>` kind `board`: a wall tile inside each lab (top wall, left of center). Reading it = the building's board.
-- `intray:<buildingId>` kind `intray`: the **manager's desk**, a distinct desk tile (TILE.DESK with a tray glyph: new `TILE.MANAGER_DESK`) at the top-right of each lab; the human stands at it to open the in-tray. Reviewer agents sit at an ordinary resident desk.
-- Town Hall gains: `mod-station` (kind `mod-station`, a desk; town moderators sit here), `planning-desk` (kind `planning`: create buildings, add/dismiss residents, roles), `donation-box` (kind `donation`), `schedule-board` (kind `schedule`: upcoming meetings for every building, next to the town meeting room).
-- `TILE` adds `MANAGER_DESK`, `BOARD`, `DONATION`, `SCHEDULE`. Grid rebuild keeps lots stable.
-- Snapshot `places` includes all of these; `look` lists them so agents can `go` to the board or the in-tray too.
-
-## Web (separate builder, after the world side lands)
-
-Every panel becomes a place: board on the wall (E → board), in-tray at the manager's desk (E → pending reports with Acknowledge / Continue as proposed / Redirect… / Stop), planning office (E → create building, add resident, Dismiss, roles), donation box (E → donate), schedule board (E → meetings across buildings), mod station (E → outbox requests awaiting approval, trophy proposals, bans). HUD keeps only: collective name, tagline, goal, status counts, and **notices** (in-tray count per building you manage, meetings starting, mentions of you) that walk you to the place. Remove "Start work" and "Needs your review" lists from the HUD; "Start work" lives on the agent panel and the in-tray. Agent panel keeps Activity / Chat / Session / Reports / Assignments and gains Dismiss for managers. Retired agents are not drawn. Settings tab gains review policy (human/reviewer/auto) and, for workspaces, merge (human/green) and checks.
-
-## Mentions (separate builder, after the world side lands)
-
-`@Name` in a report, note, meeting utterance, or `say`/`tell` creates an inbox message kind `mention` for that agent (or a notice for a human) with a link to the doc/meeting. Agents see mentions in `inbox` and `look` notices. A mention does not start work by itself; the mentioned agent (or its manager) turns it into an assignment with `accept_assignment` on a new assignment the mentioner may create via `assign` if permitted, or by replying.
-
-## Tests
-core: decision semantics (approve no assignment, continue from proposal, redirect from note, stop cancels), in-tray, dismiss (desk freed, token revoked, docs kept, retired hidden from snapshot), role migration on an old DB fixture (create a v1.1 DB in the test, migrate, assert roles), new places exist and are reachable. runtime: reconcile at startup, reviewer policy uses `continue`, retired hook. server: intray route, DELETE agent, permission checks for town.ban. desk: merge=green path with a fake `gh` and fake checks (pass and fail).
+- **v1 (2026-10-19):** the original contract. Residents worked in-process with town + web tools only; reports set the agent `awaiting-review`; review policy `human | moderator | auto` with a building `moderator` role (seed: Moss); `approve`/`redirect` both created the next assignment from the report's proposal; panels floated over the map and the HUD listed "Start work" and reports needing review.
+- **v1.1 (2026-10-20), desks as sandboxes:** work sessions moved into per-agent desk containers (`packages/desk`, `DockerBackend`/`HostBackend`, agent-scoped `/api/agents/me/*` API, interrupt queue, prompts moved to core). The in-process path became the `host` fallback, and the git-worktree + shell-policy code was removed.
+- **v1.2 (2026-10-20), Mitchell's direction:** "reports should not be read 'from the agent'; they go to a hub (the manager's desk) and the agent goes idle. Agents only pick up assignments they're given (manager, standup decision, mention). Moderators are collective-wide misuse prevention with their own station; managers are per building; every building keeps its own policies. The UI should be instantiated in the world." What changed:
+  - Hub semantics: in-tray, `awaiting-review` removed (migrated to `idle`), decisions `approve` (acknowledge) / `continue` / `redirect` (from the note) / `stop`, startup reconcile.
+  - Review policy `moderator` → `reviewer`. Building role `moderator` → `reviewer`; town role `moderator` added; `building.ban` → `town.ban`; `building.dismiss` and `town.moderate` added.
+  - Dismiss (`DELETE /api/agents/:id`, status `retired`), merge rule for workshops, and the new places (board, in-tray, mod station, planning desk, donation box, schedule board).
+  - Every panel became a place, and the HUD shows notices only.
+  - Mentions.
+  - Reports are off the building board (in-tray only; `search` still finds them); each building has editable standing `rules` (markdown) pinned to its board and prepended to every session's system prompt (#16).
+  - Not done yet (see `docs/log.md`): an unban route and banned-agents list, a names map for retired/banned authors in the snapshot, and mentions in the web.

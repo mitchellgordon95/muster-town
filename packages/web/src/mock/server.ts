@@ -39,7 +39,7 @@ export class MockApi implements Api {
   }
   async board(buildingId: string, limit = 30) {
     await wait();
-    return clone([...this.sim.docs.values()].filter((d) => d.buildingId === buildingId && d.state === "building").sort((a, b) => b.updatedAt.localeCompare(a.updatedAt)).slice(0, limit));
+    return clone([...this.sim.docs.values()].filter((d) => d.buildingId === buildingId && d.state === "building" && d.type !== "report").sort((a, b) => b.updatedAt.localeCompare(a.updatedAt)).slice(0, limit));
   }
   async createBuilding(i: In<typeof CreateBuildingInput>) { await wait(); return clone(this.sim.createBuilding(i.name, i.goal ?? "", i.headcount ?? 6, i.reviewPolicy ?? "human")); }
   async intray(buildingId: string) { await wait(); this.need(this.sim.buildings.find((b) => b.id === buildingId), "building"); return clone(this.sim.intray(buildingId)); }
@@ -112,6 +112,20 @@ export class MockApi implements Api {
     return clone(this.sim.putDoc({ id: newId("dc"), type: i.type ?? "note", state: i.state ?? "draft", title: i.title, body: i.body, authorId: "us_mitchell", authorKind: "user", buildingId: null, provenance: { sourceIds: [], urls: [] }, tags: i.tags ?? [], createdAt: now(), updatedAt: now() }));
   }
   async review(docId: string, i: In<typeof ReviewInput>) { await wait(); return clone(this.sim.review(docId, i.decision, i.note ?? "")); }
+  async reply(docId: string, text: string) { await wait(); this.need(this.sim.docs.get(docId), "doc"); return clone(this.sim.reply(docId, text)); }
+  async archive(docId: string) { return this.reply(docId, ""); }
+  async ask(docId: string, question: string) {
+    await wait(700);
+    const d = this.need(this.sim.docs.get(docId), "doc");
+    const who = this.sim.agents.get(d.authorId)?.name ?? "The author";
+    const need = /^##+\s*What I need from you[^\n]*\n+([^\n]+)/im.exec(d.body)?.[1]?.trim();
+    const pr = /PR #(\d+)/.exec(d.body)?.[1];
+    const q = question.toLowerCase();
+    if (pr && /pr|pull|merge/.test(q)) return `${who} opened PR #${pr}. Reply "merge" and ${who} will ready and squash-merge it next session, then report back.`;
+    if (/need|want|ask/.test(q)) return need ? `${who} says: "${need}"` : `The report doesn't have a "What I need from you" section.`;
+    const findings = /^##+\s*Findings[^\n]*\n+([^\n]+)/im.exec(d.body)?.[1]?.trim();
+    return findings ? `The main finding: ${findings.replace(/^-\s*/, "")}` : `I can only see the report text, and it doesn't say. Ask ${who} in a reply.`;
+  }
   async promote(docId: string, state: DocState) {
     await wait();
     const d = this.need(this.sim.docs.get(docId), "doc");
