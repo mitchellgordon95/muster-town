@@ -9,7 +9,7 @@
     "build": "npm run build -ws --if-present",
     "typecheck": "npm run typecheck -ws --if-present",
     "test": "npm run test -ws --if-present",
-    "dev": "npx tsx watch packages/server/src/main.ts",
+    "dev": "MUSTER_TOWN_DEV=1 npx tsx watch packages/server/src/main.ts",
     "start": "npm run build && npm run start:climate",
     "start:climate": "scripts/serve.sh collectives/climate",
     "start:workshop": "scripts/serve.sh collectives/workshop",

@@ -1,6 +1,6 @@
 import { AppError, boardDocs, cabinetCounts, cabinetDocs } from "@muster-town/core";
 import { AddBankInput, CreateBuildingInput, SetBankShareInput, DocType, DonateInput, LayoutInput, Membership, PlanInput, RedeployInput, UpdateBuildingInput, townEnv, type AuthMe } from "@muster-town/schema";
-import type { FastifyInstance } from "fastify";
+import type { FastifyInstance, FastifyRequest } from "fastify";
 import { z } from "zod";
 import { actorOf, adminToken, parse, requireAuth, requireUser, type Params } from "../context.ts";
 
@@ -13,6 +13,13 @@ const EventsQuery = z.object({
 const LimitQuery = z.object({ limit: z.coerce.number().int().positive().max(200).default(30) });
 const CabinetQuery = LimitQuery.extend({ type: DocType.optional(), authorId: z.string().optional() });
 
+const LOOPBACK = new Set(["127.0.0.1", "::1", "::ffff:127.0.0.1"]);
+/** From this machine and not relayed: a reverse proxy or tunnel also connects from loopback, but adds forwarding headers. */
+function isLocalDirect(req: FastifyRequest): boolean {
+  const h = req.headers;
+  return LOOPBACK.has(req.socket.remoteAddress ?? "") && !h["x-forwarded-for"] && !h.forwarded && !h["x-real-ip"] && !h["cf-connecting-ip"];
+}
+
 /** Town snapshot, auth info, events, buildings, roles, budget, bank, export, redeploy. */
 export async function townRoutes(app: FastifyInstance) {
   const world = app.world;
@@ -21,7 +28,9 @@ export async function townRoutes(app: FastifyInstance) {
   app.get("/api/health", async () => ({ ok: true, runtime: !!app.runtime, commit: world.host.commit ?? null, time: new Date().toISOString() }));
 
   if (app.dev) {
-    app.get("/api/dev/admin-token", async () => {
+    // only to a browser on this machine talking to the server directly: never through a proxy or tunnel
+    app.get("/api/dev/admin-token", async (req) => {
+      if (!isLocalDirect(req)) throw new AppError("forbidden", "The dev admin token is only served to direct loopback requests.");
       const token = adminToken(world);
       if (!token) throw new AppError("not_found", "No admin user yet (town not seeded).");
       return { token };

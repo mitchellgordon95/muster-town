@@ -26,10 +26,8 @@ const HOST = process.env.HOST ?? "0.0.0.0";
 const DATA_DIR = resolve(REPO_ROOT, townEnv("DATA") ?? join(COLLECTIVE_DIR, "data"));
 // world.export() and the export route read it back through townEnv; set both names so either spelling sees it
 process.env.MUSTER_TOWN_EXPORT = process.env.AGENT_TOWN_EXPORT = resolve(REPO_ROOT, townEnv("EXPORT") ?? join(COLLECTIVE_DIR, "export"));
-const DEV_ENV = townEnv("DEV");
-const DEV = DEV_ENV !== undefined
-  ? !["0", "false", "no", ""].includes(DEV_ENV.toLowerCase())
-  : process.env.NODE_ENV !== "production";
+// opt-in only: dev mode hands the admin token to any local browser that asks (`npm run dev` sets it)
+const DEV = ["1", "true", "yes"].includes((townEnv("DEV") ?? "").trim().toLowerCase());
 
 async function main() {
   mkdirSync(DATA_DIR, { recursive: true });

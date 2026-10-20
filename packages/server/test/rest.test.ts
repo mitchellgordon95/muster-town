@@ -32,6 +32,15 @@ describe("auth & town", () => {
     expect((await json(app, "GET", "/api/me", { headers: { authorization: "Bearer nope" } })).body.code).toBe("unauthorized");
   });
 
+  it("dev token is refused to proxied or tunnelled requests", async () => {
+    const { app } = await setup();
+    for (const headers of [{ "x-forwarded-for": "203.0.113.7" }, { forwarded: "for=203.0.113.7" }, { "cf-connecting-ip": "203.0.113.7" }]) {
+      const r = await json(app, "GET", "/api/dev/admin-token", { headers });
+      expect(r.status).toBe(403);
+      expect(r.body.token).toBeUndefined();
+    }
+  });
+
   it("dev token route is absent outside dev; unknown api paths 404 as JSON", async () => {
     const { app } = await setup({ dev: false });
     const r = await json(app, "GET", "/api/dev/admin-token");
