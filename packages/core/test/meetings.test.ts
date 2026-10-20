@@ -39,4 +39,13 @@ describe("meetings", () => {
     const notes = world.docs.require(world.meetings.require(m.id).notesDocId!);
     expect(notes.state).toBe("library");
   });
+  it("ending a cancelled meeting is a conflict and writes no notes", async () => {
+    const { world, by, admin } = seededWorld();
+    const m = world.ops.createMeeting(admin, { kind: "standup", buildingId: "carbon-cycle", startNow: true });
+    world.ops.setMeetingPhase(m.id, "cancelled");
+    await expect(world.verbs.meeting(by("Moss"), { meetingId: m.id, action: "end" })).rejects.toMatchObject({ code: "conflict" });
+    expect(() => world.ops.endMeeting(null, m.id)).toThrow(/cancelled/);
+    expect(world.docs.where("type = 'meeting-notes'")).toEqual([]);
+    expect(world.meetings.require(m.id)).toMatchObject({ phase: "cancelled", notesDocId: null });
+  });
 });
