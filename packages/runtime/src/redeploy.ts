@@ -138,7 +138,7 @@ export function makeRedeployer(deps: RedeployDeps): Redeployer {
     }
 
     // (c) web client
-    if (!(await step("build web", "npm", ["run", "build", "--workspace", "@muster-town/web"], 600_000))) return;
+    if (!(await step("build web", "npm", ["run", "build", "--workspace", "packages/web"], 600_000))) return;
 
     // (d) desk image
     if (o.image && !(await step("docker build desk image", "docker", ["build", ...imageTags(deps.image).flatMap((t) => ["-t", t]), "-f", "packages/desk/Dockerfile", "."], 3_600_000))) return;

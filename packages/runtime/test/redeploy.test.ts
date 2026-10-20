@@ -49,7 +49,7 @@ describe("redeploy", () => {
       "git pull --rebase origin main",
       "git rev-list --count abc123..HEAD",
       "git diff --name-only abc123 HEAD -- package-lock.json",
-      "npm run build --workspace @muster-town/web",
+      "npm run build --workspace packages/web",
     ]);
     expect(h.texts()).toEqual(expect.arrayContaining([
       "Redeploy requested by Pix",
@@ -68,7 +68,7 @@ describe("redeploy", () => {
     await h.r.done();
     const i = h.runner.calls.indexOf("npm install --no-audit --no-fund");
     expect(i).toBeGreaterThan(h.runner.calls.indexOf("git pull --rebase origin main"));
-    expect(i).toBeLessThan(h.runner.calls.indexOf("npm run build --workspace @muster-town/web"));
+    expect(i).toBeLessThan(h.runner.calls.indexOf("npm run build --workspace packages/web"));
   });
 
   test("a dirty working tree aborts before pulling; no exit", async () => {
@@ -106,7 +106,7 @@ describe("redeploy", () => {
     expect(docker[2]).toBe('docker ps -a --filter label=agent-town.collective=climate --filter label=agent-town.desk=1 --format {{.Names}}\t{{.Label "agent-town.agent"}}');
     expect(docker.slice(3)).toEqual(["docker rm -f desk-climate-ag_3", "docker rm -f desk-climate-ag_1"]);
     expect(docker.some((c) => c.includes("volume"))).toBe(false);
-    expect(h.runner.calls.indexOf(build)).toBeGreaterThan(h.runner.calls.indexOf("npm run build --workspace @muster-town/web"));
+    expect(h.runner.calls.indexOf(build)).toBeGreaterThan(h.runner.calls.indexOf("npm run build --workspace packages/web"));
     expect(h.exit).toHaveBeenCalledWith(75);
   });
 
