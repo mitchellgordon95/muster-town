@@ -131,7 +131,7 @@ export function seedDefaults(world: World, opts: SeedOptions = {}): SeedResult {
           b = createBuilding(world, {
             name: spec.name ?? id, goal: spec.goal ?? "", description: spec.description ?? "", headcount: spec.headcount ?? Math.max(spec.residents.length + 1, 3),
             reviewPolicy: spec.reviewPolicy ?? "human", model: spec.model, cheapModel: spec.cheapModel, maxTurnsPerSession: spec.maxTurnsPerSession,
-            dailyTokensPerAgent: spec.dailyTokensPerAgent, meetings: spec.meetings,
+            dailyTokensPerAgent: spec.dailyTokensPerAgent, dailyTokens: spec.dailyTokens, meetings: spec.meetings,
             workspace: spec.workspace ? withRepoUrl({ ...spec.workspace, path: resolve(dir, spec.workspace.path) }) : undefined,
           }, admin.id, { id });
           spec.residents.forEach((r, i) => createResident(world, { buildingId: b.id, name: r.name, title: r.title, direction: r.direction, sprite: r.sprite ?? (i + 1) % 7, model: r.model }));

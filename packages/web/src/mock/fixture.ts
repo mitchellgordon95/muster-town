@@ -19,7 +19,7 @@ export const users: User[] = [
   { id: "us_mitchell", name: "Mitchell", createdAt: ago(9000), donatedTokens: 50_000_000, hasApiKey: false },
 ];
 
-const base = { goal: "", description: "", headcount: 6, reviewPolicy: "human" as const, model: "claude-opus-5-5", cheapModel: "claude-haiku-5-5", maxTurnsPerSession: 80, dailyTokensPerAgent: 2_000_000, meetings: [], rules: "", workspace: null as Building["workspace"] };
+const base = { goal: "", description: "", headcount: 6, reviewPolicy: "human" as const, model: "claude-opus-5-5", cheapModel: "claude-haiku-5-5", maxTurnsPerSession: 80, dailyTokensPerAgent: 2_000_000, dailyTokens: null, meetings: [], rules: "", workspace: null as Building["workspace"] };
 export const buildings: Building[] = [
   { ...base, id: "bl_townhall", name: "Town Hall", kind: "town-hall", headcount: 3, description: "Library, trophy room, outbox, mod station, planning desk, donation box, schedule board, and the town meeting room.", createdAt: ago(9000) },
   {

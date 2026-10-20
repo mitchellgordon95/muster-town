@@ -24,7 +24,7 @@ export interface DocQuery { state?: DocState; type?: DocType; buildingId?: strin
 export interface EventQuery { since?: number; agentId?: string; buildingId?: string; limit?: number }
 /** `GET /api/budget` — the contract only says "per-building allocated/spent and per-user donated". */
 export interface Budget {
-  buildings: { buildingId: string; allocated: number; spent: number; spentUsd?: number }[];
+  buildings: { buildingId: string; allocated: number; spent: number; spentUsd?: number; spentTodayTokens?: number }[];
   users: { userId: string; name?: string; donated: number }[];
 }
 export interface WriteDocInput { type?: DocType; title: string; body: string; state?: "draft" | "building"; tags?: string[] }

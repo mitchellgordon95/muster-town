@@ -90,3 +90,41 @@ describe("daily allowance", () => {
     expect(world.agents.require(a.id).status).toBe("idle");
   });
 });
+
+describe("building daily pool", () => {
+  it("residents draw from the pool until it is empty; raising it or midnight resumes them", () => {
+    const { world, seed } = seededWorld();
+    const b = createBuilding(world, { name: "Pool", dailyTokensPerAgent: 100, dailyTokens: 150 }, seed.admin.id);
+    const a1 = createResident(world, { buildingId: b.id, name: "A1", title: "t", direction: "d" });
+    const a2 = createResident(world, { buildingId: b.id, name: "A2", title: "t", direction: "d" });
+    world.budget.donate(seed.admin.id, { tokens: 10_000, buildingId: b.id });
+    expect(world.budget.charge(a1.id, 90, 0).exhausted).toBeNull(); // under both caps
+    expect(world.budget.spentToday(b.id)).toBe(90);
+    const r = world.budget.charge(a2.id, 70, 0); // a2 is under its own cap, but the pool is spent
+    expect(r.exhausted).toBe("building-daily");
+    expect(world.events.list({ types: ["budget.exhausted"] }).at(-1)!.payload).toMatchObject({ scope: "building-daily", spentToday: 160 });
+    expect(world.agents.require(a1.id).status).toBe("out-of-budget");
+    expect(world.budget.canStart(a2.id)).toBe(false);
+    expect(world.budget.summary().buildings.find((x) => x.buildingId === b.id)).toMatchObject({ dailyTokens: 150, spentTodayTokens: 160 });
+    world.ops.updateBuilding(null, b.id, { dailyTokens: 1000 });
+    expect(world.agents.require(a1.id).status).toBe("idle");
+    expect(world.agents.require(a2.id).status).toBe("idle");
+    world.budget.charge(a1.id, 900, 0);
+    expect(world.agents.require(a2.id).status).toBe("out-of-budget");
+    world.budget.resetDaily();
+    expect(world.agents.require(a2.id).status).toBe("idle");
+    expect(world.budget.spentToday(b.id)).toBe(0);
+  });
+
+  it("null pool means no daily limit (the default); clearing it resumes residents", () => {
+    const { world, seed } = seededWorld();
+    const b = createBuilding(world, { name: "Open", dailyTokens: 10 }, seed.admin.id);
+    const a = createResident(world, { buildingId: b.id, name: "A", title: "t", direction: "d" });
+    world.budget.donate(seed.admin.id, { tokens: 10_000, buildingId: b.id });
+    world.budget.charge(a.id, 20, 0);
+    expect(world.agents.require(a.id).status).toBe("out-of-budget");
+    expect(world.ops.updateBuilding(null, b.id, { dailyTokens: null }).dailyTokens).toBeNull();
+    expect(world.agents.require(a.id).status).toBe("idle");
+    expect(createBuilding(world, { name: "Default" }, seed.admin.id).dailyTokens).toBeNull();
+  });
+});

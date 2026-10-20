@@ -56,7 +56,7 @@ export function updateBuilding(world: World, id: string, patch: Partial<In<typeo
   const updated = world.buildings.upsert({ ...cur, ...clean });
   world.layout.rebuild();
   world.events.append({ type: "building.updated", buildingId: id, text: `${updated.name} settings updated`, payload: { fields: Object.keys(clean) } });
-  if (updated.dailyTokensPerAgent > cur.dailyTokensPerAgent) world.budget.resumeResidents(id);
+  if (updated.dailyTokensPerAgent > cur.dailyTokensPerAgent || updated.dailyTokens !== cur.dailyTokens) world.budget.resumeResidents(id);
   return world.buildings.require(id);
 }
 

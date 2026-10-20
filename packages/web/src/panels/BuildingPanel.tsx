@@ -65,6 +65,7 @@ function Overview({ b }: { b: SnapshotBuilding }) {
           ["Spent", row?.spentUsd !== undefined ? usd(row.spentUsd) : "—"],
           ["Models", `${b.model} · cheap: ${b.cheapModel}`],
           ["Daily / agent", `${fmtTokens(b.dailyTokensPerAgent)} tokens`],
+          ["Daily pool", b.dailyTokens == null ? "no daily limit" : row?.spentTodayTokens !== undefined ? <>{fmtTokens(row.spentTodayTokens)} of {fmtTokens(b.dailyTokens)} today <Meter v={row.spentTodayTokens / b.dailyTokens} /></> : `${fmtTokens(b.dailyTokens)} tokens`],
           ["Desks", `${members.length} / ${b.headcount}`],
           ["Review", b.reviewPolicy === "human" ? "the manager works the in-tray" : b.reviewPolicy === "reviewer" ? "the reviewer agent works the in-tray" : "reports are acknowledged on arrival"],
           ...(b.workspace ? [["Workspace", <><code>{b.workspace.path}</code> · merge {b.workspace.merge}</>] as [string, ReactNode]] : []),
@@ -179,7 +180,7 @@ function AddHolder({ onAdd }: { onAdd: (kind: "agent" | "user", id: string) => P
 }
 
 function Settings({ b }: { b: SnapshotBuilding }) {
-  const [f, setF] = useState({ goal: b.goal, description: b.description, reviewPolicy: b.reviewPolicy, headcount: b.headcount, model: b.model, cheapModel: b.cheapModel, dailyTokensPerAgent: b.dailyTokensPerAgent, maxTurnsPerSession: b.maxTurnsPerSession });
+  const [f, setF] = useState({ goal: b.goal, description: b.description, reviewPolicy: b.reviewPolicy, headcount: b.headcount, model: b.model, cheapModel: b.cheapModel, dailyTokensPerAgent: b.dailyTokensPerAgent, dailyTokens: b.dailyTokens, maxTurnsPerSession: b.maxTurnsPerSession });
   const [merge, setMerge] = useState<Workspace["merge"]>(b.workspace?.merge ?? "human");
   const [checks, setChecks] = useState((b.workspace?.checks ?? []).join("\n"));
   const set = <K extends keyof typeof f>(k: K, v: (typeof f)[K]) => setF((x) => ({ ...x, [k]: v }));
@@ -200,7 +201,10 @@ function Settings({ b }: { b: SnapshotBuilding }) {
         <Field label="Cheap model"><input value={f.cheapModel} onChange={(e) => set("cheapModel", e.target.value)} /></Field>
       </div>
       <div className="row2">
-        <Field label="Daily tokens / agent"><input type="number" min={1} value={f.dailyTokensPerAgent} onChange={(e) => set("dailyTokensPerAgent", +e.target.value)} /></Field>
+        <Field label="Max tokens / agent / day" hint="Ceiling for one resident"><input type="number" min={1} value={f.dailyTokensPerAgent} onChange={(e) => set("dailyTokensPerAgent", +e.target.value)} /></Field>
+        <Field label="Daily pool (tokens)" hint="Residents draw from it as they work; empty = no limit"><input type="number" min={1} value={f.dailyTokens ?? ""} onChange={(e) => set("dailyTokens", e.target.value ? +e.target.value : null)} /></Field>
+      </div>
+      <div className="row2">
         <Field label="Max turns / session" hint="Safety rail"><input type="number" min={1} value={f.maxTurnsPerSession} onChange={(e) => set("maxTurnsPerSession", +e.target.value)} /></Field>
       </div>
       {b.workspace ? (

@@ -8,10 +8,10 @@ export interface ChargeResult {
   agent: Agent;
   allocation: Allocation | null;
   /** set when this charge exhausted something */
-  exhausted: null | "agent-daily" | "building";
+  exhausted: null | "agent-daily" | "building-daily" | "building";
 }
 export interface BudgetSummary {
-  buildings: { buildingId: string; name: string; allocatedTokens: number; spentTokens: number; spentUsd: number; remainingTokens: number }[];
+  buildings: { buildingId: string; name: string; allocatedTokens: number; spentTokens: number; spentUsd: number; remainingTokens: number; dailyTokens: number | null; spentTodayTokens: number }[];
   users: { userId: string; name: string; donatedTokens: number }[];
 }
 
@@ -36,19 +36,24 @@ export class Budget {
       .reduce((s, a) => s + Math.max(0, a.tokens - a.spentTokens), 0);
   }
 
-  /** Whether a resident may start a session now (daily allowance and building budget). */
+  /** Tokens the building's agents have spent today (what its daily pool has given out). */
+  spentToday(buildingId: string): number {
+    return this.repos.agents.where("homeBuildingId = ?", [buildingId]).reduce((s, a) => s + a.spentTokensToday, 0);
+  }
+
+  /** Whether a resident may start a session now (its daily allowance, the building's daily pool, and building budget). */
   canStart(agentId: string): boolean {
     const a = this.repos.agents.require(agentId, "agent");
     const bid = a.homeBuildingId ?? a.buildingId;
     if (!bid) return false;
     const b = this.repos.buildings.require(bid, "building");
-    return a.spentTokensToday < b.dailyTokensPerAgent && this.remaining(bid) > 0;
+    return a.spentTokensToday < b.dailyTokensPerAgent && (b.dailyTokens === null || this.spentToday(bid) < b.dailyTokens) && this.remaining(bid) > 0;
   }
 
   /**
    * Charge session usage to the agent and to an allocation of its home building
    * (the given one, else the oldest with tokens left). Emits `budget.exhausted`
-   * and sets `out-of-budget` when the agent's daily allowance or the building budget runs out.
+   * and sets `out-of-budget` when the agent's daily allowance, the building's daily pool, or the building budget runs out.
    */
   charge(agentId: string, tokens: number, usd: number, allocationId?: string): ChargeResult {
     if (tokens < 0 || usd < 0) throw badRequest("charge must be non-negative");
@@ -74,6 +79,12 @@ export class Budget {
       if (this.remaining(bid) <= 0) {
         exhausted = "building";
         this.events.append({ type: "budget.exhausted", buildingId: bid, agentId: agent.id, text: `${b.name} has run out of budget`, payload: { scope: "building" } });
+        for (const r of this.repos.agents.where("homeBuildingId = ? AND kind = 'resident'", [bid])) {
+          if (!SKIP_STATUSES.has(r.status) && r.status !== "out-of-budget") this.setStatus(r, "out-of-budget");
+        }
+      } else if (b.dailyTokens !== null && this.spentToday(bid) >= b.dailyTokens) {
+        exhausted = "building-daily";
+        this.events.append({ type: "budget.exhausted", buildingId: bid, agentId: agent.id, text: `${b.name} used today's ${b.dailyTokens.toLocaleString("en-US")} tokens`, payload: { scope: "building-daily", spentToday: this.spentToday(bid) } });
         for (const r of this.repos.agents.where("homeBuildingId = ? AND kind = 'resident'", [bid])) {
           if (!SKIP_STATUSES.has(r.status) && r.status !== "out-of-budget") this.setStatus(r, "out-of-budget");
         }
@@ -133,7 +144,7 @@ export class Budget {
         const allocatedTokens = allocs.reduce((s, a) => s + a.tokens, 0);
         const spentTokens = allocs.reduce((s, a) => s + a.spentTokens, 0);
         const spentUsd = allocs.reduce((s, a) => s + a.spentUsd, 0);
-        return { buildingId: b.id, name: b.name, allocatedTokens, spentTokens, spentUsd, remainingTokens: this.remaining(b.id) };
+        return { buildingId: b.id, name: b.name, allocatedTokens, spentTokens, spentUsd, remainingTokens: this.remaining(b.id), dailyTokens: b.dailyTokens, spentTodayTokens: this.spentToday(b.id) };
       }),
       users: this.repos.users.all().map((u) => ({ userId: u.id, name: u.name, donatedTokens: u.donatedTokens })),
     };

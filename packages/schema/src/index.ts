@@ -149,6 +149,8 @@ export const Building = z.object({
   maxTurnsPerSession: z.number().int().positive().default(80),
   /** tokens each resident may spend per day */
   dailyTokensPerAgent: z.number().int().positive().default(DAILY_TOKENS_PER_AGENT),
+  /** the building's daily pool: residents draw from it as they work, each up to dailyTokensPerAgent; null = no daily limit */
+  dailyTokens: z.number().int().positive().nullable().default(null),
   meetings: z.array(MeetingCadence).default([]),
   /** standing rules (markdown) from the building's manager; every session in this building starts with them */
   rules: z.string().max(8000).default(""),
@@ -565,7 +567,7 @@ export const TILE = {
 export const WALKABLE = new Set<number>([TILE.GRASS, TILE.PATH, TILE.FLOOR, TILE.DOOR]);
 
 // ---------- REST payloads ----------
-export const CreateBuildingInput = Building.pick({ name: true, goal: true, description: true, headcount: true, reviewPolicy: true, model: true, cheapModel: true, maxTurnsPerSession: true, dailyTokensPerAgent: true, meetings: true, rules: true, workspace: true }).partial({ goal: true, description: true, headcount: true, reviewPolicy: true, model: true, cheapModel: true, maxTurnsPerSession: true, dailyTokensPerAgent: true, meetings: true, rules: true, workspace: true });
+export const CreateBuildingInput = Building.pick({ name: true, goal: true, description: true, headcount: true, reviewPolicy: true, model: true, cheapModel: true, maxTurnsPerSession: true, dailyTokensPerAgent: true, dailyTokens: true, meetings: true, rules: true, workspace: true }).partial({ goal: true, description: true, headcount: true, reviewPolicy: true, model: true, cheapModel: true, maxTurnsPerSession: true, dailyTokensPerAgent: true, dailyTokens: true, meetings: true, rules: true, workspace: true });
 export const UpdateBuildingInput = CreateBuildingInput.partial();
 export const CreateResidentInput = z.object({ buildingId: Id, name: z.string(), title: z.string().default(""), direction: z.string().default(""), sprite: z.number().int().optional(), model: z.string().optional() });
 export const RegisterVisitorInput = z.object({ name: z.string(), buildingId: Id.optional(), title: z.string().optional() });
@@ -602,6 +604,7 @@ export const CollectiveBuildingSpec = z.object({
   cheapModel: z.string().optional(),
   maxTurnsPerSession: z.number().int().positive().optional(),
   dailyTokensPerAgent: z.number().int().positive().optional(),
+  dailyTokens: z.number().int().positive().optional(),
   meetings: z.array(MeetingCadence).optional(),
   /** workspace.path is relative to the collective dir */
   workspace: Workspace.optional(),
