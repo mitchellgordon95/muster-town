@@ -177,7 +177,7 @@ Every panel is a place (`map/renderer.ts` `PLACE_PANEL`): you walk up and press 
 - **Board** (`board:<id>`): the building's board: pinned standing rules and building-wide FYIs (doc type `fyi`) only.
 - **Filing cabinet** (`cabinet:<id>`, against the right wall): everything else the building has published, as a file browser: a folder per doc type with its count, an author dropdown (everyone who filed there, with counts) that narrows every folder to one author, docs newest first inside a folder (newest 200), click opens the doc viewer.
 - **In-tray** (`intray:<id>`, the manager's desk): pending reports, each with Acknowledge / Continue as proposed / Redirect… (note required) / Stop.
-- **Planning desk**: tabs Buildings | Residents | Roles | System (create buildings, a read-only whole-town resident roster whose rows link to each building's Settings, roles).
+- **Planning desk**: tabs Buildings | Residents | Roles | System (create buildings, a read-only whole-town resident roster whose rows link to each building's Members tab, roles).
 - **Bank** (panel kind `bank`): top contributors by tokens (Bank credits plus direct donations), donating (an input to the Bank, or tokens straight to one building), the inputs funding the town (owner or admin can cancel), and each building's share (admin sets or clears). The Town Hall donation box is gone. **Schedule board**: meetings across buildings. **Mod station**: outbox requests awaiting approval, trophy proposals, bans.
 - **Library** (search, filters by type/state/building, document view with resolvable links, Promote/Trophy buttons when permitted), **Trophy room**, **Outbox** (requests: approve/reject for moderators, claim/done for anyone), **Meeting** (live transcript, summaries, say box, decisions).
 

@@ -1,4 +1,4 @@
-/** Building panel (E at the door): overview, members + roles, meetings, settings (managers: building fields, then residents: add and dismiss). Board, filing cabinet and in-tray are places. */
+/** Building panel (E at the door): overview, members + roles, meetings, settings (managers: building fields). Members lists residents (managers add and dismiss there) and roles. Board, filing cabinet and in-tray are places. */
 import { useMemo, useState, type ReactNode } from "react";
 import type { Meeting, SnapshotBuilding, Workspace } from "@muster-town/schema";
 import { api } from "../api";
@@ -91,11 +91,13 @@ function Overview({ b }: { b: SnapshotBuilding }) {
 function Members({ b }: { b: SnapshotBuilding }) {
   const agents = useTown((s) => s.agents);
   useTown((s) => s.me);
-  const members = useMemo(() => Object.values(agents).filter((a) => (a.homeBuildingId ?? a.buildingId) === b.id && a.kind !== "human"), [agents, b.id]);
+  const members = useMemo(() => Object.values(agents).filter((a) => (a.homeBuildingId ?? a.buildingId) === b.id && a.kind !== "human" && a.status !== "retired").sort((x, y) => x.name.localeCompare(y.name)), [agents, b.id]);
+  const residents = members.filter((a) => a.kind === "resident").length;
+  const manage = store.can("building.manage", b.id);
   return (
     <>
-      <Section title={`Residents (${members.length})`}>
-        {!members.length ? <Empty>No one works here yet.</Empty> : (
+      <Section title={`Residents (${residents} / ${b.headcount})`}>
+        {!members.length ? <Empty>{manage ? "No one works here yet. Add a resident below." : "No one works here yet."}</Empty> : (
           <div className="members">
             {members.map((a) => (
               <div key={a.id} className="member-row">
@@ -110,6 +112,7 @@ function Members({ b }: { b: SnapshotBuilding }) {
           </div>
         )}
       </Section>
+      {manage ? <NewResident buildingId={b.id} /> : null}
       <RolesTab buildingId={b.id} />
     </>
   );
@@ -236,19 +239,6 @@ function Settings({ b }: { b: SnapshotBuilding }) {
       }}>Save settings</Act></div>
     </form>
     </Section>
-    <Section title={`Residents (${residents.filter((a) => a.status !== "retired").length} / ${b.headcount})`}>
-      {!residents.length ? <Empty>No residents yet. Add one below.</Empty> : residents.filter((a) => a.status !== "retired").map((a) => (
-        <div key={a.id} className="resident-row">
-          <button className="member" onClick={() => store.open({ kind: "agent", id: a.id })}>
-            <img src={portraitUrl(a.sprite, 2)} alt="" />
-            <div><b>{a.name}</b><span>{roleOf(a)}</span></div>
-            <StatusPill status={a.status} />
-          </button>
-          {canDismiss(a) ? <DismissButton agent={a} small /> : null}
-        </div>
-      ))}
-    </Section>
-    <NewResident buildingId={b.id} />
   </>);
 }
 

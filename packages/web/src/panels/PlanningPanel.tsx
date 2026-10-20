@@ -1,4 +1,4 @@
-/** Planning desk (Town Hall): create buildings, the whole-town resident roster (read-only; adding and dismissing live in each building's Settings), roles, export. Donating and Bank shares live at the Bank. */
+/** Planning desk (Town Hall): create buildings, the whole-town resident roster (read-only; adding and dismissing live in each building's Members tab), roles, export. Donating and Bank shares live at the Bank. */
 import { useMemo, useState } from "react";
 import type { Building } from "@muster-town/schema";
 import { api, tokenStore } from "../api";
@@ -88,7 +88,7 @@ function Residents() {
         return (
           <Section key={b.id} title={`${b.name} (${residents.length}${b.kind === "town-hall" ? "" : ` / ${b.headcount}`})`}>
             {!residents.length ? <Empty>No residents yet.</Empty> : residents.map((a) => (
-              <button key={a.id} className="member" title={manage ? `Manage in ${b.name}'s settings` : undefined} onClick={() => store.open(manage ? { kind: "building", id: b.id, tab: "Settings" } : { kind: "agent", id: a.id })}>
+              <button key={a.id} className="member" title={manage ? `Manage in ${b.name}'s members` : undefined} onClick={() => store.open(manage ? { kind: "building", id: b.id, tab: "Members" } : { kind: "agent", id: a.id })}>
                 <img src={portraitUrl(a.sprite, 2)} alt="" />
                 <div><b>{a.name}</b><span>{roleOf(a)}</span></div>
                 <StatusPill status={a.status} />
@@ -96,7 +96,7 @@ function Residents() {
             ))}
             {manage ? (
               <div className="walk-links">
-                <button className="walk-link" onClick={() => store.open({ kind: "building", id: b.id, tab: "Settings" })}><Glyph kind="building" /><span>Add or dismiss in {b.name} settings</span></button>
+                <button className="walk-link" onClick={() => store.open({ kind: "building", id: b.id, tab: "Members" })}><Glyph kind="building" /><span>Add or dismiss in {b.name} members</span></button>
               </div>
             ) : null}
           </Section>
