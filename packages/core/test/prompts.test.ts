@@ -21,9 +21,12 @@ describe("prompts carry no titles or job descriptions", () => {
 });
 
 describe("no forced next step", () => {
-  it("the proposal section is optional and inventing work is discouraged", () => {
-    expect(REPORT_FORMAT).toMatch(/Proposal for next session \(optional/);
-    expect(REPORT_FORMAT).toMatch(/Don't invent work/);
+  it("reports are what I did / findings / what I need from you, and inventing work is discouraged", () => {
+    expect(REPORT_FORMAT).toMatch(/## What I did/);
+    expect(REPORT_FORMAT).toMatch(/## Findings/);
+    expect(REPORT_FORMAT).toMatch(/## What I need from you/);
+    expect(REPORT_FORMAT).not.toMatch(/Proposal for next session/);
+    expect(REPORT_FORMAT).toMatch(/Never invent follow-up work/);
   });
   it("the reviewer approves finished work by default", () => {
     expect(reviewSystemPrompt(agent, building)).toMatch(/No proposal is fine/);
