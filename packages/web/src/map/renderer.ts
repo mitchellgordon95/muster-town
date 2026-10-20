@@ -3,7 +3,7 @@
  * interpolation of other bodies between `agents.pos` updates, and proximity targeting.
  */
 import type { Agent, Place } from "@agent-town/schema";
-import { store, type PanelRef, roleOf } from "../state";
+import { store, type PanelRef, isManager, roleOf } from "../state";
 import { World } from "./world";
 import { T, CHAR_W, CHAR_H, charSheet, tiles, HUMAN_SPRITE } from "./sprites";
 import { bubbleFor, drawBadge, drawBubble, drawLabel, drawSign, type Bubble } from "./overlay";
@@ -321,7 +321,7 @@ export class MapRenderer {
       const isMe = d.id === "__me";
       const name = isMe ? "You" : d.a!.name;
       const hl = d.id === targetId || d.id === this.hoverId;
-      drawLabel(g, p.x, p.y + 3, name, d.a?.status ?? "idle", hl, isMe);
+      drawLabel(g, p.x, p.y + 3, name, d.a?.status ?? "idle", hl, isMe, !!d.a && isManager(d.a, s.buildings));
       if (!isMe) this.hitboxes.push({ id: d.id, x: p.x - CHAR_W * z / 2, y: p.y - CHAR_H * z, w: CHAR_W * z, h: CHAR_H * z + 18 });
     }
     // bubbles last so they sit above every label

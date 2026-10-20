@@ -210,5 +210,10 @@ export function useTown<T>(selector: (s: TownState) => T): T {
 
 export function placeAt(places: Place[], id: string) { return places.find((p) => p.id === id); }
 
-/** The label next to an agent's name: service agents keep theirs ("Librarian"); residents have no title. */
-export const roleOf = (a: Pick<Agent, "kind" | "title">): string => (a.kind === "service" ? a.title : "");
+/** True when `a` is the manager its home building's settings name. */
+export function isManager(a: Pick<Agent, "id" | "homeBuildingId">, buildings: SnapshotBuilding[] = store.state.buildings): boolean {
+  return !!a.homeBuildingId && buildings.some((b) => b.id === a.homeBuildingId && b.managerAgentId === a.id);
+}
+
+/** The label next to an agent's name: service agents keep theirs ("Librarian"); a building's manager reads "Manager"; other residents have none. */
+export const roleOf = (a: Pick<Agent, "id" | "kind" | "title" | "homeBuildingId">): string => (a.kind === "service" ? a.title : isManager(a) ? "Manager" : "");

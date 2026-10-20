@@ -179,7 +179,9 @@ function AddHolder({ onAdd }: { onAdd: (kind: "agent" | "user", id: string) => P
 }
 
 function Settings({ b }: { b: SnapshotBuilding }) {
-  const [f, setF] = useState({ goal: b.goal, description: b.description, reviewPolicy: b.reviewPolicy, headcount: b.headcount, model: b.model, cheapModel: b.cheapModel, dailyTokensPerAgent: b.dailyTokensPerAgent, maxTurnsPerSession: b.maxTurnsPerSession });
+  const [f, setF] = useState({ goal: b.goal, description: b.description, reviewPolicy: b.reviewPolicy, headcount: b.headcount, model: b.model, cheapModel: b.cheapModel, dailyTokensPerAgent: b.dailyTokensPerAgent, maxTurnsPerSession: b.maxTurnsPerSession, managerAgentId: b.managerAgentId });
+  const agents = useTown((s) => s.agents);
+  const residents = useMemo(() => Object.values(agents).filter((a) => a.kind === "resident" && a.homeBuildingId === b.id).sort((x, y) => x.name.localeCompare(y.name)), [agents, b.id]);
   const [merge, setMerge] = useState<Workspace["merge"]>(b.workspace?.merge ?? "human");
   const [checks, setChecks] = useState((b.workspace?.checks ?? []).join("\n"));
   const set = <K extends keyof typeof f>(k: K, v: (typeof f)[K]) => setF((x) => ({ ...x, [k]: v }));
@@ -195,6 +197,12 @@ function Settings({ b }: { b: SnapshotBuilding }) {
         </Field>
         <Field label="Desks (headcount)"><input type="number" min={1} max={24} value={f.headcount} onChange={(e) => set("headcount", +e.target.value)} /></Field>
       </div>
+      <Field label="Manager" hint="The resident who facilitates this building's meetings and wears the ★ badge. None: the reviewer agent, else the first resident to join, facilitates.">
+        <select value={f.managerAgentId ?? ""} onChange={(e) => set("managerAgentId", e.target.value || null)}>
+          <option value="">none</option>
+          {residents.map((a) => <option key={a.id} value={a.id} disabled={a.status === "stopped" || a.status === "banned"}>{a.name}{a.status === "stopped" || a.status === "banned" ? ` (${a.status})` : ""}</option>)}
+        </select>
+      </Field>
       <div className="row2">
         <Field label="Model"><input value={f.model} onChange={(e) => set("model", e.target.value)} /></Field>
         <Field label="Cheap model"><input value={f.cheapModel} onChange={(e) => set("cheapModel", e.target.value)} /></Field>

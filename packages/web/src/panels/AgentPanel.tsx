@@ -28,7 +28,7 @@ export function AgentPanel({ id, tab }: { id: string; tab?: string }) {
     <PanelShell
       key={id}
       icon={<img className="portrait" src={portraitUrl(agent.sprite)} alt="" />}
-      title={<>{agent.name} <StatusPill status={agent.status} /></>}
+      title={<>{agent.name} {building?.managerAgentId === agent.id ? <Pill tone="warn" title={`Set as ${building.name}'s manager in its settings: facilitates its meetings`}>★ manager</Pill> : null} <StatusPill status={agent.status} /></>}
       subtitle={[roleOf(agent) || agent.kind, building?.name].filter(Boolean).join(" · ")}
       tabs={tabs}
       initialTab={tab && tabs.includes(tab) ? tab : defaultTab}

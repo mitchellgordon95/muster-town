@@ -57,11 +57,12 @@ function roundRect(g: CanvasRenderingContext2D, x: number, y: number, w: number,
   g.arcTo(x, y + h, x, y, r); g.arcTo(x, y, x + w, y, r); g.closePath();
 }
 
-/** Name tag centred at (x, y) = just below the feet. */
-export function drawLabel(g: CanvasRenderingContext2D, x: number, y: number, name: string, status: string, highlight: boolean, isMe: boolean) {
+/** Name tag centred at (x, y) = just below the feet. `manager` adds a gold star after the name. */
+export function drawLabel(g: CanvasRenderingContext2D, x: number, y: number, name: string, status: string, highlight: boolean, isMe: boolean, manager = false) {
   g.font = FONT;
   const tw = g.measureText(name).width;
-  const w = tw + 18, h = 16;
+  const sw = manager ? g.measureText(" \u2605").width : 0;
+  const w = tw + sw + 18, h = 16;
   const lx = Math.round(x - w / 2), ly = Math.round(y);
   g.fillStyle = highlight ? "rgba(124,196,255,.95)" : isMe ? "rgba(255,255,255,.92)" : "rgba(16,17,24,.82)";
   roundRect(g, lx, ly, w, h, 8); g.fill();
@@ -70,6 +71,7 @@ export function drawLabel(g: CanvasRenderingContext2D, x: number, y: number, nam
   g.fillStyle = highlight || isMe ? "#14151c" : "#e8e9f0";
   g.textBaseline = "middle";
   g.fillText(name, lx + 14, ly + h / 2 + 0.5);
+  if (manager) { g.fillStyle = "#f5c542"; g.fillText(" \u2605", lx + 14 + tw, ly + h / 2 + 0.5); }
 }
 
 /** Bubble whose tail points at (x, y) = just above the head. */

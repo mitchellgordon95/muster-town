@@ -26,6 +26,7 @@ export function createBuilding(
   opts: { id?: string; kind?: Building["kind"] } = {},
 ): Building {
   const inp = CreateBuildingInput.parse(input);
+  if (inp.managerAgentId) throw badRequest("A new building has no residents yet; set its manager after they join.");
   if ((inp.headcount ?? 6) > MAX_HEADCOUNT) throw badRequest(`headcount must be <= ${MAX_HEADCOUNT}`);
   const id = opts.id ?? newId("bl");
   if (world.buildings.get(id)) throw new AppError("conflict", `Building ${id} already exists.`);
@@ -51,6 +52,11 @@ export function updateBuilding(world: World, id: string, patch: Partial<In<typeo
     if (p.headcount > MAX_HEADCOUNT) throw badRequest(`headcount must be <= ${MAX_HEADCOUNT}`);
     const used = world.layout.deskCount(id);
     if (p.headcount < used) throw badRequest(`headcount ${p.headcount} is below the ${used} occupied desks`);
+  }
+  if (p.managerAgentId) {
+    const a = world.agents.get(p.managerAgentId);
+    if (!a || a.kind !== "resident" || a.homeBuildingId !== id) throw badRequest("The manager must be a resident of this building.");
+    if (a.status === "stopped" || a.status === "banned" || a.status === "retired") throw badRequest(`Can't make ${a.name} manager: they are ${a.status}.`);
   }
   const clean = Object.fromEntries(Object.entries(p).filter(([, v]) => v !== undefined));
   const updated = world.buildings.upsert({ ...cur, ...clean });

@@ -147,6 +147,8 @@ export const Building = z.object({
   meetings: z.array(MeetingCadence).default([]),
   /** standing rules (markdown) from the building's manager; every session in this building starts with them */
   rules: z.string().max(8000).default(""),
+  /** the resident a human set as this building's manager: it facilitates meetings and wears a manager badge; null = none set */
+  managerAgentId: Id.nullable().default(null),
   /** when set, residents get code tools in a worktree of this repo during work sessions */
   workspace: Workspace.nullable().default(null),
   /** tile rectangle on the town grid; assigned by the server if absent */
@@ -560,7 +562,7 @@ export const TILE = {
 export const WALKABLE = new Set<number>([TILE.GRASS, TILE.PATH, TILE.FLOOR, TILE.DOOR]);
 
 // ---------- REST payloads ----------
-export const CreateBuildingInput = Building.pick({ name: true, goal: true, description: true, headcount: true, reviewPolicy: true, model: true, cheapModel: true, maxTurnsPerSession: true, dailyTokensPerAgent: true, meetings: true, rules: true, workspace: true }).partial({ goal: true, description: true, headcount: true, reviewPolicy: true, model: true, cheapModel: true, maxTurnsPerSession: true, dailyTokensPerAgent: true, meetings: true, rules: true, workspace: true });
+export const CreateBuildingInput = Building.pick({ name: true, goal: true, description: true, headcount: true, reviewPolicy: true, model: true, cheapModel: true, maxTurnsPerSession: true, dailyTokensPerAgent: true, meetings: true, rules: true, workspace: true, managerAgentId: true }).partial({ goal: true, description: true, headcount: true, reviewPolicy: true, model: true, cheapModel: true, maxTurnsPerSession: true, dailyTokensPerAgent: true, meetings: true, rules: true, workspace: true, managerAgentId: true });
 export const UpdateBuildingInput = CreateBuildingInput.partial();
 export const CreateResidentInput = z.object({ buildingId: Id, name: z.string(), title: z.string().default(""), direction: z.string().default(""), sprite: z.number().int().optional(), model: z.string().optional() });
 export const RegisterVisitorInput = z.object({ name: z.string(), buildingId: Id.optional(), title: z.string().optional() });
