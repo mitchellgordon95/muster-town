@@ -318,3 +318,18 @@ kbd { font-family: var(--mono); font-size: 11px; background: #2a2d3a; border: 1p
 .sched-what .link.title { text-align: left; font-weight: 600; }
 .sched-what span { color: var(--muted); font-size: 12px; }
 .sched-act { display: flex; gap: 4px; }
+
+/* reports as replies: one box, one button; ask about this */
+.reply-box { margin: 16px 0 10px; padding-top: 12px; border-top: 1px solid var(--line); }
+.reply-box textarea { width: 100%; margin-bottom: 8px; }
+.reply-box .actions { margin-bottom: 0; justify-content: flex-end; }
+.ask-box { background: #191c2a; border: 1px solid #2d3145; border-radius: var(--r); padding: 10px 12px; margin: 10px 0 14px; }
+.ask-title { font-weight: 700; font-size: 13px; margin-bottom: 6px; }
+.ask-title span { display: block; font-weight: 400; font-size: 11.5px; color: var(--muted); margin-top: 2px; }
+.ask-log { display: flex; flex-direction: column; gap: 6px; max-height: 220px; overflow-y: auto; margin-bottom: 8px; }
+.ask-turn { font-size: 12.5px; line-height: 1.45; padding: 6px 9px; border-radius: 6px; }
+.ask-turn.user { background: #232842; align-self: flex-end; max-width: 90%; }
+.ask-turn.assistant { background: #1f2333; color: #d9dcec; }
+.ask-turn.muted { color: var(--muted); }
+.ask-form { display: flex; gap: 6px; }
+.ask-form input { flex: 1; min-width: 0; }

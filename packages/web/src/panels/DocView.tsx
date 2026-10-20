@@ -1,6 +1,6 @@
 /** One document: metadata, provenance, markdown, and the actions the viewer is permitted to take. */
 import { useState } from "react";
-import type { Doc, ReviewDecision } from "@agent-town/schema";
+import type { Doc } from "@agent-town/schema";
 import { api } from "../api";
 import { store, useTown } from "../state";
 import { Markdown, openDocLink } from "./Markdown";
@@ -17,64 +17,91 @@ export function DocMeta({ doc }: { doc: Doc }) {
       <Pill tone="type">{doc.type.replace(/-/g, " ")}</Pill>
       <Pill tone={`state-${doc.state}`}>{doc.state}</Pill>
       {doc.verdict ? <Pill tone={VERDICT_TONE[doc.verdict]} title="Agent's verdict">verdict: {doc.verdict}</Pill> : null}
-      {doc.decision ? <Pill tone={DECISION_TONE[doc.decision]} title="Manager's decision">{DECISION_LABEL[doc.decision] ?? doc.decision}</Pill> : null}
+      {doc.decision ? <Pill tone={DECISION_TONE[doc.decision]} title="Manager's decision">{decisionLabel(doc)}</Pill> : null}
       {doc.requestStatus ? <Pill tone={doc.requestStatus === "proposed" ? "warn" : doc.requestStatus === "rejected" ? "bad" : "ok"}>{doc.requestStatus}</Pill> : null}
     </div>
   );
 }
 
-/** The report's "Proposal for next session" section, first paragraph (what Continue as proposed assigns). */
-export function proposalOf(body: string): string | null {
-  const m = /^##+\s*Proposal[^\n]*\n+([\s\S]*?)(?=\n##+\s|$)/im.exec(body);
-  const t = m?.[1]?.trim();
-  return t ? t : null;
+/** First line of the report's "What I need from you" section, or null. */
+export function needOf(body: string): string | null {
+  const m = /^##+\s*What I need from you[^\n]*\n+([\s\S]*?)(?=\n##+\s|$)/im.exec(body);
+  const line = m?.[1]?.split("\n").map((l) => l.replace(/^[-*]\s+/, "").trim()).find(Boolean);
+  return line ?? null;
 }
 
-type Decision = ReviewDecision;
-const DONE_MSG: Record<Decision, string> = {
-  approve: "Acknowledged. No new assignment.",
-  continue: "Continuing as proposed: assignment created.",
-  redirect: "Redirected: assignment created from your note.",
-  stop: "Stopped. Pending assignments cancelled.",
-};
+/** Pill label: a decided report with a reply note reads "replied". */
+export function decisionLabel(doc: Pick<Doc, "decision" | "decisionNote">): string {
+  if (!doc.decision) return "";
+  if (doc.decision === "approve") return doc.decisionNote ? "replied" : "archived";
+  return DECISION_LABEL[doc.decision] ?? doc.decision;
+}
 
-/** In-tray decision box: Acknowledge / Continue as proposed / Redirect… (note required) / Stop. */
-export function ReviewBox({ doc, onDone }: { doc: Doc; onDone?: () => void }) {
-  const [note, setNote] = useState("");
-  const [redirecting, setRedirecting] = useState(false);
-  const proposal = proposalOf(doc.body);
-  const decide = (decision: Decision) => async () => {
-    if (decision === "redirect" && !note.trim()) { store.toast("Redirect needs a note saying what to do instead.", "bad"); return; }
-    const d = await api().review(doc.id, { decision, note: note.trim() });
-    store.putDocs([d]);
-    store.toast(DONE_MSG[decision], "ok");
+/**
+ * Reports as replies: one text box, one button. The reply is appended to the report, mentions the author, and
+ * becomes the author's next assignment. "merge" tells the author to merge its PR. Empty = archive.
+ */
+export function ReplyBox({ doc, onDone }: { doc: Doc; onDone?: () => void }) {
+  const [text, setText] = useState("");
+  const empty = !text.trim();
+  const author = nameOf(doc.authorId);
+  const send = async () => {
+    const r = empty ? await api().archive(doc.id) : await api().reply(doc.id, text.trim());
+    store.putDocs([r.doc]);
+    store.toast(empty ? "Archived." : r.assignment ? `Reply sent. ${author} picks it up next.` : `Reply recorded. ${author} gets no new assignment.`, "ok");
+    setText("");
     onDone?.();
   };
   return (
-    <div className="review-box">
-      <div className="review-title">Decide on this report</div>
-      {proposal ? <div className="review-proposal"><span>Proposal</span>{proposal.length > 280 ? proposal.slice(0, 280) + "…" : proposal}</div> : <div className="review-proposal muted">No proposal section; Continue will assign a follow-up from the report.</div>}
-      {redirecting ? (
-        <textarea rows={3} autoFocus placeholder="What should they do instead? (required; the proposal is appended as context)" value={note} onChange={(e) => setNote(e.target.value)} />
-      ) : (
-        <textarea rows={2} placeholder="Optional note to the agent…" value={note} onChange={(e) => setNote(e.target.value)} />
-      )}
+    <div className="reply-box">
+      <textarea rows={3} placeholder={'Reply… ("merge" tells the author to merge; leave empty to archive)'} value={text} onChange={(e) => setText(e.target.value)}
+        onKeyDown={(e) => { if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) { e.preventDefault(); void send().catch((err) => store.toast(String((err as Error).message ?? err), "bad")); } }} />
       <div className="actions">
-        {redirecting ? <>
-          <Act tone="warn" disabled={!note.trim()} run={decide("redirect")}>Redirect</Act>
-          <button className="btn" onClick={() => setRedirecting(false)}>Cancel</button>
-        </> : <>
-          <Act tone="ok" run={decide("approve")} title="Mark handled. No assignment is created.">Acknowledge</Act>
-          <Act tone="primary" run={decide("continue")} title="Acknowledge and assign the report's proposal">Continue as proposed</Act>
-          <button className="btn warn" onClick={() => setRedirecting(true)} title="Acknowledge and assign your note instead">Redirect…</button>
-          <Act tone="bad" run={decide("stop")} title="Acknowledge, stop the agent, cancel its pending assignments">Stop</Act>
-        </>}
+        <Act tone={empty ? "ok" : "primary"} run={send} title={empty ? "Mark handled. No assignment is created." : `Append your reply to the report and give it to ${author} as the next assignment`}>{empty ? "Archive" : "Send reply"}</Act>
       </div>
     </div>
   );
 }
 
-/** `review`: show the decision box (only the in-tray passes it; decisions happen at the manager's desk). */
+type AskTurn = { role: "user" | "assistant"; text: string };
+
+/** "Ask about this": questions about the report, answered without bothering its author. */
+export function AskBox({ doc }: { doc: Doc }) {
+  const [q, setQ] = useState("");
+  const [history, setHistory] = useState<AskTurn[]>([]);
+  const [busy, setBusy] = useState(false);
+  const ask = async () => {
+    const question = q.trim();
+    if (!question || busy) return;
+    setBusy(true);
+    setQ("");
+    const prior = history;
+    setHistory([...prior, { role: "user", text: question }]);
+    try {
+      const reply = await api().ask(doc.id, question, prior);
+      setHistory((h) => [...h, { role: "assistant" as const, text: reply }].slice(-12));
+    } catch (e) {
+      setHistory((h) => [...h, { role: "assistant", text: `(No answer: ${(e as Error).message ?? e})` }]);
+    } finally { setBusy(false); }
+  };
+  return (
+    <div className="ask-box">
+      <div className="ask-title">Ask about this <span>answered from the report and {nameOf(doc.authorId)}'s recent activity; {nameOf(doc.authorId)} isn't interrupted</span></div>
+      {history.length ? (
+        <div className="ask-log">
+          {history.map((t, i) => <div key={i} className={`ask-turn ${t.role}`}>{t.role === "user" ? <b>You: </b> : null}{t.text}</div>)}
+          {busy ? <div className="ask-turn assistant muted">…</div> : null}
+        </div>
+      ) : null}
+      <form className="ask-form" onSubmit={(e) => { e.preventDefault(); void ask(); }}>
+        <input value={q} placeholder="What does the PR change? Is anything still failing?" onChange={(e) => setQ(e.target.value)} />
+        <button className="btn" type="submit" disabled={!q.trim() || busy}>Ask</button>
+      </form>
+    </div>
+  );
+}
+
+/** `review`: show the reply box and Ask about this under the body (only the in-tray passes it). */
 export function DocView({ doc: initial, onBack, backLabel = "Back", review, onDecided }: { doc: Doc; onBack?: () => void; backLabel?: string; review?: boolean; onDecided?: () => void }) {
   const live = useTown((s) => s.docs[initial.id]);
   const doc = live && live.updatedAt >= initial.updatedAt ? live : initial;
@@ -96,9 +123,8 @@ export function DocView({ doc: initial, onBack, backLabel = "Back", review, onDe
         {cost ? <> · <span title="What this session cost">{cost}</span></> : null}
         {doc.location ? <> · at {doc.location}</> : null}
       </div>
-      {doc.decisionNote ? <div className="callout"><b>{nameOf(doc.decidedBy)}:</b> {doc.decisionNote}</div> : null}
+      {doc.decisionNote && !doc.body.includes("## Reply from") ? <div className="callout"><b>{nameOf(doc.decidedBy)}:</b> {doc.decisionNote}</div> : null}
       {doc.trophyProposedBy ? <div className="callout gold"><b>Trophy proposal</b> by {nameOf(doc.trophyProposedBy)}{doc.trophyWhy ? `: ${doc.trophyWhy}` : ""}</div> : null}
-      {canReview ? <ReviewBox doc={doc} onDone={onDecided} /> : null}
       <div className="actions">
         {canPromote && doc.state === "draft" ? <Act small run={run(() => api().promote(doc.id, "building"), "Published to the board")}>Publish to board</Act> : null}
         {canPromote && doc.state === "building" ? <Act small run={run(() => api().promote(doc.id, "library"), "Promoted to the library")}>Promote to library</Act> : null}
@@ -108,6 +134,7 @@ export function DocView({ doc: initial, onBack, backLabel = "Back", review, onDe
         </> : null}
       </div>
       <Markdown text={stripLeadingH1(doc.body)} />
+      {canReview ? <><ReplyBox doc={doc} onDone={onDecided} /><AskBox doc={doc} /></> : null}
       {sources.length || doc.provenance.urls.length ? (
         <div className="provenance">
           <h4>Provenance</h4>
@@ -128,7 +155,7 @@ export function DocRow({ doc, onOpen }: { doc: Doc; onOpen: () => void }) {
       <div className="doc-row-title">{doc.title}</div>
       <div className="doc-row-meta">
         <Pill tone="type">{doc.type.replace(/-/g, " ")}</Pill>
-        {doc.decision ? <Pill tone={DECISION_TONE[doc.decision]}>{DECISION_LABEL[doc.decision]}</Pill> : null}
+        {doc.decision ? <Pill tone={DECISION_TONE[doc.decision]}>{decisionLabel(doc)}</Pill> : null}
         {doc.requestStatus ? <Pill tone={doc.requestStatus === "proposed" ? "warn" : "ok"}>{doc.requestStatus}</Pill> : null}
         <span>{nameOf(doc.authorId)} · {timeAgo(doc.updatedAt)}{cost ? ` · ${cost}` : ""}</span>
       </div>

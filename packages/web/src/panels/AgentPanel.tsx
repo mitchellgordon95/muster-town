@@ -154,8 +154,8 @@ function SessionTab({ agent }: { agent: Agent }) {
   );
 }
 
-/** The agent's reports with their decision pills. Reviewers get a one-click Acknowledge on pending rows;
- *  Continue / Redirect / Stop (which need the proposal or a note) stay at the building's in-tray. */
+/** The agent's reports with their decision pills. Reviewers get a one-click Acknowledge (archive) on pending rows;
+ *  replies are written at the building's in-tray. */
 function ReportsTab({ agent }: { agent: Agent }) {
   const rev = useTown((s) => s.rev);
   // The docs API has no author filter, so list the building's reports and filter client-side.
@@ -167,8 +167,8 @@ function ReportsTab({ agent }: { agent: Agent }) {
   useTown((s) => s.me); // re-render when permissions arrive
   const canReview = !!bid && store.can("building.review", bid);
   const acknowledge = (d: Doc) => async () => {
-    store.putDocs([await api().review(d.id, { decision: "approve", note: "" })]);
-    store.toast("Acknowledged. No new assignment.", "ok");
+    store.putDocs([(await api().archive(d.id)).doc]);
+    store.toast("Archived. No new assignment.", "ok");
     list.reload();
   };
   if (open) return <DocView doc={open} onBack={() => setOpen(null)} backLabel="All reports" />;
@@ -182,7 +182,7 @@ function ReportsTab({ agent }: { agent: Agent }) {
       <div className="doc-list">{reports.map((d) => canReview && d.decision === "pending" ? (
         <div key={d.id} className="doc-row-act">
           <DocRow doc={d} onOpen={() => setOpen(d)} />
-          <Act small tone="ok" run={acknowledge(d)} title="Mark handled (approve). No assignment is created.">Acknowledge</Act>
+          <Act small tone="ok" run={acknowledge(d)} title="Archive: mark handled with no reply. No assignment is created.">Acknowledge</Act>
         </div>
       ) : <DocRow key={d.id} doc={d} onOpen={() => setOpen(d)} />)}</div>
     </>

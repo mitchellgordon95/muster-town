@@ -556,6 +556,10 @@ export const CreateResidentInput = z.object({ buildingId: Id, name: z.string(), 
 export const RegisterVisitorInput = z.object({ name: z.string(), buildingId: Id.optional(), title: z.string().optional() });
 export const ReviewInput = z.object({ decision: ReviewDecision, note: z.string().default("") });
 export const ChatInput = z.object({ message: z.string(), history: z.array(z.object({ role: z.enum(["user", "assistant"]), text: z.string() })).default([]) });
+/** POST /api/docs/:id/reply: the reply text (empty = archive). */
+export const ReplyInput = z.object({ text: z.string().default("") });
+/** POST /api/docs/:id/ask: a question about a report, answered by a cheap-model proxy (not the author). */
+export const AskInput = z.object({ question: z.string().min(1), history: z.array(z.object({ role: z.enum(["user", "assistant"]), text: z.string() })).default([]) });
 export const InterruptInput = z.object({ text: z.string() });
 export const WorkInput = z.object({ title: z.string().optional(), description: z.string().optional() });
 export const DonateInput = z.object({ tokens: z.number().int().positive(), buildingId: Id, apiKey: z.string().optional() });
