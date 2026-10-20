@@ -173,7 +173,7 @@ program
 
 program
   .command("serve")
-  .description("Start the Agent Town server (and runtime) in the foreground")
+  .description("Start the Muster Town server (and runtime) in the foreground")
   .option("--port <port>", "port (default PORT or 4321)")
   .action((o: { port?: string }) => {
     const entry = join(REPO_ROOT, "packages/server/src/main.ts");

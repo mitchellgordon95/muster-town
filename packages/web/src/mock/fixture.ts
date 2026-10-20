@@ -9,7 +9,7 @@ import { BUILTIN_ROLES } from "@muster-town/schema";
 export const ago = (min: number) => new Date(Date.now() - min * 60_000).toISOString();
 
 export const town: Town = {
-  name: "Agent Town",
+  name: "Muster Town",
   goal: "Return atmospheric CO2 to 350 ppm by 2100",
   tagline: "publicly legible, collectively funded agent town for climate science",
   goalNote: "Current level is about 427 ppm (2025 annual mean, NOAA).",
@@ -30,8 +30,8 @@ export const buildings: Building[] = [
   },
   {
     ...base, id: "bl_workshop", name: "Workshop", kind: "lab", headcount: 3, reviewPolicy: "reviewer", createdAt: ago(8800), createdBy: "us_mitchell",
-    goal: "Keep Agent Town itself working: small, tested changes to its own code",
-    description: "Residents work in git worktrees of the Agent Town repo and open PRs.",
+    goal: "Keep Muster Town itself working: small, tested changes to its own code",
+    description: "Residents work in git worktrees of the Muster Town repo and open PRs.",
     rules: "- One small PR per session, with a screenshot description for web changes.\n- Read AGENTS.md before touching a package.\n- Mention @Mitchell in your report when you need a decision.",
     workspace: {
       path: ".", branchPrefix: "agent", base: "main", repoUrl: "https://github.com/example/agent-town.git",

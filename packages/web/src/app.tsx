@@ -183,7 +183,7 @@ function Login({ error, onDone, onCancel }: { error?: string; onDone: () => void
   return (
     <div className="login">
       <form onSubmit={(e) => { e.preventDefault(); if (t.trim()) { tokenStore.set(t.trim()); onDone(); } }}>
-        <h1>Agent Town</h1>
+        <h1>Muster Town</h1>
         <p>Paste your access token. The server prints the admin token at startup and writes it to <code>data/admin-token</code>.</p>
         {error ? <div className="error-line">{error}</div> : null}
         <input autoFocus type="password" value={t} onChange={(e) => setT(e.target.value)} placeholder="Token" />

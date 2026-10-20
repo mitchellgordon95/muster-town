@@ -1,4 +1,4 @@
-# Agent Town desk image: one persistent sandbox per resident.
+# Muster Town desk image: one persistent sandbox per resident.
 # Build from the repo root:  npm run desk:build
 FROM node:22-bookworm
 

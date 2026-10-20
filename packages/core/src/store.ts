@@ -94,7 +94,7 @@ export class TownMeta {
   constructor(private db: DB, private onChange?: (t: Town) => void) {}
   get(): Town {
     const r = this.db.prepare("SELECT value FROM meta WHERE key = 'town'").get() as { value: string } | undefined;
-    return Town.parse(r ? JSON.parse(r.value) : { name: "Agent Town", goal: "" });
+    return Town.parse(r ? JSON.parse(r.value) : { name: "Muster Town", goal: "" });
   }
   set(t: Partial<Town>): Town {
     const town = Town.parse({ ...this.get(), ...t });

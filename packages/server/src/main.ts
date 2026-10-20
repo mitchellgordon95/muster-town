@@ -44,7 +44,7 @@ async function main() {
   const app = await buildApp({ world, dev: DEV, auth });
   await app.listen({ port: PORT, host: HOST });
   const url = `http://localhost:${PORT}`;
-  console.log(`[server] Agent Town at ${url} (dev=${DEV})`);
+  console.log(`[server] Muster Town at ${url} (dev=${DEV})`);
   console.log(`[server] admin (${seed.admin.name}) token: ${seed.adminToken}`);
   console.log(auth.githubClientId ? `[server] GitHub login on (callback ${auth.publicUrl}/auth/github/callback; ${auth.admins.length} admin login(s))` : "[server] GitHub login off (no GITHUB_CLIENT_ID/GITHUB_CLIENT_SECRET); guests are read-only");
   console.log(`[server] MCP endpoint: ${url}/mcp (agent tokens only)`);

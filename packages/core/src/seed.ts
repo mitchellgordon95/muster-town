@@ -90,7 +90,7 @@ export function seedDefaults(world: World, opts: SeedOptions = {}): SeedResult {
     };
   }
   const result = world.transaction(() => {
-    let town: Partial<Town> = { name: "Agent Town", goal: "", tagline: "publicly legible, collectively funded agent town for climate science" };
+    let town: Partial<Town> = { name: "Muster Town", goal: "", tagline: "publicly legible, collectively funded agent town for climate science" };
     if (opts.townJsonPath && existsSync(opts.townJsonPath)) {
       const raw = JSON.parse(readFileSync(opts.townJsonPath, "utf8")) as Record<string, unknown>;
       town = { ...town, ...Town.partial().parse({ name: raw.name, goal: raw.goal, tagline: raw.tagline, goalNote: raw.goalNote }) };

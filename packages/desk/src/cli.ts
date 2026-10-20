@@ -21,7 +21,7 @@ function version(cmd: string, args: string[]): string {
 }
 
 const program = new Command();
-program.name("agent-town-desk").description("Agent Town resident host: runs one work session inside a desk");
+program.name("agent-town-desk").description("Muster Town resident host: runs one work session inside a desk");
 
 program
   .command("run")
