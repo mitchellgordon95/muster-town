@@ -8,7 +8,10 @@ import { World } from "./world";
 import { T, CHAR_W, CHAR_H, charSheet, tiles, HUMAN_SPRITE } from "./sprites";
 import { bubbleFor, buildingBudgetLine, drawBadge, drawBubble, drawLabel, drawSign, residentBudgetLine, type Bubble } from "./overlay";
 
-export interface Target { label: string; panel: PanelRef; agentId?: string }
+/** `index`/`count`: position among everything in reach, so the HUD can show "Tab 2/3" when targets overlap. */
+const keyOf = (t: Target) => `${t.panel.kind}:${t.panel.id ?? ""}:${t.label}`;
+
+export interface Target { label: string; panel: PanelRef; agentId?: string; index?: number; count?: number }
 interface Body { x: number; y: number; fx: number; fy: number; tx: number; ty: number; t0: number; dur: number; moving: boolean; key: string }
 
 const SPEED = 5 * T; // px per second
@@ -53,6 +56,9 @@ export class MapRenderer {
   private raf = 0;
   private last = performance.now();
   private target: Target | null = null;
+  /** Key of the target picked with Tab; kept while it stays in reach, otherwise the nearest wins again. */
+  private picked: string | null = null;
+  private inReach: Target[] = [];
   private lastSent = 0;
   private pendingTile: { x: number; y: number } | null = null;
   private hitboxes: { id: string; x: number; y: number; w: number; h: number }[] = [];
@@ -71,6 +77,15 @@ export class MapRenderer {
   keyUp(k: string) { this.keys.delete(k); }
   clearKeys() { this.keys.clear(); }
   get currentTarget() { return this.target; }
+  /** Step to the next (or previous) target in reach. Returns false when there is nothing to cycle. */
+  cycleTarget(dir: 1 | -1 = 1): boolean {
+    const n = this.inReach.length;
+    if (n < 2) return false;
+    const i = this.inReach.findIndex((t) => keyOf(t) === this.picked);
+    this.picked = keyOf(this.inReach[((i < 0 ? 0 : i) + dir + n) % n]);
+    this.updateTarget();
+    return true;
+  }
 
   /** Dev hook: put the avatar next to an agent and face it. */
   teleportTo(agentId: string): boolean {
@@ -230,19 +245,25 @@ export class MapRenderer {
     const s = store.state;
     // nearest of agents and places wins, so standing on a place's spot (e.g. the mod station, next to the
     // seated moderators) targets the place, and stepping toward an agent targets the agent
-    let best: Target | null = null, bd = INTERACT_PX;
+    const near: { d: number; t: Target }[] = [];
     for (const a of Object.values(s.agents)) {
       if (a.id === store.avatarId || a.status === "retired") continue;
       const b = this.bodies.get(a.id); if (!b) continue;
       const d = Math.hypot(b.x - this.me.x, b.y - this.me.y);
-      if (d < bd) { bd = d; best = { label: `Talk to ${a.name}${roleOf(a) ? ` · ${roleOf(a)}` : ""}`, panel: { kind: "agent", id: a.id }, agentId: a.id }; }
+      if (d < INTERACT_PX) near.push({ d, t: { label: `Talk to ${a.name}${roleOf(a) ? ` · ${roleOf(a)}` : ""}`, panel: { kind: "agent", id: a.id }, agentId: a.id } });
     }
     for (const p of s.places) {
       const f = PLACE_PANEL[p.kind]; if (!f) continue;
       const d = Math.hypot(p.pos.x * T + T / 2 - this.me.x, p.pos.y * T + T - 2 - this.me.y);
-      if (d < bd) { bd = d; const { verb, ...panel } = f(p); best = { label: verb, panel }; }
+      if (d < INTERACT_PX) { const { verb, ...panel } = f(p); near.push({ d, t: { label: verb, panel } }); }
     }
-    const same = best?.label === this.target?.label && best?.panel.id === this.target?.panel.id;
+    // stable order (not by distance) so Tab walks a fixed ring instead of reshuffling as you shuffle around
+    const byDist = near.slice().sort((x, y) => x.d - y.d);
+    this.inReach = near.map((n) => n.t).sort((x, y) => keyOf(x).localeCompare(keyOf(y)));
+    if (this.picked && !this.inReach.some((t) => keyOf(t) === this.picked)) this.picked = null;
+    const chosen = this.picked ? this.inReach.find((t) => keyOf(t) === this.picked)! : byDist[0]?.t;
+    const best: Target | null = chosen ? { ...chosen, index: this.inReach.indexOf(chosen) + 1, count: this.inReach.length } : null;
+    const same = best?.label === this.target?.label && best?.panel.id === this.target?.panel.id && best?.index === this.target?.index && best?.count === this.target?.count;
     if (!same) { this.target = best; this.onTarget?.(best); }
   }
 

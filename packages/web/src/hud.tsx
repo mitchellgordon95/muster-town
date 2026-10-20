@@ -89,7 +89,7 @@ export function Hint({ target, saying }: { target: Target | null; saying: boolea
   if (saying) return null;
   return (
     <div className="hint">
-      {target ? <><kbd>E</kbd> {target.label}</> : <><kbd>WASD</kbd> walk <span className="sep" /> <kbd>E</kbd> interact <span className="sep" /> <kbd>Enter</kbd> say <span className="sep" /> <kbd>Esc</kbd> close</>}
+      {target ? <><kbd>E</kbd> {target.label}{target.count && target.count > 1 ? <><span className="sep" /><kbd>Tab</kbd> next {target.index}/{target.count}</> : null}</> : <><kbd>WASD</kbd> walk <span className="sep" /> <kbd>E</kbd> interact <span className="sep" /> <kbd>Enter</kbd> say <span className="sep" /> <kbd>Esc</kbd> close</>}
     </div>
   );
 }
