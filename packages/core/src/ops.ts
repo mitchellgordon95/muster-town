@@ -1,5 +1,6 @@
 import { WorkInput, type Agent, type Assignment, type Interrupt, type CreateBuildingInput, type CreateMeetingInput, type CreateResidentInput, type Doc, type Meeting, type Membership, type RegisterVisitorInput, type Session } from "@agent-town/schema";
 import { createAssignment, createDoc, homeOf, intrayOf, sendMessage, setAssignmentStatus, updateDoc } from "./domain.ts";
+import { CHECK_IN } from "./prompts.ts";
 import { createBuilding, createResident, createUser, ensureAvatar, registerVisitor, updateBuilding } from "./entities.ts";
 import { AppError, badRequest, forbidden } from "./errors.ts";
 import { createMeeting, endMeeting, meetingDecide, meetingSpeak, setMeetingPhase } from "./meetings.ts";
@@ -138,7 +139,7 @@ export class Ops {
     if (actor) this.requireAgentControl(actor, agent);
     if (agent.status === "banned" || agent.status === "retired") throw new AppError("conflict", `${agent.name} is ${agent.status === "retired" ? "dismissed" : "banned"}.`);
     const a = createAssignment(this.world, {
-      agentId, title: inp.title ?? "Continue your direction", description: inp.description ?? (agent.direction || "Pick the most useful next question for your direction."),
+      agentId, title: inp.title ?? "Check in", description: inp.description ?? CHECK_IN,
       createdBy: actor ? this.world.holderOf(actor) : { kind: "system", id: "system" },
     });
     if (agent.status === "stopped") this.world.setStatus(agentId, "idle");
