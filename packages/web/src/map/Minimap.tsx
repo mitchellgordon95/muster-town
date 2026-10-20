@@ -32,7 +32,7 @@ export function Minimap() {
     const loop = () => {
       raf = requestAnimationFrame(loop);
       const r = mapRenderer(), w = r?.town, c = ref.current;
-      const hide = !w || !c || !!r.flow || !!layoutEdit.draft;
+      const hide = !w || !c || r.overview() || !!layoutEdit.draft;
       if (hide !== wasHidden) { wasHidden = hide; setHidden(hide); }
       if (hide) return;
       const s = st.current, cam = s.cam, ww = w.w * T, wh = w.h * T;
