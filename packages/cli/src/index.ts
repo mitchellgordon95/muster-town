@@ -1,78 +1,143 @@
 #!/usr/bin/env -S npx tsx
 /**
- * `agent-town` CLI for humans: register a visitor agent (prints its token and the Claude Code MCP
- * command), show desk status, run the export, or start the server.
- * Env: AGENT_TOWN_URL (http://localhost:4321), AGENT_TOWN_TOKEN (your user token).
+ * `agent-town` CLI.
+ * For agents: every town verb as a command (`agent-town look`, `agent-town tell --to ag_x --text hi`, …), plus
+ * `whoami`, `digest`, `verbs` and `call <verb> <json>`. Auth: AGENT_TOWN_TOKEN (agent token) + AGENT_TOWN_URL, or
+ * `--profile <name>` reading ~/.agent-town/<name>.env (default profile: `default`).
+ * For humans: register a visitor agent (`--profile` saves its token), show desk status, run the export, start the server.
  */
 import type { Agent, Building, ServerMessage } from "@agent-town/schema";
+import { VERB_DESCRIPTIONS, VERB_NAMES, VerbInputs, type VerbName } from "@agent-town/schema";
 import { Command } from "commander";
 import { spawn } from "node:child_process";
 import { existsSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
+import { callVerb, request } from "./client.ts";
+import { addFieldOptions, fieldsOf, inputFromOptions } from "./flags.ts";
+import { formatDigest, formatResult } from "./format.ts";
+import { CliError, DEFAULT_URL, resolveConnection, writeProfile, type Connection } from "./profile.ts";
 
 type Snapshot = Omit<Extract<ServerMessage, { type: "snapshot" }>, "type">;
 
 const REPO_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "../../..");
-const baseUrl = () => (process.env.AGENT_TOWN_URL ?? "http://localhost:4321").replace(/\/+$/, "");
 
-function token(required: boolean): string | null {
-  const t = process.env.AGENT_TOWN_TOKEN?.trim() || null;
-  if (!t && required) {
-    console.error("AGENT_TOWN_TOKEN is not set. Use your user token (the admin token is printed when the server starts and saved in data/admin-token).");
-    process.exit(2);
-  }
-  return t;
-}
+/** Human commands (register, export) use the user token from the environment only, never a saved agent profile. */
+const userConnection = (): Connection => ({
+  url: (process.env.AGENT_TOWN_URL?.trim() || DEFAULT_URL).replace(/\/+$/, ""),
+  token: process.env.AGENT_TOWN_TOKEN?.trim() || null,
+  source: "AGENT_TOWN_TOKEN",
+});
 
-async function call<T>(method: string, path: string, body?: unknown, auth = true): Promise<T> {
-  const headers: Record<string, string> = {};
-  const t = token(auth);
-  if (t) headers.Authorization = `Bearer ${t}`;
-  if (body !== undefined) headers["Content-Type"] = "application/json";
-  let res: Response;
-  try {
-    res = await fetch(baseUrl() + path, { method, headers, body: body === undefined ? undefined : JSON.stringify(body) });
-  } catch (e) {
-    console.error(`Can't reach ${baseUrl()} (${e instanceof Error ? e.message : String(e)}). Is the server running? Try: agent-town serve`);
-    process.exit(1);
-  }
-  const text = await res.text();
-  let json: unknown = null;
-  try { json = text ? JSON.parse(text) : null; } catch { json = text; }
-  if (!res.ok) {
-    const err = (json ?? {}) as { error?: string; code?: string };
-    console.error(`Error ${res.status}${err.code ? ` (${err.code})` : ""}: ${err.error ?? text}`);
-    process.exit(1);
-  }
-  return json as T;
-}
+const print = (s: string): void => { process.stdout.write(s.endsWith("\n") ? s : s + "\n"); };
+const printJson = (v: unknown): void => print(JSON.stringify(v, null, 2));
 
 const program = new Command();
-program.name("agent-town").description("Agent Town: publicly legible, collectively funded agent town for climate science");
+program.name("agent-town").description("Agent Town CLI: be a visitor agent from your terminal, or manage the town")
+  .showHelpAfterError("(run with --help for usage)");
+
+// ---------- agent commands: one per verb ----------
+for (const verb of VERB_NAMES as VerbName[]) {
+  const fields = fieldsOf(VerbInputs[verb]);
+  const desc = VERB_DESCRIPTIONS[verb];
+  const cmd = program.command(verb).description(desc).summary(desc.match(/^.*?[.;:](\s|$)/)?.[0].trim().replace(/[;:]$/, ".") ?? desc);
+  addFieldOptions(cmd, fields);
+  cmd.option("--profile <name>", "use ~/.agent-town/<name>.env").option("--json-out", "print the raw JSON result");
+  cmd.action(async (opts: Record<string, unknown>) => {
+    const input = inputFromOptions(fields, opts);
+    const result = await callVerb(resolveConnection(opts.profile as string | undefined), verb, input);
+    opts.jsonOut ? printJson(result) : print(formatResult(verb, result));
+  });
+}
 
 program
+  .command("call")
+  .description("Call any verb by name with a JSON input (for verbs this CLI doesn't know yet)")
+  .argument("<verb>")
+  .argument("[json]", "input object", "{}")
+  .option("--profile <name>", "use ~/.agent-town/<name>.env")
+  .option("--json-out", "print the raw JSON result")
+  .action(async (verb: string, json: string, opts: { profile?: string; jsonOut?: boolean }) => {
+    const input = inputFromOptions([], { json });
+    const result = await callVerb(resolveConnection(opts.profile), verb, input);
+    opts.jsonOut ? printJson(result) : print(formatResult(verb, result));
+  });
+
+program
+  .command("whoami")
+  .description("Who and where this token is (calls `look`)")
+  .option("--profile <name>", "use ~/.agent-town/<name>.env")
+  .option("--json-out", "print the raw JSON")
+  .action(async (opts: { profile?: string; jsonOut?: boolean }) => {
+    const conn = resolveConnection(opts.profile);
+    const r = (await callVerb(conn, "look", {})) as { me?: Record<string, unknown>; building?: { id: string; name: string; goal?: string } | null };
+    if (opts.jsonOut) return printJson({ me: r.me, building: r.building, url: conn.url, via: conn.source });
+    const me = r.me ?? {};
+    print(`${me.name} (${me.id}) · ${me.status}`);
+    print(r.building ? `Building: ${r.building.name} [${r.building.id}]${me.place ? ` at ${me.place}` : ""}` : "Building: none (outside)");
+    print(`Town: ${conn.url} (via ${conn.source})`);
+  });
+
+program
+  .command("digest")
+  .description("What happened while you were offline: messages, mentions, assignments offered, meetings missed")
+  .option("--profile <name>", "use ~/.agent-town/<name>.env")
+  .option("--json-out", "print the raw JSON")
+  .action(async (opts: { profile?: string; jsonOut?: boolean }) => {
+    const d = await request<Record<string, unknown> | null>(resolveConnection(opts.profile), "GET", "/api/agents/me/digest");
+    opts.jsonOut ? printJson(d) : print(formatDigest(d));
+  });
+
+program
+  .command("verbs")
+  .description("List the verbs the server offers")
+  .option("--profile <name>", "use ~/.agent-town/<name>.env")
+  .option("--json-out", "print the raw JSON")
+  .action(async (opts: { profile?: string; jsonOut?: boolean }) => {
+    const conn = resolveConnection(opts.profile);
+    const r = await request<{ verbs: { name: string; description: string; inputSchema?: unknown }[] }>(conn, "GET", "/api/verbs", { auth: !!conn.token });
+    if (opts.jsonOut) return printJson(r);
+    const w = Math.max(...r.verbs.map((v) => v.name.length), 4);
+    for (const v of r.verbs) print(`${v.name.padEnd(w)}  ${v.description}`);
+  });
+
+// ---------- human commands ----------
+program
   .command("register")
-  .description("Register a visitor agent (your Claude Code) and print its MCP config")
+  .description("Register a visitor agent (uses your user token in AGENT_TOWN_TOKEN)")
   .requiredOption("--name <name>", "display name for the agent")
   .option("--building <id>", "building to start in (e.g. carbon-cycle)")
   .option("--title <title>", "short title shown on the agent card")
-  .action(async (o: { name: string; building?: string; title?: string }) => {
-    const r = await call<{ agent: Agent; token: string }>("POST", "/api/agents/visitors", { name: o.name, buildingId: o.building, title: o.title });
-    const mcp = `${baseUrl()}/mcp`;
-    console.log(`Registered ${r.agent.name} (${r.agent.id})${r.agent.buildingId ? ` in ${r.agent.buildingId}` : ""}.`);
-    console.log(`\nAgent token (keep it secret):\n  ${r.token}\n`);
-    console.log("Add it to Claude Code:\n");
-    console.log(`claude mcp add --transport http town ${mcp} --header "Authorization: Bearer ${r.token}"`);
+  .option("--profile <name>", "save the agent's URL and token to ~/.agent-town/<name>.env (mode 600) instead of printing the token")
+  .action(async (o: { name: string; building?: string; title?: string; profile?: string }) => {
+    const conn = userConnection();
+    const r = await request<{ agent: Agent; token: string }>(conn, "POST", "/api/agents/visitors", { body: { name: o.name, buildingId: o.building, title: o.title } });
+    print(`Registered ${r.agent.name} (${r.agent.id})${r.agent.buildingId ? ` in ${r.agent.buildingId}` : ""}.`);
+    const mcp = `${conn.url}/mcp`;
+    if (o.profile) {
+      const path = writeProfile(o.profile, { url: conn.url, token: r.token });
+      const flag = o.profile === "default" ? "" : ` --profile ${o.profile}`;
+      print(`Saved its URL and token to ${path} (mode 600).\n`);
+      print("Use it:");
+      print(`  agent-town whoami${flag}`);
+      print(`  agent-town digest${flag}`);
+      print(`  agent-town look${flag}`);
+      print(`\nOr connect Claude Code over MCP:\n  claude mcp add --transport http town ${mcp} --header "Authorization: Bearer $(grep '^AGENT_TOWN_TOKEN=' ${path} | cut -d= -f2-)"`);
+      return;
+    }
+    print(`\nAgent token (keep it secret):\n  ${r.token}\n`);
+    print("Add it to Claude Code:\n");
+    print(`claude mcp add --transport http town ${mcp} --header "Authorization: Bearer ${r.token}"`);
+    print(`\n(Next time pass --profile <name> to save it to ~/.agent-town/<name>.env instead.)`);
   });
 
 program
   .command("status")
   .description("Desks and what everyone is doing")
   .action(async () => {
-    const t = await call<Snapshot>("GET", "/api/town", undefined, false);
-    console.log(`${t.town.name}${t.town.tagline ? ` — ${t.town.tagline}` : ""}`);
-    if (t.town.goal) console.log(`Goal: ${t.town.goal}`);
+    const t = await request<Snapshot>(userConnection(), "GET", "/api/town", { auth: false });
+    print(`${t.town.name}${t.town.tagline ? ` — ${t.town.tagline}` : ""}`);
+    if (t.town.goal) print(`Goal: ${t.town.goal}`);
     const byBuilding = new Map<string | null, Agent[]>();
     for (const a of t.agents) {
       const k = a.homeBuildingId ?? a.buildingId ?? null;
@@ -81,22 +146,22 @@ program
     const line = (a: Agent) => `  ${a.name.padEnd(16)} ${a.kind.padEnd(8)} ${a.status.padEnd(15)} ${a.activity ? a.activity.slice(0, 70) : (a.title ?? "")}`;
     for (const b of t.buildings as Building[]) {
       const agents = byBuilding.get(b.id) ?? [];
-      console.log(`\n${b.name} [${b.id}]${b.goal ? `: ${b.goal.slice(0, 80)}` : ""}`);
-      if (!agents.length) console.log("  (nobody)");
-      agents.forEach((a) => console.log(line(a)));
+      print(`\n${b.name} [${b.id}]${b.goal ? `: ${b.goal.slice(0, 80)}` : ""}`);
+      if (!agents.length) print("  (nobody)");
+      agents.forEach((a) => print(line(a)));
     }
     const outside = byBuilding.get(null) ?? [];
-    if (outside.length) { console.log("\nOutside"); outside.forEach((a) => console.log(line(a))); }
+    if (outside.length) { print("\nOutside"); outside.forEach((a) => print(line(a))); }
     const live = t.meetings.filter((m) => m.phase === "collecting" || m.phase === "discussing");
-    if (live.length) { console.log("\nMeetings"); live.forEach((m) => console.log(`  ${m.title} (${m.phase})`)); }
+    if (live.length) { print("\nMeetings"); live.forEach((m) => print(`  ${m.title} (${m.phase})`)); }
   });
 
 program
   .command("export")
-  .description("Run the git export now")
+  .description("Run the git export now (user token)")
   .action(async () => {
-    const r = await call<{ commit: string | null; changed?: boolean; dir?: string }>("POST", "/api/export", {});
-    console.log(r.commit ? `Exported to ${r.dir ?? "export"}: commit ${r.commit}` : `Nothing changed${r.dir ? ` in ${r.dir}` : ""}.`);
+    const r = await request<{ commit: string | null; changed?: boolean; dir?: string }>(userConnection(), "POST", "/api/export", { body: {} });
+    print(r.commit ? `Exported to ${r.dir ?? "export"}: commit ${r.commit}` : `Nothing changed${r.dir ? ` in ${r.dir}` : ""}.`);
   });
 
 program
@@ -116,6 +181,10 @@ program
   });
 
 program.parseAsync(process.argv).catch((e) => {
-  console.error(e instanceof Error ? e.message : e);
+  if (e instanceof CliError) {
+    console.error(e.message);
+    process.exit(e.exitCode);
+  }
+  console.error(e instanceof Error ? e.message : String(e));
   process.exit(1);
 });
