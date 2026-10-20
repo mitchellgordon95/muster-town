@@ -110,6 +110,7 @@ function MeetingView({ m }: { m: Meeting }) {
           <button className="btn primary" disabled={!text.trim()}>Say</button>
         </form>
       ) : null}
+      {open && canRun ? <div className="foot-note">The facilitator keeps listening while you talk. Press End meeting when you're done.</div> : null}
 
       <Section title="Decisions">
         {!m.decisions.length ? <Empty>{m.phase === "done" ? "No decisions recorded." : "The facilitator records decisions at the end."}</Empty> : (

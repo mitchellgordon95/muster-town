@@ -7,7 +7,8 @@ import { chargeUsage, fundingFor, homeOf, runAgentSession, type Ctx } from "./se
 import { latestReport } from "./work.ts";
 
 export const COLLECTING_MS = 3 * 60_000;
-const FACILITATE_MAX_TURNS = 30;
+// room for a long back-and-forth with a human: each listen waits up to 60 s
+const FACILITATE_MAX_TURNS = 60;
 
 export interface MeetingState {
   /** meetingId → when collecting began (ms) */

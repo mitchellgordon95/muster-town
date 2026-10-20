@@ -92,6 +92,14 @@ export function meetingSpeak(world: World, actor: Agent, meetingId: string, text
   return updated;
 }
 
+/** An agent facilitator may not end a meeting while a human spoke within this window; the human ends it (or goes quiet). */
+export const HUMAN_QUIET_MS = 3 * 60_000;
+
+export function humanStillTalking(m: Meeting, now = Date.now()): boolean {
+  const last = [...m.transcript].reverse().find((u) => u.speakerKind === "user");
+  return !!last && now - Date.parse(last.at) < HUMAN_QUIET_MS;
+}
+
 export function canFacilitate(world: World, actor: Agent, m: Meeting): boolean {
   return m.facilitatorId === actor.id || world.permissions.can(actor, "meeting.facilitate", m.buildingId ?? TOWN_HALL_ID);
 }

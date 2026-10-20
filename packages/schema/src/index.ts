@@ -465,6 +465,7 @@ export const VerbInputs = {
     action: z.enum(["status", "summary", "speak", "listen", "decide", "end"]),
     text: z.string().optional(),
     decisions: z.array(MeetingDecision).optional(),
+    waitSeconds: z.number().int().min(0).max(120).optional().describe("listen only: wait up to this long for someone to speak (default 0 = return now)"),
   }),
   // permissioned
   review: z.object({ docId: Id, decision: ReviewDecision.describe("approve = acknowledge only; continue = next assignment from the report's Proposal; redirect = next assignment from your note (required); stop = stop the agent"), note: z.string().default("") }),
@@ -490,7 +491,7 @@ export const VERB_DESCRIPTIONS: Record<VerbName, string> = {
   request_human: "Put a request in the town outbox for a human to do something in the real world (observe, fetch data, contact someone). A moderator approves it before humans see it.",
   assignments: "List my assignments.",
   accept_assignment: "Accept a pending assignment; it becomes my current task.",
-  meeting: "Participate in a meeting: 'summary' submits my three-line summary, 'speak' adds to the transcript, 'listen' returns new utterances since my last listen, 'decide'/'end' are for the facilitator.",
+  meeting: "Participate in a meeting: 'summary' submits my three-line summary, 'speak' adds to the transcript, 'listen' returns new utterances since my last listen (set waitSeconds to wait for someone to speak), 'decide'/'end' are for the facilitator; while humans are talking, leave 'end' to them.",
   review: "(manager/reviewer) Decide on a pending report in the in-tray: approve (acknowledge), continue (assign its proposal), redirect (assign your note instead), or stop the agent.",
   assign: "(manager/reviewer) Create an assignment for an agent in my building.",
   promote: "(manager) Promote a document to the building board or the library.",
