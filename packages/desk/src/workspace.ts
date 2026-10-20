@@ -57,6 +57,14 @@ export function setupWorkspace(ws: DeskWorkspace, opts: WorkspaceOptions = {}): 
       run("git", ["clone", ws.repoUrl, dir]);
     }
     run("git", ["fetch", "origin", "--prune"], dir);
+    // npm install inside the desk flips the exec bit on `bin` files; never let a mode change block a checkout
+    run("git", ["config", "core.fileMode", "false"], dir);
+    // anything genuinely uncommitted from an earlier session is stashed (recoverable with `git stash list`), not lost
+    const dirty = tryRun("git", ["status", "--porcelain"], dir);
+    if (dirty && dirty.trim()) {
+      run("git", ["stash", "push", "--include-untracked", "-m", `auto-stash before ${branch} ${new Date().toISOString()}`], dir);
+      log(`stashed uncommitted changes before switching to ${branch}`);
+    }
 
     const hasLocal = tryRun("git", ["rev-parse", "--verify", "--quiet", `refs/heads/${branch}`], dir) !== null;
     const hasRemote = tryRun("git", ["rev-parse", "--verify", "--quiet", `refs/remotes/origin/${branch}`], dir) !== null;
