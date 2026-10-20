@@ -53,6 +53,7 @@ export function DocView({ doc: initial, onBack, backLabel = "Back" }: { doc: Doc
   const canTrophy = store.can("town.approve_trophy");
   const run = (fn: () => Promise<Doc>, msg: string) => async () => { const d = await fn(); store.putDocs([d]); store.toast(msg, "ok"); };
   const sources = doc.provenance.sourceIds;
+  const cost = docCost(doc);
   return (
     <article className="doc">
       {onBack ? <button className="link back" onClick={onBack}>← {backLabel}</button> : null}
@@ -60,8 +61,7 @@ export function DocView({ doc: initial, onBack, backLabel = "Back" }: { doc: Doc
       <DocMeta doc={doc} />
       <div className="doc-byline">
         by <b>{nameOf(doc.authorId)}</b> · {timeAgo(doc.createdAt)}
-        {doc.tokens ? <> · {fmtTokens(doc.tokens)} tokens</> : null}
-        {doc.costUsd ? <> · {usd(doc.costUsd)}</> : null}
+        {cost ? <> · <span title="What this session cost">{cost}</span></> : null}
         {doc.location ? <> · at {doc.location}</> : null}
       </div>
       {doc.decisionNote ? <div className="callout"><b>{nameOf(doc.decidedBy)}:</b> {doc.decisionNote}</div> : null}
@@ -90,6 +90,7 @@ export function DocView({ doc: initial, onBack, backLabel = "Back" }: { doc: Doc
 }
 
 export function DocRow({ doc, onOpen }: { doc: Doc; onOpen: () => void }) {
+  const cost = docCost(doc);
   return (
     <button className="doc-row" onClick={onOpen}>
       <div className="doc-row-title">{doc.title}</div>
@@ -97,10 +98,15 @@ export function DocRow({ doc, onOpen }: { doc: Doc; onOpen: () => void }) {
         <Pill tone="type">{doc.type.replace(/-/g, " ")}</Pill>
         {doc.decision === "pending" ? <Pill tone="warn">pending review</Pill> : null}
         {doc.requestStatus ? <Pill tone={doc.requestStatus === "proposed" ? "warn" : "ok"}>{doc.requestStatus}</Pill> : null}
-        <span>{nameOf(doc.authorId)} · {timeAgo(doc.updatedAt)}</span>
+        <span>{nameOf(doc.authorId)} · {timeAgo(doc.updatedAt)}{cost ? ` · ${cost}` : ""}</span>
       </div>
     </button>
   );
+}
+
+/** "$0.84 · 108k tokens" for reports that carry session cost; "" when neither is set. */
+export function docCost(doc: Doc): string {
+  return [doc.costUsd ? usd(doc.costUsd) : "", doc.tokens ? `${fmtTokens(doc.tokens)} tokens` : ""].filter(Boolean).join(" · ");
 }
 
 /** Imported/legacy docs often start with an H1 that duplicates the title shown above. */
