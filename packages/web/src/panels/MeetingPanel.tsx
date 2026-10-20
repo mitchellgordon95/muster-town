@@ -1,12 +1,13 @@
 /** Meeting: phase, attendees + summaries, live transcript, say box, decisions. */
 import { useEffect, useMemo, useRef, useState } from "react";
-import type { Meeting } from "@agent-town/schema";
+import type { Meeting, SnapshotBuilding } from "@agent-town/schema";
 import { api } from "../api";
 import { store, useTown } from "../state";
 import { Glyph, PanelShell } from "./PanelShell";
 import { phaseTone } from "./BuildingPanel";
 import { Act, Empty, Pill, Section, clock, nameOf, timeAgo } from "./ui";
 import { portraitUrl } from "../map/sprites";
+import { roomMeetings } from "./room";
 
 const PHASES: Meeting["phase"][] = ["scheduled", "collecting", "discussing", "done"];
 
@@ -16,27 +17,22 @@ export function MeetingPanel({ id }: { id?: string }) {
   const buildings = useTown((s) => s.buildings);
   const roomOf = id?.startsWith("room:") ? id.slice(5) : null;
   const building = roomOf ? buildings.find((b) => b.id === roomOf) : null;
-  const meeting = useMemo(() => {
-    if (id && !roomOf) return meetings[id] ?? null;
-    const inRoom = Object.values(meetings).filter((m) => m.buildingId === roomOf || (building?.kind === "town-hall" && m.buildingId === null));
-    const active = inRoom.filter((m) => m.phase !== "done" && m.phase !== "cancelled").sort((a, b) => b.createdAt.localeCompare(a.createdAt));
-    return active[0] ?? inRoom.sort((a, b) => b.createdAt.localeCompare(a.createdAt))[0] ?? null;
+  const { meeting, last } = useMemo(() => {
+    if (id && !roomOf) return { meeting: meetings[id] ?? null, last: null };
+    const { live, last } = roomMeetings(Object.values(meetings), roomOf ?? "", building?.kind === "town-hall");
+    return { meeting: live, last };
   }, [id, roomOf, meetings, building]);
   // fetch if we only have an id
   useEffect(() => { if (id && !roomOf && !meetings[id]) api().meeting(id).then((m) => store.putMeeting(m), () => undefined); }, [id, roomOf, meetings]);
 
   if (!meeting) {
-    const bid = roomOf ?? null;
-    const can = store.can("meeting.facilitate", bid) || store.can("building.manage", bid);
     return (
       <PanelShell icon={<Glyph kind="meeting" />} title={building ? `${building.name} meeting room` : "Meeting"} subtitle="No meeting here right now">
-        <Empty>The table is empty.{can ? " Call a meeting and the residents will send their summaries." : ""}</Empty>
-        {can && building ? (
+        <Empty>The table is empty.{building && canCall(building.id) ? " Call a meeting and the residents will send their summaries." : ""}</Empty>
+        {building ? <CallMeeting building={building} /> : null}
+        {last ? (
           <div className="actions center">
-            <Act tone="primary" run={async () => {
-              const m = await api().createMeeting({ kind: building.kind === "town-hall" ? "town-hall" : "standup", buildingId: building.kind === "town-hall" ? null : building.id, startNow: true });
-              store.putMeeting(m); store.open({ kind: "meeting", id: m.id });
-            }}>Call a {building.kind === "town-hall" ? "town hall" : "standup"}</Act>
+            <button className="btn" onClick={() => store.open({ kind: "meeting", id: last.id })}>Last meeting: {last.title} ({last.phase}, {timeAgo(last.endedAt ?? last.createdAt)})</button>
           </div>
         ) : null}
       </PanelShell>
@@ -45,13 +41,31 @@ export function MeetingPanel({ id }: { id?: string }) {
   return <MeetingView m={meeting} />;
 }
 
+const canCall = (buildingId: string | null) => store.can("meeting.facilitate", buildingId) || store.can("building.manage", buildingId);
+
+/** "Call a standup" for a building's room (town hall for Town Hall). Shown in an empty room and under a finished meeting. */
+function CallMeeting({ building, again }: { building: SnapshotBuilding; again?: boolean }) {
+  const hall = building.kind === "town-hall";
+  if (!canCall(building.id)) return null;
+  return (
+    <div className="actions center">
+      <Act tone="primary" run={async () => {
+        const m = await api().createMeeting({ kind: hall ? "town-hall" : "standup", buildingId: hall ? null : building.id, startNow: true });
+        store.putMeeting(m); store.open({ kind: "meeting", id: m.id });
+      }}>{again ? "Call another" : "Call a"} {hall ? "town hall" : "standup"}</Act>
+    </div>
+  );
+}
+
 function MeetingView({ m }: { m: Meeting }) {
   const agents = useTown((s) => s.agents);
   const me = useTown((s) => s.me);
   const [text, setText] = useState("");
   const end = useRef<HTMLDivElement>(null);
   useEffect(() => { end.current?.scrollIntoView({ block: "nearest" }); }, [m.transcript.length]);
-  const bName = m.buildingId ? store.state.buildings.find((b) => b.id === m.buildingId)?.name : "Town Hall";
+  const buildings = useTown((s) => s.buildings);
+  const room = buildings.find((b) => (m.buildingId ? b.id === m.buildingId : b.kind === "town-hall"));
+  const bName = m.buildingId ? room?.name : "Town Hall";
   const canRun = store.can("meeting.facilitate", m.buildingId) || store.can("building.manage", m.buildingId);
   const open = m.phase === "collecting" || m.phase === "discussing";
   const submitted = m.attendeeIds.filter((a) => m.summaries[a]).length;
@@ -71,6 +85,7 @@ function MeetingView({ m }: { m: Meeting }) {
         {canRun && open ? <Act tone="bad" run={async () => store.putMeeting(await api().endMeeting(m.id))}>End meeting</Act> : null}
         {m.notesDocId ? <button className="btn" onClick={() => store.open({ kind: "library", docId: m.notesDocId! })}>Open notes</button> : null}
       </div>
+      {!open && m.phase !== "scheduled" && room ? <CallMeeting building={room} again /> : null}
 
       <Section title={`Summaries (${submitted}/${m.attendeeIds.length})`}>
         <div className="summaries">
@@ -110,6 +125,7 @@ function MeetingView({ m }: { m: Meeting }) {
           <button className="btn primary" disabled={!text.trim()}>Say</button>
         </form>
       ) : null}
+      {open && canRun ? <div className="foot-note">The facilitator keeps listening while you talk. Press End meeting when you're done.</div> : null}
 
       <Section title="Decisions">
         {!m.decisions.length ? <Empty>{m.phase === "done" ? "No decisions recorded." : "The facilitator records decisions at the end."}</Empty> : (

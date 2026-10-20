@@ -93,7 +93,9 @@ export async function submit_report(world: World, me: Agent, input: VerbIn<"subm
       sessionId: session?.id, assignmentId: assignmentId ?? undefined,
     }, `${me.name} submitted a report: ${input.title}`);
     notifyMentions(world, me, `${doc.title}\n${doc.body}`, { where: docWhere(doc), docId: doc.id, buildingId: doc.buildingId });
-    if (assignmentId && world.assignments.get(assignmentId)) setAssignmentStatus(world, assignmentId, "done", { reportId: doc.id });
+    // a cancelled assignment (stopped/dismissed mid-session) stays cancelled; the report still lands
+    const asg = assignmentId ? world.assignments.get(assignmentId) : undefined;
+    if (asg && (asg.status === "pending" || asg.status === "active")) setAssignmentStatus(world, asg.id, "done", { reportId: doc.id });
     if (session) world.sessions.upsert({ ...session, reportId: doc.id });
     world.agents.patch(me.id, { currentAssignmentId: null });
     // Hub semantics: the report goes to the building's in-tray and the agent goes idle. It only works again

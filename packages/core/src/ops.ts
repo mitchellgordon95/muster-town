@@ -1,8 +1,10 @@
 import { WorkInput, type Agent, type Assignment, type Interrupt, type CreateBuildingInput, type CreateMeetingInput, type CreateResidentInput, type Doc, type Meeting, type Membership, type RegisterVisitorInput, type Session } from "@agent-town/schema";
 import { createAssignment, createDoc, homeOf, intrayOf, sendMessage, setAssignmentStatus, updateDoc } from "./domain.ts";
+import { CHECK_IN } from "./prompts.ts";
 import { createBuilding, createResident, createUser, ensureAvatar, registerVisitor, updateBuilding } from "./entities.ts";
 import { AppError, badRequest, forbidden } from "./errors.ts";
 import { createMeeting, endMeeting, meetingDecide, meetingSpeak, setMeetingPhase } from "./meetings.ts";
+import { replyToReport, type ReplyResult } from "./reply.ts";
 import { newId, nowIso } from "./util.ts";
 import type { World } from "./world.ts";
 
@@ -97,6 +99,21 @@ export class Ops {
     return intrayOf(this.world, buildingId);
   }
 
+  /**
+   * POST /api/docs/:id/reply. Needs building.review on the report's building (or admin). Appends a dated
+   * "Reply from" section, acknowledges the report, and (non-empty text) mentions the author and gives it a
+   * `Reply on: …` assignment (`fromReportId` set). Empty text = archive.
+   */
+  replyToReport(actor: Actor, docId: string, text: string): ReplyResult {
+    const doc = this.world.docs.require(docId, "doc");
+    if (actor && !this.world.permissions.isAdmin(actor) && !this.world.permissions.can(actor, "building.review", doc.buildingId)) throw forbidden("building.review");
+    return replyToReport(this.world, actor, docId, text);
+  }
+  /** POST /api/docs/:id/archive: a reply with no text (acknowledge, no assignment). */
+  archiveReport(actor: Actor, docId: string): ReplyResult {
+    return this.replyToReport(actor, docId, "");
+  }
+
   // ---- reconcile (runtime startup) ----
   /**
    * After a restart: running Session rows whose agent has no live child (not in `liveAgentIds`) end with
@@ -138,7 +155,7 @@ export class Ops {
     if (actor) this.requireAgentControl(actor, agent);
     if (agent.status === "banned" || agent.status === "retired") throw new AppError("conflict", `${agent.name} is ${agent.status === "retired" ? "dismissed" : "banned"}.`);
     const a = createAssignment(this.world, {
-      agentId, title: inp.title ?? "Continue your direction", description: inp.description ?? (agent.direction || "Pick the most useful next question for your direction."),
+      agentId, title: inp.title ?? "Check in", description: inp.description ?? CHECK_IN,
       createdBy: actor ? this.world.holderOf(actor) : { kind: "system", id: "system" },
     });
     if (agent.status === "stopped") this.world.setStatus(agentId, "idle");

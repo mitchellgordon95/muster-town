@@ -103,6 +103,47 @@ describe("buildings & agents", () => {
   });
 });
 
+describe("reports as replies", () => {
+  it("reply (text → assignment), archive (no assignment), permission checks; ask is 503 without a runtime", async () => {
+    const { app, auth, by, world } = await setup();
+    const mei = by("Mei");
+    const mk = async (title: string) => (await world.verbs.submit_report(mei, { title, body: "## What I need from you\nMerge PR #3.", verdict: "continue" })).id;
+    const a = await mk("A"), b = await mk("B");
+    const tomas = { authorization: `Bearer ${world.tokens.getOrCreate("agent", by("Tomas").id)}` };
+    expect((await json(app, "POST", `/api/docs/${a}/reply`, { headers: tomas, body: { text: "hi" } })).status).toBe(403);
+    expect((await json(app, "POST", `/api/docs/${a}/archive`, { headers: tomas })).status).toBe(403);
+    expect((await json(app, "POST", `/api/docs/${a}/reply`, { body: { text: "hi" } })).status).toBe(401);
+
+    const r = await json(app, "POST", `/api/docs/${a}/reply`, { headers: auth, body: { text: "merge" } });
+    expect(r.status).toBe(200);
+    expect(r.body.doc).toMatchObject({ id: a, decision: "approve", decisionNote: "merge" });
+    expect(r.body.doc.body).toContain("## Reply from");
+    expect(r.body.assignment).toMatchObject({ agentId: mei.id, title: "Reply on: A", fromReportId: a });
+    expect(r.body.assignment.description).toContain("gh pr merge");
+
+    const arc = await json(app, "POST", `/api/docs/${b}/archive`, { headers: auth });
+    expect(arc.status).toBe(200);
+    expect(arc.body).toMatchObject({ doc: { id: b, decision: "approve" }, assignment: null });
+    expect((await json(app, "GET", "/api/buildings/carbon-cycle/intray", { headers: auth })).body.reports.some((d: any) => d.id === a || d.id === b)).toBe(false);
+
+    const ask = await json(app, "POST", `/api/docs/${a}/ask`, { headers: auth, body: { question: "what PR?" } });
+    expect(ask.status).toBe(503);
+    expect((await json(app, "POST", `/api/docs/${a}/ask`, { body: { question: "what PR?" } })).status).toBe(401);
+  });
+
+  it("ask calls runtime.askAbout", async () => {
+    const calls: unknown[] = [];
+    const { app, auth, by, world, seed } = await setup({ runtime: {
+      chat: async () => "", interrupt: async () => undefined,
+      askAbout: async (docId, q, userId) => { calls.push([docId, q, userId]); return { reply: "PR #3" }; },
+    } });
+    const { id } = await world.verbs.submit_report(by("Mei"), { title: "A", body: "PR #3", verdict: "continue" });
+    const r = await json(app, "POST", `/api/docs/${id}/ask`, { headers: auth, body: { question: "what PR?" } });
+    expect(r).toMatchObject({ status: 200, body: { reply: "PR #3" } });
+    expect(calls).toEqual([[id, "what PR?", seed.admin.id]]);
+  });
+});
+
 describe("docs & review", () => {
   it("lists Ravi's imported report and reviews it (continue → next assignment; approve → none)", async () => {
     const { app, auth, by, world } = await setup();
@@ -154,6 +195,16 @@ describe("meetings, roles, budget, events, human moves", () => {
     expect(said.body.meeting.transcript.at(-1)).toMatchObject({ text: "Hello all", speakerKind: "user" });
     const list = await json(app, "GET", "/api/meetings?buildingId=carbon-cycle");
     expect(list.body.meetings.map((x: any) => x.id)).toContain(m.body.meeting.id);
+  });
+
+  it("meeting create with chosen attendees; bad ids are 4xx", async () => {
+    const { app, auth, by } = await setup();
+    const ids = [by("Mei").id, by("Noor").id];
+    const m = await json(app, "POST", "/api/meetings", { headers: auth, body: { kind: "retro", buildingId: "carbon-cycle", attendeeIds: ids } });
+    expect(m.status).toBe(201);
+    expect(m.body.meeting.attendeeIds).toEqual(ids);
+    expect((await json(app, "POST", "/api/meetings", { headers: auth, body: { kind: "retro", buildingId: "carbon-cycle", attendeeIds: ["ag_nobody"] } })).status).toBe(404);
+    expect((await json(app, "POST", "/api/meetings", { headers: auth, body: { kind: "retro", buildingId: "carbon-cycle", attendeeIds: [] } })).status).toBe(400);
   });
 
   it("roles, budget, events", async () => {

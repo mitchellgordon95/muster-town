@@ -6,7 +6,7 @@ import { useEffect, useMemo, useState } from "react";
 import type { Doc, Meeting } from "@agent-town/schema";
 import { api } from "../api";
 import { store, useTown } from "../state";
-import { DocRow, DocView, VERDICT_TONE, proposalOf } from "./DocView";
+import { DocRow, DocView, VERDICT_TONE, needOf } from "./DocView";
 import { Glyph, PanelShell } from "./PanelShell";
 import { Meter } from "./AgentPanel";
 import { phaseTone } from "./BuildingPanel";
@@ -53,12 +53,12 @@ export function IntrayPanel({ buildingId }: { buildingId: string }) {
 
 function IntrayRow({ doc, onOpen }: { doc: Doc; onOpen: () => void }) {
   const a = useTown((s) => s.agents[doc.authorId]);
-  const proposal = proposalOf(doc.body);
+  const need = needOf(doc.body);
   return (
     <button className="doc-row intray-row" onClick={onOpen}>
       <div className="intray-who">{a ? <img src={portraitUrl(a.sprite, 1)} alt="" /> : null}<b>{nameOf(doc.authorId)}</b><span>{timeAgo(doc.createdAt)}</span></div>
       <div className="doc-row-title">{doc.title}</div>
-      {proposal ? <div className="intray-proposal">Proposes: {proposal.length > 140 ? proposal.slice(0, 140) + "…" : proposal}</div> : null}
+      {need ? <div className="intray-proposal">Needs: {need.length > 140 ? need.slice(0, 140) + "…" : need}</div> : null}
       <div className="doc-row-meta">
         {doc.verdict ? <Pill tone={VERDICT_TONE[doc.verdict]}>verdict: {doc.verdict}</Pill> : null}
         {doc.tokens ? <span>{fmtTokens(doc.tokens)} tokens{doc.costUsd ? ` · ${usd(doc.costUsd)}` : ""}</span> : null}

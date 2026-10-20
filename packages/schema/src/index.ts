@@ -289,6 +289,8 @@ export const Doc = z.object({
   assignmentId: Id.optional(),
   costUsd: z.number().optional(),
   tokens: z.number().int().optional(),
+  /** report-specific: SDK turns of the session that produced it */
+  turns: z.number().int().optional(),
   // request-specific (outbox)
   requestStatus: RequestStatus.optional(),
   location: z.string().optional(),
@@ -465,6 +467,7 @@ export const VerbInputs = {
     action: z.enum(["status", "summary", "speak", "listen", "decide", "end"]),
     text: z.string().optional(),
     decisions: z.array(MeetingDecision).optional(),
+    waitSeconds: z.number().int().min(0).max(120).optional().describe("listen only: wait up to this long for someone to speak (default 0 = return now)"),
   }),
   // permissioned
   review: z.object({ docId: Id, decision: ReviewDecision.describe("approve = acknowledge only; continue = next assignment from the report's Proposal; redirect = next assignment from your note (required); stop = stop the agent"), note: z.string().default("") }),
@@ -490,7 +493,7 @@ export const VERB_DESCRIPTIONS: Record<VerbName, string> = {
   request_human: "Put a request in the town outbox for a human to do something in the real world (observe, fetch data, contact someone). A moderator approves it before humans see it.",
   assignments: "List my assignments.",
   accept_assignment: "Accept a pending assignment; it becomes my current task.",
-  meeting: "Participate in a meeting: 'summary' submits my three-line summary, 'speak' adds to the transcript, 'listen' returns new utterances since my last listen, 'decide'/'end' are for the facilitator.",
+  meeting: "Participate in a meeting: 'summary' submits my three-line summary, 'speak' adds to the transcript, 'listen' returns new utterances since my last listen (set waitSeconds to wait for someone to speak), 'decide'/'end' are for the facilitator; while humans are talking, leave 'end' to them.",
   review: "(manager/reviewer) Decide on a pending report in the in-tray: approve (acknowledge), continue (assign its proposal), redirect (assign your note instead), or stop the agent.",
   assign: "(manager/reviewer) Create an assignment for an agent in my building.",
   promote: "(manager) Promote a document to the building board or the library.",
@@ -556,10 +559,16 @@ export const CreateResidentInput = z.object({ buildingId: Id, name: z.string(), 
 export const RegisterVisitorInput = z.object({ name: z.string(), buildingId: Id.optional(), title: z.string().optional() });
 export const ReviewInput = z.object({ decision: ReviewDecision, note: z.string().default("") });
 export const ChatInput = z.object({ message: z.string(), history: z.array(z.object({ role: z.enum(["user", "assistant"]), text: z.string() })).default([]) });
+/** POST /api/docs/:id/reply: the reply text (empty = archive). */
+export const ReplyInput = z.object({ text: z.string().default("") });
+/** POST /api/docs/:id/ask: a question about a report, answered by a cheap-model proxy (not the author). */
+export const AskInput = z.object({ question: z.string().min(1), history: z.array(z.object({ role: z.enum(["user", "assistant"]), text: z.string() })).default([]) });
 export const InterruptInput = z.object({ text: z.string() });
 export const WorkInput = z.object({ title: z.string().optional(), description: z.string().optional() });
 export const DonateInput = z.object({ tokens: z.number().int().positive(), buildingId: Id, apiKey: z.string().optional() });
-export const CreateMeetingInput = z.object({ kind: MeetingKind, buildingId: Id.nullable(), title: z.string().optional(), scheduledAt: Iso.optional(), agenda: z.string().optional(), startNow: z.boolean().default(false) });
+export const CreateMeetingInput = z.object({ kind: MeetingKind, buildingId: Id.nullable(), title: z.string().optional(), scheduledAt: Iso.optional(), agenda: z.string().optional(), startNow: z.boolean().default(false),
+  /** who to invite; omitted = the building's residents (town hall: managers, reviewers, moderators) */
+  attendeeIds: z.array(Id).min(1).optional() });
 export const MeetingSayInput = z.object({ text: z.string() });
 export const SeedInput = z.object({ importDir: z.string().optional() });
 
