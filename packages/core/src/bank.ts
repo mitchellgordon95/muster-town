@@ -221,7 +221,8 @@ export class Bank {
 
   /**
    * Effective % of the Bank per pool. Explicit shares (admin-set) come first; pools without one split what's
-   * left equally. An empty pool without an explicit share gets nothing, so no share sits unused.
+   * left equally. A pool without an explicit share and with no building that can draw (empty, or only the
+   * Town Hall) gets nothing, so no share sits unused.
    */
   shares(): Map<string, { pct: number; explicit: boolean }> {
     const out = new Map<string, { pct: number; explicit: boolean }>();
@@ -229,7 +230,7 @@ export class Bank {
     const rest: string[] = [];
     for (const p of this.listPools()) {
       if (p.pct !== null) { out.set(p.id, { pct: p.pct, explicit: true }); used += p.pct; }
-      else if (this.buildingsIn(p.id).length) rest.push(p.id);
+      else if (this.buildingsIn(p.id).some((b) => b.kind !== "town-hall")) rest.push(p.id);
       else out.set(p.id, { pct: 0, explicit: false });
     }
     const each = rest.length ? Math.max(0, 100 - used) / rest.length : 0;

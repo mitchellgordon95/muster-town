@@ -222,7 +222,7 @@ export function drawBankSign(g: CanvasRenderingContext2D, x: number, y: number, 
   const total = bank ? n(bank.townTokens) : "…";
   const parts = [
     { label: "EXPIRES TODAY", value: bank ? n(bank.expiringTokens) : "…", color: "#ffb26b" },
-    { label: "PERMANENT POOL", value: bank ? n(bank.durableTokens) : "…", color: "#9ff0b4" },
+    { label: "PERMANENT", value: bank ? n(bank.durableTokens) : "…", color: "#9ff0b4" },
     { label: "HELD BY BUILDINGS", value: bank ? n(bank.heldTokens) : "…", color: "#9fd4ff" },
   ];
   g.font = `800 30px ${SANS}`;

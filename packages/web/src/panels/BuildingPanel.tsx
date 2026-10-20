@@ -1,6 +1,7 @@
 /** Building panel (E at the door): overview, members + roles, meetings, settings (managers: building fields). Members lists residents (managers add and dismiss there) and roles. Board, filing cabinet and in-tray are places. */
 import { useEffect, useMemo, useState, type ReactNode } from "react";
-import type { Meeting, SnapshotBuilding, Workspace } from "@muster-town/schema";
+import { DEFAULT_POOL_ID, type Meeting, type SnapshotBuilding, type Workspace } from "@muster-town/schema";
+import { fmtPct, poolColor } from "../pools";
 import { api } from "../api";
 import { store, useTown, roleOf } from "../state";
 import { Glyph, PanelShell } from "./PanelShell";
@@ -239,7 +240,50 @@ function Settings({ b }: { b: SnapshotBuilding }) {
       }}>Save settings</Act></div>
     </form>
     </Section>
+    {b.kind !== "town-hall" ? <PoolPicker b={b} /> : null}
   </>);
+}
+
+/** The Bank pool this building draws from. Only an admin can move it; the move takes effect at once. */
+function PoolPicker({ b }: { b: SnapshotBuilding }) {
+  const bank = useTown((s) => s.bank);
+  const isAdmin = useTown((s) => !!s.me?.isAdmin);
+  const buildings = useTown((s) => s.buildings);
+  const row = bank?.buildings.find((x) => x.buildingId === b.id);
+  const poolId = row?.poolId ?? b.poolId ?? DEFAULT_POOL_ID;
+  const reload = () => api().bank().then((next) => store.set({ bank: next }), () => undefined);
+  useEffect(() => { if (!bank) reload(); }, [bank]);
+  // the Town Hall sits in General but draws nothing, so it doesn't count as sharing
+  const others = (members: { buildingId: string }[]) => {
+    const n = members.filter((m) => m.buildingId !== b.id && buildings.find((x) => x.id === m.buildingId)?.kind !== "town-hall").length;
+    return n ? `shared with ${n} other building${n === 1 ? "" : "s"}` : "all for this building";
+  };
+  return (
+    <Section title="Bank pool">
+      {!bank ? <Loading /> : (
+        <form className="form" onSubmit={(e) => e.preventDefault()}>
+          <Field label="Pool" hint={isAdmin
+            ? "Buildings in a pool share its % of the Bank, first come first served. Moving takes effect at once; what this building already drew stays charged to its old pool. Create and size pools at the Bank."
+            : "Buildings in a pool share its % of the Bank, first come first served. Only an admin can move a building to another pool."}>
+            <span className="pool-pick">
+              <span className="pool-swatch" style={{ background: poolColor(bank, poolId) }} />
+              <select value={poolId} disabled={!isAdmin} onChange={async (e) => {
+                const next = e.target.value;
+                try {
+                  await api().setBuildingPool(b.id, next);
+                  store.toast(`${b.name} now draws from ${bank.pools.find((p) => p.id === next)?.name ?? "the pool"}`, "ok");
+                } catch (err) { store.toast((err as Error).message, "bad"); }
+                reload();
+              }}>
+                {bank.pools.map((p) => <option key={p.id} value={p.id}>{p.name} · {fmtPct(p.pct)}{p.explicit ? "" : " (auto)"}</option>)}
+              </select>
+            </span>
+          </Field>
+          {row ? <div className="foot-note">The pool can still draw {fmtTokens(row.expiringTokens + Math.max(0, row.durableTokens))} today ({fmtTokens(row.expiringTokens)} expiring, {fmtTokens(row.durableTokens)} permanent), {others(bank.pools.find((p) => p.id === poolId)?.buildings ?? [])}.</div> : null}
+        </form>
+      )}
+    </Section>
+  );
 }
 
 function NewResident({ buildingId }: { buildingId: string }) {

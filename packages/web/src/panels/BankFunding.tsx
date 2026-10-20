@@ -1,12 +1,13 @@
 /**
  * Bank sections (panel kind `bank`): the top contributors, donating (a Bank input or a gift to one
- * building), the inputs that fund the town, and each building's share. Donating moved here from the
+ * building), the inputs that fund the town, and the accounting pools. Donating moved here from the
  * Town Hall donation box.
  */
 import { useState } from "react";
 import type { AllocationAuth, BankRecurrence } from "@muster-town/schema";
 import { api, type Bank } from "../api";
 import { store, useTown } from "../state";
+import { fmtPct, poolColor } from "../pools";
 import { SignInNote } from "../auth/auth";
 import { Act, Empty, Field, Loading, Pill, Section, fmtTokens, timeAgo, useLoad } from "./ui";
 
@@ -247,43 +248,61 @@ export function BankInputs({ bank, onChange }: Props) {
   );
 }
 
-/** Each building's pool, the pool's % of the Bank and what's left in it. An admin can set or clear the pool's share. (Placeholder until the pools UI.) */
-export function BankShares({ bank, onChange }: Props) {
+/**
+ * Accounting pools: each pool is a slice of the Bank that its buildings share, first come first served. An admin
+ * creates, renames and deletes (empty) pools, sets a pool's % (or clears it back to an equal split of what's
+ * left) and moves buildings between pools. The Town Hall draws nothing from the Bank, so it isn't listed.
+ */
+export function BankPools({ bank, onChange }: Props) {
   const isAdmin = useTown((s) => !!s.me?.isAdmin);
-  const [edit, setEdit] = useState<Record<string, string>>({});
-  const rows = [...bank.buildings].sort((a, b) => b.pct - a.pct || a.name.localeCompare(b.name));
-  const save = async (buildingId: string, pct: number | null) => {
-    const poolId = bank.buildings.find((b) => b.buildingId === buildingId)?.poolId;
-    if (poolId) await api().updateBankPool(poolId, { pct });
-    setEdit(({ [buildingId]: _, ...rest }) => rest);
+  const [edit, setEdit] = useState<Record<string, { name: string; pct: string }>>({});
+  const [name, setName] = useState("");
+  const [pct, setPct] = useState("");
+  const halls = new Set(useTown((s) => s.buildings).filter((b) => b.kind === "town-hall").map((b) => b.id));
+  const labs = bank.buildings.filter((b) => !halls.has(b.buildingId)).sort((a, b) => a.name.localeCompare(b.name));
+  const cancel = (id: string) => setEdit(({ [id]: _, ...rest }) => rest);
+  const save = async (id: string, input: { name?: string; pct?: number | null }) => { await api().updateBankPool(id, input); cancel(id); onChange(); };
+  const move = async (buildingId: string, poolId: string) => {
+    await api().setBuildingPool(buildingId, poolId);
+    store.toast(`${bank.buildings.find((b) => b.buildingId === buildingId)?.name ?? "Building"} now draws from ${bank.pools.find((p) => p.id === poolId)?.name ?? "the pool"}`, "ok");
     onChange();
   };
   return (
-    <Section title="Shares">
-      <table className="table">
-        <thead><tr><th>Building</th><th>Pool</th><th>Pool share</th><th>Can draw</th><th title="Unspent tokens donated straight to this building">Held</th>{isAdmin ? <th /> : null}</tr></thead>
+    <Section title="Pools">
+      <table className="table pools-table">
+        <thead><tr><th>Pool</th><th>Share</th><th title="What its buildings can still draw today, first come first served">Can draw</th><th>Buildings</th>{isAdmin ? <th /> : null}</tr></thead>
         <tbody>
-          {rows.map((r) => {
-            const draft = edit[r.buildingId];
+          {bank.pools.map((p) => {
+            const draft = edit[p.id];
+            const members = p.buildings.filter((b) => !halls.has(b.buildingId));
+            const badPct = !!draft && draft.pct !== "" && (+draft.pct < 0 || +draft.pct > 100);
             return (
-              <tr key={r.buildingId}>
-                <td>{r.name}</td>
-                <td>{r.poolName}</td>
+              <tr key={p.id}>
                 <td>
-                  {draft !== undefined
-                    ? <input className="pct-input" type="number" min={0} max={100} step={1} value={draft} autoFocus onChange={(e) => setEdit({ ...edit, [r.buildingId]: e.target.value })} />
-                    : <>{r.pct}% {r.explicit ? null : <span className="muted" title="No explicit share: splits what's left equally with the other pools">(auto)</span>}</>}
+                  <span className="pool-swatch" style={{ background: poolColor(bank, p.id) }} />
+                  {draft ? <input className="pool-name-input" value={draft.name} maxLength={80} autoFocus onChange={(e) => setEdit({ ...edit, [p.id]: { ...draft, name: e.target.value } })} />
+                    : <b>{p.name}</b>}
+                  {p.isDefault ? <span className="muted" title="Buildings without a pool draw from General. It can't be deleted."> (default)</span> : null}
                 </td>
-                <td title={`${fmtTokens(r.expiringTokens)} expiring today · ${fmtTokens(r.durableTokens)} permanent`}>{fmtTokens(r.expiringTokens + Math.max(0, r.durableTokens))}</td>
-                <td title={r.heldByAuth ? `${fmtTokens(r.heldByAuth.subscription)} subscription · ${fmtTokens(r.heldByAuth.apiKey)} API key · ${fmtTokens(r.heldByAuth.donorKey)} donors' keys` : undefined}>{fmtTokens(r.heldTokens)}</td>
+                <td>
+                  {draft
+                    ? <input className="pct-input" type="number" min={0} max={100} step={1} value={draft.pct} placeholder="auto" title="Leave blank for an equal split of what's left" onChange={(e) => setEdit({ ...edit, [p.id]: { ...draft, pct: e.target.value } })} />
+                    : <>{fmtPct(p.pct)} {p.explicit ? null : <span className="muted" title="No set share: splits what's left equally with the other pools that have buildings">(auto)</span>}</>}
+                </td>
+                <td title={`${fmtTokens(p.expiringTokens)} expiring today · ${fmtTokens(p.durableTokens)} permanent`}>{fmtTokens(p.expiringTokens + Math.max(0, p.durableTokens))}</td>
+                <td className="pool-members">{members.length ? members.map((b) => b.name).join(", ") : <span className="muted">none</span>}</td>
                 {isAdmin ? (
                   <td className="actions">
-                    {draft !== undefined ? <>
-                      <Act small tone="primary" disabled={draft === "" || +draft < 0 || +draft > 100} run={() => save(r.buildingId, +draft)}>Save</Act>
-                      <button type="button" className="btn sm" onClick={() => setEdit(({ [r.buildingId]: _, ...rest }) => rest)}>Cancel</button>
+                    {draft ? <>
+                      <Act small tone="primary" disabled={!draft.name.trim() || badPct}
+                        run={() => save(p.id, { name: draft.name.trim(), pct: draft.pct === "" ? null : +draft.pct })}>Save</Act>
+                      <button type="button" className="btn sm" onClick={() => cancel(p.id)}>Cancel</button>
                     </> : <>
-                      <button type="button" className="btn sm" onClick={() => setEdit({ ...edit, [r.buildingId]: String(r.pct) })}>Set</button>
-                      {r.explicit ? <Act small run={() => save(r.buildingId, null)} title="Back to an equal split of what's left">Auto</Act> : null}
+                      <button type="button" className="btn sm" onClick={() => setEdit({ ...edit, [p.id]: { name: p.name, pct: p.explicit ? String(p.pct) : "" } })}>Edit</button>
+                      {p.explicit ? <Act small run={() => save(p.id, { pct: null })} title="Back to an equal split of what's left">Auto</Act> : null}
+                      {!p.isDefault && !p.buildings.length
+                        ? <Act small tone="bad" run={async () => { await api().deleteBankPool(p.id); store.toast(`Deleted ${p.name}`, "ok"); onChange(); }}>Delete</Act>
+                        : null}
                     </>}
                   </td>
                 ) : null}
@@ -292,7 +311,41 @@ export function BankShares({ bank, onChange }: Props) {
           })}
         </tbody>
       </table>
-      <div className="foot-note">Pools without a set share split what's left equally; buildings in a pool share it first come first served. Set shares can add up to 100% at most.</div>
+      {isAdmin ? (
+        <div className="inline-form pool-new">
+          <input value={name} maxLength={80} onChange={(e) => setName(e.target.value)} placeholder="New pool name" />
+          <input className="pct-input" type="number" min={0} max={100} step={1} value={pct} onChange={(e) => setPct(e.target.value)} placeholder="auto %" title="Leave blank for an equal split of what's left" />
+          <Act small tone="primary" disabled={!name.trim() || (pct !== "" && (+pct < 0 || +pct > 100))} run={async () => {
+            await api().createBankPool({ name: name.trim(), pct: pct === "" ? null : +pct });
+            store.toast(`Created ${name.trim()}`, "ok");
+            setName(""); setPct("");
+            onChange();
+          }}>Create pool</Act>
+        </div>
+      ) : null}
+      <h4 className="sub-head">Buildings</h4>
+      <table className="table">
+        <thead><tr><th>Building</th><th>Pool</th><th title="Unspent tokens donated straight to this building">Held</th></tr></thead>
+        <tbody>
+          {labs.map((r) => (
+            <tr key={r.buildingId}>
+              <td>{r.name}</td>
+              <td>
+                <span className="pool-pick">
+                  <span className="pool-swatch" style={{ background: poolColor(bank, r.poolId) }} />
+                  {isAdmin
+                    ? <select value={r.poolId} onChange={(e) => move(r.buildingId, e.target.value).catch((err) => store.toast((err as Error).message, "bad"))}>
+                        {bank.pools.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
+                      </select>
+                    : r.poolName}
+                </span>
+              </td>
+              <td title={r.heldByAuth ? `${fmtTokens(r.heldByAuth.subscription)} subscription · ${fmtTokens(r.heldByAuth.apiKey)} API key · ${fmtTokens(r.heldByAuth.donorKey)} donors' keys` : undefined}>{fmtTokens(r.heldTokens)}</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+      <div className="foot-note">Pools without a set share split what's left equally; an empty pool gets nothing. Buildings in a pool share it first come first served. Set shares can add up to 100% at most. A move takes effect at once; what a building already drew stays charged to its old pool.</div>
     </Section>
   );
 }

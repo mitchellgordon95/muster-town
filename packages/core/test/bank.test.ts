@@ -89,6 +89,14 @@ describe("bank", () => {
     expect(world.bank.listPools().find((x) => x.id === p.id)!.name).toBe("Labs 2");
   });
 
+  it("a pool holding only the Town Hall gets no auto share (the Town Hall draws nothing)", () => {
+    const { world, seed } = seededWorld();
+    const p = world.bank.createPool(seed.admin.id, { name: "Labs" });
+    for (const b of world.buildings.all().filter((x) => x.kind !== "town-hall")) world.bank.setBuildingPool(seed.admin.id, b.id, p.id);
+    expect(world.bank.shares().get("general")).toEqual({ pct: 0, explicit: false });
+    expect(world.bank.shares().get(p.id)).toEqual({ pct: 100, explicit: false });
+  });
+
   it("a pool can be deleted only when empty; General never", () => {
     const { world, seed } = seededWorld();
     const p = world.bank.createPool(seed.admin.id, { name: "Temp" });

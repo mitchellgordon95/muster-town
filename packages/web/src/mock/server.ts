@@ -406,9 +406,11 @@ export class MockApi implements Api {
     const expiringTokens = live.filter((i) => i.source === "subscription").reduce((s, i) => s + i.creditedTokens, 0);
     const durableTokens = this.bankInputs.filter((i) => i.source === "api-key").reduce((s, i) => s + i.creditedTokens, 0);
     const members = (poolId: string) => this.sim.buildings.filter((b) => this.poolOf(b) === poolId);
+    // like core: only a pool with a building that can draw (not just the Town Hall) gets an auto share
+    const draws = (poolId: string) => members(poolId).some((b) => b.kind !== "town-hall");
     const used = this.bankPools.reduce((s, p) => s + (p.pct ?? 0), 0);
-    const auto = this.bankPools.filter((p) => p.pct === null && members(p.id).length);
-    const pctOf = (p: BankPool) => p.pct ?? (members(p.id).length ? Math.max(0, 100 - used) / auto.length : 0);
+    const auto = this.bankPools.filter((p) => p.pct === null && draws(p.id));
+    const pctOf = (p: BankPool) => p.pct ?? (draws(p.id) ? Math.max(0, 100 - used) / auto.length : 0);
     const pools = this.bankPools.map((p) => ({
       id: p.id, name: p.name, pct: Math.round(pctOf(p) * 100) / 100, explicit: p.pct !== null, isDefault: p.id === DEFAULT_POOL_ID,
       buildings: members(p.id).map((b) => ({ buildingId: b.id, name: b.name })),
