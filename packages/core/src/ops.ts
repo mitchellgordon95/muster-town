@@ -1,4 +1,4 @@
-import { WorkInput, type Agent, type Assignment, type Interrupt, type CreateBuildingInput, type CreateMeetingInput, type CreateResidentInput, type Doc, type Meeting, type Membership, type RegisterVisitorInput, type Session } from "@agent-town/schema";
+import { AgentPermissionsPatch, WorkInput, type Agent, type Assignment, type Interrupt, type CreateBuildingInput, type CreateMeetingInput, type CreateResidentInput, type Doc, type Meeting, type Membership, type RegisterVisitorInput, type Session } from "@agent-town/schema";
 import { createAssignment, createDoc, homeOf, intrayOf, moveToFront, pendingQueue, sendMessage, setAssignmentStatus, updateDoc } from "./domain.ts";
 import { CHECK_IN } from "./prompts.ts";
 import { createBuilding, createResident, createUser, ensureAvatar, registerVisitor, updateBuilding, updateFurniture } from "./entities.ts";
@@ -85,6 +85,23 @@ export class Ops {
     if (!actor) return;
     const ok = this.world.permissions.can(actor, "town.manage_roles") || (role.scope === "building" && this.world.permissions.can(actor, "building.manage", role.buildingId));
     if (!ok) throw forbidden(role.scope === "town" ? "town.manage_roles" : "building.manage");
+  }
+
+  /** PATCH /api/agents/:id/permissions: the agent's owner (via their avatar) or an admin toggles inheritance / sets denies. */
+  setAgentPermissions(actor: Actor, agentId: string, patch: (typeof AgentPermissionsPatch)["_input"]): Agent {
+    const agent = this.world.agents.require(agentId, "agent");
+    const p = AgentPermissionsPatch.parse(patch);
+    if (actor) {
+      const h = this.world.holderOf(actor);
+      const owner = h.kind === "user" && !!agent.ownerUserId && agent.ownerUserId === h.id && actor.kind === "human";
+      if (!owner && !this.world.permissions.isAdmin(actor)) throw new AppError("forbidden", "Only the agent's owner or an admin can change its permissions.");
+    }
+    const next: Partial<Agent> = {};
+    if (p.inheritsOwner !== undefined) next.inheritsOwner = p.inheritsOwner;
+    if (p.deniedPermissions !== undefined) next.deniedPermissions = [...new Set(p.deniedPermissions)];
+    const updated = this.world.agents.patch(agentId, next);
+    this.world.events.append({ type: "system", agentId, text: `${agent.name}'s permissions changed: ${updated.inheritsOwner ? "inherits its owner" : "own roles only"}${updated.deniedPermissions.length ? `, denied ${updated.deniedPermissions.join(", ")}` : ""}`, payload: { inheritsOwner: updated.inheritsOwner, deniedPermissions: updated.deniedPermissions, by: actor ? this.world.holderOf(actor).id : "system" } });
+    return updated;
   }
 
   // ---- dismiss ----

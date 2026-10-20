@@ -77,6 +77,7 @@ export class MockApi implements Api {
   async previewLayout(): Promise<LayoutPreview> { throw new ApiError("Edit layout needs the real server.", "unsupported", 501); }
   async saveLayout(): Promise<Building> { throw new ApiError("Edit layout needs the real server.", "unsupported", 501); }
   async createResident(i: In<typeof CreateResidentInput>) { await wait(); return clone(this.sim.createResident(i.buildingId, i.name, i.title ?? "", i.direction ?? "", i.sprite)); }
+  async setAgentPermissions(): Promise<never> { throw new ApiError("Agent permissions need the real server.", "unsupported", 501); }
   async agent(id: string): Promise<AgentDetail> {
     await wait();
     const agent = this.need(this.sim.agents.get(id), "agent");

@@ -36,7 +36,7 @@ describe("write / read / board / search", () => {
     await expect(world.verbs.write(tomas, { id, title: "x", body: "y" })).rejects.toMatchObject({ code: "forbidden" });
 
     // a visitor without member role can't publish
-    const { agent: v } = world.ops.registerVisitor(seed.admin.id, { name: "V", buildingId: "carbon-cycle" });
+    const { agent: v } = world.ops.registerVisitor(seed.admin.id, { name: "V", buildingId: "carbon-cycle", inheritsOwner: false });
     await expect(world.verbs.write(v, { title: "t", body: "b", state: "building" })).rejects.toMatchObject({ code: "forbidden", permission: "doc.write_building" });
     await expect(world.verbs.write(mei, { type: "report", title: "t", body: "b" })).rejects.toMatchObject({ code: "bad_request" });
   });

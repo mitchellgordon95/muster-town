@@ -6,7 +6,7 @@ import type { z } from "zod";
 import type {
   Agent, Assignment, AuthMe, Building, ClientMessage, Doc, Event, Lot, Meeting, Place, Role, Membership, Tile,
   ServerMessage, Session, Town, CreateBuildingInput, UpdateBuildingInput, CreateResidentInput,
-  ReviewInput, ChatInput, WorkInput, DonateInput, CreateMeetingInput, DocState, DocType, Mailbox,
+  ReviewInput, ChatInput, WorkInput, DonateInput, CreateMeetingInput, DocState, DocType, Mailbox, Permission,
 } from "@agent-town/schema";
 
 export type In<T extends z.ZodTypeAny> = z.input<T>;
@@ -21,6 +21,20 @@ export interface AgentDetail {
   assignments: Assignment[];
   /** v1.4, visitors only: unread inbox messages, unread mentions, open offers */
   mailbox?: Mailbox;
+  /** v1.5: what the agent can do (town-level, plus building-scoped for its home building) */
+  effectivePermissions?: Permission[];
+  permissions?: AgentPermissionsView;
+}
+/** v1.5: how an agent's permissions resolve (GET /api/agents/:id, PATCH /api/agents/:id/permissions). */
+export interface AgentPermissionsView {
+  inheritsOwner: boolean;
+  deniedPermissions: Permission[];
+  ownerUserId: string | null;
+  ownerName: string | null;
+  /** the caller is the owner or an admin */
+  canEdit: boolean;
+  /** the owner's effective permissions; only sent when `canEdit` */
+  ownerPermissions?: Permission[];
 }
 /** POST /api/agents/:id/message result: how the message reached the agent. */
 export interface StartNextResult { assignment: Assignment; agent: Agent; when: "now" | "after-current" }
@@ -75,6 +89,8 @@ export interface Api {
   /** town.ban */
   ban(id: string, reason: string): Promise<Agent>;
   agent(id: string): Promise<AgentDetail>;
+  /** Owner or admin: inherit the owner's permissions or not, and per-agent denies. */
+  setAgentPermissions(id: string, patch: { inheritsOwner?: boolean; deniedPermissions?: Permission[] }): Promise<Pick<AgentDetail, "agent" | "effectivePermissions" | "permissions">>;
   session(id: string): Promise<{ session: Session | null; transcript: Event[] }>;
   work(id: string, input: In<typeof WorkInput>): Promise<Assignment | null>;
   /** Message the agent's session: queued for the next turn boundary, or `now` to stop the current turn first. */
@@ -197,6 +213,7 @@ export class HttpApi implements Api {
   async dismiss(id: string, purge = false) { await this.call("DELETE", `/api/agents/${id}${purge ? "?purge=1" : ""}`); }
   async ban(id: string, reason: string) { return unwrap<Agent>(await this.post(`/api/agents/${id}/ban`, { reason }), "agent"); }
   agent(id: string) { return this.get<AgentDetail>(`/api/agents/${id}`); }
+  setAgentPermissions(id: string, patch: { inheritsOwner?: boolean; deniedPermissions?: Permission[] }) { return this.call<Pick<AgentDetail, "agent" | "effectivePermissions" | "permissions">>("PATCH", `/api/agents/${id}/permissions`, patch); }
   session(id: string) { return this.get<{ session: Session | null; transcript: Event[] }>(`/api/agents/${id}/session`); }
   async work(id: string, i: In<typeof WorkInput>) { return unwrap<Assignment | null>(await this.post(`/api/agents/${id}/work`, i), "assignment"); }
   async interrupt(id: string, text: string, now = false) { await this.post(`/api/agents/${id}/interrupt`, { text, now }); }

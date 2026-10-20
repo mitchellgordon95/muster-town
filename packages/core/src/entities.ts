@@ -166,6 +166,7 @@ export function registerVisitor(world: World, userId: string, input: In<typeof R
     world.agents.upsert(Agent.parse({
       id, name: inp.name, kind: "visitor", buildingId: b?.id ?? null, homeBuildingId: b?.id ?? null,
       ownerUserId: userId, title: inp.title ?? "Visitor", sprite: 6, pos: spawnPoint(world, b?.id), createdAt: nowIso(),
+      inheritsOwner: inp.inheritsOwner ?? true,
     }), { silent: true });
     let desk: ReturnType<typeof world.layout.claimDesk> | null = null;
     if (b) {
@@ -175,6 +176,8 @@ export function registerVisitor(world: World, userId: string, input: In<typeof R
     const agent = world.agents.patch(id, { pos, buildingId: world.layout.buildingAt(pos)?.id ?? null });
     world.permissions.ensureTownRoles();
     world.permissions.grant(agent, townRoleId("visitor"));
+    // v1.5: the agent is capped by its owner, so the owner holds the visitor baseline too (GitHub sign-in already grants it)
+    world.permissions.grant({ kind: "user", id: userId }, townRoleId("visitor"));
     const where = desk ? `took a desk in ${b!.name}` : "is at the visitor bench";
     world.events.append({ type: "agent.created", agentId: agent.id, buildingId: agent.homeBuildingId ?? agent.buildingId, text: `${agent.name} arrived as a visitor and ${where}`, payload: { kind: "visitor", ownerUserId: userId, desk: !!desk } });
     return { agent, token: world.tokens.create("agent", agent.id) };
@@ -187,7 +190,7 @@ export function ensureAvatar(world: World, userId: string): Agent {
   if (existing) return existing;
   const user = world.users.require(userId, "user");
   const agent = world.agents.upsert(Agent.parse({
-    id: newId("ag"), name: user.name, kind: "human", ownerUserId: userId, title: "Human", sprite: 0,
+    id: newId("ag"), name: user.name, kind: "human", ownerUserId: userId, title: "Human", sprite: 0, inheritsOwner: true,
     pos: spawnPoint(world), createdAt: nowIso(),
   }));
   world.events.append({ type: "agent.created", agentId: agent.id, text: `${user.name} walked into town`, payload: { kind: "human", userId } });

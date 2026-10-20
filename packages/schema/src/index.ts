@@ -247,6 +247,10 @@ export const Agent = z.object({
   lastActiveAt: Iso.nullable().default(null),
   /** v1.4: last authenticated agent call (MCP tool or /api/verbs), written at most every 10 s; for an offline visitor, when it went quiet */
   lastSeenAt: Iso.nullable().default(null),
+  /** v1.5: inherit the owner user's effective permissions (visitors and human avatars default true; residents/service false). Always capped by the owner. */
+  inheritsOwner: z.boolean().default(false),
+  /** v1.5: permissions removed from this agent's effective set (set by its owner or an admin) */
+  deniedPermissions: z.array(Permission).default([]),
 });
 export type Agent = z.infer<typeof Agent>;
 
@@ -657,7 +661,11 @@ export const UpdateBuildingInput = CreateBuildingInput.partial();
 /** PUT /api/buildings/:id/layout: lot-relative anchors for moved pieces (left out = stays put); `dryRun` only checks it. */
 export const LayoutInput = z.object({ furniture: z.record(Tile), dryRun: z.boolean().default(false) });
 export const CreateResidentInput = z.object({ buildingId: Id, name: z.string(), title: z.string().default(""), direction: z.string().default(""), sprite: z.number().int().optional(), model: z.string().optional() });
-export const RegisterVisitorInput = z.object({ name: z.string(), buildingId: Id.optional(), title: z.string().optional() });
+export const RegisterVisitorInput = z.object({ name: z.string(), buildingId: Id.optional(), title: z.string().optional(),
+  /** default true: the visitor acts with its owner's permissions (capped by them) */
+  inheritsOwner: z.boolean().optional() });
+export const AgentPermissionsPatch = z.object({ inheritsOwner: z.boolean().optional(), deniedPermissions: z.array(Permission).optional() });
+export type AgentPermissionsPatch = z.infer<typeof AgentPermissionsPatch>;
 export const ReviewInput = z.object({ decision: ReviewDecision, note: z.string().default("") });
 export const ChatInput = z.object({ message: z.string(), history: z.array(z.object({ role: z.enum(["user", "assistant"]), text: z.string() })).default([]) });
 /** POST /api/docs/:id/reply: the reply text (empty = archive). */

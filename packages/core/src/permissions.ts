@@ -1,4 +1,4 @@
-import { BUILTIN_ROLES, type Agent, type Permission, type Role } from "@agent-town/schema";
+import { BUILTIN_ROLES, Permission, type Agent, type Role } from "@agent-town/schema";
 import { forbidden } from "./errors.ts";
 import type { Repos } from "./store.ts";
 
@@ -25,28 +25,80 @@ export const buildingRoleId = (buildingId: string, name: BuildingRoleName) => `r
 export class Permissions {
   constructor(private repos: Repos) {}
 
+  /** Roles held directly (a human avatar's are its user's). Inherited permissions are not roles: see `effective`. */
   rolesOf(holder: Holder | Agent): Role[] {
-    const h = holderOf(holder);
-    const roles: Role[] = [];
-    for (const m of this.repos.memberships.forHolder(h.kind, h.id)) {
-      const r = this.repos.roles.get(m.roleId);
-      if (r) roles.push(r);
-    }
-    return roles;
+    return this.heldRoles(holderOf(this.resolve(holder)));
   }
 
-  /** Any held role grants `permission` at town scope, or at building scope for `buildingId`. */
+  /**
+   * Effective permission check. Users: their roles. Agents (v1.5):
+   *   own       = the agent's roles grant it (town scope, or building scope for `buildingId`)
+   *   ownerCan  = the owner user can (an owner id with no user row counts as ownerless)
+   *   inherited = agent.inheritsOwner && ownerCan   (human avatars always inherit)
+   *   result    = owner ? (own || inherited) && ownerCan : own   — an agent never exceeds its owner
+   * then `deniedPermissions` removes it.
+   */
   can(holder: Holder | Agent, permission: Permission, buildingId?: string | null): boolean {
-    return this.rolesOf(holder).some((r) =>
-      r.permissions.includes(permission) && (r.scope === "town" || (!!buildingId && r.buildingId === buildingId)));
+    const x = this.resolve(holder);
+    if (!isAgent(x)) return this.rolesGrant(x, permission, buildingId);
+    if (x.deniedPermissions?.includes(permission)) return false;
+    const owner = this.ownerOf(x);
+    const own = this.rolesGrant({ kind: "agent", id: x.id }, permission, buildingId);
+    if (!owner) return own;
+    const ownerCan = this.rolesGrant(owner, permission, buildingId);
+    return (own || this.inherits(x)) && ownerCan;
   }
 
   require(holder: Holder | Agent, permission: Permission, buildingId?: string | null): void {
     if (!this.can(holder, permission, buildingId)) throw forbidden(permission);
   }
 
+  /** Every permission `can` grants (town-level ones, plus building-scoped ones for `buildingId`). */
+  effective(holder: Holder | Agent, buildingId?: string | null): Permission[] {
+    return Permission.options.filter((p) => this.can(holder, p, buildingId));
+  }
+
+  /** Admin role, with the same owner cap: an agent is admin only if its owner is (and nothing is denied). */
   isAdmin(holder: Holder | Agent): boolean {
-    return this.rolesOf(holder).some((r) => r.id === townRoleId("admin"));
+    const x = this.resolve(holder);
+    if (!isAgent(x)) return this.holdsAdmin(x);
+    const owner = this.ownerOf(x);
+    const own = this.holdsAdmin({ kind: "agent", id: x.id });
+    if (!owner) return own;
+    return (own || this.inherits(x)) && this.holdsAdmin(owner) && !(x.deniedPermissions?.length);
+  }
+
+  /** The agent's owner as a user holder, or null when ownerless (service agents, seeded residents). */
+  ownerOf(agent: Agent): Holder | null {
+    return agent.ownerUserId && this.repos.users.get(agent.ownerUserId) ? { kind: "user", id: agent.ownerUserId } : null;
+  }
+
+  private inherits(agent: Agent): boolean {
+    return agent.kind === "human" || !!agent.inheritsOwner;
+  }
+
+  /** An `{kind: "agent"}` holder becomes its Agent row, so agent rules apply however it is referenced. */
+  private resolve(holder: Holder | Agent): Holder | Agent {
+    if (isAgent(holder) || holder.kind !== "agent") return holder;
+    return this.repos.agents.get(holder.id) ?? holder;
+  }
+
+  private rolesGrant(h: Holder, permission: Permission, buildingId?: string | null): boolean {
+    return this.heldRoles(h).some((r) =>
+      r.permissions.includes(permission) && (r.scope === "town" || (!!buildingId && r.buildingId === buildingId)));
+  }
+
+  private holdsAdmin(h: Holder): boolean {
+    return this.heldRoles(h).some((r) => r.id === townRoleId("admin"));
+  }
+
+  private heldRoles(h: Holder): Role[] {
+    const roles: Role[] = [];
+    for (const m of this.repos.memberships.forHolder(h.kind, h.id)) {
+      const r = this.repos.roles.get(m.roleId);
+      if (r) roles.push(r);
+    }
+    return roles;
   }
 
   ensureTownRoles(): void {

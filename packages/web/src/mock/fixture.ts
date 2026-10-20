@@ -40,7 +40,7 @@ export const buildings: Building[] = [
   },
 ];
 
-const agentBase = { ownerUserId: "us_mitchell", status: "idle" as const, activity: "", model: null, spentTokensToday: 0, spentTokensTotal: 0, spentUsdTotal: 0, currentAssignmentId: null, currentMeetingId: null, createdAt: ago(8900), lastActiveAt: null, lastSeenAt: null };
+const agentBase = { ownerUserId: "us_mitchell", inheritsOwner: false, deniedPermissions: [] as Agent["deniedPermissions"], status: "idle" as const, activity: "", model: null, spentTokensToday: 0, spentTokensTotal: 0, spentUsdTotal: 0, currentAssignmentId: null, currentMeetingId: null, createdAt: ago(8900), lastActiveAt: null, lastSeenAt: null };
 const resident = (id: string, name: string, sprite: number, title: string, direction: string, extra: Partial<Agent> = {}): Agent => ({
   ...agentBase, id, name, kind: "resident", buildingId: "bl_carbon", homeBuildingId: "bl_carbon", title, direction, sprite, pos: { x: 0, y: 0 }, ...extra,
 });
@@ -59,8 +59,8 @@ export const agents: Agent[] = [
   { ...agentBase, id: "ag_wren", name: "Wren", kind: "resident", buildingId: "bl_townhall", homeBuildingId: "bl_townhall", title: "Town moderator", direction: "Collective-wide misuse prevention: approves outbox requests, reviews trophy proposals, bans abuse.", sprite: 10, pos: { x: 0, y: 0 } },
   { ...agentBase, id: "ag_ada", name: "Ada", kind: "service", buildingId: "bl_townhall", homeBuildingId: "bl_townhall", ownerUserId: null, title: "Librarian", direction: "Knows every document in the library.", sprite: 0, pos: { x: 0, y: 0 }, activity: "Ask me about the library" },
   // v1.4: Mitchell's Claude Code session as a visitor with a Workshop desk; it's offline (laptop closed), an offer waits
-  { ...agentBase, id: "ag_visitor", name: "Mitch's Claude", kind: "visitor", buildingId: "bl_workshop", homeBuildingId: "bl_workshop", title: "Visitor", direction: "", sprite: 6, pos: { x: 0, y: 0 }, status: "offline", currentAssignmentId: "as_visit1", createdAt: ago(600), lastSeenAt: ago(95), lastActiveAt: ago(95) },
-  { ...agentBase, id: "ag_me", name: "Mitchell", kind: "human", buildingId: null, homeBuildingId: null, title: "Town owner", direction: "", sprite: 7, pos: { x: 0, y: 0 } },
+  { ...agentBase, id: "ag_visitor", name: "Mitch's Claude", kind: "visitor", inheritsOwner: true, buildingId: "bl_workshop", homeBuildingId: "bl_workshop", title: "Visitor", direction: "", sprite: 6, pos: { x: 0, y: 0 }, status: "offline", currentAssignmentId: "as_visit1", createdAt: ago(600), lastSeenAt: ago(95), lastActiveAt: ago(95) },
+  { ...agentBase, id: "ag_me", name: "Mitchell", kind: "human", inheritsOwner: true, buildingId: null, homeBuildingId: null, title: "Town owner", direction: "", sprite: 7, pos: { x: 0, y: 0 } },
 ];
 
 const docBase = { authorKind: "agent" as const, provenance: { sourceIds: [], urls: [] }, tags: [] as string[] };

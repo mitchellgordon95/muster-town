@@ -1,7 +1,7 @@
 /** Agent panel: status, model, budget; tabs Talk (thread + live activity + one message box) | Assignments. Reports live in the in-tray and library. */
 import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
-import type { Agent, Assignment, Event } from "@agent-town/schema";
-import { api, type ThreadMessage } from "../api";
+import type { Agent, Assignment, Event, Permission } from "@agent-town/schema";
+import { api, type AgentPermissionsView, type ThreadMessage } from "../api";
 import { store, useTown, roleOf } from "../state";
 import { DismissButton, canDismiss } from "./Dismiss";
 import { PanelShell } from "./PanelShell";
@@ -25,12 +25,16 @@ export function AgentPanel({ id, tab }: { id: string; tab?: string }) {
   const building = buildings.find((b) => b.id === (agent.homeBuildingId ?? agent.buildingId));
   const mailbox = detail.data?.agent.id === id ? detail.data.mailbox : undefined;
   const role = [roleOf(agent) || agent.kind, building?.name].filter(Boolean).join(" · ");
+  const perms = detail.data?.agent.id === id ? detail.data.permissions : undefined;
   return (
     <PanelShell
       key={id}
       icon={<img className="portrait" src={portraitUrl(agent.sprite)} alt="" />}
       title={<>{agent.name} {building?.managerAgentId === agent.id ? <Pill tone="warn" title={`Set as ${building.name}'s manager in its settings: facilitates its meetings`}>★ manager</Pill> : null} <StatusPill status={agent.status} /></>}
-      subtitle={agent.kind === "visitor" ? <>{role}<Presence agent={agent} mailbox={mailbox} /></> : role}
+      subtitle={<>
+        {agent.kind === "visitor" ? <>{role}<Presence agent={agent} mailbox={mailbox} /></> : role}
+        {perms ? <AgentPermissions agent={agent} view={perms} effective={detail.data?.effectivePermissions ?? []} reload={detail.reload} /> : null}
+      </>}
       tabs={tabs}
       initialTab={tab && tabs.includes(tab) ? tab : "Talk"}
     >
@@ -41,6 +45,51 @@ export function AgentPanel({ id, tab }: { id: string; tab?: string }) {
         </>
       )}
     </PanelShell>
+  );
+}
+
+/**
+ * v1.5 permissions line: visitors show whether they inherit their owner's permissions (always capped by the owner).
+ * The owner or an admin also gets a compact editor: the inherit toggle and denies picked from what the owner holds.
+ */
+function AgentPermissions({ agent, view, effective, reload }: { agent: Agent; view: AgentPermissionsView; effective: Permission[]; reload: () => void }) {
+  const editable = view.canEdit && !!view.ownerUserId && agent.kind !== "human" && agent.status !== "retired";
+  if (agent.kind !== "visitor" && !editable) return null;
+  const owner = view.ownerName ?? "its owner";
+  const line = view.inheritsOwner ? `inherits ${owner}'s permissions` : "own roles only";
+  const save = async (patch: { inheritsOwner?: boolean; deniedPermissions?: Permission[] }) => {
+    await api().setAgentPermissions(agent.id, patch);
+    reload();
+  };
+  const denied = new Set(view.deniedPermissions);
+  const choices = [...new Set([...(view.ownerPermissions ?? []), ...view.deniedPermissions])];
+  return (
+    <div className="agent-perms" title={effective.length ? `Can: ${effective.join(", ")}` : "No permissions"}>
+      <span>{line}{denied.size ? ` · ${denied.size} denied` : ""} · {effective.length} permission{effective.length === 1 ? "" : "s"}</span>
+      {editable ? (
+        <details>
+          <summary>Permissions</summary>
+          <label className="perm-row">
+            <input type="checkbox" checked={view.inheritsOwner}
+              onChange={(e) => { save({ inheritsOwner: e.target.checked }).catch((err) => store.toast((err as Error).message, "bad")); }} />
+            Inherit {owner}'s permissions (never more than {owner} has)
+          </label>
+          {choices.length ? <div className="perm-denies">
+            <div className="muted">Deny:</div>
+            {choices.map((p) => (
+              <label key={p} className="perm-row">
+                <input type="checkbox" checked={denied.has(p)}
+                  onChange={(e) => {
+                    const next = e.target.checked ? [...denied, p] : [...denied].filter((d) => d !== p);
+                    save({ deniedPermissions: next }).catch((err) => store.toast((err as Error).message, "bad"));
+                  }} />
+                <code>{p}</code>
+              </label>
+            ))}
+          </div> : null}
+        </details>
+      ) : null}
+    </div>
   );
 }
 

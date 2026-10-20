@@ -1,6 +1,6 @@
 import { AppError, type World } from "@agent-town/core";
-import { ChatInput, CreateResidentInput, Event, InterruptInput, MessageAgentInput, RegisterVisitorInput, WorkInput, type Session } from "@agent-town/schema";
-import type { FastifyInstance } from "fastify";
+import { AgentPermissionsPatch, ChatInput, CreateResidentInput, Event, InterruptInput, MessageAgentInput, RegisterVisitorInput, WorkInput, type Agent, type Session } from "@agent-town/schema";
+import type { FastifyInstance, FastifyRequest } from "fastify";
 import { z } from "zod";
 import { actorOf, parse, requireAuth, requireUser, type Params } from "../context.ts";
 
@@ -33,10 +33,45 @@ export async function agentRoutes(app: FastifyInstance) {
     return reply.code(201).send({ agent, token });
   });
 
+  /** Who may change an agent's permissions: its owner (a user, via their avatar) or an admin. */
+  const canEditPermissions = (req: FastifyRequest, agent: Agent): boolean => {
+    const a = req.auth;
+    if (!a) return false;
+    if (a.kind === "user") return agent.ownerUserId === a.user.id || world.permissions.isAdmin({ kind: "user", id: a.user.id });
+    return a.agent.kind === "human" ? agent.ownerUserId === a.agent.ownerUserId || world.permissions.isAdmin(a.agent) : world.permissions.isAdmin(a.agent);
+  };
+
+  /** v1.5: town-level permissions plus building-scoped ones for the agent's home (or current) building. */
+  const permissionsView = (req: FastifyRequest, agent: Agent) => {
+    const bid = agent.homeBuildingId ?? agent.buildingId;
+    const owner = world.permissions.ownerOf(agent);
+    const canEdit = canEditPermissions(req, agent);
+    return {
+      effectivePermissions: world.permissions.effective(agent, bid),
+      permissions: {
+        inheritsOwner: agent.inheritsOwner,
+        deniedPermissions: agent.deniedPermissions,
+        ownerUserId: owner?.id ?? null,
+        ownerName: owner ? world.users.get(owner.id)?.name ?? null : null,
+        canEdit,
+        // what the owner holds, so the owner/admin can pick denies from it
+        ...(canEdit && owner ? { ownerPermissions: world.permissions.effective(owner, bid) } : {}),
+      },
+    };
+  };
+
+  /** Owner or admin: toggle inheritance and set per-agent denies. → { agent, effectivePermissions, permissions } */
+  app.patch<{ Params: Params }>("/api/agents/:id/permissions", async (req) => {
+    const patch = parse(AgentPermissionsPatch, req.body ?? {});
+    const agent = world.ops.setAgentPermissions(actorOf(world, req), req.params.id, patch);
+    return { agent, ...permissionsView(req, agent) };
+  });
+
   app.get<{ Params: Params }>("/api/agents/:id", async (req) => {
     const agent = world.agents.require(req.params.id, "agent");
     return {
       agent,
+      ...permissionsView(req, agent),
       recentEvents: world.events.recent({ agentId: agent.id, limit: 50 }),
       currentSession: world.ops.currentSession(agent.id) ?? null,
       latestReport: world.docs.first("type = 'report' AND authorId = ?", [agent.id], "ORDER BY createdAt DESC, rowid DESC") ?? null,

@@ -127,7 +127,7 @@ export function createRepos(db: DB, changes: Emitter<ServerMessage>) {
     allocations: new Table<Allocation>(db, "allocations", Allocation),
     bankInputs: new BankInputs(db),
     bankCredits: new Table<BankCredit>(db, "bank_credits", BankCredit),
-    agents: new Table<Agent>(db, "agents", Agent, { json: ["pos"] }, (agent) => changes.emit({ type: "agent", agent })),
+    agents: new Table<Agent>(db, "agents", Agent, { json: ["pos", "deniedPermissions"], bool: ["inheritsOwner"] }, (agent) => changes.emit({ type: "agent", agent })),
     places: new Table<Place>(db, "places", Place, { json: ["pos"] }),
     docs: new Table<Doc>(db, "docs", Doc, { json: ["provenance", "tags"] }, (doc) => changes.emit({ type: "doc", doc })),
     assignments: new Table<Assignment>(db, "assignments", Assignment, { bool: ["offered"] }, (assignment) => changes.emit({ type: "assignment", assignment })),

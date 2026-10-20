@@ -14,7 +14,7 @@ beforeAll(async () => {
   ctx = await seededApp();
   await ctx.app.listen({ port: 0, host: "127.0.0.1" });
   base = `http://127.0.0.1:${(ctx.app.server.address() as AddressInfo).port}`;
-  const r = ctx.world.ops.registerVisitor(ctx.seed.admin.id, { name: "Verb Claude" });
+  const r = ctx.world.ops.registerVisitor(ctx.seed.admin.id, { name: "Verb Claude", inheritsOwner: false });
   token = r.token; agentId = r.agent.id;
 });
 afterAll(async () => { await ctx.close(); });
