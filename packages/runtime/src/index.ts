@@ -123,13 +123,27 @@ export function startRuntime(opts: RuntimeOptions): Runtime {
   };
 
   let backend: WorkBackend | null = opts.deskBackend ?? null;
+  const dockerProbe = desks.backend === "host" ? null : new DockerBackend({ collective: opts.collective ?? slugify(world.town.get().name), image: desks.image });
   const backendReady: Promise<WorkBackend> = backend ? Promise.resolve(backend) : chooseBackend().then((b) => (backend = b));
+  let lastProbe = 0;
+  /** `auto` must not stick on the host backend forever because docker was down at startup: re-probe before each work session. */
+  async function currentBackend(): Promise<WorkBackend> {
+    const b = await backendReady;
+    // only re-probe when the host backend was an automatic fallback (never when a backend was injected or configured)
+    if (opts.deskBackend || b.kind !== "host" || !dockerProbe || desks.backend !== "auto" || Date.now() - lastProbe < 30_000) return backend ?? b;
+    lastProbe = Date.now();
+    if (await dockerProbe.available()) {
+      console.log(`[runtime] docker is available again: work sessions switch to docker desks (${desks.image})`);
+      backend = dockerProbe;
+    }
+    return backend ?? b;
+  }
   async function chooseBackend(): Promise<WorkBackend> {
-    if (desks.backend === "host") {
+    if (desks.backend === "host" || !dockerProbe) {
       console.log("[runtime] work sessions: host backend (in-process, no code tools; configured)");
       return new HostBackend();
     }
-    const docker = new DockerBackend({ collective: opts.collective ?? slugify(world.town.get().name), image: desks.image });
+    const docker = dockerProbe;
     const ok = await docker.available();
     if (desks.backend === "docker") {
       console.log(`[runtime] work sessions: docker desks (${desks.image}; configured)${ok ? "" : " — WARNING: docker info failed"}`);
@@ -144,7 +158,9 @@ export function startRuntime(opts: RuntimeOptions): Runtime {
   }
   const warnedHost = new Set<string>();
 
-  const startWork = (agentId: string, assignmentId: string) => track(backendReady.then((b) =>
+  const needsProbe = () => !opts.deskBackend && backend?.kind === "host" && !!dockerProbe && desks.backend === "auto" && Date.now() - lastProbe >= 30_000;
+  // keep the common path a single promise hop (tests and the scheduler observe `starting` right after a tick)
+  const startWork = (agentId: string, assignmentId: string) => track((backend && !needsProbe() ? Promise.resolve(backend) : currentBackend()).then((b) =>
     b.kind === "host" ? runWorkSession(ctx, starting, agentId, assignmentId) : runDeskSession(ctx, b, starting, agentId, assignmentId, opts.deskOptions)));
 
   const onEvent = (e: Event) => {
