@@ -94,6 +94,8 @@ export function canFacilitate(world: World, actor: Agent, m: Meeting): boolean {
 export function meetingDecide(world: World, actor: Agent | null, meetingId: string, decisions: Meeting["decisions"]): Meeting {
   const m = world.meetings.require(meetingId, "meeting");
   if (actor && !canFacilitate(world, actor, m)) throw forbidden("meeting.facilitate", "Only the facilitator can record decisions.");
+  // the notes doc is written at end; decisions after it would create assignments nobody sees in the notes
+  if (m.phase === "done" || m.phase === "cancelled") throw new AppError("conflict", `Meeting is ${m.phase}; decisions can't be added.`);
   const by = actor ? world.holderOf(actor) : { kind: "system" as const, id: "system" };
   const made = decisions.map((d) => {
     if (!d.assigneeId || d.assignmentId) return d;
