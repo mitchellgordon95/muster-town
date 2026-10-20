@@ -156,6 +156,16 @@ describe("meetings, roles, budget, events, human moves", () => {
     expect(list.body.meetings.map((x: any) => x.id)).toContain(m.body.meeting.id);
   });
 
+  it("meeting create with chosen attendees; bad ids are 4xx", async () => {
+    const { app, auth, by } = await setup();
+    const ids = [by("Mei").id, by("Noor").id];
+    const m = await json(app, "POST", "/api/meetings", { headers: auth, body: { kind: "retro", buildingId: "carbon-cycle", attendeeIds: ids } });
+    expect(m.status).toBe(201);
+    expect(m.body.meeting.attendeeIds).toEqual(ids);
+    expect((await json(app, "POST", "/api/meetings", { headers: auth, body: { kind: "retro", buildingId: "carbon-cycle", attendeeIds: ["ag_nobody"] } })).status).toBe(404);
+    expect((await json(app, "POST", "/api/meetings", { headers: auth, body: { kind: "retro", buildingId: "carbon-cycle", attendeeIds: [] } })).status).toBe(400);
+  });
+
   it("roles, budget, events", async () => {
     const { app, auth, by } = await setup();
     const roles = await json(app, "GET", "/api/roles?buildingId=carbon-cycle");

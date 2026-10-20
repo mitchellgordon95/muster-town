@@ -557,7 +557,9 @@ export const ChatInput = z.object({ message: z.string(), history: z.array(z.obje
 export const InterruptInput = z.object({ text: z.string() });
 export const WorkInput = z.object({ title: z.string().optional(), description: z.string().optional() });
 export const DonateInput = z.object({ tokens: z.number().int().positive(), buildingId: Id, apiKey: z.string().optional() });
-export const CreateMeetingInput = z.object({ kind: MeetingKind, buildingId: Id.nullable(), title: z.string().optional(), scheduledAt: Iso.optional(), agenda: z.string().optional(), startNow: z.boolean().default(false) });
+export const CreateMeetingInput = z.object({ kind: MeetingKind, buildingId: Id.nullable(), title: z.string().optional(), scheduledAt: Iso.optional(), agenda: z.string().optional(), startNow: z.boolean().default(false),
+  /** who to invite; omitted = the building's residents (town hall: managers, reviewers, moderators) */
+  attendeeIds: z.array(Id).min(1).optional() });
 export const MeetingSayInput = z.object({ text: z.string() });
 export const SeedInput = z.object({ importDir: z.string().optional() });
 

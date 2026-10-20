@@ -1,6 +1,6 @@
 import { CreateMeetingInput, Meeting, type Agent } from "@agent-town/schema";
 import { applyDecision, createAssignment, createDoc, sendMessage } from "./domain.ts";
-import { AppError, badRequest, forbidden } from "./errors.ts";
+import { AppError, badRequest, forbidden, notFound } from "./errors.ts";
 import { buildingRoleId, townRoleId } from "./permissions.ts";
 import { notifyMentions } from "./mentions.ts";
 import { newId, nowIso } from "./util.ts";
@@ -38,7 +38,13 @@ export function createMeeting(world: World, input: CreateMeeting, actor?: Agent)
   const bid = inp.buildingId && inp.buildingId !== TOWN_HALL_ID ? inp.buildingId : null;
   const b = bid ? world.buildings.require(bid, "building") : null;
   if (actor && !world.permissions.can(actor, "meeting.facilitate", bid ?? TOWN_HALL_ID) && !world.permissions.can(actor, "building.review", bid ?? TOWN_HALL_ID)) throw forbidden("meeting.facilitate");
-  const attendeeIds = defaultAttendees(world, bid);
+  const attendeeIds = inp.attendeeIds ? [...new Set(inp.attendeeIds)] : defaultAttendees(world, bid);
+  for (const id of inp.attendeeIds ?? []) {
+    const a = world.agents.get(id);
+    if (!a) throw notFound("agent", id);
+    if (a.kind !== "resident" && a.kind !== "visitor") throw badRequest(`Can't invite ${a.name}: only resident and visitor agents attend meetings (${a.kind}).`);
+    if (a.status === "stopped" || a.status === "banned" || a.status === "retired") throw badRequest(`Can't invite ${a.name}: they are ${a.status}.`);
+  }
   const ts = nowIso();
   const meeting = world.meetings.upsert(Meeting.parse({
     id: newId("mt"), kind: inp.kind, buildingId: bid, title: inp.title ?? `${b?.name ?? "Town Hall"} ${inp.kind}`,

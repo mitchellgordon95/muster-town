@@ -39,4 +39,29 @@ describe("meetings", () => {
     const notes = world.docs.require(world.meetings.require(m.id).notesDocId!);
     expect(notes.state).toBe("library");
   });
+
+  it("invites only the chosen attendees when attendeeIds is given", async () => {
+    const { world, by, admin } = seededWorld();
+    const mei = by("Mei"), noor = by("Noor");
+    const m = world.ops.createMeeting(admin, { kind: "planning", buildingId: "carbon-cycle", startNow: true, attendeeIds: [mei.id, noor.id, mei.id] });
+    expect(m.attendeeIds).toEqual([mei.id, noor.id]);
+    expect(m.facilitatorId).toBe(by("Moss").id);
+    const invited = async (name: string) => (await world.verbs.inbox(by(name), {})).messages.some((x) => x.kind === "meeting" && x.meetingId === m.id);
+    expect(await invited("Mei")).toBe(true);
+    expect(await invited("Noor")).toBe(true);
+    expect(await invited("Ravi")).toBe(false);
+    // omitted → every resident, as before
+    expect(world.ops.createMeeting(admin, { kind: "standup", buildingId: "carbon-cycle" }).attendeeIds).toHaveLength(6);
+  });
+
+  it("rejects attendee lists that are empty, unknown, human, or inactive", () => {
+    const { world, by, admin } = seededWorld();
+    const make = (attendeeIds: string[]) => () => world.ops.createMeeting(admin, { kind: "standup", buildingId: "carbon-cycle", attendeeIds });
+    expect(make([])).toThrow();
+    expect(make(["ag_nobody"])).toThrow(expect.objectContaining({ code: "not_found" }));
+    expect(make([admin.id])).toThrow(expect.objectContaining({ code: "bad_request" }));
+    world.agents.upsert({ ...by("Noor"), status: "stopped" });
+    expect(make([by("Mei").id, by("Noor").id])).toThrow(/Noor.*stopped/);
+    expect(world.meetings.count("1=1")).toBe(0);
+  });
 });
