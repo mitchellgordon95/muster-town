@@ -26,8 +26,18 @@ export function boardDocs(world: World, buildingId: string, limit: number): Doc[
 }
 
 /** The building's filing cabinet: everything it has published that isn't a board FYI (reports, meeting notes, articles, notes…), newest first. */
-export function cabinetDocs(world: World, buildingId: string, limit: number): Doc[] {
-  return world.docs.where(`buildingId = ? AND state != 'draft' AND type NOT IN (${BOARD_SQL})`, [buildingId], `ORDER BY createdAt DESC, rowid DESC LIMIT ${limit}`);
+export function cabinetDocs(world: World, buildingId: string, limit: number, filter: { type?: Doc["type"]; authorId?: string } = {}): Doc[] {
+  const where = [`buildingId = ? AND state != 'draft' AND type NOT IN (${BOARD_SQL})`];
+  const params: unknown[] = [buildingId];
+  if (filter.type) { where.push("type = ?"); params.push(filter.type); }
+  if (filter.authorId) { where.push("authorId = ?"); params.push(filter.authorId); }
+  return world.docs.where(where.join(" AND "), params, `ORDER BY createdAt DESC, rowid DESC LIMIT ${limit}`);
+}
+
+/** How many docs the cabinet holds per (type, author): the file browser's folder counts and author filter. */
+export function cabinetCounts(world: World, buildingId: string): { type: Doc["type"]; authorId: string; n: number }[] {
+  return world.db.prepare(`SELECT type, authorId, COUNT(*) AS n FROM docs WHERE buildingId = ? AND state != 'draft' AND type NOT IN (${BOARD_SQL}) GROUP BY type, authorId ORDER BY type, authorId`)
+    .all(buildingId) as { type: Doc["type"]; authorId: string; n: number }[];
 }
 
 /** FTS5 query from free text: quoted terms OR'd together (ranked by bm25). */

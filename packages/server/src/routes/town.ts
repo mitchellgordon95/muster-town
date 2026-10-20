@@ -1,5 +1,5 @@
-import { AppError, boardDocs, cabinetDocs } from "@agent-town/core";
-import { CreateBuildingInput, DonateInput, Membership, RedeployInput, UpdateBuildingInput, type AuthMe } from "@agent-town/schema";
+import { AppError, boardDocs, cabinetCounts, cabinetDocs } from "@agent-town/core";
+import { CreateBuildingInput, DocType, DonateInput, Membership, RedeployInput, UpdateBuildingInput, type AuthMe } from "@agent-town/schema";
 import type { FastifyInstance } from "fastify";
 import { z } from "zod";
 import { actorOf, adminToken, parse, requireAuth, requireUser, type Params } from "../context.ts";
@@ -11,6 +11,7 @@ const EventsQuery = z.object({
   limit: z.coerce.number().int().positive().max(1000).default(100),
 });
 const LimitQuery = z.object({ limit: z.coerce.number().int().positive().max(200).default(30) });
+const CabinetQuery = LimitQuery.extend({ type: DocType.optional(), authorId: z.string().optional() });
 
 /** Town snapshot, auth info, events, buildings, roles, budget, export, redeploy. */
 export async function townRoutes(app: FastifyInstance) {
@@ -80,11 +81,14 @@ export async function townRoutes(app: FastifyInstance) {
     return { docs: boardDocs(world, req.params.id, limit) };
   });
 
-  /** The filing cabinet: the building's reports and meeting notes, newest first. They never go on the board. */
+  /**
+   * The filing cabinet: everything the building has published except board FYIs, newest first, optionally narrowed
+   * to one doc type and/or author. `counts` (per type and author, unfiltered) drives the folder counts and author filter.
+   */
   app.get<{ Params: Params }>("/api/buildings/:id/cabinet", async (req) => {
-    const { limit } = parse(LimitQuery, req.query);
+    const { limit, type, authorId } = parse(CabinetQuery, req.query);
     world.buildings.require(req.params.id, "building");
-    return { docs: cabinetDocs(world, req.params.id, limit) };
+    return { docs: cabinetDocs(world, req.params.id, limit, { type, authorId }), counts: cabinetCounts(world, req.params.id) };
   });
 
   // ---- roles ----

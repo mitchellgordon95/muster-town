@@ -185,6 +185,42 @@ describe("docs & review", () => {
   });
 });
 
+describe("filing cabinet", () => {
+  it("filters by type and author, newest first; counts per type and author leave out FYIs and drafts", async () => {
+    const { app, world, by } = await setup();
+    const mei = by("Mei"), ravi = by("Ravi");
+    const n1 = await world.verbs.write(mei, { type: "note", title: "mei note 1", body: "x", state: "building" });
+    const n2 = await world.verbs.write(mei, { type: "note", title: "mei note 2", body: "x", state: "building" });
+    const rn = await world.verbs.write(ravi, { type: "note", title: "ravi note", body: "x", state: "building" });
+    const src = await world.verbs.write(mei, { type: "source", title: "mei source", body: "x", state: "building" });
+    await world.verbs.write(mei, { type: "fyi", title: "fyi", body: "x", state: "building" });
+    await world.verbs.write(mei, { type: "note", title: "draft", body: "x" });
+    world.docs.patch(n1.id, { createdAt: "2026-01-01T00:00:00.000Z" });
+    world.docs.patch(n2.id, { createdAt: "2026-01-02T00:00:00.000Z" });
+    world.docs.patch(rn.id, { createdAt: "2026-01-03T00:00:00.000Z" });
+
+    const all = await json(app, "GET", "/api/buildings/carbon-cycle/cabinet?type=note&limit=200");
+    expect(all.status).toBe(200);
+    const ids = all.body.docs.map((d: any) => d.id);
+    expect(ids.indexOf(rn.id)).toBeLessThan(ids.indexOf(n2.id));
+    expect(ids.indexOf(n2.id)).toBeLessThan(ids.indexOf(n1.id));
+    expect(all.body.docs.every((d: any) => d.type === "note" && d.state !== "draft")).toBe(true);
+
+    const mine = await json(app, "GET", `/api/buildings/carbon-cycle/cabinet?type=note&authorId=${mei.id}`);
+    expect(mine.body.docs.map((d: any) => d.id)).toEqual([n2.id, n1.id]);
+    const meiAll = await json(app, "GET", `/api/buildings/carbon-cycle/cabinet?authorId=${mei.id}&limit=200`);
+    expect(meiAll.body.docs.map((d: any) => d.id)).toEqual(expect.arrayContaining([n1.id, n2.id, src.id]));
+    expect(meiAll.body.docs.some((d: any) => d.authorId !== mei.id)).toBe(false);
+
+    const counts = all.body.counts as { type: string; authorId: string; n: number }[];
+    expect(counts.find((c) => c.type === "note" && c.authorId === mei.id)?.n).toBe(2);
+    expect(counts.find((c) => c.type === "note" && c.authorId === ravi.id)?.n).toBeGreaterThanOrEqual(1);
+    expect(counts.some((c) => c.type === "fyi")).toBe(false);
+
+    expect((await json(app, "GET", "/api/buildings/carbon-cycle/cabinet?type=nonsense")).status).toBe(400);
+  });
+});
+
 describe("meetings, roles, budget, events, human moves", () => {
   it("meeting create/say/list", async () => {
     const { app, auth } = await setup();

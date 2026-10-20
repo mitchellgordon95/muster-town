@@ -3,7 +3,7 @@
  * the filing cabinet, the donation box, the schedule board and the mod station (Town Hall).
  */
 import { useEffect, useMemo, useState } from "react";
-import type { Doc, Meeting } from "@agent-town/schema";
+import { BOARD_TYPES, DocType, type Doc, type Meeting } from "@agent-town/schema";
 import { api } from "../api";
 import { store, useTown, roleOf } from "../state";
 import { DocRow, DocView, VERDICT_TONE, needOf } from "./DocView";
@@ -84,23 +84,78 @@ export function BoardPanel({ buildingId }: { buildingId: string }) {
 export function CabinetPanel({ buildingId }: { buildingId: string }) {
   const b = useTown((s) => s.buildings.find((x) => x.id === buildingId));
   return (
-    <PanelShell icon={<Glyph kind="cabinet" />} title={`${b?.name ?? "Building"} filing cabinet`} subtitle="Everything published in this building that isn't a board FYI: reports, meeting notes, articles and notes, newest first.">
-      <DocList buildingId={buildingId} filed />
+    <PanelShell icon={<Glyph kind="cabinet" />} title={`${b?.name ?? "Building"} filing cabinet`} subtitle="Everything published in this building that isn't a board FYI, in a folder per doc type, newest first.">
+      <CabinetBrowser buildingId={buildingId} />
     </PanelShell>
   );
 }
 
-/** Board FYIs, or (`filed`) the filing cabinet: everything else the building has published, newest first. */
-function DocList({ buildingId, filed }: { buildingId: string; filed?: boolean }) {
+const FOLDER_TYPES = DocType.options.filter((t) => !BOARD_TYPES.includes(t));
+const FOLDER_LIMIT = 200;
+const FOLDER_NAMES: Partial<Record<DocType, string>> = { "meeting-notes": "Meeting notes", "human-report": "Human reports", "assignment-proposal": "Assignment proposals" };
+const folderName = (t: DocType) => FOLDER_NAMES[t] ?? `${t[0].toUpperCase()}${t.slice(1)}s`;
+
+/** The filing cabinet as a file browser: folders by doc type with counts, an author filter, docs newest first. */
+function CabinetBrowser({ buildingId }: { buildingId: string }) {
   const rev = useTown((s) => s.rev);
-  const list = useLoad(() => filed ? api().cabinet(buildingId, 50) : api().board(buildingId, 50), [buildingId, filed, rev]);
+  const [authorId, setAuthorId] = useState("");
+  const [folder, setFolder] = useState<DocType | null>(null);
+  const [open, setOpen] = useState<Doc | null>(null);
+  const list = useLoad(() => api().cabinet(buildingId, folder ? { type: folder, authorId, limit: FOLDER_LIMIT } : { limit: 1 }), [buildingId, folder, authorId, rev]);
+  useEffect(() => { if (list.data) store.putDocs(list.data.docs); }, [list.data]);
+  const counts = list.data?.counts ?? [];
+  const authors = useMemo(() => {
+    const m = new Map<string, number>();
+    for (const c of counts) m.set(c.authorId, (m.get(c.authorId) ?? 0) + c.n);
+    return [...m].map(([id, n]) => ({ id, n, name: nameOf(id) })).sort((a, b) => a.name.localeCompare(b.name));
+  }, [counts]);
+  const count = (t: DocType) => counts.filter((c) => c.type === t && (!authorId || c.authorId === authorId)).reduce((s, c) => s + c.n, 0);
+  const folders = FOLDER_TYPES.map((t) => ({ type: t, n: count(t) })).filter((f) => f.n > 0);
+  if (open) return <DocView doc={open} onBack={() => setOpen(null)} backLabel={folder ? folderName(folder) : "Filing cabinet"} />;
+  return (
+    <>
+      <div className="cabinet-bar">
+        {folder ? <button className="link" onClick={() => setFolder(null)}>← Filing cabinet</button> : <b>Folders</b>}
+        {folder ? <b>/ {folderName(folder)}</b> : null}
+        <select value={authorId} onChange={(e) => setAuthorId(e.target.value)} aria-label="Author">
+          <option value="">All authors ({authors.reduce((s, a) => s + a.n, 0)})</option>
+          {authors.map((a) => <option key={a.id} value={a.id}>{a.name} ({a.n})</option>)}
+        </select>
+      </div>
+      <ErrorLine error={list.error} />
+      {list.loading && !list.data ? <Loading /> : !folder ? (
+        !folders.length ? <Empty>{authorId ? `${nameOf(authorId)} hasn't filed anything here.` : "Nothing filed yet."}</Empty> : (
+          <div className="folders">
+            {folders.map((f) => (
+              <button key={f.type} className="folder" onClick={() => setFolder(f.type)}>
+                <span className="folder-icon" aria-hidden>▤</span>
+                <span className="folder-name">{folderName(f.type)}</span>
+                <span className="folder-n">{f.n}</span>
+              </button>
+            ))}
+          </div>
+        )
+      ) : !list.data?.docs.length ? <Empty>This folder is empty{authorId ? ` for ${nameOf(authorId)}` : ""}.</Empty> : (
+        <>
+          <div className="doc-list">{list.data.docs.map((d) => <DocRow key={d.id} doc={d} onOpen={() => setOpen(d)} />)}</div>
+          {count(folder) > list.data.docs.length ? <p className="muted">Showing the newest {list.data.docs.length} of {count(folder)}.</p> : null}
+        </>
+      )}
+    </>
+  );
+}
+
+/** Board FYIs, newest first. */
+function DocList({ buildingId }: { buildingId: string }) {
+  const rev = useTown((s) => s.rev);
+  const list = useLoad(() => api().board(buildingId, 50), [buildingId, rev]);
   const [open, setOpen] = useState<Doc | null>(null);
   useEffect(() => { if (list.data) store.putDocs(list.data); }, [list.data]);
-  if (open) return <DocView doc={open} onBack={() => setOpen(null)} backLabel={filed ? "Filing cabinet" : "Board"} />;
+  if (open) return <DocView doc={open} onBack={() => setOpen(null)} backLabel="Board" />;
   return (
     <>
       <ErrorLine error={list.error} />
-      {list.loading && !list.data ? <Loading /> : !list.data?.length ? <Empty>{filed ? "Nothing filed yet." : "No FYIs on the board."}</Empty> : (
+      {list.loading && !list.data ? <Loading /> : !list.data?.length ? <Empty>No FYIs on the board.</Empty> : (
         <div className="doc-list">{list.data.map((d) => <DocRow key={d.id} doc={d} onOpen={() => setOpen(d)} />)}</div>
       )}
     </>

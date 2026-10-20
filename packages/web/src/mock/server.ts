@@ -1,7 +1,7 @@
 /** `Api` implemented against the in-memory Sim. Same interface as HttpApi, so every panel works offline. */
 import type { Agent, AuthMe, Doc, Event, Meeting, Membership } from "@agent-town/schema";
 import { BOARD_TYPES } from "@agent-town/schema";
-import type { Api, AgentDetail, Budget, DocQuery, EventQuery, In, RequestAction, Snapshot, Socket, SocketHandlers, WriteDocInput } from "../api";
+import type { Api, AgentDetail, Budget, Cabinet, CabinetQuery, DocQuery, EventQuery, In, RequestAction, Snapshot, Socket, SocketHandlers, WriteDocInput } from "../api";
 import { ApiError } from "../api";
 import type { CreateBuildingInput, UpdateBuildingInput, CreateResidentInput, ReviewInput, ChatInput, WorkInput, DonateInput, CreateMeetingInput, DocState } from "@agent-town/schema";
 import { Sim, newId } from "./sim";
@@ -42,9 +42,19 @@ export class MockApi implements Api {
     await wait();
     return clone([...this.sim.docs.values()].filter((d) => d.buildingId === buildingId && d.state === "building" && BOARD_TYPES.includes(d.type)).sort((a, b) => b.updatedAt.localeCompare(a.updatedAt)).slice(0, limit));
   }
-  async cabinet(buildingId: string, limit = 30) {
+  async cabinet(buildingId: string, q: CabinetQuery = {}) {
     await wait();
-    return clone([...this.sim.docs.values()].filter((d) => d.buildingId === buildingId && d.state !== "draft" && !BOARD_TYPES.includes(d.type)).sort((a, b) => b.createdAt.localeCompare(a.createdAt)).slice(0, limit));
+    const filed = [...this.sim.docs.values()].filter((d) => d.buildingId === buildingId && d.state !== "draft" && !BOARD_TYPES.includes(d.type));
+    const counts = new Map<string, Cabinet["counts"][number]>();
+    for (const d of filed) {
+      const k = `${d.type} ${d.authorId}`;
+      const c = counts.get(k) ?? { type: d.type, authorId: d.authorId, n: 0 };
+      c.n++;
+      counts.set(k, c);
+    }
+    const docs = filed.filter((d) => (!q.type || d.type === q.type) && (!q.authorId || d.authorId === q.authorId))
+      .sort((a, b) => b.createdAt.localeCompare(a.createdAt)).slice(0, q.limit ?? 30);
+    return clone({ docs, counts: [...counts.values()] });
   }
   async createBuilding(i: In<typeof CreateBuildingInput>) { await wait(); return clone(this.sim.createBuilding(i.name, i.goal ?? "", i.headcount ?? 6, i.reviewPolicy ?? "human")); }
   async intray(buildingId: string) { await wait(); this.need(this.sim.buildings.find((b) => b.id === buildingId), "building"); return clone(this.sim.intray(buildingId)); }
