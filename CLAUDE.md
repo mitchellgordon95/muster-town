@@ -1,4 +1,4 @@
-# Agent Town — Repo Root
+# Muster Town — Repo Root
 
 Read `AGENTS.md` first. Then `docs/architecture.md` (the build contract) and `docs/design.md` (vision and decisions).
 

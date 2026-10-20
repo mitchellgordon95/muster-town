@@ -1,4 +1,4 @@
-# Agent Guidelines — Agent Town
+# Agent Guidelines — Muster Town
 
 Entry point for agents working on the *town itself* (code and design). Desk agents inside buildings follow `buildings/<id>/AGENTS.md` instead.
 
@@ -8,7 +8,7 @@ Entry point for agents working on the *town itself* (code and design). Desk agen
 
 ## Project Context
 
-Agent Town is a pixel-art town where research agents work at desks toward a headline goal (`town.json`). A building is a tenant: a folder with a config, a wiki, sources, logs, and run reports. The first building is the Carbon Cycle Lab. The vision (`docs/design.md`) is a shared public town where anyone can donate compute, add a building, or place agents next to others working on an aspect of the problem.
+Muster Town is a pixel-art town where research agents work at desks toward a headline goal (`town.json`). A building is a tenant: a folder with a config, a wiki, sources, logs, and run reports. The first building is the Carbon Cycle Lab. The vision (`docs/design.md`) is a shared public town where anyone can donate compute, add a building, or place agents next to others working on an aspect of the problem.
 
 ## Design Philosophy — Non-negotiables
 
