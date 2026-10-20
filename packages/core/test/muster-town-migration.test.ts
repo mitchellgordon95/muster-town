@@ -60,4 +60,20 @@ describe("018_muster_town migration", () => {
     applyRename();
     expect(db.prepare("SELECT value FROM meta WHERE key = 'town'").get()).toBeUndefined();
   });
+
+  it("019 rewrites agent directions/titles and building rules that 018 missed", () => {
+    const { db, applyRename } = preRenameDb();
+    addBuilding(db, "workshop", null, null);
+    db.prepare("UPDATE buildings SET rules = 'Ship Agent Town fixes to main.' WHERE id = 'workshop'").run();
+    const addAgent = (id: string, title: string | null, direction: string | null) =>
+      db.prepare("INSERT INTO agents (id, name, kind, title, direction, pos, status, createdAt) VALUES (?, ?, 'resident', ?, ?, '{}', 'idle', '2026-10-20T00:00:00Z')").run(id, id, title, direction);
+    addAgent("sage", "Agent Town designer", "What Agent Town should become: the public collective.");
+    addAgent("moss", "Reviewer", null);
+    applyRename();
+    migrate(db, MIGRATIONS); // the rest, including 019
+    const agent = (id: string) => db.prepare("SELECT title, direction FROM agents WHERE id = ?").get(id);
+    expect(agent("sage")).toEqual({ title: "Muster Town designer", direction: "What Muster Town should become: the public collective." });
+    expect(agent("moss")).toEqual({ title: "Reviewer", direction: null });
+    expect(db.prepare("SELECT rules FROM buildings WHERE id = 'workshop'").get()).toEqual({ rules: "Ship Muster Town fixes to main." });
+  });
 });
