@@ -28,4 +28,5 @@
 - 2026-10-20 web: Call meeting forms (building Meetings tab and the meeting room) get an attendee picker; labs start with their residents checked, none checked sends no attendeeIds so the server invites its defaults; mock server honours attendeeIds — Pix
 - 2026-10-20 web: End meeting button moved into the meeting chatbar next to Say; Act buttons are type=button (Lena)
 - 2026-10-20: desk sessions failed on "local changes would be overwritten" (npm set the exec bit on packages/desk/src/cli.ts inside containers). Fixed: core.fileMode false + auto-stash before checkout; old containers replaced; 9 assignments re-queued; report format now What I did / Findings / What I need from you.
+- 2026-10-20: HUMAN_QUIET_MS 3 → 5 min. In the first live standup with a human (mt_osqgcvsj20) Mitchell went 164 s between messages while writing a long answer, 16 s short of the old cutoff; 2 extra idle listens cost ~$0.02 per meeting.
 - 2026-10-20 meetings: the facilitator (or a human) can question an attendee with @Name mid-meeting; the attendee gets a short no-tools reply turn and answers in the meeting chat (max 5 per attendee per meeting) — Lena
