@@ -66,7 +66,7 @@ export async function onMeetingMention(ctx: Ctx, st: MeetingState, meetingId: st
   const agent = world.agents.get(agentId);
   if (!m || !LIVE.has(m.phase) || !agent || !m.attendeeIds.includes(agentId) || agentId === m.facilitatorId) return;
   if (agent.kind !== "resident" && agent.kind !== "visitor") return;
-  if (agent.status === "stopped" || agent.status === "banned" || agent.status === "retired") return;
+  if (agent.status === "banned" || agent.status === "retired") return;
   if (byKind !== "user" && byId !== m.facilitatorId) return;
   const key = `${meetingId}:${agentId}`;
   if (st.replying.has(key)) { st.mentionedAgain.add(key); return; }

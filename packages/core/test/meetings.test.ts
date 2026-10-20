@@ -95,9 +95,22 @@ describe("meetings", () => {
     expect(make([])).toThrow();
     expect(make(["ag_nobody"])).toThrow(expect.objectContaining({ code: "not_found" }));
     expect(make([admin.id])).toThrow(expect.objectContaining({ code: "bad_request" }));
-    world.agents.upsert({ ...by("Noor"), status: "stopped" });
-    expect(make([by("Mei").id, by("Noor").id])).toThrow(/Noor.*stopped/);
+    world.agents.upsert({ ...by("Noor"), status: "retired" });
+    expect(make([by("Mei").id, by("Noor").id])).toThrow(/Noor.*retired/);
     expect(world.meetings.count("1=1")).toBe(0);
+  });
+
+  it("stopped residents are still invited to standups and a decision assigning them resumes them", async () => {
+    const { world, by, admin } = seededWorld();
+    world.agents.upsert({ ...by("Noor"), status: "stopped" });
+    const m = world.ops.createMeeting(admin, { kind: "standup", buildingId: "carbon-cycle", startNow: true });
+    expect(m.attendeeIds).toContain(by("Noor").id);
+    expect(m.facilitatorId).not.toBe(by("Noor").id);
+    world.ops.startMeeting(admin, m.id);
+    expect(by("Noor").status).toBe("stopped");
+    await world.verbs.meeting(by("Moss"), { meetingId: m.id, action: "decide", decisions: [{ text: "Noor: take the rename slice", assigneeId: by("Noor").id, assignmentId: null }] });
+    expect(by("Noor").status).toBe("idle");
+    expect(world.assignments.where("agentId = ? AND status = 'pending'", [by("Noor").id])).toHaveLength(1);
   });
 
   it("the facilitator may record decisions in the grace window after a human closes the meeting; late ones land in the notes", async () => {

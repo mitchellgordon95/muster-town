@@ -9,10 +9,13 @@ import type { World } from "./world.ts";
 
 type CreateMeeting = (typeof CreateMeetingInput)["_input"];
 
-/** Residents of a building; for town-hall meetings, agents holding manager/reviewer anywhere plus town moderators. */
+/**
+ * Residents of a building, stopped ones included (a standup is where they get reactivated with a new task); for
+ * town-hall meetings, agents holding manager/reviewer anywhere plus town moderators.
+ */
 export function defaultAttendees(world: World, buildingId: string | null): string[] {
   if (buildingId && buildingId !== TOWN_HALL_ID) {
-    return world.agents.where("homeBuildingId = ? AND kind = 'resident' AND status NOT IN ('stopped','banned','retired')", [buildingId], "ORDER BY createdAt").map((a) => a.id);
+    return world.agents.where("homeBuildingId = ? AND kind = 'resident' AND status NOT IN ('banned','retired')", [buildingId], "ORDER BY createdAt").map((a) => a.id);
   }
   const ids = new Set<string>();
   for (const b of world.buildings.where("kind = 'lab'")) {
@@ -34,10 +37,10 @@ export function defaultFacilitator(world: World, buildingId: string | null, atte
     if (active(manager)) return manager;
     const rev = world.permissions.agentsWithRole(buildingRoleId(buildingId, "reviewer")).find(active);
     if (rev) return rev;
-    const first = defaultAttendees(world, buildingId).find((id) => attendees.includes(id));
+    const first = defaultAttendees(world, buildingId).find((id) => active(id) && attendees.includes(id));
     if (first) return first;
   }
-  return attendees[0] ?? null;
+  return attendees.find(active) ?? attendees[0] ?? null;
 }
 
 /** Create a meeting. `actor` undefined = system (scheduler); otherwise needs meeting.facilitate or building.review. */
@@ -51,7 +54,7 @@ export function createMeeting(world: World, input: CreateMeeting, actor?: Agent)
     const a = world.agents.get(id);
     if (!a) throw notFound("agent", id);
     if (a.kind !== "resident" && a.kind !== "visitor") throw badRequest(`Can't invite ${a.name}: only resident and visitor agents attend meetings (${a.kind}).`);
-    if (a.status === "stopped" || a.status === "banned" || a.status === "retired") throw badRequest(`Can't invite ${a.name}: they are ${a.status}.`);
+    if (a.status === "banned" || a.status === "retired") throw badRequest(`Can't invite ${a.name}: they are ${a.status}.`);
   }
   const ts = nowIso();
   const meeting = world.meetings.upsert(Meeting.parse({
@@ -112,7 +115,7 @@ export function canFacilitate(world: World, actor: Agent, m: Meeting): boolean {
   return m.facilitatorId === actor.id || world.permissions.can(actor, "meeting.facilitate", m.buildingId ?? TOWN_HALL_ID);
 }
 
-/** Record decisions; each with an assigneeId becomes an assignment (fromMeetingId set). */
+/** Record decisions; each with an assigneeId becomes an assignment (fromMeetingId set); a stopped assignee is resumed. */
 export function meetingDecide(world: World, actor: Agent | null, meetingId: string, decisions: Meeting["decisions"]): Meeting {
   const m = world.meetings.require(meetingId, "meeting");
   if (actor && !canFacilitate(world, actor, m)) throw forbidden("meeting.facilitate", "Only the facilitator can record decisions.");
@@ -129,6 +132,7 @@ export function meetingDecide(world: World, actor: Agent | null, meetingId: stri
       applyDecision(world, pending.id, "approve", `Superseded by a decision in meeting "${m.title}": ${d.text.split("\n")[0].slice(0, 160)}`, by);
     }
     const a = createAssignment(world, { agentId: d.assigneeId, title: d.text.split("\n")[0].slice(0, 120), description: `${d.text}\n\nDecided in meeting "${m.title}".`, createdBy: by, fromMeetingId: m.id });
+    if (world.agents.get(d.assigneeId)?.status === "stopped") world.setStatus(d.assigneeId, "idle", `${world.nameOf(d.assigneeId)} was resumed by a decision in "${m.title}"`);
     return { ...d, assignmentId: a.id };
   });
   const updated = world.meetings.upsert({ ...m, decisions: [...m.decisions, ...made] });
