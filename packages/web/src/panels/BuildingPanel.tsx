@@ -1,4 +1,4 @@
-/** Building panel (E at the door): overview, members + roles, meetings, settings (managers). Board, filing cabinet and in-tray are places. */
+/** Building panel (E at the door): overview, members + roles, meetings, settings (managers: building fields, then residents: add and dismiss). Board, filing cabinet and in-tray are places. */
 import { useMemo, useState, type ReactNode } from "react";
 import type { Meeting, SnapshotBuilding } from "@muster-town/schema";
 import { api } from "../api";
@@ -7,7 +7,7 @@ import { Glyph, PanelShell } from "./PanelShell";
 import { Meter } from "./AgentPanel";
 import { DismissButton, canDismiss } from "./Dismiss";
 import { Act, Empty, ErrorLine, Field, KV, Loading, Pill, Section, StatusPill, fmtTokens, nameOf, timeAgo, usd, useLoad } from "./ui";
-import { portraitUrl } from "../map/sprites";
+import { PALETTES, portraitUrl } from "../map/sprites";
 import { AttendeePicker, useAttendees } from "./AttendeePicker";
 import { attendeeInput } from "./attendees";
 import { layoutEdit } from "../map/layoutEdit";
@@ -191,7 +191,8 @@ function Settings({ b }: { b: SnapshotBuilding }) {
   const agents = useTown((s) => s.agents);
   const residents = useMemo(() => Object.values(agents).filter((a) => a.kind === "resident" && a.homeBuildingId === b.id).sort((x, y) => x.name.localeCompare(y.name)), [agents, b.id]);
   const set = <K extends keyof typeof f>(k: K, v: (typeof f)[K]) => setF((x) => ({ ...x, [k]: v }));
-  return (
+  return (<>
+    <Section title="Building">
     <form className="form" onSubmit={(e) => e.preventDefault()}>
       <Field label="Goal"><textarea rows={2} value={f.goal} onChange={(e) => set("goal", e.target.value)} /></Field>
       <Field label="Description"><textarea rows={3} value={f.description} onChange={(e) => set("description", e.target.value)} /></Field>
@@ -223,5 +224,45 @@ function Settings({ b }: { b: SnapshotBuilding }) {
         store.toast("Settings saved", "ok");
       }}>Save settings</Act></div>
     </form>
+    </Section>
+    <Section title={`Residents (${residents.filter((a) => a.status !== "retired").length} / ${b.headcount})`}>
+      {!residents.length ? <Empty>No residents yet. Add one below.</Empty> : residents.filter((a) => a.status !== "retired").map((a) => (
+        <div key={a.id} className="resident-row">
+          <button className="member" onClick={() => store.open({ kind: "agent", id: a.id })}>
+            <img src={portraitUrl(a.sprite, 2)} alt="" />
+            <div><b>{a.name}</b><span>{roleOf(a)}</span></div>
+            <StatusPill status={a.status} />
+          </button>
+          {canDismiss(a) ? <DismissButton agent={a} small /> : null}
+        </div>
+      ))}
+    </Section>
+    <NewResident buildingId={b.id} />
+  </>);
+}
+
+function NewResident({ buildingId }: { buildingId: string }) {
+  const [name, setName] = useState("");
+  const [sprite, setSprite] = useState(1);
+  return (
+    <Section title="New resident">
+      <form className="form" onSubmit={(e) => e.preventDefault()}>
+        <Field label="Name" hint="Residents have no title or job description: they take whatever assignment they're given, end to end."><input value={name} onChange={(e) => setName(e.target.value)} placeholder="e.g. Lena" /></Field>
+        <Field label="Look">
+          <div className="sprites">
+            {PALETTES.map((_, i) => i === 7 ? null : (
+              <button type="button" key={i} className={i === sprite ? "on" : ""} onClick={() => setSprite(i)}><img src={portraitUrl(i, 2)} alt={`sprite ${i}`} /></button>
+            ))}
+          </div>
+        </Field>
+        <div className="actions">
+          <Act tone="primary" disabled={!name.trim()} run={async () => {
+            const a = await api().createResident({ buildingId, name: name.trim(), sprite });
+            setName("");
+            store.toast(`${a.name} moved in`, "ok", { kind: "agent", id: a.id });
+          }}>Add resident</Act>
+        </div>
+      </form>
+    </Section>
   );
 }

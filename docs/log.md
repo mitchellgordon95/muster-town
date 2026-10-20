@@ -77,3 +77,4 @@
 - 2026-10-20: funding moved into the Bank (agents built it): workshop = daily 20M subscription input (140M/week cap) + 50M one-time API-key input; shares workshop 80% / Onboarding 20%; climate = daily 3.5M subscription input. Direct building allocations retired.
 - 2026-10-20: Bank leaderboard counts a retired allocation only for what was spent from it (guest check showed Mitchell at 1070M while the Bank held 70M: 1000M of retired placeholders). — Lena
 - 2026-10-20: Building signs are now cloth banners on a pole and posts, show the full goal wrapped (no truncation), and open the building's Settings tab on click (Overview for those who can't manage it). — Sage
+- 2026-10-20: Resident management (add, dismiss) moved from the planning desk into each building's Settings tab; the planning desk's Residents tab is now a read-only whole-town roster whose rows link to the building's settings. — Craig
