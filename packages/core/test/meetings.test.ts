@@ -100,10 +100,25 @@ describe("meetings", () => {
     expect(world.meetings.count("1=1")).toBe(0);
   });
 
+  it("the facilitator may record decisions in the grace window after a human closes the meeting; late ones land in the notes", async () => {
+    const { world, by, admin } = seededWorld();
+    const m = world.ops.createMeeting(admin, { kind: "standup", buildingId: "carbon-cycle", startNow: true });
+    world.ops.startMeeting(admin, m.id);
+    world.ops.meetingSay(admin, m.id, "move the filing cabinet to the right wall");
+    world.ops.endMeeting(admin, m.id); // human pressed End before any decide
+    const before = world.assignments.all().length;
+    const out = await world.verbs.meeting(by("Moss"), { meetingId: m.id, action: "decide", decisions: [{ text: "Move the filing cabinet to the right wall", assigneeId: by("Noor").id, assignmentId: null }] });
+    expect(out).toBeTruthy();
+    expect(world.assignments.all()).toHaveLength(before + 1);
+    const notes = world.docs.require(world.meetings.require(m.id).notesDocId!);
+    expect(notes.body).toMatch(/Decisions recorded after close/);
+    expect(notes.body).toMatch(/filing cabinet/);
+  });
   it("decisions on a done or cancelled meeting are a conflict and create no assignments", async () => {
     const { world, by, admin } = seededWorld();
     const done = world.ops.createMeeting(admin, { kind: "standup", buildingId: "carbon-cycle", startNow: true });
     world.ops.endMeeting(admin, done.id);
+    world.meetings.upsert({ ...world.meetings.require(done.id), endedAt: new Date(Date.now() - 10 * 60_000).toISOString() }); // closed 10 min ago: past the grace window
     const cancelled = world.ops.createMeeting(admin, { kind: "standup", buildingId: "carbon-cycle", startNow: true });
     world.ops.setMeetingPhase(cancelled.id, "cancelled");
     const before = world.assignments.all().length;

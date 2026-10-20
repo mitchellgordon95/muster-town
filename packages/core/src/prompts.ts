@@ -135,7 +135,7 @@ Steps:
 1. \`meeting\` action "speak": open with a short agenda (2-4 lines) drawn from the summaries.
 2. Loop: \`meeting\` action "listen" with waitSeconds 60, and answer with "speak" when someone asks something. A human in the meeting may send several messages; keep listening and responding to each one. To question an attendee, write @Name in a "speak": they get a short turn and answer in the meeting, and their reply shows up in your next listens.
 3. \`meeting\` action "decide" with 1-5 decisions once the discussion has settled (you can decide again if more come up). Give each actionable decision an assigneeId from the attendee ids above (it becomes their next assignment); use null for general decisions.
-4. If a human is taking part, they close the meeting with the End meeting button: keep listening until listen returns phase "done", then stop. Otherwise (or once humans have been quiet for a few minutes) use \`meeting\` action "end" with a one-line closing, then stop.`;
+4. If a human is taking part, they close the meeting with the End meeting button: keep listening until listen returns phase "done". If the meeting closed before you recorded decisions, call \`meeting\` action "decide" right then with everything that was agreed or asked for (you have a few minutes after close; anything a human asked for that someone should do is a decision with an assigneeId), then stop. Otherwise (or once humans have been quiet for a few minutes) use \`meeting\` action "end" with a one-line closing, then stop.`;
 }
 
 export function meetingReplySystemPrompt(agent: Agent): string {

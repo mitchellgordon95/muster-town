@@ -1,5 +1,5 @@
 import { CreateMeetingInput, Meeting, type Agent } from "@agent-town/schema";
-import { applyDecision, createAssignment, createDoc, sendMessage } from "./domain.ts";
+import { applyDecision, createAssignment, createDoc, sendMessage, updateDoc } from "./domain.ts";
 import { AppError, badRequest, forbidden, notFound } from "./errors.ts";
 import { buildingRoleId, townRoleId } from "./permissions.ts";
 import { notifyMentions } from "./mentions.ts";
@@ -116,8 +116,10 @@ export function canFacilitate(world: World, actor: Agent, m: Meeting): boolean {
 export function meetingDecide(world: World, actor: Agent | null, meetingId: string, decisions: Meeting["decisions"]): Meeting {
   const m = world.meetings.require(meetingId, "meeting");
   if (actor && !canFacilitate(world, actor, m)) throw forbidden("meeting.facilitate", "Only the facilitator can record decisions.");
-  // the notes doc is written at end; decisions after it would create assignments nobody sees in the notes
-  if (m.phase === "done" || m.phase === "cancelled") throw new AppError("conflict", `Meeting is ${m.phase}; decisions can't be added.`);
+  // A human may press End while the facilitator is still listening; give the facilitator a short grace window to
+  // record what was agreed. Cancelled meetings and meetings closed longer ago stay closed.
+  const late = m.phase === "done" && !!m.endedAt && Date.now() - Date.parse(m.endedAt) <= DECIDE_GRACE_MS;
+  if (m.phase === "cancelled" || (m.phase === "done" && !late)) throw new AppError("conflict", `Meeting is ${m.phase}; decisions can't be added.`);
   const by = actor ? world.holderOf(actor) : { kind: "system" as const, id: "system" };
   const made = decisions.map((d) => {
     if (!d.assigneeId || d.assignmentId) return d;
@@ -130,9 +132,17 @@ export function meetingDecide(world: World, actor: Agent | null, meetingId: stri
     return { ...d, assignmentId: a.id };
   });
   const updated = world.meetings.upsert({ ...m, decisions: [...m.decisions, ...made] });
-  world.events.append({ type: "meeting.decisions", buildingId: m.buildingId, text: `${m.title}: ${made.length} decision(s)`, payload: { meetingId: m.id, decisions: made } });
+  world.events.append({ type: "meeting.decisions", buildingId: m.buildingId, text: `${m.title}: ${made.length} decision(s)${late ? " (recorded after close)" : ""}`, payload: { meetingId: m.id, decisions: made, late } });
+  if (late && m.notesDocId) {
+    // the notes were written at close; append what came in during the grace window so nothing is lost
+    const notes = world.docs.get(m.notesDocId);
+    if (notes) updateDoc(world, notes.id, { body: `${notes.body.trimEnd()}\n\n## Decisions recorded after close\n${made.map((d) => `- ${d.text}${d.assigneeId ? ` (→ ${world.agents.get(d.assigneeId)?.name ?? d.assigneeId})` : ""}`).join("\n")}\n` });
+  }
   return updated;
 }
+
+/** How long after a meeting closes the facilitator may still record decisions. */
+export const DECIDE_GRACE_MS = 5 * 60_000;
 
 /** End: write the meeting-notes doc (filed in the building's filing cabinet, not its board; town-hall → library), phase done. */
 export function endMeeting(world: World, actor: Agent | null, meetingId: string, closing?: string): Meeting {
