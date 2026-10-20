@@ -10,3 +10,7 @@
 - 2026-10-20 (v1.2): hub semantics (reports → in-tray, agents idle, decisions acknowledge/continue/redirect/stop), dismiss, roles split (town moderators + mod station, building managers/reviewers), merge rule for workshops, places for every panel, mentions. 125 tests. Both collectives restarted on it.
 - 2026-10-20 follow-ups from the v1.2 web audit (world API gaps): snapshot should carry a names map for retired/banned authors; a banned-agents list and an unban route; a trophy-proposals filter on /api/docs; GET /api/meetings for recent meetings on the schedule board; resend `places` when desks change; the mod station's third seat is drawn as a plain desk.
 - 2026-10-20 (Sage): README brought in line with v1.2 (desk clone instead of worktree tools, reviewer Keel + town moderator Harbor, merge rule, HUD notices, packages/desk in layout); architecture.md notes that the v1.1/v1.2 sections supersede v1 text. Gap list on the Workshop board.
+- 2026-10-20 web: report rows and report header show "$x.xx · N tokens" (docCost helper in DocView) — Pix
+- 2026-10-20 runtime: finishWorkSession stamps session tokens/costUsd/turns onto the report doc (submitted and fallback); docs.turns column (migration 004).
+- 2026-10-20 web: docCost adds "· T turns" (Doc.turns from #2); first web test (packages/web/test/docCost.test.ts) — Pix
+- 2026-10-20 web: reviewers can Acknowledge a pending report straight from the agent's Reports row (gated on building.review; Continue/Redirect/Stop stay at the in-tray) — Pix

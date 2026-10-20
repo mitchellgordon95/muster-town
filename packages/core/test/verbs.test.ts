@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { createBuilding, createResident, createTownModerator, extractProposal } from "../src/index.ts";
+import { createBuilding, createResident, createTownModerator, extractProposal, setAssignmentStatus } from "../src/index.ts";
 import { seededWorld, tickUntil } from "./helpers.ts";
 
 const REPORT = `## Summary
@@ -171,6 +171,24 @@ describe("assignments", () => {
     expect(world.agents.require(noor.id).currentAssignmentId).toBe(assignmentId);
     expect((await world.verbs.look(noor, {})).notices.currentAssignment).toBe("Check Mauna Loa");
     expect((await world.verbs.inbox(noor, {})).messages.some((m) => m.body.includes("Check Mauna Loa"))).toBe(true);
+  });
+
+  it("done and cancelled are terminal; a report on a cancelled assignment leaves it cancelled", async () => {
+    const { world, by } = seededWorld();
+    const noor = by("Noor");
+    const asg = world.ops.createWork(null, noor.id, { title: "Check Mauna Loa" });
+    world.ops.startSession(noor.id, { purpose: "work", model: "m", assignmentId: asg.id });
+    // cancelled mid-session (e.g. a stop decision): currentAssignmentId is cleared but the session still points at it
+    setAssignmentStatus(world, asg.id, "cancelled");
+    world.agents.patch(noor.id, { currentAssignmentId: null });
+    const { id: docId } = await world.verbs.submit_report(world.agents.require(noor.id), { title: "Run 1", body: REPORT, verdict: "continue" });
+    expect(world.docs.require(docId)).toMatchObject({ type: "report", decision: "pending" });
+    expect(world.assignments.require(asg.id)).toMatchObject({ status: "cancelled", reportId: null });
+    expect(() => setAssignmentStatus(world, asg.id, "active")).toThrow(/already cancelled/);
+    expect(setAssignmentStatus(world, asg.id, "cancelled").status).toBe("cancelled");
+    const done = world.ops.createWork(null, noor.id, { title: "Done one" });
+    setAssignmentStatus(world, done.id, "done");
+    for (const s of ["pending", "active", "cancelled"] as const) expect(() => setAssignmentStatus(world, done.id, s)).toThrow(expect.objectContaining({ code: "conflict" }));
   });
 });
 
