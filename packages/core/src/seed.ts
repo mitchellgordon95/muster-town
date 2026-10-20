@@ -1,8 +1,8 @@
-import { CollectiveConfig, Town, type Agent, type Building, type User } from "@agent-town/schema";
+import { CollectiveConfig, DAILY_TOKENS_PER_AGENT, LEGACY_DAILY_TOKENS_PER_AGENT, Town, type Agent, type Building, type User } from "@agent-town/schema";
 import { execFileSync } from "node:child_process";
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
-import { createBuilding, createResident, createServiceAgent, createTownModerator, createUser } from "./entities.ts";
+import { createBuilding, createResident, createServiceAgent, createTownModerator, createUser, updateBuilding } from "./entities.ts";
 import { buildingRoleId, townRoleId } from "./permissions.ts";
 import { TOWN_HALL_ID } from "./world/layout.ts";
 import type { World } from "./world.ts";
@@ -66,8 +66,9 @@ function withRepoUrl<W extends { path: string; repoUrl?: string }>(ws: W): W {
  * Seed an empty town: town.json, admin user + token, built-in roles, Town Hall with Ada (service
  * librarian at the library), optional v0 lab import + Moss (reviewer) + house allocation; admin manages the lab;
  * collective.json buildings and town moderators (seated at the mod station).
- * Re-running on a seeded DB returns the existing admin/token and creates no agents (it backfills workspace repoUrl
- * and makes sure the built-in town roles, including v1.2's `moderator`, exist).
+ * Re-running on a seeded DB returns the existing admin/token and creates no agents (it backfills workspace repoUrl,
+ * raises buildings on the legacy 10M daily allowance to the current default, and makes sure the built-in town
+ * roles, including v1.2's `moderator`, exist).
  */
 export function seedDefaults(world: World, opts: SeedOptions = {}): SeedResult {
   const existing = world.users.first("1=1", [], "ORDER BY createdAt, rowid");
@@ -78,6 +79,10 @@ export function seedDefaults(world: World, opts: SeedOptions = {}): SeedResult {
         const ws = withRepoUrl(b.workspace);
         if (ws.repoUrl) world.buildings.patch(b.id, { workspace: ws });
       }
+    }
+    // buildings still on the old default allowance get the new default (and their out-of-budget residents resume)
+    for (const b of world.buildings.all()) {
+      if (b.dailyTokensPerAgent === LEGACY_DAILY_TOKENS_PER_AGENT) updateBuilding(world, b.id, { dailyTokensPerAgent: DAILY_TOKENS_PER_AGENT });
     }
     // v1.2: the town moderator role (no moderator agents are created in existing DBs)
     world.permissions.ensureTownRoles();

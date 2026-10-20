@@ -128,6 +128,11 @@ export const Workspace = z.object({
 });
 export type Workspace = z.infer<typeof Workspace>;
 
+/** Default daily token allowance per resident (about 30 Opus sessions with cache reads counted). */
+export const DAILY_TOKENS_PER_AGENT = 30_000_000;
+/** The default before 2026-10-20; seed raises buildings still on it to `DAILY_TOKENS_PER_AGENT`. */
+export const LEGACY_DAILY_TOKENS_PER_AGENT = 10_000_000;
+
 export const Building = z.object({
   id: Id,
   name: z.string(),
@@ -143,7 +148,7 @@ export const Building = z.object({
   /** safety rail per work session, not a design parameter */
   maxTurnsPerSession: z.number().int().positive().default(80),
   /** tokens each resident may spend per day */
-  dailyTokensPerAgent: z.number().int().positive().default(10_000_000),
+  dailyTokensPerAgent: z.number().int().positive().default(DAILY_TOKENS_PER_AGENT),
   meetings: z.array(MeetingCadence).default([]),
   /** standing rules (markdown) from the building's manager; every session in this building starts with them */
   rules: z.string().max(8000).default(""),

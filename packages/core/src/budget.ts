@@ -110,11 +110,20 @@ export class Budget {
     const allocation = this.repos.allocations.upsert({ id: newId("al"), userId, buildingId: b.id, tokens: inp.tokens, spentTokens: 0, spentUsd: 0, createdAt: nowIso() });
     this.repos.users.upsert({ ...this.repos.users.require(userId), donatedTokens: user.donatedTokens + inp.tokens });
     this.events.append({ type: "allocation.created", buildingId: b.id, text: `${user.name} donated ${inp.tokens.toLocaleString("en-US")} tokens to ${b.name}`, payload: { allocationId: allocation.id, userId, tokens: inp.tokens } });
-    // resume residents that were blocked only by the building budget
-    for (const r of this.repos.agents.where("homeBuildingId = ? AND status = 'out-of-budget'", [b.id])) {
-      if (r.spentTokensToday < b.dailyTokensPerAgent) this.setStatus(r, "idle");
-    }
+    this.resumeResidents(b.id);
     return allocation;
+  }
+
+  /**
+   * Out-of-budget residents of the building that may start again (under the daily allowance,
+   * building has budget) go idle. Called after a donation or a raised allowance. Returns how many resumed.
+   */
+  resumeResidents(buildingId: string): number {
+    let n = 0;
+    for (const r of this.repos.agents.where("homeBuildingId = ? AND status = 'out-of-budget'", [buildingId])) {
+      if (this.canStart(r.id)) { this.setStatus(r, "idle"); n++; }
+    }
+    return n;
   }
 
   summary(): BudgetSummary {

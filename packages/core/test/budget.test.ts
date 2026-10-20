@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { DAILY_TOKENS_PER_AGENT, LEGACY_DAILY_TOKENS_PER_AGENT } from "@agent-town/schema";
 import { createBuilding, createResident, HOUSE_BUDGET_TOKENS } from "../src/index.ts";
 import { seededWorld } from "./helpers.ts";
 
@@ -52,5 +53,40 @@ describe("budgets", () => {
     world.budget.donate(donor.id, { tokens: 1000, buildingId: b.id });
     expect(world.agents.require(a1.id).status).toBe("idle");
     expect(world.budget.canStart(a1.id)).toBe(true);
+  });
+});
+
+describe("daily allowance", () => {
+  it("new buildings default to DAILY_TOKENS_PER_AGENT", () => {
+    const { world, seed } = seededWorld();
+    expect(createBuilding(world, { name: "Fresh" }, seed.admin.id).dailyTokensPerAgent).toBe(DAILY_TOKENS_PER_AGENT);
+  });
+
+  it("raising the allowance resumes residents that ran out today", () => {
+    const { world, seed } = seededWorld();
+    const b = createBuilding(world, { name: "Tiny", dailyTokensPerAgent: 100 }, seed.admin.id);
+    const a = createResident(world, { buildingId: b.id, name: "A", title: "t", direction: "d" });
+    world.budget.donate(seed.admin.id, { tokens: 10_000, buildingId: b.id });
+    world.budget.charge(a.id, 150, 0);
+    expect(world.agents.require(a.id).status).toBe("out-of-budget");
+    world.ops.updateBuilding(null, b.id, { dailyTokensPerAgent: 120 });
+    expect(world.agents.require(a.id).status).toBe("out-of-budget"); // still over
+    world.ops.updateBuilding(null, b.id, { dailyTokensPerAgent: 1000 });
+    expect(world.agents.require(a.id).status).toBe("idle");
+    expect(world.budget.canStart(a.id)).toBe(true);
+  });
+
+  it("re-seeding an existing DB raises buildings on the legacy default only", () => {
+    const { world, seed } = seededWorld();
+    const legacy = createBuilding(world, { name: "Legacy", dailyTokensPerAgent: LEGACY_DAILY_TOKENS_PER_AGENT }, seed.admin.id);
+    const custom = createBuilding(world, { name: "Custom", dailyTokensPerAgent: 5_000_000 }, seed.admin.id);
+    const a = createResident(world, { buildingId: legacy.id, name: "A", title: "t", direction: "d" });
+    world.budget.donate(seed.admin.id, { tokens: 100_000_000, buildingId: legacy.id });
+    world.budget.charge(a.id, LEGACY_DAILY_TOKENS_PER_AGENT, 0);
+    expect(world.agents.require(a.id).status).toBe("out-of-budget");
+    expect(world.seedDefaults({}).created).toBe(false);
+    expect(world.buildings.require(legacy.id).dailyTokensPerAgent).toBe(DAILY_TOKENS_PER_AGENT);
+    expect(world.buildings.require(custom.id).dailyTokensPerAgent).toBe(5_000_000);
+    expect(world.agents.require(a.id).status).toBe("idle");
   });
 });
