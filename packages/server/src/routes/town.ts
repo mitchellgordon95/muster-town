@@ -1,5 +1,5 @@
 import { AppError, boardDocs, cabinetCounts, cabinetDocs } from "@muster-town/core";
-import { AddBankInput, CreateBuildingInput, SetBankShareInput, DocType, DonateInput, LayoutInput, Membership, RedeployInput, UpdateBuildingInput, townEnv, type AuthMe } from "@muster-town/schema";
+import { AddBankInput, CreateBuildingInput, SetBankShareInput, DocType, DonateInput, LayoutInput, Membership, PlanInput, RedeployInput, UpdateBuildingInput, townEnv, type AuthMe } from "@muster-town/schema";
 import type { FastifyInstance } from "fastify";
 import { z } from "zod";
 import { actorOf, adminToken, parse, requireAuth, requireUser, type Params } from "../context.ts";
@@ -80,6 +80,17 @@ export async function townRoutes(app: FastifyInstance) {
     const actor = actorOf(world, req);
     if (input.dryRun) return world.ops.layoutPreview(actor, req.params.id, input.furniture);
     return { building: world.ops.updateFurniture(actor, req.params.id, input.furniture) };
+  });
+
+  /**
+   * Town planning (humans with town.manage_buildings): new lots for existing buildings and/or one new building on
+   * a drawn lot. `dryRun` returns errors and the grid as it would look.
+   */
+  app.put("/api/town/plan", async (req) => {
+    const input = parse(PlanInput, req.body);
+    const actor = actorOf(world, req);
+    if (input.dryRun) return world.ops.planPreview(actor, input.lots, input.create);
+    return world.ops.planTown(actor, input.lots, input.create);
   });
 
   /** The building's in-tray: pending reports, oldest first. Readable by anyone. Reports live here, not on the board. */

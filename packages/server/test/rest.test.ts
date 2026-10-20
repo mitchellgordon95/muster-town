@@ -307,3 +307,26 @@ describe("edit layout", () => {
     expect(refused.status).toBe(403);
   });
 });
+
+describe("town planning", () => {
+  it("an admin dry-runs and saves a move plus a new building; illegal plans are 400, agent tokens 403", async () => {
+    const { app, world, auth } = await setup();
+    const lot = world.buildings.require("carbon-cycle").lot!;
+    const moved = { ...lot, y: lot.y - 3 };
+    const dry = await json(app, "PUT", "/api/town/plan", { headers: auth, body: { lots: { "carbon-cycle": moved }, dryRun: true } });
+    expect(dry.status).toBe(200);
+    expect(dry.body.errors).toEqual([]);
+    expect(world.buildings.require("carbon-cycle").lot).toEqual(lot);
+    const th = world.buildings.require("town-hall").lot!;
+    const bad = await json(app, "PUT", "/api/town/plan", { headers: auth, body: { lots: { "carbon-cycle": th } } });
+    expect(bad.status).toBe(400);
+    const right = Math.max(...world.buildings.all().map((b) => b.lot!.x + b.lot!.w));
+    const ok = await json(app, "PUT", "/api/town/plan", { headers: auth, body: { lots: { "carbon-cycle": moved }, create: { name: "Kelp Lab", headcount: 1, lot: { x: right + 2, y: 20, w: 13, h: 9 } } } });
+    expect(ok.status).toBe(200);
+    expect(ok.body.buildings[0].lot).toEqual(moved);
+    expect(ok.body.created.name).toBe("Kelp Lab");
+    const moss = world.agents.first("name = 'Moss'")!;
+    const agent = { authorization: `Bearer ${world.tokens.getOrCreate("agent", moss.id)}` };
+    expect((await json(app, "PUT", "/api/town/plan", { headers: agent, body: { lots: {}, dryRun: true } })).status).toBe(403);
+  });
+});

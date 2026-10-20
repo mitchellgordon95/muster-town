@@ -8,6 +8,7 @@ import { World } from "./world";
 import { authStore } from "../auth/auth";
 import { T, CHAR_W, CHAR_H, charSheet, tiles, HUMAN_SPRITE } from "./sprites";
 import { layoutEdit, type LayoutDraft } from "./layoutEdit";
+import { townPlan, type PlanDraft } from "./townPlan";
 import { bubbleFor, buildingBudgetLine, drawBadge, drawBankSign, drawBubble, drawLabel, drawPill, drawSign, residentBudgetLine, type Bubble } from "./overlay";
 import { blockedByRedeploy } from "../redeploy";
 import { api } from "../api";
@@ -111,6 +112,8 @@ export class MapRenderer {
     api().bank().then((b) => { flow.bank = b; }, (e) => { flow.error = e instanceof Error ? e.message : String(e); });
   }
   closeFlow() { this.flow = null; }
+  /** The zoomed-out whole-town view: the Bank's town map and town planning share one camera. */
+  overview(): boolean { return !!this.flow || !!townPlan.draft; }
 
   /** Dev hook: put the avatar next to an agent and face it. */
   teleportTo(agentId: string): boolean {
@@ -198,9 +201,13 @@ export class MapRenderer {
     if (!s.grid) return;
     // while editing a layout, show the server's dry-run grid for the draft
     const ed = layoutEdit.draft;
-    const key = ed?.preview ? `edit:${ed.previewVersion}` : `snap:${s.gridVersion}`;
+    // planning the town: the dry-run grid, with the buildings where the draft has them
+    const plan = townPlan.draft;
+    const key = ed?.preview ? `edit:${ed.previewVersion}` : plan?.preview ? `plan:${plan.previewVersion}` : `snap:${s.gridVersion}`;
     if (this.gridKey === key && this.world) return;
-    this.world = new World(ed?.preview ?? s.grid, s.buildings, s.places);
+    this.world = plan?.preview
+      ? new World(plan.preview, s.buildings.map((b) => (plan.lots[b.id] ? { ...b, lot: plan.lots[b.id] } : b)), plan.places ?? s.places)
+      : new World(ed?.preview ?? s.grid, s.buildings, s.places);
     this.gridKey = key;
     if (!this.me.placed) {
       const av = store.avatarId ? s.agents[store.avatarId] : null;
@@ -235,7 +242,7 @@ export class MapRenderer {
 
   private moveMe(dt: number) {
     // the arrow keys nudge furniture while editing a layout
-    if (layoutEdit.draft) { this.me.moving = false; this.route = null; this.onArrive = null; return; }
+    if (layoutEdit.draft || townPlan.draft) { this.me.moving = false; this.route = null; this.onArrive = null; return; }
     const k = this.keys, w = this.world!;
     let vx = 0, vy = 0;
     if (k.has("arrowleft") || k.has("a")) vx -= 1;
@@ -365,6 +372,29 @@ export class MapRenderer {
     }
   }
 
+  /** Town planning overlay (world px): every lot outlined, the selected one gold, illegal ones red, wall handles. */
+  private drawTownPlan(plan: PlanDraft, z: number) {
+    const g = this.g, px = 1 / z;
+    const bad = new Set(plan.errors.map((e) => e.buildingId));
+    const lots: [string, { x: number; y: number; w: number; h: number }][] = [...Object.entries(plan.lots), ...(plan.create ? [["new", plan.create.lot] as [string, typeof plan.create.lot]] : [])];
+    for (const [id, l] of lots) {
+      const sel = id === plan.selected;
+      const color = bad.has(id) ? "#ff5d5d" : sel ? "#ffd34d" : id === "new" ? "#7fd4ff" : "rgba(255,255,255,.7)";
+      g.fillStyle = bad.has(id) ? "rgba(255,93,93,.18)" : id === "new" ? "rgba(127,212,255,.16)" : sel ? "rgba(255,211,77,.12)" : "rgba(255,255,255,.04)";
+      g.fillRect(l.x * T, l.y * T, l.w * T, l.h * T);
+      g.strokeStyle = color; g.lineWidth = (sel || bad.has(id) ? 3 : 1.5) * px;
+      g.setLineDash(id === "new" ? [6 * px, 4 * px] : []);
+      g.strokeRect(l.x * T, l.y * T, l.w * T, l.h * T);
+      g.setLineDash([]);
+      // corner handles: drag a wall or corner to resize
+      if (sel) {
+        g.fillStyle = color;
+        const hs = 6 * px;
+        for (const [cx, cy] of [[l.x, l.y], [l.x + l.w, l.y], [l.x, l.y + l.h], [l.x + l.w, l.y + l.h]]) g.fillRect(cx * T - hs / 2, cy * T - hs / 2, hs, hs);
+      }
+    }
+  }
+
   private draw(now: number) {
     const g = this.g, w = this.world!;
     const dpr = window.devicePixelRatio || 1;
@@ -375,16 +405,17 @@ export class MapRenderer {
     const hud = document.querySelector(".hud")?.getBoundingClientRect();
     this.leftInset = hud ? Math.min(hud.right + 12, viewW * 0.45) : 0;
     // ease the zoom: out to the whole town (fitted in that strip) while the Bank's town map is open, back to `zoom` after
-    const goalZ = this.flow ? fitZoom(ww, wh, viewW - this.leftInset, ch, this.zoom) : this.zoom;
+    const overview = this.overview();
+    const goalZ = overview ? fitZoom(ww, wh, viewW - this.leftInset, ch, this.zoom) : this.zoom;
     this.z = !this.z ? goalZ : Math.abs(goalZ - this.z) < 0.01 ? goalZ : this.z + (goalZ - this.z) * 0.12;
     const z = this.z;
     const ed = layoutEdit.draft;
     // editing a layout: centre the room instead of the avatar; the town map: centre the whole town
-    const fx = ed ? (ed.lot.x + ed.lot.w / 2) * T : this.flow ? ww / 2 : this.me.x, fy = ed ? (ed.lot.y + ed.lot.h / 2) * T : this.flow ? wh / 2 : this.me.y;
+    const fx = ed ? (ed.lot.x + ed.lot.w / 2) * T : overview ? ww / 2 : this.me.x, fy = ed ? (ed.lot.y + ed.lot.h / 2) * T : overview ? wh / 2 : this.me.y;
     let cx = fx - (this.leftInset + (viewW - this.leftInset) / 2) / z, cy = fy - ch / 2 / z;
     // let the camera pan past the left edge by the HUD's width so nothing hides under it
     const lead = this.leftInset / z;
-    if (!this.flow) {
+    if (!overview) {
       cx = ww * z + this.leftInset <= viewW ? -(viewW / z - ww) / 2 : Math.max(-lead, Math.min(ww - viewW / z, cx));
       cy = wh * z <= ch ? -(ch / z - wh) / 2 : Math.max(0, Math.min(wh - ch / z, cy));
     }
@@ -426,6 +457,8 @@ export class MapRenderer {
     }
 
     if (ed) this.drawLayoutEdit(ed, ox, oy, cw / z, ch / z);
+    const plan = townPlan.draft;
+    if (plan) this.drawTownPlan(plan, z);
 
     // screen-space overlay
     g.setTransform(dpr, 0, 0, dpr, 0, 0);
@@ -433,6 +466,17 @@ export class MapRenderer {
       // the town map: just the flow over the dimmed town (no signs, labels or bubbles); bodies can't be clicked
       this.hitboxes = [];
       drawFlow(g, now, this.flow, s.buildings, s.places, toScreen, cw, ch, this.leftInset + (viewW - this.leftInset) / 2);
+      return;
+    }
+    if (plan) {
+      // planning: each lot's name, nothing else (bodies can't be clicked)
+      this.hitboxes = [];
+      const names = new Map(s.buildings.map((b) => [b.id, b.name]));
+      if (plan.create) names.set("new", plan.create.name.trim() || "New building");
+      for (const [id, l] of [...Object.entries(plan.lots), ...(plan.create ? [["new", plan.create.lot] as const] : [])]) {
+        const p = toScreen(l.x * T, l.y * T);
+        drawPill(g, p.x, p.y - 3, `${names.get(id) ?? id} · ${l.w}×${l.h}`);
+      }
       return;
     }
     for (const b of s.buildings) {

@@ -12,7 +12,7 @@ export { Permissions, holderOf, isAgent, townRoleId, buildingRoleId, type Holder
 export { Budget, type ChargeResult, type BudgetSummary } from "./budget.ts";
 export { Bank, type BankContributor, type BankSummary } from "./bank.ts";
 export { Ops, type Actor, type MessageAgentOptions, type MessageAgentResult, type RequestAction, type ThreadMessage } from "./ops.ts";
-export { createBuilding, updateBuilding, createResident, registerVisitor, ensureAvatar, createUser, createServiceAgent, createTownModerator, updateFurniture } from "./entities.ts";
+export { createBuilding, updateBuilding, createResident, registerVisitor, ensureAvatar, createUser, createServiceAgent, createTownModerator, updateFurniture, planTown } from "./entities.ts";
 export { checkWaits, describeWait, validateWait, waitMet } from "./waits.ts";
 export { Presence, STAMP_EVERY_MS, OFFLINE_AFTER_MS, PRESENCE_TICK_MS, OFFER_TTL_MS, type TouchResult } from "./presence.ts";
 export { upsertGithubUser, type GithubProfile, type GithubUpsertResult } from "./github-users.ts";
@@ -38,6 +38,7 @@ export {
   type Grid, type DeskSlot, type LayoutResult,
 } from "./world/layout.ts";
 export { findPath, isWalkable, nearestWalkable } from "./world/path.ts";
+export { validatePlan, planLot, doorOf, MAX_LOT, MAX_TOWN_X, type PlanError, type PlanLot } from "./world/plan.ts";
 export { piecesFor, validateLayout, resolveFurniture, movedOnly, type Piece, type Furniture, type LayoutError } from "./world/furniture.ts";
 export { WorldMap } from "./world/map.ts";
 export { Movement, WALK_TILES_PER_SEC, WALK_TIMEOUT_MS } from "./world/movement.ts";

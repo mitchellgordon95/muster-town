@@ -1,6 +1,6 @@
 import {
   Agent, CreateBuildingInput, CreateResidentInput, RegisterVisitorInput,
-  type Building, type Tile, type User,
+  type Building, type Lot, type Tile, type User,
 } from "@muster-town/schema";
 import { AppError, badRequest } from "./errors.ts";
 import { buildingRoleId, townRoleId } from "./permissions.ts";
@@ -25,7 +25,7 @@ export function createBuilding(
   world: World,
   input: In<typeof CreateBuildingInput>,
   creatorUserId: string | null,
-  opts: { id?: string; kind?: Building["kind"] } = {},
+  opts: { id?: string; kind?: Building["kind"]; lot?: Lot } = {},
 ): Building {
   const inp = CreateBuildingInput.parse(input);
   if (inp.managerAgentId) throw badRequest("A new building has no residents yet; set its manager after they join.");
@@ -35,7 +35,7 @@ export function createBuilding(
   if (creatorUserId) world.users.require(creatorUserId, "user");
   return world.transaction(() => {
     const building = world.buildings.upsert({
-      ...inp, id, kind: opts.kind ?? "lab", createdAt: nowIso(), createdBy: creatorUserId ?? undefined,
+      ...inp, id, kind: opts.kind ?? "lab", createdAt: nowIso(), createdBy: creatorUserId ?? undefined, ...(opts.lot ? { lot: opts.lot } : {}),
     } as Building);
     world.permissions.ensureTownRoles();
     world.permissions.ensureBuildingRoles(id);
@@ -77,30 +77,82 @@ export function updateFurniture(world: World, id: string, furniture: Furniture, 
   const map = world.layout;
   const preview = map.preview(id, furniture);
   if (preview.errors.length) throw badRequest(preview.errors.map((e) => e.message).join(" "));
-  const before = { places: new Map(map.places.map((p) => [p.id, p.pos])), seats: new Map(map.places.map((p) => [p.id, map.seatsOf(p.id)])) };
+  const before = bodiesBefore(world);
   return world.transaction(() => {
     world.buildings.upsert({ ...b, furniture: preview.furniture });
     map.rebuild();
-    const moves = new Map<string, Tile>();
-    for (const p of map.places) {
-      const old = before.places.get(p.id);
-      if (old && (old.x !== p.pos.x || old.y !== p.pos.y)) moves.set(`${old.x},${old.y}`, p.pos);
-      const now = map.seatsOf(p.id);
-      (before.seats.get(p.id) ?? []).forEach((s, i) => { if (now[i] && !moves.has(`${s.x},${s.y}`)) moves.set(`${s.x},${s.y}`, now[i]); });
-    }
-    const moved = (t: Tile) => moves.get(`${t.x},${t.y}`) ?? t;
-    const positions: { id: string; x: number; y: number; status: Agent["status"] }[] = [];
-    for (const a of world.agents.where("status != 'retired'")) {
-      if (world.movement.isWalking(a.id) || map.buildingAt(a.pos)?.id !== id) continue;
-      const pos = nearestWalkable(map.grid, moved(a.pos));
-      if (pos.x === a.pos.x && pos.y === a.pos.y) continue;
-      world.agents.upsert({ ...a, pos }, { silent: true });
-      positions.push({ id: a.id, x: pos.x, y: pos.y, status: a.status });
-    }
-    world.movement.reroute(moved);
-    if (positions.length) world.changes.emit({ type: "agents.pos", positions });
+    followBodies(world, before, (pos) => (map.buildingAt(pos)?.id === id ? pos : null));
     world.events.append({ type: "building.layout", buildingId: id, text: `${b.name} layout changed`, payload: { by, before: b.furniture, after: preview.furniture } });
     return world.buildings.require(id);
+  });
+}
+
+/** Where every place and meeting seat is now, so bodies can follow a layout change. */
+function bodiesBefore(world: World) {
+  const map = world.layout;
+  return { places: new Map(map.places.map((p) => [p.id, p.pos])), seats: new Map(map.places.map((p) => [p.id, map.seatsOf(p.id)])) };
+}
+
+/**
+ * After a rebuild: anyone at a place or meeting seat that moved goes to its new tile; anyone else `pick` returns a
+ * tile for (null = leave alone) steps to the nearest free tile from there. Walks are re-planned. Place ids don't change.
+ */
+function followBodies(world: World, before: ReturnType<typeof bodiesBefore>, pick: (pos: Tile) => Tile | null) {
+  const map = world.layout;
+  const moves = new Map<string, Tile>();
+  for (const p of map.places) {
+    const old = before.places.get(p.id);
+    if (old && (old.x !== p.pos.x || old.y !== p.pos.y)) moves.set(`${old.x},${old.y}`, p.pos);
+    const now = map.seatsOf(p.id);
+    (before.seats.get(p.id) ?? []).forEach((s, i) => { if (now[i] && !moves.has(`${s.x},${s.y}`)) moves.set(`${s.x},${s.y}`, now[i]); });
+  }
+  const moved = (t: Tile) => moves.get(`${t.x},${t.y}`) ?? t;
+  const positions: { id: string; x: number; y: number; status: Agent["status"] }[] = [];
+  for (const a of world.agents.where("status != 'retired'")) {
+    if (world.movement.isWalking(a.id)) continue;
+    const to = moves.get(`${a.pos.x},${a.pos.y}`) ?? pick(a.pos);
+    if (!to) continue;
+    const pos = nearestWalkable(map.grid, to);
+    if (pos.x === a.pos.x && pos.y === a.pos.y) continue;
+    world.agents.upsert({ ...a, pos }, { silent: true });
+    positions.push({ id: a.id, x: pos.x, y: pos.y, status: a.status });
+  }
+  world.movement.reroute(moved);
+  if (positions.length) world.changes.emit({ type: "agents.pos", positions });
+}
+
+/**
+ * Town planning: move/resize buildings (`lots`, left out = stays put) and optionally build one new building on a
+ * drawn lot, in one step. Throws on an illegal plan. Bodies inside a moved building move with it; anyone a
+ * building now stands on steps to the nearest free tile.
+ */
+export function planTown(world: World, lots: Record<string, Lot>, create: (In<typeof CreateBuildingInput> & { lot: Lot }) | undefined, creatorUserId: string | null): { buildings: Building[]; created: Building | null } {
+  const map = world.layout;
+  const preview = map.planPreview(lots, create && { name: create.name, headcount: create.headcount, lot: create.lot });
+  if (preview.errors.length) throw badRequest(preview.errors.map((e) => e.message).join(" "));
+  const changed = Object.entries(lots).map(([id, lot]) => ({ old: world.buildings.require(id, "building"), lot }))
+    .filter(({ old, lot }) => !old.lot || old.lot.x !== lot.x || old.lot.y !== lot.y || old.lot.w !== lot.w || old.lot.h !== lot.h);
+  if (!changed.length && !create) return { buildings: [], created: null };
+  const before = bodiesBefore(world);
+  return world.transaction(() => {
+    for (const { old, lot } of changed) world.buildings.upsert({ ...old, lot });
+    map.rebuild();
+    const inOld = (pos: Tile) => changed.find(({ old: { lot: l } }) => l && pos.x >= l.x && pos.x < l.x + l.w && pos.y >= l.y && pos.y < l.y + l.h);
+    followBodies(world, before, (pos) => {
+      const c = inOld(pos);
+      if (c) return { x: pos.x + c.lot.x - c.old.lot!.x, y: pos.y + c.lot.y - c.old.lot!.y };
+      return map.isWalkable(pos.x, pos.y) ? null : pos;
+    });
+    for (const { old, lot } of changed) {
+      world.events.append({ type: "town.plan", buildingId: old.id, text: `${old.name} was ${old.lot && (old.lot.w !== lot.w || old.lot.h !== lot.h) ? "resized" : "moved"}`, payload: { by: creatorUserId, before: old.lot ?? null, after: lot } });
+    }
+    let created: Building | null = null;
+    if (create) {
+      const { lot, ...input } = create;
+      created = createBuilding(world, input, creatorUserId, { lot });
+      followBodies(world, bodiesBefore(world), (pos) => (map.isWalkable(pos.x, pos.y) ? null : pos));
+    }
+    return { buildings: changed.map(({ old }) => world.buildings.require(old.id)), created };
   });
 }
 

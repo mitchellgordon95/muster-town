@@ -8,6 +8,7 @@ import { RolesTab } from "./BuildingPanel";
 import { DismissButton, canDismiss } from "./Dismiss";
 import { Act, Empty, Field, Section, StatusPill } from "./ui";
 import { PALETTES, portraitUrl } from "../map/sprites";
+import { townPlan } from "../map/townPlan";
 
 export function PlanningPanel({ tab }: { tab?: string }) {
   const me = useTown((s) => s.me);
@@ -43,6 +44,13 @@ function Buildings() {
           </button>
         ))}
       </Section>
+      {can && !api().mock ? (
+        <div className="walk-links">
+          <button className="walk-link" onClick={() => townPlan.start()} title="Zoom out to the whole town: move, resize and draw buildings">
+            <Glyph kind="planning" /><span>Plan the town on the map</span>
+          </button>
+        </div>
+      ) : null}
       {can ? (
         <Section title="New building">
           <form className="form" onSubmit={(e) => e.preventDefault()}>

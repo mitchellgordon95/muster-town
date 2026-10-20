@@ -1,7 +1,7 @@
-import { AgentPermissionsPatch, WorkInput, type Agent, type Assignment, type Interrupt, type CreateBuildingInput, type CreateMeetingInput, type CreateResidentInput, type Doc, type Meeting, type Membership, type RegisterVisitorInput, type Session } from "@muster-town/schema";
+import { AgentPermissionsPatch, WorkInput, type Agent, type Lot, type PlanInput, type Assignment, type Interrupt, type CreateBuildingInput, type CreateMeetingInput, type CreateResidentInput, type Doc, type Meeting, type Membership, type RegisterVisitorInput, type Session } from "@muster-town/schema";
 import { createAssignment, createDoc, homeOf, intrayOf, moveToFront, pendingQueue, sendMessage, setAssignmentStatus, updateDoc } from "./domain.ts";
 import { CHECK_IN } from "./prompts.ts";
-import { createBuilding, createResident, createUser, ensureAvatar, registerVisitor, updateBuilding, updateFurniture } from "./entities.ts";
+import { createBuilding, createResident, createUser, ensureAvatar, planTown, registerVisitor, updateBuilding, updateFurniture } from "./entities.ts";
 import type { Furniture } from "./world/furniture.ts";
 import { AppError, badRequest, forbidden } from "./errors.ts";
 import { createMeeting, endMeeting, meetingDecide, meetingSpeak, setMeetingPhase } from "./meetings.ts";
@@ -63,6 +63,24 @@ export class Ops {
     if (!actor) return;
     if (actor.kind !== "human") throw new AppError("forbidden", "Only humans can rearrange furniture.");
     this.world.permissions.require(actor, "building.manage", id);
+  }
+  /**
+   * Town planning (move, resize, create buildings on the map): `town.manage_buildings`, the permission that already
+   * covers creating and resizing buildings. Humans only, like Edit layout: an agent token is refused.
+   */
+  planPreview(actor: Actor, lots: Record<string, Lot>, create?: (typeof PlanInput)["_output"]["create"]) {
+    this.requirePlanner(actor);
+    return this.world.layout.planPreview(lots, create);
+  }
+  planTown(actor: Actor, lots: Record<string, Lot>, create?: (typeof PlanInput)["_output"]["create"]) {
+    this.requirePlanner(actor);
+    const creator = actor ? this.world.holderOf(actor) : null;
+    return planTown(this.world, lots, create, creator?.kind === "user" ? creator.id : null);
+  }
+  private requirePlanner(actor: Actor) {
+    if (!actor) return;
+    if (actor.kind !== "human") throw new AppError("forbidden", "Only humans can plan the town.");
+    this.world.permissions.require(actor, "town.manage_buildings");
   }
   createResident(actor: Actor, input: (typeof CreateResidentInput)["_input"]) {
     if (actor) this.world.permissions.require(actor, "building.manage", input.buildingId);

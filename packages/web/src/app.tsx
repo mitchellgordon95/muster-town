@@ -4,6 +4,8 @@ import { api, ApiError, getApi, isMock, tokenStore, type Socket } from "./api";
 import { store, useTown, type PanelKind, type PanelRef } from "./state";
 import { layoutEdit } from "./map/layoutEdit";
 import { LayoutToolbar } from "./panels/LayoutToolbar";
+import { townPlan } from "./map/townPlan";
+import { PlanToolbar } from "./panels/PlanToolbar";
 import { MapCanvas, mapRenderer, typing } from "./map/MapCanvas";
 import { Minimap } from "./map/Minimap";
 import type { Target } from "./map/renderer";
@@ -152,7 +154,7 @@ export function App() {
   }, []);
   useEffect(() => {
     const key = (e: KeyboardEvent) => {
-      if (layoutEdit.draft) return; // the map handles keys while editing a layout
+      if (layoutEdit.draft || townPlan.draft) return; // the map handles keys while editing a layout or planning
       if (e.key === "Escape") {
         if (typing()) (document.activeElement as HTMLElement).blur();
         else if (store.state.panel) store.open(null);
@@ -185,6 +187,7 @@ export function App() {
       </div>
       {panel ? <aside className="panel" style={{ width: pw }}><PanelBoundary key={`${panel.kind}:${panel.id ?? ""}:${panel.docId ?? ""}`}><PanelHost panel={panel} /></PanelBoundary></aside> : null}
       <LayoutToolbar />
+      <PlanToolbar />
       <Toasts />
       {isMock ? <div className="mock-badge" title="VITE_MOCK=1: in-memory fake server">mock</div> : null}
     </div>

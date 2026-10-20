@@ -518,7 +518,7 @@ export const EventType = z.enum([
   "assignment.created", "assignment.status",
   "meeting.created", "meeting.phase", "meeting.utterance", "meeting.decisions",
   "session.started", "session.ended",
-  "building.created", "building.updated", "building.layout", "allocation.created", "budget.exhausted", "bank.input", "bank.credited", "bank.share",
+  "building.created", "building.updated", "building.layout", "town.plan", "allocation.created", "budget.exhausted", "bank.input", "bank.credited", "bank.share",
   "export.done", "system",
 ]);
 export const Event = z.object({
@@ -728,6 +728,11 @@ export const CreateBuildingInput = Building.pick({ name: true, goal: true, descr
 export const UpdateBuildingInput = CreateBuildingInput.partial();
 /** PUT /api/buildings/:id/layout: lot-relative anchors for moved pieces (left out = stays put); `dryRun` only checks it. */
 export const LayoutInput = z.object({ furniture: z.record(Tile), dryRun: z.boolean().default(false) });
+/**
+ * PUT /api/town/plan (town planning): new lots per building (left out = stays put), optionally one new building
+ * drawn on the map; `dryRun` only checks it.
+ */
+export const PlanInput = z.object({ lots: z.record(Lot).default({}), create: CreateBuildingInput.extend({ lot: Lot }).optional(), dryRun: z.boolean().default(false) });
 export const CreateResidentInput = z.object({ buildingId: Id, name: z.string(), title: z.string().default(""), direction: z.string().default(""), sprite: z.number().int().optional(), model: z.string().optional() });
 export const RegisterVisitorInput = z.object({ name: z.string(), buildingId: Id.optional(), title: z.string().optional(),
   /** default true: the visitor acts with its owner's permissions (capped by them) */

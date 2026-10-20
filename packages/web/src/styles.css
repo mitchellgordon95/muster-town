@@ -120,6 +120,10 @@ kbd { font-family: var(--mono); font-size: 11px; background: #2a2d3a; border: 1p
 .layout-bar-title span { color: var(--muted); }
 .layout-bar-errors { color: #ff8a8a; font-size: 12px; }
 .layout-bar-actions { display: flex; gap: 6px; flex-wrap: wrap; }
+.plan-form { display: flex; gap: 6px; flex-wrap: wrap; align-items: center; font-size: 12px; }
+.plan-form input, .plan-form select { width: auto; padding: 5px 8px; }
+.plan-form .grow { flex: 1 1 150px; min-width: 0; }
+.plan-form label { display: flex; gap: 4px; align-items: center; color: var(--muted); }
 .loading-screen { position: absolute; inset: 0; display: grid; place-content: center; justify-items: center; gap: 14px; color: var(--muted); background: var(--bg); }
 
 /* ---------- panel ---------- */

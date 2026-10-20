@@ -1,10 +1,11 @@
-import { TILE, type Building, type Place, type Tile } from "@muster-town/schema";
+import { TILE, type Building, type Lot, type Place, type Tile } from "@muster-town/schema";
 import type { DB } from "../db.ts";
 import { AppError, notFound } from "../errors.ts";
 import type { Repos } from "../store.ts";
 import { movedOnly, piecesFor, resolveFurniture, validateLayout, type Furniture, type LayoutError, type Piece } from "./furniture.ts";
 import { assignLots, computeLayout, MOD_SEATS, type DeskSlot, type Grid } from "./layout.ts";
 import { isWalkable } from "./path.ts";
+import { planLot, validatePlan, type PlanError, type PlanLot } from "./plan.ts";
 
 /** World geometry service: `world.layout`. Rebuilt whenever buildings or desk occupancy change. */
 export class WorldMap {
@@ -79,6 +80,23 @@ export class WorldMap {
       for (const p of pieces) for (const c of p.cells) put(b.lot.x + anchors[p.key].x + c.dx, b.lot.y + anchors[p.key].y + c.dy, c.tile);
     }
     return { errors, furniture: moved, grid: res.grid, places: res.places.filter((p) => p.buildingId === b.id) };
+  }
+
+  /**
+   * Check a town plan (`lots`: new lot per building, left out = stays put; `create`: one new building drawn on the
+   * map) without saving it. Returns the errors and the whole grid as it would look (drawn even when illegal, so the
+   * planner sees where things are). The new building's id in `places` is `new`.
+   */
+  planPreview(lots: Record<string, Lot>, create?: { name: string; headcount?: number; lot: Lot }): { errors: PlanError[]; grid: Grid; places: Place[] } {
+    const all = this.repos.buildings.all();
+    const unknown = Object.keys(lots).filter((id) => !all.some((b) => b.id === id));
+    if (unknown.length) throw new AppError("bad_request", `Unknown building: ${unknown.join(", ")}.`);
+    const next = all.map((b) => (lots[b.id] ? { ...b, lot: lots[b.id] } : b));
+    if (create) next.push({ id: "new", name: create.name || "New building", kind: "lab", headcount: create.headcount ?? 6, lot: create.lot, furniture: {} } as Building);
+    const plan = next.map(planLot).filter((p): p is PlanLot => !!p);
+    const errors = validatePlan(plan);
+    const res = this.compute(next);
+    return { errors, grid: res.grid, places: res.places };
   }
 
   place(id: string): Place | undefined {
