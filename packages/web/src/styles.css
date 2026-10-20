@@ -241,6 +241,10 @@ kbd { font-family: var(--mono); font-size: 11px; background: #2a2d3a; border: 1p
 .md img { max-width: 100%; }
 .md.compact { font-size: 12.5px; color: #c4c7dc; } .md.compact p { margin: 4px 0; }
 .md.inline, .md.inline p { display: inline; margin: 0; }
+.md.bubble { font-size: inherit; line-height: 1.45; white-space: normal; }
+.md.bubble > :first-child { margin-top: 0; } .md.bubble > :last-child { margin-bottom: 0; }
+.md.bubble p { margin: 6px 0; } .md.bubble h1, .md.bubble h2, .md.bubble h3 { font-size: 13.5px; margin: 8px 0 4px; color: inherit; }
+.md.bubble code { background: rgba(0,0,0,.25); padding: 0 4px; border-radius: 3px; } .md.bubble pre code { padding: 0; background: none; }
 
 /* building */
 .members { display: flex; flex-direction: column; gap: 4px; }

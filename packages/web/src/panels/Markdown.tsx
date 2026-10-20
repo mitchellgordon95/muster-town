@@ -66,8 +66,11 @@ export async function openDocLink(href: string) {
   else store.toast(`No document found for ${href}`, "bad");
 }
 
-export function Markdown({ text, className }: { text: string; className?: string }) {
-  const html = useMemo(() => sanitize(marked.parse(text, { async: false, gfm: true }) as string), [text]);
+/** Unsanitized HTML; `breaks` turns a single newline into a line break, for chat text where people press Enter and mean it. */
+export const markdownHtml = (text: string, breaks = false) => marked.parse(text, { async: false, gfm: true, breaks }) as string;
+
+export function Markdown({ text, className, breaks = false }: { text: string; className?: string; breaks?: boolean }) {
+  const html = useMemo(() => sanitize(markdownHtml(text, breaks)), [text, breaks]);
   return (
     <div
       className={`md ${className ?? ""}`}

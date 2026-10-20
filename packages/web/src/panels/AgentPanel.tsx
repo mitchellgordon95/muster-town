@@ -5,6 +5,7 @@ import { api, type ThreadMessage } from "../api";
 import { store, useTown, roleOf } from "../state";
 import { DismissButton, canDismiss } from "./Dismiss";
 import { PanelShell } from "./PanelShell";
+import { Markdown } from "./Markdown";
 import { Act, Empty, KV, Pill, Section, StatusPill, clock, fmtTokens, timeAgo, usd, useLoad } from "./ui";
 import { portraitUrl } from "../map/sprites";
 
@@ -126,8 +127,8 @@ function Timeline({ items, empty, agentName }: { items: Item[]; empty: string; a
   return (
     <div className="chat timeline talk">
       {items.map((it, i) => {
-        if (it.kind === "tell") return <div key={it.key} className={`msg ${it.mine ? "me" : "them"}`}>{it.text}<small>{it.mine ? "you" : agentName} · {clock(it.ts)}</small></div>;
-        if (it.kind === "ask") return <div key={`a${i}`} className={`msg ask ${it.msg.role === "user" ? "me" : "them"}`}>{it.msg.text}<small>{it.msg.role === "user" ? "quick question" : "desk assistant (read-only)"} · {clock(it.ts)}</small></div>;
+        if (it.kind === "tell") return <div key={it.key} className={`msg ${it.mine ? "me" : "them"}`}><Markdown text={it.text} className="bubble" breaks /><small>{it.mine ? "you" : agentName} · {clock(it.ts)}</small></div>;
+        if (it.kind === "ask") return <div key={`a${i}`} className={`msg ask ${it.msg.role === "user" ? "me" : "them"}`}><Markdown text={it.msg.text} className="bubble" breaks /><small>{it.msg.role === "user" ? "quick question" : "desk assistant (read-only)"} · {clock(it.ts)}</small></div>;
         const e = it.ev, p = (e.payload ?? {}) as { interrupt?: boolean; now?: boolean; text?: string; sessionId?: string | null };
         if (p.interrupt) {
           const note = p.now ? "interrupted the current turn" : p.sessionId === null ? "waiting for the next session" : "queued for the next turn";
