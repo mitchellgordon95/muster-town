@@ -1,4 +1,4 @@
-import { AppError, type World } from "@muster-town/core";
+import { AppError, suggestResidentName, type World } from "@muster-town/core";
 import { AgentPermissionsPatch, ChatInput, CreateResidentInput, Event, InterruptInput, MessageAgentInput, RegisterVisitorInput, WorkInput, type Agent, type Session } from "@muster-town/schema";
 import type { FastifyInstance, FastifyRequest } from "fastify";
 import { z } from "zod";
@@ -24,6 +24,12 @@ export async function agentRoutes(app: FastifyInstance) {
     const input = parse(CreateResidentInput, req.body);
     const agent = world.ops.createResident(actorOf(world, req), input);
     return reply.code(201).send({ agent });
+  });
+
+  /** A free resident name for the "new resident" form; `avoid` (comma-separated) skips names already offered, for a reroll. */
+  app.get("/api/agents/name-suggestion", async (req) => {
+    const { avoid } = parse(z.object({ avoid: z.string().default("") }), req.query);
+    return { name: suggestResidentName(world, avoid.split(",").map((s) => s.trim()).filter(Boolean)) };
   });
 
   app.post("/api/agents/visitors", async (req, reply) => {

@@ -13,6 +13,7 @@ export { Budget, PLACEHOLDER_LABEL, type ChargeResult, type BudgetSummary } from
 export { Bank, type BankContributor, type BankSummary } from "./bank.ts";
 export { Ops, type Actor, type MessageAgentOptions, type MessageAgentResult, type RequestAction, type ThreadMessage } from "./ops.ts";
 export { createBuilding, updateBuilding, createResident, registerVisitor, ensureAvatar, createUser, createServiceAgent, createTownModerator, updateFurniture, planTown } from "./entities.ts";
+export { RESIDENT_NAMES, suggestResidentName } from "./names.ts";
 export { checkWaits, describeWait, validateWait, waitMet } from "./waits.ts";
 export { Presence, STAMP_EVERY_MS, OFFLINE_AFTER_MS, PRESENCE_TICK_MS, OFFER_TTL_MS, type TouchResult } from "./presence.ts";
 export { upsertGithubUser, type GithubProfile, type GithubUpsertResult } from "./github-users.ts";

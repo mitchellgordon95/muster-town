@@ -115,7 +115,10 @@ export interface Api {
   // agents
   /** pending reports for the building's in-tray, oldest first */
   intray(buildingId: string): Promise<Doc[]>;
+  /** `name` left out = the town picks one. */
   createResident(input: In<typeof CreateResidentInput>): Promise<Agent>;
+  /** An unused resident name for the new-resident form; `avoid` = names already offered (reroll). */
+  suggestName(avoid?: string[]): Promise<string>;
   /** DELETE /api/agents/:id — dismiss (retire) a resident; purge also deletes its desk volume */
   dismiss(id: string, purge?: boolean): Promise<void>;
   /** town.ban */
@@ -268,6 +271,7 @@ export class HttpApi implements Api {
   savePlan(lots: Record<string, Lot>, create?: PlanCreate) { return this.call<{ buildings: Building[]; created: Building | null }>("PUT", "/api/town/plan", { lots, create }); }
   async intray(id: string) { return unwrap<Doc[]>(await this.get(`/api/buildings/${id}/intray`), "reports"); }
   async createResident(i: In<typeof CreateResidentInput>) { return unwrap<Agent>(await this.post("/api/agents/residents", i), "agent"); }
+  async suggestName(avoid: string[] = []) { return unwrap<string>(await this.get(`/api/agents/name-suggestion?avoid=${encodeURIComponent(avoid.join(","))}`), "name"); }
   async dismiss(id: string, purge = false) { await this.call("DELETE", `/api/agents/${id}${purge ? "?purge=1" : ""}`); }
   async ban(id: string, reason: string) { return unwrap<Agent>(await this.post(`/api/agents/${id}/ban`, { reason }), "agent"); }
   agent(id: string) { return this.get<AgentDetail>(`/api/agents/${id}`); }

@@ -39,7 +39,7 @@ describe("v1.4 visitors: where they live", () => {
   it("a full building puts the visitor on the bench, still homed there", () => {
     const { world, seed } = seededWorld();
     const b = world.ops.createBuilding(null, { name: "Tiny", headcount: 1 });
-    world.ops.createResident(null, { buildingId: b.id, name: "Only" });
+    expect(world.agents.where("homeBuildingId = ? AND kind = 'resident'", [b.id])).toHaveLength(1); // its starter resident fills it
     const { agent } = world.ops.registerVisitor(seed.admin.id, { name: "V", buildingId: b.id });
     expect(world.layout.deskOf(agent.id)).toBeUndefined();
     expect(agent.homeBuildingId).toBe(b.id);

@@ -78,7 +78,11 @@ export class MockApi implements Api {
   async previewPlan(): Promise<PlanPreview> { throw new ApiError("Town planning needs the real server.", "unsupported", 501); }
   async savePlan(): Promise<{ buildings: Building[]; created: Building | null }> { throw new ApiError("Town planning needs the real server.", "unsupported", 501); }
   async saveLayout(): Promise<Building> { throw new ApiError("Edit layout needs the real server.", "unsupported", 501); }
-  async createResident(i: In<typeof CreateResidentInput>) { await wait(); return clone(this.sim.createResident(i.buildingId, i.name, i.title ?? "", i.direction ?? "", i.sprite)); }
+  async createResident(i: In<typeof CreateResidentInput>) { await wait(); return clone(this.sim.createResident(i.buildingId, i.name || await this.suggestName(), i.title ?? "", i.direction ?? "", i.sprite)); }
+  async suggestName(avoid: string[] = []) {
+    const taken = new Set([...[...this.sim.agents.values()].map((a) => a.name), ...avoid].map((n) => n.toLowerCase()));
+    return ["Lena", "Milo", "Wren", "Juno", "Kai", "Rhea", "Otto", "Sana"].find((n) => !taken.has(n.toLowerCase())) ?? `Resident ${this.sim.agents.size + 1}`;
+  }
   async setAgentPermissions(): Promise<never> { throw new ApiError("Agent permissions need the real server.", "unsupported", 501); }
   async agent(id: string): Promise<AgentDetail> {
     await wait();

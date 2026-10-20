@@ -78,3 +78,4 @@
 - 2026-10-20: Bank leaderboard counts a retired allocation only for what was spent from it (guest check showed Mitchell at 1070M while the Bank held 70M: 1000M of retired placeholders). — Lena
 - 2026-10-20: Building signs are now cloth banners on a pole and posts, show the full goal wrapped (no truncation), and open the building's Settings tab on click (Overview for those who can't manage it). — Sage
 - 2026-10-20: Resident management (add, dismiss) moved from the planning desk into each building's Settings tab; the planning desk's Residents tab is now a read-only whole-town roster whose rows link to the building's settings. — Craig
+- 2026-10-20: New buildings (POST /api/buildings and the planning desk) start with 3 residents named by the town (first one is manager, capped by headcount); residents can be added without a name, and `GET /api/agents/name-suggestion` gives a free name for a reroll button. — Kelly

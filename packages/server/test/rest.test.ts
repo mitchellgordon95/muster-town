@@ -52,9 +52,9 @@ describe("auth & town", () => {
 describe("buildings & agents", () => {
   it("creates a building and a resident; validation and permission errors map to status codes", async () => {
     const { app, auth, world } = await setup();
-    const b = await json(app, "POST", "/api/buildings", { headers: auth, body: { name: "Ocean Lab", goal: "Ocean heat", headcount: 4 } });
+    const b = await json(app, "POST", "/api/buildings", { headers: auth, body: { name: "Ocean Lab", goal: "Ocean heat", headcount: 5 } });
     expect(b.status).toBe(201);
-    expect(b.body.building).toMatchObject({ name: "Ocean Lab", kind: "lab", headcount: 4 });
+    expect(b.body.building).toMatchObject({ name: "Ocean Lab", kind: "lab", headcount: 5 });
     const bid = b.body.building.id;
 
     const bad = await json(app, "POST", "/api/buildings", { headers: auth, body: { goal: "no name" } });
@@ -64,6 +64,13 @@ describe("buildings & agents", () => {
     const r = await json(app, "POST", "/api/agents/residents", { headers: auth, body: { buildingId: bid, name: "Nia", title: "Oceanographer", direction: "Argo floats" } });
     expect(r.status).toBe(201);
     expect(r.body.agent).toMatchObject({ name: "Nia", kind: "resident", homeBuildingId: bid });
+
+    const sug = await json(app, "GET", "/api/agents/name-suggestion?avoid=Lena,Milo");
+    expect(sug.status).toBe(200);
+    expect(["lena", "milo", "nia"]).not.toContain(sug.body.name.toLowerCase());
+    const unnamed = await json(app, "POST", "/api/agents/residents", { headers: auth, body: { buildingId: bid } });
+    expect(unnamed.status).toBe(201);
+    expect(unnamed.body.agent.name).toBeTruthy();
 
     const detail = await json(app, "GET", `/api/agents/${r.body.agent.id}`);
     expect(detail.body).toMatchObject({ agent: { id: r.body.agent.id }, currentSession: null, latestReport: null, assignments: [] });

@@ -4,6 +4,7 @@ import {
 } from "@muster-town/schema";
 import { AppError, badRequest } from "./errors.ts";
 import { buildingRoleId, townRoleId } from "./permissions.ts";
+import { suggestResidentName } from "./names.ts";
 import { newId, nowIso } from "./util.ts";
 import type { Furniture } from "./world/furniture.ts";
 import { MAX_HEADCOUNT, TOWN_HALL_ID } from "./world/layout.ts";
@@ -25,7 +26,7 @@ export function createBuilding(
   world: World,
   input: In<typeof CreateBuildingInput>,
   creatorUserId: string | null,
-  opts: { id?: string; kind?: Building["kind"]; lot?: Lot } = {},
+  opts: { id?: string; kind?: Building["kind"]; lot?: Lot; starterResidents?: boolean } = {},
 ): Building {
   const inp = CreateBuildingInput.parse(input);
   if (inp.managerAgentId) throw badRequest("A new building has no residents yet; set its manager after they join.");
@@ -42,8 +43,19 @@ export function createBuilding(
     if (creatorUserId) world.permissions.grant({ kind: "user", id: creatorUserId }, buildingRoleId(id, "manager"));
     world.layout.rebuild();
     world.events.append({ type: "building.created", buildingId: id, text: `${building.name} was built`, payload: { createdBy: creatorUserId } });
+    if (opts.starterResidents && building.kind === "lab") seedStarterResidents(world, id);
     return world.buildings.require(id);
   });
+}
+
+/** Residents a building made from the UI/API starts with: the first is its manager, the rest are workers. */
+export const STARTER_RESIDENTS = 3;
+
+/** Move in up to STARTER_RESIDENTS residents with town-picked names (capped by headcount); the first becomes manager. */
+function seedStarterResidents(world: World, buildingId: string): void {
+  const n = Math.min(STARTER_RESIDENTS, world.buildings.require(buildingId).headcount);
+  const residents = Array.from({ length: n }, () => createResident(world, { buildingId }));
+  if (residents[0]) world.buildings.upsert({ ...world.buildings.require(buildingId), managerAgentId: residents[0].id });
 }
 
 /** Update building settings (validated); re-lots if headcount grew. */
@@ -149,7 +161,7 @@ export function planTown(world: World, lots: Record<string, Lot>, create: (In<ty
     let created: Building | null = null;
     if (create) {
       const { lot, ...input } = create;
-      created = createBuilding(world, input, creatorUserId, { lot });
+      created = createBuilding(world, input, creatorUserId, { lot, starterResidents: true });
       followBodies(world, bodiesBefore(world), (pos) => (map.isWalkable(pos.x, pos.y) ? null : pos));
     }
     return { buildings: changed.map(({ old }) => world.buildings.require(old.id)), created };
@@ -166,7 +178,7 @@ export function createResident(world: World, input: In<typeof CreateResidentInpu
     const existing = world.agents.where("homeBuildingId = ? AND kind = 'resident'", [b.id]).length;
     // insert first (desk names come from the agents table), then claim the desk and move the body there
     world.agents.upsert(Agent.parse({
-      id, name: inp.name, kind: "resident", buildingId: b.id, homeBuildingId: b.id, ownerUserId: b.createdBy ?? null,
+      id, name: inp.name || suggestResidentName(world), kind: "resident", buildingId: b.id, homeBuildingId: b.id, ownerUserId: b.createdBy ?? null,
       title: inp.title, direction: inp.direction, sprite: inp.sprite ?? (existing % 8) + 1, model: inp.model ?? null,
       pos: world.layout.door(b.id) ?? { x: 0, y: 0 }, status: "idle", createdAt: nowIso(),
     }), { silent: true });

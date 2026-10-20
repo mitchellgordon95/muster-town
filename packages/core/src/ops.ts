@@ -44,7 +44,7 @@ export class Ops {
   createBuilding(actor: Actor, input: (typeof CreateBuildingInput)["_input"]) {
     if (actor) this.world.permissions.require(actor, "town.manage_buildings");
     const creator = actor ? this.world.holderOf(actor) : null;
-    return createBuilding(this.world, input, creator?.kind === "user" ? creator.id : null);
+    return createBuilding(this.world, input, creator?.kind === "user" ? creator.id : null, { starterResidents: true });
   }
   updateBuilding(actor: Actor, id: string, patch: Partial<(typeof CreateBuildingInput)["_input"]>) {
     if (actor) this.world.permissions.require(actor, "building.manage", id);
