@@ -33,4 +33,4 @@
 - 2026-10-20: meeting rooms: attendees take distinct seats around the table instead of stacking on one tile (Root)
 - 2026-10-20 board: standing guidance only; meeting notes join reports in the building's filing cabinet (GET /api/buildings/:id/cabinet, Filing cabinet tab on the board panel); prompts and board verb say so — Sage
 - 2026-10-20 web: the filing cabinet is furniture: a `cabinet:<buildingId>` place in every lab (TILE.CABINET on the top wall, two right of the board); E opens its panel; the board panel loses its Filing cabinet tab — Sage
-- 2026-10-20 Lena: default daily tokens per resident 10M → 30M; seed raises buildings still on 10M, and raising a building's allowance resumes residents that ran out today.
+- 2026-10-20 budget: default daily tokens per resident 10M → 30M; seed raises buildings still on 10M; raising a building's allowance resumes residents that ran out today — Lena
