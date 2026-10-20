@@ -89,6 +89,27 @@ describe("runSession", () => {
     expect(town.acked).toEqual(["i2"]);
   });
 
+  it("an interrupt marked now stops the current turn and runs next; the session doesn't end as an error", async () => {
+    town.briefs.set("s1", brief("s1"));
+    const sdk = fakeSdk(async function* (s, _text, n) {
+      if (n === 1) {
+        yield assistant({ type: "tool_use", id: "t1", name: "Bash", input: { command: "sleep 100" } });
+        town.control.interrupts.push({ id: "i3", text: "stop that, look at 13C", from: "Mitchell", now: true });
+        await Promise.race([s.interruptedSignal, sleep(5000)]);
+        yield toolResult("t1");
+      } else {
+        yield assistant({ type: "text", text: "Switching to 13C." });
+      }
+    });
+    const code = await runSession("s1", deps(sdk));
+    expect(code).toBe(EXIT_OK);
+    expect(sdk.sessions[0]!.interrupted).toBe(true);
+    expect(sdk.sessions[0]!.received).toEqual(["Do the assignment.", "Interrupt from Mitchell: stop that, look at 13C"]);
+    expect(town.acked).toEqual(["i3"]);
+    expect(town.ends[0]).toMatchObject({ turns: 2, finalText: "Switching to 13C." });
+    expect(town.ends[0]!.error).toBeUndefined();
+  });
+
   it("stop: true interrupts the query, posts session-end and exits 2", async () => {
     town.briefs.set("s1", brief("s1"));
     const sdk = fakeSdk(async function* (s) {

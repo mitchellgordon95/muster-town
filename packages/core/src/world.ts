@@ -66,7 +66,7 @@ export class World {
     this.tokens = repos.tokens; this.town = repos.town;
     this.events = new EventLog(db, this.changes);
     this.permissions = new Permissions(repos);
-    this.budget = new Budget(repos, this.events);
+    this.budget = new Budget(repos, this.events, this.changes);
     this.layout = new WorldMap(db, repos);
     this.movement = new Movement(repos, this.layout, this.events, this.changes);
     this.verbs = makeVerbs(this);
@@ -178,10 +178,10 @@ export class World {
     };
   }
 
-  /** Buildings as the snapshot carries them: plus `intray` (pending report count). */
+  /** Buildings as the snapshot carries them: plus `intray` (pending report count) and `budget`. */
   buildingsWithIntray(): SnapshotMessage["buildings"] {
     const counts = intrayCounts(this);
-    return this.buildings.all().map((b) => ({ ...b, intray: counts.get(b.id) ?? 0 }));
+    return this.buildings.all().map((b) => ({ ...b, intray: counts.get(b.id) ?? 0, budget: this.budget.of(b.id) }));
   }
 
   export(dir = process.env.AGENT_TOWN_EXPORT ?? "./export"): ExportResult {

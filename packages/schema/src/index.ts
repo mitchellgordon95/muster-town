@@ -147,6 +147,8 @@ export const Building = z.object({
   meetings: z.array(MeetingCadence).default([]),
   /** standing rules (markdown) from the building's manager; every session in this building starts with them */
   rules: z.string().max(8000).default(""),
+  /** the resident a human set as this building's manager: it facilitates meetings and wears a manager badge; null = none set */
+  managerAgentId: Id.nullable().default(null),
   /** when set, residents get code tools in a worktree of this repo during work sessions */
   workspace: Workspace.nullable().default(null),
   /** tile rectangle on the town grid; assigned by the server if absent */
@@ -409,6 +411,8 @@ export const Interrupt = z.object({
   sessionId: Id.nullable().default(null),
   text: z.string(),
   from: z.string(),
+  /** abort the current turn and deliver at once, instead of waiting for the next turn boundary */
+  now: z.boolean().default(false),
   createdAt: Iso,
   deliveredAt: Iso.nullable().default(null),
 });
@@ -517,11 +521,19 @@ export const LookResult = z.object({
 export type LookResult = z.infer<typeof LookResult>;
 
 // ---------- WebSocket protocol ----------
+/** A building's token budget, summed over its allocations (derived, not stored). */
+export const BuildingBudget = z.object({
+  allocatedTokens: z.number().int().nonnegative(),
+  spentTokens: z.number().int().nonnegative(),
+  remainingTokens: z.number().int().nonnegative(),
+});
+export type BuildingBudget = z.infer<typeof BuildingBudget>;
+
 /**
- * A building as the snapshot / WS `building` message carries it: plus `intray`, the count of its pending reports
- * (derived, not stored; the map badges the manager's desk with it).
+ * A building as the snapshot / WS `building` message carries it: plus `intray`, the count of its pending reports,
+ * and `budget` (both derived, not stored; the map badges the manager's desk and labels the sign with them).
  */
-export const SnapshotBuilding = Building.extend({ intray: z.number().int().nonnegative().default(0) });
+export const SnapshotBuilding = Building.extend({ intray: z.number().int().nonnegative().default(0), budget: BuildingBudget.optional() });
 export type SnapshotBuilding = z.infer<typeof SnapshotBuilding>;
 
 export const ServerMessage = z.discriminatedUnion("type", [
@@ -531,7 +543,7 @@ export const ServerMessage = z.discriminatedUnion("type", [
   z.object({ type: z.literal("agents.pos"), positions: z.array(z.object({ id: Id, x: z.number(), y: z.number(), status: AgentStatus })) }),
   z.object({ type: z.literal("doc"), doc: Doc }),
   z.object({ type: z.literal("meeting"), meeting: Meeting }),
-  z.object({ type: z.literal("building"), building: Building.extend({ intray: z.number().int().nonnegative().optional() }) }),
+  z.object({ type: z.literal("building"), building: Building.extend({ intray: z.number().int().nonnegative().optional(), budget: BuildingBudget.optional() }) }),
   z.object({ type: z.literal("assignment"), assignment: Assignment }),
   z.object({ type: z.literal("error"), message: z.string() }),
 ]);
@@ -560,7 +572,7 @@ export const TILE = {
 export const WALKABLE = new Set<number>([TILE.GRASS, TILE.PATH, TILE.FLOOR, TILE.DOOR]);
 
 // ---------- REST payloads ----------
-export const CreateBuildingInput = Building.pick({ name: true, goal: true, description: true, headcount: true, reviewPolicy: true, model: true, cheapModel: true, maxTurnsPerSession: true, dailyTokensPerAgent: true, meetings: true, rules: true, workspace: true }).partial({ goal: true, description: true, headcount: true, reviewPolicy: true, model: true, cheapModel: true, maxTurnsPerSession: true, dailyTokensPerAgent: true, meetings: true, rules: true, workspace: true });
+export const CreateBuildingInput = Building.pick({ name: true, goal: true, description: true, headcount: true, reviewPolicy: true, model: true, cheapModel: true, maxTurnsPerSession: true, dailyTokensPerAgent: true, meetings: true, rules: true, workspace: true, managerAgentId: true }).partial({ goal: true, description: true, headcount: true, reviewPolicy: true, model: true, cheapModel: true, maxTurnsPerSession: true, dailyTokensPerAgent: true, meetings: true, rules: true, workspace: true, managerAgentId: true });
 export const UpdateBuildingInput = CreateBuildingInput.partial();
 export const CreateResidentInput = z.object({ buildingId: Id, name: z.string(), title: z.string().default(""), direction: z.string().default(""), sprite: z.number().int().optional(), model: z.string().optional() });
 export const RegisterVisitorInput = z.object({ name: z.string(), buildingId: Id.optional(), title: z.string().optional() });
@@ -570,7 +582,7 @@ export const ChatInput = z.object({ message: z.string(), history: z.array(z.obje
 export const ReplyInput = z.object({ text: z.string().default("") });
 /** POST /api/docs/:id/ask: a question about a report, answered by a cheap-model proxy (not the author). */
 export const AskInput = z.object({ question: z.string().min(1), history: z.array(z.object({ role: z.enum(["user", "assistant"]), text: z.string() })).default([]) });
-export const InterruptInput = z.object({ text: z.string() });
+export const InterruptInput = z.object({ text: z.string(), now: z.boolean().optional() });
 export const WorkInput = z.object({ title: z.string().optional(), description: z.string().optional() });
 export const DonateInput = z.object({ tokens: z.number().int().positive(), buildingId: Id, apiKey: z.string().optional() });
 export const CreateMeetingInput = z.object({ kind: MeetingKind, buildingId: Id.nullable(), title: z.string().optional(), scheduledAt: Iso.optional(), agenda: z.string().optional(), startNow: z.boolean().default(false),

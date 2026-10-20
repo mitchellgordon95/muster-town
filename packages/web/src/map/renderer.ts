@@ -3,10 +3,10 @@
  * interpolation of other bodies between `agents.pos` updates, and proximity targeting.
  */
 import type { Agent, Place } from "@agent-town/schema";
-import { store, type PanelRef, roleOf } from "../state";
+import { store, type PanelRef, isManager, roleOf } from "../state";
 import { World } from "./world";
 import { T, CHAR_W, CHAR_H, charSheet, tiles, HUMAN_SPRITE } from "./sprites";
-import { bubbleFor, drawBadge, drawBubble, drawLabel, drawSign, type Bubble } from "./overlay";
+import { bubbleFor, buildingBudgetLine, drawBadge, drawBubble, drawLabel, drawSign, residentBudgetLine, type Bubble } from "./overlay";
 
 export interface Target { label: string; panel: PanelRef; agentId?: string }
 interface Body { x: number; y: number; fx: number; fy: number; tx: number; ty: number; t0: number; dur: number; moving: boolean; key: string }
@@ -303,7 +303,7 @@ export class MapRenderer {
       if (!b.lot) continue;
       const p = toScreen((b.lot.x + b.lot.w / 2) * T, b.lot.y * T - 3);
       const sub = b.kind === "town-hall" ? (s.town?.name ?? "") : b.goal.length > 56 ? b.goal.slice(0, 55) + "…" : b.goal;
-      if (p.x > -300 && p.x < cw + 300 && p.y > -40 && p.y < ch + 60) drawSign(g, p.x, p.y, b.name, sub);
+      if (p.x > -300 && p.x < cw + 300 && p.y > -40 && p.y < ch + 60) drawSign(g, p.x, p.y, b.name, sub, buildingBudgetLine(b.budget));
     }
     // in-tray badges on the managers' desks (the desk is the tile above the place's standing spot)
     for (const b of s.buildings) {
@@ -321,8 +321,9 @@ export class MapRenderer {
       const isMe = d.id === "__me";
       const name = isMe ? "You" : d.a!.name;
       const hl = d.id === targetId || d.id === this.hoverId;
-      drawLabel(g, p.x, p.y + 3, name, d.a?.status ?? "idle", hl, isMe);
-      if (!isMe) this.hitboxes.push({ id: d.id, x: p.x - CHAR_W * z / 2, y: p.y - CHAR_H * z, w: CHAR_W * z, h: CHAR_H * z + 18 });
+      const home = d.a?.homeBuildingId ? s.buildings.find((b) => b.id === d.a!.homeBuildingId) : undefined;
+      drawLabel(g, p.x, p.y + 3, name, d.a?.status ?? "idle", hl, isMe, d.a && !isMe ? residentBudgetLine(d.a, home?.dailyTokensPerAgent) : null, !!d.a && isManager(d.a, s.buildings));
+      if (!isMe) this.hitboxes.push({ id: d.id, x: p.x - CHAR_W * z / 2, y: p.y - CHAR_H * z, w: CHAR_W * z, h: CHAR_H * z + 31 });
     }
     // bubbles last so they sit above every label
     const bubbles: { d: (typeof list)[number]; b: Bubble }[] = [];

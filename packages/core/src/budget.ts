@@ -1,8 +1,8 @@
-import { DonateInput, type Agent, type Allocation } from "@agent-town/schema";
+import { DonateInput, type Agent, type Allocation, type BuildingBudget, type ServerMessage } from "@agent-town/schema";
 import { badRequest } from "./errors.ts";
 import type { EventLog } from "./events.ts";
 import type { Repos } from "./store.ts";
-import { newId, nowIso } from "./util.ts";
+import { type Emitter, newId, nowIso } from "./util.ts";
 
 export interface ChargeResult {
   agent: Agent;
@@ -19,7 +19,7 @@ const SKIP_STATUSES = new Set(["stopped", "banned"]);
 
 /** Donations, allocations, and charging. `world.budget`. */
 export class Budget {
-  constructor(private repos: Repos, private events: EventLog) {}
+  constructor(private repos: Repos, private events: EventLog, private changes?: Emitter<ServerMessage>) {}
 
   /** Oldest allocation of the building with tokens left (the one to charge next), or null. */
   pickAllocation(buildingId: string): Allocation | null {
@@ -32,8 +32,23 @@ export class Budget {
   }
 
   remaining(buildingId: string): number {
-    return this.repos.allocations.where("buildingId = ?", [buildingId])
-      .reduce((s, a) => s + Math.max(0, a.tokens - a.spentTokens), 0);
+    return this.of(buildingId).remainingTokens;
+  }
+
+  /** The building's allocated / spent / remaining tokens, summed over its allocations. */
+  of(buildingId: string): BuildingBudget {
+    const allocs = this.repos.allocations.where("buildingId = ?", [buildingId]);
+    return {
+      allocatedTokens: allocs.reduce((s, a) => s + a.tokens, 0),
+      spentTokens: allocs.reduce((s, a) => s + a.spentTokens, 0),
+      remainingTokens: allocs.reduce((s, a) => s + Math.max(0, a.tokens - a.spentTokens), 0),
+    };
+  }
+
+  /** Resend the building (with its budget) so the map's sign stays current. */
+  private emitBuilding(buildingId: string): void {
+    const b = this.repos.buildings.get(buildingId);
+    if (b && this.changes) this.changes.emit({ type: "building", building: { ...b, budget: this.of(buildingId) } });
   }
 
   /** Whether a resident may start a session now (daily allowance and building budget). */
@@ -66,6 +81,7 @@ export class Budget {
       allocation = allocationId ? this.repos.allocations.require(allocationId, "allocation") : this.pickAllocation(bid);
       if (allocation) {
         allocation = this.repos.allocations.upsert({ ...allocation, spentTokens: allocation.spentTokens + t, spentUsd: allocation.spentUsd + usd });
+        this.emitBuilding(bid);
       }
     }
     let exhausted: ChargeResult["exhausted"] = null;
@@ -109,6 +125,7 @@ export class Budget {
     if (inp.apiKey) this.repos.users.setApiKey(userId, inp.apiKey);
     const allocation = this.repos.allocations.upsert({ id: newId("al"), userId, buildingId: b.id, tokens: inp.tokens, spentTokens: 0, spentUsd: 0, createdAt: nowIso() });
     this.repos.users.upsert({ ...this.repos.users.require(userId), donatedTokens: user.donatedTokens + inp.tokens });
+    this.emitBuilding(b.id);
     this.events.append({ type: "allocation.created", buildingId: b.id, text: `${user.name} donated ${inp.tokens.toLocaleString("en-US")} tokens to ${b.name}`, payload: { allocationId: allocation.id, userId, tokens: inp.tokens } });
     // resume residents that were blocked only by the building budget
     for (const r of this.repos.agents.where("homeBuildingId = ? AND status = 'out-of-budget'", [b.id])) {
@@ -120,11 +137,8 @@ export class Budget {
   summary(): BudgetSummary {
     return {
       buildings: this.repos.buildings.all().map((b) => {
-        const allocs = this.repos.allocations.where("buildingId = ?", [b.id]);
-        const allocatedTokens = allocs.reduce((s, a) => s + a.tokens, 0);
-        const spentTokens = allocs.reduce((s, a) => s + a.spentTokens, 0);
-        const spentUsd = allocs.reduce((s, a) => s + a.spentUsd, 0);
-        return { buildingId: b.id, name: b.name, allocatedTokens, spentTokens, spentUsd, remainingTokens: this.remaining(b.id) };
+        const spentUsd = this.repos.allocations.where("buildingId = ?", [b.id]).reduce((s, a) => s + a.spentUsd, 0);
+        return { buildingId: b.id, name: b.name, ...this.of(b.id), spentUsd };
       }),
       users: this.repos.users.all().map((u) => ({ userId: u.id, name: u.name, donatedTokens: u.donatedTokens })),
     };

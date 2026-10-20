@@ -95,8 +95,9 @@ class Store {
       case "assignment": return this.set({ assignments: { ...s.assignments, [m.assignment.id]: m.assignment }, rev: s.rev + 1 });
       case "building": {
         const known = s.buildings.find((b) => b.id === m.building.id);
-        // `intray` is resent when reports are created or decided; other building updates may omit it
-        const next: SnapshotBuilding = { ...m.building, intray: m.building.intray ?? known?.intray ?? 0 };
+        // `intray` is resent when reports are created or decided, `budget` when tokens are charged or donated;
+        // other building updates may omit them
+        const next: SnapshotBuilding = { ...m.building, intray: m.building.intray ?? known?.intray ?? 0, budget: m.building.budget ?? known?.budget };
         const buildings = known ? s.buildings.map((b) => (b.id === m.building.id ? next : b)) : [...s.buildings, next];
         this.set({ buildings, rev: s.rev + 1 });
         // The WS protocol has no grid message: a new building or a moved lot means the layout changed.
@@ -210,5 +211,10 @@ export function useTown<T>(selector: (s: TownState) => T): T {
 
 export function placeAt(places: Place[], id: string) { return places.find((p) => p.id === id); }
 
-/** The label next to an agent's name: service agents keep theirs ("Librarian"); residents have no title. */
-export const roleOf = (a: Pick<Agent, "kind" | "title">): string => (a.kind === "service" ? a.title : "");
+/** True when `a` is the manager its home building's settings name. */
+export function isManager(a: Pick<Agent, "id" | "homeBuildingId">, buildings: SnapshotBuilding[] = store.state.buildings): boolean {
+  return !!a.homeBuildingId && buildings.some((b) => b.id === a.homeBuildingId && b.managerAgentId === a.id);
+}
+
+/** The label next to an agent's name: service agents keep theirs ("Librarian"); a building's manager reads "Manager"; other residents have none. */
+export const roleOf = (a: Pick<Agent, "id" | "kind" | "title" | "homeBuildingId">): string => (a.kind === "service" ? a.title : isManager(a) ? "Manager" : "");

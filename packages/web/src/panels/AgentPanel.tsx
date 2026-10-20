@@ -1,15 +1,14 @@
-/** Agent panel: status, model, budget; tabs Activity | Chat | Session | Reports | Assignments. */
-import { useEffect, useMemo, useRef, useState } from "react";
-import type { Agent, Assignment, Doc } from "@agent-town/schema";
+/** Agent panel: status, model, budget; tabs Activity (timeline + composer) | Assignments. Reports live in the in-tray and library. */
+import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import type { Agent, Assignment, Event } from "@agent-town/schema";
 import { api, type AgentDetail } from "../api";
 import { store, useTown, roleOf } from "../state";
-import { DocRow, DocView } from "./DocView";
 import { DismissButton, canDismiss } from "./Dismiss";
 import { PanelShell } from "./PanelShell";
-import { Act, Empty, Feed, Field, KV, Loading, Pill, Section, StatusPill, fmtTokens, timeAgo, usd, useLoad } from "./ui";
+import { Act, Empty, Field, KV, Pill, Section, StatusPill, clock, fmtTokens, timeAgo, usd, useLoad } from "./ui";
 import { portraitUrl } from "../map/sprites";
 
-type Msg = { role: "user" | "assistant"; text: string };
+type Msg = { role: "user" | "assistant"; text: string; ts: string };
 const chats = new Map<string, Msg[]>();
 
 export function AgentPanel({ id, tab }: { id: string; tab?: string }) {
@@ -20,25 +19,20 @@ export function AgentPanel({ id, tab }: { id: string; tab?: string }) {
   useEffect(() => { if (detail.data) { store.mergeEvents(detail.data.recentEvents); store.putAssignments(detail.data.assignments); if (detail.data.latestReport) store.putDocs([detail.data.latestReport]); } }, [detail.data]);
   useEffect(() => { detail.reload(); }, [rev, detail.reload]); // docs/assignments changed somewhere
   if (!agent) return <PanelShell title="Unknown agent"><Empty>This agent isn't in the town.</Empty></PanelShell>;
-  const isService = agent.kind === "service", isHuman = agent.kind === "human";
-  const tabs = isHuman ? ["Activity"] : isService ? ["Chat", "Activity"] : ["Activity", "Chat", "Session", "Reports", "Assignments"];
-  const defaultTab = isService ? "Chat" : agent.status === "working" ? "Session" : "Activity";
+  const tabs = agent.kind === "resident" ? ["Activity", "Assignments"] : ["Activity"];
   const building = buildings.find((b) => b.id === (agent.homeBuildingId ?? agent.buildingId));
   return (
     <PanelShell
       key={id}
       icon={<img className="portrait" src={portraitUrl(agent.sprite)} alt="" />}
-      title={<>{agent.name} <StatusPill status={agent.status} /></>}
+      title={<>{agent.name} {building?.managerAgentId === agent.id ? <Pill tone="warn" title={`Set as ${building.name}'s manager in its settings: facilitates its meetings`}>★ manager</Pill> : null} <StatusPill status={agent.status} /></>}
       subtitle={[roleOf(agent) || agent.kind, building?.name].filter(Boolean).join(" · ")}
       tabs={tabs}
-      initialTab={tab && tabs.includes(tab) ? tab : defaultTab}
+      initialTab={tab && tabs.includes(tab) ? tab : "Activity"}
     >
       {(t) => (
         <>
           {t === "Activity" ? <ActivityTab agent={agent} detail={detail.data} /> : null}
-          {t === "Chat" ? <ChatTab agent={agent} /> : null}
-          {t === "Session" ? <SessionTab agent={agent} /> : null}
-          {t === "Reports" ? <ReportsTab agent={agent} /> : null}
           {t === "Assignments" ? <AssignmentsTab agent={agent} /> : null}
         </>
       )}
@@ -46,146 +40,146 @@ export function AgentPanel({ id, tab }: { id: string; tab?: string }) {
   );
 }
 
+/**
+ * One timeline for everything about the agent: its events, the running (or last) session's transcript, messages
+ * you sent it, and desk-assistant replies. The composer at the bottom works like Claude Code's: while the agent
+ * works, Enter queues your message for the next turn boundary and "Interrupt & send" stops the current turn so it
+ * runs right away. While idle, Enter asks the desk assistant, and you can leave a message for the next session.
+ */
 function ActivityTab({ agent, detail }: { agent: Agent; detail: AgentDetail | null }) {
   const events = useTown((s) => s.events);
-  const mine = useMemo(() => events.filter((e) => e.agentId === agent.id), [events, agent.id]);
+  const isService = agent.kind === "service", isHuman = agent.kind === "human";
+  const working = agent.status === "working";
+  const s = useLoad(() => (isHuman || isService ? Promise.resolve(null) : api().session(agent.id)), [agent.id, working]);
+  const [log, setLog] = useState<Msg[]>(() => chats.get(agent.id) ?? []);
+  useEffect(() => { chats.set(agent.id, log); }, [log, agent.id]);
+  const timeline = useMemo(() => {
+    const seen = new Set<number>();
+    const evs = [...(s.data?.transcript ?? []), ...events.filter((e) => e.agentId === agent.id)]
+      .filter((e) => (seen.has(e.id) ? false : (seen.add(e.id), true)))
+      .sort((a, b) => a.id - b.id);
+    // chat lines have no event id: slot each one after the last event at or before its time
+    const out: Item[] = evs.map((e) => ({ kind: "ev", ts: e.ts, ev: e }));
+    for (const m of log) {
+      let i = out.length;
+      while (i > 0 && out[i - 1].ts > m.ts) i--;
+      out.splice(i, 0, { kind: "msg", ts: m.ts, msg: m });
+    }
+    return out;
+  }, [s.data, events, agent.id, log]);
   const building = store.state.buildings.find((b) => b.id === agent.homeBuildingId);
   const daily = building?.dailyTokensPerAgent ?? 0;
+  const sess = s.data?.session;
+  useTown((st) => st.me); // re-render when permissions arrive
+  const canControl = !isHuman && !isService && (store.can("building.assign", agent.homeBuildingId) || agent.ownerUserId === store.state.me?.user.id);
   return (
-    <>
-      {agent.kind === "service" ? <div className="actions"><button className="btn" onClick={() => store.open({ kind: "library" })}>Browse the library</button></div> : null}
-      {agent.kind !== "human" && agent.kind !== "service" ? (
+    <div className="chat-wrap">
+      {isService ? <div className="actions"><button className="btn" onClick={() => store.open({ kind: "library" })}>Browse the library</button></div> : null}
+      {!isHuman && !isService ? (
         <KV items={[
-          ["Model", agent.model ?? building?.model ?? "default"],
+          ["Model", sess?.model ?? agent.model ?? building?.model ?? "default"],
           ["Today", <>{fmtTokens(agent.spentTokensToday)}{daily ? <> / {fmtTokens(daily)} <Meter v={agent.spentTokensToday / daily} /></> : null}</>],
           ["Total", `${fmtTokens(agent.spentTokensTotal)} tokens · ${usd(agent.spentUsdTotal)}`],
-          ["Last active", timeAgo(agent.lastActiveAt)],
+          ...(sess ? [["Session", <><Pill tone={sess.status === "running" ? "ok" : sess.status === "error" ? "bad" : ""}>{sess.status}</Pill> {sess.purpose} · started {timeAgo(sess.startedAt)} · {sess.turns} turns · {fmtTokens(sess.tokens)} tokens · {usd(sess.costUsd)}</>] as [string, ReactNode]] : [["Last active", timeAgo(agent.lastActiveAt)] as [string, ReactNode]]),
         ]} />
       ) : null}
       {agent.activity ? <div className="now"><span className="dot" /> {agent.activity}</div> : null}
       {agent.kind === "resident" && agent.status === "idle" && !detail?.assignments.some((a) => a.status === "pending" || a.status === "active") ? (
         <div className="callout">{agent.name} has no assignment. <button className="link" onClick={() => store.open({ kind: "agent", id: agent.id, tab: "Assignments" })}>Start work →</button></div>
       ) : null}
-      <Section title="Activity"><Feed events={mine} empty={`${agent.name} hasn't done anything yet.`} /></Section>
-      {canDismiss(agent) ? (
-        <Section title="Manager">
-          <p className="direction">Dismissing retires {agent.name}: the desk is freed and they leave the map. Reports and notes stay in the library under their name.</p>
-          <DismissButton agent={agent} />
-        </Section>
-      ) : null}
-    </>
+      <Timeline items={timeline} empty={isService ? `Ask ${agent.name} where to find something in the library.` : `${agent.name} hasn't done anything yet.`} />
+      {isHuman ? null : <Composer agent={agent} canControl={canControl} log={log} setLog={setLog} />}
+    </div>
+  );
+}
+
+type Item = { kind: "ev"; ts: string; ev: Event } | { kind: "msg"; ts: string; msg: Msg };
+
+const EVENT_TONE: Partial<Record<Event["type"], string>> = {
+  "agent.tool": "tool", "agent.thought": "thought", "agent.said": "said", "agent.told": "said", "agent.status": "status",
+  "doc.created": "doc", "doc.decision": "status", "session.started": "status", "session.ended": "status", "budget.exhausted": "bad",
+  "meeting.utterance": "said", "meeting.phase": "status",
+};
+
+function Timeline({ items, empty }: { items: Item[]; empty: string }) {
+  const end = useRef<HTMLDivElement>(null);
+  useEffect(() => { end.current?.scrollIntoView({ block: "end" }); }, [items.length]);
+  if (!items.length) return <Empty>{empty}</Empty>;
+  return (
+    <div className="chat timeline">
+      {items.map((it, i) => {
+        if (it.kind === "msg") return <div key={`m${i}`} className={`msg ${it.msg.role === "user" ? "me" : "them"}`}>{it.msg.text}</div>;
+        const e = it.ev, p = (e.payload ?? {}) as { interrupt?: boolean; now?: boolean; text?: string; sessionId?: string | null };
+        if (p.interrupt && typeof p.text === "string") {
+          const note = p.now ? "sent now · current turn stopped" : p.sessionId === null ? "waiting for the next session" : "queued for the next turn";
+          return <div key={e.id} className="msg me">{p.text}<small>{clock(e.ts)} · {note}</small></div>;
+        }
+        return (
+          <div key={e.id} className={`ev ${EVENT_TONE[e.type] ?? ""}`}>
+            <time title={e.ts}>{clock(e.ts)}</time>
+            <span>{e.text}</span>
+          </div>
+        );
+      })}
+      <div ref={end} />
+    </div>
+  );
+}
+
+function Composer({ agent, canControl, log, setLog }: { agent: Agent; canControl: boolean; log: Msg[]; setLog: (f: (l: Msg[]) => Msg[]) => void }) {
+  const [text, setText] = useState("");
+  const [busy, setBusy] = useState(false);
+  const steer = canControl && agent.status === "working";
+  const nowIso = () => new Date().toISOString();
+  const ask = async (q: string) => {
+    const history = log.slice(-10).map(({ role, text }) => ({ role, text }));
+    setLog((l) => [...l, { role: "user", text: q, ts: nowIso() }]);
+    try { const reply = await api().chat(agent.id, { message: q, history }); setLog((l) => [...l, { role: "assistant", text: reply, ts: nowIso() }]); }
+    catch (e) { setLog((l) => [...l, { role: "assistant", text: `(couldn't reach ${agent.name}: ${(e as Error).message})`, ts: nowIso() }]); }
+  };
+  const run = async (how: "ask" | "queue" | "now") => {
+    const q = text.trim(); if (!q || busy) return;
+    setBusy(true);
+    try {
+      if (how === "ask") { setText(""); await ask(q); }
+      else {
+        // the interrupt event comes back over the stream and shows up in the timeline as your message
+        await api().interrupt(agent.id, q, how === "now");
+        setText("");
+        if (agent.status !== "working") store.toast(`${agent.name} gets this when their next session starts`, "ok");
+      }
+    } catch (e) { store.toast((e as Error).message || "Request failed", "bad"); }
+    finally { setBusy(false); }
+  };
+  const enter = steer ? "queue" : "ask";
+  const placeholder = steer ? `Message ${agent.name}. Enter queues it for the next turn.`
+    : agent.kind === "service" ? `Ask ${agent.name}…`
+    : `Ask ${agent.name}'s desk assistant. It answers from their activity and reports.`;
+  return (
+    <form className="chatbar composer" onSubmit={(e) => { e.preventDefault(); void run(enter); }}>
+      <textarea rows={2} value={text} placeholder={placeholder} onChange={(e) => setText(e.target.value)}
+        onKeyDown={(e) => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); void run(enter); } }} />
+      <div className="composer-actions">
+        {steer ? (
+          <>
+            <button className="btn primary" disabled={busy || !text.trim()} title="Delivered when the current turn ends">Queue</button>
+            <button type="button" className="btn warn" disabled={busy || !text.trim()} title="Stop the current turn and deliver this right away" onClick={() => void run("now")}>Interrupt &amp; send</button>
+            <Act tone="bad" run={async () => { await api().stop(agent.id); store.toast(`${agent.name} stopped`, "ok"); }}>Stop</Act>
+          </>
+        ) : (
+          <>
+            <button className="btn primary" disabled={busy || !text.trim()}>{busy ? <span className="spin" /> : null}Ask</button>
+            {canControl ? <button type="button" className="btn" disabled={busy || !text.trim()} title="Queued; delivered when their next work session starts" onClick={() => void run("queue")}>Leave for next session</button> : null}
+          </>
+        )}
+      </div>
+    </form>
   );
 }
 
 export function Meter({ v }: { v: number }) {
   const p = Math.max(0, Math.min(1, v));
   return <span className={`meter ${p > 0.9 ? "bad" : p > 0.7 ? "warn" : ""}`}><i style={{ width: `${p * 100}%` }} /></span>;
-}
-
-function ChatTab({ agent }: { agent: Agent }) {
-  const [log, setLog] = useState<Msg[]>(() => chats.get(agent.id) ?? []);
-  const [text, setText] = useState("");
-  const [busy, setBusy] = useState(false);
-  const end = useRef<HTMLDivElement>(null);
-  useEffect(() => { chats.set(agent.id, log); end.current?.scrollIntoView({ block: "end" }); }, [log, agent.id]);
-  const send = async () => {
-    const q = text.trim(); if (!q || busy) return;
-    const history = log.slice(-10);
-    setLog((l) => [...l, { role: "user", text: q }]); setText(""); setBusy(true);
-    try { const reply = await api().chat(agent.id, { message: q, history }); setLog((l) => [...l, { role: "assistant", text: reply }]); }
-    catch (e) { setLog((l) => [...l, { role: "assistant", text: `(couldn't reach ${agent.name}: ${(e as Error).message})` }]); }
-    finally { setBusy(false); }
-  };
-  const hint = agent.kind === "service" ? `Ask ${agent.name} where to find something in the library.` : `Chat with ${agent.name}'s desk assistant. It answers from their activity and reports; it can't change their direction.`;
-  return (
-    <div className="chat-wrap">
-      <div className="chat">
-        {!log.length ? <Empty>{hint}</Empty> : null}
-        {log.map((m, i) => <div key={i} className={`msg ${m.role === "user" ? "me" : "them"}`}>{m.text}</div>)}
-        {busy ? <div className="msg them typing"><i /><i /><i /></div> : null}
-        <div ref={end} />
-      </div>
-      <form className="chatbar" onSubmit={(e) => { e.preventDefault(); void send(); }}>
-        <textarea rows={2} value={text} placeholder={`Message ${agent.name}…`} onChange={(e) => setText(e.target.value)}
-          onKeyDown={(e) => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); void send(); } }} />
-        <button className="btn primary" disabled={busy || !text.trim()}>Send</button>
-      </form>
-    </div>
-  );
-}
-
-function SessionTab({ agent }: { agent: Agent }) {
-  const s = useLoad(() => api().session(agent.id), [agent.id, agent.status === "working"]);
-  const events = useTown((st) => st.events);
-  const started = s.data?.session?.startedAt;
-  const live = useMemo(() => {
-    const base = s.data?.transcript ?? [];
-    const seen = new Set(base.map((e) => e.id));
-    const extra = events.filter((e) => e.agentId === agent.id && !seen.has(e.id) && (!started || e.ts >= started));
-    return [...base, ...extra].sort((a, b) => a.id - b.id);
-  }, [s.data, events, agent.id, started]);
-  const [text, setText] = useState("");
-  const canAssign = store.can("building.assign", agent.homeBuildingId) || agent.ownerUserId === store.state.me?.user.id;
-  if (s.loading && !s.data) return <Loading />;
-  const sess = s.data?.session;
-  return (
-    <>
-      {sess ? (
-        <KV items={[
-          ["Session", <><Pill tone={sess.status === "running" ? "ok" : sess.status === "error" ? "bad" : ""}>{sess.status}</Pill> {sess.purpose} · started {timeAgo(sess.startedAt)}</>],
-          ["Usage", `${sess.turns} turns · ${fmtTokens(sess.tokens)} tokens · ${usd(sess.costUsd)}`],
-          ["Model", sess.model],
-        ]} />
-      ) : <Empty>No session running. The transcript of the last session appears here.</Empty>}
-      <Section title="Transcript"><Feed events={live} empty="Waiting for the first tool call…" /></Section>
-      {canAssign && agent.status === "working" ? (
-        <div className="interrupt">
-          <Field label="Interrupt" hint="Delivered as the next user message in the running session.">
-            <textarea rows={2} value={text} placeholder={`e.g. "Focus on 2015–2024 only"`} onChange={(e) => setText(e.target.value)} />
-          </Field>
-          <div className="actions">
-            <Act tone="warn" disabled={!text.trim()} run={async () => { await api().interrupt(agent.id, text.trim()); setText(""); store.toast(`Interrupt sent to ${agent.name}`, "ok"); }}>Send interrupt</Act>
-            <Act tone="bad" run={async () => { await api().stop(agent.id); store.toast(`${agent.name} stopped`, "ok"); }}>Stop agent</Act>
-          </div>
-        </div>
-      ) : null}
-    </>
-  );
-}
-
-/** The agent's reports with their decision pills. Reviewers get a one-click Acknowledge (archive) on pending rows;
- *  replies are written at the building's in-tray. */
-function ReportsTab({ agent }: { agent: Agent }) {
-  const rev = useTown((s) => s.rev);
-  // The docs API has no author filter, so list the building's reports and filter client-side.
-  const list = useLoad(() => api().docs({ type: "report", buildingId: agent.homeBuildingId ?? undefined, limit: 100 }), [agent.id, rev]);
-  const [open, setOpen] = useState<Doc | null>(null);
-  const reports = (list.data ?? []).filter((d) => d.authorId === agent.id).sort((a, b) => b.createdAt.localeCompare(a.createdAt));
-  const pending = reports.filter((d) => d.decision === "pending").length;
-  const bid = agent.homeBuildingId;
-  useTown((s) => s.me); // re-render when permissions arrive
-  const canReview = !!bid && store.can("building.review", bid);
-  const acknowledge = (d: Doc) => async () => {
-    store.putDocs([(await api().archive(d.id)).doc]);
-    store.toast("Archived. No new assignment.", "ok");
-    list.reload();
-  };
-  if (open) return <DocView doc={open} onBack={() => setOpen(null)} backLabel="All reports" />;
-  if (list.loading && !list.data) return <Loading />;
-  if (!reports.length) return <Empty>{agent.name} hasn't submitted a report yet. Every work session ends in one.</Empty>;
-  return (
-    <>
-      {pending && bid ? (
-        <div className="callout">{pending} of these {pending === 1 ? "is" : "are"} in the in-tray. <button className="link" onClick={() => { if (!store.walkTo(`intray:${bid}`, { kind: "intray", id: bid })) store.open({ kind: "intray", id: bid }); }}>Walk to the in-tray →</button></div>
-      ) : null}
-      <div className="doc-list">{reports.map((d) => canReview && d.decision === "pending" ? (
-        <div key={d.id} className="doc-row-act">
-          <DocRow doc={d} onOpen={() => setOpen(d)} />
-          <Act small tone="ok" run={acknowledge(d)} title="Archive: mark handled with no reply. No assignment is created.">Acknowledge</Act>
-        </div>
-      ) : <DocRow key={d.id} doc={d} onOpen={() => setOpen(d)} />)}</div>
-    </>
-  );
 }
 
 function AssignmentsTab({ agent }: { agent: Agent }) {
@@ -198,6 +192,12 @@ function AssignmentsTab({ agent }: { agent: Agent }) {
       <Section title="Assignments">
         {!list.length ? <Empty>No assignments yet.</Empty> : list.map((a) => <AssignmentRow key={a.id} a={a} />)}
       </Section>
+      {canDismiss(agent) ? (
+        <Section title="Manager">
+          <p className="direction">Dismissing retires {agent.name}: the desk is freed and they leave the map. Reports and notes stay in the library under their name.</p>
+          <DismissButton agent={agent} />
+        </Section>
+      ) : null}
     </>
   );
 }

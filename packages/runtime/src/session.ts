@@ -158,7 +158,8 @@ export async function runAgentSession(ctx: Ctx, spec: SessionSpec): Promise<Sess
       } else if (m.type === "result") {
         usage = usageOf(m);
         if (typeof m.result === "string" && m.result.trim()) finalText = m.result.trim();
-        if (m.is_error) error = m.errors?.join("; ") || m.subtype || "session ended with an error";
+        // a later turn that succeeds clears an earlier turn's error (e.g. one aborted by an interrupt-now)
+        error = m.is_error ? m.errors?.join("; ") || m.subtype || "session ended with an error" : null;
         // streaming input: one result per turn. Finish unless an interrupt is queued.
         if (live.stopped || live.reportSubmitted || (live.input.pending === 0 && !(m.queued_turn_count && m.queued_turn_count > 0))) {
           live.input.close();

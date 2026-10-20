@@ -16,11 +16,7 @@ export function clock(iso: string): string {
   const d = new Date(iso);
   return d.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
 }
-export function fmtTokens(n: number): string {
-  if (n >= 1e6) return `${(n / 1e6).toFixed(n >= 1e7 ? 0 : 1)}M`;
-  if (n >= 1e3) return `${Math.round(n / 1e3)}k`;
-  return String(n);
-}
+export { fmtTokens } from "../format";
 export const usd = (n: number) => `$${n.toFixed(2)}`;
 
 export function Pill({ tone, children, title }: { tone?: string; children: ReactNode; title?: string }) {

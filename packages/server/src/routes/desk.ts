@@ -56,7 +56,7 @@ export async function deskRoutes(app: FastifyInstance) {
     const s = ownSession(agent, session, false);
     const now = world.agents.require(agent.id, "agent");
     const stop = s.status !== "running" || now.status === "stopped" || now.status === "banned" || now.status === "retired";
-    return { interrupts: world.ops.pendingInterrupts(agent.id, s.id).map((i) => ({ id: i.id, text: i.text, from: i.from })), stop };
+    return { interrupts: world.ops.pendingInterrupts(agent.id, s.id).map((i) => ({ id: i.id, text: i.text, from: i.from, now: i.now })), stop };
   });
 
   app.post("/api/agents/me/control/ack", async (req, reply) => {
