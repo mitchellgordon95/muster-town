@@ -71,22 +71,32 @@ function IntrayRow({ doc, onOpen }: { doc: Doc; onOpen: () => void }) {
 
 export function BoardPanel({ buildingId }: { buildingId: string }) {
   const b = useTown((s) => s.buildings.find((x) => x.id === buildingId));
-  const rev = useTown((s) => s.rev);
-  const list = useLoad(() => api().board(buildingId, 50), [buildingId, rev]);
-  const [open, setOpen] = useState<Doc | null>(null);
-  useEffect(() => { if (list.data) store.putDocs(list.data); }, [list.data]);
   return (
-    <PanelShell icon={<Glyph kind="board" />} title={`${b?.name ?? "Building"} board`} subtitle="Standing rules, articles and notes. Reports go to the in-tray.">
-      {open ? <DocView doc={open} onBack={() => setOpen(null)} backLabel="Board" /> : (
+    <PanelShell icon={<Glyph kind="board" />} title={`${b?.name ?? "Building"} board`} subtitle="Standing guidance: rules, articles and notes. Reports and meeting notes are in the filing cabinet." tabs={["Board", "Filing cabinet"]}>
+      {(tab) => tab === "Filing cabinet" ? <DocList buildingId={buildingId} filed /> : (
         <>
           {b ? <StandingRules buildingId={b.id} rules={b.rules ?? ""} /> : null}
-          <ErrorLine error={list.error} />
-          {list.loading && !list.data ? <Loading /> : !list.data?.length ? <Empty>Nothing pinned to the board yet.</Empty> : (
-            <div className="doc-list">{list.data.map((d) => <DocRow key={d.id} doc={d} onOpen={() => setOpen(d)} />)}</div>
-          )}
+          <DocList buildingId={buildingId} />
         </>
       )}
     </PanelShell>
+  );
+}
+
+/** Board docs, or (`filed`) the filing cabinet: the building's reports and meeting notes, newest first. */
+function DocList({ buildingId, filed }: { buildingId: string; filed?: boolean }) {
+  const rev = useTown((s) => s.rev);
+  const list = useLoad(() => filed ? api().cabinet(buildingId, 50) : api().board(buildingId, 50), [buildingId, filed, rev]);
+  const [open, setOpen] = useState<Doc | null>(null);
+  useEffect(() => { if (list.data) store.putDocs(list.data); }, [list.data]);
+  if (open) return <DocView doc={open} onBack={() => setOpen(null)} backLabel={filed ? "Filing cabinet" : "Board"} />;
+  return (
+    <>
+      <ErrorLine error={list.error} />
+      {list.loading && !list.data ? <Loading /> : !list.data?.length ? <Empty>{filed ? "No reports or meeting notes filed yet." : "Nothing pinned to the board yet."}</Empty> : (
+        <div className="doc-list">{list.data.map((d) => <DocRow key={d.id} doc={d} onOpen={() => setOpen(d)} />)}</div>
+      )}
+    </>
   );
 }
 

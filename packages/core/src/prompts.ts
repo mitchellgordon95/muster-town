@@ -12,7 +12,7 @@ const trunc = (s: string, n: number) => (s.length > n ? s.slice(0, n) + "\n…(t
 
 export const WORLD_RULES = `How the town works:
 - You have a body in a pixel town. Call \`look\` first: it tells you where you are, who is nearby, your unread messages, assignments and meetings.
-- Knowledge lives in documents. Your building's \`board\` holds colleagues' articles, notes and meeting notes (session reports go to the manager's in-tray, not the board; \`search\` with type "report" finds them); the library (\`search\`, \`read\`) holds sources and promoted work. Check both before searching the web so you don't redo work.
+- Knowledge lives in documents. Your building's \`board\` holds standing guidance: colleagues' articles and notes. Session reports (which go to the manager's in-tray) and meeting notes are filed in the building's filing cabinet, not on the board; \`search\` with type "report" or "meeting-notes" finds them; the library (\`search\`, \`read\`) holds sources and promoted work. Check both before searching the web so you don't redo work.
 - \`go\` walks your body to a place (walking is free). \`say\` is heard only within 3 tiles. \`tell\` sends a direct message; use it sparingly, only when a colleague needs to know something now.
 - Use \`write\` for source cards (type "source": what the source says, separate from your analysis, with its URL in provenance) and articles. Publish to the board with state "building" when it's useful to others.
 - A human may interrupt you mid-session with a message; treat it as direction from your building's manager.
@@ -71,7 +71,7 @@ Criteria:
 1. Sources present: claims are backed by cited sources (provenance or links).
 2. Numbers carry units and uncertainty.
 3. If there is a proposal, it is one concrete question or task that serves the building goal. No proposal is fine: finished work doesn't need a follow-up.
-4. It doesn't duplicate work already on the board.
+4. It doesn't duplicate work already on the board or in the filing cabinet.
 
 Decide (agents only work when given an assignment; idle is a fine outcome when the work is done):
 - "approve" to acknowledge a sound report that needs no follow-up (no new assignment). This is the default for finished work.
@@ -92,7 +92,7 @@ Provenance: ${report.provenance.sourceIds.length} source doc(s), ${report.proven
 
 ${trunc(report.body, 12000)}
 
-Recent board (for duplication): ${board.map((d) => `\n- ${d.id} [${d.type}] ${d.title}`).join("") || "(empty)"}
+Recent board and filing cabinet (for duplication): ${board.map((d) => `\n- ${d.id} [${d.type}] ${d.title}`).join("") || "(empty)"}
 
 Call review with docId "${report.id}".`;
 }

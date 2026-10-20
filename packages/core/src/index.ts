@@ -23,7 +23,7 @@ export { createMeeting, setMeetingPhase, meetingSpeak, meetingDecide, endMeeting
 export { makeVerbs, verbImpls, type Verbs, type VerbResult } from "./verbs/index.ts";
 export type { VerbIn, VerbRawIn } from "./verbs/types.ts";
 export { HEARING_RANGE, nearbyAgents } from "./verbs/social.ts";
-export { searchDocs, ftsQuery } from "./verbs/docs.ts";
+export { searchDocs, ftsQuery, boardDocs, cabinetDocs } from "./verbs/docs.ts";
 export { exportWorld, importExport, docExportPath, type ExportResult } from "./export.ts";
 export { importV0, type ImportV0Options, type ImportV0Result } from "./import-v0.ts";
 export { seedDefaults, originUrl, HOUSE_BUDGET_TOKENS, type SeedOptions, type SeedResult } from "./seed.ts";

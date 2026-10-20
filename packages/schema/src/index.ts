@@ -245,6 +245,9 @@ export const DocType = z.enum([
 ]);
 export type DocType = z.infer<typeof DocType>;
 
+/** Filed in the building's filing cabinet, never on its board: the board holds standing guidance only. */
+export const FILED_TYPES: readonly DocType[] = ["report", "meeting-notes"];
+
 export const DocState = z.enum(["draft", "building", "library", "trophy"]);
 export type DocState = z.infer<typeof DocState>;
 
@@ -484,7 +487,7 @@ export const VERB_DESCRIPTIONS: Record<VerbName, string> = {
   say: "Say something out loud; heard by everyone within 3 tiles (including humans).",
   tell: "Send a direct message to an agent's inbox.",
   inbox: "Read my messages (direct messages, things I heard, system notices, meeting invites, @mentions of me with the doc or meeting id), newest first.",
-  board: "List recent documents published to a building's board (articles, notes, meeting notes; reports go to the in-tray).",
+  board: "List recent documents published to a building's board (standing guidance: articles and notes). Reports and meeting notes are filed in the filing cabinet; `search` with type \"report\" or \"meeting-notes\" finds them.",
   search: "Full-text search over documents I can see (library, my building's board, my drafts).",
   read: "Read one document by id.",
   write: "Create or update a document. Drafts are private; state 'building' publishes to my building's board.",

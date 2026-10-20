@@ -126,7 +126,7 @@ export function meetingDecide(world: World, actor: Agent | null, meetingId: stri
   return updated;
 }
 
-/** End: write the meeting-notes doc (building board; town-hall → library), phase done. */
+/** End: write the meeting-notes doc (filed in the building's filing cabinet, not its board; town-hall → library), phase done. */
 export function endMeeting(world: World, actor: Agent | null, meetingId: string, closing?: string): Meeting {
   const m = world.meetings.require(meetingId, "meeting");
   if (actor && !canFacilitate(world, actor, m)) throw forbidden("meeting.facilitate", "Only the facilitator can end the meeting.");
