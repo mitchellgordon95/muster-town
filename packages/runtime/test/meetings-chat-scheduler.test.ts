@@ -5,6 +5,20 @@ import { callVerb, deferred, init, result, setup, text, type FakeSession } from 
 const systemOf = (s: FakeSession) => String(s.options.systemPrompt ?? "");
 
 describe("meetings", () => {
+  test("a failed summary call records an error, not its error text as the summary", async () => {
+    const { world, runtime, lab } = setup(async function* (s) {
+      if (!s.agentId) {
+        yield text("Not logged in · Please run /login");
+        yield { ...result(0, 0, "Not logged in · Please run /login"), subtype: "error_during_execution", is_error: true };
+      }
+    });
+    const m = world.ops.createMeeting(null, { kind: "standup", buildingId: lab.id, startNow: true });
+    await runtime.onMeetingStart(m.id);
+    await runtime.whenIdle();
+    expect(world.meetings.require(m.id).summaries).toEqual({});
+    expect(world.sessions.count("purpose = 'summary' AND status = 'error'")).toBe(m.attendeeIds.length);
+  });
+
   test("collecting → summaries → discussing → decisions create assignments → notes doc", async () => {
     let mossId = "", noorId = "";
     const { world, runtime, sdk, clock, by, lab } = setup(async function* (s) {

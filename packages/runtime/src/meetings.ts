@@ -37,7 +37,7 @@ async function summarize(ctx: Ctx, m: Meeting, agentId: string): Promise<void> {
   const out = await oneShot(ctx.sdk, { model, system: summarySystemPrompt(agent), prompt: summaryPrompt(m, latestReport(ctx, agentId), events), apiKey: funding.apiKey });
   const text = out.text.split("\n").map((l) => l.trim()).filter(Boolean).slice(0, 3).join("\n");
   let error = out.error;
-  if (text) {
+  if (text && !error) { // a failed call's text is its error message ("Not logged in"), not a summary
     try { await world.verbs.meeting(agentId, { meetingId: m.id, action: "summary", text }); }
     catch (e) { error = e instanceof Error ? e.message : String(e); }
   } else error ??= "empty summary";
