@@ -274,6 +274,25 @@ export function drawBench(g: CanvasRenderingContext2D, px: number, py: number, n
   if (!n.r) g.fillRect(px + T - 4, py + 11, 2, 3);
 }
 
+/** The Bank's town map: a parchment map of little buildings on a gold-framed stand, with a gold route between them. */
+export function drawBankMap(g: CanvasRenderingContext2D, px: number, py: number) {
+  g.fillStyle = "rgba(0,0,0,.25)"; g.fillRect(px + 2, py + 14, 12, 2);
+  // legs, then the gold frame and the parchment
+  g.fillStyle = "#6b4a12"; g.fillRect(px + 3, py + 11, 2, 4); g.fillRect(px + T - 5, py + 11, 2, 4);
+  g.fillStyle = "#b8862a"; g.fillRect(px, py + 1, T, 11);
+  g.fillStyle = "#f2c94c"; g.fillRect(px, py + 1, T, 1); g.fillRect(px, py + 1, 1, 11);
+  g.fillStyle = "#efe2bf"; g.fillRect(px + 1, py + 2, T - 2, 9);
+  g.fillStyle = "#d9c79a"; g.fillRect(px + 1, py + 7, T - 2, 1);
+  // three little buildings, the bank (gold) in the middle
+  g.fillStyle = "#7a8fb5"; g.fillRect(px + 2, py + 4, 3, 2);
+  g.fillStyle = "#e8b840"; g.fillRect(px + 6, py + 3, 4, 3);
+  g.fillStyle = "#86b06b"; g.fillRect(px + 11, py + 4, 3, 2);
+  // the flow: a gold dotted route from the bank to each
+  g.fillStyle = "#c9962c";
+  g.fillRect(px + 3, py + 8, 1, 1); g.fillRect(px + 5, py + 9, 1, 1); g.fillRect(px + 7, py + 8, 2, 1);
+  g.fillRect(px + 10, py + 9, 1, 1); g.fillRect(px + 12, py + 8, 1, 1);
+}
+
 export type IconKind = "library" | "trophy" | "outbox" | "meeting" | "building" | "admin" | "intray" | "board" | "cabinet" | "donation" | "schedule" | "mod" | "planning";
 const iconCache = new Map<string, string>();
 /** Tile-art icons for panel headers (2x scale). */

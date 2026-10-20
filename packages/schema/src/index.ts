@@ -279,6 +279,8 @@ export const PlaceKind = z.enum([
   "schedule",
   /** visitor-bench — Town Hall, beside the door: where visitors without a building desk wait */
   "bench",
+  /** bank-map — the Bank: a town map; using it zooms out to the whole town and shows the Bank's tokens flowing to each building by share */
+  "bank-map",
 ]);
 export type PlaceKind = z.infer<typeof PlaceKind>;
 export const Place = z.object({
@@ -664,6 +666,8 @@ export const TILE = {
   CABINET: 15,
   /** v1.4: the visitor bench in the Town Hall (furniture; visitors wait on the row above it) */
   BENCH: 16,
+  /** the town map on a stand in the Bank (place `bank-map`) */
+  BANK_MAP: 17,
 } as const;
 export const WALKABLE = new Set<number>([TILE.GRASS, TILE.PATH, TILE.FLOOR, TILE.DOOR]);
 

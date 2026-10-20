@@ -2,7 +2,7 @@
 import { TILE, WALKABLE } from "@muster-town/schema";
 import type { Building, Place } from "@muster-town/schema";
 import type { Grid } from "../api";
-import { T, tiles, drawTable, drawCounter, drawDoor, drawManagerDesk, drawChair, drawBoard, drawCabinet, drawDonation, drawSchedule, drawBench } from "./sprites";
+import { T, tiles, drawTable, drawCounter, drawDoor, drawManagerDesk, drawChair, drawBoard, drawCabinet, drawDonation, drawSchedule, drawBench, drawBankMap } from "./sprites";
 
 export class World {
   readonly w: number;
@@ -111,6 +111,7 @@ export class World {
           case TILE.CABINET: drawCabinet(g, px, py); break;
           case TILE.DONATION: drawDonation(g, px, py); break;
           case TILE.SCHEDULE: drawSchedule(g, px, py); break;
+          case TILE.BANK_MAP: drawBankMap(g, px, py); break;
           case TILE.BENCH: drawBench(g, px, py, { l: this.at(x - 1, y) === TILE.BENCH, r: this.at(x + 1, y) === TILE.BENCH }); break;
           case TILE.TABLE: drawTable(g, px, py, {
             l: this.at(x - 1, y) === TILE.TABLE, r: this.at(x + 1, y) === TILE.TABLE,

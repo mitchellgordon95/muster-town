@@ -16,7 +16,7 @@ import { MeetingPanel } from "./panels/MeetingPanel";
 import { PlanningPanel } from "./panels/PlanningPanel";
 import { BoardPanel, CabinetPanel, DonationPanel, IntrayPanel, ModStationPanel, SchedulePanel } from "./panels/Places";
 
-type TownHooks = { teleportTo(agentId: string): boolean; walkTo(placeId: string): boolean; openPanel(kind: PanelKind, id?: string): void; store: typeof store };
+type TownHooks = { teleportTo(agentId: string): boolean; walkTo(placeId: string): boolean; openPanel(kind: PanelKind, id?: string): void; townMap(): void; store: typeof store };
 
 declare global {
   /** dev/test hooks; `agentTown` is the pre-rename alias of `musterTown` (drop in P6) */
@@ -138,6 +138,7 @@ export function App() {
       teleportTo: (id) => mapRenderer()?.teleportTo(id) ?? false,
       walkTo: (placeId) => store.walkTo(placeId),
       openPanel: (kind, id) => store.open(kind === "library" && id ? { kind, docId: id } : { kind, id }),
+      townMap: () => mapRenderer()?.openFlow(),
       store,
     };
   }, []);

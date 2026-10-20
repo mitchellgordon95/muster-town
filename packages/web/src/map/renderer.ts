@@ -10,11 +10,14 @@ import { T, CHAR_W, CHAR_H, charSheet, tiles, HUMAN_SPRITE } from "./sprites";
 import { layoutEdit, type LayoutDraft } from "./layoutEdit";
 import { bubbleFor, buildingBudgetLine, drawBadge, drawBubble, drawLabel, drawPill, drawSign, residentBudgetLine, type Bubble } from "./overlay";
 import { blockedByRedeploy } from "../redeploy";
+import { api } from "../api";
+import { drawFlow, fitZoom, type Flow } from "./flow";
 
 /** `index`/`count`: position among everything in reach, so the HUD can show "Tab 2/3" when targets overlap. */
 const keyOf = (t: Target) => `${t.panel.kind}:${t.panel.id ?? ""}:${t.label}`;
 
-export interface Target { label: string; panel: PanelRef; agentId?: string; index?: number; count?: number }
+/** `action: "flow"`: E opens the Bank's town map (the zoomed-out coin flow) instead of a panel. */
+export interface Target { label: string; panel: PanelRef; agentId?: string; index?: number; count?: number; action?: "flow" }
 interface Body { x: number; y: number; fx: number; fy: number; tx: number; ty: number; t0: number; dur: number; moving: boolean; key: string }
 
 const SPEED = 5 * T; // px per second
@@ -53,6 +56,10 @@ export class MapRenderer {
   private keys = new Set<string>();
   private cam = { x: 0, y: 0, init: false };
   zoom = 3;
+  /** the zoom actually drawn: eases toward `zoom`, or toward the whole-town fit while the Bank's town map is open */
+  private z = 0;
+  /** the Bank's town map, while it's open */
+  flow: Flow | null = null;
   panelInset = 0;
   leftInset = 330;
   private grass: CanvasPattern | null = null;
@@ -93,6 +100,15 @@ export class MapRenderer {
     this.updateTarget();
     return true;
   }
+
+  /** Open the Bank's town map: zoom out to the whole town and stream the Bank's coins to each building. */
+  openFlow() {
+    const flow: Flow = { t0: performance.now(), bank: null, error: null };
+    this.flow = flow;
+    this.route = null; this.onArrive = null;
+    api().bank().then((b) => { flow.bank = b; }, (e) => { flow.error = e instanceof Error ? e.message : String(e); });
+  }
+  closeFlow() { this.flow = null; }
 
   /** Dev hook: put the avatar next to an agent and face it. */
   teleportTo(agentId: string): boolean {
@@ -193,6 +209,7 @@ export class MapRenderer {
     if (k.has("arrowup") || k.has("w")) vy -= 1;
     if (k.has("arrowdown") || k.has("s")) vy += 1;
     if ((vx || vy) && this.route) { this.route = null; this.onArrive = null; }
+    if ((vx || vy) && this.flow) this.closeFlow();
     if (!vx && !vy && this.route) { this.followRoute(dt); return; }
     this.me.moving = !!(vx || vy);
     if (!this.me.moving) return;
@@ -271,9 +288,11 @@ export class MapRenderer {
       if (d < INTERACT_PX) near.push({ d, t: { label: `Talk to ${a.name}${roleOf(a) ? ` · ${roleOf(a)}` : ""}`, panel: { kind: "agent", id: a.id }, agentId: a.id } });
     }
     for (const p of s.places) {
-      const f = PLACE_PANEL[p.kind]; if (!f) continue;
       const d = Math.hypot(p.pos.x * T + T / 2 - this.me.x, p.pos.y * T + T - 2 - this.me.y);
-      if (d < INTERACT_PX) { const { verb, ...panel } = f(p); near.push({ d, t: { label: verb, panel } }); }
+      if (d >= INTERACT_PX) continue;
+      if (p.kind === "bank-map") { near.push({ d, t: { label: "Look at the town map", panel: { kind: "building", id: p.buildingId ?? undefined }, action: "flow" } }); continue; }
+      const f = PLACE_PANEL[p.kind]; if (!f) continue;
+      const { verb, ...panel } = f(p); near.push({ d, t: { label: verb, panel } });
     }
     // stable order (not by distance) so Tab walks a fixed ring instead of reshuffling as you shuffle around
     const byDist = near.slice().sort((x, y) => x.d - y.d);
@@ -316,21 +335,25 @@ export class MapRenderer {
     const g = this.g, w = this.world!;
     const dpr = window.devicePixelRatio || 1;
     const cw = this.canvas.clientWidth, ch = this.canvas.clientHeight;
-    const z = this.zoom;
     const viewW = cw - this.panelInset;
-    // camera: follow the avatar, centred in the part of the screen the panel doesn't cover
+    const ww = w.w * T, wh = w.h * T;
     // centre the avatar in the strip between the HUD and the panel
     const hud = document.querySelector(".hud")?.getBoundingClientRect();
     this.leftInset = hud ? Math.min(hud.right + 12, viewW * 0.45) : 0;
+    // ease the zoom: out to the whole town (fitted in that strip) while the Bank's town map is open, back to `zoom` after
+    const goalZ = this.flow ? fitZoom(ww, wh, viewW - this.leftInset, ch, this.zoom) : this.zoom;
+    this.z = !this.z ? goalZ : Math.abs(goalZ - this.z) < 0.01 ? goalZ : this.z + (goalZ - this.z) * 0.12;
+    const z = this.z;
     const ed = layoutEdit.draft;
-    // editing a layout: centre the room instead of the avatar
-    const fx = ed ? (ed.lot.x + ed.lot.w / 2) * T : this.me.x, fy = ed ? (ed.lot.y + ed.lot.h / 2) * T : this.me.y;
+    // editing a layout: centre the room instead of the avatar; the town map: centre the whole town
+    const fx = ed ? (ed.lot.x + ed.lot.w / 2) * T : this.flow ? ww / 2 : this.me.x, fy = ed ? (ed.lot.y + ed.lot.h / 2) * T : this.flow ? wh / 2 : this.me.y;
     let cx = fx - (this.leftInset + (viewW - this.leftInset) / 2) / z, cy = fy - ch / 2 / z;
-    const ww = w.w * T, wh = w.h * T;
     // let the camera pan past the left edge by the HUD's width so nothing hides under it
     const lead = this.leftInset / z;
-    cx = ww * z + this.leftInset <= viewW ? -(viewW / z - ww) / 2 : Math.max(-lead, Math.min(ww - viewW / z, cx));
-    cy = wh * z <= ch ? -(ch / z - wh) / 2 : Math.max(0, Math.min(wh - ch / z, cy));
+    if (!this.flow) {
+      cx = ww * z + this.leftInset <= viewW ? -(viewW / z - ww) / 2 : Math.max(-lead, Math.min(ww - viewW / z, cx));
+      cy = wh * z <= ch ? -(ch / z - wh) / 2 : Math.max(0, Math.min(wh - ch / z, cy));
+    }
     if (!this.cam.init) { this.cam.x = cx; this.cam.y = cy; this.cam.init = true; }
     this.cam.x += (cx - this.cam.x) * 0.18; this.cam.y += (cy - this.cam.y) * 0.18;
     const ox = Math.round(this.cam.x * z * dpr) / (z * dpr), oy = Math.round(this.cam.y * z * dpr) / (z * dpr);
@@ -372,6 +395,12 @@ export class MapRenderer {
 
     // screen-space overlay
     g.setTransform(dpr, 0, 0, dpr, 0, 0);
+    if (this.flow) {
+      // the town map: just the flow over the dimmed town (no signs, labels or bubbles); bodies can't be clicked
+      this.hitboxes = [];
+      drawFlow(g, now, this.flow, s.buildings, toScreen, cw, ch, this.leftInset + (viewW - this.leftInset) / 2);
+      return;
+    }
     for (const b of s.buildings) {
       if (!b.lot) continue;
       const p = toScreen((b.lot.x + b.lot.w / 2) * T, b.lot.y * T - 3);
