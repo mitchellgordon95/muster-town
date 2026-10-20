@@ -25,3 +25,4 @@
 - 2026-10-20 (merges): PRs #4-#17 merged (1-3 via #8, 5 via #11); reports-as-replies landed (one box, one button, archive, ask-about-this); migration applier fixed to run late-merged files (004 had never run on live DBs); workshop residents titles cleared. 148 tests.
 - 2026-10-20 web: End meeting button moved into the meeting chatbar next to Say; Act buttons are type=button (Lena)
 - 2026-10-20: desk sessions failed on "local changes would be overwritten" (npm set the exec bit on packages/desk/src/cli.ts inside containers). Fixed: core.fileMode false + auto-stash before checkout; old containers replaced; 9 assignments re-queued; report format now What I did / Findings / What I need from you.
+- 2026-10-20 meetings: the facilitator (or a human) can question an attendee with @Name mid-meeting; the attendee gets a short no-tools reply turn and answers in the meeting chat (max 5 per attendee per meeting) — Lena

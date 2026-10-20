@@ -1,5 +1,5 @@
 import { describe, expect, test } from "vitest";
-import { COLLECTING_MS } from "../src/index.ts";
+import { COLLECTING_MS, MEETING_REPLIES_MAX } from "../src/index.ts";
 import { callVerb, deferred, init, result, setup, text, type FakeSession } from "./helpers.ts";
 
 const systemOf = (s: FakeSession) => String(s.options.systemPrompt ?? "");
@@ -68,6 +68,64 @@ describe("meetings", () => {
     const cur = world.meetings.require(m.id);
     expect(cur.phase).toBe("done");
     expect(world.docs.require(cur.notesDocId!).body).toContain("closed by the town");
+  });
+});
+
+describe("questioning attendees", () => {
+  const replyScript = (seen: string[]) => async function* (s: FakeSession) {
+    const sys = systemOf(s);
+    if (!s.agentId && sys.includes("addressed you")) { // one-shot meeting reply (no tools)
+      const name = /^You are (\w+)/.exec(sys)![1];
+      seen.push(s.received[0]);
+      const reply = name === "Noor" ? "Growth is 2.4 ± 0.1 ppm/yr; Tomas has the 13C side." : `${name} here.`;
+      yield text(reply);
+      yield result(60, 0.002, reply);
+      return;
+    }
+    yield init();
+    yield result(10, 0);
+  };
+
+  test("a facilitator's @mention gets the attendee's reply in the meeting; an attendee's mention wakes no one", async () => {
+    const prompts: string[] = [];
+    const { world, runtime, sdk, by, lab } = setup(replyScript(prompts));
+    const noor = by("Noor"), tomas = by("Tomas");
+    const m = world.ops.createMeeting(null, { kind: "standup", buildingId: lab.id, attendeeIds: [noor.id, tomas.id] });
+    world.meetings.upsert({ ...world.meetings.require(m.id), phase: "discussing" }); // no facilitation session
+    const fac = world.meetings.require(m.id).facilitatorId!;
+    await world.verbs.meeting(fac, { meetingId: m.id, action: "speak", text: "@Noor where is the growth rate?" });
+    await runtime.whenIdle();
+    let cur = world.meetings.require(m.id);
+    expect(cur.transcript.at(-1)).toMatchObject({ speakerId: noor.id, text: "Growth is 2.4 ± 0.1 ppm/yr; Tomas has the 13C side." });
+    expect(prompts[0]).toContain("@Noor where is the growth rate?");
+    expect(prompts[0]).toContain("My latest report:");
+    const reply = sdk.sessions.find((s) => systemOf(s).includes("addressed you"))!;
+    expect(reply.options.tools).toEqual([]);
+    expect(world.sessions.first("agentId = ? AND purpose = 'meeting-reply'", [noor.id])).toMatchObject({ status: "done", meetingId: m.id });
+
+    // Noor's reply named Tomas without "@"; an attendee's @mention doesn't wake anyone either
+    await world.verbs.meeting(noor.id, { meetingId: m.id, action: "speak", text: "@Tomas can you add the 13C numbers?" });
+    await runtime.whenIdle();
+    cur = world.meetings.require(m.id);
+    expect(cur.transcript.at(-1)!.speakerId).toBe(noor.id);
+    expect(prompts).toHaveLength(1);
+  });
+
+  test("a human's @mention wakes the attendee; replies stop at the cap", async () => {
+    const prompts: string[] = [];
+    const { world, runtime, seed, by, lab } = setup(replyScript(prompts));
+    const tomas = by("Tomas");
+    const human = world.ops.ensureAvatar(seed.admin.id);
+    const m = world.ops.createMeeting(null, { kind: "standup", buildingId: lab.id, attendeeIds: [tomas.id] });
+    world.meetings.upsert({ ...world.meetings.require(m.id), phase: "discussing" });
+    for (let i = 0; i < MEETING_REPLIES_MAX + 2; i++) {
+      await world.verbs.meeting(human.id, { meetingId: m.id, action: "speak", text: `@Tomas question ${i}?` });
+      await runtime.whenIdle();
+    }
+    const replies = world.meetings.require(m.id).transcript.filter((u) => u.speakerId === tomas.id);
+    expect(replies).toHaveLength(MEETING_REPLIES_MAX);
+    expect(replies[0].text).toBe("Tomas here.");
+    expect(prompts).toHaveLength(MEETING_REPLIES_MAX);
   });
 });
 

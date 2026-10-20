@@ -8,7 +8,7 @@ import { DesksConfig, type ChatInput, type DeskActivityInput, type Event, type S
 import { askAbout, chat } from "./chat.ts";
 import { DockerBackend, HostBackend, type WorkBackend } from "./desk/backend.ts";
 import { onDeskActivity, runDeskSession, type DeskSessionOptions } from "./desk/session.ts";
-import { advanceCollecting, facilitate, newMeetingState, onMeetingStart } from "./meetings.ts";
+import { advanceCollecting, facilitate, newMeetingState, onMeetingMention, onMeetingStart } from "./meetings.ts";
 import { realSdk, type Sdk } from "./sdk.ts";
 import type { Ctx } from "./session.ts";
 import { abortWork, finishWorkSession, interrupt, maybeReview, runWorkSession, type WorkOutcome } from "./work.ts";
@@ -20,7 +20,7 @@ export { deskEnv, portOf, type DeskSessionOptions } from "./desk/session.ts";
 export { mergeLine, type WorkOutcome } from "./work.ts";
 export { InputChannel, oneShot, realSdk, usageOf, userMessage, type QueryHandle, type QueryParams, type Sdk } from "./sdk.ts";
 export { DISALLOWED_TOOLS, TOWN_TOOLS, WEB_TOOLS } from "./session.ts";
-export { COLLECTING_MS } from "./meetings.ts";
+export { COLLECTING_MS, MEETING_REPLIES_MAX } from "./meetings.ts";
 
 export interface RuntimeOptions {
   world: World;
@@ -153,6 +153,7 @@ export function startRuntime(opts: RuntimeOptions): Runtime {
     else if (e.type === "meeting.created" && p.phase === "collecting") later(() => onMeetingStart(ctx, mst, String(p.meetingId)), "meeting summaries");
     else if (e.type === "meeting.phase" && p.phase === "collecting") later(() => onMeetingStart(ctx, mst, String(p.meetingId)), "meeting summaries");
     else if (e.type === "meeting.phase" && p.phase === "discussing") later(() => facilitate(ctx, mst, String(p.meetingId)), "facilitation");
+    else if (e.type === "agent.mentioned" && p.meetingId) later(() => onMeetingMention(ctx, mst, String(p.meetingId), String(p.toId), String(p.byId), String(p.byKind)), "meeting reply");
     else if ((e.type === "agent.status" && (p.status === "stopped" || p.status === "banned")) || e.type === "agent.banned") {
       if (e.agentId) abortWork(ctx, e.agentId, killGraceMs);
     }
