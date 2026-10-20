@@ -29,6 +29,10 @@ export interface HostHooks {
   interrupt?(agentId: string, text: string, from?: string, now?: boolean): boolean;
   /** The git commit the running server started from (live code), set by the runtime. Unset without one. */
   commit?: string;
+  /** When the runtime started (ISO): a `{deploy: "next"}` wait holds once this is after the assignment was made. */
+  startedAt?: string;
+  /** Whether the live commit contains `sha` (`git merge-base --is-ancestor`). Without it, `deploy` waits never hold. */
+  isLive?(sha: string): boolean;
 }
 
 export class World {

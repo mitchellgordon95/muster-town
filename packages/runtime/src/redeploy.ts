@@ -311,6 +311,11 @@ export function gitHead(repoRoot: string): string | null {
   try { return execFileSync("git", ["rev-parse", "HEAD"], { cwd: repoRoot, timeout: 10_000, stdio: ["ignore", "pipe", "ignore"] }).toString().trim() || null; } catch { return null; }
 }
 
+/** Whether `sha` is in the history of `head` (`git merge-base --is-ancestor`); false when unknown here (not pulled yet). The checkout only changes on a pull, which precedes a restart, so a result holds for this server's life. */
+export function isAncestor(repoRoot: string, sha: string, head: string): boolean {
+  try { execFileSync("git", ["merge-base", "--is-ancestor", sha, head], { cwd: repoRoot, timeout: 10_000, stdio: "ignore" }); return true; } catch { return false; }
+}
+
 /** `docker build` tags: the default desk image is also tagged with its pre-rename name, so either name in desks.image works (drop in P6). */
 export function imageTags(image: string): string[] {
   return image === DESK_IMAGE || image === OLD_DESK_IMAGE ? [image, image === DESK_IMAGE ? OLD_DESK_IMAGE : DESK_IMAGE] : [image];

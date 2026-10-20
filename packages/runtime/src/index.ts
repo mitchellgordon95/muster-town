@@ -3,11 +3,11 @@
  * reviewer sessions over the in-tray, meeting summaries + facilitation, proxy chat, interrupts, scheduler,
  * startup reconcile, dismissal (onAgentRetired), host redeploy (v1.3).
  */
-import { nextPending, PRESENCE_TICK_MS, slugify, type World } from "@muster-town/core";
+import { checkWaits, nextPending, PRESENCE_TICK_MS, slugify, type World } from "@muster-town/core";
 import { DesksConfig, type ChatInput, type DeskActivityInput, type Event, type RedeployResult, type Session } from "@muster-town/schema";
 import { askAbout, chat } from "./chat.ts";
 import { DockerBackend, dockerSafe, HostBackend, type WorkBackend } from "./desk/backend.ts";
-import { gitHead, makeRedeployer, type RedeployDeps, type RedeployRequest } from "./redeploy.ts";
+import { gitHead, isAncestor, makeRedeployer, type RedeployDeps, type RedeployRequest } from "./redeploy.ts";
 import { onDeskActivity, runDeskSession, type DeskSessionOptions } from "./desk/session.ts";
 import { advanceCollecting, facilitate, newMeetingState, onMeetingMention, onMeetingStart } from "./meetings.ts";
 import { realSdk, type Sdk } from "./sdk.ts";
@@ -275,6 +275,7 @@ export function startRuntime(opts: RuntimeOptions): Runtime {
     if (t - lastPresence >= PRESENCE_TICK_MS) { lastPresence = t; presenceTick(); }
     try { scheduleMeetings(t); } catch (e) { log("meetings")(e); }
     try { scheduleReviews(); } catch (e) { log("reviews")(e); }
+    try { checkWaits(world, d); } catch (e) { log("waits")(e); }
     await backendReady;
     if (stopped) return;
     try { scheduleWork(); } catch (e) { log("work")(e); }
@@ -305,6 +306,17 @@ export function startRuntime(opts: RuntimeOptions): Runtime {
   world.host.interrupt = hostInterrupt;
   const commit = gitHead(ctx.repoRoot);
   if (commit) world.host.commit = commit;
+  // `{deploy}` waits: "next" holds once this server started after the assignment was made; a sha once the live commit contains it
+  const bootIso = now().toISOString();
+  world.host.startedAt = bootIso;
+  const liveCache = new Map<string, boolean>();
+  const hostIsLive = (sha: string) => {
+    if (!commit) return false;
+    let v = liveCache.get(sha);
+    if (v === undefined) { v = isAncestor(ctx.repoRoot, sha, commit); liveCache.set(sha, v); }
+    return v;
+  };
+  world.host.isLive = hostIsLive;
 
   return {
     async stop() {
@@ -313,6 +325,8 @@ export function startRuntime(opts: RuntimeOptions): Runtime {
       if (world.host.isWorking === hostIsWorking) delete world.host.isWorking;
       if (world.host.interrupt === hostInterrupt) delete world.host.interrupt;
       if (commit && world.host.commit === commit) delete world.host.commit;
+      if (world.host.startedAt === bootIso) delete world.host.startedAt;
+      if (world.host.isLive === hostIsLive) delete world.host.isLive;
       if (timer) clearInterval(timer);
       unsubscribe();
       for (const id of [...ctx.live.keys()]) abortWork(ctx, id);

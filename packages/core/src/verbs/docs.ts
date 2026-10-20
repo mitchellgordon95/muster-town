@@ -5,6 +5,7 @@ import {
 } from "../domain.ts";
 import { AppError, badRequest, forbidden } from "../errors.ts";
 import { docWhere, notifyMentions } from "../mentions.ts";
+import { describeWait, validateWait } from "../waits.ts";
 import type { World } from "../world.ts";
 import type { VerbIn } from "./types.ts";
 
@@ -101,6 +102,9 @@ export async function write(world: World, me: Agent, input: VerbIn<"write">) {
   return { id: doc.id, state: doc.state };
 }
 
+/** How many times in a row one piece of work may park itself (`submit_report` resumeWhen) before a human must decide. */
+export const MAX_PARKS = 3;
+
 export async function submit_report(world: World, me: Agent, input: VerbIn<"submit_report">) {
   if (me.kind === "human") throw badRequest("Humans don't submit reports.");
   const bid = homeOf(me);
@@ -108,11 +112,20 @@ export async function submit_report(world: World, me: Agent, input: VerbIn<"subm
   const policy = building?.reviewPolicy ?? "human";
   const session = world.sessions.first("agentId = ? AND status = 'running'", [me.id], "ORDER BY startedAt DESC");
   const assignmentId = me.currentAssignmentId ?? session?.assignmentId ?? undefined;
+  // P2: park instead of ending: the continuation waits for `resumeWhen` and then starts by itself (at most MAX_PARKS in a row)
+  const resumeWhen = input.resumeWhen ? validateWait(world, input.resumeWhen) : null;
+  const current = assignmentId ? world.assignments.get(assignmentId) : undefined;
+  const parks = (current?.parked ?? 0) + 1;
+  if (resumeWhen) {
+    if (!current) throw badRequest("resumeWhen needs a current assignment to continue.");
+    if (parks > MAX_PARKS) throw badRequest(`This work has already parked ${MAX_PARKS} times in a row; submit the report without resumeWhen and say what you're waiting on.`);
+    if ("assignment" in resumeWhen && resumeWhen.assignment === current.id) throw badRequest("resumeWhen can't wait on your own current assignment.");
+  }
   return world.transaction(() => {
     const doc = createDoc(world, {
       type: "report", state: "building", title: input.title, body: input.body, verdict: input.verdict, decision: "pending",
       authorId: me.id, authorKind: "agent", buildingId: bid, provenance: input.provenance,
-      sessionId: session?.id, assignmentId: assignmentId ?? undefined,
+      sessionId: session?.id, assignmentId: assignmentId ?? undefined, ...(resumeWhen ? { tags: ["parked"] } : {}),
     }, `${me.name} submitted a report: ${input.title}`);
     notifyMentions(world, me, `${doc.title}\n${doc.body}`, { where: docWhere(doc), docId: doc.id, buildingId: doc.buildingId });
     // a cancelled assignment (stopped/dismissed mid-session) stays cancelled; the report still lands
@@ -120,6 +133,17 @@ export async function submit_report(world: World, me: Agent, input: VerbIn<"subm
     if (asg && (asg.status === "pending" || asg.status === "active")) setAssignmentStatus(world, asg.id, "done", { reportId: doc.id });
     if (session) world.sessions.upsert({ ...session, reportId: doc.id });
     world.agents.patch(me.id, { currentAssignmentId: null });
+    let parked: { assignmentId: string; waitingOn: string } | null = null;
+    if (resumeWhen && current) {
+      const what = describeWait(world, resumeWhen);
+      const title = (input.next?.trim() || `Resume: ${current.title}`).slice(0, 160);
+      const next = createAssignment(world, {
+        agentId: me.id, buildingId: current.buildingId, title, waitFor: resumeWhen, parked: parks, front: true,
+        createdBy: { kind: "system", id: "system" }, fromAssignmentId: current.id, fromReportId: doc.id,
+        description: `You parked this work in your report "${doc.title}" (${doc.id}) until ${what}; that has happened, so it resumed by itself.${input.next ? `\n\nWhat you said you'd do: ${input.next.trim()}` : ""}\n\nThe original assignment (${current.id}): ${current.title}\n\n${current.description}`,
+      });
+      parked = { assignmentId: next.id, waitingOn: what };
+    }
     // Hub semantics: the report goes to the building's in-tray and the agent goes idle. It only works again
     // when someone gives it an assignment (manager decision, reviewer `continue`, meeting decision, mention).
     let decision: Doc["decision"] = "pending";
@@ -128,6 +152,10 @@ export async function submit_report(world: World, me: Agent, input: VerbIn<"subm
       applyDecision(world, doc.id, "approve", "Acknowledged automatically (review policy auto).", { kind: "system", id: "system" });
     }
     if (world.agents.get(me.id)?.status === "working") world.setStatus(me.id, "idle", `${me.name} filed a report and is idle`);
+    if (parked) {
+      return { id: doc.id, decision, reviewPolicy: policy, nextAssignmentId: parked.assignmentId,
+        note: `Report submitted to your manager's in-tray; your work is parked and resumes by itself after ${parked.waitingOn} (a manager can Stop or Redirect it there). Your session ends now.` };
+    }
     return { id: doc.id, decision, reviewPolicy: policy, nextAssignmentId: null, note: "Report submitted to your manager's in-tray. Your session ends now; you'll get a new assignment if there's more to do." };
   });
 }
@@ -135,7 +163,8 @@ export async function submit_report(world: World, me: Agent, input: VerbIn<"subm
 export async function review(world: World, me: Agent, input: VerbIn<"review">) {
   const doc = requirePendingReport(world, input.docId);
   if (!world.permissions.can(me, "building.review", doc.buildingId)) throw forbidden("building.review");
-  const res = world.transaction(() => applyDecision(world, doc.id, input.decision, input.note, world.holderOf(me)));
+  const waitFor = input.waitFor ? validateWait(world, input.waitFor) : null;
+  const res = world.transaction(() => applyDecision(world, doc.id, input.decision, input.note, world.holderOf(me), { waitFor }));
   return { docId: doc.id, decision: input.decision, assignmentId: res.assignment?.id ?? null };
 }
 
@@ -164,9 +193,10 @@ export async function assign(world: World, me: Agent, input: VerbIn<"assign">) {
   const target = world.agents.require(input.agentId, "agent");
   const bid = homeOf(target);
   if (!world.permissions.can(me, "building.assign", bid)) throw forbidden("building.assign");
-  const a = createAssignment(world, { agentId: target.id, title: input.title, description: input.description, createdBy: world.holderOf(me) });
-  sendMessage(world, { kind: "system", fromId: me.id, fromKind: "system", toId: target.id, body: `New assignment from ${me.name}: ${input.title}` });
-  return { assignmentId: a.id };
+  const waitFor = input.waitFor ? validateWait(world, input.waitFor) : null;
+  const a = createAssignment(world, { agentId: target.id, title: input.title, description: input.description, createdBy: world.holderOf(me), waitFor });
+  sendMessage(world, { kind: "system", fromId: me.id, fromKind: "system", toId: target.id, body: `New assignment from ${me.name}: ${input.title}${waitFor ? ` (starts after ${describeWait(world, waitFor)})` : ""}` });
+  return { assignmentId: a.id, ...(waitFor ? { waitingOn: describeWait(world, waitFor) } : {}) };
 }
 
 export async function promote(world: World, me: Agent, input: VerbIn<"promote">) {

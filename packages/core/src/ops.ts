@@ -7,6 +7,7 @@ import { AppError, badRequest, forbidden } from "./errors.ts";
 import { createMeeting, endMeeting, meetingDecide, meetingSpeak, setMeetingPhase } from "./meetings.ts";
 import { replyToReport, type ReplyResult } from "./reply.ts";
 import { newId, nowIso } from "./util.ts";
+import { validateWait } from "./waits.ts";
 import type { World } from "./world.ts";
 
 export interface MessageAgentOptions {
@@ -199,12 +200,13 @@ export class Ops {
   /** POST /agents/:id/work: create a pending assignment (building.assign or owner). Clears `stopped`. */
   createWork(actor: Actor, agentId: string, input: (typeof WorkInput)["_input"] = {}): Assignment {
     const inp = WorkInput.parse(input);
+    const waitFor = inp.waitFor ? validateWait(this.world, inp.waitFor) : null;
     const agent = this.world.agents.require(agentId, "agent");
     if (actor) this.requireAgentControl(actor, agent);
     if (agent.status === "banned" || agent.status === "retired") throw new AppError("conflict", `${agent.name} is ${agent.status === "retired" ? "dismissed" : "banned"}.`);
     const a = createAssignment(this.world, {
       agentId, title: inp.title ?? "Check in", description: inp.description ?? CHECK_IN,
-      createdBy: actor ? this.world.holderOf(actor) : { kind: "system", id: "system" },
+      createdBy: actor ? this.world.holderOf(actor) : { kind: "system", id: "system" }, waitFor,
     });
     if (agent.status === "stopped") this.world.setStatus(agentId, "idle");
     return a;
@@ -257,7 +259,8 @@ export class Ops {
     const { a, agent } = this.controlAssignment(actor, assignmentId);
     if (a.status !== "pending") throw new AppError("conflict", `Assignment "${a.title}" is ${a.status}, not queued.`);
     if (agent.status === "banned" || agent.status === "retired") throw new AppError("conflict", `${agent.name} is ${agent.status === "retired" ? "dismissed" : "banned"}.`);
-    const assignment = moveToFront(this.world, a.id);
+    // starting it by hand overrides what it waits on
+    const assignment = moveToFront(this.world, a.waitFor ? this.world.assignments.upsert({ ...a, waitFor: null, updatedAt: nowIso() }).id : a.id);
     const resumed = agent.status === "stopped" ? this.world.setStatus(agent.id, "idle", `${agent.name} was resumed to start "${a.title}"`) : agent;
     const busy = resumed.status === "working" || resumed.status === "in-meeting";
     return { assignment, agent: resumed, when: busy ? "after-current" : "now" };

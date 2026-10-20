@@ -4,6 +4,7 @@ import { AppError, badRequest, forbidden, notFound } from "./errors.ts";
 import { buildingRoleId, townRoleId } from "./permissions.ts";
 import { notifyMentions } from "./mentions.ts";
 import { newId, nowIso } from "./util.ts";
+import { validateWait } from "./waits.ts";
 import { TOWN_HALL_ID } from "./world/layout.ts";
 import type { World } from "./world.ts";
 
@@ -155,7 +156,7 @@ export function meetingDecide(world: World, actor: Agent | null, meetingId: stri
       const prev = old.assignmentId ? world.assignments.get(old.assignmentId) : undefined;
       if (prev && (prev.status === "pending" || prev.status === "active")) {
         if (d.assigneeId === prev.agentId) {
-          world.assignments.upsert({ ...prev, title, description: `${d.text}\n\nDecided in meeting "${m.title}" (amended; replaces: ${old.text.split("\n")[0].slice(0, 160)}).`, updatedAt: nowIso() });
+          world.assignments.upsert({ ...prev, title, ...(prev.status === "pending" ? { waitFor: d.waitFor ? validateWait(world, d.waitFor) : null } : {}), description: `${d.text}\n\nDecided in meeting "${m.title}" (amended; replaces: ${old.text.split("\n")[0].slice(0, 160)}).`, updatedAt: nowIso() });
           if (prev.status === "active") sendMessage(world, { kind: "system", fromId: "system", fromKind: "system", toId: prev.agentId, body: `Your current assignment was amended in meeting "${m.title}": ${d.text}` });
           out = { ...d, assignmentId: prev.id };
         } else {
@@ -169,7 +170,7 @@ export function meetingDecide(world: World, actor: Agent | null, meetingId: stri
       for (const pending of world.docs.where("authorId = ? AND type = 'report' AND decision = 'pending'", [out.assigneeId], "ORDER BY createdAt")) {
         applyDecision(world, pending.id, "approve", `Superseded by a decision in meeting "${m.title}": ${d.text.split("\n")[0].slice(0, 160)}`, by);
       }
-      const a = createAssignment(world, { agentId: out.assigneeId, title, description: `${d.text}\n\nDecided in meeting "${m.title}".`, createdBy: by, fromMeetingId: m.id });
+      const a = createAssignment(world, { agentId: out.assigneeId, title, description: `${d.text}\n\nDecided in meeting "${m.title}".`, createdBy: by, fromMeetingId: m.id, waitFor: d.waitFor ? validateWait(world, d.waitFor) : null });
       if (world.agents.get(out.assigneeId)?.status === "stopped") world.setStatus(out.assigneeId, "idle", `${world.nameOf(out.assigneeId)} was resumed by a decision in "${m.title}"`);
       out = { ...out, assignmentId: a.id };
     }

@@ -227,3 +227,21 @@ describe("reviewer policy", () => {
     expect(world.events.list({ agentId: moss, types: ["agent.tool"] }).map((e) => e.text)).toContain("Reviewing a report: continue");
   });
 });
+
+describe("waiting assignments", () => {
+  test("the tick unblocks a met wait and the scheduler starts it; the runtime fills world.host for deploy waits", async () => {
+    const { world, runtime, by } = setup(happyWork);
+    const noor = by("Noor");
+    expect(world.host.startedAt).toBe("2026-10-19T10:00:00.000Z");
+    expect(typeof world.host.isLive).toBe("function");
+    const first = world.ops.createWork(null, noor.id, { title: "First" });
+    world.ops.cancelAssignment(null, first.id);
+    const later = world.ops.createWork(null, noor.id, { title: "After first", waitFor: { assignment: first.id } });
+    const blocker = world.ops.createWork(null, by("Mei").id, { title: "Mei's push" });
+    const third = world.ops.createWork(null, noor.id, { title: "After Mei", waitFor: { assignment: blocker.id } });
+    await runtime.tickOnce();
+    await runtime.whenIdle();
+    expect(world.assignments.require(later.id)).toMatchObject({ waitFor: null, status: "done" });
+    expect(world.assignments.require(third.id)).toMatchObject({ waitFor: { assignment: blocker.id }, status: "pending" });
+  });
+});

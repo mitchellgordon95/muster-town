@@ -1,6 +1,7 @@
-import { Doc, QUEUE_ORDER, type Agent, type Assignment, type Message, type ReviewDecision } from "@muster-town/schema";
+import { Doc, QUEUE_ORDER, type Agent, type Assignment, type Message, type ReviewDecision, type WaitFor } from "@muster-town/schema";
 import { AppError } from "./errors.ts";
 import type { Holder } from "./permissions.ts";
+import { describeWait } from "./waits.ts";
 import { extractSection, firstLine, newId, nowIso, truncate } from "./util.ts";
 import type { World } from "./world.ts";
 
@@ -40,7 +41,7 @@ export function canSeeDoc(holder: Holder, d: Doc): boolean {
   return d.state !== "draft" || d.authorId === holder.id;
 }
 
-export function createAssignment(world: World, a: { agentId: string; title: string; description: string; createdBy: Holder | { kind: "system"; id: string }; fromReportId?: string | null; fromMeetingId?: string | null; fromAssignmentId?: string | null; buildingId?: string; front?: boolean }): Assignment {
+export function createAssignment(world: World, a: { agentId: string; title: string; description: string; createdBy: Holder | { kind: "system"; id: string }; fromReportId?: string | null; fromMeetingId?: string | null; fromAssignmentId?: string | null; buildingId?: string; front?: boolean; waitFor?: WaitFor | null; parked?: number }): Assignment {
   const agent = world.agents.require(a.agentId, "agent");
   const buildingId = a.buildingId ?? agent.homeBuildingId ?? agent.buildingId;
   if (!buildingId) throw new AppError("bad_request", `${agent.name} has no building to work in.`);
@@ -50,10 +51,11 @@ export function createAssignment(world: World, a: { agentId: string; title: stri
     createdBy: a.createdBy.id, createdByKind: a.createdBy.kind === "system" ? "user" : a.createdBy.kind,
     fromMeetingId: a.fromMeetingId ?? null, fromReportId: a.fromReportId ?? null, reportId: null,
     fromAssignmentId: a.fromAssignmentId ?? null, position: a.front ? frontPosition(world, agent.id) : Date.now(), createdAt: ts, updatedAt: ts,
+    waitFor: a.waitFor ?? null, ...(a.parked ? { parked: a.parked } : {}),
     // v1.4: a visitor's loop runs outside the town, so its assignments are offers it accepts (never scheduled)
     ...(agent.kind === "visitor" ? { offered: true } : {}),
   });
-  world.events.append({ type: "assignment.created", agentId: agent.id, buildingId, text: `${assignment.offered ? "Offered to" : "New assignment for"} ${agent.name}: ${a.title}`, payload: { assignmentId: assignment.id, offered: !!assignment.offered, createdBy: a.createdBy.id, fromReportId: a.fromReportId ?? null, fromMeetingId: a.fromMeetingId ?? null } });
+  world.events.append({ type: "assignment.created", agentId: agent.id, buildingId, text: `${assignment.offered ? "Offered to" : "New assignment for"} ${agent.name}: ${a.title}${assignment.waitFor ? ` (waits on ${describeWait(world, assignment.waitFor)})` : ""}`, payload: { assignmentId: assignment.id, offered: !!assignment.offered, waitFor: assignment.waitFor, createdBy: a.createdBy.id, fromReportId: a.fromReportId ?? null, fromMeetingId: a.fromMeetingId ?? null } });
   return assignment;
 }
 
@@ -62,9 +64,9 @@ export function pendingQueue(world: World, agentId: string): Assignment[] {
   return world.assignments.where("agentId = ? AND status = 'pending'", [agentId], QUEUE_ORDER);
 }
 
-/** The pending assignment the scheduler runs next for this agent (offers to visitors never run). */
+/** The pending assignment the scheduler runs next for this agent (offers to visitors never run; nor do waiting ones). */
 export function nextPending(world: World, agentId: string): Assignment | undefined {
-  return world.assignments.first("agentId = ? AND status = 'pending' AND (offered IS NULL OR offered = 0)", [agentId], QUEUE_ORDER);
+  return world.assignments.first("agentId = ? AND status = 'pending' AND (offered IS NULL OR offered = 0) AND waitFor IS NULL", [agentId], QUEUE_ORDER);
 }
 
 /** A position ahead of every pending assignment of the agent (except `exceptId`). */
@@ -112,7 +114,7 @@ const DECISION_VERB: Record<ReviewDecision, string> = { approve: "Acknowledged",
  * - stop: author stopped; its pending/active assignments cancelled.
  * Shared by the `review` verb, REST, the auto policy, and meeting decisions.
  */
-export function applyDecision(world: World, docId: string, decision: ReviewDecision, note: string, decider: Holder | { kind: "system"; id: string }): { doc: Doc; assignment: Assignment | null } {
+export function applyDecision(world: World, docId: string, decision: ReviewDecision, note: string, decider: Holder | { kind: "system"; id: string }, opts: { waitFor?: WaitFor | null } = {}): { doc: Doc; assignment: Assignment | null } {
   note = note.trim();
   if (decision === "redirect" && !note) throw new AppError("bad_request", "Redirect needs a note: it becomes the next assignment.");
   const report = world.docs.require(docId, "doc");
@@ -127,6 +129,15 @@ export function applyDecision(world: World, docId: string, decision: ReviewDecis
     world.setStatus(author.id, "stopped", `${author.name} was stopped after review`);
     return { doc, assignment };
   }
+  // P2: a parked report (its author queued its own continuation with `resumeWhen`). Approve leaves it parked (it
+  // resumes by itself); Continue resumes it now; Redirect cancels it for the note.
+  const parked = world.assignments.first("fromReportId = ? AND status = 'pending' AND parked IS NOT NULL", [docId], "ORDER BY createdAt");
+  if (parked && decision === "continue") {
+    assignment = world.assignments.upsert({ ...parked, waitFor: opts.waitFor ?? null, description: note ? `${parked.description}\n\nManager's note: ${note}` : parked.description, updatedAt: nowIso() });
+    if (author.status === "stopped") world.setStatus(author.id, "idle");
+    return { doc, assignment };
+  }
+  if (parked) setAssignmentStatus(world, parked.id, "cancelled");
   const proposal = extractProposal(report.body);
   let title: string, description: string;
   if (decision === "continue") {
@@ -142,7 +153,7 @@ export function applyDecision(world: World, docId: string, decision: ReviewDecis
       ...(proposal ? [`For context, your report proposed:\n\n${proposal.text}`] : []),
     ].join("\n\n");
   }
-  assignment = createAssignment(world, { agentId: author.id, title, description, createdBy: decider, fromReportId: report.id });
+  assignment = createAssignment(world, { agentId: author.id, title, description, createdBy: decider, fromReportId: report.id, waitFor: opts.waitFor });
   if (author.status === "stopped") world.setStatus(author.id, "idle");
   return { doc, assignment };
 }

@@ -370,6 +370,21 @@ export const Doc = z.object({
 export type Doc = z.infer<typeof Doc>;
 
 // ---------- assignments ----------
+/**
+ * What a pending assignment waits on before the scheduler may start it (a closed set the runtime evaluates):
+ * `deploy` = the live server contains this commit ("next" = the server restarted after the assignment was made);
+ * `assignment` = that assignment is done or cancelled; `decision` = that report got a decision; `after` = not before this time.
+ * Unmet after 24 h, the assignment is cancelled into its building's in-tray.
+ */
+export const WaitFor = z.union([
+  z.object({ deploy: z.string().regex(/^([0-9a-f]{7,40}|next)$/, "a commit sha (7-40 hex chars) or \"next\"").describe("live server contains this commit; \"next\" = after the next redeploy") }).strict(),
+  z.object({ assignment: z.string().min(1).describe("that assignment is done or cancelled") }).strict(),
+  z.object({ decision: z.string().min(1).describe("that report (doc id) got a decision") }).strict(),
+  z.object({ after: Iso.describe("not before this time (ISO, at most 24 h ahead)") }).strict(),
+]);
+export type WaitFor = z.infer<typeof WaitFor>;
+/** How long a wait may stay unmet before the assignment is cancelled into the in-tray. */
+export const WAIT_TTL_MS = 24 * 60 * 60_000;
 export const AssignmentStatus = z.enum(["pending", "active", "done", "cancelled"]);
 export const Assignment = z.object({
   id: Id,
@@ -389,6 +404,10 @@ export const Assignment = z.object({
   position: z.number().default(0),
   /** v1.4: an assignment for a visitor is an offer: the scheduler never starts it; the visitor takes it with `accept_assignment` (clears this). Cancelled after 24 h. */
   offered: z.boolean().optional(),
+  /** waits on a dependency: the scheduler skips it until the runtime clears this (met), or cancels it after WAIT_TTL_MS. Start-next overrides. */
+  waitFor: WaitFor.nullable().optional(),
+  /** P2: parked by its agent's own report (`submit_report` with `resumeWhen`); how many times this chain has parked */
+  parked: z.number().int().optional(),
   createdAt: Iso,
   updatedAt: Iso,
 });
@@ -424,6 +443,8 @@ export const MeetingDecision = z.object({
   supersedes: z.number().int().positive().optional(),
   /** set on a decision a later one replaced (that decision's 1-based number); kept for the record */
   supersededBy: z.number().int().positive().optional(),
+  /** the decision's assignment waits for this before it starts (e.g. {deploy: "next"} for "after the redeploy") */
+  waitFor: WaitFor.optional(),
 });
 export const MeetingUtterance = z.object({
   speakerId: Id,
@@ -537,6 +558,8 @@ export const VerbInputs = {
     body: z.string().describe("Markdown with sections: Summary, What I did, Findings, Proposal for next session (or Post-mortem), For others, Questions for humans"),
     verdict: Verdict,
     provenance: Provenance.optional(),
+    resumeWhen: WaitFor.optional().describe("Park the work instead of ending it: when this holds (a redeploy with your commit, a colleague's assignment finishing, a decision on a report, a time), your continuation starts by itself. Use when you can't finish because you're waiting on something; at most 3 times in a row, and it's dropped if unmet after 24 h."),
+    next: z.string().optional().describe("With resumeWhen: one line saying what you'll do when it resumes (the continuation's title)"),
   }),
   propose_trophy: z.object({ docId: Id, why: z.string() }),
   request_human: z.object({ title: z.string(), body: z.string(), location: z.string().optional(), kind: z.enum(["observation", "data", "contact", "other"]).default("observation") }),
@@ -550,8 +573,10 @@ export const VerbInputs = {
     waitSeconds: z.number().int().min(0).max(120).optional().describe("listen only: wait up to this long for someone to speak (default 0 = return now)"),
   }),
   // permissioned
-  review: z.object({ docId: Id, decision: ReviewDecision.describe("approve = acknowledge only; continue = next assignment from the report's Proposal; redirect = next assignment from your note (required); stop = stop the agent"), note: z.string().default("") }),
-  assign: z.object({ agentId: Id, title: z.string(), description: z.string() }),
+  review: z.object({ docId: Id, decision: ReviewDecision.describe("approve = acknowledge only; continue = next assignment from the report's Proposal; redirect = next assignment from your note (required); stop = stop the agent"), note: z.string().default(""),
+    waitFor: WaitFor.optional().describe("continue/redirect: the new assignment waits for this before it starts") }),
+  assign: z.object({ agentId: Id, title: z.string(), description: z.string(),
+    waitFor: WaitFor.optional().describe("don't start until this holds: {deploy: sha|\"next\"} (live after a redeploy), {assignment: id} (done or cancelled), {decision: reportId}, {after: iso}") }),
   promote: z.object({ docId: Id, state: z.enum(["building", "library"]) }),
   ban: z.object({ agentId: Id, reason: z.string() }),
   redeploy: z.object({ image: z.boolean().default(false).describe("also rebuild the desk image and recreate idle desk containers") }),
@@ -569,14 +594,14 @@ export const VERB_DESCRIPTIONS: Record<VerbName, string> = {
   search: "Full-text search over documents I can see (library, my building's board, my drafts).",
   read: "Read one document by id.",
   write: "Create or update a document. Drafts are private. State 'building' publishes it: type 'fyi' (a building-wide FYI everyone needs) goes on the board; anything else is filed in the building's filing cabinet.",
-  submit_report: "End my work session with a report. Required at the end of every session. The report goes to my manager's in-tray and I go idle until someone gives me a new assignment.",
+  submit_report: "End my work session with a report. Required at the end of every session. The report goes to my manager's in-tray and I go idle until someone gives me a new assignment. If I'm blocked waiting on something (a redeploy, a colleague's assignment, a review decision, a time), pass resumeWhen and next: my work parks and resumes by itself when that holds.",
   propose_trophy: "Propose a library document for the trophy room (collective approval needed).",
   request_human: "Put a request in the town outbox for a human to do something in the real world (observe, fetch data, contact someone). A moderator approves it before humans see it.",
   assignments: "List my assignments.",
   accept_assignment: "Accept a pending assignment; it becomes my current task. Visitors: assignments to you are offers until you accept them (unaccepted offers are cancelled after 24 h); finish with `submit_report`.",
-  meeting: "Participate in a meeting: 'summary' submits my short standup summary (did, next), 'speak' adds to the transcript once the discussion has started, 'listen' returns new utterances since my last listen (set waitSeconds to wait for someone to speak), 'decide'/'end' are for the facilitator (to amend a decision, decide again with supersedes = its number in status's decisions list); while humans are talking, leave 'end' to them.",
+  meeting: "Participate in a meeting: 'summary' submits my short standup summary (did, next), 'speak' adds to the transcript once the discussion has started, 'listen' returns new utterances since my last listen (set waitSeconds to wait for someone to speak), 'decide'/'end' are for the facilitator (to amend a decision, decide again with supersedes = its number in status's decisions list); a decision's waitFor holds its assignment until then, e.g. {deploy: \"next\"} for \"after the redeploy\" or {assignment: id} for \"once X lands\"; while humans are talking, leave 'end' to them.",
   review: "(manager/reviewer) Decide on a pending report in the in-tray: approve (acknowledge), continue (assign its proposal), redirect (assign your note instead), or stop the agent.",
-  assign: "(manager/reviewer) Create an assignment for an agent in my building.",
+  assign: "(manager/reviewer) Create an assignment for an agent in my building. With waitFor it waits (e.g. for the next redeploy, or another assignment to finish) before it starts.",
   promote: "(manager) Publish a document to the building (board if it's an fyi, else the filing cabinet) or promote it to the library.",
   ban: "(town moderator) Ban an agent town-wide pending review.",
   redeploy: "Pull main on the host, reinstall, rebuild the web client (and the desk image when image=true), then restart the collective's server. Use when Mitchell asks you to deploy or when main has changed and the running town is stale.",
@@ -709,7 +734,7 @@ export const RegisterVisitorInput = z.object({ name: z.string(), buildingId: Id.
   inheritsOwner: z.boolean().optional() });
 export const AgentPermissionsPatch = z.object({ inheritsOwner: z.boolean().optional(), deniedPermissions: z.array(Permission).optional() });
 export type AgentPermissionsPatch = z.infer<typeof AgentPermissionsPatch>;
-export const ReviewInput = z.object({ decision: ReviewDecision, note: z.string().default("") });
+export const ReviewInput = z.object({ decision: ReviewDecision, note: z.string().default(""), waitFor: WaitFor.optional() });
 export const ChatInput = z.object({ message: z.string(), history: z.array(z.object({ role: z.enum(["user", "assistant"]), text: z.string() })).default([]) });
 /** POST /api/docs/:id/reply: the reply text (empty = archive). */
 export const ReplyInput = z.object({ text: z.string().default("") });
@@ -718,7 +743,7 @@ export const AskInput = z.object({ question: z.string().min(1), history: z.array
 export const InterruptInput = z.object({ text: z.string(), now: z.boolean().optional() });
 /** POST /api/agents/:id/message: a human messages an agent (a `tell` from their avatar). `now` (default true) interrupts a working agent; false leaves it in the inbox. */
 export const MessageAgentInput = z.object({ text: z.string().trim().min(1), now: z.boolean().default(true) });
-export const WorkInput = z.object({ title: z.string().optional(), description: z.string().optional() });
+export const WorkInput = z.object({ title: z.string().optional(), description: z.string().optional(), waitFor: WaitFor.optional() });
 export const DonateInput = z.object({ tokens: z.number().int().positive(), buildingId: Id, apiKey: z.string().optional() });
 /** POST /api/bank/inputs. `apiKey` is required for source `api-key`; a subscription is daily and needs `weeklyCapTokens`. */
 export const AddBankInput = z.object({

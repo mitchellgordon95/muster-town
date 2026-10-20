@@ -370,6 +370,14 @@ function AssignmentsTab({ agent }: { agent: Agent }) {
   );
 }
 
+/** What a waiting assignment waits on, short (the server's `describeWait` has names; this is enough for a pill). */
+function waitLabel(w: NonNullable<Assignment["waitFor"]>): string {
+  if ("deploy" in w) return w.deploy === "next" ? "next redeploy" : `redeploy with ${w.deploy.slice(0, 7)}`;
+  if ("assignment" in w) return `assignment ${w.assignment} to finish`;
+  if ("decision" in w) return `decision on ${w.decision}`;
+  return `until ${new Date(w.after).toLocaleString()}`;
+}
+
 function AssignmentRow({ a, actions, index, offline }: { a: Assignment; actions?: ReactNode; index?: number; offline?: boolean }) {
   const [open, setOpen] = useState(false);
   const long = a.description.length > 160;
@@ -378,6 +386,7 @@ function AssignmentRow({ a, actions, index, offline }: { a: Assignment; actions?
       <div className="asg-head">
         <b>{index ? <span className="asg-n">{index}.</span> : null}{a.title}</b>
         {a.offered && a.status === "pending" ? <Pill tone="offered" title="Offered to a visitor: it starts when they accept it">offered</Pill>
+          : a.waitFor && a.status === "pending" ? <Pill tone="offered" title={`Starts by itself once this happens (cancelled into the in-tray if not within 24 h). Start next overrides it.${a.parked ? " Parked by the agent's own report." : ""}`}>{a.parked ? "parked" : "waiting"}: {waitLabel(a.waitFor)}</Pill>
           : <Pill tone={a.status === "active" ? (offline ? "" : "ok") : a.status === "pending" ? "warn" : a.status === "cancelled" ? "bad" : ""}>{a.status === "pending" ? "queued" : a.status === "active" && offline ? "active, visitor offline" : a.status}</Pill>}
       </div>
       {a.description ? <div className="asg-desc" onClick={() => long && setOpen((o) => !o)}>{long && !open ? a.description.slice(0, 157) + "…" : a.description}</div> : null}
