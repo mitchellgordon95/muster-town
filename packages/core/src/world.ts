@@ -1,4 +1,4 @@
-import type { Agent, AgentStatus, DesksConfig, ServerMessage } from "@agent-town/schema";
+import type { Agent, AgentStatus, DesksConfig, ServerMessage, Tile } from "@agent-town/schema";
 import { Budget } from "./budget.ts";
 import { intrayCounts, intrayOf } from "./domain.ts";
 import { migrateRoles } from "./migrate-roles.ts";
@@ -114,6 +114,25 @@ export class World {
     const updated = this.agents.upsert({ ...a, status });
     this.events.append({ type: "agent.status", agentId, buildingId: a.homeBuildingId ?? a.buildingId, text: text ?? `${a.name} is ${status}`, payload: { status, from: a.status } });
     return updated;
+  }
+
+  /**
+   * Where `agentId` should stand to reach `placeId`: a free seat for meeting rooms (seats held by
+   * other bodies, or by their walk's destination, are taken), the place's tile otherwise.
+   */
+  standingTile(placeId: string, agentId: string): Tile | undefined {
+    const place = this.layout.place(placeId);
+    if (!place || place.kind !== "meeting-room") return place?.pos;
+    const taken = new Set<string>();
+    let mine: Tile | undefined;
+    for (const a of this.agents.where("status NOT IN ('banned','retired')")) {
+      const t = this.movement.destination(a.id) ?? a.pos;
+      if (a.id === agentId) mine = t;
+      else taken.add(`${t.x},${t.y}`);
+    }
+    // already in (or headed for) a free seat at this table: keep it
+    if (mine && !taken.has(`${mine.x},${mine.y}`) && this.layout.seatsOf(placeId).some((s) => s.x === mine!.x && s.y === mine!.y)) return mine;
+    return this.layout.freeSeat(placeId, taken);
   }
 
   /** Advance walking bodies by `dtMs`. */

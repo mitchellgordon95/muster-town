@@ -93,7 +93,7 @@ export function meetingSpeak(world: World, actor: Agent, meetingId: string, text
 }
 
 /** An agent facilitator may not end a meeting while a human spoke within this window; the human ends it (or goes quiet). */
-export const HUMAN_QUIET_MS = 3 * 60_000;
+export const HUMAN_QUIET_MS = 5 * 60_000;
 
 export function humanStillTalking(m: Meeting, now = Date.now()): boolean {
   const last = [...m.transcript].reverse().find((u) => u.speakerKind === "user");
