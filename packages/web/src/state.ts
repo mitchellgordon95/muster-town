@@ -6,14 +6,14 @@
 import { useSyncExternalStore } from "react";
 import { ServerMessage } from "@muster-town/schema";
 import type { Agent, Assignment, AuthMe, Doc, Event, Meeting, Permission, Place, SnapshotBuilding, Town } from "@muster-town/schema";
-import type { Grid, Snapshot } from "./api";
+import type { Bank, Grid, Snapshot } from "./api";
 import { redeployStatus } from "./redeploy";
 
 /**
  * Every panel is a place: walk up and press E. `intray`/`board`/`cabinet` take a building id; the Town Hall places
- * (planning desk, donation box, schedule board, mod station) take none. `admin` is the old name for `planning`.
+ * (planning desk, donation box, schedule board, mod station) and the Bank take none. `admin` is the old name for `planning`.
  */
-export type PanelKind = "agent" | "building" | "library" | "trophy" | "outbox" | "meeting" | "intray" | "board" | "cabinet" | "planning" | "donation" | "schedule" | "mod" | "admin";
+export type PanelKind = "agent" | "building" | "library" | "trophy" | "outbox" | "meeting" | "intray" | "board" | "cabinet" | "planning" | "donation" | "schedule" | "mod" | "bank" | "admin";
 export interface PanelRef { kind: PanelKind; id?: string; docId?: string; tab?: string }
 export interface Toast { id: number; text: string; tone: "info" | "ok" | "bad"; panel?: PanelRef }
 
@@ -35,6 +35,8 @@ export interface TownState {
   toasts: Toast[];
   /** bumps whenever a doc/assignment/meeting arrives so panels can refetch lists */
   rev: number;
+  /** `GET /api/bank`, shown on the Bank's sign; null until the first fetch */
+  bank: Bank | null;
 }
 
 const MAX_EVENTS = 600;
@@ -42,7 +44,7 @@ const MAX_EVENTS = 600;
 class Store {
   state: TownState = {
     conn: "connecting", me: null, town: null, buildings: [], agents: {}, places: [], grid: null, gridVersion: 0,
-    meetings: {}, events: [], docs: {}, assignments: {}, panel: null, toasts: [], rev: 0,
+    meetings: {}, events: [], docs: {}, assignments: {}, panel: null, toasts: [], rev: 0, bank: null,
   };
   /** Latest server position per agent (tile coords). Mutated in place; the renderer interpolates. */
   readonly livePos = new Map<string, { x: number; y: number; at: number }>();
@@ -106,12 +108,16 @@ class Store {
         // The WS protocol has no grid message: a new building, a moved lot or moved furniture means the layout changed.
         const lotChanged = !known || JSON.stringify(known.lot) !== JSON.stringify(m.building.lot) || JSON.stringify(known.furniture) !== JSON.stringify(m.building.furniture);
         if (lotChanged) this.onLayoutChanged?.();
+        // tokens were charged or donated: the Bank's balance may have moved
+        if (m.building.budget) this.onBankChanged?.();
         return;
       }
       case "error": return this.toast(m.message, "bad");
     }
   }
   onLayoutChanged?: () => void;
+  /** refetch `bank` (set at boot; throttled there) */
+  onBankChanged?: () => void;
 
   /** Names of agents that left the snapshot (dismissed, banned) so docs keep a readable author. */
   readonly names = new Map<string, string>();
@@ -157,6 +163,7 @@ class Store {
       if (a && a.activity !== text) patch.agents = { ...s.agents, [a.id]: { ...a, activity: text } };
     }
     this.set(patch);
+    if (e.type.startsWith("bank.")) this.onBankChanged?.();
     this.toastRedeploy();
     // a message addressed to the human's avatar
     const me = this.avatarId;

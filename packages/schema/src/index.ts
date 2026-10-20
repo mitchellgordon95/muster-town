@@ -281,6 +281,8 @@ export const PlaceKind = z.enum([
   "bench",
   /** bank-map — the Bank: a town map; using it zooms out to the whole town and shows the Bank's tokens flowing to each building by share */
   "bank-map",
+  /** bank — the teller counter inside the Bank (BANK_LOT, south of the road): the town's token balance */
+  "bank",
 ]);
 export type PlaceKind = z.infer<typeof PlaceKind>;
 export const Place = z.object({
@@ -668,6 +670,30 @@ export const TILE = {
   BENCH: 16,
   /** the town map on a stand in the Bank (place `bank-map`) */
   BANK_MAP: 17,
+  /** the Bank: vault door set in its back wall */
+  VAULT: 18,
+  /** the Bank: stacked gold bars (decor, not walkable) */
+  GOLD: 19,
+  /** the Bank: a marble column (decor, not walkable) */
+  PILLAR: 20,
+} as const;
+/**
+ * The Bank: a fixed landmark (not a building row, so it never takes a budget share) south of the road,
+ * opposite the Town Hall, with its door in the top wall facing the road. Absolute tiles.
+ */
+export const BANK_LOT = { x: 48, y: 45, w: 17, h: 9 } as const;
+/** The Bank's interior, relative to BANK_LOT. Shared so core's layout and the web mock build the same room. */
+export const BANK_FIXTURES = {
+  door: { x: 8, y: 0 },
+  pillars: [{ x: 2, y: 2 }, { x: 14, y: 2 }, { x: 2, y: 5 }, { x: 14, y: 5 }],
+  /** the gold teller counter; the `bank` place stands in front of it */
+  counter: [{ x: 5, y: 5 }, { x: 6, y: 5 }, { x: 7, y: 5 }, { x: 8, y: 5 }, { x: 9, y: 5 }, { x: 10, y: 5 }, { x: 11, y: 5 }],
+  counterStand: { x: 8, y: 4 },
+  /** the town map on its stand (place `bank-map`: E zooms out to the coin flow); stand below it */
+  map: { x: 12, y: 2 }, mapStand: { x: 12, y: 3 },
+  /** vault door in the back wall, gold bars stacked either side of the walk up to it */
+  vault: { x: 8, y: 8 },
+  gold: [{ x: 5, y: 7 }, { x: 6, y: 7 }, { x: 10, y: 7 }, { x: 11, y: 7 }],
 } as const;
 export const WALKABLE = new Set<number>([TILE.GRASS, TILE.PATH, TILE.FLOOR, TILE.DOOR]);
 

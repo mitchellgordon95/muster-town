@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { TILE } from "@muster-town/schema";
+import { BANK_LOT, TILE } from "@muster-town/schema";
 import { World, createBuilding, createResident, findPath, isWalkable, MAX_HEADCOUNT, ROAD_Y } from "../src/index.ts";
 import { freshWorld, seededWorld, tickUntil } from "./helpers.ts";
 
@@ -7,6 +7,28 @@ const overlap = (a: { x: number; y: number; w: number; h: number }, b: typeof a)
   a.x < b.x + b.w && b.x < a.x + a.w && a.y < b.y + b.h && b.y < a.y + a.h;
 
 describe("layout", () => {
+  it("the Bank sits south of the road, clear of every lot, with its counter reachable from the plaza", () => {
+    const { world, seed } = seededWorld();
+    for (let i = 0; i < 4; i++) createBuilding(world, { name: `Lab ${i}`, headcount: 6 }, seed.admin.id);
+    const { grid } = world.layout;
+    expect(BANK_LOT.y).toBeGreaterThan(ROAD_Y + 1);
+    expect(BANK_LOT.x + BANK_LOT.w).toBeLessThanOrEqual(grid.w);
+    expect(BANK_LOT.y + BANK_LOT.h).toBeLessThanOrEqual(grid.h);
+    for (const b of world.buildings.all()) expect(overlap(b.lot!, BANK_LOT), b.name).toBe(false);
+    const bank = world.layout.requirePlace("bank");
+    expect(bank.kind).toBe("bank");
+    expect(isWalkable(grid, bank.pos.x, bank.pos.y)).toBe(true);
+    expect(findPath(grid, world.layout.requirePlace("plaza").pos, bank.pos)).not.toBeNull();
+    const at = (x: number, y: number) => grid.tiles[(BANK_LOT.y + y) * grid.w + BANK_LOT.x + x];
+    expect(at(8, 8)).toBe(TILE.VAULT);
+    expect(at(8, 5)).toBe(TILE.COUNTER);
+    const map = world.layout.requirePlace("bank-map");
+    expect(at(12, 2)).toBe(TILE.BANK_MAP);
+    expect(findPath(grid, bank.pos, map.pos)).not.toBeNull();
+    // outside, not in any building
+    expect(world.layout.buildingAt(bank.pos)).toBeNull();
+  });
+
   it("lots never overlap and stay inside the grid, for many buildings of mixed sizes", () => {
     const { world, seed } = seededWorld();
     for (let i = 0; i < 7; i++) createBuilding(world, { name: `Lab ${i}`, headcount: [1, 4, 9, 12, 6, 2, MAX_HEADCOUNT][i] }, seed.admin.id);

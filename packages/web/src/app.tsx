@@ -15,6 +15,7 @@ import { OutboxPanel } from "./panels/OutboxPanel";
 import { MeetingPanel } from "./panels/MeetingPanel";
 import { PlanningPanel } from "./panels/PlanningPanel";
 import { BoardPanel, CabinetPanel, DonationPanel, IntrayPanel, ModStationPanel, SchedulePanel } from "./panels/Places";
+import { BankPanel } from "./panels/BankPanel";
 
 type TownHooks = { teleportTo(agentId: string): boolean; walkTo(placeId: string): boolean; openPanel(kind: PanelKind, id?: string): void; townMap(): void; store: typeof store };
 
@@ -65,6 +66,12 @@ async function boot(): Promise<Phase> {
   connect(token);
   store.onLayoutChanged = () => { a.town().then((s) => store.applySnapshot(s), () => undefined); };
   a.events({ limit: 300 }).then((ev) => store.mergeEvents(ev), () => undefined);
+  // the Bank's sign: refetch on bank events and spends (at most every 5 s), and each minute as daily tokens expire
+  let bankTimer: ReturnType<typeof setTimeout> | null = null;
+  const loadBank = () => { a.bank().then((bank) => store.set({ bank }), () => undefined); };
+  store.onBankChanged = () => { bankTimer ??= setTimeout(() => { bankTimer = null; loadBank(); }, 5000); };
+  loadBank();
+  setInterval(loadBank, 60_000);
   return { k: "ready" };
 }
 
@@ -117,6 +124,7 @@ function PanelHost({ panel }: { panel: PanelRef }) {
     case "admin":
     case "planning": return <PlanningPanel tab={panel.tab} />;
     case "donation": return <DonationPanel />;
+    case "bank": return <BankPanel />;
     case "schedule": return <SchedulePanel />;
     case "mod": return <ModStationPanel />;
   }

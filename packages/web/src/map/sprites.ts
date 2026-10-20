@@ -109,6 +109,10 @@ const PAL: Record<string, string> = {
   Y: "#e8b840", y: "#b8862a",
 };
 const TROPHY_PAL = { ...PAL, c: "#2b3d55", K: "#3a2a1a" };
+/** The Bank: the same wall art in gold, and a cream marble floor with gold inlay. */
+const GOLD_PAL = { ...PAL, W: "#d9a92c", w: "#6e4f0e", m: "#b3851a", x: "#8f6a12", u: "#e8bf3f", v: "#f7dc78" };
+const MARBLE = grid16((x, y) => (x % 8 === 0 || y % 8 === 0 ? ((x + y) % 8 === 0 ? "Y" : "y") : (x * 3 + y * 5) % 17 === 0 ? "a" : "A"));
+const MARBLE_PAL = { ...PAL, A: "#efe8d6", a: "#d9cfb6", Y: "#f2cf5b", y: "#d7ad3a" };
 const PLANT_PAL = { ...PAL, o: "#a0522d" };
 
 /** A lone desk tile (odd-length runs, e.g. the 3-seat mod station): the desk body without the half monitor. */
@@ -135,6 +139,7 @@ export function tiles(): Record<string, HTMLCanvasElement> {
     stone: pixelCanvas([STONE], PAL), wallFace: pixelCanvas([WALL_FACE], PAL), wallTop: pixelCanvas([WALL_TOP], PAL),
     deskL: half(0), deskR: half(T), deskPlain: plainDesk(deskSheet), shelf: pixelCanvas([SHELF], PAL), plant: pixelCanvas([PLANT], PLANT_PAL),
     trophy: pixelCanvas([TROPHY], TROPHY_PAL),
+    goldFace: pixelCanvas([WALL_FACE], GOLD_PAL), goldTop: pixelCanvas([WALL_TOP], GOLD_PAL), marble: pixelCanvas([MARBLE], MARBLE_PAL),
   };
   return tileCache;
 }
@@ -184,11 +189,54 @@ export function drawCounter(g: CanvasRenderingContext2D, px: number, py: number,
     g.fillStyle = "#c94f4f"; g.fillRect(px + 7, py - 1, 2, 2);
   }
 }
-export function drawDoor(g: CanvasRenderingContext2D, px: number, py: number) {
-  g.fillStyle = "#b58a5a"; g.fillRect(px, py, T, T);
-  g.fillStyle = "#6b4a2b"; g.fillRect(px, py, 2, T); g.fillRect(px + T - 2, py, 2, T);
-  g.fillStyle = "#8c3b3b"; g.fillRect(px + 3, py + 4, T - 6, 9);
-  g.fillStyle = "#a84a4a"; g.fillRect(px + 4, py + 5, T - 8, 7);
+/** `gold`: the Bank's door, gold frame and dark-green panels. */
+export function drawDoor(g: CanvasRenderingContext2D, px: number, py: number, gold = false) {
+  g.fillStyle = gold ? "#f2cf5b" : "#b58a5a"; g.fillRect(px, py, T, T);
+  g.fillStyle = gold ? "#8f6a12" : "#6b4a2b"; g.fillRect(px, py, 2, T); g.fillRect(px + T - 2, py, 2, T);
+  g.fillStyle = gold ? "#1f4a36" : "#8c3b3b"; g.fillRect(px + 3, py + 4, T - 6, 9);
+  g.fillStyle = gold ? "#2c6a4c" : "#a84a4a"; g.fillRect(px + 4, py + 5, T - 8, 7);
+  if (gold) { g.fillStyle = "#f2c94c"; g.fillRect(px + 7, py + 8, 2, 2); }
+}
+
+/** The Bank's vault door, set in the back wall: a round steel door with a gold wheel. */
+export function drawVault(g: CanvasRenderingContext2D, px: number, py: number) {
+  g.fillStyle = "#5c6378"; g.beginPath(); g.arc(px + 8, py + 8, 7.5, 0, Math.PI * 2); g.fill();
+  g.fillStyle = "#8e96ad"; g.beginPath(); g.arc(px + 8, py + 8, 6, 0, Math.PI * 2); g.fill();
+  g.fillStyle = "#6f778f"; g.beginPath(); g.arc(px + 8, py + 8, 4, 0, Math.PI * 2); g.fill();
+  g.fillStyle = "#f2c94c"; g.fillRect(px + 7, py + 3, 2, 10); g.fillRect(px + 3, py + 7, 10, 2);
+  g.fillStyle = "#fff1b0"; g.fillRect(px + 7, py + 7, 2, 2);
+  g.fillStyle = "#c9ced9"; g.fillRect(px + 2, py + 2, 2, 2); g.fillRect(px + 12, py + 2, 2, 2); g.fillRect(px + 2, py + 12, 2, 2); g.fillRect(px + 12, py + 12, 2, 2);
+}
+/** Stacked gold bars on the Bank floor. */
+export function drawGold(g: CanvasRenderingContext2D, px: number, py: number) {
+  g.fillStyle = "rgba(0,0,0,.2)"; g.fillRect(px + 1, py + 13, 14, 2);
+  const bar = (x: number, y: number) => {
+    g.fillStyle = "#a87a14"; g.fillRect(px + x, py + y, 7, 4);
+    g.fillStyle = "#f2c94c"; g.fillRect(px + x + 1, py + y, 5, 3);
+    g.fillStyle = "#fff1b0"; g.fillRect(px + x + 1, py + y, 5, 1);
+  };
+  bar(1, 10); bar(8, 10); bar(4, 6); bar(1, 2); bar(8, 2);
+}
+/** A marble column with gold capitals (the Bank's interior). */
+export function drawPillar(g: CanvasRenderingContext2D, px: number, py: number) {
+  g.fillStyle = "rgba(0,0,0,.18)"; g.fillRect(px + 2, py + 14, 13, 2);
+  g.fillStyle = "#d7ad3a"; g.fillRect(px + 2, py, 12, 3); g.fillRect(px + 2, py + 13, 12, 3);
+  g.fillStyle = "#f2cf5b"; g.fillRect(px + 2, py, 12, 1); g.fillRect(px + 2, py + 13, 12, 1);
+  g.fillStyle = "#f5f0e2"; g.fillRect(px + 4, py + 3, 8, 10);
+  g.fillStyle = "#d9cfb6"; g.fillRect(px + 6, py + 3, 1, 10); g.fillRect(px + 9, py + 3, 1, 10);
+}
+/** The Bank's teller counter: dark wood with a gold top; coins on every other tile. */
+export function drawGoldCounter(g: CanvasRenderingContext2D, px: number, py: number, n: { l: boolean; r: boolean }, coins: boolean) {
+  g.fillStyle = "#3b2414"; g.fillRect(px, py + 6, T, 10);
+  g.fillStyle = "#d7ad3a"; g.fillRect(px, py + 3, T, 4);
+  g.fillStyle = "#fff1b0"; g.fillRect(px, py + 3, T, 1);
+  if (!n.l) { g.fillStyle = "#8f6a12"; g.fillRect(px, py + 3, 1, 13); }
+  if (!n.r) { g.fillStyle = "#8f6a12"; g.fillRect(px + T - 1, py + 3, 1, 13); }
+  g.fillStyle = "#d7ad3a"; g.fillRect(px + 2, py + 10, T - 4, 1);
+  if (coins) {
+    g.fillStyle = "#a87a14"; g.fillRect(px + 5, py + 1, 6, 3);
+    g.fillStyle = "#f2c94c"; g.fillRect(px + 5, py, 6, 2);
+  }
 }
 
 /** The manager's desk: a one-tile desk with an in-tray of papers on it. */
@@ -293,7 +341,7 @@ export function drawBankMap(g: CanvasRenderingContext2D, px: number, py: number)
   g.fillRect(px + 10, py + 9, 1, 1); g.fillRect(px + 12, py + 8, 1, 1);
 }
 
-export type IconKind = "library" | "trophy" | "outbox" | "meeting" | "building" | "admin" | "intray" | "board" | "cabinet" | "donation" | "schedule" | "mod" | "planning";
+export type IconKind = "library" | "trophy" | "outbox" | "meeting" | "building" | "admin" | "intray" | "board" | "cabinet" | "donation" | "schedule" | "mod" | "planning" | "bank";
 const iconCache = new Map<string, string>();
 /** Tile-art icons for panel headers (2x scale). */
 export function iconUrl(kind: IconKind): string {
@@ -315,6 +363,7 @@ export function iconUrl(kind: IconKind): string {
     case "board": g.drawImage(tl.wallFace, 0, 0); drawBoard(g, 0, 0); break;
     case "cabinet": g.drawImage(tl.wallFace, 0, 0); drawCabinet(g, 0, 0); break;
     case "donation": drawDonation(g, 0, 0); break;
+    case "bank": drawGold(g, 0, 0); break;
     case "schedule": drawSchedule(g, 0, 0); break;
     case "mod": g.drawImage(tl.deskL, 0, 0); g.fillStyle = "#7a8a6a"; g.fillRect(9, 9, 5, 4); g.fillStyle = "#e8e9f0"; g.fillRect(10, 10, 3, 1); break;
     case "planning": {

@@ -1,4 +1,4 @@
-import { TILE, WALKABLE, type Building, type Lot, type Place, type Tile } from "@muster-town/schema";
+import { BANK_FIXTURES, BANK_LOT, TILE, WALKABLE, type Building, type Lot, type Place, type Tile } from "@muster-town/schema";
 import { piecesFor, resolveFurniture } from "./furniture.ts";
 
 /** Row-major tile grid, same shape as the WS snapshot's `grid`. */
@@ -100,8 +100,8 @@ export interface LayoutResult {
 export function computeLayout(buildings: Building[], occupancy: Map<string, Map<number, string>>, names: Map<string, string>): LayoutResult {
   const lots = buildings.filter((b) => b.lot);
   const right = Math.max(TOWN_HALL_X + TOWN_HALL_SIZE.w, ...lots.map((b) => b.lot!.x + b.lot!.w));
-  const w = Math.max(64, right + 6);
-  const h = ROAD_Y + 6;
+  const w = Math.max(64, right + 6, BANK_LOT.x + BANK_LOT.w + 3);
+  const h = Math.max(ROAD_Y + 6, BANK_LOT.y + BANK_LOT.h + 3);
   const tiles = new Array<number>(w * h).fill(TILE.GRASS);
   const set = (x: number, y: number, t: number) => { if (x >= 0 && y >= 0 && x < w && y < h) tiles[y * w + x] = t; };
   const places: Place[] = [];
@@ -113,6 +113,7 @@ export function computeLayout(buildings: Building[], occupancy: Map<string, Map<
   // road and trees
   for (let x = 0; x < w; x++) { set(x, ROAD_Y, TILE.PATH); set(x, ROAD_Y + 1, TILE.PATH); }
   for (let x = 2; x < w; x += 6) set(x, ROAD_Y + 3, TILE.PLANT);
+  bankRoom(set, places);
 
   for (const b of lots) {
     const { x: x0, y: y0, w: bw, h: bh } = b.lot!;
@@ -190,6 +191,29 @@ export function computeLayout(buildings: Building[], occupancy: Map<string, Map<
     seats.set(id, seatsAround(grid, table, room));
   }
   return { grid, places, desks, doors, seats };
+}
+
+/** The Bank (fixed lot south of the road): gold walls are the renderer's job; here the room, its door and its place. */
+function bankRoom(set: (x: number, y: number, t: number) => void, places: Place[]) {
+  const { x: x0, y: y0, w: bw, h: bh } = BANK_LOT, F = BANK_FIXTURES;
+  for (let y = 0; y < bh; y++) for (let x = 0; x < bw; x++) {
+    const edge = x === 0 || y === 0 || x === bw - 1 || y === bh - 1;
+    set(x0 + x, y0 + y, edge ? TILE.WALL : TILE.FLOOR);
+  }
+  const put = (cells: readonly Tile[], t: number) => { for (const c of cells) set(x0 + c.x, y0 + c.y, t); };
+  put(F.pillars, TILE.PILLAR);
+  put(F.counter, TILE.COUNTER);
+  put(F.gold, TILE.GOLD);
+  put([F.vault], TILE.VAULT);
+  put([F.map], TILE.BANK_MAP);
+  const door = { x: x0 + F.door.x, y: y0 + F.door.y };
+  set(door.x, door.y, TILE.DOOR);
+  // the walk from the road down to the door
+  for (let y = ROAD_Y + 2; y < door.y; y++) set(door.x, y, TILE.PATH);
+  places.push(
+    { id: "bank", kind: "bank", name: "Bank", buildingId: null, pos: { x: x0 + F.counterStand.x, y: y0 + F.counterStand.y } },
+    { id: "bank-map", kind: "bank-map", name: "Bank town map", buildingId: null, pos: { x: x0 + F.mapStand.x, y: y0 + F.mapStand.y } },
+  );
 }
 
 /**

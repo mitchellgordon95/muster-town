@@ -3,7 +3,7 @@
  * including TOWN_HALL_FIXTURES, copied here because the web bundle can't import core); lots are packed
  * side by side around the Town Hall so the mock map stays compact. Core owns the real layout.
  */
-import { TILE, WALKABLE } from "@muster-town/schema";
+import { BANK_FIXTURES, BANK_LOT, TILE, WALKABLE } from "@muster-town/schema";
 import type { Agent, Building, Place } from "@muster-town/schema";
 import type { Grid } from "../api";
 
@@ -36,7 +36,8 @@ export function computeLayout(buildings: Building[], agents: Agent[]): Layout {
   const W = MARGIN * 2 + ordered.reduce((s, b) => s + size(b).w, 0) + GAP * Math.max(0, ordered.length - 1);
   const top = 4;
   const roadY = top + maxH + 2;
-  const H = roadY + 6;
+  // the Bank sits south of the road as in core (BANK_LOT is ROAD_Y + 5 there), under the Town Hall
+  const H = roadY + 5 + BANK_LOT.h + 3;
   const t = new Array<number>(W * H).fill(TILE.GRASS);
   const set = (x: number, y: number, k: number) => { if (x >= 0 && y >= 0 && x < W && y < H) t[y * W + x] = k; };
   const places: Place[] = [];
@@ -121,6 +122,24 @@ export function computeLayout(buildings: Building[], agents: Agent[]): Layout {
       places.push({ id: `meeting-room:${b.id}`, kind: "meeting-room", name: `${b.name} meeting room`, buildingId: b.id, pos: { x: x0 + bw - 4, y: yMeet + 1 } });
     }
     cx += bw + GAP;
+  }
+  // = core bankRoom()
+  {
+    const hallLot = hall ? lots.get(hall.id) : undefined;
+    const x0 = hallLot ? hallLot.x : MARGIN, y0 = roadY + 5, { w: bw, h: bh } = BANK_LOT, B = BANK_FIXTURES;
+    for (let y = 0; y < bh; y++) for (let x = 0; x < bw; x++) set(x0 + x, y0 + y, x === 0 || y === 0 || x === bw - 1 || y === bh - 1 ? TILE.WALL : TILE.FLOOR);
+    for (const p of B.pillars) set(x0 + p.x, y0 + p.y, TILE.PILLAR);
+    for (const p of B.counter) set(x0 + p.x, y0 + p.y, TILE.COUNTER);
+    for (const p of B.gold) set(x0 + p.x, y0 + p.y, TILE.GOLD);
+    set(x0 + B.vault.x, y0 + B.vault.y, TILE.VAULT);
+    set(x0 + B.map.x, y0 + B.map.y, TILE.BANK_MAP);
+    const door = { x: x0 + B.door.x, y: y0 + B.door.y };
+    set(door.x, door.y, TILE.DOOR);
+    for (let y = roadY + 2; y < door.y; y++) set(door.x, y, TILE.PATH);
+    places.push(
+      { id: "bank", kind: "bank", name: "Bank", buildingId: null, pos: { x: x0 + B.counterStand.x, y: y0 + B.counterStand.y } },
+      { id: "bank-map", kind: "bank-map", name: "Bank town map", buildingId: null, pos: { x: x0 + B.mapStand.x, y: y0 + B.mapStand.y } },
+    );
   }
   return { grid: { w: W, h: H, tiles: t }, places, lots };
 }

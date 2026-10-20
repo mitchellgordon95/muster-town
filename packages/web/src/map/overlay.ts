@@ -160,3 +160,51 @@ export function drawSign(g: CanvasRenderingContext2D, x: number, y: number, name
   if (budget) { g.font = BFONT; g.fillStyle = "#9ff0b4"; g.fillText(budget, x, sy + (sub ? 32 : 19)); }
   g.textAlign = "left";
 }
+
+const SANS = "ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, sans-serif";
+/**
+ * The Bank's marquee, hung outside its front (bottom edge at y): the town's available tokens in big gold digits,
+ * split into today's expiring daily allowance and the permanent pool. `bank` null = not loaded yet.
+ */
+export function drawBankSign(g: CanvasRenderingContext2D, x: number, y: number, bank: { balanceTokens: number; expiringTokens: number; durableTokens: number } | null, now: number) {
+  const n = (v: number) => v.toLocaleString("en-US");
+  const total = bank ? n(bank.balanceTokens) : "…";
+  const parts = [
+    { label: "EXPIRES TODAY", value: bank ? n(bank.expiringTokens) : "…", color: "#ffb26b" },
+    { label: "PERMANENT POOL", value: bank ? n(bank.durableTokens) : "…", color: "#9ff0b4" },
+  ];
+  g.font = `800 30px ${SANS}`;
+  const tw = g.measureText(total).width;
+  g.font = `700 15px ${SANS}`;
+  const colW = Math.max(...parts.map((p) => g.measureText(p.value).width), 96) + 24;
+  const title = "THE BANK · TOKENS AVAILABLE TO THE TOWN";
+  g.font = `800 11px ${SANS}`;
+  const w = Math.round(Math.max(tw + 48, colW * 2 + 16, g.measureText(title).width + 32, 240)), h = 112;
+  const sx = Math.round(x - w / 2), sy = Math.round(y - h);
+  // dark plate, double gold border with a slow shimmer running round it
+  const grad = g.createLinearGradient(sx, sy, sx, sy + h);
+  grad.addColorStop(0, "rgba(38,28,8,.94)"); grad.addColorStop(1, "rgba(16,12,4,.94)");
+  g.fillStyle = grad; roundRect(g, sx + 0.5, sy + 0.5, w, h, 8); g.fill();
+  const t = (now / 2600) % 1;
+  const rim = g.createLinearGradient(sx, sy, sx + w, sy + h);
+  rim.addColorStop(0, "#b3851a"); rim.addColorStop(Math.max(0, t - 0.08), "#e8bf3f"); rim.addColorStop(t, "#fff6c8"); rim.addColorStop(Math.min(1, t + 0.08), "#e8bf3f"); rim.addColorStop(1, "#b3851a");
+  g.strokeStyle = rim; g.lineWidth = 2.5; roundRect(g, sx + 0.5, sy + 0.5, w, h, 8); g.stroke();
+  g.strokeStyle = "rgba(242,201,76,.35)"; g.lineWidth = 1; roundRect(g, sx + 4.5, sy + 4.5, w - 8, h - 8, 5); g.stroke();
+  g.textAlign = "center"; g.textBaseline = "top";
+  g.font = `800 11px ${SANS}`; g.fillStyle = "#e8bf3f";
+  g.fillText(title, x, sy + 10);
+  // the total in big gold digits, with a darker drop
+  g.font = `800 30px ${SANS}`;
+  g.fillStyle = "#5c3f08"; g.fillText(total, x, sy + 27);
+  const gold = g.createLinearGradient(0, sy + 25, 0, sy + 57);
+  gold.addColorStop(0, "#fff1b0"); gold.addColorStop(0.5, "#f2c94c"); gold.addColorStop(1, "#c8921c");
+  g.fillStyle = gold; g.fillText(total, x, sy + 25);
+  // the two pools side by side
+  g.strokeStyle = "rgba(242,201,76,.3)"; g.beginPath(); g.moveTo(x + 0.5, sy + 66); g.lineTo(x + 0.5, sy + h - 10); g.stroke();
+  parts.forEach((p, i) => {
+    const cx = x + (i ? 1 : -1) * (w / 4);
+    g.font = `700 9px ${SANS}`; g.fillStyle = "#c9b98a"; g.fillText(p.label, cx, sy + 68);
+    g.font = `700 15px ${SANS}`; g.fillStyle = p.color; g.fillText(p.value, cx, sy + 81);
+  });
+  g.textAlign = "left";
+}

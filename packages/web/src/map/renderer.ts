@@ -8,7 +8,7 @@ import { World } from "./world";
 import { authStore } from "../auth/auth";
 import { T, CHAR_W, CHAR_H, charSheet, tiles, HUMAN_SPRITE } from "./sprites";
 import { layoutEdit, type LayoutDraft } from "./layoutEdit";
-import { bubbleFor, buildingBudgetLine, drawBadge, drawBubble, drawLabel, drawPill, drawSign, residentBudgetLine, type Bubble } from "./overlay";
+import { bubbleFor, buildingBudgetLine, drawBadge, drawBankSign, drawBubble, drawLabel, drawPill, drawSign, residentBudgetLine, type Bubble } from "./overlay";
 import { blockedByRedeploy } from "../redeploy";
 import { api } from "../api";
 import { drawFlow, fitZoom, type Flow } from "./flow";
@@ -40,6 +40,7 @@ export const PLACE_PANEL: Partial<Record<Place["kind"], (p: Place) => PanelRef &
   library: () => ({ kind: "library", verb: "Browse the library" }),
   "trophy-room": () => ({ kind: "trophy", verb: "Visit the trophy room" }),
   outbox: () => ({ kind: "outbox", verb: "Check the outbox" }),
+  bank: () => ({ kind: "bank", verb: "Visit the Bank" }),
   "meeting-room": (p) => ({ kind: "meeting", id: `room:${p.buildingId ?? ""}`, verb: `Join the ${p.name.toLowerCase()}` }),
   door: (p) => ({ kind: "building", id: p.buildingId ?? undefined, verb: `Enter ${p.name.replace(/^door( of|:)?\s*/i, "") || "building"}` }),
 };
@@ -406,6 +407,11 @@ export class MapRenderer {
       const p = toScreen((b.lot.x + b.lot.w / 2) * T, b.lot.y * T - 3);
       const sub = b.kind === "town-hall" ? (s.town?.name ?? "") : b.goal.length > 56 ? b.goal.slice(0, 55) + "…" : b.goal;
       if (p.x > -300 && p.x < cw + 300 && p.y > -40 && p.y < ch + 60) drawSign(g, p.x, p.y, b.name, sub, buildingBudgetLine(b.budget));
+    }
+    // the Bank's marquee hangs over the path, just outside its front door
+    if (w.bank) {
+      const p = toScreen((w.bank.x + w.bank.w / 2) * T, w.bank.y * T - 5);
+      if (p.x > -300 && p.x < cw + 300 && p.y > -40 && p.y < ch + 140) drawBankSign(g, p.x, p.y, s.bank, now);
     }
     // in-tray badges on the managers' desks (the desk is the tile above the place's standing spot)
     for (const b of s.buildings) {
