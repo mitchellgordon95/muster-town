@@ -35,3 +35,4 @@
 - 2026-10-20 web: the filing cabinet is furniture: a `cabinet:<buildingId>` place in every lab (TILE.CABINET on the top wall, two right of the board); E opens its panel; the board panel loses its Filing cabinet tab — Sage
 - 2026-10-20 budget: default daily tokens per resident 10M → 30M; seed raises buildings still on 10M; raising a building's allowance resumes residents that ran out today — Lena
 - 2026-10-20 budget: building daily pool (`dailyTokens`, migration 011, Settings → Daily pool): residents draw from it as they work, each up to the per-agent max; exhaustion scope `building-daily`; raising or clearing it resumes residents; `/api/budget` reports `dailyTokens` and `spentTodayTokens` — Lena
+- 2026-10-20 web: New-building form (Planning desk) sets the per-resident daily cap and the building daily pool at creation; both stay editable in building Settings — Lena
