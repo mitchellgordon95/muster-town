@@ -14,7 +14,7 @@ export async function board(world: World, me: Agent, input: VerbIn<"board">) {
   const bid = input.buildingId ?? me.buildingId ?? me.homeBuildingId;
   if (!bid) throw badRequest("You're not in a building; pass buildingId.");
   const b = world.buildings.require(bid, "building");
-  const docs = world.docs.where("buildingId = ? AND state = 'building'", [bid], `ORDER BY updatedAt DESC, rowid DESC LIMIT ${input.limit}`);
+  const docs = world.docs.where("buildingId = ? AND state = 'building' AND type != 'report'", [bid], `ORDER BY updatedAt DESC, rowid DESC LIMIT ${input.limit}`);
   return { building: { id: b.id, name: b.name, goal: b.goal }, docs: docs.map((d) => summarizeDoc(world, d)) };
 }
 

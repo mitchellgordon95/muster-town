@@ -145,6 +145,8 @@ export const Building = z.object({
   /** tokens each resident may spend per day */
   dailyTokensPerAgent: z.number().int().positive().default(10_000_000),
   meetings: z.array(MeetingCadence).default([]),
+  /** standing rules (markdown) from the building's manager; every session in this building starts with them */
+  rules: z.string().max(8000).default(""),
   /** when set, residents get code tools in a worktree of this repo during work sessions */
   workspace: Workspace.nullable().default(null),
   /** tile rectangle on the town grid; assigned by the server if absent */
@@ -482,7 +484,7 @@ export const VERB_DESCRIPTIONS: Record<VerbName, string> = {
   say: "Say something out loud; heard by everyone within 3 tiles (including humans).",
   tell: "Send a direct message to an agent's inbox.",
   inbox: "Read my messages (direct messages, things I heard, system notices, meeting invites, @mentions of me with the doc or meeting id), newest first.",
-  board: "List recent documents published to a building's board (reports, articles, notes).",
+  board: "List recent documents published to a building's board (articles, notes, meeting notes; reports go to the in-tray).",
   search: "Full-text search over documents I can see (library, my building's board, my drafts).",
   read: "Read one document by id.",
   write: "Create or update a document. Drafts are private; state 'building' publishes to my building's board.",
@@ -551,7 +553,7 @@ export const TILE = {
 export const WALKABLE = new Set<number>([TILE.GRASS, TILE.PATH, TILE.FLOOR, TILE.DOOR]);
 
 // ---------- REST payloads ----------
-export const CreateBuildingInput = Building.pick({ name: true, goal: true, description: true, headcount: true, reviewPolicy: true, model: true, cheapModel: true, maxTurnsPerSession: true, dailyTokensPerAgent: true, meetings: true, workspace: true }).partial({ goal: true, description: true, headcount: true, reviewPolicy: true, model: true, cheapModel: true, maxTurnsPerSession: true, dailyTokensPerAgent: true, meetings: true, workspace: true });
+export const CreateBuildingInput = Building.pick({ name: true, goal: true, description: true, headcount: true, reviewPolicy: true, model: true, cheapModel: true, maxTurnsPerSession: true, dailyTokensPerAgent: true, meetings: true, rules: true, workspace: true }).partial({ goal: true, description: true, headcount: true, reviewPolicy: true, model: true, cheapModel: true, maxTurnsPerSession: true, dailyTokensPerAgent: true, meetings: true, rules: true, workspace: true });
 export const UpdateBuildingInput = CreateBuildingInput.partial();
 export const CreateResidentInput = z.object({ buildingId: Id, name: z.string(), title: z.string(), direction: z.string(), sprite: z.number().int().optional(), model: z.string().optional() });
 export const RegisterVisitorInput = z.object({ name: z.string(), buildingId: Id.optional(), title: z.string().optional() });

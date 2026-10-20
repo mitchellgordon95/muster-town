@@ -12,7 +12,7 @@ const trunc = (s: string, n: number) => (s.length > n ? s.slice(0, n) + "\n…(t
 
 export const WORLD_RULES = `How the town works:
 - You have a body in a pixel town. Call \`look\` first: it tells you where you are, who is nearby, your unread messages, assignments and meetings.
-- Knowledge lives in documents. Your building's \`board\` holds colleagues' reports, articles and notes; the library (\`search\`, \`read\`) holds sources and promoted work. Check both before searching the web so you don't redo work.
+- Knowledge lives in documents. Your building's \`board\` holds colleagues' articles, notes and meeting notes (session reports go to the manager's in-tray, not the board; \`search\` with type "report" finds them); the library (\`search\`, \`read\`) holds sources and promoted work. Check both before searching the web so you don't redo work.
 - \`go\` walks your body to a place (walking is free). \`say\` is heard only within 3 tiles. \`tell\` sends a direct message; use it sparingly, only when a colleague needs to know something now.
 - Use \`write\` for source cards (type "source": what the source says, separate from your analysis, with its URL in provenance) and articles. Publish to the board with state "building" when it's useful to others.
 - A human may interrupt you mid-session with a message; treat it as direction from your building's manager.
@@ -30,6 +30,12 @@ export const REPORT_FORMAT = `Report body (markdown) sections: ## Summary (reada
 /** Nobody has a lane: an agent owns its assignment across the whole system. */
 const OWNERSHIP = `You own your assignment end to end. There are no lanes: do whatever it needs, in any part of the system, rather than handing pieces to others.`;
 
+/** The building's standing rules, set by its manager; empty string when there are none. */
+export function standingRules(building: Building | undefined): string {
+  const r = building?.rules?.trim();
+  return r ? `\n\nStanding rules for the ${building!.name} (from its manager; they apply to every session here and outrank your defaults, but not your assignment's explicit instructions):\n${trunc(r, 8000)}` : "";
+}
+
 export function workSystemPrompt(agent: Agent, building: Building, town: Town, opts: { desk?: boolean } = {}): string {
   return `You are ${agent.name}, a resident of the ${building.name} of ${town.name}. ${OWNERSHIP}
 Town goal: ${town.goal || "(none set)"}
@@ -44,7 +50,7 @@ ${REPORT_FORMAT}
 
 You have about ${building.maxTurnsPerSession} turns; budget them. ${opts.desk
     ? "You work at your own desk: a private sandbox computer with your home directory (/home/agent), a shell, Python with the usual scientific libraries, and the web. Files you keep there persist between sessions; the town library is still where shared work goes."
-    : "Your only tools are the town tools (mcp__town__*), WebSearch and WebFetch."}`;
+    : "Your only tools are the town tools (mcp__town__*), WebSearch and WebFetch."}${standingRules(building)}`;
 }
 
 export function workPrompt(assignment: Assignment, lastReport: Doc | undefined): string {
@@ -72,7 +78,7 @@ Decide (agents only work when given an assignment; idle is a fine outcome when t
 - "continue" only if its proposal is clearly worth doing next; it becomes the author's next assignment.
 - "redirect" with a specific, actionable note when it is fixable or the proposal is off; the note becomes the next assignment.
 - "stop" when the work is off-goal or should not continue.
-Call \`review\` exactly once, then stop.`;
+Call \`review\` exactly once, then stop.${standingRules(building)}`;
 }
 
 export function reviewPrompt(report: Doc, author: Agent, assignment: Assignment | undefined, building: Building, board: Doc[]): string {
@@ -107,7 +113,7 @@ ${events.map((e) => `- ${e.ts.slice(0, 16)} ${e.text}`).join("\n") || "(none)"}`
 export function facilitateSystemPrompt(facilitator: Agent, building: Building | undefined, town: Town): string {
   return `You are ${facilitator.name}, facilitating a meeting in ${building?.name ?? "Town Hall"} of ${town.name}. Building goal: ${building?.goal || town.goal || "(none)"}
 
-You run the meeting with the \`meeting\` tool (mcp__town__meeting) like everyone else. Be brief and concrete. Humans may speak in the meeting; their words carry weight. Do not call submit_report.`;
+You run the meeting with the \`meeting\` tool (mcp__town__meeting) like everyone else. Be brief and concrete. Humans may speak in the meeting; their words carry weight. Do not call submit_report.${standingRules(building)}`;
 }
 
 export function facilitatePrompt(meeting: Meeting, nameOf: (id: string) => string): string {
