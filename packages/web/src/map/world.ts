@@ -2,7 +2,7 @@
 import { BANK_FIXTURES, BANK_LOT, TILE, WALKABLE } from "@muster-town/schema";
 import type { Building, Place } from "@muster-town/schema";
 import type { Grid } from "../api";
-import { T, tiles, drawTable, drawCounter, drawDoor, drawManagerDesk, drawChair, drawBoard, drawCabinet, drawDonation, drawSchedule, drawBench, drawVault, drawGold, drawPillar, drawGoldCounter, drawBankMap } from "./sprites";
+import { T, tiles, drawTable, drawCounter, drawDoor, drawManagerDesk, drawChair, drawBoard, drawCabinet, drawSchedule, drawBench, drawVault, drawGold, drawPillar, drawGoldCounter, drawBankMap } from "./sprites";
 
 type Lot = { x: number; y: number; w: number; h: number };
 
@@ -128,7 +128,6 @@ export class World {
           case TILE.MANAGER_DESK: drawManagerDesk(g, px, py); break;
           case TILE.BOARD: g.drawImage(tl.wallFace, px, py); drawBoard(g, px, py); break;
           case TILE.CABINET: drawCabinet(g, px, py); break;
-          case TILE.DONATION: drawDonation(g, px, py); break;
           case TILE.SCHEDULE: drawSchedule(g, px, py); break;
           case TILE.BANK_MAP: drawBankMap(g, px, py); break;
           case TILE.BENCH: drawBench(g, px, py, { l: this.at(x - 1, y) === TILE.BENCH, r: this.at(x + 1, y) === TILE.BENCH }); break;

@@ -1,4 +1,4 @@
-/** Planning desk (Town Hall): create buildings, add and dismiss residents, roles, export. Donations live at the donation box. */
+/** Planning desk (Town Hall): create buildings, add and dismiss residents, roles, export. Donating and Bank shares live at the Bank. */
 import { useMemo, useState } from "react";
 import type { Building } from "@muster-town/schema";
 import { api, tokenStore } from "../api";

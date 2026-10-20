@@ -109,13 +109,13 @@ describe("role migration (v1.1 DB)", () => {
 });
 
 describe("v1.2 places", () => {
-  it("each lab has a board, a filing cabinet and an in-tray; Town Hall has the mod station, planning desk, donation box, schedule board; all reachable", () => {
+  it("each lab has a board, a filing cabinet and an in-tray; Town Hall has the mod station, planning desk, schedule board (no donation box: donating is at the Bank); all reachable", () => {
     const { world, by } = seededWorld();
     const door = world.layout.requirePlace("door:carbon-cycle").pos;
     const plaza = world.layout.requirePlace("plaza").pos;
     const expected = {
       "board:carbon-cycle": "board", "cabinet:carbon-cycle": "cabinet", "intray:carbon-cycle": "intray",
-      "mod-station": "mod-station", "planning-desk": "planning", "donation-box": "donation", "schedule-board": "schedule",
+      "mod-station": "mod-station", "planning-desk": "planning", "schedule-board": "schedule",
     } as const;
     for (const [id, kind] of Object.entries(expected)) {
       const p = world.layout.requirePlace(id);
@@ -138,7 +138,8 @@ describe("v1.2 places", () => {
     }
     const intray = world.layout.requirePlace("intray:carbon-cycle").pos;
     expect(tile(intray.x, intray.y - 1)).toBe(11); // TILE.MANAGER_DESK
-    expect(g.tiles).toContain(13); // DONATION
+    expect(g.tiles).not.toContain(13); // DONATION: the box is gone
+    expect(world.layout.places.some((p) => p.kind === "donation")).toBe(false);
     expect(g.tiles).toContain(14); // SCHEDULE
     // `look` lists them (in my building: board + in-tray; Town Hall stations anywhere)
     return world.verbs.look(by("Ravi"), {}).then((l) => {

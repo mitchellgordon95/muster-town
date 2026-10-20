@@ -14,7 +14,7 @@ import { LibraryPanel, TrophyPanel } from "./panels/LibraryPanel";
 import { OutboxPanel } from "./panels/OutboxPanel";
 import { MeetingPanel } from "./panels/MeetingPanel";
 import { PlanningPanel } from "./panels/PlanningPanel";
-import { BoardPanel, CabinetPanel, DonationPanel, IntrayPanel, ModStationPanel, SchedulePanel } from "./panels/Places";
+import { BoardPanel, CabinetPanel, IntrayPanel, ModStationPanel, SchedulePanel } from "./panels/Places";
 import { BankPanel } from "./panels/BankPanel";
 
 type TownHooks = { teleportTo(agentId: string): boolean; walkTo(placeId: string): boolean; openPanel(kind: PanelKind, id?: string): void; townMap(): void; store: typeof store };
@@ -123,7 +123,6 @@ function PanelHost({ panel }: { panel: PanelRef }) {
     case "cabinet": return <CabinetPanel key={panel.id} buildingId={panel.id!} />;
     case "admin":
     case "planning": return <PlanningPanel tab={panel.tab} />;
-    case "donation": return <DonationPanel />;
     case "bank": return <BankPanel />;
     case "schedule": return <SchedulePanel />;
     case "mod": return <ModStationPanel />;

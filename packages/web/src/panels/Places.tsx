@@ -1,6 +1,6 @@
 /**
  * Panels that belong to places on the map: the in-tray (manager's desk), the building board,
- * the filing cabinet, the donation box, the schedule board and the mod station (Town Hall).
+ * the filing cabinet, the schedule board and the mod station (Town Hall). Donating is at the Bank (BankFunding.tsx).
  */
 import { useEffect, useMemo, useState } from "react";
 import { BOARD_TYPES, DocType, type Doc, type Meeting } from "@muster-town/schema";
@@ -8,13 +8,11 @@ import { api } from "../api";
 import { store, useTown, roleOf } from "../state";
 import { DocRow, DocView, VERDICT_TONE, needOf } from "./DocView";
 import { Glyph, PanelShell } from "./PanelShell";
-import { Meter } from "./AgentPanel";
 import { phaseTone } from "./BuildingPanel";
 import { RequestCard } from "./OutboxPanel";
 import { Markdown } from "./Markdown";
 import { Act, Empty, ErrorLine, Field, Loading, Pill, Section, clock, fmtTokens, nameOf, timeAgo, usd, useLoad } from "./ui";
 import { portraitUrl } from "../map/sprites";
-import { SignInNote } from "../auth/auth";
 
 // ---------- in-tray ----------
 
@@ -189,58 +187,6 @@ function StandingRules({ buildingId, rules }: { buildingId: string; rules: strin
         </form>
       ) : rules.trim() ? <Markdown text={rules} /> : <div className="muted">No standing rules yet. Add some and every session in this building starts with them.</div>}
     </div>
-  );
-}
-
-// ---------- donation box ----------
-
-export function DonationPanel() {
-  const buildings = useTown((s) => s.buildings).filter((b) => b.kind !== "town-hall");
-  const budget = useLoad(() => api().budget(), []);
-  const [tokens, setTokens] = useState(1_000_000);
-  const [buildingId, setBuildingId] = useState(buildings[0]?.id ?? "");
-  const [apiKey, setApiKey] = useState("");
-  const me = useTown((s) => s.me);
-  return (
-    <PanelShell icon={<Glyph kind="donation" />} title="Donation box" subtitle="Fund a building's research with tokens">
-      <Section title="Donate tokens">
-        {!me ? <SignInNote to="donate" /> : <form className="form" onSubmit={(e) => e.preventDefault()}>
-          <div className="row2">
-            <Field label="Tokens"><input type="number" min={1} step={100000} value={tokens} onChange={(e) => setTokens(+e.target.value)} /></Field>
-            <Field label="Building">
-              <select value={buildingId} onChange={(e) => setBuildingId(e.target.value)}>{buildings.map((b) => <option key={b.id} value={b.id}>{b.name}</option>)}</select>
-            </Field>
-          </div>
-          <Field label="Anthropic API key (optional)" hint="Sessions charged to this donation run on your key. Stored server-side, never shown again.">
-            <input type="password" autoComplete="off" value={apiKey} onChange={(e) => setApiKey(e.target.value)} placeholder="sk-ant-…" />
-          </Field>
-          <div className="actions"><Act tone="primary" disabled={tokens < 1 || !buildingId} run={async () => {
-            await api().donate({ tokens, buildingId, apiKey: apiKey.trim() || undefined });
-            setApiKey(""); budget.reload();
-            store.toast(`Donated ${fmtTokens(tokens)} tokens`, "ok");
-          }}>Donate</Act></div>
-        </form>}
-      </Section>
-      <Section title="Allocations">
-        <ErrorLine error={budget.error} />
-        {budget.loading && !budget.data ? <Loading /> : (
-          <table className="table">
-            <thead><tr><th>Building</th><th>Allocated</th><th>Spent</th><th /></tr></thead>
-            <tbody>
-              {(budget.data?.buildings ?? []).map((r) => (
-                <tr key={r.buildingId}>
-                  <td>{buildings.find((b) => b.id === r.buildingId)?.name ?? r.buildingId}</td>
-                  <td>{fmtTokens(r.allocated)}</td>
-                  <td>{fmtTokens(r.spent)}{r.spentUsd !== undefined ? ` · ${usd(r.spentUsd)}` : ""}</td>
-                  <td><Meter v={r.allocated ? r.spent / r.allocated : 0} /></td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        )}
-        {budget.data?.users.length ? <div className="foot-note">Donors: {budget.data.users.map((u) => `${u.name ?? u.userId} (${fmtTokens(u.donated)})`).join(", ")}</div> : null}
-      </Section>
-    </PanelShell>
   );
 }
 

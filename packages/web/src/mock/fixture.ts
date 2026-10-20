@@ -21,7 +21,7 @@ export const users: User[] = [
 
 const base = { goal: "", description: "", headcount: 6, reviewPolicy: "human" as const, model: "claude-opus-5-5", cheapModel: "claude-haiku-5-5", maxTurnsPerSession: 80, dailyTokensPerAgent: 2_000_000, meetings: [], rules: "", managerAgentId: null as string | null, workspace: null as Building["workspace"], furniture: {} };
 export const buildings: Building[] = [
-  { ...base, id: "bl_townhall", name: "Town Hall", kind: "town-hall", headcount: 3, description: "Library, trophy room, outbox, mod station, planning desk, donation box, schedule board, and the town meeting room.", createdAt: ago(9000) },
+  { ...base, id: "bl_townhall", name: "Town Hall", kind: "town-hall", headcount: 3, description: "Library, trophy room, outbox, mod station, planning desk, schedule board, and the town meeting room.", createdAt: ago(9000) },
   {
     ...base, id: "bl_carbon", name: "Carbon Cycle Lab", kind: "lab", createdAt: ago(8900), createdBy: "us_mitchell", managerAgentId: "ag_moss",
     goal: "Understand the carbon cycle well enough to say what it would take to get to 350 ppm",

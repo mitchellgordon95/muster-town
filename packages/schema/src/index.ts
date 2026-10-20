@@ -273,7 +273,7 @@ export const PlaceKind = z.enum([
   "mod-station",
   /** planning-desk — Town Hall: create buildings, add/dismiss residents, roles */
   "planning",
-  /** donation-box — Town Hall */
+  /** retired: the Town Hall donation box (donating is at the Bank); no layout emits it any more */
   "donation",
   /** schedule-board — Town Hall: upcoming meetings for every building */
   "schedule",
@@ -662,6 +662,7 @@ export const TILE = {
   MANAGER_DESK: 11,
   /** wall-mounted board (labs: the building board; Town Hall: the schedule board uses SCHEDULE) */
   BOARD: 12,
+  /** retired: the Town Hall donation box (donating is at the Bank); the id stays reserved */
   DONATION: 13,
   SCHEDULE: 14,
   /** filing cabinet against the top wall of each lab, two tiles right of the board */

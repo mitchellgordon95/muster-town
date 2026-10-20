@@ -34,7 +34,6 @@ export const PLACE_PANEL: Partial<Record<Place["kind"], (p: Place) => PanelRef &
     return { kind: "intray", id: p.buildingId ?? undefined, verb: `Check the in-tray${n ? ` (${n} waiting)` : ""}` };
   },
   planning: () => ({ kind: "planning", verb: "Use the planning desk" }),
-  donation: () => ({ kind: "donation", verb: "Donate tokens" }),
   schedule: () => ({ kind: "schedule", verb: "Read the meeting schedule" }),
   "mod-station": () => ({ kind: "mod", verb: "Visit the mod station" }),
   library: () => ({ kind: "library", verb: "Browse the library" }),

@@ -281,18 +281,6 @@ export function drawCabinet(g: CanvasRenderingContext2D, px: number, py: number)
   g.fillStyle = "#7cc4ff"; g.fillRect(px + 9, py + 1, 3, 2);
   g.fillStyle = "#e8e9f0"; g.fillRect(px + 6, py + 4, 4, 1);
 }
-/** Donation box: a blue box with a coin slot and a gold coin going in. */
-export function drawDonation(g: CanvasRenderingContext2D, px: number, py: number) {
-  g.fillStyle = "rgba(0,0,0,.25)"; g.fillRect(px + 3, py + 14, 11, 2);
-  g.fillStyle = "#2f5f93"; g.fillRect(px + 3, py + 6, 10, 9);
-  g.fillStyle = "#3d78b5"; g.fillRect(px + 4, py + 7, 8, 7);
-  g.fillStyle = "#24496f"; g.fillRect(px + 3, py + 5, 10, 2);
-  g.fillStyle = "#14151c"; g.fillRect(px + 6, py + 5, 4, 1);
-  g.fillStyle = "#e8b840"; g.fillRect(px + 7, py + 1, 2, 4);
-  g.fillStyle = "#b8862a"; g.fillRect(px + 8, py + 1, 1, 4);
-  // heart
-  g.fillStyle = "#ff8fa3"; g.fillRect(px + 6, py + 9, 1, 2); g.fillRect(px + 9, py + 9, 1, 2); g.fillRect(px + 7, py + 10, 2, 2);
-}
 /** Schedule board: a free-standing whiteboard with a calendar grid. */
 export function drawSchedule(g: CanvasRenderingContext2D, px: number, py: number) {
   g.fillStyle = "#3a2716"; g.fillRect(px + 2, py + 11, 2, 5); g.fillRect(px + T - 4, py + 11, 2, 5);
@@ -341,7 +329,7 @@ export function drawBankMap(g: CanvasRenderingContext2D, px: number, py: number)
   g.fillRect(px + 10, py + 9, 1, 1); g.fillRect(px + 12, py + 8, 1, 1);
 }
 
-export type IconKind = "library" | "trophy" | "outbox" | "meeting" | "building" | "admin" | "intray" | "board" | "cabinet" | "donation" | "schedule" | "mod" | "planning" | "bank";
+export type IconKind = "library" | "trophy" | "outbox" | "meeting" | "building" | "admin" | "intray" | "board" | "cabinet" | "schedule" | "mod" | "planning" | "bank";
 const iconCache = new Map<string, string>();
 /** Tile-art icons for panel headers (2x scale). */
 export function iconUrl(kind: IconKind): string {
@@ -362,7 +350,6 @@ export function iconUrl(kind: IconKind): string {
     case "intray": drawManagerDesk(g, 0, 0); break;
     case "board": g.drawImage(tl.wallFace, 0, 0); drawBoard(g, 0, 0); break;
     case "cabinet": g.drawImage(tl.wallFace, 0, 0); drawCabinet(g, 0, 0); break;
-    case "donation": drawDonation(g, 0, 0); break;
     case "bank": drawGold(g, 0, 0); break;
     case "schedule": drawSchedule(g, 0, 0); break;
     case "mod": g.drawImage(tl.deskL, 0, 0); g.fillStyle = "#7a8a6a"; g.fillRect(9, 9, 5, 4); g.fillStyle = "#e8e9f0"; g.fillRect(10, 10, 3, 1); break;

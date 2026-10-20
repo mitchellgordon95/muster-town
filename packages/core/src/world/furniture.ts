@@ -34,7 +34,6 @@ export function piecesFor(kind: "lab" | "town-hall", headcount: number, lot: { w
   if (kind === "town-hall") {
     return [
       { key: "mod-station", label: "Mod station", at: { x: 2, y: 8 }, cells: row(3, TILE.DESK), stands: [{ x: 0, y: 1 }, { x: 1, y: 1 }, { x: 2, y: 1 }, { x: 3, y: 0 }] },
-      { key: "donation", label: "Donation box", at: { x: 6, y: 9 }, cells: one(TILE.DONATION), stands: [{ x: 1, y: 0 }] },
       // v1.4 visitor bench right of the door corridor; visitors wait on the row above it (stands = the two seats)
       { key: "bench", label: "Visitor bench", at: { x: 10, y: 9 }, cells: row(2, TILE.BENCH), stands: [{ x: 0, y: -1 }, { x: 1, y: -1 }] },
       { key: "planning", label: "Planning desk", at: { x: 12, y: 9 }, cells: row(2, TILE.DESK), stands: [{ x: 0, y: -1 }] },

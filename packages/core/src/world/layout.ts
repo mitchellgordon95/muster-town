@@ -23,8 +23,6 @@ export const TOWN_HALL_FIXTURES = {
   modDesk: [{ x: 2, y: 8 }, { x: 3, y: 8 }, { x: 4, y: 8 }],
   modSeats: [{ x: 2, y: 9 }, { x: 3, y: 9 }, { x: 4, y: 9 }],
   modStand: { x: 5, y: 8 },
-  /** donation box left of the door corridor */
-  donation: { x: 6, y: 9 }, donationStand: { x: 7, y: 9 },
   /** planning desk bottom-right */
   planningDesk: [{ x: 12, y: 9 }, { x: 13, y: 9 }], planningStand: { x: 12, y: 8 },
   /** schedule board next to the town meeting room table */
@@ -153,7 +151,6 @@ export function computeLayout(buildings: Building[], occupancy: Map<string, Map<
       places.push(
         { id: "mod-station", kind: "mod-station", name: "Mod station", buildingId: b.id, pos: stand("mod-station", MOD_SEATS) },
         { id: "planning-desk", kind: "planning", name: "Planning desk", buildingId: b.id, pos: stand("planning") },
-        { id: "donation-box", kind: "donation", name: "Donation box", buildingId: b.id, pos: stand("donation") },
         { id: "schedule-board", kind: "schedule", name: "Schedule board", buildingId: b.id, pos: stand("schedule") },
         { id: "visitor-bench", kind: "bench", name: "Visitor bench", buildingId: b.id, pos: stand("bench") },
         { id: "library", kind: "library", name: "Library", buildingId: b.id, pos: stand("library") },

@@ -11,9 +11,9 @@ import { redeployStatus } from "./redeploy";
 
 /**
  * Every panel is a place: walk up and press E. `intray`/`board`/`cabinet` take a building id; the Town Hall places
- * (planning desk, donation box, schedule board, mod station) and the Bank take none. `admin` is the old name for `planning`.
+ * (planning desk, schedule board, mod station) and the Bank take none. `admin` is the old name for `planning`.
  */
-export type PanelKind = "agent" | "building" | "library" | "trophy" | "outbox" | "meeting" | "intray" | "board" | "cabinet" | "planning" | "donation" | "schedule" | "mod" | "bank" | "admin";
+export type PanelKind = "agent" | "building" | "library" | "trophy" | "outbox" | "meeting" | "intray" | "board" | "cabinet" | "planning" | "schedule" | "mod" | "bank" | "admin";
 export interface PanelRef { kind: PanelKind; id?: string; docId?: string; tab?: string }
 export interface Toast { id: number; text: string; tone: "info" | "ok" | "bad"; panel?: PanelRef }
 

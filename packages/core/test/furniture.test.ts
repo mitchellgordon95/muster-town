@@ -54,9 +54,9 @@ describe("furniture", () => {
     expect(moved).toEqual({ x: lot.x + 3, y: lot.y + lot.h - 2 });
     expect(world.agents.require(ravi.id).pos).toEqual(moved);
     const th = world.buildings.require("town-hall").lot!;
-    world.ops.updateFurniture(admin, "town-hall", { donation: { x: 2, y: 4 } });
-    const box = world.layout.requirePlace("donation-box").pos;
-    expect(box).toEqual({ x: th.x + 3, y: th.y + 4 });
+    world.ops.updateFurniture(admin, "town-hall", { schedule: { x: 2, y: 4 } });
+    const box = world.layout.requirePlace("schedule-board").pos;
+    expect(box).toEqual({ x: th.x + 2, y: th.y + 5 });
     expect(findPath(world.layout.grid, world.layout.door("town-hall")!, box)).not.toBeNull();
   });
 
