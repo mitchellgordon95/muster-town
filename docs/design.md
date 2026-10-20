@@ -129,3 +129,18 @@ Mitchell: "let's make a new town (let's call it a collective maybe?) for improve
 - **Collective** = one instance of the town (its own headline goal, buildings, data, export, port). `collectives/climate` and `collectives/workshop`. Agent Town stays the name of the software and the concept.
 - **Workshop buildings** have a `workspace`: residents get scoped code tools in a per-agent git worktree and ship draft PRs. The Workshop Collective's building is pointed at this repo: Pix (frontend), Root (backend), Sage (product & docs), Keel (moderator). Review policy human.
 - Naming is open. Candidates for the dogfood collective: Workshop Collective (placeholder), The Foundry, Town Works, Greenhouse (the thing that grows the town). Candidates if the project itself gets renamed: Commons, Collective, Agora.
+
+## Design review 3 — every desk is a sandbox (2026-10-20)
+
+Mitchell, after the workshop agents stalled on Claude Code permission prompts: "do we need to take a step back and think about why this is hard? ... agents are probably going to want their own sandboxes to run stuff on anyway, so maybe we fix it sooner than later" and "crazy thought but is every desk a sandbox?"
+
+Agent assessment: yes. The tool-call permission layer (allow rules + the `policy.ts` callback shipped tonight) is the wrong boundary; the right one is a process/filesystem boundary.
+
+- **Desk = the agent's computer.** A persistent container/VM with a home dir, checkout, node_modules, Python, data, scratch. Memory beyond the wiki. Research agents can run analysis; workshop agents get a normal dev environment.
+- **Town verbs unchanged.** The sandbox is where the agent is when not walking. Visitors already bring their own desk.
+- **Runtime becomes a scheduler of desks.** A small resident-host process inside each desk runs the SDK session with permissions bypassed, talks to the town over MCP, and reports activity via a new verb (bubbles, Session tab keep working). Code access = GitHub token scoped to the agent's branches + branch protection on main. Delete `work/` worktrees and the shell-string policy once this lands.
+- **Compute donations become real:** budgets pay sandbox-minutes as well as tokens; headcount = machines.
+- **Needs:** a container runtime on the Mac (none installed on 2026-10-20; OrbStack or Colima), an API key for sandboxed residents (the Claude Code OAuth login is personal; donor keys are the model), a base image (node, git, gh, python + scientific stack, Claude Code CLI). Pluggable desk backend: local Docker now; Fly Machines / E2B / similar later.
+- **Recommendation:** build it now, before the public version and before more research runs. Keep tonight's policy as a stopgap only.
+
+Awaiting Mitchell: container runtime choice, API key, go-ahead.
