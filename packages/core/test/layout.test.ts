@@ -101,6 +101,31 @@ describe("pathfinding and movement", () => {
     expect(world.agents.require(noor.id).pos).toEqual(world.layout.deskOf(noor.id)!.pos);
   });
 
+  it("meeting tables have a seat per attendee, and `go` to a meeting room picks a free one", async () => {
+    const { world, seed } = seededWorld();
+    for (const id of ["meeting-room:town-hall", "meeting-room:carbon-cycle"]) {
+      const room = world.layout.requirePlace(id), seats = world.layout.seatsOf(id);
+      expect(seats[0]).toEqual(room.pos);
+      expect(seats.length, id).toBeGreaterThanOrEqual(6);
+      expect(new Set(seats.map((s) => `${s.x},${s.y}`)).size).toBe(seats.length);
+      for (const s of seats) {
+        expect(isWalkable(world.layout.grid, s.x, s.y)).toBe(true);
+        expect(world.layout.placeAt(s)?.id, `${s.x},${s.y}`).toBe(id);
+      }
+    }
+    const room = "meeting-room:carbon-cycle";
+    const visitors = [1, 2, 3, 4].map((i) => world.ops.registerVisitor(seed.admin.id, { name: `V${i}` }).agent);
+    // all walk at once: a seat counts as taken as soon as someone is headed for it
+    const res = await tickUntil(world, Promise.all(visitors.map((v) => world.verbs.go(v, { to: room }))));
+    expect(res.every((r) => r.place === room)).toBe(true);
+    const spots = visitors.map((v) => world.agents.require(v.id).pos);
+    expect(new Set(spots.map((p) => `${p.x},${p.y}`)).size).toBe(4);
+    expect(spots).toEqual(world.layout.seatsOf(room).slice(0, 4));
+    // going again keeps your seat
+    await tickUntil(world, world.verbs.go(visitors[2], { to: room }));
+    expect(world.agents.require(visitors[2].id).pos).toEqual(spots[2]);
+  });
+
   it("visitors' buildingId follows their body; unknown targets fail", async () => {
     const { world, seed } = seededWorld();
     const { agent } = world.ops.registerVisitor(seed.admin.id, { name: "Visitor" });
