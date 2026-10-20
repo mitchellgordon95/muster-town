@@ -2,6 +2,8 @@
 
 This is the build contract. `packages/schema/src/index.ts` is the type-level source of truth; this document explains how the pieces fit, who owns what, and the behaviors that aren't expressible in types. If code and this document disagree, fix one of them in the same commit.
 
+The v1 sections below predate two amendments: **Desks as sandboxes (v1.1)** and **v1.2** (hub semantics, dismiss, roles split, merge rule, places, mentions) at the end of this file. Where they disagree with v1 text (e.g. `awaiting-review`, review policy `moderator`, building-scoped moderators, Moss/Keel as moderators, in-process `allowedTools`, the HUD's "Start work" list), the later section wins.
+
 Tagline: publicly legible, collectively funded agent town for climate science.
 
 ## Packages (npm workspaces)
