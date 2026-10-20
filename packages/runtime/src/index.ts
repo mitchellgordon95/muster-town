@@ -3,7 +3,7 @@
  * reviewer sessions over the in-tray, meeting summaries + facilitation, proxy chat, interrupts, scheduler,
  * startup reconcile, dismissal (onAgentRetired), host redeploy (v1.3).
  */
-import { slugify, type World } from "@agent-town/core";
+import { nextPending, slugify, type World } from "@agent-town/core";
 import { DesksConfig, type ChatInput, type DeskActivityInput, type Event, type RedeployResult, type Session } from "@agent-town/schema";
 import { askAbout, chat } from "./chat.ts";
 import { DockerBackend, dockerSafe, HostBackend, type WorkBackend } from "./desk/backend.ts";
@@ -229,7 +229,7 @@ export function startRuntime(opts: RuntimeOptions): Runtime {
     if (draining) return;
     for (const a of world.agents.where("kind = 'resident' AND status = 'idle'", [], "ORDER BY createdAt")) {
       if (ctx.live.has(a.id) || starting.has(a.id)) continue;
-      const next = world.assignments.first("agentId = ? AND status = 'pending'", [a.id], "ORDER BY createdAt, rowid");
+      const next = nextPending(world, a.id); // queue order: position, createdAt, rowid
       if (!next || !world.budget.canStart(a.id)) continue;
       const bid = a.homeBuildingId ?? a.buildingId;
       const b = bid ? world.buildings.get(bid) : undefined;

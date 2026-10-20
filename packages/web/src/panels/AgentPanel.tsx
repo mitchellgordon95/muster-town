@@ -5,7 +5,7 @@ import { api, type ThreadMessage } from "../api";
 import { store, useTown, roleOf } from "../state";
 import { DismissButton, canDismiss } from "./Dismiss";
 import { PanelShell } from "./PanelShell";
-import { Act, Empty, Field, KV, Pill, Section, StatusPill, clock, fmtTokens, timeAgo, usd, useLoad } from "./ui";
+import { Act, Empty, KV, Pill, Section, StatusPill, clock, fmtTokens, timeAgo, usd, useLoad } from "./ui";
 import { portraitUrl } from "../map/sprites";
 
 type Msg = { role: "user" | "assistant"; text: string; ts: string };
@@ -174,6 +174,7 @@ function Composer({ agent, talkable, canControl, outOfBudget, log, setLog }: { a
   const status = asking ? `Quick question: ${agent.kind === "service" ? agent.name : `${agent.name}'s desk assistant`} answers from their activity and reports. It can't act.`
     : outOfBudget ? "Out of budget: queued until budget returns."
     : working ? (now ? "Working: your message interrupts now." : "Working: your message waits for the next pause.")
+    : agent.status === "stopped" ? "stopped: your message starts a session with it next"
     : "Idle: your message starts a session.";
   const placeholder = asking ? `Ask ${agent.kind === "service" ? agent.name : "a quick question"}…` : `Message ${agent.name}…`;
   return (
@@ -205,15 +206,69 @@ export function Meter({ v }: { v: number }) {
   return <span className={`meter ${p > 0.9 ? "bad" : p > 0.7 ? "warn" : ""}`}><i style={{ width: `${p * 100}%` }} /></span>;
 }
 
+/**
+ * Assignments: Active (the running one, with Stop), Queue (pending, in run order: reorder, Start next, Cancel), History
+ * (done and cancelled, newest first, with Retry). A stopped agent with a queue gets a "Resume queue" banner.
+ */
 function AssignmentsTab({ agent }: { agent: Agent }) {
   const all = useTown((s) => s.assignments);
-  const list = useMemo(() => Object.values(all).filter((a) => a.agentId === agent.id).sort((a, b) => b.createdAt.localeCompare(a.createdAt)), [all, agent.id]);
-  const canAssign = store.can("building.assign", agent.homeBuildingId) || agent.ownerUserId === store.state.me?.user.id;
+  const { active, queue, history } = useMemo(() => {
+    const mine = Object.values(all).filter((a) => a.agentId === agent.id);
+    return {
+      active: mine.filter((a) => a.status === "active"),
+      queue: mine.filter((a) => a.status === "pending").sort((a, b) => a.position - b.position || a.createdAt.localeCompare(b.createdAt)),
+      history: mine.filter((a) => a.status === "done" || a.status === "cancelled").sort((a, b) => b.updatedAt.localeCompare(a.updatedAt)),
+    };
+  }, [all, agent.id]);
+  const canControl = store.can("building.assign", agent.homeBuildingId) || agent.ownerUserId === store.state.me?.user.id;
+  const stopped = agent.status === "stopped";
+  const gone = agent.status === "retired" || agent.status === "banned";
+  const put = (r: { assignment?: Assignment; assignments?: Assignment[]; agent?: Agent }) => {
+    store.putAssignments([...(r.assignments ?? []), ...(r.assignment ? [r.assignment] : [])]);
+  };
+  const move = async (i: number, d: -1 | 1) => {
+    const ids = queue.map((a) => a.id);
+    [ids[i], ids[i + d]] = [ids[i + d], ids[i]];
+    put(await api().reorderQueue(agent.id, ids));
+  };
   return (
     <>
-      {canAssign ? <WorkForm agent={agent} /> : null}
-      <Section title="Assignments">
-        {!list.length ? <Empty>No assignments yet.</Empty> : list.map((a) => <AssignmentRow key={a.id} a={a} />)}
+      {stopped && canControl ? (
+        queue.length ? (
+          <div className="callout queue-banner">
+            <span>Stopped with {queue.length} queued.</span>
+            <Act small tone="primary" run={async () => { await api().resume(agent.id); store.toast(`${agent.name} resumed: "${queue[0].title}" runs next`, "ok"); }}>Resume queue</Act>
+          </div>
+        ) : <div className="callout">Stopped. Message the agent to start it again.</div>
+      ) : null}
+      <Section title="Active">
+        {!active.length ? <Empty>{stopped ? "Nothing running: stopped." : "Nothing running."}</Empty> : active.map((a) => (
+          <AssignmentRow key={a.id} a={a} actions={canControl && agent.status === "working" ? (
+            <Act small tone="bad" run={async () => { await api().stop(agent.id); store.toast(`${agent.name} stopped`, "ok"); }}>Stop</Act>
+          ) : null} />
+        ))}
+      </Section>
+      <Section title={`Queue${queue.length ? ` (${queue.length})` : ""}`}>
+        {!queue.length ? <Empty>No queued assignments. A message to {agent.name} starts one.</Empty> : queue.map((a, i) => (
+          <AssignmentRow key={a.id} a={a} index={i + 1} actions={canControl && !gone ? (
+            <>
+              <button type="button" className="btn sm icon" title="Move up" disabled={i === 0} onClick={() => void move(i, -1).catch((e: Error) => store.toast(e.message, "bad"))}>▲</button>
+              <button type="button" className="btn sm icon" title="Move down" disabled={i === queue.length - 1} onClick={() => void move(i, 1).catch((e: Error) => store.toast(e.message, "bad"))}>▼</button>
+              <Act small tone="primary" title={stopped ? `Resume ${agent.name} with this` : "Run this one next"} run={async () => {
+                const r = await api().startNext(a.id); put(r);
+                store.toast(r.when === "now" ? `${agent.name} is starting "${a.title}"` : `"${a.title}" runs after the current session`, "ok");
+              }}>Start next</Act>
+              <Act small tone="bad" run={async () => { put(await api().cancelAssignment(a.id)); }}>Cancel</Act>
+            </>
+          ) : null} />
+        ))}
+      </Section>
+      <Section title="History">
+        {!history.length ? <Empty>No finished assignments yet.</Empty> : history.map((a) => (
+          <AssignmentRow key={a.id} a={a} actions={canControl && !gone ? (
+            <Act small title="Queue it again, at the front" run={async () => { put(await api().retryAssignment(a.id, true)); store.toast(`"${a.title}" is queued first again`, "ok"); }}>Retry</Act>
+          ) : null} />
+        ))}
       </Section>
       {canDismiss(agent) ? (
         <Section title="Manager">
@@ -225,34 +280,22 @@ function AssignmentsTab({ agent }: { agent: Agent }) {
   );
 }
 
-function AssignmentRow({ a }: { a: Assignment }) {
+function AssignmentRow({ a, actions, index }: { a: Assignment; actions?: ReactNode; index?: number }) {
+  const [open, setOpen] = useState(false);
+  const long = a.description.length > 160;
   return (
-    <div className="asg">
-      <div className="asg-head"><b>{a.title}</b><Pill tone={a.status === "active" ? "ok" : a.status === "pending" ? "warn" : a.status === "cancelled" ? "bad" : ""}>{a.status}</Pill></div>
-      <div className="asg-desc">{a.description}</div>
-      <div className="asg-meta">{a.fromMeetingId ? "from a meeting · " : a.fromReportId ? "from a report · " : ""}{timeAgo(a.createdAt)}</div>
-    </div>
-  );
-}
-
-export function WorkForm({ agent, onDone }: { agent: Agent; onDone?: () => void }) {
-  const [title, setTitle] = useState("");
-  const [desc, setDesc] = useState("");
-  const busy = agent.status === "working";
-  return (
-    <form className="work-form" onSubmit={(e) => e.preventDefault()}>
-      <Field label="Question for the next session" hint="Leave blank to let the agent continue from its pending assignment, or check in if it has none.">
-        <input value={title} placeholder="e.g. Is the land sink weakening?" onChange={(e) => setTitle(e.target.value)} />
-      </Field>
-      <Field label="Details"><textarea rows={3} value={desc} onChange={(e) => setDesc(e.target.value)} placeholder="Context, scope, sources to start from…" /></Field>
-      <div className="actions">
-        <Act tone="primary" disabled={busy} title={busy ? "Already working" : undefined} run={async () => {
-          await api().work(agent.id, { title: title.trim() || undefined, description: desc.trim() || undefined });
-          setTitle(""); setDesc("");
-          store.toast(`${agent.name} is starting work`, "ok");
-          onDone?.();
-        }}>Start work</Act>
+    <div className={`asg ${a.status}`}>
+      <div className="asg-head">
+        <b>{index ? <span className="asg-n">{index}.</span> : null}{a.title}</b>
+        <Pill tone={a.status === "active" ? "ok" : a.status === "pending" ? "warn" : a.status === "cancelled" ? "bad" : ""}>{a.status === "pending" ? "queued" : a.status}</Pill>
       </div>
-    </form>
+      {a.description ? <div className="asg-desc" onClick={() => long && setOpen((o) => !o)}>{long && !open ? a.description.slice(0, 157) + "…" : a.description}</div> : null}
+      <div className="asg-meta">
+        {a.fromAssignmentId ? "retried · " : a.fromMeetingId ? "from a meeting · " : a.fromReportId ? "from a report · " : ""}
+        {a.status === "done" || a.status === "cancelled" ? `${a.status} ${timeAgo(a.updatedAt)}` : `created ${timeAgo(a.createdAt)}`}
+        {a.reportId ? <> · <button type="button" className="link" onClick={() => store.open({ kind: "library", docId: a.reportId! })}>report</button></> : null}
+      </div>
+      {actions ? <div className="asg-actions">{actions}</div> : null}
+    </div>
   );
 }

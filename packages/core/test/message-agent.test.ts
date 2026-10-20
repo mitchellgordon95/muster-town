@@ -1,5 +1,6 @@
 /** Talk to an agent: a human's message is a `tell` that wakes an idle agent or interrupts a working one. */
 import { describe, expect, it } from "vitest";
+import { nextPending } from "../src/index.ts";
 import { seededWorld } from "./helpers.ts";
 
 function setup() {
@@ -56,12 +57,15 @@ describe("ops.messageAgent", () => {
     expect(it.text).toContain("hi there");
   });
 
-  it("stopped agent is revived", async () => {
+  it("stopped agent is revived, and the message goes to the front of its queue", async () => {
     const { world, admin, mei, userId } = setup();
+    world.ops.createWork(null, mei.id, { title: "Backlog 1" });
+    world.ops.createWork(null, mei.id, { title: "Backlog 2" });
     world.ops.stopAgent(admin, mei.id);
     const r = await world.ops.messageAgent(userId, mei.id, "wake up", { isWorking: () => false });
     expect(r.mode).toBe("started");
     expect(world.agents.require(mei.id).status).toBe("idle");
+    expect(nextPending(world, mei.id)!.id).toBe(r.assignmentId);
   });
 
   it("out of budget: queued, but the assignment exists", async () => {

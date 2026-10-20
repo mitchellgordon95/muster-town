@@ -1,5 +1,5 @@
 import { WorkInput, type Agent, type Assignment, type Interrupt, type CreateBuildingInput, type CreateMeetingInput, type CreateResidentInput, type Doc, type Meeting, type Membership, type RegisterVisitorInput, type Session } from "@agent-town/schema";
-import { createAssignment, createDoc, homeOf, intrayOf, sendMessage, setAssignmentStatus, updateDoc } from "./domain.ts";
+import { createAssignment, createDoc, homeOf, intrayOf, moveToFront, pendingQueue, sendMessage, setAssignmentStatus, updateDoc } from "./domain.ts";
 import { CHECK_IN } from "./prompts.ts";
 import { createBuilding, createResident, createUser, ensureAvatar, registerVisitor, updateBuilding } from "./entities.ts";
 import { AppError, badRequest, forbidden } from "./errors.ts";
@@ -20,6 +20,8 @@ export interface MessageAgentResult { mode: "interrupted" | "queued" | "started"
 export interface ThreadMessage { id: string; fromId: string; toId: string; from: string; mine: boolean; body: string; at: string }
 
 const messageTail = (avatarId: string) => `\n\nReply to them first with \`tell\` (their avatar id is ${avatarId}), keep it short, then do what the message asks. If it asks you to delegate and you hold the assign permission, use \`assign\`. If it is just a conversation, reply and finish with a short report ending "Nothing needed".`;
+
+export interface StartNextResult { assignment: Assignment; agent: Agent; when: "now" | "after-current" }
 
 export type RequestAction = "approve" | "reject" | "claim" | "done";
 /** `null` actor = system (scheduler/runtime): no permission checks. */
@@ -187,14 +189,72 @@ export class Ops {
     if (agent.status !== "stopped") return agent;
     return this.world.setStatus(agentId, "idle", `${agent.name} was resumed`);
   }
+  // ---- the assignment queue ----
+  // Pending assignments run in `position` order (then createdAt, rowid). Owner, building.assign or admin.
+  private controlAssignment(actor: Actor, assignmentId: string): { a: Assignment; agent: Agent } {
+    const a = this.world.assignments.require(assignmentId, "assignment");
+    const agent = this.world.agents.require(a.agentId, "agent");
+    if (actor) this.requireAgentControl(actor, agent);
+    return { a, agent };
+  }
+  /** Put a pending assignment at the front of its agent's queue (no permission check; see `startNext`). */
+  moveToFront(assignmentId: string): Assignment { return moveToFront(this.world, assignmentId); }
+  /**
+   * POST /agents/:id/queue: `orderedIds` (pending assignments of this agent) go first, in that order; pending ones not
+   * listed keep their relative order after them.
+   */
+  reorderQueue(actor: Actor, agentId: string, orderedIds: string[]): Assignment[] {
+    const agent = this.world.agents.require(agentId, "agent");
+    if (actor) this.requireAgentControl(actor, agent);
+    const queue = pendingQueue(this.world, agentId);
+    const byId = new Map(queue.map((a) => [a.id, a]));
+    const seen = new Set<string>();
+    for (const id of orderedIds) {
+      if (!byId.has(id)) throw badRequest(`${id} isn't one of ${agent.name}'s queued assignments.`);
+      if (seen.has(id)) throw badRequest(`${id} is listed twice.`);
+      seen.add(id);
+    }
+    const order = [...orderedIds.map((id) => byId.get(id)!), ...queue.filter((a) => !seen.has(a.id))];
+    const base = queue.length ? Math.min(...queue.map((a) => a.position)) : 0;
+    const ts = nowIso();
+    return this.world.db.transaction(() => order.map((a, i) => (a.position === base + i ? a : this.world.assignments.upsert({ ...a, position: base + i, updatedAt: ts }))))();
+  }
+  /** POST /assignments/:id/start-next: front of the queue; a stopped agent is resumed (runs now), a working one runs it after the current session. */
+  startNext(actor: Actor, assignmentId: string): StartNextResult {
+    const { a, agent } = this.controlAssignment(actor, assignmentId);
+    if (a.status !== "pending") throw new AppError("conflict", `Assignment "${a.title}" is ${a.status}, not queued.`);
+    if (agent.status === "banned" || agent.status === "retired") throw new AppError("conflict", `${agent.name} is ${agent.status === "retired" ? "dismissed" : "banned"}.`);
+    const assignment = moveToFront(this.world, a.id);
+    const resumed = agent.status === "stopped" ? this.world.setStatus(agent.id, "idle", `${agent.name} was resumed to start "${a.title}"`) : agent;
+    const busy = resumed.status === "working" || resumed.status === "in-meeting";
+    return { assignment, agent: resumed, when: busy ? "after-current" : "now" };
+  }
+  /** POST /assignments/:id/cancel: pending only (the running one is ended with Stop; done/cancelled are terminal). */
+  cancelAssignment(actor: Actor, assignmentId: string): Assignment {
+    const { a } = this.controlAssignment(actor, assignmentId);
+    if (a.status !== "pending") throw new AppError("conflict", a.status === "active" ? `"${a.title}" is running: stop the agent to end it.` : `Assignment "${a.title}" is already ${a.status}.`);
+    return setAssignmentStatus(this.world, a.id, "cancelled");
+  }
+  /** POST /assignments/:id/retry: a cancelled or done assignment → a new pending copy (`fromAssignmentId`), at the front when `front`. */
+  retryAssignment(actor: Actor, assignmentId: string, opts: { front?: boolean } = {}): Assignment {
+    const { a, agent } = this.controlAssignment(actor, assignmentId);
+    if (a.status !== "cancelled" && a.status !== "done") throw new AppError("conflict", `Only cancelled or done assignments can be retried; "${a.title}" is ${a.status}.`);
+    if (agent.status === "banned" || agent.status === "retired") throw new AppError("conflict", `${agent.name} is ${agent.status === "retired" ? "dismissed" : "banned"}.`);
+    return createAssignment(this.world, {
+      agentId: agent.id, buildingId: a.buildingId, title: a.title, description: a.description,
+      fromReportId: a.fromReportId, fromMeetingId: a.fromMeetingId, fromAssignmentId: a.id, front: !!opts.front,
+      createdBy: actor ? this.world.holderOf(actor) : { kind: "system", id: "system" },
+    });
+  }
+
   // ---- talk: a human messages an agent ----
   /**
    * POST /api/agents/:id/message. The text lands in the agent's inbox as a `tell` from the user's avatar (so `look`
    * counts it like any colleague's message). Then:
    * - live work session + `now` → interrupt (in-process via `interrupt`/`world.host.interrupt`, else queued for the desk);
    * - live + !now → nothing more: the agent reads it at its next `inbox`/`look`;
-   * - not working (stopped → revived) → a `Message from …` assignment, so the scheduler starts a session for it
-   *   (a still-pending one from the same user gets the new text appended instead of a second assignment);
+   * - not working (stopped → revived) → a `Message from …` assignment at the front of the queue, so the scheduler
+   *   starts a session for it next (a still-pending one from the same user gets the new text appended, and moves to the front);
    * - out of budget → the same assignment, mode `queued` (it starts when budget returns).
    */
   async messageAgent(userId: string, agentId: string, text: string, opts: MessageAgentOptions = {}): Promise<MessageAgentResult> {
@@ -225,12 +285,13 @@ export class Ops {
     let assignment: Assignment;
     if (pending) {
       assignment = this.world.assignments.upsert({ ...pending, description: pending.description.replace(/\n\nReply to them first[\s\S]*$/, "") + `\n\nThen they added:\n\n${body}` + messageTail(avatar.id), updatedAt: nowIso() });
+      assignment = moveToFront(this.world, assignment.id);
     } else {
       const first = body.split("\n")[0].trim();
       assignment = createAssignment(this.world, {
         agentId: agent.id, title: prefix + (first.length > 80 ? first.slice(0, 79) + "…" : first),
         description: `${user.name} messaged you:\n\n${body}` + messageTail(avatar.id),
-        createdBy: { kind: "user", id: userId },
+        createdBy: { kind: "user", id: userId }, front: true,
       });
     }
     return { mode: this.world.budget.canStart(agent.id) ? "started" : "queued", messageId: msg.id, assignmentId: assignment.id };

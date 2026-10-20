@@ -1,4 +1,4 @@
-import { Doc, type Agent, type Assignment, type Message, type ReviewDecision } from "@agent-town/schema";
+import { Doc, QUEUE_ORDER, type Agent, type Assignment, type Message, type ReviewDecision } from "@agent-town/schema";
 import { AppError } from "./errors.ts";
 import type { Holder } from "./permissions.ts";
 import { extractSection, firstLine, newId, nowIso, truncate } from "./util.ts";
@@ -40,7 +40,7 @@ export function canSeeDoc(holder: Holder, d: Doc): boolean {
   return d.state !== "draft" || d.authorId === holder.id;
 }
 
-export function createAssignment(world: World, a: { agentId: string; title: string; description: string; createdBy: Holder | { kind: "system"; id: string }; fromReportId?: string | null; fromMeetingId?: string | null; buildingId?: string }): Assignment {
+export function createAssignment(world: World, a: { agentId: string; title: string; description: string; createdBy: Holder | { kind: "system"; id: string }; fromReportId?: string | null; fromMeetingId?: string | null; fromAssignmentId?: string | null; buildingId?: string; front?: boolean }): Assignment {
   const agent = world.agents.require(a.agentId, "agent");
   const buildingId = a.buildingId ?? agent.homeBuildingId ?? agent.buildingId;
   if (!buildingId) throw new AppError("bad_request", `${agent.name} has no building to work in.`);
@@ -48,10 +48,36 @@ export function createAssignment(world: World, a: { agentId: string; title: stri
   const assignment = world.assignments.upsert({
     id: newId("as"), agentId: agent.id, buildingId, title: a.title, description: a.description, status: "pending",
     createdBy: a.createdBy.id, createdByKind: a.createdBy.kind === "system" ? "user" : a.createdBy.kind,
-    fromMeetingId: a.fromMeetingId ?? null, fromReportId: a.fromReportId ?? null, reportId: null, createdAt: ts, updatedAt: ts,
+    fromMeetingId: a.fromMeetingId ?? null, fromReportId: a.fromReportId ?? null, reportId: null,
+    fromAssignmentId: a.fromAssignmentId ?? null, position: a.front ? frontPosition(world, agent.id) : Date.now(), createdAt: ts, updatedAt: ts,
   });
   world.events.append({ type: "assignment.created", agentId: agent.id, buildingId, text: `New assignment for ${agent.name}: ${a.title}`, payload: { assignmentId: assignment.id, createdBy: a.createdBy.id, fromReportId: a.fromReportId ?? null, fromMeetingId: a.fromMeetingId ?? null } });
   return assignment;
+}
+
+/** The agent's pending assignments in queue order (the scheduler runs the first). */
+export function pendingQueue(world: World, agentId: string): Assignment[] {
+  return world.assignments.where("agentId = ? AND status = 'pending'", [agentId], QUEUE_ORDER);
+}
+
+/** The pending assignment the scheduler runs next for this agent. */
+export function nextPending(world: World, agentId: string): Assignment | undefined {
+  return world.assignments.first("agentId = ? AND status = 'pending'", [agentId], QUEUE_ORDER);
+}
+
+/** A position ahead of every pending assignment of the agent (except `exceptId`). */
+function frontPosition(world: World, agentId: string, exceptId?: string): number {
+  const row = world.db.prepare("SELECT MIN(position) AS p FROM assignments WHERE agentId = ? AND status = 'pending' AND id IS NOT ?").get(agentId, exceptId ?? null) as { p: number | null };
+  return row.p === null ? Date.now() : row.p - 1;
+}
+
+/** Put a pending assignment at the front of its agent's queue. */
+export function moveToFront(world: World, id: string): Assignment {
+  const a = world.assignments.require(id, "assignment");
+  if (a.status !== "pending") throw new AppError("conflict", `Assignment "${a.title}" is ${a.status}, not queued.`);
+  const head = nextPending(world, a.agentId);
+  if (head?.id === a.id) return a;
+  return world.assignments.upsert({ ...a, position: frontPosition(world, a.agentId, a.id), updatedAt: nowIso() });
 }
 
 export function setAssignmentStatus(world: World, id: string, status: Assignment["status"], extra: Partial<Assignment> = {}): Assignment {

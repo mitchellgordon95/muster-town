@@ -324,10 +324,16 @@ export const Assignment = z.object({
   fromMeetingId: Id.nullable().default(null),
   fromReportId: Id.nullable().default(null),
   reportId: Id.nullable().default(null),
+  /** retried from this (cancelled or done) assignment */
+  fromAssignmentId: Id.nullable().default(null),
+  /** queue order among the agent's pending assignments: lower runs first (ties: createdAt, rowid). New ones get epoch ms. */
+  position: z.number().default(0),
   createdAt: Iso,
   updatedAt: Iso,
 });
 export type Assignment = z.infer<typeof Assignment>;
+/** SQL tail for "next pending first": every queue query orders by this. */
+export const QUEUE_ORDER = "ORDER BY position, createdAt, rowid";
 
 // ---------- messages (inbox) ----------
 export const MessageKind = z.enum(["tell", "heard", "system", "meeting", "mention"]);

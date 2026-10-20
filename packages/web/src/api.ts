@@ -21,6 +21,7 @@ export interface AgentDetail {
   assignments: Assignment[];
 }
 /** POST /api/agents/:id/message result: how the message reached the agent. */
+export interface StartNextResult { assignment: Assignment; agent: Agent; when: "now" | "after-current" }
 export interface MessageResult { mode: "interrupted" | "queued" | "started"; messageId: string; assignmentId?: string }
 /** One `tell` between an agent and your avatar (GET /api/agents/:id/thread). */
 export interface ThreadMessage { id: string; fromId: string; toId: string; from: string; mine: boolean; body: string; at: string }
@@ -70,8 +71,16 @@ export interface Api {
   /** The `tell`s between the agent and your avatar, oldest first. */
   thread(id: string): Promise<ThreadMessage[]>;
   stop(id: string): Promise<void>;
-  /** Un-stop: back to idle without creating an assignment. */
+  /** Un-stop: back to idle without creating an assignment; the scheduler takes the queue. */
   resume(id: string): Promise<void>;
+  /** POST /api/agents/:id/queue: these pending ids first, in order; the rest keep their order after them. */
+  reorderQueue(id: string, order: string[]): Promise<{ assignments: Assignment[]; agent: Agent }>;
+  /** Run this pending assignment next (resumes a stopped agent). */
+  startNext(assignmentId: string): Promise<StartNextResult>;
+  /** Cancel a pending assignment. */
+  cancelAssignment(assignmentId: string): Promise<{ assignment: Assignment; agent: Agent }>;
+  /** A cancelled or done assignment again, as a new pending one (front of the queue by default). */
+  retryAssignment(assignmentId: string, front?: boolean): Promise<{ assignment: Assignment; agent: Agent }>;
   // docs
   docs(q: DocQuery): Promise<Doc[]>;
   doc(id: string): Promise<Doc>;
@@ -179,6 +188,10 @@ export class HttpApi implements Api {
   async thread(id: string) { return (await this.get<{ messages: ThreadMessage[] }>(`/api/agents/${id}/thread`)).messages; }
   async stop(id: string) { await this.post(`/api/agents/${id}/stop`); }
   async resume(id: string) { await this.post(`/api/agents/${id}/resume`); }
+  reorderQueue(id: string, order: string[]) { return this.post<{ assignments: Assignment[]; agent: Agent }>(`/api/agents/${id}/queue`, { order }); }
+  startNext(id: string) { return this.post<StartNextResult>(`/api/assignments/${id}/start-next`); }
+  cancelAssignment(id: string) { return this.post<{ assignment: Assignment; agent: Agent }>(`/api/assignments/${id}/cancel`); }
+  retryAssignment(id: string, front = true) { return this.post<{ assignment: Assignment; agent: Agent }>(`/api/assignments/${id}/retry`, { front }); }
   async docs(q: DocQuery) { return unwrap<Doc[]>(await this.get(`/api/docs${qs(q)}`), "docs"); }
   async doc(id: string) { return unwrap<Doc>(await this.get(`/api/docs/${id}`), "doc"); }
   async writeDoc(i: WriteDocInput) { return unwrap<Doc>(await this.post("/api/docs", i), "doc"); }

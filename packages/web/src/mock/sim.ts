@@ -160,21 +160,40 @@ export class Sim {
   }
 
   // ---------- actions ----------
-  startWork(agentId: string, title?: string, description?: string, by = "us_mitchell"): Assignment {
+  /** A new pending assignment at the back of the queue (or the front). */
+  newAssignment(agentId: string, f: { title: string; description: string; fromReportId?: string | null; fromAssignmentId?: string | null; front?: boolean; by?: string }): Assignment {
     const a = this.agents.get(agentId)!;
-    let asg = [...this.assignments.values()].find((x) => x.agentId === agentId && x.status === "pending");
-    if (!asg || title) {
-      asg = this.putAssignment({
-        id: newId("as"), agentId, buildingId: a.homeBuildingId ?? "bl_carbon", title: title || `Next question for ${a.title}`, description: description || a.direction,
-        status: "pending", createdBy: by, createdByKind: "user", fromMeetingId: null, fromReportId: null, reportId: null, createdAt: now(), updatedAt: now(),
-      });
-      this.event("assignment.created", agentId, `Assignment for ${a.name}: ${asg.title}`, { assignmentId: asg.id });
-    }
+    const q = this.queue(agentId);
+    const asg = this.putAssignment({
+      id: newId("as"), agentId, buildingId: a.homeBuildingId ?? "bl_carbon", title: f.title, description: f.description,
+      status: "pending", createdBy: f.by ?? "us_mitchell", createdByKind: "user", fromMeetingId: null, fromReportId: f.fromReportId ?? null, reportId: null,
+      fromAssignmentId: f.fromAssignmentId ?? null, position: f.front && q.length ? q[0].position - 1 : Date.now(), createdAt: now(), updatedAt: now(),
+    });
+    this.event("assignment.created", agentId, `Assignment for ${a.name}: ${asg.title}`, { assignmentId: asg.id }, a.homeBuildingId);
+    return asg;
+  }
+  /** Pending assignments in run order (position, then createdAt), like the server's scheduler. */
+  queue(agentId: string): Assignment[] {
+    return [...this.assignments.values()].filter((x) => x.agentId === agentId && x.status === "pending")
+      .sort((a, b) => a.position - b.position || a.createdAt.localeCompare(b.createdAt));
+  }
+  /** The scheduler: an idle agent with a queue starts its first assignment. */
+  runNext(agentId: string): Assignment | null {
+    const a = this.agents.get(agentId);
+    const asg = this.queue(agentId)[0];
+    if (!a || a.status !== "idle" || !asg) return null;
     asg.status = "active"; this.putAssignment(asg);
     this.patchAgent(agentId, { status: "working", currentAssignmentId: asg.id, activity: "Starting session", lastActiveAt: now() });
     this.event("session.started", agentId, `${a.name} started a work session`);
     this.sessionLeft.set(agentId, 6);
     return asg;
+  }
+  startWork(agentId: string, title?: string, description?: string, by = "us_mitchell"): Assignment {
+    const a = this.agents.get(agentId)!;
+    const created = title || !this.queue(agentId).length
+      ? this.newAssignment(agentId, { title: title || `Next question for ${a.title}`, description: description || a.direction, front: !!title, by })
+      : null;
+    return this.runNext(agentId) ?? created ?? this.queue(agentId)[0];
   }
 
   finishSession(a: Agent) {
@@ -193,6 +212,7 @@ export class Sim {
     this.event("doc.created", a.id, `${a.name} submitted a report: ${doc.title}`, { docId: doc.id });
     this.emitBuilding(doc.buildingId);
     this.event("session.ended", a.id, "Session ended (108k tokens, $0.84)");
+    window.setTimeout(() => this.runNext(a.id), 2500);
   }
 
   /**
@@ -218,13 +238,9 @@ export class Sim {
     const proposal = /## Proposal[^\n]*\n+([^\n]+)/.exec(d.body)?.[1]?.trim() ?? "Follow up on this report";
     const title = decision === "continue" ? proposal : note.split("\n")[0];
     const description = decision === "continue" ? (note ? `${proposal}\n\nNote: ${note}` : proposal) : `${note}\n\nThe report proposed: ${proposal}`;
-    const asg = this.putAssignment({
-      id: newId("as"), agentId: a.id, buildingId: a.homeBuildingId ?? "bl_carbon", title: title.slice(0, 90), description,
-      status: "pending", createdBy: "us_mitchell", createdByKind: "user", fromMeetingId: null, fromReportId: d.id, reportId: null, createdAt: now(), updatedAt: now(),
-    });
-    this.event("assignment.created", a.id, `Assignment for ${a.name}: ${asg.title}`, { assignmentId: asg.id }, a.homeBuildingId);
+    this.newAssignment(a.id, { title: title.slice(0, 90), description, fromReportId: d.id });
     // the scheduler starts a given assignment on an idle agent
-    window.setTimeout(() => { if (this.agents.get(a.id)?.status === "idle") this.startWork(a.id); }, 2500);
+    window.setTimeout(() => this.runNext(a.id), 2500);
     return d;
   }
 
@@ -251,14 +267,12 @@ export class Sim {
     this.event("agent.mentioned", a.id, `Mitchell replied to your report "${d.title}": ${text.slice(0, 200)}`, { docId }, d.buildingId);
     if (a.status === "retired" || a.status === "banned") return { doc: d, assignment: null };
     const merge = /^merge\b/i.test(text) ? "Merge your pull request for this report (gh pr ready <n> && gh pr merge <n> --squash --delete-branch), confirm the merge, and report back with \"Nothing needed\" unless something failed.\n\n" : "";
-    const asg = this.putAssignment({
-      id: newId("as"), agentId: a.id, buildingId: a.homeBuildingId ?? "bl_carbon", title: `Reply on: ${d.title}`.slice(0, 120),
+    const asg = this.newAssignment(a.id, {
+      title: `Reply on: ${d.title}`.slice(0, 120), fromReportId: d.id,
       description: `${merge}Mitchell's reply: ${text}\n\nThe report: ${d.title} (doc ${d.id}). Read it with \`read\`, do what the reply asks, and finish with a report whose last section says what you need next or "Nothing needed".`,
-      status: "pending", createdBy: "us_mitchell", createdByKind: "user", fromMeetingId: null, fromReportId: d.id, reportId: null, createdAt: now(), updatedAt: now(),
     });
-    this.event("assignment.created", a.id, `Assignment for ${a.name}: ${asg.title}`, { assignmentId: asg.id }, a.homeBuildingId);
     if (a.status === "stopped") this.patchAgent(a.id, { status: "idle" });
-    window.setTimeout(() => { if (this.agents.get(a.id)?.status === "idle") this.startWork(a.id); }, 2500);
+    window.setTimeout(() => this.runNext(a.id), 2500);
     return { doc: d, assignment: asg };
   }
 

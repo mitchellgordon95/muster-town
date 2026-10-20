@@ -40,7 +40,9 @@ export async function agentRoutes(app: FastifyInstance) {
       recentEvents: world.events.recent({ agentId: agent.id, limit: 50 }),
       currentSession: world.ops.currentSession(agent.id) ?? null,
       latestReport: world.docs.first("type = 'report' AND authorId = ?", [agent.id], "ORDER BY createdAt DESC, rowid DESC") ?? null,
-      assignments: world.assignments.where("agentId = ?", [agent.id], "ORDER BY createdAt DESC, rowid DESC LIMIT 50"),
+      // active, then the queue in run order, then history newest first
+      assignments: world.assignments.where("agentId = ?", [agent.id],
+        "ORDER BY CASE status WHEN 'active' THEN 0 WHEN 'pending' THEN 1 ELSE 2 END, CASE WHEN status = 'pending' THEN position END, updatedAt DESC, rowid DESC LIMIT 50"),
     };
   });
 
@@ -109,6 +111,29 @@ export async function agentRoutes(app: FastifyInstance) {
   /** Un-stop: back to `idle` with no new assignment. A no-op unless the agent is `stopped`. → { agent } */
   app.post<{ Params: Params }>("/api/agents/:id/resume", async (req) => {
     return { agent: world.ops.resumeAgent(actorOf(world, req), req.params.id) };
+  });
+
+  /** Reorder the queue: `order` (pending assignment ids) first, the rest after in their current order. → { assignments (the queue, in order), agent } */
+  app.post<{ Params: Params }>("/api/agents/:id/queue", async (req) => {
+    const { order } = parse(z.object({ order: z.array(z.string()) }), req.body);
+    const assignments = world.ops.reorderQueue(actorOf(world, req), req.params.id, order);
+    return { assignments, agent: world.agents.require(req.params.id, "agent") };
+  });
+
+  /** Run this pending assignment next. A stopped agent is resumed. → { assignment, agent, when: 'now' | 'after-current' } */
+  app.post<{ Params: Params }>("/api/assignments/:id/start-next", async (req) => world.ops.startNext(actorOf(world, req), req.params.id));
+
+  /** Cancel a pending assignment (409 for active/done/cancelled). → { assignment, agent } */
+  app.post<{ Params: Params }>("/api/assignments/:id/cancel", async (req) => {
+    const assignment = world.ops.cancelAssignment(actorOf(world, req), req.params.id);
+    return { assignment, agent: world.agents.require(assignment.agentId, "agent") };
+  });
+
+  /** Retry a cancelled or done assignment as a new pending one (`fromAssignmentId`), at the front unless `front: false`. → 201 { assignment, agent } */
+  app.post<{ Params: Params }>("/api/assignments/:id/retry", async (req, reply) => {
+    const { front } = parse(z.object({ front: z.boolean().default(true) }), req.body ?? {});
+    const assignment = world.ops.retryAssignment(actorOf(world, req), req.params.id, { front });
+    return reply.code(201).send({ assignment, agent: world.agents.require(assignment.agentId, "agent") });
   });
 
   /**

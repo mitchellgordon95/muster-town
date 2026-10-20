@@ -1,5 +1,5 @@
 /** `Api` implemented against the in-memory Sim. Same interface as HttpApi, so every panel works offline. */
-import type { Agent, AuthMe, Doc, Event, Meeting, Membership } from "@agent-town/schema";
+import type { Agent, Assignment, AuthMe, Doc, Event, Meeting, Membership } from "@agent-town/schema";
 import { BOARD_TYPES } from "@agent-town/schema";
 import type { Api, AgentDetail, Budget, Cabinet, CabinetQuery, DocQuery, EventQuery, In, MessageResult, RequestAction, Snapshot, Socket, SocketHandlers, ThreadMessage, WriteDocInput } from "../api";
 import { ApiError } from "../api";
@@ -79,7 +79,10 @@ export class MockApi implements Api {
       agent, recentEvents: this.sim.events.filter((e) => e.agentId === id).slice(-50),
       currentSession: agent.status === "working" ? { id: `se_${id}`, agentId: id, assignmentId: agent.currentAssignmentId, meetingId: null, purpose: "work" as const, backend: "host" as const, status: "running" as const, model: agent.model ?? "claude-opus-5-5", sdkSessionId: null, tokens: agent.spentTokensToday, costUsd: agent.spentUsdTotal, turns: 12, reportId: null, error: null, startedAt: new Date(Date.now() - 15 * 60_000).toISOString(), endedAt: null } : null,
       latestReport: reports[0] ?? null,
-      assignments: [...this.sim.assignments.values()].filter((a) => a.agentId === id).sort((a, b) => b.createdAt.localeCompare(a.createdAt)),
+      assignments: [...this.sim.assignments.values()].filter((a) => a.agentId === id).sort((a, b) => {
+        const rank = (x: Assignment) => (x.status === "active" ? 0 : x.status === "pending" ? 1 : 2);
+        return rank(a) - rank(b) || (a.status === "pending" && b.status === "pending" ? a.position - b.position : b.updatedAt.localeCompare(a.updatedAt));
+      }),
     });
   }
   async session(id: string) {
@@ -111,7 +114,7 @@ export class MockApi implements Api {
     if (a.status === "working") return `I'm working on "${asg?.title}". Right now: ${a.activity.toLowerCase()}. I expect to submit a report in a few minutes.`;
     const pending = [...this.sim.docs.values()].find((d) => d.type === "report" && d.authorId === a.id && d.decision === "pending");
     if (pending) return `My last report, "${pending.title}", is in the in-tray on the manager's desk. I'm idle until someone gives me an assignment.`;
-    return `I'm ${a.status} at my desk. My standing direction: ${a.direction.split(":")[0]}. Give me an assignment with Start work and I'll get going.`;
+    return `I'm ${a.status} at my desk. My standing direction: ${a.direction.split(":")[0]}. Message me from the Talk tab and I'll get going.`;
   }
   private tells: { id: string; fromId: string; toId: string; body: string; at: string }[] = [];
   private tell(fromId: string, toId: string, body: string, extra: Record<string, unknown> = {}) {
@@ -141,7 +144,9 @@ export class MockApi implements Api {
     }
     if (a.status === "stopped") this.sim.patchAgent(id, { status: "idle" });
     const first = text.split("\n")[0];
-    const asg = this.sim.startWork(id, `Message from Mitchell: ${first.length > 80 ? first.slice(0, 79) + "…" : first}`, `Mitchell messaged you:\n\n${text}`);
+    // the message goes to the front of the queue, so it runs next even with a backlog
+    const asg = this.sim.newAssignment(id, { title: `Message from Mitchell: ${first.length > 80 ? first.slice(0, 79) + "…" : first}`, description: `Mitchell messaged you:\n\n${text}`, front: true });
+    this.sim.runNext(id);
     setTimeout(() => this.sim.event("agent.tool", id, "inbox · 1 unread", { tool: "inbox" }), 600);
     reply(1600);
     return { mode: "started", messageId: m.id, assignmentId: asg.id };
@@ -152,7 +157,54 @@ export class MockApi implements Api {
       .map((m) => ({ ...m, from: this.sim.agents.get(m.fromId)?.name ?? "Someone", mine: m.fromId === "ag_me" }));
   }
   async stop(id: string) { await wait(); this.sim.patchAgent(id, { status: "stopped", activity: "" }); this.sim.event("agent.status", id, "Stopped by Mitchell"); }
-  async resume(id: string) { await wait(); if (this.sim.agents.get(id)?.status === "stopped") { this.sim.patchAgent(id, { status: "idle" }); this.sim.event("agent.status", id, "Resumed by Mitchell"); } }
+  async resume(id: string) {
+    await wait();
+    if (this.sim.agents.get(id)?.status !== "stopped") return;
+    this.sim.patchAgent(id, { status: "idle" }); this.sim.event("agent.status", id, "Resumed by Mitchell");
+    window.setTimeout(() => this.sim.runNext(id), 1200); // the scheduler takes the queue
+  }
+  private ownAsg(id: string) {
+    const a = this.need(this.sim.assignments.get(id), "assignment");
+    return { a, agent: this.need(this.sim.agents.get(a.agentId), "agent") };
+  }
+  async reorderQueue(id: string, order: string[]) {
+    await wait();
+    const agent = this.need(this.sim.agents.get(id), "agent");
+    const q = this.sim.queue(id);
+    const ids = new Set(q.map((a) => a.id));
+    for (const x of order) if (!ids.has(x)) throw new ApiError(`${x} isn't one of ${agent.name}'s queued assignments.`, "bad_request", 400);
+    const listed = new Set(order);
+    const all = [...order.map((x) => q.find((a) => a.id === x)!), ...q.filter((a) => !listed.has(a.id))];
+    const base = q.length ? q[0].position : 0;
+    all.forEach((a, i) => { a.position = base + i; this.sim.putAssignment(a); });
+    return clone({ assignments: all, agent });
+  }
+  async startNext(id: string) {
+    await wait();
+    const { a, agent } = this.ownAsg(id);
+    if (a.status !== "pending") throw new ApiError(`Assignment "${a.title}" is ${a.status}, not queued.`, "conflict", 409);
+    const q = this.sim.queue(agent.id);
+    if (q[0]?.id !== a.id) { a.position = q[0].position - 1; this.sim.putAssignment(a); }
+    if (agent.status === "stopped") { this.sim.patchAgent(agent.id, { status: "idle" }); this.sim.event("agent.status", agent.id, `Resumed by Mitchell to start "${a.title}"`); }
+    const busy = agent.status === "working" || agent.status === "in-meeting";
+    if (!busy) window.setTimeout(() => this.sim.runNext(agent.id), 1200);
+    return clone({ assignment: a, agent, when: busy ? "after-current" as const : "now" as const });
+  }
+  async cancelAssignment(id: string) {
+    await wait();
+    const { a, agent } = this.ownAsg(id);
+    if (a.status !== "pending") throw new ApiError(a.status === "active" ? `"${a.title}" is running: stop the agent to end it.` : `Assignment "${a.title}" is already ${a.status}.`, "conflict", 409);
+    a.status = "cancelled"; this.sim.putAssignment(a);
+    return clone({ assignment: a, agent });
+  }
+  async retryAssignment(id: string, front = true) {
+    await wait();
+    const { a, agent } = this.ownAsg(id);
+    if (a.status !== "cancelled" && a.status !== "done") throw new ApiError(`Only cancelled or done assignments can be retried; "${a.title}" is ${a.status}.`, "conflict", 409);
+    const n = this.sim.newAssignment(agent.id, { title: a.title, description: a.description, fromReportId: a.fromReportId, fromAssignmentId: a.id, front });
+    window.setTimeout(() => this.sim.runNext(agent.id), 1200);
+    return clone({ assignment: n, agent });
+  }
 
   async docs(q: DocQuery) {
     await wait();
