@@ -82,7 +82,7 @@ Fastify on `PORT` (default 4321). Static: serves `packages/web/dist` at `/` if p
 Auth: `Authorization: Bearer <token>`; token rows map to a user or an agent. Dev convenience: `GET /api/dev/admin-token` returns the admin token when `AGENT_TOWN_DEV=1` (default when `NODE_ENV !== 'production'`). Every user gets an avatar agent (kind `human`) on first WS auth, spawned at the plaza.
 
 REST (all JSON, all validated; errors `{error, code}`):
-- `GET /api/town` → `{town, buildings, agents, places, grid, meetings}` (same shape as WS snapshot; each building carries `intray`, its pending-report count; retired agents are excluded)
+- `GET /api/town` → `{town, buildings, agents, places, grid, meetings}` (same shape as WS snapshot; each building carries `intray`, its pending-report count, and `budget` `{allocatedTokens, spentTokens, remainingTokens}`, resent in a WS `building` message whenever tokens are charged or donated; retired agents are excluded)
 - `GET /api/me` → `AuthMe`
 - `GET /api/events?since=<id>&agentId=&buildingId=&limit=` → `{events}`
 - `GET /api/buildings/:id` ; `POST /api/buildings` (`CreateBuildingInput`, needs `town.manage_buildings`) ; `PATCH /api/buildings/:id` (`UpdateBuildingInput`, `building.manage`) ; `GET /api/buildings/:id/board?limit=` (excludes reports and meeting notes) ; `GET /api/buildings/:id/cabinet?limit=` → `{docs}` (the filing cabinet: the building's non-draft reports and meeting notes, newest first) ; `GET /api/buildings/:id/intray` → `{reports}` (pending, oldest first)

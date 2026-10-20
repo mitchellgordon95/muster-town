@@ -54,7 +54,7 @@ export class Sim {
   snapshot(): Snapshot {
     // Unlike the real server, the mock keeps retired agents in the snapshot so the client's filter is exercised.
     return clone({
-      type: "snapshot", town: this.town, buildings: this.buildings.map((b) => ({ ...b, intray: this.intrayCount(b.id) })),
+      type: "snapshot", town: this.town, buildings: this.buildings.map((b) => ({ ...b, intray: this.intrayCount(b.id), budget: this.budgetOf(b.id) })),
       agents: [...this.agents.values()].filter((a) => a.status !== "banned"), places: this.layout.places, grid: this.layout.grid,
       meetings: [...this.meetings.values()].filter((m) => m.phase !== "done" && m.phase !== "cancelled"),
     });
@@ -65,6 +65,11 @@ export class Sim {
     return [...this.docs.values()].filter((d) => d.type === "report" && d.decision === "pending" && d.buildingId === buildingId).sort((a, b) => a.createdAt.localeCompare(b.createdAt));
   }
   intrayCount(buildingId: string) { return this.intray(buildingId).length; }
+  budgetOf(buildingId: string) {
+    const al = this.allocations.filter((a) => a.buildingId === buildingId);
+    const allocatedTokens = al.reduce((s, a) => s + a.tokens, 0), spentTokens = al.reduce((s, a) => s + a.spentTokens, 0);
+    return { allocatedTokens, spentTokens, remainingTokens: Math.max(0, allocatedTokens - spentTokens) };
+  }
   /** Resend a building with its in-tray count (the server does this when reports are created or decided). */
   emitBuilding(buildingId: string | null) {
     const b = this.buildings.find((x) => x.id === buildingId);
@@ -118,6 +123,9 @@ export class Sim {
       a.spentTokensToday += 18_000; a.spentTokensTotal += 18_000; a.spentUsdTotal = +(a.spentUsdTotal + 0.14).toFixed(2);
       this.event(type, a.id, text, { activity: text });
       this.emit({ type: "agent", agent: a });
+      const al = this.allocations.find((x) => x.buildingId === a.homeBuildingId && x.spentTokens < x.tokens);
+      const home = this.buildings.find((b) => b.id === a.homeBuildingId);
+      if (al && home) { al.spentTokens += 18_000; this.emit({ type: "building", building: { ...home, budget: this.budgetOf(home.id) } }); }
       const left = this.sessionLeft.get(a.id);
       if (left !== undefined) { if (left <= 1) this.finishSession(a); else this.sessionLeft.set(a.id, left - 1); }
     }

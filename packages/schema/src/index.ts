@@ -519,11 +519,19 @@ export const LookResult = z.object({
 export type LookResult = z.infer<typeof LookResult>;
 
 // ---------- WebSocket protocol ----------
+/** A building's token budget, summed over its allocations (derived, not stored). */
+export const BuildingBudget = z.object({
+  allocatedTokens: z.number().int().nonnegative(),
+  spentTokens: z.number().int().nonnegative(),
+  remainingTokens: z.number().int().nonnegative(),
+});
+export type BuildingBudget = z.infer<typeof BuildingBudget>;
+
 /**
- * A building as the snapshot / WS `building` message carries it: plus `intray`, the count of its pending reports
- * (derived, not stored; the map badges the manager's desk with it).
+ * A building as the snapshot / WS `building` message carries it: plus `intray`, the count of its pending reports,
+ * and `budget` (both derived, not stored; the map badges the manager's desk and labels the sign with them).
  */
-export const SnapshotBuilding = Building.extend({ intray: z.number().int().nonnegative().default(0) });
+export const SnapshotBuilding = Building.extend({ intray: z.number().int().nonnegative().default(0), budget: BuildingBudget.optional() });
 export type SnapshotBuilding = z.infer<typeof SnapshotBuilding>;
 
 export const ServerMessage = z.discriminatedUnion("type", [
@@ -533,7 +541,7 @@ export const ServerMessage = z.discriminatedUnion("type", [
   z.object({ type: z.literal("agents.pos"), positions: z.array(z.object({ id: Id, x: z.number(), y: z.number(), status: AgentStatus })) }),
   z.object({ type: z.literal("doc"), doc: Doc }),
   z.object({ type: z.literal("meeting"), meeting: Meeting }),
-  z.object({ type: z.literal("building"), building: Building.extend({ intray: z.number().int().nonnegative().optional() }) }),
+  z.object({ type: z.literal("building"), building: Building.extend({ intray: z.number().int().nonnegative().optional(), budget: BuildingBudget.optional() }) }),
   z.object({ type: z.literal("assignment"), assignment: Assignment }),
   z.object({ type: z.literal("error"), message: z.string() }),
 ]);

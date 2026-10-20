@@ -95,8 +95,9 @@ class Store {
       case "assignment": return this.set({ assignments: { ...s.assignments, [m.assignment.id]: m.assignment }, rev: s.rev + 1 });
       case "building": {
         const known = s.buildings.find((b) => b.id === m.building.id);
-        // `intray` is resent when reports are created or decided; other building updates may omit it
-        const next: SnapshotBuilding = { ...m.building, intray: m.building.intray ?? known?.intray ?? 0 };
+        // `intray` is resent when reports are created or decided, `budget` when tokens are charged or donated;
+        // other building updates may omit them
+        const next: SnapshotBuilding = { ...m.building, intray: m.building.intray ?? known?.intray ?? 0, budget: m.building.budget ?? known?.budget };
         const buildings = known ? s.buildings.map((b) => (b.id === m.building.id ? next : b)) : [...s.buildings, next];
         this.set({ buildings, rev: s.rev + 1 });
         // The WS protocol has no grid message: a new building or a moved lot means the layout changed.
