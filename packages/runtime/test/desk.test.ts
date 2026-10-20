@@ -71,6 +71,12 @@ describe("DockerBackend", () => {
     sp.child.emit("exit", 143, null);
     expect(await child.wait()).toBe(143);
   });
+
+  test("killOrphan pkills a previous process's session in the agent's desk", async () => {
+    const f = fakeRunner(() => ok());
+    await new DockerBackend({ collective: "climate", runner: f.runner }).killOrphan("ag_abc123", "se_9");
+    expect(f.calls.map((c) => c.args.join(" "))).toEqual(["exec desk-climate-ag_abc123 pkill -TERM -f agent-town-desk run --session se_9"]);
+  });
 });
 
 // ---------- desk sessions through the scheduler ----------

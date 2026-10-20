@@ -32,6 +32,8 @@ export interface DeskBackend {
   exec(handle: DeskHandle, argv: string[], env: Record<string, string>, onLine?: LineSink): DeskChild;
   /** best-effort: stop the process started by `exec` (the CLI child is killed separately) */
   killExec?(handle: DeskHandle, argv: string[]): Promise<void>;
+  /** best-effort: stop `agent-town-desk run --session <id>` left running in the agent's desk by a previous server process */
+  killOrphan?(agentId: string, sessionId: string): Promise<void>;
   /** dismissed agent: `docker rm -f` its desk; the home volume is kept unless `purge` */
   remove?(agentId: string, opts?: { purge?: boolean }): Promise<void>;
 }
@@ -167,6 +169,11 @@ export class DockerBackend implements DeskBackend {
       const v = await this.runner.run(["volume", "rm", "-f", this.volumeName(agentId)], { timeoutMs: 60_000 });
       if (v.code !== 0) console.warn(`[runtime] docker volume rm ${this.volumeName(agentId)} failed: ${v.stderr.trim().slice(0, 200)}`);
     }
+  }
+
+  /** The container (and a `docker exec`'d session in it) outlives the server process; after a restart, stop the leftover session. */
+  async killOrphan(agentId: string, sessionId: string): Promise<void> {
+    await this.killExec({ name: this.containerName(agentId), agentId }, ["agent-town-desk", "run", "--session", sessionId]);
   }
 
   /** `docker exec <name> pkill -TERM -f "<argv>"`: killing the CLI doesn't stop the process inside the container. */

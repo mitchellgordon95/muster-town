@@ -134,6 +134,13 @@ export function startRuntime(opts: RuntimeOptions): Runtime {
   const collectiveSlug = opts.collective ?? slugify(world.town.get().name);
   const dockerProbe = desks.backend === "host" ? null : new DockerBackend({ collective: collectiveSlug, image: desks.image });
   const backendReady: Promise<WorkBackend> = backend ? Promise.resolve(backend) : chooseBackend().then((b) => (backend = b));
+  // Desk containers survive a restart, and so does a `docker exec`'d session in one (e.g. cut off by a redeploy's drain
+  // timeout): stop the orphans so they don't keep working beside the re-queued assignment's new session.
+  const orphanKiller = opts.deskBackend ? (opts.deskBackend.kind === "docker" ? opts.deskBackend : null) : dockerProbe;
+  for (const sid of reconciled.orphanedSessions) {
+    const s = world.sessions.get(sid);
+    if (s?.backend === "docker" && orphanKiller?.killOrphan) void track(orphanKiller.killOrphan(s.agentId, sid).catch(log("kill orphan")));
+  }
   let lastProbe = 0;
   /** `auto` must not stick on the host backend forever because docker was down at startup: re-probe before each work session. */
   async function currentBackend(): Promise<WorkBackend> {

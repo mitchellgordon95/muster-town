@@ -123,7 +123,7 @@ describe("redeploy", () => {
     const h = harness(BASE, [], { working: () => ["ag_9"], drainTimeoutMs: 20 });
     h.r.redeploy({ image: false, requestedBy: "Pix" });
     await h.r.done();
-    expect(h.texts()).toContain("Redeploy: drain timed out, restarting anyway; still running (orphaned, re-queued at startup): ag_9");
+    expect(h.texts()).toContain("Redeploy: drain timed out, restarting anyway; still running (stopped and re-queued at startup): ag_9");
     expect(h.exit).toHaveBeenCalledWith(75);
   });
 

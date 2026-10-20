@@ -47,3 +47,4 @@
 - 2026-10-20: Talk tab (message an agent: wakes idle agents into a session, interrupts working ones; tell thread; Ask stays read-only). Meetings: 5-min grace to record decisions after a human closes. Pix made Town Workshop manager agent. Workshop house allocation topped up (+300M).
 - 2026-10-20 web: Tab / Shift+Tab cycles the E target when several agents or places are in reach; HUD shows `Tab next 2/3`; the pick sticks until it leaves reach — Root
 - 2026-10-20 runtime: redeploy drains before restarting: holds new work sessions and waits (up to 30 min) for live ones to end; desks are recreated after the drain — Root
+- 2026-10-20 runtime: desk containers survive a server restart (`docker run -d`, nothing removes them on exit), and so does a `docker exec`'d session cut off by a drain timeout; startup reconcile now pkills those orphans in their desks — Root

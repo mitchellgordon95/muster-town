@@ -37,7 +37,7 @@ export interface RedeployDeps {
   working?(): string[];
   /** hold (true) or release (false) the scheduler's new work sessions while draining */
   hold?(on: boolean): void;
-  /** how long the drain waits before restarting anyway (sessions still running are orphaned and re-queued at startup). Default 30 min. */
+  /** how long the drain waits before restarting anyway (sessions still running are orphaned; at startup they are stopped in their desks and re-queued). Default 30 min. */
   drainTimeoutMs?: number;
   /** drain poll period. Default 5000. */
   drainPollMs?: number;
@@ -129,7 +129,7 @@ export function makeRedeployer(deps: RedeployDeps): Redeployer {
         await new Promise<void>((r) => setTimeout(r, Math.min(deps.drainPollMs ?? 5000, Math.max(1, until - Date.now()))));
         left = working();
       }
-      say(left.length ? `Redeploy: drain timed out, restarting anyway; still running (orphaned, re-queued at startup): ${names(left)}` : "Redeploy: drain … ok (no sessions running)",
+      say(left.length ? `Redeploy: drain timed out, restarting anyway; still running (stopped and re-queued at startup): ${names(left)}` : "Redeploy: drain … ok (no sessions running)",
         { step: "drain", phase: "end", ok: !left.length, working: left });
     }
 

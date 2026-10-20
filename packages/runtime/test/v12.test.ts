@@ -18,6 +18,8 @@ class FakeDesk implements DeskBackend {
     return { wait: () => done, kill: () => { rec.killed = true; exit(137); } };
   }
   async remove(agentId: string, o: { purge?: boolean } = {}) { this.removed.push({ agentId, purge: !!o.purge }); }
+  orphansKilled: string[] = [];
+  async killOrphan(agentId: string, sessionId: string) { this.orphansKilled.push(`${agentId} ${sessionId}`); }
 }
 const REPORT = { title: "PR done", verdict: "continue", body: "## Summary\nOpened a PR.\n\n## Proposal for next session\nNext?\n" } as const;
 
@@ -36,6 +38,21 @@ describe("startup reconcile", () => {
       expect(world.sessions.require(s.id)).toMatchObject({ status: "error", error: "orphaned at restart" });
       expect(world.assignments.require(asg.id).status).toBe("pending");
       expect(world.agents.require(mei.id)).toMatchObject({ status: "idle", currentAssignmentId: null });
+    } finally {
+      await rt.stop();
+    }
+  });
+
+  test("a docker orphan's leftover desk process is killed (the container outlives the server)", async () => {
+    const { world, by, sdk } = setup(async function* () { yield result(1, 0); });
+    const mei = by("Mei"), noor = by("Noor");
+    const s = world.ops.startSession(mei.id, { purpose: "work", model: "m", assignmentId: world.ops.createWork(null, mei.id, {}).id, backend: "docker" });
+    world.ops.startSession(noor.id, { purpose: "work", model: "m", backend: "host" });
+    const desk = new FakeDesk();
+    const rt = startRuntime({ world, mcpUrl: "http://127.0.0.1:4321/mcp", sdk, intervalMs: 0, exportDir: false, deskBackend: desk });
+    try {
+      await rt.whenIdle();
+      expect(desk.orphansKilled).toEqual([`${mei.id} ${s.id}`]);
     } finally {
       await rt.stop();
     }
