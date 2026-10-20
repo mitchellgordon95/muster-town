@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { createBuilding, createResident, createTownModerator, extractProposal, setAssignmentStatus } from "../src/index.ts";
+import { cabinetDocs, createBuilding, createResident, createTownModerator, extractProposal, setAssignmentStatus } from "../src/index.ts";
 import { seededWorld, tickUntil } from "./helpers.ts";
 
 const REPORT = `## Summary
@@ -29,6 +29,9 @@ describe("write / read / board / search", () => {
 
     await world.verbs.write(mei, { id, title: "Ocean notes", body: "solubility pump details v2", state: "building" });
     expect(world.docs.require(id).state).toBe("building");
+    expect(cabinetDocs(world, "carbon-cycle", 50).map((d) => d.id)).toContain(id);
+    expect((await world.verbs.board(tomas, {})).docs.map((d) => d.id)).not.toContain(id);
+    await world.verbs.write(mei, { id, type: "fyi", title: "Ocean notes", body: "solubility pump details v3", state: "building" });
     expect((await world.verbs.board(tomas, {})).docs.map((d) => d.id)).toContain(id);
     await expect(world.verbs.write(tomas, { id, title: "x", body: "y" })).rejects.toMatchObject({ code: "forbidden" });
 

@@ -1,4 +1,4 @@
-import { FILED_TYPES, type Agent, type Doc } from "@agent-town/schema";
+import { BOARD_TYPES, type Agent, type Doc } from "@agent-town/schema";
 import {
   applyDecision, canSeeDoc, createAssignment, createDoc, homeOf, requirePendingReport, sendMessage,
   setAssignmentStatus, summarizeDoc, updateDoc,
@@ -18,16 +18,16 @@ export async function board(world: World, me: Agent, input: VerbIn<"board">) {
   return { building: { id: b.id, name: b.name, goal: b.goal }, docs: docs.map((d) => summarizeDoc(world, d)) };
 }
 
-const FILED_SQL = FILED_TYPES.map((t) => `'${t}'`).join(", ");
+const BOARD_SQL = BOARD_TYPES.map((t) => `'${t}'`).join(", ");
 
-/** The building board: standing guidance (articles, notes) published to the building. Reports and meeting notes are filed instead. */
+/** The building board: building-wide FYIs published to the building. Everything else is filed in the cabinet. */
 export function boardDocs(world: World, buildingId: string, limit: number): Doc[] {
-  return world.docs.where(`buildingId = ? AND state = 'building' AND type NOT IN (${FILED_SQL})`, [buildingId], `ORDER BY updatedAt DESC, rowid DESC LIMIT ${limit}`);
+  return world.docs.where(`buildingId = ? AND state = 'building' AND type IN (${BOARD_SQL})`, [buildingId], `ORDER BY updatedAt DESC, rowid DESC LIMIT ${limit}`);
 }
 
-/** The building's filing cabinet: its reports and meeting notes (anything not a draft), newest first. */
+/** The building's filing cabinet: everything it has published that isn't a board FYI (reports, meeting notes, articles, notes…), newest first. */
 export function cabinetDocs(world: World, buildingId: string, limit: number): Doc[] {
-  return world.docs.where(`buildingId = ? AND state != 'draft' AND type IN (${FILED_SQL})`, [buildingId], `ORDER BY createdAt DESC, rowid DESC LIMIT ${limit}`);
+  return world.docs.where(`buildingId = ? AND state != 'draft' AND type NOT IN (${BOARD_SQL})`, [buildingId], `ORDER BY createdAt DESC, rowid DESC LIMIT ${limit}`);
 }
 
 /** FTS5 query from free text: quoted terms OR'd together (ranked by bm25). */

@@ -242,6 +242,7 @@ export const DocType = z.enum([
   "source",        // source card for an external source
   "article",       // running article (desk article, synthesis)
   "note",          // anything else an agent writes
+  "fyi",           // building-wide FYI: the only type that goes on the building's board
   "meeting-notes",
   "request",       // outbox: a request for a human to do something in the world
   "human-report",  // inbox: a human's report back
@@ -249,8 +250,8 @@ export const DocType = z.enum([
 ]);
 export type DocType = z.infer<typeof DocType>;
 
-/** Filed in the building's filing cabinet, never on its board: the board holds standing guidance only. */
-export const FILED_TYPES: readonly DocType[] = ["report", "meeting-notes"];
+/** The only types pinned to a building's board (building-wide FYIs). Every other published doc is filed in its filing cabinet. */
+export const BOARD_TYPES: readonly DocType[] = ["fyi"];
 
 export const DocState = z.enum(["draft", "building", "library", "trophy"]);
 export type DocState = z.infer<typeof DocState>;
@@ -457,7 +458,7 @@ export const VerbInputs = {
     type: DocType.default("note"),
     title: z.string(),
     body: z.string(),
-    state: z.enum(["draft", "building"]).default("draft").describe("'building' publishes to your building's board"),
+    state: z.enum(["draft", "building"]).default("draft").describe("'building' publishes it: type 'fyi' goes on the building's board, anything else is filed in its filing cabinet"),
     provenance: Provenance.optional(),
     tags: z.array(z.string()).optional(),
   }),
@@ -493,10 +494,10 @@ export const VERB_DESCRIPTIONS: Record<VerbName, string> = {
   say: "Say something out loud; heard by everyone within 3 tiles (including humans).",
   tell: "Send a direct message to an agent's inbox.",
   inbox: "Read my messages (direct messages, things I heard, system notices, meeting invites, @mentions of me with the doc or meeting id), newest first.",
-  board: "List recent documents published to a building's board (standing guidance: articles and notes). Reports and meeting notes are filed in the filing cabinet; `search` with type \"report\" or \"meeting-notes\" finds them.",
+  board: "List a building's board: building-wide FYIs (type \"fyi\") that everyone there needs to see. Everything else published in the building (reports, meeting notes, articles, notes) is in its filing cabinet; `search` finds it.",
   search: "Full-text search over documents I can see (library, my building's board, my drafts).",
   read: "Read one document by id.",
-  write: "Create or update a document. Drafts are private; state 'building' publishes to my building's board.",
+  write: "Create or update a document. Drafts are private. State 'building' publishes it: type 'fyi' (a building-wide FYI everyone needs) goes on the board; anything else is filed in the building's filing cabinet.",
   submit_report: "End my work session with a report. Required at the end of every session. The report goes to my manager's in-tray and I go idle until someone gives me a new assignment.",
   propose_trophy: "Propose a library document for the trophy room (collective approval needed).",
   request_human: "Put a request in the town outbox for a human to do something in the real world (observe, fetch data, contact someone). A moderator approves it before humans see it.",
@@ -505,7 +506,7 @@ export const VERB_DESCRIPTIONS: Record<VerbName, string> = {
   meeting: "Participate in a meeting: 'summary' submits my short standup summary (did, next), 'speak' adds to the transcript once the discussion has started, 'listen' returns new utterances since my last listen (set waitSeconds to wait for someone to speak), 'decide'/'end' are for the facilitator; while humans are talking, leave 'end' to them.",
   review: "(manager/reviewer) Decide on a pending report in the in-tray: approve (acknowledge), continue (assign its proposal), redirect (assign your note instead), or stop the agent.",
   assign: "(manager/reviewer) Create an assignment for an agent in my building.",
-  promote: "(manager) Promote a document to the building board or the library.",
+  promote: "(manager) Publish a document to the building (board if it's an fyi, else the filing cabinet) or promote it to the library.",
   ban: "(town moderator) Ban an agent town-wide pending review.",
 };
 

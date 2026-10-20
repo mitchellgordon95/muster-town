@@ -72,7 +72,7 @@ function IntrayRow({ doc, onOpen }: { doc: Doc; onOpen: () => void }) {
 export function BoardPanel({ buildingId }: { buildingId: string }) {
   const b = useTown((s) => s.buildings.find((x) => x.id === buildingId));
   return (
-    <PanelShell icon={<Glyph kind="board" />} title={`${b?.name ?? "Building"} board`} subtitle="Standing guidance: rules, articles and notes. Reports and meeting notes are in the filing cabinet beside it.">
+    <PanelShell icon={<Glyph kind="board" />} title={`${b?.name ?? "Building"} board`} subtitle="The manager's standing rules and building-wide FYIs. Everything else is in the filing cabinet beside it.">
       {b ? <StandingRules buildingId={b.id} rules={b.rules ?? ""} /> : null}
       <DocList buildingId={buildingId} />
     </PanelShell>
@@ -84,13 +84,13 @@ export function BoardPanel({ buildingId }: { buildingId: string }) {
 export function CabinetPanel({ buildingId }: { buildingId: string }) {
   const b = useTown((s) => s.buildings.find((x) => x.id === buildingId));
   return (
-    <PanelShell icon={<Glyph kind="cabinet" />} title={`${b?.name ?? "Building"} filing cabinet`} subtitle="Every report and meeting note filed in this building, newest first.">
+    <PanelShell icon={<Glyph kind="cabinet" />} title={`${b?.name ?? "Building"} filing cabinet`} subtitle="Everything published in this building that isn't a board FYI: reports, meeting notes, articles and notes, newest first.">
       <DocList buildingId={buildingId} filed />
     </PanelShell>
   );
 }
 
-/** Board docs, or (`filed`) the filing cabinet: the building's reports and meeting notes, newest first. */
+/** Board FYIs, or (`filed`) the filing cabinet: everything else the building has published, newest first. */
 function DocList({ buildingId, filed }: { buildingId: string; filed?: boolean }) {
   const rev = useTown((s) => s.rev);
   const list = useLoad(() => filed ? api().cabinet(buildingId, 50) : api().board(buildingId, 50), [buildingId, filed, rev]);
@@ -100,7 +100,7 @@ function DocList({ buildingId, filed }: { buildingId: string; filed?: boolean })
   return (
     <>
       <ErrorLine error={list.error} />
-      {list.loading && !list.data ? <Loading /> : !list.data?.length ? <Empty>{filed ? "No reports or meeting notes filed yet." : "Nothing pinned to the board yet."}</Empty> : (
+      {list.loading && !list.data ? <Loading /> : !list.data?.length ? <Empty>{filed ? "Nothing filed yet." : "No FYIs on the board."}</Empty> : (
         <div className="doc-list">{list.data.map((d) => <DocRow key={d.id} doc={d} onOpen={() => setOpen(d)} />)}</div>
       )}
     </>

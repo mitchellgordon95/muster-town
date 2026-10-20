@@ -6,32 +6,36 @@ import { cabinetDocs, migrate, workSystemPrompt, reviewSystemPrompt } from "../s
 import { seededWorld, tempDir } from "./helpers.ts";
 
 describe("building board and standing rules", () => {
-  it("the board lists articles and notes but not reports (reports stay in the in-tray)", async () => {
+  it("the board lists only building-wide FYIs, not notes or reports (reports stay in the in-tray)", async () => {
     const { world, by } = seededWorld();
     const mei = by("Mei");
+    const fyi = await world.verbs.write(mei, { type: "fyi", title: "desks restart at noon", body: "x", state: "building" });
     const note = await world.verbs.write(mei, { type: "note", title: "scratch", body: "x", state: "building" });
     const rep = await world.verbs.submit_report(mei, { title: "Run 1", body: "## Summary\nok", verdict: "continue" });
     const board = await world.verbs.board(mei, { limit: 50 });
     const ids = board.docs.map((d) => d.id);
-    expect(ids).toContain(note.id);
+    expect(ids).toEqual([fyi.id]);
+    expect(ids).not.toContain(note.id);
     expect(ids).not.toContain(rep.id);
     expect(board.docs.some((d) => d.type === "report")).toBe(false);
     expect(world.ops.intray("carbon-cycle").map((d) => d.id)).toContain(rep.id);
   });
 
-  it("meeting notes and reports go to the filing cabinet, not the board", async () => {
+  it("meeting notes, reports, notes and articles go to the filing cabinet, not the board", async () => {
     const { world, by } = seededWorld();
     const mei = by("Mei");
-    const note = await world.verbs.write(mei, { type: "note", title: "guidance", body: "x", state: "building" });
+    const fyi = await world.verbs.write(mei, { type: "fyi", title: "guidance", body: "x", state: "building" });
+    const note = await world.verbs.write(mei, { type: "note", title: "plan", body: "x", state: "building" });
     const rep = await world.verbs.submit_report(mei, { title: "Run 1", body: "## Summary\nok", verdict: "continue" });
     const m = world.ops.createMeeting(null, { kind: "standup", buildingId: "carbon-cycle", startNow: true });
     const notesId = world.ops.endMeeting(null, m.id).notesDocId!;
     const board = (await world.verbs.board(mei, { limit: 50 })).docs.map((d) => d.id);
-    expect(board).toContain(note.id);
+    expect(board).toContain(fyi.id);
     expect(board).not.toContain(notesId);
+    expect(board).not.toContain(note.id);
     const cabinet = cabinetDocs(world, "carbon-cycle", 50).map((d) => d.id);
-    expect(cabinet).toEqual(expect.arrayContaining([notesId, rep.id]));
-    expect(cabinet).not.toContain(note.id);
+    expect(cabinet).toEqual(expect.arrayContaining([notesId, rep.id, note.id]));
+    expect(cabinet).not.toContain(fyi.id);
     // still searchable by type
     expect((await world.verbs.search(mei, { query: "", type: "meeting-notes", limit: 10 })).results.map((d) => d.id)).toContain(notesId);
   });
