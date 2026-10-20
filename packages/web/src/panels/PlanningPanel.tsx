@@ -1,6 +1,6 @@
 /** Planning desk (Town Hall): create buildings, add and dismiss residents, roles, export. Donations live at the donation box. */
 import { useMemo, useState } from "react";
-import type { Building } from "@agent-town/schema";
+import { DAILY_TOKENS_PER_AGENT, type Building } from "@agent-town/schema";
 import { api } from "../api";
 import { store, useTown, roleOf } from "../state";
 import { Glyph, PanelShell } from "./PanelShell";
@@ -32,6 +32,8 @@ function Buildings() {
   const [goal, setGoal] = useState("");
   const [headcount, setHeadcount] = useState(6);
   const [policy, setPolicy] = useState<Building["reviewPolicy"]>("human");
+  const [perAgent, setPerAgent] = useState(DAILY_TOKENS_PER_AGENT);
+  const [pool, setPool] = useState<number | null>(null);
   const can = store.can("town.manage_buildings");
   return (
     <>
@@ -56,9 +58,13 @@ function Buildings() {
                 </select>
               </Field>
             </div>
-            <div className="actions"><Act tone="primary" disabled={!name.trim()} run={async () => {
-              const b = await api().createBuilding({ name: name.trim(), goal: goal.trim(), headcount, reviewPolicy: policy });
-              setName(""); setGoal("");
+            <div className="row2">
+              <Field label="Max tokens / agent / day" hint="Ceiling for one resident"><input type="number" min={1} value={perAgent} onChange={(e) => setPerAgent(+e.target.value)} /></Field>
+              <Field label="Daily pool (tokens)" hint="Residents draw from it as they work; empty = no limit"><input type="number" min={1} value={pool ?? ""} onChange={(e) => setPool(e.target.value ? +e.target.value : null)} /></Field>
+            </div>
+            <div className="actions"><Act tone="primary" disabled={!name.trim() || !(perAgent > 0)} run={async () => {
+              const b = await api().createBuilding({ name: name.trim(), goal: goal.trim(), headcount, reviewPolicy: policy, dailyTokensPerAgent: perAgent, dailyTokens: pool });
+              setName(""); setGoal(""); setPool(null);
               store.toast(`${b.name} is under construction`, "ok");
             }}>Create building</Act></div>
           </form>
