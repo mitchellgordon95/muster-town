@@ -1,4 +1,4 @@
-import { TILE, type Building, type Lot, type Place, type Tile } from "@agent-town/schema";
+import { TILE, WALKABLE, type Building, type Lot, type Place, type Tile } from "@agent-town/schema";
 
 /** Row-major tile grid, same shape as the WS snapshot's `grid`. */
 export interface Grid { w: number; h: number; tiles: number[] }
@@ -86,6 +86,8 @@ export interface LayoutResult {
   desks: Map<string, DeskSlot[]>;
   /** door tile per building */
   doors: Map<string, Tile>;
+  /** seats around each meeting table, by meeting-room place id; the place's own tile first */
+  seats: Map<string, Tile[]>;
 }
 
 /**
@@ -102,6 +104,8 @@ export function computeLayout(buildings: Building[], occupancy: Map<string, Map<
   const places: Place[] = [];
   const desks = new Map<string, DeskSlot[]>();
   const doors = new Map<string, Tile>();
+  /** meeting-room place id -> its table tiles (seats are computed once the grid is complete) */
+  const tables = new Map<string, Tile[]>();
 
   // road and trees
   for (let x = 0; x < w; x++) { set(x, ROAD_Y, TILE.PATH); set(x, ROAD_Y + 1, TILE.PATH); }
@@ -145,6 +149,7 @@ export function computeLayout(buildings: Building[], occupancy: Map<string, Map<
       for (let x = 10; x <= 14; x++) set(x0 + x, y0 + 2, TILE.TROPHY);
       for (let x = 2; x <= 5; x++) set(x0 + x, y0 + 6, TILE.COUNTER);
       for (let x = 10; x <= 13; x++) set(x0 + x, y0 + 6, TILE.TABLE);
+      tables.set(`meeting-room:${b.id}`, [10, 11, 12, 13].map((x) => ({ x: x0 + x, y: y0 + 6 })));
       set(x0 + 1, y0 + 1, TILE.PLANT); set(x0 + bw - 2, y0 + 1, TILE.PLANT);
       places.push(
         { id: "library", kind: "library", name: "Library", buildingId: b.id, pos: { x: x0 + 4, y: y0 + 3 } },
@@ -177,6 +182,9 @@ export function computeLayout(buildings: Building[], occupancy: Map<string, Map<
     const boardX = x0 + Math.floor(bw / 2) - 2;
     set(boardX, y0, TILE.BOARD);
     places.push({ id: `board:${b.id}`, kind: "board", name: `${b.name} board`, buildingId: b.id, pos: { x: boardX, y: y0 + 1 } });
+    // the filing cabinet (reports and meeting notes): against the top wall, two tiles right of the board
+    set(boardX + 2, y0, TILE.CABINET);
+    places.push({ id: `cabinet:${b.id}`, kind: "cabinet", name: `${b.name} filing cabinet`, buildingId: b.id, pos: { x: boardX + 2, y: y0 + 1 } });
     // the manager's desk (in-tray): top-right, one tile, stand below it
     const mx = x0 + bw - 2, my = y0 + 2;
     set(mx, my, TILE.MANAGER_DESK);
@@ -184,10 +192,35 @@ export function computeLayout(buildings: Building[], occupancy: Map<string, Map<
     // meeting table bottom-right, plant bottom-left
     const yMeet = y0 + bh - 4;
     for (let x = bw - 5; x <= bw - 3; x++) set(x0 + x, yMeet, TILE.TABLE);
+    tables.set(`meeting-room:${b.id}`, [bw - 5, bw - 4, bw - 3].map((x) => ({ x: x0 + x, y: yMeet })));
     set(x0 + 1, yMeet, TILE.PLANT);
     places.push({ id: `meeting-room:${b.id}`, kind: "meeting-room", name: `${b.name} meeting room`, buildingId: b.id, pos: { x: x0 + bw - 4, y: yMeet + 1 } });
   }
-  return { grid: { w, h, tiles }, places, desks, doors };
+  const grid = { w, h, tiles };
+  const seats = new Map<string, Tile[]>();
+  for (const [id, table] of tables) {
+    const room = places.find((p) => p.id === id)!.pos;
+    seats.set(id, seatsAround(grid, table, room));
+  }
+  return { grid, places, desks, doors, seats };
+}
+
+/**
+ * Walkable tiles touching a table (4-neighbours), so each attendee gets their own.
+ * `first` (the meeting-room place) leads; the rest go nearest-first, then top-to-bottom, left-to-right.
+ */
+export function seatsAround(grid: Grid, table: Tile[], first: Tile): Tile[] {
+  const key = (t: Tile) => `${t.x},${t.y}`;
+  const onTable = new Set(table.map(key));
+  const out = new Map<string, Tile>();
+  for (const t of table) {
+    for (const [dx, dy] of [[0, 1], [0, -1], [-1, 0], [1, 0]]) {
+      const s = { x: t.x + dx, y: t.y + dy };
+      if (!onTable.has(key(s)) && WALKABLE.has(tileAt(grid, s.x, s.y))) out.set(key(s), s);
+    }
+  }
+  const d = (t: Tile) => Math.abs(t.x - first.x) + Math.abs(t.y - first.y);
+  return [...out.values()].sort((a, b) => d(a) - d(b) || a.y - b.y || a.x - b.x);
 }
 
 export function tileAt(grid: Grid, x: number, y: number): number {

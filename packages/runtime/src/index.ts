@@ -8,7 +8,7 @@ import { DesksConfig, type ChatInput, type DeskActivityInput, type Event, type S
 import { askAbout, chat } from "./chat.ts";
 import { DockerBackend, HostBackend, type WorkBackend } from "./desk/backend.ts";
 import { onDeskActivity, runDeskSession, type DeskSessionOptions } from "./desk/session.ts";
-import { advanceCollecting, facilitate, newMeetingState, onMeetingStart } from "./meetings.ts";
+import { advanceCollecting, facilitate, newMeetingState, onMeetingMention, onMeetingStart } from "./meetings.ts";
 import { realSdk, type Sdk } from "./sdk.ts";
 import type { Ctx } from "./session.ts";
 import { abortWork, finishWorkSession, interrupt, maybeReview, runWorkSession, type WorkOutcome } from "./work.ts";
@@ -20,7 +20,7 @@ export { deskEnv, portOf, type DeskSessionOptions } from "./desk/session.ts";
 export { mergeLine, type WorkOutcome } from "./work.ts";
 export { InputChannel, oneShot, realSdk, usageOf, userMessage, type QueryHandle, type QueryParams, type Sdk } from "./sdk.ts";
 export { DISALLOWED_TOOLS, TOWN_TOOLS, WEB_TOOLS } from "./session.ts";
-export { COLLECTING_MS } from "./meetings.ts";
+export { COLLECTING_MS, MEETING_REPLIES_MAX } from "./meetings.ts";
 
 export interface RuntimeOptions {
   world: World;
@@ -123,13 +123,27 @@ export function startRuntime(opts: RuntimeOptions): Runtime {
   };
 
   let backend: WorkBackend | null = opts.deskBackend ?? null;
+  const dockerProbe = desks.backend === "host" ? null : new DockerBackend({ collective: opts.collective ?? slugify(world.town.get().name), image: desks.image });
   const backendReady: Promise<WorkBackend> = backend ? Promise.resolve(backend) : chooseBackend().then((b) => (backend = b));
+  let lastProbe = 0;
+  /** `auto` must not stick on the host backend forever because docker was down at startup: re-probe before each work session. */
+  async function currentBackend(): Promise<WorkBackend> {
+    const b = await backendReady;
+    // only re-probe when the host backend was an automatic fallback (never when a backend was injected or configured)
+    if (opts.deskBackend || b.kind !== "host" || !dockerProbe || desks.backend !== "auto" || Date.now() - lastProbe < 30_000) return backend ?? b;
+    lastProbe = Date.now();
+    if (await dockerProbe.available()) {
+      console.log(`[runtime] docker is available again: work sessions switch to docker desks (${desks.image})`);
+      backend = dockerProbe;
+    }
+    return backend ?? b;
+  }
   async function chooseBackend(): Promise<WorkBackend> {
-    if (desks.backend === "host") {
+    if (desks.backend === "host" || !dockerProbe) {
       console.log("[runtime] work sessions: host backend (in-process, no code tools; configured)");
       return new HostBackend();
     }
-    const docker = new DockerBackend({ collective: opts.collective ?? slugify(world.town.get().name), image: desks.image });
+    const docker = dockerProbe;
     const ok = await docker.available();
     if (desks.backend === "docker") {
       console.log(`[runtime] work sessions: docker desks (${desks.image}; configured)${ok ? "" : " — WARNING: docker info failed"}`);
@@ -144,7 +158,9 @@ export function startRuntime(opts: RuntimeOptions): Runtime {
   }
   const warnedHost = new Set<string>();
 
-  const startWork = (agentId: string, assignmentId: string) => track(backendReady.then((b) =>
+  const needsProbe = () => !opts.deskBackend && backend?.kind === "host" && !!dockerProbe && desks.backend === "auto" && Date.now() - lastProbe >= 30_000;
+  // keep the common path a single promise hop (tests and the scheduler observe `starting` right after a tick)
+  const startWork = (agentId: string, assignmentId: string) => track((backend && !needsProbe() ? Promise.resolve(backend) : currentBackend()).then((b) =>
     b.kind === "host" ? runWorkSession(ctx, starting, agentId, assignmentId) : runDeskSession(ctx, b, starting, agentId, assignmentId, opts.deskOptions)));
 
   const onEvent = (e: Event) => {
@@ -153,6 +169,7 @@ export function startRuntime(opts: RuntimeOptions): Runtime {
     else if (e.type === "meeting.created" && p.phase === "collecting") later(() => onMeetingStart(ctx, mst, String(p.meetingId)), "meeting summaries");
     else if (e.type === "meeting.phase" && p.phase === "collecting") later(() => onMeetingStart(ctx, mst, String(p.meetingId)), "meeting summaries");
     else if (e.type === "meeting.phase" && p.phase === "discussing") later(() => facilitate(ctx, mst, String(p.meetingId)), "facilitation");
+    else if (e.type === "agent.mentioned" && p.meetingId) later(() => onMeetingMention(ctx, mst, String(p.meetingId), String(p.toId), String(p.byId), String(p.byKind)), "meeting reply");
     else if ((e.type === "agent.status" && (p.status === "stopped" || p.status === "banned")) || e.type === "agent.banned") {
       if (e.agentId) abortWork(ctx, e.agentId, killGraceMs);
     }

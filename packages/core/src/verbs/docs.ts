@@ -1,4 +1,4 @@
-import type { Agent, Doc } from "@agent-town/schema";
+import { FILED_TYPES, type Agent, type Doc } from "@agent-town/schema";
 import {
   applyDecision, canSeeDoc, createAssignment, createDoc, homeOf, requirePendingReport, sendMessage,
   setAssignmentStatus, summarizeDoc, updateDoc,
@@ -14,8 +14,20 @@ export async function board(world: World, me: Agent, input: VerbIn<"board">) {
   const bid = input.buildingId ?? me.buildingId ?? me.homeBuildingId;
   if (!bid) throw badRequest("You're not in a building; pass buildingId.");
   const b = world.buildings.require(bid, "building");
-  const docs = world.docs.where("buildingId = ? AND state = 'building' AND type != 'report'", [bid], `ORDER BY updatedAt DESC, rowid DESC LIMIT ${input.limit}`);
+  const docs = boardDocs(world, bid, input.limit);
   return { building: { id: b.id, name: b.name, goal: b.goal }, docs: docs.map((d) => summarizeDoc(world, d)) };
+}
+
+const FILED_SQL = FILED_TYPES.map((t) => `'${t}'`).join(", ");
+
+/** The building board: standing guidance (articles, notes) published to the building. Reports and meeting notes are filed instead. */
+export function boardDocs(world: World, buildingId: string, limit: number): Doc[] {
+  return world.docs.where(`buildingId = ? AND state = 'building' AND type NOT IN (${FILED_SQL})`, [buildingId], `ORDER BY updatedAt DESC, rowid DESC LIMIT ${limit}`);
+}
+
+/** The building's filing cabinet: its reports and meeting notes (anything not a draft), newest first. */
+export function cabinetDocs(world: World, buildingId: string, limit: number): Doc[] {
+  return world.docs.where(`buildingId = ? AND state != 'draft' AND type IN (${FILED_SQL})`, [buildingId], `ORDER BY createdAt DESC, rowid DESC LIMIT ${limit}`);
 }
 
 /** FTS5 query from free text: quoted terms OR'd together (ranked by bm25). */

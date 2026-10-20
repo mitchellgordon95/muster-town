@@ -211,6 +211,8 @@ export const PlaceKind = z.enum([
   "desk", "door", "library", "trophy-room", "outbox", "meeting-room", "plaza",
   /** board:<buildingId> — wall board inside each lab */
   "board",
+  /** cabinet:<buildingId> — filing cabinet beside the board: the building's reports and meeting notes */
+  "cabinet",
   /** intray:<buildingId> — the manager's desk (pending reports) */
   "intray",
   /** mod-station — Town Hall desk where town moderators sit */
@@ -224,7 +226,7 @@ export const PlaceKind = z.enum([
 ]);
 export type PlaceKind = z.infer<typeof PlaceKind>;
 export const Place = z.object({
-  id: Id,                 // e.g. "desk:<agentId>", "door:<buildingId>", "library", "meeting-room:<buildingId>", "board:<buildingId>", "intray:<buildingId>", "mod-station"
+  id: Id,                 // e.g. "desk:<agentId>", "door:<buildingId>", "library", "meeting-room:<buildingId>", "board:<buildingId>", "cabinet:<buildingId>", "intray:<buildingId>", "mod-station"
   kind: PlaceKind,
   name: z.string(),
   buildingId: Id.nullable(),
@@ -244,6 +246,9 @@ export const DocType = z.enum([
   "assignment-proposal", // reserved
 ]);
 export type DocType = z.infer<typeof DocType>;
+
+/** Filed in the building's filing cabinet, never on its board: the board holds standing guidance only. */
+export const FILED_TYPES: readonly DocType[] = ["report", "meeting-notes"];
 
 export const DocState = z.enum(["draft", "building", "library", "trophy"]);
 export type DocState = z.infer<typeof DocState>;
@@ -381,7 +386,7 @@ export const Session = z.object({
   agentId: Id,
   assignmentId: Id.nullable(),
   meetingId: Id.nullable().default(null),
-  purpose: z.enum(["work", "review", "facilitate", "summary"]),
+  purpose: z.enum(["work", "review", "facilitate", "summary", "meeting-reply"]),
   /** where the session runs: in-process on the host, or inside the agent's desk container */
   backend: z.enum(["host", "docker"]).default("host"),
   status: SessionStatus,
@@ -484,7 +489,7 @@ export const VERB_DESCRIPTIONS: Record<VerbName, string> = {
   say: "Say something out loud; heard by everyone within 3 tiles (including humans).",
   tell: "Send a direct message to an agent's inbox.",
   inbox: "Read my messages (direct messages, things I heard, system notices, meeting invites, @mentions of me with the doc or meeting id), newest first.",
-  board: "List recent documents published to a building's board (articles, notes, meeting notes; reports go to the in-tray).",
+  board: "List recent documents published to a building's board (standing guidance: articles and notes). Reports and meeting notes are filed in the filing cabinet; `search` with type \"report\" or \"meeting-notes\" finds them.",
   search: "Full-text search over documents I can see (library, my building's board, my drafts).",
   read: "Read one document by id.",
   write: "Create or update a document. Drafts are private; state 'building' publishes to my building's board.",
@@ -549,6 +554,8 @@ export const TILE = {
   BOARD: 12,
   DONATION: 13,
   SCHEDULE: 14,
+  /** filing cabinet against the top wall of each lab, two tiles right of the board */
+  CABINET: 15,
 } as const;
 export const WALKABLE = new Set<number>([TILE.GRASS, TILE.PATH, TILE.FLOOR, TILE.DOOR]);
 

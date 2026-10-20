@@ -1,5 +1,6 @@
 /** `Api` implemented against the in-memory Sim. Same interface as HttpApi, so every panel works offline. */
 import type { Agent, AuthMe, Doc, Event, Meeting, Membership } from "@agent-town/schema";
+import { FILED_TYPES } from "@agent-town/schema";
 import type { Api, AgentDetail, Budget, DocQuery, EventQuery, In, RequestAction, Snapshot, Socket, SocketHandlers, WriteDocInput } from "../api";
 import { ApiError } from "../api";
 import type { CreateBuildingInput, UpdateBuildingInput, CreateResidentInput, ReviewInput, ChatInput, WorkInput, DonateInput, CreateMeetingInput, DocState } from "@agent-town/schema";
@@ -39,7 +40,11 @@ export class MockApi implements Api {
   }
   async board(buildingId: string, limit = 30) {
     await wait();
-    return clone([...this.sim.docs.values()].filter((d) => d.buildingId === buildingId && d.state === "building" && d.type !== "report").sort((a, b) => b.updatedAt.localeCompare(a.updatedAt)).slice(0, limit));
+    return clone([...this.sim.docs.values()].filter((d) => d.buildingId === buildingId && d.state === "building" && !FILED_TYPES.includes(d.type)).sort((a, b) => b.updatedAt.localeCompare(a.updatedAt)).slice(0, limit));
+  }
+  async cabinet(buildingId: string, limit = 30) {
+    await wait();
+    return clone([...this.sim.docs.values()].filter((d) => d.buildingId === buildingId && d.state !== "draft" && FILED_TYPES.includes(d.type)).sort((a, b) => b.createdAt.localeCompare(a.createdAt)).slice(0, limit));
   }
   async createBuilding(i: In<typeof CreateBuildingInput>) { await wait(); return clone(this.sim.createBuilding(i.name, i.goal ?? "", i.headcount ?? 6, i.reviewPolicy ?? "human")); }
   async intray(buildingId: string) { await wait(); this.need(this.sim.buildings.find((b) => b.id === buildingId), "building"); return clone(this.sim.intray(buildingId)); }
@@ -160,7 +165,7 @@ export class MockApi implements Api {
   }
   async createMeeting(i: In<typeof CreateMeetingInput>) {
     await wait();
-    const attendees = [...this.sim.agents.values()].filter((a) => a.kind === "resident" && (i.buildingId ? a.homeBuildingId === i.buildingId : true)).map((a) => a.id);
+    const attendees = i.attendeeIds ?? [...this.sim.agents.values()].filter((a) => a.kind === "resident" && (i.buildingId ? a.homeBuildingId === i.buildingId : true)).map((a) => a.id);
     const m: Meeting = { id: newId("mt"), kind: i.kind, buildingId: i.buildingId, title: i.title || `${i.kind[0].toUpperCase()}${i.kind.slice(1)}`, scheduledAt: i.scheduledAt ?? now(), phase: i.startNow ? "collecting" : "scheduled", facilitatorId: "ag_moss", attendeeIds: attendees, agenda: i.agenda ?? "", summaries: {}, transcript: [], decisions: [], notesDocId: null, createdAt: now(), startedAt: null, endedAt: null };
     this.sim.putMeeting(m);
     this.sim.event("meeting.created", null, `${m.title} ${m.phase === "collecting" ? "is collecting summaries" : "scheduled"}`, { meetingId: m.id }, i.buildingId);

@@ -217,6 +217,22 @@ export function drawBoard(g: CanvasRenderingContext2D, px: number, py: number) {
   g.fillStyle = "#c94f4f"; g.fillRect(px + 5, py + 4, 1, 1); g.fillRect(px + 11, py + 5, 1, 1);
   g.fillStyle = "#4f8fc9"; g.fillRect(px + 6, py + 8, 1, 1);
 }
+/** Filing cabinet stood against a wall face: a grey steel cabinet with three drawers, the top one ajar. Draw the wall first. */
+export function drawCabinet(g: CanvasRenderingContext2D, px: number, py: number) {
+  g.fillStyle = "rgba(0,0,0,.25)"; g.fillRect(px + 3, py + 15, 11, 1);
+  g.fillStyle = "#4b5266"; g.fillRect(px + 3, py + 1, 10, 15);
+  g.fillStyle = "#7d869e"; g.fillRect(px + 4, py + 2, 8, 13);
+  g.fillStyle = "#4b5266"; g.fillRect(px + 4, py + 6, 8, 1); g.fillRect(px + 4, py + 10, 8, 1);
+  // drawer pulls and label slots
+  g.fillStyle = "#e8e9f0"; g.fillRect(px + 6, py + 8, 4, 1); g.fillRect(px + 6, py + 12, 4, 1);
+  g.fillStyle = "#f2efe6"; g.fillRect(px + 7, py + 7, 2, 1); g.fillRect(px + 7, py + 11, 2, 1);
+  // top drawer pulled out, folders showing
+  g.fillStyle = "#99a2b8"; g.fillRect(px + 3, py + 2, 10, 4);
+  g.fillStyle = "#e8b840"; g.fillRect(px + 4, py + 0, 3, 3);
+  g.fillStyle = "#f2efe6"; g.fillRect(px + 7, py + 0, 2, 3);
+  g.fillStyle = "#7cc4ff"; g.fillRect(px + 9, py + 1, 3, 2);
+  g.fillStyle = "#e8e9f0"; g.fillRect(px + 6, py + 4, 4, 1);
+}
 /** Donation box: a blue box with a coin slot and a gold coin going in. */
 export function drawDonation(g: CanvasRenderingContext2D, px: number, py: number) {
   g.fillStyle = "rgba(0,0,0,.25)"; g.fillRect(px + 3, py + 14, 11, 2);
@@ -243,7 +259,7 @@ export function drawSchedule(g: CanvasRenderingContext2D, px: number, py: number
   g.fillStyle = "#7cc4ff"; g.fillRect(px + 2, py + 9, 2, 1);
 }
 
-export type IconKind = "library" | "trophy" | "outbox" | "meeting" | "building" | "admin" | "intray" | "board" | "donation" | "schedule" | "mod" | "planning";
+export type IconKind = "library" | "trophy" | "outbox" | "meeting" | "building" | "admin" | "intray" | "board" | "cabinet" | "donation" | "schedule" | "mod" | "planning";
 const iconCache = new Map<string, string>();
 /** Tile-art icons for panel headers (2x scale). */
 export function iconUrl(kind: IconKind): string {
@@ -263,6 +279,7 @@ export function iconUrl(kind: IconKind): string {
     case "admin": g.drawImage(tl.plant, 2, 0); break;
     case "intray": drawManagerDesk(g, 0, 0); break;
     case "board": g.drawImage(tl.wallFace, 0, 0); drawBoard(g, 0, 0); break;
+    case "cabinet": g.drawImage(tl.wallFace, 0, 0); drawCabinet(g, 0, 0); break;
     case "donation": drawDonation(g, 0, 0); break;
     case "schedule": drawSchedule(g, 0, 0); break;
     case "mod": g.drawImage(tl.deskL, 0, 0); g.fillStyle = "#7a8a6a"; g.fillRect(9, 9, 5, 4); g.fillStyle = "#e8e9f0"; g.fillRect(10, 10, 3, 1); break;

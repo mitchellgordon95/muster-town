@@ -30,6 +30,12 @@ export class Movement {
     return this.walks.has(agentId);
   }
 
+  /** Where a walking agent will end up (undefined if not walking). */
+  destination(agentId: string): Tile | undefined {
+    const w = this.walks.get(agentId);
+    return w?.path[w.path.length - 1];
+  }
+
   /** Walk `agent` to `target`. Resolves with the updated agent on arrival; rejects on unreachable/timeout/superseded. */
   go(agent: Agent, target: Tile, label = `${target.x},${target.y}`): Promise<Agent> {
     const path = findPath(this.map.grid, agent.pos, target);

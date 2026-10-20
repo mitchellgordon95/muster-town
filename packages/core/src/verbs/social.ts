@@ -28,8 +28,8 @@ export async function look(world: World, me: Agent, _input: VerbIn<"look">): Pro
     p.kind === "door" || p.kind === "plaza" || p.id === "library" || p.id === "trophy-room" || p.id === "outbox" ||
     // Town Hall stations everyone can walk to
     p.kind === "mod-station" || p.kind === "planning" || p.kind === "donation" || p.kind === "schedule" ||
-    // the board and in-tray (manager's desk) of the building I'm in / my home building
-    ((p.kind === "board" || p.kind === "intray") && mine(p)) ||
+    // the board, filing cabinet and in-tray (manager's desk) of the building I'm in / my home building
+    ((p.kind === "board" || p.kind === "cabinet" || p.kind === "intray") && mine(p)) ||
     (p.kind === "meeting-room" && (mine(p) || p.buildingId === "town-hall")) ||
     (p.kind === "desk" && !p.id.startsWith("desk:free:") && mine(p)));
   return {
@@ -49,7 +49,7 @@ export async function look(world: World, me: Agent, _input: VerbIn<"look">): Pro
 
 export async function go(world: World, me: Agent, input: VerbIn<"go">) {
   const place = world.layout.place(input.to);
-  const target = place?.pos ?? world.agents.get(input.to)?.pos;
+  const target = (place && world.standingTile(place.id, me.id)) ?? world.agents.get(input.to)?.pos;
   if (!target) throw new AppError("not_found", `Unknown place or agent: ${input.to}. Use \`look\` to list places.`);
   const label = place?.name ?? world.nameOf(input.to);
   const arrived = await world.movement.go(me, target, label);
