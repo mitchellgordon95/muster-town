@@ -1,4 +1,7 @@
 /** v1.3 redeploy: step order, dirty-tree abort, image branch (idle desks only), single flight, exit via the injected hook. */
+import { mkdtempSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { describe, expect, test, vi } from "vitest";
 import { townRoleId } from "@muster-town/core";
 import { makeRedeployer, type CmdResult, type CommandRunner, type RedeployDeps } from "../src/index.ts";
@@ -159,5 +162,41 @@ describe("redeploy", () => {
     await vi.waitFor(() => expect(exit).toHaveBeenCalledWith(75));
     await runtime.stop();
     expect(world.host.redeploy).toBeUndefined();
+  });
+});
+
+describe("redeploy status for the UI", () => {
+  const runs = (world: ReturnType<typeof setup>["world"]) => world.events.recent({ limit: 200 })
+    .map((e) => (e.payload as { run?: { state: string; commits: number | null; working: string[]; blocked: string[] } }).run).filter(Boolean);
+
+  test("every event carries the run: scheduled while draining (commits pulled, sessions waited on, agents held), then restarting", async () => {
+    let live = ["ag_1"];
+    const h = harness(BASE, [], { working: () => live, blocked: () => ["ag_7"], drainTimeoutMs: 60_000 });
+    h.r.redeploy({ image: false, requestedBy: "Pix" });
+    await vi.waitFor(() => expect(runs(h.world).some((r) => r!.state === "scheduled")).toBe(true));
+    expect(runs(h.world).find((r) => r!.state === "scheduled")).toMatchObject({ commits: 3, working: ["ag_1"], blocked: ["ag_7"] });
+    live = [];
+    await h.r.done();
+    expect(runs(h.world).at(-1)).toMatchObject({ state: "restarting", commits: 3, blocked: [] });
+  });
+
+  test("a failed step marks the run failed", async () => {
+    const h = harness([["npm run build", { code: 2, stdout: "", stderr: "x" }], ...BASE]);
+    h.r.redeploy({ image: false, requestedBy: "Pix" });
+    await h.r.done();
+    expect(runs(h.world).at(-1)!.state).toBe("failed");
+  });
+
+  test("the restarted server announces the redeploy finished, once", async () => {
+    const root = mkdtempSync(join(tmpdir(), "redeploy-"));
+    const h = harness(BASE, [], { repoRoot: root });
+    h.r.redeploy({ image: false, requestedBy: "Pix" });
+    await h.r.done();
+    const mk = () => makeRedeployer({ world: h.world, repoRoot: root, collective: "climate", image: "x", isWorking: () => false, run: h.runner.run, exit: vi.fn() });
+    mk();
+    expect(h.texts().at(-1)).toBe("Redeploy finished: the server is back up with 3 new changes");
+    expect(runs(h.world).at(-1)).toMatchObject({ state: "done", commits: 3 });
+    mk();
+    expect(h.texts().filter((t) => t.startsWith("Redeploy finished"))).toHaveLength(1);
   });
 });

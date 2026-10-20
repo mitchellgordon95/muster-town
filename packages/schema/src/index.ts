@@ -710,6 +710,20 @@ export const RedeployInput = z.object({ image: z.boolean().default(false) });
 /** `{ started: true }` (runs in the background, progress as `system` events) or `{ running: true }` when one is in flight */
 export const RedeployResult = z.object({ started: z.boolean().optional(), running: z.boolean().optional() });
 export type RedeployResult = z.infer<typeof RedeployResult>;
+/**
+ * Where a redeploy is, carried as `payload.run` on every redeploy `system` event so a client reads the latest one:
+ * `running` (pull/build), `scheduled` (built; draining, waiting for `working` sessions to end while `blocked` agents'
+ * work is held), `restarting`, `done` (emitted by the restarted server), `failed`. `commits` = changes pulled.
+ */
+export interface RedeployRun {
+  state: "running" | "scheduled" | "restarting" | "done" | "failed";
+  requestedBy: string;
+  commits: number | null;
+  /** agent ids with a live work session the drain waits for */
+  working: string[];
+  /** agent ids with pending work the drain is holding */
+  blocked: string[];
+}
 
 export const AuthMe = z.object({ user: User, roles: z.array(Role), avatarAgentId: Id.nullable(), isAdmin: z.boolean() });
 export type AuthMe = z.infer<typeof AuthMe>;

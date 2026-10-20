@@ -132,6 +132,17 @@ export function drawBadge(g: CanvasRenderingContext2D, x: number, y: number, n: 
   g.textAlign = "left";
 }
 
+/** Small amber pill (e.g. "⟳ redeploy") whose bottom-left sits at (x, y): an agent held by a draining redeploy. */
+export function drawPill(g: CanvasRenderingContext2D, x: number, y: number, text: string) {
+  g.font = "700 9px ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, sans-serif";
+  const w = g.measureText(text).width + 10, h = 13;
+  const bx = Math.round(x), by = Math.round(y - h);
+  g.fillStyle = "#ffcf5e"; g.strokeStyle = "#14151c"; g.lineWidth = 2;
+  roundRect(g, bx, by, w, h, 6); g.stroke(); g.fill();
+  g.fillStyle = "#2d2612"; g.textBaseline = "middle";
+  g.fillText(text, bx + 5, by + h / 2 + 0.5);
+}
+
 /** Building sign above a lot: name, subtitle (the goal), and an optional budget line. */
 export function drawSign(g: CanvasRenderingContext2D, x: number, y: number, name: string, sub: string, budget?: string | null) {
   g.font = "700 13px ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, sans-serif";

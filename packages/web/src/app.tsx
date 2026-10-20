@@ -22,6 +22,8 @@ declare global {
 
 type Phase = { k: "booting" } | { k: "login"; error?: string } | { k: "ready" };
 let socket: Socket | null = null;
+/** set after the first open: a later open is a reconnect (e.g. a redeploy's restart) and refetches the events missed meanwhile */
+let wasOpen = false;
 let booting: Promise<Phase> | null = null;
 /** StrictMode runs effects twice in dev; boot (and the WS) must happen once. */
 const bootOnce = () => (booting ??= boot());
@@ -68,7 +70,11 @@ function connect(token: string | null, attempt = 0) {
   store.set({ conn: "connecting" });
   let opened = false;
   socket = api().connect({
-    onOpen: () => { opened = true; if (token) socket?.send({ type: "auth", token }); store.set({ conn: "open" }); },
+    onOpen: () => {
+      opened = true; if (token) socket?.send({ type: "auth", token }); store.set({ conn: "open" });
+      if (wasOpen) api().events({ limit: 100 }).then((ev) => store.mergeEvents(ev), () => undefined);
+      wasOpen = true;
+    },
     onMessage: (m) => store.receive(m),
     onClose: () => {
       store.set({ conn: "closed" });

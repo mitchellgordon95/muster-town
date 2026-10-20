@@ -7,6 +7,7 @@ import { useSyncExternalStore } from "react";
 import { ServerMessage } from "@muster-town/schema";
 import type { Agent, Assignment, AuthMe, Doc, Event, Meeting, Permission, Place, SnapshotBuilding, Town } from "@muster-town/schema";
 import type { Grid, Snapshot } from "./api";
+import { redeployStatus } from "./redeploy";
 
 /**
  * Every panel is a place: walk up and press E. `intray`/`board`/`cabinet` take a building id; the Town Hall places
@@ -49,6 +50,8 @@ class Store {
   readonly said = new Map<string, { text: string; at: number }>();
   private listeners = new Set<() => void>();
   private toastSeq = 0;
+  /** the redeploy event last toasted (finished/failed), so each is announced once */
+  private redeployToasted = 0;
 
   subscribe = (fn: () => void) => { this.listeners.add(fn); return () => { this.listeners.delete(fn); }; };
   get = () => this.state;
@@ -154,6 +157,7 @@ class Store {
       if (a && a.activity !== text) patch.agents = { ...s.agents, [a.id]: { ...a, activity: text } };
     }
     this.set(patch);
+    this.toastRedeploy();
     // a message addressed to the human's avatar
     const me = this.avatarId;
     const to = e.payload.toId ?? e.payload.to;
@@ -171,6 +175,15 @@ class Store {
     for (const e of list) byId.set(e.id, e);
     const events = [...byId.values()].sort((a, b) => a.id - b.id).slice(-MAX_EVENTS);
     this.set({ events });
+    this.toastRedeploy();
+  }
+  /** A redeploy that just finished or failed gets a toast (also when its event arrives in a refetch after the restart). */
+  private toastRedeploy() {
+    const r = redeployStatus(this.state.events);
+    if (!r || r.eventId <= this.redeployToasted || (r.state !== "done" && r.state !== "failed")) return;
+    this.redeployToasted = r.eventId;
+    if (Date.now() - r.at > 2 * 60_000) return;
+    this.toast(r.state === "done" ? r.text : `${r.text}. Open the planning desk for the log.`, r.state === "done" ? "ok" : "bad", { kind: "planning", tab: "System" });
   }
   putDocs(list: Doc[]) {
     if (!list.length) return;

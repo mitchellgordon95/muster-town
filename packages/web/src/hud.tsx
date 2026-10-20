@@ -6,12 +6,13 @@ import { STATUS_COLOR } from "./map/overlay";
 import { iconUrl, type IconKind } from "./map/sprites";
 import type { Target } from "./map/renderer";
 import { isMock } from "./api";
+import { redeployLine, redeployStatus } from "./redeploy";
 import { joinMeeting } from "./panels/Places";
 import { SignInButtons, signOut, useAuth } from "./auth/auth";
 
 const ORDER: AgentStatus[] = ["working", "in-meeting", "walking", "idle", "out-of-budget", "offline", "stopped", "banned"];
 
-interface Notice { key: string; icon: IconKind; text: ReactNode; cta: string; tone: "warn" | "meet"; go: () => void }
+interface Notice { key: string; icon: IconKind; text: ReactNode; cta: string; tone: "warn" | "meet" | "ok" | "bad"; go: () => void }
 
 function walkOrOpen(placeId: string, panel: PanelRef) { if (!store.walkTo(placeId, panel)) store.open(panel); }
 
@@ -22,6 +23,7 @@ export function Hud({ onPasteToken }: { onPasteToken?: () => void }) {
   const meetings = useTown((s) => s.meetings);
   const conn = useTown((s) => s.conn);
   const me = useTown((s) => s.me);
+  const events = useTown((s) => s.events);
   const [collapsed, setCollapsed] = useState(false);
   const auth = useAuth();
   const counts = useMemo(() => {
@@ -31,6 +33,15 @@ export function Hud({ onPasteToken }: { onPasteToken?: () => void }) {
   }, [agents]);
   const notices = useMemo(() => {
     const out: Notice[] = [];
+    // a redeploy in flight (or just finished): everyone sees it, so nobody is surprised by the restart
+    const rd = redeployStatus(events);
+    if (rd) {
+      out.push({
+        key: `redeploy:${rd.eventId}`, icon: "planning", tone: rd.state === "done" ? "ok" : rd.state === "failed" ? "bad" : "warn", cta: "Log →",
+        text: redeployLine(rd, (id) => agents[id]?.name ?? id),
+        go: () => walkOrOpen("planning-desk", { kind: "planning", tab: "System" }),
+      });
+    }
     // in-trays of buildings I can review (manager, reviewer, admin)
     for (const b of buildings) {
       if (!b.intray || !store.can("building.review", b.id)) continue;
@@ -52,7 +63,7 @@ export function Hud({ onPasteToken }: { onPasteToken?: () => void }) {
     }
     return out;
     // `me` changes permissions
-  }, [buildings, meetings, me]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [buildings, meetings, me, events, agents]); // eslint-disable-line react-hooks/exhaustive-deps
   if (!town) return null;
   return (
     <div className={`hud ${collapsed ? "collapsed" : ""}`}>

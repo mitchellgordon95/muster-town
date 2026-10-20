@@ -8,7 +8,8 @@ import { World } from "./world";
 import { authStore } from "../auth/auth";
 import { T, CHAR_W, CHAR_H, charSheet, tiles, HUMAN_SPRITE } from "./sprites";
 import { layoutEdit, type LayoutDraft } from "./layoutEdit";
-import { bubbleFor, buildingBudgetLine, drawBadge, drawBubble, drawLabel, drawSign, residentBudgetLine, type Bubble } from "./overlay";
+import { bubbleFor, buildingBudgetLine, drawBadge, drawBubble, drawLabel, drawPill, drawSign, residentBudgetLine, type Bubble } from "./overlay";
+import { blockedByRedeploy } from "../redeploy";
 
 /** `index`/`count`: position among everything in reach, so the HUD can show "Tab 2/3" when targets overlap. */
 const keyOf = (t: Target) => `${t.panel.kind}:${t.panel.id ?? ""}:${t.label}`;
@@ -386,6 +387,7 @@ export class MapRenderer {
       if (q.x > -40 && q.x < cw + 40 && q.y > -40 && q.y < ch + 40) drawBadge(g, q.x, q.y, b.intray);
     }
     this.hitboxes = [];
+    const blocked = blockedByRedeploy(s.events);
     const targetId = this.target?.agentId;
     for (const d of list) {
       const p = toScreen(d.x, d.y);
@@ -395,6 +397,8 @@ export class MapRenderer {
       const hl = d.id === targetId || d.id === this.hoverId;
       const home = d.a?.homeBuildingId ? s.buildings.find((b) => b.id === d.a!.homeBuildingId) : undefined;
       drawLabel(g, p.x, p.y + 3, name, d.a?.status ?? "idle", hl, isMe, d.a && !isMe ? residentBudgetLine(d.a, home?.dailyTokensPerAgent) : null, !!d.a && isManager(d.a, s.buildings));
+      // held by a draining redeploy: its next session starts after the restart
+      if (!isMe && blocked.has(d.id)) { const q = toScreen(d.x + CHAR_W / 2 - 2, d.y - CHAR_H + 4); drawPill(g, q.x, q.y, "⟳ redeploy"); }
       if (!isMe) this.hitboxes.push({ id: d.id, x: p.x - CHAR_W * z / 2, y: p.y - CHAR_H * z, w: CHAR_W * z, h: CHAR_H * z + 31 });
     }
     // bubbles last so they sit above every label

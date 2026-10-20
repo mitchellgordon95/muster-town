@@ -89,6 +89,10 @@ kbd { font-family: var(--mono); font-size: 11px; background: #2a2d3a; border: 1p
 .hud-row .notice-text b { color: var(--text); }
 .hud-row.warn { border-color: #4a4226; }
 .hud-row.meet em { color: var(--meet); }
+.hud-row.ok { border-color: #2f5c3f; }
+.hud-row.ok em { color: #6fdc8c; }
+.hud-row.bad { border-color: #5c3434; }
+.hud-row.bad em { color: #ff9b9b; }
 .notice-dot { background: #e5484d; color: #fff; font-size: 11px; font-weight: 700; border-radius: 9px; min-width: 18px; height: 18px; padding: 0 5px; display: inline-flex; align-items: center; justify-content: center; }
 
 .bottom { position: absolute; left: 0; bottom: 16px; display: flex; justify-content: center; pointer-events: none; }

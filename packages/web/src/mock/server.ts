@@ -373,8 +373,22 @@ export class MockApi implements Api {
   }
   async exportNow() { await wait(400); this.sim.event("export.done", null, "Exported town to git", {}, null); return "a1b2c3d"; }
   async redeploy(image: boolean) {
-    const steps = ["git pull --rebase origin main … ok (3 commits)", "npm install … skipped (package-lock.json unchanged)", "build web … ok", ...(image ? ["docker build desk image … ok"] : []), "restarting server"];
-    steps.forEach((s, i) => setTimeout(() => this.sim.event("system", null, `Redeploy: ${s}`, { redeploy: true }, null), 400 * (i + 1)));
+    // like runtime/redeploy.ts: each event carries the run; the drain holds one idle resident and waits on a working one
+    const residents = [...this.sim.agents.values()].filter((a) => a.kind === "resident");
+    const working = residents.filter((a) => a.status === "working").slice(0, 1).map((a) => a.id);
+    const blocked = residents.filter((a) => a.status === "idle").slice(0, 1).map((a) => a.id);
+    const run = (state: string, commits: number | null, w: string[] = [], b: string[] = []) => ({ state, requestedBy: "You", commits, working: w, blocked: b });
+    const steps: [string, ReturnType<typeof run>, number][] = [
+      ["Redeploy requested by You", run("running", null), 0],
+      ["Redeploy: git pull --rebase origin main … ok (3 commits)", run("running", 3), 400],
+      ["Redeploy: npm install … skipped (package-lock.json unchanged)", run("running", 3), 800],
+      ["Redeploy: build web … ok", run("running", 3), 1200],
+      ...(image ? [["Redeploy: docker build desk image … ok", run("running", 3), 1600] as [string, ReturnType<typeof run>, number]] : []),
+      ...(working.length ? [["Redeploy: draining, waiting for 1 session(s) to end", run("scheduled", 3, working, blocked), 2000] as [string, ReturnType<typeof run>, number]] : []),
+      ["Redeploy: restarting server", run("restarting", 3), 9000],
+      ["Redeploy finished: the server is back up with 3 new changes", run("done", 3), 11000],
+    ];
+    for (const [text, r, at] of steps) setTimeout(() => this.sim.event("system", null, text, { redeploy: true, run: r, ...(at === 0 ? { phase: "requested" } : {}) }, null), at);
     return { started: true };
   }
 

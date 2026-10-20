@@ -5,10 +5,10 @@
  * Every step's start/end is a `system` event (output tail in the payload). Single-flight; runs in the background.
  */
 import { execFile } from "node:child_process";
-import { closeSync, openSync, statSync, unlinkSync } from "node:fs";
+import { closeSync, openSync, readFileSync, statSync, unlinkSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import type { World } from "@muster-town/core";
-import type { RedeployResult } from "@muster-town/schema";
+import type { RedeployResult, RedeployRun } from "@muster-town/schema";
 
 export interface CmdResult { code: number; stdout: string; stderr: string }
 /** Runs one command (no shell). Injected in tests. */
@@ -41,6 +41,8 @@ export interface RedeployDeps {
   isWorking(agentId: string): boolean;
   /** agent ids with a live work session (drain waits for this to be empty); default: none */
   working?(): string[];
+  /** agent ids with pending work that the drain's hold keeps from starting (badged in the UI); default: none */
+  blocked?(): string[];
   /** hold (true) or release (false) the scheduler's new work sessions while draining */
   hold?(on: boolean): void;
   /** how long the drain waits before restarting anyway (sessions still running are orphaned; at startup they are stopped in their desks and re-queued). Default 30 min. */
@@ -71,15 +73,29 @@ export function makeRedeployer(deps: RedeployDeps): Redeployer {
   const cwd = deps.repoRoot;
   let flight: Promise<void> | null = null;
   let held = false;
+  let run_: RedeployRun = { state: "running", requestedBy: "", commits: null, working: [], blocked: [] };
 
   const say = (text: string, payload: Record<string, unknown> = {}) =>
-    deps.world.events.append({ type: "system", text, payload: { redeploy: true, ...payload } });
+    deps.world.events.append({ type: "system", text, payload: { redeploy: true, run: { ...run_ }, ...payload } });
+  const fail = () => { run_ = { ...run_, state: "failed", working: [], blocked: [] }; };
+
+  // The restart's marker (written just before exit 75): the new server announces the redeploy finished.
+  // Per collective, since several share one checkout.
+  const donePath = join(cwd, `.agent-town-redeploy-done-${deps.collective}.json`);
+  try {
+    const prev = JSON.parse(readFileSync(donePath, "utf8")) as Partial<RedeployRun>;
+    unlinkSync(donePath);
+    run_ = { state: "done", requestedBy: String(prev.requestedBy ?? ""), commits: typeof prev.commits === "number" ? prev.commits : null, working: [], blocked: [] };
+    const n = run_.commits;
+    say(`Redeploy finished: the server is back up${n === null ? "" : ` with ${n} new change${n === 1 ? "" : "s"}`}`, { phase: "done" });
+  } catch { /* no restart pending */ }
 
   /** One step: start event, run, end event. Returns the result, or null (after a failure event) on a non-zero exit. */
   async function step(label: string, cmd: string, args: string[], timeoutMs: number, okNote?: () => Promise<string>): Promise<CmdResult | null> {
     say(`Redeploy: ${label} …`, { step: label, phase: "start" });
     const r = await run(cmd, args, { cwd, timeoutMs });
     if (r.code !== 0) {
+      fail();
       say(`Redeploy: ${label} … failed (exit ${r.code})`, { step: label, phase: "end", ok: false, code: r.code, output: tail(r) });
       return null;
     }
@@ -94,6 +110,7 @@ export function makeRedeployer(deps: RedeployDeps): Redeployer {
     // (a) pull main; a dirty tree aborts
     const status = await run("git", ["status", "--porcelain"], { cwd, timeoutMs: 30_000 });
     if (status.code !== 0 || status.stdout.trim()) {
+      fail();
       say(status.code !== 0 ? `Redeploy: aborted, git status failed (exit ${status.code})` : "Redeploy: aborted, the working tree is dirty",
         { step: "git status", phase: "end", ok: false, code: status.code, output: tail(status) });
       return;
@@ -103,6 +120,7 @@ export function makeRedeployer(deps: RedeployDeps): Redeployer {
     const pulled = await step("git pull --rebase origin main", "git", ["pull", "--rebase", "origin", "main"], 300_000, async () => {
       if (!before) return "";
       const count = Number((await run("git", ["rev-list", "--count", `${before}..HEAD`], { cwd, timeoutMs: 30_000 })).stdout.trim()) || 0;
+      run_ = { ...run_, commits: count };
       lockChanged = !!(await run("git", ["diff", "--name-only", before, "HEAD", "--", "package-lock.json"], { cwd, timeoutMs: 30_000 })).stdout.trim();
       return `${count} commit${count === 1 ? "" : "s"}`;
     });
@@ -127,13 +145,21 @@ export function makeRedeployer(deps: RedeployDeps): Redeployer {
     const working = () => deps.working?.() ?? [];
     const names = (ids: string[]) => ids.map((id) => deps.world.agents.get(id)?.name ?? id).join(", ");
     const timeoutMs = deps.drainTimeoutMs ?? 30 * 60_000;
+    const blocked = () => deps.blocked?.() ?? [];
     let left = working();
     if (left.length) {
+      run_ = { ...run_, state: "scheduled", working: left, blocked: blocked() };
       say(`Redeploy: draining, waiting for ${left.length} session(s) to end: ${names(left)} (up to ${Math.round(timeoutMs / 60_000)} min)`, { step: "drain", phase: "start", working: left });
       const until = Date.now() + timeoutMs;
       while (left.length && Date.now() < until) {
         await new Promise<void>((r) => setTimeout(r, Math.min(deps.drainPollMs ?? 5000, Math.max(1, until - Date.now()))));
         left = working();
+        // tell the UI when the set of sessions waited on, or of agents held, changes
+        const now = blocked();
+        if (left.length && (left.join() !== run_.working.join() || now.join() !== run_.blocked.join())) {
+          run_ = { ...run_, working: left, blocked: now };
+          say(`Redeploy: still waiting for ${left.length} session(s): ${names(left)}${now.length ? `; holding work for ${names(now)}` : ""}`, { step: "drain", phase: "wait" });
+        }
       }
       say(left.length ? `Redeploy: drain timed out, restarting anyway; still running (stopped and re-queued at startup): ${names(left)}` : "Redeploy: drain … ok (no sessions running)",
         { step: "drain", phase: "end", ok: !left.length, working: left });
@@ -155,6 +181,8 @@ export function makeRedeployer(deps: RedeployDeps): Redeployer {
     }
 
     // (g) restart: give the HTTP response and the events a moment to flush
+    run_ = { ...run_, state: "restarting", working: [], blocked: [] };
+    try { writeFileSync(donePath, JSON.stringify(run_)); } catch { /* no repo dir (tests): the UI just won't hear "done" */ }
     say("Redeploy: restarting server", { step: "restart", phase: "end", ok: true });
     await new Promise<void>((r) => setTimeout(r, deps.exitDelayMs ?? 500));
     try { unlinkSync(lockPath); } catch { /* already gone */ }
@@ -188,8 +216,9 @@ export function makeRedeployer(deps: RedeployDeps): Redeployer {
   return {
     redeploy(o) {
       if (flight) return { running: true };
+      run_ = { state: "running", requestedBy: o.requestedBy, commits: null, working: [], blocked: [] };
       flight = withRepoLock(() => go(o))
-        .catch((e) => { say(`Redeploy: failed (${e instanceof Error ? e.message : String(e)})`, { ok: false }); })
+        .catch((e) => { fail(); say(`Redeploy: failed (${e instanceof Error ? e.message : String(e)})`, { ok: false }); })
         .finally(() => {
           flight = null;
           // only reached without a real exit (failure, or tests): let the scheduler start sessions again

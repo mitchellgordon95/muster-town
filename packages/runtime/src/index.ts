@@ -293,6 +293,8 @@ export function startRuntime(opts: RuntimeOptions): Runtime {
     isWorking: (agentId) => ctx.live.has(agentId) || starting.has(agentId),
     working: () => [...new Set([...ctx.live.keys(), ...starting])],
     hold: (on) => { draining = on; },
+    blocked: () => world.agents.where("kind = 'resident' AND status = 'idle'", [], "ORDER BY createdAt")
+      .filter((a) => !ctx.live.has(a.id) && !starting.has(a.id) && !!nextPending(world, a.id) && world.budget.canStart(a.id)).map((a) => a.id),
     ...opts.redeploy,
   });
   const redeploy = (o: RedeployRequest) => redeployer.redeploy(o);

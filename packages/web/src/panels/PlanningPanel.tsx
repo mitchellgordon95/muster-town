@@ -133,7 +133,16 @@ function Redeploy() {
   const [image, setImage] = useState(false);
   const [since, setSince] = useState<number | null>(null);
   const events = useTown((s) => s.events);
-  const lines = useMemo(() => since === null ? [] : events.filter((e) => e.type === "system" && e.id > since && (e.payload as { redeploy?: boolean }).redeploy), [events, since]);
+  // the log of the run I started, else of the latest run (from its "requested" event)
+  const from = useMemo(() => {
+    if (since !== null) return since + 1;
+    for (let i = events.length - 1; i >= 0; i--) {
+      const p = events[i].payload as { redeploy?: boolean; phase?: string };
+      if (events[i].type === "system" && p.redeploy && p.phase === "requested") return events[i].id;
+    }
+    return null;
+  }, [events, since]);
+  const lines = useMemo(() => from === null ? [] : events.filter((e) => e.type === "system" && e.id >= from && (e.payload as { redeploy?: boolean }).redeploy), [events, from]);
   return (
     <Section title="Redeploy">
       <p className="direction">Pull main on the host, reinstall if the lockfile changed, rebuild the web client, then restart the server. A dirty working tree aborts.</p>
