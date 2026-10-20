@@ -23,6 +23,7 @@
 - 2026-10-20 web: docCost adds "· T turns" (Doc.turns from #2); first web test (packages/web/test/docCost.test.ts) — Pix
 - 2026-10-20 web: reviewers can Acknowledge a pending report straight from the agent's Reports row (gated on building.review; Continue/Redirect/Stop stay at the in-tray) — Pix
 - 2026-10-20 (merges): PRs #4-#17 merged (1-3 via #8, 5 via #11); reports-as-replies landed (one box, one button, archive, ask-about-this); migration applier fixed to run late-merged files (004 had never run on live DBs); workshop residents titles cleared. 148 tests.
+- 2026-10-20 runtime: a meeting summary whose model call failed is no longer posted as the summary (the error text, e.g. "Not logged in · Please run /login", was showing as every attendee's standup summary); the session still records the error — Root
 - 2026-10-20 desk: image installs Debian `chromium` (+ fonts) so browser checks work on every desk; its libs (libnspr4, libnss3, libgbm1, ...) also cover Playwright's downloaded browsers. Existing desks need `npm run desk:build` and a container recreate — Pix
 - 2026-10-20 web: Call meeting forms (building Meetings tab and the meeting room) get an attendee picker; labs start with their residents checked, none checked sends no attendeeIds so the server invites its defaults; mock server honours attendeeIds — Pix
 - 2026-10-20 web: End meeting button moved into the meeting chatbar next to Say; Act buttons are type=button (Lena)
