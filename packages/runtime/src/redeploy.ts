@@ -5,6 +5,8 @@
  * Every step's start/end is a `system` event (output tail in the payload). Single-flight; runs in the background.
  */
 import { execFile } from "node:child_process";
+import { closeSync, openSync, statSync, unlinkSync } from "node:fs";
+import { join } from "node:path";
 import type { World } from "@agent-town/core";
 import type { RedeployResult } from "@agent-town/schema";
 
@@ -24,6 +26,10 @@ export const realCommandRunner: CommandRunner = (cmd, args, opts) =>
 export const RESTART_EXIT_CODE = 75;
 
 export interface RedeployDeps {
+  /** lock tuning (tests): wait, poll, and stale thresholds in ms */
+  lockWaitMs?: number;
+  lockPollMs?: number;
+  lockStaleMs?: number;
   world: World;
   /** Agent Town repo root (the server's REPO_ROOT) */
   repoRoot: string;
@@ -151,13 +157,38 @@ export function makeRedeployer(deps: RedeployDeps): Redeployer {
     // (g) restart: give the HTTP response and the events a moment to flush
     say("Redeploy: restarting server", { step: "restart", phase: "end", ok: true });
     await new Promise<void>((r) => setTimeout(r, deps.exitDelayMs ?? 500));
+    try { unlinkSync(lockPath); } catch { /* already gone */ }
     exit(RESTART_EXIT_CODE);
+  }
+
+  /**
+   * Several collectives share one checkout; two redeploys at once corrupt each other's git state
+   * ("Cannot rebase onto multiple branches"). A lock file in the repo root serialises them across processes.
+   */
+  const lockPath = join(cwd, ".agent-town-redeploy.lock");
+  async function withRepoLock<T>(fn: () => Promise<T>): Promise<T> {
+    const started = Date.now();
+    let locked = false;
+    for (;;) {
+      try { closeSync(openSync(lockPath, "wx")); locked = true; break; } catch (e) {
+        const code = (e as NodeJS.ErrnoException).code;
+        if (code === "ENOENT") break; // no such repo dir (tests with a fake root): nothing to lock
+        if (code !== "EEXIST") throw e;
+        let stale = false;
+        try { stale = Date.now() - statSync(lockPath).mtimeMs > (deps.lockStaleMs ?? 20 * 60_000); } catch { stale = true; }
+        if (stale) { try { unlinkSync(lockPath); } catch { /* raced */ } continue; }
+        if (Date.now() - started > (deps.lockWaitMs ?? 10 * 60_000)) throw new Error(`another redeploy holds ${lockPath}`);
+        if (Date.now() - started < 1000) say("Redeploy: waiting for another collective's redeploy to finish", { step: "lock", phase: "wait" });
+        await new Promise((r) => setTimeout(r, deps.lockPollMs ?? 3000));
+      }
+    }
+    try { return await fn(); } finally { if (locked) { try { unlinkSync(lockPath); } catch { /* already gone */ } } }
   }
 
   return {
     redeploy(o) {
       if (flight) return { running: true };
-      flight = go(o)
+      flight = withRepoLock(() => go(o))
         .catch((e) => { say(`Redeploy: failed (${e instanceof Error ? e.message : String(e)})`, { ok: false }); })
         .finally(() => {
           flight = null;
