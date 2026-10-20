@@ -44,7 +44,7 @@ export function Tabs({ tabs, active, onChange }: { tabs: { id: string; label: Re
 export function Act({ run, children, tone, disabled, title, small }: { run: () => Promise<unknown>; children: ReactNode; tone?: "ok" | "warn" | "bad" | "primary"; disabled?: boolean; title?: string; small?: boolean }) {
   const [busy, setBusy] = useState(false);
   return (
-    <button className={`btn ${tone ?? ""} ${small ? "sm" : ""}`} disabled={disabled || busy} title={title}
+    <button type="button" className={`btn ${tone ?? ""} ${small ? "sm" : ""}`} disabled={disabled || busy} title={title}
       onClick={async () => {
         setBusy(true);
         try { await run(); } catch (e) { store.toast((e as Error).message || "Request failed", "bad"); } finally { setBusy(false); }

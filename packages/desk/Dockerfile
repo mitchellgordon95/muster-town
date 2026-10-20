@@ -15,6 +15,14 @@ RUN apt-get update \
  && apt-get install -y --no-install-recommends gh \
  && rm -rf /var/lib/apt/lists/*
 
+# headless Chromium for browser checks of the web UI. Debian's package works on amd64 and arm64
+# and pulls in the shared libs (libnspr4, libnss3, libgbm1, ...) that Playwright's own downloaded
+# browsers also need, so `npx playwright` works too.
+RUN apt-get update \
+ && apt-get install -y --no-install-recommends chromium fonts-liberation fonts-noto-color-emoji \
+ && rm -rf /var/lib/apt/lists/*
+ENV CHROME_PATH=/usr/bin/chromium PUPPETEER_EXECUTABLE_PATH=/usr/bin/chromium
+
 # scientific Python for research desks
 RUN pip3 install --no-cache-dir --break-system-packages numpy pandas xarray netCDF4 scipy matplotlib requests
 
