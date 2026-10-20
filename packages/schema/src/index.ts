@@ -319,7 +319,7 @@ export const Assignment = z.object({
 export type Assignment = z.infer<typeof Assignment>;
 
 // ---------- messages (inbox) ----------
-export const MessageKind = z.enum(["tell", "heard", "system", "meeting"]);
+export const MessageKind = z.enum(["tell", "heard", "system", "meeting", "mention"]);
 export const Message = z.object({
   id: Id,
   kind: MessageKind,
@@ -328,6 +328,8 @@ export const Message = z.object({
   toId: Id,                   // agent id (inbox owner)
   body: z.string(),
   meetingId: Id.nullable().default(null),
+  /** mention: the doc the mention is in (read it with `read`) */
+  docId: Id.nullable().default(null),
   createdAt: Iso,
   readAt: Iso.nullable().default(null),
 });
@@ -406,7 +408,7 @@ export type Interrupt = z.infer<typeof Interrupt>;
 // ---------- events (append-only activity log) ----------
 export const EventType = z.enum([
   "agent.created", "agent.moved", "agent.status", "agent.activity", "agent.said", "agent.told",
-  "agent.tool", "agent.thought", "agent.banned", "agent.retired",
+  "agent.tool", "agent.thought", "agent.banned", "agent.retired", "agent.mentioned",
   "doc.created", "doc.updated", "doc.state", "doc.decision",
   "assignment.created", "assignment.status",
   "meeting.created", "meeting.phase", "meeting.utterance", "meeting.decisions",
@@ -472,11 +474,11 @@ export type VerbName = keyof typeof VerbInputs;
 export const VERB_NAMES = Object.keys(VerbInputs) as VerbName[];
 
 export const VERB_DESCRIPTIONS: Record<VerbName, string> = {
-  look: "Where am I, who is nearby (agents and humans, what they're doing), what place this is, and my notices (unread messages, pending assignments, upcoming meetings).",
+  look: "Where am I, who is nearby (agents and humans, what they're doing), what place this is, and my notices (unread messages, unread mentions of me, pending assignments, upcoming meetings).",
   go: "Walk to a place or to an agent. Returns when you arrive. Walking is free.",
   say: "Say something out loud; heard by everyone within 3 tiles (including humans).",
   tell: "Send a direct message to an agent's inbox.",
-  inbox: "Read my messages (direct messages, things I heard, system notices, meeting invites).",
+  inbox: "Read my messages (direct messages, things I heard, system notices, meeting invites, @mentions of me with the doc or meeting id), newest first.",
   board: "List recent documents published to a building's board (reports, articles, notes).",
   search: "Full-text search over documents I can see (library, my building's board, my drafts).",
   read: "Read one document by id.",
@@ -499,7 +501,7 @@ export const LookResult = z.object({
   me: z.object({ id: Id, name: z.string(), status: AgentStatus, buildingId: Id.nullable(), place: z.string().nullable(), pos: Tile }),
   building: z.object({ id: Id, name: z.string(), goal: z.string() }).nullable(),
   nearby: z.array(NearbyAgent),
-  notices: z.object({ unread: z.number().int(), pendingAssignments: z.number().int(), currentAssignment: z.string().nullable(), nextMeeting: z.object({ id: Id, title: z.string(), at: Iso, phase: MeetingPhase }).nullable() }),
+  notices: z.object({ unread: z.number().int(), mentions: z.number().int(), pendingAssignments: z.number().int(), currentAssignment: z.string().nullable(), nextMeeting: z.object({ id: Id, title: z.string(), at: Iso, phase: MeetingPhase }).nullable() }),
   places: z.array(z.object({ id: Id, name: z.string(), kind: PlaceKind })).describe("places I can `go` to from here"),
 });
 export type LookResult = z.infer<typeof LookResult>;

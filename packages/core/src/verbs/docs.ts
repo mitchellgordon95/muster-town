@@ -4,6 +4,7 @@ import {
   setAssignmentStatus, summarizeDoc, updateDoc,
 } from "../domain.ts";
 import { AppError, badRequest, forbidden } from "../errors.ts";
+import { docWhere, notifyMentions } from "../mentions.ts";
 import type { World } from "../world.ts";
 import type { VerbIn } from "./types.ts";
 
@@ -64,6 +65,8 @@ export async function write(world: World, me: Agent, input: VerbIn<"write">) {
       provenance: input.provenance ?? cur.provenance, tags: input.tags ?? cur.tags,
     });
     world.events.append({ type: "doc.updated", agentId: holder.kind === "agent" ? me.id : null, buildingId: doc.buildingId, text: `${me.name} updated "${doc.title}"`, payload: { docId: doc.id } });
+    // only newly added mentions notify; a draft being published notifies everyone it mentions
+    if (doc.state !== "draft") notifyMentions(world, me, `${doc.title}\n${doc.body}`, { where: docWhere(doc), docId: doc.id, buildingId: doc.buildingId }, cur.state !== "draft" ? `${cur.title}\n${cur.body}` : undefined);
     return { id: doc.id, state: doc.state };
   }
   // Source cards are references, not claims: once published they go straight to the library so every building can cite them.
@@ -72,6 +75,7 @@ export async function write(world: World, me: Agent, input: VerbIn<"write">) {
     type: input.type, title: input.title, body: input.body, state, authorId: holder.id, authorKind: holder.kind,
     buildingId: bid, provenance: input.provenance, tags: input.tags,
   });
+  if (doc.state !== "draft") notifyMentions(world, me, `${doc.title}\n${doc.body}`, { where: docWhere(doc), docId: doc.id, buildingId: doc.buildingId });
   return { id: doc.id, state: doc.state };
 }
 
@@ -88,6 +92,7 @@ export async function submit_report(world: World, me: Agent, input: VerbIn<"subm
       authorId: me.id, authorKind: "agent", buildingId: bid, provenance: input.provenance,
       sessionId: session?.id, assignmentId: assignmentId ?? undefined,
     }, `${me.name} submitted a report: ${input.title}`);
+    notifyMentions(world, me, `${doc.title}\n${doc.body}`, { where: docWhere(doc), docId: doc.id, buildingId: doc.buildingId });
     if (assignmentId && world.assignments.get(assignmentId)) setAssignmentStatus(world, assignmentId, "done", { reportId: doc.id });
     if (session) world.sessions.upsert({ ...session, reportId: doc.id });
     world.agents.patch(me.id, { currentAssignmentId: null });

@@ -2,6 +2,7 @@ import { CreateMeetingInput, Meeting, type Agent } from "@agent-town/schema";
 import { applyDecision, createAssignment, createDoc, sendMessage } from "./domain.ts";
 import { AppError, badRequest, forbidden } from "./errors.ts";
 import { buildingRoleId, townRoleId } from "./permissions.ts";
+import { notifyMentions } from "./mentions.ts";
 import { newId, nowIso } from "./util.ts";
 import { TOWN_HALL_ID } from "./world/layout.ts";
 import type { World } from "./world.ts";
@@ -81,6 +82,7 @@ export function meetingSpeak(world: World, actor: Agent, meetingId: string, text
   const h = world.holderOf(actor);
   const updated = world.meetings.upsert({ ...m, transcript: [...m.transcript, { speakerId: h.id, speakerKind: h.kind, text, at: nowIso() }] });
   world.events.append({ type: "meeting.utterance", agentId: actor.kind === "human" ? null : actor.id, buildingId: m.buildingId, text: `${actor.name}: ${text.slice(0, 300)}`, payload: { meetingId: m.id, speakerId: h.id, speakerKind: h.kind } });
+  notifyMentions(world, actor, text, { where: `meeting "${m.title}"`, meetingId: m.id, buildingId: m.buildingId });
   return updated;
 }
 

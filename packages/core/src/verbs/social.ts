@@ -1,6 +1,7 @@
 import type { Agent, LookResult, Message } from "@agent-town/schema";
 import { AppError, badRequest, forbidden } from "../errors.ts";
 import { homeOf, sendMessage, setAssignmentStatus } from "../domain.ts";
+import { notifyMentions } from "../mentions.ts";
 import { chebyshev, nowIso } from "../util.ts";
 import type { World } from "../world.ts";
 import type { VerbIn } from "./types.ts";
@@ -37,6 +38,7 @@ export async function look(world: World, me: Agent, _input: VerbIn<"look">): Pro
     nearby: nearbyAgents(world, me).map((a) => ({ id: a.id, name: a.name, kind: a.kind, status: a.status, activity: a.activity, distance: a.distance })),
     notices: {
       unread: world.messages.count("toId = ? AND readAt IS NULL", [me.id]),
+      mentions: world.messages.count("toId = ? AND readAt IS NULL AND kind = 'mention'", [me.id]),
       pendingAssignments: world.assignments.count("agentId = ? AND status = 'pending'", [me.id]),
       currentAssignment: current?.title ?? null,
       nextMeeting: meeting ? { id: meeting.id, title: meeting.title, at: meeting.scheduledAt, phase: meeting.phase } : null,
@@ -58,6 +60,7 @@ export async function say(world: World, me: Agent, input: VerbIn<"say">) {
   const listeners = nearbyAgents(world, me).filter((a) => a.kind !== "human");
   world.events.append({ type: "agent.said", agentId: me.id, buildingId: me.buildingId, text: input.text, payload: { heardBy: listeners.map((a) => a.id) } });
   for (const a of listeners) sendMessage(world, { kind: "heard", fromId: me.id, fromKind: "agent", toId: a.id, body: input.text });
+  notifyMentions(world, me, input.text, { where: "speech", buildingId: me.buildingId });
   return { heardBy: listeners.map((a) => a.name) };
 }
 
@@ -67,15 +70,17 @@ export async function tell(world: World, me: Agent, input: VerbIn<"tell">) {
   if (to.id === me.id) throw badRequest("You can't tell yourself.");
   const msg = sendMessage(world, { kind: "tell", fromId: me.id, fromKind: "agent", toId: to.id, body: input.text });
   world.events.append({ type: "agent.told", agentId: me.id, buildingId: me.buildingId, text: `${me.name} → ${to.name}: ${input.text.slice(0, 200)}`, payload: { to: to.id, toKind: to.kind, messageId: msg.id, text: input.text } });
+  // the recipient already has the message; third parties named with @Name get a mention
+  notifyMentions(world, me, input.text, { where: `a message to ${to.name}`, buildingId: me.buildingId, skip: [to.id] });
   return { sent: true, to: to.id, messageId: msg.id };
 }
 
 export function formatMessage(world: World, m: Message) {
-  return { id: m.id, kind: m.kind, from: m.fromKind === "system" ? "system" : world.nameOf(m.fromId), fromId: m.fromId, body: m.body, meetingId: m.meetingId, at: m.createdAt };
+  return { id: m.id, kind: m.kind, from: m.fromKind === "system" ? "system" : world.nameOf(m.fromId), fromId: m.fromId, body: m.body, meetingId: m.meetingId, docId: m.docId, at: m.createdAt };
 }
 
 export async function inbox(world: World, me: Agent, input: VerbIn<"inbox">) {
-  const unread = world.messages.where("toId = ? AND readAt IS NULL", [me.id], "ORDER BY createdAt, rowid LIMIT 100");
+  const unread = world.messages.where("toId = ? AND readAt IS NULL", [me.id], "ORDER BY createdAt DESC, rowid DESC LIMIT 100");
   if (input.markRead && unread.length) {
     const ts = nowIso();
     world.transaction(() => { for (const m of unread) world.messages.upsert({ ...m, readAt: ts }); });

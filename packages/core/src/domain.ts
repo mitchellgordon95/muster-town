@@ -61,8 +61,8 @@ export function setAssignmentStatus(world: World, id: string, status: Assignment
   return a;
 }
 
-export function sendMessage(world: World, m: Omit<Message, "id" | "createdAt" | "readAt" | "meetingId"> & { meetingId?: string | null }): Message {
-  return world.messages.upsert({ meetingId: null, ...m, id: newId("ms"), createdAt: nowIso(), readAt: null });
+export function sendMessage(world: World, m: Omit<Message, "id" | "createdAt" | "readAt" | "meetingId" | "docId"> & { meetingId?: string | null; docId?: string | null }): Message {
+  return world.messages.upsert({ meetingId: null, docId: null, ...m, id: newId("ms"), createdAt: nowIso(), readAt: null });
 }
 
 /** "Proposal for next session" section → {title, text}. */
