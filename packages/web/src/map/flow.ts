@@ -35,10 +35,8 @@ export function flowSource(places: Place[], buildings: SnapshotBuilding[]): { at
   return hall?.lot ? { at: { x: (hall.lot.x + hall.lot.w / 2) * T, y: (hall.lot.y + hall.lot.h / 2) * T }, skip: hall.id } : null;
 }
 
-/** The largest zoom that shows the whole world (`ww`×`wh` world px) in the view, with a margin; never above `max`. */
-export function fitZoom(ww: number, wh: number, viewW: number, viewH: number, max: number): number {
-  return Math.max(0.5, Math.min(max, (viewW * 0.92) / ww, (viewH * 0.8) / wh));
-}
+/** framing the whole town lives with the shared zoomed-out renderer */
+export { fitZoom } from "./overview";
 
 /** Line width (screen px) for a share: 100% is a fat river, a sliver still shows. */
 export const widthFor = (pct: number) => 2 + Math.sqrt(Math.max(0, pct) / 100) * 20;

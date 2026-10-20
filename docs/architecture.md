@@ -84,6 +84,8 @@ Users donate tokens (`DonateInput`) into an allocation for a building, optionall
 
 **Town map** (web `map/flow.ts`). The Bank has a map stand (`TILE.BANK_MAP`, place kind `bank-map`); E on it calls `MapRenderer.openFlow()`: the camera eases out to fit the whole town (`fitZoom`, never past the walking zoom), the town dims, and gold arcs run from the Bank to every building, each as wide as `widthFor(pct)` with coins in flight in proportion to its share, labelled with its % and the tokens it can still draw, under a card with the balance (expiring/durable) from `GET /api/bank`. Esc, E or walking puts the camera back. The arcs start at the `bank-map` place (else a `bank` place, else the Town Hall).
 
+**Minimap and the shared overview** (web `map/overview.ts`, `map/Minimap.tsx`). `overview.ts` is the one zoomed-out renderer: `OverviewCam` (centre + zoom, `fit`, `clamp`, screen↔world↔tile) and `drawOverview` (the world bitmap shrunk, building names, people as status-coloured dots, an optional frame and hovered tile/building); `fitZoom` lives there too and frames the Bank's town map. Town planning draws through it as well. The minimap (bottom left, hidden under 760 px and while the town map or a layout edit is open) follows you; drag pans, the wheel zooms (1–6× the whole-town fit), ◎ snaps back. A click calls `MapRenderer.walkToTile`: `quickWalkGoal` walks to the tile if it's reachable, a building's wall walks to its door (the Bank's: its counter), anything else to the nearest reachable tile; long routes (>140 tiles) teleport, like `walkToPlace`.
+
 ## Server (HTTP + WS + MCP)
 
 Fastify on `PORT` (default 4321). Static: serves `packages/web/dist` at `/` if present. CORS open in dev.

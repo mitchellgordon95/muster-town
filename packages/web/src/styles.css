@@ -63,7 +63,7 @@ kbd { font-family: var(--mono); font-size: 11px; background: #2a2d3a; border: 1p
 .pill.state-building { background: #262a3a; color: #c4c7dc; }
 
 /* ---------- HUD ---------- */
-.hud { position: absolute; top: 12px; left: 12px; width: 300px; max-height: calc(100% - 80px); overflow: auto; background: rgba(20,21,28,.92); border: 1px solid var(--line); border-radius: 10px; padding: 12px 14px; backdrop-filter: blur(4px); box-shadow: 0 6px 24px rgba(0,0,0,.35); }
+.hud { position: absolute; top: 12px; left: 12px; width: 300px; max-height: calc(100% - 210px); overflow: auto; background: rgba(20,21,28,.92); border: 1px solid var(--line); border-radius: 10px; padding: 12px 14px; backdrop-filter: blur(4px); box-shadow: 0 6px 24px rgba(0,0,0,.35); }
 .hud.collapsed { width: auto; min-width: 200px; }
 .hud-top { display: flex; align-items: flex-start; gap: 8px; }
 .hud-top > div { flex: 1; }
@@ -95,13 +95,20 @@ kbd { font-family: var(--mono); font-size: 11px; background: #2a2d3a; border: 1p
 .hud-row.bad em { color: #ff9b9b; }
 .notice-dot { background: #e5484d; color: #fff; font-size: 11px; font-weight: 700; border-radius: 9px; min-width: 18px; height: 18px; padding: 0 5px; display: inline-flex; align-items: center; justify-content: center; }
 
+/* the minimap, bottom left under the HUD (keep .hud's max-height and .toasts' bottom clear of it) */
+.minimap { position: absolute; left: 12px; bottom: 16px; border: 1px solid var(--line-2); border-radius: 8px; overflow: hidden; box-shadow: 0 6px 24px rgba(0,0,0,.35); background: #14151c; }
+.minimap canvas { display: block; cursor: pointer; touch-action: none; }
+.minimap-label { position: absolute; left: 6px; top: 6px; background: rgba(20,21,28,.88); border-radius: 4px; padding: 2px 6px; font-size: 11px; pointer-events: none; }
+.minimap-me { position: absolute; right: 6px; top: 6px; width: 24px; height: 24px; border-radius: 6px; border: 1px solid var(--line-2); background: rgba(20,21,28,.9); color: var(--text); cursor: pointer; font-size: 14px; line-height: 1; padding: 0; }
+.minimap-me:hover { border-color: var(--accent); }
+
 .bottom { position: absolute; left: 0; bottom: 16px; display: flex; justify-content: center; pointer-events: none; }
 .hint { background: rgba(20,21,28,.92); border: 1px solid var(--line); border-radius: 8px; padding: 6px 12px; font-size: 13px; white-space: nowrap; pointer-events: none; box-shadow: 0 4px 16px rgba(0,0,0,.3); }
 .hint .sep { display: inline-block; width: 1px; height: 12px; background: var(--line-2); margin: 0 8px; vertical-align: middle; }
 .saybox { pointer-events: auto; width: min(520px, 90%); display: flex; align-items: center; gap: 8px; background: rgba(20,21,28,.96); border: 1px solid #4a6f96; border-radius: 8px; padding: 6px 8px 6px 12px; }
 .saybox span { color: var(--accent); font-weight: 600; font-size: 12px; }
 .saybox input { border: none; box-shadow: none; background: transparent; padding: 4px; }
-.toasts { position: absolute; bottom: 60px; left: 12px; display: flex; flex-direction: column; gap: 6px; max-width: 360px; pointer-events: none; }
+.toasts { position: absolute; bottom: 192px; left: 12px; display: flex; flex-direction: column; gap: 6px; max-width: 360px; pointer-events: none; }
 .toast { background: rgba(28,30,40,.97); border: 1px solid var(--line-2); border-left: 3px solid var(--accent); border-radius: 6px; padding: 8px 12px; font-size: 13px; pointer-events: auto; animation: rise .2s ease-out; box-shadow: 0 4px 16px rgba(0,0,0,.35); }
 .toast.ok { border-left-color: var(--ok); } .toast.bad { border-left-color: var(--bad); }
 .toast.clickable { cursor: pointer; }
@@ -336,6 +343,7 @@ kbd { font-family: var(--mono); font-size: 11px; background: #2a2d3a; border: 1p
 }
 @media (max-width: 760px) {
   .panel { width: 100% !important; }
+  .minimap { display: none; }
   .hud { width: calc(100% - 24px); }
 }
 

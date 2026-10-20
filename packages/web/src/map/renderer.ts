@@ -11,7 +11,9 @@ import { layoutEdit, type LayoutDraft } from "./layoutEdit";
 import { bubbleFor, buildingBudgetLine, drawBadge, drawBankSign, drawBubble, drawLabel, drawPill, drawSign, residentBudgetLine, type Bubble } from "./overlay";
 import { blockedByRedeploy } from "../redeploy";
 import { api } from "../api";
-import { drawFlow, fitZoom, type Flow } from "./flow";
+import { drawFlow, type Flow } from "./flow";
+import { fitZoom, quickWalkGoal } from "./overview";
+import { TILE } from "@muster-town/schema";
 
 /** `index`/`count`: position among everything in reach, so the HUD can show "Tab 2/3" when targets overlap. */
 const keyOf = (t: Target) => `${t.panel.kind}:${t.panel.id ?? ""}:${t.label}`;
@@ -129,13 +131,45 @@ export class MapRenderer {
     const p = store.state.places.find((x) => x.id === placeId);
     if (!p || !this.world) return false;
     const goal = this.world.walkable(p.pos.x, p.pos.y) ? p.pos : this.world.nearestWalkable(p.pos.x, p.pos.y);
-    const from = { x: Math.floor(this.me.x / T), y: Math.floor((this.me.y - 1) / T) };
-    const path = this.world.path(from, goal);
-    const arrive = () => { if (panel) store.open(panel); };
-    if (!path || path.length > 140) { this.route = null; this.placeMe(goal.x, goal.y); arrive(); return true; }
-    if (!path.length) { this.route = null; this.placeMe(goal.x, goal.y); arrive(); return true; }
-    this.route = path; this.onArrive = arrive;
+    this.walkRoute(goal, () => { if (panel) store.open(panel); });
     return true;
+  }
+  /**
+   * Quick-walk (the minimap's click) to a tile: there if it's reachable; a building's wall walks to its door
+   * (the Bank's: its counter); anything else unreachable walks to the reachable tile nearest it.
+   */
+  walkToTile(x: number, y: number): boolean {
+    const w = this.world;
+    if (!w || layoutEdit.draft) return false;
+    if (this.flow) this.closeFlow();
+    const s = store.state, b = w.buildingAt(x, y);
+    const door = w.at(x, y) !== TILE.WALL ? undefined
+      : b ? s.places.find((p) => p.kind === "door" && p.buildingId === b.id)
+      : w.inBank(x, y) ? s.places.find((p) => p.kind === "bank") : undefined;
+    this.walkRoute(quickWalkGoal(w, this.myTile(), { x, y }, door?.pos ?? null), () => undefined);
+    return true;
+  }
+  private myTile() { return { x: Math.floor(this.me.x / T), y: Math.floor((this.me.y - 1) / T) }; }
+  /** Walk along a path to `goal`, then `arrive`; teleport when there's no path or it's very long. */
+  private walkRoute(goal: { x: number; y: number }, arrive: () => void) {
+    const path = this.world!.path(this.myTile(), goal);
+    if (!path || path.length > 140 || !path.length) { this.route = null; this.onArrive = null; this.placeMe(goal.x, goal.y); arrive(); return; }
+    this.route = path; this.onArrive = arrive;
+  }
+
+  /** For the minimap: the world, where I am, everyone else, and what the main view shows (world px). */
+  get town(): World | null { return this.world; }
+  get mePos() { return { x: this.me.x, y: this.me.y }; }
+  /** The route's end tile, while auto-walking. */
+  get routeEnd() { return this.route?.length ? this.route[this.route.length - 1] : null; }
+  others(): { x: number; y: number; status: Agent["status"] }[] {
+    const out: { x: number; y: number; status: Agent["status"] }[] = [];
+    for (const [id, b] of this.bodies) { const a = store.state.agents[id]; if (a) out.push({ x: b.x, y: b.y, status: a.status }); }
+    return out;
+  }
+  viewFrame() {
+    const { ox, oy, z } = this.view;
+    return { x: ox, y: oy, w: (this.canvas.clientWidth - this.panelInset) / z, h: this.canvas.clientHeight / z };
   }
   teleportToTile(x: number, y: number) { if (this.world) { const s = this.world.nearestWalkable(x, y); this.placeMe(s.x, s.y); } }
   private placeMe(tx: number, ty: number) {

@@ -5,6 +5,7 @@ import { store, useTown, type PanelKind, type PanelRef } from "./state";
 import { layoutEdit } from "./map/layoutEdit";
 import { LayoutToolbar } from "./panels/LayoutToolbar";
 import { MapCanvas, mapRenderer, typing } from "./map/MapCanvas";
+import { Minimap } from "./map/Minimap";
 import type { Target } from "./map/renderer";
 import { Hint, Hud, SayBox, Toasts } from "./hud";
 import { authStore, forceGuest, loadAuthConfig, takeAuthError, useAuth } from "./auth/auth";
@@ -177,6 +178,7 @@ export function App() {
       <MapCanvas panelInset={panel ? pw : 0} onTarget={setTarget} onMove={onMove} />
       {!ready ? <div className="loading-screen"><div className="spin big" /><div>Entering town…</div></div> : null}
       <Hud onPasteToken={() => setPhase({ k: "login" })} />
+      <Minimap />
       <div className="bottom" style={{ right: panel ? pw : 0 }}>
         <Hint target={target} saying={saying} />
         {saying && !guest ? <SayBox inputRef={sayRef} onSend={say} onCancel={() => setSaying(false)} /> : null}
