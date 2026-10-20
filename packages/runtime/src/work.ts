@@ -113,6 +113,9 @@ export async function finishWorkSession(ctx: Ctx, sessionId: string, o: WorkOutc
   }
   const status: Exclude<Session["status"], "running"> = stopped ? "interrupted" : error ? "error" : "done";
   const ended = world.ops.endSession(sessionId, { status, ...usage, error, sdkSessionId: o.sdkSessionId ?? null });
+  // stamp the session's usage onto the report it produced (submitted or fallback)
+  const report = ended.reportId ? world.docs.get(ended.reportId) : undefined;
+  if (report && report.sessionId === sessionId) world.docs.patch(report.id, { tokens: usage.tokens, costUsd: usage.costUsd, turns: usage.turns });
   chargeUsage(world, agentId, usage, allocationId !== undefined ? allocationId : ctx.deskAllocations.get(sessionId) ?? fundingFor(world, agentId).allocationId);
   ctx.deskAllocations.delete(sessionId);
   return ended;

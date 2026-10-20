@@ -254,6 +254,8 @@ export const Doc = z.object({
   assignmentId: Id.optional(),
   costUsd: z.number().optional(),
   tokens: z.number().int().optional(),
+  /** report-specific: SDK turns of the session that produced it */
+  turns: z.number().int().optional(),
   // request-specific (outbox)
   requestStatus: RequestStatus.optional(),
   location: z.string().optional(),
