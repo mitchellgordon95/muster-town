@@ -33,3 +33,4 @@
 - 2026-10-20: meeting rooms: attendees take distinct seats around the table instead of stacking on one tile (Root)
 - 2026-10-20 board: standing guidance only; meeting notes join reports in the building's filing cabinet (GET /api/buildings/:id/cabinet, Filing cabinet tab on the board panel); prompts and board verb say so — Sage
 - 2026-10-20 web: the filing cabinet is furniture: a `cabinet:<buildingId>` place in every lab (TILE.CABINET on the top wall, two right of the board); E opens its panel; the board panel loses its Filing cabinet tab — Sage
+- 2026-10-20 web: map shows budgets: building signs get "X used · Y left" (snapshot/WS buildings carry `budget`, resent on charge/donate); each resident's name tag gets "X today · Y left" of the daily allowance — Pix
