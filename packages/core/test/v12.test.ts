@@ -120,7 +120,13 @@ describe("v1.2 places", () => {
     const board = world.layout.requirePlace("board:carbon-cycle").pos;
     expect(tile(board.x, lab.y)).toBe(12); // TILE.BOARD on the top wall
     const cabinet = world.layout.requirePlace("cabinet:carbon-cycle").pos;
-    expect(tile(cabinet.x, lab.y)).toBe(15); // TILE.CABINET on the top wall, beside the board
+    expect(tile(cabinet.x + 1, cabinet.y)).toBe(15); // TILE.CABINET to the right of where you stand...
+    expect(tile(cabinet.x + 2, cabinet.y)).toBe(3); // ...against the right wall (TILE.WALL)
+    const seats = world.layout.seatsOf("meeting-room:carbon-cycle");
+    for (const p of [board, world.layout.requirePlace("intray:carbon-cycle").pos, ...seats, ...world.layout.deskSlots("carbon-cycle").map((d) => d.pos)]) {
+      expect(p, "cabinet tile overlaps a standing tile").not.toEqual({ x: cabinet.x + 1, y: cabinet.y });
+      expect(p, "cabinet stand shared with another fixture").not.toEqual(cabinet);
+    }
     const intray = world.layout.requirePlace("intray:carbon-cycle").pos;
     expect(tile(intray.x, intray.y - 1)).toBe(11); // TILE.MANAGER_DESK
     expect(g.tiles).toContain(13); // DONATION

@@ -102,12 +102,13 @@ export function computeLayout(buildings: Building[], agents: Agent[]): Layout {
       const boardX = x0 + Math.floor(bw / 2) - 2;
       set(boardX, y0, TILE.BOARD);
       places.push({ id: `board:${b.id}`, kind: "board", name: `${b.name} board`, buildingId: b.id, pos: { x: boardX, y: y0 + 1 } });
-      set(boardX + 2, y0, TILE.CABINET);
-      places.push({ id: `cabinet:${b.id}`, kind: "cabinet", name: `${b.name} filing cabinet`, buildingId: b.id, pos: { x: boardX + 2, y: y0 + 1 } });
       const mx = x0 + bw - 2, my = y0 + 2;
       set(mx, my, TILE.MANAGER_DESK);
       places.push({ id: `intray:${b.id}`, kind: "intray", name: `${b.name} in-tray (manager's desk)`, buildingId: b.id, pos: { x: mx, y: my + 1 } });
       const yMeet = y0 + bh - 4;
+      const cy = yMeet - 2 >= my + 2 ? yMeet - 2 : y0 + bh - 2;
+      set(mx, cy, TILE.CABINET);
+      places.push({ id: `cabinet:${b.id}`, kind: "cabinet", name: `${b.name} filing cabinet`, buildingId: b.id, pos: { x: mx - 1, y: cy } });
       for (let x = bw - 5; x <= bw - 3; x++) set(x0 + x, yMeet, TILE.TABLE);
       set(x0 + 1, yMeet, TILE.PLANT);
       places.push({ id: `meeting-room:${b.id}`, kind: "meeting-room", name: `${b.name} meeting room`, buildingId: b.id, pos: { x: x0 + bw - 4, y: yMeet + 1 } });

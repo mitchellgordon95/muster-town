@@ -182,15 +182,17 @@ export function computeLayout(buildings: Building[], occupancy: Map<string, Map<
     const boardX = x0 + Math.floor(bw / 2) - 2;
     set(boardX, y0, TILE.BOARD);
     places.push({ id: `board:${b.id}`, kind: "board", name: `${b.name} board`, buildingId: b.id, pos: { x: boardX, y: y0 + 1 } });
-    // the filing cabinet (reports and meeting notes): against the top wall, two tiles right of the board
-    set(boardX + 2, y0, TILE.CABINET);
-    places.push({ id: `cabinet:${b.id}`, kind: "cabinet", name: `${b.name} filing cabinet`, buildingId: b.id, pos: { x: boardX + 2, y: y0 + 1 } });
     // the manager's desk (in-tray): top-right, one tile, stand below it
     const mx = x0 + bw - 2, my = y0 + 2;
     set(mx, my, TILE.MANAGER_DESK);
     places.push({ id: `intray:${b.id}`, kind: "intray", name: `${b.name} in-tray (manager's desk)`, buildingId: b.id, pos: { x: mx, y: my + 1 } });
-    // meeting table bottom-right, plant bottom-left
     const yMeet = y0 + bh - 4;
+    // the filing cabinet (reports and meeting notes): against the right wall, between the in-tray and the meeting table
+    // (bottom-right corner when the lab is one desk row tall and there's no room); read it standing to its left
+    const cy = yMeet - 2 >= my + 2 ? yMeet - 2 : y0 + bh - 2;
+    set(mx, cy, TILE.CABINET);
+    places.push({ id: `cabinet:${b.id}`, kind: "cabinet", name: `${b.name} filing cabinet`, buildingId: b.id, pos: { x: mx - 1, y: cy } });
+    // meeting table bottom-right, plant bottom-left
     for (let x = bw - 5; x <= bw - 3; x++) set(x0 + x, yMeet, TILE.TABLE);
     tables.set(`meeting-room:${b.id}`, [bw - 5, bw - 4, bw - 3].map((x) => ({ x: x0 + x, y: yMeet })));
     set(x0 + 1, yMeet, TILE.PLANT);
