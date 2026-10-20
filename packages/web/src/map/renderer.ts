@@ -81,8 +81,10 @@ export class MapRenderer {
   cycleTarget(dir: 1 | -1 = 1): boolean {
     const n = this.inReach.length;
     if (n < 2) return false;
-    const i = this.inReach.findIndex((t) => keyOf(t) === this.picked);
-    this.picked = keyOf(this.inReach[((i < 0 ? 0 : i) + dir + n) % n]);
+    // step from what the hint shows now (the nearest, until something is picked)
+    const cur = this.picked ?? (this.target ? keyOf(this.target) : null);
+    const i = Math.max(0, this.inReach.findIndex((t) => keyOf(t) === cur));
+    this.picked = keyOf(this.inReach[(i + dir + n) % n]);
     this.updateTarget();
     return true;
   }
