@@ -1,7 +1,7 @@
 /** v1.3 redeploy: step order, dirty-tree abort, image branch (idle desks only), single flight, exit via the injected hook. */
 import { describe, expect, test, vi } from "vitest";
 import { townRoleId } from "@agent-town/core";
-import { makeRedeployer, type CmdResult, type CommandRunner } from "../src/index.ts";
+import { makeRedeployer, type CmdResult, type CommandRunner, type RedeployDeps } from "../src/index.ts";
 import { result, setup } from "./helpers.ts";
 
 const ok = (stdout = ""): CmdResult => ({ code: 0, stdout, stderr: "" });
@@ -24,11 +24,11 @@ const BASE: [string, CmdResult][] = [
   ["git diff --name-only", ok("")],
 ];
 
-function harness(answers: [string, CmdResult][], working: string[] = []) {
+function harness(answers: [string, CmdResult][], working: string[] = [], drain: Partial<RedeployDeps> = {}) {
   const { world } = setup(async function* () { yield result(1, 0); });
   const runner = fakeRunner(answers);
   const exit = vi.fn();
-  const r = makeRedeployer({ world, repoRoot: "/repo", collective: "climate", image: "agent-town-desk", isWorking: (id) => working.includes(id), run: runner.run, exit, exitDelayMs: 1 });
+  const r = makeRedeployer({ world, repoRoot: "/repo", collective: "climate", image: "agent-town-desk", isWorking: (id) => working.includes(id), run: runner.run, exit, exitDelayMs: 1, drainPollMs: 1, ...drain });
   const texts = () => world.events.recent({ limit: 200 }).filter((e) => (e.payload as { redeploy?: boolean }).redeploy).map((e) => e.text);
   return { world, runner, exit, r, texts };
 }
@@ -100,6 +100,51 @@ describe("redeploy", () => {
     expect(docker.some((c) => c.includes("volume"))).toBe(false);
     expect(h.runner.calls.indexOf("docker build -t agent-town-desk -f packages/desk/Dockerfile .")).toBeGreaterThan(h.runner.calls.indexOf("npm run build --workspace @agent-town/web"));
     expect(h.exit).toHaveBeenCalledWith(75);
+  });
+
+  test("drain: holds new sessions and waits for running ones to end before restarting", async () => {
+    let live = ["ag_1", "ag_2"];
+    const holds: boolean[] = [];
+    const h = harness(BASE, [], { working: () => live, hold: (on) => holds.push(on), drainTimeoutMs: 60_000 });
+    h.r.redeploy({ image: false, requestedBy: "Pix" });
+    await vi.waitFor(() => expect(h.texts().some((t) => t.startsWith("Redeploy: draining, waiting for 2 session(s)"))).toBe(true));
+    expect(holds).toEqual([true]);
+    expect(h.exit).not.toHaveBeenCalled();
+    live = ["ag_2"];
+    await new Promise((r) => setTimeout(r, 10));
+    expect(h.exit).not.toHaveBeenCalled();
+    live = [];
+    await h.r.done();
+    expect(h.texts()).toContain("Redeploy: drain … ok (no sessions running)");
+    expect(h.exit).toHaveBeenCalledWith(75);
+  });
+
+  test("drain: restarts anyway after the timeout, naming the sessions left running", async () => {
+    const h = harness(BASE, [], { working: () => ["ag_9"], drainTimeoutMs: 20 });
+    h.r.redeploy({ image: false, requestedBy: "Pix" });
+    await h.r.done();
+    expect(h.texts()).toContain("Redeploy: drain timed out, restarting anyway; still running (orphaned, re-queued at startup): ag_9");
+    expect(h.exit).toHaveBeenCalledWith(75);
+  });
+
+  test("drain: image=true recreates desks after the drain, so no desk is kept for a session", async () => {
+    let live = ["ag_2"];
+    const ps: [string, CmdResult] = ["docker ps -a", ok("desk-climate-ag_1\tag_1\ndesk-climate-ag_2\tag_2\n")];
+    const h = harness([ps, ...BASE], [], { working: () => live, drainTimeoutMs: 60_000 });
+    h.r.redeploy({ image: true, requestedBy: "Pix" });
+    await vi.waitFor(() => expect(h.texts().some((t) => t.startsWith("Redeploy: draining"))).toBe(true));
+    expect(h.runner.calls.some((c) => c.startsWith("docker ps"))).toBe(false);
+    live = [];
+    await h.r.done();
+    expect(h.runner.calls.filter((c) => c.startsWith("docker rm"))).toEqual(["docker rm -f desk-climate-ag_1", "docker rm -f desk-climate-ag_2"]);
+  });
+
+  test("drain: the hold is released when the redeploy doesn't exit", async () => {
+    const holds: boolean[] = [];
+    const h = harness(BASE, [], { working: () => [], hold: (on) => holds.push(on), exit: () => undefined });
+    h.r.redeploy({ image: false, requestedBy: "Pix" });
+    await h.r.done();
+    expect(holds).toEqual([true, false]);
   });
 
   test("startRuntime registers the host hook; the verb needs town.redeploy (deployer role)", async () => {

@@ -1,6 +1,7 @@
 /**
  * v1.3 redeploy (host-executed): pull main, reinstall when the lockfile changed, rebuild the web client,
- * optionally rebuild the desk image and recreate idle desks, then exit 75 so `scripts/serve.sh` restarts the server.
+ * optionally rebuild the desk image, drain (hold new work sessions and wait, up to `drainTimeoutMs`, for running ones
+ * to end), recreate idle desks, then exit 75 so `scripts/serve.sh` restarts the server.
  * Every step's start/end is a `system` event (output tail in the payload). Single-flight; runs in the background.
  */
 import { execFile } from "node:child_process";
@@ -32,6 +33,14 @@ export interface RedeployDeps {
   image: string;
   /** whether the agent has a live work session (its desk is left alone) */
   isWorking(agentId: string): boolean;
+  /** agent ids with a live work session (drain waits for this to be empty); default: none */
+  working?(): string[];
+  /** hold (true) or release (false) the scheduler's new work sessions while draining */
+  hold?(on: boolean): void;
+  /** how long the drain waits before restarting anyway (sessions still running are orphaned and re-queued at startup). Default 30 min. */
+  drainTimeoutMs?: number;
+  /** drain poll period. Default 5000. */
+  drainPollMs?: number;
   run?: CommandRunner;
   /** called with 75 after `exitDelayMs`; default process.exit (tests always inject one) */
   exit?: (code: number) => void;
@@ -55,6 +64,7 @@ export function makeRedeployer(deps: RedeployDeps): Redeployer {
   const exit = deps.exit ?? ((code: number) => process.exit(code));
   const cwd = deps.repoRoot;
   let flight: Promise<void> | null = null;
+  let held = false;
 
   const say = (text: string, payload: Record<string, unknown> = {}) =>
     deps.world.events.append({ type: "system", text, payload: { redeploy: true, ...payload } });
@@ -102,9 +112,29 @@ export function makeRedeployer(deps: RedeployDeps): Redeployer {
     // (c) web client
     if (!(await step("build web", "npm", ["run", "build", "--workspace", "@agent-town/web"], 600_000))) return;
 
-    // (d) desk image, then recreate idle desks (home volumes kept; a desk is recreated from the new image on next use)
+    // (d) desk image
+    if (o.image && !(await step("docker build desk image", "docker", ["build", "-t", deps.image, "-f", "packages/desk/Dockerfile", "."], 3_600_000))) return;
+
+    // (e) drain: no new work sessions; wait for the running ones to end (a restart would orphan them)
+    deps.hold?.(true);
+    held = true;
+    const working = () => deps.working?.() ?? [];
+    const names = (ids: string[]) => ids.map((id) => deps.world.agents.get(id)?.name ?? id).join(", ");
+    const timeoutMs = deps.drainTimeoutMs ?? 30 * 60_000;
+    let left = working();
+    if (left.length) {
+      say(`Redeploy: draining, waiting for ${left.length} session(s) to end: ${names(left)} (up to ${Math.round(timeoutMs / 60_000)} min)`, { step: "drain", phase: "start", working: left });
+      const until = Date.now() + timeoutMs;
+      while (left.length && Date.now() < until) {
+        await new Promise<void>((r) => setTimeout(r, Math.min(deps.drainPollMs ?? 5000, Math.max(1, until - Date.now()))));
+        left = working();
+      }
+      say(left.length ? `Redeploy: drain timed out, restarting anyway; still running (orphaned, re-queued at startup): ${names(left)}` : "Redeploy: drain … ok (no sessions running)",
+        { step: "drain", phase: "end", ok: !left.length, working: left });
+    }
+
+    // (f) recreate idle desks (home volumes kept; a desk is recreated from the new image on next use)
     if (o.image) {
-      if (!(await step("docker build desk image", "docker", ["build", "-t", deps.image, "-f", "packages/desk/Dockerfile", "."], 3_600_000))) return;
       const ps = await run("docker", ["ps", "-a", "--filter", `label=agent-town.collective=${deps.collective}`, "--filter", "label=agent-town.desk=1",
         "--format", '{{.Names}}\t{{.Label "agent-town.agent"}}'], { cwd, timeoutMs: 60_000 });
       const removed: string[] = [], kept: string[] = [];
@@ -118,7 +148,7 @@ export function makeRedeployer(deps: RedeployDeps): Redeployer {
       say(`Redeploy: removed ${removed.length} idle desk container(s)${kept.length ? `, kept ${kept.length}` : ""}`, { step: "recreate desks", phase: "end", ok: true, removed, kept });
     }
 
-    // (e) restart: give the HTTP response and the events a moment to flush
+    // (g) restart: give the HTTP response and the events a moment to flush
     say("Redeploy: restarting server", { step: "restart", phase: "end", ok: true });
     await new Promise<void>((r) => setTimeout(r, deps.exitDelayMs ?? 500));
     exit(RESTART_EXIT_CODE);
@@ -129,7 +159,11 @@ export function makeRedeployer(deps: RedeployDeps): Redeployer {
       if (flight) return { running: true };
       flight = go(o)
         .catch((e) => { say(`Redeploy: failed (${e instanceof Error ? e.message : String(e)})`, { ok: false }); })
-        .finally(() => { flight = null; });
+        .finally(() => {
+          flight = null;
+          // only reached without a real exit (failure, or tests): let the scheduler start sessions again
+          if (held) { held = false; deps.hold?.(false); }
+        });
       return { started: true };
     },
     running: () => !!flight,

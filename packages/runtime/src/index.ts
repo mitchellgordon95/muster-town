@@ -49,7 +49,7 @@ export interface RuntimeOptions {
   /** a stopped/banned agent's desk process gets this long to exit on its own before it is killed. Default 10000. */
   killGraceMs?: number;
   /** redeploy knobs (tests inject the command runner and `exit`; never the real process.exit) */
-  redeploy?: Pick<RedeployDeps, "run" | "exit" | "exitDelayMs">;
+  redeploy?: Pick<RedeployDeps, "run" | "exit" | "exitDelayMs" | "drainTimeoutMs" | "drainPollMs">;
 }
 
 export interface Runtime {
@@ -110,6 +110,8 @@ export function startRuntime(opts: RuntimeOptions): Runtime {
   let lastDate = localDate(now());
   let lastExport = startedAt;
   let stopped = false;
+  /** a redeploy is draining: no new work sessions */
+  let draining = false;
   const log = (what: string) => (e: unknown) => console.log(`[runtime] ${what}:`, e instanceof Error ? e.message : e);
 
   // A fresh runtime has no live children: running Session rows are orphans from a previous process, and their
@@ -217,6 +219,7 @@ export function startRuntime(opts: RuntimeOptions): Runtime {
   }
 
   function scheduleWork(): void {
+    if (draining) return;
     for (const a of world.agents.where("kind = 'resident' AND status = 'idle'", [], "ORDER BY createdAt")) {
       if (ctx.live.has(a.id) || starting.has(a.id)) continue;
       const next = world.assignments.first("agentId = ? AND status = 'pending'", [a.id], "ORDER BY createdAt, rowid");
@@ -265,6 +268,8 @@ export function startRuntime(opts: RuntimeOptions): Runtime {
   const redeployer = makeRedeployer({
     world, repoRoot: ctx.repoRoot, collective: dockerSafe(collectiveSlug), image: desks.image,
     isWorking: (agentId) => ctx.live.has(agentId) || starting.has(agentId),
+    working: () => [...new Set([...ctx.live.keys(), ...starting])],
+    hold: (on) => { draining = on; },
     ...opts.redeploy,
   });
   const redeploy = (o: RedeployRequest) => redeployer.redeploy(o);
