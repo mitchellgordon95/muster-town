@@ -126,6 +126,8 @@ export async function runSession(sessionId: string, deps: RunDeps): Promise<numb
             if (input.push(`Interrupt from ${i.from}: ${i.text}`)) log(`interrupt from ${i.from} injected`);
           }
           await town.ack(c.interrupts.map((i) => i.id));
+          // "send now": abort the current turn; the SDK keeps the queued message and runs it next
+          if (c.interrupts.some((i) => i.now) && !stopped) await q?.interrupt?.().catch(() => undefined);
         }
         if (c.stop && !stopped) {
           stopped = true;
@@ -200,7 +202,8 @@ export async function runSession(sessionId: string, deps: RunDeps): Promise<numb
       } else if (m.type === "result") {
         usage = usageOf(m);
         if (typeof m.result === "string" && m.result.trim()) finalText = m.result.trim();
-        if (m.is_error) error = m.errors?.join("; ") || m.subtype || "session ended with an error";
+        // a later turn that succeeds clears an earlier turn's error (e.g. one aborted by an interrupt-now)
+        error = m.is_error ? m.errors?.join("; ") || m.subtype || "session ended with an error" : null;
         log(`turn done (${usage.turns} turns, ${usage.tokens} tokens${m.is_error ? `, ${m.subtype ?? "error"}` : ""})`);
         // between turns: pick up queued interrupts / stop before deciding whether to finish
         if (!stopped && !reportSubmitted) await pollControl();
@@ -208,7 +211,6 @@ export async function runSession(sessionId: string, deps: RunDeps): Promise<numb
           input.close();
           break;
         }
-        if (!m.is_error) error = null; // a later turn recovered
       }
     }
   } catch (e) {

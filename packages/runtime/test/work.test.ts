@@ -142,6 +142,32 @@ describe("work session", () => {
     expect(await runtime.interrupt(noor.id, "too late")).toBe(false);
   });
 
+  test("interrupt now aborts the current turn; the message still runs next and the session ends done", async () => {
+    const thinking = deferred();
+    const { world, runtime, sdk, by } = setup(async function* (s) {
+      yield init();
+      yield text("Starting a long scan.");
+      thinking.resolve();
+      await vi.waitFor(() => { if (!s.interrupted) throw new Error("not yet"); });
+      yield { type: "result", subtype: "error_during_execution", is_error: true, errors: ["interrupted"], num_turns: 1, total_cost_usd: 0, session_id: "sdk-session-1", queued_turn_count: 1 };
+      const msg = await s.next();
+      yield text(`Switching: ${msg}`);
+      yield* callVerb(s, "submit_report", REPORT);
+      yield result(100, 0.01);
+    });
+    const noor = by("Noor");
+    const asg = world.ops.createWork(null, noor.id, {});
+    const running = runtime.runWorkSession(noor.id, asg.id);
+    await thinking.promise;
+    expect(await runtime.interrupt(noor.id, "Drop the scan", "Mitchell", true)).toBe(true);
+    const session = await running;
+    expect(sdk.sessions[0].interrupted).toBe(true);
+    expect(sdk.sessions[0].received[1]).toContain("Interrupt from Mitchell: Drop the scan");
+    expect(world.events.list({ agentId: noor.id, types: ["system"] }).find((e) => e.payload.interrupt)?.payload.now).toBe(true);
+    expect(session.status).toBe("done");
+    expect(session.error).toBeNull();
+  });
+
   test("stopping an agent mid-session aborts it and writes a stopped fallback report", async () => {
     const gate = deferred();
     const { world, runtime, sdk, by } = setup(async function* (s) {

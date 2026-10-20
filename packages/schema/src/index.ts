@@ -409,6 +409,8 @@ export const Interrupt = z.object({
   sessionId: Id.nullable().default(null),
   text: z.string(),
   from: z.string(),
+  /** abort the current turn and deliver at once, instead of waiting for the next turn boundary */
+  now: z.boolean().default(false),
   createdAt: Iso,
   deliveredAt: Iso.nullable().default(null),
 });
@@ -578,7 +580,7 @@ export const ChatInput = z.object({ message: z.string(), history: z.array(z.obje
 export const ReplyInput = z.object({ text: z.string().default("") });
 /** POST /api/docs/:id/ask: a question about a report, answered by a cheap-model proxy (not the author). */
 export const AskInput = z.object({ question: z.string().min(1), history: z.array(z.object({ role: z.enum(["user", "assistant"]), text: z.string() })).default([]) });
-export const InterruptInput = z.object({ text: z.string() });
+export const InterruptInput = z.object({ text: z.string(), now: z.boolean().optional() });
 export const WorkInput = z.object({ title: z.string().optional(), description: z.string().optional() });
 export const DonateInput = z.object({ tokens: z.number().int().positive(), buildingId: Id, apiKey: z.string().optional() });
 export const CreateMeetingInput = z.object({ kind: MeetingKind, buildingId: Id.nullable(), title: z.string().optional(), scheduledAt: Iso.optional(), agenda: z.string().optional(), startNow: z.boolean().default(false),
