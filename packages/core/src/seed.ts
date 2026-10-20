@@ -8,6 +8,8 @@ import { TOWN_HALL_ID } from "./world/layout.ts";
 import type { World } from "./world.ts";
 
 export const HOUSE_BUDGET_TOKENS = 50_000_000;
+/** The seed's house allocation is a placeholder until the owner enters real funding (see budget.retirePlaceholders). */
+export const HOUSE_LABEL = "House budget (placeholder)";
 
 export interface SeedOptions {
   /** admin display name (default env MUSTER_TOWN_ADMIN_NAME or "Mitchell") */
@@ -110,7 +112,7 @@ export function seedDefaults(world: World, opts: SeedOptions = {}): SeedResult {
       lab = world.importV0(opts.importDir, { creatorUserId: admin.id }).building;
       moss = createResident(world, { buildingId: lab.id, name: "Moss", title: "Reviewer", sprite: 7, direction: REVIEWER_DIRECTION });
       world.permissions.grant(moss, buildingRoleId(lab.id, "reviewer"));
-      world.budget.donate(admin.id, { tokens: opts.houseTokens ?? HOUSE_BUDGET_TOKENS, buildingId: lab.id });
+      world.budget.donate(admin.id, { tokens: opts.houseTokens ?? HOUSE_BUDGET_TOKENS, buildingId: lab.id, label: HOUSE_LABEL });
     }
     const moderators: Agent[] = [];
     if (opts.collectivePath && existsSync(opts.collectivePath)) {
@@ -142,7 +144,7 @@ export function seedDefaults(world: World, opts: SeedOptions = {}): SeedResult {
           world.permissions.grant(rev, buildingRoleId(b.id, "reviewer"));
           if (!moss) moss = rev;
         }
-        if (spec.houseTokens) world.budget.donate(admin.id, { tokens: spec.houseTokens, buildingId: b.id });
+        if (spec.houseTokens) world.budget.donate(admin.id, { tokens: spec.houseTokens, buildingId: b.id, label: HOUSE_LABEL });
         if (!lab) lab = b;
       }
       for (const m of cfg.moderators) moderators.push(createTownModerator(world, m));

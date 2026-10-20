@@ -39,21 +39,41 @@ function clipInput(v: unknown, depth = 0): unknown {
 
 const errMsg = (e: unknown) => (e instanceof Error ? e.message : String(e));
 
+/** An error that means the subscription is out of quota for now (the desk then fails over to the API key once). */
+export const SPEND_LIMIT = /spend limit|usage limit|rate.?limit|session limit resets|monthly spend/i;
+/** The API key to fail over to (both spellings for one release). Never passed to Claude Code itself. */
+export const FALLBACK_KEY_ENVS = ["AGENT_TOWN_FALLBACK_API_KEY", "MUSTER_TOWN_FALLBACK_API_KEY"] as const;
+const FUNDING = new Set(["subscription", "api-key", "donor-key"]);
+type FundingMode = "subscription" | "api-key" | "donor-key";
+
 /**
- * Env for the Claude Code process the SDK spawns. A subscription token (`CLAUDE_CODE_OAUTH_TOKEN`, from the town's
- * funding order) is passed through and wins: ANTHROPIC_API_KEY is dropped, since Claude Code prefers an API key
- * when both are set. Values are secrets: never log them.
+ * Env for the Claude Code process the SDK spawns. `DESK_AUTH` (the town's funding order) says which credential
+ * to use first: subscription → `CLAUDE_CODE_OAUTH_TOKEN` wins and ANTHROPIC_API_KEY is dropped (Claude Code prefers
+ * an API key when both are set); api-key / donor-key → the key wins and the token is dropped. The fallback key is
+ * never passed on; it comes back as `fallbackKey`. Values are secrets: never log them.
  */
-export function sessionEnv(env: NodeJS.ProcessEnv): { env: Record<string, string>; auth: string } {
+export function sessionEnv(env: NodeJS.ProcessEnv): { env: Record<string, string>; auth: string; fallbackKey: string | null } {
   const out: Record<string, string> = {};
   for (const [k, v] of Object.entries(env)) if (typeof v === "string") out[k] = v;
+  let fallbackKey: string | null = null;
+  for (const k of FALLBACK_KEY_ENVS) { fallbackKey ??= out[k] || null; delete out[k]; }
   const label = env.DESK_AUTH && env.DESK_AUTH !== "none" ? env.DESK_AUTH : null;
+  if ((label === "api-key" || label === "donor-key") && out.ANTHROPIC_API_KEY) {
+    delete out.CLAUDE_CODE_OAUTH_TOKEN;
+    return { env: out, auth: label, fallbackKey: null };
+  }
   if (out.CLAUDE_CODE_OAUTH_TOKEN) {
     delete out.ANTHROPIC_API_KEY;
-    return { env: out, auth: label ?? "subscription token" };
+    return { env: out, auth: label ?? "subscription token", fallbackKey };
   }
-  if (out.ANTHROPIC_API_KEY) return { env: out, auth: label ?? "api key" };
-  return { env: out, auth: "none (the CLI's own login, if any)" };
+  if (out.ANTHROPIC_API_KEY) return { env: out, auth: label ?? "api key", fallbackKey: null };
+  return { env: out, auth: "none (the CLI's own login, if any)", fallbackKey: null };
+}
+
+/** The SDK env for the failover rerun: the fallback API key, no subscription token. */
+export function failoverEnv(base: Record<string, string>, key: string): Record<string, string> {
+  const { CLAUDE_CODE_OAUTH_TOKEN: _t, ...rest } = base;
+  return { ...rest, ANTHROPIC_API_KEY: key };
 }
 
 export async function runSession(sessionId: string, deps: RunDeps): Promise<number> {
@@ -69,6 +89,9 @@ export async function runSession(sessionId: string, deps: RunDeps): Promise<numb
   let sdkSessionId: string | null = null;
   let reportSubmitted = false;
   let stopped = false;
+  /** the session hit the subscription's limit and reran on the fallback API key */
+  let fellBack = false;
+  let fundingUsed: FundingMode | null = env.DESK_AUTH && FUNDING.has(env.DESK_AUTH) ? env.DESK_AUTH as FundingMode : null;
 
   const endSession = async (): Promise<void> => {
     const body: DeskSessionEndInput = {
@@ -80,10 +103,12 @@ export async function runSession(sessionId: string, deps: RunDeps): Promise<numb
       ...(sdkSessionId ? { sdkSessionId } : {}),
       ...(finalText ? { finalText } : {}),
       ...(error && !stopped ? { error } : {}),
+      ...(fundingUsed ? { fundingUsed } : {}),
+      ...(fellBack ? { fallback: true } : {}),
     };
     try {
       await town.sessionEnd(body);
-      log(`session-end posted (tokens ${body.tokens}, turns ${body.turns}, report ${reportSubmitted ? "yes" : "no"}${stopped ? ", stopped" : ""})`);
+      log(`session-end posted (tokens ${body.tokens}, turns ${body.turns}, report ${reportSubmitted ? "yes" : "no"}${stopped ? ", stopped" : ""}${fellBack ? ", API-key fallback" : ""})`);
     } catch (e) {
       log(`session-end failed: ${errMsg(e)}`);
     }
@@ -124,7 +149,7 @@ export async function runSession(sessionId: string, deps: RunDeps): Promise<numb
   const post = (a: Omit<DeskActivityInput, "session">) => buffer.push({ session: sessionId, ...a });
   const flushTimer = setInterval(() => void flush(), flushMs);
 
-  const input = new InputChannel();
+  let input = new InputChannel();
   let q: QueryHandle | null = null;
 
   // ---- 8. control polling ----
@@ -184,50 +209,81 @@ export async function runSession(sessionId: string, deps: RunDeps): Promise<numb
       settingSources: [],
     };
     const se = sessionEnv(env);
-    options.env = se.env;
     log(`auth: ${se.auth}`);
-    input.push(brief.prompt);
-    log(`query: model ${options.model}, maxTurns ${options.maxTurns}, cwd ${cwd}`);
-    q = sdk.query({ prompt: input, options });
 
-    const reportCalls = new Set<string>();
-    let toolsAfterReport = 0;
-    for await (const raw of q) {
-      const m = raw as LooseMessage;
-      if (m.session_id && !sdkSessionId) sdkSessionId = m.session_id;
-      if (m.type === "assistant") {
-        for (const b of blocksOf(m)) {
-          if (b.type === "tool_use" && b.name) {
-            post({ kind: "tool", tool: b.name, input: clipInput(b.input ?? {}) });
-            if (b.name === SUBMIT_REPORT && b.id) reportCalls.add(b.id);
-            if (reportSubmitted && ++toolsAfterReport > 2) void q.interrupt?.().catch(() => undefined);
-          } else if (b.type === "text" && b.text?.trim()) {
-            const t = b.text.trim();
-            finalText = t;
-            post({ kind: "thought", text: t.length > THOUGHT_CHARS ? t.slice(0, THOUGHT_CHARS - 1) + "…" : t });
+    /** one run of the whole session (the failover reruns it); returns the error text a limit check reads */
+    const attempt = async (sdkEnv: Record<string, string>, prior: Usage): Promise<string> => {
+      input = new InputChannel();
+      input.push(brief.prompt);
+      log(`query: model ${options.model}, maxTurns ${options.maxTurns}, cwd ${cwd}`);
+      const query = sdk.query({ prompt: input, options: { ...options, env: sdkEnv } });
+      q = query;
+      const reportCalls = new Set<string>();
+      let toolsAfterReport = 0;
+      let detail = "";
+      try {
+        for await (const raw of query) {
+          const m = raw as LooseMessage;
+          if (m.session_id && !sdkSessionId) sdkSessionId = m.session_id;
+          if (m.type === "assistant") {
+            for (const b of blocksOf(m)) {
+              if (b.type === "tool_use" && b.name) {
+                post({ kind: "tool", tool: b.name, input: clipInput(b.input ?? {}) });
+                if (b.name === SUBMIT_REPORT && b.id) reportCalls.add(b.id);
+                if (reportSubmitted && ++toolsAfterReport > 2) void query.interrupt?.().catch(() => undefined);
+              } else if (b.type === "text" && b.text?.trim()) {
+                const t = b.text.trim();
+                finalText = t;
+                if (m.error) detail += ` ${t}`;
+                post({ kind: "thought", text: t.length > THOUGHT_CHARS ? t.slice(0, THOUGHT_CHARS - 1) + "…" : t });
+              }
+            }
+          } else if (m.type === "user") {
+            for (const b of blocksOf(m)) {
+              if (b.type === "tool_result" && b.tool_use_id && reportCalls.has(b.tool_use_id) && !b.is_error && !reportSubmitted) {
+                reportSubmitted = true;
+                log("report submitted");
+                input.close(); // the session ends after submit_report
+              }
+            }
+          } else if (m.type === "result") {
+            const u = usageOf(m);
+            usage = { tokens: prior.tokens + u.tokens, costUsd: prior.costUsd + u.costUsd, turns: prior.turns + u.turns };
+            if (typeof m.result === "string" && m.result.trim()) finalText = m.result.trim();
+            // a later turn that succeeds clears an earlier turn's error (e.g. one aborted by an interrupt-now)
+            error = m.is_error ? m.errors?.join("; ") || m.subtype || "session ended with an error" : null;
+            detail = m.is_error ? `${error} ${typeof m.result === "string" ? m.result : ""} ${finalText}` : "";
+            log(`turn done (${usage.turns} turns, ${usage.tokens} tokens${m.is_error ? `, ${m.subtype ?? "error"}` : ""})`);
+            // between turns: pick up queued interrupts / stop before deciding whether to finish
+            if (!stopped && !reportSubmitted) await pollControl();
+            if (stopped || reportSubmitted || (input.pending === 0 && !(m.queued_turn_count && m.queued_turn_count > 0))) {
+              input.close();
+              break;
+            }
           }
         }
-      } else if (m.type === "user") {
-        for (const b of blocksOf(m)) {
-          if (b.type === "tool_result" && b.tool_use_id && reportCalls.has(b.tool_use_id) && !b.is_error && !reportSubmitted) {
-            reportSubmitted = true;
-            log("report submitted");
-            input.close(); // the session ends after submit_report
-          }
-        }
-      } else if (m.type === "result") {
-        usage = usageOf(m);
-        if (typeof m.result === "string" && m.result.trim()) finalText = m.result.trim();
-        // a later turn that succeeds clears an earlier turn's error (e.g. one aborted by an interrupt-now)
-        error = m.is_error ? m.errors?.join("; ") || m.subtype || "session ended with an error" : null;
-        log(`turn done (${usage.turns} turns, ${usage.tokens} tokens${m.is_error ? `, ${m.subtype ?? "error"}` : ""})`);
-        // between turns: pick up queued interrupts / stop before deciding whether to finish
-        if (!stopped && !reportSubmitted) await pollControl();
-        if (stopped || reportSubmitted || (input.pending === 0 && !(m.queued_turn_count && m.queued_turn_count > 0))) {
-          input.close();
-          break;
-        }
+      } catch (e) {
+        error = errMsg(e);
+        detail = `${error} ${detail} ${finalText}`;
+        log(`session error: ${error}`);
+      } finally {
+        input.close();
       }
+      return detail;
+    };
+
+    const detail = await attempt(se.env, usage);
+    // ---- failover: the subscription hit its spend limit → rerun the session once on the API key ----
+    if (error && !stopped && !reportSubmitted && se.fallbackKey && SPEND_LIMIT.test(`${error} ${detail}`)) {
+      log("subscription limit hit; retrying on the API key");
+      post({ kind: "status", text: "Switching to API-key funding (subscription limit)" });
+      await flush();
+      fellBack = true;
+      fundingUsed = "api-key";
+      error = null;
+      finalText = "";
+      sdkSessionId = null;
+      await attempt(failoverEnv(se.env, se.fallbackKey), usage);
     }
   } catch (e) {
     error = errMsg(e);

@@ -17,7 +17,8 @@ import { abortWork, finishWorkSession, interrupt, maybeReview, runWorkSession, t
 export { describeTool } from "./describe.ts";
 export { prompts } from "@muster-town/core";
 export { DockerBackend, HostBackend, realDockerRunner, type DeskBackend, type DeskChild, type DeskHandle, type DockerRunner, type RunResult, type SpawnedChild, type WorkBackend, type LineSink } from "./desk/backend.ts";
-export { deskAuth, deskEnv, portOf, type DeskAuthMode, type DeskSessionOptions } from "./desk/session.ts";
+export { deskAuth, deskEnv, portOf, FALLBACK_KEY_ENV, type DeskAuthMode, type DeskSessionOptions } from "./desk/session.ts";
+export { fundingFor, fundedBy, type Funding } from "./session.ts";
 export { type WorkOutcome } from "./work.ts";
 export { makeRedeployer, realCommandRunner, RESTART_EXIT_CODE, type CmdResult, type CommandRunner, type RedeployDeps, type RedeployRequest, type Redeployer } from "./redeploy.ts";
 export { InputChannel, oneShot, realSdk, usageOf, userMessage, type QueryHandle, type QueryParams, type Sdk } from "./sdk.ts";
@@ -106,7 +107,7 @@ export function startRuntime(opts: RuntimeOptions): Runtime {
     return p;
   };
   const desks = DesksConfig.parse({ ...world.desksConfig(), ...opts.desks });
-  const ctx: Ctx = { world, mcpUrl: opts.mcpUrl, repoRoot: opts.repoRoot ?? process.cwd(), desks, now, sdk: opts.sdk ?? realSdk, live: new Map(), deskAllocations: new Map(), track };
+  const ctx: Ctx = { world, mcpUrl: opts.mcpUrl, repoRoot: opts.repoRoot ?? process.cwd(), desks, now, sdk: opts.sdk ?? realSdk, live: new Map(), deskAllocations: new Map(), deskFallbacks: new Map(), track };
   const killGraceMs = opts.killGraceMs ?? 10_000;
   const starting = new Set<string>();
   const reviewed = new Set<string>();

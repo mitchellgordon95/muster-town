@@ -164,6 +164,14 @@ export const Building = z.object({
 });
 export type Building = z.infer<typeof Building>;
 
+/**
+ * How an allocation's sessions authenticate: `subscription` runs on the owner's Claude subscription
+ * (CLAUDE_CODE_OAUTH_TOKEN), `api-key` on the collective's ANTHROPIC_API_KEY (paid per use), `donor-key`
+ * on the donor's own stored key. Sessions draw subscription first, then donor-key, then api-key.
+ */
+export const AllocationAuth = z.enum(["subscription", "api-key", "donor-key"]);
+export type AllocationAuth = z.infer<typeof AllocationAuth>;
+
 /** Donated tokens allocated to a building from a user's donation. */
 export const Allocation = z.object({
   id: Id,
@@ -173,6 +181,11 @@ export const Allocation = z.object({
   spentTokens: z.number().int().nonnegative().default(0),
   spentUsd: z.number().nonnegative().default(0),
   createdAt: Iso,
+  auth: AllocationAuth.default("api-key"),
+  /** what it is, in the donor's words (e.g. "Mitchell's Claude subscription, October") */
+  label: z.string().default(""),
+  /** retired: kept for its spend history, but never drawn from and left out of the building's budget */
+  retired: z.boolean().default(false),
 });
 export type Allocation = z.infer<typeof Allocation>;
 
@@ -493,6 +506,8 @@ export const Session = z.object({
   error: z.string().nullable().default(null),
   startedAt: Iso,
   endedAt: Iso.nullable().default(null),
+  /** how the session was paid for (a desk that fails over from the subscription ends as `api-key`) */
+  funding: AllocationAuth.nullish(),
 });
 export type Session = z.infer<typeof Session>;
 
@@ -749,7 +764,11 @@ export const InterruptInput = z.object({ text: z.string(), now: z.boolean().opti
 /** POST /api/agents/:id/message: a human messages an agent (a `tell` from their avatar). `now` (default true) interrupts a working agent; false leaves it in the inbox. */
 export const MessageAgentInput = z.object({ text: z.string().trim().min(1), now: z.boolean().default(true) });
 export const WorkInput = z.object({ title: z.string().optional(), description: z.string().optional(), waitFor: WaitFor.optional() });
-export const DonateInput = z.object({ tokens: z.number().int().positive(), buildingId: Id, apiKey: z.string().optional() });
+/**
+ * POST /api/donate. `auth` defaults to donor-key when the donor gives (or has stored) their own key, else api-key.
+ * `subscription` and `api-key` spend the town's own credentials, so they need admin or town.allocate_budget.
+ */
+export const DonateInput = z.object({ tokens: z.number().int().positive(), buildingId: Id, apiKey: z.string().optional(), auth: AllocationAuth.optional(), label: z.string().max(200).optional() });
 /** POST /api/bank/inputs. `apiKey` is required for source `api-key`; a subscription is daily and needs `weeklyCapTokens`. */
 export const AddBankInput = z.object({
   label: z.string().min(1),
@@ -908,6 +927,10 @@ export const DeskSessionEndInput = z.object({
   finalText: z.string().nullable().optional(),
   error: z.string().nullable().optional(),
   reportSubmitted: z.boolean().default(false),
+  /** what actually paid: `api-key` with `fallback` when the desk failed over from the subscription */
+  fundingUsed: AllocationAuth.optional(),
+  /** the desk hit the subscription's spend limit and reran the session on the fallback API key */
+  fallback: z.boolean().optional(),
 });
 export type DeskSessionEndInput = z.infer<typeof DeskSessionEndInput>;
 

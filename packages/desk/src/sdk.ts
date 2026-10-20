@@ -92,6 +92,8 @@ export interface LooseMessage {
   usage?: Record<string, number | null | undefined>;
   modelUsage?: Record<string, { inputTokens?: number; outputTokens?: number; cacheReadInputTokens?: number; cacheCreationInputTokens?: number; costUSD?: number }>;
   queued_turn_count?: number;
+  /** assistant messages: set when the turn is an API error (e.g. rate_limit, billing_error); the text says why */
+  error?: string;
 }
 
 export interface Usage { tokens: number; costUsd: number; turns: number }

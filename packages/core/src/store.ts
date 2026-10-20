@@ -124,7 +124,7 @@ export function createRepos(db: DB, changes: Emitter<ServerMessage>) {
     roles: new Table<Role>(db, "roles", Role, { json: ["permissions"], bool: ["builtin"] }),
     memberships: new Memberships(db),
     buildings: new Table<Building>(db, "buildings", Building, { json: ["meetings", "lot", "workspace", "furniture"] }, (building) => changes.emit({ type: "building", building })),
-    allocations: new Table<Allocation>(db, "allocations", Allocation),
+    allocations: new Table<Allocation>(db, "allocations", Allocation, { bool: ["retired"] }),
     bankInputs: new BankInputs(db),
     bankCredits: new Table<BankCredit>(db, "bank_credits", BankCredit),
     bankShares: new Table<BankShare>(db, "bank_shares", BankShare, { key: "buildingId" }),

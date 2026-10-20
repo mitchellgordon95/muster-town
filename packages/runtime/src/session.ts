@@ -4,7 +4,7 @@
  */
 import type { DesksConfig } from "@muster-town/schema";
 import type { World } from "@muster-town/core";
-import { VERB_NAMES, type Session } from "@muster-town/schema";
+import { VERB_NAMES, type AllocationAuth, type Session } from "@muster-town/schema";
 import { describeTool } from "./describe.ts";
 import { blocksOf, InputChannel, sessionEnv, usageOf, type LooseMessage, type Options, type QueryHandle, type Sdk, type Usage } from "./sdk.ts";
 
@@ -19,6 +19,8 @@ export interface Ctx {
   live: Map<string, LiveSession>;
   /** desk sessions' funding allocation, by sessionId (charged in finishWorkSession) */
   deskAllocations: Map<string, string | null>;
+  /** desk sessions' fallback allocation (charged instead when the desk failed over to the API key), by sessionId */
+  deskFallbacks: Map<string, string | null>;
   /** register background work so tests (and stop()) can await it */
   track<T>(p: Promise<T>): Promise<T>;
 }
@@ -87,16 +89,47 @@ export function chargeUsage(world: World, agentId: string, u: Usage, allocationI
   }
 }
 
+/** How a session is paid for. `auth` null: nothing funds it (no allocation, no Bank share); the env's own login is used. */
+export interface Funding {
+  allocationId: string | null;
+  auth: AllocationAuth | null;
+  /** the API key to run on (donor-key: the donor's; api-key: the input's or the env's ANTHROPIC_API_KEY); null for the subscription */
+  apiKey: string | null;
+  /** subscription sessions: the donor-key / api-key allocation a desk fails over to when the subscription hits its spend limit */
+  fallback?: { allocationId: string; apiKey: string };
+}
+
 /**
- * Funding for an agent's next session: the building's Bank share first (today's subscription share runs on the
- * server's own login; the durable share on the oldest API-key input), else an allocation and its donor's key.
+ * Funding for an agent's next session, in order: the building's subscription allocations → its Bank share (today's
+ * subscription share runs on the server's own login; the durable share on the oldest API-key input) → donor-key
+ * allocations → api-key allocations (the env's ANTHROPIC_API_KEY). Retired allocations are never picked. A subscription
+ * funding carries a `fallback` (the first donor-key / api-key allocation with tokens left) when its key is known.
  */
-export function fundingFor(world: World, agentId: string): { allocationId: string | null; apiKey: string | null } {
+export function fundingFor(world: World, agentId: string, env: NodeJS.ProcessEnv = process.env): Funding {
   const bid = homeOf(world, agentId);
-  const bank = bid ? world.bank.fundingFor(bid) : null;
-  if (bank) return { allocationId: null, apiKey: bank.kind === "durable" && bank.inputId ? world.bank.apiKeyFor(bank.inputId) : null };
-  const alloc = bid ? world.budget.pickAllocation(bid) : null;
-  return { allocationId: alloc?.id ?? null, apiKey: alloc ? world.budget.apiKeyFor(alloc) : null };
+  if (!bid) return { allocationId: null, auth: null, apiKey: null };
+  const envKey = env.ANTHROPIC_API_KEY || null;
+  const withFallback = (f: Funding): Funding => {
+    if (f.auth !== "subscription") return f;
+    const fb = world.budget.fallbackAllocation(bid);
+    const key = fb ? world.budget.apiKeyFor(fb) ?? envKey : null;
+    return fb && key ? { ...f, fallback: { allocationId: fb.id, apiKey: key } } : f;
+  };
+  const sub = world.budget.pickAllocation(bid, ["subscription"]);
+  if (sub) return withFallback({ allocationId: sub.id, auth: "subscription", apiKey: null });
+  const bank = world.bank.fundingFor(bid);
+  if (bank) {
+    if (bank.kind === "expiring") return withFallback({ allocationId: null, auth: "subscription", apiKey: null });
+    return { allocationId: null, auth: "api-key", apiKey: (bank.inputId ? world.bank.apiKeyFor(bank.inputId) : null) ?? envKey };
+  }
+  const alloc = world.budget.pickAllocation(bid);
+  if (!alloc) return { allocationId: null, auth: null, apiKey: null };
+  return { allocationId: alloc.id, auth: alloc.auth, apiKey: alloc.auth === "donor-key" ? world.budget.apiKeyFor(alloc) : envKey };
+}
+
+/** "funded by subscription" / "funded by API key" / "funded by a donor's API key", for status lines. */
+export function fundedBy(auth: AllocationAuth | null | undefined): string {
+  return auth === "subscription" ? "funded by subscription" : auth === "donor-key" ? "funded by a donor's API key" : auth === "api-key" ? "funded by API key" : "unfunded";
 }
 
 export function townOptions(ctx: Ctx, spec: SessionSpec, apiKey: string | null): Options {
@@ -125,7 +158,7 @@ export async function runAgentSession(ctx: Ctx, spec: SessionSpec): Promise<Sess
   const agent = world.agents.require(spec.agentId, "agent");
   const bid = homeOf(world, agent.id);
   const funding = fundingFor(world, agent.id);
-  const session = world.ops.startSession(agent.id, { purpose: spec.purpose, model: spec.model, assignmentId: spec.assignmentId ?? null, meetingId: spec.meetingId ?? null, backend: "host" });
+  const session = world.ops.startSession(agent.id, { purpose: spec.purpose, model: spec.model, assignmentId: spec.assignmentId ?? null, meetingId: spec.meetingId ?? null, backend: "host", funding: funding.auth });
   const live: LiveSession = { kind: "host", agentId: agent.id, sessionId: session.id, purpose: spec.purpose, input: new InputChannel(), q: null, reportSubmitted: false, stopped: false };
   if (spec.purpose === "work") ctx.live.set(agent.id, live);
   const emit = (type: "agent.tool" | "agent.thought" | "system", text: string, payload: Record<string, unknown> = {}) =>

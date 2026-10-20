@@ -20,7 +20,12 @@ export interface BankBuildingShare {
   durableTokens: number;
   /** unspent tokens donated straight to this building (not part of the Bank; only this building draws them) */
   heldTokens: number;
+  /** heldTokens by how they're paid for (retired allocations left out) */
+  heldByAuth: HeldByAuth;
 }
+
+/** Unspent allocation tokens by funding mode. */
+export interface HeldByAuth { subscription: number; apiKey: number; donorKey: number }
 
 /** Someone who has put tokens into the town: through Bank inputs, or donated straight to a building. */
 export interface BankContributor {
@@ -42,6 +47,8 @@ export interface BankSummary {
   durableTokens: number;
   /** unspent tokens donated straight to buildings: outside the Bank's balance, but still the town's */
   heldTokens: number;
+  /** heldTokens split by funding mode: subscription vs the town's API key vs donors' own keys */
+  heldByAuth: HeldByAuth;
   /** balanceTokens + heldTokens: everything the town can still spend */
   townTokens: number;
   creditedTokens: number;
@@ -288,12 +295,22 @@ export class Bank {
     const now = new Date();
     const pools = this.pools(now);
     const shares = this.shares();
-    const held = new Map<string, number>();
-    for (const a of this.repos.allocations.all()) held.set(a.buildingId, (held.get(a.buildingId) ?? 0) + Math.max(0, a.tokens - a.spentTokens));
-    const heldTokens = [...held.values()].reduce((s, t) => s + t, 0);
+    const held = new Map<string, HeldByAuth>();
+    const total: HeldByAuth = { subscription: 0, apiKey: 0, donorKey: 0 };
+    const key = { subscription: "subscription", "api-key": "apiKey", "donor-key": "donorKey" } as const;
+    for (const a of this.repos.allocations.where("retired = 0")) {
+      const h = held.get(a.buildingId) ?? { subscription: 0, apiKey: 0, donorKey: 0 };
+      const left = Math.max(0, a.tokens - a.spentTokens);
+      h[key[a.auth]] += left;
+      total[key[a.auth]] += left;
+      held.set(a.buildingId, h);
+    }
+    const sum = (h?: HeldByAuth) => (h ? h.subscription + h.apiKey + h.donorKey : 0);
+    const heldTokens = sum(total);
     return {
       balanceTokens: pools.expiring + pools.durable,
       heldTokens,
+      heldByAuth: total,
       townTokens: pools.expiring + pools.durable + heldTokens,
       expiringTokens: pools.expiring,
       durableTokens: pools.durable,
@@ -303,7 +320,7 @@ export class Bank {
       buildings: this.repos.buildings.all().map((b) => {
         const s = shares.get(b.id) ?? { pct: 0, explicit: false };
         const a = this.available(b.id, now);
-        return { buildingId: b.id, name: b.name, pct: Math.round(s.pct * 100) / 100, explicit: s.explicit, expiringTokens: a.expiring, durableTokens: a.durable, heldTokens: held.get(b.id) ?? 0 };
+        return { buildingId: b.id, name: b.name, pct: Math.round(s.pct * 100) / 100, explicit: s.explicit, expiringTokens: a.expiring, durableTokens: a.durable, heldTokens: sum(held.get(b.id)), heldByAuth: held.get(b.id) ?? { subscription: 0, apiKey: 0, donorKey: 0 } };
       }),
       contributors: this.contributors(),
     };

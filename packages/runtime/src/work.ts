@@ -1,6 +1,6 @@
 /** Resident work sessions (host backend + shared end-of-session logic), interrupts, and reviewer sessions over the in-tray. */
 import { AppError, buildingRoleId, createDoc, fallbackReportBody, latestReportOf, reviewPrompt, reviewSystemPrompt, setAssignmentStatus, workPrompt, workSystemPrompt } from "@muster-town/core";
-import type { Agent, Assignment, Building, Doc, Session } from "@muster-town/schema";
+import type { Agent, AllocationAuth, Assignment, Building, Doc, Session } from "@muster-town/schema";
 import { chargeUsage, fundingFor, homeOf, runAgentSession, type Ctx } from "./session.ts";
 
 const REVIEW_MAX_TURNS = 10;
@@ -69,6 +69,10 @@ export interface WorkOutcome {
   reportSubmitted?: boolean;
   /** the runtime aborted it (agent stopped/banned/retired or runtime shutdown) */
   stopped?: boolean;
+  /** what actually paid for it (desk session-end) */
+  fundingUsed?: AllocationAuth;
+  /** the desk failed over from the subscription to the fallback API key: charge the fallback allocation */
+  fallback?: boolean;
 }
 
 /**
@@ -112,12 +116,18 @@ export async function finishWorkSession(ctx: Ctx, sessionId: string, o: WorkOutc
     }
   }
   const status: Exclude<Session["status"], "running"> = stopped ? "interrupted" : error ? "error" : "done";
-  const ended = world.ops.endSession(sessionId, { status, ...usage, error, sdkSessionId: o.sdkSessionId ?? null });
+  const funding = o.fundingUsed ?? (o.fallback ? "api-key" : undefined);
+  const ended = world.ops.endSession(sessionId, { status, ...usage, error, sdkSessionId: o.sdkSessionId ?? null, funding });
   // stamp the session's usage onto the report it produced (submitted or fallback)
   const report = ended.reportId ? world.docs.get(ended.reportId) : undefined;
   if (report && report.sessionId === sessionId) world.docs.patch(report.id, { tokens: usage.tokens, costUsd: usage.costUsd, turns: usage.turns });
-  chargeUsage(world, agentId, usage, allocationId !== undefined ? allocationId : ctx.deskAllocations.get(sessionId) ?? fundingFor(world, agentId).allocationId);
+  // the allocation that actually funded it: the fallback one when the desk failed over from the subscription
+  const charged = o.fallback
+    ? ctx.deskFallbacks.get(sessionId) ?? (bid ? world.budget.fallbackAllocation(bid)?.id ?? null : null)
+    : allocationId !== undefined ? allocationId : ctx.deskAllocations.has(sessionId) ? ctx.deskAllocations.get(sessionId) ?? null : fundingFor(world, agentId).allocationId;
+  chargeUsage(world, agentId, usage, charged);
   ctx.deskAllocations.delete(sessionId);
+  ctx.deskFallbacks.delete(sessionId);
   return ended;
 }
 

@@ -144,11 +144,51 @@ export async function townRoutes(app: FastifyInstance) {
   });
 
   // ---- budget ----
+  /** Admins and holders of town.allocate_budget may fund buildings with the town's own credentials (subscription, API key). */
+  const canAllocate = (req: FastifyRequest) => {
+    const a = requireAuth(req);
+    const holder = a.kind === "user" ? { kind: "user" as const, id: a.user.id } : world.agents.require(a.agent.id, "agent");
+    return world.permissions.isAdmin(holder) || world.permissions.can(holder, "town.allocate_budget");
+  };
+
   app.post("/api/donate", async (req, reply) => {
     const user = requireUser(req);
     const input = parse(DonateInput, req.body);
-    const allocation = world.budget.donate(user.id, input);
+    // without an explicit auth: donor-key when the donor gives or has a key, else the town's API key
+    const auth = input.auth ?? (input.apiKey || world.users.require(user.id).hasApiKey ? "donor-key" : "api-key");
+    if (auth !== "donor-key" && !canAllocate(req)) {
+      throw new AppError("forbidden", auth === "subscription"
+        ? "Only an admin can fund a building from the subscription."
+        : "Only an admin can fund a building from the town's API key; donate with your own key instead.");
+    }
+    const allocation = world.budget.donate(user.id, { ...input, auth });
     return reply.code(201).send({ allocation });
+  });
+
+  /** A building's allocations (retired ones too, for their history), newest first, each with what's left. */
+  app.get<{ Querystring: { buildingId?: string } }>("/api/allocations", async (req) => {
+    const bid = req.query.buildingId;
+    const rows = bid ? world.budget.allocationsOf(bid) : world.allocations.all("ORDER BY createdAt DESC, rowid DESC");
+    return {
+      allocations: rows.map((a) => ({ ...a, remainingTokens: a.retired ? 0 : Math.max(0, a.tokens - a.spentTokens), userName: world.users.get(a.userId)?.name ?? a.userId })),
+    };
+  });
+
+  /** Retire an allocation: never drawn from again and out of the building's budget; its spend history stays. */
+  app.post<{ Params: Params }>("/api/allocations/:id/retire", async (req) => {
+    if (!canAllocate(req)) throw new AppError("forbidden", "Only an admin can retire an allocation.");
+    return { allocation: world.budget.retire(req.params.id, actorOf(world, req).name) };
+  });
+
+  /**
+   * Retire the placeholder allocations (labelled house/placeholder, plus `ids`; with `unlabelled`, every unlabelled
+   * non-donor allocation from before labels existed). `dryRun` lists them without retiring. Admin only.
+   */
+  app.post("/api/allocations/retire-placeholders", async (req) => {
+    const a = requireAuth(req);
+    if (a.kind !== "user" || !world.permissions.isAdmin({ kind: "user", id: a.user.id })) throw new AppError("forbidden", "Only an admin can retire placeholder allocations.");
+    const body = parse(z.object({ ids: z.array(z.string()).default([]), unlabelled: z.boolean().default(false), dryRun: z.boolean().default(false) }), req.body ?? {});
+    return { allocations: world.budget.retirePlaceholders({ ...body, byName: actorOf(world, req).name }), dryRun: body.dryRun };
   });
 
   app.get("/api/budget", async () => {

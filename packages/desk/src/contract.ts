@@ -54,5 +54,8 @@ export const DeskSessionEndInput = z.object({
   finalText: z.string().optional(),
   error: z.string().optional(),
   reportSubmitted: z.boolean(),
+  /** what paid: `api-key` with `fallback` when the subscription hit its limit and the session reran on the API key */
+  fundingUsed: z.enum(["subscription", "api-key", "donor-key"]).optional(),
+  fallback: z.boolean().optional(),
 });
 export type DeskSessionEndInput = z.infer<typeof DeskSessionEndInput>;

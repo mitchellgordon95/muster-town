@@ -4,7 +4,7 @@
  */
 import type { z } from "zod";
 import type {
-  Agent, Assignment, AuthMe, Building, ClientMessage, Doc, Event, Lot, Meeting, Place, Role, Membership, Tile,
+  Agent, Allocation, Assignment, AuthMe, Building, ClientMessage, Doc, Event, Lot, Meeting, Place, Role, Membership, Tile,
   ServerMessage, Session, Town, CreateBuildingInput, UpdateBuildingInput, CreateResidentInput,
   ReviewInput, ChatInput, WorkInput, DonateInput, AddBankInput, BankInput, CreateMeetingInput, DocState, DocType, Mailbox, Permission,
 } from "@muster-town/schema";
@@ -51,8 +51,12 @@ export interface Budget {
   buildings: { buildingId: string; allocated: number; spent: number; spentUsd?: number }[];
   users: { userId: string; name?: string; donated: number }[];
 }
+/** Unspent allocation tokens by funding mode (retired allocations left out). */
+export interface HeldByAuth { subscription: number; apiKey: number; donorKey: number }
+/** `GET /api/allocations?buildingId=`: a building's allocations (retired ones too), newest first. */
+export type AllocationRow = Allocation & { remainingTokens: number; userName: string };
 /** `GET /api/bank` — core's BankSummary: the pools, the inputs, each building's share, and the top contributors. */
-export interface BankBuildingShare { buildingId: string; name: string; pct: number; explicit: boolean; expiringTokens: number; durableTokens: number; heldTokens: number }
+export interface BankBuildingShare { buildingId: string; name: string; pct: number; explicit: boolean; expiringTokens: number; durableTokens: number; heldTokens: number; heldByAuth?: HeldByAuth }
 export interface BankContributor { userId: string; name: string; tokens: number; bankTokens: number; donatedTokens: number }
 export interface Bank {
   balanceTokens: number;
@@ -62,6 +66,8 @@ export interface Bank {
   durableTokens: number;
   /** unspent tokens donated straight to buildings (outside the Bank's balance) */
   heldTokens: number;
+  /** heldTokens by funding mode (older servers leave it out) */
+  heldByAuth?: HeldByAuth;
   /** balanceTokens + heldTokens */
   townTokens: number;
   creditedTokens: number;
@@ -163,6 +169,10 @@ export interface Api {
   assignRole(m: Membership): Promise<void>;
   unassignRole(m: Membership): Promise<void>;
   donate(input: In<typeof DonateInput>): Promise<void>;
+  /** a building's allocations, retired ones included */
+  allocations(buildingId: string): Promise<AllocationRow[]>;
+  /** admin / town.allocate_budget: stop drawing from an allocation (its spend history stays) */
+  retireAllocation(id: string): Promise<Allocation>;
   budget(): Promise<Budget>;
   bank(): Promise<Bank>;
   addBankInput(input: In<typeof AddBankInput>): Promise<BankInput>;
@@ -297,6 +307,8 @@ export class HttpApi implements Api {
   async assignRole(m: Membership) { await this.post("/api/roles/assign", m); }
   async unassignRole(m: Membership) { await this.call("DELETE", "/api/roles/assign", m); }
   async donate(i: In<typeof DonateInput>) { await this.post("/api/donate", i); }
+  async allocations(buildingId: string) { return (await this.get<{ allocations?: AllocationRow[] }>(`/api/allocations${qs({ buildingId })}`)).allocations ?? []; }
+  async retireAllocation(id: string) { return unwrap<Allocation>(await this.post(`/api/allocations/${id}/retire`), "allocation"); }
   async budget() {
     const r = await this.get<Partial<Budget>>("/api/budget");
     return { buildings: r.buildings ?? [], users: r.users ?? [] };

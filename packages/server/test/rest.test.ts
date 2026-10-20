@@ -254,6 +254,44 @@ describe("meetings, roles, budget, events, human moves", () => {
     expect((await json(app, "POST", "/api/meetings", { headers: auth, body: { kind: "retro", buildingId: "carbon-cycle", attendeeIds: [] } })).status).toBe(400);
   });
 
+  it("donate takes auth and label; town credentials and retiring need admin or town.allocate_budget", async () => {
+    const { app, auth, world } = await setup();
+    const sub = await json(app, "POST", "/api/donate", { headers: auth, body: { tokens: 5000, buildingId: "carbon-cycle", auth: "subscription", label: "Mitchell's Claude subscription, October" } });
+    expect(sub.status).toBe(201);
+    expect(sub.body.allocation).toMatchObject({ auth: "subscription", label: "Mitchell's Claude subscription, October", retired: false });
+
+    const { user, token } = world.ops.createUser("Guest");
+    const guest = { authorization: `Bearer ${token}` };
+    for (const a of ["subscription", "api-key", undefined]) {
+      const r = await json(app, "POST", "/api/donate", { headers: guest, body: { tokens: 10, buildingId: "carbon-cycle", ...(a ? { auth: a } : {}) } });
+      expect(r.status).toBe(403);
+    }
+    const own = await json(app, "POST", "/api/donate", { headers: guest, body: { tokens: 10, buildingId: "carbon-cycle", apiKey: "sk-guest", label: "Guest key" } });
+    expect(own.status).toBe(201);
+    expect(own.body.allocation.auth).toBe("donor-key");
+    expect(JSON.stringify(own.body)).not.toContain("sk-guest");
+
+    const list = await json(app, "GET", "/api/allocations?buildingId=carbon-cycle");
+    expect(list.body.allocations.map((a: any) => a.label)).toEqual(["Guest key", "Mitchell's Claude subscription, October", "House budget (placeholder)"]);
+    expect(list.body.allocations[1]).toMatchObject({ remainingTokens: 5000, userName: "Mitchell" });
+
+    const id = sub.body.allocation.id;
+    expect((await json(app, "POST", `/api/allocations/${id}/retire`)).status).toBe(401);
+    expect((await json(app, "POST", `/api/allocations/${id}/retire`, { headers: guest })).status).toBe(403);
+    const retired = await json(app, "POST", `/api/allocations/${id}/retire`, { headers: auth });
+    expect(retired.status).toBe(200);
+    expect(retired.body.allocation).toMatchObject({ retired: true });
+    const budget = await json(app, "GET", "/api/budget");
+    expect(budget.body.buildings.find((b: any) => b.buildingId === "carbon-cycle").allocated).toBe(world.allocations.where("buildingId = 'carbon-cycle' AND retired = 0").reduce((s, a) => s + a.tokens, 0));
+
+    expect((await json(app, "POST", "/api/allocations/retire-placeholders", { headers: guest, body: {} })).status).toBe(403);
+    const dry = await json(app, "POST", "/api/allocations/retire-placeholders", { headers: auth, body: { dryRun: true } });
+    expect(dry.body.allocations.map((a: any) => a.label)).toEqual(["House budget (placeholder)"]);
+    const done = await json(app, "POST", "/api/allocations/retire-placeholders", { headers: auth, body: {} });
+    expect(done.body.allocations).toHaveLength(1);
+    expect(world.allocations.require(done.body.allocations[0].id).retired).toBe(true);
+  });
+
   it("roles, budget, events", async () => {
     const { app, auth, by } = await setup();
     const roles = await json(app, "GET", "/api/roles?buildingId=carbon-cycle");

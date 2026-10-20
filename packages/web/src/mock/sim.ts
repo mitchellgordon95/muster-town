@@ -26,7 +26,11 @@ export class Sim {
   roles: Role[] = clone(F.roles);
   memberships: Membership[] = clone(F.memberships);
   users = clone(F.users);
-  allocations: Allocation[] = [{ id: "al_house", userId: "us_mitchell", buildingId: "bl_carbon", tokens: 50_000_000, spentTokens: 3_320_000, spentUsd: 26.5, createdAt: F.ago(9000) }];
+  allocations: Allocation[] = [
+    { id: "al_house", userId: "us_mitchell", buildingId: "bl_carbon", tokens: 50_000_000, spentTokens: 3_320_000, spentUsd: 26.5, createdAt: F.ago(9000), auth: "api-key", label: "House budget (placeholder)", retired: true },
+    { id: "al_sub", userId: "us_mitchell", buildingId: "bl_carbon", tokens: 40_000_000, spentTokens: 6_150_000, spentUsd: 0, createdAt: F.ago(600), auth: "subscription", label: "Mitchell's Claude subscription, October", retired: false },
+    { id: "al_buffer", userId: "us_mitchell", buildingId: "bl_carbon", tokens: 10_000_000, spentTokens: 420_000, spentUsd: 3.1, createdAt: F.ago(590), auth: "api-key", label: "API-key buffer", retired: false },
+  ];
   layout!: Layout;
   private subs = new Set<(m: ServerMessage) => void>();
   private eventId = 1000;
@@ -66,14 +70,14 @@ export class Sim {
   }
   intrayCount(buildingId: string) { return this.intray(buildingId).length; }
   budgetOf(buildingId: string) {
-    const al = this.allocations.filter((a) => a.buildingId === buildingId);
+    const al = this.allocations.filter((a) => a.buildingId === buildingId && !a.retired);
     const allocatedTokens = al.reduce((s, a) => s + a.tokens, 0), spentTokens = al.reduce((s, a) => s + a.spentTokens, 0);
     return { allocatedTokens, spentTokens, remainingTokens: Math.max(0, allocatedTokens - spentTokens), bankTokens: 0 };
   }
   /** Resend a building with its in-tray count (the server does this when reports are created or decided). */
   emitBuilding(buildingId: string | null) {
     const b = this.buildings.find((x) => x.id === buildingId);
-    if (b) this.emit({ type: "building", building: { ...b, intray: this.intrayCount(b.id) } });
+    if (b) this.emit({ type: "building", building: { ...b, intray: this.intrayCount(b.id), budget: this.budgetOf(b.id) } });
   }
 
   relayout(broadcast = true) {
@@ -123,7 +127,8 @@ export class Sim {
       a.spentTokensToday += 18_000; a.spentTokensTotal += 18_000; a.spentUsdTotal = +(a.spentUsdTotal + 0.14).toFixed(2);
       this.event(type, a.id, text, { activity: text });
       this.emit({ type: "agent", agent: a });
-      const al = this.allocations.find((x) => x.buildingId === a.homeBuildingId && x.spentTokens < x.tokens);
+      const order = { subscription: 0, "donor-key": 1, "api-key": 2 } as const;
+      const al = this.allocations.filter((x) => x.buildingId === a.homeBuildingId && !x.retired && x.spentTokens < x.tokens).sort((x, y) => order[x.auth] - order[y.auth])[0];
       const home = this.buildings.find((b) => b.id === a.homeBuildingId);
       if (al && home) { al.spentTokens += 18_000; this.emit({ type: "building", building: { ...home, budget: this.budgetOf(home.id) } }); }
       const left = this.sessionLeft.get(a.id);

@@ -1,7 +1,7 @@
 /** `Api` implemented against the in-memory Sim. Same interface as HttpApi, so every panel works offline. */
 import type { Agent, Assignment, AuthMe, Building, Doc, Event, Meeting, Membership } from "@muster-town/schema";
 import { BOARD_TYPES } from "@muster-town/schema";
-import type { Api, AgentDetail, Bank, Budget, Cabinet, CabinetQuery, DocQuery, EventQuery, In, LayoutPreview, MessageResult, PlanPreview, RoomLayout, RequestAction, Snapshot, Socket, SocketHandlers, ThreadMessage, WriteDocInput } from "../api";
+import type { Api, AgentDetail, AllocationRow, Bank, Budget, Cabinet, CabinetQuery, DocQuery, EventQuery, In, LayoutPreview, MessageResult, PlanPreview, RoomLayout, RequestAction, Snapshot, Socket, SocketHandlers, ThreadMessage, WriteDocInput } from "../api";
 import { ApiError } from "../api";
 import type { CreateBuildingInput, UpdateBuildingInput, CreateResidentInput, ReviewInput, ChatInput, WorkInput, DonateInput, CreateMeetingInput, DocState, AddBankInput, BankInput } from "@muster-town/schema";
 import { Sim, newId } from "./sim";
@@ -361,14 +361,30 @@ export class MockApi implements Api {
   async unassignRole(m: Membership) { await wait(); this.sim.memberships = this.sim.memberships.filter((x) => !(x.roleId === m.roleId && x.holderId === m.holderId)); }
   async donate(i: In<typeof DonateInput>) {
     await wait();
-    this.sim.allocations.push({ id: newId("al"), userId: "us_mitchell", buildingId: i.buildingId, tokens: i.tokens, spentTokens: 0, spentUsd: 0, createdAt: now() });
+    const auth = i.auth ?? (i.apiKey ? "donor-key" : "api-key");
+    this.sim.allocations.push({ id: newId("al"), userId: "us_mitchell", buildingId: i.buildingId, tokens: i.tokens, spentTokens: 0, spentUsd: 0, createdAt: now(), auth, label: i.label?.trim() ?? "", retired: false });
     this.sim.users[0].donatedTokens += i.tokens;
-    this.sim.event("allocation.created", null, `Mitchell donated ${(i.tokens / 1e6).toFixed(1)}M tokens`, {}, i.buildingId);
+    this.sim.event("allocation.created", null, `Mitchell donated ${(i.tokens / 1e6).toFixed(1)}M tokens${i.label ? ` (${i.label})` : ""}`, {}, i.buildingId);
+    this.sim.emitBuilding(i.buildingId);
+  }
+  async allocations(buildingId: string): Promise<AllocationRow[]> {
+    await wait();
+    return clone(this.sim.allocations.filter((a) => a.buildingId === buildingId).sort((a, b) => b.createdAt.localeCompare(a.createdAt))
+      .map((a) => ({ ...a, remainingTokens: a.retired ? 0 : Math.max(0, a.tokens - a.spentTokens), userName: this.sim.users.find((u) => u.id === a.userId)?.name ?? a.userId })));
+  }
+  async retireAllocation(id: string) {
+    await wait();
+    const a = this.sim.allocations.find((x) => x.id === id);
+    if (!a) throw new ApiError("No such allocation", "not_found", 404);
+    a.retired = true;
+    this.sim.event("system", null, `Mitchell retired ${a.label || a.id}`, { allocationId: id }, a.buildingId);
+    this.sim.emitBuilding(a.buildingId);
+    return clone(a);
   }
   async budget(): Promise<Budget> {
     await wait();
     const buildings = this.sim.buildings.filter((b) => b.kind !== "town-hall").map((b) => {
-      const al = this.sim.allocations.filter((a) => a.buildingId === b.id);
+      const al = this.sim.allocations.filter((a) => a.buildingId === b.id && !a.retired);
       return { buildingId: b.id, allocated: al.reduce((s, a) => s + a.tokens, 0), spent: al.reduce((s, a) => s + a.spentTokens, 0), spentUsd: al.reduce((s, a) => s + a.spentUsd, 0) };
     });
     return { buildings, users: this.sim.users.map((u) => ({ userId: u.id, name: u.name, donated: u.donatedTokens })) };
@@ -383,10 +399,19 @@ export class MockApi implements Api {
     const durableTokens = this.bankInputs.filter((i) => i.source === "api-key").reduce((s, i) => s + i.creditedTokens, 0);
     const labs = this.sim.buildings.filter((b) => b.kind === "lab" && !this.bankShares.has(b.id));
     const used = [...this.bankShares.values()].reduce((s, p) => s + p, 0);
+    const key = { subscription: "subscription", "api-key": "apiKey", "donor-key": "donorKey" } as const;
+    const heldOf = (bid?: string) => {
+      const h = { subscription: 0, apiKey: 0, donorKey: 0 };
+      for (const a of this.sim.allocations) if (!a.retired && (!bid || a.buildingId === bid)) h[key[a.auth]] += Math.max(0, a.tokens - a.spentTokens);
+      return h;
+    };
+    const sum = (h: { subscription: number; apiKey: number; donorKey: number }) => h.subscription + h.apiKey + h.donorKey;
+    const heldByAuth = heldOf();
+    const heldTokens = sum(heldByAuth);
     const buildings = this.sim.buildings.map((b) => {
       const explicit = this.bankShares.has(b.id);
       const pct = explicit ? this.bankShares.get(b.id)! : b.kind === "lab" ? Math.max(0, 100 - used) / Math.max(1, labs.length) : 0;
-      return { buildingId: b.id, name: b.name, pct: Math.round(pct * 100) / 100, explicit, expiringTokens: Math.floor(expiringTokens * pct / 100), durableTokens: Math.floor(durableTokens * pct / 100), heldTokens: 0 };
+      return { buildingId: b.id, name: b.name, pct: Math.round(pct * 100) / 100, explicit, expiringTokens: Math.floor(expiringTokens * pct / 100), durableTokens: Math.floor(durableTokens * pct / 100), heldTokens: sum(heldOf(b.id)), heldByAuth: heldOf(b.id) };
     });
     const contributors = this.sim.users.map((u) => {
       const bankTokens = this.bankInputs.filter((i) => i.userId === u.id).reduce((s, i) => s + i.creditedTokens, 0);
@@ -394,7 +419,7 @@ export class MockApi implements Api {
     }).filter((c) => c.tokens > 0).sort((a, b) => b.tokens - a.tokens);
     const dailyInflowTokens = live.reduce((s, i) => s + (i.recurrence === "daily" ? i.tokens : i.recurrence === "weekly" ? i.tokens / 7 : i.recurrence === "monthly" ? i.tokens / 30 : 0), 0);
     return clone({
-      balanceTokens: expiringTokens + durableTokens, expiringTokens, durableTokens, heldTokens: 0, townTokens: expiringTokens + durableTokens, dailyInflowTokens: Math.round(dailyInflowTokens),
+      balanceTokens: expiringTokens + durableTokens, expiringTokens, durableTokens, heldTokens, heldByAuth, townTokens: expiringTokens + durableTokens + heldTokens, dailyInflowTokens: Math.round(dailyInflowTokens),
       creditedTokens: this.bankInputs.reduce((s, i) => s + i.creditedTokens, 0),
       inputs: this.bankInputs.map((i) => ({ ...i, userName: this.sim.users.find((u) => u.id === i.userId)?.name ?? i.userId })),
       buildings, contributors,

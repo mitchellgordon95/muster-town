@@ -9,7 +9,7 @@ export { Table, type ObjSchema, type TableOptions } from "./table.ts";
 export { Memberships, Tokens, Users, BankInputs, TownMeta, type Repos, type TokenRow, type TokenKind } from "./store.ts";
 export { EventLog, type NewEvent, type EventQuery, type EventType } from "./events.ts";
 export { Permissions, holderOf, isAgent, townRoleId, buildingRoleId, type Holder, type BuildingRoleName, type TownRoleName } from "./permissions.ts";
-export { Budget, type ChargeResult, type BudgetSummary } from "./budget.ts";
+export { Budget, PLACEHOLDER_LABEL, type ChargeResult, type BudgetSummary } from "./budget.ts";
 export { Bank, type BankContributor, type BankSummary } from "./bank.ts";
 export { Ops, type Actor, type MessageAgentOptions, type MessageAgentResult, type RequestAction, type ThreadMessage } from "./ops.ts";
 export { createBuilding, updateBuilding, createResident, registerVisitor, ensureAvatar, createUser, createServiceAgent, createTownModerator, updateFurniture, planTown } from "./entities.ts";
@@ -30,7 +30,7 @@ export { HEARING_RANGE, nearbyAgents } from "./verbs/social.ts";
 export { searchDocs, ftsQuery, boardDocs, cabinetDocs, cabinetCounts } from "./verbs/docs.ts";
 export { exportWorld, importExport, docExportPath, type ExportResult } from "./export.ts";
 export { importV0, type ImportV0Options, type ImportV0Result } from "./import-v0.ts";
-export { seedDefaults, originUrl, HOUSE_BUDGET_TOKENS, type SeedOptions, type SeedResult } from "./seed.ts";
+export { seedDefaults, originUrl, HOUSE_BUDGET_TOKENS, HOUSE_LABEL, type SeedOptions, type SeedResult } from "./seed.ts";
 export * as prompts from "./prompts.ts";
 export * from "./prompts.ts";
 export {

@@ -1,4 +1,4 @@
-import { DonateInput, type Agent, type Allocation, type BuildingBudget, type ServerMessage } from "@muster-town/schema";
+import { DonateInput, type Agent, type Allocation, type AllocationAuth, type BuildingBudget, type ServerMessage } from "@muster-town/schema";
 import type { Bank } from "./bank.ts";
 import { badRequest } from "./errors.ts";
 import type { EventLog } from "./events.ts";
@@ -18,27 +18,44 @@ export interface BudgetSummary {
 
 const SKIP_STATUSES = new Set(["stopped", "banned"]);
 
+/** Draw order: the subscription first, then donors' own keys, then the town's API key; oldest first within each. */
+const DRAW_ORDER = "ORDER BY CASE auth WHEN 'subscription' THEN 0 WHEN 'donor-key' THEN 1 ELSE 2 END, createdAt, rowid";
+const LIVE = "buildingId = ? AND retired = 0";
+/** Allocations a placeholder cleanup retires: labelled house/placeholder (the seed's house budget). */
+export const PLACEHOLDER_LABEL = /\b(house|placeholder)\b/i;
+
 /** Donations, allocations, and charging. `world.budget`. */
 export class Budget {
   constructor(private repos: Repos, private events: EventLog, private bank: Bank, private changes?: Emitter<ServerMessage>) {}
 
-  /** Oldest allocation of the building with tokens left (the one to charge next), or null. */
-  pickAllocation(buildingId: string): Allocation | null {
-    return this.repos.allocations.first("buildingId = ? AND spentTokens < tokens", [buildingId], "ORDER BY createdAt, rowid") ?? null;
+  /** The allocation to charge next: the building's first live allocation with tokens left, in draw order (subscription → donor-key → api-key), or null. */
+  pickAllocation(buildingId: string, auths?: AllocationAuth[]): Allocation | null {
+    const only = auths?.length ? ` AND auth IN (${auths.map(() => "?").join(", ")})` : "";
+    return this.repos.allocations.first(`${LIVE} AND spentTokens < tokens${only}`, [buildingId, ...(auths ?? [])], DRAW_ORDER) ?? null;
   }
 
-  /** Secret: the donor's Anthropic API key for this allocation, if they stored one. */
+  /** What a session falls back to when the subscription hits its spend limit: the first donor-key or api-key allocation with tokens left. */
+  fallbackAllocation(buildingId: string): Allocation | null {
+    return this.pickAllocation(buildingId, ["donor-key", "api-key"]);
+  }
+
+  /** Secret: the donor's Anthropic API key for a donor-key allocation (null for subscription / town api-key allocations). */
   apiKeyFor(allocation: Allocation): string | null {
-    return this.repos.users.getApiKey(allocation.userId);
+    return allocation.auth === "donor-key" ? this.repos.users.getApiKey(allocation.userId) : null;
+  }
+
+  /** The building's allocations, newest first (retired ones included, for their history). */
+  allocationsOf(buildingId: string): Allocation[] {
+    return this.repos.allocations.where("buildingId = ?", [buildingId], "ORDER BY createdAt DESC, rowid DESC");
   }
 
   remaining(buildingId: string): number {
     return this.of(buildingId).remainingTokens;
   }
 
-  /** The building's allocated / spent / remaining tokens, summed over its allocations, plus what it can draw from the Bank. */
+  /** The building's allocated / spent / remaining tokens, summed over its live (unretired) allocations, plus what it can draw from the Bank. */
   of(buildingId: string): BuildingBudget {
-    const allocs = this.repos.allocations.where("buildingId = ?", [buildingId]);
+    const allocs = this.repos.allocations.where(LIVE, [buildingId]);
     const bankTokens = this.bank.remaining(buildingId);
     return {
       allocatedTokens: allocs.reduce((s, a) => s + a.tokens, 0),
@@ -125,21 +142,51 @@ export class Budget {
     return n;
   }
 
-  /** A user donates tokens to a building (optionally storing their API key). */
-  donate(userId: string, input: { tokens: number; buildingId: string; apiKey?: string }): Allocation {
+  /**
+   * A user donates tokens to a building (optionally storing their API key). `auth` defaults to donor-key when
+   * the donor has a key, else api-key. Permission to fund with the town's own credentials is checked by the caller.
+   */
+  donate(userId: string, input: { tokens: number; buildingId: string; apiKey?: string; auth?: AllocationAuth; label?: string }): Allocation {
     const inp = DonateInput.parse(input);
     const user = this.repos.users.require(userId, "user");
     const b = this.repos.buildings.require(inp.buildingId, "building");
     if (inp.apiKey) this.repos.users.setApiKey(userId, inp.apiKey);
-    const allocation = this.repos.allocations.upsert({ id: newId("al"), userId, buildingId: b.id, tokens: inp.tokens, spentTokens: 0, spentUsd: 0, createdAt: nowIso() });
+    const auth: AllocationAuth = inp.auth ?? (inp.apiKey || this.repos.users.getApiKey(userId) ? "donor-key" : "api-key");
+    if (auth === "donor-key" && !this.repos.users.getApiKey(userId)) throw badRequest("A donor-key allocation needs your Anthropic API key.");
+    const label = inp.label?.trim() ?? "";
+    const allocation = this.repos.allocations.upsert({ id: newId("al"), userId, buildingId: b.id, tokens: inp.tokens, spentTokens: 0, spentUsd: 0, createdAt: nowIso(), auth, label, retired: false });
     this.repos.users.upsert({ ...this.repos.users.require(userId), donatedTokens: user.donatedTokens + inp.tokens });
     this.emitBuilding(b.id);
-    this.events.append({ type: "allocation.created", buildingId: b.id, text: `${user.name} donated ${inp.tokens.toLocaleString("en-US")} tokens to ${b.name}`, payload: { allocationId: allocation.id, userId, tokens: inp.tokens } });
+    const what = label ? ` (${label})` : "";
+    this.events.append({ type: "allocation.created", buildingId: b.id, text: `${user.name} donated ${inp.tokens.toLocaleString("en-US")} tokens to ${b.name}${what}`, payload: { allocationId: allocation.id, userId, tokens: inp.tokens, auth, label } });
     // resume residents that were blocked only by the building budget
     for (const r of this.repos.agents.where("homeBuildingId = ? AND status = 'out-of-budget'", [b.id])) {
       if (r.spentTokensToday < b.dailyTokensPerAgent) this.setStatus(r, "idle");
     }
     return allocation;
+  }
+
+  /** Retire an allocation: it keeps its spend history but is never drawn from and leaves the building's budget. Idempotent. */
+  retire(allocationId: string, byName = "An admin"): Allocation {
+    const a = this.repos.allocations.require(allocationId, "allocation");
+    if (a.retired) return a;
+    const row = this.repos.allocations.upsert({ ...a, retired: true });
+    const b = this.repos.buildings.get(a.buildingId);
+    const left = Math.max(0, a.tokens - a.spentTokens);
+    this.events.append({ type: "system", buildingId: a.buildingId, text: `${byName} retired ${a.label || `allocation ${a.id}`}${b ? ` at ${b.name}` : ""} (${left.toLocaleString("en-US")} tokens unspent)`, payload: { allocationId: a.id, retired: true, auth: a.auth } });
+    this.emitBuilding(a.buildingId);
+    return row;
+  }
+
+  /**
+   * Retire the placeholder allocations: those labelled house/placeholder, the given ids, and (with `unlabelled`)
+   * every unlabelled non-donor allocation from before labels existed. Spend history stays. Returns what it retired.
+   */
+  retirePlaceholders(opts: { ids?: string[]; unlabelled?: boolean; dryRun?: boolean; byName?: string } = {}): Allocation[] {
+    const ids = new Set(opts.ids ?? []);
+    const hits = this.repos.allocations.where("retired = 0", [], "ORDER BY createdAt, rowid")
+      .filter((a) => ids.has(a.id) || PLACEHOLDER_LABEL.test(a.label) || (!!opts.unlabelled && !a.label.trim() && a.auth !== "donor-key"));
+    return opts.dryRun ? hits : hits.map((a) => this.retire(a.id, opts.byName ?? "Placeholder cleanup"));
   }
 
   summary(): BudgetSummary {

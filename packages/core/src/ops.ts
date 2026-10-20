@@ -370,11 +370,12 @@ export class Ops {
   }
 
   /** Runtime: a session starts. Work sessions activate the assignment and set status `working`. */
-  startSession(agentId: string, opts: { purpose: Session["purpose"]; model: string; assignmentId?: string | null; meetingId?: string | null; backend?: Session["backend"] }): Session {
+  startSession(agentId: string, opts: { purpose: Session["purpose"]; model: string; assignmentId?: string | null; meetingId?: string | null; backend?: Session["backend"]; funding?: Session["funding"] }): Session {
     const agent = this.world.agents.require(agentId, "agent");
     const session = this.world.sessions.upsert({
       id: newId("se"), agentId, assignmentId: opts.assignmentId ?? null, meetingId: opts.meetingId ?? null, purpose: opts.purpose, backend: opts.backend ?? "host",
       status: "running", model: opts.model, sdkSessionId: null, tokens: 0, costUsd: 0, turns: 0, reportId: null, error: null, startedAt: nowIso(), endedAt: null,
+      funding: opts.funding ?? null,
     });
     if (opts.purpose === "work") {
       if (opts.assignmentId) {
@@ -384,16 +385,16 @@ export class Ops {
       }
       this.world.setStatus(agentId, "working");
     }
-    this.world.events.append({ type: "session.started", agentId, buildingId: homeOf(agent), text: `${agent.name} started a ${opts.purpose} session`, payload: { sessionId: session.id, purpose: opts.purpose, assignmentId: opts.assignmentId ?? null, model: opts.model, backend: session.backend } });
+    this.world.events.append({ type: "session.started", agentId, buildingId: homeOf(agent), text: `${agent.name} started a ${opts.purpose} session${opts.funding ? ` (funded by ${opts.funding === "subscription" ? "subscription" : opts.funding === "donor-key" ? "a donor's API key" : "API key"})` : ""}`, payload: { sessionId: session.id, purpose: opts.purpose, assignmentId: opts.assignmentId ?? null, model: opts.model, backend: session.backend, funding: opts.funding ?? null } });
     return session;
   }
 
   /** Runtime: a session ended. A work session still `working` (no report) leaves the agent idle. Does not charge; call budget.charge. */
-  endSession(sessionId: string, result: { status: Exclude<Session["status"], "running">; tokens?: number; costUsd?: number; turns?: number; error?: string | null; sdkSessionId?: string | null }): Session {
+  endSession(sessionId: string, result: { status: Exclude<Session["status"], "running">; tokens?: number; costUsd?: number; turns?: number; error?: string | null; sdkSessionId?: string | null; funding?: Session["funding"] }): Session {
     const s = this.world.sessions.require(sessionId, "session");
     const session = this.world.sessions.upsert({
       ...s, status: result.status, tokens: result.tokens ?? s.tokens, costUsd: result.costUsd ?? s.costUsd, turns: result.turns ?? s.turns,
-      error: result.error ?? null, sdkSessionId: result.sdkSessionId ?? s.sdkSessionId, endedAt: nowIso(),
+      error: result.error ?? null, sdkSessionId: result.sdkSessionId ?? s.sdkSessionId, endedAt: nowIso(), funding: result.funding ?? s.funding ?? null,
     });
     const agent = this.world.agents.require(s.agentId, "agent");
     if (agent.status === "working") this.world.setStatus(agent.id, "idle");
