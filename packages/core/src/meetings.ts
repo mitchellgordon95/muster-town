@@ -117,6 +117,7 @@ export function endMeeting(world: World, actor: Agent | null, meetingId: string,
   const m = world.meetings.require(meetingId, "meeting");
   if (actor && !canFacilitate(world, actor, m)) throw forbidden("meeting.facilitate", "Only the facilitator can end the meeting.");
   if (m.phase === "done") return m;
+  if (m.phase === "cancelled") throw new AppError("conflict", "Meeting was cancelled; there is nothing to end.");
   const name = (id: string) => world.nameOf(id);
   const body = [
     `# ${m.title}`, "", `Kind: ${m.kind}. Facilitator: ${m.facilitatorId ? name(m.facilitatorId) : "none"}. Attendees: ${m.attendeeIds.map(name).join(", ") || "none"}.`,
