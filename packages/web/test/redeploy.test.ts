@@ -13,7 +13,7 @@ describe("redeploy status", () => {
     const events = [ev(run("running")), ev(run("scheduled", { working: ["ag_1"], blocked: ["ag_2"] })), ev(null)];
     const s = redeployStatus(events, at)!;
     expect(s.state).toBe("scheduled");
-    expect(redeployLine(s, (i) => (i === "ag_1" ? "Root" : i))).toBe("Redeploy scheduled: 3 changes waiting; restarts when 1 session finishes (Root); holding 1 agent");
+    expect(redeployLine(s, (i) => (i === "ag_1" ? "Root" : i === "ag_2" ? "Lena" : i))).toBe("Redeploy scheduled: 3 changes waiting; restarts when 1 session finishes (Root); Lena waits for it");
     expect([...blockedByRedeploy(events)]).toEqual(["ag_2"]);
   });
 

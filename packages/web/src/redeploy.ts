@@ -37,7 +37,7 @@ export function redeployLine(s: RedeployStatus, name: (id: string) => string): s
   const c = changes(s.commits);
   switch (s.state) {
     case "running": return `Redeploying${s.requestedBy ? ` (by ${s.requestedBy})` : ""}: pulling and building${c ? `, ${c} waiting` : ""}…`;
-    case "scheduled": return `Redeploy scheduled: ${c || "changes"} waiting; restarts when ${s.working.length === 1 ? "1 session finishes" : `${s.working.length} sessions finish`} (${s.working.map(name).join(", ")})${s.blocked.length ? `; holding ${s.blocked.length} agent${s.blocked.length === 1 ? "" : "s"}` : ""}`;
+    case "scheduled": return `Redeploy scheduled: ${c || "changes"} waiting; restarts when ${s.working.length === 1 ? "1 session finishes" : `${s.working.length} sessions finish`} (${s.working.map(name).join(", ")})${s.blocked.length ? `; ${s.blocked.map(name).join(", ")} wait${s.blocked.length === 1 ? "s" : ""} for it` : ""}`;
     case "restarting": return `Redeploy: restarting the server${c ? ` with ${c}` : ""}…`;
     case "done": return `Redeploy finished${c ? `: ${c} live` : ""}`;
     case "failed": return s.text;
