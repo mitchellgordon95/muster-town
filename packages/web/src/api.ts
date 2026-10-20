@@ -6,7 +6,7 @@ import type { z } from "zod";
 import type {
   Agent, Assignment, AuthMe, Building, ClientMessage, Doc, Event, Lot, Meeting, Place, Role, Membership, Tile,
   ServerMessage, Session, Town, CreateBuildingInput, UpdateBuildingInput, CreateResidentInput,
-  ReviewInput, ChatInput, WorkInput, DonateInput, CreateMeetingInput, DocState, DocType, Mailbox, Permission,
+  ReviewInput, ChatInput, WorkInput, DonateInput, AddBankInput, BankInput, CreateMeetingInput, DocState, DocType, Mailbox, Permission,
 } from "@muster-town/schema";
 
 export type In<T extends z.ZodTypeAny> = z.input<T>;
@@ -50,6 +50,21 @@ export interface EventQuery { since?: number; agentId?: string; buildingId?: str
 export interface Budget {
   buildings: { buildingId: string; allocated: number; spent: number; spentUsd?: number }[];
   users: { userId: string; name?: string; donated: number }[];
+}
+/** `GET /api/bank` — core's BankSummary: the pools, the inputs, each building's share, and the top contributors. */
+export interface BankBuildingShare { buildingId: string; name: string; pct: number; explicit: boolean; expiringTokens: number; durableTokens: number }
+export interface BankContributor { userId: string; name: string; tokens: number; bankTokens: number; donatedTokens: number }
+export interface Bank {
+  balanceTokens: number;
+  /** subscription tokens that expire at the next daily renewal */
+  expiringTokens: number;
+  /** API-key tokens, kept until spent */
+  durableTokens: number;
+  creditedTokens: number;
+  dailyInflowTokens: number;
+  inputs: (BankInput & { userName: string })[];
+  buildings: BankBuildingShare[];
+  contributors: BankContributor[];
 }
 /** A movable piece of furniture (anchors and offsets are lot-relative tiles). */
 export interface LayoutPiece {
@@ -138,6 +153,11 @@ export interface Api {
   unassignRole(m: Membership): Promise<void>;
   donate(input: In<typeof DonateInput>): Promise<void>;
   budget(): Promise<Budget>;
+  bank(): Promise<Bank>;
+  addBankInput(input: In<typeof AddBankInput>): Promise<BankInput>;
+  cancelBankInput(id: string): Promise<BankInput>;
+  /** admin: set a building's % of the Bank (null: back to an equal split of what's left) */
+  setBankShare(buildingId: string, pct: number | null): Promise<Bank>;
   exportNow(): Promise<string | null>;
   /** v1.3: pull main, rebuild, restart (needs town.redeploy); progress arrives as `system` events */
   redeploy(image: boolean): Promise<{ started?: boolean; running?: boolean }>;
@@ -268,6 +288,13 @@ export class HttpApi implements Api {
     const r = await this.get<Partial<Budget>>("/api/budget");
     return { buildings: r.buildings ?? [], users: r.users ?? [] };
   }
+  async bank() {
+    const r = await this.get<Bank>("/api/bank");
+    return { ...r, inputs: r.inputs ?? [], buildings: r.buildings ?? [], contributors: r.contributors ?? [] };
+  }
+  async addBankInput(i: In<typeof AddBankInput>) { return unwrap<BankInput>(await this.post("/api/bank/inputs", i), "input"); }
+  async cancelBankInput(id: string) { return unwrap<BankInput>(await this.call("DELETE", `/api/bank/inputs/${id}`), "input"); }
+  async setBankShare(buildingId: string, pct: number | null) { return this.call<Bank>("PUT", `/api/bank/shares/${buildingId}`, { pct }); }
   async exportNow() { return (await this.post<{ commit?: string | null }>("/api/export")).commit ?? null; }
   async redeploy(image: boolean) { return this.post<{ started?: boolean; running?: boolean }>("/api/admin/redeploy", { image }); }
 

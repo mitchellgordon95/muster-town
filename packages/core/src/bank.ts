@@ -20,6 +20,18 @@ export interface BankBuildingShare {
   durableTokens: number;
 }
 
+/** Someone who has put tokens into the town: through Bank inputs, or donated straight to a building. */
+export interface BankContributor {
+  userId: string;
+  name: string;
+  /** bankTokens + donatedTokens */
+  tokens: number;
+  /** what their Bank inputs have credited so far */
+  bankTokens: number;
+  /** what they donated directly to buildings */
+  donatedTokens: number;
+}
+
 export interface BankSummary {
   /** tokens in the Bank: unexpired subscription credits plus API-key credits, minus what buildings drew */
   balanceTokens: number;
@@ -31,6 +43,8 @@ export interface BankSummary {
   dailyInflowTokens: number;
   inputs: (BankInput & { userName: string })[];
   buildings: BankBuildingShare[];
+  /** top contributors by tokens given, most first (zero-token users left out) */
+  contributors: BankContributor[];
 }
 
 /** Where a building's next draw comes from: today's subscription share (the server's own login), or an API key's input. */
@@ -243,6 +257,20 @@ export class Bank {
     return left;
   }
 
+  /** Users ranked by tokens they've put in (Bank credits plus direct donations), most first. Ties go by name. */
+  contributors(limit = 10): BankContributor[] {
+    const credited = new Map<string, number>();
+    for (const i of this.repos.bankInputs.all()) credited.set(i.userId, (credited.get(i.userId) ?? 0) + i.creditedTokens);
+    return this.repos.users.all()
+      .map((u) => {
+        const bankTokens = credited.get(u.id) ?? 0;
+        return { userId: u.id, name: u.name, tokens: bankTokens + u.donatedTokens, bankTokens, donatedTokens: u.donatedTokens };
+      })
+      .filter((c) => c.tokens > 0)
+      .sort((a, b) => b.tokens - a.tokens || a.name.localeCompare(b.name))
+      .slice(0, limit);
+  }
+
   summary(): BankSummary {
     const inputs = this.repos.bankInputs.all("ORDER BY createdAt, rowid");
     const dailyInflowTokens = Math.round(inputs.reduce((s, i) => {
@@ -266,6 +294,7 @@ export class Bank {
         const a = this.available(b.id, now);
         return { buildingId: b.id, name: b.name, pct: Math.round(s.pct * 100) / 100, explicit: s.explicit, expiringTokens: a.expiring, durableTokens: a.durable };
       }),
+      contributors: this.contributors(),
     };
   }
 }

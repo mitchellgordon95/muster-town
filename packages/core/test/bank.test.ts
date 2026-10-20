@@ -123,4 +123,20 @@ describe("bank", () => {
     expect(world.budget.of(b.id)).toMatchObject({ remainingTokens: 300, bankTokens: 0 });
     expect(world.bank.summary()).toMatchObject({ balanceTokens: 0, durableTokens: 0 });
   });
+
+  it("ranks contributors by Bank credits plus direct donations, most first", () => {
+    const { world, seed } = seededWorld();
+    const a = world.ops.createUser("Ada").user, b = world.ops.createUser("Bo").user;
+    world.ops.createUser("Idle");
+    world.bank.addInput(a.id, { label: "Ada key", source: "api-key", model: "m", tokens: 3000, apiKey: "k" }, T0);
+    world.bank.addInput(b.id, { label: "Bo key", source: "api-key", model: "m", tokens: 2000, apiKey: "k" }, T0);
+    const lab = createBuilding(world, { name: "Lab 2" }, seed.admin.id);
+    world.budget.donate(b.id, { tokens: 1500, buildingId: lab.id });
+    // the seeded admin's donation to the imported lab ranks too; check our two relative to each other
+    expect(world.bank.summary().contributors.filter((c) => c.userId === a.id || c.userId === b.id)).toEqual([
+      { userId: b.id, name: "Bo", tokens: 3500, bankTokens: 2000, donatedTokens: 1500 },
+      { userId: a.id, name: "Ada", tokens: 3000, bankTokens: 3000, donatedTokens: 0 },
+    ]);
+    expect(world.bank.contributors(1)).toHaveLength(1);
+  });
 });

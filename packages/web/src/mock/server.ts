@@ -1,9 +1,9 @@
 /** `Api` implemented against the in-memory Sim. Same interface as HttpApi, so every panel works offline. */
 import type { Agent, Assignment, AuthMe, Building, Doc, Event, Meeting, Membership } from "@muster-town/schema";
 import { BOARD_TYPES } from "@muster-town/schema";
-import type { Api, AgentDetail, Budget, Cabinet, CabinetQuery, DocQuery, EventQuery, In, LayoutPreview, MessageResult, RoomLayout, RequestAction, Snapshot, Socket, SocketHandlers, ThreadMessage, WriteDocInput } from "../api";
+import type { Api, AgentDetail, Bank, Budget, Cabinet, CabinetQuery, DocQuery, EventQuery, In, LayoutPreview, MessageResult, RoomLayout, RequestAction, Snapshot, Socket, SocketHandlers, ThreadMessage, WriteDocInput } from "../api";
 import { ApiError } from "../api";
-import type { CreateBuildingInput, UpdateBuildingInput, CreateResidentInput, ReviewInput, ChatInput, WorkInput, DonateInput, CreateMeetingInput, DocState } from "@muster-town/schema";
+import type { CreateBuildingInput, UpdateBuildingInput, CreateResidentInput, ReviewInput, ChatInput, WorkInput, DonateInput, CreateMeetingInput, DocState, AddBankInput, BankInput } from "@muster-town/schema";
 import { Sim, newId } from "./sim";
 
 const wait = (ms = 120) => new Promise((r) => setTimeout(r, ms));
@@ -370,6 +370,54 @@ export class MockApi implements Api {
       return { buildingId: b.id, allocated: al.reduce((s, a) => s + a.tokens, 0), spent: al.reduce((s, a) => s + a.spentTokens, 0), spentUsd: al.reduce((s, a) => s + a.spentUsd, 0) };
     });
     return { buildings, users: this.sim.users.map((u) => ({ userId: u.id, name: u.name, donated: u.donatedTokens })) };
+  }
+  // a toy Bank: every input credits its tokens once, right away; subscriptions are the expiring pool
+  private bankInputs: BankInput[] = [];
+  private bankShares = new Map<string, number>();
+  async bank(): Promise<Bank> {
+    await wait();
+    const live = this.bankInputs.filter((i) => !i.cancelledAt);
+    const expiringTokens = live.filter((i) => i.source === "subscription").reduce((s, i) => s + i.creditedTokens, 0);
+    const durableTokens = this.bankInputs.filter((i) => i.source === "api-key").reduce((s, i) => s + i.creditedTokens, 0);
+    const labs = this.sim.buildings.filter((b) => b.kind === "lab" && !this.bankShares.has(b.id));
+    const used = [...this.bankShares.values()].reduce((s, p) => s + p, 0);
+    const buildings = this.sim.buildings.map((b) => {
+      const explicit = this.bankShares.has(b.id);
+      const pct = explicit ? this.bankShares.get(b.id)! : b.kind === "lab" ? Math.max(0, 100 - used) / Math.max(1, labs.length) : 0;
+      return { buildingId: b.id, name: b.name, pct: Math.round(pct * 100) / 100, explicit, expiringTokens: Math.floor(expiringTokens * pct / 100), durableTokens: Math.floor(durableTokens * pct / 100) };
+    });
+    const contributors = this.sim.users.map((u) => {
+      const bankTokens = this.bankInputs.filter((i) => i.userId === u.id).reduce((s, i) => s + i.creditedTokens, 0);
+      return { userId: u.id, name: u.name, tokens: bankTokens + u.donatedTokens, bankTokens, donatedTokens: u.donatedTokens };
+    }).filter((c) => c.tokens > 0).sort((a, b) => b.tokens - a.tokens);
+    const dailyInflowTokens = live.reduce((s, i) => s + (i.recurrence === "daily" ? i.tokens : i.recurrence === "weekly" ? i.tokens / 7 : i.recurrence === "monthly" ? i.tokens / 30 : 0), 0);
+    return clone({
+      balanceTokens: expiringTokens + durableTokens, expiringTokens, durableTokens, dailyInflowTokens: Math.round(dailyInflowTokens),
+      creditedTokens: this.bankInputs.reduce((s, i) => s + i.creditedTokens, 0),
+      inputs: this.bankInputs.map((i) => ({ ...i, userName: this.sim.users.find((u) => u.id === i.userId)?.name ?? i.userId })),
+      buildings, contributors,
+    });
+  }
+  async addBankInput(i: In<typeof AddBankInput>) {
+    await wait();
+    const input: BankInput = {
+      id: newId("bi"), userId: "us_mitchell", label: i.label, source: i.source, model: i.model, tokens: i.tokens, recurrence: i.recurrence ?? "once",
+      weeklyCapTokens: i.weeklyCapTokens ?? null, nextCreditAt: null, creditedTokens: i.tokens, hasApiKey: !!i.apiKey, cancelledAt: null, createdAt: now(),
+    };
+    this.bankInputs.push(input);
+    this.sim.event("bank.input", null, `Mitchell added ${i.label} to the Bank`, {}, null);
+    return clone(input);
+  }
+  async cancelBankInput(id: string) {
+    await wait();
+    const i = this.bankInputs.find((x) => x.id === id);
+    if (!i) throw new ApiError("No such input", "not_found", 404);
+    Object.assign(i, { cancelledAt: now(), hasApiKey: false });
+    return clone(i);
+  }
+  async setBankShare(buildingId: string, pct: number | null) {
+    if (pct === null) this.bankShares.delete(buildingId); else this.bankShares.set(buildingId, pct);
+    return this.bank();
   }
   async exportNow() { await wait(400); this.sim.event("export.done", null, "Exported town to git", {}, null); return "a1b2c3d"; }
   async redeploy(image: boolean) {
