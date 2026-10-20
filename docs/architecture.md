@@ -130,3 +130,64 @@ Login: on load, read token from localStorage; in dev, if absent, fetch `/api/dev
 - Logging: `console.log` with a `[pkg]` prefix is fine; no logging framework.
 - Keep files under ~400 lines; split by concern.
 - Don't add dependencies beyond: better-sqlite3, fastify, @fastify/websocket, @fastify/cors, @fastify/static, @modelcontextprotocol/sdk, @anthropic-ai/claude-agent-sdk, zod, nanoid, react, react-dom, marked, vite, vitest, typescript, tsx, commander, ws (and their @types). Ask (in your report) if you believe another is needed.
+
+---
+
+# Desks as sandboxes (v1.1 contract, 2026-10-20)
+
+Every resident desk is a sandbox: a persistent container with the agent's home directory. Work sessions run **inside** the desk; the host runtime only schedules them. Review, meeting summary, facilitation, and proxy-chat sessions stay in-process on the host (cheap, no code). The in-process work-session path stays as the `host` backend fallback when no container runtime is available; the git-worktree + shell-policy code (`work.ts` prepareWorkspace, `policy.ts`) is removed.
+
+## Pieces
+
+| Piece | Package | What |
+|---|---|---|
+| Resident host | `@agent-town/desk` (`packages/desk`), bin `agent-town-desk` | Runs inside the container. One command: `agent-town-desk run --session <id>`. Fetches its brief from the town, runs the Claude Agent SDK session with permissions bypassed, streams activity back, polls for interrupts/stop, reports the end. |
+| Image | `packages/desk/Dockerfile` → `agent-town-desk:latest` | node 22, git, gh, python3 + numpy/pandas/xarray/netCDF4/scipy/matplotlib/requests, `@anthropic-ai/claude-code`, the desk package. Non-root user `agent`, home `/home/agent` (a volume). `npm run desk:build` at the root builds it. |
+| Desk backend | `@agent-town/runtime` `desk/backend.ts` | `DeskBackend` interface + `DockerBackend` + `HostBackend`. |
+| Prompts | `@agent-town/core` `prompts.ts` (moved from runtime) | System/user prompt composition, so the server can brief desks and the runtime can brief in-process sessions from one place. |
+| Agent-scoped API | `@agent-town/server` | Endpoints below, bearer **agent** token. |
+| Interrupt queue | `@agent-town/core` | `interrupts` table + ops; used when the session is not in-process. |
+
+## Flow of one desk work session
+
+1. Scheduler (runtime) picks (agent, pending assignment) as today, creates the Session row (`purpose: work`, status running, `backend: 'docker'|'host'` new column), chooses funding (donor key or the collective's `ANTHROPIC_API_KEY` from `<collective>/.env`).
+2. `backend.ensure(agent, building)` → container `desk-<collectiveSlug>-<agentId>` running (created on first use: `docker run -d --name … -v deskhome-<agentId>:/home/agent --add-host=host.docker.internal:host-gateway --memory 2g --cpus 2 agent-town-desk sleep infinity`).
+3. `backend.exec(handle, ["agent-town-desk","run","--session",sessionId], env)` with env `AGENT_TOWN_URL=http://host.docker.internal:<port>`, `AGENT_TOWN_TOKEN=<agent token>`, `ANTHROPIC_API_KEY`, `GH_TOKEN` (workshop buildings: from `gh auth token` on the host unless `desks.ghToken` says otherwise), `DESK_MODEL`, `DESK_MAX_TURNS`. The runtime keeps the child handle in `live` (kind `desk`) so stop can kill it; stdout/stderr lines go to the server log with a `[desk <name>]` prefix.
+4. Desk process: `GET /api/agents/me/brief?session=<id>` → `{ agent, building, town, assignment, session, system, prompt, workspace? }` where `system`/`prompt` are composed by core prompts and `workspace` (if the building has one) = `{ repoUrl, base, branch, branchPrefix, dir: "/home/agent/work/<repoName>" }`.
+5. If `workspace`: clone `repoUrl` into `dir` if absent (`git clone`), `git fetch origin`, `git checkout -B <branch> origin/<base>` (or the existing branch if it exists), `npm install` when `package.json` exists and `node_modules` doesn't. `gh auth setup-git` so pushes use `GH_TOKEN`. cwd for the session = `dir`.
+6. `query({ prompt: <input channel>, options: { cwd, model, maxTurns, systemPrompt: {preset:'claude_code', append: system}, mcpServers: { town: {type:'http', url: AGENT_TOWN_URL + '/mcp', headers: {Authorization: 'Bearer ' + token}, alwaysLoad: true} }, permissionMode: 'bypassPermissions', allowDangerouslySkipPermissions: true, settingSources: [] } })`. All built-in tools available; nothing to allow-list. (Confirm the exact option names in the installed SDK's `sdk.d.ts`.)
+7. For every SDK message: assistant `tool_use` → `POST /api/agents/me/activity { session, kind: 'tool', tool, input }`; assistant text → `{ kind: 'thought', text }`. The **server** turns these into `agent.tool`/`agent.thought` events using the runtime's `describeTool` (so bubbles read the same as in-process sessions) and refreshes `agent.activity`. Batch at most every 500 ms.
+8. Every 3 s and between turns: `GET /api/agents/me/control?session=<id>` → `{ interrupts: [{id, text, from}], stop: boolean }`. Interrupts are pushed as the next user message (`Interrupt from <from>: …`) and acked with `POST /api/agents/me/control/ack {ids}`. `stop: true` → `q.interrupt()`, then exit 2.
+9. After the result (or on error/stop): `POST /api/agents/me/session-end { session, tokens, costUsd, turns, sdkSessionId, finalText, error, reportSubmitted }`. The server calls `runtime.finishWorkSession(sessionId, outcome)` which does what the in-process path does today: charge usage, write the fallback report when none was submitted (stop → decision stop), set agent status, end the Session row. Exit 0.
+10. If the desk process dies without reporting (container killed, crash): the runtime notices the child exit and calls `finishWorkSession` with `error: 'desk exited <code>'`.
+
+## Agent-scoped endpoints (agent token only)
+
+- `GET /api/agents/me/brief?session=` → as above (403 if the session isn't this agent's or isn't running).
+- `POST /api/agents/me/activity` `{ session, kind: 'tool'|'thought'|'status', tool?, input?, text? }` → 204.
+- `GET /api/agents/me/control?session=` → `{ interrupts, stop }`.
+- `POST /api/agents/me/control/ack` `{ ids: string[] }` → 204.
+- `POST /api/agents/me/session-end` `{ session, tokens, costUsd, turns, sdkSessionId?, finalText?, error?, reportSubmitted }` → `{ session }`.
+
+Existing `POST /api/agents/:id/interrupt` (user token): if the runtime has an in-process live session → deliver as today; otherwise `world.ops.enqueueInterrupt(agentId, text, from)` (core `interrupts` table: `{id, agentId, sessionId|null, text, from, createdAt, deliveredAt|null}`); the desk picks it up via control. `POST /stop` and `/ban` unchanged (status change → control returns `stop: true`; runtime also kills the child).
+
+## Collective config additions
+
+`collective.json`: `"desks": { "backend": "docker" | "host" | "auto", "image": "agent-town-desk", "ghToken": "gh-cli" | "env" | "none" }` (default `auto`: docker if `docker info` succeeds, else host with a startup warning). `<collective>/.env` is loaded into `process.env` by the server at start (KEY=VALUE lines, no quotes handling needed beyond trimming); `ANTHROPIC_API_KEY` from it is the default key for desks, overridden by a donor key. Never log env values.
+
+`building.workspace` gains `repoUrl` (string): set at seed from `git -C <path> remote get-url origin` when the collective spec gives a `path`, or given directly. The desk uses `repoUrl`; the host backend keeps using `path`.
+
+## Schema additions
+
+- `Session.backend: 'host' | 'docker'` (default host).
+- `MessageKind` unchanged; interrupts have their own table/type: `Interrupt { id, agentId, sessionId, text, from, createdAt, deliveredAt }`.
+- `Workspace.repoUrl?: string`.
+- `CollectiveConfig.desks?: { backend, image, ghToken }`.
+- Agent-scoped payload schemas: `DeskBrief`, `DeskActivityInput`, `DeskControl`, `DeskSessionEndInput`.
+
+## Testing
+
+- desk: vitest with a fake SDK and a fake town (in-memory HTTP via `fetch` mock or a tiny local server): brief → events posted → interrupt delivered → session-end posted; workspace clone/branch logic against a temp bare git repo.
+- runtime: `DockerBackend` unit-tested with a fake `docker` runner (command strings asserted); scheduler starts a desk session and `finishWorkSession` handles end/crash; `HostBackend` keeps existing tests green.
+- server: agent-scoped endpoints with `inject` (brief for own session, 403 for another agent's, activity → events, control with queued interrupt, session-end → session ended + budget charged).
+- Integration (lead, manual): build image, run a workshop session end to end, confirm a draft PR.

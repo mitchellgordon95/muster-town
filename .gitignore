@@ -8,3 +8,5 @@ export/
 work/
 collectives/*/data/
 collectives/*/export/
+.env
+collectives/*/.env
