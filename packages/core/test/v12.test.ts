@@ -65,7 +65,8 @@ describe("role migration (v1.1 DB)", () => {
     db.exec("ALTER TABLE assignments DROP COLUMN position"); // added by 011 (assignment queue)
     db.exec("ALTER TABLE assignments DROP COLUMN fromAssignmentId"); // added by 011
     db.exec("DROP TABLE bank_inputs; DROP TABLE bank_credits"); // added by 012 (bank)
-    db.exec("DROP TABLE bank_shares; DROP TABLE bank_debits"); // added by 017 (bank shares)
+    db.exec("DROP TABLE bank_debits"); // added by 017 (bank shares; 023 dropped bank_shares)
+    db.exec("DROP TABLE bank_pools; ALTER TABLE buildings DROP COLUMN poolId"); // added by 023 (accounting pools)
     db.exec("ALTER TABLE buildings DROP COLUMN furniture"); // added by 013 (movable furniture)
     db.exec("ALTER TABLE agents DROP COLUMN lastSeenAt"); // added by 015 (visitor presence)
     db.exec("ALTER TABLE assignments DROP COLUMN offered"); // added by 015

@@ -247,30 +247,32 @@ export function BankInputs({ bank, onChange }: Props) {
   );
 }
 
-/** Each building's % of the Bank and what it can still draw. An admin can set or clear a share. */
+/** Each building's pool, the pool's % of the Bank and what's left in it. An admin can set or clear the pool's share. (Placeholder until the pools UI.) */
 export function BankShares({ bank, onChange }: Props) {
   const isAdmin = useTown((s) => !!s.me?.isAdmin);
   const [edit, setEdit] = useState<Record<string, string>>({});
   const rows = [...bank.buildings].sort((a, b) => b.pct - a.pct || a.name.localeCompare(b.name));
   const save = async (buildingId: string, pct: number | null) => {
-    await api().setBankShare(buildingId, pct);
+    const poolId = bank.buildings.find((b) => b.buildingId === buildingId)?.poolId;
+    if (poolId) await api().updateBankPool(poolId, { pct });
     setEdit(({ [buildingId]: _, ...rest }) => rest);
     onChange();
   };
   return (
     <Section title="Shares">
       <table className="table">
-        <thead><tr><th>Building</th><th>Share</th><th>Can draw</th><th title="Unspent tokens donated straight to this building">Held</th>{isAdmin ? <th /> : null}</tr></thead>
+        <thead><tr><th>Building</th><th>Pool</th><th>Pool share</th><th>Can draw</th><th title="Unspent tokens donated straight to this building">Held</th>{isAdmin ? <th /> : null}</tr></thead>
         <tbody>
           {rows.map((r) => {
             const draft = edit[r.buildingId];
             return (
               <tr key={r.buildingId}>
                 <td>{r.name}</td>
+                <td>{r.poolName}</td>
                 <td>
                   {draft !== undefined
                     ? <input className="pct-input" type="number" min={0} max={100} step={1} value={draft} autoFocus onChange={(e) => setEdit({ ...edit, [r.buildingId]: e.target.value })} />
-                    : <>{r.pct}% {r.explicit ? null : <span className="muted" title="No explicit share: splits what's left equally with the other labs">(auto)</span>}</>}
+                    : <>{r.pct}% {r.explicit ? null : <span className="muted" title="No explicit share: splits what's left equally with the other pools">(auto)</span>}</>}
                 </td>
                 <td title={`${fmtTokens(r.expiringTokens)} expiring today · ${fmtTokens(r.durableTokens)} permanent`}>{fmtTokens(r.expiringTokens + Math.max(0, r.durableTokens))}</td>
                 <td title={r.heldByAuth ? `${fmtTokens(r.heldByAuth.subscription)} subscription · ${fmtTokens(r.heldByAuth.apiKey)} API key · ${fmtTokens(r.heldByAuth.donorKey)} donors' keys` : undefined}>{fmtTokens(r.heldTokens)}</td>
@@ -290,7 +292,7 @@ export function BankShares({ bank, onChange }: Props) {
           })}
         </tbody>
       </table>
-      <div className="foot-note">Labs without a set share split what's left equally. Set shares can add up to 100% at most.</div>
+      <div className="foot-note">Pools without a set share split what's left equally; buildings in a pool share it first come first served. Set shares can add up to 100% at most.</div>
     </Section>
   );
 }

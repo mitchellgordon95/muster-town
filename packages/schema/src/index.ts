@@ -158,6 +158,8 @@ export const Building = z.object({
   managerAgentId: Id.nullable().default(null),
   /** residents get code tools on the collective's repo (`Town.workspace`) during work sessions */
   codeAccess: z.boolean().default(false),
+  /** the Bank pool this building draws from; null = the collective's default pool, General (`DEFAULT_POOL_ID`) */
+  poolId: Id.nullable().default(null),
   /** tile rectangle on the town grid; assigned by the server if absent */
   lot: Lot.optional(),
   /** moved furniture: piece key (`board`, `desk:3`, `meeting`, …) -> anchor tile relative to the lot; absent = default spot */
@@ -223,11 +225,19 @@ export type BankInput = z.infer<typeof BankInput>;
 /** One credit from an input into the Bank. A subscription's credit expires a day later (no rollover); an API key's is durable (`expiresAt` null). */
 export const BankCredit = z.object({ id: Id, inputId: Id, tokens: z.number().int().positive(), createdAt: Iso, expiresAt: Iso.nullable().default(null) });
 export type BankCredit = z.infer<typeof BankCredit>;
-/** A building's explicit % of the Bank. Buildings without a row split what's left equally. */
-export const BankShare = z.object({ buildingId: Id, pct: z.number().min(0).max(100) });
-export type BankShare = z.infer<typeof BankShare>;
-/** Tokens a building's session drew from the Bank: from an expiring credit (`creditId`), else from the durable pool. */
-export const BankDebit = z.object({ id: Id, buildingId: Id, agentId: Id, creditId: Id.nullable().default(null), tokens: z.number().int().positive(), createdAt: Iso });
+/** The collective's default pool: every building without a `poolId` draws from it. It can't be deleted. */
+export const DEFAULT_POOL_ID = "general";
+/**
+ * An accounting pool: a group of buildings that share one slice of the Bank, first come first served.
+ * `pct` is an explicit % of the Bank; pools without one split what's left equally.
+ */
+export const BankPool = z.object({ id: Id, name: z.string().min(1).max(80), pct: z.number().min(0).max(100).nullable().default(null), createdAt: Iso });
+export type BankPool = z.infer<typeof BankPool>;
+/**
+ * Tokens a building's session drew from the Bank: from an expiring credit (`creditId`), else from the durable credits.
+ * `poolId` is the pool it drew from (what the pool's share is charged against); `buildingId` is who spent it.
+ */
+export const BankDebit = z.object({ id: Id, buildingId: Id, poolId: Id, agentId: Id, creditId: Id.nullable().default(null), tokens: z.number().int().positive(), createdAt: Iso });
 export type BankDebit = z.infer<typeof BankDebit>;
 
 // ---------- agents (bodies in the world) ----------
@@ -537,7 +547,7 @@ export const EventType = z.enum([
   "assignment.created", "assignment.status",
   "meeting.created", "meeting.phase", "meeting.utterance", "meeting.decisions",
   "session.started", "session.ended",
-  "building.created", "building.updated", "building.layout", "town.plan", "allocation.created", "budget.exhausted", "bank.input", "bank.credited", "bank.share",
+  "building.created", "building.updated", "building.layout", "town.plan", "allocation.created", "budget.exhausted", "bank.input", "bank.credited", "bank.share", "bank.pool",
   "export.done", "system",
 ]);
 export const Event = z.object({
@@ -744,7 +754,8 @@ export const WALKABLE = new Set<number>([TILE.GRASS, TILE.PATH, TILE.FLOOR, TILE
 
 // ---------- REST payloads ----------
 export const CreateBuildingInput = Building.pick({ name: true, goal: true, description: true, headcount: true, reviewPolicy: true, model: true, cheapModel: true, maxTurnsPerSession: true, dailyTokensPerAgent: true, meetings: true, rules: true, codeAccess: true, managerAgentId: true }).partial({ goal: true, description: true, headcount: true, reviewPolicy: true, model: true, cheapModel: true, maxTurnsPerSession: true, dailyTokensPerAgent: true, meetings: true, rules: true, codeAccess: true, managerAgentId: true });
-export const UpdateBuildingInput = CreateBuildingInput.partial();
+/** `poolId` moves the building to another Bank pool at once (admin only; null = General). */
+export const UpdateBuildingInput = CreateBuildingInput.partial().extend({ poolId: Id.nullable().optional() });
 /** PUT /api/buildings/:id/layout: lot-relative anchors for moved pieces (left out = stays put); `dryRun` only checks it. */
 export const LayoutInput = z.object({ furniture: z.record(Tile), dryRun: z.boolean().default(false) });
 /**
@@ -787,8 +798,12 @@ export const AddBankInput = z.object({
   apiKey: z.string().min(1).optional(),
 });
 export type AddBankInput = z.input<typeof AddBankInput>;
-/** PUT /api/bank/shares/:buildingId (admin). `pct` null clears it (the building splits what's left equally). */
-export const SetBankShareInput = z.object({ pct: z.number().min(0).max(100).nullable() });
+/** POST /api/bank/pools (admin). `pct` null or left out: the pool splits what's left equally with the others. */
+export const CreateBankPoolInput = z.object({ name: z.string().trim().min(1).max(80), pct: z.number().min(0).max(100).nullable().default(null) });
+export type CreateBankPoolInput = z.input<typeof CreateBankPoolInput>;
+/** PATCH /api/bank/pools/:id (admin). */
+export const UpdateBankPoolInput = z.object({ name: z.string().trim().min(1).max(80).optional(), pct: z.number().min(0).max(100).nullable().optional() });
+export type UpdateBankPoolInput = z.input<typeof UpdateBankPoolInput>;
 export const CreateMeetingInput = z.object({ kind: MeetingKind, buildingId: Id.nullable(), title: z.string().optional(), scheduledAt: Iso.optional(), agenda: z.string().optional(), startNow: z.boolean().default(false),
   /** who to invite; omitted = the building's residents (town hall: managers, reviewers, moderators) */
   attendeeIds: z.array(Id).min(1).optional() });

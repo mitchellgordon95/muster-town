@@ -319,9 +319,22 @@ describe("meetings, roles, budget, events, human moves", () => {
     const bank = await json(app, "GET", "/api/bank");
     expect(bank.body).toMatchObject({ balanceTokens: 2000, expiringTokens: 0, durableTokens: 2000, inputs: [{ label: "Key", hasApiKey: true }] });
     expect(bank.body.buildings.find((b: any) => b.buildingId === "carbon-cycle")).toMatchObject({ pct: 100, explicit: false, durableTokens: 2000 });
-    const shared = await json(app, "PUT", "/api/bank/shares/carbon-cycle", { headers: auth, body: { pct: 40 } });
-    expect(shared.body.buildings.find((b: any) => b.buildingId === "carbon-cycle")).toMatchObject({ pct: 40, explicit: true, durableTokens: 800 });
-    expect((await json(app, "PUT", "/api/bank/shares/carbon-cycle", { body: { pct: 40 } })).status).toBe(401);
+    expect(bank.body.pools).toMatchObject([{ id: "general", name: "General", pct: 100, explicit: false, isDefault: true, durableTokens: 2000 }]);
+    // accounting pools: create one with 40%, move carbon-cycle into it, rename, delete only when empty
+    const pool = await json(app, "POST", "/api/bank/pools", { headers: auth, body: { name: "Forty", pct: 40 } });
+    expect(pool.status).toBe(201);
+    expect((await json(app, "POST", "/api/bank/pools", { body: { name: "x" } })).status).toBe(401);
+    const pid = pool.body.pool.id;
+    expect((await json(app, "PATCH", "/api/buildings/carbon-cycle", { headers: auth, body: { poolId: pid } })).body.building.poolId).toBe(pid);
+    const moved = await json(app, "GET", "/api/bank");
+    expect(moved.body.buildings.find((b: any) => b.buildingId === "carbon-cycle")).toMatchObject({ poolId: pid, poolName: "Forty", pct: 40, explicit: true, durableTokens: 800 });
+    expect((await json(app, "GET", "/api/bank/pools")).body.pools.find((p: any) => p.id === pid).buildings).toEqual([{ buildingId: "carbon-cycle", name: expect.any(String) }]);
+    const renamed = await json(app, "PATCH", `/api/bank/pools/${pid}`, { headers: auth, body: { name: "Shared", pct: null } });
+    expect(renamed.body.pool).toMatchObject({ name: "Shared", pct: null });
+    expect((await json(app, "DELETE", `/api/bank/pools/${pid}`, { headers: auth })).status).toBe(400);
+    await json(app, "PATCH", "/api/buildings/carbon-cycle", { headers: auth, body: { poolId: null } });
+    expect((await json(app, "DELETE", `/api/bank/pools/${pid}`, { headers: auth })).body.bank.pools.map((p: any) => p.id)).toEqual(["general"]);
+    expect((await json(app, "PUT", "/api/bank/shares/carbon-cycle", { headers: auth, body: { pct: 40 } })).status).toBe(404);
     expect(JSON.stringify(bank.body)).not.toContain("sk-secret");
     expect((await json(app, "DELETE", `/api/bank/inputs/${added.body.input.id}`, { headers: auth })).body.input.cancelledAt).toBeTruthy();
 

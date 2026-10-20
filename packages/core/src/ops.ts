@@ -1,4 +1,4 @@
-import { AgentPermissionsPatch, WorkInput, type Agent, type Lot, type PlanInput, type Assignment, type Interrupt, type CreateBuildingInput, type CreateMeetingInput, type CreateResidentInput, type Doc, type Meeting, type Membership, type RegisterVisitorInput, type Session } from "@muster-town/schema";
+import { AgentPermissionsPatch, WorkInput, type Agent, type Lot, type PlanInput, type Assignment, type Interrupt, type CreateBuildingInput, type UpdateBuildingInput, type CreateMeetingInput, type CreateResidentInput, type Doc, type Meeting, type Membership, type RegisterVisitorInput, type Session } from "@muster-town/schema";
 import { createAssignment, createDoc, homeOf, intrayOf, moveToFront, pendingQueue, sendMessage, setAssignmentStatus, updateDoc } from "./domain.ts";
 import { CHECK_IN } from "./prompts.ts";
 import { createBuilding, createResident, createUser, ensureAvatar, planTown, registerVisitor, updateBuilding, updateFurniture } from "./entities.ts";
@@ -46,9 +46,12 @@ export class Ops {
     const creator = actor ? this.world.holderOf(actor) : null;
     return createBuilding(this.world, input, creator?.kind === "user" ? creator.id : null, { starterResidents: true });
   }
-  updateBuilding(actor: Actor, id: string, patch: Partial<(typeof CreateBuildingInput)["_input"]>) {
-    if (actor) this.world.permissions.require(actor, "building.manage", id);
-    return updateBuilding(this.world, id, patch);
+  /** `poolId` (admin only) moves the building to another Bank pool at once; the rest needs building.manage. */
+  updateBuilding(actor: Actor, id: string, patch: (typeof UpdateBuildingInput)["_input"]) {
+    const { poolId, ...rest } = patch;
+    if (actor && (Object.keys(rest).length || poolId === undefined)) this.world.permissions.require(actor, "building.manage", id);
+    if (poolId !== undefined) this.world.bank.setBuildingPool(actor, id, poolId);
+    return Object.keys(rest).length || poolId === undefined ? updateBuilding(this.world, id, rest) : this.world.buildings.require(id, "building");
   }
   /** Furniture is edited by humans only (Mitchell, 2026-10-20): an agent token is refused even with building.manage. */
   layoutPreview(actor: Actor, id: string, furniture: Furniture) {

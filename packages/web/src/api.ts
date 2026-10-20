@@ -6,7 +6,7 @@ import type { z } from "zod";
 import type {
   Agent, Allocation, Assignment, AuthMe, Building, ClientMessage, Doc, Event, Lot, Meeting, Place, Role, Membership, Tile,
   ServerMessage, Session, Town, CreateBuildingInput, UpdateBuildingInput, CreateResidentInput,
-  ReviewInput, ChatInput, WorkInput, DonateInput, AddBankInput, BankInput, CreateMeetingInput, DocState, DocType, Mailbox, Permission,
+  ReviewInput, ChatInput, WorkInput, DonateInput, AddBankInput, BankInput, CreateBankPoolInput, UpdateBankPoolInput, CreateMeetingInput, DocState, DocType, Mailbox, Permission,
 } from "@muster-town/schema";
 
 export type In<T extends z.ZodTypeAny> = z.input<T>;
@@ -57,8 +57,19 @@ export interface Budget {
 export interface HeldByAuth { subscription: number; apiKey: number; donorKey: number }
 /** `GET /api/allocations?buildingId=`: a building's allocations (retired ones too), newest first. */
 export type AllocationRow = Allocation & { remainingTokens: number; userName: string };
-/** `GET /api/bank` — core's BankSummary: the pools, the inputs, each building's share, and the top contributors. */
-export interface BankBuildingShare { buildingId: string; name: string; pct: number; explicit: boolean; expiringTokens: number; durableTokens: number; heldTokens: number; heldByAuth?: HeldByAuth }
+/** `GET /api/bank` — core's BankSummary: the accounting pools, the inputs, each building's view (from its pool), and the top contributors. */
+export interface BankPoolSummary {
+  id: string; name: string;
+  /** effective % of the Bank; `explicit` false = splits what's left equally with the other pools */
+  pct: number; explicit: boolean;
+  /** General, the default pool (can't be deleted) */
+  isDefault: boolean;
+  buildings: { buildingId: string; name: string }[];
+  /** what the pool's buildings can still draw, first come first served */
+  expiringTokens: number; durableTokens: number;
+}
+/** A building's view of the Bank: its pool's % and what's left in that pool (0 for the Town Hall). */
+export interface BankBuildingShare { buildingId: string; name: string; poolId: string; poolName: string; pct: number; explicit: boolean; expiringTokens: number; durableTokens: number; heldTokens: number; heldByAuth?: HeldByAuth }
 export interface BankContributor { userId: string; name: string; tokens: number; bankTokens: number; donatedTokens: number }
 export interface Bank {
   balanceTokens: number;
@@ -75,6 +86,7 @@ export interface Bank {
   creditedTokens: number;
   dailyInflowTokens: number;
   inputs: (BankInput & { userName: string })[];
+  pools: BankPoolSummary[];
   buildings: BankBuildingShare[];
   contributors: BankContributor[];
 }
@@ -182,8 +194,13 @@ export interface Api {
   bank(): Promise<Bank>;
   addBankInput(input: In<typeof AddBankInput>): Promise<BankInput>;
   cancelBankInput(id: string): Promise<BankInput>;
-  /** admin: set a building's % of the Bank (null: back to an equal split of what's left) */
-  setBankShare(buildingId: string, pct: number | null): Promise<Bank>;
+  /** admin: accounting pools (a pool's `pct` null = an equal split of what's left); returns the new Bank summary */
+  createBankPool(input: In<typeof CreateBankPoolInput>): Promise<Bank>;
+  updateBankPool(id: string, input: In<typeof UpdateBankPoolInput>): Promise<Bank>;
+  /** only an empty pool; General can't be deleted */
+  deleteBankPool(id: string): Promise<Bank>;
+  /** admin: move a building to a pool (null: General), effective at once (PATCH /api/buildings/:id {poolId}) */
+  setBuildingPool(buildingId: string, poolId: string | null): Promise<Building>;
   exportNow(): Promise<string | null>;
   /** v1.3: pull main, rebuild, restart (needs town.redeploy); progress arrives as `system` events */
   redeploy(image: boolean): Promise<{ started?: boolean; queued?: boolean; running?: boolean }>;
@@ -321,11 +338,14 @@ export class HttpApi implements Api {
   }
   async bank() {
     const r = await this.get<Bank>("/api/bank");
-    return { ...r, inputs: r.inputs ?? [], buildings: r.buildings ?? [], contributors: r.contributors ?? [] };
+    return { ...r, inputs: r.inputs ?? [], pools: r.pools ?? [], buildings: r.buildings ?? [], contributors: r.contributors ?? [] };
   }
   async addBankInput(i: In<typeof AddBankInput>) { return unwrap<BankInput>(await this.post("/api/bank/inputs", i), "input"); }
   async cancelBankInput(id: string) { return unwrap<BankInput>(await this.call("DELETE", `/api/bank/inputs/${id}`), "input"); }
-  async setBankShare(buildingId: string, pct: number | null) { return this.call<Bank>("PUT", `/api/bank/shares/${buildingId}`, { pct }); }
+  async createBankPool(i: In<typeof CreateBankPoolInput>) { return unwrap<Bank>(await this.post("/api/bank/pools", i), "bank"); }
+  async updateBankPool(id: string, i: In<typeof UpdateBankPoolInput>) { return unwrap<Bank>(await this.call("PATCH", `/api/bank/pools/${id}`, i), "bank"); }
+  async deleteBankPool(id: string) { return unwrap<Bank>(await this.call("DELETE", `/api/bank/pools/${id}`), "bank"); }
+  async setBuildingPool(buildingId: string, poolId: string | null) { return unwrap<Building>(await this.call("PATCH", `/api/buildings/${buildingId}`, { poolId }), "building"); }
   async exportNow() { return (await this.post<{ commit?: string | null }>("/api/export")).commit ?? null; }
   async redeploy(image: boolean) { return this.post<{ started?: boolean; queued?: boolean; running?: boolean }>("/api/admin/redeploy", { image }); }
 

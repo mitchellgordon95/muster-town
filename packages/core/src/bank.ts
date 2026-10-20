@@ -1,21 +1,40 @@
-import { AddBankInput, SetBankShareInput, type BankCredit, type BankInput, type BankRecurrence } from "@muster-town/schema";
+import { AddBankInput, CreateBankPoolInput, DEFAULT_POOL_ID, UpdateBankPoolInput, type BankCredit, type BankInput, type BankPool, type BankRecurrence, type Agent, type Building } from "@muster-town/schema";
 import { badRequest, forbidden } from "./errors.ts";
 import type { EventLog } from "./events.ts";
-import type { Permissions } from "./permissions.ts";
+import type { Holder, Permissions } from "./permissions.ts";
 import type { Repos } from "./store.ts";
 import { newId, nowIso } from "./util.ts";
 
 const DAY_MS = 86_400_000;
 const DAYS_PER: Record<Exclude<BankRecurrence, "once">, number> = { daily: 1, weekly: 7, monthly: 30 };
 
-export interface BankBuildingShare {
-  buildingId: string;
+/** An accounting pool in the summary: its share of the Bank and what its buildings can still draw from it. */
+export interface BankPoolSummary {
+  id: string;
   name: string;
   /** effective % of the Bank */
   pct: number;
-  /** false: no explicit share, so the building splits what's left equally with the other labs */
+  /** false: no explicit share, so the pool splits what's left equally with the other pools */
   explicit: boolean;
-  /** what the building can still draw: today's subscription share (spent first), then its API-key share */
+  /** true for General, the default pool (can't be deleted) */
+  isDefault: boolean;
+  buildings: { buildingId: string; name: string }[];
+  /** what the pool's buildings can still draw, shared first come first served: today's subscription share (spent first), then API-key */
+  expiringTokens: number;
+  durableTokens: number;
+}
+
+/** A building's view of the Bank, derived from its pool. */
+export interface BankBuildingShare {
+  buildingId: string;
+  name: string;
+  poolId: string;
+  poolName: string;
+  /** its pool's effective % of the Bank (0 for the Town Hall, which draws nothing from the Bank) */
+  pct: number;
+  /** its pool's share is explicit */
+  explicit: boolean;
+  /** what the building can still draw: what's left in its pool (0 for the Town Hall) */
   expiringTokens: number;
   durableTokens: number;
   /** unspent tokens donated straight to this building (not part of the Bank; only this building draws them) */
@@ -55,6 +74,7 @@ export interface BankSummary {
   /** expected tokens per day from active recurring inputs (monthly counts as 30 days) */
   dailyInflowTokens: number;
   inputs: (BankInput & { userName: string })[];
+  pools: BankPoolSummary[];
   buildings: BankBuildingShare[];
   /** top contributors by tokens given, most first (zero-token users left out) */
   contributors: BankContributor[];
@@ -62,6 +82,8 @@ export interface BankSummary {
 
 /** Where a building's next draw comes from: today's subscription share (the server's own login), or an API key's input. */
 export type BankFunding = { kind: "expiring" } | { kind: "durable"; inputId: string | null };
+
+const round = (pct: number) => Math.round(pct * 100) / 100;
 
 /** The next renewal after `from`: one period later (a month is a calendar month). */
 function advance(from: Date, recurrence: Exclude<BankRecurrence, "once">): Date {
@@ -72,7 +94,8 @@ function advance(from: Date, recurrence: Exclude<BankRecurrence, "once">): Date 
 }
 
 /**
- * The town Bank: inputs (API keys, the owner's subscription) credit it; each building draws its % share.
+ * The town Bank: inputs (API keys, the owner's subscription) credit it; each accounting pool gets a % share, and
+ * the buildings in a pool draw from it first come first served.
  * Subscription credits expire at the next daily renewal and are spent first; API-key credits are durable. `world.bank`.
  */
 export class Bank {
@@ -157,7 +180,7 @@ export class Bank {
 
   /** Tokens in the Bank now: unexpired subscription credits and durable credits, less what buildings drew from them. */
   balance(now = new Date()): number {
-    const { expiring, durable } = this.pools(now);
+    const { expiring, durable } = this.totals(now);
     return expiring + durable;
   }
 
@@ -171,7 +194,7 @@ export class Bank {
   }
 
   /** Expiring (unexpired subscription credits) and durable tokens left in the Bank. Durable can't go below 0 here. */
-  private pools(now: Date): { expiring: number; durable: number } {
+  private totals(now: Date): { expiring: number; durable: number } {
     let expiring = 0, durableIn = 0;
     for (const c of this.live(now)) {
       if (c.expiresAt) expiring += Math.max(0, c.tokens - this.debited("creditId = ?", [c.id]));
@@ -180,54 +203,123 @@ export class Bank {
     return { expiring, durable: Math.max(0, durableIn - this.debited("creditId IS NULL", [])) };
   }
 
+  /** Every pool, General first, then by creation. */
+  listPools(): BankPool[] {
+    return this.repos.bankPools.all("ORDER BY (id = 'general') DESC, createdAt, rowid");
+  }
+
+  /** The pool a building draws from (General when it has none, or its pool is gone). */
+  poolOf(buildingId: string): BankPool {
+    const b = this.repos.buildings.get(buildingId);
+    return (b?.poolId && this.repos.bankPools.get(b.poolId)) || this.repos.bankPools.require(DEFAULT_POOL_ID, "pool");
+  }
+
+  /** Buildings in a pool (those with no pool count as General). */
+  buildingsIn(poolId: string): Building[] {
+    return this.repos.buildings.all().filter((b) => this.poolOf(b.id).id === poolId);
+  }
+
   /**
-   * Effective % per building. Explicit shares (admin-set) come first; labs without one split what's
-   * left equally. The Town Hall gets nothing unless it is given a share.
+   * Effective % of the Bank per pool. Explicit shares (admin-set) come first; pools without one split what's
+   * left equally. An empty pool without an explicit share gets nothing, so no share sits unused.
    */
   shares(): Map<string, { pct: number; explicit: boolean }> {
-    const explicit = new Map(this.repos.bankShares.all().map((r) => [r.buildingId, r.pct]));
     const out = new Map<string, { pct: number; explicit: boolean }>();
     let used = 0;
     const rest: string[] = [];
-    for (const b of this.repos.buildings.all()) {
-      const pct = explicit.get(b.id);
-      if (pct !== undefined) { out.set(b.id, { pct, explicit: true }); used += pct; }
-      else if (b.kind === "lab") rest.push(b.id);
-      else out.set(b.id, { pct: 0, explicit: false });
+    for (const p of this.listPools()) {
+      if (p.pct !== null) { out.set(p.id, { pct: p.pct, explicit: true }); used += p.pct; }
+      else if (this.buildingsIn(p.id).length) rest.push(p.id);
+      else out.set(p.id, { pct: 0, explicit: false });
     }
     const each = rest.length ? Math.max(0, 100 - used) / rest.length : 0;
     for (const id of rest) out.set(id, { pct: each, explicit: false });
     return out;
   }
 
-  /** Set (or with null, clear) a building's % of the Bank. Admin only; explicit shares may not add up to more than 100. */
-  setShare(userId: string, buildingId: string, input: { pct: number | null }): void {
-    const { pct } = SetBankShareInput.parse(input);
-    if (!this.permissions.isAdmin({ kind: "user", id: userId })) throw forbidden("town.allocate_budget", "Only an admin can set a building's share of the Bank.");
-    const b = this.repos.buildings.require(buildingId, "building");
-    if (pct === null) { this.repos.bankShares.delete(buildingId); }
-    else {
-      const others = this.repos.bankShares.all().filter((r) => r.buildingId !== buildingId).reduce((s, r) => s + r.pct, 0);
-      if (others + pct > 100) throw badRequest(`Shares would add up to ${others + pct}%; the most this building can have is ${100 - others}%.`);
-      this.repos.bankShares.upsert({ buildingId, pct });
+  private requireAdmin(userId: string, what: string): void {
+    if (!this.permissions.isAdmin({ kind: "user", id: userId })) throw forbidden("town.allocate_budget", `Only an admin can ${what}.`);
+  }
+
+  /** Explicit shares may not add up to more than 100. */
+  private checkPct(poolId: string | null, pct: number | null): void {
+    if (pct === null) return;
+    const others = this.listPools().filter((p) => p.id !== poolId).reduce((s, p) => s + (p.pct ?? 0), 0);
+    if (others + pct > 100) throw badRequest(`Shares would add up to ${others + pct}%; the most this pool can have is ${100 - others}%.`);
+  }
+
+  /** New pool. Admin only. */
+  createPool(userId: string, input: CreateBankPoolInput): BankPool {
+    this.requireAdmin(userId, "create a pool");
+    const { name, pct } = CreateBankPoolInput.parse(input);
+    this.checkPct(null, pct);
+    const pool = this.repos.bankPools.upsert({ id: newId("pl"), name, pct, createdAt: nowIso() });
+    this.events.append({ type: "bank.pool", text: `New Bank pool ${name}${pct === null ? "" : ` (${pct}%)`}`, payload: { poolId: pool.id, pct } });
+    return pool;
+  }
+
+  /** Rename a pool or set (null: clear) its % of the Bank. Admin only. */
+  updatePool(userId: string, poolId: string, input: UpdateBankPoolInput): BankPool {
+    this.requireAdmin(userId, "change a pool");
+    const cur = this.repos.bankPools.require(poolId, "pool");
+    const p = UpdateBankPoolInput.parse(input);
+    if (p.pct !== undefined) this.checkPct(poolId, p.pct);
+    const pool = this.repos.bankPools.upsert({ ...cur, name: p.name ?? cur.name, pct: p.pct === undefined ? cur.pct : p.pct });
+    const text = pool.pct === null ? `${pool.name} splits the Bank's unassigned share` : `${pool.name} gets ${pool.pct}% of the Bank`;
+    this.events.append({ type: "bank.pool", text, payload: { poolId, pct: pool.pct, name: pool.name } });
+    return pool;
+  }
+
+  /** Delete an empty pool. Admin only; General can't be deleted. */
+  deletePool(userId: string, poolId: string): void {
+    this.requireAdmin(userId, "delete a pool");
+    const pool = this.repos.bankPools.require(poolId, "pool");
+    if (poolId === DEFAULT_POOL_ID) throw badRequest("General is the default pool; it can't be deleted.");
+    const n = this.buildingsIn(poolId).length;
+    if (n) throw badRequest(`${pool.name} still has ${n} building${n === 1 ? "" : "s"}; move them out first.`);
+    this.repos.bankPools.delete(poolId);
+    this.events.append({ type: "bank.pool", text: `Bank pool ${pool.name} was deleted`, payload: { poolId, deleted: true } });
+  }
+
+  /** Move a building to a pool (null: General), effective at once. Admin only (`by` null: the system). */
+  setBuildingPool(by: Holder | Agent | string | null, buildingId: string, poolId: string | null): Building {
+    if (by !== null) {
+      const holder = typeof by === "string" ? { kind: "user" as const, id: by } : by;
+      if (!this.permissions.isAdmin(holder)) throw forbidden("town.allocate_budget", "Only an admin can move a building between pools.");
     }
-    this.events.append({ type: "bank.share", buildingId, text: pct === null ? `${b.name} now splits the Bank's unassigned share` : `${b.name} gets ${pct}% of the Bank`, payload: { buildingId, pct } });
+    const b = this.repos.buildings.require(buildingId, "building");
+    const pool = this.repos.bankPools.require(poolId ?? DEFAULT_POOL_ID, "pool");
+    const updated = this.repos.buildings.upsert({ ...b, poolId: pool.id });
+    this.events.append({ type: "bank.pool", buildingId, text: `${b.name} now draws from the ${pool.name} pool`, payload: { buildingId, poolId: pool.id } });
+    return updated;
+  }
+
+  /** The pool a building may draw from, or null: the Town Hall draws nothing from the Bank (only its own allocations). */
+  private drawPool(buildingId: string): BankPool | null {
+    const b = this.repos.buildings.get(buildingId);
+    if (!b || b.kind === "town-hall") return null;
+    return this.poolOf(buildingId);
   }
 
   /**
-   * What a building can still draw. Expiring: its % of each unexpired subscription credit, less what it drew
-   * from that credit. Durable: its % of all API-key credits, less what it drew from them (may be negative after
-   * an overshoot; it's paid back from future credits).
+   * What a pool can still draw. Expiring: its % of each unexpired subscription credit, less what its buildings
+   * drew from that credit. Durable: its % of all API-key credits, less what they drew from them (may be negative
+   * after an overshoot; it's paid back from future credits).
    */
-  available(buildingId: string, now = new Date()): { expiring: number; durable: number } {
-    const frac = (this.shares().get(buildingId)?.pct ?? 0) / 100;
-    if (frac <= 0) return { expiring: 0, durable: 0 };
+  poolAvailable(poolId: string, now = new Date()): { expiring: number; durable: number } {
+    const frac = (this.shares().get(poolId)?.pct ?? 0) / 100;
     let expiring = 0, durableIn = 0;
     for (const c of this.live(now)) {
-      if (c.expiresAt) expiring += Math.max(0, Math.floor(c.tokens * frac) - this.debited("buildingId = ? AND creditId = ?", [buildingId, c.id]));
+      if (c.expiresAt) expiring += Math.max(0, Math.floor(c.tokens * frac) - this.debited("poolId = ? AND creditId = ?", [poolId, c.id]));
       else durableIn += c.tokens;
     }
-    return { expiring, durable: Math.floor(durableIn * frac) - this.debited("buildingId = ? AND creditId IS NULL", [buildingId]) };
+    return { expiring, durable: Math.floor(durableIn * frac) - this.debited("poolId = ? AND creditId IS NULL", [poolId]) };
+  }
+
+  /** What a building can still draw: what's left in its pool (first come first served among the pool's buildings). */
+  available(buildingId: string, now = new Date()): { expiring: number; durable: number } {
+    const pool = this.drawPool(buildingId);
+    return pool ? this.poolAvailable(pool.id, now) : { expiring: 0, durable: 0 };
   }
 
   /** Tokens the building can still draw from the Bank (never negative). */
@@ -238,14 +330,14 @@ export class Bank {
 
   /**
    * The API-key input a subscription-funded session can fail over to when the plan hits its spend limit:
-   * the oldest live api-key input with a key, if the building still has a durable share to draw (else null).
+   * the oldest live api-key input with a key, if the building's pool still has durable tokens (else null).
    */
   fallbackInput(buildingId: string, now = new Date()): BankInput | null {
     if (this.available(buildingId, now).durable <= 0) return null;
     return this.repos.bankInputs.first("source = 'api-key' AND hasApiKey = 1 AND cancelledAt IS NULL", [], "ORDER BY createdAt, rowid") ?? null;
   }
 
-  /** Where the building's next session should be funded from, or null when its Bank share is used up. */
+  /** Where the building's next session should be funded from, or null when its pool's share is used up. */
   fundingFor(buildingId: string, now = new Date()): BankFunding | null {
     const a = this.available(buildingId, now);
     if (a.expiring > 0) return { kind: "expiring" };
@@ -256,25 +348,26 @@ export class Bank {
   }
 
   /**
-   * Draw up to `tokens` for a building's session: its share of expiring credits first (soonest to expire first),
-   * then its durable share. Returns what's left undrawn. With `overshoot`, the rest is drawn from the durable
-   * share anyway (sessions may run past what's left; there is no hard stop).
+   * Draw up to `tokens` for a building's session from its pool: the pool's share of expiring credits first (soonest
+   * to expire first), then its durable share. Returns what's left undrawn. With `overshoot`, the rest is drawn from
+   * the durable share anyway (sessions may run past what's left; there is no hard stop).
    */
   draw(buildingId: string, agentId: string, tokens: number, opts: { overshoot?: boolean; now?: Date } = {}): number {
     const now = opts.now ?? new Date();
     let left = Math.round(tokens);
-    const frac = (this.shares().get(buildingId)?.pct ?? 0) / 100;
-    if (left <= 0 || frac <= 0) return Math.max(0, left);
+    const pool = this.drawPool(buildingId);
+    const frac = pool ? (this.shares().get(pool.id)?.pct ?? 0) / 100 : 0;
+    if (left <= 0 || !pool || frac <= 0) return Math.max(0, left);
     const debit = (creditId: string | null, t: number) => {
-      this.repos.bankDebits.upsert({ id: newId("bd"), buildingId, agentId, creditId, tokens: t, createdAt: now.toISOString() });
+      this.repos.bankDebits.upsert({ id: newId("bd"), buildingId, poolId: pool.id, agentId, creditId, tokens: t, createdAt: now.toISOString() });
       left -= t;
     };
     for (const c of this.live(now)) {
       if (!c.expiresAt || left <= 0) continue;
-      const room = Math.floor(c.tokens * frac) - this.debited("buildingId = ? AND creditId = ?", [buildingId, c.id]);
+      const room = Math.floor(c.tokens * frac) - this.debited("poolId = ? AND creditId = ?", [pool.id, c.id]);
       if (room > 0) debit(c.id, Math.min(room, left));
     }
-    const durable = this.available(buildingId, now).durable;
+    const durable = this.poolAvailable(pool.id, now).durable;
     if (left > 0 && (durable > 0 || opts.overshoot)) debit(null, opts.overshoot ? left : Math.min(durable, left));
     return left;
   }
@@ -308,7 +401,7 @@ export class Bank {
     }, 0));
     const creditedTokens = inputs.reduce((s, i) => s + i.creditedTokens, 0);
     const now = new Date();
-    const pools = this.pools(now);
+    const totals = this.totals(now);
     const shares = this.shares();
     const held = new Map<string, HeldByAuth>();
     const total: HeldByAuth = { subscription: 0, apiKey: 0, donorKey: 0 };
@@ -323,19 +416,30 @@ export class Bank {
     const sum = (h?: HeldByAuth) => (h ? h.subscription + h.apiKey + h.donorKey : 0);
     const heldTokens = sum(total);
     return {
-      balanceTokens: pools.expiring + pools.durable,
+      balanceTokens: totals.expiring + totals.durable,
       heldTokens,
       heldByAuth: total,
-      townTokens: pools.expiring + pools.durable + heldTokens,
-      expiringTokens: pools.expiring,
-      durableTokens: pools.durable,
+      townTokens: totals.expiring + totals.durable + heldTokens,
+      expiringTokens: totals.expiring,
+      durableTokens: totals.durable,
       creditedTokens,
       dailyInflowTokens,
       inputs: inputs.map((i) => ({ ...i, userName: this.repos.users.get(i.userId)?.name ?? i.userId })),
+      pools: this.listPools().map((p) => {
+        const s = shares.get(p.id) ?? { pct: 0, explicit: false };
+        const a = this.poolAvailable(p.id, now);
+        const buildings = this.buildingsIn(p.id).map((b) => ({ buildingId: b.id, name: b.name }));
+        return { id: p.id, name: p.name, pct: round(s.pct), explicit: s.explicit, isDefault: p.id === DEFAULT_POOL_ID, buildings, expiringTokens: a.expiring, durableTokens: a.durable };
+      }),
       buildings: this.repos.buildings.all().map((b) => {
-        const s = shares.get(b.id) ?? { pct: 0, explicit: false };
+        const pool = this.poolOf(b.id);
+        const draws = !!this.drawPool(b.id);
+        const s = shares.get(pool.id) ?? { pct: 0, explicit: false };
         const a = this.available(b.id, now);
-        return { buildingId: b.id, name: b.name, pct: Math.round(s.pct * 100) / 100, explicit: s.explicit, expiringTokens: a.expiring, durableTokens: a.durable, heldTokens: sum(held.get(b.id)), heldByAuth: held.get(b.id) ?? { subscription: 0, apiKey: 0, donorKey: 0 } };
+        return {
+          buildingId: b.id, name: b.name, poolId: pool.id, poolName: pool.name, pct: draws ? round(s.pct) : 0, explicit: s.explicit,
+          expiringTokens: a.expiring, durableTokens: a.durable, heldTokens: sum(held.get(b.id)), heldByAuth: held.get(b.id) ?? { subscription: 0, apiKey: 0, donorKey: 0 },
+        };
       }),
       contributors: this.contributors(),
     };

@@ -1,5 +1,5 @@
 import { AppError, boardDocs, cabinetCounts, cabinetDocs } from "@muster-town/core";
-import { AddBankInput, CreateBuildingInput, SetBankShareInput, DocType, DonateInput, LayoutInput, Membership, PlanInput, RedeployInput, UpdateBuildingInput, townEnv, type AuthMe } from "@muster-town/schema";
+import { AddBankInput, CreateBankPoolInput, CreateBuildingInput, UpdateBankPoolInput, DocType, DonateInput, LayoutInput, Membership, PlanInput, RedeployInput, UpdateBuildingInput, townEnv, type AuthMe } from "@muster-town/schema";
 import type { FastifyInstance, FastifyRequest } from "fastify";
 import { z } from "zod";
 import { actorOf, adminToken, parse, requireAuth, requireUser, type Params } from "../context.ts";
@@ -214,10 +214,25 @@ export async function townRoutes(app: FastifyInstance) {
     return { input: world.bank.cancelInput(user.id, req.params.id) };
   });
 
-  app.put<{ Params: { buildingId: string } }>("/api/bank/shares/:buildingId", async (req) => {
+  // accounting pools: buildings join a pool (PATCH /api/buildings/:id {poolId}); pools get the % of the Bank
+  app.get("/api/bank/pools", async () => ({ pools: world.bank.summary().pools }));
+
+  app.post("/api/bank/pools", async (req, reply) => {
     const user = requireUser(req);
-    world.bank.setShare(user.id, req.params.buildingId, parse(SetBankShareInput, req.body));
-    return world.bank.summary();
+    const pool = world.bank.createPool(user.id, parse(CreateBankPoolInput, req.body));
+    return reply.code(201).send({ pool, bank: world.bank.summary() });
+  });
+
+  app.patch<{ Params: Params }>("/api/bank/pools/:id", async (req) => {
+    const user = requireUser(req);
+    const pool = world.bank.updatePool(user.id, req.params.id, parse(UpdateBankPoolInput, req.body));
+    return { pool, bank: world.bank.summary() };
+  });
+
+  app.delete<{ Params: Params }>("/api/bank/pools/:id", async (req) => {
+    const user = requireUser(req);
+    world.bank.deletePool(user.id, req.params.id);
+    return { bank: world.bank.summary() };
   });
 
   // ---- export ----
