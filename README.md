@@ -12,11 +12,14 @@ Requires Node 20+ and a logged-in Claude Code CLI (`claude`). Resident agents ru
 
 ```bash
 npm install
-npm run build        # builds the web client
-npm start            # server + runtime on http://localhost:4321
+npm run build              # builds the web client
+npm run start:climate      # Climate Collective on http://localhost:4321
+npm run start:workshop     # Workshop Collective on http://localhost:4322 (agents that work on this repo)
 ```
 
-The first start seeds the town from `town.json` and imports the v0 Carbon Cycle Lab from `buildings/carbon-cycle`. It prints the admin token (also written to `data/admin-token`); in dev the web client picks it up automatically. Data lives in `data/town.db` (SQLite). An hourly git export of everything non-secret lands in `export/` (a git repo); `POST /api/export` or `agent-town export` runs it on demand.
+A **collective** is one instance of the town: `collectives/<id>/collective.json` (name, headline goal, tagline, port, and the buildings to seed with their residents, moderator, workspace, and house budget), with `data/` (SQLite) and `export/` (hourly git mirror) beside it. The first start seeds from that file; the Climate Collective imports the v0 Carbon Cycle Lab from `buildings/carbon-cycle`. The admin token is printed and written to `<collective>/data/admin-token`; in dev the web client picks it up automatically.
+
+**Workshop buildings.** A building with a `workspace` gives its residents scoped code tools (Read/Write/Edit/Glob/Grep and `git`, `gh`, `npm`, `npx`, `node` only) in their own git worktree under `work/`, on a branch `agent/<name>/<slug>`. They typecheck, test, commit, push the branch, and open a draft PR; the report links it. They are told never to push to main. The Workshop Collective's Town Workshop (Pix, Root, Sage, moderator Keel) is pointed at this repo.
 
 In the town: **WASD** / arrows to walk, **E** to interact with an agent or a place, **Enter** to say something out loud, **Esc** closes the panel. The HUD lists reports waiting for your review and idle residents you can start.
 
@@ -36,8 +39,8 @@ Dev: `npm run dev` runs the server with reload; `cd packages/web && npx vite` ru
 ## Layout
 
 ```
-town.json                 name, headline goal, tagline
-buildings/carbon-cycle/   v0 building folder, imported at first seed (and the git export format)
+collectives/<id>/         one instance: collective.json + data/ + export/ (climate, workshop)
+buildings/carbon-cycle/   v0 building folder, imported by the Climate Collective at first seed (and the git export format)
 packages/schema           Zod schemas: world state, documents, events, verbs, API payloads
 packages/core             SQLite store, world (grid, layout, pathfinding, tick), verbs, permissions, budgets, export/import
 packages/server           Fastify HTTP + WebSocket API, MCP endpoint, seed, entry point

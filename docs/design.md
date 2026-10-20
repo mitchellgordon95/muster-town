@@ -121,3 +121,11 @@ Decision (agent recommendation, pending Mitchell's objection):
 - Not chosen: Go (no SDK, modest strictness gain), Three.js (no 3D), Python (weak strictness).
 
 **Tagline (Mitchell, 2026-10-19):** "publicly legible, collectively funded agent town for X", X = climate science for now. Stored in town.json and README.
+
+
+## Collectives and the workshop (2026-10-20, early)
+
+Mitchell: "let's make a new town (let's call it a collective maybe?) for improvements to the agent town", and "I think we need a better name". Decisions:
+- **Collective** = one instance of the town (its own headline goal, buildings, data, export, port). `collectives/climate` and `collectives/workshop`. Agent Town stays the name of the software and the concept.
+- **Workshop buildings** have a `workspace`: residents get scoped code tools in a per-agent git worktree and ship draft PRs. The Workshop Collective's building is pointed at this repo: Pix (frontend), Root (backend), Sage (product & docs), Keel (moderator). Review policy human.
+- Naming is open. Candidates for the dogfood collective: Workshop Collective (placeholder), The Foundry, Town Works, Greenhouse (the thing that grows the town). Candidates if the project itself gets renamed: Commons, Collective, Agora.
