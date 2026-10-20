@@ -88,7 +88,6 @@ function MeetingView({ m }: { m: Meeting }) {
       {m.agenda ? <div className="goal-card"><span>Agenda</span>{m.agenda}</div> : null}
       <div className="actions">
         {canRun && m.phase === "collecting" ? <Act tone="primary" run={async () => store.putMeeting(await api().startMeeting(m.id))}>Start discussion</Act> : null}
-        {canRun && open ? <Act tone="bad" run={async () => store.putMeeting(await api().endMeeting(m.id))}>End meeting</Act> : null}
         {m.notesDocId ? <button className="btn" onClick={() => store.open({ kind: "library", docId: m.notesDocId! })}>Open notes</button> : null}
       </div>
       {!open && m.phase !== "scheduled" && room ? <CallMeeting building={room} again /> : null}
@@ -129,6 +128,7 @@ function MeetingView({ m }: { m: Meeting }) {
           <textarea rows={2} value={text} placeholder="Say something to the meeting…" onChange={(e) => setText(e.target.value)}
             onKeyDown={(e) => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); void say(); } }} />
           <button className="btn primary" disabled={!text.trim()}>Say</button>
+          {canRun ? <Act tone="bad" run={async () => store.putMeeting(await api().endMeeting(m.id))}>End meeting</Act> : null}
         </form>
       ) : null}
       {open && canRun ? <div className="foot-note">The facilitator keeps listening while you talk. Press End meeting when you're done.</div> : null}

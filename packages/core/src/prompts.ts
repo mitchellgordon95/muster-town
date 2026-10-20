@@ -25,7 +25,7 @@ export const RESEARCH_RULES = `Research rules:
 - Every number carries units and an uncertainty or range. Don't invent numbers; if you couldn't verify something, say so.
 - One question per session. Pick one concrete question and go deep; don't try to cover everything.`;
 
-export const REPORT_FORMAT = `Report body (markdown) sections: ## Summary (readable in two minutes), ## What I did, ## Findings, ## Proposal for next session (optional: only if there is a follow-up you would genuinely recommend; first line = one concrete question or task, then why it matters. Don't invent work to fill it: when the assignment is done, leave this section out and say so) — or ## Post-mortem with verdict "stop" if the work was wrongly framed, ## For others, ## Questions for humans. Verdict: continue (worth more work) | pivot | stop (done, or not worth pursuing).`;
+export const REPORT_FORMAT = `Report body (markdown), exactly three sections in this order: ## What I did (short), ## Findings (the substance, with numbers, units, sources or PR links), ## What I need from you (one line if nothing: "Nothing needed." Otherwise the single concrete thing a human must do, e.g. "Merge PR #12." or "Decide whether X."). Keep it readable in a minute. Never invent follow-up work to fill space: when the assignment is done, say so and stop. Verdict: continue (the work genuinely needs another session) | pivot | stop (done, or not worth pursuing).`;
 
 /** Nobody has a lane: an agent owns its assignment across the whole system. */
 const OWNERSHIP = `You own your assignment end to end. There are no lanes: do whatever it needs, in any part of the system, rather than handing pieces to others.`;
@@ -163,17 +163,14 @@ export function historyBlock(history: { role: "user" | "assistant"; text: string
 }
 
 export function fallbackReportBody(finalText: string, error: string | null, assignment: Assignment | undefined): string {
-  return `## Summary
-This session ended without \`submit_report\`; the runtime wrote this fallback report${error ? ` (error: ${error})` : ""}.
-
-## What I did
-Assignment: ${assignment ? assignment.title : "(none)"}
+  return `## What I did
+Assignment: ${assignment ? assignment.title : "(none)"}. The session ended without \`submit_report\`${error ? ` (error: ${error})` : ""}; this is a fallback report written by the runtime.
 
 ## Findings
 ${finalText.trim() || "(no final message)"}
 
-## Proposal for next session
-${assignment ? `Continue: ${assignment.title}` : "Check in"}
+## What I need from you
+${error ? "Nothing needed unless the task still matters: the session failed before it could work, so re-assign it once the cause above is fixed." : "Nothing needed."}
 `;
 }
 
