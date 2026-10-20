@@ -104,9 +104,13 @@ export function DocRow({ doc, onOpen }: { doc: Doc; onOpen: () => void }) {
   );
 }
 
-/** "$0.84 · 108k tokens" for reports that carry session cost; "" when neither is set. */
+/** "$0.84 · 108k tokens · 42 turns" for reports that carry session usage; "" when none is set. */
 export function docCost(doc: Doc): string {
-  return [doc.costUsd ? usd(doc.costUsd) : "", doc.tokens ? `${fmtTokens(doc.tokens)} tokens` : ""].filter(Boolean).join(" · ");
+  return [
+    doc.costUsd ? usd(doc.costUsd) : "",
+    doc.tokens ? `${fmtTokens(doc.tokens)} tokens` : "",
+    doc.turns ? `${doc.turns} ${doc.turns === 1 ? "turn" : "turns"}` : "",
+  ].filter(Boolean).join(" · ");
 }
 
 /** Imported/legacy docs often start with an H1 that duplicates the title shown above. */

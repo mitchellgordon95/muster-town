@@ -9,3 +9,4 @@
 - 2026-10-20 (later): desks-as-sandboxes shipped: @agent-town/desk resident host + 3.3GB image (OrbStack), DockerBackend/HostBackend, agent-scoped API, interrupt queue, prompts in core. First real desk sessions: Pix and Root cloned over https, ran tests, opened draft PRs #1 and #2 (~$0.60 each). Policy/worktree stopgaps removed.
 - 2026-10-20 web: report rows and report header show "$x.xx · N tokens" (docCost helper in DocView) — Pix
 - 2026-10-20 runtime: finishWorkSession stamps session tokens/costUsd/turns onto the report doc (submitted and fallback); docs.turns column (migration 004).
+- 2026-10-20 web: docCost adds "· T turns" (Doc.turns from #2); first web test (packages/web/test/docCost.test.ts) — Pix
