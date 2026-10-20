@@ -1,7 +1,7 @@
 /**
  * Process entry: open the world, seed if empty, start the tick, the HTTP/WS/MCP server, and the runtime.
- * Env (MUSTER_TOWN_<X>, or the old AGENT_TOWN_<X>): COLLECTIVE (collectives/climate), PORT (collective.json port or 4321),
- * DATA (<collective>/data), EXPORT (<collective>/export), DEV, ADMIN_NAME.
+ * Env (MUSTER_TOWN_<X>, or the old AGENT_TOWN_<X>): COLLECTIVE (collectives/climate), DATA (<collective>/data),
+ * EXPORT (<collective>/export), DEV, ADMIN_NAME. Plain PORT (collective.json port or 4321) and HOST (0.0.0.0).
  */
 import { World } from "@muster-town/core";
 import { townEnv } from "@muster-town/schema";

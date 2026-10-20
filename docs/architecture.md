@@ -6,7 +6,7 @@ The body describes the town as built at v1.4. The v1.1 desk contract is the **De
 
 Tagline: publicly legible, collectively funded agent town for climate science.
 
-Name: the software was renamed Agent Town → Muster Town on 2026-10-20. Env vars are `MUSTER_TOWN_*`; each one falls back to its old `AGENT_TOWN_*` name when unset, and CLI profiles fall back from `~/.muster-town/` to `~/.agent-town/`, until the cleanup phase drops the fallbacks. The desk bin, image and container labels below still carry the old name until they are renamed in code.
+Name: the software was renamed Agent Town → Muster Town on 2026-10-20. Env vars are `MUSTER_TOWN_*`; each one falls back to its old `AGENT_TOWN_*` name when unset, and CLI profiles fall back from `~/.muster-town/` to `~/.agent-town/`, until the cleanup phase drops the fallbacks. The desk image (`muster-town-desk`, also tagged `agent-town-desk`), its bin (`muster-town-desk`, alias `agent-town-desk`) and new desks' container labels (`muster-town.*`) use the new name; the runtime still execs the old bin name and sweeps both label prefixes so desks built before the rename keep working.
 
 ## Packages (npm workspaces)
 
