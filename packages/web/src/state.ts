@@ -9,10 +9,10 @@ import type { Agent, Assignment, AuthMe, Doc, Event, Meeting, Permission, Place,
 import type { Grid, Snapshot } from "./api";
 
 /**
- * Every panel is a place: walk up and press E. `intray`/`board` take a building id; the Town Hall places
+ * Every panel is a place: walk up and press E. `intray`/`board`/`cabinet` take a building id; the Town Hall places
  * (planning desk, donation box, schedule board, mod station) take none. `admin` is the old name for `planning`.
  */
-export type PanelKind = "agent" | "building" | "library" | "trophy" | "outbox" | "meeting" | "intray" | "board" | "planning" | "donation" | "schedule" | "mod" | "admin";
+export type PanelKind = "agent" | "building" | "library" | "trophy" | "outbox" | "meeting" | "intray" | "board" | "cabinet" | "planning" | "donation" | "schedule" | "mod" | "admin";
 export interface PanelRef { kind: PanelKind; id?: string; docId?: string; tab?: string }
 export interface Toast { id: number; text: string; tone: "info" | "ok" | "bad"; panel?: PanelRef }
 

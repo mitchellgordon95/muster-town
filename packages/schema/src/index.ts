@@ -211,6 +211,8 @@ export const PlaceKind = z.enum([
   "desk", "door", "library", "trophy-room", "outbox", "meeting-room", "plaza",
   /** board:<buildingId> — wall board inside each lab */
   "board",
+  /** cabinet:<buildingId> — filing cabinet beside the board: the building's reports and meeting notes */
+  "cabinet",
   /** intray:<buildingId> — the manager's desk (pending reports) */
   "intray",
   /** mod-station — Town Hall desk where town moderators sit */
@@ -224,7 +226,7 @@ export const PlaceKind = z.enum([
 ]);
 export type PlaceKind = z.infer<typeof PlaceKind>;
 export const Place = z.object({
-  id: Id,                 // e.g. "desk:<agentId>", "door:<buildingId>", "library", "meeting-room:<buildingId>", "board:<buildingId>", "intray:<buildingId>", "mod-station"
+  id: Id,                 // e.g. "desk:<agentId>", "door:<buildingId>", "library", "meeting-room:<buildingId>", "board:<buildingId>", "cabinet:<buildingId>", "intray:<buildingId>", "mod-station"
   kind: PlaceKind,
   name: z.string(),
   buildingId: Id.nullable(),
@@ -552,6 +554,8 @@ export const TILE = {
   BOARD: 12,
   DONATION: 13,
   SCHEDULE: 14,
+  /** filing cabinet against the top wall of each lab, two tiles right of the board */
+  CABINET: 15,
 } as const;
 export const WALKABLE = new Set<number>([TILE.GRASS, TILE.PATH, TILE.FLOOR, TILE.DOOR]);
 

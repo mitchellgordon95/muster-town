@@ -29,3 +29,4 @@
 - 2026-10-20: desk sessions failed on "local changes would be overwritten" (npm set the exec bit on packages/desk/src/cli.ts inside containers). Fixed: core.fileMode false + auto-stash before checkout; old containers replaced; 9 assignments re-queued; report format now What I did / Findings / What I need from you.
 - 2026-10-20 meetings: the facilitator (or a human) can question an attendee with @Name mid-meeting; the attendee gets a short no-tools reply turn and answers in the meeting chat (max 5 per attendee per meeting) — Lena
 - 2026-10-20 board: standing guidance only; meeting notes join reports in the building's filing cabinet (GET /api/buildings/:id/cabinet, Filing cabinet tab on the board panel); prompts and board verb say so — Sage
+- 2026-10-20 web: the filing cabinet is furniture: a `cabinet:<buildingId>` place in every lab (TILE.CABINET on the top wall, two right of the board); E opens its panel; the board panel loses its Filing cabinet tab — Sage

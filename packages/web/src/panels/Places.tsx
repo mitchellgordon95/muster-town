@@ -1,6 +1,6 @@
 /**
  * Panels that belong to places on the map: the in-tray (manager's desk), the building board,
- * the donation box, the schedule board and the mod station (Town Hall).
+ * the filing cabinet, the donation box, the schedule board and the mod station (Town Hall).
  */
 import { useEffect, useMemo, useState } from "react";
 import type { Doc, Meeting } from "@agent-town/schema";
@@ -72,13 +72,20 @@ function IntrayRow({ doc, onOpen }: { doc: Doc; onOpen: () => void }) {
 export function BoardPanel({ buildingId }: { buildingId: string }) {
   const b = useTown((s) => s.buildings.find((x) => x.id === buildingId));
   return (
-    <PanelShell icon={<Glyph kind="board" />} title={`${b?.name ?? "Building"} board`} subtitle="Standing guidance: rules, articles and notes. Reports and meeting notes are in the filing cabinet." tabs={["Board", "Filing cabinet"]}>
-      {(tab) => tab === "Filing cabinet" ? <DocList buildingId={buildingId} filed /> : (
-        <>
-          {b ? <StandingRules buildingId={b.id} rules={b.rules ?? ""} /> : null}
-          <DocList buildingId={buildingId} />
-        </>
-      )}
+    <PanelShell icon={<Glyph kind="board" />} title={`${b?.name ?? "Building"} board`} subtitle="Standing guidance: rules, articles and notes. Reports and meeting notes are in the filing cabinet beside it.">
+      {b ? <StandingRules buildingId={b.id} rules={b.rules ?? ""} /> : null}
+      <DocList buildingId={buildingId} />
+    </PanelShell>
+  );
+}
+
+// ---------- filing cabinet ----------
+
+export function CabinetPanel({ buildingId }: { buildingId: string }) {
+  const b = useTown((s) => s.buildings.find((x) => x.id === buildingId));
+  return (
+    <PanelShell icon={<Glyph kind="cabinet" />} title={`${b?.name ?? "Building"} filing cabinet`} subtitle="Every report and meeting note filed in this building, newest first.">
+      <DocList buildingId={buildingId} filed />
     </PanelShell>
   );
 }

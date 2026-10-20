@@ -98,12 +98,12 @@ describe("role migration (v1.1 DB)", () => {
 });
 
 describe("v1.2 places", () => {
-  it("each lab has a board and an in-tray; Town Hall has the mod station, planning desk, donation box, schedule board; all reachable", () => {
+  it("each lab has a board, a filing cabinet and an in-tray; Town Hall has the mod station, planning desk, donation box, schedule board; all reachable", () => {
     const { world, by } = seededWorld();
     const door = world.layout.requirePlace("door:carbon-cycle").pos;
     const plaza = world.layout.requirePlace("plaza").pos;
     const expected = {
-      "board:carbon-cycle": "board", "intray:carbon-cycle": "intray",
+      "board:carbon-cycle": "board", "cabinet:carbon-cycle": "cabinet", "intray:carbon-cycle": "intray",
       "mod-station": "mod-station", "planning-desk": "planning", "donation-box": "donation", "schedule-board": "schedule",
     } as const;
     for (const [id, kind] of Object.entries(expected)) {
@@ -117,6 +117,8 @@ describe("v1.2 places", () => {
     const lab = world.buildings.require("carbon-cycle").lot!;
     const board = world.layout.requirePlace("board:carbon-cycle").pos;
     expect(tile(board.x, lab.y)).toBe(12); // TILE.BOARD on the top wall
+    const cabinet = world.layout.requirePlace("cabinet:carbon-cycle").pos;
+    expect(tile(cabinet.x, lab.y)).toBe(15); // TILE.CABINET on the top wall, beside the board
     const intray = world.layout.requirePlace("intray:carbon-cycle").pos;
     expect(tile(intray.x, intray.y - 1)).toBe(11); // TILE.MANAGER_DESK
     expect(g.tiles).toContain(13); // DONATION
