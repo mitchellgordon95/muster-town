@@ -22,7 +22,7 @@ export function describeTool(world: World, name: string, input: unknown): string
   if (name === "WebSearch") return `Searching the web: ${clip(i.query)}`;
   if (name === "WebFetch") return `Reading ${hostOf(i.url)}`;
   const verb = name.startsWith("mcp__town__") ? name.slice("mcp__town__".length) : null;
-  if (!verb) return `Using ${name}`;
+  if (!verb) return describeBuiltin(name, i);
   switch (verb) {
     case "look": return "Looking around";
     case "go": return `Walking to ${placeName(world, String(i.to ?? ""))}`;
@@ -55,5 +55,25 @@ export function describeTool(world: World, name: string, input: unknown): string
     case "promote": return `Promoting a doc to the ${i.state === "library" ? "library" : "board"}`;
     case "ban": return `Banning ${world.nameOf(String(i.agentId ?? ""))}`;
     default: return `Using ${verb}`;
+  }
+}
+
+/** Desk sessions use Claude Code's built-in tools; make them read like activity, not tool names. */
+function describeBuiltin(name: string, i: Record<string, unknown>): string {
+  const file = (p: unknown) => String(p ?? "").replace(/^\/home\/agent\/work\/[^/]+\//, "").slice(-60);
+  switch (name) {
+    case "Bash": {
+      const cmd = String(i.command ?? "").replace(/\s+/g, " ").trim();
+      const desc = typeof i.description === "string" && i.description.trim() ? i.description.trim() : cmd;
+      return `Running: ${clip(desc, 70)}`;
+    }
+    case "Read": return `Reading ${file(i.file_path)}`;
+    case "Write": return `Writing ${file(i.file_path)}`;
+    case "Edit": case "MultiEdit": return `Editing ${file(i.file_path)}`;
+    case "Glob": return `Looking for ${clip(i.pattern, 50)}`;
+    case "Grep": return `Grepping for ${clip(i.pattern, 50)}`;
+    case "TodoWrite": return "Updating plan";
+    case "Task": case "Agent": return "Delegating a sub-task";
+    default: return `Using ${name}`;
   }
 }

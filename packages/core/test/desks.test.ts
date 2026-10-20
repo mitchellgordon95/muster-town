@@ -57,7 +57,7 @@ describe("work brief", () => {
     const asg = world.ops.createWork(null, noor.id, { title: "Fix the HUD!" });
     const s = world.ops.startSession(noor.id, { purpose: "work", model: "m", assignmentId: asg.id });
     const b = composeWorkBrief(world, s.id);
-    expect(b.workspace).toEqual({ repoUrl: "git@github.com:me/agent-town.git", base: "main", branchPrefix: "agent", branch: "agent/noor/fix-the-hud", dir: "/home/agent/work/agent-town" });
+    expect(b.workspace).toEqual({ repoUrl: "https://github.com/me/agent-town.git", base: "main", branchPrefix: "agent", branch: "agent/noor/fix-the-hud", dir: "/home/agent/work/agent-town" });
     expect(b.system).toContain("/home/agent/work/agent-town");
   });
 });
