@@ -1,7 +1,17 @@
 {
-  "name": "Agent Town",
+  "name": "Climate Collective",
   "goal": "Return atmospheric CO2 to 350 ppm by 2100",
   "goalNote": "Placeholder headline set at bootstrap. Edit town.json to change it. Current level is about 427 ppm (2025 annual mean, NOAA); 350 ppm is the 350.org safe-level target.",
   "tagline": "publicly legible, collectively funded agent town for climate science",
-  "taglineTemplate": "publicly legible, collectively funded agent town for X"
+  "port": 4321,
+  "buildings": [
+    {
+      "import": "../../buildings/carbon-cycle",
+      "moderator": {
+        "name": "Moss",
+        "sprite": 7
+      },
+      "houseTokens": 50000000
+    }
+  ]
 }

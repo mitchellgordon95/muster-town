@@ -101,6 +101,23 @@ export const MeetingCadence = z.object({
 export const Lot = z.object({ x: z.number().int(), y: z.number().int(), w: z.number().int(), h: z.number().int() });
 export type Lot = z.infer<typeof Lot>;
 
+/** Code access for a building's residents: a repo they may edit in a per-agent git worktree, with scoped tools. */
+export const Workspace = z.object({
+  /** repo root; relative paths resolve from the Agent Town repo root */
+  path: z.string(),
+  /** Claude Code tool permission patterns added to allowedTools for work sessions */
+  tools: z.array(z.string()).default([
+    "Read", "Write", "Edit", "Glob", "Grep",
+    "Bash(git:*)", "Bash(gh:*)", "Bash(npm:*)", "Bash(npx:*)", "Bash(node:*)",
+    "Bash(ls:*)", "Bash(cat:*)", "Bash(mkdir:*)", "Bash(sed:*)", "Bash(grep:*)", "Bash(find:*)", "Bash(wc:*)", "Bash(head:*)", "Bash(tail:*)",
+  ]),
+  /** branches are named <branchPrefix>/<agent>/<slug> */
+  branchPrefix: z.string().default("agent"),
+  /** base branch to fork worktrees from */
+  base: z.string().default("main"),
+});
+export type Workspace = z.infer<typeof Workspace>;
+
 export const Building = z.object({
   id: Id,
   name: z.string(),
@@ -118,6 +135,8 @@ export const Building = z.object({
   /** tokens each resident may spend per day */
   dailyTokensPerAgent: z.number().int().positive().default(10_000_000),
   meetings: z.array(MeetingCadence).default([]),
+  /** when set, residents get code tools in a worktree of this repo during work sessions */
+  workspace: Workspace.nullable().default(null),
   /** tile rectangle on the town grid; assigned by the server if absent */
   lot: Lot.optional(),
   createdAt: Iso,
@@ -463,7 +482,7 @@ export const TILE = { GRASS: 0, PATH: 1, FLOOR: 2, WALL: 3, DESK: 4, SHELF: 5, P
 export const WALKABLE = new Set<number>([TILE.GRASS, TILE.PATH, TILE.FLOOR, TILE.DOOR]);
 
 // ---------- REST payloads ----------
-export const CreateBuildingInput = Building.pick({ name: true, goal: true, description: true, headcount: true, reviewPolicy: true, model: true, cheapModel: true, maxTurnsPerSession: true, dailyTokensPerAgent: true, meetings: true }).partial({ goal: true, description: true, headcount: true, reviewPolicy: true, model: true, cheapModel: true, maxTurnsPerSession: true, dailyTokensPerAgent: true, meetings: true });
+export const CreateBuildingInput = Building.pick({ name: true, goal: true, description: true, headcount: true, reviewPolicy: true, model: true, cheapModel: true, maxTurnsPerSession: true, dailyTokensPerAgent: true, meetings: true, workspace: true }).partial({ goal: true, description: true, headcount: true, reviewPolicy: true, model: true, cheapModel: true, maxTurnsPerSession: true, dailyTokensPerAgent: true, meetings: true, workspace: true });
 export const UpdateBuildingInput = CreateBuildingInput.partial();
 export const CreateResidentInput = z.object({ buildingId: Id, name: z.string(), title: z.string(), direction: z.string(), sprite: z.number().int().optional(), model: z.string().optional() });
 export const RegisterVisitorInput = z.object({ name: z.string(), buildingId: Id.optional(), title: z.string().optional() });
@@ -478,3 +497,33 @@ export const SeedInput = z.object({ importDir: z.string().optional() });
 
 export const AuthMe = z.object({ user: User, roles: z.array(Role), avatarAgentId: Id.nullable(), isAdmin: z.boolean() });
 export type AuthMe = z.infer<typeof AuthMe>;
+
+// ---------- collective (one instance of the town: config + data dir + seed buildings) ----------
+export const CollectiveBuildingSpec = z.object({
+  /** fixed id (default: slug of name) */
+  id: Id.optional(),
+  /** import a v0 building folder instead of creating from fields (path relative to the collective dir) */
+  import: z.string().optional(),
+  name: z.string().optional(),
+  goal: z.string().optional(),
+  description: z.string().optional(),
+  headcount: z.number().int().positive().optional(),
+  reviewPolicy: ReviewPolicy.optional(),
+  model: z.string().optional(),
+  cheapModel: z.string().optional(),
+  maxTurnsPerSession: z.number().int().positive().optional(),
+  dailyTokensPerAgent: z.number().int().positive().optional(),
+  meetings: z.array(MeetingCadence).optional(),
+  /** workspace.path is relative to the collective dir */
+  workspace: Workspace.optional(),
+  residents: z.array(z.object({ name: z.string(), title: z.string(), direction: z.string(), sprite: z.number().int().optional(), model: z.string().optional() })).default([]),
+  moderator: z.object({ name: z.string(), sprite: z.number().int().optional(), direction: z.string().optional() }).optional(),
+  /** house allocation for this building, in tokens */
+  houseTokens: z.number().int().nonnegative().optional(),
+});
+export const CollectiveConfig = Town.extend({
+  port: z.number().int().positive().optional(),
+  buildings: z.array(CollectiveBuildingSpec).default([]),
+});
+export type CollectiveConfig = z.infer<typeof CollectiveConfig>;
+export type CollectiveBuildingSpec = z.infer<typeof CollectiveBuildingSpec>;

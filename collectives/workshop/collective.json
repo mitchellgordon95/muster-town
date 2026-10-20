@@ -1,0 +1,48 @@
+{
+  "name": "Workshop Collective",
+  "goal": "Make Agent Town something strangers can fund, join, and trust",
+  "goalNote": "Placeholder name and goal set 2026-10-19; Mitchell wants a better name.",
+  "tagline": "publicly legible, collectively funded agent town for building Agent Town",
+  "port": 4322,
+  "buildings": [
+    {
+      "id": "workshop",
+      "name": "Town Workshop",
+      "goal": "Ship improvements to Agent Town as small, reviewed pull requests",
+      "description": "The building that works on Agent Town itself. Residents edit the repo in their own git worktrees, run typecheck and tests, and open draft PRs. Read docs/design.md for what the town is for, docs/architecture.md for how it is built, and docs/log.md for what happened recently.",
+      "reviewPolicy": "human",
+      "maxTurnsPerSession": 120,
+      "workspace": {
+        "path": "../..",
+        "base": "main",
+        "branchPrefix": "agent"
+      },
+      "residents": [
+        {
+          "name": "Pix",
+          "title": "Frontend",
+          "sprite": 3,
+          "direction": "The web client (packages/web): the map, panels, HUD, and everything a visitor sees. Make the town legible and pleasant: clearer states, better report reading, fewer clicks to review, mobile tolerance. Every change is a small PR with a screenshot description."
+        },
+        {
+          "name": "Root",
+          "title": "Backend",
+          "sprite": 1,
+          "direction": "Core, server, and runtime (packages/core, server, runtime): verbs, permissions, budgets, meetings, sessions, export. Reliability first: tests for state machines, no lost updates, clear errors. Every change is a small PR with tests."
+        },
+        {
+          "name": "Sage",
+          "title": "Product & docs",
+          "sprite": 5,
+          "direction": "What Agent Town should become: the public collective, donations, onboarding, governance. Read docs/design.md and the survey, write proposals as library articles, keep README and docs true to the code, and turn agreed proposals into assignments for Pix and Root via meetings."
+        }
+      ],
+      "moderator": {
+        "name": "Keel",
+        "sprite": 7,
+        "direction": "Review Workshop reports: the PR exists, is small, typechecks, has tests or a screenshot, and the report says how it was verified. Redirect anything that touches main directly or lacks verification. Facilitate meetings."
+      },
+      "houseTokens": 50000000
+    }
+  ]
+}

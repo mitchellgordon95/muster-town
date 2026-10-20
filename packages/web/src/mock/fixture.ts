@@ -15,14 +15,14 @@ export const users: User[] = [
   { id: "us_mitchell", name: "Mitchell", createdAt: ago(9000), donatedTokens: 50_000_000, hasApiKey: false },
 ];
 
-const base = { goal: "", description: "", headcount: 6, reviewPolicy: "human" as const, model: "claude-opus-5-5", cheapModel: "claude-haiku-5-5", maxTurnsPerSession: 80, dailyTokensPerAgent: 2_000_000, meetings: [] };
+const base = { goal: "", description: "", headcount: 6, reviewPolicy: "human" as const, model: "claude-opus-5-5", cheapModel: "claude-haiku-5-5", maxTurnsPerSession: 80, dailyTokensPerAgent: 2_000_000, meetings: [], workspace: null as Building["workspace"] };
 export const buildings: Building[] = [
   { ...base, id: "bl_townhall", name: "Town Hall", kind: "town-hall", headcount: 1, description: "Library, trophy room, outbox, and the town meeting room.", createdAt: ago(9000) },
   {
     ...base, id: "bl_carbon", name: "Carbon Cycle Lab", kind: "lab", createdAt: ago(8900), createdBy: "us_mitchell",
     goal: "Understand the carbon cycle well enough to say what it would take to get to 350 ppm",
     description: "How CO2 moves between the atmosphere, land, ocean, and people: the fluxes, the stocks, the measurements, and the feedbacks.",
-    meetings: [{ kind: "standup", everyMinutes: 0 }],
+    meetings: [{ kind: "standup", everyMinutes: 0 }], workspace: null,
   },
 ];
 

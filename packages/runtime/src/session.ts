@@ -10,6 +10,7 @@ import { blocksOf, InputChannel, sessionEnv, usageOf, type LooseMessage, type Op
 export interface Ctx {
   world: World;
   mcpUrl: string;
+  repoRoot: string;
   now: () => Date;
   sdk: Sdk;
   /** live work sessions by agentId (these take interrupts) */
@@ -33,8 +34,23 @@ export const WEB_TOOLS = ["WebSearch", "WebFetch"];
 export const DISALLOWED_TOOLS = ["Bash", "Read", "Write", "Edit", "Glob", "Grep", "Task", "Agent"];
 const THOUGHT_CHARS = 200;
 
+/** A workspace pattern like "Bash(git:*)" unlocks the "Bash" tool; a bare "Edit" unlocks Edit. */
+function workspaceAllows(ws: SessionWorkspace | undefined, tool: string): boolean {
+  if (!ws) return false;
+  return ws.tools.some((p) => p === tool || p.startsWith(`${tool}(`));
+}
+
+export interface SessionWorkspace {
+  /** per-agent git worktree the session runs in */
+  cwd: string;
+  branch: string;
+  /** Claude Code tool permission patterns (e.g. "Edit", "Bash(git:*)") */
+  tools: string[];
+}
+
 export interface SessionSpec {
   agentId: string;
+  workspace?: SessionWorkspace;
   purpose: Session["purpose"];
   model: string;
   system: string;
@@ -91,10 +107,11 @@ export function townOptions(ctx: Ctx, spec: SessionSpec, apiKey: string | null):
     systemPrompt: { type: "preset", preset: "claude_code", append: spec.system },
     mcpServers: { town: { type: "http", url: ctx.mcpUrl, headers: { Authorization: `Bearer ${token}` }, alwaysLoad: true } },
     tools: spec.web ? [...WEB_TOOLS] : [],
-    allowedTools: [...TOWN_TOOLS, ...(spec.web ? WEB_TOOLS : [])],
-    disallowedTools: [...DISALLOWED_TOOLS, ...(spec.web ? [] : WEB_TOOLS)],
+    allowedTools: [...TOWN_TOOLS, ...(spec.web ? WEB_TOOLS : []), ...(spec.workspace?.tools ?? [])],
+    disallowedTools: [...DISALLOWED_TOOLS.filter((t) => !workspaceAllows(spec.workspace, t)), ...(spec.web ? [] : WEB_TOOLS)],
     settingSources: [],
     env: sessionEnv(apiKey),
+    ...(spec.workspace ? { cwd: spec.workspace.cwd } : {}),
   };
 }
 

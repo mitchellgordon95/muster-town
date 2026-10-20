@@ -5,3 +5,6 @@ dist/
 .DS_Store
 data/
 export/
+work/
+collectives/*/data/
+collectives/*/export/

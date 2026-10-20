@@ -1,7 +1,10 @@
+import { execSync } from "node:child_process";
+import { existsSync, symlinkSync } from "node:fs";
+import { basename, join, resolve } from "node:path";
 /** Resident work sessions (with fallback report + interrupts) and moderator review sessions. */
 import { AppError, buildingRoleId, createDoc, setAssignmentStatus } from "@agent-town/core";
-import type { Agent, Doc, Session } from "@agent-town/schema";
-import { fallbackReportBody, reviewPrompt, reviewSystemPrompt, workPrompt, workSystemPrompt } from "./prompts.ts";
+import type { Agent, Assignment, Building, Doc, Session } from "@agent-town/schema";
+import { fallbackReportBody, reviewPrompt, reviewSystemPrompt, workPrompt, workSystemPrompt, workshopPrompt } from "./prompts.ts";
 import { homeOf, runAgentSession, type Ctx } from "./session.ts";
 
 const REVIEW_MAX_TURNS = 10;
@@ -39,9 +42,12 @@ export async function runWorkSession(ctx: Ctx, starting: Set<string>, agentId: s
   starting.add(agentId);
   try {
     walkToDesk(ctx, agent);
+    const ws = building.workspace ? prepareWorkspace(ctx, building.workspace, agent, assignment) : undefined;
+    if (ws) world.events.append({ type: "agent.activity", agentId, buildingId: bid, text: `${agent.name} checked out branch ${ws.branch}`, payload: { branch: ws.branch, cwd: ws.cwd } });
     const out = await runAgentSession(ctx, {
       agentId, purpose: "work", model: agent.model ?? building.model, maxTurns: building.maxTurnsPerSession, web: true,
-      assignmentId, system: workSystemPrompt(agent, building, world.town.get()), prompt: workPrompt(assignment, latestReport(ctx, agentId)),
+      workspace: ws ? { cwd: ws.cwd, branch: ws.branch, tools: building.workspace!.tools } : undefined,
+      assignmentId, system: workSystemPrompt(agent, building, world.town.get()) + (ws ? workshopPrompt(ws, ws.repoName) : ""), prompt: workPrompt(assignment, latestReport(ctx, agentId)),
       beforeEnd: async (o) => {
         if (o.reportSubmitted) return;
         const now = world.agents.require(agentId);
@@ -121,4 +127,29 @@ export async function maybeReview(ctx: Ctx, reviewed: Set<string>, docId: string
     world.events.append({ type: "system", agentId: mod.id, buildingId: building.id, text: `${mod.name} didn't decide on "${doc.title}"; it's waiting for a human`, payload: { docId } });
   }
   return true;
+}
+
+/** Slug for branch and directory names. */
+function slug(x: string, n = 40): string {
+  return x.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "").slice(0, n) || "work";
+}
+
+/**
+ * Give the agent its own git worktree for this assignment (created on first use, reused after):
+ * <repo>/work/<agent>-<assignment6> on branch <prefix>/<agent>/<slug>, forked from the base branch.
+ * The root node_modules is symlinked in so typecheck/tests run without an install.
+ */
+function prepareWorkspace(ctx: Ctx, ws: NonNullable<Building["workspace"]>, agent: Agent, assignment: Assignment): { cwd: string; branch: string; base: string; repoName: string } {
+  const repo = resolve(ctx.repoRoot, ws.path);
+  const branch = `${ws.branchPrefix}/${slug(agent.name, 20)}/${slug(assignment.title)}`;
+  const dir = join(repo, "work", `${slug(agent.name, 20)}-${assignment.id.slice(-6)}`);
+  const git = (cmd: string) => execSync(`git ${cmd}`, { cwd: repo, stdio: ["ignore", "pipe", "pipe"] }).toString().trim();
+  if (!existsSync(dir)) {
+    git(`fetch --quiet origin ${ws.base}`);
+    const exists = git(`branch --list ${branch}`) !== "";
+    git(`worktree add --quiet ${exists ? "" : `-b ${branch}`} ${JSON.stringify(dir)} ${exists ? branch : `origin/${ws.base}`}`);
+  }
+  const nm = join(dir, "node_modules");
+  if (!existsSync(nm) && existsSync(join(repo, "node_modules"))) symlinkSync(join(repo, "node_modules"), nm, "dir");
+  return { cwd: dir, branch, base: ws.base, repoName: basename(repo) };
 }

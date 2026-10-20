@@ -1,6 +1,6 @@
-import { Town, type Agent, type Building, type User } from "@agent-town/schema";
+import { CollectiveConfig, Town, type Agent, type Building, type User } from "@agent-town/schema";
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
-import { join } from "node:path";
+import { dirname, join, resolve } from "node:path";
 import { createBuilding, createResident, createServiceAgent, createUser } from "./entities.ts";
 import { buildingRoleId, townRoleId } from "./permissions.ts";
 import { TOWN_HALL_ID } from "./world/layout.ts";
@@ -19,6 +19,8 @@ export interface SeedOptions {
   dataDir?: string;
   /** house allocation for the imported lab (default 50M tokens) */
   houseTokens?: number;
+  /** path to collective.json; its buildings (imports, residents, workspaces, moderators) are created at seed */
+  collectivePath?: string;
 }
 export interface SeedResult {
   /** false if the DB already had users (seed is idempotent) */
@@ -72,6 +74,35 @@ export function seedDefaults(world: World, opts: SeedOptions = {}): SeedResult {
       });
       world.permissions.grant(moss, buildingRoleId(lab.id, "moderator"));
       world.budget.donate(admin.id, { tokens: opts.houseTokens ?? HOUSE_BUDGET_TOKENS, buildingId: lab.id });
+    }
+    if (opts.collectivePath && existsSync(opts.collectivePath)) {
+      const cfg = CollectiveConfig.parse(JSON.parse(readFileSync(opts.collectivePath, "utf8")));
+      const dir = dirname(resolve(opts.collectivePath));
+      for (const spec of cfg.buildings) {
+        let b: Building;
+        if (spec.import) {
+          b = world.importV0(resolve(dir, spec.import), { creatorUserId: admin.id }).building;
+        } else {
+          const id = spec.id ?? (spec.name ?? "building").toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "");
+          b = createBuilding(world, {
+            name: spec.name ?? id, goal: spec.goal ?? "", description: spec.description ?? "", headcount: spec.headcount ?? Math.max(spec.residents.length + 1, 3),
+            reviewPolicy: spec.reviewPolicy ?? "human", model: spec.model, cheapModel: spec.cheapModel, maxTurnsPerSession: spec.maxTurnsPerSession,
+            dailyTokensPerAgent: spec.dailyTokensPerAgent, meetings: spec.meetings,
+            workspace: spec.workspace ? { ...spec.workspace, path: resolve(dir, spec.workspace.path) } : undefined,
+          }, admin.id, { id });
+          spec.residents.forEach((r, i) => createResident(world, { buildingId: b.id, name: r.name, title: r.title, direction: r.direction, sprite: r.sprite ?? (i + 1) % 7, model: r.model }));
+        }
+        if (spec.moderator) {
+          const mod = createResident(world, {
+            buildingId: b.id, name: spec.moderator.name, title: "Moderator", sprite: spec.moderator.sprite ?? 7,
+            direction: spec.moderator.direction ?? "Review reports for this building against the criteria (sources, units and uncertainty, one concrete question, no duplication of the board). Facilitate meetings.",
+          });
+          world.permissions.grant(mod, buildingRoleId(b.id, "moderator"));
+          if (!moss) moss = mod;
+        }
+        if (spec.houseTokens) world.budget.donate(admin.id, { tokens: spec.houseTokens, buildingId: b.id });
+        if (!lab) lab = b;
+      }
     }
     world.events.append({ type: "system", text: "Town seeded", payload: { adminId: admin.id, labId: lab?.id ?? null } });
     return { created: true, admin: world.users.require(admin.id), adminToken, townHall: world.buildings.require(townHall.id), ada, lab, moss };

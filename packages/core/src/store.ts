@@ -89,7 +89,7 @@ export function createRepos(db: DB, changes: Emitter<ServerMessage>) {
     users: new Users(db),
     roles: new Table<Role>(db, "roles", Role, { json: ["permissions"], bool: ["builtin"] }),
     memberships: new Memberships(db),
-    buildings: new Table<Building>(db, "buildings", Building, { json: ["meetings", "lot"] }, (building) => changes.emit({ type: "building", building })),
+    buildings: new Table<Building>(db, "buildings", Building, { json: ["meetings", "lot", "workspace"] }, (building) => changes.emit({ type: "building", building })),
     allocations: new Table<Allocation>(db, "allocations", Allocation),
     agents: new Table<Agent>(db, "agents", Agent, { json: ["pos"] }, (agent) => changes.emit({ type: "agent", agent })),
     places: new Table<Place>(db, "places", Place, { json: ["pos"] }),

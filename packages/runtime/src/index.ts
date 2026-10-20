@@ -26,6 +26,8 @@ export interface RuntimeOptions {
   sdk?: Sdk;
   /** scheduler period; 0 disables the timer (call tickOnce yourself). Default 5000. */
   intervalMs?: number;
+  /** Agent Town repo root; building workspaces resolve relative paths from here */
+  repoRoot?: string;
   /** hourly git export target; false disables. Default: world.export() default dir. */
   exportDir?: string | false;
 }
@@ -61,7 +63,7 @@ export function startRuntime(opts: RuntimeOptions): Runtime {
     p.then(done, done);
     return p;
   };
-  const ctx: Ctx = { world, mcpUrl: opts.mcpUrl, now, sdk: opts.sdk ?? realSdk, live: new Map(), track };
+  const ctx: Ctx = { world, mcpUrl: opts.mcpUrl, repoRoot: opts.repoRoot ?? process.cwd(), now, sdk: opts.sdk ?? realSdk, live: new Map(), track };
   const starting = new Set<string>();
   const reviewed = new Set<string>();
   const mst = newMeetingState();

@@ -153,3 +153,16 @@ ${finalText.trim() || "(no final message)"}
 ${assignment ? `Continue: ${assignment.title}` : "Continue the standing direction"}
 `;
 }
+
+/** Extra system prompt for buildings with a workspace: the agent edits code in its own worktree. */
+export function workshopPrompt(ws: { cwd: string; branch: string; base: string }, repoName: string): string {
+  return `
+
+## Code access
+You can edit the ${repoName} repository. Your own git worktree is at ${ws.cwd} on branch \`${ws.branch}\` (forked from \`${ws.base}\`); it is your current working directory. Nobody else edits it. Rules:
+- Read the repo's AGENTS.md and CLAUDE.md first, then the files you need. Keep the change small and complete.
+- Run \`npm run typecheck\` and the relevant package's tests before you commit. Don't commit broken code.
+- Commit with a clear message, then \`git push -u origin ${ws.branch}\` and open a draft pull request with \`gh pr create --draft --fill\` (base ${ws.base}). Put the PR URL in your report.
+- Never push to ${ws.base}, never force-push, never rewrite history, never touch files outside your worktree, never run destructive commands.
+- The town library is still where you write source cards and notes; your report must say what changed, how you verified it, and link the PR.`;
+}

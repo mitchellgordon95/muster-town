@@ -2,13 +2,19 @@
   "name": "agent-town",
   "private": true,
   "type": "module",
-  "workspaces": ["packages/*"],
+  "workspaces": [
+    "packages/*"
+  ],
   "scripts": {
     "build": "npm run build -ws --if-present",
     "typecheck": "npm run typecheck -ws --if-present",
     "test": "npm run test -ws --if-present",
-    "dev": "npm run dev -w @agent-town/server",
-    "start": "npm run start -w @agent-town/server"
+    "dev": "npx tsx watch packages/server/src/main.ts",
+    "start": "npm run build && npm run start:climate",
+    "start:climate": "AGENT_TOWN_COLLECTIVE=collectives/climate npx tsx packages/server/src/main.ts",
+    "start:workshop": "AGENT_TOWN_COLLECTIVE=collectives/workshop npx tsx packages/server/src/main.ts"
   },
-  "engines": { "node": ">=20" }
+  "engines": {
+    "node": ">=20"
+  }
 }
