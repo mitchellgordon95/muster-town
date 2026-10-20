@@ -34,6 +34,12 @@ export const WEB_TOOLS = ["WebSearch", "WebFetch"];
 export const DISALLOWED_TOOLS = ["Bash", "Read", "Write", "Edit", "Glob", "Grep", "Task", "Agent"];
 const THOUGHT_CHARS = 200;
 
+/** Base tool names a workspace needs enabled: "Bash(git:*)" → "Bash", "Edit" → "Edit". */
+function workspaceBaseTools(ws: SessionWorkspace | undefined): string[] {
+  if (!ws) return [];
+  return [...new Set(ws.tools.map((p) => p.replace(/\(.*$/, "")))];
+}
+
 /** A workspace pattern like "Bash(git:*)" unlocks the "Bash" tool; a bare "Edit" unlocks Edit. */
 function workspaceAllows(ws: SessionWorkspace | undefined, tool: string): boolean {
   if (!ws) return false;
@@ -106,7 +112,8 @@ export function townOptions(ctx: Ctx, spec: SessionSpec, apiKey: string | null):
     maxTurns: spec.maxTurns,
     systemPrompt: { type: "preset", preset: "claude_code", append: spec.system },
     mcpServers: { town: { type: "http", url: ctx.mcpUrl, headers: { Authorization: `Bearer ${token}` }, alwaysLoad: true } },
-    tools: spec.web ? [...WEB_TOOLS] : [],
+    // `tools` is the built-in tool set available to the session; `allowedTools` only auto-approves within it.
+    tools: [...(spec.web ? WEB_TOOLS : []), ...workspaceBaseTools(spec.workspace)],
     allowedTools: [...TOWN_TOOLS, ...(spec.web ? WEB_TOOLS : []), ...(spec.workspace?.tools ?? [])],
     disallowedTools: [...DISALLOWED_TOOLS.filter((t) => !workspaceAllows(spec.workspace, t)), ...(spec.web ? [] : WEB_TOOLS)],
     settingSources: [],
