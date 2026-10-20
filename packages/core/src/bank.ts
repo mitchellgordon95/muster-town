@@ -35,7 +35,7 @@ export interface BankContributor {
   tokens: number;
   /** what their Bank inputs have credited so far */
   bankTokens: number;
-  /** what they donated directly to buildings */
+  /** what they donated directly to buildings (retired allocations count only what they spent) */
   donatedTokens: number;
 }
 
@@ -279,14 +279,20 @@ export class Bank {
     return left;
   }
 
-  /** Users ranked by tokens they've put in (Bank credits plus direct donations), most first. Ties go by name. */
+  /**
+   * Users ranked by tokens they've put in (Bank credits plus direct donations), most first. Ties go by name.
+   * A retired allocation counts only what was actually spent from it: its unspent rest never reached the town.
+   */
   contributors(limit = 10): BankContributor[] {
-    const credited = new Map<string, number>();
+    const credited = new Map<string, number>(), donated = new Map<string, number>();
     for (const i of this.repos.bankInputs.all()) credited.set(i.userId, (credited.get(i.userId) ?? 0) + i.creditedTokens);
+    for (const a of this.repos.allocations.all()) {
+      donated.set(a.userId, (donated.get(a.userId) ?? 0) + (a.retired ? Math.min(a.tokens, a.spentTokens) : a.tokens));
+    }
     return this.repos.users.all()
       .map((u) => {
-        const bankTokens = credited.get(u.id) ?? 0;
-        return { userId: u.id, name: u.name, tokens: bankTokens + u.donatedTokens, bankTokens, donatedTokens: u.donatedTokens };
+        const bankTokens = credited.get(u.id) ?? 0, donatedTokens = donated.get(u.id) ?? 0;
+        return { userId: u.id, name: u.name, tokens: bankTokens + donatedTokens, bankTokens, donatedTokens };
       })
       .filter((c) => c.tokens > 0)
       .sort((a, b) => b.tokens - a.tokens || a.name.localeCompare(b.name))
