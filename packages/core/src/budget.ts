@@ -1,4 +1,5 @@
 import { DonateInput, type Agent, type Allocation, type BuildingBudget, type ServerMessage } from "@agent-town/schema";
+import type { Bank } from "./bank.ts";
 import { badRequest } from "./errors.ts";
 import type { EventLog } from "./events.ts";
 import type { Repos } from "./store.ts";
@@ -19,7 +20,7 @@ const SKIP_STATUSES = new Set(["stopped", "banned"]);
 
 /** Donations, allocations, and charging. `world.budget`. */
 export class Budget {
-  constructor(private repos: Repos, private events: EventLog, private changes?: Emitter<ServerMessage>) {}
+  constructor(private repos: Repos, private events: EventLog, private bank: Bank, private changes?: Emitter<ServerMessage>) {}
 
   /** Oldest allocation of the building with tokens left (the one to charge next), or null. */
   pickAllocation(buildingId: string): Allocation | null {
@@ -35,13 +36,15 @@ export class Budget {
     return this.of(buildingId).remainingTokens;
   }
 
-  /** The building's allocated / spent / remaining tokens, summed over its allocations. */
+  /** The building's allocated / spent / remaining tokens, summed over its allocations, plus what it can draw from the Bank. */
   of(buildingId: string): BuildingBudget {
     const allocs = this.repos.allocations.where("buildingId = ?", [buildingId]);
+    const bankTokens = this.bank.remaining(buildingId);
     return {
       allocatedTokens: allocs.reduce((s, a) => s + a.tokens, 0),
       spentTokens: allocs.reduce((s, a) => s + a.spentTokens, 0),
-      remainingTokens: allocs.reduce((s, a) => s + Math.max(0, a.tokens - a.spentTokens), 0),
+      remainingTokens: allocs.reduce((s, a) => s + Math.max(0, a.tokens - a.spentTokens), 0) + bankTokens,
+      bankTokens,
     };
   }
 
@@ -61,8 +64,10 @@ export class Budget {
   }
 
   /**
-   * Charge session usage to the agent and to an allocation of its home building
-   * (the given one, else the oldest with tokens left). Emits `budget.exhausted`
+   * Charge session usage to the agent and to its home building. With an `allocationId` (the session ran on
+   * that allocation) it all goes there. Otherwise the building's Bank share pays first (expiring, then durable),
+   * then the oldest allocation with tokens left; whatever is still left overshoots the last source (no hard stop).
+   * Emits `budget.exhausted`
    * and sets `out-of-budget` when the agent's daily allowance or the building budget runs out.
    */
   charge(agentId: string, tokens: number, usd: number, allocationId?: string): ChargeResult {
@@ -78,11 +83,14 @@ export class Budget {
     const bid = agent.homeBuildingId ?? agent.buildingId;
     let allocation: Allocation | null = null;
     if (bid) {
-      allocation = allocationId ? this.repos.allocations.require(allocationId, "allocation") : this.pickAllocation(bid);
+      const left = allocationId ? t : this.bank.draw(bid, agent.id, t);
+      allocation = allocationId ? this.repos.allocations.require(allocationId, "allocation") : left > 0 ? this.pickAllocation(bid) : null;
       if (allocation) {
-        allocation = this.repos.allocations.upsert({ ...allocation, spentTokens: allocation.spentTokens + t, spentUsd: allocation.spentUsd + usd });
-        this.emitBuilding(bid);
+        allocation = this.repos.allocations.upsert({ ...allocation, spentTokens: allocation.spentTokens + left, spentUsd: allocation.spentUsd + usd * (left / Math.max(1, t)) });
+      } else if (left > 0) {
+        this.bank.draw(bid, agent.id, left, { overshoot: true });
       }
+      this.emitBuilding(bid);
     }
     let exhausted: ChargeResult["exhausted"] = null;
     if (bid) {

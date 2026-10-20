@@ -6,11 +6,11 @@ describe("budgets", () => {
   it("snapshot buildings carry their budget; charges resend the building with it", () => {
     const { world, by } = seededWorld();
     const snap = world.buildingsWithIntray().find((b) => b.id === "carbon-cycle")!;
-    expect(snap.budget).toEqual({ allocatedTokens: HOUSE_BUDGET_TOKENS, spentTokens: 0, remainingTokens: HOUSE_BUDGET_TOKENS });
+    expect(snap.budget).toEqual({ allocatedTokens: HOUSE_BUDGET_TOKENS, spentTokens: 0, remainingTokens: HOUSE_BUDGET_TOKENS, bankTokens: 0 });
     const sent: unknown[] = [];
     world.changes.subscribe((m) => { if (m.type === "building") sent.push(m.building.budget); });
     world.budget.charge(by("Mei").id, 1000, 0.5);
-    expect(sent.at(-1)).toEqual({ allocatedTokens: HOUSE_BUDGET_TOKENS, spentTokens: 1000, remainingTokens: HOUSE_BUDGET_TOKENS - 1000 });
+    expect(sent.at(-1)).toEqual({ allocatedTokens: HOUSE_BUDGET_TOKENS, spentTokens: 1000, remainingTokens: HOUSE_BUDGET_TOKENS - 1000, bankTokens: 0 });
   });
 
   it("seed creates the house allocation; charge hits agent + oldest allocation", () => {
@@ -22,7 +22,7 @@ describe("budgets", () => {
     expect(r.exhausted).toBeNull();
     expect(r.agent).toMatchObject({ spentTokensToday: 1000, spentTokensTotal: 1000, spentUsdTotal: 0.5 });
     expect(r.allocation).toMatchObject({ spentTokens: 1000, spentUsd: 0.5 });
-    expect(world.budget.summary().buildings.find((b) => b.buildingId === "carbon-cycle")).toMatchObject({ spentTokens: 1000, remainingTokens: HOUSE_BUDGET_TOKENS - 1000 });
+    expect(world.budget.summary().buildings.find((b) => b.buildingId === "carbon-cycle")).toMatchObject({ spentTokens: 1000, remainingTokens: HOUSE_BUDGET_TOKENS - 1000, bankTokens: 0 });
     expect(world.budget.canStart(mei.id)).toBe(true);
   });
 

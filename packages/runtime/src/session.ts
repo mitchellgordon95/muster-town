@@ -87,9 +87,14 @@ export function chargeUsage(world: World, agentId: string, u: Usage, allocationI
   }
 }
 
-/** Allocation + donor API key for an agent's next session. */
+/**
+ * Funding for an agent's next session: the building's Bank share first (today's subscription share runs on the
+ * server's own login; the durable share on the oldest API-key input), else an allocation and its donor's key.
+ */
 export function fundingFor(world: World, agentId: string): { allocationId: string | null; apiKey: string | null } {
   const bid = homeOf(world, agentId);
+  const bank = bid ? world.bank.fundingFor(bid) : null;
+  if (bank) return { allocationId: null, apiKey: bank.kind === "durable" && bank.inputId ? world.bank.apiKeyFor(bank.inputId) : null };
   const alloc = bid ? world.budget.pickAllocation(bid) : null;
   return { allocationId: alloc?.id ?? null, apiKey: alloc ? world.budget.apiKeyFor(alloc) : null };
 }

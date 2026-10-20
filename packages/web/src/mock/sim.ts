@@ -68,7 +68,7 @@ export class Sim {
   budgetOf(buildingId: string) {
     const al = this.allocations.filter((a) => a.buildingId === buildingId);
     const allocatedTokens = al.reduce((s, a) => s + a.tokens, 0), spentTokens = al.reduce((s, a) => s + a.spentTokens, 0);
-    return { allocatedTokens, spentTokens, remainingTokens: Math.max(0, allocatedTokens - spentTokens) };
+    return { allocatedTokens, spentTokens, remainingTokens: Math.max(0, allocatedTokens - spentTokens), bankTokens: 0 };
   }
   /** Resend a building with its in-tray count (the server does this when reports are created or decided). */
   emitBuilding(buildingId: string | null) {

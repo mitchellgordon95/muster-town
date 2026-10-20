@@ -1,5 +1,5 @@
 import {
-  Agent, Allocation, Assignment, BankCredit, BankInput, Building, DesksConfig, Doc, Interrupt, Meeting, Membership, Message, Place, Role, Session, Town, User,
+  Agent, Allocation, Assignment, BankCredit, BankDebit, BankInput, BankShare, Building, DesksConfig, Doc, Interrupt, Meeting, Membership, Message, Place, Role, Session, Town, User,
   type ServerMessage,
 } from "@agent-town/schema";
 import type { DB } from "./db.ts";
@@ -127,6 +127,8 @@ export function createRepos(db: DB, changes: Emitter<ServerMessage>) {
     allocations: new Table<Allocation>(db, "allocations", Allocation),
     bankInputs: new BankInputs(db),
     bankCredits: new Table<BankCredit>(db, "bank_credits", BankCredit),
+    bankShares: new Table<BankShare>(db, "bank_shares", BankShare, { key: "buildingId" }),
+    bankDebits: new Table<BankDebit>(db, "bank_debits", BankDebit),
     agents: new Table<Agent>(db, "agents", Agent, { json: ["pos", "deniedPermissions"], bool: ["inheritsOwner"] }, (agent) => changes.emit({ type: "agent", agent })),
     places: new Table<Place>(db, "places", Place, { json: ["pos"] }),
     docs: new Table<Doc>(db, "docs", Doc, { json: ["provenance", "tags"] }, (doc) => changes.emit({ type: "doc", doc })),

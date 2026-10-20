@@ -263,7 +263,11 @@ describe("meetings, roles, budget, events, human moves", () => {
     expect(added.status).toBe(201);
     expect(JSON.stringify(added.body)).not.toContain("sk-secret");
     const bank = await json(app, "GET", "/api/bank");
-    expect(bank.body).toMatchObject({ balanceTokens: 2000, inputs: [{ label: "Key", hasApiKey: true }] });
+    expect(bank.body).toMatchObject({ balanceTokens: 2000, expiringTokens: 0, durableTokens: 2000, inputs: [{ label: "Key", hasApiKey: true }] });
+    expect(bank.body.buildings.find((b: any) => b.buildingId === "carbon-cycle")).toMatchObject({ pct: 100, explicit: false, durableTokens: 2000 });
+    const shared = await json(app, "PUT", "/api/bank/shares/carbon-cycle", { headers: auth, body: { pct: 40 } });
+    expect(shared.body.buildings.find((b: any) => b.buildingId === "carbon-cycle")).toMatchObject({ pct: 40, explicit: true, durableTokens: 800 });
+    expect((await json(app, "PUT", "/api/bank/shares/carbon-cycle", { body: { pct: 40 } })).status).toBe(401);
     expect(JSON.stringify(bank.body)).not.toContain("sk-secret");
     expect((await json(app, "DELETE", `/api/bank/inputs/${added.body.input.id}`, { headers: auth })).body.input.cancelledAt).toBeTruthy();
 

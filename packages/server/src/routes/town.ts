@@ -1,5 +1,5 @@
 import { AppError, boardDocs, cabinetCounts, cabinetDocs } from "@agent-town/core";
-import { AddBankInput, CreateBuildingInput, DocType, DonateInput, LayoutInput, Membership, RedeployInput, UpdateBuildingInput, type AuthMe } from "@agent-town/schema";
+import { AddBankInput, CreateBuildingInput, SetBankShareInput, DocType, DonateInput, LayoutInput, Membership, RedeployInput, UpdateBuildingInput, type AuthMe } from "@agent-town/schema";
 import type { FastifyInstance } from "fastify";
 import { z } from "zod";
 import { actorOf, adminToken, parse, requireAuth, requireUser, type Params } from "../context.ts";
@@ -151,6 +151,12 @@ export async function townRoutes(app: FastifyInstance) {
   app.delete<{ Params: Params }>("/api/bank/inputs/:id", async (req) => {
     const user = requireUser(req);
     return { input: world.bank.cancelInput(user.id, req.params.id) };
+  });
+
+  app.put<{ Params: { buildingId: string } }>("/api/bank/shares/:buildingId", async (req) => {
+    const user = requireUser(req);
+    world.bank.setShare(user.id, req.params.buildingId, parse(SetBankShareInput, req.body));
+    return world.bank.summary();
   });
 
   // ---- export ----

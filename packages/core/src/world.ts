@@ -83,8 +83,8 @@ export class World {
     this.tokens = repos.tokens; this.town = repos.town;
     this.events = new EventLog(db, this.changes);
     this.permissions = new Permissions(repos);
-    this.budget = new Budget(repos, this.events, this.changes);
     this.bank = new Bank(repos, this.events, this.permissions);
+    this.budget = new Budget(repos, this.events, this.bank, this.changes);
     this.layout = new WorldMap(db, repos);
     this.movement = new Movement(repos, this.layout, this.events, this.changes);
     this.verbs = makeVerbs(this);

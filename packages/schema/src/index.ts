@@ -204,9 +204,15 @@ export const BankInput = z.object({
   createdAt: Iso,
 });
 export type BankInput = z.infer<typeof BankInput>;
-/** One credit from an input into the Bank. */
-export const BankCredit = z.object({ id: Id, inputId: Id, tokens: z.number().int().positive(), createdAt: Iso });
+/** One credit from an input into the Bank. A subscription's credit expires a day later (no rollover); an API key's is durable (`expiresAt` null). */
+export const BankCredit = z.object({ id: Id, inputId: Id, tokens: z.number().int().positive(), createdAt: Iso, expiresAt: Iso.nullable().default(null) });
 export type BankCredit = z.infer<typeof BankCredit>;
+/** A building's explicit % of the Bank. Buildings without a row split what's left equally. */
+export const BankShare = z.object({ buildingId: Id, pct: z.number().min(0).max(100) });
+export type BankShare = z.infer<typeof BankShare>;
+/** Tokens a building's session drew from the Bank: from an expiring credit (`creditId`), else from the durable pool. */
+export const BankDebit = z.object({ id: Id, buildingId: Id, agentId: Id, creditId: Id.nullable().default(null), tokens: z.number().int().positive(), createdAt: Iso });
+export type BankDebit = z.infer<typeof BankDebit>;
 
 // ---------- agents (bodies in the world) ----------
 export const AgentKind = z.enum(["resident", "visitor", "human", "service"]);
@@ -483,7 +489,7 @@ export const EventType = z.enum([
   "assignment.created", "assignment.status",
   "meeting.created", "meeting.phase", "meeting.utterance", "meeting.decisions",
   "session.started", "session.ended",
-  "building.created", "building.updated", "building.layout", "allocation.created", "budget.exhausted", "bank.input", "bank.credited",
+  "building.created", "building.updated", "building.layout", "allocation.created", "budget.exhausted", "bank.input", "bank.credited", "bank.share",
   "export.done", "system",
 ]);
 export const Event = z.object({
@@ -608,6 +614,8 @@ export const BuildingBudget = z.object({
   allocatedTokens: z.number().int().nonnegative(),
   spentTokens: z.number().int().nonnegative(),
   remainingTokens: z.number().int().nonnegative(),
+  /** of `remainingTokens`, what the building can still draw from its Bank share */
+  bankTokens: z.number().int().nonnegative().default(0),
 });
 export type BuildingBudget = z.infer<typeof BuildingBudget>;
 
@@ -690,6 +698,8 @@ export const AddBankInput = z.object({
   apiKey: z.string().min(1).optional(),
 });
 export type AddBankInput = z.input<typeof AddBankInput>;
+/** PUT /api/bank/shares/:buildingId (admin). `pct` null clears it (the building splits what's left equally). */
+export const SetBankShareInput = z.object({ pct: z.number().min(0).max(100).nullable() });
 export const CreateMeetingInput = z.object({ kind: MeetingKind, buildingId: Id.nullable(), title: z.string().optional(), scheduledAt: Iso.optional(), agenda: z.string().optional(), startNow: z.boolean().default(false),
   /** who to invite; omitted = the building's residents (town hall: managers, reviewers, moderators) */
   attendeeIds: z.array(Id).min(1).optional() });

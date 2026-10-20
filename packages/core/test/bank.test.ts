@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { createBuilding, createResident } from "../src/index.ts";
 import { seededWorld } from "./helpers.ts";
 
 const T0 = new Date("2026-10-20T12:00:00.000Z");
@@ -60,5 +61,66 @@ describe("bank", () => {
     expect(() => world.bank.addInput(a.id, { label: "x", source: "api-key", model: "m", tokens: 1 }, T0)).toThrow(/apiKey/);
     const inp = world.bank.addInput(a.id, { label: "x", source: "api-key", model: "m", tokens: 1, apiKey: "k" }, T0);
     expect(() => world.bank.cancelInput(b.id, inp.id)).toThrow(/owner/);
+  });
+
+  it("labs split the Bank equally unless an admin sets a share; explicit shares can't pass 100%", () => {
+    const { world, seed } = seededWorld();
+    const other = world.ops.createUser("Other").user;
+    const lab2 = createBuilding(world, { name: "Lab 2" }, seed.admin.id);
+    const pct = (id: string) => world.bank.shares().get(id)!;
+    expect(pct("carbon-cycle")).toEqual({ pct: 50, explicit: false });
+    expect(pct(lab2.id)).toEqual({ pct: 50, explicit: false });
+    expect(pct("town-hall").pct).toBe(0);
+    expect(() => world.bank.setShare(other.id, lab2.id, { pct: 10 })).toThrow(/admin/);
+    world.bank.setShare(seed.admin.id, lab2.id, { pct: 70 });
+    expect(pct(lab2.id)).toEqual({ pct: 70, explicit: true });
+    expect(pct("carbon-cycle").pct).toBe(30);
+    expect(() => world.bank.setShare(seed.admin.id, "town-hall", { pct: 40 })).toThrow(/30%/);
+    world.bank.setShare(seed.admin.id, lab2.id, { pct: null });
+    expect(pct(lab2.id)).toEqual({ pct: 50, explicit: false });
+  });
+
+  it("a building draws its share: expiring subscription credits first, then durable; expiring ones don't roll over", () => {
+    const { world, seed } = seededWorld();
+    const lab2 = createBuilding(world, { name: "Lab 2" }, seed.admin.id);
+    world.bank.setShare(seed.admin.id, "carbon-cycle", { pct: 25 });
+    world.bank.addInput(seed.admin.id, { label: "Max plan", source: "subscription", model: "m", tokens: 4000, recurrence: "daily", weeklyCapTokens: 100_000 }, T0);
+    world.bank.addInput(seed.admin.id, { label: "Key", source: "api-key", model: "m", tokens: 8000, apiKey: "sk" }, T0);
+    const now = at(0.5);
+    expect(world.bank.available("carbon-cycle", now)).toEqual({ expiring: 1000, durable: 2000 });
+    expect(world.bank.available(lab2.id, now)).toEqual({ expiring: 3000, durable: 6000 });
+    expect(world.bank.fundingFor("carbon-cycle", now)).toEqual({ kind: "expiring" });
+    const mei = world.agents.first("name = 'Mei'")!;
+    expect(world.bank.draw("carbon-cycle", mei.id, 1500, { now })).toBe(0);
+    expect(world.bank.available("carbon-cycle", now)).toEqual({ expiring: 0, durable: 1500 });
+    const key = world.bank.summary().inputs.find((i) => i.label === "Key")!;
+    expect(world.bank.fundingFor("carbon-cycle", now)).toEqual({ kind: "durable", inputId: key.id });
+    // no hard stop: an overshoot goes negative and the share is paid back from later credits
+    expect(world.bank.draw("carbon-cycle", mei.id, 2000, { now })).toBe(500);
+    expect(world.bank.draw("carbon-cycle", mei.id, 500, { now, overshoot: true })).toBe(0);
+    expect(world.bank.available("carbon-cycle", now)).toEqual({ expiring: 0, durable: -500 });
+    expect(world.bank.remaining("carbon-cycle", now)).toBe(0);
+    expect(world.bank.fundingFor("carbon-cycle", now)).toBeNull();
+    // the day-0 subscription credit expires at the next renewal; lab 2's unused 3000 is gone
+    expect(world.bank.available(lab2.id, at(1))).toEqual({ expiring: 0, durable: 6000 });
+    expect(world.bank.balance(at(1))).toBe(5500); // 8000 durable less carbon-cycle's 2500
+    world.bank.creditDue(at(1));
+    expect(world.bank.available(lab2.id, at(1.5))).toEqual({ expiring: 3000, durable: 6000 });
+  });
+
+  it("charge draws from the Bank share before the building's allocations and keeps the building able to start", () => {
+    const { world, seed } = seededWorld();
+    const b = createBuilding(world, { name: "Banked" }, seed.admin.id);
+    const a = createResident(world, { buildingId: b.id, name: "A", title: "t", direction: "d" });
+    expect(world.budget.canStart(a.id)).toBe(false);
+    world.bank.setShare(seed.admin.id, b.id, { pct: 100 });
+    world.bank.addInput(seed.admin.id, { label: "Key", source: "api-key", model: "m", tokens: 1000, apiKey: "sk" });
+    expect(world.budget.of(b.id)).toMatchObject({ remainingTokens: 1000, bankTokens: 1000 });
+    expect(world.budget.canStart(a.id)).toBe(true);
+    world.budget.donate(seed.admin.id, { tokens: 500, buildingId: b.id });
+    const r = world.budget.charge(a.id, 1200, 1.2);
+    expect(r.allocation).toMatchObject({ spentTokens: 200 });
+    expect(world.budget.of(b.id)).toMatchObject({ remainingTokens: 300, bankTokens: 0 });
+    expect(world.bank.summary()).toMatchObject({ balanceTokens: 0, durableTokens: 0 });
   });
 });
