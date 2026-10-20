@@ -339,3 +339,7 @@ kbd { font-family: var(--mono); font-size: 11px; background: #2a2d3a; border: 1p
 .ask-turn.muted { color: var(--muted); }
 .ask-form { display: flex; gap: 6px; }
 .ask-form input { flex: 1; min-width: 0; }
+.attendees { margin-bottom: 12px; font-size: 12.5px; }
+.attendees summary { cursor: pointer; color: var(--muted); }
+.attendee-group { display: flex; flex-wrap: wrap; gap: 4px 12px; margin: 6px 0; }
+.attendee-group small { flex-basis: 100%; color: var(--muted); }
