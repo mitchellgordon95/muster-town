@@ -1,5 +1,6 @@
 /** Screen-space text: name labels and bubbles, drawn crisp on top of the scaled pixel layer. */
-import type { Agent } from "@agent-town/schema";
+import type { Agent, BuildingBudget } from "@agent-town/schema";
+import { fmtTokens } from "../format";
 
 export const STATUS_COLOR: Record<string, string> = {
   idle: "#9a9db3", walking: "#7cc4ff", working: "#6fdc8c", "in-meeting": "#c79bff",
@@ -9,6 +10,7 @@ export const STATUS_COLOR: Record<string, string> = {
 export interface Bubble { text: string; tone: "speech" | "work" | "warn" | "muted" | "bad" | "meet" }
 
 const FONT = "600 11px ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, sans-serif";
+const SFONT = "9px ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, sans-serif";
 const BFONT = "11px ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, sans-serif";
 
 const TONE: Record<Bubble["tone"], { bg: string; fg: string; border: string }> = {
@@ -31,6 +33,18 @@ export function bubbleFor(a: Agent, said: { text: string; at: number } | undefin
     case "in-meeting": return { text: a.activity || "In a meeting", tone: "meet" };
     default: return a.kind === "service" ? { text: a.activity || "Ask me about the library", tone: "muted" } : null;
   }
+}
+
+/** Budget line on a building sign: "3.3M used · 46.7M left", or null when nothing was ever allocated. */
+export function buildingBudgetLine(budget: BuildingBudget | undefined): string | null {
+  if (!budget || budget.allocatedTokens <= 0) return null;
+  return `${fmtTokens(budget.spentTokens)} used · ${fmtTokens(budget.remainingTokens)} left`;
+}
+
+/** Budget line under a resident's name: today's tokens and what's left of the daily allowance. */
+export function residentBudgetLine(a: Agent, dailyTokensPerAgent: number | undefined): string | null {
+  if (a.kind !== "resident" || !dailyTokensPerAgent) return null;
+  return `${fmtTokens(a.spentTokensToday)} today · ${fmtTokens(Math.max(0, dailyTokensPerAgent - a.spentTokensToday))} left`;
 }
 
 function wrap(g: CanvasRenderingContext2D, text: string, maxW: number, maxLines: number): string[] {
@@ -57,12 +71,12 @@ function roundRect(g: CanvasRenderingContext2D, x: number, y: number, w: number,
   g.arcTo(x, y + h, x, y, r); g.arcTo(x, y, x + w, y, r); g.closePath();
 }
 
-/** Name tag centred at (x, y) = just below the feet. `manager` adds a gold star after the name. */
-export function drawLabel(g: CanvasRenderingContext2D, x: number, y: number, name: string, status: string, highlight: boolean, isMe: boolean, manager = false) {
+/** Name tag centred at (x, y) = just below the feet, with an optional small line (the budget) under it. `manager` adds a gold star after the name. */
+export function drawLabel(g: CanvasRenderingContext2D, x: number, y: number, name: string, status: string, highlight: boolean, isMe: boolean, sub?: string | null, manager = false) {
   g.font = FONT;
   const tw = g.measureText(name).width;
-  const sw = manager ? g.measureText(" \u2605").width : 0;
-  const w = tw + sw + 18, h = 16;
+  const mw = manager ? g.measureText(" \u2605").width : 0;
+  const w = tw + mw + 18, h = 16;
   const lx = Math.round(x - w / 2), ly = Math.round(y);
   g.fillStyle = highlight ? "rgba(124,196,255,.95)" : isMe ? "rgba(255,255,255,.92)" : "rgba(16,17,24,.82)";
   roundRect(g, lx, ly, w, h, 8); g.fill();
@@ -72,6 +86,15 @@ export function drawLabel(g: CanvasRenderingContext2D, x: number, y: number, nam
   g.textBaseline = "middle";
   g.fillText(name, lx + 14, ly + h / 2 + 0.5);
   if (manager) { g.fillStyle = "#f5c542"; g.fillText(" \u2605", lx + 14 + tw, ly + h / 2 + 0.5); }
+  if (!sub) return;
+  g.font = SFONT;
+  const sw = g.measureText(sub).width + 10, sh = 12;
+  const sx = Math.round(x - sw / 2), sy = ly + h + 1;
+  g.fillStyle = "rgba(16,17,24,.7)";
+  roundRect(g, sx, sy, sw, sh, 6); g.fill();
+  g.fillStyle = "#b8bbcc"; g.textAlign = "center";
+  g.fillText(sub, x, sy + sh / 2 + 0.5);
+  g.textAlign = "left";
 }
 
 /** Bubble whose tail points at (x, y) = just above the head. */
@@ -107,11 +130,13 @@ export function drawBadge(g: CanvasRenderingContext2D, x: number, y: number, n: 
   g.textAlign = "left";
 }
 
-/** Building sign above a lot. */
-export function drawSign(g: CanvasRenderingContext2D, x: number, y: number, name: string, sub: string) {
+/** Building sign above a lot: name, subtitle (the goal), and an optional budget line. */
+export function drawSign(g: CanvasRenderingContext2D, x: number, y: number, name: string, sub: string, budget?: string | null) {
   g.font = "700 13px ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, sans-serif";
-  const w = Math.max(g.measureText(name).width, sub ? (g.font = BFONT, g.measureText(sub).width) : 0) + 20;
-  const h = sub ? 34 : 22;
+  const nw = g.measureText(name).width;
+  g.font = BFONT;
+  const w = Math.max(nw, sub ? g.measureText(sub).width : 0, budget ? g.measureText(budget).width : 0) + 20;
+  const h = 22 + (sub ? 12 : 0) + (budget ? 13 : 0);
   const sx = Math.round(x - w / 2), sy = Math.round(y - h);
   g.fillStyle = "rgba(16,17,24,.88)"; g.strokeStyle = "#3a3e55";
   roundRect(g, sx + 0.5, sy + 0.5, w, h, 6); g.fill(); g.stroke();
@@ -119,5 +144,6 @@ export function drawSign(g: CanvasRenderingContext2D, x: number, y: number, name
   g.font = "700 13px ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, sans-serif";
   g.fillStyle = "#e8e9f0"; g.fillText(name, x, sy + 5);
   if (sub) { g.font = BFONT; g.fillStyle = "#ffcf5e"; g.fillText(sub, x, sy + 19); }
+  if (budget) { g.font = BFONT; g.fillStyle = "#9ff0b4"; g.fillText(budget, x, sy + (sub ? 32 : 19)); }
   g.textAlign = "left";
 }

@@ -140,15 +140,19 @@ export async function finishWorkSession(ctx: Ctx, sessionId: string, o: WorkOutc
   return ended;
 }
 
-/** Deliver `text` as the next user message of the agent's running work session. */
-export function interrupt(ctx: Ctx, agentId: string, text: string, from = "A human"): boolean {
+/**
+ * Deliver `text` as the next user message of the agent's running work session. It waits for the current turn to
+ * end unless `now`, which aborts the turn (the SDK keeps queued user messages across an interrupt, so it runs next).
+ */
+export function interrupt(ctx: Ctx, agentId: string, text: string, from = "A human", now = false): boolean {
   const live = ctx.live.get(agentId);
   // desk sessions take interrupts through the queue (GET /api/agents/me/control)
   if (!live || live.kind !== "host" || live.stopped || live.reportSubmitted || live.input.closed) return false;
   const ok = live.input.push(`Interrupt from ${from}: ${text}\n\nTake this into account now, then continue. You must still finish with submit_report.`);
   if (ok) {
     const a = ctx.world.agents.get(agentId);
-    ctx.world.events.append({ type: "system", agentId, buildingId: a ? a.homeBuildingId ?? a.buildingId : null, text: `Interrupt for ${a?.name ?? agentId}: ${text.slice(0, 200)}`, payload: { sessionId: live.sessionId, interrupt: true, text } });
+    ctx.world.events.append({ type: "system", agentId, buildingId: a ? a.homeBuildingId ?? a.buildingId : null, text: `Interrupt for ${a?.name ?? agentId}: ${text.slice(0, 200)}`, payload: { sessionId: live.sessionId, interrupt: true, text, now } });
+    if (now) void live.q?.interrupt?.()?.catch(() => undefined);
   }
   return ok;
 }

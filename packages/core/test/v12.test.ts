@@ -60,6 +60,7 @@ describe("role migration (v1.1 DB)", () => {
     db.prepare("DELETE FROM schema_version WHERE version >= 5").run();
     db.exec("ALTER TABLE messages DROP COLUMN docId"); // added by 006 (mentions); a v1.1 DB doesn't have it
     db.exec("ALTER TABLE buildings DROP COLUMN rules"); // added by 008 (standing rules)
+    db.exec("ALTER TABLE interrupts DROP COLUMN now"); // added by 009 (interrupt now)
     db.exec("ALTER TABLE buildings DROP COLUMN managerAgentId"); // added by 010 (explicit manager)
     expect((db.prepare("SELECT holderId FROM memberships WHERE roleId = 'role:carbon-cycle:moderator'").all() as { holderId: string }[]).map((r) => r.holderId)).toEqual([moss.id]);
     db.close();
