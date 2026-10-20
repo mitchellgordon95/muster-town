@@ -1,11 +1,12 @@
 import { BANK_FIXTURES, BANK_LOT, TILE, WALKABLE, type Building, type Lot, type Place, type Tile } from "@muster-town/schema";
 import { piecesFor, resolveFurniture } from "./furniture.ts";
+import { doorOf, ROAD_Y } from "./road.ts";
+
+export { ROAD_Y };
 
 /** Row-major tile grid, same shape as the WS snapshot's `grid`. */
 export interface Grid { w: number; h: number; tiles: number[] }
 
-/** y of the main road (2 tiles tall). Buildings sit above it; fixed so lots stay stable. */
-export const ROAD_Y = 40;
 /** x of the Town Hall's left edge. Labs alternate left/right of it. */
 export const TOWN_HALL_X = 48;
 export const LOT_GAP = 4;
@@ -99,7 +100,7 @@ export function computeLayout(buildings: Building[], occupancy: Map<string, Map<
   const lots = buildings.filter((b) => b.lot);
   const right = Math.max(TOWN_HALL_X + TOWN_HALL_SIZE.w, ...lots.map((b) => b.lot!.x + b.lot!.w));
   const w = Math.max(64, right + 6, BANK_LOT.x + BANK_LOT.w + 3);
-  const h = Math.max(ROAD_Y + 6, BANK_LOT.y + BANK_LOT.h + 3);
+  const h = Math.max(ROAD_Y + 6, BANK_LOT.y + BANK_LOT.h + 3, ...lots.map((b) => b.lot!.y + b.lot!.h + 3));
   const tiles = new Array<number>(w * h).fill(TILE.GRASS);
   const set = (x: number, y: number, t: number) => { if (x >= 0 && y >= 0 && x < w && y < h) tiles[y * w + x] = t; };
   const places: Place[] = [];
@@ -119,9 +120,11 @@ export function computeLayout(buildings: Building[], occupancy: Map<string, Map<
       const edge = x === 0 || y === 0 || x === bw - 1 || y === bh - 1;
       set(x0 + x, y0 + y, edge ? TILE.WALL : TILE.FLOOR);
     }
-    const door = { x: x0 + Math.floor(bw / 2), y: y0 + bh - 1 };
+    const door = doorOf(b.lot!);
     set(door.x, door.y, TILE.DOOR);
+    // the walk to the road: down from a door north of it, up from one south of it
     for (let y = y0 + bh; y < ROAD_Y; y++) set(door.x, y, TILE.PATH);
+    for (let y = ROAD_Y + 2; y < y0; y++) set(door.x, y, TILE.PATH);
     doors.set(b.id, door);
     places.push({ id: `door:${b.id}`, kind: "door", name: `${b.name} door`, buildingId: b.id, pos: door });
 

@@ -37,8 +37,9 @@ export {
   computeLayout, assignLots, labSize, tileAt, ROAD_Y, TOWN_HALL_X, TOWN_HALL_ID, TOWN_HALL_SIZE, LOT_GAP, MAX_HEADCOUNT, MOD_SEATS, TOWN_HALL_FIXTURES,
   type Grid, type DeskSlot, type LayoutResult,
 } from "./world/layout.ts";
+export { facesNorth } from "./world/road.ts";
 export { findPath, isWalkable, nearestWalkable } from "./world/path.ts";
-export { validatePlan, planLot, doorOf, MAX_LOT, MAX_TOWN_X, type PlanError, type PlanLot } from "./world/plan.ts";
+export { validatePlan, planLot, doorOf, MAX_LOT, MAX_TOWN_X, MAX_TOWN_Y, type PlanError, type PlanLot } from "./world/plan.ts";
 export { piecesFor, validateLayout, resolveFurniture, movedOnly, type Piece, type Furniture, type LayoutError } from "./world/furniture.ts";
 export { WorldMap } from "./world/map.ts";
 export { Movement, WALK_TILES_PER_SEC, WALK_TIMEOUT_MS } from "./world/movement.ts";

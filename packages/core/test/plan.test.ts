@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { TILE } from "@muster-town/schema";
-import { findPath, labSize, planLot, ROAD_Y, validatePlan, type PlanLot } from "../src/index.ts";
+import { BANK_LOT, TILE } from "@muster-town/schema";
+import { findPath, labSize, MAX_TOWN_Y, piecesFor, planLot, ROAD_Y, validateLayout, validatePlan, type PlanLot } from "../src/index.ts";
 import { seededWorld } from "./helpers.ts";
 
 const lab = (id: string, x: number, y: number, headcount = 6): PlanLot => {
@@ -23,9 +23,46 @@ describe("town planning", () => {
     // b sits right below a's door, between it and the road
     const doorX = 2 + Math.floor(s.w / 2);
     expect(validatePlan([lab("a", 2, 2), { ...lab("b", doorX - 3, 2 + s.h + 2, 1) }]).some((e) => /path to the road runs through b/.test(e.message))).toBe(true);
-    expect(validatePlan([lab("a", 2, ROAD_Y - s.h + 1)])[0].message).toMatch(/north of the road/);
+    expect(validatePlan([lab("a", 2, ROAD_Y - s.h + 1)])[0].message).toMatch(/on the road/);
+    expect(validatePlan([lab("a", 2, ROAD_Y + 1)])[0].message).toMatch(/on the road/);
     expect(validatePlan([{ ...lab("a", 2, y), lot: { x: 2, y, w: s.w - 1, h: s.h } }])[0].message).toMatch(/at least/);
     expect(validatePlan([lab("a", 0, y)])[0].message).toMatch(/edge/);
+  });
+
+  it("allows lots south of the road: door in the top wall, walk up to the road, clear of the Bank", () => {
+    const s = labSize(6);
+    expect(validatePlan([lab("a", 2, ROAD_Y + 2)])).toEqual([]);
+    expect(validatePlan([lab("a", 2, ROAD_Y + 6)])).toEqual([]);
+    // b sits right above a's (top) door, between it and the road
+    const doorX = 2 + Math.floor(s.w / 2);
+    expect(validatePlan([lab("a", 2, ROAD_Y + 12), lab("b", doorX - 3, ROAD_Y + 3, 1)]).some((e) => /path to the road runs through b/.test(e.message))).toBe(true);
+    // a north lot's walk down doesn't care about a south lot across the road
+    expect(validatePlan([lab("a", 2, ROAD_Y - 2 - s.h), lab("b", 2, ROAD_Y + 2)])).toEqual([]);
+    expect(validatePlan([lab("a", BANK_LOT.x, BANK_LOT.y + 2)])[0].message).toMatch(/the Bank/);
+    expect(validatePlan([lab("a", 2, MAX_TOWN_Y)])[0].message).toMatch(/edge/);
+  });
+
+  it("builds a south-side lab facing the road, with its room mirrored and every desk reachable", () => {
+    const { world, admin, by } = seededWorld();
+    const right = Math.max(...world.buildings.all().map((b) => b.lot!.x + b.lot!.w));
+    const s = labSize(6);
+    const lot = { x: right + 3, y: ROAD_Y + 4, w: s.w, h: s.h };
+    const ravi = by("Ravi");
+    world.ops.planTown(admin, { "carbon-cycle": lot });
+    const door = world.layout.door("carbon-cycle")!;
+    expect(door).toEqual({ x: lot.x + Math.floor(lot.w / 2), y: lot.y });
+    const at = (x: number, y: number) => world.layout.grid.tiles[y * world.layout.grid.w + x];
+    expect(at(door.x, door.y)).toBe(TILE.DOOR);
+    expect(at(door.x, ROAD_Y + 2)).toBe(TILE.PATH);
+    expect(world.layout.grid.h).toBeGreaterThanOrEqual(lot.y + lot.h);
+    expect(findPath(world.layout.grid, { x: door.x, y: ROAD_Y }, world.layout.deskOf(ravi.id)!.pos)).not.toBeNull();
+    for (const p of ["board:carbon-cycle", "intray:carbon-cycle", "cabinet:carbon-cycle", "meeting-room:carbon-cycle"]) {
+      expect(findPath(world.layout.grid, door, world.layout.requirePlace(p).pos), p).not.toBeNull();
+    }
+    // the board hangs on the back (bottom) wall
+    const board = piecesFor("lab", 6, lot).find((p) => p.key === "board")!;
+    expect(board.at.y).toBe(lot.h - 1);
+    expect(validateLayout(lot, piecesFor("lab", 6, lot))).toEqual([]);
   });
 
   it("an admin moves and resizes a lab; the walls, its door path and the residents inside follow", () => {

@@ -9,6 +9,10 @@ describe("furniture", () => {
   it("every default room is legal, for every headcount and the Town Hall", () => {
     for (let n = 1; n <= MAX_HEADCOUNT; n++) expect(validateLayout(labSize(n), piecesFor("lab", n, labSize(n))), `headcount ${n}`).toEqual([]);
     expect(validateLayout(TOWN_HALL_SIZE, piecesFor("town-hall", 3, TOWN_HALL_SIZE))).toEqual([]);
+    // south of the road (door in the top wall) the same rooms, mirrored, are legal too
+    for (let n = 1; n <= MAX_HEADCOUNT; n++) { const lot = { ...labSize(n), y: 50 }; expect(validateLayout(lot, piecesFor("lab", n, lot)), `south, headcount ${n}`).toEqual([]); }
+    const hall = { ...TOWN_HALL_SIZE, y: 50 };
+    expect(validateLayout(hall, piecesFor("town-hall", 3, hall))).toEqual([]);
   });
 
   it("rejects pieces on the door, overlapping, off the floor, or walling off a stand tile", () => {

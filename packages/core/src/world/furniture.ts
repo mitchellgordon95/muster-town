@@ -1,9 +1,11 @@
 import { TILE, type Lot, type Tile } from "@muster-town/schema";
+import { facesNorth } from "./road.ts";
 
 /**
  * Movable furniture. Every piece of a room is a `Piece`: footprint cells and stand tiles relative to an anchor,
  * with a default anchor relative to the lot. `Building.furniture` stores only the moved pieces' anchors
  * (lot-relative); `computeLayout` places each piece at its stored anchor if it's legal, else at its default.
+ * A building south of the road has its door in the top wall, so its default room is the north one upside down.
  */
 export interface Piece {
   /** stable key, e.g. `board`, `desk:3`, `meeting` */
@@ -29,7 +31,18 @@ const row = (n: number, tile: number) => Array.from({ length: n }, (_, dx) => ({
 const one = (tile: number) => [{ dx: 0, dy: 0, tile }];
 
 /** The pieces of a building of this kind and lot size, at their default anchors. */
-export function piecesFor(kind: "lab" | "town-hall", headcount: number, lot: { w: number; h: number }): Piece[] {
+export function piecesFor(kind: "lab" | "town-hall", headcount: number, lot: { w: number; h: number; y?: number }): Piece[] {
+  const pieces = southFacingPieces(kind, headcount, lot);
+  if (!facesNorth(lot)) return pieces;
+  return pieces.map((p) => ({
+    ...p,
+    at: { x: p.at.x, y: lot.h - 1 - p.at.y },
+    cells: p.cells.map((c) => ({ ...c, dy: -c.dy })),
+    stands: p.stands.map((s) => ({ x: s.x, y: -s.y })),
+  }));
+}
+
+function southFacingPieces(kind: "lab" | "town-hall", headcount: number, lot: { w: number; h: number }): Piece[] {
   const { w: bw, h: bh } = lot;
   if (kind === "town-hall") {
     return [
@@ -70,23 +83,24 @@ const k = (x: number, y: number) => `${x},${y}`;
 
 /**
  * Check a room: `anchors` gives each piece's lot-relative anchor (missing = default). Rules: cells inside the
- * room (floor pieces on the floor, wall pieces on a side or top wall, not a corner); nothing on or just inside
+ * room (floor pieces on the floor, wall pieces on a side wall or the back wall, not a corner); nothing on or just inside
  * the door; no overlaps; stand tiles on free floor and not shared; every stand tile and 2 seats at each table
  * reachable from the door. Empty = legal.
  */
-export function validateLayout(lot: { w: number; h: number }, pieces: Piece[], anchors: Furniture = {}): LayoutError[] {
+export function validateLayout(lot: { w: number; h: number; y?: number }, pieces: Piece[], anchors: Furniture = {}): LayoutError[] {
   const { w, h } = lot;
   const errors: LayoutError[] = [];
-  const door = { x: Math.floor(w / 2), y: h - 1 }, inside = { x: door.x, y: h - 2 };
+  const north = facesNorth(lot), back = north ? h - 1 : 0;
+  const door = { x: Math.floor(w / 2), y: north ? 0 : h - 1 }, inside = { x: door.x, y: north ? 1 : h - 2 };
   const interior = (x: number, y: number) => x >= 1 && y >= 1 && x <= w - 2 && y <= h - 2;
-  const onWall = (x: number, y: number) => (x === 0 || x === w - 1) ? y >= 1 && y <= h - 2 : y === 0 && x >= 1 && x <= w - 2;
+  const onWall = (x: number, y: number) => (x === 0 || x === w - 1) ? y >= 1 && y <= h - 2 : y === back && x >= 1 && x <= w - 2;
   const owner = new Map<string, string>();
   const at = (p: Piece) => anchors[p.key] ?? p.at;
   for (const p of pieces) {
     const a = at(p);
     for (const c of p.cells) {
       const x = a.x + c.dx, y = a.y + c.dy;
-      if (p.wall ? !onWall(x, y) : !interior(x, y)) { errors.push({ key: p.key, message: `${p.label} must sit ${p.wall ? "on a side or top wall" : "inside the room"}.` }); break; }
+      if (p.wall ? !onWall(x, y) : !interior(x, y)) { errors.push({ key: p.key, message: `${p.label} must sit ${p.wall ? `on a side or ${north ? "bottom" : "top"} wall` : "inside the room"}.` }); break; }
       if ((x === door.x && y === door.y) || (x === inside.x && y === inside.y)) { errors.push({ key: p.key, message: `${p.label} blocks the door.` }); break; }
       const other = owner.get(k(x, y));
       if (other) { errors.push({ key: p.key, message: `${p.label} overlaps ${pieces.find((q) => q.key === other)!.label}.` }); break; }
