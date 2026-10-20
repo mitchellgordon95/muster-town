@@ -4,7 +4,7 @@
  * writes shows a sign-in prompt instead.
  */
 import { useSyncExternalStore } from "react";
-import type { AuthConfig } from "@agent-town/schema";
+import type { AuthConfig } from "@muster-town/schema";
 import { isMock, tokenStore } from "../api";
 
 export interface AuthState {

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { OFFER_TTL_MS } from "@agent-town/core";
+import { OFFER_TTL_MS } from "@muster-town/core";
 import { init, result, setup } from "./helpers.ts";
 
 describe("v1.4 runtime presence tick", () => {

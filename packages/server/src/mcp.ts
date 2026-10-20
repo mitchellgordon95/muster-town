@@ -1,5 +1,5 @@
-import { isAppError, type World } from "@agent-town/core";
-import { VERB_DESCRIPTIONS, VERB_NAMES, VerbInputs, type VerbName } from "@agent-town/schema";
+import { isAppError, type World } from "@muster-town/core";
+import { VERB_DESCRIPTIONS, VERB_NAMES, VerbInputs, type VerbName } from "@muster-town/schema";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/streamableHttp.js";
 import type { CallToolResult } from "@modelcontextprotocol/sdk/types.js";
@@ -14,7 +14,7 @@ function text(t: string, isError = false): CallToolResult {
 
 /** One MCP server whose tools are the verbs, acting as `agentId`. */
 export function buildMcpServer(world: World, agentId: string): McpServer {
-  const server = new McpServer({ name: "agent-town", version: "0.1.0" });
+  const server = new McpServer({ name: "muster-town", version: "0.1.0" });
   for (const name of VERB_NAMES) {
     const shape = VerbInputs[name].shape as ZodRawShape;
     server.registerTool(name, { description: VERB_DESCRIPTIONS[name as VerbName], inputSchema: shape }, async (args: unknown) => {

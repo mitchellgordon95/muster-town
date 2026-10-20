@@ -1,8 +1,8 @@
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { afterEach } from "vitest";
-import { World } from "@agent-town/core";
-import type { VerbName } from "@agent-town/schema";
+import { World } from "@muster-town/core";
+import type { VerbName } from "@muster-town/schema";
 import { HostBackend, startRuntime, type RuntimeOptions, type Runtime, type Sdk } from "../src/index.ts";
 import type { Options, SDKUserMessage } from "../src/sdk.ts";
 

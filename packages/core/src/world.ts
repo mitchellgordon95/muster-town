@@ -1,4 +1,4 @@
-import type { Agent, AgentStatus, DesksConfig, RedeployResult, ServerMessage, Tile } from "@agent-town/schema";
+import type { Agent, AgentStatus, DesksConfig, RedeployResult, ServerMessage, Tile } from "@muster-town/schema";
 import { Bank } from "./bank.ts";
 import { Budget } from "./budget.ts";
 import { intrayCounts, intrayOf } from "./domain.ts";

@@ -1,5 +1,5 @@
 /**
- * @agent-town/core — SQLite-backed world: store, layout/pathfinding/tick, verbs, permissions,
+ * @muster-town/core — SQLite-backed world: store, layout/pathfinding/tick, verbs, permissions,
  * budgets, events, git export, v0 import, seed. No framework imports.
  */
 export { World, type HostHooks, type SnapshotMessage } from "./world.ts";

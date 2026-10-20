@@ -1,5 +1,5 @@
-import { AppError, townRoleId, type World } from "@agent-town/core";
-import type { Agent, DeskActivityInput, RedeployResult, Session, User } from "@agent-town/schema";
+import { AppError, townRoleId, type World } from "@muster-town/core";
+import type { Agent, DeskActivityInput, RedeployResult, Session, User } from "@muster-town/schema";
 import type { FastifyReply, FastifyRequest } from "fastify";
 import type { ZodTypeAny, z } from "zod";
 

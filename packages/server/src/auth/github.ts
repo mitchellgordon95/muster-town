@@ -1,4 +1,4 @@
-import { AppError, type GithubProfile } from "@agent-town/core";
+import { AppError, type GithubProfile } from "@muster-town/core";
 import type { AuthSettings } from "./config.ts";
 
 export function authorizeUrl(s: AuthSettings, state: string): string {
@@ -21,7 +21,7 @@ export async function exchangeCode(s: AuthSettings, code: string): Promise<strin
 /** `GET /user` with the token: proves who the caller is on GitHub. */
 export async function fetchGithubUser(s: AuthSettings, accessToken: string): Promise<GithubProfile> {
   const res = await s.fetch(`${s.githubApiUrl}/user`, {
-    headers: { accept: "application/vnd.github+json", authorization: `Bearer ${accessToken}`, "user-agent": "agent-town", "x-github-api-version": "2022-11-28" },
+    headers: { accept: "application/vnd.github+json", authorization: `Bearer ${accessToken}`, "user-agent": "muster-town", "x-github-api-version": "2022-11-28" },
   });
   if (!res.ok) throw new AppError("unauthorized", `GitHub rejected the token (${res.status}).`);
   const u = (await res.json()) as { id?: number; login?: string; name?: string | null; avatar_url?: string | null };

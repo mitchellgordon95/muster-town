@@ -1,5 +1,5 @@
 /**
- * v1.4 generic verbs endpoint: the MCP tools over plain HTTP, for clients that aren't MCP (the `agent-town` CLI).
+ * v1.4 generic verbs endpoint: the MCP tools over plain HTTP, for clients that aren't MCP (the `muster-town` CLI).
  *
  * - `GET /api/verbs` (no auth needed) → `{ verbs: [{ name, description, inputSchema }] }` (JSON Schema from the Zod inputs).
  * - `POST /api/verbs/:verb` (agent token) with the verb's input as the JSON body → 200 `{ result }`, or
@@ -10,8 +10,8 @@
  *
  * Every call here and every MCP tool call goes through `runVerb`, so both paths stamp presence and run the same code.
  */
-import { AppError, type World } from "@agent-town/core";
-import { MailboxDigest, VERB_DESCRIPTIONS, VERB_NAMES, VerbInputs, toJsonSchema, type Agent, type VerbListing, type VerbName } from "@agent-town/schema";
+import { AppError, type World } from "@muster-town/core";
+import { MailboxDigest, VERB_DESCRIPTIONS, VERB_NAMES, VerbInputs, toJsonSchema, type Agent, type VerbListing, type VerbName } from "@muster-town/schema";
 import type { FastifyInstance, FastifyRequest } from "fastify";
 import { z } from "zod";
 import { parse, requireAuth } from "../context.ts";

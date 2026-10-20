@@ -1,4 +1,4 @@
--- Agent Town core schema v1. Tables mirror @agent-town/schema objects one-to-one.
+-- Agent Town core schema v1. Tables mirror @muster-town/schema objects one-to-one.
 -- Nested fields are JSON text columns. Column names match schema field names.
 
 CREATE TABLE meta (key TEXT PRIMARY KEY, value TEXT NOT NULL);

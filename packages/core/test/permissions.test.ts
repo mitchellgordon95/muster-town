@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { BUILTIN_ROLES, Permission } from "@agent-town/schema";
+import { BUILTIN_ROLES, Permission } from "@muster-town/schema";
 import { buildingRoleId, createBuilding, townRoleId } from "../src/index.ts";
 import { seededWorld } from "./helpers.ts";
 

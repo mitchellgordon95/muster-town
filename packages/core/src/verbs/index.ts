@@ -1,4 +1,4 @@
-import { VERB_NAMES, VerbInputs, type Agent, type VerbName } from "@agent-town/schema";
+import { VERB_NAMES, VerbInputs, type Agent, type VerbName } from "@muster-town/schema";
 import { AppError } from "../errors.ts";
 import type { World } from "../world.ts";
 import { redeploy } from "./admin.ts";

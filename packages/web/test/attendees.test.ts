@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import type { Agent } from "@agent-town/schema";
+import type { Agent } from "@muster-town/schema";
 import { attendeeInput, inviteCandidates } from "../src/panels/attendees";
 
 const ag = (id: string, name: string, kind: Agent["kind"], homeBuildingId: string | null, status: Agent["status"] = "idle") => ({ id, name, kind, homeBuildingId, status }) as Agent;

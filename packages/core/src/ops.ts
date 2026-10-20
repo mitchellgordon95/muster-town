@@ -1,4 +1,4 @@
-import { AgentPermissionsPatch, WorkInput, type Agent, type Assignment, type Interrupt, type CreateBuildingInput, type CreateMeetingInput, type CreateResidentInput, type Doc, type Meeting, type Membership, type RegisterVisitorInput, type Session } from "@agent-town/schema";
+import { AgentPermissionsPatch, WorkInput, type Agent, type Assignment, type Interrupt, type CreateBuildingInput, type CreateMeetingInput, type CreateResidentInput, type Doc, type Meeting, type Membership, type RegisterVisitorInput, type Session } from "@muster-town/schema";
 import { createAssignment, createDoc, homeOf, intrayOf, moveToFront, pendingQueue, sendMessage, setAssignmentStatus, updateDoc } from "./domain.ts";
 import { CHECK_IN } from "./prompts.ts";
 import { createBuilding, createResident, createUser, ensureAvatar, registerVisitor, updateBuilding, updateFurniture } from "./entities.ts";

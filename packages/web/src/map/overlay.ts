@@ -1,5 +1,5 @@
 /** Screen-space text: name labels and bubbles, drawn crisp on top of the scaled pixel layer. */
-import type { Agent, BuildingBudget } from "@agent-town/schema";
+import type { Agent, BuildingBudget } from "@muster-town/schema";
 import { fmtTokens } from "../format";
 
 export const STATUS_COLOR: Record<string, string> = {

@@ -1,6 +1,6 @@
 /** Resident work sessions (host backend + shared end-of-session logic), interrupts, and reviewer sessions over the in-tray. */
-import { AppError, buildingRoleId, createDoc, fallbackReportBody, latestReportOf, reviewPrompt, reviewSystemPrompt, setAssignmentStatus, workPrompt, workSystemPrompt } from "@agent-town/core";
-import type { Agent, Assignment, Building, Doc, Session } from "@agent-town/schema";
+import { AppError, buildingRoleId, createDoc, fallbackReportBody, latestReportOf, reviewPrompt, reviewSystemPrompt, setAssignmentStatus, workPrompt, workSystemPrompt } from "@muster-town/core";
+import type { Agent, Assignment, Building, Doc, Session } from "@muster-town/schema";
 import { chargeUsage, fundingFor, homeOf, runAgentSession, type Ctx } from "./session.ts";
 
 const REVIEW_MAX_TURNS = 10;

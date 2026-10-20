@@ -1,6 +1,6 @@
 /** Small shared UI pieces for panels. */
 import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
-import type { Event } from "@agent-town/schema";
+import type { Event } from "@muster-town/schema";
 import { store, useTown } from "../state";
 import { api } from "../api";
 

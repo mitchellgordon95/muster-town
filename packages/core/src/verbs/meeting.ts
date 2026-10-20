@@ -1,4 +1,4 @@
-import type { Agent, Meeting } from "@agent-town/schema";
+import type { Agent, Meeting } from "@muster-town/schema";
 import { AppError, badRequest } from "../errors.ts";
 import { endMeeting, humanStillTalking, meetingDecide, meetingSpeak, setMeetingPhase } from "../meetings.ts";
 import type { World } from "../world.ts";

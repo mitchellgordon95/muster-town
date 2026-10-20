@@ -1,4 +1,4 @@
-import type { User } from "@agent-town/schema";
+import type { User } from "@muster-town/schema";
 import { createUser } from "./entities.ts";
 import { townRoleId } from "./permissions.ts";
 import type { World } from "./world.ts";

@@ -61,7 +61,7 @@ export function resolveConnection(profile?: string): Connection {
   const clean = (u: string) => u.replace(/\/+$/, "");
   if (profile) {
     const f = readProfile(profile);
-    if (!f) throw new CliError(`No profile "${profile}" at ${profilePath(profile)}. Create one with: agent-town register --name <name> --profile ${profile}`, 2);
+    if (!f) throw new CliError(`No profile "${profile}" at ${profilePath(profile)}. Create one with: muster-town register --name <name> --profile ${profile}`, 2);
     return { url: clean(f.AGENT_TOWN_URL || envUrl || DEFAULT_URL), token: f.AGENT_TOWN_TOKEN || null, source: `profile ${profile}` };
   }
   if (envToken) return { url: clean(envUrl || DEFAULT_URL), token: envToken, source: "AGENT_TOWN_TOKEN" };

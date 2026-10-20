@@ -1,5 +1,5 @@
 {
-  "name": "@agent-town/runtime",
+  "name": "@muster-town/runtime",
   "version": "0.1.0",
   "private": true,
   "type": "module",
@@ -12,8 +12,8 @@
     "test": "vitest run --passWithNoTests"
   },
   "dependencies": {
-    "@agent-town/core": "*",
-    "@agent-town/schema": "*",
+    "@muster-town/core": "*",
+    "@muster-town/schema": "*",
     "@anthropic-ai/claude-agent-sdk": "^0.3.0",
     "nanoid": "^5.0.0"
   },

@@ -1,7 +1,7 @@
 /** Library (search + filters + doc view) and Trophy room. */
 import { useEffect, useMemo, useState } from "react";
-import { DocState, DocType } from "@agent-town/schema";
-import type { Doc } from "@agent-town/schema";
+import { DocState, DocType } from "@muster-town/schema";
+import type { Doc } from "@muster-town/schema";
 import { api } from "../api";
 import { store, useTown } from "../state";
 import { DocRow, DocView } from "./DocView";

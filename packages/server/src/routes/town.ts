@@ -1,5 +1,5 @@
-import { AppError, boardDocs, cabinetCounts, cabinetDocs } from "@agent-town/core";
-import { AddBankInput, CreateBuildingInput, SetBankShareInput, DocType, DonateInput, LayoutInput, Membership, RedeployInput, UpdateBuildingInput, type AuthMe } from "@agent-town/schema";
+import { AppError, boardDocs, cabinetCounts, cabinetDocs } from "@muster-town/core";
+import { AddBankInput, CreateBuildingInput, SetBankShareInput, DocType, DonateInput, LayoutInput, Membership, RedeployInput, UpdateBuildingInput, type AuthMe } from "@muster-town/schema";
 import type { FastifyInstance } from "fastify";
 import { z } from "zod";
 import { actorOf, adminToken, parse, requireAuth, requireUser, type Params } from "../context.ts";

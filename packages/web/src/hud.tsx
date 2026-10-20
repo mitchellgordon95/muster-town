@@ -1,6 +1,6 @@
 /** HUD (top-left town card: name, tagline, goal, status counts, notices), interaction hint, say box, toasts. */
 import { useMemo, useState, type ReactNode, type RefObject } from "react";
-import type { AgentStatus } from "@agent-town/schema";
+import type { AgentStatus } from "@muster-town/schema";
 import { store, useTown, type PanelRef } from "./state";
 import { STATUS_COLOR } from "./map/overlay";
 import { iconUrl, type IconKind } from "./map/sprites";

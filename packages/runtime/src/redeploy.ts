@@ -7,8 +7,8 @@
 import { execFile } from "node:child_process";
 import { closeSync, openSync, statSync, unlinkSync } from "node:fs";
 import { join } from "node:path";
-import type { World } from "@agent-town/core";
-import type { RedeployResult } from "@agent-town/schema";
+import type { World } from "@muster-town/core";
+import type { RedeployResult } from "@muster-town/schema";
 
 export interface CmdResult { code: number; stdout: string; stderr: string }
 /** Runs one command (no shell). Injected in tests. */
@@ -116,7 +116,7 @@ export function makeRedeployer(deps: RedeployDeps): Redeployer {
     }
 
     // (c) web client
-    if (!(await step("build web", "npm", ["run", "build", "--workspace", "@agent-town/web"], 600_000))) return;
+    if (!(await step("build web", "npm", ["run", "build", "--workspace", "@muster-town/web"], 600_000))) return;
 
     // (d) desk image
     if (o.image && !(await step("docker build desk image", "docker", ["build", "-t", deps.image, "-f", "packages/desk/Dockerfile", "."], 3_600_000))) return;

@@ -1,6 +1,6 @@
 /** Planning desk (Town Hall): create buildings, add and dismiss residents, roles, export. Donations live at the donation box. */
 import { useMemo, useState } from "react";
-import type { Building } from "@agent-town/schema";
+import type { Building } from "@muster-town/schema";
 import { api } from "../api";
 import { store, useTown, roleOf } from "../state";
 import { Glyph, PanelShell } from "./PanelShell";

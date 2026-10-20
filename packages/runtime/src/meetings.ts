@@ -1,7 +1,7 @@
 /** Meetings: summaries while collecting (cheapModel, no tools), then a facilitated discussion over MCP. */
-import { TOWN_HALL_ID } from "@agent-town/core";
-import type { Meeting } from "@agent-town/schema";
-import { facilitatePrompt, facilitateSystemPrompt, meetingReplyPrompt, meetingReplySystemPrompt, summaryPrompt, summarySystemPrompt } from "@agent-town/core";
+import { TOWN_HALL_ID } from "@muster-town/core";
+import type { Meeting } from "@muster-town/schema";
+import { facilitatePrompt, facilitateSystemPrompt, meetingReplyPrompt, meetingReplySystemPrompt, summaryPrompt, summarySystemPrompt } from "@muster-town/core";
 import { oneShot } from "./sdk.ts";
 import { chargeUsage, fundingFor, homeOf, runAgentSession, type Ctx } from "./session.ts";
 import { latestReport } from "./work.ts";

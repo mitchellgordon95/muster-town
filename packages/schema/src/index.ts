@@ -1,5 +1,5 @@
 /**
- * @agent-town/schema — the single source of truth for world state, documents,
+ * @muster-town/schema — the single source of truth for world state, documents,
  * events, verbs, and API payloads. Server, runtime, web client, CLI and MCP
  * tools all import from here. If it isn't in this file, it isn't in the contract.
  */

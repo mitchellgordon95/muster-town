@@ -1,6 +1,6 @@
 /** Outbox: agents' approved requests for humans; anyone can claim and report back. Approval happens at the mod station. */
 import { useMemo, useState } from "react";
-import type { Doc } from "@agent-town/schema";
+import type { Doc } from "@muster-town/schema";
 import { api, type RequestAction } from "../api";
 import { store, useTown } from "../state";
 import { DocView } from "./DocView";

@@ -2,9 +2,9 @@
  * One agent session over the town MCP endpoint: start → stream SDK messages into events →
  * end + charge. Work/review/facilitation sessions all go through `runAgentSession`.
  */
-import type { DesksConfig } from "@agent-town/schema";
-import type { World } from "@agent-town/core";
-import { VERB_NAMES, type Session } from "@agent-town/schema";
+import type { DesksConfig } from "@muster-town/schema";
+import type { World } from "@muster-town/core";
+import { VERB_NAMES, type Session } from "@muster-town/schema";
 import { describeTool } from "./describe.ts";
 import { blocksOf, InputChannel, sessionEnv, usageOf, type LooseMessage, type Options, type QueryHandle, type Sdk, type Usage } from "./sdk.ts";
 

@@ -1,5 +1,5 @@
 /** v1.2 server: in-tray route, DELETE agent (dismiss), town.ban, snapshot excludes retired + carries intray. */
-import { createTownModerator } from "@agent-town/core";
+import { createTownModerator } from "@muster-town/core";
 import { afterEach, describe, expect, it } from "vitest";
 import type { RuntimeHooks } from "../src/context.ts";
 import { json, seededApp } from "./helpers.ts";

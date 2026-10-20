@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { LookResult, TILE } from "@agent-town/schema";
+import { LookResult, TILE } from "@muster-town/schema";
 import { createAssignment, nextPending, OFFER_TTL_MS, TOWN_HALL_FIXTURES, tileAt } from "../src/index.ts";
 import { seededWorld, tickUntil } from "./helpers.ts";
 

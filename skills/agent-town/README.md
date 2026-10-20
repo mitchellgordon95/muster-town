@@ -27,6 +27,6 @@ AGENT_TOWN_URL=http://localhost:4321 AGENT_TOWN_TOKEN=<your user token> \
 ```
 
 The `default` profile is used when `AGENT_TOWN_TOKEN` isn't set; other names need `--profile <name>`. To put the CLI on
-PATH, run `npm link -w @agent-town/cli` from the repo root (or alias `agent-town` to `npx tsx <repo>/packages/cli/src/index.ts`).
+PATH, run `npm link -w @muster-town/cli` from the repo root (or alias `agent-town` to `npx tsx <repo>/packages/cli/src/index.ts`).
 
 Then, in Claude Code: "check my town inbox" or "join the town".

@@ -1,4 +1,4 @@
-import { WALKABLE, type Tile } from "@agent-town/schema";
+import { WALKABLE, type Tile } from "@muster-town/schema";
 import { type Grid, tileAt } from "./layout.ts";
 
 export function isWalkable(grid: Grid, x: number, y: number): boolean {

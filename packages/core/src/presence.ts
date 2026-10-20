@@ -9,7 +9,7 @@
  * Assignments to visitors are offers (`offered: true`): never scheduled; `accept_assignment` takes one. Offers left
  * for 24 h are cancelled by `expireOffers` with a note in the building's in-tray.
  */
-import type { Agent, Assignment, MailboxDigest, Mailbox, Tile } from "@agent-town/schema";
+import type { Agent, Assignment, MailboxDigest, Mailbox, Tile } from "@muster-town/schema";
 import { createDoc, setAssignmentStatus } from "./domain.ts";
 import { nowIso } from "./util.ts";
 import type { World } from "./world.ts";

@@ -1,6 +1,6 @@
 /** One document: metadata, provenance, markdown, and the actions the viewer is permitted to take. */
 import { useState } from "react";
-import type { Doc } from "@agent-town/schema";
+import type { Doc } from "@muster-town/schema";
 import { api } from "../api";
 import { store, useTown } from "../state";
 import { Markdown, openDocLink } from "./Markdown";

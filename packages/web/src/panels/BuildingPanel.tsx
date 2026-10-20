@@ -1,6 +1,6 @@
 /** Building panel (E at the door): overview, members + roles, meetings, settings (managers). Board, filing cabinet and in-tray are places. */
 import { useMemo, useState, type ReactNode } from "react";
-import type { Meeting, SnapshotBuilding } from "@agent-town/schema";
+import type { Meeting, SnapshotBuilding } from "@muster-town/schema";
 import { api } from "../api";
 import { store, useTown, roleOf } from "../state";
 import { Glyph, PanelShell } from "./PanelShell";

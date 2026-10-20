@@ -1,5 +1,5 @@
 /** Readable one-liners for tool calls (drive `agent.tool` events and the live bubbles). */
-import type { World } from "@agent-town/core";
+import type { World } from "@muster-town/core";
 
 const clip = (s: unknown, n = 80) => {
   const t = String(s ?? "").replace(/\s+/g, " ").trim();

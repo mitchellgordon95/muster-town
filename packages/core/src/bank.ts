@@ -1,4 +1,4 @@
-import { AddBankInput, SetBankShareInput, type BankCredit, type BankInput, type BankRecurrence } from "@agent-town/schema";
+import { AddBankInput, SetBankShareInput, type BankCredit, type BankInput, type BankRecurrence } from "@muster-town/schema";
 import { badRequest, forbidden } from "./errors.ts";
 import type { EventLog } from "./events.ts";
 import type { Permissions } from "./permissions.ts";

@@ -58,7 +58,7 @@ beforeEach(() => {
   return () => { rmSync(home, { recursive: true, force: true }); delete process.env.AGENT_TOWN_HOME; };
 });
 
-describe("agent-town login", () => {
+describe("muster-town login", () => {
   it("runs the device flow, polls through authorization_pending, and saves the town token (mode 600)", async () => {
     const out: string[] = [];
     const r = await login({ url, profile: "user" }, { githubUrl: url, sleep: async () => undefined, print: (s) => out.push(s) });

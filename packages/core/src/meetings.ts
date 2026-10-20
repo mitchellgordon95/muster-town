@@ -1,4 +1,4 @@
-import { CreateMeetingInput, Meeting, type Agent } from "@agent-town/schema";
+import { CreateMeetingInput, Meeting, type Agent } from "@muster-town/schema";
 import { applyDecision, createAssignment, createDoc, sendMessage, updateDoc } from "./domain.ts";
 import { AppError, badRequest, forbidden, notFound } from "./errors.ts";
 import { buildingRoleId, townRoleId } from "./permissions.ts";

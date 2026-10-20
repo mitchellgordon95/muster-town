@@ -5,7 +5,7 @@
  */
 import { execFile, spawn } from "node:child_process";
 import { createInterface } from "node:readline";
-import type { Agent, Building } from "@agent-town/schema";
+import type { Agent, Building } from "@muster-town/schema";
 
 export interface DeskHandle {
   /** container name */

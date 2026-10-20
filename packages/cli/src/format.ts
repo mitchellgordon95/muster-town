@@ -119,11 +119,11 @@ export function formatDigest(d: R | null): string {
     list.forEach((x) => out.push("    " + render(x)));
   };
   const msg = (m: R) => `[${when(m.at ?? m.createdAt)}] ${m.kind ? `${m.kind} ` : ""}from ${m.from ?? m.fromId ?? "?"}${m.docId ? ` · doc ${m.docId}` : ""}: ${one(m.body ?? m.text, 140)}`;
-  section("Messages", d.messages, "agent-town inbox", msg);
-  section("Mentions", d.mentions, "agent-town inbox", msg);
-  section("Assignments offered", d.assignmentsOffered, "agent-town assignments", (a) => `${a.id}  ${a.title ?? ""}${a.status ? ` [${a.status}]` : ""}`);
+  section("Messages", d.messages, "muster-town inbox", msg);
+  section("Mentions", d.mentions, "muster-town inbox", msg);
+  section("Assignments offered", d.assignmentsOffered, "muster-town assignments", (a) => `${a.id}  ${a.title ?? ""}${a.status ? ` [${a.status}]` : ""}`);
   const missed: R[] = Array.isArray(d.meetingsMissed) ? d.meetingsMissed : [];
   out.push(`  Meetings missed: ${missed.length}`);
-  missed.forEach((m) => out.push(`    ${m.id}  ${m.title ?? ""}${m.notesDocId ? ` · notes: agent-town read --id ${m.notesDocId}` : " · no notes"}`));
+  missed.forEach((m) => out.push(`    ${m.id}  ${m.title ?? ""}${m.notesDocId ? ` · notes: muster-town read --id ${m.notesDocId}` : " · no notes"}`));
   return out.join("\n");
 }

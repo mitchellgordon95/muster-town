@@ -1,4 +1,4 @@
-import { buildingRoleId } from "@agent-town/core";
+import { buildingRoleId } from "@muster-town/core";
 import { afterEach, describe, expect, it } from "vitest";
 import { json, seededApp } from "./helpers.ts";
 

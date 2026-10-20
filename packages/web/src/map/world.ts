@@ -1,6 +1,6 @@
 /** Static world layer: the grid baked into one bitmap, plus walkability and lookups. */
-import { TILE, WALKABLE } from "@agent-town/schema";
-import type { Building, Place } from "@agent-town/schema";
+import { TILE, WALKABLE } from "@muster-town/schema";
+import type { Building, Place } from "@muster-town/schema";
 import type { Grid } from "../api";
 import { T, tiles, drawTable, drawCounter, drawDoor, drawManagerDesk, drawChair, drawBoard, drawCabinet, drawDonation, drawSchedule, drawBench } from "./sprites";
 

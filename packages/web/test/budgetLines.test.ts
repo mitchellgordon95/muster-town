@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import type { Agent } from "@agent-town/schema";
+import type { Agent } from "@muster-town/schema";
 import { buildingBudgetLine, residentBudgetLine } from "../src/map/overlay";
 
 const agent = (o: Partial<Agent>) => ({ kind: "resident", spentTokensToday: 0, ...o }) as Agent;

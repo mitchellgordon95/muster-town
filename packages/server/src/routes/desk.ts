@@ -2,8 +2,8 @@
  * Agent-scoped API for desks (bearer **agent** token): the process inside an agent's container fetches its
  * brief, streams activity, polls control (interrupts + stop), and reports the end of its work session.
  */
-import { AppError, composeWorkBrief } from "@agent-town/core";
-import { DeskActivityInput, DeskControlAckInput, DeskSessionEndInput, type Agent, type DeskControl, type Session } from "@agent-town/schema";
+import { AppError, composeWorkBrief } from "@muster-town/core";
+import { DeskActivityInput, DeskControlAckInput, DeskSessionEndInput, type Agent, type DeskControl, type Session } from "@muster-town/schema";
 import type { FastifyInstance, FastifyRequest } from "fastify";
 import { z } from "zod";
 import { parse, requireAuth } from "../context.ts";

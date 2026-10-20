@@ -2,7 +2,7 @@
  * Canvas 2D town renderer. Owns the rAF loop, camera, the human's client-side movement,
  * interpolation of other bodies between `agents.pos` updates, and proximity targeting.
  */
-import type { Agent, Place } from "@agent-town/schema";
+import type { Agent, Place } from "@muster-town/schema";
 import { store, type PanelRef, isManager, roleOf } from "../state";
 import { World } from "./world";
 import { authStore } from "../auth/auth";

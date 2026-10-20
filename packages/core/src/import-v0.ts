@@ -1,4 +1,4 @@
-import { Verdict, type Agent, type Building, type Doc } from "@agent-town/schema";
+import { Verdict, type Agent, type Building, type Doc } from "@muster-town/schema";
 import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
 import { basename, dirname, join, normalize, resolve } from "node:path";
 import { createDoc, updateDoc } from "./domain.ts";

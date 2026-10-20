@@ -1,4 +1,4 @@
-import { Doc, QUEUE_ORDER, type Agent, type Assignment, type Message, type ReviewDecision } from "@agent-town/schema";
+import { Doc, QUEUE_ORDER, type Agent, type Assignment, type Message, type ReviewDecision } from "@muster-town/schema";
 import { AppError } from "./errors.ts";
 import type { Holder } from "./permissions.ts";
 import { extractSection, firstLine, newId, nowIso, truncate } from "./util.ts";

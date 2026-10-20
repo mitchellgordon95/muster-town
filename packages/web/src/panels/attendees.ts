@@ -1,5 +1,5 @@
 /** Who a "Call meeting" form can invite, and what it sends. Mirrors the server's rules in core/meetings.ts. */
-import type { Agent } from "@agent-town/schema";
+import type { Agent } from "@muster-town/schema";
 
 const GONE = new Set<Agent["status"]>(["stopped", "banned", "retired"]);
 

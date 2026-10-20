@@ -1,4 +1,4 @@
-import { TILE, type Building, type Place, type Tile } from "@agent-town/schema";
+import { TILE, type Building, type Place, type Tile } from "@muster-town/schema";
 import type { DB } from "../db.ts";
 import { AppError, notFound } from "../errors.ts";
 import type { Repos } from "../store.ts";

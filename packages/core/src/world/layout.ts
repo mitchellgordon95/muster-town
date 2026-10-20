@@ -1,4 +1,4 @@
-import { TILE, WALKABLE, type Building, type Lot, type Place, type Tile } from "@agent-town/schema";
+import { TILE, WALKABLE, type Building, type Lot, type Place, type Tile } from "@muster-town/schema";
 import { piecesFor, resolveFurniture } from "./furniture.ts";
 
 /** Row-major tile grid, same shape as the WS snapshot's `grid`. */

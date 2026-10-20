@@ -1,9 +1,9 @@
 import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { World } from "@agent-town/core";
-import { startRuntime, type DeskBackend, type DeskChild, type DeskHandle } from "@agent-town/runtime";
-import type { Agent } from "@agent-town/schema";
+import { World } from "@muster-town/core";
+import { startRuntime, type DeskBackend, type DeskChild, type DeskHandle } from "@muster-town/runtime";
+import type { Agent } from "@muster-town/schema";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { buildApp } from "../src/app.ts";
 import { loadEnvFile } from "../src/env.ts";

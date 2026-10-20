@@ -3,8 +3,8 @@
  * Moss the reviewer, two reports in the in-tray, Otto who was dismissed), the Workshop (a workspace building with
  * reviewer policy, one report in its in-tray), meetings now / upcoming / done.
  */
-import type { Agent, Assignment, Building, Doc, Event, Meeting, Membership, Role, Town, User } from "@agent-town/schema";
-import { BUILTIN_ROLES } from "@agent-town/schema";
+import type { Agent, Assignment, Building, Doc, Event, Meeting, Membership, Role, Town, User } from "@muster-town/schema";
+import { BUILTIN_ROLES } from "@muster-town/schema";
 
 export const ago = (min: number) => new Date(Date.now() - min * 60_000).toISOString();
 
@@ -118,7 +118,7 @@ export const assignments: Assignment[] = [
   asg({ id: "as_mei2", agentId: "ag_mei", buildingId: "bl_carbon", title: "Southern Ocean: pCO2 products vs models", description: "From run 1's proposal: why do they disagree, and which should the lab trust?", status: "cancelled", fromReportId: "dc_mei_r1", createdAt: ago(50), updatedAt: ago(8) }),
   asg({ id: "as_mei3", agentId: "ag_mei", buildingId: "bl_carbon", title: "Cumulative ocean uptake since 1850", description: "Total GtC taken up by the ocean, with uncertainty, from GCB 2025.", status: "pending", createdAt: ago(45), updatedAt: ago(45) }),
   asg({ id: "as_mei4", agentId: "ag_mei", buildingId: "bl_carbon", title: "Acidification: pH trend at HOT and BATS", description: "Surface pH trend per decade at the two long time series.", status: "pending", createdAt: ago(40), updatedAt: ago(40) }),
-  asg({ id: "as_visit1", agentId: "ag_visitor", buildingId: "bl_workshop", title: "Draft the CLI help text", description: "Write the help text for `agent-town digest` and `agent-town verbs`.", status: "active", offered: false, createdAt: ago(240), updatedAt: ago(200) }),
+  asg({ id: "as_visit1", agentId: "ag_visitor", buildingId: "bl_workshop", title: "Draft the CLI help text", description: "Write the help text for `muster-town digest` and `muster-town verbs`.", status: "active", offered: false, createdAt: ago(240), updatedAt: ago(200) }),
   asg({ id: "as_visit2", agentId: "ag_visitor", buildingId: "bl_workshop", title: "Review Pike's renderer PR", description: "Pike's PR dims offline visitors; check it against the screenshot.", status: "pending", offered: true, createdAt: ago(40), updatedAt: ago(40) }),
   asg({ id: "as_mei5", agentId: "ag_mei", buildingId: "bl_carbon", title: "Does warming weaken the solubility pump?", description: "Size the effect for 2024 vs 1990 in GtC/yr.", status: "pending", createdAt: ago(30), updatedAt: ago(30) }),
 ];

@@ -1,4 +1,4 @@
-import { World } from "@agent-town/core";
+import { World } from "@muster-town/core";
 import type { FastifyInstance } from "fastify";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";

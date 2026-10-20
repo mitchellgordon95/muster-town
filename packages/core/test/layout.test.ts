@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { TILE } from "@agent-town/schema";
+import { TILE } from "@muster-town/schema";
 import { World, createBuilding, createResident, findPath, isWalkable, MAX_HEADCOUNT, ROAD_Y } from "../src/index.ts";
 import { freshWorld, seededWorld, tickUntil } from "./helpers.ts";
 

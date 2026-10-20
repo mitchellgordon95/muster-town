@@ -1,5 +1,5 @@
-import { AppError, upsertGithubUser } from "@agent-town/core";
-import { GithubDeviceInput, type AuthConfig } from "@agent-town/schema";
+import { AppError, upsertGithubUser } from "@muster-town/core";
+import { GithubDeviceInput, type AuthConfig } from "@muster-town/schema";
 import type { FastifyInstance } from "fastify";
 import { parse } from "../context.ts";
 import type { AuthSettings } from "./config.ts";

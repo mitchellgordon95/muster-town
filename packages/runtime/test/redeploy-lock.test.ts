@@ -2,7 +2,7 @@ import { describe, it, expect } from "vitest";
 import { mkdtempSync, writeFileSync, existsSync, unlinkSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { World } from "@agent-town/core";
+import { World } from "@muster-town/core";
 import { makeRedeployer } from "../src/redeploy.ts";
 
 describe("redeploy repo lock", () => {

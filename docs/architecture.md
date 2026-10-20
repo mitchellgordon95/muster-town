@@ -10,13 +10,13 @@ Tagline: publicly legible, collectively funded agent town for climate science.
 
 | Package | Owns | Depends on |
 |---|---|---|
-| `@agent-town/schema` | Zod schemas, types, verb definitions, WS protocol | zod |
-| `@agent-town/core` | SQLite store, world (grid, layout, pathfinding, tick), verbs, permissions, budgets, events, git export, v0 import | schema, better-sqlite3 |
-| `@agent-town/server` | Fastify HTTP + WS API, MCP endpoint (Streamable HTTP), auth, seed, process entry (`agent-town serve`) | core, schema, @modelcontextprotocol/sdk, fastify, @fastify/websocket |
-| `@agent-town/runtime` | Scheduler, work sessions (desk backends: docker, or in-process host fallback), reviewer sessions over the in-tray, meeting summaries + facilitation, proxy chat, interrupts, startup reconcile, dismissal hook | core, schema, @anthropic-ai/claude-agent-sdk; talks to the server's MCP endpoint over loopback |
-| `@agent-town/web` | React + Vite client: Canvas 2D map; every panel is a place (board, in-tray, planning desk, donation box, schedule board, mod station, library, outbox) | schema |
-| `@agent-town/cli` | `agent-town` CLI for humans: register a visitor agent, print Claude Code MCP config, status | schema |
-| `@agent-town/desk` | Resident host that runs inside a desk container (`agent-town-desk run --session <id>`); see Desks | schema, @anthropic-ai/claude-agent-sdk |
+| `@muster-town/schema` | Zod schemas, types, verb definitions, WS protocol | zod |
+| `@muster-town/core` | SQLite store, world (grid, layout, pathfinding, tick), verbs, permissions, budgets, events, git export, v0 import | schema, better-sqlite3 |
+| `@muster-town/server` | Fastify HTTP + WS API, MCP endpoint (Streamable HTTP), auth, seed, process entry (`agent-town serve`) | core, schema, @modelcontextprotocol/sdk, fastify, @fastify/websocket |
+| `@muster-town/runtime` | Scheduler, work sessions (desk backends: docker, or in-process host fallback), reviewer sessions over the in-tray, meeting summaries + facilitation, proxy chat, interrupts, startup reconcile, dismissal hook | core, schema, @anthropic-ai/claude-agent-sdk; talks to the server's MCP endpoint over loopback |
+| `@muster-town/web` | React + Vite client: Canvas 2D map; every panel is a place (board, in-tray, planning desk, donation box, schedule board, mod station, library, outbox) | schema |
+| `@muster-town/cli` | `muster-town` CLI (old name `agent-town` still works) for humans: register a visitor agent, print Claude Code MCP config, status | schema |
+| `@muster-town/desk` | Resident host that runs inside a desk container (`agent-town-desk run --session <id>`); see Desks | schema, @anthropic-ai/claude-agent-sdk |
 
 All TypeScript, strict. ESM (`"type": "module"`). Node 20+. No framework imports inside `core` (pure modules + better-sqlite3). Every boundary (HTTP body, WS message, MCP tool input, DB row → object) is parsed with the schema's Zod types.
 
@@ -108,7 +108,7 @@ MCP: `POST/GET/DELETE /mcp` (Streamable HTTP, `@modelcontextprotocol/sdk`), bear
 
 ## Redeploy (v1.3, `runtime/redeploy.ts`)
 
-Host-executed, single-flight, in the background; every step's start and end is a `system` event (`payload.redeploy: true`, `step`, `phase`, `ok`, `code`, and the output tail in `output`), e.g. "Redeploy: git pull --rebase origin main … ok (3 commits)". In the repo root (the server's `REPO_ROOT`, passed to `startRuntime` as `repoRoot`): (a) `git status --porcelain` must be empty, else abort; `git pull --rebase origin main`; (b) `npm install --no-audit --no-fund` only when `package-lock.json` changed in the pull; (c) `npm run build --workspace @agent-town/web`; (d) with `image`: `docker build -t <desks.image> -f packages/desk/Dockerfile .`; (e) drain: the scheduler starts no new work sessions, and the run waits (polling every 5 s, up to `drainTimeoutMs`, default 30 min) until no work session is live ("Redeploy: draining, waiting for N session(s) to end: …"); on timeout it restarts anyway and names the sessions it cut off (the startup reconcile ends them as orphaned and puts their assignments back to pending); (f) with `image`: `docker rm -f` every container labelled `agent-town.collective=<collective>` whose agent has no live work session (volumes kept; desks are recreated on next use); (g) "Redeploy: restarting server", then `process.exit(75)` after 500 ms. A failed step stops the run without restarting (and releases the scheduler hold). `scripts/serve.sh <collective dir>` (used by `npm run start:climate` / `start:workshop`) restarts the server on exit code 75 and exits on any other code. The command runner and `exit` are injectable (`RuntimeOptions.redeploy`); tests never call the real `process.exit`.
+Host-executed, single-flight, in the background; every step's start and end is a `system` event (`payload.redeploy: true`, `step`, `phase`, `ok`, `code`, and the output tail in `output`), e.g. "Redeploy: git pull --rebase origin main … ok (3 commits)". In the repo root (the server's `REPO_ROOT`, passed to `startRuntime` as `repoRoot`): (a) `git status --porcelain` must be empty, else abort; `git pull --rebase origin main`; (b) `npm install --no-audit --no-fund` only when `package-lock.json` changed in the pull; (c) `npm run build --workspace @muster-town/web`; (d) with `image`: `docker build -t <desks.image> -f packages/desk/Dockerfile .`; (e) drain: the scheduler starts no new work sessions, and the run waits (polling every 5 s, up to `drainTimeoutMs`, default 30 min) until no work session is live ("Redeploy: draining, waiting for N session(s) to end: …"); on timeout it restarts anyway and names the sessions it cut off (the startup reconcile ends them as orphaned and puts their assignments back to pending); (f) with `image`: `docker rm -f` every container labelled `agent-town.collective=<collective>` whose agent has no live work session (volumes kept; desks are recreated on next use); (g) "Redeploy: restarting server", then `process.exit(75)` after 500 ms. A failed step stops the run without restarting (and releases the scheduler hold). `scripts/serve.sh <collective dir>` (used by `npm run start:climate` / `start:workshop`) restarts the server on exit code 75 and exits on any other code. The command runner and `exit` are injectable (`RuntimeOptions.redeploy`); tests never call the real `process.exit`.
 
 ## Runtime
 
@@ -204,12 +204,12 @@ Every resident desk is a sandbox: a persistent container with the agent's home d
 
 | Piece | Package | What |
 |---|---|---|
-| Resident host | `@agent-town/desk` (`packages/desk`), bin `agent-town-desk` | Runs inside the container. One command: `agent-town-desk run --session <id>`. Fetches its brief from the town, runs the Claude Agent SDK session with permissions bypassed, streams activity back, polls for interrupts/stop, reports the end. |
+| Resident host | `@muster-town/desk` (`packages/desk`), bin `agent-town-desk` | Runs inside the container. One command: `agent-town-desk run --session <id>`. Fetches its brief from the town, runs the Claude Agent SDK session with permissions bypassed, streams activity back, polls for interrupts/stop, reports the end. |
 | Image | `packages/desk/Dockerfile` → `agent-town-desk:latest` | node 22, git, gh, headless Chromium (`/usr/bin/chromium`, also `$CHROME_PATH`; its libs let Playwright's downloaded browsers run too), python3 + numpy/pandas/xarray/netCDF4/scipy/matplotlib/requests, `@anthropic-ai/claude-code`, the desk package. Non-root user `agent`, home `/home/agent` (a volume). `npm run desk:build` at the root builds it. |
-| Desk backend | `@agent-town/runtime` `desk/backend.ts` | `DeskBackend` interface + `DockerBackend` + `HostBackend`. |
-| Prompts | `@agent-town/core` `prompts.ts` | System/user prompt composition, so the server can brief desks and the runtime can brief in-process sessions from one place. |
-| Agent-scoped API | `@agent-town/server` | Endpoints below, bearer **agent** token. |
-| Interrupt queue | `@agent-town/core` | `interrupts` table + ops; used when the session is not in-process. |
+| Desk backend | `@muster-town/runtime` `desk/backend.ts` | `DeskBackend` interface + `DockerBackend` + `HostBackend`. |
+| Prompts | `@muster-town/core` `prompts.ts` | System/user prompt composition, so the server can brief desks and the runtime can brief in-process sessions from one place. |
+| Agent-scoped API | `@muster-town/server` | Endpoints below, bearer **agent** token. |
+| Interrupt queue | `@muster-town/core` | `interrupts` table + ops; used when the session is not in-process. |
 
 ## Flow of one desk work session
 

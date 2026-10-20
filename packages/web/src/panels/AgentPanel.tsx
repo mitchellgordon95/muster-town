@@ -1,6 +1,6 @@
 /** Agent panel: status, model, budget; tabs Talk (thread + live activity + one message box) | Assignments. Reports live in the in-tray and library. */
 import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
-import type { Agent, Assignment, Event, Permission } from "@agent-town/schema";
+import type { Agent, Assignment, Event, Permission } from "@muster-town/schema";
 import { api, type AgentPermissionsView, type ThreadMessage } from "../api";
 import { store, useTown, roleOf } from "../state";
 import { DismissButton, canDismiss } from "./Dismiss";

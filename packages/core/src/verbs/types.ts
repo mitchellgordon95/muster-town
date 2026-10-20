@@ -1,4 +1,4 @@
-import type { VerbInputs, VerbName } from "@agent-town/schema";
+import type { VerbInputs, VerbName } from "@muster-town/schema";
 
 /** Parsed (defaults applied) input of a verb. */
 export type VerbIn<K extends VerbName> = (typeof VerbInputs)[K]["_output"];

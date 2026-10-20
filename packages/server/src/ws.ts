@@ -1,5 +1,5 @@
-import { isAppError } from "@agent-town/core";
-import { ClientMessage, type ServerMessage } from "@agent-town/schema";
+import { isAppError } from "@muster-town/core";
+import { ClientMessage, type ServerMessage } from "@muster-town/schema";
 import type { FastifyInstance, FastifyRequest } from "fastify";
 import type { WebSocket } from "ws";
 import { resolveToken } from "./context.ts";

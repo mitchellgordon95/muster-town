@@ -1,4 +1,4 @@
-import { DonateInput, type Agent, type Allocation, type BuildingBudget, type ServerMessage } from "@agent-town/schema";
+import { DonateInput, type Agent, type Allocation, type BuildingBudget, type ServerMessage } from "@muster-town/schema";
 import type { Bank } from "./bank.ts";
 import { badRequest } from "./errors.ts";
 import type { EventLog } from "./events.ts";

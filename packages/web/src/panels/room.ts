@@ -1,5 +1,5 @@
 /** Which meeting a meeting room shows: its live one, if any; finished meetings free the room for the next. */
-import type { Meeting } from "@agent-town/schema";
+import type { Meeting } from "@muster-town/schema";
 
 export function roomMeetings(meetings: Meeting[], buildingId: string, isTownHall: boolean): { live: Meeting | null; last: Meeting | null } {
   const inRoom = meetings.filter((m) => m.buildingId === buildingId || (isTownHall && m.buildingId === null))

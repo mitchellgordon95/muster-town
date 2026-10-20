@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import type { Agent, Building, Town } from "@agent-town/schema";
+import type { Agent, Building, Town } from "@muster-town/schema";
 import { REPORT_FORMAT, reviewSystemPrompt, summarySystemPrompt, workshopPrompt, workSystemPrompt } from "../src/prompts.ts";
 
 const agent = { id: "ag_1", name: "Root", title: "Backend", direction: "Core, server, and runtime only." } as Agent;

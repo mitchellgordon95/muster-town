@@ -1,6 +1,6 @@
 /** Checkbox list of who to invite to a meeting. Labs start with their residents checked; none checked = the server's defaults. */
 import { useMemo, useState } from "react";
-import type { SnapshotBuilding } from "@agent-town/schema";
+import type { SnapshotBuilding } from "@muster-town/schema";
 import { useTown } from "../state";
 import { inviteCandidates } from "./attendees";
 

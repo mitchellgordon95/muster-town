@@ -1,7 +1,7 @@
 /** v1.3: the `deployer` town role, the `redeploy` verb's permission check, the workshop data fix, and old merge keys. */
 import { join } from "node:path";
 import Database from "better-sqlite3";
-import { BUILTIN_ROLES } from "@agent-town/schema";
+import { BUILTIN_ROLES } from "@muster-town/schema";
 import { describe, expect, it, vi } from "vitest";
 import { townRoleId, World } from "../src/index.ts";
 import { freshWorld, REPO_ROOT, seededWorld } from "./helpers.ts";

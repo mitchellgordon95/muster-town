@@ -1,4 +1,4 @@
-import { BUILTIN_ROLES, Permission, type Agent, type Role } from "@agent-town/schema";
+import { BUILTIN_ROLES, Permission, type Agent, type Role } from "@muster-town/schema";
 import { forbidden } from "./errors.ts";
 import type { Repos } from "./store.ts";
 

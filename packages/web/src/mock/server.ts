@@ -1,9 +1,9 @@
 /** `Api` implemented against the in-memory Sim. Same interface as HttpApi, so every panel works offline. */
-import type { Agent, Assignment, AuthMe, Building, Doc, Event, Meeting, Membership } from "@agent-town/schema";
-import { BOARD_TYPES } from "@agent-town/schema";
+import type { Agent, Assignment, AuthMe, Building, Doc, Event, Meeting, Membership } from "@muster-town/schema";
+import { BOARD_TYPES } from "@muster-town/schema";
 import type { Api, AgentDetail, Budget, Cabinet, CabinetQuery, DocQuery, EventQuery, In, LayoutPreview, MessageResult, RoomLayout, RequestAction, Snapshot, Socket, SocketHandlers, ThreadMessage, WriteDocInput } from "../api";
 import { ApiError } from "../api";
-import type { CreateBuildingInput, UpdateBuildingInput, CreateResidentInput, ReviewInput, ChatInput, WorkInput, DonateInput, CreateMeetingInput, DocState } from "@agent-town/schema";
+import type { CreateBuildingInput, UpdateBuildingInput, CreateResidentInput, ReviewInput, ChatInput, WorkInput, DonateInput, CreateMeetingInput, DocState } from "@muster-town/schema";
 import { Sim, newId } from "./sim";
 
 const wait = (ms = 120) => new Promise((r) => setTimeout(r, ms));

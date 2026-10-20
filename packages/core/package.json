@@ -1,5 +1,5 @@
 {
-  "name": "@agent-town/core",
+  "name": "@muster-town/core",
   "version": "0.1.0",
   "private": true,
   "type": "module",
@@ -12,7 +12,7 @@
     "test": "vitest run --passWithNoTests"
   },
   "dependencies": {
-    "@agent-town/schema": "*",
+    "@muster-town/schema": "*",
     "better-sqlite3": "^11.0.0",
     "nanoid": "^5.0.0"
   },

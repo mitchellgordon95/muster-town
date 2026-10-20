@@ -2,7 +2,7 @@
  * Persona, world rules, and task prompts for every kind of session. Keep them tight.
  * Lives in core so the server can brief desks (`composeWorkBrief`) and the runtime can brief in-process sessions.
  */
-import type { Agent, Assignment, Building, DeskBrief, DeskWorkspace, Doc, Event, Meeting, Town } from "@agent-town/schema";
+import type { Agent, Assignment, Building, DeskBrief, DeskWorkspace, Doc, Event, Meeting, Town } from "@muster-town/schema";
 import type { World } from "./world.ts";
 
 /** What an agent does when started without a task. */

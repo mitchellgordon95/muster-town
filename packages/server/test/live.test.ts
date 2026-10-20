@@ -1,4 +1,4 @@
-import { VERB_NAMES, LookResult, ServerMessage } from "@agent-town/schema";
+import { VERB_NAMES, LookResult, ServerMessage } from "@muster-town/schema";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
 import type { AddressInfo } from "node:net";

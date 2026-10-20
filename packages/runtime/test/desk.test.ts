@@ -1,7 +1,7 @@
 import { EventEmitter } from "node:events";
 import { PassThrough } from "node:stream";
 import { describe, expect, test, vi } from "vitest";
-import type { Agent, Building } from "@agent-town/schema";
+import type { Agent, Building } from "@muster-town/schema";
 import { deskAuth, DockerBackend, type DeskBackend, type DeskChild, type DeskHandle, type DockerRunner, type RunResult, type SpawnedChild } from "../src/index.ts";
 import { result, setup } from "./helpers.ts";
 

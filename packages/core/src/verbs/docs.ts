@@ -1,4 +1,4 @@
-import { BOARD_TYPES, type Agent, type Doc } from "@agent-town/schema";
+import { BOARD_TYPES, type Agent, type Doc } from "@muster-town/schema";
 import {
   applyDecision, canSeeDoc, createAssignment, createDoc, homeOf, requirePendingReport, sendMessage,
   setAssignmentStatus, summarizeDoc, updateDoc,

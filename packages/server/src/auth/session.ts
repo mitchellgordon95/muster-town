@@ -1,4 +1,4 @@
-import type { World } from "@agent-town/core";
+import type { World } from "@muster-town/core";
 import { createHmac, randomBytes, timingSafeEqual } from "node:crypto";
 import type { FastifyRequest } from "fastify";
 import type { Auth } from "../context.ts";

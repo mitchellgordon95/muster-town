@@ -1,5 +1,5 @@
-import { AppError, canSeeDoc, searchDocs } from "@agent-town/core";
-import { AskInput, CreateMeetingInput, DocState, DocType, MeetingPhase, MeetingSayInput, ReplyInput, ReviewInput, VerbInputs } from "@agent-town/schema";
+import { AppError, canSeeDoc, searchDocs } from "@muster-town/core";
+import { AskInput, CreateMeetingInput, DocState, DocType, MeetingPhase, MeetingSayInput, ReplyInput, ReviewInput, VerbInputs } from "@muster-town/schema";
 import type { FastifyInstance } from "fastify";
 import { z } from "zod";
 import { actorOf, parse, requireAuth, viewerId, type Params } from "../context.ts";

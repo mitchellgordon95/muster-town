@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import type { Doc } from "@agent-town/schema";
+import type { Doc } from "@muster-town/schema";
 import { docCost } from "../src/panels/DocView";
 
 const doc = (o: Partial<Doc>) => o as Doc;

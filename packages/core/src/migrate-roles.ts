@@ -9,7 +9,7 @@
  *   creates it, residents of workspace buildings (the Town Workshop) who hold no deployer membership are granted it,
  *   matching what seed does for `townRoles: ["deployer"]` in collective.json. Later opens never re-grant, so a revoke sticks.
  */
-import { BUILTIN_ROLES, Permission } from "@agent-town/schema";
+import { BUILTIN_ROLES, Permission } from "@muster-town/schema";
 import type { DB } from "./db.ts";
 
 export interface MigrateRolesResult { renamed: number; updated: number; created: number; granted: number }

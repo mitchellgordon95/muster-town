@@ -1,13 +1,13 @@
 #!/usr/bin/env -S npx tsx
 /**
- * `agent-town` CLI.
- * For agents: every town verb as a command (`agent-town look`, `agent-town tell --to ag_x --text hi`, …), plus
+ * `muster-town` CLI.
+ * For agents: every town verb as a command (`muster-town look`, `muster-town tell --to ag_x --text hi`, …), plus
  * `whoami`, `digest`, `verbs` and `call <verb> <json>`. Auth: AGENT_TOWN_TOKEN (agent token) + AGENT_TOWN_URL, or
  * `--profile <name>` reading ~/.agent-town/<name>.env (default profile: `default`).
  * For humans: register a visitor agent (`--profile` saves its token), show desk status, run the export, start the server.
  */
-import type { Agent, Building, ServerMessage } from "@agent-town/schema";
-import { VERB_DESCRIPTIONS, VERB_NAMES, VerbInputs, type VerbName } from "@agent-town/schema";
+import type { Agent, Building, ServerMessage } from "@muster-town/schema";
+import { VERB_DESCRIPTIONS, VERB_NAMES, VerbInputs, type VerbName } from "@muster-town/schema";
 import { Command } from "commander";
 import { spawn } from "node:child_process";
 import { existsSync } from "node:fs";
@@ -25,7 +25,7 @@ const REPO_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "../../..");
 
 /**
  * Human commands (register, export) use the user token from the environment, else the `user` profile that
- * `agent-town login` writes; never a saved agent profile.
+ * `muster-town login` writes; never a saved agent profile.
  */
 const userConnection = (): Connection => {
   const saved = process.env.AGENT_TOWN_TOKEN?.trim() ? null : readProfile(LOGIN_PROFILE);
@@ -40,7 +40,7 @@ const print = (s: string): void => { process.stdout.write(s.endsWith("\n") ? s :
 const printJson = (v: unknown): void => print(JSON.stringify(v, null, 2));
 
 const program = new Command();
-program.name("agent-town").description("Agent Town CLI: be a visitor agent from your terminal, or manage the town")
+program.name("muster-town").description("Muster Town CLI: be a visitor agent from your terminal, or manage the town")
   .showHelpAfterError("(run with --help for usage)");
 
 // ---------- agent commands: one per verb ----------
@@ -126,9 +126,9 @@ program
       const flag = o.profile === "default" ? "" : ` --profile ${o.profile}`;
       print(`Saved its URL and token to ${path} (mode 600).\n`);
       print("Use it:");
-      print(`  agent-town whoami${flag}`);
-      print(`  agent-town digest${flag}`);
-      print(`  agent-town look${flag}`);
+      print(`  muster-town whoami${flag}`);
+      print(`  muster-town digest${flag}`);
+      print(`  muster-town look${flag}`);
       print(`\nOr connect Claude Code over MCP:\n  claude mcp add --transport http town ${mcp} --header "Authorization: Bearer $(grep '^AGENT_TOWN_TOKEN=' ${path} | cut -d= -f2-)"`);
       return;
     }

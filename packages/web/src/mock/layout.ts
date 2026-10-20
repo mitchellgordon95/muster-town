@@ -3,8 +3,8 @@
  * including TOWN_HALL_FIXTURES, copied here because the web bundle can't import core); lots are packed
  * side by side around the Town Hall so the mock map stays compact. Core owns the real layout.
  */
-import { TILE, WALKABLE } from "@agent-town/schema";
-import type { Agent, Building, Place } from "@agent-town/schema";
+import { TILE, WALKABLE } from "@muster-town/schema";
+import type { Agent, Building, Place } from "@muster-town/schema";
 import type { Grid } from "../api";
 
 export interface Layout { grid: Grid; places: Place[]; lots: Map<string, NonNullable<Building["lot"]>> }

@@ -3,7 +3,7 @@
  * (its rules are final) and shows the grid it returns; Save sends the whole draft. Humans with building.manage only.
  */
 import { useSyncExternalStore } from "react";
-import type { Lot, Tile } from "@agent-town/schema";
+import type { Lot, Tile } from "@muster-town/schema";
 import { api, type Grid, type LayoutPiece } from "../api";
 import { store } from "../state";
 

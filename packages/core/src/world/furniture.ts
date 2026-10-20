@@ -1,4 +1,4 @@
-import { TILE, type Lot, type Tile } from "@agent-town/schema";
+import { TILE, type Lot, type Tile } from "@muster-town/schema";
 
 /**
  * Movable furniture. Every piece of a room is a `Piece`: footprint cells and stand tiles relative to an anchor,

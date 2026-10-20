@@ -4,8 +4,8 @@
  * The desk itself talks to the town over the agent-scoped API (brief, activity, control, session-end).
  */
 import { execFileSync } from "node:child_process";
-import { AppError } from "@agent-town/core";
-import type { DeskActivityInput, Session } from "@agent-town/schema";
+import { AppError } from "@muster-town/core";
+import type { DeskActivityInput, Session } from "@muster-town/schema";
 import { describeTool } from "../describe.ts";
 import { InputChannel } from "../sdk.ts";
 import { clipJson, clipThought, fundingFor, homeOf, type Ctx, type LiveSession } from "../session.ts";

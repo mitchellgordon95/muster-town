@@ -3,7 +3,7 @@
  * A mention puts a `mention` message in the mentioned agent's inbox (a human's avatar gets one too; the web shows it
  * from the `agent.mentioned` event). It never starts work by itself: it's a request to look.
  */
-import type { Agent, Message } from "@agent-town/schema";
+import type { Agent, Message } from "@muster-town/schema";
 import { sendMessage } from "./domain.ts";
 import { holderOf, type Holder } from "./permissions.ts";
 import { truncate } from "./util.ts";

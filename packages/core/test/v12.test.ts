@@ -1,6 +1,6 @@
 /** v1.2: dismiss, role migration from a v1.1 DB, places, reconcile, collective moderators. */
 import Database from "better-sqlite3";
-import { BUILTIN_ROLES, Permission } from "@agent-town/schema";
+import { BUILTIN_ROLES, Permission } from "@muster-town/schema";
 import { writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";

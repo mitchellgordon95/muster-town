@@ -1,5 +1,5 @@
 /** Host-executed admin verbs (v1.3). The work happens in the runtime on the host; core only checks permissions. */
-import type { Agent } from "@agent-town/schema";
+import type { Agent } from "@muster-town/schema";
 import { AppError, forbidden } from "../errors.ts";
 import type { World } from "../world.ts";
 import type { VerbIn } from "./types.ts";

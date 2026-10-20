@@ -1,6 +1,6 @@
 /** Dismiss (retire) a resident, with the confirm step inside the panel (no browser dialog). */
 import { useState } from "react";
-import type { Agent } from "@agent-town/schema";
+import type { Agent } from "@muster-town/schema";
 import { api } from "../api";
 import { store } from "../state";
 import { Act } from "./ui";

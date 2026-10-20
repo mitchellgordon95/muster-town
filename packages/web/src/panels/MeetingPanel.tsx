@@ -1,6 +1,6 @@
 /** Meeting: phase, attendees + summaries, live transcript, say box, decisions. */
 import { useEffect, useMemo, useRef, useState } from "react";
-import type { Meeting, SnapshotBuilding } from "@agent-town/schema";
+import type { Meeting, SnapshotBuilding } from "@muster-town/schema";
 import { api } from "../api";
 import { store, useTown, roleOf } from "../state";
 import { Glyph, PanelShell } from "./PanelShell";

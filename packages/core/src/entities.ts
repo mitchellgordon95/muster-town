@@ -1,7 +1,7 @@
 import {
   Agent, CreateBuildingInput, CreateResidentInput, RegisterVisitorInput,
   type Building, type Tile, type User,
-} from "@agent-town/schema";
+} from "@muster-town/schema";
 import { AppError, badRequest } from "./errors.ts";
 import { buildingRoleId, townRoleId } from "./permissions.ts";
 import { newId, nowIso } from "./util.ts";

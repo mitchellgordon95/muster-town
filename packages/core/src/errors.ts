@@ -1,4 +1,4 @@
-import type { Permission } from "@agent-town/schema";
+import type { Permission } from "@muster-town/schema";
 
 export type ErrorCode =
   | "bad_request" | "unauthorized" | "forbidden" | "not_found" | "conflict"

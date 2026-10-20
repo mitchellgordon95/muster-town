@@ -4,8 +4,8 @@
  * so 10 Hz position batches never re-render React.
  */
 import { useSyncExternalStore } from "react";
-import { ServerMessage } from "@agent-town/schema";
-import type { Agent, Assignment, AuthMe, Doc, Event, Meeting, Permission, Place, SnapshotBuilding, Town } from "@agent-town/schema";
+import { ServerMessage } from "@muster-town/schema";
+import type { Agent, Assignment, AuthMe, Doc, Event, Meeting, Permission, Place, SnapshotBuilding, Town } from "@muster-town/schema";
 import type { Grid, Snapshot } from "./api";
 
 /**

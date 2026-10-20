@@ -1,5 +1,5 @@
-import { AppError, type World } from "@agent-town/core";
-import { AgentPermissionsPatch, ChatInput, CreateResidentInput, Event, InterruptInput, MessageAgentInput, RegisterVisitorInput, WorkInput, type Agent, type Session } from "@agent-town/schema";
+import { AppError, type World } from "@muster-town/core";
+import { AgentPermissionsPatch, ChatInput, CreateResidentInput, Event, InterruptInput, MessageAgentInput, RegisterVisitorInput, WorkInput, type Agent, type Session } from "@muster-town/schema";
 import type { FastifyInstance, FastifyRequest } from "fastify";
 import { z } from "zod";
 import { actorOf, parse, requireAuth, requireUser, type Params } from "../context.ts";

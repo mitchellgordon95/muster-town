@@ -1,10 +1,10 @@
 /**
- * @agent-town/runtime — resident work sessions (Claude Agent SDK over the town MCP endpoint),
+ * @muster-town/runtime — resident work sessions (Claude Agent SDK over the town MCP endpoint),
  * reviewer sessions over the in-tray, meeting summaries + facilitation, proxy chat, interrupts, scheduler,
  * startup reconcile, dismissal (onAgentRetired), host redeploy (v1.3).
  */
-import { nextPending, PRESENCE_TICK_MS, slugify, type World } from "@agent-town/core";
-import { DesksConfig, type ChatInput, type DeskActivityInput, type Event, type RedeployResult, type Session } from "@agent-town/schema";
+import { nextPending, PRESENCE_TICK_MS, slugify, type World } from "@muster-town/core";
+import { DesksConfig, type ChatInput, type DeskActivityInput, type Event, type RedeployResult, type Session } from "@muster-town/schema";
 import { askAbout, chat } from "./chat.ts";
 import { DockerBackend, dockerSafe, HostBackend, type WorkBackend } from "./desk/backend.ts";
 import { makeRedeployer, type RedeployDeps, type RedeployRequest } from "./redeploy.ts";
@@ -15,7 +15,7 @@ import type { Ctx } from "./session.ts";
 import { abortWork, finishWorkSession, interrupt, maybeReview, runWorkSession, type WorkOutcome } from "./work.ts";
 
 export { describeTool } from "./describe.ts";
-export { prompts } from "@agent-town/core";
+export { prompts } from "@muster-town/core";
 export { DockerBackend, HostBackend, realDockerRunner, type DeskBackend, type DeskChild, type DeskHandle, type DockerRunner, type RunResult, type SpawnedChild, type WorkBackend, type LineSink } from "./desk/backend.ts";
 export { deskAuth, deskEnv, portOf, type DeskAuthMode, type DeskSessionOptions } from "./desk/session.ts";
 export { type WorkOutcome } from "./work.ts";

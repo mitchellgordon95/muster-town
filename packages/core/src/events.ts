@@ -1,4 +1,4 @@
-import { Event, type ServerMessage } from "@agent-town/schema";
+import { Event, type ServerMessage } from "@muster-town/schema";
 import type { DB } from "./db.ts";
 import { Emitter, nowIso } from "./util.ts";
 

@@ -1,5 +1,5 @@
 {
-  "name": "@agent-town/schema",
+  "name": "@muster-town/schema",
   "version": "0.1.0",
   "private": true,
   "type": "module",

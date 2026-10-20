@@ -1,5 +1,5 @@
 import { customAlphabet, nanoid } from "nanoid";
-import type { Tile } from "@agent-town/schema";
+import type { Tile } from "@muster-town/schema";
 
 const alnum = customAlphabet("0123456789abcdefghijklmnopqrstuvwxyz", 10);
 

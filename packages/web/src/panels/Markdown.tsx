@@ -4,7 +4,7 @@
  */
 import { marked } from "marked";
 import { useMemo } from "react";
-import type { Doc } from "@agent-town/schema";
+import type { Doc } from "@muster-town/schema";
 import { api } from "../api";
 import { store } from "../state";
 

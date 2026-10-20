@@ -7,7 +7,7 @@ import type {
   Agent, Assignment, AuthMe, Building, ClientMessage, Doc, Event, Lot, Meeting, Place, Role, Membership, Tile,
   ServerMessage, Session, Town, CreateBuildingInput, UpdateBuildingInput, CreateResidentInput,
   ReviewInput, ChatInput, WorkInput, DonateInput, CreateMeetingInput, DocState, DocType, Mailbox, Permission,
-} from "@agent-town/schema";
+} from "@muster-town/schema";
 
 export type In<T extends z.ZodTypeAny> = z.input<T>;
 export type Snapshot = Extract<ServerMessage, { type: "snapshot" }>;

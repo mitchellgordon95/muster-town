@@ -1,4 +1,4 @@
-import { World } from "@agent-town/core";
+import { World } from "@muster-town/core";
 import type { FastifyInstance } from "fastify";
 import type { AddressInfo } from "node:net";
 import { join } from "node:path";

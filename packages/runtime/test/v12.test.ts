@@ -1,6 +1,6 @@
 /** v1.2 runtime: startup reconcile, dismissal hook. */
 import { describe, expect, test, vi } from "vitest";
-import type { Agent } from "@agent-town/schema";
+import type { Agent } from "@muster-town/schema";
 import { DockerBackend, HostBackend, startRuntime, type DeskBackend, type DeskChild, type DeskHandle, type DockerRunner, type RunResult } from "../src/index.ts";
 import { result, setup } from "./helpers.ts";
 

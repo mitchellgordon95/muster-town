@@ -1,5 +1,5 @@
 {
-  "name": "@agent-town/cli",
+  "name": "@muster-town/cli",
   "version": "0.1.0",
   "private": true,
   "type": "module",
@@ -12,7 +12,7 @@
     "test": "vitest run --passWithNoTests"
   },
   "dependencies": {
-    "@agent-town/schema": "*",
+    "@muster-town/schema": "*",
     "commander": "^12.0.0"
   },
   "devDependencies": {
@@ -22,6 +22,7 @@
     "vitest": "^3.0.0"
   },
   "bin": {
+    "muster-town": "./src/index.ts",
     "agent-town": "./src/index.ts"
   }
 }

@@ -1,7 +1,7 @@
 /** Proxy chat: one cheap call, no tools. The librarian (`service`) answers from the library index + search hits. */
-import { AppError, searchDocs } from "@agent-town/core";
-import { ChatInput } from "@agent-town/schema";
-import { chatContext, chatSystemPrompt, historyBlock, librarianContext, librarianSystemPrompt } from "@agent-town/core";
+import { AppError, searchDocs } from "@muster-town/core";
+import { ChatInput } from "@muster-town/schema";
+import { chatContext, chatSystemPrompt, historyBlock, librarianContext, librarianSystemPrompt } from "@muster-town/core";
 import { oneShot } from "./sdk.ts";
 import { chargeUsage, fundingFor, homeOf, type Ctx } from "./session.ts";
 import { latestReport } from "./work.ts";

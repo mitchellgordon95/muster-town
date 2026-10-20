@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import type { Meeting } from "@agent-town/schema";
+import type { Meeting } from "@muster-town/schema";
 import { roomMeetings } from "../src/panels/room";
 
 const mt = (id: string, phase: Meeting["phase"], createdAt: string, buildingId: string | null = "workshop") => ({ id, phase, createdAt, buildingId }) as Meeting;

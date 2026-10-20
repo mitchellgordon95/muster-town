@@ -1,4 +1,4 @@
-import type { Agent, AgentStatus, ServerMessage, Tile } from "@agent-town/schema";
+import type { Agent, AgentStatus, ServerMessage, Tile } from "@muster-town/schema";
 import { AppError } from "../errors.ts";
 import type { EventLog } from "../events.ts";
 import type { Repos } from "../store.ts";

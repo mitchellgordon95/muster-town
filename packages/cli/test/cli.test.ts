@@ -170,9 +170,9 @@ describe("readable output", () => {
     digest = { offlineSince: "2026-10-19T08:00:00.000Z", messages: 3, mentions: 1, assignmentsOffered: 0, meetingsMissed: [{ id: "mt_1", title: "Standup", notesDocId: "doc_n" }] };
     r = await run(["digest"]);
     expect(r.stdout).toContain("Since 2026-10-19 08:00Z");
-    expect(r.stdout).toContain("Messages: 3  (agent-town inbox)");
+    expect(r.stdout).toContain("Messages: 3  (muster-town inbox)");
     expect(r.stdout).toContain("Assignments offered: 0");
-    expect(r.stdout).toContain("agent-town read --id doc_n");
+    expect(r.stdout).toContain("muster-town read --id doc_n");
   });
 
   it("verbs lists the server's verbs", async () => {

@@ -1,4 +1,4 @@
-import { isAppError, type World } from "@agent-town/core";
+import { isAppError, type World } from "@muster-town/core";
 import cors from "@fastify/cors";
 import fastifyStatic from "@fastify/static";
 import websocket from "@fastify/websocket";

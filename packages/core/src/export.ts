@@ -1,4 +1,4 @@
-import { Agent, Building, Doc, Meeting, Town, type Event } from "@agent-town/schema";
+import { Agent, Building, Doc, Meeting, Town, type Event } from "@muster-town/schema";
 import { execFileSync } from "node:child_process";
 import { existsSync, mkdirSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";

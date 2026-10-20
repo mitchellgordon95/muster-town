@@ -4,7 +4,7 @@
  * the author's next assignment. An empty reply archives (acknowledges) the report. A reply starting with "merge"
  * tells the author to merge its own PR and report back.
  */
-import type { Agent, Assignment, Doc } from "@agent-town/schema";
+import type { Agent, Assignment, Doc } from "@muster-town/schema";
 import { createAssignment, sendMessage, updateDoc } from "./domain.ts";
 import { AppError } from "./errors.ts";
 import type { Holder } from "./permissions.ts";

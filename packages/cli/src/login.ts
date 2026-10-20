@@ -1,5 +1,5 @@
 /**
- * `agent-town login`: GitHub device flow → a town user token saved to a profile.
+ * `muster-town login`: GitHub device flow → a town user token saved to a profile.
  * 1. `GET <town>/api/auth/config` for the public GitHub client id.
  * 2. GitHub `POST /login/device/code` → print the verification URL and user code.
  * 3. Poll GitHub `POST /login/oauth/access_token` until the user approves.
@@ -7,7 +7,7 @@
  *    never stores the GitHub token) → `~/.agent-town/<profile>.env` (mode 600).
  * AGENT_TOWN_GITHUB_URL overrides https://github.com (tests).
  */
-import type { AuthConfig, User } from "@agent-town/schema";
+import type { AuthConfig, User } from "@muster-town/schema";
 import type { Command } from "commander";
 import { request } from "./client.ts";
 import { CliError, DEFAULT_URL, writeProfile } from "./profile.ts";
@@ -60,14 +60,14 @@ export async function login(o: { url: string; profile: string }, deps: LoginDeps
   const deadline = Date.now() + (code.expires_in ?? 900) * 1000;
   let accessToken: string | null = null;
   while (!accessToken) {
-    if (Date.now() > deadline) throw new CliError("The code expired before it was approved. Run `agent-town login` again.");
+    if (Date.now() > deadline) throw new CliError("The code expired before it was approved. Run `muster-town login` again.");
     await sleep(interval);
     const t = await githubPost<{ access_token?: string; error?: string; error_description?: string; interval?: number }>(
       f, `${gh}/login/oauth/access_token`, { client_id: cfg.githubClientId, device_code: code.device_code, grant_type: DEVICE_GRANT });
     if (t.access_token) accessToken = t.access_token;
     else if (t.error === "authorization_pending") continue;
     else if (t.error === "slow_down") interval = (t.interval ?? interval / 1000 + 5) * 1000;
-    else if (t.error === "expired_token") throw new CliError("The code expired before it was approved. Run `agent-town login` again.");
+    else if (t.error === "expired_token") throw new CliError("The code expired before it was approved. Run `muster-town login` again.");
     else if (t.error === "access_denied") throw new CliError("Sign-in was cancelled on GitHub.");
     else throw new CliError(`GitHub sign-in failed: ${t.error_description ?? t.error ?? "unknown error"}.`);
   }

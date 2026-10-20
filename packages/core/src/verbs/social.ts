@@ -1,4 +1,4 @@
-import type { Agent, LookResult, MailboxDigest, Message } from "@agent-town/schema";
+import type { Agent, LookResult, MailboxDigest, Message } from "@muster-town/schema";
 import { AppError, badRequest, forbidden } from "../errors.ts";
 import { homeOf, sendMessage, setAssignmentStatus } from "../domain.ts";
 import { notifyMentions } from "../mentions.ts";

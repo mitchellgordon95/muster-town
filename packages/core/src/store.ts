@@ -1,7 +1,7 @@
 import {
   Agent, Allocation, Assignment, BankCredit, BankDebit, BankInput, BankShare, Building, DesksConfig, Doc, Interrupt, Meeting, Membership, Message, Place, Role, Session, Town, User,
   type ServerMessage,
-} from "@agent-town/schema";
+} from "@muster-town/schema";
 import type { DB } from "./db.ts";
 import { Table } from "./table.ts";
 import { Emitter, newToken, nowIso } from "./util.ts";

@@ -1,5 +1,5 @@
 /** v1.3: POST /api/admin/redeploy needs `town.redeploy` (admin, or the town `deployer` role). */
-import { townRoleId } from "@agent-town/core";
+import { townRoleId } from "@muster-town/core";
 import { afterEach, describe, expect, it } from "vitest";
 import { json, seededApp } from "./helpers.ts";
 

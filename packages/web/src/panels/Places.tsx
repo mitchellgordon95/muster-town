@@ -3,7 +3,7 @@
  * the filing cabinet, the donation box, the schedule board and the mod station (Town Hall).
  */
 import { useEffect, useMemo, useState } from "react";
-import { BOARD_TYPES, DocType, type Doc, type Meeting } from "@agent-town/schema";
+import { BOARD_TYPES, DocType, type Doc, type Meeting } from "@muster-town/schema";
 import { api } from "../api";
 import { store, useTown, roleOf } from "../state";
 import { DocRow, DocView, VERDICT_TONE, needOf } from "./DocView";

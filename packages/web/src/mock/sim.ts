@@ -1,6 +1,6 @@
 /** In-memory town for VITE_MOCK=1: holds state, animates it, and implements actions locally. */
-import type { Agent, Allocation, Assignment, Building, Doc, Event, Meeting, Membership, Role, ServerMessage } from "@agent-town/schema";
-import { BUILTIN_ROLES } from "@agent-town/schema";
+import type { Agent, Allocation, Assignment, Building, Doc, Event, Meeting, Membership, Role, ServerMessage } from "@muster-town/schema";
+import { BUILTIN_ROLES } from "@muster-town/schema";
 import type { Snapshot } from "../api";
 import * as F from "./fixture";
 import { bfs, computeLayout, type Layout } from "./layout";

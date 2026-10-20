@@ -1,4 +1,4 @@
-import { CollectiveConfig, Town, type Agent, type Building, type User } from "@agent-town/schema";
+import { CollectiveConfig, Town, type Agent, type Building, type User } from "@muster-town/schema";
 import { execFileSync } from "node:child_process";
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";

@@ -3,7 +3,7 @@
  * Env: AGENT_TOWN_COLLECTIVE (collectives/climate), PORT (collective.json port or 4321), AGENT_TOWN_DATA (<collective>/data),
  * AGENT_TOWN_EXPORT (<collective>/export), AGENT_TOWN_DEV, AGENT_TOWN_ADMIN_NAME.
  */
-import { World } from "@agent-town/core";
+import { World } from "@muster-town/core";
 import { existsSync, mkdirSync, readFileSync } from "node:fs";
 import { basename, dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -50,9 +50,9 @@ async function main() {
   console.log(`[server] MCP endpoint: ${url}/mcp (agent tokens only)`);
 
   try {
-    const runtimePkg = "@agent-town/runtime"; // variable specifier: the server typechecks and runs without it
+    const runtimePkg = "@muster-town/runtime"; // variable specifier: the server typechecks and runs without it
     const mod = (await import(runtimePkg)) as { startRuntime?: (o: { world: World; mcpUrl: string; repoRoot: string; collective: string }) => RuntimeHooks | Promise<RuntimeHooks> };
-    if (typeof mod.startRuntime !== "function") throw new Error("@agent-town/runtime does not export startRuntime");
+    if (typeof mod.startRuntime !== "function") throw new Error("@muster-town/runtime does not export startRuntime");
     app.runtime = await mod.startRuntime({ world, mcpUrl: `${url}/mcp`, repoRoot: REPO_ROOT, collective: basename(COLLECTIVE_DIR) });
     console.log("[server] runtime started");
   } catch (e) {
