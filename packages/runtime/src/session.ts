@@ -2,25 +2,30 @@
  * One agent session over the town MCP endpoint: start → stream SDK messages into events →
  * end + charge. Work/review/facilitation sessions all go through `runAgentSession`.
  */
+import type { DesksConfig } from "@agent-town/schema";
 import type { World } from "@agent-town/core";
 import { VERB_NAMES, type Session } from "@agent-town/schema";
 import { describeTool } from "./describe.ts";
-import { workspacePolicy } from "./policy.ts";
 import { blocksOf, InputChannel, sessionEnv, usageOf, type LooseMessage, type Options, type QueryHandle, type Sdk, type Usage } from "./sdk.ts";
 
 export interface Ctx {
   world: World;
   mcpUrl: string;
   repoRoot: string;
+  desks: DesksConfig;
   now: () => Date;
   sdk: Sdk;
-  /** live work sessions by agentId (these take interrupts) */
+  /** live work sessions by agentId (host ones take interrupts directly; desk ones hold the exec child) */
   live: Map<string, LiveSession>;
+  /** desk sessions' funding allocation, by sessionId (charged in finishWorkSession) */
+  deskAllocations: Map<string, string | null>;
   /** register background work so tests (and stop()) can await it */
   track<T>(p: Promise<T>): Promise<T>;
 }
 
 export interface LiveSession {
+  /** host = in-process SDK query (takes interrupts directly); desk = a child process in the agent's container */
+  kind: "host" | "desk";
   agentId: string;
   sessionId: string;
   purpose: Session["purpose"];
@@ -28,37 +33,18 @@ export interface LiveSession {
   q: QueryHandle | null;
   reportSubmitted: boolean;
   stopped: boolean;
+  /** desk sessions: the `docker exec` child */
+  child?: { kill(): void };
 }
 
 export const TOWN_TOOLS = VERB_NAMES.map((v) => `mcp__town__${v}`);
 export const WEB_TOOLS = ["WebSearch", "WebFetch"];
 export const DISALLOWED_TOOLS = ["Bash", "Read", "Write", "Edit", "Glob", "Grep", "Task", "Agent"];
-const THOUGHT_CHARS = 200;
-
-/** Base tool names a workspace needs enabled: "Bash(git:*)" → "Bash", "Edit" → "Edit". */
-function workspaceBaseTools(ws: SessionWorkspace | undefined): string[] {
-  if (!ws) return [];
-  return [...new Set(ws.tools.map((p) => p.replace(/\(.*$/, "")))];
-}
-
-/** A workspace pattern like "Bash(git:*)" unlocks the "Bash" tool; a bare "Edit" unlocks Edit. */
-function workspaceAllows(ws: SessionWorkspace | undefined, tool: string): boolean {
-  if (!ws) return false;
-  return ws.tools.some((p) => p === tool || p.startsWith(`${tool}(`));
-}
-
-export interface SessionWorkspace {
-  /** per-agent git worktree the session runs in */
-  cwd: string;
-  branch: string;
-  base: string;
-  /** Claude Code tool permission patterns (e.g. "Edit", "Bash(git:*)") */
-  tools: string[];
-}
+export const THOUGHT_CHARS = 200;
+export const clipThought = (t: string) => (t.length > THOUGHT_CHARS ? t.slice(0, THOUGHT_CHARS - 1) + "…" : t);
 
 export interface SessionSpec {
   agentId: string;
-  workspace?: SessionWorkspace;
   purpose: Session["purpose"];
   model: string;
   system: string;
@@ -67,10 +53,11 @@ export interface SessionSpec {
   web: boolean;
   assignmentId?: string | null;
   meetingId?: string | null;
-  /** runs after the SDK stream ends and before `endSession` (e.g. fallback report) */
-  beforeEnd?: (out: SessionOutcome) => void | Promise<void>;
+  /** work sessions: ends the session instead of the default endSession + charge (see finishWorkSession) */
+  finish?: (out: SessionOutcome, allocationId: string | null) => Promise<Session>;
 }
 export interface SessionOutcome extends Usage {
+  sdkSessionId: string | null;
   session: Session;
   finalText: string;
   error: string | null;
@@ -115,18 +102,16 @@ export function townOptions(ctx: Ctx, spec: SessionSpec, apiKey: string | null):
     systemPrompt: { type: "preset", preset: "claude_code", append: spec.system },
     mcpServers: { town: { type: "http", url: ctx.mcpUrl, headers: { Authorization: `Bearer ${token}` }, alwaysLoad: true } },
     // `tools` is the built-in tool set available to the session; `allowedTools` only auto-approves within it.
-    tools: [...(spec.web ? WEB_TOOLS : []), ...workspaceBaseTools(spec.workspace)],
-    // Workspace tools are NOT pre-allowed: every call goes through `canUseTool` (policy.ts), which keeps
-    // file tools inside the worktree and vets each segment of a shell command.
+    // In-process sessions never get code tools: code work happens in desks (docker backend).
+    tools: spec.web ? WEB_TOOLS : [],
     allowedTools: [...TOWN_TOOLS, ...(spec.web ? WEB_TOOLS : [])],
-    disallowedTools: [...DISALLOWED_TOOLS.filter((t) => !workspaceAllows(spec.workspace, t)), ...(spec.web ? [] : WEB_TOOLS)],
+    disallowedTools: [...DISALLOWED_TOOLS, ...(spec.web ? [] : WEB_TOOLS)],
     settingSources: [],
     env: sessionEnv(apiKey),
-    ...(spec.workspace ? { cwd: spec.workspace.cwd, canUseTool: workspacePolicy({ cwd: spec.workspace.cwd, base: spec.workspace.base, tools: spec.workspace.tools }) } : {}),
   };
 }
 
-const clipJson = (v: unknown, n = 500) => {
+export const clipJson = (v: unknown, n = 500) => {
   try { const s = JSON.stringify(v); return s.length > n ? s.slice(0, n) + "…" : s; } catch { return ""; }
 };
 
@@ -135,8 +120,8 @@ export async function runAgentSession(ctx: Ctx, spec: SessionSpec): Promise<Sess
   const agent = world.agents.require(spec.agentId, "agent");
   const bid = homeOf(world, agent.id);
   const funding = fundingFor(world, agent.id);
-  const session = world.ops.startSession(agent.id, { purpose: spec.purpose, model: spec.model, assignmentId: spec.assignmentId ?? null, meetingId: spec.meetingId ?? null });
-  const live: LiveSession = { agentId: agent.id, sessionId: session.id, purpose: spec.purpose, input: new InputChannel(), q: null, reportSubmitted: false, stopped: false };
+  const session = world.ops.startSession(agent.id, { purpose: spec.purpose, model: spec.model, assignmentId: spec.assignmentId ?? null, meetingId: spec.meetingId ?? null, backend: "host" });
+  const live: LiveSession = { kind: "host", agentId: agent.id, sessionId: session.id, purpose: spec.purpose, input: new InputChannel(), q: null, reportSubmitted: false, stopped: false };
   if (spec.purpose === "work") ctx.live.set(agent.id, live);
   const emit = (type: "agent.tool" | "agent.thought" | "system", text: string, payload: Record<string, unknown> = {}) =>
     world.events.append({ type, agentId: agent.id, buildingId: bid, text, payload: { sessionId: session.id, purpose: spec.purpose, ...payload } });
@@ -147,6 +132,12 @@ export async function runAgentSession(ctx: Ctx, spec: SessionSpec): Promise<Sess
   let sdkSessionId: string | null = null;
   let toolsAfterReport = 0;
   live.input.push(spec.prompt);
+  if (spec.purpose === "work") {
+    // interrupts queued while the agent had no in-process session arrive right after the prompt
+    const queued = world.ops.pendingInterrupts(agent.id, session.id);
+    for (const it of queued) live.input.push(`Interrupt from ${it.from}: ${it.text}\n\nTake this into account now, then continue. You must still finish with submit_report.`);
+    if (queued.length) world.ops.ackInterrupts(queued.map((i) => i.id));
+  }
   try {
     const q = ctx.sdk.query({ prompt: live.input, options: townOptions(ctx, spec, funding.apiKey) });
     live.q = q;
@@ -161,7 +152,7 @@ export async function runAgentSession(ctx: Ctx, spec: SessionSpec): Promise<Sess
           } else if (b.type === "text" && b.text?.trim()) {
             const t = b.text.trim();
             finalText = t;
-            emit("agent.thought", t.length > THOUGHT_CHARS ? t.slice(0, THOUGHT_CHARS - 1) + "…" : t);
+            emit("agent.thought", clipThought(t));
           }
         }
       } else if (m.type === "result") {
@@ -187,11 +178,10 @@ export async function runAgentSession(ctx: Ctx, spec: SessionSpec): Promise<Sess
   }
   if (!live.reportSubmitted && world.sessions.get(session.id)?.reportId) live.reportSubmitted = true;
 
-  const outcome: SessionOutcome = { ...usage, session, finalText, error, reportSubmitted: live.reportSubmitted, stopped: live.stopped };
-  try {
-    await spec.beforeEnd?.(outcome);
-  } catch (e) {
-    emit("system", `Runtime error after session: ${e instanceof Error ? e.message : String(e)}`);
+  const outcome: SessionOutcome = { ...usage, sdkSessionId, session, finalText, error, reportSubmitted: live.reportSubmitted, stopped: live.stopped };
+  if (spec.finish) {
+    outcome.session = await spec.finish(outcome, funding.allocationId);
+    return outcome;
   }
   const status: Exclude<Session["status"], "running"> = live.stopped ? "interrupted" : error ? "error" : "done";
   outcome.session = world.ops.endSession(session.id, { status, tokens: usage.tokens, costUsd: usage.costUsd, turns: usage.turns, error, sdkSessionId });

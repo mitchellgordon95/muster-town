@@ -1,4 +1,4 @@
-import { WorkInput, type Agent, type Assignment, type CreateBuildingInput, type CreateMeetingInput, type CreateResidentInput, type Doc, type Meeting, type Membership, type RegisterVisitorInput, type Session } from "@agent-town/schema";
+import { WorkInput, type Agent, type Assignment, type Interrupt, type CreateBuildingInput, type CreateMeetingInput, type CreateResidentInput, type Doc, type Meeting, type Membership, type RegisterVisitorInput, type Session } from "@agent-town/schema";
 import { createAssignment, createDoc, homeOf, sendMessage, setAssignmentStatus, updateDoc } from "./domain.ts";
 import { createBuilding, createResident, createUser, ensureAvatar, registerVisitor, updateBuilding } from "./entities.ts";
 import { AppError, badRequest, forbidden } from "./errors.ts";
@@ -82,10 +82,10 @@ export class Ops {
   }
 
   /** Runtime: a session starts. Work sessions activate the assignment and set status `working`. */
-  startSession(agentId: string, opts: { purpose: Session["purpose"]; model: string; assignmentId?: string | null; meetingId?: string | null }): Session {
+  startSession(agentId: string, opts: { purpose: Session["purpose"]; model: string; assignmentId?: string | null; meetingId?: string | null; backend?: Session["backend"] }): Session {
     const agent = this.world.agents.require(agentId, "agent");
     const session = this.world.sessions.upsert({
-      id: newId("se"), agentId, assignmentId: opts.assignmentId ?? null, meetingId: opts.meetingId ?? null, purpose: opts.purpose,
+      id: newId("se"), agentId, assignmentId: opts.assignmentId ?? null, meetingId: opts.meetingId ?? null, purpose: opts.purpose, backend: opts.backend ?? "host",
       status: "running", model: opts.model, sdkSessionId: null, tokens: 0, costUsd: 0, turns: 0, reportId: null, error: null, startedAt: nowIso(), endedAt: null,
     });
     if (opts.purpose === "work") {
@@ -96,7 +96,7 @@ export class Ops {
       }
       this.world.setStatus(agentId, "working");
     }
-    this.world.events.append({ type: "session.started", agentId, buildingId: homeOf(agent), text: `${agent.name} started a ${opts.purpose} session`, payload: { sessionId: session.id, purpose: opts.purpose, assignmentId: opts.assignmentId ?? null, model: opts.model } });
+    this.world.events.append({ type: "session.started", agentId, buildingId: homeOf(agent), text: `${agent.name} started a ${opts.purpose} session`, payload: { sessionId: session.id, purpose: opts.purpose, assignmentId: opts.assignmentId ?? null, model: opts.model, backend: session.backend } });
     return session;
   }
 
@@ -116,6 +116,34 @@ export class Ops {
   /** Latest session for an agent (running first). */
   currentSession(agentId: string): Session | undefined {
     return this.world.sessions.first("agentId = ?", [agentId], "ORDER BY (status = 'running') DESC, startedAt DESC, rowid DESC");
+  }
+
+  // ---- interrupts (queued for sessions that run outside the server process, i.e. desks) ----
+  /** Queue `text` for the agent's running session (or its next one if none is running). */
+  enqueueInterrupt(agentId: string, text: string, from: string): Interrupt {
+    const agent = this.world.agents.require(agentId, "agent");
+    const running = this.world.sessions.first("agentId = ? AND status = 'running' AND purpose = 'work'", [agentId], "ORDER BY startedAt DESC, rowid DESC");
+    const it = this.world.interrupts.upsert({ id: newId("in"), agentId, sessionId: running?.id ?? null, text, from, createdAt: nowIso(), deliveredAt: null });
+    this.world.events.append({ type: "system", agentId, buildingId: homeOf(agent), text: `Interrupt for ${agent.name}: ${text.slice(0, 200)}`, payload: { sessionId: it.sessionId, interrupt: true, queued: true, interruptId: it.id, text } });
+    return it;
+  }
+  /** Undelivered interrupts for the agent, oldest first: those for `sessionId` plus unbound ones (sessionId null). */
+  pendingInterrupts(agentId: string, sessionId?: string): Interrupt[] {
+    return sessionId
+      ? this.world.interrupts.where("agentId = ? AND deliveredAt IS NULL AND (sessionId IS NULL OR sessionId = ?)", [agentId, sessionId], "ORDER BY createdAt, rowid")
+      : this.world.interrupts.where("agentId = ? AND deliveredAt IS NULL", [agentId], "ORDER BY createdAt, rowid");
+  }
+  /** Mark interrupts delivered. Returns how many were newly acked. */
+  ackInterrupts(ids: string[], agentId?: string): number {
+    let n = 0;
+    const at = nowIso();
+    for (const id of ids) {
+      const it = this.world.interrupts.get(id);
+      if (!it || it.deliveredAt || (agentId && it.agentId !== agentId)) continue;
+      this.world.interrupts.upsert({ ...it, deliveredAt: at });
+      n++;
+    }
+    return n;
   }
 
   // ---- outbox requests ----

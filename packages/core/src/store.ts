@@ -1,5 +1,5 @@
 import {
-  Agent, Allocation, Assignment, Building, Doc, Meeting, Membership, Message, Place, Role, Session, Town, User,
+  Agent, Allocation, Assignment, Building, DesksConfig, Doc, Interrupt, Meeting, Membership, Message, Place, Role, Session, Town, User,
   type ServerMessage,
 } from "@agent-town/schema";
 import type { DB } from "./db.ts";
@@ -81,6 +81,16 @@ export class TownMeta {
   isSet(): boolean {
     return !!this.db.prepare("SELECT 1 FROM meta WHERE key = 'town'").get();
   }
+  /** collective.json `desks` (stored at seed; defaults when absent). */
+  desks(): DesksConfig {
+    const r = this.db.prepare("SELECT value FROM meta WHERE key = 'desks'").get() as { value: string } | undefined;
+    return DesksConfig.parse(r ? JSON.parse(r.value) : {});
+  }
+  setDesks(d: Partial<DesksConfig>): DesksConfig {
+    const desks = DesksConfig.parse(d);
+    this.db.prepare("INSERT INTO meta (key, value) VALUES ('desks', ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value").run(JSON.stringify(desks));
+    return desks;
+  }
 }
 
 /** All repositories. Writes to agents/docs/meetings/buildings/assignments emit the matching ServerMessage. */
@@ -98,6 +108,7 @@ export function createRepos(db: DB, changes: Emitter<ServerMessage>) {
     messages: new Table<Message>(db, "messages", Message),
     meetings: new Table<Meeting>(db, "meetings", Meeting, { json: ["attendeeIds", "summaries", "transcript", "decisions"] }, (meeting) => changes.emit({ type: "meeting", meeting })),
     sessions: new Table<Session>(db, "sessions", Session),
+    interrupts: new Table<Interrupt>(db, "interrupts", Interrupt),
     tokens: new Tokens(db),
     town: new TownMeta(db),
   };

@@ -59,8 +59,15 @@ export async function agentRoutes(app: FastifyInstance) {
   app.post<{ Params: Params }>("/api/agents/:id/interrupt", async (req) => {
     const { text } = parse(InterruptInput, req.body);
     const agent = world.agents.require(req.params.id, "agent");
-    world.ops.requireAgentControl(actorOf(world, req), agent);
-    const result = await runtimeOr503(app).interrupt(agent.id, text);
+    const actor = actorOf(world, req);
+    world.ops.requireAgentControl(actor, agent);
+    const from = actor.name;
+    // In-process session → delivered now. Otherwise (desk session, or none yet) → queued; the desk polls control.
+    const result = app.runtime ? await app.runtime.interrupt(agent.id, text, from) : false;
+    if (result === false) {
+      const it = world.ops.enqueueInterrupt(agent.id, text, from);
+      return { ok: true, queued: true, interruptId: it.id };
+    }
     return { ok: true, result: result ?? null };
   });
 

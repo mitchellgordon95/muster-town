@@ -3,7 +3,7 @@ import { fileURLToPath } from "node:url";
 import { afterEach } from "vitest";
 import { World } from "@agent-town/core";
 import type { VerbName } from "@agent-town/schema";
-import { startRuntime, type Runtime, type Sdk } from "../src/index.ts";
+import { HostBackend, startRuntime, type RuntimeOptions, type Runtime, type Sdk } from "../src/index.ts";
 import type { Options, SDKUserMessage } from "../src/sdk.ts";
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "../../..");
@@ -80,12 +80,12 @@ export async function* callVerb(s: FakeSession, verb: VerbName, input: Record<st
 }
 
 /** Seeded world (:memory:) with the Carbon Cycle Lab, plus a runtime driven by `script` (no timer, no export). */
-export function setup(script: Script) {
+export function setup(script: Script, extra: Partial<RuntimeOptions> = {}) {
   const world = World.open(":memory:");
   const seed = world.seedDefaults({ importDir: join(ROOT, "buildings/carbon-cycle"), townJsonPath: join(ROOT, "town.json") });
   const sdk = fakeSdk(world, script);
   const clock = { t: new Date("2026-10-19T10:00:00Z").getTime() };
-  const runtime: Runtime = startRuntime({ world, mcpUrl: "http://127.0.0.1:4321/mcp", sdk, intervalMs: 0, exportDir: false, now: () => new Date(clock.t) });
+  const runtime: Runtime = startRuntime({ world, mcpUrl: "http://127.0.0.1:4321/mcp", sdk, intervalMs: 0, exportDir: false, now: () => new Date(clock.t), deskBackend: new HostBackend(), ...extra });
   const by = (name: string) => world.agents.first("name = ?", [name])!;
   cleanups.push(async () => { await runtime.stop(); world.close(); });
   return { world, seed, sdk, runtime, clock, by, lab: seed.lab! };

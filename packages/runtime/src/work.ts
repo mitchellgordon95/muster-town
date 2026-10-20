@@ -1,20 +1,16 @@
-import { execSync } from "node:child_process";
-import { existsSync, symlinkSync } from "node:fs";
-import { basename, join, resolve } from "node:path";
-/** Resident work sessions (with fallback report + interrupts) and moderator review sessions. */
-import { AppError, buildingRoleId, createDoc, setAssignmentStatus } from "@agent-town/core";
+/** Resident work sessions (host backend + shared end-of-session logic), interrupts, and moderator review sessions. */
+import { AppError, buildingRoleId, createDoc, fallbackReportBody, latestReportOf, reviewPrompt, reviewSystemPrompt, setAssignmentStatus, workPrompt, workSystemPrompt } from "@agent-town/core";
 import type { Agent, Assignment, Building, Doc, Session } from "@agent-town/schema";
-import { fallbackReportBody, reviewPrompt, reviewSystemPrompt, workPrompt, workSystemPrompt, workshopPrompt } from "./prompts.ts";
-import { homeOf, runAgentSession, type Ctx } from "./session.ts";
+import { chargeUsage, fundingFor, homeOf, runAgentSession, type Ctx } from "./session.ts";
 
 const REVIEW_MAX_TURNS = 10;
 
 export function latestReport(ctx: Ctx, agentId: string): Doc | undefined {
-  return ctx.world.docs.first("authorId = ? AND type = 'report'", [agentId], "ORDER BY createdAt DESC, rowid DESC");
+  return latestReportOf(ctx.world, agentId);
 }
 
 /** Walk the body back to its desk (fire and forget; the session doesn't wait for the walk). */
-function walkToDesk(ctx: Ctx, agent: Agent): void {
+export function walkToDesk(ctx: Ctx, agent: Agent): void {
   const desk = ctx.world.layout.deskOf(agent.id);
   if (!desk || (desk.pos.x === agent.pos.x && desk.pos.y === agent.pos.y)) return;
   // A leftover walk (e.g. to the meeting room) must not keep the body away from the desk during a work session.
@@ -23,10 +19,10 @@ function walkToDesk(ctx: Ctx, agent: Agent): void {
 }
 
 /**
- * Run one work session for `agentId` on `assignmentId`. Resolves with the ended session.
- * Throws `conflict` if the agent is already in a session, `out_of_budget` if it can't start.
+ * Checks shared by both backends before a work session starts. Throws `conflict` if the agent is already
+ * in a session or can't work, `out_of_budget`-style conflict if it can't start.
  */
-export async function runWorkSession(ctx: Ctx, starting: Set<string>, agentId: string, assignmentId: string): Promise<Session> {
+export function preflightWork(ctx: Ctx, starting: Set<string>, agentId: string, assignmentId: string): { agent: Agent; building: Building; assignment: Assignment } {
   const { world } = ctx;
   if (starting.has(agentId) || ctx.live.has(agentId)) throw new AppError("conflict", "Agent is already in a work session.");
   const agent = world.agents.require(agentId, "agent");
@@ -37,35 +33,24 @@ export async function runWorkSession(ctx: Ctx, starting: Set<string>, agentId: s
     if (agent.kind === "resident") world.setStatus(agentId, "out-of-budget");
     throw new AppError("conflict", `${agent.name} is out of budget.`);
   }
-  const building = world.buildings.require(bid, "building");
-  const assignment = world.assignments.require(assignmentId, "assignment");
+  return { agent, building: world.buildings.require(bid, "building"), assignment: world.assignments.require(assignmentId, "assignment") };
+}
+
+/**
+ * Host backend: run one in-process work session for `agentId` on `assignmentId`. Resolves with the ended session.
+ * Buildings with a workspace need a desk (docker backend); the host backend refuses them.
+ */
+export async function runWorkSession(ctx: Ctx, starting: Set<string>, agentId: string, assignmentId: string): Promise<Session> {
+  const { world } = ctx;
+  const { agent, building, assignment } = preflightWork(ctx, starting, agentId, assignmentId);
+  if (building.workspace) throw new AppError("conflict", `${building.name} has a code workspace; its residents need a desk (docker backend).`);
   starting.add(agentId);
   try {
     walkToDesk(ctx, agent);
-    const ws = building.workspace ? prepareWorkspace(ctx, building.workspace, agent, assignment) : undefined;
-    if (ws) world.events.append({ type: "agent.activity", agentId, buildingId: bid, text: `${agent.name} checked out branch ${ws.branch}`, payload: { branch: ws.branch, cwd: ws.cwd } });
     const out = await runAgentSession(ctx, {
       agentId, purpose: "work", model: agent.model ?? building.model, maxTurns: building.maxTurnsPerSession, web: true,
-      workspace: ws ? { cwd: ws.cwd, branch: ws.branch, base: ws.base, tools: building.workspace!.tools } : undefined,
-      assignmentId, system: workSystemPrompt(agent, building, world.town.get()) + (ws ? workshopPrompt(ws, ws.repoName) : ""), prompt: workPrompt(assignment, latestReport(ctx, agentId)),
-      beforeEnd: async (o) => {
-        if (o.reportSubmitted) return;
-        const now = world.agents.require(agentId);
-        const body = fallbackReportBody(o.finalText, o.error, assignment);
-        const title = `Session ended without a report: ${assignment.title}`.slice(0, 200);
-        if (o.stopped || now.status === "stopped" || now.status === "banned") {
-          const doc = createDoc(world, {
-            type: "report", state: "building", title, body, verdict: "continue", decision: "stop", decidedBy: "system", decidedAt: new Date().toISOString(),
-            decisionNote: `${now.name} was ${now.status} during the session.`, authorId: agentId, authorKind: "agent", buildingId: bid, sessionId: o.session.id, assignmentId,
-          }, `${now.name}'s session was stopped; fallback report written`);
-          world.sessions.patch(o.session.id, { reportId: doc.id });
-          if (world.assignments.get(assignmentId)?.status === "active") setAssignmentStatus(world, assignmentId, "cancelled", { reportId: doc.id });
-          world.agents.patch(agentId, { currentAssignmentId: null });
-          return;
-        }
-        await world.verbs.submit_report(agentId, { title, body, verdict: "continue" });
-        world.events.append({ type: "system", agentId, buildingId: bid, text: `${now.name}'s session ended without a report; fallback report written`, payload: { sessionId: o.session.id, fallback: true } });
-      },
+      assignmentId, system: workSystemPrompt(agent, building, world.town.get()), prompt: workPrompt(assignment, latestReport(ctx, agentId)),
+      finish: (o, allocationId) => finishWorkSession(ctx, o.session.id, { ...o }, allocationId),
     });
     return out.session;
   } finally {
@@ -73,10 +58,71 @@ export async function runWorkSession(ctx: Ctx, starting: Set<string>, agentId: s
   }
 }
 
+/** How a work session ended, from either backend (the desk posts this to /api/agents/me/session-end). */
+export interface WorkOutcome {
+  tokens?: number;
+  costUsd?: number;
+  turns?: number;
+  sdkSessionId?: string | null;
+  finalText?: string | null;
+  error?: string | null;
+  reportSubmitted?: boolean;
+  /** the runtime aborted it (agent stopped/banned or runtime shutdown) */
+  stopped?: boolean;
+}
+
+/**
+ * End a work session (both backends): write the fallback report when none was submitted (stop → decision
+ * stop + assignment cancelled), end the Session row (agent status transitions, `session.ended`), charge usage.
+ * Idempotent: a session that already ended is returned unchanged.
+ */
+export async function finishWorkSession(ctx: Ctx, sessionId: string, o: WorkOutcome, allocationId?: string | null): Promise<Session> {
+  const { world } = ctx;
+  const session = world.sessions.require(sessionId, "session");
+  if (session.status !== "running") return session;
+  const agentId = session.agentId;
+  const bid = homeOf(world, agentId);
+  const live = ctx.live.get(agentId);
+  const agentNow = world.agents.require(agentId, "agent");
+  const stopped = !!o.stopped || (live?.sessionId === sessionId && live.stopped) || agentNow.status === "stopped" || agentNow.status === "banned";
+  const usage = { tokens: Math.max(0, Math.round(o.tokens ?? 0)), costUsd: Math.max(0, o.costUsd ?? 0), turns: Math.max(0, Math.round(o.turns ?? 0)) };
+  const error = o.error ?? null;
+  const reportSubmitted = !!o.reportSubmitted || !!world.sessions.get(sessionId)?.reportId;
+
+  if (session.purpose === "work" && !reportSubmitted) {
+    try {
+      const assignment = session.assignmentId ? world.assignments.get(session.assignmentId) : undefined;
+      const body = fallbackReportBody(o.finalText ?? "", error, assignment);
+      const title = `Session ended without a report: ${assignment?.title ?? "work session"}`.slice(0, 200);
+      if (stopped) {
+        const doc = createDoc(world, {
+          type: "report", state: "building", title, body, verdict: "continue", decision: "stop", decidedBy: "system", decidedAt: new Date().toISOString(),
+          decisionNote: `${agentNow.name} was ${agentNow.status === "banned" || agentNow.status === "stopped" ? agentNow.status : "stopped"} during the session.`,
+          authorId: agentId, authorKind: "agent", buildingId: bid, sessionId, assignmentId: session.assignmentId ?? undefined,
+        }, `${agentNow.name}'s session was stopped; fallback report written`);
+        world.sessions.patch(sessionId, { reportId: doc.id });
+        if (session.assignmentId && world.assignments.get(session.assignmentId)?.status === "active") setAssignmentStatus(world, session.assignmentId, "cancelled", { reportId: doc.id });
+        world.agents.patch(agentId, { currentAssignmentId: null });
+      } else {
+        await world.verbs.submit_report(agentId, { title, body, verdict: "continue" });
+        world.events.append({ type: "system", agentId, buildingId: bid, text: `${agentNow.name}'s session ended without a report; fallback report written`, payload: { sessionId, fallback: true } });
+      }
+    } catch (e) {
+      world.events.append({ type: "system", agentId, buildingId: bid, text: `Runtime error after session: ${e instanceof Error ? e.message : String(e)}`, payload: { sessionId } });
+    }
+  }
+  const status: Exclude<Session["status"], "running"> = stopped ? "interrupted" : error ? "error" : "done";
+  const ended = world.ops.endSession(sessionId, { status, ...usage, error, sdkSessionId: o.sdkSessionId ?? null });
+  chargeUsage(world, agentId, usage, allocationId !== undefined ? allocationId : ctx.deskAllocations.get(sessionId) ?? fundingFor(world, agentId).allocationId);
+  ctx.deskAllocations.delete(sessionId);
+  return ended;
+}
+
 /** Deliver `text` as the next user message of the agent's running work session. */
 export function interrupt(ctx: Ctx, agentId: string, text: string, from = "A human"): boolean {
   const live = ctx.live.get(agentId);
-  if (!live || live.stopped || live.reportSubmitted || live.input.closed) return false;
+  // desk sessions take interrupts through the queue (GET /api/agents/me/control)
+  if (!live || live.kind !== "host" || live.stopped || live.reportSubmitted || live.input.closed) return false;
   const ok = live.input.push(`Interrupt from ${from}: ${text}\n\nTake this into account now, then continue. You must still finish with submit_report.`);
   if (ok) {
     const a = ctx.world.agents.get(agentId);
@@ -85,13 +131,21 @@ export function interrupt(ctx: Ctx, agentId: string, text: string, from = "A hum
   return ok;
 }
 
-/** Stop a live work session (agent was stopped/banned). */
-export function abortWork(ctx: Ctx, agentId: string): void {
+/**
+ * Stop a live work session (agent was stopped/banned, or the runtime is shutting down). Host: interrupt the
+ * query. Desk: the control endpoint already says `stop: true`; kill the child after `graceMs` if it's still running.
+ */
+export function abortWork(ctx: Ctx, agentId: string, graceMs = 0): void {
   const live = ctx.live.get(agentId);
   if (!live) return;
   live.stopped = true;
   live.input.close();
   void live.q?.interrupt?.()?.catch(() => undefined);
+  if (live.child) {
+    const child = live.child;
+    if (graceMs <= 0) child.kill();
+    else setTimeout(() => { if (ctx.live.get(agentId) === live) child.kill(); }, graceMs).unref?.();
+  }
 }
 
 /** The building's moderator agent able to review `doc` (not its author), if any. */
@@ -127,35 +181,4 @@ export async function maybeReview(ctx: Ctx, reviewed: Set<string>, docId: string
     world.events.append({ type: "system", agentId: mod.id, buildingId: building.id, text: `${mod.name} didn't decide on "${doc.title}"; it's waiting for a human`, payload: { docId } });
   }
   return true;
-}
-
-/** Slug for branch and directory names. */
-function slug(x: string, n = 40): string {
-  return x.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "").slice(0, n) || "work";
-}
-
-/**
- * Give the agent its own git worktree for this assignment (created on first use, reused after):
- * <repo>/work/<agent>-<assignment6> on branch <prefix>/<agent>/<slug>, forked from the base branch.
- * The root node_modules is symlinked in so typecheck/tests run without an install.
- */
-function prepareWorkspace(ctx: Ctx, ws: NonNullable<Building["workspace"]>, agent: Agent, assignment: Assignment): { cwd: string; branch: string; base: string; repoName: string } {
-  const repo = resolve(ctx.repoRoot, ws.path);
-  const branch = `${ws.branchPrefix}/${slug(agent.name, 20)}/${slug(assignment.title)}`;
-  const git = (cmd: string) => execSync(`git ${cmd}`, { cwd: repo, stdio: ["ignore", "pipe", "pipe"] }).toString().trim();
-  // One worktree per branch: a retried or continued assignment lands in the same place.
-  let dir = join(repo, "work", branch.replace(/\//g, "-"));
-  const checkedOut = git("worktree list --porcelain").split("\n\n").map((blk) => {
-    const path = /^worktree (.+)$/m.exec(blk)?.[1]; const br = /^branch refs\/heads\/(.+)$/m.exec(blk)?.[1]; return { path, br };
-  }).find((w) => w.br === branch)?.path;
-  if (checkedOut) dir = checkedOut;
-  else if (!existsSync(dir)) {
-    try { git(`fetch --quiet origin ${ws.base}`); } catch { /* offline is fine; fork from local base */ }
-    const exists = git(`branch --list ${branch}`) !== "";
-    const base = git(`rev-parse --verify --quiet origin/${ws.base}`) ? `origin/${ws.base}` : ws.base;
-    git(`worktree add --quiet ${exists ? "" : `-b ${branch}`} ${JSON.stringify(dir)} ${exists ? branch : base}`);
-  }
-  const nm = join(dir, "node_modules");
-  if (!existsSync(nm) && existsSync(join(repo, "node_modules"))) symlinkSync(join(repo, "node_modules"), nm, "dir");
-  return { cwd: dir, branch, base: ws.base, repoName: basename(repo) };
 }

@@ -1,5 +1,5 @@
 import { AppError, townRoleId, type World } from "@agent-town/core";
-import type { Agent, User } from "@agent-town/schema";
+import type { Agent, DeskActivityInput, Session, User } from "@agent-town/schema";
 import type { FastifyReply, FastifyRequest } from "fastify";
 import type { ZodTypeAny, z } from "zod";
 
@@ -7,8 +7,12 @@ import type { ZodTypeAny, z } from "zod";
 export interface RuntimeHooks {
   /** Proxy chat: answer as the agent (cheap model, no tools). */
   chat(agentId: string, input: { message: string; history: { role: "user" | "assistant"; text: string }[] }): Promise<string | { reply: string }>;
-  /** Deliver `text` as the next user message of the agent's running session. */
-  interrupt(agentId: string, text: string): Promise<unknown> | unknown;
+  /** Deliver `text` as the next user message of the agent's in-process session. `false` = none (the server queues it). */
+  interrupt(agentId: string, text: string, from?: string): Promise<unknown> | unknown;
+  /** A desk reported activity: append `agent.tool`/`agent.thought`/`agent.activity` events (payload.sessionId). */
+  onDeskActivity?(agentId: string, input: DeskActivityInput): Promise<unknown> | unknown;
+  /** End a work session (desk session-end): fallback report, status, charge. Idempotent. */
+  finishWorkSession?(sessionId: string, outcome: { tokens?: number; costUsd?: number; turns?: number; sdkSessionId?: string | null; finalText?: string | null; error?: string | null; reportSubmitted?: boolean }): Promise<Session>;
   /** A meeting moved to `discussing` via REST: run the facilitator. */
   onMeetingStart?(meetingId: string): Promise<unknown> | unknown;
   /** An agent was stopped via REST: abort its running session, if any. */

@@ -1,5 +1,9 @@
-/** Persona, world rules, and task prompts for every kind of session. Keep them tight. */
-import type { Agent, Assignment, Building, Doc, Event, Meeting, Town } from "@agent-town/schema";
+/**
+ * Persona, world rules, and task prompts for every kind of session. Keep them tight.
+ * Lives in core so the server can brief desks (`composeWorkBrief`) and the runtime can brief in-process sessions.
+ */
+import type { Agent, Assignment, Building, DeskBrief, DeskWorkspace, Doc, Event, Meeting, Town } from "@agent-town/schema";
+import type { World } from "./world.ts";
 
 const trunc = (s: string, n: number) => (s.length > n ? s.slice(0, n) + "\n…(truncated)" : s);
 
@@ -19,7 +23,7 @@ export const RESEARCH_RULES = `Research rules:
 
 export const REPORT_FORMAT = `Report body (markdown) sections: ## Summary (readable in two minutes), ## What I did, ## Findings, ## Proposal for next session (first line = one concrete question; then why it matters, which sources, what would change our picture) — or ## Post-mortem with verdict "stop" if the direction is exhausted or wrongly framed, ## For others, ## Questions for humans. Verdict: continue | pivot | stop.`;
 
-export function workSystemPrompt(agent: Agent, building: Building, town: Town): string {
+export function workSystemPrompt(agent: Agent, building: Building, town: Town, opts: { desk?: boolean } = {}): string {
   return `You are ${agent.name}${agent.title ? `, ${agent.title}` : ""}, a resident researcher in the ${building.name} of ${town.name}.
 Town goal: ${town.goal || "(none set)"}
 Building goal: ${building.goal || "(none set)"}
@@ -32,7 +36,9 @@ ${RESEARCH_RULES}
 
 ${REPORT_FORMAT}
 
-You have about ${building.maxTurnsPerSession} turns; budget them. Your only tools are the town tools (mcp__town__*), WebSearch and WebFetch.`;
+You have about ${building.maxTurnsPerSession} turns; budget them. ${opts.desk
+    ? "You work at your own desk: a private sandbox computer with your home directory (/home/agent), a shell, Python with the usual scientific libraries, and the web. Files you keep there persist between sessions; the town library is still where shared work goes."
+    : "Your only tools are the town tools (mcp__town__*), WebSearch and WebFetch."}`;
 }
 
 export function workPrompt(assignment: Assignment, lastReport: Doc | undefined): string {
@@ -154,15 +160,55 @@ ${assignment ? `Continue: ${assignment.title}` : "Continue the standing directio
 `;
 }
 
-/** Extra system prompt for buildings with a workspace: the agent edits code in its own worktree. */
-export function workshopPrompt(ws: { cwd: string; branch: string; base: string }, repoName: string): string {
+/** Extra system prompt for buildings with a workspace: the agent edits code in its own checkout inside its desk. */
+export function workshopPrompt(ws: { dir: string; branch: string; base: string }, repoName: string): string {
   return `
 
 ## Code access
-You can edit the ${repoName} repository. Your own git worktree is at ${ws.cwd} on branch \`${ws.branch}\` (forked from \`${ws.base}\`); it is your current working directory. Nobody else edits it. Rules:
+You can edit the ${repoName} repository. Your own checkout is at ${ws.dir} on branch \`${ws.branch}\` (forked from \`${ws.base}\`); it is your current working directory. Nobody else edits it. Rules:
 - Read the repo's AGENTS.md and CLAUDE.md first, then the files you need. Keep the change small and complete.
 - Run \`npm run typecheck\` and the relevant package's tests before you commit. Don't commit broken code.
 - Commit with a clear message, then \`git push -u origin ${ws.branch}\` and open a draft pull request with \`gh pr create --draft --fill\` (base ${ws.base}). Put the PR URL in your report.
-- Never push to ${ws.base}, never force-push, never rewrite history, never touch files outside your worktree, never run destructive commands.
+- Never push to ${ws.base}, never force-push, never rewrite history, never run destructive commands.
 - The town library is still where you write source cards and notes; your report must say what changed, how you verified it, and link the PR.`;
+}
+
+/** Slug for branch and directory names. */
+export function branchSlug(x: string, n = 40): string {
+  return x.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "").slice(0, n) || "work";
+}
+
+/** "https://github.com/o/agent-town.git" | "git@github.com:o/agent-town.git" → "agent-town". */
+export function repoNameOf(repoUrl: string): string {
+  return repoUrl.replace(/\/+$/, "").split(/[/:]/).pop()!.replace(/\.git$/, "") || "repo";
+}
+
+/** Where a desk checks out the building's repo for this agent + assignment (undefined if no workspace/repoUrl). */
+export function deskWorkspace(building: Building, agent: Agent, assignment: Assignment | null | undefined): DeskWorkspace | undefined {
+  const ws = building.workspace;
+  if (!ws?.repoUrl) return undefined;
+  const branch = `${ws.branchPrefix}/${branchSlug(agent.name, 20)}/${branchSlug(assignment?.title ?? "work")}`;
+  return { repoUrl: ws.repoUrl, base: ws.base, branch, branchPrefix: ws.branchPrefix, dir: `/home/agent/work/${repoNameOf(ws.repoUrl)}` };
+}
+
+/** The agent's latest report (any decision), for "your previous report" in the work prompt. */
+export function latestReportOf(world: World, agentId: string): Doc | undefined {
+  return world.docs.first("authorId = ? AND type = 'report'", [agentId], "ORDER BY createdAt DESC, rowid DESC");
+}
+
+/** Everything a desk needs to run work session `sessionId` (GET /api/agents/me/brief). */
+export function composeWorkBrief(world: World, sessionId: string): DeskBrief {
+  const session = world.sessions.require(sessionId, "session");
+  const agent = world.agents.require(session.agentId, "agent");
+  const bid = agent.homeBuildingId ?? agent.buildingId;
+  if (!bid) throw new Error(`${agent.name} has no building`);
+  const building = world.buildings.require(bid, "building");
+  const town = world.town.get();
+  const assignment = session.assignmentId ? world.assignments.get(session.assignmentId) ?? null : null;
+  const workspace = deskWorkspace(building, agent, assignment);
+  const system = workSystemPrompt(agent, building, town, { desk: true }) + (workspace ? workshopPrompt(workspace, repoNameOf(workspace.repoUrl)) : "");
+  const prompt = assignment
+    ? workPrompt(assignment, world.docs.first("authorId = ? AND type = 'report' AND (sessionId IS NULL OR sessionId != ?)", [agent.id, session.id], "ORDER BY createdAt DESC, rowid DESC"))
+    : `Continue your standing direction: ${agent.direction || "(none)"}\n\nStart with \`look\`, then the board. End with \`submit_report\`.`;
+  return { agent, building, town, assignment, session, system, prompt, ...(workspace ? { workspace } : {}) };
 }

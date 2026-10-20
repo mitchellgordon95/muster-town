@@ -2,16 +2,21 @@
  * @agent-town/runtime — resident work sessions (Claude Agent SDK over the town MCP endpoint),
  * moderator review sessions, meeting summaries + facilitation, proxy chat, interrupts, scheduler.
  */
-import type { World } from "@agent-town/core";
-import type { ChatInput, Event, Session } from "@agent-town/schema";
+import { slugify, type World } from "@agent-town/core";
+import { DesksConfig, type ChatInput, type DeskActivityInput, type Event, type Session } from "@agent-town/schema";
 import { chat } from "./chat.ts";
+import { DockerBackend, HostBackend, type WorkBackend } from "./desk/backend.ts";
+import { onDeskActivity, runDeskSession, type DeskSessionOptions } from "./desk/session.ts";
 import { advanceCollecting, facilitate, newMeetingState, onMeetingStart } from "./meetings.ts";
 import { realSdk, type Sdk } from "./sdk.ts";
 import type { Ctx } from "./session.ts";
-import { abortWork, interrupt, maybeReview, runWorkSession } from "./work.ts";
+import { abortWork, finishWorkSession, interrupt, maybeReview, runWorkSession, type WorkOutcome } from "./work.ts";
 
 export { describeTool } from "./describe.ts";
-export * as prompts from "./prompts.ts";
+export { prompts } from "@agent-town/core";
+export { DockerBackend, HostBackend, realDockerRunner, type DeskBackend, type DeskChild, type DeskHandle, type DockerRunner, type RunResult, type SpawnedChild, type WorkBackend, type LineSink } from "./desk/backend.ts";
+export { deskEnv, portOf, type DeskSessionOptions } from "./desk/session.ts";
+export type { WorkOutcome } from "./work.ts";
 export { InputChannel, oneShot, realSdk, usageOf, userMessage, type QueryHandle, type QueryParams, type Sdk } from "./sdk.ts";
 export { DISALLOWED_TOOLS, TOWN_TOOLS, WEB_TOOLS } from "./session.ts";
 export { COLLECTING_MS } from "./meetings.ts";
@@ -30,6 +35,16 @@ export interface RuntimeOptions {
   repoRoot?: string;
   /** hourly git export target; false disables. Default: world.export() default dir. */
   exportDir?: string | false;
+  /** where work sessions run; default from `desks.backend` (auto → docker if `docker info` succeeds, else host) */
+  deskBackend?: WorkBackend;
+  /** overrides collective.json `desks` (as stored in the world at seed) */
+  desks?: Partial<DesksConfig>;
+  /** collective slug for desk container names (default: slug of the town name) */
+  collective?: string;
+  /** desk session knobs (tests inject the GH token source) */
+  deskOptions?: DeskSessionOptions;
+  /** a stopped/banned agent's desk process gets this long to exit on its own before it is killed. Default 10000. */
+  killGraceMs?: number;
 }
 
 export interface Runtime {
@@ -47,6 +62,12 @@ export interface Runtime {
   whenIdle(): Promise<void>;
   /** Whether the agent has a live work session. */
   isWorking(agentId: string): boolean;
+  /** A desk reported a tool call / thought / status (POST /api/agents/me/activity). */
+  onDeskActivity(agentId: string, input: DeskActivityInput): void;
+  /** End a work session (desk session-end, or a desk that died): fallback report, status, charge. Idempotent. */
+  finishWorkSession(sessionId: string, outcome: WorkOutcome): Promise<Session>;
+  /** The backend work sessions use (resolves once `auto` has probed docker). */
+  backend(): Promise<"host" | "docker">;
 }
 
 const HOUR_MS = 3_600_000;
@@ -63,7 +84,9 @@ export function startRuntime(opts: RuntimeOptions): Runtime {
     p.then(done, done);
     return p;
   };
-  const ctx: Ctx = { world, mcpUrl: opts.mcpUrl, repoRoot: opts.repoRoot ?? process.cwd(), now, sdk: opts.sdk ?? realSdk, live: new Map(), track };
+  const desks = DesksConfig.parse({ ...world.desksConfig(), ...opts.desks });
+  const ctx: Ctx = { world, mcpUrl: opts.mcpUrl, repoRoot: opts.repoRoot ?? process.cwd(), desks, now, sdk: opts.sdk ?? realSdk, live: new Map(), deskAllocations: new Map(), track };
+  const killGraceMs = opts.killGraceMs ?? 10_000;
   const starting = new Set<string>();
   const reviewed = new Set<string>();
   const mst = newMeetingState();
@@ -79,7 +102,30 @@ export function startRuntime(opts: RuntimeOptions): Runtime {
     void track(new Promise<void>((r) => setImmediate(r)).then(fn).catch(log(what)));
   };
 
-  const startWork = (agentId: string, assignmentId: string) => track(runWorkSession(ctx, starting, agentId, assignmentId));
+  let backend: WorkBackend | null = opts.deskBackend ?? null;
+  const backendReady: Promise<WorkBackend> = backend ? Promise.resolve(backend) : chooseBackend().then((b) => (backend = b));
+  async function chooseBackend(): Promise<WorkBackend> {
+    if (desks.backend === "host") {
+      console.log("[runtime] work sessions: host backend (in-process, no code tools; configured)");
+      return new HostBackend();
+    }
+    const docker = new DockerBackend({ collective: opts.collective ?? slugify(world.town.get().name), image: desks.image });
+    const ok = await docker.available();
+    if (desks.backend === "docker") {
+      console.log(`[runtime] work sessions: docker desks (${desks.image}; configured)${ok ? "" : " — WARNING: docker info failed"}`);
+      return docker;
+    }
+    if (ok) {
+      console.log(`[runtime] work sessions: docker desks (${desks.image}; auto)`);
+      return docker;
+    }
+    console.warn("[runtime] WARNING: docker not available; work sessions run in-process (host backend, no code tools). Workspace buildings won't be scheduled.");
+    return new HostBackend();
+  }
+  const warnedHost = new Set<string>();
+
+  const startWork = (agentId: string, assignmentId: string) => track(backendReady.then((b) =>
+    b.kind === "host" ? runWorkSession(ctx, starting, agentId, assignmentId) : runDeskSession(ctx, b, starting, agentId, assignmentId, opts.deskOptions)));
 
   const onEvent = (e: Event) => {
     const p = e.payload as Record<string, unknown>;
@@ -88,7 +134,7 @@ export function startRuntime(opts: RuntimeOptions): Runtime {
     else if (e.type === "meeting.phase" && p.phase === "collecting") later(() => onMeetingStart(ctx, mst, String(p.meetingId)), "meeting summaries");
     else if (e.type === "meeting.phase" && p.phase === "discussing") later(() => facilitate(ctx, mst, String(p.meetingId)), "facilitation");
     else if ((e.type === "agent.status" && (p.status === "stopped" || p.status === "banned")) || e.type === "agent.banned") {
-      if (e.agentId) abortWork(ctx, e.agentId);
+      if (e.agentId) abortWork(ctx, e.agentId, killGraceMs);
     }
   };
   const unsubscribe = world.events.subscribe(onEvent);
@@ -131,6 +177,13 @@ export function startRuntime(opts: RuntimeOptions): Runtime {
       if (ctx.live.has(a.id) || starting.has(a.id)) continue;
       const next = world.assignments.first("agentId = ? AND status = 'pending'", [a.id], "ORDER BY createdAt, rowid");
       if (!next || !world.budget.canStart(a.id)) continue;
+      const bid = a.homeBuildingId ?? a.buildingId;
+      const b = bid ? world.buildings.get(bid) : undefined;
+      if (backend?.kind === "host" && b?.workspace) {
+        if (!warnedHost.has(b.id)) console.warn(`[runtime] WARNING: ${b.name} has a code workspace; its work sessions need docker desks. Not scheduling them on the host backend.`);
+        warnedHost.add(b.id);
+        continue;
+      }
       void startWork(a.id, next.id).catch(log(`work session for ${a.name}`));
     }
   }
@@ -152,6 +205,8 @@ export function startRuntime(opts: RuntimeOptions): Runtime {
     }
     try { scheduleMeetings(t); } catch (e) { log("meetings")(e); }
     try { scheduleReviews(); } catch (e) { log("reviews")(e); }
+    await backendReady;
+    if (stopped) return;
     try { scheduleWork(); } catch (e) { log("work")(e); }
   }
 
@@ -178,5 +233,8 @@ export function startRuntime(opts: RuntimeOptions): Runtime {
     tickOnce,
     whenIdle,
     isWorking: (agentId) => ctx.live.has(agentId) || starting.has(agentId),
+    onDeskActivity: (agentId, input) => onDeskActivity(ctx, agentId, input),
+    finishWorkSession: (sessionId, outcome) => finishWorkSession(ctx, sessionId, outcome),
+    backend: () => backendReady.then((b) => b.kind),
   };
 }

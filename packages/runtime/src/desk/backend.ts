@@ -1,0 +1,163 @@
+/**
+ * Where resident work sessions run. `DockerBackend`: a persistent container per agent (the desk), with
+ * the agent's home on a volume; the runtime `docker exec`s `agent-town-desk run --session <id>` in it.
+ * `HostBackend`: the in-process SDK session (no code tools), the fallback when there is no container runtime.
+ */
+import { execFile, spawn } from "node:child_process";
+import { createInterface } from "node:readline";
+import type { Agent, Building } from "@agent-town/schema";
+
+export interface DeskHandle {
+  /** container name */
+  name: string;
+  agentId: string;
+}
+
+/** A running `exec` in a desk. `wait` resolves with the exit code (-1 if it couldn't start). */
+export interface DeskChild {
+  wait(): Promise<number>;
+  kill(): void;
+}
+
+export type LineSink = (stream: "stdout" | "stderr", line: string) => void;
+
+/** A container backend: one desk per agent. */
+export interface DeskBackend {
+  readonly kind: "docker";
+  /** whether the container runtime answers (e.g. `docker info` exits 0 within 5 s) */
+  available(): Promise<boolean>;
+  /** the agent's desk exists and is running (created on first use) */
+  ensure(agent: Agent, building: Building): Promise<DeskHandle>;
+  /** run `argv` in the desk with `env`; stdout/stderr lines go to `onLine` */
+  exec(handle: DeskHandle, argv: string[], env: Record<string, string>, onLine?: LineSink): DeskChild;
+  /** best-effort: stop the process started by `exec` (the CLI child is killed separately) */
+  killExec?(handle: DeskHandle, argv: string[]): Promise<void>;
+}
+
+/** In-process work sessions (today's `runAgentSession` path). Always available; no code tools. */
+export class HostBackend {
+  readonly kind = "host" as const;
+  async available(): Promise<boolean> {
+    return true;
+  }
+}
+
+export type WorkBackend = DeskBackend | HostBackend;
+
+// ---- docker CLI runner (injectable for tests) ----
+export interface RunResult { code: number; stdout: string; stderr: string }
+export interface SpawnedChild {
+  stdout: NodeJS.ReadableStream | null;
+  stderr: NodeJS.ReadableStream | null;
+  on(event: "exit", cb: (code: number | null, signal: NodeJS.Signals | null) => void): unknown;
+  on(event: "error", cb: (err: Error) => void): unknown;
+  kill(signal?: NodeJS.Signals): unknown;
+}
+export interface DockerRunner {
+  /** one-shot `docker <args>` */
+  run(args: string[], opts?: { timeoutMs?: number }): Promise<RunResult>;
+  /** long-running `docker <args>` with extra env for the docker CLI process */
+  spawn(args: string[], opts: { env: Record<string, string> }): SpawnedChild;
+}
+
+export const realDockerRunner: DockerRunner = {
+  run(args, opts = {}) {
+    return new Promise((resolve) => {
+      execFile("docker", args, { timeout: opts.timeoutMs ?? 120_000, maxBuffer: 4 * 1024 * 1024 }, (err, stdout, stderr) => {
+        const code = err ? (typeof (err as { code?: unknown }).code === "number" ? (err as { code: number }).code : 1) : 0;
+        resolve({ code, stdout: String(stdout ?? ""), stderr: String(stderr ?? "") });
+      });
+    });
+  },
+  spawn(args, opts) {
+    return spawn("docker", args, { env: { ...process.env, ...opts.env }, stdio: ["ignore", "pipe", "pipe"] });
+  },
+};
+
+export interface DockerBackendOptions {
+  /** collective slug, part of the container name: desk-<collective>-<agentId> */
+  collective: string;
+  image?: string;
+  memory?: string;
+  cpus?: string;
+  runner?: DockerRunner;
+}
+
+const safe = (s: string) => s.toLowerCase().replace(/[^a-z0-9_.-]+/g, "-").replace(/^[-.]+|[-.]+$/g, "") || "town";
+
+export class DockerBackend implements DeskBackend {
+  readonly kind = "docker" as const;
+  readonly image: string;
+  private readonly runner: DockerRunner;
+  private readonly collective: string;
+  private readonly memory: string;
+  private readonly cpus: string;
+
+  constructor(opts: DockerBackendOptions) {
+    this.collective = safe(opts.collective);
+    this.image = opts.image ?? "agent-town-desk";
+    this.memory = opts.memory ?? "2g";
+    this.cpus = opts.cpus ?? "2";
+    this.runner = opts.runner ?? realDockerRunner;
+  }
+
+  containerName(agentId: string): string {
+    return `desk-${this.collective}-${safe(agentId)}`;
+  }
+  volumeName(agentId: string): string {
+    return `deskhome-${safe(agentId)}`;
+  }
+
+  async available(): Promise<boolean> {
+    try {
+      return (await this.runner.run(["info"], { timeoutMs: 5000 })).code === 0;
+    } catch {
+      return false;
+    }
+  }
+
+  async ensure(agent: Agent, _building: Building): Promise<DeskHandle> {
+    const name = this.containerName(agent.id);
+    const state = await this.runner.run(["inspect", "-f", "{{.State.Running}}", name], { timeoutMs: 15_000 });
+    if (state.code !== 0) {
+      const r = await this.runner.run([
+        "run", "-d", "--name", name,
+        "-v", `${this.volumeName(agent.id)}:/home/agent`,
+        "--add-host=host.docker.internal:host-gateway",
+        "--memory", this.memory, "--cpus", this.cpus,
+        "--label", "agent-town.desk=1", "--label", `agent-town.agent=${agent.id}`, "--label", `agent-town.collective=${this.collective}`,
+        this.image, "sleep", "infinity",
+      ]);
+      if (r.code !== 0) throw new Error(`docker run ${name} failed: ${r.stderr.trim().slice(0, 300)}`);
+    } else if (state.stdout.trim() !== "true") {
+      const r = await this.runner.run(["start", name], { timeoutMs: 60_000 });
+      if (r.code !== 0) throw new Error(`docker start ${name} failed: ${r.stderr.trim().slice(0, 300)}`);
+    }
+    return { name, agentId: agent.id };
+  }
+
+  exec(handle: DeskHandle, argv: string[], env: Record<string, string>, onLine?: LineSink): DeskChild {
+    // `-e KEY` (no value) makes docker read the value from the CLI's own env: secrets never appear in argv.
+    const envFlags = Object.keys(env).flatMap((k) => ["-e", k]);
+    const child = this.runner.spawn(["exec", ...envFlags, handle.name, ...argv], { env });
+    for (const [stream, src] of [["stdout", child.stdout], ["stderr", child.stderr]] as const) {
+      if (src && onLine) createInterface({ input: src }).on("line", (line) => onLine(stream, line));
+    }
+    const exited = new Promise<number>((resolve) => {
+      child.on("exit", (code, signal) => resolve(code ?? (signal ? 128 : 1)));
+      child.on("error", () => resolve(-1));
+    });
+    return {
+      wait: () => exited,
+      kill: () => {
+        try { child.kill("SIGTERM"); } catch { /* already gone */ }
+        void this.killExec(handle, argv);
+      },
+    };
+  }
+
+  /** `docker exec <name> pkill -TERM -f "<argv>"`: killing the CLI doesn't stop the process inside the container. */
+  async killExec(handle: DeskHandle, argv: string[]): Promise<void> {
+    try { await this.runner.run(["exec", handle.name, "pkill", "-TERM", "-f", argv.join(" ")], { timeoutMs: 10_000 }); } catch { /* best effort */ }
+  }
+}

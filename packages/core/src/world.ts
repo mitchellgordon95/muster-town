@@ -1,4 +1,4 @@
-import type { Agent, AgentStatus, ServerMessage } from "@agent-town/schema";
+import type { Agent, AgentStatus, DesksConfig, ServerMessage } from "@agent-town/schema";
 import { Budget } from "./budget.ts";
 import { openDb, type DB } from "./db.ts";
 import { EventLog } from "./events.ts";
@@ -40,6 +40,7 @@ export class World {
   readonly messages: Repos["messages"];
   readonly meetings: Repos["meetings"];
   readonly sessions: Repos["sessions"];
+  readonly interrupts: Repos["interrupts"];
   readonly tokens: Repos["tokens"];
   readonly town: Repos["town"];
 
@@ -57,6 +58,7 @@ export class World {
     this.buildings = repos.buildings; this.allocations = repos.allocations; this.agents = repos.agents;
     this.places = repos.places; this.docs = repos.docs; this.assignments = repos.assignments;
     this.messages = repos.messages; this.meetings = repos.meetings; this.sessions = repos.sessions;
+    this.interrupts = repos.interrupts;
     this.tokens = repos.tokens; this.town = repos.town;
     this.events = new EventLog(db, this.changes);
     this.permissions = new Permissions(repos);
@@ -72,6 +74,11 @@ export class World {
       if (a) this.agents.upsert({ ...a, activity: e.text, lastActiveAt: e.ts });
     });
     this.layout.rebuild();
+  }
+
+  /** collective.json `desks` as stored at seed (defaults: backend auto, image agent-town-desk, ghToken gh-cli). */
+  desksConfig(): DesksConfig {
+    return this.town.desks();
   }
 
   /** Run `fn` in one SQLite transaction. */

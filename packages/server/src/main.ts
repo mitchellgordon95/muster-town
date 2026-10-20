@@ -5,15 +5,19 @@
  */
 import { World } from "@agent-town/core";
 import { existsSync, mkdirSync, readFileSync } from "node:fs";
-import { dirname, join, resolve } from "node:path";
+import { basename, dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { buildApp } from "./app.ts";
+import { loadEnvFile } from "./env.ts";
 import type { RuntimeHooks } from "./context.ts";
 
 const REPO_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "../../..");
 /** A collective = one instance of the town: <dir>/collective.json + <dir>/data + <dir>/export. */
 const COLLECTIVE_DIR = resolve(REPO_ROOT, process.env.AGENT_TOWN_COLLECTIVE ?? "collectives/climate");
 const COLLECTIVE_JSON = join(COLLECTIVE_DIR, "collective.json");
+
+const envKeys = loadEnvFile(join(COLLECTIVE_DIR, ".env"));
+if (envKeys.length) console.log(`[server] loaded ${envKeys.length} key(s) from ${join(COLLECTIVE_DIR, ".env")}: ${envKeys.join(", ")}`);
 const collectiveCfg = existsSync(COLLECTIVE_JSON) ? (JSON.parse(readFileSync(COLLECTIVE_JSON, "utf8")) as { port?: number; name?: string }) : {};
 const PORT = Number(process.env.PORT ?? collectiveCfg.port ?? 4321);
 const HOST = process.env.HOST ?? "0.0.0.0";
@@ -44,9 +48,9 @@ async function main() {
 
   try {
     const runtimePkg = "@agent-town/runtime"; // variable specifier: the server typechecks and runs without it
-    const mod = (await import(runtimePkg)) as { startRuntime?: (o: { world: World; mcpUrl: string; repoRoot: string }) => RuntimeHooks | Promise<RuntimeHooks> };
+    const mod = (await import(runtimePkg)) as { startRuntime?: (o: { world: World; mcpUrl: string; repoRoot: string; collective: string }) => RuntimeHooks | Promise<RuntimeHooks> };
     if (typeof mod.startRuntime !== "function") throw new Error("@agent-town/runtime does not export startRuntime");
-    app.runtime = await mod.startRuntime({ world, mcpUrl: `${url}/mcp`, repoRoot: REPO_ROOT });
+    app.runtime = await mod.startRuntime({ world, mcpUrl: `${url}/mcp`, repoRoot: REPO_ROOT, collective: basename(COLLECTIVE_DIR) });
     console.log("[server] runtime started");
   } catch (e) {
     console.warn(`[server] runtime not started (${e instanceof Error ? e.message : String(e)}); chat/interrupt return 503`);

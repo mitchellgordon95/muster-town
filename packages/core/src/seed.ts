@@ -1,4 +1,5 @@
 import { CollectiveConfig, Town, type Agent, type Building, type User } from "@agent-town/schema";
+import { execFileSync } from "node:child_process";
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { createBuilding, createResident, createServiceAgent, createUser } from "./entities.ts";
@@ -33,6 +34,23 @@ export interface SeedResult {
   moss: Agent | null;
 }
 
+/** `git -C <path> remote get-url origin`, or undefined when `path` isn't a git repo / has no origin. */
+export function originUrl(path: string): string | undefined {
+  try {
+    const url = execFileSync("git", ["-C", path, "remote", "get-url", "origin"], { stdio: ["ignore", "pipe", "ignore"], timeout: 5000 }).toString().trim();
+    return url || undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+/** A workspace spec gets `repoUrl` from its repo's origin unless given directly. */
+function withRepoUrl<W extends { path: string; repoUrl?: string }>(ws: W): W {
+  if (ws.repoUrl) return ws;
+  const repoUrl = originUrl(ws.path);
+  return repoUrl ? { ...ws, repoUrl } : ws;
+}
+
 /**
  * Seed an empty town: town.json, admin user + token, built-in roles, Town Hall with Ada (service
  * librarian at the library), optional v0 lab import + Moss (moderator) + house allocation; admin manages the lab.
@@ -41,6 +59,13 @@ export interface SeedResult {
 export function seedDefaults(world: World, opts: SeedOptions = {}): SeedResult {
   const existing = world.users.first("1=1", [], "ORDER BY createdAt, rowid");
   if (existing) {
+    // backfill repoUrl for workspaces seeded before desks existed
+    for (const b of world.buildings.all()) {
+      if (b.workspace && !b.workspace.repoUrl && b.workspace.path) {
+        const ws = withRepoUrl(b.workspace);
+        if (ws.repoUrl) world.buildings.patch(b.id, { workspace: ws });
+      }
+    }
     const th = world.buildings.get(TOWN_HALL_ID) ?? world.buildings.first("kind = 'town-hall'")!;
     const lab = world.buildings.first("kind = 'lab'", [], "ORDER BY createdAt") ?? null;
     return {
@@ -78,6 +103,7 @@ export function seedDefaults(world: World, opts: SeedOptions = {}): SeedResult {
     if (opts.collectivePath && existsSync(opts.collectivePath)) {
       const cfg = CollectiveConfig.parse(JSON.parse(readFileSync(opts.collectivePath, "utf8")));
       const dir = dirname(resolve(opts.collectivePath));
+      if (cfg.desks) world.town.setDesks(cfg.desks);
       for (const spec of cfg.buildings) {
         let b: Building;
         if (spec.import) {
@@ -88,7 +114,7 @@ export function seedDefaults(world: World, opts: SeedOptions = {}): SeedResult {
             name: spec.name ?? id, goal: spec.goal ?? "", description: spec.description ?? "", headcount: spec.headcount ?? Math.max(spec.residents.length + 1, 3),
             reviewPolicy: spec.reviewPolicy ?? "human", model: spec.model, cheapModel: spec.cheapModel, maxTurnsPerSession: spec.maxTurnsPerSession,
             dailyTokensPerAgent: spec.dailyTokensPerAgent, meetings: spec.meetings,
-            workspace: spec.workspace ? { ...spec.workspace, path: resolve(dir, spec.workspace.path) } : undefined,
+            workspace: spec.workspace ? withRepoUrl({ ...spec.workspace, path: resolve(dir, spec.workspace.path) }) : undefined,
           }, admin.id, { id });
           spec.residents.forEach((r, i) => createResident(world, { buildingId: b.id, name: r.name, title: r.title, direction: r.direction, sprite: r.sprite ?? (i + 1) % 7, model: r.model }));
         }

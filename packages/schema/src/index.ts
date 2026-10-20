@@ -115,6 +115,8 @@ export const Workspace = z.object({
   branchPrefix: z.string().default("agent"),
   /** base branch to fork worktrees from */
   base: z.string().default("main"),
+  /** clone URL desks use (set at seed from `git remote get-url origin` of `path`, or given directly) */
+  repoUrl: z.string().optional(),
 });
 export type Workspace = z.infer<typeof Workspace>;
 
@@ -341,6 +343,8 @@ export const Session = z.object({
   assignmentId: Id.nullable(),
   meetingId: Id.nullable().default(null),
   purpose: z.enum(["work", "review", "facilitate", "summary"]),
+  /** where the session runs: in-process on the host, or inside the agent's desk container */
+  backend: z.enum(["host", "docker"]).default("host"),
   status: SessionStatus,
   model: z.string(),
   sdkSessionId: z.string().nullable().default(null),
@@ -353,6 +357,18 @@ export const Session = z.object({
   endedAt: Iso.nullable().default(null),
 });
 export type Session = z.infer<typeof Session>;
+
+/** A human's message for an agent whose session runs outside the server process (queued; the desk polls). */
+export const Interrupt = z.object({
+  id: Id,
+  agentId: Id,
+  sessionId: Id.nullable().default(null),
+  text: z.string(),
+  from: z.string(),
+  createdAt: Iso,
+  deliveredAt: Iso.nullable().default(null),
+});
+export type Interrupt = z.infer<typeof Interrupt>;
 
 // ---------- events (append-only activity log) ----------
 export const EventType = z.enum([
@@ -521,9 +537,79 @@ export const CollectiveBuildingSpec = z.object({
   /** house allocation for this building, in tokens */
   houseTokens: z.number().int().nonnegative().optional(),
 });
+/** How resident work sessions run: in a desk container (docker), in-process (host), or docker when available (auto). */
+export const DesksConfig = z.object({
+  backend: z.enum(["docker", "host", "auto"]).default("auto"),
+  image: z.string().default("agent-town-desk"),
+  /** where desks get GH_TOKEN: `gh auth token` on the host, the host's GH_TOKEN env, or none */
+  ghToken: z.enum(["gh-cli", "env", "none"]).default("gh-cli"),
+});
+export type DesksConfig = z.infer<typeof DesksConfig>;
+
 export const CollectiveConfig = Town.extend({
   port: z.number().int().positive().optional(),
+  desks: DesksConfig.optional(),
   buildings: z.array(CollectiveBuildingSpec).default([]),
 });
 export type CollectiveConfig = z.infer<typeof CollectiveConfig>;
 export type CollectiveBuildingSpec = z.infer<typeof CollectiveBuildingSpec>;
+
+// ---------- desks: agent-scoped API (bearer agent token; the desk process inside the container calls these) ----------
+export const DeskWorkspace = z.object({
+  repoUrl: z.string(),
+  base: z.string(),
+  branch: z.string(),
+  branchPrefix: z.string(),
+  /** checkout dir inside the desk, /home/agent/work/<repoName> */
+  dir: z.string(),
+});
+export type DeskWorkspace = z.infer<typeof DeskWorkspace>;
+
+/** GET /api/agents/me/brief?session= */
+export const DeskBrief = z.object({
+  agent: Agent,
+  building: Building,
+  town: Town,
+  assignment: Assignment.nullable(),
+  session: Session,
+  /** appended to the claude_code system prompt preset */
+  system: z.string(),
+  /** first user message */
+  prompt: z.string(),
+  workspace: DeskWorkspace.optional(),
+});
+export type DeskBrief = z.infer<typeof DeskBrief>;
+
+/** POST /api/agents/me/activity → 204 */
+export const DeskActivityInput = z.object({
+  session: Id,
+  kind: z.enum(["tool", "thought", "status"]),
+  tool: z.string().optional(),
+  input: z.unknown().optional(),
+  text: z.string().optional(),
+});
+export type DeskActivityInput = z.infer<typeof DeskActivityInput>;
+
+/** GET /api/agents/me/control?session= */
+export const DeskControl = z.object({
+  interrupts: z.array(z.object({ id: Id, text: z.string(), from: z.string() })),
+  stop: z.boolean(),
+});
+export type DeskControl = z.infer<typeof DeskControl>;
+
+/** POST /api/agents/me/control/ack → 204 */
+export const DeskControlAckInput = z.object({ ids: z.array(Id) });
+export type DeskControlAckInput = z.infer<typeof DeskControlAckInput>;
+
+/** POST /api/agents/me/session-end → { session } */
+export const DeskSessionEndInput = z.object({
+  session: Id,
+  tokens: z.number().nonnegative().default(0),
+  costUsd: z.number().nonnegative().default(0),
+  turns: z.number().int().nonnegative().default(0),
+  sdkSessionId: z.string().nullable().optional(),
+  finalText: z.string().nullable().optional(),
+  error: z.string().nullable().optional(),
+  reportSubmitted: z.boolean().default(false),
+});
+export type DeskSessionEndInput = z.infer<typeof DeskSessionEndInput>;

@@ -10,6 +10,7 @@ import { ZodError } from "zod";
 import { bearer, resolveToken, type RuntimeHooks } from "./context.ts";
 import { mcpRoutes } from "./mcp.ts";
 import { agentRoutes } from "./routes/agents.ts";
+import { deskRoutes } from "./routes/desk.ts";
 import { docRoutes } from "./routes/docs.ts";
 import { townRoutes } from "./routes/town.ts";
 import { wsRoutes } from "./ws.ts";
@@ -54,6 +55,7 @@ export async function buildApp(opts: BuildAppOptions): Promise<FastifyInstance> 
   });
 
   await app.register(townRoutes);
+  await app.register(deskRoutes);
   await app.register(agentRoutes);
   await app.register(docRoutes);
   await app.register(wsRoutes);

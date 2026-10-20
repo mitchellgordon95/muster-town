@@ -55,7 +55,7 @@ export class MockApi implements Api {
     const reports = [...this.sim.docs.values()].filter((d) => d.type === "report" && d.authorId === id).sort((a, b) => b.createdAt.localeCompare(a.createdAt));
     return clone({
       agent, recentEvents: this.sim.events.filter((e) => e.agentId === id).slice(-50),
-      currentSession: agent.status === "working" ? { id: `se_${id}`, agentId: id, assignmentId: agent.currentAssignmentId, meetingId: null, purpose: "work" as const, status: "running" as const, model: agent.model ?? "claude-opus-5-5", sdkSessionId: null, tokens: agent.spentTokensToday, costUsd: agent.spentUsdTotal, turns: 12, reportId: null, error: null, startedAt: new Date(Date.now() - 15 * 60_000).toISOString(), endedAt: null } : null,
+      currentSession: agent.status === "working" ? { id: `se_${id}`, agentId: id, assignmentId: agent.currentAssignmentId, meetingId: null, purpose: "work" as const, backend: "host" as const, status: "running" as const, model: agent.model ?? "claude-opus-5-5", sdkSessionId: null, tokens: agent.spentTokensToday, costUsd: agent.spentUsdTotal, turns: 12, reportId: null, error: null, startedAt: new Date(Date.now() - 15 * 60_000).toISOString(), endedAt: null } : null,
       latestReport: reports[0] ?? null,
       assignments: [...this.sim.assignments.values()].filter((a) => a.agentId === id).sort((a, b) => b.createdAt.localeCompare(a.createdAt)),
     });
