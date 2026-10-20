@@ -111,6 +111,16 @@ const PAL: Record<string, string> = {
 const TROPHY_PAL = { ...PAL, c: "#2b3d55", K: "#3a2a1a" };
 const PLANT_PAL = { ...PAL, o: "#a0522d" };
 
+/** A lone desk tile (odd-length runs, e.g. the 3-seat mod station): the desk body without the half monitor. */
+function plainDesk(sheet: HTMLCanvasElement) {
+  const c = document.createElement("canvas"); c.width = T; c.height = T;
+  const g = c.getContext("2d")!;
+  g.drawImage(sheet, 0, 8, T, 8, 0, 8, T, 8);
+  g.drawImage(sheet, T * 2 - 2, 8, 2, 8, T - 2, 8, 2, 8); // right edge
+  g.fillStyle = "#e8e2d0"; g.fillRect(4, 5, 7, 4); g.fillStyle = "#9a9db3"; g.fillRect(5, 6, 5, 1); // papers
+  return c;
+}
+
 let tileCache: Record<string, HTMLCanvasElement> | null = null;
 export function tiles(): Record<string, HTMLCanvasElement> {
   if (tileCache) return tileCache;
@@ -123,7 +133,7 @@ export function tiles(): Record<string, HTMLCanvasElement> {
   tileCache = {
     grass: pixelCanvas([GRASS], PAL), path: pixelCanvas([PATH], PAL), wood: pixelCanvas([WOOD], PAL),
     stone: pixelCanvas([STONE], PAL), wallFace: pixelCanvas([WALL_FACE], PAL), wallTop: pixelCanvas([WALL_TOP], PAL),
-    deskL: half(0), deskR: half(T), shelf: pixelCanvas([SHELF], PAL), plant: pixelCanvas([PLANT], PLANT_PAL),
+    deskL: half(0), deskR: half(T), deskPlain: plainDesk(deskSheet), shelf: pixelCanvas([SHELF], PAL), plant: pixelCanvas([PLANT], PLANT_PAL),
     trophy: pixelCanvas([TROPHY], TROPHY_PAL),
   };
   return tileCache;
@@ -159,9 +169,62 @@ export function drawDoor(g: CanvasRenderingContext2D, px: number, py: number) {
   g.fillStyle = "#a84a4a"; g.fillRect(px + 4, py + 5, T - 8, 7);
 }
 
+/** The manager's desk: a one-tile desk with an in-tray of papers on it. */
+export function drawManagerDesk(g: CanvasRenderingContext2D, px: number, py: number) {
+  g.fillStyle = "#6b4a2b"; g.fillRect(px, py + 7, T, 7);
+  g.fillStyle = "#8a6236"; g.fillRect(px + 1, py + 8, T - 2, 5);
+  g.fillStyle = "#a8774a"; g.fillRect(px + 1, py + 8, T - 2, 1);
+  g.fillStyle = "#6b4a2b"; g.fillRect(px + 1, py + 14, 2, 2); g.fillRect(px + T - 3, py + 14, 2, 2);
+  // the tray: a slate box with papers sticking out
+  g.fillStyle = "#f2efe6"; g.fillRect(px + 3, py + 1, 7, 5);
+  g.fillStyle = "#e8e2d0"; g.fillRect(px + 4, py + 0, 6, 2);
+  g.fillStyle = "#9a9db3"; g.fillRect(px + 4, py + 2, 5, 1); g.fillRect(px + 4, py + 4, 4, 1);
+  g.fillStyle = "#4a5070"; g.fillRect(px + 2, py + 5, 9, 4);
+  g.fillStyle = "#6a7194"; g.fillRect(px + 2, py + 5, 9, 1);
+  // nameplate
+  g.fillStyle = "#e8b840"; g.fillRect(px + 12, py + 5, 3, 3);
+  g.fillStyle = "#b8862a"; g.fillRect(px + 12, py + 7, 3, 1);
+}
+/** A cork board hung on a wall face (the building board). Draw the wall first. */
+export function drawBoard(g: CanvasRenderingContext2D, px: number, py: number) {
+  g.fillStyle = "#5a3d22"; g.fillRect(px + 1, py + 2, T - 2, 11);
+  g.fillStyle = "#c9a26b"; g.fillRect(px + 2, py + 3, T - 4, 9);
+  g.fillStyle = "#f2efe6"; g.fillRect(px + 3, py + 4, 4, 4); g.fillRect(px + 9, py + 5, 4, 5);
+  g.fillStyle = "#cfe9ff"; g.fillRect(px + 4, py + 8, 4, 3);
+  g.fillStyle = "#9a9db3"; g.fillRect(px + 10, py + 7, 2, 1); g.fillRect(px + 4, py + 6, 2, 1);
+  g.fillStyle = "#c94f4f"; g.fillRect(px + 5, py + 4, 1, 1); g.fillRect(px + 11, py + 5, 1, 1);
+  g.fillStyle = "#4f8fc9"; g.fillRect(px + 6, py + 8, 1, 1);
+}
+/** Donation box: a blue box with a coin slot and a gold coin going in. */
+export function drawDonation(g: CanvasRenderingContext2D, px: number, py: number) {
+  g.fillStyle = "rgba(0,0,0,.25)"; g.fillRect(px + 3, py + 14, 11, 2);
+  g.fillStyle = "#2f5f93"; g.fillRect(px + 3, py + 6, 10, 9);
+  g.fillStyle = "#3d78b5"; g.fillRect(px + 4, py + 7, 8, 7);
+  g.fillStyle = "#24496f"; g.fillRect(px + 3, py + 5, 10, 2);
+  g.fillStyle = "#14151c"; g.fillRect(px + 6, py + 5, 4, 1);
+  g.fillStyle = "#e8b840"; g.fillRect(px + 7, py + 1, 2, 4);
+  g.fillStyle = "#b8862a"; g.fillRect(px + 8, py + 1, 1, 4);
+  // heart
+  g.fillStyle = "#ff8fa3"; g.fillRect(px + 6, py + 9, 1, 2); g.fillRect(px + 9, py + 9, 1, 2); g.fillRect(px + 7, py + 10, 2, 2);
+}
+/** Schedule board: a free-standing whiteboard with a calendar grid. */
+export function drawSchedule(g: CanvasRenderingContext2D, px: number, py: number) {
+  g.fillStyle = "#3a2716"; g.fillRect(px + 2, py + 11, 2, 5); g.fillRect(px + T - 4, py + 11, 2, 5);
+  g.fillStyle = "#2a2d3a"; g.fillRect(px, py + 1, T, 11);
+  g.fillStyle = "#f2efe6"; g.fillRect(px + 1, py + 2, T - 2, 9);
+  g.fillStyle = "#c79bff"; g.fillRect(px + 1, py + 2, T - 2, 2);
+  g.fillStyle = "#c5c8d6";
+  for (let x = 5; x < T - 1; x += 4) g.fillRect(px + x, py + 4, 1, 7);
+  g.fillRect(px + 1, py + 7, T - 2, 1);
+  g.fillStyle = "#6fdc8c"; g.fillRect(px + 2, py + 5, 2, 1);
+  g.fillStyle = "#ffcf5e"; g.fillRect(px + 10, py + 5, 2, 1); g.fillRect(px + 6, py + 9, 2, 1);
+  g.fillStyle = "#7cc4ff"; g.fillRect(px + 2, py + 9, 2, 1);
+}
+
+export type IconKind = "library" | "trophy" | "outbox" | "meeting" | "building" | "admin" | "intray" | "board" | "donation" | "schedule" | "mod" | "planning";
 const iconCache = new Map<string, string>();
 /** Tile-art icons for panel headers (2x scale). */
-export function iconUrl(kind: "library" | "trophy" | "outbox" | "meeting" | "building" | "admin"): string {
+export function iconUrl(kind: IconKind): string {
   const hit = iconCache.get(kind);
   if (hit) return hit;
   const tl = tiles();
@@ -176,6 +239,18 @@ export function iconUrl(kind: "library" | "trophy" | "outbox" | "meeting" | "bui
     case "outbox": drawCounter(g, 0, 2, { l: false, r: false }, true); break;
     case "meeting": drawTable(g, 0, 0, { l: false, r: false, u: false, d: false }); break;
     case "admin": g.drawImage(tl.plant, 2, 0); break;
+    case "intray": drawManagerDesk(g, 0, 0); break;
+    case "board": g.drawImage(tl.wallFace, 0, 0); drawBoard(g, 0, 0); break;
+    case "donation": drawDonation(g, 0, 0); break;
+    case "schedule": drawSchedule(g, 0, 0); break;
+    case "mod": g.drawImage(tl.deskL, 0, 0); g.fillStyle = "#7a8a6a"; g.fillRect(9, 9, 5, 4); g.fillStyle = "#e8e9f0"; g.fillRect(10, 10, 3, 1); break;
+    case "planning": {
+      g.drawImage(tl.deskL, 0, 0);
+      // a rolled-out plan
+      g.fillStyle = "#cfe9ff"; g.fillRect(3, 6, 10, 5);
+      g.fillStyle = "#4f8fc9"; g.fillRect(4, 7, 3, 3); g.fillRect(8, 8, 4, 1); g.fillRect(8, 10, 3, 1);
+      break;
+    }
     case "building": {
       g.drawImage(tl.wallFace, 0, 2);
       g.fillStyle = "#2e3248"; g.fillRect(0, 0, T, 3);

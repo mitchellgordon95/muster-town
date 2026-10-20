@@ -6,14 +6,27 @@ import type { Agent, Place } from "@agent-town/schema";
 import { store, type PanelRef } from "../state";
 import { World } from "./world";
 import { T, CHAR_W, CHAR_H, charSheet, tiles, HUMAN_SPRITE } from "./sprites";
-import { bubbleFor, drawBubble, drawLabel, drawSign, type Bubble } from "./overlay";
+import { bubbleFor, drawBadge, drawBubble, drawLabel, drawSign, type Bubble } from "./overlay";
 
 export interface Target { label: string; panel: PanelRef; agentId?: string }
 interface Body { x: number; y: number; fx: number; fy: number; tx: number; ty: number; t0: number; dur: number; moving: boolean; key: string }
 
 const SPEED = 5 * T; // px per second
+/** auto-walk (walkTo) speed: a bit faster than the keys so a notice doesn't take forever */
+const ROUTE_SPEED = 11 * T;
 const INTERACT_PX = 26;
-const PLACE_PANEL: Partial<Record<Place["kind"], (p: Place) => PanelRef & { verb: string }>> = {
+const bname = (p: Place) => store.state.buildings.find((b) => b.id === p.buildingId)?.name ?? "the building";
+/** Every panel is a place: what E opens when you stand at each place kind. */
+export const PLACE_PANEL: Partial<Record<Place["kind"], (p: Place) => PanelRef & { verb: string }>> = {
+  board: (p) => ({ kind: "board", id: p.buildingId ?? undefined, verb: `Read the ${bname(p)} board` }),
+  intray: (p) => {
+    const n = store.state.buildings.find((b) => b.id === p.buildingId)?.intray ?? 0;
+    return { kind: "intray", id: p.buildingId ?? undefined, verb: `Check the in-tray${n ? ` (${n} waiting)` : ""}` };
+  },
+  planning: () => ({ kind: "planning", verb: "Use the planning desk" }),
+  donation: () => ({ kind: "donation", verb: "Donate tokens" }),
+  schedule: () => ({ kind: "schedule", verb: "Read the meeting schedule" }),
+  "mod-station": () => ({ kind: "mod", verb: "Visit the mod station" }),
   library: () => ({ kind: "library", verb: "Browse the library" }),
   "trophy-room": () => ({ kind: "trophy", verb: "Visit the trophy room" }),
   outbox: () => ({ kind: "outbox", verb: "Check the outbox" }),
@@ -27,6 +40,9 @@ export class MapRenderer {
   private gridVersion = -1;
   private bodies = new Map<string, Body>();
   private me = { x: 0, y: 0, placed: false, moving: false, lastTile: "" };
+  /** auto-walk: remaining tiles, and what to do on arrival */
+  private route: { x: number; y: number }[] | null = null;
+  private onArrive: (() => void) | null = null;
   private keys = new Set<string>();
   private cam = { x: 0, y: 0, init: false };
   zoom = 3;
@@ -64,6 +80,22 @@ export class MapRenderer {
     const opts = [[1, 0], [-1, 0], [0, 1], [1, 1], [-1, 1], [0, -1]];
     const spot = opts.map(([dx, dy]) => ({ x: ax + dx, y: ay + dy })).find((t) => this.world!.walkable(t.x, t.y)) ?? this.world.nearestWalkable(ax, ay);
     this.placeMe(spot.x, spot.y);
+    return true;
+  }
+  /**
+   * Walk the avatar to a place along a path (teleport if there is none, or it's very long), then open `panel`.
+   * Arrow keys cancel the walk.
+   */
+  walkToPlace(placeId: string, panel?: PanelRef): boolean {
+    const p = store.state.places.find((x) => x.id === placeId);
+    if (!p || !this.world) return false;
+    const goal = this.world.walkable(p.pos.x, p.pos.y) ? p.pos : this.world.nearestWalkable(p.pos.x, p.pos.y);
+    const from = { x: Math.floor(this.me.x / T), y: Math.floor((this.me.y - 1) / T) };
+    const path = this.world.path(from, goal);
+    const arrive = () => { if (panel) store.open(panel); };
+    if (!path || path.length > 140) { this.route = null; this.placeMe(goal.x, goal.y); arrive(); return true; }
+    if (!path.length) { this.route = null; this.placeMe(goal.x, goal.y); arrive(); return true; }
+    this.route = path; this.onArrive = arrive;
     return true;
   }
   teleportToTile(x: number, y: number) { if (this.world) { const s = this.world.nearestWalkable(x, y); this.placeMe(s.x, s.y); } }
@@ -126,6 +158,8 @@ export class MapRenderer {
     if (k.has("arrowright") || k.has("d")) vx += 1;
     if (k.has("arrowup") || k.has("w")) vy -= 1;
     if (k.has("arrowdown") || k.has("s")) vy += 1;
+    if ((vx || vy) && this.route) { this.route = null; this.onArrive = null; }
+    if (!vx && !vy && this.route) { this.followRoute(dt); return; }
     this.me.moving = !!(vx || vy);
     if (!this.me.moving) return;
     const norm = vx && vy ? Math.SQRT1_2 : 1;
@@ -137,6 +171,20 @@ export class MapRenderer {
     if (vx && free(this.me.x + vx * step, this.me.y)) this.me.x += vx * step;
     if (vy && free(this.me.x, this.me.y + vy * step)) this.me.y += vy * step;
     this.sendTile(false);
+  }
+
+  private followRoute(dt: number) {
+    const r = this.route!;
+    let budget = ROUTE_SPEED * dt;
+    while (budget > 0 && r.length) {
+      const tx = r[0].x * T + T / 2, ty = r[0].y * T + T - 2;
+      const dx = tx - this.me.x, dy = ty - this.me.y, d = Math.hypot(dx, dy);
+      if (d <= budget) { this.me.x = tx; this.me.y = ty; budget -= d; r.shift(); }
+      else { this.me.x += (dx / d) * budget; this.me.y += (dy / d) * budget; budget = 0; }
+    }
+    this.me.moving = r.length > 0;
+    this.sendTile(false);
+    if (!r.length) { const f = this.onArrive; this.route = null; this.onArrive = null; this.sendTile(true); f?.(); }
   }
 
   private sendTile(force: boolean) {
@@ -156,7 +204,7 @@ export class MapRenderer {
   private updateBodies(now: number) {
     const s = store.state;
     for (const a of Object.values(s.agents)) {
-      if (a.id === store.avatarId) continue;
+      if (a.id === store.avatarId || a.status === "retired") continue;
       const lp = store.livePos.get(a.id) ?? { ...a.pos, at: now };
       const off = this.world!.seatOffset(lp.x, lp.y);
       const tx = lp.x * T + T / 2 + off.dx, ty = lp.y * T + T - 2 + off.dy;
@@ -174,25 +222,24 @@ export class MapRenderer {
       b.x = b.fx + (b.tx - b.fx) * p; b.y = b.fy + (b.ty - b.fy) * p;
       b.moving = p < 1 || a.status === "walking";
     }
-    for (const id of this.bodies.keys()) if (!s.agents[id]) this.bodies.delete(id);
+    for (const id of this.bodies.keys()) if (!s.agents[id] || s.agents[id].status === "retired") this.bodies.delete(id);
   }
 
   private updateTarget() {
     const s = store.state;
+    // nearest of agents and places wins, so standing on a place's spot (e.g. the mod station, next to the
+    // seated moderators) targets the place, and stepping toward an agent targets the agent
     let best: Target | null = null, bd = INTERACT_PX;
     for (const a of Object.values(s.agents)) {
-      if (a.id === store.avatarId) continue;
+      if (a.id === store.avatarId || a.status === "retired") continue;
       const b = this.bodies.get(a.id); if (!b) continue;
       const d = Math.hypot(b.x - this.me.x, b.y - this.me.y);
       if (d < bd) { bd = d; best = { label: `Talk to ${a.name}${a.title ? ` · ${a.title}` : ""}`, panel: { kind: "agent", id: a.id }, agentId: a.id }; }
     }
-    if (!best) {
-      bd = INTERACT_PX;
-      for (const p of s.places) {
-        const f = PLACE_PANEL[p.kind]; if (!f) continue;
-        const d = Math.hypot(p.pos.x * T + T / 2 - this.me.x, p.pos.y * T + T - 2 - this.me.y);
-        if (d < bd) { bd = d; const { verb, ...panel } = f(p); best = { label: verb, panel }; }
-      }
+    for (const p of s.places) {
+      const f = PLACE_PANEL[p.kind]; if (!f) continue;
+      const d = Math.hypot(p.pos.x * T + T / 2 - this.me.x, p.pos.y * T + T - 2 - this.me.y);
+      if (d < bd) { bd = d; const { verb, ...panel } = f(p); best = { label: verb, panel }; }
     }
     const same = best?.label === this.target?.label && best?.panel.id === this.target?.panel.id;
     if (!same) { this.target = best; this.onTarget?.(best); }
@@ -232,7 +279,7 @@ export class MapRenderer {
     type D = { id: string; a: Agent | null; x: number; y: number; moving: boolean };
     const list: D[] = [];
     for (const a of Object.values(s.agents)) {
-      if (a.id === store.avatarId) continue;
+      if (a.id === store.avatarId || a.status === "retired") continue;
       const b = this.bodies.get(a.id); if (b) list.push({ id: a.id, a, x: b.x, y: b.y, moving: b.moving });
     }
     const meAgent = store.avatarId ? s.agents[store.avatarId] ?? null : null;
@@ -256,6 +303,14 @@ export class MapRenderer {
       const p = toScreen((b.lot.x + b.lot.w / 2) * T, b.lot.y * T - 3);
       const sub = b.kind === "town-hall" ? (s.town?.name ?? "") : b.goal.length > 56 ? b.goal.slice(0, 55) + "…" : b.goal;
       if (p.x > -300 && p.x < cw + 300 && p.y > -40 && p.y < ch + 60) drawSign(g, p.x, p.y, b.name, sub);
+    }
+    // in-tray badges on the managers' desks (the desk is the tile above the place's standing spot)
+    for (const b of s.buildings) {
+      if (!b.intray) continue;
+      const p = s.places.find((x) => x.id === `intray:${b.id}`);
+      if (!p) continue;
+      const q = toScreen(p.pos.x * T + T - 2, (p.pos.y - 1) * T + 1);
+      if (q.x > -40 && q.x < cw + 40 && q.y > -40 && q.y < ch + 40) drawBadge(g, q.x, q.y, b.intray);
     }
     this.hitboxes = [];
     const targetId = this.target?.agentId;

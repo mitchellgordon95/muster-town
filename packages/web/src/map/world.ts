@@ -2,7 +2,7 @@
 import { TILE, WALKABLE } from "@agent-town/schema";
 import type { Building, Place } from "@agent-town/schema";
 import type { Grid } from "../api";
-import { T, tiles, drawTable, drawCounter, drawDoor } from "./sprites";
+import { T, tiles, drawTable, drawCounter, drawDoor, drawManagerDesk, drawBoard, drawDonation, drawSchedule } from "./sprites";
 
 export class World {
   readonly w: number;
@@ -46,6 +46,30 @@ export class World {
     return i;
   }
 
+  /** Shortest 4-neighbour path over walkable tiles, excluding `from`; null when unreachable. */
+  path(from: { x: number; y: number }, to: { x: number; y: number }): { x: number; y: number }[] | null {
+    const W = this.w, start = from.y * W + from.x, goal = to.y * W + to.x;
+    if (start === goal) return [];
+    const prev = new Int32Array(this.w * this.h).fill(-1);
+    prev[start] = start;
+    const q = [start];
+    for (let i = 0; i < q.length; i++) {
+      const cur = q[i];
+      if (cur === goal) break;
+      const x = cur % W, y = (cur / W) | 0;
+      for (const [dx, dy] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) {
+        const nx = x + dx, ny = y + dy;
+        if (!this.walkable(nx, ny)) continue;
+        const ni = ny * W + nx;
+        if (prev[ni] === -1) { prev[ni] = cur; q.push(ni); }
+      }
+    }
+    if (prev[goal] === -1) return null;
+    const out: { x: number; y: number }[] = [];
+    for (let c = goal; c !== start; c = prev[c]) out.push({ x: c % W, y: (c / W) | 0 });
+    return out.reverse();
+  }
+
   /** Nearest walkable tile to (x,y), searching outward. */
   nearestWalkable(x: number, y: number): { x: number; y: number } {
     for (let r = 0; r < 8; r++)
@@ -69,14 +93,23 @@ export class World {
         // ground under furniture
         if (k === TILE.GRASS || k === TILE.PLANT && !b) g.drawImage(tl.grass, px, py);
         else if (k === TILE.PATH) g.drawImage(tl.path, px, py);
-        else if (k !== TILE.WALL) g.drawImage(floor, px, py);
+        else if (k !== TILE.WALL && k !== TILE.BOARD) g.drawImage(floor, px, py);
         switch (k) {
           case TILE.WALL: g.drawImage(this.at(x, y + 1) === TILE.WALL ? tl.wallTop : tl.wallFace, px, py); break;
-          case TILE.DESK: g.drawImage(this.deskRunIndex(x, y) % 2 === 0 ? tl.deskL : tl.deskR, px, py); break;
+          case TILE.DESK: {
+            const i = this.deskRunIndex(x, y);
+            const lone = i % 2 === 0 && this.at(x + 1, y) !== TILE.DESK;
+            g.drawImage(lone ? tl.deskPlain : i % 2 === 0 ? tl.deskL : tl.deskR, px, py);
+            break;
+          }
           case TILE.SHELF: g.drawImage(tl.shelf, px, py); break;
           case TILE.PLANT: g.drawImage(tl.plant, px, py); break;
           case TILE.TROPHY: g.drawImage(tl.trophy, px, py); break;
           case TILE.DOOR: drawDoor(g, px, py); break;
+          case TILE.MANAGER_DESK: drawManagerDesk(g, px, py); break;
+          case TILE.BOARD: g.drawImage(tl.wallFace, px, py); drawBoard(g, px, py); break;
+          case TILE.DONATION: drawDonation(g, px, py); break;
+          case TILE.SCHEDULE: drawSchedule(g, px, py); break;
           case TILE.TABLE: drawTable(g, px, py, {
             l: this.at(x - 1, y) === TILE.TABLE, r: this.at(x + 1, y) === TILE.TABLE,
             u: this.at(x, y - 1) === TILE.TABLE, d: this.at(x, y + 1) === TILE.TABLE,

@@ -1,11 +1,11 @@
-/** Building panel: goal, members, budget, board, meetings, roles, settings (managers). */
-import { useMemo, useState } from "react";
-import type { Building, Doc, Meeting } from "@agent-town/schema";
+/** Building panel (E at the door): overview, members + roles, meetings, settings (managers). Board and in-tray are places. */
+import { useMemo, useState, type ReactNode } from "react";
+import type { Meeting, SnapshotBuilding, Workspace } from "@agent-town/schema";
 import { api } from "../api";
 import { store, useTown } from "../state";
-import { DocRow, DocView } from "./DocView";
 import { Glyph, PanelShell } from "./PanelShell";
 import { Meter } from "./AgentPanel";
+import { DismissButton, canDismiss } from "./Dismiss";
 import { Act, Empty, ErrorLine, Field, KV, Loading, Pill, Section, StatusPill, fmtTokens, nameOf, timeAgo, usd, useLoad } from "./ui";
 import { portraitUrl } from "../map/sprites";
 
@@ -13,15 +13,14 @@ export function BuildingPanel({ id, tab }: { id: string; tab?: string }) {
   const b = useTown((s) => s.buildings.find((x) => x.id === id));
   useTown((s) => s.me);
   if (!b) return <PanelShell title="Unknown building"><Empty>No building with id {id}.</Empty></PanelShell>;
-  const tabs = ["Overview", "Board", "Meetings", "Roles", ...(store.can("building.manage", id) ? ["Settings"] : [])];
+  const tabs = ["Overview", "Members", "Meetings", ...(store.can("building.manage", id) ? ["Settings"] : [])];
   return (
-    <PanelShell icon={<Glyph kind="building" />} title={b.name} subtitle={`${b.kind === "town-hall" ? "Town Hall" : "Lab"} · review: ${b.reviewPolicy}`} tabs={tabs} initialTab={tab && tabs.includes(tab) ? tab : "Overview"}>
+    <PanelShell icon={<Glyph kind="building" />} title={b.name} subtitle={`${b.kind === "town-hall" ? "Town Hall" : "Lab"} · review: ${b.reviewPolicy}${b.workspace ? ` · merge: ${b.workspace.merge}` : ""}`} tabs={tabs} initialTab={tab && tabs.includes(tab) ? tab : "Overview"}>
       {(t) => (
         <>
           {t === "Overview" ? <Overview b={b} /> : null}
-          {t === "Board" ? <Board b={b} /> : null}
+          {t === "Members" ? <Members b={b} /> : null}
           {t === "Meetings" ? <MeetingsTab b={b} /> : null}
-          {t === "Roles" ? <RolesTab buildingId={b.id} /> : null}
           {t === "Settings" ? <Settings b={b} /> : null}
         </>
       )}
@@ -29,58 +28,78 @@ export function BuildingPanel({ id, tab }: { id: string; tab?: string }) {
   );
 }
 
-function Overview({ b }: { b: Building }) {
+/** Walk the avatar to a place and open its panel; falls back to just opening the panel. */
+export function walk(placeId: string, panel: Parameters<typeof store.open>[0]) {
+  if (!store.walkTo(placeId, panel ?? undefined)) store.open(panel);
+}
+
+function Overview({ b }: { b: SnapshotBuilding }) {
   const agents = useTown((s) => s.agents);
-  const members = useMemo(() => Object.values(agents).filter((a) => (a.homeBuildingId ?? a.buildingId) === b.id && a.kind !== "human"), [agents, b.id]);
+  const members = useMemo(() => Object.values(agents).filter((a) => (a.homeBuildingId ?? a.buildingId) === b.id && a.kind === "resident"), [agents, b.id]);
   const budget = useLoad(() => api().budget(), [b.id]);
   const row = budget.data?.buildings.find((x) => x.buildingId === b.id);
+  const places = useTown((s) => s.places);
+  const hasBoard = places.some((p) => p.id === `board:${b.id}`);
+  const hasTray = places.some((p) => p.id === `intray:${b.id}`);
   return (
     <>
       {b.goal ? <div className="goal-card"><span>Goal</span>{b.goal}</div> : null}
       {b.description ? <p className="direction">{b.description}</p> : null}
+      {hasBoard || hasTray ? (
+        <div className="walk-links">
+          {hasBoard ? <button className="walk-link" onClick={() => walk(`board:${b.id}`, { kind: "board", id: b.id })}><Glyph kind="board" /><span>Walk to the board</span></button> : null}
+          {hasTray ? (
+            <button className="walk-link" onClick={() => walk(`intray:${b.id}`, { kind: "intray", id: b.id })}>
+              <Glyph kind="intray" /><span>Walk to the in-tray</span>{b.intray ? <Pill tone="warn">{b.intray} waiting</Pill> : null}
+            </button>
+          ) : null}
+        </div>
+      ) : null}
       {b.kind !== "town-hall" ? (
         <KV items={[
           ["Budget", row ? <>{fmtTokens(row.allocated - row.spent)} left of {fmtTokens(row.allocated)} <Meter v={row.allocated ? row.spent / row.allocated : 0} /></> : budget.loading ? "…" : "no allocation"],
           ["Spent", row?.spentUsd !== undefined ? usd(row.spentUsd) : "—"],
           ["Models", `${b.model} · cheap: ${b.cheapModel}`],
           ["Daily / agent", `${fmtTokens(b.dailyTokensPerAgent)} tokens`],
-          ["Desks", `${members.filter((m) => m.kind === "resident").length} / ${b.headcount}`],
+          ["Desks", `${members.length} / ${b.headcount}`],
+          ["Review", b.reviewPolicy === "human" ? "the manager works the in-tray" : b.reviewPolicy === "reviewer" ? "the reviewer agent works the in-tray" : "reports are acknowledged on arrival"],
+          ...(b.workspace ? [["Workspace", <><code>{b.workspace.path}</code> · merge {b.workspace.merge}</>] as [string, ReactNode]] : []),
         ]} />
       ) : null}
-      <Section title="Members">
-        {!members.length ? <Empty>No one works here yet.</Empty> : (
-          <div className="members">
-            {members.map((a) => (
-              <button key={a.id} className="member" onClick={() => store.open({ kind: "agent", id: a.id })}>
-                <img src={portraitUrl(a.sprite, 2)} alt="" />
-                <div><b>{a.name}</b><span>{a.title}</span></div>
-                <StatusPill status={a.status} />
-              </button>
-            ))}
-          </div>
-        )}
-      </Section>
     </>
   );
 }
 
-function Board({ b }: { b: Building }) {
-  const rev = useTown((s) => s.rev);
-  const list = useLoad(() => api().board(b.id, 40), [b.id, rev]);
-  const [open, setOpen] = useState<Doc | null>(null);
-  if (open) return <DocView doc={open} onBack={() => setOpen(null)} backLabel="Board" />;
-  if (list.loading && !list.data) return <Loading />;
+function Members({ b }: { b: SnapshotBuilding }) {
+  const agents = useTown((s) => s.agents);
+  useTown((s) => s.me);
+  const members = useMemo(() => Object.values(agents).filter((a) => (a.homeBuildingId ?? a.buildingId) === b.id && a.kind !== "human"), [agents, b.id]);
   return (
     <>
-      <ErrorLine error={list.error} />
-      {!list.data?.length ? <Empty>Nothing published to the board yet.</Empty> : <div className="doc-list">{list.data.map((d) => <DocRow key={d.id} doc={d} onOpen={() => setOpen(d)} />)}</div>}
+      <Section title={`Residents (${members.length})`}>
+        {!members.length ? <Empty>No one works here yet.</Empty> : (
+          <div className="members">
+            {members.map((a) => (
+              <div key={a.id} className="member-row">
+                <button className="member" onClick={() => store.open({ kind: "agent", id: a.id })}>
+                  <img src={portraitUrl(a.sprite, 2)} alt="" />
+                  <div><b>{a.name}</b><span>{a.title}</span></div>
+                  <StatusPill status={a.status} />
+                </button>
+                {canDismiss(a) ? <DismissButton agent={a} small /> : null}
+              </div>
+            ))}
+          </div>
+        )}
+      </Section>
+      <RolesTab buildingId={b.id} />
     </>
   );
 }
 
 export function phaseTone(p: Meeting["phase"]) { return p === "collecting" ? "warn" : p === "discussing" ? "ok" : p === "done" ? "" : p === "cancelled" ? "bad" : "info"; }
 
-function MeetingsTab({ b }: { b: Building }) {
+function MeetingsTab({ b }: { b: SnapshotBuilding }) {
   const all = useTown((s) => s.meetings);
   const list = useMemo(() => Object.values(all).filter((m) => m.buildingId === b.id || (b.kind === "town-hall" && m.buildingId === null)).sort((x, y) => y.createdAt.localeCompare(x.createdAt)), [all, b]);
   const can = store.can("meeting.facilitate", b.id) || store.can("building.manage", b.id);
@@ -153,17 +172,19 @@ function AddHolder({ onAdd }: { onAdd: (kind: "agent" | "user", id: string) => P
   );
 }
 
-function Settings({ b }: { b: Building }) {
+function Settings({ b }: { b: SnapshotBuilding }) {
   const [f, setF] = useState({ goal: b.goal, description: b.description, reviewPolicy: b.reviewPolicy, headcount: b.headcount, model: b.model, cheapModel: b.cheapModel, dailyTokensPerAgent: b.dailyTokensPerAgent, maxTurnsPerSession: b.maxTurnsPerSession });
+  const [merge, setMerge] = useState<Workspace["merge"]>(b.workspace?.merge ?? "human");
+  const [checks, setChecks] = useState((b.workspace?.checks ?? []).join("\n"));
   const set = <K extends keyof typeof f>(k: K, v: (typeof f)[K]) => setF((x) => ({ ...x, [k]: v }));
   return (
     <form className="form" onSubmit={(e) => e.preventDefault()}>
       <Field label="Goal"><textarea rows={2} value={f.goal} onChange={(e) => set("goal", e.target.value)} /></Field>
       <Field label="Description"><textarea rows={3} value={f.description} onChange={(e) => set("description", e.target.value)} /></Field>
       <div className="row2">
-        <Field label="Review policy" hint="Who decides on reports">
-          <select value={f.reviewPolicy} onChange={(e) => set("reviewPolicy", e.target.value as Building["reviewPolicy"])}>
-            <option value="human">human</option><option value="moderator">moderator</option><option value="auto">auto</option>
+        <Field label="Review policy" hint={f.reviewPolicy === "human" ? "You work the in-tray" : f.reviewPolicy === "reviewer" ? "The reviewer agent works the in-tray" : "Every report is acknowledged on arrival"}>
+          <select value={f.reviewPolicy} onChange={(e) => set("reviewPolicy", e.target.value as SnapshotBuilding["reviewPolicy"])}>
+            <option value="human">human</option><option value="reviewer">reviewer</option><option value="auto">auto</option>
           </select>
         </Field>
         <Field label="Desks (headcount)"><input type="number" min={1} max={24} value={f.headcount} onChange={(e) => set("headcount", +e.target.value)} /></Field>
@@ -176,7 +197,26 @@ function Settings({ b }: { b: Building }) {
         <Field label="Daily tokens / agent"><input type="number" min={1} value={f.dailyTokensPerAgent} onChange={(e) => set("dailyTokensPerAgent", +e.target.value)} /></Field>
         <Field label="Max turns / session" hint="Safety rail"><input type="number" min={1} value={f.maxTurnsPerSession} onChange={(e) => set("maxTurnsPerSession", +e.target.value)} /></Field>
       </div>
-      <div className="actions"><Act tone="primary" run={async () => { await api().updateBuilding(b.id, f); store.toast("Settings saved", "ok"); }}>Save settings</Act></div>
+      {b.workspace ? (
+        <>
+          <div className="row2">
+            <Field label="Merge" hint={merge === "green" ? "The desk readies and squash-merges its PR when every check passes" : "PRs stay draft for a human"}>
+              <select value={merge} onChange={(e) => setMerge(e.target.value as Workspace["merge"])}>
+                <option value="human">human</option><option value="green">green</option>
+              </select>
+            </Field>
+            <Field label="Workspace"><input value={b.workspace.path} disabled /></Field>
+          </div>
+          <Field label="Checks" hint="One command per line, run in the checkout before a green merge">
+            <textarea rows={3} value={checks} onChange={(e) => setChecks(e.target.value)} placeholder={"npm run typecheck\nnpm test"} />
+          </Field>
+        </>
+      ) : null}
+      <div className="actions"><Act tone="primary" run={async () => {
+        const workspace = b.workspace ? { ...b.workspace, merge, checks: checks.split("\n").map((x) => x.trim()).filter(Boolean) } : undefined;
+        await api().updateBuilding(b.id, { ...f, ...(workspace ? { workspace } : {}) });
+        store.toast("Settings saved", "ok");
+      }}>Save settings</Act></div>
     </form>
   );
 }

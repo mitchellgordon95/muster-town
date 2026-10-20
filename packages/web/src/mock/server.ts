@@ -23,6 +23,10 @@ export class MockApi implements Api {
   async devAdminToken() { return "mock-admin-token"; }
   async me(): Promise<AuthMe> {
     await wait(60);
+    // `?as=visitor` signs in as a plain visitor so read-only views can be checked
+    if (new URLSearchParams(location.search).get("as") === "visitor") {
+      return clone({ user: { ...this.sim.users[0], id: "us_guest", name: "Guest" }, roles: this.sim.roles.filter((r) => r.id === "rl_visitor"), avatarAgentId: "ag_me", isAdmin: false });
+    }
     const roleIds = new Set(this.sim.memberships.filter((m) => m.holderKind === "user" && m.holderId === "us_mitchell").map((m) => m.roleId));
     return clone({ user: this.sim.users[0], roles: this.sim.roles.filter((r) => roleIds.has(r.id)), avatarAgentId: "ag_me", isAdmin: true });
   }
@@ -37,13 +41,16 @@ export class MockApi implements Api {
     await wait();
     return clone([...this.sim.docs.values()].filter((d) => d.buildingId === buildingId && d.state === "building").sort((a, b) => b.updatedAt.localeCompare(a.updatedAt)).slice(0, limit));
   }
-  async createBuilding(i: In<typeof CreateBuildingInput>) { await wait(); return clone(this.sim.createBuilding(i.name, i.goal ?? "", i.headcount ?? 6)); }
+  async createBuilding(i: In<typeof CreateBuildingInput>) { await wait(); return clone(this.sim.createBuilding(i.name, i.goal ?? "", i.headcount ?? 6, i.reviewPolicy ?? "human")); }
+  async intray(buildingId: string) { await wait(); this.need(this.sim.buildings.find((b) => b.id === buildingId), "building"); return clone(this.sim.intray(buildingId)); }
+  async dismiss(id: string, purge = false) { await wait(); this.sim.dismiss(id, purge); }
+  async ban(id: string, reason: string) { await wait(); return clone(this.sim.ban(id, reason)); }
   async updateBuilding(id: string, i: In<typeof UpdateBuildingInput>) {
     await wait();
     const b = this.need(this.sim.buildings.find((x) => x.id === id), "building");
     const headcountChanged = i.headcount !== undefined && i.headcount !== b.headcount;
     Object.assign(b, i);
-    this.sim.emit({ type: "building", building: b });
+    this.sim.emit({ type: "building", building: b }); // no intray: the client keeps the last count
     if (headcountChanged) this.sim.relayout();
     this.sim.event("building.updated", null, `${b.name} settings updated`, {}, id);
     return clone(b);
@@ -84,9 +91,10 @@ export class MockApi implements Api {
       return hits.length ? `I found ${hits.length} in the library: ${hits.map((d) => `"${d.title}"`).join(", ")}. Open the Library tab to read them.` : `Nothing in the library matches that yet. The closest thing is "GCB 2025 ESSD", our main source for the carbon budget.`;
     }
     const asg = a.currentAssignmentId ? this.sim.assignments.get(a.currentAssignmentId) : null;
-    if (/redirect|instead|change|switch/.test(i.message.toLowerCase())) return `I can't change direction from chat. Use Interrupt on the Session tab, or Redirect when you review my report.`;
+    if (/redirect|instead|change|switch/.test(i.message.toLowerCase())) return `I can't change direction from chat. Use Interrupt on the Session tab, or Redirect on my report at the in-tray.`;
     if (a.status === "working") return `I'm working on "${asg?.title}". Right now: ${a.activity.toLowerCase()}. I expect to submit a report in a few minutes.`;
-    // TODO(web): v1.2 removed the awaiting-review status; the mock's "report waiting" reply went with it
+    const pending = [...this.sim.docs.values()].find((d) => d.type === "report" && d.authorId === a.id && d.decision === "pending");
+    if (pending) return `My last report, "${pending.title}", is in the in-tray on the manager's desk. I'm idle until someone gives me an assignment.`;
     return `I'm ${a.status} at my desk. My standing direction: ${a.direction.split(":")[0]}. Give me an assignment with Start work and I'll get going.`;
   }
   async stop(id: string) { await wait(); this.sim.patchAgent(id, { status: "stopped", activity: "" }); this.sim.event("agent.status", id, "Stopped by Mitchell"); }

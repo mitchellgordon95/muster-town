@@ -1,31 +1,56 @@
-/** HUD (top-left town card), interaction hint, say box, toasts. */
-import { useMemo, useState, type RefObject } from "react";
+/** HUD (top-left town card: name, tagline, goal, status counts, notices), interaction hint, say box, toasts. */
+import { useMemo, useState, type ReactNode, type RefObject } from "react";
 import type { AgentStatus } from "@agent-town/schema";
-import { store, useTown } from "./state";
+import { store, useTown, type PanelRef } from "./state";
 import { STATUS_COLOR } from "./map/overlay";
-import { portraitUrl } from "./map/sprites";
+import { iconUrl, type IconKind } from "./map/sprites";
 import type { Target } from "./map/renderer";
 import { isMock } from "./api";
+import { joinMeeting } from "./panels/Places";
 
-// TODO(web): v1.2 dropped "awaiting-review" (reports go to the in-tray; agents go idle); retired agents aren't in the snapshot.
 const ORDER: AgentStatus[] = ["working", "in-meeting", "walking", "idle", "out-of-budget", "stopped", "banned"];
+
+interface Notice { key: string; icon: IconKind; text: ReactNode; cta: string; tone: "warn" | "meet"; go: () => void }
+
+function walkOrOpen(placeId: string, panel: PanelRef) { if (!store.walkTo(placeId, panel)) store.open(panel); }
 
 export function Hud() {
   const town = useTown((s) => s.town);
   const agents = useTown((s) => s.agents);
-  const assignments = useTown((s) => s.assignments);
+  const buildings = useTown((s) => s.buildings);
+  const meetings = useTown((s) => s.meetings);
   const conn = useTown((s) => s.conn);
   const me = useTown((s) => s.me);
   const [collapsed, setCollapsed] = useState(false);
-  const residents = useMemo(() => Object.values(agents).filter((a) => a.kind === "resident" || a.kind === "visitor"), [agents]);
   const counts = useMemo(() => {
     const c = new Map<AgentStatus, number>();
-    for (const a of residents) c.set(a.status, (c.get(a.status) ?? 0) + 1);
+    for (const a of Object.values(agents)) if (a.kind === "resident" || a.kind === "visitor") c.set(a.status, (c.get(a.status) ?? 0) + 1);
     return ORDER.filter((s) => c.get(s)).map((s) => [s, c.get(s)!] as const);
-  }, [residents]);
-  const review: typeof residents = []; // TODO(web): v1.2 — "Needs your review" moves to the in-tray place (building.intray counts)
-  const idle = useMemo(() => residents.filter((a) => a.kind === "resident" && a.status === "idle" && !a.currentAssignmentId
-    && !Object.values(assignments).some((x) => x.agentId === a.id && (x.status === "pending" || x.status === "active"))), [residents, assignments]);
+  }, [agents]);
+  const notices = useMemo(() => {
+    const out: Notice[] = [];
+    // in-trays of buildings I can review (manager, reviewer, admin)
+    for (const b of buildings) {
+      if (!b.intray || !store.can("building.review", b.id)) continue;
+      out.push({
+        key: `intray:${b.id}`, icon: "intray", tone: "warn", cta: "Go →",
+        text: <><b>{b.intray}</b> report{b.intray === 1 ? "" : "s"} in the {b.name} in-tray</>,
+        go: () => walkOrOpen(`intray:${b.id}`, { kind: "intray", id: b.id }),
+      });
+    }
+    // meetings happening now
+    for (const m of Object.values(meetings)) {
+      if (m.phase !== "collecting" && m.phase !== "discussing") continue;
+      const where = m.buildingId ? buildings.find((b) => b.id === m.buildingId)?.name ?? "" : "Town Hall";
+      out.push({
+        key: `meeting:${m.id}`, icon: "meeting", tone: "meet", cta: "Join →",
+        text: <><b>{m.title}</b> {m.phase === "collecting" ? "is collecting summaries" : "is in discussion"}{where && !m.title.includes(where.split(" ")[0]) ? ` · ${where}` : ""}</>,
+        go: () => joinMeeting(m),
+      });
+    }
+    return out;
+    // `me` changes permissions
+  }, [buildings, meetings, me]); // eslint-disable-line react-hooks/exhaustive-deps
   if (!town) return null;
   return (
     <div className={`hud ${collapsed ? "collapsed" : ""}`}>
@@ -34,6 +59,7 @@ export function Hud() {
           <h1>{town.name}</h1>
           {!collapsed ? <div className="tagline">{town.tagline}</div> : null}
         </div>
+        {collapsed && notices.length ? <span className="notice-dot" title={`${notices.length} notice${notices.length === 1 ? "" : "s"}`}>{notices.length}</span> : null}
         <span className={`conn ${conn}`} title={`Server: ${conn}${isMock ? " (mock)" : ""}`} />
         <button className="icon-btn" onClick={() => setCollapsed((c) => !c)} title={collapsed ? "Expand" : "Collapse"}>{collapsed ? "▾" : "▴"}</button>
       </div>
@@ -43,32 +69,16 @@ export function Hud() {
           <div className="counts">
             {counts.map(([s, n]) => <span key={s} className="count-chip"><i style={{ background: STATUS_COLOR[s] }} />{n} {s.replace(/-/g, " ")}</span>)}
           </div>
-          {review.length ? (
+          {notices.length ? (
             <div className="hud-block">
-              <div className="hud-label">Needs your review</div>
-              {review.map((a) => (
-                <button key={a.id} className="hud-row warn" onClick={() => store.open({ kind: "agent", id: a.id, tab: "Reports" })}>
-                  <img src={portraitUrl(a.sprite, 1)} alt="" /><b>{a.name}</b><span>report ready</span><em>Review →</em>
+              <div className="hud-label">Notices</div>
+              {notices.map((n) => (
+                <button key={n.key} className={`hud-row ${n.tone}`} onClick={n.go}>
+                  <img className="px" src={iconUrl(n.icon)} alt="" /><span className="notice-text">{n.text}</span><em>{n.cta}</em>
                 </button>
               ))}
             </div>
           ) : null}
-          {idle.length ? (
-            <div className="hud-block">
-              <div className="hud-label">Idle, no assignment</div>
-              {idle.map((a) => (
-                <button key={a.id} className="hud-row" onClick={() => store.open({ kind: "agent", id: a.id, tab: "Assignments" })}>
-                  <img src={portraitUrl(a.sprite, 1)} alt="" /><b>{a.name}</b><span>{a.title}</span><em>Start work</em>
-                </button>
-              ))}
-            </div>
-          ) : null}
-          <div className="hud-nav">
-            <button onClick={() => store.open({ kind: "library" })}>Library</button>
-            <button onClick={() => store.open({ kind: "outbox" })}>Outbox</button>
-            <button onClick={() => store.open({ kind: "trophy" })}>Trophies</button>
-            {me?.isAdmin ? <button onClick={() => store.open({ kind: "admin" })}>Admin</button> : null}
-          </div>
         </>
       )}
     </div>

@@ -1,7 +1,7 @@
 /**
- * Mock-only town layout, following the contract's "World model": a road at the bottom, the Town Hall
- * centred above it, labs alternating left/right in creation order, 3 desks per row, a meeting table
- * at the bottom-right of each lab, door at bottom centre. Core owns the real layout.
+ * Mock-only town layout. Building interiors mirror core's `computeLayout` (packages/core/src/world/layout.ts,
+ * including TOWN_HALL_FIXTURES, copied here because the web bundle can't import core); lots are packed
+ * side by side around the Town Hall so the mock map stays compact. Core owns the real layout.
  */
 import { TILE, WALKABLE } from "@agent-town/schema";
 import type { Agent, Building, Place } from "@agent-town/schema";
@@ -9,20 +9,33 @@ import type { Grid } from "../api";
 
 export interface Layout { grid: Grid; places: Place[]; lots: Map<string, NonNullable<Building["lot"]>> }
 
-const LAB_W = 14, HALL_W = 19, HALL_H = 12, GAP = 4, MARGIN = 3;
-const labH = (headcount: number) => 2 + Math.ceil(headcount / 3) * 3 + 4;
+/** = core TOWN_HALL_FIXTURES (relative to the 17x11 Town Hall lot). */
+const F = {
+  modDesk: [{ x: 2, y: 8 }, { x: 3, y: 8 }, { x: 4, y: 8 }],
+  modSeats: [{ x: 2, y: 9 }, { x: 3, y: 9 }, { x: 4, y: 9 }],
+  modStand: { x: 5, y: 8 },
+  donation: { x: 6, y: 9 }, donationStand: { x: 7, y: 9 },
+  planningDesk: [{ x: 12, y: 9 }, { x: 13, y: 9 }], planningStand: { x: 12, y: 8 },
+  schedule: { x: 15, y: 6 }, scheduleStand: { x: 15, y: 7 },
+};
+const HALL = { w: 17, h: 11 }, GAP = 4, MARGIN = 3;
+function labSize(headcount: number) {
+  const n = Math.max(1, headcount);
+  const cols = Math.min(3, n), rows = Math.ceil(n / cols);
+  return { w: Math.max(cols * 4 + 3, 13), h: rows * 3 + 6 };
+}
 
 export function computeLayout(buildings: Building[], agents: Agent[]): Layout {
   const hall = buildings.find((b) => b.kind === "town-hall");
   const labs = buildings.filter((b) => b.kind !== "town-hall");
   const left = labs.filter((_, i) => i % 2 === 0), right = labs.filter((_, i) => i % 2 === 1);
   const ordered = [...left.reverse(), ...(hall ? [hall] : []), ...right];
-  const size = (b: Building) => (b.kind === "town-hall" ? { w: HALL_W, h: HALL_H } : { w: LAB_W, h: labH(b.headcount) });
-  const maxH = Math.max(HALL_H, ...ordered.map((b) => size(b).h));
+  const size = (b: Building) => (b.kind === "town-hall" ? HALL : labSize(b.headcount));
+  const maxH = Math.max(HALL.h, ...ordered.map((b) => size(b).h));
   const W = MARGIN * 2 + ordered.reduce((s, b) => s + size(b).w, 0) + GAP * Math.max(0, ordered.length - 1);
   const top = 4;
-  const roadY = top + maxH + 3;
-  const H = roadY + 2 + 4;
+  const roadY = top + maxH + 2;
+  const H = roadY + 6;
   const t = new Array<number>(W * H).fill(TILE.GRASS);
   const set = (x: number, y: number, k: number) => { if (x >= 0 && y >= 0 && x < W && y < H) t[y * W + x] = k; };
   const places: Place[] = [];
@@ -34,44 +47,70 @@ export function computeLayout(buildings: Building[], agents: Agent[]): Layout {
 
   let cx = MARGIN;
   for (const b of ordered) {
-    const { w, h } = size(b);
-    const x0 = cx, y0 = roadY - 3 - h;
-    lots.set(b.id, { x: x0, y: y0, w, h });
-    for (let y = 0; y < h; y++)
-      for (let x = 0; x < w; x++) set(x0 + x, y0 + y, x === 0 || y === 0 || x === w - 1 || y === h - 1 ? TILE.WALL : TILE.FLOOR);
-    const doorX = x0 + Math.floor(w / 2);
-    set(doorX, y0 + h - 1, TILE.DOOR);
-    for (let y = y0 + h; y < roadY; y++) set(doorX, y, TILE.PATH);
-    places.push({ id: `door:${b.id}`, kind: "door", name: b.name, buildingId: b.id, pos: { x: doorX, y: y0 + h - 1 } });
+    const { w: bw, h: bh } = size(b);
+    const x0 = cx, y0 = roadY - 2 - bh;
+    lots.set(b.id, { x: x0, y: y0, w: bw, h: bh });
+    for (let y = 0; y < bh; y++)
+      for (let x = 0; x < bw; x++) set(x0 + x, y0 + y, x === 0 || y === 0 || x === bw - 1 || y === bh - 1 ? TILE.WALL : TILE.FLOOR);
+    const door = { x: x0 + Math.floor(bw / 2), y: y0 + bh - 1 };
+    set(door.x, door.y, TILE.DOOR);
+    for (let y = y0 + bh; y < roadY; y++) set(door.x, y, TILE.PATH);
+    places.push({ id: `door:${b.id}`, kind: "door", name: `${b.name} door`, buildingId: b.id, pos: door });
+    const at = (p: { x: number; y: number }) => ({ x: x0 + p.x, y: y0 + p.y });
 
     if (b.kind === "town-hall") {
-      for (let x = 1; x <= 6; x++) set(x0 + x, y0 + 1, TILE.SHELF);
-      for (let x = 12; x <= 17; x++) set(x0 + x, y0 + 1, x % 2 ? TILE.TROPHY : TILE.SHELF);
-      for (let x = 1; x <= 4; x++) set(x0 + x, y0 + 6, TILE.COUNTER);
-      for (let x = 12; x <= 16; x++) { set(x0 + x, y0 + 6, TILE.TABLE); set(x0 + x, y0 + 7, TILE.TABLE); }
-      set(x0 + 9, y0 + 1, TILE.PLANT); set(x0 + 1, y0 + 10, TILE.PLANT); set(x0 + 17, y0 + 10, TILE.PLANT);
+      for (const p of F.modDesk) set(x0 + p.x, y0 + p.y, TILE.DESK);
+      for (const p of F.planningDesk) set(x0 + p.x, y0 + p.y, TILE.DESK);
+      set(x0 + F.donation.x, y0 + F.donation.y, TILE.DONATION);
+      set(x0 + F.schedule.x, y0 + F.schedule.y, TILE.SCHEDULE);
+      // town moderators (Town Hall residents) sit at the mod station
+      const mods = agents.filter((a) => a.homeBuildingId === b.id && a.kind === "resident" && a.status !== "retired");
+      F.modSeats.forEach((p, n) => {
+        const a = mods[n];
+        places.push(a
+          ? { id: `desk:${a.id}`, kind: "desk", name: `${a.name}'s seat at the mod station`, buildingId: b.id, pos: at(p) }
+          : { id: `desk:free:${b.id}:${n}`, kind: "desk", name: "Free mod station seat", buildingId: b.id, pos: at(p) });
+      });
       places.push(
-        { id: "library", kind: "library", name: "Library", buildingId: b.id, pos: { x: x0 + 3, y: y0 + 2 } },
-        { id: "trophy-room", kind: "trophy-room", name: "Trophy room", buildingId: b.id, pos: { x: x0 + 15, y: y0 + 2 } },
-        { id: "outbox", kind: "outbox", name: "Outbox", buildingId: b.id, pos: { x: x0 + 2, y: y0 + 7 } },
-        { id: `meeting-room:${b.id}`, kind: "meeting-room", name: "Town Hall meeting room", buildingId: b.id, pos: { x: x0 + 14, y: y0 + 8 } },
+        { id: "mod-station", kind: "mod-station", name: "Mod station", buildingId: b.id, pos: at(F.modStand) },
+        { id: "planning-desk", kind: "planning", name: "Planning desk", buildingId: b.id, pos: at(F.planningStand) },
+        { id: "donation-box", kind: "donation", name: "Donation box", buildingId: b.id, pos: at(F.donationStand) },
+        { id: "schedule-board", kind: "schedule", name: "Schedule board", buildingId: b.id, pos: at(F.scheduleStand) },
+      );
+      for (let x = 2; x <= 6; x++) set(x0 + x, y0 + 2, TILE.SHELF);
+      for (let x = 10; x <= 14; x++) set(x0 + x, y0 + 2, TILE.TROPHY);
+      for (let x = 2; x <= 5; x++) set(x0 + x, y0 + 6, TILE.COUNTER);
+      for (let x = 10; x <= 13; x++) set(x0 + x, y0 + 6, TILE.TABLE);
+      set(x0 + 1, y0 + 1, TILE.PLANT); set(x0 + bw - 2, y0 + 1, TILE.PLANT);
+      places.push(
+        { id: "library", kind: "library", name: "Library", buildingId: b.id, pos: { x: x0 + 4, y: y0 + 3 } },
+        { id: "trophy-room", kind: "trophy-room", name: "Trophy room", buildingId: b.id, pos: { x: x0 + 12, y: y0 + 3 } },
+        { id: "outbox", kind: "outbox", name: "Outbox", buildingId: b.id, pos: { x: x0 + 3, y: y0 + 7 } },
+        { id: `meeting-room:${b.id}`, kind: "meeting-room", name: "Town Hall meeting room", buildingId: b.id, pos: { x: x0 + 11, y: y0 + 7 } },
+        { id: "plaza", kind: "plaza", name: "Plaza", buildingId: null, pos: { x: door.x, y: roadY } },
       );
     } else {
-      const residents = agents.filter((a) => a.homeBuildingId === b.id && a.kind === "resident");
+      const residents = agents.filter((a) => a.homeBuildingId === b.id && a.kind === "resident" && a.status !== "retired");
+      const cols = Math.min(3, Math.max(1, b.headcount));
       for (let i = 0; i < b.headcount; i++) {
-        const r = Math.floor(i / 3), c = i % 3;
+        const c = i % cols, r = Math.floor(i / cols);
         const dx = x0 + 2 + c * 4, dy = y0 + 2 + r * 3;
         set(dx, dy, TILE.DESK); set(dx + 1, dy, TILE.DESK);
         const a = residents[i];
         places.push({ id: a ? `desk:${a.id}` : `desk:free:${b.id}:${i}`, kind: "desk", name: a ? `${a.name}'s desk` : "Free desk", buildingId: b.id, pos: { x: dx, y: dy + 1 } });
       }
-      const yM = y0 + 2 + Math.ceil(b.headcount / 3) * 3;
-      for (let x = 8; x <= 11; x++) { set(x0 + x, yM, TILE.TABLE); set(x0 + x, yM + 1, TILE.TABLE); }
-      set(x0 + 1, yM, TILE.SHELF); set(x0 + 2, yM, TILE.SHELF); set(x0 + 1, yM + 2, TILE.PLANT); set(x0 + w - 2, y0 + 1, TILE.PLANT);
-      places.push({ id: `meeting-room:${b.id}`, kind: "meeting-room", name: "Meeting room", buildingId: b.id, pos: { x: x0 + 10, y: yM + 2 } });
+      const boardX = x0 + Math.floor(bw / 2) - 2;
+      set(boardX, y0, TILE.BOARD);
+      places.push({ id: `board:${b.id}`, kind: "board", name: `${b.name} board`, buildingId: b.id, pos: { x: boardX, y: y0 + 1 } });
+      const mx = x0 + bw - 2, my = y0 + 2;
+      set(mx, my, TILE.MANAGER_DESK);
+      places.push({ id: `intray:${b.id}`, kind: "intray", name: `${b.name} in-tray (manager's desk)`, buildingId: b.id, pos: { x: mx, y: my + 1 } });
+      const yMeet = y0 + bh - 4;
+      for (let x = bw - 5; x <= bw - 3; x++) set(x0 + x, yMeet, TILE.TABLE);
+      set(x0 + 1, yMeet, TILE.PLANT);
+      places.push({ id: `meeting-room:${b.id}`, kind: "meeting-room", name: `${b.name} meeting room`, buildingId: b.id, pos: { x: x0 + bw - 4, y: yMeet + 1 } });
     }
-    if (b.kind === "town-hall") places.push({ id: "plaza", kind: "plaza", name: "Plaza", buildingId: null, pos: { x: doorX, y: roadY } });
-    cx += w + GAP;
+    cx += bw + GAP;
   }
   return { grid: { w: W, h: H, tiles: t }, places, lots };
 }

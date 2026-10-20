@@ -20,6 +20,7 @@ export function MapCanvas(props: { panelInset: number; onTarget: (t: Target | nu
   useEffect(() => {
     const r = new MapRenderer(ref.current!);
     current = r;
+    store.walkTo = (placeId, panel) => r.walkToPlace(placeId, panel);
     r.onTarget = (t) => cbs.current.onTarget(t);
     r.onMove = (x, y) => cbs.current.onMove(x, y);
     const down = (e: KeyboardEvent) => {

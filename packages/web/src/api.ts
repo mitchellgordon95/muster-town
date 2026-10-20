@@ -44,7 +44,13 @@ export interface Api {
   createBuilding(input: In<typeof CreateBuildingInput>): Promise<Building>;
   updateBuilding(id: string, input: In<typeof UpdateBuildingInput>): Promise<Building>;
   // agents
+  /** pending reports for the building's in-tray, oldest first */
+  intray(buildingId: string): Promise<Doc[]>;
   createResident(input: In<typeof CreateResidentInput>): Promise<Agent>;
+  /** DELETE /api/agents/:id — dismiss (retire) a resident; purge also deletes its desk volume */
+  dismiss(id: string, purge?: boolean): Promise<void>;
+  /** town.ban */
+  ban(id: string, reason: string): Promise<Agent>;
   agent(id: string): Promise<AgentDetail>;
   session(id: string): Promise<{ session: Session | null; transcript: Event[] }>;
   work(id: string, input: In<typeof WorkInput>): Promise<Assignment | null>;
@@ -133,7 +139,10 @@ export class HttpApi implements Api {
   async board(id: string, limit = 30) { return unwrap<Doc[]>(await this.get(`/api/buildings/${id}/board${qs({ limit })}`), "docs"); }
   async createBuilding(i: In<typeof CreateBuildingInput>) { return unwrap<Building>(await this.post("/api/buildings", i), "building"); }
   async updateBuilding(id: string, i: In<typeof UpdateBuildingInput>) { return unwrap<Building>(await this.call("PATCH", `/api/buildings/${id}`, i), "building"); }
+  async intray(id: string) { return unwrap<Doc[]>(await this.get(`/api/buildings/${id}/intray`), "reports"); }
   async createResident(i: In<typeof CreateResidentInput>) { return unwrap<Agent>(await this.post("/api/agents/residents", i), "agent"); }
+  async dismiss(id: string, purge = false) { await this.call("DELETE", `/api/agents/${id}${purge ? "?purge=1" : ""}`); }
+  async ban(id: string, reason: string) { return unwrap<Agent>(await this.post(`/api/agents/${id}/ban`, { reason }), "agent"); }
   agent(id: string) { return this.get<AgentDetail>(`/api/agents/${id}`); }
   session(id: string) { return this.get<{ session: Session | null; transcript: Event[] }>(`/api/agents/${id}/session`); }
   async work(id: string, i: In<typeof WorkInput>) { return unwrap<Assignment | null>(await this.post(`/api/agents/${id}/work`, i), "assignment"); }

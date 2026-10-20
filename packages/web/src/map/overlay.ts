@@ -3,7 +3,7 @@ import type { Agent } from "@agent-town/schema";
 
 export const STATUS_COLOR: Record<string, string> = {
   idle: "#9a9db3", walking: "#7cc4ff", working: "#6fdc8c", "in-meeting": "#c79bff",
-  "awaiting-review": "#ffcf5e", "out-of-budget": "#ff9f5e", stopped: "#ff7b7b", banned: "#ff7b7b",
+  "out-of-budget": "#ff9f5e", stopped: "#ff7b7b", banned: "#ff7b7b", retired: "#5c5f73",
 };
 
 export interface Bubble { text: string; tone: "speech" | "work" | "warn" | "muted" | "bad" | "meet" }
@@ -25,7 +25,6 @@ export function bubbleFor(a: Agent, said: { text: string; at: number } | undefin
   if (said && now - said.at < 7000) return { text: said.text, tone: "speech" };
   switch (a.status) {
     case "working": return { text: a.activity || "working…", tone: "work" };
-    // TODO(web): v1.2 removed "awaiting-review"; badge the manager's desk with building.intray instead
     case "out-of-budget": return { text: "Out of budget", tone: "bad" };
     case "stopped": return { text: "Stopped", tone: "bad" };
     case "banned": return { text: "Banned", tone: "bad" };
@@ -91,6 +90,19 @@ export function drawBubble(g: CanvasRenderingContext2D, x: number, y: number, b:
   g.fillStyle = c.bg; g.fillRect(x - 4, by + h - 1, 8, 2);
   g.fillStyle = c.fg; g.textBaseline = "top";
   lines.forEach((l, i) => g.fillText(l, bx + padX, by + padY + i * lh + 1));
+}
+
+/** Count badge (the in-tray on a manager's desk), centred at (x, y). */
+export function drawBadge(g: CanvasRenderingContext2D, x: number, y: number, n: number) {
+  const text = n > 99 ? "99+" : String(n);
+  g.font = "700 10px ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, sans-serif";
+  const w = Math.max(16, g.measureText(text).width + 9), h = 16;
+  const bx = Math.round(x - w / 2), by = Math.round(y - h / 2);
+  g.fillStyle = "#e5484d"; g.strokeStyle = "#14151c"; g.lineWidth = 2;
+  roundRect(g, bx, by, w, h, 8); g.stroke(); g.fill();
+  g.fillStyle = "#fff"; g.textBaseline = "middle"; g.textAlign = "center";
+  g.fillText(text, x, by + h / 2 + 0.5);
+  g.textAlign = "left";
 }
 
 /** Building sign above a lot. */

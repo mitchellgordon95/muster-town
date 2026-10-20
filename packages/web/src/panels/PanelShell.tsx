@@ -1,7 +1,7 @@
 import { useEffect, useState, type ReactNode } from "react";
 import { store } from "../state";
 import { Tabs } from "./ui";
-import { iconUrl } from "../map/sprites";
+import { iconUrl, type IconKind } from "../map/sprites";
 
 /** Right-side panel frame: header, optional tabs, scrolling body. */
 export function PanelShell({ icon, title, subtitle, tabs, initialTab, children, actions }: {
@@ -28,6 +28,6 @@ export function PanelShell({ icon, title, subtitle, tabs, initialTab, children, 
 }
 
 /** Tile-art icons for place panels, so headers match the map. */
-export function Glyph({ kind }: { kind: "library" | "trophy" | "outbox" | "meeting" | "building" | "admin" }) {
+export function Glyph({ kind }: { kind: IconKind }) {
   return <img className="glyph" src={iconUrl(kind)} alt="" aria-hidden />;
 }

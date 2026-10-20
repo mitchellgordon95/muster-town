@@ -52,7 +52,23 @@ export class Sim {
   emit(m: ServerMessage) { const c = clone(m); for (const s of this.subs) setTimeout(() => s(c), 0); }
 
   snapshot(): Snapshot {
-    return clone({ type: "snapshot", town: this.town, buildings: this.buildings.map((b) => ({ ...b, intray: 0 })) /* TODO(web): v1.2 intray counts */, agents: [...this.agents.values()], places: this.layout.places, grid: this.layout.grid, meetings: [...this.meetings.values()] });
+    // Unlike the real server, the mock keeps retired agents in the snapshot so the client's filter is exercised.
+    return clone({
+      type: "snapshot", town: this.town, buildings: this.buildings.map((b) => ({ ...b, intray: this.intrayCount(b.id) })),
+      agents: [...this.agents.values()].filter((a) => a.status !== "banned"), places: this.layout.places, grid: this.layout.grid,
+      meetings: [...this.meetings.values()].filter((m) => m.phase !== "done" && m.phase !== "cancelled"),
+    });
+  }
+
+  /** Pending reports for a building, oldest first (GET /api/buildings/:id/intray). */
+  intray(buildingId: string): Doc[] {
+    return [...this.docs.values()].filter((d) => d.type === "report" && d.decision === "pending" && d.buildingId === buildingId).sort((a, b) => a.createdAt.localeCompare(b.createdAt));
+  }
+  intrayCount(buildingId: string) { return this.intray(buildingId).length; }
+  /** Resend a building with its in-tray count (the server does this when reports are created or decided). */
+  emitBuilding(buildingId: string | null) {
+    const b = this.buildings.find((x) => x.id === buildingId);
+    if (b) this.emit({ type: "building", building: { ...b, intray: this.intrayCount(b.id) } });
   }
 
   relayout(broadcast = true) {
@@ -61,7 +77,7 @@ export class Sim {
       const lot = this.layout.lots.get(b.id);
       if (lot && JSON.stringify(lot) !== JSON.stringify(b.lot)) { b.lot = lot; if (broadcast) this.emit({ type: "building", building: b }); }
     }
-    if (broadcast) for (const a of this.agents.values()) if (!this.walking.has(a.id) && a.kind !== "human") { a.pos = this.home(a); this.emit({ type: "agent", agent: a }); }
+    if (broadcast) for (const a of this.agents.values()) if (!this.walking.has(a.id) && a.kind !== "human" && a.status !== "retired") { a.pos = this.home(a); this.emit({ type: "agent", agent: a }); }
   }
 
   home(a: Agent) {
@@ -164,37 +180,77 @@ export class Sim {
       createdAt: now(), updatedAt: now(),
     });
     if (asg) { asg.status = "done"; asg.reportId = doc.id; this.putAssignment(asg); }
-    this.patchAgent(a.id, { status: "idle", activity: "", currentAssignmentId: null }); // TODO(web): v1.2 hub semantics
+    // hub semantics: the report goes to the manager's in-tray and the agent goes idle
+    this.patchAgent(a.id, { status: "idle", activity: "", currentAssignmentId: null });
     this.event("doc.created", a.id, `${a.name} submitted a report: ${doc.title}`, { docId: doc.id });
+    this.emitBuilding(doc.buildingId);
     this.event("session.ended", a.id, "Session ended (108k tokens, $0.84)");
   }
 
-  review(docId: string, decision: "approve" | "continue" | "redirect" | "stop", note: string) { // TODO(web): v1.2 approve = acknowledge only
+  /**
+   * v1.2 decisions: approve = acknowledge only; continue = assignment from the report's Proposal; redirect = assignment
+   * from the note (proposal appended); stop = agent stopped, its pending assignments cancelled.
+   */
+  review(docId: string, decision: "approve" | "continue" | "redirect" | "stop", note: string) {
     const d = this.docs.get(docId)!;
-    Object.assign(d, { decision, decisionNote: note, decidedBy: "us_mitchell", decidedAt: now() });
+    if (decision === "redirect" && !note.trim()) throw new Error("Redirect needs a note.");
+    Object.assign(d, { decision, decisionNote: note || undefined, decidedBy: "us_mitchell", decidedAt: now() });
     this.putDoc(d);
-    this.event("doc.decision", d.authorId, `Mitchell ${decision === "approve" ? "approved" : decision === "redirect" ? "redirected" : "stopped"} ${this.agents.get(d.authorId)?.name ?? ""}'s report`, { docId, decision });
+    const who = this.agents.get(d.authorId)?.name ?? "";
+    const verb = { approve: "acknowledged", continue: "continued", redirect: "redirected", stop: "stopped" }[decision];
+    this.event("doc.decision", d.authorId, `Mitchell ${verb} ${who}'s report`, { docId, decision }, d.buildingId);
+    this.emitBuilding(d.buildingId);
     const a = this.agents.get(d.authorId);
-    if (!a) return d;
-    if (decision === "stop") { this.patchAgent(a.id, { status: "stopped", activity: "" }); return d; }
-    const proposal = /## Proposal[^\n]*\n+([^\n]+)/.exec(d.body)?.[1]?.trim() ?? "Continue";
+    if (!a || decision === "approve") return d;
+    if (decision === "stop") {
+      for (const x of this.assignments.values()) if (x.agentId === a.id && x.status === "pending") { x.status = "cancelled"; this.putAssignment(x); }
+      this.patchAgent(a.id, { status: "stopped", activity: "" });
+      return d;
+    }
+    const proposal = /## Proposal[^\n]*\n+([^\n]+)/.exec(d.body)?.[1]?.trim() ?? "Follow up on this report";
+    const title = decision === "continue" ? proposal : note.split("\n")[0];
+    const description = decision === "continue" ? (note ? `${proposal}\n\nNote: ${note}` : proposal) : `${note}\n\nThe report proposed: ${proposal}`;
     const asg = this.putAssignment({
-      id: newId("as"), agentId: a.id, buildingId: a.homeBuildingId ?? "bl_carbon", title: proposal.slice(0, 90), description: note ? `${proposal}\n\nNote: ${note}` : proposal,
+      id: newId("as"), agentId: a.id, buildingId: a.homeBuildingId ?? "bl_carbon", title: title.slice(0, 90), description,
       status: "pending", createdBy: "us_mitchell", createdByKind: "user", fromMeetingId: null, fromReportId: d.id, reportId: null, createdAt: now(), updatedAt: now(),
     });
-    this.event("assignment.created", a.id, `Assignment for ${a.name}: ${asg.title}`, { assignmentId: asg.id });
-    this.patchAgent(a.id, { status: "idle" });
+    this.event("assignment.created", a.id, `Assignment for ${a.name}: ${asg.title}`, { assignmentId: asg.id }, a.homeBuildingId);
+    // the scheduler starts a given assignment on an idle agent
     window.setTimeout(() => { if (this.agents.get(a.id)?.status === "idle") this.startWork(a.id); }, 2500);
     return d;
   }
 
-  createBuilding(name: string, goal = "", headcount = 6): Building {
-    const b: Building = { ...clone(F.buildings[1]), id: newId("bl"), name, goal, description: "", headcount, meetings: [], lot: undefined, createdAt: now(), createdBy: "us_mitchell" };
+  /** DELETE /api/agents/:id — retire: free the desk, cancel assignments, drop memberships; the row stays. */
+  dismiss(agentId: string, purge: boolean) {
+    const a = this.agents.get(agentId);
+    if (!a) throw new Error("agent not found");
+    if (a.status === "retired") throw new Error(`${a.name} was already dismissed.`);
+    for (const x of this.assignments.values()) if (x.agentId === a.id && (x.status === "pending" || x.status === "active")) { x.status = "cancelled"; this.putAssignment(x); }
+    this.memberships = this.memberships.filter((m) => !(m.holderKind === "agent" && m.holderId === a.id));
+    this.sessionLeft.delete(a.id);
+    this.patchAgent(a.id, { status: "retired", activity: "", currentAssignmentId: null, currentMeetingId: null });
+    this.layout = computeLayout(this.buildings, [...this.agents.values()]);
+    this.event("agent.retired", a.id, `${a.name} was dismissed by Mitchell${purge ? " (desk volume deleted)" : ""}`, { purge }, a.homeBuildingId);
+    return a;
+  }
+
+  /** POST /api/agents/:id/ban (town.ban). */
+  ban(agentId: string, reason: string) {
+    const a = this.agents.get(agentId);
+    if (!a) throw new Error("agent not found");
+    this.sessionLeft.delete(a.id);
+    this.patchAgent(a.id, { status: "banned", activity: "" });
+    this.event("agent.banned", a.id, `Mitchell banned ${a.name}: ${reason}`, { reason }, a.homeBuildingId);
+    return a;
+  }
+
+  createBuilding(name: string, goal = "", headcount = 6, reviewPolicy: Building["reviewPolicy"] = "human"): Building {
+    const b: Building = { ...clone(F.buildings[1]), id: newId("bl"), name, goal, description: "", headcount, reviewPolicy, meetings: [], workspace: null, lot: undefined, createdAt: now(), createdBy: "us_mitchell" };
     this.buildings.push(b);
     for (const r of ["manager", "reviewer", "member"] as const)
       this.roles.push({ id: `rl_${b.id}_${r}`, name: r, scope: "building", buildingId: b.id, permissions: [...BUILTIN_ROLES.building[r]], builtin: true });
     this.memberships.push({ roleId: `rl_${b.id}_manager`, holderKind: "user", holderId: "us_mitchell" });
-    this.emit({ type: "building", building: b });
+    this.emit({ type: "building", building: { ...b, intray: 0 } });
     this.relayout();
     this.event("building.created", null, `Mitchell created ${name}`, {}, b.id);
     return b;
@@ -204,6 +260,7 @@ export class Sim {
     const a: Agent = { ...clone(this.agents.get("ag_mei")!), id: newId("ag"), name, title, direction, sprite: sprite ?? Math.floor(Math.random() * 12), buildingId, homeBuildingId: buildingId, status: "idle", activity: "", spentTokensToday: 0, spentTokensTotal: 0, spentUsdTotal: 0, createdAt: now() };
     this.agents.set(a.id, a);
     this.memberships.push({ roleId: `rl_${buildingId === "bl_carbon" ? "carbon" : buildingId}_member`, holderKind: "agent", holderId: a.id });
+    this.relayout(false);
     this.layout = computeLayout(this.buildings, [...this.agents.values()]);
     a.pos = this.home(a);
     this.emit({ type: "agent", agent: a });

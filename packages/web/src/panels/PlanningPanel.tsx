@@ -1,24 +1,23 @@
-/** Admin: create buildings and residents, donate tokens, see allocations, manage town roles, export. */
-import { useState } from "react";
+/** Planning desk (Town Hall): create buildings, add and dismiss residents, roles, export. Donations live at the donation box. */
+import { useMemo, useState } from "react";
 import type { Building } from "@agent-town/schema";
 import { api } from "../api";
 import { store, useTown } from "../state";
 import { Glyph, PanelShell } from "./PanelShell";
 import { RolesTab } from "./BuildingPanel";
-import { Meter } from "./AgentPanel";
-import { Act, Empty, ErrorLine, Field, Loading, Section, fmtTokens, usd, useLoad } from "./ui";
+import { DismissButton, canDismiss } from "./Dismiss";
+import { Act, Empty, Field, Section, StatusPill } from "./ui";
 import { PALETTES, portraitUrl } from "../map/sprites";
 
-export function AdminPanel({ tab }: { tab?: string }) {
+export function PlanningPanel({ tab }: { tab?: string }) {
   const me = useTown((s) => s.me);
-  const tabs = ["Buildings", "Residents", "Budget", "Roles", "System"];
+  const tabs = ["Buildings", "Residents", "Roles", "System"];
   return (
-    <PanelShell icon={<Glyph kind="admin" />} title="Town admin" subtitle={me ? `Signed in as ${me.user.name}${me.isAdmin ? " · admin" : ""}` : ""} tabs={tabs} initialTab={tab && tabs.includes(tab) ? tab : "Buildings"}>
+    <PanelShell icon={<Glyph kind="planning" />} title="Planning desk" subtitle={me ? `Signed in as ${me.user.name}${me.isAdmin ? " · admin" : ""}` : ""} tabs={tabs} initialTab={tab && tabs.includes(tab) ? tab : "Buildings"}>
       {(t) => (
         <>
           {t === "Buildings" ? <Buildings /> : null}
           {t === "Residents" ? <Residents /> : null}
-          {t === "Budget" ? <BudgetTab /> : null}
           {t === "Roles" ? <RolesTab /> : null}
           {t === "System" ? <System /> : null}
         </>
@@ -53,7 +52,7 @@ function Buildings() {
               <Field label="Desks"><input type="number" min={1} max={24} value={headcount} onChange={(e) => setHeadcount(+e.target.value)} /></Field>
               <Field label="Review policy">
                 <select value={policy} onChange={(e) => setPolicy(e.target.value as Building["reviewPolicy"])}>
-                  <option value="human">human</option><option value="moderator">moderator</option><option value="auto">auto</option>
+                  <option value="human">human</option><option value="reviewer">reviewer</option><option value="auto">auto</option>
                 </select>
               </Field>
             </div>
@@ -70,6 +69,32 @@ function Buildings() {
 }
 
 function Residents() {
+  const all = useTown((s) => s.buildings);
+  const agents = useTown((s) => s.agents);
+  useTown((s) => s.me);
+  const byBuilding = useMemo(() => all.map((b) => ({ b, residents: Object.values(agents).filter((a) => a.kind === "resident" && a.homeBuildingId === b.id).sort((x, y) => x.createdAt.localeCompare(y.createdAt)) })).filter((x) => x.residents.length), [all, agents]);
+  return (
+    <>
+      {byBuilding.map(({ b, residents }) => (
+        <Section key={b.id} title={`${b.name} (${residents.length}${b.kind === "town-hall" ? "" : ` / ${b.headcount}`})`}>
+          {residents.map((a) => (
+            <div key={a.id} className="resident-row">
+              <button className="member" onClick={() => store.open({ kind: "agent", id: a.id })}>
+                <img src={portraitUrl(a.sprite, 2)} alt="" />
+                <div><b>{a.name}</b><span>{a.title}</span></div>
+                <StatusPill status={a.status} />
+              </button>
+              {canDismiss(a) ? <DismissButton agent={a} small /> : null}
+            </div>
+          ))}
+        </Section>
+      ))}
+      <NewResident />
+    </>
+  );
+}
+
+function NewResident() {
   const buildings = useTown((s) => s.buildings).filter((b) => b.kind !== "town-hall");
   const [buildingId, setBuildingId] = useState(buildings[0]?.id ?? "");
   const [name, setName] = useState("");
@@ -108,55 +133,6 @@ function Residents() {
         </div>
       </form>
     </Section>
-  );
-}
-
-function BudgetTab() {
-  const buildings = useTown((s) => s.buildings).filter((b) => b.kind !== "town-hall");
-  const budget = useLoad(() => api().budget(), []);
-  const [tokens, setTokens] = useState(1_000_000);
-  const [buildingId, setBuildingId] = useState(buildings[0]?.id ?? "");
-  const [apiKey, setApiKey] = useState("");
-  return (
-    <>
-      <Section title="Allocations">
-        <ErrorLine error={budget.error} />
-        {budget.loading && !budget.data ? <Loading /> : (
-          <table className="table">
-            <thead><tr><th>Building</th><th>Allocated</th><th>Spent</th><th /></tr></thead>
-            <tbody>
-              {(budget.data?.buildings ?? []).map((r) => (
-                <tr key={r.buildingId}>
-                  <td>{buildings.find((b) => b.id === r.buildingId)?.name ?? r.buildingId}</td>
-                  <td>{fmtTokens(r.allocated)}</td>
-                  <td>{fmtTokens(r.spent)}{r.spentUsd !== undefined ? ` · ${usd(r.spentUsd)}` : ""}</td>
-                  <td><Meter v={r.allocated ? r.spent / r.allocated : 0} /></td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        )}
-        {budget.data?.users.length ? <div className="foot-note">Donors: {budget.data.users.map((u) => `${u.name ?? u.userId} (${fmtTokens(u.donated)})`).join(", ")}</div> : null}
-      </Section>
-      <Section title="Donate tokens">
-        <form className="form" onSubmit={(e) => e.preventDefault()}>
-          <div className="row2">
-            <Field label="Tokens"><input type="number" min={1} step={100000} value={tokens} onChange={(e) => setTokens(+e.target.value)} /></Field>
-            <Field label="Building">
-              <select value={buildingId} onChange={(e) => setBuildingId(e.target.value)}>{buildings.map((b) => <option key={b.id} value={b.id}>{b.name}</option>)}</select>
-            </Field>
-          </div>
-          <Field label="Anthropic API key (optional)" hint="Sessions charged to this donation run on your key. Stored server-side, never shown again.">
-            <input type="password" autoComplete="off" value={apiKey} onChange={(e) => setApiKey(e.target.value)} placeholder="sk-ant-…" />
-          </Field>
-          <div className="actions"><Act tone="primary" disabled={tokens < 1 || !buildingId} run={async () => {
-            await api().donate({ tokens, buildingId, apiKey: apiKey.trim() || undefined });
-            setApiKey(""); budget.reload();
-            store.toast(`Donated ${fmtTokens(tokens)} tokens`, "ok");
-          }}>Donate</Act></div>
-        </form>
-      </Section>
-    </>
   );
 }
 

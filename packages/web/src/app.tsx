@@ -10,10 +10,11 @@ import { BuildingPanel } from "./panels/BuildingPanel";
 import { LibraryPanel, TrophyPanel } from "./panels/LibraryPanel";
 import { OutboxPanel } from "./panels/OutboxPanel";
 import { MeetingPanel } from "./panels/MeetingPanel";
-import { AdminPanel } from "./panels/AdminPanel";
+import { PlanningPanel } from "./panels/PlanningPanel";
+import { BoardPanel, DonationPanel, IntrayPanel, ModStationPanel, SchedulePanel } from "./panels/Places";
 
 declare global {
-  interface Window { agentTown?: { teleportTo(agentId: string): boolean; openPanel(kind: PanelKind, id?: string): void; store: typeof store } }
+  interface Window { agentTown?: { teleportTo(agentId: string): boolean; walkTo(placeId: string): boolean; openPanel(kind: PanelKind, id?: string): void; store: typeof store } }
 }
 
 type Phase = { k: "booting" } | { k: "login"; error?: string } | { k: "ready" };
@@ -44,24 +45,13 @@ function connect(token: string, attempt = 0) {
   let opened = false;
   socket = api().connect({
     onOpen: () => { opened = true; socket?.send({ type: "auth", token }); store.set({ conn: "open" }); },
-    onMessage: (m) => {
-      const first = !store.state.grid;
-      store.receive(m);
-      if (first && store.state.grid) void loadAssignments();
-    },
+    onMessage: (m) => store.receive(m),
     onClose: () => {
       store.set({ conn: "closed" });
       const next = opened ? 0 : attempt + 1;
       setTimeout(() => connect(token, next), Math.min(15000, 1000 * 2 ** next));
     },
   });
-}
-
-/** The snapshot carries no assignments; fetch them for residents so the HUD knows who is idle with nothing to do. */
-async function loadAssignments() {
-  const residents = Object.values(store.state.agents).filter((a) => a.kind === "resident");
-  const details = await Promise.allSettled(residents.map((a) => api().agent(a.id)));
-  for (const d of details) if (d.status === "fulfilled") store.putAssignments(d.value.assignments);
 }
 
 function panelWidth() { return Math.round(Math.min(500, Math.max(360, window.innerWidth * 0.36))); }
@@ -88,7 +78,13 @@ function PanelHost({ panel }: { panel: PanelRef }) {
     case "trophy": return <TrophyPanel docId={panel.docId} />;
     case "outbox": return <OutboxPanel />;
     case "meeting": return <MeetingPanel key={panel.id} id={panel.id} />;
-    case "admin": return <AdminPanel tab={panel.tab} />;
+    case "intray": return <IntrayPanel key={panel.id} buildingId={panel.id!} />;
+    case "board": return <BoardPanel key={panel.id} buildingId={panel.id!} />;
+    case "admin":
+    case "planning": return <PlanningPanel tab={panel.tab} />;
+    case "donation": return <DonationPanel />;
+    case "schedule": return <SchedulePanel />;
+    case "mod": return <ModStationPanel />;
   }
 }
 
@@ -106,6 +102,7 @@ export function App() {
   useEffect(() => {
     window.agentTown = {
       teleportTo: (id) => mapRenderer()?.teleportTo(id) ?? false,
+      walkTo: (placeId) => store.walkTo(placeId),
       openPanel: (kind, id) => store.open(kind === "library" && id ? { kind, docId: id } : { kind, id }),
       store,
     };

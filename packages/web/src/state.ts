@@ -5,10 +5,14 @@
  */
 import { useSyncExternalStore } from "react";
 import { ServerMessage } from "@agent-town/schema";
-import type { Agent, Assignment, AuthMe, Building, Doc, Event, Meeting, Permission, Place, Town } from "@agent-town/schema";
+import type { Agent, Assignment, AuthMe, Doc, Event, Meeting, Permission, Place, SnapshotBuilding, Town } from "@agent-town/schema";
 import type { Grid, Snapshot } from "./api";
 
-export type PanelKind = "agent" | "building" | "library" | "trophy" | "outbox" | "meeting" | "admin";
+/**
+ * Every panel is a place: walk up and press E. `intray`/`board` take a building id; the Town Hall places
+ * (planning desk, donation box, schedule board, mod station) take none. `admin` is the old name for `planning`.
+ */
+export type PanelKind = "agent" | "building" | "library" | "trophy" | "outbox" | "meeting" | "intray" | "board" | "planning" | "donation" | "schedule" | "mod" | "admin";
 export interface PanelRef { kind: PanelKind; id?: string; docId?: string; tab?: string }
 export interface Toast { id: number; text: string; tone: "info" | "ok" | "bad"; panel?: PanelRef }
 
@@ -16,7 +20,8 @@ export interface TownState {
   conn: "connecting" | "open" | "closed";
   me: AuthMe | null;
   town: Town | null;
-  buildings: Building[];
+  /** buildings as the snapshot carries them, with `intray` (pending report count) */
+  buildings: SnapshotBuilding[];
   agents: Record<string, Agent>;
   places: Place[];
   grid: Grid | null;
@@ -63,6 +68,7 @@ class Store {
     switch (m.type) {
       case "snapshot": return this.applySnapshot(m);
       case "agent": {
+        if (m.agent.status === "retired") return this.dropAgent(m.agent.id); // dismissed: never drawn
         const prev = s.agents[m.agent.id];
         if (!prev || prev.pos.x !== m.agent.pos.x || prev.pos.y !== m.agent.pos.y) this.livePos.set(m.agent.id, { ...m.agent.pos, at: performance.now() });
         return this.set({ agents: { ...s.agents, [m.agent.id]: m.agent } });
@@ -72,6 +78,7 @@ class Store {
         const now = performance.now();
         for (const p of m.positions) {
           if (p.id === this.avatarId) continue; // our own body moves client-side
+          if (p.status === "retired") { if (s.agents[p.id]) this.dropAgent(p.id); continue; }
           this.livePos.set(p.id, { x: p.x, y: p.y, at: now });
           const a = (agents ?? s.agents)[p.id];
           if (a && a.status !== p.status) {
@@ -88,7 +95,9 @@ class Store {
       case "assignment": return this.set({ assignments: { ...s.assignments, [m.assignment.id]: m.assignment }, rev: s.rev + 1 });
       case "building": {
         const known = s.buildings.find((b) => b.id === m.building.id);
-        const buildings = known ? s.buildings.map((b) => (b.id === m.building.id ? m.building : b)) : [...s.buildings, m.building];
+        // `intray` is resent when reports are created or decided; other building updates may omit it
+        const next: SnapshotBuilding = { ...m.building, intray: m.building.intray ?? known?.intray ?? 0 };
+        const buildings = known ? s.buildings.map((b) => (b.id === m.building.id ? next : b)) : [...s.buildings, next];
         this.set({ buildings, rev: s.rev + 1 });
         // The WS protocol has no grid message: a new building or a moved lot means the layout changed.
         const lotChanged = !known || JSON.stringify(known.lot) !== JSON.stringify(m.building.lot);
@@ -100,11 +109,27 @@ class Store {
   }
   onLayoutChanged?: () => void;
 
+  /** Names of agents that left the snapshot (dismissed, banned) so docs keep a readable author. */
+  readonly names = new Map<string, string>();
+  private dropAgent(id: string) {
+    if (!this.state.agents[id]) return;
+    this.names.set(id, this.state.agents[id].name);
+    const agents = { ...this.state.agents };
+    delete agents[id];
+    this.livePos.delete(id);
+    this.said.delete(id);
+    const panel = this.state.panel?.kind === "agent" && this.state.panel.id === id ? null : this.state.panel;
+    this.set({ agents, panel, rev: this.state.rev + 1 });
+  }
+
   applySnapshot(m: Snapshot) {
     const agents: Record<string, Agent> = {};
     this.livePos.clear();
     const now = performance.now();
-    for (const a of m.agents) { agents[a.id] = a; this.livePos.set(a.id, { ...a.pos, at: now }); }
+    for (const a of m.agents) {
+      if (a.status === "retired") continue; // the server already omits them; never draw one regardless
+      agents[a.id] = a; this.livePos.set(a.id, { ...a.pos, at: now });
+    }
     const meetings: Record<string, Meeting> = {};
     for (const mt of m.meetings) meetings[mt.id] = mt;
     this.set({
@@ -159,7 +184,9 @@ class Store {
   }
   putMeeting(m: Meeting) { this.set({ meetings: { ...this.state.meetings, [m.id]: m } }); }
 
-  open(panel: PanelRef | null) { this.set({ panel }); }
+  open(panel: PanelRef | null) { this.set({ panel: panel?.kind === "admin" ? { ...panel, kind: "planning" } : panel }); }
+  /** Walk the avatar to a place (animated when a path exists, else teleport), then open `panel`. Set by the map. */
+  walkTo: (placeId: string, panel?: PanelRef) => boolean = () => false;
   toast(text: string, tone: Toast["tone"] = "info", panel?: PanelRef) {
     const t: Toast = { id: ++this.toastSeq, text, tone, panel };
     this.set({ toasts: [...this.state.toasts.slice(-3), t] });

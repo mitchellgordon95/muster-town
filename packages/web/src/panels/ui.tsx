@@ -2,6 +2,7 @@
 import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
 import type { Event } from "@agent-town/schema";
 import { store, useTown } from "../state";
+import { api } from "../api";
 
 export function timeAgo(iso: string | null | undefined): string {
   if (!iso) return "never";
@@ -119,5 +120,13 @@ export function nameOf(id: string | null | undefined): string {
   const s = store.state;
   if (s.agents[id]) return s.agents[id].name;
   if (s.me?.user.id === id) return s.me.user.name;
+  const known = store.names.get(id);
+  if (known) return known;
+  // dismissed/banned agents aren't in the snapshot; GET /api/agents/:id still answers for them
+  if (id.startsWith("ag_") && !lookups.has(id)) {
+    lookups.add(id);
+    api().agent(id).then((d) => { store.names.set(id, d.agent.name); store.set({ rev: store.state.rev + 1 }); }, () => undefined);
+  }
   return id;
 }
+const lookups = new Set<string>();

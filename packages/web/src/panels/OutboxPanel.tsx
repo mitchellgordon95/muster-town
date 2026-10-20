@@ -1,4 +1,4 @@
-/** Outbox: agents' requests for humans. Moderators approve/reject; anyone can claim and report back. */
+/** Outbox: agents' approved requests for humans; anyone can claim and report back. Approval happens at the mod station. */
 import { useMemo, useState } from "react";
 import type { Doc } from "@agent-town/schema";
 import { api, type RequestAction } from "../api";
@@ -11,7 +11,6 @@ import { Markdown } from "./Markdown";
 const GROUPS: { status: NonNullable<Doc["requestStatus"]>; title: string; empty: string }[] = [
   { status: "approved", title: "Open requests", empty: "Nothing open. When an agent needs something done in the world, it shows up here." },
   { status: "claimed", title: "Claimed", empty: "Nobody is working on a request right now." },
-  { status: "proposed", title: "Awaiting moderator approval", empty: "No proposals waiting." },
   { status: "done", title: "Done", empty: "No requests completed yet." },
 ];
 
@@ -31,9 +30,11 @@ export function OutboxPanel() {
         open ? <DocView doc={open} onBack={() => setOpen(null)} backLabel="Outbox" /> : (
           <>
             <ErrorLine error={list.error} />
+            {(grouped.get("proposed")?.length ?? 0) > 0 ? (
+              <div className="callout">{grouped.get("proposed")!.length} request{grouped.get("proposed")!.length === 1 ? " is" : "s are"} waiting for a moderator. <button className="link" onClick={() => store.walkTo("mod-station", { kind: "mod" }) || store.open({ kind: "mod" })}>Walk to the mod station →</button></div>
+            ) : null}
             {list.loading && !list.data ? <Loading /> : GROUPS.map((g) => {
               const items = grouped.get(g.status) ?? [];
-              if (g.status === "proposed" && !items.length && !store.can("town.approve_request")) return null;
               return (
                 <Section key={g.status} title={`${g.title} (${items.length})`}>
                   {!items.length ? <Empty>{g.empty}</Empty> : items.map((d) => <RequestCard key={d.id} doc={d} onOpen={() => setOpen(d)} />)}
@@ -58,11 +59,11 @@ export function OutboxPanel() {
   );
 }
 
-function RequestCard({ doc, onOpen }: { doc: Doc; onOpen: () => void }) {
+export function RequestCard({ doc, onOpen, moderate }: { doc: Doc; onOpen: () => void; moderate?: boolean }) {
   const me = useTown((s) => s.me);
   const [body, setBody] = useState("");
   const [finishing, setFinishing] = useState(false);
-  const canModerate = store.can("town.approve_request") || store.can("building.review", doc.buildingId);
+  const canModerate = moderate ?? store.can("town.approve_request");
   const mine = doc.claimedByUserId && doc.claimedByUserId === me?.user.id;
   const act = (a: RequestAction, msg: string, b?: string) => async () => { const d = await api().request(doc.id, a, b); store.putDocs([d]); store.toast(msg, "ok"); };
   return (

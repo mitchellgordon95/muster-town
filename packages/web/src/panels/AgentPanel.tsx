@@ -4,6 +4,7 @@ import type { Agent, Assignment, Doc } from "@agent-town/schema";
 import { api, type AgentDetail } from "../api";
 import { store, useTown } from "../state";
 import { DocRow, DocView } from "./DocView";
+import { DismissButton, canDismiss } from "./Dismiss";
 import { PanelShell } from "./PanelShell";
 import { Act, Empty, Feed, Field, KV, Loading, Pill, Section, StatusPill, fmtTokens, timeAgo, usd, useLoad } from "./ui";
 import { portraitUrl } from "../map/sprites";
@@ -67,6 +68,12 @@ function ActivityTab({ agent, detail }: { agent: Agent; detail: AgentDetail | nu
         <div className="callout">{agent.name} has no assignment. <button className="link" onClick={() => store.open({ kind: "agent", id: agent.id, tab: "Assignments" })}>Start work →</button></div>
       ) : null}
       <Section title="Activity"><Feed events={mine} empty={`${agent.name} hasn't done anything yet.`} /></Section>
+      {canDismiss(agent) ? (
+        <Section title="Manager">
+          <p className="direction">Dismissing retires {agent.name}: the desk is freed and they leave the map. Reports and notes stay in the library under their name.</p>
+          <DismissButton agent={agent} />
+        </Section>
+      ) : null}
     </>
   );
 }
@@ -147,17 +154,26 @@ function SessionTab({ agent }: { agent: Agent }) {
   );
 }
 
+/** The agent's reports with their decision pills. Read-only: decisions happen at the building's in-tray. */
 function ReportsTab({ agent }: { agent: Agent }) {
   const rev = useTown((s) => s.rev);
   // The docs API has no author filter, so list the building's reports and filter client-side.
   const list = useLoad(() => api().docs({ type: "report", buildingId: agent.homeBuildingId ?? undefined, limit: 100 }), [agent.id, rev]);
   const [open, setOpen] = useState<Doc | null>(null);
   const reports = (list.data ?? []).filter((d) => d.authorId === agent.id).sort((a, b) => b.createdAt.localeCompare(a.createdAt));
-  useEffect(() => { if (!open && reports[0]?.decision === "pending") setOpen(reports[0]); }, [reports[0]?.id]); // eslint-disable-line react-hooks/exhaustive-deps
+  const pending = reports.filter((d) => d.decision === "pending").length;
+  const bid = agent.homeBuildingId;
   if (open) return <DocView doc={open} onBack={() => setOpen(null)} backLabel="All reports" />;
   if (list.loading && !list.data) return <Loading />;
   if (!reports.length) return <Empty>{agent.name} hasn't submitted a report yet. Every work session ends in one.</Empty>;
-  return <div className="doc-list">{reports.map((d) => <DocRow key={d.id} doc={d} onOpen={() => setOpen(d)} />)}</div>;
+  return (
+    <>
+      {pending && bid ? (
+        <div className="callout">{pending} of these {pending === 1 ? "is" : "are"} in the in-tray. <button className="link" onClick={() => { if (!store.walkTo(`intray:${bid}`, { kind: "intray", id: bid })) store.open({ kind: "intray", id: bid }); }}>Walk to the in-tray →</button></div>
+      ) : null}
+      <div className="doc-list">{reports.map((d) => <DocRow key={d.id} doc={d} onOpen={() => setOpen(d)} />)}</div>
+    </>
+  );
 }
 
 function AssignmentsTab({ agent }: { agent: Agent }) {
