@@ -433,6 +433,14 @@ kbd { font-family: var(--mono); font-size: 11px; background: #2a2d3a; border: 1p
 .lb-bar i { display: block; height: 100%; background: linear-gradient(90deg, #a07a1c, var(--gold), #fff1b8); }
 .lb-tokens { font-variant-numeric: tabular-nums; font-weight: 600; }
 .pct-input { width: 5em; }
+.pool-swatch { display: inline-block; width: 10px; height: 10px; border-radius: 3px; margin-right: 6px; vertical-align: -1px; box-shadow: 0 0 0 1px #0006; }
+.pool-pick { display: flex; align-items: center; }
+.pool-pick select { flex: 1; }
+.pool-name-input { width: 9em; }
+.pool-members { font-size: 12px; max-width: 16em; overflow-wrap: anywhere; }
+.pool-new { margin-top: 10px; }
+.pool-new input:first-child { flex: 1; }
+.sub-head { margin: 14px 0 6px; font-size: 12px; text-transform: uppercase; letter-spacing: .06em; color: var(--faint); }
 
 /* Bank: building funding (allocations with how they're paid for) */
 .funding-building { max-width: 14em; font-size: 12px; }
