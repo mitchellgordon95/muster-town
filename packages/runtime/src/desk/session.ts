@@ -70,8 +70,37 @@ export function deskAuth(funding: Pick<Funding, "auth" | "apiKey" | "fallback">,
   return { mode: "none", env: {} };
 }
 
-/** Host env vars with this prefix are passed into every desk with the prefix stripped. */
+/**
+ * Deprecated fallback (one release): host env vars with this prefix reach every desk with the prefix stripped, with a
+ * warning, unless the collective has a secret of that name at the Town Hall (then only its grants count).
+ */
 export const DESK_ENV_PREFIX = "DESK_ENV_";
+
+/**
+ * Collective secrets for this session (docs/secrets.md): those granted to its building, its agent or a skill pinned
+ * for it, each logged as a `secret.granted` event without the value. Then the DESK_ENV_* fallback for names the Town
+ * Hall doesn't manage. Values are secrets: never log them.
+ */
+export function grantedSecrets(ctx: Ctx, session: Session, buildingId: string, hostEnv: NodeJS.ProcessEnv = process.env): Record<string, string> {
+  const { world } = ctx;
+  const out: Record<string, string> = {};
+  const managed = new Set(world.secrets.list().map((s) => s.name));
+  const log = (name: string, via: string) => world.events.append({ type: "secret.granted", agentId: session.agentId, buildingId, text: `Secret ${name} passed to the desk (${via})`, payload: { name, sessionId: session.id, via } });
+  for (const s of world.secrets.forAgent(session.agentId)) {
+    out[s.name] = s.value;
+    log(s.name, `${s.via} grant`);
+  }
+  const fallback: string[] = [];
+  for (const [k, v] of Object.entries(hostEnv)) {
+    const name = k.slice(DESK_ENV_PREFIX.length);
+    if (!k.startsWith(DESK_ENV_PREFIX) || v === undefined || !name || managed.has(name)) continue;
+    out[name] = v;
+    fallback.push(name);
+    log(name, "DESK_ENV_ fallback");
+  }
+  if (fallback.length) console.warn(`[runtime] session ${session.id}: ${fallback.join(", ")} passed from DESK_ENV_* to every desk (deprecated, dropped next release): add them as secrets at the Town Hall with grants`);
+  return out;
+}
 
 /** Env for `agent-town-desk run` (contract step 3). Values are secrets: never log them. */
 export function deskEnv(ctx: Ctx, session: Session, opts: DeskSessionOptions = {}, funding?: Funding): Record<string, string> {
@@ -85,9 +114,7 @@ export function deskEnv(ctx: Ctx, session: Session, opts: DeskSessionOptions = {
     DESK_MODEL: session.model,
     DESK_MAX_TURNS: String(building.maxTurnsPerSession),
   };
-  // DESK_ENV_<NAME>=value on the host (the collective's .env) reaches every desk as NAME: credentials a pinned skill's
-  // script needs (e.g. DESK_ENV_MINICLAW_WS_TOKEN for talk-to-wright). Values are secrets: never log them.
-  for (const [k, v] of Object.entries(process.env)) if (k.startsWith(DESK_ENV_PREFIX) && v !== undefined && k.length > DESK_ENV_PREFIX.length) env[k.slice(DESK_ENV_PREFIX.length)] = v;
+  Object.assign(env, grantedSecrets(ctx, session, building.id));
   const auth = deskAuth(funding ?? fundingFor(world, agent.id));
   Object.assign(env, auth.env);
   env.DESK_AUTH = auth.mode; // a label, not a secret: the desk logs it

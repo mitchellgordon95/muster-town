@@ -1,0 +1,30 @@
+# Secrets
+
+Two tiers (design: town docs dc_ios62uyco3 and dc_8hdfo4rucp). Ask: if this leaked, whose blast radius is it?
+
+- **Host secrets** (the whole server, every collective, the box): `GITHUB_CLIENT_ID/SECRET`, the session secret, the admin token, `MUSTER_TOWN_DATA_KEY`, deploy/infra tokens, the server's own model login. The operator sets them in the server's env (`collectives/<id>/.env` on localhost, `/etc/muster-town/env` on the VPS). They never show in the UI and **never reach a desk**.
+- **Collective secrets** (one collective's tools, repo or research APIs, e.g. `MINICLAW_WS_TOKEN`): managed by the collective's admins at the Town Hall (the **Secrets** tab of the Town Hall panel), stored encrypted in the `secrets` table, and granted per building, agent or skill.
+
+## Storage
+
+`secrets (name, ciphertext, grants, updatedAt, updatedBy)` (migration 027). `ciphertext` is `v1:` + base64(iv[12] | GCM tag[16] | AES-256-GCM ciphertext) under the host's `MUSTER_TOWN_DATA_KEY` (32 bytes, base64 or 64 hex chars; make one with `openssl rand -base64 32`), with the secret's name as AAD. The key is never in the DB. Without it the server refuses to store values (HTTP 409) and passes no secrets to desks: nothing is ever stored in plaintext. Losing the key makes the stored values unreadable: set them again.
+
+Names are env-var style (`A-Z0-9_`, starting with a letter). Names the runtime sets itself are reserved: `MUSTER_TOWN_*`, `AGENT_TOWN_*`, `DESK_*`, `CLAUDE_*`, `ANTHROPIC_*`, `GH_*`, `GITHUB_*`, `NODE_*`, `LD_*`, `DYLD_*`, `PATH`, `HOME` and other process basics. (Desk GitHub tokens still come from `desks.ghToken`.)
+
+## API (collective admins: a human's user token or session; agent tokens get 403)
+
+- `GET /api/secrets` → `{secrets: [{name, grants: {buildings, agents, skills}, set, updatedAt, updatedBy}], keyConfigured}`. Never values.
+- `PUT /api/secrets/:name {value?, grants?}`: create, replace the value (write-only) and/or replace the grants. Grants must name existing buildings, agents and skill docs. Events `secret.set` (no value).
+- `DELETE /api/secrets/:name` → `{removed}`. Event `secret.deleted`.
+
+## Desks
+
+`deskEnv()` (`runtime/src/desk/session.ts`, `grantedSecrets`) passes a secret as `NAME` only when it has a value and is granted to the session's home building, its agent, or a skill that loads into the agent's sessions (`skills.forAgent`: agent, building or town pins). Each one appends `secret.granted {name, sessionId, via}` without the value.
+
+**Deprecated fallback, one release:** a host variable `DESK_ENV_<NAME>` still reaches every desk as `NAME`, with a warning in the server log and a `secret.granted` event (`via: "DESK_ENV_ fallback"`), unless the Town Hall has a secret named `NAME`: then only its grants count. Move each one to the Town Hall, then delete it from the `.env`.
+
+A skill grant reaches every agent the skill is pinned for: a town-wide pin means every resident. To narrow it, pin the skill per building or agent, or grant the secret to buildings/agents instead.
+
+## Host sessions and the admin token
+
+Host-backend sessions (summaries, meetings, in-process work) get an allowlisted env (`runtime/src/sdk.ts`, `sessionEnv`: `PATH`, `HOME`, locale, proxies, CA certs, `CLAUDE_*`, `ANTHROPIC_*`), not `{...process.env}`. The admin token is written to `<data>/admin-token` (0600) and startup prints only its path.

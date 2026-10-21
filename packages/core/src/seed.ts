@@ -1,6 +1,6 @@
 import { CollectiveConfig, Town, townEnv, type Agent, type Building, type DesksConfig, type User, type Workspace } from "@muster-town/schema";
 import { execFileSync } from "node:child_process";
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { chmodSync, existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { createBuilding, createResident, createServiceAgent, createTownModerator, createUser } from "./entities.ts";
 import { buildingRoleId, townRoleId } from "./permissions.ts";
@@ -166,7 +166,10 @@ export function seedDefaults(world: World, opts: SeedOptions = {}): SeedResult {
   });
   if (opts.dataDir) {
     mkdirSync(opts.dataDir, { recursive: true });
-    writeFileSync(join(opts.dataDir, "admin-token"), result.adminToken + "\n", { mode: 0o600 });
+    const file = join(opts.dataDir, "admin-token");
+    writeFileSync(file, result.adminToken + "\n", { mode: 0o600 });
+    chmodSync(file, 0o600); // `mode` only applies when the file is created
+
   }
   return result;
 }

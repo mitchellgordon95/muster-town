@@ -117,10 +117,22 @@ export function blocksOf(m: LooseMessage): ContentBlock[] {
   return Array.isArray(c) ? c : [];
 }
 
-/** Environment for a session: inherit, plus the donor's API key when the allocation has one. */
-export function sessionEnv(apiKey: string | null): Options["env"] | undefined {
-  if (!apiKey) return undefined;
-  return { ...process.env, ANTHROPIC_API_KEY: apiKey };
+/** Host env vars a host session's Claude Code process may see: process basics, proxies, and its model credential. */
+const SESSION_ENV_NAMES = new Set(["PATH", "HOME", "USER", "LOGNAME", "SHELL", "TERM", "LANG", "TZ", "TMPDIR", "TMP", "TEMP", "HTTP_PROXY", "HTTPS_PROXY", "NO_PROXY", "http_proxy", "https_proxy", "no_proxy", "NODE_EXTRA_CA_CERTS", "SSL_CERT_FILE", "SSL_CERT_DIR", "SYSTEMROOT", "APPDATA", "LOCALAPPDATA", "USERPROFILE"]);
+const SESSION_ENV_PREFIXES = ["LC_", "XDG_", "CLAUDE_", "ANTHROPIC_"];
+
+/**
+ * Environment for a host session: an allowlist of the host env (never `{...process.env}`, which holds host secrets:
+ * the admin and deploy tokens, OAuth client secret, data key, DESK_ENV_*), plus the donor's API key when the allocation
+ * has one.
+ */
+export function sessionEnv(apiKey: string | null, hostEnv: NodeJS.ProcessEnv = process.env): Record<string, string> {
+  const env: Record<string, string> = {};
+  for (const [k, v] of Object.entries(hostEnv)) {
+    if (v !== undefined && (SESSION_ENV_NAMES.has(k) || SESSION_ENV_PREFIXES.some((p) => k.startsWith(p)))) env[k] = v;
+  }
+  if (apiKey) env.ANTHROPIC_API_KEY = apiKey;
+  return env;
 }
 
 /** One call, no tools: returns the final text and usage. */

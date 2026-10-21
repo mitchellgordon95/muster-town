@@ -405,6 +405,33 @@ export const Doc = z.object({
 });
 export type Doc = z.infer<typeof Doc>;
 
+// ---------- collective secrets (docs/secrets.md) ----------
+/** Env-var style: A-Z, 0-9, _; starts with a letter. */
+export const SecretName = z.string().regex(/^[A-Z][A-Z0-9_]{0,63}$/, "an env var name: A-Z, 0-9 and _, starting with a letter (max 64)");
+/** Who a secret reaches: a session gets it if its building or agent is listed, or a listed skill is pinned for the agent. */
+export const SecretGrants = z.object({
+  buildings: z.array(Id).default([]),
+  agents: z.array(Id).default([]),
+  skills: z.array(Id).default([]),
+});
+export type SecretGrants = z.infer<typeof SecretGrants>;
+/** A secret as the API lists it: never the value. */
+export const SecretView = z.object({
+  name: SecretName,
+  grants: SecretGrants,
+  /** a value is stored (encrypted) */
+  set: z.boolean(),
+  updatedAt: Iso,
+  updatedBy: Id.nullable(),
+});
+export type SecretView = z.infer<typeof SecretView>;
+/** PUT /api/secrets/:name: set or replace the value (write-only), and/or replace the grants. */
+export const PutSecretInput = z.object({
+  value: z.string().min(1).max(16_384).optional(),
+  grants: SecretGrants.optional(),
+});
+export type PutSecretInput = z.infer<typeof PutSecretInput>;
+
 // ---------- skills (docs/skills.md) ----------
 /** Bundled-file limits per skill: count, chars per file, chars in total. Text files only. */
 export const SKILL_LIMITS = { files: 40, fileChars: 100_000, totalChars: 500_000, nameChars: 64, descriptionChars: 300, alwaysChars: 8000 } as const;
@@ -701,6 +728,7 @@ export const EventType = z.enum([
   "building.created", "building.updated", "building.layout", "town.plan", "allocation.created", "budget.exhausted", "bank.input", "bank.credited", "bank.share", "bank.pool",
   "grant.created", "grant.updated", "grant.proposed", "grant.countered", "grant.funded", "grant.rejected", "grant.checkpoint", "grant.closed", "kr.updated",
   "skill.used", "skill.pinned", "skill.unpinned",
+  "secret.set", "secret.deleted", "secret.granted",
   "export.done", "system",
 ]);
 export const Event = z.object({

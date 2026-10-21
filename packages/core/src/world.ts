@@ -11,6 +11,7 @@ import { importV0, type ImportV0Options, type ImportV0Result } from "./import-v0
 import { Ops } from "./ops.ts";
 import { holderOf, Permissions, type Holder } from "./permissions.ts";
 import { Presence } from "./presence.ts";
+import { Secrets } from "./secrets.ts";
 import { Skills } from "./skills.ts";
 import { seedDefaults, type SeedOptions, type SeedResult } from "./seed.ts";
 import { createRepos, type Repos } from "./store.ts";
@@ -55,6 +56,8 @@ export class World {
   readonly grantDesk: Grants;
   /** skills: SKILL.md docs, bundled files, pins, usage (docs/skills.md) */
   readonly skills: Skills;
+  /** collective secrets: encrypted values and their grants (docs/secrets.md) */
+  readonly secrets: Secrets;
   readonly layout: WorldMap;
   readonly movement: Movement;
   readonly verbs: Verbs;
@@ -113,6 +116,7 @@ export class World {
     this.ops = new Ops(this);
     this.grantDesk = new Grants(this);
     this.skills = new Skills(this);
+    this.secrets = new Secrets(this);
     this.presence = new Presence(this);
     // agent.activity is server-maintained from events
     this.events.addHook((e) => {

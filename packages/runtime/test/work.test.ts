@@ -48,7 +48,8 @@ describe("work session", () => {
     expect(opts.maxTurns).toBe(lab.maxTurnsPerSession);
     expect(opts.model).toBe(lab.model);
     expect(opts.permissionMode).toBeUndefined();
-    expect(opts.env).toBeUndefined(); // house allocation has no donor key
+    expect(opts.env?.ANTHROPIC_API_KEY).toBe(process.env.ANTHROPIC_API_KEY); // house allocation has no donor key
+    expect(Object.keys(opts.env ?? {}).some((k) => k.startsWith("DESK_ENV_") || k.startsWith("MUSTER_TOWN_"))).toBe(false); // allowlisted host env
     expect(sdk.sessions[0].received[0]).toContain("Measure the growth rate");
 
     const s = world.sessions.require(session.id);
