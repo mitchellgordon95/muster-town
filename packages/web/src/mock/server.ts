@@ -248,6 +248,13 @@ export class MockApi implements Api {
     return clone({ assignment: n, agent: to, from: a });
   }
 
+  async setMaxRunning(maxRunning: number) {
+    await wait();
+    this.sim.maxRunning = maxRunning;
+    const running = [...this.sim.agents.values()].filter((a) => a.status === "working").length;
+    return { desks: { backend: "auto" as const, image: "muster-town-desk", ghToken: "gh-cli" as const, maxRunning }, slots: { running, max: maxRunning } };
+  }
+
   async docs(q: DocQuery) {
     await wait();
     const text = q.q?.toLowerCase().trim();

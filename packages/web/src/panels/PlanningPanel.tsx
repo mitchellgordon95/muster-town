@@ -138,6 +138,28 @@ function Redeploy() {
   );
 }
 
+/** Session slots: how many work sessions the host runs at once (a running session costs ~0.2 GB, ~0.7 GB while compiling). */
+function Slots() {
+  const slots = useTown((s) => s.health?.slots ?? null);
+  const admin = useTown((s) => !!s.me?.isAdmin);
+  const [max, setMax] = useState<string>("");
+  if (!slots) return null;
+  const full = slots.running >= slots.max;
+  return (
+    <Section title="Session slots">
+      <p className="direction">
+        <b>{slots.running} of {slots.max}</b> work sessions running{full ? "; queued work is waiting for a free slot" : ""}. Each running session costs about 0.2 GB of memory (0.7 GB while it compiles); idle agents cost nothing. Raise the cap when the host grows, lower it to protect it.
+      </p>
+      {admin ? (
+        <div className="actions">
+          <input type="number" min={1} max={1000} value={max} placeholder={String(slots.max)} onChange={(e) => setMax(e.target.value)} aria-label="Max running sessions" style={{ width: 90 }} />
+          <Act disabled={!max || Number(max) < 1} run={async () => { const r = await api().setMaxRunning(Number(max)); store.toast(`Session slots set to ${r.desks.maxRunning}`, "ok"); setMax(""); }}>Set cap</Act>
+        </div>
+      ) : null}
+    </Section>
+  );
+}
+
 function System() {
   const [commit, setCommit] = useState<string | null>(null);
   const conn = useTown((s) => s.conn);
@@ -145,6 +167,7 @@ function System() {
   return (
     <>
       {store.can("town.redeploy") ? <Redeploy /> : null}
+      <Slots />
       <Section title="Git export">
         <p className="direction">Writes the town to a readable git mirror (buildings, docs, meetings, events) and commits if anything changed.</p>
         <div className="actions"><Act run={async () => { setCommit((await api().exportNow()) ?? "nothing to commit"); }}>Export now</Act>{commit ? <code>{commit}</code> : null}</div>

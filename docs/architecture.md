@@ -252,7 +252,7 @@ Existing `POST /api/agents/:id/interrupt` (user token): if the runtime has an in
 
 ## Collective config
 
-`collective.json`: `"desks": { "backend": "docker" | "host" | "auto", "image": "muster-town-desk", "ghToken": "gh-cli" | "env" | "none" }` (default `auto`: docker if `docker info` succeeds, else host with a startup warning). `<collective>/.env` is loaded into `process.env` by the server at start (KEY=VALUE lines, no quotes handling needed beyond trimming); `CLAUDE_CODE_OAUTH_TOKEN` and `ANTHROPIC_API_KEY` from it fund desks after a donor key (see the funding order above). Never log env values.
+`collective.json`: `"desks": { "backend": "docker" | "host" | "auto", "image": "muster-town-desk", "ghToken": "gh-cli" | "env" | "none", "maxRunning": 20 }` (default `auto`: docker if `docker info` succeeds, else host with a startup warning). `maxRunning` is the host's session cap: the scheduler never has more work sessions live or starting than that (a running session costs ~0.2 GB, ~0.7 GB while it compiles; idle agents cost nothing), and queued work waits for a free slot. It changes live with `PUT /api/town/desks {maxRunning}` (admin; Planning → System in the web), survives restarts unless collective.json spells it out, and the snapshot's `health.slots` plus one `alert: slots-full` / `slots-free` system event each way tell the UI. `<collective>/.env` is loaded into `process.env` by the server at start (KEY=VALUE lines, no quotes handling needed beyond trimming); `CLAUDE_CODE_OAUTH_TOKEN` and `ANTHROPIC_API_KEY` from it fund desks after a donor key (see the funding order above). Never log env values.
 
 `Town.workspace` (formerly `building.workspace`; migration 022 lifted the first one to the town and set `codeAccess` on buildings that had one) gains `repoUrl` (string): set at seed from `git -C <path> remote get-url origin` when the collective spec gives a `path`, or given directly. The desk uses `repoUrl`; the host backend keeps using `path`.
 
@@ -261,7 +261,7 @@ Existing `POST /api/agents/:id/interrupt` (user token): if the runtime has an in
 - `Session.backend: 'host' | 'docker'` (default host).
 - `MessageKind` unchanged; interrupts have their own table/type: `Interrupt { id, agentId, sessionId, text, from, now, createdAt, deliveredAt }`.
 - `Workspace.repoUrl?: string`.
-- `CollectiveConfig.desks?: { backend, image, ghToken }`.
+- `CollectiveConfig.desks?: { backend, image, ghToken, maxRunning }`.
 - Agent-scoped payload schemas: `DeskBrief`, `DeskActivityInput`, `DeskControl`, `DeskSessionEndInput`.
 
 ## Testing

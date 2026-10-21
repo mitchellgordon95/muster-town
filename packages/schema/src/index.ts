@@ -854,7 +854,7 @@ export const SnapshotBuilding = Building.extend({ intray: z.number().int().nonne
 export type SnapshotBuilding = z.infer<typeof SnapshotBuilding>;
 
 export const ServerMessage = z.discriminatedUnion("type", [
-  z.object({ type: z.literal("snapshot"), avatarAgentId: Id.optional(), town: Town, buildings: z.array(SnapshotBuilding), agents: z.array(Agent), places: z.array(Place), grid: z.object({ w: z.number(), h: z.number(), /** row-major tile kinds */ tiles: z.array(z.number()) }), meetings: z.array(Meeting), health: z.object({ docker: z.boolean() }).optional() }),
+  z.object({ type: z.literal("snapshot"), avatarAgentId: Id.optional(), town: Town, buildings: z.array(SnapshotBuilding), agents: z.array(Agent), places: z.array(Place), grid: z.object({ w: z.number(), h: z.number(), /** row-major tile kinds */ tiles: z.array(z.number()) }), meetings: z.array(Meeting), health: z.object({ docker: z.boolean(), slots: z.object({ running: z.number().int().nonnegative(), max: z.number().int().positive() }).optional() }).optional() }),
   z.object({ type: z.literal("event"), event: Event }),
   z.object({ type: z.literal("agent"), agent: Agent }),
   z.object({ type: z.literal("agents.pos"), positions: z.array(z.object({ id: Id, x: z.number(), y: z.number(), status: AgentStatus })) }),
@@ -1058,8 +1058,14 @@ export const RedeployLive = z.object({
   since: z.string().nullable(),
 });
 export type RedeployLive = z.infer<typeof RedeployLive>;
-/** `health` on the snapshot: `docker` = the runtime's last docker probe (true when docker isn't used or not probed). */
-export const TownHealth = z.object({ docker: z.boolean() });
+/** Work-session slots on the host: `running` live or starting sessions out of `max` (desks.maxRunning). */
+export const SessionSlots = z.object({ running: z.number().int().nonnegative(), max: z.number().int().positive() });
+export type SessionSlots = z.infer<typeof SessionSlots>;
+/**
+ * `health` on the snapshot: `docker` = the runtime's last docker probe (true when docker isn't used or not probed);
+ * `slots` = work-session slots (absent without a runtime).
+ */
+export const TownHealth = z.object({ docker: z.boolean(), slots: SessionSlots.optional() });
 export type TownHealth = z.infer<typeof TownHealth>;
 
 export const AuthMe = z.object({ user: User, roles: z.array(Role), avatarAgentId: Id.nullable(), isAdmin: z.boolean() });
@@ -1104,8 +1110,16 @@ export const DesksConfig = z.object({
   image: z.string().default("muster-town-desk"),
   /** where desks get GH_TOKEN: `gh auth token` on the host, the host's GH_TOKEN env, or none */
   ghToken: z.enum(["gh-cli", "env", "none"]).default("gh-cli"),
+  /**
+   * How many work sessions may run at once on this host (a running session costs ~0.2 GB, peaking ~0.7 GB while it
+   * compiles). Queued work waits for a free slot; the scheduler never starts more. Changeable live (PUT /api/town/desks).
+   */
+  maxRunning: z.number().int().positive().default(20),
 });
 export type DesksConfig = z.infer<typeof DesksConfig>;
+/** `PUT /api/town/desks` (admin): the host settings that can change while the server runs. */
+export const DesksPatch = z.object({ maxRunning: z.number().int().positive().max(1000) });
+export type DesksPatch = z.infer<typeof DesksPatch>;
 
 export const CollectiveConfig = Town.extend({
   /** the collective's repo (path relative to the collective dir); buildings opt in with `codeAccess` */

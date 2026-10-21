@@ -39,6 +39,8 @@ export interface HostHooks {
   redeployStatus?(): RedeployLive;
   /** The runtime's last docker probe: false while docker is down (code desks can't start). Unset = not probed. */
   docker?: boolean;
+  /** Work-session slots: live or starting sessions out of `desks.maxRunning`. Unset without a runtime. */
+  slots?(): { running: number; max: number };
 }
 
 export class World {
@@ -133,6 +135,12 @@ export class World {
   desksConfig(): DesksConfig {
     return this.town.desks();
   }
+  /** Change the live host settings (`PUT /api/town/desks`); the scheduler reads them on every pass. */
+  setDesksConfig(patch: Partial<DesksConfig>): DesksConfig {
+    const desks = this.town.setDesks({ ...this.town.desks(), ...patch });
+    this.events.append({ type: "system", text: `Session slots set to ${desks.maxRunning}`, payload: { desks: true, maxRunning: desks.maxRunning } });
+    return desks;
+  }
 
   /** Run `fn` in one SQLite transaction. */
   transaction<T>(fn: () => T): T {
@@ -216,7 +224,7 @@ export class World {
       places: this.layout.places,
       grid: this.layout.grid,
       meetings: this.meetings.where("phase IN ('scheduled','collecting','discussing')", [], "ORDER BY scheduledAt"),
-      health: { docker: this.host.docker ?? true },
+      health: { docker: this.host.docker ?? true, ...(this.host.slots ? { slots: this.host.slots() } : {}) },
     };
   }
 

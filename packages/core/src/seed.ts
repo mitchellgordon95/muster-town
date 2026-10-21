@@ -1,4 +1,4 @@
-import { CollectiveConfig, Town, townEnv, type Agent, type Building, type User, type Workspace } from "@muster-town/schema";
+import { CollectiveConfig, Town, townEnv, type Agent, type Building, type DesksConfig, type User, type Workspace } from "@muster-town/schema";
 import { execFileSync } from "node:child_process";
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
@@ -124,9 +124,11 @@ export function seedDefaults(world: World, opts: SeedOptions = {}): SeedResult {
     }
     const moderators: Agent[] = [];
     if (opts.collectivePath && existsSync(opts.collectivePath)) {
-      const cfg = CollectiveConfig.parse(JSON.parse(readFileSync(opts.collectivePath, "utf8")));
+      const rawCfg = JSON.parse(readFileSync(opts.collectivePath, "utf8")) as { desks?: Partial<DesksConfig> };
+      const cfg = CollectiveConfig.parse(rawCfg);
       const dir = dirname(resolve(opts.collectivePath));
-      if (cfg.desks) world.town.setDesks(cfg.desks);
+      // the keys collective.json spells out win; the ones it leaves out (e.g. a `maxRunning` set live via PUT /api/town/desks) survive restarts
+      if (cfg.desks) world.town.setDesks({ ...(world.town.isSet() ? world.town.desks() : {}), ...rawCfg.desks });
       const ws = collectiveWorkspace(opts.collectivePath);
       if (ws) world.town.set({ workspace: withRepoUrl(ws) });
       for (const spec of cfg.buildings) {

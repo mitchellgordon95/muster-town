@@ -1,5 +1,5 @@
 import { AppError, boardDocs, cabinetCounts, cabinetDocs } from "@muster-town/core";
-import { AddBankInput, CreateBankPoolInput, CreateBuildingInput, UpdateBankPoolInput, DocType, DonateInput, LayoutInput, Membership, PlanInput, RedeployInput, UpdateBuildingInput, townEnv, type AuthMe, type RedeployLive } from "@muster-town/schema";
+import { AddBankInput, CreateBankPoolInput, CreateBuildingInput, DesksPatch, UpdateBankPoolInput, DocType, DonateInput, LayoutInput, Membership, PlanInput, RedeployInput, UpdateBuildingInput, townEnv, type AuthMe, type RedeployLive } from "@muster-town/schema";
 import type { FastifyInstance, FastifyRequest } from "fastify";
 import { z } from "zod";
 import { actorOf, adminToken, parse, requireAuth, requireUser, type Params } from "../context.ts";
@@ -95,6 +95,14 @@ export async function townRoutes(app: FastifyInstance) {
    * Town planning (humans with town.manage_buildings): new lots for existing buildings and/or one new building on
    * a drawn lot. `dryRun` returns errors and the grid as it would look.
    */
+  /** Host settings that change live (admin): `{maxRunning}` = how many work sessions may run at once. → { desks, slots } */
+  app.put("/api/town/desks", async (req) => {
+    const user = requireUser(req);
+    if (!world.permissions.isAdmin({ kind: "user", id: user.id })) throw new AppError("forbidden", "Only an admin can change the host's session slots.", 403);
+    const desks = world.setDesksConfig(parse(DesksPatch, req.body));
+    return { desks, slots: world.host.slots?.() ?? null };
+  });
+
   app.put("/api/town/plan", async (req) => {
     const input = parse(PlanInput, req.body);
     const actor = actorOf(world, req);
