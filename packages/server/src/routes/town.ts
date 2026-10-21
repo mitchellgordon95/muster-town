@@ -110,7 +110,7 @@ export async function townRoutes(app: FastifyInstance) {
   app.get<{ Params: Params }>("/api/buildings/:id/board", async (req) => {
     const { limit } = parse(LimitQuery, req.query);
     world.buildings.require(req.params.id, "building");
-    return { docs: boardDocs(world, req.params.id, limit) };
+    return { docs: boardDocs(world, req.params.id, limit), ...world.grantDesk.board(req.params.id) };
   });
 
   /**
