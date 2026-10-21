@@ -188,6 +188,13 @@ export async function agentRoutes(app: FastifyInstance) {
     return reply.code(201).send({ assignment, agent: world.agents.require(assignment.agentId, "agent") });
   });
 
+  /** Delegate a queued assignment to another resident: the original is cancelled, a copy joins their queue (front unless `front: false`). → 201 { assignment, agent, from } */
+  app.post<{ Params: Params }>("/api/assignments/:id/delegate", async (req, reply) => {
+    const { agentId, front } = parse(z.object({ agentId: z.string(), front: z.boolean().default(true) }), req.body ?? {});
+    const r = world.ops.delegateAssignment(actorOf(world, req), req.params.id, agentId, { front });
+    return reply.code(201).send({ assignment: r.assignment, agent: world.agents.require(r.assignment.agentId, "agent"), from: r.from });
+  });
+
   /**
    * Dismiss: building.manage on the agent's home building (or admin). `?purge=1` also deletes the desk's home volume.
    * → { agent, cancelledAssignments, revokedTokens, removedMemberships, deskFreed, purge }

@@ -312,6 +312,33 @@ export class Ops {
     });
   }
 
+  /**
+   * POST /assignments/:id/delegate: hand a queued assignment to another resident instead of waiting. The original is
+   * cancelled; the new copy (`fromAssignmentId`) joins the other agent's queue, at the front when `front`. Needs control
+   * of both agents (owner, building.assign on their building, or admin).
+   */
+  delegateAssignment(actor: Actor, assignmentId: string, toAgentId: string, opts: { front?: boolean } = {}): { assignment: Assignment; from: Assignment } {
+    const { a, agent } = this.controlAssignment(actor, assignmentId);
+    if (a.status !== "pending") throw new AppError("conflict", a.status === "active" ? `"${a.title}" is running: stop ${agent.name} to end it.` : `Assignment "${a.title}" is ${a.status}, not queued.`);
+    const to = this.world.agents.require(toAgentId, "agent");
+    if (to.id === agent.id) throw badRequest(`"${a.title}" is already ${agent.name}'s.`);
+    if (to.kind !== "resident") throw badRequest(`${to.name} is a ${to.kind}; only residents take delegated assignments.`);
+    if (to.status === "banned" || to.status === "retired") throw new AppError("conflict", `${to.name} is ${to.status === "retired" ? "dismissed" : "banned"}.`);
+    if (actor) this.requireAgentControl(actor, to);
+    const by = actor ? this.world.holderOf(actor) : { kind: "system" as const, id: "system" };
+    const who = actor?.name ?? "The town";
+    return this.world.db.transaction(() => {
+      const from = setAssignmentStatus(this.world, a.id, "cancelled");
+      // the work stays in the building it was for when that is the new agent's home; otherwise it moves to their home
+      const assignment = createAssignment(this.world, {
+        agentId: to.id, buildingId: to.homeBuildingId === a.buildingId ? a.buildingId : undefined, title: a.title, description: a.description,
+        fromReportId: a.fromReportId, fromMeetingId: a.fromMeetingId, fromAssignmentId: a.id, front: !!opts.front, createdBy: by,
+      });
+      this.world.events.append({ type: "assignment.delegated", agentId: to.id, buildingId: assignment.buildingId, text: `${who} delegated "${a.title}" from ${agent.name} to ${to.name}`, payload: { assignmentId: assignment.id, fromAssignmentId: a.id, fromAgentId: agent.id, toAgentId: to.id, by: by.id } });
+      return { assignment, from };
+    })();
+  }
+
   // ---- talk: a human messages an agent ----
   /**
    * POST /api/agents/:id/message. The text lands in the agent's inbox as a `tell` from the user's avatar (so `look`

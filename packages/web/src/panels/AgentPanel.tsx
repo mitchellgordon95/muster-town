@@ -314,6 +314,8 @@ function AssignmentsTab({ agent, notebook }: { agent: Agent; notebook?: Doc | nu
   const put = (r: { assignment?: Assignment; assignments?: Assignment[]; agent?: Agent }) => {
     store.putAssignments([...(r.assignments ?? []), ...(r.assignment ? [r.assignment] : [])]);
   };
+  /** the queued assignment whose Delegate picker is open */
+  const [delegating, setDelegating] = useState<string | null>(null);
   const move = async (i: number, d: -1 | 1) => {
     const ids = queue.map((a) => a.id);
     [ids[i], ids[i + d]] = [ids[i + d], ids[i]];
@@ -348,8 +350,11 @@ function AssignmentsTab({ agent, notebook }: { agent: Agent; notebook?: Doc | nu
                 const r = await api().startNext(a.id); put(r);
                 store.toast(r.when === "now" ? `${agent.name} is starting "${a.title}"` : `"${a.title}" runs after the current session`, "ok");
               }}>Start next</Act>
+              <button type="button" className={`btn sm ${delegating === a.id ? "primary" : ""}`} title="Hand this to another resident instead of waiting" onClick={() => setDelegating(delegating === a.id ? null : a.id)}>Delegate</button>
               <Act small tone="bad" run={async () => { put(await api().cancelAssignment(a.id)); }}>Cancel</Act>
             </>
+          ) : null} footer={delegating === a.id ? (
+            <DelegatePicker from={agent} onDone={(r) => { setDelegating(null); put({ assignments: [r.from, r.assignment], agent: r.agent }); store.toast(`"${a.title}" is now ${r.agent.name}'s, at the front of their queue`, "ok"); }} run={(toId) => api().delegateAssignment(a.id, toId, true)} />
           ) : null} />
         ))}
       </Section>
@@ -388,7 +393,27 @@ function waitLabel(w: NonNullable<Assignment["waitFor"]>): string {
   return `until ${new Date(w.after).toLocaleString()}`;
 }
 
-function AssignmentRow({ a, actions, index, offline }: { a: Assignment; actions?: ReactNode; index?: number; offline?: boolean }) {
+/** Delegate: pick another resident (same building first) and hand them the queued assignment. */
+function DelegatePicker({ from, run, onDone }: { from: Agent; run: (toId: string) => Promise<{ assignment: Assignment; agent: Agent; from: Assignment }>; onDone: (r: { assignment: Assignment; agent: Agent; from: Assignment }) => void }) {
+  const agents = useTown((s) => s.agents);
+  const buildings = useTown((s) => s.buildings);
+  const bname = (id: string | null) => buildings.find((b) => b.id === id)?.name ?? "";
+  const options = useMemo(() => Object.values(agents)
+    .filter((x) => x.id !== from.id && x.kind === "resident" && x.status !== "retired" && x.status !== "banned")
+    .sort((x, y) => Number(y.homeBuildingId === from.homeBuildingId) - Number(x.homeBuildingId === from.homeBuildingId) || bname(x.homeBuildingId).localeCompare(bname(y.homeBuildingId)) || x.name.localeCompare(y.name)), [agents, buildings, from.id, from.homeBuildingId]);
+  const [to, setTo] = useState(options[0]?.id ?? "");
+  if (!options.length) return <div className="asg-delegate"><Empty>No other resident to hand this to.</Empty></div>;
+  return (
+    <div className="asg-delegate">
+      <select value={to} onChange={(e) => setTo(e.target.value)} aria-label="Delegate to">
+        {options.map((x) => <option key={x.id} value={x.id}>{x.name}{x.homeBuildingId !== from.homeBuildingId ? ` · ${bname(x.homeBuildingId)}` : ""}{x.status === "working" ? " (working)" : x.status === "stopped" ? " (stopped)" : ""}</option>)}
+      </select>
+      <Act small tone="primary" disabled={!to} title="Cancel it here and queue it first for them" run={async () => onDone(await run(to))}>Hand over</Act>
+    </div>
+  );
+}
+
+function AssignmentRow({ a, actions, index, offline, footer }: { a: Assignment; actions?: ReactNode; index?: number; offline?: boolean; footer?: ReactNode }) {
   const [open, setOpen] = useState(false);
   const long = a.description.length > 160;
   return (
@@ -401,11 +426,12 @@ function AssignmentRow({ a, actions, index, offline }: { a: Assignment; actions?
       </div>
       {a.description ? <div className="asg-desc" onClick={() => long && setOpen((o) => !o)}>{long && !open ? a.description.slice(0, 157) + "…" : a.description}</div> : null}
       <div className="asg-meta">
-        {a.fromAssignmentId ? "retried · " : a.fromMeetingId ? "from a meeting · " : a.fromReportId ? "from a report · " : ""}
+        {a.fromAssignmentId ? "retried or delegated · " : a.fromMeetingId ? "from a meeting · " : a.fromReportId ? "from a report · " : ""}
         {a.status === "done" || a.status === "cancelled" ? `${a.status} ${timeAgo(a.updatedAt)}` : `created ${timeAgo(a.createdAt)}`}
         {a.reportId ? <> · <button type="button" className="link" onClick={() => store.open({ kind: "library", docId: a.reportId! })}>report</button></> : null}
       </div>
       {actions ? <div className="asg-actions">{actions}</div> : null}
+      {footer}
     </div>
   );
 }

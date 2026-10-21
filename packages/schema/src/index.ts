@@ -631,7 +631,7 @@ export const EventType = z.enum([
   "agent.created", "agent.moved", "agent.status", "agent.activity", "agent.said", "agent.told",
   "agent.tool", "agent.thought", "agent.banned", "agent.retired", "agent.mentioned",
   "doc.created", "doc.updated", "doc.state", "doc.decision",
-  "assignment.created", "assignment.status",
+  "assignment.created", "assignment.status", "assignment.delegated",
   "meeting.created", "meeting.phase", "meeting.utterance", "meeting.decisions",
   "session.started", "session.ended",
   "building.created", "building.updated", "building.layout", "town.plan", "allocation.created", "budget.exhausted", "bank.input", "bank.credited", "bank.share", "bank.pool",
