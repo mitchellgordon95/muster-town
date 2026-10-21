@@ -71,12 +71,19 @@ export async function buildApp(opts: BuildAppOptions): Promise<FastifyInstance> 
 
   const dist = opts.webDist === false ? null : opts.webDist ?? DEFAULT_WEB_DIST;
   const haveWeb = !!dist && existsSync(join(dist, "index.html"));
-  if (haveWeb) await app.register(fastifyStatic, { root: dist!, wildcard: false });
+  // Serve the client dynamically (wildcard): a rebuild after startup must be served without a restart.
+  // index.html is never cached so a stale page can't point at an asset hash that no longer exists.
+  if (haveWeb) await app.register(fastifyStatic, {
+    root: dist!, wildcard: true, index: false,
+    setHeaders: (res, filePath) => { if (filePath.endsWith("index.html")) res.setHeader("cache-control", "no-cache"); },
+  });
 
   app.setNotFoundHandler((req, reply) => {
     const path = req.url.split("?")[0];
     const isApi = API_PREFIXES.some((p) => path === p || path.startsWith(p + "/"));
-    if (haveWeb && !isApi && (req.method === "GET" || req.method === "HEAD")) return reply.sendFile("index.html");
+    // a missing built asset is a real 404 (never index.html as JavaScript); only extension-less paths are SPA routes
+    const looksLikeFile = /\.[a-z0-9]{1,8}$/i.test(path.split("/").pop() ?? "");
+    if (haveWeb && !isApi && !looksLikeFile && (req.method === "GET" || req.method === "HEAD")) { reply.header("cache-control", "no-cache"); return reply.sendFile("index.html"); }
     return reply.code(404).send({ error: `Not found: ${req.method} ${path}`, code: "not_found" });
   });
 
