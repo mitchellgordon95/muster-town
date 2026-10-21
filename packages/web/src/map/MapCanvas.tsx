@@ -143,9 +143,9 @@ export function MapCanvas(props: { panelInset: number; onTarget: (t: Target | nu
         const p = local(e);
         const id = r.hit(p.x, p.y);
         if (id) { store.open({ kind: "agent", id }); return; }
-        // a building's banner opens its settings (the panel falls back to Overview for those who can't manage it)
+        // a building's banner opens its panel on Overview
         const sign = r.signAt(p.x, p.y);
-        if (sign) store.open({ kind: "building", id: sign, tab: "Settings" });
+        if (sign) store.open({ kind: "building", id: sign, tab: "Overview" });
       }}
     />
   );

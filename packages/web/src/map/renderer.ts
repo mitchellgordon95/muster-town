@@ -76,7 +76,7 @@ export class MapRenderer {
   private pendingTile: { x: number; y: number } | null = null;
   private hitboxes: { id: string; x: number; y: number; w: number; h: number }[] = [];
   hoverId: string | null = null;
-  /** Building banners on screen, for click-to-open their settings. */
+  /** Building banners on screen, for click-to-open their building panel. */
   private signHits: { id: string; x: number; y: number; w: number; h: number }[] = [];
   hoverSign: string | null = null;
   /** last frame's camera, for screen -> tile */
