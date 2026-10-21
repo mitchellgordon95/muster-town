@@ -52,7 +52,8 @@ export function AgentPanel({ id, tab }: { id: string; tab?: string }) {
 
 /**
  * v1.5 permissions line: visitors show whether they inherit their owner's permissions (always capped by the owner).
- * The owner or an admin also gets a compact editor: the inherit toggle and denies picked from what the owner holds.
+ * The owner or an admin also gets a compact editor: the inherit toggle and a checklist of what the agent can do now
+ * (unchecking denies it; the choices come from what the owner holds).
  */
 function AgentPermissions({ agent, view, effective, reload }: { agent: Agent; view: AgentPermissionsView; effective: Permission[]; reload: () => void }) {
   const editable = view.canEdit && !!view.ownerUserId && agent.kind !== "human" && agent.status !== "retired";
@@ -64,7 +65,8 @@ function AgentPermissions({ agent, view, effective, reload }: { agent: Agent; vi
     reload();
   };
   const denied = new Set(view.deniedPermissions);
-  const choices = [...new Set([...(view.ownerPermissions ?? []), ...view.deniedPermissions])];
+  const granted = new Set(effective); // `effective` already leaves the denied ones out
+  const choices = [...new Set([...(view.ownerPermissions ?? []), ...view.deniedPermissions, ...effective])];
   return (
     <div className="agent-perms" title={effective.length ? `Can: ${effective.join(", ")}` : "No permissions"}>
       <span>{line}{denied.size ? ` · ${denied.size} denied` : ""} · {effective.length} permission{effective.length === 1 ? "" : "s"}</span>
@@ -77,17 +79,22 @@ function AgentPermissions({ agent, view, effective, reload }: { agent: Agent; vi
             Inherit {owner}'s permissions (never more than {owner} has)
           </label>
           {choices.length ? <div className="perm-denies">
-            <div className="muted">Deny:</div>
-            {choices.map((p) => (
-              <label key={p} className="perm-row">
-                <input type="checkbox" checked={denied.has(p)}
-                  onChange={(e) => {
-                    const next = e.target.checked ? [...denied, p] : [...denied].filter((d) => d !== p);
-                    save({ deniedPermissions: next }).catch((err) => store.toast((err as Error).message, "bad"));
-                  }} />
-                <code>{p}</code>
-              </label>
-            ))}
+            <div className="muted">Can do (uncheck to deny; a denied one can be re-allowed):</div>
+            {choices.map((p) => {
+              const can = granted.has(p);
+              // neither granted nor denied: the agent's roles don't give it (e.g. "own roles only"), so there is nothing to toggle
+              const idle = !can && !denied.has(p);
+              return (
+                <label key={p} className={`perm-row${idle ? " muted" : ""}`} title={idle ? "Not granted by this agent's roles" : denied.has(p) ? "Denied here" : undefined}>
+                  <input type="checkbox" checked={can} disabled={idle}
+                    onChange={(e) => {
+                      const next = e.target.checked ? [...denied].filter((d) => d !== p) : [...denied, p];
+                      save({ deniedPermissions: next }).catch((err) => store.toast((err as Error).message, "bad"));
+                    }} />
+                  <code>{p}</code>{denied.has(p) ? " (denied)" : ""}
+                </label>
+              );
+            })}
           </div> : null}
         </details>
       ) : null}

@@ -9,6 +9,7 @@ dc_mltonxkizi (deploy + CI) and dc_vxgg8r55ha (stress test: 6 desks at once).
 | `muster-town.service` | systemd unit (replaces `scripts/serve.sh` on Linux): `Restart=always`, so the redeploy's exit 75 and crashes both restart it. Pulls `prod`, not `main` (`MUSTER_TOWN_DEPLOY_BRANCH`). |
 | `Caddyfile` | TLS for muster.town (automatic Let's Encrypt), `reverse_proxy 127.0.0.1:4322` (REST, /mcp, /ws, web); www redirects. |
 | `bootstrap.sh` | idempotent box setup, run as root: 4 GB swap, node 22, Caddy, gh, the `muster` user, the deploy key and clone in `/srv/muster-town`, deps + web + desk image, the ufw rule letting desks reach port 4322 over `docker0`, `/etc/muster-town/env`, a nightly sqlite backup, the unit and Caddy. |
+| `cutover.sh` | box side of the cutover: swap in the Mac's `town.db` (keeps the old one), restart, set `maxRunning` 6 again. |
 | `ci.yml` | **not active yet**: Mitchell moves it to `.github/workflows/ci.yml` (agents can't push workflows). Typecheck + tests + web build on PRs and main; green main moves `prod` (fast-forward) and POSTs `/api/admin/redeploy`. |
 
 ## First deploy
@@ -26,6 +27,20 @@ dc_mltonxkizi (deploy + CI) and dc_vxgg8r55ha (stress test: 6 desks at once).
    `curl -X PUT http://127.0.0.1:4322/api/town/desks -H "Authorization: Bearer $ADMIN" -H 'Content-Type: application/json' -d '{"maxRunning":6}'`
    (`$ADMIN`: the admin token from `journalctl -u muster-town`).
 6. Check: `curl https://muster.town/api/health` shows the commit; a resident's work session reaches `/mcp`.
+
+## Cutover (the Mac's Workshop town moves to the box)
+Do this after the smoke test, with the Mac's world as the one source of truth from then on.
+1. Mac: stop the town (Ctrl-C `scripts/serve.sh`), then
+   `sqlite3 collectives/workshop/data/town.db ".backup /tmp/town.db"` and `scp /tmp/town.db ubuntu@15.204.79.179:/tmp/`.
+2. Box: `sudo bash deploy/cutover.sh /tmp/town.db`. It checks the file, keeps prod's old world in
+   `/var/backups/muster-town/pre-cutover-*.db`, swaps the db in, restarts, and sets `maxRunning` back to 6. Then
+   `shred -u /tmp/town.db` on both machines.
+3. Rotate what came along in the db: the admin token and every agent token were issued on the Mac
+   (Dara's design dc_ios62uyco3 §3f). Donated keys stay as they are.
+4. Not copied: desk home volumes (`deskhome-<agentId>` on the Mac's Docker). Residents get fresh desks and re-clone;
+   their notebooks and docs live in the db. If one needs files back:
+   `docker run --rm -v deskhome-<id>:/v alpine tar -C /v -cz . > home.tgz` on the Mac, and the reverse on the box.
+5. From then on the Mac is dev only: don't start `collectives/workshop` there again (it would fork the world).
 
 ## Every deploy after that
 Merge to main → CI green → `prod` moves → redeploy (pull `prod`, rebuild, drain, exit 75, systemd restarts).
