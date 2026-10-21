@@ -128,6 +128,12 @@ export async function docRoutes(app: FastifyInstance) {
     return { meeting: world.ops.meetingSay(actorOf(world, req), req.params.id, text) };
   });
 
+  app.post<{ Params: Params }>("/api/meetings/:id/typing", async (req, reply) => {
+    requireAuth(req);
+    world.ops.meetingTyping(actorOf(world, req), req.params.id);
+    return reply.code(204).send();
+  });
+
   app.post<{ Params: Params }>("/api/meetings/:id/end", async (req) => {
     requireAuth(req);
     const { closing } = parse(EndBody, req.body);

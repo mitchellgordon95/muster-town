@@ -1,6 +1,6 @@
 import type { Agent, Meeting } from "@muster-town/schema";
 import { AppError, badRequest } from "../errors.ts";
-import { endMeeting, humanStillTalking, meetingDecide, meetingSpeak, setMeetingPhase } from "../meetings.ts";
+import { endMeeting, humanStillTalking, humanTyping, meetingDecide, meetingSpeak, setMeetingPhase } from "../meetings.ts";
 import type { World } from "../world.ts";
 import type { VerbIn } from "./types.ts";
 
@@ -28,6 +28,7 @@ export async function meeting(world: World, me: Agent, input: VerbIn<"meeting">)
         attendees: m.attendeeIds.map((id) => ({ id, name: name(id), summary: m.summaries[id] ?? null })),
         transcript: m.transcript.slice(-30).map((u) => ({ speaker: name(u.speakerId), speakerKind: u.speakerKind, text: u.text, at: u.at })),
         decisions: m.decisions.map((d, i) => ({ n: i + 1, ...d })),
+        humanTyping: humanTyping(world, m.id),
       };
     case "summary": {
       if (!input.text?.trim()) throw badRequest("summary needs text (up to three short lines).");
@@ -55,6 +56,7 @@ export async function meeting(world: World, me: Agent, input: VerbIn<"meeting">)
       map.set(key, now.transcript.length);
       return {
         phase: now.phase,
+        humanTyping: humanTyping(world, m.id),
         utterances: now.transcript.slice(from).filter((u) => u.speakerId !== self).map((u) => ({ speaker: name(u.speakerId), speakerKind: u.speakerKind, text: u.text, at: u.at })),
       };
     }
@@ -62,8 +64,10 @@ export async function meeting(world: World, me: Agent, input: VerbIn<"meeting">)
       if (!input.decisions?.length) throw badRequest("decide needs decisions.");
       return { decisions: meetingDecide(world, me, m.id, input.decisions).decisions.map((d, i) => ({ n: i + 1, ...d })) };
     case "end": {
-      if (me.kind !== "human" && humanStillTalking(m)) {
-        throw new AppError("conflict", "A human is talking in this meeting. Keep listening (waitSeconds 60) and answer them; they'll end it with End meeting, or you can end it once they've been quiet for a few minutes.");
+      if (me.kind !== "human" && humanStillTalking(world, m)) {
+        throw new AppError("conflict", humanTyping(world, m.id)
+          ? "A human is typing a message in this meeting. Keep listening (waitSeconds 60) and answer them; they'll end it with End meeting, or you can end it once they've been quiet for a few minutes."
+          : "A human is talking in this meeting. Keep listening (waitSeconds 60) and answer them; they'll end it with End meeting, or you can end it once they've been quiet for a few minutes.");
       }
       const ended = endMeeting(world, me, m.id, input.text);
       return { phase: ended.phase, notesDocId: world.meetings.require(m.id).notesDocId };

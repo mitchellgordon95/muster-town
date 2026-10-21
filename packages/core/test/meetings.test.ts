@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { HUMAN_QUIET_MS } from "../src/meetings.ts";
+import { HUMAN_QUIET_MS, HUMAN_TYPING_MS, noteHumanTyping } from "../src/meetings.ts";
 import { seededWorld } from "./helpers.ts";
 
 describe("meetings", () => {
@@ -34,6 +34,22 @@ describe("meetings", () => {
     expect(notes.body).toContain("Ocean sink 3.4");
     expect(world.meetings.require(m.id).phase).toBe("done");
     expect(world.agents.require(by("Mei").id).status).toBe("idle");
+  });
+
+  it("an agent facilitator can't end the meeting while a human is typing", async () => {
+    const { world, by, admin } = seededWorld();
+    const m = world.ops.createMeeting(admin, { kind: "standup", buildingId: "carbon-cycle", startNow: true });
+    world.ops.startMeeting(admin, m.id);
+    // nobody has spoken, but Mitchell has a draft in the say box
+    world.ops.meetingTyping(admin, m.id);
+    expect(await world.verbs.meeting(by("Moss"), { meetingId: m.id, action: "listen" })).toMatchObject({ humanTyping: true });
+    await expect(world.verbs.meeting(by("Moss"), { meetingId: m.id, action: "end" })).rejects.toMatchObject({ code: "conflict", message: expect.stringMatching(/typing/) });
+    // the draft was abandoned: the ping lapses and the facilitator may close
+    noteHumanTyping(world, m.id, Date.now() - HUMAN_TYPING_MS - 1000);
+    // an agent can't fake the signal
+    world.ops.meetingTyping(by("Noor"), m.id);
+    expect(await world.verbs.meeting(by("Moss"), { meetingId: m.id, action: "status" })).toMatchObject({ humanTyping: false });
+    expect(await world.verbs.meeting(by("Moss"), { meetingId: m.id, action: "end" })).toMatchObject({ phase: "done" });
   });
 
   it("nobody speaks while collecting; the last summary in starts the discussion", async () => {

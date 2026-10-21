@@ -64,6 +64,9 @@ function CallMeeting({ building, again }: { building: SnapshotBuilding; again?: 
   );
 }
 
+/** under the server's HUMAN_TYPING_MS (30 s) so a held draft never lapses */
+const TYPING_PING_MS = 10_000;
+
 function MeetingView({ m }: { m: Meeting }) {
   const agents = useTown((s) => s.agents);
   const me = useTown((s) => s.me);
@@ -77,6 +80,15 @@ function MeetingView({ m }: { m: Meeting }) {
   const open = m.phase === "collecting" || m.phase === "discussing";
   const discussing = m.phase === "discussing";
   const submitted = m.attendeeIds.filter((a) => m.summaries[a]).length;
+  // while there's an unsent draft, tell the server a human is typing so the agent facilitator doesn't end the meeting under us
+  const drafting = discussing && !!me && !!text.trim();
+  useEffect(() => {
+    if (!drafting) return;
+    const ping = () => { void api().typingMeeting(m.id).catch(() => {}); };
+    ping();
+    const timer = setInterval(ping, TYPING_PING_MS);
+    return () => clearInterval(timer);
+  }, [drafting, m.id]);
   const say = async () => {
     const t = text.trim(); if (!t || !discussing) return;
     setText("");

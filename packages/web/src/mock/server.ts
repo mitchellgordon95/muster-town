@@ -370,6 +370,7 @@ export class MockApi implements Api {
     if (m.phase === "discussing") this.utter(id, m.facilitatorId ?? "ag_moss", `Thanks Mitchell, noted: "${text.slice(0, 60)}". I'll fold that into the decisions.`, 1800);
     return clone(m);
   }
+  async typingMeeting(_id: string) { await wait(20); }
   async endMeeting(id: string) {
     await wait();
     const m = this.need(this.sim.meetings.get(id), "meeting");

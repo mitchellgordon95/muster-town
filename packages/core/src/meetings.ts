@@ -107,7 +107,27 @@ export function meetingSpeak(world: World, actor: Agent, meetingId: string, text
 /** An agent facilitator may not end a meeting while a human spoke within this window; the human ends it (or goes quiet). */
 export const HUMAN_QUIET_MS = 5 * 60_000;
 
-export function humanStillTalking(m: Meeting, now = Date.now()): boolean {
+/** A human typing (or holding an unsent draft) pings at least this often; a ping older than this means they stopped. */
+export const HUMAN_TYPING_MS = 30_000;
+
+/** meetingId -> last typing ping from a human (in-memory; resets on restart, which only shortens a hold) */
+const typing = new WeakMap<World, Map<string, number>>();
+
+/** A human has text in the meeting's say box: hold off agent `end` until they send it or clear it. */
+export function noteHumanTyping(world: World, meetingId: string, now = Date.now()): void {
+  let map = typing.get(world);
+  if (!map) { map = new Map(); typing.set(world, map); }
+  map.set(meetingId, now);
+}
+
+export function humanTyping(world: World, meetingId: string, now = Date.now()): boolean {
+  const at = typing.get(world)?.get(meetingId);
+  return at !== undefined && now - at < HUMAN_TYPING_MS;
+}
+
+/** A human spoke within HUMAN_QUIET_MS, or is typing right now. */
+export function humanStillTalking(world: World, m: Meeting, now = Date.now()): boolean {
+  if (humanTyping(world, m.id, now)) return true;
   const last = [...m.transcript].reverse().find((u) => u.speakerKind === "user");
   return !!last && now - Date.parse(last.at) < HUMAN_QUIET_MS;
 }

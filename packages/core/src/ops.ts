@@ -4,7 +4,7 @@ import { CHECK_IN } from "./prompts.ts";
 import { createBuilding, createResident, createUser, ensureAvatar, planTown, registerVisitor, updateBuilding, updateFurniture } from "./entities.ts";
 import type { Furniture } from "./world/furniture.ts";
 import { AppError, badRequest, forbidden } from "./errors.ts";
-import { createMeeting, endMeeting, meetingDecide, meetingSpeak, setMeetingPhase } from "./meetings.ts";
+import { createMeeting, endMeeting, meetingDecide, meetingSpeak, noteHumanTyping, setMeetingPhase } from "./meetings.ts";
 import { replyToReport, type ReplyResult } from "./reply.ts";
 import { newId, nowIso } from "./util.ts";
 import { validateWait } from "./waits.ts";
@@ -546,6 +546,11 @@ export class Ops {
     return setMeetingPhase(this.world, meetingId, "discussing");
   }
   meetingSay(actor: Agent, meetingId: string, text: string): Meeting { return meetingSpeak(this.world, actor, meetingId, text); }
+  /** POST /meetings/:id/typing: a human has an unsent message in the say box; agents may not end the meeting meanwhile. */
+  meetingTyping(actor: Agent, meetingId: string): void {
+    const m = this.world.meetings.require(meetingId, "meeting");
+    if (m.phase === "discussing" && this.world.holderOf(actor).kind === "user") noteHumanTyping(this.world, m.id);
+  }
   meetingDecide(actor: Actor, meetingId: string, decisions: Meeting["decisions"]): Meeting { return meetingDecide(this.world, actor, meetingId, decisions); }
   endMeeting(actor: Actor, meetingId: string, closing?: string): Meeting {
     if (actor) {
