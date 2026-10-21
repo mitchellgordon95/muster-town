@@ -332,6 +332,7 @@ export function startRuntime(opts: RuntimeOptions): Runtime {
     }
     try { world.bank.creditDue(d); } catch (e) { log("bank")(e); }
     if (t - lastPresence >= PRESENCE_TICK_MS) { lastPresence = t; presenceTick(); }
+    try { world.budget.resumeEligible(); } catch (e) { log("budget resume")(e); }
     try { scheduleMeetings(t); } catch (e) { log("meetings")(e); }
     try { scheduleReviews(); } catch (e) { log("reviews")(e); }
     try { checkWaits(world, d); } catch (e) { log("waits")(e); }
