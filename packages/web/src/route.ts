@@ -6,6 +6,9 @@ import { store } from "./state";
 
 const DOC_HASH = /^#\/doc\/([A-Za-z0-9_]+)$/;
 
+/** True when the page was opened on a shared doc link. */
+export const isDocHash = () => DOC_HASH.test(location.hash);
+
 export const docUrl = (id: string) => `${location.origin}${location.pathname}#/doc/${id}`;
 
 function openFromHash() {

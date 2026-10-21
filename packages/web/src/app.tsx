@@ -21,7 +21,7 @@ import { PlanningPanel } from "./panels/PlanningPanel";
 import { BoardPanel, CabinetPanel, IntrayPanel, ModStationPanel, SchedulePanel } from "./panels/Places";
 import { BankPanel } from "./panels/BankPanel";
 import { HowItWorks, howItWorksSeen } from "./panels/HowItWorks";
-import { startDocRoutes } from "./route";
+import { isDocHash, startDocRoutes } from "./route";
 
 type TownHooks = { teleportTo(agentId: string): boolean; walkTo(placeId: string): boolean; openPanel(kind: PanelKind, id?: string): void; townMap(): void; store: typeof store };
 
@@ -151,8 +151,9 @@ export function App() {
   const [target, setTarget] = useState<Target | null>(null);
   const [saying, setSaying] = useState(false);
   const [pw, setPw] = useState(panelWidth);
-  // first visit in this browser: explain the town once it has loaded; the HUD's "?" reopens it
-  const [help, setHelp] = useState(() => !howItWorksSeen());
+  // first visit in this browser: explain the town once it has loaded; the HUD's "?" reopens it.
+  // Not over a shared doc link (/#/doc/<id>): the reader came for that doc, and the intro stays unseen for next time.
+  const [help, setHelp] = useState(() => !howItWorksSeen() && !isDocHash());
   const sayRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => { bootOnce().then(setPhase, (e) => setPhase({ k: "login", error: String(e) })); }, []);

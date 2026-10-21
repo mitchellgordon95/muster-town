@@ -154,9 +154,22 @@ export function DocView({ doc: initial, onBack, backLabel = "Back", review, onDe
 function CopyLink({ id }: { id: string }) {
   const copy = async () => {
     try { await navigator.clipboard.writeText(docUrl(id)); store.toast("Link copied", "ok"); }
-    catch { store.toast(docUrl(id), "info"); }
+    catch {
+      if (legacyCopy(docUrl(id))) store.toast("Link copied", "ok");
+      else store.toast(docUrl(id), "info");
+    }
   };
   return <button className="link doc-id" title="Copy a link to this document" onClick={() => void copy()}>{id} ⧉</button>;
+}
+
+/** navigator.clipboard only exists on https/localhost; plain-http towns copy through a hidden textarea. */
+function legacyCopy(text: string): boolean {
+  const ta = document.createElement("textarea");
+  ta.value = text;
+  ta.style.cssText = "position:fixed;opacity:0";
+  document.body.appendChild(ta);
+  ta.select();
+  try { return document.execCommand("copy"); } catch { return false; } finally { ta.remove(); }
 }
 
 export function DocRow({ doc, onOpen }: { doc: Doc; onOpen: () => void }) {
