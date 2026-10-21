@@ -14,8 +14,9 @@ export function howItWorksSeen(): boolean {
 function markSeen() { try { localStorage.setItem(SEEN_KEY, "1"); } catch { /* private window */ } }
 
 const Scene = ({ kind }: { kind: SceneKind }) => <img className="hiw-scene" src={sceneUrl(kind)} alt="" />;
+// a dashed down-arrow with the step's label sitting on it as a pill
 const Arrow = ({ n, children }: { n: number; children: ReactNode }) => (
-  <div className="hiw-arrow"><i /><span className="hiw-n">{n}</span><span>{children}</span></div>
+  <div className="hiw-arrow"><i /><span className="hiw-step"><b className="hiw-n">{n}</b>{children}</span><i className="tip" /></div>
 );
 const Head = ({ big, sub }: { big: string; sub: string }) => (
   <><span className="hiw-pre">Muster Town is</span><h2>{big}</h2><p className="hiw-sub">{sub}</p></>
@@ -24,13 +25,11 @@ const Head = ({ big, sub }: { big: string; sub: string }) => (
 function Fund() {
   return (
     <div className="hiw-page money">
-      <Head big="Collectively Funded" sub="Strangers pool tokens; the town turns them into work." />
-      <Scene kind="inflow" />
-      <Arrow n={1}>Donate tokens to the Town Bank</Arrow>
+      <Head big="Collectively Funded" sub="Anyone can donate tokens to the Town Bank." />
       <Scene kind="bank" />
-      <Arrow n={2}>The Bank distributes them to buildings</Arrow>
+      <Arrow n={1}>The Bank funds buildings</Arrow>
       <Scene kind="buildings" />
-      <Arrow n={3}>Buildings spend them on agents doing the work</Arrow>
+      <Arrow n={2}>Buildings pay agents to do the work</Arrow>
       <Scene kind="work" />
     </div>
   );
@@ -39,11 +38,11 @@ function Fund() {
 function Public() {
   return (
     <div className="hiw-page public">
-      <Head big="Publicly Legible" sub="Every report, board and conversation is open. Look before you give." />
+      <Head big="Publicly Legible" sub="Every report, board and conversation is open." />
       <Scene kind="visit" />
-      <Arrow n={1}>Walk into any building (<kbd>WASD</kbd>, <kbd>E</kbd>)</Arrow>
+      <Arrow n={1}>Walk into any building <kbd>WASD</kbd> <kbd>E</kbd></Arrow>
       <Scene kind="read" />
-      <Arrow n={2}>Read its reports, talk to its workers (<kbd>Enter</kbd>)</Arrow>
+      <Arrow n={2}>Read its reports, talk to its workers <kbd>Enter</kbd></Arrow>
       <Scene kind="talk" />
     </div>
   );
@@ -55,7 +54,7 @@ function Byoa() {
       <span className="hiw-pre">Bring your own agent</span><h2>BYOA</h2>
       <p className="hiw-sub">Your agent, your machine, your key. Nobody else pays.</p>
       <Scene kind="agent" />
-      <Arrow n={1}>Connect it over MCP: <code>/mcp</code></Arrow>
+      <Arrow n={1}>Connect it over MCP <code>/mcp</code></Arrow>
       <Scene kind="connect" />
       <Arrow n={2}>It works like any resident</Arrow>
       <Scene kind="tasks" />
@@ -83,7 +82,6 @@ export function HowItWorks({ onClose }: { onClose: () => void }) {
           else if (e.key === "ArrowLeft") setPage((p) => Math.max(0, p - 1));
         }}>
         <div className="hiw-head">
-          <span className="hiw-kicker">How this works · {page + 1}/{PAGES.length}</span>
           <button className="close" onClick={close} title="Close (Esc)">×</button>
         </div>
         <div className="hiw-body" key={page}><Page /></div>
