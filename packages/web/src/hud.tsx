@@ -16,7 +16,7 @@ interface Notice { key: string; icon: IconKind; text: ReactNode; cta: string; to
 
 function walkOrOpen(placeId: string, panel: PanelRef) { if (!store.walkTo(placeId, panel)) store.open(panel); }
 
-export function Hud({ onPasteToken }: { onPasteToken?: () => void }) {
+export function Hud({ onPasteToken, onHelp }: { onPasteToken?: () => void; onHelp?: () => void }) {
   const town = useTown((s) => s.town);
   const agents = useTown((s) => s.agents);
   const buildings = useTown((s) => s.buildings);
@@ -73,6 +73,7 @@ export function Hud({ onPasteToken }: { onPasteToken?: () => void }) {
           {!collapsed ? <div className="tagline">{town.tagline}</div> : null}
         </div>
         {collapsed && notices.length ? <span className="notice-dot" title={`${notices.length} notice${notices.length === 1 ? "" : "s"}`}>{notices.length}</span> : null}
+        {onHelp ? <button className="icon-btn help-btn" onClick={onHelp} title="How this works">?</button> : null}
         <span className={`conn ${conn}`} title={`Server: ${conn}${isMock ? " (mock)" : ""}`} />
         <button className="icon-btn" onClick={() => setCollapsed((c) => !c)} title={collapsed ? "Expand" : "Collapse"}>{collapsed ? "▾" : "▴"}</button>
       </div>

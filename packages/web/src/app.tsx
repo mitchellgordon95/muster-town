@@ -19,6 +19,7 @@ import { MeetingPanel } from "./panels/MeetingPanel";
 import { PlanningPanel } from "./panels/PlanningPanel";
 import { BoardPanel, CabinetPanel, IntrayPanel, ModStationPanel, SchedulePanel } from "./panels/Places";
 import { BankPanel } from "./panels/BankPanel";
+import { HowItWorks, howItWorksSeen } from "./panels/HowItWorks";
 
 type TownHooks = { teleportTo(agentId: string): boolean; walkTo(placeId: string): boolean; openPanel(kind: PanelKind, id?: string): void; townMap(): void; store: typeof store };
 
@@ -139,6 +140,8 @@ export function App() {
   const [target, setTarget] = useState<Target | null>(null);
   const [saying, setSaying] = useState(false);
   const [pw, setPw] = useState(panelWidth);
+  // first visit in this browser: explain the town once it has loaded; the HUD's "?" reopens it
+  const [help, setHelp] = useState(() => !howItWorksSeen());
   const sayRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => { bootOnce().then(setPhase, (e) => setPhase({ k: "login", error: String(e) })); }, []);
@@ -179,7 +182,7 @@ export function App() {
     <div className="app">
       <MapCanvas panelInset={panel ? pw : 0} onTarget={setTarget} onMove={onMove} />
       {!ready ? <div className="loading-screen"><div className="spin big" /><div>Entering town…</div></div> : null}
-      <Hud onPasteToken={() => setPhase({ k: "login" })} />
+      <Hud onPasteToken={() => setPhase({ k: "login" })} onHelp={() => setHelp(true)} />
       <Minimap />
       <div className="bottom" style={{ right: panel ? pw : 0 }}>
         <Hint target={target} saying={saying} />
@@ -189,6 +192,7 @@ export function App() {
       <LayoutToolbar />
       <PlanToolbar />
       <Toasts />
+      {help && ready ? <HowItWorks onClose={() => setHelp(false)} /> : null}
       {isMock ? <div className="mock-badge" title="VITE_MOCK=1: in-memory fake server">mock</div> : null}
     </div>
   );
