@@ -6,7 +6,7 @@ import { STATUS_COLOR } from "./map/overlay";
 import { iconUrl, type IconKind } from "./map/sprites";
 import type { Target } from "./map/renderer";
 import { isMock } from "./api";
-import { dockerDown, effectiveRedeploy, redeployLine, redeployTone } from "./redeploy";
+import { dockerDown, effectiveRedeploy, redeployLine, redeployTone, slotsFull } from "./redeploy";
 import { joinMeeting } from "./panels/Places";
 import { SignInButtons, signOut, useAuth } from "./auth/auth";
 
@@ -42,6 +42,14 @@ export function Hud({ onPasteToken, onHelp }: { onPasteToken?: () => void; onHel
       out.push({
         key: "docker-down", icon: "planning", tone: "bad", cta: "Log →",
         text: <><b>Docker is not running</b>: code desks can't start; {paused.length ? `${paused.join(", ")} session${paused.length === 1 ? " is" : "s are"}` : "workshop sessions are"} paused</>,
+        go: () => walkOrOpen("planning-desk", { kind: "planning", tab: "System" }),
+      });
+    }
+    // every session slot on the host is taken: queued work waits (the cap is the admin's, in Planning → System)
+    if (slotsFull(events, health)) {
+      out.push({
+        key: "slots-full", icon: "planning", tone: "warn", cta: "System →",
+        text: <><b>All {health?.slots?.max ?? ""} session slots in use</b>: queued work waits for a free slot</>,
         go: () => walkOrOpen("planning-desk", { kind: "planning", tab: "System" }),
       });
     }

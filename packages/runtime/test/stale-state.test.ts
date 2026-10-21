@@ -197,14 +197,14 @@ describe("docker-down notice", () => {
     expect(alerts(world)).toEqual(["docker-down"]);
     expect(world.events.recent({ limit: 500 }).find((e) => (e.payload as { alert?: string }).alert === "docker-down")!.text)
       .toBe("Docker is not running: code desks can't start; workshop sessions are paused");
-    expect(world.snapshot().health).toEqual({ docker: false });
+    expect(world.snapshot().health).toMatchObject({ docker: false });
 
     state.up = true;
     await runtime.tickOnce();
     await runtime.whenIdle();
     expect(alerts(world)).toEqual(["docker-down", "docker-up"]);
     expect(world.events.recent({ limit: 500 }).find((e) => (e.payload as { alert?: string }).alert === "docker-up")!.text).toBe("Docker is back: code desks resume");
-    expect(world.snapshot().health).toEqual({ docker: true });
+    expect(world.snapshot().health).toMatchObject({ docker: true });
     await runtime.tickOnce();
     await runtime.whenIdle();
     expect(alerts(world)).toEqual(["docker-down", "docker-up"]);
@@ -214,7 +214,7 @@ describe("docker-down notice", () => {
     await runtime.tickOnce();
     await runtime.whenIdle();
     expect(alerts(world)).toEqual(["docker-down", "docker-up", "docker-down"]);
-    expect(world.snapshot().health).toEqual({ docker: false });
+    expect(world.snapshot().health).toMatchObject({ docker: false });
   });
 
   test("a restart during an outage doesn't repeat the notice; one after it ends announces docker-up", async () => {
@@ -237,6 +237,6 @@ describe("docker-down notice", () => {
     const { world, runtime } = setup(async function* () { yield result(1, 0); }, { deskBackend: new HostBackend() });
     await runtime.tickOnce();
     expect(alerts(world)).toEqual([]);
-    expect(world.snapshot().health).toEqual({ docker: true });
+    expect(world.snapshot().health).toMatchObject({ docker: true });
   });
 });

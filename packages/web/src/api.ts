@@ -4,7 +4,7 @@
  */
 import type { z } from "zod";
 import type {
-  Agent, Allocation, Assignment, AuthMe, RedeployLive, Building, ClientMessage, Doc, Event, Lot, Meeting, Place, Role, Membership, Tile,
+  Agent, Allocation, Assignment, AuthMe, RedeployLive, Building, ClientMessage, DesksConfig, Doc, Event, Lot, Meeting, Place, Role, Membership, SessionSlots, Tile,
   ServerMessage, Session, Town, CreateBuildingInput, UpdateBuildingInput, CreateResidentInput,
   ReviewInput, PinSkillInput, SkillPinView, SkillView, ChatInput, WorkInput, DonateInput, AddBankInput, BankInput, CreateBankPoolInput, UpdateBankPoolInput, CreateMeetingInput, DocState, DocType, Mailbox, Permission,
 } from "@muster-town/schema";
@@ -166,6 +166,8 @@ export interface Api {
   retryAssignment(assignmentId: string, front?: boolean): Promise<{ assignment: Assignment; agent: Agent }>;
   /** hand a queued assignment to another resident: the original is cancelled (`from`), the copy joins their queue */
   delegateAssignment(assignmentId: string, agentId: string, front?: boolean): Promise<{ assignment: Assignment; agent: Agent; from: Assignment }>;
+  /** admin: how many work sessions may run at once on the host (queued work waits for a free slot) */
+  setMaxRunning(maxRunning: number): Promise<{ desks: DesksConfig; slots: SessionSlots | null }>;
   // docs
   docs(q: DocQuery): Promise<Doc[]>;
   doc(id: string): Promise<Doc>;
@@ -325,6 +327,7 @@ export class HttpApi implements Api {
   cancelAssignment(id: string) { return this.post<{ assignment: Assignment; agent: Agent }>(`/api/assignments/${id}/cancel`); }
   retryAssignment(id: string, front = true) { return this.post<{ assignment: Assignment; agent: Agent }>(`/api/assignments/${id}/retry`, { front }); }
   delegateAssignment(id: string, agentId: string, front = true) { return this.post<{ assignment: Assignment; agent: Agent; from: Assignment }>(`/api/assignments/${id}/delegate`, { agentId, front }); }
+  setMaxRunning(maxRunning: number) { return this.call<{ desks: DesksConfig; slots: SessionSlots | null }>("PUT", "/api/town/desks", { maxRunning }); }
   async docs(q: DocQuery) { return unwrap<Doc[]>(await this.get(`/api/docs${qs(q)}`), "docs"); }
   async doc(id: string) { return unwrap<Doc>(await this.get(`/api/docs/${id}`), "doc"); }
   async writeDoc(i: WriteDocInput) { return unwrap<Doc>(await this.post("/api/docs", i), "doc"); }

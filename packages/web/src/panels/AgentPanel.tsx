@@ -9,6 +9,7 @@ import { Markdown } from "./Markdown";
 import { Act, Empty, KV, Pill, Section, StatusPill, clock, fmtTokens, timeAgo, usd, useLoad } from "./ui";
 import { portraitUrl } from "../map/sprites";
 import { SignInNote } from "../auth/auth";
+import { slotsFull } from "../redeploy";
 
 type Msg = { role: "user" | "assistant"; text: string; ts: string };
 const chats = new Map<string, Msg[]>();
@@ -340,6 +341,8 @@ function AssignmentsTab({ agent, notebook }: { agent: Agent; notebook?: Doc | nu
   };
   /** the queued assignment whose Delegate picker is open */
   const [delegating, setDelegating] = useState<string | null>(null);
+  // every session slot on the host is taken: the next assignment waits for one (Planning → System has the cap)
+  const noSlot = useTown((s) => slotsFull(s.events, s.health));
   const move = async (i: number, d: -1 | 1) => {
     const ids = queue.map((a) => a.id);
     [ids[i], ids[i + d]] = [ids[i + d], ids[i]];
@@ -364,7 +367,7 @@ function AssignmentsTab({ agent, notebook }: { agent: Agent; notebook?: Doc | nu
       </Section>
       <Section title={`${visitor ? "Offered" : "Queue"}${queue.length ? ` (${queue.length})` : ""}`}>
         {!queue.length ? <Empty>{visitor ? `No offers. ${agent.name} accepts assignments from their own session; unaccepted offers are cancelled after 24 h.` : `No queued assignments. A message to ${agent.name} starts one.`}</Empty> : queue.map((a, i) => (
-          <AssignmentRow key={a.id} a={a} index={visitor ? undefined : i + 1} actions={canControl && !gone && visitor ? (
+          <AssignmentRow key={a.id} a={a} index={visitor ? undefined : i + 1} slotWait={!visitor && i === 0 && agent.status === "idle" && noSlot} actions={canControl && !gone && visitor ? (
             <Act small tone="bad" run={async () => { put(await api().cancelAssignment(a.id)); }}>Withdraw</Act>
           ) : canControl && !gone ? (
             <>
@@ -437,7 +440,7 @@ function DelegatePicker({ from, run, onDone }: { from: Agent; run: (toId: string
   );
 }
 
-function AssignmentRow({ a, actions, index, offline, footer }: { a: Assignment; actions?: ReactNode; index?: number; offline?: boolean; footer?: ReactNode }) {
+function AssignmentRow({ a, actions, index, offline, footer, slotWait }: { a: Assignment; actions?: ReactNode; index?: number; offline?: boolean; footer?: ReactNode; slotWait?: boolean }) {
   const [open, setOpen] = useState(false);
   const long = a.description.length > 160;
   return (
@@ -446,6 +449,7 @@ function AssignmentRow({ a, actions, index, offline, footer }: { a: Assignment; 
         <b>{index ? <span className="asg-n">{index}.</span> : null}{a.title}</b>
         {a.offered && a.status === "pending" ? <Pill tone="offered" title="Offered to a visitor: it starts when they accept it">offered</Pill>
           : a.waitFor && a.status === "pending" ? <Pill tone="offered" title={`Starts by itself once this happens (cancelled into the in-tray if not within 24 h). Start next overrides it.${a.parked ? " Parked by the agent's own report." : ""}`}>{a.parked ? "parked" : "waiting"}: {waitLabel(a.waitFor)}</Pill>
+          : slotWait && a.status === "pending" ? <Pill tone="warn" title="Every session slot on the host is taken (Planning → System sets the cap). It starts when one frees up.">waiting for a slot</Pill>
           : <Pill tone={a.status === "active" ? (offline ? "" : "ok") : a.status === "pending" ? "warn" : a.status === "cancelled" ? "bad" : ""}>{a.status === "pending" ? "queued" : a.status === "active" && offline ? "active, visitor offline" : a.status}</Pill>}
       </div>
       {a.description ? <div className="asg-desc" onClick={() => long && setOpen((o) => !o)}>{long && !open ? a.description.slice(0, 157) + "…" : a.description}</div> : null}

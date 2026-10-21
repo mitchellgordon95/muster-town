@@ -264,12 +264,22 @@ export function startRuntime(opts: RuntimeOptions): Runtime {
     }
   }
 
+  /** work sessions live or starting, out of the host's cap (`desks.maxRunning` in the world: collective.json at seed, PUT /api/town/desks live) */
+  const slots = () => ({ running: new Set([...ctx.live.keys(), ...starting]).size, max: world.desksConfig().maxRunning });
+  world.host.slots = slots;
+  let slotsFull = false;
   function scheduleWork(): void {
     if (draining) return;
+    const held: string[] = [];
+    // sessions this pass started (startWork registers them as `starting` only after its first await)
+    let startedNow = 0;
     for (const a of world.agents.where("kind = 'resident' AND status = 'idle'", [], "ORDER BY createdAt")) {
       if (ctx.live.has(a.id) || starting.has(a.id)) continue;
       const next = nextPending(world, a.id); // queue order: position, createdAt, rowid
       if (!next || !world.budget.canStart(a.id)) continue;
+      // the host's cap: a running session costs real memory, so queued work waits for a free slot instead of starting
+      const s = slots();
+      if (s.running + startedNow >= s.max) { held.push(a.id); continue; }
       const bid = a.homeBuildingId ?? a.buildingId;
       const b = bid ? world.buildings.get(bid) : undefined;
       if (backend?.kind === "host" && b && codeWorkspace(world.town.get(), b)) {
@@ -281,7 +291,18 @@ export function startRuntime(opts: RuntimeOptions): Runtime {
         warnedHost.add(b.id);
         continue;
       }
+      startedNow++;
       void startWork(a.id, next.id).catch(log(`work session for ${a.name}`));
+    }
+    // one notice when the slots fill, one when they free up (not every pass)
+    if (held.length && !slotsFull) {
+      slotsFull = true;
+      const s = slots();
+      const names = held.map((id) => world.agents.get(id)?.name ?? id).join(", ");
+      world.events.append({ type: "system", text: `All ${s.max} session slots are in use: holding queued work for ${names}`, payload: { alert: "slots-full", running: s.running, max: s.max, held } });
+    } else if (!held.length && slotsFull) {
+      slotsFull = false;
+      world.events.append({ type: "system", text: "Session slots free again: queued work resumes", payload: { alert: "slots-free", ...slots() } });
     }
   }
 

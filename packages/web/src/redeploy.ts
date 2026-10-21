@@ -85,6 +85,15 @@ export function redeployTone(s: RedeployStatus): "ok" | "bad" | "warn" {
   return s.state === "done" ? "ok" : s.state === "failed" ? "bad" : "warn";
 }
 
+/** Whether every session slot is taken: the latest `alert: slots-full|slots-free` event, else the snapshot's `health.slots`. */
+export function slotsFull(events: Event[], health: { slots?: { running: number; max: number } } | null): boolean {
+  for (let i = events.length - 1; i >= 0; i--) {
+    const a = (events[i].payload as { alert?: unknown }).alert;
+    if (events[i].type === "system" && (a === "slots-full" || a === "slots-free")) return a === "slots-full";
+  }
+  return !!health?.slots && health.slots.running >= health.slots.max;
+}
+
 /** Whether docker is down: the latest `alert: docker-down|docker-up` event, else the snapshot's `health.docker`. */
 export function dockerDown(events: Event[], health: { docker: boolean } | null): boolean {
   for (let i = events.length - 1; i >= 0; i--) {

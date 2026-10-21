@@ -54,6 +54,8 @@ export class Sim {
 
   /** the runtime's last docker probe (the mock starts with docker down, so the HUD's red notice shows) */
   dockerUp = false;
+  /** the host's session cap (desks.maxRunning) */
+  maxRunning = 20;
 
   subscribe(fn: (m: ServerMessage) => void) { this.subs.add(fn); return () => this.subs.delete(fn); }
   emit(m: ServerMessage) { const c = clone(m); for (const s of this.subs) setTimeout(() => s(c), 0); }
@@ -64,7 +66,7 @@ export class Sim {
       type: "snapshot", town: this.town, buildings: this.buildings.map((b) => ({ ...b, intray: this.intrayCount(b.id), budget: this.budgetOf(b.id) })),
       agents: [...this.agents.values()].filter((a) => a.status !== "banned"), places: this.layout.places, grid: this.layout.grid,
       meetings: [...this.meetings.values()].filter((m) => m.phase !== "done" && m.phase !== "cancelled"),
-      health: { docker: this.dockerUp },
+      health: { docker: this.dockerUp, slots: { running: [...this.agents.values()].filter((a) => a.status === "working").length, max: this.maxRunning } },
     });
   }
 
