@@ -227,6 +227,19 @@ export class MockApi implements Api {
     return clone({ assignment: n, agent });
   }
 
+  async delegateAssignment(id: string, agentId: string, front = true) {
+    await wait();
+    const { a, agent } = this.ownAsg(id);
+    if (a.status !== "pending") throw new ApiError(`Assignment "${a.title}" is ${a.status}, not queued.`, "conflict", 409);
+    const to = this.need(this.sim.agents.get(agentId), "agent");
+    if (to.id === agent.id) throw new ApiError(`"${a.title}" is already ${agent.name}'s.`, "bad_request", 400);
+    if (to.kind !== "resident") throw new ApiError(`${to.name} is a ${to.kind}; only residents take delegated assignments.`, "bad_request", 400);
+    a.status = "cancelled"; this.sim.putAssignment(a);
+    const n = this.sim.newAssignment(to.id, { title: a.title, description: a.description, fromReportId: a.fromReportId, fromAssignmentId: a.id, front });
+    window.setTimeout(() => this.sim.runNext(to.id), 1200);
+    return clone({ assignment: n, agent: to, from: a });
+  }
+
   async docs(q: DocQuery) {
     await wait();
     const text = q.q?.toLowerCase().trim();

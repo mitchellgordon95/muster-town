@@ -294,6 +294,8 @@ kbd { font-family: var(--mono); font-size: 11px; background: #2a2d3a; border: 1p
 .asg-n { color: var(--faint); font-weight: 500; margin-right: 6px; }
 .asg-actions { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 7px; }
 .asg-actions .btn.icon { min-width: 28px; padding-left: 0; padding-right: 0; justify-content: center; }
+.asg-delegate { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin-top: 7px; }
+.asg-delegate select { flex: 1 1 160px; min-width: 0; }
 .queue-banner { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
 .table { width: 100%; border-collapse: collapse; font-size: 12.5px; }
 .table th { text-align: left; color: var(--faint); font-weight: 600; padding: 4px 6px; border-bottom: 1px solid var(--line); }
@@ -493,5 +495,4 @@ kbd { font-family: var(--mono); font-size: 11px; background: #2a2d3a; border: 1p
 }
 @media (max-width: 420px) {
   .hiw-scene { box-sizing: border-box; width: 100%; height: auto; }
-}
 }

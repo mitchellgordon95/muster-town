@@ -121,6 +121,29 @@ describe("assignment queue", () => {
     expect(() => world.ops.retryAssignment(admin, b.id)).toThrow(/Only cancelled or done/);
   });
 
+  it("delegateAssignment: a queued one moves to another resident's queue (front) and the original is cancelled; not for active, self, or visitors", () => {
+    const { world, admin, mei, add, titles } = setup();
+    const a = add("A"), b = add("B");
+    const noor = world.agents.first("name = 'Noor'")!;
+    const theirs = world.ops.createWork(null, noor.id, { title: "N1" });
+    const r = world.ops.delegateAssignment(admin, b.id, noor.id, { front: true });
+    expect(r.from).toMatchObject({ id: b.id, status: "cancelled" });
+    expect(r.assignment).toMatchObject({ status: "pending", agentId: noor.id, title: "B", description: b.description, fromAssignmentId: b.id, buildingId: b.buildingId });
+    expect(titles()).toEqual(["A"]);
+    expect(pendingQueue(world, noor.id).map((x) => x.title)).toEqual(["B", "N1"]);
+    expect(theirs.status).toBe("pending");
+    const ev = world.events.recent({ limit: 5 }).find((e) => e.type === "assignment.delegated")!;
+    expect(ev.text).toBe(`${admin.name} delegated "B" from Mei to Noor`);
+    expect(ev.payload).toMatchObject({ assignmentId: r.assignment.id, fromAssignmentId: b.id, fromAgentId: mei.id, toAgentId: noor.id });
+
+    expect(() => world.ops.delegateAssignment(admin, b.id, noor.id)).toThrow(expect.objectContaining({ code: "conflict" }));
+    expect(() => world.ops.delegateAssignment(admin, a.id, mei.id)).toThrow(/already Mei's/);
+    expect(() => world.ops.delegateAssignment(admin, a.id, admin.id)).toThrow(/only residents/);
+    const nobody = world.ops.ensureAvatar(world.ops.createUser("Nobody").user.id);
+    expect(() => world.ops.delegateAssignment(nobody, a.id, noor.id)).toThrow(expect.objectContaining({ code: "forbidden" }));
+    expect(titles()).toEqual(["A"]);
+  });
+
   it("permissions: owner, building.assign on the building, or admin; anyone else is refused", () => {
     const { world, admin, mei, add } = setup();
     const a = add("A"), b = add("B");

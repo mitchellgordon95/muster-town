@@ -160,6 +160,8 @@ export interface Api {
   cancelAssignment(assignmentId: string): Promise<{ assignment: Assignment; agent: Agent }>;
   /** A cancelled or done assignment again, as a new pending one (front of the queue by default). */
   retryAssignment(assignmentId: string, front?: boolean): Promise<{ assignment: Assignment; agent: Agent }>;
+  /** hand a queued assignment to another resident: the original is cancelled (`from`), the copy joins their queue */
+  delegateAssignment(assignmentId: string, agentId: string, front?: boolean): Promise<{ assignment: Assignment; agent: Agent; from: Assignment }>;
   // docs
   docs(q: DocQuery): Promise<Doc[]>;
   doc(id: string): Promise<Doc>;
@@ -309,6 +311,7 @@ export class HttpApi implements Api {
   startNext(id: string) { return this.post<StartNextResult>(`/api/assignments/${id}/start-next`); }
   cancelAssignment(id: string) { return this.post<{ assignment: Assignment; agent: Agent }>(`/api/assignments/${id}/cancel`); }
   retryAssignment(id: string, front = true) { return this.post<{ assignment: Assignment; agent: Agent }>(`/api/assignments/${id}/retry`, { front }); }
+  delegateAssignment(id: string, agentId: string, front = true) { return this.post<{ assignment: Assignment; agent: Agent; from: Assignment }>(`/api/assignments/${id}/delegate`, { agentId, front }); }
   async docs(q: DocQuery) { return unwrap<Doc[]>(await this.get(`/api/docs${qs(q)}`), "docs"); }
   async doc(id: string) { return unwrap<Doc>(await this.get(`/api/docs/${id}`), "doc"); }
   async writeDoc(i: WriteDocInput) { return unwrap<Doc>(await this.post("/api/docs", i), "doc"); }
