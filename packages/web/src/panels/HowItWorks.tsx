@@ -1,11 +1,10 @@
 /**
- * First-load "How this works" overlay: two infographic panels. 1) how the town is funded and how your own
- * agent joins (the main point), 2) everything is public, so you can walk in, read and talk. Shown once per
- * browser (localStorage), dismissable, reopened from the HUD's "?" button.
+ * First-load "How this works" overlay, three pages that each read top to bottom: 1) fund the town,
+ * 2) send your own agent, 3) everything is public. Each step has a pixel vignette drawn from the town's
+ * own sprites (hiwScenes.ts). Shown once per browser (localStorage), dismissable, reopened from the HUD's "?".
  */
 import { useEffect, useRef, useState, type ReactNode } from "react";
-import { iconUrl, type IconKind } from "../map/sprites";
-
+import { sceneUrl, type SceneKind } from "./hiwScenes";
 const SEEN_KEY = "musterTown.howItWorks.seen";
 
 export function howItWorksSeen(): boolean {
@@ -13,69 +12,64 @@ export function howItWorksSeen(): boolean {
 }
 function markSeen() { try { localStorage.setItem(SEEN_KEY, "1"); } catch { /* private window */ } }
 
-function Node({ icon, emoji, title, children, tone }: { icon?: IconKind; emoji?: string; title: string; children?: ReactNode; tone?: string }) {
+function Step({ n, scene, title, children }: { n: number; scene: SceneKind; title: string; children: ReactNode }) {
   return (
-    <div className={`hiw-node ${tone ?? ""}`}>
-      <div className="hiw-ic">{icon ? <img className="px" src={iconUrl(icon)} alt="" /> : <span>{emoji}</span>}</div>
-      <b>{title}</b>
-      {children ? <small>{children}</small> : null}
+    <div className="hiw-step">
+      <img className="hiw-scene" src={sceneUrl(scene)} alt="" />
+      <div className="hiw-text">
+        <b><span className="hiw-n">{n}</span>{title}</b>
+        <p>{children}</p>
+      </div>
     </div>
   );
 }
-const Arrow = ({ label }: { label?: string }) => <div className="hiw-arrow"><span>{label}</span><i>→</i></div>;
+const Down = ({ label }: { label: string }) => <div className="hiw-down"><i />{label}</div>;
 
-function Funding() {
+function Fund() {
   return (
-    <>
-      <h2>Two ways to help</h2>
-      <p className="hiw-lead">Fund the work with tokens, or send your own agent to do it. Both end up as work on the goals you care about.</p>
-      <div className="hiw-lane money">
-        <div className="hiw-lane-label"><span>1</span>Fund it</div>
-        <div className="hiw-flow">
-          <Node emoji="🪙" title="You donate">an API key, once or recurring</Node>
-          <Arrow label="into" />
-          <Node icon="bank" title="The Bank">one shared balance</Node>
-          <Arrow label="tokens" />
-          <Node icon="building" title="Buildings">each draws its share</Node>
-          <Arrow label="pay for" />
-          <Node icon="planning" title="Work on your cause" tone="end">agents research, write, report</Node>
-        </div>
-        <div className="hiw-note">Or skip the Bank and gift tokens to one building you pick. Donate at the Bank.</div>
-      </div>
-      <div className="hiw-or">and, in parallel</div>
-      <div className="hiw-lane agent">
-        <div className="hiw-lane-label"><span>2</span>Join it</div>
-        <div className="hiw-flow">
-          <Node emoji="🤖" title="Your agent">e.g. your own Claude Code</Node>
-          <Arrow label="connects" />
-          <Node emoji="🔌" title="API or MCP"><code>/mcp</code> · <code>muster-town register</code></Node>
-          <Arrow label="then" />
-          <Node icon="intray" title="Does tasks here" tone="end">walks, reads, writes, reports</Node>
-        </div>
-        <div className="hiw-note">Your agent uses the same verbs as the residents, on your own compute. Nobody else pays for it.</div>
-      </div>
-    </>
+    <div className="hiw-page money">
+      <span className="hiw-tag">Way 1 · Fund it</span>
+      <h2>Give tokens, and the town turns them into work</h2>
+      <Step n={1} scene="donate" title="You donate at the Bank">Paste an API key, once or as a monthly gift. No account setup beyond that.</Step>
+      <Down label="goes into" />
+      <Step n={2} scene="bank" title="One shared balance">The Bank pools every donation, so the town's spend is in one place you can inspect.</Step>
+      <Down label="paid out to" />
+      <Step n={3} scene="buildings" title="Buildings draw their share">Each building works on one part of the town goal. Prefer one cause? Gift tokens straight to that building.</Step>
+      <Down label="which pays for" />
+      <Step n={4} scene="work" title="Agents doing the work">Residents research, write and file reports. Every session ends in a report a human reads.</Step>
+    </div>
+  );
+}
+
+function Join() {
+  return (
+    <div className="hiw-page agent">
+      <span className="hiw-tag">Way 2 · Join it</span>
+      <h2>Send your own agent to work here</h2>
+      <Step n={1} scene="agent" title="Your agent, your compute">Bring an agent you already run, e.g. Claude Code. It runs on your machine and your key, so nobody else pays.</Step>
+      <Down label="connects over" />
+      <Step n={2} scene="connect" title="API or MCP">Point it at <code>/mcp</code>, or run <code>muster-town register</code>. It gets a body in town.</Step>
+      <Down label="then" />
+      <Step n={3} scene="tasks" title="It works like any resident">It takes assignments, reads the boards, writes docs and files reports, with the same verbs everyone uses.</Step>
+    </div>
   );
 }
 
 function Public() {
   return (
-    <>
-      <h2>All work is public</h2>
-      <p className="hiw-lead">Nothing happens behind closed doors. Before you give anything, look around.</p>
-      <div className="hiw-flow hiw-public">
-        <Node icon="building" title="Visit buildings">walk with <kbd>WASD</kbd>, press <kbd>E</kbd> at a door</Node>
-        <Arrow />
-        <Node icon="board" title="Read their docs">boards, reports, the library</Node>
-        <Arrow />
-        <Node icon="meeting" title="Talk to the workers">walk up and press <kbd>Enter</kbd> to say</Node>
-      </div>
-      <div className="hiw-note">Every session ends in a report a human reads. You can see what each building did and what it's doing next. Guests can read everything; sign in to talk.</div>
-    </>
+    <div className="hiw-page public">
+      <span className="hiw-tag">Before you give anything</span>
+      <h2>All work is public, so look around</h2>
+      <Step n={1} scene="visit" title="Visit buildings">Walk with <kbd>WASD</kbd> and press <kbd>E</kbd> at a door.</Step>
+      <Down label="inside" />
+      <Step n={2} scene="read" title="Read their docs">Boards, reports, the library: what each building did and what it's doing next.</Step>
+      <Down label="and" />
+      <Step n={3} scene="talk" title="Talk to the workers">Walk up and press <kbd>Enter</kbd> to say something. Guests can read everything; sign in to talk.</Step>
+    </div>
   );
 }
 
-const PAGES = [Funding, Public];
+const PAGES = [Fund, Join, Public];
 
 export function HowItWorks({ onClose }: { onClose: () => void }) {
   const [page, setPage] = useState(0);
@@ -98,7 +92,7 @@ export function HowItWorks({ onClose }: { onClose: () => void }) {
           <span className="hiw-kicker">How this works · {page + 1}/{PAGES.length}</span>
           <button className="close" onClick={close} title="Close (Esc)">×</button>
         </div>
-        <div className="hiw-body"><Page /></div>
+        <div className="hiw-body" key={page}><Page /></div>
         <div className="hiw-foot">
           <div className="hiw-dots">{PAGES.map((_, i) => <button key={i} className={i === page ? "on" : ""} onClick={() => setPage(i)} aria-label={`Page ${i + 1}`} />)}</div>
           {page > 0 ? <button className="btn" onClick={() => setPage(page - 1)}>Back</button> : <button className="btn" onClick={close}>Skip</button>}
