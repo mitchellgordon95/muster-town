@@ -86,12 +86,19 @@ export class MockApi implements Api {
     return ["Lena", "Milo", "Wren", "Juno", "Kai", "Rhea", "Otto", "Sana"].find((n) => !taken.has(n.toLowerCase())) ?? `Resident ${this.sim.agents.size + 1}`;
   }
   async setAgentPermissions(): Promise<never> { throw new ApiError("Agent permissions need the real server.", "unsupported", 501); }
+  async setAgentModel(id: string, model: string | null) {
+    await wait();
+    const agent = this.need(this.sim.agents.get(id), "agent");
+    agent.model = model;
+    return clone({ agent, effectivePermissions: [], permissions: { inheritsOwner: agent.inheritsOwner, deniedPermissions: agent.deniedPermissions, ownerUserId: agent.ownerUserId, ownerName: null, canEdit: false, canSetModel: true } });
+  }
   async agent(id: string): Promise<AgentDetail> {
     await wait();
     const agent = this.need(this.sim.agents.get(id), "agent");
     const reports = [...this.sim.docs.values()].filter((d) => d.type === "report" && d.authorId === id).sort((a, b) => b.createdAt.localeCompare(a.createdAt));
     return clone({
       agent, recentEvents: this.sim.events.filter((e) => e.agentId === id).slice(-50),
+      permissions: { inheritsOwner: agent.inheritsOwner, deniedPermissions: agent.deniedPermissions, ownerUserId: agent.ownerUserId, ownerName: null, canEdit: false, canSetModel: agent.kind === "resident" }, effectivePermissions: [],
       currentSession: agent.status === "working" ? { id: `se_${id}`, agentId: id, assignmentId: agent.currentAssignmentId, meetingId: null, purpose: "work" as const, backend: "host" as const, status: "running" as const, model: agent.model ?? "claude-opus-5-5", sdkSessionId: null, tokens: agent.spentTokensToday, costUsd: agent.spentUsdTotal, turns: 12, reportId: null, error: null, startedAt: new Date(Date.now() - 15 * 60_000).toISOString(), endedAt: null } : null,
       latestReport: reports[0] ?? null,
       notebook: notebooks.find((d) => d.authorId === id) ?? null,

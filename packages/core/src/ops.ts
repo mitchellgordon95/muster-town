@@ -134,6 +134,28 @@ export class Ops {
     return updated;
   }
 
+  /**
+   * PATCH /api/agents/:id/model. The agent's owner, an admin, or a manager of its home building (building.manage).
+   * null clears it so sessions use the home building's model. Takes effect from its next session.
+   */
+  setAgentModel(actor: Actor, agentId: string, model: string | null): Agent {
+    const agent = this.world.agents.require(agentId, "agent");
+    if (actor && !this.canSetModel(actor, agent)) throw forbidden("building.manage");
+    if (agent.kind === "human" || agent.kind === "service") throw badRequest(`${agent.name} doesn't run model sessions.`);
+    const next = model?.trim() || null;
+    const updated = this.world.agents.patch(agentId, { model: next });
+    this.world.events.append({ type: "system", agentId, text: `${agent.name}'s model: ${next ?? "building default"}`, payload: { model: next, by: actor ? this.world.holderOf(actor).id : "system" } });
+    return updated;
+  }
+
+  /** Who may change an agent's model: its owner, an admin, or building.manage on its home building. */
+  canSetModel(actor: NonNullable<Actor>, agent: Agent): boolean {
+    const h = this.world.holderOf(actor);
+    if (h.kind === "user" && !!agent.ownerUserId && agent.ownerUserId === h.id && actor.kind === "human") return true;
+    const p = this.world.permissions;
+    return p.isAdmin(actor) || p.can(actor, "building.manage", homeOf(agent));
+  }
+
   // ---- dismiss ----
   /**
    * DELETE /api/agents/:id. Needs building.manage (or building.dismiss) on the agent's home building, or admin.

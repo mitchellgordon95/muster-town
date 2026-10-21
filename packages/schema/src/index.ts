@@ -975,6 +975,8 @@ export const RegisterVisitorInput = z.object({ name: z.string(), buildingId: Id.
   inheritsOwner: z.boolean().optional() });
 export const AgentPermissionsPatch = z.object({ inheritsOwner: z.boolean().optional(), deniedPermissions: z.array(Permission).optional() });
 export type AgentPermissionsPatch = z.infer<typeof AgentPermissionsPatch>;
+/** PATCH /api/agents/:id/model: the model for its work sessions; null = its home building's model. */
+export const AgentModelPatch = z.object({ model: z.string().trim().min(1).nullable() });
 export const ReviewInput = z.object({ decision: ReviewDecision, note: z.string().default(""), waitFor: WaitFor.optional() });
 export const ChatInput = z.object({ message: z.string(), history: z.array(z.object({ role: z.enum(["user", "assistant"]), text: z.string() })).default([]) });
 /** POST /api/docs/:id/reply: the reply text (empty = archive). */

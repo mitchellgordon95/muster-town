@@ -37,6 +37,8 @@ export interface AgentPermissionsView {
   canEdit: boolean;
   /** the owner's effective permissions; only sent when `canEdit` */
   ownerPermissions?: Permission[];
+  /** the caller is the owner, an admin or a manager of its home building: may pick its model */
+  canSetModel?: boolean;
 }
 /** POST /api/agents/:id/message result: how the message reached the agent. */
 export interface StartNextResult { assignment: Assignment; agent: Agent; when: "now" | "after-current" }
@@ -140,6 +142,8 @@ export interface Api {
   agent(id: string): Promise<AgentDetail>;
   /** Owner or admin: inherit the owner's permissions or not, and per-agent denies. */
   setAgentPermissions(id: string, patch: { inheritsOwner?: boolean; deniedPermissions?: Permission[] }): Promise<Pick<AgentDetail, "agent" | "effectivePermissions" | "permissions">>;
+  /** null = its home building's model */
+  setAgentModel(id: string, model: string | null): Promise<Pick<AgentDetail, "agent" | "effectivePermissions" | "permissions">>;
   session(id: string): Promise<{ session: Session | null; transcript: Event[] }>;
   work(id: string, input: In<typeof WorkInput>): Promise<Assignment | null>;
   /** Message the agent's session: queued for the next turn boundary, or `now` to stop the current turn first. */
@@ -307,6 +311,7 @@ export class HttpApi implements Api {
   async ban(id: string, reason: string) { return unwrap<Agent>(await this.post(`/api/agents/${id}/ban`, { reason }), "agent"); }
   agent(id: string) { return this.get<AgentDetail>(`/api/agents/${id}`); }
   setAgentPermissions(id: string, patch: { inheritsOwner?: boolean; deniedPermissions?: Permission[] }) { return this.call<Pick<AgentDetail, "agent" | "effectivePermissions" | "permissions">>("PATCH", `/api/agents/${id}/permissions`, patch); }
+  setAgentModel(id: string, model: string | null) { return this.call<Pick<AgentDetail, "agent" | "effectivePermissions" | "permissions">>("PATCH", `/api/agents/${id}/model`, { model }); }
   session(id: string) { return this.get<{ session: Session | null; transcript: Event[] }>(`/api/agents/${id}/session`); }
   async work(id: string, i: In<typeof WorkInput>) { return unwrap<Assignment | null>(await this.post(`/api/agents/${id}/work`, i), "assignment"); }
   async interrupt(id: string, text: string, now = false) { await this.post(`/api/agents/${id}/interrupt`, { text, now }); }

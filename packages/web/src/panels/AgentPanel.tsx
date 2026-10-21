@@ -34,6 +34,7 @@ export function AgentPanel({ id, tab }: { id: string; tab?: string }) {
       subtitle={<>
         {agent.kind === "visitor" ? <>{role}<Presence agent={agent} mailbox={mailbox} /></> : role}
         {perms ? <AgentPermissions agent={agent} view={perms} effective={detail.data?.effectivePermissions ?? []} reload={detail.reload} /> : null}
+        {perms?.canSetModel ? <AgentModel agent={agent} buildingModel={building?.model} reload={detail.reload} /> : null}
       </>}
       tabs={tabs}
       initialTab={tab && tabs.includes(tab) ? tab : "Talk"}
@@ -90,6 +91,29 @@ function AgentPermissions({ agent, view, effective, reload }: { agent: Agent; vi
         </details>
       ) : null}
     </div>
+  );
+}
+
+const MODELS = ["claude-fable-5-1", "claude-opus-5-5", "claude-sonnet-5-5", "claude-haiku-5-5"];
+
+/** Model picker under the permissions (owner, admin or a manager of its home building). Empty = the building's model; applies from its next session. */
+function AgentModel({ agent, buildingModel, reload }: { agent: Agent; buildingModel?: string; reload: () => void }) {
+  const current = agent.model ?? "";
+  const options = current && !MODELS.includes(current) ? [...MODELS, current] : MODELS;
+  const save = async (model: string) => {
+    const { agent: updated } = await api().setAgentModel(agent.id, model || null);
+    store.receive({ type: "agent", agent: updated });
+    store.toast(`${agent.name} will use ${updated.model ?? `the building's model${buildingModel ? ` (${buildingModel})` : ""}`} from their next session`, "ok");
+    reload();
+  };
+  return (
+    <label className="agent-model" title="Takes effect from the agent's next session">
+      Model
+      <select value={current} onChange={(e) => { save(e.target.value).catch((err) => store.toast((err as Error).message, "bad")); }}>
+        <option value="">Building default{buildingModel ? ` (${buildingModel})` : ""}</option>
+        {options.map((m) => <option key={m} value={m}>{m}</option>)}
+      </select>
+    </label>
   );
 }
 

@@ -1,5 +1,5 @@
 import { AppError, notebookOf, suggestResidentName, type World } from "@muster-town/core";
-import { AgentPermissionsPatch, ChatInput, CreateResidentInput, Event, InterruptInput, MessageAgentInput, RegisterVisitorInput, WorkInput, type Agent, type Session } from "@muster-town/schema";
+import { AgentModelPatch, AgentPermissionsPatch, ChatInput, CreateResidentInput, Event, InterruptInput, MessageAgentInput, RegisterVisitorInput, WorkInput, type Agent, type Session } from "@muster-town/schema";
 import type { FastifyInstance, FastifyRequest } from "fastify";
 import { z } from "zod";
 import { actorOf, parse, requireAuth, requireUser, type Params } from "../context.ts";
@@ -60,6 +60,8 @@ export async function agentRoutes(app: FastifyInstance) {
         ownerUserId: owner?.id ?? null,
         ownerName: owner ? world.users.get(owner.id)?.name ?? null : null,
         canEdit,
+        // owner, admin or a manager of its home building may pick its model (shown under the permissions)
+        canSetModel: canSetModel(req, agent),
         // what the owner holds, so the owner/admin can pick denies from it
         ...(canEdit && owner ? { ownerPermissions: world.permissions.effective(owner, bid) } : {}),
       },
@@ -70,6 +72,19 @@ export async function agentRoutes(app: FastifyInstance) {
   app.patch<{ Params: Params }>("/api/agents/:id/permissions", async (req) => {
     const patch = parse(AgentPermissionsPatch, req.body ?? {});
     const agent = world.ops.setAgentPermissions(actorOf(world, req), req.params.id, patch);
+    return { agent, ...permissionsView(req, agent) };
+  });
+
+  const canSetModel = (req: FastifyRequest, agent: Agent): boolean => {
+    if (!req.auth || agent.kind === "human" || agent.kind === "service" || agent.status === "retired") return false;
+    const actor = actorOf(world, req);
+    return !!actor && world.ops.canSetModel(actor, agent);
+  };
+
+  /** Owner, admin or home-building manager: the model for its sessions (null = building default). → { agent, effectivePermissions, permissions } */
+  app.patch<{ Params: Params }>("/api/agents/:id/model", async (req) => {
+    const { model } = parse(AgentModelPatch, req.body ?? {});
+    const agent = world.ops.setAgentModel(actorOf(world, req), req.params.id, model);
     return { agent, ...permissionsView(req, agent) };
   });
 
