@@ -73,9 +73,12 @@ export async function buildApp(opts: BuildAppOptions): Promise<FastifyInstance> 
   const haveWeb = !!dist && existsSync(join(dist, "index.html"));
   // Serve the client dynamically (wildcard): a rebuild after startup must be served without a restart.
   // index.html is never cached so a stale page can't point at an asset hash that no longer exists.
-  if (haveWeb) await app.register(fastifyStatic, {
-    root: dist!, wildcard: true, index: false,
-    setHeaders: (res, filePath) => { if (filePath.endsWith("index.html")) res.setHeader("cache-control", "no-cache"); },
+  if (haveWeb) await app.register(fastifyStatic, { root: dist!, wildcard: true });
+  // never let a browser cache the page itself: a stale index.html would point at asset hashes that no longer exist
+  app.addHook("onSend", async (_req, reply, payload) => {
+    const ct = String(reply.getHeader("content-type") ?? "");
+    if (ct.startsWith("text/html")) reply.header("cache-control", "no-cache");
+    return payload;
   });
 
   app.setNotFoundHandler((req, reply) => {
