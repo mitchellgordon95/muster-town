@@ -24,7 +24,7 @@ RUN apt-get update \
 ENV CHROME_PATH=/usr/bin/chromium PUPPETEER_EXECUTABLE_PATH=/usr/bin/chromium
 
 # scientific Python for research desks
-RUN pip3 install --no-cache-dir --break-system-packages numpy pandas xarray netCDF4 scipy matplotlib requests
+RUN pip3 install --no-cache-dir --break-system-packages numpy pandas xarray netCDF4 scipy matplotlib requests websockets
 
 # Claude Code CLI (the SDK also ships its own binary; this one is for humans exec'ing into a desk)
 RUN npm i -g @anthropic-ai/claude-code && npm cache clean --force

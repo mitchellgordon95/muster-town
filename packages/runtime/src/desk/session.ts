@@ -70,6 +70,9 @@ export function deskAuth(funding: Pick<Funding, "auth" | "apiKey" | "fallback">,
   return { mode: "none", env: {} };
 }
 
+/** Host env vars with this prefix are passed into every desk with the prefix stripped. */
+export const DESK_ENV_PREFIX = "DESK_ENV_";
+
 /** Env for `agent-town-desk run` (contract step 3). Values are secrets: never log them. */
 export function deskEnv(ctx: Ctx, session: Session, opts: DeskSessionOptions = {}, funding?: Funding): Record<string, string> {
   const { world } = ctx;
@@ -82,6 +85,9 @@ export function deskEnv(ctx: Ctx, session: Session, opts: DeskSessionOptions = {
     DESK_MODEL: session.model,
     DESK_MAX_TURNS: String(building.maxTurnsPerSession),
   };
+  // DESK_ENV_<NAME>=value on the host (the collective's .env) reaches every desk as NAME: credentials a pinned skill's
+  // script needs (e.g. DESK_ENV_MINICLAW_WS_TOKEN for talk-to-wright). Values are secrets: never log them.
+  for (const [k, v] of Object.entries(process.env)) if (k.startsWith(DESK_ENV_PREFIX) && v !== undefined && k.length > DESK_ENV_PREFIX.length) env[k.slice(DESK_ENV_PREFIX.length)] = v;
   const auth = deskAuth(funding ?? fundingFor(world, agent.id));
   Object.assign(env, auth.env);
   env.DESK_AUTH = auth.mode; // a label, not a secret: the desk logs it
