@@ -70,6 +70,7 @@ describe("role migration (v1.1 DB)", () => {
     db.exec("DROP TABLE usage"); // added by 024 (usage ledger)
     db.exec("DROP INDEX sessions_grant; DROP TABLE grants; DROP TABLE key_results; ALTER TABLE sessions DROP COLUMN lane; ALTER TABLE sessions DROP COLUMN grantId"); // added by 025 (grants)
     db.exec("ALTER TABLE buildings DROP COLUMN explorationTokensPerDay; ALTER TABLE buildings DROP COLUMN budgetMode"); // added by 025
+    db.exec("DROP TABLE skill_files; DROP TABLE skill_pins; DROP INDEX events_type"); // added by 026 (skills)
     db.exec("ALTER TABLE buildings DROP COLUMN furniture"); // added by 013 (movable furniture)
     db.exec("ALTER TABLE agents DROP COLUMN lastSeenAt"); // added by 015 (visitor presence)
     db.exec("ALTER TABLE assignments DROP COLUMN offered"); // added by 015

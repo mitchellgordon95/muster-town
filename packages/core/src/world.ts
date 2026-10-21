@@ -11,6 +11,7 @@ import { importV0, type ImportV0Options, type ImportV0Result } from "./import-v0
 import { Ops } from "./ops.ts";
 import { holderOf, Permissions, type Holder } from "./permissions.ts";
 import { Presence } from "./presence.ts";
+import { Skills } from "./skills.ts";
 import { seedDefaults, type SeedOptions, type SeedResult } from "./seed.ts";
 import { createRepos, type Repos } from "./store.ts";
 import { Emitter } from "./util.ts";
@@ -50,6 +51,8 @@ export class World {
   readonly bank: Bank;
   /** goal-directed budgets: proposals, grants, key results, exploration allowance */
   readonly grantDesk: Grants;
+  /** skills: SKILL.md docs, bundled files, pins, usage (docs/skills.md) */
+  readonly skills: Skills;
   readonly layout: WorldMap;
   readonly movement: Movement;
   readonly verbs: Verbs;
@@ -75,6 +78,7 @@ export class World {
   readonly interrupts: Repos["interrupts"];
   readonly grants: Repos["grants"];
   readonly keyResults: Repos["keyResults"];
+  readonly skillPins: Repos["skillPins"];
   readonly tokens: Repos["tokens"];
   readonly town: Repos["town"];
 
@@ -95,7 +99,7 @@ export class World {
     this.places = repos.places; this.docs = repos.docs; this.assignments = repos.assignments;
     this.messages = repos.messages; this.meetings = repos.meetings; this.sessions = repos.sessions;
     this.interrupts = repos.interrupts;
-    this.grants = repos.grants; this.keyResults = repos.keyResults;
+    this.grants = repos.grants; this.keyResults = repos.keyResults; this.skillPins = repos.skillPins;
     this.tokens = repos.tokens; this.town = repos.town;
     this.events = new EventLog(db, this.changes);
     this.permissions = new Permissions(repos);
@@ -106,6 +110,7 @@ export class World {
     this.verbs = makeVerbs(this);
     this.ops = new Ops(this);
     this.grantDesk = new Grants(this);
+    this.skills = new Skills(this);
     this.presence = new Presence(this);
     // agent.activity is server-maintained from events
     this.events.addHook((e) => {

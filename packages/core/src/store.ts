@@ -1,5 +1,5 @@
 import {
-  Agent, Allocation, Assignment, BankCredit, BankDebit, BankInput, BankPool, Building, DesksConfig, Doc, Grant, Interrupt, KeyResult, Meeting, Membership, Message, Place, Role, Session, Town, UsageEntry, User,
+  Agent, Allocation, Assignment, BankCredit, BankDebit, BankInput, BankPool, Building, DesksConfig, Doc, Grant, Interrupt, KeyResult, Meeting, Membership, Message, Place, Role, Session, SkillPin, Town, UsageEntry, User,
   type ServerMessage,
 } from "@muster-town/schema";
 import type { DB } from "./db.ts";
@@ -139,6 +139,7 @@ export function createRepos(db: DB, changes: Emitter<ServerMessage>) {
     sessions: new Table<Session>(db, "sessions", Session),
     grants: new Table<Grant>(db, "grants", Grant, { json: ["findingsDocIds", "checkpointsDone", "history"] }),
     keyResults: new Table<KeyResult>(db, "key_results", KeyResult),
+    skillPins: new Table<SkillPin>(db, "skill_pins", SkillPin, { bool: ["byHuman"] }),
     interrupts: new Table<Interrupt>(db, "interrupts", Interrupt, { bool: ["now"] }),
     tokens: new Tokens(db),
     town: new TownMeta(db),

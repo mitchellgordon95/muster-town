@@ -70,8 +70,45 @@ export async function search(world: World, me: Agent, input: VerbIn<"search">) {
 export async function read(world: World, me: Agent, input: VerbIn<"read">) {
   const d = world.docs.get(input.id);
   if (!d || !canSeeDoc(world.holderOf(me), d)) throw new AppError("not_found", `No document ${input.id} (or it's someone's draft).`);
+  if (input.file !== undefined && d.type !== "skill") throw badRequest("`file` is only for skills (type \"skill\").");
+  if (d.type === "skill" && input.file !== undefined) {
+    const content = world.skills.file(d.id, input.file);
+    world.skills.used(me, d, input.file);
+    // the file comes back in the doc's shape: body = the file's content, file = its path
+    return { ...d, author: world.nameOf(d.authorId), sources: [] as { id: string; title: string }[], file: input.file, body: content };
+  }
   const sources = d.provenance.sourceIds.map((id) => world.docs.get(id)).filter((s): s is Doc => !!s).map((s) => ({ id: s.id, title: s.title }));
+  if (d.type === "skill") {
+    world.skills.used(me, d);
+    const files = world.skills.files(d.id);
+    return { ...d, author: world.nameOf(d.authorId), sources, files,
+      ...(files.length ? { filesNote: "Read one with `read` {id, file}. On a desk you can save them under ~/skills/<name>/ and run the scripts." } : {}) };
+  }
   return { ...d, author: world.nameOf(d.authorId), sources };
+}
+
+/** `skills`: what I can use right now: my pinned skills first, then my building's and the library's (and my drafts). */
+export async function skills(world: World, me: Agent, input: VerbIn<"skills">) {
+  const pinned = world.skills.forAgent(me.id);
+  const pinnedIds = new Set(pinned.map((s) => s.doc.id));
+  const words = (input.query?.toLowerCase().match(/[\p{L}\p{N}-]+/gu) ?? []);
+  const matches = (text: string) => words.every((w) => text.toLowerCase().includes(w));
+  const line = (v: ReturnType<typeof world.skills.view>) => ({
+    id: v.id, name: v.name, description: v.description, state: v.state, author: v.author, files: v.files.map((f) => f.path), uses30d: v.uses30d,
+  });
+  const pinnedOut = pinned.filter((s) => matches(`${s.md.name} ${s.md.description}`))
+    .map((s) => ({ ...line(world.skills.view(s.doc)), pinned: { scope: s.scope, mode: s.mode } }));
+  const others = world.skills.visibleTo(me, input.query).filter((d) => !pinnedIds.has(d.id)).slice(0, input.limit).map((d) => line(world.skills.view(d)));
+  return {
+    pinned: pinnedOut, available: others,
+    note: "`read` a skill (its id) to load it; `read` with `file` opens a bundled file. Write your own with `write` type \"skill\" (a SKILL.md body, optional `files`); `pin` puts one into your sessions.",
+  };
+}
+
+/** `pin`: pin a skill into sessions (scope agent / building / town; mode listed / always), or unpin it (remove). */
+export async function pin(world: World, me: Agent, input: VerbIn<"pin">) {
+  if (input.remove) return world.skills.unpin(me, input.skillId, input);
+  return { pin: world.skills.pin(me, input.skillId, input) };
 }
 
 export async function write(world: World, me: Agent, input: VerbIn<"write">) {
@@ -79,29 +116,44 @@ export async function write(world: World, me: Agent, input: VerbIn<"write">) {
   const holder = world.holderOf(me);
   const bid = me.buildingId ?? me.homeBuildingId;
   if (input.type === "notebook") return writeNotebook(world, me, holder, input.body);
+  if (input.files && input.type !== "skill") throw badRequest("`files` are only for skills (type \"skill\").");
+  // a skill's title is its SKILL.md name (validated, unique town-wide)
+  const title = input.type === "skill" ? world.skills.validate(input.body, holder.id, input.id).name : input.title;
   if (input.state === "building" && !world.permissions.can(me, "doc.write_building", bid)) throw forbidden("doc.write_building", "Not allowed to publish to this building's board (needs doc.write_building). Save it as a draft instead.");
   if (input.id) {
     const cur = world.docs.get(input.id);
     if (!cur) throw new AppError("not_found", `No document ${input.id}.`);
     if (cur.authorId !== holder.id) throw new AppError("forbidden", "You can only update documents you wrote.");
     if (cur.type === "notebook") throw badRequest("That's your notebook; update it with type \"notebook\".");
+    if ((cur.type === "skill") !== (input.type === "skill")) throw badRequest(cur.type === "skill" ? "That's a skill; update it with type \"skill\"." : "A doc can't become a skill; write a new one with type \"skill\".");
     const state = cur.state === "library" || cur.state === "trophy" ? cur.state : (input.type === "source" && input.state === "building" ? "library" : input.state);
-    const doc = updateDoc(world, cur.id, {
-      type: input.type, title: input.title, body: input.body, state,
-      provenance: input.provenance ?? cur.provenance, tags: input.tags ?? cur.tags,
+    const doc = world.transaction(() => {
+      if (input.files) world.skills.setFiles(cur.id, input.files);
+      return updateDoc(world, cur.id, {
+        type: input.type, title, body: input.body, state,
+        provenance: input.provenance ?? cur.provenance, tags: input.tags ?? cur.tags,
+      });
     });
     world.events.append({ type: "doc.updated", agentId: holder.kind === "agent" ? me.id : null, buildingId: doc.buildingId, text: `${me.name} updated "${doc.title}"`, payload: { docId: doc.id } });
     // only newly added mentions notify; a draft being published notifies everyone it mentions
     if (doc.state !== "draft") notifyMentions(world, me, `${doc.title}\n${doc.body}`, { where: docWhere(doc), docId: doc.id, buildingId: doc.buildingId }, cur.state !== "draft" ? `${cur.title}\n${cur.body}` : undefined);
-    return { id: doc.id, state: doc.state };
+    return { id: doc.id, state: doc.state, ...(doc.type === "skill" ? { files: world.skills.files(doc.id).map((f) => f.path) } : {}) };
   }
   // Source cards are references, not claims: once published they go straight to the library so every building can cite them.
   const state = input.type === "source" && input.state === "building" ? "library" : input.state;
-  const doc = createDoc(world, {
-    type: input.type, title: input.title, body: input.body, state, authorId: holder.id, authorKind: holder.kind,
-    buildingId: bid, provenance: input.provenance, tags: input.tags,
+  const doc = world.transaction(() => {
+    const d = createDoc(world, {
+      type: input.type, title, body: input.body, state, authorId: holder.id, authorKind: holder.kind,
+      buildingId: bid, provenance: input.provenance, tags: input.tags,
+    });
+    if (input.files) world.skills.setFiles(d.id, input.files);
+    return d;
   });
   if (doc.state !== "draft") notifyMentions(world, me, `${doc.title}\n${doc.body}`, { where: docWhere(doc), docId: doc.id, buildingId: doc.buildingId });
+  if (doc.type === "skill") {
+    return { id: doc.id, state: doc.state, name: doc.title, files: world.skills.files(doc.id).map((f) => f.path),
+      note: doc.state === "draft" ? "Skill saved as a draft (only you see it). `pin` it into your own sessions, or write it again with state \"building\" to share it in your building." : "Skill published in your building. A manager can `promote` it to the library (town-wide) and `pin` it." };
+  }
   return { id: doc.id, state: doc.state };
 }
 

@@ -340,6 +340,7 @@ export const DocType = z.enum([
   "human-report",  // inbox: a human's report back
   "assignment-proposal", // reserved
   "notebook",      // an agent's private memory between sessions: one per agent, always a draft, injected into its sessions
+  "skill",         // a reusable skill: SKILL.md (frontmatter name + description, then instructions) plus bundled files (docs/skills.md)
 ]);
 export type DocType = z.infer<typeof DocType>;
 
@@ -403,6 +404,69 @@ export const Doc = z.object({
   updatedAt: Iso,
 });
 export type Doc = z.infer<typeof Doc>;
+
+// ---------- skills (docs/skills.md) ----------
+/** Bundled-file limits per skill: count, chars per file, chars in total. Text files only. */
+export const SKILL_LIMITS = { files: 40, fileChars: 100_000, totalChars: 500_000, nameChars: 64, descriptionChars: 300, alwaysChars: 8000 } as const;
+/** A bundled file's path inside the skill folder: relative, no `..`, letters/digits/`._-` per segment. */
+export const SkillFilePath = z.string().min(1).max(200)
+  .regex(/^(?!\/)(?!.*(^|\/)\.\.?(\/|$))[A-Za-z0-9._-]+(\/[A-Za-z0-9._-]+)*$/, "a relative path like scripts/check.sh (letters, digits, . _ - and /; no ..)")
+  .refine((p) => p !== "SKILL.md", "SKILL.md is the skill's body; don't bundle it as a file");
+export const SkillFileInput = z.object({ path: SkillFilePath, content: z.string().max(SKILL_LIMITS.fileChars) });
+export type SkillFileInput = z.infer<typeof SkillFileInput>;
+export const SkillFileInfo = z.object({ path: z.string(), chars: z.number().int(), updatedAt: Iso });
+export type SkillFileInfo = z.infer<typeof SkillFileInfo>;
+
+/** agent = one resident's sessions; building = every session in the building; town = every session in the town. */
+export const SkillPinScope = z.enum(["agent", "building", "town"]);
+export type SkillPinScope = z.infer<typeof SkillPinScope>;
+/** listed = name + description in the prompt (the agent `read`s it when needed); always = the full text in the prompt. */
+export const SkillPinMode = z.enum(["listed", "always"]);
+export type SkillPinMode = z.infer<typeof SkillPinMode>;
+export const SkillPin = z.object({
+  id: Id,
+  skillId: Id,
+  scope: SkillPinScope,
+  /** agent id (agent scope), building id (building scope), null (town) */
+  targetId: Id.nullable(),
+  mode: SkillPinMode,
+  pinnedBy: Id,
+  pinnedByKind: z.enum(["agent", "user"]),
+  /** pinned by a human (a human's avatar or a user): needed for pins into others' sessions of skills with files */
+  byHuman: z.boolean(),
+  createdAt: Iso,
+});
+export type SkillPin = z.infer<typeof SkillPin>;
+/** A pin as listed with its skill: plus who it reaches and whether it is suspended. */
+export const SkillPinView = SkillPin.extend({
+  targetName: z.string().nullable(),
+  pinnedByName: z.string(),
+  /** why the pin doesn't load (e.g. files were added after an agent pinned it into others' sessions); null = it loads */
+  suspended: z.string().nullable(),
+});
+export type SkillPinView = z.infer<typeof SkillPinView>;
+export const SkillView = z.object({
+  id: Id,
+  name: z.string(),
+  description: z.string(),
+  state: DocState,
+  buildingId: Id.nullable(),
+  authorId: Id,
+  author: z.string(),
+  files: z.array(SkillFileInfo),
+  pins: z.array(SkillPinView),
+  /** `skill.used` events (a session `read` the skill or one of its files) in the last 7 / 30 days */
+  uses7d: z.number().int(),
+  uses30d: z.number().int(),
+  updatedAt: Iso,
+});
+export type SkillView = z.infer<typeof SkillView>;
+export const PinSkillInput = z.object({
+  scope: SkillPinScope.default("agent"),
+  targetId: Id.optional().describe("scope agent: the agent (default you); scope building: the building (default yours); ignored for town"),
+  mode: SkillPinMode.default("listed").describe("listed = name + description in the prompt; always = the full text"),
+});
+export type PinSkillInput = z.infer<typeof PinSkillInput>;
 
 // ---------- assignments ----------
 /**
@@ -636,6 +700,7 @@ export const EventType = z.enum([
   "session.started", "session.ended",
   "building.created", "building.updated", "building.layout", "town.plan", "allocation.created", "budget.exhausted", "bank.input", "bank.credited", "bank.share", "bank.pool",
   "grant.created", "grant.updated", "grant.proposed", "grant.countered", "grant.funded", "grant.rejected", "grant.checkpoint", "grant.closed", "kr.updated",
+  "skill.used", "skill.pinned", "skill.unpinned",
   "export.done", "system",
 ]);
 export const Event = z.object({
@@ -660,7 +725,7 @@ export const VerbInputs = {
   inbox: z.object({ markRead: z.boolean().default(true) }),
   board: z.object({ buildingId: Id.optional().describe("defaults to your building"), limit: z.number().int().positive().max(50).default(20) }),
   search: z.object({ query: z.string(), type: DocType.optional(), state: DocState.optional(), buildingId: Id.optional(), limit: z.number().int().positive().max(50).default(10) }),
-  read: z.object({ id: Id }),
+  read: z.object({ id: Id, file: z.string().optional().describe("skills: the path of one bundled file to read (from the skill's file list)") }),
   write: z.object({
     id: Id.optional().describe("update an existing doc you authored (ignored for type 'notebook')"),
     type: DocType.default("note").describe("'notebook' rewrites your own private notebook (one per agent, always private; it's shown to you at the start of every session)"),
@@ -669,6 +734,12 @@ export const VerbInputs = {
     state: z.enum(["draft", "building"]).default("draft").describe("'building' publishes it: type 'fyi' goes on the building's board, anything else is filed in its filing cabinet"),
     provenance: Provenance.optional(),
     tags: z.array(z.string()).optional(),
+    files: z.array(SkillFileInput).max(SKILL_LIMITS.files).optional().describe("type 'skill' only: bundled files (scripts, references) stored in the skill's folder; when given, replaces the skill's whole file set"),
+  }),
+  skills: z.object({ query: z.string().optional().describe("filter by words in the name or description"), limit: z.number().int().positive().max(100).default(30) }),
+  pin: PinSkillInput.extend({
+    skillId: Id,
+    remove: z.boolean().default(false).describe("unpin instead"),
   }),
   submit_report: z.object({
     title: z.string(),
@@ -709,8 +780,10 @@ export const VERB_DESCRIPTIONS: Record<VerbName, string> = {
   inbox: "Read my messages (direct messages, things I heard, system notices, meeting invites, @mentions of me with the doc or meeting id), newest first.",
   board: "List a building's board: building-wide FYIs (type \"fyi\") that everyone there needs to see. Everything else published in the building (reports, meeting notes, articles, notes) is in its filing cabinet; `search` finds it.",
   search: "Full-text search over documents I can see (library, my building's board, my drafts).",
-  read: "Read one document by id.",
+  read: "Read one document by id. For a skill (type \"skill\") it also lists the skill's bundled files; pass `file` to read one of them.",
   write: "Create or update a document. Drafts are private. State 'building' publishes it: type 'fyi' (a building-wide FYI everyone needs) goes on the board; anything else is filed in the building's filing cabinet.",
+  skills: "List the skills I can use: those pinned into my sessions first, then my building's and the library's, with when to use each, their bundled files and how often they're used. `read` a skill to load it.",
+  pin: "Pin a skill into sessions: scope agent (just me, `listed` only, unless I'm a manager), building (a manager) or town (an admin). Pins into others' sessions of skills with files, `always` pins for others, and town pins need a human. remove=true unpins.",
   submit_report: "End my work session with a report. Required at the end of every session. The report goes to my manager's in-tray and I go idle until someone gives me a new assignment. If I'm blocked waiting on something (a redeploy, a colleague's assignment, a review decision, a time), pass resumeWhen and next: my work parks and resumes by itself when that holds.",
   propose_trophy: "Propose a library document for the trophy room (collective approval needed).",
   request_human: "Put a request in the town outbox for a human to do something in the real world (observe, fetch data, contact someone). A moderator approves it before humans see it.",

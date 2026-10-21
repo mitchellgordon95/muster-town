@@ -3,6 +3,7 @@
  * Lives in core so the server can brief desks (`composeWorkBrief`) and the runtime can brief in-process sessions.
  */
 import type { Agent, Assignment, Building, DeskBrief, DeskWorkspace, Doc, Event, Meeting, Town, Workspace } from "@muster-town/schema";
+import { skillsBlock } from "./skills.ts";
 import type { World } from "./world.ts";
 
 /** What an agent does when started without a task. */
@@ -19,6 +20,7 @@ export const WORLD_RULES = `How the town works:
 - A human may interrupt you mid-session with a message; treat it as direction from your building's manager.
 - Messages from humans arrive in your inbox as \`tell\`s; when a human messages you, reply with \`tell\` before anything else.
 - If someone mentions you (@YourName) you'll see it in \`inbox\`; a mention is a request to look, not an assignment; reply with \`tell\` or ask your manager for an assignment. Write @Name to point a colleague at your doc, report or meeting remark.
+- Skills (docs of type "skill") are reusable how-tos, some with bundled scripts: \`skills\` lists the ones you can use and \`read\` loads one. When you work out a method others could reuse, write it as a skill (\`write\` type "skill", a SKILL.md body).
 - Your notebook is your memory between sessions: before \`submit_report\`, update it (\`write\` type "notebook") with what you learned, decided, are waiting on, and the ids of documents you'll need again. Keep it under a page; rewrite, don't append forever.
 - Finish with \`submit_report\`. It is mandatory, it must be your last action, and your session ends after it. The report goes to your manager's in-tray and you go idle; you work again when someone gives you an assignment.
 - You can't wait inside a session: when your turn ends, the session ends, and background tasks, timers and monitors won't wake you. If you can't finish because you're waiting on something, park the work: \`submit_report\` with \`resumeWhen\` (\`{deploy: "<your commit sha>"}\` once you've pushed and need it live, \`{assignment: id}\` for a colleague's work, \`{decision: reportId}\` for a review, \`{after: iso}\`) and \`next\` (one line); your continuation then starts by itself when that holds. \`GET /api/health\` gives the live server's \`commit\`; a change is live when \`git merge-base --is-ancestor <sha> <commit>\` succeeds.`;
@@ -113,7 +115,7 @@ export function recentWorkBlock(world: World, agentId: string, opts: { limit?: n
   return out.join("\n");
 }
 
-export function workSystemPrompt(agent: Agent, building: Building, town: Town, opts: { desk?: boolean; notebook?: Doc | null } = {}): string {
+export function workSystemPrompt(agent: Agent, building: Building, town: Town, opts: { desk?: boolean; notebook?: Doc | null; skills?: string } = {}): string {
   return `You are ${agent.name}, a resident of the ${building.name} of ${town.name}. ${OWNERSHIP}
 Town goal: ${town.goal || "(none set)"}
 Building goal: ${building.goal || "(none set)"}
@@ -127,7 +129,7 @@ ${REPORT_FORMAT}
 
 You have about ${building.maxTurnsPerSession} turns; budget them. ${opts.desk
     ? "You work at your own desk: a private sandbox computer with your home directory (/home/agent), a shell, Python with the usual scientific libraries, and the web. Files you keep there persist between sessions; the town library is still where shared work goes."
-    : "Your only tools are the town tools (mcp__town__*), WebSearch and WebFetch."}${standingRules(building)}
+    : "Your only tools are the town tools (mcp__town__*), WebSearch and WebFetch."}${standingRules(building)}${opts.skills ? `\n\n${opts.skills}` : ""}
 
 ${notebookBlock(opts.notebook)}`;
 }
@@ -338,7 +340,7 @@ export function composeWorkBrief(world: World, sessionId: string): DeskBrief {
   const town = world.town.get();
   const assignment = session.assignmentId ? world.assignments.get(session.assignmentId) ?? null : null;
   const workspace = deskWorkspace(town, building, agent, assignment);
-  const system = workSystemPrompt(agent, building, town, { desk: true, notebook: notebookOf(world, agent.id) }) + (workspace ? workshopPrompt(workspace, repoNameOf(workspace.repoUrl)) : "");
+  const system = workSystemPrompt(agent, building, town, { desk: true, notebook: notebookOf(world, agent.id), skills: skillsBlock(world.skills.forAgent(agent.id)) }) + (workspace ? workshopPrompt(workspace, repoNameOf(workspace.repoUrl)) : "");
   const recent = recentWorkBlock(world, agent.id, { excludeSessionId: session.id });
   const prompt = assignment
     ? workPrompt(assignment, world.docs.first("authorId = ? AND type = 'report' AND (sessionId IS NULL OR sessionId != ?)", [agent.id, session.id], "ORDER BY createdAt DESC, rowid DESC"), recent)
