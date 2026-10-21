@@ -54,7 +54,7 @@ describe("skills", () => {
   it("read lists files, reads one, and logs skill.used", async () => {
     const { world, writer, other } = setup();
     const { id } = await world.verbs.write(writer, { type: "skill", title: "", body: md("source-card"), state: "building", files: [{ path: "template.md", content: "# Source" }] });
-    const r = await world.verbs.read(other, { id });
+    const r = await world.verbs.read(other, { id }) as { files?: { path: string }[] };
     expect(r.files?.map((f) => f.path)).toEqual(["template.md"]);
     const f = await world.verbs.read(other, { id, file: "template.md" });
     expect(f.body).toBe("# Source");

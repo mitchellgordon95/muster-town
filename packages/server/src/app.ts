@@ -14,6 +14,7 @@ import { agentRoutes } from "./routes/agents.ts";
 import { deskRoutes } from "./routes/desk.ts";
 import { docRoutes } from "./routes/docs.ts";
 import { grantRoutes } from "./routes/grants.ts";
+import { skillRoutes } from "./routes/skills.ts";
 import { townRoutes } from "./routes/town.ts";
 import { verbRoutes } from "./routes/verbs.ts";
 import { wsRoutes } from "./ws.ts";
@@ -67,6 +68,7 @@ export async function buildApp(opts: BuildAppOptions): Promise<FastifyInstance> 
   await app.register(agentRoutes);
   await app.register(docRoutes);
   await app.register(grantRoutes);
+  await app.register(skillRoutes);
   await app.register(verbRoutes);
   await app.register(wsRoutes);
   await app.register(mcpRoutes);
