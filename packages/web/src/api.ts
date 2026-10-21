@@ -6,7 +6,7 @@ import type { z } from "zod";
 import type {
   Agent, Allocation, Assignment, AuthMe, RedeployLive, Building, ClientMessage, Doc, Event, Lot, Meeting, Place, Role, Membership, Tile,
   ServerMessage, Session, Town, CreateBuildingInput, UpdateBuildingInput, CreateResidentInput,
-  ReviewInput, ChatInput, WorkInput, DonateInput, AddBankInput, BankInput, CreateBankPoolInput, UpdateBankPoolInput, CreateMeetingInput, DocState, DocType, Mailbox, Permission,
+  ReviewInput, PinSkillInput, SkillPinView, SkillView, ChatInput, WorkInput, DonateInput, AddBankInput, BankInput, CreateBankPoolInput, UpdateBankPoolInput, CreateMeetingInput, DocState, DocType, Mailbox, Permission,
 } from "@muster-town/schema";
 
 export type In<T extends z.ZodTypeAny> = z.input<T>;
@@ -174,6 +174,12 @@ export interface Api {
   /** POST /api/docs/:id/ask — a cheap-model answer about the report, without its author */
   ask(docId: string, question: string, history?: { role: "user" | "assistant"; text: string }[]): Promise<string>;
   promote(docId: string, state: DocState): Promise<Doc>;
+  // skills (docs/skills.md): written with writeDoc type "skill"
+  /** every published skill (plus my drafts) with files, pins and uses */
+  skills(): Promise<SkillView[]>;
+  skill(id: string): Promise<SkillView>;
+  pinSkill(id: string, input: In<typeof PinSkillInput>): Promise<SkillPinView>;
+  unpinSkill(pinId: string): Promise<{ removed: boolean }>;
   trophy(docId: string, approve: boolean): Promise<Doc>;
   request(docId: string, action: RequestAction, body?: string): Promise<Doc>;
   // meetings
@@ -320,6 +326,10 @@ export class HttpApi implements Api {
   archive(id: string) { return this.post<{ doc: Doc; assignment: Assignment | null }>(`/api/docs/${id}/archive`); }
   async ask(id: string, question: string, history: { role: "user" | "assistant"; text: string }[] = []) { return (await this.post<{ reply: string }>(`/api/docs/${id}/ask`, { question, history })).reply; }
   async promote(id: string, state: DocState) { return unwrap<Doc>(await this.post(`/api/docs/${id}/promote`, { state }), "doc"); }
+  async skills() { return (await this.get<{ skills: SkillView[] }>("/api/skills")).skills; }
+  async skill(id: string) { return (await this.get<{ skill: SkillView }>(`/api/skills/${id}`)).skill; }
+  async pinSkill(id: string, i: In<typeof PinSkillInput>) { return (await this.post<{ pin: SkillPinView }>(`/api/skills/${id}/pins`, i)).pin; }
+  unpinSkill(pinId: string) { return this.call<{ removed: boolean }>("DELETE", `/api/skill-pins/${pinId}`); }
   async trophy(id: string, approve: boolean) { return unwrap<Doc>(await this.post(`/api/docs/${id}/trophy`, { approve }), "doc"); }
   async request(id: string, action: RequestAction, body?: string) { return unwrap<Doc>(await this.post(`/api/docs/${id}/request`, { action, body }), "doc"); }
   async meetings(q: { buildingId?: string; phase?: string }) { return unwrap<Meeting[]>(await this.get(`/api/meetings${qs(q)}`), "meetings"); }

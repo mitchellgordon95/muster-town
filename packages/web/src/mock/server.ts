@@ -3,6 +3,7 @@ import type { Agent, Assignment, AuthMe, Building, Doc, Event, Meeting, Membersh
 import { BOARD_TYPES, DEFAULT_POOL_ID, type BankPool } from "@muster-town/schema";
 import type { Api, AgentDetail, AllocationRow, Bank, Budget, Cabinet, CabinetQuery, DocQuery, EventQuery, In, LayoutPreview, MessageResult, PlanPreview, RoomLayout, RequestAction, Snapshot, Socket, SocketHandlers, ThreadMessage, WriteDocInput } from "../api";
 import { ApiError } from "../api";
+import type { PinSkillInput, SkillPinView, SkillView } from "@muster-town/schema";
 import type { CreateBuildingInput, UpdateBuildingInput, CreateResidentInput, ReviewInput, ChatInput, WorkInput, DonateInput, CreateMeetingInput, DocState, AddBankInput, BankInput, CreateBankPoolInput, UpdateBankPoolInput } from "@muster-town/schema";
 import { Sim, newId } from "./sim";
 import { notebooks } from "./fixture";
@@ -274,6 +275,25 @@ export class MockApi implements Api {
     this.sim.event("doc.state", null, `"${d.title}" moved to the ${state}`, { docId });
     return clone(this.sim.putDoc(d));
   }
+  private skillPins: SkillPinView[] = [];
+  private skillView(d: Doc): SkillView {
+    const fm = /^---\n([\s\S]*?)\n---/.exec(d.body)?.[1] ?? "";
+    const field = (k: string) => new RegExp(`^${k}:\\s*(.*)$`, "m").exec(fm)?.[1]?.trim() ?? "";
+    return { id: d.id, name: field("name") || d.title, description: field("description"), state: d.state, buildingId: d.buildingId, authorId: d.authorId,
+      author: this.sim.agents.get(d.authorId)?.name ?? "Mitchell", files: [], pins: this.skillPins.filter((p) => p.skillId === d.id), uses7d: 0, uses30d: 0, updatedAt: d.updatedAt };
+  }
+  async skills() { await wait(); return clone([...this.sim.docs.values()].filter((d) => d.type === "skill" && d.state !== "draft").map((d) => this.skillView(d))); }
+  async skill(id: string) { await wait(60); return clone(this.skillView(this.need(this.sim.docs.get(id), "skill"))); }
+  async pinSkill(id: string, i: In<typeof PinSkillInput>) {
+    await wait();
+    this.need(this.sim.docs.get(id), "skill");
+    const scope = i.scope ?? "agent";
+    const pin: SkillPinView = { id: newId("sp"), skillId: id, scope, targetId: scope === "town" ? null : i.targetId ?? null, mode: i.mode ?? "listed", pinnedBy: "us_mitchell", pinnedByKind: "user",
+      byHuman: true, createdAt: now(), targetName: scope === "town" ? null : i.targetId ?? null, pinnedByName: "Mitchell", suspended: null };
+    this.skillPins = [...this.skillPins.filter((p) => !(p.skillId === id && p.scope === pin.scope && p.targetId === pin.targetId)), pin];
+    return clone(pin);
+  }
+  async unpinSkill(pinId: string) { await wait(); const n = this.skillPins.length; this.skillPins = this.skillPins.filter((p) => p.id !== pinId); return { removed: this.skillPins.length < n }; }
   async trophy(docId: string, approve: boolean) {
     await wait();
     const d = this.need(this.sim.docs.get(docId), "doc");

@@ -6,7 +6,8 @@ import { api } from "../api";
 import { store, useTown } from "../state";
 import { DocRow, DocView } from "./DocView";
 import { Glyph, PanelShell } from "./PanelShell";
-import { Empty, ErrorLine, Loading, Section, nameOf, timeAgo, useLoad } from "./ui";
+import { SkillList } from "./Skills";
+import { Empty, ErrorLine, Loading, Section, Tabs, nameOf, timeAgo, useLoad } from "./ui";
 import { Markdown } from "./Markdown";
 
 function useDoc(id: string | undefined) {
@@ -24,6 +25,7 @@ export function LibraryPanel({ docId }: { docId?: string }) {
   const [type, setType] = useState("");
   const [state, setState] = useState("library");
   const [buildingId, setBuildingId] = useState("");
+  const [tab, setTab] = useState<"docs" | "skills">("docs");
   useEffect(() => { const t = setTimeout(() => setDebounced(q), 250); return () => clearTimeout(t); }, [q]);
   const list = useLoad(
     () => api().docs({ q: debounced || undefined, type: (type || undefined) as Doc["type"] | undefined, state: (state || undefined) as Doc["state"] | undefined, buildingId: buildingId || undefined, limit: 100 }),
@@ -39,6 +41,8 @@ export function LibraryPanel({ docId }: { docId?: string }) {
           : open.loading ? <Loading /> : <><ErrorLine error={open.error} /><Empty>Document not found.</Empty></>
       ) : (
         <>
+          <Tabs tabs={[{ id: "docs", label: "Documents" }, { id: "skills", label: "Skills" }]} active={tab} onChange={(t) => setTab(t as "docs" | "skills")} />
+          {tab === "skills" ? <SkillList /> : <>
           <div className="search">
             <input value={q} placeholder="Search titles and text…" onChange={(e) => setQ(e.target.value)} />
           </div>
@@ -63,6 +67,7 @@ export function LibraryPanel({ docId }: { docId?: string }) {
               <div className="doc-list">{list.data.map((d) => <DocRow key={d.id} doc={d} onOpen={() => store.open({ kind: "library", docId: d.id })} />)}</div>
             </>
           )}
+          </>}
         </>
       )}
     </PanelShell>

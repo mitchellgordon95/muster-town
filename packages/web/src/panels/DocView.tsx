@@ -5,6 +5,7 @@ import { api } from "../api";
 import { store, useTown } from "../state";
 import { Markdown, openDocLink } from "./Markdown";
 import { docUrl } from "../route";
+import { SkillDetails } from "./Skills";
 import { Act, Pill, nameOf, timeAgo, fmtTokens, usd } from "./ui";
 
 export const DECISION_TONE: Record<string, string> = { pending: "warn", approve: "ok", continue: "ok", redirect: "info", stop: "bad" };
@@ -135,7 +136,8 @@ export function DocView({ doc: initial, onBack, backLabel = "Back", review, onDe
           <Act small run={run(() => api().trophy(doc.id, false), "Trophy proposal declined")}>Decline</Act>
         </> : null}
       </div>
-      <Markdown text={stripLeadingH1(doc.body)} />
+      <Markdown text={doc.type === "skill" ? doc.body.replace(/^---\r?\n[\s\S]*?\r?\n---[ \t]*\r?\n?/, "") : stripLeadingH1(doc.body)} />
+      {doc.type === "skill" ? <SkillDetails doc={doc} /> : null}
       {canReview ? <><ReplyBox doc={doc} onDone={onDecided} /><AskBox doc={doc} /></> : null}
       {sources.length || doc.provenance.urls.length ? (
         <div className="provenance">

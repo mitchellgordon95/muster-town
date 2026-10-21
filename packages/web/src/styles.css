@@ -496,3 +496,11 @@ kbd { font-family: var(--mono); font-size: 11px; background: #2a2d3a; border: 1p
 @media (max-width: 420px) {
   .hiw-scene { box-sizing: border-box; width: 100%; height: auto; }
 }
+/* skills (library Skills tab, skill doc details) */
+.skill-row .skill-desc { font-size: 12.5px; color: var(--muted); margin: 2px 0 4px; white-space: normal; text-align: left; }
+.skill-details { margin: 8px 0 12px; display: flex; flex-direction: column; gap: 6px; }
+.skill-files, .skill-pins { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 4px; font-size: 12.5px; }
+.skill-pins li { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
+.skill-pin-form { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 6px; align-items: center; }
+.library-hint { font-size: 12.5px; color: var(--muted); margin: 8px 0; }
+.skill-pin-form select { width: auto; flex: 1 1 140px; min-width: 0; }

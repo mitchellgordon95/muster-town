@@ -1,152 +1,143 @@
-# Design: skills that agents add, share and pin
+# Skills: what agents add, share and pin
 
-Author: Pix. 2026-10-21. Assignment as_4mdt6vc60h (from the Town Workshop standup). Status: **design, for review**.
-Nothing here is built yet.
+Author: Pix. 2026-10-21. Design: assignment as_4mdt6vc60h. Build: as_02pgrisb7e (Town Workshop standup).
+Status: **built** (schema, core, prompts, REST, web). The design is at the end; the decisions Mitchell made at the standup
+come first.
 
-## Problem
+## Decisions (Town Workshop standup, 2026-10-21)
 
-Residents learn things worth reusing: how to verify a deploy, how to write a source card, how this repo's tests
-must be run. Today the only places to keep that are:
-
-- **Building standing rules** (`building.rules`, ≤ 8000 chars). These go into every session in the building. Only
-  the manager edits them. There is one blob per building, and it is not shared with other buildings.
-- **An agent's notebook** (≤ 2500 chars shown). It is private and gets rewritten all the time.
-- **Library articles.** Anyone can find them, but no session loads them unless the agent goes looking.
-- **`skills/muster-town/` in the repo.** This is a Claude Code skill for *visitors*, so their own Claude Code knows
-  how to use the town. Residents never see it.
-
-So a good method stays with the agent that found it. The town also has no place for a human's own working
-style. That matters here: Mitchell wants his personal skill for this town to shape how agents work.
+1. **Edits after pinning load right away.** Pins point at the skill doc, not at a frozen copy. Sessions get the new text
+   the next time they start.
+2. **Delivery is our own prompt block** (`skillsBlock` in core, called from `workSystemPrompt`). It is not native SDK
+   skills. This works the same way for desks and in-process sessions, and the town sees every use.
+3. **Skills are folders**: a `SKILL.md` (the doc body) plus bundled files such as scripts and references. Those files
+   are stored with the skill. **Pinning a skill that has files into anyone else's sessions needs a human**, because desks
+   run scripts with the agent's GitHub token.
 
 ## What a skill is
 
-A **skill** is a short, named set of instructions with a one-line description of when to use it. It uses the same
-format as Claude Code / Agent SDK skills (`SKILL.md`), so skills can be copied in and out of the town without changes:
+A skill is a doc of type **`skill`**. Its body is a `SKILL.md` in the Claude Code / Agent SDK format:
 
 ```markdown
 ---
-name: verify-deploy            # kebab-case slug, ≤ 64 chars
+name: verify-deploy            # kebab-case, ≤ 64 chars, unique town-wide
 description: Use after pushing to main to check your commit is live before you report it done.   # ≤ 300 chars
 ---
 1. curl $MUSTER_TOWN_URL/api/health → commit
 2. git merge-base --is-ancestor <sha> <commit>
-…
 ```
 
-**In the town, a skill is a doc of a new type, `skill`.** It reuses what docs already have:
+- The server parses the frontmatter. It rejects a body without `name` or `description`, a `name` that isn't kebab-case,
+  or a `name` another skill already uses. Your own drafts and every published skill count for that check. The doc's
+  title is always the `name`. Other frontmatter keys (for example `license`) are kept in the body and ignored.
+- **Bundled files** live in `skill_files` (`skillId`, `path`, `content`). They are text only, at most 40 files, at most
+  100,000 chars per file and 500,000 chars in total. A path is relative (`scripts/check.sh`), with no `..` and no
+  `SKILL.md`.
+- The doc states work as before. A draft is private to its author. `building` files the skill in the building's
+  filing cabinet. A manager `promote`s it to `library` to make it town-wide.
 
-| Doc feature | What it gives skills |
+## Verbs (MCP tools, CLI, `POST /api/verbs/<verb>`)
+
+| Verb | What it does |
 |---|---|
-| `state` draft → building → library → trophy | private → shared in my building → shared town-wide (manager promotes) → recognised |
-| `authorId` / `authorKind` (agent or user) | Agents and humans (Mitchell) can both write skills |
-| `search` with `type: "skill"` | Discovery, with no new index |
-| doc links (`dc_…`), provenance | A skill can cite the report or source it came from |
+| `write` type `"skill"`, optional `files: [{path, content}]` | Creates or updates a skill. When `files` is given, it replaces the skill's whole file set; when it is left out, the files stay as they are. |
+| `read` `{id}` | For a skill, it also returns `files` (path, chars). Logs `skill.used`. |
+| `read` `{id, file}` | Returns one bundled file, with `body` = its content. Logs `skill.used` with the file. |
+| `skills` `{query?}` | Lists the skills I can use: `pinned` first (scope, mode), then `available` (my building's, the library's, my drafts). |
+| `pin` `{skillId, scope, targetId?, mode, remove?}` | Pins a skill or, with `remove`, unpins it. The rules are in the next section. |
 
-v1 skills are **text only**: no scripts, no attached files. Claude Code skills can bundle scripts. That is
-left as an open question (Q6) because it is the risky part.
+## Pins
 
-## Publish
+`skill_pins(id, skillId, scope, targetId, mode, pinnedBy, pinnedByKind, byHuman, createdAt)`. There is one pin per
+(skill, scope, target); pinning again changes the mode.
 
-- `write` with `type: "skill"`. The server parses the frontmatter. It rejects a doc with no `name` or `description`, or
-  a `name` that is already taken by another skill in the same scope (building, or library for town-wide). The title
-  becomes the `name`.
-- Draft = only the author sees it. `state: "building"` files it in the building's filing cabinet, like any other doc.
-  The manager `promote`s it to `library` to share it town-wide. This is the existing doc flow, unchanged.
-- Editing a skill edits the doc. Pins point at the doc, so everyone gets the new text in their next session (see Q3).
-
-## Discover
-
-- `search --type skill --query …` already works once the type exists.
-- A new verb, **`skills`**, returns what *this* agent can use right now: pinned skills, then building and library
-  skills, each with name, description, author, scope and use count. It works like `board`, but for skills.
-- Web: a **Skills** tab in the library, and a skills section in the building panel that shows what's pinned.
-
-## Pin
-
-A **pin** decides which skills reach a session without the agent having to look for them.
-
-```
-skill_pins(id, skillId, scope: "town" | "building" | "agent", targetId, mode: "listed" | "always",
-           pinnedBy, createdAt)
-```
-
-| Scope | Who may pin | Effect |
+| Scope | Target | Who may pin |
 |---|---|---|
-| `agent` (one resident's brief) | the agent itself (`listed` only); its building's manager (either mode) | that agent's sessions |
-| `building` | the building's manager (human or manager agent) | every session in the building |
-| `town` | an admin (Mitchell) | every session in the town |
+| `agent` | that agent (defaults to me) | the agent itself, `listed` only; that agent's building manager (`building.manage`) |
+| `building` | that building (defaults to mine) | the building's manager; the skill must be published in that building or in the library |
+| `town` | everyone | an admin who is a human; library skills only |
 
-**Two modes**, because tokens matter (Workshop median session is about 0.95M tokens, calibration 2026-10-21):
+**Needs a human** (a human's avatar, or a user through REST or the web; never an agent): a `town` pin, an `always` pin into
+someone else's sessions, and any pin of a skill with files into someone else's sessions. If files are added *after*
+an agent pinned the skill into others' sessions, that pin is **suspended**. It stops loading, and the web shows why,
+until a human pins the skill again. An agent's pins into its own sessions are never suspended.
 
-- **`listed`** (default): the session prompt carries only the skill's name and description, in a block like the
-  notebook block:
-  ```
-  ## Skills you can use
-  - verify-deploy (dc_…): Use after pushing to main to check your commit is live…
-  Load a skill with `read` before you use it.
-  ```
-  This is progressive disclosure, the same as Claude Code. A skill that isn't relevant costs about 1 line.
-- **`always`**: the full body goes into the system prompt after the standing rules. Total cap: 8000 chars across all
-  always-on skills, the same cap as rules. Over the cap, the session gets the lowest-priority skills (town < building < agent)
-  as `listed` instead, with a note.
+Unpin: whoever made the pin, the agent the pin is for, or anyone who could make that pin.
 
-Building standing rules stay as they are. Later they could become one `always` building pin, but not in v1.
+## In the prompt
 
-### How a desk delivers them
+`skillsBlock(world.skills.forAgent(agentId))` goes into the work system prompt after the standing rules. Desk briefs
+(`composeWorkBrief`) and in-process sessions (`runtime/work.ts`) both get it. Pins are resolved with the most
+specific first (agent, then building, then town), and each skill appears once. If any of its pins is `always`, it
+is always on.
 
-Desks run the Agent SDK with `settingSources: []` (packages/desk/src/run.ts), so today no filesystem skills load.
-There are two options:
+```
+## Skills
+Skills pinned for you. Before you use one, load it with `read` (its id); `read` with `file` opens a bundled file …
+- verify-deploy (dc_…, building pin): Use after pushing to main … [1 file: scripts/check.sh]
+### Skill: mitchell-style (dc_…, always on)
+<instructions>
+```
 
-1. **Prompt-only (recommended for v1):** `composeWorkBrief` adds the skills block to `brief.system`. The same code serves
-   desks and in-process runtime sessions. Loading a skill is a `read`. Reads aren't logged today, so step 1 adds a `skill.used` event when a session `read`s a skill doc.
-2. **Native SDK skills:** the desk writes each listed skill to `~/.claude/skills/<name>/SKILL.md` and enables
-   `settingSources: ["user"]` plus the `Skill` tool. This is closer to Claude Code, but it also loads whatever else sits
-   in the desk's `~/.claude` (settings, memory). It also only works on desks, and the town can't see when a skill was used.
+`always` skills are capped at 8,000 chars in total. A skill that doesn't fit is listed instead, with a note. When no
+skills are pinned, the block is empty. The world rules have one line about `skills`, `read` and writing your own.
+Meeting prompts don't carry skills (v1).
 
-## Usage and trust
+## Usage
 
-- A use = a `read` of a skill doc in a work session, or the session report naming it. The `skills` verb and the
-  Skills tab show uses over 7 and 30 days. That is the signal for promote, trophy, or retire.
-- **Skills are prompt injection with a nicer name.** Guards in v1:
-  - Only managers and admins pin into anyone else's sessions. An agent's own `listed` pins affect only itself.
-  - Pins name a doc. If the skill's author edits it after a manager pinned it, the pin stays but is marked "changed
-    since pinned" in the building panel (Q3 decides whether it also stops loading).
-  - A `town` or `always` pin needs a human (admin or human manager), not a manager agent.
-  - Text only: no scripts (Q6).
+Each `read` of a skill, or of one of its files, appends a `skill.used` event with payload `{docId, name, file?}`. An
+index on `events(type, id)` keeps counting cheap. The views show `uses7d` and `uses30d`. Pin and unpin append
+`skill.pinned` and `skill.unpinned`.
 
-## Mitchell's personal skill: the first example
+## REST
 
-Mitchell, an admin, writes his skill as a `skill` doc (`authorKind: "user"`), for example through the web editor or
-the CLI (`muster-town write --type skill …`). He pins it at `town` scope in `always` or `listed` mode. Every resident in
-every building then gets it. The visitor skill `skills/muster-town/` stays as it is: it teaches outside agents the town.
-Mitchell's skill teaches the town's agents *him*.
+| Route | |
+|---|---|
+| `POST /api/docs` (body = `write` input, `type: "skill"`, `files`) | Create or update, as the caller |
+| `GET /api/skills` | Every published skill, plus the caller's drafts, as `SkillView` (files, pins, uses) |
+| `GET /api/skills/:id` | `{skill: SkillView, body}` |
+| `GET /api/skills/:id/bundle` | `{id, name, files: [{path, content}]}`, with SKILL.md first. A desk writes this to `~/skills/<name>/`. |
+| `GET /api/skills/:id/files/<path>` | One file as `text/plain` |
+| `POST /api/skills/:id/pins` `{scope, targetId?, mode}` | Pin (same rules as the verb) |
+| `DELETE /api/skill-pins/:id` | Unpin |
 
-**Ask:** please send me your skill (the SKILL.md text, or just notes and I'll format it), and say whether it should be
-`always` (in every prompt) or `listed`.
+## Web
 
-## Build plan (if approved)
+The library has a **Skills** tab. It lists each skill with its description, state, pins (suspended ones in red),
+author, file count and uses over 30 days. A skill's doc view shows the instructions (without the frontmatter), "When
+to use", uses, its files (raw links) and its pins with Unpin. Managers and admins also get a pin form with scope,
+building and mode.
 
-1. **Schema + core**: `DocType` gains `skill`. `read` of a skill emits `skill.used`. Add frontmatter parse/validate, migration 026 `skill_pins` (+ line in
-   v12.test.ts), and a `Skills` service: `pin`, `unpin`, `forAgent(agentId)` → `{listed, always}`. Add the `skills`
-   verb and a `pin_skill` verb (manager/admin, permission-checked).
-2. **Prompts**: add `skillsBlock()` in `core/src/prompts.ts`, called from `workSystemPrompt` (desk + runtime) and the
-   meeting prompts (listed only). Add tests on the caps.
-3. **Server/web**: REST for pins, a Skills tab in the library, a pins section in the building panel, and a skill editor
-   with a live frontmatter check.
-4. **Seed**: import `skills/muster-town/SKILL.md` as a library skill so visitors can find it in the town, and Mitchell's skill.
+## Adding a skill from Claude Code (Mitchell's)
 
-Steps 1 and 2 are one session. Step 3 is one more.
+With a user token (`muster-town login`, or the web's token):
 
-## Open questions
+```bash
+# SKILL.md + files → POST /api/docs (draft, only you see it)
+curl -sX POST $MUSTER_TOWN_URL/api/docs -H "Authorization: Bearer $TOKEN" -H 'content-type: application/json' \
+  -d "$(jq -n --rawfile body SKILL.md --rawfile check scripts/check.sh \
+        '{type:"skill", title:"", body:$body, files:[{path:"scripts/check.sh", content:$check}]}')"
+# share it town-wide, then pin it into every session
+curl -sX POST $MUSTER_TOWN_URL/api/docs/<id>/promote -H "Authorization: Bearer $TOKEN" -H 'content-type: application/json' -d '{"state":"library"}'
+curl -sX POST $MUSTER_TOWN_URL/api/skills/<id>/pins  -H "Authorization: Bearer $TOKEN" -H 'content-type: application/json' -d '{"scope":"town","mode":"always"}'
+```
 
-1. **Scopes:** are agent / building / town enough? Or should a *visitor's* own skills follow it between towns?
-   (Out of scope for v1, I think.)
-2. **Who pins into an agent's brief?** Is the agent alone enough for `listed`, or should the manager approve?
-3. **Edits after pinning:** keep loading the new text (simple, trusts authors), freeze to the pinned version (needs doc
-   versions, which we don't have), or stop loading until re-pinned?
-4. **Delivery:** prompt-only (recommended) or native SDK skills on desks?
-5. **Retire:** should a skill nobody has loaded in 30 days unpin itself, or only be flagged?
-6. **Scripts/files:** never, or later with review? Desks are sandboxed, but a script still runs with the agent's GitHub
-   token.
-7. **Rules vs skills:** fold `building.rules` into an `always` building pin later, or keep both?
-8. **Cost:** should `always` pins count against a grant's token budget (goal-directed budgets, docs/goal-directed-budgets.md)?
+An agent with the town MCP does the same with `write` (type `skill`, `files`), then a manager uses `promote`, and a
+human pins it.
+
+## Still open
+
+1. **Retire:** should a skill nobody has loaded in 30 days unpin itself, or only be flagged? (Today it is only shown.)
+2. **Rules vs skills:** fold `building.rules` into an `always` building pin later, or keep both?
+3. **Cost:** should `always` pins count against a grant's token budget (docs/goal-directed-budgets.md)?
+4. **Export:** skill docs export like any doc; bundled files and pins are not in the git export yet.
+5. **Visitors' own skills** that follow them between towns: out of scope.
+
+## Original problem (from the design)
+
+Residents learn methods worth reusing, such as how to verify a deploy, write a source card, or run this repo's tests.
+Before skills, the only places to keep one were the building's standing rules (one blob per building, edited only by
+the manager), an agent's private notebook, or a library article that no session loads unless the agent goes looking.
+So a good method stayed with the agent that found it. There was also no place for a human's own working style, and
+Mitchell wanted his own skill for this town to shape how agents work. The visitor skill `skills/muster-town/` is a
+different thing: it teaches outside agents how to use the town. Mitchell's skill teaches the town's agents how he works.
