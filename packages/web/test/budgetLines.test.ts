@@ -12,6 +12,7 @@ describe("map budget lines", () => {
   it("building sign: usage without an allocation (the Town Hall), and left without usage", () => {
     expect(buildingBudgetLine(bb({ tokensToday: 0, tokensAllTime: 655_000 }))).toBe("0 today · 655k all-time");
     expect(buildingBudgetLine(bb({ allocatedTokens: 10_000_000, remainingTokens: 10_000_000 }))).toBe("10M left");
+    expect(buildingBudgetLine(bb({ remainingTokens: 34_750_000, bankTokens: 34_750_000, tokensToday: 127_900_000, tokensAllTime: 158_000_000 }))).toBe("128M today · 158M all-time · 35M left");
   });
   it("building sign: nothing when never used or allocated", () => {
     expect(buildingBudgetLine(undefined)).toBeNull();

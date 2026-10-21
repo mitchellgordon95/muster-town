@@ -80,7 +80,9 @@ function Overview({ b }: { b: SnapshotBuilding }) {
       <KV items={[
         ["Tokens used", usage ? <><b>{fmtTokens(usage.today)}</b> today · <b>{fmtTokens(usage.allTime)}</b> all-time</> : budget.loading ? "…" : "—"],
         ...(b.kind !== "town-hall" ? [
-          ["Budget", row ? <>{fmtTokens(row.allocated - row.spent)} left of {fmtTokens(row.allocated)} <Meter v={row.allocated ? row.spent / row.allocated : 0} /></> : budget.loading ? "…" : "no allocation"],
+          ["Budget", live && live.bankTokens > 0 ? <>{fmtTokens(live.remainingTokens)} left to draw from the Bank</>
+            : row && row.allocated > 0 ? <>{fmtTokens(row.allocated - row.spent)} left of {fmtTokens(row.allocated)} <Meter v={row.spent / row.allocated} /></>
+            : budget.loading ? "…" : "nothing to draw"],
           ["Spent", row?.spentUsd !== undefined ? usd(row.spentUsd) : "—"],
           ["Models", `${b.model} · cheap: ${b.cheapModel}`],
           ["Daily / agent", `${fmtTokens(b.dailyTokensPerAgent)} tokens`],
