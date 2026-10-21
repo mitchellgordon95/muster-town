@@ -2,6 +2,7 @@
 import { describe, expect, test, vi } from "vitest";
 import type { World } from "@muster-town/core";
 import { HostBackend, makeRedeployer, startRuntime, STUCK_POLLS, type CmdResult, type CommandRunner, type DeskBackend, type RedeployDeps } from "../src/index.ts";
+import { drainNudge } from "../src/redeploy.ts";
 import { deferred, result, setup } from "./helpers.ts";
 
 const ok = (stdout = ""): CmdResult => ({ code: 0, stdout, stderr: "" });
@@ -60,6 +61,32 @@ describe("terminal event on restart", () => {
     f.redeploy({ image: false, requestedBy: "Pix" });
     await f.done();
     expect(redeployEvents(world).at(-1)).toMatchObject({ text: "Redeploy: aborted, the working tree is dirty", payload: { terminal: true, ok: false } });
+  });
+});
+
+describe("drain nudge", () => {
+  test("every session the drain waits on is told once that the restart comes after it ends; the requester's own session is named", async () => {
+    const { world, by } = setup(async function* () { yield result(1, 0); });
+    const noor = by("Noor");
+    const pix = by("Ada");
+    world.setStatus(noor.id, "working");
+    world.setStatus(pix.id, "working");
+    let left = [noor.id, pix.id];
+    const nudge = vi.fn();
+    const r = make(world, { working: () => left, nudge, drainTimeoutMs: 60_000 });
+    r.redeploy({ image: false, requestedBy: "Ada" });
+    await new Promise((res) => setTimeout(res, 40));
+    expect(nudge).toHaveBeenCalledTimes(2);
+    expect(nudge).toHaveBeenCalledWith(pix.id, drainNudge(true));
+    expect(nudge).toHaveBeenCalledWith(noor.id, drainNudge(false));
+    expect(drainNudge(true)).toMatch(/^The redeploy you requested is waiting for your work session to end/);
+    expect(drainNudge(false)).toMatch(/^A redeploy is waiting/);
+    const start = redeployEvents(world).find((e) => { const p = e.payload as { step?: string; phase?: string }; return p.step === "drain" && p.phase === "start"; })!;
+    expect(start.text).toContain("Ada requested it and is still running, so it waits for them too");
+    expect(start.payload).toMatchObject({ requester: pix.id });
+    left = [];
+    await r.done();
+    expect(nudge).toHaveBeenCalledTimes(2);
   });
 });
 

@@ -636,7 +636,7 @@ export const VERB_DESCRIPTIONS: Record<VerbName, string> = {
   assign: "(manager/reviewer) Create an assignment for an agent in my building. With waitFor it waits (e.g. for the next redeploy, or another assignment to finish) before it starts.",
   promote: "(manager) Publish a document to the building (board if it's an fyi, else the filing cabinet) or promote it to the library.",
   ban: "(town moderator) Ban an agent town-wide pending review.",
-  redeploy: "Pull main on the host, reinstall, rebuild the web client (and the desk image when image=true), then restart the collective's server. Use when Mitchell asks you to deploy or when main has changed and the running town is stale.",
+  redeploy: "Pull main on the host, reinstall, rebuild the web client (and the desk image when image=true), then restart the collective's server. Use when Mitchell asks you to deploy or when main has changed and the running town is stale. The restart waits for every running work session, including yours, to end first: never poll or wait for the new build in the same session (that deadlocks until the drain gives up). Call it, say in your report which commit should be live, submit the report, and verify on your next session.",
 };
 
 // ---------- verb results (what the LLM sees) ----------
@@ -823,7 +823,11 @@ export const RedeployInput = z.object({ image: z.boolean().default(false) });
  * the request joins it (its post-drain pull takes the latest main; past that pull, it runs again after the restart).
  * `running` is the pre-join answer, kept for old clients.
  */
-export const RedeployResult = z.object({ started: z.boolean().optional(), queued: z.boolean().optional(), running: z.boolean().optional() });
+export const RedeployResult = z.object({
+  started: z.boolean().optional(), queued: z.boolean().optional(), running: z.boolean().optional(),
+  /** for an agent in a work session: the restart only happens after its session ends, so it must not wait for it */
+  note: z.string().optional(),
+});
 export type RedeployResult = z.infer<typeof RedeployResult>;
 /**
  * Where a redeploy is, carried as `payload.run` on every redeploy `system` event so a client reads the latest one:
