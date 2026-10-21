@@ -3,7 +3,7 @@
  * reviewer sessions over the in-tray, meeting summaries + facilitation, proxy chat, interrupts, scheduler,
  * startup reconcile, dismissal (onAgentRetired), host redeploy (v1.3).
  */
-import { checkWaits, codeWorkspace, nextPending, PRESENCE_TICK_MS, slugify, type World } from "@muster-town/core";
+import { checkWaits, codeWorkspace, nextPending, PRESENCE_TICK_MS, slugify, syncManagerRoles, type World } from "@muster-town/core";
 import { DesksConfig, type ChatInput, type DeskActivityInput, type Event, type RedeployResult, type Session } from "@muster-town/schema";
 import { askAbout, chat } from "./chat.ts";
 import { DockerBackend, dockerSafe, HostBackend, type DeskBackend, type WorkBackend } from "./desk/backend.ts";
@@ -127,6 +127,7 @@ export function startRuntime(opts: RuntimeOptions): Runtime {
 
   // A fresh runtime has no live children: running Session rows are orphans from a previous process, and their
   // active assignments go back to pending so the scheduler picks them up again.
+  try { syncManagerRoles(world); } catch (e) { log("manager roles")(e); } // buildings whose manager was named before it granted the role
   let reconciled: Runtime["reconciled"] = { orphanedSessions: [], requeuedAssignments: [] };
   try {
     reconciled = world.ops.reconcile(ctx.live.keys());

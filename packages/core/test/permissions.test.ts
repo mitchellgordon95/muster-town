@@ -39,7 +39,11 @@ describe("permissions", () => {
     world.ops.assignRole(null, { roleId: townRoleId("admin"), holderKind: "user", holderId: u.id });
     const b = world.ops.createBuilding(world.ops.ensureAvatar(u.id), { name: "Builder Lab" });
     expect(world.permissions.can({ kind: "user", id: u.id }, "building.manage", b.id)).toBe(true);
-    expect(world.memberships.forRole(buildingRoleId(b.id, "manager"))).toEqual([{ roleId: buildingRoleId(b.id, "manager"), holderKind: "user", holderId: u.id }]);
+    // the creator, and the starter resident named manager (managerAgentId grants the role)
+    const managers = world.memberships.forRole(buildingRoleId(b.id, "manager"));
+    expect(managers).toHaveLength(2);
+    expect(managers).toContainEqual({ roleId: buildingRoleId(b.id, "manager"), holderKind: "user", holderId: u.id });
+    expect(managers).toContainEqual({ roleId: buildingRoleId(b.id, "manager"), holderKind: "agent", holderId: world.buildings.require(b.id).managerAgentId });
     const nobody = world.ops.ensureAvatar(world.ops.createUser("Nobody").user.id);
     expect(() => world.ops.createBuilding(nobody, { name: "x" })).toThrow(/manage_buildings/);
     expect(() => world.ops.assignRole(nobody, { roleId: buildingRoleId(b.id, "reviewer"), holderKind: "user", holderId: nobody.ownerUserId! })).toThrow(/building.manage/);

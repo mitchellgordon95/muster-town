@@ -56,6 +56,19 @@ function seedStarterResidents(world: World, buildingId: string): void {
   const n = Math.min(STARTER_RESIDENTS, world.buildings.require(buildingId).headcount);
   const residents = Array.from({ length: n }, () => createResident(world, { buildingId }));
   if (residents[0]) world.buildings.upsert({ ...world.buildings.require(buildingId), managerAgentId: residents[0].id });
+  syncManagerRoles(world);
+}
+
+/**
+ * A building's `managerAgentId` (the meeting facilitator) holds that building's `manager` role too, so naming a manager
+ * also grants the permissions (assign, review, ...). Grant-only and idempotent: a previous manager keeps a role that was given by hand.
+ */
+export function syncManagerRoles(world: World): void {
+  for (const b of world.buildings.all()) {
+    const m = b.managerAgentId && world.agents.get(b.managerAgentId);
+    const roleId = buildingRoleId(b.id, "manager");
+    if (m && world.permissions.agentsWithRole(roleId).indexOf(m.id) < 0 && world.permissions.rolesForBuilding(b.id).some((r) => r.id === roleId)) world.permissions.grant(m, roleId);
+  }
 }
 
 /** Update building settings (validated); re-lots if headcount grew. */
@@ -74,6 +87,7 @@ export function updateBuilding(world: World, id: string, patch: Partial<In<typeo
   }
   const clean = Object.fromEntries(Object.entries(p).filter(([, v]) => v !== undefined));
   const updated = world.buildings.upsert({ ...cur, ...clean });
+  syncManagerRoles(world);
   world.layout.rebuild();
   world.events.append({ type: "building.updated", buildingId: id, text: `${updated.name} settings updated`, payload: { fields: Object.keys(clean) } });
   return world.buildings.require(id);

@@ -53,6 +53,16 @@ describe("budgets", () => {
     expect(world.agents.require(a.id).status).toBe("idle");
   });
 
+  it("naming a building's manager grants the manager role (so they can assign)", () => {
+    const { world, seed } = seededWorld();
+    const b = createBuilding(world, { name: "Mgd" }, seed.admin.id);
+    const a = createResident(world, { buildingId: b.id, name: "A", title: "t", direction: "d" });
+    const w = createResident(world, { buildingId: b.id, name: "W", title: "t", direction: "d" });
+    world.ops.updateBuilding(null, b.id, { managerAgentId: a.id });
+    expect(world.permissions.can(a, "building.assign", b.id)).toBe(true);
+    expect(world.permissions.can(w, "building.assign", b.id)).toBe(false);
+  });
+
   it("building exhaustion stops all residents until a new donation; allocations are charged in draw order (donor key before the town key)", () => {
     const { world, seed } = seededWorld();
     const b = createBuilding(world, { name: "Broke" }, seed.admin.id);
