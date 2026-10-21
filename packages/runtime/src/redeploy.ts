@@ -11,7 +11,7 @@ import { execFile, execFileSync } from "node:child_process";
 import { closeSync, existsSync, openSync, readFileSync, statSync, unlinkSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import type { World } from "@muster-town/core";
-import type { RedeployResult, RedeployRun } from "@muster-town/schema";
+import type { Event, RedeployLive, RedeployResult, RedeployRun } from "@muster-town/schema";
 import { DESK_IMAGE, DESK_LABEL_PREFIXES, OLD_DESK_IMAGE } from "./desk/backend.ts";
 
 export interface CmdResult { code: number; stdout: string; stderr: string }
@@ -53,6 +53,13 @@ export interface RedeployDeps {
   drainTimeoutMs?: number;
   /** drain poll period. Default 5000. */
   drainPollMs?: number;
+  /**
+   * The drain found `agentId` stuck (idle for more than STUCK_POLLS polls yet still counted as working): end its session
+   * as orphaned and forget its live entry so the drain stops waiting for it. Default: the drain just stops counting it.
+   */
+  drop?(agentId: string): void;
+  /** an agent that already filed its report (idle while its session wraps up, e.g. pushing) counts as stuck only after this long idle. Default 5 min. */
+  drainWrapUpMs?: number;
   run?: CommandRunner;
   /** called with 75 after `exitDelayMs`; default process.exit (tests always inject one) */
   exit?: (code: number) => void;
@@ -68,6 +75,17 @@ export interface Redeployer {
   running(): boolean;
   /** resolves when the in-flight redeploy (if any) has finished */
   done(): Promise<void>;
+  /** live state for `GET /api/admin/redeploy` */
+  status(): RedeployLive;
+}
+
+/** A drain poll that finds an agent idle more than this many times in a row drops it (stale live state). */
+export const STUCK_POLLS = 3;
+const TERMINAL_STATES = new Set<RedeployRun["state"]>(["restarting", "done", "failed", "aborted"]);
+/** Whether a redeploy event ends its run: `terminal: true`, or (events from before that field) a run state that does. */
+export function isTerminalRedeployEvent(e: Pick<Event, "payload">): boolean {
+  const p = e.payload as { terminal?: boolean; run?: RedeployRun };
+  return p.terminal === true || (!!p.run && TERMINAL_STATES.has(p.run.state));
 }
 
 const TAIL = 2000;
@@ -88,8 +106,12 @@ export function makeRedeployer(deps: RedeployDeps): Redeployer {
   /** a request the previous server carried over in its done-file: started shortly after this one is up */
   let carried: RedeployRequest | null = null;
 
+  /** every event carries the run; the last one of a run (restarting, failed, done, aborted) also says `terminal: true` */
   const say = (text: string, payload: Record<string, unknown> = {}) =>
-    deps.world.events.append({ type: "system", text, payload: { redeploy: true, run: { ...run_ }, ...payload } });
+    deps.world.events.append({ type: "system", text, payload: { redeploy: true, run: { ...run_ }, ...(TERMINAL_STATES.has(run_.state) ? { terminal: true } : {}), ...payload } });
+  let phase = "idle";
+  let since: string | null = null;
+  const setPhase = (p: string) => { phase = p; since = p === "idle" ? null : new Date().toISOString(); };
   const fail = () => { run_ = { ...run_, state: "failed", working: [], blocked: [] }; };
 
   // The restart's marker (written just before exit 75): the new server announces the redeploy finished.
@@ -108,8 +130,20 @@ export function makeRedeployer(deps: RedeployDeps): Redeployer {
     if (prev.again) carried = { image: !!prev.again.image, requestedBy: String(prev.again.requestedBy ?? "") };
   } catch { /* no restart pending */ }
 
+  // A server restarted directly (not by the redeploy's exit 75) mid-run leaves its last event non-terminal, so the
+  // event-derived banner would wait forever: close the run.
+  try {
+    const last = deps.world.events.latestWith("system", "redeploy");
+    if (last && !isTerminalRedeployEvent(last)) {
+      const prevRun = (last.payload as { run?: RedeployRun }).run;
+      run_ = { state: "aborted", requestedBy: prevRun?.requestedBy ?? "", commits: prevRun?.commits ?? null, working: [], blocked: [] };
+      say("Redeploy: ended by a server restart (the run was interrupted)", { phase: "end", terminal: true, ok: false, aborted: true });
+    }
+  } catch (e) { console.log("[runtime] redeploy startup check:", e instanceof Error ? e.message : e); }
+
   /** One step: start event, run, end event. Returns the result, or null (after a failure event) on a non-zero exit. */
   async function step(label: string, cmd: string, args: string[], timeoutMs: number, okNote?: () => Promise<string>): Promise<CmdResult | null> {
+    setPhase(label);
     say(`Redeploy: ${label} …`, { step: label, phase: "start" });
     const r = await run(cmd, args, { cwd, timeoutMs });
     if (r.code !== 0) {
@@ -126,6 +160,7 @@ export function makeRedeployer(deps: RedeployDeps): Redeployer {
     say(`Redeploy requested by ${o.requestedBy}${o.image ? " (with the desk image)" : ""}`, { phase: "requested", requestedBy: o.requestedBy, image: o.image });
 
     // (a) pull main; a dirty tree aborts
+    setPhase("git status");
     const status = await run("git", ["status", "--porcelain"], { cwd, timeoutMs: 30_000 });
     if (status.code !== 0 || status.stdout.trim()) {
       fail();
@@ -168,6 +203,7 @@ export function makeRedeployer(deps: RedeployDeps): Redeployer {
     if (!(await rebuild(lockChanged))) return;
 
     // (e) drain: no new work sessions; wait for the running ones to end (a restart would orphan them)
+    setPhase("drain");
     deps.hold?.(true);
     held = true;
     const working = () => deps.working?.() ?? [];
@@ -179,9 +215,27 @@ export function makeRedeployer(deps: RedeployDeps): Redeployer {
       run_ = { ...run_, state: "scheduled", working: left, blocked: blocked() };
       say(`Redeploy: draining, waiting for ${left.length} session(s) to end: ${names(left)} (up to ${Math.round(timeoutMs / 60_000)} min)`, { step: "drain", phase: "start", working: left });
       const until = Date.now() + timeoutMs;
+      /** consecutive polls each agent was seen not `working`, and since when */
+      const idle = new Map<string, { polls: number; since: number }>();
+      const dropped = new Set<string>();
       while (left.length && Date.now() < until) {
         await new Promise<void>((r) => setTimeout(r, Math.min(deps.drainPollMs ?? 5000, Math.max(1, until - Date.now()))));
-        left = working();
+        left = working().filter((id) => !dropped.has(id));
+        // stale live state: an agent that is idle poll after poll isn't really working (its desk died, its session
+        // was orphaned). One that filed its report may still be wrapping up (pushing), so it gets a grace period.
+        for (const id of left) {
+          const a = deps.world.agents.get(id);
+          if (!a || a.status === "working") { idle.delete(id); continue; }
+          const seen = idle.get(id) ?? { polls: 0, since: Date.now() };
+          seen.polls++;
+          idle.set(id, seen);
+          const reported = !!deps.world.sessions.first("agentId = ? AND status = 'running' AND purpose = 'work'", [id], "ORDER BY startedAt DESC")?.reportId;
+          if (seen.polls <= STUCK_POLLS || (reported && Date.now() - seen.since < (deps.drainWrapUpMs ?? 5 * 60_000))) continue;
+          dropped.add(id);
+          say(`Redeploy: drain stuck on ${a.name} (idle but still counted); dropping`, { step: "drain", phase: "drain", stuck: true, agentId: id });
+          try { deps.drop?.(id); } catch (e) { console.log("[runtime] drain drop:", e instanceof Error ? e.message : e); }
+        }
+        left = left.filter((id) => !dropped.has(id));
         // tell the UI when the set of sessions waited on, or of agents held, changes
         const now = blocked();
         if (left.length && (left.join() !== run_.working.join() || now.join() !== run_.blocked.join())) {
@@ -195,6 +249,7 @@ export function makeRedeployer(deps: RedeployDeps): Redeployer {
 
     // (e2) pull again: the sessions just drained usually pushed on their way out. A failed pull keeps the preflight's
     // build; a failed rebuild of what it pulled fails the run (the tree is past the build).
+    setPhase("git pull again");
     const mid = await head();
     finalPulled = true;
     const again2 = await run("git", ["pull", "--rebase", "origin", "main"], { cwd, timeoutMs: 300_000 });
@@ -215,6 +270,7 @@ export function makeRedeployer(deps: RedeployDeps): Redeployer {
 
     // (f) recreate idle desks (home volumes kept; a desk is recreated from the new image on next use)
     if (o.image) {
+      setPhase("recreate desks");
       // desks made before the rename carry agent-town.* labels, newer ones muster-town.*: list both (drop the old in P6)
       const lines: string[] = [];
       for (const args of deskListArgs(deps.collective)) lines.push(...(await run("docker", args, { cwd, timeoutMs: 60_000 })).stdout.split("\n"));
@@ -231,6 +287,7 @@ export function makeRedeployer(deps: RedeployDeps): Redeployer {
     }
 
     // (g) restart: give the HTTP response and the events a moment to flush
+    setPhase("restarting");
     const live = await head();
     run_ = { ...run_, state: "restarting", working: [], blocked: [], ...(live ? { head: live } : {}) };
     try { writeFileSync(donePath, JSON.stringify({ ...run_, ...(again ? { again } : {}) })); } catch { /* no repo dir (tests): the UI just won't hear "done" */ }
@@ -282,6 +339,7 @@ export function makeRedeployer(deps: RedeployDeps): Redeployer {
       }
       cur = { ...o };
       finalPulled = false;
+      setPhase("requested");
       run_ = { state: "running", requestedBy: o.requestedBy, commits: null, working: [], blocked: [] };
       const req = cur;
       flight = withRepoLock(() => go(req))
@@ -289,6 +347,7 @@ export function makeRedeployer(deps: RedeployDeps): Redeployer {
         .finally(() => {
           flight = null;
           cur = null;
+          setPhase("idle");
           // a failed run drops the requests that joined it (they saw the failure event)
           again = null;
           // only reached without a real exit (failure, or tests): let the scheduler start sessions again
@@ -298,6 +357,10 @@ export function makeRedeployer(deps: RedeployDeps): Redeployer {
     },
     running: () => !!flight,
     done: () => flight ?? Promise.resolve(),
+    status: () => ({
+      running: !!flight, phase: flight ? phase : "idle", since: flight ? since : null,
+      waitingFor: flight && phase === "drain" ? run_.working.map((id) => deps.world.agents.get(id)?.name ?? id) : [],
+    }),
   };
   if (carried) {
     const o = carried;

@@ -5,9 +5,9 @@
  */
 import { useSyncExternalStore } from "react";
 import { ServerMessage } from "@muster-town/schema";
-import type { Agent, Assignment, AuthMe, Doc, Event, Meeting, Permission, Place, SnapshotBuilding, Town } from "@muster-town/schema";
+import type { Agent, Assignment, AuthMe, Doc, Event, Meeting, Permission, Place, SnapshotBuilding, Town, TownHealth } from "@muster-town/schema";
 import type { Bank, Grid, Snapshot } from "./api";
-import { redeployStatus } from "./redeploy";
+import { redeployStatus, type RedeployLiveAt } from "./redeploy";
 
 /**
  * Every panel is a place: walk up and press E. `intray`/`board`/`cabinet` take a building id; the Town Hall places
@@ -37,6 +37,10 @@ export interface TownState {
   rev: number;
   /** `GET /api/bank`, shown on the Bank's sign; null until the first fetch */
   bank: Bank | null;
+  /** the snapshot's `health` (docker up?); live changes arrive as `alert` system events */
+  health: TownHealth | null;
+  /** `GET /api/admin/redeploy`, refetched on each redeploy event; null until fetched (or not served) */
+  redeployLive: RedeployLiveAt | null;
 }
 
 const MAX_EVENTS = 600;
@@ -44,7 +48,7 @@ const MAX_EVENTS = 600;
 class Store {
   state: TownState = {
     conn: "connecting", me: null, town: null, buildings: [], agents: {}, places: [], grid: null, gridVersion: 0,
-    meetings: {}, events: [], docs: {}, assignments: {}, panel: null, toasts: [], rev: 0, bank: null,
+    meetings: {}, events: [], docs: {}, assignments: {}, panel: null, toasts: [], rev: 0, bank: null, health: null, redeployLive: null,
   };
   /** Latest server position per agent (tile coords). Mutated in place; the renderer interpolates. */
   readonly livePos = new Map<string, { x: number; y: number; at: number }>();
@@ -116,6 +120,8 @@ class Store {
     }
   }
   onLayoutChanged?: () => void;
+  /** refetch `redeployLive` (set at boot) */
+  onRedeployEvent?: () => void;
   /** refetch `bank` (set at boot; throttled there) */
   onBankChanged?: () => void;
 
@@ -143,7 +149,7 @@ class Store {
     const meetings: Record<string, Meeting> = {};
     for (const mt of m.meetings) meetings[mt.id] = mt;
     this.set({
-      town: m.town, buildings: m.buildings, agents, places: m.places, grid: m.grid, meetings,
+      town: m.town, buildings: m.buildings, agents, places: m.places, grid: m.grid, meetings, health: m.health ?? this.state.health,
       gridVersion: this.state.gridVersion + 1, rev: this.state.rev + 1,
     });
   }
@@ -164,6 +170,7 @@ class Store {
     }
     this.set(patch);
     if (e.type.startsWith("bank.")) this.onBankChanged?.();
+    if (e.type === "system" && e.payload.redeploy) this.onRedeployEvent?.();
     this.toastRedeploy();
     // a message addressed to the human's avatar
     const me = this.avatarId;
@@ -182,6 +189,7 @@ class Store {
     for (const e of list) byId.set(e.id, e);
     const events = [...byId.values()].sort((a, b) => a.id - b.id).slice(-MAX_EVENTS);
     this.set({ events });
+    if (list.some((e) => e.type === "system" && e.payload.redeploy)) this.onRedeployEvent?.();
     this.toastRedeploy();
   }
   /** A redeploy that just finished or failed gets a toast (also when its event arrives in a refetch after the restart). */

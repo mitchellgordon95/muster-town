@@ -43,3 +43,24 @@ describe("POST /api/admin/redeploy", () => {
     expect((await json(t.app, "POST", "/api/admin/redeploy", { headers: t.auth, body: {} })).status).toBe(503);
   });
 });
+
+describe("GET /api/admin/redeploy and health in the snapshot", () => {
+  it("returns the runtime's live redeploy state (idle without a runtime), readable without auth", async () => {
+    const t = await seededApp();
+    close = t.close;
+    expect((await json(t.app, "GET", "/api/admin/redeploy")).body).toEqual({ running: false, phase: "idle", waitingFor: [], since: null });
+    const since = new Date().toISOString();
+    t.world.host.redeployStatus = () => ({ running: true, phase: "drain", waitingFor: ["Lena"], since });
+    const r = await json(t.app, "GET", "/api/admin/redeploy");
+    expect(r.status).toBe(200);
+    expect(r.body).toEqual({ running: true, phase: "drain", waitingFor: ["Lena"], since });
+  });
+
+  it("GET /api/town carries health.docker from the runtime's last probe (true when never probed)", async () => {
+    const t = await seededApp();
+    close = t.close;
+    expect((await json(t.app, "GET", "/api/town")).body.health).toEqual({ docker: true });
+    t.world.host.docker = false;
+    expect((await json(t.app, "GET", "/api/town")).body.health).toEqual({ docker: false });
+  });
+});

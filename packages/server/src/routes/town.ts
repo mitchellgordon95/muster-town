@@ -1,5 +1,5 @@
 import { AppError, boardDocs, cabinetCounts, cabinetDocs } from "@muster-town/core";
-import { AddBankInput, CreateBankPoolInput, CreateBuildingInput, UpdateBankPoolInput, DocType, DonateInput, LayoutInput, Membership, PlanInput, RedeployInput, UpdateBuildingInput, townEnv, type AuthMe } from "@muster-town/schema";
+import { AddBankInput, CreateBankPoolInput, CreateBuildingInput, UpdateBankPoolInput, DocType, DonateInput, LayoutInput, Membership, PlanInput, RedeployInput, UpdateBuildingInput, townEnv, type AuthMe, type RedeployLive } from "@muster-town/schema";
 import type { FastifyInstance, FastifyRequest } from "fastify";
 import { z } from "zod";
 import { actorOf, adminToken, parse, requireAuth, requireUser, type Params } from "../context.ts";
@@ -247,6 +247,9 @@ export async function townRoutes(app: FastifyInstance) {
   });
 
   // ---- redeploy (v1.3): pull main, rebuild, restart; progress arrives as `system` events ----
+  /** The runtime's live view (anyone may read it, like the redeploy events): the HUD checks its event-derived banner against this. */
+  app.get("/api/admin/redeploy", async (): Promise<RedeployLive> =>
+    world.host.redeployStatus?.() ?? { running: false, phase: "idle", waitingFor: [], since: null });
   app.post("/api/admin/redeploy", async (req, reply) => {
     const actor = actorOf(world, req);
     world.permissions.require(actor, "town.redeploy");

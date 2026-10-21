@@ -696,7 +696,7 @@ export const SnapshotBuilding = Building.extend({ intray: z.number().int().nonne
 export type SnapshotBuilding = z.infer<typeof SnapshotBuilding>;
 
 export const ServerMessage = z.discriminatedUnion("type", [
-  z.object({ type: z.literal("snapshot"), avatarAgentId: Id.optional(), town: Town, buildings: z.array(SnapshotBuilding), agents: z.array(Agent), places: z.array(Place), grid: z.object({ w: z.number(), h: z.number(), /** row-major tile kinds */ tiles: z.array(z.number()) }), meetings: z.array(Meeting) }),
+  z.object({ type: z.literal("snapshot"), avatarAgentId: Id.optional(), town: Town, buildings: z.array(SnapshotBuilding), agents: z.array(Agent), places: z.array(Place), grid: z.object({ w: z.number(), h: z.number(), /** row-major tile kinds */ tiles: z.array(z.number()) }), meetings: z.array(Meeting), health: z.object({ docker: z.boolean() }).optional() }),
   z.object({ type: z.literal("event"), event: Event }),
   z.object({ type: z.literal("agent"), agent: Agent }),
   z.object({ type: z.literal("agents.pos"), positions: z.array(z.object({ id: Id, x: z.number(), y: z.number(), status: AgentStatus })) }),
@@ -828,10 +828,11 @@ export type RedeployResult = z.infer<typeof RedeployResult>;
 /**
  * Where a redeploy is, carried as `payload.run` on every redeploy `system` event so a client reads the latest one:
  * `running` (pull/build), `scheduled` (built; draining, waiting for `working` sessions to end while `blocked` agents'
- * work is held), `restarting`, `done` (emitted by the restarted server), `failed`. `commits` = changes pulled.
+ * work is held), `restarting`, `done` (emitted by the restarted server), `failed`, `aborted` (the server was restarted
+ * mid-run; emitted at startup). `commits` = changes pulled. A run's last event carries `payload.terminal: true`.
  */
 export interface RedeployRun {
-  state: "running" | "scheduled" | "restarting" | "done" | "failed";
+  state: "running" | "scheduled" | "restarting" | "done" | "failed" | "aborted";
   requestedBy: string;
   commits: number | null;
   /** agent ids with a live work session the drain waits for */
@@ -841,6 +842,21 @@ export interface RedeployRun {
   /** the commit being restarted into (`restarting`) or now live (`done`) */
   head?: string;
 }
+
+/** `GET /api/admin/redeploy`: the runtime's live view of a redeploy (the HUD checks the event-derived banner against it). */
+export const RedeployLive = z.object({
+  running: z.boolean(),
+  /** the step in progress ("git pull --rebase origin main", "build web", "drain", "restarting"…), "idle" when none */
+  phase: z.string(),
+  /** names of the agents the drain is waiting for */
+  waitingFor: z.array(z.string()),
+  /** when the current phase started (ISO), null when idle */
+  since: z.string().nullable(),
+});
+export type RedeployLive = z.infer<typeof RedeployLive>;
+/** `health` on the snapshot: `docker` = the runtime's last docker probe (true when docker isn't used or not probed). */
+export const TownHealth = z.object({ docker: z.boolean() });
+export type TownHealth = z.infer<typeof TownHealth>;
 
 export const AuthMe = z.object({ user: User, roles: z.array(Role), avatarAgentId: Id.nullable(), isAdmin: z.boolean() });
 export type AuthMe = z.infer<typeof AuthMe>;

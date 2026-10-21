@@ -6,7 +6,7 @@ import { STATUS_COLOR } from "./map/overlay";
 import { iconUrl, type IconKind } from "./map/sprites";
 import type { Target } from "./map/renderer";
 import { isMock } from "./api";
-import { redeployLine, redeployStatus } from "./redeploy";
+import { dockerDown, effectiveRedeploy, redeployLine, redeployTone } from "./redeploy";
 import { joinMeeting } from "./panels/Places";
 import { SignInButtons, signOut, useAuth } from "./auth/auth";
 
@@ -24,6 +24,8 @@ export function Hud({ onPasteToken, onHelp }: { onPasteToken?: () => void; onHel
   const conn = useTown((s) => s.conn);
   const me = useTown((s) => s.me);
   const events = useTown((s) => s.events);
+  const health = useTown((s) => s.health);
+  const redeployLive = useTown((s) => s.redeployLive);
   const [collapsed, setCollapsed] = useState(false);
   const auth = useAuth();
   const counts = useMemo(() => {
@@ -34,11 +36,22 @@ export function Hud({ onPasteToken, onHelp }: { onPasteToken?: () => void; onHel
   const notices = useMemo(() => {
     const out: Notice[] = [];
     // a redeploy in flight (or just finished): everyone sees it, so nobody is surprised by the restart
-    const rd = redeployStatus(events);
-    if (rd) {
+    // docker down (OrbStack stopped): code desks can't start, so workshop sessions are paused until it's back
+    if (dockerDown(events, health)) {
+      const paused = buildings.filter((b) => b.codeAccess).map((b) => b.name);
       out.push({
-        key: `redeploy:${rd.eventId}`, icon: "planning", tone: rd.state === "done" ? "ok" : rd.state === "failed" ? "bad" : "warn", cta: "Log →",
-        text: redeployLine(rd, (id) => agents[id]?.name ?? id),
+        key: "docker-down", icon: "planning", tone: "bad", cta: "Log →",
+        text: <><b>Docker is not running</b>: code desks can't start; {paused.length ? `${paused.join(", ")} session${paused.length === 1 ? " is" : "s are"}` : "workshop sessions are"} paused</>,
+        go: () => walkOrOpen("planning-desk", { kind: "planning", tab: "System" }),
+      });
+    }
+    // checked against the runtime's live view: a run killed by a restart shows as interrupted, not waiting forever
+    const rd = effectiveRedeploy(events, redeployLive);
+    if (rd) {
+      const live = redeployLive && redeployLive.afterEventId >= rd.eventId && redeployLive.live.phase === "drain" ? redeployLive.live.waitingFor : undefined;
+      out.push({
+        key: `redeploy:${rd.eventId}`, icon: "planning", tone: redeployTone(rd), cta: "Log →",
+        text: redeployLine(rd, (id) => agents[id]?.name ?? id, live),
         go: () => walkOrOpen("planning-desk", { kind: "planning", tab: "System" }),
       });
     }
@@ -63,7 +76,7 @@ export function Hud({ onPasteToken, onHelp }: { onPasteToken?: () => void; onHel
     }
     return out;
     // `me` changes permissions
-  }, [buildings, meetings, me, events, agents]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [buildings, meetings, me, events, agents, health, redeployLive]); // eslint-disable-line react-hooks/exhaustive-deps
   if (!town) return null;
   return (
     <div className={`hud ${collapsed ? "collapsed" : ""}`}>

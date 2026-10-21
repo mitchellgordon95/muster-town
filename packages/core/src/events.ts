@@ -65,6 +65,15 @@ export class EventLog {
     return this.list({ ...q, desc: true }).reverse();
   }
 
+  /** The newest event of `type` whose payload has `key` (set, not null), optionally one of `values`. */
+  latestWith(type: EventType, key: string, values?: unknown[]): Event | undefined {
+    const path = `$.${key}`;
+    const vals = values?.length ? ` AND json_extract(payload, ?) IN (${values.map(() => "?").join(",")})` : "";
+    const r = this.db.prepare(`SELECT * FROM events WHERE type = ? AND json_extract(payload, ?) IS NOT NULL${vals} ORDER BY id DESC LIMIT 1`)
+      .get(type, path, ...(values?.length ? [path, ...values] : [])) as Record<string, unknown> | undefined;
+    return r ? Event.parse({ ...r, payload: JSON.parse(String(r.payload ?? "{}")) }) : undefined;
+  }
+
   lastId(): number {
     const r = this.db.prepare("SELECT MAX(id) AS id FROM events").get() as { id: number | null };
     return r.id ?? 0;

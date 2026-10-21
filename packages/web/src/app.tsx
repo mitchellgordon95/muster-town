@@ -10,6 +10,7 @@ import { MapCanvas, mapRenderer, typing } from "./map/MapCanvas";
 import { Minimap } from "./map/Minimap";
 import type { Target } from "./map/renderer";
 import { Hint, Hud, SayBox, Toasts } from "./hud";
+import { redeployStatus } from "./redeploy";
 import { authStore, forceGuest, loadAuthConfig, takeAuthError, useAuth } from "./auth/auth";
 import { AgentPanel } from "./panels/AgentPanel";
 import { BuildingPanel } from "./panels/BuildingPanel";
@@ -75,6 +76,15 @@ async function boot(): Promise<Phase> {
   let bankTimer: ReturnType<typeof setTimeout> | null = null;
   const loadBank = () => { a.bank().then((bank) => store.set({ bank }), () => undefined); };
   store.onBankChanged = () => { bankTimer ??= setTimeout(() => { bankTimer = null; loadBank(); }, 5000); };
+  // the runtime's live redeploy view: the HUD checks its event-derived banner against it (a run killed by a restart)
+  const loadRedeployLive = () => {
+    const after = redeployStatus(store.state.events)?.eventId ?? 0;
+    a.redeployLive().then((live) => {
+      if ((store.state.redeployLive?.afterEventId ?? -1) <= after) store.set({ redeployLive: { live, afterEventId: after } });
+    }, () => undefined);
+  };
+  store.onRedeployEvent = loadRedeployLive;
+  loadRedeployLive();
   loadBank();
   setInterval(loadBank, 60_000);
   return { k: "ready" };

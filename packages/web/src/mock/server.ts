@@ -1,5 +1,5 @@
 /** `Api` implemented against the in-memory Sim. Same interface as HttpApi, so every panel works offline. */
-import type { Agent, Assignment, AuthMe, Building, Doc, Event, Meeting, Membership } from "@muster-town/schema";
+import type { Agent, Assignment, AuthMe, Building, Doc, Event, Meeting, Membership, RedeployLive } from "@muster-town/schema";
 import { BOARD_TYPES, DEFAULT_POOL_ID, type BankPool } from "@muster-town/schema";
 import type { Api, AgentDetail, AllocationRow, Bank, Budget, Cabinet, CabinetQuery, DocQuery, EventQuery, In, LayoutPreview, MessageResult, PlanPreview, RoomLayout, RequestAction, Snapshot, Socket, SocketHandlers, ThreadMessage, WriteDocInput } from "../api";
 import { ApiError } from "../api";
@@ -493,6 +493,21 @@ export class MockApi implements Api {
     return this.updateBuilding(buildingId, { poolId });
   }
   async exportNow() { await wait(400); this.sim.event("export.done", null, "Exported town to git", {}, null); return "a1b2c3d"; }
+  /** the mock runtime's live redeploy view (GET /api/admin/redeploy) */
+  private live: RedeployLive = { running: false, phase: "idle", waitingFor: [], since: null };
+  async redeployLive() { await wait(60); return { ...this.live }; }
+  /**
+   * At boot, like a server restarted mid-drain: a stale "waiting for Moss" drain (the live view already says nothing runs),
+   * then the startup's terminal event; and docker is down (a red notice until the "docker-up" event).
+   */
+  private bootNotices() {
+    const run = { state: "scheduled", requestedBy: "Mitchell", commits: 2, working: ["ag_moss"], blocked: [] };
+    this.sim.event("system", null, "Redeploy: draining, waiting for 1 session(s) to end: Moss (up to 30 min)", { redeploy: true, run, step: "drain", phase: "start", working: ["ag_moss"] }, null);
+    this.sim.event("system", null, "Docker is not running: code desks can't start; workshop sessions are paused", { alert: "docker-down" }, null);
+    setTimeout(() => this.sim.event("system", null, "Redeploy: ended by a server restart (the run was interrupted)",
+      { redeploy: true, run: { ...run, state: "aborted", working: [] }, phase: "end", terminal: true, ok: false, aborted: true }, null), 4000);
+    setTimeout(() => { this.sim.dockerUp = true; this.sim.event("system", null, "Docker is back: code desks resume", { alert: "docker-up" }, null); }, 45_000);
+  }
   async redeploy(image: boolean) {
     // like runtime/redeploy.ts: each event carries the run; the drain holds one idle resident and waits on a working one
     const residents = [...this.sim.agents.values()].filter((a) => a.kind === "resident");
@@ -509,7 +524,15 @@ export class MockApi implements Api {
       ["Redeploy: restarting server", run("restarting", 3), 9000],
       ["Redeploy finished: the server is back up with 3 new changes", run("done", 3), 11000],
     ];
-    for (const [text, r, at] of steps) setTimeout(() => this.sim.event("system", null, text, { redeploy: true, run: r, ...(at === 0 ? { phase: "requested" } : {}) }, null), at);
+    for (const [text, r, at] of steps) {
+      setTimeout(() => {
+        const last = at === steps[steps.length - 1][2];
+        const state = r.state;
+        this.live = state === "done" ? { running: false, phase: "idle", waitingFor: [], since: null }
+          : { running: true, phase: state === "scheduled" ? "drain" : state === "restarting" ? "restarting" : "build web", waitingFor: r.working.map((id) => this.sim.agents.get(id)?.name ?? id), since: new Date().toISOString() };
+        this.sim.event("system", null, text, { redeploy: true, run: r, ...(at === 0 ? { phase: "requested" } : {}), ...(state === "restarting" || last ? { terminal: true } : {}) }, null);
+      }, at);
+    }
     return { started: true };
   }
 
@@ -521,7 +544,7 @@ export class MockApi implements Api {
       off?.();
       setTimeout(() => h.onMessage(this.sim.snapshot()), 40);
       off = this.sim.subscribe((msg) => h.onMessage(msg));
-      if (!this.started) { this.started = true; this.sim.start(); for (const m of this.sim.meetings.values()) if (m.phase === "collecting") this.collectSummaries(m); }
+      if (!this.started) { this.started = true; this.sim.start(); this.bootNotices(); for (const m of this.sim.meetings.values()) if (m.phase === "collecting") this.collectSummaries(m); }
     };
     setTimeout(() => { h.onOpen(); if (!authed) stream(); }, 30);
     return {

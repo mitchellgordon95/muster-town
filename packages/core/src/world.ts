@@ -1,4 +1,4 @@
-import { townEnv, type Agent, type AgentStatus, type DesksConfig, type RedeployResult, type ServerMessage, type Tile } from "@muster-town/schema";
+import { townEnv, type Agent, type AgentStatus, type DesksConfig, type RedeployLive, type RedeployResult, type ServerMessage, type Tile } from "@muster-town/schema";
 import { Bank } from "./bank.ts";
 import { Budget } from "./budget.ts";
 import { intrayCounts, intrayOf } from "./domain.ts";
@@ -33,6 +33,10 @@ export interface HostHooks {
   startedAt?: string;
   /** Whether the live commit contains `sha` (`git merge-base --is-ancestor`). Without it, `deploy` waits never hold. */
   isLive?(sha: string): boolean;
+  /** The runtime's live redeploy state (`GET /api/admin/redeploy`). */
+  redeployStatus?(): RedeployLive;
+  /** The runtime's last docker probe: false while docker is down (code desks can't start). Unset = not probed. */
+  docker?: boolean;
 }
 
 export class World {
@@ -200,6 +204,7 @@ export class World {
       places: this.layout.places,
       grid: this.layout.grid,
       meetings: this.meetings.where("phase IN ('scheduled','collecting','discussing')", [], "ORDER BY scheduledAt"),
+      health: { docker: this.host.docker ?? true },
     };
   }
 

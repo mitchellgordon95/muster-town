@@ -4,7 +4,7 @@
  */
 import type { z } from "zod";
 import type {
-  Agent, Allocation, Assignment, AuthMe, Building, ClientMessage, Doc, Event, Lot, Meeting, Place, Role, Membership, Tile,
+  Agent, Allocation, Assignment, AuthMe, RedeployLive, Building, ClientMessage, Doc, Event, Lot, Meeting, Place, Role, Membership, Tile,
   ServerMessage, Session, Town, CreateBuildingInput, UpdateBuildingInput, CreateResidentInput,
   ReviewInput, ChatInput, WorkInput, DonateInput, AddBankInput, BankInput, CreateBankPoolInput, UpdateBankPoolInput, CreateMeetingInput, DocState, DocType, Mailbox, Permission,
 } from "@muster-town/schema";
@@ -204,6 +204,8 @@ export interface Api {
   exportNow(): Promise<string | null>;
   /** v1.3: pull main, rebuild, restart (needs town.redeploy); progress arrives as `system` events */
   redeploy(image: boolean): Promise<{ started?: boolean; queued?: boolean; running?: boolean }>;
+  /** the runtime's live redeploy state (`GET /api/admin/redeploy`; readable by anyone) */
+  redeployLive(): Promise<RedeployLive>;
   connect(handlers: SocketHandlers): Socket;
 }
 
@@ -348,6 +350,7 @@ export class HttpApi implements Api {
   async setBuildingPool(buildingId: string, poolId: string | null) { return unwrap<Building>(await this.call("PATCH", `/api/buildings/${buildingId}`, { poolId }), "building"); }
   async exportNow() { return (await this.post<{ commit?: string | null }>("/api/export")).commit ?? null; }
   async redeploy(image: boolean) { return this.post<{ started?: boolean; queued?: boolean; running?: boolean }>("/api/admin/redeploy", { image }); }
+  async redeployLive() { return this.get<RedeployLive>("/api/admin/redeploy"); }
 
   connect(h: SocketHandlers): Socket {
     const url = `${location.protocol === "https:" ? "wss" : "ws"}://${location.host}/ws`;

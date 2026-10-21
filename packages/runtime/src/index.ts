@@ -6,7 +6,7 @@
 import { checkWaits, codeWorkspace, nextPending, PRESENCE_TICK_MS, slugify, type World } from "@muster-town/core";
 import { DesksConfig, type ChatInput, type DeskActivityInput, type Event, type RedeployResult, type Session } from "@muster-town/schema";
 import { askAbout, chat } from "./chat.ts";
-import { DockerBackend, dockerSafe, HostBackend, type WorkBackend } from "./desk/backend.ts";
+import { DockerBackend, dockerSafe, HostBackend, type DeskBackend, type WorkBackend } from "./desk/backend.ts";
 import { gitHead, isAncestor, makeRedeployer, type RedeployDeps, type RedeployRequest } from "./redeploy.ts";
 import { onDeskActivity, runDeskSession, type DeskSessionOptions } from "./desk/session.ts";
 import { advanceCollecting, facilitate, newMeetingState, onMeetingMention, onMeetingStart } from "./meetings.ts";
@@ -20,7 +20,7 @@ export { DockerBackend, HostBackend, realDockerRunner, type DeskBackend, type De
 export { deskAuth, deskEnv, portOf, FALLBACK_KEY_ENV, type DeskAuthMode, type DeskSessionOptions } from "./desk/session.ts";
 export { fundingFor, fundedBy, type Funding } from "./session.ts";
 export { type WorkOutcome } from "./work.ts";
-export { makeRedeployer, realCommandRunner, RESTART_EXIT_CODE, type CmdResult, type CommandRunner, type RedeployDeps, type RedeployRequest, type Redeployer } from "./redeploy.ts";
+export { isTerminalRedeployEvent, makeRedeployer, realCommandRunner, RESTART_EXIT_CODE, STUCK_POLLS, type CmdResult, type CommandRunner, type RedeployDeps, type RedeployRequest, type Redeployer } from "./redeploy.ts";
 export { InputChannel, oneShot, realSdk, usageOf, userMessage, type QueryHandle, type QueryParams, type Sdk } from "./sdk.ts";
 export { DISALLOWED_TOOLS, TOWN_TOOLS, WEB_TOOLS } from "./session.ts";
 export { COLLECTING_MS, MEETING_REPLIES_MAX } from "./meetings.ts";
@@ -50,7 +50,11 @@ export interface RuntimeOptions {
   /** a stopped/banned agent's desk process gets this long to exit on its own before it is killed. Default 10000. */
   killGraceMs?: number;
   /** redeploy knobs (tests inject the command runner and `exit`; never the real process.exit) */
-  redeploy?: Pick<RedeployDeps, "run" | "exit" | "exitDelayMs" | "drainTimeoutMs" | "drainPollMs" | "againDelayMs">;
+  redeploy?: Pick<RedeployDeps, "run" | "exit" | "exitDelayMs" | "drainTimeoutMs" | "drainPollMs" | "againDelayMs" | "drainWrapUpMs">;
+  /** the docker desk backend probed when `desks.backend` is auto/docker (tests inject a fake); default a DockerBackend */
+  dockerProbe?: DeskBackend;
+  /** minimum time between docker probes (re-probe while on the host fallback; liveness check while on docker). Default 30000. */
+  dockerProbeMs?: number;
 }
 
 export interface Runtime {
@@ -139,7 +143,20 @@ export function startRuntime(opts: RuntimeOptions): Runtime {
 
   let backend: WorkBackend | null = opts.deskBackend ?? null;
   const collectiveSlug = opts.collective ?? slugify(world.town.get().name);
-  const dockerProbe = desks.backend === "host" ? null : new DockerBackend({ collective: collectiveSlug, image: desks.image });
+  const dockerProbe: DeskBackend | null = desks.backend === "host" ? null : opts.dockerProbe ?? new DockerBackend({ collective: collectiveSlug, image: desks.image });
+  const probeEveryMs = opts.dockerProbeMs ?? 30_000;
+  // Docker down → a town notice (once per outage, also across restarts: the last alert in the log says where we are)
+  let dockerDown = (world.events.latestWith("system", "alert", ["docker-down", "docker-up"])?.payload as { alert?: string } | undefined)?.alert === "docker-down";
+  function noteDocker(ok: boolean): void {
+    world.host.docker = ok;
+    if (!ok && !dockerDown) {
+      dockerDown = true;
+      world.events.append({ type: "system", text: "Docker is not running: code desks can't start; workshop sessions are paused", payload: { alert: "docker-down" } });
+    } else if (ok && dockerDown) {
+      dockerDown = false;
+      world.events.append({ type: "system", text: "Docker is back: code desks resume", payload: { alert: "docker-up" } });
+    }
+  }
   const backendReady: Promise<WorkBackend> = backend ? Promise.resolve(backend) : chooseBackend().then((b) => (backend = b));
   // Desk containers survive a restart, and so does a `docker exec`'d session in one (e.g. cut off by a redeploy's drain
   // timeout): stop the orphans so they don't keep working beside the re-queued assignment's new session.
@@ -153,9 +170,11 @@ export function startRuntime(opts: RuntimeOptions): Runtime {
   async function currentBackend(): Promise<WorkBackend> {
     const b = await backendReady;
     // only re-probe when the host backend was an automatic fallback (never when a backend was injected or configured)
-    if (opts.deskBackend || b.kind !== "host" || !dockerProbe || desks.backend !== "auto" || Date.now() - lastProbe < 30_000) return backend ?? b;
+    if (opts.deskBackend || b.kind !== "host" || !dockerProbe || desks.backend !== "auto" || Date.now() - lastProbe < probeEveryMs) return backend ?? b;
     lastProbe = Date.now();
-    if (await dockerProbe.available()) {
+    const ok = await dockerProbe.available();
+    noteDocker(ok);
+    if (ok) {
       console.log(`[runtime] docker is available again: work sessions switch to docker desks (${desks.image})`);
       backend = dockerProbe;
     }
@@ -168,6 +187,8 @@ export function startRuntime(opts: RuntimeOptions): Runtime {
     }
     const docker = dockerProbe;
     const ok = await docker.available();
+    lastProbe = Date.now();
+    noteDocker(ok);
     if (desks.backend === "docker") {
       console.log(`[runtime] work sessions: docker desks (${desks.image}; configured)${ok ? "" : " — WARNING: docker info failed"}`);
       return docker;
@@ -181,7 +202,18 @@ export function startRuntime(opts: RuntimeOptions): Runtime {
   }
   const warnedHost = new Set<string>();
 
-  const needsProbe = () => !opts.deskBackend && backend?.kind === "host" && !!dockerProbe && desks.backend === "auto" && Date.now() - lastProbe >= 30_000;
+  const needsProbe = () => !opts.deskBackend && backend?.kind === "host" && !!dockerProbe && desks.backend === "auto" && Date.now() - lastProbe >= probeEveryMs;
+  /** While on docker desks, check docker is still up (OrbStack stops): `auto` falls back to the host backend until it is back. */
+  async function checkDocker(): Promise<void> {
+    if (opts.deskBackend || !dockerProbe || backend?.kind !== "docker" || Date.now() - lastProbe < probeEveryMs) return;
+    lastProbe = Date.now();
+    const ok = await dockerProbe.available();
+    noteDocker(ok);
+    if (!ok && desks.backend === "auto") {
+      console.warn("[runtime] WARNING: docker stopped; work sessions run in-process (host backend) until it is back. Workspace buildings won't be scheduled.");
+      backend = new HostBackend();
+    }
+  }
   // keep the common path a single promise hop (tests and the scheduler observe `starting` right after a tick)
   const startWork = (agentId: string, assignmentId: string) => track((backend && !needsProbe() ? Promise.resolve(backend) : currentBackend()).then((b) =>
     b.kind === "host" ? runWorkSession(ctx, starting, agentId, assignmentId) : runDeskSession(ctx, b, starting, agentId, assignmentId, opts.deskOptions)));
@@ -283,6 +315,10 @@ export function startRuntime(opts: RuntimeOptions): Runtime {
     try { checkWaits(world, d); } catch (e) { log("waits")(e); }
     await backendReady;
     if (stopped) return;
+    // docker liveness while on desks; the host fallback re-probes in scheduleWork/startWork
+    if (backend?.kind === "docker") await track(checkDocker()).catch(log("docker probe"));
+    else if (needsProbe()) await track(currentBackend()).catch(log("docker re-probe"));
+    if (stopped) return;
     try { scheduleWork(); } catch (e) { log("work")(e); }
   }
 
@@ -294,10 +330,31 @@ export function startRuntime(opts: RuntimeOptions): Runtime {
     while (tasks.size) await Promise.allSettled([...tasks]);
   }
 
+  /**
+   * The live map against the source of truth: an entry whose Session row is no longer running, or a desk session with
+   * no child process, is stale (its desk died, a previous end was missed). Forget it; end a still-running row as orphaned.
+   */
+  function pruneLive(): void {
+    for (const [agentId, l] of [...ctx.live]) {
+      const s = world.sessions.get(l.sessionId);
+      if (s?.status === "running" && (l.kind !== "desk" || l.child)) continue;
+      dropLive(agentId, "orphaned: stale live session");
+    }
+  }
+  /** Forget the agent's live session (killing its child, if any) and end its running work Session row as orphaned. */
+  function dropLive(agentId: string, error: string): void {
+    const l = ctx.live.get(agentId);
+    if (l) { abortWork(ctx, agentId, 0); ctx.live.delete(agentId); }
+    starting.delete(agentId);
+    for (const s of world.sessions.where("agentId = ? AND status = 'running' AND purpose = 'work'", [agentId])) {
+      try { world.ops.endSession(s.id, { status: "error", error }); } catch (e) { log("end orphaned session")(e); }
+    }
+  }
   const redeployer = makeRedeployer({
     world, repoRoot: ctx.repoRoot, collective: dockerSafe(collectiveSlug), image: desks.image,
     isWorking: (agentId) => ctx.live.has(agentId) || starting.has(agentId),
-    working: () => [...new Set([...ctx.live.keys(), ...starting])],
+    working: () => { pruneLive(); return [...new Set([...ctx.live.keys(), ...starting])]; },
+    drop: (agentId) => dropLive(agentId, "orphaned: redeploy drain found it stuck"),
     hold: (on) => { draining = on; },
     blocked: () => world.agents.where("kind = 'resident' AND status = 'idle'", [], "ORDER BY createdAt")
       .filter((a) => !ctx.live.has(a.id) && !starting.has(a.id) && !!nextPending(world, a.id) && world.budget.canStart(a.id)).map((a) => a.id),
@@ -305,6 +362,8 @@ export function startRuntime(opts: RuntimeOptions): Runtime {
   });
   const redeploy = (o: RedeployRequest) => redeployer.redeploy(o);
   world.host.redeploy = redeploy;
+  const hostRedeployStatus = () => redeployer.status();
+  world.host.redeployStatus = hostRedeployStatus;
   const hostIsWorking = (agentId: string) => ctx.live.has(agentId) || starting.has(agentId);
   const hostInterrupt = (agentId: string, text: string, from?: string, now?: boolean) => interrupt(ctx, agentId, text, from, now);
   world.host.isWorking = hostIsWorking;
@@ -327,6 +386,8 @@ export function startRuntime(opts: RuntimeOptions): Runtime {
     async stop() {
       stopped = true;
       if (world.host.redeploy === redeploy) delete world.host.redeploy;
+      if (world.host.redeployStatus === hostRedeployStatus) delete world.host.redeployStatus;
+      delete world.host.docker;
       if (world.host.isWorking === hostIsWorking) delete world.host.isWorking;
       if (world.host.interrupt === hostInterrupt) delete world.host.interrupt;
       if (commit && world.host.commit === commit) delete world.host.commit;
