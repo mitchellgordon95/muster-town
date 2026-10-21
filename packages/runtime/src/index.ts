@@ -168,7 +168,8 @@ export function startRuntime(opts: RuntimeOptions): Runtime {
   let lastProbe = 0;
   /** `auto` must not stick on the host backend forever because docker was down at startup: re-probe before each work session. */
   async function currentBackend(): Promise<WorkBackend> {
-    const b = await backendReady;
+    // `backend` may have fallen back to host since startup (docker stopped mid-run); backendReady still holds the first choice
+    const b = backend ?? await backendReady;
     // only re-probe when the host backend was an automatic fallback (never when a backend was injected or configured)
     if (opts.deskBackend || b.kind !== "host" || !dockerProbe || desks.backend !== "auto" || Date.now() - lastProbe < probeEveryMs) return backend ?? b;
     lastProbe = Date.now();

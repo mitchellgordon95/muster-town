@@ -217,6 +217,22 @@ describe("docker-down notice", () => {
     expect(world.snapshot().health).toMatchObject({ docker: false });
   });
 
+  test("up at startup, stops mid-run → docker-down; back → docker-up (the host fallback must re-probe)", async () => {
+    const { state, probe } = fakeDocker();
+    state.up = true;
+    const { world, runtime } = setup(async function* () { yield result(1, 0); }, { deskBackend: undefined, desks: { backend: "auto" }, dockerProbe: probe, dockerProbeMs: 0 });
+    expect(await runtime.backend()).toBe("docker");
+    state.up = false;
+    await runtime.tickOnce();
+    await runtime.whenIdle();
+    expect(alerts(world)).toEqual(["docker-down"]);
+    state.up = true;
+    await runtime.tickOnce();
+    await runtime.whenIdle();
+    expect(alerts(world)).toEqual(["docker-down", "docker-up"]);
+    expect(world.snapshot().health).toMatchObject({ docker: true });
+  });
+
   test("a restart during an outage doesn't repeat the notice; one after it ends announces docker-up", async () => {
     const { state, probe } = fakeDocker();
     const { world, runtime } = setup(async function* () { yield result(1, 0); }, { deskBackend: undefined, desks: { backend: "auto" }, dockerProbe: probe, dockerProbeMs: 0 });
