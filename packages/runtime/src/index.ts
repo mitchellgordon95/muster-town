@@ -241,7 +241,11 @@ export function startRuntime(opts: RuntimeOptions): Runtime {
       const bid = a.homeBuildingId ?? a.buildingId;
       const b = bid ? world.buildings.get(bid) : undefined;
       if (backend?.kind === "host" && b && codeWorkspace(world.town.get(), b)) {
-        if (!warnedHost.has(b.id)) console.warn(`[runtime] WARNING: ${b.name} has code access; its work sessions need docker desks. Not scheduling them on the host backend.`);
+        // docker may have come back since startup: re-probe before giving up on a code building
+        if (needsProbe()) {
+          void currentBackend().then((nb) => { if (nb.kind !== "host") scheduleWork(); }).catch(log("docker re-probe"));
+        }
+        if (!warnedHost.has(b.id)) console.warn(`[runtime] WARNING: ${b.name} has code access; its work sessions need docker desks. Not scheduling them on the host backend until docker is back.`);
         warnedHost.add(b.id);
         continue;
       }
