@@ -60,6 +60,11 @@ export interface RedeployDeps {
   drop?(agentId: string): void;
   /** an agent that already filed its report (idle while its session wraps up, e.g. pushing) counts as stuck only after this long idle. Default 5 min. */
   drainWrapUpMs?: number;
+  /**
+   * Tell a session the drain waits on that the restart comes only after it ends (so it wraps up instead of polling for
+   * the new build: the requester's own session otherwise deadlocks the drain). Called once per agent per drain. Default: none.
+   */
+  nudge?(agentId: string, text: string): void;
   run?: CommandRunner;
   /** called with 75 after `exitDelayMs`; default process.exit (tests always inject one) */
   exit?: (code: number) => void;
@@ -86,6 +91,11 @@ const TERMINAL_STATES = new Set<RedeployRun["state"]>(["restarting", "done", "fa
 export function isTerminalRedeployEvent(e: Pick<Event, "payload">): boolean {
   const p = e.payload as { terminal?: boolean; run?: RedeployRun };
   return p.terminal === true || (!!p.run && TERMINAL_STATES.has(p.run.state));
+}
+
+/** What the drain tells a session it waits on. */
+export function drainNudge(requester: boolean): string {
+  return `${requester ? "The redeploy you requested" : "A redeploy"} is waiting for your work session to end before it restarts the server. The new build cannot go live while you are running, so do not wait or poll for it: finish the step you are on, push, say in your report which commit should be live, submit the report, and stop. Verify on your next session.`;
 }
 
 const TAIL = 2000;
@@ -213,7 +223,18 @@ export function makeRedeployer(deps: RedeployDeps): Redeployer {
     let left = working();
     if (left.length) {
       run_ = { ...run_, state: "scheduled", working: left, blocked: blocked() };
-      say(`Redeploy: draining, waiting for ${left.length} session(s) to end: ${names(left)} (up to ${Math.round(timeoutMs / 60_000)} min)`, { step: "drain", phase: "start", working: left });
+      const requester = left.find((id) => deps.world.agents.get(id)?.name === o.requestedBy);
+      say(`Redeploy: draining, waiting for ${left.length} session(s) to end: ${names(left)} (up to ${Math.round(timeoutMs / 60_000)} min)${requester ? `; ${o.requestedBy} requested it and is still running, so it waits for them too` : ""}`, { step: "drain", phase: "start", working: left, ...(requester ? { requester } : {}) });
+      // each session waited on is told once, so nobody sits polling for a restart that waits on them
+      const nudged = new Set<string>();
+      const nudge = (ids: string[]) => {
+        for (const id of ids) {
+          if (nudged.has(id)) continue;
+          nudged.add(id);
+          try { deps.nudge?.(id, drainNudge(id === requester)); } catch (e) { console.log("[runtime] drain nudge:", e instanceof Error ? e.message : e); }
+        }
+      };
+      nudge(left);
       const until = Date.now() + timeoutMs;
       /** consecutive polls each agent was seen not `working`, and since when */
       const idle = new Map<string, { polls: number; since: number }>();
@@ -236,6 +257,7 @@ export function makeRedeployer(deps: RedeployDeps): Redeployer {
           try { deps.drop?.(id); } catch (e) { console.log("[runtime] drain drop:", e instanceof Error ? e.message : e); }
         }
         left = left.filter((id) => !dropped.has(id));
+        nudge(left);
         // tell the UI when the set of sessions waited on, or of agents held, changes
         const now = blocked();
         if (left.length && (left.join() !== run_.working.join() || now.join() !== run_.blocked.join())) {

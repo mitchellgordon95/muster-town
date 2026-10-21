@@ -285,6 +285,7 @@ You can edit the ${repoName} repository. Your own checkout is at ${ws.dir} on br
 - Run \`npm run typecheck\` and the relevant package's tests before you commit. Don't commit broken code.
 - Commit with a clear message, then \`git push -u origin ${ws.branch}\` and open a draft pull request with \`gh pr create --draft --fill\` (base ${ws.base}). Put the PR URL in your report.
 - Never force-push, never rewrite history, never run destructive commands.
+- If you call \`redeploy\`, the restart happens only after your own session ends (it waits for every running session). Never wait or poll for the new build in the same session: say which commit should be live in your report, submit it, and verify next time.
 - The town library is still where you write source cards and notes; your report must say what changed, how you verified it, and link the PR.`;
 }
 

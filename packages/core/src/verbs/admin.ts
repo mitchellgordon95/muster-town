@@ -9,5 +9,11 @@ export async function redeploy(world: World, me: Agent, input: VerbIn<"redeploy"
   if (!world.permissions.can(me, "town.redeploy")) throw forbidden("town.redeploy");
   const run = world.host.redeploy;
   if (!run) throw new AppError("unreachable", "Redeploy is unavailable: the runtime is not running on the host.");
-  return run({ image: input.image, requestedBy: me.name });
+  const r = run({ image: input.image, requestedBy: me.name });
+  // the drain waits for every live work session, so a working agent that waits for the restart deadlocks it (Sage, 2026-10-20)
+  if (world.host.isWorking?.(me.id)) return { ...r, note: REDEPLOY_NOTE };
+  return r;
 }
+
+/** Told to an agent that redeploys from inside its own work session. */
+export const REDEPLOY_NOTE = "The server restarts only after your work session (and every other running one) ends. Do not wait or poll for the new build: it cannot arrive while you are still running. Say in your report which commit should be live, submit the report, and verify on your next session.";

@@ -355,6 +355,8 @@ export function startRuntime(opts: RuntimeOptions): Runtime {
     isWorking: (agentId) => ctx.live.has(agentId) || starting.has(agentId),
     working: () => { pruneLive(); return [...new Set([...ctx.live.keys(), ...starting])]; },
     drop: (agentId) => dropLive(agentId, "orphaned: redeploy drain found it stuck"),
+    // host sessions take it on their input; desk sessions through the interrupt queue (next control poll)
+    nudge: (agentId, text) => { if (!interrupt(ctx, agentId, text, "Redeploy")) world.ops.enqueueInterrupt(agentId, text, "Redeploy"); },
     hold: (on) => { draining = on; },
     blocked: () => world.agents.where("kind = 'resident' AND status = 'idle'", [], "ORDER BY createdAt")
       .filter((a) => !ctx.live.has(a.id) && !starting.has(a.id) && !!nextPending(world, a.id) && world.budget.canStart(a.id)).map((a) => a.id),
