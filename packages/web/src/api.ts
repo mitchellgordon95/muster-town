@@ -50,7 +50,7 @@ export interface Cabinet { docs: Doc[]; counts: { type: DocType; authorId: strin
 export interface EventQuery { since?: number; agentId?: string; buildingId?: string; limit?: number }
 /** `GET /api/budget` — the contract only says "per-building allocated/spent and per-user donated". */
 export interface Budget {
-  buildings: { buildingId: string; allocated: number; spent: number; spentUsd?: number }[];
+  buildings: { buildingId: string; allocated: number; spent: number; spentUsd?: number; tokensToday?: number; tokensAllTime?: number }[];
   users: { userId: string; name?: string; donated: number }[];
 }
 /** Unspent allocation tokens by funding mode (retired allocations left out). */

@@ -391,7 +391,7 @@ export class MockApi implements Api {
     await wait();
     const buildings = this.sim.buildings.filter((b) => b.kind !== "town-hall").map((b) => {
       const al = this.sim.allocations.filter((a) => a.buildingId === b.id && !a.retired);
-      return { buildingId: b.id, allocated: al.reduce((s, a) => s + a.tokens, 0), spent: al.reduce((s, a) => s + a.spentTokens, 0), spentUsd: al.reduce((s, a) => s + a.spentUsd, 0) };
+      return { buildingId: b.id, allocated: al.reduce((s, a) => s + a.tokens, 0), spent: al.reduce((s, a) => s + a.spentTokens, 0), spentUsd: al.reduce((s, a) => s + a.spentUsd, 0), tokensToday: this.sim.budgetOf(b.id).tokensToday, tokensAllTime: this.sim.budgetOf(b.id).tokensAllTime };
     });
     return { buildings, users: this.sim.users.map((u) => ({ userId: u.id, name: u.name, donated: u.donatedTokens })) };
   }

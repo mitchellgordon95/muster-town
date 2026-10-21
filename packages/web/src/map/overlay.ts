@@ -37,10 +37,16 @@ export function bubbleFor(a: Agent, said: { text: string; at: number } | undefin
   }
 }
 
-/** Budget line on a building sign: "3.3M used · 46.7M left", or null when nothing was ever allocated. */
+/**
+ * Budget line on a building sign: "1.2M today · 40M all-time · 46.7M left" (tokens its residents used, and what its
+ * allocations still hold); "left" only when something was allocated; null when nothing was ever used or allocated.
+ */
 export function buildingBudgetLine(budget: BuildingBudget | undefined): string | null {
-  if (!budget || budget.allocatedTokens <= 0) return null;
-  return `${fmtTokens(budget.spentTokens)} used · ${fmtTokens(budget.remainingTokens)} left`;
+  if (!budget) return null;
+  const today = budget.tokensToday ?? 0, allTime = budget.tokensAllTime ?? 0;
+  const used = allTime > 0 ? `${fmtTokens(today)} today · ${fmtTokens(allTime)} all-time` : "";
+  const left = budget.allocatedTokens > 0 ? `${fmtTokens(budget.remainingTokens)} left` : "";
+  return [used, left].filter(Boolean).join(" · ") || null;
 }
 
 /** Budget line under a resident's name: today's tokens and what's left of the daily allowance. */

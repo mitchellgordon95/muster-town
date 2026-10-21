@@ -48,6 +48,9 @@ function Overview({ b }: { b: SnapshotBuilding }) {
   const members = useMemo(() => Object.values(agents).filter((a) => (a.homeBuildingId ?? a.buildingId) === b.id && a.kind === "resident"), [agents, b.id]);
   const budget = useLoad(() => api().budget(), [b.id]);
   const row = budget.data?.buildings.find((x) => x.buildingId === b.id);
+  // the WS resends a building after funded charges only, so the copy fetched on open can be the fresher one
+  const live = b.budget, usage = row?.tokensAllTime !== undefined && row.tokensAllTime > (live?.tokensAllTime ?? -1)
+    ? { today: row.tokensToday ?? 0, allTime: row.tokensAllTime } : live ? { today: live.tokensToday ?? 0, allTime: live.tokensAllTime ?? 0 } : null;
   const places = useTown((s) => s.places);
   const hasBoard = places.some((p) => p.id === `board:${b.id}`);
   const hasCabinet = places.some((p) => p.id === `cabinet:${b.id}`);
@@ -74,8 +77,9 @@ function Overview({ b }: { b: SnapshotBuilding }) {
           </button>
         </div>
       ) : null}
-      {b.kind !== "town-hall" ? (
-        <KV items={[
+      <KV items={[
+        ["Tokens used", usage ? <><b>{fmtTokens(usage.today)}</b> today · <b>{fmtTokens(usage.allTime)}</b> all-time</> : budget.loading ? "…" : "—"],
+        ...(b.kind !== "town-hall" ? [
           ["Budget", row ? <>{fmtTokens(row.allocated - row.spent)} left of {fmtTokens(row.allocated)} <Meter v={row.allocated ? row.spent / row.allocated : 0} /></> : budget.loading ? "…" : "no allocation"],
           ["Spent", row?.spentUsd !== undefined ? usd(row.spentUsd) : "—"],
           ["Models", `${b.model} · cheap: ${b.cheapModel}`],
@@ -83,8 +87,8 @@ function Overview({ b }: { b: SnapshotBuilding }) {
           ["Desks", `${members.length} / ${b.headcount}`],
           ["Review", b.reviewPolicy === "human" ? "the manager works the in-tray" : b.reviewPolicy === "reviewer" ? "the reviewer agent works the in-tray" : "reports are acknowledged on arrival"],
           ...(b.codeAccess && repo ? [["Code", <>the collective repo <code>{repoLabel(repo)}</code></>] as [string, ReactNode]] : []),
-        ]} />
-      ) : null}
+        ] : []) as [string, ReactNode][],
+      ]} />
     </>
   );
 }
