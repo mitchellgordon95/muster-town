@@ -1,6 +1,7 @@
 import { townEnv, type Agent, type AgentStatus, type DesksConfig, type RedeployLive, type RedeployResult, type ServerMessage, type Tile } from "@muster-town/schema";
 import { Bank } from "./bank.ts";
 import { Budget } from "./budget.ts";
+import { Grants } from "./grants.ts";
 import { intrayCounts, intrayOf } from "./domain.ts";
 import { migrateRoles } from "./migrate-roles.ts";
 import { openDb, type DB } from "./db.ts";
@@ -47,6 +48,8 @@ export class World {
   readonly permissions: Permissions;
   readonly budget: Budget;
   readonly bank: Bank;
+  /** goal-directed budgets: proposals, grants, key results, exploration allowance */
+  readonly grantDesk: Grants;
   readonly layout: WorldMap;
   readonly movement: Movement;
   readonly verbs: Verbs;
@@ -102,6 +105,7 @@ export class World {
     this.movement = new Movement(repos, this.layout, this.events, this.changes);
     this.verbs = makeVerbs(this);
     this.ops = new Ops(this);
+    this.grantDesk = new Grants(this);
     this.presence = new Presence(this);
     // agent.activity is server-maintained from events
     this.events.addHook((e) => {
