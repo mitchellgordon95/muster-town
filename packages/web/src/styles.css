@@ -259,6 +259,7 @@ kbd { font-family: var(--mono); font-size: 11px; background: #2a2d3a; border: 1p
 .md h3 { font-size: 13px; margin: 14px 0 4px; }
 .md p { margin: 6px 0; } .md ul, .md ol { padding-left: 20px; margin: 6px 0; } .md li { margin: 2px 0; }
 .md a { color: var(--accent); }
+.doc-id { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 0.9em; }
 .md blockquote { margin: 8px 0; padding: 4px 12px; border-left: 3px solid var(--line-2); color: var(--muted); }
 .md pre { background: #12131a; border: 1px solid var(--line); border-radius: 6px; padding: 8px 10px; overflow: auto; }
 .md pre code { background: none; padding: 0; }

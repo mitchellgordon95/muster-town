@@ -4,6 +4,7 @@ import type { Doc } from "@muster-town/schema";
 import { api } from "../api";
 import { store, useTown } from "../state";
 import { Markdown, openDocLink } from "./Markdown";
+import { docUrl } from "../route";
 import { Act, Pill, nameOf, timeAgo, fmtTokens, usd } from "./ui";
 
 export const DECISION_TONE: Record<string, string> = { pending: "warn", approve: "ok", continue: "ok", redirect: "info", stop: "bad" };
@@ -122,6 +123,7 @@ export function DocView({ doc: initial, onBack, backLabel = "Back", review, onDe
         by <b>{nameOf(doc.authorId)}</b> · {timeAgo(doc.createdAt)}
         {cost ? <> · <span title="What this session cost">{cost}</span></> : null}
         {doc.location ? <> · at {doc.location}</> : null}
+        {" · "}<CopyLink id={doc.id} />
       </div>
       {doc.decisionNote && !doc.body.includes("## Reply from") ? <div className="callout"><b>{nameOf(doc.decidedBy)}:</b> {doc.decisionNote}</div> : null}
       {doc.trophyProposedBy ? <div className="callout gold"><b>Trophy proposal</b> by {nameOf(doc.trophyProposedBy)}{doc.trophyWhy ? `: ${doc.trophyWhy}` : ""}</div> : null}
@@ -146,6 +148,15 @@ export function DocView({ doc: initial, onBack, backLabel = "Back", review, onDe
       ) : null}
     </article>
   );
+}
+
+/** The doc's id, which agents can cite in any body; click copies a shareable URL. */
+function CopyLink({ id }: { id: string }) {
+  const copy = async () => {
+    try { await navigator.clipboard.writeText(docUrl(id)); store.toast("Link copied", "ok"); }
+    catch { store.toast(docUrl(id), "info"); }
+  };
+  return <button className="link doc-id" title="Copy a link to this document" onClick={() => void copy()}>{id} ⧉</button>;
 }
 
 export function DocRow({ doc, onOpen }: { doc: Doc; onOpen: () => void }) {

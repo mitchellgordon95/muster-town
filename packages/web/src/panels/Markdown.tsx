@@ -1,6 +1,7 @@
 /**
  * Markdown rendering with `marked`, a small allowlist sanitizer (docs are agent-written and may quote
- * the web), and link resolution: relative links like `../sources/gcb-2025-essd.md` open the matching doc.
+ * the web), and link resolution: relative links like `../sources/gcb-2025-essd.md` open the matching doc,
+ * and bare doc ids (`dc_k955hun6c4`) in text become links.
  */
 import { marked } from "marked";
 import { useMemo } from "react";
@@ -29,7 +30,48 @@ export function sanitize(html: string): string {
   };
   const root = doc.body.firstElementChild!;
   walk(root);
+  linkDocIds(root);
   return root.innerHTML;
+}
+
+/** A doc id as the server mints it: `dc_` + 10 lowercase alphanumerics. */
+const DOC_ID_RE = /\bdc_[a-z0-9]{10}\b/g;
+
+/** Split text into plain strings and `{ id }` parts at each bare doc id. */
+export function docIdParts(s: string): (string | { id: string })[] {
+  const out: (string | { id: string })[] = [];
+  let last = 0;
+  for (const m of s.matchAll(DOC_ID_RE)) {
+    if (m.index > last) out.push(s.slice(last, m.index));
+    out.push({ id: m[0] });
+    last = m.index + m[0].length;
+  }
+  if (last < s.length) out.push(s.slice(last));
+  return out;
+}
+
+/** Wrap bare doc ids in text nodes (outside links and code) in `<a href="dc_…">` so they open the doc. */
+function linkDocIds(root: Element) {
+  const owner = root.ownerDocument;
+  const texts: Text[] = [];
+  const it = owner.createTreeWalker(root, NodeFilter.SHOW_TEXT);
+  for (let n = it.nextNode(); n; n = it.nextNode()) {
+    if (!n.parentElement?.closest("a, code, pre") && (n.nodeValue ?? "").includes("dc_")) texts.push(n as Text);
+  }
+  for (const t of texts) {
+    const parts = docIdParts(t.nodeValue ?? "");
+    if (parts.every((p) => typeof p === "string")) continue;
+    t.replaceWith(...parts.map((p) => {
+      if (typeof p === "string") return p;
+      const a = owner.createElement("a");
+      a.setAttribute("href", p.id);
+      a.className = "doc-id";
+      const title = store.state.docs[p.id]?.title;
+      if (title) a.title = title;
+      a.textContent = p.id;
+      return a;
+    }));
+  }
 }
 
 const slug = (s: string) => s.toLowerCase().replace(/\.md$/, "").replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "");
@@ -50,6 +92,10 @@ export function matchDoc(href: string, docs: Doc[]): Doc | null {
 
 export async function openDocLink(href: string) {
   let hit = matchDoc(href, Object.values(store.state.docs));
+  const id = /^(?:doc:)?(dc_[a-z0-9_]+)$/.exec(href.split("/").pop() ?? "")?.[1];
+  if (!hit && id) {
+    try { hit = await api().doc(id); store.putDocs([hit]); } catch { /* not visible or not an id: try the other ways */ }
+  }
   if (!hit) {
     try {
       const list = await api().docs({ limit: 200 });

@@ -20,6 +20,7 @@ import { PlanningPanel } from "./panels/PlanningPanel";
 import { BoardPanel, CabinetPanel, IntrayPanel, ModStationPanel, SchedulePanel } from "./panels/Places";
 import { BankPanel } from "./panels/BankPanel";
 import { HowItWorks, howItWorksSeen } from "./panels/HowItWorks";
+import { startDocRoutes } from "./route";
 
 type TownHooks = { teleportTo(agentId: string): boolean; walkTo(placeId: string): boolean; openPanel(kind: PanelKind, id?: string): void; townMap(): void; store: typeof store };
 
@@ -155,6 +156,7 @@ export function App() {
       store,
     };
   }, []);
+  useEffect(() => (ready ? startDocRoutes() : undefined), [ready]);
   useEffect(() => {
     const key = (e: KeyboardEvent) => {
       if (layoutEdit.draft || townPlan.draft) return; // the map handles keys while editing a layout or planning
