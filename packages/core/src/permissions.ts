@@ -36,12 +36,14 @@ export class Permissions {
    *   ownerCan  = the owner user can (an owner id with no user row counts as ownerless)
    *   inherited = agent.inheritsOwner && ownerCan   (human avatars always inherit)
    *   result    = owner ? (own || inherited) && ownerCan : own   — an agent never exceeds its owner
-   * then `deniedPermissions` removes it.
+   * then `deniedPermissions` removes it. `building.fund` is never effective for agents (only human avatars, as their
+   * user): otherwise a manager agent whose owner is admin could fund its own proposal.
    */
   can(holder: Holder | Agent, permission: Permission, buildingId?: string | null): boolean {
     const x = this.resolve(holder);
     if (!isAgent(x)) return this.rolesGrant(x, permission, buildingId);
     if (x.deniedPermissions?.includes(permission)) return false;
+    if (permission === "building.fund" && x.kind !== "human") return false;
     const owner = this.ownerOf(x);
     const own = this.rolesGrant({ kind: "agent", id: x.id }, permission, buildingId);
     if (!owner) return own;

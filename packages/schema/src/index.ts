@@ -73,6 +73,7 @@ export const Permission = z.enum([
   "building.review",         // acknowledge/continue/redirect/stop reports (the in-tray)
   "building.dismiss",        // dismiss (retire) a resident of the building
   "building.promote",        // promote a doc from building -> library
+  "building.fund",           // fund / counter / reject grant proposals, decide checkpoints, mark key results met/missed (never effective for agents)
   "doc.write_building",      // publish own docs to the building board
   "doc.propose_trophy",
   "doc.request_human",
@@ -105,7 +106,7 @@ export const BUILTIN_ROLES = {
   },
   building: {
     manager: [
-      "building.manage", "building.assign", "building.review", "building.promote", "building.dismiss",
+      "building.manage", "building.assign", "building.review", "building.promote", "building.dismiss", "building.fund",
       "doc.write_building", "doc.propose_trophy", "doc.request_human", "meeting.facilitate", "meeting.attend",
     ] as Permission[],
     /** works the building's in-tray when reviewPolicy is `reviewer` */
@@ -160,6 +161,10 @@ export const Building = z.object({
   codeAccess: z.boolean().default(false),
   /** the Bank pool this building draws from; null = the collective's default pool, General (`DEFAULT_POOL_ID`) */
   poolId: Id.nullable().default(null),
+  /** goal-directed budgets: tokens per day for exploration work; null = 10% of its pool's daily inflow */
+  explorationTokensPerDay: z.number().int().nonnegative().nullable().default(null),
+  /** rollout switch for goal-directed budgets: `open` = today's rules, `goal-directed` = grants and exploration gate sessions */
+  budgetMode: z.enum(["open", "goal-directed"]).default("open"),
   /** tile rectangle on the town grid; assigned by the server if absent */
   lot: Lot.optional(),
   /** moved furniture: piece key (`board`, `desk:3`, `meeting`, …) -> anchor tile relative to the lot; absent = default spot */
@@ -503,6 +508,81 @@ export const Meeting = z.object({
 });
 export type Meeting = z.infer<typeof Meeting>;
 
+// ---------- goal-directed budgets: grants and key results ----------
+/** Every session runs in one lane: work on a funded grant, goal-scoped exploration, or work a human asked for directly. */
+export const SpendLane = z.enum(["grant", "exploration", "directed"]);
+export type SpendLane = z.infer<typeof SpendLane>;
+export const GrantStatus = z.enum([
+  "draft",       // the manager is writing it
+  "proposed",    // waiting for a human
+  "countered",   // a human sent it back with changes; the manager's move
+  "funded",      // sessions may draw on it
+  "checkpoint",  // spend crossed 50% (or 100%): new sessions held until a human decides
+  "closed",      // done: see outcome
+  "rejected",
+]);
+export type GrantStatus = z.infer<typeof GrantStatus>;
+export const GrantOutcome = z.enum(["met", "stopped", "spent", "cut"]);
+export type GrantOutcome = z.infer<typeof GrantOutcome>;
+export const GrantAction = z.enum(["propose", "counter", "fund", "reject", "checkpoint", "continue", "adjust", "cut", "close", "edit"]);
+export const GrantHistoryEntry = z.object({
+  at: Iso,
+  byId: Id,
+  byKind: z.enum(["agent", "user"]),
+  action: GrantAction,
+  tokens: z.number().int().nullable().default(null),
+  note: z.string().default(""),
+});
+export type GrantHistoryEntry = z.infer<typeof GrantHistoryEntry>;
+/** A building's proposal and, once funded, its grant: one objective, 2-3 key results, a token ceiling (not a reservation). */
+export const Grant = z.object({
+  id: Id,
+  buildingId: Id,
+  objective: z.string().min(1).max(300),
+  /** when to stop even if tokens remain */
+  stopCondition: z.string().min(1).max(500),
+  /** tokens asked by the manager (latest revision) */
+  askTokens: z.number().int().positive(),
+  /** tokens granted by a human; null until funded. A top-up raises it. */
+  grantTokens: z.number().int().positive().nullable().default(null),
+  status: GrantStatus,
+  outcome: GrantOutcome.nullable().default(null),
+  /** exploration reports the proposal draws on */
+  findingsDocIds: z.array(Id).default([]),
+  /** spend fractions already checkpointed (0.5, 1), so each fires once per grantTokens value */
+  checkpointsDone: z.array(z.number()).default([]),
+  /** the manager's latest checkpoint report */
+  checkpointDocId: Id.nullable().default(null),
+  proposedBy: Id,
+  /** a user id; never an agent */
+  fundedBy: Id.nullable().default(null),
+  fundedAt: Iso.nullable().default(null),
+  closedAt: Iso.nullable().default(null),
+  /** the negotiation: every propose / counter / fund / checkpoint decision / close, oldest first */
+  history: z.array(GrantHistoryEntry).default([]),
+  createdAt: Iso,
+  updatedAt: Iso,
+});
+export type Grant = z.infer<typeof Grant>;
+export const KeyResultStatus = z.enum(["not-started", "on-track", "at-risk", "claimed", "met", "missed"]);
+export type KeyResultStatus = z.infer<typeof KeyResultStatus>;
+/** Something a human can check in the live town. `met` / `missed` are set only by users with `building.fund`. */
+export const KeyResult = z.object({
+  id: Id,
+  grantId: Id,
+  position: z.number().int(),
+  text: z.string().min(1).max(300),
+  howToCheck: z.string().min(1).max(300),
+  status: KeyResultStatus.default("not-started"),
+  statusNote: z.string().default(""),
+  statusBy: Id.nullable().default(null),
+  updatedAt: Iso,
+});
+export type KeyResult = z.infer<typeof KeyResult>;
+/** A grant as the API returns it: its key results (in order) and derived spend. */
+export const GrantView = Grant.extend({ keyResults: z.array(KeyResult), spentTokens: z.number().int().nonnegative() });
+export type GrantView = z.infer<typeof GrantView>;
+
 // ---------- sessions (a resident's work session) ----------
 export const SessionStatus = z.enum(["running", "done", "error", "interrupted"]);
 export const Session = z.object({
@@ -525,6 +605,10 @@ export const Session = z.object({
   endedAt: Iso.nullable().default(null),
   /** how the session was paid for (a desk that fails over from the subscription ends as `api-key`) */
   funding: AllocationAuth.nullish(),
+  /** goal-directed budgets: the spend lane, copied from the assignment at start (null = before lanes existed) */
+  lane: SpendLane.nullish(),
+  /** the grant this session's tokens count against (a grant's spend is the sum over its sessions) */
+  grantId: Id.nullish(),
 });
 export type Session = z.infer<typeof Session>;
 
@@ -551,6 +635,7 @@ export const EventType = z.enum([
   "meeting.created", "meeting.phase", "meeting.utterance", "meeting.decisions",
   "session.started", "session.ended",
   "building.created", "building.updated", "building.layout", "town.plan", "allocation.created", "budget.exhausted", "bank.input", "bank.credited", "bank.share", "bank.pool",
+  "grant.created", "grant.updated", "grant.proposed", "grant.countered", "grant.funded", "grant.rejected", "grant.checkpoint", "grant.closed", "kr.updated",
   "export.done", "system",
 ]);
 export const Event = z.object({
@@ -761,8 +846,48 @@ export const WALKABLE = new Set<number>([TILE.GRASS, TILE.PATH, TILE.FLOOR, TILE
 
 // ---------- REST payloads ----------
 export const CreateBuildingInput = Building.pick({ name: true, goal: true, description: true, headcount: true, reviewPolicy: true, model: true, cheapModel: true, maxTurnsPerSession: true, dailyTokensPerAgent: true, meetings: true, rules: true, codeAccess: true, managerAgentId: true }).partial({ goal: true, description: true, headcount: true, reviewPolicy: true, model: true, cheapModel: true, maxTurnsPerSession: true, dailyTokensPerAgent: true, meetings: true, rules: true, codeAccess: true, managerAgentId: true });
-/** `poolId` moves the building to another Bank pool at once (admin only; null = General). */
-export const UpdateBuildingInput = CreateBuildingInput.partial().extend({ poolId: Id.nullable().optional() });
+/**
+ * `poolId` moves the building to another Bank pool at once (admin only; null = General). `explorationTokensPerDay`
+ * and `budgetMode` need `building.fund` (a human), so a manager agent can't raise its own allowance.
+ */
+export const UpdateBuildingInput = CreateBuildingInput.partial().extend({
+  poolId: Id.nullable().optional(),
+  explorationTokensPerDay: z.number().int().nonnegative().nullable().optional(),
+  budgetMode: z.enum(["open", "goal-directed"]).optional(),
+});
+const KeyResultInput = z.object({ text: z.string().trim().min(1).max(300), howToCheck: z.string().trim().min(1).max(300) });
+/** POST /api/buildings/:id/grants: a draft proposal (the manager). */
+export const CreateGrantInput = z.object({
+  objective: z.string().trim().min(1).max(300),
+  stopCondition: z.string().trim().min(1).max(500),
+  askTokens: z.number().int().positive(),
+  keyResults: z.array(KeyResultInput).min(2).max(3),
+  findingsDocIds: z.array(Id).default([]),
+});
+export type CreateGrantInput = z.input<typeof CreateGrantInput>;
+/** PATCH /api/grants/:id while draft / countered. `keyResults` replaces the list (statuses reset). */
+export const UpdateGrantInput = CreateGrantInput.partial().extend({ note: z.string().max(2000).optional() });
+export type UpdateGrantInput = z.input<typeof UpdateGrantInput>;
+/**
+ * POST /api/grants/:id/decide (`building.fund`). On a proposed grant: fund (tokens default to the ask), counter
+ * (edits + note, back to the manager), reject. On a checkpoint grant: continue, adjust (tokens/KRs/stop condition), cut.
+ */
+export const DecideGrantInput = z.object({
+  action: z.enum(["fund", "counter", "reject", "continue", "adjust", "cut"]),
+  tokens: z.number().int().positive().optional(),
+  keyResults: z.array(KeyResultInput).min(2).max(3).optional(),
+  stopCondition: z.string().trim().min(1).max(500).optional(),
+  note: z.string().max(2000).default(""),
+});
+export type DecideGrantInput = z.input<typeof DecideGrantInput>;
+/** POST /api/grants/:id/close: the manager may close as `stopped`; `building.fund` any outcome. */
+export const CloseGrantInput = z.object({ outcome: GrantOutcome, note: z.string().max(2000).default("") });
+export type CloseGrantInput = z.input<typeof CloseGrantInput>;
+/** PATCH /api/key-results/:id: the manager up to `claimed`; `building.fund` for `met` / `missed`. */
+export const UpdateKeyResultInput = z.object({ status: KeyResultStatus, note: z.string().max(2000).default("") });
+export type UpdateKeyResultInput = z.input<typeof UpdateKeyResultInput>;
+/** GET /api/buildings/:id/grants?status= */
+export const GrantsQuery = z.object({ status: GrantStatus.optional() });
 /** PUT /api/buildings/:id/layout: lot-relative anchors for moved pieces (left out = stays put); `dryRun` only checks it. */
 export const LayoutInput = z.object({ furniture: z.record(Tile), dryRun: z.boolean().default(false) });
 /**

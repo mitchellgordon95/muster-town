@@ -48,10 +48,18 @@ export class Ops {
   }
   /** `poolId` (admin only) moves the building to another Bank pool at once; the rest needs building.manage. */
   updateBuilding(actor: Actor, id: string, patch: (typeof UpdateBuildingInput)["_input"]) {
-    const { poolId, ...rest } = patch;
-    if (actor && (Object.keys(rest).length || poolId === undefined)) this.world.permissions.require(actor, "building.manage", id);
+    const { poolId, explorationTokensPerDay, budgetMode, ...rest } = patch;
+    const budget = { ...(explorationTokensPerDay !== undefined && { explorationTokensPerDay }), ...(budgetMode !== undefined && { budgetMode }) };
+    const other = Object.keys(rest).length || (poolId === undefined && !Object.keys(budget).length);
+    if (actor && other) this.world.permissions.require(actor, "building.manage", id);
+    // goal-directed budget settings are a human's call: a manager agent can't raise its own allowance
+    if (actor && Object.keys(budget).length) this.world.permissions.require(actor, "building.fund", id);
     if (poolId !== undefined) this.world.bank.setBuildingPool(actor, id, poolId);
-    return Object.keys(rest).length || poolId === undefined ? updateBuilding(this.world, id, rest) : this.world.buildings.require(id, "building");
+    if (Object.keys(budget).length) {
+      const b = this.world.buildings.upsert({ ...this.world.buildings.require(id, "building"), ...budget });
+      this.world.events.append({ type: "building.updated", buildingId: id, text: `${b.name} budget settings updated`, payload: { fields: Object.keys(budget) } });
+    }
+    return other ? updateBuilding(this.world, id, rest) : this.world.buildings.require(id, "building");
   }
   /** Furniture is edited by humans only (Mitchell, 2026-10-20): an agent token is refused even with building.manage. */
   layoutPreview(actor: Actor, id: string, furniture: Furniture) {

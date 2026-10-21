@@ -393,13 +393,23 @@ export class Bank {
       .slice(0, limit);
   }
 
-  summary(): BankSummary {
-    const inputs = this.repos.bankInputs.all("ORDER BY createdAt, rowid");
-    const dailyInflowTokens = Math.round(inputs.reduce((s, i) => {
+  /** Expected tokens per day from active recurring inputs (monthly counts as 30 days; a subscription at most its weekly cap / 7). */
+  dailyInflow(): number {
+    return Math.round(this.repos.bankInputs.all().reduce((s, i) => {
       if (i.cancelledAt || i.recurrence === "once") return s;
       const perDay = i.tokens / DAYS_PER[i.recurrence];
       return s + (i.weeklyCapTokens ? Math.min(perDay, i.weeklyCapTokens / 7) : perDay);
     }, 0));
+  }
+
+  /** A pool's share of the daily inflow (0 for a pool with no share). */
+  poolDailyInflow(poolId: string): number {
+    return Math.floor(this.dailyInflow() * (this.shares().get(poolId)?.pct ?? 0) / 100);
+  }
+
+  summary(): BankSummary {
+    const inputs = this.repos.bankInputs.all("ORDER BY createdAt, rowid");
+    const dailyInflowTokens = this.dailyInflow();
     const creditedTokens = inputs.reduce((s, i) => s + i.creditedTokens, 0);
     const now = new Date();
     const totals = this.totals(now);

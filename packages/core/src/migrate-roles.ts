@@ -2,7 +2,7 @@
  * v1.2 roles split, as an idempotent data fix run at every open (after SQL migrations, before any role is read
  * through the schema, which no longer knows `building.ban`). Raw SQL on purpose.
  * - building `role:<bid>:moderator` → `role:<bid>:reviewer` with the reviewer permission set; memberships move with it
- * - built-in managers lose `building.ban`, gain `building.dismiss`; admin gets every permission
+ * - built-in managers lose `building.ban`, gain `building.dismiss` and `building.fund`; admin gets every permission
  * - any other role drops permissions the schema no longer has
  * - creates the town `moderator` role once the town has roles
  * - v1.3: creates the town `deployer` role (`town.redeploy`) once the town has roles. Data fix: in the pass that
@@ -40,6 +40,7 @@ export function migrateRoles(db: DB): MigrateRolesResult {
       else if (r.builtin && r.scope === "building" && r.name === "manager") {
         perms = perms.filter((p) => p !== "building.ban");
         if (!perms.includes("building.dismiss")) perms.push("building.dismiss");
+        if (!perms.includes("building.fund")) perms.push("building.fund");
       }
       perms = perms.filter((p) => valid.has(p));
       if (JSON.stringify(perms) !== before) {
