@@ -8,7 +8,7 @@ import {
   drawDoor, drawVault, drawGold, drawPillar, drawGoldCounter, drawManagerDesk, drawBoard, drawCabinet,
 } from "../map/sprites";
 
-export type SceneKind = "donate" | "bank" | "buildings" | "work" | "agent" | "connect" | "tasks" | "visit" | "read" | "talk";
+export type SceneKind = "inflow" | "bank" | "buildings" | "work" | "agent" | "connect" | "tasks" | "visit" | "read" | "talk";
 
 const W = 7, H = 3;
 type G = CanvasRenderingContext2D;
@@ -50,17 +50,38 @@ const screen = (g: G, px: number, py: number) => {
   g.fillStyle = "#6a6f80"; g.fillRect(px - 1, py + 7, 12, 1);
 };
 
+/** An API key lying on its side, ring at (px, py), about 14x6 px. */
+const apiKey = (g: G, px: number, py: number) => {
+  g.fillStyle = "#a87a14"; g.fillRect(px, py + 1, 6, 4); g.fillRect(px + 1, py, 4, 6); g.fillRect(px + 6, py + 2, 8, 2); g.fillRect(px + 10, py + 4, 2, 2); g.fillRect(px + 13, py + 4, 1, 2);
+  g.fillStyle = "#f2c94c"; g.fillRect(px + 1, py + 1, 4, 4); g.fillRect(px + 6, py + 2, 7, 1);
+  g.fillStyle = "#9fd0ee"; g.fillRect(px + 2, py + 2, 2, 2);
+};
+/** A dollar bill, 14x8 px. */
+const bill = (g: G, px: number, py: number) => {
+  g.fillStyle = "#2e6b3a"; g.fillRect(px, py, 14, 8);
+  g.fillStyle = "#86c98f"; g.fillRect(px + 1, py + 1, 12, 6);
+  g.fillStyle = "#4f9a5f"; g.fillRect(px + 5, py + 1, 4, 6);
+  // the $
+  g.fillStyle = "#e8f6e8"; g.fillRect(px + 6, py + 2, 2, 1); g.fillRect(px + 6, py + 3, 1, 1); g.fillRect(px + 6, py + 4, 2, 1); g.fillRect(px + 7, py + 5, 1, 1); g.fillRect(px + 6, py + 6, 2, 1);
+};
+/** Faint streaks above something falling. */
+const falling = (g: G, px: number, py: number) => {
+  g.fillStyle = "rgba(255,255,255,.6)"; g.fillRect(px, py - 7, 1, 4); g.fillRect(px + 4, py - 10, 1, 6); g.fillRect(px + 8, py - 6, 1, 3);
+};
+
 const DRAW: Record<SceneKind, (g: G) => void> = {
-  // you walk up to the Bank with a coin
-  donate(g) {
+  // API keys and money falling into the town, no one carrying them
+  inflow(g) {
     const tl = tiles();
-    fill(g, tl.grass);
-    for (let x = 0; x < W; x++) g.drawImage(tl.path, x * T, 2 * T);
-    for (let x = 3; x < W; x++) { g.drawImage(tl.goldTop, x * T, 0); g.drawImage(tl.goldFace, x * T, T); }
-    drawDoor(g, 5 * T, T, true);
-    person(g, HUMAN_SPRITE, 14, 2 * T - 6, 2);
-    bubble(g, 20, 2 * T - 6, "coin");
-    coin(g, 34, 2 * T + 6); coin(g, 46, 2 * T + 8); coin(g, 58, 2 * T + 6);
+    g.fillStyle = "#9fd0ee"; g.fillRect(0, 0, W * T, H * T);
+    g.fillStyle = "#f4f8fc"; g.fillRect(10, 6, 14, 3); g.fillRect(13, 4, 7, 2); g.fillRect(80, 10, 16, 3); g.fillRect(84, 8, 8, 2);
+    for (let x = 0; x < W; x++) { g.drawImage(tl.goldTop, x * T, 2 * T); }
+    falling(g, 10, 22); apiKey(g, 8, 22);
+    falling(g, 32, 10); bill(g, 30, 12);
+    falling(g, 52, 26); apiKey(g, 50, 26);
+    falling(g, 72, 16); bill(g, 70, 18);
+    falling(g, 94, 28); coin(g, 96, 26);
+    coin(g, 42, 36); coin(g, 86, 38);
   },
   // one shared balance: the Bank's hall
   bank(g) {

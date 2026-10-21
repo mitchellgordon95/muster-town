@@ -461,24 +461,20 @@ kbd { font-family: var(--mono); font-size: 11px; background: #2a2d3a; border: 1p
 .hiw-page { --hue: var(--accent); --hue-bg: #1e3247; }
 .hiw-page.money { --hue: var(--warn); --hue-bg: #3d3418; }
 .hiw-page.public { --hue: #7fcf8f; --hue-bg: #1d3524; }
-.hiw-tag { display: inline-block; font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: .08em; color: var(--hue); background: var(--hue-bg); border-radius: 999px; padding: 3px 10px; }
-.hiw h2 { margin: 8px 0 16px; font-size: 21px; line-height: 1.25; }
-.hiw-step { display: flex; align-items: center; gap: 16px; }
-.hiw-scene { flex: none; width: 224px; height: 96px; image-rendering: pixelated; border-radius: 8px; border: 2px solid var(--hue-bg); box-shadow: 0 4px 14px rgba(0,0,0,.35); }
-.hiw-text { min-width: 0; }
-.hiw-text b { display: flex; align-items: center; gap: 8px; font-size: 15px; }
-.hiw-text p { margin: 4px 0 0; color: var(--muted); font-size: 13px; line-height: 1.45; }
-.hiw-text code { font-size: 12px; }
+.hiw-pre { font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: .1em; color: var(--faint); }
+.hiw h2 { margin: 2px 0 4px; font-size: 32px; line-height: 1.1; letter-spacing: -.01em; color: var(--hue); }
+.hiw-sub { margin: 0 0 14px; color: var(--muted); font-size: 13px; }
+.hiw-scene { display: block; width: 224px; height: 96px; image-rendering: pixelated; border-radius: 8px; border: 2px solid var(--hue-bg); box-shadow: 0 4px 14px rgba(0,0,0,.35); }
+.hiw-arrow { display: flex; align-items: center; gap: 10px; min-height: 42px; margin-left: 111px; font-size: 14px; font-weight: 600; line-height: 1.35; }
+.hiw-arrow i { position: relative; flex: none; align-self: stretch; width: 2px; margin-right: 6px; background: repeating-linear-gradient(var(--hue) 0 3px, transparent 3px 6px); opacity: .8; }
+.hiw-arrow i::after { content: ""; position: absolute; left: -4px; bottom: -1px; border: 5px solid transparent; border-top-color: var(--hue); border-bottom-width: 0; }
+.hiw-arrow code { font-size: 12px; }
 .hiw-n { flex: none; display: grid; place-items: center; width: 20px; height: 20px; border-radius: 50%; font-size: 11px; background: var(--hue-bg); color: var(--hue); }
-.hiw-down { display: flex; align-items: center; gap: 8px; height: 30px; margin-left: 103px; font-size: 10px; text-transform: uppercase; letter-spacing: .08em; color: var(--faint); }
-.hiw-down i { position: relative; width: 2px; height: 100%; background: repeating-linear-gradient(var(--hue) 0 3px, transparent 3px 6px); opacity: .7; }
-.hiw-down i::after { content: ""; position: absolute; left: -4px; bottom: -1px; border: 5px solid transparent; border-top-color: var(--hue); border-bottom-width: 0; }
 .hiw-foot { display: flex; align-items: center; gap: 8px; padding: 10px 16px 14px; border-top: 1px solid var(--line); }
 .hiw-dots { flex: 1; display: flex; gap: 6px; }
 .hiw-dots button { width: 8px; height: 8px; border-radius: 50%; border: none; padding: 0; background: var(--line-2); cursor: pointer; }
 .hiw-dots button.on { background: var(--accent); width: 20px; border-radius: 4px; }
 @media (max-width: 560px) {
-  .hiw-step { flex-direction: column; align-items: flex-start; gap: 8px; }
   .hiw-scene { width: 100%; height: auto; }
-  .hiw-down { margin-left: 12px; }
+  .hiw-arrow { margin-left: 12px; }
 }
