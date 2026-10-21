@@ -3,7 +3,7 @@ import type { Agent, Assignment, AuthMe, Building, Doc, Event, Meeting, Membersh
 import { BOARD_TYPES, DEFAULT_POOL_ID, type BankPool } from "@muster-town/schema";
 import type { Api, AgentDetail, AllocationRow, Bank, Budget, Cabinet, CabinetQuery, DocQuery, EventQuery, In, LayoutPreview, MessageResult, PlanPreview, RoomLayout, RequestAction, Snapshot, Socket, SocketHandlers, ThreadMessage, WriteDocInput } from "../api";
 import { ApiError } from "../api";
-import type { PinSkillInput, SkillPinView, SkillView } from "@muster-town/schema";
+import type { PinSkillInput, PutSecretInput, SecretView, SkillPinView, SkillView } from "@muster-town/schema";
 import type { CreateBuildingInput, UpdateBuildingInput, CreateResidentInput, ReviewInput, ChatInput, WorkInput, DonateInput, CreateMeetingInput, DocState, AddBankInput, BankInput, CreateBankPoolInput, UpdateBankPoolInput } from "@muster-town/schema";
 import { Sim, newId } from "./sim";
 import { notebooks } from "./fixture";
@@ -307,6 +307,17 @@ export class MockApi implements Api {
     this.skillPins = [...this.skillPins.filter((p) => !(p.skillId === id && p.scope === pin.scope && p.targetId === pin.targetId)), pin];
     return clone(pin);
   }
+  private secretRows: SecretView[] = [];
+  async secrets() { await wait(); return clone({ secrets: this.secretRows, keyConfigured: true }); }
+  async putSecret(name: string, i: In<typeof PutSecretInput>) {
+    await wait();
+    const cur = this.secretRows.find((x) => x.name === name);
+    const grants = { buildings: i.grants?.buildings ?? cur?.grants.buildings ?? [], agents: i.grants?.agents ?? cur?.grants.agents ?? [], skills: i.grants?.skills ?? cur?.grants.skills ?? [] };
+    const row: SecretView = { name, grants, set: !!i.value || !!cur?.set, updatedAt: now(), updatedBy: "us_mitchell" };
+    this.secretRows = [...this.secretRows.filter((x) => x.name !== name), row].sort((a, b) => a.name.localeCompare(b.name));
+    return clone(row);
+  }
+  async deleteSecret(name: string) { await wait(); const n = this.secretRows.length; this.secretRows = this.secretRows.filter((x) => x.name !== name); return { removed: this.secretRows.length < n }; }
   async unpinSkill(pinId: string) { await wait(); const n = this.skillPins.length; this.skillPins = this.skillPins.filter((p) => p.id !== pinId); return { removed: this.skillPins.length < n }; }
   async trophy(docId: string, approve: boolean) {
     await wait();

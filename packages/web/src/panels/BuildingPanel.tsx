@@ -1,4 +1,4 @@
-/** Building panel (E at the door): overview, members + roles, meetings, settings (managers: building fields). Members lists residents (managers add and dismiss there) and roles. Board, filing cabinet and in-tray are places. */
+/** Building panel (E at the door): overview, members + roles, meetings, settings (managers: building fields), secrets (Town Hall, admins). Members lists residents (managers add and dismiss there) and roles. Board, filing cabinet and in-tray are places. */
 import { useEffect, useMemo, useState, type ReactNode } from "react";
 import { DEFAULT_POOL_ID, type Meeting, type SnapshotBuilding, type Workspace } from "@muster-town/schema";
 import { fmtPct, poolColor } from "../pools";
@@ -12,12 +12,13 @@ import { PALETTES, portraitUrl } from "../map/sprites";
 import { AttendeePicker, useAttendees } from "./AttendeePicker";
 import { attendeeInput } from "./attendees";
 import { layoutEdit } from "../map/layoutEdit";
+import { SecretsTab } from "./Secrets";
 
 export function BuildingPanel({ id, tab }: { id: string; tab?: string }) {
   const b = useTown((s) => s.buildings.find((x) => x.id === id));
-  useTown((s) => s.me);
+  const me = useTown((s) => s.me);
   if (!b) return <PanelShell title="Unknown building"><Empty>No building with id {id}.</Empty></PanelShell>;
-  const tabs = ["Overview", "Members", "Meetings", ...(store.can("building.manage", id) ? ["Settings"] : [])];
+  const tabs = ["Overview", "Members", "Meetings", ...(store.can("building.manage", id) ? ["Settings"] : []), ...(b.kind === "town-hall" && me?.isAdmin ? ["Secrets"] : [])];
   return (
     <PanelShell icon={<Glyph kind="building" />} title={b.name} subtitle={`${b.kind === "town-hall" ? "Town Hall" : "Lab"} · review: ${b.reviewPolicy}`} tabs={tabs} initialTab={tab && tabs.includes(tab) ? tab : "Overview"}>
       {(t) => (
@@ -26,6 +27,7 @@ export function BuildingPanel({ id, tab }: { id: string; tab?: string }) {
           {t === "Members" ? <Members b={b} /> : null}
           {t === "Meetings" ? <MeetingsTab b={b} /> : null}
           {t === "Settings" ? <Settings b={b} /> : null}
+          {t === "Secrets" ? <SecretsTab /> : null}
         </>
       )}
     </PanelShell>

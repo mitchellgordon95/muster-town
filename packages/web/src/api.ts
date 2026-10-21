@@ -6,7 +6,7 @@ import type { z } from "zod";
 import type {
   Agent, Allocation, Assignment, AuthMe, RedeployLive, Building, ClientMessage, DesksConfig, Doc, Event, Lot, Meeting, Place, Role, Membership, SessionSlots, Tile,
   ServerMessage, Session, Town, CreateBuildingInput, UpdateBuildingInput, CreateResidentInput,
-  ReviewInput, PinSkillInput, SkillPinView, SkillView, ChatInput, WorkInput, DonateInput, AddBankInput, BankInput, CreateBankPoolInput, UpdateBankPoolInput, CreateMeetingInput, DocState, DocType, Mailbox, Permission,
+  ReviewInput, PinSkillInput, SkillPinView, SkillView, PutSecretInput, SecretView, ChatInput, WorkInput, DonateInput, AddBankInput, BankInput, CreateBankPoolInput, UpdateBankPoolInput, CreateMeetingInput, DocState, DocType, Mailbox, Permission,
 } from "@muster-town/schema";
 
 export type In<T extends z.ZodTypeAny> = z.input<T>;
@@ -186,6 +186,10 @@ export interface Api {
   skill(id: string): Promise<SkillView>;
   pinSkill(id: string, input: In<typeof PinSkillInput>): Promise<SkillPinView>;
   unpinSkill(pinId: string): Promise<{ removed: boolean }>;
+  // collective secrets (docs/secrets.md, admins): values are write-only, never returned
+  secrets(): Promise<{ secrets: SecretView[]; keyConfigured: boolean }>;
+  putSecret(name: string, input: In<typeof PutSecretInput>): Promise<SecretView>;
+  deleteSecret(name: string): Promise<{ removed: boolean }>;
   trophy(docId: string, approve: boolean): Promise<Doc>;
   request(docId: string, action: RequestAction, body?: string): Promise<Doc>;
   // meetings
@@ -339,6 +343,9 @@ export class HttpApi implements Api {
   async skills() { return (await this.get<{ skills: SkillView[] }>("/api/skills")).skills; }
   async skill(id: string) { return (await this.get<{ skill: SkillView }>(`/api/skills/${id}`)).skill; }
   async pinSkill(id: string, i: In<typeof PinSkillInput>) { return (await this.post<{ pin: SkillPinView }>(`/api/skills/${id}/pins`, i)).pin; }
+  secrets() { return this.get<{ secrets: SecretView[]; keyConfigured: boolean }>("/api/secrets"); }
+  async putSecret(name: string, i: In<typeof PutSecretInput>) { return (await this.call<{ secret: SecretView }>("PUT", `/api/secrets/${encodeURIComponent(name)}`, i)).secret; }
+  deleteSecret(name: string) { return this.call<{ removed: boolean }>("DELETE", `/api/secrets/${encodeURIComponent(name)}`); }
   unpinSkill(pinId: string) { return this.call<{ removed: boolean }>("DELETE", `/api/skill-pins/${pinId}`); }
   async trophy(id: string, approve: boolean) { return unwrap<Doc>(await this.post(`/api/docs/${id}/trophy`, { approve }), "doc"); }
   async request(id: string, action: RequestAction, body?: string) { return unwrap<Doc>(await this.post(`/api/docs/${id}/request`, { action, body }), "doc"); }
