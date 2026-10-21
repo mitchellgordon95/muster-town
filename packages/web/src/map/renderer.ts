@@ -14,6 +14,7 @@ import { blockedByRedeploy } from "../redeploy";
 import { api } from "../api";
 import { drawFlow, type Flow } from "./flow";
 import { fitZoom, quickWalkGoal } from "./overview";
+import { avatarSize } from "./avatarSize";
 import { TILE } from "@muster-town/schema";
 
 /** `index`/`count`: position among everything in reach, so the HUD can show "Tab 2/3" when targets overlap. */
@@ -447,24 +448,26 @@ export class MapRenderer {
 
     // bodies, sorted by feet y
     const s = store.state;
-    type D = { id: string; a: Agent | null; x: number; y: number; moving: boolean };
+    // w/h: drawn body size, by the agent's model tier
+    type D = { id: string; a: Agent | null; x: number; y: number; moving: boolean; w: number; h: number };
     const list: D[] = [];
+    const sizeOf = (a: Agent | null) => avatarSize(a?.model, a?.homeBuildingId ? s.buildings.find((b) => b.id === a.homeBuildingId)?.model : null);
     for (const a of Object.values(s.agents)) {
       if (a.id === store.avatarId || a.status === "retired") continue;
-      const b = this.bodies.get(a.id); if (b) list.push({ id: a.id, a, x: b.x, y: b.y, moving: b.moving });
+      const b = this.bodies.get(a.id); if (b) list.push({ id: a.id, a, x: b.x, y: b.y, moving: b.moving, ...sizeOf(a) });
     }
     const meAgent = store.avatarId ? s.agents[store.avatarId] ?? null : null;
-    list.push({ id: "__me", a: meAgent, x: this.me.x, y: this.me.y, moving: this.me.moving });
+    list.push({ id: "__me", a: meAgent, x: this.me.x, y: this.me.y, moving: this.me.moving, ...sizeOf(meAgent) });
     list.sort((p, q) => p.y - q.y);
     const tick = Math.floor(now / 250);
     for (const d of list) {
       const sprite = d.id === "__me" ? HUMAN_SPRITE : d.a!.sprite;
       const frame = d.moving ? (tick % 2 ? 2 : 0) : d.a?.status === "working" ? tick % 2 : 0;
       g.fillStyle = "rgba(0,0,0,.28)";
-      g.beginPath(); g.ellipse(d.x, d.y, 5, 2, 0, 0, Math.PI * 2); g.fill();
+      g.beginPath(); g.ellipse(d.x, d.y, Math.round(d.w * 5 / CHAR_W), 2, 0, 0, Math.PI * 2); g.fill();
       // a guest's body is a local-only ghost
       g.globalAlpha = d.id === "__me" && authStore.get().guest ? 0.45 : d.a && (d.a.status === "stopped" || d.a.status === "banned") ? 0.55 : d.a?.status === "offline" ? 0.4 : 1;
-      g.drawImage(charSheet(sprite), frame * CHAR_W, 0, CHAR_W, CHAR_H, Math.round(d.x - CHAR_W / 2), Math.round(d.y - CHAR_H + 1), CHAR_W, CHAR_H);
+      g.drawImage(charSheet(sprite), frame * CHAR_W, 0, CHAR_W, CHAR_H, Math.round(d.x - d.w / 2), Math.round(d.y - d.h + 1), d.w, d.h);
       g.globalAlpha = 1;
     }
 
@@ -523,8 +526,8 @@ export class MapRenderer {
       const home = d.a?.homeBuildingId ? s.buildings.find((b) => b.id === d.a!.homeBuildingId) : undefined;
       drawLabel(g, p.x, p.y + 3, name, d.a?.status ?? "idle", hl, isMe, d.a && !isMe ? residentBudgetLine(d.a, home?.dailyTokensPerAgent) : null, !!d.a && isManager(d.a, s.buildings));
       // held by a draining redeploy: its next session starts after the restart
-      if (!isMe && blocked.has(d.id)) { const q = toScreen(d.x + CHAR_W / 2 - 2, d.y - CHAR_H + 4); drawPill(g, q.x, q.y, "⟳ redeploy"); }
-      if (!isMe) this.hitboxes.push({ id: d.id, x: p.x - CHAR_W * z / 2, y: p.y - CHAR_H * z, w: CHAR_W * z, h: CHAR_H * z + 31 });
+      if (!isMe && blocked.has(d.id)) { const q = toScreen(d.x + d.w / 2 - 2, d.y - d.h + 4); drawPill(g, q.x, q.y, "⟳ redeploy"); }
+      if (!isMe) this.hitboxes.push({ id: d.id, x: p.x - d.w * z / 2, y: p.y - d.h * z, w: d.w * z, h: d.h * z + 31 });
     }
     // bubbles last so they sit above every label
     const bubbles: { d: (typeof list)[number]; b: Bubble }[] = [];
@@ -537,7 +540,7 @@ export class MapRenderer {
     const rank = (x: { d: { id: string }; b: Bubble }) => (x.d.id === targetId ? 2 : 0) + (x.b.tone === "speech" ? 1 : 0);
     bubbles.sort((p, q) => rank(p) - rank(q));
     for (const { d, b: bubble } of bubbles) {
-      const p = toScreen(d.x, d.y - CHAR_H);
+      const p = toScreen(d.x, d.y - d.h);
       if (p.x < -200 || p.x > cw + 200 || p.y < -100 || p.y > ch + 200) continue;
       drawBubble(g, p.x, p.y, bubble, d.id === targetId || d.id === this.hoverId);
     }
