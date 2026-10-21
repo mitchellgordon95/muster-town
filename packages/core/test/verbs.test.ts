@@ -217,6 +217,18 @@ describe("say / tell / inbox / look", () => {
     expect(look.nearby.find((n) => n.name === "Mitchell")!.kind).toBe("human");
   });
 
+  it("tell to an idle or stopped resident says it won't start work; to a working one it says nothing", async () => {
+    const { world, by } = seededWorld();
+    const noor = by("Noor");
+    const idle = await world.verbs.tell(by("Ravi"), { to: noor.id, text: "ping" });
+    expect(world.agents.require(noor.id).status).toBe("idle");
+    expect(idle.note).toMatch(/Noor is idle.*does not start work/);
+    world.setStatus(noor.id, "stopped");
+    expect((await world.verbs.tell(by("Ravi"), { to: noor.id, text: "ping" })).note).toMatch(/Noor is stopped/);
+    world.setStatus(noor.id, "working");
+    expect((await world.verbs.tell(by("Ravi"), { to: noor.id, text: "ping" })).note).toBeUndefined();
+  });
+
   it("tell delivers a direct message and an event", async () => {
     const { world, by } = seededWorld();
     await world.verbs.tell(by("Ravi"), { to: by("Noor").id, text: "Please confirm 2.124 GtC/ppm" });
