@@ -1,16 +1,17 @@
 import { describe, expect, it } from "vitest";
-import { createBuilding, createResident, HOUSE_BUDGET_TOKENS, HOUSE_LABEL } from "../src/index.ts";
+import Database from "better-sqlite3";
+import { createBuilding, createResident, HOUSE_BUDGET_TOKENS, HOUSE_LABEL, startOfLocalDay, World } from "../src/index.ts";
 import { seededWorld } from "./helpers.ts";
 
 describe("budgets", () => {
   it("snapshot buildings carry their budget; charges resend the building with it", () => {
     const { world, by } = seededWorld();
     const snap = world.buildingsWithIntray().find((b) => b.id === "carbon-cycle")!;
-    expect(snap.budget).toEqual({ allocatedTokens: HOUSE_BUDGET_TOKENS, spentTokens: 0, remainingTokens: HOUSE_BUDGET_TOKENS, bankTokens: 0 });
+    expect(snap.budget).toEqual({ allocatedTokens: HOUSE_BUDGET_TOKENS, spentTokens: 0, remainingTokens: HOUSE_BUDGET_TOKENS, bankTokens: 0, tokensToday: 0, tokensAllTime: 0 });
     const sent: unknown[] = [];
     world.changes.subscribe((m) => { if (m.type === "building") sent.push(m.building.budget); });
     world.budget.charge(by("Mei").id, 1000, 0.5);
-    expect(sent.at(-1)).toEqual({ allocatedTokens: HOUSE_BUDGET_TOKENS, spentTokens: 1000, remainingTokens: HOUSE_BUDGET_TOKENS - 1000, bankTokens: 0 });
+    expect(sent.at(-1)).toEqual({ allocatedTokens: HOUSE_BUDGET_TOKENS, spentTokens: 1000, remainingTokens: HOUSE_BUDGET_TOKENS - 1000, bankTokens: 0, tokensToday: 1000, tokensAllTime: 1000 });
   });
 
   it("seed creates the house allocation; charge hits agent + oldest allocation", () => {
@@ -102,7 +103,7 @@ describe("budgets", () => {
     world.changes.subscribe((m) => { if (m.type === "building") sent.push(m.building.budget); });
     const r = world.budget.retire(house.id, "Mitchell");
     expect(r).toMatchObject({ retired: true, spentTokens: 1000, spentUsd: 0.5 });
-    expect(sent.at(-1)).toEqual({ allocatedTokens: 0, spentTokens: 0, remainingTokens: 0, bankTokens: 0 });
+    expect(sent.at(-1)).toEqual({ allocatedTokens: 0, spentTokens: 0, remainingTokens: 0, bankTokens: 0, tokensToday: 1000, tokensAllTime: 1000 });
     expect(world.budget.remaining("carbon-cycle")).toBe(0);
     expect(world.budget.pickAllocation("carbon-cycle")).toBeNull();
     expect(world.budget.canStart(by("Mei").id)).toBe(false);
@@ -134,5 +135,57 @@ describe("budgets", () => {
     expect(world.allocations.require(gift.id).retired).toBe(false);
     expect(world.allocations.require(real.id).retired).toBe(false);
     expect(world.budget.retirePlaceholders({ unlabelled: true })).toEqual([]);
+  });
+});
+
+describe("token usage per building (today and all-time)", () => {
+  it("counts every charge for the agent's home building; 'today' starts at local midnight", () => {
+    const { world, by, seed } = seededWorld();
+    const lab2 = createBuilding(world, { name: "Lab 2" }, seed.admin.id);
+    const other = createResident(world, { buildingId: lab2.id, name: "O", title: "t", direction: "d" });
+    world.budget.donate(seed.admin.id, { tokens: 10_000, buildingId: lab2.id });
+    world.budget.charge(by("Mei").id, 1000, 0.5);
+    world.budget.charge(by("Mei").id, 234.4, 0.1);
+    world.budget.charge(other.id, 50, 0.01);
+    expect(world.budget.usage("carbon-cycle")).toEqual({ tokensToday: 1234, tokensAllTime: 1234 });
+    expect(world.budget.usage(lab2.id)).toEqual({ tokensToday: 50, tokensAllTime: 50 });
+    // tomorrow: nothing used yet today, all-time unchanged
+    const tomorrow = new Date(Date.now() + 86_400_000);
+    expect(world.budget.usage("carbon-cycle", tomorrow)).toEqual({ tokensToday: 0, tokensAllTime: 1234 });
+    // and the snapshot / summary carry it
+    expect(world.buildingsWithIntray().find((b) => b.id === "carbon-cycle")!.budget).toMatchObject({ tokensToday: 1234, tokensAllTime: 1234 });
+    expect(world.budget.summary().buildings.find((b) => b.buildingId === lab2.id)).toMatchObject({ tokensToday: 50, tokensAllTime: 50 });
+  });
+
+  it("recordUsage counts unfunded usage (no allocation drawn) and still bumps the agent's counters", () => {
+    const { world, by } = seededWorld();
+    const mei = by("Mei");
+    const before = world.budget.of("carbon-cycle");
+    const a = world.budget.recordUsage(mei.id, 300, 0.2);
+    expect(a).toMatchObject({ spentTokensToday: 300, spentTokensTotal: 300 });
+    expect(world.budget.of("carbon-cycle")).toEqual({ ...before, tokensToday: 300, tokensAllTime: 300 });
+    expect(() => world.budget.recordUsage(mei.id, -1, 0)).toThrow();
+  });
+
+  it("startOfLocalDay is the local midnight at or before the instant", () => {
+    const d = new Date(2026, 9, 21, 13, 45, 7);
+    expect(new Date(startOfLocalDay(d)).getTime()).toBe(new Date(2026, 9, 21).getTime());
+  });
+
+  it("migration 024 back-fills the ledger from agents' counters (before today + today)", () => {
+    const { world, dbPath, by } = seededWorld();
+    const mei = by("Mei");
+    world.close();
+    const db = new Database(dbPath);
+    db.exec("DROP TABLE usage");
+    db.prepare("UPDATE agents SET spentTokensTotal = 5000, spentTokensToday = 700, spentUsdTotal = 2 WHERE id = ?").run(mei.id);
+    db.prepare("DELETE FROM schema_version WHERE version = 24").run();
+    db.close();
+    const w = World.open(dbPath);
+    try {
+      expect(w.budget.usage("carbon-cycle")).toEqual({ tokensToday: 700, tokensAllTime: 5000 });
+    } finally {
+      w.close();
+    }
   });
 });

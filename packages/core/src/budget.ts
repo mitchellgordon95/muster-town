@@ -24,6 +24,13 @@ const LIVE = "buildingId = ? AND retired = 0";
 /** Allocations a placeholder cleanup retires: labelled house/placeholder (the seed's house budget). */
 export const PLACEHOLDER_LABEL = /\b(house|placeholder)\b/i;
 
+/** ISO instant of the server's last local midnight: daily allowances reset then (runtime tick), so "today" starts there. */
+export function startOfLocalDay(d: Date): string {
+  const m = new Date(d);
+  m.setHours(0, 0, 0, 0);
+  return m.toISOString();
+}
+
 /** Donations, allocations, and charging. `world.budget`. */
 export class Budget {
   constructor(private repos: Repos, private events: EventLog, private bank: Bank, private changes?: Emitter<ServerMessage>) {}
@@ -62,7 +69,33 @@ export class Budget {
       spentTokens: allocs.reduce((s, a) => s + a.spentTokens, 0),
       remainingTokens: allocs.reduce((s, a) => s + Math.max(0, a.tokens - a.spentTokens), 0) + bankTokens,
       bankTokens,
+      ...this.usage(buildingId),
     };
+  }
+
+  /** Tokens the building's residents used today (since the server's local midnight) and all-time, from the usage ledger. */
+  usage(buildingId: string, now = new Date()): { tokensToday: number; tokensAllTime: number } {
+    return {
+      tokensToday: this.repos.usage.sum("tokens", "buildingId = ? AND createdAt >= ?", [buildingId, startOfLocalDay(now)]),
+      tokensAllTime: this.repos.usage.sum("tokens", "buildingId = ?", [buildingId]),
+    };
+  }
+
+  /**
+   * Record usage on the agent (daily + total counters) and in the usage ledger, without drawing from any budget.
+   * `charge` does this too; call it alone when nothing funds the session (e.g. Town Hall's librarian).
+   */
+  recordUsage(agentId: string, tokens: number, usd: number): Agent {
+    if (tokens < 0 || usd < 0) throw badRequest("usage must be non-negative");
+    const t = Math.round(tokens);
+    const agent = this.repos.agents.require(agentId, "agent");
+    this.repos.usage.upsert({ id: newId("us"), agentId, buildingId: agent.homeBuildingId ?? agent.buildingId, tokens: t, usd, createdAt: nowIso() });
+    return this.repos.agents.upsert({
+      ...agent,
+      spentTokensToday: agent.spentTokensToday + t,
+      spentTokensTotal: agent.spentTokensTotal + t,
+      spentUsdTotal: agent.spentUsdTotal + usd,
+    });
   }
 
   /** Resend the building (with its budget) so the map's sign stays current. */
@@ -90,13 +123,7 @@ export class Budget {
   charge(agentId: string, tokens: number, usd: number, allocationId?: string): ChargeResult {
     if (tokens < 0 || usd < 0) throw badRequest("charge must be non-negative");
     const t = Math.round(tokens);
-    let agent = this.repos.agents.require(agentId, "agent");
-    agent = this.repos.agents.upsert({
-      ...agent,
-      spentTokensToday: agent.spentTokensToday + t,
-      spentTokensTotal: agent.spentTokensTotal + t,
-      spentUsdTotal: agent.spentUsdTotal + usd,
-    });
+    let agent = this.recordUsage(agentId, t, usd);
     const bid = agent.homeBuildingId ?? agent.buildingId;
     let allocation: Allocation | null = null;
     if (bid) {

@@ -114,6 +114,11 @@ export class Table<T extends object> {
     return (this.stmt(`SELECT COUNT(*) AS n FROM "${this.name}" WHERE ${where}`).get(...params) as { n: number }).n;
   }
 
+  /** SUM of a numeric column over the matching rows (0 when none). */
+  sum(col: string, where = "1=1", params: unknown[] = []): number {
+    return (this.stmt(`SELECT COALESCE(SUM("${col}"), 0) AS n FROM "${this.name}" WHERE ${where}`).get(...params) as { n: number }).n;
+  }
+
   /** Arbitrary SELECT returning this table's rows (e.g. FTS joins). */
   query(sql: string, params: unknown[] = []): T[] {
     return (this.stmt(sql).all(...params) as Row[]).map((r) => this.fromRow(r));

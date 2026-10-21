@@ -80,9 +80,8 @@ export function chargeUsage(world: World, agentId: string, u: Usage, allocationI
     if (bid && world.budget.remaining(bid) > 0) {
       world.budget.charge(agentId, u.tokens, u.costUsd, allocationId ?? undefined);
     } else {
-      // no allocation to draw from (e.g. Town Hall's librarian): record spend on the agent only
-      const a = world.agents.require(agentId, "agent");
-      world.agents.patch(agentId, { spentTokensToday: a.spentTokensToday + Math.round(u.tokens), spentTokensTotal: a.spentTokensTotal + Math.round(u.tokens), spentUsdTotal: a.spentUsdTotal + u.costUsd });
+      // no allocation to draw from (e.g. Town Hall's librarian): record spend on the agent and in the usage ledger only
+      world.budget.recordUsage(agentId, u.tokens, u.costUsd);
     }
   } catch (e) {
     console.log("[runtime] charge failed:", e instanceof Error ? e.message : e);

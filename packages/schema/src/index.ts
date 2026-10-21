@@ -239,6 +239,9 @@ export type BankPool = z.infer<typeof BankPool>;
  */
 export const BankDebit = z.object({ id: Id, buildingId: Id, poolId: Id, agentId: Id, creditId: Id.nullable().default(null), tokens: z.number().int().positive(), createdAt: Iso });
 export type BankDebit = z.infer<typeof BankDebit>;
+/** One charge of model usage: who spent it and which building it counts for (the agent's home). The usage ledger behind tokensToday / tokensAllTime. */
+export const UsageEntry = z.object({ id: Id, agentId: Id, buildingId: Id.nullable().default(null), tokens: z.number().int().nonnegative(), usd: z.number().nonnegative().default(0), createdAt: Iso });
+export type UsageEntry = z.infer<typeof UsageEntry>;
 
 // ---------- agents (bodies in the world) ----------
 export const AgentKind = z.enum(["resident", "visitor", "human", "service"]);
@@ -678,6 +681,10 @@ export const BuildingBudget = z.object({
   remainingTokens: z.number().int().nonnegative(),
   /** of `remainingTokens`, what the building can still draw from its Bank share */
   bankTokens: z.number().int().nonnegative().default(0),
+  /** tokens the building's residents used since the server's local midnight (when daily allowances reset), whatever paid for them */
+  tokensToday: z.number().int().nonnegative().default(0),
+  /** tokens the building's residents have used, ever */
+  tokensAllTime: z.number().int().nonnegative().default(0),
 });
 export type BuildingBudget = z.infer<typeof BuildingBudget>;
 
