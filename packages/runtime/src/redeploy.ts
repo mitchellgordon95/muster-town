@@ -1,5 +1,5 @@
 /**
- * v1.3 redeploy (host-executed): pull main, reinstall when the lockfile changed, rebuild the web client,
+ * v1.3 redeploy (host-executed): pull main (or the deploy branch), reinstall when the lockfile changed, rebuild the web client,
  * optionally rebuild the desk image, drain (hold new work sessions and wait, up to `drainTimeoutMs`, for running ones
  * to end), pull again (the sessions drained are usually the ones about to push) and rebuild if that moved HEAD,
  * recreate idle desks, then exit 75 so `scripts/serve.sh` restarts the server.
@@ -11,7 +11,7 @@ import { execFile, execFileSync } from "node:child_process";
 import { closeSync, existsSync, openSync, readFileSync, statSync, unlinkSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import type { World } from "@muster-town/core";
-import type { Event, RedeployLive, RedeployResult, RedeployRun } from "@muster-town/schema";
+import { townEnv, type Event, type RedeployLive, type RedeployResult, type RedeployRun } from "@muster-town/schema";
 import { DESK_IMAGE, DESK_LABEL_PREFIXES, OLD_DESK_IMAGE } from "./desk/backend.ts";
 
 export interface CmdResult { code: number; stdout: string; stderr: string }
@@ -41,6 +41,8 @@ export interface RedeployDeps {
   collective: string;
   /** desk image tag to build */
   image: string;
+  /** branch to pull from origin (prod follows a CI-moved `prod` branch). Default: MUSTER_TOWN_DEPLOY_BRANCH, else `main`. */
+  branch?: string;
   /** whether the agent has a live work session (its desk is left alone) */
   isWorking(agentId: string): boolean;
   /** agent ids with a live work session (drain waits for this to be empty); default: none */
@@ -105,6 +107,7 @@ export function makeRedeployer(deps: RedeployDeps): Redeployer {
   const run = deps.run ?? realCommandRunner;
   const exit = deps.exit ?? ((code: number) => process.exit(code));
   const cwd = deps.repoRoot;
+  const branch = deps.branch ?? townEnv("DEPLOY_BRANCH")?.trim() ?? "main";
   let flight: Promise<void> | null = null;
   let held = false;
   let run_: RedeployRun = { state: "running", requestedBy: "", commits: null, working: [], blocked: [] };
@@ -169,7 +172,7 @@ export function makeRedeployer(deps: RedeployDeps): Redeployer {
   async function go(o: RedeployRequest): Promise<void> {
     say(`Redeploy requested by ${o.requestedBy}${o.image ? " (with the desk image)" : ""}`, { phase: "requested", requestedBy: o.requestedBy, image: o.image });
 
-    // (a) pull main; a dirty tree aborts
+    // (a) pull the deploy branch; a dirty tree aborts
     setPhase("git status");
     const status = await run("git", ["status", "--porcelain"], { cwd, timeoutMs: 30_000 });
     if (status.code !== 0 || status.stdout.trim()) {
@@ -186,7 +189,7 @@ export function makeRedeployer(deps: RedeployDeps): Redeployer {
       lock: !!(await run("git", ["diff", "--name-only", from, "HEAD", "--", "package-lock.json"], { cwd, timeoutMs: 30_000 })).stdout.trim(),
     });
     let lockChanged = false;
-    const pulled = await step("git pull --rebase origin main", "git", ["pull", "--rebase", "origin", "main"], 300_000, async () => {
+    const pulled = await step(`git pull --rebase origin ${branch}`, "git", ["pull", "--rebase", "origin", branch], 300_000, async () => {
       if (!before) return "";
       const d = await since(before);
       run_ = { ...run_, commits: d.count };
@@ -274,7 +277,7 @@ export function makeRedeployer(deps: RedeployDeps): Redeployer {
     setPhase("git pull again");
     const mid = await head();
     finalPulled = true;
-    const again2 = await run("git", ["pull", "--rebase", "origin", "main"], { cwd, timeoutMs: 300_000 });
+    const again2 = await run("git", ["pull", "--rebase", "origin", branch], { cwd, timeoutMs: 300_000 });
     if (again2.code !== 0) {
       say(`Redeploy: pull again after the drain … failed (exit ${again2.code}); restarting with what was pulled before`, { step: "git pull again", phase: "end", ok: false, code: again2.code, output: tail(again2) });
     } else {

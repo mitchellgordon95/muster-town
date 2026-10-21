@@ -1,0 +1,32 @@
+# Muster Town server on the prod box (replaces scripts/serve.sh, which is zsh and Mac-only).
+# Exit 75 (redeploy) and crashes both restart it. Installed by deploy/bootstrap.sh; see deploy/README.md.
+[Unit]
+Description=Muster Town server (Workshop collective)
+After=network-online.target docker.service
+Wants=network-online.target docker.service
+
+[Service]
+Type=simple
+User=muster
+Group=muster
+SupplementaryGroups=docker
+WorkingDirectory=/srv/muster-town
+Environment=MUSTER_TOWN_COLLECTIVE=collectives/workshop
+# prod ships only commits CI moved to the `prod` branch (green on main)
+Environment=MUSTER_TOWN_DEPLOY_BRANCH=prod
+Environment=MUSTER_TOWN_PUBLIC_URL=https://muster.town
+# 0.0.0.0 so desks reach the town over docker0 (host.docker.internal); ufw keeps 4322 closed to the internet
+Environment=HOST=0.0.0.0
+Environment=NODE_ENV=production
+Environment=PATH=/usr/local/bin:/usr/bin:/bin
+# secrets (CLAUDE_CODE_OAUTH_TOKEN, GITHUB_CLIENT_SECRET, ...): root-owned 0600, read by systemd, not by the muster user
+EnvironmentFile=-/etc/muster-town/env
+ExecStart=/usr/bin/npx tsx packages/server/src/main.ts
+Restart=always
+RestartSec=2
+# the redeploy drains sessions itself before exiting 75; a plain stop just signals
+KillMode=mixed
+TimeoutStopSec=30
+
+[Install]
+WantedBy=multi-user.target

@@ -1,0 +1,9 @@
+# Caddy for muster.town: TLS (Let's Encrypt, automatic) in front of the one town process (REST + /mcp + /ws + web).
+muster.town {
+	encode zstd gzip
+	reverse_proxy 127.0.0.1:4322
+}
+
+www.muster.town {
+	redir https://muster.town{uri} permanent
+}

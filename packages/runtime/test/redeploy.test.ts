@@ -73,6 +73,15 @@ describe("redeploy", () => {
     expect(h.r.running()).toBe(false);
   });
 
+  test("pulls the configured deploy branch (prod follows a CI-moved `prod` branch)", async () => {
+    const h = harness(base(), [], { branch: "prod" });
+    h.r.redeploy({ image: false, requestedBy: "Pix" });
+    await h.r.done();
+    expect(h.runner.calls.filter((c) => c.startsWith("git pull"))).toEqual(["git pull --rebase origin prod", "git pull --rebase origin prod"]);
+    expect(h.texts()).toContain("Redeploy: git pull --rebase origin prod … ok (3 commits)");
+    expect(h.exit).toHaveBeenCalledWith(75);
+  });
+
   test("reinstalls when package-lock.json changed in the pull", async () => {
     const h = harness([["git diff --name-only", ok("package-lock.json\n")], ...base()]);
     h.r.redeploy({ image: false, requestedBy: "Pix" });

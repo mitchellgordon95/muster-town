@@ -1,0 +1,56 @@
+# Lives in deploy/ because agent tokens lack the GitHub `workflow` scope. To enable: git mv deploy/ci.yml .github/workflows/ci.yml
+# CI: typecheck, tests and the web build on every PR and on main. A green main commit moves the `prod` branch
+# (fast-forward only) and asks muster.town to redeploy; prod pulls only `prod` (MUSTER_TOWN_DEPLOY_BRANCH), so it
+# only ever ships green commits. Plan: town doc dc_mltonxkizi §4.
+name: ci
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+# a burst of pushes to main tests only the newest commit (keeps us inside the free Actions minutes)
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci --no-audit --no-fund
+      - run: npm run typecheck
+      - run: npm test
+      - run: npm run build --workspace packages/web
+
+  promote:
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    needs: check
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      # fast-forward only: never force. If prod was reset by hand to an older green sha, this still fast-forwards.
+      - run: git push origin "${GITHUB_SHA}:refs/heads/prod"
+      # deployer-role town token (an Actions secret); skipped until it is set. Doesn't wait for the restart:
+      # the drain can take 30 min. /api/health's commit shows when it is live.
+      - name: redeploy muster.town
+        env:
+          TOKEN: ${{ secrets.MUSTER_TOWN_DEPLOY_TOKEN }}
+        run: |
+          if [ -z "$TOKEN" ]; then echo "MUSTER_TOWN_DEPLOY_TOKEN not set; skipping redeploy"; exit 0; fi
+          curl -fsS -X POST https://muster.town/api/admin/redeploy \
+            -H "Authorization: Bearer $TOKEN" -H 'Content-Type: application/json' -d '{"image":false}'
