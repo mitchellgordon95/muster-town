@@ -59,7 +59,9 @@ export class Ops {
       const b = this.world.buildings.upsert({ ...this.world.buildings.require(id, "building"), ...budget });
       this.world.events.append({ type: "building.updated", buildingId: id, text: `${b.name} budget settings updated`, payload: { fields: Object.keys(budget) } });
     }
-    return other ? updateBuilding(this.world, id, rest) : this.world.buildings.require(id, "building");
+    const updated = other ? updateBuilding(this.world, id, rest) : this.world.buildings.require(id, "building");
+    this.world.budget.resumeEligible(id); // a raised dailyTokensPerAgent un-blocks residents that hit the old cap
+    return updated;
   }
   /** Furniture is edited by humans only (Mitchell, 2026-10-20): an agent token is refused even with building.manage. */
   layoutPreview(actor: Actor, id: string, furniture: Furniture) {

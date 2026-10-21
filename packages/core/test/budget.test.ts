@@ -41,6 +41,18 @@ describe("budgets", () => {
     expect(world.agents.require(a.id)).toMatchObject({ status: "idle", spentTokensToday: 0 });
   });
 
+  it("raising the building's daily cap un-blocks a resident that hit the old one", () => {
+    const { world, seed } = seededWorld();
+    const b = createBuilding(world, { name: "Cap", dailyTokensPerAgent: 100 }, seed.admin.id);
+    const a = createResident(world, { buildingId: b.id, name: "A", title: "t", direction: "d" });
+    world.budget.donate(seed.admin.id, { tokens: 10_000, buildingId: b.id });
+    world.budget.charge(a.id, 150, 0.01);
+    expect(world.agents.require(a.id).status).toBe("out-of-budget");
+    expect(world.budget.resumeEligible()).toBe(0); // still over the cap
+    world.ops.updateBuilding(null, b.id, { dailyTokensPerAgent: 1000 });
+    expect(world.agents.require(a.id).status).toBe("idle");
+  });
+
   it("building exhaustion stops all residents until a new donation; allocations are charged in draw order (donor key before the town key)", () => {
     const { world, seed } = seededWorld();
     const b = createBuilding(world, { name: "Broke" }, seed.admin.id);

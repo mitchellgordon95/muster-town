@@ -169,6 +169,17 @@ export class Budget {
     return n;
   }
 
+  /** Out-of-budget residents that can start again (the daily cap or the building's budget was raised) go idle. Returns how many. */
+  resumeEligible(buildingId?: string): number {
+    let n = 0;
+    for (const r of this.repos.agents.where("kind = 'resident' AND status = 'out-of-budget'", [])) {
+      if ((buildingId && (r.homeBuildingId ?? r.buildingId) !== buildingId) || !this.canStart(r.id)) continue;
+      this.setStatus(r, "idle");
+      n++;
+    }
+    return n;
+  }
+
   /**
    * A user donates tokens to a building (optionally storing their API key). `auth` defaults to donor-key when
    * the donor has a key, else api-key. Permission to fund with the town's own credentials is checked by the caller.
