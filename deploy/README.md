@@ -17,15 +17,18 @@ dc_mltonxkizi (deploy + CI) and dc_vxgg8r55ha (stress test: 6 desks at once).
    key: add it as a **read-only deploy key** on the repo (Settings → Deploy keys), then run it again.
 2. Until CI has created the `prod` branch the checkout stays on `main`: set `MUSTER_TOWN_DEPLOY_BRANCH=main` in
    `/etc/muster-town/env` meanwhile (or push `main:prod` once by hand).
-3. Mitchell fills `/etc/muster-town/env` over SSH (never through an agent): `CLAUDE_CODE_OAUTH_TOKEN`, the
-   `DESK_ENV_*` the Workshop uses, and later `GITHUB_CLIENT_ID`/`GITHUB_CLIENT_SECRET`/`MUSTER_TOWN_SESSION_SECRET`.
-   Then `sudo systemctl restart muster-town`.
+3. Mitchell fills `/etc/muster-town/env` over SSH (never through an agent): `CLAUDE_CODE_OAUTH_TOKEN`,
+   `MUSTER_TOWN_DATA_KEY` (`openssl rand -base64 32`; it encrypts the collective secrets in the DB, so a `town.db`
+   copied from another host needs that host's key, or set its secrets again), and later
+   `GITHUB_CLIENT_ID`/`GITHUB_CLIENT_SECRET`/`MUSTER_TOWN_SESSION_SECRET`. Then `sudo systemctl restart muster-town`.
+   **No `DESK_ENV_*` here** (they reach every desk): tool credentials like `MINICLAW_WS_TOKEN` go in the Town Hall's
+   Secrets tab with a grant (docs/secrets.md).
 4. Desks get `GH_TOKEN` from `gh auth token` (collective `desks.ghToken` default `gh-cli`): log the `muster` user in
    with a **fine-grained PAT** for this repo only (contents + pull requests):
    `sudo -u muster -H gh auth login --with-token < pat.txt`.
 5. Cap work sessions at **6** (live setting, kept in the database; redo it after copying in a `town.db`):
    `curl -X PUT http://127.0.0.1:4322/api/town/desks -H "Authorization: Bearer $ADMIN" -H 'Content-Type: application/json' -d '{"maxRunning":6}'`
-   (`$ADMIN`: the admin token from `journalctl -u muster-town`).
+   (`$ADMIN`: `sudo cat <data dir>/admin-token`; the server logs only its path).
 6. Check: `curl https://muster.town/api/health` shows the commit; a resident's work session reaches `/mcp`.
 
 ## Cutover (the Mac's Workshop town moves to the box)
