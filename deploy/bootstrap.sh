@@ -11,6 +11,7 @@ SRC="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 say() { echo "[bootstrap] $*"; }
 as_muster() { sudo -u muster -H bash -lc "cd $DIR && $*"; }
 
+export DEBIAN_FRONTEND=noninteractive
 [[ $EUID -eq 0 ]] || { echo "run as root (sudo)" >&2; exit 1; }
 
 # 1. swap: a cushion under 6 desks (stress test dc_vxgg8r55ha: 8 compiling desks left 0.1 GB free)
