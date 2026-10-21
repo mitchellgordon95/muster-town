@@ -68,6 +68,31 @@ describe("agent-scoped desk API", () => {
     expect((await json(app, "GET", "/api/agents/me/brief", { headers: as(agent) })).status).toBe(400);
   });
 
+  it("the Settings Code access checkbox (PATCH codeAccess) gives an existing building the collective repo on its next session, and takes it away", async () => {
+    const { app, as, admin, world, desk, runtime, by } = await setup();
+    world.town.set({ workspace: { path: "/tmp/repo", repoUrl: "git@github.com:o/r.git", base: "main", branchPrefix: "agent", tools: [] } });
+    world.buildings.upsert({ ...world.buildings.require("carbon-cycle"), codeAccess: false }); // an existing building from before 022
+    const brief = async () => {
+      const agent = by("Noor"), n = desk.execs.length;
+      void runtime.runWorkSession(agent.id, world.ops.createWork(null, agent.id, { title: "Measure the growth rate" }).id).catch(() => undefined);
+      await vi.waitFor(() => expect(desk.execs.length).toBe(n + 1));
+      const sessionId = desk.execs[n].argv[3];
+      const res = await json(app, "GET", `/api/agents/me/brief?session=${sessionId}`, { headers: as(agent) });
+      desk.execs[n].exit(0);
+      await vi.waitFor(() => expect(world.sessions.require(sessionId).status).not.toBe("running"));
+      await vi.waitFor(() => expect(world.agents.require(agent.id).status).not.toBe("working"));
+      return res.body;
+    };
+    expect((await brief()).workspace).toBeUndefined();
+    const on = await json(app, "PATCH", "/api/buildings/carbon-cycle", { headers: admin, body: { codeAccess: true } });
+    expect(on.status).toBe(200);
+    expect(on.body.building.codeAccess).toBe(true);
+    expect((await json(app, "GET", "/api/town")).body.buildings.find((b: { id: string }) => b.id === "carbon-cycle").codeAccess).toBe(true);
+    expect((await brief()).workspace).toMatchObject({ repoUrl: "https://github.com/o/r.git", base: "main" });
+    expect((await json(app, "PATCH", "/api/buildings/carbon-cycle", { headers: admin, body: { codeAccess: false } })).body.building.codeAccess).toBe(false);
+    expect((await brief()).workspace).toBeUndefined();
+  });
+
   it("activity becomes agent.tool / agent.thought events with the session id", async () => {
     const { app, as, world, by, start } = await setup();
     const { agent, sessionId } = await start("Noor");
