@@ -28,7 +28,7 @@ export interface FlyOptions {
 }
 
 interface FlyMachine { id: string; name: string; state: string }
-interface FlyVolume { id: string; name: string; state: string; attached_machine_id?: string | null }
+interface FlyVolume { id: string; name: string; state: string; region?: string; attached_machine_id?: string | null }
 interface ExecResult { stdout: string; stderr: string; exit_code: number; exit_signal: number }
 
 /** Fly names: machines are lowercase letters, digits and dashes; volumes lowercase letters, digits and underscores, 30 chars at most. */
@@ -101,7 +101,8 @@ export class FlyApi implements SandboxApi {
     const vols = (await this.req<FlyVolume[]>("GET", "/volumes")).body.filter((v) => !/destroy/.test(v.state) && v.name === volName);
     const vol = vols[0] ?? (await this.req<FlyVolume>("POST", "/volumes", { name: volName, region: o.region, size_gb: o.volumeGb })).body;
     const machineBody = {
-      name: flyMachineName(spec.name), region: o.region,
+      // a Machine must run where its volume lives (an existing one may predate the configured region)
+      name: flyMachineName(spec.name), region: vol.region ?? o.region,
       config: {
         image: o.image,
         // bounded, so a Machine left running by a dead server stops itself; the runtime starts it again when needed

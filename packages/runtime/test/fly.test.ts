@@ -65,11 +65,13 @@ describe("FlyApi", () => {
     expect(m.body).toMatchObject({ region: "iad", config: { guest: { cpu_kind: "shared", cpus: 2, memory_mb: 2048 } } });
   });
 
-  test("create reuses an existing volume", async () => {
-    const f = fakeFly({ volumes: [{ id: "vol_old", name: "deskhome_ag_1", state: "created" }] });
-    await api(f).create({ name: "desk-c-ag_1", labels: {}, volume: "deskhome-ag_1", mountPath: "/home/agent" });
+  test("create reuses an existing volume, and runs the Machine in that volume's region", async () => {
+    const f = fakeFly({ volumes: [{ id: "vol_old", name: "deskhome_ag_1", state: "created", region: "ewr" }] });
+    await api(f, { region: "iad" }).create({ name: "desk-c-ag_1", labels: {}, volume: "deskhome-ag_1", mountPath: "/home/agent" });
     expect(f.reqs.some((r) => r.method === "POST" && r.path === "/volumes")).toBe(false);
-    expect(f.reqs.find((r) => r.method === "POST" && r.path === "/machines")!.body.config.mounts[0].volume).toBe("vol_old");
+    const m = f.reqs.find((r) => r.method === "POST" && r.path === "/machines")!;
+    expect(m.body.config.mounts[0].volume).toBe("vol_old");
+    expect(m.body.region).toBe("ewr");
   });
 
   test("find maps Machine states", async () => {
