@@ -107,14 +107,18 @@ export class SandboxBackend implements DeskBackend {
     const abort = new AbortController();
     const heartbeat = this.heartbeatMs > 0 ? setInterval(() => { void this.api.quick(name, "true", 10).catch(() => {}); }, this.heartbeatMs) : null;
     heartbeat?.unref?.();
+    const startedAt = Date.now();
     const exited: Promise<number> = (async () => {
+      let code = -1;
       try {
         await this.api.writeSecretFile(name, envFile, body);
-        return await this.api.run(name, command, onLine, abort.signal);
+        code = await this.api.run(name, command, onLine, abort.signal);
+        return code;
       } catch (e) {
         onLine?.("stderr", `sandbox exec failed: ${e instanceof Error ? e.message : String(e)}`);
         return -1;
       } finally {
+        console.log(`[sandbox ${name}] process ended (exit ${code}) after ${Math.round((Date.now() - startedAt) / 1000)}s; stopping the sandbox in ${Math.round(this.idleStopMs / 1000)}s unless it is used again`);
         if (heartbeat) clearInterval(heartbeat);
         void this.api.quick(name, `rm -f ${envFile}`, 10).catch(() => {});
         const left = (this.active.get(name) ?? 1) - 1;
@@ -161,6 +165,7 @@ export class SandboxBackend implements DeskBackend {
     const t = setTimeout(() => {
       this.idleTimers.delete(name);
       if (this.active.has(name)) return;
+      console.log(`[sandbox ${name}] idle: stopping`);
       void this.api.stop(name).catch((e) => console.warn(`[runtime] stopping idle sandbox ${name} failed: ${e instanceof Error ? e.message : String(e)}`));
     }, this.idleStopMs);
     t.unref?.();
