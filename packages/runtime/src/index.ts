@@ -7,6 +7,7 @@ import { checkWaits, codeWorkspace, nextPending, PRESENCE_TICK_MS, slugify, sync
 import { DesksConfig, type ChatInput, type DeskActivityInput, type Event, type RedeployResult, type Session } from "@muster-town/schema";
 import { askAbout, chat } from "./chat.ts";
 import { DockerBackend, dockerSafe, HostBackend, type DeskBackend, type WorkBackend } from "./desk/backend.ts";
+import { DaytonaApi, SandboxBackend } from "./desk/sandbox.ts";
 import { gitHead, isAncestor, makeRedeployer, type RedeployDeps, type RedeployRequest } from "./redeploy.ts";
 import { onDeskActivity, runDeskSession, type DeskSessionOptions } from "./desk/session.ts";
 import { advanceCollecting, facilitate, newMeetingState, onMeetingMention, onMeetingStart } from "./meetings.ts";
@@ -16,6 +17,7 @@ import { abortWork, finishWorkSession, interrupt, maybeReview, runWorkSession, t
 
 export { describeTool } from "./describe.ts";
 export { prompts } from "@muster-town/core";
+export { DaytonaApi, SandboxBackend, type SandboxApi } from "./desk/sandbox.ts";
 export { DockerBackend, HostBackend, realDockerRunner, type DeskBackend, type DeskChild, type DeskHandle, type DockerRunner, type RunResult, type SpawnedChild, type WorkBackend, type LineSink } from "./desk/backend.ts";
 export { deskAuth, deskEnv, grantedSecrets, portOf, DESK_ENV_PREFIX, FALLBACK_KEY_ENV, type DeskAuthMode, type DeskSessionOptions } from "./desk/session.ts";
 export { fundingFor, fundedBy, type Funding } from "./session.ts";
@@ -144,7 +146,10 @@ export function startRuntime(opts: RuntimeOptions): Runtime {
 
   let backend: WorkBackend | null = opts.deskBackend ?? null;
   const collectiveSlug = opts.collective ?? slugify(world.town.get().name);
-  const dockerProbe: DeskBackend | null = desks.backend === "host" ? null : opts.dockerProbe ?? new DockerBackend({ collective: collectiveSlug, image: desks.image });
+  const sandboxProvider = desks.backend === "daytona" ? "Daytona" : null;
+  const dockerProbe: DeskBackend | null = desks.backend === "host" ? null : opts.dockerProbe
+    ?? (sandboxProvider ? new SandboxBackend({ api: new DaytonaApi({ snapshot: desks.snapshot }), collective: collectiveSlug })
+      : new DockerBackend({ collective: collectiveSlug, image: desks.image }));
   const probeEveryMs = opts.dockerProbeMs ?? 30_000;
   // Docker down → a town notice (once per outage, also across restarts: the last alert in the log says where we are)
   let dockerDown = (world.events.latestWith("system", "alert", ["docker-down", "docker-up"])?.payload as { alert?: string } | undefined)?.alert === "docker-down";
@@ -152,10 +157,10 @@ export function startRuntime(opts: RuntimeOptions): Runtime {
     world.host.docker = ok;
     if (!ok && !dockerDown) {
       dockerDown = true;
-      world.events.append({ type: "system", text: "Docker is not running: code desks can't start; workshop sessions are paused", payload: { alert: "docker-down" } });
+      world.events.append({ type: "system", text: sandboxProvider ? `${sandboxProvider} is unreachable: code desks can't start; workshop sessions are paused` : "Docker is not running: code desks can't start; workshop sessions are paused", payload: { alert: "docker-down" } });
     } else if (ok && dockerDown) {
       dockerDown = false;
-      world.events.append({ type: "system", text: "Docker is back: code desks resume", payload: { alert: "docker-up" } });
+      world.events.append({ type: "system", text: `${sandboxProvider ?? "Docker"} is back: code desks resume`, payload: { alert: "docker-up" } });
     }
   }
   const backendReady: Promise<WorkBackend> = backend ? Promise.resolve(backend) : chooseBackend().then((b) => (backend = b));
@@ -191,6 +196,10 @@ export function startRuntime(opts: RuntimeOptions): Runtime {
     const ok = await docker.available();
     lastProbe = Date.now();
     noteDocker(ok);
+    if (sandboxProvider) {
+      console.log(`[runtime] work sessions: ${sandboxProvider} sandbox desks (snapshot ${desks.snapshot}; configured)${ok ? "" : ` — WARNING: ${sandboxProvider} is unreachable`}`);
+      return docker;
+    }
     if (desks.backend === "docker") {
       console.log(`[runtime] work sessions: docker desks (${desks.image}; configured)${ok ? "" : " — WARNING: docker info failed"}`);
       return docker;

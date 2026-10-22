@@ -1134,8 +1134,12 @@ export const CollectiveBuildingSpec = z.object({
 });
 /** How resident work sessions run: in a desk container (docker), in-process (host), or docker when available (auto). */
 export const DesksConfig = z.object({
-  backend: z.enum(["docker", "host", "auto"]).default("auto"),
+  backend: z.enum(["docker", "host", "auto", "daytona"]).default("auto"),
   image: z.string().default("muster-town-desk"),
+  /** `daytona` only: the snapshot desks are created from (see `npm run desk:snapshot`) */
+  snapshot: z.string().default("muster-town-desk"),
+  /** `daytona` only: the town's public base URL desks call back to (e.g. https://muster.town); docker desks use host.docker.internal */
+  townUrl: z.string().url().optional(),
   /** where desks get GH_TOKEN: `gh auth token` on the host, the host's GH_TOKEN env, or none */
   ghToken: z.enum(["gh-cli", "env", "none"]).default("gh-cli"),
   /**

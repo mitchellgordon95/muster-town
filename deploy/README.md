@@ -54,3 +54,19 @@ Rollback: `git revert` on main. Emergency: point `prod` at the last good sha and
 ## Logs and backups
 `journalctl -u muster-town -f`, `journalctl -u caddy`. Nightly `sqlite3 .backup` to `/var/backups/muster-town/`
 (14 days). Restore: stop the service, copy a backup over `collectives/workshop/data/town.db`, start it.
+
+## Desks on a sandbox provider (Daytona) instead of the box's docker
+`collective.json` → `"desks": { "backend": "daytona", "snapshot": "muster-town-desk", "townUrl": "https://muster.town" }`, and
+`DAYTONA_API_KEY` in the host env (`/etc/muster-town/env`; a host secret, never a `DESK_ENV_*`). Code: `packages/runtime/src/desk/sandbox.ts`
+(`SandboxBackend` is provider-neutral; `DaytonaApi` is the one adapter). Sessions are still recorded as backend `docker`.
+
+- **Billing:** per second of wall-clock while a sandbox runs. The backend stops a sandbox 3 min after its session ends and pings it
+  every 5 min while one runs; Daytona's own auto-stop (30 min) is the backstop if the server dies mid-session.
+- **Snapshot:** a Daytona snapshot built from `packages/desk/Dockerfile` (build context = the repo root; push the image to a registry
+  and `daytona snapshot create muster-town-desk --image <ref>`, or use the dashboard). Its user must be `agent` with home `/home/agent`: the
+  per-agent volume `deskhome-<agent>` mounts there.
+- **Network:** the desk calls `townUrl` (the public URL), so the server needs to be reachable from the provider: fine on prod, a tunnel on the Mac.
+- **Secrets:** each session's env goes into a 0600 file in the sandbox that the command sources and deletes, so values are not in the command
+  string the provider records. They are still inside a third party's VM while the session runs: keep Dara's scoped grants tight.
+- **Status:** unit-tested against a fake provider only. Not yet run against a real Daytona account; check on one test resident first
+  (create, resume after stop, home volume persists, `pkill` stops a session, idle stop) before pointing the collective at it.

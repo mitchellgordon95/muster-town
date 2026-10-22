@@ -109,7 +109,8 @@ export function deskEnv(ctx: Ctx, session: Session, opts: DeskSessionOptions = {
   const building = world.buildings.require(homeOf(world, agent.id)!, "building");
   const env: Record<string, string> = {
     // both spellings for one release: the desk may run an image from before or after the rename
-    ...townEnvBoth("URL", `http://host.docker.internal:${portOf(ctx.mcpUrl)}`),
+    // sandbox providers run desks off this host, so they call the town's public URL; docker desks use the host gateway
+    ...townEnvBoth("URL", ctx.desks.townUrl?.replace(/\/+$/, "") ?? `http://host.docker.internal:${portOf(ctx.mcpUrl)}`),
     ...townEnvBoth("TOKEN", world.tokens.getOrCreate("agent", agent.id)),
     DESK_MODEL: session.model,
     DESK_MAX_TURNS: String(building.maxTurnsPerSession),
