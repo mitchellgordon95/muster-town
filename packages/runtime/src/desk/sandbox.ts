@@ -26,7 +26,7 @@ export interface SandboxApi {
   /** write `content` to `path` in the sandbox with mode 0600 */
   writeSecretFile(name: string, path: string, content: string): Promise<void>;
   /** run `command` (a shell line) to the end; stdout and stderr go to `onLine`; resolves with the exit code */
-  run(name: string, command: string, onLine?: LineSink): Promise<number>;
+  run(name: string, command: string, onLine?: LineSink, signal?: AbortSignal): Promise<number>;
   /** one-shot command, output dropped; best effort */
   quick(name: string, command: string, timeoutSec?: number): Promise<void>;
   remove(name: string, opts: { volume?: string }): Promise<void>;
@@ -37,13 +37,13 @@ export interface SandboxBackendOptions {
   collective: string;
   /** stop a sandbox this long after its last session ends (the provider bills while it runs) */
   idleStopMs?: number;
-  /** activity ping while a session runs, so the provider's own idle auto-stop doesn't cut it off */
+  /** activity ping while a session runs, so the provider's own idle auto-stop doesn't cut it off (0 = none, for providers without one) */
   heartbeatMs?: number;
 }
 
 export const SANDBOX_HOME = "/home/agent";
 
-const shq = (s: string) => `'${s.replace(/'/g, `'\\''`)}'`;
+export const shq = (s: string) => `'${s.replace(/'/g, `'\\''`)}'`;
 
 /**
  * A `pkill -f` regex for the process `argv` starts. The desk binary is a shell script that execs node, so the running
@@ -104,17 +104,18 @@ export class SandboxBackend implements DeskBackend {
     const body = Object.entries(env).map(([k, v]) => `export ${k}=${shq(v)}`).join("\n") + "\n";
     // a subshell, because the provider runs commands in a long-lived shell that must not be replaced or left with the env
     const command = `( . ${envFile}; rm -f ${envFile}; ${argv.map(shq).join(" ")} )`;
-    const heartbeat = setInterval(() => { void this.api.quick(name, "true", 10).catch(() => {}); }, this.heartbeatMs);
-    heartbeat.unref?.();
+    const abort = new AbortController();
+    const heartbeat = this.heartbeatMs > 0 ? setInterval(() => { void this.api.quick(name, "true", 10).catch(() => {}); }, this.heartbeatMs) : null;
+    heartbeat?.unref?.();
     const exited: Promise<number> = (async () => {
       try {
         await this.api.writeSecretFile(name, envFile, body);
-        return await this.api.run(name, command, onLine);
+        return await this.api.run(name, command, onLine, abort.signal);
       } catch (e) {
         onLine?.("stderr", `sandbox exec failed: ${e instanceof Error ? e.message : String(e)}`);
         return -1;
       } finally {
-        clearInterval(heartbeat);
+        if (heartbeat) clearInterval(heartbeat);
         void this.api.quick(name, `rm -f ${envFile}`, 10).catch(() => {});
         const left = (this.active.get(name) ?? 1) - 1;
         if (left <= 0) { this.active.delete(name); this.scheduleIdleStop(name); } else this.active.set(name, left);
@@ -122,7 +123,7 @@ export class SandboxBackend implements DeskBackend {
     })();
     return {
       wait: () => exited,
-      kill: () => { void this.killExec(handle, argv); },
+      kill: () => { abort.abort(); void this.killExec(handle, argv); },
     };
   }
 
@@ -244,7 +245,13 @@ export class DaytonaApi implements SandboxApi {
 
   async create(spec: { name: string; labels: Record<string, string>; volume: string; mountPath: string }): Promise<SandboxInfo> {
     const d = await this.daytona();
-    const vol = await d.volume.get(spec.volume, true);
+    let vol = await d.volume.get(spec.volume, true);
+    // a new volume is `pending_create` for a few seconds, and creating a sandbox with it then fails
+    for (let i = 0; i < 30 && String(vol.state) !== "ready"; i++) {
+      if (String(vol.state) === "error") throw new Error(`volume ${spec.volume} is in an error state`);
+      await new Promise((r) => setTimeout(r, 2000));
+      vol = await d.volume.get(spec.volume);
+    }
     const s = await d.create({
       name: spec.name, snapshot: this.opts.snapshot, labels: spec.labels,
       volumes: [{ volumeId: vol.id, mountPath: spec.mountPath }],
@@ -262,7 +269,7 @@ export class DaytonaApi implements SandboxApi {
     await s.fs.setFilePermissions(path, { mode: "600" });
   }
 
-  async run(name: string, command: string, onLine?: LineSink): Promise<number> {
+  async run(name: string, command: string, onLine?: LineSink, signal?: AbortSignal): Promise<number> {
     const s = await this.sandbox(name);
     const sessionId = `run-${Math.random().toString(36).slice(2, 10)}`;
     await s.process.createSession(sessionId);
@@ -271,8 +278,10 @@ export class DaytonaApi implements SandboxApi {
       const cmdId = started.cmdId;
       const out = lineSplitter((l) => onLine?.("stdout", l));
       const err = lineSplitter((l) => onLine?.("stderr", l));
-      await s.process.getSessionCommandLogs(sessionId, cmdId, (c) => out.push(c), (c) => err.push(c));
+      const aborted = new Promise<"aborted">((r) => signal?.addEventListener("abort", () => r("aborted"), { once: true }));
+      const done = await Promise.race([s.process.getSessionCommandLogs(sessionId, cmdId, (c) => out.push(c), (c) => err.push(c)).then(() => "done" as const), aborted]);
       out.flush(); err.flush();
+      if (done === "aborted") return -1; // the log stream can hang on a command that never started; kill() also pkills it
       // the log stream ends when the command does; the exit code can lag it by a moment
       for (let i = 0; i < 20; i++) {
         const c = await s.process.getSessionCommand(sessionId, cmdId);

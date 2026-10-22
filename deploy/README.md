@@ -70,3 +70,19 @@ Rollback: `git revert` on main. Emergency: point `prod` at the last good sha and
   string the provider records. They are still inside a third party's VM while the session runs: keep Dara's scoped grants tight.
 - **Status:** unit-tested against a fake provider only. Not yet run against a real Daytona account; check on one test resident first
   (create, resume after stop, home volume persists, `pkill` stops a session, idle stop) before pointing the collective at it.
+
+## Desks on Fly.io Machines (`desks.backend: "fly"`, the recommended sandbox provider)
+Open internet out, per-second billing, no prepayment. Code: `packages/runtime/src/desk/fly.ts` (`FlyApi`, behind the same `SandboxBackend` as Daytona).
+- **Setup (once):** `fly apps create muster-desks`; `fly tokens create deploy -a muster-desks -x 8760h`; put `FLY_API_TOKEN=<token>` and
+  `FLY_APP=muster-desks` in the collective's `.env` (host secrets, never `DESK_ENV_*`). Build and push the desk image to Fly's registry
+  (`fly deploy --build-only --push --image-label desk -c fly.desk.toml`, run with `FLY_ACCESS_TOKEN` set to that token; Fly's remote builder is amd64).
+- **Config:** `"desks": { "backend": "fly", "townUrl": "https://<where the town is reachable from the internet>", "maxRunning": 6 }`.
+  Optional: `snapshot` (an image ref; default `registry.fly.io/$FLY_APP:desk`), `region` (default `iad`), `cpuKind` (`shared`|`performance`), `cpus`, `memoryMb`.
+- **Model:** one Machine per agent (`desk-<collective>-<agent>`) with a 5 GB volume mounted at `/home/agent`. A Machine stops after the session
+  (and by itself after 6 h at the latest); a stopped one costs only its root disk, and its volume persists. A session is started in the background
+  on the Machine and followed with short polling execs, because Fly drops a single exec call after about a minute.
+- **Verified live (2026-10-22):** create from the image (~25 s, includes the volume), runs as `agent` with `HOME=/home/agent`, secrets with quotes arrive intact,
+  outbound internet works, an 80 s run is followed past the exec limit, stop/start keeps the volume. Re-check with
+  `node --env-file=collectives/workshop/.env --import tsx scripts/fly-desk-check.ts` (a few cents).
+- **Not yet checked:** a full agent session on it (needs the town reachable from Fly: a tunnel for the Mac, the real host later), the shared-vs-performance CPU
+  choice under `npm install` + tests, and what happens when a volume's host has no capacity.
