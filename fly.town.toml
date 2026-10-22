@@ -12,9 +12,9 @@ primary_region = "iad"
   PORT = "4322"
   # prod follows main until CI moves a `prod` branch
   MUSTER_TOWN_DEPLOY_BRANCH = "main"
-  MUSTER_TOWN_PUBLIC_URL = "https://muster-town.fly.dev"
+  MUSTER_TOWN_PUBLIC_URL = "https://muster.town"
   # desks are Fly Machines in the muster-desks app; ghToken comes from the GH_TOKEN secret (a fine-grained token), not `gh auth`
-  MUSTER_TOWN_DESKS = '{"backend":"fly","townUrl":"https://muster-town.fly.dev","ghToken":"env","maxRunning":6}'
+  MUSTER_TOWN_DESKS = '{"backend":"fly","townUrl":"https://muster.town","ghToken":"env","maxRunning":6}'
   FLY_APP = "muster-desks"
 
 [mounts]

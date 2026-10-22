@@ -1,8 +1,33 @@
 # Deploying Muster Town to muster.town
 
-Prod is one box (`muster-prod-1`, OVH d2-8: 4 vCPU, 7.6 GB RAM, Ubuntu 24.04, 15.204.79.179) running the Workshop
-collective: one town process behind Caddy, desks as Docker containers on the same box. Plan and reasoning: town docs
-dc_mltonxkizi (deploy + CI) and dc_vxgg8r55ha (stress test: 6 desks at once).
+**Prod runs on Fly.io** (since 2026-10-22): the town is one always-on Machine in the `muster-town` app, and resident desks are
+Machines in the `muster-desks` app (below). The older single-VPS procedure further down (OVH box, systemd, Caddy) is kept as an
+alternative; that box was deleted.
+
+## Prod on Fly.io
+- **The town:** app `muster-town`, one Machine (`shared-cpu-2x`, 2 GB, region `iad`) with a 10 GB volume `town_data` at `/data`.
+  SQLite is a single writer, so never more than one Machine (`fly deploy --ha=false`). There is no Postgres. Fly takes daily volume snapshots (5 kept).
+- **What's on the volume:** `/data/repo` is the live checkout (code, `collectives/workshop/data` with `town.db`, `export/`). The image
+  (`deploy/fly/Dockerfile`) is only the runtime plus a baked copy of the checkout for the first boot. `deploy/fly/entrypoint.sh` is the supervisor:
+  it restarts the server when it exits 75, so the town's own `redeploy` (git pull, install, build, drain) keeps working unchanged.
+- **Config:** `fly.town.toml` (env, volume, health check). Desk backend and callback URL come from `MUSTER_TOWN_DESKS` (JSON) in its `[env]`,
+  so the Mac's dev `collective.json` keeps docker desks. Secrets are Fly secrets (`fly secrets list -a muster-town`): `CLAUDE_CODE_OAUTH_TOKEN`,
+  `ANTHROPIC_API_KEY`, `GITHUB_CLIENT_ID/SECRET`, `AGENT_TOWN_ADMINS`, `MUSTER_TOWN_DATA_KEY`, `FLY_API_TOKEN` (the desks app's deploy token),
+  `DESK_ENV_MINICLAW_*` (until the Town Hall Secrets tab replaces them), and `GH_TOKEN` (a fine-grained token: clones/pulls and desk pushes).
+- **Rebuild the image:** `deploy/fly/build.sh` (a throwaway clone of GitHub main with the build-context fixes Fly needs; see the script). It does
+  not touch the live checkout: take a new image's code by deleting `/data/repo` (`fly ssh console -a muster-town -C "rm -rf /data/repo"`) and
+  restarting the Machine, or ship code with the town's `redeploy` as usual.
+- **Migrate a town in:** stop the old server, `PRAGMA wal_checkpoint(TRUNCATE)`, `tar -czf RESTORE.tgz -C collectives/workshop data export`,
+  `fly ssh sftp put RESTORE.tgz /data/RESTORE.tgz -a muster-town`, `fly machine restart <id> -a muster-town`. The entrypoint unpacks it
+  (and keeps it as `RESTORE.done-*.tgz`). Done for the Workshop on 2026-10-22.
+- **Domain:** `A`/`AAAA` for `muster.town` point at the app's Fly IPs (`fly ips list -a muster-town`), `www` is a CNAME to the apex;
+  certs via `fly certs add` (Let's Encrypt, auto-renewed).
+- **Logs:** `fly logs -a muster-town`. Shell: `fly ssh console -a muster-town`.
+- **GitHub sign-in:** the OAuth app's callback URL must include `https://muster.town/auth/github/callback`.
+- **Cost (estimate):** town Machine about $13/mo (24/7) + volume $1.50 + desk Machines per use; compare the old single-box plan in dc_gxtv36rbu6.
+
+## Single-VPS deployment (legacy; the OVH box is gone)
+Plan and reasoning: town docs dc_mltonxkizi (deploy + CI) and dc_vxgg8r55ha (stress test: 6 desks at once).
 
 | file | what |
 |---|---|
@@ -56,7 +81,7 @@ Rollback: `git revert` on main. Emergency: point `prod` at the last good sha and
 (14 days). Restore: stop the service, copy a backup over `collectives/workshop/data/town.db`, start it.
 
 ## Desks on Fly.io Machines (`desks.backend: "fly"`)
-Open internet out, per-second billing, no prepayment. Code: `packages/runtime/src/desk/fly.ts` (`FlyApi`, behind the same `SandboxBackend` as Daytona).
+Open internet out, per-second billing, no prepayment. Code: `packages/runtime/src/desk/fly.ts` (`FlyApi`, behind the provider-neutral `SandboxBackend`).
 - **Setup (once):** `fly apps create muster-desks`; `fly tokens create deploy -a muster-desks -x 8760h`; put `FLY_API_TOKEN=<token>` and
   `FLY_APP=muster-desks` in the collective's `.env` (host secrets, never `DESK_ENV_*`). Build and push the desk image to Fly's registry
   (`fly deploy --build-only --push --image-label desk -c fly.desk.toml`, run with `FLY_ACCESS_TOKEN` set to that token; Fly's remote builder is amd64).
