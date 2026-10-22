@@ -10,7 +10,7 @@ import { basename, dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { buildApp } from "./app.ts";
 import { loadAuthSettings } from "./auth/index.ts";
-import { loadEnvFile } from "./env.ts";
+import { desksFromEnv, loadEnvFile } from "./env.ts";
 import type { RuntimeHooks } from "./context.ts";
 
 const REPO_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "../../..");
@@ -39,6 +39,11 @@ async function main() {
     dataDir: DATA_DIR,
   });
   console.log(seed.created ? `[server] seeded collective "${collectiveCfg.name ?? "?"}" in ${DATA_DIR}` : `[server] opened collective "${collectiveCfg.name ?? "?"}" from ${DATA_DIR}`);
+  const desksOverride = desksFromEnv(townEnv("DESKS"));
+  if (desksOverride) {
+    world.town.setDesks({ ...world.town.desks(), ...desksOverride });
+    console.log(`[server] desk settings from MUSTER_TOWN_DESKS: ${Object.keys(desksOverride).join(", ")}`);
+  }
   world.start(10);
 
   const auth = loadAuthSettings({ dataDir: DATA_DIR, port: PORT });

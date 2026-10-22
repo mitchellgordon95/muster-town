@@ -1,0 +1,9 @@
+# build context for the town image (fly.town.toml [build] ignorefile): .git and collectives/*/collective.json are wanted, state and secrets are not
+node_modules
+**/node_modules
+collectives/*/data
+collectives/*/export
+collectives/*/.env
+work
+legacy
+packages/web/dist

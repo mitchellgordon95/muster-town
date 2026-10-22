@@ -2,4 +2,4 @@
 export { buildApp, DEFAULT_WEB_DIST, type BuildAppOptions } from "./app.ts";
 export { buildMcpServer } from "./mcp.ts";
 export { adminToken, resolveToken, type Auth, type RuntimeHooks } from "./context.ts";
-export { loadEnvFile } from "./env.ts";
+export { desksFromEnv, loadEnvFile } from "./env.ts";

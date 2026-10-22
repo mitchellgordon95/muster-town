@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, test, vi } from "vitest";
 import type { Agent, Building } from "@muster-town/schema";
 import { SandboxBackend, type DeskBackend, type DeskChild, type DeskHandle, type SandboxApi } from "../src/index.ts";
-import { killPattern, lineSplitter, type SandboxInfo } from "../src/desk/sandbox.ts";
+import { killPattern, type SandboxInfo } from "../src/desk/sandbox.ts";
 import { result, setup } from "./helpers.ts";
 
 const agent = { id: "ag_abc123" } as Agent;
@@ -140,17 +140,6 @@ describe("SandboxBackend", () => {
   });
 });
 
-describe("lineSplitter", () => {
-  test("joins chunks into lines and flushes the tail", () => {
-    const out: string[] = [];
-    const s = lineSplitter((l) => out.push(l));
-    s.push("one\ntw"); s.push("o\r\nthr"); s.push("ee");
-    expect(out).toEqual(["one", "two"]);
-    s.flush();
-    expect(out).toEqual(["one", "two", "three"]);
-  });
-});
-
 describe("sandbox desks reach the town at desks.townUrl", () => {
   class FakeSandboxDesk implements DeskBackend {
     readonly kind = "docker" as const;
@@ -166,7 +155,7 @@ describe("sandbox desks reach the town at desks.townUrl", () => {
   }
   test("MUSTER_TOWN_URL is the public URL (trailing slash trimmed), not host.docker.internal", async () => {
     const desk = new FakeSandboxDesk();
-    const { world, runtime, by } = setup(async function* () { yield result(1, 0); }, { deskBackend: desk, desks: { backend: "daytona", townUrl: "https://muster.town/" } });
+    const { world, runtime, by } = setup(async function* () { yield result(1, 0); }, { deskBackend: desk, desks: { backend: "fly", townUrl: "https://muster.town/" } });
     const noor = by("Noor");
     world.agents.where("kind = 'resident' AND id != ?", [noor.id]).forEach((a) => world.agents.patch(a.id, { status: "stopped" }));
     world.setStatus(noor.id, "idle");

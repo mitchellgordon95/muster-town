@@ -1,0 +1,41 @@
+# The town server on Fly.io: one always-on Machine with a volume (SQLite is a single writer, so never more than one Machine).
+# Deploy from a clean clone of main:  fly deploy --ha=false -c fly.town.toml    (deploy/README.md has the whole procedure)
+app = "muster-town"
+primary_region = "iad"
+
+[build]
+  dockerfile = "deploy/fly/Dockerfile"
+  ignorefile = "deploy/fly/dockerignore"
+
+[env]
+  MUSTER_TOWN_COLLECTIVE = "collectives/workshop"
+  HOST = "0.0.0.0"
+  PORT = "4322"
+  # prod follows main until CI moves a `prod` branch
+  MUSTER_TOWN_DEPLOY_BRANCH = "main"
+  MUSTER_TOWN_PUBLIC_URL = "https://muster-town.fly.dev"
+  # desks are Fly Machines in the muster-desks app; ghToken comes from the GH_TOKEN secret (a fine-grained token), not `gh auth`
+  MUSTER_TOWN_DESKS = '{"backend":"fly","townUrl":"https://muster-town.fly.dev","ghToken":"env","maxRunning":6}'
+  FLY_APP = "muster-desks"
+
+[mounts]
+  source = "town_data"
+  destination = "/data"
+
+[http_service]
+  internal_port = 4322
+  force_https = true
+  auto_stop_machines = "off"
+  auto_start_machines = false
+  min_machines_running = 1
+
+  [[http_service.checks]]
+    method = "GET"
+    path = "/api/health"
+    interval = "30s"
+    timeout = "5s"
+    grace_period = "90s"
+
+[[vm]]
+  size = "shared-cpu-2x"
+  memory = "2gb"

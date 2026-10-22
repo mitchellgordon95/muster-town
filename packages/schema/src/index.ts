@@ -1134,16 +1134,16 @@ export const CollectiveBuildingSpec = z.object({
 });
 /** How resident work sessions run: in a desk container (docker), in-process (host), or docker when available (auto). */
 export const DesksConfig = z.object({
-  backend: z.enum(["docker", "host", "auto", "daytona", "fly"]).default("auto"),
+  backend: z.enum(["docker", "host", "auto", "fly"]).default("auto"),
   image: z.string().default("muster-town-desk"),
-  /** `daytona`: the snapshot desks are created from (scripts/daytona-snapshot.ts). `fly`: the image (default registry.fly.io/$FLY_APP:desk, see fly.desk.toml) */
+  /** the desk image for `fly` (default registry.fly.io/$FLY_APP:desk, built from fly.desk.toml) */
   snapshot: z.string().default("muster-town-desk"),
   /** `fly` only: where desk Machines run, and their size (defaults iad, shared 2 vCPU, 2048 MB) */
   region: z.string().optional(),
   cpuKind: z.enum(["shared", "performance"]).optional(),
   cpus: z.number().int().positive().optional(),
   memoryMb: z.number().int().positive().optional(),
-  /** `daytona` only: the town's public base URL desks call back to (e.g. https://muster.town); docker desks use host.docker.internal */
+  /** sandbox backends (`fly`) only: the town's public base URL desks call back to (e.g. https://muster.town); docker desks use host.docker.internal */
   townUrl: z.string().url().optional(),
   /** where desks get GH_TOKEN: `gh auth token` on the host, the host's GH_TOKEN env, or none */
   ghToken: z.enum(["gh-cli", "env", "none"]).default("gh-cli"),

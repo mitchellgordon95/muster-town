@@ -8,7 +8,7 @@ import { DesksConfig, type ChatInput, type DeskActivityInput, type Event, type R
 import { askAbout, chat } from "./chat.ts";
 import { DockerBackend, dockerSafe, HostBackend, type DeskBackend, type WorkBackend } from "./desk/backend.ts";
 import { FlyApi } from "./desk/fly.ts";
-import { DaytonaApi, SandboxBackend } from "./desk/sandbox.ts";
+import { SandboxBackend } from "./desk/sandbox.ts";
 import { gitHead, isAncestor, makeRedeployer, type RedeployDeps, type RedeployRequest } from "./redeploy.ts";
 import { onDeskActivity, runDeskSession, type DeskSessionOptions } from "./desk/session.ts";
 import { advanceCollecting, facilitate, newMeetingState, onMeetingMention, onMeetingStart } from "./meetings.ts";
@@ -19,7 +19,7 @@ import { abortWork, finishWorkSession, interrupt, maybeReview, runWorkSession, t
 export { describeTool } from "./describe.ts";
 export { prompts } from "@muster-town/core";
 export { FlyApi } from "./desk/fly.ts";
-export { DaytonaApi, SandboxBackend, type SandboxApi } from "./desk/sandbox.ts";
+export { SandboxBackend, type SandboxApi } from "./desk/sandbox.ts";
 export { DockerBackend, HostBackend, realDockerRunner, type DeskBackend, type DeskChild, type DeskHandle, type DockerRunner, type RunResult, type SpawnedChild, type WorkBackend, type LineSink } from "./desk/backend.ts";
 export { deskAuth, deskEnv, grantedSecrets, portOf, DESK_ENV_PREFIX, FALLBACK_KEY_ENV, type DeskAuthMode, type DeskSessionOptions } from "./desk/session.ts";
 export { fundingFor, fundedBy, type Funding } from "./session.ts";
@@ -148,17 +148,14 @@ export function startRuntime(opts: RuntimeOptions): Runtime {
 
   let backend: WorkBackend | null = opts.deskBackend ?? null;
   const collectiveSlug = opts.collective ?? slugify(world.town.get().name);
-  const sandboxProvider = desks.backend === "daytona" ? "Daytona" : desks.backend === "fly" ? "Fly.io" : null;
+  const sandboxProvider = desks.backend === "fly" ? "Fly.io" : null;
   const sandboxBackend = (): DeskBackend => {
-    if (desks.backend === "fly") {
-      const app = process.env.FLY_APP ?? "";
-      const image = desks.snapshot.includes("/") ? desks.snapshot : `registry.fly.io/${app}:desk`;
-      return new SandboxBackend({
-        api: new FlyApi({ app, token: process.env.FLY_API_TOKEN ?? "", image, region: desks.region, cpuKind: desks.cpuKind, cpus: desks.cpus, memoryMb: desks.memoryMb }),
-        collective: collectiveSlug, heartbeatMs: 0, // Machines have no idle auto-stop; each one also stops itself after its max lifetime
-      });
-    }
-    return new SandboxBackend({ api: new DaytonaApi({ snapshot: desks.snapshot }), collective: collectiveSlug });
+    const app = process.env.FLY_APP ?? "";
+    const image = desks.snapshot.includes("/") ? desks.snapshot : `registry.fly.io/${app}:desk`;
+    return new SandboxBackend({
+      api: new FlyApi({ app, token: process.env.FLY_API_TOKEN ?? "", image, region: desks.region, cpuKind: desks.cpuKind, cpus: desks.cpus, memoryMb: desks.memoryMb }),
+      collective: collectiveSlug, heartbeatMs: 0, // Machines have no idle auto-stop; each one also stops itself after its max lifetime
+    });
   };
   const dockerProbe: DeskBackend | null = desks.backend === "host" ? null : opts.dockerProbe
     ?? (sandboxProvider ? sandboxBackend() : new DockerBackend({ collective: collectiveSlug, image: desks.image }));

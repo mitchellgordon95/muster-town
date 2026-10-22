@@ -4,7 +4,7 @@
  */
 export type TownEnvName =
   | "TOKEN" | "URL" | "HOME" | "EXPORT" | "DATA" | "COLLECTIVE" | "DEV"
-  | "ADMIN_NAME" | "ADMINS" | "PUBLIC_URL" | "SESSION_SECRET" | "GITHUB_URL" | "DEPLOY_BRANCH" | "DATA_KEY";
+  | "ADMIN_NAME" | "ADMINS" | "PUBLIC_URL" | "SESSION_SECRET" | "GITHUB_URL" | "DEPLOY_BRANCH" | "DATA_KEY" | "DESKS";
 
 export const ENV_PREFIX = "MUSTER_TOWN_";
 export const OLD_ENV_PREFIX = "AGENT_TOWN_";

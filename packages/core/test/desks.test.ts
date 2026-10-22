@@ -93,9 +93,9 @@ describe("seed", () => {
     write({ backend: "host" });
     world.seedDefaults({ collectivePath: cfg });
     world.setDesksConfig({ maxRunning: 7 }); // set live, as PUT /api/town/desks does
-    write({ backend: "daytona", townUrl: "https://t.example" });
+    write({ backend: "fly", townUrl: "https://t.example" });
     world.seedDefaults({ collectivePath: cfg }); // existing town: the seed's early-return path
-    expect(world.desksConfig()).toMatchObject({ backend: "daytona", townUrl: "https://t.example", maxRunning: 7 });
+    expect(world.desksConfig()).toMatchObject({ backend: "fly", townUrl: "https://t.example", maxRunning: 7 });
   });
 
   test("an ssh origin is stored as-is and handed to desks as https", () => {
