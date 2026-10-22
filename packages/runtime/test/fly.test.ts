@@ -58,6 +58,13 @@ describe("FlyApi", () => {
     expect(chown.body.command.join(" ")).toMatch(/chown agent:agent '\/home\/agent'/);
   });
 
+  test("options passed as undefined (as the runtime does for unset config) keep the defaults", async () => {
+    const f = fakeFly();
+    await api(f, { region: undefined, cpuKind: undefined, cpus: undefined, memoryMb: undefined }).create({ name: "desk-c-ag_1", labels: {}, volume: "deskhome-ag_1", mountPath: "/home/agent" });
+    const m = f.reqs.find((r) => r.method === "POST" && r.path === "/machines")!;
+    expect(m.body).toMatchObject({ region: "iad", config: { guest: { cpu_kind: "shared", cpus: 2, memory_mb: 2048 } } });
+  });
+
   test("create reuses an existing volume", async () => {
     const f = fakeFly({ volumes: [{ id: "vol_old", name: "deskhome_ag_1", state: "created" }] });
     await api(f).create({ name: "desk-c-ag_1", labels: {}, volume: "deskhome-ag_1", mountPath: "/home/agent" });
