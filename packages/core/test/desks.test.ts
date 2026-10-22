@@ -86,6 +86,18 @@ describe("seed", () => {
     expect(world.desksConfig()).toEqual({ backend: "host", image: "muster-town-desk", ghToken: "gh-cli", snapshot: "muster-town-desk", maxRunning: 20 });
   });
 
+  test("on a later boot, the desks keys collective.json spells out win; the ones it leaves out keep their stored value", () => {
+    const { world, dir } = freshWorld();
+    const cfg = join(dir, "collective.json");
+    const write = (desks: object) => writeFileSync(cfg, JSON.stringify({ name: "T", goal: "", desks, buildings: [{ id: "ws", name: "WS" }] }));
+    write({ backend: "host" });
+    world.seedDefaults({ collectivePath: cfg });
+    world.setDesksConfig({ maxRunning: 7 }); // set live, as PUT /api/town/desks does
+    write({ backend: "daytona", townUrl: "https://t.example" });
+    world.seedDefaults({ collectivePath: cfg }); // existing town: the seed's early-return path
+    expect(world.desksConfig()).toMatchObject({ backend: "daytona", townUrl: "https://t.example", maxRunning: 7 });
+  });
+
   test("an ssh origin is stored as-is and handed to desks as https", () => {
     const { world, dir } = freshWorld();
     const repo = join(dir, "repo");

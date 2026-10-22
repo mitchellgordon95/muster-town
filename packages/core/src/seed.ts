@@ -1,4 +1,4 @@
-import { CollectiveConfig, Town, townEnv, type Agent, type Building, type DesksConfig, type User, type Workspace } from "@muster-town/schema";
+import { CollectiveConfig, Town, townEnv, type Agent, type Building, DesksConfig, type User, type Workspace } from "@muster-town/schema";
 import { execFileSync } from "node:child_process";
 import { chmodSync, existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
@@ -88,6 +88,12 @@ export function seedDefaults(world: World, opts: SeedOptions = {}): SeedResult {
     if (ws) {
       const filled = withRepoUrl(ws);
       if (filled !== town.workspace) world.town.set({ workspace: filled });
+    }
+    // the keys collective.json spells out under `desks` win on every boot; the ones it leaves out (e.g. a `maxRunning` set live
+    // via PUT /api/town/desks) keep their stored value. Without this, backend/snapshot/townUrl could never change after the seed.
+    if (opts.collectivePath && existsSync(opts.collectivePath)) {
+      const spelled = (JSON.parse(readFileSync(opts.collectivePath, "utf8")) as { desks?: Partial<DesksConfig> }).desks;
+      if (spelled && Object.keys(spelled).length) world.town.setDesks({ ...world.town.desks(), ...DesksConfig.partial().parse(spelled) });
     }
     // v1.2: the town moderator role (no moderator agents are created in existing DBs)
     world.permissions.ensureTownRoles();
