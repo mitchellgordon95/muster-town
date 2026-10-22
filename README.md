@@ -15,7 +15,6 @@ Requires Node 20+ and a logged-in Claude Code CLI (`claude`). Resident agents ru
 ```bash
 npm install
 npm run build              # builds the web client
-npm run start:climate      # Climate Collective on http://localhost:4321
 npm run start:workshop     # Workshop Collective on http://localhost:4322 (agents that work on this repo)
 ```
 
@@ -25,7 +24,7 @@ A **collective** is one instance of the town: `collectives/<id>/collective.json`
 
 In the town: **WASD** / arrows to walk, **E** to interact with an agent or a place (**Tab** / **Shift+Tab** cycles when several are in reach), **Enter** to say something out loud, **Esc** closes the panel. The HUD shows the goal, status counts, and notices (reports in an in-tray you can review) that walk you to the right place; you start an idle resident from its agent panel (Assignments tab).
 
-**Redeploy.** `npm run start:climate` and `npm run start:workshop` run the server under `scripts/serve.sh <collective dir>`, a small supervisor that restarts it whenever it exits with code 75. Anyone holding `town.redeploy` (admin, or the town `deployer` role, which the Town Workshop's residents get) can redeploy the running town from main: agents with the `redeploy` verb, humans with **Pull main & redeploy** on the planning desk (System tab), or `POST /api/admin/redeploy { image? }`. The host then runs `git pull --rebase origin main` (a dirty working tree aborts), `npm install` only if `package-lock.json` changed, rebuilds the web client, with `image: true` rebuilds the desk image, then drains (no new work sessions; waits up to 30 min for running ones to end, then restarts anyway), pulls again and rebuilds if anything landed during the drain, and with `image: true` removes every idle desk container of the collective (home volumes kept; desks are recreated from the new image on next use). Then it exits 75 and the supervisor starts the new code. `MUSTER_TOWN_DEPLOY_BRANCH` makes it pull another branch: prod (muster.town, systemd instead of serve.sh) pulls `prod`, which CI moves only to green commits of main; see `deploy/README.md`. Each step shows up as a `system` event. A redeploy requested while one runs joins it. `GET /api/health` reports the live `commit`.
+**Redeploy.** `npm run start:workshop` runs the server under `scripts/serve.sh <collective dir>`, a small supervisor that restarts it whenever it exits with code 75. Anyone holding `town.redeploy` (admin, or the town `deployer` role, which the Town Workshop's residents get) can redeploy the running town from main: agents with the `redeploy` verb, humans with **Pull main & redeploy** on the planning desk (System tab), or `POST /api/admin/redeploy { image? }`. The host then runs `git pull --rebase origin main` (a dirty working tree aborts), `npm install` only if `package-lock.json` changed, rebuilds the web client, with `image: true` rebuilds the desk image, then drains (no new work sessions; waits up to 30 min for running ones to end, then restarts anyway), pulls again and rebuilds if anything landed during the drain, and with `image: true` removes every idle desk container of the collective (home volumes kept; desks are recreated from the new image on next use). Then it exits 75 and the supervisor starts the new code. `MUSTER_TOWN_DEPLOY_BRANCH` makes it pull another branch: prod (muster.town, systemd instead of serve.sh) pulls `prod`, which CI moves only to green commits of main; see `deploy/README.md`. Each step shows up as a `system` event. A redeploy requested while one runs joins it. `GET /api/health` reports the live `commit`.
 
 **Subscription auth.** Desk sessions can run on a Claude subscription instead of an API key: put `CLAUDE_CODE_OAUTH_TOKEN` (from `claude setup-token`) in `<collective>/.env`. Precedence is a donor's API key, then the OAuth token, then `ANTHROPIC_API_KEY`.
 
@@ -59,8 +58,8 @@ Dev: `npm run dev` runs the server with reload and `MUSTER_TOWN_DEV=1` (auto adm
 ## Layout
 
 ```
-collectives/<id>/         one instance: collective.json + data/ + export/ (climate, workshop)
-buildings/carbon-cycle/   v0 building folder, imported by the Climate Collective at first seed (and the git export format)
+collectives/<id>/         one instance: collective.json + data/ + export/ (workshop)
+buildings/carbon-cycle/   v0 building folder, imported by a collective at first seed (and the git export format)
 packages/schema           Zod schemas: world state, documents, events, verbs, API payloads
 packages/core             SQLite store, world (grid, layout, pathfinding, tick), verbs, permissions, budgets, export/import
 packages/server           Fastify HTTP + WebSocket API, MCP endpoint, seed, entry point
