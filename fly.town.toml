@@ -5,7 +5,6 @@ primary_region = "iad"
 
 [build]
   dockerfile = "deploy/fly/Dockerfile"
-  ignorefile = "deploy/fly/dockerignore"
 
 [env]
   MUSTER_TOWN_COLLECTIVE = "collectives/workshop"

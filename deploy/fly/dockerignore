@@ -1,4 +1,4 @@
-# build context for the town image (fly.town.toml [build] ignorefile): .git and collectives/*/collective.json are wanted, state and secrets are not
+# build context for the town image (deploy/fly/build.sh installs this as .dockerignore in its clone): .git and collectives/*/collective.json are wanted, state and secrets are not
 node_modules
 **/node_modules
 collectives/*/data
