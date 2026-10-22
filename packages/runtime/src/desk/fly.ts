@@ -48,7 +48,7 @@ export class FlyApi implements SandboxApi {
     // options the caller leaves unset (passed as `undefined`, as the runtime does from its config) must not wipe the defaults
     const given = Object.fromEntries(Object.entries(opts).filter(([, v]) => v !== undefined));
     this.opts = {
-      region: "iad", cpuKind: "shared", cpus: 2, memoryMb: 2048, volumeGb: 5, maxLifetimeSec: 6 * 3600, pollMs: 3000, ...given,
+      region: "iad", cpuKind: "shared", cpus: 2, memoryMb: 2048, volumeGb: 5, maxLifetimeSec: 6 * 3600, pollMs: 1500, ...given,
     } as Required<Omit<FlyOptions, "fetch">>;
   }
 

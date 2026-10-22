@@ -34,7 +34,7 @@ primary_region = "iad"
     path = "/api/health"
     interval = "30s"
     timeout = "5s"
-    grace_period = "90s"
+    grace_period = "240s" # the first boot copies the checkout onto the volume (about a minute)
 
 [[vm]]
   size = "shared-cpu-2x"

@@ -9,6 +9,7 @@ mkdir -p /data
 
 if [ ! -d "$REPO/.git" ]; then
   echo "[entrypoint] first boot: copying the baked checkout to $REPO"
+  rm -rf "$REPO" # a copy interrupted on an earlier boot leaves a partial one
   cp -a /opt/seed "$REPO"
 fi
 cd "$REPO"
