@@ -26,6 +26,18 @@ alternative; that box was deleted.
 - **GitHub sign-in:** the OAuth app's callback URL must include `https://muster.town/auth/github/callback`.
 - **Cost (estimate):** town Machine about $13/mo (24/7) + volume $1.50 + desk Machines per use; compare the old single-box plan in dc_gxtv36rbu6.
 
+### Prod open items (as of 2026-10-22)
+- **Blocking code agents:** `GH_TOKEN` is not set on the town app, so desks can't clone the private repo and the town can't pull for `redeploy`.
+  Needs a fine-grained token for this repo only (Contents + Pull requests, read/write): `fly secrets set GH_TOKEN=... -a muster-town`.
+- **GitHub sign-in on prod:** add `https://muster.town/auth/github/callback` to the OAuth app (client id is in the Fly secrets), or create a second app for prod.
+- **Backups:** only Fly's daily volume snapshots (5 kept). No off-site copy yet (Litestream to object storage, or a nightly `sqlite3 .backup` pushed out).
+- **Secrets:** `DESK_ENV_MINICLAW_*` are Fly secrets that reach every desk; move them to the Town Hall Secrets tab with grants and drop the env fallback.
+  The admin and agent tokens in the migrated database were issued on the Mac: rotate them (docs/secrets.md, Dara's design dc_ios62uyco3 §3f).
+- **Deploys:** prod follows `main` directly (`MUSTER_TOWN_DEPLOY_BRANCH=main`); there is no CI gate or `prod` branch yet (`deploy/ci.yml` is not active).
+- **One Machine** means a restart is a short outage; the volume is the only copy of the live world.
+- **Cold start:** a brand-new desk on a fresh Fly host pulls the ~1 GB desk image (about 90 s once); resuming a stopped desk takes about 1 s.
+- **Dev on the Mac:** don't start `collectives/workshop` there (it would fork the world); Fly desks from a Mac town need a public tunnel, so dev uses docker desks.
+
 ## Single-VPS deployment (legacy; the OVH box is gone)
 Plan and reasoning: town docs dc_mltonxkizi (deploy + CI) and dc_vxgg8r55ha (stress test: 6 desks at once).
 
