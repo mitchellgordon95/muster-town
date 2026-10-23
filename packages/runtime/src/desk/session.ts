@@ -5,7 +5,7 @@
  */
 import { execFileSync } from "node:child_process";
 import { AppError, codeWorkspace } from "@muster-town/core";
-import { townEnvBoth, type AllocationAuth, type DeskActivityInput, type Session } from "@muster-town/schema";
+import { townEnvBoth, type AllocationAuth, type DeskActivityInput, type DesksConfig, type Session } from "@muster-town/schema";
 import { describeTool } from "../describe.ts";
 import { InputChannel } from "../sdk.ts";
 import { clipJson, clipThought, fundedBy, fundingFor, homeOf, type Ctx, type Funding, type LiveSession } from "../session.ts";
@@ -122,10 +122,23 @@ export function deskEnv(ctx: Ctx, session: Session, opts: DeskSessionOptions = {
   console.log(`[runtime] ${agent.name} session ${session.id} auth: ${auth.mode}${auth.env[FALLBACK_KEY_ENV] ? " (API-key fallback ready)" : ""}`);
   if (codeWorkspace(world.town.get(), building)) {
     const mode = ctx.desks.ghToken;
-    const gh = opts.ghToken ? opts.ghToken() : mode === "gh-cli" ? ghCliToken() : mode === "env" ? process.env.GH_TOKEN ?? null : null;
+    const gh = opts.ghToken ? opts.ghToken() : ghTokenFor(mode);
     if (gh) env.GH_TOKEN = gh;
+    else console.warn(`[runtime] ${agent.name} session ${session.id}: no GH_TOKEN for the desk (${noGhTokenReason(mode)}); cloning a private repo and pushing will fail`);
   }
   return env;
+}
+
+/** The GitHub token desks get, per `desks.ghToken` (null when the mode yields none). */
+export function ghTokenFor(mode: DesksConfig["ghToken"]): string | null {
+  return mode === "gh-cli" ? ghCliToken() : mode === "env" ? process.env.GH_TOKEN ?? null : null;
+}
+
+/** Why `ghTokenFor` came back empty, for log lines. */
+export function noGhTokenReason(mode: DesksConfig["ghToken"]): string {
+  return mode === "gh-cli" ? "desks.ghToken is gh-cli but `gh auth token` gave nothing: log the host in with `gh auth login`"
+    : mode === "env" ? "desks.ghToken is env but GH_TOKEN is not set on the host"
+    : "desks.ghToken is none";
 }
 
 /**

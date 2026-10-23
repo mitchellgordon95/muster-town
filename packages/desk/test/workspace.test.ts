@@ -67,6 +67,18 @@ describe("setupWorkspace", () => {
     expect(existsSync(join(dir, "old.md"))).toBe(true);
   });
 
+  it("names the missing GH_TOKEN when a private https repo asks for credentials", () => {
+    // no terminal to prompt on: git fails the way it does in a desk that got no token
+    const prev = process.env.GIT_TERMINAL_PROMPT;
+    process.env.GIT_TERMINAL_PROMPT = "0";
+    try {
+      expect(() => setupWorkspace({ repoUrl: "https://github.com/muster-town-tests/definitely-private-nope.git", base: "main", branch: "b", branchPrefix: "agent", dir: join(root, "y") }, { npmInstall: false }))
+        .toThrow(/workspace setup failed \(the desk has no GH_TOKEN/);
+    } finally {
+      if (prev === undefined) delete process.env.GIT_TERMINAL_PROMPT; else process.env.GIT_TERMINAL_PROMPT = prev;
+    }
+  });
+
   it("throws a readable error for a bad repo", () => {
     expect(() => setupWorkspace({ repoUrl: join(root, "missing.git"), base: "main", branch: "b", branchPrefix: "agent", dir: join(root, "x") }, { npmInstall: false }))
       .toThrow(/workspace setup failed/);

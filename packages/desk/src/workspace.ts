@@ -79,7 +79,14 @@ export function setupWorkspace(ws: DeskWorkspace, opts: WorkspaceOptions = {}): 
       log(`created branch ${branch} from origin/${base}`);
     }
   } catch (e) {
-    throw new Error(`workspace setup failed: ${errText(e)}`);
+    const text = errText(e);
+    // git asked a terminal for a username: the repo needs credentials and the desk has none (or they were refused)
+    const hint = /could not read Username|Authentication failed|Permission denied/i.test(text)
+      ? opts.ghToken
+        ? " (the desk's GH_TOKEN was refused: it needs read access to this repo)"
+        : " (the desk has no GH_TOKEN, so a private repo can't be cloned: set `desks.ghToken` and the host's GH_TOKEN or `gh auth login`)"
+      : "";
+    throw new Error(`workspace setup failed${hint}: ${text}`);
   }
 
   if (opts.agentName && !tryRun("git", ["config", "user.email"], dir)) {
