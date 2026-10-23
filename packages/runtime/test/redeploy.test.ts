@@ -43,6 +43,31 @@ function harness(answers: [string, CmdResult | (() => CmdResult)][], working: st
 }
 
 describe("redeploy", () => {
+  test("on a sandbox-desk host (no docker) an image request is noted and skipped; the rest runs", async () => {
+    const h = harness(base(), [], { imageBuild: false });
+    h.r.redeploy({ image: true, requestedBy: "Pix" });
+    await h.r.done();
+    expect(h.runner.calls.some((c) => c.startsWith("docker"))).toBe(false);
+    expect(h.texts()).toContain("Redeploy: desk image … skipped (this host runs sandbox desks; the image is built and pushed from outside the town, see fly.desk.toml)");
+    expect(h.exit).toHaveBeenCalledWith(75);
+  });
+
+  test("git commands run with the repo token env from gitEnv; npm doesn't see it", async () => {
+    const { world } = setup(async function* () { yield result(1, 0); });
+    const seen: [string, Record<string, string> | undefined][] = [];
+    const run: CommandRunner = async (cmd, args, opts) => {
+      seen.push([[cmd, ...args].join(" "), opts.env]);
+      return ok(cmd === "git" && args[0] === "rev-parse" ? "abc\n" : cmd === "git" && args[0] === "rev-list" ? "0\n" : "");
+    };
+    const r = makeRedeployer({ world, repoRoot: "/repo", collective: "c", image: "x", isWorking: () => false, run, exit: vi.fn(), exitDelayMs: 1, drainPollMs: 1, gitEnv: () => ({ GH_TOKEN: "tok" }) });
+    r.redeploy({ image: false, requestedBy: "Pix" });
+    await r.done();
+    const pulls = seen.filter(([c]) => c.startsWith("git pull"));
+    expect(pulls.length).toBe(2);
+    expect(pulls.every(([, e]) => e?.GH_TOKEN === "tok")).toBe(true);
+    expect(seen.find(([c]) => c.startsWith("npm"))?.[1]).toBeUndefined();
+  });
+
   test("runs the steps in order, skips npm install when the lockfile didn't change, then requests exit 75", async () => {
     const h = harness(base());
     expect(h.r.redeploy({ image: false, requestedBy: "Pix" })).toEqual({ started: true });
@@ -86,7 +111,7 @@ describe("redeploy", () => {
     const h = harness([["git diff --name-only", ok("package-lock.json\n")], ...base()]);
     h.r.redeploy({ image: false, requestedBy: "Pix" });
     await h.r.done();
-    const i = h.runner.calls.indexOf("npm install --no-audit --no-fund");
+    const i = h.runner.calls.indexOf("npm install --include=dev --no-audit --no-fund");
     expect(i).toBeGreaterThan(h.runner.calls.indexOf("git pull --rebase origin main"));
     expect(i).toBeLessThan(h.runner.calls.indexOf("npm run build --workspace packages/web"));
   });

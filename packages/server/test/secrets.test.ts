@@ -31,7 +31,7 @@ describe("secrets routes", () => {
       expect((await json(app, "GET", "/api/secrets", { headers: h })).status).toBeGreaterThanOrEqual(401);
       expect((await json(app, "PUT", "/api/secrets/X_KEY", { headers: h, body: { value: "v" } })).status).toBeGreaterThanOrEqual(401);
     }
-    expect((await json(app, "PUT", "/api/secrets/GH_TOKEN", { headers: auth, body: { value: "v" } })).status).toBe(400);
+    expect((await json(app, "PUT", "/api/secrets/GH_OTHER", { headers: auth, body: { value: "v" } })).status).toBe(400); // GH_TOKEN itself is allowed: the collective repo token
     expect((await json(app, "DELETE", "/api/secrets/MINICLAW_WS_TOKEN", { headers: auth })).body).toEqual({ removed: true });
     expect((await json(app, "GET", "/api/secrets", { headers: auth })).body.secrets).toEqual([]);
   });

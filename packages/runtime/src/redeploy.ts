@@ -16,11 +16,11 @@ import { DESK_IMAGE, DESK_LABEL_PREFIXES, OLD_DESK_IMAGE } from "./desk/backend.
 
 export interface CmdResult { code: number; stdout: string; stderr: string }
 /** Runs one command (no shell). Injected in tests. */
-export type CommandRunner = (cmd: string, args: string[], opts: { cwd: string; timeoutMs?: number }) => Promise<CmdResult>;
+export type CommandRunner = (cmd: string, args: string[], opts: { cwd: string; timeoutMs?: number; env?: Record<string, string> }) => Promise<CmdResult>;
 
 export const realCommandRunner: CommandRunner = (cmd, args, opts) =>
   new Promise((resolve) => {
-    execFile(cmd, args, { cwd: opts.cwd, timeout: opts.timeoutMs ?? 600_000, maxBuffer: 32 * 1024 * 1024, env: { ...process.env, GIT_TERMINAL_PROMPT: "0" } }, (err, stdout, stderr) => {
+    execFile(cmd, args, { cwd: opts.cwd, timeout: opts.timeoutMs ?? 600_000, maxBuffer: 32 * 1024 * 1024, env: { ...process.env, GIT_TERMINAL_PROMPT: "0", ...opts.env } }, (err, stdout, stderr) => {
       const code = err ? (typeof (err as { code?: unknown }).code === "number" ? (err as { code: number }).code : 1) : 0;
       resolve({ code, stdout: String(stdout ?? ""), stderr: String(stderr || (err ? err.message : "")) });
     });
@@ -41,6 +41,10 @@ export interface RedeployDeps {
   collective: string;
   /** desk image tag to build */
   image: string;
+  /** whether this host can build the desk image (`docker build`); false on a sandbox-desk host (Fly), where the image is built elsewhere. Default true. */
+  imageBuild?: boolean;
+  /** extra env for the git commands (the collective's repo token as a credential helper); never logged */
+  gitEnv?: () => Record<string, string>;
   /** branch to pull from origin (prod follows a CI-moved `prod` branch). Default: MUSTER_TOWN_DEPLOY_BRANCH, else `main`. */
   branch?: string;
   /** whether the agent has a live work session (its desk is left alone) */
@@ -107,6 +111,8 @@ export function makeRedeployer(deps: RedeployDeps): Redeployer {
   const run = deps.run ?? realCommandRunner;
   const exit = deps.exit ?? ((code: number) => process.exit(code));
   const cwd = deps.repoRoot;
+  const buildImage = deps.imageBuild !== false;
+  const gitEnv = () => deps.gitEnv?.() ?? {};
   const branch = deps.branch ?? townEnv("DEPLOY_BRANCH")?.trim() ?? "main";
   let flight: Promise<void> | null = null;
   let held = false;
@@ -158,7 +164,7 @@ export function makeRedeployer(deps: RedeployDeps): Redeployer {
   async function step(label: string, cmd: string, args: string[], timeoutMs: number, okNote?: () => Promise<string>): Promise<CmdResult | null> {
     setPhase(label);
     say(`Redeploy: ${label} …`, { step: label, phase: "start" });
-    const r = await run(cmd, args, { cwd, timeoutMs });
+    const r = await run(cmd, args, { cwd, timeoutMs, ...(cmd === "git" ? { env: gitEnv() } : {}) });
     if (r.code !== 0) {
       fail();
       say(`Redeploy: ${label} … failed (exit ${r.code})`, { step: label, phase: "end", ok: false, code: r.code, output: tail(r) });
@@ -202,16 +208,20 @@ export function makeRedeployer(deps: RedeployDeps): Redeployer {
     let imageBuilt = false;
     async function rebuild(lock: boolean, label = ""): Promise<boolean> {
       if (lock) {
-        if (!(await step(`npm install${label}`, "npm", ["install", "--no-audit", "--no-fund"], 900_000))) return false;
+        // --include=dev: the server (tsx) and the web build (vite) run on devDependencies, whatever NODE_ENV says
+        if (!(await step(`npm install${label}`, "npm", ["install", "--include=dev", "--no-audit", "--no-fund"], 900_000))) return false;
       } else {
         say(`Redeploy: npm install${label} … skipped (package-lock.json unchanged)`, { step: "npm install", phase: "end", ok: true, skipped: true });
       }
       if (!(await step(`build web${label}`, "npm", ["run", "build", "--workspace", "packages/web"], 600_000))) return false;
-      if (o.image) {
+      if (o.image && buildImage) {
         if (!(await step(`docker build desk image${label}`, "docker", ["build", ...imageTags(deps.image).flatMap((t) => ["-t", t]), "-f", "packages/desk/Dockerfile", "."], 3_600_000))) return false;
         imageBuilt = true;
       }
       return true;
+    }
+    if (o.image && !buildImage) {
+      say("Redeploy: desk image … skipped (this host runs sandbox desks; the image is built and pushed from outside the town, see fly.desk.toml)", { step: "docker build desk image", phase: "end", ok: true, skipped: true });
     }
     if (!(await rebuild(lockChanged))) return;
 
@@ -277,7 +287,7 @@ export function makeRedeployer(deps: RedeployDeps): Redeployer {
     setPhase("git pull again");
     const mid = await head();
     finalPulled = true;
-    const again2 = await run("git", ["pull", "--rebase", "origin", branch], { cwd, timeoutMs: 300_000 });
+    const again2 = await run("git", ["pull", "--rebase", "origin", branch], { cwd, timeoutMs: 300_000, env: gitEnv() });
     if (again2.code !== 0) {
       say(`Redeploy: pull again after the drain … failed (exit ${again2.code}); restarting with what was pulled before`, { step: "git pull again", phase: "end", ok: false, code: again2.code, output: tail(again2) });
     } else {
@@ -289,12 +299,12 @@ export function makeRedeployer(deps: RedeployDeps): Redeployer {
       } else {
         say("Redeploy: pull again after the drain … ok (no new commits)", { step: "git pull again", phase: "end", ok: true, code: 0 });
         // a request that joined during the drain may have asked for the image
-        if (o.image && !imageBuilt && !(await rebuild(false, " (again)"))) return;
+        if (o.image && buildImage && !imageBuilt && !(await rebuild(false, " (again)"))) return;
       }
     }
 
     // (f) recreate idle desks (home volumes kept; a desk is recreated from the new image on next use)
-    if (o.image) {
+    if (o.image && buildImage) {
       setPhase("recreate desks");
       // desks made before the rename carry agent-town.* labels, newer ones muster-town.*: list both (drop the old in P6)
       const lines: string[] = [];

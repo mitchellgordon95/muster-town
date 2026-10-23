@@ -47,7 +47,7 @@ describe("SandboxBackend", () => {
     }]);
   });
 
-  test("ensure starts a stopped desk, leaves a started one alone, refuses one in error", async () => {
+  test("ensure starts a stopped desk, leaves a started one alone, replaces one in error (home volume kept)", async () => {
     const stopped = fakeApi({ found: { id: "s", name: "n", state: "stopped" } });
     await new SandboxBackend({ api: stopped.api, collective: "c" }).ensure(agent, building);
     expect(stopped.calls).toEqual(["find desk-c-ag_abc123", "start desk-c-ag_abc123"]);
@@ -55,7 +55,10 @@ describe("SandboxBackend", () => {
     await new SandboxBackend({ api: started.api, collective: "c" }).ensure(agent, building);
     expect(started.calls).toEqual(["find desk-c-ag_abc123"]);
     const bad = fakeApi({ found: { id: "s", name: "n", state: "error" } });
-    await expect(new SandboxBackend({ api: bad.api, collective: "c" }).ensure(agent, building)).rejects.toThrow(/error state/);
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    await new SandboxBackend({ api: bad.api, collective: "c" }).ensure(agent, building);
+    warn.mockRestore();
+    expect(bad.calls).toEqual(["find desk-c-ag_abc123", "remove desk-c-ag_abc123 -", "create"]);
   });
 
   test("exec sources the env from a 0600 file, so secret values are never in the command; streams lines; returns the exit code", async () => {

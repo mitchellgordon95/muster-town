@@ -9,7 +9,9 @@ Two tiers (design: town docs dc_ios62uyco3 and dc_8hdfo4rucp). Ask: if this leak
 
 `secrets (name, ciphertext, grants, updatedAt, updatedBy)` (migration 027). `ciphertext` is `v1:` + base64(iv[12] | GCM tag[16] | AES-256-GCM ciphertext) under the host's `MUSTER_TOWN_DATA_KEY` (32 bytes, base64 or 64 hex chars; make one with `openssl rand -base64 32`), with the secret's name as AAD. The key is never in the DB. Without it the server refuses to store values (HTTP 409) and passes no secrets to desks: nothing is ever stored in plaintext. Losing the key makes the stored values unreadable: set them again.
 
-Names are env-var style (`A-Z0-9_`, starting with a letter). Names the runtime sets itself are reserved: `MUSTER_TOWN_*`, `AGENT_TOWN_*`, `DESK_*`, `CLAUDE_*`, `ANTHROPIC_*`, `GH_*`, `GITHUB_*`, `NODE_*`, `LD_*`, `DYLD_*`, `PATH`, `HOME` and other process basics. (Desk GitHub tokens still come from `desks.ghToken`.)
+Names are env-var style (`A-Z0-9_`, starting with a letter). Names the runtime sets itself are reserved: `MUSTER_TOWN_*`, `AGENT_TOWN_*`, `DESK_*`, `CLAUDE_*`, `ANTHROPIC_*`, `GH_*`, `GITHUB_*`, `NODE_*`, `LD_*`, `DYLD_*`, `PATH`, `HOME` and other process basics.
+
+**The repo token is the exception.** A collective secret named `GH_TOKEN` is the GitHub token for the collective's own repo (`workspace` in collective.json): a fine-grained token for that repo with Contents and Pull requests read/write. It is the one `GH_*` name the Town Hall accepts. Grants don't apply to it: every desk with code access gets it as `GH_TOKEN` (the repo is the collective's, and code access is the grant), and the town's own `redeploy` pulls with it (`Secrets.value`, read by the runtime; never logged). When the collective has none, the host fallback applies: `desks.ghToken` = `gh-cli` (`gh auth token` on the host), `env` (the host's `GH_TOKEN`), or `none`. The server warns at boot when a collective has a repo but no token from either source.
 
 ## API (collective admins: a human's user token or session; agent tokens get 403)
 

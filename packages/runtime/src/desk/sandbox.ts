@@ -6,12 +6,14 @@
  *
  * Differences from docker desks the rest of the runtime doesn't see:
  *  - the desk reaches the town over the internet (`desks.townUrl`), not `host.docker.internal`;
- *  - the session env is uploaded as a 0600 file the command sources and deletes, so secret values never sit in a
- *    command string (which the provider records) the way `docker exec -e KEY` keeps them out of argv;
+ *  - the session env is uploaded as a 0600 file the command sources and deletes, so the session's own command line
+ *    carries no secret. Known gap: the upload itself is an exec whose argv holds the file base64-encoded (the Machines
+ *    API has no file-write call), so a provider that records exec commands sees the values; a fetch-by-one-time-code
+ *    from the town would close it;
  *  - the provider bills wall-clock time while a sandbox runs, so it is stopped shortly after its session ends.
  */
 import type { Agent, Building } from "@muster-town/schema";
-import { DESK_BIN, dockerSafe, type DeskBackend, type DeskChild, type DeskHandle, type LineSink } from "./backend.ts";
+import { DESK_BIN, dockerSafe, killPattern, type DeskBackend, type DeskChild, type DeskHandle, type LineSink } from "./backend.ts";
 
 export type SandboxState = "started" | "stopped" | "other" | "error";
 export interface SandboxInfo { id: string; name: string; state: SandboxState }
@@ -45,15 +47,7 @@ export const SANDBOX_HOME = "/home/agent";
 
 export const shq = (s: string) => `'${s.replace(/'/g, `'\\''`)}'`;
 
-/**
- * A `pkill -f` regex for the process `argv` starts. The desk binary is a shell script that execs node, so the running
- * command line no longer starts with the binary's name: match the arguments after it. The first character is bracketed
- * so the regex doesn't match the shell that carries the pkill command itself.
- */
-export function killPattern(argv: string[]): string {
-  const p = argv.slice(1).join(" ") || argv[0];
-  return `[${p[0]}]${p.slice(1)}`;
-}
+export { killPattern };
 
 export class SandboxBackend implements DeskBackend {
   /** the runtime's "container backend" kind: sessions are recorded as backend `docker` whichever provider runs them */
@@ -82,14 +76,18 @@ export class SandboxBackend implements DeskBackend {
   async ensure(agent: Agent, _building: Building): Promise<DeskHandle> {
     const name = this.sandboxName(agent.id);
     this.cancelIdleStop(name);
-    const found = await this.api.find(name);
+    let found = await this.api.find(name);
+    if (found?.state === "error") {
+      // a Machine that failed (e.g. never started after create) stays in that state for good: replace it, home volume kept
+      console.warn(`[sandbox ${name}] in an error state; removing it and creating a fresh one (home volume kept)`);
+      await this.api.remove(name, {});
+      found = null;
+    }
     if (!found) {
       await this.api.create({
         name, volume: this.volumeName(agent.id), mountPath: SANDBOX_HOME,
         labels: { "muster-town.desk": "1", "muster-town.agent": agent.id, "muster-town.collective": this.collective },
       });
-    } else if (found.state === "error") {
-      throw new Error(`sandbox ${name} is in an error state`);
     } else if (found.state !== "started") {
       await this.api.start(name);
     }

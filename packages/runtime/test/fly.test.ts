@@ -1,7 +1,7 @@
 import { describe, expect, test } from "vitest";
 import type { Agent, Building } from "@muster-town/schema";
 import { FlyApi, SandboxBackend } from "../src/index.ts";
-import { flyMachineName, flyVolumeName } from "../src/desk/fly.ts";
+import { flyMachineName, flyVolumeName, POLL_CHUNK } from "../src/desk/fly.ts";
 
 interface Req { method: string; path: string; body: any }
 
@@ -114,6 +114,26 @@ describe("FlyApi", () => {
     expect(launch).toContain("runuser -u agent");
     expect(launch).toContain("nohup");
     expect(launch).toContain(Buffer.from("#!/bin/sh\n", "utf8").toString("base64").slice(0, 8)); // the wrapper script travels base64
+  });
+
+  test("a poll that fills the chunk cap is not the end even with the exit code there: the rest is read next time", async () => {
+    const f = fakeFly({ machines: [{ id: "a", name: "n", state: "started" }] });
+    const big = "a".repeat(POLL_CHUNK);
+    f.execAnswers.push(() => ({})); // launch
+    f.execAnswers.push((cmd) => { expect(cmd.join(" ")).toContain(`head -c ${POLL_CHUNK}`); return { stdout: `${big}\n__EXIT__3` }; });
+    f.execAnswers.push((cmd) => { expect(cmd.join(" ")).toContain(`tail -c +${POLL_CHUNK + 1} `); return { stdout: "tail\n\n__EXIT__3" }; });
+    const lines: string[] = [];
+    expect(await api(f).run("n", "x", (_s, l) => lines.push(l))).toBe(3);
+    expect(lines).toEqual([`${big}tail`]);
+  });
+
+  test("a Machine that never starts is destroyed again, so the next ensure creates a fresh one instead of hitting a failed one", async () => {
+    const f = fakeFly();
+    const real = f.fetchFn;
+    const noStart = (async (url: string, init?: RequestInit) => (String(url).includes("/wait?state=started") ? ({ ok: false, status: 408, text: async () => "timeout" } as Response) : real(url, init))) as typeof fetch;
+    const a = new FlyApi({ app: "muster-desks", token: "t", image: "i", pollMs: 1, fetch: noStart });
+    await expect(a.create({ name: "desk-c-ag_1", labels: {}, volume: "deskhome-ag_1", mountPath: "/home/agent" })).rejects.toThrow(/did not reach started/);
+    expect(f.reqs.some((r) => r.method === "DELETE" && r.path === "/machines/m_1?force=true")).toBe(true);
   });
 
   test("run stops polling when aborted", async () => {

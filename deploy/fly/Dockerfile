@@ -12,12 +12,13 @@ RUN apt-get update \
 
 WORKDIR /opt/seed
 COPY . .
-RUN test -d gitdir && mv gitdir .git && git status --short | head -1 \
+# the seed must be a clean checkout: the town's redeploy refuses to pull into a dirty tree (so the dockerignore must not hide tracked files)
+RUN test -d gitdir && mv gitdir .git && test -z "$(git status --porcelain)" \
  && npm ci --no-audit --no-fund && npm run build \
  && rm -rf /root/.npm
 
 COPY deploy/fly/entrypoint.sh /usr/local/bin/town-entrypoint
 RUN chmod 755 /usr/local/bin/town-entrypoint
 
-ENV NODE_ENV=production
+# no NODE_ENV=production here: the redeploy's `npm install` would then drop devDependencies (tsx, vite) the server and web build run on
 ENTRYPOINT ["/usr/local/bin/town-entrypoint"]

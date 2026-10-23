@@ -10,7 +10,7 @@ import { DockerBackend, dockerSafe, HostBackend, type DeskBackend, type WorkBack
 import { FlyApi } from "./desk/fly.ts";
 import { SandboxBackend } from "./desk/sandbox.ts";
 import { gitHead, isAncestor, makeRedeployer, type RedeployDeps, type RedeployRequest } from "./redeploy.ts";
-import { ghTokenFor, noGhTokenReason, onDeskActivity, runDeskSession, type DeskSessionOptions } from "./desk/session.ts";
+import { gitAuthEnv, noRepoTokenReason, onDeskActivity, repoToken, runDeskSession, type DeskSessionOptions } from "./desk/session.ts";
 import { advanceCollecting, facilitate, newMeetingState, onMeetingMention, onMeetingStart } from "./meetings.ts";
 import { realSdk, type Sdk } from "./sdk.ts";
 import type { Ctx } from "./session.ts";
@@ -117,8 +117,8 @@ export function startRuntime(opts: RuntimeOptions): Runtime {
   const desks = DesksConfig.parse({ ...world.desksConfig(), ...opts.desks });
   const ctx: Ctx = { world, mcpUrl: opts.mcpUrl, repoRoot: opts.repoRoot ?? process.cwd(), desks, now, sdk: opts.sdk ?? realSdk, live: new Map(), deskAllocations: new Map(), deskFallbacks: new Map(), track };
   // a collective with a repo whose desks get no GitHub token: private clones and pushes fail at the first work session, so say so at boot
-  if (world.town.get().workspace?.repoUrl && !opts.deskOptions?.ghToken && desks.backend !== "host" && !ghTokenFor(desks.ghToken)) {
-    console.warn(`[runtime] WARNING: the collective has a repo but desks get no GH_TOKEN (${noGhTokenReason(desks.ghToken)}); a private repo can't be cloned or pushed from a desk`);
+  if (world.town.get().workspace?.repoUrl && !opts.deskOptions?.ghToken && desks.backend !== "host" && !repoToken(world, desks.ghToken)) {
+    console.warn(`[runtime] WARNING: the collective has a repo but no GitHub token for it (${noRepoTokenReason(desks.ghToken)}): desks can't clone or push a private repo and redeploy can't pull one. Set the GH_TOKEN secret at the Town Hall.`);
   }
   const killGraceMs = opts.killGraceMs ?? 10_000;
   const starting = new Set<string>();
@@ -398,6 +398,9 @@ export function startRuntime(opts: RuntimeOptions): Runtime {
   }
   const redeployer = makeRedeployer({
     world, repoRoot: ctx.repoRoot, collective: dockerSafe(collectiveSlug), image: desks.image,
+    // sandbox-desk hosts (Fly) have no docker: the desk image is built and pushed from outside the town
+    imageBuild: !sandboxProvider,
+    gitEnv: () => gitAuthEnv(world, desks.ghToken),
     isWorking: (agentId) => ctx.live.has(agentId) || starting.has(agentId),
     working: () => { pruneLive(); return [...new Set([...ctx.live.keys(), ...starting])]; },
     drop: (agentId) => dropLive(agentId, "orphaned: redeploy drain found it stuck"),

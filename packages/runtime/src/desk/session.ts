@@ -4,7 +4,7 @@
  * The desk itself talks to the town over the agent-scoped API (brief, activity, control, session-end).
  */
 import { execFileSync } from "node:child_process";
-import { AppError, codeWorkspace } from "@muster-town/core";
+import { AppError, codeWorkspace, REPO_TOKEN_SECRET, type World } from "@muster-town/core";
 import { townEnvBoth, type AllocationAuth, type DeskActivityInput, type DesksConfig, type Session } from "@muster-town/schema";
 import { describeTool } from "../describe.ts";
 import { InputChannel } from "../sdk.ts";
@@ -121,24 +121,42 @@ export function deskEnv(ctx: Ctx, session: Session, opts: DeskSessionOptions = {
   env.DESK_AUTH = auth.mode; // a label, not a secret: the desk logs it
   console.log(`[runtime] ${agent.name} session ${session.id} auth: ${auth.mode}${auth.env[FALLBACK_KEY_ENV] ? " (API-key fallback ready)" : ""}`);
   if (codeWorkspace(world.town.get(), building)) {
-    const mode = ctx.desks.ghToken;
-    const gh = opts.ghToken ? opts.ghToken() : ghTokenFor(mode);
+    const gh = opts.ghToken ? opts.ghToken() : repoToken(world, ctx.desks.ghToken);
     if (gh) env.GH_TOKEN = gh;
-    else console.warn(`[runtime] ${agent.name} session ${session.id}: no GH_TOKEN for the desk (${noGhTokenReason(mode)}); cloning a private repo and pushing will fail`);
+    else console.warn(`[runtime] ${agent.name} session ${session.id}: no GH_TOKEN for the desk (${noRepoTokenReason(ctx.desks.ghToken)}); cloning a private repo and pushing will fail`);
   }
   return env;
 }
 
-/** The GitHub token desks get, per `desks.ghToken` (null when the mode yields none). */
-export function ghTokenFor(mode: DesksConfig["ghToken"]): string | null {
-  return mode === "gh-cli" ? ghCliToken() : mode === "env" ? process.env.GH_TOKEN ?? null : null;
+/**
+ * The GitHub token for the collective's repo (docs/secrets.md): the collective's `GH_TOKEN` secret at the Town Hall, else
+ * the host's per `desks.ghToken` (`gh auth token`, the host env, or none). Desks with code access get it; the redeploy
+ * pulls with it. null when neither has one. A secret: never log it.
+ */
+export function repoToken(world: World, mode: DesksConfig["ghToken"]): string | null {
+  return world.secrets.value(REPO_TOKEN_SECRET) ?? (mode === "gh-cli" ? ghCliToken() : mode === "env" ? process.env.GH_TOKEN ?? null : null);
 }
 
-/** Why `ghTokenFor` came back empty, for log lines. */
-export function noGhTokenReason(mode: DesksConfig["ghToken"]): string {
-  return mode === "gh-cli" ? "desks.ghToken is gh-cli but `gh auth token` gave nothing: log the host in with `gh auth login`"
+/** Why `repoToken` came back empty, for log lines. */
+export function noRepoTokenReason(mode: DesksConfig["ghToken"]): string {
+  const host = mode === "gh-cli" ? "desks.ghToken is gh-cli but `gh auth token` gave nothing on the host"
     : mode === "env" ? "desks.ghToken is env but GH_TOKEN is not set on the host"
     : "desks.ghToken is none";
+  return `no GH_TOKEN secret at the Town Hall, and ${host}`;
+}
+
+/**
+ * Env for the redeploy's git commands: the repo token as a credential helper, unless the host already configured one
+ * (the Fly entrypoint does when it has a host GH_TOKEN). Empty when there is no token.
+ */
+export function gitAuthEnv(world: World, mode: DesksConfig["ghToken"], hostEnv: NodeJS.ProcessEnv = process.env): Record<string, string> {
+  const token = repoToken(world, mode);
+  if (!token) return {};
+  const env: Record<string, string> = { GH_TOKEN: token };
+  if (hostEnv.GIT_CONFIG_COUNT === undefined) {
+    Object.assign(env, { GIT_CONFIG_COUNT: "1", GIT_CONFIG_KEY_0: "credential.helper", GIT_CONFIG_VALUE_0: '!f() { echo username=x-access-token; echo "password=$GH_TOKEN"; }; f' });
+  }
+  return env;
 }
 
 /**

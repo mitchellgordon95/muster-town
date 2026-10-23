@@ -3,6 +3,7 @@ import { afterEach, describe, expect, test, vi } from "vitest";
 import { newId, nowIso } from "@muster-town/core";
 import type { Session } from "@muster-town/schema";
 import { grantedSecrets } from "../src/index.ts";
+import { gitAuthEnv, repoToken } from "../src/desk/session.ts";
 import { sessionEnv } from "../src/sdk.ts";
 import type { Ctx } from "../src/session.ts";
 import { result, setup } from "./helpers.ts";
@@ -28,6 +29,22 @@ describe("grantedSecrets (desk env)", () => {
     expect(events[0].payload).toMatchObject({ sessionId: session.id });
     expect(JSON.stringify(events)).not.toMatch(/for-a|legacy"/);
     warn.mockRestore();
+  });
+});
+
+describe("repoToken (the collective's GH_TOKEN secret, docs/secrets.md)", () => {
+  test("the Town Hall secret wins over the host's; gitAuthEnv adds a credential helper only when the host configured none", () => {
+    vi.stubEnv("MUSTER_TOWN_DATA_KEY", randomBytes(32).toString("base64"));
+    vi.stubEnv("GH_TOKEN", "host-token");
+    const { world } = setup(async function* () { yield result(0, 0); });
+    expect(repoToken(world, "env")).toBe("host-token");
+    expect(repoToken(world, "none")).toBeNull();
+    world.secrets.put("GH_TOKEN", { value: "collective-token" }, null);
+    expect(repoToken(world, "env")).toBe("collective-token");
+    expect(gitAuthEnv(world, "none", {})).toMatchObject({ GH_TOKEN: "collective-token", GIT_CONFIG_COUNT: "1", GIT_CONFIG_KEY_0: "credential.helper" });
+    expect(gitAuthEnv(world, "none", { GIT_CONFIG_COUNT: "1" })).toEqual({ GH_TOKEN: "collective-token" });
+    world.secrets.delete("GH_TOKEN", null);
+    expect(gitAuthEnv(world, "none", {})).toEqual({});
   });
 });
 

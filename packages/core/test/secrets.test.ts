@@ -40,8 +40,13 @@ describe("Secrets", () => {
     expect(secrets.put("LATER", { grants: { buildings: [], agents: [], skills: [] } }, null).set).toBe(false);
     expect(() => secrets.put("X", { grants: { buildings: ["nope"], agents: [], skills: [] } }, null)).toThrow(/No building/);
     expect(() => secrets.put("lower", { value: "v" }, null)).toThrow(/env var name/);
-    expect(() => secrets.put("GH_TOKEN", { value: "v" }, null)).toThrow(/reserved/);
+    expect(() => secrets.put("GH_OTHER", { value: "v" }, null)).toThrow(/reserved/);
     expect(() => secrets.put("PATH", { value: "v" }, null)).toThrow(/reserved/);
+    // the collective's repo token is the one GH_* name allowed; the runtime reads it back with value()
+    expect(secrets.value("GH_TOKEN")).toBeNull();
+    expect(secrets.put("GH_TOKEN", { value: "github_pat_x" }, null).set).toBe(true);
+    expect(secrets.value("GH_TOKEN")).toBe("github_pat_x");
+    expect(secrets.delete("GH_TOKEN", null)).toEqual({ removed: true });
     expect(secrets.delete("LATER", null)).toEqual({ removed: true });
     expect(secrets.list().map((s) => s.name)).toEqual(["OVH_KEY"]);
     const events = world.events.list({ types: ["secret.set", "secret.deleted"] });

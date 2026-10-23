@@ -15,7 +15,7 @@ import type { RuntimeHooks } from "./context.ts";
 
 const REPO_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "../../..");
 /** A collective = one instance of the town: <dir>/collective.json + <dir>/data + <dir>/export. */
-const COLLECTIVE_DIR = resolve(REPO_ROOT, townEnv("COLLECTIVE") ?? "collectives/climate");
+const COLLECTIVE_DIR = resolve(REPO_ROOT, townEnv("COLLECTIVE") ?? "collectives/workshop");
 const COLLECTIVE_JSON = join(COLLECTIVE_DIR, "collective.json");
 
 const envKeys = loadEnvFile(join(COLLECTIVE_DIR, ".env"));

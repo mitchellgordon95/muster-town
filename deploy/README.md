@@ -7,19 +7,26 @@ alternative; that box was deleted.
 ## Prod on Fly.io
 - **The town:** app `muster-town`, one Machine (`shared-cpu-2x`, 2 GB, region `iad`) with a 10 GB volume `town_data` at `/data`.
   SQLite is a single writer, so never more than one Machine (`fly deploy --ha=false`). There is no Postgres. Fly takes daily volume snapshots (5 kept).
-- **What's on the volume:** `/data/repo` is the live checkout (code, `collectives/workshop/data` with `town.db`, `export/`). The image
-  (`deploy/fly/Dockerfile`) is only the runtime plus a baked copy of the checkout for the first boot. `deploy/fly/entrypoint.sh` is the supervisor:
-  it restarts the server when it exits 75, so the town's own `redeploy` (git pull, install, build, drain) keeps working unchanged.
+- **What's on the volume:** `/data/repo` is the live checkout (code only) and `/data/workshop/{data,export}` is the town's state (`town.db`,
+  `admin-token`, `session-secret`, the export mirror), set by `MUSTER_TOWN_DATA`/`MUSTER_TOWN_EXPORT` in `fly.town.toml`. The state is deliberately
+  outside the checkout so nothing done to `/data/repo` can touch it (the entrypoint moves it out once on a town deployed before this split).
+  The image (`deploy/fly/Dockerfile`) is only the runtime plus a baked copy of the checkout for the first boot. `deploy/fly/entrypoint.sh` is the
+  supervisor: it restarts the server when it exits 75, so the town's own `redeploy` (git pull, install, build, drain) keeps working unchanged.
 - **Config:** `fly.town.toml` (env, volume, health check). Desk backend and callback URL come from `MUSTER_TOWN_DESKS` (JSON) in its `[env]`,
-  so the Mac's dev `collective.json` keeps docker desks. Secrets are Fly secrets (`fly secrets list -a muster-town`): `CLAUDE_CODE_OAUTH_TOKEN`,
-  `ANTHROPIC_API_KEY`, `GITHUB_CLIENT_ID/SECRET`, `AGENT_TOWN_ADMINS`, `MUSTER_TOWN_DATA_KEY`, `FLY_API_TOKEN` (the desks app's deploy token),
-  `DESK_ENV_MINICLAW_*` (until the Town Hall Secrets tab replaces them), and `GH_TOKEN` (a fine-grained token: clones/pulls and desk pushes).
-- **Rebuild the image:** `deploy/fly/build.sh` (a throwaway clone of GitHub main with the build-context fixes Fly needs; see the script). It does
-  not touch the live checkout: take a new image's code by deleting `/data/repo` (`fly ssh console -a muster-town -C "rm -rf /data/repo"`) and
-  restarting the Machine, or ship code with the town's `redeploy` as usual.
+  so the Mac's dev `collective.json` keeps docker desks; `maxRunning` is not in it (a live setting, kept in the database). Secrets are Fly secrets
+  (`fly secrets list -a muster-town`): `CLAUDE_CODE_OAUTH_TOKEN`, `ANTHROPIC_API_KEY`, `GITHUB_CLIENT_ID/SECRET`, `AGENT_TOWN_ADMINS`,
+  `MUSTER_TOWN_DATA_KEY`, `FLY_API_TOKEN` (the desks app's deploy token), and `DESK_ENV_MINICLAW_*` (until the Town Hall Secrets tab replaces them).
+- **The repo token:** a collective secret named `GH_TOKEN` at the Town Hall (Secrets tab): a fine-grained token for the collective's repo with
+  Contents and Pull requests read/write. Desks with code access clone and push with it and `redeploy` pulls with it (docs/secrets.md). A host
+  `GH_TOKEN` Fly secret still works as the fallback (`desks.ghToken: "env"`), but it belongs to the collective, not the host.
+- **Rebuild the image:** `deploy/fly/build.sh` (a throwaway clone of GitHub main with the build-context fixes Fly needs; see the script). A plain
+  `fly deploy` fails on purpose (the Dockerfile wants `.git` shipped as `gitdir` and a clean tree). The build does not touch the live checkout:
+  ship code with the town's `redeploy`. To reset the checkout itself to the image's, `fly ssh console -a muster-town -C "rm -rf /data/repo"` and
+  restart the Machine: with the state at `/data/workshop` that loses only the checkout and its `node_modules`.
 - **Migrate a town in:** stop the old server, `PRAGMA wal_checkpoint(TRUNCATE)`, `tar -czf RESTORE.tgz -C collectives/workshop data export`,
-  `fly ssh sftp put RESTORE.tgz /data/RESTORE.tgz -a muster-town`, `fly machine restart <id> -a muster-town`. The entrypoint unpacks it
-  (and keeps it as `RESTORE.done-*.tgz`). Done for the Workshop on 2026-10-22.
+  `fly ssh sftp put RESTORE.tgz /data/RESTORE.tgz -a muster-town`, `fly machine restart <id> -a muster-town`. The entrypoint unpacks it into a
+  scratch dir, checks `data/town.db` is in it, then swaps it in; the state it replaces stays at `/data/workshop/*.replaced-<stamp>` and the tarball
+  as `RESTORE.done-*.tgz` (an unusable tarball becomes `RESTORE.bad-*.tgz` and nothing changes). Done for the Workshop on 2026-10-22.
 - **Domain:** `A`/`AAAA` for `muster.town` point at the app's Fly IPs (`fly ips list -a muster-town`), `www` is a CNAME to the apex;
   certs via `fly certs add` (Let's Encrypt, auto-renewed).
 - **Logs:** `fly logs -a muster-town`. Shell: `fly ssh console -a muster-town`.
@@ -27,8 +34,8 @@ alternative; that box was deleted.
 - **Cost (estimate):** town Machine about $13/mo (24/7) + volume $1.50 + desk Machines per use; compare the old single-box plan in dc_gxtv36rbu6.
 
 ### Prod open items (as of 2026-10-22)
-- **Blocking code agents:** `GH_TOKEN` is not set on the town app, so desks can't clone the private repo and the town can't pull for `redeploy`.
-  Needs a fine-grained token for this repo only (Contents + Pull requests, read/write): `fly secrets set GH_TOKEN=... -a muster-town`.
+- **Repo token:** set as the host `GH_TOKEN` Fly secret on 2026-10-23 (fallback path). Move it to the Town Hall as the collective secret `GH_TOKEN`
+  and then `fly secrets unset GH_TOKEN -a muster-town`, so the token lives with the collective whose repo it opens.
 - **GitHub sign-in on prod:** add `https://muster.town/auth/github/callback` to the OAuth app (client id is in the Fly secrets), or create a second app for prod.
 - **Backups:** only Fly's daily volume snapshots (5 kept). No off-site copy yet (Litestream to object storage, or a nightly `sqlite3 .backup` pushed out).
 - **Secrets:** `DESK_ENV_MINICLAW_*` are Fly secrets that reach every desk; move them to the Town Hall Secrets tab with grants and drop the env fallback.

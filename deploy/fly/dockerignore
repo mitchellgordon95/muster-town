@@ -5,5 +5,4 @@ collectives/*/data
 collectives/*/export
 collectives/*/.env
 work
-legacy
 packages/web/dist

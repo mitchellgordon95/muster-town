@@ -187,8 +187,18 @@ export class DockerBackend implements DeskBackend {
     await this.killExec({ name: this.containerName(agentId), agentId }, [DESK_BIN, "run", "--session", sessionId]);
   }
 
-  /** `docker exec <name> pkill -TERM -f "<argv>"`: killing the CLI doesn't stop the process inside the container. */
+  /** `docker exec <name> pkill -TERM -f "<pattern>"`: killing the CLI doesn't stop the process inside the container. */
   async killExec(handle: DeskHandle, argv: string[]): Promise<void> {
-    try { await this.runner.run(["exec", handle.name, "pkill", "-TERM", "-f", argv.join(" ")], { timeoutMs: 10_000 }); } catch { /* best effort */ }
+    try { await this.runner.run(["exec", handle.name, "pkill", "-TERM", "-f", killPattern(argv)], { timeoutMs: 10_000 }); } catch { /* best effort */ }
   }
+}
+
+/**
+ * A `pkill -f` regex for the process `argv` starts. The desk binary is a shell script that execs node, so the running
+ * command line no longer contains the binary's name (`node … cli.ts run --session <id>`): match the arguments after it.
+ * The first character is bracketed so the regex doesn't match the shell that carries the pkill command itself.
+ */
+export function killPattern(argv: string[]): string {
+  const p = argv.slice(1).join(" ") || argv[0];
+  return `[${p[0]}]${p.slice(1)}`;
 }

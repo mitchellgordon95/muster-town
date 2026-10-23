@@ -37,6 +37,8 @@ export const flyVolumeName = (name: string) => name.toLowerCase().replace(/[^a-z
 
 const sleep = (ms: number) => new Promise<void>((r) => setTimeout(r, ms));
 const b64 = (s: string) => Buffer.from(s, "utf8").toString("base64");
+/** Most log bytes one poll reads (Fly caps exec output; the exit marker must never be what gets cut off). */
+export const POLL_CHUNK = 64 * 1024;
 
 export class FlyApi implements SandboxApi {
   private readonly f: typeof fetch;
@@ -52,9 +54,11 @@ export class FlyApi implements SandboxApi {
     } as Required<Omit<FlyOptions, "fetch">>;
   }
 
-  private async req<T = unknown>(method: string, path: string, body?: unknown, ok: number[] = [200, 201]): Promise<{ status: number; body: T }> {
+  /** One API call. `timeoutMs` bounds the whole request: a hung connection must not stall a session's poll loop for minutes. */
+  private async req<T = unknown>(method: string, path: string, body?: unknown, ok: number[] = [200, 201], timeoutMs = 30_000): Promise<{ status: number; body: T }> {
     const r = await this.f(`https://api.machines.dev/v1/apps/${this.opts.app}${path}`, {
       method, headers: { Authorization: this.opts.token, "content-type": "application/json" }, body: body === undefined ? undefined : JSON.stringify(body),
+      signal: AbortSignal.timeout(timeoutMs),
     });
     const text = await r.text();
     let parsed: unknown = text;
@@ -125,7 +129,14 @@ export class FlyApi implements SandboxApi {
       }
     }
     this.ids.set(spec.name, created.body.id);
-    await this.waitState(created.body.id, "started");
+    try {
+      await this.waitState(created.body.id, "started");
+    } catch (e) {
+      // a Machine that never started stays "failed" for good and would block every later ensure: don't leave it behind
+      await this.req("DELETE", `/machines/${created.body.id}?force=true`, undefined, [200, 202, 204, 404]).catch(() => {});
+      this.ids.delete(spec.name);
+      throw e;
+    }
     // a fresh Fly volume is root-owned (docker volumes copy the image's ownership): hand the home to the desk user
     await this.exec(spec.name, ["sh", "-c", `chown agent:agent ${shq(spec.mountPath)} 2>/dev/null; mkdir -p ${shq(spec.mountPath)}/work && chown agent:agent ${shq(spec.mountPath)}/work 2>/dev/null; true`]);
     return { id: created.body.id, name: spec.name, state: "started" };
@@ -133,7 +144,7 @@ export class FlyApi implements SandboxApi {
 
   private async waitState(id: string, state: "started" | "stopped"): Promise<void> {
     for (let i = 0; i < 3; i++) {
-      const r = await this.f(`https://api.machines.dev/v1/apps/${this.opts.app}/machines/${id}/wait?state=${state}&timeout=60`, { headers: { Authorization: this.opts.token } });
+      const r = await this.f(`https://api.machines.dev/v1/apps/${this.opts.app}/machines/${id}/wait?state=${state}&timeout=60`, { headers: { Authorization: this.opts.token }, signal: AbortSignal.timeout(75_000) });
       if (r.ok) return;
       await sleep(1000);
     }
@@ -161,7 +172,7 @@ export class FlyApi implements SandboxApi {
 
   private async exec(name: string, command: string[], timeoutSec = 30): Promise<ExecResult> {
     const id = await this.id(name);
-    return (await this.req<ExecResult>("POST", `/machines/${id}/exec`, { command, timeout: timeoutSec })).body;
+    return (await this.req<ExecResult>("POST", `/machines/${id}/exec`, { command, timeout: timeoutSec }, [200, 201], timeoutSec * 1000 + 15_000)).body;
   }
 
   async writeSecretFile(name: string, path: string, content: string): Promise<void> {
@@ -191,16 +202,18 @@ export class FlyApi implements SandboxApi {
       await sleep(this.opts.pollMs);
       if (signal?.aborted) return -1;
       try {
-        // exit code first, log second: if the code is there, the log read after it is complete
-        const r = await this.exec(name, ["sh", "-c", `E=$(cat ${exit} 2>/dev/null); tail -c +${offset + 1} ${log} 2>/dev/null; printf '\\n__EXIT__%s' "$E"`], 20);
+        // exit code first, log second: if the code is there, the log read after it is complete. The chunk is capped so the
+        // exit marker always fits in what the API returns; a full chunk means more is waiting, so the code is read next time
+        const r = await this.exec(name, ["sh", "-c", `E=$(cat ${exit} 2>/dev/null); tail -c +${offset + 1} ${log} 2>/dev/null | head -c ${POLL_CHUNK}; printf '\\n__EXIT__%s' "$E"`], 20);
         failures = 0;
         const at = r.stdout.lastIndexOf("\n__EXIT__");
         if (at < 0) continue;
         const chunk = r.stdout.slice(0, at);
         const code = r.stdout.slice(at + "\n__EXIT__".length).trim();
-        offset += Buffer.byteLength(chunk, "utf8");
+        const bytes = Buffer.byteLength(chunk, "utf8");
+        offset += bytes;
         emit(chunk);
-        if (code !== "") {
+        if (code !== "" && bytes < POLL_CHUNK) {
           if (carry) { onLine?.("stdout", carry); carry = ""; }
           void this.exec(name, ["sh", "-c", `rm -f ${log} ${exit} ${script}`]).catch(() => {});
           return Number(code);

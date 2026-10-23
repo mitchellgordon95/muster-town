@@ -5,7 +5,7 @@
  *
  *   npx tsx scripts/retire-placeholders.ts collectives/workshop           # list what it would retire
  *   npx tsx scripts/retire-placeholders.ts collectives/workshop --apply   # retire them
- *   npx tsx scripts/retire-placeholders.ts collectives/climate --apply al_xxx  # also retire these ids
+ *   npx tsx scripts/retire-placeholders.ts collectives/workshop --apply al_xxx  # also retire these ids
  *
  * Picks: allocations labelled house/placeholder, the ids given, and (unless --labelled-only) every unlabelled
  * allocation that isn't a donor's own key: all of those predate labels and were the lead's placeholders.

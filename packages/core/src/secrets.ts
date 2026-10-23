@@ -13,6 +13,11 @@ import type { World } from "./world.ts";
 
 /** Names the runtime sets itself (town, desk, model and GitHub credentials, process basics): never a collective secret. */
 const RESERVED = /^(MUSTER_TOWN_|AGENT_TOWN_|DESK_|CLAUDE_|ANTHROPIC_|GH_|GITHUB_|NODE_|LD_|DYLD_)|^(PATH|HOME|USER|SHELL|TERM|LANG|TZ|TMPDIR)$/;
+/**
+ * The one `GH_*` name a collective may set: the GitHub token for the collective's own repo (docs/secrets.md). Every desk
+ * with code access gets it (the repo is the collective's; grants don't apply), and the town's `redeploy` pulls with it.
+ */
+export const REPO_TOKEN_SECRET = "GH_TOKEN";
 
 const NO_KEY = "Secret values can't be stored: the host has no MUSTER_TOWN_DATA_KEY (32 bytes, base64 or hex; e.g. `openssl rand -base64 32`). The operator sets it in the server's env. Values are never stored in plaintext.";
 
@@ -85,8 +90,23 @@ export class Secrets {
   checkName(name: string): string {
     const r = SecretName.safeParse(name);
     if (!r.success) throw badRequest(`Secret name "${name}": ${r.error.issues[0]?.message ?? "invalid"}.`);
-    if (RESERVED.test(name)) throw badRequest(`"${name}" is reserved: the runtime sets it (town, desk, model or GitHub credentials). Pick another name.`);
+    if (name !== REPO_TOKEN_SECRET && RESERVED.test(name)) throw badRequest(`"${name}" is reserved: the runtime sets it (town, desk, model or GitHub credentials). Pick another name.`);
     return name;
+  }
+
+  /**
+   * The decrypted value of one secret, for the runtime's own use (the collective's repo token). null when unset, or
+   * when it can't be decrypted (no data key, or another host's), with a warning. Never log the result.
+   */
+  value(name: string): string | null {
+    const r = this.row(name);
+    if (!r?.ciphertext) return null;
+    try {
+      return decryptSecret(this.key(), name, r.ciphertext);
+    } catch (e) {
+      console.warn(`[secrets] ${name} unusable: ${e instanceof AppError ? "no MUSTER_TOWN_DATA_KEY on the host" : "it doesn't decrypt with the host's data key"}`);
+      return null;
+    }
   }
 
   /**
