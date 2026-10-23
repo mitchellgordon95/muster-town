@@ -12,8 +12,10 @@ RUN apt-get update \
 
 WORKDIR /opt/seed
 COPY . .
-# the seed must be a clean checkout: the town's redeploy refuses to pull into a dirty tree (so the dockerignore must not hide tracked files)
-RUN test -d gitdir && mv gitdir .git && test -z "$(git status --porcelain)" \
+# the seed must be a clean checkout: the town's redeploy refuses to pull into a dirty tree (so the dockerignore must not hide tracked
+# files). build.sh swapped the repo's .dockerignore for deploy/fly/dockerignore to shape the build context; the context is read by now,
+# so the tracked one is put back before the check.
+RUN test -d gitdir && mv gitdir .git && git checkout -- .dockerignore && test -z "$(git status --porcelain)" \
  && npm ci --no-audit --no-fund && npm run build \
  && rm -rf /root/.npm
 
