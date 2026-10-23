@@ -313,7 +313,7 @@ export class MockApi implements Api {
   async putSecret(name: string, i: In<typeof PutSecretInput>) {
     await wait();
     const cur = this.secretRows.find((x) => x.name === name);
-    const grants = { buildings: i.grants?.buildings ?? cur?.grants.buildings ?? [], agents: i.grants?.agents ?? cur?.grants.agents ?? [], skills: i.grants?.skills ?? cur?.grants.skills ?? [] };
+    const grants = { town: i.grants?.town ?? cur?.grants.town ?? false, buildings: i.grants?.buildings ?? cur?.grants.buildings ?? [], agents: i.grants?.agents ?? cur?.grants.agents ?? [], skills: i.grants?.skills ?? cur?.grants.skills ?? [] };
     const row: SecretView = { name, grants, set: !!i.value || !!cur?.set, updatedAt: now(), updatedBy: "us_mitchell" };
     this.secretRows = [...this.secretRows.filter((x) => x.name !== name), row].sort((a, b) => a.name.localeCompare(b.name));
     return clone(row);

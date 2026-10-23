@@ -50,6 +50,9 @@ export function decryptSecret(key: Buffer, name: string, blob: string): string {
 
 interface Row { name: string; ciphertext: string | null; grants: string; updatedAt: string; updatedBy: string | null }
 
+/** How a secret reached a session: a town-wide grant, its building, itself, or a skill pinned for it. */
+export type SecretVia = "town" | "building" | "agent" | "skill";
+
 export class Secrets {
   /** `dataKey` reads the host key each call (default: MUSTER_TOWN_DATA_KEY from the env). */
   constructor(private world: World, private dataKey: () => string | undefined = () => townEnv("DATA_KEY")) {}
@@ -135,7 +138,7 @@ export class Secrets {
 
   private checkGrants(g: SecretGrants): SecretGrants {
     const uniq = (xs: string[]) => [...new Set(xs)];
-    const out = { buildings: uniq(g.buildings), agents: uniq(g.agents), skills: uniq(g.skills) };
+    const out = { town: !!g.town, buildings: uniq(g.buildings), agents: uniq(g.agents), skills: uniq(g.skills) };
     for (const id of out.buildings) if (!this.world.buildings.get(id)) throw badRequest(`No building ${id}.`);
     for (const id of out.agents) if (!this.world.agents.get(id)) throw badRequest(`No agent ${id}.`);
     for (const id of out.skills) if (this.world.docs.get(id)?.type !== "skill") throw badRequest(`No skill ${id}.`);
@@ -147,16 +150,16 @@ export class Secrets {
    * Only secrets with a value; without a data key (or on a value that won't decrypt) the secret is skipped with a
    * warning, never passed garbled. Values are secrets: callers must never log them.
    */
-  forAgent(agentId: string): { name: string; value: string; via: "building" | "agent" | "skill" }[] {
+  forAgent(agentId: string): { name: string; value: string; via: SecretVia }[] {
     const agent = this.world.agents.get(agentId);
     if (!agent) return [];
     const bid = homeOf(agent);
     let skillIds: Set<string> | null = null;
-    const out: { name: string; value: string; via: "building" | "agent" | "skill" }[] = [];
+    const out: { name: string; value: string; via: SecretVia }[] = [];
     for (const r of this.rows()) {
       if (!r.ciphertext) continue;
       const g = SecretGrants.parse(JSON.parse(r.grants));
-      let via: "building" | "agent" | "skill" | null = bid && g.buildings.includes(bid) ? "building" : g.agents.includes(agent.id) ? "agent" : null;
+      let via: SecretVia | null = g.town ? "town" : bid && g.buildings.includes(bid) ? "building" : g.agents.includes(agent.id) ? "agent" : null;
       if (!via && g.skills.length) {
         skillIds ??= new Set(this.world.skills.forAgent(agent.id).map((s) => s.doc.id));
         if (g.skills.some((id) => skillIds!.has(id))) via = "skill";

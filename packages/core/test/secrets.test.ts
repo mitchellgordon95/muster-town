@@ -72,6 +72,12 @@ describe("Secrets", () => {
     secrets.put("UNSET_KEY", { grants: { ...none, buildings: [LAB] } }, null);
     expect(secrets.forAgent(writer.id).map((s) => [s.name, s.value, s.via])).toEqual([["LAB_KEY", "lab", "building"], ["SKILL_KEY", "sk", "skill"]]);
     expect(secrets.forAgent(other.id).map((s) => s.name)).toEqual(["LAB_KEY", "OTHER_KEY"]);
+    // a town grant reaches every resident, whatever the other lists say
+    secrets.put("EVERYONE_KEY", { value: "all", grants: { ...none, town: true } }, null);
+    expect(secrets.forAgent(writer.id).find((s) => s.name === "EVERYONE_KEY")).toMatchObject({ value: "all", via: "town" });
+    expect(secrets.forAgent(other.id).find((s) => s.name === "EVERYONE_KEY")).toMatchObject({ via: "town" });
+    expect(secrets.get("EVERYONE_KEY")!.grants).toEqual({ ...none, town: true });
+    expect(secrets.get("LAB_KEY")!.grants.town).toBe(false);
     // the host lost its key: nothing is passed (garbled or otherwise)
     expect(new Secrets(world, () => undefined).forAgent(writer.id)).toEqual([]);
   });

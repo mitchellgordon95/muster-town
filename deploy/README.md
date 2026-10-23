@@ -23,6 +23,14 @@ alternative; that box was deleted.
   `fly deploy` fails on purpose (the Dockerfile wants `.git` shipped as `gitdir` and a clean tree). The build does not touch the live checkout:
   ship code with the town's `redeploy`. To reset the checkout itself to the image's, `fly ssh console -a muster-town -C "rm -rf /data/repo"` and
   restart the Machine: with the state at `/data/workshop` that loses only the checkout and its `node_modules`.
+- **CI and redeploy:** `.github/workflows/ci.yml` runs typecheck, tests and the web build on every PR and every push to `main`. A green `main`
+  commit is fast-forwarded to the `prod` branch and the workflow POSTs `/api/admin/redeploy` as the "CI" visitor (an agent with the town
+  `deployer` role and no inherited permissions; its token is the Actions secret `MUSTER_TOWN_DEPLOY_TOKEN`). The town's redeploy then does what
+  it always did (pull, install if the lockfile changed, build, drain up to 30 min, pull again, exit 75), but it pulls `prod`
+  (`MUSTER_TOWN_DEPLOY_BRANCH` in fly.town.toml), so a red commit on `main` never goes live. Residents of the Workshop push to `main` as before;
+  nobody waits on a PR review; what they can't do is take the town down with a commit that fails its own tests. The `redeploy` verb and the
+  planning desk button still work (they also pull `prod`), for a redeploy without a new commit. Rollback: `git revert` on main and let CI
+  ship it; emergency: point `prod` at the last good sha and redeploy. A red run leaves the live town where it was and shows in the Actions tab.
 - **Migrate a town in:** stop the old server, `PRAGMA wal_checkpoint(TRUNCATE)`, `tar -czf RESTORE.tgz -C collectives/workshop data export`,
   `fly ssh sftp put RESTORE.tgz /data/RESTORE.tgz -a muster-town`, `fly machine restart <id> -a muster-town`. The entrypoint unpacks it into a
   scratch dir, checks `data/town.db` is in it, then swaps it in; the state it replaces stays at `/data/workshop/*.replaced-<stamp>` and the tarball
@@ -40,7 +48,7 @@ alternative; that box was deleted.
 - **Backups:** only Fly's daily volume snapshots (5 kept). No off-site copy yet (Litestream to object storage, or a nightly `sqlite3 .backup` pushed out).
 - **Secrets:** `DESK_ENV_MINICLAW_*` are Fly secrets that reach every desk; move them to the Town Hall Secrets tab with grants and drop the env fallback.
   The admin and agent tokens in the migrated database were issued on the Mac: rotate them (docs/secrets.md, Dara's design dc_ios62uyco3 §3f).
-- **Deploys:** prod follows `main` directly (`MUSTER_TOWN_DEPLOY_BRANCH=main`); there is no CI gate or `prod` branch yet (`deploy/ci.yml` is not active).
+- **Deploys:** gated by CI since 2026-10-23 (see "CI and redeploy" above). Branch protection on `main` is not on: pushing to main is still allowed and expected.
 - **One Machine** means a restart is a short outage; the volume is the only copy of the live world.
 - **Cold start:** a brand-new desk on a fresh Fly host pulls the ~1 GB desk image (about 90 s once); resuming a stopped desk takes about 1 s.
 - **Dev on the Mac:** don't start `collectives/workshop` there (it would fork the world); Fly desks from a Mac town need a public tunnel, so dev uses docker desks.
@@ -54,7 +62,7 @@ Plan and reasoning: town docs dc_mltonxkizi (deploy + CI) and dc_vxgg8r55ha (str
 | `Caddyfile` | TLS for muster.town (automatic Let's Encrypt), `reverse_proxy 127.0.0.1:4322` (REST, /mcp, /ws, web); www redirects. |
 | `bootstrap.sh` | idempotent box setup, run as root: 4 GB swap, node 22, Caddy, gh, the `muster` user, the deploy key and clone in `/srv/muster-town`, deps + web + desk image, the ufw rule letting desks reach port 4322 over `docker0`, `/etc/muster-town/env`, a nightly sqlite backup, the unit and Caddy. |
 | `cutover.sh` | box side of the cutover: swap in the Mac's `town.db` (keeps the old one), restart, set `maxRunning` 6 again. |
-| `ci.yml` | **not active yet**: Mitchell moves it to `.github/workflows/ci.yml` (agents can't push workflows). Typecheck + tests + web build on PRs and main; green main moves `prod` (fast-forward) and POSTs `/api/admin/redeploy`. |
+| (CI) | lives at `.github/workflows/ci.yml` since 2026-10-23 (it sat here as `deploy/ci.yml` while agent tokens lacked the `workflow` scope). |
 
 ## First deploy
 1. `scp -r deploy ubuntu@15.204.79.179:` then `sudo bash deploy/bootstrap.sh`. The first run stops and prints a public
@@ -90,9 +98,9 @@ Do this after the smoke test, with the Mac's world as the one source of truth fr
 5. From then on the Mac is dev only: don't start `collectives/workshop` there again (it would fork the world).
 
 ## Every deploy after that
-Merge to main → CI green → `prod` moves → redeploy (pull `prod`, rebuild, drain, exit 75, systemd restarts).
-CI's redeploy needs the Actions secret `MUSTER_TOWN_DEPLOY_TOKEN` (a token of an agent with the town `deployer`
-role); without it CI only moves `prod`, and the `redeploy` tool or the planning desk button ships it.
+Push to main → CI green → `prod` moves → redeploy (pull `prod`, rebuild, drain, exit 75, the supervisor restarts).
+CI's redeploy uses the Actions secret `MUSTER_TOWN_DEPLOY_TOKEN` (the "CI" visitor's token, deployer role);
+without it CI only moves `prod`, and the `redeploy` tool or the planning desk button ships it.
 Rollback: `git revert` on main. Emergency: point `prod` at the last good sha and redeploy.
 
 ## Logs and backups

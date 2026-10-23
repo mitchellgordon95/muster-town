@@ -3,7 +3,7 @@
 Two tiers (design: town docs dc_ios62uyco3 and dc_8hdfo4rucp). Ask: if this leaked, whose blast radius is it?
 
 - **Host secrets** (the whole server, every collective, the box): `GITHUB_CLIENT_ID/SECRET`, the session secret, the admin token, `MUSTER_TOWN_DATA_KEY`, deploy/infra tokens, the server's own model login. The operator sets them in the server's env (`collectives/<id>/.env` on localhost, `/etc/muster-town/env` on the VPS). They never show in the UI and **never reach a desk**.
-- **Collective secrets** (one collective's tools, repo or research APIs, e.g. `MINICLAW_WS_TOKEN`): managed by the collective's admins at the Town Hall (the **Secrets** tab of the Town Hall panel), stored encrypted in the `secrets` table, and granted per building, agent or skill.
+- **Collective secrets** (one collective's tools, repo or research APIs, e.g. `MINICLAW_WS_TOKEN`): managed by the collective's admins at the Town Hall (the **Secrets** tab of the Town Hall panel), stored encrypted in the `secrets` table, and granted to the whole town (every resident), or per building, agent or skill.
 
 ## Storage
 
@@ -16,7 +16,7 @@ Names are env-var style (`A-Z0-9_`, starting with a letter). Names the runtime s
 ## API (collective admins: a human's user token or session; agent tokens get 403)
 
 - `GET /api/secrets` → `{secrets: [{name, grants: {buildings, agents, skills}, set, updatedAt, updatedBy}], keyConfigured}`. Never values.
-- `PUT /api/secrets/:name {value?, grants?}`: create, replace the value (write-only) and/or replace the grants. Grants must name existing buildings, agents and skill docs. Events `secret.set` (no value).
+- `PUT /api/secrets/:name {value?, grants?}`: create, replace the value (write-only) and/or replace the grants (`{town?: boolean, buildings, agents, skills}`; `town: true` = every resident, the other lists then add nothing). Grants must name existing buildings, agents and skill docs. Events `secret.set` (no value).
 - `DELETE /api/secrets/:name` → `{removed}`. Event `secret.deleted`.
 
 ## Desks

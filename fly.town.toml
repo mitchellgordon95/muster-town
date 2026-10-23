@@ -11,8 +11,8 @@ primary_region = "iad"
   MUSTER_TOWN_COLLECTIVE = "collectives/workshop"
   HOST = "0.0.0.0"
   PORT = "4322"
-  # prod follows main until CI moves a `prod` branch
-  MUSTER_TOWN_DEPLOY_BRANCH = "main"
+  # redeploy pulls `prod`, which CI (.github/workflows/ci.yml) fast-forwards to each green commit of main: red main never goes live
+  MUSTER_TOWN_DEPLOY_BRANCH = "prod"
   MUSTER_TOWN_PUBLIC_URL = "https://muster.town"
   # the town's state lives beside the checkout (/data/repo), never inside it: replacing the checkout can't touch the database
   MUSTER_TOWN_DATA = "/data/workshop/data"

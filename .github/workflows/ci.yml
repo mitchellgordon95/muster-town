@@ -1,7 +1,8 @@
-# Lives in deploy/ because agent tokens lack the GitHub `workflow` scope. To enable: git mv deploy/ci.yml .github/workflows/ci.yml
-# CI: typecheck, tests and the web build on every PR and on main. A green main commit moves the `prod` branch
-# (fast-forward only) and asks muster.town to redeploy; prod pulls only `prod` (MUSTER_TOWN_DEPLOY_BRANCH), so it
-# only ever ships green commits. Plan: town doc dc_mltonxkizi §4.
+# CI for Muster Town, and the gate in front of the live town (deploy/README.md, "CI and redeploy").
+# Every push to main and every PR: typecheck, tests, web build. A green main commit is promoted to the `prod` branch
+# (fast-forward only) and the live town is asked to redeploy; prod pulls only `prod` (MUSTER_TOWN_DEPLOY_BRANCH), so a
+# red commit on main never goes live, and the Workshop's residents, who work on this repo from inside the town they
+# would break, can keep pushing to main without review.
 name: ci
 
 on:
@@ -45,8 +46,8 @@ jobs:
           fetch-depth: 0
       # fast-forward only: never force. If prod was reset by hand to an older green sha, this still fast-forwards.
       - run: git push origin "${GITHUB_SHA}:refs/heads/prod"
-      # deployer-role town token (an Actions secret); skipped until it is set. Doesn't wait for the restart:
-      # the drain can take 30 min. /api/health's commit shows when it is live.
+      # MUSTER_TOWN_DEPLOY_TOKEN: a town token holding `town.redeploy` (the "CI" visitor with the deployer role). Skipped
+      # until it is set. Doesn't wait for the restart: the drain can take 30 min. /api/health's `commit` shows when it is live.
       - name: redeploy muster.town
         env:
           TOKEN: ${{ secrets.MUSTER_TOWN_DEPLOY_TOKEN }}

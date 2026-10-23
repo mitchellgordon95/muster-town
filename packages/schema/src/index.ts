@@ -412,6 +412,8 @@ export type Doc = z.infer<typeof Doc>;
 export const SecretName = z.string().regex(/^[A-Z][A-Z0-9_]{0,63}$/, "an env var name: A-Z, 0-9 and _, starting with a letter (max 64)");
 /** Who a secret reaches: a session gets it if its building or agent is listed, or a listed skill is pinned for the agent. */
 export const SecretGrants = z.object({
+  /** every resident of every building (the whole town); the other grants then add nothing. Absent = false. */
+  town: z.boolean().optional(),
   buildings: z.array(Id).default([]),
   agents: z.array(Id).default([]),
   skills: z.array(Id).default([]),
