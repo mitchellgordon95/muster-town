@@ -381,6 +381,14 @@ export class Ops {
     const agent = this.world.agents.require(agentId, "agent");
     if (agent.status === "banned" || agent.status === "retired") throw new AppError("conflict", `${agent.name} is ${agent.status === "retired" ? "dismissed" : "banned"}.`);
     if (agent.kind !== "resident" && agent.kind !== "visitor") throw badRequest(`${agent.name} isn't a resident or visitor; only they can be messaged.`);
+    // the manager is a building's conversational surface: residents work from assignments and don't take messages
+    if (agent.kind === "resident") {
+      const b = this.world.buildings.get(homeOf(agent) ?? "");
+      const mgr = b?.managerAgentId ? this.world.agents.get(b.managerAgentId) : undefined;
+      if (b && mgr && mgr.id !== agent.id && mgr.status !== "retired" && mgr.status !== "banned") {
+        throw new AppError("conflict", `${agent.name} doesn't take messages: residents of the ${b.name} work from assignments. Talk to ${mgr.name}, its manager, who turns requests into assignments; or give ${agent.name} an assignment directly.`);
+      }
+    }
     const msg = sendMessage(this.world, { kind: "tell", fromId: avatar.id, fromKind: "agent", toId: agent.id, body });
     this.world.events.append({ type: "agent.told", agentId: avatar.id, buildingId: avatar.buildingId, text: `${user.name} → ${agent.name}: ${body.slice(0, 200)}`, payload: { to: agent.id, toId: agent.id, toKind: agent.kind, messageId: msg.id, text: body, fromUser: userId } });
     // v1.4: a visitor's loop runs outside the town: the message waits in its mailbox (inbox, look notices, digest)

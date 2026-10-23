@@ -339,7 +339,9 @@ export const DocType = z.enum([
   "request",       // outbox: a request for a human to do something in the world
   "human-report",  // inbox: a human's report back
   "assignment-proposal", // reserved
-  "notebook",      // an agent's private memory between sessions: one per agent, always a draft, injected into its sessions
+  "notebook",      // retired (migration 028 turned notebooks into wiki pages); kept so old events and exports still parse
+  "wiki",          // an agent's memory: one private page per topic it knows (title = topic), rewritten before each report, injected into its sessions
+  "log",           // an agent's memory: one private append-only log of durable events (assignments, reports, decisions); its tail is injected
   "skill",         // a reusable skill: SKILL.md (frontmatter name + description, then instructions) plus bundled files (docs/skills.md)
 ]);
 export type DocType = z.infer<typeof DocType>;
@@ -755,8 +757,8 @@ export const VerbInputs = {
   search: z.object({ query: z.string(), type: DocType.optional(), state: DocState.optional(), buildingId: Id.optional(), limit: z.number().int().positive().max(50).default(10) }),
   read: z.object({ id: Id, file: z.string().optional().describe("skills: the path of one bundled file to read (from the skill's file list)") }),
   write: z.object({
-    id: Id.optional().describe("update an existing doc you authored (ignored for type 'notebook')"),
-    type: DocType.default("note").describe("'notebook' rewrites your own private notebook (one per agent, always private; it's shown to you at the start of every session)"),
+    id: Id.optional().describe("update an existing doc you authored (a wiki page can also be found by its title; ignored for type 'log')"),
+    type: DocType.default("note").describe("'wiki' creates or rewrites your private page on the topic in `title` (your memory: shown to you at the start of every session); 'log' appends `body` as one dated line to your private log"),
     title: z.string(),
     body: z.string(),
     state: z.enum(["draft", "building"]).default("draft").describe("'building' publishes it: type 'fyi' goes on the building's board, anything else is filed in its filing cabinet"),

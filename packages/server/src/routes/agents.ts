@@ -1,4 +1,4 @@
-import { AppError, notebookOf, suggestResidentName, type World } from "@muster-town/core";
+import { AppError, logOf, suggestResidentName, topicsOf, wikiOf, type World } from "@muster-town/core";
 import { AgentModelPatch, AgentPermissionsPatch, ChatInput, CreateResidentInput, Event, InterruptInput, MessageAgentInput, RegisterVisitorInput, WorkInput, type Agent, type Session } from "@muster-town/schema";
 import type { FastifyInstance, FastifyRequest } from "fastify";
 import { z } from "zod";
@@ -88,8 +88,8 @@ export async function agentRoutes(app: FastifyInstance) {
     return { agent, ...permissionsView(req, agent) };
   });
 
-  /** Who may read an agent's private notebook: its owner, an admin, or a manager of its home building. */
-  const canSeeNotebook = (req: FastifyRequest, agent: Agent): boolean => {
+  /** Who may read an agent's memory (wiki pages and log): its owner, an admin, or a manager of its home building. Page titles are public. */
+  const canSeeMemory = (req: FastifyRequest, agent: Agent): boolean => {
     if (!req.auth) return false;
     if (canEditPermissions(req, agent)) return true;
     const viewer = req.auth.kind === "user" ? world.ops.ensureAvatar(req.auth.user.id) : world.agents.get(req.auth.agent.id);
@@ -101,7 +101,8 @@ export async function agentRoutes(app: FastifyInstance) {
     return {
       agent,
       ...permissionsView(req, agent),
-      ...(canSeeNotebook(req, agent) ? { notebook: notebookOf(world, agent.id) ?? null } : {}),
+      memoryTopics: topicsOf(world, agent.id),
+      ...(canSeeMemory(req, agent) ? { memory: { wiki: wikiOf(world, agent.id), log: logOf(world, agent.id) ?? null } } : {}),
       recentEvents: world.events.recent({ agentId: agent.id, limit: 50 }),
       currentSession: world.ops.currentSession(agent.id) ?? null,
       latestReport: world.docs.first("type = 'report' AND authorId = ?", [agent.id], "ORDER BY createdAt DESC, rowid DESC") ?? null,
@@ -165,6 +166,8 @@ export async function agentRoutes(app: FastifyInstance) {
     requireAuth(req);
     const input = parse(ChatInput, req.body);
     const agent = world.agents.require(req.params.id, "agent");
+    // residents aren't a conversational surface: their wiki says what they know, their manager takes requests
+    if (agent.kind === "resident") throw new AppError("conflict", `${agent.name} doesn't take questions. Their wiki (Memory tab) says what they know; their building's manager takes requests.`);
     const r = await runtimeOr503(app).chat(agent.id, input);
     return { reply: typeof r === "string" ? r : r.reply };
   });

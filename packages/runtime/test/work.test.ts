@@ -248,17 +248,20 @@ describe("waiting assignments", () => {
 });
 
 describe("agent memory", () => {
-  test("a work session's system prompt carries the notebook and its prompt the recent-work block", async () => {
+  test("a work session's system prompt carries the wiki and log, its prompt the recent-work block, and the session is logged", async () => {
     const { world, runtime, sdk, by } = setup(happyWork);
     const noor = by("Noor");
-    await world.verbs.write(noor.id, { type: "notebook", title: "", body: "Waiting on Mitchell: 0.44 or the 2024 value.", state: "draft" });
+    await world.verbs.write(noor.id, { type: "wiki", title: "Dashboard", body: "Waiting on Mitchell: 0.44 or the 2024 value.", state: "draft" });
     await world.verbs.write(noor.id, { type: "note", title: "Dashboard number", body: "Use the 10-year mean 0.44 ± 0.03.", state: "building" });
     const asg = world.ops.createWork(null, noor.id, { title: "Reply to Mitchell", description: "Which number did you pick?" });
     await runtime.runWorkSession(noor.id, asg.id);
     const system = JSON.stringify(sdk.sessions[0].options.systemPrompt);
-    expect(system).toContain("## Your notebook");
+    expect(system).toContain("## What you know (your wiki)");
+    expect(system).toContain("### Dashboard (dc_");
     expect(system).toContain("Waiting on Mitchell: 0.44 or the 2024 value.");
-    expect(system).toContain("Your notebook is your memory between sessions");
+    expect(system).toContain("Your memory between sessions is your wiki and your log");
+    const log = world.docs.first("authorId = ? AND type = 'log'", [noor.id]);
+    expect(log?.body).toMatch(/^- \d{4}-\d{2}-\d{2} \d{2}:\d{2} Assignment "Reply to Mitchell" \(as_[\w-]+\): done, report "/);
     const prompt = sdk.sessions[0].received[0];
     expect(prompt).toContain("## Your recent work");
     expect(prompt).toMatch(/- note "Dashboard number" \(dc_[\w-]+, just now\): Use the 10-year mean 0\.44 ± 0\.03\./);

@@ -233,6 +233,8 @@ class Store {
 }
 
 export const store = new Store();
+// dev and mock builds only: lets a browser check (or a curious dev) open panels from the console, e.g. __muster.open({ kind: "agent", id })
+if (import.meta.env.DEV) (window as unknown as { __muster?: Store }).__muster = store;
 
 export function useTown<T>(selector: (s: TownState) => T): T {
   return useSyncExternalStore(store.subscribe, () => selector(store.state));

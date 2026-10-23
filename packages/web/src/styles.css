@@ -156,6 +156,18 @@ kbd { font-family: var(--mono); font-size: 11px; background: #2a2d3a; border: 1p
 .goal-card { background: #1d2a1f; border: 1px solid #2c4430; border-radius: var(--r); padding: 8px 11px; margin-bottom: 10px; font-size: 13px; }
 .callout { background: #1e2433; border: 1px solid #2f3a52; border-radius: var(--r); padding: 8px 11px; margin: 10px 0; font-size: 13px; }
 .callout.gold { background: #2a2516; border-color: #4f4524; }
+/* agent panel: residents route conversation through their manager; the Memory tab shows the wiki and log */
+.callout.via-manager { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.callout.via-manager > span { flex: 1 1 200px; }
+.wiki-page { border: 1px solid #2f3a52; border-radius: var(--r); margin: 6px 0; padding: 0 10px; }
+.wiki-page.open { padding-bottom: 8px; }
+.wiki-title { width: 100%; display: flex; justify-content: space-between; align-items: baseline; gap: 10px; background: none; border: 0; color: inherit; font: inherit; padding: 8px 0; cursor: pointer; text-align: left; }
+.wiki-title small { opacity: 0.6; white-space: nowrap; }
+.topics { margin: 4px 0; padding-left: 18px; }
+.topics li { margin: 2px 0; }
+.log { list-style: none; padding: 0; margin: 0; font-size: 13px; }
+.log li { padding: 4px 0; border-bottom: 1px solid #222a3b; }
+.log li p { margin: 0; }
 /* standing rules pinned to the top of a building board: a paper note with a gold pin stripe */
 .rules-card { background: #2a2516; border: 1px solid #4f4524; border-left: 3px solid var(--gold); border-radius: var(--r); padding: 8px 11px; margin: 4px 0 12px; font-size: 13px; }
 .rules-head { display: flex; align-items: baseline; gap: 8px; flex-wrap: wrap; margin-bottom: 4px; }

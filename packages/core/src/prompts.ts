@@ -3,13 +3,15 @@
  * Lives in core so the server can brief desks (`composeWorkBrief`) and the runtime can brief in-process sessions.
  */
 import type { Agent, Assignment, Building, DeskBrief, DeskWorkspace, Doc, Event, Meeting, Town, Workspace } from "@muster-town/schema";
+import { memoryBlock, teamBlock, WIKI_HOWTO } from "./memory.ts";
 import { skillsBlock } from "./skills.ts";
+import { docGist, NEED, oneLine, relativeTime, sectionOf, trunc } from "./text.ts";
 import type { World } from "./world.ts";
+
+export { docGist, relativeTime, sectionOf } from "./text.ts";
 
 /** What an agent does when started without a task. */
 export const CHECK_IN = "No specific task. Check your inbox and the board; if something needs you, do it. If nothing does, submit a short report saying so: don't invent work.";
-
-const trunc = (s: string, n: number) => (s.length > n ? s.slice(0, n) + "\n…(truncated)" : s);
 
 export const WORLD_RULES = `How the town works:
 - You have a body in a pixel town. Call \`look\` first: it tells you where you are, who is nearby, your unread messages, assignments and meetings.
@@ -21,7 +23,7 @@ export const WORLD_RULES = `How the town works:
 - Messages from humans arrive in your inbox as \`tell\`s; when a human messages you, reply with \`tell\` before anything else.
 - If someone mentions you (@YourName) you'll see it in \`inbox\`; a mention is a request to look, not an assignment; reply with \`tell\` or ask your manager for an assignment. Write @Name to point a colleague at your doc, report or meeting remark.
 - Skills (docs of type "skill") are reusable how-tos, some with bundled scripts: \`skills\` lists the ones you can use and \`read\` loads one. When you work out a method others could reuse, write it as a skill (\`write\` type "skill", a SKILL.md body).
-- Your notebook is your memory between sessions: before \`submit_report\`, update it (\`write\` type "notebook") with what you learned, decided, are waiting on, and the ids of documents you'll need again. Keep it under a page; rewrite, don't append forever.
+- ${WIKI_HOWTO}
 - Finish with \`submit_report\`. It is mandatory, it must be your last action, and your session ends after it. The report goes to your manager's in-tray and you go idle; you work again when someone gives you an assignment.
 - You can't wait inside a session: when your turn ends, the session ends, and background tasks, timers and monitors won't wake you. If you can't finish because you're waiting on something, park the work: \`submit_report\` with \`resumeWhen\` (\`{deploy: "<your commit sha>"}\` once you've pushed and need it live, \`{assignment: id}\` for a colleague's work, \`{decision: reportId}\` for a review, \`{after: iso}\`) and \`next\` (one line); your continuation then starts by itself when that holds. \`GET /api/health\` gives the live server's \`commit\`; a change is live when \`git merge-base --is-ancestor <sha> <commit>\` succeeds.`;
 
@@ -42,64 +44,23 @@ export function standingRules(building: Building | undefined): string {
   return r ? `\n\nStanding rules for the ${building!.name} (from its manager; they apply to every session here and outrank your defaults, but not your assignment's explicit instructions):\n${trunc(r, 8000)}` : "";
 }
 
-/** The agent's notebook (one per agent, private draft), if it has written one. */
-export function notebookOf(world: World, agentId: string): Doc | undefined {
-  return world.docs.first("authorId = ? AND type = 'notebook'", [agentId], "ORDER BY createdAt ASC, rowid ASC");
-}
-
-/** How much of the notebook goes into a session's system prompt. */
-export const NOTEBOOK_CAP = 2500;
-
 /** Title prefix of the runtime's fallback reports (sessions that ended without \`submit_report\`). */
 export const FALLBACK_REPORT_PREFIX = "Session ended without a report:";
 
-/** "just now" | "5m ago" | "3h ago" | "2d ago". */
-export function relativeTime(iso: string, now = Date.now()): string {
-  const s = Math.max(0, Math.round((now - Date.parse(iso)) / 1000));
-  if (s < 60) return "just now";
-  if (s < 3600) return `${Math.floor(s / 60)}m ago`;
-  if (s < 86400) return `${Math.floor(s / 3600)}h ago`;
-  return `${Math.floor(s / 86400)}d ago`;
-}
-
-/** "## Your notebook" block: the body, capped at \`cap\` chars (the last \`cap\` with a note when longer). */
-export function notebookBlock(nb: Doc | undefined | null, cap = NOTEBOOK_CAP, now = Date.now()): string {
-  const body = nb?.body.trim() ?? "";
-  if (!nb || !body) return `## Your notebook\n(empty: you haven't written one yet. Create it with \`write\` type "notebook" before you submit your report.)`;
-  const shown = body.length > cap ? `(Your notebook is ${body.length} chars; only the last ${cap} are shown. Rewrite it shorter.)\n…${body.slice(-cap)}` : body;
-  return `## Your notebook\n(${nb.id}, updated ${relativeTime(nb.updatedAt, now)})\n${shown}`;
-}
-
-/** The body of a markdown \`## heading\` section (up to the next \`#\`/\`##\` heading), trimmed; "" when absent. */
-export function sectionOf(body: string, heading: string): string {
-  const lines = body.split("\n");
-  const at = lines.findIndex((l) => l.trim().replace(/^#+\s*/, "").toLowerCase() === heading.toLowerCase() && /^#{1,6}\s/.test(l.trim()));
-  if (at < 0) return "";
-  const end = lines.findIndex((l, i) => i > at && /^#{1,2}\s/.test(l.trim()));
-  return lines.slice(at + 1, end < 0 ? undefined : end).join("\n").trim();
-}
-
-const NEED = "What I need from you";
-const oneLine = (s: string, n = 140) => { const t = s.replace(/\s+/g, " ").trim(); return t.length > n ? t.slice(0, n - 1) + "…" : t; };
-
-/** One line describing a doc: a report's "What I need from you" first line, else the body's first non-heading line. */
-export function docGist(d: Doc): string {
-  const firstText = (s: string) => s.split("\n").map((l) => l.trim()).find((l) => l && !/^#{1,6}\s/.test(l) && !/^[-*_]{3,}$/.test(l)) ?? "";
-  const line = (d.type === "report" ? firstText(sectionOf(d.body, NEED)) : "") || firstText(d.body);
-  return oneLine(line) || "(empty)";
-}
+/** Doc types that are an agent's private memory, never listed as its work. */
+export const MEMORY_TYPES: readonly string[] = ["notebook", "wiki", "log"];
 
 export const READ_FIRST = "Before answering a human or starting work, `read` the documents above that are relevant; don't restate from memory what you wrote down.";
 
 /**
- * "## Your recent work": the agent's last \`limit\` docs (any type but its notebook and fallback reports; most recently
- * updated first), the full "What I need from you" of its last report, and its unread mentions.
+ * "## Your recent work": the agent's last \`limit\` docs (any type but its memory docs and fallback reports; most
+ * recently updated first), the full "What I need from you" of its last report, and its unread mentions.
  * \`short\` (meetings): just the doc lines. \`readHint\` (default on) adds the "read before answering" sentence.
  */
 export function recentWorkBlock(world: World, agentId: string, opts: { limit?: number; short?: boolean; readHint?: boolean; excludeSessionId?: string; now?: number } = {}): string {
   const limit = opts.limit ?? (opts.short ? 3 : 6);
   const now = opts.now ?? Date.now();
-  const where = "authorId = ? AND type != 'notebook' AND NOT (type = 'report' AND title LIKE ?) AND (sessionId IS NULL OR sessionId != ?)";
+  const where = "authorId = ? AND type NOT IN ('notebook', 'wiki', 'log') AND NOT (type = 'report' AND title LIKE ?) AND (sessionId IS NULL OR sessionId != ?)";
   const params = [agentId, `${FALLBACK_REPORT_PREFIX}%`, opts.excludeSessionId ?? ""];
   const docs = world.docs.where(where, params, `ORDER BY updatedAt DESC, rowid DESC LIMIT ${Math.max(1, Math.floor(limit))}`);
   const lines = docs.map((d) => `- ${d.type} "${d.title}" (${d.id}, ${relativeTime(d.updatedAt, now)}): ${docGist(d)}`);
@@ -115,7 +76,11 @@ export function recentWorkBlock(world: World, agentId: string, opts: { limit?: n
   return out.join("\n");
 }
 
-export function workSystemPrompt(agent: Agent, building: Building, town: Town, opts: { desk?: boolean; notebook?: Doc | null; skills?: string } = {}): string {
+/**
+ * The system prompt of a work session. \`memory\` is the agent's "## What you know" + "## Your log" block
+ * (\`memoryBlock\`); \`team\` the manager's "## Your team" block (\`teamBlock\`), only for the building's manager agent.
+ */
+export function workSystemPrompt(agent: Agent, building: Building, town: Town, opts: { desk?: boolean; memory?: string; team?: string; skills?: string } = {}): string {
   return `You are ${agent.name}, a resident of the ${building.name} of ${town.name}. ${OWNERSHIP}
 Town goal: ${town.goal || "(none set)"}
 Building goal: ${building.goal || "(none set)"}
@@ -129,9 +94,14 @@ ${REPORT_FORMAT}
 
 You have about ${building.maxTurnsPerSession} turns; budget them. ${opts.desk
     ? "You work at your own desk: a private sandbox computer with your home directory (/home/agent), a shell, Python with the usual scientific libraries, and the web. Files you keep there persist between sessions; the town library is still where shared work goes."
-    : "Your only tools are the town tools (mcp__town__*), WebSearch and WebFetch."}${standingRules(building)}${opts.skills ? `\n\n${opts.skills}` : ""}
+    : "Your only tools are the town tools (mcp__town__*), WebSearch and WebFetch."}${standingRules(building)}${opts.skills ? `\n\n${opts.skills}` : ""}${opts.team ? `\n\n${opts.team}` : ""}
 
-${notebookBlock(opts.notebook)}`;
+${opts.memory ?? ""}`;
+}
+
+/** The memory and team blocks for an agent's work session (the manager agent of a building gets the team). */
+export function sessionMemory(world: World, agent: Agent, building: Building): { memory: string; team?: string } {
+  return { memory: memoryBlock(world, agent.id), ...(building.managerAgentId === agent.id ? { team: teamBlock(world, building, agent.id) } : {}) };
 }
 
 export function workPrompt(assignment: Assignment, lastReport: Doc | undefined, recentWork?: string): string {
@@ -242,11 +212,11 @@ export function chatSystemPrompt(agent: Agent): string {
   return `You are ${agent.name}'s desk assistant. Answer as ${agent.name}, in first person, about what ${agent.name} is doing and has found, using only the context provided. Be brief (2-5 sentences). If you don't know, say so; never invent findings. If asked to change direction, say the human should use Interrupt (during a session) or Redirect (on a report).`;
 }
 
-export function chatContext(agent: Agent, assignment: Assignment | undefined, report: Doc | undefined, events: Event[], memory: { recentWork?: string; notebook?: Doc | null } = {}): string {
+export function chatContext(agent: Agent, assignment: Assignment | undefined, report: Doc | undefined, events: Event[], memory: { recentWork?: string; memory?: string } = {}): string {
   return `Agent card: ${agent.name}. Status: ${agent.status}. Doing: ${agent.activity || "(nothing)"}.
 Current assignment: ${assignment ? `${assignment.title}: ${trunc(assignment.description, 800)}` : "(none)"}
 Latest report: ${report ? `"${report.title}" (${report.decision ?? "?"})\n${trunc(report.body, 3000)}` : "(none)"}
-${memory.recentWork ? `${memory.recentWork}\n` : ""}${"notebook" in memory ? `${notebookBlock(memory.notebook).replace("## Your notebook", `## ${agent.name}'s notebook (private working notes)`)}\n` : ""}Recent activity:
+${memory.recentWork ? `${memory.recentWork}\n` : ""}${memory.memory ? `${memory.memory.replace("## What you know (your wiki)", `## ${agent.name}'s wiki (private working notes)`).replace("## Your log", `## ${agent.name}'s log`)}\n` : ""}Recent activity:
 ${events.map((e) => `- ${e.ts.slice(0, 16)} [${e.type}] ${e.text}`).join("\n") || "(none)"}`;
 }
 
@@ -340,7 +310,7 @@ export function composeWorkBrief(world: World, sessionId: string): DeskBrief {
   const town = world.town.get();
   const assignment = session.assignmentId ? world.assignments.get(session.assignmentId) ?? null : null;
   const workspace = deskWorkspace(town, building, agent, assignment);
-  const system = workSystemPrompt(agent, building, town, { desk: true, notebook: notebookOf(world, agent.id), skills: skillsBlock(world.skills.forAgent(agent.id)) }) + (workspace ? workshopPrompt(workspace, repoNameOf(workspace.repoUrl)) : "");
+  const system = workSystemPrompt(agent, building, town, { desk: true, ...sessionMemory(world, agent, building), skills: skillsBlock(world.skills.forAgent(agent.id)) }) + (workspace ? workshopPrompt(workspace, repoNameOf(workspace.repoUrl)) : "");
   const recent = recentWorkBlock(world, agent.id, { excludeSessionId: session.id });
   const prompt = assignment
     ? workPrompt(assignment, world.docs.first("authorId = ? AND type = 'report' AND (sessionId IS NULL OR sessionId != ?)", [agent.id, session.id], "ORDER BY createdAt DESC, rowid DESC"), recent)

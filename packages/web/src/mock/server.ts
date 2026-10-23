@@ -6,7 +6,7 @@ import { ApiError } from "../api";
 import type { PinSkillInput, PutSecretInput, SecretView, SkillPinView, SkillView } from "@muster-town/schema";
 import type { CreateBuildingInput, UpdateBuildingInput, CreateResidentInput, ReviewInput, ChatInput, WorkInput, DonateInput, CreateMeetingInput, DocState, AddBankInput, BankInput, CreateBankPoolInput, UpdateBankPoolInput } from "@muster-town/schema";
 import { Sim, newId } from "./sim";
-import { notebooks } from "./fixture";
+import { memoryDocs } from "./fixture";
 
 const wait = (ms = 120) => new Promise((r) => setTimeout(r, ms));
 const now = () => new Date().toISOString();
@@ -101,7 +101,8 @@ export class MockApi implements Api {
       permissions: { inheritsOwner: agent.inheritsOwner, deniedPermissions: agent.deniedPermissions, ownerUserId: agent.ownerUserId, ownerName: null, canEdit: false, canSetModel: agent.kind === "resident" }, effectivePermissions: [],
       currentSession: agent.status === "working" ? { id: `se_${id}`, agentId: id, assignmentId: agent.currentAssignmentId, meetingId: null, purpose: "work" as const, backend: "host" as const, status: "running" as const, model: agent.model ?? "claude-opus-5-5", sdkSessionId: null, tokens: agent.spentTokensToday, costUsd: agent.spentUsdTotal, turns: 12, reportId: null, error: null, startedAt: new Date(Date.now() - 15 * 60_000).toISOString(), endedAt: null } : null,
       latestReport: reports[0] ?? null,
-      notebook: notebooks.find((d) => d.authorId === id) ?? null,
+      memoryTopics: memoryDocs.filter((d) => d.authorId === id && d.type === "wiki").map((d) => d.title),
+      memory: { wiki: memoryDocs.filter((d) => d.authorId === id && d.type === "wiki"), log: memoryDocs.find((d) => d.authorId === id && d.type === "log") ?? null },
       assignments: [...this.sim.assignments.values()].filter((a) => a.agentId === id).sort((a, b) => {
         const rank = (x: Assignment) => (x.status === "active" ? 0 : x.status === "pending" ? 1 : 2);
         return rank(a) - rank(b) || (a.status === "pending" && b.status === "pending" ? a.position - b.position : b.updatedAt.localeCompare(a.updatedAt));

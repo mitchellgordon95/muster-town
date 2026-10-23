@@ -5,7 +5,7 @@ import {
 } from "../domain.ts";
 import { AppError, badRequest, forbidden } from "../errors.ts";
 import { docWhere, notifyMentions } from "../mentions.ts";
-import { notebookOf } from "../prompts.ts";
+import { appendLog, ownerOf, writeWikiPage } from "../memory.ts";
 import { describeWait, validateWait } from "../waits.ts";
 import type { World } from "../world.ts";
 import type { VerbIn } from "./types.ts";
@@ -115,7 +115,16 @@ export async function write(world: World, me: Agent, input: VerbIn<"write">) {
   if (WRITE_FORBIDDEN_TYPES.has(input.type)) throw badRequest(`Use ${input.type === "report" ? "submit_report" : input.type === "request" ? "request_human" : "the dedicated flow"} for ${input.type} docs.`);
   const holder = world.holderOf(me);
   const bid = me.buildingId ?? me.homeBuildingId;
-  if (input.type === "notebook") return writeNotebook(world, me, holder, input.body);
+  if (input.type === "notebook") throw badRequest('The notebook became a wiki: write one private page per topic with type "wiki" (title = the topic), and durable events as one-line entries with type "log".');
+  if (input.type === "wiki") {
+    if (!input.title.trim()) throw badRequest('A wiki page needs a title: the topic it covers (e.g. "The Bank").');
+    const { doc, created } = writeWikiPage(world, ownerOf(me, holder), input.title, input.body, input.id);
+    return { id: doc.id, state: doc.state, note: created ? `Wiki page "${doc.title}" created (private; shown to you at the start of every session).` : `Wiki page "${doc.title}" rewritten.` };
+  }
+  if (input.type === "log") {
+    const doc = appendLog(world, ownerOf(me, holder), input.body);
+    return { id: doc.id, state: doc.state, note: "Logged." };
+  }
   if (input.files && input.type !== "skill") throw badRequest("`files` are only for skills (type \"skill\").");
   // a skill's title is its SKILL.md name (validated, unique town-wide)
   const title = input.type === "skill" ? world.skills.validate(input.body, holder.id, input.id).name : input.title;
@@ -124,7 +133,7 @@ export async function write(world: World, me: Agent, input: VerbIn<"write">) {
     const cur = world.docs.get(input.id);
     if (!cur) throw new AppError("not_found", `No document ${input.id}.`);
     if (cur.authorId !== holder.id) throw new AppError("forbidden", "You can only update documents you wrote.");
-    if (cur.type === "notebook") throw badRequest("That's your notebook; update it with type \"notebook\".");
+    if (cur.type === "wiki" || cur.type === "log" || cur.type === "notebook") throw badRequest(cur.type === "log" ? "That's your log; append to it with type \"log\"." : "That's a page of your wiki; rewrite it with type \"wiki\".");
     if ((cur.type === "skill") !== (input.type === "skill")) throw badRequest(cur.type === "skill" ? "That's a skill; update it with type \"skill\"." : "A doc can't become a skill; write a new one with type \"skill\".");
     const state = cur.state === "library" || cur.state === "trophy" ? cur.state : (input.type === "source" && input.state === "building" ? "library" : input.state);
     const doc = world.transaction(() => {
@@ -155,24 +164,6 @@ export async function write(world: World, me: Agent, input: VerbIn<"write">) {
       note: doc.state === "draft" ? "Skill saved as a draft (only you see it). `pin` it into your own sessions, or write it again with state \"building\" to share it in your building." : "Skill published in your building. A manager can `promote` it to the library (town-wide) and `pin` it." };
   }
   return { id: doc.id, state: doc.state };
-}
-
-/**
- * The author's notebook: exactly one per author, always a private draft titled "<name>'s notebook", created on first
- * write and rewritten in place after that (upsert by author; \`id\`, \`title\` and \`state\` are ignored).
- */
-function writeNotebook(world: World, me: Agent, holder: { id: string; kind: "agent" | "user" }, body: string) {
-  const cur = notebookOf(world, holder.id);
-  const title = `${me.name}'s notebook`;
-  if (cur) {
-    const doc = updateDoc(world, cur.id, { title, body, state: "draft" });
-    world.events.append({ type: "doc.updated", agentId: holder.kind === "agent" ? me.id : null, buildingId: doc.buildingId, text: `${me.name} updated their notebook`, payload: { docId: doc.id, notebook: true } });
-    return { id: doc.id, state: doc.state, note: "Notebook updated." };
-  }
-  const doc = createDoc(world, {
-    type: "notebook", state: "draft", title, body, authorId: holder.id, authorKind: holder.kind, buildingId: me.homeBuildingId ?? me.buildingId,
-  }, `${me.name} started a notebook`);
-  return { id: doc.id, state: doc.state, note: "Notebook created." };
 }
 
 /** How many times in a row one piece of work may park itself (`submit_report` resumeWhen) before a human must decide. */

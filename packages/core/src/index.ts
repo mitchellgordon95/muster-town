@@ -37,6 +37,7 @@ export { importV0, type ImportV0Options, type ImportV0Result } from "./import-v0
 export { seedDefaults, originUrl, HOUSE_BUDGET_TOKENS, HOUSE_LABEL, type SeedOptions, type SeedResult } from "./seed.ts";
 export * as prompts from "./prompts.ts";
 export * from "./prompts.ts";
+export * from "./memory.ts";
 export {
   computeLayout, assignLots, labSize, tileAt, ROAD_Y, TOWN_HALL_X, TOWN_HALL_ID, TOWN_HALL_SIZE, LOT_GAP, MAX_HEADCOUNT, MOD_SEATS, TOWN_HALL_FIXTURES,
   type Grid, type DeskSlot, type LayoutResult,

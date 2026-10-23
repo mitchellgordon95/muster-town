@@ -92,9 +92,11 @@ Does the airborne fraction show a statistically significant trend once ENSO and 
 ## Questions for humans
 Is "0.44" the number we want on the town dashboard, or the 10-year mean?`;
 
-/** Agents' private notebooks (drafts): shown only in the agent panel, never in the library. */
-export const notebooks: Doc[] = [
-  { ...docBase, id: "dc_noor_nb", type: "notebook", state: "draft", title: "Noor's notebook", authorId: "ag_noor", buildingId: "bl_carbon", body: "## Working on\nAirborne fraction 1959–2024: done, report dc_noor_r2 is in the in-tray.\n\n## Learned\n- The 10-year mean airborne fraction is 0.44 ± 0.03; single years swing ±0.1 with ENSO.\n- NOAA GML global growth rates are the series to cite, not Mauna Loa alone.\n\n## Waiting on\n- Mitchell: 0.44 (10-year mean) or the 2024 value for the dashboard?\n\n## Docs I'll need again\n- dc_gcb_essd (GCB 2025 ESSD), dc_gcb_data (budget spreadsheets)", createdAt: ago(400), updatedAt: ago(12) },
+/** Agents' memory (private drafts: wiki pages and logs): shown only in the agent panel's Memory tab, never in the library. */
+export const memoryDocs: Doc[] = [
+  { ...docBase, id: "dc_noor_w1", type: "wiki", state: "draft", title: "Airborne fraction", authorId: "ag_noor", buildingId: "bl_carbon", body: "The 10-year mean airborne fraction is 0.44 ± 0.03; single years swing ±0.1 with ENSO. Report dc_noor_r2 has the series.\n\nOpen: Mitchell decides 0.44 (10-year mean) or the 2024 value for the dashboard.", createdAt: ago(400), updatedAt: ago(12) },
+  { ...docBase, id: "dc_noor_w2", type: "wiki", state: "draft", title: "CO2 growth-rate sources", authorId: "ag_noor", buildingId: "bl_carbon", body: "Cite NOAA GML global growth rates, not Mauna Loa alone. Budget numbers: dc_gcb_essd (GCB 2025 ESSD), dc_gcb_data (spreadsheets).", createdAt: ago(900), updatedAt: ago(400) },
+  { ...docBase, id: "dc_noor_log", type: "log", state: "draft", title: "Noor's log", authorId: "ag_noor", buildingId: "bl_carbon", body: "- 2026-10-19 14:02 Assignment \"Growth rate 2010s\" (as_noor1): done, report \"Growth rate\" (dc_noor_r1, verdict continue), 310,000 tokens\n- 2026-10-21 09:40 Decided: use NOAA GML global means for every growth-rate figure\n- 2026-10-22 18:11 Assignment \"Airborne fraction 1959–2024\" (as_noor2): done, report \"Noor run 2: Airborne fraction 1959–2024\" (dc_noor_r2, verdict continue), 412,000 tokens", createdAt: ago(900), updatedAt: ago(12) },
 ];
 
 export const docs: Doc[] = [

@@ -96,26 +96,32 @@ describe("buildings & agents", () => {
     expect(world.tokens.resolve(r.body.token)).toMatchObject({ kind: "agent", id: r.body.agent.id });
   });
 
-  it("chat/interrupt return 503 without a runtime and call it when attached", async () => {
+  it("chat/interrupt return 503 without a runtime and call it when attached; residents refuse the proxy chat", async () => {
     const off = await setup();
     const mei = off.by("Mei");
-    const c = await json(off.app, "POST", `/api/agents/${mei.id}/chat`, { headers: off.auth, body: { message: "hi" } });
+    const ada = off.world.agents.first("kind = 'service'")!;
+    const c = await json(off.app, "POST", `/api/agents/${ada.id}/chat`, { headers: off.auth, body: { message: "hi" } });
     expect(c.status).toBe(503);
     expect(c.body.error).toBe("runtime not available");
+    // design review 5: a resident isn't a conversational surface; its wiki says what it knows
+    const r = await json(off.app, "POST", `/api/agents/${mei.id}/chat`, { headers: off.auth, body: { message: "hi" } });
+    expect(r.status).toBe(409);
+    expect(r.body.error).toMatch(/doesn't take questions/);
 
     const calls: unknown[] = [];
     const on = await setup({ runtime: {
-      chat: async (id, input) => { calls.push(["chat", id, input.message]); return "hello from Mei"; },
+      chat: async (id, input) => { calls.push(["chat", id, input.message]); return "hello from Ada"; },
       interrupt: async (id, text) => { calls.push(["interrupt", id, text]); },
       onMeetingStart: async (id) => { calls.push(["meeting", id]); },
     } });
     const mei2 = on.by("Mei");
-    expect((await json(on.app, "POST", `/api/agents/${mei2.id}/chat`, { headers: on.auth, body: { message: "hi" } })).body.reply).toBe("hello from Mei");
+    const ada2 = on.world.agents.first("kind = 'service'")!;
+    expect((await json(on.app, "POST", `/api/agents/${ada2.id}/chat`, { headers: on.auth, body: { message: "hi" } })).body.reply).toBe("hello from Ada");
     expect((await json(on.app, "POST", `/api/agents/${mei2.id}/interrupt`, { headers: on.auth, body: { text: "stop that" } })).status).toBe(200);
     const m = await json(on.app, "POST", "/api/meetings", { headers: on.auth, body: { kind: "standup", buildingId: "carbon-cycle" } });
     const started = await json(on.app, "POST", `/api/meetings/${m.body.meeting.id}/start`, { headers: on.auth });
     expect(started.body.meeting.phase).toBe("discussing");
-    expect(calls).toEqual([["chat", mei2.id, "hi"], ["interrupt", mei2.id, "stop that"], ["meeting", m.body.meeting.id]]);
+    expect(calls).toEqual([["chat", ada2.id, "hi"], ["interrupt", mei2.id, "stop that"], ["meeting", m.body.meeting.id]]);
   });
 });
 

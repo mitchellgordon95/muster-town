@@ -1,4 +1,8 @@
-/** Agent panel: status, model, budget; tabs Talk (thread + live activity + one message box) | Assignments. Reports live in the in-tray and library. */
+/**
+ * Agent panel: status, model, budget; tabs Talk (live activity; a message box only for the building's manager agent,
+ * the one resident humans talk to) | Assignments | Memory (the resident's wiki pages and log: what it knows and did).
+ * Reports live in the in-tray and library.
+ */
 import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import type { Agent, Assignment, Doc, Event, Permission } from "@muster-town/schema";
 import { api, type AgentPermissionsView, type ThreadMessage } from "../api";
@@ -22,7 +26,7 @@ export function AgentPanel({ id, tab }: { id: string; tab?: string }) {
   useEffect(() => { if (detail.data) { store.mergeEvents(detail.data.recentEvents); store.putAssignments(detail.data.assignments); if (detail.data.latestReport) store.putDocs([detail.data.latestReport]); } }, [detail.data]);
   useEffect(() => { detail.reload(); }, [rev, detail.reload]); // docs/assignments changed somewhere
   if (!agent) return <PanelShell title="Unknown agent"><Empty>This agent isn't in the town.</Empty></PanelShell>;
-  const tabs = agent.kind === "resident" || agent.kind === "visitor" ? ["Talk", "Assignments"] : ["Talk"];
+  const tabs = agent.kind === "resident" ? ["Talk", "Assignments", "Memory"] : agent.kind === "visitor" ? ["Talk", "Assignments"] : ["Talk"];
   const building = buildings.find((b) => b.id === (agent.homeBuildingId ?? agent.buildingId));
   const mailbox = detail.data?.agent.id === id ? detail.data.mailbox : undefined;
   const role = [roleOf(agent) || agent.kind, building?.name].filter(Boolean).join(" · ");
@@ -43,7 +47,8 @@ export function AgentPanel({ id, tab }: { id: string; tab?: string }) {
       {(t) => (
         <>
           {t === "Talk" ? <TalkTab agent={agent} /> : null}
-          {t === "Assignments" ? <AssignmentsTab agent={agent} notebook={detail.data?.agent.id === id ? detail.data.notebook : undefined} /> : null}
+          {t === "Assignments" ? <AssignmentsTab agent={agent} /> : null}
+          {t === "Memory" ? <MemoryTab agent={agent} topics={detail.data?.agent.id === id ? detail.data.memoryTopics ?? [] : []} memory={detail.data?.agent.id === id ? detail.data.memory : undefined} loading={!detail.data} /> : null}
         </>
       )}
     </PanelShell>
@@ -150,17 +155,23 @@ function Presence({ agent, mailbox }: { agent: Agent; mailbox?: { unread: number
 }
 
 /**
- * Talk: your messages and the agent's `tell`s back as a chat thread, with its live session activity (tool calls,
- * thoughts, status) interleaved in a muted style, like a Claude Code transcript. One box sends a message: idle →
- * it starts a session; working → it interrupts now (toggle on) or waits in the inbox for the next pause. "Ask" is a
- * read-only quick question to a cheap-model proxy that answers from the agent's activity.
+ * Talk: the agent's live session activity (tool calls, thoughts, status) in a muted style, like a Claude Code
+ * transcript, with your messages and its `tell`s back as a chat thread where messaging is possible. Residents work
+ * from assignments and don't take messages; the one exception is the building's manager agent, the building's
+ * conversational surface: idle → a message starts its session; working → it interrupts now (toggle on) or waits in
+ * the inbox for the next pause. A building without a manager agent keeps direct messages. "Ask" (service agents) is
+ * a read-only quick question to a cheap-model proxy.
  */
 function TalkTab({ agent }: { agent: Agent }) {
   const events = useTown((s) => s.events);
   const me = useTown((s) => s.me);
   const avatarId = me?.avatarAgentId ?? null;
   const isService = agent.kind === "service", isHuman = agent.kind === "human", isVisitor = agent.kind === "visitor";
-  const talkable = (agent.kind === "resident" || isVisitor) && agent.status !== "retired" && agent.status !== "banned" && !!me;
+  const home = useTown((s) => s.buildings.find((b) => b.id === agent.homeBuildingId));
+  const manager = useTown((s) => (home?.managerAgentId ? s.agents[home.managerAgentId] : undefined));
+  /** a resident other than its building's manager agent: no messages, its manager takes requests */
+  const viaManager = agent.kind === "resident" && !!manager && manager.id !== agent.id && manager.status !== "retired" && manager.status !== "banned";
+  const talkable = (agent.kind === "resident" || isVisitor) && !viaManager && agent.status !== "retired" && agent.status !== "banned" && !!me;
   const working = agent.status === "working";
   const s = useLoad(() => (isHuman || isService ? Promise.resolve(null) : api().session(agent.id)), [agent.id, working]);
   const th = useLoad(() => (talkable ? api().thread(agent.id) : Promise.resolve([] as ThreadMessage[])), [agent.id, talkable]);
@@ -212,7 +223,13 @@ function TalkTab({ agent }: { agent: Agent }) {
         <div className="callout">{agent.name} is stopped. A message wakes them, or <Act small run={async () => { await api().resume(agent.id); store.toast(`${agent.name} is idle again`, "ok"); }}>Resume</Act> without one.</div>
       ) : null}
       <Timeline items={timeline} agentName={agent.name} empty={isService ? `Ask ${agent.name} where to find something in the library.` : isVisitor && talkable ? `No messages yet. What you send waits in ${agent.name}'s inbox until their session reads it.` : talkable ? `Say something to ${agent.name}. They reply here.` : `${agent.name} hasn't done anything yet.`} />
-      {isHuman ? null : !me ? <SignInNote to={`talk to ${agent.name}`} /> : <Composer agent={agent} talkable={talkable} canControl={canControl} outOfBudget={agent.status === "out-of-budget" || (daily > 0 && agent.spentTokensToday >= daily)} log={log} setLog={setLog} />}
+      {viaManager && manager ? (
+        <div className="callout via-manager">
+          <span>{agent.name} works from assignments and doesn't take messages. The Memory tab says what they know.</span>
+          <button type="button" className="btn sm primary" onClick={() => store.open({ kind: "agent", id: manager.id, tab: "Talk" })}>Talk to ★ {manager.name}</button>
+          {working && canControl ? <Act small tone="bad" run={async () => { await api().stop(agent.id); store.toast(`${agent.name} stopped`, "ok"); }}>Stop</Act> : null}
+        </div>
+      ) : isHuman ? null : !me ? <SignInNote to={`talk to ${agent.name}`} /> : <Composer agent={agent} talkable={talkable} canControl={canControl} outOfBudget={agent.status === "out-of-budget" || (daily > 0 && agent.spentTokensToday >= daily)} log={log} setLog={setLog} />}
     </div>
   );
 }
@@ -287,6 +304,8 @@ function Composer({ agent, talkable, canControl, outOfBudget, log, setLog }: { a
     finally { setBusy(false); }
   };
   const visitor = agent.kind === "visitor";
+  // residents aren't a conversational surface (the server refuses the proxy for them); the quick question is for service agents and visitors
+  const canAsk = talkable && agent.kind !== "resident";
   const status = asking ? `Quick question: ${agent.kind === "service" ? agent.name : `${agent.name}'s desk assistant`} answers from their activity and reports. It can't act.`
     : visitor ? (agent.status === "offline" ? "offline: your message waits in their mailbox" : "Online: your message lands in their inbox; they see it on their next look.")
     : outOfBudget ? "Out of budget: queued until budget returns."
@@ -300,7 +319,7 @@ function Composer({ agent, talkable, canControl, outOfBudget, log, setLog }: { a
       <textarea rows={2} value={text} placeholder={placeholder} onChange={(e) => setText(e.target.value)}
         onKeyDown={(e) => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); void send(); } }} />
       <div className="composer-actions">
-        {talkable ? (
+        {canAsk ? (
           <button type="button" className="link talk-ask" onClick={() => setAsking((a) => !a)}>
             {asking ? `Back to messaging ${agent.name}` : "Ask (quick question, read-only)"}
           </button>
@@ -318,6 +337,49 @@ function Composer({ agent, talkable, canControl, outOfBudget, log, setLog }: { a
   );
 }
 
+/**
+ * Memory: what the resident knows (its wiki, one private page per topic, rewritten before each report) and what it did
+ * (its log, one dated line per session or decision). Everyone sees the page titles; owners, the building's managers and
+ * admins see the pages and the log. This is the whole of a resident's memory between sessions.
+ */
+function MemoryTab({ agent, topics, memory, loading }: { agent: Agent; topics: string[]; memory?: { wiki: Doc[]; log: Doc | null }; loading: boolean }) {
+  const [open, setOpen] = useState<string | null>(null);
+  const logLines = (memory?.log?.body ?? "").split("\n").filter((l) => l.trim()).reverse();
+  return (
+    <>
+      <p className="direction">
+        {agent.name} starts every session from these pages and the tail of this log, plus the board and their recent reports. Nothing else carries over.
+      </p>
+      <Section title={`Knows${topics.length ? ` (${topics.length})` : ""}`}>
+        {loading ? <Empty>Loading…</Empty> : !topics.length ? <Empty>No wiki pages yet. {agent.name} writes one per topic as they work.</Empty> : memory ? (
+          <div className="wiki">
+            {memory.wiki.map((p) => (
+              <div key={p.id} className={`wiki-page ${open === p.id ? "open" : ""}`}>
+                <button type="button" className="wiki-title" onClick={() => setOpen(open === p.id ? null : p.id)}>
+                  <span>{p.title}</span><small>updated {timeAgo(p.updatedAt)}</small>
+                </button>
+                {open === p.id ? <Markdown text={p.body} /> : null}
+              </div>
+            ))}
+          </div>
+        ) : (
+          <>
+            <ul className="topics">{topics.map((t) => <li key={t}>{t}</li>)}</ul>
+            <div className="asg-meta">The pages themselves are visible to {agent.name}'s building managers and admins.</div>
+          </>
+        )}
+      </Section>
+      {memory ? (
+        <Section title="Log">
+          {!logLines.length ? <Empty>Nothing logged yet. Each work session adds a line.</Empty> : (
+            <ul className="log">{logLines.map((l, i) => <li key={i}><Markdown text={l.replace(/^- /, "")} /></li>)}</ul>
+          )}
+        </Section>
+      ) : null}
+    </>
+  );
+}
+
 export function Meter({ v }: { v: number }) {
   const p = Math.max(0, Math.min(1, v));
   return <span className={`meter ${p > 0.9 ? "bad" : p > 0.7 ? "warn" : ""}`}><i style={{ width: `${p * 100}%` }} /></span>;
@@ -327,7 +389,7 @@ export function Meter({ v }: { v: number }) {
  * Assignments: Active (the running one, with Stop), Queue (pending, in run order: reorder, Start next, Cancel), History
  * (done and cancelled, newest first, with Retry). A stopped agent with a queue gets a "Resume queue" banner.
  */
-function AssignmentsTab({ agent, notebook }: { agent: Agent; notebook?: Doc | null }) {
+function AssignmentsTab({ agent }: { agent: Agent }) {
   const all = useTown((s) => s.assignments);
   const { active, queue, history } = useMemo(() => {
     const mine = Object.values(all).filter((a) => a.agentId === agent.id);
@@ -399,16 +461,6 @@ function AssignmentsTab({ agent, notebook }: { agent: Agent; notebook?: Doc | nu
           ) : null} />
         ))}
       </Section>
-      {notebook !== undefined ? (
-        <Section title="Notebook">
-          {notebook ? (
-            <div className="notebook">
-              <div className="asg-meta">Private to {agent.name}; updated {timeAgo(notebook.updatedAt)}. {agent.name} reads it at the start of every session.</div>
-              <Markdown text={notebook.body} />
-            </div>
-          ) : <Empty>No notebook yet.</Empty>}
-        </Section>
-      ) : null}
       {canDismiss(agent) ? (
         <Section title="Manager">
           <p className="direction">Dismissing retires {agent.name}: the desk is freed and they leave the map. Reports and notes stay in the library under their name.</p>

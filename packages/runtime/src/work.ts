@@ -1,5 +1,5 @@
 /** Resident work sessions (host backend + shared end-of-session logic), interrupts, and reviewer sessions over the in-tray. */
-import { AppError, buildingRoleId, codeWorkspace, createDoc, fallbackReportBody, FALLBACK_REPORT_PREFIX, latestReportOf, notebookOf, recentWorkBlock, reviewPrompt, reviewSystemPrompt, setAssignmentStatus, skillsBlock, workPrompt, workSystemPrompt } from "@muster-town/core";
+import { AppError, appendLog, buildingRoleId, codeWorkspace, createDoc, fallbackReportBody, FALLBACK_REPORT_PREFIX, latestReportOf, recentWorkBlock, reviewPrompt, reviewSystemPrompt, sessionMemory, setAssignmentStatus, skillsBlock, workPrompt, workSystemPrompt } from "@muster-town/core";
 import type { Agent, AllocationAuth, Assignment, Building, Doc, Session } from "@muster-town/schema";
 import { chargeUsage, fundingFor, homeOf, runAgentSession, type Ctx } from "./session.ts";
 
@@ -49,7 +49,7 @@ export async function runWorkSession(ctx: Ctx, starting: Set<string>, agentId: s
     walkToDesk(ctx, agent);
     const out = await runAgentSession(ctx, {
       agentId, purpose: "work", model: agent.model ?? building.model, maxTurns: building.maxTurnsPerSession, web: true,
-      assignmentId, system: workSystemPrompt(agent, building, world.town.get(), { notebook: notebookOf(world, agentId), skills: skillsBlock(world.skills.forAgent(agentId)) }),
+      assignmentId, system: workSystemPrompt(agent, building, world.town.get(), { ...sessionMemory(world, agent, building), skills: skillsBlock(world.skills.forAgent(agentId)) }),
       prompt: workPrompt(assignment, latestReport(ctx, agentId), recentWorkBlock(world, agentId)),
       finish: (o, allocationId) => finishWorkSession(ctx, o.session.id, { ...o }, allocationId),
     });
@@ -122,6 +122,15 @@ export async function finishWorkSession(ctx: Ctx, sessionId: string, o: WorkOutc
   // stamp the session's usage onto the report it produced (submitted or fallback)
   const report = ended.reportId ? world.docs.get(ended.reportId) : undefined;
   if (report && report.sessionId === sessionId) world.docs.patch(report.id, { tokens: usage.tokens, costUsd: usage.costUsd, turns: usage.turns });
+  // the resident's log: one line per work session, written for it (its wiki is its own job)
+  if (session.purpose === "work" && agentNow.kind === "resident") {
+    try {
+      const asg = session.assignmentId ? world.assignments.get(session.assignmentId) : undefined;
+      const what = asg ? `Assignment "${asg.title}" (${asg.id})` : "Check-in session";
+      const rep = report ? `, report "${report.title}" (${report.id}, verdict ${report.verdict ?? "?"})` : ", no report";
+      appendLog(world, { id: agentId, kind: "agent", name: agentNow.name, buildingId: bid, agentId }, `${what}: ${status}${rep}, ${usage.tokens.toLocaleString("en-US")} tokens`);
+    } catch (e) { console.warn(`[runtime] log line for ${agentNow.name}: ${e instanceof Error ? e.message : String(e)}`); }
+  }
   // the allocation that actually funded it: the fallback one when the desk failed over from the subscription
   const charged = o.fallback
     ? ctx.deskFallbacks.get(sessionId) ?? (bid ? world.budget.fallbackAllocation(bid)?.id ?? null : null)
