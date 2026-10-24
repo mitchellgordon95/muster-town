@@ -15,8 +15,8 @@ alternative; that box was deleted.
 - **Config:** `fly.town.toml` (env, volume, health check). Desk backend and callback URL come from `MUSTER_TOWN_DESKS` (JSON) in its `[env]`,
   so the Mac's dev `collective.json` keeps docker desks; `maxRunning` is not in it (a live setting, kept in the database). Secrets are Fly secrets
   (`fly secrets list -a muster-town`): `CLAUDE_CODE_OAUTH_TOKEN`, `ANTHROPIC_API_KEY`, `GITHUB_CLIENT_ID/SECRET`, `AGENT_TOWN_ADMINS`,
-  `MUSTER_TOWN_DATA_KEY`, `FLY_API_TOKEN` (the desks app's deploy token), and `DESK_ENV_MINICLAW_*` (until the Town Hall Secrets tab replaces them).
-- **The repo token:** a collective secret named `GH_TOKEN` at the Town Hall (Secrets tab): a fine-grained token for the collective's repo with
+  `MUSTER_TOWN_DATA_KEY`, `FLY_API_TOKEN` (the desks app's deploy token), and `DESK_ENV_MINICLAW_*` (until the planning desk's Secrets tab replaces them).
+- **The repo token:** a collective secret named `GH_TOKEN` at the Town Hall (planning desk, Secrets tab): a fine-grained token for the collective's repo with
   Contents and Pull requests read/write. Desks with code access clone and push with it and `redeploy` pulls with it (docs/secrets.md). A host
   `GH_TOKEN` Fly secret still works as the fallback (`desks.ghToken: "env"`), but it belongs to the collective, not the host.
 - **Rebuild the image:** `deploy/fly/build.sh` (a throwaway clone of GitHub main with the build-context fixes Fly needs; see the script). A plain
@@ -81,7 +81,7 @@ Plan and reasoning: town docs dc_mltonxkizi (deploy + CI) and dc_vxgg8r55ha (str
    `MUSTER_TOWN_DATA_KEY` (`openssl rand -base64 32`; it encrypts the collective secrets in the DB, so a `town.db`
    copied from another host needs that host's key, or set its secrets again), and later
    `GITHUB_CLIENT_ID`/`GITHUB_CLIENT_SECRET`/`MUSTER_TOWN_SESSION_SECRET`. Then `sudo systemctl restart muster-town`.
-   **No `DESK_ENV_*` here** (they reach every desk): tool credentials like `MINICLAW_WS_TOKEN` go in the Town Hall's
+   **No `DESK_ENV_*` here** (they reach every desk): tool credentials like `MINICLAW_WS_TOKEN` go in the planning desk's
    Secrets tab with a grant (docs/secrets.md).
 4. Desks get `GH_TOKEN` from `gh auth token` (collective `desks.ghToken` default `gh-cli`): log the `muster` user in
    with a **fine-grained PAT** for this repo only (contents + pull requests):

@@ -3,7 +3,7 @@
 Two tiers (design: town docs dc_ios62uyco3 and dc_8hdfo4rucp). Ask: if this leaked, whose blast radius is it?
 
 - **Host secrets** (the whole server, every collective, the box): `GITHUB_CLIENT_ID/SECRET`, the session secret, the admin token, `MUSTER_TOWN_DATA_KEY`, deploy/infra tokens, the server's own model login. The operator sets them in the server's env (`collectives/<id>/.env` on localhost, `/etc/muster-town/env` on the VPS). They never show in the UI and **never reach a desk**.
-- **Collective secrets** (one collective's tools, repo or research APIs, e.g. `MINICLAW_WS_TOKEN`): managed by the collective's admins at the Town Hall (the **Secrets** tab of the Town Hall panel), stored encrypted in the `secrets` table, and granted to the whole town (every resident), or per building, agent or skill.
+- **Collective secrets** (one collective's tools, repo or research APIs, e.g. `MINICLAW_WS_TOKEN`): managed by the collective's admins at the Town Hall (the **Secrets** tab of the planning desk; it was a tab of the Town Hall building panel until 2026-10-24), stored encrypted in the `secrets` table, and granted to the whole town (every resident), or per building, agent or skill.
 
 ## Storage
 

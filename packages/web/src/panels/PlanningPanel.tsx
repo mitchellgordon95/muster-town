@@ -1,17 +1,18 @@
-/** Planning desk (Town Hall): create buildings, the whole-town resident roster (read-only; adding and dismissing live in each building's Members tab), roles, export. Donating and Bank pools live at the Bank. */
+/** Planning desk (Town Hall): create buildings, the whole-town resident roster (read-only; adding and dismissing live in each building's Members tab), roles, secrets (admins: the collective's secrets and grants, docs/secrets.md), export. Donating and Bank pools live at the Bank. */
 import { useMemo, useState } from "react";
 import type { Building } from "@muster-town/schema";
 import { api, tokenStore } from "../api";
 import { store, useTown, roleOf } from "../state";
 import { Glyph, PanelShell } from "./PanelShell";
 import { RolesTab } from "./BuildingPanel";
+import { SecretsTab } from "./Secrets";
 import { Act, Empty, Field, Section, StatusPill } from "./ui";
 import { portraitUrl } from "../map/sprites";
 import { townPlan } from "../map/townPlan";
 
 export function PlanningPanel({ tab }: { tab?: string }) {
   const me = useTown((s) => s.me);
-  const tabs = ["Buildings", "Residents", "Roles", "System"];
+  const tabs = ["Buildings", "Residents", "Roles", ...(me?.isAdmin ? ["Secrets"] : []), "System"];
   return (
     <PanelShell icon={<Glyph kind="planning" />} title="Planning desk" subtitle={me ? `Signed in as ${me.user.name}${me.isAdmin ? " · admin" : ""}` : "Read-only · sign in to plan"} tabs={tabs} initialTab={tab && tabs.includes(tab) ? tab : "Buildings"}>
       {(t) => (
@@ -19,6 +20,7 @@ export function PlanningPanel({ tab }: { tab?: string }) {
           {t === "Buildings" ? <Buildings /> : null}
           {t === "Residents" ? <Residents /> : null}
           {t === "Roles" ? <RolesTab /> : null}
+          {t === "Secrets" ? <SecretsTab /> : null}
           {t === "System" ? <System /> : null}
         </>
       )}

@@ -1,4 +1,4 @@
-/** Collective secrets (docs/secrets.md): the Town Hall's Secrets tab, for admins. Values are write-only: the server never returns them. */
+/** Collective secrets (docs/secrets.md): the planning desk's Secrets tab, for admins. The secrets stay the Town Hall's collective secrets (storage and grants unchanged); only the tab lives here. Values are write-only: the server never returns them. */
 import { useState } from "react";
 import type { SecretGrants, SecretView } from "@muster-town/schema";
 import { api } from "../api";
