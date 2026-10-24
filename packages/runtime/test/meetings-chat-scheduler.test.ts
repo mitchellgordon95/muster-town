@@ -1,5 +1,5 @@
 import { describe, expect, test } from "vitest";
-import { COLLECTING_MS, MEETING_REPLIES_MAX } from "../src/index.ts";
+import { COLLECTING_MS, MEETING_REPLIES_MAX, SUMMARY_MODEL } from "../src/index.ts";
 import { callVerb, deferred, init, result, setup, text, type FakeSession } from "./helpers.ts";
 
 const systemOf = (s: FakeSession) => String(s.options.systemPrompt ?? "");
@@ -50,7 +50,8 @@ describe("meetings", () => {
     expect(Object.keys(cur.summaries).sort()).toEqual([...cur.attendeeIds].sort());
     expect(cur.summaries[noorId]).toBe("Did: read the board.\nFound: growth 2.4 ± 0.1 ppm/yr.\nNeed: 13C data.");
     const summarySession = sdk.sessions.find((s) => !s.agentId)!;
-    expect(summarySession.options.model).toBe(lab.cheapModel);
+    expect(summarySession.options.model).toBe(SUMMARY_MODEL); // not the building's cheapModel (that stays for the proxy chat)
+    expect(SUMMARY_MODEL).not.toBe(lab.cheapModel);
     expect(summarySession.options.tools).toEqual([]);
     expect(world.sessions.count("purpose = 'summary' AND status = 'done'")).toBe(cur.attendeeIds.length);
     expect(sdk.sessions.filter((s) => !s.agentId)).toHaveLength(cur.attendeeIds.length); // no double summaries
@@ -100,6 +101,7 @@ describe("questioning attendees", () => {
     const prompts: string[] = [];
     const { world, runtime, sdk, by, lab } = setup(replyScript(prompts));
     const noor = by("Noor"), tomas = by("Tomas");
+    world.agents.patch(noor.id, { model: "claude-sonnet-5-5" }); // the resident's own model, not the building's
     const m = world.ops.createMeeting(null, { kind: "standup", buildingId: lab.id, attendeeIds: [noor.id, tomas.id] });
     world.meetings.upsert({ ...world.meetings.require(m.id), phase: "discussing" }); // no facilitation session
     const fac = world.meetings.require(m.id).facilitatorId!;
@@ -111,7 +113,8 @@ describe("questioning attendees", () => {
     expect(prompts[0]).toContain("My latest report:");
     const reply = sdk.sessions.find((s) => systemOf(s).includes("addressed you"))!;
     expect(reply.options.tools).toEqual([]);
-    expect(world.sessions.first("agentId = ? AND purpose = 'meeting-reply'", [noor.id])).toMatchObject({ status: "done", meetingId: m.id });
+    expect(reply.options.model).toBe("claude-sonnet-5-5"); // @-replies run on the resident's configured model
+    expect(world.sessions.first("agentId = ? AND purpose = 'meeting-reply'", [noor.id])).toMatchObject({ status: "done", meetingId: m.id, model: "claude-sonnet-5-5" });
 
     // Noor's reply named Tomas without "@"; an attendee's @mention doesn't wake anyone either
     await world.verbs.meeting(noor.id, { meetingId: m.id, action: "speak", text: "@Tomas can you add the 13C numbers?" });

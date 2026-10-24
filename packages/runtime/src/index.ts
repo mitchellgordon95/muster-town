@@ -28,7 +28,7 @@ export { type WorkOutcome } from "./work.ts";
 export { isTerminalRedeployEvent, makeRedeployer, realCommandRunner, RESTART_EXIT_CODE, STUCK_POLLS, type CmdResult, type CommandRunner, type RedeployDeps, type RedeployRequest, type Redeployer } from "./redeploy.ts";
 export { InputChannel, oneShot, realSdk, usageOf, userMessage, type QueryHandle, type QueryParams, type Sdk } from "./sdk.ts";
 export { DISALLOWED_TOOLS, TOWN_TOOLS, WEB_TOOLS } from "./session.ts";
-export { COLLECTING_MS, MEETING_REPLIES_MAX } from "./meetings.ts";
+export { COLLECTING_MS, MEETING_REPLIES_MAX, SUMMARY_MODEL } from "./meetings.ts";
 
 export interface RuntimeOptions {
   world: World;
