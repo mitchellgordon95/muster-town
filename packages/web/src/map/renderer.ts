@@ -506,12 +506,14 @@ export class MapRenderer {
       const p = toScreen((w.bank.x + w.bank.w / 2) * T, w.bank.y * T - 5);
       if (p.x > -300 && p.x < cw + 300 && p.y > -40 && p.y < ch + 140) drawBankSign(g, p.x, p.y, s.bank, now);
     }
-    // in-tray badges on the managers' desks (the desk is the tile above the place's standing spot)
+    // in-tray badges on the managers' desks: the desk is the tile above the place's standing spot, or below it
+    // (the Town Hall in-tray, and rooms south of the road)
     for (const b of s.buildings) {
       if (!b.intray) continue;
       const p = s.places.find((x) => x.id === `intray:${b.id}`);
       if (!p) continue;
-      const q = toScreen(p.pos.x * T + T - 2, (p.pos.y - 1) * T + 1);
+      const below = s.grid && s.grid.tiles[(p.pos.y + 1) * s.grid.w + p.pos.x] === TILE.MANAGER_DESK;
+      const q = toScreen(p.pos.x * T + T - 2, (p.pos.y + (below ? 1 : -1)) * T + 1);
       if (q.x > -40 && q.x < cw + 40 && q.y > -40 && q.y < ch + 40) drawBadge(g, q.x, q.y, b.intray);
     }
     this.hitboxes = [];

@@ -261,6 +261,8 @@ describe("say / tell / inbox / look", () => {
     const look = await world.verbs.look(noor, {});
     expect(look.nearby.map((n) => n.name).sort()).toEqual(["Mitchell", "Tomas"]);
     expect(look.nearby.find((n) => n.name === "Mitchell")!.kind).toBe("human");
+    // the Town Hall in-tray is a Town Hall station everyone can walk to (waterfall §3.5)
+    expect(look.places.some((p) => p.id === "intray:town-hall" && p.kind === "intray")).toBe(true);
   });
 
   it("tell to an idle or stopped resident says it won't start work; to a working one it says nothing", async () => {
