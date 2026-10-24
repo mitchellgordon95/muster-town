@@ -2,7 +2,7 @@
 import { TOWN_HALL_ID } from "@muster-town/core";
 import type { Meeting } from "@muster-town/schema";
 import { recentWorkBlock } from "@muster-town/core";
-import { facilitatePrompt, facilitateSystemPrompt, meetingReplyPrompt, meetingReplySystemPrompt, summaryPrompt, summarySystemPrompt } from "@muster-town/core";
+import { facilitateMaterial, facilitatePrompt, facilitateSystemPrompt, lastMeetingFor, meetingReplyPrompt, meetingReplySystemPrompt, summaryPrompt, summarySystemPrompt } from "@muster-town/core";
 import { oneShot } from "./sdk.ts";
 import { chargeUsage, fundingFor, homeOf, runAgentSession, type Ctx } from "./session.ts";
 import { latestReport } from "./work.ts";
@@ -45,7 +45,7 @@ async function summarize(ctx: Ctx, m: Meeting, agentId: string): Promise<void> {
   const funding = fundingFor(world, agentId);
   const session = world.ops.startSession(agentId, { purpose: "summary", model, meetingId: m.id });
   const events = world.events.recent({ agentId, limit: 20 });
-  const out = await oneShot(ctx.sdk, { model, system: summarySystemPrompt(agent), prompt: summaryPrompt(m, latestReport(ctx, agentId), events, recentWorkBlock(world, agentId, { short: true, readHint: false })), apiKey: funding.apiKey });
+  const out = await oneShot(ctx.sdk, { model, system: summarySystemPrompt(agent), prompt: summaryPrompt(m, latestReport(ctx, agentId), events, recentWorkBlock(world, agentId, { short: true, readHint: false }), lastMeetingFor(world, m, agentId)), apiKey: funding.apiKey });
   const text = out.text.split("\n").map((l) => l.trim()).filter(Boolean).slice(0, 3).join("\n");
   let error = out.error;
   if (text && !error) { // a failed call's text is its error message ("Not logged in"), not a summary
@@ -155,7 +155,7 @@ export async function facilitate(ctx: Ctx, st: MeetingState, meetingId: string):
     try {
       await runAgentSession(ctx, {
         agentId: fac.id, purpose: "facilitate", model, maxTurns: FACILITATE_MAX_TURNS, web: false, meetingId: m.id,
-        system: facilitateSystemPrompt(fac, bid, world.town.get()), prompt: facilitatePrompt(m, (id) => world.nameOf(id)),
+        system: facilitateSystemPrompt(fac, bid, world.town.get()), prompt: facilitatePrompt(m, (id) => world.nameOf(id), facilitateMaterial(world, m)),
       });
     } catch (e) {
       console.log("[runtime] facilitation failed:", e);

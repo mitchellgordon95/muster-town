@@ -71,6 +71,48 @@ describe("meetings", () => {
     for (const id of cur.attendeeIds) expect(world.agents.require(id).status).not.toBe("in-meeting");
   });
 
+  test("the next meeting is seeded from the last: summaries get 'last time you said' and their decisions' outcomes; the facilitator gets in-tray, last decisions and Needs", async () => {
+    let mossId = "", noorId = "";
+    const summaryPrompts: string[] = [], facPrompts: string[] = [];
+    const { world, runtime, by, lab } = setup(async function* (s) {
+      if (!s.agentId) {
+        summaryPrompts.push(s.received[0]);
+        const summary = "Did: read the board.\nNext: pull 13C.\nNeed: 13C data.";
+        yield text(summary); yield result(80, 0.001, summary); return;
+      }
+      if (s.agentId === mossId) {
+        facPrompts.push(s.received[0]);
+        const meetingId = /meeting (mt_[\w-]+)/.exec(s.received[0])![1];
+        yield init();
+        if (facPrompts.length === 1) yield* callVerb(s, "meeting", { meetingId, action: "decide", decisions: [{ text: "Pull the 13C record from NOAA", assigneeId: noorId }] });
+        yield* callVerb(s, "meeting", { meetingId, action: "end", text: "Done." });
+        yield result(500, 0.05);
+      }
+    });
+    mossId = by("Moss").id; noorId = by("Noor").id;
+    const m1 = world.ops.createMeeting(null, { kind: "standup", buildingId: lab.id, startNow: true });
+    await runtime.onMeetingStart(m1.id); await runtime.whenIdle();
+    expect(summaryPrompts[0]).toContain("Last meeting: (none; first meeting)");
+    expect(facPrompts[0]).toContain("Last meeting's decisions and what became of them (none; first meeting)");
+    expect(world.meetings.require(m1.id).phase).toBe("done");
+    // a pending report in the in-tray with a Need line, then the second meeting
+    await world.verbs.submit_report(by("Tomas").id, { title: "Isotopes", verdict: "continue", body: "## What I did\nRead.\n\n## Findings\nNone.\n\n## What I need from you\nDecide whether to buy the 13C record." });
+    summaryPrompts.length = 0;
+    const m2 = world.ops.createMeeting(null, { kind: "standup", buildingId: lab.id, startNow: true });
+    await runtime.onMeetingStart(m2.id); await runtime.whenIdle();
+    const noorPrompt = summaryPrompts.find((p) => p.includes("Pull the 13C record from NOAA"))!;
+    expect(noorPrompt).toContain(`Last meeting ("${m1.title}")`);
+    expect(noorPrompt).toContain("Last time you said: Did: read the board. / Next: pull 13C. / Need: 13C data.");
+    expect(noorPrompt).toContain("- Pull the 13C record from NOAA → pending");
+    expect(summaryPrompts.filter((p) => p.includes("Pull the 13C record"))).toHaveLength(1); // only Noor's own decisions
+    const fac = facPrompts[1];
+    expect(fac).toContain("(none; summarise what's going on from the material below and propose 2-4 items)");
+    expect(fac).toMatch(/In-tray \(this building's pending reports\):\n- dc_\w+ "Isotopes" by Tomas \(verdict continue\) — needs: Decide whether to buy the 13C record\./);
+    expect(fac).toContain(`Last meeting's decisions and what became of them ("${m1.title}"):\n- 1. Pull the 13C record from NOAA → Noor: pending`);
+    expect(fac).toContain("Needs (the \"Need:\" lines of the summaries above):\n- Moss: 13C data.");
+    expect(fac).toContain("unresolved Needs and in-tray items first");
+  });
+
   test("the runtime closes a meeting the facilitator didn't end", async () => {
     const { world, runtime, lab } = setup(async function* () { yield init(); yield result(10, 0); });
     const m = world.ops.createMeeting(null, { kind: "retro", buildingId: lab.id, startNow: true });

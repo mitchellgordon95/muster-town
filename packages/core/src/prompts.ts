@@ -3,7 +3,8 @@
  * Lives in core so the server can brief desks (`composeWorkBrief`) and the runtime can brief in-process sessions.
  */
 import type { Agent, Assignment, Building, DeskBrief, DeskWorkspace, Doc, Event, Meeting, Town, Workspace } from "@muster-town/schema";
-import { intrayOf } from "./domain.ts";
+import { intrayCounts, intrayOf } from "./domain.ts";
+import { decisionOutcomes, previousMeeting, type DecisionOutcome } from "./meetings.ts";
 import { memoryBlock, teamBlock, WIKI_HOWTO } from "./memory.ts";
 import { skillsBlock } from "./skills.ts";
 import { docGist, NEED, oneLine, relativeTime, sectionOf, trunc } from "./text.ts";
@@ -166,13 +167,26 @@ export function managerNewReport(d: Doc, nameOf: (id: string) => string): string
 
 export function summarySystemPrompt(agent: Agent): string {
   return `You are ${agent.name}, giving your update at a standup. Write two short lines in plain language, first person, the way you'd say them out loud to colleagues:
-Did: what I did since the last meeting, in one sentence.
+Did: what I did since the last meeting, against what I said I'd do there, in one sentence; say plainly if something I promised didn't happen.
 Next: what I'll do next, in one sentence.
 Add a third line "Need: ..." only if something blocks you or a human must act. Keep each line under 20 words. No ids, file paths, jargon, or long numbers; at most one key number with its unit if it matters. No preamble, no markdown. If you have done nothing yet, say so on the Did line.`;
 }
 
-export function summaryPrompt(meeting: Meeting, lastReport: Doc | undefined, events: Event[], recentWork?: string): string {
+/** What an attendee said and was assigned at the previous meeting of the same scope ("did" against "said"). */
+export interface LastMeetingForAttendee { title: string; said: string | undefined; decisions: DecisionOutcome[] }
+
+export function lastMeetingFor(world: World, meeting: Meeting, agentId: string): LastMeetingForAttendee | null {
+  const prev = previousMeeting(world, meeting);
+  return prev ? { title: prev.title, said: prev.summaries[agentId], decisions: decisionOutcomes(world, prev, agentId) } : null;
+}
+
+export function summaryPrompt(meeting: Meeting, lastReport: Doc | undefined, events: Event[], recentWork?: string, last?: LastMeetingForAttendee | null): string {
+  const lastBlock = last
+    ? `Last meeting ("${last.title}"):\nLast time you said: ${last.said?.replace(/\n/g, " / ") ?? "(no summary)"}\nDecisions assigned to you last time:\n${last.decisions.map((d) => `- ${oneLine(d.text, 200)} → ${d.outcome}`).join("\n") || "(none)"}`
+    : "Last meeting: (none; first meeting)";
   return `Meeting: ${meeting.title} (${meeting.kind}). Agenda: ${meeting.agenda || "(none)"}
+
+${lastBlock}
 
 My latest report: ${lastReport ? `"${lastReport.title}" (decision ${lastReport.decision ?? "?"})\n${trunc(lastReport.body, 4000)}` : "(none yet)"}
 ${recentWork ? `\n${recentWork}\n` : ""}
@@ -186,20 +200,52 @@ export function facilitateSystemPrompt(facilitator: Agent, building: Building | 
 You run the meeting with the \`meeting\` tool (mcp__town__meeting) like everyone else. Be brief and concrete. Humans may speak in the meeting; their words carry weight. Do not call submit_report.${standingRules(building)}`;
 }
 
-export function facilitatePrompt(meeting: Meeting, nameOf: (id: string) => string): string {
+/**
+ * The building's material for the facilitator (town hall 2026-10-24, docs/meetings.md §3.2): the in-tray (a lab's
+ * pending reports with their "What I need from you" line; the Town Hall's manager reports plus per-building counts),
+ * the previous meeting's decisions with outcomes, and the "Need:" lines of this meeting's summaries.
+ */
+export function facilitateMaterial(world: World, meeting: Meeting): string {
+  const nameOf = (id: string) => world.nameOf(id);
+  const need = (d: Doc) => { const n = sectionOf(d.body, NEED).split("\n").map((l) => l.trim()).find(Boolean) ?? ""; return n ? ` — needs: ${oneLine(n, 200)}` : ""; };
+  const row = (d: Doc) => `- ${d.id} "${oneLine(d.title, 100)}" by ${nameOf(d.authorId)} (verdict ${d.verdict ?? "?"})${need(d)}`;
+  let intray: string;
+  if (meeting.buildingId) {
+    intray = intrayOf(world, meeting.buildingId).map(row).join("\n") || "(empty)";
+  } else {
+    const th = world.buildings.first("kind = 'town-hall'");
+    const counts = [...intrayCounts(world)].filter(([bid]) => bid !== th?.id).map(([bid, n]) => `- ${world.buildings.get(bid)?.name ?? bid}: ${n} pending report(s) in its in-tray`);
+    intray = [...(th ? intrayOf(world, th.id).map(row) : []), ...counts].join("\n") || "(empty)";
+  }
+  const prev = previousMeeting(world, meeting);
+  const last = prev ? `("${prev.title}"):\n${decisionOutcomes(world, prev).map((d) => `- ${d.n}. ${oneLine(d.text, 200)}${d.assigneeId ? ` → ${nameOf(d.assigneeId)}` : ""}: ${d.outcome}`).join("\n") || "(no decisions)"}` : "(none; first meeting)";
+  const needs = meeting.attendeeIds.flatMap((id) => (meeting.summaries[id] ?? "").split("\n").filter((l) => /^need:/i.test(l.trim())).map((l) => `- ${nameOf(id)}: ${l.trim().replace(/^need:\s*/i, "")}`)).join("\n") || "(none)";
+  return `In-tray (${meeting.buildingId ? "this building's pending reports" : "the Town Hall's: managers' rollups and proposals, then each building's count"}):
+${intray}
+
+Last meeting's decisions and what became of them ${last}
+
+Needs (the "Need:" lines of the summaries above):
+${needs}`;
+}
+
+export function facilitatePrompt(meeting: Meeting, nameOf: (id: string) => string, material?: string): string {
   const summaries = meeting.attendeeIds.map((id) => `- ${nameOf(id)} (${id}): ${meeting.summaries[id]?.replace(/\n/g, " / ") ?? "(no summary)"}`).join("\n");
   const transcript = meeting.transcript.slice(-20).map((u) => `- ${nameOf(u.speakerId)}: ${u.text}`).join("\n");
+  const townHall = meeting.kind === "town-hall";
   return `Facilitate meeting ${meeting.id}: "${meeting.title}" (${meeting.kind}).
-Agenda: ${meeting.agenda || "(none; set one from the summaries)"}
+Agenda: ${meeting.agenda || "(none; summarise what's going on from the material below and propose 2-4 items)"}
 
 Attendees and their summaries:
 ${summaries || "(none)"}
-
+${material ? `\n${material}\n` : ""}
 Transcript so far:
 ${transcript || "(empty)"}
 
 Steps:
-1. \`meeting\` action "speak": open with a short agenda (2-4 lines) drawn from the summaries.
+1. \`meeting\` action "speak": ${townHall
+    ? "open with \"Decisions needed from the humans\": the yes/no questions drawn from the Needs and in-tray lines above (none: say so in one line), then a short agenda (2-4 lines). A town hall is for getting decisions from the humans; settle agent-to-agent back-and-forth outside the meeting, not in it."
+    : "open with a short agenda (2-4 lines) drawn from the summaries and the material above: unresolved Needs and in-tray items first."}
 2. Loop: \`meeting\` action "listen" with waitSeconds 60, and answer with "speak" when someone asks something. A human in the meeting may send several messages; keep listening and responding to each one. To question an attendee, write @Name in a "speak": they get a short turn and answer in the meeting, and their reply shows up in your next listens.
 3. \`meeting\` action "decide" with 1-5 decisions once the discussion has settled (you can decide again if more come up). Give each actionable decision an assigneeId from the attendee ids above (it becomes their next assignment); use null for general decisions. To change a decision you already recorded, decide again with \`supersedes\` set to its number \`n\` from status: its assignment is rewritten (same assignee) or cancelled, never duplicated.
 4. If a human is taking part, they close the meeting with the End meeting button: keep listening until listen returns phase "done". If the meeting closed before you recorded decisions, call \`meeting\` action "decide" right then with everything that was agreed or asked for (you have a few minutes after close; anything a human asked for that someone should do is a decision with an assigneeId), then stop. Listen and status say humanTyping: true while a human has an unsent message in the say box; keep listening then, and never end the meeting under them. Otherwise (or once humans have been quiet for a few minutes) use \`meeting\` action "end" with a one-line closing, then stop.`;

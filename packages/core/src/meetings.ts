@@ -3,6 +3,7 @@ import { applyDecision, createAssignment, createDoc, sendMessage, setAssignmentS
 import { AppError, badRequest, forbidden, notFound } from "./errors.ts";
 import { buildingRoleId, townRoleId } from "./permissions.ts";
 import { notifyMentions } from "./mentions.ts";
+import { oneLine } from "./text.ts";
 import { newId, nowIso } from "./util.ts";
 import { validateWait } from "./waits.ts";
 import { TOWN_HALL_ID } from "./world/layout.ts";
@@ -42,6 +43,32 @@ export function defaultFacilitator(world: World, buildingId: string | null, atte
     if (first) return first;
   }
   return attendees.find(active) ?? attendees[0] ?? null;
+}
+
+/** The previous `done` meeting of the same scope (same building, or the previous town hall), by end time. */
+export function previousMeeting(world: World, m: Pick<Meeting, "id" | "buildingId">): Meeting | undefined {
+  return m.buildingId
+    ? world.meetings.first("phase = 'done' AND buildingId = ? AND id != ?", [m.buildingId, m.id], "ORDER BY endedAt DESC, rowid DESC")
+    : world.meetings.first("phase = 'done' AND buildingId IS NULL AND id != ?", [m.id], "ORDER BY endedAt DESC, rowid DESC");
+}
+
+export interface DecisionOutcome { n: number; text: string; assigneeId: string | null; outcome: string }
+
+/**
+ * A meeting's decisions (superseded ones dropped; `agentId` keeps only those assigned to that agent) with what became
+ * of each: `done: "<report title>" (verdict …, decision …)`, `active`, `pending`, `cancelled`, or `no assignment`.
+ * Read back from `decisions[].assignmentId`, which nothing read until the 2026-10-24 town hall (docs/meetings.md §3.1).
+ */
+export function decisionOutcomes(world: World, m: Meeting, agentId?: string): DecisionOutcome[] {
+  const out: DecisionOutcome[] = [];
+  m.decisions.forEach((d, i) => {
+    if (d.supersededBy || (agentId && d.assigneeId !== agentId)) return;
+    const a = d.assignmentId ? world.assignments.get(d.assignmentId) : undefined;
+    const report = a?.reportId ? world.docs.get(a.reportId) : undefined;
+    const outcome = !a ? "no assignment" : a.status !== "done" ? a.status : `done${report ? `: "${oneLine(report.title, 100)}" (verdict ${report.verdict ?? "?"}, decision ${report.decision ?? "pending"})` : ""}`;
+    out.push({ n: i + 1, text: d.text, assigneeId: d.assigneeId ?? null, outcome });
+  });
+  return out;
 }
 
 /** Create a meeting. `actor` undefined = system (scheduler); otherwise needs meeting.facilitate or building.review. */
