@@ -8,6 +8,7 @@ import { useMemo } from "react";
 import type { Doc } from "@muster-town/schema";
 import { api } from "../api";
 import { store } from "../state";
+import { docUrl } from "../route";
 
 const ALLOWED = new Set(["P", "H1", "H2", "H3", "H4", "H5", "H6", "UL", "OL", "LI", "A", "EM", "STRONG", "CODE", "PRE", "BLOCKQUOTE", "TABLE", "THEAD", "TBODY", "TR", "TH", "TD", "HR", "BR", "DEL", "IMG", "INPUT", "SPAN", "DIV", "SUP", "SUB"]);
 const ATTRS = new Set(["href", "title", "src", "alt", "align", "type", "checked", "disabled"]);
@@ -48,6 +49,26 @@ export function docIdParts(s: string): (string | { id: string })[] {
   }
   if (last < s.length) out.push(s.slice(last));
   return out;
+}
+
+/** The distinct doc ids cited in a text, in order of first mention. */
+export const docIdsIn = (s: string): string[] => [...new Set(s.match(DOC_ID_RE) ?? [])];
+
+/** A doc id as a link, as `linkDocIds` produces it: opens in the panel, or in a new tab (`/#/doc/<id>`) so the current panel stays put. */
+const docIdAnchor = (id: string, newTab?: boolean) => ({
+  className: "doc-id", title: store.state.docs[id]?.title, href: newTab ? docUrl(id) : id, target: newTab ? "_blank" : undefined, rel: newTab ? "noopener noreferrer" : undefined,
+});
+
+/** Plain text (no markdown) with bare doc ids as links; `newTab` keeps the current panel, e.g. a live meeting. */
+export function DocText({ text, newTab }: { text: string; newTab?: boolean }) {
+  const parts = useMemo(() => docIdParts(text), [text]);
+  return (
+    <>
+      {parts.map((p, i) => typeof p === "string" ? p : (
+        <a key={i} {...docIdAnchor(p.id, newTab)} onClick={newTab ? undefined : (e) => { e.preventDefault(); void openDocLink(p.id); }}>{p.id}</a>
+      ))}
+    </>
+  );
 }
 
 /** Wrap bare doc ids in text nodes (outside links and code) in `<a href="dc_…">` so they open the doc. */
@@ -115,7 +136,8 @@ export async function openDocLink(href: string) {
 /** Unsanitized HTML; `breaks` turns a single newline into a line break, for chat text where people press Enter and mean it. */
 export const markdownHtml = (text: string, breaks = false) => marked.parse(text, { async: false, gfm: true, breaks }) as string;
 
-export function Markdown({ text, className, breaks = false }: { text: string; className?: string; breaks?: boolean }) {
+/** `newTab`: doc links open as `/#/doc/<id>` in a new tab instead of replacing the current panel (used inside a live meeting). */
+export function Markdown({ text, className, breaks = false, newTab = false }: { text: string; className?: string; breaks?: boolean; newTab?: boolean }) {
   const html = useMemo(() => sanitize(markdownHtml(text, breaks)), [text, breaks]);
   return (
     <div
@@ -126,8 +148,10 @@ export function Markdown({ text, className, breaks = false }: { text: string; cl
         if (!a) return;
         const href = a.getAttribute("href") ?? "";
         if (/^(https?:|mailto:)/i.test(href)) { a.target = "_blank"; a.rel = "noopener noreferrer"; return; }
+        if (href.startsWith("#")) { e.preventDefault(); return; }
+        const id = /^(?:doc:)?(dc_[a-z0-9]{10})$/.exec(href.split("/").pop() ?? "")?.[1];
+        if (newTab && id) { a.href = docUrl(id); a.target = "_blank"; a.rel = "noopener noreferrer"; return; }
         e.preventDefault();
-        if (href.startsWith("#")) return;
         void openDocLink(href);
       }}
     />

@@ -11,6 +11,8 @@ import { roomMeetings } from "./room";
 import { AttendeePicker, useAttendees } from "./AttendeePicker";
 import { attendeeInput } from "./attendees";
 import { SignInNote } from "../auth/auth";
+import { DocText, Markdown, docIdsIn } from "./Markdown";
+import { docUrl } from "../route";
 
 const PHASES: Meeting["phase"][] = ["scheduled", "collecting", "discussing", "done"];
 
@@ -77,7 +79,7 @@ function MeetingView({ m }: { m: Meeting }) {
   const room = buildings.find((b) => (m.buildingId ? b.id === m.buildingId : b.kind === "town-hall"));
   const bName = m.buildingId ? room?.name : "Town Hall";
   const canRun = store.can("meeting.facilitate", m.buildingId) || store.can("building.manage", m.buildingId);
-  const open = m.phase === "collecting" || m.phase === "discussing";
+  const open = m.phase === "collecting" || m.phase === "discussing"; // while live, doc links open in a new tab so the meeting (and an unsent draft) stays put
   const discussing = m.phase === "discussing";
   const submitted = m.attendeeIds.filter((a) => m.summaries[a]).length;
   // while there's an unsent draft, tell the server a human is typing so the agent facilitator doesn't end the meeting under us
@@ -99,7 +101,7 @@ function MeetingView({ m }: { m: Meeting }) {
       <ol className="phases">
         {PHASES.map((p, i) => <li key={p} className={p === m.phase ? "on" : PHASES.indexOf(m.phase) > i ? "past" : ""}>{p}</li>)}
       </ol>
-      {m.agenda ? <div className="goal-card"><span>Agenda</span>{m.agenda}</div> : null}
+      {m.agenda ? <div className="goal-card"><span>Agenda</span><DocText text={m.agenda} newTab={open} /></div> : null}
       <div className="actions">
         {canRun && m.phase === "collecting" ? <Act tone="primary" run={async () => store.putMeeting(await api().startMeeting(m.id))}>Start discussion</Act> : null}
         {m.notesDocId ? <button className="btn" onClick={() => store.open({ kind: "library", docId: m.notesDocId! })}>Open notes</button> : null}
@@ -114,7 +116,7 @@ function MeetingView({ m }: { m: Meeting }) {
             return (
               <div key={aid} className={`summary ${s ? "" : "waiting"}`}>
                 <div className="summary-who">{a ? <img src={portraitUrl(a.sprite, 2)} alt="" /> : null}<b>{a?.name ?? aid}</b><span>{a ? roleOf(a) : ""}</span></div>
-                {s ? <div className="summary-text">{s.split("\n").map((l, i) => <div key={i}>{l}</div>)}</div> : <div className="summary-text muted">{m.phase === "collecting" ? "writing…" : "no summary"}</div>}
+                {s ? <div className="summary-text">{s.split("\n").map((l, i) => <div key={i}><DocText text={l} newTab={open} /></div>)}</div> : <div className="summary-text muted">{m.phase === "collecting" ? "writing…" : "no summary"}</div>}
               </div>
             );
           })}
@@ -129,7 +131,7 @@ function MeetingView({ m }: { m: Meeting }) {
               return (
                 <div key={i} className={`utt ${u.speakerKind} ${isMe ? "me" : ""}`}>
                   <div className="utt-head"><b>{u.speakerKind === "user" ? (isMe ? "You" : nameOf(u.speakerId)) : nameOf(u.speakerId)}</b><time>{clock(u.at)}</time></div>
-                  <div>{u.text}</div>
+                  <Markdown text={u.text} className="bubble" breaks newTab={open} />
                 </div>
               );
             })}
@@ -144,6 +146,7 @@ function MeetingView({ m }: { m: Meeting }) {
             onKeyDown={(e) => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); void say(); } }} />
           <button className="btn primary" disabled={!discussing || !text.trim()}>Say</button>
           {canRun ? <Act tone="bad" run={async () => store.putMeeting(await api().endMeeting(m.id))}>End meeting</Act> : null}
+          <DraftDocs text={text} />
         </form>
       ) : null}
       {open && canRun ? <div className="foot-note">The facilitator keeps listening while you talk. Press End meeting when you're done.</div> : null}
@@ -152,12 +155,32 @@ function MeetingView({ m }: { m: Meeting }) {
         {!m.decisions.length ? <Empty>{m.phase === "done" ? "No decisions recorded." : "The facilitator records decisions at the end."}</Empty> : (
           <ol className="decisions">
             {m.decisions.map((d, i) => (
-              <li key={i} className={d.supersededBy ? "superseded" : undefined} title={d.supersededBy ? `Superseded by decision ${d.supersededBy}` : undefined}>{d.supersedes ? <span className="muted">(replaces {d.supersedes}) </span> : null}{d.text}{d.assigneeId ? <> <button className="link" onClick={() => store.open({ kind: "agent", id: d.assigneeId!, tab: "Assignments" })}>→ {nameOf(d.assigneeId)}</button></> : null}</li>
+              <li key={i} className={d.supersededBy ? "superseded" : undefined} title={d.supersededBy ? `Superseded by decision ${d.supersededBy}` : undefined}>{d.supersedes ? <span className="muted">(replaces {d.supersedes}) </span> : null}<DocText text={d.text} newTab={open} />{d.assigneeId ? <> <button className="link" onClick={() => store.open({ kind: "agent", id: d.assigneeId!, tab: "Assignments" })}>→ {nameOf(d.assigneeId)}</button></> : null}</li>
             ))}
           </ol>
         )}
       </Section>
       <div className="foot-note">Scheduled {timeAgo(m.scheduledAt)}{m.startedAt ? ` · started ${timeAgo(m.startedAt)}` : ""}{m.endedAt ? ` · ended ${timeAgo(m.endedAt)}` : ""}</div>
     </PanelShell>
+  );
+}
+
+/** The docs cited in the say-box draft, by title, each opening in a new tab: check a `dc_…` id before you say it without leaving the meeting. */
+function DraftDocs({ text }: { text: string }) {
+  const docs = useTown((s) => s.docs);
+  const ids = useMemo(() => docIdsIn(text), [text]);
+  const tried = useRef(new Set<string>());
+  useEffect(() => {
+    for (const id of ids) {
+      if (store.state.docs[id] || tried.current.has(id)) continue;
+      tried.current.add(id);
+      api().doc(id).then((d) => store.putDocs([d]), () => undefined);
+    }
+  }, [ids]);
+  if (!ids.length) return null;
+  return (
+    <div className="doc-chips">
+      {ids.map((id) => <a key={id} className="doc-chip" href={docUrl(id)} target="_blank" rel="noopener noreferrer" title={docs[id] ? id : "Not a document you can see"}>{docs[id]?.title ?? id}</a>)}
+    </div>
   );
 }

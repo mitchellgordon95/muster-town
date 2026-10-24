@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { docIdParts, markdownHtml } from "../src/panels/Markdown";
+import { docIdParts, docIdsIn, markdownHtml } from "../src/panels/Markdown";
 
 describe("markdownHtml", () => {
   it("keeps a single newline as a soft wrap by default (docs)", () => {
@@ -21,5 +21,14 @@ describe("docIdParts", () => {
   });
   it("leaves text without a full id alone", () => {
     expect(docIdParts("dc_short and xdc_k955hun6c4 and dc_k955hun6c4x")).toEqual(["dc_short and xdc_k955hun6c4 and dc_k955hun6c4x"]);
+  });
+});
+
+describe("docIdsIn", () => {
+  it("lists each cited doc id once, in order of first mention", () => {
+    expect(docIdsIn("dc_k955hun6c4 then dc_r3d2hrkvhf, dc_k955hun6c4 again")).toEqual(["dc_k955hun6c4", "dc_r3d2hrkvhf"]);
+  });
+  it("is empty for a draft with no doc id", () => {
+    expect(docIdsIn("hello dc_ world")).toEqual([]);
   });
 });
