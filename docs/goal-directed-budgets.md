@@ -1,6 +1,6 @@
 # Goal-directed budgets — design
 
-Status: **proposal, waiting for Mitchell's review** (decided in the Town Workshop standup of 2026-10-21, notes `dc_taoar1c9ag`). Nothing here is built yet.
+Status: **steps 1a–c built** (7bef911, 2eae49f, 441a7f3: schema, `Grants` service, REST routes, board route; every building still `budgetMode: open`). Steps 2–5 are re-sequenced by `docs/waterfall.md` (2026-10-24), which moves the human's surface from the board to the Town Hall in-tray and the manager's 1:1; the board proposal/checkpoint buttons and the amber map dot below are superseded by it. Decided in the Town Workshop standup of 2026-10-21, notes `dc_taoar1c9ag`.
 
 ## Why
 

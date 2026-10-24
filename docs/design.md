@@ -170,3 +170,9 @@ Decisions:
 - **Names stay.** Nameless drones would lose public legibility (a track record attaches to a name), specialization (a wiki needs an owner) and the accounting unit (a body is a slot). What goes is the illusion that a resident is someone you chat with.
 - Sage's 1:1 feature becomes the manager's 1:1. Meetings are unchanged for now.
 - Open: whether truly contextless jobs deserve nameless contractor sessions without a wiki (not built); whether a resident's wiki pages should be publishable to the building (today only their titles are public).
+
+## Design review 6 — the waterfall (2026-10-24, town hall, Mitchell + Pix)
+
+Mitchell: he does not want to talk to or read reports from non-manager agents by default ("unless I really want to drill down for some reason"); he pictures a waterfall where he talks to the managers and they delegate inside their buildings; reports stay but managers roll them up; "town hall meetings and rollup reports into a townhall intray is probably the right interface right now, with drill downs into buildings being legible in a similar recursive manner".
+
+Decisions (town hall decisions 4 and 5, notes dc_guoh97iq91): managers are the building's surface, decide on their agents' reports themselves and escalate by rollup; the goal-directed budgets design (`docs/goal-directed-budgets.md`) is carried forward with the human's surface moved from the building board to the Town Hall in-tray and the manager's 1:1. The reconciled design and build order are in `docs/waterfall.md` (review policy `manager`, rollups as tagged reports, a Town Hall in-tray holding rollups, proposals and checkpoints, the 1:1 on the meeting machinery). Waiting for Mitchell's go.
