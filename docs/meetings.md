@@ -52,7 +52,7 @@ All of §2–§3 is runtime, prompts and one core function; no schema change, no
 | # | Change | Files | Size |
 |---|---|---|---|
 | 1 | Summary model Sonnet; reply-model test assertion (done) | `runtime/meetings.ts`, its test, `docs/architecture.md` | tiny |
-| 2 | Summaries seeded from the last meeting (3.1); facilitator input (3.2) | `core/prompts.ts`, `runtime/meetings.ts`, a `previousMeeting` helper in `core/meetings.ts` | small |
+| 2 | Summaries seeded from the last meeting (3.1); facilitator input (3.2); town-hall opener "Decisions needed from the humans" (mt_p8mo4bsrsy decision 5) (done) | `core/prompts.ts`, `runtime/meetings.ts`, a `previousMeeting` helper in `core/meetings.ts` | small |
 | 3 | Town-hall facilitator = a manager (3.4) | `core/meetings.ts`, its test | tiny |
 | 4 | @-reply as a short session with `read`/`search` (3.3) | `runtime/session.ts` (verb allowlist), `runtime/meetings.ts`, `core/prompts.ts` | small |
 | 5 | Drain waits for facilitations (3.5) | `runtime/redeploy.ts`, `runtime/index.ts` | small |
