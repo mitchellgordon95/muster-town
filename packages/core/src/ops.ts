@@ -448,7 +448,7 @@ export class Ops {
     if (!owner && !this.world.permissions.can(actor, "building.assign", homeOf(agent))) throw forbidden("building.assign");
   }
 
-  /** Runtime: a session starts. Work sessions activate the assignment and set status `working`. */
+  /** Runtime: a session starts. Work sessions activate the assignment and set status `working`; manage sessions set `working` too. */
   startSession(agentId: string, opts: { purpose: Session["purpose"]; model: string; assignmentId?: string | null; meetingId?: string | null; backend?: Session["backend"]; funding?: Session["funding"] }): Session {
     const agent = this.world.agents.require(agentId, "agent");
     const session = this.world.sessions.upsert({
@@ -463,7 +463,7 @@ export class Ops {
         this.world.agents.patch(agentId, { currentAssignmentId: a.id });
       }
       this.world.setStatus(agentId, "working");
-    }
+    } else if (opts.purpose === "manage") this.world.setStatus(agentId, "working"); // a manager's team-lead session (runtime/src/manage.ts)
     this.world.events.append({ type: "session.started", agentId, buildingId: homeOf(agent), text: `${agent.name} started a ${opts.purpose} session${opts.funding ? ` (funded by ${opts.funding === "subscription" ? "subscription" : opts.funding === "donor-key" ? "a donor's API key" : "API key"})` : ""}`, payload: { sessionId: session.id, purpose: opts.purpose, assignmentId: opts.assignmentId ?? null, model: opts.model, backend: session.backend, funding: opts.funding ?? null } });
     return session;
   }

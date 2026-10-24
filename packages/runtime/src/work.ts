@@ -148,7 +148,8 @@ export function interrupt(ctx: Ctx, agentId: string, text: string, from = "A hum
   const live = ctx.live.get(agentId);
   // desk sessions take interrupts through the queue (GET /api/agents/me/control)
   if (!live || live.kind !== "host" || live.stopped || live.reportSubmitted || live.input.closed) return false;
-  const ok = live.input.push(`Interrupt from ${from}: ${text}\n\nTake this into account now, then continue. You must still finish with submit_report.`);
+  const tail = live.purpose === "manage" ? "End as before: a rollup only if one is due, else just stop." : "You must still finish with submit_report.";
+  const ok = live.input.push(`Interrupt from ${from}: ${text}\n\nTake this into account now, then continue. ${tail}`);
   if (ok) {
     const a = ctx.world.agents.get(agentId);
     ctx.world.events.append({ type: "system", agentId, buildingId: a ? a.homeBuildingId ?? a.buildingId : null, text: `Interrupt for ${a?.name ?? agentId}: ${text.slice(0, 200)}`, payload: { sessionId: live.sessionId, interrupt: true, text, now } });

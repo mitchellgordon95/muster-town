@@ -145,6 +145,25 @@ Decide each report with \`review\` (\`read\` it first): approve = acknowledge fi
 Rollups are how Mitchell hears from you: \`submit_report\` with \`rollup: true\` and the covered reports' ids in provenance.sourceIds. Four short sections: Shipped (live, with commits or doc ids), Decided (each covered report → what you decided), Key results (each funded grant's KRs with the spend numbers), Needs from Mitchell (at most two items; "Nothing needed" is valid). Roll up when a covered report hit an escalation criterion, or when ${ROLLUP_RULE_HOURS} h have passed since your last rollup and something was decided; nothing happened → no rollup. Last rollup: ${sinceLast}; reports decided since: ${decidedSince}.`;
 }
 
+/**
+ * The prompt of a manager's team-lead session (purpose `manage`, docs/waterfall.md §3.1–3.2): no assignment, the
+ * in-tray block is in the system prompt. Reports that land while it runs arrive as \`managerNewReport\` messages.
+ */
+export function managePrompt(building: Building, fresh: Doc[], nameOf: (id: string) => string): string {
+  const rows = fresh.map((d) => `- ${d.id} "${oneLine(d.title, 100)}" by ${nameOf(d.authorId)} (verdict ${d.verdict ?? "?"})`).join("\n");
+  return `This is a team-lead session, not a work session: you have no assignment. It started because reports landed in the ${building.name} in-tray ("## Your in-tray" above):
+${rows || "(see the in-tray)"}
+
+\`read\` each report and decide it with \`review\`; give follow-up work with \`assign\` when a decision alone doesn't say it. You can't do the work yourself here (no code or web tools). If more reports land while you work, they arrive as messages in this session; decide them too or leave them for later.
+
+End the session in one of two ways. If a rollup is due (the rule in "## Your in-tray"), \`submit_report\` with \`rollup: true\` and the covered reports' ids in provenance.sourceIds. Otherwise don't call \`submit_report\` at all: just stop, and the session ends quietly (an idle building is silent). The "Finish with submit_report" rule above is for work sessions, not this one.`;
+}
+
+/** A report that landed while the manager's team-lead session runs (streamed into it). */
+export function managerNewReport(d: Doc, nameOf: (id: string) => string): string {
+  return `A new report landed in your in-tray: ${d.id} "${oneLine(d.title, 100)}" by ${nameOf(d.authorId)} (verdict ${d.verdict ?? "?"}). Decide it with the others, or leave it pending. End as before: a rollup only if one is due, else just stop.`;
+}
+
 export function summarySystemPrompt(agent: Agent): string {
   return `You are ${agent.name}, giving your update at a standup. Write two short lines in plain language, first person, the way you'd say them out loud to colleagues:
 Did: what I did since the last meeting, in one sentence.

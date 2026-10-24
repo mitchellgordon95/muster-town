@@ -15,7 +15,7 @@ export interface Ctx {
   desks: DesksConfig;
   now: () => Date;
   sdk: Sdk;
-  /** live work sessions by agentId (host ones take interrupts directly; desk ones hold the exec child) */
+  /** live work and manage sessions by agentId (host ones take interrupts directly; desk ones hold the exec child) */
   live: Map<string, LiveSession>;
   /** desk sessions' funding allocation, by sessionId (charged in finishWorkSession) */
   deskAllocations: Map<string, string | null>;
@@ -163,7 +163,8 @@ export async function runAgentSession(ctx: Ctx, spec: SessionSpec): Promise<Sess
   const funding = fundingFor(world, agent.id);
   const session = world.ops.startSession(agent.id, { purpose: spec.purpose, model: spec.model, assignmentId: spec.assignmentId ?? null, meetingId: spec.meetingId ?? null, backend: "host", funding: funding.auth });
   const live: LiveSession = { kind: "host", agentId: agent.id, sessionId: session.id, purpose: spec.purpose, input: new InputChannel(), q: null, reportSubmitted: false, stopped: false };
-  if (spec.purpose === "work") ctx.live.set(agent.id, live);
+  // work and manage sessions take interrupts and count as the agent's live session (scheduler, redeploy drain, abort)
+  if (spec.purpose === "work" || spec.purpose === "manage") ctx.live.set(agent.id, live);
   const emit = (type: "agent.tool" | "agent.thought" | "system", text: string, payload: Record<string, unknown> = {}) =>
     world.events.append({ type, agentId: agent.id, buildingId: bid, text, payload: { sessionId: session.id, purpose: spec.purpose, ...payload } });
 

@@ -1,6 +1,6 @@
 /**
  * @muster-town/runtime — resident work sessions (Claude Agent SDK over the town MCP endpoint),
- * reviewer sessions over the in-tray, meeting summaries + facilitation, proxy chat, interrupts, scheduler,
+ * managers' team-lead sessions over the in-tray, meeting summaries + facilitation, proxy chat, interrupts, scheduler,
  * startup reconcile, dismissal (onAgentRetired), host redeploy (v1.3).
  */
 import { checkWaits, codeWorkspace, nextPending, PRESENCE_TICK_MS, slugify, syncManagerRoles, type World } from "@muster-town/core";
@@ -11,6 +11,7 @@ import { FlyApi } from "./desk/fly.ts";
 import { SandboxBackend } from "./desk/sandbox.ts";
 import { gitHead, isAncestor, makeRedeployer, type RedeployDeps, type RedeployRequest } from "./redeploy.ts";
 import { gitAuthEnv, noRepoTokenReason, onDeskActivity, repoToken, runDeskSession, type DeskSessionOptions } from "./desk/session.ts";
+import { newManageState, wakeManager } from "./manage.ts";
 import { advanceCollecting, facilitate, newMeetingState, onMeetingMention, onMeetingStart } from "./meetings.ts";
 import { realSdk, type Sdk } from "./sdk.ts";
 import type { Ctx } from "./session.ts";
@@ -123,6 +124,7 @@ export function startRuntime(opts: RuntimeOptions): Runtime {
   const killGraceMs = opts.killGraceMs ?? 10_000;
   const starting = new Set<string>();
   const mst = newMeetingState();
+  const manage = newManageState();
   const startedAt = now().getTime();
   let lastDate = localDate(now());
   let lastExport = startedAt;
@@ -247,6 +249,8 @@ export function startRuntime(opts: RuntimeOptions): Runtime {
     else if (e.type === "meeting.phase" && p.phase === "collecting") later(() => onMeetingStart(ctx, mst, String(p.meetingId)), "meeting summaries");
     else if (e.type === "meeting.phase" && p.phase === "discussing") later(() => facilitate(ctx, mst, String(p.meetingId)), "facilitation");
     else if (e.type === "agent.mentioned" && p.meetingId) later(() => onMeetingMention(ctx, mst, String(p.meetingId), String(p.toId), String(p.byId), String(p.byKind)), "meeting reply");
+    // a resident's report landed in a managed building's in-tray: wake (or feed) the manager's team-lead session
+    else if (e.type === "doc.created" && p.docType === "report" && e.buildingId) { const bid = e.buildingId; later(async () => wakeManagers(bid), "manager session"); }
     else if ((e.type === "agent.status" && (p.status === "stopped" || p.status === "banned")) || e.type === "agent.banned") {
       if (e.agentId) abortWork(ctx, e.agentId, killGraceMs);
     }
@@ -319,6 +323,16 @@ export function startRuntime(opts: RuntimeOptions): Runtime {
     }
   }
 
+  /** Managers of `only` (or of every building): offer them their new in-tray reports (runtime/src/manage.ts). */
+  function wakeManagers(only?: string): void {
+    if (stopped) return;
+    const gate = { draining: () => draining, starting: (id: string) => starting.has(id), slotFree: () => { const s = slots(); return s.running < s.max; } };
+    for (const b of only ? [world.buildings.get(only)].filter((x) => !!x) : world.buildings.all()) {
+      const p = wakeManager(ctx, manage, gate, b.id);
+      if (p) void track(p).catch(log(`manager session in ${b.name}`));
+    }
+  }
+
   function presenceTick(): { offline: string[]; expiredOffers: string[] } {
     const at = now();
     let offline: string[] = [], expiredOffers: string[] = [];
@@ -353,6 +367,9 @@ export function startRuntime(opts: RuntimeOptions): Runtime {
     if (backend?.kind === "docker") await track(checkDocker()).catch(log("docker probe"));
     else if (needsProbe()) await track(currentBackend()).catch(log("docker re-probe"));
     if (stopped) return;
+    // startup and managers whose work session just ended: in-trays with reports no manage session has seen yet.
+    // Before scheduleWork, so a manager's in-tray goes ahead of its own queued work (it registers as live right away).
+    try { wakeManagers(); } catch (e) { log("manager sessions")(e); }
     try { scheduleWork(); } catch (e) { log("work")(e); }
   }
 
@@ -375,12 +392,12 @@ export function startRuntime(opts: RuntimeOptions): Runtime {
       dropLive(agentId, "orphaned: stale live session");
     }
   }
-  /** Forget the agent's live session (killing its child, if any) and end its running work Session row as orphaned. */
+  /** Forget the agent's live session (killing its child, if any) and end its running work/manage Session row as orphaned. */
   function dropLive(agentId: string, error: string): void {
     const l = ctx.live.get(agentId);
     if (l) { abortWork(ctx, agentId, 0); ctx.live.delete(agentId); }
     starting.delete(agentId);
-    for (const s of world.sessions.where("agentId = ? AND status = 'running' AND purpose = 'work'", [agentId])) {
+    for (const s of world.sessions.where("agentId = ? AND status = 'running' AND purpose IN ('work', 'manage')", [agentId])) {
       try { world.ops.endSession(s.id, { status: "error", error }); } catch (e) { log("end orphaned session")(e); }
     }
   }
