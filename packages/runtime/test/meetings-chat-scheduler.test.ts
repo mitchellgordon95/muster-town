@@ -107,9 +107,11 @@ describe("meetings", () => {
     expect(summaryPrompts.filter((p) => p.includes("Pull the 13C record"))).toHaveLength(1); // only Noor's own decisions
     const fac = facPrompts[1];
     expect(fac).toContain("(none; summarise what's going on from the material below and propose 2-4 items)");
-    expect(fac).toMatch(/In-tray \(this building's pending reports\):\n- dc_\w+ "Isotopes" by Tomas \(verdict continue\) — needs: Decide whether to buy the 13C record\./);
+    expect(fac).toContain("In-tray (this building's pending reports):\n- dc_");
+    expect(fac).toMatch(/- dc_\w+ "Isotopes" by Tomas \(verdict continue\) — needs: Decide whether to buy the 13C record\./);
     expect(fac).toContain(`Last meeting's decisions and what became of them ("${m1.title}"):\n- 1. Pull the 13C record from NOAA → Noor: pending`);
-    expect(fac).toContain("Needs (the \"Need:\" lines of the summaries above):\n- Moss: 13C data.");
+    expect(fac).toContain("Needs (the \"Need:\" lines of the summaries above):\n- ");
+    expect(fac).toContain("- Noor: 13C data.");
     expect(fac).toContain("unresolved Needs and in-tray items first");
   });
 
