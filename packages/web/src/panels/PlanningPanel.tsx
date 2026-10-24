@@ -1,6 +1,5 @@
 /** Planning desk (Town Hall): create buildings, the whole-town resident roster (read-only; adding and dismissing live in each building's Members tab), roles, secrets (admins: the collective's secrets and grants, docs/secrets.md), export. Donating and Bank pools live at the Bank. */
 import { useMemo, useState } from "react";
-import type { Building } from "@muster-town/schema";
 import { api, tokenStore } from "../api";
 import { store, useTown, roleOf } from "../state";
 import { Glyph, PanelShell } from "./PanelShell";
@@ -33,7 +32,6 @@ function Buildings() {
   const [name, setName] = useState("");
   const [goal, setGoal] = useState("");
   const [headcount, setHeadcount] = useState(6);
-  const [policy, setPolicy] = useState<Building["reviewPolicy"]>("human");
   const can = store.can("town.manage_buildings");
   return (
     <>
@@ -41,7 +39,7 @@ function Buildings() {
         {buildings.map((b) => (
           <button key={b.id} className="doc-row" onClick={() => store.open({ kind: "building", id: b.id })}>
             <div className="doc-row-title">{b.name}</div>
-            <div className="doc-row-meta"><span>{b.kind} · {b.headcount} desks · review {b.reviewPolicy}</span></div>
+            <div className="doc-row-meta"><span>{b.kind} · {b.headcount} desks</span></div>
           </button>
         ))}
       </Section>
@@ -57,16 +55,9 @@ function Buildings() {
           <form className="form" onSubmit={(e) => e.preventDefault()}>
             <Field label="Name"><input value={name} onChange={(e) => setName(e.target.value)} placeholder="e.g. Ocean Alkalinity Lab" /></Field>
             <Field label="Goal"><textarea rows={2} value={goal} onChange={(e) => setGoal(e.target.value)} placeholder="What should this building figure out?" /></Field>
-            <div className="row2">
-              <Field label="Desks"><input type="number" min={1} max={24} value={headcount} onChange={(e) => setHeadcount(+e.target.value)} /></Field>
-              <Field label="Review policy">
-                <select value={policy} onChange={(e) => setPolicy(e.target.value as Building["reviewPolicy"])}>
-                  <option value="human">human</option><option value="reviewer">reviewer</option><option value="auto">auto</option>
-                </select>
-              </Field>
-            </div>
+            <Field label="Desks"><input type="number" min={1} max={24} value={headcount} onChange={(e) => setHeadcount(+e.target.value)} /></Field>
             <div className="actions"><Act tone="primary" disabled={!name.trim()} run={async () => {
-              const b = await api().createBuilding({ name: name.trim(), goal: goal.trim(), headcount, reviewPolicy: policy });
+              const b = await api().createBuilding({ name: name.trim(), goal: goal.trim(), headcount });
               setName(""); setGoal("");
               store.toast(`${b.name} is under construction`, "ok");
             }}>Create building</Act></div>

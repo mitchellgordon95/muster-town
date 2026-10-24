@@ -2,7 +2,7 @@ import { mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import Database from "better-sqlite3";
 import { describe, expect, it } from "vitest";
-import { cabinetDocs, migrate, workSystemPrompt, reviewSystemPrompt } from "../src/index.ts";
+import { cabinetDocs, migrate, workSystemPrompt } from "../src/index.ts";
 import { seededWorld, tempDir } from "./helpers.ts";
 
 describe("building board and standing rules", () => {
@@ -49,7 +49,6 @@ describe("building board and standing rules", () => {
     const town = world.town.get();
     expect(workSystemPrompt(mei, b, town)).toContain("Standing rules for the Carbon Cycle Lab");
     expect(workSystemPrompt(mei, b, town)).toContain("- Cite NOAA GML for CO2 levels.");
-    expect(reviewSystemPrompt(mei, b)).toContain("- Cite NOAA GML for CO2 levels.");
     // empty rules add nothing
     const none = world.ops.updateBuilding(admin, "carbon-cycle", { rules: "  " });
     expect(workSystemPrompt(mei, none, town)).not.toContain("Standing rules");

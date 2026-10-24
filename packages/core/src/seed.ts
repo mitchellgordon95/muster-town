@@ -117,7 +117,7 @@ export function seedDefaults(world: World, opts: SeedOptions = {}): SeedResult {
     world.permissions.grant({ kind: "user", id: admin.id }, townRoleId("admin"));
 
     const townHall = createBuilding(world, {
-      name: "Town Hall", goal: world.town.get().goal, description: "Library, trophy room, outbox, and the town meeting room.", headcount: 1, reviewPolicy: "human",
+      name: "Town Hall", goal: world.town.get().goal, description: "Library, trophy room, outbox, and the town meeting room.", headcount: 1,
     }, admin.id, { id: TOWN_HALL_ID, kind: "town-hall" });
     const ada = createServiceAgent(world, { name: "Ada", title: "Librarian", placeId: "library", sprite: 0 });
 
@@ -145,7 +145,7 @@ export function seedDefaults(world: World, opts: SeedOptions = {}): SeedResult {
           const id = spec.id ?? (spec.name ?? "building").toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "");
           b = createBuilding(world, {
             name: spec.name ?? id, goal: spec.goal ?? "", description: spec.description ?? "", headcount: spec.headcount ?? Math.max(spec.residents.length + 1, 3),
-            reviewPolicy: spec.reviewPolicy ?? "human", model: spec.model, cheapModel: spec.cheapModel, maxTurnsPerSession: spec.maxTurnsPerSession,
+            model: spec.model, cheapModel: spec.cheapModel, maxTurnsPerSession: spec.maxTurnsPerSession,
             dailyTokensPerAgent: spec.dailyTokensPerAgent, meetings: spec.meetings,
             codeAccess: spec.codeAccess,
           }, admin.id, { id });

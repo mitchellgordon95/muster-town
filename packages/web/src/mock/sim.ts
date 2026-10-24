@@ -311,8 +311,8 @@ export class Sim {
     return a;
   }
 
-  createBuilding(name: string, goal = "", headcount = 6, reviewPolicy: Building["reviewPolicy"] = "human"): Building {
-    const b: Building = { ...clone(F.buildings[1]), id: newId("bl"), name, goal, description: "", headcount, reviewPolicy, meetings: [], rules: "", codeAccess: !!F.town.workspace, lot: undefined, createdAt: now(), createdBy: "us_mitchell" };
+  createBuilding(name: string, goal = "", headcount = 6): Building {
+    const b: Building = { ...clone(F.buildings[1]), id: newId("bl"), name, goal, description: "", headcount, meetings: [], rules: "", codeAccess: !!F.town.workspace, lot: undefined, createdAt: now(), createdBy: "us_mitchell" };
     this.buildings.push(b);
     for (const r of ["manager", "reviewer", "member"] as const)
       this.roles.push({ id: `rl_${b.id}_${r}`, name: r, scope: "building", buildingId: b.id, permissions: [...BUILTIN_ROLES.building[r]], builtin: true });

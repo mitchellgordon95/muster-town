@@ -101,7 +101,7 @@ describe("work session", () => {
 
   test("budget exhaustion from usage sets out-of-budget and blocks the scheduler", async () => {
     const { world, runtime, sdk, by, lab } = setup(happyWork);
-    world.ops.updateBuilding(null, lab.id, { dailyTokensPerAgent: 1000, reviewPolicy: "auto" });
+    world.ops.updateBuilding(null, lab.id, { dailyTokensPerAgent: 1000 });
     const mei = by("Mei");
     const asg = world.ops.createWork(null, mei.id, {});
     await runtime.runWorkSession(mei.id, asg.id);
@@ -109,7 +109,7 @@ describe("work session", () => {
     expect(after.spentTokensToday).toBe(1200);
     expect(after.status).toBe("out-of-budget");
     expect(world.events.list({ types: ["budget.exhausted"], agentId: mei.id })).toHaveLength(1);
-    // auto policy only acknowledges (no next assignment); give her one: she still can't start
+    // the report waits in the in-tray (no next assignment); give her one: she still can't start
     expect(world.assignments.count("agentId = ? AND status = 'pending'", [mei.id])).toBe(0);
     world.ops.createWork(null, mei.id, {});
     await runtime.tickOnce();
@@ -190,42 +190,6 @@ describe("work session", () => {
     expect(world.agents.require(ravi.id).status).toBe("stopped");
     expect(world.docs.require(session.reportId!)).toMatchObject({ decision: "stop", tokens: 50, costUsd: 0.001, turns: 4 });
     expect(world.assignments.require(asg.id).status).toBe("cancelled");
-  });
-});
-
-describe("reviewer policy", () => {
-  test("pending report in a reviewer building triggers a review session; the reviewer uses continue", async () => {
-    let moss = "";
-    const { world, runtime, sdk, by, lab } = setup(async function* (s) {
-      if (s.agentId === moss) {
-        const docId = /Report (dc_[\w-]+)/.exec(s.received[0])![1];
-        yield init();
-        yield* callVerb(s, "read", { id: docId });
-        yield* callVerb(s, "review", { docId, decision: "continue", note: "Add the uncertainty on the 13C trend." });
-        yield result(200, 0.02);
-        return;
-      }
-      yield* happyWork(s);
-    });
-    moss = by("Moss").id;
-    world.ops.updateBuilding(null, lab.id, { reviewPolicy: "reviewer" });
-    const noor = by("Noor");
-    const asg = world.ops.createWork(null, noor.id, {});
-    const session = await runtime.runWorkSession(noor.id, asg.id);
-    await runtime.whenIdle();
-
-    const review = sdk.sessions.find((s) => s.agentId === moss)!;
-    expect(review.options.allowedTools).toContain("mcp__town__review");
-    expect(review.options.maxTurns).toBe(10);
-    expect(review.options.systemPrompt).toMatchObject({ append: expect.stringContaining('"continue"') });
-    const report = world.docs.require(world.sessions.require(session.id).reportId!);
-    expect(report).toMatchObject({ decision: "continue", decidedBy: moss });
-    expect(world.sessions.first("agentId = ? AND purpose = 'review'", [moss])).toMatchObject({ status: "done", tokens: 200 });
-    const next = world.assignments.first("agentId = ? AND status = 'pending'", [noor.id])!;
-    expect(next.title).toBe("How does the 13C record attribute the rise?");
-    expect(next.description).toContain("uncertainty on the 13C trend");
-    expect(world.agents.require(noor.id).status).toBe("idle");
-    expect(world.events.list({ agentId: moss, types: ["agent.tool"] }).map((e) => e.text)).toContain("Reviewing a report: continue");
   });
 });
 

@@ -55,6 +55,7 @@ describe("role migration (v1.1 DB)", () => {
     db.prepare("UPDATE roles SET id = 'role:carbon-cycle:moderator', name = 'moderator', permissions = ? WHERE id = 'role:carbon-cycle:reviewer'").run(JSON.stringify(oldModerator));
     db.prepare("UPDATE memberships SET roleId = 'role:carbon-cycle:moderator' WHERE roleId = 'role:carbon-cycle:reviewer'").run();
     db.prepare("DELETE FROM roles WHERE id = 'role:moderator'").run();
+    db.exec("ALTER TABLE buildings ADD COLUMN reviewPolicy TEXT NOT NULL DEFAULT 'human'"); // dropped by 029 (no review-policy setting)
     db.prepare("UPDATE buildings SET reviewPolicy = 'moderator' WHERE id = 'carbon-cycle'").run();
     db.prepare("UPDATE agents SET status = 'awaiting-review' WHERE id = ?").run(ravi.id);
     db.prepare("DELETE FROM schema_version WHERE version >= 5").run();
@@ -99,7 +100,6 @@ describe("role migration (v1.1 DB)", () => {
       expect(manager).not.toContain("building.ban" as never);
       expect(w.roles.require(townRoleId("admin")).permissions.sort()).toEqual([...Permission.options].sort());
       expect(w.roles.require(townRoleId("moderator")).permissions).toEqual(BUILTIN_ROLES.town.moderator);
-      expect(w.buildings.require("carbon-cycle").reviewPolicy).toBe("reviewer");
       expect(w.agents.first("name = 'Ravi'")!.status).toBe("idle");
       // the seed-on-open path creates no moderator agents in an existing DB
       const before = w.agents.count();
@@ -183,7 +183,7 @@ describe("collective moderators and reviewers", () => {
     const cfg = join(dir, "collective.json");
     writeFileSync(cfg, JSON.stringify({
       name: "T", goal: "", moderators: [{ name: "Wren", sprite: 6 }],
-      buildings: [{ id: "lab", name: "Lab", residents: [{ name: "A", title: "x", direction: "y" }], reviewer: { name: "Keel" }, reviewPolicy: "reviewer" }],
+      buildings: [{ id: "lab", name: "Lab", residents: [{ name: "A", title: "x", direction: "y" }], reviewer: { name: "Keel" } }],
     }));
     const seed = world.seedDefaults({ collectivePath: cfg, townJsonPath: cfg });
     const wren = seed.moderators[0]!;
@@ -197,6 +197,5 @@ describe("collective moderators and reviewers", () => {
     expect(Math.abs(seat.pos.x - stand.x) + Math.abs(seat.pos.y - stand.y)).toBeLessThanOrEqual(4);
     const keel = world.agents.first("name = 'Keel'")!;
     expect(world.memberships.forRole(buildingRoleId("lab", "reviewer")).map((m) => m.holderId)).toEqual([keel.id]);
-    expect(world.buildings.require("lab").reviewPolicy).toBe("reviewer");
   });
 });

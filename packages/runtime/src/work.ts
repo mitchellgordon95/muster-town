@@ -1,9 +1,8 @@
 /** Resident work sessions (host backend + shared end-of-session logic), interrupts, and reviewer sessions over the in-tray. */
-import { AppError, appendLog, buildingRoleId, codeWorkspace, createDoc, fallbackReportBody, FALLBACK_REPORT_PREFIX, latestReportOf, recentWorkBlock, reviewPrompt, reviewSystemPrompt, sessionMemory, setAssignmentStatus, skillsBlock, workPrompt, workSystemPrompt } from "@muster-town/core";
+import { AppError, appendLog, codeWorkspace, createDoc, fallbackReportBody, FALLBACK_REPORT_PREFIX, latestReportOf, recentWorkBlock, sessionMemory, setAssignmentStatus, skillsBlock, workPrompt, workSystemPrompt } from "@muster-town/core";
 import type { Agent, AllocationAuth, Assignment, Building, Doc, Session } from "@muster-town/schema";
 import { chargeUsage, fundingFor, homeOf, runAgentSession, type Ctx } from "./session.ts";
 
-const REVIEW_MAX_TURNS = 10;
 
 export function latestReport(ctx: Ctx, agentId: string): Doc | undefined {
   return latestReportOf(ctx.world, agentId);
@@ -175,38 +174,3 @@ export function abortWork(ctx: Ctx, agentId: string, graceMs = 0): void {
   }
 }
 
-/** The building's reviewer agent able to review `doc` (not its author), if any. */
-export function reviewerFor(ctx: Ctx, buildingId: string, exclude?: string): Agent | undefined {
-  return ctx.world.permissions.agentsWithRole(buildingRoleId(buildingId, "reviewer"))
-    .map((id) => ctx.world.agents.get(id))
-    .find((a): a is Agent => !!a && a.kind !== "human" && a.id !== exclude && a.status !== "banned" && a.status !== "stopped" && a.status !== "retired");
-}
-
-/**
- * If `docId` is a pending report in a `reviewer`-policy building, run a short review session for the
- * building's reviewer over that in-tray item (it may approve, continue, redirect or stop). Each report is
- * reviewed at most once per runtime; undecided → left in the in-tray for the manager.
- */
-export async function maybeReview(ctx: Ctx, reviewed: Set<string>, docId: string): Promise<boolean> {
-  const { world } = ctx;
-  if (reviewed.has(docId)) return false;
-  const doc = world.docs.get(docId);
-  if (!doc || doc.type !== "report" || doc.decision !== "pending" || !doc.buildingId) return false;
-  const building = world.buildings.get(doc.buildingId);
-  if (!building || building.reviewPolicy !== "reviewer") return false;
-  const mod = reviewerFor(ctx, building.id, doc.authorId);
-  const author = world.agents.get(doc.authorId);
-  if (!mod || !author || !world.budget.canStart(mod.id)) return false;
-  reviewed.add(docId);
-  const assignment = doc.assignmentId ? world.assignments.get(doc.assignmentId) : undefined;
-  const board = world.docs.where("buildingId = ? AND state = 'building' AND id != ?", [building.id, doc.id], "ORDER BY updatedAt DESC LIMIT 20");
-  await runAgentSession(ctx, {
-    agentId: mod.id, purpose: "review", model: mod.model ?? building.model, maxTurns: REVIEW_MAX_TURNS, web: false,
-    assignmentId: null, system: reviewSystemPrompt(mod, building), prompt: reviewPrompt(doc, author, assignment, building, board),
-  });
-  const after = world.docs.get(docId);
-  if (after?.decision === "pending") {
-    world.events.append({ type: "system", agentId: mod.id, buildingId: building.id, text: `${mod.name} didn't decide on "${doc.title}"; it stays in the in-tray`, payload: { docId } });
-  }
-  return true;
-}

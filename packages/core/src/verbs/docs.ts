@@ -1,6 +1,6 @@
 import { BOARD_TYPES, type Agent, type Doc } from "@muster-town/schema";
 import {
-  applyDecision, canSeeDoc, createAssignment, createDoc, homeOf, requirePendingReport, sendMessage,
+  applyDecision, canSeeDoc, createAssignment, createDoc, homeOf, managerAgentOf, requirePendingReport, sendMessage,
   setAssignmentStatus, summarizeDoc, updateDoc,
 } from "../domain.ts";
 import { AppError, badRequest, forbidden } from "../errors.ts";
@@ -173,7 +173,19 @@ export async function submit_report(world: World, me: Agent, input: VerbIn<"subm
   if (me.kind === "human") throw badRequest("Humans don't submit reports.");
   const bid = homeOf(me);
   const building = bid ? world.buildings.get(bid) : undefined;
-  const policy = building?.reviewPolicy ?? "human";
+  // Town hall 2026-10-24, decision 1: a resident's report goes to the building in-tray, worked by the manager agent
+  // when there is one (else by humans); the manager's own reports (rollups and the like) go to the Town Hall in-tray.
+  const isManager = !!building && building.kind !== "town-hall" && building.managerAgentId === me.id;
+  const manager = isManager ? undefined : managerAgentOf(world, building);
+  const sourceIds = input.provenance?.sourceIds ?? [];
+  if (input.rollup) {
+    if (!isManager) throw badRequest("Only a building's manager agent submits rollups.");
+    if (!sourceIds.length) throw badRequest("A rollup lists the reports it covers in provenance.sourceIds.");
+    for (const id of sourceIds) {
+      const d = world.docs.get(id);
+      if (!d || d.type !== "report" || d.buildingId !== bid) throw badRequest(`Rollup source ${id} is not a report of your building.`);
+    }
+  }
   const session = world.sessions.first("agentId = ? AND status = 'running'", [me.id], "ORDER BY startedAt DESC");
   const assignmentId = me.currentAssignmentId ?? session?.assignmentId ?? undefined;
   // P2: park instead of ending: the continuation waits for `resumeWhen` and then starts by itself (at most MAX_PARKS in a row)
@@ -189,9 +201,11 @@ export async function submit_report(world: World, me: Agent, input: VerbIn<"subm
     const doc = createDoc(world, {
       type: "report", state: "building", title: input.title, body: input.body, verdict: input.verdict, decision: "pending",
       authorId: me.id, authorKind: "agent", buildingId: bid, provenance: input.provenance,
-      sessionId: session?.id, assignmentId: assignmentId ?? undefined, ...(resumeWhen ? { tags: ["parked"] } : {}),
-    }, `${me.name} submitted a report: ${input.title}`);
-    notifyMentions(world, me, `${doc.title}\n${doc.body}`, { where: docWhere(doc), docId: doc.id, buildingId: doc.buildingId });
+      sessionId: session?.id, assignmentId: assignmentId ?? undefined,
+      tags: [...(input.rollup ? ["rollup"] : []), ...(resumeWhen ? ["parked"] : [])],
+    }, `${me.name} submitted a ${input.rollup ? "rollup" : "report"}: ${input.title}`);
+    // decision 1d: humans aren't notified of reports a manager agent will consume; only Town Hall items reach them
+    notifyMentions(world, me, `${doc.title}\n${doc.body}`, { where: docWhere(doc), docId: doc.id, buildingId: doc.buildingId, agentsOnly: !!manager });
     // a cancelled assignment (stopped/dismissed mid-session) stays cancelled; the report still lands
     const asg = assignmentId ? world.assignments.get(assignmentId) : undefined;
     if (asg && (asg.status === "pending" || asg.status === "active")) setAssignmentStatus(world, asg.id, "done", { reportId: doc.id });
@@ -209,24 +223,23 @@ export async function submit_report(world: World, me: Agent, input: VerbIn<"subm
       parked = { assignmentId: next.id, waitingOn: what };
     }
     // Hub semantics: the report goes to the building's in-tray and the agent goes idle. It only works again
-    // when someone gives it an assignment (manager decision, reviewer `continue`, meeting decision, mention).
-    let decision: Doc["decision"] = "pending";
-    if (policy === "auto") {
-      decision = "approve";
-      applyDecision(world, doc.id, "approve", "Acknowledged automatically (review policy auto).", { kind: "system", id: "system" });
-    }
+    // when someone gives it an assignment (a decision on the report, meeting decision, mention).
+    const decision: Doc["decision"] = "pending";
     if (world.agents.get(me.id)?.status === "working") world.setStatus(me.id, "idle", `${me.name} filed a report and is idle`);
+    const intray = isManager ? "town-hall" : bid;
+    const where = isManager ? "the Town Hall in-tray (the humans decide on it)" : manager ? `the ${building!.name} in-tray, which ${manager.name}, your manager, works` : "your building's in-tray (a human works it)";
     if (parked) {
-      return { id: doc.id, decision, reviewPolicy: policy, nextAssignmentId: parked.assignmentId,
-        note: `Report submitted to your manager's in-tray; your work is parked and resumes by itself after ${parked.waitingOn} (a manager can Stop or Redirect it there). Your session ends now.` };
+      return { id: doc.id, decision, intray, workedBy: isManager || !manager ? "human" : "manager", nextAssignmentId: parked.assignmentId,
+        note: `Report submitted to ${where}; your work is parked and resumes by itself after ${parked.waitingOn} (whoever works the in-tray can Stop or Redirect it there). Your session ends now.` };
     }
-    return { id: doc.id, decision, reviewPolicy: policy, nextAssignmentId: null, note: "Report submitted to your manager's in-tray. Your session ends now; you'll get a new assignment if there's more to do." };
+    return { id: doc.id, decision, intray, workedBy: isManager || !manager ? "human" : "manager", nextAssignmentId: null, note: `Report submitted to ${where}. Your session ends now; you'll get a new assignment if there's more to do.` };
   });
 }
 
 export async function review(world: World, me: Agent, input: VerbIn<"review">) {
   const doc = requirePendingReport(world, input.docId);
   if (!world.permissions.can(me, "building.review", doc.buildingId)) throw forbidden("building.review");
+  if (me.kind !== "human" && doc.authorId === me.id) throw badRequest("You can't decide on your own report; it waits for the humans in the Town Hall in-tray.");
   const waitFor = input.waitFor ? validateWait(world, input.waitFor) : null;
   const res = world.transaction(() => applyDecision(world, doc.id, input.decision, input.note, world.holderOf(me), { waitFor }));
   return { docId: doc.id, decision: input.decision, assignmentId: res.assignment?.id ?? null };

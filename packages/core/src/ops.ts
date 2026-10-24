@@ -1,5 +1,5 @@
 import { AgentPermissionsPatch, WorkInput, type Agent, type Lot, type PlanInput, type Assignment, type Interrupt, type CreateBuildingInput, type UpdateBuildingInput, type CreateMeetingInput, type CreateResidentInput, type Doc, type Meeting, type Membership, type RegisterVisitorInput, type Session } from "@muster-town/schema";
-import { createAssignment, createDoc, homeOf, intrayOf, moveToFront, pendingQueue, sendMessage, setAssignmentStatus, updateDoc } from "./domain.ts";
+import { createAssignment, createDoc, homeOf, intrayCount, intrayOf, moveToFront, pendingQueue, sendMessage, setAssignmentStatus, townHallIntray, updateDoc } from "./domain.ts";
 import { CHECK_IN } from "./prompts.ts";
 import { createBuilding, createResident, createUser, ensureAvatar, planTown, registerVisitor, updateBuilding, updateFurniture } from "./entities.ts";
 import type { Furniture } from "./world/furniture.ts";
@@ -198,6 +198,15 @@ export class Ops {
   intray(buildingId: string): Doc[] {
     this.world.buildings.require(buildingId, "building");
     return intrayOf(this.world, buildingId);
+  }
+  /** The in-tray badge count (the Town Hall's includes grants awaiting a decision). */
+  intrayCount(buildingId: string): number {
+    this.world.buildings.require(buildingId, "building");
+    return intrayCount(this.world, buildingId);
+  }
+  /** The Town Hall in-tray: manager reports (rollups, checkpoints, escalations) plus grants awaiting a human's decision. */
+  townHallIntray() {
+    return townHallIntray(this.world);
   }
 
   /**

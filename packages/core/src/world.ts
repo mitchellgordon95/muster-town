@@ -2,7 +2,7 @@ import { townEnv, type Agent, type AgentStatus, type DesksConfig, type RedeployL
 import { Bank } from "./bank.ts";
 import { Budget } from "./budget.ts";
 import { Grants } from "./grants.ts";
-import { intrayCounts, intrayOf } from "./domain.ts";
+import { intrayCount, intrayCounts, isTownHallItem } from "./domain.ts";
 import { migrateRoles } from "./migrate-roles.ts";
 import { openDb, type DB } from "./db.ts";
 import { EventLog } from "./events.ts";
@@ -17,6 +17,7 @@ import { seedDefaults, type SeedOptions, type SeedResult } from "./seed.ts";
 import { createRepos, type Repos } from "./store.ts";
 import { Emitter } from "./util.ts";
 import { makeVerbs, type Verbs } from "./verbs/index.ts";
+import { TOWN_HALL_ID } from "./world/layout.ts";
 import { WorldMap } from "./world/map.ts";
 import { Movement } from "./world/movement.ts";
 
@@ -124,13 +125,18 @@ export class World {
       const a = this.agents.get(e.agentId);
       if (a) this.agents.upsert({ ...a, activity: e.text, lastActiveAt: e.ts });
     });
-    // in-tray badge: a report arrived or was decided → resend the building with its pending count
+    // in-tray badge: a report arrived or was decided, or a grant moved → resend the building with its count;
+    // a manager's report and every grant change also resend the Town Hall, whose in-tray they land in
     this.events.addHook((e) => {
       const p = e.payload as Record<string, unknown>;
       const report = (e.type === "doc.created" && p.docType === "report") || e.type === "doc.decision";
-      if (!report || !e.buildingId) return;
+      const grant = e.type.startsWith("grant.");
+      if (!(report || grant) || !e.buildingId) return;
       const b = this.buildings.get(e.buildingId);
-      if (b) this.changes.emit({ type: "building", building: { ...b, intray: intrayOf(this, b.id).length } });
+      if (b) this.changes.emit({ type: "building", building: { ...b, intray: intrayCount(this, b.id) } });
+      const doc = report && typeof p.docId === "string" ? this.docs.get(p.docId) : undefined;
+      const th = grant || (doc && isTownHallItem(this, doc)) ? this.buildings.first("kind = 'town-hall'") : undefined;
+      if (th && th.id !== b?.id) this.changes.emit({ type: "building", building: { ...th, intray: intrayCount(this, th.id) } });
     });
     this.layout.rebuild();
   }

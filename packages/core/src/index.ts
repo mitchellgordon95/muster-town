@@ -23,7 +23,8 @@ export { upsertGithubUser, type GithubProfile, type GithubUpsertResult } from ".
 export { migrateRoles, type MigrateRolesResult } from "./migrate-roles.ts";
 export {
   applyDecision, createAssignment, createDoc, updateDoc, extractProposal, summarizeDoc, canSeeDoc, sendMessage,
-  setAssignmentStatus, pendingQueue, nextPending, moveToFront, intrayOf, intrayCounts, requirePendingReport, type DocSummary,
+  setAssignmentStatus, pendingQueue, nextPending, moveToFront, intrayOf, intrayCount, intrayCounts, townHallIntray, grantsAwaitingDecision,
+  managerAgentOf, intrayWorker, isTownHallItem, requirePendingReport, type DocSummary,
 } from "./domain.ts";
 export { replyToReport, replyStamp, isMergeReply, MERGE_INSTRUCTION, type ReplyResult } from "./reply.ts";
 export { extractMentions, notifyMentions, type MentionContext } from "./mentions.ts";

@@ -14,7 +14,7 @@ import { gitAuthEnv, noRepoTokenReason, onDeskActivity, repoToken, runDeskSessio
 import { advanceCollecting, facilitate, newMeetingState, onMeetingMention, onMeetingStart } from "./meetings.ts";
 import { realSdk, type Sdk } from "./sdk.ts";
 import type { Ctx } from "./session.ts";
-import { abortWork, finishWorkSession, interrupt, maybeReview, runWorkSession, type WorkOutcome } from "./work.ts";
+import { abortWork, finishWorkSession, interrupt, runWorkSession, type WorkOutcome } from "./work.ts";
 
 export { describeTool } from "./describe.ts";
 export { prompts } from "@muster-town/core";
@@ -122,7 +122,6 @@ export function startRuntime(opts: RuntimeOptions): Runtime {
   }
   const killGraceMs = opts.killGraceMs ?? 10_000;
   const starting = new Set<string>();
-  const reviewed = new Set<string>();
   const mst = newMeetingState();
   const startedAt = now().getTime();
   let lastDate = localDate(now());
@@ -244,8 +243,7 @@ export function startRuntime(opts: RuntimeOptions): Runtime {
 
   const onEvent = (e: Event) => {
     const p = e.payload as Record<string, unknown>;
-    if (e.type === "doc.created" && p.docType === "report") later(() => maybeReview(ctx, reviewed, String(p.docId)), "review");
-    else if (e.type === "meeting.created" && p.phase === "collecting") later(() => onMeetingStart(ctx, mst, String(p.meetingId)), "meeting summaries");
+    if (e.type === "meeting.created" && p.phase === "collecting") later(() => onMeetingStart(ctx, mst, String(p.meetingId)), "meeting summaries");
     else if (e.type === "meeting.phase" && p.phase === "collecting") later(() => onMeetingStart(ctx, mst, String(p.meetingId)), "meeting summaries");
     else if (e.type === "meeting.phase" && p.phase === "discussing") later(() => facilitate(ctx, mst, String(p.meetingId)), "facilitation");
     else if (e.type === "agent.mentioned" && p.meetingId) later(() => onMeetingMention(ctx, mst, String(p.meetingId), String(p.toId), String(p.byId), String(p.byKind)), "meeting reply");
@@ -276,15 +274,6 @@ export function startRuntime(opts: RuntimeOptions): Runtime {
     advanceCollecting(ctx, mst);
     for (const m of world.meetings.where("phase = 'discussing'")) {
       if (!mst.facilitated.has(m.id)) void track(facilitate(ctx, mst, m.id).catch(log("facilitation")));
-    }
-  }
-
-  function scheduleReviews(): void {
-    const ids = world.buildings.where("reviewPolicy = 'reviewer'").map((b) => b.id);
-    for (const bid of ids) {
-      for (const d of world.docs.where("type = 'report' AND decision = 'pending' AND buildingId = ?", [bid], "ORDER BY createdAt")) {
-        if (!reviewed.has(d.id)) void track(maybeReview(ctx, reviewed, d.id).catch(log("review")));
-      }
     }
   }
 
@@ -357,7 +346,6 @@ export function startRuntime(opts: RuntimeOptions): Runtime {
     if (t - lastPresence >= PRESENCE_TICK_MS) { lastPresence = t; presenceTick(); }
     try { world.budget.resumeEligible(); } catch (e) { log("budget resume")(e); }
     try { scheduleMeetings(t); } catch (e) { log("meetings")(e); }
-    try { scheduleReviews(); } catch (e) { log("reviews")(e); }
     try { checkWaits(world, d); } catch (e) { log("waits")(e); }
     await backendReady;
     if (stopped) return;

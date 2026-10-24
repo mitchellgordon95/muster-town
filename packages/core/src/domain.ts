@@ -1,4 +1,4 @@
-import { Doc, QUEUE_ORDER, type Agent, type Assignment, type Message, type ReviewDecision, type WaitFor } from "@muster-town/schema";
+import { Doc, QUEUE_ORDER, type Agent, type Assignment, type Building, type GrantView, type Message, type ReviewDecision, type WaitFor } from "@muster-town/schema";
 import { AppError } from "./errors.ts";
 import type { Holder } from "./permissions.ts";
 import { describeWait } from "./waits.ts";
@@ -158,15 +158,73 @@ export function applyDecision(world: World, docId: string, decision: ReviewDecis
   return { doc, assignment };
 }
 
-/** The building's in-tray: pending reports, oldest first. */
-export function intrayOf(world: World, buildingId: string): Doc[] {
-  return world.docs.where("type = 'report' AND decision = 'pending' AND buildingId = ?", [buildingId], "ORDER BY createdAt, rowid");
+/**
+ * The building's manager agent, if it can work: the resident set as `managerAgentId` unless it is stopped, banned or
+ * retired. A building with one has its in-tray worked by the manager; otherwise humans holding `building.review` do
+ * (town hall 2026-10-24, decision 1a: no review-policy setting).
+ */
+export function managerAgentOf(world: World, building: Building | undefined): Agent | undefined {
+  if (!building?.managerAgentId) return undefined;
+  const a = world.agents.get(building.managerAgentId);
+  return a && a.kind !== "human" && a.status !== "stopped" && a.status !== "banned" && a.status !== "retired" ? a : undefined;
 }
 
-/** Pending-report counts by building id (buildings with none are absent). */
+/** Who works this building's in-tray right now. */
+export function intrayWorker(world: World, building: Building | undefined): "manager" | "human" {
+  return managerAgentOf(world, building) ? "manager" : "human";
+}
+
+/**
+ * A report by a building's manager agent is for the humans: it lands in the Town Hall in-tray (rollups, checkpoints,
+ * escalations, replies to a human's message), never in the building in-tray the manager itself works.
+ */
+export function isTownHallItem(world: World, doc: Doc): boolean {
+  if (doc.type !== "report" || !doc.buildingId) return false;
+  const b = world.buildings.get(doc.buildingId);
+  return !!b && b.kind !== "town-hall" && b.managerAgentId === doc.authorId;
+}
+
+const GRANT_INTRAY_STATUSES = ["proposed", "countered", "checkpoint"] as const;
+
+/**
+ * The building's in-tray: pending reports, oldest first. For the Town Hall: the pending reports of every building's
+ * manager agent (rollups and the like); for a lab: its residents' pending reports (the manager's own go to the Town Hall).
+ */
+export function intrayOf(world: World, buildingId: string): Doc[] {
+  const b = world.buildings.get(buildingId);
+  if (b?.kind === "town-hall") {
+    return world.docs.where("type = 'report' AND decision = 'pending' AND buildingId IS NOT NULL", [], "ORDER BY createdAt, rowid").filter((d) => isTownHallItem(world, d));
+  }
+  return world.docs.where("type = 'report' AND decision = 'pending' AND buildingId = ?", [buildingId], "ORDER BY createdAt, rowid").filter((d) => !isTownHallItem(world, d));
+}
+
+/** Grants a human must decide on (proposed, countered, at a checkpoint), every building, oldest first: Town Hall in-tray rows. */
+export function grantsAwaitingDecision(world: World): GrantView[] {
+  return world.grants.where(`status IN (${GRANT_INTRAY_STATUSES.map((s) => `'${s}'`).join(", ")})`, [], "ORDER BY updatedAt, rowid").map((g) => world.grantDesk.view(g));
+}
+
+/** The Town Hall in-tray: manager reports (rollups, checkpoints, escalations) plus grants awaiting a human's decision. */
+export function townHallIntray(world: World): { reports: Doc[]; grants: GrantView[] } {
+  const th = world.buildings.first("kind = 'town-hall'");
+  return { reports: th ? intrayOf(world, th.id) : [], grants: grantsAwaitingDecision(world) };
+}
+
+/** In-tray size as the badge shows it: pending items of that in-tray (the Town Hall's counts its grants too). */
+export function intrayCount(world: World, buildingId: string): number {
+  const b = world.buildings.get(buildingId);
+  return intrayOf(world, buildingId).length + (b?.kind === "town-hall" ? grantsAwaitingDecision(world).length : 0);
+}
+
+/** In-tray counts by building id (buildings with none are absent). Manager reports count for the Town Hall. */
 export function intrayCounts(world: World): Map<string, number> {
-  const rows = world.db.prepare("SELECT buildingId, COUNT(*) AS n FROM docs WHERE type = 'report' AND decision = 'pending' AND buildingId IS NOT NULL GROUP BY buildingId").all() as { buildingId: string; n: number }[];
-  return new Map(rows.map((r) => [r.buildingId, r.n]));
+  const th = world.buildings.first("kind = 'town-hall'");
+  const counts = new Map<string, number>();
+  const bump = (id: string) => counts.set(id, (counts.get(id) ?? 0) + 1);
+  for (const d of world.docs.where("type = 'report' AND decision = 'pending' AND buildingId IS NOT NULL")) {
+    if (isTownHallItem(world, d)) { if (th) bump(th.id); } else bump(d.buildingId!);
+  }
+  if (th) for (let i = grantsAwaitingDecision(world).length; i > 0; i--) bump(th.id);
+  return counts;
 }
 
 /** Pending report check used by the review paths. */

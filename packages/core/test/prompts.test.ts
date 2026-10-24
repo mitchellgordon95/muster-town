@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import type { Agent, Building, Town } from "@muster-town/schema";
-import { REPORT_FORMAT, reviewSystemPrompt, summarySystemPrompt, workshopPrompt, workSystemPrompt } from "../src/prompts.ts";
+import { managerIntrayBlock, REPORT_FORMAT, sessionMemory, summarySystemPrompt, workshopPrompt, workSystemPrompt } from "../src/prompts.ts";
+import { seededWorld } from "./helpers.ts";
 
 const agent = { id: "ag_1", name: "Root", title: "Backend", direction: "Core, server, and runtime only." } as Agent;
 const building = { id: "workshop", name: "Town Workshop", goal: "Ship PRs", maxTurnsPerSession: 120 } as Building;
@@ -28,9 +29,24 @@ describe("no forced next step", () => {
     expect(REPORT_FORMAT).not.toMatch(/Proposal for next session/);
     expect(REPORT_FORMAT).toMatch(/Never invent follow-up work/);
   });
-  it("the reviewer approves finished work by default", () => {
-    expect(reviewSystemPrompt(agent, building)).toMatch(/No proposal is fine/);
-    expect(reviewSystemPrompt(agent, building)).toMatch(/default for finished work/);
+  it("the manager's in-tray block lists the residents' pending reports, the escalation criteria and the rollup rule; only the manager gets it", async () => {
+    const { world, by, admin } = seededWorld();
+    const mei = by("Mei");
+    const b = world.ops.updateBuilding(admin, "carbon-cycle", { managerAgentId: mei.id });
+    const r = await world.verbs.submit_report(by("Noor"), { title: "Ocean sink 2024", body: "## What I did\nx\n## Findings\ny\n## What I need from you\nMerge PR #12.", verdict: "stop" });
+    const block = managerIntrayBlock(world, b, mei.id);
+    expect(block).toContain("## Your in-tray (you work it; Mitchell doesn't see these reports)");
+    expect(block).toContain(`${r.id} "Ocean sink 2024" by Noor (verdict stop`);
+    expect(block).toContain("needs: Merge PR #12.");
+    expect(block).toMatch(/Decide yourself unless/);
+    expect(block).toMatch(/rollup: true/);
+    expect(block).toContain("Last rollup: never; reports decided since:");
+    expect(sessionMemory(world, mei, b).team).toContain("## Your in-tray");
+    expect(sessionMemory(world, by("Noor"), b).team).toBeUndefined();
+    await world.verbs.review(admin, { docId: r.id, decision: "approve" });
+    const after = managerIntrayBlock(world, b, mei.id);
+    expect(after).not.toContain(r.id);
+    expect(after).toContain("reports decided since: 1");
   });
 });
 

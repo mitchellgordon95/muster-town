@@ -62,7 +62,7 @@ export async function townRoutes(app: FastifyInstance) {
 
   // ---- buildings ----
   app.get<{ Params: Params }>("/api/buildings/:id", async (req) => {
-    const building = { ...world.buildings.require(req.params.id, "building"), intray: world.ops.intray(req.params.id).length };
+    const building = { ...world.buildings.require(req.params.id, "building"), intray: world.ops.intrayCount(req.params.id) };
     const agents = world.agents.where("(homeBuildingId = ? OR buildingId = ?) AND status != 'retired'", [building.id, building.id], "ORDER BY createdAt");
     const meetings = world.meetings.where("buildingId = ?", [building.id], "ORDER BY scheduledAt DESC LIMIT 20");
     const budget = world.budget.summary().buildings.find((b) => b.buildingId === building.id) ?? null;
@@ -110,9 +110,15 @@ export async function townRoutes(app: FastifyInstance) {
     return world.ops.planTown(actor, input.lots, input.create);
   });
 
-  /** The building's in-tray: pending reports, oldest first. Readable by anyone. Reports live here, not on the board. */
+  /**
+   * The building's in-tray: pending reports, oldest first. Readable by anyone. Reports live here, not on the board.
+   * The Town Hall's holds the manager agents' reports (rollups, checkpoints, escalations) and, as `grants`, the
+   * proposals, counters and checkpoints a human must decide on.
+   */
   app.get<{ Params: Params }>("/api/buildings/:id/intray", async (req) => {
-    return { reports: world.ops.intray(req.params.id) };
+    const b = world.buildings.require(req.params.id, "building");
+    if (b.kind === "town-hall") return world.ops.townHallIntray();
+    return { reports: world.ops.intray(b.id) };
   });
 
   app.get<{ Params: Params }>("/api/buildings/:id/board", async (req) => {

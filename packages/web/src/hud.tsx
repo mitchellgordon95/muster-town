@@ -63,9 +63,12 @@ export function Hud({ onPasteToken, onHelp }: { onPasteToken?: () => void; onHel
         go: () => walkOrOpen("planning-desk", { kind: "planning", tab: "System" }),
       });
     }
-    // in-trays of buildings I can review (manager, reviewer, admin)
+    // in-trays I work: buildings without a manager agent, and the Town Hall (rollups, proposals, checkpoints).
+    // A building whose manager agent works its in-tray doesn't notify humans (town hall 2026-10-24, decision 1d).
     for (const b of buildings) {
       if (!b.intray || !store.can("building.review", b.id)) continue;
+      const manager = b.managerAgentId ? agents[b.managerAgentId] : undefined;
+      if (b.kind !== "town-hall" && manager && manager.status !== "stopped" && manager.status !== "banned" && manager.status !== "retired") continue;
       out.push({
         key: `intray:${b.id}`, icon: "intray", tone: "warn", cta: "Go →",
         text: <><b>{b.intray}</b> report{b.intray === 1 ? "" : "s"} in the {b.name} in-tray</>,

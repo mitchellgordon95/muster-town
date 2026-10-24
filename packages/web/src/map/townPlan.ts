@@ -6,11 +6,11 @@
  * sends the moved lots and the new building in one call. Humans with town.manage_buildings only.
  */
 import { useSyncExternalStore } from "react";
-import type { Building, Lot, Place } from "@muster-town/schema";
+import type { Lot, Place } from "@muster-town/schema";
 import { api, type Grid } from "../api";
 import { store } from "../state";
 
-export interface NewBuilding { lot: Lot; name: string; goal: string; headcount: number; reviewPolicy: Building["reviewPolicy"] }
+export interface NewBuilding { lot: Lot; name: string; goal: string; headcount: number }
 /** What a drag grabs: the whole lot, some of its walls, or the corner a new lot is drawn from. */
 export type Grab = { id: string; kind: "move"; gx: number; gy: number } | { id: string; kind: "resize"; l: boolean; r: boolean; t: boolean; b: boolean } | { id: "new"; kind: "draw"; ax: number; ay: number };
 
@@ -90,7 +90,7 @@ export const townPlan = {
     const cur = this.lotOf(g.id);
     if (g.kind === "draw") {
       const lot = { x: Math.min(g.ax, x), y: Math.min(g.ay, y), w: Math.abs(x - g.ax) + 1, h: Math.abs(y - g.ay) + 1 };
-      if (!draft!.create) { set({ ...draft!, create: { lot, name: "", goal: "", headcount: 6, reviewPolicy: "human" }, selected: "new" }); check(); }
+      if (!draft!.create) { set({ ...draft!, create: { lot, name: "", goal: "", headcount: 6 }, selected: "new" }); check(); }
       else this.setLot("new", lot, false);
       return;
     }

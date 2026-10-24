@@ -46,6 +46,8 @@ export interface MentionContext {
   buildingId?: string | null;
   /** agents who already get the text another way (a `tell` recipient) */
   skip?: string[];
+  /** don't notify humans (a resident's report in a building whose manager agent works the in-tray) */
+  agentsOnly?: boolean;
 }
 
 /** Excerpt (≤200 chars) of text around the first mention of `name`. */
@@ -67,6 +69,7 @@ export function notifyMentions(world: World, author: Agent, text: string, ctx: M
   const sent: Message[] = [];
   for (const target of extractMentions(text, world, exclude)) {
     if (already.has(target.id)) continue;
+    if (ctx.agentsOnly && target.kind === "human") continue;
     const body = `${author.name} mentioned you in ${ctx.where}: ${excerptAround(text, target.name)}`;
     const msg = sendMessage(world, { kind: "mention", fromId: by.id, fromKind: by.kind, toId: target.id, body, docId: ctx.docId ?? null, meetingId: ctx.meetingId ?? null });
     world.events.append({

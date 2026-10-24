@@ -19,7 +19,7 @@ export function BuildingPanel({ id, tab }: { id: string; tab?: string }) {
   if (!b) return <PanelShell title="Unknown building"><Empty>No building with id {id}.</Empty></PanelShell>;
   const tabs = ["Overview", "Members", "Meetings", ...(store.can("building.manage", id) ? ["Settings"] : [])];
   return (
-    <PanelShell icon={<Glyph kind="building" />} title={b.name} subtitle={`${b.kind === "town-hall" ? "Town Hall" : "Lab"} · review: ${b.reviewPolicy}`} tabs={tabs} initialTab={tab && tabs.includes(tab) ? tab : "Overview"}>
+    <PanelShell icon={<Glyph kind="building" />} title={b.name} subtitle={b.kind === "town-hall" ? "Town Hall" : "Lab"} tabs={tabs} initialTab={tab && tabs.includes(tab) ? tab : "Overview"}>
       {(t) => (
         <>
           {t === "Overview" ? <Overview b={b} /> : null}
@@ -87,7 +87,7 @@ function Overview({ b }: { b: SnapshotBuilding }) {
           ["Models", `${b.model} · cheap: ${b.cheapModel}`],
           ["Daily / agent", `${fmtTokens(b.dailyTokensPerAgent)} tokens`],
           ["Desks", `${members.length} / ${b.headcount}`],
-          ["Review", b.reviewPolicy === "human" ? "the manager works the in-tray" : b.reviewPolicy === "reviewer" ? "the reviewer agent works the in-tray" : "reports are acknowledged on arrival"],
+          ["In-tray", b.managerAgentId ? `worked by ★ ${agents[b.managerAgentId]?.name ?? "the manager agent"}` : "worked by you (no manager agent)"],
           ...(b.codeAccess && repo ? [["Code", <>the collective repo <code>{repoLabel(repo)}</code></>] as [string, ReactNode]] : []),
         ] : []) as [string, ReactNode][],
       ]} />
@@ -203,7 +203,7 @@ function AddHolder({ onAdd }: { onAdd: (kind: "agent" | "user", id: string) => P
 }
 
 function Settings({ b }: { b: SnapshotBuilding }) {
-  const [f, setF] = useState({ goal: b.goal, description: b.description, reviewPolicy: b.reviewPolicy, headcount: b.headcount, model: b.model, cheapModel: b.cheapModel, dailyTokensPerAgent: b.dailyTokensPerAgent, maxTurnsPerSession: b.maxTurnsPerSession, managerAgentId: b.managerAgentId, codeAccess: b.codeAccess });
+  const [f, setF] = useState({ goal: b.goal, description: b.description, headcount: b.headcount, model: b.model, cheapModel: b.cheapModel, dailyTokensPerAgent: b.dailyTokensPerAgent, maxTurnsPerSession: b.maxTurnsPerSession, managerAgentId: b.managerAgentId, codeAccess: b.codeAccess });
   const agents = useTown((s) => s.agents);
   const repo = useTown((s) => s.town?.workspace);
   const residents = useMemo(() => Object.values(agents).filter((a) => a.kind === "resident" && a.homeBuildingId === b.id).sort((x, y) => x.name.localeCompare(y.name)), [agents, b.id]);
@@ -213,15 +213,8 @@ function Settings({ b }: { b: SnapshotBuilding }) {
     <form className="form" onSubmit={(e) => e.preventDefault()}>
       <Field label="Goal"><textarea rows={2} value={f.goal} onChange={(e) => set("goal", e.target.value)} /></Field>
       <Field label="Description"><textarea rows={3} value={f.description} onChange={(e) => set("description", e.target.value)} /></Field>
-      <div className="row2">
-        <Field label="Review policy" hint={f.reviewPolicy === "human" ? "You work the in-tray" : f.reviewPolicy === "reviewer" ? "The reviewer agent works the in-tray" : "Every report is acknowledged on arrival"}>
-          <select value={f.reviewPolicy} onChange={(e) => set("reviewPolicy", e.target.value as SnapshotBuilding["reviewPolicy"])}>
-            <option value="human">human</option><option value="reviewer">reviewer</option><option value="auto">auto</option>
-          </select>
-        </Field>
-        <Field label="Desks (headcount)"><input type="number" min={1} max={24} value={f.headcount} onChange={(e) => set("headcount", +e.target.value)} /></Field>
-      </div>
-      <Field label="Manager" hint="The resident who facilitates this building's meetings and wears the ★ badge. None: the reviewer agent, else the first resident to join, facilitates.">
+      <Field label="Desks (headcount)"><input type="number" min={1} max={24} value={f.headcount} onChange={(e) => set("headcount", +e.target.value)} /></Field>
+      <Field label="Manager" hint="The resident who works this building's in-tray (its residents' reports), facilitates its meetings and wears the ★ badge; its own reports go to the Town Hall in-tray. None: you work the in-tray, and the reviewer agent, else the first resident to join, facilitates.">
         <select value={f.managerAgentId ?? ""} onChange={(e) => set("managerAgentId", e.target.value || null)}>
           <option value="">none</option>
           {residents.map((a) => <option key={a.id} value={a.id} disabled={a.status === "stopped" || a.status === "banned"}>{a.name}{a.status === "stopped" || a.status === "banned" ? ` (${a.status})` : ""}</option>)}

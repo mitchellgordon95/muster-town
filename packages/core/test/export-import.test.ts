@@ -11,7 +11,7 @@ describe("importV0", () => {
     const { world } = freshWorld();
     const u = world.ops.createUser("Mitchell").user;
     const r = importV0(world, CARBON_DIR, { creatorUserId: u.id });
-    expect(r.building).toMatchObject({ id: "carbon-cycle", name: "Carbon Cycle Lab", reviewPolicy: "human", maxTurnsPerSession: 40, headcount: 6 });
+    expect(r.building).toMatchObject({ id: "carbon-cycle", name: "Carbon Cycle Lab", maxTurnsPerSession: 40, headcount: 6 });
     expect(r.agents.map((a) => a.name)).toEqual(["Noor", "Tomas", "Mei", "Ravi", "Ingrid"]);
     expect(Object.keys(r.deskAgents)).toEqual(["atmosphere", "land", "ocean", "sources", "feedbacks"]);
     const sources = world.docs.where("type = 'source'");

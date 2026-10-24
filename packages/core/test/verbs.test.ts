@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { cabinetDocs, createBuilding, createResident, createTownModerator, extractProposal, setAssignmentStatus } from "../src/index.ts";
+import { buildingRoleId, cabinetDocs, createBuilding, createResident, createTownModerator, extractProposal, intrayWorker, isTownHallItem, managerAgentOf, setAssignmentStatus, TOWN_HALL_ID } from "../src/index.ts";
 import { seededWorld, tickUntil } from "./helpers.ts";
 
 const REPORT = `## Summary
@@ -125,16 +125,62 @@ describe("report state machine", () => {
     expect(world.assignments.require(pending.id).status).toBe("cancelled");
   });
 
-  it("auto policy acknowledges on arrival; no assignment, agent idle", async () => {
-    const { world, seed } = seededWorld();
-    const b = createBuilding(world, { name: "Auto Lab", reviewPolicy: "auto" }, seed.admin.id);
-    const ag = createResident(world, { buildingId: b.id, name: "Auto", title: "t", direction: "d" });
-    const res = await world.verbs.submit_report(ag, { title: "R", body: REPORT, verdict: "continue" });
-    expect(res.decision).toBe("approve");
-    expect(res.nextAssignmentId).toBeNull();
-    expect(world.assignments.count("agentId = ?", [ag.id])).toBe(0);
-    expect(world.ops.intray(b.id)).toHaveLength(0);
-    expect(world.agents.require(ag.id).status).toBe("idle");
+  it("a building with a manager agent: residents' reports go to its in-tray without notifying humans; the manager's own reports and rollups go to the Town Hall in-tray", async () => {
+    const { world, by, admin } = seededWorld();
+    const mei = by("Mei"), noor = by("Noor");
+    world.ops.updateBuilding(admin, "carbon-cycle", { managerAgentId: mei.id });
+    expect(intrayWorker(world, world.buildings.get("carbon-cycle"))).toBe("manager");
+    const mitchell = world.users.require(admin.ownerUserId!, "user");
+    // Noor's report mentions Mitchell and Mei: only Mei (an agent) is notified
+    const r = await world.verbs.submit_report(noor, { title: "R1", body: `${REPORT}\n\n@${mitchell.name} @Mei please look`, verdict: "continue" });
+    expect(r).toMatchObject({ decision: "pending", intray: "carbon-cycle", workedBy: "manager" });
+    expect(r.note).toContain("Mei, your manager, works");
+    expect(world.messages.where("kind = 'mention' AND toId = ?", [admin.id])).toHaveLength(0);
+    expect(world.messages.where("kind = 'mention' AND toId = ?", [mei.id])).toHaveLength(1);
+    expect(world.ops.intray("carbon-cycle").map((d) => d.id)).toContain(r.id);
+    expect(world.ops.intray(TOWN_HALL_ID).map((d) => d.id)).not.toContain(r.id);
+    // the manager decides it (building.review via the manager role) but can't decide its own
+    world.permissions.grant({ kind: "agent", id: mei.id }, buildingRoleId("carbon-cycle", "manager"));
+    await world.verbs.review(mei, { docId: r.id, decision: "approve" });
+    // a resident can't roll up; the manager's rollup needs covered reports of its building
+    await expect(world.verbs.submit_report(noor, { title: "x", body: REPORT, verdict: "stop", rollup: true })).rejects.toMatchObject({ code: "bad_request" });
+    await expect(world.verbs.submit_report(mei, { title: "x", body: REPORT, verdict: "stop", rollup: true })).rejects.toMatchObject({ code: "bad_request" });
+    await expect(world.verbs.submit_report(mei, { title: "x", body: REPORT, verdict: "stop", rollup: true, provenance: { sourceIds: ["dc_nope"], urls: [] } })).rejects.toMatchObject({ code: "bad_request" });
+    const sent: [string, number][] = [];
+    world.changes.subscribe((m) => { if (m.type === "building" && m.building.intray !== undefined) sent.push([m.building.id, m.building.intray]); });
+    const up = await world.verbs.submit_report(mei, { title: `Rollup: ${new Date().toISOString().slice(0, 10)}`, body: `## Shipped\nnothing\n## Decided\n- ${r.id}: approve\n## Key results\n(none)\n## Needs from ${mitchell.name}\nNothing needed. @${mitchell.name}`, verdict: "continue", rollup: true, provenance: { sourceIds: [r.id], urls: [] } });
+    expect(up).toMatchObject({ decision: "pending", intray: "town-hall", workedBy: "human" });
+    const rollup = world.docs.require(up.id);
+    expect(rollup).toMatchObject({ type: "report", buildingId: "carbon-cycle", tags: ["rollup"], provenance: { sourceIds: [r.id] } });
+    expect(isTownHallItem(world, rollup)).toBe(true);
+    expect(world.ops.intray("carbon-cycle").map((d) => d.id)).not.toContain(up.id);
+    expect(world.ops.intray(TOWN_HALL_ID).map((d) => d.id)).toEqual([up.id]);
+    expect(world.ops.townHallIntray()).toMatchObject({ reports: [{ id: up.id }], grants: [] });
+    expect(world.ops.intrayCount(TOWN_HALL_ID)).toBe(1);
+    expect(world.snapshot().buildings.find((b) => b.id === TOWN_HALL_ID)!.intray).toBe(1);
+    expect(sent).toContainEqual([TOWN_HALL_ID, 1]);
+    // the Town Hall item notifies the human; the manager can't decide its own rollup, the admin can
+    expect(world.messages.where("kind = 'mention' AND toId = ?", [admin.id])).toHaveLength(1);
+    await expect(world.verbs.review(mei, { docId: up.id, decision: "approve" })).rejects.toMatchObject({ code: "bad_request" });
+    await world.verbs.review(admin, { docId: up.id, decision: "approve" });
+    expect(world.ops.intray(TOWN_HALL_ID)).toHaveLength(0);
+    // a stopped manager hands the in-tray back to the humans
+    world.setStatus(mei.id, "stopped");
+    expect(intrayWorker(world, world.buildings.get("carbon-cycle"))).toBe("human");
+    expect(managerAgentOf(world, world.buildings.get("carbon-cycle"))).toBeUndefined();
+  });
+
+  it("a grant awaiting a decision is a Town Hall in-tray row and counts in its badge", async () => {
+    const { world, by, admin } = seededWorld();
+    const mei = by("Mei");
+    world.ops.updateBuilding(admin, "carbon-cycle", { managerAgentId: mei.id });
+    world.permissions.grant({ kind: "agent", id: mei.id }, buildingRoleId("carbon-cycle", "manager"));
+    const g = world.grantDesk.create(mei, "carbon-cycle", { objective: "Ocean sink 2024", stopCondition: "when the number is in", askTokens: 1_000_000, keyResults: [{ text: "a number with uncertainty", howToCheck: "read it" }, { text: "a source card", howToCheck: "it exists" }] });
+    expect(world.ops.townHallIntray().grants).toEqual([]);
+    world.grantDesk.propose(mei, g.id);
+    expect(world.ops.townHallIntray().grants.map((x) => x.id)).toEqual([g.id]);
+    expect(world.ops.intrayCount(TOWN_HALL_ID)).toBe(1);
+    expect(world.ops.intray(TOWN_HALL_ID)).toEqual([]);
   });
 
   it("imported pending report (Ravi run 1) is in the in-tray and can be continued into run 2", async () => {

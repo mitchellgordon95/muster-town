@@ -1,5 +1,4 @@
 /** Toolbar shown while planning the town (see map/townPlan.ts): hints, the server's objections, the new building's form. */
-import type { Building } from "@muster-town/schema";
 import { townPlan, useTownPlan } from "../map/townPlan";
 
 export function PlanToolbar() {
@@ -19,9 +18,6 @@ export function PlanToolbar() {
           <input className="grow" aria-label="New building name" placeholder="New building name" value={c.name} onChange={(e) => townPlan.setNew({ name: e.target.value })} />
           <input className="grow" aria-label="Goal" placeholder="Goal (optional)" value={c.goal} onChange={(e) => townPlan.setNew({ goal: e.target.value })} />
           <label>Desks <input type="number" min={1} max={24} style={{ width: 52 }} value={c.headcount} onChange={(e) => townPlan.setNew({ headcount: Math.max(1, +e.target.value || 1) })} /></label>
-          <select aria-label="Review policy" value={c.reviewPolicy} onChange={(e) => townPlan.setNew({ reviewPolicy: e.target.value as Building["reviewPolicy"] })}>
-            <option value="human">review: human</option><option value="reviewer">review: reviewer</option><option value="auto">review: auto</option>
-          </select>
           <button className="btn" onClick={() => townPlan.dropNew()} title="Delete">Remove</button>
         </div>
       ) : null}

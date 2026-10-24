@@ -18,6 +18,7 @@ import { portraitUrl } from "../map/sprites";
 
 export function IntrayPanel({ buildingId }: { buildingId: string }) {
   const b = useTown((s) => s.buildings.find((x) => x.id === buildingId));
+  const agents = useTown((s) => s.agents);
   const rev = useTown((s) => s.rev);
   useTown((s) => s.me);
   // refetch whenever the count on the building changes (WS `building`) or any doc arrives
@@ -28,7 +29,8 @@ export function IntrayPanel({ buildingId }: { buildingId: string }) {
   useEffect(() => { if (list.data) store.putDocs(list.data); }, [list.data]);
   const open = openId ? reports.find((d) => d.id === openId) ?? store.state.docs[openId] ?? null : null;
   if (!b) return <PanelShell title="In-tray"><Empty>No building with id {buildingId}.</Empty></PanelShell>;
-  const subtitle = `${b.name} · manager's desk · review: ${b.reviewPolicy}`;
+  const manager = b.managerAgentId ? agents[b.managerAgentId] : undefined;
+  const subtitle = b.kind === "town-hall" ? "Town Hall · rollups, proposals and checkpoints for the humans" : `${b.name} · manager's desk · worked by ${manager ? `★ ${manager.name}` : "you"}`;
   return (
     <PanelShell icon={<Glyph kind="intray" />} title={<>In-tray {reports.length ? <Pill tone="warn">{reports.length}</Pill> : null}</>} subtitle={subtitle}>
       {open ? (
@@ -36,8 +38,7 @@ export function IntrayPanel({ buildingId }: { buildingId: string }) {
       ) : (
         <>
           {!canReview ? <div className="callout">You can read the in-tray. Decisions are for the building's manager and reviewer.</div> : null}
-          {b.reviewPolicy === "auto" ? <div className="callout">This building acknowledges every report on arrival (review policy: auto).</div> : null}
-          {b.reviewPolicy === "reviewer" ? <div className="callout">The building's reviewer agent works this in-tray. You can still decide here.</div> : null}
+          {manager ? <div className="callout">★ {manager.name}, the building's manager, works this in-tray and rolls up to the Town Hall in-tray. You can still decide here.</div> : null}
           <ErrorLine error={list.error} />
           {list.loading && !list.data ? <Loading /> : !reports.length ? <Empty>The in-tray is empty. When a resident finishes a session, its report lands here and the resident goes idle.</Empty> : (
             <div className="doc-list">

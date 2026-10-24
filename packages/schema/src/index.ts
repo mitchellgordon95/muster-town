@@ -109,7 +109,7 @@ export const BUILTIN_ROLES = {
       "building.manage", "building.assign", "building.review", "building.promote", "building.dismiss", "building.fund",
       "doc.write_building", "doc.propose_trophy", "doc.request_human", "meeting.facilitate", "meeting.attend",
     ] as Permission[],
-    /** works the building's in-tray when reviewPolicy is `reviewer` */
+    /** a second pair of eyes on reports (may decide in the in-tray and facilitate); no longer drives review by itself */
     reviewer: ["building.review", "building.assign", "meeting.facilitate", "meeting.attend", "doc.write_building"] as Permission[],
     member: ["doc.write_building", "doc.propose_trophy", "doc.request_human", "meeting.attend"] as Permission[],
   },
@@ -124,9 +124,8 @@ export const Membership = z.object({
 export type Membership = z.infer<typeof Membership>;
 
 // ---------- buildings ----------
-/** human: the manager works the in-tray; reviewer: the building's reviewer agent does; auto: every report is acknowledged on arrival. */
-export const ReviewPolicy = z.enum(["human", "reviewer", "auto"]);
-export type ReviewPolicy = z.infer<typeof ReviewPolicy>;
+// Who works a building's in-tray is not a setting (town hall 2026-10-24, decision 1a): if the building has a manager
+// agent (`managerAgentId`, not stopped/banned/retired) the manager works it, else the humans holding `building.review` do.
 export const MeetingCadence = z.object({
   kind: z.enum(["standup", "retro", "planning"]),
   /** minutes between meetings; 0 = manual only */
@@ -144,7 +143,6 @@ export const Building = z.object({
   description: z.string().default(""),
   /** max resident agents (desks) */
   headcount: z.number().int().positive().default(6),
-  reviewPolicy: ReviewPolicy.default("human"),
   /** model for resident work sessions; cheapModel for summaries/proxy chat */
   model: z.string().default("claude-opus-5-5"),
   cheapModel: z.string().default("claude-haiku-5-5"),
@@ -155,7 +153,7 @@ export const Building = z.object({
   meetings: z.array(MeetingCadence).default([]),
   /** standing rules (markdown) from the building's manager; every session in this building starts with them */
   rules: z.string().max(8000).default(""),
-  /** the resident a human set as this building's manager: it facilitates meetings and wears a manager badge; null = none set */
+  /** the resident a human set as this building's manager: it works the in-tray (its residents' reports), facilitates meetings and wears a manager badge; null = none set, humans work the in-tray */
   managerAgentId: Id.nullable().default(null),
   /** residents get code tools on the collective's repo (`Town.workspace`) during work sessions */
   codeAccess: z.boolean().default(false),
@@ -780,6 +778,7 @@ export const VerbInputs = {
     provenance: Provenance.optional(),
     resumeWhen: WaitFor.optional().describe("Park the work instead of ending it: when this holds (a redeploy with your commit, a colleague's assignment finishing, a decision on a report, a time), your continuation starts by itself. Use when you can't finish because you're waiting on something; at most 3 times in a row, and it's dropped if unmet after 24 h."),
     next: z.string().optional().describe("With resumeWhen: one line saying what you'll do when it resumes (the continuation's title)"),
+    rollup: z.boolean().default(false).describe("Managers only: this report rolls up the residents' reports listed in provenance.sourceIds (required) for the Town Hall in-tray. Sections: Shipped, Decided, Key results, Needs from Mitchell."),
   }),
   propose_trophy: z.object({ docId: Id, why: z.string() }),
   request_human: z.object({ title: z.string(), body: z.string(), location: z.string().optional(), kind: z.enum(["observation", "data", "contact", "other"]).default("observation") }),
@@ -950,7 +949,7 @@ export const BANK_FIXTURES = {
 export const WALKABLE = new Set<number>([TILE.GRASS, TILE.PATH, TILE.FLOOR, TILE.DOOR]);
 
 // ---------- REST payloads ----------
-export const CreateBuildingInput = Building.pick({ name: true, goal: true, description: true, headcount: true, reviewPolicy: true, model: true, cheapModel: true, maxTurnsPerSession: true, dailyTokensPerAgent: true, meetings: true, rules: true, codeAccess: true, managerAgentId: true }).partial({ goal: true, description: true, headcount: true, reviewPolicy: true, model: true, cheapModel: true, maxTurnsPerSession: true, dailyTokensPerAgent: true, meetings: true, rules: true, codeAccess: true, managerAgentId: true });
+export const CreateBuildingInput = Building.pick({ name: true, goal: true, description: true, headcount: true, model: true, cheapModel: true, maxTurnsPerSession: true, dailyTokensPerAgent: true, meetings: true, rules: true, codeAccess: true, managerAgentId: true }).partial({ goal: true, description: true, headcount: true, model: true, cheapModel: true, maxTurnsPerSession: true, dailyTokensPerAgent: true, meetings: true, rules: true, codeAccess: true, managerAgentId: true });
 /**
  * `poolId` moves the building to another Bank pool at once (admin only; null = General). `explorationTokensPerDay`
  * and `budgetMode` need `building.fund` (a human), so a manager agent can't raise its own allowance.
@@ -1118,7 +1117,6 @@ export const CollectiveBuildingSpec = z.object({
   goal: z.string().optional(),
   description: z.string().optional(),
   headcount: z.number().int().positive().optional(),
-  reviewPolicy: ReviewPolicy.optional(),
   model: z.string().optional(),
   cheapModel: z.string().optional(),
   maxTurnsPerSession: z.number().int().positive().optional(),
@@ -1131,7 +1129,7 @@ export const CollectiveBuildingSpec = z.object({
     /** town role names granted at seed (e.g. `deployer`) */
     townRoles: z.array(z.string()).optional(),
   })).default([]),
-  /** the building's reviewer agent (role `reviewer`); works the in-tray when reviewPolicy is `reviewer` */
+  /** a reviewer agent (role `reviewer`): may decide in the in-tray and facilitate; the manager agent, not the reviewer, works the in-tray */
   reviewer: z.object({ name: z.string(), sprite: z.number().int().optional(), direction: z.string().optional() }).optional(),
   /** house allocation for this building, in tokens */
   houseTokens: z.number().int().nonnegative().optional(),

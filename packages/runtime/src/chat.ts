@@ -1,5 +1,5 @@
 /** Proxy chat: one cheap call, no tools. The librarian (`service`) answers from the library index + search hits. */
-import { AppError, codeWorkspace, searchDocs } from "@muster-town/core";
+import { AppError, codeWorkspace, managerAgentOf, searchDocs } from "@muster-town/core";
 import { ChatInput } from "@muster-town/schema";
 import { chatContext, chatSystemPrompt, historyBlock, librarianContext, librarianSystemPrompt, memoryBlock, recentWorkBlock } from "@muster-town/core";
 import { oneShot } from "./sdk.ts";
@@ -57,7 +57,7 @@ export async function askAbout(ctx: Ctx, docId: string, question: string, userId
   const rules = building ? [
     `Building: ${building.name}. Goal: ${building.goal || "(none)"}.`,
     ...(building.description ? [`About: ${building.description}`] : []),
-    `Review policy: ${building.reviewPolicy}.${ws ? ` Code access to the collective repo: ${ws.repoUrl ?? "(none)"}.` : ""}`,
+    `In-tray worked by: ${managerAgentOf(world, building)?.name ?? "the humans"}.${ws ? ` Code access to the collective repo: ${ws.repoUrl ?? "(none)"}.` : ""}`,
   ].join("\n") : "Building: (none)";
   const body = doc.body.length > 8000 ? `${doc.body.slice(0, 8000)}\n…(truncated)` : doc.body;
   const context = `${rules}

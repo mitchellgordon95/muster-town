@@ -3,6 +3,7 @@
  * Lives in core so the server can brief desks (`composeWorkBrief`) and the runtime can brief in-process sessions.
  */
 import type { Agent, Assignment, Building, DeskBrief, DeskWorkspace, Doc, Event, Meeting, Town, Workspace } from "@muster-town/schema";
+import { intrayOf } from "./domain.ts";
 import { memoryBlock, teamBlock, WIKI_HOWTO } from "./memory.ts";
 import { skillsBlock } from "./skills.ts";
 import { docGist, NEED, oneLine, relativeTime, sectionOf, trunc } from "./text.ts";
@@ -101,7 +102,8 @@ ${opts.memory ?? ""}`;
 
 /** The memory and team blocks for an agent's work session (the manager agent of a building gets the team). */
 export function sessionMemory(world: World, agent: Agent, building: Building): { memory: string; team?: string } {
-  return { memory: memoryBlock(world, agent.id), ...(building.managerAgentId === agent.id ? { team: teamBlock(world, building, agent.id) } : {}) };
+  const manager = building.managerAgentId === agent.id && building.kind !== "town-hall";
+  return { memory: memoryBlock(world, agent.id), ...(manager ? { team: `${teamBlock(world, building, agent.id)}\n\n${managerIntrayBlock(world, building, agent.id)}` } : {}) };
 }
 
 export function workPrompt(assignment: Assignment, lastReport: Doc | undefined, recentWork?: string): string {
@@ -115,37 +117,32 @@ ${assignment.description}${prev}${recentWork ? `\n\n${recentWork}` : ""}
 Start with \`look\`, then the board. End with \`submit_report\`.`;
 }
 
-export function reviewSystemPrompt(reviewer: Agent, building: Building): string {
-  return `You are ${reviewer.name}, the reviewer of the ${building.name}. You work the building's in-tray: residents' session reports, decided with the \`review\` tool (mcp__town__review). You may \`read\`, \`board\` and \`search\` to check claims and duplication. Do not do research yourself. Do not call submit_report.
+/** Why a manager escalates instead of deciding: the four criteria of docs/waterfall.md §3.1. */
+export const ESCALATION_CRITERIA = `Decide yourself unless the decision (a) changes the building goal or a key result, (b) spends money outside a funded grant or the exploration allowance, (c) needs a human in the real world (\`request_human\`), or (d) the report's author asks for something only a human can give (merge rights, a secret, a credential, a decision Mitchell reserved). Those go into your next rollup's "Needs from Mitchell", never to Mitchell directly.`;
 
-Criteria:
-1. Sources present: claims are backed by cited sources (provenance or links).
-2. Numbers carry units and uncertainty.
-3. If there is a proposal, it is one concrete question or task that serves the building goal. No proposal is fine: finished work doesn't need a follow-up.
-4. It doesn't duplicate work already on the board or in the filing cabinet.
+/** How often a manager rolls up, docs/waterfall.md §3.2. */
+export const ROLLUP_RULE_HOURS = 24;
 
-Decide (agents only work when given an assignment; idle is a fine outcome when the work is done):
-- "approve" to acknowledge a sound report that needs no follow-up (no new assignment). This is the default for finished work.
-- "continue" only if its proposal is clearly worth doing next; it becomes the author's next assignment.
-- "redirect" with a specific, actionable note when it is fixable or the proposal is off; the note becomes the next assignment.
-- "stop" when the work is off-goal or should not continue.
-Call \`review\` exactly once, then stop.${standingRules(building)}`;
-}
+/**
+ * "## Your in-tray" for a building's manager agent: the residents' pending reports it works, the decision verbs,
+ * the escalation criteria and the rollup rule (docs/waterfall.md §3.1–3.2). Nothing in it reaches the humans by
+ * itself: Mitchell reads rollups in the Town Hall in-tray.
+ */
+export function managerIntrayBlock(world: World, building: Building, managerId: string, now = Date.now()): string {
+  const pending = intrayOf(world, building.id);
+  const rows = pending.map((d) => {
+    const need = sectionOf(d.body, NEED);
+    return `- ${d.id} "${oneLine(d.title, 100)}" by ${world.nameOf(d.authorId)} (verdict ${d.verdict ?? "?"}, ${relativeTime(d.createdAt, now)}${d.tags.includes("parked") ? ", parked" : ""})${need ? `: needs: ${oneLine(need, 160)}` : ""}`;
+  });
+  const lastRollup = world.docs.first("type = 'report' AND authorId = ? AND tags LIKE '%\"rollup\"%'", [managerId], "ORDER BY createdAt DESC, rowid DESC");
+  const sinceLast = lastRollup ? `${relativeTime(lastRollup.createdAt, now)} ("${oneLine(lastRollup.title, 80)}", ${lastRollup.id}, decision ${lastRollup.decision ?? "?"})` : "never";
+  const decidedSince = world.docs.count("type = 'report' AND buildingId = ? AND decision != 'pending' AND decidedAt > ?", [building.id, lastRollup?.createdAt ?? ""]);
+  return `## Your in-tray (you work it; Mitchell doesn't see these reports)
+${rows.length ? rows.join("\n") : "(empty)"}
 
-export function reviewPrompt(report: Doc, author: Agent, assignment: Assignment | undefined, building: Building, board: Doc[]): string {
-  return `Review this report. Building goal: ${building.goal || "(none)"}
+Decide each report with \`review\` (\`read\` it first): approve = acknowledge finished work (the default; idle is fine), continue = its proposal becomes the author's next assignment, redirect = your note becomes it, stop = the author stops. Decide yourself whether to wait for more reports or roll up; undecided reports stay here. ${ESCALATION_CRITERIA}
 
-Author: ${author.name}
-Assignment: ${assignment ? `${assignment.title}\n${trunc(assignment.description, 1500)}` : "(none)"}
-
-Report ${report.id}: "${report.title}" (verdict ${report.verdict ?? "?"})
-Provenance: ${report.provenance.sourceIds.length} source doc(s), ${report.provenance.urls.length} URL(s)
-
-${trunc(report.body, 12000)}
-
-Recent board and filing cabinet (for duplication): ${board.map((d) => `\n- ${d.id} [${d.type}] ${d.title}`).join("") || "(empty)"}
-
-Call review with docId "${report.id}".`;
+Rollups are how Mitchell hears from you: \`submit_report\` with \`rollup: true\` and the covered reports' ids in provenance.sourceIds. Four short sections: Shipped (live, with commits or doc ids), Decided (each covered report → what you decided), Key results (each funded grant's KRs with the spend numbers), Needs from Mitchell (at most two items; "Nothing needed" is valid). Roll up when a covered report hit an escalation criterion, or when ${ROLLUP_RULE_HOURS} h have passed since your last rollup and something was decided; nothing happened → no rollup. Last rollup: ${sinceLast}; reports decided since: ${decidedSince}.`;
 }
 
 export function summarySystemPrompt(agent: Agent): string {
