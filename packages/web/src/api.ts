@@ -233,6 +233,8 @@ export interface Api {
   redeploy(image: boolean): Promise<{ started?: boolean; queued?: boolean; running?: boolean }>;
   /** the runtime's live redeploy state (`GET /api/admin/redeploy`; readable by anyone) */
   redeployLive(): Promise<RedeployLive>;
+  /** the live server's build (`commit` null when unknown); a reconnect compares it with the one this bundle came from */
+  health(): Promise<{ ok?: boolean; commit?: string | null }>;
   connect(handlers: SocketHandlers): Socket;
 }
 
@@ -393,6 +395,7 @@ export class HttpApi implements Api {
   async exportNow() { return (await this.post<{ commit?: string | null }>("/api/export")).commit ?? null; }
   async redeploy(image: boolean) { return this.post<{ started?: boolean; queued?: boolean; running?: boolean }>("/api/admin/redeploy", { image }); }
   async redeployLive() { return this.get<RedeployLive>("/api/admin/redeploy"); }
+  async health() { return this.get<{ ok?: boolean; commit?: string | null }>("/api/health"); }
 
   connect(h: SocketHandlers): Socket {
     const url = `${location.protocol === "https:" ? "wss" : "ws"}://${location.host}/ws`;

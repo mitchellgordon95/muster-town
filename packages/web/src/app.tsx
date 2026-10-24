@@ -34,6 +34,8 @@ type Phase = { k: "booting" } | { k: "login"; error?: string } | { k: "ready" };
 let socket: Socket | null = null;
 /** set after the first open: a later open is a reconnect (e.g. a redeploy's restart) and refetches the events missed meanwhile */
 let wasOpen = false;
+/** the server commit this bundle was served with; a reconnect to a server on another commit means this bundle is stale */
+let loadedCommit: string | null = null;
 let booting: Promise<Phase> | null = null;
 /** StrictMode runs effects twice in dev; boot (and the WS) must happen once. */
 const bootOnce = () => (booting ??= boot());
@@ -44,6 +46,7 @@ const bootOnce = () => (booting ??= boot());
  */
 async function boot(): Promise<Phase> {
   const a = await getApi();
+  a.health().then((h) => { loadedCommit = h.commit ?? null; }, () => undefined);
   const cfg = await loadAuthConfig();
   authStore.set({ github: !!cfg?.githubClientId });
   const authError = takeAuthError();
@@ -97,7 +100,7 @@ function connect(token: string | null, attempt = 0) {
   socket = api().connect({
     onOpen: () => {
       opened = true; if (token) socket?.send({ type: "auth", token }); store.set({ conn: "open" });
-      if (wasOpen) api().events({ limit: 100 }).then((ev) => store.mergeEvents(ev), () => undefined);
+      if (wasOpen) { api().events({ limit: 100 }).then((ev) => store.mergeEvents(ev), () => undefined); checkBuild(); }
       wasOpen = true;
     },
     onMessage: (m) => store.receive(m),
@@ -107,6 +110,21 @@ function connect(token: string | null, attempt = 0) {
       setTimeout(() => connect(token, next), Math.min(15000, 1000 * 2 ** next));
     },
   });
+}
+
+/**
+ * After a reconnect (a redeploy restarted the server): when the server runs a commit other than the one this bundle
+ * came from, the tab is stale and would keep showing old UI (and old bugs) until someone reloads by hand. Reload it,
+ * unless a person is mid-sentence in a text box: then tell them and leave the text alone.
+ */
+function checkBuild() {
+  api().health().then(({ commit }) => {
+    if (!commit || !loadedCommit || commit === loadedCommit) return;
+    const el = document.activeElement as HTMLTextAreaElement | HTMLInputElement | null;
+    const typing = !!el && (el.tagName === "TEXTAREA" || el.tagName === "INPUT") && !!el.value;
+    if (typing) { store.toast("A new version of the town is live. Reload the page to get it.", "info"); return; }
+    location.reload();
+  }, () => undefined);
 }
 
 function panelWidth() { return Math.round(Math.min(500, Math.max(360, window.innerWidth * 0.36))); }

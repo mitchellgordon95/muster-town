@@ -557,6 +557,7 @@ export class MockApi implements Api {
   /** the mock runtime's live redeploy view (GET /api/admin/redeploy) */
   private live: RedeployLive = { running: false, phase: "idle", waitingFor: [], since: null };
   async redeployLive() { await wait(60); return { ...this.live }; }
+  async health() { return { ok: true, commit: "mock" }; }
   /**
    * At boot, like a server restarted mid-drain: a stale "waiting for Moss" drain (the live view already says nothing runs),
    * then the startup's terminal event; and docker is down (a red notice until the "docker-up" event).
