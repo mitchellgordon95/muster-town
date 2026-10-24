@@ -6,7 +6,7 @@ import type { z } from "zod";
 import type {
   Agent, Allocation, Assignment, AuthMe, RedeployLive, Building, ClientMessage, DesksConfig, Doc, Event, Lot, Meeting, Place, Role, Membership, SessionSlots, Tile,
   ServerMessage, Session, Town, CreateBuildingInput, UpdateBuildingInput, CreateResidentInput,
-  ReviewInput, PinSkillInput, SkillPinView, SkillView, PutSecretInput, SecretView, ChatInput, WorkInput, DonateInput, AddBankInput, BankInput, CreateBankPoolInput, UpdateBankPoolInput, CreateMeetingInput, DocState, DocType, Mailbox, Permission,
+  ReviewInput, PinSkillInput, SkillPinView, SkillView, PutSecretInput, SecretView, ChatInput, WorkInput, DonateInput, AddBankInput, BankInput, CreateBankPoolInput, UpdateBankPoolInput, CreateMeetingInput, DocState, DocType, Mailbox, Permission, DecideGrantInput, GrantView,
 } from "@muster-town/schema";
 
 export type In<T extends z.ZodTypeAny> = z.input<T>;
@@ -106,6 +106,9 @@ export interface LayoutPreview { errors: { key: string | null; message: string }
 export type PlanCreate = In<typeof CreateBuildingInput> & { lot: Lot };
 export interface PlanPreview { errors: { buildingId: string | null; message: string }[]; grid: Grid; places: Place[] }
 
+/** GET /api/buildings/:id/intray: `grants` (proposed, countered, checkpoint) only for the Town Hall */
+export interface Intray { reports: Doc[]; grants: GrantView[] }
+
 export interface WriteDocInput { type?: DocType; title: string; body: string; state?: "draft" | "building"; tags?: string[] }
 export type RequestAction = "approve" | "reject" | "claim" | "done";
 
@@ -131,8 +134,10 @@ export interface Api {
   previewPlan(lots: Record<string, Lot>, create?: PlanCreate): Promise<PlanPreview>;
   savePlan(lots: Record<string, Lot>, create?: PlanCreate): Promise<{ buildings: Building[]; created: Building | null }>;
   // agents
-  /** pending reports for the building's in-tray, oldest first */
-  intray(buildingId: string): Promise<Doc[]>;
+  /** pending reports for the building's in-tray, oldest first; the Town Hall's also has the grants awaiting a human */
+  intray(buildingId: string): Promise<Intray>;
+  /** POST /api/grants/:id/decide (building.fund): fund / counter / reject a proposal, continue / adjust / cut a checkpoint */
+  decideGrant(id: string, input: In<typeof DecideGrantInput>): Promise<GrantView>;
   /** `name` left out = the town picks one. */
   createResident(input: In<typeof CreateResidentInput>): Promise<Agent>;
   /** An unused resident name for the new-resident form; `avoid` = names already offered (reroll). */
@@ -312,7 +317,11 @@ export class HttpApi implements Api {
   async saveLayout(id: string, furniture: Record<string, Tile>) { return unwrap<Building>(await this.call("PUT", `/api/buildings/${id}/layout`, { furniture }), "building"); }
   previewPlan(lots: Record<string, Lot>, create?: PlanCreate) { return this.call<PlanPreview>("PUT", "/api/town/plan", { lots, create, dryRun: true }); }
   savePlan(lots: Record<string, Lot>, create?: PlanCreate) { return this.call<{ buildings: Building[]; created: Building | null }>("PUT", "/api/town/plan", { lots, create }); }
-  async intray(id: string) { return unwrap<Doc[]>(await this.get(`/api/buildings/${id}/intray`), "reports"); }
+  async intray(id: string) {
+    const r = await this.get<Partial<Intray>>(`/api/buildings/${id}/intray`);
+    return { reports: r.reports ?? [], grants: r.grants ?? [] };
+  }
+  async decideGrant(id: string, i: In<typeof DecideGrantInput>) { return unwrap<GrantView>(await this.post(`/api/grants/${id}/decide`, i), "grant"); }
   async createResident(i: In<typeof CreateResidentInput>) { return unwrap<Agent>(await this.post("/api/agents/residents", i), "agent"); }
   async suggestName(avoid: string[] = []) { return unwrap<string>(await this.get(`/api/agents/name-suggestion?avoid=${encodeURIComponent(avoid.join(","))}`), "name"); }
   async dismiss(id: string, purge = false) { await this.call("DELETE", `/api/agents/${id}${purge ? "?purge=1" : ""}`); }

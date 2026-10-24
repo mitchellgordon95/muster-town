@@ -3,7 +3,7 @@
  * Moss the reviewer, two reports in the in-tray, Otto who was dismissed), the Workshop (a workspace building with
  * reviewer policy, one report in its in-tray), meetings now / upcoming / done.
  */
-import type { Agent, Assignment, Building, Doc, Event, Meeting, Membership, Role, Town, User } from "@muster-town/schema";
+import type { Agent, Assignment, Building, Doc, Event, GrantView, Meeting, Membership, Role, Town, User } from "@muster-town/schema";
 import { BUILTIN_ROLES } from "@muster-town/schema";
 
 export const ago = (min: number) => new Date(Date.now() - min * 60_000).toISOString();
@@ -37,7 +37,7 @@ export const buildings: Building[] = [
     goal: "Keep Muster Town itself working: small, tested changes to its own code",
     description: "Residents work in git worktrees of the Muster Town repo and open PRs.",
     rules: "- One small PR per session, with a screenshot description for web changes.\n- Read AGENTS.md before touching a package.\n- Mention @Mitchell in your report when you need a decision.",
-    codeAccess: true,
+    codeAccess: true, managerAgentId: "ag_keel",
   },
 ];
 
@@ -108,6 +108,9 @@ export const docs: Doc[] = [
   { ...docBase, id: "dc_noor_r2", type: "report", state: "building", title: "Noor run 2: Airborne fraction 1959–2024", authorId: "ag_noor", buildingId: "bl_carbon", verdict: "continue", decision: "pending", tokens: 412_000, costUsd: 3.3, assignmentId: "as_noor2", provenance: { sourceIds: ["dc_gcb_essd", "dc_gcb_data"], urls: ["https://gml.noaa.gov/ccgg/trends/gl_gr.html"] }, body: REPORT_NOOR, createdAt: ago(12), updatedAt: ago(12) },
   { ...docBase, id: "dc_mei_r1", type: "report", state: "building", title: "Mei run 1: SOCAT and the ocean sink", authorId: "ag_mei", buildingId: "bl_carbon", verdict: "pivot", decision: "pending", tokens: 640_000, costUsd: 5.2, provenance: { sourceIds: ["dc_gcb_essd"], urls: [] }, body: "# SOCAT and the ocean sink\n\n## Summary\nThe ocean sink is 2.9 ± 0.4 GtC/yr (2014–2023). SOCAT-based estimates run about 0.4 GtC/yr higher than the models.\n\n## Findings\n- The data/model gap is largest in the Southern Ocean.\n\n## Proposal for next session\nWhy do pCO2-based products and ocean models disagree in the Southern Ocean, and which should the lab trust?\n\n## Questions for humans\nNone.", createdAt: ago(55), updatedAt: ago(55) },
   { ...docBase, id: "dc_pike_r1", type: "report", state: "building", title: "Pike run 1: Fix HUD collapse on narrow screens", authorId: "ag_pike", buildingId: "bl_workshop", verdict: "continue", decision: "pending", tokens: 300_000, costUsd: 2.4, body: "# Fix HUD collapse on narrow screens\n\n## What I did\nOpened PR #42: the HUD now collapses below 700px instead of overflowing. Branch agent/pike/hud-collapse.\n\n## Findings\n- The overflow came from a fixed min-width on the status row.\n- Typecheck and tests are green on the branch.\n\n## What I need from you\nMerge PR #42, or tell me what to change first.", createdAt: ago(30), updatedAt: ago(30) },
+  // Town Hall in-tray: a manager's rollup (covers two decided reports) and a checkpoint report (docs/waterfall.md §3.2)
+  { ...docBase, id: "dc_moss_rollup", type: "report", state: "building", title: "Carbon Cycle Lab rollup: budget headline in, methane dropped", authorId: "ag_moss", buildingId: "bl_carbon", tags: ["rollup"], verdict: "continue", decision: "pending", tokens: 140_000, costUsd: 1.1, provenance: { sourceIds: ["dc_ravi_r1", "dc_otto_r1"], urls: [] }, body: "## Shipped\n- GCB 2025 headline budget in the cabinet (dc_ravi_r1).\n\n## Decided\n- dc_ravi_r1 → continue: Ravi takes the land-use change uncertainty next.\n- dc_otto_r1 → stop: methane is outside the lab's goal.\n\n## Key results\nNo funded grant yet; the ocean-sink proposal is in the Town Hall in-tray.\n\n## Needs from Mitchell\nFund or counter the ocean-sink proposal.", createdAt: ago(40), updatedAt: ago(40) },
+  { ...docBase, id: "dc_keel_cp", type: "report", state: "building", title: "Workshop checkpoint: HUD polish at 52% of its grant", authorId: "ag_keel", buildingId: "bl_workshop", verdict: "continue", decision: "pending", tokens: 60_000, costUsd: 0.5, body: "## What I did\nChecked the HUD polish grant at its 50% checkpoint.\n\n## Findings\n- KR1 (HUD collapses below 700px) is claimed: PR #42.\n- KR2 (no overlap with the meeting panel) is on track.\n\n## What I need from you\nContinue the grant; the rest fits in the remaining tokens.", createdAt: ago(25), updatedAt: ago(25) },
   { ...docBase, id: "dc_otto_r1", type: "report", state: "building", title: "Otto run 1: Methane growth since 2007", authorId: "ag_otto", buildingId: "bl_carbon", verdict: "stop", decision: "stop", decidedBy: "us_mitchell", decidedAt: ago(3000), decisionNote: "Out of scope for this lab.", body: "# Methane growth since 2007\n\n## Summary\nMethane is outside the carbon cycle lab's goal.", createdAt: ago(3100), updatedAt: ago(3000) },
   { ...docBase, id: "dc_req_ml", type: "request", state: "building", title: "Photograph a CO2 monitor reading near you", authorId: "ag_noor", buildingId: "bl_carbon", requestStatus: "proposed", location: "Anywhere outdoors", body: "Take a reading with any NDIR CO2 monitor outdoors at noon and note the time, place and value in ppm. Compare with today's Mauna Loa daily mean.", createdAt: ago(40), updatedAt: ago(40) },
   { ...docBase, id: "dc_req_tide", type: "request", state: "building", title: "Find a local coastal pCO2 dataset", authorId: "ag_mei", buildingId: "bl_carbon", requestStatus: "approved", location: "Any coastal city", body: "Search your regional ocean observing system for a coastal pCO2 buoy and send the dataset link and its station id.", createdAt: ago(600), updatedAt: ago(300) },
@@ -118,6 +121,28 @@ export const docs: Doc[] = [
 
 const asgBase = { createdBy: "us_mitchell", createdByKind: "user" as const, fromMeetingId: null, fromReportId: null, fromAssignmentId: null, reportId: null };
 const asg = (a: Omit<Assignment, keyof typeof asgBase | "position"> & Partial<Assignment>): Assignment => ({ ...asgBase, position: Date.parse(a.createdAt), ...a });
+const grantBase = { outcome: null, findingsDocIds: [] as string[], checkpointsDone: [] as number[], checkpointDocId: null as string | null, fundedBy: null as string | null, fundedAt: null as string | null, closedAt: null, spentTokens: 0 };
+const kr = (grantId: string, position: number, text: string, howToCheck: string, status: GrantView["keyResults"][number]["status"] = "not-started") =>
+  ({ id: `kr_${grantId}_${position}`, grantId, position, text, howToCheck, status, statusNote: "", statusBy: null, updatedAt: ago(30) });
+/** Grants waiting for a human (Town Hall in-tray): a proposal and a checkpoint. */
+export const grants: GrantView[] = [
+  {
+    ...grantBase, id: "gr_ocean", buildingId: "bl_carbon", status: "proposed", proposedBy: "ag_moss", askTokens: 4_000_000, grantTokens: null,
+    objective: "Settle the ocean-sink data/model gap in the Southern Ocean", stopCondition: "Stop when the gap is explained to within 0.2 GtC/yr, or after 4 sessions without progress.",
+    findingsDocIds: ["dc_mei_r1"], keyResults: [kr("gr_ocean", 0, "An article with the gap per product, with units and ranges", "Read it in the Carbon Cycle Lab cabinet"), kr("gr_ocean", 1, "A recommendation on which estimate the lab uses", "The master article cites it")],
+    history: [{ at: ago(35), byId: "ag_moss", byKind: "agent", action: "propose", tokens: 4_000_000, note: "Mei's run 1 found the gap; two sessions each for products and models." }],
+    createdAt: ago(60), updatedAt: ago(35),
+  },
+  {
+    ...grantBase, id: "gr_hud", buildingId: "bl_workshop", status: "checkpoint", proposedBy: "ag_keel", askTokens: 2_000_000, grantTokens: 2_000_000, spentTokens: 1_040_000,
+    checkpointsDone: [0.5], checkpointDocId: "dc_keel_cp", fundedBy: "us_mitchell", fundedAt: ago(600),
+    objective: "HUD works on narrow screens", stopCondition: "Stop when both KRs are met.",
+    keyResults: [kr("gr_hud", 0, "HUD collapses below 700px", "Open the town at 650px wide", "claimed"), kr("gr_hud", 1, "No overlap with the meeting panel", "Open a meeting at 650px wide", "on-track")],
+    history: [{ at: ago(600), byId: "us_mitchell", byKind: "user", action: "fund", tokens: 2_000_000, note: "" }, { at: ago(25), byId: "system", byKind: "agent", action: "checkpoint", tokens: null, note: "Spend crossed 50%." }],
+    createdAt: ago(700), updatedAt: ago(25),
+  },
+];
+
 export const assignments: Assignment[] = [
   asg({ id: "as_noor2", agentId: "ag_noor", buildingId: "bl_carbon", title: "Airborne fraction over time", description: "Has the airborne fraction changed since 1959?", status: "done", createdBy: "us_mitchell", createdByKind: "user", fromMeetingId: null, fromReportId: null, reportId: "dc_noor_r2", createdAt: ago(90), updatedAt: ago(12) }),
   asg({ id: "as_tomas2", agentId: "ag_tomas", buildingId: "bl_carbon", title: "Is the land sink weakening?", description: "Look at TRENDY and the residual land sink for 2015–2024.", status: "active", createdBy: "us_mitchell", createdByKind: "user", fromMeetingId: null, fromReportId: null, reportId: null, createdAt: ago(20), updatedAt: ago(15) }),

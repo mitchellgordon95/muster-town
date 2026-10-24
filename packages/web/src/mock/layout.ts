@@ -15,6 +15,7 @@ const F = {
   modSeats: [{ x: 2, y: 9 }, { x: 3, y: 9 }, { x: 4, y: 9 }],
   modStand: { x: 5, y: 8 },
   planningDesk: [{ x: 12, y: 9 }, { x: 13, y: 9 }], planningStand: { x: 12, y: 8 },
+  intray: { x: 14, y: 9 }, intrayStand: { x: 14, y: 8 },
   schedule: { x: 15, y: 6 }, scheduleStand: { x: 15, y: 7 },
   bench: [{ x: 10, y: 9 }, { x: 11, y: 9 }], benchSeats: [{ x: 10, y: 8 }, { x: 11, y: 8 }],
 };
@@ -62,6 +63,7 @@ export function computeLayout(buildings: Building[], agents: Agent[]): Layout {
     if (b.kind === "town-hall") {
       for (const p of F.modDesk) set(x0 + p.x, y0 + p.y, TILE.DESK);
       for (const p of F.planningDesk) set(x0 + p.x, y0 + p.y, TILE.DESK);
+      set(x0 + F.intray.x, y0 + F.intray.y, TILE.MANAGER_DESK);
       set(x0 + F.schedule.x, y0 + F.schedule.y, TILE.SCHEDULE);
       for (const p of F.bench) set(x0 + p.x, y0 + p.y, TILE.BENCH);
       // town moderators (Town Hall residents) sit at the mod station
@@ -75,6 +77,7 @@ export function computeLayout(buildings: Building[], agents: Agent[]): Layout {
       places.push(
         { id: "mod-station", kind: "mod-station", name: "Mod station", buildingId: b.id, pos: at(F.modStand) },
         { id: "planning-desk", kind: "planning", name: "Planning desk", buildingId: b.id, pos: at(F.planningStand) },
+        { id: `intray:${b.id}`, kind: "intray", name: "Town Hall in-tray (rollups, proposals, checkpoints)", buildingId: b.id, pos: at(F.intrayStand) },
         { id: "schedule-board", kind: "schedule", name: "Schedule board", buildingId: b.id, pos: at(F.scheduleStand) },
         { id: "visitor-bench", kind: "bench", name: "Visitor bench", buildingId: b.id, pos: at(F.benchSeats[0]) },
       );

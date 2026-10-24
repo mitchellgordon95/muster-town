@@ -71,7 +71,9 @@ export function Hud({ onPasteToken, onHelp }: { onPasteToken?: () => void; onHel
       if (b.kind !== "town-hall" && manager && manager.status !== "stopped" && manager.status !== "banned" && manager.status !== "retired") continue;
       out.push({
         key: `intray:${b.id}`, icon: "intray", tone: "warn", cta: "Go →",
-        text: <><b>{b.intray}</b> report{b.intray === 1 ? "" : "s"} in the {b.name} in-tray</>,
+        text: b.kind === "town-hall"
+          ? <><b>{b.intray}</b> item{b.intray === 1 ? "" : "s"} in the Town Hall in-tray (rollups, proposals, checkpoints)</>
+          : <><b>{b.intray}</b> report{b.intray === 1 ? "" : "s"} in the {b.name} in-tray</>,
         go: () => walkOrOpen(`intray:${b.id}`, { kind: "intray", id: b.id }),
       });
     }

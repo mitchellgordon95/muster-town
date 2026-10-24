@@ -1,5 +1,5 @@
 /** In-memory town for VITE_MOCK=1: holds state, animates it, and implements actions locally. */
-import type { Agent, Allocation, Assignment, Building, Doc, Event, Meeting, Membership, Role, ServerMessage } from "@muster-town/schema";
+import type { Agent, Allocation, Assignment, Building, DecideGrantInput, Doc, Event, GrantView, Meeting, Membership, Role, ServerMessage } from "@muster-town/schema";
 import { BUILTIN_ROLES } from "@muster-town/schema";
 import type { Snapshot } from "../api";
 import * as F from "./fixture";
@@ -22,6 +22,7 @@ export class Sim {
   docs = new Map<string, Doc>(clone(F.docs).map((d) => [d.id, d]));
   assignments = new Map<string, Assignment>(clone(F.assignments).map((a) => [a.id, a]));
   meetings = new Map<string, Meeting>(clone(F.meetings).map((m) => [m.id, m]));
+  grants = new Map<string, GrantView>(clone(F.grants).map((g) => [g.id, g]));
   events: Event[] = clone(F.events);
   roles: Role[] = clone(F.roles);
   memberships: Membership[] = clone(F.memberships);
@@ -70,11 +71,45 @@ export class Sim {
     });
   }
 
-  /** Pending reports for a building, oldest first (GET /api/buildings/:id/intray). */
-  intray(buildingId: string): Doc[] {
-    return [...this.docs.values()].filter((d) => d.type === "report" && d.decision === "pending" && d.buildingId === buildingId).sort((a, b) => a.createdAt.localeCompare(b.createdAt));
+  /**
+   * Pending reports for a building, oldest first (GET /api/buildings/:id/intray). As in core, a report by its
+   * building's manager agent is a Town Hall item; the Town Hall's in-tray also has the grants awaiting a human.
+   */
+  intray(buildingId: string): { reports: Doc[]; grants: GrantView[] } {
+    const hall = this.buildings.find((b) => b.id === buildingId)?.kind === "town-hall";
+    const managerOf = (id: string | null) => this.buildings.find((b) => b.id === id)?.managerAgentId;
+    const reports = [...this.docs.values()].filter((d) => d.type === "report" && d.decision === "pending"
+      && (hall ? !!d.buildingId && managerOf(d.buildingId) === d.authorId : d.buildingId === buildingId && managerOf(d.buildingId) !== d.authorId))
+      .sort((a, b) => a.createdAt.localeCompare(b.createdAt));
+    const grants = hall ? [...this.grants.values()].filter((g) => g.status === "proposed" || g.status === "countered" || g.status === "checkpoint") : [];
+    return { reports, grants };
   }
-  intrayCount(buildingId: string) { return this.intray(buildingId).length; }
+  intrayCount(buildingId: string) { const t = this.intray(buildingId); return t.reports.length + t.grants.length; }
+
+  /** POST /api/grants/:id/decide, as core's Grants.decide (no ledger: spend is the fixture's). */
+  decideGrant(id: string, i: DecideGrantInput): GrantView {
+    const g = this.grants.get(id);
+    if (!g) throw new Error("grant not found");
+    const want = { fund: "proposed", counter: "proposed", reject: "proposed", continue: "checkpoint", adjust: "checkpoint", cut: "checkpoint" }[i.action];
+    if (g.status !== want) throw new Error(`The grant is ${g.status}; it can't be ${i.action === "fund" ? "funded" : i.action === "cut" ? "cut" : `${i.action}ed`}.`);
+    const note = i.note ?? "";
+    if (i.action === "counter" && !note.trim()) throw new Error("A counter needs a note saying what to change.");
+    const tokens = i.action === "fund" ? i.tokens ?? g.askTokens : i.action === "adjust" ? i.tokens ?? g.grantTokens ?? 0 : i.tokens ?? null;
+    if (i.action === "adjust" && (tokens ?? 0) <= g.spentTokens) throw new Error("An adjusted grant must be more than it has spent.");
+    const status = { fund: "funded", counter: "countered", reject: "rejected", continue: "funded", adjust: "funded", cut: "closed" }[i.action] as GrantView["status"];
+    Object.assign(g, {
+      status, updatedAt: now(),
+      ...(i.action === "fund" || i.action === "adjust" ? { grantTokens: tokens } : {}),
+      ...(i.action === "fund" ? { fundedBy: "us_mitchell", fundedAt: now() } : {}),
+      ...(i.action === "counter" && tokens ? { askTokens: tokens } : {}),
+      ...(i.action === "cut" ? { outcome: "cut", closedAt: now() } : i.action === "reject" ? { closedAt: now() } : {}),
+    });
+    g.history.push({ at: now(), byId: "us_mitchell", byKind: "user", action: i.action, tokens: tokens, note });
+    const b = this.buildings.find((x) => x.id === g.buildingId);
+    this.event(`grant.${status === "closed" ? "closed" : status}` as Event["type"], null, `Mitchell ${i.action === "cut" ? "cut" : `${i.action}ed`} ${b?.name ?? ""}'s ${g.objective}`, { grantId: g.id }, g.buildingId);
+    this.emitBuilding(this.buildings.find((x) => x.kind === "town-hall")?.id ?? null);
+    return g;
+  }
   budgetOf(buildingId: string) {
     const al = this.allocations.filter((a) => a.buildingId === buildingId && !a.retired);
     const allocatedTokens = al.reduce((s, a) => s + a.tokens, 0), spentTokens = al.reduce((s, a) => s + a.spentTokens, 0);
@@ -239,6 +274,7 @@ export class Sim {
     const verb = { approve: "acknowledged", continue: "continued", redirect: "redirected", stop: "stopped" }[decision];
     this.event("doc.decision", d.authorId, `Mitchell ${verb} ${who}'s report`, { docId, decision }, d.buildingId);
     this.emitBuilding(d.buildingId);
+    this.emitBuilding(this.buildings.find((x) => x.kind === "town-hall")?.id ?? null);
     const a = this.agents.get(d.authorId);
     if (!a || decision === "approve") return d;
     if (decision === "stop") {

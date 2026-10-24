@@ -3,7 +3,7 @@
  * the filing cabinet, the schedule board and the mod station (Town Hall). Donating is at the Bank (BankFunding.tsx).
  */
 import { useEffect, useMemo, useState } from "react";
-import { BOARD_TYPES, DocType, type Doc, type Meeting } from "@muster-town/schema";
+import { BOARD_TYPES, DocType, type Doc, type GrantView, type Meeting } from "@muster-town/schema";
 import { api } from "../api";
 import { store, useTown, roleOf } from "../state";
 import { DocRow, DocView, VERDICT_TONE, needOf } from "./DocView";
@@ -25,22 +25,30 @@ export function IntrayPanel({ buildingId }: { buildingId: string }) {
   const list = useLoad(() => api().intray(buildingId), [buildingId, b?.intray, rev]);
   const [openId, setOpenId] = useState<string | null>(null);
   const canReview = store.can("building.review", buildingId);
-  const reports = useMemo(() => [...(list.data ?? [])].sort((x, y) => x.createdAt.localeCompare(y.createdAt)), [list.data]);
-  useEffect(() => { if (list.data) store.putDocs(list.data); }, [list.data]);
-  const open = openId ? reports.find((d) => d.id === openId) ?? store.state.docs[openId] ?? null : null;
+  const reports = useMemo(() => [...(list.data?.reports ?? [])].sort((x, y) => x.createdAt.localeCompare(y.createdAt)), [list.data]);
+  const grants = list.data?.grants ?? [];
+  useEffect(() => { if (list.data) store.putDocs(list.data.reports); }, [list.data]);
+  const stored = useTown((s) => (openId ? s.docs[openId] : undefined));
+  const open = openId ? reports.find((d) => d.id === openId) ?? stored ?? null : null;
+  // covered reports and checkpoint reports may not be loaded yet
+  const openDoc = (id: string) => { setOpenId(id); if (!store.state.docs[id]) void api().doc(id).then((d) => store.putDocs([d])).catch((e: Error) => store.toast(e.message, "bad")); };
   if (!b) return <PanelShell title="In-tray"><Empty>No building with id {buildingId}.</Empty></PanelShell>;
+  const hall = b.kind === "town-hall";
   const manager = b.managerAgentId ? agents[b.managerAgentId] : undefined;
-  const subtitle = b.kind === "town-hall" ? "Town Hall · rollups, proposals and checkpoints for the humans" : `${b.name} · manager's desk · worked by ${manager ? `★ ${manager.name}` : "you"}`;
+  const subtitle = hall ? "Town Hall · rollups, proposals and checkpoints for the humans" : `${b.name} · manager's desk · worked by ${manager ? `★ ${manager.name}` : "you"}`;
+  const count = reports.length + grants.length;
   return (
-    <PanelShell icon={<Glyph kind="intray" />} title={<>In-tray {reports.length ? <Pill tone="warn">{reports.length}</Pill> : null}</>} subtitle={subtitle}>
+    <PanelShell icon={<Glyph kind="intray" />} title={<>In-tray {count ? <Pill tone="warn">{count}</Pill> : null}</>} subtitle={subtitle}>
       {open ? (
         <DocView doc={open} review onBack={() => setOpenId(null)} backLabel="In-tray" onDecided={() => { setOpenId(null); list.reload(); }} />
       ) : (
         <>
-          {!canReview ? <div className="callout">You can read the in-tray. Decisions are for the building's manager and reviewer.</div> : null}
-          {manager ? <div className="callout">★ {manager.name}, the building's manager, works this in-tray and rolls up to the Town Hall in-tray. You can still decide here.</div> : null}
+          {!canReview && !hall ? <div className="callout">You can read the in-tray. Decisions are for the building's manager and reviewer.</div> : null}
+          {manager && !hall ? <div className="callout">★ {manager.name}, the building's manager, works this in-tray and rolls up to the Town Hall in-tray. You can still decide here.</div> : null}
           <ErrorLine error={list.error} />
-          {list.loading && !list.data ? <Loading /> : !reports.length ? <Empty>The in-tray is empty. When a resident finishes a session, its report lands here and the resident goes idle.</Empty> : (
+          {list.loading && !list.data ? <Loading /> : hall ? (
+            <TownHallIntray reports={reports} grants={grants} onOpen={openDoc} onDecided={list.reload} />
+          ) : !reports.length ? <Empty>The in-tray is empty. When a resident finishes a session, its report lands here and the resident goes idle.</Empty> : (
             <div className="doc-list">
               {reports.map((d) => <IntrayRow key={d.id} doc={d} onOpen={() => setOpenId(d.id)} />)}
             </div>
@@ -51,19 +59,150 @@ export function IntrayPanel({ buildingId }: { buildingId: string }) {
   );
 }
 
-function IntrayRow({ doc, onOpen }: { doc: Doc; onOpen: () => void }) {
+/**
+ * The Town Hall in-tray (docs/waterfall.md §3.5): every building's pending manager reports (rollups expand to the
+ * reports they cover), then the grants a human must decide: proposals (Fund / Counter / Reject) and checkpoints
+ * (Continue / Adjust / Cut). Countered proposals wait on the manager and are shown without buttons.
+ */
+function TownHallIntray({ reports, grants, onOpen, onDecided }: { reports: Doc[]; grants: GrantView[]; onOpen: (id: string) => void; onDecided: () => void }) {
+  const proposals = grants.filter((g) => g.status === "proposed" || g.status === "countered");
+  const checkpoints = grants.filter((g) => g.status === "checkpoint");
+  if (!reports.length && !grants.length) return <Empty>The Town Hall in-tray is empty. Managers' rollups, checkpoint reports and escalations land here, with the grant proposals and checkpoints waiting for a human.</Empty>;
+  return (
+    <>
+      {reports.length ? (
+        <Section title={<>Manager reports <Pill>{reports.length}</Pill></>}>
+          <div className="doc-list">{reports.map((d) => <IntrayRow key={d.id} doc={d} onOpen={() => onOpen(d.id)} onOpenDoc={onOpen} showBuilding />)}</div>
+        </Section>
+      ) : null}
+      {proposals.length ? (
+        <Section title={<>Proposals <Pill>{proposals.length}</Pill></>}>
+          <div className="doc-list">{proposals.map((g) => <GrantRow key={g.id} grant={g} onDecided={onDecided} onOpenDoc={onOpen} />)}</div>
+        </Section>
+      ) : null}
+      {checkpoints.length ? (
+        <Section title={<>Checkpoints <Pill>{checkpoints.length}</Pill></>}>
+          <div className="doc-list">{checkpoints.map((g) => <GrantRow key={g.id} grant={g} onDecided={onDecided} onOpenDoc={onOpen} />)}</div>
+        </Section>
+      ) : null}
+    </>
+  );
+}
+
+/** A building's name with the building glyph, for rows in the Town Hall in-tray. */
+function BuildingTag({ buildingId }: { buildingId: string | null }) {
+  const b = useTown((s) => s.buildings.find((x) => x.id === buildingId));
+  return <span className="intray-building"><Glyph kind="building" />{b?.name ?? buildingId ?? "Town"}</span>;
+}
+
+/** A proposal or checkpoint row with its decision controls (POST /api/grants/:id/decide, `building.fund`). */
+function GrantRow({ grant: g, onDecided, onOpenDoc }: { grant: GrantView; onDecided: () => void; onOpenDoc: (id: string) => void }) {
+  useTown((s) => s.me);
+  const manager = useTown((s) => { const b = s.buildings.find((x) => x.id === g.buildingId); return b?.managerAgentId ? s.agents[b.managerAgentId] : undefined; });
+  const author = useTown((s) => s.agents[g.proposedBy]);
+  const checkpoint = g.status === "checkpoint";
+  const ceiling = checkpoint ? g.grantTokens ?? g.askTokens : g.askTokens;
+  const [tokens, setTokens] = useState(String(ceiling));
+  const [note, setNote] = useState("");
+  const canFund = store.can("building.fund", g.buildingId);
+  const last = g.history[g.history.length - 1];
+  const n = Number(tokens.replace(/[,_\s]/g, ""));
+  const tokensOk = Number.isInteger(n) && n > 0;
+  const decide = (action: "fund" | "counter" | "reject" | "continue" | "adjust" | "cut", msg: string) => async () => {
+    const withTokens = action === "fund" || action === "adjust" || (action === "counter" && n !== g.askTokens);
+    await api().decideGrant(g.id, { action, note, ...(withTokens && tokensOk ? { tokens: n } : {}) });
+    store.toast(msg, "ok");
+    onDecided();
+  };
+  const pct = g.grantTokens ? Math.min(100, Math.round((g.spentTokens / g.grantTokens) * 100)) : 0;
+  return (
+    <div className="doc-row intray-row grant-row">
+      <div className="intray-who">
+        <BuildingTag buildingId={g.buildingId} />
+        {author ? <img src={portraitUrl(author.sprite, 1)} alt="" /> : null}<b>{manager ? `★ ${manager.name}` : nameOf(g.proposedBy)}</b>
+        <span>{timeAgo(g.updatedAt)}</span>
+        <Pill tone={checkpoint ? "warn" : g.status === "countered" ? "" : "ok"}>{g.status}</Pill>
+      </div>
+      <div className="doc-row-title">{g.objective}</div>
+      <div className="doc-row-meta">
+        {checkpoint
+          ? <span>{fmtTokens(g.spentTokens)} of {fmtTokens(g.grantTokens ?? 0)} tokens spent ({pct}%)</span>
+          : <span>asks {fmtTokens(g.askTokens)} tokens</span>}
+        {g.checkpointDocId ? <button className="link" onClick={() => onOpenDoc(g.checkpointDocId!)}>checkpoint report</button> : null}
+      </div>
+      <ul className="grant-krs">
+        {g.keyResults.map((k) => <li key={k.id}>{k.text} <span className="muted">· {k.status.replace(/-/g, " ")}</span></li>)}
+      </ul>
+      <div className="intray-proposal">Stop when: {g.stopCondition}</div>
+      {last?.note ? <div className="intray-proposal">{nameOf(last.byId)} ({last.action}): {last.note}</div> : null}
+      {g.status === "countered" ? (
+        <div className="muted">Countered: waiting for {manager ? `★ ${manager.name}` : "the manager"} to revise and propose again.</div>
+      ) : !canFund ? (
+        <div className="muted">Funding decisions are for humans with building.fund.</div>
+      ) : (
+        <div className="grant-decide">
+          <div className="grant-inputs">
+            <Field label={checkpoint ? "Grant (tokens)" : "Tokens"}><input value={tokens} inputMode="numeric" onChange={(e) => setTokens(e.target.value)} /></Field>
+            <Field label="Note"><input value={note} placeholder={checkpoint ? "optional" : "required to counter"} onChange={(e) => setNote(e.target.value)} /></Field>
+          </div>
+          <div className="actions">
+            {checkpoint ? <>
+              <Act small tone="ok" run={decide("continue", "Grant continued")}>Continue</Act>
+              <Act small disabled={!tokensOk} run={decide("adjust", "Grant adjusted")} title="Set the grant to the token field">Adjust</Act>
+              <Act small tone="bad" run={decide("cut", "Grant cut")}>Cut</Act>
+            </> : <>
+              <Act small tone="ok" disabled={!tokensOk} run={decide("fund", `Funded ${tokensOk ? fmtTokens(n) : ""} tokens`)}>Fund</Act>
+              <Act small disabled={!note.trim()} run={decide("counter", "Countered: back to the manager")} title="Send it back with the note (and the token field, if changed)">Counter</Act>
+              <Act small tone="bad" run={decide("reject", "Proposal rejected")}>Reject</Act>
+            </>}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function IntrayRow({ doc, onOpen, onOpenDoc, showBuilding }: { doc: Doc; onOpen: () => void; onOpenDoc?: (id: string) => void; showBuilding?: boolean }) {
   const a = useTown((s) => s.agents[doc.authorId]);
   const need = needOf(doc.body);
+  const rollup = doc.tags.includes("rollup");
+  const covered = doc.provenance.sourceIds;
+  const [expanded, setExpanded] = useState(false);
+  const docs = useTown((s) => s.docs);
+  useEffect(() => {
+    if (!expanded) return;
+    const missing = covered.filter((id) => !store.state.docs[id]);
+    if (missing.length) void Promise.all(missing.map((id) => api().doc(id).catch(() => null))).then((ds) => store.putDocs(ds.filter((d): d is Doc => !!d)));
+  }, [expanded]); // eslint-disable-line react-hooks/exhaustive-deps
   return (
-    <button className="doc-row intray-row" onClick={onOpen}>
-      <div className="intray-who">{a ? <img src={portraitUrl(a.sprite, 1)} alt="" /> : null}<b>{nameOf(doc.authorId)}</b><span>{timeAgo(doc.createdAt)}</span></div>
-      <div className="doc-row-title">{doc.title}</div>
-      {need ? <div className="intray-proposal">Needs: {need.length > 140 ? need.slice(0, 140) + "…" : need}</div> : null}
-      <div className="doc-row-meta">
-        {doc.verdict ? <Pill tone={VERDICT_TONE[doc.verdict]}>verdict: {doc.verdict}</Pill> : null}
-        {doc.tokens ? <span>{fmtTokens(doc.tokens)} tokens{doc.costUsd ? ` · ${usd(doc.costUsd)}` : ""}</span> : null}
-      </div>
-    </button>
+    <div className="intray-item">
+      <button className="doc-row intray-row" onClick={onOpen}>
+        <div className="intray-who">
+          {showBuilding ? <BuildingTag buildingId={doc.buildingId} /> : null}
+          {a ? <img src={portraitUrl(a.sprite, 1)} alt="" /> : null}<b>{nameOf(doc.authorId)}</b><span>{timeAgo(doc.createdAt)}</span>
+          {rollup ? <Pill tone="ok">rollup</Pill> : null}
+        </div>
+        <div className="doc-row-title">{doc.title}</div>
+        {need ? <div className="intray-proposal">Needs: {need.length > 140 ? need.slice(0, 140) + "…" : need}</div> : null}
+        <div className="doc-row-meta">
+          {doc.verdict ? <Pill tone={VERDICT_TONE[doc.verdict]}>verdict: {doc.verdict}</Pill> : null}
+          {doc.tokens ? <span>{fmtTokens(doc.tokens)} tokens{doc.costUsd ? ` · ${usd(doc.costUsd)}` : ""}</span> : null}
+        </div>
+      </button>
+      {rollup && covered.length ? (
+        <div className="intray-covered">
+          <button className="link" onClick={() => setExpanded(!expanded)}>{expanded ? "▾" : "▸"} covers {covered.length} report{covered.length === 1 ? "" : "s"}</button>
+          {expanded ? (
+            <ul>
+              {covered.map((id) => {
+                const d = docs[id];
+                return <li key={id}><button className="link" onClick={() => onOpenDoc?.(id)}>{d ? `${nameOf(d.authorId)}: ${d.title}` : id}</button>{d?.decision ? <span className="muted"> · {d.decision}</span> : null}</li>;
+              })}
+            </ul>
+          ) : null}
+        </div>
+      ) : null}
+    </div>
   );
 }
 

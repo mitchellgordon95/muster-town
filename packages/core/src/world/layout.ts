@@ -26,6 +26,8 @@ export const TOWN_HALL_FIXTURES = {
   modStand: { x: 5, y: 8 },
   /** planning desk bottom-right */
   planningDesk: [{ x: 12, y: 9 }, { x: 13, y: 9 }], planningStand: { x: 12, y: 8 },
+  /** the Town Hall in-tray (rollups, proposals, checkpoints) right of the planning desk */
+  intray: { x: 14, y: 9 }, intrayStand: { x: 14, y: 8 },
   /** schedule board next to the town meeting room table */
   schedule: { x: 15, y: 6 }, scheduleStand: { x: 15, y: 7 },
   /** v1.4 visitor bench (default spot; furniture piece `bench`): visitors wait on the row above it */
@@ -154,6 +156,7 @@ export function computeLayout(buildings: Building[], occupancy: Map<string, Map<
       places.push(
         { id: "mod-station", kind: "mod-station", name: "Mod station", buildingId: b.id, pos: stand("mod-station", MOD_SEATS) },
         { id: "planning-desk", kind: "planning", name: "Planning desk", buildingId: b.id, pos: stand("planning") },
+        { id: `intray:${b.id}`, kind: "intray", name: "Town Hall in-tray (rollups, proposals, checkpoints)", buildingId: b.id, pos: stand("intray") },
         { id: "schedule-board", kind: "schedule", name: "Schedule board", buildingId: b.id, pos: stand("schedule") },
         { id: "visitor-bench", kind: "bench", name: "Visitor bench", buildingId: b.id, pos: stand("bench") },
         { id: "library", kind: "library", name: "Library", buildingId: b.id, pos: stand("library") },

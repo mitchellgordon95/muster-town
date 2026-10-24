@@ -524,3 +524,12 @@ kbd { font-family: var(--mono); font-size: 11px; background: #2a2d3a; border: 1p
 .secret-row { padding: 8px 0; border-bottom: 1px solid var(--line, rgba(255,255,255,0.08)); }
 .secret-row .doc-row-meta > span { display: inline-flex; align-items: center; gap: 2px; }
 .skill-pin-form input { flex: 1 1 160px; min-width: 0; width: auto; }
+/* Town Hall in-tray: building tag, rollup's covered reports, grant rows */
+.intray-building { display: inline-flex; align-items: center; gap: 4px; color: var(--text); font-weight: 600; margin-right: 4px; }
+.intray-building .glyph { width: 14px; height: 14px; }
+.intray-covered { font-size: 12px; padding: 2px 10px 6px; }
+.intray-covered ul { margin: 4px 0 0 14px; padding: 0; }
+.grant-row { cursor: default; }
+.grant-krs { margin: 2px 0 2px 16px; padding: 0; font-size: 12px; }
+.grant-decide { display: flex; flex-direction: column; gap: 4px; margin-top: 4px; }
+.grant-inputs { display: grid; grid-template-columns: 120px 1fr; gap: 6px; }
