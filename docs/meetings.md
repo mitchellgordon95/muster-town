@@ -6,7 +6,7 @@ Status: **design note, settled unless marked "proposal"** (town hall `mt_zyy96z8
 
 | Turn | Model | Tools | Input | Where |
 |---|---|---|---|---|
-| Attendee summary | `building.cheapModel`, default `claude-haiku-5-5` | none (one-shot) | own last report, own last 20 events, own 3 recent docs; agenda or "(none)" | `packages/runtime/src/meetings.ts:41`, `packages/core/src/prompts.ts:158` |
+| Attendee summary | `SUMMARY_MODEL` = `claude-sonnet-5-5` (was `building.cheapModel`, Haiku, until row 1 landed) | none (one-shot) | own last report, own last 20 events, own 3 recent docs; agenda or "(none)" | `packages/runtime/src/meetings.ts:41`, `packages/core/src/prompts.ts:158` |
 | Facilitator | `facilitator.model ?? meeting building's model ?? home building's model ?? claude-opus-5-5` | every town verb (`look`, `read`, `search`, `meeting`, `assign`…), no web, no code; ≤60 turns | summaries, last 20 utterances, agenda or "(none; set one from the summaries)" | `runtime/meetings.ts:151`, `prompts.ts:173` |
 | @-reply | `agent.model ?? home building's model ?? claude-opus-5-5` | none (one-shot, maxTurns 1) | last 20 utterances, own assignment, last report, 20 events, 3 recent docs | `runtime/meetings.ts:94`, `prompts.ts:196`, `runtime/sdk.ts:139` |
 
@@ -51,7 +51,7 @@ All of §2–§3 is runtime, prompts and one core function; no schema change, no
 
 | # | Change | Files | Size |
 |---|---|---|---|
-| 1 | Summary model Sonnet; reply-model test assertion | `runtime/meetings.ts`, its test, `docs/architecture.md` | tiny |
+| 1 | Summary model Sonnet; reply-model test assertion (done) | `runtime/meetings.ts`, its test, `docs/architecture.md` | tiny |
 | 2 | Summaries seeded from the last meeting (3.1); facilitator input (3.2) | `core/prompts.ts`, `runtime/meetings.ts`, a `previousMeeting` helper in `core/meetings.ts` | small |
 | 3 | Town-hall facilitator = a manager (3.4) | `core/meetings.ts`, its test | tiny |
 | 4 | @-reply as a short session with `read`/`search` (3.3) | `runtime/session.ts` (verb allowlist), `runtime/meetings.ts`, `core/prompts.ts` | small |

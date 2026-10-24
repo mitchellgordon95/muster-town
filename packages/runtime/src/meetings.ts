@@ -1,4 +1,4 @@
-/** Meetings: summaries while collecting (cheapModel, no tools), then a facilitated discussion over MCP. */
+/** Meetings: summaries while collecting (SUMMARY_MODEL, no tools), then a facilitated discussion over MCP. */
 import { TOWN_HALL_ID } from "@muster-town/core";
 import type { Meeting } from "@muster-town/schema";
 import { recentWorkBlock } from "@muster-town/core";
@@ -13,6 +13,11 @@ const FACILITATE_MAX_TURNS = 60;
 /** an attendee answers at most this many @mentions per meeting (a facilitator stuck in a loop can't run up the bill) */
 export const MEETING_REPLIES_MAX = 5;
 const MEETING_REPLY_MAX_CHARS = 1200;
+/**
+ * Model for attendee summaries. Its own constant, not `building.cheapModel`: cheapModel stays Haiku for the proxy chat,
+ * and changing its schema default would not reach buildings already in the DB (town hall 2026-10-24, docs/meetings.md §2).
+ */
+export const SUMMARY_MODEL = "claude-sonnet-5-5";
 
 export interface MeetingState {
   /** meetingId → when collecting began (ms) */
@@ -31,14 +36,12 @@ export function newMeetingState(): MeetingState {
 
 const meetingRoom = (m: Meeting) => `meeting-room:${m.buildingId ?? TOWN_HALL_ID}`;
 
-/** One attendee's summary: a cheap one-shot call, recorded through the `meeting` verb. */
+/** One attendee's summary: a one-shot call on SUMMARY_MODEL, recorded through the `meeting` verb. */
 async function summarize(ctx: Ctx, m: Meeting, agentId: string): Promise<void> {
   const { world } = ctx;
   const agent = world.agents.get(agentId);
   if (!agent || agent.kind === "human" || m.summaries[agentId] || !world.budget.canStart(agentId)) return;
-  const bid = homeOf(world, agentId);
-  const building = bid ? world.buildings.get(bid) : undefined;
-  const model = building?.cheapModel ?? "claude-haiku-5-5";
+  const model = SUMMARY_MODEL;
   const funding = fundingFor(world, agentId);
   const session = world.ops.startSession(agentId, { purpose: "summary", model, meetingId: m.id });
   const events = world.events.recent({ agentId, limit: 20 });
