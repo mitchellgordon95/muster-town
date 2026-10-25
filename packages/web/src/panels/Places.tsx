@@ -14,7 +14,7 @@ import { RequestCard } from "./OutboxPanel";
 import { DocText, Markdown } from "./Markdown";
 import { grantUrl } from "../route";
 import { stoplightLabel } from "../format";
-import { Act, Empty, ErrorLine, Field, Loading, Pill, Section, clock, fmtTokens, nameOf, timeAgo, usd, useLoad } from "./ui";
+import { Act, Empty, ErrorLine, Field, Loading, MTokensInput, Pill, Section, clock, fmtTokens, nameOf, timeAgo, usd, useLoad } from "./ui";
 import { fromMillions, toMillions } from "../format";
 import { portraitUrl } from "../map/sprites";
 
@@ -170,7 +170,7 @@ export function GrantRow({ grant: g, onDecided, onOpenDoc }: { grant: GrantView;
       ) : (
         <div className="grant-decide">
           <div className="grant-inputs">
-            <Field label={checkpoint ? "Grant (M tokens)" : "M tokens"}><input type="number" min={0} step="any" value={tokens} onChange={(e) => setTokens(e.target.value)} /></Field>
+            <Field label={checkpoint ? "Grant" : "Fund"}><MTokensInput value={tokens} onChange={setTokens} /></Field>
             <Field label="Note"><input value={note} placeholder={checkpoint ? "optional" : "required to counter"} onChange={(e) => setNote(e.target.value)} /></Field>
           </div>
           <div className="actions">
