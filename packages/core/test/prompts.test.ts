@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
-import type { Agent, Building, Town } from "@muster-town/schema";
-import { managerIntrayBlock, REPORT_FORMAT, sessionMemory, summarySystemPrompt, workshopPrompt, workSystemPrompt } from "../src/prompts.ts";
+import type { Agent, Building, Meeting, Town } from "@muster-town/schema";
+import { facilitatePrompt, managerIntrayBlock, meetingReplyPrompt, meetingReplySystemPrompt, REPORT_FORMAT, sessionMemory, summarySystemPrompt, workshopPrompt, workSystemPrompt } from "../src/prompts.ts";
 import { seededWorld } from "./helpers.ts";
 
 const agent = { id: "ag_1", name: "Root", title: "Backend", direction: "Core, server, and runtime only." } as Agent;
@@ -55,5 +55,22 @@ describe("workshop code-access rules", () => {
     const p = workshopPrompt({ dir: "/home/agent/work/agent-town", branch: "agent/root/x", base: "main" }, "agent-town");
     expect(p).toContain("- Never force-push, never rewrite history, never run destructive commands.");
     expect(p).not.toContain("Never push to main");
+  });
+});
+
+describe("meeting prompts (docs/meetings.md §3.3, §3.5)", () => {
+  const meeting = { id: "mt_1", kind: "standup", title: "Lab standup", agenda: "", attendeeIds: ["ag_1"], summaries: {}, transcript: [], decisions: [] } as unknown as Meeting;
+  it("a reply turn is told its tools (read, search, speak) and the meeting id; no 'no tools' line", () => {
+    const sys = meetingReplySystemPrompt(agent);
+    expect(sys).not.toContain("no tools");
+    expect(sys).toContain("`read`");
+    expect(sys).toContain("`search`");
+    expect(sys).toContain("action \"speak\"");
+    expect(meetingReplyPrompt(meeting, () => "Root", { assignment: undefined, lastReport: undefined, events: [] })).toContain("meetingId mt_1");
+  });
+  it("a facilitation that starts over a non-empty transcript says it is picking up after a restart", () => {
+    expect(facilitatePrompt(meeting, () => "Root")).not.toContain("picking up after a restart");
+    const resumed = { ...meeting, transcript: [{ speakerId: "ag_1", speakerKind: "agent", text: "Agenda: x", at: "2026-10-24T00:00:00.000Z" }] } as unknown as Meeting;
+    expect(facilitatePrompt(resumed, () => "Root")).toContain("picking up after a restart");
   });
 });

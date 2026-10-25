@@ -1,6 +1,6 @@
-/** Meetings: summaries while collecting (SUMMARY_MODEL, no tools), then a facilitated discussion over MCP. */
+/** Meetings: summaries while collecting (SUMMARY_MODEL, no tools), @-replies as short read/search sessions, then a facilitated discussion over MCP. */
 import { TOWN_HALL_ID } from "@muster-town/core";
-import type { Meeting } from "@muster-town/schema";
+import type { Meeting, VerbName } from "@muster-town/schema";
 import { recentWorkBlock } from "@muster-town/core";
 import { facilitateMaterial, facilitatePrompt, facilitateSystemPrompt, lastMeetingFor, meetingReplyPrompt, meetingReplySystemPrompt, summaryPrompt, summarySystemPrompt } from "@muster-town/core";
 import { oneShot } from "./sdk.ts";
@@ -13,6 +13,9 @@ const FACILITATE_MAX_TURNS = 60;
 /** an attendee answers at most this many @mentions per meeting (a facilitator stuck in a loop can't run up the bill) */
 export const MEETING_REPLIES_MAX = 5;
 const MEETING_REPLY_MAX_CHARS = 1200;
+/** a reply turn may read a doc or search the library before it speaks; nothing else (no assign, tell, submit_report) */
+export const MEETING_REPLY_VERBS: VerbName[] = ["read", "search", "meeting"];
+export const MEETING_REPLY_MAX_TURNS = 4;
 /**
  * Model for attendee summaries. Its own constant, not `building.cheapModel`: cheapModel stays Haiku for the proxy chat,
  * and changing its schema default would not reach buildings already in the DB (town hall 2026-10-24, docs/meetings.md §2).
@@ -59,8 +62,9 @@ async function summarize(ctx: Ctx, m: Meeting, agentId: string): Promise<void> {
 const LIVE = new Set(["collecting", "discussing"]);
 
 /**
- * An @mention in a live meeting by its facilitator or a human: the mentioned attendee gets one short turn (no tools;
- * transcript plus its assignment, latest report and recent activity) and speaks its reply into the meeting.
+ * An @mention in a live meeting by its facilitator or a human: the mentioned attendee gets one short session
+ * (MEETING_REPLY_VERBS only, up to MEETING_REPLY_MAX_TURNS; transcript plus its assignment, latest report and recent
+ * activity) and speaks its reply into the meeting; the runtime posts its final text if it didn't speak itself.
  * Mentions by other attendees don't wake anyone, so replies can't chain. A mention while a reply is in flight
  * gets one more turn after it, up to MEETING_REPLIES_MAX per attendee per meeting.
  */
@@ -95,19 +99,28 @@ async function replyInMeeting(ctx: Ctx, meetingId: string, agentId: string): Pro
   if (!m || !LIVE.has(m.phase) || !agent) return;
   const home = homeOf(world, agentId);
   const model = agent.model ?? (home ? world.buildings.get(home)?.model : undefined) ?? "claude-opus-5-5";
-  const funding = fundingFor(world, agentId);
-  const session = world.ops.startSession(agentId, { purpose: "meeting-reply", model, meetingId });
   const assignment = agent.currentAssignmentId ? world.assignments.get(agent.currentAssignmentId) : undefined;
   const prompt = meetingReplyPrompt(m, (id) => world.nameOf(id), { assignment, lastReport: latestReport(ctx, agentId), events: world.events.recent({ agentId, limit: 20 }), recentWork: recentWorkBlock(world, agentId, { short: true, readHint: false }) });
-  const out = await oneShot(ctx.sdk, { model, system: meetingReplySystemPrompt(agent), prompt, apiKey: funding.apiKey });
-  const text = out.text.trim().slice(0, MEETING_REPLY_MAX_CHARS);
-  let error = out.error;
-  if (text) {
-    try { await world.verbs.meeting(agentId, { meetingId, action: "speak", text }); }
-    catch (e) { error = e instanceof Error ? e.message : String(e); }
-  } else error ??= "empty reply";
-  world.ops.endSession(session.id, { status: error ? "error" : "done", tokens: out.tokens, costUsd: out.costUsd, turns: out.turns, error });
-  chargeUsage(world, agentId, out, funding.allocationId);
+  const spoken = () => world.meetings.get(meetingId)?.transcript.length ?? 0;
+  const before = spoken();
+  await runAgentSession(ctx, {
+    agentId, purpose: "meeting-reply", model, maxTurns: MEETING_REPLY_MAX_TURNS, web: false, meetingId, verbs: MEETING_REPLY_VERBS,
+    system: meetingReplySystemPrompt(agent), prompt,
+    // the session's own end: speak the final text if the model didn't `speak` itself, then record and charge
+    finish: async (out, allocationId) => {
+      let error = out.error;
+      const said = world.meetings.get(meetingId)?.transcript.slice(before).some((u) => u.speakerId === agentId) ?? false;
+      const text = out.finalText.trim().slice(0, MEETING_REPLY_MAX_CHARS);
+      if (!said && text) {
+        try { await world.verbs.meeting(agentId, { meetingId, action: "speak", text }); }
+        catch (e) { error = e instanceof Error ? e.message : String(e); }
+      } else if (!said) error ??= "empty reply";
+      const status = out.stopped ? "interrupted" : error ? "error" : "done";
+      const session = world.ops.endSession(out.session.id, { status, tokens: out.tokens, costUsd: out.costUsd, turns: out.turns, error, sdkSessionId: out.sdkSessionId });
+      chargeUsage(world, agentId, out, allocationId);
+      return session;
+    },
+  }).catch((e) => console.log("[runtime] meeting reply failed:", e));
 }
 
 /**

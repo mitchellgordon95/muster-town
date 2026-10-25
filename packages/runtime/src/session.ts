@@ -4,7 +4,7 @@
  */
 import type { DesksConfig } from "@muster-town/schema";
 import type { World } from "@muster-town/core";
-import { VERB_NAMES, type AllocationAuth, type Session } from "@muster-town/schema";
+import { VERB_NAMES, type AllocationAuth, type Session, type VerbName } from "@muster-town/schema";
 import { describeTool } from "./describe.ts";
 import { blocksOf, InputChannel, sessionEnv, usageOf, type LooseMessage, type Options, type QueryHandle, type Sdk, type Usage } from "./sdk.ts";
 
@@ -17,6 +17,8 @@ export interface Ctx {
   sdk: Sdk;
   /** live work and manage sessions by agentId (host ones take interrupts directly; desk ones hold the exec child) */
   live: Map<string, LiveSession>;
+  /** live facilitate sessions by agentId: the redeploy drain waits for them too (a restart mid-meeting orphans the facilitator) */
+  facilitating: Map<string, LiveSession>;
   /** desk sessions' funding allocation, by sessionId (charged in finishWorkSession) */
   deskAllocations: Map<string, string | null>;
   /** desk sessions' fallback allocation (charged instead when the desk failed over to the API key), by sessionId */
@@ -55,6 +57,8 @@ export interface SessionSpec {
   web: boolean;
   assignmentId?: string | null;
   meetingId?: string | null;
+  /** only these town verbs are allowed (the rest are disallowed outright); absent = every verb. Meeting replies: read, search, meeting. */
+  verbs?: VerbName[];
   /** work sessions: ends the session instead of the default endSession + charge (see finishWorkSession) */
   finish?: (out: SessionOutcome, allocationId: string | null) => Promise<Session>;
 }
@@ -137,6 +141,7 @@ export function fundedBy(auth: AllocationAuth | null | undefined): string {
 
 export function townOptions(ctx: Ctx, spec: SessionSpec, apiKey: string | null): Options {
   const token = ctx.world.tokens.getOrCreate("agent", spec.agentId);
+  const townTools = spec.verbs ? spec.verbs.map((v) => `mcp__town__${v}`) : TOWN_TOOLS;
   return {
     model: spec.model,
     maxTurns: spec.maxTurns,
@@ -145,8 +150,8 @@ export function townOptions(ctx: Ctx, spec: SessionSpec, apiKey: string | null):
     // `tools` is the built-in tool set available to the session; `allowedTools` only auto-approves within it.
     // In-process sessions never get code tools: code work happens in desks (docker backend).
     tools: spec.web ? WEB_TOOLS : [],
-    allowedTools: [...TOWN_TOOLS, ...(spec.web ? WEB_TOOLS : [])],
-    disallowedTools: [...DISALLOWED_TOOLS, ...(spec.web ? [] : WEB_TOOLS)],
+    allowedTools: [...townTools, ...(spec.web ? WEB_TOOLS : [])],
+    disallowedTools: [...DISALLOWED_TOOLS, ...(spec.web ? [] : WEB_TOOLS), ...TOWN_TOOLS.filter((t) => !townTools.includes(t))],
     settingSources: [],
     env: sessionEnv(apiKey),
   };
@@ -165,6 +170,7 @@ export async function runAgentSession(ctx: Ctx, spec: SessionSpec): Promise<Sess
   const live: LiveSession = { kind: "host", agentId: agent.id, sessionId: session.id, purpose: spec.purpose, input: new InputChannel(), q: null, reportSubmitted: false, stopped: false };
   // work and manage sessions take interrupts and count as the agent's live session (scheduler, redeploy drain, abort)
   if (spec.purpose === "work" || spec.purpose === "manage") ctx.live.set(agent.id, live);
+  else if (spec.purpose === "facilitate") ctx.facilitating.set(agent.id, live);
   const emit = (type: "agent.tool" | "agent.thought" | "system", text: string, payload: Record<string, unknown> = {}) =>
     world.events.append({ type, agentId: agent.id, buildingId: bid, text, payload: { sessionId: session.id, purpose: spec.purpose, ...payload } });
 
@@ -218,6 +224,7 @@ export async function runAgentSession(ctx: Ctx, spec: SessionSpec): Promise<Sess
   } finally {
     live.input.close();
     if (ctx.live.get(agent.id) === live) ctx.live.delete(agent.id);
+    if (ctx.facilitating.get(agent.id) === live) ctx.facilitating.delete(agent.id);
   }
   if (!live.reportSubmitted && world.sessions.get(session.id)?.reportId) live.reportSubmitted = true;
 

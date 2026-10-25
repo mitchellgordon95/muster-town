@@ -1,8 +1,9 @@
 import { describe, expect, test } from "vitest";
-import { COLLECTING_MS, MEETING_REPLIES_MAX, SUMMARY_MODEL } from "../src/index.ts";
+import { COLLECTING_MS, MEETING_REPLIES_MAX, MEETING_REPLY_MAX_TURNS, MEETING_REPLY_VERBS, SUMMARY_MODEL } from "../src/index.ts";
 import { callVerb, deferred, init, result, setup, text, type FakeSession } from "./helpers.ts";
 
-const systemOf = (s: FakeSession) => String(s.options.systemPrompt ?? "");
+/** the system prompt as text: a one-shot passes a string, a host session a preset object with `append` */
+const systemOf = (s: FakeSession) => { const sp = s.options.systemPrompt as string | { append?: string } | undefined; return typeof sp === "string" ? sp : sp?.append ?? ""; };
 
 describe("meetings", () => {
   test("a failed summary call records an error, not its error text as the summary", async () => {
@@ -127,11 +128,21 @@ describe("meetings", () => {
 });
 
 describe("questioning attendees", () => {
+  /** a meeting reply: a short host session (read/search/meeting). Noor answers in text only (the runtime posts it); Tomas speaks it himself. */
   const replyScript = (seen: string[]) => async function* (s: FakeSession) {
     const sys = systemOf(s);
-    if (!s.agentId && sys.includes("addressed you")) { // one-shot meeting reply (no tools)
+    if (sys.includes("addressed you")) {
       const name = /^You are (\w+)/.exec(sys)![1];
       seen.push(s.received[0]);
+      yield init();
+      if (name === "Tomas") {
+        const meetingId = /meetingId (mt_[\w-]+)/.exec(s.received[0])![1];
+        yield* callVerb(s, "read", { id: "dc_nothing" }); // a reply turn may read
+        yield* callVerb(s, "meeting", { meetingId, action: "speak", text: "Tomas here: 13C is at -8.9 ‰." });
+        yield text("Posted.");
+        yield result(90, 0.003, "Posted.");
+        return;
+      }
       const reply = name === "Noor" ? "Growth is 2.4 ± 0.1 ppm/yr; Tomas has the 13C side." : `${name} here.`;
       yield text(reply);
       yield result(60, 0.002, reply);
@@ -156,16 +167,29 @@ describe("questioning attendees", () => {
     expect(prompts[0]).toContain("@Noor where is the growth rate?");
     expect(prompts[0]).toContain("My latest report:");
     const reply = sdk.sessions.find((s) => systemOf(s).includes("addressed you"))!;
+    expect(reply.agentId).toBe(noor.id); // a host session on Noor's token, not a one-shot
     expect(reply.options.tools).toEqual([]);
+    expect(reply.options.maxTurns).toBe(MEETING_REPLY_MAX_TURNS);
+    expect(reply.options.allowedTools).toEqual(MEETING_REPLY_VERBS.map((v) => `mcp__town__${v}`)); // read, search, meeting: nothing else
+    expect(reply.options.disallowedTools).toEqual(expect.arrayContaining(["mcp__town__submit_report", "mcp__town__assign", "mcp__town__tell", "WebSearch", "Bash"]));
+    expect(reply.options.disallowedTools).not.toContain("mcp__town__read");
     expect(reply.options.model).toBe("claude-sonnet-5-5"); // @-replies run on the resident's configured model
-    expect(world.sessions.first("agentId = ? AND purpose = 'meeting-reply'", [noor.id])).toMatchObject({ status: "done", meetingId: m.id, model: "claude-sonnet-5-5" });
+    expect(world.sessions.first("agentId = ? AND purpose = 'meeting-reply'", [noor.id])).toMatchObject({ status: "done", meetingId: m.id, model: "claude-sonnet-5-5", tokens: 60 });
+
+    // Tomas reads a doc and speaks through the verb himself: posted once, the runtime doesn't repeat his final text
+    await world.verbs.meeting(fac, { meetingId: m.id, action: "speak", text: "@Tomas and the 13C?" });
+    await runtime.whenIdle();
+    cur = world.meetings.require(m.id);
+    expect(cur.transcript.filter((u) => u.speakerId === tomas.id).map((u) => u.text)).toEqual(["Tomas here: 13C is at -8.9 ‰."]);
+    expect(world.sessions.first("agentId = ? AND purpose = 'meeting-reply'", [tomas.id])).toMatchObject({ status: "done", meetingId: m.id });
+    expect(world.events.recent({ agentId: tomas.id, limit: 20 }).some((e) => e.type === "agent.tool" && (e.payload as { tool?: string }).tool === "mcp__town__read")).toBe(true);
 
     // Noor's reply named Tomas without "@"; an attendee's @mention doesn't wake anyone either
     await world.verbs.meeting(noor.id, { meetingId: m.id, action: "speak", text: "@Tomas can you add the 13C numbers?" });
     await runtime.whenIdle();
     cur = world.meetings.require(m.id);
     expect(cur.transcript.at(-1)!.speakerId).toBe(noor.id);
-    expect(prompts).toHaveLength(1);
+    expect(prompts).toHaveLength(2); // Noor and Tomas, once each
   });
 
   test("a human's @mention wakes the attendee; replies stop at the cap", async () => {
@@ -181,7 +205,7 @@ describe("questioning attendees", () => {
     }
     const replies = world.meetings.require(m.id).transcript.filter((u) => u.speakerId === tomas.id);
     expect(replies).toHaveLength(MEETING_REPLIES_MAX);
-    expect(replies[0].text).toBe("Tomas here.");
+    expect(replies[0].text).toBe("Tomas here: 13C is at -8.9 ‰."); // spoken through the verb, posted once
     expect(prompts).toHaveLength(MEETING_REPLIES_MAX);
   });
 });
