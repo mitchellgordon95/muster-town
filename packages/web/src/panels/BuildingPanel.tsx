@@ -244,7 +244,33 @@ function Settings({ b }: { b: SnapshotBuilding }) {
     </form>
     </Section>
     {b.kind !== "town-hall" ? <PoolPicker b={b} /> : null}
+    {b.kind !== "town-hall" && store.can("building.fund", b.id) ? <BudgetMode b={b} /> : null}
   </>);
+}
+
+/** Open vs goal-directed (docs/goal-directed-budgets.md). Humans who can fund only: a manager agent can't change its own budget. */
+function BudgetMode({ b }: { b: SnapshotBuilding }) {
+  const [mode, setMode] = useState(b.budgetMode);
+  const [explore, setExplore] = useState(b.explorationTokensPerDay == null ? "" : String(b.explorationTokensPerDay));
+  return (
+    <Section title="Budget mode">
+      <form className="form" onSubmit={(e) => e.preventDefault()}>
+        <Field label="Mode" hint="Open: residents draw on the pool as before. Goal-directed: work runs on funded grants or the daily exploration allowance; directed assignments still start, and the board shows the building's key results.">
+          <select value={mode} onChange={(e) => setMode(e.target.value as typeof mode)}>
+            <option value="open">open</option>
+            <option value="goal-directed">goal-directed</option>
+          </select>
+        </Field>
+        <Field label="Exploration tokens / day" hint="Leave blank for the default: 10% of the pool's daily inflow.">
+          <input type="number" min={0} value={explore} placeholder="default" onChange={(e) => setExplore(e.target.value)} />
+        </Field>
+        <div className="actions"><Act tone="primary" run={async () => {
+          await api().updateBuilding(b.id, { budgetMode: mode, explorationTokensPerDay: explore === "" ? null : Math.max(0, Math.floor(+explore)) });
+          store.toast(`${b.name} is now ${mode}`, "ok");
+        }}>Save budget mode</Act></div>
+      </form>
+    </Section>
+  );
 }
 
 /** The Bank pool this building draws from. Only an admin can move it; the move takes effect at once. */
