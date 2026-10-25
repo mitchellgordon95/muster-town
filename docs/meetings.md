@@ -8,14 +8,14 @@ Status: **design note, settled unless marked "proposal"** (town hall `mt_zyy96z8
 |---|---|---|---|---|
 | Attendee summary | `SUMMARY_MODEL` = `claude-sonnet-5-5` (was `building.cheapModel`, Haiku, until row 1 landed) | none (one-shot) | own last report, own last 20 events, own 3 recent docs; agenda or "(none)" | `packages/runtime/src/meetings.ts:41`, `packages/core/src/prompts.ts:158` |
 | Facilitator | `facilitator.model ?? meeting building's model ?? home building's model ?? claude-opus-5-5` | every town verb (`look`, `read`, `search`, `meeting`, `assign`…), no web, no code; ≤60 turns | summaries, last 20 utterances, agenda or "(none; set one from the summaries)" | `runtime/meetings.ts:151`, `prompts.ts:173` |
-| @-reply | `agent.model ?? home building's model ?? claude-opus-5-5` | none (one-shot, maxTurns 1) | last 20 utterances, own assignment, last report, 20 events, 3 recent docs | `runtime/meetings.ts:94`, `prompts.ts:196`, `runtime/sdk.ts:139` |
+| @-reply | `agent.model ?? home building's model ?? claude-opus-5-5` | `read`, `search`, `meeting` only (`MEETING_REPLY_VERBS`; host session, ≤4 turns, no web; was a one-shot until row 4 landed) | last 20 utterances, own assignment, last report, 20 events, 3 recent docs | `runtime/meetings.ts:107`, `prompts.ts:294`, `runtime/session.ts:61` (`SessionSpec.verbs`) |
 
 Two corrections to what was said in the meeting (I said it, so I'm correcting it):
 
 - **@-reply turns already use the resident's own model.** `agent.model` is the per-resident setting (`PATCH /api/agents/:id/model`, null = the home building's model); the reply turn has read it since the feature landed (0bf5e6a). The facilitator does the same. Only the summary ignores it. So decision (i) below is a statement of fact, not a change.
 - **The 12 "errored" facilitation sessions were all `orphaned at restart`** (0 turns each): the server restarted under them. In every case the runtime started a fresh facilitation within about 5 s and that one finished (`done`); all 28 meetings have a notes doc. Seven of the twelve are one restart loop on 2026-10-20 16:35–16:38 UTC. Nothing failed "at the close step"; the notes path was never the problem.
 
-Default facilitator today (`packages/core/src/meetings.ts:34`): for a building meeting, the building's manager if active, else its reviewer, else the first resident by join order; for a town hall, the first active invitee. The notes doc is written by `endMeeting` (`core/meetings.ts:214`) on every path that ends a meeting: the facilitator's `end`, the human's End button (`POST /api/meetings/:id/end`), and the runtime's fallback when the facilitation session returns with the meeting still open (`runtime/meetings.ts:161`). Decisions recorded in the 5-minute grace window after close are appended to the notes (`core/meetings.ts:202`).
+Default facilitator today (`packages/core/src/meetings.ts:36`): for a building meeting, the building's manager if active, else its reviewer, else the first resident by join order; for a town hall, the first active manager among the invitees (buildings in creation order), else the first active invitee (was the first active invitee until row 3 landed). The notes doc is written by `endMeeting` (`core/meetings.ts:214`) on every path that ends a meeting: the facilitator's `end`, the human's End button (`POST /api/meetings/:id/end`), and the runtime's fallback when the facilitation session returns with the meeting still open (`runtime/meetings.ts:161`). Decisions recorded in the 5-minute grace window after close are appended to the notes (`core/meetings.ts:202`).
 
 ## 2. Settled: models
 
@@ -45,7 +45,7 @@ The agenda field keeps its meaning: if the human set one, the facilitator follow
 
 **3.5 The runtime writes the notes doc on every close.** Already true (§1). What is left is the restart case: the redeploy drain waits for live *work* sessions only (`runtime/redeploy.ts:52`), so a redeploy during a discussion orphans the facilitator; the restarted server re-facilitates with a fresh session that sees the transcript but not what the previous facilitator had read. Change: count live `facilitate` sessions in the drain's live set (the drain already has the wrap-up message path, `drainWrapUpMs`, to tell such a session to close the meeting first). A facilitation that is re-run after a restart should also say so in its first `speak` ("picking up after a restart"), which the prompt can do from `meeting.transcript.length > 0`.
 
-## 4. Build order (all rows on main)
+## 4. Build order (closed 2026-10-25: every row live on muster.town)
 
 All of §2–§3 is runtime, prompts and one core function; no schema change, no migration. One PR per row keeps each reviewable:
 
@@ -57,7 +57,7 @@ All of §2–§3 is runtime, prompts and one core function; no schema change, no
 | 4 | @-reply as a short session with `read`/`search` (3.3) (done) | `runtime/session.ts` (verb allowlist), `runtime/meetings.ts`, `core/prompts.ts` | small |
 | 5 | Drain waits for facilitations (3.5) (done) | `runtime/redeploy.ts`, `runtime/index.ts` | small |
 
-Rows 1–3 fit in the waterfall's step 2 (runtime, Root) or can be done by me; row 2 is what changes the meetings most. Row 4 is independent. Row 5 matters only once redeploys stop happening between meetings.
+Closed 2026-10-25 04:28 UTC: `GET https://muster.town/api/health` read 9aa87fa, which contains the last merge of this order, fae5737 (PR #48; rows 1–2 went live as de4474b, verified on 867dc3f). Still to observe, not yet possible: no meeting has been called since fae5737 merged, so no `meeting-reply` session has run live. The check, at the first @-mention in the next meeting: the mentioned resident's `session.started` event (`GET /api/agents/:id`, `recentEvents`) carries `payload.purpose = "meeting-reply"`, its session row has `maxTurns` 4 and the reply reads docs before speaking; and its cost against the one-shot baseline (26 replies for $0.68 across the 28 meetings before row 4).
 
 ## 5. Comments on docs for review (a separate system, later)
 
