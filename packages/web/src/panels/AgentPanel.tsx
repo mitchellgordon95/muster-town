@@ -9,7 +9,7 @@ import { api, type AgentPermissionsView, type ThreadMessage } from "../api";
 import { store, useTown, roleOf } from "../state";
 import { DismissButton, canDismiss } from "./Dismiss";
 import { PanelShell } from "./PanelShell";
-import { Markdown } from "./Markdown";
+import { DocText, Markdown } from "./Markdown";
 import { Act, Empty, KV, Pill, Section, StatusPill, clock, fmtTokens, timeAgo, usd, useLoad } from "./ui";
 import { portraitUrl } from "../map/sprites";
 import { SignInNote } from "../auth/auth";
@@ -275,7 +275,7 @@ function Timeline({ items, empty, agentName }: { items: Item[]; empty: string; a
         return (
           <div key={e.id} className={`ev ${EVENT_TONE[e.type] ?? ""}`}>
             <time title={e.ts}>{clock(e.ts)}</time>
-            <span>{e.text}</span>
+            <span><DocText text={e.text} /></span>
           </div>
         );
       })}
@@ -519,7 +519,7 @@ function AssignmentRow({ a, actions, index, offline, footer, slotWait }: { a: As
           : slotWait && a.status === "pending" ? <Pill tone="warn" title="Every session slot on the host is taken (Planning → System sets the cap). It starts when one frees up.">waiting for a slot</Pill>
           : <Pill tone={a.status === "active" ? (offline ? "" : "ok") : a.status === "pending" ? "warn" : a.status === "cancelled" ? "bad" : ""}>{a.status === "pending" ? "queued" : a.status === "active" && offline ? "active, visitor offline" : a.status}</Pill>}
       </div>
-      {a.description ? <div className="asg-desc" onClick={() => long && setOpen((o) => !o)}>{long && !open ? a.description.slice(0, 157) + "…" : a.description}</div> : null}
+      {a.description ? <div className="asg-desc" onClick={() => long && setOpen((o) => !o)}><DocText text={long && !open ? a.description.slice(0, 157) + "…" : a.description} /></div> : null}
       <div className="asg-meta">
         {a.fromAssignmentId ? "retried or delegated · " : a.fromMeetingId ? "from a meeting · " : a.fromReportId ? "from a report · " : ""}
         {a.status === "done" || a.status === "cancelled" ? `${a.status} ${timeAgo(a.updatedAt)}` : `created ${timeAgo(a.createdAt)}`}

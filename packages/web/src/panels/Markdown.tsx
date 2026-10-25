@@ -1,14 +1,15 @@
 /**
  * Markdown rendering with `marked`, a small allowlist sanitizer (docs are agent-written and may quote
  * the web), and link resolution: relative links like `../sources/gcb-2025-essd.md` open the matching doc,
- * and bare doc ids (`dc_k955hun6c4`) in text become links.
+ * and bare doc ids (`dc_k955hun6c4`) and grant ids (`gr_jqsqra0dlx`) in text become links: a doc opens in the
+ * library panel, a grant or proposal in the grant panel.
  */
 import { marked } from "marked";
 import { useMemo } from "react";
 import type { Doc } from "@muster-town/schema";
 import { api } from "../api";
 import { store } from "../state";
-import { docUrl } from "../route";
+import { docUrl, grantUrl } from "../route";
 
 const ALLOWED = new Set(["P", "H1", "H2", "H3", "H4", "H5", "H6", "UL", "OL", "LI", "A", "EM", "STRONG", "CODE", "PRE", "BLOCKQUOTE", "TABLE", "THEAD", "TBODY", "TR", "TH", "TD", "HR", "BR", "DEL", "IMG", "INPUT", "SPAN", "DIV", "SUP", "SUB"]);
 const ATTRS = new Set(["href", "title", "src", "alt", "align", "type", "checked", "disabled"]);
@@ -35,14 +36,20 @@ export function sanitize(html: string): string {
   return root.innerHTML;
 }
 
-/** A doc id as the server mints it: `dc_` + 10 lowercase alphanumerics. */
+/** A doc or grant id as the server mints it: `dc_` / `gr_` + 10 lowercase alphanumerics. */
+const LINK_ID_RE = /\b(?:dc|gr)_[a-z0-9]{10}\b/g;
+/** A doc id alone, for places that want docs only (the say-box preview by title). */
 const DOC_ID_RE = /\bdc_[a-z0-9]{10}\b/g;
+/** The id a link target names, bare or `doc:`-prefixed, with any path in front: `dc_…` or `gr_…`. */
+const LINK_TARGET_RE = /^(?:doc:)?((?:dc|gr)_[a-z0-9]{10})$/;
 
-/** Split text into plain strings and `{ id }` parts at each bare doc id. */
+export const isGrantId = (id: string) => id.startsWith("gr_");
+
+/** Split text into plain strings and `{ id }` parts at each bare doc or grant id. */
 export function docIdParts(s: string): (string | { id: string })[] {
   const out: (string | { id: string })[] = [];
   let last = 0;
-  for (const m of s.matchAll(DOC_ID_RE)) {
+  for (const m of s.matchAll(LINK_ID_RE)) {
     if (m.index > last) out.push(s.slice(last, m.index));
     out.push({ id: m[0] });
     last = m.index + m[0].length;
@@ -54,30 +61,40 @@ export function docIdParts(s: string): (string | { id: string })[] {
 /** The distinct doc ids cited in a text, in order of first mention. */
 export const docIdsIn = (s: string): string[] => [...new Set(s.match(DOC_ID_RE) ?? [])];
 
-/** A doc id as a link, as `linkDocIds` produces it: opens in the panel, or in a new tab (`/#/doc/<id>`) so the current panel stays put. */
+/** The shareable URL of a doc or grant id (`/#/doc/<id>` or `/#/grant/<id>`). */
+const urlOf = (id: string) => (isGrantId(id) ? grantUrl(id) : docUrl(id));
+
+/** Open what an id names: a grant in the grant panel, a doc in the library. */
+export function openIdLink(id: string) {
+  if (isGrantId(id)) store.open({ kind: "grant", id });
+  else void openDocLink(id);
+}
+
+/** A doc or grant id as a link, as `linkDocIds` produces it: opens in the panel, or in a new tab (`/#/doc/<id>`, `/#/grant/<id>`) so the current panel stays put. */
 const docIdAnchor = (id: string, newTab?: boolean) => ({
-  className: "doc-id", title: store.state.docs[id]?.title, href: newTab ? docUrl(id) : id, target: newTab ? "_blank" : undefined, rel: newTab ? "noopener noreferrer" : undefined,
+  className: isGrantId(id) ? "doc-id grant-id" : "doc-id", title: isGrantId(id) ? "grant" : store.state.docs[id]?.title, href: newTab ? urlOf(id) : id, target: newTab ? "_blank" : undefined, rel: newTab ? "noopener noreferrer" : undefined,
 });
 
-/** Plain text (no markdown) with bare doc ids as links; `newTab` keeps the current panel, e.g. a live meeting. */
+/** Plain text (no markdown) with bare doc and grant ids as links; `newTab` keeps the current panel, e.g. a live meeting. */
 export function DocText({ text, newTab }: { text: string; newTab?: boolean }) {
   const parts = useMemo(() => docIdParts(text), [text]);
   return (
     <>
       {parts.map((p, i) => typeof p === "string" ? p : (
-        <a key={i} {...docIdAnchor(p.id, newTab)} onClick={newTab ? undefined : (e) => { e.preventDefault(); void openDocLink(p.id); }}>{p.id}</a>
+        <a key={i} {...docIdAnchor(p.id, newTab)} onClick={newTab ? undefined : (e) => { e.preventDefault(); openIdLink(p.id); }}>{p.id}</a>
       ))}
     </>
   );
 }
 
-/** Wrap bare doc ids in text nodes (outside links and code) in `<a href="dc_…">` so they open the doc. */
+/** Wrap bare doc and grant ids in text nodes (outside links and code) in `<a href="dc_…">` / `<a href="gr_…">` so they open. */
 function linkDocIds(root: Element) {
   const owner = root.ownerDocument;
   const texts: Text[] = [];
   const it = owner.createTreeWalker(root, NodeFilter.SHOW_TEXT);
   for (let n = it.nextNode(); n; n = it.nextNode()) {
-    if (!n.parentElement?.closest("a, code, pre") && (n.nodeValue ?? "").includes("dc_")) texts.push(n as Text);
+    const v = n.nodeValue ?? "";
+    if (!n.parentElement?.closest("a, code, pre") && (v.includes("dc_") || v.includes("gr_"))) texts.push(n as Text);
   }
   for (const t of texts) {
     const parts = docIdParts(t.nodeValue ?? "");
@@ -86,8 +103,8 @@ function linkDocIds(root: Element) {
       if (typeof p === "string") return p;
       const a = owner.createElement("a");
       a.setAttribute("href", p.id);
-      a.className = "doc-id";
-      const title = store.state.docs[p.id]?.title;
+      a.className = isGrantId(p.id) ? "doc-id grant-id" : "doc-id";
+      const title = isGrantId(p.id) ? "grant" : store.state.docs[p.id]?.title;
       if (title) a.title = title;
       a.textContent = p.id;
       return a;
@@ -136,7 +153,7 @@ export async function openDocLink(href: string) {
 /** Unsanitized HTML; `breaks` turns a single newline into a line break, for chat text where people press Enter and mean it. */
 export const markdownHtml = (text: string, breaks = false) => marked.parse(text, { async: false, gfm: true, breaks }) as string;
 
-/** `newTab`: doc links open as `/#/doc/<id>` in a new tab instead of replacing the current panel (used inside a live meeting). */
+/** `newTab`: doc and grant links open as `/#/doc/<id>` / `/#/grant/<id>` in a new tab instead of replacing the current panel (used inside a live meeting). */
 export function Markdown({ text, className, breaks = false, newTab = false }: { text: string; className?: string; breaks?: boolean; newTab?: boolean }) {
   const html = useMemo(() => sanitize(markdownHtml(text, breaks)), [text, breaks]);
   return (
@@ -149,10 +166,11 @@ export function Markdown({ text, className, breaks = false, newTab = false }: { 
         const href = a.getAttribute("href") ?? "";
         if (/^(https?:|mailto:)/i.test(href)) { a.target = "_blank"; a.rel = "noopener noreferrer"; return; }
         if (href.startsWith("#")) { e.preventDefault(); return; }
-        const id = /^(?:doc:)?(dc_[a-z0-9]{10})$/.exec(href.split("/").pop() ?? "")?.[1];
-        if (newTab && id) { a.href = docUrl(id); a.target = "_blank"; a.rel = "noopener noreferrer"; return; }
+        const id = LINK_TARGET_RE.exec(href.split("/").pop() ?? "")?.[1];
+        if (newTab && id) { a.href = urlOf(id); a.target = "_blank"; a.rel = "noopener noreferrer"; return; }
         e.preventDefault();
-        void openDocLink(href);
+        if (id && isGrantId(id)) openIdLink(id);
+        else void openDocLink(href);
       }}
     />
   );

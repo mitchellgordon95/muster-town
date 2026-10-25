@@ -1,20 +1,25 @@
 /**
- * Shareable doc URLs: `/#/doc/<id>` opens that doc in the library panel, and opening a doc there
- * puts its id in the address bar, so a link can be pasted into a report, chat or anywhere else.
+ * Shareable URLs: `/#/doc/<id>` opens that doc in the library panel and `/#/grant/<id>` opens that grant or
+ * proposal; opening either puts its id in the address bar, so a link can be pasted into a report, chat or anywhere else.
  */
-import { store } from "./state";
+import { store, type PanelRef } from "./state";
 
-const DOC_HASH = /^#\/doc\/([A-Za-z0-9_]+)$/;
+const DOC_HASH = /^#\/(doc|grant)\/([A-Za-z0-9_]+)$/;
 
-/** True when the page was opened on a shared doc link. */
+/** True when the page was opened on a shared doc or grant link. */
 export const isDocHash = () => DOC_HASH.test(location.hash);
 
 export const docUrl = (id: string) => `${location.origin}${location.pathname}#/doc/${id}`;
+export const grantUrl = (id: string) => `${location.origin}${location.pathname}#/grant/${id}`;
+
+/** The hash a panel is shared as: docs and grants have one, the rest none. */
+const hashOf = (p: PanelRef | null): string => p?.kind === "library" && p.docId ? `#/doc/${p.docId}` : p?.kind === "grant" && p.id ? `#/grant/${p.id}` : "";
 
 function openFromHash() {
-  const id = DOC_HASH.exec(location.hash)?.[1];
-  const p = store.state.panel;
-  if (id && !(p?.kind === "library" && p.docId === id)) store.open({ kind: "library", docId: id });
+  const m = DOC_HASH.exec(location.hash);
+  if (!m) return;
+  const want: PanelRef = m[1] === "grant" ? { kind: "grant", id: m[2] } : { kind: "library", docId: m[2] };
+  if (hashOf(store.state.panel) !== location.hash) store.open(want);
 }
 
 /** Call once the town is loaded. Returns the cleanup. */
@@ -26,7 +31,7 @@ export function startDocRoutes(): () => void {
     const p = store.state.panel;
     if (p === last) return;
     last = p;
-    const want = p?.kind === "library" && p.docId ? `#/doc/${p.docId}` : "";
+    const want = hashOf(p);
     if (want ? location.hash !== want : DOC_HASH.test(location.hash)) history.replaceState(null, "", want || location.pathname + location.search);
   });
   return () => { window.removeEventListener("hashchange", openFromHash); unsubscribe(); };

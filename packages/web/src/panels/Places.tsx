@@ -11,7 +11,8 @@ import { DocRow, DocView, VERDICT_TONE, needOf } from "./DocView";
 import { Glyph, PanelShell } from "./PanelShell";
 import { phaseTone } from "./BuildingPanel";
 import { RequestCard } from "./OutboxPanel";
-import { Markdown } from "./Markdown";
+import { DocText, Markdown } from "./Markdown";
+import { grantUrl } from "../route";
 import { Act, Empty, ErrorLine, Field, Loading, Pill, Section, clock, fmtTokens, nameOf, timeAgo, usd, useLoad } from "./ui";
 import { fromMillions, toMillions } from "../format";
 import { portraitUrl } from "../map/sprites";
@@ -97,8 +98,27 @@ function BuildingTag({ buildingId }: { buildingId: string | null }) {
   return <span className="intray-building"><Glyph kind="building" />{b?.name ?? buildingId ?? "Town"}</span>;
 }
 
-/** A proposal or checkpoint row with its decision controls (POST /api/grants/:id/decide, `building.fund`). */
-function GrantRow({ grant: g, onDecided, onOpenDoc }: { grant: GrantView; onDecided: () => void; onOpenDoc: (id: string) => void }) {
+/** The grant's id as a link into the grant panel (`/#/grant/<id>`, so it can be copied and pasted anywhere). */
+export function GrantLink({ id, className }: { id: string; className?: string }) {
+  return <a className={`doc-id grant-id ${className ?? ""}`} href={grantUrl(id)} title="Open this grant" onClick={(e) => { e.preventDefault(); store.open({ kind: "grant", id }); }}>{id}</a>;
+}
+
+/** "Funded 2M tokens", "Closed: met", … for a grant nobody has to decide on right now. */
+function grantSettledLine(g: GrantView): string {
+  switch (g.status) {
+    case "funded": return `Funded ${fmtTokens(g.grantTokens ?? 0)} tokens${g.fundedAt ? ` ${timeAgo(g.fundedAt)}` : ""}; sessions draw on it until the next checkpoint.`;
+    case "closed": return `Closed${g.outcome ? `: ${g.outcome}` : ""}${g.closedAt ? `, ${timeAgo(g.closedAt)}` : ""}.`;
+    case "rejected": return "Rejected.";
+    case "draft": return "Draft: the manager is still writing it.";
+    default: return g.status;
+  }
+}
+
+/**
+ * A proposal or checkpoint row with its decision controls (POST /api/grants/:id/decide, `building.fund`); the same row
+ * shows any other status read-only in the grant panel.
+ */
+export function GrantRow({ grant: g, onDecided, onOpenDoc }: { grant: GrantView; onDecided: () => void; onOpenDoc: (id: string) => void }) {
   useTown((s) => s.me);
   const manager = useTown((s) => { const b = s.buildings.find((x) => x.id === g.buildingId); return b?.managerAgentId ? s.agents[b.managerAgentId] : undefined; });
   const author = useTown((s) => s.agents[g.proposedBy]);
@@ -107,6 +127,7 @@ function GrantRow({ grant: g, onDecided, onOpenDoc }: { grant: GrantView; onDeci
   const [tokens, setTokens] = useState(toMillions(ceiling));
   const [note, setNote] = useState("");
   const canFund = store.can("building.fund", g.buildingId);
+  const decidable = g.status === "proposed" || checkpoint;
   const last = g.history[g.history.length - 1];
   const n = fromMillions(tokens);
   const tokensOk = Number.isFinite(n) && n > 0;
@@ -123,7 +144,8 @@ function GrantRow({ grant: g, onDecided, onOpenDoc }: { grant: GrantView; onDeci
         <BuildingTag buildingId={g.buildingId} />
         {author ? <img src={portraitUrl(author.sprite, 1)} alt="" /> : null}<b>{manager ? `★ ${manager.name}` : nameOf(g.proposedBy)}</b>
         <span>{timeAgo(g.updatedAt)}</span>
-        <Pill tone={checkpoint ? "warn" : g.status === "countered" ? "" : "ok"}>{g.status}</Pill>
+        <Pill tone={checkpoint ? "warn" : g.status === "rejected" ? "bad" : g.status === "countered" || g.status === "draft" || g.status === "closed" ? "" : "ok"}>{g.status}</Pill>
+        <GrantLink id={g.id} />
       </div>
       <div className="doc-row-title">{g.objective}</div>
       <div className="doc-row-meta">
@@ -137,9 +159,11 @@ function GrantRow({ grant: g, onDecided, onOpenDoc }: { grant: GrantView; onDeci
         {g.testingPlan.map((t, i) => <li key={i} className="muted">Test: {t.text}</li>)}
       </ul>
       <div className="intray-proposal">Stop when: {g.stopCondition}</div>
-      {last?.note ? <div className="intray-proposal">{nameOf(last.byId)} ({last.action}): {last.note}</div> : null}
+      {last?.note ? <div className="intray-proposal">{nameOf(last.byId)} ({last.action}): <DocText text={last.note} /></div> : null}
       {g.status === "countered" ? (
         <div className="muted">Countered: waiting for {manager ? `★ ${manager.name}` : "the manager"} to revise and propose again.</div>
+      ) : !decidable ? (
+        <div className="muted">{grantSettledLine(g)}</div>
       ) : !canFund ? (
         <div className="muted">Funding decisions are for humans with building.fund.</div>
       ) : (
@@ -241,7 +265,7 @@ function KeyResultsView({ board }: { board: Board }) {
         {board.goal ? <div className="kr-goal"><span className="muted">Goal</span> {board.goal}</div> : null}
         {!board.grants.length ? <Empty>No funded grant yet: work is exploration, naming a key result or a goal gap.</Empty> : board.grants.map((g) => (
           <div key={g.id} className="kr-grant">
-            <div className="kr-grant-head"><b>{g.objective}</b><Pill tone={g.status === "checkpoint" ? "warn" : "ok"}>{g.status}</Pill></div>
+            <div className="kr-grant-head"><b><button className="link" title={`Open grant ${g.id}`} onClick={() => store.open({ kind: "grant", id: g.id })}>{g.objective}</button></b><Pill tone={g.status === "checkpoint" ? "warn" : "ok"}>{g.status}</Pill></div>
             <div className="kr-bar-row">
               <span className="kr-bar"><i style={{ width: `${spentShare(g.spentTokens, g.grantTokens ?? 0) * 100}%` }} /></span>
               <span className="muted">{grantSpendLine(g)}</span>
