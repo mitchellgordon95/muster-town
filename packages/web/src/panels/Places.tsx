@@ -5,7 +5,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { BOARD_TYPES, DocType, type Doc, type GrantView, type Meeting } from "@muster-town/schema";
 import { api, type Board } from "../api";
-import { explorationLine, grantSpendLine, grantStateLine, krTone, proposalLine, spentShare } from "./keyResults";
+import { explorationLine, grantSpendLine, grantStateLine, keyResultRows, krFundingLine, krStatusLabel, krTone, proposalLine, spentShare } from "./keyResults";
 import { store, useTown, roleOf } from "../state";
 import { DocRow, DocView, VERDICT_TONE, needOf } from "./DocView";
 import { Glyph, PanelShell } from "./PanelShell";
@@ -245,7 +245,7 @@ export function BoardPanel({ buildingId }: { buildingId: string }) {
     <PanelShell icon={<Glyph kind="board" />} title={`${b?.name ?? "Building"} board`} subtitle={goal
       ? "The building's key results, the manager's standing rules and building-wide FYIs. Everything else is in the filing cabinet beside it."
       : "The manager's standing rules and building-wide FYIs. Everything else is in the filing cabinet beside it."}>
-      {goal && board.data ? <KeyResultsView board={board.data} /> : null}
+      {goal && board.data ? <KeyResultsView board={board.data} buildingId={buildingId} /> : null}
       {b ? <StandingRules buildingId={b.id} rules={b.rules ?? ""} /> : null}
       <DocList board={board} />
     </PanelShell>
@@ -253,32 +253,41 @@ export function BoardPanel({ buildingId }: { buildingId: string }) {
 }
 
 /**
- * Goal-directed buildings: the residents' read-only key-results view (docs/waterfall.md §5), the same data as the
- * desk brief's Key results block. No funding buttons: humans decide in the Town Hall in-tray.
+ * Goal-directed buildings: the key results of the building goal, first on the board (town hall 2026-10-25, decision 3):
+ * each with its status, how to check it and the funded grant working on it (spend / grant), the blocked line when there
+ * are none, then exploration and the open proposal. Read-only: humans with building.manage edit them in Building →
+ * Settings (the link below), and funding decisions stay in the Town Hall in-tray.
  */
-function KeyResultsView({ board }: { board: Board }) {
+function KeyResultsView({ board, buildingId }: { board: Board; buildingId: string }) {
+  useTown((s) => s.me);
+  const canEdit = store.can("building.manage", buildingId);
   const e = board.exploration;
   const eShare = spentShare(e.spentTodayTokens, e.allowanceTokens);
+  const { rows, orphans } = keyResultRows(board);
+  const edit = canEdit ? <button className="link" onClick={() => store.open({ kind: "building", id: buildingId, tab: "Settings" })}>Edit in settings</button> : undefined;
   return (
-    <Section title="Key results">
+    <Section title="Key results" right={edit}>
       <div className="kr-view">
         {board.goal ? <div className="kr-goal"><span className="muted">Goal</span> {board.goal}</div> : null}
-        {!board.grants.length ? <Empty>No funded grant yet: work is exploration, naming a key result or a goal gap.</Empty> : board.grants.map((g) => (
+        {board.blocked ? <div className="kr-blocked"><Pill tone="bad">blocked</Pill> {board.blocked.replace(/^blocked: /, "")}. {canEdit ? "Write the goal's key results in Building → Settings." : "Only a human writes them; the manager proposes them in a rollup or the 1:1."}</div> : null}
+        {!rows.length && !board.blocked ? <Empty>No key results on the goal yet{canEdit ? ": write them in Building → Settings" : ""}.</Empty> : null}
+        <ol className="kr-rows">
+          {rows.map(({ kr, grant }, i) => (
+            <li key={kr.id} className="kr-row">
+              <div className="kr-row-head">
+                <span className="kr-n">{i + 1}</span>
+                <Pill tone={krTone(kr.status)} title={kr.statusNote || undefined}>{krStatusLabel(kr.status)}</Pill>
+                <b>{kr.text}</b>
+              </div>
+              <div className="muted kr-check">How to check: {kr.howToCheck}</div>
+              {grant ? <GrantLine grant={grant} /> : <div className="muted kr-funding">{krFundingLine(null)}</div>}
+            </li>
+          ))}
+        </ol>
+        {orphans.map((g) => (
           <div key={g.id} className="kr-grant">
-            <div className="kr-grant-head"><b><button className="link" title={`Open grant ${g.id}`} onClick={() => store.open({ kind: "grant", id: g.id })}>{g.objective}</button></b><Pill tone={g.status === "checkpoint" ? "warn" : "ok"}>{g.status}</Pill></div>
-            <div className="kr-bar-row">
-              <span className="kr-bar"><i style={{ width: `${spentShare(g.spentTokens, g.grantTokens ?? 0) * 100}%` }} /></span>
-              <span className="muted">{grantSpendLine(g)}</span>
-            </div>
-            {g.status === "checkpoint" ? <div className="muted">{grantStateLine(g)}</div> : null}
-            <ul className="kr-list">
-              {g.keyResult ? (
-                <li key={g.keyResult.id}>
-                  <Pill tone={krTone(g.keyResult.status)}>{g.keyResult.status.replace(/-/g, " ")}</Pill> {g.keyResult.text}
-                  <div className="muted kr-check">How to check: {g.keyResult.howToCheck}</div>
-                </li>
-              ) : null}
-            </ul>
+            <div className="muted">Names no key result yet</div>
+            <GrantLine grant={g} />
           </div>
         ))}
         <div className="kr-bar-row kr-exploration">
@@ -289,6 +298,20 @@ function KeyResultsView({ board }: { board: Board }) {
         {board.proposal ? <div className="kr-proposal muted">{proposalLine(board.proposal)}</div> : null}
       </div>
     </Section>
+  );
+}
+
+/** A live grant under its key result: objective, status, spend bar; held note at checkpoint. */
+function GrantLine({ grant: g }: { grant: GrantView }) {
+  return (
+    <div className="kr-funding">
+      <div className="kr-grant-head"><span>Grant: <button className="link" title={`Open grant ${g.id}`} onClick={() => store.open({ kind: "grant", id: g.id })}>{g.objective}</button></span><Pill tone={g.status === "checkpoint" ? "warn" : "ok"}>{g.status}</Pill></div>
+      <div className="kr-bar-row">
+        <span className="kr-bar"><i style={{ width: `${spentShare(g.spentTokens, g.grantTokens ?? 0) * 100}%` }} /></span>
+        <span className="muted">{grantSpendLine(g)}</span>
+      </div>
+      {g.status === "checkpoint" ? <div className="muted">{grantStateLine(g)}</div> : null}
+    </div>
   );
 }
 

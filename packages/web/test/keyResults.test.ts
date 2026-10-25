@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { explorationLine, grantSpendLine, grantStateLine, krTone, proposalLine, spentShare } from "../src/panels/keyResults";
+import { explorationLine, grantSpendLine, grantStateLine, keyResultRows, krFundingLine, krStatusLabel, krTone, proposalLine, settableStatuses, spentShare } from "../src/panels/keyResults";
 import { MockApi } from "../src/mock/server";
 
 describe("board key-results view", () => {
@@ -27,5 +27,42 @@ describe("board key-results view", () => {
     const carbon = await api.board("bl_carbon");
     expect(carbon.grants).toEqual([]);
     expect(Array.isArray(carbon.docs)).toBe(true);
+  });
+  it("board rows: the goal's key results in order with the live grant on each; grants naming none are orphans", async () => {
+    const api = new MockApi();
+    const ws = await api.board("bl_workshop");
+    expect(ws.blocked).toBeNull();
+    const { rows, orphans } = keyResultRows(ws);
+    expect(rows.map((r) => [r.kr.id, r.kr.status, r.grant?.id ?? null])).toEqual([
+      ["kr_bl_workshop_0", "claimed", "gr_hud"], ["kr_bl_workshop_1", "met", "gr_tour"], ["kr_bl_workshop_2", "not-started", null], ["kr_bl_workshop_3", "not-started", null],
+    ]);
+    expect(orphans).toEqual([]);
+    expect(krFundingLine(null)).toMatch(/open for exploration/);
+    expect(krFundingLine(rows[0].grant)).toMatch(/held/);
+    expect(krStatusLabel("not-started")).toBe("not started");
+    const orphan = keyResultRows({ keyResults: [], grants: ws.grants });
+    expect(orphan.orphans.map((g) => g.id)).toEqual(["gr_hud", "gr_tour"]);
+  });
+  it("settings edit path: a human adds, edits, judges and deletes a key result; one a grant names can't be deleted", async () => {
+    const api = new MockApi();
+    const k = await api.createKeyResult("bl_workshop", { text: " Strangers can fund ", howToCheck: "Open the Bank logged out" });
+    expect(k.text).toBe("Strangers can fund");
+    expect((await api.keyResults("bl_workshop")).keyResults.map((x) => x.id)).toContain(k.id);
+    const edited = await api.updateKeyResult(k.id, { text: "Strangers can fund the Bank" });
+    expect([edited.text, edited.status]).toEqual(["Strangers can fund the Bank", "not-started"]);
+    expect((await api.updateKeyResult(k.id, { status: "met" })).status).toBe("met");
+    await api.deleteKeyResult(k.id);
+    expect((await api.keyResults("bl_workshop")).keyResults.map((x) => x.id)).not.toContain(k.id);
+    await expect(api.deleteKeyResult("kr_bl_workshop_0")).rejects.toThrow(/gr_hud/);
+    expect(settableStatuses(false)).not.toContain("met");
+    expect(settableStatuses(true)).toContain("missed");
+  });
+  it("mock: a goal-directed building with no key results and no live grant is blocked", async () => {
+    const api = new MockApi();
+    const b = await api.createBuilding({ name: "Empty", goal: "Nothing yet", headcount: 2 });
+    await api.updateBuilding(b.id, { budgetMode: "goal-directed" });
+    expect((await api.board(b.id)).blocked).toMatch(/no key results/);
+    await api.createKeyResult(b.id, { text: "One", howToCheck: "Look" });
+    expect((await api.board(b.id)).blocked).toBeNull();
   });
 });

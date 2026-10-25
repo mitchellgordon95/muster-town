@@ -169,6 +169,8 @@ class Store {
       const text = typeof e.payload.activity === "string" ? e.payload.activity : e.text;
       if (a && a.activity !== text) patch.agents = { ...s.agents, [a.id]: { ...a, activity: text } };
     }
+    // key results and grants are read on demand (the board, building settings), so their events bump `rev`
+    if (e.type.startsWith("kr.") || e.type.startsWith("grant.") || e.type === "building.blocked") patch.rev = s.rev + 1;
     this.set(patch);
     if (e.type.startsWith("bank.")) this.onBankChanged?.();
     if (e.type === "system" && e.payload.redeploy) this.onRedeployEvent?.();

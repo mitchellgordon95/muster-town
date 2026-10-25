@@ -552,3 +552,15 @@ kbd { font-family: var(--mono); font-size: 11px; background: #2a2d3a; border: 1p
 .kr-check { font-size: 12px; margin-left: 2px; }
 .kr-exploration > span:first-child { min-width: 78px; }
 .kr-proposal { font-size: 12px; }
+.kr-blocked { background: #2a1d1f; border: 1px solid #4a2c30; border-radius: var(--r); padding: 7px 10px; }
+.kr-rows, .kr-editor { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 8px; }
+.kr-row, .kr-editor-row { border: 1px solid #2a2d3a; border-radius: var(--r); padding: 7px 10px; }
+.kr-row-head { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+.kr-n { display: inline-flex; align-items: center; justify-content: center; min-width: 20px; height: 20px; border-radius: 10px; background: #2a2d3a; font-size: 11px; font-weight: 700; color: var(--muted); }
+.kr-funding { margin: 6px 0 0 28px; font-size: 12px; }
+.kr-funding .kr-grant-head { font-size: 12.5px; }
+.kr-editor-row .form { margin-top: 6px; }
+.kr-editor-row .form .actions { margin: 6px 0 0; }
+.kr-editor-row .kr-status { width: auto; flex: 0 0 auto; font-size: 12px; padding: 2px 6px; }
+.kr-status.ok { color: var(--ok); } .kr-status.warn { color: var(--warn); } .kr-status.bad { color: var(--bad); }
+.kr-add { margin-top: 12px; }

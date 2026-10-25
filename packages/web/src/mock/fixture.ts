@@ -162,6 +162,15 @@ export const grants: GrantView[] = [
   },
 ];
 
+/**
+ * The goal key results of each building (the server's `key_results` rows): the ones the grants above name, plus one
+ * Workshop key result with no grant yet (open for exploration). The Carbon Cycle Lab is open, so its are informational.
+ */
+export const keyResults: Kr[] = [
+  ...grants.flatMap((g) => (g.keyResult ? [g.keyResult] : [])).filter((k, i, all) => all.findIndex((x) => x.id === k.id) === i),
+  kr("bl_workshop", 3, "A redeploy loses nothing: parked sessions resume once and meetings continue", "Redeploy during a meeting and a work session; both continue, nothing runs twice"),
+];
+
 /** Today's exploration spend per building (the server sums exploration-lane sessions). */
 export const explorationSpentToday: Record<string, number> = { bl_workshop: 1_150_000 };
 

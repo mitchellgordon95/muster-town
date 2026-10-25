@@ -219,16 +219,12 @@ Today the brief only *tells* agents to look at the board (`composeWorkBrief`, `p
 
 ## UI
 
-**Board panel** (`packages/web/src/panels/Places.tsx`, `BoardPanel`), reworked top to bottom:
+**Board panel** (`packages/web/src/panels/Places.tsx`, `BoardPanel`; as shipped 2026-10-25, town hall decision 3 "key results on the board, not buried in settings"):
 
-1. **Goal**: the building goal, large.
-2. **Funded key results**: one card per funded / checkpoint grant:
-   - objective and stop condition;
-   - a spend bar `spent / grant` with a tick at 50%, coloured by status (funded, checkpoint: amber, held);
-   - key results as rows: text, a "how to check" line, status pill. A human with `building.fund` gets Met / Missed buttons; the manager gets On track / At risk / Claimed;
-   - on `checkpoint`: the checkpoint report link and **Continue / Adjust / Cut** for humans.
-3. **Proposal** (if one is open): objective, KRs, ask, stop condition, linked findings, and the history thread. Humans get **Fund** (with a token field prefilled to the ask), **Counter** (edit fields + note) and **Reject**. Everyone else sees "Waiting for a human".
-4. **Exploration**: a small meter, "Exploration today: 1.2M / 2.0M tokens", with the latest exploration reports and the gap each one named.
+1. **Goal**: the building goal.
+2. **Key results of the goal**, numbered in goal order, each a row: status pill (`krTone`: met green, missed red, claimed / at risk amber), the text, a "how to check" line, and the live grant working on it (objective, status, a spend bar `spent / grant`, "held" at checkpoint) or "No funded grant: open for exploration". Live grants naming no key result (pre-032) follow the list. When the building is blocked, a red "blocked" line says why. The board is read-only: a human with `building.manage` gets an **Edit in settings** link (Building → Settings → Key results); funding decisions stay in the Town Hall in-tray. `kr.*`, `grant.*` and `building.blocked` events bump the client's `rev`, so the board and the settings editor reload live.
+3. **Exploration**: a small meter, "1.2M / 3M tokens today".
+4. **Proposal** (if one is open): one line pointing at the Town Hall in-tray.
 5. **Standing rules** (as today, collapsed by default).
 6. **FYIs** (as today).
 
@@ -236,7 +232,7 @@ Today the brief only *tells* agents to look at the board (`composeWorkBrief`, `p
 - Building sign / Prod-style banner: next to Lena's today / all-time token usage, "Grant: 12.4M / 20M".
 - Map: the board sprite gets a small amber dot when a proposal or checkpoint waits on a human, so Mitchell can spot it from the street.
 - In-tray: checkpoint reports show the grant's spend bar and the same Continue / Adjust / Cut buttons.
-- Building settings: `budgetMode` toggle and exploration allowance field.
+- Building settings (`BuildingPanel.tsx`, `Settings`): **Key results** section, the edit path (humans with `building.manage`: add with text + how to check, edit, delete; status select: the manager's range up to claimed, met / missed for `building.fund`; a key result a grant names can't be deleted, the server names the grant); then the Bank pool, and the `budgetMode` toggle with the exploration allowance field.
 
 ## Rollout
 
@@ -256,3 +252,4 @@ This changes non-negotiable #1 in `AGENTS.md` ("nothing continues without a deci
 2. **Directed work**: should tasks a human assigns directly keep bypassing grants (proposed), or should they also have to be charged to a grant?
 3. **Who funds**: only town admins, or also humans holding a building's manager role?
 4. **Reservations**: grants as ceilings (proposed) or as hard reservations carved out of the pool?
+- 2026-10-25 (Cleo): key results on the building board (town hall 2026-10-25, decision 3): the board lists the goal's key results with status, how to check, and the live grant on each (or "open for exploration"), plus the blocked line; Building → Settings gains the Key results editor (add / edit / delete / status; web API `keyResults`, `createKeyResult`, `updateKeyResult`, `deleteKeyResult`, mock included); `kr.*` / `grant.*` / `building.blocked` events bump `rev`.
