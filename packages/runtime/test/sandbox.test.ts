@@ -2,6 +2,7 @@ import { afterEach, describe, expect, test, vi } from "vitest";
 import type { Agent, Building } from "@muster-town/schema";
 import { SandboxBackend, type DeskBackend, type DeskChild, type DeskHandle, type SandboxApi } from "../src/index.ts";
 import { killPattern, type SandboxInfo } from "../src/desk/sandbox.ts";
+import { killTreeCommand } from "../src/desk/backend.ts";
 import { result, setup } from "./helpers.ts";
 
 const agent = { id: "ag_abc123" } as Agent;
@@ -115,12 +116,12 @@ describe("SandboxBackend", () => {
     expect(f.quick.filter((c) => c === "true").length).toBe(3);
   });
 
-  test("killExec / killOrphan pkill the node process by its arguments; orphans only in a started sandbox", async () => {
+  test("killExec / killOrphan kill the node process (found by its arguments) and its tree; orphans only in a started sandbox", async () => {
     expect(killPattern(["agent-town-desk", "run", "--session", "se_1"])).toBe("[r]un --session se_1");
     const f = fakeApi({ found: { id: "s", name: "n", state: "started" } });
     const b = new SandboxBackend({ api: f.api, collective: "c" });
     await b.killOrphan("ag_1", "se_1");
-    expect(f.quick).toEqual([`pkill -TERM -f '[r]un --session se_1' || true`]);
+    expect(f.quick).toEqual([killTreeCommand("[r]un --session se_1")]);
     const stopped = fakeApi({ found: { id: "s", name: "n", state: "stopped" } });
     await new SandboxBackend({ api: stopped.api, collective: "c" }).killOrphan("ag_1", "se_1");
     expect(stopped.quick).toEqual([]);

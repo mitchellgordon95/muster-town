@@ -180,10 +180,18 @@ export function startRuntime(opts: RuntimeOptions): Runtime {
   const backendReady: Promise<WorkBackend> = backend ? Promise.resolve(backend) : chooseBackend().then((b) => (backend = b));
   // Desk containers survive a restart, and so does a `docker exec`'d session in one (e.g. cut off by a redeploy's drain
   // timeout): stop the orphans so they don't keep working beside the re-queued assignment's new session.
+  // Until its orphan is gone the agent gets no new work session: both would run in the same checkout.
   const orphanKiller = opts.deskBackend ? (opts.deskBackend.kind === "docker" ? opts.deskBackend : null) : dockerProbe;
+  const reaping = new Set<string>();
   for (const sid of reconciled.orphanedSessions) {
     const s = world.sessions.get(sid);
-    if (s?.backend === "docker" && orphanKiller?.killOrphan) void track(orphanKiller.killOrphan(s.agentId, sid).catch(log("kill orphan")));
+    if (s?.backend !== "docker" || !orphanKiller?.killOrphan) continue;
+    const agentId = s.agentId;
+    reaping.add(agentId);
+    void track(orphanKiller.killOrphan(agentId, sid).catch(log("kill orphan")).finally(() => {
+      reaping.delete(agentId);
+      if (!stopped) scheduleWork();
+    }));
   }
   let lastProbe = 0;
   /** `auto` must not stick on the host backend forever because docker was down at startup: re-probe before each work session. */
@@ -291,7 +299,7 @@ export function startRuntime(opts: RuntimeOptions): Runtime {
     // sessions this pass started (startWork registers them as `starting` only after its first await)
     let startedNow = 0;
     for (const a of world.agents.where("kind = 'resident' AND status = 'idle'", [], "ORDER BY createdAt")) {
-      if (ctx.live.has(a.id) || starting.has(a.id)) continue;
+      if (ctx.live.has(a.id) || starting.has(a.id) || reaping.has(a.id)) continue;
       // queue order (position, createdAt, rowid), skipping what Budget.canStart holds (lane gate: they stay pending with a heldReason)
       const next = nextStartable(world, a.id);
       if (!next) continue;

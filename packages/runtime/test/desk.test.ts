@@ -3,6 +3,7 @@ import { PassThrough } from "node:stream";
 import { afterEach, describe, expect, test, vi } from "vitest";
 import type { Agent, Building } from "@muster-town/schema";
 import { deskAuth, DockerBackend, fundingFor, type DeskBackend, type DeskChild, type DeskHandle, type DockerRunner, type RunResult, type SpawnedChild } from "../src/index.ts";
+import { killTreeCommand } from "../src/desk/backend.ts";
 import { result, setup } from "./helpers.ts";
 
 // ---------- DockerBackend command lines ----------
@@ -68,7 +69,7 @@ describe("DockerBackend", () => {
     child.kill();
     expect(sp.killed).toEqual(["SIGTERM"]);
     // the bin is a script that execs node, so the live command line holds only the arguments: match those (first char bracketed so pkill's own shell doesn't match)
-    await vi.waitFor(() => expect(f.calls.map((c) => c.args.join(" "))).toContain("exec desk-climate-ag_abc123 pkill -TERM -f [r]un --session se_1"));
+    await vi.waitFor(() => expect(f.calls.map((c) => c.args)).toContainEqual(["exec", "desk-climate-ag_abc123", "sh", "-c", killTreeCommand("[r]un --session se_1")]));
     sp.child.emit("exit", 143, null);
     expect(await child.wait()).toBe(143);
   });
@@ -76,7 +77,7 @@ describe("DockerBackend", () => {
   test("killOrphan pkills a previous process's session in the agent's desk", async () => {
     const f = fakeRunner(() => ok());
     await new DockerBackend({ collective: "climate", runner: f.runner }).killOrphan("ag_abc123", "se_9");
-    expect(f.calls.map((c) => c.args.join(" "))).toEqual(["exec desk-climate-ag_abc123 pkill -TERM -f [r]un --session se_9"]);
+    expect(f.calls.map((c) => c.args)).toEqual([["exec", "desk-climate-ag_abc123", "sh", "-c", killTreeCommand("[r]un --session se_9")]]);
   });
 });
 

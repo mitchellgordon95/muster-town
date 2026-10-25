@@ -13,7 +13,7 @@
  *  - the provider bills wall-clock time while a sandbox runs, so it is stopped shortly after its session ends.
  */
 import type { Agent, Building } from "@muster-town/schema";
-import { DESK_BIN, dockerSafe, killPattern, type DeskBackend, type DeskChild, type DeskHandle, type LineSink } from "./backend.ts";
+import { DESK_BIN, dockerSafe, killPattern, killTreeCommand, shq, type DeskBackend, type DeskChild, type DeskHandle, type LineSink } from "./backend.ts";
 
 export type SandboxState = "started" | "stopped" | "other" | "error";
 export interface SandboxInfo { id: string; name: string; state: SandboxState }
@@ -45,7 +45,7 @@ export interface SandboxBackendOptions {
 
 export const SANDBOX_HOME = "/home/agent";
 
-export const shq = (s: string) => `'${s.replace(/'/g, `'\\''`)}'`;
+export { shq };
 
 export { killPattern };
 
@@ -130,7 +130,7 @@ export class SandboxBackend implements DeskBackend {
   }
 
   async killExec(handle: DeskHandle, argv: string[]): Promise<void> {
-    try { await this.api.quick(handle.name, `pkill -TERM -f ${shq(killPattern(argv))} || true`, 10); } catch { /* best effort */ }
+    try { await this.api.quick(handle.name, killTreeCommand(killPattern(argv)), 15); } catch { /* best effort */ }
   }
 
   /** A sandbox (and a session in it) outlives the server process: after a restart, stop the leftover session. */

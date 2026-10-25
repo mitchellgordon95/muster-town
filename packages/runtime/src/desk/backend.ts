@@ -187,9 +187,9 @@ export class DockerBackend implements DeskBackend {
     await this.killExec({ name: this.containerName(agentId), agentId }, [DESK_BIN, "run", "--session", sessionId]);
   }
 
-  /** `docker exec <name> pkill -TERM -f "<pattern>"`: killing the CLI doesn't stop the process inside the container. */
+  /** `docker exec <name> sh -c <killTreeCommand>`: killing the CLI doesn't stop the process inside the container. */
   async killExec(handle: DeskHandle, argv: string[]): Promise<void> {
-    try { await this.runner.run(["exec", handle.name, "pkill", "-TERM", "-f", killPattern(argv)], { timeoutMs: 10_000 }); } catch { /* best effort */ }
+    try { await this.runner.run(["exec", handle.name, "sh", "-c", killTreeCommand(killPattern(argv))], { timeoutMs: 15_000 }); } catch { /* best effort */ }
   }
 }
 
@@ -201,4 +201,25 @@ export class DockerBackend implements DeskBackend {
 export function killPattern(argv: string[]): string {
   const p = argv.slice(1).join(" ") || argv[0];
   return `[${p[0]}]${p.slice(1)}`;
+}
+
+/** Single-quote `s` for sh. */
+export const shq = (s: string) => `'${s.replace(/'/g, `'\\''`)}'`;
+
+/**
+ * A sh command that stops the processes matching `pattern` (a `pgrep -f` regex, see killPattern) and everything under
+ * them. TERM on the desk CLI alone (`node … run --session <id>`) leaves its Claude Code child running, reparented to
+ * init, with a live token: after a restart that orphan kept working in the checkout beside the re-queued assignment's
+ * new session. The tree is collected before anything is signalled (once a parent dies its children move to init and
+ * `pgrep -P` no longer finds them); whatever is still alive `graceSec` after the TERM gets a KILL.
+ */
+export function killTreeCommand(pattern: string, graceSec = 3): string {
+  return [
+    `pids=$(pgrep -f ${shq(pattern)}); all=""`,
+    `while [ -n "$pids" ]; do all="$all $pids"; next=""; for p in $pids; do next="$next $(pgrep -P $p)"; done; pids=$(echo $next); done`,
+    `[ -z "$all" ] && exit 0`,
+    `kill -TERM $all 2>/dev/null`,
+    `i=0; while [ $i -lt ${graceSec * 5} ]; do alive=""; for p in $all; do kill -0 $p 2>/dev/null && alive=1; done; [ -z "$alive" ] && exit 0; sleep 0.2; i=$((i+1)); done`,
+    `kill -KILL $all 2>/dev/null; true`,
+  ].join("; ");
 }
