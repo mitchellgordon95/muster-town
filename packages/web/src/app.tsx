@@ -20,6 +20,7 @@ import { MeetingPanel } from "./panels/MeetingPanel";
 import { PlanningPanel } from "./panels/PlanningPanel";
 import { BoardPanel, CabinetPanel, IntrayPanel, ModStationPanel, SchedulePanel } from "./panels/Places";
 import { BankPanel } from "./panels/BankPanel";
+import { GrantPanel } from "./panels/GrantPanel";
 import { HowItWorks, howItWorksSeen } from "./panels/HowItWorks";
 import { isDocHash, startDocRoutes } from "./route";
 
@@ -157,6 +158,7 @@ function PanelHost({ panel }: { panel: PanelRef }) {
     case "admin":
     case "planning": return <PlanningPanel tab={panel.tab} />;
     case "bank": return <BankPanel />;
+    case "grant": return <GrantPanel key={panel.id} id={panel.id!} />;
     case "schedule": return <SchedulePanel />;
     case "mod": return <ModStationPanel />;
   }

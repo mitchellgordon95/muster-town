@@ -148,6 +148,8 @@ export interface Api {
   // agents
   /** pending reports for the building's in-tray, oldest first; the Town Hall's also has the grants awaiting a human */
   intray(buildingId: string): Promise<Intray>;
+  /** GET /api/grants/:id: one grant or proposal (drafts only for its building's managers and funders) */
+  grant(id: string): Promise<GrantView>;
   /** POST /api/grants/:id/decide (building.fund): fund / counter / reject a proposal, continue / adjust / cut a checkpoint */
   decideGrant(id: string, input: In<typeof DecideGrantInput>): Promise<GrantView>;
   /** `name` left out = the town picks one. */
@@ -340,6 +342,7 @@ export class HttpApi implements Api {
     const r = await this.get<Partial<Intray>>(`/api/buildings/${id}/intray`);
     return { reports: r.reports ?? [], grants: r.grants ?? [] };
   }
+  async grant(id: string) { return unwrap<GrantView>(await this.get(`/api/grants/${id}`), "grant"); }
   async decideGrant(id: string, i: In<typeof DecideGrantInput>) { return unwrap<GrantView>(await this.post(`/api/grants/${id}/decide`, i), "grant"); }
   async createResident(i: In<typeof CreateResidentInput>) { return unwrap<Agent>(await this.post("/api/agents/residents", i), "agent"); }
   async suggestName(avoid: string[] = []) { return unwrap<string>(await this.get(`/api/agents/name-suggestion?avoid=${encodeURIComponent(avoid.join(","))}`), "name"); }
