@@ -161,8 +161,8 @@ export const Building = z.object({
   poolId: Id.nullable().default(null),
   /** goal-directed budgets: tokens per day for exploration work; null = 10% of its pool's daily inflow */
   explorationTokensPerDay: z.number().int().nonnegative().nullable().default(null),
-  /** rollout switch for goal-directed budgets: `open` = today's rules, `goal-directed` = grants and exploration gate sessions */
-  budgetMode: z.enum(["open", "goal-directed"]).default("open"),
+  /** budget rules: `goal-directed` (the default for new buildings since 2026-10-25, town hall decision) = grants and exploration gate sessions; `open` = no gate. Existing rows keep their stored value (migration 025 wrote `open`). */
+  budgetMode: z.enum(["open", "goal-directed"]).default("goal-directed"),
   /** tile rectangle on the town grid; assigned by the server if absent */
   lot: Lot.optional(),
   /** moved furniture: piece key (`board`, `desk:3`, `meeting`, …) -> anchor tile relative to the lot; absent = default spot */

@@ -131,7 +131,7 @@ Changes to existing types:
 ```ts
 // Building
 explorationTokensPerDay: z.number().int().nonnegative().nullable().default(null), // null = 10% of its pool's daily inflow
-budgetMode: z.enum(["open", "goal-directed"]).default("open"),                 // rollout switch, per building
+budgetMode: z.enum(["open", "goal-directed"]).default("goal-directed"),        // per building; new buildings are goal-directed since 2026-10-25
 
 // Assignment
 lane: z.enum(["grant", "exploration", "directed"]).default("directed"),
@@ -210,7 +210,7 @@ Today the brief only *tells* agents to look at the board (`composeWorkBrief`, `p
 
 ## Rollout
 
-`budgetMode` defaults to `open`, so nothing changes for a building until a human flips it. Suggested order (each small, committed to main):
+`budgetMode` defaulted to `open` during the rollout, so nothing changed for a building until a human flipped it. Since 2026-10-25 (town hall decision) a **new building is `goal-directed`** with the default exploration allowance (`explorationTokensPerDay: null`, 10% of its pool's daily inflow); the Town Hall stays `open` (it has no grants); existing buildings keep their stored setting (migration 025 wrote `open` into every row), and a human flips them in Building settings. Suggested order (each small, committed to main):
 
 1. Core: schema + tables + derived spend + grant/KR CRUD + `decide` + `building.fund` guard, with tests.
 2. Core/runtime: lanes on assignments and sessions, the `canStart` gate, the 50% / 100% checkpoint, and the checkpoint assignment, with tests.
