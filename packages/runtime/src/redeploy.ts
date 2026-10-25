@@ -104,6 +104,11 @@ export function drainNudge(requester: boolean): string {
   return `${requester ? "The redeploy you requested" : "A redeploy"} is waiting for your work session to end before it restarts the server. The new build cannot go live while you are running, so do not wait or poll for it: finish the step you are on, push, say in your report which commit should be live, submit the report, and stop. Verify on your next session.`;
 }
 
+/** What the drain tells a facilitator it waits on: close the meeting, don't wait for the build. */
+export function drainNudgeFacilitator(): string {
+  return "A redeploy is waiting for this meeting to end before it restarts the server (a restart mid-meeting would orphan your session). Wrap up now: record the decisions agreed so far with `meeting` action \"decide\", then `meeting` action \"end\" with a one-line closing, and stop. If a human is still talking, say that the server is about to restart and keep listening until they close it.";
+}
+
 const TAIL = 2000;
 const tail = (r: CmdResult) => (r.stdout + (r.stderr ? `\n${r.stderr}` : "")).trim().slice(-TAIL);
 
@@ -259,7 +264,9 @@ export function makeRedeployer(deps: RedeployDeps): Redeployer {
         // was orphaned). One that filed its report may still be wrapping up (pushing), so it gets a grace period.
         for (const id of left) {
           const a = deps.world.agents.get(id);
-          if (!a || a.status === "working") { idle.delete(id); continue; }
+          // a facilitator is `in-meeting` or idle while it runs the meeting, never `working`: its running facilitate row says it is busy
+          const facilitating = !!deps.world.sessions.first("agentId = ? AND status = 'running' AND purpose = 'facilitate'", [id]);
+          if (!a || a.status === "working" || facilitating) { idle.delete(id); continue; }
           const seen = idle.get(id) ?? { polls: 0, since: Date.now() };
           seen.polls++;
           idle.set(id, seen);

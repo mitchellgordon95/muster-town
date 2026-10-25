@@ -29,8 +29,9 @@ export function defaultAttendees(world: World, buildingId: string | null): strin
 
 /**
  * The building's manager (set explicitly in its settings), else its reviewer agent, else the first resident by join
- * order. Never the first *invitee*: the UI's picker sends invitees sorted by name, which made the facilitator whoever
- * sorted first.
+ * order. Town hall: the first active manager among the invitees (buildings in creation order), else the first active
+ * invitee (docs/meetings.md §3.4). Never the first *invitee* by default: the UI's picker sends invitees sorted by
+ * name, which made the facilitator whoever sorted first.
  */
 export function defaultFacilitator(world: World, buildingId: string | null, attendees: string[]): string | null {
   const active = (id: string | null | undefined): id is string => { const s = id ? world.agents.get(id)?.status : undefined; return !!s && s !== "stopped" && s !== "banned" && s !== "retired"; };
@@ -41,6 +42,10 @@ export function defaultFacilitator(world: World, buildingId: string | null, atte
     if (rev) return rev;
     const first = defaultAttendees(world, buildingId).find((id) => active(id) && attendees.includes(id));
     if (first) return first;
+  } else {
+    for (const b of world.buildings.where("kind = 'lab'", [], "ORDER BY createdAt, rowid")) {
+      if (active(b.managerAgentId) && attendees.includes(b.managerAgentId)) return b.managerAgentId;
+    }
   }
   return attendees.find(active) ?? attendees[0] ?? null;
 }

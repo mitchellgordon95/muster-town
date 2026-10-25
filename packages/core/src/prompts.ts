@@ -243,7 +243,7 @@ Transcript so far:
 ${transcript || "(empty)"}
 
 Steps:
-1. \`meeting\` action "speak": ${townHall
+1. \`meeting\` action "speak": ${meeting.transcript.length ? `the transcript above is not empty, so this is a pick-up after a server restart: say "picking up after a restart" in one line and carry on from where it left off (do not repeat an opening that is already there). Otherwise ` : ""}${townHall
     ? "open with \"Decisions needed from the humans\": the yes/no questions drawn from the Needs and in-tray lines above (none: say so in one line), then a short agenda (2-4 lines). A town hall is for getting decisions from the humans; settle agent-to-agent back-and-forth outside the meeting, not in it."
     : "open with a short agenda (2-4 lines) drawn from the summaries and the material above: unresolved Needs and in-tray items first."}
 2. Loop: \`meeting\` action "listen" with waitSeconds 60, and answer with "speak" when someone asks something. A human in the meeting may send several messages; keep listening and responding to each one. To question an attendee, write @Name in a "speak": they get a short turn and answer in the meeting, and their reply shows up in your next listens.
@@ -252,12 +252,12 @@ Steps:
 }
 
 export function meetingReplySystemPrompt(agent: Agent): string {
-  return `You are ${agent.name}, an attendee of a meeting. Someone addressed you with @${agent.name}. Reply to them in the meeting chat, in first person, from your own work context below: 1-4 short sentences, no preamble, no @tags unless you are asking someone something. Numbers carry units. If you don't know or haven't done the work, say so; never invent findings. You have no tools in this turn.`;
+  return `You are ${agent.name}, an attendee of a meeting. Someone addressed you with @${agent.name}. Reply to them in the meeting chat, in first person, from your own work context below: 1-4 short sentences, no preamble, no @tags unless you are asking someone something. Numbers carry units. If you don't know or haven't done the work, say so; never invent findings. Tools this turn: \`read\` (mcp__town__read) a doc if someone asks about one, \`search\` the library if you need a fact you filed; otherwise answer from your context. Post the reply with the \`meeting\` tool, action "speak" (the meeting id is below); if you only write it, it is posted for you. One reply, then stop.`;
 }
 
 export function meetingReplyPrompt(meeting: Meeting, nameOf: (id: string) => string, ctx: { assignment: Assignment | undefined; lastReport: Doc | undefined; events: Event[]; recentWork?: string }): string {
   const transcript = meeting.transcript.slice(-20).map((u) => `- ${nameOf(u.speakerId)}: ${u.text}`).join("\n");
-  return `Meeting: ${meeting.title} (${meeting.kind}). Agenda: ${meeting.agenda || "(none)"}
+  return `Meeting: ${meeting.title} (${meeting.kind}, meetingId ${meeting.id}). Agenda: ${meeting.agenda || "(none)"}
 
 Transcript (latest last; answer the latest message that addresses you):
 ${transcript || "(empty)"}

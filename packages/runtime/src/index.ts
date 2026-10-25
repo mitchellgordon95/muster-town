@@ -9,7 +9,7 @@ import { askAbout, chat } from "./chat.ts";
 import { DockerBackend, dockerSafe, HostBackend, type DeskBackend, type WorkBackend } from "./desk/backend.ts";
 import { FlyApi } from "./desk/fly.ts";
 import { SandboxBackend } from "./desk/sandbox.ts";
-import { gitHead, isAncestor, makeRedeployer, type RedeployDeps, type RedeployRequest } from "./redeploy.ts";
+import { drainNudgeFacilitator, gitHead, isAncestor, makeRedeployer, type RedeployDeps, type RedeployRequest } from "./redeploy.ts";
 import { gitAuthEnv, noRepoTokenReason, onDeskActivity, repoToken, runDeskSession, type DeskSessionOptions } from "./desk/session.ts";
 import { newManageState, wakeManager } from "./manage.ts";
 import { advanceCollecting, facilitate, newMeetingState, onMeetingMention, onMeetingStart } from "./meetings.ts";
@@ -28,7 +28,7 @@ export { type WorkOutcome } from "./work.ts";
 export { isTerminalRedeployEvent, makeRedeployer, realCommandRunner, RESTART_EXIT_CODE, STUCK_POLLS, type CmdResult, type CommandRunner, type RedeployDeps, type RedeployRequest, type Redeployer } from "./redeploy.ts";
 export { InputChannel, oneShot, realSdk, usageOf, userMessage, type QueryHandle, type QueryParams, type Sdk } from "./sdk.ts";
 export { DISALLOWED_TOOLS, TOWN_TOOLS, WEB_TOOLS } from "./session.ts";
-export { COLLECTING_MS, MEETING_REPLIES_MAX, SUMMARY_MODEL } from "./meetings.ts";
+export { COLLECTING_MS, MEETING_REPLIES_MAX, MEETING_REPLY_MAX_TURNS, MEETING_REPLY_VERBS, SUMMARY_MODEL } from "./meetings.ts";
 
 export interface RuntimeOptions {
   world: World;
@@ -116,7 +116,7 @@ export function startRuntime(opts: RuntimeOptions): Runtime {
     return p;
   };
   const desks = DesksConfig.parse({ ...world.desksConfig(), ...opts.desks });
-  const ctx: Ctx = { world, mcpUrl: opts.mcpUrl, repoRoot: opts.repoRoot ?? process.cwd(), desks, now, sdk: opts.sdk ?? realSdk, live: new Map(), deskAllocations: new Map(), deskFallbacks: new Map(), track };
+  const ctx: Ctx = { world, mcpUrl: opts.mcpUrl, repoRoot: opts.repoRoot ?? process.cwd(), desks, now, sdk: opts.sdk ?? realSdk, live: new Map(), facilitating: new Map(), deskAllocations: new Map(), deskFallbacks: new Map(), track };
   // a collective with a repo whose desks get no GitHub token: private clones and pushes fail at the first work session, so say so at boot
   if (world.town.get().workspace?.repoUrl && !opts.deskOptions?.ghToken && desks.backend !== "host" && !repoToken(world, desks.ghToken)) {
     console.warn(`[runtime] WARNING: the collective has a repo but no GitHub token for it (${noRepoTokenReason(desks.ghToken)}): desks can't clone or push a private repo and redeploy can't pull one. Set the GH_TOKEN secret at the Town Hall.`);
@@ -407,10 +407,17 @@ export function startRuntime(opts: RuntimeOptions): Runtime {
     imageBuild: !sandboxProvider,
     gitEnv: () => gitAuthEnv(world, desks.ghToken),
     isWorking: (agentId) => ctx.live.has(agentId) || starting.has(agentId),
-    working: () => { pruneLive(); return [...new Set([...ctx.live.keys(), ...starting])]; },
+    // facilitations count too: a restart mid-meeting would orphan the facilitator (docs/meetings.md §3.5)
+    working: () => { pruneLive(); return [...new Set([...ctx.live.keys(), ...starting, ...ctx.facilitating.keys()])]; },
     drop: (agentId) => dropLive(agentId, "orphaned: redeploy drain found it stuck"),
-    // host sessions take it on their input; desk sessions through the interrupt queue (next control poll)
-    nudge: (agentId, text) => { if (!interrupt(ctx, agentId, text, "Redeploy")) world.ops.enqueueInterrupt(agentId, text, "Redeploy"); },
+    // host sessions take it on their input; desk sessions through the interrupt queue (next control poll);
+    // a facilitator is told to close the meeting (and only that: no work interrupt is queued for an agent that is only facilitating)
+    nudge: (agentId, text) => {
+      const fac = ctx.facilitating.get(agentId);
+      if (fac && !fac.stopped) fac.input.push(drainNudgeFacilitator());
+      if (fac && !ctx.live.has(agentId) && !starting.has(agentId)) return;
+      if (!interrupt(ctx, agentId, text, "Redeploy")) world.ops.enqueueInterrupt(agentId, text, "Redeploy");
+    },
     hold: (on) => { draining = on; },
     blocked: () => world.agents.where("kind = 'resident' AND status = 'idle'", [], "ORDER BY createdAt")
       .filter((a) => !ctx.live.has(a.id) && !starting.has(a.id) && !!nextPending(world, a.id) && world.budget.canStart(a.id)).map((a) => a.id),

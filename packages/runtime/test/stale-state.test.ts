@@ -2,8 +2,8 @@
 import { describe, expect, test, vi } from "vitest";
 import type { World } from "@muster-town/core";
 import { HostBackend, makeRedeployer, startRuntime, STUCK_POLLS, type CmdResult, type CommandRunner, type DeskBackend, type RedeployDeps } from "../src/index.ts";
-import { drainNudge } from "../src/redeploy.ts";
-import { deferred, result, setup } from "./helpers.ts";
+import { drainNudge, drainNudgeFacilitator } from "../src/redeploy.ts";
+import { callVerb, deferred, init, result, setup, text } from "./helpers.ts";
 
 const ok = (stdout = ""): CmdResult => ({ code: 0, stdout, stderr: "" });
 /** a clean tree; every command succeeds */
@@ -87,6 +87,43 @@ describe("drain nudge", () => {
     left = [];
     await r.done();
     expect(nudge).toHaveBeenCalledTimes(2);
+  });
+});
+
+describe("drain waits for facilitations", () => {
+  test("startRuntime: a running facilitation counts in the drain, is told to close the meeting first, and is never dropped as stuck", async () => {
+    const exit = vi.fn();
+    let mossId = "";
+    const nudges: string[] = [];
+    const { world, runtime, by, lab } = setup(async function* (s) {
+      if (!s.agentId) { yield text("Did: x"); yield result(1, 0, "Did: x"); return; } // summaries
+      if (s.agentId === mossId) { // the facilitator listens until the drain tells it to close
+        const meetingId = /meeting (mt_[\w-]+)/.exec(s.received[0])![1];
+        yield init();
+        nudges.push((await s.next())!);
+        yield* callVerb(s, "meeting", { meetingId, action: "end", text: "Closing for the redeploy." });
+        yield result(5, 0);
+        return;
+      }
+      yield init(); yield result(1, 0);
+    }, { repoRoot: "/repo", redeploy: { run, exit, exitDelayMs: 1, drainPollMs: 1, drainTimeoutMs: 60_000 } });
+    mossId = by("Moss").id;
+    const m = world.ops.createMeeting(null, { kind: "standup", buildingId: lab.id, startNow: true });
+    void runtime.onMeetingStart(m.id);
+    await vi.waitFor(() => expect(world.sessions.first("agentId = ? AND status = 'running' AND purpose = 'facilitate'", [mossId])).toBeTruthy());
+    expect(world.agents.require(mossId).status).not.toBe("working"); // in-meeting: the old stuck check would have dropped him
+    expect(runtime.isWorking(mossId)).toBe(false); // a facilitation is not a work session (the scheduler isn't blocked by it)
+    expect(runtime.redeploy({ image: false, requestedBy: "Pix" })).toEqual({ started: true });
+    await vi.waitFor(() => expect(exit).toHaveBeenCalledWith(75));
+    expect(nudges).toEqual([drainNudgeFacilitator()]);
+    expect(world.meetings.require(m.id).phase).toBe("done");
+    expect(world.docs.require(world.meetings.require(m.id).notesDocId!).body).toContain("Closing for the redeploy.");
+    const texts = redeployEvents(world).map((e) => e.text);
+    expect(texts.some((t) => t.startsWith("Redeploy: draining, waiting for 1 session(s) to end: Moss"))).toBe(true);
+    expect(texts).toContain("Redeploy: drain … ok (no sessions running)");
+    expect(redeployEvents(world).some((e) => (e.payload as { stuck?: boolean }).stuck)).toBe(false);
+    expect(world.ops.pendingInterrupts(mossId, "none")).toEqual([]); // no work interrupt queued for an agent that was only facilitating
+    await runtime.whenIdle();
   });
 });
 

@@ -45,7 +45,7 @@ The agenda field keeps its meaning: if the human set one, the facilitator follow
 
 **3.5 The runtime writes the notes doc on every close.** Already true (§1). What is left is the restart case: the redeploy drain waits for live *work* sessions only (`runtime/redeploy.ts:52`), so a redeploy during a discussion orphans the facilitator; the restarted server re-facilitates with a fresh session that sees the transcript but not what the previous facilitator had read. Change: count live `facilitate` sessions in the drain's live set (the drain already has the wrap-up message path, `drainWrapUpMs`, to tell such a session to close the meeting first). A facilitation that is re-run after a restart should also say so in its first `speak` ("picking up after a restart"), which the prompt can do from `meeting.transcript.length > 0`.
 
-## 4. Build order (proposal)
+## 4. Build order (all rows on main)
 
 All of §2–§3 is runtime, prompts and one core function; no schema change, no migration. One PR per row keeps each reviewable:
 
@@ -53,9 +53,9 @@ All of §2–§3 is runtime, prompts and one core function; no schema change, no
 |---|---|---|---|
 | 1 | Summary model Sonnet; reply-model test assertion (done) | `runtime/meetings.ts`, its test, `docs/architecture.md` | tiny |
 | 2 | Summaries seeded from the last meeting (3.1); facilitator input (3.2); town-hall opener "Decisions needed from the humans" (mt_p8mo4bsrsy decision 5) (done) | `core/prompts.ts`, `runtime/meetings.ts`, a `previousMeeting` helper in `core/meetings.ts` | small |
-| 3 | Town-hall facilitator = a manager (3.4) | `core/meetings.ts`, its test | tiny |
-| 4 | @-reply as a short session with `read`/`search` (3.3) | `runtime/session.ts` (verb allowlist), `runtime/meetings.ts`, `core/prompts.ts` | small |
-| 5 | Drain waits for facilitations (3.5) | `runtime/redeploy.ts`, `runtime/index.ts` | small |
+| 3 | Town-hall facilitator = a manager (3.4) (done) | `core/meetings.ts`, its test | tiny |
+| 4 | @-reply as a short session with `read`/`search` (3.3) (done) | `runtime/session.ts` (verb allowlist), `runtime/meetings.ts`, `core/prompts.ts` | small |
+| 5 | Drain waits for facilitations (3.5) (done) | `runtime/redeploy.ts`, `runtime/index.ts` | small |
 
 Rows 1–3 fit in the waterfall's step 2 (runtime, Root) or can be done by me; row 2 is what changes the meetings most. Row 4 is independent. Row 5 matters only once redeploys stop happening between meetings.
 
