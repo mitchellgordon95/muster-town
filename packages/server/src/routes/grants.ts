@@ -1,5 +1,5 @@
 import { AppError } from "@muster-town/core";
-import { CloseGrantInput, CreateGrantInput, DecideGrantInput, GrantsQuery, UpdateGrantInput, UpdateKeyResultInput } from "@muster-town/schema";
+import { CloseGrantInput, CreateGrantInput, CreateKeyResultInput, DecideGrantInput, GrantsQuery, UpdateGrantInput, UpdateKeyResultInput } from "@muster-town/schema";
 import type { FastifyInstance } from "fastify";
 import { z } from "zod";
 import { actorOf, parse, type Params } from "../context.ts";
@@ -7,7 +7,8 @@ import { actorOf, parse, type Params } from "../context.ts";
 const ProposeInput = z.object({ note: z.string().max(2000).default("") });
 
 /**
- * Goal-directed budgets (design dc_k955hun6c4): a building's proposals and grants, decisions, closing, key results.
+ * Goal-directed budgets (design dc_k955hun6c4): a building's goal key results (humans write them), its proposals and
+ * grants (each names one key result), decisions, closing.
  * Reads are public except drafts, which only the building's managers and funders see. The budget part of
  * GET /api/buildings/:id/board lives in town.ts.
  */
@@ -49,6 +50,21 @@ export async function grantRoutes(app: FastifyInstance) {
   app.post<{ Params: Params }>("/api/grants/:id/close", async (req) => ({
     grant: desk.close(actorOf(world, req), req.params.id, parse(CloseGrantInput, req.body)),
   }));
+
+  app.get<{ Params: Params }>("/api/buildings/:id/key-results", async (req) => {
+    world.buildings.require(req.params.id, "building");
+    return { keyResults: desk.keyResults(req.params.id), blocked: desk.blocked(req.params.id) };
+  });
+
+  app.post<{ Params: Params }>("/api/buildings/:id/key-results", async (req, reply) => {
+    const keyResult = desk.createKeyResult(actorOf(world, req), req.params.id, parse(CreateKeyResultInput, req.body));
+    return reply.code(201).send({ keyResult });
+  });
+
+  app.delete<{ Params: Params }>("/api/key-results/:id", async (req) => {
+    desk.deleteKeyResult(actorOf(world, req), req.params.id);
+    return { ok: true };
+  });
 
   app.patch<{ Params: Params }>("/api/key-results/:id", async (req) => ({
     keyResult: desk.updateKeyResult(actorOf(world, req), req.params.id, parse(UpdateKeyResultInput, req.body)),

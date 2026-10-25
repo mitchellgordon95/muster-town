@@ -6,7 +6,7 @@ import type { z } from "zod";
 import type {
   Agent, Allocation, Assignment, AuthMe, RedeployLive, Building, ClientMessage, DesksConfig, Doc, Event, Lot, Meeting, Place, Role, Membership, SessionSlots, Tile,
   ServerMessage, Session, Town, CreateBuildingInput, UpdateBuildingInput, CreateResidentInput,
-  ReviewInput, PinSkillInput, SkillPinView, SkillView, PutSecretInput, SecretView, ChatInput, WorkInput, DonateInput, AddBankInput, BankInput, CreateBankPoolInput, UpdateBankPoolInput, CreateMeetingInput, DocState, DocType, Mailbox, Permission, DecideGrantInput, GrantView,
+  ReviewInput, PinSkillInput, SkillPinView, SkillView, PutSecretInput, SecretView, ChatInput, WorkInput, DonateInput, AddBankInput, BankInput, CreateBankPoolInput, UpdateBankPoolInput, CreateMeetingInput, DocState, DocType, Mailbox, Permission, DecideGrantInput, GrantView, KeyResult,
 } from "@muster-town/schema";
 
 export type In<T extends z.ZodTypeAny> = z.input<T>;
@@ -107,11 +107,15 @@ export type PlanCreate = In<typeof CreateBuildingInput> & { lot: Lot };
 export interface PlanPreview { errors: { buildingId: string | null; message: string }[]; grid: Grid; places: Place[] }
 
 /** GET /api/buildings/:id/intray: `grants` (proposed, countered, checkpoint) only for the Town Hall */
-export interface Intray { reports: Doc[]; grants: GrantView[] }
+export interface Intray { reports: Doc[]; grants: GrantView[]; blocked?: { buildingId: string; name: string; reason: string; since: string | null }[] }
 /** GET /api/buildings/:id/board: the FYIs plus the budget part (core's GrantBoard; open buildings have no grants). */
 export interface Board {
   docs: Doc[];
   goal: string;
+  /** the goal's key results, each with the live grant on it (null = open for exploration) */
+  keyResults?: (KeyResult & { grantId: string | null })[];
+  /** "blocked: no key results to work toward", or null */
+  blocked?: string | null;
   grants: GrantView[];
   proposal: GrantView | null;
   exploration: { allowanceTokens: number; spentTodayTokens: number };
@@ -319,7 +323,7 @@ export class HttpApi implements Api {
   async events(q: EventQuery) { return unwrap<Event[]>(await this.get(`/api/events${qs(q)}`), "events"); }
   async board(id: string, limit = 30) {
     const r = await this.get<Partial<Board>>(`/api/buildings/${id}/board${qs({ limit })}`);
-    return { docs: r.docs ?? [], goal: r.goal ?? "", grants: r.grants ?? [], proposal: r.proposal ?? null, exploration: r.exploration ?? { allowanceTokens: 0, spentTodayTokens: 0 } };
+    return { docs: r.docs ?? [], goal: r.goal ?? "", keyResults: r.keyResults ?? [], blocked: r.blocked ?? null, grants: r.grants ?? [], proposal: r.proposal ?? null, exploration: r.exploration ?? { allowanceTokens: 0, spentTodayTokens: 0 } };
   }
   async cabinet(id: string, q: CabinetQuery = {}) {
     const r = await this.get<Partial<Cabinet>>(`/api/buildings/${id}/cabinet${qs({ limit: 30, ...q })}`);

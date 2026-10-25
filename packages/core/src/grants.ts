@@ -1,11 +1,12 @@
 import {
-  CloseGrantInput, CreateGrantInput, DecideGrantInput, UpdateGrantInput, UpdateKeyResultInput,
-  type Grant, type GrantHistoryEntry, type GrantStatus, type GrantView, type KeyResult,
+  CloseGrantInput, CreateGrantInput, CreateKeyResultInput, DecideGrantInput, UpdateGrantInput, UpdateKeyResultInput,
+  type Building, type Grant, type GrantHistoryEntry, type GrantStatus, type GrantView, type KeyResult,
 } from "@muster-town/schema";
 import { createAssignment, managerAgentOf, sendMessage } from "./domain.ts";
 import type { EventType } from "./events.ts";
 import { AppError, badRequest, forbidden } from "./errors.ts";
 import type { Actor } from "./ops.ts";
+import { DIRECTED } from "./lanes.ts";
 import { holderOf } from "./permissions.ts";
 import { BUDGET_POLICY } from "./policy.ts";
 import { newId, nowIso } from "./util.ts";
@@ -20,10 +21,14 @@ const OPEN: GrantStatus[] = ["proposed", "countered"];
 const LIVE: GrantStatus[] = ["funded", "checkpoint"];
 const TERMINAL: GrantStatus[] = ["closed", "rejected"];
 
-export interface ExplorationBudget { allowanceTokens: number; spentTodayTokens: number }
-export interface GrantBoard { goal: string; grants: GrantView[]; proposal: GrantView | null; exploration: ExplorationBudget }
+/** Why a goal-directed building is blocked (shown on GET /api/buildings/:id, the board and the Town Hall in-tray). */
+export const BLOCKED_NO_KRS = "blocked: no key results to work toward";
 
-type KeyResultInput = { text: string; howToCheck: string };
+export interface ExplorationBudget { allowanceTokens: number; spentTodayTokens: number }
+/** A goal key result with the live (funded or checkpoint) grant working on it, if any. */
+export type GoalKeyResult = KeyResult & { grantId: string | null };
+export interface GrantBoard { goal: string; keyResults: GoalKeyResult[]; blocked: string | null; grants: GrantView[]; proposal: GrantView | null; exploration: ExplorationBudget }
+export interface BlockedBuilding { buildingId: string; name: string; reason: string; since: string | null }
 
 /**
  * Goal-directed budgets: a building's proposals and grants (design dc_k955hun6c4). The manager drafts and proposes
@@ -38,7 +43,71 @@ export class Grants {
   }
 
   view(g: Grant): GrantView {
-    return { ...g, keyResults: this.world.keyResults.where("grantId = ?", [g.id], "ORDER BY position"), spentTokens: this.spent(g.id) };
+    return { ...g, keyResult: (g.keyResultId && this.world.keyResults.get(g.keyResultId)) || null, spentTokens: this.spent(g.id) };
+  }
+
+  /** The building goal's key results in order, each with the live grant working on it (null = open for exploration). */
+  keyResults(buildingId: string): GoalKeyResult[] {
+    const live = new Map(this.world.grants.where("buildingId = ? AND status IN ('funded', 'checkpoint') AND keyResultId IS NOT NULL", [buildingId], "ORDER BY fundedAt, rowid").map((g) => [g.keyResultId!, g.id]));
+    return this.world.keyResults.where("buildingId = ?", [buildingId], "ORDER BY position, rowid").map((k) => ({ ...k, grantId: live.get(k.id) ?? null }));
+  }
+
+  /** The live (funded or checkpoint) grant working on a key result, if any. */
+  liveGrantOf(keyResultId: string): Grant | undefined {
+    return this.world.grants.first("keyResultId = ? AND status IN ('funded', 'checkpoint')", [keyResultId], "ORDER BY fundedAt, rowid");
+  }
+
+  /** A goal-directed building is blocked when its goal has no key results and it has no funded grant: nothing to explore against or implement. */
+  blocked(b: Building | string): string | null {
+    const building = typeof b === "string" ? this.world.buildings.get(b) : b;
+    if (!building || building.kind === "town-hall" || building.budgetMode !== "goal-directed") return null;
+    if (this.world.keyResults.count("buildingId = ?", [building.id])) return null;
+    if (this.world.grants.count("buildingId = ? AND status IN ('funded', 'checkpoint')", [building.id])) return null;
+    return BLOCKED_NO_KRS;
+  }
+
+  /** Every blocked building (the Town Hall in-tray's summary). */
+  blockedBuildings(): BlockedBuilding[] {
+    return this.world.buildings.where("kind != 'town-hall' AND budgetMode = 'goal-directed'", [], "ORDER BY createdAt, rowid").flatMap((b) => {
+      const reason = this.blocked(b);
+      return reason ? [{ buildingId: b.id, name: b.name, reason, since: b.blockedAt ?? null }] : [];
+    });
+  }
+
+  /**
+   * Record a blocked transition (idempotent; the world calls it after grant, key-result and building changes, and the
+   * scheduler on every tick). Into blocked: `blockedAt` is set, `building.blocked` appended, and the manager agent gets
+   * one "Get human decisions" assignment (front of its queue). Out of it: `blockedAt` is cleared. One wake per transition.
+   */
+  syncBlocked(buildingId: string): void {
+    const b = this.world.buildings.get(buildingId);
+    if (!b) return;
+    const reason = this.blocked(b);
+    if (!!reason === !!b.blockedAt) return;
+    const at = reason ? nowIso() : null;
+    this.world.transaction(() => {
+      this.world.buildings.upsert({ ...b, blockedAt: at });
+      this.world.events.append({ type: "building.blocked", buildingId, text: reason ? `${b.name} is ${reason}` : `${b.name} is unblocked`, payload: { blocked: !!reason, reason } });
+      if (reason) this.blockedAssignment(b);
+    });
+  }
+
+  /** The manager's wake when its building becomes blocked: get the humans' decisions (goal key results) via a rollup or a 1:1. */
+  private blockedAssignment(b: Building): void {
+    const manager = managerAgentOf(this.world, b);
+    if (!manager) return;
+    const open = this.world.grants.first("buildingId = ? AND status IN ('proposed', 'countered')", [b.id]);
+    createAssignment(this.world, {
+      agentId: manager.id, buildingId: b.id, front: true, createdBy: { kind: "system", id: "system" }, laneOverride: DIRECTED,
+      title: `Get human decisions: ${b.name} is ${BLOCKED_NO_KRS}`.slice(0, 160),
+      description: `${b.name} is goal-directed, but its goal ("${b.goal || "(none set)"}") has no key results and it has no funded grant, so there is nothing to explore against or implement. Only a human writes the goal's key results (Building → Settings); you assist.
+
+1. Draft 2-3 key results for the goal, each something a human can check in the live town, with a how-to-check line. Draw on the building's reports and exploration findings.
+2. Put them to Mitchell: \`submit_report\` with \`rollup: true\` (lands in the Town Hall in-tray; Needs from Mitchell: "Write these key results on ${b.name}'s goal, or tell me what to change"), or raise them in your next 1:1 with him.
+3. Once a human has written them, propose a grant for one of them with \`propose_grant\` (keyResultId).${open ? `
+
+The open proposal ${open.id} ("${open.objective}") names no goal key result yet; once there are key results, edit it to name one or withdraw it.` : ""}`,
+    });
   }
 
   get(id: string): GrantView {
@@ -78,37 +147,42 @@ export class Grants {
     const b = this.world.buildings.require(buildingId, "building");
     const live = this.world.grants.where(`buildingId = ? AND status IN ('funded', 'checkpoint')`, [buildingId], "ORDER BY fundedAt, rowid");
     const open = this.world.grants.first(`buildingId = ? AND status IN ('proposed', 'countered')`, [buildingId], "ORDER BY updatedAt DESC");
-    return { goal: b.goal, grants: live.map((g) => this.view(g)), proposal: open ? this.view(open) : null, exploration: this.exploration(buildingId) };
+    return {
+      goal: b.goal, keyResults: this.keyResults(buildingId), blocked: this.blocked(b),
+      grants: live.map((g) => this.view(g)), proposal: open ? this.view(open) : null, exploration: this.exploration(buildingId),
+    };
   }
 
-  /** POST /api/buildings/:id/grants: a draft with 2-3 key results (`building.manage`). */
+  /** POST /api/buildings/:id/grants: a draft plan for one goal key result (`building.manage`). */
   create(actor: Actor, buildingId: string, input: CreateGrantInput): GrantView {
     const inp = CreateGrantInput.parse(input);
     this.world.buildings.require(buildingId, "building");
     if (actor) this.world.permissions.require(actor, "building.manage", buildingId);
+    this.requireGoalKeyResult(buildingId, inp.keyResultId);
     const now = nowIso();
-    const g = this.world.transaction(() => {
-      const g = this.world.grants.upsert({
-        id: newId("gr"), buildingId, objective: inp.objective, stopCondition: inp.stopCondition, askTokens: inp.askTokens,
-        grantTokens: null, status: "draft", outcome: null, findingsDocIds: inp.findingsDocIds, checkpointsDone: [], checkpointDocId: null,
-        proposedBy: actor?.id ?? "system", fundedBy: null, fundedAt: null, closedAt: null, history: [], createdAt: now, updatedAt: now,
-      });
-      this.setKeyResults(g.id, inp.keyResults);
-      return g;
+    const g = this.world.grants.upsert({
+      id: newId("gr"), buildingId, keyResultId: inp.keyResultId, objective: inp.objective, approach: inp.approach, testingPlan: inp.testingPlan,
+      stopCondition: inp.stopCondition, askTokens: inp.askTokens,
+      grantTokens: null, status: "draft", outcome: null, findingsDocIds: inp.findingsDocIds, checkpointsDone: [], checkpointDocId: null,
+      proposedBy: actor?.id ?? "system", fundedBy: null, fundedAt: null, closedAt: null, history: [], createdAt: now, updatedAt: now,
     });
     this.event("grant.created", g, actor, `Draft proposal: ${g.objective}`);
     return this.view(g);
   }
 
-  /** PATCH /api/grants/:id while draft / countered (`building.manage`). `keyResults` replaces the list. */
+  /** PATCH /api/grants/:id while draft / countered (`building.manage`). `testingPlan` replaces the list. */
   update(actor: Actor, id: string, input: UpdateGrantInput): GrantView {
-    const { note, keyResults, ...fields } = UpdateGrantInput.parse(input);
+    const { note, ...fields } = UpdateGrantInput.parse(input);
     const g = this.world.grants.require(id, "grant");
     if (actor) this.world.permissions.require(actor, "building.manage", g.buildingId);
     this.requireStatus(g, ["draft", "countered"], "edited");
+    if (fields.keyResultId) this.requireGoalKeyResult(g.buildingId, fields.keyResultId);
     const next = this.world.transaction(() => {
-      if (keyResults) this.setKeyResults(g.id, keyResults);
       const history = g.status === "countered" ? [...g.history, this.entry(actor, "edit", fields.askTokens ?? null, note ?? "")] : g.history;
+      // work queued on it (never funded, so no checkpoint assignment among it) works toward the newly named key result
+      if (fields.keyResultId && fields.keyResultId !== g.keyResultId) {
+        for (const a of this.world.assignments.where("grantId = ? AND status IN ('pending', 'active')", [g.id])) this.world.assignments.upsert({ ...a, keyResultId: fields.keyResultId });
+      }
       return this.world.grants.upsert({ ...g, ...fields, history, updatedAt: nowIso() });
     });
     this.event("grant.updated", next, actor, `Proposal edited: ${next.objective}`);
@@ -120,6 +194,7 @@ export class Grants {
     const g = this.world.grants.require(id, "grant");
     if (actor) this.world.permissions.require(actor, "building.manage", g.buildingId);
     this.requireStatus(g, ["draft", "countered"], "proposed");
+    if (!g.keyResultId) throw badRequest("A grant names one of the building goal's key results: set keyResultId first (a human writes the goal's key results).");
     const other = this.world.grants.first(`buildingId = ? AND id != ? AND status IN ('proposed', 'countered')`, [g.buildingId, g.id]);
     if (other) throw new AppError("conflict", `This building already has an open proposal (${other.id}: ${other.objective}). Withdraw or finish it first.`);
     const next = this.save(g, actor, { status: "proposed" }, "propose", g.askTokens, note);
@@ -137,27 +212,21 @@ export class Grants {
     const g = this.world.grants.require(id, "grant");
     if (actor) this.world.permissions.require(actor, "building.fund", g.buildingId);
     const spent = this.spent(g.id);
-    const edits = { ...(inp.stopCondition && { stopCondition: inp.stopCondition }) };
-    const kr = () => { if (inp.keyResults) this.setKeyResults(g.id, inp.keyResults); };
+    const edits = { ...(inp.stopCondition && { stopCondition: inp.stopCondition }), ...(inp.testingPlan && { testingPlan: inp.testingPlan }) };
     let next: Grant;
     switch (inp.action) {
       case "fund": {
         this.requireStatus(g, ["proposed"], "funded");
+        if (!g.keyResultId) throw badRequest("This grant names no goal key result: write the building's key results, then counter it so the manager names one.");
         const tokens = inp.tokens ?? g.askTokens;
-        next = this.world.transaction(() => {
-          kr();
-          return this.save(g, actor, { ...edits, status: "funded", grantTokens: tokens, checkpointsDone: passed(spent, tokens), fundedBy: actor ? holderOf(actor).id : "system", fundedAt: nowIso() }, "fund", tokens, inp.note);
-        });
+        next = this.save(g, actor, { ...edits, status: "funded", grantTokens: tokens, checkpointsDone: passed(spent, tokens), fundedBy: actor ? holderOf(actor).id : "system", fundedAt: nowIso() }, "fund", tokens, inp.note);
         this.event("grant.funded", next, actor, `Funded: ${next.objective} (${fmt(tokens)} tokens)`);
         break;
       }
       case "counter": {
         this.requireStatus(g, ["proposed"], "countered");
         if (!inp.note.trim()) throw badRequest("A counter needs a note saying what to change.");
-        next = this.world.transaction(() => {
-          kr();
-          return this.save(g, actor, { ...edits, status: "countered", ...(inp.tokens && { askTokens: inp.tokens }) }, "counter", inp.tokens ?? null, inp.note);
-        });
+        next = this.save(g, actor, { ...edits, status: "countered", ...(inp.tokens && { askTokens: inp.tokens }) }, "counter", inp.tokens ?? null, inp.note);
         this.event("grant.countered", next, actor, `Countered: ${next.objective}`);
         this.notifyManager(next, actor, `A human countered your proposal "${next.objective}": ${inp.note}`);
         break;
@@ -178,11 +247,8 @@ export class Grants {
         this.requireStatus(g, ["checkpoint"], "adjusted");
         const tokens = inp.tokens ?? g.grantTokens ?? 0;
         if (tokens <= spent) throw badRequest(`The grant has spent ${fmt(spent)} tokens: an adjusted grant must be more than that.`);
-        next = this.world.transaction(() => {
-          kr();
-          const checkpointsDone = tokens === g.grantTokens ? g.checkpointsDone : passed(spent, tokens);
-          return this.save(g, actor, { ...edits, status: "funded", grantTokens: tokens, checkpointsDone }, "adjust", tokens, inp.note);
-        });
+        const checkpointsDone = tokens === g.grantTokens ? g.checkpointsDone : passed(spent, tokens);
+        next = this.save(g, actor, { ...edits, status: "funded", grantTokens: tokens, checkpointsDone }, "adjust", tokens, inp.note);
         this.event("grant.funded", next, actor, `Adjusted: ${next.objective} (${fmt(tokens)} tokens)`);
         break;
       }
@@ -244,7 +310,9 @@ export class Grants {
     const building = this.world.buildings.require(g.buildingId, "building");
     const manager = managerAgentOf(this.world, building);
     if (!manager) return;
-    const krs = this.world.keyResults.where("grantId = ?", [g.id], "ORDER BY position").map((k) => `- ${k.id} [${k.status}] ${k.text} (how to check: ${k.howToCheck})`).join("\n");
+    const k = g.keyResultId ? this.world.keyResults.get(g.keyResultId) : undefined;
+    const kr = k ? `${k.id} [${k.status}] ${k.text} (how to check: ${k.howToCheck})` : "(none named)";
+    const plan = g.testingPlan.map((t) => `- ${t.text} (how to check: ${t.howToCheck})`).join("\n");
     const reports = this.world.assignments.where("grantId = ? AND reportId IS NOT NULL", [g.id], "ORDER BY updatedAt").map((a) => a.reportId!);
     createAssignment(this.world, {
       agentId: manager.id, buildingId: g.buildingId, front: true, createdBy: { kind: "system", id: "system" },
@@ -252,67 +320,97 @@ export class Grants {
       title: `Write the checkpoint for ${g.objective}`.slice(0, 160),
       description: `Grant ${g.id} "${g.objective}" crossed ${at * 100}% of its tokens: ${fmt(spent)} of ${fmt(g.grantTokens ?? 0)} spent. New sessions on it are held until a human continues, adjusts or cuts it in the Town Hall in-tray; this assignment runs anyway, charged to the grant.
 
-Write the checkpoint for ${g.objective}: each key result's status with evidence a human can check in the live town, spend so far, and whether to continue.
+Write the checkpoint for ${g.objective}: its key result's status with evidence a human can check in the live town (the testing plan says how), spend so far, and whether to continue.
 
-Key results:
-${krs}
-
+Key result (on the building goal): ${kr}
+${plan ? `Testing plan:\n${plan}\n` : ""}
 Stop condition: ${g.stopCondition}
 
-1. \`checkpoint_grant\` with grantId ${g.id} and each key result's status (not-started, on-track, at-risk or claimed; only a human marks met or missed) and a note with the evidence.
-2. \`submit_report\` with \`rollup: true\` as your checkpoint report (it lands in the Town Hall in-tray and is linked to the grant). Sections: Shipped, Decided, Key results (each KR, its status, how to check it, ${fmt(spent)} / ${fmt(g.grantTokens ?? 0)} tokens), Needs from Mitchell (continue, adjust or cut, and why). Put the reports the grant's work produced in provenance.sourceIds${reports.length ? `: ${reports.join(", ")}` : " (none yet; leave it empty)"}.`,
+1. \`checkpoint_grant\` with grantId ${g.id}, the key result's status (not-started, on-track, at-risk or claimed; only a human marks met or missed) and a note with the evidence.
+2. \`submit_report\` with \`rollup: true\` as your checkpoint report (it lands in the Town Hall in-tray and is linked to the grant). Sections: Shipped, Decided, Key results (the KR, its status, how to check it, what the testing plan showed, ${fmt(spent)} / ${fmt(g.grantTokens ?? 0)} tokens), Needs from Mitchell (continue, adjust or cut, and why). Put the reports the grant's work produced in provenance.sourceIds${reports.length ? `: ${reports.join(", ")}` : " (none yet; leave it empty)"}.`,
     });
   }
 
   /**
-   * \`checkpoint_grant\` (the manager, \`building.manage\`): set the grant's key-result statuses (up to \`claimed\`) and link
-   * the checkpoint report (\`reportId\`, else the rollup this session submits links itself). The grant stays at checkpoint.
+   * \`checkpoint_grant\` (the manager, \`building.manage\`): set the status of the grant's key result (up to \`claimed\`) and
+   * link the checkpoint report (\`reportId\`, else the rollup this session submits links itself). The grant stays at checkpoint.
    */
-  fileCheckpoint(actor: Actor, grantId: string, input: { reportId?: string | null; keyResults: { id: string; status: KeyResult["status"]; note: string }[] }): GrantView {
+  fileCheckpoint(actor: Actor, grantId: string, input: { reportId?: string | null; status?: KeyResult["status"] | null; note?: string }): GrantView {
     const g = this.world.grants.require(grantId, "grant");
     if (actor && !this.world.permissions.can(actor, "building.manage", g.buildingId)) throw forbidden("building.manage");
     this.requireStatus(g, ["checkpoint"], "checkpointed");
-    for (const k of input.keyResults) {
-      if (k.status === "met" || k.status === "missed") throw badRequest(`Only a human marks a key result ${k.status}; claim it instead.`);
-      if (this.world.keyResults.get(k.id)?.grantId !== g.id) throw badRequest(`Key result ${k.id} is not one of this grant's.`);
-    }
+    if (input.status === "met" || input.status === "missed") throw badRequest(`Only a human marks a key result ${input.status}; claim it instead.`);
+    if (input.status && !g.keyResultId) throw badRequest("This grant names no goal key result, so there is no status to set.");
     if (input.reportId) {
       const d = this.world.docs.get(input.reportId);
       if (!d || d.type !== "report" || d.buildingId !== g.buildingId) throw badRequest(`${input.reportId} is not a report of this building.`);
     }
     return this.world.transaction(() => {
-      for (const k of input.keyResults) this.updateKeyResult(actor, k.id, { status: k.status, note: k.note });
+      if (input.status) this.updateKeyResult(actor, g.keyResultId!, { status: input.status, note: input.note ?? "" });
       if (input.reportId) this.world.grants.upsert({ ...this.world.grants.require(g.id), checkpointDocId: input.reportId, updatedAt: nowIso() });
       return this.get(g.id);
     });
   }
 
-  /** PATCH /api/key-results/:id: the manager up to `claimed`; `met` / `missed` (and undoing them) need `building.fund`. */
+  /** POST /api/buildings/:id/key-results: a key result on the building goal. Only a human writes them (`building.manage`). */
+  createKeyResult(actor: Actor, buildingId: string, input: CreateKeyResultInput): KeyResult {
+    const inp = CreateKeyResultInput.parse(input);
+    const b = this.world.buildings.require(buildingId, "building");
+    this.requireHumanWriter(actor, buildingId);
+    const last = this.world.keyResults.first("buildingId = ?", [buildingId], "ORDER BY position DESC");
+    const kr = this.world.keyResults.upsert({
+      id: newId("kr"), buildingId, position: last ? last.position + 1 : 0, text: inp.text, howToCheck: inp.howToCheck,
+      status: "not-started", statusNote: "", statusBy: null, updatedAt: nowIso(),
+    });
+    this.world.events.append({ type: "kr.created", agentId: actor?.id ?? null, buildingId, text: `${b.name} key result: ${kr.text}`, payload: { keyResultId: kr.id } });
+    return kr;
+  }
+
+  /** DELETE /api/key-results/:id (a human with `building.manage`). Refused while an open or live grant names it. */
+  deleteKeyResult(actor: Actor, id: string): void {
+    const kr = this.world.keyResults.require(id, "key result");
+    this.requireHumanWriter(actor, kr.buildingId);
+    const g = this.world.grants.first("keyResultId = ? AND status IN ('draft', 'proposed', 'countered', 'funded', 'checkpoint')", [id]);
+    if (g) throw new AppError("conflict", `Grant ${g.id} ("${g.objective}", ${g.status}) names this key result: close or re-point it first.`);
+    this.world.keyResults.delete(id);
+    this.world.events.append({ type: "kr.deleted", agentId: actor?.id ?? null, buildingId: kr.buildingId, text: `Key result removed: ${kr.text}`, payload: { keyResultId: id } });
+  }
+
+  /**
+   * PATCH /api/key-results/:id. `status`: the manager up to `claimed`; `met` / `missed` (and undoing them) need
+   * `building.fund`. `text` / `howToCheck`: a human with `building.manage` (a human writes the goal's key results).
+   */
   updateKeyResult(actor: Actor, id: string, input: UpdateKeyResultInput): KeyResult {
     const inp = UpdateKeyResultInput.parse(input);
     const kr = this.world.keyResults.require(id, "key result");
-    const g = this.world.grants.require(kr.grantId, "grant");
-    if (actor) {
+    const words = { ...(inp.text !== undefined && { text: inp.text }), ...(inp.howToCheck !== undefined && { howToCheck: inp.howToCheck }) };
+    if (!inp.status && !Object.keys(words).length) throw badRequest("Nothing to change: give status, text or howToCheck.");
+    if (Object.keys(words).length) this.requireHumanWriter(actor, kr.buildingId);
+    if (actor && inp.status) {
       const judged = inp.status === "met" || inp.status === "missed" || kr.status === "met" || kr.status === "missed";
-      if (judged) this.world.permissions.require(actor, "building.fund", g.buildingId);
-      else if (!this.canManage(actor, g.buildingId)) throw forbidden("building.manage");
+      if (judged) this.world.permissions.require(actor, "building.fund", kr.buildingId);
+      else if (!this.canManage(actor, kr.buildingId)) throw forbidden("building.manage");
     }
-    if (!LIVE.includes(g.status)) throw new AppError("conflict", `Key results can only change on a funded grant (this one is ${g.status}).`);
-    const next = this.world.keyResults.upsert({ ...kr, status: inp.status, statusNote: inp.note, statusBy: actor ? holderOf(actor).id : "system", updatedAt: nowIso() });
+    const status = inp.status ? { status: inp.status, statusNote: inp.note, statusBy: actor ? holderOf(actor).id : "system" } : {};
+    const next = this.world.keyResults.upsert({ ...kr, ...words, ...status, updatedAt: nowIso() });
     this.world.events.append({
-      type: "kr.updated", agentId: actor?.id ?? null, buildingId: g.buildingId, text: `Key result ${inp.status}: ${kr.text}`,
-      payload: { grantId: g.id, keyResultId: kr.id, status: inp.status, from: kr.status },
+      type: "kr.updated", agentId: actor?.id ?? null, buildingId: kr.buildingId, text: inp.status ? `Key result ${inp.status}: ${next.text}` : `Key result edited: ${next.text}`,
+      payload: { grantId: this.liveGrantOf(kr.id)?.id ?? null, keyResultId: kr.id, status: next.status, from: kr.status },
     });
     return next;
   }
 
   // ---- helpers ----
-  private setKeyResults(grantId: string, krs: KeyResultInput[]): void {
-    for (const old of this.world.keyResults.where("grantId = ?", [grantId])) this.world.keyResults.delete(old.id);
-    const now = nowIso();
-    krs.forEach((k, position) => this.world.keyResults.upsert({
-      id: newId("kr"), grantId, position, text: k.text, howToCheck: k.howToCheck, status: "not-started", statusNote: "", statusBy: null, updatedAt: now,
-    }));
+  /** Only humans write the goal's key results (the manager proposes them in a rollup or 1:1). */
+  private requireHumanWriter(actor: Actor, buildingId: string): void {
+    if (!actor) return;
+    if (actor.kind !== "human") throw forbidden("building.manage", "Only a human writes the building goal's key results; propose them to Mitchell in a rollup or your 1:1.");
+    this.world.permissions.require(actor, "building.manage", buildingId);
+  }
+
+  private requireGoalKeyResult(buildingId: string, keyResultId: string): void {
+    const kr = this.world.keyResults.get(keyResultId);
+    if (!kr || kr.buildingId !== buildingId) throw badRequest(`${keyResultId} is not a key result of this building's goal.`);
   }
 
   private requireStatus(g: Grant, ok: GrantStatus[], verb: string): void {

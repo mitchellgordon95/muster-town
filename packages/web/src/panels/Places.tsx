@@ -133,7 +133,8 @@ function GrantRow({ grant: g, onDecided, onOpenDoc }: { grant: GrantView; onDeci
         {g.checkpointDocId ? <button className="link" onClick={() => onOpenDoc(g.checkpointDocId!)}>checkpoint report</button> : null}
       </div>
       <ul className="grant-krs">
-        {g.keyResults.map((k) => <li key={k.id}>{k.text} <span className="muted">· {k.status.replace(/-/g, " ")}</span></li>)}
+        {g.keyResult ? <li key={g.keyResult.id}>{g.keyResult.text} <span className="muted">· {g.keyResult.status.replace(/-/g, " ")}</span></li> : <li className="muted">No goal key result named yet</li>}
+        {g.testingPlan.map((t, i) => <li key={i} className="muted">Test: {t.text}</li>)}
       </ul>
       <div className="intray-proposal">Stop when: {g.stopCondition}</div>
       {last?.note ? <div className="intray-proposal">{nameOf(last.byId)} ({last.action}): {last.note}</div> : null}
@@ -247,12 +248,12 @@ function KeyResultsView({ board }: { board: Board }) {
             </div>
             {g.status === "checkpoint" ? <div className="muted">{grantStateLine(g)}</div> : null}
             <ul className="kr-list">
-              {g.keyResults.map((k) => (
-                <li key={k.id}>
-                  <Pill tone={krTone(k.status)}>{k.status.replace(/-/g, " ")}</Pill> {k.text}
-                  <div className="muted kr-check">How to check: {k.howToCheck}</div>
+              {g.keyResult ? (
+                <li key={g.keyResult.id}>
+                  <Pill tone={krTone(g.keyResult.status)}>{g.keyResult.status.replace(/-/g, " ")}</Pill> {g.keyResult.text}
+                  <div className="muted kr-check">How to check: {g.keyResult.howToCheck}</div>
                 </li>
-              ))}
+              ) : null}
             </ul>
           </div>
         ))}

@@ -15,14 +15,14 @@ export async function propose_grant(world: World, me: Agent, input: VerbIn<"prop
     const draft = world.grantDesk.create(me, bid, fields);
     return world.grantDesk.propose(me, draft.id, note);
   });
-  return { grantId: g.id, status: g.status, keyResults: g.keyResults.map((k) => ({ id: k.id, text: k.text })), note: "A human funds, counters or rejects it from the Town Hall in-tray." };
+  return { grantId: g.id, status: g.status, keyResult: g.keyResult && { id: g.keyResult.id, text: g.keyResult.text }, testingPlan: g.testingPlan, note: "A human funds, counters or rejects it from the Town Hall in-tray." };
 }
 
-/** `checkpoint_grant` (the manager): key-result statuses up to claimed, and the checkpoint report link. */
+/** `checkpoint_grant` (the manager): the grant's key-result status up to claimed, and the checkpoint report link. */
 export async function checkpoint_grant(world: World, me: Agent, input: VerbIn<"checkpoint_grant">) {
-  const g = world.grantDesk.fileCheckpoint(me, input.grantId, { reportId: input.reportId ?? null, keyResults: input.keyResults });
+  const g = world.grantDesk.fileCheckpoint(me, input.grantId, { reportId: input.reportId ?? null, status: input.status ?? null, note: input.note });
   return {
-    grantId: g.id, status: g.status, checkpointDocId: g.checkpointDocId, keyResults: g.keyResults.map((k) => ({ id: k.id, status: k.status })),
+    grantId: g.id, status: g.status, checkpointDocId: g.checkpointDocId, keyResult: g.keyResult && { id: g.keyResult.id, status: g.keyResult.status },
     note: g.checkpointDocId ? "Linked. A human continues, adjusts or cuts it from the Town Hall in-tray." : "Now submit_report with rollup: true: it links itself to this grant as the checkpoint report.",
   };
 }

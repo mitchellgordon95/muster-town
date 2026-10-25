@@ -141,6 +141,11 @@ export class World {
       const th = grant || (doc && isTownHallItem(this, doc)) ? this.buildings.first("kind = 'town-hall'") : undefined;
       if (th && th.id !== b?.id) this.changes.emit({ type: "building", building: { ...th, intray: intrayCount(this, th.id) } });
     });
+    // goal-directed: a grant, key-result or budget-settings change may block or unblock the building (wakes its manager once)
+    this.events.addHook((e) => {
+      if (!e.buildingId || !(e.type.startsWith("grant.") || e.type === "kr.created" || e.type === "kr.deleted" || e.type === "building.updated")) return;
+      this.grantDesk.syncBlocked(e.buildingId);
+    });
     this.layout.rebuild();
   }
 

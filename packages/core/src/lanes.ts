@@ -12,9 +12,10 @@ const goalDirected = (b: Building | undefined) => b?.budgetMode === "goal-direct
 
 /**
  * The lane of a new assignment (docs/goal-directed-budgets.md, three spend lanes). Given fields are validated:
- * exploration names a key result of the building or a goal gap; grant names a grant of the building and one of its key
- * results. No fields: a continuation (`from`) inherits its lane, anything else is directed. In a goal-directed building
- * an agent can't create directed work (meeting decisions are exempt: meetings are started by humans or the scheduler).
+ * exploration names a key result of the building goal that no funded grant works on, or a goal gap; grant names a grant
+ * of the building (its key result is implied and stored on the assignment; a keyResultId given must be that one). No
+ * fields: a continuation (`from`) inherits its lane, anything else is directed. In a goal-directed building an agent
+ * can't create directed work (meeting decisions are exempt: meetings are started by humans or the scheduler).
  */
 export function resolveLane(world: World, buildingId: string, createdBy: Holder | { kind: "system"; id: string }, input: LaneFields | undefined, opts: { from?: Assignment; fromMeeting?: boolean } = {}): Lane {
   const building = world.buildings.get(buildingId);
@@ -23,27 +24,31 @@ export function resolveLane(world: World, buildingId: string, createdBy: Holder 
   if (!lane && opts.from) return { lane: opts.from.lane, grantId: opts.from.grantId, keyResultId: opts.from.keyResultId, gap: opts.from.gap };
   if (!lane || lane === "directed") {
     if (goalDirected(building) && !opts.fromMeeting && createdBy.kind !== "system" && (createdBy.kind === "agent" || !BUDGET_POLICY.directedBypassesGrants)) {
-      throw badRequest(`${building!.name} is goal-directed: say lane "grant" (grantId + keyResultId) or "exploration" (keyResultId or gap)${createdBy.kind === "agent" ? "; agents can't create directed work" : ""}.`);
+      throw badRequest(`${building!.name} is goal-directed: say lane "grant" (grantId of a funded grant) or "exploration" (keyResultId of a goal key result with no funded grant, or gap)${createdBy.kind === "agent" ? "; agents can't create directed work" : ""}.`);
     }
     return DIRECTED;
   }
   const kr = input?.keyResultId ? world.keyResults.get(input.keyResultId) : undefined;
   if (input?.keyResultId && !kr) throw badRequest(`Unknown key result ${input.keyResultId}.`);
-  const krGrant = kr ? world.grants.get(kr.grantId) : undefined;
-  if (kr && krGrant?.buildingId !== buildingId) throw badRequest(`Key result ${kr.id} is not one of this building's grants.`);
+  if (kr && kr.buildingId !== buildingId) throw badRequest(`Key result ${kr.id} is not one of this building's goal key results.`);
   if (lane === "exploration") {
-    if (!kr && !gap) throw badRequest("An exploration assignment names a key result (keyResultId) or a goal gap (gap: one sentence on what is missing between the goal and the live town).");
+    if (!kr && !gap) throw badRequest("An exploration assignment names a key result of the building goal (keyResultId) or a goal gap (gap: one sentence on what is missing between the goal and the live town).");
+    const live = kr ? world.grantDesk.liveGrantOf(kr.id) : undefined;
+    if (live) throw badRequest(`Key result ${kr!.id} has a funded grant (${live.id}): work on it in lane "grant" with grantId ${live.id}.`);
     return { lane, grantId: null, keyResultId: kr?.id ?? null, gap };
   }
-  if (!input?.grantId || !kr) throw badRequest("A grant assignment needs grantId and a keyResultId of that grant.");
+  if (!input?.grantId) throw badRequest("A grant assignment names its grant (grantId); the grant's key result is implied.");
   const g = world.grants.get(input.grantId);
   if (!g || g.buildingId !== buildingId) throw badRequest(`Grant ${input.grantId} is not one of this building's grants.`);
-  if (kr.grantId !== g.id) throw badRequest(`Key result ${kr.id} belongs to another grant (${kr.grantId}).`);
+  if (kr && kr.id !== g.keyResultId) throw badRequest(`Grant ${g.id} works toward key result ${g.keyResultId ?? "(none)"}, not ${kr.id}; leave keyResultId out.`);
   if (g.status === "closed" || g.status === "rejected" || g.status === "draft") throw badRequest(`Grant ${g.id} is ${g.status}: work can't be charged to it.`);
-  return { lane, grantId: g.id, keyResultId: kr.id, gap };
+  return { lane, grantId: g.id, keyResultId: g.keyResultId, gap };
 }
 
-/** The manager's checkpoint-report assignment (lane grant without a key result, created by the system): it may run while its grant is at checkpoint. */
+/**
+ * The manager's checkpoint-report assignment (lane grant without a key result, created by the system): it may run while
+ * its grant is at checkpoint. Other grant work stores its grant's key result, and a grant can't be funded without one.
+ */
 export function isCheckpointAssignment(a: Pick<Assignment, "lane" | "grantId" | "keyResultId" | "createdBy">): boolean {
   return a.lane === "grant" && !!a.grantId && !a.keyResultId && a.createdBy === "system";
 }

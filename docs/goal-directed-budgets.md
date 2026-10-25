@@ -2,6 +2,33 @@
 
 Status: **steps 1a–c built** (7bef911, 2eae49f, 441a7f3: schema, `Grants` service, REST routes, board route; every building still `budgetMode: open`). Steps 2–5 are re-sequenced by `docs/waterfall.md` (2026-10-24), which moves the human's surface from the board to the Town Hall in-tray and the manager's 1:1; the board proposal/checkpoint buttons and the amber map dot below are superseded by it. Decided in the Town Workshop standup of 2026-10-21, notes `dc_taoar1c9ag`.
 
+## Model change (2026-10-25, migration 032): key results live on the building goal
+
+Mitchell decided this in his 1:1s with Pix (notes `dc_bo7xuobtbv`, meeting `mt_593ps69z8y`). It supersedes "a grant carries 2-3 key results" everywhere below.
+
+- **Goal key results.** Key results belong to the building goal, not to a grant. Only a human writes them (a human with `building.manage`; agent tokens are refused), the manager assists by proposing them in a rollup or the 1:1. Each has `text`, `howToCheck` and a `status` (`not-started`, `on-track`, `at-risk`, `claimed`, `met`, `missed`; the manager sets up to `claimed`, only `building.fund` sets or undoes `met` / `missed`).
+- **A grant is the plan for one key result.** It names exactly one goal key result (`keyResultId`) and carries the plan: `objective`, `approach` (how), `stopCondition`, `askTokens`. What used to be the grant's key results is an optional **testing plan** (`testingPlan: [{text, howToCheck}]`, no status). A grant can't be proposed or funded without a `keyResultId`; funding it runs the plan.
+- **Lanes.** `grant` names a grant (`grantId`); its key result is implied and stored on the assignment (`keyResultId`, null only on the manager's checkpoint assignment). `exploration` names a goal key result that has **no** funded grant, or a gap sentence. `laneHold` is unchanged.
+- **Checkpoints and the board** read key-result status off the goal. `checkpoint_grant` sets the status of the grant's one key result (up to `claimed`).
+- **Blocked.** A goal-directed building whose goal has no key results and that has no funded grant is `"blocked: no key results to work toward"`. It shows on `GET /api/buildings/:id` (`blocked`), the board and the Town Hall in-tray (`blocked: [{buildingId, name, reason, since}]`, not counted in the badge). On each transition into blocked, core stamps `buildings.blockedAt` and gives the manager agent one assignment (front of its queue, lane directed, created by the system): "Get human decisions: … is blocked", which tells it to draft key results and put them to Mitchell via a rollup or the 1:1. It doesn't fire again while the building stays blocked; leaving blocked clears `blockedAt`. Checked after every grant / key-result / building-settings change and on every scheduler tick.
+- **Migration 032.** Every old key result was a grant's, so each grant's became its testing plan (in order) and grants start with `keyResultId` null. Assignments that named an old key result keep its text as their `gap` (exploration) or drop it (grant). The Workshop's `gr_jqsqra0dlx` keeps its three KRs as its testing plan, and the Workshop shows blocked until a human writes its goal's key results.
+
+API (the parts Root's UI uses):
+
+| Route | Who | Shape |
+|---|---|---|
+| `GET /api/buildings/:id` | anyone | adds `keyResults: (KeyResult & { grantId: string \| null })[]` (the live grant on each) and `blocked: string \| null` |
+| `GET /api/buildings/:id/key-results` | anyone | `{ keyResults, blocked }` |
+| `POST /api/buildings/:id/key-results` | human, `building.manage` | `{ text, howToCheck }` → 201 `{ keyResult }` |
+| `PATCH /api/key-results/:id` | see above | `{ status?, note?, text?, howToCheck? }` (text / howToCheck: human, `building.manage`) → `{ keyResult }` |
+| `DELETE /api/key-results/:id` | human, `building.manage` | 409 while a draft / open / live grant names it |
+| `GET /api/buildings/:id/board` | anyone | adds `keyResults` and `blocked`; each grant is a `GrantView` |
+| `POST /api/buildings/:id/grants` | `building.manage` | `{ keyResultId, objective, approach?, stopCondition, askTokens, testingPlan?: [{text, howToCheck}] (≤ 5), findingsDocIds? }` |
+| `POST /api/grants/:id/decide` | `building.fund` | `keyResults` replaced by `testingPlan?` |
+| `GET /api/buildings/town-hall/intray` | anyone | `{ reports, grants, blocked }` |
+
+`GrantView` = `Grant` (now with `keyResultId`, `approach`, `testingPlan`) + `keyResult: KeyResult | null` + `spentTokens`. `KeyResult` has `buildingId` instead of `grantId`. `Building` has `blockedAt`. New events: `kr.created`, `kr.deleted`, `building.blocked`. Verbs: `propose_grant` takes `keyResultId`, `approach`, `testingPlan`; `checkpoint_grant` takes `{ grantId, reportId?, status?, note? }`; `assign`'s lane rules as above.
+
 ## Why
 
 Mitchell doesn't trust open-ended automation, and shouldn't have to. Nor should a human have to approve every task. The gate moves from individual tasks to a **funded building proposal**: the building's manager proposes an objective with a few key results that a human can check in the live town, plus a token ask. The human negotiates it, funds it, and checks in at half spend. Inside a funded grant, agents work as they do today. Outside one, a building only gets a small exploration allowance, and every exploration task has to point at the goal.
@@ -81,7 +108,10 @@ export const GrantOutcome = z.enum(["met", "stopped", "spent", "cut"]);
 export const Grant = z.object({
   id: Id,
   buildingId: Id,
+  keyResultId: Id.nullable().default(null),  // since 032: the one goal key result it works toward
   objective: z.string().min(1).max(300),
+  approach: z.string().max(2000).default(""), // since 032: how
+  testingPlan: z.array(z.object({ text, howToCheck })).default([]), // since 032: the old grant KRs, no status
   /** when to stop even if tokens remain (e.g. "if no visitor finishes onboarding after two attempts, stop and report") */
   stopCondition: z.string().min(1).max(500),
   /** tokens asked by the manager (latest revision) */
@@ -115,7 +145,7 @@ export const KeyResultStatus = z.enum(["not-started", "on-track", "at-risk", "cl
 /** Something a human can check in the live town. `met` / `missed` are set only by users. */
 export const KeyResult = z.object({
   id: Id,
-  grantId: Id,
+  buildingId: Id,  // since migration 032: a key result of the building goal (was grantId)
   position: z.number().int(),
   text: z.string().min(1).max(300),     // "A visitor can see today's token spend on the Prod banner"
   howToCheck: z.string().min(1).max(300), // "Open the town, click the Prod banner, read the Usage line"
@@ -149,7 +179,7 @@ lane: ...same enum..., grantId: Id.nullable().default(null),
 
 - **Spend is derived, not stored**: a grant's spend is `SUM(sessions.tokens WHERE grantId = ?)`, and today's exploration spend is the same sum over `lane = 'exploration'` sessions of the building started since 00:00 UTC. No second counter that can drift from `Budget.charge`. `Budget.charge` only has to check the 50% / 100% thresholds after each charge.
 - **`building.fund` is never effective for agents**: `Permissions.can` returns false for agent holders regardless of roles. The manager agent already holds `building.manage`, and an owner's permissions cap their agents', so without this an agent manager whose owner is admin could fund its own proposal.
-- Exploration's "names a key result or gap" is enforced when the assignment is created: `lane = exploration` requires `keyResultId` or a non-empty `gap`; `lane = grant` requires `grantId` and `keyResultId` of that grant.
+- Exploration's "names a key result or gap" is enforced when the assignment is created: `lane = exploration` requires `keyResultId` (a goal key result with no funded grant) or a non-empty `gap`; `lane = grant` requires `grantId` (its key result is implied; since 032).
 
 ## Gate (runtime)
 
@@ -161,7 +191,7 @@ lane: ...same enum..., grantId: Id.nullable().default(null),
 
 Then come the existing checks (daily per-agent cap, building remaining). A held assignment stays pending, like a `waitFor`, and the board says why ("held: grant at checkpoint"). It is not cancelled. Sessions are never cut mid-run: a session that starts under the line may overshoot, which is what `Budget.charge` already allows.
 
-When a charge pushes a grant past 50% (or 100%), core sets it to `checkpoint`, appends a `grant.checkpoint` event, and creates the manager's checkpoint assignment (lane `grant`, which is allowed to run while the grant is in `checkpoint`). The assignment is "Write the checkpoint for <objective>: each key result's status with evidence a human can check, spend so far, and whether to continue". The manager files it with a new `checkpoint_grant` verb, which links the report and sets KR statuses (up to `claimed`). Humans get a mention in their inbox.
+When a charge pushes a grant past 50% (or 100%), core sets it to `checkpoint`, appends a `grant.checkpoint` event, and creates the manager's checkpoint assignment (lane `grant`, which is allowed to run while the grant is in `checkpoint`). The assignment is "Write the checkpoint for <objective>: each key result's status with evidence a human can check, spend so far, and whether to continue". The manager files it with a new `checkpoint_grant` verb, which links the report and sets the status of the grant's goal key result (up to `claimed`; since 032). Humans get a mention in their inbox.
 
 ## API
 
@@ -181,7 +211,7 @@ All under the existing Fastify app. Reads are public like the rest of the town; 
 | `PATCH /api/buildings/:id` | `building.manage` | gains `explorationTokensPerDay`, `budgetMode` |
 | `POST /api/agents/:id/work` and the `assign` verb (existing) | `building.assign` | gain `lane`, `grantId`, `keyResultId`, `gap` |
 
-MCP verbs (agents): `board` returns the same shape as `GET …/board`. New manager verbs: `propose_grant` (create + propose in one call) and `checkpoint_grant` (`{ grantId, reportId, keyResults: [{id, status, note}] }`). `assign` gains `lane`, `grantId`, `keyResultId`, `gap`. Events: `grant.proposed`, `grant.countered`, `grant.funded`, `grant.checkpoint`, `grant.closed`, `kr.updated`, all pushed to the web over the existing websocket.
+MCP verbs (agents): `board` returns the same shape as `GET …/board`. New manager verbs: `propose_grant` (create + propose in one call) and `checkpoint_grant` (`{ grantId, reportId?, status?, note? }` since 032). `assign` gains `lane`, `grantId`, `keyResultId`, `gap`. Events: `grant.proposed`, `grant.countered`, `grant.funded`, `grant.checkpoint`, `grant.closed`, `kr.updated`, all pushed to the web over the existing websocket.
 
 ## The desk brief
 

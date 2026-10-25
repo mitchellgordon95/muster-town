@@ -163,6 +163,8 @@ export const Building = z.object({
   explorationTokensPerDay: z.number().int().nonnegative().nullable().default(null),
   /** budget rules: `goal-directed` (the default for new buildings since 2026-10-25, town hall decision) = grants and exploration gate sessions; `open` = no gate. Existing rows keep their stored value (migration 025 wrote `open`). */
   budgetMode: z.enum(["open", "goal-directed"]).default("goal-directed"),
+  /** goal-directed: since when the building is blocked (its goal has no key results and it has no funded grant); null = not blocked. The manager is woken once per blocked transition. */
+  blockedAt: Iso.nullable().default(null),
   /** tile rectangle on the town grid; assigned by the server if absent */
   lot: Lot.optional(),
   /** moved furniture: piece key (`board`, `desk:3`, `meeting`, …) -> anchor tile relative to the lot; absent = default spot */
@@ -519,12 +521,13 @@ export const SpendLane = z.enum(["grant", "exploration", "directed"]);
 export type SpendLane = z.infer<typeof SpendLane>;
 /**
  * The lane fields of `assign` and POST /api/agents/:id/work (docs/goal-directed-budgets.md). Left out: the lane of the
- * work it continues, else directed. exploration needs keyResultId or gap; grant needs grantId and a keyResultId of it.
+ * work it continues, else directed. exploration needs keyResultId (a goal key result with no funded grant) or gap; grant
+ * needs grantId (its key result is implied).
  */
 export const LaneFields = z.object({
   lane: SpendLane.optional().describe("grant (work on a funded grant's key result), exploration (names a key result or a goal gap), directed (a human asked for it; not for agents in goal-directed buildings)"),
   grantId: Id.optional().describe("lane grant: the grant"),
-  keyResultId: Id.optional().describe("lane grant (required) or exploration: the key result this works toward"),
+  keyResultId: Id.optional().describe("lane exploration: a key result of the building goal that has no funded grant (lane grant: implied by the grant)"),
   gap: z.string().trim().max(300).optional().describe("lane exploration without a key result: one sentence on what is missing between the goal and the live town"),
 });
 export type LaneFields = z.infer<typeof LaneFields>;
@@ -554,7 +557,7 @@ export const Assignment = z.object({
   lane: SpendLane.default("directed"),
   /** lane grant: the funded grant it draws on */
   grantId: Id.nullable().default(null),
-  /** lane grant (required) or exploration: the key result it works toward */
+  /** the goal key result it works toward: lane grant = its grant's (null on the manager's checkpoint assignment); exploration = the one it names */
   keyResultId: Id.nullable().default(null),
   /** lane exploration without a key result: the goal gap it investigates (one sentence) */
   gap: z.string().max(300).nullable().default(null),
@@ -651,11 +654,23 @@ export const GrantHistoryEntry = z.object({
   note: z.string().default(""),
 });
 export type GrantHistoryEntry = z.infer<typeof GrantHistoryEntry>;
-/** A building's proposal and, once funded, its grant: one objective, 2-3 key results, a token ceiling (not a reservation). */
+/** One line of a grant's testing plan: how the plan's work will be checked (no status: status lives on the goal's key result). */
+export const TestingPlanItem = z.object({ text: z.string().trim().min(1).max(300), howToCheck: z.string().trim().min(1).max(300) });
+export type TestingPlanItem = z.infer<typeof TestingPlanItem>;
+/**
+ * A building's proposal and, once funded, its grant: the plan for one of the building goal's key results (objective,
+ * approach, stop condition, optional testing plan) and a token ceiling (not a reservation). Funding it runs the plan.
+ */
 export const Grant = z.object({
   id: Id,
   buildingId: Id,
+  /** the goal key result this grant works toward; null only for grants from before key results moved onto the goal (migration 032) */
+  keyResultId: Id.nullable().default(null),
   objective: z.string().min(1).max(300),
+  /** how: the approach the plan takes */
+  approach: z.string().max(2000).default(""),
+  /** how the work will be checked (what used to be the grant's own key results) */
+  testingPlan: z.array(TestingPlanItem).default([]),
   /** when to stop even if tokens remain */
   stopCondition: z.string().min(1).max(500),
   /** tokens asked by the manager (latest revision) */
@@ -683,10 +698,13 @@ export const Grant = z.object({
 export type Grant = z.infer<typeof Grant>;
 export const KeyResultStatus = z.enum(["not-started", "on-track", "at-risk", "claimed", "met", "missed"]);
 export type KeyResultStatus = z.infer<typeof KeyResultStatus>;
-/** Something a human can check in the live town. `met` / `missed` are set only by users with `building.fund`. */
+/**
+ * A key result of a building's goal: something a human can check in the live town. Only humans write them (text,
+ * howToCheck); the manager sets status up to `claimed`; `met` / `missed` only users with `building.fund`.
+ */
 export const KeyResult = z.object({
   id: Id,
-  grantId: Id,
+  buildingId: Id,
   position: z.number().int(),
   text: z.string().min(1).max(300),
   howToCheck: z.string().min(1).max(300),
@@ -696,8 +714,8 @@ export const KeyResult = z.object({
   updatedAt: Iso,
 });
 export type KeyResult = z.infer<typeof KeyResult>;
-/** A grant as the API returns it: its key results (in order) and derived spend. */
-export const GrantView = Grant.extend({ keyResults: z.array(KeyResult), spentTokens: z.number().int().nonnegative() });
+/** A grant as the API returns it: the goal key result it names (null if none) and derived spend. */
+export const GrantView = Grant.extend({ keyResult: KeyResult.nullable(), spentTokens: z.number().int().nonnegative() });
 export type GrantView = z.infer<typeof GrantView>;
 
 // ---------- sessions (a resident's work session) ----------
@@ -752,7 +770,7 @@ export const EventType = z.enum([
   "meeting.created", "meeting.phase", "meeting.utterance", "meeting.decisions",
   "session.started", "session.ended",
   "building.created", "building.updated", "building.layout", "town.plan", "allocation.created", "budget.exhausted", "bank.input", "bank.credited", "bank.share", "bank.pool",
-  "grant.created", "grant.updated", "grant.proposed", "grant.countered", "grant.funded", "grant.rejected", "grant.checkpoint", "grant.closed", "kr.updated",
+  "grant.created", "grant.updated", "grant.proposed", "grant.countered", "grant.funded", "grant.rejected", "grant.checkpoint", "grant.closed", "kr.updated", "kr.created", "kr.deleted", "building.blocked",
   "skill.used", "skill.pinned", "skill.unpinned",
   "secret.set", "secret.deleted", "secret.granted",
   "export.done", "system",
@@ -769,15 +787,19 @@ export const Event = z.object({
 });
 export type Event = z.infer<typeof Event>;
 
-const KeyResultInput = z.object({ text: z.string().trim().min(1).max(300), howToCheck: z.string().trim().min(1).max(300) });
-/** POST /api/buildings/:id/grants: a draft proposal (the manager). */
+/** POST /api/buildings/:id/grants: a draft proposal (the manager): the plan for one goal key result. */
 export const CreateGrantInput = z.object({
+  keyResultId: Id.describe("the building goal's key result this grant works toward (one per grant)"),
   objective: z.string().trim().min(1).max(300),
+  approach: z.string().trim().max(2000).default("").describe("how: the approach the plan takes"),
   stopCondition: z.string().trim().min(1).max(500),
   askTokens: z.number().int().positive(),
-  keyResults: z.array(KeyResultInput).min(2).max(3),
+  testingPlan: z.array(TestingPlanItem).max(5).default([]).describe("optional: how the work will be checked, each line with a how-to-check"),
   findingsDocIds: z.array(Id).default([]),
 });
+/** POST /api/buildings/:id/key-results: a key result on the building goal (humans with `building.manage`). */
+export const CreateKeyResultInput = z.object({ text: z.string().trim().min(1).max(300), howToCheck: z.string().trim().min(1).max(300) });
+export type CreateKeyResultInput = z.input<typeof CreateKeyResultInput>;
 export type CreateGrantInput = z.input<typeof CreateGrantInput>;
 
 // ---------- verbs (MCP tools) ----------
@@ -835,7 +857,8 @@ export const VerbInputs = {
   propose_grant: CreateGrantInput.extend({ note: z.string().max(2000).default("").describe("what the human should know when deciding") }),
   checkpoint_grant: z.object({
     grantId: Id, reportId: Id.optional().describe("an already filed checkpoint report; leave it out when you file the checkpoint first and then submit_report with rollup: true in this session (that report links itself)"),
-    keyResults: z.array(z.object({ id: Id, status: z.enum(["not-started", "on-track", "at-risk", "claimed"]), note: z.string().max(2000).default("") })).default([]),
+    status: z.enum(["not-started", "on-track", "at-risk", "claimed"]).optional().describe("the grant's key result's status (only a human marks met or missed)"),
+    note: z.string().max(2000).default("").describe("the evidence for that status"),
   }),
   promote: z.object({ docId: Id, state: z.enum(["building", "library"]) }),
   ban: z.object({ agentId: Id, reason: z.string() }),
@@ -863,9 +886,9 @@ export const VERB_DESCRIPTIONS: Record<VerbName, string> = {
   accept_assignment: "Accept a pending assignment; it becomes my current task. Visitors: assignments to you are offers until you accept them (unaccepted offers are cancelled after 24 h); finish with `submit_report`.",
   meeting: "Participate in a meeting: 'summary' submits my short standup summary (did, next), 'speak' adds to the transcript once the discussion has started, 'listen' returns new utterances since my last listen (set waitSeconds to wait for someone to speak), 'decide'/'end' are for the facilitator (to amend a decision, decide again with supersedes = its number in status's decisions list); a decision's waitFor holds its assignment until then, e.g. {deploy: \"next\"} for \"after the redeploy\" or {assignment: id} for \"once X lands\"; while humans are talking, leave 'end' to them.",
   review: "(manager/reviewer) Decide on a pending report in the in-tray: approve (acknowledge), continue (assign its proposal), redirect (assign your note instead), or stop the agent.",
-  assign: "(manager/reviewer) Create an assignment for an agent in my building. With waitFor it waits (e.g. for the next redeploy, or another assignment to finish) before it starts. In goal-directed buildings an agent must give lane grant (grantId + keyResultId) or exploration (keyResultId or gap).",
-  propose_grant: "(manager) Propose a grant for my building in one call: an objective, 2-3 key results a human can check in the live town (text + howToCheck), a token ask and a stop condition. It goes to the Town Hall in-tray for a human to fund, counter or reject. One open proposal per building.",
-  checkpoint_grant: "(manager) File a grant's checkpoint: set each key result's status, at most claimed (only a human marks met or missed), with a note on the evidence; then submit_report with rollup: true, which links itself to the grant as its checkpoint report. The grant stays held until a human continues, adjusts or cuts it.",
+  assign: "(manager/reviewer) Create an assignment for an agent in my building. With waitFor it waits (e.g. for the next redeploy, or another assignment to finish) before it starts. In goal-directed buildings an agent must give lane grant (grantId of a funded grant; its key result is implied) or exploration (keyResultId of a goal key result with no funded grant, or gap).",
+  propose_grant: "(manager) Propose a grant for my building in one call: the plan for one of the building goal's key results (keyResultId): an objective, the approach, a stop condition, a token ask, and optionally a testing plan (text + howToCheck lines). Funding it runs the plan. It goes to the Town Hall in-tray for a human to fund, counter or reject. One open proposal per building.",
+  checkpoint_grant: "(manager) File a grant's checkpoint: set the status of the grant's key result (on the building goal), at most claimed (only a human marks met or missed), with a note on the evidence; then submit_report with rollup: true, which links itself to the grant as its checkpoint report. The grant stays held until a human continues, adjusts or cuts it.",
   promote: "(manager) Publish a document to the building (board if it's an fyi, else the filing cabinet) or promote it to the library.",
   ban: "(town moderator) Ban an agent town-wide pending review.",
   redeploy: "Pull main on the host, reinstall, rebuild the web client (and the desk image when image=true), then restart the collective's server. Use when Mitchell asks you to deploy or when main has changed and the running town is stale. The restart waits for every running work session, including yours, to end first: never poll or wait for the new build in the same session (that deadlocks until the drain gives up). Call it, say in your report which commit should be live, submit the report, and verify on your next session.",
@@ -1002,17 +1025,17 @@ export const UpdateBuildingInput = CreateBuildingInput.partial().extend({
   explorationTokensPerDay: z.number().int().nonnegative().nullable().optional(),
   budgetMode: z.enum(["open", "goal-directed"]).optional(),
 });
-/** PATCH /api/grants/:id while draft / countered. `keyResults` replaces the list (statuses reset). */
+/** PATCH /api/grants/:id while draft / countered. `testingPlan` replaces the list. */
 export const UpdateGrantInput = CreateGrantInput.partial().extend({ note: z.string().max(2000).optional() });
 export type UpdateGrantInput = z.input<typeof UpdateGrantInput>;
 /**
  * POST /api/grants/:id/decide (`building.fund`). On a proposed grant: fund (tokens default to the ask), counter
- * (edits + note, back to the manager), reject. On a checkpoint grant: continue, adjust (tokens/KRs/stop condition), cut.
+ * (edits + note, back to the manager), reject. On a checkpoint grant: continue, adjust (tokens/testing plan/stop condition), cut.
  */
 export const DecideGrantInput = z.object({
   action: z.enum(["fund", "counter", "reject", "continue", "adjust", "cut"]),
   tokens: z.number().int().positive().optional(),
-  keyResults: z.array(KeyResultInput).min(2).max(3).optional(),
+  testingPlan: z.array(TestingPlanItem).max(5).optional(),
   stopCondition: z.string().trim().min(1).max(500).optional(),
   note: z.string().max(2000).default(""),
 });
@@ -1020,8 +1043,16 @@ export type DecideGrantInput = z.input<typeof DecideGrantInput>;
 /** POST /api/grants/:id/close: the manager may close as `stopped`; `building.fund` any outcome. */
 export const CloseGrantInput = z.object({ outcome: GrantOutcome, note: z.string().max(2000).default("") });
 export type CloseGrantInput = z.input<typeof CloseGrantInput>;
-/** PATCH /api/key-results/:id: the manager up to `claimed`; `building.fund` for `met` / `missed`. */
-export const UpdateKeyResultInput = z.object({ status: KeyResultStatus, note: z.string().max(2000).default("") });
+/**
+ * PATCH /api/key-results/:id. `status`: the manager up to `claimed`; `building.fund` for `met` / `missed`.
+ * `text` / `howToCheck`: humans with `building.manage` only (a human writes the goal's key results).
+ */
+export const UpdateKeyResultInput = z.object({
+  status: KeyResultStatus.optional(),
+  note: z.string().max(2000).default(""),
+  text: z.string().trim().min(1).max(300).optional(),
+  howToCheck: z.string().trim().min(1).max(300).optional(),
+});
 export type UpdateKeyResultInput = z.input<typeof UpdateKeyResultInput>;
 /** GET /api/buildings/:id/grants?status= */
 export const GrantsQuery = z.object({ status: GrantStatus.optional() });

@@ -116,35 +116,41 @@ const tok = (n: number) => n.toLocaleString("en-US");
 
 /**
  * Goal-directed buildings: "Key results", right after the building goal (docs/goal-directed-budgets.md, The desk brief):
- * each funded (or checkpoint) grant's objective with spend / grant and its key results with status, today's
- * exploration, and the session's own lane. Empty string in open buildings.
+ * the goal's key results with status and the funded grant working on each (objective, spend / grant), the blocked line
+ * when there are none, today's exploration, and the session's own lane. Empty string in open buildings.
  */
 export function keyResultsBlock(world: World, building: Building, assignment?: Assignment | null): string {
   if (building.budgetMode !== "goal-directed") return "";
   const board = world.grantDesk.board(building.id);
-  const grants = board.grants.map((g) => [
-    `- ${g.id} "${oneLine(g.objective, 160)}" (${g.status === "checkpoint" ? "at checkpoint: its sessions are held" : "funded"}; ${tok(g.spentTokens)} / ${tok(g.grantTokens ?? 0)} tokens)`,
-    ...g.keyResults.map((k) => `  - ${k.id} [${k.status}] ${oneLine(k.text, 160)} (how to check: ${oneLine(k.howToCheck, 160)})`),
-  ].join("\n"));
+  const grants = new Map(board.grants.map((g) => [g.id, g]));
+  const krs = board.keyResults.map((k) => {
+    const g = k.grantId ? grants.get(k.grantId) : undefined;
+    const funding = g ? `grant ${g.id} "${oneLine(g.objective, 120)}" (${g.status === "checkpoint" ? "at checkpoint: its sessions are held" : "funded"}; ${tok(g.spentTokens)} / ${tok(g.grantTokens ?? 0)} tokens)` : "no funded grant: open for exploration";
+    return `- ${k.id} [${k.status}] ${oneLine(k.text, 160)} (how to check: ${oneLine(k.howToCheck, 160)}); ${funding}`;
+  });
+  const orphans = board.grants.filter((g) => !g.keyResultId).map((g) => `- grant ${g.id} "${oneLine(g.objective, 120)}" names no key result`);
   const krText = (id: string | null) => { const k = id ? world.keyResults.get(id) : undefined; return k ? `${k.id} "${oneLine(k.text, 120)}"` : id ?? ""; };
   const lane = !assignment ? "" : assignment.lane === "grant"
     ? `This session: grant ${assignment.grantId}${assignment.keyResultId ? `, key result ${krText(assignment.keyResultId)}` : " (the checkpoint)"}.`
     : assignment.lane === "exploration"
       ? `This session: exploration on ${assignment.keyResultId ? `key result ${krText(assignment.keyResultId)}` : `gap: ${oneLine(assignment.gap ?? "", 300)}`}. Its report is a findings note for the manager's next proposal.`
       : "This session: directed (a human asked for it directly).";
-  return `Key results (this building is goal-directed: every session runs in a lane, grant, exploration or directed):
-${grants.length ? grants.join("\n") : "(no funded grant yet: work is exploration, naming a key result or a goal gap)"}
-Exploration today: ${tok(board.exploration.spentTodayTokens)} / ${tok(board.exploration.allowanceTokens)} tokens.${board.proposal ? ` Open proposal: ${board.proposal.id} "${oneLine(board.proposal.objective, 120)}" (${board.proposal.status}).` : ""}${lane ? `\n${lane}` : ""}`;
+  const list = [...krs, ...orphans];
+  return `Key results of the building goal (this building is goal-directed: every session runs in a lane, grant, exploration or directed):
+${list.length ? list.join("\n") : `(none yet: the building is ${board.blocked ?? "waiting for a human to write key results"}. Only a human writes them; the manager proposes them)`}
+Exploration today: ${tok(board.exploration.spentTodayTokens)} / ${tok(board.exploration.allowanceTokens)} tokens.${board.proposal ? ` Open proposal: ${board.proposal.id} "${oneLine(board.proposal.objective, 120)}" (${board.proposal.status}${board.proposal.keyResultId ? `, for ${board.proposal.keyResultId}` : ", names no key result yet"}).` : ""}${lane ? `\n${lane}` : ""}`;
 }
 
-/** Goal-directed buildings: how the manager works with grants (`assign` lanes, `propose_grant`, `checkpoint_grant`). */
+/** Goal-directed buildings: how the manager works with goal key results and grants (`assign` lanes, `propose_grant`, `checkpoint_grant`). */
 export function managerGrantsBlock(world: World, building: Building): string {
   if (building.budgetMode !== "goal-directed") return "";
   const open = world.grants.first("buildingId = ? AND status IN ('proposed', 'countered')", [building.id]);
+  const blocked = world.grantDesk.blocked(building);
   return `## Grants (this building is goal-directed)
-Every \`assign\` names its lane: "grant" with grantId and a keyResultId of that funded grant, or "exploration" with a keyResultId or a gap (one sentence on what is missing between the goal and the live town). You can't create directed work; only humans do. Assignments whose grant is at checkpoint, or exploration past today's allowance, stay pending (held), never cancelled.
-${open ? `Open proposal: ${open.id} (${open.status}); a human decides it in the Town Hall in-tray.` : "No proposal is open: if exploration findings are in, draft one with `propose_grant` (objective, 2-3 key results a human can check in the live town, each with a how-to-check line, a token ask, a stop condition, and the findings reports in findingsDocIds)."}
-When a grant crosses 50% or 100% of its tokens you get a "Write the checkpoint for …" assignment: \`checkpoint_grant\` (key-result statuses up to claimed, with evidence), then \`submit_report\` with \`rollup: true\`; it lands in the Town Hall in-tray linked to the grant.`;
+Key results live on the building goal, and only a human writes them (you draft and propose them in a rollup or your 1:1 with Mitchell). A grant is the plan for one of them: \`propose_grant\` with its keyResultId, an objective, the approach, a stop condition, a token ask and optionally a testing plan (text + howToCheck lines: how the work will be checked). Funding it runs the plan.
+Every \`assign\` names its lane: "grant" with the grantId of a funded grant (its key result is implied), or "exploration" with the keyResultId of a goal key result that has no funded grant, or a gap (one sentence on what is missing between the goal and the live town). You can't create directed work; only humans do. Assignments whose grant is at checkpoint, or exploration past today's allowance, stay pending (held), never cancelled.
+${blocked ? `This building is ${blocked}: get the humans' decisions first (propose key results for the goal in a rollup or your 1:1).\n` : ""}${open ? `Open proposal: ${open.id} (${open.status})${open.keyResultId ? "" : ", naming no key result yet"}; a human decides it in the Town Hall in-tray.` : "No proposal is open: if exploration findings are in, draft one with `propose_grant` for a key result that has no funded grant (findings reports in findingsDocIds)."}
+When a grant crosses 50% or 100% of its tokens you get a "Write the checkpoint for …" assignment: \`checkpoint_grant\` (its key result's status up to claimed, with evidence), then \`submit_report\` with \`rollup: true\`; it lands in the Town Hall in-tray linked to the grant.`;
 }
 
 export function workPrompt(assignment: Assignment, lastReport: Doc | undefined, recentWork?: string): string {

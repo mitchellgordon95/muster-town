@@ -23,7 +23,7 @@ export const users: User[] = [
   { id: "us_mitchell", name: "Mitchell", createdAt: ago(9000), donatedTokens: 50_000_000, hasApiKey: false },
 ];
 
-const base = { goal: "", description: "", poolId: null, explorationTokensPerDay: null, budgetMode: "open" as const, headcount: 6, model: "claude-opus-5-5", cheapModel: "claude-haiku-5-5", maxTurnsPerSession: 80, dailyTokensPerAgent: 2_000_000, meetings: [], rules: "", managerAgentId: null as string | null, codeAccess: false, furniture: {} };
+const base = { goal: "", description: "", poolId: null, explorationTokensPerDay: null, budgetMode: "open" as const, blockedAt: null, headcount: 6, model: "claude-opus-5-5", cheapModel: "claude-haiku-5-5", maxTurnsPerSession: 80, dailyTokensPerAgent: 2_000_000, meetings: [], rules: "", managerAgentId: null as string | null, codeAccess: false, furniture: {} };
 export const buildings: Building[] = [
   { ...base, id: "bl_townhall", name: "Town Hall", kind: "town-hall", headcount: 3, description: "Library, trophy room, outbox, mod station, planning desk, schedule board, and the town meeting room.", createdAt: ago(9000) },
   {
@@ -121,15 +121,18 @@ export const docs: Doc[] = [
 
 const asgBase = { createdBy: "us_mitchell", createdByKind: "user" as const, fromMeetingId: null, fromReportId: null, fromAssignmentId: null, reportId: null, lane: "directed" as const, grantId: null, keyResultId: null, gap: null, heldReason: null };
 const asg = (a: Omit<Assignment, keyof typeof asgBase | "position"> & Partial<Assignment>): Assignment => ({ ...asgBase, position: Date.parse(a.createdAt), ...a });
-const grantBase = { outcome: null, findingsDocIds: [] as string[], checkpointsDone: [] as number[], checkpointDocId: null as string | null, fundedBy: null as string | null, fundedAt: null as string | null, closedAt: null, spentTokens: 0 };
-const kr = (grantId: string, position: number, text: string, howToCheck: string, status: GrantView["keyResults"][number]["status"] = "not-started") =>
-  ({ id: `kr_${grantId}_${position}`, grantId, position, text, howToCheck, status, statusNote: "", statusBy: null, updatedAt: ago(30) });
+const grantBase = { outcome: null, findingsDocIds: [] as string[], checkpointsDone: [] as number[], checkpointDocId: null as string | null, fundedBy: null as string | null, fundedAt: null as string | null, closedAt: null, spentTokens: 0, approach: "" };
+type Kr = NonNullable<GrantView["keyResult"]>;
+const kr = (buildingId: string, position: number, text: string, howToCheck: string, status: Kr["status"] = "not-started"): Kr =>
+  ({ id: `kr_${buildingId}_${position}`, buildingId, position, text, howToCheck, status, statusNote: "", statusBy: null, updatedAt: ago(30) });
+/** A grant names one goal key result; the rest of what it promised is its testing plan. */
+const plan = (k: Kr, ...rest: Kr[]) => ({ keyResultId: k.id, keyResult: k, testingPlan: rest.map(({ text, howToCheck }) => ({ text, howToCheck })) });
 /** Grants waiting for a human (Town Hall in-tray): a proposal and a checkpoint. */
 export const grants: GrantView[] = [
   {
     ...grantBase, id: "gr_ocean", buildingId: "bl_carbon", status: "proposed", proposedBy: "ag_moss", askTokens: 4_000_000, grantTokens: null,
     objective: "Settle the ocean-sink data/model gap in the Southern Ocean", stopCondition: "Stop when the gap is explained to within 0.2 GtC/yr, or after 4 sessions without progress.",
-    findingsDocIds: ["dc_mei_r1"], keyResults: [kr("gr_ocean", 0, "An article with the gap per product, with units and ranges", "Read it in the Carbon Cycle Lab cabinet"), kr("gr_ocean", 1, "A recommendation on which estimate the lab uses", "The master article cites it")],
+    findingsDocIds: ["dc_mei_r1"], ...plan(kr("bl_carbon", 0, "An article with the gap per product, with units and ranges", "Read it in the Carbon Cycle Lab cabinet"), kr("bl_carbon", 1, "A recommendation on which estimate the lab uses", "The master article cites it")),
     history: [{ at: ago(35), byId: "ag_moss", byKind: "agent", action: "propose", tokens: 4_000_000, note: "Mei's run 1 found the gap; two sessions each for products and models." }],
     createdAt: ago(60), updatedAt: ago(35),
   },
@@ -137,7 +140,7 @@ export const grants: GrantView[] = [
     ...grantBase, id: "gr_hud", buildingId: "bl_workshop", status: "checkpoint", proposedBy: "ag_keel", askTokens: 2_000_000, grantTokens: 2_000_000, spentTokens: 1_040_000,
     checkpointsDone: [0.5], checkpointDocId: "dc_keel_cp", fundedBy: "us_mitchell", fundedAt: ago(600),
     objective: "HUD works on narrow screens", stopCondition: "Stop when both KRs are met.",
-    keyResults: [kr("gr_hud", 0, "HUD collapses below 700px", "Open the town at 650px wide", "claimed"), kr("gr_hud", 1, "No overlap with the meeting panel", "Open a meeting at 650px wide", "on-track")],
+    ...plan(kr("bl_workshop", 0, "HUD collapses below 700px", "Open the town at 650px wide", "claimed"), kr("bl_workshop", 1, "No overlap with the meeting panel", "Open a meeting at 650px wide", "on-track")),
     history: [{ at: ago(600), byId: "us_mitchell", byKind: "user", action: "fund", tokens: 2_000_000, note: "" }, { at: ago(25), byId: "system", byKind: "agent", action: "checkpoint", tokens: null, note: "Spend crossed 50%." }],
     createdAt: ago(700), updatedAt: ago(25),
   },
@@ -146,14 +149,14 @@ export const grants: GrantView[] = [
     ...grantBase, id: "gr_tour", buildingId: "bl_workshop", status: "funded", proposedBy: "ag_keel", askTokens: 3_000_000, grantTokens: 2_500_000, spentTokens: 600_000,
     fundedBy: "us_mitchell", fundedAt: ago(300),
     objective: "A stranger can find the How it works tour from the landing page", stopCondition: "Stop when KR1 is met, or at 2.5M tokens.",
-    keyResults: [kr("gr_tour", 0, "The landing page links the tour above the fold", "Open muster.town logged out at 1280x800", "met"), kr("gr_tour", 1, "The tour's last scene links to the Bank", "Play the tour to the end", "at-risk"), kr("gr_tour", 2, "Guests can open the tour without signing in", "Open /?guest and click How it works", "missed")],
+    ...plan(kr("bl_workshop", 1, "The landing page links the tour above the fold", "Open muster.town logged out at 1280x800", "met"), kr("bl_workshop", 1, "The tour's last scene links to the Bank", "Play the tour to the end", "at-risk"), kr("bl_workshop", 2, "Guests can open the tour without signing in", "Open /?guest and click How it works", "missed")),
     history: [{ at: ago(300), byId: "us_mitchell", byKind: "user", action: "fund", tokens: 2_500_000, note: "Funded at 2.5M, not 3M." }],
     createdAt: ago(400), updatedAt: ago(300),
   },
   {
     ...grantBase, id: "gr_cli", buildingId: "bl_workshop", status: "countered", proposedBy: "ag_keel", askTokens: 1_500_000, grantTokens: null,
     objective: "muster-town digest prints the in-tray", stopCondition: "Stop when the command ships.",
-    keyResults: [kr("gr_cli", 0, "`muster-town digest` lists pending reports", "Run it against the live town")],
+    ...plan(kr("bl_workshop", 2, "`muster-town digest` lists pending reports", "Run it against the live town")),
     history: [{ at: ago(90), byId: "ag_keel", byKind: "agent", action: "propose", tokens: 1_500_000, note: "" }, { at: ago(20), byId: "us_mitchell", byKind: "user", action: "counter", tokens: 800_000, note: "Smaller: 800k." }],
     createdAt: ago(100), updatedAt: ago(20),
   },

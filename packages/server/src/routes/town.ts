@@ -66,7 +66,11 @@ export async function townRoutes(app: FastifyInstance) {
     const agents = world.agents.where("(homeBuildingId = ? OR buildingId = ?) AND status != 'retired'", [building.id, building.id], "ORDER BY createdAt");
     const meetings = world.meetings.where("buildingId = ?", [building.id], "ORDER BY scheduledAt DESC LIMIT 20");
     const budget = world.budget.summary().buildings.find((b) => b.buildingId === building.id) ?? null;
-    return { building, agents, meetings, budget, roles: world.permissions.rolesForBuilding(building.id).filter((r) => r.buildingId === building.id) };
+    return {
+      building, agents, meetings, budget, roles: world.permissions.rolesForBuilding(building.id).filter((r) => r.buildingId === building.id),
+      // goal-directed: the goal's key results (each with its live grant, if any) and the blocked reason (null = not blocked)
+      keyResults: world.grantDesk.keyResults(building.id), blocked: world.grantDesk.blocked(building),
+    };
   });
 
   app.post("/api/buildings", async (req, reply) => {

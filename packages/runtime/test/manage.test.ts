@@ -4,12 +4,13 @@ import { callVerb, deferred, init, result, setup, type FakeSession, type Script 
 
 const report = (title: string) => ({ title, verdict: "stop" as const, body: "## What I did\nMeasured it.\n\n## Findings\n2.4 ± 0.1 ppm/yr.\n\n## What I need from you\nNothing needed." });
 
-/** Seeded lab with Mei as its manager agent and the seed's reports decided; `script` drives every SDK session. */
+/** Seeded lab (open budget mode) with Mei as its manager agent and the seed's reports decided; `script` drives every SDK session. */
 async function managed(script: Script) {
   const env = setup(script);
   const admin = env.world.ops.ensureAvatar(env.seed.admin.id);
   for (const d of intrayOf(env.world, env.lab.id)) await env.world.verbs.review(admin.id, { docId: d.id, decision: "approve" });
-  env.world.ops.updateBuilding(admin, env.lab.id, { managerAgentId: env.by("Mei").id });
+  // open budget mode: a goal-directed lab with no key results is blocked, which wakes the manager with work of its own
+  env.world.ops.updateBuilding(admin, env.lab.id, { managerAgentId: env.by("Mei").id, budgetMode: "open" });
   return env;
 }
 const manageSessions = (s: FakeSession[], mei: string) => s.filter((x) => x.agentId === mei);
@@ -57,6 +58,19 @@ describe("manager team-lead session", () => {
     expect(world.docs.count("authorId = ? AND type = 'report'", [mei.id])).toBe(0);
     expect(world.events.list({ agentId: mei.id, limit: 500 }).some((e) => e.type === "system" && /in-tray session ended .*decided 2 reports, no rollup/.test(e.text))).toBe(true);
     expect(world.agents.require(mei.id).status).toBe("idle");
+  });
+
+  test("a goal-directed building with no key results and no funded grant is blocked: the tick wakes its manager once", async () => {
+    const env = await managed(async function* () { yield init(); yield result(100, 0.01, "Drafting key results."); });
+    const { world, runtime, by, lab } = env;
+    const mei = by("Mei");
+    world.setStatus(mei.id, "working"); // keep the scheduler from starting the wake: only its creation is under test
+    world.ops.updateBuilding(env.world.ops.ensureAvatar(env.seed.admin.id), lab.id, { budgetMode: "goal-directed" });
+    for (let i = 0; i < 3; i++) { await runtime.tickOnce(); await runtime.whenIdle(); }
+    const wakes = world.assignments.where("agentId = ? AND title LIKE 'Get human decisions%'", [mei.id]);
+    expect(wakes).toHaveLength(1);
+    expect(wakes[0]!.description).toContain("rollup: true");
+    expect(world.buildings.require(lab.id).blockedAt).not.toBeNull();
   });
 
   test("a rollup goes to the Town Hall and doesn't wake the manager again", async () => {

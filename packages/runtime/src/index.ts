@@ -376,6 +376,7 @@ export function startRuntime(opts: RuntimeOptions): Runtime {
     try { scheduleMeetings(t); } catch (e) { log("meetings")(e); }
     try { checkWaits(world, d); } catch (e) { log("waits")(e); }
     try { closeQuietOneOnOnes(ctx); } catch (e) { log("quiet 1:1s")(e); }
+    try { for (const b of world.buildings.all()) world.grantDesk.syncBlocked(b.id); } catch (e) { log("blocked buildings")(e); }
     await backendReady;
     if (stopped) return;
     // docker liveness while on desks; the host fallback re-probes in scheduleWork/startWork

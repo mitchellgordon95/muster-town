@@ -1,4 +1,7 @@
 import Database from "better-sqlite3";
+import { readFileSync } from "node:fs";
+import { dirname, join } from "node:path";
+import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 import { World, buildingRoleId, migrateRoles, newId, nowIso, townRoleId } from "../src/index.ts";
 import { freshWorld, seededWorld } from "./helpers.ts";
@@ -49,9 +52,11 @@ describe("goal-directed budgets, step 1 foundation", () => {
       askTokens: 10_000_000, status: "draft", proposedBy: "ag_x", history: [{ at: now, byId: "ag_x", byKind: "agent", action: "propose", tokens: 10_000_000, note: "" }],
       createdAt: now, updatedAt: now,
     } as never);
-    world.keyResults.upsert({ id: newId("kr"), grantId: g.id, position: 0, text: "Banner shows purpose", howToCheck: "Open the lab", updatedAt: now } as never);
+    world.keyResults.upsert({ id: newId("kr"), buildingId: LAB, position: 0, text: "Banner shows purpose", howToCheck: "Open the lab", updatedAt: now } as never);
+    expect(world.grants.require(g.id)).toMatchObject({ keyResultId: null, approach: "", testingPlan: [] });
     expect(world.grants.require(g.id).history[0].action).toBe("propose");
-    expect(world.keyResults.where("grantId = ?", [g.id])[0].status).toBe("not-started");
+    expect(world.keyResults.where("buildingId = ?", [LAB])[0].status).toBe("not-started");
+    expect(b.blockedAt).toBeNull();
     const agent = world.agents.first("homeBuildingId = ?", [LAB])!;
     for (const tokens of [1000, 2500]) {
       world.sessions.upsert({ id: newId("se"), agentId: agent.id, assignmentId: null, purpose: "work", status: "done", model: "m", tokens, startedAt: now, lane: "grant", grantId: g.id } as never);
@@ -89,5 +94,34 @@ describe("building budget settings", () => {
     expect(() => world.ops.updateBuilding(resident, LAB, { explorationTokensPerDay: 9_000_000 })).toThrow(/building.fund/);
     expect(world.ops.updateBuilding(resident, LAB, { goal: "new goal" }).goal).toBe("new goal");
     void by; void World;
+  });
+});
+
+describe("migration 032: key results move onto the building goal", () => {
+  it("a grant's old key results become its testing plan; assignments that named one keep it as a gap (exploration) or drop it", () => {
+    const db = new Database(":memory:");
+    db.exec(`CREATE TABLE buildings (id TEXT PRIMARY KEY);
+      CREATE TABLE grants (id TEXT PRIMARY KEY, buildingId TEXT NOT NULL);
+      CREATE TABLE key_results (id TEXT PRIMARY KEY, grantId TEXT NOT NULL, position INTEGER NOT NULL, text TEXT NOT NULL, howToCheck TEXT NOT NULL,
+        status TEXT NOT NULL DEFAULT 'not-started', statusNote TEXT NOT NULL DEFAULT '', statusBy TEXT, updatedAt TEXT NOT NULL);
+      CREATE TABLE assignments (id TEXT PRIMARY KEY, lane TEXT NOT NULL, grantId TEXT, keyResultId TEXT, gap TEXT);
+      INSERT INTO buildings VALUES ('workshop');
+      INSERT INTO grants VALUES ('gr_a', 'workshop'), ('gr_b', 'workshop');
+      INSERT INTO key_results (id, grantId, position, text, howToCheck, status, updatedAt) VALUES
+        ('kr_2', 'gr_a', 1, 'One explicit blocker', 'Open the board', 'on-track', 't'),
+        ('kr_1', 'gr_a', 0, 'Works autonomously', 'Watch a day', 'not-started', 't');
+      INSERT INTO assignments VALUES ('as_g', 'grant', 'gr_a', 'kr_1', NULL), ('as_e', 'exploration', NULL, 'kr_2', NULL), ('as_d', 'directed', NULL, NULL, NULL);`);
+    db.exec(readFileSync(join(dirname(fileURLToPath(import.meta.url)), "..", "migrations", "032_goal_key_results.sql"), "utf8"));
+    const grants = db.prepare("SELECT id, keyResultId, approach, testingPlan FROM grants ORDER BY id").all() as { id: string; keyResultId: string | null; approach: string; testingPlan: string }[];
+    expect(grants.map((g) => ({ ...g, testingPlan: JSON.parse(g.testingPlan) }))).toEqual([
+      { id: "gr_a", keyResultId: null, approach: "", testingPlan: [{ text: "Works autonomously", howToCheck: "Watch a day" }, { text: "One explicit blocker", howToCheck: "Open the board" }] },
+      { id: "gr_b", keyResultId: null, approach: "", testingPlan: [] },
+    ]);
+    expect(db.prepare("SELECT id, keyResultId, gap FROM assignments ORDER BY id").all()).toEqual([
+      { id: "as_d", keyResultId: null, gap: null }, { id: "as_e", keyResultId: null, gap: "One explicit blocker" }, { id: "as_g", keyResultId: null, gap: null },
+    ]);
+    expect(db.prepare("SELECT COUNT(*) AS n FROM key_results").get()).toEqual({ n: 0 });
+    expect((db.prepare("PRAGMA table_info(key_results)").all() as { name: string }[]).map((c) => c.name)).toContain("buildingId");
+    expect((db.prepare("PRAGMA table_info(buildings)").all() as { name: string }[]).map((c) => c.name)).toContain("blockedAt");
   });
 });

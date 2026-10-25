@@ -5,6 +5,7 @@ import type { Holder } from "./permissions.ts";
 import { describeWait } from "./waits.ts";
 import { extractSection, firstLine, newId, nowIso, truncate } from "./util.ts";
 import type { World } from "./world.ts";
+import type { BlockedBuilding } from "./grants.ts";
 
 /** Doc as shown in lists (board, search). */
 export interface DocSummary {
@@ -226,10 +227,10 @@ export function grantsAwaitingDecision(world: World): GrantView[] {
   return world.grants.where(`status IN (${GRANT_INTRAY_STATUSES.map((s) => `'${s}'`).join(", ")})`, [], "ORDER BY updatedAt, rowid").map((g) => world.grantDesk.view(g));
 }
 
-/** The Town Hall in-tray: managers' rollups and checkpoint reports plus grants awaiting a human's decision. */
-export function townHallIntray(world: World): { reports: Doc[]; grants: GrantView[] } {
+/** The Town Hall in-tray: managers' rollups and checkpoint reports, grants awaiting a human's decision, and blocked buildings (not counted in the badge). */
+export function townHallIntray(world: World): { reports: Doc[]; grants: GrantView[]; blocked: BlockedBuilding[] } {
   const th = world.buildings.first("kind = 'town-hall'");
-  return { reports: th ? intrayOf(world, th.id) : [], grants: grantsAwaitingDecision(world) };
+  return { reports: th ? intrayOf(world, th.id) : [], grants: grantsAwaitingDecision(world), blocked: world.grantDesk.blockedBuildings() };
 }
 
 /** In-tray size as the badge shows it: pending items of that in-tray (the Town Hall's counts its grants too). */
