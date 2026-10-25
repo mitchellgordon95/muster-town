@@ -37,7 +37,7 @@ export const buildings: Building[] = [
     goal: "Keep Muster Town itself working: small, tested changes to its own code",
     description: "Residents work in git worktrees of the Muster Town repo and open PRs.",
     rules: "- One small PR per session, with a screenshot description for web changes.\n- Read AGENTS.md before touching a package.\n- Mention @Mitchell in your report when you need a decision.",
-    codeAccess: true, managerAgentId: "ag_keel",
+    codeAccess: true, managerAgentId: "ag_keel", budgetMode: "goal-directed", explorationTokensPerDay: 3_000_000,
   },
 ];
 
@@ -141,7 +141,26 @@ export const grants: GrantView[] = [
     history: [{ at: ago(600), byId: "us_mitchell", byKind: "user", action: "fund", tokens: 2_000_000, note: "" }, { at: ago(25), byId: "system", byKind: "agent", action: "checkpoint", tokens: null, note: "Spend crossed 50%." }],
     createdAt: ago(700), updatedAt: ago(25),
   },
+  // the Workshop is goal-directed: a funded grant beside the checkpoint, and a countered proposal (its board's key results)
+  {
+    ...grantBase, id: "gr_tour", buildingId: "bl_workshop", status: "funded", proposedBy: "ag_keel", askTokens: 3_000_000, grantTokens: 2_500_000, spentTokens: 600_000,
+    fundedBy: "us_mitchell", fundedAt: ago(300),
+    objective: "A stranger can find the How it works tour from the landing page", stopCondition: "Stop when KR1 is met, or at 2.5M tokens.",
+    keyResults: [kr("gr_tour", 0, "The landing page links the tour above the fold", "Open muster.town logged out at 1280x800", "met"), kr("gr_tour", 1, "The tour's last scene links to the Bank", "Play the tour to the end", "at-risk"), kr("gr_tour", 2, "Guests can open the tour without signing in", "Open /?guest and click How it works", "missed")],
+    history: [{ at: ago(300), byId: "us_mitchell", byKind: "user", action: "fund", tokens: 2_500_000, note: "Funded at 2.5M, not 3M." }],
+    createdAt: ago(400), updatedAt: ago(300),
+  },
+  {
+    ...grantBase, id: "gr_cli", buildingId: "bl_workshop", status: "countered", proposedBy: "ag_keel", askTokens: 1_500_000, grantTokens: null,
+    objective: "muster-town digest prints the in-tray", stopCondition: "Stop when the command ships.",
+    keyResults: [kr("gr_cli", 0, "`muster-town digest` lists pending reports", "Run it against the live town")],
+    history: [{ at: ago(90), byId: "ag_keel", byKind: "agent", action: "propose", tokens: 1_500_000, note: "" }, { at: ago(20), byId: "us_mitchell", byKind: "user", action: "counter", tokens: 800_000, note: "Smaller: 800k." }],
+    createdAt: ago(100), updatedAt: ago(20),
+  },
 ];
+
+/** Today's exploration spend per building (the server sums exploration-lane sessions). */
+export const explorationSpentToday: Record<string, number> = { bl_workshop: 1_150_000 };
 
 export const assignments: Assignment[] = [
   asg({ id: "as_noor2", agentId: "ag_noor", buildingId: "bl_carbon", title: "Airborne fraction over time", description: "Has the airborne fraction changed since 1959?", status: "done", createdBy: "us_mitchell", createdByKind: "user", fromMeetingId: null, fromReportId: null, reportId: "dc_noor_r2", createdAt: ago(90), updatedAt: ago(12) }),

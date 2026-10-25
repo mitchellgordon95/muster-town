@@ -44,7 +44,8 @@ export class MockApi implements Api {
   }
   async board(buildingId: string, limit = 30) {
     await wait();
-    return clone([...this.sim.docs.values()].filter((d) => d.buildingId === buildingId && d.state === "building" && BOARD_TYPES.includes(d.type)).sort((a, b) => b.updatedAt.localeCompare(a.updatedAt)).slice(0, limit));
+    const docs = [...this.sim.docs.values()].filter((d) => d.buildingId === buildingId && d.state === "building" && BOARD_TYPES.includes(d.type)).sort((a, b) => b.updatedAt.localeCompare(a.updatedAt)).slice(0, limit);
+    return clone({ docs, ...this.sim.grantBoard(buildingId) });
   }
   async cabinet(buildingId: string, q: CabinetQuery = {}) {
     await wait();

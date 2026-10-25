@@ -533,3 +533,16 @@ kbd { font-family: var(--mono); font-size: 11px; background: #2a2d3a; border: 1p
 .grant-krs { margin: 2px 0 2px 16px; padding: 0; font-size: 12px; }
 .grant-decide { display: flex; flex-direction: column; gap: 4px; margin-top: 4px; }
 .grant-inputs { display: grid; grid-template-columns: 120px 1fr; gap: 6px; }
+/* waterfall step 6: the board's key-results view (goal-directed buildings) */
+.kr-view { display: flex; flex-direction: column; gap: 8px; font-size: 13px; }
+.kr-goal { background: #1e2433; border: 1px solid #2f3a52; border-radius: var(--r); padding: 7px 10px; }
+.kr-grant { border: 1px solid #2a2d3a; border-radius: var(--r); padding: 7px 10px; }
+.kr-grant-head { display: flex; gap: 8px; align-items: baseline; justify-content: space-between; }
+.kr-bar-row { display: flex; gap: 8px; align-items: center; margin: 4px 0; font-size: 12px; }
+.kr-bar { flex: 1; max-width: 220px; height: 7px; background: #2a2d3a; border-radius: 4px; overflow: hidden; }
+.kr-bar i { display: block; height: 100%; background: var(--accent); }
+.kr-bar.warn i { background: var(--warn); } .kr-bar.bad i { background: var(--bad); }
+.kr-list { list-style: none; margin: 4px 0 0; padding: 0; display: flex; flex-direction: column; gap: 5px; }
+.kr-check { font-size: 12px; margin-left: 2px; }
+.kr-exploration > span:first-child { min-width: 78px; }
+.kr-proposal { font-size: 12px; }

@@ -108,6 +108,14 @@ export interface PlanPreview { errors: { buildingId: string | null; message: str
 
 /** GET /api/buildings/:id/intray: `grants` (proposed, countered, checkpoint) only for the Town Hall */
 export interface Intray { reports: Doc[]; grants: GrantView[] }
+/** GET /api/buildings/:id/board: the FYIs plus the budget part (core's GrantBoard; open buildings have no grants). */
+export interface Board {
+  docs: Doc[];
+  goal: string;
+  grants: GrantView[];
+  proposal: GrantView | null;
+  exploration: { allowanceTokens: number; spentTodayTokens: number };
+}
 
 export interface WriteDocInput { type?: DocType; title: string; body: string; state?: "draft" | "building"; tags?: string[] }
 export type RequestAction = "approve" | "reject" | "claim" | "done";
@@ -122,7 +130,7 @@ export interface Api {
   town(): Promise<Snapshot>;
   events(q: EventQuery): Promise<Event[]>;
   // buildings
-  board(buildingId: string, limit?: number): Promise<Doc[]>;
+  board(buildingId: string, limit?: number): Promise<Board>;
   cabinet(buildingId: string, q?: CabinetQuery): Promise<Cabinet>;
   createBuilding(input: In<typeof CreateBuildingInput>): Promise<Building>;
   updateBuilding(id: string, input: In<typeof UpdateBuildingInput>): Promise<Building>;
@@ -309,7 +317,10 @@ export class HttpApi implements Api {
   me() { return this.get<AuthMe>("/api/me"); }
   async town() { return { type: "snapshot", ...(await this.get<Omit<Snapshot, "type">>("/api/town")) } as Snapshot; }
   async events(q: EventQuery) { return unwrap<Event[]>(await this.get(`/api/events${qs(q)}`), "events"); }
-  async board(id: string, limit = 30) { return unwrap<Doc[]>(await this.get(`/api/buildings/${id}/board${qs({ limit })}`), "docs"); }
+  async board(id: string, limit = 30) {
+    const r = await this.get<Partial<Board>>(`/api/buildings/${id}/board${qs({ limit })}`);
+    return { docs: r.docs ?? [], goal: r.goal ?? "", grants: r.grants ?? [], proposal: r.proposal ?? null, exploration: r.exploration ?? { allowanceTokens: 0, spentTodayTokens: 0 } };
+  }
   async cabinet(id: string, q: CabinetQuery = {}) {
     const r = await this.get<Partial<Cabinet>>(`/api/buildings/${id}/cabinet${qs({ limit: 30, ...q })}`);
     return { docs: r.docs ?? [], counts: r.counts ?? [] };
