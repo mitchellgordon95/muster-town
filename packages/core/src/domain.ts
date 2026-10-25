@@ -196,20 +196,22 @@ export function intrayWorker(world: World, building: Building | undefined): "man
 }
 
 /**
- * A report by a building's manager agent is for the humans: it lands in the Town Hall in-tray (rollups, checkpoints,
- * escalations, replies to a human's message), never in the building in-tray the manager itself works.
+ * A team-lead report is for the humans: a rollup (which a checkpoint report also is, tagged `rollup` by `submit_report`)
+ * lands in the Town Hall in-tray. Routed by what the report is, not by who wrote it (town hall 2026-10-25, decision 6):
+ * a manager's own work report, from an assignment it gave itself or got from a meeting, is an ordinary report in its
+ * building's in-tray, which the manager decides in its next team-lead session and folds into its rollup.
  */
 export function isTownHallItem(world: World, doc: Doc): boolean {
-  if (doc.type !== "report" || !doc.buildingId) return false;
+  if (doc.type !== "report" || !doc.buildingId || !doc.tags.includes("rollup")) return false;
   const b = world.buildings.get(doc.buildingId);
-  return !!b && b.kind !== "town-hall" && b.managerAgentId === doc.authorId;
+  return !!b && b.kind !== "town-hall";
 }
 
 const GRANT_INTRAY_STATUSES = ["proposed", "countered", "checkpoint"] as const;
 
 /**
- * The building's in-tray: pending reports, oldest first. For the Town Hall: the pending reports of every building's
- * manager agent (rollups and the like); for a lab: its residents' pending reports (the manager's own go to the Town Hall).
+ * The building's in-tray: pending reports, oldest first. For the Town Hall: every building's pending rollups and
+ * checkpoint reports; for a lab: its pending work reports, the manager's own included (its rollups go to the Town Hall).
  */
 export function intrayOf(world: World, buildingId: string): Doc[] {
   const b = world.buildings.get(buildingId);
@@ -224,7 +226,7 @@ export function grantsAwaitingDecision(world: World): GrantView[] {
   return world.grants.where(`status IN (${GRANT_INTRAY_STATUSES.map((s) => `'${s}'`).join(", ")})`, [], "ORDER BY updatedAt, rowid").map((g) => world.grantDesk.view(g));
 }
 
-/** The Town Hall in-tray: manager reports (rollups, checkpoints, escalations) plus grants awaiting a human's decision. */
+/** The Town Hall in-tray: managers' rollups and checkpoint reports plus grants awaiting a human's decision. */
 export function townHallIntray(world: World): { reports: Doc[]; grants: GrantView[] } {
   const th = world.buildings.first("kind = 'town-hall'");
   return { reports: th ? intrayOf(world, th.id) : [], grants: grantsAwaitingDecision(world) };
@@ -236,7 +238,7 @@ export function intrayCount(world: World, buildingId: string): number {
   return intrayOf(world, buildingId).length + (b?.kind === "town-hall" ? grantsAwaitingDecision(world).length : 0);
 }
 
-/** In-tray counts by building id (buildings with none are absent). Manager reports count for the Town Hall. */
+/** In-tray counts by building id (buildings with none are absent). Rollups count for the Town Hall. */
 export function intrayCounts(world: World): Map<string, number> {
   const th = world.buildings.first("kind = 'town-hall'");
   const counts = new Map<string, number>();

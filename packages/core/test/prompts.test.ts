@@ -56,6 +56,14 @@ describe("no forced next step", () => {
     expect(p).toMatch(/becomes an assignment the moment it appears/);
     expect(p).toMatch(/different residents in parallel/);
     expect(p).toMatch(/not queued on one resident/);
+    // town hall 2026-10-25, decision 6: delegate by default, self-assign when small, blocking or needing manager permissions
+    expect(p).toMatch(/The default is to delegate; assign a task to yourself/);
+    expect(p).toMatch(/small, blocking, or needs your manager permissions/);
+    expect(p).toMatch(/lands back in this in-tray/);
+    expect(p).toMatch(/One rollup per day, or sooner on escalation/);
+    expect(p).not.toMatch(/never your own next session/);
+    const block = managerIntrayBlock(world, b, world.agents.first("name = 'Mei'")!.id);
+    expect(block).toMatch(/Your own work reports .* land here too/);
   });
 });
 

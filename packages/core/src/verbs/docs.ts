@@ -1,6 +1,6 @@
 import { BOARD_TYPES, type Agent, type Doc } from "@muster-town/schema";
 import {
-  applyDecision, canSeeDoc, createAssignment, createDoc, homeOf, managerAgentOf, requirePendingReport, sendMessage,
+  applyDecision, canSeeDoc, createAssignment, createDoc, homeOf, isTownHallItem, managerAgentOf, requirePendingReport, sendMessage,
   setAssignmentStatus, summarizeDoc, updateDoc,
 } from "../domain.ts";
 import { AppError, badRequest, forbidden } from "../errors.ts";
@@ -176,9 +176,12 @@ export async function submit_report(world: World, me: Agent, input: VerbIn<"subm
   const bid = homeOf(me);
   const building = bid ? world.buildings.get(bid) : undefined;
   // Town hall 2026-10-24, decision 1: a resident's report goes to the building in-tray, worked by the manager agent
-  // when there is one (else by humans); the manager's own reports (rollups and the like) go to the Town Hall in-tray.
+  // when there is one (else by humans). Town hall 2026-10-25, decision 6: only a rollup (a checkpoint report is one)
+  // goes to the Town Hall in-tray; the manager's own work report lands in its building's in-tray like a resident's,
+  // and the manager decides it in its next team-lead session.
   const isManager = !!building && building.kind !== "town-hall" && building.managerAgentId === me.id;
-  const manager = isManager ? undefined : managerAgentOf(world, building);
+  const townHall = isManager && !!input.rollup;
+  const manager = townHall ? undefined : managerAgentOf(world, building);
   const sourceIds = input.provenance?.sourceIds ?? [];
   const session = world.sessions.first("agentId = ? AND status = 'running'", [me.id], "ORDER BY startedAt DESC");
   const assignmentId = me.currentAssignmentId ?? session?.assignmentId ?? undefined;
@@ -234,20 +237,27 @@ export async function submit_report(world: World, me: Agent, input: VerbIn<"subm
     // when someone gives it an assignment (a decision on the report, meeting decision, mention).
     const decision: Doc["decision"] = "pending";
     if (world.agents.get(me.id)?.status === "working") world.setStatus(me.id, "idle", `${me.name} filed a report and is idle`);
-    const intray = isManager ? "town-hall" : bid;
-    const where = isManager ? "the Town Hall in-tray (the humans decide on it)" : manager ? `the ${building!.name} in-tray, which ${manager.name}, your manager, works` : "your building's in-tray (a human works it)";
+    const intray = townHall ? "town-hall" : bid;
+    const where = townHall ? "the Town Hall in-tray (the humans decide on it)"
+      : manager?.id === me.id ? `the ${building!.name} in-tray, which you work as its manager: decide it in your next team-lead session and fold it into your rollup`
+      : manager ? `the ${building!.name} in-tray, which ${manager.name}, your manager, works` : "your building's in-tray (a human works it)";
+    const workedBy = manager ? "manager" : "human";
     if (parked) {
-      return { id: doc.id, decision, intray, workedBy: isManager || !manager ? "human" : "manager", nextAssignmentId: parked.assignmentId,
+      return { id: doc.id, decision, intray, workedBy, nextAssignmentId: parked.assignmentId,
         note: `Report submitted to ${where}; your work is parked and resumes by itself after ${parked.waitingOn} (whoever works the in-tray can Stop or Redirect it there). Your session ends now.` };
     }
-    return { id: doc.id, decision, intray, workedBy: isManager || !manager ? "human" : "manager", nextAssignmentId: null, note: `Report submitted to ${where}. Your session ends now; you'll get a new assignment if there's more to do.` };
+    return { id: doc.id, decision, intray, workedBy, nextAssignmentId: null, note: `Report submitted to ${where}. Your session ends now; you'll get a new assignment if there's more to do.` };
   });
 }
 
 export async function review(world: World, me: Agent, input: VerbIn<"review">) {
   const doc = requirePendingReport(world, input.docId);
   if (!world.permissions.can(me, "building.review", doc.buildingId)) throw forbidden("building.review");
-  if (me.kind !== "human" && doc.authorId === me.id) throw badRequest("You can't decide on your own report; it waits for the humans in the Town Hall in-tray.");
+  // an agent decides its own report only as the manager deciding its own work report (town hall 2026-10-25, decision 6);
+  // a rollup waits for the humans
+  if (me.kind !== "human" && doc.authorId === me.id && (isTownHallItem(world, doc) || managerAgentOf(world, world.buildings.get(doc.buildingId ?? ""))?.id !== me.id)) {
+    throw badRequest(isTownHallItem(world, doc) ? "You can't decide on your own rollup; it waits for the humans in the Town Hall in-tray." : "You can't decide on your own report.");
+  }
   const waitFor = input.waitFor ? validateWait(world, input.waitFor) : null;
   const res = world.transaction(() => applyDecision(world, doc.id, input.decision, input.note, world.holderOf(me), { waitFor }));
   return { docId: doc.id, decision: input.decision, assignmentId: res.assignment?.id ?? null };

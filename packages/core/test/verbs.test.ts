@@ -125,7 +125,7 @@ describe("report state machine", () => {
     expect(world.assignments.require(pending.id).status).toBe("cancelled");
   });
 
-  it("a building with a manager agent: residents' reports go to its in-tray without notifying humans; the manager's own reports and rollups go to the Town Hall in-tray", async () => {
+  it("a building with a manager agent: residents' reports and the manager's own work reports go to its in-tray without notifying humans; only rollups go to the Town Hall in-tray", async () => {
     const { world, by, admin } = seededWorld();
     const mei = by("Mei"), noor = by("Noor");
     world.ops.updateBuilding(admin, "carbon-cycle", { managerAgentId: mei.id });
@@ -139,9 +139,21 @@ describe("report state machine", () => {
     expect(world.messages.where("kind = 'mention' AND toId = ?", [mei.id])).toHaveLength(1);
     expect(world.ops.intray("carbon-cycle").map((d) => d.id)).toContain(r.id);
     expect(world.ops.intray(TOWN_HALL_ID).map((d) => d.id)).not.toContain(r.id);
-    // the manager decides it (building.review via the manager role) but can't decide its own
+    // the manager decides it (building.review via the manager role)
     world.permissions.grant({ kind: "agent", id: mei.id }, buildingRoleId("carbon-cycle", "manager"));
     await world.verbs.review(mei, { docId: r.id, decision: "approve" });
+    // decision 6 (town hall 2026-10-25): the manager's own work report (not a rollup) is a building item like a
+    // resident's: no human notified, not in the Town Hall, and the manager decides it itself in its team-lead session
+    const own = await world.verbs.submit_report(mei, { title: "My own work", body: `${REPORT}\n\n@${mitchell.name} done`, verdict: "stop" });
+    expect(own).toMatchObject({ decision: "pending", intray: "carbon-cycle", workedBy: "manager" });
+    expect(own.note).toContain("which you work as its manager");
+    expect(isTownHallItem(world, world.docs.require(own.id))).toBe(false);
+    expect(world.ops.intray("carbon-cycle").map((d) => d.id)).toContain(own.id);
+    expect(world.ops.intray(TOWN_HALL_ID)).toHaveLength(0);
+    expect(world.messages.where("kind = 'mention' AND toId = ?", [admin.id])).toHaveLength(0);
+    await expect(world.verbs.review(noor, { docId: own.id, decision: "approve" })).rejects.toMatchObject({ code: "forbidden" });
+    await world.verbs.review(mei, { docId: own.id, decision: "approve" });
+    expect(world.docs.require(own.id)).toMatchObject({ decision: "approve", decidedBy: mei.id });
     // a resident can't roll up; the manager's rollup needs covered reports of its building
     await expect(world.verbs.submit_report(noor, { title: "x", body: REPORT, verdict: "stop", rollup: true })).rejects.toMatchObject({ code: "bad_request" });
     await expect(world.verbs.submit_report(mei, { title: "x", body: REPORT, verdict: "stop", rollup: true })).rejects.toMatchObject({ code: "bad_request" });

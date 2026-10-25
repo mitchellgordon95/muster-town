@@ -218,7 +218,7 @@ function Settings({ b }: { b: SnapshotBuilding }) {
       <Field label="Goal"><textarea rows={2} value={f.goal} onChange={(e) => set("goal", e.target.value)} /></Field>
       <Field label="Description"><textarea rows={3} value={f.description} onChange={(e) => set("description", e.target.value)} /></Field>
       <Field label="Desks (headcount)"><input type="number" min={1} max={24} value={f.headcount} onChange={(e) => set("headcount", +e.target.value)} /></Field>
-      <Field label="Manager" hint="The resident who works this building's in-tray (its residents' reports), facilitates its meetings and wears the ★ badge; its own reports go to the Town Hall in-tray. None: you work the in-tray, and the reviewer agent, else the first resident to join, facilitates.">
+      <Field label="Manager" hint="The resident who works this building's in-tray (its residents' reports), facilitates its meetings and wears the ★ badge; its rollups go to the Town Hall in-tray (its own work reports stay here, and it decides them). None: you work the in-tray, and the reviewer agent, else the first resident to join, facilitates.">
         <select value={f.managerAgentId ?? ""} onChange={(e) => set("managerAgentId", e.target.value || null)}>
           <option value="">none</option>
           {residents.map((a) => <option key={a.id} value={a.id} disabled={a.status === "stopped" || a.status === "banned"}>{a.name}{a.status === "stopped" || a.status === "banned" ? ` (${a.status})` : ""}</option>)}
