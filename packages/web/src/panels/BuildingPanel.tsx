@@ -8,6 +8,7 @@ import { Glyph, PanelShell } from "./PanelShell";
 import { Meter } from "./AgentPanel";
 import { DismissButton, canDismiss } from "./Dismiss";
 import { Act, Empty, ErrorLine, Field, KV, Loading, Pill, Section, StatusPill, fmtTokens, nameOf, timeAgo, usd, useLoad } from "./ui";
+import { fromMillions, toMillions } from "../format";
 import { PALETTES, portraitUrl } from "../map/sprites";
 import { AttendeePicker, useAttendees } from "./AttendeePicker";
 import { attendeeInput } from "./attendees";
@@ -251,7 +252,7 @@ function Settings({ b }: { b: SnapshotBuilding }) {
 /** Open vs goal-directed (docs/goal-directed-budgets.md). Humans who can fund only: a manager agent can't change its own budget. */
 function BudgetMode({ b }: { b: SnapshotBuilding }) {
   const [mode, setMode] = useState(b.budgetMode);
-  const [explore, setExplore] = useState(b.explorationTokensPerDay == null ? "" : String(b.explorationTokensPerDay));
+  const [explore, setExplore] = useState(b.explorationTokensPerDay == null ? "" : toMillions(b.explorationTokensPerDay));
   return (
     <Section title="Budget mode">
       <form className="form" onSubmit={(e) => e.preventDefault()}>
@@ -261,11 +262,11 @@ function BudgetMode({ b }: { b: SnapshotBuilding }) {
             <option value="goal-directed">goal-directed</option>
           </select>
         </Field>
-        <Field label="Exploration tokens / day" hint="Leave blank for the default: 10% of the pool's daily inflow.">
-          <input type="number" min={0} value={explore} placeholder="default" onChange={(e) => setExplore(e.target.value)} />
+        <Field label="Exploration (M tokens / day)" hint="Leave blank for the default: 10% of the pool's daily inflow.">
+          <input type="number" min={0} step="any" value={explore} placeholder="default" onChange={(e) => setExplore(e.target.value)} />
         </Field>
         <div className="actions"><Act tone="primary" run={async () => {
-          await api().updateBuilding(b.id, { budgetMode: mode, explorationTokensPerDay: explore === "" ? null : Math.max(0, Math.floor(+explore)) });
+          await api().updateBuilding(b.id, { budgetMode: mode, explorationTokensPerDay: explore.trim() === "" ? null : Math.max(0, fromMillions(explore) || 0) });
           store.toast(`${b.name} is now ${mode}`, "ok");
         }}>Save budget mode</Act></div>
       </form>

@@ -13,6 +13,7 @@ import { phaseTone } from "./BuildingPanel";
 import { RequestCard } from "./OutboxPanel";
 import { Markdown } from "./Markdown";
 import { Act, Empty, ErrorLine, Field, Loading, Pill, Section, clock, fmtTokens, nameOf, timeAgo, usd, useLoad } from "./ui";
+import { fromMillions, toMillions } from "../format";
 import { portraitUrl } from "../map/sprites";
 
 // ---------- in-tray ----------
@@ -103,12 +104,12 @@ function GrantRow({ grant: g, onDecided, onOpenDoc }: { grant: GrantView; onDeci
   const author = useTown((s) => s.agents[g.proposedBy]);
   const checkpoint = g.status === "checkpoint";
   const ceiling = checkpoint ? g.grantTokens ?? g.askTokens : g.askTokens;
-  const [tokens, setTokens] = useState(String(ceiling));
+  const [tokens, setTokens] = useState(toMillions(ceiling));
   const [note, setNote] = useState("");
   const canFund = store.can("building.fund", g.buildingId);
   const last = g.history[g.history.length - 1];
-  const n = Number(tokens.replace(/[,_\s]/g, ""));
-  const tokensOk = Number.isInteger(n) && n > 0;
+  const n = fromMillions(tokens);
+  const tokensOk = Number.isFinite(n) && n > 0;
   const decide = (action: "fund" | "counter" | "reject" | "continue" | "adjust" | "cut", msg: string) => async () => {
     const withTokens = action === "fund" || action === "adjust" || (action === "counter" && n !== g.askTokens);
     await api().decideGrant(g.id, { action, note, ...(withTokens && tokensOk ? { tokens: n } : {}) });
@@ -143,7 +144,7 @@ function GrantRow({ grant: g, onDecided, onOpenDoc }: { grant: GrantView; onDeci
       ) : (
         <div className="grant-decide">
           <div className="grant-inputs">
-            <Field label={checkpoint ? "Grant (tokens)" : "Tokens"}><input value={tokens} inputMode="numeric" onChange={(e) => setTokens(e.target.value)} /></Field>
+            <Field label={checkpoint ? "Grant (M tokens)" : "M tokens"}><input type="number" min={0} step="any" value={tokens} onChange={(e) => setTokens(e.target.value)} /></Field>
             <Field label="Note"><input value={note} placeholder={checkpoint ? "optional" : "required to counter"} onChange={(e) => setNote(e.target.value)} /></Field>
           </div>
           <div className="actions">
