@@ -22,7 +22,7 @@ export { prompts } from "@muster-town/core";
 export { FlyApi } from "./desk/fly.ts";
 export { SandboxBackend, type SandboxApi } from "./desk/sandbox.ts";
 export { DockerBackend, HostBackend, realDockerRunner, type DeskBackend, type DeskChild, type DeskHandle, type DockerRunner, type RunResult, type SpawnedChild, type WorkBackend, type LineSink } from "./desk/backend.ts";
-export { deskAuth, deskEnv, grantedSecrets, portOf, DESK_ENV_PREFIX, FALLBACK_KEY_ENV, type DeskAuthMode, type DeskSessionOptions } from "./desk/session.ts";
+export { deskAuth, deskEnv, grantedSecrets, portOf, FALLBACK_KEY_ENV, type DeskAuthMode, type DeskSessionOptions } from "./desk/session.ts";
 export { fundingFor, fundedBy, type Funding } from "./session.ts";
 export { type WorkOutcome } from "./work.ts";
 export { isTerminalRedeployEvent, makeRedeployer, realCommandRunner, RESTART_EXIT_CODE, STUCK_POLLS, type CmdResult, type CommandRunner, type RedeployDeps, type RedeployRequest, type Redeployer } from "./redeploy.ts";

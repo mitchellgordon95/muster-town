@@ -15,7 +15,8 @@ alternative; that box was deleted.
 - **Config:** `fly.town.toml` (env, volume, health check). Desk backend and callback URL come from `MUSTER_TOWN_DESKS` (JSON) in its `[env]`,
   so the Mac's dev `collective.json` keeps docker desks; `maxRunning` is not in it (a live setting, kept in the database). Secrets are Fly secrets
   (`fly secrets list -a muster-town`): `CLAUDE_CODE_OAUTH_TOKEN`, `ANTHROPIC_API_KEY`, `GITHUB_CLIENT_ID/SECRET`, `AGENT_TOWN_ADMINS`,
-  `MUSTER_TOWN_DATA_KEY`, `FLY_API_TOKEN` (the desks app's deploy token), and `DESK_ENV_MINICLAW_*` (until the planning desk's Secrets tab replaces them).
+  `MUSTER_TOWN_DATA_KEY`, `FLY_API_TOKEN` (the desks app's deploy token). No `DESK_ENV_*`: the runtime dropped that fallback on 2026-10-25;
+  tool credentials for desks are Town Hall secrets with grants (docs/secrets.md).
 - **The repo token:** a collective secret named `GH_TOKEN` at the Town Hall (planning desk, Secrets tab): a fine-grained token for the collective's repo with
   Contents and Pull requests read/write. Desks with code access clone and push with it and `redeploy` pulls with it (docs/secrets.md). A host
   `GH_TOKEN` Fly secret still works as the fallback (`desks.ghToken: "env"`), but it belongs to the collective, not the host.
@@ -41,22 +42,18 @@ alternative; that box was deleted.
 - **GitHub sign-in:** the OAuth app's callback URL must include `https://muster.town/auth/github/callback`.
 - **Cost (estimate):** town Machine about $13/mo (24/7) + volume $1.50 + desk Machines per use; compare the old single-box plan in dc_gxtv36rbu6.
 
-### Prod open items (as of 2026-10-22)
-- **Repo token:** done. The collective secret `GH_TOKEN` was set at the Town Hall on 2026-10-23 18:54 UTC (event `secret.set`), and on 2026-10-24
-  a Fly desk with code access verified it end to end: `GH_TOKEN` in the desk env, `gh auth status` as the token's owner, clone, `git ls-remote`
-  and a `git push --dry-run` all work. The host `GH_TOKEN` Fly secret (set earlier on 2026-10-23 as the fallback) is now unused while the Town Hall
-  value exists: `fly secrets unset GH_TOKEN -a muster-town` if it is still there (`fly secrets list`; not checkable from a desk).
-- **GitHub sign-in on prod:** add `https://muster.town/auth/github/callback` to the OAuth app (client id is in the Fly secrets), or create a second app for prod.
+### Prod open items (as of 2026-10-25)
+Done (Mitchell, 2026-10-25, after rollup dc_jkbed7u3fo): the old OVH box is deleted (`15.204.79.179` now answers SSH with a different ed25519
+host key than the one recorded at creation, dc_qy9d36q84o, so the IP was reassigned), the leftover host `GH_TOKEN` and `DESK_ENV_MINICLAW_*`
+Fly secrets are unset (not checkable from a desk; the Town Hall values win either way), and `https://muster.town/auth/github/callback` is on the
+OAuth app (GitHub accepts the authorize URL `/auth/github` redirects to, checked 2026-10-25). The runtime's `DESK_ENV_` fallback is gone since
+the same day. Still open:
+- **Repo token:** the collective secret `GH_TOKEN` at the Town Hall (set 2026-10-23 18:54 UTC) is the only one; verified end to end from a Fly desk
+  on 2026-10-24 (clone, `gh auth status`, `git ls-remote`, `git push --dry-run`).
 - **Backups:** only Fly's daily volume snapshots (5 kept). No off-site copy yet (Litestream to object storage, or a nightly `sqlite3 .backup` pushed out).
-- **Secrets:** `MINICLAW_HOST` and `MINICLAW_WS_TOKEN` are Town Hall secrets granted to the talk-to-wright skill (dc_uvomh0q12e) since
-  2026-10-23 04:29 UTC; every desk session since then shows `secret.granted … (skill grant)` and no `DESK_ENV_ fallback` events. Left to do:
-  `fly secrets unset DESK_ENV_MINICLAW_HOST DESK_ENV_MINICLAW_WS_TOKEN -a muster-town` if they are still set (they are ignored while the Town Hall
-  has the same names), then drop the `DESK_ENV_` fallback from the runtime. The admin and agent tokens in the migrated database were issued on
-  the Mac: rotate them (docs/secrets.md, Dara's design dc_ios62uyco3 §3f).
+- **Token rotation:** the admin and agent tokens in the migrated database were issued on the Mac: rotate them (docs/secrets.md, Dara's design dc_ios62uyco3 §3f).
 - **Deploys:** gated by CI since 2026-10-23 (see "CI and redeploy" above). Branch protection on `main` is not on: pushing to main is still allowed and expected.
 - **One Machine** means a restart is a short outage; the volume is the only copy of the live world.
-- **The old OVH box:** `15.204.79.179` still answered SSH (an ed25519 host key, no HTTPS) on 2026-10-24. If the Machine is not deleted in the
-  OVH panel, delete it: it held a copy of the pre-cutover world, a deploy key for this repo, and two SSH public keys (Mitchell's and Cleo's).
 - **Session events** from Fly desks are labelled `backend: "docker"` (the session `backend` field has only `host`/`docker`): cosmetic, but wrong.
 - **Cold start:** a brand-new desk on a fresh Fly host pulls the ~1 GB desk image (about 90 s once); resuming a stopped desk takes about 1 s.
 - **Dev on the Mac:** don't start `collectives/workshop` there (it would fork the world); Fly desks from a Mac town need a public tunnel, so dev uses docker desks.

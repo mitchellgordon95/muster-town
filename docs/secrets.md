@@ -23,7 +23,7 @@ Names are env-var style (`A-Z0-9_`, starting with a letter). Names the runtime s
 
 `deskEnv()` (`runtime/src/desk/session.ts`, `grantedSecrets`) passes a secret as `NAME` only when it has a value and is granted to the session's home building, its agent, or a skill that loads into the agent's sessions (`skills.forAgent`: agent, building or town pins). Each one appends `secret.granted {name, sessionId, via}` without the value.
 
-**Deprecated fallback, one release:** a host variable `DESK_ENV_<NAME>` still reaches every desk as `NAME`, with a warning in the server log and a `secret.granted` event (`via: "DESK_ENV_ fallback"`), unless the Town Hall has a secret named `NAME`: then only its grants count. Move each one to the Town Hall, then delete it from the `.env`.
+Nothing comes from the host env: the `DESK_ENV_<NAME>` fallback (one release, 2026-10-21 to 2026-10-25) is gone. A tool credential a desk needs is a Town Hall secret with a grant, or it does not reach the desk.
 
 A skill grant reaches every agent the skill is pinned for: a town-wide pin means every resident. To narrow it, pin the skill per building or agent, or grant the secret to buildings/agents instead.
 
