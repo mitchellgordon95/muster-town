@@ -155,7 +155,7 @@ export function managePrompt(building: Building, fresh: Doc[], nameOf: (id: stri
   return `This is a team-lead session, not a work session: you have no assignment. It started because reports landed in the ${building.name} in-tray ("## Your in-tray" above):
 ${rows || "(see the in-tray)"}
 
-\`read\` each report and decide it with \`review\`; give follow-up work with \`assign\` when a decision alone doesn't say it. You can't do the work yourself here (no code or web tools). If more reports land while you work, they arrive as messages in this session; decide them too or leave them for later.
+\`read\` each report and decide it with \`review\`; give follow-up work with \`assign\` when a decision alone doesn't say it. You can't do the work yourself here (no code or web tools). A manager does only decisions and rollups: any task that appears (verifying, writing, fixing, checking something live) becomes an assignment the moment it appears, never your own next session; independent tasks go to different residents in parallel (one \`assign\` each), not queued on one resident. If more reports land while you work, they arrive as messages in this session; decide them too or leave them for later.
 
 End the session in one of two ways. If a rollup is due (the rule in "## Your in-tray"), \`submit_report\` with \`rollup: true\` and the covered reports' ids in provenance.sourceIds. Otherwise don't call \`submit_report\` at all: just stop, and the session ends quietly (an idle building is silent). The "Finish with submit_report" rule above is for work sessions, not this one.`;
 }
