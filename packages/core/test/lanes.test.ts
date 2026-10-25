@@ -15,7 +15,7 @@ function setup(goal = true) {
   const s = seededWorld();
   const { world, by, admin } = s;
   const mei = by("Mei"), noor = by("Noor");
-  world.ops.updateBuilding(admin, LAB, { managerAgentId: mei.id, ...(goal ? { budgetMode: "goal-directed" as const } : {}) });
+  world.ops.updateBuilding(admin, LAB, { managerAgentId: mei.id, budgetMode: goal ? "goal-directed" : "open" });
   world.permissions.grant({ kind: "agent", id: mei.id }, buildingRoleId(LAB, "manager"));
   const fund = (tokens = 4_000_000) => {
     const g = world.grantDesk.propose(mei, world.grantDesk.create(mei, LAB, { objective: "Visitors can tell what the lab is for", stopCondition: "two failed tries", askTokens: tokens, keyResults: KRS }).id);
