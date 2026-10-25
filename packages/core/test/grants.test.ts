@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { buildingRoleId, newId, nowIso } from "../src/index.ts";
+import { stoplightOf } from "@muster-town/schema";
 import { seededWorld } from "./helpers.ts";
 
 const LAB = "carbon-cycle";
@@ -154,6 +155,28 @@ describe("grants service", () => {
     expect(world.ops.townHallIntray().blocked).toEqual([]);
     world.grantDesk.deleteKeyResult(admin, world.grantDesk.keyResults(LAB)[0]!.id);
     expect(wakes()).toHaveLength(2); // a new transition wakes again
+  });
+
+  it("stoplight: null in open mode; red with no KRs or no funded grant, yellow with an unfunded KR or a held grant, green when every KR has a funded grant", () => {
+    const { world, manager, admin, krs, draft } = setup();
+    world.ops.updateBuilding(admin, LAB, { budgetMode: "open" });
+    expect(world.grantDesk.stoplight(LAB)).toBeNull();
+    world.ops.updateBuilding(admin, LAB, { budgetMode: "goal-directed" });
+    expect(world.grantDesk.stoplight(LAB)).toEqual({ light: "red", reason: "no funded grant on any of its 2 key results" });
+    expect(world.grantDesk.board(LAB).stoplight?.light).toBe("red");
+    const g1 = world.grantDesk.decide(admin, world.grantDesk.propose(manager, draft(krs[1]!.id).id).id, { action: "fund" });
+    expect(world.grantDesk.stoplight(LAB)).toEqual({ light: "yellow", reason: "1 of 2 key results has no funded grant" });
+    const g0 = world.grantDesk.decide(admin, world.grantDesk.propose(manager, draft(krs[0]!.id).id).id, { action: "fund" });
+    expect(world.grantDesk.stoplight(LAB)).toEqual({ light: "green", reason: "2 funded grants running on all 2 key results" });
+    world.grants.patch(g1.id, { status: "checkpoint" });
+    expect(world.grantDesk.stoplight(LAB)).toMatchObject({ light: "yellow", reason: expect.stringMatching(/held at its checkpoint/) });
+    world.grants.patch(g0.id, { status: "closed" });
+    expect(world.grantDesk.stoplight(LAB)!.reason).toMatch(/held at its checkpoint; 1 of 2 key results has no funded grant/);
+    expect(stoplightOf([], [])).toEqual({ light: "red", reason: "no key results to work toward" });
+    // the snapshot carries it; the Town Hall and open buildings have none
+    const snap = world.buildingsWithIntray();
+    expect(snap.find((b) => b.id === LAB)!.stoplight?.light).toBe("yellow");
+    expect(snap.filter((b) => b.id !== LAB).every((b) => b.stoplight === null)).toBe(true);
   });
 
   it("exploration: 10% of the pool's daily inflow by default, or the building's setting; today's exploration sessions count", () => {

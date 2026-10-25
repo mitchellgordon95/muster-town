@@ -68,8 +68,8 @@ export async function townRoutes(app: FastifyInstance) {
     const budget = world.budget.summary().buildings.find((b) => b.buildingId === building.id) ?? null;
     return {
       building, agents, meetings, budget, roles: world.permissions.rolesForBuilding(building.id).filter((r) => r.buildingId === building.id),
-      // goal-directed: the goal's key results (each with its live grant, if any) and the blocked reason (null = not blocked)
-      keyResults: world.grantDesk.keyResults(building.id), blocked: world.grantDesk.blocked(building),
+      // goal-directed: the goal's key results (each with its live grant, if any), the blocked reason (null = not blocked) and the stoplight
+      keyResults: world.grantDesk.keyResults(building.id), blocked: world.grantDesk.blocked(building), stoplight: world.grantDesk.stoplight(building),
     };
   });
 

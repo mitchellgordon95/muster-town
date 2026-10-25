@@ -1,6 +1,6 @@
 /** Screen-space text: name labels and bubbles, drawn crisp on top of the scaled pixel layer. */
-import type { Agent, BuildingBudget } from "@muster-town/schema";
-import { fmtTokens } from "../format";
+import type { Agent, BuildingBudget, Stoplight } from "@muster-town/schema";
+import { fmtTokens, stoplightLabel } from "../format";
 
 export const STATUS_COLOR: Record<string, string> = {
   idle: "#9a9db3", walking: "#7cc4ff", working: "#6fdc8c", "in-meeting": "#c79bff",
@@ -167,7 +167,7 @@ const NFONT = "700 13px ui-sans-serif, system-ui, -apple-system, Segoe UI, Robot
  * the full goal wrapped (or the town's name, for the Town Hall) and an optional budget line. `hl` brightens it
  * for hover. Returns the banner's screen rect, for click-to-open.
  */
-export function drawSign(g: CanvasRenderingContext2D, x: number, y: number, name: string, sub: string, budget?: string | null, hl = false) {
+export function drawSign(g: CanvasRenderingContext2D, x: number, y: number, name: string, sub: string, budget?: string | null, hl = false, light?: Stoplight | null) {
   g.font = NFONT;
   const nw = g.measureText(name).width;
   g.font = BFONT;
@@ -214,7 +214,47 @@ export function drawSign(g: CanvasRenderingContext2D, x: number, y: number, name
   for (const l of lines) { g.fillText(l, x, ty); ty += lh; }
   if (budget) { g.fillStyle = "#9ff0b4"; g.fillText(budget, x, ty + 2); }
   g.textAlign = "left";
+  // goal-directed: the stoplight housing mounted on the right post, under the finial; its reason as a tooltip on hover
+  if (light) {
+    drawStoplight(g, cx + w - 1, rodY + 9, light.light);
+    if (hl) drawSignTip(g, x, rodY - 9, light);
+  }
   return { x: cx - 17, y: rodY - 5, w: w + 34, h: y - rodY + 5 };
+}
+
+const LAMP: Record<Stoplight["light"], string> = { red: "#ff5f5f", yellow: "#ffcf5e", green: "#6fdc8c" };
+/** A traffic-light housing with its top-left at (x, y): three lamps, red over yellow over green, only `light` lit (with a glow). */
+export function drawStoplight(g: CanvasRenderingContext2D, x: number, y: number, light: Stoplight["light"]) {
+  const w = 16, h = 38;
+  g.fillStyle = "#0d0e13"; g.strokeStyle = "#000"; g.lineWidth = 1.5;
+  roundRect(g, x, y, w, h, 5); g.fill(); g.stroke(); g.lineWidth = 1;
+  g.fillStyle = "#2a2d3a"; g.fillRect(x + 3, y + 2, w - 6, 1); // a highlight on the housing's top edge
+  (["red", "yellow", "green"] as const).forEach((k, i) => {
+    const cy = y + 7.5 + i * 11.5, on = k === light;
+    g.beginPath(); g.arc(x + w / 2, cy, 4.4, 0, Math.PI * 2);
+    if (on) { g.save(); g.shadowColor = LAMP[k]; g.shadowBlur = 9; g.fillStyle = LAMP[k]; g.fill(); g.restore(); }
+    else { g.fillStyle = "#23252e"; g.fill(); g.strokeStyle = "#1a1b22"; g.stroke(); }
+  });
+}
+
+/** The hovered banner's stoplight line, in a dark tip above the rod (bottom edge at y, centred on x): "Blocked: no key results to work toward". */
+function drawSignTip(g: CanvasRenderingContext2D, x: number, y: number, light: Stoplight) {
+  g.font = BFONT;
+  const label = stoplightLabel(light.light);
+  const lines = wrapText(g, `${label}: ${light.reason}`, 260);
+  const lh = 14, padX = 8, padY = 5;
+  const w = Math.max(...lines.map((l) => g.measureText(l).width)) + padX * 2, h = lines.length * lh + padY * 2;
+  const bx = Math.round(x - w / 2), by = Math.round(y - h);
+  g.fillStyle = "rgba(20,21,28,.94)"; g.strokeStyle = LAMP[light.light]; g.lineWidth = 1.5;
+  roundRect(g, bx, by, w, h, 5); g.fill(); g.stroke(); g.lineWidth = 1;
+  // a small stem down to the rod
+  g.fillStyle = LAMP[light.light]; g.fillRect(Math.round(x) - 1, by + h, 2, 4);
+  g.textBaseline = "top"; g.textAlign = "left";
+  lines.forEach((l, i) => {
+    g.fillStyle = i === 0 ? LAMP[light.light] : "#f6e7c8";
+    if (i === 0) { g.fillText(label + ":", bx + padX, by + padY); g.fillStyle = "#f6e7c8"; g.fillText(l.slice(label.length + 1), bx + padX + g.measureText(label + ":").width, by + padY); }
+    else g.fillText(l, bx + padX, by + padY + i * lh);
+  });
 }
 
 const SANS = "ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, sans-serif";

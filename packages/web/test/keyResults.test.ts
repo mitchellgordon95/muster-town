@@ -1,6 +1,8 @@
 import { describe, expect, it } from "vitest";
 import { explorationLine, grantSpendLine, grantStateLine, keyResultRows, krFundingLine, krStatusLabel, krTone, proposalLine, settableStatuses, spentShare } from "../src/panels/keyResults";
 import { MockApi } from "../src/mock/server";
+import { stoplightOf } from "@muster-town/schema";
+import { stoplightLabel } from "../src/format";
 
 describe("board key-results view", () => {
   it("grant bar: spend / grant with a percentage, clamped", () => {
@@ -57,6 +59,21 @@ describe("board key-results view", () => {
     expect(settableStatuses(false)).not.toContain("met");
     expect(settableStatuses(true)).toContain("missed");
   });
+  it("stoplight: the mock board and snapshot carry it for goal-directed buildings; the rule is the schema's", async () => {
+    const api = new MockApi();
+    const ws = await api.board("bl_workshop");
+    expect(ws.stoplight).toEqual({ light: "yellow", reason: 'grant "HUD works on narrow screens" is held at its checkpoint; 2 of 4 key results have no funded grant' });
+    const snap = await api.town();
+    expect(snap.buildings.find((b) => b.id === "bl_workshop")?.stoplight?.light).toBe("yellow");
+    expect(snap.buildings.find((b) => b.id === "bl_carbon")?.stoplight).toBeNull();
+    expect((await api.board("bl_carbon")).stoplight).toBeNull();
+    const kr = (grantId: string | null) => ({ grantId });
+    expect(stoplightOf([kr("g")], [{ status: "funded", objective: "x" }])).toEqual({ light: "green", reason: "1 funded grant running on its key result" });
+    expect(stoplightOf([kr(null)], [])).toEqual({ light: "red", reason: "no funded grant on its key result" });
+    expect(stoplightOf([], [])).toEqual({ light: "red", reason: "no key results to work toward" });
+    expect([stoplightLabel("green"), stoplightLabel("yellow"), stoplightLabel("red")]).toEqual(["Running", "Partly blocked", "Blocked"]);
+  });
+
   it("mock: a goal-directed building with no key results and no live grant is blocked", async () => {
     const api = new MockApi();
     const b = await api.createBuilding({ name: "Empty", goal: "Nothing yet", headcount: 2 });

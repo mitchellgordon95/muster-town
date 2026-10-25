@@ -11,18 +11,19 @@ Mitchell decided this in his 1:1s with Pix (notes `dc_bo7xuobtbv`, meeting `mt_5
 - **Lanes.** `grant` names a grant (`grantId`); its key result is implied and stored on the assignment (`keyResultId`, null only on the manager's checkpoint assignment). `exploration` names a goal key result that has **no** funded grant, or a gap sentence. `laneHold` is unchanged.
 - **Checkpoints and the board** read key-result status off the goal. `checkpoint_grant` sets the status of the grant's one key result (up to `claimed`).
 - **Blocked.** A goal-directed building whose goal has no key results and that has no funded grant is `"blocked: no key results to work toward"`. It shows on `GET /api/buildings/:id` (`blocked`), the board and the Town Hall in-tray (`blocked: [{buildingId, name, reason, since}]`, not counted in the badge). On each transition into blocked, core stamps `buildings.blockedAt` and gives the manager agent one assignment (front of its queue, lane directed, created by the system): "Get human decisions: … is blocked", which tells it to draft key results and put them to Mitchell via a rollup or the 1:1. It doesn't fire again while the building stays blocked; leaving blocked clears `blockedAt`. Checked after every grant / key-result / building-settings change and on every scheduler tick.
+- **Stoplight** (town hall 2026-10-25: buildings show no visual sign of being blocked). Every goal-directed building (not the Town Hall, not open mode) carries `stoplight: { light, reason }` (`Stoplight` in schema; the rule is `stoplightOf`, shared with the web mock): **green** = a funded grant runs on every key result, **yellow** = partly blocked (a key result with no funded grant, or a grant held at its checkpoint), **red** = fully blocked (no key results, or no funded grant at all). `reason` is one line ("2 of 4 key results have no funded grant"). It rides on the building GET, the board, the snapshot's buildings and the WS `building` message (resent after grant, key-result and building events); the web client draws a three-lamp housing on the building's map banner (the reason in a tip on hover) and a `.kr-light` row at the top of the board's Key results panel.
 - **Migration 032.** Every old key result was a grant's, so each grant's became its testing plan (in order) and grants start with `keyResultId` null. Assignments that named an old key result keep its text as their `gap` (exploration) or drop it (grant). The Workshop's `gr_jqsqra0dlx` keeps its three KRs as its testing plan, and the Workshop shows blocked until a human writes its goal's key results.
 
 API (the parts Root's UI uses):
 
 | Route | Who | Shape |
 |---|---|---|
-| `GET /api/buildings/:id` | anyone | adds `keyResults: (KeyResult & { grantId: string \| null })[]` (the live grant on each) and `blocked: string \| null` |
+| `GET /api/buildings/:id` | anyone | adds `keyResults: (KeyResult & { grantId: string \| null })[]` (the live grant on each), `blocked: string \| null` and `stoplight: Stoplight \| null` |
 | `GET /api/buildings/:id/key-results` | anyone | `{ keyResults, blocked }` |
 | `POST /api/buildings/:id/key-results` | human, `building.manage` | `{ text, howToCheck }` → 201 `{ keyResult }` |
 | `PATCH /api/key-results/:id` | see above | `{ status?, note?, text?, howToCheck? }` (text / howToCheck: human, `building.manage`) → `{ keyResult }` |
 | `DELETE /api/key-results/:id` | human, `building.manage` | 409 while a draft / open / live grant names it |
-| `GET /api/buildings/:id/board` | anyone | adds `keyResults` and `blocked`; each grant is a `GrantView` |
+| `GET /api/buildings/:id/board` | anyone | adds `keyResults`, `blocked` and `stoplight`; each grant is a `GrantView` |
 | `POST /api/buildings/:id/grants` | `building.manage` | `{ keyResultId, objective, approach?, stopCondition, askTokens, testingPlan?: [{text, howToCheck}] (≤ 5), findingsDocIds? }` |
 | `POST /api/grants/:id/decide` | `building.fund` | `keyResults` replaced by `testingPlan?` |
 | `GET /api/buildings/town-hall/intray` | anyone | `{ reports, grants, blocked }` |
@@ -221,6 +222,7 @@ Today the brief only *tells* agents to look at the board (`composeWorkBrief`, `p
 
 **Board panel** (`packages/web/src/panels/Places.tsx`, `BoardPanel`; as shipped 2026-10-25, town hall decision 3 "key results on the board, not buried in settings"):
 
+0. **Stoplight** row (`.kr-light`, goal-directed buildings only): a three-lamp housing with the lit lamp glowing, the label (Running / Partly blocked / Blocked) in the light's colour and the one-line reason; the same lamp hangs on the building's map banner (`drawStoplight` in `map/overlay.ts`), with the reason in a tip on hover.
 1. **Goal**: the building goal.
 2. **Key results of the goal**, numbered in goal order, each a row: status pill (`krTone`: met green, missed red, claimed / at risk amber), the text, a "how to check" line, and the live grant working on it (objective, status, a spend bar `spent / grant`, "held" at checkpoint) or "No funded grant: open for exploration". Live grants naming no key result (pre-032) follow the list. When the building is blocked, a red "blocked" line says why. The board is read-only: a human with `building.manage` gets an **Edit in settings** link (Building → Settings → Key results); funding decisions stay in the Town Hall in-tray. `kr.*`, `grant.*` and `building.blocked` events bump the client's `rev`, so the board and the settings editor reload live.
 3. **Exploration**: a small meter, "1.2M / 3M tokens today".

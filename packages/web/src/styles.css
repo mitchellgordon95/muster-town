@@ -553,6 +553,14 @@ kbd { font-family: var(--mono); font-size: 11px; background: #2a2d3a; border: 1p
 .kr-exploration > span:first-child { min-width: 78px; }
 .kr-proposal { font-size: 12px; }
 .kr-blocked { background: #2a1d1f; border: 1px solid #4a2c30; border-radius: var(--r); padding: 7px 10px; }
+/* the stoplight row: a dark three-lamp housing, the lit lamp glows; the row's border takes the light's colour */
+.kr-light { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; border: 1px solid #2a2d3a; border-radius: var(--r); padding: 6px 10px; background: #171923; }
+.kr-light .lamp { display: inline-flex; gap: 4px; padding: 3px 5px; border-radius: 9px; background: #0d0e13; border: 1px solid #000; flex: none; }
+.kr-light .lamp i { display: block; width: 9px; height: 9px; border-radius: 50%; background: #2a2d3a; }
+.kr-light.red { border-color: #5a2a2e; } .kr-light.red .lamp .r { background: var(--bad); box-shadow: 0 0 6px var(--bad); }
+.kr-light.yellow { border-color: #5a4a1c; } .kr-light.yellow .lamp .y { background: var(--warn); box-shadow: 0 0 6px var(--warn); }
+.kr-light.green { border-color: #24503a; } .kr-light.green .lamp .g { background: var(--ok); box-shadow: 0 0 6px var(--ok); }
+.kr-light.red b { color: var(--bad); } .kr-light.yellow b { color: var(--warn); } .kr-light.green b { color: var(--ok); }
 .kr-rows, .kr-editor { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 8px; }
 .kr-row, .kr-editor-row { border: 1px solid #2a2d3a; border-radius: var(--r); padding: 7px 10px; }
 .kr-row-head { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }

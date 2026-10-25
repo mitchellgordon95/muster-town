@@ -944,10 +944,33 @@ export const BuildingBudget = z.object({
 export type BuildingBudget = z.infer<typeof BuildingBudget>;
 
 /**
- * A building as the snapshot / WS `building` message carries it: plus `intray`, the count of its pending reports,
- * and `budget` (both derived, not stored; the map badges the manager's desk and labels the sign with them).
+ * A goal-directed building's stoplight (town hall 2026-10-25): green = at least one funded grant running on every key
+ * result, yellow = partly blocked (a key result with no funded grant, or a grant held at its checkpoint), red = fully
+ * blocked (no key results, or no funded grant at all). `reason` is the one line shown on hover. Open-mode buildings and
+ * the Town Hall have none (null).
  */
-export const SnapshotBuilding = Building.extend({ intray: z.number().int().nonnegative().default(0), budget: BuildingBudget.optional() });
+export const Stoplight = z.object({ light: z.enum(["green", "yellow", "red"]), reason: z.string() });
+export type Stoplight = z.infer<typeof Stoplight>;
+/** The stoplight rule, shared by core and the web mock: the goal's key results (each with its live grant) and the live (funded or checkpoint) grants. */
+export function stoplightOf(keyResults: { grantId: string | null }[], live: { status: GrantStatus; objective: string }[]): Stoplight {
+  const n = (k: number, word: string) => `${k} ${word}${k === 1 ? "" : "s"}`;
+  if (!keyResults.length) return { light: "red", reason: "no key results to work toward" };
+  if (!live.length) return { light: "red", reason: `no funded grant on ${keyResults.length === 1 ? "its key result" : `any of its ${keyResults.length} key results`}` };
+  const held = live.filter((g) => g.status === "checkpoint");
+  const unfunded = keyResults.filter((k) => !k.grantId).length;
+  const why: string[] = [];
+  if (held.length) why.push(held.length === 1 ? `grant "${held[0]!.objective}" is held at its checkpoint` : `${held.length} grants are held at their checkpoints`);
+  if (unfunded) why.push(`${unfunded} of ${n(keyResults.length, "key result")} ${unfunded === 1 ? "has" : "have"} no funded grant`);
+  if (why.length) return { light: "yellow", reason: why.join("; ") };
+  return { light: "green", reason: `${n(live.length, "funded grant")} running on ${keyResults.length === 1 ? "its key result" : `all ${keyResults.length} key results`}` };
+}
+
+/**
+ * A building as the snapshot / WS `building` message carries it: plus `intray`, the count of its pending reports,
+ * `budget` (both derived, not stored; the map badges the manager's desk and labels the sign with them) and `stoplight`
+ * (goal-directed buildings; the map's banner and the board show it).
+ */
+export const SnapshotBuilding = Building.extend({ intray: z.number().int().nonnegative().default(0), budget: BuildingBudget.optional(), stoplight: Stoplight.nullable().optional() });
 export type SnapshotBuilding = z.infer<typeof SnapshotBuilding>;
 
 export const ServerMessage = z.discriminatedUnion("type", [
@@ -957,7 +980,7 @@ export const ServerMessage = z.discriminatedUnion("type", [
   z.object({ type: z.literal("agents.pos"), positions: z.array(z.object({ id: Id, x: z.number(), y: z.number(), status: AgentStatus })) }),
   z.object({ type: z.literal("doc"), doc: Doc }),
   z.object({ type: z.literal("meeting"), meeting: Meeting }),
-  z.object({ type: z.literal("building"), building: Building.extend({ intray: z.number().int().nonnegative().optional(), budget: BuildingBudget.optional() }) }),
+  z.object({ type: z.literal("building"), building: Building.extend({ intray: z.number().int().nonnegative().optional(), budget: BuildingBudget.optional(), stoplight: Stoplight.nullable().optional() }) }),
   z.object({ type: z.literal("assignment"), assignment: Assignment }),
   z.object({ type: z.literal("error"), message: z.string() }),
 ]);
