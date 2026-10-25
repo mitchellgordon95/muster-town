@@ -82,10 +82,10 @@ export function recentWorkBlock(world: World, agentId: string, opts: { limit?: n
  * The system prompt of a work session. \`memory\` is the agent's "## What you know" + "## Your log" block
  * (\`memoryBlock\`); \`team\` the manager's "## Your team" block (\`teamBlock\`), only for the building's manager agent.
  */
-export function workSystemPrompt(agent: Agent, building: Building, town: Town, opts: { desk?: boolean; memory?: string; team?: string; skills?: string } = {}): string {
+export function workSystemPrompt(agent: Agent, building: Building, town: Town, opts: { desk?: boolean; memory?: string; team?: string; skills?: string; keyResults?: string } = {}): string {
   return `You are ${agent.name}, a resident of the ${building.name} of ${town.name}. ${OWNERSHIP}
 Town goal: ${town.goal || "(none set)"}
-Building goal: ${building.goal || "(none set)"}
+Building goal: ${building.goal || "(none set)"}${opts.keyResults ? `\n${opts.keyResults}` : ""}
 Your agent id: ${agent.id}. Your building id: ${building.id}.
 
 ${WORLD_RULES}
@@ -101,10 +101,50 @@ You have about ${building.maxTurnsPerSession} turns; budget them. ${opts.desk
 ${opts.memory ?? ""}`;
 }
 
-/** The memory and team blocks for an agent's work session (the manager agent of a building gets the team). */
-export function sessionMemory(world: World, agent: Agent, building: Building): { memory: string; team?: string } {
+/**
+ * The memory and team blocks for an agent's work session (the manager agent of a building gets the team), and in
+ * goal-directed buildings the Key results block for `assignment`'s session.
+ */
+export function sessionMemory(world: World, agent: Agent, building: Building, assignment?: Assignment | null): { memory: string; team?: string; keyResults?: string } {
   const manager = building.managerAgentId === agent.id && building.kind !== "town-hall";
-  return { memory: memoryBlock(world, agent.id), ...(manager ? { team: `${teamBlock(world, building, agent.id)}\n\n${managerIntrayBlock(world, building, agent.id)}` } : {}) };
+  const keyResults = keyResultsBlock(world, building, assignment);
+  const grants = manager ? managerGrantsBlock(world, building) : "";
+  return { memory: memoryBlock(world, agent.id), ...(manager ? { team: `${teamBlock(world, building, agent.id)}\n\n${managerIntrayBlock(world, building, agent.id)}${grants ? `\n\n${grants}` : ""}` } : {}), ...(keyResults ? { keyResults } : {}) };
+}
+
+const tok = (n: number) => n.toLocaleString("en-US");
+
+/**
+ * Goal-directed buildings: "Key results", right after the building goal (docs/goal-directed-budgets.md, The desk brief):
+ * each funded (or checkpoint) grant's objective with spend / grant and its key results with status, today's
+ * exploration, and the session's own lane. Empty string in open buildings.
+ */
+export function keyResultsBlock(world: World, building: Building, assignment?: Assignment | null): string {
+  if (building.budgetMode !== "goal-directed") return "";
+  const board = world.grantDesk.board(building.id);
+  const grants = board.grants.map((g) => [
+    `- ${g.id} "${oneLine(g.objective, 160)}" (${g.status === "checkpoint" ? "at checkpoint: its sessions are held" : "funded"}; ${tok(g.spentTokens)} / ${tok(g.grantTokens ?? 0)} tokens)`,
+    ...g.keyResults.map((k) => `  - ${k.id} [${k.status}] ${oneLine(k.text, 160)} (how to check: ${oneLine(k.howToCheck, 160)})`),
+  ].join("\n"));
+  const krText = (id: string | null) => { const k = id ? world.keyResults.get(id) : undefined; return k ? `${k.id} "${oneLine(k.text, 120)}"` : id ?? ""; };
+  const lane = !assignment ? "" : assignment.lane === "grant"
+    ? `This session: grant ${assignment.grantId}${assignment.keyResultId ? `, key result ${krText(assignment.keyResultId)}` : " (the checkpoint)"}.`
+    : assignment.lane === "exploration"
+      ? `This session: exploration on ${assignment.keyResultId ? `key result ${krText(assignment.keyResultId)}` : `gap: ${oneLine(assignment.gap ?? "", 300)}`}. Its report is a findings note for the manager's next proposal.`
+      : "This session: directed (a human asked for it directly).";
+  return `Key results (this building is goal-directed: every session runs in a lane, grant, exploration or directed):
+${grants.length ? grants.join("\n") : "(no funded grant yet: work is exploration, naming a key result or a goal gap)"}
+Exploration today: ${tok(board.exploration.spentTodayTokens)} / ${tok(board.exploration.allowanceTokens)} tokens.${board.proposal ? ` Open proposal: ${board.proposal.id} "${oneLine(board.proposal.objective, 120)}" (${board.proposal.status}).` : ""}${lane ? `\n${lane}` : ""}`;
+}
+
+/** Goal-directed buildings: how the manager works with grants (`assign` lanes, `propose_grant`, `checkpoint_grant`). */
+export function managerGrantsBlock(world: World, building: Building): string {
+  if (building.budgetMode !== "goal-directed") return "";
+  const open = world.grants.first("buildingId = ? AND status IN ('proposed', 'countered')", [building.id]);
+  return `## Grants (this building is goal-directed)
+Every \`assign\` names its lane: "grant" with grantId and a keyResultId of that funded grant, or "exploration" with a keyResultId or a gap (one sentence on what is missing between the goal and the live town). You can't create directed work; only humans do. Assignments whose grant is at checkpoint, or exploration past today's allowance, stay pending (held), never cancelled.
+${open ? `Open proposal: ${open.id} (${open.status}); a human decides it in the Town Hall in-tray.` : "No proposal is open: if exploration findings are in, draft one with `propose_grant` (objective, 2-3 key results a human can check in the live town, each with a how-to-check line, a token ask, a stop condition, and the findings reports in findingsDocIds)."}
+When a grant crosses 50% or 100% of its tokens you get a "Write the checkpoint for …" assignment: \`checkpoint_grant\` (key-result statuses up to claimed, with evidence), then \`submit_report\` with \`rollup: true\`; it lands in the Town Hall in-tray linked to the grant.`;
 }
 
 export function workPrompt(assignment: Assignment, lastReport: Doc | undefined, recentWork?: string): string {
@@ -372,7 +412,7 @@ export function composeWorkBrief(world: World, sessionId: string): DeskBrief {
   const town = world.town.get();
   const assignment = session.assignmentId ? world.assignments.get(session.assignmentId) ?? null : null;
   const workspace = deskWorkspace(town, building, agent, assignment);
-  const system = workSystemPrompt(agent, building, town, { desk: true, ...sessionMemory(world, agent, building), skills: skillsBlock(world.skills.forAgent(agent.id)) }) + (workspace ? workshopPrompt(workspace, repoNameOf(workspace.repoUrl)) : "");
+  const system = workSystemPrompt(agent, building, town, { desk: true, ...sessionMemory(world, agent, building, assignment), skills: skillsBlock(world.skills.forAgent(agent.id)) }) + (workspace ? workshopPrompt(workspace, repoNameOf(workspace.repoUrl)) : "");
   const recent = recentWorkBlock(world, agent.id, { excludeSessionId: session.id });
   const prompt = assignment
     ? workPrompt(assignment, world.docs.first("authorId = ? AND type = 'report' AND (sessionId IS NULL OR sessionId != ?)", [agent.id, session.id], "ORDER BY createdAt DESC, rowid DESC"), recent)

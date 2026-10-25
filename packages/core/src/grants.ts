@@ -2,16 +2,17 @@ import {
   CloseGrantInput, CreateGrantInput, DecideGrantInput, UpdateGrantInput, UpdateKeyResultInput,
   type Grant, type GrantHistoryEntry, type GrantStatus, type GrantView, type KeyResult,
 } from "@muster-town/schema";
-import { sendMessage } from "./domain.ts";
+import { createAssignment, managerAgentOf, sendMessage } from "./domain.ts";
 import type { EventType } from "./events.ts";
 import { AppError, badRequest, forbidden } from "./errors.ts";
 import type { Actor } from "./ops.ts";
 import { holderOf } from "./permissions.ts";
+import { BUDGET_POLICY } from "./policy.ts";
 import { newId, nowIso } from "./util.ts";
 import type { World } from "./world.ts";
 
-/** Default exploration allowance: this share of the building's pool's daily inflow (Mitchell, 2026-10-21). */
-export const EXPLORATION_SHARE = 0.1;
+/** Default exploration allowance: this share of the building's pool's daily inflow (BUDGET_POLICY, open question 1). */
+export const EXPLORATION_SHARE = BUDGET_POLICY.explorationShare;
 /** Spend fractions at which a funded grant pauses for a human checkpoint. */
 export const CHECKPOINTS = [0.5, 1] as const;
 
@@ -62,8 +63,10 @@ export class Grants {
   /** Today's (UTC) exploration spend of the building's residents against its allowance. */
   exploration(buildingId: string): ExplorationBudget {
     const b = this.world.buildings.require(buildingId, "building");
+    const pool = this.world.bank.poolOf(b.id).id;
+    const split = BUDGET_POLICY.explorationSplitAcrossPool ? Math.max(1, this.world.bank.buildingsIn(pool).filter((x) => x.kind !== "town-hall").length) : 1;
     const allowanceTokens = b.explorationTokensPerDay ?? (b.kind === "town-hall" ? 0
-      : Math.floor(this.world.bank.poolDailyInflow(this.world.bank.poolOf(b.id).id) * EXPLORATION_SHARE));
+      : Math.floor(this.world.bank.poolDailyInflow(pool) * EXPLORATION_SHARE / split));
     const day = new Date(); day.setUTCHours(0, 0, 0, 0);
     const spentTodayTokens = this.world.sessions.sum("tokens",
       "lane = 'exploration' AND startedAt >= ? AND agentId IN (SELECT id FROM agents WHERE homeBuildingId = ?)", [day.toISOString(), buildingId]);
@@ -206,6 +209,82 @@ export class Grants {
     const next = this.save(g, actor, { status: "closed", outcome: inp.outcome, closedAt: nowIso() }, "close", null, inp.note);
     this.event("grant.closed", next, actor, `Closed (${inp.outcome}): ${next.objective}`);
     return this.view(next);
+  }
+
+  /**
+   * After a charge (`Budget.afterCharge`): every funded grant of the building whose derived spend crossed a checkpoint
+   * fraction (50%, 100%) not yet done goes to `checkpoint`: new sessions on it are held, `grant.checkpoint` is appended,
+   * the humans who can fund are told, and the building's manager agent gets the checkpoint assignment (lane grant, which
+   * runs while the grant is at checkpoint). Each fraction fires once per grantTokens value. Returns the grants it held.
+   */
+  checkpoints(buildingId: string): Grant[] {
+    const held: Grant[] = [];
+    for (const g of this.world.grants.where("buildingId = ? AND status = 'funded'", [buildingId])) {
+      const tokens = g.grantTokens ?? 0;
+      const spent = this.spent(g.id);
+      const crossed = passed(spent, tokens).filter((f) => !g.checkpointsDone.includes(f));
+      if (!tokens || !crossed.length) continue;
+      const pct = Math.round((spent / tokens) * 100);
+      const at = Math.max(...crossed);
+      const next = this.world.transaction(() => {
+        const next = this.save(g, null, { status: "checkpoint", checkpointsDone: [...g.checkpointsDone, ...crossed].sort() }, "checkpoint", spent,
+          `Spend crossed ${at * 100}% (${fmt(spent)} of ${fmt(tokens)} tokens, ${pct}%): new sessions on it are held until a human decides.`);
+        this.checkpointAssignment(next, spent, at);
+        return next;
+      });
+      this.world.events.append({ type: "grant.checkpoint", buildingId, text: `Checkpoint at ${at * 100}%: ${g.objective} (${fmt(spent)} / ${fmt(tokens)} tokens)`, payload: { grantId: g.id, status: next.status, fraction: at, spentTokens: spent, grantTokens: tokens } });
+      this.notifyFunders(next, null, `"${g.objective}" crossed ${at * 100}% of its ${fmt(tokens)}-token grant (${fmt(spent)} spent): its sessions are held. The manager is writing the checkpoint; continue, adjust or cut it in the Town Hall in-tray.`);
+      held.push(next);
+    }
+    return held;
+  }
+
+  /** The manager's "Write the checkpoint for …" assignment (none when the building has no manager agent: humans decide from the in-tray). */
+  private checkpointAssignment(g: Grant, spent: number, at: number): void {
+    const building = this.world.buildings.require(g.buildingId, "building");
+    const manager = managerAgentOf(this.world, building);
+    if (!manager) return;
+    const krs = this.world.keyResults.where("grantId = ?", [g.id], "ORDER BY position").map((k) => `- ${k.id} [${k.status}] ${k.text} (how to check: ${k.howToCheck})`).join("\n");
+    const reports = this.world.assignments.where("grantId = ? AND reportId IS NOT NULL", [g.id], "ORDER BY updatedAt").map((a) => a.reportId!);
+    createAssignment(this.world, {
+      agentId: manager.id, buildingId: g.buildingId, front: true, createdBy: { kind: "system", id: "system" },
+      laneOverride: { lane: "grant", grantId: g.id, keyResultId: null, gap: null },
+      title: `Write the checkpoint for ${g.objective}`.slice(0, 160),
+      description: `Grant ${g.id} "${g.objective}" crossed ${at * 100}% of its tokens: ${fmt(spent)} of ${fmt(g.grantTokens ?? 0)} spent. New sessions on it are held until a human continues, adjusts or cuts it in the Town Hall in-tray; this assignment runs anyway, charged to the grant.
+
+Write the checkpoint for ${g.objective}: each key result's status with evidence a human can check in the live town, spend so far, and whether to continue.
+
+Key results:
+${krs}
+
+Stop condition: ${g.stopCondition}
+
+1. \`checkpoint_grant\` with grantId ${g.id} and each key result's status (not-started, on-track, at-risk or claimed; only a human marks met or missed) and a note with the evidence.
+2. \`submit_report\` with \`rollup: true\` as your checkpoint report (it lands in the Town Hall in-tray and is linked to the grant). Sections: Shipped, Decided, Key results (each KR, its status, how to check it, ${fmt(spent)} / ${fmt(g.grantTokens ?? 0)} tokens), Needs from Mitchell (continue, adjust or cut, and why). Put the reports the grant's work produced in provenance.sourceIds${reports.length ? `: ${reports.join(", ")}` : " (none yet; leave it empty)"}.`,
+    });
+  }
+
+  /**
+   * \`checkpoint_grant\` (the manager, \`building.manage\`): set the grant's key-result statuses (up to \`claimed\`) and link
+   * the checkpoint report (\`reportId\`, else the rollup this session submits links itself). The grant stays at checkpoint.
+   */
+  fileCheckpoint(actor: Actor, grantId: string, input: { reportId?: string | null; keyResults: { id: string; status: KeyResult["status"]; note: string }[] }): GrantView {
+    const g = this.world.grants.require(grantId, "grant");
+    if (actor && !this.world.permissions.can(actor, "building.manage", g.buildingId)) throw forbidden("building.manage");
+    this.requireStatus(g, ["checkpoint"], "checkpointed");
+    for (const k of input.keyResults) {
+      if (k.status === "met" || k.status === "missed") throw badRequest(`Only a human marks a key result ${k.status}; claim it instead.`);
+      if (this.world.keyResults.get(k.id)?.grantId !== g.id) throw badRequest(`Key result ${k.id} is not one of this grant's.`);
+    }
+    if (input.reportId) {
+      const d = this.world.docs.get(input.reportId);
+      if (!d || d.type !== "report" || d.buildingId !== g.buildingId) throw badRequest(`${input.reportId} is not a report of this building.`);
+    }
+    return this.world.transaction(() => {
+      for (const k of input.keyResults) this.updateKeyResult(actor, k.id, { status: k.status, note: k.note });
+      if (input.reportId) this.world.grants.upsert({ ...this.world.grants.require(g.id), checkpointDocId: input.reportId, updatedAt: nowIso() });
+      return this.get(g.id);
+    });
   }
 
   /** PATCH /api/key-results/:id: the manager up to `claimed`; `met` / `missed` (and undoing them) need `building.fund`. */

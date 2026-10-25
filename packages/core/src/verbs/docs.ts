@@ -4,8 +4,10 @@ import {
   setAssignmentStatus, summarizeDoc, updateDoc,
 } from "../domain.ts";
 import { AppError, badRequest, forbidden } from "../errors.ts";
+import { isCheckpointAssignment } from "../lanes.ts";
 import { docWhere, notifyMentions } from "../mentions.ts";
 import { appendLog, ownerOf, writeWikiPage } from "../memory.ts";
+import { nowIso } from "../util.ts";
 import { describeWait, validateWait } from "../waits.ts";
 import type { World } from "../world.ts";
 import type { VerbIn } from "./types.ts";
@@ -178,19 +180,21 @@ export async function submit_report(world: World, me: Agent, input: VerbIn<"subm
   const isManager = !!building && building.kind !== "town-hall" && building.managerAgentId === me.id;
   const manager = isManager ? undefined : managerAgentOf(world, building);
   const sourceIds = input.provenance?.sourceIds ?? [];
+  const session = world.sessions.first("agentId = ? AND status = 'running'", [me.id], "ORDER BY startedAt DESC");
+  const assignmentId = me.currentAssignmentId ?? session?.assignmentId ?? undefined;
+  const current = assignmentId ? world.assignments.get(assignmentId) : undefined;
+  // goal-directed budgets: the rollup of a checkpoint assignment is the grant's checkpoint report (a grant may have no reports yet)
+  const checkpointGrantId = input.rollup && current && isCheckpointAssignment(current) ? current.grantId : null;
   if (input.rollup) {
     if (!isManager) throw badRequest("Only a building's manager agent submits rollups.");
-    if (!sourceIds.length) throw badRequest("A rollup lists the reports it covers in provenance.sourceIds.");
+    if (!sourceIds.length && !checkpointGrantId) throw badRequest("A rollup lists the reports it covers in provenance.sourceIds.");
     for (const id of sourceIds) {
       const d = world.docs.get(id);
       if (!d || d.type !== "report" || d.buildingId !== bid) throw badRequest(`Rollup source ${id} is not a report of your building.`);
     }
   }
-  const session = world.sessions.first("agentId = ? AND status = 'running'", [me.id], "ORDER BY startedAt DESC");
-  const assignmentId = me.currentAssignmentId ?? session?.assignmentId ?? undefined;
   // P2: park instead of ending: the continuation waits for `resumeWhen` and then starts by itself (at most MAX_PARKS in a row)
   const resumeWhen = input.resumeWhen ? validateWait(world, input.resumeWhen) : null;
-  const current = assignmentId ? world.assignments.get(assignmentId) : undefined;
   const parks = (current?.parked ?? 0) + 1;
   if (resumeWhen) {
     if (!current) throw badRequest("resumeWhen needs a current assignment to continue.");
@@ -202,8 +206,12 @@ export async function submit_report(world: World, me: Agent, input: VerbIn<"subm
       type: "report", state: "building", title: input.title, body: input.body, verdict: input.verdict, decision: "pending",
       authorId: me.id, authorKind: "agent", buildingId: bid, provenance: input.provenance,
       sessionId: session?.id, assignmentId: assignmentId ?? undefined,
-      tags: [...(input.rollup ? ["rollup"] : []), ...(resumeWhen ? ["parked"] : [])],
+      tags: [...(input.rollup ? ["rollup"] : []), ...(checkpointGrantId ? ["checkpoint"] : []), ...(resumeWhen ? ["parked"] : [])],
     }, `${me.name} submitted a ${input.rollup ? "rollup" : "report"}: ${input.title}`);
+    if (checkpointGrantId) {
+      const g = world.grants.get(checkpointGrantId);
+      if (g) world.grants.upsert({ ...g, checkpointDocId: doc.id, updatedAt: nowIso() });
+    }
     // decision 1d: humans aren't notified of reports a manager agent will consume; only Town Hall items reach them
     notifyMentions(world, me, `${doc.title}\n${doc.body}`, { where: docWhere(doc), docId: doc.id, buildingId: doc.buildingId, agentsOnly: !!manager });
     // a cancelled assignment (stopped/dismissed mid-session) stays cancelled; the report still lands
@@ -271,9 +279,10 @@ export async function assign(world: World, me: Agent, input: VerbIn<"assign">) {
   const bid = homeOf(target);
   if (!world.permissions.can(me, "building.assign", bid)) throw forbidden("building.assign");
   const waitFor = input.waitFor ? validateWait(world, input.waitFor) : null;
-  const a = createAssignment(world, { agentId: target.id, title: input.title, description: input.description, createdBy: world.holderOf(me), waitFor });
+  const a = createAssignment(world, { agentId: target.id, title: input.title, description: input.description, createdBy: world.holderOf(me), waitFor,
+    lane: { lane: input.lane, grantId: input.grantId, keyResultId: input.keyResultId, gap: input.gap } });
   sendMessage(world, { kind: "system", fromId: me.id, fromKind: "system", toId: target.id, body: `New assignment from ${me.name}: ${input.title}${waitFor ? ` (starts after ${describeWait(world, waitFor)})` : ""}` });
-  return { assignmentId: a.id, ...(waitFor ? { waitingOn: describeWait(world, waitFor) } : {}) };
+  return { assignmentId: a.id, lane: a.lane, ...(a.heldReason ? { held: a.heldReason } : {}), ...(waitFor ? { waitingOn: describeWait(world, waitFor) } : {}) };
 }
 
 export async function promote(world: World, me: Agent, input: VerbIn<"promote">) {

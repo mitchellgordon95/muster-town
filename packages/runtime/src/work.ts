@@ -32,7 +32,10 @@ export function preflightWork(ctx: Ctx, starting: Set<string>, agentId: string, 
     if (agent.kind === "resident") world.setStatus(agentId, "out-of-budget");
     throw new AppError("conflict", `${agent.name} is out of budget.`);
   }
-  return { agent, building: world.buildings.require(bid, "building"), assignment: world.assignments.require(assignmentId, "assignment") };
+  const assignment = world.assignments.require(assignmentId, "assignment");
+  // the lane gate (goal-directed buildings): a held assignment stays pending with its heldReason; the agent isn't out of budget
+  if (!world.budget.canStart(agentId, assignment)) throw new AppError("conflict", `${agent.name}'s assignment is ${world.assignments.get(assignment.id)?.heldReason ?? "held"}.`);
+  return { agent, building: world.buildings.require(bid, "building"), assignment };
 }
 
 /**
@@ -48,7 +51,7 @@ export async function runWorkSession(ctx: Ctx, starting: Set<string>, agentId: s
     walkToDesk(ctx, agent);
     const out = await runAgentSession(ctx, {
       agentId, purpose: "work", model: agent.model ?? building.model, maxTurns: building.maxTurnsPerSession, web: true,
-      assignmentId, system: workSystemPrompt(agent, building, world.town.get(), { ...sessionMemory(world, agent, building), skills: skillsBlock(world.skills.forAgent(agentId)) }),
+      assignmentId, system: workSystemPrompt(agent, building, world.town.get(), { ...sessionMemory(world, agent, building, assignment), skills: skillsBlock(world.skills.forAgent(agentId)) }),
       prompt: workPrompt(assignment, latestReport(ctx, agentId), recentWorkBlock(world, agentId)),
       finish: (o, allocationId) => finishWorkSession(ctx, o.session.id, { ...o }, allocationId),
     });

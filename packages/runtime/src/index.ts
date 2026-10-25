@@ -3,7 +3,7 @@
  * managers' team-lead sessions over the in-tray, meeting summaries + facilitation, proxy chat, interrupts, scheduler,
  * startup reconcile, dismissal (onAgentRetired), host redeploy (v1.3).
  */
-import { checkWaits, codeWorkspace, nextPending, PRESENCE_TICK_MS, slugify, syncManagerRoles, type World } from "@muster-town/core";
+import { checkWaits, codeWorkspace, nextStartable, PRESENCE_TICK_MS, slugify, syncManagerRoles, type World } from "@muster-town/core";
 import { DesksConfig, type ChatInput, type DeskActivityInput, type Event, type RedeployResult, type Session } from "@muster-town/schema";
 import { askAbout, chat } from "./chat.ts";
 import { DockerBackend, dockerSafe, HostBackend, type DeskBackend, type WorkBackend } from "./desk/backend.ts";
@@ -292,8 +292,9 @@ export function startRuntime(opts: RuntimeOptions): Runtime {
     let startedNow = 0;
     for (const a of world.agents.where("kind = 'resident' AND status = 'idle'", [], "ORDER BY createdAt")) {
       if (ctx.live.has(a.id) || starting.has(a.id)) continue;
-      const next = nextPending(world, a.id); // queue order: position, createdAt, rowid
-      if (!next || !world.budget.canStart(a.id)) continue;
+      // queue order (position, createdAt, rowid), skipping what Budget.canStart holds (lane gate: they stay pending with a heldReason)
+      const next = nextStartable(world, a.id);
+      if (!next) continue;
       // the host's cap: a running session costs real memory, so queued work waits for a free slot instead of starting
       const s = slots();
       if (s.running + startedNow >= s.max) { held.push(a.id); continue; }
@@ -420,7 +421,7 @@ export function startRuntime(opts: RuntimeOptions): Runtime {
     },
     hold: (on) => { draining = on; },
     blocked: () => world.agents.where("kind = 'resident' AND status = 'idle'", [], "ORDER BY createdAt")
-      .filter((a) => !ctx.live.has(a.id) && !starting.has(a.id) && !!nextPending(world, a.id) && world.budget.canStart(a.id)).map((a) => a.id),
+      .filter((a) => !ctx.live.has(a.id) && !starting.has(a.id) && !!nextStartable(world, a.id)).map((a) => a.id),
     ...opts.redeploy,
   });
   const redeploy = (o: RedeployRequest) => redeployer.redeploy(o);

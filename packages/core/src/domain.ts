@@ -1,5 +1,6 @@
-import { Doc, QUEUE_ORDER, type Agent, type Assignment, type Building, type GrantView, type Message, type ReviewDecision, type WaitFor } from "@muster-town/schema";
+import { Doc, QUEUE_ORDER, type Agent, type Assignment, type Building, type GrantView, type LaneFields, type Message, type ReviewDecision, type WaitFor } from "@muster-town/schema";
 import { AppError } from "./errors.ts";
+import { resolveLane, type Lane } from "./lanes.ts";
 import type { Holder } from "./permissions.ts";
 import { describeWait } from "./waits.ts";
 import { extractSection, firstLine, newId, nowIso, truncate } from "./util.ts";
@@ -41,21 +42,30 @@ export function canSeeDoc(holder: Holder, d: Doc): boolean {
   return d.state !== "draft" || d.authorId === holder.id;
 }
 
-export function createAssignment(world: World, a: { agentId: string; title: string; description: string; createdBy: Holder | { kind: "system"; id: string }; fromReportId?: string | null; fromMeetingId?: string | null; fromAssignmentId?: string | null; buildingId?: string; front?: boolean; waitFor?: WaitFor | null; parked?: number }): Assignment {
+/**
+ * A new pending assignment. `lane` (goal-directed budgets) is validated by `resolveLane`; left out, a continuation
+ * (`fromAssignmentId`, or the assignment behind `fromReportId`) inherits its lane, else it is directed. `laneOverride`
+ * skips the validation (system-made work such as the checkpoint assignment).
+ */
+export function createAssignment(world: World, a: { agentId: string; title: string; description: string; createdBy: Holder | { kind: "system"; id: string }; fromReportId?: string | null; fromMeetingId?: string | null; fromAssignmentId?: string | null; buildingId?: string; front?: boolean; waitFor?: WaitFor | null; parked?: number; lane?: LaneFields; laneOverride?: Lane }): Assignment {
   const agent = world.agents.require(a.agentId, "agent");
   const buildingId = a.buildingId ?? agent.homeBuildingId ?? agent.buildingId;
   if (!buildingId) throw new AppError("bad_request", `${agent.name} has no building to work in.`);
+  const fromReport = a.fromReportId ? world.docs.get(a.fromReportId) : undefined;
+  const fromId = a.fromAssignmentId ?? fromReport?.assignmentId ?? null;
+  const from = fromId ? world.assignments.get(fromId) : undefined;
+  const lane = a.laneOverride ?? resolveLane(world, buildingId, a.createdBy, a.lane, { from, fromMeeting: !!a.fromMeetingId });
   const ts = nowIso();
   const assignment = world.assignments.upsert({
     id: newId("as"), agentId: agent.id, buildingId, title: a.title, description: a.description, status: "pending",
     createdBy: a.createdBy.id, createdByKind: a.createdBy.kind === "system" ? "user" : a.createdBy.kind,
     fromMeetingId: a.fromMeetingId ?? null, fromReportId: a.fromReportId ?? null, reportId: null,
     fromAssignmentId: a.fromAssignmentId ?? null, position: a.front ? frontPosition(world, agent.id) : Date.now(), createdAt: ts, updatedAt: ts,
-    waitFor: a.waitFor ?? null, ...(a.parked ? { parked: a.parked } : {}),
+    waitFor: a.waitFor ?? null, ...(a.parked ? { parked: a.parked } : {}), ...lane, heldReason: null,
     // v1.4: a visitor's loop runs outside the town, so its assignments are offers it accepts (never scheduled)
     ...(agent.kind === "visitor" ? { offered: true } : {}),
   });
-  world.events.append({ type: "assignment.created", agentId: agent.id, buildingId, text: `${assignment.offered ? "Offered to" : "New assignment for"} ${agent.name}: ${a.title}${assignment.waitFor ? ` (waits on ${describeWait(world, assignment.waitFor)})` : ""}`, payload: { assignmentId: assignment.id, offered: !!assignment.offered, waitFor: assignment.waitFor, createdBy: a.createdBy.id, fromReportId: a.fromReportId ?? null, fromMeetingId: a.fromMeetingId ?? null } });
+  world.events.append({ type: "assignment.created", agentId: agent.id, buildingId, text: `${assignment.offered ? "Offered to" : "New assignment for"} ${agent.name}: ${a.title}${assignment.waitFor ? ` (waits on ${describeWait(world, assignment.waitFor)})` : ""}`, payload: { assignmentId: assignment.id, lane: assignment.lane, grantId: assignment.grantId, offered: !!assignment.offered, waitFor: assignment.waitFor, createdBy: a.createdBy.id, fromReportId: a.fromReportId ?? null, fromMeetingId: a.fromMeetingId ?? null } });
   return assignment;
 }
 
@@ -67,6 +77,17 @@ export function pendingQueue(world: World, agentId: string): Assignment[] {
 /** The pending assignment the scheduler runs next for this agent (offers to visitors never run; nor do waiting ones). */
 export function nextPending(world: World, agentId: string): Assignment | undefined {
   return world.assignments.first("agentId = ? AND status = 'pending' AND (offered IS NULL OR offered = 0) AND waitFor IS NULL", [agentId], QUEUE_ORDER);
+}
+
+/**
+ * The assignment the scheduler starts next: the first runnable pending one (as `nextPending`) that `Budget.canStart`
+ * lets through. Ones the lane gate holds stay pending with their `heldReason` and are skipped, so a held grant task
+ * doesn't block exploration queued behind it. Undefined when nothing can start (or the agent is out of budget).
+ */
+export function nextStartable(world: World, agentId: string): Assignment | undefined {
+  if (!world.budget.canStart(agentId)) return undefined;
+  return world.assignments.where("agentId = ? AND status = 'pending' AND (offered IS NULL OR offered = 0) AND waitFor IS NULL", [agentId], QUEUE_ORDER)
+    .find((a) => world.budget.canStart(agentId, a));
 }
 
 /** A position ahead of every pending assignment of the agent (except `exceptId`). */

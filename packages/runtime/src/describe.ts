@@ -52,6 +52,8 @@ export function describeTool(world: World, name: string, input: unknown): string
     }
     case "review": return `Reviewing a report: ${String(i.decision ?? "")}`;
     case "assign": return `Assigning work to ${world.nameOf(String(i.agentId ?? ""))}`;
+    case "propose_grant": return `Proposing a grant: ${clip(i.objective, 60)}`;
+    case "checkpoint_grant": return "Filing a grant checkpoint";
     case "promote": return `Promoting a doc to the ${i.state === "library" ? "library" : "board"}`;
     case "ban": return `Banning ${world.nameOf(String(i.agentId ?? ""))}`;
     default: return `Using ${verb}`;

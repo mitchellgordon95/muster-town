@@ -1,5 +1,6 @@
 import { BUILTIN_ROLES, Permission, type Agent, type Role } from "@muster-town/schema";
 import { forbidden } from "./errors.ts";
+import { BUDGET_POLICY } from "./policy.ts";
 import type { Repos } from "./store.ts";
 
 /** Who holds roles. A human's avatar agent acts with its owner user's roles. */
@@ -41,6 +42,8 @@ export class Permissions {
    */
   can(holder: Holder | Agent, permission: Permission, buildingId?: string | null): boolean {
     const x = this.resolve(holder);
+    // open question 3 (BUDGET_POLICY.funders): "admins" = only town-level roles fund, not a building's manager role
+    if (permission === "building.fund" && BUDGET_POLICY.funders === "admins") buildingId = null;
     if (!isAgent(x)) return this.rolesGrant(x, permission, buildingId);
     if (x.deniedPermissions?.includes(permission)) return false;
     if (permission === "building.fund" && x.kind !== "human") return false;

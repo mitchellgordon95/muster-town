@@ -2,6 +2,7 @@ import { townEnv, type Agent, type AgentStatus, type DesksConfig, type RedeployL
 import { Bank } from "./bank.ts";
 import { Budget } from "./budget.ts";
 import { Grants } from "./grants.ts";
+import { laneHold } from "./lanes.ts";
 import { intrayCount, intrayCounts, isTownHallItem } from "./domain.ts";
 import { migrateRoles } from "./migrate-roles.ts";
 import { openDb, type DB } from "./db.ts";
@@ -116,6 +117,8 @@ export class World {
     this.verbs = makeVerbs(this);
     this.ops = new Ops(this);
     this.grantDesk = new Grants(this);
+    this.budget.gate = (a) => laneHold(this, a);
+    this.budget.afterCharge = (bid) => this.grantDesk.checkpoints(bid);
     this.skills = new Skills(this);
     this.secrets = new Secrets(this);
     this.presence = new Presence(this);

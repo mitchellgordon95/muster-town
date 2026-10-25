@@ -514,6 +514,20 @@ export type WaitFor = z.infer<typeof WaitFor>;
 /** How long a wait may stay unmet before the assignment is cancelled into the in-tray. */
 export const WAIT_TTL_MS = 24 * 60 * 60_000;
 export const AssignmentStatus = z.enum(["pending", "active", "done", "cancelled"]);
+/** Every session runs in one lane: work on a funded grant, goal-scoped exploration, or work a human asked for directly. */
+export const SpendLane = z.enum(["grant", "exploration", "directed"]);
+export type SpendLane = z.infer<typeof SpendLane>;
+/**
+ * The lane fields of `assign` and POST /api/agents/:id/work (docs/goal-directed-budgets.md). Left out: the lane of the
+ * work it continues, else directed. exploration needs keyResultId or gap; grant needs grantId and a keyResultId of it.
+ */
+export const LaneFields = z.object({
+  lane: SpendLane.optional().describe("grant (work on a funded grant's key result), exploration (names a key result or a goal gap), directed (a human asked for it; not for agents in goal-directed buildings)"),
+  grantId: Id.optional().describe("lane grant: the grant"),
+  keyResultId: Id.optional().describe("lane grant (required) or exploration: the key result this works toward"),
+  gap: z.string().trim().max(300).optional().describe("lane exploration without a key result: one sentence on what is missing between the goal and the live town"),
+});
+export type LaneFields = z.infer<typeof LaneFields>;
 export const Assignment = z.object({
   id: Id,
   agentId: Id,
@@ -536,6 +550,16 @@ export const Assignment = z.object({
   waitFor: WaitFor.nullable().optional(),
   /** P2: parked by its agent's own report (`submit_report` with `resumeWhen`); how many times this chain has parked */
   parked: z.number().int().optional(),
+  /** goal-directed budgets: the spend lane (directed = a human asked for it; agents can't create it in goal-directed buildings) */
+  lane: SpendLane.default("directed"),
+  /** lane grant: the funded grant it draws on */
+  grantId: Id.nullable().default(null),
+  /** lane grant (required) or exploration: the key result it works toward */
+  keyResultId: Id.nullable().default(null),
+  /** lane exploration without a key result: the goal gap it investigates (one sentence) */
+  gap: z.string().max(300).nullable().default(null),
+  /** why the scheduler isn't starting it although it is next ("held: grant at checkpoint"); null = not held. Never cancelled for it. */
+  heldReason: z.string().nullable().default(null),
   createdAt: Iso,
   updatedAt: Iso,
 });
@@ -602,9 +626,6 @@ export const Meeting = z.object({
 export type Meeting = z.infer<typeof Meeting>;
 
 // ---------- goal-directed budgets: grants and key results ----------
-/** Every session runs in one lane: work on a funded grant, goal-scoped exploration, or work a human asked for directly. */
-export const SpendLane = z.enum(["grant", "exploration", "directed"]);
-export type SpendLane = z.infer<typeof SpendLane>;
 export const GrantStatus = z.enum([
   "draft",       // the manager is writing it
   "proposed",    // waiting for a human
@@ -745,6 +766,17 @@ export const Event = z.object({
 });
 export type Event = z.infer<typeof Event>;
 
+const KeyResultInput = z.object({ text: z.string().trim().min(1).max(300), howToCheck: z.string().trim().min(1).max(300) });
+/** POST /api/buildings/:id/grants: a draft proposal (the manager). */
+export const CreateGrantInput = z.object({
+  objective: z.string().trim().min(1).max(300),
+  stopCondition: z.string().trim().min(1).max(500),
+  askTokens: z.number().int().positive(),
+  keyResults: z.array(KeyResultInput).min(2).max(3),
+  findingsDocIds: z.array(Id).default([]),
+});
+export type CreateGrantInput = z.input<typeof CreateGrantInput>;
+
 // ---------- verbs (MCP tools) ----------
 /** Inputs for every verb. The MCP server derives tool schemas from these. */
 export const VerbInputs = {
@@ -795,7 +827,13 @@ export const VerbInputs = {
   review: z.object({ docId: Id, decision: ReviewDecision.describe("approve = acknowledge only; continue = next assignment from the report's Proposal; redirect = next assignment from your note (required); stop = stop the agent"), note: z.string().default(""),
     waitFor: WaitFor.optional().describe("continue/redirect: the new assignment waits for this before it starts") }),
   assign: z.object({ agentId: Id, title: z.string(), description: z.string(),
-    waitFor: WaitFor.optional().describe("don't start until this holds: {deploy: sha|\"next\"} (live after a redeploy), {assignment: id} (done or cancelled), {decision: reportId}, {after: iso}") }),
+    waitFor: WaitFor.optional().describe("don't start until this holds: {deploy: sha|\"next\"} (live after a redeploy), {assignment: id} (done or cancelled), {decision: reportId}, {after: iso}"),
+    ...LaneFields.shape }),
+  propose_grant: CreateGrantInput.extend({ note: z.string().max(2000).default("").describe("what the human should know when deciding") }),
+  checkpoint_grant: z.object({
+    grantId: Id, reportId: Id.optional().describe("an already filed checkpoint report; leave it out when you file the checkpoint first and then submit_report with rollup: true in this session (that report links itself)"),
+    keyResults: z.array(z.object({ id: Id, status: z.enum(["not-started", "on-track", "at-risk", "claimed"]), note: z.string().max(2000).default("") })).default([]),
+  }),
   promote: z.object({ docId: Id, state: z.enum(["building", "library"]) }),
   ban: z.object({ agentId: Id, reason: z.string() }),
   redeploy: z.object({ image: z.boolean().default(false).describe("also rebuild the desk image and recreate idle desk containers") }),
@@ -822,7 +860,9 @@ export const VERB_DESCRIPTIONS: Record<VerbName, string> = {
   accept_assignment: "Accept a pending assignment; it becomes my current task. Visitors: assignments to you are offers until you accept them (unaccepted offers are cancelled after 24 h); finish with `submit_report`.",
   meeting: "Participate in a meeting: 'summary' submits my short standup summary (did, next), 'speak' adds to the transcript once the discussion has started, 'listen' returns new utterances since my last listen (set waitSeconds to wait for someone to speak), 'decide'/'end' are for the facilitator (to amend a decision, decide again with supersedes = its number in status's decisions list); a decision's waitFor holds its assignment until then, e.g. {deploy: \"next\"} for \"after the redeploy\" or {assignment: id} for \"once X lands\"; while humans are talking, leave 'end' to them.",
   review: "(manager/reviewer) Decide on a pending report in the in-tray: approve (acknowledge), continue (assign its proposal), redirect (assign your note instead), or stop the agent.",
-  assign: "(manager/reviewer) Create an assignment for an agent in my building. With waitFor it waits (e.g. for the next redeploy, or another assignment to finish) before it starts.",
+  assign: "(manager/reviewer) Create an assignment for an agent in my building. With waitFor it waits (e.g. for the next redeploy, or another assignment to finish) before it starts. In goal-directed buildings an agent must give lane grant (grantId + keyResultId) or exploration (keyResultId or gap).",
+  propose_grant: "(manager) Propose a grant for my building in one call: an objective, 2-3 key results a human can check in the live town (text + howToCheck), a token ask and a stop condition. It goes to the Town Hall in-tray for a human to fund, counter or reject. One open proposal per building.",
+  checkpoint_grant: "(manager) File a grant's checkpoint: set each key result's status, at most claimed (only a human marks met or missed), with a note on the evidence; then submit_report with rollup: true, which links itself to the grant as its checkpoint report. The grant stays held until a human continues, adjusts or cuts it.",
   promote: "(manager) Publish a document to the building (board if it's an fyi, else the filing cabinet) or promote it to the library.",
   ban: "(town moderator) Ban an agent town-wide pending review.",
   redeploy: "Pull main on the host, reinstall, rebuild the web client (and the desk image when image=true), then restart the collective's server. Use when Mitchell asks you to deploy or when main has changed and the running town is stale. The restart waits for every running work session, including yours, to end first: never poll or wait for the new build in the same session (that deadlocks until the drain gives up). Call it, say in your report which commit should be live, submit the report, and verify on your next session.",
@@ -959,16 +999,6 @@ export const UpdateBuildingInput = CreateBuildingInput.partial().extend({
   explorationTokensPerDay: z.number().int().nonnegative().nullable().optional(),
   budgetMode: z.enum(["open", "goal-directed"]).optional(),
 });
-const KeyResultInput = z.object({ text: z.string().trim().min(1).max(300), howToCheck: z.string().trim().min(1).max(300) });
-/** POST /api/buildings/:id/grants: a draft proposal (the manager). */
-export const CreateGrantInput = z.object({
-  objective: z.string().trim().min(1).max(300),
-  stopCondition: z.string().trim().min(1).max(500),
-  askTokens: z.number().int().positive(),
-  keyResults: z.array(KeyResultInput).min(2).max(3),
-  findingsDocIds: z.array(Id).default([]),
-});
-export type CreateGrantInput = z.input<typeof CreateGrantInput>;
 /** PATCH /api/grants/:id while draft / countered. `keyResults` replaces the list (statuses reset). */
 export const UpdateGrantInput = CreateGrantInput.partial().extend({ note: z.string().max(2000).optional() });
 export type UpdateGrantInput = z.input<typeof UpdateGrantInput>;
@@ -1017,7 +1047,7 @@ export const AskInput = z.object({ question: z.string().min(1), history: z.array
 export const InterruptInput = z.object({ text: z.string(), now: z.boolean().optional() });
 /** POST /api/agents/:id/message: a human messages an agent (a `tell` from their avatar). `now` (default true) interrupts a working agent; false leaves it in the inbox. */
 export const MessageAgentInput = z.object({ text: z.string().trim().min(1), now: z.boolean().default(true) });
-export const WorkInput = z.object({ title: z.string().optional(), description: z.string().optional(), waitFor: WaitFor.optional() });
+export const WorkInput = z.object({ title: z.string().optional(), description: z.string().optional(), waitFor: WaitFor.optional(), ...LaneFields.shape });
 /**
  * POST /api/donate. `auth` defaults to donor-key when the donor gives (or has stored) their own key, else api-key.
  * `subscription` and `api-key` spend the town's own credentials, so they need admin or town.allocate_budget.

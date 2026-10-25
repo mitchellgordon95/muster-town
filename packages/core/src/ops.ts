@@ -269,6 +269,7 @@ export class Ops {
     const a = createAssignment(this.world, {
       agentId, title: inp.title ?? "Check in", description: inp.description ?? CHECK_IN,
       createdBy: actor ? this.world.holderOf(actor) : { kind: "system", id: "system" }, waitFor,
+      lane: { lane: inp.lane, grantId: inp.grantId, keyResultId: inp.keyResultId, gap: inp.gap },
     });
     if (agent.status === "stopped") this.world.setStatus(agentId, "idle");
     return a;
@@ -455,6 +456,8 @@ export class Ops {
       id: newId("se"), agentId, assignmentId: opts.assignmentId ?? null, meetingId: opts.meetingId ?? null, purpose: opts.purpose, backend: opts.backend ?? "host",
       status: "running", model: opts.model, sdkSessionId: null, tokens: 0, costUsd: 0, turns: 0, reportId: null, error: null, startedAt: nowIso(), endedAt: null,
       funding: opts.funding ?? null,
+      // goal-directed budgets: the session spends in its assignment's lane (a grant's spend is the sum of its sessions)
+      ...(opts.assignmentId ? (({ lane, grantId }) => ({ lane, grantId }))(this.world.assignments.require(opts.assignmentId, "assignment")) : {}),
     });
     if (opts.purpose === "work") {
       if (opts.assignmentId) {

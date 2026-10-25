@@ -1,4 +1,4 @@
-import { DonateInput, type Agent, type Allocation, type AllocationAuth, type BuildingBudget, type ServerMessage } from "@muster-town/schema";
+import { DonateInput, type Agent, type Allocation, type AllocationAuth, type Assignment, type BuildingBudget, type ServerMessage } from "@muster-town/schema";
 import type { Bank } from "./bank.ts";
 import { badRequest } from "./errors.ts";
 import type { EventLog } from "./events.ts";
@@ -33,6 +33,11 @@ export function startOfLocalDay(d: Date): string {
 
 /** Donations, allocations, and charging. `world.budget`. */
 export class Budget {
+  /** goal-directed budgets: the lane gate (`laneHold`, set by World): why an assignment is held, or null */
+  gate?: (assignment: Assignment) => string | null;
+  /** goal-directed budgets: after every charge (World runs the grants' 50% / 100% checkpoints of the building) */
+  afterCharge?: (buildingId: string) => void;
+
   constructor(private repos: Repos, private events: EventLog, private bank: Bank, private changes?: Emitter<ServerMessage>) {}
 
   /** The allocation to charge next: the building's first live allocation with tokens left, in draw order (subscription → donor-key → api-key), or null. */
@@ -82,20 +87,24 @@ export class Budget {
   }
 
   /**
-   * Record usage on the agent (daily + total counters) and in the usage ledger, without drawing from any budget.
-   * `charge` does this too; call it alone when nothing funds the session (e.g. Town Hall's librarian).
+   * Record usage on the agent (daily + total counters) and in the usage ledger, without drawing from any budget, then
+   * run `afterCharge` (grant checkpoints). `charge` does this too; call it alone when nothing funds the session (e.g. Town Hall's librarian).
    */
   recordUsage(agentId: string, tokens: number, usd: number): Agent {
     if (tokens < 0 || usd < 0) throw badRequest("usage must be non-negative");
     const t = Math.round(tokens);
     const agent = this.repos.agents.require(agentId, "agent");
-    this.repos.usage.upsert({ id: newId("us"), agentId, buildingId: agent.homeBuildingId ?? agent.buildingId, tokens: t, usd, createdAt: nowIso() });
-    return this.repos.agents.upsert({
+    const bid = agent.homeBuildingId ?? agent.buildingId;
+    this.repos.usage.upsert({ id: newId("us"), agentId, buildingId: bid, tokens: t, usd, createdAt: nowIso() });
+    const updated = this.repos.agents.upsert({
       ...agent,
       spentTokensToday: agent.spentTokensToday + t,
       spentTokensTotal: agent.spentTokensTotal + t,
       spentUsdTotal: agent.spentUsdTotal + usd,
     });
+    // grants' spend is derived from sessions, already ended with their tokens: see whether one crossed 50% / 100%
+    if (bid) this.afterCharge?.(bid);
+    return updated;
   }
 
   /** Resend the building (with its budget) so the map's sign stays current. */
@@ -104,13 +113,26 @@ export class Budget {
     if (b && this.changes) this.changes.emit({ type: "building", building: { ...b, budget: this.of(buildingId) } });
   }
 
-  /** Whether a resident may start a session now (daily allowance and building budget). */
-  canStart(agentId: string): boolean {
+  /**
+   * Whether a resident may start a session now (daily allowance and building budget) and, with `assignment`, whether
+   * the lane gate lets that assignment run (goal-directed buildings: grant funded, exploration allowance left). The one
+   * check the scheduler and work sessions use. A held assignment stays pending; its `heldReason` says why.
+   */
+  canStart(agentId: string, assignment?: Assignment): boolean {
     const a = this.repos.agents.require(agentId, "agent");
     const bid = a.homeBuildingId ?? a.buildingId;
     if (!bid) return false;
     const b = this.repos.buildings.require(bid, "building");
-    return a.spentTokensToday < b.dailyTokensPerAgent && this.remaining(bid) > 0;
+    if (!(a.spentTokensToday < b.dailyTokensPerAgent && this.remaining(bid) > 0)) return false;
+    return !assignment || this.holdReason(assignment) === null;
+  }
+
+  /** The lane gate's reason for holding `assignment` (null = may run), kept on the pending assignment as `heldReason`. */
+  holdReason(assignment: Assignment): string | null {
+    const reason = this.gate?.(assignment) ?? null;
+    const cur = this.repos.assignments.get(assignment.id);
+    if (cur && cur.status === "pending" && (cur.heldReason ?? null) !== reason) this.repos.assignments.upsert({ ...cur, heldReason: reason });
+    return reason;
   }
 
   /**
