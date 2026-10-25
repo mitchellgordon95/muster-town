@@ -16,7 +16,7 @@ export function clock(iso: string): string {
   const d = new Date(iso);
   return d.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
 }
-export { fmtTokens } from "../format";
+export { fmtTokens, fromMillions, toMillions } from "../format";
 export const usd = (n: number) => `$${n.toFixed(2)}`;
 
 export function Pill({ tone, children, title }: { tone?: string; children: ReactNode; title?: string }) {
@@ -82,6 +82,18 @@ export function Section({ title, right, children }: { title: ReactNode; right?: 
 }
 export function Field({ label, children, hint }: { label: string; children: ReactNode; hint?: string }) {
   return <label className="field"><span>{label}</span>{children}{hint ? <small>{hint}</small> : null}</label>;
+}
+/**
+ * A token count typed in millions, the unit shown beside the box. `value` is the text as typed ("2.5"); the form keeps
+ * it as a string and converts once, with fromMillions(), when it submits (NaN or 0 → not ready). Stored counts stay raw.
+ */
+export function MTokensInput({ value, onChange, placeholder, min = 0, ariaLabel }: { value: string; onChange: (text: string) => void; placeholder?: string; min?: number; ariaLabel?: string }) {
+  return (
+    <div className="unit-input">
+      <input type="number" min={min} step="any" inputMode="decimal" value={value} placeholder={placeholder} aria-label={ariaLabel} onChange={(e) => onChange(e.target.value)} />
+      <span className="unit">M tokens</span>
+    </div>
+  );
 }
 export function KV({ items }: { items: [string, ReactNode][] }) {
   return <dl className="kv">{items.map(([k, v]) => <div key={k}><dt>{k}</dt><dd>{v}</dd></div>)}</dl>;

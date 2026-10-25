@@ -1,7 +1,7 @@
 /**
- * Bank sections (panel kind `bank`): the top contributors, donating (a Bank input or a gift to one
- * building), the inputs that fund the town, and the accounting pools. Donating moved here from the
- * Town Hall donation box.
+ * Bank sections (panel kind `bank`): the top contributors, the one Donate form (to the Bank or to one building),
+ * each building's allocations, the inputs that fund the Bank, and the accounting pools. Token amounts are typed in
+ * millions (MTokensInput) and sent as whole tokens.
  */
 import { useState } from "react";
 import type { AllocationAuth, BankRecurrence } from "@muster-town/schema";
@@ -9,7 +9,7 @@ import { api, type Bank } from "../api";
 import { store, useTown } from "../state";
 import { fmtPct, poolColor } from "../pools";
 import { SignInNote } from "../auth/auth";
-import { Act, Empty, Field, Loading, Pill, Section, fmtTokens, timeAgo, useLoad } from "./ui";
+import { Act, Empty, Field, Loading, MTokensInput, Pill, Section, fmtTokens, fromMillions, timeAgo, useLoad } from "./ui";
 
 interface Props { bank: Bank; onChange: () => void }
 
@@ -38,68 +38,6 @@ export function BankContributors({ bank }: { bank: Bank }) {
   );
 }
 
-/**
- * Donate an API key into the Bank (once or recurring, shared by every building's %). The owner can also add
- * their subscription (daily, expires each day). Funding one building directly is in BuildingFunding.
- */
-export function BankDonate({ onChange }: Props) {
-  const me = useTown((s) => s.me);
-  const [source, setSource] = useState<"api-key" | "subscription">("api-key");
-  const [tokens, setTokens] = useState(1_000_000);
-  const [recurrence, setRecurrence] = useState<BankRecurrence>("once");
-  const [weeklyCap, setWeeklyCap] = useState(10_000_000);
-  const [model, setModel] = useState("claude-opus-5-5");
-  const [label, setLabel] = useState("");
-  const [apiKey, setApiKey] = useState("");
-  if (!me) return <Section title="Donate to the Bank"><SignInNote to="donate" /></Section>;
-  const sub = source === "subscription";
-  const ready = tokens >= 1 && (sub || !!apiKey.trim());
-  const submit = async () => {
-    await api().addBankInput({
-      label: label.trim() || (sub ? `${me.user.name}'s subscription` : `${me.user.name}'s API key`),
-      source, model, tokens, recurrence: sub ? "daily" : recurrence,
-      weeklyCapTokens: sub ? weeklyCap : undefined, apiKey: sub ? undefined : apiKey.trim(),
-    });
-    store.toast(`Added ${fmtTokens(tokens)} tokens${sub || recurrence !== "once" ? ` ${sub ? "daily" : recurrence}` : ""} to the Bank`, "ok");
-    setApiKey("");
-    onChange();
-  };
-  return (
-    <Section title="Donate to the Bank">
-      <form className="form" onSubmit={(e) => e.preventDefault()}>
-        {me.isAdmin ? (
-          <Field label="Source">
-            <select value={source} onChange={(e) => setSource(e.target.value as "api-key" | "subscription")}>
-              <option value="api-key">API key</option>
-              <option value="subscription">My subscription (owner)</option>
-            </select>
-          </Field>
-        ) : null}
-        <div className="row2">
-          <Field label={sub ? "Tokens per day" : "Tokens"}><input type="number" min={1} step={100000} value={tokens} onChange={(e) => setTokens(+e.target.value)} /></Field>
-          {sub
-            ? <Field label="Weekly cap"><input type="number" min={1} step={1000000} value={weeklyCap} onChange={(e) => setWeeklyCap(+e.target.value)} /></Field>
-            : <Field label="How often">
-                <select value={recurrence} onChange={(e) => setRecurrence(e.target.value as BankRecurrence)}>
-                  <option value="once">Once</option><option value="daily">Daily</option><option value="weekly">Weekly</option><option value="monthly">Monthly</option>
-                </select>
-              </Field>}
-        </div>
-        <div className="row2">
-          <Field label="Label (optional)"><input value={label} onChange={(e) => setLabel(e.target.value)} placeholder={sub ? "Max plan" : "My key"} /></Field>
-          <Field label="Model"><input value={model} onChange={(e) => setModel(e.target.value)} /></Field>
-        </div>
-        {sub ? <div className="foot-note">Subscription tokens expire at each daily renewal; buildings spend them first.</div> : (
-          <Field label="Anthropic API key" hint="Stored server-side, never shown again.">
-            <input type="password" autoComplete="off" value={apiKey} onChange={(e) => setApiKey(e.target.value)} placeholder="sk-ant-…" />
-          </Field>
-        )}
-        <div className="actions"><Act tone="primary" disabled={!ready} run={submit}>Donate</Act></div>
-      </form>
-    </Section>
-  );
-}
-
 /** Blended $ per 1M tokens for the estimate next to an amount (VITE_USD_PER_MTOK, else $1; each viewer can change it). */
 const DEFAULT_USD_PER_MTOK = Number(import.meta.env.VITE_USD_PER_MTOK) > 0 ? Number(import.meta.env.VITE_USD_PER_MTOK) : 1;
 const RATE_KEY = "muster-town.usdPerMTok";
@@ -117,38 +55,128 @@ const AUTH_HINT: Record<AllocationAuth, string> = {
 };
 
 /**
- * One building's funding: its allocations (how each is paid for, allocated / spent / left; an admin can retire one)
- * and a form to add one: tokens (with a $ estimate), Subscription or API key, and a label.
+ * The one donation form. "To" picks the target: the Bank (an API key, once or recurring, shared by every building
+ * through the pools; the owner can add their subscription, daily with a weekly cap) or one building (an allocation
+ * it alone draws on, paid by the owner's subscription, the town's API key or the donor's own key). Amounts are typed
+ * in millions and sent as whole tokens.
  */
-export function BuildingFunding({ onChange }: { onChange: () => void }) {
+export function Donate({ onChange }: { onChange: () => void }) {
+  const me = useTown((s) => s.me);
+  const buildings = useTown((s) => s.buildings).filter((b) => b.kind !== "town-hall");
+  const [to, setTo] = useState("bank");
+  const [tokens, setTokens] = useState("1");
+  const [label, setLabel] = useState("");
+  const [apiKey, setApiKey] = useState("");
+  const [rate, setRate] = useState(loadRate);
+  const [source, setSource] = useState<"api-key" | "subscription">("api-key");
+  const [recurrence, setRecurrence] = useState<BankRecurrence>("once");
+  const [weeklyCap, setWeeklyCap] = useState("10");
+  const [model, setModel] = useState("claude-opus-5-5");
+  const [picked, setAuth] = useState<AllocationAuth>("subscription");
+  if (!me) return <Section title="Donate"><SignInNote to="donate" /></Section>;
+  const admin = me.isAdmin;
+  const bank = to === "bank";
+  const building = buildings.find((x) => x.id === to);
+  const sub = bank && source === "subscription";
+  // only admins fund a building with the town's own credentials; everyone else gives their own key
+  const auth: AllocationAuth = admin ? picked : "donor-key";
+  const n = fromMillions(tokens);
+  const cap = fromMillions(weeklyCap);
+  const amountOk = Number.isFinite(n) && n >= 1;
+  const needsKey = bank ? !sub : auth === "donor-key";
+  const keyOk = !needsKey || !!apiKey.trim() || (!bank && !!me.user.hasApiKey);
+  const ready = amountOk && keyOk && (bank ? !sub || (Number.isFinite(cap) && cap >= 1) : !!building);
+  const saveRate = (v: number) => { setRate(v); try { if (v > 0) localStorage.setItem(RATE_KEY, String(v)); } catch { /* private window */ } };
+  const submit = async () => {
+    if (bank) {
+      await api().addBankInput({
+        label: label.trim() || (sub ? `${me.user.name}'s subscription` : `${me.user.name}'s API key`),
+        source, model, tokens: n, recurrence: sub ? "daily" : recurrence,
+        weeklyCapTokens: sub ? cap : undefined, apiKey: sub ? undefined : apiKey.trim(),
+      });
+      store.toast(`Added ${fmtTokens(n)} tokens${sub || recurrence !== "once" ? ` ${sub ? "daily" : recurrence}` : ""} to the Bank`, "ok");
+    } else {
+      const fallback = auth === "subscription" ? `${me.user.name}'s Claude subscription` : auth === "api-key" ? "API-key buffer" : `${me.user.name}'s API key`;
+      await api().donate({ tokens: n, buildingId: to, auth, label: label.trim() || fallback, apiKey: auth === "donor-key" ? apiKey.trim() || undefined : undefined });
+      store.toast(`Added ${fmtTokens(n)} tokens (${AUTH_LABEL[auth]}) to ${building?.name ?? to}`, "ok");
+    }
+    setApiKey(""); setLabel("");
+    onChange();
+  };
+  return (
+    <Section title="Donate">
+      <form className="form" onSubmit={(e) => e.preventDefault()}>
+        <div className="row2">
+          <Field label="To" hint={bank ? "Shared by every building, split between the pools." : `Held by ${building?.name ?? "this building"} alone.`}>
+            <select value={to} onChange={(e) => setTo(e.target.value)}>
+              <option value="bank">The Bank (every building)</option>
+              {buildings.map((x) => <option key={x.id} value={x.id}>{x.name}</option>)}
+            </select>
+          </Field>
+          <Field label={sub ? "Tokens per day" : "Tokens"} hint={`≈ ${usd(((Number.isFinite(n) ? n : 0) / 1_000_000) * rate)} at ${usd(rate)} per 1M tokens (estimate)`}>
+            <MTokensInput value={tokens} onChange={setTokens} />
+          </Field>
+        </div>
+        <div className="row2">
+          {bank ? <>
+            {admin ? (
+              <Field label="Source">
+                <select value={source} onChange={(e) => setSource(e.target.value as "api-key" | "subscription")}>
+                  <option value="api-key">API key</option>
+                  <option value="subscription">My subscription (owner)</option>
+                </select>
+              </Field>
+            ) : <Field label="Source"><input value="API key" readOnly /></Field>}
+            {sub
+              ? <Field label="Weekly cap"><MTokensInput value={weeklyCap} onChange={setWeeklyCap} /></Field>
+              : <Field label="How often">
+                  <select value={recurrence} onChange={(e) => setRecurrence(e.target.value as BankRecurrence)}>
+                    <option value="once">Once</option><option value="daily">Daily</option><option value="weekly">Weekly</option><option value="monthly">Monthly</option>
+                  </select>
+                </Field>}
+          </> : <>
+            <Field label="Paid by">
+              <select value={auth} onChange={(e) => setAuth(e.target.value as AllocationAuth)}>
+                {admin ? <option value="subscription">Subscription (monthly allowance)</option> : null}
+                {admin ? <option value="api-key">API key (one-time buffer)</option> : null}
+                <option value="donor-key">My own API key</option>
+              </select>
+            </Field>
+            <Field label="Blended rate ($ per 1M tokens)"><input type="number" min={0.01} step={0.25} value={rate} onChange={(e) => saveRate(+e.target.value)} /></Field>
+          </>}
+        </div>
+        <div className="row2">
+          <Field label="Label (optional)"><input value={label} onChange={(e) => setLabel(e.target.value)} placeholder={bank ? (sub ? "Max plan" : "My key") : auth === "subscription" ? "Mitchell's Claude subscription, October" : auth === "api-key" ? "API-key buffer" : "My key"} /></Field>
+          {bank ? <Field label="Model"><input value={model} onChange={(e) => setModel(e.target.value)} /></Field> : null}
+        </div>
+        {needsKey ? (
+          <Field label={!bank && me.user.hasApiKey ? "Anthropic API key (optional: you have one stored)" : "Anthropic API key"} hint="Stored server-side, never shown again.">
+            <input type="password" autoComplete="off" value={apiKey} onChange={(e) => setApiKey(e.target.value)} placeholder="sk-ant-…" />
+          </Field>
+        ) : null}
+        <div className="foot-note">{bank ? (sub ? "Subscription tokens expire at each daily renewal; buildings spend them first." : "Credited to the Bank and split between the pools by their %.") : AUTH_HINT[auth]}</div>
+        <div className="actions"><Act tone="primary" disabled={!ready} run={submit}>{bank ? "Donate to the Bank" : `Fund ${building?.name ?? "building"}`}</Act></div>
+      </form>
+    </Section>
+  );
+}
+
+/**
+ * One building's allocations: how each is paid for, allocated / spent / left; an admin can retire one. Adding one is
+ * the Donate form above with the building picked under "To"; `rev` bumps when it donates, so the rows refetch.
+ */
+export function BuildingFunding({ rev }: { rev: number }) {
   const me = useTown((s) => s.me);
   const buildings = useTown((s) => s.buildings).filter((b) => b.kind !== "town-hall");
   const [buildingId, setBuildingId] = useState(buildings[0]?.id ?? "");
   const [showRetired, setShowRetired] = useState(false);
-  const rows = useLoad(() => (buildingId ? api().allocations(buildingId) : Promise.resolve([])), [buildingId]);
+  const rows = useLoad(() => (buildingId ? api().allocations(buildingId) : Promise.resolve([])), [buildingId, rev]);
   const admin = !!me?.isAdmin;
-  const [picked, setAuth] = useState<AllocationAuth>("subscription");
-  // only admins fund with the town's own credentials; everyone else gives their own key
-  const auth: AllocationAuth = admin ? picked : "donor-key";
-  const [tokens, setTokens] = useState(10_000_000);
-  const [label, setLabel] = useState("");
-  const [apiKey, setApiKey] = useState("");
-  const [rate, setRate] = useState(loadRate);
   const b = buildings.find((x) => x.id === buildingId);
   const all = rows.data ?? [];
   const live = all.filter((a) => !a.retired);
   const retired = all.filter((a) => a.retired);
   const shown = showRetired ? all : live;
-  const changed = () => { rows.reload(); onChange(); };
-  const saveRate = (v: number) => { setRate(v); try { if (v > 0) localStorage.setItem(RATE_KEY, String(v)); } catch { /* private window */ } };
-  const ready = tokens >= 1 && !!buildingId && (auth !== "donor-key" || !!apiKey.trim() || !!me?.user.hasApiKey);
-  const submit = async () => {
-    const fallback = auth === "subscription" ? `${me!.user.name}'s Claude subscription` : auth === "api-key" ? "API-key buffer" : `${me!.user.name}'s API key`;
-    await api().donate({ tokens, buildingId, auth, label: label.trim() || fallback, apiKey: auth === "donor-key" ? apiKey.trim() || undefined : undefined });
-    store.toast(`Added ${fmtTokens(tokens)} tokens (${AUTH_LABEL[auth]}) to ${b?.name ?? buildingId}`, "ok");
-    setApiKey(""); setLabel("");
-    changed();
-  };
   const left = live.reduce((s, a) => s + a.remainingTokens, 0);
   return (
     <Section title="Building funding" right={
@@ -156,7 +184,7 @@ export function BuildingFunding({ onChange }: { onChange: () => void }) {
         {buildings.map((x) => <option key={x.id} value={x.id}>{x.name}</option>)}
       </select>
     }>
-      {rows.loading && !rows.data ? <Loading /> : !shown.length ? <Empty>{b?.name ?? "This building"} has no funding yet.</Empty> : (
+      {rows.loading && !rows.data ? <Loading /> : !shown.length ? <Empty>{b?.name ?? "This building"} has no funding of its own yet. Pick it under "To" in Donate above to add some.</Empty> : (
         <table className="table funding-table">
           <thead><tr><th>Allocation</th><th>Allocated</th><th>Spent</th><th>Left</th>{admin ? <th /> : null}</tr></thead>
           <tbody>
@@ -176,7 +204,7 @@ export function BuildingFunding({ onChange }: { onChange: () => void }) {
                       if (!confirm(`Retire "${a.label || a.id}"? ${fmtTokens(a.remainingTokens)} unspent tokens leave ${b?.name ?? "the building"}'s budget.`)) return;
                       await api().retireAllocation(a.id);
                       store.toast(`Retired ${a.label || a.id}`, "ok");
-                      changed();
+                      rows.reload();
                     }}>Retire</Act>
                   )}</td>
                 ) : null}
@@ -189,33 +217,6 @@ export function BuildingFunding({ onChange }: { onChange: () => void }) {
         <span>{fmtTokens(left)} left</span>
         {retired.length ? <button type="button" className="btn sm link" onClick={() => setShowRetired(!showRetired)}>{showRetired ? "Hide" : "Show"} {retired.length} retired</button> : null}
       </div>
-      {!me ? <SignInNote to="fund a building" /> : (
-        <form className="form funding-form" onSubmit={(e) => e.preventDefault()}>
-          <div className="row2">
-            <Field label="Tokens" hint={`≈ ${usd((tokens / 1_000_000) * rate)} at ${usd(rate)} per 1M tokens (estimate)`}>
-              <input type="number" min={1} step={1_000_000} value={tokens} onChange={(e) => setTokens(+e.target.value)} />
-            </Field>
-            <Field label="Paid by">
-              <select value={auth} onChange={(e) => setAuth(e.target.value as AllocationAuth)}>
-                {admin ? <option value="subscription">Subscription (monthly allowance)</option> : null}
-                {admin ? <option value="api-key">API key (one-time buffer)</option> : null}
-                <option value="donor-key">My own API key</option>
-              </select>
-            </Field>
-          </div>
-          <div className="row2">
-            <Field label="Label"><input value={label} onChange={(e) => setLabel(e.target.value)} placeholder={auth === "subscription" ? "Mitchell's Claude subscription, October" : auth === "api-key" ? "API-key buffer" : "My key"} /></Field>
-            <Field label="Blended rate ($ per 1M tokens)"><input type="number" min={0.01} step={0.25} value={rate} onChange={(e) => saveRate(+e.target.value)} /></Field>
-          </div>
-          {auth === "donor-key" ? (
-            <Field label={me.user.hasApiKey ? "Anthropic API key (optional: you have one stored)" : "Anthropic API key"} hint="Stored server-side, never shown again.">
-              <input type="password" autoComplete="off" value={apiKey} onChange={(e) => setApiKey(e.target.value)} placeholder="sk-ant-…" />
-            </Field>
-          ) : null}
-          <div className="foot-note">{AUTH_HINT[auth]}</div>
-          <div className="actions"><Act tone="primary" disabled={!ready} run={submit}>Add funding</Act></div>
-        </form>
-      )}
     </Section>
   );
 }
@@ -225,7 +226,7 @@ export function BankInputs({ bank, onChange }: Props) {
   const me = useTown((s) => s.me);
   const inputs = [...bank.inputs].sort((a, b) => Number(!!a.cancelledAt) - Number(!!b.cancelledAt) || b.createdAt.localeCompare(a.createdAt));
   return (
-    <Section title="Funding" right={bank.dailyInflowTokens ? <Pill tone="ok">+{fmtTokens(bank.dailyInflowTokens)}/day</Pill> : null}>
+    <Section title="Bank inputs" right={bank.dailyInflowTokens ? <Pill tone="ok">+{fmtTokens(bank.dailyInflowTokens)}/day</Pill> : null}>
       {!inputs.length ? <Empty>No inputs yet.</Empty> : (
         <table className="table">
           <thead><tr><th>Input</th><th>From</th><th>Tokens</th><th>Credited</th><th /></tr></thead>
