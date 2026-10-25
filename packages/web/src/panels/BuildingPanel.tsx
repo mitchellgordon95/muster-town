@@ -1,6 +1,6 @@
 /** Building panel (E at the door): overview, members + roles, meetings, settings (managers: building fields). Members lists residents (managers add and dismiss there) and roles. Board, filing cabinet and in-tray are places; the collective's secrets are a planning-desk tab. */
 import { useEffect, useMemo, useState, type ReactNode } from "react";
-import { DEFAULT_POOL_ID, type Meeting, type SnapshotBuilding, type Workspace } from "@muster-town/schema";
+import { DEFAULT_POOL_ID, type KeyResult, type KeyResultStatus, type Meeting, type SnapshotBuilding, type Workspace } from "@muster-town/schema";
 import { fmtPct, poolColor } from "../pools";
 import { api } from "../api";
 import { store, useTown, roleOf } from "../state";
@@ -14,6 +14,7 @@ import { AttendeePicker, useAttendees } from "./AttendeePicker";
 import { attendeeInput } from "./attendees";
 import { layoutEdit } from "../map/layoutEdit";
 import { canOneOnOne, openOneOnOne } from "./oneOnOne";
+import { krStatusLabel, krTone, settableStatuses } from "./keyResults";
 
 export function BuildingPanel({ id, tab }: { id: string; tab?: string }) {
   const b = useTown((s) => s.buildings.find((x) => x.id === id));
@@ -244,9 +245,95 @@ function Settings({ b }: { b: SnapshotBuilding }) {
       }}>Save settings</Act></div>
     </form>
     </Section>
+    {b.kind !== "town-hall" ? <KeyResultsEditor b={b} /> : null}
     {b.kind !== "town-hall" ? <PoolPicker b={b} /> : null}
     {b.kind !== "town-hall" && store.can("building.fund", b.id) ? <BudgetMode b={b} /> : null}
   </>);
+}
+
+/**
+ * The goal's key results, the edit path (they're read on the building board). Only a human with building.manage writes
+ * them (docs/goal-directed-budgets.md "Model change"); status up to claimed is the manager's, met / missed need
+ * building.fund. A key result a draft, open or live grant names can't be deleted (the server says which grant).
+ */
+function KeyResultsEditor({ b }: { b: SnapshotBuilding }) {
+  const rev = useTown((s) => s.rev);
+  useTown((s) => s.me);
+  const list = useLoad(() => api().keyResults(b.id), [b.id, rev]);
+  const canFund = store.can("building.fund", b.id);
+  const human = store.can("building.manage", b.id); // the web is the humans' client: a manage holder here is a human
+  const [draft, setDraft] = useState({ text: "", howToCheck: "" });
+  const krs = list.data?.keyResults ?? [];
+  return (
+    <Section title="Key results">
+      <p className="direction">What the goal means in checkable terms. They show on the building board, each grant names one, and a goal-directed building is blocked without them. Only humans write them; the manager proposes them in a rollup or your 1:1.</p>
+      {list.loading && !list.data ? <Loading /> : null}
+      <ErrorLine error={list.error} />
+      {list.data && !krs.length ? <Empty>No key results on the goal yet{b.budgetMode === "goal-directed" ? ": the building is blocked until one exists or a grant is funded" : ""}.</Empty> : null}
+      <ol className="kr-editor">
+        {krs.map((k, i) => <KeyResultRow key={k.id} n={i + 1} kr={k} canWrite={human} statuses={settableStatuses(canFund)} onChanged={list.reload} />)}
+      </ol>
+      {human ? (
+        <form className="form kr-add" onSubmit={(e) => e.preventDefault()}>
+          <Field label={`Key result ${krs.length + 1}`}><input value={draft.text} maxLength={300} placeholder="Something a human can check in the live town" onChange={(e) => setDraft({ ...draft, text: e.target.value })} /></Field>
+          <Field label="How to check"><input value={draft.howToCheck} maxLength={300} placeholder="Where to look and what you'd see" onChange={(e) => setDraft({ ...draft, howToCheck: e.target.value })} /></Field>
+          <div className="actions"><Act tone="primary" disabled={!draft.text.trim() || !draft.howToCheck.trim()} run={async () => {
+            await api().createKeyResult(b.id, { text: draft.text.trim(), howToCheck: draft.howToCheck.trim() });
+            setDraft({ text: "", howToCheck: "" });
+            store.toast("Key result added: it's on the board", "ok");
+            list.reload();
+          }}>Add key result</Act></div>
+        </form>
+      ) : null}
+    </Section>
+  );
+}
+
+/** One key result in the editor: words (humans), status (per `statuses`), delete. Dirty rows save explicitly. */
+function KeyResultRow({ n, kr, canWrite, statuses, onChanged }: { n: number; kr: KeyResult; canWrite: boolean; statuses: KeyResultStatus[]; onChanged: () => void }) {
+  const [f, setF] = useState({ text: kr.text, howToCheck: kr.howToCheck });
+  useEffect(() => setF({ text: kr.text, howToCheck: kr.howToCheck }), [kr.text, kr.howToCheck]);
+  const dirty = f.text !== kr.text || f.howToCheck !== kr.howToCheck;
+  const canStatus = statuses.includes(kr.status);
+  const setStatus = async (status: KeyResultStatus) => {
+    if (status === kr.status) return;
+    await api().updateKeyResult(kr.id, { status });
+    store.toast(`Key result ${n} is ${krStatusLabel(status)}`, "ok");
+    onChanged();
+  };
+  return (
+    <li className="kr-editor-row">
+      <div className="kr-row-head">
+        <span className="kr-n">{n}</span>
+        {canStatus ? (
+          <select className={`kr-status ${krTone(kr.status)}`} value={kr.status} title={kr.statusNote || "Status"} onChange={(e) => setStatus(e.target.value as KeyResultStatus).catch((err) => store.toast((err as Error).message, "bad"))}>
+            {statuses.map((s) => <option key={s} value={s}>{krStatusLabel(s)}</option>)}
+          </select>
+        ) : <Pill tone={krTone(kr.status)} title={kr.statusNote || undefined}>{krStatusLabel(kr.status)}</Pill>}
+        {canWrite ? null : <b>{kr.text}</b>}
+      </div>
+      {canWrite ? (
+        <form className="form" onSubmit={(e) => e.preventDefault()}>
+          <input value={f.text} maxLength={300} aria-label={`Key result ${n}`} onChange={(e) => setF({ ...f, text: e.target.value })} />
+          <input value={f.howToCheck} maxLength={300} aria-label={`How to check ${n}`} placeholder="How to check" onChange={(e) => setF({ ...f, howToCheck: e.target.value })} />
+          <div className="actions">
+            <Act small tone="primary" disabled={!dirty || !f.text.trim() || !f.howToCheck.trim()} run={async () => {
+              await api().updateKeyResult(kr.id, { text: f.text.trim(), howToCheck: f.howToCheck.trim() });
+              store.toast(`Key result ${n} saved`, "ok");
+              onChanged();
+            }}>Save</Act>
+            {dirty ? <button className="link" onClick={() => setF({ text: kr.text, howToCheck: kr.howToCheck })}>Undo</button> : null}
+            <Act small tone="bad" title="Refused while a grant names it" run={async () => {
+              if (!window.confirm(`Delete key result ${n} ("${kr.text}")?`)) return;
+              await api().deleteKeyResult(kr.id);
+              store.toast(`Key result ${n} deleted`, "ok");
+              onChanged();
+            }}>Delete</Act>
+          </div>
+        </form>
+      ) : <div className="muted kr-check">How to check: {kr.howToCheck}</div>}
+    </li>
+  );
 }
 
 /** Open vs goal-directed (docs/goal-directed-budgets.md). Humans who can fund only: a manager agent can't change its own budget. */
@@ -256,7 +343,7 @@ function BudgetMode({ b }: { b: SnapshotBuilding }) {
   return (
     <Section title="Budget mode">
       <form className="form" onSubmit={(e) => e.preventDefault()}>
-        <Field label="Mode" hint="Open: residents draw on the pool as before. Goal-directed: work runs on funded grants or the daily exploration allowance; directed assignments still start, and the board shows the building's key results.">
+        <Field label="Mode" hint="Open: residents draw on the pool as before. Goal-directed: work runs on funded grants or the daily exploration allowance; directed assignments still start, and the board shows the goal's key results (written above).">
           <select value={mode} onChange={(e) => setMode(e.target.value as typeof mode)}>
             <option value="open">open</option>
             <option value="goal-directed">goal-directed</option>

@@ -6,7 +6,7 @@ import type { z } from "zod";
 import type {
   Agent, Allocation, Assignment, AuthMe, RedeployLive, Building, ClientMessage, DesksConfig, Doc, Event, Lot, Meeting, Place, Role, Membership, SessionSlots, Tile,
   ServerMessage, Session, Town, CreateBuildingInput, UpdateBuildingInput, CreateResidentInput,
-  ReviewInput, PinSkillInput, SkillPinView, SkillView, PutSecretInput, SecretView, ChatInput, WorkInput, DonateInput, AddBankInput, BankInput, CreateBankPoolInput, UpdateBankPoolInput, CreateMeetingInput, DocState, DocType, Mailbox, Permission, DecideGrantInput, GrantView, KeyResult,
+  ReviewInput, PinSkillInput, SkillPinView, SkillView, PutSecretInput, SecretView, ChatInput, WorkInput, DonateInput, AddBankInput, BankInput, CreateBankPoolInput, UpdateBankPoolInput, CreateMeetingInput, DocState, DocType, Mailbox, Permission, DecideGrantInput, GrantView, KeyResult, CreateKeyResultInput, UpdateKeyResultInput,
 } from "@muster-town/schema";
 
 export type In<T extends z.ZodTypeAny> = z.input<T>;
@@ -108,14 +108,18 @@ export interface PlanPreview { errors: { buildingId: string | null; message: str
 
 /** GET /api/buildings/:id/intray: `grants` (proposed, countered, checkpoint) only for the Town Hall */
 export interface Intray { reports: Doc[]; grants: GrantView[]; blocked?: { buildingId: string; name: string; reason: string; since: string | null }[] }
+/** A goal key result with the live (funded or checkpoint) grant working on it, if any (core's GoalKeyResult). */
+export type GoalKeyResult = KeyResult & { grantId: string | null };
+/** GET /api/buildings/:id/key-results */
+export interface KeyResultsView { keyResults: GoalKeyResult[]; blocked: string | null }
 /** GET /api/buildings/:id/board: the FYIs plus the budget part (core's GrantBoard; open buildings have no grants). */
 export interface Board {
   docs: Doc[];
   goal: string;
   /** the goal's key results, each with the live grant on it (null = open for exploration) */
-  keyResults?: (KeyResult & { grantId: string | null })[];
+  keyResults: GoalKeyResult[];
   /** "blocked: no key results to work toward", or null */
-  blocked?: string | null;
+  blocked: string | null;
   grants: GrantView[];
   proposal: GrantView | null;
   exploration: { allowanceTokens: number; spentTodayTokens: number };
@@ -150,6 +154,14 @@ export interface Api {
   intray(buildingId: string): Promise<Intray>;
   /** POST /api/grants/:id/decide (building.fund): fund / counter / reject a proposal, continue / adjust / cut a checkpoint */
   decideGrant(id: string, input: In<typeof DecideGrantInput>): Promise<GrantView>;
+  /** GET /api/buildings/:id/key-results: the goal's key results (with the live grant on each) and the blocked reason */
+  keyResults(buildingId: string): Promise<KeyResultsView>;
+  /** POST /api/buildings/:id/key-results (a human with building.manage writes the goal's key results) */
+  createKeyResult(buildingId: string, input: In<typeof CreateKeyResultInput>): Promise<KeyResult>;
+  /** PATCH /api/key-results/:id: text / howToCheck (human, building.manage); status (manager up to claimed, building.fund for met / missed) */
+  updateKeyResult(id: string, input: In<typeof UpdateKeyResultInput>): Promise<KeyResult>;
+  /** DELETE /api/key-results/:id (409 while a draft, open or live grant names it) */
+  deleteKeyResult(id: string): Promise<void>;
   /** `name` left out = the town picks one. */
   createResident(input: In<typeof CreateResidentInput>): Promise<Agent>;
   /** An unused resident name for the new-resident form; `avoid` = names already offered (reroll). */
@@ -341,6 +353,13 @@ export class HttpApi implements Api {
     return { reports: r.reports ?? [], grants: r.grants ?? [] };
   }
   async decideGrant(id: string, i: In<typeof DecideGrantInput>) { return unwrap<GrantView>(await this.post(`/api/grants/${id}/decide`, i), "grant"); }
+  async keyResults(buildingId: string) {
+    const r = await this.get<Partial<KeyResultsView>>(`/api/buildings/${buildingId}/key-results`);
+    return { keyResults: r.keyResults ?? [], blocked: r.blocked ?? null };
+  }
+  async createKeyResult(buildingId: string, i: In<typeof CreateKeyResultInput>) { return unwrap<KeyResult>(await this.post(`/api/buildings/${buildingId}/key-results`, i), "keyResult"); }
+  async updateKeyResult(id: string, i: In<typeof UpdateKeyResultInput>) { return unwrap<KeyResult>(await this.call("PATCH", `/api/key-results/${id}`, i), "keyResult"); }
+  async deleteKeyResult(id: string) { await this.call("DELETE", `/api/key-results/${id}`); }
   async createResident(i: In<typeof CreateResidentInput>) { return unwrap<Agent>(await this.post("/api/agents/residents", i), "agent"); }
   async suggestName(avoid: string[] = []) { return unwrap<string>(await this.get(`/api/agents/name-suggestion?avoid=${encodeURIComponent(avoid.join(","))}`), "name"); }
   async dismiss(id: string, purge = false) { await this.call("DELETE", `/api/agents/${id}${purge ? "?purge=1" : ""}`); }

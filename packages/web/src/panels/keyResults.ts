@@ -3,6 +3,7 @@
  * and statuses as core's `keyResultsBlock` in the desk brief, so the web and the prompt agree.
  */
 import type { GrantView, KeyResultStatus } from "@muster-town/schema";
+import type { GoalKeyResult } from "../api";
 import { fmtTokens } from "../format";
 
 /** Share of `total` spent, 0..1 (0 when there's no total). */
@@ -36,4 +37,32 @@ export function proposalLine(p: Pick<GrantView, "objective" | "status" | "askTok
 /** Pill tone per key-result status: met green, missed red, claimed / at risk amber, the rest neutral. */
 export function krTone(s: KeyResultStatus): string {
   return s === "met" ? "ok" : s === "missed" ? "bad" : s === "claimed" || s === "at-risk" ? "warn" : "";
+}
+
+/** A board row: a goal key result and the live grant working on it (null = open for exploration). */
+export interface KeyResultRow { kr: GoalKeyResult; grant: GrantView | null }
+
+/**
+ * The board's rows in goal order, each key result with its live grant, plus the live grants that name no key result
+ * (pre-032 grants, shown after the list so their spend stays visible). Same reading as core's `keyResultsBlock`.
+ */
+export function keyResultRows(board: { keyResults: GoalKeyResult[]; grants: GrantView[] }): { rows: KeyResultRow[]; orphans: GrantView[] } {
+  const grants = new Map(board.grants.map((g) => [g.id, g]));
+  const rows = board.keyResults.map((kr) => ({ kr, grant: (kr.grantId && grants.get(kr.grantId)) || null }));
+  const named = new Set(board.keyResults.map((k) => k.grantId).filter(Boolean));
+  return { rows, orphans: board.grants.filter((g) => !named.has(g.id)) };
+}
+
+/** "No funded grant: open for exploration", or the grant's state as the brief says it. */
+export function krFundingLine(grant: GrantView | null): string {
+  return grant ? grantStateLine(grant) : "No funded grant: open for exploration";
+}
+
+/** The human-readable status, "not started" for "not-started". */
+export const krStatusLabel = (s: KeyResultStatus) => s.replace(/-/g, " ");
+
+/** The statuses a holder may set: `fund` holders judge met / missed; managers (and `manage` holders) go up to claimed. */
+export const KR_STATUSES: KeyResultStatus[] = ["not-started", "on-track", "at-risk", "claimed", "met", "missed"];
+export function settableStatuses(canFund: boolean): KeyResultStatus[] {
+  return canFund ? KR_STATUSES : KR_STATUSES.filter((s) => s !== "met" && s !== "missed");
 }

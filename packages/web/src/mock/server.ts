@@ -4,7 +4,7 @@ import { BOARD_TYPES, DEFAULT_POOL_ID, type BankPool } from "@muster-town/schema
 import type { Api, AgentDetail, AllocationRow, Bank, Budget, Cabinet, CabinetQuery, DocQuery, EventQuery, In, LayoutPreview, MessageResult, PlanPreview, RoomLayout, RequestAction, Snapshot, Socket, SocketHandlers, ThreadMessage, WriteDocInput } from "../api";
 import { ApiError } from "../api";
 import type { PinSkillInput, PutSecretInput, SecretView, SkillPinView, SkillView } from "@muster-town/schema";
-import type { CreateBuildingInput, UpdateBuildingInput, CreateResidentInput, ReviewInput, ChatInput, WorkInput, DonateInput, CreateMeetingInput, DocState, AddBankInput, BankInput, CreateBankPoolInput, UpdateBankPoolInput, DecideGrantInput } from "@muster-town/schema";
+import type { CreateBuildingInput, UpdateBuildingInput, CreateResidentInput, ReviewInput, ChatInput, WorkInput, DonateInput, CreateMeetingInput, DocState, AddBankInput, BankInput, CreateBankPoolInput, UpdateBankPoolInput, DecideGrantInput, CreateKeyResultInput, UpdateKeyResultInput } from "@muster-town/schema";
 import { Sim, newId } from "./sim";
 import { memoryDocs } from "./fixture";
 
@@ -64,6 +64,10 @@ export class MockApi implements Api {
   async createBuilding(i: In<typeof CreateBuildingInput>) { await wait(); return clone(this.sim.createBuilding(i.name, i.goal ?? "", i.headcount ?? 6)); }
   async intray(buildingId: string) { await wait(); this.need(this.sim.buildings.find((b) => b.id === buildingId), "building"); return clone(this.sim.intray(buildingId)); }
   async decideGrant(id: string, i: In<typeof DecideGrantInput>) { await wait(); return clone(this.sim.decideGrant(id, i)); }
+  async keyResults(buildingId: string) { await wait(); this.need(this.sim.buildings.find((b) => b.id === buildingId), "building"); return clone(this.sim.grantBoard(buildingId)); }
+  async createKeyResult(buildingId: string, i: In<typeof CreateKeyResultInput>) { await wait(); return clone(this.sim.createKeyResult(buildingId, i)); }
+  async updateKeyResult(id: string, i: In<typeof UpdateKeyResultInput>) { await wait(); return clone(this.sim.updateKeyResult(id, i)); }
+  async deleteKeyResult(id: string) { await wait(); this.sim.deleteKeyResult(id); }
   async dismiss(id: string, purge = false) { await wait(); this.sim.dismiss(id, purge); }
   async ban(id: string, reason: string) { await wait(); return clone(this.sim.ban(id, reason)); }
   async updateBuilding(id: string, i: In<typeof UpdateBuildingInput>) {

@@ -1,12 +1,14 @@
 /** In-memory town for VITE_MOCK=1: holds state, animates it, and implements actions locally. */
-import type { Agent, Allocation, Assignment, Building, DecideGrantInput, Doc, Event, GrantView, Meeting, Membership, Role, ServerMessage } from "@muster-town/schema";
+import type { Agent, Allocation, Assignment, Building, CreateKeyResultInput, DecideGrantInput, Doc, Event, GrantView, KeyResult, Meeting, Membership, Role, ServerMessage, UpdateKeyResultInput } from "@muster-town/schema";
 import { BUILTIN_ROLES } from "@muster-town/schema";
-import type { Snapshot } from "../api";
+import type { GoalKeyResult, Snapshot } from "../api";
 import * as F from "./fixture";
 import { bfs, computeLayout, type Layout } from "./layout";
 
 const clone = <T,>(x: T): T => JSON.parse(JSON.stringify(x));
 const now = () => new Date().toISOString();
+/** core's BLOCKED_NO_KRS */
+const BLOCKED_NO_KRS = "blocked: no key results to work toward";
 let seq = 0;
 export const newId = (p: string) => `${p}_${Date.now().toString(36)}${(++seq).toString(36)}`;
 
@@ -23,6 +25,7 @@ export class Sim {
   assignments = new Map<string, Assignment>(clone(F.assignments).map((a) => [a.id, a]));
   meetings = new Map<string, Meeting>(clone(F.meetings).map((m) => [m.id, m]));
   grants = new Map<string, GrantView>(clone(F.grants).map((g) => [g.id, g]));
+  keyResults = new Map<string, KeyResult>(clone(F.keyResults).map((k) => [k.id, k]));
   events: Event[] = clone(F.events);
   roles: Role[] = clone(F.roles);
   memberships: Membership[] = clone(F.memberships);
@@ -90,7 +93,45 @@ export class Sim {
     const of = (g: GrantView) => g.buildingId === buildingId;
     const grants = [...this.grants.values()].filter((g) => of(g) && (g.status === "funded" || g.status === "checkpoint")).sort((x, y) => (x.fundedAt ?? "").localeCompare(y.fundedAt ?? ""));
     const proposal = [...this.grants.values()].filter((g) => of(g) && (g.status === "proposed" || g.status === "countered")).sort((x, y) => y.updatedAt.localeCompare(x.updatedAt))[0] ?? null;
-    return { goal: b?.goal ?? "", grants, proposal, exploration: { allowanceTokens: b?.explorationTokensPerDay ?? 0, spentTodayTokens: F.explorationSpentToday[buildingId] ?? 0 } };
+    const keyResults = this.goalKeyResults(buildingId);
+    const blocked = b?.budgetMode === "goal-directed" && !keyResults.length && !grants.length ? BLOCKED_NO_KRS : null;
+    return { goal: b?.goal ?? "", keyResults, blocked, grants, proposal, exploration: { allowanceTokens: b?.explorationTokensPerDay ?? 0, spentTodayTokens: F.explorationSpentToday[buildingId] ?? 0 } };
+  }
+  /** GET /api/buildings/:id/key-results: the goal's key results in order, each with the live grant naming it. */
+  goalKeyResults(buildingId: string): GoalKeyResult[] {
+    const live = new Map([...this.grants.values()].filter((g) => g.keyResultId && (g.status === "funded" || g.status === "checkpoint")).map((g) => [g.keyResultId!, g.id]));
+    return [...this.keyResults.values()].filter((k) => k.buildingId === buildingId).sort((a, b) => a.position - b.position).map((k) => ({ ...k, grantId: live.get(k.id) ?? null }));
+  }
+  /** POST /api/buildings/:id/key-results (only a human writes them; the mock's user is one). */
+  createKeyResult(buildingId: string, i: CreateKeyResultInput): KeyResult {
+    const b = this.buildings.find((x) => x.id === buildingId);
+    if (!b) throw new Error(`building not found: ${buildingId}`);
+    const last = Math.max(-1, ...this.goalKeyResults(buildingId).map((k) => k.position));
+    const k: KeyResult = { id: newId("kr"), buildingId, position: last + 1, text: i.text.trim(), howToCheck: i.howToCheck.trim(), status: "not-started", statusNote: "", statusBy: null, updatedAt: now() };
+    this.keyResults.set(k.id, k);
+    this.event("kr.created", null, `${b.name} key result: ${k.text}`, { keyResultId: k.id }, buildingId);
+    return k;
+  }
+  /** PATCH /api/key-results/:id: words and / or status (the mock skips the status permission split). */
+  updateKeyResult(id: string, i: UpdateKeyResultInput): KeyResult {
+    const k = this.keyResults.get(id);
+    if (!k) throw new Error(`key result not found: ${id}`);
+    const words = { ...(i.text !== undefined && { text: i.text.trim() }), ...(i.howToCheck !== undefined && { howToCheck: i.howToCheck.trim() }) };
+    if (!i.status && !Object.keys(words).length) throw new Error("Nothing to change: give status, text or howToCheck.");
+    const next: KeyResult = { ...k, ...words, ...(i.status ? { status: i.status, statusNote: i.note ?? "", statusBy: "us_mitchell" } : {}), updatedAt: now() };
+    this.keyResults.set(id, next);
+    for (const g of this.grants.values()) if (g.keyResultId === id) g.keyResult = { ...next };
+    this.event("kr.updated", null, i.status ? `Key result ${i.status}: ${next.text}` : `Key result edited: ${next.text}`, { keyResultId: id, status: next.status, from: k.status }, k.buildingId);
+    return next;
+  }
+  /** DELETE /api/key-results/:id: refused while a draft, open or live grant names it (core's 409). */
+  deleteKeyResult(id: string): void {
+    const k = this.keyResults.get(id);
+    if (!k) throw new Error(`key result not found: ${id}`);
+    const g = [...this.grants.values()].find((x) => x.keyResultId === id && ["draft", "proposed", "countered", "funded", "checkpoint"].includes(x.status));
+    if (g) throw new Error(`Grant ${g.id} ("${g.objective}", ${g.status}) names this key result: close or re-point it first.`);
+    this.keyResults.delete(id);
+    this.event("kr.deleted", null, `Key result removed: ${k.text}`, { keyResultId: id }, k.buildingId);
   }
   intrayCount(buildingId: string) { const t = this.intray(buildingId); return t.reports.length + t.grants.length; }
 
