@@ -1,11 +1,12 @@
 /**
  * The Bank (its teller counter, south of the road): the town's available tokens, then the funding sections
- * (contributors, donating, inputs, pools) from BankFunding.
+ * (contributors, the one Donate form, building allocations, Bank inputs, pools) from BankFunding.
  */
+import { useState } from "react";
 import { api } from "../api";
 import { store, useTown } from "../state";
 import { Glyph, PanelShell } from "./PanelShell";
-import { BankContributors, BankDonate, BankInputs, BankPools, BuildingFunding } from "./BankFunding";
+import { BankContributors, BankInputs, BankPools, BuildingFunding, Donate } from "./BankFunding";
 import { Loading, Section, fmtTokens } from "./ui";
 
 /** Refetch the summary the sign and these sections read. */
@@ -13,6 +14,8 @@ const reload = () => { api().bank().then((bank) => store.set({ bank }), () => un
 
 export function BankPanel() {
   const bank = useTown((s) => s.bank);
+  const [rev, setRev] = useState(0);
+  const changed = () => { reload(); setRev((r) => r + 1); };
   return (
     <PanelShell icon={<Glyph kind="bank" />} title="The Bank" subtitle="Tokens available to the town">
       <Section title="Balance">
@@ -36,8 +39,8 @@ export function BankPanel() {
       </Section>
       {bank && <>
         <BankContributors bank={bank} />
-        <BuildingFunding onChange={reload} />
-        <BankDonate bank={bank} onChange={reload} />
+        <Donate onChange={changed} />
+        <BuildingFunding rev={rev} />
         <BankInputs bank={bank} onChange={reload} />
         <BankPools bank={bank} onChange={reload} />
       </>}

@@ -7,7 +7,7 @@ import { store, useTown, roleOf } from "../state";
 import { Glyph, PanelShell } from "./PanelShell";
 import { Meter } from "./AgentPanel";
 import { DismissButton, canDismiss } from "./Dismiss";
-import { Act, Empty, ErrorLine, Field, KV, Loading, Pill, Section, StatusPill, fmtTokens, nameOf, timeAgo, usd, useLoad } from "./ui";
+import { Act, Empty, ErrorLine, Field, KV, Loading, MTokensInput, Pill, Section, StatusPill, fmtTokens, nameOf, timeAgo, usd, useLoad } from "./ui";
 import { fromMillions, toMillions } from "../format";
 import { PALETTES, portraitUrl } from "../map/sprites";
 import { AttendeePicker, useAttendees } from "./AttendeePicker";
@@ -209,7 +209,9 @@ function AddHolder({ onAdd }: { onAdd: (kind: "agent" | "user", id: string) => P
 }
 
 function Settings({ b }: { b: SnapshotBuilding }) {
-  const [f, setF] = useState({ goal: b.goal, description: b.description, headcount: b.headcount, model: b.model, cheapModel: b.cheapModel, dailyTokensPerAgent: b.dailyTokensPerAgent, maxTurnsPerSession: b.maxTurnsPerSession, managerAgentId: b.managerAgentId, codeAccess: b.codeAccess });
+  const [f, setF] = useState({ goal: b.goal, description: b.description, headcount: b.headcount, model: b.model, cheapModel: b.cheapModel, maxTurnsPerSession: b.maxTurnsPerSession, managerAgentId: b.managerAgentId, codeAccess: b.codeAccess });
+  const [daily, setDaily] = useState(toMillions(b.dailyTokensPerAgent));
+  const dailyTokens = fromMillions(daily);
   const agents = useTown((s) => s.agents);
   const repo = useTown((s) => s.town?.workspace);
   const residents = useMemo(() => Object.values(agents).filter((a) => a.kind === "resident" && a.homeBuildingId === b.id).sort((x, y) => x.name.localeCompare(y.name)), [agents, b.id]);
@@ -231,7 +233,7 @@ function Settings({ b }: { b: SnapshotBuilding }) {
         <Field label="Cheap model"><input value={f.cheapModel} onChange={(e) => set("cheapModel", e.target.value)} /></Field>
       </div>
       <div className="row2">
-        <Field label="Daily tokens / agent"><input type="number" min={1} value={f.dailyTokensPerAgent} onChange={(e) => set("dailyTokensPerAgent", +e.target.value)} /></Field>
+        <Field label="Daily budget / agent"><MTokensInput value={daily} onChange={setDaily} /></Field>
         <Field label="Max turns / session" hint="Safety rail"><input type="number" min={1} value={f.maxTurnsPerSession} onChange={(e) => set("maxTurnsPerSession", +e.target.value)} /></Field>
       </div>
       <Field label="Code access" hint={repo
@@ -239,8 +241,8 @@ function Settings({ b }: { b: SnapshotBuilding }) {
         : "This collective has no repo yet (collective.json `workspace`), so there is nothing to give code access to."}>
         <span className="check"><input type="checkbox" checked={f.codeAccess} disabled={!repo && !f.codeAccess} onChange={(e) => set("codeAccess", e.target.checked)} /> {repo ? <>Work on <code>{repoLabel(repo)}</code></> : "No collective repo"}</span>
       </Field>
-      <div className="actions"><Act tone="primary" run={async () => {
-        await api().updateBuilding(b.id, f);
+      <div className="actions"><Act tone="primary" disabled={!(dailyTokens > 0)} title={dailyTokens > 0 ? undefined : "Daily budget must be above 0" } run={async () => {
+        await api().updateBuilding(b.id, { ...f, dailyTokensPerAgent: dailyTokens });
         store.toast("Settings saved", "ok");
       }}>Save settings</Act></div>
     </form>
@@ -349,8 +351,8 @@ function BudgetMode({ b }: { b: SnapshotBuilding }) {
             <option value="goal-directed">goal-directed</option>
           </select>
         </Field>
-        <Field label="Exploration (M tokens / day)" hint="Leave blank for the default: 10% of the pool's daily inflow.">
-          <input type="number" min={0} step="any" value={explore} placeholder="default" onChange={(e) => setExplore(e.target.value)} />
+        <Field label="Exploration / day" hint="Leave blank for the default: 10% of the pool's daily inflow.">
+          <MTokensInput value={explore} placeholder="default" onChange={setExplore} />
         </Field>
         <div className="actions"><Act tone="primary" run={async () => {
           await api().updateBuilding(b.id, { budgetMode: mode, explorationTokensPerDay: explore.trim() === "" ? null : Math.max(0, fromMillions(explore) || 0) });
