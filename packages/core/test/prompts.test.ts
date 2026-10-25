@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { Agent, Building, Meeting, Town } from "@muster-town/schema";
-import { facilitatePrompt, managerIntrayBlock, meetingReplyPrompt, meetingReplySystemPrompt, REPORT_FORMAT, sessionMemory, summarySystemPrompt, workshopPrompt, workSystemPrompt } from "../src/prompts.ts";
+import { facilitatePrompt, managePrompt, managerIntrayBlock, meetingReplyPrompt, meetingReplySystemPrompt, REPORT_FORMAT, sessionMemory, summarySystemPrompt, workshopPrompt, workSystemPrompt } from "../src/prompts.ts";
 import { seededWorld } from "./helpers.ts";
 
 const agent = { id: "ag_1", name: "Root", title: "Backend", direction: "Core, server, and runtime only." } as Agent;
@@ -47,6 +47,15 @@ describe("no forced next step", () => {
     const after = managerIntrayBlock(world, b, mei.id);
     expect(after).not.toContain(r.id);
     expect(after).toContain("reports decided since: 1");
+  });
+  it("the team-lead session prompt keeps the manager to decisions and rollups: every task becomes an assignment, independent ones to different residents in parallel", () => {
+    const { world } = seededWorld();
+    const b = world.buildings.get("carbon-cycle")!;
+    const p = managePrompt(b, [], (id) => world.nameOf(id));
+    expect(p).toMatch(/A manager does only decisions and rollups/);
+    expect(p).toMatch(/becomes an assignment the moment it appears/);
+    expect(p).toMatch(/different residents in parallel/);
+    expect(p).toMatch(/not queued on one resident/);
   });
 });
 
