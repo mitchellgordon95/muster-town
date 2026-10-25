@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { docIdParts, docIdsIn, markdownHtml } from "../src/panels/Markdown";
+import { docIdParts, docIdsIn, isGrantId, markdownHtml } from "../src/panels/Markdown";
 
 describe("markdownHtml", () => {
   it("keeps a single newline as a soft wrap by default (docs)", () => {
@@ -22,6 +22,12 @@ describe("docIdParts", () => {
   it("leaves text without a full id alone", () => {
     expect(docIdParts("dc_short and xdc_k955hun6c4 and dc_k955hun6c4x")).toEqual(["dc_short and xdc_k955hun6c4 and dc_k955hun6c4x"]);
   });
+  it("splits grant ids out too, so a proposal can be clicked through from a report or chat", () => {
+    expect(docIdParts("fund gr_jqsqra0dlx (see dc_k955hun6c4)")).toEqual(["fund ", { id: "gr_jqsqra0dlx" }, " (see ", { id: "dc_k955hun6c4" }, ")"]);
+    expect(docIdParts("gr_short and ag_s1n1xknj8n stay text")).toEqual(["gr_short and ag_s1n1xknj8n stay text"]);
+    expect(isGrantId("gr_jqsqra0dlx")).toBe(true);
+    expect(isGrantId("dc_k955hun6c4")).toBe(false);
+  });
 });
 
 describe("docIdsIn", () => {
@@ -30,5 +36,8 @@ describe("docIdsIn", () => {
   });
   it("is empty for a draft with no doc id", () => {
     expect(docIdsIn("hello dc_ world")).toEqual([]);
+  });
+  it("lists docs only: a grant id has no title to preview", () => {
+    expect(docIdsIn("gr_jqsqra0dlx and dc_k955hun6c4")).toEqual(["dc_k955hun6c4"]);
   });
 });

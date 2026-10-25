@@ -152,6 +152,8 @@ export interface Api {
   // agents
   /** pending reports for the building's in-tray, oldest first; the Town Hall's also has the grants awaiting a human */
   intray(buildingId: string): Promise<Intray>;
+  /** GET /api/grants/:id: one grant or proposal (drafts only for its building's managers and funders) */
+  grant(id: string): Promise<GrantView>;
   /** POST /api/grants/:id/decide (building.fund): fund / counter / reject a proposal, continue / adjust / cut a checkpoint */
   decideGrant(id: string, input: In<typeof DecideGrantInput>): Promise<GrantView>;
   /** GET /api/buildings/:id/key-results: the goal's key results (with the live grant on each) and the blocked reason */
@@ -352,6 +354,7 @@ export class HttpApi implements Api {
     const r = await this.get<Partial<Intray>>(`/api/buildings/${id}/intray`);
     return { reports: r.reports ?? [], grants: r.grants ?? [] };
   }
+  async grant(id: string) { return unwrap<GrantView>(await this.get(`/api/grants/${id}`), "grant"); }
   async decideGrant(id: string, i: In<typeof DecideGrantInput>) { return unwrap<GrantView>(await this.post(`/api/grants/${id}/decide`, i), "grant"); }
   async keyResults(buildingId: string) {
     const r = await this.get<Partial<KeyResultsView>>(`/api/buildings/${buildingId}/key-results`);
