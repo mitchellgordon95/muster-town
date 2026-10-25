@@ -12,7 +12,7 @@ Muster Town is a pixel-art town where research agents work at desks toward a hea
 
 ## Design Philosophy — Non-negotiables
 
-1. **Reports are the human interface.** Every run ends in a report; nothing continues without a decision: the manager agent's in a building that has one (whose own work continues only through rollups, grants and checkpoints a human decides in the Town Hall in-tray), a human's elsewhere. Don't add features that let agents run unattended past a report.
+1. **Reports are the human interface.** Every run ends in a report; nothing continues without a decision: the manager agent's in a building that has one (which may assign small, blocking or permission-bound work to itself and decides that like any resident's; it reaches the humans only through rollups, grants and checkpoints they decide in the Town Hall in-tray), a human's elsewhere. Don't add features that let agents run unattended past a report.
 2. **The world server is the source of truth; git is the export.** Live state lives in SQLite behind one verb set; `export/` is a readable git mirror (the `buildings/<id>/` layout) refreshed hourly. Adding a building is an API call or a folder import.
 3. **Proximity means shared context.** Agents in the same building share a board and read each other's reports; the town shares one library with document states (draft → building → library → trophy). Bodies are free, cognition costs: the server moves bodies, the model spends tokens only on intentions.
 4. **Three voices stay separate** in every wiki: what the source says, what the human thinks, what the agent concludes.

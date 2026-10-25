@@ -109,12 +109,22 @@ describe("manager team-lead session", () => {
     expect(manageSessions(sdk.sessions, mei.id)).toHaveLength(1);
   });
 
-  test("the manager's own report (not a rollup) never wakes its manage session", async () => {
-    const env = await managed(async function* () { yield init(); yield result(100, 0.01); });
-    const { world, runtime, sdk, by } = env;
-    await world.verbs.submit_report(by("Mei").id, report("My own work"));
+  test("the manager's own work report (not a rollup) wakes its manage session, which decides it (town hall 2026-10-25, decision 6)", async () => {
+    const env = await managed(async function* (s) {
+      yield init();
+      const id = s.received[0].match(/(dc_[a-z0-9]+)/)![1];
+      yield* callVerb(s, "review", { docId: id, decision: "approve" });
+      yield result(100, 0.01);
+    });
+    const { world, runtime, sdk, by, lab } = env;
+    const mei = by("Mei");
+    const own = await world.verbs.submit_report(mei.id, report("My own work"));
+    expect(own).toMatchObject({ intray: lab.id, workedBy: "manager" });
     await runtime.tickOnce();
     await runtime.whenIdle();
-    expect(sdk.sessions).toHaveLength(0);
+    expect(manageSessions(sdk.sessions, mei.id)).toHaveLength(1);
+    expect(sdk.sessions[0].received[0]).toContain(own.id);
+    expect(world.docs.require(own.id)).toMatchObject({ decision: "approve", decidedBy: mei.id });
+    expect(intrayOf(world, lab.id)).toHaveLength(0);
   });
 });

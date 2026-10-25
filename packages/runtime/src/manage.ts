@@ -36,8 +36,9 @@ export interface ManageGate {
 /**
  * Offer the building's new in-tray reports and its open 1:1s to its manager agent: stream them into its running manage
  * session, or start one if the manager is idle and can. A no-op for the Town Hall, buildings without a working manager
- * agent, and reports already offered. The manager's own reports (rollups) are Town Hall items, never in
- * `intrayOf(building)`, so a manage session can't wake itself. A 1:1 that ended is announced to the session it was fed
+ * agent, and reports already offered. The manager's rollups are Town Hall items, never in `intrayOf(building)`, so a
+ * manage session can't wake itself; the manager's own work reports (self-assigned or meeting-decided work, town hall
+ * 2026-10-25 decision 6) are in it and wake the session like a resident's. A 1:1 that ended is announced to the session it was fed
  * into (which then ends once no 1:1 is open). While draining, a session held open only by a 1:1 is let go; the 1:1
  * stays open and a fresh session picks it up after the restart. Returns the started session's promise, if one started.
  */
@@ -48,7 +49,7 @@ export function wakeManager(ctx: Ctx, st: ManageState, gate: ManageGate, buildin
   const mgr = managerAgentOf(world, building);
   if (!mgr || homeOf(world, mgr.id) !== building.id) return null;
   const nameOf = world.nameOf.bind(world);
-  const fresh = intrayOf(world, building.id).filter((d) => !st.offered.has(d.id) && d.authorId !== mgr.id);
+  const fresh = intrayOf(world, building.id).filter((d) => !st.offered.has(d.id));
   const talks = openOneOnOnes(world, mgr.id);
   const live = ctx.live.get(mgr.id);
   const feedable = !!live && live.purpose === "manage" && live.kind === "host" && !live.stopped && !live.reportSubmitted && !live.input.closed;
