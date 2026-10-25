@@ -585,7 +585,8 @@ export const Message = z.object({
 export type Message = z.infer<typeof Message>;
 
 // ---------- meetings ----------
-export const MeetingKind = z.enum(["standup", "retro", "planning", "town-hall"]);
+/** one-on-one: a human and the building's manager agent (docs/waterfall.md §3.4); opened from "Talk to ★", never scheduled */
+export const MeetingKind = z.enum(["standup", "retro", "planning", "town-hall", "one-on-one"]);
 export const MeetingPhase = z.enum(["scheduled", "collecting", "discussing", "done", "cancelled"]);
 export const MeetingDecision = z.object({
   text: z.string(),
@@ -619,6 +620,8 @@ export const Meeting = z.object({
   transcript: z.array(MeetingUtterance).default([]),
   decisions: z.array(MeetingDecision).default([]),
   notesDocId: Id.nullable().default(null),
+  /** one-on-one: the human talking to the manager */
+  withUserId: Id.nullable().default(null),
   createdAt: Iso,
   startedAt: Iso.nullable().default(null),
   endedAt: Iso.nullable().default(null),
@@ -1072,7 +1075,7 @@ export type CreateBankPoolInput = z.input<typeof CreateBankPoolInput>;
 /** PATCH /api/bank/pools/:id (admin). */
 export const UpdateBankPoolInput = z.object({ name: z.string().trim().min(1).max(80).optional(), pct: z.number().min(0).max(100).nullable().optional() });
 export type UpdateBankPoolInput = z.input<typeof UpdateBankPoolInput>;
-export const CreateMeetingInput = z.object({ kind: MeetingKind, buildingId: Id.nullable(), title: z.string().optional(), scheduledAt: Iso.optional(), agenda: z.string().optional(), startNow: z.boolean().default(false),
+export const CreateMeetingInput = z.object({ kind: MeetingKind.exclude(["one-on-one"]), buildingId: Id.nullable(), title: z.string().optional(), scheduledAt: Iso.optional(), agenda: z.string().optional(), startNow: z.boolean().default(false),
   /** who to invite; omitted = the building's residents (town hall: managers, reviewers, moderators) */
   attendeeIds: z.array(Id).min(1).optional() });
 export const MeetingSayInput = z.object({ text: z.string() });

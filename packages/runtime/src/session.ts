@@ -59,6 +59,8 @@ export interface SessionSpec {
   meetingId?: string | null;
   /** only these town verbs are allowed (the rest are disallowed outright); absent = every verb. Meeting replies: read, search, meeting. */
   verbs?: VerbName[];
+  /** after a turn with no input pending, keep waiting for more input instead of ending (manage sessions with an open 1:1) */
+  keepOpen?: () => boolean;
   /** work sessions: ends the session instead of the default endSession + charge (see finishWorkSession) */
   finish?: (out: SessionOutcome, allocationId: string | null) => Promise<Session>;
 }
@@ -208,8 +210,8 @@ export async function runAgentSession(ctx: Ctx, spec: SessionSpec): Promise<Sess
         if (typeof m.result === "string" && m.result.trim()) finalText = m.result.trim();
         // a later turn that succeeds clears an earlier turn's error (e.g. one aborted by an interrupt-now)
         error = m.is_error ? m.errors?.join("; ") || m.subtype || "session ended with an error" : null;
-        // streaming input: one result per turn. Finish unless an interrupt is queued.
-        if (live.stopped || live.reportSubmitted || (live.input.pending === 0 && !(m.queued_turn_count && m.queued_turn_count > 0))) {
+        // streaming input: one result per turn. Finish unless an interrupt is queued or the spec keeps it open for more.
+        if (live.stopped || live.reportSubmitted || (live.input.pending === 0 && !(m.queued_turn_count && m.queued_turn_count > 0) && !spec.keepOpen?.())) {
           live.input.close();
           break;
         }

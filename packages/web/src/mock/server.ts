@@ -44,7 +44,8 @@ export class MockApi implements Api {
   }
   async board(buildingId: string, limit = 30) {
     await wait();
-    return clone([...this.sim.docs.values()].filter((d) => d.buildingId === buildingId && d.state === "building" && BOARD_TYPES.includes(d.type)).sort((a, b) => b.updatedAt.localeCompare(a.updatedAt)).slice(0, limit));
+    const docs = [...this.sim.docs.values()].filter((d) => d.buildingId === buildingId && d.state === "building" && BOARD_TYPES.includes(d.type)).sort((a, b) => b.updatedAt.localeCompare(a.updatedAt)).slice(0, limit);
+    return clone({ docs, ...this.sim.grantBoard(buildingId) });
   }
   async cabinet(buildingId: string, q: CabinetQuery = {}) {
     await wait();
@@ -349,10 +350,23 @@ export class MockApi implements Api {
   async createMeeting(i: In<typeof CreateMeetingInput>) {
     await wait();
     const attendees = i.attendeeIds ?? [...this.sim.agents.values()].filter((a) => a.kind === "resident" && (i.buildingId ? a.homeBuildingId === i.buildingId : true)).map((a) => a.id);
-    const m: Meeting = { id: newId("mt"), kind: i.kind, buildingId: i.buildingId, title: i.title || `${i.kind[0].toUpperCase()}${i.kind.slice(1)}`, scheduledAt: i.scheduledAt ?? now(), phase: i.startNow ? "collecting" : "scheduled", facilitatorId: "ag_moss", attendeeIds: attendees, agenda: i.agenda ?? "", summaries: {}, transcript: [], decisions: [], notesDocId: null, createdAt: now(), startedAt: null, endedAt: null };
+    const m: Meeting = { id: newId("mt"), kind: i.kind, buildingId: i.buildingId, title: i.title || `${i.kind[0].toUpperCase()}${i.kind.slice(1)}`, scheduledAt: i.scheduledAt ?? now(), phase: i.startNow ? "collecting" : "scheduled", facilitatorId: "ag_moss", attendeeIds: attendees, agenda: i.agenda ?? "", summaries: {}, transcript: [], decisions: [], notesDocId: null, withUserId: null, createdAt: now(), startedAt: null, endedAt: null };
     this.sim.putMeeting(m);
     this.sim.event("meeting.created", null, `${m.title} ${m.phase === "collecting" ? "is collecting summaries" : "scheduled"}`, { meetingId: m.id }, i.buildingId);
     if (m.phase === "collecting") this.collectSummaries(m);
+    return clone(m);
+  }
+  async openOneOnOne(buildingId: string) {
+    await wait();
+    const b = this.need(this.sim.buildings.find((x) => x.id === buildingId), "building");
+    const mgr = b.managerAgentId ? this.sim.agents.get(b.managerAgentId) : undefined;
+    if (!mgr) throw new ApiError(`${b.name} has no manager agent; send a message instead.`, "conflict", 409);
+    const open = [...this.sim.meetings.values()].find((m) => m.kind === "one-on-one" && m.buildingId === buildingId && m.phase === "discussing");
+    if (open) return clone(open);
+    const m: Meeting = { id: newId("mt"), kind: "one-on-one", buildingId, title: `1:1: Mitchell and ${mgr.name}`, scheduledAt: now(), phase: "discussing", facilitatorId: mgr.id, attendeeIds: [mgr.id], agenda: "", summaries: {}, transcript: [], decisions: [], notesDocId: null, withUserId: "us_mitchell", createdAt: now(), startedAt: now(), endedAt: null };
+    this.sim.putMeeting(m);
+    this.sim.event("meeting.created", mgr.id, `Mitchell opened a 1:1 with ${mgr.name}`, { meetingId: m.id }, buildingId);
+    this.utter(m.id, mgr.id, "Hi Mitchell. What's on your mind?", 1200);
     return clone(m);
   }
   private collectSummaries(m: Meeting) {

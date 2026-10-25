@@ -205,6 +205,25 @@ export function managerNewReport(d: Doc, nameOf: (id: string) => string): string
   return `A new report landed in your in-tray: ${d.id} "${oneLine(d.title, 100)}" by ${nameOf(d.authorId)} (verdict ${d.verdict ?? "?"}). Decide it with the others, or leave it pending. End as before: a rollup only if one is due, else just stop.`;
 }
 
+/** The manager's 1:1 (docs/waterfall.md §3.4): a human opened it; their messages stream into this session. */
+export function oneOnOnePrompt(meeting: Meeting, nameOf: (id: string) => string): string {
+  const who = meeting.withUserId ? nameOf(meeting.withUserId) : "A human";
+  const transcript = meeting.transcript.map((u) => `- ${nameOf(u.speakerId)}: ${u.text}`).join("\n");
+  return `${who} opened a 1:1 with you: meeting ${meeting.id}. This is a conversation, not a work session: you have no assignment.
+${transcript ? `\nSo far:\n${transcript}\n` : `\nThey haven't said anything yet; greet them in one line and ask what they need.\n`}
+Answer with the \`meeting\` tool, action "speak", meetingId ${meeting.id}: short, plain, concrete. Their next messages arrive here as messages in this session, so don't \`listen\`; after you've spoken, stop and wait. When you agree on work, record it with action "decide" (a decision with an assigneeId becomes that agent's assignment) or use \`assign\`; say who and what in the meeting too. You can't do the work yourself here (no code or web tools). The human ends the 1:1, not you, and there is no report: don't call \`submit_report\` (the "Finish with submit_report" rule above is for work sessions).`;
+}
+
+/** A human's line in the 1:1, streamed into the manager's session. */
+export function oneOnOneUtterance(meeting: Meeting, speaker: string, text: string): string {
+  return `${speaker} said in the 1:1 (${meeting.id}): ${text}\n\nAnswer with meeting "speak", then stop and wait.`;
+}
+
+/** The human ended the 1:1 (or it went quiet and the town closed it). */
+export function oneOnOneEnded(meeting: Meeting): string {
+  return `The 1:1 ${meeting.id} is over (the human ended it, or it went quiet and the town closed it). If something was agreed and isn't recorded yet, record it now with meeting "decide" (possible for 5 minutes); then stop. Notes are filed for you.`;
+}
+
 export function summarySystemPrompt(agent: Agent): string {
   return `You are ${agent.name}, giving your update at a standup. Write two short lines in plain language, first person, the way you'd say them out loud to colleagues:
 Did: what I did since the last meeting, against what I said I'd do there, in one sentence; say plainly if something I promised didn't happen.

@@ -506,16 +506,6 @@ export class MapRenderer {
       const p = toScreen((w.bank.x + w.bank.w / 2) * T, w.bank.y * T - 5);
       if (p.x > -300 && p.x < cw + 300 && p.y > -40 && p.y < ch + 140) drawBankSign(g, p.x, p.y, s.bank, now);
     }
-    // in-tray badges on the managers' desks: the desk is the tile above the place's standing spot, or below it
-    // (the Town Hall in-tray, and rooms south of the road)
-    for (const b of s.buildings) {
-      if (!b.intray) continue;
-      const p = s.places.find((x) => x.id === `intray:${b.id}`);
-      if (!p) continue;
-      const below = s.grid && s.grid.tiles[(p.pos.y + 1) * s.grid.w + p.pos.x] === TILE.MANAGER_DESK;
-      const q = toScreen(p.pos.x * T + T - 2, (p.pos.y + (below ? 1 : -1)) * T + 1);
-      if (q.x > -40 && q.x < cw + 40 && q.y > -40 && q.y < ch + 40) drawBadge(g, q.x, q.y, b.intray);
-    }
     this.hitboxes = [];
     const blocked = blockedByRedeploy(s.events);
     const targetId = this.target?.agentId;
@@ -530,6 +520,16 @@ export class MapRenderer {
       // held by a draining redeploy: its next session starts after the restart
       if (!isMe && blocked.has(d.id)) { const q = toScreen(d.x + d.w / 2 - 2, d.y - d.h + 4); drawPill(g, q.x, q.y, "⟳ redeploy"); }
       if (!isMe) this.hitboxes.push({ id: d.id, x: p.x - d.w * z / 2, y: p.y - d.h * z, w: d.w * z, h: d.h * z + 31 });
+    }
+    // in-tray badges on the managers' desks, after the name labels so a body standing at the in-tray never covers them: the desk is the tile above the place's standing spot, or below it
+    // (the Town Hall in-tray, and rooms south of the road)
+    for (const b of s.buildings) {
+      if (!b.intray) continue;
+      const p = s.places.find((x) => x.id === `intray:${b.id}`);
+      if (!p) continue;
+      const below = s.grid && s.grid.tiles[(p.pos.y + 1) * s.grid.w + p.pos.x] === TILE.MANAGER_DESK;
+      const q = toScreen(p.pos.x * T + T - 2, (p.pos.y + (below ? 1 : -1)) * T + 1);
+      if (q.x > -40 && q.x < cw + 40 && q.y > -40 && q.y < ch + 40) drawBadge(g, q.x, q.y, b.intray);
     }
     // bubbles last so they sit above every label
     const bubbles: { d: (typeof list)[number]; b: Bubble }[] = [];

@@ -84,6 +84,14 @@ export class Sim {
     const grants = hall ? [...this.grants.values()].filter((g) => g.status === "proposed" || g.status === "countered" || g.status === "checkpoint") : [];
     return { reports, grants };
   }
+  /** The budget part of GET /api/buildings/:id/board, as core's Grants.board (exploration spend is the fixture's). */
+  grantBoard(buildingId: string) {
+    const b = this.buildings.find((x) => x.id === buildingId);
+    const of = (g: GrantView) => g.buildingId === buildingId;
+    const grants = [...this.grants.values()].filter((g) => of(g) && (g.status === "funded" || g.status === "checkpoint")).sort((x, y) => (x.fundedAt ?? "").localeCompare(y.fundedAt ?? ""));
+    const proposal = [...this.grants.values()].filter((g) => of(g) && (g.status === "proposed" || g.status === "countered")).sort((x, y) => y.updatedAt.localeCompare(x.updatedAt))[0] ?? null;
+    return { goal: b?.goal ?? "", grants, proposal, exploration: { allowanceTokens: b?.explorationTokensPerDay ?? 0, spentTodayTokens: F.explorationSpentToday[buildingId] ?? 0 } };
+  }
   intrayCount(buildingId: string) { const t = this.intray(buildingId); return t.reports.length + t.grants.length; }
 
   /** POST /api/grants/:id/decide, as core's Grants.decide (no ledger: spend is the fixture's). */
@@ -213,8 +221,7 @@ export class Sim {
     const asg = this.putAssignment({
       id: newId("as"), agentId, buildingId: a.homeBuildingId ?? "bl_carbon", title: f.title, description: f.description,
       status: "pending", createdBy: f.by ?? "us_mitchell", createdByKind: "user", fromMeetingId: null, fromReportId: f.fromReportId ?? null, reportId: null,
-      fromAssignmentId: f.fromAssignmentId ?? null, position: f.front && q.length ? q[0].position - 1 : Date.now(), createdAt: now(), updatedAt: now(),
-      lane: "directed", grantId: null, keyResultId: null, gap: null, heldReason: null,
+      fromAssignmentId: f.fromAssignmentId ?? null, lane: "directed", grantId: null, keyResultId: null, gap: null, heldReason: null, position: f.front && q.length ? q[0].position - 1 : Date.now(), createdAt: now(), updatedAt: now(),
     });
     this.event("assignment.created", agentId, `Assignment for ${a.name}: ${asg.title}`, { assignmentId: asg.id }, a.homeBuildingId);
     return asg;

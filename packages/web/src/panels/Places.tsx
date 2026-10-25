@@ -4,7 +4,8 @@
  */
 import { useEffect, useMemo, useState } from "react";
 import { BOARD_TYPES, DocType, type Doc, type GrantView, type Meeting } from "@muster-town/schema";
-import { api } from "../api";
+import { api, type Board } from "../api";
+import { explorationLine, grantSpendLine, grantStateLine, krTone, proposalLine, spentShare } from "./keyResults";
 import { store, useTown, roleOf } from "../state";
 import { DocRow, DocView, VERDICT_TONE, needOf } from "./DocView";
 import { Glyph, PanelShell } from "./PanelShell";
@@ -164,6 +165,7 @@ function GrantRow({ grant: g, onDecided, onOpenDoc }: { grant: GrantView; onDeci
 
 function IntrayRow({ doc, onOpen, onOpenDoc, showBuilding }: { doc: Doc; onOpen: () => void; onOpenDoc?: (id: string) => void; showBuilding?: boolean }) {
   const a = useTown((s) => s.agents[doc.authorId]);
+  const isManager = useTown((s) => !!doc.buildingId && s.buildings.find((b) => b.id === doc.buildingId)?.managerAgentId === doc.authorId);
   const need = needOf(doc.body);
   const rollup = doc.tags.includes("rollup");
   const covered = doc.provenance.sourceIds;
@@ -179,7 +181,7 @@ function IntrayRow({ doc, onOpen, onOpenDoc, showBuilding }: { doc: Doc; onOpen:
       <button className="doc-row intray-row" onClick={onOpen}>
         <div className="intray-who">
           {showBuilding ? <BuildingTag buildingId={doc.buildingId} /> : null}
-          {a ? <img src={portraitUrl(a.sprite, 1)} alt="" /> : null}<b>{nameOf(doc.authorId)}</b><span>{timeAgo(doc.createdAt)}</span>
+          {a ? <img src={portraitUrl(a.sprite, 1)} alt="" /> : null}<b>{isManager ? `★ ${nameOf(doc.authorId)}` : nameOf(doc.authorId)}</b><span>{timeAgo(doc.createdAt)}</span>
           {rollup ? <Pill tone="ok">rollup</Pill> : null}
         </div>
         <div className="doc-row-title">{doc.title}</div>
@@ -210,11 +212,57 @@ function IntrayRow({ doc, onOpen, onOpenDoc, showBuilding }: { doc: Doc; onOpen:
 
 export function BoardPanel({ buildingId }: { buildingId: string }) {
   const b = useTown((s) => s.buildings.find((x) => x.id === buildingId));
+  const rev = useTown((s) => s.rev);
+  const board = useLoad(() => api().board(buildingId, 50), [buildingId, rev]);
+  const goal = b?.budgetMode === "goal-directed";
   return (
-    <PanelShell icon={<Glyph kind="board" />} title={`${b?.name ?? "Building"} board`} subtitle="The manager's standing rules and building-wide FYIs. Everything else is in the filing cabinet beside it.">
+    <PanelShell icon={<Glyph kind="board" />} title={`${b?.name ?? "Building"} board`} subtitle={goal
+      ? "The building's key results, the manager's standing rules and building-wide FYIs. Everything else is in the filing cabinet beside it."
+      : "The manager's standing rules and building-wide FYIs. Everything else is in the filing cabinet beside it."}>
+      {goal && board.data ? <KeyResultsView board={board.data} /> : null}
       {b ? <StandingRules buildingId={b.id} rules={b.rules ?? ""} /> : null}
-      <DocList buildingId={buildingId} />
+      <DocList board={board} />
     </PanelShell>
+  );
+}
+
+/**
+ * Goal-directed buildings: the residents' read-only key-results view (docs/waterfall.md §5), the same data as the
+ * desk brief's Key results block. No funding buttons: humans decide in the Town Hall in-tray.
+ */
+function KeyResultsView({ board }: { board: Board }) {
+  const e = board.exploration;
+  const eShare = spentShare(e.spentTodayTokens, e.allowanceTokens);
+  return (
+    <Section title="Key results">
+      <div className="kr-view">
+        {board.goal ? <div className="kr-goal"><span className="muted">Goal</span> {board.goal}</div> : null}
+        {!board.grants.length ? <Empty>No funded grant yet: work is exploration, naming a key result or a goal gap.</Empty> : board.grants.map((g) => (
+          <div key={g.id} className="kr-grant">
+            <div className="kr-grant-head"><b>{g.objective}</b><Pill tone={g.status === "checkpoint" ? "warn" : "ok"}>{g.status}</Pill></div>
+            <div className="kr-bar-row">
+              <span className="kr-bar"><i style={{ width: `${spentShare(g.spentTokens, g.grantTokens ?? 0) * 100}%` }} /></span>
+              <span className="muted">{grantSpendLine(g)}</span>
+            </div>
+            {g.status === "checkpoint" ? <div className="muted">{grantStateLine(g)}</div> : null}
+            <ul className="kr-list">
+              {g.keyResults.map((k) => (
+                <li key={k.id}>
+                  <Pill tone={krTone(k.status)}>{k.status.replace(/-/g, " ")}</Pill> {k.text}
+                  <div className="muted kr-check">How to check: {k.howToCheck}</div>
+                </li>
+              ))}
+            </ul>
+          </div>
+        ))}
+        <div className="kr-bar-row kr-exploration">
+          <span>Exploration</span>
+          <span className={`kr-bar ${eShare >= 1 ? "bad" : eShare > 0.8 ? "warn" : ""}`}><i style={{ width: `${eShare * 100}%` }} /></span>
+          <span className="muted">{explorationLine(e)}</span>
+        </div>
+        {board.proposal ? <div className="kr-proposal muted">{proposalLine(board.proposal)}</div> : null}
+      </div>
+    </Section>
   );
 }
 
@@ -285,17 +333,16 @@ function CabinetBrowser({ buildingId }: { buildingId: string }) {
 }
 
 /** Board FYIs, newest first. */
-function DocList({ buildingId }: { buildingId: string }) {
-  const rev = useTown((s) => s.rev);
-  const list = useLoad(() => api().board(buildingId, 50), [buildingId, rev]);
+function DocList({ board: list }: { board: { data: Board | null; error: string | null; loading: boolean } }) {
   const [open, setOpen] = useState<Doc | null>(null);
-  useEffect(() => { if (list.data) store.putDocs(list.data); }, [list.data]);
+  const docs = list.data?.docs;
+  useEffect(() => { if (docs) store.putDocs(docs); }, [docs]);
   if (open) return <DocView doc={open} onBack={() => setOpen(null)} backLabel="Board" />;
   return (
     <>
       <ErrorLine error={list.error} />
-      {list.loading && !list.data ? <Loading /> : !list.data?.length ? <Empty>No FYIs on the board.</Empty> : (
-        <div className="doc-list">{list.data.map((d) => <DocRow key={d.id} doc={d} onOpen={() => setOpen(d)} />)}</div>
+      {list.loading && !list.data ? <Loading /> : !docs?.length ? <Empty>No FYIs on the board.</Empty> : (
+        <div className="doc-list">{docs.map((d) => <DocRow key={d.id} doc={d} onOpen={() => setOpen(d)} />)}</div>
       )}
     </>
   );
@@ -336,6 +383,7 @@ function StandingRules({ buildingId, rules }: { buildingId: string; rules: strin
 export function joinMeeting(m: Meeting) {
   const hall = store.state.buildings.find((b) => b.kind === "town-hall");
   const room = `meeting-room:${m.buildingId ?? hall?.id ?? ""}`;
+  if (m.kind === "one-on-one") return store.open({ kind: "meeting", id: m.id });
   if (!store.walkTo(room, { kind: "meeting", id: m.id })) store.open({ kind: "meeting", id: m.id });
 }
 

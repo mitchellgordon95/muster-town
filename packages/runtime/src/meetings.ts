@@ -151,7 +151,7 @@ export function advanceCollecting(ctx: Ctx, st: MeetingState): void {
 export async function facilitate(ctx: Ctx, st: MeetingState, meetingId: string): Promise<void> {
   const { world } = ctx;
   const m = world.meetings.get(meetingId);
-  if (!m || m.phase !== "discussing" || st.facilitated.has(m.id)) return;
+  if (!m || m.phase !== "discussing" || m.kind === "one-on-one" || st.facilitated.has(m.id)) return;
   st.facilitated.add(m.id);
   const room = world.layout.place(meetingRoom(m));
   if (room) {

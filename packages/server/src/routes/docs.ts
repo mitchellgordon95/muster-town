@@ -113,6 +113,12 @@ export async function docRoutes(app: FastifyInstance) {
     return reply.code(201).send({ meeting });
   });
 
+  /** The manager's 1:1 (docs/waterfall.md §3.4): open it, or return the human's open one in this building. */
+  app.post<{ Params: Params }>("/api/buildings/:id/one-on-one", async (req) => {
+    requireAuth(req);
+    return { meeting: world.ops.openOneOnOne(actorOf(world, req), req.params.id) };
+  });
+
   app.get<{ Params: Params }>("/api/meetings/:id", async (req) => ({ meeting: world.meetings.require(req.params.id, "meeting") }));
 
   app.post<{ Params: Params }>("/api/meetings/:id/start", async (req) => {
