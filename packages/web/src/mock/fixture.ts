@@ -119,7 +119,7 @@ export const docs: Doc[] = [
   { ...docBase, id: "dc_proposed", type: "article", state: "library", title: "Why 350 ppm needs net-negative emissions", authorId: "ag_ingrid", buildingId: "bl_carbon", trophyProposedBy: "ag_moss", trophyWhy: "Connects the lab's work directly to the town goal.", body: "# Why 350 ppm needs net-negative emissions\n\nEven at zero emissions the ocean and land sinks keep drawing CO2 down, but too slowly: reaching 350 ppm by 2100 needs roughly 200 GtC of net removal.", createdAt: ago(900), updatedAt: ago(800) },
 ];
 
-const asgBase = { createdBy: "us_mitchell", createdByKind: "user" as const, fromMeetingId: null, fromReportId: null, fromAssignmentId: null, reportId: null };
+const asgBase = { createdBy: "us_mitchell", createdByKind: "user" as const, fromMeetingId: null, fromReportId: null, fromAssignmentId: null, reportId: null, lane: "directed" as const, grantId: null, keyResultId: null, gap: null, heldReason: null };
 const asg = (a: Omit<Assignment, keyof typeof asgBase | "position"> & Partial<Assignment>): Assignment => ({ ...asgBase, position: Date.parse(a.createdAt), ...a });
 const grantBase = { outcome: null, findingsDocIds: [] as string[], checkpointsDone: [] as number[], checkpointDocId: null as string | null, fundedBy: null as string | null, fundedAt: null as string | null, closedAt: null, spentTokens: 0 };
 const kr = (grantId: string, position: number, text: string, howToCheck: string, status: GrantView["keyResults"][number]["status"] = "not-started") =>
@@ -158,13 +158,13 @@ export const assignments: Assignment[] = [
 ];
 
 const ahead = (min: number) => new Date(Date.now() + min * 60_000).toISOString();
-const mtBase = { summaries: {}, transcript: [], decisions: [], notesDocId: null, startedAt: null, endedAt: null };
+const mtBase = { withUserId: null, summaries: {}, transcript: [], decisions: [], notesDocId: null, startedAt: null, endedAt: null };
 export const meetings: Meeting[] = [
   { ...mtBase, id: "mt_retro1", kind: "retro", buildingId: "bl_carbon", title: "Carbon Cycle retro", scheduledAt: ahead(120), phase: "scheduled", facilitatorId: "ag_moss", attendeeIds: ["ag_noor", "ag_tomas", "ag_mei", "ag_ravi", "ag_ingrid", "ag_moss"], agenda: "What worked this week, what to change.", createdAt: ago(60) },
   { ...mtBase, id: "mt_town1", kind: "town-hall", buildingId: null, title: "Town hall: next lab", scheduledAt: ahead(60 * 26), phase: "scheduled", facilitatorId: "ag_wren", attendeeIds: ["ag_moss", "ag_keel", "ag_wren"], agenda: "Which lab should the town open next?", createdAt: ago(200) },
   { ...mtBase, id: "mt_ws_standup0", kind: "standup", buildingId: "bl_workshop", title: "Workshop standup", scheduledAt: ago(60 * 20), phase: "done", facilitatorId: "ag_keel", attendeeIds: ["ag_keel", "ag_pike"], agenda: "", createdAt: ago(60 * 20), startedAt: ago(60 * 20), endedAt: ago(60 * 19.6), decisions: [{ text: "Pike: fix the HUD on narrow screens.", assigneeId: "ag_pike", assignmentId: null }] },
   {
-    id: "mt_standup1", kind: "standup", buildingId: "bl_carbon", title: "Carbon Cycle standup", scheduledAt: ago(4), phase: "collecting", facilitatorId: "ag_moss",
+    withUserId: null, id: "mt_standup1", kind: "standup", buildingId: "bl_carbon", title: "Carbon Cycle standup", scheduledAt: ago(4), phase: "collecting", facilitatorId: "ag_moss",
     attendeeIds: ["ag_noor", "ag_tomas", "ag_mei", "ag_ravi", "ag_ingrid", "ag_moss"], agenda: "What each desk learned this week; what to ask next.",
     summaries: {
       ag_noor: "Airborne fraction steady at 0.44 ± 0.07 since 1959.\n2023 spike explained by El Niño land-sink drop.\nNext: test for a trend with ENSO removed.",

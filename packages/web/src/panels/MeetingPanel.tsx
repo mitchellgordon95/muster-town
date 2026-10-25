@@ -78,7 +78,9 @@ function MeetingView({ m }: { m: Meeting }) {
   const buildings = useTown((s) => s.buildings);
   const room = buildings.find((b) => (m.buildingId ? b.id === m.buildingId : b.kind === "town-hall"));
   const bName = m.buildingId ? room?.name : "Town Hall";
-  const canRun = store.can("meeting.facilitate", m.buildingId) || store.can("building.manage", m.buildingId);
+  const oneOnOne = m.kind === "one-on-one";
+  // a 1:1: the human who opened it ends it; only they and the manager speak
+  const canRun = oneOnOne ? !!me && me.user.id === m.withUserId : store.can("meeting.facilitate", m.buildingId) || store.can("building.manage", m.buildingId);
   const open = m.phase === "collecting" || m.phase === "discussing"; // while live, doc links open in a new tab so the meeting (and an unsent draft) stays put
   const discussing = m.phase === "discussing";
   const submitted = m.attendeeIds.filter((a) => m.summaries[a]).length;
@@ -97,18 +99,20 @@ function MeetingView({ m }: { m: Meeting }) {
     try { store.putMeeting(await api().sayMeeting(m.id, t)); } catch (e) { setText(t); store.toast((e as Error).message, "bad"); }
   };
   return (
-    <PanelShell icon={<Glyph kind="meeting" />} title={<>{m.title} <Pill tone={phaseTone(m.phase)}>{m.phase}</Pill></>} subtitle={`${m.kind} · ${bName ?? ""} · facilitated by ${nameOf(m.facilitatorId)}`}>
-      <ol className="phases">
-        {PHASES.map((p, i) => <li key={p} className={p === m.phase ? "on" : PHASES.indexOf(m.phase) > i ? "past" : ""}>{p}</li>)}
-      </ol>
+    <PanelShell icon={<Glyph kind="meeting" />} title={<>{m.title} <Pill tone={phaseTone(m.phase)}>{m.phase}</Pill></>} subtitle={oneOnOne ? `1:1 · ${bName ?? ""} · ${nameOf(m.withUserId)} and ★ ${nameOf(m.facilitatorId)}` : `${m.kind} · ${bName ?? ""} · facilitated by ${nameOf(m.facilitatorId)}`}>
+      {oneOnOne ? null : (
+        <ol className="phases">
+          {PHASES.map((p, i) => <li key={p} className={p === m.phase ? "on" : PHASES.indexOf(m.phase) > i ? "past" : ""}>{p}</li>)}
+        </ol>
+      )}
       {m.agenda ? <div className="goal-card"><span>Agenda</span><DocText text={m.agenda} newTab={open} /></div> : null}
       <div className="actions">
         {canRun && m.phase === "collecting" ? <Act tone="primary" run={async () => store.putMeeting(await api().startMeeting(m.id))}>Start discussion</Act> : null}
         {m.notesDocId ? <button className="btn" onClick={() => store.open({ kind: "library", docId: m.notesDocId! })}>Open notes</button> : null}
       </div>
-      {!open && m.phase !== "scheduled" && room ? <CallMeeting building={room} again /> : null}
+      {!open && m.phase !== "scheduled" && room && !oneOnOne ? <CallMeeting building={room} again /> : null}
 
-      <Section title={`Summaries (${submitted}/${m.attendeeIds.length})`}>
+      {oneOnOne ? null : <Section title={`Summaries (${submitted}/${m.attendeeIds.length})`}>
         <div className="summaries">
           {m.attendeeIds.map((aid) => {
             const a = agents[aid];
@@ -121,10 +125,10 @@ function MeetingView({ m }: { m: Meeting }) {
             );
           })}
         </div>
-      </Section>
+      </Section>}
 
       <Section title="Transcript">
-        {!m.transcript.length ? <Empty>{m.phase === "collecting" ? "Discussion starts as soon as every summary is in." : "Nobody has spoken."}</Empty> : (
+        {!m.transcript.length ? <Empty>{m.phase === "collecting" ? "Discussion starts as soon as every summary is in." : oneOnOne && open ? `Say what's on your mind; ${nameOf(m.facilitatorId)} answers here.` : "Nobody has spoken."}</Empty> : (
           <div className="transcript">
             {m.transcript.map((u, i) => {
               const isMe = u.speakerKind === "user" && u.speakerId === me?.user.id;
@@ -140,19 +144,19 @@ function MeetingView({ m }: { m: Meeting }) {
         )}
       </Section>
       {open && !me ? <SignInNote to="speak in the meeting" /> : null}
-      {open && me ? (
+      {open && me && (!oneOnOne || canRun) ? (
         <form className="chatbar" onSubmit={(e) => { e.preventDefault(); void say(); }}>
-          <textarea rows={2} value={text} disabled={!discussing} placeholder={discussing ? "Say something to the meeting…" : "Chat opens when the discussion starts…"} onChange={(e) => setText(e.target.value)}
+          <textarea rows={2} value={text} disabled={!discussing} placeholder={discussing ? (oneOnOne ? `Say something to ${nameOf(m.facilitatorId)}…` : "Say something to the meeting…") : "Chat opens when the discussion starts…"} onChange={(e) => setText(e.target.value)}
             onKeyDown={(e) => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); void say(); } }} />
           <button className="btn primary" disabled={!discussing || !text.trim()}>Say</button>
-          {canRun ? <Act tone="bad" run={async () => store.putMeeting(await api().endMeeting(m.id))}>End meeting</Act> : null}
+          {canRun ? <Act tone="bad" run={async () => store.putMeeting(await api().endMeeting(m.id))}>{oneOnOne ? "End 1:1" : "End meeting"}</Act> : null}
           <DraftDocs text={text} />
         </form>
       ) : null}
-      {open && canRun ? <div className="foot-note">The facilitator keeps listening while you talk. Press End meeting when you're done.</div> : null}
+      {open && canRun ? <div className="foot-note">{oneOnOne ? `${nameOf(m.facilitatorId)} answers each message and can assign the work you agree on. Press End 1:1 when you're done; the transcript is filed in the cabinet.` : "The facilitator keeps listening while you talk. Press End meeting when you're done."}</div> : null}
 
       <Section title="Decisions">
-        {!m.decisions.length ? <Empty>{m.phase === "done" ? "No decisions recorded." : "The facilitator records decisions at the end."}</Empty> : (
+        {!m.decisions.length ? <Empty>{m.phase === "done" ? "No decisions recorded." : oneOnOne ? `${nameOf(m.facilitatorId)} records the work you agree on here.` : "The facilitator records decisions at the end."}</Empty> : (
           <ol className="decisions">
             {m.decisions.map((d, i) => (
               <li key={i} className={d.supersededBy ? "superseded" : undefined} title={d.supersededBy ? `Superseded by decision ${d.supersededBy}` : undefined}>{d.supersedes ? <span className="muted">(replaces {d.supersedes}) </span> : null}<DocText text={d.text} newTab={open} />{d.assigneeId ? <> <button className="link" onClick={() => store.open({ kind: "agent", id: d.assigneeId!, tab: "Assignments" })}>→ {nameOf(d.assigneeId)}</button></> : null}</li>

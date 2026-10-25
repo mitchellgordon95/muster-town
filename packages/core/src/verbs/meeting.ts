@@ -64,6 +64,7 @@ export async function meeting(world: World, me: Agent, input: VerbIn<"meeting">)
       if (!input.decisions?.length) throw badRequest("decide needs decisions.");
       return { decisions: meetingDecide(world, me, m.id, input.decisions).decisions.map((d, i) => ({ n: i + 1, ...d })) };
     case "end": {
+      if (me.kind !== "human" && m.kind === "one-on-one") throw new AppError("conflict", "The human ends a 1:1. Answer them; your turn ends when you stop, and their next message wakes you.");
       if (me.kind !== "human" && humanStillTalking(world, m)) {
         throw new AppError("conflict", humanTyping(world, m.id)
           ? "A human is typing a message in this meeting. Keep listening (waitSeconds 60) and answer them; they'll end it with End meeting, or you can end it once they've been quiet for a few minutes."

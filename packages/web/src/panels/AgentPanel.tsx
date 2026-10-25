@@ -14,6 +14,7 @@ import { Act, Empty, KV, Pill, Section, StatusPill, clock, fmtTokens, timeAgo, u
 import { portraitUrl } from "../map/sprites";
 import { SignInNote } from "../auth/auth";
 import { slotsFull } from "../redeploy";
+import { canOneOnOne, openOneOnOne } from "./oneOnOne";
 
 type Msg = { role: "user" | "assistant"; text: string; ts: string };
 const chats = new Map<string, Msg[]>();
@@ -171,6 +172,7 @@ function TalkTab({ agent }: { agent: Agent }) {
   const manager = useTown((s) => (home?.managerAgentId ? s.agents[home.managerAgentId] : undefined));
   /** a resident other than its building's manager agent: no messages, its manager takes requests */
   const viaManager = agent.kind === "resident" && !!manager && manager.id !== agent.id && manager.status !== "retired" && manager.status !== "banned";
+  const isManager = agent.kind === "resident" && manager?.id === agent.id;
   const talkable = (agent.kind === "resident" || isVisitor) && !viaManager && agent.status !== "retired" && agent.status !== "banned" && !!me;
   const working = agent.status === "working";
   const s = useLoad(() => (isHuman || isService ? Promise.resolve(null) : api().session(agent.id)), [agent.id, working]);
@@ -226,10 +228,16 @@ function TalkTab({ agent }: { agent: Agent }) {
       {viaManager && manager ? (
         <div className="callout via-manager">
           <span>{agent.name} works from assignments and doesn't take messages. The Memory tab says what they know.</span>
-          <button type="button" className="btn sm primary" onClick={() => store.open({ kind: "agent", id: manager.id, tab: "Talk" })}>Talk to ★ {manager.name}</button>
+          {canOneOnOne(home?.id) ? <Act small tone="primary" run={() => openOneOnOne(home!.id)}>Talk to ★ {manager.name}</Act>
+            : <button type="button" className="btn sm primary" onClick={() => store.open({ kind: "agent", id: manager.id, tab: "Talk" })}>Talk to ★ {manager.name}</button>}
           {working && canControl ? <Act small tone="bad" run={async () => { await api().stop(agent.id); store.toast(`${agent.name} stopped`, "ok"); }}>Stop</Act> : null}
         </div>
-      ) : isHuman ? null : !me ? <SignInNote to={`talk to ${agent.name}`} /> : <Composer agent={agent} talkable={talkable} canControl={canControl} outOfBudget={agent.status === "out-of-budget" || (daily > 0 && agent.spentTokensToday >= daily)} log={log} setLog={setLog} />}
+      ) : isHuman ? null : !me ? <SignInNote to={`talk to ${agent.name}`} /> : isManager && canOneOnOne(home?.id) ? (
+        <div className="callout via-manager">
+          <span>{agent.name} is {home!.name}'s manager. Talk in a 1:1: they answer as you go and can assign the work you agree on.</span>
+          <Act small tone="primary" run={() => openOneOnOne(home!.id)}>Talk to ★ {agent.name}</Act>
+        </div>
+      ) : <Composer agent={agent} talkable={talkable} canControl={canControl} outOfBudget={agent.status === "out-of-budget" || (daily > 0 && agent.spentTokensToday >= daily)} log={log} setLog={setLog} />}
     </div>
   );
 }

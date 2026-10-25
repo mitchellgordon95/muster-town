@@ -336,6 +336,7 @@ function StandingRules({ buildingId, rules }: { buildingId: string; rules: strin
 export function joinMeeting(m: Meeting) {
   const hall = store.state.buildings.find((b) => b.kind === "town-hall");
   const room = `meeting-room:${m.buildingId ?? hall?.id ?? ""}`;
+  if (m.kind === "one-on-one") return store.open({ kind: "meeting", id: m.id });
   if (!store.walkTo(room, { kind: "meeting", id: m.id })) store.open({ kind: "meeting", id: m.id });
 }
 

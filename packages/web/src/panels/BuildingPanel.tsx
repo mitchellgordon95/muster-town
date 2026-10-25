@@ -12,6 +12,7 @@ import { PALETTES, portraitUrl } from "../map/sprites";
 import { AttendeePicker, useAttendees } from "./AttendeePicker";
 import { attendeeInput } from "./attendees";
 import { layoutEdit } from "../map/layoutEdit";
+import { canOneOnOne, openOneOnOne } from "./oneOnOne";
 
 export function BuildingPanel({ id, tab }: { id: string; tab?: string }) {
   const b = useTown((s) => s.buildings.find((x) => x.id === id));
@@ -69,6 +70,9 @@ function Overview({ b }: { b: SnapshotBuilding }) {
             </button>
           ) : null}
         </div>
+      ) : null}
+      {b.kind !== "town-hall" && b.managerAgentId && agents[b.managerAgentId] && canOneOnOne(b.id) ? (
+        <div className="actions"><Act tone="primary" run={() => openOneOnOne(b.id)}>Talk to ★ {agents[b.managerAgentId].name}</Act></div>
       ) : null}
       {store.can("building.manage", b.id) && !api().mock ? (
         <div className="walk-links">
@@ -131,13 +135,13 @@ function MeetingsTab({ b }: { b: SnapshotBuilding }) {
   const all = useTown((s) => s.meetings);
   const list = useMemo(() => Object.values(all).filter((m) => m.buildingId === b.id || (b.kind === "town-hall" && m.buildingId === null)).sort((x, y) => y.createdAt.localeCompare(x.createdAt)), [all, b]);
   const can = store.can("meeting.facilitate", b.id) || store.can("building.manage", b.id);
-  const [kind, setKind] = useState<Meeting["kind"]>(b.kind === "town-hall" ? "town-hall" : "standup");
+  const [kind, setKind] = useState<Exclude<Meeting["kind"], "one-on-one">>(b.kind === "town-hall" ? "town-hall" : "standup");
   const invite = useAttendees(b);
   return (
     <>
       {can ? (<>
         <div className="inline-form">
-          <select value={kind} onChange={(e) => setKind(e.target.value as Meeting["kind"])}>
+          <select value={kind} onChange={(e) => setKind(e.target.value as Exclude<Meeting["kind"], "one-on-one">)}>
             {(["standup", "retro", "planning", "town-hall"] as const).map((k) => <option key={k} value={k}>{k}</option>)}
           </select>
           <Act tone="primary" run={async () => {

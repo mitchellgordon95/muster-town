@@ -74,6 +74,7 @@ describe("role migration (v1.1 DB)", () => {
     db.exec("ALTER TABLE assignments DROP COLUMN lane; ALTER TABLE assignments DROP COLUMN grantId; ALTER TABLE assignments DROP COLUMN keyResultId; ALTER TABLE assignments DROP COLUMN gap; ALTER TABLE assignments DROP COLUMN heldReason"); // added by 030 (assignment lanes)
     db.exec("DROP TABLE skill_files; DROP TABLE skill_pins; DROP INDEX events_type"); // added by 026 (skills)
     db.exec("DROP TABLE secrets"); // added by 027 (collective secrets)
+    db.exec("ALTER TABLE meetings DROP COLUMN withUserId"); // added by 031 (one-on-one)
     db.exec("ALTER TABLE buildings DROP COLUMN furniture"); // added by 013 (movable furniture)
     db.exec("ALTER TABLE agents DROP COLUMN lastSeenAt"); // added by 015 (visitor presence)
     db.exec("ALTER TABLE assignments DROP COLUMN offered"); // added by 015

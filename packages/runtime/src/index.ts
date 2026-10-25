@@ -11,7 +11,7 @@ import { FlyApi } from "./desk/fly.ts";
 import { SandboxBackend } from "./desk/sandbox.ts";
 import { drainNudgeFacilitator, gitHead, isAncestor, makeRedeployer, type RedeployDeps, type RedeployRequest } from "./redeploy.ts";
 import { gitAuthEnv, noRepoTokenReason, onDeskActivity, repoToken, runDeskSession, type DeskSessionOptions } from "./desk/session.ts";
-import { newManageState, wakeManager } from "./manage.ts";
+import { closeQuietOneOnOnes, newManageState, wakeManager } from "./manage.ts";
 import { advanceCollecting, facilitate, newMeetingState, onMeetingMention, onMeetingStart } from "./meetings.ts";
 import { realSdk, type Sdk } from "./sdk.ts";
 import type { Ctx } from "./session.ts";
@@ -257,6 +257,10 @@ export function startRuntime(opts: RuntimeOptions): Runtime {
     else if (e.type === "meeting.phase" && p.phase === "collecting") later(() => onMeetingStart(ctx, mst, String(p.meetingId)), "meeting summaries");
     else if (e.type === "meeting.phase" && p.phase === "discussing") later(() => facilitate(ctx, mst, String(p.meetingId)), "facilitation");
     else if (e.type === "agent.mentioned" && p.meetingId) later(() => onMeetingMention(ctx, mst, String(p.meetingId), String(p.toId), String(p.byId), String(p.byKind)), "meeting reply");
+    // the manager's 1:1 opened, the human spoke, or it ended: start, feed or wrap up the manager's session
+    else if ((e.type === "meeting.created" || e.type === "meeting.utterance" || e.type === "meeting.phase") && e.buildingId && world.meetings.get(String(p.meetingId))?.kind === "one-on-one") {
+      const bid = e.buildingId; later(async () => wakeManagers(bid), "manager 1:1");
+    }
     // a resident's report landed in a managed building's in-tray: wake (or feed) the manager's team-lead session
     else if (e.type === "doc.created" && p.docType === "report" && e.buildingId) { const bid = e.buildingId; later(async () => wakeManagers(bid), "manager session"); }
     else if ((e.type === "agent.status" && (p.status === "stopped" || p.status === "banned")) || e.type === "agent.banned") {
@@ -284,7 +288,8 @@ export function startRuntime(opts: RuntimeOptions): Runtime {
       if (!mst.summarized.has(m.id)) void track(onMeetingStart(ctx, mst, m.id).catch(log("meeting summaries")));
     }
     advanceCollecting(ctx, mst);
-    for (const m of world.meetings.where("phase = 'discussing'")) {
+    // 1:1s have no facilitation session: the manager's manage session answers them (manage.ts)
+    for (const m of world.meetings.where("phase = 'discussing' AND kind != 'one-on-one'")) {
       if (!mst.facilitated.has(m.id)) void track(facilitate(ctx, mst, m.id).catch(log("facilitation")));
     }
   }
@@ -370,6 +375,7 @@ export function startRuntime(opts: RuntimeOptions): Runtime {
     try { world.budget.resumeEligible(); } catch (e) { log("budget resume")(e); }
     try { scheduleMeetings(t); } catch (e) { log("meetings")(e); }
     try { checkWaits(world, d); } catch (e) { log("waits")(e); }
+    try { closeQuietOneOnOnes(ctx); } catch (e) { log("quiet 1:1s")(e); }
     await backendReady;
     if (stopped) return;
     // docker liveness while on desks; the host fallback re-probes in scheduleWork/startWork

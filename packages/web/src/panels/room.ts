@@ -2,7 +2,8 @@
 import type { Meeting } from "@muster-town/schema";
 
 export function roomMeetings(meetings: Meeting[], buildingId: string, isTownHall: boolean): { live: Meeting | null; last: Meeting | null } {
-  const inRoom = meetings.filter((m) => m.buildingId === buildingId || (isTownHall && m.buildingId === null))
+  // a 1:1 happens at the manager's desk, not in the room
+  const inRoom = meetings.filter((m) => m.kind !== "one-on-one").filter((m) => m.buildingId === buildingId || (isTownHall && m.buildingId === null))
     .sort((a, b) => b.createdAt.localeCompare(a.createdAt));
   return { live: inRoom.find((m) => m.phase !== "done" && m.phase !== "cancelled") ?? null, last: inRoom[0] ?? null };
 }
