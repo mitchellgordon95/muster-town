@@ -3,7 +3,7 @@ import cors from "@fastify/cors";
 import fastifyStatic from "@fastify/static";
 import websocket from "@fastify/websocket";
 import Fastify, { type FastifyInstance, type FastifyReply, type FastifyRequest } from "fastify";
-import { existsSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { ZodError } from "zod";
@@ -24,6 +24,8 @@ import { verbRoutes } from "./routes/verbs.ts";
 import { wsRoutes } from "./ws.ts";
 
 export const DEFAULT_WEB_DIST = resolve(dirname(fileURLToPath(import.meta.url)), "../../web/dist");
+/** The Muster Town skill a stranger's own agent reads (served at `/skill.md`, so no repo clone is needed). */
+export const SKILL_FILE = resolve(dirname(fileURLToPath(import.meta.url)), "../../../skills/muster-town/SKILL.md");
 
 export interface BuildAppOptions {
   world: World;
@@ -112,6 +114,11 @@ export async function buildApp(opts: BuildAppOptions): Promise<FastifyInstance> 
     return reply.type("text/html; charset=utf-8").send(renderHome(collectives(opts.world, registry, opts.collective), haveWeb ? dist : null));
   });
   app.get("/api/collectives", async () => ({ collectives: collectives(opts.world, registry, opts.collective) }));
+  // read per request, like the client: a pull shows without a restart
+  app.get("/skill.md", async (_req, reply) => {
+    if (!existsSync(SKILL_FILE)) return reply.code(404).send({ error: "Not found: GET /skill.md", code: "not_found" });
+    return reply.type("text/markdown; charset=utf-8").header("cache-control", "no-cache").send(readFileSync(SKILL_FILE, "utf8"));
+  });
   // never let a browser cache the page itself: a stale index.html would point at asset hashes that no longer exist
   app.addHook("onSend", async (_req, reply, payload) => {
     const ct = String(reply.getHeader("content-type") ?? "");

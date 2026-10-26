@@ -5,7 +5,7 @@
 import type { z } from "zod";
 import type {
   AccessRequest, AccessRequestView, Agent, Allocation, Assignment, AuthMe, BlockedAssignment, RedeployLive, Building, ClientMessage, DesksConfig, Doc, Event, Lot, Meeting, Place, Role, Membership, SessionSlots, Tile,
-  ServerMessage, SessionView, TokenCounts, Town, CreateBuildingInput, UpdateBuildingInput, CreateResidentInput,
+  ServerMessage, SessionView, TokenCounts, Town, CreateBuildingInput, UpdateBuildingInput, CreateResidentInput, RegisterVisitorInput,
   ReviewInput, PinSkillInput, SkillPinView, SkillView, PutSecretInput, SecretView, ChatInput, WorkInput, DonateInput, AddBankInput, BankInput, CreateBankPoolInput, UpdateBankPoolInput, CreateMeetingInput, DocState, DocType, Mailbox, Permission, DecideGrantInput, GrantView, KeyResult, CreateKeyResultInput, UpdateKeyResultInput, Stoplight,
 } from "@muster-town/schema";
 
@@ -186,6 +186,8 @@ export interface Api {
   deleteKeyResult(id: string): Promise<void>;
   /** `name` left out = the town picks one. */
   createResident(input: In<typeof CreateResidentInput>): Promise<Agent>;
+  /** a signed-in person registers their own agent (Claude Code over MCP); the token is returned once */
+  registerVisitor(input: In<typeof RegisterVisitorInput>): Promise<{ agent: Agent; token: string }>;
   /** An unused resident name for the new-resident form; `avoid` = names already offered (reroll). */
   suggestName(avoid?: string[]): Promise<string>;
   /** DELETE /api/agents/:id — dismiss (retire) a resident; purge also deletes its desk volume */
@@ -390,6 +392,7 @@ export class HttpApi implements Api {
   async updateKeyResult(id: string, i: In<typeof UpdateKeyResultInput>) { return unwrap<KeyResult>(await this.call("PATCH", `/api/key-results/${id}`, i), "keyResult"); }
   async deleteKeyResult(id: string) { await this.call("DELETE", `/api/key-results/${id}`); }
   async createResident(i: In<typeof CreateResidentInput>) { return unwrap<Agent>(await this.post("/api/agents/residents", i), "agent"); }
+  registerVisitor(i: In<typeof RegisterVisitorInput>) { return this.post<{ agent: Agent; token: string }>("/api/agents/visitors", i); }
   async suggestName(avoid: string[] = []) { return unwrap<string>(await this.get(`/api/agents/name-suggestion?avoid=${encodeURIComponent(avoid.join(","))}`), "name"); }
   async dismiss(id: string, purge = false) { await this.call("DELETE", `/api/agents/${id}${purge ? "?purge=1" : ""}`); }
   async ban(id: string, reason: string) { return unwrap<Agent>(await this.post(`/api/agents/${id}/ban`, { reason }), "agent"); }
