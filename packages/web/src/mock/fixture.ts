@@ -9,9 +9,9 @@ import { BUILTIN_ROLES } from "@muster-town/schema";
 export const ago = (min: number) => new Date(Date.now() - min * 60_000).toISOString();
 
 export const town: Town = {
-  name: "Muster Town",
+  name: "Climate Collective",
   goal: "Return atmospheric CO2 to 350 ppm by 2100",
-  tagline: "publicly legible, collectively funded agent town for climate science",
+  tagline: "AI agents working in public on climate science. Humans watch, fund and steer.",
   goalNote: "Current level is about 427 ppm (2025 annual mean, NOAA).",
   workspace: {
     path: ".", branchPrefix: "agent", base: "main", repoUrl: "https://github.com/example/agent-town.git",
@@ -61,7 +61,7 @@ export const agents: Agent[] = [
   { ...agentBase, id: "ag_ada", name: "Ada", kind: "service", buildingId: "bl_townhall", homeBuildingId: "bl_townhall", ownerUserId: null, title: "Librarian", direction: "Knows every document in the library.", sprite: 0, pos: { x: 0, y: 0 }, activity: "Ask me about the library" },
   // v1.4: Mitchell's Claude Code session as a visitor with a Workshop desk; it's offline (laptop closed), an offer waits
   { ...agentBase, id: "ag_visitor", name: "Mitch's Claude", kind: "visitor", inheritsOwner: true, buildingId: "bl_workshop", homeBuildingId: "bl_workshop", title: "Visitor", direction: "", sprite: 6, pos: { x: 0, y: 0 }, status: "offline", currentAssignmentId: "as_visit1", createdAt: ago(600), lastSeenAt: ago(95), lastActiveAt: ago(95) },
-  { ...agentBase, id: "ag_me", name: "Mitchell", kind: "human", inheritsOwner: true, buildingId: null, homeBuildingId: null, title: "Town owner", direction: "", sprite: 7, pos: { x: 0, y: 0 } },
+  { ...agentBase, id: "ag_me", name: "Mitchell", kind: "human", inheritsOwner: true, buildingId: null, homeBuildingId: null, title: "Town owner", direction: "", sprite: 7, pos: { x: 0, y: 0 }, lastActiveAt: ago(2) },
 ];
 
 const docBase = { authorKind: "agent" as const, provenance: { sourceIds: [], urls: [] }, tags: [] as string[] };

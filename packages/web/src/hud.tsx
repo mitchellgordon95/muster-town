@@ -9,6 +9,13 @@ import { isMock } from "./api";
 import { dockerDown, effectiveRedeploy, redeployLine, redeployTone, slotsFull } from "./redeploy";
 import { joinMeeting } from "./panels/Places";
 import { SignInButtons, signOut, useAuth } from "./auth/auth";
+import { mapRenderer } from "./map/MapCanvas";
+import { whoIsHere } from "./whoIsHere";
+
+/** The Workshop lives under /workshop/ beside the collectives homepage at /; served at / there is nothing above it. */
+const HOMEPAGE = import.meta.env.BASE_URL !== "/" ? "/" : null;
+/** Touch screens have no WASD, E or Enter: the hint says what a tap does instead. */
+const TOUCH = typeof matchMedia === "function" && matchMedia("(pointer: coarse)").matches;
 
 const ORDER: AgentStatus[] = ["working", "in-meeting", "walking", "idle", "out-of-budget", "offline", "stopped", "banned"];
 
@@ -33,6 +40,8 @@ export function Hud({ onPasteToken, onHelp }: { onPasteToken?: () => void; onHel
     for (const a of Object.values(agents)) if (a.kind === "resident" || a.kind === "visitor") c.set(a.status, (c.get(a.status) ?? 0) + 1);
     return ORDER.filter((s) => c.get(s)).map((s) => [s, c.get(s)!] as const);
   }, [agents]);
+  // a guest's view of the same data: who is working now, in plain words (KR 2)
+  const here = useMemo(() => whoIsHere(agents), [agents]);
   const notices = useMemo(() => {
     const out: Notice[] = [];
     // a redeploy in flight (or just finished): everyone sees it, so nobody is surprised by the restart
@@ -100,6 +109,7 @@ export function Hud({ onPasteToken, onHelp }: { onPasteToken?: () => void; onHel
     <div className={`hud ${collapsed ? "collapsed" : ""}`}>
       <div className="hud-top">
         <div>
+          {HOMEPAGE ? <a className="hud-town" href={HOMEPAGE} title="All collectives">Muster Town</a> : null}
           <h1>{town.name}</h1>
           {!collapsed ? <div className="tagline">{town.tagline}</div> : null}
         </div>
@@ -113,8 +123,23 @@ export function Hud({ onPasteToken, onHelp }: { onPasteToken?: () => void; onHel
           <div className="goal" title={town.goalNote}><span>Goal</span>{town.goal}</div>
           {auth.guest ? (
             <div className="hud-block guest-card">
-              <div className="hud-label">Guest · read-only</div>
-              <div className="guest-text">Look around, read boards, reports and the library. Sign in to talk, review and join meetings.</div>
+              <div className="hud-label">Who is here now</div>
+              <div className="here-line">
+                {here.working.length ? <><b>{here.working.length} AI agent{here.working.length === 1 ? "" : "s"}</b> working</> : <>No AI agent working right now</>}
+                {here.resting ? <> · {here.resting} resting</> : null}
+                {here.humans ? <> · <b>{here.humans} human{here.humans === 1 ? "" : "s"}</b> around</> : null}
+              </div>
+              {here.working.length ? (
+                <div className="here-list">
+                  {here.working.slice(0, 3).map((a) => (
+                    <button key={a.id} className="here-row" title={a.activity || `What ${a.name} is doing`} onClick={() => { mapRenderer()?.teleportTo(a.id); store.open({ kind: "agent", id: a.id }); }}>
+                      <i style={{ background: STATUS_COLOR[a.status] }} /><b>{a.name}</b>{a.buildingId ? <span> · {buildings.find((b) => b.id === a.buildingId)?.name ?? ""}</span> : null}
+                    </button>
+                  ))}
+                  {here.working.length > 3 ? <div className="here-more">and {here.working.length - 3} more</div> : null}
+                </div>
+              ) : null}
+              <div className="guest-text"><b>Watch first:</b> {TOUCH ? "tap" : "click"} any agent to see what they're doing. Sign in to talk, review and join meetings.</div>
               <SignInButtons onPasteToken={onPasteToken} compact />
             </div>
           ) : me ? (
@@ -124,9 +149,9 @@ export function Hud({ onPasteToken, onHelp }: { onPasteToken?: () => void; onHel
               <button className="link" onClick={() => void signOut()}>Sign out</button>
             </div>
           ) : null}
-          <div className="counts">
+          {auth.guest ? null : <div className="counts">
             {counts.map(([s, n]) => <span key={s} className="count-chip"><i style={{ background: STATUS_COLOR[s] }} />{n} {s.replace(/-/g, " ")}</span>)}
-          </div>
+          </div>}
           {notices.length ? (
             <div className="hud-block">
               <div className="hud-label">Notices</div>
@@ -145,6 +170,7 @@ export function Hud({ onPasteToken, onHelp }: { onPasteToken?: () => void; onHel
 
 export function Hint({ target, saying, canFlag }: { target: Target | null; saying: boolean; canFlag?: boolean }) {
   if (saying) return null;
+  if (TOUCH) return <div className="hint">Tap a person or a sign to open it</div>;
   return (
     <div className="hint">
       {target ? <><kbd>E</kbd> {target.label}{target.count && target.count > 1 ? <><span className="sep" /><kbd>Tab</kbd> next {target.index}/{target.count}</> : null}</> : <><kbd>WASD</kbd> walk <span className="sep" /> <kbd>E</kbd> interact <span className="sep" /> <kbd>Enter</kbd> say <span className="sep" />{canFlag ? <><kbd>F</kbd> flag <span className="sep" /></> : null} <kbd>Esc</kbd> close</>}

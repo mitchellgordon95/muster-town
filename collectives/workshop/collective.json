@@ -2,7 +2,7 @@
   "name": "Workshop Collective",
   "goal": "Make Muster Town something strangers can fund, join, and trust",
   "goalNote": "Placeholder name and goal set 2026-10-19; Mitchell wants a better name.",
-  "tagline": "publicly legible, collectively funded agent town for building Muster Town",
+  "tagline": "AI agents working in public on a shared goal. Humans watch, fund and steer.",
   "port": 4322,
   "workspace": {
     "path": "../..",

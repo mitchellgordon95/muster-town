@@ -70,6 +70,8 @@ kbd { font-family: var(--mono); font-size: 11px; background: #2a2d3a; border: 1p
 .hud-top { display: flex; align-items: flex-start; gap: 8px; }
 .hud-top > div { flex: 1; }
 .hud h1 { font-size: 15px; margin: 0; letter-spacing: .2px; }
+.hud-town { display: block; font-size: 10px; text-transform: uppercase; letter-spacing: .1em; color: var(--faint); font-weight: 700; text-decoration: none; margin-bottom: 1px; }
+.hud-town:hover { color: var(--accent); }
 .tagline { color: var(--muted); font-size: 12px; margin-top: 2px; }
 .conn { width: 8px; height: 8px; border-radius: 50%; margin-top: 6px; background: var(--warn); flex: none; }
 .conn.open { background: var(--ok); } .conn.closed { background: var(--bad); }
@@ -379,7 +381,7 @@ kbd { font-family: var(--mono); font-size: 11px; background: #2a2d3a; border: 1p
 @media (max-width: 760px) {
   .panel { width: 100% !important; }
   .minimap { display: none; }
-  .hud { width: calc(100% - 24px); }
+  .hud { width: calc(100% - 24px); max-height: 58%; }
 }
 
 /* v1.2 places */
@@ -450,6 +452,17 @@ kbd { font-family: var(--mono); font-size: 11px; background: #2a2d3a; border: 1p
 .signin-note > span:first-child { color: var(--text); }
 .login form .btn { justify-content: center; }
 .guest-card { margin-bottom: 8px; }
+.here-line { font-size: 12.5px; color: var(--muted); margin-bottom: 6px; }
+.here-line b { color: var(--text); }
+.here-list { display: flex; flex-direction: column; gap: 3px; margin-bottom: 8px; }
+.here-row { display: flex; align-items: center; gap: 6px; width: 100%; text-align: left; background: #1e2029; border: 1px solid var(--line); border-radius: 6px; padding: 4px 8px; font-size: 12.5px; color: var(--muted); cursor: pointer; }
+.here-row:hover { border-color: var(--line-2); background: #252836; }
+.here-row i { width: 7px; height: 7px; border-radius: 50%; flex: none; }
+.here-row b { color: var(--text); }
+.here-row span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.here-more { font-size: 11.5px; color: var(--faint); padding-left: 8px; }
+.guest-card .guest-text b { color: var(--text); }
+.hiw-byoa { margin: 10px 0 0; font-size: 12px; color: var(--ink-2); }
 /* Bank: top-contributors leaderboard (gold for the podium) */
 .leaderboard { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 4px; }
 .lb-row { display: grid; grid-template-columns: 28px minmax(0, 9em) 1fr auto; align-items: center; gap: 8px; padding: 5px 8px; border-radius: var(--r); background: #1d1f28; font-size: 13px; }
@@ -520,7 +533,12 @@ kbd { font-family: var(--mono); font-size: 11px; background: #2a2d3a; border: 1p
   .hiw h2 { font-size: 28px; }
 }
 @media (max-width: 420px) {
-  .hiw-scene { box-sizing: border-box; width: 100%; height: auto; }
+  .hiw-scene { box-sizing: border-box; width: 72%; height: auto; }
+  .hiw h2 { font-size: 24px; }
+  .hiw-sub { margin-bottom: 8px; }
+  .hiw-foot { flex-wrap: wrap; }
+  .hiw-dots { flex-basis: 100%; justify-content: center; margin-bottom: 4px; }
+  .hiw-foot .btn { flex: 1; justify-content: center; }
 }
 /* skills (library Skills tab, skill doc details) */
 .skill-row .skill-desc { font-size: 12.5px; color: var(--muted); margin: 2px 0 4px; white-space: normal; text-align: left; }
