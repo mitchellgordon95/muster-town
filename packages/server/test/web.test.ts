@@ -102,6 +102,22 @@ describe("collectives homepage and /api/collectives", () => {
     await app.close();
   });
 
+  it("a second collective matches its own entry by slug: listed once, opening here; the Workshop's relative url is left out", async () => {
+    writeFileSync(reg, JSON.stringify({ collectives: [
+      { slug: "workshop", name: "Workshop Collective", url: "/workshop/" },
+      { slug: "garden", name: "Old", url: "http://localhost:4323/workshop/" },
+      { slug: "far", name: "Far", url: "https://far.example/workshop/" },
+    ] }));
+    const app = await buildApp({ world, webDist: false, registry: reg, collective: "garden" });
+    const { collectives } = (await app.inject("/api/collectives")).json();
+    expect(collectives.map((c: { slug: string; name: string; url: string }) => [c.slug, c.name, c.url])).toEqual([
+      ["garden", "Live Name", "/workshop/"],
+      ["far", "Far", "https://far.example/workshop/"],
+    ]);
+    expect((await app.inject("/")).body.match(/data-preview/g)).toHaveLength(1);
+    await app.close();
+  });
+
   it("a missing or invalid registry lists just this server's collective", async () => {
     for (const path of [join(dir, "nope.json"), reg]) {
       if (path === reg) writeFileSync(reg, "{ not json");
