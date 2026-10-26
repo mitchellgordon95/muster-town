@@ -53,6 +53,9 @@ export function blockedBy(world: World, a: Assignment, at: Date = new Date()): B
     const state = !g ? "doesn't exist" : g.status === "checkpoint" ? "at checkpoint" : g.status === "proposed" || g.status === "countered" || g.status === "draft" ? "not funded yet" : g.status;
     return { kind: "grant", targetId: hold.grantId ?? null, ...townHall, text: `grant ${hold.grantId ?? "(none)"} ${state}` };
   }
+  if (hold.kind === "done") {
+    return { kind: "grant", targetId: hold.grantId ?? null, ...townHall, text: `done: grant proposal ${hold.grantId} names its key result` };
+  }
   if (hold.kind === "exploration") {
     return { kind: "exploration", targetId: a.buildingId, ...townHall, text: `exploration allowance spent (${short(hold.used ?? 0)} of ${short(hold.allowance ?? 0)} today, resets at 00:00 UTC)` };
   }

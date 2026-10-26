@@ -216,6 +216,11 @@ export function canFacilitate(world: World, actor: Agent, m: Meeting): boolean {
  * the new assignee (if any) gets a fresh one. The old decision stays in the record, marked `supersededBy`.
  */
 export function meetingDecide(world: World, actor: Agent | null, meetingId: string, decisions: Meeting["decisions"]): Meeting {
+  // one transaction: a decision whose lane is refused (goal-directed budgets) changes nothing
+  return world.transaction(() => decideNow(world, actor, meetingId, decisions));
+}
+
+function decideNow(world: World, actor: Agent | null, meetingId: string, decisions: Meeting["decisions"]): Meeting {
   const m = world.meetings.require(meetingId, "meeting");
   if (actor && !canFacilitate(world, actor, m)) throw forbidden("meeting.facilitate", "Only the facilitator can record decisions.");
   // A human may press End while the facilitator is still listening; give the facilitator a short grace window to
@@ -263,7 +268,8 @@ export function meetingDecide(world: World, actor: Agent | null, meetingId: stri
       for (const pending of world.docs.where("authorId = ? AND type = 'report' AND decision = 'pending'", [out.assigneeId], "ORDER BY createdAt")) {
         applyDecision(world, pending.id, "approve", `Superseded by a decision in meeting "${m.title}": ${d.text.split("\n")[0].slice(0, 160)}`, by);
       }
-      const a = createAssignment(world, { agentId: out.assigneeId, title, description: `${d.text}\n\nDecided in meeting "${m.title}".`, createdBy: by, fromMeetingId: m.id, waitFor: d.waitFor ? validateWait(world, d.waitFor) : null });
+      const a = createAssignment(world, { agentId: out.assigneeId, title, description: `${d.text}\n\nDecided in meeting "${m.title}".`, createdBy: by, fromMeetingId: m.id, waitFor: d.waitFor ? validateWait(world, d.waitFor) : null,
+        lane: { lane: d.lane, grantId: d.grantId, keyResultId: d.keyResultId, gap: d.gap, sourceId: d.sourceId } });
       if (world.agents.get(out.assigneeId)?.status === "stopped") world.setStatus(out.assigneeId, "idle", `${world.nameOf(out.assigneeId)} was resumed by a decision in "${m.title}"`);
       out = { ...out, assignmentId: a.id };
     }

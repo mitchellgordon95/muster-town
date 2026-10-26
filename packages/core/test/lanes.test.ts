@@ -295,3 +295,53 @@ describe("goal-directed budgets: a decision on a proposal wakes the manager (1:1
     expect(world.assignments.where("agentId = ? AND status = 'pending'", [mei.id])).toHaveLength(0);
   });
 });
+
+describe("goal-directed budgets: human-directed work (1:1 mt_ryw7ejayvu)", () => {
+  const base = (agentId: string) => ({ agentId, title: "t", description: "d" });
+
+  it("an agent creates directed work only when it cites a human source; it is stored and never held by the allowance", async () => {
+    const { world, mei, noor, admin, spend } = setup();
+    await expect(world.verbs.assign(mei, { ...base(noor.id), lane: "directed" })).rejects.toThrow(/goal-directed.*agents can't create directed work\.$/);
+    const own = await world.verbs.write(mei, { title: "my note", body: "x", type: "note", state: "building" });
+    await expect(world.verbs.assign(mei, { ...base(noor.id), lane: "directed", sourceId: own.id })).rejects.toThrow(/isn't human-authored/);
+    const flag = world.ops.plantFlag(admin, LAB, "Make the banner readable");
+    const r = await world.verbs.assign(mei, { ...base(noor.id), lane: "directed", sourceId: flag.id, gap: "the banner is unreadable" });
+    const a = world.assignments.require(r.assignmentId);
+    expect(a).toMatchObject({ lane: "directed", sourceId: flag.id, gap: "the banner is unreadable", keyResultId: null });
+    // the exploration allowance doesn't hold it; its spend lands in the directed bucket
+    world.ops.updateBuilding(admin, LAB, { explorationTokensPerDay: 1000 });
+    spend(noor.id, 1000, "exploration");
+    expect(world.budget.canStart(noor.id, a)).toBe(true);
+    world.sessions.upsert({ ...world.sessions.where("agentId = ?", [noor.id])[0]!, id: newId("se"), lane: "directed" });
+    expect(world.grantDesk.directed(LAB).spentTodayTokens).toBe(1000);
+    expect(world.grantDesk.laneBudgets().find((b) => b.buildingId === LAB)).toMatchObject({ exploration: { spentTodayTokens: 1000, allowanceTokens: 1000 }, directed: { spentTodayTokens: 1000 } });
+    expect(keyResultsBlock(world, world.buildings.require(LAB), a)).toMatch(/Directed today: 1,000 tokens[\s\S]*This session: directed \(a human asked for it: dc_/);
+    // a review continue may name the lane too
+    expect((await world.verbs.assign(mei, { ...base(noor.id), sourceId: flag.id })).lane).toBe("directed");
+  });
+
+  it("a meeting is a human source only if a human took part; its decisions record it as their source", async () => {
+    const { world, mei, noor, admin } = setup();
+    const m = world.ops.createMeeting(admin, { kind: "standup", buildingId: LAB, startNow: true });
+    await expect(world.verbs.assign(mei, { ...base(noor.id), lane: "directed", sourceId: m.id })).rejects.toThrow(/had no human in it/);
+    const decide = (text: string, extra = {}) => world.ops.meetingDecide(mei, m.id, [{ text, assigneeId: noor.id, assignmentId: null, ...extra }]);
+    // meeting decisions stay exempt (directed); without a human in the meeting they cite no source
+    expect(world.assignments.require(decide("no lane").decisions[0]!.assignmentId!)).toMatchObject({ lane: "directed", sourceId: null });
+    world.meetings.upsert({ ...world.meetings.require(m.id), transcript: [{ speakerId: "us_x", speakerKind: "user", text: "please do X", at: nowIso() }] });
+    const out = decide("do X");
+    expect(world.assignments.require(out.decisions[1]!.assignmentId!)).toMatchObject({ lane: "directed", sourceId: m.id });
+    expect((await world.verbs.assign(mei, { ...base(noor.id), lane: "directed", sourceId: m.id })).lane).toBe("directed");
+  });
+
+  it("directed work naming a key result runs until a grant proposal names it", async () => {
+    const { world, mei, noor, admin, krs } = setup();
+    const flag = world.ops.plantFlag(admin, LAB, "Look at the banner KR");
+    const r = await world.verbs.assign(mei, { ...base(noor.id), lane: "directed", sourceId: flag.id, keyResultId: krs[1]!.id });
+    const a = world.assignments.require(r.assignmentId);
+    expect(world.budget.canStart(noor.id, a)).toBe(true);
+    const g = world.grantDesk.propose(mei, world.grantDesk.create(mei, LAB, { keyResultId: krs[1]!.id, objective: "o", stopCondition: "s", askTokens: 1 }).id);
+    expect(world.budget.canStart(noor.id, a)).toBe(false);
+    expect(world.assignments.require(a.id).heldReason).toMatch(new RegExp(`grant proposal names its key result \\(${g.id}`));
+    await expect(world.verbs.assign(mei, { ...base(noor.id), lane: "directed", sourceId: flag.id, keyResultId: krs[1]!.id })).rejects.toThrow(/already has a grant proposal/);
+  });
+});

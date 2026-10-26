@@ -29,7 +29,9 @@ export interface ExplorationBudget { allowanceTokens: number; spentTodayTokens: 
 /** A goal key result with the live (funded or checkpoint) grant working on it, if any. */
 /** A goal key result as the API returns it: the live grant on it, and the names of who wrote / last edited it (null = unknown or never). */
 export type GoalKeyResult = KeyResult & { grantId: string | null; createdByName: string | null; editedByName: string | null };
-export interface GrantBoard { goal: string; keyResults: GoalKeyResult[]; blocked: string | null; stoplight: Stoplight | null; grants: GrantView[]; proposal: GrantView | null; exploration: ExplorationBudget }
+/** Today's (UTC) spend on directed work (a human asked for it): metered in its own bucket, never held by the allowance. */
+export interface DirectedBudget { spentTodayTokens: number }
+export interface GrantBoard { goal: string; keyResults: GoalKeyResult[]; blocked: string | null; stoplight: Stoplight | null; grants: GrantView[]; proposal: GrantView | null; exploration: ExplorationBudget; directed: DirectedBudget }
 export interface BlockedBuilding { buildingId: string; name: string; reason: string; since: string | null }
 
 /**
@@ -159,10 +161,26 @@ The open proposal ${open.id} ("${open.objective}") names no goal key result yet;
     const split = BUDGET_POLICY.explorationSplitAcrossPool ? Math.max(1, this.world.bank.buildingsIn(pool).filter((x) => x.kind !== "town-hall").length) : 1;
     const allowanceTokens = b.explorationTokensPerDay ?? (b.kind === "town-hall" ? 0
       : Math.floor(this.world.bank.poolDailyInflow(pool) * EXPLORATION_SHARE / split));
+    return { allowanceTokens, spentTodayTokens: this.laneSpentToday(buildingId, "exploration") };
+  }
+
+  /** Today's (UTC) directed spend of the building's residents (1:1 mt_ryw7ejayvu: its own bucket, next to exploration). */
+  directed(buildingId: string): DirectedBudget {
+    this.world.buildings.require(buildingId, "building");
+    return { spentTodayTokens: this.laneSpentToday(buildingId, "directed") };
+  }
+
+  /** Session tokens in one lane of the building's residents since 00:00 UTC. */
+  private laneSpentToday(buildingId: string, lane: "exploration" | "directed"): number {
     const day = new Date(); day.setUTCHours(0, 0, 0, 0);
-    const spentTodayTokens = this.adjustedSum(this.world.sessions.where(
-      "lane = 'exploration' AND startedAt >= ? AND agentId IN (SELECT id FROM agents WHERE homeBuildingId = ?)", [day.toISOString(), buildingId]));
-    return { allowanceTokens, spentTodayTokens };
+    return this.adjustedSum(this.world.sessions.where(
+      "lane = ? AND startedAt >= ? AND agentId IN (SELECT id FROM agents WHERE homeBuildingId = ?)", [lane, day.toISOString(), buildingId]));
+  }
+
+  /** GET /api/health's `budgets`: each goal-directed building's exploration and directed spend today. */
+  laneBudgets(): { buildingId: string; name: string; exploration: ExplorationBudget; directed: DirectedBudget }[] {
+    return this.world.buildings.where("budgetMode = 'goal-directed'", [], "ORDER BY rowid")
+      .map((b) => ({ buildingId: b.id, name: b.name, exploration: this.exploration(b.id), directed: this.directed(b.id) }));
   }
 
   /** GET /api/buildings/:id/board's budget part: live grants, the open proposal, exploration today. */
@@ -172,7 +190,7 @@ The open proposal ${open.id} ("${open.objective}") names no goal key result yet;
     const open = this.world.grants.first(`buildingId = ? AND status IN ('proposed', 'countered')`, [buildingId], "ORDER BY updatedAt DESC");
     return {
       goal: b.goal, keyResults: this.keyResults(buildingId), blocked: this.blocked(b), stoplight: this.stoplight(b),
-      grants: live.map((g) => this.view(g)), proposal: open ? this.view(open) : null, exploration: this.exploration(buildingId),
+      grants: live.map((g) => this.view(g)), proposal: open ? this.view(open) : null, exploration: this.exploration(buildingId), directed: this.directed(buildingId),
     };
   }
 
@@ -342,7 +360,7 @@ The open proposal ${open.id} ("${open.objective}") names no goal key result yet;
     const reports = this.world.assignments.where("grantId = ? AND reportId IS NOT NULL", [g.id], "ORDER BY updatedAt").map((a) => a.reportId!);
     createAssignment(this.world, {
       agentId: manager.id, buildingId: g.buildingId, front: true, createdBy: { kind: "system", id: "system" },
-      laneOverride: { lane: "grant", grantId: g.id, keyResultId: null, gap: null },
+      laneOverride: { lane: "grant", grantId: g.id, keyResultId: null, gap: null, sourceId: null },
       title: `Write the checkpoint for ${g.objective}`.slice(0, 160),
       description: `Grant ${g.id} "${g.objective}" crossed ${at * 100}% of its tokens: ${fmt(spent)} of ${fmt(g.grantTokens ?? 0)} spent. New sessions on it are held until a human continues, adjusts or cuts it in the Town Hall in-tray; this assignment runs anyway, charged to the grant.
 
@@ -375,7 +393,7 @@ Stop condition: ${g.stopCondition}
     if (decision === "funded") {
       const plan = g.testingPlan.map((t) => `- ${t.text} (how to check: ${t.howToCheck})`).join("\n");
       createAssignment(this.world, {
-        ...base, laneOverride: { lane: "grant", grantId: g.id, keyResultId: g.keyResultId, gap: null },
+        ...base, laneOverride: { lane: "grant", grantId: g.id, keyResultId: g.keyResultId, gap: null, sourceId: null },
         title: `Grant ${g.id} funded: assign its first step or take it yourself`.slice(0, 160),
         description: `${who} funded grant ${g.id} "${g.objective}" with ${fmt(g.grantTokens ?? 0)} tokens.${said}
 

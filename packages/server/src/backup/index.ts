@@ -3,7 +3,7 @@
  * boot when the last copy is older than 24 h, the server copies the live database with SQLite's online backup API
  * (WAL-safe), checks the copy, gzips and encrypts it (crypto.ts) and PUTs it to the S3 bucket `fly storage create`
  * configured as `town/<YYYY-MM-DD>.db.gz.enc`, keeping the last 30 objects and the last local copy. Its state is one
- * row (migration 038) that `GET /api/health` shows read-only. Without the five env vars it is inert: `backup: null`.
+ * row (migration 039) that `GET /api/health` shows read-only. Without the five env vars it is inert: `backup: null`.
  */
 import { sealCopy, type DB } from "@muster-town/core";
 import { mkdirSync, readdirSync, readFileSync, renameSync, rmSync, statSync } from "node:fs";

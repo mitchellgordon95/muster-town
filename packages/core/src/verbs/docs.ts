@@ -1,4 +1,4 @@
-import { BOARD_TYPES, type Agent, type Doc } from "@muster-town/schema";
+import { BOARD_TYPES, type Agent, type Doc, type LaneFields } from "@muster-town/schema";
 import {
   applyDecision, canSeeDoc, createAssignment, createDoc, homeOf, isTownHallItem, managerAgentOf, requirePendingReport, sendMessage,
   setAssignmentStatus, summarizeDoc, updateDoc,
@@ -260,6 +260,10 @@ export async function submit_report(world: World, me: Agent, input: VerbIn<"subm
   });
 }
 
+/** The lane fields of a verb input (`assign`, `review`), or undefined when none is given (a continuation inherits). */
+const laneOf = (i: LaneFields): LaneFields | undefined =>
+  i.lane || i.grantId || i.keyResultId || i.gap || i.sourceId ? { lane: i.lane, grantId: i.grantId, keyResultId: i.keyResultId, gap: i.gap, sourceId: i.sourceId } : undefined;
+
 export async function review(world: World, me: Agent, input: VerbIn<"review">) {
   const doc = requirePendingReport(world, input.docId);
   if (!world.permissions.can(me, "building.review", doc.buildingId)) throw forbidden("building.review");
@@ -269,7 +273,7 @@ export async function review(world: World, me: Agent, input: VerbIn<"review">) {
     throw badRequest(isTownHallItem(world, doc) ? "You can't decide on your own rollup; it waits for the humans in the Town Hall in-tray." : "You can't decide on your own report.");
   }
   const waitFor = input.waitFor ? validateWait(world, input.waitFor) : null;
-  const res = world.transaction(() => applyDecision(world, doc.id, input.decision, input.note, world.holderOf(me), { waitFor, assigneeId: input.assigneeId ?? null }));
+  const res = world.transaction(() => applyDecision(world, doc.id, input.decision, input.note, world.holderOf(me), { waitFor, assigneeId: input.assigneeId ?? null, lane: laneOf(input) }));
   return { docId: doc.id, decision: input.decision, assignmentId: res.assignment?.id ?? null };
 }
 
@@ -300,7 +304,7 @@ export async function assign(world: World, me: Agent, input: VerbIn<"assign">) {
   if (!world.permissions.can(me, "building.assign", bid)) throw forbidden("building.assign");
   const waitFor = input.waitFor ? validateWait(world, input.waitFor) : null;
   const a = createAssignment(world, { agentId: target.id, title: input.title, description: input.description, createdBy: world.holderOf(me), waitFor,
-    lane: { lane: input.lane, grantId: input.grantId, keyResultId: input.keyResultId, gap: input.gap } });
+    lane: laneOf(input) });
   sendMessage(world, { kind: "system", fromId: me.id, fromKind: "system", toId: target.id, body: `New assignment from ${me.name}: ${input.title}${waitFor ? ` (starts after ${describeWait(world, waitFor)})` : ""}` });
   return { assignmentId: a.id, lane: a.lane, ...(a.heldReason ? { held: a.heldReason } : {}), ...(waitFor ? { waitingOn: describeWait(world, waitFor) } : {}) };
 }

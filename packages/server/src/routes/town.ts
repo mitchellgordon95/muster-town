@@ -31,7 +31,9 @@ export async function townRoutes(app: FastifyInstance) {
    * `backup` (read-only): the off-site copy's `{lastAt, bytes, dest, error}`; null until the bucket and key are set
    * (deploy/README.md "Backups"). Never the key or the bucket credentials.
    */
-  app.get("/api/health", async () => ({ ok: true, runtime: !!app.runtime, commit: world.host.commit ?? null, time: new Date().toISOString(), accounting: BANK_ACCOUNTING, load: app.load.snapshot(), backup: app.backup?.snapshot() ?? null }));
+  app.get("/api/health", async () => ({ ok: true, runtime: !!app.runtime, commit: world.host.commit ?? null, time: new Date().toISOString(), accounting: BANK_ACCOUNTING, load: app.load.snapshot(),
+    // goal-directed budgets: exploration (held at its allowance) and directed (a human asked; metered, never held) today
+    budgets: world.grantDesk.laneBudgets(), backup: app.backup?.snapshot() ?? null }));
 
   if (app.dev) {
     // only to a browser on this machine talking to the server directly: never through a proxy or tunnel
