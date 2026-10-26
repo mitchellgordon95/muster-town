@@ -5,7 +5,7 @@ import { writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import { buildingRoleId, findPath, TOWN_HALL_ID, townRoleId, World } from "../src/index.ts";
-import { freshWorld, seededWorld, tempDir } from "./helpers.ts";
+import { freshWorld, seededWorld, tempDir, undoTokenCounters } from "./helpers.ts";
 
 describe("dismiss", () => {
   it("frees the desk, revokes tokens, removes memberships, cancels assignments, keeps docs; retired hidden from the snapshot", async () => {
@@ -59,6 +59,7 @@ describe("role migration (v1.1 DB)", () => {
     db.prepare("UPDATE buildings SET reviewPolicy = 'moderator' WHERE id = 'carbon-cycle'").run();
     db.prepare("UPDATE agents SET status = 'awaiting-review' WHERE id = ?").run(ravi.id);
     db.prepare("DELETE FROM schema_version WHERE version >= 5").run();
+    undoTokenCounters(db); // 034 (token counters)
     db.exec("ALTER TABLE messages DROP COLUMN docId"); // added by 006 (mentions); a v1.1 DB doesn't have it
     db.exec("ALTER TABLE buildings DROP COLUMN rules"); // added by 008 (standing rules)
     db.exec("ALTER TABLE interrupts DROP COLUMN now"); // added by 009 (interrupt now)

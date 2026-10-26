@@ -2,6 +2,7 @@
  * Small copies of the runtime's SDK helpers (the desk image ships only schema + desk):
  * an injectable `query`, a streaming-input channel, and usage extraction.
  */
+import { addUsage, rawTokens, sdkTokenCounts, ZERO_TOKENS, type TokenUsage } from "@muster-town/schema";
 import type { Options, SDKUserMessage } from "@anthropic-ai/claude-agent-sdk";
 
 export type { Options, SDKUserMessage };
@@ -89,27 +90,27 @@ export interface LooseMessage {
   errors?: string[];
   num_turns?: number;
   total_cost_usd?: number;
-  usage?: Record<string, number | null | undefined>;
+  usage?: Record<string, unknown>;
   modelUsage?: Record<string, { inputTokens?: number; outputTokens?: number; cacheReadInputTokens?: number; cacheCreationInputTokens?: number; costUSD?: number }>;
   queued_turn_count?: number;
   /** assistant messages: set when the turn is an API error (e.g. rate_limit, billing_error); the text says why */
   error?: string;
 }
 
-export interface Usage { tokens: number; costUsd: number; turns: number }
+/** A session's usage: the raw total (`tokens`, the sum of `counts`), the five counters, per model, cost and turns. */
+export interface Usage extends TokenUsage { tokens: number; costUsd: number; turns: number }
+export const noUsage = (): Usage => ({ tokens: 0, counts: { ...ZERO_TOKENS }, byModel: {}, costUsd: 0, turns: 0 });
 
-/** Tokens (input+output+cache) and cost from a result message. modelUsage is cumulative; fall back to usage. */
+/** Tokens by kind (sdkTokenCounts: modelUsage, cumulative, else usage) and cost from a result message. */
 export function usageOf(m: LooseMessage): Usage {
-  let tokens = 0;
-  if (m.modelUsage && Object.keys(m.modelUsage).length) {
-    for (const u of Object.values(m.modelUsage)) {
-      tokens += (u.inputTokens ?? 0) + (u.outputTokens ?? 0) + (u.cacheReadInputTokens ?? 0) + (u.cacheCreationInputTokens ?? 0);
-    }
-  } else if (m.usage) {
-    const u = m.usage;
-    tokens = (u.input_tokens ?? 0) + (u.output_tokens ?? 0) + (u.cache_read_input_tokens ?? 0) + (u.cache_creation_input_tokens ?? 0);
-  }
-  return { tokens, costUsd: m.total_cost_usd ?? 0, turns: m.num_turns ?? 0 };
+  const t = sdkTokenCounts(m);
+  return { tokens: rawTokens(t.counts), ...t, costUsd: m.total_cost_usd ?? 0, turns: m.num_turns ?? 0 };
+}
+
+/** Two usages added (a session that reran adds its attempts). */
+export function plusUsage(a: Usage, b: Usage): Usage {
+  const t = addUsage(a, b);
+  return { tokens: rawTokens(t.counts), ...t, costUsd: a.costUsd + b.costUsd, turns: a.turns + b.turns };
 }
 
 export function blocksOf(m: LooseMessage): ContentBlock[] {

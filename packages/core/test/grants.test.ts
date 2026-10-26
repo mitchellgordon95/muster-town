@@ -20,7 +20,7 @@ function setup() {
   const draft = (keyResultId = krs[0]!.id) => world.grantDesk.create(manager, LAB, { keyResultId, objective: "Visitors can tell what the lab is for", approach: "a banner line", stopCondition: "two failed tries", askTokens: 10_000_000, testingPlan: PLAN });
   const charge = (grantId: string, tokens: number, lane: "grant" | "exploration" = "grant") => world.sessions.upsert({
     id: newId("se"), agentId: manager.id, assignmentId: null, meetingId: null, purpose: "work", backend: "host", status: "done", model: "m",
-    sdkSessionId: null, tokens, costUsd: 0, startedAt: nowIso(), endedAt: nowIso(), lane, grantId: lane === "grant" ? grantId : null,
+    sdkSessionId: null, output: tokens, costUsd: 0, startedAt: nowIso(), endedAt: nowIso(), lane, grantId: lane === "grant" ? grantId : null,
   } as never);
   return { ...s, manager, krs, draft, charge };
 }

@@ -93,3 +93,51 @@ export function subTokens(a: TokenCounts, b: TokenCounts): TokenCounts {
   for (const k of TOKEN_KINDS) out[k] = a[k] - b[k];
   return out;
 }
+
+/** The token fields of a Claude Agent SDK result message that `sdkTokenCounts` reads (a loose view). */
+export interface SdkUsageFields {
+  /** this query's main-loop usage (Anthropic API names); `cache_creation` splits cache writes by TTL */
+  usage?: Record<string, unknown>;
+  /** cumulative per model id over the whole query, subagents included; no 5m / 1h split */
+  modelUsage?: Record<string, { inputTokens?: number; outputTokens?: number; cacheReadInputTokens?: number; cacheCreationInputTokens?: number }>;
+}
+
+/** Usage by kind: the total and per model id. */
+export interface TokenUsage { counts: TokenCounts; byModel: Record<string, TokenCounts> }
+
+const num = (v: unknown): number => (typeof v === "number" && Number.isFinite(v) && v > 0 ? v : 0);
+
+/**
+ * The five counters from an SDK result message. Per model from `modelUsage` (inputTokens, outputTokens,
+ * cacheReadInputTokens, cacheCreationInputTokens); without it, from `usage` (input_tokens, output_tokens,
+ * cache_read_input_tokens, cache_creation_input_tokens) under the model "unknown". `modelUsage` has no TTL split, so
+ * cache writes are split 5m / 1h in the ratio of `usage.cache_creation` {ephemeral_5m_input_tokens,
+ * ephemeral_1h_input_tokens}; when that is missing or zero, every cache write counts as 5m.
+ */
+export function sdkTokenCounts(m: SdkUsageFields): TokenUsage {
+  const u = m.usage ?? {};
+  const cc = (u.cache_creation ?? {}) as Record<string, unknown>;
+  const w5 = num(cc.ephemeral_5m_input_tokens), w1 = num(cc.ephemeral_1h_input_tokens);
+  const share1h = w5 + w1 > 0 ? w1 / (w5 + w1) : 0;
+  const counted = (input: number, output: number, cacheRead: number, cacheWrite: number): TokenCounts => {
+    const cacheWrite1h = Math.round(cacheWrite * share1h);
+    return countsOf({ input, output, cacheRead, cacheWrite5m: cacheWrite - cacheWrite1h, cacheWrite1h });
+  };
+  const byModel: Record<string, TokenCounts> = {};
+  if (m.modelUsage && Object.keys(m.modelUsage).length) {
+    for (const [model, x] of Object.entries(m.modelUsage)) {
+      byModel[model] = counted(num(x.inputTokens), num(x.outputTokens), num(x.cacheReadInputTokens), num(x.cacheCreationInputTokens));
+    }
+  } else if (m.usage) {
+    const c = counted(num(u.input_tokens), num(u.output_tokens), num(u.cache_read_input_tokens), num(u.cache_creation_input_tokens));
+    if (rawTokens(c) > 0) byModel.unknown = c;
+  }
+  return { counts: Object.values(byModel).reduce<TokenCounts>((s, c) => addTokens(s, c), { ...ZERO_TOKENS }), byModel };
+}
+
+/** Two usages added, model by model (a session that reran adds its attempts). */
+export function addUsage(a: TokenUsage, b: TokenUsage): TokenUsage {
+  const byModel: Record<string, TokenCounts> = { ...a.byModel };
+  for (const [k, c] of Object.entries(b.byModel)) byModel[k] = addTokens(byModel[k] ?? ZERO_TOKENS, c);
+  return { counts: addTokens(a.counts, b.counts), byModel };
+}

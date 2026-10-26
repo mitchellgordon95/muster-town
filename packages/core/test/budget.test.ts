@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import Database from "better-sqlite3";
 import { createBuilding, createResident, HOUSE_BUDGET_TOKENS, HOUSE_LABEL, startOfLocalDay, World } from "../src/index.ts";
-import { seededWorld } from "./helpers.ts";
+import { seededWorld, undoTokenCounters } from "./helpers.ts";
 
 describe("budgets", () => {
   it("snapshot buildings carry their budget; charges resend the building with it", () => {
@@ -199,6 +199,7 @@ describe("token usage per building (today and all-time)", () => {
     const mei = by("Mei");
     world.close();
     const db = new Database(dbPath);
+    undoTokenCounters(db); // 034 runs again after 024, and back-fills the ledger's counters
     db.exec("DROP TABLE usage");
     db.prepare("UPDATE agents SET spentTokensTotal = 5000, spentTokensToday = 700, spentUsdTotal = 2 WHERE id = ?").run(mei.id);
     db.prepare("DELETE FROM schema_version WHERE version = 24").run();
@@ -206,6 +207,8 @@ describe("token usage per building (today and all-time)", () => {
     const w = World.open(dbPath);
     try {
       expect(w.budget.usage("carbon-cycle")).toEqual({ tokensToday: 700, tokensAllTime: 5000 });
+      // 4300 before today, split by the back-fill rule (Opus): output = round(4300 × (1/30 − 0.01) / 0.99) = 101
+      expect(w.db.prepare("SELECT input, output, cacheRead, tokens FROM usage WHERE id = ?").get(`us-backfill-${mei.id}`)).toMatchObject({ input: 0, output: 101, cacheRead: 4199, tokens: 4300 });
     } finally {
       w.close();
     }

@@ -4,9 +4,9 @@
  */
 import type { DesksConfig } from "@muster-town/schema";
 import type { World } from "@muster-town/core";
-import { VERB_NAMES, type AllocationAuth, type Session, type VerbName } from "@muster-town/schema";
+import { rawTokens, VERB_NAMES, type AllocationAuth, type Session, type VerbName } from "@muster-town/schema";
 import { describeTool } from "./describe.ts";
-import { blocksOf, InputChannel, sessionEnv, usageOf, type LooseMessage, type Options, type QueryHandle, type Sdk, type Usage } from "./sdk.ts";
+import { blocksOf, InputChannel, noUsage, sessionEnv, usageOf, type LooseMessage, type Options, type QueryHandle, type Sdk, type Usage } from "./sdk.ts";
 
 export interface Ctx {
   world: World;
@@ -79,15 +79,17 @@ export const homeOf = (world: World, agentId: string) => {
 };
 
 /** Charge usage to the agent and (if its building has budget) an allocation. Never throws. */
-export function chargeUsage(world: World, agentId: string, u: Usage, allocationId?: string | null): void {
+export function chargeUsage(world: World, agentId: string, u: Pick<Usage, "tokens" | "counts" | "costUsd">, allocationId?: string | null): void {
   if (u.tokens <= 0 && u.costUsd <= 0) return;
+  // the five counters when the SDK gave them; a bare raw total is split by the back-fill rule (docs/bank.md)
+  const tokens = rawTokens(u.counts) > 0 ? u.counts : u.tokens;
   try {
     const bid = homeOf(world, agentId);
     if (bid && world.budget.remaining(bid) > 0) {
-      world.budget.charge(agentId, u.tokens, u.costUsd, allocationId ?? undefined);
+      world.budget.charge(agentId, tokens, u.costUsd, allocationId ?? undefined);
     } else {
       // no allocation to draw from (e.g. Town Hall's librarian): record spend on the agent and in the usage ledger only
-      world.budget.recordUsage(agentId, u.tokens, u.costUsd);
+      world.budget.recordUsage(agentId, tokens, u.costUsd);
     }
   } catch (e) {
     console.log("[runtime] charge failed:", e instanceof Error ? e.message : e);
@@ -176,7 +178,7 @@ export async function runAgentSession(ctx: Ctx, spec: SessionSpec): Promise<Sess
   const emit = (type: "agent.tool" | "agent.thought" | "system", text: string, payload: Record<string, unknown> = {}) =>
     world.events.append({ type, agentId: agent.id, buildingId: bid, text, payload: { sessionId: session.id, purpose: spec.purpose, ...payload } });
 
-  let usage: Usage = { tokens: 0, costUsd: 0, turns: 0 };
+  let usage: Usage = noUsage();
   let finalText = "";
   let error: string | null = null;
   let sdkSessionId: string | null = null;
@@ -236,7 +238,7 @@ export async function runAgentSession(ctx: Ctx, spec: SessionSpec): Promise<Sess
     return outcome;
   }
   const status: Exclude<Session["status"], "running"> = live.stopped ? "interrupted" : error ? "error" : "done";
-  outcome.session = world.ops.endSession(session.id, { status, tokens: usage.tokens, costUsd: usage.costUsd, turns: usage.turns, error, sdkSessionId });
+  outcome.session = world.ops.endSession(session.id, { status, counts: usage.counts, byModel: usage.byModel, costUsd: usage.costUsd, turns: usage.turns, error, sdkSessionId });
   chargeUsage(world, agent.id, usage, funding.allocationId);
   return outcome;
 }

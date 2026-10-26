@@ -6,7 +6,7 @@
 import { homedir } from "node:os";
 import { townEnv } from "@muster-town/schema";
 import type { DeskActivityInput, DeskBrief, DeskSessionEndInput, DeskWorkspace } from "./contract.ts";
-import { blocksOf, InputChannel, usageOf, type LooseMessage, type Options, type QueryHandle, type Sdk, type Usage } from "./sdk.ts";
+import { blocksOf, InputChannel, noUsage, plusUsage, usageOf, type LooseMessage, type Options, type QueryHandle, type Sdk, type Usage } from "./sdk.ts";
 import type { TownClient } from "./town.ts";
 import { setupWorkspace } from "./workspace.ts";
 
@@ -83,7 +83,7 @@ export async function runSession(sessionId: string, deps: RunDeps): Promise<numb
   const controlMs = deps.controlIntervalMs ?? 3000;
   const flushMs = deps.flushMs ?? 500;
 
-  let usage: Usage = { tokens: 0, costUsd: 0, turns: 0 };
+  let usage: Usage = noUsage();
   let finalText = "";
   let error: string | null = null;
   let sdkSessionId: string | null = null;
@@ -97,6 +97,8 @@ export async function runSession(sessionId: string, deps: RunDeps): Promise<numb
     const body: DeskSessionEndInput = {
       session: sessionId,
       tokens: Math.round(usage.tokens),
+      counts: usage.counts,
+      byModel: usage.byModel,
       costUsd: usage.costUsd,
       turns: usage.turns,
       reportSubmitted,
@@ -248,7 +250,7 @@ export async function runSession(sessionId: string, deps: RunDeps): Promise<numb
             }
           } else if (m.type === "result") {
             const u = usageOf(m);
-            usage = { tokens: prior.tokens + u.tokens, costUsd: prior.costUsd + u.costUsd, turns: prior.turns + u.turns };
+            usage = plusUsage(prior, u);
             if (typeof m.result === "string" && m.result.trim()) finalText = m.result.trim();
             // a later turn that succeeds clears an earlier turn's error (e.g. one aborted by an interrupt-now)
             // the subtype of a limit death is "success" with the message in `result`: record the message, not "success"

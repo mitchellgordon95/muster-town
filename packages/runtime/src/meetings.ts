@@ -55,7 +55,7 @@ async function summarize(ctx: Ctx, m: Meeting, agentId: string): Promise<void> {
     try { await world.verbs.meeting(agentId, { meetingId: m.id, action: "summary", text }); }
     catch (e) { error = e instanceof Error ? e.message : String(e); }
   } else error ??= "empty summary";
-  world.ops.endSession(session.id, { status: error ? "error" : "done", tokens: out.tokens, costUsd: out.costUsd, turns: out.turns, error });
+  world.ops.endSession(session.id, { status: error ? "error" : "done", counts: out.counts, byModel: out.byModel, costUsd: out.costUsd, turns: out.turns, error });
   chargeUsage(world, agentId, out, funding.allocationId);
 }
 
@@ -116,7 +116,7 @@ async function replyInMeeting(ctx: Ctx, meetingId: string, agentId: string): Pro
         catch (e) { error = e instanceof Error ? e.message : String(e); }
       } else if (!said) error ??= "empty reply";
       const status = out.stopped ? "interrupted" : error ? "error" : "done";
-      const session = world.ops.endSession(out.session.id, { status, tokens: out.tokens, costUsd: out.costUsd, turns: out.turns, error, sdkSessionId: out.sdkSessionId });
+      const session = world.ops.endSession(out.session.id, { status, counts: out.counts, byModel: out.byModel, costUsd: out.costUsd, turns: out.turns, error, sdkSessionId: out.sdkSessionId });
       chargeUsage(world, agentId, out, allocationId);
       return session;
     },

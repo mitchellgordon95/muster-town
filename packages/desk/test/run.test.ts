@@ -48,7 +48,8 @@ describe("runSession", () => {
     expect((report.input as { body: string }).body.length).toBeLessThan(1100);
 
     expect(town.ends).toHaveLength(1);
-    expect(town.ends[0]).toEqual({ session: "s1", tokens: 110, costUsd: 0.5, turns: 1, reportSubmitted: true, sdkSessionId: "sdk-1", finalText: "Report filed." });
+    const counts = { input: 100, output: 10, cacheRead: 0, cacheWrite5m: 0, cacheWrite1h: 0 };
+    expect(town.ends[0]).toEqual({ session: "s1", tokens: 110, counts, byModel: { m: counts }, costUsd: 0.5, turns: 1, reportSubmitted: true, sdkSessionId: "sdk-1", finalText: "Report filed." });
   });
 
   it("honours DESK_MODEL / DESK_MAX_TURNS overrides", async () => {

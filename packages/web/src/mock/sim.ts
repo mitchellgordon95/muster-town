@@ -11,6 +11,8 @@ const now = () => new Date().toISOString();
 const BLOCKED_NO_KRS = "blocked: no key results to work toward";
 let seq = 0;
 export const newId = (p: string) => `${p}_${Date.now().toString(36)}${(++seq).toString(36)}`;
+/** an allocation's spend by kind (the mock books it all as cache reads); spentTokens is their sum */
+export const spent = (n: number) => ({ spentInput: 0, spentOutput: 0, spentCacheRead: n, spentCacheWrite5m: 0, spentCacheWrite1h: 0, spentTokens: n });
 
 const SCRIPTS: Record<string, string[]> = {
   default: ["Looking around (look)", "Reading the board", "Searching: {topic}", "Reading doc GCB 2025 ESSD", "Thinking about units and uncertainty", "Writing notes on the board", "Fetching: gml.noaa.gov", "Drafting the report"],
@@ -31,9 +33,9 @@ export class Sim {
   memberships: Membership[] = clone(F.memberships);
   users = clone(F.users);
   allocations: Allocation[] = [
-    { id: "al_house", userId: "us_mitchell", buildingId: "bl_carbon", tokens: 50_000_000, spentTokens: 3_320_000, spentUsd: 26.5, createdAt: F.ago(9000), auth: "api-key", label: "House budget (placeholder)", retired: true },
-    { id: "al_sub", userId: "us_mitchell", buildingId: "bl_carbon", tokens: 40_000_000, spentTokens: 6_150_000, spentUsd: 0, createdAt: F.ago(600), auth: "subscription", label: "Mitchell's Claude subscription, October", retired: false },
-    { id: "al_buffer", userId: "us_mitchell", buildingId: "bl_carbon", tokens: 10_000_000, spentTokens: 420_000, spentUsd: 3.1, createdAt: F.ago(590), auth: "api-key", label: "API-key buffer", retired: false },
+    { id: "al_house", userId: "us_mitchell", buildingId: "bl_carbon", tokens: 50_000_000, ...spent(3_320_000), spentUsd: 26.5, createdAt: F.ago(9000), auth: "api-key", label: "House budget (placeholder)", retired: true },
+    { id: "al_sub", userId: "us_mitchell", buildingId: "bl_carbon", tokens: 40_000_000, ...spent(6_150_000), spentUsd: 0, createdAt: F.ago(600), auth: "subscription", label: "Mitchell's Claude subscription, October", retired: false },
+    { id: "al_buffer", userId: "us_mitchell", buildingId: "bl_carbon", tokens: 10_000_000, ...spent(420_000), spentUsd: 3.1, createdAt: F.ago(590), auth: "api-key", label: "API-key buffer", retired: false },
   ];
   layout!: Layout;
   private subs = new Set<(m: ServerMessage) => void>();

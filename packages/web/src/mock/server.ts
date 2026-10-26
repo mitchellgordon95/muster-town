@@ -1,11 +1,11 @@
 /** `Api` implemented against the in-memory Sim. Same interface as HttpApi, so every panel works offline. */
 import type { Agent, Assignment, AuthMe, Building, Doc, Event, Meeting, Membership, RedeployLive } from "@muster-town/schema";
-import { BOARD_TYPES, DEFAULT_POOL_ID, type BankPool } from "@muster-town/schema";
+import { BOARD_TYPES, DEFAULT_POOL_ID, splitRaw, type BankPool } from "@muster-town/schema";
 import type { Api, AgentDetail, AllocationRow, Bank, Budget, Cabinet, CabinetQuery, DocQuery, EventQuery, In, LayoutPreview, MessageResult, PlanPreview, RoomLayout, RequestAction, Snapshot, Socket, SocketHandlers, ThreadMessage, WriteDocInput } from "../api";
 import { ApiError } from "../api";
 import type { PinSkillInput, PutSecretInput, SecretView, SkillPinView, SkillView } from "@muster-town/schema";
 import type { CreateBuildingInput, UpdateBuildingInput, CreateResidentInput, ReviewInput, ChatInput, WorkInput, DonateInput, CreateMeetingInput, DocState, AddBankInput, BankInput, CreateBankPoolInput, UpdateBankPoolInput, DecideGrantInput, CreateKeyResultInput, UpdateKeyResultInput } from "@muster-town/schema";
-import { Sim, newId } from "./sim";
+import { Sim, newId, spent } from "./sim";
 import { memoryDocs } from "./fixture";
 
 const wait = (ms = 120) => new Promise((r) => setTimeout(r, ms));
@@ -106,7 +106,7 @@ export class MockApi implements Api {
     return clone({
       agent, recentEvents: this.sim.events.filter((e) => e.agentId === id).slice(-50),
       permissions: { inheritsOwner: agent.inheritsOwner, deniedPermissions: agent.deniedPermissions, ownerUserId: agent.ownerUserId, ownerName: null, canEdit: false, canSetModel: agent.kind === "resident" }, effectivePermissions: [],
-      currentSession: agent.status === "working" ? { id: `se_${id}`, agentId: id, assignmentId: agent.currentAssignmentId, meetingId: null, purpose: "work" as const, backend: "host" as const, status: "running" as const, model: agent.model ?? "claude-opus-5-5", sdkSessionId: null, tokens: agent.spentTokensToday, costUsd: agent.spentUsdTotal, turns: 12, reportId: null, error: null, startedAt: new Date(Date.now() - 15 * 60_000).toISOString(), endedAt: null } : null,
+      currentSession: agent.status === "working" ? { id: `se_${id}`, agentId: id, assignmentId: agent.currentAssignmentId, meetingId: null, purpose: "work" as const, backend: "host" as const, status: "running" as const, model: agent.model ?? "claude-opus-5-5", sdkSessionId: null, ...splitRaw(agent.spentTokensToday, agent.model), tokens: agent.spentTokensToday, costUsd: agent.spentUsdTotal, turns: 12, reportId: null, error: null, startedAt: new Date(Date.now() - 15 * 60_000).toISOString(), endedAt: null } : null,
       latestReport: reports[0] ?? null,
       memoryTopics: memoryDocs.filter((d) => d.authorId === id && d.type === "wiki").map((d) => d.title),
       memory: { wiki: memoryDocs.filter((d) => d.authorId === id && d.type === "wiki"), log: memoryDocs.find((d) => d.authorId === id && d.type === "log") ?? null },
@@ -449,7 +449,7 @@ export class MockApi implements Api {
   async donate(i: In<typeof DonateInput>) {
     await wait();
     const auth = i.auth ?? (i.apiKey ? "donor-key" : "api-key");
-    this.sim.allocations.push({ id: newId("al"), userId: "us_mitchell", buildingId: i.buildingId, tokens: i.tokens, spentTokens: 0, spentUsd: 0, createdAt: now(), auth, label: i.label?.trim() ?? "", retired: false });
+    this.sim.allocations.push({ id: newId("al"), userId: "us_mitchell", buildingId: i.buildingId, tokens: i.tokens, ...spent(0), spentUsd: 0, createdAt: now(), auth, label: i.label?.trim() ?? "", retired: false });
     this.sim.users[0].donatedTokens += i.tokens;
     this.sim.event("allocation.created", null, `Mitchell donated ${(i.tokens / 1e6).toFixed(1)}M tokens${i.label ? ` (${i.label})` : ""}`, {}, i.buildingId);
     this.sim.emitBuilding(i.buildingId);

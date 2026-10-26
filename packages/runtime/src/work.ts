@@ -1,6 +1,6 @@
 /** Resident work sessions (host backend + shared end-of-session logic), interrupts, and reviewer sessions over the in-tray. */
 import { AppError, appendLog, codeWorkspace, createDoc, fallbackReportBody, FALLBACK_REPORT_PREFIX, latestReportOf, recentWorkBlock, sessionMemory, setAssignmentStatus, skillsBlock, workPrompt, workSystemPrompt } from "@muster-town/core";
-import type { Agent, AllocationAuth, Assignment, Building, Doc, Session } from "@muster-town/schema";
+import { countsOf, rawTokens, splitRaw, type Agent, type AllocationAuth, type Assignment, type Building, type Doc, type Session, type TokenCounts } from "@muster-town/schema";
 import { chargeUsage, fundingFor, homeOf, runAgentSession, type Ctx } from "./session.ts";
 
 
@@ -63,7 +63,11 @@ export async function runWorkSession(ctx: Ctx, starting: Set<string>, agentId: s
 
 /** How a work session ended, from either backend (the desk posts this to /api/agents/me/session-end). */
 export interface WorkOutcome {
+  /** raw total: only read when `counts` is absent (an older desk), then split by the back-fill rule */
   tokens?: number;
+  /** the five token counters, and per model id */
+  counts?: TokenCounts;
+  byModel?: Record<string, TokenCounts>;
   costUsd?: number;
   turns?: number;
   sdkSessionId?: string | null;
@@ -92,7 +96,8 @@ export async function finishWorkSession(ctx: Ctx, sessionId: string, o: WorkOutc
   const live = ctx.live.get(agentId);
   const agentNow = world.agents.require(agentId, "agent");
   const stopped = !!o.stopped || (live?.sessionId === sessionId && live.stopped) || agentNow.status === "stopped" || agentNow.status === "banned" || agentNow.status === "retired";
-  const usage = { tokens: Math.max(0, Math.round(o.tokens ?? 0)), costUsd: Math.max(0, o.costUsd ?? 0), turns: Math.max(0, Math.round(o.turns ?? 0)) };
+  const counts = o.counts ? countsOf(o.counts) : splitRaw(o.tokens ?? 0, session.model);
+  const usage = { tokens: rawTokens(counts), counts, costUsd: Math.max(0, o.costUsd ?? 0), turns: Math.max(0, Math.round(o.turns ?? 0)) };
   const error = o.error ?? null;
   const reportSubmitted = !!o.reportSubmitted || !!world.sessions.get(sessionId)?.reportId;
 
@@ -120,7 +125,7 @@ export async function finishWorkSession(ctx: Ctx, sessionId: string, o: WorkOutc
   }
   const status: Exclude<Session["status"], "running"> = stopped ? "interrupted" : error ? "error" : "done";
   const funding = o.fundingUsed ?? (o.fallback ? "api-key" : undefined);
-  const ended = world.ops.endSession(sessionId, { status, ...usage, error, sdkSessionId: o.sdkSessionId ?? null, funding });
+  const ended = world.ops.endSession(sessionId, { status, counts, byModel: o.byModel, costUsd: usage.costUsd, turns: usage.turns, error, sdkSessionId: o.sdkSessionId ?? null, funding });
   // stamp the session's usage onto the report it produced (submitted or fallback)
   const report = ended.reportId ? world.docs.get(ended.reportId) : undefined;
   if (report && report.sessionId === sessionId) world.docs.patch(report.id, { tokens: usage.tokens, costUsd: usage.costUsd, turns: usage.turns });

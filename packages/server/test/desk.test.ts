@@ -149,6 +149,19 @@ describe("agent-scoped desk API", () => {
     expect((await json(app, "GET", `/api/agents/me/control?session=${sessionId}`, { headers: as(agent) })).body.stop).toBe(true);
   });
 
+  it("session-end with the five counters books them on the session, the usage ledger and the allocation; session.ended carries them", async () => {
+    const { app, as, world, start } = await setup();
+    const { agent, sessionId } = await start("Tomas");
+    const counts = { input: 20, output: 180, cacheRead: 1200, cacheWrite5m: 80, cacheWrite1h: 20 };
+    const body = { session: sessionId, tokens: 1500, counts, byModel: { "claude-opus-5-5": counts }, costUsd: 0.5, turns: 7, reportSubmitted: false };
+    const r = await json(app, "POST", "/api/agents/me/session-end", { headers: as(agent), body });
+    expect(r.body.session).toMatchObject({ ...counts, tokens: 1500 });
+    const ended = world.events.list({ types: ["session.ended"] }).find((e) => e.payload?.sessionId === sessionId)!;
+    expect(ended.payload).toMatchObject({ ...counts, tokens: 1500, byModel: { "claude-opus-5-5": counts } });
+    expect(world.db.prepare("SELECT input, output, cacheRead, cacheWrite5m, cacheWrite1h, tokens FROM usage WHERE agentId = ?").get(agent.id)).toEqual({ ...counts, tokens: 1500 });
+    expect(world.allocations.first("buildingId = ?", ["carbon-cycle"])).toMatchObject({ spentTokens: 1500, spentInput: 20, spentOutput: 180, spentCacheRead: 1200, spentCacheWrite5m: 80, spentCacheWrite1h: 20 });
+  });
+
   it("interrupt still goes straight to an in-process session's runtime when it takes it", async () => {
     const { app, admin, by, runtime } = await setup();
     const spy = vi.spyOn(runtime, "interrupt").mockResolvedValue(true);

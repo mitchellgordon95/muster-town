@@ -59,7 +59,7 @@ describe("goal-directed budgets, step 1 foundation", () => {
     expect(b.blockedAt).toBeNull();
     const agent = world.agents.first("homeBuildingId = ?", [LAB])!;
     for (const tokens of [1000, 2500]) {
-      world.sessions.upsert({ id: newId("se"), agentId: agent.id, assignmentId: null, purpose: "work", status: "done", model: "m", tokens, startedAt: now, lane: "grant", grantId: g.id } as never);
+      world.sessions.upsert({ id: newId("se"), agentId: agent.id, assignmentId: null, purpose: "work", status: "done", model: "m", output: tokens, startedAt: now, lane: "grant", grantId: g.id } as never);
     }
     expect(world.sessions.sum("tokens", "grantId = ?", [g.id])).toBe(3500);
   });

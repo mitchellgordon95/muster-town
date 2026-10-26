@@ -44,10 +44,18 @@ export const DeskControl = z.object({
 });
 export type DeskControl = z.infer<typeof DeskControl>;
 
+// TODO: switch to @muster-town/schema when exported (the desk's zod is not the schema's, so the shape is copied)
+const count = z.number().int().nonnegative();
+const TokenCounts = z.object({ input: count, output: count, cacheRead: count, cacheWrite5m: count, cacheWrite1h: count });
+
 // TODO: switch to @muster-town/schema when exported
 export const DeskSessionEndInput = z.object({
   session: z.string(),
+  /** raw total: the sum of `counts` (read by a server older than Bank step 1) */
   tokens: z.number().int().nonnegative(),
+  /** the five token counters (sdkTokenCounts), summed over models, and per model id */
+  counts: TokenCounts,
+  byModel: z.record(z.string(), TokenCounts),
   costUsd: z.number().nonnegative(),
   turns: z.number().int().nonnegative(),
   sdkSessionId: z.string().optional(),

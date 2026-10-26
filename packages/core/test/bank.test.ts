@@ -242,7 +242,7 @@ describe("bank", () => {
     const u = world.ops.createUser("Cy").user;
     const lab = createBuilding(world, { name: "Lab 3" }, seed.admin.id);
     const placeholder = world.budget.donate(u.id, { tokens: 1000, buildingId: lab.id, auth: "api-key" });
-    world.allocations.upsert({ ...placeholder, spentTokens: 250 });
+    world.allocations.upsert({ ...placeholder, spentOutput: 250 });
     world.budget.retire(placeholder.id);
     world.budget.donate(u.id, { tokens: 400, buildingId: lab.id, auth: "api-key" });
     expect(world.bank.contributors().find((c) => c.userId === u.id)).toMatchObject({ tokens: 650, donatedTokens: 650 });
@@ -259,7 +259,7 @@ describe("accounting pools migration (023)", () => {
     db.exec("DROP TABLE bank_pools; DROP INDEX bank_debits_pool; ALTER TABLE bank_debits DROP COLUMN poolId; ALTER TABLE buildings DROP COLUMN poolId");
     db.exec("CREATE TABLE bank_shares (buildingId TEXT PRIMARY KEY, pct REAL NOT NULL)");
     db.prepare("INSERT INTO bank_shares (buildingId, pct) VALUES ('carbon-cycle', 40)").run();
-    db.prepare("INSERT INTO bank_debits (id, buildingId, agentId, creditId, tokens, createdAt) VALUES ('bd_1', 'carbon-cycle', 'ag_x', NULL, 10, ?)").run(T0.toISOString());
+    db.prepare("INSERT INTO bank_debits (id, buildingId, agentId, creditId, output, createdAt) VALUES ('bd_1', 'carbon-cycle', 'ag_x', NULL, 10, ?)").run(T0.toISOString());
     db.prepare("DELETE FROM schema_version WHERE version = 23").run();
     db.close();
 

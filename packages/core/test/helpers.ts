@@ -45,3 +45,22 @@ export async function tickUntil<T>(world: World, p: Promise<T>, maxTicks = 2000)
   }
   return wrapped;
 }
+
+/**
+ * Put a database back into its pre-034 shape (Bank grant step 1): drop the five token counters and turn the generated
+ * raw totals back into plain columns holding the same numbers. `usage` (024) may already be gone.
+ */
+export function undoTokenCounters(db: import("better-sqlite3").Database): void {
+  const kinds = ["input", "output", "cacheRead", "cacheWrite5m", "cacheWrite1h"];
+  const has = (t: string) => !!db.prepare("SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = ?").get(t);
+  const undo = (table: string, total: string, cols: string[]) => {
+    if (!has(table)) return;
+    db.exec(`ALTER TABLE ${table} ADD COLUMN ${total}_old INTEGER NOT NULL DEFAULT 0; UPDATE ${table} SET ${total}_old = ${total}`);
+    db.exec(`ALTER TABLE ${table} DROP COLUMN ${total}`);
+    for (const c of cols) db.exec(`ALTER TABLE ${table} DROP COLUMN ${c}`);
+    db.exec(`ALTER TABLE ${table} RENAME COLUMN ${total}_old TO ${total}`);
+  };
+  for (const t of ["sessions", "usage", "bank_debits", "bank_credits"]) undo(t, "tokens", kinds);
+  undo("allocations", "spentTokens", kinds.map((k) => `spent${k[0].toUpperCase()}${k.slice(1)}`));
+  db.prepare("DELETE FROM schema_version WHERE version = 34").run();
+}

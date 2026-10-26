@@ -1,5 +1,5 @@
 import { AppError, townRoleId, type World } from "@muster-town/core";
-import type { Agent, DeskActivityInput, RedeployResult, Session, User } from "@muster-town/schema";
+import type { Agent, DeskActivityInput, RedeployResult, Session, TokenCounts, User } from "@muster-town/schema";
 import type { FastifyReply, FastifyRequest } from "fastify";
 import type { ZodTypeAny, z } from "zod";
 import type { LoadMonitor } from "./load.ts";
@@ -18,7 +18,7 @@ export interface RuntimeHooks {
   /** A desk reported activity: append `agent.tool`/`agent.thought`/`agent.activity` events (payload.sessionId). */
   onDeskActivity?(agentId: string, input: DeskActivityInput): Promise<unknown> | unknown;
   /** End a work session (desk session-end): fallback report, status, charge. Idempotent. */
-  finishWorkSession?(sessionId: string, outcome: { tokens?: number; costUsd?: number; turns?: number; sdkSessionId?: string | null; finalText?: string | null; error?: string | null; reportSubmitted?: boolean; fundingUsed?: NonNullable<Session["funding"]>; fallback?: boolean }): Promise<Session>;
+  finishWorkSession?(sessionId: string, outcome: { tokens?: number; counts?: TokenCounts; byModel?: Record<string, TokenCounts>; costUsd?: number; turns?: number; sdkSessionId?: string | null; finalText?: string | null; error?: string | null; reportSubmitted?: boolean; fundingUsed?: NonNullable<Session["funding"]>; fallback?: boolean }): Promise<Session>;
   /** An agent was dismissed (core already retired it): abort its session, `docker rm -f` its desk (volume kept unless purge). */
   onAgentRetired?(agentId: string, opts?: { purge?: boolean }): Promise<unknown> | unknown;
   /** A meeting moved to `discussing` via REST: run the facilitator. */

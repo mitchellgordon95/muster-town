@@ -26,7 +26,7 @@ function setup(goal = true) {
   /** a finished session that spent `tokens` in a lane (what a grant's spend is derived from) */
   const spend = (agentId: string, tokens: number, lane: "grant" | "exploration", grantId: string | null = null) => world.sessions.upsert({
     id: newId("se"), agentId, assignmentId: null, meetingId: null, purpose: "work", backend: "host", status: "done", model: "m",
-    sdkSessionId: null, tokens, costUsd: 0, turns: 0, reportId: null, error: null, startedAt: nowIso(), endedAt: nowIso(), funding: null, lane, grantId,
+    sdkSessionId: null, output: tokens, costUsd: 0, turns: 0, reportId: null, error: null, startedAt: nowIso(), endedAt: nowIso(), funding: null, lane, grantId,
   });
   return { ...s, mei, noor, krs, fund, spend };
 }
