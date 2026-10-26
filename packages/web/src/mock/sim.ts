@@ -1,6 +1,6 @@
 /** In-memory town for VITE_MOCK=1: holds state, animates it, and implements actions locally. */
-import type { Agent, Allocation, Assignment, Building, CreateKeyResultInput, DecideGrantInput, Doc, Event, GrantView, KeyResult, Meeting, Membership, Role, ServerMessage, UpdateKeyResultInput } from "@muster-town/schema";
-import { BUILTIN_ROLES } from "@muster-town/schema";
+import type { Agent, Allocation, Assignment, Building, CreateKeyResultInput, DecideGrantInput, Doc, Event, GrantView, KeyResult, Meeting, Membership, Role, ServerMessage, Stoplight, UpdateKeyResultInput } from "@muster-town/schema";
+import { BUILTIN_ROLES, stoplightOf } from "@muster-town/schema";
 import type { GoalKeyResult, Snapshot } from "../api";
 import * as F from "./fixture";
 import { bfs, computeLayout, type Layout } from "./layout";
@@ -67,7 +67,7 @@ export class Sim {
   snapshot(): Snapshot {
     // Unlike the real server, the mock keeps retired agents in the snapshot so the client's filter is exercised.
     return clone({
-      type: "snapshot", town: this.town, buildings: this.buildings.map((b) => ({ ...b, intray: this.intrayCount(b.id), budget: this.budgetOf(b.id) })),
+      type: "snapshot", town: this.town, buildings: this.buildings.map((b) => ({ ...b, intray: this.intrayCount(b.id), budget: this.budgetOf(b.id), stoplight: this.stoplight(b.id) })),
       agents: [...this.agents.values()].filter((a) => a.status !== "banned"), places: this.layout.places, grid: this.layout.grid,
       meetings: [...this.meetings.values()].filter((m) => m.phase !== "done" && m.phase !== "cancelled"),
       health: { docker: this.dockerUp, slots: { running: [...this.agents.values()].filter((a) => a.status === "working").length, max: this.maxRunning } },
@@ -96,7 +96,13 @@ export class Sim {
     const proposal = [...this.grants.values()].filter((g) => of(g) && (g.status === "proposed" || g.status === "countered")).sort((x, y) => y.updatedAt.localeCompare(x.updatedAt))[0] ?? null;
     const keyResults = this.goalKeyResults(buildingId);
     const blocked = b?.budgetMode === "goal-directed" && !keyResults.length && !grants.length ? BLOCKED_NO_KRS : null;
-    return { goal: b?.goal ?? "", keyResults, blocked, grants, proposal, exploration: { allowanceTokens: b?.explorationTokensPerDay ?? 0, spentTodayTokens: F.explorationSpentToday[buildingId] ?? 0 } };
+    return { goal: b?.goal ?? "", keyResults, blocked, stoplight: this.stoplight(buildingId), grants, proposal, exploration: { allowanceTokens: b?.explorationTokensPerDay ?? 0, spentTodayTokens: F.explorationSpentToday[buildingId] ?? 0 } };
+  }
+  /** The building's stoplight, as core's Grants.stoplight: null for open buildings and the Town Hall. */
+  stoplight(buildingId: string): Stoplight | null {
+    const b = this.buildings.find((x) => x.id === buildingId);
+    if (!b || b.kind === "town-hall" || b.budgetMode !== "goal-directed") return null;
+    return stoplightOf(this.goalKeyResults(buildingId), [...this.grants.values()].filter((g) => g.buildingId === buildingId && (g.status === "funded" || g.status === "checkpoint")));
   }
   /** GET /api/buildings/:id/key-results: the goal's key results in order, each with the live grant naming it. */
   goalKeyResults(buildingId: string): GoalKeyResult[] {
@@ -168,7 +174,7 @@ export class Sim {
   /** Resend a building with its in-tray count (the server does this when reports are created or decided). */
   emitBuilding(buildingId: string | null) {
     const b = this.buildings.find((x) => x.id === buildingId);
-    if (b) this.emit({ type: "building", building: { ...b, intray: this.intrayCount(b.id), budget: this.budgetOf(b.id) } });
+    if (b) this.emit({ type: "building", building: { ...b, intray: this.intrayCount(b.id), budget: this.budgetOf(b.id), stoplight: this.stoplight(b.id) } });
   }
 
   relayout(broadcast = true) {

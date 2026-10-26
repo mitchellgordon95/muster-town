@@ -146,6 +146,12 @@ export class World {
       if (!e.buildingId || !(e.type.startsWith("grant.") || e.type === "kr.created" || e.type === "kr.deleted" || e.type === "building.updated")) return;
       this.grantDesk.syncBlocked(e.buildingId);
     });
+    // the stoplight (map banner, board) follows grants, key results and the budget mode: resend the building with it
+    this.events.addHook((e) => {
+      if (!e.buildingId || !(e.type.startsWith("grant.") || e.type.startsWith("kr.") || e.type === "building.updated" || e.type === "building.blocked")) return;
+      const b = this.buildings.get(e.buildingId);
+      if (b) this.changes.emit({ type: "building", building: { ...b, stoplight: this.grantDesk.stoplight(b) } });
+    });
     this.layout.rebuild();
   }
 
@@ -246,10 +252,10 @@ export class World {
     };
   }
 
-  /** Buildings as the snapshot carries them: plus `intray` (pending report count) and `budget`. */
+  /** Buildings as the snapshot carries them: plus `intray` (pending report count), `budget` and `stoplight`. */
   buildingsWithIntray(): SnapshotMessage["buildings"] {
     const counts = intrayCounts(this);
-    return this.buildings.all().map((b) => ({ ...b, intray: counts.get(b.id) ?? 0, budget: this.budget.of(b.id) }));
+    return this.buildings.all().map((b) => ({ ...b, intray: counts.get(b.id) ?? 0, budget: this.budget.of(b.id), stoplight: this.grantDesk.stoplight(b) }));
   }
 
   export(dir = townEnv("EXPORT") ?? "./export"): ExportResult {

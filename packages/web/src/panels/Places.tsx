@@ -13,6 +13,7 @@ import { phaseTone } from "./BuildingPanel";
 import { RequestCard } from "./OutboxPanel";
 import { DocText, Markdown } from "./Markdown";
 import { grantUrl } from "../route";
+import { stoplightLabel } from "../format";
 import { Act, Empty, ErrorLine, Field, Loading, MTokensInput, Pill, Section, clock, fmtTokens, nameOf, timeAgo, usd, useLoad } from "./ui";
 import { fromMillions, toMillions } from "../format";
 import { portraitUrl } from "../map/sprites";
@@ -285,6 +286,7 @@ function KeyResultsView({ board, buildingId }: { board: Board; buildingId: strin
   return (
     <Section title="Key results" right={edit}>
       <div className="kr-view">
+        {board.stoplight ? <Stoplight light={board.stoplight.light} reason={board.stoplight.reason} /> : null}
         {board.goal ? <div className="kr-goal"><span className="muted">Goal</span> {board.goal}</div> : null}
         {board.blocked ? <div className="kr-blocked"><Pill tone="bad">blocked</Pill> {board.blocked.replace(/^blocked: /, "")}. {canEdit ? "Write the goal's key results in Building → Settings." : "Only a human writes them; the manager proposes them in a rollup or the 1:1."}</div> : null}
         {!rows.length && !board.blocked ? <Empty>No key results on the goal yet{canEdit ? ": write them in Building → Settings" : ""}.</Empty> : null}
@@ -315,6 +317,22 @@ function KeyResultsView({ board, buildingId }: { board: Board; buildingId: strin
         {board.proposal ? <div className="kr-proposal muted">{proposalLine(board.proposal)}</div> : null}
       </div>
     </Section>
+  );
+}
+
+/**
+ * The building's stoplight (town hall 2026-10-25): a three-lamp housing with the lit one glowing, its label and the
+ * one-line reason (also the hover title). Green = a funded grant runs on every key result, yellow = partly blocked,
+ * red = fully blocked. The map's banner shows the same lamp.
+ */
+export function Stoplight({ light, reason }: { light: "green" | "yellow" | "red"; reason: string }) {
+  const label = stoplightLabel(light);
+  return (
+    <div className={`kr-light ${light}`} title={`${label}: ${reason}`} role="status" aria-label={`${label}: ${reason}`}>
+      <span className="lamp" aria-hidden="true"><i className="r" /><i className="y" /><i className="g" /></span>
+      <b>{label}</b>
+      <span className="muted">{reason}</span>
+    </div>
   );
 }
 

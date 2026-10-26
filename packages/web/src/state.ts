@@ -107,7 +107,7 @@ class Store {
         const known = s.buildings.find((b) => b.id === m.building.id);
         // `intray` is resent when reports are created or decided, `budget` when tokens are charged or donated;
         // other building updates may omit them
-        const next: SnapshotBuilding = { ...m.building, intray: m.building.intray ?? known?.intray ?? 0, budget: m.building.budget ?? known?.budget };
+        const next: SnapshotBuilding = { ...m.building, intray: m.building.intray ?? known?.intray ?? 0, budget: m.building.budget ?? known?.budget, stoplight: m.building.stoplight === undefined ? known?.stoplight : m.building.stoplight };
         const buildings = known ? s.buildings.map((b) => (b.id === m.building.id ? next : b)) : [...s.buildings, next];
         this.set({ buildings, rev: s.rev + 1 });
         // The WS protocol has no grid message: a new building, a moved lot or moved furniture means the layout changed.

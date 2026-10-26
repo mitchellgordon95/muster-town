@@ -1,6 +1,6 @@
 import {
   CloseGrantInput, CreateGrantInput, CreateKeyResultInput, DecideGrantInput, UpdateGrantInput, UpdateKeyResultInput,
-  type Building, type Grant, type GrantHistoryEntry, type GrantStatus, type GrantView, type KeyResult,
+  type Building, type Grant, type GrantHistoryEntry, type GrantStatus, type GrantView, type KeyResult, type Stoplight, stoplightOf,
 } from "@muster-town/schema";
 import { createAssignment, managerAgentOf, sendMessage } from "./domain.ts";
 import type { EventType } from "./events.ts";
@@ -27,7 +27,7 @@ export const BLOCKED_NO_KRS = "blocked: no key results to work toward";
 export interface ExplorationBudget { allowanceTokens: number; spentTodayTokens: number }
 /** A goal key result with the live (funded or checkpoint) grant working on it, if any. */
 export type GoalKeyResult = KeyResult & { grantId: string | null };
-export interface GrantBoard { goal: string; keyResults: GoalKeyResult[]; blocked: string | null; grants: GrantView[]; proposal: GrantView | null; exploration: ExplorationBudget }
+export interface GrantBoard { goal: string; keyResults: GoalKeyResult[]; blocked: string | null; stoplight: Stoplight | null; grants: GrantView[]; proposal: GrantView | null; exploration: ExplorationBudget }
 export interface BlockedBuilding { buildingId: string; name: string; reason: string; since: string | null }
 
 /**
@@ -64,6 +64,17 @@ export class Grants {
     if (this.world.keyResults.count("buildingId = ?", [building.id])) return null;
     if (this.world.grants.count("buildingId = ? AND status IN ('funded', 'checkpoint')", [building.id])) return null;
     return BLOCKED_NO_KRS;
+  }
+
+  /**
+   * The building's stoplight (town hall 2026-10-25; the map banner and the board): green = a funded grant runs on every
+   * key result, yellow = a key result has no funded grant or a grant is held at its checkpoint, red = no key results or
+   * no funded grant at all. Open buildings and the Town Hall: null.
+   */
+  stoplight(b: Building | string): Stoplight | null {
+    const building = typeof b === "string" ? this.world.buildings.get(b) : b;
+    if (!building || building.kind === "town-hall" || building.budgetMode !== "goal-directed") return null;
+    return stoplightOf(this.keyResults(building.id), this.world.grants.where("buildingId = ? AND status IN ('funded', 'checkpoint')", [building.id], "ORDER BY fundedAt, rowid"));
   }
 
   /** Every blocked building (the Town Hall in-tray's summary). */
@@ -148,7 +159,7 @@ The open proposal ${open.id} ("${open.objective}") names no goal key result yet;
     const live = this.world.grants.where(`buildingId = ? AND status IN ('funded', 'checkpoint')`, [buildingId], "ORDER BY fundedAt, rowid");
     const open = this.world.grants.first(`buildingId = ? AND status IN ('proposed', 'countered')`, [buildingId], "ORDER BY updatedAt DESC");
     return {
-      goal: b.goal, keyResults: this.keyResults(buildingId), blocked: this.blocked(b),
+      goal: b.goal, keyResults: this.keyResults(buildingId), blocked: this.blocked(b), stoplight: this.stoplight(b),
       grants: live.map((g) => this.view(g)), proposal: open ? this.view(open) : null, exploration: this.exploration(buildingId),
     };
   }

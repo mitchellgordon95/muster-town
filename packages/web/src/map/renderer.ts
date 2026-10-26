@@ -11,7 +11,6 @@ import { layoutEdit, type LayoutDraft } from "./layoutEdit";
 import { townPlan, type PlanDraft } from "./townPlan";
 import { bubbleFor, buildingBudgetLine, drawBadge, drawBankSign, drawBubble, drawLabel, drawPill, drawSign, residentBudgetLine, type Bubble } from "./overlay";
 import { blockedByRedeploy } from "../redeploy";
-import { blockedLabel } from "../panels/keyResults";
 import { api } from "../api";
 import { drawFlow, type Flow } from "./flow";
 import { fitZoom, quickWalkGoal } from "./overview";
@@ -500,7 +499,7 @@ export class MapRenderer {
       if (!b.lot) continue;
       const p = toScreen((b.lot.x + b.lot.w / 2) * T, b.lot.y * T - 3);
       const sub = b.kind === "town-hall" ? (s.town?.name ?? "") : b.goal;
-      if (p.x > -300 && p.x < cw + 300 && p.y > -40 && p.y < ch + 60) this.signHits.push({ id: b.id, ...drawSign(g, p.x, p.y, b.name, sub, buildingBudgetLine(b.budget), b.id === this.hoverSign, blockedLabel(b)) });
+      if (p.x > -300 && p.x < cw + 300 && p.y > -40 && p.y < ch + 60) this.signHits.push({ id: b.id, ...drawSign(g, p.x, p.y, b.name, sub, buildingBudgetLine(b.budget), b.id === this.hoverSign, b.stoplight) });
     }
     // the Bank's marquee hangs over the path, just outside its front door
     if (w.bank) {
