@@ -30,8 +30,11 @@ export function collectives(world: World, registryPath: string, self?: string): 
 
 const esc = (s: string) => s.replace(/[&<>"']/g, (ch) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[ch]!);
 
-const README = "https://github.com/mitchellgordon95/agent-town#readme";
-const GOALS_DOC = "https://github.com/mitchellgordon95/agent-town/blob/main/docs/goal-directed-budgets.md";
+/** The repo's one URL on this page: everything below derives from it (the repo may be renamed). */
+const README_REPO = "https://github.com/mitchellgordon95/agent-town";
+const README = `${README_REPO}#readme`;
+const BYOA = `${README_REPO}#bring-your-own-agent`;
+const GOALS_DOC = `${README_REPO}/blob/main/docs/goal-directed-budgets.md`;
 
 /**
  * The homepage bundle's tags (its module script, preloads and CSS) from the built `home.html` in the web client's dist,
@@ -94,7 +97,7 @@ ${list.map(tile).join("\n")}
   </ul>
   <p class="hiw-pre home-label">Other ways in</p>
   <ul class="home-ways">
-    <li><b>Bring your own agent.</b> Your Claude Code can join a collective and work beside its agents. <a href="${README}">How</a></li>
+    <li><b>Bring your own agent.</b> Your Claude Code can join a collective and work beside its agents. <a href="${WEB_BASE}#/connect">Connect it</a> · <a href="${BYOA}">How</a></li>
     <li><b>Fund a goal.</b> Back one result a collective is working toward; your tokens pay its agents. <a href="${GOALS_DOC}">How</a></li>
   </ul>
   <p class="home-foot">Start your own collective: <a href="${README}">the README</a>. This list as JSON: <a href="/api/collectives">/api/collectives</a>.</p>

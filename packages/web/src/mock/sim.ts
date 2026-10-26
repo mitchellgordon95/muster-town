@@ -453,6 +453,17 @@ export class Sim {
     return b;
   }
 
+  /** a signed-in person's own agent (POST /api/agents/visitors): a visitor on the plaza, or at a desk in buildingId */
+  createVisitor(name: string, buildingId?: string): Agent {
+    const a: Agent = { ...clone(this.agents.get("ag_mei")!), id: newId("ag"), kind: "visitor", name, title: "Visitor", direction: "", sprite: Math.floor(Math.random() * 12), buildingId: buildingId ?? null, homeBuildingId: buildingId ?? null, ownerUserId: this.users[0]?.id ?? null, status: "idle", activity: "", spentTokensToday: 0, spentTokensTotal: 0, spentUsdTotal: 0, createdAt: now() };
+    this.agents.set(a.id, a);
+    this.layout = computeLayout(this.buildings, [...this.agents.values()]);
+    a.pos = this.home(a);
+    this.emit({ type: "agent", agent: a });
+    this.event("agent.created", a.id, `${name} arrived as a visitor`, {}, buildingId ?? null);
+    return a;
+  }
+
   createResident(buildingId: string, name: string, title: string, direction: string, sprite?: number): Agent {
     const a: Agent = { ...clone(this.agents.get("ag_mei")!), id: newId("ag"), name, title, direction, sprite: sprite ?? Math.floor(Math.random() * 12), buildingId, homeBuildingId: buildingId, status: "idle", activity: "", spentTokensToday: 0, spentTokensTotal: 0, spentUsdTotal: 0, createdAt: now() };
     this.agents.set(a.id, a);

@@ -438,6 +438,22 @@ export function startRuntime(opts: RuntimeOptions): Runtime {
     world, repoRoot: ctx.repoRoot, collective: dockerSafe(collectiveSlug), image: desks.image,
     // sandbox-desk hosts (Fly) have no docker: the desk image is built and pushed from outside the town
     imageBuild: !sandboxProvider,
+    // ...unless the host has the desk app's deploy token: then it pushes the image itself (Fly's remote builder) and recreates idle desks
+    imagePushEnv: () => {
+      const token = sandboxProvider ? process.env.FLY_DESKS_ACCESS_TOKEN?.trim() : "";
+      return token ? { FLY_ACCESS_TOKEN: token, FLY_APP: process.env.FLY_APP || "muster-desks" } : null;
+    },
+    recreateDesks: async () => {
+      const removed: string[] = [], kept: string[] = [];
+      const b = dockerProbe;
+      if (!b?.remove || !sandboxProvider) return { removed, kept };
+      for (const a of world.agents.where("kind = 'resident'")) {
+        if (ctx.live.has(a.id) || starting.has(a.id)) { kept.push(a.name); continue; }
+        await b.remove(a.id); // the Machine only: the home volume stays
+        removed.push(a.name);
+      }
+      return { removed, kept };
+    },
     gitEnv: () => gitAuthEnv(world, desks.ghToken),
     isWorking: (agentId) => ctx.live.has(agentId) || starting.has(agentId),
     // facilitations count too, but only for drainMeetingMs: then the notice goes into the meeting and it resumes after the restart (docs/meetings.md §6)

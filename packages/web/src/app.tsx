@@ -13,6 +13,7 @@ import { Hint, Hud, SayBox, Toasts } from "./hud";
 import { redeployStatus } from "./redeploy";
 import { authStore, forceGuest, loadAuthConfig, takeAuthError, useAuth } from "./auth/auth";
 import { AgentPanel } from "./panels/AgentPanel";
+import { ConnectAgentPanel } from "./panels/ConnectAgent";
 import { BuildingPanel } from "./panels/BuildingPanel";
 import { LibraryPanel, TrophyPanel } from "./panels/LibraryPanel";
 import { OutboxPanel } from "./panels/OutboxPanel";
@@ -156,6 +157,7 @@ function PanelHost({ panel }: { panel: PanelRef }) {
   switch (panel.kind) {
     case "agent": return <AgentPanel key={panel.id} id={panel.id!} tab={panel.tab} />;
     case "building": return <BuildingPanel key={panel.id} id={panel.id!} tab={panel.tab} />;
+    case "connect": return <ConnectAgentPanel />;
     case "library": return <LibraryPanel docId={panel.docId} />;
     case "trophy": return <TrophyPanel docId={panel.docId} />;
     case "outbox": return <OutboxPanel />;

@@ -1,6 +1,6 @@
 # Build-only config for the Fly desk image (nothing is deployed from it: desks are Machines the runtime creates).
-# Build and push:  fly deploy --build-only --push --image-label desk -c fly.desk.toml --access-token "$FLY_API_TOKEN"
-# (or `npm run desk:fly-image`). The image lands at registry.fly.io/<app>:desk.
+# Build and push:  FLY_ACCESS_TOKEN=<muster-desks deploy token> bash scripts/fly-desk-image.sh
+# (the town's `redeploy` with the desk image does this itself with the host secret FLY_DESKS_ACCESS_TOKEN). The image lands at registry.fly.io/<app>:desk.
 app = "muster-desks"
 
 [build]

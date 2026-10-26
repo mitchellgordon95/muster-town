@@ -14,7 +14,7 @@ import { redeployStatus, type RedeployLiveAt } from "./redeploy";
  * (planning desk, schedule board, mod station) and the Bank take none. `admin` is the old name for `planning`.
  * `grant` is the one panel without a place: a grant or proposal (`gr_…`), reached from any link to its id.
  */
-export type PanelKind = "agent" | "building" | "library" | "trophy" | "outbox" | "meeting" | "intray" | "board" | "cabinet" | "planning" | "schedule" | "mod" | "bank" | "admin" | "grant";
+export type PanelKind = "agent" | "building" | "connect" | "library" | "trophy" | "outbox" | "meeting" | "intray" | "board" | "cabinet" | "planning" | "schedule" | "mod" | "bank" | "admin" | "grant";
 export interface PanelRef { kind: PanelKind; id?: string; docId?: string; tab?: string }
 export interface Toast { id: number; text: string; tone: "info" | "ok" | "bad"; panel?: PanelRef }
 

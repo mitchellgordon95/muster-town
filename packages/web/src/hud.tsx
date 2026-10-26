@@ -149,6 +149,7 @@ export function Hud({ onPasteToken, onHelp }: { onPasteToken?: () => void; onHel
             <div className="hud-me">
               {me.user.avatarUrl ? <img src={me.user.avatarUrl} alt="" /> : null}
               <span>{me.user.githubLogin ? `@${me.user.githubLogin}` : me.user.name}{me.isAdmin ? " · admin" : ""}</span>
+              {me.canInteract !== false ? <button className="link" onClick={() => store.open({ kind: "connect" })} title="Bring your own Claude Code">Connect your agent</button> : null}
               <button className="link" onClick={() => void signOut()}>Sign out</button>
             </div>
           ) : null}

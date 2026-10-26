@@ -43,6 +43,13 @@ export interface RedeployDeps {
   image: string;
   /** whether this host can build the desk image (`docker build`); false on a sandbox-desk host (Fly), where the image is built elsewhere. Default true. */
   imageBuild?: boolean;
+  /**
+   * Sandbox-desk hosts (Fly): the env for pushing the desk image from here (`scripts/fly-desk-image.sh` on Fly's remote builder,
+   * `FLY_ACCESS_TOKEN` = the host's desk-app deploy token), or null when this host has no token. Never logged.
+   */
+  imagePushEnv?: () => Record<string, string> | null;
+  /** Sandbox-desk hosts: replace the idle desk sandboxes (home volumes kept) so each is recreated from the pushed image on next use. */
+  recreateDesks?: () => Promise<{ removed: string[]; kept: string[] }>;
   /** extra env for the git commands (the collective's repo token as a credential helper); never logged */
   gitEnv?: () => Record<string, string>;
   /** branch to pull from origin (prod follows a CI-moved `prod` branch). Default: MUSTER_TOWN_DEPLOY_BRANCH, else `main`. */
@@ -226,6 +233,8 @@ export function makeRedeployer(deps: RedeployDeps): Redeployer {
 
     /** (b) reinstall only when the lockfile changed, (c) the web client, (d) the desk image when asked (and not built yet) */
     let imageBuilt = false;
+    /** sandbox-desk hosts: the env to push the desk image with (null: no token here) */
+    const pushEnv = buildImage ? null : deps.imagePushEnv?.() ?? null;
     async function rebuild(lock: boolean, label = ""): Promise<boolean> {
       if (lock) {
         // --include=dev: the server (tsx) and the web build (vite) run on devDependencies, whatever NODE_ENV says
@@ -238,10 +247,19 @@ export function makeRedeployer(deps: RedeployDeps): Redeployer {
         if (!(await step(`docker build desk image${label}`, "docker", ["build", ...imageTags(deps.image).flatMap((t) => ["-t", t]), "-f", "packages/desk/Dockerfile", "."], 3_600_000))) return false;
         imageBuilt = true;
       }
+      if (o.image && !buildImage && pushEnv) {
+        // Fly's remote builder; a failed push doesn't hold the code deploy: the desks just keep their image
+        const label2 = `push desk image${label}`;
+        setPhase(label2);
+        say(`Redeploy: ${label2} …`, { step: label2, phase: "start" });
+        const r = await run("bash", ["scripts/fly-desk-image.sh"], { cwd, timeoutMs: 3_600_000, env: pushEnv });
+        if (r.code === 0) imageBuilt = true;
+        say(`Redeploy: ${label2} … ${r.code === 0 ? "ok" : `failed (exit ${r.code}); the desks keep their image`}`, { step: label2, phase: "end", ok: r.code === 0, code: r.code, output: tail(r) });
+      }
       return true;
     }
-    if (o.image && !buildImage) {
-      say("Redeploy: desk image … skipped (this host runs sandbox desks; the image is built and pushed from outside the town, see fly.desk.toml)", { step: "docker build desk image", phase: "end", ok: true, skipped: true });
+    if (o.image && !buildImage && !pushEnv) {
+      say("Redeploy: desk image … skipped (this host runs sandbox desks and has no desk-app deploy token, FLY_DESKS_ACCESS_TOKEN; push it from outside, see fly.desk.toml)", { step: "push desk image", phase: "end", ok: true, skipped: true });
     }
     if (!(await rebuild(lockChanged))) return;
 
@@ -333,7 +351,7 @@ export function makeRedeployer(deps: RedeployDeps): Redeployer {
       } else {
         say("Redeploy: pull again after the drain … ok (no new commits)", { step: "git pull again", phase: "end", ok: true, code: 0 });
         // a request that joined during the drain may have asked for the image
-        if (o.image && buildImage && !imageBuilt && !(await rebuild(false, " (again)"))) return;
+        if (o.image && (buildImage || pushEnv) && !imageBuilt && !(await rebuild(false, " (again)"))) return;
       }
     }
 
@@ -353,6 +371,15 @@ export function makeRedeployer(deps: RedeployDeps): Redeployer {
         (rm.code === 0 ? removed : kept).push(name);
       }
       say(`Redeploy: removed ${removed.length} idle desk container(s)${kept.length ? `, kept ${kept.length}` : ""}`, { step: "recreate desks", phase: "end", ok: true, removed, kept });
+    }
+    if (o.image && !buildImage && imageBuilt && deps.recreateDesks) {
+      setPhase("recreate desks");
+      try {
+        const { removed, kept } = await deps.recreateDesks();
+        say(`Redeploy: removed the desk Machines of ${removed.length} idle resident(s), home volumes kept; each is recreated from the new image on next use${kept.length ? `; kept ${kept.length} working` : ""}`, { step: "recreate desks", phase: "end", ok: true, removed, kept });
+      } catch (e) {
+        say(`Redeploy: recreate desks … failed (${e instanceof Error ? e.message : String(e)})`, { step: "recreate desks", phase: "end", ok: false });
+      }
     }
 
     // (g) restart: give the HTTP response and the events a moment to flush

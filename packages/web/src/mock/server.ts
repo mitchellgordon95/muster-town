@@ -4,7 +4,7 @@ import { BACKFILL, BOARD_TYPES, DEFAULT_POOL_ID, ZERO_TOKENS, addTokens, backfil
 import type { Api, AgentDetail, AllocationRow, Bank, Budget, Cabinet, CabinetQuery, DocQuery, EventQuery, In, LayoutPreview, MessageResult, PlanPreview, RoomLayout, RequestAction, Snapshot, Socket, SocketHandlers, ThreadMessage, WriteDocInput } from "../api";
 import { ApiError } from "../api";
 import type { PinSkillInput, PutSecretInput, SecretView, SkillPinView, SkillView } from "@muster-town/schema";
-import type { CreateBuildingInput, UpdateBuildingInput, CreateResidentInput, ReviewInput, ChatInput, WorkInput, DonateInput, CreateMeetingInput, DocState, AddBankInput, BankInput, CreateBankPoolInput, UpdateBankPoolInput, DecideGrantInput, CreateKeyResultInput, UpdateKeyResultInput } from "@muster-town/schema";
+import type { CreateBuildingInput, UpdateBuildingInput, CreateResidentInput, RegisterVisitorInput, ReviewInput, ChatInput, WorkInput, DonateInput, CreateMeetingInput, DocState, AddBankInput, BankInput, CreateBankPoolInput, UpdateBankPoolInput, DecideGrantInput, CreateKeyResultInput, UpdateKeyResultInput } from "@muster-town/schema";
 import { Sim, newId, spent } from "./sim";
 import { memoryDocs } from "./fixture";
 
@@ -111,6 +111,7 @@ export class MockApi implements Api {
   async previewPlan(): Promise<PlanPreview> { throw new ApiError("Town planning needs the real server.", "unsupported", 501); }
   async savePlan(): Promise<{ buildings: Building[]; created: Building | null }> { throw new ApiError("Town planning needs the real server.", "unsupported", 501); }
   async saveLayout(): Promise<Building> { throw new ApiError("Edit layout needs the real server.", "unsupported", 501); }
+  async registerVisitor(i: In<typeof RegisterVisitorInput>) { await wait(); return { agent: clone(this.sim.createVisitor(i.name, i.buildingId)), token: `mt_mock_${Math.random().toString(36).slice(2, 14)}` }; }
   async createResident(i: In<typeof CreateResidentInput>) { await wait(); return clone(this.sim.createResident(i.buildingId, i.name || await this.suggestName(), i.title ?? "", i.direction ?? "", i.sprite)); }
   async suggestName(avoid: string[] = []) {
     const taken = new Set([...[...this.sim.agents.values()].map((a) => a.name), ...avoid].map((n) => n.toLowerCase()));
