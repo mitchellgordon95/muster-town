@@ -205,7 +205,7 @@ export function drawFlow(g: CanvasRenderingContext2D, now: number, flow: Flow, b
 
   // title card
   const lines: [string, string][] = bank
-    ? [[`${fmtTokens(bank.balanceTokens)} tokens in the Bank`, `${fmtTokens(bank.expiringTokens)} expire today · ${fmtTokens(bank.durableTokens)} durable · ${fmtTokens(bank.heldTokens)} held by buildings · Esc to return`]]
+    ? [[`${fmtTokens(bank.balanceTokens)} adj. tokens in the Bank`, `${fmtTokens(bank.expiringTokens)} expire today · ${fmtTokens(bank.durableTokens)} durable · ${fmtTokens(bank.heldTokens)} held by buildings · Esc to return`]]
     : [[flow.error ? "Couldn't read the Bank" : "Reading the Bank…", flow.error ?? "Esc to return"]];
   const [t1, t2] = lines[0];
   const hint = bank && !flows.some((f) => (f.s?.pct ?? 0) > 0) ? "No pool has a share of the Bank yet" : t2;

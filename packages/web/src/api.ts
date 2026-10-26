@@ -87,10 +87,13 @@ export interface Bank {
   heldByAuth?: HeldByAuth;
   /** balanceTokens + heldTokens */
   townTokens: number;
+  /** what the inputs credited, in adjusted output tokens (every Bank figure is, since step 3) */
   creditedTokens: number;
-  /** what the inputs credited as the five counters; creditedTokens is their raw total */
+  /** the raw total of the credits' counters (older servers leave it out) */
+  rawCreditedTokens?: number;
+  /** what the inputs credited as the five counters */
   creditedCounts: TokenCounts;
-  /** creditedTokens in adjusted output tokens (Bank step 2: derived at list-price weights, never stored) */
+  /** the credits' counters priced at list price (matches creditedTokens to rounding) */
   adjustedCreditedTokens: number;
   dailyInflowTokens: number;
   inputs: (BankInput & { userName: string; creditedCounts: TokenCounts; adjustedCreditedTokens: number })[];

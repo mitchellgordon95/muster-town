@@ -242,7 +242,7 @@ describe("bank", () => {
     const u = world.ops.createUser("Cy").user;
     const lab = createBuilding(world, { name: "Lab 3" }, seed.admin.id);
     const placeholder = world.budget.donate(u.id, { tokens: 1000, buildingId: lab.id, auth: "api-key" });
-    world.allocations.upsert({ ...placeholder, spentOutput: 250 });
+    world.allocations.upsert({ ...placeholder, spentOutput: 250, spentTokens: 250 });
     world.budget.retire(placeholder.id);
     world.budget.donate(u.id, { tokens: 400, buildingId: lab.id, auth: "api-key" });
     expect(world.bank.contributors().find((c) => c.userId === u.id)).toMatchObject({ tokens: 650, donatedTokens: 650 });

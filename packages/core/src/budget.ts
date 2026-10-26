@@ -1,5 +1,5 @@
-import { DonateInput, rawTokens, toCounts, type TokenCounts, type Agent, type Allocation, type AllocationAuth, type Assignment, type BuildingBudget, type ServerMessage } from "@muster-town/schema";
-import type { Bank } from "./bank.ts";
+import { DonateInput, type TokenCounts, type Agent, type Allocation, type AllocationAuth, type Assignment, type BuildingBudget, type ServerMessage } from "@muster-town/schema";
+import { type Bank, type Booked, booked } from "./bank.ts";
 import { badRequest } from "./errors.ts";
 import type { EventLog } from "./events.ts";
 import type { Repos } from "./store.ts";
@@ -15,6 +15,9 @@ export interface BudgetSummary {
   buildings: { buildingId: string; name: string; allocatedTokens: number; spentTokens: number; spentUsd: number; remainingTokens: number }[];
   users: { userId: string; name: string; donatedTokens: number }[];
 }
+
+/** How a charge's counters are priced: the session's model, and its per-model breakdown when it has one (Bank step 3). */
+export interface ChargePrice { model?: string | null; byModel?: Record<string, TokenCounts> | null }
 
 const SKIP_STATUSES = new Set(["stopped", "banned"]);
 
@@ -78,7 +81,7 @@ export class Budget {
     };
   }
 
-  /** Tokens the building's residents used today (since the server's local midnight) and all-time, from the usage ledger. */
+  /** Adjusted output tokens the building's residents used today (since the server's local midnight) and all-time, from the usage ledger. */
   usage(buildingId: string, now = new Date()): { tokensToday: number; tokensAllTime: number } {
     return {
       tokensToday: this.repos.usage.sum("tokens", "buildingId = ? AND createdAt >= ?", [buildingId, startOfLocalDay(now)]),
@@ -89,14 +92,15 @@ export class Budget {
   /**
    * Record usage on the agent (daily + total counters) and in the usage ledger, without drawing from any budget, then
    * run `afterCharge` (grant checkpoints). `charge` does this too; call it alone when nothing funds the session (e.g. Town Hall's librarian).
+   * Booked in adjusted output tokens (`booked`: counters priced at `price.model`, per model with `price.byModel`; a bare number is already adjusted).
    */
-  recordUsage(agentId: string, tokens: number | TokenCounts, usd: number): Agent {
+  recordUsage(agentId: string, tokens: number | TokenCounts | Booked, usd: number, price: ChargePrice = {}): Agent {
     if ((typeof tokens === "number" && tokens < 0) || usd < 0) throw badRequest("usage must be non-negative");
-    const counts = toCounts(tokens);
-    const t = rawTokens(counts);
+    const b = booked(tokens, price.model, price.byModel);
+    const t = b.tokens;
     const agent = this.repos.agents.require(agentId, "agent");
     const bid = agent.homeBuildingId ?? agent.buildingId;
-    this.repos.usage.upsert({ id: newId("us"), agentId, buildingId: bid, ...counts, usd, createdAt: nowIso() });
+    this.repos.usage.upsert({ id: newId("us"), agentId, buildingId: bid, ...b.counts, tokens: t, usd, createdAt: nowIso() });
     const updated = this.repos.agents.upsert({
       ...agent,
       spentTokensToday: agent.spentTokensToday + t,
@@ -143,22 +147,22 @@ export class Budget {
    * Emits `budget.exhausted`
    * and sets `out-of-budget` when the agent's daily allowance or the building budget runs out.
    */
-  charge(agentId: string, tokens: number | TokenCounts, usd: number, allocationId?: string): ChargeResult {
+  charge(agentId: string, tokens: number | TokenCounts | Booked, usd: number, allocationId?: string, price: ChargePrice = {}): ChargeResult {
     if ((typeof tokens === "number" && tokens < 0) || usd < 0) throw badRequest("charge must be non-negative");
-    const counts = toCounts(tokens);
-    const t = rawTokens(counts);
-    let agent = this.recordUsage(agentId, counts, usd);
+    const booking = booked(tokens, price.model, price.byModel);
+    const t = booking.tokens;
+    let agent = this.recordUsage(agentId, booking, usd);
     const bid = agent.homeBuildingId ?? agent.buildingId;
     let allocation: Allocation | null = null;
     if (bid) {
-      const rest = allocationId ? counts : this.bank.drawTokens(bid, agent.id, counts);
-      const left = rawTokens(rest);
+      const rest = allocationId ? booking : this.bank.drawTokens(bid, agent.id, booking);
+      const left = rest.tokens, c = rest.counts;
       allocation = allocationId ? this.repos.allocations.require(allocationId, "allocation") : left > 0 ? this.pickAllocation(bid) : null;
       if (allocation) {
         allocation = this.repos.allocations.upsert({
-          ...allocation,
-          spentInput: allocation.spentInput + rest.input, spentOutput: allocation.spentOutput + rest.output, spentCacheRead: allocation.spentCacheRead + rest.cacheRead,
-          spentCacheWrite5m: allocation.spentCacheWrite5m + rest.cacheWrite5m, spentCacheWrite1h: allocation.spentCacheWrite1h + rest.cacheWrite1h,
+          ...allocation, spentTokens: allocation.spentTokens + left,
+          spentInput: allocation.spentInput + c.input, spentOutput: allocation.spentOutput + c.output, spentCacheRead: allocation.spentCacheRead + c.cacheRead,
+          spentCacheWrite5m: allocation.spentCacheWrite5m + c.cacheWrite5m, spentCacheWrite1h: allocation.spentCacheWrite1h + c.cacheWrite1h,
           spentUsd: allocation.spentUsd + usd * (left / Math.max(1, t)),
         });
       } else if (left > 0) {
@@ -177,7 +181,7 @@ export class Budget {
         }
       } else if (agent.kind === "resident" && agent.spentTokensToday >= b.dailyTokensPerAgent) {
         exhausted = "agent-daily";
-        this.events.append({ type: "budget.exhausted", buildingId: bid, agentId: agent.id, text: `${agent.name} used today's ${b.dailyTokensPerAgent.toLocaleString("en-US")} tokens`, payload: { scope: "agent", spentTokensToday: agent.spentTokensToday } });
+        this.events.append({ type: "budget.exhausted", buildingId: bid, agentId: agent.id, text: `${agent.name} used today's ${b.dailyTokensPerAgent.toLocaleString("en-US")} adj. tokens`, payload: { scope: "agent", spentTokensToday: agent.spentTokensToday } });
         if (!SKIP_STATUSES.has(agent.status)) agent = this.setStatus(agent, "out-of-budget");
       }
     }
@@ -226,7 +230,7 @@ export class Budget {
     this.repos.users.upsert({ ...this.repos.users.require(userId), donatedTokens: user.donatedTokens + inp.tokens });
     this.emitBuilding(b.id);
     const what = label ? ` (${label})` : "";
-    this.events.append({ type: "allocation.created", buildingId: b.id, text: `${user.name} donated ${inp.tokens.toLocaleString("en-US")} tokens to ${b.name}${what}`, payload: { allocationId: allocation.id, userId, tokens: inp.tokens, auth, label } });
+    this.events.append({ type: "allocation.created", buildingId: b.id, text: `${user.name} donated ${inp.tokens.toLocaleString("en-US")} adj. tokens to ${b.name}${what}`, payload: { allocationId: allocation.id, userId, tokens: inp.tokens, auth, label } });
     // resume residents that were blocked only by the building budget
     for (const r of this.repos.agents.where("homeBuildingId = ? AND status = 'out-of-budget'", [b.id])) {
       if (r.spentTokensToday < b.dailyTokensPerAgent) this.setStatus(r, "idle");
@@ -241,7 +245,7 @@ export class Budget {
     const row = this.repos.allocations.upsert({ ...a, retired: true });
     const b = this.repos.buildings.get(a.buildingId);
     const left = Math.max(0, a.tokens - a.spentTokens);
-    this.events.append({ type: "system", buildingId: a.buildingId, text: `${byName} retired ${a.label || `allocation ${a.id}`}${b ? ` at ${b.name}` : ""} (${left.toLocaleString("en-US")} tokens unspent)`, payload: { allocationId: a.id, retired: true, auth: a.auth } });
+    this.events.append({ type: "system", buildingId: a.buildingId, text: `${byName} retired ${a.label || `allocation ${a.id}`}${b ? ` at ${b.name}` : ""} (${left.toLocaleString("en-US")} adj. tokens unspent)`, payload: { allocationId: a.id, retired: true, auth: a.auth } });
     this.emitBuilding(a.buildingId);
     return row;
   }

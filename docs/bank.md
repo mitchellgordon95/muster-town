@@ -1,6 +1,6 @@
 # The Bank: token counters
 
-Bank grant gr_iq5m7dug56 moves the Bank from one raw token number to what tokens actually cost. Plan: dc_2uqmfdittg. Step 1 (this note) records the breakdown everywhere; step 2 (`adjustedOutputTokens` in `core/src/bank.ts`) puts a price on it. Step 2 derives the adjusted figure and shows it next to the raw one; nothing is charged in it yet (step 3), so every total, balance and budget still reads in raw tokens.
+Bank grant gr_iq5m7dug56 moves the Bank from one raw token number to what tokens actually cost. Plan: dc_2uqmfdittg. Step 1 (this note) records the breakdown everywhere; step 2 (`adjustedOutputTokens` in `core/src/bank.ts`) puts a price on it. Step 2 derives the adjusted figure; step 3 (below) enters, books, compares and shows every Bank figure in it.
 
 ## The five counters (step 1)
 
@@ -75,3 +75,17 @@ Where it shows (always next to `tokens` and the five counters):
 - `GET /api/bank` (the Bank page's payload): `creditedCounts` and `adjustedCreditedTokens`, overall and per input.
 
 Calibration (2026-10-26, the last 50 `session.ended` with a `costUsd`, 16:41 to 20:30 UTC): for the 4 sessions with a real breakdown, list cost of the counters / `costUsd` = 1.000 (all four within 0.1%). The 46 back-filled ones (desks before step 1 posted only a raw total) are priced at raw / 30 (Opus) or raw / 24 (Fable) by the back-fill rule; against their real cost that is a median 0.85 (p10 0.55, p90 1.36, n 13) for Opus and 0.69 (0.46 to 1.41, n 33) for Fable. Their real raw tokens per adjusted output token: Opus median 25.6 (p10 16.4, p90 40.7), Fable 16.5 (11.0 to 33.7), against the assumed 30 and 24.
+
+## The Bank counts adjusted output tokens (step 3)
+
+The unit is **adjusted output tokens** ("adj. tokens" in the web client): what the tokens cost, in the model's output tokens (step 2's `adjustedOutputTokens`). At the step-1 calibration 1 adj. token ≈ 30 raw tokens on Opus, 24 on Fable. `GET /api/health` says `accounting: "adjusted"` (`BANK_ACCOUNTING`, core `bank.ts`).
+
+Entered and booked in it: Bank inputs (`tokens`, `weeklyCapTokens`, `creditedTokens`), donations and allocations (`tokens`, `spentTokens`), grant asks, grants and their history, a grant's spend and exploration spend (their sessions' `adjustedOutputTokens`, summed), building allowances (`dailyTokensPerAgent`, `explorationTokensPerDay`), agents' `spentTokensToday` / `spentTokensTotal`, users' `donatedTokens`, the usage ledger (tokens today / all time), Bank credits and debits, pool and building balances, and a report's stamped `tokens`. Sessions keep `tokens` raw (with `adjustedOutputTokens` derived).
+
+Booking (`booked` in core `bank.ts`): a charge's counters are priced at the session's model (per model with `byModel`), so a session's booked tokens equal its `adjustedOutputTokens`. A bare number is already adjusted; its counters are the back-fill split of the raw tokens it stands for (`n × 30` Opus, `n × 24` Fable). A credit of A adj. tokens books `tokens = A` with the back-fill split of `A × ratio`. A draw takes adjusted tokens from each credit and the same share of every counter (`sliceBooked`).
+
+The five counters stay alongside: ledger rows (`usage`, `bank_debits`, `bank_credits`) store `tokens` (adjusted) and the five counters, and `rawTokens` is their generated sum; an allocation stores `spentTokens` (adjusted) and the five `spent…` counters, `spentRawTokens` generated. `GET /api/bank` adds `rawCreditedTokens`; a grant view adds `spentCounts`. In the web client every token figure says "adj. tokens", and hovering the Bank balance, an input's credited figure, an allocation's spend, a grant's progress or a session shows the five counters and the raw total.
+
+Conversion (migration `037_adjusted_tokens.sql`, once): every size above ÷30 (Opus and any non-Fable model) or ÷24 (an input whose model is Fable), rounded; the ledger's `tokens` recomputed from its counters at Opus 5.5 weights (a credit at its input's model). One `bank.converted` event lists every converted input, grant, building and allocation as `[before, after]`. Live figures (2026-10-26): bi_au5kt05vlj 40M/day, cap 280M → 1,333,333/day, cap 9,333,333; bi_foh0utko9b 20M/day, cap 100M → 666,667/day, cap 3,333,333; gr_iq5m7dug56 24,000,000 → 800,000. New defaults: `dailyTokensPerAgent` 350,000, the seed's house budget 1,700,000.
+
+Tests: `core/test/bank-adjusted.test.ts` (037), `core/test/token-counters.test.ts` (booking), `server/test/live.test.ts` (`accounting`), `server/test/desk.test.ts`, `server/test/adjusted.test.ts`.

@@ -12,7 +12,11 @@ const BLOCKED_NO_KRS = "blocked: no key results to work toward";
 let seq = 0;
 export const newId = (p: string) => `${p}_${Date.now().toString(36)}${(++seq).toString(36)}`;
 /** an allocation's spend by kind (the mock books it all as cache reads); spentTokens is their sum */
-export const spent = (n: number) => ({ spentInput: 0, spentOutput: 0, spentCacheRead: n, spentCacheWrite5m: 0, spentCacheWrite1h: 0, spentTokens: n });
+/** An allocation's spend of `n` adjusted output tokens, with the back-fill split of the 30 raw (Opus) behind each. */
+export const spent = (n: number) => {
+  const output = Math.round(n * 30 * (1 / 30 - 0.01) / 0.99);
+  return { spentInput: 0, spentOutput: output, spentCacheRead: n * 30 - output, spentCacheWrite5m: 0, spentCacheWrite1h: 0, spentRawTokens: n * 30, spentTokens: n };
+};
 
 const SCRIPTS: Record<string, string[]> = {
   default: ["Looking around (look)", "Reading the board", "Searching: {topic}", "Reading doc GCB 2025 ESSD", "Thinking about units and uncertainty", "Writing notes on the board", "Fetching: gml.noaa.gov", "Drafting the report"],

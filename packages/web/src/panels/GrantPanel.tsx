@@ -9,7 +9,7 @@ import { store, useTown } from "../state";
 import { DocText } from "./Markdown";
 import { GrantRow } from "./Places";
 import { Glyph, PanelShell } from "./PanelShell";
-import { Empty, ErrorLine, Loading, Section, clock, fmtTokens, nameOf, timeAgo, useLoad } from "./ui";
+import { ADJ, Empty, ErrorLine, Loading, Section, clock, fmtTokens, nameOf, timeAgo, useLoad } from "./ui";
 
 export function GrantPanel({ id }: { id: string }) {
   const rev = useTown((s) => s.rev);
@@ -62,7 +62,7 @@ function History({ grant: g }: { grant: GrantView }) {
           <li key={i}>
             <time title={h.at}>{clock(h.at)}</time>
             <span>
-              <b>{nameOf(h.byId)}</b> {h.action}{h.tokens != null ? ` ${fmtTokens(h.tokens)} tokens` : ""} <span className="muted">· {timeAgo(h.at)}</span>
+              <b>{nameOf(h.byId)}</b> {h.action}{h.tokens != null ? ` ${fmtTokens(h.tokens)} ${ADJ}` : ""} <span className="muted">· {timeAgo(h.at)}</span>
               {h.note ? <div className="muted"><DocText text={h.note} /></div> : null}
             </span>
           </li>

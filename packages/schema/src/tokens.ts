@@ -50,6 +50,9 @@ export function backfillFamily(model: string | null | undefined): keyof typeof B
   return model && /fable/i.test(model) ? "fable" : "opus";
 }
 
+/** Raw tokens per adjusted output token at the step-1 calibration: 30 (Opus and any non-Fable model) / 24 (Fable). */
+export const rawPerAdjusted = (model: string | null | undefined): number => BACKFILL[backfillFamily(model)].ratio;
+
 export function splitRaw(raw: number, model?: string | null): TokenCounts {
   const t = Math.max(0, Math.round(raw));
   const { ratio, cacheReadWeight: w } = BACKFILL[backfillFamily(model)];

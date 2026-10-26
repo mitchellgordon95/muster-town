@@ -92,6 +92,10 @@ describe("WebSocket", () => {
     ws.close();
   });
 
+  it("GET /api/health says the Bank counts adjusted output tokens (Bank grant step 3, kr_vyrhhiyotb)", async () => {
+    expect(await (await fetch(`${base}/api/health`)).json()).toMatchObject({ ok: true, accounting: "adjusted" });
+  });
+
   it("GET /api/health carries `load` and counts open /ws clients", async () => {
     const health = async () => (await (await fetch(`${base}/api/health`)).json()) as { load: { lagMs: number; rssMb: number; wsClients: number } };
     // the server counts a socket closed when its close frame lands, a moment after the client sees it: poll

@@ -73,8 +73,9 @@ describe("goal-directed budgets: lanes on assignments", () => {
     const a = world.ops.createWork(admin, noor.id, { title: "kr", lane: "grant", grantId: g.id });
     const s = world.ops.startSession(noor.id, { purpose: "work", model: "m", assignmentId: a.id });
     expect(world.sessions.require(s.id)).toMatchObject({ lane: "grant", grantId: g.id });
-    world.ops.endSession(s.id, { status: "done", tokens: 1234 });
-    expect(world.grantDesk.spent(g.id)).toBe(1234);
+    world.ops.endSession(s.id, { status: "done", tokens: 1230 });
+    // a grant's spend is its sessions' adjusted output tokens (Bank step 3): 1230 raw back-filled on Opus = 41
+    expect(world.grantDesk.spent(g.id)).toBe(41);
   });
 });
 

@@ -24,11 +24,13 @@ describe("adjusted output tokens in the API", () => {
   it("GET /api/bank carries the credited counters and their adjusted figure", async () => {
     const t = await seededApp();
     close = t.close;
-    t.world.bank.addInput(t.seed.admin.id, { label: "Key", source: "api-key", model: "claude-opus-5-5", tokens: 30_000, apiKey: "sk" });
+    t.world.bank.addInput(t.seed.admin.id, { label: "Key", source: "api-key", model: "claude-opus-5-5", tokens: 1_000, apiKey: "sk" });
     const bank = (await json(t.app, "GET", "/api/bank", { headers: t.auth })).body;
-    expect(bank.creditedTokens).toBe(30_000);
+    // step 3: an input's size is adjusted output tokens; its counters are the back-fill split of the 30,000 raw behind it
+    expect(bank.creditedTokens).toBe(1_000);
+    expect(bank.rawCreditedTokens).toBe(30_000);
     expect(bank.creditedCounts).toMatchObject({ output: 707, cacheRead: 29_293 });
     expect(bank.adjustedCreditedTokens).toBe(1_000);
-    expect(bank.inputs[0]).toMatchObject({ creditedTokens: 30_000, adjustedCreditedTokens: 1_000 });
+    expect(bank.inputs[0]).toMatchObject({ creditedTokens: 1_000, adjustedCreditedTokens: 1_000 });
   });
 });

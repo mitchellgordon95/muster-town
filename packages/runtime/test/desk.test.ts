@@ -143,8 +143,8 @@ describe("desk work sessions", () => {
     const ended = await runtime.finishWorkSession(s.id, { tokens: 900, costUsd: 0.3, turns: 5, sdkSessionId: "sdk-1", reportSubmitted: true, finalText: "done" });
     expect(ended).toMatchObject({ status: "done", tokens: 900, sdkSessionId: "sdk-1" });
     expect(ended.reportId).toBeTruthy();
-    expect(world.agents.require(noor.id)).toMatchObject({ status: "idle", spentTokensToday: 900 });
-    expect(world.allocations.first("buildingId = ?", [lab.id])!.spentTokens).toBe(900);
+    expect(world.agents.require(noor.id)).toMatchObject({ status: "idle", spentTokensToday: 30 });
+    expect(world.allocations.first("buildingId = ?", [lab.id])!.spentTokens).toBe(30);
     ex.exit(0);
     await runtime.whenIdle();
     expect(world.sessions.require(s.id).status).toBe("done"); // not finished twice
@@ -289,7 +289,7 @@ describe("desk funding and failover charging", () => {
     const sid = desk.execs[0].argv[3];
     const ended = await runtime.finishWorkSession(sid, { tokens: 700, costUsd: 0.2, turns: 2, reportSubmitted: false, finalText: "x", fundingUsed: "api-key", fallback: true });
     expect(ended.funding).toBe("api-key");
-    expect(world.allocations.require(buffer.id).spentTokens).toBe(700);
+    expect(world.allocations.require(buffer.id).spentTokens).toBe(23);
     expect(world.allocations.require(sub.id).spentTokens).toBe(0);
     desk.execs[0].exit(0);
     await running;
@@ -303,7 +303,7 @@ describe("desk funding and failover charging", () => {
     await vi.waitFor(() => expect(desk.execs).toHaveLength(1));
     const ended = await runtime.finishWorkSession(desk.execs[0].argv[3], { tokens: 300, costUsd: 0, turns: 1, reportSubmitted: false, fundingUsed: "subscription" });
     expect(ended.funding).toBe("subscription");
-    expect(world.allocations.require(sub.id).spentTokens).toBe(300);
+    expect(world.allocations.require(sub.id).spentTokens).toBe(10);
     expect(world.allocations.require(buffer.id).spentTokens).toBe(0);
     desk.execs[0].exit(0);
     await running;

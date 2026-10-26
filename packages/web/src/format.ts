@@ -5,6 +5,21 @@ export function stoplightLabel(light: "green" | "yellow" | "red"): string {
   return light === "green" ? "Running" : light === "yellow" ? "Partly blocked" : "Blocked";
 }
 
+/** The Bank's unit (step 3): every token figure is adjusted output tokens; this is its short label. */
+export const ADJ = "adj. tokens";
+/** What the unit means, for a hover title. */
+export const ADJ_HINT = "Adjusted output tokens: output + input, cache reads and cache writes (5m, 1h) weighted by their list price over the output price. 1 adj. token ≈ 30 raw tokens on Opus, 24 on Fable.";
+
+const COUNT_LABELS = [["input", "input"], ["output", "output"], ["cacheRead", "cache read"], ["cacheWrite5m", "cache write 5m"], ["cacheWrite1h", "cache write 1h"]] as const;
+
+/** A hover title for an adjusted figure: the unit, then the five counters behind it and their raw total (when known). */
+export function breakdownTitle(counts?: Partial<Record<(typeof COUNT_LABELS)[number][0], number>> | null): string {
+  if (!counts) return ADJ_HINT;
+  const parts = COUNT_LABELS.map(([k, label]) => `${label} ${(counts[k] ?? 0).toLocaleString("en-US")}`);
+  const raw = COUNT_LABELS.reduce((s, [k]) => s + (counts[k] ?? 0), 0);
+  return `${ADJ_HINT}\n${parts.join(" · ")} · raw ${raw.toLocaleString("en-US")}`;
+}
+
 /** 1234 → "1k", 2_500_000 → "2.5M", 4_000_000 → "4M", 50_000_000 → "50M". */
 export function fmtTokens(n: number): string {
   if (n >= 1e6) return `${(n / 1e6).toFixed(n >= 1e7 ? 0 : 1).replace(/\.0$/, "")}M`;

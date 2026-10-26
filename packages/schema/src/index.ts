@@ -168,7 +168,7 @@ export const Building = z.object({
   /** safety rail per work session, not a design parameter */
   maxTurnsPerSession: z.number().int().positive().default(80),
   /** tokens each resident may spend per day */
-  dailyTokensPerAgent: z.number().int().positive().default(10_000_000),
+  dailyTokensPerAgent: z.number().int().positive().default(350_000),
   meetings: z.array(MeetingCadence).default([]),
   /** standing rules (markdown) from the building's manager; every session in this building starts with them */
   rules: z.string().max(8000).default(""),
@@ -207,12 +207,13 @@ export const Allocation = z.object({
   userId: Id,
   buildingId: Id,
   tokens: z.number().int().positive(),
-  /** what it has paid for, by kind (Bank grant step 1); `spentTokens` is their sum, derived by the database */
+  /** what it has paid for, by kind (Bank grant step 1); `spentRawTokens` is their sum, derived by the database; `spentTokens` is the booked adjusted output tokens (step 3) */
   spentInput: z.number().int().nonnegative().default(0),
   spentOutput: z.number().int().nonnegative().default(0),
   spentCacheRead: z.number().int().nonnegative().default(0),
   spentCacheWrite5m: z.number().int().nonnegative().default(0),
   spentCacheWrite1h: z.number().int().nonnegative().default(0),
+  spentRawTokens: z.number().int().nonnegative().default(0),
   spentTokens: z.number().int().nonnegative().default(0),
   spentUsd: z.number().nonnegative().default(0),
   createdAt: Iso,
@@ -253,7 +254,7 @@ export const BankInput = z.object({
 });
 export type BankInput = z.infer<typeof BankInput>;
 /** One credit from an input into the Bank. A subscription's credit expires a day later (no rollover); an API key's is durable (`expiresAt` null). */
-export const BankCredit = z.object({ id: Id, inputId: Id, ...TOKEN_COUNTS_SHAPE, tokens: z.number().int().nonnegative().default(0), createdAt: Iso, expiresAt: Iso.nullable().default(null) });
+export const BankCredit = z.object({ id: Id, inputId: Id, ...TOKEN_COUNTS_SHAPE, rawTokens: z.number().int().nonnegative().default(0), tokens: z.number().int().nonnegative().default(0), createdAt: Iso, expiresAt: Iso.nullable().default(null) });
 export type BankCredit = z.infer<typeof BankCredit>;
 /** The collective's default pool: every building without a `poolId` draws from it. It can't be deleted. */
 export const DEFAULT_POOL_ID = "general";
@@ -267,10 +268,10 @@ export type BankPool = z.infer<typeof BankPool>;
  * Tokens a building's session drew from the Bank: from an expiring credit (`creditId`), else from the durable credits.
  * `poolId` is the pool it drew from (what the pool's share is charged against); `buildingId` is who spent it.
  */
-export const BankDebit = z.object({ id: Id, buildingId: Id, poolId: Id, agentId: Id, creditId: Id.nullable().default(null), ...TOKEN_COUNTS_SHAPE, tokens: z.number().int().nonnegative().default(0), createdAt: Iso });
+export const BankDebit = z.object({ id: Id, buildingId: Id, poolId: Id, agentId: Id, creditId: Id.nullable().default(null), ...TOKEN_COUNTS_SHAPE, rawTokens: z.number().int().nonnegative().default(0), tokens: z.number().int().nonnegative().default(0), createdAt: Iso });
 export type BankDebit = z.infer<typeof BankDebit>;
 /** One charge of model usage: who spent it and which building it counts for (the agent's home). The usage ledger behind tokensToday / tokensAllTime. */
-export const UsageEntry = z.object({ id: Id, agentId: Id, buildingId: Id.nullable().default(null), ...TOKEN_COUNTS_SHAPE, tokens: z.number().int().nonnegative().default(0), usd: z.number().nonnegative().default(0), createdAt: Iso });
+export const UsageEntry = z.object({ id: Id, agentId: Id, buildingId: Id.nullable().default(null), ...TOKEN_COUNTS_SHAPE, rawTokens: z.number().int().nonnegative().default(0), tokens: z.number().int().nonnegative().default(0), usd: z.number().nonnegative().default(0), createdAt: Iso });
 export type UsageEntry = z.infer<typeof UsageEntry>;
 
 // ---------- agents (bodies in the world) ----------
@@ -765,8 +766,11 @@ export const KeyResult = z.object({
   updatedAt: Iso,
 });
 export type KeyResult = z.infer<typeof KeyResult>;
-/** A grant as the API returns it: the goal key result it names (null if none) and derived spend. */
-export const GrantView = Grant.extend({ keyResult: KeyResult.nullable(), spentTokens: z.number().int().nonnegative() });
+/**
+ * A grant as the API returns it: the goal key result it names (null if none) and derived spend. `spentTokens` is
+ * adjusted output tokens (Bank step 3), like `askTokens` and `grantTokens`; `spentCounts` is the five counters behind it.
+ */
+export const GrantView = Grant.extend({ keyResult: KeyResult.nullable(), spentTokens: z.number().int().nonnegative(), spentCounts: TokenCounts.optional() });
 export type GrantView = z.infer<typeof GrantView>;
 
 // ---------- sessions (a resident's work session) ----------
@@ -826,7 +830,7 @@ export const EventType = z.enum([
   "assignment.created", "assignment.status", "assignment.delegated",
   "meeting.created", "meeting.phase", "meeting.utterance", "meeting.decisions",
   "session.started", "session.ended",
-  "building.created", "building.updated", "building.layout", "town.plan", "allocation.created", "budget.exhausted", "bank.input", "bank.credited", "bank.share", "bank.pool", "bank.drift", "bank.cap",
+  "building.created", "building.updated", "building.layout", "town.plan", "allocation.created", "budget.exhausted", "bank.input", "bank.credited", "bank.converted", "bank.share", "bank.pool", "bank.drift", "bank.cap",
   "grant.created", "grant.updated", "grant.proposed", "grant.countered", "grant.funded", "grant.rejected", "grant.checkpoint", "grant.closed", "kr.updated", "kr.created", "kr.deleted", "building.blocked",
   "skill.used", "skill.pinned", "skill.unpinned",
   "secret.set", "secret.deleted", "secret.granted",

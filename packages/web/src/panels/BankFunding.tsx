@@ -9,7 +9,7 @@ import { api, type Bank } from "../api";
 import { store, useTown } from "../state";
 import { fmtPct, poolColor } from "../pools";
 import { SignInNote } from "../auth/auth";
-import { Act, Empty, Field, Loading, MTokensInput, Pill, Section, fmtTokens, fromMillions, timeAgo, useLoad } from "./ui";
+import { ADJ, ADJ_HINT, Act, Empty, Field, Loading, MTokensInput, Pill, Section, breakdownTitle, fmtTokens, fromMillions, timeAgo, useLoad } from "./ui";
 
 interface Props { bank: Bank; onChange: () => void }
 
@@ -38,9 +38,9 @@ export function BankContributors({ bank }: { bank: Bank }) {
   );
 }
 
-/** Blended $ per 1M tokens for the estimate next to an amount (VITE_USD_PER_MTOK, else $1; each viewer can change it). */
-const DEFAULT_USD_PER_MTOK = Number(import.meta.env.VITE_USD_PER_MTOK) > 0 ? Number(import.meta.env.VITE_USD_PER_MTOK) : 1;
-const RATE_KEY = "muster-town.usdPerMTok";
+/** $ per 1M adjusted output tokens for the estimate next to an amount (VITE_USD_PER_MTOK, else $20, Opus 5.5 output; each viewer can change it). */
+const DEFAULT_USD_PER_MTOK = Number(import.meta.env.VITE_USD_PER_MTOK) > 0 ? Number(import.meta.env.VITE_USD_PER_MTOK) : 20;
+const RATE_KEY = "muster-town.usdPerMAdjTok";
 function loadRate(): number {
   try { const v = Number(localStorage.getItem(RATE_KEY)); return v > 0 ? v : DEFAULT_USD_PER_MTOK; } catch { return DEFAULT_USD_PER_MTOK; }
 }
@@ -94,11 +94,11 @@ export function Donate({ onChange }: { onChange: () => void }) {
         source, model, tokens: n, recurrence: sub ? "daily" : recurrence,
         weeklyCapTokens: sub ? cap : undefined, apiKey: sub ? undefined : apiKey.trim(),
       });
-      store.toast(`Added ${fmtTokens(n)} tokens${sub || recurrence !== "once" ? ` ${sub ? "daily" : recurrence}` : ""} to the Bank`, "ok");
+      store.toast(`Added ${fmtTokens(n)} ${ADJ}${sub || recurrence !== "once" ? ` ${sub ? "daily" : recurrence}` : ""} to the Bank`, "ok");
     } else {
       const fallback = auth === "subscription" ? `${me.user.name}'s Claude subscription` : auth === "api-key" ? "API-key buffer" : `${me.user.name}'s API key`;
       await api().donate({ tokens: n, buildingId: to, auth, label: label.trim() || fallback, apiKey: auth === "donor-key" ? apiKey.trim() || undefined : undefined });
-      store.toast(`Added ${fmtTokens(n)} tokens (${AUTH_LABEL[auth]}) to ${building?.name ?? to}`, "ok");
+      store.toast(`Added ${fmtTokens(n)} ${ADJ} (${AUTH_LABEL[auth]}) to ${building?.name ?? to}`, "ok");
     }
     setApiKey(""); setLabel("");
     onChange();
@@ -113,7 +113,7 @@ export function Donate({ onChange }: { onChange: () => void }) {
               {buildings.map((x) => <option key={x.id} value={x.id}>{x.name}</option>)}
             </select>
           </Field>
-          <Field label={sub ? "Tokens per day" : "Tokens"} hint={`≈ ${usd(((Number.isFinite(n) ? n : 0) / 1_000_000) * rate)} at ${usd(rate)} per 1M tokens (estimate)`}>
+          <Field label={sub ? `${ADJ} per day` : ADJ} hint={`≈ ${usd(((Number.isFinite(n) ? n : 0) / 1_000_000) * rate)} at ${usd(rate)} per 1M ${ADJ} (estimate; Opus 5.5 output is $20)`}>
             <MTokensInput value={tokens} onChange={setTokens} />
           </Field>
         </div>
@@ -142,7 +142,7 @@ export function Donate({ onChange }: { onChange: () => void }) {
                 <option value="donor-key">My own API key</option>
               </select>
             </Field>
-            <Field label="Blended rate ($ per 1M tokens)"><input type="number" min={0.01} step={0.25} value={rate} onChange={(e) => saveRate(+e.target.value)} /></Field>
+            <Field label={`Rate ($ per 1M ${ADJ})`}><input type="number" min={0.01} step={0.25} value={rate} onChange={(e) => saveRate(+e.target.value)} /></Field>
           </>}
         </div>
         <div className="row2">
@@ -196,12 +196,12 @@ export function BuildingFunding({ rev }: { rev: number }) {
                   {a.retired ? <Pill>retired</Pill> : null} <span className="muted">{a.userName} · {timeAgo(a.createdAt)}</span>
                 </td>
                 <td>{fmtTokens(a.tokens)}</td>
-                <td title={a.spentUsd ? usd(a.spentUsd) : undefined}>{fmtTokens(a.spentTokens)}</td>
+                <td title={`${a.spentUsd ? `${usd(a.spentUsd)}\n` : ""}${breakdownTitle({ input: a.spentInput, output: a.spentOutput, cacheRead: a.spentCacheRead, cacheWrite5m: a.spentCacheWrite5m, cacheWrite1h: a.spentCacheWrite1h })}`}>{fmtTokens(a.spentTokens)}</td>
                 <td>{a.retired ? "–" : fmtTokens(a.remainingTokens)}</td>
                 {admin ? (
                   <td className="actions">{a.retired ? null : (
                     <Act small tone="bad" title="Stop drawing from it; its spend history stays" run={async () => {
-                      if (!confirm(`Retire "${a.label || a.id}"? ${fmtTokens(a.remainingTokens)} unspent tokens leave ${b?.name ?? "the building"}'s budget.`)) return;
+                      if (!confirm(`Retire "${a.label || a.id}"? ${fmtTokens(a.remainingTokens)} unspent ${ADJ} leave ${b?.name ?? "the building"}'s budget.`)) return;
                       await api().retireAllocation(a.id);
                       store.toast(`Retired ${a.label || a.id}`, "ok");
                       rows.reload();
@@ -229,14 +229,14 @@ export function BankInputs({ bank, onChange }: Props) {
     <Section title="Bank inputs" right={bank.dailyInflowTokens ? <Pill tone="ok">+{fmtTokens(bank.dailyInflowTokens)}/day</Pill> : null}>
       {!inputs.length ? <Empty>No inputs yet.</Empty> : (
         <table className="table">
-          <thead><tr><th>Input</th><th>From</th><th>Tokens</th><th>Credited</th><th /></tr></thead>
+          <thead><tr><th>Input</th><th>From</th><th title={ADJ_HINT}>{ADJ}</th><th>Credited</th><th /></tr></thead>
           <tbody>
             {inputs.map((i) => (
               <tr key={i.id} className={i.cancelledAt ? "muted" : undefined}>
                 <td>{i.label} {i.source === "subscription" ? <Pill tone="warn">expires daily</Pill> : null}</td>
                 <td>{i.userName}</td>
                 <td>{fmtTokens(i.tokens)} {i.recurrence === "once" ? "once" : `/ ${PER[i.recurrence]}`}</td>
-                <td>{fmtTokens(i.creditedTokens)}{i.cancelledAt ? <> · cancelled {timeAgo(i.cancelledAt)}</> : null}</td>
+                <td title={breakdownTitle(i.creditedCounts)}>{fmtTokens(i.creditedTokens)}{i.cancelledAt ? <> · cancelled {timeAgo(i.cancelledAt)}</> : null}</td>
                 <td>{!i.cancelledAt && me && (me.isAdmin || me.user.id === i.userId)
                   ? <Act small tone="bad" run={async () => { await api().cancelBankInput(i.id); store.toast(`Cancelled ${i.label}`, "ok"); onChange(); }}>Cancel</Act>
                   : null}</td>
@@ -326,7 +326,7 @@ export function BankPools({ bank, onChange }: Props) {
       ) : null}
       <h4 className="sub-head">Buildings</h4>
       <table className="table">
-        <thead><tr><th>Building</th><th>Pool</th><th title="Unspent tokens donated straight to this building">Held</th></tr></thead>
+        <thead><tr><th>Building</th><th>Pool</th><th title="Unspent adj. tokens donated straight to this building">Held</th></tr></thead>
         <tbody>
           {labs.map((r) => (
             <tr key={r.buildingId}>

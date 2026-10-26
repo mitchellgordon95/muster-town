@@ -56,14 +56,14 @@ describe("work session", () => {
     expect(s).toMatchObject({ status: "done", tokens: 1200, sdkSessionId: "sdk-session-1", purpose: "work" });
     expect(s.reportId).toBeTruthy();
     // the session's usage is stamped onto the report it produced
-    expect(world.docs.require(s.reportId!)).toMatchObject({ sessionId: session.id, tokens: 1200, costUsd: 0.42, turns: 4 });
+    expect(world.docs.require(s.reportId!)).toMatchObject({ sessionId: session.id, tokens: 720, costUsd: 0.42, turns: 4 });
     const after = world.agents.require(noor.id);
     expect(after.status).toBe("idle");
     expect(world.ops.intray(lab.id).map((d) => d.id)).toContain(s.reportId);
-    expect(after.spentTokensToday).toBe(1200);
+    expect(after.spentTokensToday).toBe(720);
     expect(after.activity).toBe("Submitting report: Mauna Loa growth rate");
     expect(world.assignments.require(asg.id).status).toBe("done");
-    expect(world.allocations.first("buildingId = ?", [lab.id])!.spentTokens).toBe(1200);
+    expect(world.allocations.first("buildingId = ?", [lab.id])!.spentTokens).toBe(720);
   });
 
   test("donor API key is passed through env", async () => {
@@ -76,7 +76,7 @@ describe("work session", () => {
     const asg = world.ops.createWork(null, noor.id, {});
     await runtime.runWorkSession(noor.id, asg.id);
     expect(sdk.sessions[0].options.env?.ANTHROPIC_API_KEY).toBe("sk-ant-donor");
-    expect(world.allocations.first("userId = ?", [donor.id])!.spentTokens).toBe(1200);
+    expect(world.allocations.first("userId = ?", [donor.id])!.spentTokens).toBe(720);
     expect(seed.admin.id).toBeTruthy();
   });
 
@@ -94,19 +94,19 @@ describe("work session", () => {
     expect(report).toMatchObject({ type: "report", verdict: "continue", decision: "pending", authorId: tomas.id, assignmentId: asg.id });
     expect(report.body).toContain("2.4 ppm/yr");
     expect(report.body).toContain("without `submit_report`");
-    expect(report).toMatchObject({ sessionId: session.id, tokens: 300, costUsd: 0.01, turns: 4 });
+    expect(report).toMatchObject({ sessionId: session.id, tokens: 180, costUsd: 0.01, turns: 4 });
     expect(world.agents.require(tomas.id).status).toBe("idle");
     expect(world.events.list({ agentId: tomas.id, types: ["system"] }).some((e) => e.payload.fallback)).toBe(true);
   });
 
   test("budget exhaustion from usage sets out-of-budget and blocks the scheduler", async () => {
     const { world, runtime, sdk, by, lab } = setup(happyWork);
-    world.ops.updateBuilding(null, lab.id, { dailyTokensPerAgent: 1000 });
+    world.ops.updateBuilding(null, lab.id, { dailyTokensPerAgent: 500 });
     const mei = by("Mei");
     const asg = world.ops.createWork(null, mei.id, {});
     await runtime.runWorkSession(mei.id, asg.id);
     const after = world.agents.require(mei.id);
-    expect(after.spentTokensToday).toBe(1200);
+    expect(after.spentTokensToday).toBe(720);
     expect(after.status).toBe("out-of-budget");
     expect(world.events.list({ types: ["budget.exhausted"], agentId: mei.id })).toHaveLength(1);
     // the report waits in the in-tray (no next assignment); give her one: she still can't start
@@ -188,7 +188,7 @@ describe("work session", () => {
     expect(sdk.sessions[0].interrupted).toBe(true);
     expect(session.status).toBe("interrupted");
     expect(world.agents.require(ravi.id).status).toBe("stopped");
-    expect(world.docs.require(session.reportId!)).toMatchObject({ decision: "stop", tokens: 50, costUsd: 0.001, turns: 4 });
+    expect(world.docs.require(session.reportId!)).toMatchObject({ decision: "stop", tokens: 30, costUsd: 0.001, turns: 4 });
     expect(world.assignments.require(asg.id).status).toBe("cancelled");
   });
 });

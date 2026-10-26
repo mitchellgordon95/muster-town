@@ -7,7 +7,7 @@ import { api } from "../api";
 import { store, useTown } from "../state";
 import { Glyph, PanelShell } from "./PanelShell";
 import { BankContributors, BankInputs, BankPools, BuildingFunding, Donate } from "./BankFunding";
-import { Loading, Section, fmtTokens } from "./ui";
+import { ADJ, Loading, Section, breakdownTitle, fmtTokens } from "./ui";
 
 /** Refetch the summary the sign and these sections read. */
 const reload = () => { api().bank().then((bank) => store.set({ bank }), () => undefined); };
@@ -17,10 +17,11 @@ export function BankPanel() {
   const [rev, setRev] = useState(0);
   const changed = () => { reload(); setRev((r) => r + 1); };
   return (
-    <PanelShell icon={<Glyph kind="bank" />} title="The Bank" subtitle="Tokens available to the town">
+    <PanelShell icon={<Glyph kind="bank" />} title="The Bank" subtitle="Adjusted output tokens (adj. tokens) available to the town">
       <Section title="Balance">
         {!bank ? <Loading /> : (
-          <table className="table">
+          <table className="table" title={breakdownTitle(bank.creditedCounts)}>
+            <thead><tr><th /><th>{ADJ}</th></tr></thead>
             <tbody>
               <tr><td>Town total (Bank + held by buildings)</td><td><b>{bank.townTokens.toLocaleString("en-US")}</b></td></tr>
               <tr><td>In the Bank (split between pools)</td><td>{bank.balanceTokens.toLocaleString("en-US")}</td></tr>
@@ -33,6 +34,7 @@ export function BankPanel() {
                 {bank.heldByAuth.donorKey ? <tr className="sub-row"><td>of which donors' own keys</td><td>{bank.heldByAuth.donorKey.toLocaleString("en-US")}</td></tr> : null}
               </> : null}
               <tr><td>Expected inflow per day</td><td>{fmtTokens(bank.dailyInflowTokens)}</td></tr>
+              <tr className="sub-row" title={breakdownTitle(bank.creditedCounts)}><td>Credited so far: input · output · cache read · cache write 5m · 1h (raw)</td><td>{[bank.creditedCounts.input, bank.creditedCounts.output, bank.creditedCounts.cacheRead, bank.creditedCounts.cacheWrite5m, bank.creditedCounts.cacheWrite1h].map(fmtTokens).join(" · ")}</td></tr>
             </tbody>
           </table>
         )}

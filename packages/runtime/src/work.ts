@@ -1,5 +1,5 @@
 /** Resident work sessions (host backend + shared end-of-session logic), interrupts, and reviewer sessions over the in-tray. */
-import { AppError, appendLog, codeWorkspace, createDoc, fallbackReportBody, FALLBACK_REPORT_PREFIX, latestReportOf, recentWorkBlock, sessionMemory, setAssignmentStatus, skillsBlock, workPrompt, workSystemPrompt } from "@muster-town/core";
+import { AppError, appendLog, codeWorkspace, createDoc, fallbackReportBody, FALLBACK_REPORT_PREFIX, latestReportOf, recentWorkBlock, sessionMemory, sessionView, setAssignmentStatus, skillsBlock, workPrompt, workSystemPrompt } from "@muster-town/core";
 import { countsOf, rawTokens, splitRaw, type Agent, type AllocationAuth, type Assignment, type Building, type Doc, type Session, type TokenCounts } from "@muster-town/schema";
 import { chargeUsage, fundingFor, homeOf, runAgentSession, type Ctx } from "./session.ts";
 
@@ -128,23 +128,24 @@ export async function finishWorkSession(ctx: Ctx, sessionId: string, o: WorkOutc
   const status: Exclude<Session["status"], "running"> = stopped ? "interrupted" : error ? "error" : "done";
   const funding = o.fundingUsed ?? (o.fallback ? "api-key" : undefined);
   const ended = world.ops.endSession(sessionId, { status, counts, byModel: o.byModel, costUsd: usage.costUsd, turns: usage.turns, error, sdkSessionId: o.sdkSessionId ?? null, funding, spendLimit: o.spendLimit ?? null });
-  // stamp the session's usage onto the report it produced (submitted or fallback)
+  // stamp the session's usage onto the report it produced (submitted or fallback), in adjusted output tokens (Bank step 3)
+  const adjusted = sessionView(ended).adjustedOutputTokens;
   const report = ended.reportId ? world.docs.get(ended.reportId) : undefined;
-  if (report && report.sessionId === sessionId) world.docs.patch(report.id, { tokens: usage.tokens, costUsd: usage.costUsd, turns: usage.turns });
+  if (report && report.sessionId === sessionId) world.docs.patch(report.id, { tokens: adjusted, costUsd: usage.costUsd, turns: usage.turns });
   // the resident's log: one line per work session, written for it (its wiki is its own job)
   if (session.purpose === "work" && agentNow.kind === "resident") {
     try {
       const asg = session.assignmentId ? world.assignments.get(session.assignmentId) : undefined;
       const what = asg ? `Assignment "${asg.title}" (${asg.id})` : "Check-in session";
       const rep = report ? `, report "${report.title}" (${report.id}, verdict ${report.verdict ?? "?"})` : ", no report";
-      appendLog(world, { id: agentId, kind: "agent", name: agentNow.name, buildingId: bid, agentId }, `${what}: ${status}${rep}, ${usage.tokens.toLocaleString("en-US")} tokens`);
+      appendLog(world, { id: agentId, kind: "agent", name: agentNow.name, buildingId: bid, agentId }, `${what}: ${status}${rep}, ${adjusted.toLocaleString("en-US")} adj. tokens`);
     } catch (e) { console.warn(`[runtime] log line for ${agentNow.name}: ${e instanceof Error ? e.message : String(e)}`); }
   }
   // the allocation that actually funded it: the fallback one when the desk failed over from the subscription
   const charged = o.fallback
     ? ctx.deskFallbacks.get(sessionId) ?? (bid ? world.budget.fallbackAllocation(bid)?.id ?? null : null)
     : allocationId !== undefined ? allocationId : ctx.deskAllocations.has(sessionId) ? ctx.deskAllocations.get(sessionId) ?? null : fundingFor(world, agentId).allocationId;
-  chargeUsage(world, agentId, usage, charged);
+  chargeUsage(world, agentId, { ...usage, byModel: o.byModel ?? undefined }, charged, ended.model);
   ctx.deskAllocations.delete(sessionId);
   ctx.deskFallbacks.delete(sessionId);
   return ended;

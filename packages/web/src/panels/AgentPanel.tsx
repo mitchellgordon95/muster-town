@@ -10,7 +10,7 @@ import { store, useTown, roleOf } from "../state";
 import { DismissButton, canDismiss } from "./Dismiss";
 import { PanelShell } from "./PanelShell";
 import { DocText, Markdown } from "./Markdown";
-import { Act, Empty, KV, Pill, Section, StatusPill, clock, fmtTokens, timeAgo, usd, useLoad } from "./ui";
+import { ADJ, Act, Empty, KV, Pill, Section, StatusPill, breakdownTitle, clock, fmtTokens, timeAgo, usd, useLoad } from "./ui";
 import { portraitUrl } from "../map/sprites";
 import { SignInNote } from "../auth/auth";
 import { slotsFull } from "../redeploy";
@@ -216,8 +216,8 @@ function TalkTab({ agent }: { agent: Agent }) {
         <KV items={[
           ["Model", sess?.model ?? agent.model ?? building?.model ?? "default"],
           ["Today", <>{fmtTokens(agent.spentTokensToday)}{daily ? <> / {fmtTokens(daily)} <Meter v={agent.spentTokensToday / daily} /></> : null}</>],
-          ["Total", `${fmtTokens(agent.spentTokensTotal)} tokens · ${usd(agent.spentUsdTotal)}`],
-          ...(sess ? [["Session", <><Pill tone={sess.status === "running" ? "ok" : sess.status === "error" ? "bad" : ""}>{sess.status}</Pill> {sess.purpose} · started {timeAgo(sess.startedAt)} · {sess.turns} turns · {fmtTokens(sess.tokens)} tokens · {usd(sess.costUsd)}</>] as [string, ReactNode]] : [["Last active", timeAgo(agent.lastActiveAt)] as [string, ReactNode]]),
+          ["Total", `${fmtTokens(agent.spentTokensTotal)} ${ADJ} · ${usd(agent.spentUsdTotal)}`],
+          ...(sess ? [["Session", <><Pill tone={sess.status === "running" ? "ok" : sess.status === "error" ? "bad" : ""}>{sess.status}</Pill> {sess.purpose} · started {timeAgo(sess.startedAt)} · {sess.turns} turns · <span title={breakdownTitle(sess)}>{fmtTokens(sess.adjustedOutputTokens ?? 0)} {ADJ}</span> · {usd(sess.costUsd)}</>] as [string, ReactNode]] : [["Last active", timeAgo(agent.lastActiveAt)] as [string, ReactNode]]),
         ]} />
       ) : null}
       {agent.activity ? <div className="now"><span className="dot" /> {agent.activity}</div> : null}

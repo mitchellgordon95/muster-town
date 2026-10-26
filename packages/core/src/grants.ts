@@ -1,7 +1,8 @@
 import {
   CloseGrantInput, CreateGrantInput, CreateKeyResultInput, DecideGrantInput, UpdateGrantInput, UpdateKeyResultInput,
-  type Building, type Grant, type GrantHistoryEntry, type GrantStatus, type GrantView, type KeyResult, type Stoplight, stoplightOf,
+  type Building, type Grant, type GrantHistoryEntry, type GrantStatus, type GrantView, type KeyResult, type Session, type Stoplight, type TokenCounts, ZERO_TOKENS, addTokens, stoplightOf,
 } from "@muster-town/schema";
+import { adjustedOfUsage } from "./bank.ts";
 import { createAssignment, managerAgentOf, sendMessage } from "./domain.ts";
 import type { EventType } from "./events.ts";
 import { AppError, badRequest, forbidden } from "./errors.ts";
@@ -39,12 +40,19 @@ export interface BlockedBuilding { buildingId: string; name: string; reason: str
 export class Grants {
   constructor(private world: World) {}
 
+  /** A grant's spend in adjusted output tokens (Bank step 3): its sessions' adjustedOutputTokens, summed. */
   spent(grantId: string): number {
-    return this.world.sessions.sum("tokens", "grantId = ?", [grantId]);
+    return this.adjustedSum(this.world.sessions.where("grantId = ?", [grantId]));
+  }
+
+  private adjustedSum(sessions: Session[]): number {
+    return sessions.reduce((s, x) => s + adjustedOfUsage(x.model, x, x.byModel), 0);
   }
 
   view(g: Grant): GrantView {
-    return { ...g, keyResult: (g.keyResultId && this.world.keyResults.get(g.keyResultId)) || null, spentTokens: this.spent(g.id) };
+    const sessions = this.world.sessions.where("grantId = ?", [g.id]);
+    const spentCounts = sessions.reduce<TokenCounts>((s, x) => addTokens(s, x), { ...ZERO_TOKENS });
+    return { ...g, keyResult: (g.keyResultId && this.world.keyResults.get(g.keyResultId)) || null, spentTokens: this.adjustedSum(sessions), spentCounts };
   }
 
   /** The building goal's key results in order, each with the live grant working on it (null = open for exploration). */
@@ -152,8 +160,8 @@ The open proposal ${open.id} ("${open.objective}") names no goal key result yet;
     const allowanceTokens = b.explorationTokensPerDay ?? (b.kind === "town-hall" ? 0
       : Math.floor(this.world.bank.poolDailyInflow(pool) * EXPLORATION_SHARE / split));
     const day = new Date(); day.setUTCHours(0, 0, 0, 0);
-    const spentTodayTokens = this.world.sessions.sum("tokens",
-      "lane = 'exploration' AND startedAt >= ? AND agentId IN (SELECT id FROM agents WHERE homeBuildingId = ?)", [day.toISOString(), buildingId]);
+    const spentTodayTokens = this.adjustedSum(this.world.sessions.where(
+      "lane = 'exploration' AND startedAt >= ? AND agentId IN (SELECT id FROM agents WHERE homeBuildingId = ?)", [day.toISOString(), buildingId]));
     return { allowanceTokens, spentTodayTokens };
   }
 

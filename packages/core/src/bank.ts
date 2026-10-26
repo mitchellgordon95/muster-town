@@ -1,4 +1,4 @@
-import { AddBankInput, CreateBankPoolInput, DEFAULT_POOL_ID, UpdateBankPoolInput, ZERO_TOKENS, addTokens, countsOf, rawTokens, sliceTokens, splitRaw, subTokens, toCounts, type TokenCounts, type BankCredit, type BankInput, type BankPool, type BankRecurrence, type Agent, type Building, type Session, type SessionView } from "@muster-town/schema";
+import { AddBankInput, CreateBankPoolInput, DEFAULT_POOL_ID, UpdateBankPoolInput, ZERO_TOKENS, addTokens, countsOf, rawPerAdjusted, rawTokens, sliceTokens, splitRaw, subTokens, type TokenCounts, type BankCredit, type BankInput, type BankPool, type BankRecurrence, type Agent, type Building, type Session, type SessionView } from "@muster-town/schema";
 import { driftRows, parseResetsAt, previousUtcDay, utcDay, type DriftRow } from "./drift.ts";
 import { badRequest, forbidden } from "./errors.ts";
 import type { EventLog } from "./events.ts";
@@ -7,6 +7,9 @@ import type { Repos } from "./store.ts";
 import { newId, nowIso } from "./util.ts";
 
 const DAY_MS = 86_400_000;
+
+/** The unit every Bank figure is entered, booked and compared in (`GET /api/health` `accounting`): adjusted output tokens since step 3. */
+export const BANK_ACCOUNTING = "adjusted" as const;
 
 /**
  * List prices in USD per million tokens, by model family (Bank grant step 2, gr_iq5m7dug56). The one table every
@@ -87,6 +90,34 @@ export function unknownModels(model: string | null | undefined, byModel?: Record
   const ids = byModel && Object.keys(byModel).length ? Object.keys(byModel) : [model ?? ""];
   return [...new Set(ids.filter((m) => m && !isKnownModel(m)))];
 }
+/**
+ * What the Bank books (step 3): `tokens` in adjusted output tokens, with the five counters behind it kept alongside.
+ * Every ledger row, allocation spend and agent counter is in `tokens`; the raw total is derived from `counts`.
+ */
+export interface Booked { tokens: number; counts: TokenCounts }
+
+/**
+ * A charge as the Bank books it. Counters are priced at `model`'s list price (per model with `byModel`); a bare number is
+ * already adjusted output tokens, and its counters are the back-fill split of the raw tokens it stands for (docs/bank.md).
+ */
+export function booked(t: number | Partial<TokenCounts> | Booked, model?: string | null, byModel?: Record<string, TokenCounts> | null): Booked {
+  if (typeof t === "number") {
+    const tokens = Math.max(0, Math.round(t));
+    return { tokens, counts: splitRaw(tokens * rawPerAdjusted(model), model) };
+  }
+  if ("counts" in t && typeof (t as Booked).tokens === "number") return { tokens: Math.max(0, Math.round((t as Booked).tokens)), counts: countsOf((t as Booked).counts) };
+  const counts = countsOf(t as Partial<TokenCounts>);
+  return { tokens: adjustedOfUsage(model, counts, byModel), counts };
+}
+
+/** `part` adjusted tokens out of a booking, with its counters sliced in the same proportion (sliceTokens). */
+export function sliceBooked(from: Booked, part: number): Booked {
+  const tokens = Math.max(0, Math.min(Math.round(part), from.tokens));
+  const raw = rawTokens(from.counts);
+  const counts = tokens === from.tokens ? { ...from.counts } : sliceTokens(from.counts, from.tokens > 0 ? Math.round(raw * tokens / from.tokens) : 0);
+  return { tokens, counts };
+}
+
 const DAYS_PER: Record<Exclude<BankRecurrence, "once">, number> = { daily: 1, weekly: 7, monthly: 30 };
 
 /** An accounting pool in the summary: its share of the Bank and what its buildings can still draw from it. */
@@ -151,10 +182,13 @@ export interface BankSummary {
   heldByAuth: HeldByAuth;
   /** balanceTokens + heldTokens: everything the town can still spend */
   townTokens: number;
+  /** what the inputs have credited, in adjusted output tokens (step 3: every Bank figure is) */
   creditedTokens: number;
-  /** what the inputs have credited, as the five counters (sum over the credits; creditedTokens is their raw total) */
+  /** the raw total of the credits' counters */
+  rawCreditedTokens: number;
+  /** what the inputs have credited, as the five counters (sum over the credits) */
   creditedCounts: TokenCounts;
-  /** creditedTokens in adjusted output tokens (Bank step 2: derived from the credits' counters at each input's model's list price; never stored, nothing charged in it yet) */
+  /** the credits' counters priced at each input's model's list price (step 2's derivation; matches creditedTokens to rounding) */
   adjustedCreditedTokens: number;
   /** expected tokens per day from active recurring inputs (monthly counts as 30 days) */
   dailyInflowTokens: number;
@@ -217,9 +251,14 @@ export class Bank {
     });
     if (inp.apiKey) row = this.repos.bankInputs.setApiKey(row.id, inp.apiKey);
     const what = inp.recurrence === "once" ? "once" : inp.recurrence;
-    this.events.append({ type: "bank.input", text: `${user.name} added ${inp.label} to the Bank (${inp.tokens.toLocaleString("en-US")} tokens, ${what})`, payload: { inputId: row.id, userId, source: inp.source, recurrence: inp.recurrence, tokens: inp.tokens, ...splitRaw(inp.tokens, inp.model), adjustedOutputTokens: adjustedOutputTokens(inp.model, splitRaw(inp.tokens, inp.model)) } });
+    this.events.append({ type: "bank.input", text: `${user.name} added ${inp.label} to the Bank (${inp.tokens.toLocaleString("en-US")} adj. tokens, ${what})`, payload: { inputId: row.id, userId, source: inp.source, recurrence: inp.recurrence, tokens: inp.tokens, ...this.creditCounts(inp.tokens, inp.model), rawTokens: rawTokens(this.creditCounts(inp.tokens, inp.model)), adjustedOutputTokens: inp.tokens } });
     this.creditDue(now);
     return this.repos.bankInputs.require(row.id, "bank input");
+  }
+
+  /** The five counters behind a credit of `tokens` adjusted output tokens: the back-fill split of the raw tokens they stand for. */
+  private creditCounts(tokens: number, model: string): TokenCounts {
+    return splitRaw(tokens * rawPerAdjusted(model), model);
   }
 
   /** Stop an input's future credits and forget its key. Its owner or an admin. Past credits stay in the Bank. */
@@ -266,11 +305,11 @@ export class Bank {
       if (amount <= 0) continue;
       // a subscription's credit lasts until its next daily renewal: unused quota doesn't roll over
       const expiresAt = inp.source === "subscription" ? next?.toISOString() ?? null : null;
-      // an input's size is a raw number until step 3: its credit is split by the back-fill rule (docs/bank.md)
-      const counts = splitRaw(amount, inp.model);
-      const credit = this.repos.bankCredits.upsert({ id: newId("bc"), inputId: inp.id, ...counts, createdAt: now.toISOString(), expiresAt });
+      // an input's size is adjusted output tokens (step 3); the counters behind it are the back-fill split (docs/bank.md)
+      const counts = this.creditCounts(amount, inp.model);
+      const credit = this.repos.bankCredits.upsert({ id: newId("bc"), inputId: inp.id, ...counts, tokens: amount, createdAt: now.toISOString(), expiresAt });
       total += amount;
-      this.events.append({ type: "bank.credited", text: `${inp.label} credited ${amount.toLocaleString("en-US")} tokens to the Bank`, payload: { inputId: inp.id, creditId: credit.id, tokens: credit.tokens, ...counts, adjustedOutputTokens: adjustedOutputTokens(inp.model, counts) } });
+      this.events.append({ type: "bank.credited", text: `${inp.label} credited ${amount.toLocaleString("en-US")} adj. tokens to the Bank`, payload: { inputId: inp.id, creditId: credit.id, tokens: credit.tokens, ...counts, rawTokens: credit.rawTokens, adjustedOutputTokens: credit.tokens } });
     }
     return total;
   }
@@ -446,37 +485,37 @@ export class Bank {
   }
 
   /**
-   * Draw up to `tokens` for a building's session from its pool: the pool's share of expiring credits first (soonest
-   * to expire first), then its durable share. Returns the raw tokens left undrawn. With `overshoot`, the rest is drawn
-   * from the durable share anyway (sessions may run past what's left; there is no hard stop). A bare number is split
-   * by the back-fill rule; see `drawTokens` for the breakdown left.
+   * Draw up to `tokens` adjusted output tokens for a building's session from its pool: the pool's share of expiring
+   * credits first (soonest to expire first), then its durable share. Returns the adjusted tokens left undrawn. With
+   * `overshoot`, the rest is drawn from the durable share anyway (sessions may run past what's left; there is no hard
+   * stop). A bare number is adjusted output tokens; see `drawTokens` for the counters.
    */
-  draw(buildingId: string, agentId: string, tokens: number | TokenCounts, opts: { overshoot?: boolean; now?: Date } = {}): number {
-    return rawTokens(this.drawTokens(buildingId, agentId, toCounts(tokens), opts));
+  draw(buildingId: string, agentId: string, tokens: number | TokenCounts | Booked, opts: { overshoot?: boolean; now?: Date } = {}): number {
+    return this.drawTokens(buildingId, agentId, booked(tokens), opts).tokens;
   }
 
   /**
-   * `draw` by kind: each debit takes its raw size proportionally from every counter (sliceTokens), so the debits'
-   * counters add up to what was drawn, kind by kind. Returns the counters left undrawn.
+   * `draw` with the counters: each debit books its adjusted size and takes the same share of every counter
+   * (sliceBooked), so the debits' counters add up to what was drawn, kind by kind. Returns what is left undrawn.
    */
-  drawTokens(buildingId: string, agentId: string, tokens: TokenCounts, opts: { overshoot?: boolean; now?: Date } = {}): TokenCounts {
+  drawTokens(buildingId: string, agentId: string, tokens: Booked, opts: { overshoot?: boolean; now?: Date } = {}): Booked {
     const now = opts.now ?? new Date();
-    let left = countsOf(tokens);
+    let left: Booked = { tokens: tokens.tokens, counts: countsOf(tokens.counts) };
     const pool = this.drawPool(buildingId);
     const frac = pool ? (this.shares().get(pool.id)?.pct ?? 0) / 100 : 0;
-    if (rawTokens(left) <= 0 || !pool || frac <= 0) return left;
+    if (left.tokens <= 0 || !pool || frac <= 0) return left;
     const debit = (creditId: string | null, t: number) => {
-      const part = sliceTokens(left, t);
-      this.repos.bankDebits.upsert({ id: newId("bd"), buildingId, poolId: pool.id, agentId, creditId, ...part, createdAt: now.toISOString() });
-      left = subTokens(left, part);
+      const part = sliceBooked(left, t);
+      this.repos.bankDebits.upsert({ id: newId("bd"), buildingId, poolId: pool.id, agentId, creditId, ...part.counts, tokens: part.tokens, createdAt: now.toISOString() });
+      left = { tokens: left.tokens - part.tokens, counts: subTokens(left.counts, part.counts) };
     };
     for (const c of this.live(now)) {
-      if (!c.expiresAt || rawTokens(left) <= 0) continue;
+      if (!c.expiresAt || left.tokens <= 0) continue;
       const room = Math.floor(c.tokens * frac) - this.debited("poolId = ? AND creditId = ?", [pool.id, c.id]);
-      if (room > 0) debit(c.id, Math.min(room, rawTokens(left)));
+      if (room > 0) debit(c.id, Math.min(room, left.tokens));
     }
     const durable = this.poolAvailable(pool.id, now).durable;
-    const rest = rawTokens(left);
+    const rest = left.tokens;
     if (rest > 0 && (durable > 0 || opts.overshoot)) debit(null, opts.overshoot ? rest : Math.min(durable, rest));
     return left;
   }
@@ -550,6 +589,7 @@ export class Bank {
       creditedTokens,
       creditedCounts: inputViews.reduce<TokenCounts>((s, i) => addTokens(s, i.creditedCounts), { ...ZERO_TOKENS }),
       adjustedCreditedTokens: inputViews.reduce((s, i) => s + i.adjustedCreditedTokens, 0),
+      rawCreditedTokens: inputViews.reduce((s, i) => s + rawTokens(i.creditedCounts), 0),
       dailyInflowTokens,
       inputs: inputViews,
       pools: this.listPools().map((p) => {

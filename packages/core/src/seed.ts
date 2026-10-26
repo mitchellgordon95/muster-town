@@ -7,7 +7,7 @@ import { buildingRoleId, townRoleId } from "./permissions.ts";
 import { TOWN_HALL_ID } from "./world/layout.ts";
 import type { World } from "./world.ts";
 
-export const HOUSE_BUDGET_TOKENS = 50_000_000;
+export const HOUSE_BUDGET_TOKENS = 1_700_000;
 /** The seed's house allocation is a placeholder until the owner enters real funding (see budget.retirePlaceholders). */
 export const HOUSE_LABEL = "House budget (placeholder)";
 

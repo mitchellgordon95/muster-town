@@ -32,7 +32,7 @@ export async function chat(ctx: Ctx, agentId: string, raw: (typeof ChatInput)["_
   }
   const funding = fundingFor(world, agentId);
   const out = await oneShot(ctx.sdk, { model, system, prompt: `${context}\n\n${historyBlock(input.history, input.message)}`, apiKey: funding.apiKey });
-  chargeUsage(world, agentId, out, funding.allocationId);
+  chargeUsage(world, agentId, out, funding.allocationId, model);
   if (!out.text) return { reply: out.error ? `(${agent.name} can't answer right now: ${out.error})` : `(${agent.name} has nothing to say.)` };
   return { reply: out.text };
 }
@@ -73,7 +73,7 @@ ${events.map((e) => `- ${e.ts.slice(0, 16)} [${e.type}] ${e.text}`).join("\n") |
   const charged = author && author.kind !== "human" ? author.id : null;
   const funding = charged ? fundingFor(world, charged) : { allocationId: null, apiKey: null };
   const out = await oneShot(ctx.sdk, { model, system, prompt: `${context}\n\n${historyBlock(history, question)}`, apiKey: funding.apiKey });
-  if (charged) chargeUsage(world, charged, out, funding.allocationId);
+  if (charged) chargeUsage(world, charged, out, funding.allocationId, model);
   if (!out.text) return { reply: out.error ? `(No answer right now: ${out.error})` : "(No answer.)" };
   return { reply: out.text };
 }

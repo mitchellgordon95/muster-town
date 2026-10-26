@@ -1,4 +1,4 @@
-import { AppError, accessRequestOf, boardDocs, canInteract, decideAccess, requestAccess, sessionView, cabinetCounts, cabinetDocs } from "@muster-town/core";
+import { AppError, BANK_ACCOUNTING, accessRequestOf, boardDocs, canInteract, decideAccess, requestAccess, sessionView, cabinetCounts, cabinetDocs } from "@muster-town/core";
 import { AccessDecisionInput, AccessRequestInput, AddBankInput, CreateBankPoolInput, CreateBuildingInput, DesksPatch, UpdateBankPoolInput, DocType, DonateInput, LayoutInput, Membership, PlanInput, PlantFlagInput, RedeployInput, UpdateBuildingInput, townEnv, type AccessRequest, type AuthMe, type RedeployLive } from "@muster-town/schema";
 import type { FastifyInstance, FastifyRequest } from "fastify";
 import { z } from "zod";
@@ -29,7 +29,7 @@ export async function townRoutes(app: FastifyInstance) {
    * `commit`: the git sha the running server started from (null without a runtime); `git merge-base --is-ancestor <sha> <commit>` says
    * whether a change is live. `load` (read-only): `lagMs` p99 event-loop delay over the last 10 s window, `rssMb`, `wsClients` open now.
    */
-  app.get("/api/health", async () => ({ ok: true, runtime: !!app.runtime, commit: world.host.commit ?? null, time: new Date().toISOString(), load: app.load.snapshot() }));
+  app.get("/api/health", async () => ({ ok: true, runtime: !!app.runtime, commit: world.host.commit ?? null, time: new Date().toISOString(), accounting: BANK_ACCOUNTING, load: app.load.snapshot() }));
 
   if (app.dev) {
     // only to a browser on this machine talking to the server directly: never through a proxy or tunnel

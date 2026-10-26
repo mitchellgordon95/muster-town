@@ -14,7 +14,7 @@ import { RequestCard } from "./OutboxPanel";
 import { DocText, Markdown } from "./Markdown";
 import { grantUrl } from "../route";
 import { stoplightLabel } from "../format";
-import { Act, Empty, ErrorLine, Field, Loading, MTokensInput, Pill, Section, clock, fmtTokens, nameOf, timeAgo, usd, useLoad } from "./ui";
+import { ADJ, ADJ_HINT, Act, Empty, ErrorLine, Field, Loading, MTokensInput, Pill, Section, breakdownTitle, clock, fmtTokens, nameOf, timeAgo, usd, useLoad } from "./ui";
 import { fromMillions, toMillions } from "../format";
 import { portraitUrl } from "../map/sprites";
 
@@ -200,7 +200,7 @@ export function GrantLink({ id, className }: { id: string; className?: string })
 /** "Funded 2M tokens", "Closed: met", … for a grant nobody has to decide on right now. */
 function grantSettledLine(g: GrantView): string {
   switch (g.status) {
-    case "funded": return `Funded ${fmtTokens(g.grantTokens ?? 0)} tokens${g.fundedAt ? ` ${timeAgo(g.fundedAt)}` : ""}; sessions draw on it until the next checkpoint.`;
+    case "funded": return `Funded ${fmtTokens(g.grantTokens ?? 0)} ${ADJ}${g.fundedAt ? ` ${timeAgo(g.fundedAt)}` : ""}; sessions draw on it until the next checkpoint.`;
     case "closed": return `Closed${g.outcome ? `: ${g.outcome}` : ""}${g.closedAt ? `, ${timeAgo(g.closedAt)}` : ""}.`;
     case "rejected": return "Rejected.";
     case "draft": return "Draft: the manager is still writing it.";
@@ -244,8 +244,8 @@ export function GrantRow({ grant: g, onDecided, onOpenDoc }: { grant: GrantView;
       <div className="doc-row-title">{g.objective}</div>
       <div className="doc-row-meta">
         {checkpoint
-          ? <span>{fmtTokens(g.spentTokens)} of {fmtTokens(g.grantTokens ?? 0)} tokens spent ({pct}%)</span>
-          : <span>asks {fmtTokens(g.askTokens)} tokens</span>}
+          ? <span title={breakdownTitle(g.spentCounts)}>{fmtTokens(g.spentTokens)} of {fmtTokens(g.grantTokens ?? 0)} {ADJ} spent ({pct}%)</span>
+          : <span title={ADJ_HINT}>asks {fmtTokens(g.askTokens)} {ADJ}</span>}
         {g.checkpointDocId ? <button className="link" onClick={() => onOpenDoc(g.checkpointDocId!)}>checkpoint report</button> : null}
       </div>
       <ul className="grant-krs">
@@ -273,7 +273,7 @@ export function GrantRow({ grant: g, onDecided, onOpenDoc }: { grant: GrantView;
               <Act small disabled={!tokensOk} run={decide("adjust", "Grant adjusted")} title="Set the grant to the token field">Adjust</Act>
               <Act small tone="bad" run={decide("cut", "Grant cut")}>Cut</Act>
             </> : <>
-              <Act small tone="ok" disabled={!tokensOk || !!unfundableReason(g)} run={decide("fund", `Funded ${tokensOk ? fmtTokens(n) : ""} tokens`)}>Fund</Act>
+              <Act small tone="ok" disabled={!tokensOk || !!unfundableReason(g)} run={decide("fund", `Funded ${tokensOk ? fmtTokens(n) : ""} ${ADJ}`)}>Fund</Act>
               <Act small disabled={!note.trim()} run={decide("counter", "Countered: back to the manager")} title="Send it back with the note (and the token field, if changed)">Counter</Act>
               <Act small tone="bad" run={decide("reject", "Proposal rejected")}>Reject</Act>
             </>}
@@ -313,7 +313,7 @@ function IntrayRow({ doc, onOpen, onOpenDoc, showBuilding }: { doc: Doc; onOpen:
         {preview ? <div className="intray-proposal">{preview.length > 160 ? preview.slice(0, 160) + "…" : preview}</div> : null}
         <div className="doc-row-meta">
           {doc.verdict ? <Pill tone={VERDICT_TONE[doc.verdict]}>verdict: {doc.verdict}</Pill> : null}
-          {doc.tokens ? <span>{fmtTokens(doc.tokens)} tokens{doc.costUsd ? ` · ${usd(doc.costUsd)}` : ""}</span> : null}
+          {doc.tokens ? <span title={ADJ_HINT}>{fmtTokens(doc.tokens)} {ADJ}{doc.costUsd ? ` · ${usd(doc.costUsd)}` : ""}</span> : null}
         </div>
       </button>
       {rollup && covered.length ? (

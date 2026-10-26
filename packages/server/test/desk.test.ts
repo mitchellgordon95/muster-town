@@ -140,11 +140,11 @@ describe("agent-scoped desk API", () => {
     expect(r.status).toBe(200);
     expect(r.body.session).toMatchObject({ id: sessionId, status: "done", tokens: 1500, costUsd: 0.5, turns: 7, sdkSessionId: "sdk-9" });
     expect(world.docs.require(r.body.session.reportId).body).toContain("3.1 ± 0.6 GtC/yr");
-    expect(world.agents.require(agent.id).spentTokensToday).toBe(1500);
-    expect(world.allocations.first("buildingId = ?", ["carbon-cycle"])!.spentTokens).toBe(1500);
+    expect(world.agents.require(agent.id).spentTokensToday).toBe(50);
+    expect(world.allocations.first("buildingId = ?", ["carbon-cycle"])!.spentTokens).toBe(50); // 1500 raw with no counters, back-filled: 1500 / 30 adjusted
     const again = await json(app, "POST", "/api/agents/me/session-end", { headers: as(agent), body });
     expect(again.body.session.status).toBe("done");
-    expect(world.agents.require(agent.id).spentTokensToday).toBe(1500);
+    expect(world.agents.require(agent.id).spentTokensToday).toBe(50);
     expect((await json(app, "GET", `/api/agents/me/brief?session=${sessionId}`, { headers: as(agent) })).status).toBe(403);
     expect((await json(app, "GET", `/api/agents/me/control?session=${sessionId}`, { headers: as(agent) })).body.stop).toBe(true);
   });
@@ -158,8 +158,8 @@ describe("agent-scoped desk API", () => {
     expect(r.body.session).toMatchObject({ ...counts, tokens: 1500 });
     const ended = world.events.list({ types: ["session.ended"] }).find((e) => e.payload?.sessionId === sessionId)!;
     expect(ended.payload).toMatchObject({ ...counts, tokens: 1500, byModel: { "claude-opus-5-5": counts } });
-    expect(world.db.prepare("SELECT input, output, cacheRead, cacheWrite5m, cacheWrite1h, tokens FROM usage WHERE agentId = ?").get(agent.id)).toEqual({ ...counts, tokens: 1500 });
-    expect(world.allocations.first("buildingId = ?", ["carbon-cycle"])).toMatchObject({ spentTokens: 1500, spentInput: 20, spentOutput: 180, spentCacheRead: 1200, spentCacheWrite5m: 80, spentCacheWrite1h: 20 });
+    expect(world.db.prepare("SELECT input, output, cacheRead, cacheWrite5m, cacheWrite1h, tokens FROM usage WHERE agentId = ?").get(agent.id)).toEqual({ ...counts, tokens: 224 }); // booked adjusted on Opus 5.5: 180 + 0.2 × 20 + 0.01 × 1200 + 0.25 × 80 + 0.4 × 20
+    expect(world.allocations.first("buildingId = ?", ["carbon-cycle"])).toMatchObject({ spentTokens: 224, spentRawTokens: 1500, spentInput: 20, spentOutput: 180, spentCacheRead: 1200, spentCacheWrite5m: 80, spentCacheWrite1h: 20 });
   });
 
   it("interrupt still goes straight to an in-process session's runtime when it takes it", async () => {

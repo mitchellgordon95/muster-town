@@ -7,7 +7,7 @@ import { store, useTown, roleOf } from "../state";
 import { Glyph, PanelShell } from "./PanelShell";
 import { Meter } from "./AgentPanel";
 import { DismissButton, canDismiss } from "./Dismiss";
-import { Act, Empty, ErrorLine, Field, KV, Loading, MTokensInput, Pill, Section, StatusPill, fmtTokens, nameOf, timeAgo, usd, useLoad } from "./ui";
+import { ADJ, Act, Empty, ErrorLine, Field, KV, Loading, MTokensInput, Pill, Section, StatusPill, fmtTokens, nameOf, timeAgo, usd, useLoad } from "./ui";
 import { fromMillions, toMillions } from "../format";
 import { PALETTES, portraitUrl } from "../map/sprites";
 import { AttendeePicker, useAttendees } from "./AttendeePicker";
@@ -90,14 +90,14 @@ function Overview({ b }: { b: SnapshotBuilding }) {
         </div>
       ) : null}
       <KV items={[
-        ["Tokens used", usage ? <><b>{fmtTokens(usage.today)}</b> today · <b>{fmtTokens(usage.allTime)}</b> all-time</> : budget.loading ? "…" : "—"],
+        ["Adj. tokens used", usage ? <><b>{fmtTokens(usage.today)}</b> today · <b>{fmtTokens(usage.allTime)}</b> all-time</> : budget.loading ? "…" : "—"],
         ...(b.kind !== "town-hall" ? [
           ["Budget", live && live.bankTokens > 0 ? <>{fmtTokens(live.remainingTokens)} left to draw from the Bank</>
             : row && row.allocated > 0 ? <>{fmtTokens(row.allocated - row.spent)} left of {fmtTokens(row.allocated)} <Meter v={row.spent / row.allocated} /></>
             : budget.loading ? "…" : "nothing to draw"],
           ["Spent", row?.spentUsd !== undefined ? usd(row.spentUsd) : "—"],
           ["Models", `${b.model} · cheap: ${b.cheapModel}`],
-          ["Daily / agent", `${fmtTokens(b.dailyTokensPerAgent)} tokens`],
+          ["Daily / agent", `${fmtTokens(b.dailyTokensPerAgent)} ${ADJ}`],
           ["Desks", `${members.length} / ${b.headcount}`],
           ["In-tray", b.managerAgentId ? `worked by ★ ${agents[b.managerAgentId]?.name ?? "the manager agent"}` : "worked by you (no manager agent)"],
           ...(b.codeAccess && repo ? [["Code", <>the collective repo <code>{repoLabel(repo)}</code></>] as [string, ReactNode]] : []),

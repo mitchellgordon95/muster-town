@@ -56,7 +56,7 @@ async function summarize(ctx: Ctx, m: Meeting, agentId: string): Promise<void> {
     catch (e) { error = e instanceof Error ? e.message : String(e); }
   } else error ??= "empty summary";
   world.ops.endSession(session.id, { status: error ? "error" : "done", counts: out.counts, byModel: out.byModel, costUsd: out.costUsd, turns: out.turns, error });
-  chargeUsage(world, agentId, out, funding.allocationId);
+  chargeUsage(world, agentId, out, funding.allocationId, model);
 }
 
 const LIVE = new Set(["collecting", "discussing"]);
@@ -117,7 +117,7 @@ async function replyInMeeting(ctx: Ctx, meetingId: string, agentId: string): Pro
       } else if (!said) error ??= "empty reply";
       const status = out.stopped ? "interrupted" : error ? "error" : "done";
       const session = world.ops.endSession(out.session.id, { status, counts: out.counts, byModel: out.byModel, costUsd: out.costUsd, turns: out.turns, error, sdkSessionId: out.sdkSessionId });
-      chargeUsage(world, agentId, out, allocationId);
+      chargeUsage(world, agentId, out, allocationId, session.model);
       return session;
     },
   }).catch((e) => console.log("[runtime] meeting reply failed:", e));

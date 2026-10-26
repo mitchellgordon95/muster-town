@@ -45,7 +45,7 @@
         "sprite": 7,
         "direction": "Review Workshop reports: the PR exists, is small, typechecks, has tests or a screenshot, and the report says how it was verified. Redirect anything that touches main directly or lacks verification. Facilitate meetings."
       },
-      "houseTokens": 50000000
+      "houseTokens": 1700000
     }
   ]
 }

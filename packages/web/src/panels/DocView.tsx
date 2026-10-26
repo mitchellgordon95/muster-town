@@ -6,7 +6,7 @@ import { store, useTown } from "../state";
 import { Markdown, openDocLink } from "./Markdown";
 import { docUrl } from "../route";
 import { SkillDetails } from "./Skills";
-import { Act, Field, Pill, nameOf, timeAgo, fmtTokens, usd } from "./ui";
+import { ADJ, Act, Field, Pill, nameOf, timeAgo, fmtTokens, usd } from "./ui";
 
 export const DECISION_TONE: Record<string, string> = { pending: "warn", approve: "ok", continue: "ok", redirect: "info", stop: "bad" };
 /** How a decision reads on a pill. `approve` is "Acknowledge" in v1.2: no assignment follows. */
@@ -226,7 +226,7 @@ export function DocRow({ doc, onOpen }: { doc: Doc; onOpen: () => void }) {
 export function docCost(doc: Doc): string {
   return [
     doc.costUsd ? usd(doc.costUsd) : "",
-    doc.tokens ? `${fmtTokens(doc.tokens)} tokens` : "",
+    doc.tokens ? `${fmtTokens(doc.tokens)} ${ADJ}` : "",
     doc.turns ? `${doc.turns} ${doc.turns === 1 ? "turn" : "turns"}` : "",
   ].filter(Boolean).join(" · ");
 }

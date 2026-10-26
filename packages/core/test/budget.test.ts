@@ -206,9 +206,10 @@ describe("token usage per building (today and all-time)", () => {
     db.close();
     const w = World.open(dbPath);
     try {
-      expect(w.budget.usage("carbon-cycle")).toEqual({ tokensToday: 700, tokensAllTime: 5000 });
+      // 037 books the ledger in adjusted output tokens: 700 raw today → 16 output + 684 cache read → 23; 4300 → 143
+      expect(w.budget.usage("carbon-cycle")).toEqual({ tokensToday: 23, tokensAllTime: 166 });
       // 4300 before today, split by the back-fill rule (Opus): output = round(4300 × (1/30 − 0.01) / 0.99) = 101
-      expect(w.db.prepare("SELECT input, output, cacheRead, tokens FROM usage WHERE id = ?").get(`us-backfill-${mei.id}`)).toMatchObject({ input: 0, output: 101, cacheRead: 4199, tokens: 4300 });
+      expect(w.db.prepare("SELECT input, output, cacheRead, rawTokens, tokens FROM usage WHERE id = ?").get(`us-backfill-${mei.id}`)).toMatchObject({ input: 0, output: 101, cacheRead: 4199, rawTokens: 4300, tokens: 143 });
     } finally {
       w.close();
     }

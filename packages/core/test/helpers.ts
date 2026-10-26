@@ -51,6 +51,7 @@ export async function tickUntil<T>(world: World, p: Promise<T>, maxTicks = 2000)
  * raw totals back into plain columns holding the same numbers. `usage` (024) may already be gone.
  */
 export function undoTokenCounters(db: import("better-sqlite3").Database): void {
+  undoAdjustedTokens(db);
   const kinds = ["input", "output", "cacheRead", "cacheWrite5m", "cacheWrite1h"];
   const has = (t: string) => !!db.prepare("SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = ?").get(t);
   const undo = (table: string, total: string, cols: string[]) => {
@@ -63,4 +64,15 @@ export function undoTokenCounters(db: import("better-sqlite3").Database): void {
   for (const t of ["sessions", "usage", "bank_debits", "bank_credits"]) undo(t, "tokens", kinds);
   undo("allocations", "spentTokens", kinds.map((k) => `spent${k[0].toUpperCase()}${k.slice(1)}`));
   db.prepare("DELETE FROM schema_version WHERE version = 34").run();
+}
+
+/**
+ * Undo migration 037's columns (the raw totals it made generated; the stored adjusted `tokens` / `spentTokens` stay as
+ * plain columns) so 037 runs again on next open. Its one-time size conversion runs again too.
+ */
+export function undoAdjustedTokens(db: import("better-sqlite3").Database): void {
+  const cols = (t: string) => (db.prepare(`PRAGMA table_xinfo("${t}")`).all() as { name: string }[]).map((r) => r.name);
+  for (const t of ["usage", "bank_debits", "bank_credits"]) if (cols(t).includes("rawTokens")) db.exec(`ALTER TABLE ${t} DROP COLUMN rawTokens`);
+  if (cols("allocations").includes("spentRawTokens")) db.exec("ALTER TABLE allocations DROP COLUMN spentRawTokens");
+  db.prepare("DELETE FROM schema_version WHERE version = 37").run();
 }

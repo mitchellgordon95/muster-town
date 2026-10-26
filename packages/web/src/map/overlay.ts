@@ -307,7 +307,7 @@ export function drawBankSign(g: CanvasRenderingContext2D, x: number, y: number, 
   const tw = g.measureText(total).width;
   g.font = `700 15px ${SANS}`;
   const colW = Math.max(...parts.map((p) => g.measureText(p.value).width), 96) + 24;
-  const title = "THE BANK · TOKENS AVAILABLE TO THE TOWN";
+  const title = "THE BANK · ADJ. TOKENS AVAILABLE TO THE TOWN";
   g.font = `800 11px ${SANS}`;
   const w = Math.round(Math.max(tw + 48, colW * parts.length + 16, g.measureText(title).width + 32, 240)), h = 112;
   const sx = Math.round(x - w / 2), sy = Math.round(y - h);

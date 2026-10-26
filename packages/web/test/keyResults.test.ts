@@ -6,14 +6,14 @@ import { stoplightLabel } from "../src/format";
 
 describe("board key-results view", () => {
   it("grant bar: spend / grant with a percentage, clamped", () => {
-    expect(grantSpendLine({ spentTokens: 1_040_000, grantTokens: 2_000_000 })).toBe("1M / 2M tokens (52%)");
+    expect(grantSpendLine({ spentTokens: 1_040_000, grantTokens: 2_000_000 })).toBe("1M / 2M adj. tokens (52%)");
     expect(spentShare(3, 2)).toBe(1);
     expect(spentShare(5, 0)).toBe(0);
     expect(grantStateLine({ status: "checkpoint" })).toMatch(/held/);
   });
   it("exploration meter and the proposal line (no buttons: it points at the Town Hall in-tray)", () => {
-    expect(explorationLine({ spentTodayTokens: 1_150_000, allowanceTokens: 3_000_000 })).toBe("1.1M / 3M tokens today");
-    expect(proposalLine({ objective: "X", status: "proposed", askTokens: 4_000_000 })).toBe('Proposal "X" (asks 4M tokens) is waiting for a human in the Town Hall in-tray.');
+    expect(explorationLine({ spentTodayTokens: 1_150_000, allowanceTokens: 3_000_000 })).toBe("1.1M / 3M adj. tokens today");
+    expect(proposalLine({ objective: "X", status: "proposed", askTokens: 4_000_000 })).toBe('Proposal "X" (asks 4M adj. tokens) is waiting for a human in the Town Hall in-tray.');
     expect(proposalLine({ objective: "X", status: "countered", askTokens: 1 })).toMatch(/countered/);
   });
   it("key-result tones", () => {
