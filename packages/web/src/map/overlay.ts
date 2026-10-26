@@ -167,14 +167,14 @@ const NFONT = "700 13px ui-sans-serif, system-ui, -apple-system, Segoe UI, Robot
  * the full goal wrapped (or the town's name, for the Town Hall) and an optional budget line. `hl` brightens it
  * for hover. Returns the banner's screen rect, for click-to-open.
  */
-export function drawSign(g: CanvasRenderingContext2D, x: number, y: number, name: string, sub: string, budget?: string | null, hl = false) {
+export function drawSign(g: CanvasRenderingContext2D, x: number, y: number, name: string, sub: string, budget?: string | null, hl = false, alert?: string | null) {
   g.font = NFONT;
   const nw = g.measureText(name).width;
   g.font = BFONT;
   const lines = sub ? wrapText(g, sub, Math.max(200, Math.min(nw, 280))) : [];
-  const tw = Math.max(nw, ...lines.map((l) => g.measureText(l).width), budget ? g.measureText(budget).width : 0);
+  const tw = Math.max(nw, ...lines.map((l) => g.measureText(l).width), budget ? g.measureText(budget).width : 0, alert ? g.measureText(alert).width : 0);
   const w = Math.round(Math.max(tw + 28, 110)), tail = 7, lh = 13;
-  const body = 8 + 15 + lines.length * lh + (budget ? lh + 2 : 0) + 6;
+  const body = 8 + 15 + lines.length * lh + (budget ? lh + 2 : 0) + (alert ? lh + 2 : 0) + 6;
   const ch = body + tail, rodY = Math.round(y - ch - 10);
   const cx = Math.round(x - w / 2), top = rodY + 3, bot = top + body;
   // posts down to the ground, then the rod with round finials
@@ -212,7 +212,8 @@ export function drawSign(g: CanvasRenderingContext2D, x: number, y: number, name
   let ty = top + 7 + 16;
   g.font = BFONT; g.fillStyle = "#ffd98a";
   for (const l of lines) { g.fillText(l, x, ty); ty += lh; }
-  if (budget) { g.fillStyle = "#9ff0b4"; g.fillText(budget, x, ty + 2); }
+  if (budget) { g.fillStyle = "#9ff0b4"; g.fillText(budget, x, ty + 2); ty += lh + 2; }
+  if (alert) { g.fillStyle = "#ffb3b3"; g.fillText(alert, x, ty + 2); }
   g.textAlign = "left";
   return { x: cx - 17, y: rodY - 5, w: w + 34, h: y - rodY + 5 };
 }

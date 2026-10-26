@@ -14,7 +14,7 @@ import { AttendeePicker, useAttendees } from "./AttendeePicker";
 import { attendeeInput } from "./attendees";
 import { layoutEdit } from "../map/layoutEdit";
 import { canOneOnOne, openOneOnOne } from "./oneOnOne";
-import { krStatusLabel, krTone, settableStatuses } from "./keyResults";
+import { UNBLOCK_LINE, blockedLabel, krStatusLabel, krTone, settableStatuses } from "./keyResults";
 
 export function BuildingPanel({ id, tab }: { id: string; tab?: string }) {
   const b = useTown((s) => s.buildings.find((x) => x.id === id));
@@ -62,6 +62,11 @@ function Overview({ b }: { b: SnapshotBuilding }) {
     <>
       {b.goal ? <div className="goal-card"><span>Goal</span>{b.goal}</div> : null}
       {b.description ? <p className="direction">{b.description}</p> : null}
+      {blockedLabel(b) ? (
+        <div className="kr-blocked"><Pill tone="bad">{blockedLabel(b)}</Pill> {UNBLOCK_LINE}
+          {store.can("building.manage", b.id) ? <> <button className="link" onClick={() => store.open({ kind: "building", id: b.id, tab: "Settings" })}>Write them in Settings →</button></> : null}
+        </div>
+      ) : null}
       {hasBoard || hasTray ? (
         <div className="walk-links">
           {hasBoard ? <button className="walk-link" onClick={() => walk(`board:${b.id}`, { kind: "board", id: b.id })}><Glyph kind="board" /><span>Walk to the board</span></button> : null}

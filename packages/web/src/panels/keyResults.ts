@@ -66,3 +66,18 @@ export const KR_STATUSES: KeyResultStatus[] = ["not-started", "on-track", "at-ri
 export function settableStatuses(canFund: boolean): KeyResultStatus[] {
   return canFund ? KR_STATUSES : KR_STATUSES.filter((s) => s !== "met" && s !== "missed");
 }
+
+/** The short blocked label for a building's panel, map sign and the Town Hall in-tray. */
+export const BLOCKED_LABEL = "Blocked: no key results";
+/** Who unblocks a blocked building, and how. */
+export const UNBLOCK_LINE = "A human unblocks it by writing the goal's key results in Building → Settings → Key results; the manager drafts them in a rollup or the 1:1.";
+
+/** The blocked label when a goal-directed building is blocked (the server's `blockedAt`), else null. */
+export function blockedLabel(b: { kind: string; budgetMode: string; blockedAt?: string | null }): string | null {
+  return b.kind !== "town-hall" && b.budgetMode === "goal-directed" && b.blockedAt ? BLOCKED_LABEL : null;
+}
+
+/** Why a proposal can't be funded yet (it names no goal key result), or null when it can. */
+export function unfundableReason(g: Pick<GrantView, "status" | "keyResult">): string | null {
+  return g.status === "proposed" && !g.keyResult ? "It names no goal key result, so it can't be funded: write the goal's key results, then counter it so the manager names one." : null;
+}

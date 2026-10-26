@@ -4,8 +4,8 @@
  */
 import { useEffect, useMemo, useState } from "react";
 import { BOARD_TYPES, DocType, type Doc, type GrantView, type Meeting } from "@muster-town/schema";
-import { api, type Board } from "../api";
-import { explorationLine, grantSpendLine, grantStateLine, keyResultRows, krFundingLine, krStatusLabel, krTone, proposalLine, spentShare } from "./keyResults";
+import { api, type Board, type Intray } from "../api";
+import { UNBLOCK_LINE, explorationLine, grantSpendLine, grantStateLine, keyResultRows, krFundingLine, krStatusLabel, krTone, proposalLine, spentShare, unfundableReason } from "./keyResults";
 import { store, useTown, roleOf } from "../state";
 import { DocRow, DocView, VERDICT_TONE, needOf } from "./DocView";
 import { Glyph, PanelShell } from "./PanelShell";
@@ -50,7 +50,7 @@ export function IntrayPanel({ buildingId }: { buildingId: string }) {
           {manager && !hall ? <div className="callout">★ {manager.name}, the building's manager, works this in-tray and rolls up to the Town Hall in-tray. You can still decide here.</div> : null}
           <ErrorLine error={list.error} />
           {list.loading && !list.data ? <Loading /> : hall ? (
-            <TownHallIntray reports={reports} grants={grants} onOpen={openDoc} onDecided={list.reload} />
+            <TownHallIntray reports={reports} grants={grants} blocked={list.data?.blocked ?? []} onOpen={openDoc} onDecided={list.reload} />
           ) : !reports.length ? <Empty>The in-tray is empty. When a resident finishes a session, its report lands here and the resident goes idle.</Empty> : (
             <div className="doc-list">
               {reports.map((d) => <IntrayRow key={d.id} doc={d} onOpen={() => setOpenId(d.id)} />)}
@@ -67,12 +67,28 @@ export function IntrayPanel({ buildingId }: { buildingId: string }) {
  * reports they cover), then the grants a human must decide: proposals (Fund / Counter / Reject) and checkpoints
  * (Continue / Adjust / Cut). Countered proposals wait on the manager and are shown without buttons.
  */
-function TownHallIntray({ reports, grants, onOpen, onDecided }: { reports: Doc[]; grants: GrantView[]; onOpen: (id: string) => void; onDecided: () => void }) {
+function TownHallIntray({ reports, grants, blocked, onOpen, onDecided }: { reports: Doc[]; grants: GrantView[]; blocked: NonNullable<Intray["blocked"]>; onOpen: (id: string) => void; onDecided: () => void }) {
   const proposals = grants.filter((g) => g.status === "proposed" || g.status === "countered");
   const checkpoints = grants.filter((g) => g.status === "checkpoint");
-  if (!reports.length && !grants.length) return <Empty>The Town Hall in-tray is empty. Managers' rollups, checkpoint reports and escalations land here, with the grant proposals and checkpoints waiting for a human.</Empty>;
+  // blocked buildings aren't counted in the badge, but they wait on a human all the same
+  const blockedList = blocked.length ? (
+    <Section title={<>Blocked: no key results <Pill tone="bad">{blocked.length}</Pill></>}>
+      <p className="direction">{UNBLOCK_LINE}</p>
+      <div className="doc-list">{blocked.map((x) => (
+        <div key={x.buildingId} className="doc-row intray-row">
+          <div className="intray-who"><BuildingTag buildingId={x.buildingId} />{x.since ? <span>since {timeAgo(x.since)}</span> : null}</div>
+          <div className="doc-row-meta">
+            <span>{x.reason.replace(/^blocked: /, "")}</span>
+            {store.can("building.manage", x.buildingId) ? <button className="link" onClick={() => store.open({ kind: "building", id: x.buildingId, tab: "Settings" })}>Write its key results →</button> : null}
+          </div>
+        </div>
+      ))}</div>
+    </Section>
+  ) : null;
+  if (!reports.length && !grants.length) return <>{blockedList}<Empty>The Town Hall in-tray is empty. Managers' rollups, checkpoint reports and escalations land here, with the grant proposals and checkpoints waiting for a human.</Empty></>;
   return (
     <>
+      {blockedList}
       {reports.length ? (
         <Section title={<>Manager reports <Pill>{reports.length}</Pill></>}>
           <div className="doc-list">{reports.map((d) => <IntrayRow key={d.id} doc={d} onOpen={() => onOpen(d.id)} onOpenDoc={onOpen} showBuilding />)}</div>
@@ -155,7 +171,7 @@ export function GrantRow({ grant: g, onDecided, onOpenDoc }: { grant: GrantView;
         {g.checkpointDocId ? <button className="link" onClick={() => onOpenDoc(g.checkpointDocId!)}>checkpoint report</button> : null}
       </div>
       <ul className="grant-krs">
-        {g.keyResult ? <li key={g.keyResult.id}>{g.keyResult.text} <span className="muted">· {g.keyResult.status.replace(/-/g, " ")}</span></li> : <li className="muted">No goal key result named yet</li>}
+        {g.keyResult ? <li key={g.keyResult.id}><b>Key result:</b> {g.keyResult.text} <span className="muted">· {g.keyResult.status.replace(/-/g, " ")}</span></li> : <li className="muted">No goal key result named yet</li>}
         {g.testingPlan.map((t, i) => <li key={i} className="muted">Test: {t.text}</li>)}
       </ul>
       <div className="intray-proposal">Stop when: {g.stopCondition}</div>
@@ -166,7 +182,8 @@ export function GrantRow({ grant: g, onDecided, onOpenDoc }: { grant: GrantView;
         <div className="muted">{grantSettledLine(g)}</div>
       ) : !canFund ? (
         <div className="muted">Funding decisions are for humans with building.fund.</div>
-      ) : (
+      ) : (<>
+        {unfundableReason(g) ? <div className="kr-blocked">{unfundableReason(g)}</div> : null}
         <div className="grant-decide">
           <div className="grant-inputs">
             <Field label={checkpoint ? "Grant" : "Fund"}><MTokensInput value={tokens} onChange={setTokens} /></Field>
@@ -178,13 +195,13 @@ export function GrantRow({ grant: g, onDecided, onOpenDoc }: { grant: GrantView;
               <Act small disabled={!tokensOk} run={decide("adjust", "Grant adjusted")} title="Set the grant to the token field">Adjust</Act>
               <Act small tone="bad" run={decide("cut", "Grant cut")}>Cut</Act>
             </> : <>
-              <Act small tone="ok" disabled={!tokensOk} run={decide("fund", `Funded ${tokensOk ? fmtTokens(n) : ""} tokens`)}>Fund</Act>
+              <Act small tone="ok" disabled={!tokensOk || !!unfundableReason(g)} run={decide("fund", `Funded ${tokensOk ? fmtTokens(n) : ""} tokens`)}>Fund</Act>
               <Act small disabled={!note.trim()} run={decide("counter", "Countered: back to the manager")} title="Send it back with the note (and the token field, if changed)">Counter</Act>
               <Act small tone="bad" run={decide("reject", "Proposal rejected")}>Reject</Act>
             </>}
           </div>
         </div>
-      )}
+      </>)}
     </div>
   );
 }

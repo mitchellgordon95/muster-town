@@ -352,7 +352,7 @@ export class HttpApi implements Api {
   savePlan(lots: Record<string, Lot>, create?: PlanCreate) { return this.call<{ buildings: Building[]; created: Building | null }>("PUT", "/api/town/plan", { lots, create }); }
   async intray(id: string) {
     const r = await this.get<Partial<Intray>>(`/api/buildings/${id}/intray`);
-    return { reports: r.reports ?? [], grants: r.grants ?? [] };
+    return { reports: r.reports ?? [], grants: r.grants ?? [], blocked: r.blocked ?? [] };
   }
   async grant(id: string) { return unwrap<GrantView>(await this.get(`/api/grants/${id}`), "grant"); }
   async decideGrant(id: string, i: In<typeof DecideGrantInput>) { return unwrap<GrantView>(await this.post(`/api/grants/${id}/decide`, i), "grant"); }
