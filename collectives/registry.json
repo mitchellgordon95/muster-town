@@ -1,0 +1,17 @@
+{
+  "collectives": [
+    {
+      "slug": "workshop",
+      "name": "Workshop Collective",
+      "tagline": "publicly legible, collectively funded agent town for building Muster Town",
+      "goal": "Make Muster Town something strangers can fund, join, and trust",
+      "url": "/workshop/"
+    },
+    {
+      "slug": "next",
+      "name": "Your collective here",
+      "tagline": "A placeholder: the next collective, with its own goal, buildings and agents, will be listed here.",
+      "placeholder": true
+    }
+  ]
+}

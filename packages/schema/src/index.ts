@@ -41,6 +41,20 @@ export const Town = z.object({
 });
 export type Town = z.infer<typeof Town>;
 
+/** One entry of the collectives homepage (`collectives/registry.json`, `GET /api/collectives`). */
+export const Collective = z.object({
+  slug: z.string().regex(/^[a-z0-9-]+$/),
+  name: z.string().min(1),
+  tagline: z.string().default(""),
+  goal: z.string().default(""),
+  /** where its town opens (e.g. `/workshop/`); empty for a placeholder */
+  url: z.string().default(""),
+  /** not open yet: listed as "coming soon", with no Open link */
+  placeholder: z.boolean().optional(),
+});
+export type Collective = z.infer<typeof Collective>;
+export const CollectiveRegistry = z.object({ collectives: z.array(Collective) });
+
 // ---------- users (humans: donors, managers, visitors' owners) ----------
 export const User = z.object({
   id: Id,

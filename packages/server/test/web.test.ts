@@ -1,9 +1,11 @@
 import { World } from "@muster-town/core";
-import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { CollectiveRegistry } from "@muster-town/schema";
 import { buildApp } from "../src/app.ts";
+import { DEFAULT_REGISTRY } from "../src/home.ts";
 
 describe("web client under /workshop/", () => {
   let app: Awaited<ReturnType<typeof buildApp>>;
@@ -19,11 +21,15 @@ describe("web client under /workshop/", () => {
   afterAll(async () => { await app.close(); world.close(); });
   const get = (url: string) => app.inject({ method: "GET", url });
 
-  it("redirects the root to /workshop/, keeping the query", async () => {
+  it("the root is the homepage; a query still goes to /workshop/", async () => {
     const r = await get("/");
-    expect(r.statusCode).toBe(302);
-    expect(r.headers.location).toBe("/workshop/");
+    expect(r.statusCode).toBe(200);
+    expect(r.headers["content-type"]).toMatch(/^text\/html/);
+    expect(r.headers["cache-control"]).toBe("no-cache");
+    expect(r.body).toContain('href="/workshop/"');
+    expect(r.body).toContain("location.replace(\"/workshop/\" + location.hash)");
     expect((await get("/?guest")).headers.location).toBe("/workshop/?guest");
+    expect((await get("/?as=visitor")).headers.location).toBe("/workshop/?as=visitor");
   });
 
   it("serves the page and assets under the prefix only", async () => {
@@ -48,5 +54,53 @@ describe("web client under /workshop/", () => {
     expect(other.headers.location).toBe("/");
     expect((await get("/api/health")).statusCode).toBe(200);
     expect((await get("/api/nope")).statusCode).toBe(404);
+  });
+});
+
+describe("collectives homepage and /api/collectives", () => {
+  let world: World;
+  const dir = mkdtempSync(join(tmpdir(), "registry-"));
+  const reg = join(dir, "registry.json");
+  beforeAll(() => {
+    world = World.open(":memory:");
+    world.town.set({ name: "Live Name", goal: "Live goal", tagline: "live <tagline>" });
+  });
+  afterAll(() => world.close());
+  const build = (registry: string) => buildApp({ world, webDist: false, registry });
+
+  it("the checked-in registry parses and lists the Workshop plus a placeholder", () => {
+    const { collectives } = CollectiveRegistry.parse(JSON.parse(readFileSync(DEFAULT_REGISTRY, "utf8")));
+    expect(collectives.find((c) => c.url === "/workshop/")).toBeTruthy();
+    expect(collectives.some((c) => c.placeholder)).toBe(true);
+  });
+
+  it("lists the registry, with this server's entry from the live town row", async () => {
+    writeFileSync(reg, JSON.stringify({ collectives: [
+      { slug: "workshop", name: "Old", tagline: "old", goal: "old", url: "/workshop/" },
+      { slug: "next", name: "Your collective here", tagline: "soon", placeholder: true },
+    ] }));
+    const app = await build(reg);
+    const { collectives } = (await app.inject("/api/collectives")).json();
+    expect(collectives).toEqual([
+      { slug: "workshop", name: "Live Name", tagline: "live <tagline>", goal: "Live goal", url: "/workshop/" },
+      { slug: "next", name: "Your collective here", tagline: "soon", goal: "", url: "", placeholder: true },
+    ]);
+    const html = (await app.inject("/")).body;
+    expect(html).toContain("Live Name");
+    expect(html).toContain("live &lt;tagline&gt;");
+    expect(html).toContain("Coming soon");
+    // the placeholder gets no link: one Open link only
+    expect(html.match(/class="open"/g)).toHaveLength(1);
+    await app.close();
+  });
+
+  it("a missing or invalid registry lists just this server's collective", async () => {
+    for (const path of [join(dir, "nope.json"), reg]) {
+      if (path === reg) writeFileSync(reg, "{ not json");
+      const app = await build(path);
+      const { collectives } = (await app.inject("/api/collectives")).json();
+      expect(collectives).toEqual([{ slug: "workshop", url: "/workshop/", name: "Live Name", tagline: "live <tagline>", goal: "Live goal" }]);
+      await app.close();
+    }
   });
 });

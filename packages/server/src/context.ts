@@ -4,7 +4,7 @@ import type { FastifyReply, FastifyRequest } from "fastify";
 import type { ZodTypeAny, z } from "zod";
 
 /** Hooks the in-process runtime exposes to the server (`startRuntime` returns this). */
-/** where the web client is served (Vite `base`); `/` redirects here until the collectives homepage takes the root */
+/** where the web client is served (Vite `base`); `/` is the collectives homepage (`home.ts`) */
 export const WEB_BASE = "/workshop/";
 
 export interface RuntimeHooks {

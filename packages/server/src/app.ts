@@ -9,6 +9,7 @@ import { fileURLToPath } from "node:url";
 import { ZodError } from "zod";
 import { authRoutes, defaultAuthSettings, sessionAuth, type AuthSettings } from "./auth/index.ts";
 import { bearer, resolveToken, WEB_BASE, type RuntimeHooks } from "./context.ts";
+import { collectives, DEFAULT_REGISTRY, renderHome } from "./home.ts";
 import { mcpRoutes } from "./mcp.ts";
 import { agentRoutes } from "./routes/agents.ts";
 import { deskRoutes } from "./routes/desk.ts";
@@ -32,6 +33,8 @@ export interface BuildAppOptions {
   logger?: boolean;
   /** sign-in settings (GitHub OAuth, session secret, admin allowlist); default: no GitHub, per-process secret */
   auth?: Partial<AuthSettings>;
+  /** the collectives listed on the homepage (default collectives/registry.json; read per request) */
+  registry?: string;
 }
 
 const API_PREFIXES = ["/api", "/ws", "/mcp", "/auth"];
@@ -80,10 +83,17 @@ export async function buildApp(opts: BuildAppOptions): Promise<FastifyInstance> 
   // Serve the client dynamically (wildcard): a rebuild after startup must be served without a restart.
   // index.html is never cached so a stale page can't point at an asset hash that no longer exists.
   if (haveWeb) await app.register(fastifyStatic, { root: dist!, prefix: WEB_BASE, wildcard: true });
-  // the root and /workshop go to /workshop/, query kept; browsers carry the #fragment across the redirect on their own
+  // /workshop goes to /workshop/, query kept; browsers carry the #fragment across the redirect on their own
   const toWeb = async (req: FastifyRequest, reply: FastifyReply) => { const q = req.url.indexOf("?"); return reply.redirect(WEB_BASE + (q >= 0 ? req.url.slice(q) : "")); };
-  app.get("/", toWeb);
   app.get(WEB_BASE.slice(0, -1), toWeb);
+  // the root is the collectives homepage. It takes no parameters, so a query (old `/?guest`, `/?as=`) still goes to the
+  // client; old `/#/doc|grant/…` links are forwarded by the page's inline script (the server never sees the fragment)
+  const registry = opts.registry ?? DEFAULT_REGISTRY;
+  app.get("/", async (req, reply) => {
+    if (/\?./.test(req.url)) return toWeb(req, reply);
+    return reply.type("text/html; charset=utf-8").send(renderHome(collectives(opts.world, registry)));
+  });
+  app.get("/api/collectives", async () => ({ collectives: collectives(opts.world, registry) }));
   // never let a browser cache the page itself: a stale index.html would point at asset hashes that no longer exist
   app.addHook("onSend", async (_req, reply, payload) => {
     const ct = String(reply.getHeader("content-type") ?? "");

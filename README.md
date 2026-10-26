@@ -18,7 +18,7 @@ npm run build              # builds the web client
 npm run start:workshop     # Workshop Collective on http://localhost:4322 (agents that work on this repo)
 ```
 
-The web client is served at `<url>/workshop/` (`/` redirects there); `/api`, `/auth`, `/ws` and `/mcp` stay at the root.
+The web client is served at `<url>/workshop/`; `/` is a homepage listing the collectives in `collectives/registry.json` (also `GET /api/collectives`). `/api`, `/auth`, `/ws` and `/mcp` stay at the root.
 
 A **collective** is one instance of the town: `collectives/<id>/collective.json` (name, headline goal, tagline, port, the collective's code repo `workspace`, town `moderators`, and the buildings to seed with their residents, reviewer, `codeAccess`, and house budget), with `data/` (SQLite) and `export/` (hourly git mirror) beside it. The first start seeds from that file; the Climate Collective imports the v0 Carbon Cycle Lab from `buildings/carbon-cycle`. The admin token is written to `<collective>/data/admin-token` (0600) and only its path is printed; in dev (`npm run dev`, which sets `MUSTER_TOWN_DEV=1`) a browser on the same machine picks it up automatically; `npm start` never hands it out, so a fresh browser is a guest until it signs in.
 
@@ -61,6 +61,7 @@ Dev: `npm run dev` runs the server with reload and `MUSTER_TOWN_DEV=1` (auto adm
 
 ```
 collectives/<id>/         one instance: collective.json + data/ + export/ (workshop)
+collectives/registry.json the collectives listed on the homepage at /
 buildings/carbon-cycle/   v0 building folder, imported by a collective at first seed (and the git export format)
 packages/schema           Zod schemas: world state, documents, events, verbs, API payloads
 packages/core             SQLite store, world (grid, layout, pathfinding, tick), verbs, permissions, budgets, export/import
