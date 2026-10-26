@@ -352,8 +352,9 @@ export class Ops {
 
   /**
    * POST /assignments/:id/delegate: hand a queued assignment to another resident instead of waiting. The original is
-   * cancelled; the new copy (`fromAssignmentId`) joins the other agent's queue, at the front when `front`. Needs control
-   * of both agents (owner, building.assign on their building, or admin).
+   * cancelled; the new copy (`fromAssignmentId`) joins the other agent's queue, at the front when `front`, keeping its
+   * lane (grant / key result / gap, inherited from the original) and what it waits on. Needs control of both agents
+   * (owner, building.assign on their building, or admin). The manager's `reassign` verb runs this too.
    */
   delegateAssignment(actor: Actor, assignmentId: string, toAgentId: string, opts: { front?: boolean } = {}): { assignment: Assignment; from: Assignment } {
     const { a, agent } = this.controlAssignment(actor, assignmentId);
@@ -370,7 +371,7 @@ export class Ops {
       // the work stays in the building it was for when that is the new agent's home; otherwise it moves to their home
       const assignment = createAssignment(this.world, {
         agentId: to.id, buildingId: to.homeBuildingId === a.buildingId ? a.buildingId : undefined, title: a.title, description: a.description,
-        fromReportId: a.fromReportId, fromMeetingId: a.fromMeetingId, fromAssignmentId: a.id, front: !!opts.front, createdBy: by,
+        fromReportId: a.fromReportId, fromMeetingId: a.fromMeetingId, fromAssignmentId: a.id, front: !!opts.front, createdBy: by, waitFor: a.waitFor,
       });
       this.world.events.append({ type: "assignment.delegated", agentId: to.id, buildingId: assignment.buildingId, text: `${who} delegated "${a.title}" from ${agent.name} to ${to.name}`, payload: { assignmentId: assignment.id, fromAssignmentId: a.id, fromAgentId: agent.id, toAgentId: to.id, by: by.id } });
       return { assignment, from };

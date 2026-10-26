@@ -305,6 +305,38 @@ export async function assign(world: World, me: Agent, input: VerbIn<"assign">) {
   return { assignmentId: a.id, lane: a.lane, ...(a.heldReason ? { held: a.heldReason } : {}), ...(waitFor ? { waitingOn: describeWait(world, waitFor) } : {}) };
 }
 
+/**
+ * The manager's queued assignment in its own building, for `reassign` / `cancel`: refused when it has started (or
+ * ended) or belongs to another building.
+ */
+function queuedInMyBuilding(world: World, me: Agent, assignmentId: string) {
+  const a = world.assignments.require(assignmentId, "assignment");
+  const bid = homeOf(me);
+  const owner = world.agents.require(a.agentId, "agent");
+  if (!bid || !world.permissions.can(me, "building.assign", bid)) throw forbidden("building.assign");
+  if (a.buildingId !== bid || homeOf(owner) !== bid) throw new AppError("forbidden", `"${a.title}" belongs to another building (${world.buildings.get(a.buildingId)?.name ?? a.buildingId}); you can move or cancel only your own building's queued assignments.`);
+  if (a.status !== "pending") throw new AppError("conflict", a.status === "active" ? `"${a.title}" has started (${owner.name} is on it); only queued assignments can be moved or cancelled.` : `Assignment "${a.title}" is already ${a.status}.`);
+  return { a, owner, bid };
+}
+
+/** `reassign` (the manager): move a queued assignment to another resident of the building (POST /assignments/:id/delegate). */
+export async function reassign(world: World, me: Agent, input: VerbIn<"reassign">) {
+  const { a, owner, bid } = queuedInMyBuilding(world, me, input.assignmentId);
+  const to = world.agents.require(input.agentId, "agent");
+  if (homeOf(to) !== bid) throw badRequest(`${to.name} isn't a resident of ${world.buildings.get(bid)?.name ?? bid}; reassign only within your building.`);
+  const { assignment } = world.ops.delegateAssignment(me, a.id, to.id);
+  const waitingOn = assignment.waitFor ? describeWait(world, assignment.waitFor) : null;
+  sendMessage(world, { kind: "system", fromId: me.id, fromKind: "system", toId: to.id, body: `New assignment from ${me.name} (was ${owner.name}'s): ${a.title}${waitingOn ? ` (starts after ${waitingOn})` : ""}` });
+  return { assignmentId: assignment.id, from: { assignmentId: a.id, agentId: owner.id, status: "cancelled" }, agentId: to.id, lane: assignment.lane, grantId: assignment.grantId, keyResultId: assignment.keyResultId, ...(waitingOn ? { waitingOn } : {}) };
+}
+
+/** `cancel` (the manager): cancel a queued assignment in the building (POST /assignments/:id/cancel). */
+export async function cancel(world: World, me: Agent, input: VerbIn<"cancel">) {
+  const { a } = queuedInMyBuilding(world, me, input.assignmentId);
+  const c = world.ops.cancelAssignment(me, a.id);
+  return { assignmentId: c.id, status: c.status };
+}
+
 export async function promote(world: World, me: Agent, input: VerbIn<"promote">) {
   const d = world.docs.require(input.docId, "doc");
   if (!world.permissions.can(me, "building.promote", d.buildingId)) throw forbidden("building.promote");
