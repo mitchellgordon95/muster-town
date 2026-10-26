@@ -148,16 +148,17 @@ export function drawTip(g: CanvasRenderingContext2D, x: number, y: number, title
   const rows = items.flatMap((t) => wrapText(g, `• ${t}`, max).map((l, i) => (i ? `   ${l}` : l)));
   const rowsW = Math.max(0, ...rows.map((r) => g.measureText(r).width));
   g.font = bold;
-  const w = Math.min(max, Math.max(g.measureText(title).width, rowsW)) + pad * 2;
-  const h = pad * 2 + lh * (rows.length + 1) + 2;
+  const heads = wrapText(g, title, max);
+  const w = Math.min(max, Math.max(rowsW, ...heads.map((t) => g.measureText(t).width))) + pad * 2;
+  const h = pad * 2 + lh * (rows.length + heads.length) + 2;
   const bx = Math.round(Math.max(4, Math.min(cw - w - 4, x))), by = Math.round(Math.max(4, Math.min(ch - h - 4, y)));
   g.fillStyle = "rgba(20,21,28,.94)"; g.strokeStyle = "#e5484d"; g.lineWidth = 1;
   roundRect(g, bx, by, w, h, 6); g.fill(); g.stroke();
   g.textBaseline = "top"; g.textAlign = "left";
   g.font = bold; g.fillStyle = "#ff8b8e";
-  g.fillText(title, bx + pad, by + pad);
+  heads.forEach((t, i) => g.fillText(t, bx + pad, by + pad + lh * i));
   g.font = font; g.fillStyle = "#e4e6f2";
-  rows.forEach((r, i) => g.fillText(r, bx + pad, by + pad + lh * (i + 1) + 2));
+  rows.forEach((r, i) => g.fillText(r, bx + pad, by + pad + lh * (i + heads.length) + 2));
 }
 
 /** A dashed red line from a blocked agent (a) to what blocks it (b), screen px, with a dot at b. */
