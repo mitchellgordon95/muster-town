@@ -69,8 +69,11 @@ async function webLogin(app: FastifyInstance, code: string) {
 
 describe("auth config", () => {
   it("advertises the client id, or null when GitHub isn't configured", async () => {
-    const { app } = await setup();
-    expect((await app.inject({ method: "GET", url: "/api/auth/config" })).json()).toEqual({ githubClientId: "cid", publicUrl: "http://localhost:4322" });
+    const { app, seed, auth } = await setup();
+    expect((await app.inject({ method: "GET", url: "/api/auth/config" })).json()).toEqual({ githubClientId: "cid", publicUrl: "http://localhost:4322", dev: false, session: false });
+    // a valid session cookie: the client may ask /api/me (a guest's browser skips it, so no 401)
+    const cookie = sessionCookie(auth, seed.admin.id).split(";")[0];
+    expect((await app.inject({ method: "GET", url: "/api/auth/config", headers: { cookie } })).json().session).toBe(true);
     await cleanup!(); cleanup = null;
     const off = await setup({ githubClientId: null });
     expect((await off.app.inject({ method: "GET", url: "/api/auth/config" })).json().githubClientId).toBeNull();

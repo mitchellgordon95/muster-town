@@ -1227,7 +1227,8 @@ export type TownHealth = z.infer<typeof TownHealth>;
 export const AuthMe = z.object({ user: User, roles: z.array(Role), avatarAgentId: Id.nullable(), isAdmin: z.boolean() });
 export type AuthMe = z.infer<typeof AuthMe>;
 /** `GET /api/auth/config`: what sign-in the server offers (`githubClientId` null = GitHub login not configured). */
-export const AuthConfig = z.object({ githubClientId: z.string().nullable(), publicUrl: z.string() });
+/** `dev`: the server hands local browsers the admin token (`GET /api/dev/admin-token` exists); `session`: the request carries a valid sign-in cookie. Both let the client skip requests that would only fail. */
+export const AuthConfig = z.object({ githubClientId: z.string().nullable(), publicUrl: z.string(), dev: z.boolean().optional(), session: z.boolean().optional() });
 export type AuthConfig = z.infer<typeof AuthConfig>;
 /** `POST /api/auth/github/device`: a GitHub access token from the device flow (verified, never stored). */
 export const GithubDeviceInput = z.object({ accessToken: z.string().min(1) });

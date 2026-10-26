@@ -55,7 +55,8 @@ async function boot(): Promise<Phase> {
   if (authError) store.toast(`GitHub sign-in failed: ${authError}`, "bad");
   const guestOnly = forceGuest();
   let token = guestOnly ? null : tokenStore.get();
-  if (!token && !guestOnly) { token = await a.devAdminToken(); if (token) tokenStore.set(token); }
+  // only ask when the server says it hands one out (an older server sends no `dev`): a guest's console stays free of 404s
+  if (!token && !guestOnly && (cfg?.dev ?? true)) { token = await a.devAdminToken(); if (token) tokenStore.set(token); }
   let tokenRejected = false;
   if (token) {
     try {
@@ -65,8 +66,8 @@ async function boot(): Promise<Phase> {
       tokenStore.set(null); token = null; tokenRejected = true;
     }
   }
-  // no (valid) token: a GitHub session cookie, if any, rides on the same-origin request
-  if (!token && !guestOnly && !a.mock) {
+  // no (valid) token: a GitHub session cookie, if any, rides on the same-origin request (skipped when the config says there is none: no 401)
+  if (!token && !guestOnly && !a.mock && (cfg?.session ?? true)) {
     try { store.set({ me: await a.me() }); authStore.set({ session: true }); } catch { /* not signed in */ }
   }
   if (!store.state.me) {

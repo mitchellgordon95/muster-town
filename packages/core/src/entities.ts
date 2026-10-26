@@ -234,6 +234,19 @@ function spawnPoint(world: World, buildingId?: string | null): Tile {
   return p ? { ...p } : { x: 1, y: world.layout.grid.h - 3 };
 }
 
+/** The nearest walkable tile to `p` (within 3 tiles) no live body stands on, so two newcomers don't arrive stacked; `p` when all are taken. */
+function freeTileNear(world: World, p: Tile): Tile {
+  const taken = new Set(world.agents.where("status NOT IN ('retired','banned')").map((o) => `${o.pos.x},${o.pos.y}`));
+  for (let r = 0; r <= 3; r++) {
+    for (let dy = -r; dy <= r; dy++) for (let dx = -r; dx <= r; dx++) {
+      if (Math.max(Math.abs(dx), Math.abs(dy)) !== r) continue;
+      const x = p.x + dx, y = p.y + dy;
+      if (world.layout.isWalkable(x, y) && !taken.has(`${x},${y}`)) return { x, y };
+    }
+  }
+  return { ...p };
+}
+
 /**
  * A user's visitor agent (Claude Code over MCP or the CLI). Returns the agent and its token. With `buildingId` it
  * claims a free desk there like a resident (`homeBuildingId` set; no free desk → it waits at the Town Hall visitor
@@ -274,7 +287,7 @@ export function ensureAvatar(world: World, userId: string): Agent {
   const user = world.users.require(userId, "user");
   const agent = world.agents.upsert(Agent.parse({
     id: newId("ag"), name: user.name, kind: "human", ownerUserId: userId, title: "Human", sprite: 0, inheritsOwner: true,
-    pos: spawnPoint(world), createdAt: nowIso(),
+    pos: freeTileNear(world, spawnPoint(world)), createdAt: nowIso(),
   }));
   world.events.append({ type: "agent.created", agentId: agent.id, text: `${user.name} walked into town`, payload: { kind: "human", userId } });
   return agent;

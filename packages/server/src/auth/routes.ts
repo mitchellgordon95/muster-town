@@ -4,7 +4,7 @@ import type { FastifyInstance } from "fastify";
 import { parse, WEB_BASE } from "../context.ts";
 import type { AuthSettings } from "./config.ts";
 import { authorizeUrl, exchangeCode, fetchGithubUser } from "./github.ts";
-import { checkState, clearSessionCookie, clearStateCookie, newState, sessionCookie } from "./session.ts";
+import { checkState, clearSessionCookie, clearStateCookie, newState, sessionAuth, sessionCookie } from "./session.ts";
 
 /**
  * Sign-in routes. `GET /api/auth/config`; web: `GET /auth/github` → GitHub → `GET /auth/github/callback` (sets the
@@ -18,7 +18,7 @@ export function authRoutes(settings: AuthSettings) {
       if (!s.githubClientId) throw new AppError("not_found", "GitHub login is not configured on this server (set GITHUB_CLIENT_ID and GITHUB_CLIENT_SECRET).");
     };
 
-    app.get("/api/auth/config", async (): Promise<AuthConfig> => ({ githubClientId: s.githubClientId, publicUrl: s.publicUrl }));
+    app.get("/api/auth/config", async (req): Promise<AuthConfig> => ({ githubClientId: s.githubClientId, publicUrl: s.publicUrl, dev: app.dev, session: !!sessionAuth(world, s, req) }));
 
     app.get("/auth/github", async (_req, reply) => {
       configured();
