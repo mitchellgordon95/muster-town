@@ -10,6 +10,7 @@ import { ZodError } from "zod";
 import { authRoutes, defaultAuthSettings, sessionAuth, type AuthSettings } from "./auth/index.ts";
 import { bearer, resolveToken, WEB_BASE, type RuntimeHooks } from "./context.ts";
 import { collectives, DEFAULT_REGISTRY, renderHome } from "./home.ts";
+import { LoadMonitor } from "./load.ts";
 import { mcpRoutes } from "./mcp.ts";
 import { agentRoutes } from "./routes/agents.ts";
 import { deskRoutes } from "./routes/desk.ts";
@@ -45,6 +46,8 @@ export async function buildApp(opts: BuildAppOptions): Promise<FastifyInstance> 
   app.decorate("world", opts.world);
   app.decorate("runtime", opts.runtime ?? null);
   app.decorate("dev", !!opts.dev);
+  const load = new LoadMonitor();
+  app.decorate("load", load);
   app.decorateRequest("auth", null);
   const authSettings = defaultAuthSettings(opts.auth);
 
@@ -115,6 +118,6 @@ export async function buildApp(opts: BuildAppOptions): Promise<FastifyInstance> 
     return reply.code(404).send({ error: `Not found: ${req.method} ${path}`, code: "not_found" });
   });
 
-  app.addHook("onClose", async () => { await (opts.runtime?.close?.() ?? opts.runtime?.stop?.()); });
+  app.addHook("onClose", async () => { load.close(); await (opts.runtime?.close?.() ?? opts.runtime?.stop?.()); });
   return app;
 }

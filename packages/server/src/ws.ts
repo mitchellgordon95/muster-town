@@ -19,6 +19,9 @@ export async function wsRoutes(app: FastifyInstance) {
   app.get("/ws", { websocket: true }, (socket: WebSocket, req: FastifyRequest) => {
     let avatarId: string | null = null;
     let unsubscribe: (() => void) | null = null;
+    app.load.clientOpened();
+    let counted = true;
+    const gone = () => { unsubscribe?.(); unsubscribe = null; if (counted) { counted = false; app.load.clientClosed(); } };
 
     const send = (msg: ServerMessage | (ServerMessage & Record<string, unknown>)) => {
       if (socket.readyState !== socket.OPEN) return;
@@ -69,7 +72,7 @@ export async function wsRoutes(app: FastifyInstance) {
       }
     });
 
-    socket.on("close", () => { unsubscribe?.(); unsubscribe = null; });
-    socket.on("error", () => { unsubscribe?.(); unsubscribe = null; });
+    socket.on("close", gone);
+    socket.on("error", gone);
   });
 }

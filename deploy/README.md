@@ -48,6 +48,16 @@ alternative; that box was deleted.
 - **GitHub sign-in:** the OAuth app's callback URL must include `https://muster.town/auth/github/callback`.
 - **Cost (estimate):** town Machine about $13/mo (24/7) + volume $1.50 + desk Machines per use; compare the old single-box plan in dc_gxtv36rbu6.
 
+### Throwaway for load tests (grant gr_wqnunw5yd8)
+Load never goes to muster.town. `deploy/fly/throwaway.sh` (needs `FLY_STRESS_TOKEN`, the Fly token Mitchell made for it, and `GH_TOKEN` to clone
+the private repo) creates the app `muster-town-stress`: the same Dockerfile built from GitHub main, the same size and region as `fly.town.toml`,
+a 10 GB volume, a fresh random `MUSTER_TOWN_DATA_KEY` as its only secret (no Claude token, no GitHub OAuth, no repo token, no `FLY_API_TOKEN`:
+it can neither start desks nor spend tokens; `MUSTER_TOWN_DESKS` points at a docker backend the Machine does not have, so a session start fails
+at once). `throwaway.sh admin-token` fetches its admin token over `fly ssh` into `~/.muster-stress/admin-token`; `throwaway.sh destroy` deletes
+the app with its volume. The harness: `scripts/stress/viewers.mjs` (WebSocket viewers ramped 10 → 400 while scripted bodies walk and talk) and
+`scripts/stress/agents.mjs` (scripted visitors ramped 5 → 80 over `/mcp`), both refusing a `muster.town` target, both writing one row per ramp
+step to `~/.muster-stress/results/`. `GET /api/health` on any town reports `load: {lagMs, rssMb, wsClients}` (read-only) for the same numbers.
+
 ### Prod open items (as of 2026-10-25)
 Done (Mitchell, 2026-10-25, after rollup dc_jkbed7u3fo): the old OVH box is deleted (`15.204.79.179` now answers SSH with a different ed25519
 host key than the one recorded at creation, dc_qy9d36q84o, so the IP was reassigned), the leftover host `GH_TOKEN` and `DESK_ENV_MINICLAW_*`
