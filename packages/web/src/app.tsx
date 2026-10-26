@@ -221,9 +221,11 @@ export function App() {
   }, []);
   const { guest } = useAuth();
   // a guest's ghost is local-only: nothing is sent
-  const onMove = useCallback((x: number, y: number) => { if (!authStore.get().guest) socket?.send({ type: "human.move", x, y }); }, []);
+  // so is a signed-in visitor's until an admin lets them in (dc_f0cumcfubk)
+  const onMove = useCallback((x: number, y: number) => { if (!authStore.get().guest && store.state.me?.canInteract !== false) socket?.send({ type: "human.move", x, y }); }, []);
   const say = useCallback((text: string) => {
     if (authStore.get().guest) { store.toast("Sign in to talk.", "bad"); return; }
+    if (store.state.me?.canInteract === false) { store.toast("Ask to join first: an admin lets you in.", "bad"); return; }
     socket?.send({ type: "human.say", text });
     store.said.set(store.avatarId ?? "__me", { text, at: performance.now() });
   }, []);

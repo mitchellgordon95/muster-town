@@ -1,11 +1,11 @@
 /** HUD (top-left town card: name, tagline, goal, status counts, notices), interaction hint, say box, toasts. */
 import { useMemo, useState, type ReactNode, type RefObject } from "react";
-import type { AgentStatus } from "@muster-town/schema";
+import type { AgentStatus, AuthMe } from "@muster-town/schema";
 import { store, useTown, type PanelRef } from "./state";
 import { STATUS_COLOR } from "./map/overlay";
 import { iconUrl, type IconKind } from "./map/sprites";
 import type { Target } from "./map/renderer";
-import { isMock } from "./api";
+import { api, isMock } from "./api";
 import { dockerDown, effectiveRedeploy, redeployLine, redeployTone, slotsFull } from "./redeploy";
 import { joinMeeting } from "./panels/Places";
 import { SignInButtons, signOut, useAuth } from "./auth/auth";
@@ -121,7 +121,7 @@ export function Hud({ onPasteToken, onHelp }: { onPasteToken?: () => void; onHel
       {collapsed ? null : (
         <>
           <div className="goal" title={town.goalNote}><span>Goal</span>{town.goal}</div>
-          {auth.guest ? (
+          {auth.guest || me?.canInteract === false ? (
             <div className="hud-block guest-card">
               <div className="hud-label">Who is here now</div>
               <div className="here-line">
@@ -139,10 +139,13 @@ export function Hud({ onPasteToken, onHelp }: { onPasteToken?: () => void; onHel
                   {here.working.length > 3 ? <div className="here-more">and {here.working.length - 3} more</div> : null}
                 </div>
               ) : null}
-              <div className="guest-text"><b>Watch first:</b> {TOUCH ? "tap" : "click"} any agent to see what they're doing. Sign in to talk, review and join meetings.</div>
-              <SignInButtons onPasteToken={onPasteToken} compact />
+              {auth.guest || !me ? <>
+                <div className="guest-text"><b>Watch first:</b> {TOUCH ? "tap" : "click"} any agent to see what they're doing. Sign in to talk, review and join meetings.</div>
+                <SignInButtons onPasteToken={onPasteToken} compact />
+              </> : <AskToJoin me={me} />}
             </div>
-          ) : me ? (
+          ) : null}
+          {!auth.guest && me ? (
             <div className="hud-me">
               {me.user.avatarUrl ? <img src={me.user.avatarUrl} alt="" /> : null}
               <span>{me.user.githubLogin ? `@${me.user.githubLogin}` : me.user.name}{me.isAdmin ? " · admin" : ""}</span>
@@ -165,6 +168,36 @@ export function Hud({ onPasteToken, onHelp }: { onPasteToken?: () => void; onHel
         </>
       )}
     </div>
+  );
+}
+
+/** A day after a decline, the button comes back (core ASK_AGAIN_MS). */
+const ASK_AGAIN_MS = 24 * 3600_000;
+
+/**
+ * Signed in but not let in yet (dc_f0cumcfubk): the guest card's one next step is Ask to join, with an optional line
+ * on what they'd like to do. An admin decides in the Town Hall in-tray; the answer shows here on the next load.
+ */
+function AskToJoin({ me }: { me: AuthMe }) {
+  const [text, setText] = useState("");
+  const [busy, setBusy] = useState(false);
+  const req = me.accessRequest;
+  const declined = req?.status === "declined" && !!req.decidedAt && Date.now() - Date.parse(req.decidedAt) < ASK_AGAIN_MS;
+  if (req?.status === "pending") return <div className="guest-text"><b>Asked.</b> An admin decides; you'll see the answer here.</div>;
+  if (declined) return <div className="guest-text"><b>Not this time.</b> You can keep watching, and ask again tomorrow.</div>;
+  const ask = async () => {
+    setBusy(true);
+    try {
+      await api().requestAccess(text.trim());
+      store.set({ me: await api().me() });
+    } catch (e) { store.toast((e as Error).message, "bad"); } finally { setBusy(false); }
+  };
+  return (
+    <form className="ask-join" onSubmit={(e) => { e.preventDefault(); void ask(); }}>
+      <div className="guest-text"><b>You can watch and read.</b> To talk with agents and join in, ask to join.</div>
+      <input value={text} maxLength={140} placeholder="What would you like to do here? (optional)" onChange={(e) => setText(e.target.value)} onKeyDown={(e) => e.stopPropagation()} />
+      <button className="btn primary" type="submit" disabled={busy}>Ask to join</button>
+    </form>
   );
 }
 

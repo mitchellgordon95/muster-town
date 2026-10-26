@@ -1,8 +1,8 @@
-import { isAppError } from "@muster-town/core";
+import { canInteract, isAppError } from "@muster-town/core";
 import { ClientMessage, type ServerMessage } from "@muster-town/schema";
 import type { FastifyInstance, FastifyRequest } from "fastify";
 import type { WebSocket } from "ws";
-import { resolveToken } from "./context.ts";
+import { ASK_FIRST, resolveToken } from "./context.ts";
 
 /** Drop a client that falls this far behind instead of buffering without bound. */
 const MAX_BUFFERED = 8 * 1024 * 1024;
@@ -11,7 +11,7 @@ const MAX_BUFFERED = 8 * 1024 * 1024;
  * WS `/ws`: on connect, a snapshot and live `world.changes`. A handshake carrying a user (session cookie or bearer
  * header) is signed in at once (snapshot has `avatarAgentId`); otherwise the socket is a read-only guest until an
  * `auth` message (→ a fresh snapshot with `avatarAgentId`). Client messages: `human.move` (validated walkability),
- * `human.say` (the `say` verb as the avatar); guests get an `error` frame for both.
+ * `human.say` (the `say` verb as the avatar); guests, and signed-in visitors without `town.interact`, get an `error` frame for both.
  */
 export async function wsRoutes(app: FastifyInstance) {
   const world = app.world;
@@ -56,6 +56,8 @@ export async function wsRoutes(app: FastifyInstance) {
           return;
         }
         if (!avatarId) return fail("read-only guest: sign in (send auth first) to move or talk");
+        const owner = world.agents.get(avatarId)?.ownerUserId;
+        if (owner && !canInteract(world, owner)) return fail(ASK_FIRST);
         if (msg.type === "human.move") {
           if (!world.moveHuman(avatarId, msg.x, msg.y)) {
             const a = world.agents.get(avatarId);

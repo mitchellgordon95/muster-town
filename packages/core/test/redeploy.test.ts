@@ -9,10 +9,10 @@ import { freshWorld, REPO_ROOT, seededWorld } from "./helpers.ts";
 const WORKSHOP = join(REPO_ROOT, "collectives/workshop/collective.json");
 
 describe("deployer role + redeploy verb", () => {
-  it("the deployer role holds only town.redeploy; admin has it too", () => {
+  it("the deployer role holds town.redeploy and town.interact (dc_f0cumcfubk); admin has it too", () => {
     const { world, admin } = seededWorld();
-    expect(world.roles.require(townRoleId("deployer"))).toMatchObject({ name: "deployer", scope: "town", builtin: true, permissions: ["town.redeploy"] });
-    expect(BUILTIN_ROLES.town.deployer).toEqual(["town.redeploy"]);
+    expect(world.roles.require(townRoleId("deployer"))).toMatchObject({ name: "deployer", scope: "town", builtin: true, permissions: ["town.redeploy", "town.interact"] });
+    expect(BUILTIN_ROLES.town.deployer).toEqual(["town.redeploy", "town.interact"]);
     expect(world.permissions.can(admin, "town.redeploy")).toBe(true);
   });
 
@@ -61,7 +61,7 @@ describe("v1.3 data fix on open", () => {
     const dbPath = preV13();
     let w = World.open(dbPath);
     const can = (name: string) => w.permissions.can(w.agents.first("name = ?", [name])!, "town.redeploy");
-    expect(w.roles.require(townRoleId("deployer")).permissions).toEqual(["town.redeploy"]);
+    expect(w.roles.require(townRoleId("deployer")).permissions).toEqual(["town.redeploy", "town.interact"]);
     expect([can("Pix"), can("Root"), can("Sage"), can("Keel")]).toEqual([true, true, false, false]);
     // a revoke sticks across reopen: the grant only runs in the pass that creates the role
     w.permissions.revoke(w.agents.first("name = 'Root'")!, townRoleId("deployer"));

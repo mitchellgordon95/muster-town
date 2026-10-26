@@ -447,6 +447,10 @@ kbd { font-family: var(--mono); font-size: 11px; background: #2a2d3a; border: 1p
 /* sign-in: guest card in the HUD, account row, "Sign in to …" notes in panels */
 .guest-card .guest-text { font-size: 12px; color: var(--muted); margin-bottom: 8px; line-height: 1.4; }
 .signin { display: flex; gap: 6px; flex-wrap: wrap; }
+.intray-avatar { width: 16px; height: 16px; border-radius: 50%; }
+.ask-join { display: flex; flex-direction: column; gap: 6px; }
+.ask-join input { font-size: 12px; }
+.ask-join .btn { justify-content: center; }
 .hud-me { display: flex; align-items: center; gap: 6px; margin-top: 8px; font-size: 12px; color: var(--muted); }
 .hud-me img { width: 18px; height: 18px; border-radius: 50%; }
 .hud-me .link { margin-left: auto; font-size: 12px; }

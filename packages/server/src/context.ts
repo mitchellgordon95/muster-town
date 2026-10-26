@@ -1,4 +1,4 @@
-import { AppError, townRoleId, type World } from "@muster-town/core";
+import { AppError, canInteract, townRoleId, type World } from "@muster-town/core";
 import type { Agent, DeskActivityInput, RedeployResult, Session, TokenCounts, User } from "@muster-town/schema";
 import type { FastifyReply, FastifyRequest } from "fastify";
 import type { ZodTypeAny, z } from "zod";
@@ -101,6 +101,21 @@ export function parse<S extends ZodTypeAny>(schema: S, value: unknown): z.output
   }
   return r.data;
 }
+
+/**
+ * Who may interact (dc_f0cumcfubk): the user a request acts for (a user token, a human avatar, a bring-your-own
+ * visitor agent), or null for residents and service agents, which the gate leaves alone.
+ */
+export function interactingUser(world: World, auth: Auth | null): string | null {
+  if (!auth) return null;
+  if (auth.kind === "user") return auth.user.id;
+  const a = auth.agent;
+  return (a.kind === "human" || a.kind === "visitor") && a.ownerUserId ? a.ownerUserId : null;
+}
+
+/** Writes a signed-in visitor may make before an admin lets them in. */
+export const INTERACT_ALLOWLIST = new Set(["POST /auth/logout", "POST /api/auth/github/device", "POST /api/access-requests"]);
+export const ASK_FIRST = "Ask for access first: you can watch and read, but taking part needs an admin to let you in (Ask to join on the guest card).";
 
 export function adminToken(world: World): string | null {
   const m = world.memberships.forRole(townRoleId("admin")).find((x) => x.holderKind === "user");

@@ -1,5 +1,5 @@
 /** `Api` implemented against the in-memory Sim. Same interface as HttpApi, so every panel works offline. */
-import type { Agent, Assignment, AuthMe, BlockedAssignment, BlockedBy, Building, Doc, Event, Meeting, Membership, RedeployLive } from "@muster-town/schema";
+import type { AccessRequest, AccessRequestView, Agent, Assignment, AuthMe, BlockedAssignment, BlockedBy, Building, Doc, Event, Meeting, Membership, RedeployLive } from "@muster-town/schema";
 import { BACKFILL, BOARD_TYPES, DEFAULT_POOL_ID, ZERO_TOKENS, addTokens, backfillFamily, splitRaw, type BankPool } from "@muster-town/schema";
 import type { Api, AgentDetail, AllocationRow, Bank, Budget, Cabinet, CabinetQuery, DocQuery, EventQuery, In, LayoutPreview, MessageResult, PlanPreview, RoomLayout, RequestAction, Snapshot, Socket, SocketHandlers, ThreadMessage, WriteDocInput } from "../api";
 import { ApiError } from "../api";
@@ -25,15 +25,35 @@ export class MockApi implements Api {
     return x;
   }
 
+  /** who may interact (dc_f0cumcfubk): one stranger already waiting in the Town Hall in-tray; `?as=visitor` can ask too */
+  private access: AccessRequestView[] = [{ id: "ar_octo", userId: "us_octo", message: "I'd like to help with the onboarding copy", status: "pending", decidedBy: null, createdAt: new Date(Date.now() - 40 * 60_000).toISOString(), decidedAt: null, name: "Octo Cat", githubLogin: "octocat", avatarUrl: null }];
+
   async devAdminToken() { return "mock-admin-token"; }
+  async requestAccess(message: string): Promise<AccessRequest> {
+    await wait(120);
+    const mine = this.access.find((r) => r.userId === "us_guest" && r.status === "pending");
+    if (mine) return clone(mine);
+    const r: AccessRequestView = { id: `ar_${Date.now().toString(36)}`, userId: "us_guest", message: message.trim().slice(0, 140), status: "pending", decidedBy: null, createdAt: new Date().toISOString(), decidedAt: null, name: "Guest", githubLogin: "guest", avatarUrl: null };
+    this.access.push(r);
+    return clone(r);
+  }
+  async decideAccess(id: string, grant: boolean): Promise<AccessRequest> {
+    await wait(120);
+    const r = this.need(this.access.find((x) => x.id === id), "access request");
+    if (r.status !== "pending") throw new ApiError(`This request was already ${r.status}.`, "conflict", 409);
+    Object.assign(r, { status: grant ? "granted" : "declined", decidedBy: "us_mitchell", decidedAt: new Date().toISOString() });
+    return clone(r);
+  }
   async me(): Promise<AuthMe> {
     await wait(60);
     // `?as=visitor` signs in as a plain visitor so read-only views can be checked
     if (new URLSearchParams(location.search).get("as") === "visitor") {
-      return clone({ user: { ...this.sim.users[0], id: "us_guest", name: "Guest" }, roles: this.sim.roles.filter((r) => r.id === "rl_visitor"), avatarAgentId: "ag_me", isAdmin: false });
+      const mine = [...this.access].reverse().find((r) => r.userId === "us_guest");
+      return clone({ user: { ...this.sim.users[0], id: "us_guest", name: "Guest", githubLogin: "guest" }, roles: this.sim.roles.filter((r) => r.id === "rl_visitor"), avatarAgentId: "ag_me", isAdmin: false,
+        canInteract: mine?.status === "granted", accessRequest: mine ? { status: mine.status, message: mine.message, decidedAt: mine.decidedAt } : null });
     }
     const roleIds = new Set(this.sim.memberships.filter((m) => m.holderKind === "user" && m.holderId === "us_mitchell").map((m) => m.roleId));
-    return clone({ user: this.sim.users[0], roles: this.sim.roles.filter((r) => roleIds.has(r.id)), avatarAgentId: "ag_me", isAdmin: true });
+    return clone({ user: this.sim.users[0], roles: this.sim.roles.filter((r) => roleIds.has(r.id)), avatarAgentId: "ag_me", isAdmin: true, canInteract: true, accessRequest: null });
   }
   async town(): Promise<Snapshot> { await wait(); return this.sim.snapshot(); }
   async events(q: EventQuery): Promise<Event[]> {
@@ -62,7 +82,11 @@ export class MockApi implements Api {
     return clone({ docs, counts: [...counts.values()] });
   }
   async createBuilding(i: In<typeof CreateBuildingInput>) { await wait(); return clone(this.sim.createBuilding(i.name, i.goal ?? "", i.headcount ?? 6)); }
-  async intray(buildingId: string) { await wait(); this.need(this.sim.buildings.find((b) => b.id === buildingId), "building"); return clone(this.sim.intray(buildingId)); }
+  async intray(buildingId: string) {
+    await wait();
+    const b = this.need(this.sim.buildings.find((x) => x.id === buildingId), "building");
+    return clone({ ...this.sim.intray(buildingId), access: b.kind === "town-hall" ? this.access.filter((r) => r.status === "pending") : [] });
+  }
   async grant(id: string) { await wait(60); return clone(this.need(this.sim.grants.get(id), "grant")); }
   async decideGrant(id: string, i: In<typeof DecideGrantInput>) { await wait(); return clone(this.sim.decideGrant(id, i)); }
   async keyResults(buildingId: string) { await wait(); this.need(this.sim.buildings.find((b) => b.id === buildingId), "building"); return clone(this.sim.grantBoard(buildingId)); }

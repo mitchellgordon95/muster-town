@@ -1,4 +1,4 @@
-import { buildingRoleId } from "@muster-town/core";
+import { buildingRoleId, townRoleId } from "@muster-town/core";
 import { afterEach, describe, expect, it } from "vitest";
 import { json, seededApp } from "./helpers.ts";
 
@@ -12,6 +12,7 @@ describe("agent permissions routes", () => {
     const { world, app, auth } = s;
     const mgr = world.ops.createUser("Mgr");
     world.permissions.grant({ kind: "user", id: mgr.user.id }, buildingRoleId("carbon-cycle", "manager"));
+    world.permissions.grant({ kind: "user", id: mgr.user.id }, townRoleId("member"));
     const mgrAuth = { authorization: `Bearer ${mgr.token}` };
     const reg = await json(app, "POST", "/api/agents/visitors", { headers: mgrAuth, body: { name: "Mgr's Claude", buildingId: "carbon-cycle" } });
     expect(reg.status).toBe(201);
@@ -29,6 +30,7 @@ describe("agent permissions routes", () => {
     expect(anon.body.permissions.ownerPermissions).toBeUndefined();
 
     const stranger = world.ops.createUser("Stranger");
+    world.permissions.grant({ kind: "user", id: stranger.user.id }, townRoleId("member"));
     const strangerAuth = { authorization: `Bearer ${stranger.token}` };
     expect((await json(app, "PATCH", `/api/agents/${id}/permissions`, { headers: strangerAuth, body: { inheritsOwner: false } })).status).toBe(403);
     expect((await json(app, "PATCH", `/api/agents/${id}/permissions`, { headers: agentAuth, body: { inheritsOwner: false } })).status).toBe(403);

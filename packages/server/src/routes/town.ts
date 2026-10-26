@@ -1,5 +1,5 @@
-import { AppError, boardDocs, sessionView, cabinetCounts, cabinetDocs } from "@muster-town/core";
-import { AddBankInput, CreateBankPoolInput, CreateBuildingInput, DesksPatch, UpdateBankPoolInput, DocType, DonateInput, LayoutInput, Membership, PlanInput, PlantFlagInput, RedeployInput, UpdateBuildingInput, townEnv, type AuthMe, type RedeployLive } from "@muster-town/schema";
+import { AppError, accessRequestOf, boardDocs, canInteract, decideAccess, requestAccess, sessionView, cabinetCounts, cabinetDocs } from "@muster-town/core";
+import { AccessDecisionInput, AccessRequestInput, AddBankInput, CreateBankPoolInput, CreateBuildingInput, DesksPatch, UpdateBankPoolInput, DocType, DonateInput, LayoutInput, Membership, PlanInput, PlantFlagInput, RedeployInput, UpdateBuildingInput, townEnv, type AccessRequest, type AuthMe, type RedeployLive } from "@muster-town/schema";
 import type { FastifyInstance, FastifyRequest } from "fastify";
 import { z } from "zod";
 import { actorOf, adminToken, parse, requireAuth, requireUser, type Params } from "../context.ts";
@@ -54,7 +54,21 @@ export async function townRoutes(app: FastifyInstance) {
       roles: world.permissions.rolesOf(holder),
       avatarAgentId: world.ops.ensureAvatar(user.id).id,
       isAdmin: world.permissions.isAdmin(holder),
+      canInteract: canInteract(world, user.id),
+      accessRequest: accessView(accessRequestOf(world, user.id)),
     };
+  });
+
+  // Who may interact (dc_f0cumcfubk): a signed-in visitor asks to join; an admin lets them in from the Town Hall in-tray.
+  app.post("/api/access-requests", async (req) => {
+    const user = requireUser(req);
+    const input = parse(AccessRequestInput, req.body);
+    return { accessRequest: requestAccess(world, user.id, input.message ?? "") };
+  });
+
+  app.post<{ Params: Params }>("/api/access-requests/:id/decide", async (req) => {
+    const input = parse(AccessDecisionInput, req.body);
+    return { accessRequest: decideAccess(world, actorOf(world, req), req.params.id, input.grant) };
   });
 
   app.get("/api/events", async (req) => {
@@ -306,4 +320,8 @@ export async function townRoutes(app: FastifyInstance) {
     const r = await app.runtime.redeploy({ image: input.image, requestedBy: actor.name });
     return reply.code(r.started ? 202 : 200).send(r);
   });
+}
+
+function accessView(r: AccessRequest | null): AuthMe["accessRequest"] {
+  return r ? { status: r.status, message: r.message, decidedAt: r.decidedAt } : null;
 }

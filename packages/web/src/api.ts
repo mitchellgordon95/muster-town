@@ -4,7 +4,7 @@
  */
 import type { z } from "zod";
 import type {
-  Agent, Allocation, Assignment, AuthMe, BlockedAssignment, RedeployLive, Building, ClientMessage, DesksConfig, Doc, Event, Lot, Meeting, Place, Role, Membership, SessionSlots, Tile,
+  AccessRequest, AccessRequestView, Agent, Allocation, Assignment, AuthMe, BlockedAssignment, RedeployLive, Building, ClientMessage, DesksConfig, Doc, Event, Lot, Meeting, Place, Role, Membership, SessionSlots, Tile,
   ServerMessage, SessionView, TokenCounts, Town, CreateBuildingInput, UpdateBuildingInput, CreateResidentInput,
   ReviewInput, PinSkillInput, SkillPinView, SkillView, PutSecretInput, SecretView, ChatInput, WorkInput, DonateInput, AddBankInput, BankInput, CreateBankPoolInput, UpdateBankPoolInput, CreateMeetingInput, DocState, DocType, Mailbox, Permission, DecideGrantInput, GrantView, KeyResult, CreateKeyResultInput, UpdateKeyResultInput, Stoplight,
 } from "@muster-town/schema";
@@ -119,7 +119,7 @@ export type PlanCreate = In<typeof CreateBuildingInput> & { lot: Lot };
 export interface PlanPreview { errors: { buildingId: string | null; message: string }[]; grid: Grid; places: Place[] }
 
 /** GET /api/buildings/:id/intray: `grants` (proposed, countered, checkpoint) only for the Town Hall */
-export interface Intray { reports: Doc[]; grants: GrantView[]; blocked?: { buildingId: string; name: string; reason: string; since: string | null }[] }
+export interface Intray { reports: Doc[]; grants: GrantView[]; access?: AccessRequestView[]; blocked?: { buildingId: string; name: string; reason: string; since: string | null }[] }
 /** A goal key result with the live (funded or checkpoint) grant working on it, if any, and who wrote / last edited it (core's GoalKeyResult). */
 export type GoalKeyResult = KeyResult & { grantId: string | null; createdByName?: string | null; editedByName?: string | null };
 /** GET /api/buildings/:id/key-results */
@@ -149,6 +149,9 @@ export interface Api {
   readonly mock: boolean;
   devAdminToken(): Promise<string | null>;
   me(): Promise<AuthMe>;
+  /** a signed-in visitor asks to join (dc_f0cumcfubk); an admin decides from the Town Hall in-tray */
+  requestAccess(message: string): Promise<AccessRequest>;
+  decideAccess(id: string, grant: boolean): Promise<AccessRequest>;
   town(): Promise<Snapshot>;
   events(q: EventQuery): Promise<Event[]>;
   // buildings
@@ -351,6 +354,8 @@ export class HttpApi implements Api {
     } catch { return null; }
   }
   me() { return this.get<AuthMe>("/api/me"); }
+  async requestAccess(message: string) { return unwrap<AccessRequest>(await this.post("/api/access-requests", { message }), "accessRequest"); }
+  async decideAccess(id: string, grant: boolean) { return unwrap<AccessRequest>(await this.post(`/api/access-requests/${id}/decide`, { grant }), "accessRequest"); }
   async town() { return { type: "snapshot", ...(await this.get<Omit<Snapshot, "type">>("/api/town")) } as Snapshot; }
   async events(q: EventQuery) { return unwrap<Event[]>(await this.get(`/api/events${qs(q)}`), "events"); }
   async board(id: string, limit = 30) {
@@ -370,7 +375,7 @@ export class HttpApi implements Api {
   savePlan(lots: Record<string, Lot>, create?: PlanCreate) { return this.call<{ buildings: Building[]; created: Building | null }>("PUT", "/api/town/plan", { lots, create }); }
   async intray(id: string) {
     const r = await this.get<Partial<Intray>>(`/api/buildings/${id}/intray`);
-    return { reports: r.reports ?? [], grants: r.grants ?? [], blocked: r.blocked ?? [] };
+    return { reports: r.reports ?? [], grants: r.grants ?? [], access: r.access ?? [], blocked: r.blocked ?? [] };
   }
   async grant(id: string) { return unwrap<GrantView>(await this.get(`/api/grants/${id}`), "grant"); }
   async decideGrant(id: string, i: In<typeof DecideGrantInput>) { return unwrap<GrantView>(await this.post(`/api/grants/${id}/decide`, i), "grant"); }

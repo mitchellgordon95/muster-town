@@ -1,4 +1,4 @@
-import { Doc, QUEUE_ORDER, type Agent, type Assignment, type Building, type GrantView, type LaneFields, type Message, type ReviewDecision, type WaitFor } from "@muster-town/schema";
+import { Doc, QUEUE_ORDER, type Agent, type Assignment, type Building, type AccessRequestView, type GrantView, type LaneFields, type Message, type ReviewDecision, type WaitFor } from "@muster-town/schema";
 import { AppError } from "./errors.ts";
 import { DIRECTED, resolveLane, type Lane } from "./lanes.ts";
 import type { Holder } from "./permissions.ts";
@@ -6,6 +6,7 @@ import { describeWait } from "./waits.ts";
 import { extractSection, firstLine, newId, nowIso, truncate } from "./util.ts";
 import type { World } from "./world.ts";
 import type { BlockedBuilding } from "./grants.ts";
+import { pendingAccessCount, pendingAccessRequests } from "./access.ts";
 
 /** Doc as shown in lists (board, search). */
 export interface DocSummary {
@@ -280,16 +281,16 @@ export function grantsAwaitingDecision(world: World): GrantView[] {
   return world.grants.where(`status IN (${GRANT_INTRAY_STATUSES.map((s) => `'${s}'`).join(", ")})`, [], "ORDER BY updatedAt, rowid").map((g) => world.grantDesk.view(g));
 }
 
-/** The Town Hall in-tray: managers' rollups and checkpoint reports, grants awaiting a human's decision, and blocked buildings (not counted in the badge). */
-export function townHallIntray(world: World): { reports: Doc[]; grants: GrantView[]; blocked: BlockedBuilding[] } {
+/** The Town Hall in-tray: managers' rollups and checkpoint reports, grants awaiting a human's decision, people asking to join, and blocked buildings (not counted in the badge). */
+export function townHallIntray(world: World): { reports: Doc[]; grants: GrantView[]; access: AccessRequestView[]; blocked: BlockedBuilding[] } {
   const th = world.buildings.first("kind = 'town-hall'");
-  return { reports: th ? intrayOf(world, th.id) : [], grants: grantsAwaitingDecision(world), blocked: world.grantDesk.blockedBuildings() };
+  return { reports: th ? intrayOf(world, th.id) : [], grants: grantsAwaitingDecision(world), access: pendingAccessRequests(world), blocked: world.grantDesk.blockedBuildings() };
 }
 
-/** In-tray size as the badge shows it: pending items of that in-tray (the Town Hall's counts its grants too). */
+/** In-tray size as the badge shows it: pending items of that in-tray (the Town Hall's counts its grants and access requests too). */
 export function intrayCount(world: World, buildingId: string): number {
   const b = world.buildings.get(buildingId);
-  return intrayOf(world, buildingId).length + (b?.kind === "town-hall" ? grantsAwaitingDecision(world).length : 0);
+  return intrayOf(world, buildingId).length + (b?.kind === "town-hall" ? grantsAwaitingDecision(world).length + pendingAccessCount(world) : 0);
 }
 
 /** In-tray counts by building id (buildings with none are absent). Rollups count for the Town Hall. */
@@ -300,7 +301,7 @@ export function intrayCounts(world: World): Map<string, number> {
   for (const d of world.docs.where("type IN ('report', 'flag') AND decision = 'pending' AND buildingId IS NOT NULL")) {
     if (isTownHallItem(world, d)) { if (th) bump(th.id); } else bump(d.buildingId!);
   }
-  if (th) for (let i = grantsAwaitingDecision(world).length; i > 0; i--) bump(th.id);
+  if (th) for (let i = grantsAwaitingDecision(world).length + pendingAccessCount(world); i > 0; i--) bump(th.id);
   return counts;
 }
 

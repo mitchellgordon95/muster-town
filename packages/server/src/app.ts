@@ -1,4 +1,4 @@
-import { isAppError, type World } from "@muster-town/core";
+import { AppError, canInteract, isAppError, type World } from "@muster-town/core";
 import cors from "@fastify/cors";
 import fastifyStatic from "@fastify/static";
 import websocket from "@fastify/websocket";
@@ -8,7 +8,7 @@ import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { ZodError } from "zod";
 import { authRoutes, defaultAuthSettings, sessionAuth, type AuthSettings } from "./auth/index.ts";
-import { bearer, resolveToken, WEB_BASE, type RuntimeHooks } from "./context.ts";
+import { ASK_FIRST, bearer, INTERACT_ALLOWLIST, interactingUser, resolveToken, WEB_BASE, type RuntimeHooks } from "./context.ts";
 import { collectives, DEFAULT_REGISTRY, renderHome } from "./home.ts";
 import { LoadMonitor } from "./load.ts";
 import { mcpRoutes } from "./mcp.ts";
@@ -59,6 +59,15 @@ export async function buildApp(opts: BuildAppOptions): Promise<FastifyInstance> 
   app.addHook("onRequest", async (req) => {
     // bearer token first, then the browser session cookie
     req.auth = resolveToken(opts.world, bearer(req.headers.authorization)) ?? sessionAuth(opts.world, authSettings, req);
+  });
+
+  // One gate for every write (dc_f0cumcfubk): a user, or an agent acting for one, needs `town.interact`. GETs never.
+  app.addHook("preHandler", async (req) => {
+    if (req.method === "GET" || req.method === "HEAD" || req.method === "OPTIONS") return;
+    const userId = interactingUser(opts.world, req.auth);
+    if (!userId || canInteract(opts.world, userId)) return;
+    if (INTERACT_ALLOWLIST.has(`${req.method} ${req.routeOptions.url ?? req.url.split("?")[0]}`)) return;
+    throw new AppError("forbidden", ASK_FIRST);
   });
 
   app.setErrorHandler((err, req, reply) => {

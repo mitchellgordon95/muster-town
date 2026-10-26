@@ -68,6 +68,10 @@ export function pendingAccessRequests(world: World): AccessRequestView[] {
   });
 }
 
+export function pendingAccessCount(world: World): number {
+  return world.accessRequests.count("status = 'pending'");
+}
+
 export function parseAccessMessage(message: unknown): string {
   if (message == null) return "";
   if (typeof message !== "string") throw badRequest("message must be a string");

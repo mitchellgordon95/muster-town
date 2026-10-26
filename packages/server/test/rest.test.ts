@@ -1,4 +1,5 @@
 import { afterEach, describe, expect, it } from "vitest";
+import { townRoleId } from "@muster-town/core";
 import { json, seededApp } from "./helpers.ts";
 
 const cleanups: (() => Promise<void>)[] = [];
@@ -274,6 +275,7 @@ describe("meetings, roles, budget, events, human moves", () => {
     expect(sub.body.allocation).toMatchObject({ auth: "subscription", label: "Mitchell's Claude subscription, October", retired: false });
 
     const { user, token } = world.ops.createUser("Guest");
+    world.permissions.grant({ kind: "user", id: user.id }, townRoleId("member"));
     const guest = { authorization: `Bearer ${token}` };
     for (const a of ["subscription", "api-key", undefined]) {
       const r = await json(app, "POST", "/api/donate", { headers: guest, body: { tokens: 10, buildingId: "carbon-cycle", ...(a ? { auth: a } : {}) } });

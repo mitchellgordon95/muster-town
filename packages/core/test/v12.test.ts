@@ -78,6 +78,7 @@ describe("role migration (v1.1 DB)", () => {
     db.exec("DROP TABLE secrets"); // added by 027 (collective secrets)
     db.exec("ALTER TABLE meetings DROP COLUMN withUserId"); // added by 031 (one-on-one)
     db.exec("ALTER TABLE buildings DROP COLUMN blockedAt"); // added by 032 (goal key results; its grants / key_results changes go with 025's tables)
+    db.exec("DROP TABLE access_requests"); // added by 036 (who may interact)
     db.exec("ALTER TABLE buildings DROP COLUMN furniture"); // added by 013 (movable furniture)
     db.exec("ALTER TABLE agents DROP COLUMN lastSeenAt"); // added by 015 (visitor presence)
     db.exec("ALTER TABLE assignments DROP COLUMN offered"); // added by 015

@@ -3,7 +3,7 @@
  * the filing cabinet, the schedule board and the mod station (Town Hall). Donating is at the Bank (BankFunding.tsx).
  */
 import { useEffect, useMemo, useState } from "react";
-import { BOARD_TYPES, DocType, type Doc, type GrantView, type Meeting } from "@muster-town/schema";
+import { BOARD_TYPES, DocType, type AccessRequestView, type Doc, type GrantView, type Meeting } from "@muster-town/schema";
 import { api, type Board, type Intray } from "../api";
 import { UNBLOCK_LINE, explorationLine, grantSpendLine, grantStateLine, keyResultRows, krFundingLine, krStatusLabel, krTone, proposalLine, spentShare, unfundableReason } from "./keyResults";
 import { store, useTown, roleOf } from "../state";
@@ -41,7 +41,8 @@ export function IntrayPanel({ buildingId }: { buildingId: string }) {
   const manager = b.managerAgentId ? agents[b.managerAgentId] : undefined;
   const subtitle = hall ? "Town Hall · rollups, proposals and checkpoints for the humans" : `${b.name} · manager's desk · worked by ${manager ? `★ ${manager.name}` : "you"}`;
   const flags = reports.filter((d) => d.type === "flag").length;
-  const count = reports.length + grants.length - flags;
+  const access = list.data?.access ?? [];
+  const count = reports.length + grants.length + access.length - flags;
   return (
     <PanelShell icon={<Glyph kind="intray" />} title={<>In-tray {count ? <Pill tone="warn" title="Reports, rollups and proposals waiting">{count}</Pill> : null}{flags ? <> <Pill tone="warn" title="Flags humans planted here, waiting for the manager to delegate">⚑ {flags}</Pill></> : null}</>} subtitle={subtitle}>
       {open ? (
@@ -52,7 +53,7 @@ export function IntrayPanel({ buildingId }: { buildingId: string }) {
           {manager && !hall ? <div className="callout">★ {manager.name}, the building's manager, works this in-tray and rolls up to the Town Hall in-tray. You can still decide here.</div> : null}
           <ErrorLine error={list.error} />
           {list.loading && !list.data ? <Loading /> : hall ? (
-            <TownHallIntray reports={reports} grants={grants} blocked={list.data?.blocked ?? []} onOpen={openDoc} onDecided={list.reload} />
+            <TownHallIntray reports={reports} grants={grants} access={access} blocked={list.data?.blocked ?? []} onOpen={openDoc} onDecided={list.reload} />
           ) : !reports.length ? <Empty>The in-tray is empty. When a resident finishes a session, its report lands here and the resident goes idle; a flag you plant (F on the map) lands here too.</Empty> : (
             <div className="doc-list">
               {reports.map((d) => <IntrayRow key={d.id} doc={d} onOpen={() => setOpenId(d.id)} />)}
@@ -109,7 +110,7 @@ export function PlantFlag({ targets, onClose }: { targets: { id: string; name: s
  * reports they cover), then the grants a human must decide: proposals (Fund / Counter / Reject) and checkpoints
  * (Continue / Adjust / Cut). Countered proposals wait on the manager and are shown without buttons.
  */
-function TownHallIntray({ reports, grants, blocked, onOpen, onDecided }: { reports: Doc[]; grants: GrantView[]; blocked: NonNullable<Intray["blocked"]>; onOpen: (id: string) => void; onDecided: () => void }) {
+function TownHallIntray({ reports, grants, access, blocked, onOpen, onDecided }: { reports: Doc[]; grants: GrantView[]; access: AccessRequestView[]; blocked: NonNullable<Intray["blocked"]>; onOpen: (id: string) => void; onDecided: () => void }) {
   const proposals = grants.filter((g) => g.status === "proposed" || g.status === "countered");
   const checkpoints = grants.filter((g) => g.status === "checkpoint");
   // blocked buildings aren't counted in the badge, but they wait on a human all the same
@@ -127,9 +128,15 @@ function TownHallIntray({ reports, grants, blocked, onOpen, onDecided }: { repor
       ))}</div>
     </Section>
   ) : null;
-  if (!reports.length && !grants.length) return <>{blockedList}<Empty>The Town Hall in-tray is empty. Managers' rollups, checkpoint reports and escalations land here, with the grant proposals and checkpoints waiting for a human.</Empty></>;
+  const asking = access.length ? (
+    <Section title={<>Asking to join <Pill>{access.length}</Pill></>}>
+      <div className="doc-list">{access.map((r) => <AccessRow key={r.id} req={r} onDecided={onDecided} />)}</div>
+    </Section>
+  ) : null;
+  if (!reports.length && !grants.length) return <>{asking}{blockedList}{asking ? null : <Empty>The Town Hall in-tray is empty. Managers' rollups, checkpoint reports and escalations land here, with the grant proposals and checkpoints waiting for a human, and people asking to join.</Empty>}</>;
   return (
     <>
+      {asking}
       {blockedList}
       {reports.length ? (
         <Section title={<>Manager reports <Pill>{reports.length}</Pill></>}>
@@ -147,6 +154,35 @@ function TownHallIntray({ reports, grants, blocked, onOpen, onDecided }: { repor
         </Section>
       ) : null}
     </>
+  );
+}
+
+/**
+ * Someone signed in with GitHub asks to join (dc_f0cumcfubk). Let in grants the town `member` role (they can move,
+ * talk, message agents and write); Decline leaves them read-only, and they may ask again after a day.
+ */
+function AccessRow({ req, onDecided }: { req: AccessRequestView; onDecided: () => void }) {
+  const admin = useTown((s) => !!s.me?.isAdmin);
+  const who = req.githubLogin ? `@${req.githubLogin}` : req.name;
+  const decide = async (grant: boolean) => {
+    await api().decideAccess(req.id, grant);
+    store.toast(grant ? `${who} is in: they can now talk, message agents and write.` : `Declined ${who}. They can ask again tomorrow.`, "ok");
+    onDecided();
+  };
+  return (
+    <div className="doc-row intray-row">
+      <div className="intray-who">
+        {req.avatarUrl ? <img className="intray-avatar" src={req.avatarUrl} alt="" /> : null}
+        <b>{who}</b> asks to join<span>{timeAgo(req.createdAt)}</span>
+      </div>
+      {req.message ? <div className="doc-row-meta"><span>"{req.message}"</span></div> : null}
+      {admin ? (
+        <div className="actions">
+          <Act small tone="primary" run={() => decide(true)}>Let in</Act>
+          <Act small run={() => decide(false)}>Decline</Act>
+        </div>
+      ) : <div className="doc-row-meta"><span className="muted">An admin decides.</span></div>}
+    </div>
   );
 }
 
