@@ -168,6 +168,14 @@ export async function write(world: World, me: Agent, input: VerbIn<"write">) {
   return { id: doc.id, state: doc.state };
 }
 
+type KrWrite = ReturnType<World["grantDesk"]["writtenSince"]>[number];
+
+/** The rollup section listing them (appended by `submit_report`), each with its id, so Mitchell can keep or cut it. */
+export function krWritesSection(writes: KrWrite[]): string {
+  const rows = writes.map((w) => `- ${w.action} ${w.keyResultId}: "${w.text}" (how to check: ${w.howToCheck || "?"}${w.sourceDocIds.length ? `; from ${w.sourceDocIds.join(", ")}` : ""})`);
+  return `## Key results I wrote (keep or cut: Building → Settings → Key results)\n${rows.join("\n")}`;
+}
+
 /** How many times in a row one piece of work may park itself (`submit_report` resumeWhen) before a human must decide. */
 export const MAX_PARKS = 3;
 
@@ -188,9 +196,11 @@ export async function submit_report(world: World, me: Agent, input: VerbIn<"subm
   const current = assignmentId ? world.assignments.get(assignmentId) : undefined;
   // goal-directed budgets: the rollup of a checkpoint assignment is the grant's checkpoint report (a grant may have no reports yet)
   const checkpointGrantId = input.rollup && current && isCheckpointAssignment(current) ? current.grantId : null;
+  // a manager's rollup lists every key result it wrote or edited since its last rollup, so a human can cut it (1:1 mt_ayi4y9ybyj)
+  const krWrites = input.rollup && isManager ? world.grantDesk.writtenSinceRollup(me.id, bid!) : [];
   if (input.rollup) {
     if (!isManager) throw badRequest("Only a building's manager agent submits rollups.");
-    if (!sourceIds.length && !checkpointGrantId) throw badRequest("A rollup lists the reports it covers in provenance.sourceIds.");
+    if (!sourceIds.length && !checkpointGrantId && !krWrites.length) throw badRequest("A rollup lists the reports it covers in provenance.sourceIds.");
     for (const id of sourceIds) {
       const d = world.docs.get(id);
       if (!d || d.type !== "report" || d.buildingId !== bid) throw badRequest(`Rollup source ${id} is not a report of your building.`);
@@ -206,7 +216,7 @@ export async function submit_report(world: World, me: Agent, input: VerbIn<"subm
   }
   return world.transaction(() => {
     const doc = createDoc(world, {
-      type: "report", state: "building", title: input.title, body: input.body, verdict: input.verdict, decision: "pending",
+      type: "report", state: "building", title: input.title, body: krWrites.length ? `${input.body.trimEnd()}\n\n${krWritesSection(krWrites)}` : input.body, verdict: input.verdict, decision: "pending",
       authorId: me.id, authorKind: "agent", buildingId: bid, provenance: input.provenance,
       sessionId: session?.id, assignmentId: assignmentId ?? undefined,
       tags: [...(input.rollup ? ["rollup"] : []), ...(checkpointGrantId ? ["checkpoint"] : []), ...(resumeWhen ? ["parked"] : [])],

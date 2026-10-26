@@ -108,8 +108,8 @@ export interface PlanPreview { errors: { buildingId: string | null; message: str
 
 /** GET /api/buildings/:id/intray: `grants` (proposed, countered, checkpoint) only for the Town Hall */
 export interface Intray { reports: Doc[]; grants: GrantView[]; blocked?: { buildingId: string; name: string; reason: string; since: string | null }[] }
-/** A goal key result with the live (funded or checkpoint) grant working on it, if any (core's GoalKeyResult). */
-export type GoalKeyResult = KeyResult & { grantId: string | null };
+/** A goal key result with the live (funded or checkpoint) grant working on it, if any, and who wrote / last edited it (core's GoalKeyResult). */
+export type GoalKeyResult = KeyResult & { grantId: string | null; createdByName?: string | null; editedByName?: string | null };
 /** GET /api/buildings/:id/key-results */
 export interface KeyResultsView { keyResults: GoalKeyResult[]; blocked: string | null }
 /** GET /api/buildings/:id/board: the FYIs plus the budget part (core's GrantBoard; open buildings have no grants). */

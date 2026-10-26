@@ -104,17 +104,22 @@ export class Sim {
     if (!b || b.kind === "town-hall" || b.budgetMode !== "goal-directed") return null;
     return stoplightOf(this.goalKeyResults(buildingId), [...this.grants.values()].filter((g) => g.buildingId === buildingId && (g.status === "funded" || g.status === "checkpoint")));
   }
+  /** An agent's or user's name (core's World.nameOf), null for none. */
+  private nameOf(id: string | null): string | null {
+    if (!id) return null;
+    return this.agents.get(id)?.name ?? (this.users as { id: string; name: string }[]).find((u) => u.id === id)?.name ?? id;
+  }
   /** GET /api/buildings/:id/key-results: the goal's key results in order, each with the live grant naming it. */
   goalKeyResults(buildingId: string): GoalKeyResult[] {
     const live = new Map([...this.grants.values()].filter((g) => g.keyResultId && (g.status === "funded" || g.status === "checkpoint")).map((g) => [g.keyResultId!, g.id]));
-    return [...this.keyResults.values()].filter((k) => k.buildingId === buildingId).sort((a, b) => a.position - b.position).map((k) => ({ ...k, grantId: live.get(k.id) ?? null }));
+    return [...this.keyResults.values()].filter((k) => k.buildingId === buildingId).sort((a, b) => a.position - b.position).map((k) => ({ ...k, grantId: live.get(k.id) ?? null, createdByName: this.nameOf(k.createdBy), editedByName: this.nameOf(k.editedBy) }));
   }
   /** POST /api/buildings/:id/key-results (only a human writes them; the mock's user is one). */
   createKeyResult(buildingId: string, i: CreateKeyResultInput): KeyResult {
     const b = this.buildings.find((x) => x.id === buildingId);
     if (!b) throw new Error(`building not found: ${buildingId}`);
     const last = Math.max(-1, ...this.goalKeyResults(buildingId).map((k) => k.position));
-    const k: KeyResult = { id: newId("kr"), buildingId, position: last + 1, text: i.text.trim(), howToCheck: i.howToCheck.trim(), status: "not-started", statusNote: "", statusBy: null, updatedAt: now() };
+    const k: KeyResult = { id: newId("kr"), buildingId, position: last + 1, text: i.text.trim(), howToCheck: i.howToCheck.trim(), status: "not-started", statusNote: "", statusBy: null, createdBy: "us_mitchell", editedBy: null, sourceDocIds: i.sourceDocIds ?? [], updatedAt: now() };
     this.keyResults.set(k.id, k);
     this.event("kr.created", null, `${b.name} key result: ${k.text}`, { keyResultId: k.id }, buildingId);
     return k;
@@ -123,9 +128,9 @@ export class Sim {
   updateKeyResult(id: string, i: UpdateKeyResultInput): KeyResult {
     const k = this.keyResults.get(id);
     if (!k) throw new Error(`key result not found: ${id}`);
-    const words = { ...(i.text !== undefined && { text: i.text.trim() }), ...(i.howToCheck !== undefined && { howToCheck: i.howToCheck.trim() }) };
+    const words = { ...(i.text !== undefined && { text: i.text.trim() }), ...(i.howToCheck !== undefined && { howToCheck: i.howToCheck.trim() }), ...(i.sourceDocIds !== undefined && { sourceDocIds: i.sourceDocIds }) };
     if (!i.status && !Object.keys(words).length) throw new Error("Nothing to change: give status, text or howToCheck.");
-    const next: KeyResult = { ...k, ...words, ...(i.status ? { status: i.status, statusNote: i.note ?? "", statusBy: "us_mitchell" } : {}), updatedAt: now() };
+    const next: KeyResult = { ...k, ...words, ...(Object.keys(words).length && { editedBy: "us_mitchell" }), ...(i.status ? { status: i.status, statusNote: i.note ?? "", statusBy: "us_mitchell" } : {}), updatedAt: now() };
     this.keyResults.set(id, next);
     for (const g of this.grants.values()) if (g.keyResultId === id) g.keyResult = { ...next };
     this.event("kr.updated", null, i.status ? `Key result ${i.status}: ${next.text}` : `Key result edited: ${next.text}`, { keyResultId: id, status: next.status, from: k.status }, k.buildingId);

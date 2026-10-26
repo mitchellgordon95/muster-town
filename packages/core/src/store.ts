@@ -138,7 +138,7 @@ export function createRepos(db: DB, changes: Emitter<ServerMessage>) {
     meetings: new Table<Meeting>(db, "meetings", Meeting, { json: ["attendeeIds", "summaries", "transcript", "decisions"] }, (meeting) => changes.emit({ type: "meeting", meeting })),
     sessions: new Table<Session>(db, "sessions", Session),
     grants: new Table<Grant>(db, "grants", Grant, { json: ["findingsDocIds", "checkpointsDone", "history", "testingPlan"] }),
-    keyResults: new Table<KeyResult>(db, "key_results", KeyResult),
+    keyResults: new Table<KeyResult>(db, "key_results", KeyResult, { json: ["sourceDocIds"] }),
     skillPins: new Table<SkillPin>(db, "skill_pins", SkillPin, { bool: ["byHuman"] }),
     interrupts: new Table<Interrupt>(db, "interrupts", Interrupt, { bool: ["now"] }),
     tokens: new Tokens(db),

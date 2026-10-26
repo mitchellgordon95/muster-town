@@ -26,7 +26,8 @@ export const BLOCKED_NO_KRS = "blocked: no key results to work toward";
 
 export interface ExplorationBudget { allowanceTokens: number; spentTodayTokens: number }
 /** A goal key result with the live (funded or checkpoint) grant working on it, if any. */
-export type GoalKeyResult = KeyResult & { grantId: string | null };
+/** A goal key result as the API returns it: the live grant on it, and the names of who wrote / last edited it (null = unknown or never). */
+export type GoalKeyResult = KeyResult & { grantId: string | null; createdByName: string | null; editedByName: string | null };
 export interface GrantBoard { goal: string; keyResults: GoalKeyResult[]; blocked: string | null; stoplight: Stoplight | null; grants: GrantView[]; proposal: GrantView | null; exploration: ExplorationBudget }
 export interface BlockedBuilding { buildingId: string; name: string; reason: string; since: string | null }
 
@@ -49,7 +50,10 @@ export class Grants {
   /** The building goal's key results in order, each with the live grant working on it (null = open for exploration). */
   keyResults(buildingId: string): GoalKeyResult[] {
     const live = new Map(this.world.grants.where("buildingId = ? AND status IN ('funded', 'checkpoint') AND keyResultId IS NOT NULL", [buildingId], "ORDER BY fundedAt, rowid").map((g) => [g.keyResultId!, g.id]));
-    return this.world.keyResults.where("buildingId = ?", [buildingId], "ORDER BY position, rowid").map((k) => ({ ...k, grantId: live.get(k.id) ?? null }));
+    return this.world.keyResults.where("buildingId = ?", [buildingId], "ORDER BY position, rowid").map((k) => ({
+      ...k, grantId: live.get(k.id) ?? null,
+      createdByName: k.createdBy ? this.world.nameOf(k.createdBy) : null, editedByName: k.editedBy ? this.world.nameOf(k.editedBy) : null,
+    }));
   }
 
   /** The live (funded or checkpoint) grant working on a key result, if any. */
@@ -103,7 +107,7 @@ export class Grants {
     });
   }
 
-  /** The manager's wake when its building becomes blocked: get the humans' decisions (goal key results) via a rollup or a 1:1. */
+  /** The manager's wake when its building becomes blocked: settle goal key results with the humans (1:1, meeting or rollup) and write them. */
   private blockedAssignment(b: Building): void {
     const manager = managerAgentOf(this.world, b);
     if (!manager) return;
@@ -111,11 +115,11 @@ export class Grants {
     createAssignment(this.world, {
       agentId: manager.id, buildingId: b.id, front: true, createdBy: { kind: "system", id: "system" }, laneOverride: DIRECTED,
       title: `Get human decisions: ${b.name} is ${BLOCKED_NO_KRS}`.slice(0, 160),
-      description: `${b.name} is goal-directed, but its goal ("${b.goal || "(none set)"}") has no key results and it has no funded grant, so there is nothing to explore against or implement. Only a human writes the goal's key results (Building → Settings); you assist.
+      description: `${b.name} is goal-directed, but its goal ("${b.goal || "(none set)"}") has no key results and it has no funded grant, so there is nothing to explore against or implement. A human writes the goal's key results (Building → Settings), and so do you for ${b.name}.
 
 1. Draft 2-3 key results for the goal, each something a human can check in the live town, with a how-to-check line. Draw on the building's reports and exploration findings.
-2. Put them to Mitchell: \`submit_report\` with \`rollup: true\` (lands in the Town Hall in-tray; Needs from Mitchell: "Write these key results on ${b.name}'s goal, or tell me what to change"), or raise them in your next 1:1 with him.
-3. Once a human has written them, propose a grant for one of them with \`propose_grant\` (keyResultId).${open ? `
+2. Settle them with Mitchell in your next 1:1 or a meeting, then write each with \`set_key_result\` (sourceDocIds: the meeting notes or report it comes from). Your next rollup lists them so Mitchell can keep or cut them. If you can't meet, put them in a rollup (\`submit_report\` with \`rollup: true\`; Needs from Mitchell: "Approve these key results for ${b.name}'s goal, or tell me what to change").
+3. Once the goal has key results, propose a grant for one of them with \`propose_grant\` (keyResultId).${open ? `
 
 The open proposal ${open.id} ("${open.objective}") names no goal key result yet; once there are key results, edit it to name one or withdraw it.` : ""}`,
     });
@@ -205,7 +209,7 @@ The open proposal ${open.id} ("${open.objective}") names no goal key result yet;
     const g = this.world.grants.require(id, "grant");
     if (actor) this.world.permissions.require(actor, "building.manage", g.buildingId);
     this.requireStatus(g, ["draft", "countered"], "proposed");
-    if (!g.keyResultId) throw badRequest("A grant names one of the building goal's key results: set keyResultId first (a human writes the goal's key results).");
+    if (!g.keyResultId) throw badRequest("A grant names one of the building goal's key results: set keyResultId first (a human or the manager writes the goal's key results).");
     const other = this.world.grants.first(`buildingId = ? AND id != ? AND status IN ('proposed', 'countered')`, [g.buildingId, g.id]);
     if (other) throw new AppError("conflict", `This building already has an open proposal (${other.id}: ${other.objective}). Withdraw or finish it first.`);
     const next = this.save(g, actor, { status: "proposed" }, "propose", g.askTokens, note);
@@ -363,24 +367,50 @@ Stop condition: ${g.stopCondition}
     });
   }
 
-  /** POST /api/buildings/:id/key-results: a key result on the building goal. Only a human writes them (`building.manage`). */
+  /**
+   * POST /api/buildings/:id/key-results (and the manager's `set_key_result`): a key result on the building goal. A human
+   * with `building.manage` writes them, and so does the building's own manager agent (Mitchell, 1:1 mt_ayi4y9ybyj);
+   * what a manager writes is listed in its next rollup (`writtenSince`) so a human can cut it.
+   */
   createKeyResult(actor: Actor, buildingId: string, input: CreateKeyResultInput): KeyResult {
     const inp = CreateKeyResultInput.parse(input);
     const b = this.world.buildings.require(buildingId, "building");
-    this.requireHumanWriter(actor, buildingId);
+    this.requireWriter(actor, b);
+    this.requireSources(inp.sourceDocIds);
+    const by = actor ? holderOf(actor) : null;
     const last = this.world.keyResults.first("buildingId = ?", [buildingId], "ORDER BY position DESC");
     const kr = this.world.keyResults.upsert({
       id: newId("kr"), buildingId, position: last ? last.position + 1 : 0, text: inp.text, howToCheck: inp.howToCheck,
-      status: "not-started", statusNote: "", statusBy: null, updatedAt: nowIso(),
+      status: "not-started", statusNote: "", statusBy: null, createdBy: by?.id ?? null, editedBy: null, sourceDocIds: inp.sourceDocIds, updatedAt: nowIso(),
     });
-    this.world.events.append({ type: "kr.created", agentId: actor?.id ?? null, buildingId, text: `${b.name} key result: ${kr.text}`, payload: { keyResultId: kr.id } });
+    this.world.events.append({
+      type: "kr.created", agentId: actor?.id ?? null, buildingId, text: `${b.name} key result: ${kr.text}`,
+      payload: { keyResultId: kr.id, by: by?.id ?? "system", byKind: by?.kind ?? "system", text: kr.text, howToCheck: kr.howToCheck, sourceDocIds: kr.sourceDocIds },
+    });
     return kr;
+  }
+
+  /** What the manager wrote since its last rollup (all of it before its first): `submit_report` appends it to the next rollup. */
+  writtenSinceRollup(agentId: string, buildingId: string): ReturnType<Grants["writtenSince"]> {
+    const last = this.world.docs.first("type = 'report' AND authorId = ? AND tags LIKE '%\"rollup\"%'", [agentId], "ORDER BY createdAt DESC, rowid DESC");
+    return this.writtenSince(agentId, buildingId, last?.createdAt ?? "");
+  }
+
+  /** The key results `agentId` created or edited (the words) in `buildingId` after `since`, oldest first: a manager's rollup lists them. */
+  writtenSince(agentId: string, buildingId: string, since: string): { keyResultId: string; action: "created" | "edited"; text: string; howToCheck: string; sourceDocIds: string[]; ts: string }[] {
+    return this.world.events.list({ agentId, buildingId, types: ["kr.created", "kr.updated"], limit: 1000 })
+      .filter((e) => e.ts > since && (e.type === "kr.created" || e.payload.edited === true))
+      .map((e) => ({
+        keyResultId: String(e.payload.keyResultId), action: e.type === "kr.created" ? "created" as const : "edited" as const,
+        text: String(e.payload.text ?? e.text), howToCheck: String(e.payload.howToCheck ?? ""),
+        sourceDocIds: Array.isArray(e.payload.sourceDocIds) ? e.payload.sourceDocIds.map(String) : [], ts: e.ts,
+      }));
   }
 
   /** DELETE /api/key-results/:id (a human with `building.manage`). Refused while an open or live grant names it. */
   deleteKeyResult(actor: Actor, id: string): void {
     const kr = this.world.keyResults.require(id, "key result");
-    this.requireHumanWriter(actor, kr.buildingId);
+    this.requireHuman(actor, kr.buildingId, "deletes");
     const g = this.world.grants.first("keyResultId = ? AND status IN ('draft', 'proposed', 'countered', 'funded', 'checkpoint')", [id]);
     if (g) throw new AppError("conflict", `Grant ${g.id} ("${g.objective}", ${g.status}) names this key result: close or re-point it first.`);
     this.world.keyResults.delete(id);
@@ -388,35 +418,66 @@ Stop condition: ${g.stopCondition}
   }
 
   /**
-   * PATCH /api/key-results/:id. `status`: the manager up to `claimed`; `met` / `missed` (and undoing them) need
-   * `building.fund`. `text` / `howToCheck`: a human with `building.manage` (a human writes the goal's key results).
+   * PATCH /api/key-results/:id (and `set_key_result` with an id). `status`: the manager up to `claimed`; `met` /
+   * `missed` (and undoing them) need `building.fund`. `text` / `howToCheck` / `sourceDocIds`: a human with
+   * `building.manage`, or the building's own manager agent.
    */
   updateKeyResult(actor: Actor, id: string, input: UpdateKeyResultInput): KeyResult {
     const inp = UpdateKeyResultInput.parse(input);
     const kr = this.world.keyResults.require(id, "key result");
-    const words = { ...(inp.text !== undefined && { text: inp.text }), ...(inp.howToCheck !== undefined && { howToCheck: inp.howToCheck }) };
-    if (!inp.status && !Object.keys(words).length) throw badRequest("Nothing to change: give status, text or howToCheck.");
-    if (Object.keys(words).length) this.requireHumanWriter(actor, kr.buildingId);
+    const words = {
+      ...(inp.text !== undefined && { text: inp.text }), ...(inp.howToCheck !== undefined && { howToCheck: inp.howToCheck }),
+      ...(inp.sourceDocIds !== undefined && { sourceDocIds: inp.sourceDocIds }),
+    };
+    const edited = Object.keys(words).length > 0;
+    if (!inp.status && !edited) throw badRequest("Nothing to change: give status, text, howToCheck or sourceDocIds.");
+    if (edited) {
+      this.requireWriter(actor, this.world.buildings.require(kr.buildingId, "building"));
+      if (inp.sourceDocIds) this.requireSources(inp.sourceDocIds);
+    }
     if (actor && inp.status) {
       const judged = inp.status === "met" || inp.status === "missed" || kr.status === "met" || kr.status === "missed";
       if (judged) this.world.permissions.require(actor, "building.fund", kr.buildingId);
       else if (!this.canManage(actor, kr.buildingId)) throw forbidden("building.manage");
     }
-    const status = inp.status ? { status: inp.status, statusNote: inp.note, statusBy: actor ? holderOf(actor).id : "system" } : {};
-    const next = this.world.keyResults.upsert({ ...kr, ...words, ...status, updatedAt: nowIso() });
+    const by = actor ? holderOf(actor) : null;
+    const status = inp.status ? { status: inp.status, statusNote: inp.note, statusBy: by?.id ?? "system" } : {};
+    const next = this.world.keyResults.upsert({ ...kr, ...words, ...(edited && { editedBy: by?.id ?? null }), ...status, updatedAt: nowIso() });
     this.world.events.append({
       type: "kr.updated", agentId: actor?.id ?? null, buildingId: kr.buildingId, text: inp.status ? `Key result ${inp.status}: ${next.text}` : `Key result edited: ${next.text}`,
-      payload: { grantId: this.liveGrantOf(kr.id)?.id ?? null, keyResultId: kr.id, status: next.status, from: kr.status },
+      payload: {
+        grantId: this.liveGrantOf(kr.id)?.id ?? null, keyResultId: kr.id, status: next.status, from: kr.status,
+        by: by?.id ?? "system", byKind: by?.kind ?? "system", edited,
+        ...(edited && { text: next.text, howToCheck: next.howToCheck, sourceDocIds: next.sourceDocIds, fromText: kr.text }),
+      },
     });
     return next;
   }
 
   // ---- helpers ----
-  /** Only humans write the goal's key results (the manager proposes them in a rollup or 1:1). */
-  private requireHumanWriter(actor: Actor, buildingId: string): void {
+  /** A human with `building.manage`, or the building's own manager agent, writes the goal's key results. */
+  private requireWriter(actor: Actor, b: Building): void {
     if (!actor) return;
-    if (actor.kind !== "human") throw forbidden("building.manage", "Only a human writes the building goal's key results; propose them to Mitchell in a rollup or your 1:1.");
+    if (actor.kind !== "human") {
+      if (b.managerAgentId === actor.id) return;
+      throw forbidden("building.manage", `Only a human or ${b.name}'s manager writes its goal's key results.`);
+    }
+    this.world.permissions.require(actor, "building.manage", b.id);
+  }
+
+  /** Only a human (`building.manage`) deletes a key result. */
+  private requireHuman(actor: Actor, buildingId: string, verb: string): void {
+    if (!actor) return;
+    if (actor.kind !== "human") throw forbidden("building.manage", `Only a human ${verb} a key result of the goal.`);
     this.world.permissions.require(actor, "building.manage", buildingId);
+  }
+
+  /** A key result's sources are published docs (meeting notes, reports), not drafts. */
+  private requireSources(ids: string[]): void {
+    for (const id of ids) {
+      const d = this.world.docs.get(id);
+      if (!d || d.state === "draft") throw badRequest(`Source ${id} is not a published document (meeting notes or a report).`);
+    }
   }
 
   private requireGoalKeyResult(buildingId: string, keyResultId: string): void {

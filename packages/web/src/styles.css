@@ -554,6 +554,7 @@ kbd { font-family: var(--mono); font-size: 11px; background: #2a2d3a; border: 1p
 .kr-bar.warn i { background: var(--warn); } .kr-bar.bad i { background: var(--bad); }
 .kr-list { list-style: none; margin: 4px 0 0; padding: 0; display: flex; flex-direction: column; gap: 5px; }
 .kr-check { font-size: 12px; margin-left: 2px; }
+.kr-author { font-size: 11px; margin: 2px 0 0 2px; }
 .kr-exploration > span:first-child { min-width: 78px; }
 .kr-proposal { font-size: 12px; }
 .kr-blocked { background: #2a1d1f; border: 1px solid #4a2c30; border-radius: var(--r); padding: 7px 10px; }

@@ -1,8 +1,8 @@
 /** Building panel (E at the door): overview, members + roles, meetings, settings (managers: building fields). Members lists residents (managers add and dismiss there) and roles. Board, filing cabinet and in-tray are places; the collective's secrets are a planning-desk tab. */
 import { useEffect, useMemo, useState, type ReactNode } from "react";
-import { DEFAULT_POOL_ID, type KeyResult, type KeyResultStatus, type Meeting, type SnapshotBuilding, type Workspace } from "@muster-town/schema";
+import { DEFAULT_POOL_ID, type KeyResultStatus, type Meeting, type SnapshotBuilding, type Workspace } from "@muster-town/schema";
 import { fmtPct, poolColor } from "../pools";
-import { api } from "../api";
+import { api, type GoalKeyResult } from "../api";
 import { store, useTown, roleOf } from "../state";
 import { Glyph, PanelShell } from "./PanelShell";
 import { Meter } from "./AgentPanel";
@@ -14,7 +14,8 @@ import { AttendeePicker, useAttendees } from "./AttendeePicker";
 import { attendeeInput } from "./attendees";
 import { layoutEdit } from "../map/layoutEdit";
 import { canOneOnOne, openOneOnOne } from "./oneOnOne";
-import { UNBLOCK_LINE, blockedLabel, krStatusLabel, krTone, settableStatuses } from "./keyResults";
+import { UNBLOCK_LINE, blockedLabel, krAuthorLine, krStatusLabel, krTone, settableStatuses } from "./keyResults";
+import { openDocLink } from "./Markdown";
 
 export function BuildingPanel({ id, tab }: { id: string; tab?: string }) {
   const b = useTown((s) => s.buildings.find((x) => x.id === id));
@@ -273,7 +274,7 @@ function KeyResultsEditor({ b }: { b: SnapshotBuilding }) {
   const krs = list.data?.keyResults ?? [];
   return (
     <Section title="Key results">
-      <p className="direction">What the goal means in checkable terms. They show on the building board, each grant names one, and a goal-directed building is blocked without them. Only humans write them; the manager proposes them in a rollup or your 1:1.</p>
+      <p className="direction">What the goal means in checkable terms. They show on the building board, each grant names one, and a goal-directed building is blocked without them. Humans write them here; the manager writes them too (from a meeting or your 1:1) and lists each in its next rollup, so you can keep or cut it.</p>
       {list.loading && !list.data ? <Loading /> : null}
       <ErrorLine error={list.error} />
       {list.data && !krs.length ? <Empty>No key results on the goal yet{b.budgetMode === "goal-directed" ? ": the building is blocked until one exists or a grant is funded" : ""}.</Empty> : null}
@@ -296,8 +297,20 @@ function KeyResultsEditor({ b }: { b: SnapshotBuilding }) {
   );
 }
 
+/** Who wrote the key result (a human, or the building's manager from a meeting), who last edited it, and its sources. */
+function KeyResultAuthor({ kr }: { kr: GoalKeyResult }) {
+  const by = krAuthorLine(kr);
+  if (!by && !kr.sourceDocIds.length) return null;
+  return (
+    <div className="muted kr-author">
+      {by}
+      {kr.sourceDocIds.length ? <>{by ? " · " : ""}from {kr.sourceDocIds.map((id, i) => <span key={id}>{i ? ", " : ""}<button className="link" onClick={() => void openDocLink(id)}>{store.state.docs[id]?.title ?? id}</button></span>)}</> : null}
+    </div>
+  );
+}
+
 /** One key result in the editor: words (humans), status (per `statuses`), delete. Dirty rows save explicitly. */
-function KeyResultRow({ n, kr, canWrite, statuses, onChanged }: { n: number; kr: KeyResult; canWrite: boolean; statuses: KeyResultStatus[]; onChanged: () => void }) {
+function KeyResultRow({ n, kr, canWrite, statuses, onChanged }: { n: number; kr: GoalKeyResult; canWrite: boolean; statuses: KeyResultStatus[]; onChanged: () => void }) {
   const [f, setF] = useState({ text: kr.text, howToCheck: kr.howToCheck });
   useEffect(() => setF({ text: kr.text, howToCheck: kr.howToCheck }), [kr.text, kr.howToCheck]);
   const dirty = f.text !== kr.text || f.howToCheck !== kr.howToCheck;
@@ -339,6 +352,7 @@ function KeyResultRow({ n, kr, canWrite, statuses, onChanged }: { n: number; kr:
           </div>
         </form>
       ) : <div className="muted kr-check">How to check: {kr.howToCheck}</div>}
+      <KeyResultAuthor kr={kr} />
     </li>
   );
 }

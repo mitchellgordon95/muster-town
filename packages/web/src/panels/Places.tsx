@@ -337,7 +337,7 @@ function KeyResultsView({ board, buildingId }: { board: Board; buildingId: strin
       <div className="kr-view">
         {board.stoplight ? <Stoplight light={board.stoplight.light} reason={board.stoplight.reason} /> : null}
         {board.goal ? <div className="kr-goal"><span className="muted">Goal</span> {board.goal}</div> : null}
-        {board.blocked ? <div className="kr-blocked"><Pill tone="bad">blocked</Pill> {board.blocked.replace(/^blocked: /, "")}. {canEdit ? "Write the goal's key results in Building → Settings." : "Only a human writes them; the manager proposes them in a rollup or the 1:1."}</div> : null}
+        {board.blocked ? <div className="kr-blocked"><Pill tone="bad">blocked</Pill> {board.blocked.replace(/^blocked: /, "")}. {canEdit ? "Write the goal's key results in Building → Settings." : "A human or the manager writes them; the manager's come out of a meeting or the 1:1."}</div> : null}
         {!rows.length && !board.blocked ? <Empty>No key results on the goal yet{canEdit ? ": write them in Building → Settings" : ""}.</Empty> : null}
         <ol className="kr-rows">
           {rows.map(({ kr, grant }, i) => (

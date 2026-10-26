@@ -104,7 +104,7 @@ describe("grants service", () => {
     expect(world.grantDesk.close(admin, g.id, { outcome: "met" })).toMatchObject({ status: "closed", outcome: "met" });
   });
 
-  it("goal key results: only humans write them; manager sets status up to claimed, only funders set or undo met / missed", () => {
+  it("goal key results: only humans (or the building's own manager agent) write them; manager sets status up to claimed, only funders set or undo met / missed", () => {
     const { world, manager, admin, krs, draft } = setup();
     expect(() => world.grantDesk.createKeyResult(manager, LAB, { text: "x", howToCheck: "y" })).toThrow(/Only a human/);
     expect(() => world.grantDesk.updateKeyResult(manager, krs[0]!.id, { text: "x" })).toThrow(/Only a human/);

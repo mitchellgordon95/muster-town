@@ -701,8 +701,9 @@ export type Grant = z.infer<typeof Grant>;
 export const KeyResultStatus = z.enum(["not-started", "on-track", "at-risk", "claimed", "met", "missed"]);
 export type KeyResultStatus = z.infer<typeof KeyResultStatus>;
 /**
- * A key result of a building's goal: something a human can check in the live town. Only humans write them (text,
- * howToCheck); the manager sets status up to `claimed`; `met` / `missed` only users with `building.fund`.
+ * A key result of a building's goal: something a human can check in the live town. Humans write them (text,
+ * howToCheck), and so does the building's own manager agent (listed in its next rollup); the manager sets status up to
+ * `claimed`; `met` / `missed` only users with `building.fund`.
  */
 export const KeyResult = z.object({
   id: Id,
@@ -713,6 +714,11 @@ export const KeyResult = z.object({
   status: KeyResultStatus.default("not-started"),
   statusNote: z.string().default(""),
   statusBy: Id.nullable().default(null),
+  /** who wrote it and who last edited its words (a user id, or the manager agent's id): a manager may write its own building's */
+  createdBy: Id.nullable().default(null),
+  editedBy: Id.nullable().default(null),
+  /** the meeting notes or reports it came from */
+  sourceDocIds: z.array(Id).default([]),
   updatedAt: Iso,
 });
 export type KeyResult = z.infer<typeof KeyResult>;
@@ -800,7 +806,10 @@ export const CreateGrantInput = z.object({
   findingsDocIds: z.array(Id).default([]),
 });
 /** POST /api/buildings/:id/key-results: a key result on the building goal (humans with `building.manage`). */
-export const CreateKeyResultInput = z.object({ text: z.string().trim().min(1).max(300), howToCheck: z.string().trim().min(1).max(300) });
+export const CreateKeyResultInput = z.object({
+  text: z.string().trim().min(1).max(300), howToCheck: z.string().trim().min(1).max(300),
+  sourceDocIds: z.array(Id).max(10).default([]).describe("the meeting notes or reports it comes from"),
+});
 export type CreateKeyResultInput = z.input<typeof CreateKeyResultInput>;
 export type CreateGrantInput = z.input<typeof CreateGrantInput>;
 
@@ -863,6 +872,13 @@ export const VerbInputs = {
     status: z.enum(["not-started", "on-track", "at-risk", "claimed"]).optional().describe("the grant's key result's status (only a human marks met or missed)"),
     note: z.string().max(2000).default("").describe("the evidence for that status"),
   }),
+  set_key_result: z.object({
+    buildingId: Id.optional().describe("defaults to your building (a manager writes only its own building's)"),
+    id: Id.optional().describe("a key result of that goal to edit; leave it out to add one"),
+    text: z.string().trim().min(1).max(300).optional().describe("the key result: something a human can check in the live town (required to add one)"),
+    howToCheck: z.string().trim().min(1).max(300).optional().describe("the measure / target: where to look and what you'd see (required to add one)"),
+    sourceDocIds: z.array(Id).max(10).optional().describe("the meeting notes or report it comes from (required to add one)"),
+  }),
   promote: z.object({ docId: Id, state: z.enum(["building", "library"]) }),
   ban: z.object({ agentId: Id, reason: z.string() }),
   redeploy: z.object({ image: z.boolean().default(false).describe("also rebuild the desk image and recreate idle desk containers") }),
@@ -892,6 +908,7 @@ export const VERB_DESCRIPTIONS: Record<VerbName, string> = {
   assign: "(manager/reviewer) Create an assignment for an agent in my building. With waitFor it waits (e.g. for the next redeploy, or another assignment to finish) before it starts. In goal-directed buildings an agent must give lane grant (grantId of a funded grant; its key result is implied) or exploration (keyResultId of a goal key result with no funded grant, or gap).",
   propose_grant: "(manager) Propose a grant for my building in one call: the plan for one of the building goal's key results (keyResultId): an objective, the approach, a stop condition, a token ask, and optionally a testing plan (text + howToCheck lines). Funding it runs the plan. It goes to the Town Hall in-tray for a human to fund, counter or reject. One open proposal per building.",
   checkpoint_grant: "(manager) File a grant's checkpoint: set the status of the grant's key result (on the building goal), at most claimed (only a human marks met or missed), with a note on the evidence; then submit_report with rollup: true, which links itself to the grant as its checkpoint report. The grant stays held until a human continues, adjusts or cuts it.",
+  set_key_result: "(manager) Write a key result on my building's goal, or edit one (id): the text, how to check it, and the meeting notes or report it comes from (sourceDocIds). It's on the board at once and listed in my next rollup so a human can cut it. Status is checkpoint_grant's; only a human marks met or missed or deletes one.",
   promote: "(manager) Publish a document to the building (board if it's an fyi, else the filing cabinet) or promote it to the library.",
   ban: "(town moderator) Ban an agent town-wide pending review.",
   redeploy: "Pull main on the host, reinstall, rebuild the web client (and the desk image when image=true), then restart the collective's server. Use when Mitchell asks you to deploy or when main has changed and the running town is stale. The restart waits for every running work session, including yours, to end first: never poll or wait for the new build in the same session (that deadlocks until the drain gives up). Call it, say in your report which commit should be live, submit the report, and verify on your next session.",
@@ -1071,13 +1088,15 @@ export const CloseGrantInput = z.object({ outcome: GrantOutcome, note: z.string(
 export type CloseGrantInput = z.input<typeof CloseGrantInput>;
 /**
  * PATCH /api/key-results/:id. `status`: the manager up to `claimed`; `building.fund` for `met` / `missed`.
- * `text` / `howToCheck`: humans with `building.manage` only (a human writes the goal's key results).
+ * `text` / `howToCheck` / `sourceDocIds`: humans with `building.manage`, or the building's own manager agent.
  */
 export const UpdateKeyResultInput = z.object({
   status: KeyResultStatus.optional(),
   note: z.string().max(2000).default(""),
   text: z.string().trim().min(1).max(300).optional(),
   howToCheck: z.string().trim().min(1).max(300).optional(),
+  /** replaces the list; only with a words edit */
+  sourceDocIds: z.array(Id).max(10).optional(),
 });
 export type UpdateKeyResultInput = z.input<typeof UpdateKeyResultInput>;
 /** GET /api/buildings/:id/grants?status= */

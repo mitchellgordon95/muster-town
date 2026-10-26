@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { BLOCKED_LABEL, UNBLOCK_LINE, blockedLabel, unfundableReason, explorationLine, grantSpendLine, grantStateLine, keyResultRows, krFundingLine, krStatusLabel, krTone, proposalLine, settableStatuses, spentShare } from "../src/panels/keyResults";
+import { BLOCKED_LABEL, UNBLOCK_LINE, blockedLabel, krAuthorLine, unfundableReason, explorationLine, grantSpendLine, grantStateLine, keyResultRows, krFundingLine, krStatusLabel, krTone, proposalLine, settableStatuses, spentShare } from "../src/panels/keyResults";
 import { MockApi } from "../src/mock/server";
 import { stoplightOf } from "@muster-town/schema";
 import { stoplightLabel } from "../src/format";
@@ -93,6 +93,13 @@ describe("blocked state", () => {
     expect(blockedLabel({ kind: "town-hall", budgetMode: "goal-directed", blockedAt: at })).toBeNull();
     expect(UNBLOCK_LINE).toMatch(/human/);
     expect(UNBLOCK_LINE).toMatch(/Settings/);
+  });
+  it("names who wrote a key result (a human or the manager) and who edited it; nothing for older ones", () => {
+    expect(krAuthorLine({ createdByName: "Pix", editedByName: null })).toBe("Written by Pix");
+    expect(krAuthorLine({ createdByName: "Pix", editedByName: "Pix" })).toBe("Written by Pix");
+    expect(krAuthorLine({ createdByName: "Pix", editedByName: "Mitchell" })).toBe("Written by Pix, edited by Mitchell");
+    expect(krAuthorLine({ createdByName: null, editedByName: "Mitchell" })).toBe("Edited by Mitchell");
+    expect(krAuthorLine({})).toBeNull();
   });
   it("a proposal naming no key result can't be funded; one naming one can", () => {
     expect(unfundableReason({ status: "proposed", keyResult: null })).toMatch(/counter/);
