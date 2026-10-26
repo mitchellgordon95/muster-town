@@ -621,11 +621,12 @@ export class Ops {
     if (m.phase === "discussing" && this.world.holderOf(actor).kind === "user") noteHumanTyping(this.world, m.id);
   }
   meetingDecide(actor: Actor, meetingId: string, decisions: Meeting["decisions"]): Meeting { return meetingDecide(this.world, actor, meetingId, decisions); }
-  endMeeting(actor: Actor, meetingId: string, closing?: string): Meeting {
+  /** `actor` null = the town itself; `cause` names why ("facilitation-end"), recorded in the meeting.phase event. */
+  endMeeting(actor: Actor, meetingId: string, closing?: string, cause?: string): Meeting {
     if (actor) {
       const m = this.world.meetings.require(meetingId, "meeting");
       if (m.facilitatorId !== actor.id && !this.world.permissions.can(actor, "meeting.facilitate", m.buildingId ?? "town-hall") && !this.world.permissions.can(actor, "building.review", m.buildingId ?? "town-hall")) throw forbidden("meeting.facilitate");
     }
-    return endMeeting(this.world, null, meetingId, closing);
+    return endMeeting(this.world, null, meetingId, closing, actor ? this.world.holderOf(actor) : { kind: "system", id: cause ?? "town" });
   }
 }

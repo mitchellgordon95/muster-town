@@ -176,7 +176,7 @@ export async function facilitate(ctx: Ctx, st: MeetingState, meetingId: string):
   }
   const after = world.meetings.get(m.id);
   if (after && after.phase !== "done" && after.phase !== "cancelled") {
-    world.ops.endMeeting(null, m.id, fac ? `${fac.name} didn't close the meeting; closed by the town.` : "No facilitator; closed by the town.");
+    world.ops.endMeeting(null, m.id, fac ? `${fac.name} didn't close the meeting; closed by the town.` : "No facilitator; closed by the town.", "facilitation-end");
   }
   st.collectingSince.delete(m.id);
   for (const k of [...st.replies.keys()]) if (k.startsWith(`${m.id}:`)) st.replies.delete(k);

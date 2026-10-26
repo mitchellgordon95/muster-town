@@ -146,6 +146,24 @@ describe("meetings", () => {
     expect(world.assignments.where("agentId = ? AND status = 'pending'", [by("Noor").id])).toHaveLength(1);
   });
 
+  it("the meeting.phase event for an end records who ended it: the human, the facilitator agent, or a named town cause", async () => {
+    const { world, by, admin } = seededWorld();
+    const endEvent = (id: string) => world.events.recent({ limit: 50 }).find((e) => e.type === "meeting.phase" && (e.payload as { meetingId?: string }).meetingId === id && (e.payload as { phase?: string }).phase === "done");
+    const human = world.ops.createMeeting(admin, { kind: "standup", buildingId: "carbon-cycle", startNow: true });
+    world.ops.endMeeting(admin, human.id); // End meeting pressed while still collecting
+    expect(endEvent(human.id)?.payload).toMatchObject({ from: "collecting", by: world.holderOf(admin) });
+    const viaVerb = world.ops.createMeeting(admin, { kind: "standup", buildingId: "carbon-cycle", startNow: true });
+    world.ops.startMeeting(admin, viaVerb.id);
+    const fac = world.agents.require(world.meetings.require(viaVerb.id).facilitatorId!);
+    await world.verbs.meeting(fac, { meetingId: viaVerb.id, action: "end" });
+    expect(endEvent(viaVerb.id)).toMatchObject({ agentId: fac.id, payload: { by: { kind: "agent", id: fac.id } } });
+    const town = world.ops.createMeeting(admin, { kind: "standup", buildingId: "carbon-cycle", startNow: true });
+    world.ops.endMeeting(null, town.id, "closed by the town.", "facilitation-end");
+    expect(endEvent(town.id)?.payload).toMatchObject({ by: { kind: "system", id: "facilitation-end" } });
+    expect(endEvent(town.id)?.text).toMatch(/by the town: facilitation-end/);
+    void by;
+  });
+
   it("the facilitator may record decisions in the grace window after a human closes the meeting; late ones land in the notes", async () => {
     const { world, by, admin } = seededWorld();
     const m = world.ops.createMeeting(admin, { kind: "standup", buildingId: "carbon-cycle", startNow: true });

@@ -93,7 +93,7 @@ export function closeQuietOneOnOnes(ctx: Ctx): void {
   for (const m of world.meetings.where("kind = 'one-on-one' AND phase = 'discussing'")) {
     const last = Date.parse(m.transcript.at(-1)?.at ?? m.startedAt ?? m.createdAt);
     if (now - last < ONE_ON_ONE_QUIET_MS || humanTyping(world, m.id, now)) continue;
-    endMeeting(world, null, m.id, `Quiet for ${ONE_ON_ONE_QUIET_MS / 60_000} minutes; closed by the town.`);
+    endMeeting(world, null, m.id, `Quiet for ${ONE_ON_ONE_QUIET_MS / 60_000} minutes; closed by the town.`, { kind: "system", id: "quiet-1:1" });
   }
 }
 

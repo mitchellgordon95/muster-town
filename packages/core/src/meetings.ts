@@ -129,7 +129,10 @@ export function createOneOnOne(world: World, human: Agent, buildingId: string): 
  * Move a meeting to a phase. discussing → attendees `in-meeting`; done/cancelled → attendees back to idle.
  * (Ending with notes goes through `endMeeting`.)
  */
-export function setMeetingPhase(world: World, meetingId: string, phase: Meeting["phase"]): Meeting {
+/** Who moved a meeting's phase, for the event log: a human user, an agent, or a named system cause ("facilitation-end", "quiet-1:1"). */
+export type MeetingBy = { kind: "user" | "agent" | "system"; id: string };
+
+export function setMeetingPhase(world: World, meetingId: string, phase: Meeting["phase"], by?: MeetingBy): Meeting {
   const m = world.meetings.require(meetingId, "meeting");
   if (m.phase === phase) return m;
   if (m.phase === "done" || m.phase === "cancelled") throw new AppError("conflict", `Meeting is already ${m.phase}.`);
@@ -146,7 +149,8 @@ export function setMeetingPhase(world: World, meetingId: string, phase: Meeting[
       if (a.status === "in-meeting") world.setStatus(id, "idle");
     }
   }
-  world.events.append({ type: "meeting.phase", buildingId: m.buildingId, text: `${m.title}: ${phase}`, payload: { meetingId: m.id, phase, from: m.phase } });
+  const byText = by ? ` (by ${by.kind === "system" ? `the town: ${by.id}` : world.nameOf(by.id)})` : "";
+  world.events.append({ type: "meeting.phase", agentId: by?.kind === "agent" ? by.id : null, buildingId: m.buildingId, text: `${m.title}: ${phase}${byText}`, payload: { meetingId: m.id, phase, from: m.phase, ...(by ? { by } : {}) } });
   return updated;
 }
 
@@ -289,8 +293,11 @@ function decideNow(world: World, actor: Agent | null, meetingId: string, decisio
 /** How long after a meeting closes the facilitator may still record decisions. */
 export const DECIDE_GRACE_MS = 5 * 60_000;
 
-/** End: write the meeting-notes doc (filed in the building's filing cabinet, not its board; town-hall → library), phase done. */
-export function endMeeting(world: World, actor: Agent | null, meetingId: string, closing?: string): Meeting {
+/**
+ * End: write the meeting-notes doc (filed in the building's filing cabinet, not its board; town-hall → library), phase done.
+ * `actor` is permission-checked as facilitator; `by` (default: the actor's holder, else system "town") goes into the meeting.phase event.
+ */
+export function endMeeting(world: World, actor: Agent | null, meetingId: string, closing?: string, by?: MeetingBy): Meeting {
   const m = world.meetings.require(meetingId, "meeting");
   if (actor && !canFacilitate(world, actor, m)) throw forbidden("meeting.facilitate", "Only the facilitator can end the meeting.");
   if (m.phase === "done") return m;
@@ -311,5 +318,5 @@ export function endMeeting(world: World, actor: Agent | null, meetingId: string,
     authorId: author.id, authorKind: author.kind, buildingId: m.buildingId ?? TOWN_HALL_ID,
   });
   world.meetings.upsert({ ...m, notesDocId: doc.id });
-  return setMeetingPhase(world, m.id, "done");
+  return setMeetingPhase(world, m.id, "done", by ?? (actor ? world.holderOf(actor) : { kind: "system", id: "town" }));
 }
