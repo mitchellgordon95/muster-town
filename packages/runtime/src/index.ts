@@ -3,15 +3,15 @@
  * managers' team-lead sessions over the in-tray, meeting summaries + facilitation, proxy chat, interrupts, scheduler,
  * startup reconcile, dismissal (onAgentRetired), host redeploy (v1.3).
  */
-import { checkWaits, codeWorkspace, nextStartable, PRESENCE_TICK_MS, slugify, syncManagerRoles, type World } from "@muster-town/core";
+import { checkWaits, codeWorkspace, meetingNotice, nextStartable, PRESENCE_TICK_MS, slugify, syncManagerRoles, type World } from "@muster-town/core";
 import { DesksConfig, type ChatInput, type DeskActivityInput, type Event, type RedeployResult, type Session } from "@muster-town/schema";
 import { askAbout, chat } from "./chat.ts";
 import { DockerBackend, dockerSafe, HostBackend, type DeskBackend, type WorkBackend } from "./desk/backend.ts";
 import { FlyApi } from "./desk/fly.ts";
 import { SandboxBackend } from "./desk/sandbox.ts";
-import { drainNudgeFacilitator, gitHead, isAncestor, makeRedeployer, type RedeployDeps, type RedeployRequest } from "./redeploy.ts";
+import { drainNudgeFacilitator, drainNudgeOneOnOne, gitHead, isAncestor, makeRedeployer, type RedeployDeps, type RedeployRequest } from "./redeploy.ts";
 import { gitAuthEnv, noRepoTokenReason, onDeskActivity, repoToken, runDeskSession, type DeskSessionOptions } from "./desk/session.ts";
-import { closeQuietOneOnOnes, newManageState, wakeManager } from "./manage.ts";
+import { closeQuietOneOnOnes, newManageState, openOneOnOnes, wakeManager } from "./manage.ts";
 import { advanceCollecting, facilitate, newMeetingState, onMeetingMention, onMeetingStart } from "./meetings.ts";
 import { realSdk, type Sdk } from "./sdk.ts";
 import type { Ctx } from "./session.ts";
@@ -55,7 +55,7 @@ export interface RuntimeOptions {
   /** a stopped/banned agent's desk process gets this long to exit on its own before it is killed. Default 10000. */
   killGraceMs?: number;
   /** redeploy knobs (tests inject the command runner and `exit`; never the real process.exit) */
-  redeploy?: Pick<RedeployDeps, "run" | "exit" | "exitDelayMs" | "drainTimeoutMs" | "drainPollMs" | "againDelayMs" | "drainWrapUpMs">;
+  redeploy?: Pick<RedeployDeps, "run" | "exit" | "exitDelayMs" | "drainTimeoutMs" | "drainPollMs" | "againDelayMs" | "drainWrapUpMs" | "drainMeetingMs">;
   /** the docker desk backend probed when `desks.backend` is auto/docker (tests inject a fake); default a DockerBackend */
   dockerProbe?: DeskBackend;
   /** minimum time between docker probes (re-probe while on the host fallback; liveness check while on docker). Default 30000. */
@@ -417,18 +417,36 @@ export function startRuntime(opts: RuntimeOptions): Runtime {
       try { world.ops.endSession(s.id, { status: "error", error }); } catch (e) { log("end orphaned session")(e); }
     }
   }
+  /** The agent's live session is a meeting: only a facilitation, or the manager's session while a 1:1 of theirs is open. */
+  function inMeetingSession(agentId: string): boolean {
+    const l = ctx.live.get(agentId);
+    if (l) return l.purpose === "manage" && openOneOnOnes(world, agentId).length > 0;
+    return ctx.facilitating.has(agentId) && !starting.has(agentId);
+  }
+  /** Just before a redeploy's restart: tell every live meeting its host's reply waits on it (docs/meetings.md §6). */
+  function postRestartNotices(head: string | null): void {
+    const commit = head ? ` (commit ${head.slice(0, 7)})` : "";
+    for (const m of world.meetings.where("phase = 'discussing'")) {
+      const host = m.facilitatorId ? world.nameOf(m.facilitatorId) : "The facilitator";
+      try { meetingNotice(world, m.id, `${host}'s reply is waiting on a redeploy${commit}; the server is restarting and the meeting resumes after the restart.`); } catch (e) { log("restart notice")(e); }
+    }
+  }
   const redeployer = makeRedeployer({
     world, repoRoot: ctx.repoRoot, collective: dockerSafe(collectiveSlug), image: desks.image,
     // sandbox-desk hosts (Fly) have no docker: the desk image is built and pushed from outside the town
     imageBuild: !sandboxProvider,
     gitEnv: () => gitAuthEnv(world, desks.ghToken),
     isWorking: (agentId) => ctx.live.has(agentId) || starting.has(agentId),
-    // facilitations count too: a restart mid-meeting would orphan the facilitator (docs/meetings.md §3.5)
+    // facilitations count too, but only for drainMeetingMs: then the notice goes into the meeting and it resumes after the restart (docs/meetings.md §6)
     working: () => { pruneLive(); return [...new Set([...ctx.live.keys(), ...starting, ...ctx.facilitating.keys()])]; },
+    inMeeting: (agentId) => inMeetingSession(agentId),
+    beforeRestart: (head) => postRestartNotices(head),
     drop: (agentId) => dropLive(agentId, "orphaned: redeploy drain found it stuck"),
     // host sessions take it on their input; desk sessions through the interrupt queue (next control poll);
     // a facilitator is told to close the meeting (and only that: no work interrupt is queued for an agent that is only facilitating)
     nudge: (agentId, text) => {
+      const l = ctx.live.get(agentId);
+      if (l?.purpose === "manage" && openOneOnOnes(world, agentId).length) { if (!l.stopped) l.input.push(drainNudgeOneOnOne()); return; }
       const fac = ctx.facilitating.get(agentId);
       if (fac && !fac.stopped) fac.input.push(drainNudgeFacilitator());
       if (fac && !ctx.live.has(agentId) && !starting.has(agentId)) return;

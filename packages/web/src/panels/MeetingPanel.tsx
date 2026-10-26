@@ -134,7 +134,7 @@ function MeetingView({ m }: { m: Meeting }) {
               const isMe = u.speakerKind === "user" && u.speakerId === me?.user.id;
               return (
                 <div key={i} className={`utt ${u.speakerKind} ${isMe ? "me" : ""}`}>
-                  <div className="utt-head"><b>{u.speakerKind === "user" ? (isMe ? "You" : nameOf(u.speakerId)) : nameOf(u.speakerId)}</b><time>{clock(u.at)}</time></div>
+                  <div className="utt-head"><b>{u.speakerKind === "system" ? "Town" : u.speakerKind === "user" ? (isMe ? "You" : nameOf(u.speakerId)) : nameOf(u.speakerId)}</b><time>{clock(u.at)}</time></div>
                   <Markdown text={u.text} className="bubble" breaks newTab={open} />
                 </div>
               );

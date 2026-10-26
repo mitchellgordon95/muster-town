@@ -171,7 +171,7 @@ export class World {
 
   /** Display name for an agent or user id. */
   nameOf(id: string): string {
-    return this.agents.get(id)?.name ?? this.users.get(id)?.name ?? id;
+    return this.agents.get(id)?.name ?? this.users.get(id)?.name ?? (id === "system" ? "Town" : id);
   }
 
   /** Set status (no-op if unchanged) and append `agent.status`. */
