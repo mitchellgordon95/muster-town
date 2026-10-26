@@ -39,8 +39,8 @@ export interface ManageGate {
  * agent, and reports already offered. The manager's rollups are Town Hall items, never in `intrayOf(building)`, so a
  * manage session can't wake itself; the manager's own work reports (self-assigned or meeting-decided work, town hall
  * 2026-10-25 decision 6) are in it and wake the session like a resident's. A 1:1 that ended is announced to the session it was fed
- * into (which then ends once no 1:1 is open). While draining, a session held open only by a 1:1 is let go; the 1:1
- * stays open and a fresh session picks it up after the restart. Returns the started session's promise, if one started.
+ * into (which then ends once no 1:1 is open). While draining, a 1:1 is still answered (and started) but new reports
+ * wait; the restart cuts the session, and a fresh one picks the 1:1 up after it. Returns the started session's promise, if one started.
  */
 export function wakeManager(ctx: Ctx, st: ManageState, gate: ManageGate, buildingId: string): Promise<Session> | null {
   const { world } = ctx;
@@ -63,26 +63,27 @@ export function wakeManager(ctx: Ctx, st: ManageState, gate: ManageGate, buildin
   if (live) {
     // a work session (or a desk) is busy: the tick offers these once it has ended
     if (!feedable) return null;
-    if (gate.draining() && !fresh.length) {
-      if (talks.length) live.input.close(); // finishes the turn in progress, if any; the 1:1 waits for the new server
-      return null;
-    }
-    for (const d of fresh) if (live.input.push(managerNewReport(d, nameOf))) st.offered.add(d.id);
+    // while draining the session keeps answering its 1:1s (the drain waits on it only briefly, then the restart cuts it
+    // and a new session resumes the 1:1 from its transcript; docs/meetings.md §6); new reports wait for the new server
+    if (gate.draining() && !talks.length) return null;
+    for (const d of gate.draining() ? [] : fresh) if (live.input.push(managerNewReport(d, nameOf))) st.offered.add(d.id);
     for (const m of talks) {
       const f = st.fed.get(m.id);
       if (f?.sessionId !== live.sessionId) {
         if (live.input.push(oneOnOnePrompt(m, nameOf))) st.fed.set(m.id, { sessionId: live.sessionId, idx: m.transcript.length });
         continue;
       }
-      for (const u of m.transcript.slice(f.idx)) if (u.speakerId !== mgr.id) live.input.push(oneOnOneUtterance(m, nameOf(u.speakerId), u.text));
+      for (const u of m.transcript.slice(f.idx)) if (u.speakerId !== mgr.id && u.speakerKind !== "system") live.input.push(oneOnOneUtterance(m, nameOf(u.speakerId), u.text));
       f.idx = m.transcript.length;
     }
     return null;
   }
   if (!fresh.length && !talks.length) return null;
-  if (gate.starting(mgr.id) || mgr.status !== "idle" || gate.draining() || !gate.slotFree() || !world.budget.canStart(mgr.id)) return null;
-  for (const d of fresh) st.offered.add(d.id);
-  return runManageSession(ctx, st, mgr.id, fresh, talks);
+  // a 1:1 starts even while a redeploy drains (a human is waiting; the drain doesn't hold for it), in-tray work doesn't
+  if (gate.starting(mgr.id) || mgr.status !== "idle" || (gate.draining() && !talks.length) || !gate.slotFree() || !world.budget.canStart(mgr.id)) return null;
+  const offer = gate.draining() ? [] : fresh;
+  for (const d of offer) st.offered.add(d.id);
+  return runManageSession(ctx, st, mgr.id, offer, talks);
 }
 
 /** Close 1:1s nobody spoke in for ONE_ON_ONE_QUIET_MS (nobody typing either). The phase event wakes the manager to wrap up. */

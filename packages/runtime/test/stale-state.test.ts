@@ -91,7 +91,7 @@ describe("drain nudge", () => {
 });
 
 describe("drain waits for facilitations", () => {
-  test("startRuntime: a running facilitation counts in the drain, is told to close the meeting first, and is never dropped as stuck", async () => {
+  test("startRuntime: a running facilitation counts in the drain, is told to close a meeting no human is in, and is never dropped as stuck", async () => {
     const exit = vi.fn();
     let mossId = "";
     const nudges: string[] = [];
@@ -123,6 +123,31 @@ describe("drain waits for facilitations", () => {
     expect(texts).toContain("Redeploy: drain … ok (no sessions running)");
     expect(redeployEvents(world).some((e) => (e.payload as { stuck?: boolean }).stuck)).toBe(false);
     expect(world.ops.pendingInterrupts(mossId, "none")).toEqual([]); // no work interrupt queued for an agent that was only facilitating
+    await runtime.whenIdle();
+  });
+
+  test("startRuntime: a facilitation that keeps going (a human is talking) holds the drain only drainMeetingMs; the meeting gets the restart notice and stays open", async () => {
+    const exit = vi.fn();
+    let mossId = "";
+    const restarted = deferred();
+    const { world, runtime, by, lab } = setup(async function* (s) {
+      if (!s.agentId) { yield text("Did: x"); yield result(1, 0, "Did: x"); return; }
+      if (s.agentId === mossId) { yield init(); await s.next(); await restarted.promise; yield result(5, 0); return; } // ignores the nudge: keeps the meeting going
+      yield init(); yield result(1, 0);
+    }, { repoRoot: "/repo", redeploy: { run, exit, exitDelayMs: 1, drainPollMs: 1, drainMeetingMs: 50, drainTimeoutMs: 60_000 } });
+    mossId = by("Moss").id;
+    const m = world.ops.createMeeting(null, { kind: "standup", buildingId: lab.id, startNow: true });
+    void runtime.onMeetingStart(m.id);
+    await vi.waitFor(() => expect(world.sessions.first("agentId = ? AND status = 'running' AND purpose = 'facilitate'", [mossId])).toBeTruthy());
+    expect(runtime.redeploy({ image: false, requestedBy: "Pix" })).toEqual({ started: true });
+    await vi.waitFor(() => expect(exit).toHaveBeenCalledWith(75));
+    const texts = redeployEvents(world).map((e) => e.text);
+    expect(texts).toContain("Redeploy: not waiting longer for meeting session(s): Moss; their meetings get a notice and resume after the restart");
+    expect(texts.some((t) => t.startsWith("Redeploy: drain timed out"))).toBe(false);
+    const after = world.meetings.require(m.id);
+    expect(after.phase).toBe("discussing");
+    expect(after.transcript.at(-1)).toMatchObject({ speakerKind: "system", text: "Moss's reply is waiting on a redeploy (commit abc123); the server is restarting and the meeting resumes after the restart." });
+    restarted.resolve(); // (a real restart kills the session here)
     await runtime.whenIdle();
   });
 });

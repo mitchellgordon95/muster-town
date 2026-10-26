@@ -71,6 +71,16 @@ export interface RedeployDeps {
    * the new build: the requester's own session otherwise deadlocks the drain). Called once per agent per drain. Default: none.
    */
   nudge?(agentId: string, text: string): void;
+  /**
+   * Whether the agent's live session is a meeting (a facilitation, or the manager's session held open by a 1:1). The drain
+   * waits for those only `drainMeetingMs`, then restarts anyway: the restart notice goes into the meeting and the meeting
+   * resumes after it (docs/meetings.md §6). Default: none are.
+   */
+  inMeeting?(agentId: string): boolean;
+  /** how long the drain waits on meeting sessions. Default 2 min. */
+  drainMeetingMs?: number;
+  /** called just before the exit (with the commit going live): post the restart notice into live meetings. Default: none. */
+  beforeRestart?(head: string | null): void;
   run?: CommandRunner;
   /** called with 75 after `exitDelayMs`; default process.exit (tests always inject one) */
   exit?: (code: number) => void;
@@ -104,9 +114,14 @@ export function drainNudge(requester: boolean): string {
   return `${requester ? "The redeploy you requested" : "A redeploy"} is waiting for your work session to end before it restarts the server. The new build cannot go live while you are running, so do not wait or poll for it: finish the step you are on, push, say in your report which commit should be live, submit the report, and stop. Verify on your next session.`;
 }
 
-/** What the drain tells a facilitator it waits on: close the meeting, don't wait for the build. */
+/** What the drain tells a facilitator it waits on: close a meeting no human is in; otherwise carry on, it resumes after the restart. */
 export function drainNudgeFacilitator(): string {
-  return "A redeploy is waiting for this meeting to end before it restarts the server (a restart mid-meeting would orphan your session). Wrap up now: record the decisions agreed so far with `meeting` action \"decide\", then `meeting` action \"end\" with a one-line closing, and stop. If a human is still talking, say that the server is about to restart and keep listening until they close it.";
+  return "A redeploy is waiting a couple of minutes for this meeting before it restarts the server. If no human is taking part, wrap up now: record the decisions agreed so far with `meeting` action \"decide\", then `meeting` action \"end\" with a one-line closing, and stop. If a human is talking, carry on: when the server restarts the town posts a notice in the meeting and a new session picks it up from the transcript.";
+}
+
+/** What the drain tells the manager answering a 1:1: keep talking; a restart cuts the session and the 1:1 resumes after it. */
+export function drainNudgeOneOnOne(): string {
+  return "A redeploy is pending and will restart the server in a couple of minutes, possibly mid-conversation. Keep answering the 1:1 as usual; don't submit a report or stop because of it. If you are cut off, the town posts a notice in the 1:1 and a new session picks it up after the restart with the lines you missed.";
 }
 
 const TAIL = 2000;
@@ -254,12 +269,24 @@ export function makeRedeployer(deps: RedeployDeps): Redeployer {
       };
       nudge(left);
       const until = Date.now() + timeoutMs;
+      const meetingsUntil = Date.now() + (deps.drainMeetingMs ?? 2 * 60_000);
+      /** meeting sessions the drain stopped waiting for: they are cut by the restart and resume after it */
+      const cut = new Set<string>();
       /** consecutive polls each agent was seen not `working`, and since when */
       const idle = new Map<string, { polls: number; since: number }>();
       const dropped = new Set<string>();
       while (left.length && Date.now() < until) {
         await new Promise<void>((r) => setTimeout(r, Math.min(deps.drainPollMs ?? 5000, Math.max(1, until - Date.now()))));
-        left = working().filter((id) => !dropped.has(id));
+        left = working().filter((id) => !dropped.has(id) && !cut.has(id));
+        // a meeting doesn't hold the deploy: past its grace, post the notice, restart, resume (a human may talk for an hour)
+        if (Date.now() >= meetingsUntil) {
+          const meeting = left.filter((id) => { try { return !!deps.inMeeting?.(id); } catch { return false; } });
+          if (meeting.length) {
+            for (const id of meeting) cut.add(id);
+            left = left.filter((id) => !cut.has(id));
+            say(`Redeploy: not waiting longer for meeting session(s): ${names(meeting)}; their meetings get a notice and resume after the restart`, { step: "drain", phase: "drain", meetings: meeting });
+          }
+        }
         // stale live state: an agent that is idle poll after poll isn't really working (its desk died, its session
         // was orphaned). One that filed its report may still be wrapping up (pushing), so it gets a grace period.
         for (const id of left) {
@@ -333,6 +360,7 @@ export function makeRedeployer(deps: RedeployDeps): Redeployer {
     const live = await head();
     run_ = { ...run_, state: "restarting", working: [], blocked: [], ...(live ? { head: live } : {}) };
     try { writeFileSync(donePath, JSON.stringify({ ...run_, ...(again ? { again } : {}) })); } catch { /* no repo dir (tests): the UI just won't hear "done" */ }
+    try { deps.beforeRestart?.(live); } catch (e) { console.log("[runtime] restart notice:", e instanceof Error ? e.message : e); }
     say("Redeploy: restarting server", { step: "restart", phase: "end", ok: true });
     await new Promise<void>((r) => setTimeout(r, deps.exitDelayMs ?? 500));
     try { unlinkSync(lockPath); } catch { /* already gone */ }

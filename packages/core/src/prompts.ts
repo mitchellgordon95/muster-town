@@ -215,8 +215,14 @@ export function managerNewReport(d: Doc, nameOf: (id: string) => string): string
 export function oneOnOnePrompt(meeting: Meeting, nameOf: (id: string) => string): string {
   const who = meeting.withUserId ? nameOf(meeting.withUserId) : "A human";
   const transcript = meeting.transcript.map((u) => `- ${nameOf(u.speakerId)}: ${u.text}`).join("\n");
+  // a pick-up: the human spoke after the manager's last line (its previous session was cut, e.g. by a redeploy's restart)
+  const lastMine = meeting.transcript.map((u) => u.speakerId).lastIndexOf(meeting.facilitatorId ?? "");
+  const missed = meeting.transcript.slice(lastMine + 1).filter((u) => u.speakerKind === "user");
+  const pickUp = lastMine >= 0 && missed.length
+    ? `\nYour previous session in this 1:1 was cut off (a server restart or a redeploy) and ${missed.length === 1 ? "this line after your last reply is" : `these ${missed.length} lines after your last reply are`} still unanswered:\n${missed.map((u) => `- ${nameOf(u.speakerId)}: ${u.text}`).join("\n")}\nAnswer ${missed.length === 1 ? "it" : "them"} now, in one reply: say in a few words that you're back after the restart, don't greet again or repeat what you already said.\n`
+    : "";
   return `${who} opened a 1:1 with you: meeting ${meeting.id}. This is a conversation, not a work session: you have no assignment.
-${transcript ? `\nSo far:\n${transcript}\n` : `\nThey haven't said anything yet; greet them in one line and ask what they need.\n`}
+${transcript ? `\nSo far:\n${transcript}\n${pickUp}` : `\nThey haven't said anything yet; greet them in one line and ask what they need.\n`}
 Answer with the \`meeting\` tool, action "speak", meetingId ${meeting.id}: short, plain, concrete. Their next messages arrive here as messages in this session, so don't \`listen\`; after you've spoken, stop and wait. When you agree on work, record it with action "decide" (a decision with an assigneeId becomes that agent's assignment) or use \`assign\`; say who and what in the meeting too. You can't do the work yourself here (no code or web tools). The human ends the 1:1, not you, and there is no report: don't call \`submit_report\` (the "Finish with submit_report" rule above is for work sessions).`;
 }
 

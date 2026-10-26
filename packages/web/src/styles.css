@@ -360,6 +360,7 @@ kbd { font-family: var(--mono); font-size: 11px; background: #2a2d3a; border: 1p
 .utt { background: #22252f; border-radius: 8px; padding: 6px 10px; font-size: 13px; max-width: 92%; }
 .utt.user { background: #2a2540; }
 .utt.me { align-self: flex-end; background: #23415f; }
+.utt.system { align-self: center; background: none; border: 1px dashed #3a3f4f; color: var(--faint); font-size: 12px; }
 .utt-head { display: flex; gap: 8px; align-items: baseline; font-size: 12px; margin-bottom: 1px; }
 .utt-head time { color: var(--faint); font-size: 11px; }
 .decisions { margin: 0; padding-left: 18px; font-size: 13px; }

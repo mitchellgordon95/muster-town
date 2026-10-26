@@ -603,8 +603,9 @@ export const MeetingDecision = z.object({
   waitFor: WaitFor.optional(),
 });
 export const MeetingUtterance = z.object({
+  /** `system` for a line the town posts itself (speakerId "system"), e.g. a reply waiting on a redeploy */
   speakerId: Id,
-  speakerKind: z.enum(["agent", "user"]),
+  speakerKind: z.enum(["agent", "user", "system"]),
   text: z.string(),
   at: Iso,
 });

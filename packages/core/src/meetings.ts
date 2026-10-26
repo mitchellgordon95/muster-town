@@ -162,6 +162,21 @@ export function meetingSpeak(world: World, actor: Agent, meetingId: string, text
   return updated;
 }
 
+/** The speakerId of a line the town posts itself (`speakerKind` "system"). */
+export const SYSTEM_SPEAKER = "system";
+
+/**
+ * A line the town posts into a live meeting itself, e.g. that the host's reply waits on a redeploy (docs/meetings.md §6).
+ * No mentions, no speaker checks; a meeting that isn't discussing is left alone (returns null).
+ */
+export function meetingNotice(world: World, meetingId: string, text: string): Meeting | null {
+  const m = world.meetings.get(meetingId);
+  if (!m || m.phase !== "discussing") return null;
+  const updated = world.meetings.upsert({ ...m, transcript: [...m.transcript, { speakerId: SYSTEM_SPEAKER, speakerKind: "system", text, at: nowIso() }] });
+  world.events.append({ type: "meeting.utterance", agentId: null, buildingId: m.buildingId, text: `Town: ${text.slice(0, 300)}`, payload: { meetingId: m.id, speakerId: SYSTEM_SPEAKER, speakerKind: "system" } });
+  return updated;
+}
+
 /** An agent facilitator may not end a meeting while a human spoke within this window; the human ends it (or goes quiet). */
 export const HUMAN_QUIET_MS = 5 * 60_000;
 

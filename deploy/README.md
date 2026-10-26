@@ -27,11 +27,17 @@ alternative; that box was deleted.
 - **CI and redeploy:** `.github/workflows/ci.yml` runs typecheck, tests and the web build on every PR and every push to `main`. A green `main`
   commit is fast-forwarded to the `prod` branch and the workflow POSTs `/api/admin/redeploy` as the "CI" visitor (an agent with the town
   `deployer` role and no inherited permissions; its token is the Actions secret `MUSTER_TOWN_DEPLOY_TOKEN`). The town's redeploy then does what
-  it always did (pull, install if the lockfile changed, build, drain up to 30 min, pull again, exit 75), but it pulls `prod`
+  it always did (pull, install if the lockfile changed, build, drain up to 30 min, pull again, exit 75; see the drain policy below), but it pulls `prod`
   (`MUSTER_TOWN_DEPLOY_BRANCH` in fly.town.toml), so a red commit on `main` never goes live. Residents of the Workshop push to `main` as before;
   nobody waits on a PR review; what they can't do is take the town down with a commit that fails its own tests. The `redeploy` verb and the
   planning desk button still work (they also pull `prod`), for a redeploy without a new commit. Rollback: `git revert` on main and let CI
   ship it; emergency: point `prod` at the last good sha and redeploy. A red run leaves the live town where it was and shows in the Actions tab.
+- **Drain policy:** the drain holds new work sessions and waits up to 30 min for running *work* sessions (a restart would orphan
+  them; at startup the orphans are stopped and their assignments re-queued). A *meeting* session (a facilitation, or the manager answering a 1:1)
+  holds it only 2 min (`drainMeetingMs`): a human can talk for an hour, so the deploy does not block on a meeting. Instead: post the notice,
+  restart, resume. Just before the exit every open meeting gets a "Town" line ("Pix's reply is waiting on a redeploy (commit …); … resumes after
+  the restart"), and after the restart the manager's session is woken for each open 1:1 with the lines it missed, and standups are
+  re-facilitated from their transcript. Details: docs/meetings.md §6.
 - **Migrate a town in:** stop the old server, `PRAGMA wal_checkpoint(TRUNCATE)`, `tar -czf RESTORE.tgz -C collectives/workshop data export`,
   `fly ssh sftp put RESTORE.tgz /data/RESTORE.tgz -a muster-town`, `fly machine restart <id> -a muster-town`. The entrypoint unpacks it into a
   scratch dir, checks `data/town.db` is in it, then swaps it in; the state it replaces stays at `/data/workshop/*.replaced-<stamp>` and the tarball
