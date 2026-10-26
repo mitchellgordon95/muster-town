@@ -22,9 +22,15 @@ type Row = Record<string, unknown>;
 /**
  * Maps one schema object type to one table. Every write is validated with the schema;
  * every read is parsed back through it (so defaults apply and bad rows fail loudly).
+ * Generated columns (e.g. the raw `tokens` total, the sum of the five token counters) are read but never written;
+ * `W` is what a write takes (T with those columns optional).
  */
-export class Table<T extends object> {
+export class Table<T extends object, W extends object = T> {
   readonly cols: string[];
+  /** generated columns: derived by the database, never written */
+  readonly generated: Set<string>;
+  /** the columns a write sets */
+  private readonly writeCols: string[];
   private readonly key: string;
   private readonly json: Set<string>;
   private readonly bool: Set<string>;
@@ -44,12 +50,16 @@ export class Table<T extends object> {
     this.json = new Set(opts.json ?? []);
     this.bool = new Set(opts.bool ?? []);
     this.nullable = new Set(this.cols.filter((c) => schema.shape[c].safeParse(null).success));
-    const have = new Set((db.prepare(`PRAGMA table_info("${name}")`).all() as { name: string }[]).map((r) => r.name));
+    // table_xinfo lists generated columns too (hidden 2 = virtual, 3 = stored)
+    const info = db.prepare(`PRAGMA table_xinfo("${name}")`).all() as { name: string; hidden: number }[];
+    const have = new Set(info.map((r) => r.name));
+    this.generated = new Set(info.filter((r) => r.hidden === 2 || r.hidden === 3).map((r) => r.name));
     const missing = this.cols.filter((c) => !have.has(c));
     if (missing.length) throw new Error(`[core] table ${name} is missing columns: ${missing.join(", ")}`);
-    const q = this.cols.map((c) => `"${c}"`).join(", ");
-    const ph = this.cols.map(() => "?").join(", ");
-    const set = this.cols.filter((c) => c !== this.key).map((c) => `"${c}" = excluded."${c}"`).join(", ");
+    this.writeCols = this.cols.filter((c) => !this.generated.has(c));
+    const q = this.writeCols.map((c) => `"${c}"`).join(", ");
+    const ph = this.writeCols.map(() => "?").join(", ");
+    const set = this.writeCols.filter((c) => c !== this.key).map((c) => `"${c}" = excluded."${c}"`).join(", ");
     this.upsertSql = `INSERT INTO "${name}" (${q}) VALUES (${ph}) ON CONFLICT("${this.key}") DO UPDATE SET ${set}`;
   }
 
@@ -61,7 +71,7 @@ export class Table<T extends object> {
 
   private toParams(o: T): unknown[] {
     const r = o as Row;
-    return this.cols.map((c) => {
+    return this.writeCols.map((c) => {
       const v = r[c];
       if (v === undefined || v === null) return null;
       if (this.json.has(c)) return JSON.stringify(v);
@@ -124,16 +134,18 @@ export class Table<T extends object> {
     return (this.stmt(sql).all(...params) as Row[]).map((r) => this.fromRow(r));
   }
 
-  upsert(obj: T, opts: { silent?: boolean } = {}): T {
-    const parsed = this.schema.parse(obj);
+  upsert(obj: W, opts: { silent?: boolean } = {}): T {
+    let parsed = this.schema.parse(obj);
     this.stmt(this.upsertSql).run(...this.toParams(parsed));
+    // read generated columns back rather than trust what the caller passed
+    if (this.generated.size) parsed = this.require(String((parsed as Row)[this.key]));
     if (!opts.silent) this.onChange?.(parsed);
     return parsed;
   }
 
   patch(id: string, patch: Partial<T>, opts: { silent?: boolean } = {}): T {
     const cur = this.require(id);
-    return this.upsert({ ...cur, ...patch }, opts);
+    return this.upsert({ ...cur, ...patch } as unknown as W, opts);
   }
 
   delete(id: string): void {

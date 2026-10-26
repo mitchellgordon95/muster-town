@@ -1,4 +1,4 @@
-import { AgentPermissionsPatch, WorkInput, type Agent, type Lot, type PlanInput, type Assignment, type Interrupt, type CreateBuildingInput, type UpdateBuildingInput, type CreateMeetingInput, type CreateResidentInput, type Doc, type Meeting, type Membership, type RegisterVisitorInput, type Session } from "@muster-town/schema";
+import { AgentPermissionsPatch, WorkInput, countsOf, splitRaw, type TokenCounts, type Agent, type Lot, type PlanInput, type Assignment, type Interrupt, type CreateBuildingInput, type UpdateBuildingInput, type CreateMeetingInput, type CreateResidentInput, type Doc, type Meeting, type Membership, type RegisterVisitorInput, type Session } from "@muster-town/schema";
 import { createAssignment, createDoc, homeOf, intrayCount, intrayOf, moveToFront, pendingQueue, plantFlag, sendMessage, setAssignmentStatus, townHallIntray, updateDoc } from "./domain.ts";
 import { CHECK_IN } from "./prompts.ts";
 import { createBuilding, createResident, createUser, ensureAvatar, planTown, registerVisitor, updateBuilding, updateFurniture } from "./entities.ts";
@@ -476,16 +476,20 @@ export class Ops {
     return session;
   }
 
-  /** Runtime: a session ended. A work session still `working` (no report) leaves the agent idle. Does not charge; call budget.charge. */
-  endSession(sessionId: string, result: { status: Exclude<Session["status"], "running">; tokens?: number; costUsd?: number; turns?: number; error?: string | null; sdkSessionId?: string | null; funding?: Session["funding"] }): Session {
+  /**
+   * Runtime: a session ended. A work session still `working` (no report) leaves the agent idle. Does not charge; call budget.charge.
+   * `counts` are the five token counters; a bare `tokens` (no breakdown) is split by the back-fill rule for the session's model.
+   */
+  endSession(sessionId: string, result: { status: Exclude<Session["status"], "running">; counts?: TokenCounts; byModel?: Record<string, TokenCounts>; tokens?: number; costUsd?: number; turns?: number; error?: string | null; sdkSessionId?: string | null; funding?: Session["funding"] }): Session {
     const s = this.world.sessions.require(sessionId, "session");
+    const counts = result.counts ? countsOf(result.counts) : result.tokens !== undefined ? splitRaw(result.tokens, s.model) : countsOf(s);
     const session = this.world.sessions.upsert({
-      ...s, status: result.status, tokens: result.tokens ?? s.tokens, costUsd: result.costUsd ?? s.costUsd, turns: result.turns ?? s.turns,
+      ...s, ...counts, status: result.status, costUsd: result.costUsd ?? s.costUsd, turns: result.turns ?? s.turns,
       error: result.error ?? null, sdkSessionId: result.sdkSessionId ?? s.sdkSessionId, endedAt: nowIso(), funding: result.funding ?? s.funding ?? null,
     });
     const agent = this.world.agents.require(s.agentId, "agent");
     if (agent.status === "working") this.world.setStatus(agent.id, "idle");
-    this.world.events.append({ type: "session.ended", agentId: agent.id, buildingId: homeOf(agent), text: `${agent.name}'s ${s.purpose} session ended (${result.status})`, payload: { sessionId, status: result.status, tokens: session.tokens, costUsd: session.costUsd, turns: session.turns, reportId: session.reportId, error: session.error } });
+    this.world.events.append({ type: "session.ended", agentId: agent.id, buildingId: homeOf(agent), text: `${agent.name}'s ${s.purpose} session ended (${result.status})`, payload: { sessionId, status: result.status, model: session.model, tokens: session.tokens, ...countsOf(session), ...(result.byModel ? { byModel: result.byModel } : {}), costUsd: session.costUsd, turns: session.turns, reportId: session.reportId, error: session.error } });
     return session;
   }
 

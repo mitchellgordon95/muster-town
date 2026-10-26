@@ -1,4 +1,4 @@
-import { AddBankInput, CreateBankPoolInput, DEFAULT_POOL_ID, UpdateBankPoolInput, type BankCredit, type BankInput, type BankPool, type BankRecurrence, type Agent, type Building } from "@muster-town/schema";
+import { AddBankInput, CreateBankPoolInput, DEFAULT_POOL_ID, UpdateBankPoolInput, countsOf, rawTokens, sliceTokens, splitRaw, subTokens, toCounts, type TokenCounts, type BankCredit, type BankInput, type BankPool, type BankRecurrence, type Agent, type Building } from "@muster-town/schema";
 import { badRequest, forbidden } from "./errors.ts";
 import type { EventLog } from "./events.ts";
 import type { Holder, Permissions } from "./permissions.ts";
@@ -122,7 +122,7 @@ export class Bank {
     });
     if (inp.apiKey) row = this.repos.bankInputs.setApiKey(row.id, inp.apiKey);
     const what = inp.recurrence === "once" ? "once" : inp.recurrence;
-    this.events.append({ type: "bank.input", text: `${user.name} added ${inp.label} to the Bank (${inp.tokens.toLocaleString("en-US")} tokens, ${what})`, payload: { inputId: row.id, userId, source: inp.source, recurrence: inp.recurrence, tokens: inp.tokens } });
+    this.events.append({ type: "bank.input", text: `${user.name} added ${inp.label} to the Bank (${inp.tokens.toLocaleString("en-US")} tokens, ${what})`, payload: { inputId: row.id, userId, source: inp.source, recurrence: inp.recurrence, tokens: inp.tokens, ...splitRaw(inp.tokens, inp.model) } });
     this.creditDue(now);
     return this.repos.bankInputs.require(row.id, "bank input");
   }
@@ -171,9 +171,11 @@ export class Bank {
       if (amount <= 0) continue;
       // a subscription's credit lasts until its next daily renewal: unused quota doesn't roll over
       const expiresAt = inp.source === "subscription" ? next?.toISOString() ?? null : null;
-      this.repos.bankCredits.upsert({ id: newId("bc"), inputId: inp.id, tokens: amount, createdAt: now.toISOString(), expiresAt });
+      // an input's size is a raw number until step 3: its credit is split by the back-fill rule (docs/bank.md)
+      const counts = splitRaw(amount, inp.model);
+      const credit = this.repos.bankCredits.upsert({ id: newId("bc"), inputId: inp.id, ...counts, createdAt: now.toISOString(), expiresAt });
       total += amount;
-      this.events.append({ type: "bank.credited", text: `${inp.label} credited ${amount.toLocaleString("en-US")} tokens to the Bank`, payload: { inputId: inp.id, tokens: amount } });
+      this.events.append({ type: "bank.credited", text: `${inp.label} credited ${amount.toLocaleString("en-US")} tokens to the Bank`, payload: { inputId: inp.id, creditId: credit.id, tokens: credit.tokens, ...counts } });
     }
     return total;
   }
@@ -350,26 +352,37 @@ export class Bank {
 
   /**
    * Draw up to `tokens` for a building's session from its pool: the pool's share of expiring credits first (soonest
-   * to expire first), then its durable share. Returns what's left undrawn. With `overshoot`, the rest is drawn from
-   * the durable share anyway (sessions may run past what's left; there is no hard stop).
+   * to expire first), then its durable share. Returns the raw tokens left undrawn. With `overshoot`, the rest is drawn
+   * from the durable share anyway (sessions may run past what's left; there is no hard stop). A bare number is split
+   * by the back-fill rule; see `drawTokens` for the breakdown left.
    */
-  draw(buildingId: string, agentId: string, tokens: number, opts: { overshoot?: boolean; now?: Date } = {}): number {
+  draw(buildingId: string, agentId: string, tokens: number | TokenCounts, opts: { overshoot?: boolean; now?: Date } = {}): number {
+    return rawTokens(this.drawTokens(buildingId, agentId, toCounts(tokens), opts));
+  }
+
+  /**
+   * `draw` by kind: each debit takes its raw size proportionally from every counter (sliceTokens), so the debits'
+   * counters add up to what was drawn, kind by kind. Returns the counters left undrawn.
+   */
+  drawTokens(buildingId: string, agentId: string, tokens: TokenCounts, opts: { overshoot?: boolean; now?: Date } = {}): TokenCounts {
     const now = opts.now ?? new Date();
-    let left = Math.round(tokens);
+    let left = countsOf(tokens);
     const pool = this.drawPool(buildingId);
     const frac = pool ? (this.shares().get(pool.id)?.pct ?? 0) / 100 : 0;
-    if (left <= 0 || !pool || frac <= 0) return Math.max(0, left);
+    if (rawTokens(left) <= 0 || !pool || frac <= 0) return left;
     const debit = (creditId: string | null, t: number) => {
-      this.repos.bankDebits.upsert({ id: newId("bd"), buildingId, poolId: pool.id, agentId, creditId, tokens: t, createdAt: now.toISOString() });
-      left -= t;
+      const part = sliceTokens(left, t);
+      this.repos.bankDebits.upsert({ id: newId("bd"), buildingId, poolId: pool.id, agentId, creditId, ...part, createdAt: now.toISOString() });
+      left = subTokens(left, part);
     };
     for (const c of this.live(now)) {
-      if (!c.expiresAt || left <= 0) continue;
+      if (!c.expiresAt || rawTokens(left) <= 0) continue;
       const room = Math.floor(c.tokens * frac) - this.debited("poolId = ? AND creditId = ?", [pool.id, c.id]);
-      if (room > 0) debit(c.id, Math.min(room, left));
+      if (room > 0) debit(c.id, Math.min(room, rawTokens(left)));
     }
     const durable = this.poolAvailable(pool.id, now).durable;
-    if (left > 0 && (durable > 0 || opts.overshoot)) debit(null, opts.overshoot ? left : Math.min(durable, left));
+    const rest = rawTokens(left);
+    if (rest > 0 && (durable > 0 || opts.overshoot)) debit(null, opts.overshoot ? rest : Math.min(durable, rest));
     return left;
   }
 
