@@ -48,7 +48,42 @@ describe("redeploy", () => {
     h.r.redeploy({ image: true, requestedBy: "Pix" });
     await h.r.done();
     expect(h.runner.calls.some((c) => c.startsWith("docker"))).toBe(false);
-    expect(h.texts()).toContain("Redeploy: desk image … skipped (this host runs sandbox desks; the image is built and pushed from outside the town, see fly.desk.toml)");
+    expect(h.texts()).toContain("Redeploy: desk image … skipped (this host runs sandbox desks and has no desk-app deploy token, FLY_DESKS_ACCESS_TOKEN; push it from outside, see fly.desk.toml)");
+    expect(h.exit).toHaveBeenCalledWith(75);
+  });
+
+  test("on a sandbox-desk host with a deploy token the image is pushed (token in the env, not the argv) and idle desks recreated", async () => {
+    const { world } = setup(async function* () { yield result(1, 0); });
+    const seen: [string, Record<string, string> | undefined][] = [];
+    const run: CommandRunner = async (cmd, args, opts) => {
+      seen.push([[cmd, ...args].join(" "), opts.env]);
+      return ok(cmd === "git" && args[0] === "rev-parse" ? "abc\n" : cmd === "git" && args[0] === "rev-list" ? "0\n" : "");
+    };
+    const recreateDesks = vi.fn(async () => ({ removed: ["desk-a"], kept: [] }));
+    const exit = vi.fn();
+    const r = makeRedeployer({ world, repoRoot: "/repo", collective: "c", image: "x", imageBuild: false, isWorking: () => false, run, exit, exitDelayMs: 1,
+      imagePushEnv: () => ({ FLY_ACCESS_TOKEN: "tok" }), recreateDesks });
+    r.redeploy({ image: true, requestedBy: "Root" });
+    await r.done();
+    const push = seen.filter(([c]) => c === "bash scripts/fly-desk-image.sh");
+    expect(push).toHaveLength(1);
+    expect(push[0]![1]).toEqual({ FLY_ACCESS_TOKEN: "tok" });
+    expect(seen.some(([c]) => c.includes("tok"))).toBe(false);
+    expect(recreateDesks).toHaveBeenCalledTimes(1);
+    const texts = world.events.recent({ limit: 200 }).map((e) => e.text);
+    expect(texts).toContain("Redeploy: push desk image … ok");
+    expect(texts).toContain("Redeploy: removed the desk Machines of 1 idle resident(s), home volumes kept; each is recreated from the new image on next use");
+    expect(exit).toHaveBeenCalledWith(75);
+  });
+
+  test("a failed desk image push doesn't stop the code deploy, and the desks are left alone", async () => {
+    const recreateDesks = vi.fn(async () => ({ removed: [], kept: [] }));
+    const h = harness([...base(), ["bash scripts/fly-desk-image.sh", { code: 1, stdout: "", stderr: "builder down" }]], [],
+      { imageBuild: false, imagePushEnv: () => ({ FLY_ACCESS_TOKEN: "tok" }), recreateDesks });
+    h.r.redeploy({ image: true, requestedBy: "Root" });
+    await h.r.done();
+    expect(h.texts()).toContain("Redeploy: push desk image … failed (exit 1); the desks keep their image");
+    expect(recreateDesks).not.toHaveBeenCalled();
     expect(h.exit).toHaveBeenCalledWith(75);
   });
 
