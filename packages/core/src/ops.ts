@@ -7,6 +7,7 @@ import { AppError, badRequest, forbidden } from "./errors.ts";
 import { createMeeting, createOneOnOne, endMeeting, meetingDecide, meetingSpeak, noteHumanTyping, setMeetingPhase } from "./meetings.ts";
 import { replyToReport, type ReplyResult } from "./reply.ts";
 import { newId, nowIso } from "./util.ts";
+import { sessionView, unknownModels } from "./bank.ts";
 import { validateWait } from "./waits.ts";
 import type { World } from "./world.ts";
 
@@ -20,6 +21,9 @@ export interface MessageAgentOptions {
 }
 export interface MessageAgentResult { mode: "interrupted" | "queued" | "started"; messageId: string; assignmentId?: string }
 export interface ThreadMessage { id: string; fromId: string; toId: string; from: string; mine: boolean; body: string; at: string }
+
+/** Models already warned about this process (Bank step 2: an unknown model is priced as Opus 5.5). */
+const warnedModels = new Set<string>();
 
 const messageTail = (avatarId: string) => `\n\nReply to them first with \`tell\` (their avatar id is ${avatarId}), keep it short, then do what the message asks. If it asks you to delegate and you hold the assign permission, use \`assign\`. If it is just a conversation, reply and finish with a short report ending "Nothing needed".`;
 
@@ -486,10 +490,17 @@ export class Ops {
     const session = this.world.sessions.upsert({
       ...s, ...counts, status: result.status, costUsd: result.costUsd ?? s.costUsd, turns: result.turns ?? s.turns,
       error: result.error ?? null, sdkSessionId: result.sdkSessionId ?? s.sdkSessionId, endedAt: nowIso(), funding: result.funding ?? s.funding ?? null,
+      byModel: result.byModel && Object.keys(result.byModel).length ? result.byModel : s.byModel ?? null,
     });
     const agent = this.world.agents.require(s.agentId, "agent");
     if (agent.status === "working") this.world.setStatus(agent.id, "idle");
-    this.world.events.append({ type: "session.ended", agentId: agent.id, buildingId: homeOf(agent), text: `${agent.name}'s ${s.purpose} session ended (${result.status})`, payload: { sessionId, status: result.status, model: session.model, tokens: session.tokens, ...countsOf(session), ...(result.byModel ? { byModel: result.byModel } : {}), costUsd: session.costUsd, turns: session.turns, reportId: session.reportId, error: session.error } });
+    this.world.events.append({ type: "session.ended", agentId: agent.id, buildingId: homeOf(agent), text: `${agent.name}'s ${s.purpose} session ended (${result.status})`, payload: { sessionId, status: result.status, model: session.model, tokens: session.tokens, ...countsOf(session), ...(result.byModel ? { byModel: result.byModel } : {}), adjustedOutputTokens: sessionView(session).adjustedOutputTokens, costUsd: session.costUsd, turns: session.turns, reportId: session.reportId, error: session.error } });
+    // Bank step 2: a model the price table doesn't know is priced as Opus 5.5; say so once per model per process
+    const unknown = unknownModels(session.model, session.byModel).filter((m) => !warnedModels.has(m));
+    if (unknown.length) {
+      for (const m of unknown) warnedModels.add(m);
+      this.world.events.append({ type: "system", agentId: agent.id, buildingId: homeOf(agent), text: `Bank: no list price for ${unknown.join(", ")}; its tokens are priced as Opus 5.5 (add it to TOKEN_PRICES in core/src/bank.ts)`, payload: { warning: "unknown-model", models: unknown, sessionId } });
+    }
     return session;
   }
 

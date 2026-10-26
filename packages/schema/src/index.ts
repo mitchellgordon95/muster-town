@@ -781,6 +781,8 @@ export const Session = z.object({
   /** the five counters (Bank grant step 1); `tokens` is their sum, derived by the database */
   ...TOKEN_COUNTS_SHAPE,
   tokens: z.number().int().default(0),
+  /** the five counters per model id, when the session reported them (Bank step 2 prices each model at its own list price) */
+  byModel: z.record(z.string(), TokenCounts).nullish(),
   costUsd: z.number().default(0),
   turns: z.number().int().default(0),
   reportId: Id.nullable().default(null),
@@ -795,6 +797,8 @@ export const Session = z.object({
   grantId: Id.nullish(),
 });
 export type Session = z.infer<typeof Session>;
+/** A session as the API serves it: with `adjustedOutputTokens` (Bank step 2), derived on read, never stored. */
+export type SessionView = Session & { adjustedOutputTokens: number };
 
 /** A human's message for an agent whose session runs outside the server process (queued; the desk polls). */
 export const Interrupt = z.object({

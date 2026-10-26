@@ -1,4 +1,4 @@
-import { AppError, blockedBy, logOf, suggestResidentName, townBlocked, topicsOf, wikiOf, type World } from "@muster-town/core";
+import { AppError, blockedBy, logOf, sessionView, suggestResidentName, townBlocked, topicsOf, wikiOf, type World } from "@muster-town/core";
 import { AgentModelPatch, AgentPermissionsPatch, ChatInput, CreateResidentInput, Event, InterruptInput, MessageAgentInput, RegisterVisitorInput, WorkInput, type Agent, type Session } from "@muster-town/schema";
 import type { FastifyInstance, FastifyRequest } from "fastify";
 import { z } from "zod";
@@ -104,7 +104,7 @@ export async function agentRoutes(app: FastifyInstance) {
       memoryTopics: topicsOf(world, agent.id),
       ...(canSeeMemory(req, agent) ? { memory: { wiki: wikiOf(world, agent.id), log: logOf(world, agent.id) ?? null } } : {}),
       recentEvents: world.events.recent({ agentId: agent.id, limit: 50 }),
-      currentSession: world.ops.currentSession(agent.id) ?? null,
+      currentSession: ((s) => (s ? sessionView(s) : null))(world.ops.currentSession(agent.id)),
       latestReport: world.docs.first("type = 'report' AND authorId = ?", [agent.id], "ORDER BY createdAt DESC, rowid DESC") ?? null,
       // active, then the queue in run order, then history newest first
       // a queued one that can't start says why: blockedBy {kind, targetId, text, agentId | placeId}
@@ -122,7 +122,7 @@ export async function agentRoutes(app: FastifyInstance) {
   app.get<{ Params: Params }>("/api/agents/:id/session", async (req) => {
     const agent = world.agents.require(req.params.id, "agent");
     const session = world.ops.currentSession(agent.id) ?? null;
-    return { session, transcript: session ? sessionTranscript(world, session) : [] };
+    return { session: session ? sessionView(session) : null, transcript: session ? sessionTranscript(world, session) : [] };
   });
 
   app.post<{ Params: Params }>("/api/agents/:id/work", async (req, reply) => {

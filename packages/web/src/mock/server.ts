@@ -1,6 +1,6 @@
 /** `Api` implemented against the in-memory Sim. Same interface as HttpApi, so every panel works offline. */
 import type { Agent, Assignment, AuthMe, Building, Doc, Event, Meeting, Membership, RedeployLive } from "@muster-town/schema";
-import { BOARD_TYPES, DEFAULT_POOL_ID, splitRaw, type BankPool } from "@muster-town/schema";
+import { BACKFILL, BOARD_TYPES, DEFAULT_POOL_ID, ZERO_TOKENS, addTokens, backfillFamily, splitRaw, type BankPool } from "@muster-town/schema";
 import type { Api, AgentDetail, AllocationRow, Bank, Budget, Cabinet, CabinetQuery, DocQuery, EventQuery, In, LayoutPreview, MessageResult, PlanPreview, RoomLayout, RequestAction, Snapshot, Socket, SocketHandlers, ThreadMessage, WriteDocInput } from "../api";
 import { ApiError } from "../api";
 import type { PinSkillInput, PutSecretInput, SecretView, SkillPinView, SkillView } from "@muster-town/schema";
@@ -106,7 +106,7 @@ export class MockApi implements Api {
     return clone({
       agent, recentEvents: this.sim.events.filter((e) => e.agentId === id).slice(-50),
       permissions: { inheritsOwner: agent.inheritsOwner, deniedPermissions: agent.deniedPermissions, ownerUserId: agent.ownerUserId, ownerName: null, canEdit: false, canSetModel: agent.kind === "resident" }, effectivePermissions: [],
-      currentSession: agent.status === "working" ? { id: `se_${id}`, agentId: id, assignmentId: agent.currentAssignmentId, meetingId: null, purpose: "work" as const, backend: "host" as const, status: "running" as const, model: agent.model ?? "claude-opus-5-5", sdkSessionId: null, ...splitRaw(agent.spentTokensToday, agent.model), tokens: agent.spentTokensToday, costUsd: agent.spentUsdTotal, turns: 12, reportId: null, error: null, startedAt: new Date(Date.now() - 15 * 60_000).toISOString(), endedAt: null } : null,
+      currentSession: agent.status === "working" ? { id: `se_${id}`, agentId: id, assignmentId: agent.currentAssignmentId, meetingId: null, purpose: "work" as const, backend: "host" as const, status: "running" as const, model: agent.model ?? "claude-opus-5-5", sdkSessionId: null, ...splitRaw(agent.spentTokensToday, agent.model), tokens: agent.spentTokensToday, adjustedOutputTokens: Math.round(agent.spentTokensToday / BACKFILL[backfillFamily(agent.model)].ratio), costUsd: agent.spentUsdTotal, turns: 12, reportId: null, error: null, startedAt: new Date(Date.now() - 15 * 60_000).toISOString(), endedAt: null } : null,
       latestReport: reports[0] ?? null,
       memoryTopics: memoryDocs.filter((d) => d.authorId === id && d.type === "wiki").map((d) => d.title),
       memory: { wiki: memoryDocs.filter((d) => d.authorId === id && d.type === "wiki"), log: memoryDocs.find((d) => d.authorId === id && d.type === "log") ?? null },
@@ -518,11 +518,15 @@ export class MockApi implements Api {
       const bankTokens = this.bankInputs.filter((i) => i.userId === u.id).reduce((s, i) => s + i.creditedTokens, 0);
       return { userId: u.id, name: u.name, tokens: bankTokens + u.donatedTokens, bankTokens, donatedTokens: u.donatedTokens };
     }).filter((c) => c.tokens > 0).sort((a, b) => b.tokens - a.tokens);
+    // the back-fill split prices at exactly raw / ratio (docs/bank.md), so the mock's adjusted figure is that ratio
+    const inputs = this.bankInputs.map((i) => ({ ...i, userName: this.sim.users.find((u) => u.id === i.userId)?.name ?? i.userId, creditedCounts: splitRaw(i.creditedTokens, i.model), adjustedCreditedTokens: Math.round(i.creditedTokens / BACKFILL[backfillFamily(i.model)].ratio) }));
     const dailyInflowTokens = live.reduce((s, i) => s + (i.recurrence === "daily" ? i.tokens : i.recurrence === "weekly" ? i.tokens / 7 : i.recurrence === "monthly" ? i.tokens / 30 : 0), 0);
     return clone({
       balanceTokens: expiringTokens + durableTokens, expiringTokens, durableTokens, heldTokens, heldByAuth, townTokens: expiringTokens + durableTokens + heldTokens, dailyInflowTokens: Math.round(dailyInflowTokens),
       creditedTokens: this.bankInputs.reduce((s, i) => s + i.creditedTokens, 0),
-      inputs: this.bankInputs.map((i) => ({ ...i, userName: this.sim.users.find((u) => u.id === i.userId)?.name ?? i.userId })),
+      creditedCounts: inputs.reduce((s, i) => addTokens(s, i.creditedCounts), { ...ZERO_TOKENS }),
+      adjustedCreditedTokens: inputs.reduce((s, i) => s + i.adjustedCreditedTokens, 0),
+      inputs,
       pools, buildings, contributors,
     });
   }

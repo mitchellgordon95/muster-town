@@ -1,6 +1,6 @@
 # The Bank: token counters
 
-Bank grant gr_iq5m7dug56 moves the Bank from one raw token number to what tokens actually cost. Plan: dc_2uqmfdittg. Step 1 (this note) records the breakdown everywhere; step 2 (`adjustedOutputTokens` in `core/src/bank.ts`) puts a price on it. Until step 2 ships, a token is still worth one raw token: every total, balance and budget reads exactly as before.
+Bank grant gr_iq5m7dug56 moves the Bank from one raw token number to what tokens actually cost. Plan: dc_2uqmfdittg. Step 1 (this note) records the breakdown everywhere; step 2 (`adjustedOutputTokens` in `core/src/bank.ts`) puts a price on it. Step 2 derives the adjusted figure and shows it next to the raw one; nothing is charged in it yet (step 3), so every total, balance and budget still reads in raw tokens.
 
 ## The five counters (step 1)
 
@@ -44,3 +44,34 @@ A row with only a raw total (every row from before migration 034, a credit from 
 Which model is used: a session uses its own `model`. A credit uses its input's model. Usage rows, debits and allocation spend have no model and count as Opus. The same rule is `splitRaw` in TypeScript and the SQL in migration 034.
 
 Tests: `core/test/token-counters.test.ts` (back-fill math, booking by kind, `session.ended`), `core/test/budget.test.ts` (034 back-fills the ledger), `runtime/test/usage.test.ts` (SDK fields), `server/test/desk.test.ts` (session-end with counters).
+
+## Adjusted output tokens (step 2)
+
+`adjustedOutputTokens(model, counts)` in `packages/core/src/bank.ts` = `output + Σ weight(model, kind) × count`, rounded, where a kind's weight is its list price over the model's output price. It is derived wherever it's shown and never stored.
+
+Prices: `TOKEN_PRICES` in `core/src/bank.ts`, the one table (step 4's drift job reads it too), from https://platform.claude.com/docs/en/about-claude/pricing, fetched 2026-10-26. USD per million tokens:
+
+| family (model ids) | input | output | cache read | cache write 5m | cache write 1h | weights in / read / 5m / 1h |
+|---|---|---|---|---|---|---|
+| Fable 5.1, Mythos 5.1 (`claude-fable-5-1`) | 10 | 50 | 0.25 | 12.50 | 20 | 0.2 / 0.005 / 0.25 / 0.4 |
+| Fable 5, Mythos 5 | 10 | 50 | 1 | 12.50 | 20 | 0.2 / 0.02 / 0.25 / 0.4 |
+| Opus 5.5 (`claude-opus-5-5`) | 4 | 20 | 0.20 | 5 | 8 | 0.2 / 0.01 / 0.25 / 0.4 |
+| Opus 5, 4.5 to 4.8 | 5 | 25 | 0.50 | 6.25 | 10 | 0.2 / 0.02 / 0.25 / 0.4 |
+| Opus 4, 4.1 | 15 | 75 | 1.50 | 18.75 | 30 | 0.2 / 0.02 / 0.25 / 0.4 |
+| Sonnet 5.5 (`claude-sonnet-5-5`) | 2 | 10 | 0.10 | 2.50 | 4 | 0.2 / 0.01 / 0.25 / 0.4 |
+| Sonnet 5 | 2 | 10 | 0.20 | 2.50 | 4 | 0.2 / 0.02 / 0.25 / 0.4 |
+| Sonnet 4, 4.5, 4.6 | 3 | 15 | 0.30 | 3.75 | 6 | 0.2 / 0.02 / 0.25 / 0.4 |
+| Haiku 5.5 (`claude-haiku-5-5`), prompts ≤100k | 0.10 | 0.50 | 0.01 | 0.125 | 0.20 | 0.2 / 0.02 / 0.25 / 0.4 |
+| Haiku 4.5 | 1 | 5 | 0.10 | 1.25 | 2 | 0.2 / 0.02 / 0.25 / 0.4 |
+| Haiku 3.5 | 0.80 | 4 | 0.08 | 1 | 1.60 | 0.2 / 0.02 / 0.25 / 0.4 |
+
+Haiku 5.5 over 100k-token prompts costs 5× every column, so its weights are the same. A bare alias (`opus`, `fable`, …) is the family's latest. An unknown or missing model is priced as Opus 5.5, and `session.ended` for an unknown model id posts one `system` event (`payload.warning: "unknown-model"`) per model per server process.
+
+A session with several models (a Fable session's Haiku subagent) keeps `byModel` (migration 035); each model's counters are priced at that model's list price and the sum is expressed in the session model's output tokens (`adjustedOfUsage`).
+
+Where it shows (always next to `tokens` and the five counters):
+- `GET /api/sessions?agentId=&limit=` (new; newest first), `GET /api/agents/:id` `currentSession`, `GET /api/agents/:id/session`.
+- events: `session.ended`, `bank.input`, `bank.credited` carry `adjustedOutputTokens`.
+- `GET /api/bank` (the Bank page's payload): `creditedCounts` and `adjustedCreditedTokens`, overall and per input.
+
+Calibration (2026-10-26, the last 50 `session.ended` with a `costUsd`, 16:41 to 20:30 UTC): for the 4 sessions with a real breakdown, list cost of the counters / `costUsd` = 1.000 (all four within 0.1%). The 46 back-filled ones (desks before step 1 posted only a raw total) are priced at raw / 30 (Opus) or raw / 24 (Fable) by the back-fill rule; against their real cost that is a median 0.85 (p10 0.55, p90 1.36, n 13) for Opus and 0.69 (0.46 to 1.41, n 33) for Fable. Their real raw tokens per adjusted output token: Opus median 25.6 (p10 16.4, p90 40.7), Fable 16.5 (11.0 to 33.7), against the assumed 30 and 24.

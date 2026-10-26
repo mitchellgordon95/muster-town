@@ -5,7 +5,7 @@
 import type { z } from "zod";
 import type {
   Agent, Allocation, Assignment, AuthMe, RedeployLive, Building, ClientMessage, DesksConfig, Doc, Event, Lot, Meeting, Place, Role, Membership, SessionSlots, Tile,
-  ServerMessage, Session, Town, CreateBuildingInput, UpdateBuildingInput, CreateResidentInput,
+  ServerMessage, SessionView, TokenCounts, Town, CreateBuildingInput, UpdateBuildingInput, CreateResidentInput,
   ReviewInput, PinSkillInput, SkillPinView, SkillView, PutSecretInput, SecretView, ChatInput, WorkInput, DonateInput, AddBankInput, BankInput, CreateBankPoolInput, UpdateBankPoolInput, CreateMeetingInput, DocState, DocType, Mailbox, Permission, DecideGrantInput, GrantView, KeyResult, CreateKeyResultInput, UpdateKeyResultInput, Stoplight,
 } from "@muster-town/schema";
 
@@ -16,7 +16,7 @@ export type Grid = Snapshot["grid"];
 export interface AgentDetail {
   agent: Agent;
   recentEvents: Event[];
-  currentSession: Session | null;
+  currentSession: SessionView | null;
   latestReport: Doc | null;
   /** titles of the agent's wiki pages: what it knows (public) */
   memoryTopics?: string[];
@@ -88,8 +88,12 @@ export interface Bank {
   /** balanceTokens + heldTokens */
   townTokens: number;
   creditedTokens: number;
+  /** what the inputs credited as the five counters; creditedTokens is their raw total */
+  creditedCounts: TokenCounts;
+  /** creditedTokens in adjusted output tokens (Bank step 2: derived at list-price weights, never stored) */
+  adjustedCreditedTokens: number;
   dailyInflowTokens: number;
-  inputs: (BankInput & { userName: string })[];
+  inputs: (BankInput & { userName: string; creditedCounts: TokenCounts; adjustedCreditedTokens: number })[];
   pools: BankPoolSummary[];
   buildings: BankBuildingShare[];
   contributors: BankContributor[];
@@ -179,7 +183,7 @@ export interface Api {
   setAgentPermissions(id: string, patch: { inheritsOwner?: boolean; deniedPermissions?: Permission[] }): Promise<Pick<AgentDetail, "agent" | "effectivePermissions" | "permissions">>;
   /** null = its home building's model */
   setAgentModel(id: string, model: string | null): Promise<Pick<AgentDetail, "agent" | "effectivePermissions" | "permissions">>;
-  session(id: string): Promise<{ session: Session | null; transcript: Event[] }>;
+  session(id: string): Promise<{ session: SessionView | null; transcript: Event[] }>;
   work(id: string, input: In<typeof WorkInput>): Promise<Assignment | null>;
   /** Message the agent's session: queued for the next turn boundary, or `now` to stop the current turn first. */
   interrupt(id: string, text: string, now?: boolean): Promise<void>;
@@ -374,7 +378,7 @@ export class HttpApi implements Api {
   agent(id: string) { return this.get<AgentDetail>(`/api/agents/${id}`); }
   setAgentPermissions(id: string, patch: { inheritsOwner?: boolean; deniedPermissions?: Permission[] }) { return this.call<Pick<AgentDetail, "agent" | "effectivePermissions" | "permissions">>("PATCH", `/api/agents/${id}/permissions`, patch); }
   setAgentModel(id: string, model: string | null) { return this.call<Pick<AgentDetail, "agent" | "effectivePermissions" | "permissions">>("PATCH", `/api/agents/${id}/model`, { model }); }
-  session(id: string) { return this.get<{ session: Session | null; transcript: Event[] }>(`/api/agents/${id}/session`); }
+  session(id: string) { return this.get<{ session: SessionView | null; transcript: Event[] }>(`/api/agents/${id}/session`); }
   async work(id: string, i: In<typeof WorkInput>) { return unwrap<Assignment | null>(await this.post(`/api/agents/${id}/work`, i), "assignment"); }
   async interrupt(id: string, text: string, now = false) { await this.post(`/api/agents/${id}/interrupt`, { text, now }); }
   async chat(id: string, i: In<typeof ChatInput>) { return (await this.post<{ reply: string }>(`/api/agents/${id}/chat`, i)).reply; }

@@ -1,4 +1,4 @@
-import { AppError, boardDocs, cabinetCounts, cabinetDocs } from "@muster-town/core";
+import { AppError, boardDocs, sessionView, cabinetCounts, cabinetDocs } from "@muster-town/core";
 import { AddBankInput, CreateBankPoolInput, CreateBuildingInput, DesksPatch, UpdateBankPoolInput, DocType, DonateInput, LayoutInput, Membership, PlanInput, PlantFlagInput, RedeployInput, UpdateBuildingInput, townEnv, type AuthMe, type RedeployLive } from "@muster-town/schema";
 import type { FastifyInstance, FastifyRequest } from "fastify";
 import { z } from "zod";
@@ -10,6 +10,7 @@ const EventsQuery = z.object({
   buildingId: z.string().optional(),
   limit: z.coerce.number().int().positive().max(1000).default(100),
 });
+const SessionsQuery = z.object({ agentId: z.string().optional(), limit: z.coerce.number().int().positive().max(200).default(50) });
 const LimitQuery = z.object({ limit: z.coerce.number().int().positive().max(200).default(30) });
 const CabinetQuery = LimitQuery.extend({ type: DocType.optional(), authorId: z.string().optional() });
 
@@ -61,6 +62,18 @@ export async function townRoutes(app: FastifyInstance) {
     const base = { agentId: q.agentId, buildingId: q.buildingId, limit: q.limit };
     const events = q.since !== undefined ? world.events.list({ ...base, since: q.since }) : world.events.recent(base);
     return { events };
+  });
+
+  /**
+   * Sessions, newest first (`agentId` narrows to one agent): each with the raw `tokens`, the five counters, `byModel` and
+   * `adjustedOutputTokens` (Bank step 2, derived from the counters at list-price weights, never stored).
+   */
+  app.get("/api/sessions", async (req) => {
+    const q = parse(SessionsQuery, req.query);
+    const rows = q.agentId
+      ? world.sessions.where("agentId = ?", [q.agentId], `ORDER BY startedAt DESC, rowid DESC LIMIT ${q.limit}`)
+      : world.sessions.where("1 = 1", [], `ORDER BY startedAt DESC, rowid DESC LIMIT ${q.limit}`);
+    return { sessions: rows.map(sessionView) };
   });
 
   // ---- buildings ----

@@ -59,6 +59,7 @@ describe("role migration (v1.1 DB)", () => {
     db.prepare("UPDATE buildings SET reviewPolicy = 'moderator' WHERE id = 'carbon-cycle'").run();
     db.prepare("UPDATE agents SET status = 'awaiting-review' WHERE id = ?").run(ravi.id);
     db.prepare("DELETE FROM schema_version WHERE version >= 5").run();
+    db.exec("ALTER TABLE sessions DROP COLUMN byModel"); // added by 035 (session usage per model)
     undoTokenCounters(db); // 034 (token counters)
     db.exec("ALTER TABLE messages DROP COLUMN docId"); // added by 006 (mentions); a v1.1 DB doesn't have it
     db.exec("ALTER TABLE buildings DROP COLUMN rules"); // added by 008 (standing rules)

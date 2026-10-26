@@ -1,4 +1,4 @@
-import { AddBankInput, CreateBankPoolInput, DEFAULT_POOL_ID, UpdateBankPoolInput, countsOf, rawTokens, sliceTokens, splitRaw, subTokens, toCounts, type TokenCounts, type BankCredit, type BankInput, type BankPool, type BankRecurrence, type Agent, type Building } from "@muster-town/schema";
+import { AddBankInput, CreateBankPoolInput, DEFAULT_POOL_ID, UpdateBankPoolInput, ZERO_TOKENS, addTokens, countsOf, rawTokens, sliceTokens, splitRaw, subTokens, toCounts, type TokenCounts, type BankCredit, type BankInput, type BankPool, type BankRecurrence, type Agent, type Building, type Session, type SessionView } from "@muster-town/schema";
 import { badRequest, forbidden } from "./errors.ts";
 import type { EventLog } from "./events.ts";
 import type { Holder, Permissions } from "./permissions.ts";
@@ -6,6 +6,86 @@ import type { Repos } from "./store.ts";
 import { newId, nowIso } from "./util.ts";
 
 const DAY_MS = 86_400_000;
+
+/**
+ * List prices in USD per million tokens, by model family (Bank grant step 2, gr_iq5m7dug56). The one table every
+ * adjusted figure reads (and step 4's drift job). Source: https://platform.claude.com/docs/en/about-claude/pricing,
+ * fetched 2026-10-26. First match wins, so a newer version is listed before the family it extends. Haiku 5.5's price
+ * for prompts over 100k tokens is 5× every column, so its weights are the same; the ≤100k prices are listed.
+ */
+export const TOKEN_PRICES: readonly { family: string; match: RegExp; usdPerMTok: TokenCounts }[] = [
+  { family: "fable-5.1", match: /(fable|mythos)-5-1/, usdPerMTok: { input: 10, output: 50, cacheRead: 0.25, cacheWrite5m: 12.5, cacheWrite1h: 20 } },
+  { family: "fable-5", match: /(fable|mythos)-5/, usdPerMTok: { input: 10, output: 50, cacheRead: 1, cacheWrite5m: 12.5, cacheWrite1h: 20 } },
+  { family: "opus-5.5", match: /opus-5-5/, usdPerMTok: { input: 4, output: 20, cacheRead: 0.2, cacheWrite5m: 5, cacheWrite1h: 8 } },
+  { family: "opus-5", match: /opus-(5|4-[5-9])/, usdPerMTok: { input: 5, output: 25, cacheRead: 0.5, cacheWrite5m: 6.25, cacheWrite1h: 10 } },
+  { family: "opus-4", match: /opus-4/, usdPerMTok: { input: 15, output: 75, cacheRead: 1.5, cacheWrite5m: 18.75, cacheWrite1h: 30 } },
+  { family: "sonnet-5.5", match: /sonnet-5-5/, usdPerMTok: { input: 2, output: 10, cacheRead: 0.1, cacheWrite5m: 2.5, cacheWrite1h: 4 } },
+  { family: "sonnet-5", match: /sonnet-5/, usdPerMTok: { input: 2, output: 10, cacheRead: 0.2, cacheWrite5m: 2.5, cacheWrite1h: 4 } },
+  { family: "sonnet-4", match: /sonnet-4/, usdPerMTok: { input: 3, output: 15, cacheRead: 0.3, cacheWrite5m: 3.75, cacheWrite1h: 6 } },
+  { family: "haiku-5.5", match: /haiku-5-5/, usdPerMTok: { input: 0.1, output: 0.5, cacheRead: 0.01, cacheWrite5m: 0.125, cacheWrite1h: 0.2 } },
+  { family: "haiku-4.5", match: /haiku-4-5/, usdPerMTok: { input: 1, output: 5, cacheRead: 0.1, cacheWrite5m: 1.25, cacheWrite1h: 2 } },
+  { family: "haiku-3.5", match: /haiku-3|3-5-haiku/, usdPerMTok: { input: 0.8, output: 4, cacheRead: 0.08, cacheWrite5m: 1, cacheWrite1h: 1.6 } },
+  // a bare alias ("opus", "fable", …) means the family's latest
+  { family: "fable-5.1", match: /fable|mythos/, usdPerMTok: { input: 10, output: 50, cacheRead: 0.25, cacheWrite5m: 12.5, cacheWrite1h: 20 } },
+  { family: "opus-5.5", match: /opus/, usdPerMTok: { input: 4, output: 20, cacheRead: 0.2, cacheWrite5m: 5, cacheWrite1h: 8 } },
+  { family: "sonnet-5.5", match: /sonnet/, usdPerMTok: { input: 2, output: 10, cacheRead: 0.1, cacheWrite5m: 2.5, cacheWrite1h: 4 } },
+  { family: "haiku-5.5", match: /haiku/, usdPerMTok: { input: 0.1, output: 0.5, cacheRead: 0.01, cacheWrite5m: 0.125, cacheWrite1h: 0.2 } },
+];
+/** What a model nobody recognizes is priced at: Opus 5.5 (and the caller should say so: see `isKnownModel`). */
+const FALLBACK_PRICE = TOKEN_PRICES[2];
+
+/** The list prices for a model id (USD / MTok); an unknown or missing model gets Opus 5.5's. */
+export function tokenPrices(model: string | null | undefined): { family: string; known: boolean; usdPerMTok: TokenCounts } {
+  const m = (model ?? "").toLowerCase();
+  const hit = m ? TOKEN_PRICES.find((p) => p.match.test(m)) : undefined;
+  return { ...(hit ?? FALLBACK_PRICE), known: !!hit };
+}
+
+export const isKnownModel = (model: string | null | undefined): boolean => tokenPrices(model).known;
+
+/** Each counter's weight in output tokens: its list price over the model's output price (output itself is 1). */
+export function tokenWeights(model: string | null | undefined): TokenCounts {
+  const p = tokenPrices(model).usdPerMTok;
+  return { input: p.input / p.output, output: 1, cacheRead: p.cacheRead / p.output, cacheWrite5m: p.cacheWrite5m / p.output, cacheWrite1h: p.cacheWrite1h / p.output };
+}
+
+/**
+ * Adjusted output tokens (Bank step 2): what the counters cost, in the model's output tokens.
+ * output + Σ weight(model, kind) × count, rounded. Derived wherever it's shown; never stored.
+ */
+export function adjustedOutputTokens(model: string | null | undefined, counts: Partial<TokenCounts>): number {
+  const w = tokenWeights(model), c = countsOf(counts);
+  return Math.round(c.output + w.input * c.input + w.cacheRead * c.cacheRead + w.cacheWrite5m * c.cacheWrite5m + w.cacheWrite1h * c.cacheWrite1h);
+}
+
+/** What the counters cost at list price, USD. */
+export function listCostUsd(model: string | null | undefined, counts: Partial<TokenCounts>): number {
+  const p = tokenPrices(model).usdPerMTok, c = countsOf(counts);
+  return (c.input * p.input + c.output * p.output + c.cacheRead * p.cacheRead + c.cacheWrite5m * p.cacheWrite5m + c.cacheWrite1h * p.cacheWrite1h) / 1e6;
+}
+
+/**
+ * A session's (or any usage's) adjusted output tokens in `model`'s output tokens. With a per-model breakdown each model's
+ * counters are priced at that model's list price (a Fable session's Haiku subagent is priced as Haiku), then converted
+ * at `model`'s output price; without one, all counters are `model`'s.
+ */
+export function adjustedOfUsage(model: string | null | undefined, counts: Partial<TokenCounts>, byModel?: Record<string, TokenCounts> | null): number {
+  const parts = byModel ? Object.entries(byModel) : [];
+  if (!parts.length) return adjustedOutputTokens(model, counts);
+  const out = tokenPrices(model).usdPerMTok.output;
+  return Math.round(parts.reduce((s, [m, c]) => s + listCostUsd(m, c), 0) * 1e6 / out);
+}
+
+/** A session as the API serves it: `adjustedOutputTokens` next to the raw total and the five counters. */
+export function sessionView(s: Session): SessionView {
+  return { ...s, adjustedOutputTokens: adjustedOfUsage(s.model, s, s.byModel) };
+}
+
+/** The model ids in a usage that `TOKEN_PRICES` doesn't know (priced as Opus 5.5; worth a warning). */
+export function unknownModels(model: string | null | undefined, byModel?: Record<string, TokenCounts> | null): string[] {
+  const ids = byModel && Object.keys(byModel).length ? Object.keys(byModel) : [model ?? ""];
+  return [...new Set(ids.filter((m) => m && !isKnownModel(m)))];
+}
 const DAYS_PER: Record<Exclude<BankRecurrence, "once">, number> = { daily: 1, weekly: 7, monthly: 30 };
 
 /** An accounting pool in the summary: its share of the Bank and what its buildings can still draw from it. */
@@ -71,9 +151,13 @@ export interface BankSummary {
   /** balanceTokens + heldTokens: everything the town can still spend */
   townTokens: number;
   creditedTokens: number;
+  /** what the inputs have credited, as the five counters (sum over the credits; creditedTokens is their raw total) */
+  creditedCounts: TokenCounts;
+  /** creditedTokens in adjusted output tokens (Bank step 2: derived from the credits' counters at each input's model's list price; never stored, nothing charged in it yet) */
+  adjustedCreditedTokens: number;
   /** expected tokens per day from active recurring inputs (monthly counts as 30 days) */
   dailyInflowTokens: number;
-  inputs: (BankInput & { userName: string })[];
+  inputs: (BankInput & { userName: string; creditedCounts: TokenCounts; adjustedCreditedTokens: number })[];
   pools: BankPoolSummary[];
   buildings: BankBuildingShare[];
   /** top contributors by tokens given, most first (zero-token users left out) */
@@ -122,7 +206,7 @@ export class Bank {
     });
     if (inp.apiKey) row = this.repos.bankInputs.setApiKey(row.id, inp.apiKey);
     const what = inp.recurrence === "once" ? "once" : inp.recurrence;
-    this.events.append({ type: "bank.input", text: `${user.name} added ${inp.label} to the Bank (${inp.tokens.toLocaleString("en-US")} tokens, ${what})`, payload: { inputId: row.id, userId, source: inp.source, recurrence: inp.recurrence, tokens: inp.tokens, ...splitRaw(inp.tokens, inp.model) } });
+    this.events.append({ type: "bank.input", text: `${user.name} added ${inp.label} to the Bank (${inp.tokens.toLocaleString("en-US")} tokens, ${what})`, payload: { inputId: row.id, userId, source: inp.source, recurrence: inp.recurrence, tokens: inp.tokens, ...splitRaw(inp.tokens, inp.model), adjustedOutputTokens: adjustedOutputTokens(inp.model, splitRaw(inp.tokens, inp.model)) } });
     this.creditDue(now);
     return this.repos.bankInputs.require(row.id, "bank input");
   }
@@ -175,7 +259,7 @@ export class Bank {
       const counts = splitRaw(amount, inp.model);
       const credit = this.repos.bankCredits.upsert({ id: newId("bc"), inputId: inp.id, ...counts, createdAt: now.toISOString(), expiresAt });
       total += amount;
-      this.events.append({ type: "bank.credited", text: `${inp.label} credited ${amount.toLocaleString("en-US")} tokens to the Bank`, payload: { inputId: inp.id, creditId: credit.id, tokens: credit.tokens, ...counts } });
+      this.events.append({ type: "bank.credited", text: `${inp.label} credited ${amount.toLocaleString("en-US")} tokens to the Bank`, payload: { inputId: inp.id, creditId: credit.id, tokens: credit.tokens, ...counts, adjustedOutputTokens: adjustedOutputTokens(inp.model, counts) } });
     }
     return total;
   }
@@ -424,6 +508,12 @@ export class Bank {
     const inputs = this.repos.bankInputs.all("ORDER BY createdAt, rowid");
     const dailyInflowTokens = this.dailyInflow();
     const creditedTokens = inputs.reduce((s, i) => s + i.creditedTokens, 0);
+    const byInput = new Map<string, TokenCounts>();
+    for (const c of this.repos.bankCredits.all()) byInput.set(c.inputId, addTokens(byInput.get(c.inputId) ?? ZERO_TOKENS, c));
+    const inputViews = inputs.map((i) => {
+      const counts = countsOf(byInput.get(i.id) ?? ZERO_TOKENS);
+      return { ...i, userName: this.repos.users.get(i.userId)?.name ?? i.userId, creditedCounts: counts, adjustedCreditedTokens: adjustedOutputTokens(i.model, counts) };
+    });
     const now = new Date();
     const totals = this.totals(now);
     const shares = this.shares();
@@ -447,8 +537,10 @@ export class Bank {
       expiringTokens: totals.expiring,
       durableTokens: totals.durable,
       creditedTokens,
+      creditedCounts: inputViews.reduce<TokenCounts>((s, i) => addTokens(s, i.creditedCounts), { ...ZERO_TOKENS }),
+      adjustedCreditedTokens: inputViews.reduce((s, i) => s + i.adjustedCreditedTokens, 0),
       dailyInflowTokens,
-      inputs: inputs.map((i) => ({ ...i, userName: this.repos.users.get(i.userId)?.name ?? i.userId })),
+      inputs: inputViews,
       pools: this.listPools().map((p) => {
         const s = shares.get(p.id) ?? { pct: 0, explicit: false };
         const a = this.poolAvailable(p.id, now);
