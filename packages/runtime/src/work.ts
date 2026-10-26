@@ -80,6 +80,8 @@ export interface WorkOutcome {
   fundingUsed?: AllocationAuth;
   /** the desk failed over from the subscription to the fallback API key: charge the fallback allocation */
   fallback?: boolean;
+  /** the SDK's message when the desk classified a result as SPEND_LIMIT (core logs `bank.cap`) */
+  spendLimit?: string;
 }
 
 /**
@@ -125,7 +127,7 @@ export async function finishWorkSession(ctx: Ctx, sessionId: string, o: WorkOutc
   }
   const status: Exclude<Session["status"], "running"> = stopped ? "interrupted" : error ? "error" : "done";
   const funding = o.fundingUsed ?? (o.fallback ? "api-key" : undefined);
-  const ended = world.ops.endSession(sessionId, { status, counts, byModel: o.byModel, costUsd: usage.costUsd, turns: usage.turns, error, sdkSessionId: o.sdkSessionId ?? null, funding });
+  const ended = world.ops.endSession(sessionId, { status, counts, byModel: o.byModel, costUsd: usage.costUsd, turns: usage.turns, error, sdkSessionId: o.sdkSessionId ?? null, funding, spendLimit: o.spendLimit ?? null });
   // stamp the session's usage onto the report it produced (submitted or fallback)
   const report = ended.reportId ? world.docs.get(ended.reportId) : undefined;
   if (report && report.sessionId === sessionId) world.docs.patch(report.id, { tokens: usage.tokens, costUsd: usage.costUsd, turns: usage.turns });

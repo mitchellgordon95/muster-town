@@ -4,7 +4,7 @@
  * Exit codes: 0 normal, 2 stopped, 1 error.
  */
 import { homedir } from "node:os";
-import { townEnv } from "@muster-town/schema";
+import { SPEND_LIMIT, townEnv } from "@muster-town/schema";
 import type { DeskActivityInput, DeskBrief, DeskSessionEndInput, DeskWorkspace } from "./contract.ts";
 import { blocksOf, InputChannel, noUsage, plusUsage, usageOf, type LooseMessage, type Options, type QueryHandle, type Sdk, type Usage } from "./sdk.ts";
 import type { TownClient } from "./town.ts";
@@ -40,7 +40,7 @@ function clipInput(v: unknown, depth = 0): unknown {
 const errMsg = (e: unknown) => (e instanceof Error ? e.message : String(e));
 
 /** An error that means the subscription is out of quota for now (the desk then fails over to the API key once). */
-export const SPEND_LIMIT = /spend limit|usage limit|rate.?limit|session limit resets|monthly spend/i;
+export { SPEND_LIMIT };
 /** The API key to fail over to (both spellings for one release). Never passed to Claude Code itself. */
 export const FALLBACK_KEY_ENVS = ["AGENT_TOWN_FALLBACK_API_KEY", "MUSTER_TOWN_FALLBACK_API_KEY"] as const;
 const FUNDING = new Set(["subscription", "api-key", "donor-key"]);
@@ -91,6 +91,8 @@ export async function runSession(sessionId: string, deps: RunDeps): Promise<numb
   let stopped = false;
   /** the session hit the subscription's limit and reran on the fallback API key */
   let fellBack = false;
+  /** the SDK's message when a result read as SPEND_LIMIT: posted at session end so the server logs `bank.cap` */
+  let spendLimit: string | null = null;
   let fundingUsed: FundingMode | null = env.DESK_AUTH && FUNDING.has(env.DESK_AUTH) ? env.DESK_AUTH as FundingMode : null;
 
   const endSession = async (): Promise<void> => {
@@ -107,6 +109,7 @@ export async function runSession(sessionId: string, deps: RunDeps): Promise<numb
       ...(error && !stopped ? { error } : {}),
       ...(fundingUsed ? { fundingUsed } : {}),
       ...(fellBack ? { fallback: true } : {}),
+      ...(spendLimit ? { spendLimit } : {}),
     };
     try {
       await town.sessionEnd(body);
@@ -277,6 +280,7 @@ export async function runSession(sessionId: string, deps: RunDeps): Promise<numb
     };
 
     const detail = await attempt(se.env, usage);
+    if (error && !stopped && SPEND_LIMIT.test(`${error} ${detail}`)) spendLimit = (detail.trim() || error).replace(/\s+/g, " ").trim().slice(0, 2000);
     // ---- failover: the subscription hit its spend limit → rerun the session once on the API key ----
     if (error && !stopped && !reportSubmitted && se.fallbackKey && SPEND_LIMIT.test(`${error} ${detail}`)) {
       log("subscription limit hit; retrying on the API key");

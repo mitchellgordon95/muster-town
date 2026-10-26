@@ -1,4 +1,5 @@
 import { AddBankInput, CreateBankPoolInput, DEFAULT_POOL_ID, UpdateBankPoolInput, ZERO_TOKENS, addTokens, countsOf, rawTokens, sliceTokens, splitRaw, subTokens, toCounts, type TokenCounts, type BankCredit, type BankInput, type BankPool, type BankRecurrence, type Agent, type Building, type Session, type SessionView } from "@muster-town/schema";
+import { driftRows, parseResetsAt, previousUtcDay, utcDay, type DriftRow } from "./drift.ts";
 import { badRequest, forbidden } from "./errors.ts";
 import type { EventLog } from "./events.ts";
 import type { Holder, Permissions } from "./permissions.ts";
@@ -162,6 +163,16 @@ export interface BankSummary {
   buildings: BankBuildingShare[];
   /** top contributors by tokens given, most first (zero-token users left out) */
   contributors: BankContributor[];
+  /** Bank step 4: the latest drift run (adjusted output tokens × output list price vs the SDK's costUsd); null before the first */
+  drift: BankDrift | null;
+}
+
+/** The latest drift run: its UTC day, the per-model rows over all buildings, and the per-building rows. */
+export interface BankDrift {
+  day: string;
+  ranAt: string;
+  models: DriftRow[];
+  buildings: DriftRow[];
 }
 
 /** Where a building's next draw comes from: today's subscription share (the server's own login), or an API key's input. */
@@ -558,6 +569,82 @@ export class Bank {
         };
       }),
       contributors: this.contributors(),
+      drift: this.latestDrift(),
     };
+  }
+
+  // ---- Bank step 4: calibration ----
+  /** the last day driftDue checked (it runs every tick; the event log is read once per day) */
+  private driftDay: string | null = null;
+
+  /** Run the drift job for the UTC day before `now` unless it already ran for it (the runtime calls this every tick). */
+  driftDue(now = new Date()): DriftRow[] | null {
+    const day = previousUtcDay(now);
+    if (this.driftDay === day) return null;
+    this.driftDay = day;
+    if (this.events.list({ types: ["bank.drift"], desc: true, limit: 500 }).some((e) => e.payload.day === day && !e.payload.manual)) return null;
+    return this.runDrift(day);
+  }
+
+  /** An admin runs the drift job by hand (POST /api/bank/drift): any day, today's so far included; marked `manual`, so the nightly run still happens. */
+  runDriftByHand(userId: string, day: string): DriftRow[] {
+    this.requireAdmin(userId, "run the drift job");
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(day) || Number.isNaN(Date.parse(day))) throw badRequest("day must be YYYY-MM-DD");
+    return this.runDrift(day, true);
+  }
+
+  /**
+   * The drift job for one UTC day: per model and building, the day's ended sessions' adjusted output tokens × the model's
+   * output list price against the SDK's costUsd. One `bank.drift` event per row; a day with no sessions writes one marker
+   * row (model null) so the day counts as done. Back-filled sessions are counted apart and left out of the sums.
+   */
+  runDrift(day: string, manual = false): DriftRow[] {
+    const from = `${day}T00:00:00.000Z`, to = new Date(Date.parse(from) + DAY_MS).toISOString();
+    const sessions = this.repos.sessions.where("status != 'running' AND endedAt >= ? AND endedAt < ?", [from, to]).map((s) => {
+      const a = this.repos.agents.get(s.agentId);
+      return { ...s, buildingId: a ? a.homeBuildingId ?? a.buildingId ?? null : null };
+    });
+    let rows = driftRows(day, sessions);
+    if (!rows.length) rows = [{ day, model: null, building: null, sessions: 0, backfilled: 0, adjustedOutputTokens: 0, adjustedUsd: 0, costUsd: 0, ratio: null }];
+    for (const r of rows) {
+      const what = r.model === null ? "no sessions" : `${r.model}${r.building ? ` in ${this.repos.buildings.get(r.building)?.name ?? r.building}` : " (all buildings)"}: ${r.ratio === null ? "no SDK cost" : `ratio ${r.ratio.toFixed(3)}`} ($${r.adjustedUsd.toFixed(2)} adjusted vs $${r.costUsd.toFixed(2)} SDK, ${r.sessions} session${r.sessions === 1 ? "" : "s"}${r.backfilled ? `, ${r.backfilled} back-filled left out` : ""})`;
+      this.events.append({ type: "bank.drift", buildingId: r.building, text: `Bank drift ${day}${manual ? " (by hand)" : ""}, ${what}`, payload: { ...r, ...(manual ? { manual: true } : {}) } });
+    }
+    return rows;
+  }
+
+  /** The newest drift run's rows (GET /api/bank `drift`). */
+  latestDrift(): BankDrift | null {
+    const last = this.events.list({ types: ["bank.drift"], desc: true, limit: 1 })[0];
+    if (!last) return null;
+    const day = String(last.payload.day);
+    const evs = this.events.list({ types: ["bank.drift"], desc: true, limit: 500 }).filter((e) => e.payload.day === day);
+    const rows = evs.map((e) => e.payload as unknown as DriftRow).filter((r) => r.model !== null).reverse();
+    return { day, ranAt: evs[evs.length - 1]?.ts ?? last.ts, models: rows.filter((r) => r.building === null), buildings: rows.filter((r) => r.building !== null) };
+  }
+
+  /**
+   * A session died on the subscription cap (the desk read the SDK's result as SPEND_LIMIT): log `bank.cap` with the UTC
+   * day's spend so far, so the cap's real daily size is learned from where it hits. `adjustedSpendToday` sums each ended
+   * session's adjusted output tokens (in its own model's output tokens); `listUsdToday` is the same at list price.
+   */
+  recordCap(session: Session, buildingId: string | null, message: string, at = new Date()): void {
+    const day = utcDay(at);
+    const today = this.repos.sessions.where("status != 'running' AND endedAt >= ?", [`${day}T00:00:00.000Z`]);
+    let adjustedSpendToday = 0, subscriptionAdjustedToday = 0, listUsdToday = 0;
+    for (const s of today) {
+      const adj = adjustedOfUsage(s.model, s, s.byModel);
+      adjustedSpendToday += adj;
+      if (!s.funding || s.funding === "subscription" || s.id === session.id) subscriptionAdjustedToday += adj;
+      listUsdToday += (adj * tokenPrices(s.model).usdPerMTok.output) / 1e6;
+    }
+    const input = this.repos.bankInputs.first("source = 'subscription' AND cancelledAt IS NULL", [], "ORDER BY createdAt, rowid")?.id ?? null;
+    const resetsAt = parseResetsAt(message, at);
+    const agent = this.repos.agents.get(session.agentId);
+    this.events.append({
+      type: "bank.cap", agentId: session.agentId, buildingId,
+      text: `${agent?.name ?? session.agentId} hit the subscription cap at ${adjustedSpendToday.toLocaleString("en-US")} adjusted output tokens today ($${listUsdToday.toFixed(2)} at list price)${resetsAt ? `; resets ${resetsAt}` : ""}`,
+      payload: { sessionId: session.id, building: buildingId, input, day, adjustedSpendToday, subscriptionAdjustedToday, listUsdToday: Math.round(listUsdToday * 100) / 100, sessionsToday: today.length, funding: session.funding ?? null, message: message.slice(0, 2000), resetsAt },
+    });
   }
 }

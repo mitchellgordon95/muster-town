@@ -373,6 +373,7 @@ export function startRuntime(opts: RuntimeOptions): Runtime {
       } catch (e) { log("export")(e); }
     }
     try { world.bank.creditDue(d); } catch (e) { log("bank")(e); }
+    try { world.bank.driftDue(d); } catch (e) { log("bank drift")(e); }
     if (t - lastPresence >= PRESENCE_TICK_MS) { lastPresence = t; presenceTick(); }
     try { world.budget.resumeEligible(); } catch (e) { log("budget resume")(e); }
     try { scheduleMeetings(t); } catch (e) { log("meetings")(e); }

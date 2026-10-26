@@ -822,7 +822,7 @@ export const EventType = z.enum([
   "assignment.created", "assignment.status", "assignment.delegated",
   "meeting.created", "meeting.phase", "meeting.utterance", "meeting.decisions",
   "session.started", "session.ended",
-  "building.created", "building.updated", "building.layout", "town.plan", "allocation.created", "budget.exhausted", "bank.input", "bank.credited", "bank.share", "bank.pool",
+  "building.created", "building.updated", "building.layout", "town.plan", "allocation.created", "budget.exhausted", "bank.input", "bank.credited", "bank.share", "bank.pool", "bank.drift", "bank.cap",
   "grant.created", "grant.updated", "grant.proposed", "grant.countered", "grant.funded", "grant.rejected", "grant.checkpoint", "grant.closed", "kr.updated", "kr.created", "kr.deleted", "building.blocked",
   "skill.used", "skill.pinned", "skill.unpinned",
   "secret.set", "secret.deleted", "secret.granted",
@@ -1399,6 +1399,8 @@ export const DeskSessionEndInput = z.object({
   fundingUsed: AllocationAuth.optional(),
   /** the desk hit the subscription's spend limit and reran the session on the fallback API key */
   fallback: z.boolean().optional(),
+  /** the SDK's message when it classified a result as SPEND_LIMIT (kept after a failover clears `error`); the server logs `bank.cap` */
+  spendLimit: z.string().max(2000).optional(),
 });
 export type DeskSessionEndInput = z.infer<typeof DeskSessionEndInput>;
 

@@ -97,7 +97,15 @@ export interface Bank {
   pools: BankPoolSummary[];
   buildings: BankBuildingShare[];
   contributors: BankContributor[];
+  /** Bank step 4: the latest drift run (null before the first; older servers leave it out) */
+  drift?: BankDrift | null;
 }
+/** One drift row (core's DriftRow): ratio = adjusted output tokens × output list price / the SDK's costUsd */
+export interface DriftRow {
+  day: string; model: string | null; building: string | null; sessions: number; backfilled: number;
+  adjustedOutputTokens: number; adjustedUsd: number; costUsd: number; ratio: number | null;
+}
+export interface BankDrift { day: string; ranAt: string; models: DriftRow[]; buildings: DriftRow[] }
 /** A movable piece of furniture (anchors and offsets are lot-relative tiles). */
 export interface LayoutPiece {
   key: string; label: string; at: Tile; current: Tile;

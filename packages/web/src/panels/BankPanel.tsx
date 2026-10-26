@@ -37,6 +37,21 @@ export function BankPanel() {
           </table>
         )}
       </Section>
+      {bank?.drift && bank.drift.models.length ? (
+        <Section title={`Drift (${bank.drift.day}, 24 h)`}>
+          <p className="muted">Adjusted output tokens × output list price vs what the SDK says the sessions cost. Target 0.90–1.10.</p>
+          <table className="table">
+            <tbody>
+              {bank.drift.models.map((r) => (
+                <tr key={r.model ?? ""} title={`$${r.adjustedUsd.toFixed(2)} adjusted vs $${r.costUsd.toFixed(2)} SDK · ${r.sessions} session${r.sessions === 1 ? "" : "s"}${r.backfilled ? ` · ${r.backfilled} back-filled left out` : ""}`}>
+                  <td>{r.model}</td>
+                  <td style={r.ratio !== null && Math.abs(r.ratio - 1) > 0.1 ? { color: "#c0392b" } : undefined}>drift: {r.ratio === null ? "n/a" : r.ratio.toFixed(2)} (24 h)</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </Section>
+      ) : null}
       {bank && <>
         <BankContributors bank={bank} />
         <Donate onChange={changed} />

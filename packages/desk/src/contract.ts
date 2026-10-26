@@ -65,5 +65,7 @@ export const DeskSessionEndInput = z.object({
   /** what paid: `api-key` with `fallback` when the subscription hit its limit and the session reran on the API key */
   fundingUsed: z.enum(["subscription", "api-key", "donor-key"]).optional(),
   fallback: z.boolean().optional(),
+  /** the SDK's message when a result was classified as SPEND_LIMIT (the server logs `bank.cap`) */
+  spendLimit: z.string().optional(),
 });
 export type DeskSessionEndInput = z.infer<typeof DeskSessionEndInput>;

@@ -258,6 +258,13 @@ export async function townRoutes(app: FastifyInstance) {
   // accounting pools: buildings join a pool (PATCH /api/buildings/:id {poolId}); pools get the % of the Bank
   app.get("/api/bank/pools", async () => ({ pools: world.bank.summary().pools }));
 
+  // Bank step 4: run the drift job by hand for a UTC day (default today so far); admins only
+  app.post("/api/bank/drift", async (req) => {
+    const user = requireUser(req);
+    const day = String((req.body as { day?: unknown } | undefined)?.day ?? new Date().toISOString().slice(0, 10));
+    return { rows: world.bank.runDriftByHand(user.id, day), bank: world.bank.summary() };
+  });
+
   app.post("/api/bank/pools", async (req, reply) => {
     const user = requireUser(req);
     const pool = world.bank.createPool(user.id, parse(CreateBankPoolInput, req.body));

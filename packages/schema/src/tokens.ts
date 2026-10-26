@@ -141,3 +141,13 @@ export function addUsage(a: TokenUsage, b: TokenUsage): TokenUsage {
   for (const [k, c] of Object.entries(b.byModel)) byModel[k] = addTokens(byModel[k] ?? ZERO_TOKENS, c);
   return { counts: addTokens(a.counts, b.counts), byModel };
 }
+
+/** A row whose counters are exactly the back-fill split of its raw total (no real breakdown): the drift job leaves it out. */
+export function isBackfilled(c: Partial<TokenCounts>, model?: string | null): boolean {
+  const k = countsOf(c), raw = rawTokens(k);
+  if (!raw || k.input || k.cacheWrite5m || k.cacheWrite1h) return false;
+  return k.output === splitRaw(raw, model).output;
+}
+
+/** An SDK error that means the subscription is out of quota for now (the desk fails over once; the server logs `bank.cap`). */
+export const SPEND_LIMIT = /spend limit|usage limit|rate.?limit|session limit resets|monthly spend/i;
