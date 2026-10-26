@@ -236,6 +236,7 @@ The open proposal ${open.id} ("${open.objective}") names no goal key result yet;
         const tokens = inp.tokens ?? g.askTokens;
         next = this.save(g, actor, { ...edits, status: "funded", grantTokens: tokens, checkpointsDone: passed(spent, tokens), fundedBy: actor ? holderOf(actor).id : "system", fundedAt: nowIso() }, "fund", tokens, inp.note);
         this.event("grant.funded", next, actor, `Funded: ${next.objective} (${fmt(tokens)} tokens)`);
+        this.decisionAssignment(next, actor, "funded", inp.note);
         break;
       }
       case "counter": {
@@ -244,6 +245,7 @@ The open proposal ${open.id} ("${open.objective}") names no goal key result yet;
         next = this.save(g, actor, { ...edits, status: "countered", ...(inp.tokens && { askTokens: inp.tokens }) }, "counter", inp.tokens ?? null, inp.note);
         this.event("grant.countered", next, actor, `Countered: ${next.objective}`);
         this.notifyManager(next, actor, `A human countered your proposal "${next.objective}": ${inp.note}`);
+        this.decisionAssignment(next, actor, "countered", inp.note);
         break;
       }
       case "reject":
@@ -251,6 +253,7 @@ The open proposal ${open.id} ("${open.objective}") names no goal key result yet;
         next = this.save(g, actor, { status: "rejected", closedAt: nowIso() }, "reject", null, inp.note);
         this.event("grant.rejected", next, actor, `Rejected: ${next.objective}`);
         this.notifyManager(next, actor, `A human rejected your proposal "${next.objective}"${inp.note ? `: ${inp.note}` : "."}`);
+        this.decisionAssignment(next, actor, "rejected", inp.note);
         break;
       case "continue":
         this.requireStatus(g, ["checkpoint"], "continued");
@@ -344,6 +347,67 @@ Stop condition: ${g.stopCondition}
 1. \`checkpoint_grant\` with grantId ${g.id}, the key result's status (not-started, on-track, at-risk or claimed; only a human marks met or missed) and a note with the evidence.
 2. \`submit_report\` with \`rollup: true\` as your checkpoint report (it lands in the Town Hall in-tray and is linked to the grant). Sections: Shipped, Decided, Key results (the KR, its status, how to check it, what the testing plan showed, ${fmt(spent)} / ${fmt(g.grantTokens ?? 0)} tokens), Needs from Mitchell (continue, adjust or cut, and why). Put the reports the grant's work produced in provenance.sourceIds${reports.length ? `: ${reports.join(", ")}` : " (none yet; leave it empty)"}.`,
     });
+  }
+
+  /**
+   * A human's decision on a proposal wakes the manager the way a reply to a report does (Mitchell, 1:1 mt_f45m8hbmct):
+   * one front-of-queue assignment, the same hook as the checkpoint one. Funded → lane grant on the grant ("assign its
+   * first step or take it yourself", the plan in the description); countered → directed ("Answer the counter", with the
+   * note); rejected → directed ("read the note"). None when the building has no manager agent: a human works its in-tray.
+   */
+  private decisionAssignment(g: Grant, actor: Actor, decision: "funded" | "countered" | "rejected", note: string): void {
+    const building = this.world.buildings.require(g.buildingId, "building");
+    const manager = managerAgentOf(this.world, building);
+    if (!manager) return;
+    const who = actor?.kind === "human" ? this.world.nameOf(actor.id) : "A human";
+    const k = g.keyResultId ? this.world.keyResults.get(g.keyResultId) : undefined;
+    const kr = k ? `${k.id} [${k.status}] ${k.text} (how to check: ${k.howToCheck})` : "(none named)";
+    const said = note.trim() ? `\n\nThe note: ${note.trim()}` : "";
+    const base = { agentId: manager.id, buildingId: g.buildingId, front: true, createdBy: { kind: "system" as const, id: "system" } };
+    if (decision === "funded") {
+      const plan = g.testingPlan.map((t) => `- ${t.text} (how to check: ${t.howToCheck})`).join("\n");
+      createAssignment(this.world, {
+        ...base, laneOverride: { lane: "grant", grantId: g.id, keyResultId: g.keyResultId, gap: null },
+        title: `Grant ${g.id} funded: assign its first step or take it yourself`.slice(0, 160),
+        description: `${who} funded grant ${g.id} "${g.objective}" with ${fmt(g.grantTokens ?? 0)} tokens.${said}
+
+Nothing starts by itself: funding runs the plan only once its steps are assignments. This session is charged to the grant.
+
+The plan (the grant page ${g.id} has the history):
+Key result (on the building goal): ${kr}
+Approach: ${g.approach || "(none written)"}
+${plan ? `Testing plan:\n${plan}\n` : ""}Stop condition: ${g.stopCondition}${g.findingsDocIds.length ? `\nFindings it draws on: ${g.findingsDocIds.join(", ")}` : ""}
+
+1. Cut the plan into steps, each one session's worth with a check a human can make in the live town.
+2. \`assign\` the first step in lane grant with grantId ${g.id}: to the resident whose wiki covers it, or to yourself when it is yours (one owner per step). Sessions on it are charged to the grant and held at its 50% / 100% checkpoints.
+3. Say in your report who got what and what the next step is.`,
+      });
+    } else if (decision === "countered") {
+      createAssignment(this.world, {
+        ...base, laneOverride: DIRECTED,
+        title: `Answer the counter on ${g.objective}`.slice(0, 160),
+        description: `${who} countered your proposal ${g.id} "${g.objective}" (ask now ${fmt(g.askTokens)} tokens).${said}
+
+It is your move: nothing on the key result runs until this is settled.
+Key result (on the building goal): ${kr}
+
+1. Read the note and the proposal (${g.id}: objective, approach, testing plan, stop condition, ask).
+2. Revise what the note asks for and re-propose it with \`propose_grant\` (the revised plan rewrites the proposal under the same id and sends it back to the Town Hall in-tray); or, if the counter means the plan is wrong, withdraw it and say what you'd propose instead.
+3. Say in your report what changed and why.`,
+      });
+    } else {
+      createAssignment(this.world, {
+        ...base, laneOverride: DIRECTED,
+        title: `Grant ${g.id} rejected: read the note`.slice(0, 160),
+        description: `${who} rejected your proposal ${g.id} "${g.objective}" (${fmt(g.askTokens)} tokens asked).${said || "\n\nNo note was given."}
+
+Key result (on the building goal): ${kr}${k ? "; it has no funded grant now, so it is open for exploration" : ""}.
+
+1. Read the note and the proposal (${g.id}).
+2. Decide what follows: a different plan for the key result (\`propose_grant\`), exploration against it first (\`assign\` lane exploration with keyResultId), or nothing until your next 1:1 or rollup.
+3. Say in your report what you decided and why.`,
+      });
+    }
   }
 
   /**

@@ -196,6 +196,8 @@ Then come the existing checks (daily per-agent cap, building remaining). A held 
 
 When a charge pushes a grant past 50% (or 100%), core sets it to `checkpoint`, appends a `grant.checkpoint` event, and creates the manager's checkpoint assignment (lane `grant`, which is allowed to run while the grant is in `checkpoint`). The assignment is "Write the checkpoint for <objective>: each key result's status with evidence a human can check, spend so far, and whether to continue". The manager files it with a new `checkpoint_grant` verb, which links the report and sets the status of the grant's goal key result (up to `claimed`; since 032). Humans get a mention in their inbox.
 
+A human's decision on a proposal wakes the manager the same way (Mitchell, 1:1 2026-10-26: funding woke nobody, so a funded grant sat idle until the manager's next session). `Grants.decide` creates one front-of-queue assignment for the building's manager agent, the same hook as the checkpoint assignment: **fund** → lane `grant` on the grant (its key result implied), "Grant <id> funded: assign its first step or take it yourself", with the plan (key result, approach, testing plan, stop condition, findings) in the description; **counter** → directed, "Answer the counter on <objective>", with the note; **reject** → directed, "Grant <id> rejected: read the note". No manager agent → nothing is queued (a human works the in-tray). Continue and adjust at a checkpoint create none: the held grant-lane work resumes on the next tick.
+
 ## API
 
 All under the existing Fastify app. Reads are public like the rest of the town; writes need the permission shown.

@@ -133,7 +133,7 @@ describe("goal-directed budgets: 50% / 100% checkpoints", () => {
     world.budget.charge(noor.id, 0, 0);
     expect(world.grants.require(g.id)).toMatchObject({ status: "checkpoint", checkpointsDone: [0.5] });
     expect(world.events.recent({ types: ["grant.checkpoint"] })).toHaveLength(1);
-    const cps = world.assignments.where("agentId = ? AND status = 'pending'", [mei.id]);
+    const cps = world.assignments.where("agentId = ? AND status = 'pending' AND title LIKE 'Write the checkpoint%'", [mei.id]);
     expect(cps).toHaveLength(1);
     expect(cps[0]).toMatchObject({ lane: "grant", grantId: g.id, keyResultId: null, title: "Write the checkpoint for Visitors can tell what the lab is for" });
     expect(cps[0].description).toContain("checkpoint_grant");
@@ -141,7 +141,7 @@ describe("goal-directed budgets: 50% / 100% checkpoints", () => {
     expect(world.messages.where("toId = ? AND kind = 'system'", [admin.id]).some((m) => m.body.includes("crossed 50%"))).toBe(true);
     // once per fraction: another charge doesn't repeat it
     world.budget.charge(noor.id, 0, 0);
-    expect(world.assignments.where("agentId = ? AND status = 'pending'", [mei.id])).toHaveLength(1);
+    expect(world.assignments.where("agentId = ? AND status = 'pending' AND title LIKE 'Write the checkpoint%'", [mei.id])).toHaveLength(1);
     // continued, then past 100%: checkpoint again
     world.grantDesk.decide(admin, g.id, { action: "continue", note: "go on" });
     world.budget.charge(noor.id, 0, 0);
@@ -149,7 +149,7 @@ describe("goal-directed budgets: 50% / 100% checkpoints", () => {
     spend(noor.id, 2_000_000, "grant", g.id);
     world.budget.charge(noor.id, 0, 0);
     expect(world.grants.require(g.id)).toMatchObject({ status: "checkpoint", checkpointsDone: [0.5, 1] });
-    expect(world.assignments.where("agentId = ? AND status = 'pending'", [mei.id])).toHaveLength(2);
+    expect(world.assignments.where("agentId = ? AND status = 'pending' AND title LIKE 'Write the checkpoint%'", [mei.id])).toHaveLength(2);
   });
 
   it("checkpoint_grant sets the grant's goal KR status up to claimed; the checkpoint session's rollup links itself and lands in the Town Hall in-tray", async () => {
@@ -157,7 +157,7 @@ describe("goal-directed budgets: 50% / 100% checkpoints", () => {
     const g = fund(4_000_000);
     spend(noor.id, 2_100_000, "grant", g.id);
     world.budget.charge(noor.id, 0, 0);
-    const cp = world.assignments.first("agentId = ? AND status = 'pending'", [mei.id])!;
+    const cp = world.assignments.first("agentId = ? AND status = 'pending' AND title LIKE 'Write the checkpoint%'", [mei.id])!;
     world.ops.startSession(mei.id, { purpose: "work", model: "m", assignmentId: cp.id });
     expect(cp.description).toContain(`Key result (on the building goal): ${krs[0]!.id} [not-started]`);
     expect(cp.description).toContain("Testing plan:\n- Banner shows Usage");
@@ -222,5 +222,59 @@ describe("goal-directed budgets: the Key results block", () => {
     world.ops.updateBuilding(admin, LAB, { budgetMode: "open" });
     expect(keyResultsBlock(world, world.buildings.require(LAB), a)).toBe("");
     expect(sessionMemory(world, mei, world.buildings.require(LAB)).team).not.toContain("propose_grant");
+  });
+});
+
+describe("goal-directed budgets: a decision on a proposal wakes the manager (1:1 mt_f45m8hbmct)", () => {
+  const propose = (world: ReturnType<typeof setup>["world"], mei: ReturnType<typeof setup>["mei"], keyResultId: string) =>
+    world.grantDesk.propose(mei, world.grantDesk.create(mei, LAB, { keyResultId, objective: "Visitors can tell what the lab is for", approach: "a banner line", stopCondition: "two failed tries", askTokens: 4_000_000, testingPlan: [{ text: "Banner shows Usage", howToCheck: "Open the banner" }], findingsDocIds: [] }).id);
+
+  it("funded: a front-of-queue grant-lane assignment with the plan, which may run", () => {
+    const { world, admin, mei, krs } = setup();
+    const g = propose(world, mei, krs[0]!.id);
+    expect(world.assignments.where("agentId = ? AND status = 'pending'", [mei.id])).toHaveLength(0);
+    world.grantDesk.decide(admin, g.id, { action: "fund", note: "go" });
+    const [a, ...rest] = world.assignments.where("agentId = ? AND status = 'pending'", [mei.id]);
+    expect(rest).toHaveLength(0);
+    expect(a).toMatchObject({ lane: "grant", grantId: g.id, keyResultId: krs[0]!.id, createdBy: "system", title: `Grant ${g.id} funded: assign its first step or take it yourself` });
+    expect(a!.description).toContain("4,000,000 tokens");
+    expect(a!.description).toContain("The note: go");
+    expect(a!.description).toContain("Approach: a banner line");
+    expect(a!.description).toContain("Banner shows Usage");
+    expect(a!.description).toContain(`grantId ${g.id}`);
+    expect(a!.description).toContain(KRS[0]!.text);
+    expect(world.budget.canStart(mei.id, a!)).toBe(true);
+    expect(nextStartable(world, mei.id)?.id).toBe(a!.id);
+  });
+
+  it("countered: a directed 'Answer the counter' assignment with the note; rejected: 'read the note'", () => {
+    const { world, admin, mei, krs } = setup();
+    const g = propose(world, mei, krs[0]!.id);
+    world.grantDesk.decide(admin, g.id, { action: "counter", tokens: 2_000_000, note: "half, and a sharper plan" });
+    const c = world.assignments.first("agentId = ? AND status = 'pending'", [mei.id])!;
+    expect(c).toMatchObject({ lane: "directed", grantId: null, keyResultId: null, title: "Answer the counter on Visitors can tell what the lab is for" });
+    expect(c.description).toContain("The note: half, and a sharper plan");
+    expect(c.description).toContain("ask now 2,000,000 tokens");
+    expect(c.description).toContain("propose_grant");
+    expect(world.budget.canStart(mei.id, c)).toBe(true);
+    // the manager answers: the same proposal goes back; a rejection wakes it once more
+    world.grantDesk.update(mei, g.id, { note: "sharpened" });
+    world.grantDesk.propose(mei, g.id);
+    world.grantDesk.decide(admin, g.id, { action: "reject", note: "not this quarter" });
+    const pending = world.assignments.where("agentId = ? AND status = 'pending'", [mei.id]);
+    expect(pending).toHaveLength(2);
+    const r = pending.find((a) => a.id !== c.id)!;
+    expect(r).toMatchObject({ lane: "directed", title: `Grant ${g.id} rejected: read the note` });
+    expect(r.description).toContain("The note: not this quarter");
+    expect(r.description).toContain("open for exploration");
+    expect(world.budget.canStart(mei.id, r)).toBe(true);
+  });
+
+  it("no manager agent: nothing is queued (a human works the in-tray)", () => {
+    const { world, admin, mei, krs } = setup();
+    world.ops.updateBuilding(admin, LAB, { managerAgentId: null });
+    const g = propose(world, mei, krs[0]!.id);
+    world.grantDesk.decide(admin, g.id, { action: "fund" });
+    expect(world.assignments.where("agentId = ? AND status = 'pending'", [mei.id])).toHaveLength(0);
   });
 });
