@@ -7,6 +7,7 @@
 # Usage: FLY_STRESS_TOKEN=... deploy/fly/throwaway.sh [create|status|admin-token|destroy|--destroy]
 #   create (default)  app + volume + data key, build and deploy the image, wait for /api/health, fetch the admin token
 #   status            Machine status and /api/health
+#   stop | start      stop the Machine between sessions (the volume keeps its state; a stopped Machine costs only the volume) / start it again
 #   admin-token       print the throwaway's admin token (its data dir, over fly ssh) and save it to $STRESS_DIR/admin-token
 #   destroy           delete the app (Machines and volume included)
 # FLY_STRESS_TOKEN is the token Mitchell made for this (a Town Hall secret granted to the Prod); the real FLY_API_TOKEN (the desks
@@ -72,12 +73,22 @@ case "$cmd" in
   admin-token)
     fetch_admin_token
     ;;
+  stop)
+    "$FLY" machine list -a "$APP" -q | xargs -r -n1 "$FLY" machine stop -a "$APP"
+    ;;
+  start)
+    "$FLY" machine list -a "$APP" -q | xargs -r -n1 "$FLY" machine start -a "$APP"
+    echo "[throwaway] waiting for https://$HOST/api/health"
+    i=0
+    until health | grep -q '"ok":true'; do i=$((i + 1)); [ "$i" -gt 60 ] && { echo "[throwaway] health never came up"; exit 1; }; sleep 5; done
+    echo "[throwaway] up: $(health)"
+    ;;
   destroy|--destroy)
     echo "[throwaway] destroying app $APP (Machines and volume)"
     "$FLY" apps destroy "$APP" --yes
     rm -f "$STRESS_DIR/admin-token"
     ;;
   *)
-    echo "usage: deploy/fly/throwaway.sh [create|status|admin-token|destroy]"; exit 2
+    echo "usage: deploy/fly/throwaway.sh [create|status|admin-token|stop|start|destroy]"; exit 2
     ;;
 esac
