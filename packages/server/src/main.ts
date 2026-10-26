@@ -1,6 +1,6 @@
 /**
  * Process entry: open the world, seed if empty, start the tick, the HTTP/WS/MCP server, and the runtime.
- * Env (MUSTER_TOWN_<X>, or the old AGENT_TOWN_<X>): COLLECTIVE (collectives/climate), DATA (<collective>/data),
+ * Env (MUSTER_TOWN_<X>, or the old AGENT_TOWN_<X>): COLLECTIVE (collectives/workshop), DATA (<collective>/data),
  * EXPORT (<collective>/export), DEV, ADMIN_NAME. Plain PORT (collective.json port or 4321) and HOST (0.0.0.0).
  */
 import { World } from "@muster-town/core";
@@ -47,7 +47,7 @@ async function main() {
   world.start(10);
 
   const auth = loadAuthSettings({ dataDir: DATA_DIR, port: PORT });
-  const app = await buildApp({ world, dev: DEV, auth });
+  const app = await buildApp({ world, dev: DEV, auth, collective: basename(COLLECTIVE_DIR) });
   await app.listen({ port: PORT, host: HOST });
   const url = `http://localhost:${PORT}`;
   console.log(`[server] Muster Town at ${url} (dev=${DEV})`);

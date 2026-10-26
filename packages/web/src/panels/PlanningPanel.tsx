@@ -55,7 +55,7 @@ function Buildings() {
           <form className="form" onSubmit={(e) => e.preventDefault()}>
             <Field label="Name"><input value={name} onChange={(e) => setName(e.target.value)} placeholder="e.g. Ocean Alkalinity Lab" /></Field>
             <Field label="Goal"><textarea rows={2} value={goal} onChange={(e) => setGoal(e.target.value)} placeholder="What should this building figure out?" /></Field>
-            <Field label="Desks"><input type="number" min={1} max={24} value={headcount} onChange={(e) => setHeadcount(+e.target.value)} /></Field>
+            <Field label="Desks" hint="Code access is on when the collective has a repo; residents push code only if the host has Docker and a Claude token in the collective's .env (README, Run it)."><input type="number" min={1} max={24} value={headcount} onChange={(e) => setHeadcount(+e.target.value)} /></Field>
             <div className="actions"><Act tone="primary" disabled={!name.trim()} run={async () => {
               const b = await api().createBuilding({ name: name.trim(), goal: goal.trim(), headcount });
               setName(""); setGoal("");

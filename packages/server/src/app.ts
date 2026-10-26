@@ -36,6 +36,8 @@ export interface BuildAppOptions {
   auth?: Partial<AuthSettings>;
   /** the collectives listed on the homepage (default collectives/registry.json; read per request) */
   registry?: string;
+  /** this server's collective (its dir name, e.g. `workshop`): its homepage entry is matched by slug */
+  collective?: string;
 }
 
 const API_PREFIXES = ["/api", "/ws", "/mcp", "/auth"];
@@ -94,9 +96,9 @@ export async function buildApp(opts: BuildAppOptions): Promise<FastifyInstance> 
   const registry = opts.registry ?? DEFAULT_REGISTRY;
   app.get("/", async (req, reply) => {
     if (/\?./.test(req.url)) return toWeb(req, reply);
-    return reply.type("text/html; charset=utf-8").send(renderHome(collectives(opts.world, registry), haveWeb ? dist : null));
+    return reply.type("text/html; charset=utf-8").send(renderHome(collectives(opts.world, registry, opts.collective), haveWeb ? dist : null));
   });
-  app.get("/api/collectives", async () => ({ collectives: collectives(opts.world, registry) }));
+  app.get("/api/collectives", async () => ({ collectives: collectives(opts.world, registry, opts.collective) }));
   // never let a browser cache the page itself: a stale index.html would point at asset hashes that no longer exist
   app.addHook("onSend", async (_req, reply, payload) => {
     const ct = String(reply.getHeader("content-type") ?? "");

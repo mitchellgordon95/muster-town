@@ -12,6 +12,7 @@
     "dev": "MUSTER_TOWN_DEV=1 npx tsx watch packages/server/src/main.ts",
     "start": "npm run build && npm run start:workshop",
     "start:workshop": "scripts/serve.sh collectives/workshop",
+    "start:collective": "scripts/serve.sh",
     "desk:build": "docker build -t muster-town-desk -t agent-town-desk -f packages/desk/Dockerfile ."
   },
   "engines": {

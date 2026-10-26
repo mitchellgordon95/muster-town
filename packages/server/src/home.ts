@@ -9,10 +9,12 @@ export const DEFAULT_REGISTRY = resolve(dirname(fileURLToPath(import.meta.url)),
 
 /**
  * The collectives on the homepage: `registry.json`, read on every request (an edit shows without a restart).
- * The entry this server runs (url = WEB_BASE) takes its name, tagline and goal from the live town row.
- * A missing or invalid file lists just this server's collective.
+ * This server's own entry (slug = `self`, the collective dir's name; without `self`, the one at url = WEB_BASE) opens at
+ * WEB_BASE and takes its name, tagline and goal from the live town row. Another entry at url = WEB_BASE would open this
+ * server's town under the wrong name, so it is left out (give other collectives an absolute url). A missing or invalid
+ * file lists just this server's collective.
  */
-export function collectives(world: World, registryPath: string): Collective[] {
+export function collectives(world: World, registryPath: string, self?: string): Collective[] {
   let list: Collective[] = [];
   try {
     if (existsSync(registryPath)) list = CollectiveRegistry.parse(JSON.parse(readFileSync(registryPath, "utf8"))).collectives;
@@ -21,8 +23,9 @@ export function collectives(world: World, registryPath: string): Collective[] {
   }
   const town = world.town.get();
   const live = { name: town.name, tagline: town.tagline, goal: town.goal };
-  if (!list.some((c) => c.url === WEB_BASE)) list = [{ slug: WEB_BASE.replace(/\//g, "") || "town", url: WEB_BASE, ...live }, ...list];
-  return list.map((c) => (c.url === WEB_BASE ? { ...c, ...live, placeholder: undefined } : c));
+  const isSelf = (c: Collective) => (self ? c.slug === self : c.url === WEB_BASE);
+  if (!list.some(isSelf)) list = [{ slug: self ?? (WEB_BASE.replace(/\//g, "") || "town"), url: WEB_BASE, ...live }, ...list];
+  return list.flatMap((c) => (isSelf(c) ? [{ ...c, ...live, url: WEB_BASE, placeholder: undefined }] : c.url === WEB_BASE ? [] : [c]));
 }
 
 const esc = (s: string) => s.replace(/[&<>"']/g, (ch) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[ch]!);
