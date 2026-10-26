@@ -82,7 +82,6 @@ describe("layout", () => {
     expect(w2.buildings.all().map((b) => [b.id, b.lot])).toEqual(before);
     const b = createBuilding(w2, { name: "Small", headcount: 1 }, seed.admin.id);
     createResident(w2, { buildingId: b.id, name: "Solo", title: "t", direction: "d" });
-    expect(() => createResident(w2, { buildingId: b.id, name: "Extra", title: "t", direction: "d" })).toThrow(/no free desk/);
     w2.ops.updateBuilding(null, b.id, { headcount: 9 });
     const all = w2.buildings.all();
     for (let i = 0; i < all.length; i++) for (let j = i + 1; j < all.length; j++) expect(overlap(all[i].lot!, all[j].lot!)).toBe(false);
@@ -171,5 +170,44 @@ describe("pathfinding and movement", () => {
   it("freshWorld with no buildings still has a grid", () => {
     const { world } = freshWorld();
     expect(world.layout.grid.w * world.layout.grid.h).toBe(world.layout.grid.tiles.length);
+  });
+});
+
+describe("a desk per resident", () => {
+  it("a full lab grows by a desk for a new resident (re-lotting when it no longer fits); visitors still wait on the bench", () => {
+    const { world, seed } = seededWorld();
+    const b = createBuilding(world, { name: "Small", headcount: 1 }, seed.admin.id);
+    const ids = ["A", "B", "C", "D"].map((name) => createResident(world, { buildingId: b.id, name, title: "t", direction: "d" }).id);
+    expect(world.buildings.require(b.id).headcount).toBe(4);
+    const tiles = ids.map((id) => world.layout.deskOf(id)!.pos).map((p) => `${p.x},${p.y}`);
+    expect(new Set(tiles).size).toBe(4);
+    for (const id of ids) expect(world.agents.require(id).pos).toEqual(world.layout.deskOf(id)!.pos);
+    const all = world.buildings.all();
+    for (let i = 0; i < all.length; i++) for (let j = i + 1; j < all.length; j++) expect(overlap(all[i].lot!, all[j].lot!)).toBe(false);
+    const { agent } = world.ops.registerVisitor(seed.admin.id, { name: "V", buildingId: b.id });
+    expect(world.layout.deskOf(agent.id)).toBeUndefined();
+  });
+
+  it("on reopen, a resident left without a desk gets its own and steps off the desk it shared", () => {
+    const { world, dbPath, seed } = seededWorld();
+    const b = createBuilding(world, { name: "Shared", headcount: 2 }, seed.admin.id);
+    const lena = createResident(world, { buildingId: b.id, name: "Lena", title: "t", direction: "d" });
+    const keel = createResident(world, { buildingId: b.id, name: "Keel", title: "t", direction: "d" });
+    // legacy data: Keel's desk row is gone, headcount is one short, and Keel stands on Lena's desk
+    world.db.prepare("DELETE FROM desks WHERE agentId = ?").run(keel.id);
+    world.db.prepare("UPDATE buildings SET headcount = 1 WHERE id = ?").run(b.id);
+    world.agents.patch(keel.id, { pos: world.layout.deskOf(lena.id)!.pos });
+    world.close();
+    const w2 = World.open(dbPath);
+    const desk = w2.layout.deskOf(keel.id)!;
+    expect(desk).toBeDefined();
+    expect(desk.pos).not.toEqual(w2.layout.deskOf(lena.id)!.pos);
+    expect(w2.agents.require(keel.id).pos).toEqual(desk.pos);
+    expect(w2.buildings.require(b.id).headcount).toBe(2);
+    expect(w2.events.list({ types: ["system"] }).some((e) => e.payload.deskRepair && e.agentId === keel.id)).toBe(true);
+    w2.close();
+    const w3 = World.open(dbPath); // idempotent
+    expect(w3.layout.deskOf(keel.id)!.pos).toEqual(desk.pos);
+    w3.close();
   });
 });

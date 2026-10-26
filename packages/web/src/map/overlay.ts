@@ -125,9 +125,9 @@ export function drawBubble(g: CanvasRenderingContext2D, x: number, y: number, b:
   lines.forEach((l, i) => g.fillText(l, bx + padX, by + padY + i * lh + 1));
 }
 
-/** Count badge (the in-tray on a manager's desk), centred at (x, y). */
-export function drawBadge(g: CanvasRenderingContext2D, x: number, y: number, n: number) {
-  const text = n > 99 ? "99+" : String(n);
+/** Count badge (the in-tray on a manager's desk; "×N" over stacked bodies), centred at (x, y). */
+export function drawBadge(g: CanvasRenderingContext2D, x: number, y: number, n: number | string) {
+  const text = typeof n === "string" ? n : n > 99 ? "99+" : String(n);
   g.font = "700 10px ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, sans-serif";
   const w = Math.max(16, g.measureText(text).width + 9), h = 16;
   const bx = Math.round(x - w / 2), by = Math.round(y - h / 2);

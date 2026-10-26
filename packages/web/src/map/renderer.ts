@@ -15,6 +15,7 @@ import { api } from "../api";
 import { drawFlow, type Flow } from "./flow";
 import { fitZoom, quickWalkGoal } from "./overview";
 import { avatarSize } from "./avatarSize";
+import { stackBodies } from "./stacks";
 import { TILE } from "@muster-town/schema";
 
 /** `index`/`count`: position among everything in reach, so the HUD can show "Tab 2/3" when targets overlap. */
@@ -458,6 +459,9 @@ export class MapRenderer {
     }
     const meAgent = store.avatarId ? s.agents[store.avatarId] ?? null : null;
     list.push({ id: "__me", a: meAgent, x: this.me.x, y: this.me.y, moving: this.me.moving, ...sizeOf(meAgent) });
+    // bodies sharing a tile fan out sideways (labels stack below each other) and the stack gets a ×N badge
+    const stacks = stackBodies(list, T);
+    for (const d of list) d.x += stacks.get(d.id)?.dx ?? 0;
     list.sort((p, q) => p.y - q.y);
     const tick = Math.floor(now / 250);
     for (const d of list) {
@@ -516,10 +520,18 @@ export class MapRenderer {
       const name = isMe ? (authStore.get().guest ? "You (guest)" : "You") : d.a!.name;
       const hl = d.id === targetId || d.id === this.hoverId;
       const home = d.a?.homeBuildingId ? s.buildings.find((b) => b.id === d.a!.homeBuildingId) : undefined;
-      drawLabel(g, p.x, p.y + 3, name, d.a?.status ?? "idle", hl, isMe, d.a && !isMe ? residentBudgetLine(d.a, home?.dailyTokensPerAgent) : null, !!d.a && isManager(d.a, s.buildings));
+      const st = stacks.get(d.id);
+      drawLabel(g, p.x, p.y + 3 + (st?.k ?? 0) * 30, name, d.a?.status ?? "idle", hl, isMe, d.a && !isMe ? residentBudgetLine(d.a, home?.dailyTokensPerAgent) : null, !!d.a && isManager(d.a, s.buildings));
       // held by a draining redeploy: its next session starts after the restart
       if (!isMe && blocked.has(d.id)) { const q = toScreen(d.x + d.w / 2 - 2, d.y - d.h + 4); drawPill(g, q.x, q.y, "⟳ redeploy"); }
       if (!isMe) this.hitboxes.push({ id: d.id, x: p.x - d.w * z / 2, y: p.y - d.h * z, w: d.w * z, h: d.h * z + 31 });
+    }
+    // ×N over each stack, at the head of its rightmost body
+    for (const d of list) {
+      const st = stacks.get(d.id);
+      if (!st || st.n < 2 || st.k !== st.n - 1) continue;
+      const q = toScreen(d.x + d.w / 2, d.y - d.h + 2);
+      if (q.x > -40 && q.x < cw + 40 && q.y > -40 && q.y < ch + 40) drawBadge(g, q.x, q.y, `×${st.n}`);
     }
     // in-tray badges on the managers' desks, after the name labels so a body standing at the in-tray never covers them: the desk is the tile above the place's standing spot, or below it
     // (the Town Hall in-tray, and rooms south of the road)

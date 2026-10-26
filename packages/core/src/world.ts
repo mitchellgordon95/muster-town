@@ -153,6 +153,20 @@ export class World {
       if (b) this.changes.emit({ type: "building", building: { ...b, stoplight: this.grantDesk.stoplight(b) } });
     });
     this.layout.rebuild();
+    this.repairDesks();
+  }
+
+  /** Boot repair: residents without a desk get one; a body left standing on someone else's desk moves to its own. */
+  private repairDesks(): void {
+    const fixed = this.layout.repairDesks();
+    if (!fixed.length) return;
+    const desks = new Set(this.layout.places.filter((p) => p.kind === "desk").map((p) => `${p.pos.x},${p.pos.y}`));
+    for (const { agentId, place } of fixed) {
+      const a = this.agents.require(agentId);
+      const stacked = desks.has(`${a.pos.x},${a.pos.y}`) && (a.pos.x !== place.pos.x || a.pos.y !== place.pos.y);
+      if (stacked) this.agents.upsert({ ...a, pos: { ...place.pos }, buildingId: place.buildingId }, { silent: true });
+      this.events.append({ type: "system", agentId, buildingId: place.buildingId, text: `${a.name} got their own desk (${place.name})${stacked ? " and moved off the desk they shared" : ""}`, payload: { deskRepair: true, placeId: place.id } });
+    }
   }
 
   /** collective.json `desks` as stored at seed (defaults: backend auto, image muster-town-desk, ghToken gh-cli). */

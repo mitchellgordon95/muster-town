@@ -3,7 +3,7 @@ import type { DB } from "../db.ts";
 import { AppError, notFound } from "../errors.ts";
 import type { Repos } from "../store.ts";
 import { movedOnly, piecesFor, resolveFurniture, validateLayout, type Furniture, type LayoutError, type Piece } from "./furniture.ts";
-import { assignLots, computeLayout, MOD_SEATS, type DeskSlot, type Grid } from "./layout.ts";
+import { assignLots, computeLayout, MAX_HEADCOUNT, MOD_SEATS, type DeskSlot, type Grid } from "./layout.ts";
 import { isWalkable } from "./path.ts";
 import { planLot, validatePlan, type PlanError, type PlanLot } from "./plan.ts";
 
@@ -118,8 +118,11 @@ export class WorldMap {
     return this.desks.get(buildingId) ?? [];
   }
 
-  /** Give the agent the lowest free desk in the building; rebuilds the layout. */
-  claimDesk(buildingId: string, agentId: string): Place {
+  /**
+   * Give the agent the lowest free desk in the building, never a taken one; rebuilds the layout. With `grow`, a full
+   * lab grows its headcount by a desk (up to MAX_HEADCOUNT) instead of refusing, so it always has a desk per resident.
+   */
+  claimDesk(buildingId: string, agentId: string, opts: { grow?: boolean } = {}): Place {
     const existing = this.deskOf(agentId);
     if (existing) return existing;
     const b = this.repos.buildings.require(buildingId, "building");
@@ -128,10 +131,30 @@ export class WorldMap {
     while (taken.has(n)) n++;
     // Town Hall's desks are the mod-station seats
     const capacity = b.kind === "town-hall" ? MOD_SEATS : b.headcount;
-    if (n >= capacity) throw new AppError("conflict", `${b.name} has no free desk (${b.kind === "town-hall" ? "mod station seats" : "headcount"} ${capacity}).`);
+    if (n >= capacity) {
+      if (!opts.grow || b.kind === "town-hall" || n >= MAX_HEADCOUNT) {
+        throw new AppError("conflict", `${b.name} has no free desk (${b.kind === "town-hall" ? "mod station seats" : "headcount"} ${capacity}).`);
+      }
+      this.repos.buildings.upsert({ ...b, headcount: n + 1 });
+    }
     this.db.prepare("INSERT INTO desks (buildingId, n, agentId) VALUES (?, ?, ?)").run(buildingId, n, agentId);
     this.rebuild();
     return this.deskOf(agentId)!;
+  }
+  /**
+   * Startup repair: every live resident without a desk (legacy data, e.g. two residents left on one desk tile) claims
+   * one in its home lab, growing the lab if it's full. Returns the residents that got a desk.
+   */
+  repairDesks(): { agentId: string; place: Place }[] {
+    const seated = new Set((this.db.prepare("SELECT agentId FROM desks").all() as { agentId: string }[]).map((r) => r.agentId));
+    const out: { agentId: string; place: Place }[] = [];
+    for (const a of this.repos.agents.where("kind = 'resident' AND status NOT IN ('retired','banned') AND homeBuildingId IS NOT NULL", [], "ORDER BY createdAt, id")) {
+      if (seated.has(a.id)) continue;
+      const b = this.repos.buildings.get(a.homeBuildingId!);
+      if (!b) continue;
+      try { out.push({ agentId: a.id, place: this.claimDesk(b.id, a.id, { grow: true }) }); } catch (e) { if (!(e instanceof AppError) || e.code !== "conflict") throw e; }
+    }
+    return out;
   }
   releaseDesk(agentId: string): void {
     this.db.prepare("DELETE FROM desks WHERE agentId = ?").run(agentId);

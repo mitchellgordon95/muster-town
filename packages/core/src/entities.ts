@@ -184,7 +184,7 @@ export function planTown(world: World, lots: Record<string, Lot>, create: (In<ty
   });
 }
 
-/** Create a resident at the building's lowest free desk; it gets `member` in that building. */
+/** Create a resident at the building's lowest free desk (a full lab grows by one); it gets `member` in that building. */
 export function createResident(world: World, input: In<typeof CreateResidentInput>): Agent {
   const inp = CreateResidentInput.parse(input);
   const b = world.buildings.require(inp.buildingId, "building");
@@ -198,7 +198,10 @@ export function createResident(world: World, input: In<typeof CreateResidentInpu
       title: inp.title, direction: inp.direction, sprite: inp.sprite ?? (existing % 8) + 1, model: inp.model ?? null,
       pos: world.layout.door(b.id) ?? { x: 0, y: 0 }, status: "idle", createdAt: nowIso(),
     }), { silent: true });
-    const desk = world.layout.claimDesk(b.id, id);
+    // a full lab grows by a desk (and re-lots if it no longer fits); bodies at places follow a moved lot
+    const before = bodiesBefore(world);
+    const desk = world.layout.claimDesk(b.id, id, { grow: true });
+    followBodies(world, before, () => null);
     const agent = world.agents.patch(id, { pos: desk.pos });
     world.permissions.grant(agent, buildingRoleId(b.id, "member"));
     world.events.append({ type: "agent.created", agentId: id, buildingId: b.id, text: `${agent.name} joined ${b.name}`, payload: { kind: "resident" } });
