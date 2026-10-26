@@ -225,7 +225,9 @@ describe("proxy chat", () => {
     expect(s.options.tools).toEqual([]);
     expect(s.options.maxTurns).toBe(1);
     expect(s.received[0]).toContain("Visitor: What are you doing?");
-    expect(world.agents.require(noor.id).spentTokensToday).toBe(40);
+    // booked as adjusted output tokens (docs/bank.md): the fake reports 20 input + 20 output on claude-opus-5-5
+    // ($4 / $20 per MTok = $480e-6), expressed in the session model's (haiku-5-5, $0.5 per MTok) output tokens = 960
+    expect(world.agents.require(noor.id).spentTokensToday).toBe(960);
   });
 
   test("the proxy sees the agent's recent work and wiki", async () => {
