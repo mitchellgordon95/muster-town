@@ -4,6 +4,7 @@
  * tools all import from here. If it isn't in this file, it isn't in the contract.
  */
 import { z } from "zod";
+import { TOKEN_COUNTS_SHAPE, TokenCounts } from "./tokens.ts";
 
 // ---------- primitives ----------
 export const Id = z.string().min(1);
@@ -202,6 +203,12 @@ export const Allocation = z.object({
   userId: Id,
   buildingId: Id,
   tokens: z.number().int().positive(),
+  /** what it has paid for, by kind (Bank grant step 1); `spentTokens` is their sum, derived by the database */
+  spentInput: z.number().int().nonnegative().default(0),
+  spentOutput: z.number().int().nonnegative().default(0),
+  spentCacheRead: z.number().int().nonnegative().default(0),
+  spentCacheWrite5m: z.number().int().nonnegative().default(0),
+  spentCacheWrite1h: z.number().int().nonnegative().default(0),
   spentTokens: z.number().int().nonnegative().default(0),
   spentUsd: z.number().nonnegative().default(0),
   createdAt: Iso,
@@ -242,7 +249,7 @@ export const BankInput = z.object({
 });
 export type BankInput = z.infer<typeof BankInput>;
 /** One credit from an input into the Bank. A subscription's credit expires a day later (no rollover); an API key's is durable (`expiresAt` null). */
-export const BankCredit = z.object({ id: Id, inputId: Id, tokens: z.number().int().positive(), createdAt: Iso, expiresAt: Iso.nullable().default(null) });
+export const BankCredit = z.object({ id: Id, inputId: Id, ...TOKEN_COUNTS_SHAPE, tokens: z.number().int().nonnegative().default(0), createdAt: Iso, expiresAt: Iso.nullable().default(null) });
 export type BankCredit = z.infer<typeof BankCredit>;
 /** The collective's default pool: every building without a `poolId` draws from it. It can't be deleted. */
 export const DEFAULT_POOL_ID = "general";
@@ -256,10 +263,10 @@ export type BankPool = z.infer<typeof BankPool>;
  * Tokens a building's session drew from the Bank: from an expiring credit (`creditId`), else from the durable credits.
  * `poolId` is the pool it drew from (what the pool's share is charged against); `buildingId` is who spent it.
  */
-export const BankDebit = z.object({ id: Id, buildingId: Id, poolId: Id, agentId: Id, creditId: Id.nullable().default(null), tokens: z.number().int().positive(), createdAt: Iso });
+export const BankDebit = z.object({ id: Id, buildingId: Id, poolId: Id, agentId: Id, creditId: Id.nullable().default(null), ...TOKEN_COUNTS_SHAPE, tokens: z.number().int().nonnegative().default(0), createdAt: Iso });
 export type BankDebit = z.infer<typeof BankDebit>;
 /** One charge of model usage: who spent it and which building it counts for (the agent's home). The usage ledger behind tokensToday / tokensAllTime. */
-export const UsageEntry = z.object({ id: Id, agentId: Id, buildingId: Id.nullable().default(null), tokens: z.number().int().nonnegative(), usd: z.number().nonnegative().default(0), createdAt: Iso });
+export const UsageEntry = z.object({ id: Id, agentId: Id, buildingId: Id.nullable().default(null), ...TOKEN_COUNTS_SHAPE, tokens: z.number().int().nonnegative().default(0), usd: z.number().nonnegative().default(0), createdAt: Iso });
 export type UsageEntry = z.infer<typeof UsageEntry>;
 
 // ---------- agents (bodies in the world) ----------
@@ -753,6 +760,8 @@ export const Session = z.object({
   status: SessionStatus,
   model: z.string(),
   sdkSessionId: z.string().nullable().default(null),
+  /** the five counters (Bank grant step 1); `tokens` is their sum, derived by the database */
+  ...TOKEN_COUNTS_SHAPE,
   tokens: z.number().int().default(0),
   costUsd: z.number().default(0),
   turns: z.number().int().default(0),
@@ -1352,7 +1361,12 @@ export type DeskControlAckInput = z.infer<typeof DeskControlAckInput>;
 /** POST /api/agents/me/session-end → { session } */
 export const DeskSessionEndInput = z.object({
   session: Id,
+  /** raw total: only read when `counts` is absent (an older desk), then split by the back-fill rule */
   tokens: z.number().nonnegative().default(0),
+  /** the five counters, summed over every model the session used */
+  counts: TokenCounts.optional(),
+  /** the counters per model id (SDK `modelUsage` keys) */
+  byModel: z.record(z.string(), TokenCounts).optional(),
   costUsd: z.number().nonnegative().default(0),
   turns: z.number().int().nonnegative().default(0),
   sdkSessionId: z.string().nullable().optional(),
@@ -1367,4 +1381,5 @@ export const DeskSessionEndInput = z.object({
 export type DeskSessionEndInput = z.infer<typeof DeskSessionEndInput>;
 
 export { toJsonSchema } from "./json-schema.ts";
+export * from "./tokens.ts";
 export { townEnv, townEnvBoth, ENV_PREFIX, OLD_ENV_PREFIX, type TownEnvName } from "./env.ts";

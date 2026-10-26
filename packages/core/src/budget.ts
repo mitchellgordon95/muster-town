@@ -1,4 +1,4 @@
-import { DonateInput, type Agent, type Allocation, type AllocationAuth, type Assignment, type BuildingBudget, type ServerMessage } from "@muster-town/schema";
+import { DonateInput, rawTokens, toCounts, type TokenCounts, type Agent, type Allocation, type AllocationAuth, type Assignment, type BuildingBudget, type ServerMessage } from "@muster-town/schema";
 import type { Bank } from "./bank.ts";
 import { badRequest } from "./errors.ts";
 import type { EventLog } from "./events.ts";
@@ -90,12 +90,13 @@ export class Budget {
    * Record usage on the agent (daily + total counters) and in the usage ledger, without drawing from any budget, then
    * run `afterCharge` (grant checkpoints). `charge` does this too; call it alone when nothing funds the session (e.g. Town Hall's librarian).
    */
-  recordUsage(agentId: string, tokens: number, usd: number): Agent {
-    if (tokens < 0 || usd < 0) throw badRequest("usage must be non-negative");
-    const t = Math.round(tokens);
+  recordUsage(agentId: string, tokens: number | TokenCounts, usd: number): Agent {
+    if ((typeof tokens === "number" && tokens < 0) || usd < 0) throw badRequest("usage must be non-negative");
+    const counts = toCounts(tokens);
+    const t = rawTokens(counts);
     const agent = this.repos.agents.require(agentId, "agent");
     const bid = agent.homeBuildingId ?? agent.buildingId;
-    this.repos.usage.upsert({ id: newId("us"), agentId, buildingId: bid, tokens: t, usd, createdAt: nowIso() });
+    this.repos.usage.upsert({ id: newId("us"), agentId, buildingId: bid, ...counts, usd, createdAt: nowIso() });
     const updated = this.repos.agents.upsert({
       ...agent,
       spentTokensToday: agent.spentTokensToday + t,
@@ -142,19 +143,26 @@ export class Budget {
    * Emits `budget.exhausted`
    * and sets `out-of-budget` when the agent's daily allowance or the building budget runs out.
    */
-  charge(agentId: string, tokens: number, usd: number, allocationId?: string): ChargeResult {
-    if (tokens < 0 || usd < 0) throw badRequest("charge must be non-negative");
-    const t = Math.round(tokens);
-    let agent = this.recordUsage(agentId, t, usd);
+  charge(agentId: string, tokens: number | TokenCounts, usd: number, allocationId?: string): ChargeResult {
+    if ((typeof tokens === "number" && tokens < 0) || usd < 0) throw badRequest("charge must be non-negative");
+    const counts = toCounts(tokens);
+    const t = rawTokens(counts);
+    let agent = this.recordUsage(agentId, counts, usd);
     const bid = agent.homeBuildingId ?? agent.buildingId;
     let allocation: Allocation | null = null;
     if (bid) {
-      const left = allocationId ? t : this.bank.draw(bid, agent.id, t);
+      const rest = allocationId ? counts : this.bank.drawTokens(bid, agent.id, counts);
+      const left = rawTokens(rest);
       allocation = allocationId ? this.repos.allocations.require(allocationId, "allocation") : left > 0 ? this.pickAllocation(bid) : null;
       if (allocation) {
-        allocation = this.repos.allocations.upsert({ ...allocation, spentTokens: allocation.spentTokens + left, spentUsd: allocation.spentUsd + usd * (left / Math.max(1, t)) });
+        allocation = this.repos.allocations.upsert({
+          ...allocation,
+          spentInput: allocation.spentInput + rest.input, spentOutput: allocation.spentOutput + rest.output, spentCacheRead: allocation.spentCacheRead + rest.cacheRead,
+          spentCacheWrite5m: allocation.spentCacheWrite5m + rest.cacheWrite5m, spentCacheWrite1h: allocation.spentCacheWrite1h + rest.cacheWrite1h,
+          spentUsd: allocation.spentUsd + usd * (left / Math.max(1, t)),
+        });
       } else if (left > 0) {
-        this.bank.draw(bid, agent.id, left, { overshoot: true });
+        this.bank.drawTokens(bid, agent.id, rest, { overshoot: true });
       }
       this.emitBuilding(bid);
     }
