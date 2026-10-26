@@ -1,10 +1,11 @@
 /**
  * Shareable URLs: `/#/doc/<id>` opens that doc in the library panel and `/#/grant/<id>` opens that grant or
  * proposal; opening either puts its id in the address bar, so a link can be pasted into a report, chat or anywhere else.
+ * `/#/connect` opens "Connect your agent" (the README's Bring your own agent section links it).
  */
 import { store, type PanelRef } from "./state";
 
-const DOC_HASH = /^#\/(doc|grant)\/([A-Za-z0-9_]+)$/;
+const DOC_HASH = /^#\/(doc|grant)\/([A-Za-z0-9_]+)$|^#\/(connect)$/;
 
 /** True when the page was opened on a shared doc or grant link. */
 export const isDocHash = () => DOC_HASH.test(location.hash);
@@ -13,12 +14,12 @@ export const docUrl = (id: string) => `${location.origin}${location.pathname}#/d
 export const grantUrl = (id: string) => `${location.origin}${location.pathname}#/grant/${id}`;
 
 /** The hash a panel is shared as: docs and grants have one, the rest none. */
-const hashOf = (p: PanelRef | null): string => p?.kind === "library" && p.docId ? `#/doc/${p.docId}` : p?.kind === "grant" && p.id ? `#/grant/${p.id}` : "";
+const hashOf = (p: PanelRef | null): string => p?.kind === "library" && p.docId ? `#/doc/${p.docId}` : p?.kind === "grant" && p.id ? `#/grant/${p.id}` : p?.kind === "connect" ? "#/connect" : "";
 
 function openFromHash() {
   const m = DOC_HASH.exec(location.hash);
   if (!m) return;
-  const want: PanelRef = m[1] === "grant" ? { kind: "grant", id: m[2] } : { kind: "library", docId: m[2] };
+  const want: PanelRef = m[3] ? { kind: "connect" } : m[1] === "grant" ? { kind: "grant", id: m[2] } : { kind: "library", docId: m[2] };
   if (hashOf(store.state.panel) !== location.hash) store.open(want);
 }
 
