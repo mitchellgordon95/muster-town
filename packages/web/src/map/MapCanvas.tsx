@@ -127,13 +127,14 @@ export function MapCanvas(props: { panelInset: number; onTarget: (t: Target | nu
           ref.current!.style.cursor = drag.current ? "grabbing" : layoutEdit.pieceAt(t.x, t.y) ? "grab" : "default";
           return;
         }
-        const id = r.hit(p.x, p.y);
+        r.hoverBlock = r.blockAt(p.x, p.y);
+        const id = r.hoverBlock ? null : r.hit(p.x, p.y);
         r.hoverId = id;
-        r.hoverSign = id ? null : r.signAt(p.x, p.y);
-        ref.current!.style.cursor = id || r.hoverSign ? "pointer" : "default";
+        r.hoverSign = id || r.hoverBlock ? null : r.signAt(p.x, p.y);
+        ref.current!.style.cursor = id || r.hoverSign || r.hoverBlock ? "pointer" : "default";
       }}
       onMouseLeave={() => {
-        if (current) { current.hoverId = null; current.hoverSign = null; }
+        if (current) { current.hoverId = null; current.hoverSign = null; current.hoverBlock = null; }
         endPlanDrag();
         if (drag.current) { layoutEdit.commitDrag(drag.current.before); drag.current = null; }
       }}
@@ -141,6 +142,9 @@ export function MapCanvas(props: { panelInset: number; onTarget: (t: Target | nu
         (document.activeElement as HTMLElement | null)?.blur();
         const r = current; if (!r || layoutEdit.draft || townPlan.draft) return;
         const p = local(e);
+        // a red "blocked N" badge opens that agent's queue, where each row says why
+        const blocked = r.blockAt(p.x, p.y);
+        if (blocked) { store.open({ kind: "agent", id: blocked, tab: "Assignments" }); return; }
         const id = r.hit(p.x, p.y);
         if (id) { store.open({ kind: "agent", id }); return; }
         // a building's banner opens its panel on Overview

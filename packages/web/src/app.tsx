@@ -93,6 +93,12 @@ async function boot(): Promise<Phase> {
   loadRedeployLive();
   loadBank();
   setInterval(loadBank, 60_000);
+  // what blocks each queued assignment: on connect, after assignment changes (at most every 2 s), and every 30 s (deploys, decisions, time)
+  let blockedTimer: ReturnType<typeof setTimeout> | null = null;
+  const loadBlocked = () => { a.blocked().then((blocked) => store.set({ blocked }), () => undefined); };
+  store.onAssignmentChanged = () => { blockedTimer ??= setTimeout(() => { blockedTimer = null; loadBlocked(); }, 2000); };
+  loadBlocked();
+  setInterval(loadBlocked, 30_000);
   return { k: "ready" };
 }
 
@@ -103,7 +109,7 @@ function connect(token: string | null, attempt = 0) {
   socket = api().connect({
     onOpen: () => {
       opened = true; if (token) socket?.send({ type: "auth", token }); store.set({ conn: "open" });
-      if (wasOpen) { api().events({ limit: 100 }).then((ev) => store.mergeEvents(ev), () => undefined); checkBuild(); }
+      if (wasOpen) { api().events({ limit: 100 }).then((ev) => store.mergeEvents(ev), () => undefined); checkBuild(); store.onAssignmentChanged?.(); }
       wasOpen = true;
     },
     onMessage: (m) => store.receive(m),

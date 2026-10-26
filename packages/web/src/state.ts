@@ -5,7 +5,7 @@
  */
 import { useSyncExternalStore } from "react";
 import { ServerMessage } from "@muster-town/schema";
-import type { Agent, Assignment, AuthMe, Doc, Event, Meeting, Permission, Place, SnapshotBuilding, Town, TownHealth } from "@muster-town/schema";
+import type { Agent, Assignment, AuthMe, BlockedAssignment, Doc, Event, Meeting, Permission, Place, SnapshotBuilding, Town, TownHealth } from "@muster-town/schema";
 import type { Bank, Grid, Snapshot } from "./api";
 import { redeployStatus, type RedeployLiveAt } from "./redeploy";
 
@@ -42,6 +42,8 @@ export interface TownState {
   health: TownHealth | null;
   /** `GET /api/admin/redeploy`, refetched on each redeploy event; null until fetched (or not served) */
   redeployLive: RedeployLiveAt | null;
+  /** `GET /api/blocked`: per agent, its queued assignments that can't start and why (queue rows, the map's blocked badges and red lines) */
+  blocked: Record<string, BlockedAssignment[]>;
 }
 
 const MAX_EVENTS = 600;
@@ -49,7 +51,7 @@ const MAX_EVENTS = 600;
 class Store {
   state: TownState = {
     conn: "connecting", me: null, town: null, buildings: [], agents: {}, places: [], grid: null, gridVersion: 0,
-    meetings: {}, events: [], docs: {}, assignments: {}, panel: null, toasts: [], rev: 0, bank: null, health: null, redeployLive: null,
+    meetings: {}, events: [], docs: {}, assignments: {}, panel: null, toasts: [], rev: 0, bank: null, health: null, redeployLive: null, blocked: {},
   };
   /** Latest server position per agent (tile coords). Mutated in place; the renderer interpolates. */
   readonly livePos = new Map<string, { x: number; y: number; at: number }>();
@@ -102,7 +104,11 @@ class Store {
       case "event": return this.applyEvent(m.event);
       case "doc": return this.set({ docs: { ...s.docs, [m.doc.id]: m.doc }, rev: s.rev + 1 });
       case "meeting": return this.set({ meetings: { ...s.meetings, [m.meeting.id]: m.meeting }, rev: s.rev + 1 });
-      case "assignment": return this.set({ assignments: { ...s.assignments, [m.assignment.id]: m.assignment }, rev: s.rev + 1 });
+      case "assignment": {
+        this.set({ assignments: { ...s.assignments, [m.assignment.id]: m.assignment }, rev: s.rev + 1 });
+        // a queue changed: what blocks whom may have too
+        return this.onAssignmentChanged?.();
+      }
       case "building": {
         const known = s.buildings.find((b) => b.id === m.building.id);
         // `intray` is resent when reports are created or decided, `budget` when tokens are charged or donated;
@@ -125,6 +131,8 @@ class Store {
   onRedeployEvent?: () => void;
   /** refetch `bank` (set at boot; throttled there) */
   onBankChanged?: () => void;
+  /** refetch `blocked` (set at boot; debounced there) */
+  onAssignmentChanged?: () => void;
 
   /** Names of agents that left the snapshot (dismissed, banned) so docs keep a readable author. */
   readonly names = new Map<string, string>();
@@ -173,6 +181,8 @@ class Store {
     if (e.type.startsWith("kr.") || e.type.startsWith("grant.") || e.type === "building.blocked") patch.rev = s.rev + 1;
     this.set(patch);
     if (e.type.startsWith("bank.")) this.onBankChanged?.();
+    // a grant decided or a building blocked/unblocked moves lane holds
+    if (e.type.startsWith("grant.") || e.type === "building.blocked") this.onAssignmentChanged?.();
     if (e.type === "system" && e.payload.redeploy) this.onRedeployEvent?.();
     this.toastRedeploy();
     // a message addressed to the human's avatar

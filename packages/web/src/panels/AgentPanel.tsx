@@ -4,7 +4,7 @@
  * Reports live in the in-tray and library.
  */
 import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
-import type { Agent, Assignment, Doc, Event, Permission } from "@muster-town/schema";
+import type { Agent, Assignment, BlockedBy, Doc, Event, Permission } from "@muster-town/schema";
 import { api, type AgentPermissionsView, type ThreadMessage } from "../api";
 import { store, useTown, roleOf } from "../state";
 import { DismissButton, canDismiss } from "./Dismiss";
@@ -420,6 +420,9 @@ function AssignmentsTab({ agent }: { agent: Agent }) {
   const [delegating, setDelegating] = useState<string | null>(null);
   // every session slot on the host is taken: the next assignment waits for one (Planning → System has the cap)
   const noSlot = useTown((s) => slotsFull(s.events, s.health));
+  // why each queued one can't start (GET /api/blocked, refetched as queues change)
+  const blockedRows = useTown((s) => s.blocked[agent.id]);
+  const why = useMemo(() => new Map((blockedRows ?? []).map((b) => [b.assignmentId, b.blockedBy])), [blockedRows]);
   const move = async (i: number, d: -1 | 1) => {
     const ids = queue.map((a) => a.id);
     [ids[i], ids[i + d]] = [ids[i + d], ids[i]];
@@ -444,7 +447,7 @@ function AssignmentsTab({ agent }: { agent: Agent }) {
       </Section>
       <Section title={`${visitor ? "Offered" : "Queue"}${queue.length ? ` (${queue.length})` : ""}`}>
         {!queue.length ? <Empty>{visitor ? `No offers. ${agent.name} accepts assignments from their own session; unaccepted offers are cancelled after 24 h.` : `No queued assignments. A message to ${agent.name} starts one.`}</Empty> : queue.map((a, i) => (
-          <AssignmentRow key={a.id} a={a} index={visitor ? undefined : i + 1} slotWait={!visitor && i === 0 && agent.status === "idle" && noSlot} actions={canControl && !gone && visitor ? (
+          <AssignmentRow key={a.id} a={a} blocked={why.get(a.id)} index={visitor ? undefined : i + 1} slotWait={!visitor && i === 0 && agent.status === "idle" && noSlot} actions={canControl && !gone && visitor ? (
             <Act small tone="bad" run={async () => { put(await api().cancelAssignment(a.id)); }}>Withdraw</Act>
           ) : canControl && !gone ? (
             <>
@@ -507,7 +510,7 @@ function DelegatePicker({ from, run, onDone }: { from: Agent; run: (toId: string
   );
 }
 
-function AssignmentRow({ a, actions, index, offline, footer, slotWait }: { a: Assignment; actions?: ReactNode; index?: number; offline?: boolean; footer?: ReactNode; slotWait?: boolean }) {
+function AssignmentRow({ a, actions, index, offline, footer, slotWait, blocked }: { a: Assignment; actions?: ReactNode; index?: number; offline?: boolean; footer?: ReactNode; slotWait?: boolean; blocked?: BlockedBy }) {
   const [open, setOpen] = useState(false);
   const long = a.description.length > 160;
   return (
@@ -515,10 +518,18 @@ function AssignmentRow({ a, actions, index, offline, footer, slotWait }: { a: As
       <div className="asg-head">
         <b>{index ? <span className="asg-n">{index}.</span> : null}{a.title}</b>
         {a.offered && a.status === "pending" ? <Pill tone="offered" title="Offered to a visitor: it starts when they accept it">offered</Pill>
+          : blocked && a.status === "pending" ? <Pill tone="bad" title={`Can't start yet: ${blocked.text}.${a.parked ? " Parked by the agent's own report." : ""}`}>{a.parked ? "parked" : "blocked"}</Pill>
           : a.waitFor && a.status === "pending" ? <Pill tone="offered" title={`Starts by itself once this happens (cancelled into the in-tray if not within 24 h). Start next overrides it.${a.parked ? " Parked by the agent's own report." : ""}`}>{a.parked ? "parked" : "waiting"}: {waitLabel(a.waitFor)}</Pill>
           : slotWait && a.status === "pending" ? <Pill tone="warn" title="Every session slot on the host is taken (Planning → System sets the cap). It starts when one frees up.">waiting for a slot</Pill>
           : <Pill tone={a.status === "active" ? (offline ? "" : "ok") : a.status === "pending" ? "warn" : a.status === "cancelled" ? "bad" : ""}>{a.status === "pending" ? "queued" : a.status === "active" && offline ? "active, visitor offline" : a.status}</Pill>}
       </div>
+      {blocked && a.status === "pending" ? (
+        <div className="asg-block">
+          {blocked.agentId && blocked.agentId !== a.agentId ? <button type="button" className="link" title="Open who it waits on" onClick={() => store.open({ kind: "agent", id: blocked.agentId!, tab: "Assignments" })}>{blocked.text}</button>
+            : blocked.kind === "decision" && blocked.targetId ? <button type="button" className="link" title="Open the report" onClick={() => store.open({ kind: "library", docId: blocked.targetId! })}>{blocked.text}</button>
+            : blocked.text}
+        </div>
+      ) : null}
       {a.description ? <div className="asg-desc" onClick={() => long && setOpen((o) => !o)}><DocText text={long && !open ? a.description.slice(0, 157) + "…" : a.description} /></div> : null}
       <div className="asg-meta">
         {a.fromAssignmentId ? "retried or delegated · " : a.fromMeetingId ? "from a meeting · " : a.fromReportId ? "from a report · " : ""}

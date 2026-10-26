@@ -126,16 +126,48 @@ export function drawBubble(g: CanvasRenderingContext2D, x: number, y: number, b:
 }
 
 /** Count badge (the in-tray on a manager's desk; "×N" over stacked bodies), centred at (x, y). */
-export function drawBadge(g: CanvasRenderingContext2D, x: number, y: number, n: number | string) {
+/** `neutral`: grey (a stack's ×N, a count of bodies, not a problem); red otherwise. Returns its box, for hit-testing. */
+export function drawBadge(g: CanvasRenderingContext2D, x: number, y: number, n: number | string, tone: "bad" | "neutral" = "bad", hl = false) {
   const text = typeof n === "string" ? n : n > 99 ? "99+" : String(n);
   g.font = "700 10px ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, sans-serif";
   const w = Math.max(16, g.measureText(text).width + 9), h = 16;
   const bx = Math.round(x - w / 2), by = Math.round(y - h / 2);
-  g.fillStyle = "#e5484d"; g.strokeStyle = "#14151c"; g.lineWidth = 2;
+  g.fillStyle = tone === "neutral" ? "#5d6177" : "#e5484d"; g.strokeStyle = hl ? "#fff" : "#14151c"; g.lineWidth = 2;
   roundRect(g, bx, by, w, h, 8); g.stroke(); g.fill();
   g.fillStyle = "#fff"; g.textBaseline = "middle"; g.textAlign = "center";
   g.fillText(text, x, by + h / 2 + 0.5);
   g.textAlign = "left";
+  return { x: bx, y: by, w, h };
+}
+
+/** A hover card whose top-left sits near (x, y), kept inside the `cw`×`ch` canvas: a bold title, then one wrapped item per line. */
+export function drawTip(g: CanvasRenderingContext2D, x: number, y: number, title: string, items: string[], cw: number, ch: number) {
+  const max = 280, pad = 8, lh = 14;
+  const font = "12px ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, sans-serif", bold = `700 ${font}`;
+  g.font = font;
+  const rows = items.flatMap((t) => wrapText(g, `• ${t}`, max).map((l, i) => (i ? `   ${l}` : l)));
+  const rowsW = Math.max(0, ...rows.map((r) => g.measureText(r).width));
+  g.font = bold;
+  const w = Math.min(max, Math.max(g.measureText(title).width, rowsW)) + pad * 2;
+  const h = pad * 2 + lh * (rows.length + 1) + 2;
+  const bx = Math.round(Math.max(4, Math.min(cw - w - 4, x))), by = Math.round(Math.max(4, Math.min(ch - h - 4, y)));
+  g.fillStyle = "rgba(20,21,28,.94)"; g.strokeStyle = "#e5484d"; g.lineWidth = 1;
+  roundRect(g, bx, by, w, h, 6); g.fill(); g.stroke();
+  g.textBaseline = "top"; g.textAlign = "left";
+  g.font = bold; g.fillStyle = "#ff8b8e";
+  g.fillText(title, bx + pad, by + pad);
+  g.font = font; g.fillStyle = "#e4e6f2";
+  rows.forEach((r, i) => g.fillText(r, bx + pad, by + pad + lh * (i + 1) + 2));
+}
+
+/** A dashed red line from a blocked agent (a) to what blocks it (b), screen px, with a dot at b. */
+export function drawBlockLine(g: CanvasRenderingContext2D, a: { x: number; y: number }, b: { x: number; y: number }, hl: boolean) {
+  g.strokeStyle = hl ? "rgba(255,93,98,.95)" : "rgba(229,72,77,.6)"; g.lineWidth = hl ? 2.5 : 1.5;
+  g.setLineDash([6, 4]);
+  g.beginPath(); g.moveTo(a.x, a.y); g.lineTo(b.x, b.y); g.stroke();
+  g.setLineDash([]);
+  g.fillStyle = g.strokeStyle;
+  g.beginPath(); g.arc(b.x, b.y, hl ? 4 : 3, 0, Math.PI * 2); g.fill();
 }
 
 /** Small amber pill (e.g. "⟳ redeploy") whose bottom-left sits at (x, y): an agent held by a draining redeploy. */

@@ -1,5 +1,5 @@
 /** `Api` implemented against the in-memory Sim. Same interface as HttpApi, so every panel works offline. */
-import type { Agent, Assignment, AuthMe, Building, Doc, Event, Meeting, Membership, RedeployLive } from "@muster-town/schema";
+import type { Agent, Assignment, AuthMe, BlockedAssignment, BlockedBy, Building, Doc, Event, Meeting, Membership, RedeployLive } from "@muster-town/schema";
 import { BACKFILL, BOARD_TYPES, DEFAULT_POOL_ID, ZERO_TOKENS, addTokens, backfillFamily, splitRaw, type BankPool } from "@muster-town/schema";
 import type { Api, AgentDetail, AllocationRow, Bank, Budget, Cabinet, CabinetQuery, DocQuery, EventQuery, In, LayoutPreview, MessageResult, PlanPreview, RoomLayout, RequestAction, Snapshot, Socket, SocketHandlers, ThreadMessage, WriteDocInput } from "../api";
 import { ApiError } from "../api";
@@ -582,6 +582,31 @@ export class MockApi implements Api {
   private live: RedeployLive = { running: false, phase: "idle", waitingFor: [], since: null };
   async redeployLive() { await wait(60); return { ...this.live }; }
   async health() { return { ok: true, commit: "mock" }; }
+  /** like core's townBlocked, for the waits the mock has: a colleague's assignment, a decision, a deploy, a time */
+  async blocked() {
+    await wait(40);
+    const out: Record<string, BlockedAssignment[]> = {};
+    for (const a of this.sim.assignments.values()) {
+      const w = a.status === "pending" ? a.waitFor : null;
+      if (!w) continue;
+      let b: BlockedBy;
+      if ("assignment" in w) {
+        const t = this.sim.assignments.get(w.assignment);
+        if (!t || t.status === "done" || t.status === "cancelled") continue;
+        b = { kind: "assignment", targetId: t.id, agentId: t.agentId, text: `waits on assignment "${t.title}" (${this.sim.agents.get(t.agentId)?.name ?? t.agentId})` };
+      } else if ("decision" in w) {
+        const d = this.sim.docs.get(w.decision);
+        b = { kind: "decision", targetId: w.decision, placeId: `intray:${d?.buildingId ?? a.buildingId}`, text: `waits for a decision on "${d?.title ?? w.decision}"` };
+      } else if ("deploy" in w) {
+        b = { kind: "deploy", targetId: w.deploy, placeId: `door:${a.buildingId}`, text: w.deploy === "next" ? "waits for the next redeploy" : `waits for deploy ${w.deploy.slice(0, 7)} (live is mock)` };
+      } else {
+        if (Date.parse(w.after) <= Date.now()) continue;
+        b = { kind: "after", targetId: null, text: `not before ${w.after}` };
+      }
+      (out[a.agentId] ??= []).push({ assignmentId: a.id, title: a.title, blockedBy: b });
+    }
+    return clone(out);
+  }
   /**
    * At boot, like a server restarted mid-drain: a stale "waiting for Moss" drain (the live view already says nothing runs),
    * then the startup's terminal event; and docker is down (a red notice until the "docker-up" event).

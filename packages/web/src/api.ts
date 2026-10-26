@@ -4,7 +4,7 @@
  */
 import type { z } from "zod";
 import type {
-  Agent, Allocation, Assignment, AuthMe, RedeployLive, Building, ClientMessage, DesksConfig, Doc, Event, Lot, Meeting, Place, Role, Membership, SessionSlots, Tile,
+  Agent, Allocation, Assignment, AuthMe, BlockedAssignment, RedeployLive, Building, ClientMessage, DesksConfig, Doc, Event, Lot, Meeting, Place, Role, Membership, SessionSlots, Tile,
   ServerMessage, SessionView, TokenCounts, Town, CreateBuildingInput, UpdateBuildingInput, CreateResidentInput,
   ReviewInput, PinSkillInput, SkillPinView, SkillView, PutSecretInput, SecretView, ChatInput, WorkInput, DonateInput, AddBankInput, BankInput, CreateBankPoolInput, UpdateBankPoolInput, CreateMeetingInput, DocState, DocType, Mailbox, Permission, DecideGrantInput, GrantView, KeyResult, CreateKeyResultInput, UpdateKeyResultInput, Stoplight,
 } from "@muster-town/schema";
@@ -270,6 +270,8 @@ export interface Api {
   /** the runtime's live redeploy state (`GET /api/admin/redeploy`; readable by anyone) */
   redeployLive(): Promise<RedeployLive>;
   /** the live server's build (`commit` null when unknown); a reconnect compares it with the one this bundle came from */
+  /** every agent's queued assignments that can't start, with the reason (GET /api/blocked): the map's blocked badges and red lines */
+  blocked(): Promise<Record<string, BlockedAssignment[]>>;
   health(): Promise<{ ok?: boolean; commit?: string | null }>;
   connect(handlers: SocketHandlers): Socket;
 }
@@ -445,6 +447,7 @@ export class HttpApi implements Api {
   async redeploy(image: boolean) { return this.post<{ started?: boolean; queued?: boolean; running?: boolean }>("/api/admin/redeploy", { image }); }
   async redeployLive() { return this.get<RedeployLive>("/api/admin/redeploy"); }
   async health() { return this.get<{ ok?: boolean; commit?: string | null }>("/api/health"); }
+  async blocked() { return (await this.get<{ agents?: Record<string, BlockedAssignment[]> }>("/api/blocked")).agents ?? {}; }
 
   connect(h: SocketHandlers): Socket {
     const url = `${location.protocol === "https:" ? "wss" : "ws"}://${location.host}/ws`;

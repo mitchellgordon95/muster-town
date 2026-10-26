@@ -9,7 +9,7 @@ import { authStore } from "../auth/auth";
 import { T, CHAR_W, CHAR_H, charSheet, tiles, HUMAN_SPRITE } from "./sprites";
 import { layoutEdit, type LayoutDraft } from "./layoutEdit";
 import { townPlan, type PlanDraft } from "./townPlan";
-import { bubbleFor, buildingBudgetLine, drawBadge, drawBankSign, drawBubble, drawLabel, drawPill, drawSign, residentBudgetLine, type Bubble } from "./overlay";
+import { bubbleFor, buildingBudgetLine, drawBadge, drawBankSign, drawBlockLine, drawBubble, drawLabel, drawPill, drawSign, drawTip, residentBudgetLine, type Bubble } from "./overlay";
 import { blockedByRedeploy } from "../redeploy";
 import { api } from "../api";
 import { drawFlow, type Flow } from "./flow";
@@ -82,6 +82,9 @@ export class MapRenderer {
   /** Building banners on screen, for click-to-open their building panel. */
   private signHits: { id: string; x: number; y: number; w: number; h: number }[] = [];
   hoverSign: string | null = null;
+  /** the red "blocked N" badges (agent id per box), and the one under the mouse (its reasons show as a hover card) */
+  private blockHits: { id: string; x: number; y: number; w: number; h: number }[] = [];
+  hoverBlock: string | null = null;
   /** last frame's camera, for screen -> tile */
   private view = { ox: 0, oy: 0, z: 3 };
   onTarget?: (t: Target | null) => void;
@@ -205,6 +208,15 @@ export class MapRenderer {
     for (let i = this.hitboxes.length - 1; i >= 0; i--) {
       const h = this.hitboxes[i];
       if (cx >= h.x && cx <= h.x + h.w && cy >= h.y && cy <= h.y + h.h) return h.id;
+    }
+    return null;
+  }
+
+  /** Agent whose red "blocked N" badge is under a screen point (CSS px). */
+  blockAt(cx: number, cy: number): string | null {
+    for (let i = this.blockHits.length - 1; i >= 0; i--) {
+      const h = this.blockHits[i];
+      if (cx >= h.x - 2 && cx <= h.x + h.w + 2 && cy >= h.y - 2 && cy <= h.y + h.h + 2) return h.id;
     }
     return null;
   }
@@ -494,13 +506,13 @@ export class MapRenderer {
     g.setTransform(dpr, 0, 0, dpr, 0, 0);
     if (this.flow) {
       // the town map: just the flow over the dimmed town (no signs, labels or bubbles); bodies can't be clicked
-      this.hitboxes = []; this.signHits = [];
+      this.hitboxes = []; this.signHits = []; this.blockHits = [];
       drawFlow(g, now, this.flow, s.buildings, s.places, toScreen, cw, ch, this.leftInset + (viewW - this.leftInset) / 2, viewW);
       return;
     }
     if (plan) {
       // planning: each lot's name, nothing else (bodies can't be clicked)
-      this.hitboxes = []; this.signHits = [];
+      this.hitboxes = []; this.signHits = []; this.blockHits = [];
       const names = new Map(s.buildings.map((b) => [b.id, b.name]));
       if (plan.create) names.set("new", plan.create.name.trim() || "New building");
       for (const [id, l] of [...Object.entries(plan.lots), ...(plan.create ? [["new", plan.create.lot] as const] : [])]) {
@@ -508,6 +520,24 @@ export class MapRenderer {
         drawPill(g, p.x, p.y - 3, `${names.get(id) ?? id} · ${l.w}×${l.h}`);
       }
       return;
+    }
+    // red dashed lines from each blocked agent (not working: a busy one isn't waiting) to what blocks its queue, one per
+    // distinct blocker: the colleague's body (or desk), the in-tray holding the decision or the hold, the building's door
+    const shown = s.panel?.kind === "agent" ? s.panel.id : null;
+    const blockedNow = list.filter((d) => d.a && d.id !== "__me" && d.a.status !== "working" && s.blocked[d.id]?.length);
+    for (const d of blockedNow) {
+      const hl = d.id === this.hoverBlock || d.id === this.hoverId || d.id === shown;
+      const from = toScreen(d.x, d.y - d.h / 2);
+      const seen = new Set<string>();
+      for (const { blockedBy: b } of s.blocked[d.id]) {
+        const key = b.agentId ?? b.placeId;
+        if (!key || seen.has(key) || key === d.id) continue;
+        seen.add(key);
+        const body = b.agentId ? list.find((x) => x.id === b.agentId) : undefined;
+        const place = body ? undefined : s.places.find((p) => p.id === (b.agentId ? `desk:${b.agentId}` : b.placeId));
+        const to = body ? toScreen(body.x, body.y - body.h / 2) : place ? toScreen(place.pos.x * T + T / 2, place.pos.y * T + T / 2) : null;
+        if (to) drawBlockLine(g, from, to, hl);
+      }
     }
     this.signHits = [];
     for (const b of s.buildings) {
@@ -542,7 +572,14 @@ export class MapRenderer {
       const st = stacks.get(d.id);
       if (!st || st.n < 2 || st.k !== st.n - 1) continue;
       const q = toScreen(d.x + d.w / 2, d.y - d.h + 2);
-      if (q.x > -40 && q.x < cw + 40 && q.y > -40 && q.y < ch + 40) drawBadge(g, q.x, q.y, `×${st.n}`);
+      if (q.x > -40 && q.x < cw + 40 && q.y > -40 && q.y < ch + 40) drawBadge(g, q.x, q.y, `×${st.n}`, "neutral");
+    }
+    // a red "blocked N" over the head of each agent whose queue can't start: hover lists the reasons, click opens the queue
+    this.blockHits = [];
+    for (const d of blockedNow) {
+      const q = toScreen(d.x - d.w / 2, d.y - d.h + 2);
+      if (q.x < -60 || q.x > cw + 60 || q.y < -40 || q.y > ch + 40) continue;
+      this.blockHits.push({ id: d.id, ...drawBadge(g, q.x - 18, q.y, `blocked ${s.blocked[d.id].length}`, "bad", d.id === this.hoverBlock) });
     }
     // in-tray badges on the managers' desks, after the name labels so a body standing at the in-tray never covers them: the desk is the tile above the place's standing spot, or below it
     // (the Town Hall in-tray, and rooms south of the road)
@@ -568,6 +605,13 @@ export class MapRenderer {
       const p = toScreen(d.x, d.y - d.h);
       if (p.x < -200 || p.x > cw + 200 || p.y < -100 || p.y > ch + 200) continue;
       drawBubble(g, p.x, p.y, bubble, d.id === targetId || d.id === this.hoverId);
+    }
+    // the hovered blocked badge's reasons, above everything
+    const tipFor = this.hoverBlock ? this.blockHits.find((h) => h.id === this.hoverBlock) : undefined;
+    const rows = tipFor ? s.blocked[tipFor.id] : undefined;
+    if (tipFor && rows?.length) {
+      const name = s.agents[tipFor.id]?.name ?? "";
+      drawTip(g, tipFor.x, tipFor.y + tipFor.h + 4, `${name}: ${rows.length} queued, can't start (click for the queue)`, rows.map((r) => `${r.title}: ${r.blockedBy.text}`), cw, ch);
     }
   }
 }
