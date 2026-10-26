@@ -73,7 +73,7 @@ export function Hud({ onPasteToken, onHelp }: { onPasteToken?: () => void; onHel
         key: `intray:${b.id}`, icon: "intray", tone: "warn", cta: "Go →",
         text: b.kind === "town-hall"
           ? <><b>{b.intray}</b> item{b.intray === 1 ? "" : "s"} in the Town Hall in-tray (rollups, proposals, checkpoints)</>
-          : <><b>{b.intray}</b> report{b.intray === 1 ? "" : "s"} in the {b.name} in-tray</>,
+          : <><b>{b.intray}</b> item{b.intray === 1 ? "" : "s"} in the {b.name} in-tray (reports, flags)</>,
         go: () => walkOrOpen(`intray:${b.id}`, { kind: "intray", id: b.id }),
       });
     }

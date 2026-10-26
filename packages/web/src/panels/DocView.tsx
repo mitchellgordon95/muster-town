@@ -6,7 +6,7 @@ import { store, useTown } from "../state";
 import { Markdown, openDocLink } from "./Markdown";
 import { docUrl } from "../route";
 import { SkillDetails } from "./Skills";
-import { Act, Pill, nameOf, timeAgo, fmtTokens, usd } from "./ui";
+import { Act, Field, Pill, nameOf, timeAgo, fmtTokens, usd } from "./ui";
 
 export const DECISION_TONE: Record<string, string> = { pending: "warn", approve: "ok", continue: "ok", redirect: "info", stop: "bad" };
 /** How a decision reads on a pill. `approve` is "Acknowledge" in v1.2: no assignment follows. */
@@ -65,6 +65,39 @@ export function ReplyBox({ doc, onDone }: { doc: Doc; onDone?: () => void }) {
   );
 }
 
+/**
+ * Deciding a flag (a human's quick request): pick the resident who takes it, an optional note, and "Assign"
+ * (`review` continue = the flag's text verbatim, redirect = the note with the flag as context), or "Handled" (approve).
+ * Normally the building's manager agent does this in its team-lead session; the box is for in-trays humans work.
+ */
+export function FlagDecideBox({ doc, onDone }: { doc: Doc; onDone?: () => void }) {
+  const residents = useTown((s) => Object.values(s.agents).filter((a) => a.kind === "resident" && (a.homeBuildingId ?? a.buildingId) === doc.buildingId && a.status !== "retired" && a.status !== "banned"));
+  const [assigneeId, setAssigneeId] = useState("");
+  const [note, setNote] = useState("");
+  const assignee = residents.find((a) => a.id === assigneeId);
+  const decide = (decision: "approve" | "continue" | "redirect") => async () => {
+    const d = await api().review(doc.id, { decision, note: note.trim(), ...(decision === "approve" ? {} : { assigneeId }) });
+    store.putDocs([d]);
+    store.toast(decision === "approve" ? "Flag marked handled." : `Flag assigned to ${assignee?.name ?? "the resident"}.`, "ok");
+    onDone?.();
+  };
+  return (
+    <div className="reply-box">
+      <Field label="Who takes it">
+        <select value={assigneeId} onChange={(e) => setAssigneeId(e.target.value)}>
+          <option value="">Pick a resident…</option>
+          {residents.map((a) => <option key={a.id} value={a.id}>{a.name} ({a.status})</option>)}
+        </select>
+      </Field>
+      <textarea rows={2} placeholder="Optional note: with one, your note becomes the assignment and the flag is its context" value={note} onChange={(e) => setNote(e.target.value)} />
+      <div className="actions">
+        <Act small run={decide("approve")} title="Nothing to do: mark the flag handled, no assignment">Handled</Act>
+        <Act small tone="primary" disabled={!assignee} run={decide(note.trim() ? "redirect" : "continue")} title={assignee ? `Give it to ${assignee.name} as a directed assignment` : "Pick a resident first"}>{assignee ? `Assign to ${assignee.name}` : "Assign"}</Act>
+      </div>
+    </div>
+  );
+}
+
 type AskTurn = { role: "user" | "assistant"; text: string };
 
 /** "Ask about this": questions about the report, answered without bothering its author. */
@@ -109,7 +142,7 @@ export function DocView({ doc: initial, onBack, backLabel = "Back", review, onDe
   const doc = live && live.updatedAt >= initial.updatedAt ? live : initial;
   useTown((s) => s.me); // re-render when permissions arrive
   const b = doc.buildingId;
-  const canReview = !!review && doc.type === "report" && doc.decision === "pending" && store.can("building.review", b);
+  const canReview = !!review && (doc.type === "report" || doc.type === "flag") && doc.decision === "pending" && store.can("building.review", b);
   const canPromote = store.can("building.promote", b);
   const canTrophy = store.can("town.approve_trophy");
   const run = (fn: () => Promise<Doc>, msg: string) => async () => { const d = await fn(); store.putDocs([d]); store.toast(msg, "ok"); };
@@ -138,7 +171,7 @@ export function DocView({ doc: initial, onBack, backLabel = "Back", review, onDe
       </div>
       <Markdown text={doc.type === "skill" ? doc.body.replace(/^---\r?\n[\s\S]*?\r?\n---[ \t]*\r?\n?/, "") : stripLeadingH1(doc.body)} />
       {doc.type === "skill" ? <SkillDetails doc={doc} /> : null}
-      {canReview ? <><ReplyBox doc={doc} onDone={onDecided} /><AskBox doc={doc} /></> : null}
+      {canReview ? doc.type === "flag" ? <FlagDecideBox doc={doc} onDone={onDecided} /> : <><ReplyBox doc={doc} onDone={onDecided} /><AskBox doc={doc} /></> : null}
       {sources.length || doc.provenance.urls.length ? (
         <div className="provenance">
           <h4>Provenance</h4>

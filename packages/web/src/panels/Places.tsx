@@ -22,6 +22,7 @@ import { portraitUrl } from "../map/sprites";
 
 export function IntrayPanel({ buildingId }: { buildingId: string }) {
   const b = useTown((s) => s.buildings.find((x) => x.id === buildingId));
+  const buildings = useTown((s) => s.buildings);
   const agents = useTown((s) => s.agents);
   const rev = useTown((s) => s.rev);
   useTown((s) => s.me);
@@ -41,6 +42,8 @@ export function IntrayPanel({ buildingId }: { buildingId: string }) {
   const manager = b.managerAgentId ? agents[b.managerAgentId] : undefined;
   const subtitle = hall ? "Town Hall · rollups, proposals and checkpoints for the humans" : `${b.name} · manager's desk · worked by ${manager ? `★ ${manager.name}` : "you"}`;
   const count = reports.length + grants.length;
+  // where I can plant a flag: this building, or (at the Town Hall) any building I may assign work in
+  const flagTargets = (hall ? buildings.filter((x) => x.kind !== "town-hall") : [b]).filter((x) => store.can("building.assign", x.id));
   return (
     <PanelShell icon={<Glyph kind="intray" />} title={<>In-tray {count ? <Pill tone="warn">{count}</Pill> : null}</>} subtitle={subtitle}>
       {open ? (
@@ -49,10 +52,11 @@ export function IntrayPanel({ buildingId }: { buildingId: string }) {
         <>
           {!canReview && !hall ? <div className="callout">You can read the in-tray. Decisions are for the building's manager and reviewer.</div> : null}
           {manager && !hall ? <div className="callout">★ {manager.name}, the building's manager, works this in-tray and rolls up to the Town Hall in-tray. You can still decide here.</div> : null}
+          {flagTargets.length ? <PlantFlag targets={flagTargets} onPlanted={list.reload} /> : null}
           <ErrorLine error={list.error} />
           {list.loading && !list.data ? <Loading /> : hall ? (
             <TownHallIntray reports={reports} grants={grants} blocked={list.data?.blocked ?? []} onOpen={openDoc} onDecided={list.reload} />
-          ) : !reports.length ? <Empty>The in-tray is empty. When a resident finishes a session, its report lands here and the resident goes idle.</Empty> : (
+          ) : !reports.length ? <Empty>The in-tray is empty. When a resident finishes a session, its report lands here and the resident goes idle; a flag you plant lands here too.</Empty> : (
             <div className="doc-list">
               {reports.map((d) => <IntrayRow key={d.id} doc={d} onOpen={() => setOpenId(d.id)} />)}
             </div>
@@ -60,6 +64,47 @@ export function IntrayPanel({ buildingId }: { buildingId: string }) {
         </>
       )}
     </PanelShell>
+  );
+}
+
+/**
+ * Plant a flag (town hall 2026-10-25 evening, decision 3): a short note a human writes, picking the building; it lands
+ * in that building's in-tray as a pending `flag` for the manager to delegate. No nearest-manager logic: you pick.
+ */
+export function PlantFlag({ targets, onPlanted }: { targets: { id: string; name: string; managerAgentId?: string | null }[]; onPlanted?: () => void }) {
+  const agents = useTown((s) => s.agents);
+  const [open, setOpen] = useState(false);
+  const [buildingId, setBuildingId] = useState(targets[0]?.id ?? "");
+  const [text, setText] = useState("");
+  const target = targets.find((t) => t.id === buildingId) ?? targets[0];
+  const manager = target?.managerAgentId ? agents[target.managerAgentId] : undefined;
+  if (!target) return null;
+  const plant = async () => {
+    const d = await api().plantFlag(target.id, text.trim());
+    store.putDocs([d]);
+    store.toast(`Flag planted in ${target.name}${manager ? `; ${manager.name} delegates it` : ""}.`, "ok");
+    setText("");
+    setOpen(false);
+    onPlanted?.();
+  };
+  if (!open) return <div className="actions"><button className="btn sm" onClick={() => setOpen(true)} title="A quick request for a building's manager to delegate: no grant, no meeting">⚑ Plant a flag</button></div>;
+  return (
+    <div className="reply-box flag-form">
+      {targets.length > 1 ? (
+        <Field label="Building">
+          <select value={target.id} onChange={(e) => setBuildingId(e.target.value)}>
+            {targets.map((t) => <option key={t.id} value={t.id}>{t.name}</option>)}
+          </select>
+        </Field>
+      ) : null}
+      <textarea rows={3} autoFocus placeholder={`What do you want done in ${target.name}? One quick fix per flag; the first line is its title.`} value={text} onChange={(e) => setText(e.target.value)}
+        onKeyDown={(e) => { if (e.key === "Enter" && (e.metaKey || e.ctrlKey) && text.trim()) { e.preventDefault(); void plant().catch((err) => store.toast(String((err as Error).message ?? err), "bad")); } }} />
+      <div className="actions">
+        <span className="muted">{manager ? `★ ${manager.name} gets it in the ${target.name} in-tray and assigns it to a resident.` : `${target.name} has no manager agent: whoever works its in-tray assigns it.`}</span>
+        <button className="btn sm" onClick={() => setOpen(false)}>Cancel</button>
+        <Act small tone="primary" disabled={!text.trim()} run={plant}>Plant</Act>
+      </div>
+    </div>
   );
 }
 
@@ -210,7 +255,9 @@ export function GrantRow({ grant: g, onDecided, onOpenDoc }: { grant: GrantView;
 function IntrayRow({ doc, onOpen, onOpenDoc, showBuilding }: { doc: Doc; onOpen: () => void; onOpenDoc?: (id: string) => void; showBuilding?: boolean }) {
   const a = useTown((s) => s.agents[doc.authorId]);
   const isManager = useTown((s) => !!doc.buildingId && s.buildings.find((b) => b.id === doc.buildingId)?.managerAgentId === doc.authorId);
-  const need = needOf(doc.body);
+  const flag = doc.type === "flag";
+  const need = flag ? null : needOf(doc.body);
+  const preview = flag && doc.body.trim() !== doc.title ? doc.body.replace(/\s+/g, " ") : null;
   const rollup = doc.tags.includes("rollup");
   const covered = doc.provenance.sourceIds;
   const [expanded, setExpanded] = useState(false);
@@ -227,9 +274,11 @@ function IntrayRow({ doc, onOpen, onOpenDoc, showBuilding }: { doc: Doc; onOpen:
           {showBuilding ? <BuildingTag buildingId={doc.buildingId} /> : null}
           {a ? <img src={portraitUrl(a.sprite, 1)} alt="" /> : null}<b>{isManager ? `★ ${nameOf(doc.authorId)}` : nameOf(doc.authorId)}</b><span>{timeAgo(doc.createdAt)}</span>
           {rollup ? <Pill tone="ok">rollup</Pill> : null}
+          {flag ? <Pill tone="warn" title="A quick request a human planted here; the manager delegates it">⚑ flag</Pill> : null}
         </div>
         <div className="doc-row-title">{doc.title}</div>
         {need ? <div className="intray-proposal">Needs: {need.length > 140 ? need.slice(0, 140) + "…" : need}</div> : null}
+        {preview ? <div className="intray-proposal">{preview.length > 160 ? preview.slice(0, 160) + "…" : preview}</div> : null}
         <div className="doc-row-meta">
           {doc.verdict ? <Pill tone={VERDICT_TONE[doc.verdict]}>verdict: {doc.verdict}</Pill> : null}
           {doc.tokens ? <span>{fmtTokens(doc.tokens)} tokens{doc.costUsd ? ` · ${usd(doc.costUsd)}` : ""}</span> : null}

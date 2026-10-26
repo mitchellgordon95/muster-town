@@ -275,7 +275,8 @@ export class MockApi implements Api {
     await wait();
     return clone(this.sim.putDoc({ id: newId("dc"), type: i.type ?? "note", state: i.state ?? "draft", title: i.title, body: i.body, authorId: "us_mitchell", authorKind: "user", buildingId: null, provenance: { sourceIds: [], urls: [] }, tags: i.tags ?? [], createdAt: now(), updatedAt: now() }));
   }
-  async review(docId: string, i: In<typeof ReviewInput>) { await wait(); return clone(this.sim.review(docId, i.decision, i.note ?? "")); }
+  async review(docId: string, i: In<typeof ReviewInput>) { await wait(); return clone(this.sim.review(docId, i.decision, i.note ?? "", i.assigneeId)); }
+  async plantFlag(buildingId: string, text: string) { await wait(); this.need(this.sim.buildings.find((b) => b.id === buildingId), "building"); return clone(this.sim.plantFlag(buildingId, text)); }
   async reply(docId: string, text: string) { await wait(); this.need(this.sim.docs.get(docId), "doc"); return clone(this.sim.reply(docId, text)); }
   async archive(docId: string) { return this.reply(docId, ""); }
   async ask(docId: string, question: string) {

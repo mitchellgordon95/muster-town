@@ -81,8 +81,8 @@ export class Sim {
   intray(buildingId: string): { reports: Doc[]; grants: GrantView[]; blocked: { buildingId: string; name: string; reason: string; since: string | null }[] } {
     const hall = this.buildings.find((b) => b.id === buildingId)?.kind === "town-hall";
     const managerOf = (id: string | null) => this.buildings.find((b) => b.id === id)?.managerAgentId;
-    const reports = [...this.docs.values()].filter((d) => d.type === "report" && d.decision === "pending"
-      && (hall ? !!d.buildingId && managerOf(d.buildingId) === d.authorId : d.buildingId === buildingId && managerOf(d.buildingId) !== d.authorId))
+    const reports = [...this.docs.values()].filter((d) => (d.type === "report" || d.type === "flag") && d.decision === "pending"
+      && (hall ? d.type === "report" && !!d.buildingId && managerOf(d.buildingId) === d.authorId : d.buildingId === buildingId && managerOf(d.buildingId) !== d.authorId))
       .sort((a, b) => a.createdAt.localeCompare(b.createdAt));
     const grants = hall ? [...this.grants.values()].filter((g) => g.status === "proposed" || g.status === "countered" || g.status === "checkpoint") : [];
     const blocked = hall ? this.buildings.filter((b) => b.kind !== "town-hall").flatMap((b) => { const r = this.grantBoard(b.id).blocked; return r ? [{ buildingId: b.id, name: b.name, reason: r, since: b.blockedAt ?? null }] : []; }) : [];
@@ -321,9 +321,36 @@ export class Sim {
    * v1.2 decisions: approve = acknowledge only; continue = assignment from the report's Proposal; redirect = assignment
    * from the note (proposal appended); stop = agent stopped, its pending assignments cancelled.
    */
-  review(docId: string, decision: "approve" | "continue" | "redirect" | "stop", note: string) {
+  /** A human's flag: a pending `flag` doc in the building's in-tray (POST /api/buildings/:id/flags). */
+  plantFlag(buildingId: string, text: string): Doc {
+    const body = text.trim();
+    if (!body) throw new Error("A flag needs a note: what you want done.");
+    const title = body.split("\n")[0].slice(0, 120);
+    const d: Doc = { id: newId("dc"), type: "flag", state: "building", title, body, decision: "pending", authorId: "us_mitchell", authorKind: "user", buildingId, provenance: { sourceIds: [], urls: [] }, tags: [], createdAt: now(), updatedAt: now() };
+    this.putDoc(d);
+    this.event("doc.created", null, `Mitchell planted a flag: ${title}`, { docId: d.id, docType: "flag" }, buildingId);
+    this.emitBuilding(buildingId);
+    return d;
+  }
+  /** As core's decideFlag: approve = handled; continue/redirect = a directed assignment for a resident of the flag's building. */
+  private decideFlag(d: Doc, decision: "approve" | "continue" | "redirect" | "stop", note: string, assigneeId?: string): Doc {
+    if (decision === "stop") throw new Error("A flag has no agent to stop.");
+    const a = decision === "approve" ? undefined : this.agents.get(assigneeId ?? "");
+    if (decision !== "approve" && (!a || (a.homeBuildingId ?? a.buildingId) !== d.buildingId)) throw new Error("Pick a resident of the building to take the flag.");
+    Object.assign(d, { decision, decisionNote: note || undefined, decidedBy: "us_mitchell", decidedAt: now() });
+    this.putDoc(d);
+    this.event("doc.decision", a?.id ?? null, `Mitchell ${decision === "approve" ? "handled" : "delegated"} the flag "${d.title}"${a ? ` → ${a.name}` : ""}`, { docId: d.id, decision }, d.buildingId);
+    this.emitBuilding(d.buildingId);
+    if (!a) return d;
+    const title = decision === "continue" ? d.title : note.split("\n")[0].slice(0, 120);
+    this.newAssignment(a.id, { title: title.slice(0, 90), description: decision === "continue" ? `Mitchell planted a flag in your building (${d.id}):\n\n${d.body}` : `${note}\n\nThe flag said:\n\n${d.body}`, fromReportId: d.id });
+    window.setTimeout(() => this.runNext(a.id), 2500);
+    return d;
+  }
+  review(docId: string, decision: "approve" | "continue" | "redirect" | "stop", note: string, assigneeId?: string) {
     const d = this.docs.get(docId)!;
     if (decision === "redirect" && !note.trim()) throw new Error("Redirect needs a note.");
+    if (d.type === "flag") return this.decideFlag(d, decision, note.trim(), assigneeId);
     Object.assign(d, { decision, decisionNote: note || undefined, decidedBy: "us_mitchell", decidedAt: now() });
     this.putDoc(d);
     const who = this.agents.get(d.authorId)?.name ?? "";
