@@ -251,7 +251,9 @@ export async function runSession(sessionId: string, deps: RunDeps): Promise<numb
             usage = { tokens: prior.tokens + u.tokens, costUsd: prior.costUsd + u.costUsd, turns: prior.turns + u.turns };
             if (typeof m.result === "string" && m.result.trim()) finalText = m.result.trim();
             // a later turn that succeeds clears an earlier turn's error (e.g. one aborted by an interrupt-now)
-            error = m.is_error ? m.errors?.join("; ") || m.subtype || "session ended with an error" : null;
+            // the subtype of a limit death is "success" with the message in `result`: record the message, not "success"
+            const resultText = typeof m.result === "string" ? m.result.trim().split("\n")[0]?.slice(0, 300) : "";
+            error = m.is_error ? m.errors?.join("; ") || (m.subtype !== "success" ? m.subtype : "") || resultText || "session ended with an error" : null;
             detail = m.is_error ? `${error} ${typeof m.result === "string" ? m.result : ""} ${finalText}` : "";
             log(`turn done (${usage.turns} turns, ${usage.tokens} tokens${m.is_error ? `, ${m.subtype ?? "error"}` : ""})`);
             // between turns: pick up queued interrupts / stop before deciding whether to finish

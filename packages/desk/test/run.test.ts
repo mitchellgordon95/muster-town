@@ -256,8 +256,7 @@ describe("subscription → API-key failover", () => {
     const sdk = fakeSdk(async function* () { yield limited(); });
     expect(await runSession("s1", deps(sdk, { env: subEnv }))).toBe(EXIT_ERROR);
     expect(sdk.sessions).toHaveLength(2);
-    expect(town.ends[0]).toMatchObject({ fallback: true, fundingUsed: "api-key", reportSubmitted: false });
-    expect(town.ends[0].error).toBeTruthy();
+    expect(town.ends[0]).toMatchObject({ fallback: true, fundingUsed: "api-key", reportSubmitted: false, error: LIMIT });
   });
 
   it("no fallback key, or a report already submitted: no retry", async () => {
@@ -266,6 +265,7 @@ describe("subscription → API-key failover", () => {
     const { AGENT_TOWN_FALLBACK_API_KEY: _k, ...withoutKey } = subEnv;
     expect(await runSession("s1", deps(noKey, { env: withoutKey }))).toBe(EXIT_ERROR);
     expect(noKey.sessions).toHaveLength(1);
+    expect(town.ends[0]).toMatchObject({ error: LIMIT, fundingUsed: "subscription" }); // the message, not the SDK's "success" subtype
 
     town.ends.length = 0;
     const reported = fakeSdk(async function* () { yield* reports(); yield limited(); });
