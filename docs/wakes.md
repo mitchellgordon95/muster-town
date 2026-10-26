@@ -1,6 +1,6 @@
 # Wakes: what starts an agent, and one mechanism for all of it
 
-Design note, 2026-10-26 (Keel, as_czxid3dp46; asked by Mitchell in 1:1 mt_pwcpdkmdyc). Not built yet: §4 is the build order.
+Design note, 2026-10-26 (Keel, as_czxid3dp46; asked by Mitchell in 1:1 mt_pwcpdkmdyc). §4 is the build order; step 3 (manager wakes on grant and KR events) is built.
 Code references are to main at 6988a43.
 
 A **wake** is anything that makes an idle agent spend tokens: it starts a session, or it pushes new input into a session
@@ -33,11 +33,11 @@ Everything else lands in the **inbox** (`sendMessage`). The inbox never wakes an
 | `tell`, agent → agent | recipient | inbox only; the sender gets `idleNote` | **missing when a human is behind it** (Mitchell → Pix → Kelly, ms_l8fnqdk15x) |
 | Human message to a resident | resident | I if it is working; else Q (a "Message from X" assignment at the front of the queue) | Refused for residents of a building with a manager (ops.ts:400); visitors get it queued |
 | `grant.funded` by **fund** | manager | Q: a front-of-queue grant-lane assignment "Grant X funded: assign its first step or take it yourself" with the plan (`Grants.decisionAssignment`, 2026-10-26) | — |
-| `grant.funded` by continue or adjust | held grant work | Held grant-lane work is released by the lane gate on the next tick | The manager is not woken; its held step resumes |
+| `grant.funded` by continue or adjust | manager; held grant work | T: a town-written in-tray row "Grant X continued/adjusted: N tokens" (`managerIntrayRow`, core/src/wakes.ts); held grant-lane work is released by the lane gate on the next tick | — |
 | `grant.countered`, `grant.rejected` | manager | Q: a directed assignment ("Answer the counter on X" with the note / "Grant X rejected: read the note"), plus the inbox `system` line (`notifyManager`) | — |
-| cut | manager | inbox `system` line only (`notifyManager`) | **missing** |
+| cut, or a human closes a grant | manager | T: a town-written in-tray row "Grant X cut" (`managerIntrayRow`), plus the inbox `system` line (`notifyManager`) | — |
 | `grant.checkpoint` (50% / 100% spent) | manager | Q: a front-of-queue "Write the checkpoint" assignment | — |
-| `kr.created` / KR edited by a human | manager | Only `syncBlocked`, which unblocks the building and wakes no one | **missing** |
+| `kr.created` / `kr.updated` / `kr.deleted` by a human | manager | T: a town-written in-tray row "Key result X written/edited/marked S/removed by Mitchell" (`managerIntrayRow`); `syncBlocked` as before. The manager's own KR writes and status marks write none | — |
 | Building becomes blocked (goal-directed, no KRs) | manager | Q: a "Get human decisions" assignment (grants.ts:110) | — |
 | `waitFor` met (deploy, assignment, decision, after) | the parked assignee | Q: `checkWaits` on the tick clears the wait. After 24 h, T gets a `wait-expired` report | — |
 | Redeploy | running agents; parked work | I (notice); Q for `deploy` waits; T resumes the 1:1 (meetings.md §6) | — |
@@ -47,7 +47,7 @@ Everything else lands in the **inbox** (`sendMessage`). The inbox never wakes an
 
 Two things are missing, and they have the same cause: **an event that a human started does not reach the agent who has
 to act on it, unless it happens to create an assignment or an in-tray report.** Both cases are a manager missing
-grant and KR events, and a resident missing a relayed human request.
+grant and KR events (fixed by step 3, 2026-10-26), and a resident missing a relayed human request.
 
 ## 2. Proposal: one waker over the event log
 
@@ -132,9 +132,14 @@ become a rule later if it is touched anyway.
 2. **Human-origin tells wake** (Mitchell's ask, decision 2): in `tell`, origin + idle resident → a directed "Message from"
    assignment (merged per origin, hop cap); a working recipient gets an interrupt. Replace `idleNote` with the
    result. About 60 lines.
-3. **Manager wakes on grant and KR events**: grant decisions done on 2026-10-26 as assignments (Mitchell's ask, 1:1
+3. **Manager wakes on grant and KR events** — done 2026-10-26. Grant decisions as assignments (Mitchell's ask, 1:1
    mt_f45m8hbmct: `Grants.decisionAssignment`, the same hook as the checkpoint assignment; fund → grant lane, counter /
-   reject → directed). Left: cut, and the KR setters (dc_362tfcb7qi §3). `notifyManager` stays as the inbox line.
+   reject → directed). The rest (continue, adjust, cut or close by a human, and a human's `kr.created` / `kr.updated` /
+   `kr.deleted`) write one town-authored in-tray row (`managerIntrayRow`, core/src/wakes.ts; author `system`, shown as
+   Town; tag `wake:manager-intray:<eventId>:<buildingId>` so a replay writes nothing), called from the runtime's
+   `onEvent`; the row's `doc.created` wakes the manager through T like a resident's report, and it acknowledges it with
+   `review` approve. Grant events carry `payload.action` (the history entry) so the rule can tell fund from continue.
+   `notifyManager` stays as the inbox line.
 4. **Waker with a persisted cursor**: move the `onEvent` branches into `WAKE_RULES`, persist `ManageState.offered` as
    `wakeKey`s, replay on boot. No change in behaviour; this is the refactor that makes steps 2–3 rules.
 5. **Leftovers, as needed**: `request_human` answered → wake a parked requester; a meeting decision amending an active

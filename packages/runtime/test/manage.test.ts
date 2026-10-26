@@ -1,5 +1,5 @@
 import { describe, expect, test } from "vitest";
-import { intrayOf } from "@muster-town/core";
+import { intrayOf, managerIntrayRow } from "@muster-town/core";
 import { callVerb, deferred, init, result, setup, type FakeSession, type Script } from "./helpers.ts";
 
 const report = (title: string) => ({ title, verdict: "stop" as const, body: "## What I did\nMeasured it.\n\n## Findings\n2.4 ± 0.1 ppm/yr.\n\n## What I need from you\nNothing needed." });
@@ -58,6 +58,42 @@ describe("manager team-lead session", () => {
     expect(world.docs.count("authorId = ? AND type = 'report'", [mei.id])).toBe(0);
     expect(world.events.list({ agentId: mei.id, limit: 500 }).some((e) => e.type === "system" && /in-tray session ended .*decided 2 reports, no rollup/.test(e.text))).toBe(true);
     expect(world.agents.require(mei.id).status).toBe("idle");
+  });
+
+  test("a human's grant or key-result decision writes one town row in the in-tray and wakes the manager once; a replay or the manager's own edit doesn't", async () => {
+    const env = await managed(async function* (s) {
+      yield init();
+      for (const id of new Set(s.received[0].match(/dc_[a-z0-9]+/g) ?? [])) yield* callVerb(s, "review", { docId: id, decision: "approve" });
+      yield result(100, 0.01, "Acknowledged.");
+    });
+    const { world, runtime, by, lab } = env;
+    const mei = by("Mei"), admin = world.ops.ensureAvatar(env.seed.admin.id);
+    const settle = async () => { for (let i = 0; i < 3; i++) await new Promise((r) => setImmediate(r)); await runtime.whenIdle(); };
+    const rows = () => world.docs.where("authorId = 'system' AND buildingId = ? AND type = 'report'", [lab.id]);
+    const manages = () => world.sessions.where("agentId = ? AND purpose = 'manage'", [mei.id]);
+    const kr = world.grantDesk.createKeyResult(admin, lab.id, { text: "Visitors can read the goal", howToCheck: "Open the board" });
+    await settle();
+    expect(rows()).toHaveLength(1);
+    expect(manages()).toHaveLength(1);
+    expect(world.docs.require(rows()[0]!.id).decision).toBe("approve");
+    // funding wakes the manager with its own assignment (Grants.decisionAssignment): no row; continuing at the checkpoint writes one
+    const g = world.grantDesk.decide(admin, world.grantDesk.propose(mei, world.grantDesk.create(mei, lab.id, { keyResultId: kr.id, objective: "Goal on the board", approach: "a line", stopCondition: "two tries", askTokens: 10_000_000, testingPlan: [] }).id).id, { action: "fund" });
+    await settle();
+    expect(rows()).toHaveLength(1);
+    world.grants.patch(g.id, { status: "checkpoint", checkpointsDone: [0.5] });
+    world.grantDesk.decide(admin, g.id, { action: "continue" });
+    await settle();
+    expect(rows()).toHaveLength(2);
+    expect(rows()[1]!.title).toBe(`Grant ${g.id} continued: 10,000,000 tokens`);
+    expect(manages()).toHaveLength(2);
+    // the same event delivered again writes nothing and wakes no one
+    const e = world.events.list({ buildingId: lab.id, types: ["grant.funded"], limit: 100 }).at(-1)!;
+    expect(managerIntrayRow(world, e)).toBeNull();
+    // the manager marking its own key result is not a human event
+    world.grantDesk.updateKeyResult(mei, kr.id, { status: "on-track" });
+    await settle();
+    expect(rows()).toHaveLength(2);
+    expect(manages()).toHaveLength(2);
   });
 
   test("a goal-directed building with no key results and no funded grant is blocked: the tick wakes its manager once", async () => {

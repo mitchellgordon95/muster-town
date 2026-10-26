@@ -565,7 +565,9 @@ Key result (on the building goal): ${kr}${k ? "; it has no funded grant now, so 
   }
 
   private event(type: EventType, g: Grant, actor: Actor, text: string): void {
-    this.world.events.append({ type, agentId: actor?.id ?? null, buildingId: g.buildingId, text, payload: { grantId: g.id, status: g.status } });
+    // action: the history entry that made it (fund, continue, adjust, cut, close…); the manager in-tray rule reads it (core/src/wakes.ts)
+    const action = g.history.at(-1)?.action ?? null;
+    this.world.events.append({ type, agentId: actor?.id ?? null, buildingId: g.buildingId, text, payload: { grantId: g.id, status: g.status, action } });
   }
 
   /** Inbox note to every human (avatar) who can fund the building. */

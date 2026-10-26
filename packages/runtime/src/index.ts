@@ -3,7 +3,7 @@
  * managers' team-lead sessions over the in-tray, meeting summaries + facilitation, proxy chat, interrupts, scheduler,
  * startup reconcile, dismissal (onAgentRetired), host redeploy (v1.3).
  */
-import { checkWaits, codeWorkspace, meetingNotice, nextStartable, PRESENCE_TICK_MS, slugify, syncManagerRoles, type World } from "@muster-town/core";
+import { checkWaits, codeWorkspace, managerIntrayRow, meetingNotice, nextStartable, PRESENCE_TICK_MS, slugify, syncManagerRoles, type World } from "@muster-town/core";
 import { DesksConfig, type ChatInput, type DeskActivityInput, type Event, type RedeployResult, type Session } from "@muster-town/schema";
 import { askAbout, chat } from "./chat.ts";
 import { DockerBackend, dockerSafe, HostBackend, type DeskBackend, type WorkBackend } from "./desk/backend.ts";
@@ -263,6 +263,8 @@ export function startRuntime(opts: RuntimeOptions): Runtime {
     }
     // a resident's report (or a human's flag) landed in a managed building's in-tray: wake (or feed) the manager's team-lead session
     else if (e.type === "doc.created" && (p.docType === "report" || p.docType === "flag") && e.buildingId) { const bid = e.buildingId; later(async () => wakeManagers(bid), "manager session"); }
+    // a human decided a grant or wrote a key result: a town-written in-tray row for the manager; its doc.created wakes it (core/src/wakes.ts)
+    else if (e.type === "grant.funded" || e.type === "grant.closed" || e.type === "kr.created" || e.type === "kr.updated" || e.type === "kr.deleted") later(async () => { managerIntrayRow(world, e); }, "manager in-tray row");
     else if ((e.type === "agent.status" && (p.status === "stopped" || p.status === "banned")) || e.type === "agent.banned") {
       if (e.agentId) abortWork(ctx, e.agentId, killGraceMs);
     }
