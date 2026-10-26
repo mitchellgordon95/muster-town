@@ -4,6 +4,8 @@ import react from "@vitejs/plugin-react";
 const target = process.env.MUSTER_TOWN_URL ?? process.env.AGENT_TOWN_URL ?? "http://localhost:4321";
 
 export default defineConfig({
+  // the Workshop's client lives under /workshop/ (the server sends / there); /api, /auth, /ws stay at the root
+  base: process.env.MUSTER_TOWN_WEB_BASE ?? "/workshop/",
   plugins: [react()],
   server: {
     port: 5173,

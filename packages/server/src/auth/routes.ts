@@ -1,7 +1,7 @@
 import { AppError, upsertGithubUser } from "@muster-town/core";
 import { GithubDeviceInput, type AuthConfig } from "@muster-town/schema";
 import type { FastifyInstance } from "fastify";
-import { parse } from "../context.ts";
+import { parse, WEB_BASE } from "../context.ts";
 import type { AuthSettings } from "./config.ts";
 import { authorizeUrl, exchangeCode, fetchGithubUser } from "./github.ts";
 import { checkState, clearSessionCookie, clearStateCookie, newState, sessionCookie } from "./session.ts";
@@ -29,7 +29,7 @@ export function authRoutes(settings: AuthSettings) {
     app.get("/auth/github/callback", async (req, reply) => {
       configured();
       const q = req.query as { code?: string; state?: string; error?: string; error_description?: string };
-      const fail = (msg: string) => reply.header("set-cookie", clearStateCookie(s)).redirect(`/?auth_error=${encodeURIComponent(msg)}`);
+      const fail = (msg: string) => reply.header("set-cookie", clearStateCookie(s)).redirect(`${WEB_BASE}?auth_error=${encodeURIComponent(msg)}`);
       if (q.error) return fail(q.error_description ?? q.error);
       if (!q.code || !checkState(s, req, q.state)) return fail("Sign-in expired or was started elsewhere. Try again.");
       let user;
@@ -40,7 +40,7 @@ export function authRoutes(settings: AuthSettings) {
         return fail((e as Error).message);
       }
       world.ops.ensureAvatar(user.id);
-      return reply.header("set-cookie", [clearStateCookie(s), sessionCookie(s, user.id)]).redirect("/");
+      return reply.header("set-cookie", [clearStateCookie(s), sessionCookie(s, user.id)]).redirect(WEB_BASE);
     });
 
     app.post("/auth/logout", async (_req, reply) => reply.header("set-cookie", clearSessionCookie(s)).send({ ok: true }));

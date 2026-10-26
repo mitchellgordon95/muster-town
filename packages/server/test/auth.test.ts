@@ -83,7 +83,7 @@ describe("GitHub web login", () => {
     const { app, world } = await setup();
     const cb = await webLogin(app, "code_octo");
     expect(cb.statusCode).toBe(302);
-    expect(cb.headers.location).toBe("/");
+    expect(cb.headers.location).toBe("/workshop/");
     const raw = ([] as string[]).concat(cb.headers["set-cookie"] ?? []).find((c) => c.startsWith("at_session_4322="))!;
     expect(raw).toMatch(/HttpOnly/);
     expect(raw).toMatch(/SameSite=Lax/);
@@ -111,7 +111,7 @@ describe("GitHub web login", () => {
     const { app } = await setup();
     const forged = await app.inject({ method: "GET", url: "/auth/github/callback?code=code_octo&state=abc" });
     expect(forged.statusCode).toBe(302);
-    expect(forged.headers.location).toMatch(/^\/\?auth_error=/);
+    expect(forged.headers.location).toMatch(/^\/workshop\/\?auth_error=/);
     expect(String(forged.headers["set-cookie"])).not.toMatch(/at_session_4322=[^;]/);
     const bad = await webLogin(app, "code_nope");
     expect(decodeURIComponent(bad.headers.location as string)).toMatch(/incorrect or expired/);

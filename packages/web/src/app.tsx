@@ -221,7 +221,7 @@ export function App() {
     store.said.set(store.avatarId ?? "__me", { text, at: performance.now() });
   }, []);
 
-  if (phase.k === "login") return <Login error={phase.error} onDone={() => { location.href = "/"; }} onCancel={authStore.get().guest ? () => setPhase({ k: "ready" }) : undefined} />;
+  if (phase.k === "login") return <Login error={phase.error} onDone={() => { location.href = import.meta.env.BASE_URL; }} onCancel={authStore.get().guest ? () => setPhase({ k: "ready" }) : undefined} />;
   return (
     <div className="app">
       <MapCanvas panelInset={panel ? pw : 0} onTarget={setTarget} onMove={onMove} />

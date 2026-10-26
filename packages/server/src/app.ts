@@ -2,13 +2,13 @@ import { isAppError, type World } from "@muster-town/core";
 import cors from "@fastify/cors";
 import fastifyStatic from "@fastify/static";
 import websocket from "@fastify/websocket";
-import Fastify, { type FastifyInstance } from "fastify";
+import Fastify, { type FastifyInstance, type FastifyReply, type FastifyRequest } from "fastify";
 import { existsSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { ZodError } from "zod";
 import { authRoutes, defaultAuthSettings, sessionAuth, type AuthSettings } from "./auth/index.ts";
-import { bearer, resolveToken, type RuntimeHooks } from "./context.ts";
+import { bearer, resolveToken, WEB_BASE, type RuntimeHooks } from "./context.ts";
 import { mcpRoutes } from "./mcp.ts";
 import { agentRoutes } from "./routes/agents.ts";
 import { deskRoutes } from "./routes/desk.ts";
@@ -27,7 +27,7 @@ export interface BuildAppOptions {
   /** enables `GET /api/dev/admin-token` and open CORS */
   dev?: boolean;
   runtime?: RuntimeHooks | null;
-  /** built web client to serve at `/` (default packages/web/dist; skipped if missing; `false` disables) */
+  /** built web client to serve under `WEB_BASE` (default packages/web/dist; skipped if missing; `false` disables) */
   webDist?: string | false;
   logger?: boolean;
   /** sign-in settings (GitHub OAuth, session secret, admin allowlist); default: no GitHub, per-process secret */
@@ -79,7 +79,11 @@ export async function buildApp(opts: BuildAppOptions): Promise<FastifyInstance> 
   const haveWeb = !!dist && existsSync(join(dist, "index.html"));
   // Serve the client dynamically (wildcard): a rebuild after startup must be served without a restart.
   // index.html is never cached so a stale page can't point at an asset hash that no longer exists.
-  if (haveWeb) await app.register(fastifyStatic, { root: dist!, wildcard: true });
+  if (haveWeb) await app.register(fastifyStatic, { root: dist!, prefix: WEB_BASE, wildcard: true });
+  // the root and /workshop go to /workshop/, query kept; browsers carry the #fragment across the redirect on their own
+  const toWeb = async (req: FastifyRequest, reply: FastifyReply) => { const q = req.url.indexOf("?"); return reply.redirect(WEB_BASE + (q >= 0 ? req.url.slice(q) : "")); };
+  app.get("/", toWeb);
+  app.get(WEB_BASE.slice(0, -1), toWeb);
   // never let a browser cache the page itself: a stale index.html would point at asset hashes that no longer exist
   app.addHook("onSend", async (_req, reply, payload) => {
     const ct = String(reply.getHeader("content-type") ?? "");
@@ -92,7 +96,12 @@ export async function buildApp(opts: BuildAppOptions): Promise<FastifyInstance> 
     const isApi = API_PREFIXES.some((p) => path === p || path.startsWith(p + "/"));
     // a missing built asset is a real 404 (never index.html as JavaScript); only extension-less paths are SPA routes
     const looksLikeFile = /\.[a-z0-9]{1,8}$/i.test(path.split("/").pop() ?? "");
-    if (haveWeb && !isApi && !looksLikeFile && (req.method === "GET" || req.method === "HEAD")) { reply.header("cache-control", "no-cache"); return reply.sendFile("index.html"); }
+    if (haveWeb && !isApi && !looksLikeFile && (req.method === "GET" || req.method === "HEAD")) {
+      // SPA routes only under the client's prefix; any other page path goes to the root
+      if (!path.startsWith(WEB_BASE)) return reply.redirect("/");
+      reply.header("cache-control", "no-cache");
+      return reply.sendFile("index.html");
+    }
     return reply.code(404).send({ error: `Not found: ${req.method} ${path}`, code: "not_found" });
   });
 

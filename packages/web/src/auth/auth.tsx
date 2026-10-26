@@ -52,7 +52,7 @@ export function signInWithGithub() { if (!isMock) location.href = "/auth/github"
 export async function signOut() {
   tokenStore.set(null);
   if (!isMock) await fetch("/auth/logout", { method: "POST" }).catch(() => undefined);
-  location.href = "/?guest";
+  location.href = `${import.meta.env.BASE_URL}?guest`;
 }
 
 /** Sign-in buttons: GitHub when the server offers it, else paste a token (dev). */
