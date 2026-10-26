@@ -589,6 +589,24 @@ export const Assignment = z.object({
   updatedAt: Iso,
 });
 export type Assignment = z.infer<typeof Assignment>;
+/**
+ * Why a queued assignment can't start now (GET /api/agents/:id on pending assignments, GET /api/blocked): `kind` and the
+ * thing it waits on (`targetId`: an assignment, a commit sha, a report, a grant, a building), the reason in words, and
+ * where the map's red line goes: the blocking colleague's body (`agentId`) or a place (`placeId`: the in-tray that holds
+ * the decision, the Town Hall in-tray for a grant or allowance hold, the building's door for a deploy). Neither = no line.
+ */
+export const BlockedKind = z.enum(["assignment", "deploy", "decision", "after", "grant", "exploration", "reserved", "budget"]);
+export type BlockedKind = z.infer<typeof BlockedKind>;
+export const BlockedBy = z.object({
+  kind: BlockedKind,
+  targetId: z.string().nullable(),
+  text: z.string(),
+  agentId: z.string().optional(),
+  placeId: z.string().optional(),
+});
+export type BlockedBy = z.infer<typeof BlockedBy>;
+/** One blocked queued assignment of an agent (GET /api/blocked). */
+export interface BlockedAssignment { assignmentId: string; title: string; blockedBy: BlockedBy }
 /** SQL tail for "next pending first": every queue query orders by this. */
 export const QUEUE_ORDER = "ORDER BY position, createdAt, rowid";
 

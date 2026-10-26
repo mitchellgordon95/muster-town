@@ -18,6 +18,7 @@ export { Ops, type Actor, type MessageAgentOptions, type MessageAgentResult, typ
 export { createBuilding, updateBuilding, syncManagerRoles, createResident, registerVisitor, ensureAvatar, createUser, createServiceAgent, createTownModerator, updateFurniture, planTown } from "./entities.ts";
 export { RESIDENT_NAMES, suggestResidentName } from "./names.ts";
 export { checkWaits, describeWait, validateWait, waitMet } from "./waits.ts";
+export { blockedBy, townBlocked } from "./blockers.ts";
 export { Presence, STAMP_EVERY_MS, OFFLINE_AFTER_MS, PRESENCE_TICK_MS, OFFER_TTL_MS, type TouchResult } from "./presence.ts";
 export { upsertGithubUser, type GithubProfile, type GithubUpsertResult } from "./github-users.ts";
 export { migrateRoles, type MigrateRolesResult } from "./migrate-roles.ts";

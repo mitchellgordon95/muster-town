@@ -59,22 +59,28 @@ export function isCheckpointAssignment(a: Pick<Assignment, "lane" | "grantId" | 
  * exploration spend today is under its allowance; directed → nothing extra.
  */
 export function laneHold(world: World, a: Assignment): string | null {
+  return laneBlock(world, a)?.reason ?? null;
+}
+
+/** `laneHold` with what it is: the grant hold (and its grant), the reservation hold, or the spent exploration allowance. */
+export function laneBlock(world: World, a: Assignment): { kind: "grant" | "reserved" | "exploration"; reason: string; grantId?: string; used?: number; allowance?: number } | null {
   const building = world.buildings.get(a.buildingId);
   if (!goalDirected(building)) return null;
   if (a.lane === "grant") {
     const g = a.grantId ? world.grants.get(a.grantId) : undefined;
-    if (!g) return "held: its grant doesn't exist";
+    const grantId = a.grantId ?? undefined;
+    if (!g) return { kind: "grant", grantId, reason: "held: its grant doesn't exist" };
     if (g.status === "funded") return null;
-    if (g.status === "checkpoint") return isCheckpointAssignment(a) ? null : "held: grant at checkpoint";
-    if (g.status === "proposed" || g.status === "countered" || g.status === "draft") return "held: grant not funded yet";
-    return `held: grant ${g.status}`;
+    if (g.status === "checkpoint") return isCheckpointAssignment(a) ? null : { kind: "grant", grantId, reason: "held: grant at checkpoint" };
+    if (g.status === "proposed" || g.status === "countered" || g.status === "draft") return { kind: "grant", grantId, reason: "held: grant not funded yet" };
+    return { kind: "grant", grantId, reason: `held: grant ${g.status}` };
   }
   if (BUDGET_POLICY.grantReservations && world.budget.remaining(a.buildingId) - reservedTokens(world, a.buildingId) <= 0) {
-    return "held: the building's tokens are reserved for its funded grants";
+    return { kind: "reserved", reason: "held: the building's tokens are reserved for its funded grants" };
   }
   if (a.lane === "exploration") {
     const e = world.grantDesk.exploration(a.buildingId);
-    if (e.spentTodayTokens >= e.allowanceTokens) return `held: exploration allowance spent today (${fmt(e.spentTodayTokens)} / ${fmt(e.allowanceTokens)} tokens)`;
+    if (e.spentTodayTokens >= e.allowanceTokens) return { kind: "exploration", used: e.spentTodayTokens, allowance: e.allowanceTokens, reason: `held: exploration allowance spent today (${fmt(e.spentTodayTokens)} / ${fmt(e.allowanceTokens)} tokens)` };
   }
   return null;
 }
