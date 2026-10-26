@@ -40,9 +40,10 @@ export function IntrayPanel({ buildingId }: { buildingId: string }) {
   const hall = b.kind === "town-hall";
   const manager = b.managerAgentId ? agents[b.managerAgentId] : undefined;
   const subtitle = hall ? "Town Hall · rollups, proposals and checkpoints for the humans" : `${b.name} · manager's desk · worked by ${manager ? `★ ${manager.name}` : "you"}`;
-  const count = reports.length + grants.length;
+  const flags = reports.filter((d) => d.type === "flag").length;
+  const count = reports.length + grants.length - flags;
   return (
-    <PanelShell icon={<Glyph kind="intray" />} title={<>In-tray {count ? <Pill tone="warn">{count}</Pill> : null}</>} subtitle={subtitle}>
+    <PanelShell icon={<Glyph kind="intray" />} title={<>In-tray {count ? <Pill tone="warn" title="Reports, rollups and proposals waiting">{count}</Pill> : null}{flags ? <> <Pill tone="warn" title="Flags humans planted here, waiting for the manager to delegate">⚑ {flags}</Pill></> : null}</>} subtitle={subtitle}>
       {open ? (
         <DocView doc={open} review onBack={() => setOpenId(null)} backLabel="In-tray" onDecided={() => { setOpenId(null); list.reload(); }} />
       ) : (
