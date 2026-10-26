@@ -29,7 +29,9 @@ export async function townRoutes(app: FastifyInstance) {
    * `commit`: the git sha the running server started from (null without a runtime); `git merge-base --is-ancestor <sha> <commit>` says
    * whether a change is live. `load` (read-only): `lagMs` p99 event-loop delay over the last 10 s window, `rssMb`, `wsClients` open now.
    */
-  app.get("/api/health", async () => ({ ok: true, runtime: !!app.runtime, commit: world.host.commit ?? null, time: new Date().toISOString(), accounting: BANK_ACCOUNTING, load: app.load.snapshot() }));
+  app.get("/api/health", async () => ({ ok: true, runtime: !!app.runtime, commit: world.host.commit ?? null, time: new Date().toISOString(), accounting: BANK_ACCOUNTING, load: app.load.snapshot(),
+    // goal-directed budgets: exploration (held at its allowance) and directed (a human asked; metered, never held) today
+    budgets: world.grantDesk.laneBudgets() }));
 
   if (app.dev) {
     // only to a browser on this machine talking to the server directly: never through a proxy or tunnel

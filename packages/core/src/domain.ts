@@ -1,6 +1,6 @@
 import { Doc, QUEUE_ORDER, type Agent, type Assignment, type Building, type AccessRequestView, type GrantView, type LaneFields, type Message, type ReviewDecision, type WaitFor } from "@muster-town/schema";
 import { AppError } from "./errors.ts";
-import { DIRECTED, resolveLane, type Lane } from "./lanes.ts";
+import { DIRECTED, meetingHadHuman, resolveLane, type Lane } from "./lanes.ts";
 import type { Holder } from "./permissions.ts";
 import { describeWait } from "./waits.ts";
 import { extractSection, firstLine, newId, nowIso, truncate } from "./util.ts";
@@ -56,7 +56,8 @@ export function createAssignment(world: World, a: { agentId: string; title: stri
   const fromReport = a.fromReportId ? world.docs.get(a.fromReportId) : undefined;
   const fromId = a.fromAssignmentId ?? fromReport?.assignmentId ?? null;
   const from = fromId ? world.assignments.get(fromId) : undefined;
-  const lane = a.laneOverride ?? resolveLane(world, buildingId, a.createdBy, a.lane, { from, fromMeeting: !!a.fromMeetingId });
+  const meeting = a.fromMeetingId ? world.meetings.get(a.fromMeetingId) : undefined;
+  const lane = a.laneOverride ?? resolveLane(world, buildingId, a.createdBy, a.lane, { from, fromMeeting: !!a.fromMeetingId, humanMeetingId: meeting && meetingHadHuman(meeting) ? meeting.id : undefined });
   const ts = nowIso();
   const assignment = world.assignments.upsert({
     id: newId("as"), agentId: agent.id, buildingId, title: a.title, description: a.description, status: "pending",
@@ -135,9 +136,10 @@ const DECISION_VERB: Record<ReviewDecision, string> = { approve: "Acknowledged",
  * - continue: next assignment from the report's Proposal section (note appended).
  * - redirect: next assignment from the note (required); the proposal is appended as context.
  * - stop: author stopped; its pending/active assignments cancelled.
+ * `opts.lane` sets the next assignment's lane (as `assign`; e.g. directed with the human source); left out it inherits.
  * Shared by the `review` verb, REST, the auto policy, and meeting decisions.
  */
-export function applyDecision(world: World, docId: string, decision: ReviewDecision, note: string, decider: Holder | { kind: "system"; id: string }, opts: { waitFor?: WaitFor | null; assigneeId?: string | null } = {}): { doc: Doc; assignment: Assignment | null } {
+export function applyDecision(world: World, docId: string, decision: ReviewDecision, note: string, decider: Holder | { kind: "system"; id: string }, opts: { waitFor?: WaitFor | null; assigneeId?: string | null; lane?: LaneFields } = {}): { doc: Doc; assignment: Assignment | null } {
   note = note.trim();
   if (decision === "redirect" && !note) throw new AppError("bad_request", "Redirect needs a note: it becomes the next assignment.");
   const report = world.docs.require(docId, "doc");
@@ -177,7 +179,7 @@ export function applyDecision(world: World, docId: string, decision: ReviewDecis
       ...(proposal ? [`For context, your report proposed:\n\n${proposal.text}`] : []),
     ].join("\n\n");
   }
-  assignment = createAssignment(world, { agentId: author.id, title, description, createdBy: decider, fromReportId: report.id, waitFor: opts.waitFor });
+  assignment = createAssignment(world, { agentId: author.id, title, description, createdBy: decider, fromReportId: report.id, waitFor: opts.waitFor, lane: opts.lane });
   if (author.status === "stopped") world.setStatus(author.id, "idle");
   return { doc, assignment };
 }

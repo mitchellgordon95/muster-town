@@ -552,10 +552,11 @@ export type SpendLane = z.infer<typeof SpendLane>;
  * needs grantId (its key result is implied).
  */
 export const LaneFields = z.object({
-  lane: SpendLane.optional().describe("grant (work on a funded grant's key result), exploration (names a key result or a goal gap), directed (a human asked for it; not for agents in goal-directed buildings)"),
+  lane: SpendLane.optional().describe("grant (work on a funded grant's key result), exploration (names a key result or a goal gap), directed (a human asked for it; an agent in a goal-directed building gives its human source in sourceId)"),
   grantId: Id.optional().describe("lane grant: the grant"),
-  keyResultId: Id.optional().describe("lane exploration: a key result of the building goal that has no funded grant (lane grant: implied by the grant)"),
-  gap: z.string().trim().max(300).optional().describe("lane exploration without a key result: one sentence on what is missing between the goal and the live town"),
+  keyResultId: Id.optional().describe("lane exploration: a key result of the building goal that has no funded grant (lane grant: implied by the grant; lane directed: optional, the work stops once a grant proposal names it)"),
+  gap: z.string().trim().max(300).optional().describe("lane exploration without a key result: one sentence on what is missing between the goal and the live town (lane directed: optional, what the human asked about)"),
+  sourceId: Id.optional().describe("lane directed: the human-authored source it traces to: a meeting with a human (mt_…) or its notes, a flag, a human-report, a rollup a human replied to, or a human's tell (ms_…)"),
 });
 export type LaneFields = z.infer<typeof LaneFields>;
 export const Assignment = z.object({
@@ -588,6 +589,8 @@ export const Assignment = z.object({
   keyResultId: Id.nullable().default(null),
   /** lane exploration without a key result: the goal gap it investigates (one sentence) */
   gap: z.string().max(300).nullable().default(null),
+  /** lane directed: the human-authored source it traces to (meeting, doc or tell id); null for work a human created directly */
+  sourceId: Id.nullable().default(null),
   /** why the scheduler isn't starting it although it is next ("held: grant at checkpoint"); null = not held. Never cancelled for it. */
   heldReason: z.string().nullable().default(null),
   createdAt: Iso,
@@ -646,6 +649,8 @@ export const MeetingDecision = z.object({
   supersededBy: z.number().int().positive().optional(),
   /** the decision's assignment waits for this before it starts (e.g. {deploy: "next"} for "after the redeploy") */
   waitFor: WaitFor.optional(),
+  /** goal-directed budgets: the decision's lane (as `assign`); left out = directed (its source is the meeting when a human took part) */
+  ...LaneFields.shape,
 });
 export const MeetingUtterance = z.object({
   /** `system` for a line the town posts itself (speakerId "system"), e.g. a reply waiting on a redeploy */
@@ -915,7 +920,8 @@ export const VerbInputs = {
   // permissioned
   review: z.object({ docId: Id, decision: ReviewDecision.describe("approve = acknowledge only; continue = next assignment from the report's Proposal; redirect = next assignment from your note (required); stop = stop the agent. A flag (a human's quick request): continue = its text becomes assigneeId's directed assignment verbatim, redirect = your note does"), note: z.string().default(""),
     assigneeId: Id.optional().describe("a flag: the resident of this building who takes it (continue/redirect)"),
-    waitFor: WaitFor.optional().describe("continue/redirect: the new assignment waits for this before it starts") }),
+    waitFor: WaitFor.optional().describe("continue/redirect: the new assignment waits for this before it starts"),
+    ...LaneFields.shape }),
   assign: z.object({ agentId: Id, title: z.string(), description: z.string(),
     waitFor: WaitFor.optional().describe("don't start until this holds: {deploy: sha|\"next\"} (live after a redeploy), {assignment: id} (done or cancelled), {decision: reportId}, {after: iso}"),
     ...LaneFields.shape }),
@@ -960,7 +966,7 @@ export const VERB_DESCRIPTIONS: Record<VerbName, string> = {
   accept_assignment: "Accept a pending assignment; it becomes my current task. Visitors: assignments to you are offers until you accept them (unaccepted offers are cancelled after 24 h); finish with `submit_report`.",
   meeting: "Participate in a meeting: 'summary' submits my short standup summary (did, next), 'speak' adds to the transcript once the discussion has started, 'listen' returns new utterances since my last listen (set waitSeconds to wait for someone to speak), 'decide'/'end' are for the facilitator (to amend a decision, decide again with supersedes = its number in status's decisions list); a decision's waitFor holds its assignment until then, e.g. {deploy: \"next\"} for \"after the redeploy\" or {assignment: id} for \"once X lands\"; while humans are talking, leave 'end' to them.",
   review: "(manager/reviewer) Decide on a pending report in the in-tray: approve (acknowledge), continue (assign its proposal), redirect (assign your note instead), or stop the agent.",
-  assign: "(manager/reviewer) Create an assignment for an agent in my building. With waitFor it waits (e.g. for the next redeploy, or another assignment to finish) before it starts. In goal-directed buildings an agent must give lane grant (grantId of a funded grant; its key result is implied) or exploration (keyResultId of a goal key result with no funded grant, or gap).",
+  assign: "(manager/reviewer) Create an assignment for an agent in my building. With waitFor it waits (e.g. for the next redeploy, or another assignment to finish) before it starts. In goal-directed buildings an agent must give lane grant (grantId of a funded grant; its key result is implied) or exploration (keyResultId of a goal key result with no funded grant, or gap), or directed when a human asked for it (sourceId: the human source; optionally keyResultId or gap, and then it runs until a grant proposal names that key result). Directed work is never held by the exploration allowance.",
   reassign: "(manager/reviewer) Move a queued (not started) assignment to another resident of my building, e.g. off a busy queue onto an idle colleague. It keeps its lane, grant or key result and waitFor; the original is cancelled and the new one joins the end of their queue. Started assignments and other buildings' are refused.",
   cancel: "(manager/reviewer) Cancel a queued (not started) assignment in my building. Started assignments and other buildings' are refused.",
   propose_grant: "(manager) Propose a grant for my building in one call: the plan for one of the building goal's key results (keyResultId): an objective, the approach, a stop condition, a token ask, and optionally a testing plan (text + howToCheck lines). Funding it runs the plan. It goes to the Town Hall in-tray for a human to fund, counter or reject. One open proposal per building; while it is countered, calling this again rewrites it with the new plan and re-proposes it under the same id.",
