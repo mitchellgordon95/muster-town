@@ -15,6 +15,7 @@ describe("web client under /workshop/", () => {
     mkdirSync(join(dist, "assets"));
     writeFileSync(join(dist, "index.html"), "<!doctype html><title>t</title>");
     writeFileSync(join(dist, "assets", "x.js"), "console.log(1)");
+    writeFileSync(join(dist, "home.html"), '<!doctype html><head><title>h</title><script type="module" crossorigin src="/workshop/assets/home-1.js"></script>\n<link rel="stylesheet" crossorigin href="/workshop/assets/home-1.css"></head><body></body>');
     world = World.open(":memory:");
     app = await buildApp({ world, webDist: dist });
   });
@@ -28,6 +29,10 @@ describe("web client under /workshop/", () => {
     expect(r.headers["cache-control"]).toBe("no-cache");
     expect(r.body).toContain('href="/workshop/"');
     expect(r.body).toContain("location.replace(\"/workshop/\" + location.hash)");
+    // the homepage bundle's tags come from the built home.html; the tile for this server's town gets a live preview
+    expect(r.body).toContain('<script type="module" crossorigin src="/workshop/assets/home-1.js"></script>');
+    expect(r.body).toContain('<link rel="stylesheet" crossorigin href="/workshop/assets/home-1.css">');
+    expect(r.body).toContain('data-preview="/api/town"');
     expect((await get("/?guest")).headers.location).toBe("/workshop/?guest");
     expect((await get("/?as=visitor")).headers.location).toBe("/workshop/?as=visitor");
   });
@@ -89,8 +94,11 @@ describe("collectives homepage and /api/collectives", () => {
     expect(html).toContain("Live Name");
     expect(html).toContain("live &lt;tagline&gt;");
     expect(html).toContain("Coming soon");
-    // the placeholder gets no link: one Open link only
-    expect(html.match(/class="open"/g)).toHaveLength(1);
+    // the placeholder gets no link: one tile link only; the embedded list can't close its script tag
+    expect(html.match(/<a class="tile"/g)).toHaveLength(1);
+    expect(html).toContain('"tagline":"live \\u003ctagline>"');
+    // no web build: a bare page, no bundle tags
+    expect(html).not.toContain('<script type="module"');
     await app.close();
   });
 

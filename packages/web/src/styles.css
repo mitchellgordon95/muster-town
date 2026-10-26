@@ -462,7 +462,6 @@ kbd { font-family: var(--mono); font-size: 11px; background: #2a2d3a; border: 1p
 .here-row span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .here-more { font-size: 11.5px; color: var(--faint); padding-left: 8px; }
 .guest-card .guest-text b { color: var(--text); }
-.hiw-byoa { margin: 10px 0 0; font-size: 12px; color: var(--ink-2); }
 /* Bank: top-contributors leaderboard (gold for the podium) */
 .leaderboard { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 4px; }
 .lb-row { display: grid; grid-template-columns: 28px minmax(0, 9em) 1fr auto; align-items: center; gap: 8px; padding: 5px 8px; border-radius: var(--r); background: #1d1f28; font-size: 13px; }
@@ -492,54 +491,9 @@ kbd { font-family: var(--mono); font-size: 11px; background: #2a2d3a; border: 1p
 .funding-form { border-top: 1px solid var(--line, #2a2d3a); padding-top: 12px; }
 .table tr.sub-row td { color: var(--muted); padding-left: 18px; font-size: 12px; }
 
-/* ---------- How this works (first-load overlay) ---------- */
+/* ---------- How this works: the HUD "?" (the paper card itself is panels/hiw.css) ---------- */
 .help-btn { width: 20px; height: 20px; border: 1px solid var(--line-2); border-radius: 50%; color: var(--text); font-weight: 700; font-size: 12px; line-height: 1; padding: 0; flex: none; }
 .help-btn:hover { border-color: var(--accent); color: var(--accent); }
-.hiw-backdrop { position: absolute; inset: 0; z-index: 40; display: grid; place-items: center; background: rgba(8,9,14,.7); backdrop-filter: blur(3px); }
-/* warm Bank-yellow paper, dark ink: reads as a printed guide rather than another dark panel */
-.hiw { --ink: #3b2f12; --ink-2: #7a6430; --ink-3: #a68d4f; --paper: #fbefc4; --rule: #e6d08a;
-  width: min(540px, 94vw); max-height: 94vh; display: flex; flex-direction: column; background: var(--paper); color: var(--ink);
-  border: 3px solid var(--ink); border-radius: 12px; box-shadow: 0 6px 0 rgba(59,47,18,.45), 0 24px 60px rgba(0,0,0,.5); outline: none; overflow: hidden; }
-.hiw-head { display: flex; justify-content: flex-end; padding: 10px 12px 0; }
-.hiw .close { color: var(--ink-2); }
-.hiw .close:hover { color: var(--ink); }
-.hiw-body { padding: 0 24px 18px; overflow: auto; }
-.hiw-page { --hue: #2d6aa8; --hue-bg: #d9e5f0; display: flex; flex-direction: column; align-items: center; text-align: center; }
-.hiw-page.money { --hue: #a66d00; --hue-bg: #f3dc8e; }
-.hiw-page.public { --hue: #2f7d46; --hue-bg: #d8ebc9; }
-.hiw-pre { font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: .12em; color: var(--ink-2); }
-.hiw h2 { margin: 2px 0 4px; font-size: 34px; line-height: 1.1; letter-spacing: -.015em; color: var(--hue); }
-.hiw-sub { margin: 0 0 16px; color: var(--ink-2); font-size: 14px; }
-/* integer scale of the 112x48 px scenes (content-box so the border doesn't squeeze it) keeps pixels crisp */
-.hiw-scene { display: block; box-sizing: content-box; width: 336px; height: 144px; image-rendering: pixelated; border-radius: 6px; border: 3px solid var(--ink); box-shadow: 0 3px 0 rgba(59,47,18,.3); }
-.hiw-arrow { display: flex; flex-direction: column; align-items: center; padding: 3px 0 5px; }
-.hiw-arrow i { width: 2px; height: 10px; background: repeating-linear-gradient(var(--ink-3) 0 3px, transparent 3px 6px); }
-.hiw-arrow i.tip { position: relative; height: 12px; }
-.hiw-arrow i.tip::after { content: ""; position: absolute; left: -4px; bottom: -4px; border: 5px solid transparent; border-top-color: var(--ink-3); border-bottom-width: 0; }
-.hiw-step { display: inline-flex; align-items: center; gap: 8px; padding: 4px 12px 4px 4px; border-radius: 999px; background: var(--hue-bg); font-size: 14px; font-weight: 600; line-height: 1.3; }
-.hiw-n { flex: none; display: grid; place-items: center; width: 22px; height: 22px; border-radius: 50%; font-size: 12px; background: var(--hue); color: var(--paper); }
-.hiw kbd, .hiw code { background: #fffaf0; color: var(--ink); border: 1px solid var(--rule); font-size: 11px; }
-.hiw kbd { border-bottom-width: 2px; }
-.hiw-foot { display: flex; align-items: center; gap: 8px; padding: 12px 16px 14px; border-top: 2px solid var(--rule); }
-.hiw-dots { flex: 1; display: flex; gap: 6px; }
-.hiw-dots button { width: 8px; height: 8px; border-radius: 50%; border: none; padding: 0; background: var(--rule); cursor: pointer; }
-.hiw-dots button.on { background: var(--ink); width: 20px; border-radius: 4px; }
-.hiw .btn { background: #fffaf0; color: var(--ink); border-color: var(--rule); }
-.hiw .btn:hover:not(:disabled) { background: #fff; border-color: var(--ink-3); }
-.hiw .btn.primary { background: var(--ink); color: var(--paper); border-color: var(--ink); }
-.hiw .btn.primary:hover:not(:disabled) { background: #54441c; }
-@media (max-height: 820px) {
-  .hiw-scene { width: 224px; height: 96px; }
-  .hiw h2 { font-size: 28px; }
-}
-@media (max-width: 420px) {
-  .hiw-scene { box-sizing: border-box; width: 72%; height: auto; }
-  .hiw h2 { font-size: 24px; }
-  .hiw-sub { margin-bottom: 8px; }
-  .hiw-foot { flex-wrap: wrap; }
-  .hiw-dots { flex-basis: 100%; justify-content: center; margin-bottom: 4px; }
-  .hiw-foot .btn { flex: 1; justify-content: center; }
-}
 /* skills (library Skills tab, skill doc details) */
 .skill-row .skill-desc { font-size: 12.5px; color: var(--muted); margin: 2px 0 4px; white-space: normal; text-align: left; }
 .skill-details { margin: 8px 0 12px; display: flex; flex-direction: column; gap: 6px; }

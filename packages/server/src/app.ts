@@ -94,7 +94,7 @@ export async function buildApp(opts: BuildAppOptions): Promise<FastifyInstance> 
   const registry = opts.registry ?? DEFAULT_REGISTRY;
   app.get("/", async (req, reply) => {
     if (/\?./.test(req.url)) return toWeb(req, reply);
-    return reply.type("text/html; charset=utf-8").send(renderHome(collectives(opts.world, registry)));
+    return reply.type("text/html; charset=utf-8").send(renderHome(collectives(opts.world, registry), haveWeb ? dist : null));
   });
   app.get("/api/collectives", async () => ({ collectives: collectives(opts.world, registry) }));
   // never let a browser cache the page itself: a stale index.html would point at asset hashes that no longer exist

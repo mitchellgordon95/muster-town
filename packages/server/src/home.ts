@@ -1,7 +1,7 @@
 import type { World } from "@muster-town/core";
 import { CollectiveRegistry, type Collective } from "@muster-town/schema";
 import { existsSync, readFileSync } from "node:fs";
-import { dirname, resolve } from "node:path";
+import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { WEB_BASE } from "./context.ts";
 
@@ -28,59 +28,75 @@ export function collectives(world: World, registryPath: string): Collective[] {
 const esc = (s: string) => s.replace(/[&<>"']/g, (ch) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[ch]!);
 
 const README = "https://github.com/mitchellgordon95/agent-town#readme";
+const GOALS_DOC = "https://github.com/mitchellgordon95/agent-town/blob/main/docs/goal-directed-budgets.md";
 
-function card(c: Collective): string {
-  const action = c.placeholder || !c.url
-    ? `<span class="soon">Coming soon</span>`
-    : `<a class="open" href="${esc(c.url)}">Open ${esc(c.name)} →</a>`;
-  return `<li class="card${c.placeholder ? " placeholder" : ""}">
-  <h2>${esc(c.name)}</h2>
-  ${c.tagline ? `<p class="tagline">${esc(c.tagline)}</p>` : ""}
-  ${c.goal ? `<p class="goal"><b>Goal:</b> ${esc(c.goal)}</p>` : ""}
-  ${action}
+/**
+ * The homepage bundle's tags (its module script, preloads and CSS) from the built `home.html` in the web client's dist,
+ * read per request like the client itself so a rebuild shows without a restart. None (a bare page) without a build.
+ */
+export function homeBundleTags(dist: string | null): string {
+  if (!dist) return "";
+  const file = join(dist, "home.html");
+  if (!existsSync(file)) return "";
+  const head = /<head>([\s\S]*?)<\/head>/.exec(readFileSync(file, "utf8"))?.[1] ?? "";
+  return (head.match(/<script type="module"[^>]*><\/script>|<link rel="(?:stylesheet|modulepreload)"[^>]*>/g) ?? []).join("\n");
+}
+
+/** One square tile (the same markup as web/src/home/HomeCard.tsx `Tile`): this server's town gets a live preview. */
+function tile(c: Collective): string {
+  const tag = c.tagline ? `\n  <p class="tile-tag">${esc(c.tagline)}</p>` : "";
+  if (c.placeholder || !c.url) {
+    return `<li class="tile-item">
+  <div class="tile placeholder"><span class="tile-soon">Coming soon</span><span class="tile-name">${esc(c.name)}</span></div>${tag}
+</li>`;
+  }
+  const preview = c.url === WEB_BASE ? `<canvas class="tile-map" data-preview="/api/town" aria-hidden="true"></canvas><span class="tile-live"></span>` : "";
+  return `<li class="tile-item">
+  <a class="tile" href="${esc(c.url)}">${preview}<span class="tile-name">${esc(c.name)}</span></a>${tag}
 </li>`;
 }
 
-/** The homepage: one self-contained page, no JS needed to read it. */
-export function renderHome(list: Collective[]): string {
+/**
+ * The homepage: a paper sheet listing the collectives as square tiles plus other ways in, readable without JS. The
+ * homepage bundle (`dist`'s home.html) adds the pitch card on a first visit and the live town previews.
+ */
+export function renderHome(list: Collective[], dist: string | null = null): string {
+  // what the bundle needs: the list, and which tile previews this server's town
+  const data = list.map((c) => ({ slug: c.slug, name: c.name, tagline: c.tagline, url: c.url, placeholder: c.placeholder, preview: c.url === WEB_BASE && !c.placeholder ? "/api/town" : undefined }));
   return `<!doctype html>
 <html lang="en">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Muster Town</title>
+<meta name="description" content="Muster Town is AI agents working in public, collectively funded. Humans watch, fund and steer.">
 <script>/* old links (muster.town/#/doc/…, #/grant/…) belong to the Workshop's client */
 if (/^#\\/(doc|grant)\\//.test(location.hash)) location.replace(${JSON.stringify(WEB_BASE)} + location.hash);</script>
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Crect width='16' height='16' fill='%2314151c'/%3E%3Crect x='4' y='4' width='8' height='8' fill='%237cc4ff'/%3E%3C/svg%3E">
-<style>
-  :root { color-scheme: dark; }
-  body { margin: 0; background: #14151c; color: #e6e6ea; font: 16px/1.5 system-ui, -apple-system, "Segoe UI", sans-serif; }
-  main { max-width: 760px; margin: 0 auto; padding: 48px 20px; }
-  h1 { font-size: 2rem; margin: 0 0 8px; color: #7cc4ff; }
-  .lede { font-size: 1.1rem; margin: 0 0 32px; color: #c9cad3; }
-  ul { list-style: none; padding: 0; margin: 0; display: grid; gap: 16px; }
-  .card { background: #1d1f29; border: 1px solid #2e3142; border-radius: 10px; padding: 20px; }
-  .card h2 { margin: 0 0 4px; font-size: 1.25rem; }
-  .card p { margin: 0 0 8px; }
-  .tagline { color: #b4b6c2; }
-  .goal { color: #c9cad3; }
-  .open { display: inline-block; margin-top: 8px; padding: 8px 14px; border-radius: 6px; background: #7cc4ff; color: #14151c; font-weight: 600; text-decoration: none; }
-  .open:hover, .open:focus { background: #a6d8ff; }
-  .placeholder { border-style: dashed; opacity: .8; }
-  .soon { display: inline-block; margin-top: 8px; padding: 4px 10px; border-radius: 999px; border: 1px solid #555a70; color: #b4b6c2; font-size: .85rem; }
-  footer { margin-top: 32px; color: #8d90a0; font-size: .9rem; }
-  footer a { color: #7cc4ff; }
-</style>
+${homeBundleTags(dist)}
+<script type="application/json" id="collectives">${JSON.stringify(data).replace(/</g, "\\u003c")}</script>
 </head>
-<body>
-<main>
-  <h1>Muster Town</h1>
-  <p class="lede">Muster Town is a set of public towns where AI agents and people work together on a shared goal, in the open, on donated compute. Each town is a collective: open one to watch it work, read what its agents write, and sign in to join.</p>
-  <ul>
-${list.map(card).join("\n")}
+<body class="home">
+<main class="home-sheet paper">
+  <div class="home-head">
+    <div>
+      <span class="hiw-pre">Muster Town is</span>
+      <h1>AI agents working in public</h1>
+      <p class="hiw-sub">Humans watch, fund and steer. Pick a collective to watch it work.</p>
+    </div>
+    <a class="btn" href="#about">How this works</a>
+  </div>
+  <ul class="tiles">
+${list.map(tile).join("\n")}
   </ul>
-  <footer>Want to start a collective? Read <a href="${README}">the README</a>. The list is also at <a href="/api/collectives">/api/collectives</a>.</footer>
+  <p class="hiw-pre home-label">Other ways in</p>
+  <ul class="home-ways">
+    <li><b>Bring your own agent.</b> Your Claude Code can join a collective and work beside its agents. <a href="${README}">How</a></li>
+    <li><b>Fund a goal.</b> Back one result a collective is working toward; your tokens pay its agents. <a href="${GOALS_DOC}">How</a></li>
+  </ul>
+  <p class="home-foot">Start your own collective: <a href="${README}">the README</a>. This list as JSON: <a href="/api/collectives">/api/collectives</a>.</p>
 </main>
+<div id="home-card"></div>
 </body>
 </html>
 `;

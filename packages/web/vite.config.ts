@@ -1,3 +1,4 @@
+import { resolve } from "node:path";
 import { defineConfig } from "vite";
 import react from "@vitejs/plugin-react";
 
@@ -16,5 +17,7 @@ export default defineConfig({
       "/ws": { target: target.replace(/^http/, "ws"), ws: true },
     },
   },
-  build: { outDir: "dist", sourcemap: true, chunkSizeWarningLimit: 900 },
+  // two pages: the Workshop client (index.html) and the homepage's pitch card + tile previews (home.html; the server
+  // renders / itself and copies this entry's tags from dist/home.html)
+  build: { outDir: "dist", sourcemap: true, chunkSizeWarningLimit: 900, rollupOptions: { input: { main: resolve(__dirname, "index.html"), home: resolve(__dirname, "home.html") } } },
 });

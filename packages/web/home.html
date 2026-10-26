@@ -1,0 +1,14 @@
+<!doctype html>
+<!-- Entry for the homepage bundle (and a bare dev page for it): the server renders the real page at / (server/src/home.ts) and
+     copies this entry's script and CSS tags from the built dist/home.html into it. -->
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Muster Town</title>
+  </head>
+  <body class="home">
+    <div id="home-card"></div>
+    <script type="module" src="/src/home/main.tsx"></script>
+  </body>
+</html>
