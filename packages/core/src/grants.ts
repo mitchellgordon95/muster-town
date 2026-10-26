@@ -413,11 +413,13 @@ Key result (on the building goal): ${kr}${k ? "; it has no funded grant now, so 
   /**
    * \`checkpoint_grant\` (the manager, \`building.manage\`): set the status of the grant's key result (up to \`claimed\`) and
    * link the checkpoint report (\`reportId\`, else the rollup this session submits links itself). The grant stays at checkpoint.
+   * A funded grant whose checkpoint already fired is accepted too: a human may continue or adjust it from the in-tray before
+   * the manager's checkpoint session files (gr_iq5m7dug56, 2026-10-26: continued 4 min after the 50% hold).
    */
   fileCheckpoint(actor: Actor, grantId: string, input: { reportId?: string | null; status?: KeyResult["status"] | null; note?: string }): GrantView {
     const g = this.world.grants.require(grantId, "grant");
     if (actor && !this.world.permissions.can(actor, "building.manage", g.buildingId)) throw forbidden("building.manage");
-    this.requireStatus(g, ["checkpoint"], "checkpointed");
+    if (!(g.status === "funded" && g.checkpointsDone.length)) this.requireStatus(g, ["checkpoint"], "checkpointed");
     if (input.status === "met" || input.status === "missed") throw badRequest(`Only a human marks a key result ${input.status}; claim it instead.`);
     if (input.status && !g.keyResultId) throw badRequest("This grant names no goal key result, so there is no status to set.");
     if (input.reportId) {

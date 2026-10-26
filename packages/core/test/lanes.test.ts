@@ -173,6 +173,22 @@ describe("goal-directed budgets: 50% / 100% checkpoints", () => {
     expect(world.assignments.require(cp.id).status).toBe("done");
   });
 
+  it("checkpoint_grant still files after a human continued the grant before the manager's checkpoint session; a never-held funded grant refuses", async () => {
+    const { world, mei, noor, krs, fund, spend, admin } = setup();
+    const g = fund(4_000_000);
+    await expect(world.verbs.checkpoint_grant(mei, { grantId: g.id, status: "on-track" })).rejects.toThrow(/funded grant can't be checkpointed/);
+    spend(noor.id, 2_100_000, "grant", g.id);
+    world.budget.charge(noor.id, 0, 0);
+    // Mitchell continues from the in-tray minutes after the hold (gr_iq5m7dug56, 2026-10-26 20:43Z), before the checkpoint report lands
+    expect(world.grantDesk.decide(admin, g.id, { action: "continue" }).status).toBe("funded");
+    const cp = world.assignments.first("agentId = ? AND status = 'pending' AND title LIKE 'Write the checkpoint%'", [mei.id])!;
+    world.ops.startSession(mei.id, { purpose: "work", model: "m", assignmentId: cp.id });
+    const r = await world.verbs.checkpoint_grant(mei, { grantId: g.id, status: "on-track", note: "steps 1-2 live" });
+    expect(r).toMatchObject({ status: "funded", keyResult: { id: krs[0]!.id, status: "on-track" } });
+    const up = await world.verbs.submit_report(mei, { title: "Checkpoint", body: "## Shipped\nx\n## Decided\nx\n## Key results\nx\n## Needs from Mitchell\nnothing", verdict: "continue", rollup: true });
+    expect(world.grants.require(g.id)).toMatchObject({ status: "funded", checkpointDocId: up.id });
+  });
+
   it("propose_grant creates and proposes in one call; one open proposal per building", async () => {
     const { world, mei, krs } = setup();
     const r = await world.verbs.propose_grant(mei, { keyResultId: krs[1]!.id, objective: "o", stopCondition: "s", askTokens: 1000, testingPlan: KRS });
