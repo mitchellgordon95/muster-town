@@ -8,6 +8,9 @@
  * - v1.3: creates the town `deployer` role (`town.redeploy`) once the town has roles. Data fix: in the pass that
  *   creates it, residents of workspace buildings (the Town Workshop) who hold no deployer membership are granted it,
  *   matching what seed does for `townRoles: ["deployer"]` in collective.json. Later opens never re-grant, so a revoke sticks.
+ * - who may interact (dc_f0cumcfubk): built-in town moderator and deployer gain `town.interact`; creates the town
+ *   `member` role once the town has roles, and in that pass grants it to every user holding any role other than
+ *   `visitor`, so nobody who can act today is locked out except plain visitors. Later opens never re-grant.
  */
 import { BUILTIN_ROLES, Permission } from "@muster-town/schema";
 import type { DB } from "./db.ts";
@@ -37,6 +40,7 @@ export function migrateRoles(db: DB): MigrateRolesResult {
       let perms = (JSON.parse(r.permissions) as string[]);
       const before = JSON.stringify(perms);
       if (r.builtin && r.scope === "town" && r.name === "admin") perms = [...Permission.options];
+      else if (r.builtin && r.scope === "town" && (r.name === "moderator" || r.name === "deployer") && !perms.includes("town.interact")) perms.push("town.interact");
       else if (r.builtin && r.scope === "building" && r.name === "manager") {
         perms = perms.filter((p) => p !== "building.ban");
         if (!perms.includes("building.dismiss")) perms.push("building.dismiss");
@@ -64,6 +68,15 @@ export function migrateRoles(db: DB): MigrateRolesResult {
           AND NOT EXISTS (SELECT 1 FROM memberships m WHERE m.roleId = 'role:' || b.id || ':reviewer' AND m.holderKind = 'agent' AND m.holderId = a.id)`).all() as { id: string }[];
       for (const r of residents) {
         db.prepare("INSERT OR IGNORE INTO memberships (roleId, holderKind, holderId) VALUES ('role:deployer', 'agent', ?)").run(r.id);
+        res.granted++;
+      }
+    }
+    if (!db.prepare("SELECT 1 FROM roles WHERE id = 'role:member'").get()) {
+      db.prepare("INSERT INTO roles (id, name, scope, buildingId, permissions, builtin) VALUES ('role:member', 'member', 'town', NULL, ?, 1)").run(JSON.stringify(BUILTIN_ROLES.town.member));
+      res.created++;
+      const users = db.prepare("SELECT DISTINCT holderId FROM memberships WHERE holderKind = 'user' AND roleId NOT IN ('role:visitor', 'role:member')").all() as { holderId: string }[];
+      for (const u of users) {
+        db.prepare("INSERT OR IGNORE INTO memberships (roleId, holderKind, holderId) VALUES ('role:member', 'user', ?)").run(u.holderId);
         res.granted++;
       }
     }
