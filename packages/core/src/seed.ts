@@ -89,6 +89,14 @@ export function seedDefaults(world: World, opts: SeedOptions = {}): SeedResult {
       const filled = withRepoUrl(ws);
       if (filled !== town.workspace) world.town.set({ workspace: filled });
     }
+    // the town's copy (name, goal, tagline, goalNote) spelled in town.json wins on every boot: nothing edits it live,
+    // so the file is where it changes (KR 2: the tagline says what the place is in plain words)
+    if (opts.townJsonPath && existsSync(opts.townJsonPath)) {
+      const raw = JSON.parse(readFileSync(opts.townJsonPath, "utf8")) as Record<string, unknown>;
+      const copy = Town.partial().parse({ name: raw.name, goal: raw.goal, tagline: raw.tagline, goalNote: raw.goalNote });
+      const changed = Object.fromEntries(Object.entries(copy).filter(([k, v]) => v !== undefined && v !== town[k as keyof Town]));
+      if (Object.keys(changed).length) world.town.set(changed);
+    }
     // the keys collective.json spells out under `desks` win on every boot; the ones it leaves out (e.g. a `maxRunning` set live
     // via PUT /api/town/desks) keep their stored value. Without this, backend/snapshot/townUrl could never change after the seed.
     if (opts.collectivePath && existsSync(opts.collectivePath)) {

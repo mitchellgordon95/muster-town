@@ -16,6 +16,7 @@ import { drawFlow, type Flow } from "./flow";
 import { fitZoom, quickWalkGoal } from "./overview";
 import { avatarSize } from "./avatarSize";
 import { stackBodies } from "./stacks";
+import { whoIsHere } from "../whoIsHere";
 import { TILE } from "@muster-town/schema";
 
 /** `index`/`count`: position among everything in reach, so the HUD can show "Tab 2/3" when targets overlap. */
@@ -120,16 +121,21 @@ export class MapRenderer {
   /** The zoomed-out whole-town view: the Bank's town map and town planning share one camera. */
   overview(): boolean { return !!this.flow || !!townPlan.draft; }
 
-  /** Dev hook: put the avatar next to an agent and face it. */
+  /** Put the avatar next to an agent and face it (the guest card's names, the dev hook). */
   teleportTo(agentId: string): boolean {
     const a = store.state.agents[agentId];
     if (!a || !this.world) return false;
-    const p = store.livePos.get(agentId) ?? a.pos;
-    const ax = Math.round(p.x), ay = Math.round(p.y);
-    const opts = [[1, 0], [-1, 0], [0, 1], [1, 1], [-1, 1], [0, -1]];
-    const spot = opts.map(([dx, dy]) => ({ x: ax + dx, y: ay + dy })).find((t) => this.world!.walkable(t.x, t.y)) ?? this.world.nearestWalkable(ax, ay);
+    const spot = this.beside(a);
     this.placeMe(spot.x, spot.y);
     return true;
+  }
+  /** A walkable tile next to an agent. */
+  private beside(a: Agent): { x: number; y: number } {
+    const p = store.livePos.get(a.id) ?? a.pos;
+    const ax = Math.round(p.x), ay = Math.round(p.y);
+    // in front of the desk first: the agent stays in full view, nothing stacks
+    const opts = [[0, 1], [1, 1], [-1, 1], [1, 0], [-1, 0], [0, -1]];
+    return opts.map(([dx, dy]) => ({ x: ax + dx, y: ay + dy })).find((t) => this.world!.walkable(t.x, t.y)) ?? this.world!.nearestWalkable(ax, ay);
   }
   /**
    * Walk the avatar to a place along a path (teleport if there is none, or it's very long), then open `panel`.
@@ -227,8 +233,11 @@ export class MapRenderer {
     this.gridKey = key;
     if (!this.me.placed) {
       const av = store.avatarId ? s.agents[store.avatarId] : null;
+      // a guest's ghost starts beside a working agent (the busiest building's), so the first screen shows someone at
+      // work rather than the empty path by the Town Hall (KR 2); the plaza when nobody is working
+      const busy = av ? null : whoIsHere(s.agents).working[0];
       const plaza = s.places.find((p) => p.kind === "plaza");
-      const start = av?.pos ?? plaza?.pos ?? { x: Math.floor(s.grid.w / 2), y: s.grid.h - 3 };
+      const start = av?.pos ?? (busy ? this.beside(busy) : null) ?? plaza?.pos ?? { x: Math.floor(s.grid.w / 2), y: s.grid.h - 3 };
       const w = this.world.nearestWalkable(start.x, start.y);
       this.placeMe(w.x, w.y);
     }
