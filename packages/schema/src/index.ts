@@ -94,6 +94,7 @@ export const Permission = z.enum([
   "doc.request_human",
   "meeting.facilitate",
   "meeting.attend",
+  "town.interact",           // act in the town at all (move, talk, message, write): members; signed-in visitors only read
 ]);
 export type Permission = z.infer<typeof Permission>;
 
@@ -114,10 +115,13 @@ export const BUILTIN_ROLES = {
   town: {
     admin: Permission.options, // everything
     /** collective-wide misuse prevention; seated at the Town Hall mod station */
-    moderator: ["town.approve_trophy", "town.approve_request", "town.ban", "town.moderate"] as Permission[],
+    moderator: ["town.approve_trophy", "town.approve_request", "town.ban", "town.moderate", "town.interact"] as Permission[],
+    /** signed in, read-only until an admin lets them in (`member`) */
     visitor: ["meeting.attend"] as Permission[],
     /** may redeploy the running town from main (workshop residents) */
-    deployer: ["town.redeploy"] as Permission[],
+    deployer: ["town.redeploy", "town.interact"] as Permission[],
+    /** let in by an admin (an access request granted): may move, talk, message agents and write */
+    member: ["town.interact", "meeting.attend", "doc.request_human"] as Permission[],
   },
   building: {
     manager: [
@@ -1259,7 +1263,31 @@ export type SessionSlots = z.infer<typeof SessionSlots>;
 export const TownHealth = z.object({ docker: z.boolean(), slots: SessionSlots.optional() });
 export type TownHealth = z.infer<typeof TownHealth>;
 
-export const AuthMe = z.object({ user: User, roles: z.array(Role), avatarAgentId: Id.nullable(), isAdmin: z.boolean() });
+// ---------- access requests (a signed-in visitor asks to join; an admin lets them in as `member`) ----------
+export const AccessRequestStatus = z.enum(["pending", "granted", "declined"]);
+export const AccessRequest = z.object({
+  id: Id,
+  userId: Id,
+  /** optional one line: what they'd like to do here */
+  message: z.string().max(140).default(""),
+  status: AccessRequestStatus.default("pending"),
+  decidedBy: Id.nullable().default(null),
+  createdAt: z.string(),
+  decidedAt: z.string().nullable().default(null),
+});
+export type AccessRequest = z.infer<typeof AccessRequest>;
+/** A Town Hall in-tray row: the request plus who asked. */
+export type AccessRequestView = AccessRequest & { name: string; githubLogin: string | null; avatarUrl: string | null };
+export const AccessRequestInput = z.object({ message: z.string().trim().max(140).optional() });
+export const AccessDecisionInput = z.object({ grant: z.boolean() });
+
+export const AuthMe = z.object({
+  user: User, roles: z.array(Role), avatarAgentId: Id.nullable(), isAdmin: z.boolean(),
+  /** holds `town.interact`: may move, talk and write; false = read-only until an admin lets them in */
+  canInteract: z.boolean().default(true),
+  /** the latest access request, if any */
+  accessRequest: z.object({ status: AccessRequestStatus, message: z.string(), decidedAt: z.string().nullable() }).nullable().default(null),
+});
 export type AuthMe = z.infer<typeof AuthMe>;
 /** `GET /api/auth/config`: what sign-in the server offers (`githubClientId` null = GitHub login not configured). */
 /** `dev`: the server hands local browsers the admin token (`GET /api/dev/admin-token` exists); `session`: the request carries a valid sign-in cookie. Both let the client skip requests that would only fail. */
