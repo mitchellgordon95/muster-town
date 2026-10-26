@@ -10,6 +10,7 @@ import { ZodError } from "zod";
 import { authRoutes, defaultAuthSettings, sessionAuth, type AuthSettings } from "./auth/index.ts";
 import { ASK_FIRST, bearer, INTERACT_ALLOWLIST, interactingUser, resolveToken, WEB_BASE, type RuntimeHooks } from "./context.ts";
 import { collectives, DEFAULT_REGISTRY, renderHome } from "./home.ts";
+import type { BackupJob } from "./backup/index.ts";
 import { LoadMonitor } from "./load.ts";
 import { mcpRoutes } from "./mcp.ts";
 import { agentRoutes } from "./routes/agents.ts";
@@ -38,6 +39,8 @@ export interface BuildAppOptions {
   registry?: string;
   /** this server's collective (its dir name, e.g. `workshop`): its homepage entry is matched by slug */
   collective?: string;
+  /** the off-site backup job (main.ts builds and starts it); `GET /api/health` shows its state as `backup` */
+  backup?: BackupJob | null;
 }
 
 const API_PREFIXES = ["/api", "/ws", "/mcp", "/auth"];
@@ -50,6 +53,7 @@ export async function buildApp(opts: BuildAppOptions): Promise<FastifyInstance> 
   app.decorate("dev", !!opts.dev);
   const load = new LoadMonitor();
   app.decorate("load", load);
+  app.decorate("backup", opts.backup ?? null);
   app.decorateRequest("auth", null);
   const authSettings = defaultAuthSettings(opts.auth);
 
@@ -129,6 +133,6 @@ export async function buildApp(opts: BuildAppOptions): Promise<FastifyInstance> 
     return reply.code(404).send({ error: `Not found: ${req.method} ${path}`, code: "not_found" });
   });
 
-  app.addHook("onClose", async () => { load.close(); await (opts.runtime?.close?.() ?? opts.runtime?.stop?.()); });
+  app.addHook("onClose", async () => { load.close(); app.backup?.stop(); await (opts.runtime?.close?.() ?? opts.runtime?.stop?.()); });
   return app;
 }

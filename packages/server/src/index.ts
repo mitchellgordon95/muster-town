@@ -3,3 +3,4 @@ export { buildApp, DEFAULT_WEB_DIST, type BuildAppOptions } from "./app.ts";
 export { buildMcpServer } from "./mcp.ts";
 export { adminToken, resolveToken, type Auth, type RuntimeHooks } from "./context.ts";
 export { desksFromEnv, loadEnvFile } from "./env.ts";
+export { BackupJob, backupKeyFrom, decryptBackup, encryptBackup, S3, signV4, objectKey, type BackupView } from "./backup/index.ts";

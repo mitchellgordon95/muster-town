@@ -66,7 +66,17 @@ OAuth app (GitHub accepts the authorize URL `/auth/github` redirects to, checked
 the same day. Still open:
 - **Repo token:** the collective secret `GH_TOKEN` at the Town Hall (set 2026-10-23 18:54 UTC) is the only one; verified end to end from a Fly desk
   on 2026-10-24 (clone, `gh auth status`, `git ls-remote`, `git push --dry-run`).
-- **Backups:** only Fly's daily volume snapshots (5 kept). No off-site copy yet (Litestream to object storage, or a nightly `sqlite3 .backup` pushed out).
+- **Backups:** only Fly's daily volume snapshots (5 kept) until the off-site job (grant gr_jkorz4f49a, below) has its bucket and key.
+
+### Backups (off-site, grant gr_jkorz4f49a)
+The server copies `town.db` off the volume every night at 04:17 UTC, plus once at boot when the last copy is older than 24 h
+(`packages/server/src/backup/`): `db.backup()` to `/data/workshop/backups/town-<date>.db` (SQLite's online backup API, WAL-safe), sealed
+to one file and `integrity_check`ed, gzipped, encrypted (AES-256-GCM under `MUSTER_TOWN_BACKUP_KEY`, docs/secrets.md "The backup key") and
+PUT as `town/<YYYY-MM-DD>.db.gz.enc` to the Tigris bucket `fly storage create -a muster-town` sets up (`BUCKET_NAME`, `AWS_ENDPOINT_URL_S3`,
+`AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`; signed with a small SigV4 signer, no SDK). The newest 30 objects and the last local copy stay.
+`GET /api/health` shows `backup: {lastAt, bytes, dest, error}` (read-only; never the key or credentials), or `backup: null` while any of
+the five env vars is missing (the job is then off, with one boot warning). A failure is logged and kept as `backup.error`; it never stops
+the server. Restore steps and the drill: step 2 of the grant (scripts/backup/restore.sh) fills this in.
 - **Token rotation:** the admin and agent tokens in the migrated database were issued on the Mac: rotate them (docs/secrets.md, Dara's design dc_ios62uyco3 §3f).
 - **Deploys:** gated by CI since 2026-10-23 (see "CI and redeploy" above). Branch protection on `main` is not on: pushing to main is still allowed and expected.
 - **One Machine** means a restart is a short outage; the volume is the only copy of the live world.

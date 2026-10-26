@@ -2,6 +2,7 @@ import { AppError, canInteract, townRoleId, type World } from "@muster-town/core
 import type { Agent, DeskActivityInput, RedeployResult, Session, TokenCounts, User } from "@muster-town/schema";
 import type { FastifyReply, FastifyRequest } from "fastify";
 import type { ZodTypeAny, z } from "zod";
+import type { BackupJob } from "./backup/index.ts";
 import type { LoadMonitor } from "./load.ts";
 
 /** Hooks the in-process runtime exposes to the server (`startRuntime` returns this). */
@@ -43,6 +44,8 @@ declare module "fastify" {
     dev: boolean;
     /** event-loop lag, RSS and open WebSocket clients, for `GET /api/health` */
     load: LoadMonitor;
+    /** the off-site backup job (null in tests and without one): `GET /api/health` `backup` */
+    backup: BackupJob | null;
   }
   interface FastifyRequest {
     auth: Auth | null;

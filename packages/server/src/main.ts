@@ -9,6 +9,7 @@ import { existsSync, mkdirSync, readFileSync } from "node:fs";
 import { basename, dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { buildApp } from "./app.ts";
+import { BackupJob } from "./backup/index.ts";
 import { loadAuthSettings } from "./auth/index.ts";
 import { desksFromEnv, loadEnvFile } from "./env.ts";
 import type { RuntimeHooks } from "./context.ts";
@@ -47,7 +48,9 @@ async function main() {
   world.start(10);
 
   const auth = loadAuthSettings({ dataDir: DATA_DIR, port: PORT });
-  const app = await buildApp({ world, dev: DEV, auth, collective: basename(COLLECTIVE_DIR) });
+  // off-site backup (deploy/README.md "Backups"): local copies beside the data dir (/data/workshop/backups on Fly); inert without the env
+  const backup = new BackupJob({ db: world.db, dir: resolve(DATA_DIR, "..", "backups") });
+  const app = await buildApp({ world, dev: DEV, auth, collective: basename(COLLECTIVE_DIR), backup });
   await app.listen({ port: PORT, host: HOST });
   const url = `http://localhost:${PORT}`;
   console.log(`[server] Muster Town at ${url} (dev=${DEV})`);
@@ -56,6 +59,7 @@ async function main() {
   console.log(world.secrets.keyConfigured() ? "[server] MUSTER_TOWN_DATA_KEY set: collective secrets can be stored" : "[server] no MUSTER_TOWN_DATA_KEY: collective secrets can't be stored (they are never kept in plaintext)");
   console.log(auth.githubClientId ? `[server] GitHub login on (callback ${auth.publicUrl}/auth/github/callback; ${auth.admins.length} admin login(s))` : "[server] GitHub login off (no GITHUB_CLIENT_ID/GITHUB_CLIENT_SECRET); guests are read-only");
   console.log(`[server] MCP endpoint: ${url}/mcp (agent tokens only)`);
+  backup.start();
 
   try {
     const runtimePkg = "@muster-town/runtime"; // variable specifier: the server typechecks and runs without it

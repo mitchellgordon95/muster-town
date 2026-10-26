@@ -5,6 +5,17 @@ Two tiers (design: town docs dc_ios62uyco3 and dc_8hdfo4rucp). Ask: if this leak
 - **Host secrets** (the whole server, every collective, the box): `GITHUB_CLIENT_ID/SECRET`, the session secret, the admin token, `MUSTER_TOWN_DATA_KEY`, deploy/infra tokens, the server's own model login. The operator sets them in the server's env (`collectives/<id>/.env` on localhost, `/etc/muster-town/env` on the VPS). They never show in the UI and **never reach a desk**.
 - **Collective secrets** (one collective's tools, repo or research APIs, e.g. `MINICLAW_WS_TOKEN`): managed by the collective's admins at the Town Hall (the **Secrets** tab of the planning desk; it was a tab of the Town Hall building panel until 2026-10-24), stored encrypted in the `secrets` table, and granted to the whole town (every resident), or per building, agent or skill.
 
+## The backup key
+
+`MUSTER_TOWN_BACKUP_KEY` is a host secret: the 32-byte key (base64, `openssl rand -base64 32`) the server's nightly off-site backup
+(`packages/server/src/backup/`, deploy/README.md "Backups") encrypts each copy of `town.db` with (AES-256-GCM, the storage scheme
+below applied to the whole file: iv[12] | tag[16] | ciphertext, AAD `muster-town backup v1`). The copies leave the Machine, and the DB
+holds every token in plaintext (`tokens` table), so the key must not be the data key and must not live on the volume: **Mitchell
+generates it, keeps it in his password manager ("muster-town backup key") and sets it with `fly secrets set MUSTER_TOWN_BACKUP_KEY=... -a
+muster-town`.** The key is never in the DB, never on `/api/health`, never on a desk. Losing it makes every off-site copy unreadable; the
+bucket credentials (`BUCKET_NAME`, `AWS_ENDPOINT_URL_S3`, `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`, set by `fly storage create`) are
+host secrets too. Without all five the backup is off (health shows `backup: null`, one boot warning).
+
 ## Storage
 
 `secrets (name, ciphertext, grants, updatedAt, updatedBy)` (migration 027). `ciphertext` is `v1:` + base64(iv[12] | GCM tag[16] | AES-256-GCM ciphertext) under the host's `MUSTER_TOWN_DATA_KEY` (32 bytes, base64 or 64 hex chars; make one with `openssl rand -base64 32`), with the secret's name as AAD. The key is never in the DB. Without it the server refuses to store values (HTTP 409) and passes no secrets to desks: nothing is ever stored in plaintext. Losing the key makes the stored values unreadable: set them again.

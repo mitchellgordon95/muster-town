@@ -38,3 +38,26 @@ export function migrate(db: DB, dir = MIGRATIONS_DIR): number {
   }
   return Math.max(0, ...applied);
 }
+
+/**
+ * Seal a backup copy into one self-contained file: `db.backup()` of a WAL database leaves the copy in WAL mode (the mode is
+ * in the file header) with `-wal`/`-shm` beside it; switching it to `journal_mode = DELETE` checkpoints and removes them,
+ * so the copy restores as a single `town.db`. Then `PRAGMA integrity_check`: "ok" or the first problems.
+ */
+export function sealCopy(path: string): string {
+  const db = new Database(path);
+  try {
+    db.pragma("journal_mode = DELETE");
+    const rows = db.pragma("integrity_check") as { integrity_check: string }[];
+    return rows.map((r) => r.integrity_check).join("; ") || "no result";
+  } finally { db.close(); }
+}
+
+/** `PRAGMA integrity_check` on a database file opened read-only (a backup copy): "ok" or the first problems. */
+export function integrityCheck(path: string): string {
+  const db = new Database(path, { readonly: true });
+  try {
+    const rows = db.pragma("integrity_check") as { integrity_check: string }[];
+    return rows.map((r) => r.integrity_check).join("; ") || "no result";
+  } finally { db.close(); }
+}
