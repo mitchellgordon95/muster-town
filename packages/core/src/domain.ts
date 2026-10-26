@@ -1,6 +1,6 @@
 import { Doc, QUEUE_ORDER, type Agent, type Assignment, type Building, type GrantView, type LaneFields, type Message, type ReviewDecision, type WaitFor } from "@muster-town/schema";
 import { AppError } from "./errors.ts";
-import { resolveLane, type Lane } from "./lanes.ts";
+import { DIRECTED, resolveLane, type Lane } from "./lanes.ts";
 import type { Holder } from "./permissions.ts";
 import { describeWait } from "./waits.ts";
 import { extractSection, firstLine, newId, nowIso, truncate } from "./util.ts";
@@ -136,10 +136,11 @@ const DECISION_VERB: Record<ReviewDecision, string> = { approve: "Acknowledged",
  * - stop: author stopped; its pending/active assignments cancelled.
  * Shared by the `review` verb, REST, the auto policy, and meeting decisions.
  */
-export function applyDecision(world: World, docId: string, decision: ReviewDecision, note: string, decider: Holder | { kind: "system"; id: string }, opts: { waitFor?: WaitFor | null } = {}): { doc: Doc; assignment: Assignment | null } {
+export function applyDecision(world: World, docId: string, decision: ReviewDecision, note: string, decider: Holder | { kind: "system"; id: string }, opts: { waitFor?: WaitFor | null; assigneeId?: string | null } = {}): { doc: Doc; assignment: Assignment | null } {
   note = note.trim();
   if (decision === "redirect" && !note) throw new AppError("bad_request", "Redirect needs a note: it becomes the next assignment.");
   const report = world.docs.require(docId, "doc");
+  if (report.type === "flag") return decideFlag(world, report, decision, note, decider, opts);
   const doc = updateDoc(world, docId, { decision, decisionNote: note || undefined, decidedBy: decider.id, decidedAt: nowIso() });
   const author = world.agents.get(report.authorId);
   world.events.append({ type: "doc.decision", agentId: author?.id ?? null, buildingId: doc.buildingId, text: `${DECISION_VERB[decision]}: "${doc.title}"${note ? ` (${truncate(note, 80)})` : ""}`, payload: { docId, decision, note, decidedBy: decider.id } });
@@ -180,6 +181,57 @@ export function applyDecision(world: World, docId: string, decision: ReviewDecis
   return { doc, assignment };
 }
 
+// ---- flags (town hall 2026-10-25 evening, decision 3) ----
+
+/**
+ * A human plants a flag in a building: a short note (its first line is the title) that lands in the building's in-tray
+ * as a pending `flag` doc, where the manager delegates it (`applyDecision` → `decideFlag`). Needs `building.assign` on
+ * that building and a human actor: agents assign work directly. Nothing else routes it (no nearest-manager logic).
+ */
+export function plantFlag(world: World, actor: Agent, buildingId: string, text: string): Doc {
+  const building = world.buildings.require(buildingId, "building");
+  if (building.kind === "town-hall") throw new AppError("bad_request", "Plant the flag in a building, not the Town Hall: it has no manager to delegate it.");
+  if (actor.kind !== "human") throw new AppError("forbidden", "Only a human plants a flag; as an agent, give the work with `assign`.");
+  world.permissions.require(actor, "building.assign", buildingId);
+  const body = text.trim();
+  if (!body) throw new AppError("bad_request", "A flag needs a note: what you want done.");
+  const holder = world.holderOf(actor);
+  return createDoc(world, {
+    type: "flag", state: "building", title: truncate(firstLine(body) || body, 120), body, decision: "pending",
+    authorId: holder.id, authorKind: holder.kind, buildingId,
+  }, `${actor.name} planted a flag in ${building.name}: ${truncate(firstLine(body) || body, 80)}`);
+}
+
+/**
+ * Decide a flag. approve = handled, no assignment. continue = the flag's note becomes `assigneeId`'s directed
+ * assignment verbatim; redirect = the decider's note does, with the flag as context. Either needs a resident of the
+ * flag's building. The lane is directed whatever the building's budget mode: a human asked for it, as with a meeting
+ * decision. stop has no agent to stop.
+ */
+function decideFlag(world: World, flag: Doc, decision: ReviewDecision, note: string, decider: Holder | { kind: "system"; id: string }, opts: { waitFor?: WaitFor | null; assigneeId?: string | null }): { doc: Doc; assignment: Assignment | null } {
+  if (decision === "stop") throw new AppError("bad_request", "A flag has no agent to stop: approve it (handled), or continue/redirect it to a resident (assigneeId).");
+  let assignee: Agent | undefined;
+  if (decision !== "approve") {
+    if (!opts.assigneeId) throw new AppError("bad_request", `${decision === "continue" ? "Continue" : "Redirect"} on a flag needs assigneeId: the resident of ${world.buildings.get(flag.buildingId ?? "")?.name ?? "the building"} who takes it.`);
+    assignee = world.agents.require(opts.assigneeId, "agent");
+    const home = assignee.homeBuildingId ?? assignee.buildingId;
+    if (assignee.kind === "human" || home !== flag.buildingId) throw new AppError("bad_request", `${assignee.name} is not a resident of ${world.buildings.get(flag.buildingId ?? "")?.name ?? flag.buildingId}: a flag goes to one of the building's own residents.`);
+    if (assignee.status === "retired" || assignee.status === "banned") throw new AppError("bad_request", `${assignee.name} is ${assignee.status} and can't take the flag.`);
+  }
+  const doc = updateDoc(world, flag.id, { decision, decisionNote: note || undefined, decidedBy: decider.id, decidedAt: nowIso() });
+  world.events.append({ type: "doc.decision", agentId: assignee?.id ?? null, buildingId: doc.buildingId, text: `${DECISION_VERB[decision]} flag "${doc.title}"${assignee ? ` → ${assignee.name}` : ""}${note ? ` (${truncate(note, 80)})` : ""}`, payload: { docId: flag.id, decision, note, decidedBy: decider.id, assigneeId: assignee?.id ?? null } });
+  if (!assignee) return { doc, assignment: null };
+  const by = world.nameOf(flag.authorId);
+  const title = decision === "continue" ? flag.title : truncate(firstLine(note) || note, 120);
+  const description = decision === "continue"
+    ? `${by} planted a flag in your building (${flag.id}):\n\n${flag.body}${note ? `\n\nYour manager's note: ${note}` : ""}`
+    : `Your manager ${world.nameOf(decider.id)} gave you ${by}'s flag (${flag.id}):\n\n${note}\n\nThe flag said:\n\n${flag.body}`;
+  const assignment = createAssignment(world, { agentId: assignee.id, title, description, createdBy: decider, fromReportId: flag.id, waitFor: opts.waitFor, laneOverride: DIRECTED });
+  sendMessage(world, { kind: "system", fromId: decider.id, fromKind: "system", toId: assignee.id, body: `New assignment from ${world.nameOf(decider.id)} (${by}'s flag): ${title}${opts.waitFor ? ` (starts after ${describeWait(world, opts.waitFor)})` : ""}` });
+  if (assignee.status === "stopped") world.setStatus(assignee.id, "idle");
+  return { doc, assignment };
+}
+
 /**
  * The building's manager agent, if it can work: the resident set as `managerAgentId` unless it is stopped, banned or
  * retired. A building with one has its in-tray worked by the manager; otherwise humans holding `building.review` do
@@ -212,14 +264,15 @@ const GRANT_INTRAY_STATUSES = ["proposed", "countered", "checkpoint"] as const;
 
 /**
  * The building's in-tray: pending reports, oldest first. For the Town Hall: every building's pending rollups and
- * checkpoint reports; for a lab: its pending work reports, the manager's own included (its rollups go to the Town Hall).
+ * checkpoint reports; for a lab: its pending work reports, the manager's own included (its rollups go to the Town Hall),
+ * and the flags humans planted there (`plantFlag`).
  */
 export function intrayOf(world: World, buildingId: string): Doc[] {
   const b = world.buildings.get(buildingId);
   if (b?.kind === "town-hall") {
     return world.docs.where("type = 'report' AND decision = 'pending' AND buildingId IS NOT NULL", [], "ORDER BY createdAt, rowid").filter((d) => isTownHallItem(world, d));
   }
-  return world.docs.where("type = 'report' AND decision = 'pending' AND buildingId = ?", [buildingId], "ORDER BY createdAt, rowid").filter((d) => !isTownHallItem(world, d));
+  return world.docs.where("type IN ('report', 'flag') AND decision = 'pending' AND buildingId = ?", [buildingId], "ORDER BY createdAt, rowid").filter((d) => !isTownHallItem(world, d));
 }
 
 /** Grants a human must decide on (proposed, countered, at a checkpoint), every building, oldest first: Town Hall in-tray rows. */
@@ -244,17 +297,17 @@ export function intrayCounts(world: World): Map<string, number> {
   const th = world.buildings.first("kind = 'town-hall'");
   const counts = new Map<string, number>();
   const bump = (id: string) => counts.set(id, (counts.get(id) ?? 0) + 1);
-  for (const d of world.docs.where("type = 'report' AND decision = 'pending' AND buildingId IS NOT NULL")) {
+  for (const d of world.docs.where("type IN ('report', 'flag') AND decision = 'pending' AND buildingId IS NOT NULL")) {
     if (isTownHallItem(world, d)) { if (th) bump(th.id); } else bump(d.buildingId!);
   }
   if (th) for (let i = grantsAwaitingDecision(world).length; i > 0; i--) bump(th.id);
   return counts;
 }
 
-/** Pending report check used by the review paths. */
+/** Pending report (or flag) check used by the review paths. */
 export function requirePendingReport(world: World, docId: string): Doc {
   const doc = world.docs.require(docId, "doc");
-  if (doc.type !== "report") throw new AppError("bad_request", `Doc ${docId} is a ${doc.type}, not a report.`);
+  if (doc.type !== "report" && doc.type !== "flag") throw new AppError("bad_request", `Doc ${docId} is a ${doc.type}, not a report or a flag.`);
   if (doc.decision !== "pending") throw new AppError("conflict", `Report already decided (${doc.decision}).`);
   return doc;
 }

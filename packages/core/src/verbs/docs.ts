@@ -259,7 +259,7 @@ export async function review(world: World, me: Agent, input: VerbIn<"review">) {
     throw badRequest(isTownHallItem(world, doc) ? "You can't decide on your own rollup; it waits for the humans in the Town Hall in-tray." : "You can't decide on your own report.");
   }
   const waitFor = input.waitFor ? validateWait(world, input.waitFor) : null;
-  const res = world.transaction(() => applyDecision(world, doc.id, input.decision, input.note, world.holderOf(me), { waitFor }));
+  const res = world.transaction(() => applyDecision(world, doc.id, input.decision, input.note, world.holderOf(me), { waitFor, assigneeId: input.assigneeId ?? null }));
   return { docId: doc.id, decision: input.decision, assignmentId: res.assignment?.id ?? null };
 }
 

@@ -78,7 +78,7 @@ Every assignment, and so every session, runs in exactly one lane:
 | `exploration` | goal-scoped investigation (names a key result or a goal gap) | building's exploration spend today < allowance |
 | `directed` | a human asked for it directly: created by a user, or a decision of a meeting a human spoke in | today's rules (daily per-agent cap, pool) |
 
-Agents can't create `directed` work. When a manager agent creates an assignment, it has to say `grant` (with a key result) or `exploration` (with a key result or gap). Continuations (review `continue` / `redirect`, parked `resumeWhen` chains, retries) inherit the lane of the assignment they come from. Check-in sessions (no assignment) count as exploration.
+Agents can't create `directed` work. When a manager agent creates an assignment, it has to say `grant` (with a key result) or `exploration` (with a key result or gap). Continuations (review `continue` / `redirect`, parked `resumeWhen` chains, retries) inherit the lane of the assignment they come from. Check-in sessions (no assignment) count as exploration. A human's **flag** (`POST /api/buildings/:id/flags`, `docs/waterfall.md` §3.1) is directed work too: the manager delegates it with `review` + `assigneeId`, and the assignment is `directed` whatever the budget mode, since a human asked for it; the manager only chooses the resident.
 
 ### Sizes, with today's numbers
 

@@ -1,5 +1,5 @@
 import { AppError, boardDocs, cabinetCounts, cabinetDocs } from "@muster-town/core";
-import { AddBankInput, CreateBankPoolInput, CreateBuildingInput, DesksPatch, UpdateBankPoolInput, DocType, DonateInput, LayoutInput, Membership, PlanInput, RedeployInput, UpdateBuildingInput, townEnv, type AuthMe, type RedeployLive } from "@muster-town/schema";
+import { AddBankInput, CreateBankPoolInput, CreateBuildingInput, DesksPatch, UpdateBankPoolInput, DocType, DonateInput, LayoutInput, Membership, PlanInput, PlantFlagInput, RedeployInput, UpdateBuildingInput, townEnv, type AuthMe, type RedeployLive } from "@muster-town/schema";
 import type { FastifyInstance, FastifyRequest } from "fastify";
 import { z } from "zod";
 import { actorOf, adminToken, parse, requireAuth, requireUser, type Params } from "../context.ts";
@@ -123,6 +123,13 @@ export async function townRoutes(app: FastifyInstance) {
     const b = world.buildings.require(req.params.id, "building");
     if (b.kind === "town-hall") return world.ops.townHallIntray();
     return { reports: world.ops.intray(b.id) };
+  });
+
+  /** A human plants a flag (a short request) in a building: a pending `flag` doc in its in-tray for the manager to delegate (`building.assign`). */
+  app.post<{ Params: Params }>("/api/buildings/:id/flags", async (req, reply) => {
+    const doc = world.ops.plantFlag(actorOf(world, req), req.params.id, parse(PlantFlagInput, req.body).text);
+    reply.code(201);
+    return { doc };
   });
 
   app.get<{ Params: Params }>("/api/buildings/:id/board", async (req) => {

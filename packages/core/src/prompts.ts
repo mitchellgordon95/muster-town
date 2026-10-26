@@ -178,16 +178,18 @@ export const ROLLUP_RULE_HOURS = 24;
 export function managerIntrayBlock(world: World, building: Building, managerId: string, now = Date.now()): string {
   const pending = intrayOf(world, building.id);
   const rows = pending.map((d) => {
+    if (d.type === "flag") return `- ${d.id} FLAG by ${world.nameOf(d.authorId)} (${relativeTime(d.createdAt, now)}): ${oneLine(d.body, 200)}`;
     const need = sectionOf(d.body, NEED);
     return `- ${d.id} "${oneLine(d.title, 100)}" by ${world.nameOf(d.authorId)} (verdict ${d.verdict ?? "?"}, ${relativeTime(d.createdAt, now)}${d.tags.includes("parked") ? ", parked" : ""})${need ? `: needs: ${oneLine(need, 160)}` : ""}`;
   });
+  const flags = pending.some((d) => d.type === "flag");
   const lastRollup = world.docs.first("type = 'report' AND authorId = ? AND tags LIKE '%\"rollup\"%'", [managerId], "ORDER BY createdAt DESC, rowid DESC");
   const sinceLast = lastRollup ? `${relativeTime(lastRollup.createdAt, now)} ("${oneLine(lastRollup.title, 80)}", ${lastRollup.id}, decision ${lastRollup.decision ?? "?"})` : "never";
   const decidedSince = world.docs.count("type = 'report' AND buildingId = ? AND decision != 'pending' AND decidedAt > ?", [building.id, lastRollup?.createdAt ?? ""]);
   return `## Your in-tray (you work it; Mitchell doesn't see these reports)
 ${rows.length ? rows.join("\n") : "(empty)"}
 
-Decide each report with \`review\` (\`read\` it first): approve = acknowledge finished work (the default; idle is fine), continue = its proposal becomes the author's next assignment, redirect = your note becomes it, stop = the author stops. Your own work reports (from work you assigned yourself) land here too: decide them the same way and fold them into your rollup; only rollups reach the Town Hall. Decide yourself whether to wait for more reports or roll up; undecided reports stay here. ${ESCALATION_CRITERIA}
+Decide each report with \`review\` (\`read\` it first): approve = acknowledge finished work (the default; idle is fine), continue = its proposal becomes the author's next assignment, redirect = your note becomes it, stop = the author stops.${flags ? " A FLAG is a quick request a human planted in this building: delegate it with `review` plus `assigneeId` (a resident of this building; continue = the flag's text becomes their directed assignment verbatim, redirect = your note does, with the flag as context); approve only when nothing needs doing. It is directed work (a human asked), so it runs even though you can't create directed work yourself." : ""} Your own work reports (from work you assigned yourself) land here too: decide them the same way and fold them into your rollup; only rollups reach the Town Hall. Decide yourself whether to wait for more reports or roll up; undecided reports stay here. ${ESCALATION_CRITERIA}
 
 Rollups are how Mitchell hears from you: \`submit_report\` with \`rollup: true\` and the covered reports' ids in provenance.sourceIds. Four short sections: Shipped (live, with commits or doc ids), Decided (each covered report → what you decided), Key results (each funded grant's KRs with the spend numbers), Needs from Mitchell (at most two items; "Nothing needed" is valid). Roll up when a covered report hit an escalation criterion, or when ${ROLLUP_RULE_HOURS} h have passed since your last rollup and something was decided; nothing happened → no rollup. Last rollup: ${sinceLast}; reports decided since: ${decidedSince}.`;
 }
@@ -197,17 +199,23 @@ Rollups are how Mitchell hears from you: \`submit_report\` with \`rollup: true\`
  * in-tray block is in the system prompt. Reports that land while it runs arrive as \`managerNewReport\` messages.
  */
 export function managePrompt(building: Building, fresh: Doc[], nameOf: (id: string) => string): string {
-  const rows = fresh.map((d) => `- ${d.id} "${oneLine(d.title, 100)}" by ${nameOf(d.authorId)} (verdict ${d.verdict ?? "?"})`).join("\n");
-  return `This is a team-lead session, not a work session: you have no assignment. It started because reports landed in the ${building.name} in-tray ("## Your in-tray" above):
+  const rows = fresh.map(intrayLine(nameOf)).join("\n");
+  return `This is a team-lead session, not a work session: you have no assignment. It started because ${fresh.some((d) => d.type === "flag") ? "items" : "reports"} landed in the ${building.name} in-tray ("## Your in-tray" above):
 ${rows || "(see the in-tray)"}
 
-\`read\` each report and decide it with \`review\`; give follow-up work with \`assign\` when a decision alone doesn't say it. You can't do the work yourself here (no code or web tools). A manager does only decisions and rollups here: any task that appears (verifying, writing, fixing, checking something live) becomes an assignment the moment it appears; independent tasks go to different residents in parallel (one \`assign\` each), not queued on one resident. The default is to delegate; assign a task to yourself (\`assign\` with your own agent id) only when it is small, blocking, or needs your manager permissions: it runs as a normal work session and its report lands back in this in-tray for you to decide and fold into your rollup. One rollup per day, or sooner on escalation. If more reports land while you work, they arrive as messages in this session; decide them too or leave them for later.
+\`read\` each report and decide it with \`review\` (a flag: \`review\` with \`assigneeId\`, the resident who takes it); give follow-up work with \`assign\` when a decision alone doesn't say it. You can't do the work yourself here (no code or web tools). A manager does only decisions and rollups here: any task that appears (verifying, writing, fixing, checking something live) becomes an assignment the moment it appears; independent tasks go to different residents in parallel (one \`assign\` each), not queued on one resident. The default is to delegate; assign a task to yourself (\`assign\` with your own agent id) only when it is small, blocking, or needs your manager permissions: it runs as a normal work session and its report lands back in this in-tray for you to decide and fold into your rollup. One rollup per day, or sooner on escalation. If more reports land while you work, they arrive as messages in this session; decide them too or leave them for later.
 
 End the session in one of two ways. If a rollup is due (the rule in "## Your in-tray"), \`submit_report\` with \`rollup: true\` and the covered reports' ids in provenance.sourceIds. Otherwise don't call \`submit_report\` at all: just stop, and the session ends quietly (an idle building is silent). The "Finish with submit_report" rule above is for work sessions, not this one.`;
 }
 
-/** A report that landed while the manager's team-lead session runs (streamed into it). */
+/** One in-tray line for the team-lead prompts: a report with its verdict, or a flag with its note. */
+const intrayLine = (nameOf: (id: string) => string) => (d: Doc) => d.type === "flag"
+  ? `- ${d.id} FLAG by ${nameOf(d.authorId)}: ${oneLine(d.body, 200)}`
+  : `- ${d.id} "${oneLine(d.title, 100)}" by ${nameOf(d.authorId)} (verdict ${d.verdict ?? "?"})`;
+
+/** A report (or a human's flag) that landed while the manager's team-lead session runs (streamed into it). */
 export function managerNewReport(d: Doc, nameOf: (id: string) => string): string {
+  if (d.type === "flag") return `${nameOf(d.authorId)} planted a flag in your building (${d.id}): ${oneLine(d.body, 300)}\nDelegate it with \`review\` (continue or redirect, with assigneeId = the resident who takes it), or approve it if nothing needs doing. End as before: a rollup only if one is due, else just stop.`;
   return `A new report landed in your in-tray: ${d.id} "${oneLine(d.title, 100)}" by ${nameOf(d.authorId)} (verdict ${d.verdict ?? "?"}). Decide it with the others, or leave it pending. End as before: a rollup only if one is due, else just stop.`;
 }
 

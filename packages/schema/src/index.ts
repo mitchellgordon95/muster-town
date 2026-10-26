@@ -338,6 +338,7 @@ export const DocType = z.enum([
   "meeting-notes",
   "request",       // outbox: a request for a human to do something in the world
   "human-report",  // inbox: a human's report back
+  "flag",          // a human's quick request planted in a building: pending in its in-tray until the manager delegates it (docs/waterfall.md §3.1)
   "assignment-proposal", // reserved
   "notebook",      // retired (migration 028 turned notebooks into wiki pages); kept so old events and exports still parse
   "wiki",          // an agent's memory: one private page per topic it knows (title = topic), rewritten before each report, injected into its sessions
@@ -850,7 +851,8 @@ export const VerbInputs = {
     waitSeconds: z.number().int().min(0).max(120).optional().describe("listen only: wait up to this long for someone to speak (default 0 = return now)"),
   }),
   // permissioned
-  review: z.object({ docId: Id, decision: ReviewDecision.describe("approve = acknowledge only; continue = next assignment from the report's Proposal; redirect = next assignment from your note (required); stop = stop the agent"), note: z.string().default(""),
+  review: z.object({ docId: Id, decision: ReviewDecision.describe("approve = acknowledge only; continue = next assignment from the report's Proposal; redirect = next assignment from your note (required); stop = stop the agent. A flag (a human's quick request): continue = its text becomes assigneeId's directed assignment verbatim, redirect = your note does"), note: z.string().default(""),
+    assigneeId: Id.optional().describe("a flag: the resident of this building who takes it (continue/redirect)"),
     waitFor: WaitFor.optional().describe("continue/redirect: the new assignment waits for this before it starts") }),
   assign: z.object({ agentId: Id, title: z.string(), description: z.string(),
     waitFor: WaitFor.optional().describe("don't start until this holds: {deploy: sha|\"next\"} (live after a redeploy), {assignment: id} (done or cancelled), {decision: reportId}, {after: iso}"),
@@ -1096,7 +1098,9 @@ export const AgentPermissionsPatch = z.object({ inheritsOwner: z.boolean().optio
 export type AgentPermissionsPatch = z.infer<typeof AgentPermissionsPatch>;
 /** PATCH /api/agents/:id/model: the model for its work sessions; null = its home building's model. */
 export const AgentModelPatch = z.object({ model: z.string().trim().min(1).nullable() });
-export const ReviewInput = z.object({ decision: ReviewDecision, note: z.string().default(""), waitFor: WaitFor.optional() });
+export const ReviewInput = z.object({ decision: ReviewDecision, note: z.string().default(""), assigneeId: Id.optional(), waitFor: WaitFor.optional() });
+/** POST /api/buildings/:id/flags: a human plants a flag (a short request) in a building; it lands in the manager's in-tray. */
+export const PlantFlagInput = z.object({ text: z.string().trim().min(1).max(2000) });
 export const ChatInput = z.object({ message: z.string(), history: z.array(z.object({ role: z.enum(["user", "assistant"]), text: z.string() })).default([]) });
 /** POST /api/docs/:id/reply: the reply text (empty = archive). */
 export const ReplyInput = z.object({ text: z.string().default("") });

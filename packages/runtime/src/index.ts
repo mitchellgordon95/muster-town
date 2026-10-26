@@ -261,8 +261,8 @@ export function startRuntime(opts: RuntimeOptions): Runtime {
     else if ((e.type === "meeting.created" || e.type === "meeting.utterance" || e.type === "meeting.phase") && e.buildingId && world.meetings.get(String(p.meetingId))?.kind === "one-on-one") {
       const bid = e.buildingId; later(async () => wakeManagers(bid), "manager 1:1");
     }
-    // a resident's report landed in a managed building's in-tray: wake (or feed) the manager's team-lead session
-    else if (e.type === "doc.created" && p.docType === "report" && e.buildingId) { const bid = e.buildingId; later(async () => wakeManagers(bid), "manager session"); }
+    // a resident's report (or a human's flag) landed in a managed building's in-tray: wake (or feed) the manager's team-lead session
+    else if (e.type === "doc.created" && (p.docType === "report" || p.docType === "flag") && e.buildingId) { const bid = e.buildingId; later(async () => wakeManagers(bid), "manager session"); }
     else if ((e.type === "agent.status" && (p.status === "stopped" || p.status === "banned")) || e.type === "agent.banned") {
       if (e.agentId) abortWork(ctx, e.agentId, killGraceMs);
     }
