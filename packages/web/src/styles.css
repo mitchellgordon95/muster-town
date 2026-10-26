@@ -577,3 +577,7 @@ kbd { font-family: var(--mono); font-size: 11px; background: #2a2d3a; border: 1p
 .kr-editor-row .kr-status { width: auto; flex: 0 0 auto; font-size: 12px; padding: 2px 6px; }
 .kr-status.ok { color: var(--ok); } .kr-status.warn { color: var(--warn); } .kr-status.bad { color: var(--bad); }
 .kr-add { margin-top: 12px; }
+/* plant a flag (F on the map): a floating box above the key hint */
+.flag-box { pointer-events: auto; width: min(520px, 90%); background: rgba(20,21,28,.96); border: 1px solid var(--line-2); border-radius: 8px; padding: 10px 12px; box-shadow: 0 4px 16px rgba(0,0,0,.3); }
+.flag-box .reply-box { margin: 0; padding-top: 0; border-top: none; }
+.flag-box .flag-head { display: flex; gap: 8px; align-items: baseline; margin-bottom: 8px; font-size: 13px; }

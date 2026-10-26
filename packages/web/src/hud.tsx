@@ -143,11 +143,11 @@ export function Hud({ onPasteToken, onHelp }: { onPasteToken?: () => void; onHel
   );
 }
 
-export function Hint({ target, saying }: { target: Target | null; saying: boolean }) {
+export function Hint({ target, saying, canFlag }: { target: Target | null; saying: boolean; canFlag?: boolean }) {
   if (saying) return null;
   return (
     <div className="hint">
-      {target ? <><kbd>E</kbd> {target.label}{target.count && target.count > 1 ? <><span className="sep" /><kbd>Tab</kbd> next {target.index}/{target.count}</> : null}</> : <><kbd>WASD</kbd> walk <span className="sep" /> <kbd>E</kbd> interact <span className="sep" /> <kbd>Enter</kbd> say <span className="sep" /> <kbd>Esc</kbd> close</>}
+      {target ? <><kbd>E</kbd> {target.label}{target.count && target.count > 1 ? <><span className="sep" /><kbd>Tab</kbd> next {target.index}/{target.count}</> : null}</> : <><kbd>WASD</kbd> walk <span className="sep" /> <kbd>E</kbd> interact <span className="sep" /> <kbd>Enter</kbd> say <span className="sep" />{canFlag ? <><kbd>F</kbd> flag <span className="sep" /></> : null} <kbd>Esc</kbd> close</>}
     </div>
   );
 }

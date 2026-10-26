@@ -18,7 +18,8 @@ import { LibraryPanel, TrophyPanel } from "./panels/LibraryPanel";
 import { OutboxPanel } from "./panels/OutboxPanel";
 import { MeetingPanel } from "./panels/MeetingPanel";
 import { PlanningPanel } from "./panels/PlanningPanel";
-import { BoardPanel, CabinetPanel, IntrayPanel, ModStationPanel, SchedulePanel } from "./panels/Places";
+import { BoardPanel, CabinetPanel, IntrayPanel, ModStationPanel, PlantFlag, SchedulePanel } from "./panels/Places";
+import { flagTargets } from "./panels/flag";
 import { BankPanel } from "./panels/BankPanel";
 import { GrantPanel } from "./panels/GrantPanel";
 import { HowItWorks, howItWorksSeen } from "./panels/HowItWorks";
@@ -170,6 +171,13 @@ export function App() {
   const ready = useTown((s) => !!s.grid);
   const [target, setTarget] = useState<Target | null>(null);
   const [saying, setSaying] = useState(false);
+  // plant a flag (F): the building I stood in when I pressed it, null outside; undefined = closed
+  const [flagHere, setFlagHere] = useState<string | null | undefined>(undefined);
+  const buildings = useTown((s) => s.buildings);
+  useTown((s) => s.me);
+  // human-only: a guest has no roles, and agents don't use the web client
+  const canAssign = (id: string) => store.can("building.assign", id);
+  const canFlag = flagTargets(buildings, canAssign).length > 0;
   const [pw, setPw] = useState(panelWidth);
   // first visit in this browser: explain the town once it has loaded; the HUD's "?" reopens it.
   // Not over a shared doc link (/#/doc/<id>): the reader came for that doc, and the intro stays unseen for next time.
@@ -196,6 +204,9 @@ export function App() {
         else if (store.state.panel) store.open(null);
       } else if (e.key === "Enter" && !typing() && !e.repeat) {
         e.preventDefault(); setSaying(true); setTimeout(() => sayRef.current?.focus(), 0);
+      } else if (e.key.toLowerCase() === "f" && !typing() && !e.repeat && !e.metaKey && !e.ctrlKey && !e.altKey && !authStore.get().guest
+        && flagTargets(store.state.buildings, (id) => store.can("building.assign", id)).length) {
+        e.preventDefault(); setFlagHere(mapRenderer()?.buildingHere ?? null);
       }
     };
     window.addEventListener("keydown", key);
@@ -218,7 +229,8 @@ export function App() {
       <Hud onPasteToken={() => setPhase({ k: "login" })} onHelp={() => setHelp(true)} />
       <Minimap />
       <div className="bottom" style={{ right: panel ? pw : 0 }}>
-        <Hint target={target} saying={saying} />
+        <Hint target={target} saying={saying || flagHere !== undefined} canFlag={canFlag && !guest} />
+        {flagHere !== undefined && canFlag && !guest ? <div className="flag-box"><PlantFlag targets={flagTargets(buildings, canAssign, flagHere)} onClose={() => setFlagHere(undefined)} /></div> : null}
         {saying && !guest ? <SayBox inputRef={sayRef} onSend={say} onCancel={() => setSaying(false)} /> : null}
       </div>
       {panel ? <aside className="panel" style={{ width: pw }}><PanelBoundary key={`${panel.kind}:${panel.id ?? ""}:${panel.docId ?? ""}`}><PanelHost panel={panel} /></PanelBoundary></aside> : null}

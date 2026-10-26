@@ -22,7 +22,6 @@ import { portraitUrl } from "../map/sprites";
 
 export function IntrayPanel({ buildingId }: { buildingId: string }) {
   const b = useTown((s) => s.buildings.find((x) => x.id === buildingId));
-  const buildings = useTown((s) => s.buildings);
   const agents = useTown((s) => s.agents);
   const rev = useTown((s) => s.rev);
   useTown((s) => s.me);
@@ -42,8 +41,6 @@ export function IntrayPanel({ buildingId }: { buildingId: string }) {
   const manager = b.managerAgentId ? agents[b.managerAgentId] : undefined;
   const subtitle = hall ? "Town Hall · rollups, proposals and checkpoints for the humans" : `${b.name} · manager's desk · worked by ${manager ? `★ ${manager.name}` : "you"}`;
   const count = reports.length + grants.length;
-  // where I can plant a flag: this building, or (at the Town Hall) any building I may assign work in
-  const flagTargets = (hall ? buildings.filter((x) => x.kind !== "town-hall") : [b]).filter((x) => store.can("building.assign", x.id));
   return (
     <PanelShell icon={<Glyph kind="intray" />} title={<>In-tray {count ? <Pill tone="warn">{count}</Pill> : null}</>} subtitle={subtitle}>
       {open ? (
@@ -52,11 +49,10 @@ export function IntrayPanel({ buildingId }: { buildingId: string }) {
         <>
           {!canReview && !hall ? <div className="callout">You can read the in-tray. Decisions are for the building's manager and reviewer.</div> : null}
           {manager && !hall ? <div className="callout">★ {manager.name}, the building's manager, works this in-tray and rolls up to the Town Hall in-tray. You can still decide here.</div> : null}
-          {flagTargets.length ? <PlantFlag targets={flagTargets} onPlanted={list.reload} /> : null}
           <ErrorLine error={list.error} />
           {list.loading && !list.data ? <Loading /> : hall ? (
             <TownHallIntray reports={reports} grants={grants} blocked={list.data?.blocked ?? []} onOpen={openDoc} onDecided={list.reload} />
-          ) : !reports.length ? <Empty>The in-tray is empty. When a resident finishes a session, its report lands here and the resident goes idle; a flag you plant lands here too.</Empty> : (
+          ) : !reports.length ? <Empty>The in-tray is empty. When a resident finishes a session, its report lands here and the resident goes idle; a flag you plant (F on the map) lands here too.</Empty> : (
             <div className="doc-list">
               {reports.map((d) => <IntrayRow key={d.id} doc={d} onOpen={() => setOpenId(d.id)} />)}
             </div>
@@ -69,11 +65,11 @@ export function IntrayPanel({ buildingId }: { buildingId: string }) {
 
 /**
  * Plant a flag (town hall 2026-10-25 evening, decision 3): a short note a human writes, picking the building; it lands
- * in that building's in-tray as a pending `flag` for the manager to delegate. No nearest-manager logic: you pick.
+ * in that building's in-tray as a pending `flag` for the manager to delegate. Opened with F on the map (Mitchell's flag
+ * dc_7qng5lccew), not from an in-tray; `targets` comes from flagTargets, the building I'm standing in first.
  */
-export function PlantFlag({ targets, onPlanted }: { targets: { id: string; name: string; managerAgentId?: string | null }[]; onPlanted?: () => void }) {
+export function PlantFlag({ targets, onClose }: { targets: { id: string; name: string; managerAgentId?: string | null }[]; onClose: () => void }) {
   const agents = useTown((s) => s.agents);
-  const [open, setOpen] = useState(false);
   const [buildingId, setBuildingId] = useState(targets[0]?.id ?? "");
   const [text, setText] = useState("");
   const target = targets.find((t) => t.id === buildingId) ?? targets[0];
@@ -84,12 +80,11 @@ export function PlantFlag({ targets, onPlanted }: { targets: { id: string; name:
     store.putDocs([d]);
     store.toast(`Flag planted in ${target.name}${manager ? `; ${manager.name} delegates it` : ""}.`, "ok");
     setText("");
-    setOpen(false);
-    onPlanted?.();
+    onClose();
   };
-  if (!open) return <div className="actions"><button className="btn sm" onClick={() => setOpen(true)} title="A quick request for a building's manager to delegate: no grant, no meeting">⚑ Plant a flag</button></div>;
   return (
-    <div className="reply-box flag-form">
+    <div className="reply-box flag-form" onKeyDown={(e) => { if (e.key === "Escape") { e.preventDefault(); e.stopPropagation(); onClose(); } }}>
+      <div className="flag-head"><b>⚑ Plant a flag</b><span className="muted">a quick request for a building's manager to delegate: no grant, no meeting</span></div>
       {targets.length > 1 ? (
         <Field label="Building">
           <select value={target.id} onChange={(e) => setBuildingId(e.target.value)}>
@@ -101,7 +96,7 @@ export function PlantFlag({ targets, onPlanted }: { targets: { id: string; name:
         onKeyDown={(e) => { if (e.key === "Enter" && (e.metaKey || e.ctrlKey) && text.trim()) { e.preventDefault(); void plant().catch((err) => store.toast(String((err as Error).message ?? err), "bad")); } }} />
       <div className="actions">
         <span className="muted">{manager ? `★ ${manager.name} gets it in the ${target.name} in-tray and assigns it to a resident.` : `${target.name} has no manager agent: whoever works its in-tray assigns it.`}</span>
-        <button className="btn sm" onClick={() => setOpen(false)}>Cancel</button>
+        <button className="btn sm" onClick={onClose}>Cancel</button>
         <Act small tone="primary" disabled={!text.trim()} run={plant}>Plant</Act>
       </div>
     </div>

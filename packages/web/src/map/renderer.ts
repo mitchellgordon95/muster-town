@@ -157,6 +157,8 @@ export class MapRenderer {
     this.walkRoute(quickWalkGoal(w, this.myTile(), { x, y }, door?.pos ?? null), () => undefined);
     return true;
   }
+  /** The building whose lot my body stands in (plant a flag defaults to it), or null outside. */
+  get buildingHere(): string | null { const t = this.myTile(); return this.world?.buildingAt(t.x, t.y)?.id ?? null; }
   private myTile() { return { x: Math.floor(this.me.x / T), y: Math.floor((this.me.y - 1) / T) }; }
   /** Walk along a path to `goal`, then `arrive`; teleport when there's no path or it's very long. */
   private walkRoute(goal: { x: number; y: number }, arrive: () => void) {
