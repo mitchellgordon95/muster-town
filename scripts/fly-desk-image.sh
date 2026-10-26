@@ -4,7 +4,7 @@
 # on a Fly host, with the host secret FLY_DESKS_ACCESS_TOKEN as that token. Installs flyctl when it isn't on PATH
 # (into $FLYCTL_INSTALL: /data/flyctl on the town's volume, else ~/.fly), since the town server's image doesn't ship it.
 set -euo pipefail
-: "${FLY_ACCESS_TOKEN:?set FLY_ACCESS_TOKEN to the desk app's deploy token}"
+: "${FLY_ACCESS_TOKEN:?set FLY_ACCESS_TOKEN to a deploy token for the desk app}"
 app="${FLY_APP:-muster-desks}"
 fly="$(command -v flyctl || command -v fly || true)"
 if [ -z "$fly" ]; then
