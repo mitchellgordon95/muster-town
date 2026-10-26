@@ -234,6 +234,8 @@ Today the brief only *tells* agents to look at the board (`composeWorkBrief`, `p
 - Building sign / Prod-style banner: next to Lena's today / all-time token usage, "Grant: 12.4M / 20M".
 - Map: the board sprite gets a small amber dot when a proposal or checkpoint waits on a human, so Mitchell can spot it from the street.
 - In-tray: checkpoint reports show the grant's spend bar and the same Continue / Adjust / Cut buttons.
+- **Blocked** (shipped 2026-10-26, `keyResults.ts` `blockedLabel` / `UNBLOCK_LINE`): a goal-directed building with `blockedAt` shows "Blocked: no key results" on its building panel Overview (with who unblocks it: a human writes the goal's key results in Building → Settings → Key results, and a Settings link for `building.manage`), as the red lamp of the stoplight on its map sign (the reason on hover), and in a "Blocked: no key results" section at the top of the Town Hall in-tray (not counted in the badge).
+- Grant rows (in-tray, grant panel): "Key result:" names the grant's one goal key result with its status, then its testing plan; a proposal naming none has Fund disabled with the reason (counter it so the manager names one). The manager's proposal form is `propose_grant` (MCP), which requires `keyResultId`.
 - Building settings (`BuildingPanel.tsx`, `Settings`): **Key results** section, the edit path (humans with `building.manage`: add with text + how to check, edit, delete; status select: the manager's range up to claimed, met / missed for `building.fund`; a key result a grant names can't be deleted, the server names the grant); then the Bank pool, and the `budgetMode` toggle with the exploration allowance field.
 
 ## Rollout

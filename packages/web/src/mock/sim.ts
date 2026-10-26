@@ -78,14 +78,15 @@ export class Sim {
    * Pending reports for a building, oldest first (GET /api/buildings/:id/intray). As in core, a report by its
    * building's manager agent is a Town Hall item; the Town Hall's in-tray also has the grants awaiting a human.
    */
-  intray(buildingId: string): { reports: Doc[]; grants: GrantView[] } {
+  intray(buildingId: string): { reports: Doc[]; grants: GrantView[]; blocked: { buildingId: string; name: string; reason: string; since: string | null }[] } {
     const hall = this.buildings.find((b) => b.id === buildingId)?.kind === "town-hall";
     const managerOf = (id: string | null) => this.buildings.find((b) => b.id === id)?.managerAgentId;
     const reports = [...this.docs.values()].filter((d) => d.type === "report" && d.decision === "pending"
       && (hall ? !!d.buildingId && managerOf(d.buildingId) === d.authorId : d.buildingId === buildingId && managerOf(d.buildingId) !== d.authorId))
       .sort((a, b) => a.createdAt.localeCompare(b.createdAt));
     const grants = hall ? [...this.grants.values()].filter((g) => g.status === "proposed" || g.status === "countered" || g.status === "checkpoint") : [];
-    return { reports, grants };
+    const blocked = hall ? this.buildings.filter((b) => b.kind !== "town-hall").flatMap((b) => { const r = this.grantBoard(b.id).blocked; return r ? [{ buildingId: b.id, name: b.name, reason: r, since: b.blockedAt ?? null }] : []; }) : [];
+    return { reports, grants, blocked };
   }
   /** The budget part of GET /api/buildings/:id/board, as core's Grants.board (exploration spend is the fixture's). */
   grantBoard(buildingId: string) {

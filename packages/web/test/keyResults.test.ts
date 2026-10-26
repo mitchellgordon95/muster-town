@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { explorationLine, grantSpendLine, grantStateLine, keyResultRows, krFundingLine, krStatusLabel, krTone, proposalLine, settableStatuses, spentShare } from "../src/panels/keyResults";
+import { BLOCKED_LABEL, UNBLOCK_LINE, blockedLabel, unfundableReason, explorationLine, grantSpendLine, grantStateLine, keyResultRows, krFundingLine, krStatusLabel, krTone, proposalLine, settableStatuses, spentShare } from "../src/panels/keyResults";
 import { MockApi } from "../src/mock/server";
 import { stoplightOf } from "@muster-town/schema";
 import { stoplightLabel } from "../src/format";
@@ -81,5 +81,30 @@ describe("board key-results view", () => {
     expect((await api.board(b.id)).blocked).toMatch(/no key results/);
     await api.createKeyResult(b.id, { text: "One", howToCheck: "Look" });
     expect((await api.board(b.id)).blocked).toBeNull();
+  });
+});
+
+describe("blocked state", () => {
+  it("only a goal-directed building with blockedAt reads blocked; the Town Hall never does", () => {
+    const at = "2026-10-25T18:00:00.000Z";
+    expect(blockedLabel({ kind: "lab", budgetMode: "goal-directed", blockedAt: at })).toBe(BLOCKED_LABEL);
+    expect(blockedLabel({ kind: "lab", budgetMode: "goal-directed", blockedAt: null })).toBeNull();
+    expect(blockedLabel({ kind: "lab", budgetMode: "open", blockedAt: at })).toBeNull();
+    expect(blockedLabel({ kind: "town-hall", budgetMode: "goal-directed", blockedAt: at })).toBeNull();
+    expect(UNBLOCK_LINE).toMatch(/human/);
+    expect(UNBLOCK_LINE).toMatch(/Settings/);
+  });
+  it("a proposal naming no key result can't be funded; one naming one can", () => {
+    expect(unfundableReason({ status: "proposed", keyResult: null })).toMatch(/counter/);
+    expect(unfundableReason({ status: "countered", keyResult: null })).toBeNull();
+  });
+  it("mock Town Hall in-tray lists blocked buildings; a building's own in-tray doesn't", async () => {
+    const api = new MockApi();
+    expect((await api.intray("bl_townhall")).blocked).toEqual([]);
+    await api.updateBuilding("bl_carbon", { budgetMode: "goal-directed" });
+    await api.decideGrant("gr_ocean", { action: "reject", note: "" });
+    for (const k of (await api.board("bl_carbon")).keyResults) await api.deleteKeyResult(k.id);
+    expect((await api.intray("bl_townhall")).blocked?.map((x) => x.buildingId)).toEqual(["bl_carbon"]);
+    expect((await api.intray("bl_carbon")).blocked).toEqual([]);
   });
 });
