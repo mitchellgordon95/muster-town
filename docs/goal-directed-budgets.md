@@ -213,7 +213,7 @@ All under the existing Fastify app. Reads are public like the rest of the town; 
 | `PATCH /api/buildings/:id` | `building.manage` | gains `explorationTokensPerDay`, `budgetMode` |
 | `POST /api/agents/:id/work` and the `assign` verb (existing) | `building.assign` | gain `lane`, `grantId`, `keyResultId`, `gap` |
 
-MCP verbs (agents): `board` returns the same shape as `GET …/board`. New manager verbs: `propose_grant` (create + propose in one call) and `checkpoint_grant` (`{ grantId, reportId?, status?, note? }` since 032). `assign` gains `lane`, `grantId`, `keyResultId`, `gap`. Events: `grant.proposed`, `grant.countered`, `grant.funded`, `grant.checkpoint`, `grant.closed`, `kr.updated`, all pushed to the web over the existing websocket.
+MCP verbs (agents): `board` returns the same shape as `GET …/board`. New manager verbs: `propose_grant` (create + propose in one call; while the building's proposal is `countered` it rewrites that proposal with the new plan and re-proposes it under the same id, so queued grant work stays attached and no desk session is needed to answer a counter) and `checkpoint_grant` (`{ grantId, reportId?, status?, note? }` since 032). `assign` gains `lane`, `grantId`, `keyResultId`, `gap`. Events: `grant.proposed`, `grant.countered`, `grant.funded`, `grant.checkpoint`, `grant.closed`, `kr.updated`, all pushed to the web over the existing websocket.
 
 ## The desk brief
 

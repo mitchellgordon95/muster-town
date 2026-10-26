@@ -4,18 +4,30 @@ import { AppError, badRequest } from "../errors.ts";
 import type { World } from "../world.ts";
 import type { VerbIn } from "./types.ts";
 
-/** `propose_grant` (the manager): create the draft and propose it in one call; it lands in the Town Hall in-tray. */
+/**
+ * `propose_grant` (the manager): create the draft and propose it in one call; it lands in the Town Hall in-tray.
+ * While the building's proposal is countered, the call is the manager's answer: it rewrites that proposal with the
+ * given plan and re-proposes it under the same id (work queued on it stays attached). A proposal still awaiting a
+ * decision is refused: one open proposal per building.
+ */
 export async function propose_grant(world: World, me: Agent, input: VerbIn<"propose_grant">) {
   const bid = homeOf(me);
   if (!bid) throw badRequest("You have no building to propose a grant for.");
   const { note, ...fields } = input;
   const open = world.grants.first("buildingId = ? AND status IN ('proposed', 'countered')", [bid]);
-  if (open) throw new AppError("conflict", `Your building already has an open proposal (${open.id}: ${open.objective}). Finish it first.`);
+  if (open && open.status !== "countered") throw new AppError("conflict", `Your building already has an open proposal (${open.id}: ${open.objective}) awaiting a human's decision. Finish it first.`);
   const g = world.transaction(() => {
+    if (open) {
+      world.grantDesk.update(me, open.id, { ...fields, note: "Revised after the counter" });
+      return world.grantDesk.propose(me, open.id, note);
+    }
     const draft = world.grantDesk.create(me, bid, fields);
     return world.grantDesk.propose(me, draft.id, note);
   });
-  return { grantId: g.id, status: g.status, keyResult: g.keyResult && { id: g.keyResult.id, text: g.keyResult.text }, testingPlan: g.testingPlan, note: "A human funds, counters or rejects it from the Town Hall in-tray." };
+  return {
+    grantId: g.id, status: g.status, keyResult: g.keyResult && { id: g.keyResult.id, text: g.keyResult.text }, testingPlan: g.testingPlan,
+    note: open ? `Re-proposed ${g.id} with this plan after the counter. A human funds, counters or rejects it from the Town Hall in-tray.` : "A human funds, counters or rejects it from the Town Hall in-tray.",
+  };
 }
 
 /** `checkpoint_grant` (the manager): the grant's key-result status up to claimed, and the checkpoint report link. */

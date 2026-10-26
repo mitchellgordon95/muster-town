@@ -181,6 +181,24 @@ describe("goal-directed budgets: 50% / 100% checkpoints", () => {
     await expect(world.verbs.propose_grant(mei, { keyResultId: krs[1]!.id, objective: "o2", stopCondition: "s", askTokens: 1000 })).rejects.toThrow(/open proposal/);
     expect(world.grants.count("buildingId = ?", [LAB])).toBe(1);
   });
+
+  it("propose_grant on a countered proposal rewrites it in place and re-proposes it under the same id", async () => {
+    const { world, mei, noor, admin, krs } = setup();
+    const r = await world.verbs.propose_grant(mei, { keyResultId: krs[1]!.id, objective: "o", stopCondition: "s", askTokens: 1000 });
+    const queued = world.ops.createWork(mei, noor.id, { title: "kr", lane: "grant", grantId: r.grantId });
+    world.grantDesk.decide(admin, r.grantId, { action: "counter", note: "track every token type" });
+    const again = await world.verbs.propose_grant(mei, { keyResultId: krs[1]!.id, objective: "o, every token type", approach: "five counters", stopCondition: "s2", askTokens: 2000, testingPlan: KRS, note: "at your scope" });
+    expect(again).toMatchObject({ grantId: r.grantId, status: "proposed", testingPlan: KRS });
+    expect(again.note).toMatch(/Re-proposed/);
+    expect(world.grants.count("buildingId = ?", [LAB])).toBe(1);
+    const g = world.grants.require(r.grantId);
+    expect(g).toMatchObject({ objective: "o, every token type", approach: "five counters", stopCondition: "s2", askTokens: 2000 });
+    expect(g.history.map((h) => h.action)).toEqual(["propose", "counter", "edit", "propose"]);
+    expect(g.history.at(-1)?.note).toBe("at your scope");
+    expect(world.assignments.require(queued.id)).toMatchObject({ grantId: r.grantId, status: "pending" });
+    // a proposal still awaiting the human's decision is not overwritten
+    await expect(world.verbs.propose_grant(mei, { keyResultId: krs[1]!.id, objective: "o3", stopCondition: "s", askTokens: 1 })).rejects.toThrow(/awaiting a human/);
+  });
 });
 
 describe("goal-directed budgets: the Key results block", () => {
