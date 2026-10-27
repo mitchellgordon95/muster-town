@@ -153,7 +153,7 @@ become a rule later if it is touched anyway.
    `notifyManager` stays as the inbox line.
 4. **Waker with a persisted cursor**: move the `onEvent` branches into `WAKE_RULES`, persist `ManageState.offered` as
    `wakeKey`s, replay on boot. No change in behaviour; this is the refactor that makes steps 2–3 rules.
-5. **Leftovers** — done 2026-10-27 (core/src/wakes.ts; tests core test/wakes-step5.test.ts). Three rules, each called
+5. **Leftovers** — done 2026-10-27, c59b606 (core/src/wakes.ts; tests core test/wakes-step5.test.ts). Three rules, each called
    where its event is appended (like step 2's `relayWake`, and for the same reason: "is the agent working or idle" is
    judged at that moment, so they stay out of the Waker's replay). Each writes one item keyed
    `wake:<rule>:<eventId>:<agentId>` (in the assignment description or the interrupt text), so a second delivery writes
