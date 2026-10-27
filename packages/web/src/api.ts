@@ -305,6 +305,8 @@ export interface Api {
   /** every agent's queued assignments that can't start, with the reason (GET /api/blocked): the map's blocked badges and red lines */
   blocked(): Promise<Record<string, BlockedAssignment[]>>;
   health(): Promise<{ ok?: boolean; commit?: string | null }>;
+  /** the humans' operating manual: the Town Hall article tagged `manual` (GET /api/manual); the HUD "?" opens it */
+  manual(): Promise<{ doc: Doc; author: string }>;
   connect(handlers: SocketHandlers): Socket;
 }
 
@@ -491,6 +493,7 @@ export class HttpApi implements Api {
   async redeploy(image: boolean) { return this.post<{ started?: boolean; queued?: boolean; running?: boolean }>("/api/admin/redeploy", { image }); }
   async redeployLive() { return this.get<RedeployLive>("/api/admin/redeploy"); }
   async health() { return this.get<{ ok?: boolean; commit?: string | null }>("/api/health"); }
+  async manual() { return this.get<{ doc: Doc; author: string }>("/api/manual"); }
   async blocked() { return (await this.get<{ agents?: Record<string, BlockedAssignment[]> }>("/api/blocked")).agents ?? {}; }
 
   connect(h: SocketHandlers): Socket {

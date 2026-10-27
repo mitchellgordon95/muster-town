@@ -7,6 +7,7 @@ import type { PinSkillInput, PutSecretInput, SecretView, SkillPinView, SkillView
 import type { CreateBuildingInput, UpdateBuildingInput, CreateResidentInput, RegisterVisitorInput, ReviewInput, ChatInput, WorkInput, DonateInput, CreateMeetingInput, DocState, AddBankInput, BankInput, CreateBankPoolInput, UpdateBankPoolInput, DecideGrantInput, CreateKeyResultInput, UpdateKeyResultInput } from "@muster-town/schema";
 import { Sim, newId, spent } from "./sim";
 import { memoryDocs } from "./fixture";
+import manualMd from "../../../../docs/manual.md?raw";
 
 const wait = (ms = 120) => new Promise((r) => setTimeout(r, ms));
 const now = () => new Date().toISOString();
@@ -615,6 +616,11 @@ export class MockApi implements Api {
   private live: RedeployLive = { running: false, phase: "idle", waitingFor: [], since: null };
   async redeployLive() { await wait(60); return { ...this.live }; }
   async health() { return { ok: true, commit: "mock" }; }
+  async manual() {
+    await wait(60);
+    const body = manualMd.replace(/^# .*\n+/, "");
+    return clone({ doc: { ...this.sim.docs.values().next().value!, id: "dc_manual", type: "article" as const, state: "library" as const, title: "Operating manual", body, tags: ["manual"], authorId: "us_mitchell" }, author: "Mitchell" });
+  }
   /** like core's townBlocked, for the waits the mock has: a colleague's assignment, a decision, a deploy, a time */
   async blocked() {
     await wait(40);

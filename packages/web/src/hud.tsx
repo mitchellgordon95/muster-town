@@ -114,7 +114,7 @@ export function Hud({ onPasteToken, onHelp }: { onPasteToken?: () => void; onHel
           {!collapsed ? <div className="tagline">{town.tagline}</div> : null}
         </div>
         {collapsed && notices.length ? <span className="notice-dot" title={`${notices.length} notice${notices.length === 1 ? "" : "s"}`}>{notices.length}</span> : null}
-        {onHelp ? <button className="icon-btn help-btn" onClick={onHelp} title="How this works">?</button> : null}
+        {onHelp ? <button className="icon-btn help-btn" onClick={onHelp} title="Operating manual" aria-label="Operating manual">?</button> : null}
         <span className={`conn ${conn}`} title={`Server: ${conn}${isMock ? " (mock)" : ""}`} />
         <button className="icon-btn" onClick={() => setCollapsed((c) => !c)} title={collapsed ? "Expand" : "Collapse"}>{collapsed ? "▾" : "▴"}</button>
       </div>
