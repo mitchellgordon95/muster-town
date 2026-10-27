@@ -209,12 +209,25 @@ export function GrantLink({ id, className }: { id: string; className?: string })
 /** "Funded 2M tokens", "Closed: met", … for a grant nobody has to decide on right now. */
 function grantSettledLine(g: GrantView): string {
   switch (g.status) {
-    case "funded": return `Funded ${fmtTokens(g.grantTokens ?? 0)} ${ADJ}${g.fundedAt ? ` ${timeAgo(g.fundedAt)}` : ""}; sessions draw on it until the next checkpoint.`;
+    case "funded": return `Funded ${fmtTokens(g.grantTokens ?? 0)} ${ADJ}${g.fundedAt ? ` ${timeAgo(g.fundedAt)}` : ""}${funderLine(g)}; sessions draw on it until the next checkpoint.`;
     case "closed": return `Closed${g.outcome ? `: ${g.outcome}` : ""}${g.closedAt ? `, ${timeAgo(g.closedAt)}` : ""}.`;
     case "rejected": return "Rejected.";
     case "draft": return "Draft: the manager is still writing it.";
     default: return g.status;
   }
+}
+
+/** " by Ada from Ada's key": who funded a member-funded grant and with which Bank input (pool-funded grants: ""). */
+function funderLine(g: GrantView): string {
+  return g.fundedWith ? ` by ${g.fundedByName ?? nameOf(g.fundedBy ?? "")} from ${g.fundedWithLabel ?? g.fundedWith}` : "";
+}
+
+/** The signed-in human's own Bank inputs that can still pay for a grant (member funding): active, with balance. */
+function useMyFundingInputs(enabled: boolean) {
+  const me = useTown((s) => s.me);
+  const userId = enabled ? me?.user.id ?? null : null;
+  const bank = useLoad(async () => userId ? (await api().bank()).inputs : [], [userId]);
+  return (bank.data ?? []).filter((i) => i.userId === userId && !i.cancelledAt && (i.balanceTokens ?? 0) > 0);
 }
 
 /**
@@ -235,12 +248,17 @@ export function GrantRow({ grant: g, onDecided, onOpenDoc }: { grant: GrantView;
   const [note, setNote] = useState("");
   const canFund = store.can("building.fund", g.buildingId);
   const decidable = g.status === "proposed" || checkpoint;
+  // member funding: any human may fund a proposal from their own Bank input with balance; "" = the pool (building.fund)
+  const myInputs = useMyFundingInputs(g.status === "proposed");
+  const [fundWith, setFundWith] = useState("");
+  const from = canFund ? fundWith : fundWith || myInputs[0]?.id || "";
+  const memberFund = !canFund && g.status === "proposed" && myInputs.length > 0;
   const last = g.history[g.history.length - 1];
   const n = fromMillions(tokens);
   const tokensOk = Number.isFinite(n) && n > 0;
   const decide = (action: "fund" | "counter" | "reject" | "continue" | "adjust" | "cut", msg: string) => async () => {
     const withTokens = action === "fund" || action === "adjust" || (action === "counter" && n !== g.askTokens);
-    await api().decideGrant(g.id, { action, note, ...(withTokens && tokensOk ? { tokens: n } : {}) });
+    await api().decideGrant(g.id, { action, note, ...(withTokens && tokensOk ? { tokens: n } : {}), ...(action === "fund" && from ? { fundWith: from } : {}) });
     store.toast(msg, "ok");
     onDecided();
   };
@@ -297,14 +315,22 @@ export function GrantRow({ grant: g, onDecided, onOpenDoc }: { grant: GrantView;
         <div className="muted">Countered: waiting for {manager ? `★ ${manager.name}` : "the manager"} to revise and propose again.</div>
       ) : !decidable ? (
         <div className="muted">{grantSettledLine(g)}</div>
-      ) : !canFund ? (
-        <div className="muted">Funding decisions are for humans with building.fund.</div>
+      ) : !canFund && !memberFund ? (
+        <div className="muted">Funding decisions are for humans with building.fund, or anyone with a Bank input that has tokens left.</div>
       ) : (<>
         {unfundableReason(g) ? <div className="kr-blocked">{unfundableReason(g)}</div> : null}
         <div className="grant-decide">
           <div className="grant-inputs">
             <Field label={checkpoint ? "Grant" : "Fund"}><MTokensInput value={tokens} onChange={setTokens} /></Field>
-            <Field label="Note"><input value={note} placeholder={checkpoint ? "optional" : "required to counter"} onChange={(e) => setNote(e.target.value)} /></Field>
+            {!checkpoint && myInputs.length > 0 ? (
+              <Field label="Pay from">
+                <select value={from} onChange={(e) => setFundWith(e.target.value)} aria-label="Pay from">
+                  {canFund ? <option value="">The Bank pool</option> : null}
+                  {myInputs.map((i) => <option key={i.id} value={i.id}>{i.label}: {fmtTokens(i.balanceTokens ?? 0)} left</option>)}
+                </select>
+              </Field>
+            ) : null}
+            <Field label="Note"><input value={note} placeholder={checkpoint ? "optional" : memberFund ? "optional" : "required to counter"} onChange={(e) => setNote(e.target.value)} /></Field>
           </div>
           <div className="actions">
             {checkpoint ? <>
@@ -313,8 +339,10 @@ export function GrantRow({ grant: g, onDecided, onOpenDoc }: { grant: GrantView;
               <Act small tone="bad" run={decide("cut", "Grant cut")}>Cut</Act>
             </> : <>
               <Act small tone="ok" disabled={!tokensOk || !!unfundableReason(g)} run={decide("fund", `Funded ${tokensOk ? fmtTokens(n) : ""} ${ADJ}`)}>Fund</Act>
-              <Act small disabled={!note.trim()} run={decide("counter", "Countered: back to the manager")} title="Send it back with the note (and the token field, if changed)">Counter</Act>
-              <Act small tone="bad" run={decide("reject", "Proposal rejected")}>Reject</Act>
+              {canFund ? <>
+                <Act small disabled={!note.trim()} run={decide("counter", "Countered: back to the manager")} title="Send it back with the note (and the token field, if changed)">Counter</Act>
+                <Act small tone="bad" run={decide("reject", "Proposal rejected")}>Reject</Act>
+              </> : null}
             </>}
           </div>
         </div>

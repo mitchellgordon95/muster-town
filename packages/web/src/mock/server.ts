@@ -520,7 +520,11 @@ export class MockApi implements Api {
     return { buildings, users: this.sim.users.map((u) => ({ userId: u.id, name: u.name, donated: u.donatedTokens })) };
   }
   // a toy Bank: every input credits its tokens once, right away; subscriptions are the expiring pool
-  private bankInputs: BankInput[] = [];
+  // one member input with balance: the in-tray's Fund offers "Pay from" it (member funding)
+  private bankInputs: BankInput[] = [{
+    id: "bi_mitchell_key", userId: "us_mitchell", label: "Mitchell's API key", source: "api-key", model: "claude-sonnet-5-5", tokens: 3_000_000, recurrence: "once",
+    weeklyCapTokens: null, nextCreditAt: null, creditedTokens: 3_000_000, hasApiKey: true, cancelledAt: null, createdAt: now(),
+  }];
   // accounting pools: buildings without a poolId are in General; pools without a pct split what's left equally
   private bankPools: BankPool[] = [{ id: DEFAULT_POOL_ID, name: "General", pct: null, createdAt: now() }];
   private poolOf(b: Building) { return this.bankPools.some((p) => p.id === b.poolId) ? b.poolId! : DEFAULT_POOL_ID; }
@@ -562,7 +566,7 @@ export class MockApi implements Api {
       return { userId: u.id, name: u.name, tokens: bankTokens + u.donatedTokens, bankTokens, donatedTokens: u.donatedTokens };
     }).filter((c) => c.tokens > 0).sort((a, b) => b.tokens - a.tokens);
     // the back-fill split prices at exactly raw / ratio (docs/bank.md), so the mock's adjusted figure is that ratio
-    const inputs = this.bankInputs.map((i) => ({ ...i, userName: this.sim.users.find((u) => u.id === i.userId)?.name ?? i.userId, creditedCounts: splitRaw(i.creditedTokens, i.model), adjustedCreditedTokens: Math.round(i.creditedTokens / BACKFILL[backfillFamily(i.model)].ratio) }));
+    const inputs = this.bankInputs.map((i) => ({ ...i, userName: this.sim.users.find((u) => u.id === i.userId)?.name ?? i.userId, creditedCounts: splitRaw(i.creditedTokens, i.model), adjustedCreditedTokens: Math.round(i.creditedTokens / BACKFILL[backfillFamily(i.model)].ratio), debitedTokens: 0, balanceTokens: i.cancelledAt ? 0 : i.creditedTokens }));
     const dailyInflowTokens = live.reduce((s, i) => s + (i.recurrence === "daily" ? i.tokens : i.recurrence === "weekly" ? i.tokens / 7 : i.recurrence === "monthly" ? i.tokens / 30 : 0), 0);
     return clone({
       balanceTokens: expiringTokens + durableTokens, expiringTokens, durableTokens, heldTokens, heldByAuth, townTokens: expiringTokens + durableTokens + heldTokens, dailyInflowTokens: Math.round(dailyInflowTokens),

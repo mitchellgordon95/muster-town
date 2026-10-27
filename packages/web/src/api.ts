@@ -99,7 +99,8 @@ export interface Bank {
   /** the credits' counters priced at list price (matches creditedTokens to rounding) */
   adjustedCreditedTokens: number;
   dailyInflowTokens: number;
-  inputs: (BankInput & { userName: string; creditedCounts: TokenCounts; adjustedCreditedTokens: number })[];
+  /** per input: `debitedTokens` (what grants it pays for drew by name) and `balanceTokens` (what it can still pay; member funding). Older servers leave them out. */
+  inputs: (BankInput & { userName: string; creditedCounts: TokenCounts; adjustedCreditedTokens: number; debitedTokens?: number; balanceTokens?: number })[];
   pools: BankPoolSummary[];
   buildings: BankBuildingShare[];
   contributors: BankContributor[];

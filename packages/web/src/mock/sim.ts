@@ -199,7 +199,7 @@ export class Sim {
     Object.assign(g, {
       status, updatedAt: now(),
       ...(i.action === "fund" || i.action === "adjust" ? { grantTokens: tokens } : {}),
-      ...(i.action === "fund" ? { fundedBy: "us_mitchell", fundedAt: now() } : {}),
+      ...(i.action === "fund" ? { fundedBy: "us_mitchell", fundedByName: "Mitchell", fundedWith: i.fundWith ?? null, fundedWithLabel: i.fundWith ? "Mitchell's API key" : null, fundedAt: now() } : {}),
       ...(i.action === "counter" && tokens ? { askTokens: tokens } : {}),
       ...(i.action === "cut" ? { outcome: "cut", closedAt: now() } : i.action === "reject" ? { closedAt: now() } : {}),
     });
