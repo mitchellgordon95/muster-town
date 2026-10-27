@@ -122,7 +122,9 @@ export function interactingUser(world: World, auth: Auth | null): string | null 
 }
 
 /** Writes a signed-in visitor may make before an admin lets them in. */
-export const INTERACT_ALLOWLIST = new Set(["POST /auth/logout", "POST /api/auth/github/device", "POST /api/access-requests"]);
+export const INTERACT_ALLOWLIST = new Set(["POST /auth/logout", "POST /api/auth/github/device", "POST /api/access-requests",
+  // Start a collective (docs/hosted-collectives.md step 3): a stranger signed in with GitHub, before anyone lets them in
+  "POST /api/collectives"]);
 export const ASK_FIRST = "Ask for access first: you can watch and read, but taking part needs an admin to let you in (Ask to join on the guest card).";
 
 export function adminToken(world: World): string | null {

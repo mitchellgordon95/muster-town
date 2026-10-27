@@ -54,11 +54,12 @@ async function main() {
   const auth = loadAuthSettings({ dataDir: DATA_DIR, port: PORT });
   // off-site backup (deploy/README.md "Backups"): local copies beside the data dir (/data/workshop/backups on Fly); inert without the env
   const backup = new BackupJob({ db: world.db, dir: resolve(DATA_DIR, "..", "backups") });
-  // each hosted collective: its own World and app under /<slug>, no runtime (no sessions until step 3), its own export
+  // each hosted collective: its own World and app under /<slug>, no runtime yet (no sessions: a hosted World's runtime must run on its own key only), its own export
   // dir; the root's session cookie and secret (one sign-in for the whole host, step 2), its owner as its admin
-  const hub = new Hub(HOSTED_DIR, (w, row, dir) => buildApp({
+  const hub: Hub = new Hub(HOSTED_DIR, (w, row, dir) => buildApp({
     world: w, dev: DEV, runtime: null, prefix: `/${row.slug}`, exportDir: join(dir, "export"),
     auth: { ...auth, admins: [], hosted: { slug: row.slug, ownerGithubId: row.ownerGithubId } },
+    retire: (): unknown => hub.retire(row.slug),
   }));
   await hub.openAll();
   console.log(`[server] hub ${HOSTED_DIR}: ${hub.count} hosted collective(s)${hub.count ? ": " + hub.list("active").map((r) => "/" + r.slug + "/").join(", ") : ""}`);

@@ -25,6 +25,15 @@ meeting of 2026-10-27 17:21Z (mt_6830h8x5qk, decision 6) and waits for the Fund 
    flow with a checked return-to (`safeReturnTo`: same host, an active slug's path) and lands back there. A Workshop
    admin is a guest in a hosted collective. Tests: `packages/server/test/hub-auth.test.ts`.
 3. **Start a collective.** The form on the homepage (below) and `POST /api/collectives`.
+   Done 2026-10-27: the homepage's **Start a collective** button opens the form (signed out: Sign in with GitHub, which
+   comes back to `/#start`); `POST /api/collectives` is open to anyone signed in with GitHub, one active collective per
+   GitHub id (429; a town admin has no cap), the slug derived from the name; the key is stored as described below;
+   **No key yet** shows in the HUD and in Planning → System → This collective, where an admin also retires it (410
+   notice at `/<slug>/`, slug never reused). Tests: `packages/server/test/hub-start.test.ts`, `packages/web/test/startForm.test.ts`.
+   **Not done in step 3:** hosted Worlds still run no runtime (`runtime: null` in main.ts), so no hosted agent runs even
+   with a key. What remains for that: start a runtime per hosted World with an empty credential env and `fundingFor`
+   limited to that World's own inputs, holding any session whose funding resolves to no key (the rules below), and a
+   desk image per collective or a shared one with per-World config. That is its own PR.
 4. **Live check** with a second GitHub account in a private window; manual section "Start your own collective";
    README points hosted users to the homepage.
 

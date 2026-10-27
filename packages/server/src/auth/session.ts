@@ -74,13 +74,16 @@ export function checkState(s: AuthSettings, req: FastifyRequest, state: string |
 
 /**
  * Where a sign-in may land after the callback: a path on this host (no scheme, no `//`, no backslash) whose first
- * segment is one of `slugs` and that ends that segment with `/` (`/demo/`, `/demo/#/doc/x`). Anything else: null.
+ * segment is one of `slugs` and that ends that segment with `/` (`/demo/`, `/demo/#/doc/x`), or the homepage `/` (`/#start`).
+ * Anything else: null.
  */
 export function safeReturnTo(raw: unknown, slugs: (slug: string) => boolean): string | null {
   if (typeof raw !== "string" || raw.length > 512 || !raw.startsWith("/") || raw.startsWith("//") || /[\\\s]/.test(raw)) return null;
   let u: URL;
   try { u = new URL(raw, "http://h.invalid"); } catch { return null; }
   if (u.host !== "h.invalid") return null;
+  // the homepage itself (`/#start`: the Start form, after sign-in)
+  if (u.pathname === "/") return u.pathname + u.search + u.hash;
   const m = /^\/([a-z0-9-]+)\//.exec(u.pathname);
   return m && slugs(m[1]!) ? u.pathname + u.search + u.hash : null;
 }

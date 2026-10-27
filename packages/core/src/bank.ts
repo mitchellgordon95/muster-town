@@ -535,6 +535,11 @@ export class Bank {
     return this.repos.bankInputs.first("source = 'api-key' AND hasApiKey = 1 AND cancelledAt IS NULL", [], "ORDER BY createdAt, rowid") ?? null;
   }
 
+  /** The oldest live api-key input that still has its key (a hosted collective without one is held: "No key yet"). */
+  liveApiKeyInput(): BankInput | null {
+    return this.repos.bankInputs.first("source = 'api-key' AND hasApiKey = 1 AND cancelledAt IS NULL", [], "ORDER BY createdAt, rowid") ?? null;
+  }
+
   /** Where the building's next session should be funded from, or null when its pool's share is used up. */
   fundingFor(buildingId: string, now = new Date()): BankFunding | null {
     const a = this.available(buildingId, now);

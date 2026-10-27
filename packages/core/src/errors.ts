@@ -2,11 +2,11 @@ import type { Permission } from "@muster-town/schema";
 
 export type ErrorCode =
   | "bad_request" | "unauthorized" | "forbidden" | "not_found" | "conflict"
-  | "unreachable" | "timeout" | "out_of_budget" | "internal";
+  | "unreachable" | "timeout" | "out_of_budget" | "rate_limited" | "internal";
 
 const STATUS: Record<ErrorCode, number> = {
   bad_request: 400, unauthorized: 401, forbidden: 403, not_found: 404, conflict: 409,
-  unreachable: 422, timeout: 504, out_of_budget: 402, internal: 500,
+  unreachable: 422, timeout: 504, out_of_budget: 402, rate_limited: 429, internal: 500,
 };
 
 /** The one error type core throws. The server maps `status` to HTTP; MCP returns `message` as a tool error. */

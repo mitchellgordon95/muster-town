@@ -1,5 +1,5 @@
 import { AppError, BANK_ACCOUNTING, accessRequestOf, boardDocs, canInteract, decideAccess, requestAccess, sessionView, cabinetCounts, cabinetDocs } from "@muster-town/core";
-import { AccessDecisionInput, AccessRequestInput, AddBankInput, CreateBankPoolInput, CreateBuildingInput, DesksPatch, UpdateBankPoolInput, DocType, DonateInput, LayoutInput, Membership, PlanInput, PlantFlagInput, RedeployInput, UpdateBuildingInput, townEnv, type AccessRequest, type AuthMe, type RedeployLive } from "@muster-town/schema";
+import { AccessDecisionInput, AccessRequestInput, AddBankInput, CreateBankPoolInput, CreateBuildingInput, DesksPatch, UpdateBankPoolInput, DocType, DonateInput, LayoutInput, Membership, PlanInput, PlantFlagInput, RedeployInput, UpdateBuildingInput, apiKeyProblem, townEnv, type AccessRequest, type AuthMe, type RedeployLive } from "@muster-town/schema";
 import type { FastifyInstance, FastifyRequest } from "fastify";
 import { brotliDecompressSync } from "node:zlib";
 import { z } from "zod";
@@ -36,7 +36,9 @@ export async function townRoutes(app: FastifyInstance) {
     // goal-directed budgets: exploration (held at its allowance) and directed (a human asked; metered, never held) today
     budgets: world.grantDesk.laneBudgets(), backup: app.backup?.snapshot() ?? null,
     // the root app (the Workshop) only: how many hosted collectives this process serves at /<slug>/
-    ...(app.hub ? { hosted: { count: app.hub.count } } : {}) }));
+    ...(app.hub ? { hosted: { count: app.hub.count } } : {}),
+    // a hosted collective: its own key or none (its agents are held), never the host's funding
+    ...(world.host.hosted ? { funding: world.bank.liveApiKeyInput() ? "api-key" : "none" } : {}) }));
 
   if (app.dev) {
     // only to a browser on this machine talking to the server directly: never through a proxy or tunnel
@@ -249,6 +251,7 @@ export async function townRoutes(app: FastifyInstance) {
     const input = parse(DonateInput, req.body);
     // without an explicit auth: donor-key when the donor gives or has a key, else the town's API key
     const auth = input.auth ?? (input.apiKey || world.users.require(user.id).hasApiKey ? "donor-key" : "api-key");
+    if (world.host.hosted && auth === "subscription") throw new AppError("bad_request", "A hosted collective runs on an Anthropic API key only.");
     if (auth !== "donor-key" && !canAllocate(req)) {
       throw new AppError("forbidden", auth === "subscription"
         ? "Only an admin can fund a building from the subscription."
@@ -298,7 +301,11 @@ export async function townRoutes(app: FastifyInstance) {
 
   app.post("/api/bank/inputs", async (req, reply) => {
     const user = requireUser(req);
-    const input = world.bank.addInput(user.id, parse(AddBankInput, req.body));
+    const body = parse(AddBankInput, req.body);
+    // a hosted collective runs on API keys only: no subscription inputs (docs/hosted-collectives.md, own-key block)
+    if (world.host.hosted && body.source !== "api-key") throw new AppError("bad_request", "A hosted collective runs on an Anthropic API key only.");
+    if (world.host.hosted && body.apiKey && apiKeyProblem(body.apiKey)) throw new AppError("bad_request", apiKeyProblem(body.apiKey)!);
+    const input = world.bank.addInput(user.id, body);
     return reply.code(201).send({ input });
   });
 

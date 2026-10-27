@@ -1,29 +1,32 @@
 /**
  * The homepage bundle (entry home.html; the server copies its tags into the page it renders at /). The list behind
  * the card is server-rendered HTML; this adds the pitch card (first visit, the "How this works" button, `/#about`)
- * and draws the live town previews into the server-rendered tiles.
+ * and the Start-a-collective card (`#start`), and draws the live town previews into the server-rendered tiles.
  */
 import { StrictMode, useEffect, useState } from "react";
 import { createRoot } from "react-dom/client";
 import { readCollectives } from "./collectives";
 import { HomeCard, homeCardSeen, markHomeCardSeen } from "./HomeCard";
 import { mountPreview } from "./preview";
+import { StartCard } from "./StartCard";
 import "./home.css";
 
 const collectives = readCollectives();
 const wantsCard = () => location.hash === "#about";
+// "Start a collective" (home.ts) and sign-in's way back to the form
+const wantsStart = () => location.hash === "#start";
 
 function Home() {
-  const [open, setOpen] = useState(() => wantsCard() || !homeCardSeen());
+  const [open, setOpen] = useState(() => wantsCard() || (!wantsStart() && !homeCardSeen()));
+  const [start, setStart] = useState(wantsStart);
   useEffect(() => {
-    const onHash = () => { if (wantsCard()) setOpen(true); };
+    const onHash = () => { if (wantsCard()) setOpen(true); if (wantsStart()) { setOpen(false); setStart(true); } };
     window.addEventListener("hashchange", onHash);
     return () => window.removeEventListener("hashchange", onHash);
   }, []);
-  const close = () => {
-    setOpen(false);
-    if (wantsCard()) history.replaceState(null, "", location.pathname + location.search);
-  };
+  const clearHash = () => { if (wantsCard() || wantsStart()) history.replaceState(null, "", location.pathname + location.search); };
+  const close = () => { setOpen(false); clearHash(); };
+  if (start) return <StartCard onClose={() => { setStart(false); markHomeCardSeen(); clearHash(); }} />;
   return open ? <HomeCard collectives={collectives} onClose={close} /> : null;
 }
 

@@ -9,7 +9,7 @@ import { fileURLToPath } from "node:url";
 import { ZodError } from "zod";
 import { authRoutes, defaultAuthSettings, sessionAuth, type AuthSettings } from "./auth/index.ts";
 import { ASK_FIRST, bearer, INTERACT_ALLOWLIST, interactingUser, parse, requireUser, resolveToken, WEB_BASE, type RuntimeHooks } from "./context.ts";
-import { collectives, renderHome } from "./home.ts";
+import { collectives, renderHome, renderRetired } from "./home.ts";
 import { CreateCollectiveInput, type Hub } from "./hub.ts";
 import type { BackupJob } from "./backup/index.ts";
 import { LoadMonitor } from "./load.ts";
@@ -49,9 +49,13 @@ export interface BuildAppOptions {
   exportDir?: string;
   /** the off-site backup job (main.ts builds and starts it); `GET /api/health` shows its state as `backup` */
   backup?: BackupJob | null;
+  /** a hosted collective's app: retire it (main.ts passes the hub's); `POST /<slug>/api/collective/retire`, its admins */
+  retire?: (() => unknown) | null;
 }
 
 const API_PREFIXES = ["/api", "/ws", "/mcp", "/auth"];
+/** Active hosted collectives one GitHub user may own (a town admin: no cap). */
+export const HOSTED_PER_PERSON = 1;
 
 /** The Fastify app (not listening). Tests use `app.inject`; `main.ts` calls `listen`. */
 export async function buildApp(opts: BuildAppOptions): Promise<FastifyInstance> {
@@ -72,12 +76,21 @@ export async function buildApp(opts: BuildAppOptions): Promise<FastifyInstance> 
   await app.register(cors, { origin: opts.dev ? true : false });
   await app.register(websocket);
 
+  const dist = opts.webDist === false ? null : opts.webDist ?? DEFAULT_WEB_DIST;
+  const haveWeb = !!dist && existsSync(join(dist, "index.html"));
   // a hosted collective's URL (`/<slug>/…`, WebSocket upgrades too) goes to its own app before any Workshop hook runs
   const hub = opts.hub;
   if (hub) {
     app.addHook("onRequest", async (req, reply) => {
       const hosted = hub.match(req.url);
-      if (!hosted) return;
+      if (!hosted) {
+        // a retired collective keeps its address: a notice, never another collective or the Workshop's client
+        const gone = hub.retiredAt(req.url);
+        if (!gone) return;
+        const api = /^\/[^/]+\/(api|ws|mcp|auth)(\/|$|\?)/.test(req.url);
+        if (api) return reply.code(410).send({ error: `${gone.name} (/${gone.slug}/) was retired.`, code: "gone" });
+        return reply.code(410).type("text/html; charset=utf-8").send(renderRetired(gone, haveWeb ? dist : null));
+      }
       reply.hijack();
       hosted.routing(req.raw, reply.raw);
     });
@@ -121,11 +134,18 @@ export async function buildApp(opts: BuildAppOptions): Promise<FastifyInstance> 
     await c.register(wsRoutes);
     await c.register(mcpRoutes);
   };
+  if (prefix && opts.retire) {
+    const retire = opts.retire;
+    app.post(`${prefix}/api/collective/retire`, async (req) => {
+      const user = requireUser(req);
+      if (!opts.world.permissions.isAdmin({ kind: "user", id: user.id })) throw new AppError("forbidden", "Only an admin of this collective can retire it.");
+      retire();
+      return { retired: true, url: "/" };
+    });
+  }
   if (prefix) await app.register(routes, { prefix });
   else await routes(app);
 
-  const dist = opts.webDist === false ? null : opts.webDist ?? DEFAULT_WEB_DIST;
-  const haveWeb = !!dist && existsSync(join(dist, "index.html"));
   // Serve the client dynamically (wildcard): a rebuild after startup must be served without a restart.
   // index.html is never cached so a stale page can't point at an asset hash that no longer exists.
   // a hosted collective serves the same client (its HTML still loads /workshop/assets/ from the root app)
@@ -142,12 +162,18 @@ export async function buildApp(opts: BuildAppOptions): Promise<FastifyInstance> 
       return reply.type("text/html; charset=utf-8").send(renderHome(list(), haveWeb ? dist : null));
     });
     app.get("/api/collectives", async () => ({ collectives: list() }));
-    // a hosted collective, served at once (docs/hosted-collectives.md): town admins only until step 3's Start form
+    // Start a collective (docs/hosted-collectives.md step 3): anyone signed in with GitHub, one active collective each;
+    // a town admin has no cap (and may create one without GitHub, ownerless). The key is never in the reply.
     app.post("/api/collectives", async (req, reply) => {
       const user = requireUser(req);
-      if (!opts.world.permissions.isAdmin({ kind: "user", id: user.id })) throw new AppError("forbidden", "Only a town admin can create a collective for now.");
       if (!opts.hub) throw new AppError("internal", "This server hosts no other collectives (no hub).", 503);
+      const admin = opts.world.permissions.isAdmin({ kind: "user", id: user.id });
       const owner = user.githubId != null && user.githubLogin ? { id: user.githubId, login: user.githubLogin, name: user.name, avatarUrl: user.avatarUrl ?? null } : null;
+      if (!owner && !admin) throw new AppError("forbidden", "Sign in with GitHub to start a collective.");
+      if (owner && !admin) {
+        const mine = opts.hub.ownedBy(owner.id);
+        if (mine.length >= HOSTED_PER_PERSON) throw new AppError("rate_limited", `You already run muster.town/${mine[0]!.slug}/: one collective per person for now. Retire it there (Planning desk, System) to start another.`);
+      }
       const row = await opts.hub.create(parse(CreateCollectiveInput, req.body), owner);
       return reply.code(201).send({ collective: { ...row, url: `/${row.slug}/` } });
     });

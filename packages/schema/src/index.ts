@@ -55,6 +55,32 @@ export const Collective = z.object({
 });
 export type Collective = z.infer<typeof Collective>;
 
+/** Path segments a hosted collective can't take: the Workshop's own routes and the homepage's (docs/hosted-collectives.md). */
+export const RESERVED_SLUGS: readonly string[] = ["workshop", "api", "auth", "ws", "mcp", "media", "next", "skill.md", "hosted", "assets", "home"];
+/** A hosted collective's address segment: lowercase letters, digits and dashes, 2 to 40, no dash at either end. */
+export const COLLECTIVE_SLUG = /^[a-z0-9](?:[a-z0-9-]{0,38}[a-z0-9])$/;
+/** The address a name gets (`Garden Club!` → `garden-club`): what the Start form shows and `POST /api/collectives` uses. */
+export function slugify(name: string): string {
+  return name.normalize("NFKD").replace(/[\u0300-\u036f]/g, "").toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+/, "").slice(0, 40).replace(/-+$/, "");
+}
+/** Why a slug can't be used (null: it can, unless taken). */
+export function slugProblem(slug: string): string | null {
+  if (!COLLECTIVE_SLUG.test(slug)) return "The address needs 2 to 40 letters or digits (dashes between them).";
+  if (RESERVED_SLUGS.includes(slug)) return `muster.town/${slug} is reserved: pick another name.`;
+  return null;
+}
+/**
+ * Why a hosted collective's key is refused (null: fine, or empty). An Anthropic Console API key only: Anthropic does
+ * not let a third party collect or store Claude.ai credentials, so subscription tokens (`sk-ant-oat…`) are refused.
+ */
+export function apiKeyProblem(key: string): string | null {
+  const k = key.trim();
+  if (!k) return null;
+  if (k.startsWith("sk-ant-oat")) return "That is a Claude subscription token: Anthropic does not let a third party store those. Paste an API key from the Claude Console (sk-ant-api…).";
+  if (!/^sk-ant-api\S{8,}$/.test(k)) return "An Anthropic API key starts with sk-ant-api (create one in the Claude Console).";
+  return null;
+}
+
 // ---------- users (humans: donors, managers, visitors' owners) ----------
 export const User = z.object({
   id: Id,
@@ -1419,7 +1445,9 @@ export type SessionSlots = z.infer<typeof SessionSlots>;
  * `health` on the snapshot: `docker` = the runtime's last docker probe (true when docker isn't used or not probed);
  * `slots` = work-session slots (absent without a runtime).
  */
-export const TownHealth = z.object({ docker: z.boolean(), slots: SessionSlots.optional() });
+export const TownHealth = z.object({ docker: z.boolean(), slots: SessionSlots.optional(),
+  /** a hosted collective only: whether it has an Anthropic API key of its own ("none": its agents are held) */
+  funding: z.enum(["api-key", "none"]).optional() });
 export type TownHealth = z.infer<typeof TownHealth>;
 
 // ---------- access requests (a signed-in visitor asks to join; an admin lets them in as `member`) ----------

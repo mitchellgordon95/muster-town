@@ -5,7 +5,7 @@
  */
 import { useState } from "react";
 import type { AllocationAuth, BankRecurrence } from "@muster-town/schema";
-import { api, type Bank } from "../api";
+import { api, API_BASE, type Bank } from "../api";
 import { store, useTown } from "../state";
 import { fmtPct, poolColor } from "../pools";
 import { SignInNote } from "../auth/auth";
@@ -72,7 +72,8 @@ export function Donate({ onChange }: { onChange: () => void }) {
   const [recurrence, setRecurrence] = useState<BankRecurrence>("once");
   const [weeklyCap, setWeeklyCap] = useState("10");
   const [model, setModel] = useState("claude-opus-5-5");
-  const [picked, setAuth] = useState<AllocationAuth>("subscription");
+  // a hosted collective (served at /<slug>/) runs on API keys only: no subscription source
+  const [picked, setAuth] = useState<AllocationAuth>(API_BASE ? "api-key" : "subscription");
   if (!me) return <Section title="Donate"><SignInNote to="donate" /></Section>;
   const admin = me.isAdmin;
   const bank = to === "bank";
@@ -119,7 +120,7 @@ export function Donate({ onChange }: { onChange: () => void }) {
         </div>
         <div className="row2">
           {bank ? <>
-            {admin ? (
+            {admin && !API_BASE ? (
               <Field label="Source">
                 <select value={source} onChange={(e) => setSource(e.target.value as "api-key" | "subscription")}>
                   <option value="api-key">API key</option>
@@ -137,7 +138,7 @@ export function Donate({ onChange }: { onChange: () => void }) {
           </> : <>
             <Field label="Paid by">
               <select value={auth} onChange={(e) => setAuth(e.target.value as AllocationAuth)}>
-                {admin ? <option value="subscription">Subscription (monthly allowance)</option> : null}
+                {admin && !API_BASE ? <option value="subscription">Subscription (monthly allowance)</option> : null}
                 {admin ? <option value="api-key">API key (one-time buffer)</option> : null}
                 <option value="donor-key">My own API key</option>
               </select>
