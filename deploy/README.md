@@ -169,7 +169,7 @@ Open internet out, per-second billing, no prepayment. Code: `packages/runtime/sr
 - **Setup (once):** `fly apps create muster-desks`; `fly tokens create deploy -a muster-desks -x 8760h`; put `FLY_API_TOKEN=<token>` and
   `FLY_APP=muster-desks` in the collective's `.env` (host secrets, never `DESK_ENV_*`). Build and push the desk image to Fly's registry
   (`fly deploy --build-only --push --image-label desk -c fly.desk.toml`, run with `FLY_ACCESS_TOKEN` set to that token; Fly's remote builder is amd64).
-- **New desk image:** the town does it itself when the host has the secret `FLY_DESKS_ACCESS_TOKEN` (a muster-desks deploy token; on prod `fly secrets set ... -a muster-town`, set 2026-10-26):
+- **New desk image:** the town does it itself when the host has the secret `FLY_DESKS_ACCESS_TOKEN` (a muster-desks deploy token): a host env var, or the collective secret of that name at Town Hall → Secrets (on prod it's the collective secret; a staged `fly secrets set` only reaches the server after a Machine restart, which a redeploy isn't):
   `redeploy` with the desk image (planning desk "also rebuild desk image", or the `redeploy` tool with `image: true`) runs `scripts/fly-desk-image.sh`
   (installs flyctl into `/data/flyctl` if missing, then `fly deploy --build-only --push --remote-only --image-label desk -c fly.desk.toml`), and after the drain
   destroys every idle resident's desk Machine (`DELETE /machines/<id>?force=true`; the `deskhome-*` volumes stay), so the next session creates it from the new `:desk`.
