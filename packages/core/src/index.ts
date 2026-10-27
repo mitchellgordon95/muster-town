@@ -11,6 +11,7 @@ export { EventLog, type NewEvent, type EventQuery, type EventType } from "./even
 export { Permissions, holderOf, isAgent, townRoleId, buildingRoleId, type Holder, type BuildingRoleName, type TownRoleName } from "./permissions.ts";
 export { Budget, PLACEHOLDER_LABEL, startOfLocalDay, type ChargeResult, type BudgetSummary } from "./budget.ts";
 export { Skills, parseSkillMd, skillsBlock, type SessionSkill, type SkillMd } from "./skills.ts";
+export { Transcripts, TRANSCRIPT_DEFAULT_DAYS, TRANSCRIPT_MAX_BYTES, TRANSCRIPT_MAX_UPLOAD, brotli, type TranscriptInfo } from "./transcripts.ts";
 export { Media, MEDIA_MAX_BYTES, MEDIA_DAILY_BYTES, MEDIA_TYPES, mediaUrl, type MediaInfo } from "./media.ts";
 export { Secrets, REPO_TOKEN_SECRET, dataKeyFrom, encryptSecret, decryptSecret } from "./secrets.ts";
 export { townKpis, kpiByKey, KPI_WEEKS, JOIN_RETURN_DAYS } from "./kpis.ts";

@@ -1464,6 +1464,8 @@ export const DesksConfig = z.object({
    * free slot; the scheduler never starts more. Changeable live (PUT /api/town/desks); a stored value wins over this default.
    */
   maxRunning: z.number().int().positive().default(30),
+  /** how many days session transcripts are kept (docs/transcripts.md); collective.json `desks.transcriptDays` */
+  transcriptDays: z.number().int().positive().default(90),
 });
 export type DesksConfig = z.infer<typeof DesksConfig>;
 /** `PUT /api/town/desks` (admin): the host settings that can change while the server runs. */

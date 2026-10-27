@@ -83,7 +83,7 @@ describe("seed", () => {
     expect(world.buildings.require("research").codeAccess).toBe(false);
     expect(world.buildings.require("later").codeAccess).toBe(true); // inherits the collective repo by default
     expect(world.buildings.first("kind = 'town-hall'")!.codeAccess).toBe(false);
-    expect(world.desksConfig()).toEqual({ backend: "host", image: "muster-town-desk", ghToken: "gh-cli", snapshot: "muster-town-desk", maxRunning: 30 });
+    expect(world.desksConfig()).toEqual({ backend: "host", image: "muster-town-desk", ghToken: "gh-cli", snapshot: "muster-town-desk", maxRunning: 30, transcriptDays: 90 });
   });
 
   test("on a later boot, the desks keys collective.json spells out win; the ones it leaves out keep their stored value", () => {

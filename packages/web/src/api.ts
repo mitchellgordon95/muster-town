@@ -233,7 +233,7 @@ export interface Api {
   setAgentPermissions(id: string, patch: { inheritsOwner?: boolean; deniedPermissions?: Permission[] }): Promise<Pick<AgentDetail, "agent" | "effectivePermissions" | "permissions">>;
   /** null = its home building's model */
   setAgentModel(id: string, model: string | null): Promise<Pick<AgentDetail, "agent" | "effectivePermissions" | "permissions">>;
-  session(id: string): Promise<{ session: SessionView | null; transcript: Event[] }>;
+  session(id: string): Promise<{ session: SessionView | null; transcript: Event[]; transcriptFile?: { url: string; bytes: number; lines: number; expiresAt: string } | null }>;
   work(id: string, input: In<typeof WorkInput>): Promise<Assignment | null>;
   /** Message the agent's session: queued for the next turn boundary, or `now` to stop the current turn first. */
   interrupt(id: string, text: string, now?: boolean): Promise<void>;
@@ -257,6 +257,8 @@ export interface Api {
   delegateAssignment(assignmentId: string, agentId: string, front?: boolean): Promise<{ assignment: Assignment; agent: Agent; from: Assignment }>;
   /** admin: how many work sessions may run at once on the host (queued work waits for a free slot) */
   setMaxRunning(maxRunning: number): Promise<{ desks: DesksConfig; slots: SessionSlots | null }>;
+  /** open a session transcript in a new tab (admins, the building's manager, the agent itself) */
+  openTranscript?(url: string): Promise<void>;
   // docs
   docs(q: DocQuery): Promise<Doc[]>;
   doc(id: string): Promise<Doc>;
@@ -442,7 +444,7 @@ export class HttpApi implements Api {
   agent(id: string) { return this.get<AgentDetail>(`/api/agents/${id}`); }
   setAgentPermissions(id: string, patch: { inheritsOwner?: boolean; deniedPermissions?: Permission[] }) { return this.call<Pick<AgentDetail, "agent" | "effectivePermissions" | "permissions">>("PATCH", `/api/agents/${id}/permissions`, patch); }
   setAgentModel(id: string, model: string | null) { return this.call<Pick<AgentDetail, "agent" | "effectivePermissions" | "permissions">>("PATCH", `/api/agents/${id}/model`, { model }); }
-  session(id: string) { return this.get<{ session: SessionView | null; transcript: Event[] }>(`/api/agents/${id}/session`); }
+  session(id: string) { return this.get<{ session: SessionView | null; transcript: Event[]; transcriptFile?: { url: string; bytes: number; lines: number; expiresAt: string } | null }>(`/api/agents/${id}/session`); }
   async work(id: string, i: In<typeof WorkInput>) { return unwrap<Assignment | null>(await this.post(`/api/agents/${id}/work`, i), "assignment"); }
   async interrupt(id: string, text: string, now = false) { await this.post(`/api/agents/${id}/interrupt`, { text, now }); }
   async chat(id: string, i: In<typeof ChatInput>) { return (await this.post<{ reply: string }>(`/api/agents/${id}/chat`, i)).reply; }
@@ -462,6 +464,15 @@ export class HttpApi implements Api {
   async review(id: string, i: In<typeof ReviewInput>) { return unwrap<Doc>(await this.post(`/api/docs/${id}/review`, i), "doc"); }
   async plantFlag(buildingId: string, text: string) { return unwrap<Doc>(await this.post(`/api/buildings/${buildingId}/flags`, { text }), "doc"); }
   reply(id: string, text: string) { return this.post<{ doc: Doc; assignment: Assignment | null }>(`/api/docs/${id}/reply`, { text }); }
+  /** Open a session transcript (docs/transcripts.md) in a new tab: fetched with the bearer token, shown as text. */
+  async openTranscript(url: string) {
+    const tab = window.open("", "_blank");
+    const t = this.token();
+    const res = await fetch(url, { headers: t ? { Authorization: `Bearer ${t}` } : {} });
+    if (!res.ok) { tab?.close(); throw new Error(((await res.json().catch(() => ({}))) as { error?: string }).error ?? `transcript: ${res.status}`); }
+    const blobUrl = URL.createObjectURL(new Blob([await res.text()], { type: "text/plain;charset=utf-8" }));
+    if (tab) tab.location.href = blobUrl; else window.location.href = blobUrl;
+  }
   async uploadMedia(file: Blob, alt = "") {
     const headers: Record<string, string> = { "Content-Type": file.type };
     const t = this.token();

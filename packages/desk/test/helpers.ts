@@ -12,6 +12,8 @@ export interface FakeTown {
   control: DeskControl;
   acked: string[];
   ends: DeskSessionEndInput[];
+  /** POST /api/agents/me/transcript bodies (brotli), by session */
+  transcripts: Map<string, Buffer>;
   requests: string[];
   close(): Promise<void>;
 }
@@ -24,6 +26,7 @@ export async function startFakeTown(): Promise<FakeTown> {
     control: { interrupts: [], stop: false } as DeskControl,
     acked: [] as string[],
     ends: [] as DeskSessionEndInput[],
+    transcripts: new Map<string, Buffer>(),
     requests: [] as string[],
   };
   const server: Server = createServer((req, res) => {
@@ -37,8 +40,9 @@ export async function startFakeTown(): Promise<FakeTown> {
         res.end(body === undefined ? undefined : JSON.stringify(body));
       };
       if (req.headers.authorization !== `Bearer ${TOKEN}`) return send(401, { error: "bad token" });
-      const body = chunks.length ? JSON.parse(Buffer.concat(chunks).toString("utf8")) : undefined;
       const key = `${req.method} ${u.pathname}`;
+      if (key === "POST /api/agents/me/transcript") { state.transcripts.set(u.searchParams.get("session") ?? "", Buffer.concat(chunks)); return send(201, { transcript: {} }); }
+      const body = chunks.length ? JSON.parse(Buffer.concat(chunks).toString("utf8")) : undefined;
       if (key === "GET /api/agents/me/brief") {
         const b = state.briefs.get(u.searchParams.get("session") ?? "");
         return b ? send(200, b) : send(403, { error: "not your session" });

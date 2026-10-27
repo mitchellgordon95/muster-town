@@ -14,6 +14,7 @@ import { holderOf, Permissions, type Holder } from "./permissions.ts";
 import { Presence } from "./presence.ts";
 import { Secrets } from "./secrets.ts";
 import { Media } from "./media.ts";
+import { Transcripts } from "./transcripts.ts";
 import { Skills } from "./skills.ts";
 import { seedDefaults, type SeedOptions, type SeedResult } from "./seed.ts";
 import { createRepos, type Repos } from "./store.ts";
@@ -63,6 +64,8 @@ export class World {
   readonly secrets: Secrets;
   /** uploaded screenshots and videos cited in docs (docs/multimedia.md) */
   readonly media: Media;
+  /** session transcripts (SDK JSONL) kept for the retention period (docs/transcripts.md) */
+  readonly transcripts: Transcripts;
   readonly layout: WorldMap;
   readonly movement: Movement;
   readonly verbs: Verbs;
@@ -128,6 +131,7 @@ export class World {
     this.skills = new Skills(this);
     this.secrets = new Secrets(this);
     this.media = new Media(this);
+    this.transcripts = new Transcripts(this);
     this.presence = new Presence(this);
     // agent.activity is server-maintained from events
     this.events.addHook((e) => {

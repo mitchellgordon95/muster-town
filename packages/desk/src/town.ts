@@ -33,7 +33,8 @@ export class TownClient {
   }
 
   /** One request; retries network errors and 5xx (3 attempts total by default). 4xx throws TownError. */
-  private async request(method: "GET" | "POST", path: string, body?: unknown): Promise<unknown> {
+  private async request(method: "GET" | "POST", path: string, body?: unknown, contentType = "application/json"): Promise<unknown> {
+    const raw = body instanceof Uint8Array;
     let lastErr: unknown;
     for (let attempt = 0; attempt <= this.backoff.length; attempt++) {
       if (attempt > 0) await sleep(this.backoff[attempt - 1]!);
@@ -41,8 +42,8 @@ export class TownClient {
       try {
         res = await this.f(`${this.base}${path}`, {
           method,
-          headers: { Authorization: `Bearer ${this.opts.token}`, ...(body !== undefined ? { "Content-Type": "application/json" } : {}) },
-          body: body !== undefined ? JSON.stringify(body) : undefined,
+          headers: { Authorization: `Bearer ${this.opts.token}`, ...(body !== undefined ? { "Content-Type": contentType } : {}) },
+          body: raw ? new Blob([body as Uint8Array<ArrayBuffer>]) : body !== undefined ? JSON.stringify(body) : undefined,
         });
       } catch (e) {
         lastErr = e;
@@ -81,6 +82,11 @@ export class TownClient {
 
   async sessionEnd(input: DeskSessionEndInput): Promise<unknown> {
     return this.request("POST", "/api/agents/me/session-end", input);
+  }
+
+  /** The session's SDK transcript, brotli-compressed JSONL (docs/transcripts.md). */
+  async transcript(session: string, brotli: Uint8Array): Promise<unknown> {
+    return this.request("POST", `/api/agents/me/transcript?session=${encodeURIComponent(session)}`, brotli, "application/x-brotli");
   }
 
   async health(): Promise<unknown> {
