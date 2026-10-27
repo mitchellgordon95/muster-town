@@ -15,8 +15,11 @@ import type { World } from "./world.ts";
 
 /** Default exploration allowance: this share of the building's pool's daily inflow (BUDGET_POLICY, open question 1). */
 export const EXPLORATION_SHARE = BUDGET_POLICY.explorationShare;
-/** Spend fractions at which a funded grant pauses for a human checkpoint. */
-export const CHECKPOINTS = [0.5, 1] as const;
+/**
+ * Spend fractions at which a funded grant pauses for a human checkpoint: only 100% ("a grant is good for the number
+ * granted", Mitchell, town hall mt_rjhwj2qggm). The 50% one is gone; `releaseHalfway` frees grants it still holds.
+ */
+export const CHECKPOINTS = [1] as const;
 
 const OPEN: GrantStatus[] = ["proposed", "countered"];
 const LIVE: GrantStatus[] = ["funded", "checkpoint"];
@@ -323,7 +326,7 @@ The open proposal ${open.id} ("${open.objective}") names no goal key result yet;
 
   /**
    * After a charge (`Budget.afterCharge`): every funded grant of the building whose derived spend crossed a checkpoint
-   * fraction (50%, 100%) not yet done goes to `checkpoint`: new sessions on it are held, `grant.checkpoint` is appended,
+   * fraction (100%) not yet done goes to `checkpoint`: new sessions on it are held, `grant.checkpoint` is appended,
    * the humans who can fund are told, and the building's manager agent gets the checkpoint assignment (lane grant, which
    * runs while the grant is at checkpoint). Each fraction fires once per grantTokens value. Returns the grants it held.
    */
@@ -347,6 +350,23 @@ The open proposal ${open.id} ("${open.objective}") names no goal key result yet;
       held.push(next);
     }
     return held;
+  }
+
+  /**
+   * Boot repair: a grant still held at the retired 50% checkpoint (status checkpoint, spend under its tokens, the 100%
+   * one not done) goes back to funded so its grant-lane work starts without a human continue. Idempotent; a grant a
+   * human already continued or adjusted is funded and untouched. Returns the grants it released.
+   */
+  releaseHalfway(): Grant[] {
+    const released: Grant[] = [];
+    for (const g of this.world.grants.where("status = 'checkpoint'", [])) {
+      const tokens = g.grantTokens ?? 0;
+      if (g.checkpointsDone.includes(1) || !tokens || this.spent(g.id) >= tokens) continue;
+      const next = this.save(g, null, { status: "funded" }, "continue", null, "The 50% checkpoint was removed: a grant runs to its full number and is held only at 100%.");
+      this.event("grant.funded", next, null, `Released from the 50% checkpoint: ${next.objective}`);
+      released.push(next);
+    }
+    return released;
   }
 
   /** The manager's "Write the checkpoint for …" assignment (none when the building has no manager agent: humans decide from the in-tray). */
@@ -405,7 +425,7 @@ Approach: ${g.approach || "(none written)"}
 ${plan ? `Testing plan:\n${plan}\n` : ""}Stop condition: ${g.stopCondition}${g.findingsDocIds.length ? `\nFindings it draws on: ${g.findingsDocIds.join(", ")}` : ""}
 
 1. Cut the plan into steps, each one session's worth with a check a human can make in the live town.
-2. \`assign\` the first step in lane grant with grantId ${g.id}: to the resident whose wiki covers it, or to yourself when it is yours (one owner per step). Sessions on it are charged to the grant and held at its 50% / 100% checkpoints.
+2. \`assign\` the first step in lane grant with grantId ${g.id}: to the resident whose wiki covers it, or to yourself when it is yours (one owner per step). Sessions on it are charged to the grant and held at its 100% checkpoint.
 3. Say in your report who got what and what the next step is.`,
       });
     } else if (decision === "countered") {
@@ -439,13 +459,13 @@ Key result (on the building goal): ${kr}${k ? "; it has no funded grant now, so 
   /**
    * \`checkpoint_grant\` (the manager, \`building.manage\`): set the status of the grant's key result (up to \`claimed\`) and
    * link the checkpoint report (\`reportId\`, else the rollup this session submits links itself). The grant stays at checkpoint.
-   * A funded grant whose checkpoint already fired is accepted too: a human may continue or adjust it from the in-tray before
+   * A funded grant whose checkpoint already fired is accepted too: a human may adjust (top up) or continue it from the in-tray before
    * the manager's checkpoint session files (gr_iq5m7dug56, 2026-10-26: continued 4 min after the 50% hold).
    */
   fileCheckpoint(actor: Actor, grantId: string, input: { reportId?: string | null; status?: KeyResult["status"] | null; note?: string }): GrantView {
     const g = this.world.grants.require(grantId, "grant");
     if (actor && !this.world.permissions.can(actor, "building.manage", g.buildingId)) throw forbidden("building.manage");
-    if (!(g.status === "funded" && g.checkpointsDone.length)) this.requireStatus(g, ["checkpoint"], "checkpointed");
+    if (!(g.status === "funded" && g.history.some((h) => h.action === "checkpoint"))) this.requireStatus(g, ["checkpoint"], "checkpointed");
     if (input.status === "met" || input.status === "missed") throw badRequest(`Only a human marks a key result ${input.status}; claim it instead.`);
     if (input.status && !g.keyResultId) throw badRequest("This grant names no goal key result, so there is no status to set.");
     if (input.reportId) {

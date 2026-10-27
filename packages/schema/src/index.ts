@@ -708,7 +708,7 @@ export const GrantStatus = z.enum([
   "proposed",    // waiting for a human
   "countered",   // a human sent it back with changes; the manager's move
   "funded",      // sessions may draw on it
-  "checkpoint",  // spend crossed 50% (or 100%): new sessions held until a human decides
+  "checkpoint",  // spend reached 100%: new sessions held until a human decides
   "closed",      // done: see outcome
   "rejected",
 ]);
@@ -752,7 +752,7 @@ export const Grant = z.object({
   outcome: GrantOutcome.nullable().default(null),
   /** exploration reports the proposal draws on */
   findingsDocIds: z.array(Id).default([]),
-  /** spend fractions already checkpointed (0.5, 1), so each fires once per grantTokens value */
+  /** spend fractions already checkpointed (1; a legacy 0.5 may remain), so each fires once per grantTokens value */
   checkpointsDone: z.array(z.number()).default([]),
   /** the manager's latest checkpoint report */
   checkpointDocId: Id.nullable().default(null),

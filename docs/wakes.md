@@ -36,7 +36,7 @@ Everything else lands in the **inbox** (`sendMessage`). The inbox never wakes an
 | `grant.funded` by continue or adjust | manager; held grant work | T: a town-written in-tray row "Grant X continued/adjusted: N tokens" (`managerIntrayRow`, core/src/wakes.ts); held grant-lane work is released by the lane gate on the next tick | — |
 | `grant.countered`, `grant.rejected` | manager | Q: a directed assignment ("Answer the counter on X" with the note / "Grant X rejected: read the note"), plus the inbox `system` line (`notifyManager`) | — |
 | cut, or a human closes a grant | manager | T: a town-written in-tray row "Grant X cut" (`managerIntrayRow`), plus the inbox `system` line (`notifyManager`) | — |
-| `grant.checkpoint` (50% / 100% spent) | manager | Q: a front-of-queue "Write the checkpoint" assignment | — |
+| `grant.checkpoint` (100% spent) | manager | Q: a front-of-queue "Write the checkpoint" assignment | — |
 | `kr.created` / `kr.updated` / `kr.deleted` by a human | manager | T: a town-written in-tray row "Key result X written/edited/marked S/removed by Mitchell" (`managerIntrayRow`); `syncBlocked` as before. The manager's own KR writes and status marks write none | — |
 | Building becomes blocked (goal-directed, no KRs) | manager | Q: a "Get human decisions" assignment (grants.ts:110) | — |
 | `waitFor` met (deploy, assignment, decision, after) | the parked assignee | Q: `checkWaits` on the tick clears the wait. After 24 h, T gets a `wait-expired` report | — |
