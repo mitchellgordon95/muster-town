@@ -182,7 +182,10 @@ export const MAX_PARKS = 3;
 
 export async function submit_report(world: World, me: Agent, input: VerbIn<"submit_report">) {
   if (me.kind === "human") throw badRequest("Humans don't submit reports.");
-  const bid = homeOf(me);
+  // a visitor with no home building (bench, plaza, or standing in someone else's lab) reports to the Town Hall in-tray
+  // as a visitor report, which the humans work (dc_04i3sll7q5); a homed visitor reports to its home building like a resident
+  const unhomedVisitor = me.kind === "visitor" && !me.homeBuildingId;
+  const bid = unhomedVisitor ? world.buildings.first("kind = 'town-hall'")?.id ?? null : homeOf(me);
   const building = bid ? world.buildings.get(bid) : undefined;
   // Town hall 2026-10-24, decision 1: a resident's report goes to the building in-tray, worked by the manager agent
   // when there is one (else by humans). Town hall 2026-10-25, decision 6: only a rollup (a checkpoint report is one)
@@ -199,6 +202,7 @@ export async function submit_report(world: World, me: Agent, input: VerbIn<"subm
   const checkpointGrantId = input.rollup && current && isCheckpointAssignment(current) ? current.grantId : null;
   // a manager's rollup lists every key result it wrote or edited since its last rollup, so a human can cut it (1:1 mt_ayi4y9ybyj)
   const krWrites = input.rollup && isManager ? world.grantDesk.writtenSinceRollup(me.id, bid!) : [];
+  if (unhomedVisitor && !bid) throw badRequest("The town has no Town Hall to file a visitor report in.");
   if (input.rollup) {
     if (!isManager) throw badRequest("Only a building's manager agent submits rollups.");
     if (!sourceIds.length && !checkpointGrantId && !krWrites.length) throw badRequest("A rollup lists the reports it covers in provenance.sourceIds.");
@@ -215,12 +219,15 @@ export async function submit_report(world: World, me: Agent, input: VerbIn<"subm
     if (parks > MAX_PARKS) throw badRequest(`This work has already parked ${MAX_PARKS} times in a row; submit the report without resumeWhen and say what you're waiting on.`);
     if ("assignment" in resumeWhen && resumeWhen.assignment === current.id) throw badRequest("resumeWhen can't wait on your own current assignment.");
   }
+  const owner = unhomedVisitor && me.ownerUserId ? world.users.get(me.ownerUserId)?.name ?? null : null;
+  const body = krWrites.length ? `${input.body.trimEnd()}\n\n${krWritesSection(krWrites)}`
+    : unhomedVisitor ? `${input.body.trimEnd()}\n\n_Visitor report from ${me.name}${owner ? `, ${owner}'s agent` : ""}; it has no home building._` : input.body;
   return world.transaction(() => {
     const doc = createDoc(world, {
-      type: "report", state: "building", title: input.title, body: krWrites.length ? `${input.body.trimEnd()}\n\n${krWritesSection(krWrites)}` : input.body, verdict: input.verdict, decision: "pending",
+      type: "report", state: "building", title: input.title, body, verdict: input.verdict, decision: "pending",
       authorId: me.id, authorKind: "agent", buildingId: bid, provenance: input.provenance,
       sessionId: session?.id, assignmentId: assignmentId ?? undefined,
-      tags: [...(input.rollup ? ["rollup"] : []), ...(checkpointGrantId ? ["checkpoint"] : []), ...(resumeWhen ? ["parked"] : [])],
+      tags: [...(input.rollup ? ["rollup"] : []), ...(unhomedVisitor ? ["visitor"] : []), ...(checkpointGrantId ? ["checkpoint"] : []), ...(resumeWhen ? ["parked"] : [])],
     }, `${me.name} submitted a ${input.rollup ? "rollup" : "report"}: ${input.title}`);
     if (checkpointGrantId) {
       const g = world.grants.get(checkpointGrantId);
@@ -250,6 +257,7 @@ export async function submit_report(world: World, me: Agent, input: VerbIn<"subm
     if (world.agents.get(me.id)?.status === "working") world.setStatus(me.id, "idle", `${me.name} filed a report and is idle`);
     const intray = townHall ? "town-hall" : bid;
     const where = townHall ? "the Town Hall in-tray (the humans decide on it)"
+      : unhomedVisitor ? "the Town Hall in-tray as a visitor report (a human works it)"
       : manager?.id === me.id ? `the ${building!.name} in-tray, which you work as its manager: decide it in your next team-lead session and fold it into your rollup`
       : manager ? `the ${building!.name} in-tray, which ${manager.name}, your manager, works` : "your building's in-tray (a human works it)";
     const workedBy = manager ? "manager" : "human";
@@ -271,7 +279,7 @@ export async function review(world: World, me: Agent, input: VerbIn<"review">) {
   // an agent decides its own report only as the manager deciding its own work report (town hall 2026-10-25, decision 6);
   // a rollup waits for the humans
   if (me.kind !== "human" && doc.authorId === me.id && (isTownHallItem(world, doc) || managerAgentOf(world, world.buildings.get(doc.buildingId ?? ""))?.id !== me.id)) {
-    throw badRequest(isTownHallItem(world, doc) ? "You can't decide on your own rollup; it waits for the humans in the Town Hall in-tray." : "You can't decide on your own report.");
+    throw badRequest(isTownHallItem(world, doc) ? "You can't decide on your own rollup or visitor report; it waits for the humans in the Town Hall in-tray." : "You can't decide on your own report.");
   }
   const waitFor = input.waitFor ? validateWait(world, input.waitFor) : null;
   const res = world.transaction(() => applyDecision(world, doc.id, input.decision, input.note, world.holderOf(me), { waitFor, assigneeId: input.assigneeId ?? null, lane: laneOf(input) }));

@@ -17,7 +17,11 @@ export interface BudgetSummary {
 }
 
 /** How a charge's counters are priced: the session's model, and its per-model breakdown when it has one (Bank step 3). */
-export interface ChargePrice { model?: string | null; byModel?: Record<string, TokenCounts> | null }
+export interface ChargePrice {
+  model?: string | null; byModel?: Record<string, TokenCounts> | null;
+  /** the session's grant: when it names its own Bank input (`fundedWith`, member funding), that input pays first */
+  grantId?: string | null;
+}
 
 const SKIP_STATUSES = new Set(["stopped", "banned"]);
 
@@ -154,9 +158,9 @@ export class Budget {
   }
 
   /**
-   * Charge session usage to the agent and to its home building. With an `allocationId` (the session ran on
-   * that allocation) it all goes there. Otherwise the building's Bank share pays first (expiring, then durable),
-   * then the oldest allocation with tokens left; whatever is still left overshoots the last source (no hard stop).
+   * Charge session usage to the agent and to its home building. A member-funded grant's own input (`price.grantId`,
+   * its `fundedWith`) pays first. With an `allocationId` (the session ran on that allocation) the rest goes there.
+   * Otherwise the building's Bank share pays the rest first (expiring, then durable), then the oldest allocation with tokens left; whatever is still left overshoots the last source (no hard stop).
    * Emits `budget.exhausted`
    * and sets `out-of-budget` when the agent's daily allowance or the building budget runs out.
    */
@@ -168,7 +172,9 @@ export class Budget {
     const bid = agent.homeBuildingId ?? agent.buildingId;
     let allocation: Allocation | null = null;
     if (bid) {
-      const rest = allocationId ? booking : this.bank.drawTokens(bid, agent.id, booking);
+      const grant = price.grantId ? this.repos.grants.get(price.grantId) : undefined;
+      const own = grant?.fundedWith ? this.bank.drawFromInput(bid, agent.id, booking, grant) : booking;
+      const rest = allocationId ? own : this.bank.drawTokens(bid, agent.id, own);
       const left = rest.tokens, c = rest.counts;
       allocation = allocationId ? this.repos.allocations.require(allocationId, "allocation") : left > 0 ? this.pickAllocation(bid) : null;
       if (allocation) {

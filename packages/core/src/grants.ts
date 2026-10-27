@@ -6,7 +6,7 @@ import {
 import { adjustedOfUsage } from "./bank.ts";
 import { createAssignment, managerAgentOf, sendMessage } from "./domain.ts";
 import type { EventType } from "./events.ts";
-import { AppError, badRequest, forbidden } from "./errors.ts";
+import { AppError, badRequest, forbidden, notFound } from "./errors.ts";
 import type { Actor } from "./ops.ts";
 import { DIRECTED } from "./lanes.ts";
 import { holderOf } from "./permissions.ts";
@@ -68,7 +68,10 @@ export class Grants {
   view(g: Grant): GrantView {
     const sessions = this.world.sessions.where("grantId = ?", [g.id]);
     const spentCounts = sessions.reduce<TokenCounts>((s, x) => addTokens(s, x), { ...ZERO_TOKENS });
-    return { ...g, keyResult: (g.keyResultId && this.world.keyResults.get(g.keyResultId)) || null, spentTokens: this.adjustedSum(sessions), spentCounts };
+    return {
+      ...g, keyResult: (g.keyResultId && this.world.keyResults.get(g.keyResultId)) || null, spentTokens: this.adjustedSum(sessions), spentCounts,
+      fundedByName: g.fundedBy ? this.world.nameOf(g.fundedBy) : null, fundedWithLabel: g.fundedWith ? this.world.bank.input(g.fundedWith)?.label ?? null : null,
+    };
   }
 
   /** The building goal's key results in order, each with the live grant working on it (null = open for exploration). */
@@ -304,7 +307,7 @@ ${open.map((g) => `The open proposal ${g.id} ("${g.objective}")`).join("; ")} na
       id: newId("gr"), buildingId, keyResultId: inp.keyResultId, objective: inp.objective, approach: inp.approach, testingPlan: inp.testingPlan,
       stopCondition: inp.stopCondition, askTokens: inp.askTokens,
       grantTokens: null, status: "draft", outcome: null, findingsDocIds: inp.findingsDocIds, checkpointsDone: [], checkpointDocId: null,
-      proposedBy: actor?.id ?? "system", fundedBy: null, fundedAt: null, closedAt: null, history: [], createdAt: now, updatedAt: now,
+      proposedBy: actor?.id ?? "system", fundedBy: null, fundedWith: null, fundedAt: null, closedAt: null, history: [], createdAt: now, updatedAt: now,
     });
     this.event("grant.created", g, actor, `Draft proposal: ${g.objective}`);
     return this.view(g);
@@ -344,11 +347,16 @@ ${open.map((g) => `The open proposal ${g.id} ("${g.objective}")`).join("; ")} na
   /**
    * POST /api/grants/:id/decide (`building.fund`). Proposed: fund (tokens default to the ask) / counter (edits + note,
    * back to the manager) / reject. Checkpoint: continue / adjust (tokens, KRs, stop condition) / cut.
+   * Member funding: `fund` with `fundWith` (one of the funder's own Bank inputs) needs no `building.fund`, only a human
+   * whose active input can still pay the grant's tokens; its sessions are then paid from that input first.
    */
   decide(actor: Actor, id: string, input: DecideGrantInput): GrantView {
     const inp = DecideGrantInput.parse(input);
     const g = this.world.grants.require(id, "grant");
-    if (actor) this.world.permissions.require(actor, "building.fund", g.buildingId);
+    if (inp.fundWith && inp.action !== "fund") throw badRequest("fundWith goes with action \"fund\" only.");
+    const tokens = inp.tokens ?? g.askTokens;
+    if (inp.fundWith) this.requireFundingInput(actor, g, inp.fundWith, tokens);
+    else if (actor) this.world.permissions.require(actor, "building.fund", g.buildingId);
     const spent = this.spent(g.id);
     const edits = { ...(inp.stopCondition && { stopCondition: inp.stopCondition }), ...(inp.testingPlan && { testingPlan: inp.testingPlan }) };
     let next: Grant;
@@ -356,9 +364,10 @@ ${open.map((g) => `The open proposal ${g.id} ("${g.objective}")`).join("; ")} na
       case "fund": {
         this.requireStatus(g, ["proposed"], "funded");
         if (!g.keyResultId) throw badRequest("This grant names no goal key result: write the building's key results, then counter it so the manager names one.");
-        const tokens = inp.tokens ?? g.askTokens;
-        next = this.save(g, actor, { ...edits, status: "funded", grantTokens: tokens, checkpointsDone: passed(spent, tokens), fundedBy: actor ? holderOf(actor).id : "system", fundedAt: nowIso() }, "fund", tokens, inp.note);
-        this.event("grant.funded", next, actor, `Funded: ${next.objective} (${fmt(tokens)} tokens)`);
+        const fundedWith = inp.fundWith ?? null;
+        next = this.save(g, actor, { ...edits, status: "funded", grantTokens: tokens, checkpointsDone: passed(spent, tokens), fundedBy: actor ? holderOf(actor).id : "system", fundedWith, fundedAt: nowIso() }, "fund", tokens, inp.note);
+        const from = fundedWith ? ` funded from ${this.world.bank.input(fundedWith)?.label ?? fundedWith}` : "";
+        this.event("grant.funded", next, actor, `Funded: ${next.objective} (${fmt(tokens)} tokens${from})`);
         this.decisionAssignment(next, actor, "funded", inp.note);
         break;
       }
@@ -401,6 +410,25 @@ ${open.map((g) => `The open proposal ${g.id} ("${g.objective}")`).join("; ")} na
         break;
     }
     return this.view(next);
+  }
+
+  /**
+   * Member funding's gate: the funder is a human (an avatar counts as its user), the input is theirs and active, and it
+   * can still pay `tokens` after what it already owes the other live grants it pays for. Nothing is reserved.
+   */
+  private requireFundingInput(actor: Actor, g: Grant, inputId: string, tokens: number): void {
+    const by = actor ? holderOf(actor) : null;
+    if (by && by.kind !== "user") throw forbidden("building.fund", "Only a human can fund a grant with a Bank input.");
+    const inp = this.world.bank.input(inputId);
+    if (!inp) throw notFound("bank input", inputId);
+    if (by && inp.userId !== by.id) throw forbidden("building.fund", `${inp.label} is not your Bank input: fund with one of your own.`);
+    if (inp.cancelledAt) throw badRequest(`${inp.label} is cancelled: fund with an active input.`);
+    const owed = this.world.grants.where("fundedWith = ? AND status IN ('funded', 'checkpoint') AND id != ?", [inputId, g.id])
+      .reduce((s, x) => s + Math.max(0, (x.grantTokens ?? 0) - this.spent(x.id)), 0);
+    const can = this.world.bank.inputBalance(inputId) - owed;
+    if (can < tokens) {
+      throw badRequest(`${inp.label} can pay ${fmt(Math.max(0, can))} more tokens${owed ? ` (after ${fmt(owed)} it owes other grants)` : ""}; this grant needs ${fmt(tokens)}. Fund fewer tokens or use another input.`);
+    }
   }
 
   /** POST /api/grants/:id/close: the manager may close (or withdraw) as `stopped`; `building.fund` any outcome. */

@@ -28,7 +28,10 @@ describe("who may interact", () => {
     expect(msg.status).toBe(403);
     expect(msg.body.error).toMatch(/Ask for access first/);
     expect((await json(app, "POST", "/api/docs", { headers: visitor, body: { title: "x", body: "y" } })).status).toBe(403);
-    expect((await json(app, "POST", "/api/agents/visitors", { headers: visitor, body: { name: "Octo's Claude" } })).status).toBe(403);
+    const connect = await json(app, "POST", "/api/agents/visitors", { headers: visitor, body: { name: "Octo's Claude" } });
+    expect(connect.status).toBe(403);
+    expect(connect.body.error).toMatch(/Ask for access first/);
+    expect(world.agents.first("name = ?", ["Octo's Claude"])).toBeUndefined();
     expect((await json(app, "POST", "/auth/logout", { headers: visitor })).status).toBe(200);
 
     world.permissions.grant({ kind: "user", id: user.id }, townRoleId("member"));

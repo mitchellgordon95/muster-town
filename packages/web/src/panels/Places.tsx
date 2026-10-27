@@ -136,7 +136,7 @@ function TownHallIntray({ reports, grants, access, blocked, onOpen, onDecided }:
       <div className="doc-list">{access.map((r) => <AccessRow key={r.id} req={r} onDecided={onDecided} />)}</div>
     </Section>
   ) : null;
-  if (!reports.length && !grants.length) return <>{asking}{blockedList}{asking ? null : <Empty>The Town Hall in-tray is empty. Managers' rollups, checkpoint reports and escalations land here, with the grant proposals and checkpoints waiting for a human, and people asking to join.</Empty>}</>;
+  if (!reports.length && !grants.length) return <>{asking}{blockedList}{asking ? null : <Empty>The Town Hall in-tray is empty. Managers' rollups, checkpoint reports, visitor reports and escalations land here, with the grant proposals and checkpoints waiting for a human, and people asking to join.</Empty>}</>;
   return (
     <>
       {asking}
@@ -310,6 +310,7 @@ function IntrayRow({ doc, onOpen, onOpenDoc, showBuilding }: { doc: Doc; onOpen:
           {showBuilding ? <BuildingTag buildingId={doc.buildingId} /> : null}
           {a ? <img src={portraitUrl(a.sprite, 1)} alt="" /> : null}<b>{isManager ? `★ ${nameOf(doc.authorId)}` : nameOf(doc.authorId)}</b><span>{timeAgo(doc.createdAt)}</span>
           {rollup ? <Pill tone="ok">rollup</Pill> : null}
+          {doc.tags.includes("visitor") ? <Pill tone="warn" title="A visitor agent with no home building filed this; a human works it">visitor report</Pill> : null}
           {flag ? <Pill tone="warn" title="A quick request a human planted here; the manager delegates it">⚑ flag</Pill> : null}
         </div>
         <div className="doc-row-title">{doc.title}</div>

@@ -1,8 +1,8 @@
-import { AppError, blockedBy, logOf, sessionView, suggestResidentName, townBlocked, topicsOf, wikiOf, type World } from "@muster-town/core";
+import { AppError, blockedBy, canInteract, logOf, sessionView, suggestResidentName, townBlocked, topicsOf, wikiOf, type World } from "@muster-town/core";
 import { AgentModelPatch, AgentPermissionsPatch, ChatInput, CreateResidentInput, Event, InterruptInput, MessageAgentInput, RegisterVisitorInput, WorkInput, type Agent, type Session } from "@muster-town/schema";
 import type { FastifyInstance, FastifyRequest } from "fastify";
 import { z } from "zod";
-import { actorOf, parse, requireAuth, requireUser, type Params } from "../context.ts";
+import { actorOf, ASK_FIRST, parse, requireAuth, requireUser, type Params } from "../context.ts";
 
 /** Events belonging to a session: the agent's events between its start and end. */
 function sessionTranscript(world: World, s: Session): Event[] {
@@ -34,6 +34,8 @@ export async function agentRoutes(app: FastifyInstance) {
 
   app.post("/api/agents/visitors", async (req, reply) => {
     const user = requireUser(req);
+    // Connect your agent needs `town.interact`, like the panel; app.ts's write gate already refuses, this keeps the route honest on its own
+    if (!canInteract(world, user.id)) throw new AppError("forbidden", ASK_FIRST);
     const input = parse(RegisterVisitorInput, req.body);
     const { agent, token } = world.ops.registerVisitor(user.id, input);
     return reply.code(201).send({ agent, token });

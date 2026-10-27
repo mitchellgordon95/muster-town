@@ -194,7 +194,8 @@ export interface BankSummary {
   adjustedCreditedTokens: number;
   /** expected tokens per day from active recurring inputs (monthly counts as 30 days) */
   dailyInflowTokens: number;
-  inputs: (BankInput & { userName: string; creditedCounts: TokenCounts; adjustedCreditedTokens: number })[];
+  /** per input, also: `debitedTokens`, what grants it pays for drew from it by name; `balanceTokens`, inputBalance (member funding) */
+  inputs: (BankInput & { userName: string; creditedCounts: TokenCounts; adjustedCreditedTokens: number; debitedTokens: number; balanceTokens: number })[];
   pools: BankPoolSummary[];
   buildings: BankBuildingShare[];
   /** top contributors by tokens given, most first (zero-token users left out) */
@@ -253,6 +254,9 @@ function advance(from: Date, recurrence: Exclude<BankRecurrence, "once">): Date 
  * the buildings in a pool draw from it first come first served.
  * Subscription credits expire at the next daily renewal and are spent first; API-key credits are durable. `world.bank`.
  */
+/** A debit that names a durable (API-key) credit: a grant's own input paid it. It counts against durable like a pool draw. */
+const DURABLE_CREDIT = "creditId IN (SELECT id FROM bank_credits WHERE expiresAt IS NULL)";
+
 export class Bank {
   constructor(private repos: Repos, private events: EventLog, private permissions: Permissions) {}
 
@@ -298,6 +302,10 @@ export class Bank {
     return row;
   }
 
+  input(inputId: string): BankInput | undefined {
+    return this.repos.bankInputs.get(inputId);
+  }
+
   /** Secret: the API key behind an input, if any. */
   apiKeyFor(inputId: string): string | null {
     return this.repos.bankInputs.getApiKey(inputId);
@@ -340,6 +348,24 @@ export class Bank {
     return total;
   }
 
+  /**
+   * Member funding: what one input can still pay for a grant, in adjusted output tokens. Its live credits less the
+   * debits that name them, plus its next credit while it hasn't credited yet (an active one-time input). The pool's
+   * anonymous durable draws are not attributed to any input, so they don't lower this.
+   */
+  inputBalance(inputId: string, now = new Date()): number {
+    const inp = this.repos.bankInputs.require(inputId, "bank input");
+    if (inp.cancelledAt) return 0;
+    const left = this.inputCredits(inputId, now).reduce((s, c) => s + Math.max(0, c.tokens - this.debited("creditId = ?", [c.id])), 0);
+    const pending = inp.recurrence === "once" && inp.nextCreditAt ? inp.tokens : 0;
+    return left + pending;
+  }
+
+  /** An input's live credits, soonest to expire first, then the durable ones oldest first. */
+  private inputCredits(inputId: string, now: Date): BankCredit[] {
+    return this.repos.bankCredits.where("inputId = ? AND (expiresAt IS NULL OR expiresAt > ?)", [inputId, now.toISOString()], "ORDER BY expiresAt IS NULL, expiresAt, createdAt, rowid");
+  }
+
   /** Tokens in the Bank now: unexpired subscription credits and durable credits, less what buildings drew from them. */
   balance(now = new Date()): number {
     const { expiring, durable } = this.totals(now);
@@ -362,7 +388,7 @@ export class Bank {
       if (c.expiresAt) expiring += Math.max(0, c.tokens - this.debited("creditId = ?", [c.id]));
       else durableIn += c.tokens;
     }
-    return { expiring, durable: Math.max(0, durableIn - this.debited("creditId IS NULL", [])) };
+    return { expiring, durable: Math.max(0, durableIn - this.debited(`creditId IS NULL OR ${DURABLE_CREDIT}`, [])) };
   }
 
   /** Every pool, General first, then by creation. */
@@ -476,7 +502,7 @@ export class Bank {
       if (c.expiresAt) expiring += Math.max(0, Math.floor(c.tokens * frac) - this.debited("poolId = ? AND creditId = ?", [poolId, c.id]));
       else durableIn += c.tokens;
     }
-    return { expiring, durable: Math.floor(durableIn * frac) - this.debited("poolId = ? AND creditId IS NULL", [poolId]) };
+    return { expiring, durable: Math.floor(durableIn * frac) - this.debited(`poolId = ? AND (creditId IS NULL OR ${DURABLE_CREDIT})`, [poolId]) };
   }
 
   /** What a building can still draw: what's left in its pool (first come first served among the pool's buildings). */
@@ -528,13 +554,14 @@ export class Bank {
     const now = opts.now ?? new Date();
     let left: Booked = { tokens: tokens.tokens, counts: countsOf(tokens.counts) };
     const pool = this.drawPool(buildingId);
-    const frac = pool ? (this.shares().get(pool.id)?.pct ?? 0) / 100 : 0;
-    if (left.tokens <= 0 || !pool || frac <= 0) return left;
+    if (left.tokens <= 0 || !pool) return left;
     const debit = (creditId: string | null, t: number) => {
       const part = sliceBooked(left, t);
-      this.repos.bankDebits.upsert({ id: newId("bd"), buildingId, poolId: pool.id, agentId, creditId, ...part.counts, tokens: part.tokens, createdAt: now.toISOString() });
+      this.repos.bankDebits.upsert({ id: newId("bd"), buildingId, poolId: pool.id, agentId, creditId, inputId: null, grantId: null, ...part.counts, tokens: part.tokens, createdAt: now.toISOString() });
       left = { tokens: left.tokens - part.tokens, counts: subTokens(left.counts, part.counts) };
     };
+    const frac = (this.shares().get(pool.id)?.pct ?? 0) / 100;
+    if (left.tokens <= 0 || frac <= 0) return left;
     for (const c of this.live(now)) {
       if (!c.expiresAt || left.tokens <= 0) continue;
       const room = Math.floor(c.tokens * frac) - this.debited("poolId = ? AND creditId = ?", [pool.id, c.id]);
@@ -543,6 +570,37 @@ export class Bank {
     const durable = this.poolAvailable(pool.id, now).durable;
     const rest = left.tokens;
     if (rest > 0 && (durable > 0 || opts.overshoot)) debit(null, opts.overshoot ? rest : Math.min(durable, rest));
+    return left;
+  }
+
+  /**
+   * Member funding: a session on a grant that names its own input (`fundedWith`) is paid from that input's live credits
+   * first, whole credits rather than a pool's share, soonest to expire first. Each debit names the input and the grant,
+   * and one `bank.debited` event says what the input paid. Returns what is left for the pool (or an allocation) to pay.
+   * Nothing is reserved: an input that runs dry just leaves the rest to the building's pool.
+   */
+  drawFromInput(buildingId: string, agentId: string, tokens: Booked, grant: { id: string; fundedWith: string | null }, now = new Date()): Booked {
+    let left: Booked = { tokens: tokens.tokens, counts: countsOf(tokens.counts) };
+    const inp = grant.fundedWith ? this.repos.bankInputs.get(grant.fundedWith) : undefined;
+    const pool = this.drawPool(buildingId);
+    if (left.tokens <= 0 || !inp || inp.cancelledAt || !pool) return left;
+    let paid = 0;
+    for (const c of this.inputCredits(inp.id, now)) {
+      if (left.tokens <= 0) break;
+      const room = c.tokens - this.debited("creditId = ?", [c.id]);
+      if (room <= 0) continue;
+      const part = sliceBooked(left, Math.min(room, left.tokens));
+      this.repos.bankDebits.upsert({ id: newId("bd"), buildingId, poolId: pool.id, agentId, creditId: c.id, inputId: inp.id, grantId: grant.id, ...part.counts, tokens: part.tokens, createdAt: now.toISOString() });
+      left = { tokens: left.tokens - part.tokens, counts: subTokens(left.counts, part.counts) };
+      paid += part.tokens;
+    }
+    if (paid > 0) {
+      const b = this.repos.buildings.get(buildingId);
+      this.events.append({
+        type: "bank.debited", buildingId, agentId, text: `${inp.label} paid ${paid.toLocaleString("en-US")} adj. tokens of ${b?.name ?? buildingId}'s session on grant ${grant.id}`,
+        payload: { inputId: inp.id, userId: inp.userId, grantId: grant.id, tokens: paid, adjustedOutputTokens: paid, leftForPool: left.tokens },
+      });
+    }
     return left;
   }
 
@@ -591,11 +649,12 @@ export class Bank {
     const creditedTokens = inputs.reduce((s, i) => s + i.creditedTokens, 0);
     const byInput = new Map<string, TokenCounts>();
     for (const c of this.repos.bankCredits.all()) byInput.set(c.inputId, addTokens(byInput.get(c.inputId) ?? ZERO_TOKENS, c));
+    const now = new Date();
     const inputViews = inputs.map((i) => {
       const counts = countsOf(byInput.get(i.id) ?? ZERO_TOKENS);
-      return { ...i, userName: this.repos.users.get(i.userId)?.name ?? i.userId, creditedCounts: counts, adjustedCreditedTokens: adjustedOutputTokens(i.model, counts) };
+      const debitedTokens = this.debited("inputId = ?", [i.id]);
+      return { ...i, userName: this.repos.users.get(i.userId)?.name ?? i.userId, creditedCounts: counts, adjustedCreditedTokens: adjustedOutputTokens(i.model, counts), debitedTokens, balanceTokens: this.inputBalance(i.id, now) };
     });
-    const now = new Date();
     const totals = this.totals(now);
     const shares = this.shares();
     const held = new Map<string, HeldByAuth>();

@@ -251,6 +251,19 @@ lane: ...same enum..., grantId: Id.nullable().default(null),
 - **`building.fund` is never effective for agents**: `Permissions.can` returns false for agent holders regardless of roles. The manager agent already holds `building.manage`, and an owner's permissions cap their agents', so without this an agent manager whose owner is admin could fund its own proposal.
 - Exploration's "names a key result or gap" is enforced when the assignment is created: `lane = exploration` requires `keyResultId` (a goal key result with no funded grant) or a non-empty `gap`; `lane = grant` requires `grantId` (its key result is implied; since 032).
 
+## Member funding (2026-10-27, grant gr_tvt32g9xly step 1; migration 047)
+
+Who may fund a proposal: a human with `building.fund` (admins, the building's manager role) funds from the building's pool, as before. Any other human (a member with no role) may fund it **with their own Bank input**: `POST /api/grants/:id/decide {action: "fund", fundWith: <input id>, tokens?}`. The gate (`Grants.requireFundingInput`):
+
+- the actor is a human (an avatar counts as its user; agents are refused), the input is theirs (`bank_inputs.userId`) and not cancelled;
+- the input can still pay the grant's tokens: `Bank.inputBalance` (its live credits less the debits that name them, plus a one-time input's credit not yet made) less what it still owes the other live grants it pays for (their `grantTokens` − spent). Otherwise 400 with the figure it can pay.
+
+`fundWith` is optional for admins and managers too. The grant stores `fundedBy` (the user) and `fundedWith` (the input); `GrantView` adds `fundedByName` and `fundedWithLabel`; the `grant.funded` event reads "… funded from <input label>".
+
+How its sessions are paid: `Budget.charge` (the runtime passes the session's `grantId`) calls `Bank.drawFromInput` first. That draws from the input's own live credits, whole credits rather than a pool's share, soonest to expire first; each debit row carries `inputId` and `grantId`, and one `bank.debited` event says what the input paid. Whatever is left is paid like any session (the pool, or the session's allocation). Nothing is reserved (`grantReservations` stays false): an input that runs dry just leaves the rest to the pool. A durable debit that names a credit counts against the Bank's and the pool's durable totals like an anonymous one. GET /api/bank shows each input's `debitedTokens` and `balanceTokens`. Note: the pool's anonymous durable draws are not attributed to any input, so a donated key's balance only drops through grants that name it. The session still runs on whatever key `fundingFor` picks; it does not switch to the input's key.
+
+The Fund KPI counts such a funder like any non-owner `fundedBy`.
+
 ## Gate (runtime)
 
 `Budget.canStart(agentId)` becomes `canStart(agentId, assignment)`. It is the single place the scheduler (`packages/runtime/src/index.ts`) and `work.ts` already check. In `goal-directed` buildings it adds:
@@ -277,7 +290,7 @@ All under the existing Fastify app. Reads are public like the rest of the town; 
 | `POST /api/buildings/:id/grants` | `building.manage` | create a draft: `{ objective, stopCondition, askTokens, keyResults: [{text, howToCheck}] (2-3), findingsDocIds }` |
 | `PATCH /api/grants/:id` | `building.manage` | edit while `draft` / `countered` |
 | `POST /api/grants/:id/propose` | `building.manage` | `draft`/`countered` → `proposed`; mentions the building's human managers and admins |
-| `POST /api/grants/:id/decide` | `building.fund` | `{ action: "fund" \| "counter" \| "reject", tokens?, keyResults?, note }` on a `proposed` grant; or `{ action: "continue" \| "adjust" \| "cut", tokens?, keyResults?, stopCondition?, note }` on a `checkpoint` grant |
+| `POST /api/grants/:id/decide` | `building.fund`, or for `fund` with `fundWith` any human with that input | `{ action: "fund" \| "counter" \| "reject", tokens?, keyResults?, note, fundWith? }` on a `proposed` grant; or `{ action: "continue" \| "adjust" \| "cut", tokens?, keyResults?, stopCondition?, note }` on a `checkpoint` grant |
 | `POST /api/grants/:id/close` | `building.manage` (outcome `stopped`) or `building.fund` (any) | `{ outcome, note }` |
 | `PATCH /api/key-results/:id` | `building.manage` up to `claimed`; `building.fund` for `met` / `missed` | `{ status, note }` |
 | `PATCH /api/buildings/:id` | `building.manage` | gains `explorationTokensPerDay`, `budgetMode` |

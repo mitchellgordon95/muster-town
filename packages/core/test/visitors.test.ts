@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { LookResult, TILE } from "@muster-town/schema";
-import { createAssignment, nextPending, OFFER_TTL_MS, TOWN_HALL_FIXTURES, tileAt } from "../src/index.ts";
+import { createAssignment, intrayCount, nextPending, OFFER_TTL_MS, TOWN_HALL_FIXTURES, tileAt } from "../src/index.ts";
 import { seededWorld, tickUntil } from "./helpers.ts";
 
 const later = (ms: number) => new Date(Date.now() + ms);
@@ -188,5 +188,39 @@ describe("v1.4 visitors: assignments are offers", () => {
     expect(r.mode).toBe("queued");
     expect(r.assignmentId).toBeUndefined();
     expect(world.presence.mailbox(v.id).unread).toBe(1);
+  });
+});
+
+describe("visitor reports reach a human (dc_04i3sll7q5)", () => {
+  const R = "## What I did\nx\n\n## Findings\ny\n\n## What I need from you\nNothing needed.";
+  const hallIds = (world: ReturnType<typeof seededWorld>["world"]) => world.ops.townHallIntray().reports.map((d) => d.id);
+
+  it("a homed visitor's report goes to its home building's in-tray, as today", async () => {
+    const { world, seed } = seededWorld();
+    const lab = world.ops.createBuilding(null, { name: "Roomy", headcount: 4 }).id;
+    const v = world.ops.registerVisitor(seed.admin.id, { name: "V", buildingId: lab }).agent;
+    const res = await world.verbs.submit_report(v, { title: "R", body: R, verdict: "stop" });
+    expect(world.docs.require(res.id)).toMatchObject({ buildingId: lab, tags: [] });
+    expect(world.ops.intray(lab).map((d) => d.id)).toContain(res.id);
+    expect(hallIds(world)).not.toContain(res.id);
+    expect(res.note).not.toContain("visitor report");
+  });
+
+  it("an unhomed visitor on the bench, on the plaza or inside someone's lab reports to the Town Hall in-tray", async () => {
+    const { world, seed } = seededWorld();
+    const lab = world.ops.createBuilding(null, { name: "Other", headcount: 4 }).id;
+    for (const where of ["town-hall", null, lab]) {
+      const v = world.ops.registerVisitor(seed.admin.id, { name: `V ${where}` }).agent;
+      world.agents.patch(v.id, { buildingId: where });
+      const res = await world.verbs.submit_report(world.agents.require(v.id), { title: `R ${where}`, body: R, verdict: "stop" });
+      const doc = world.docs.require(res.id);
+      expect(doc).toMatchObject({ buildingId: "town-hall", tags: ["visitor"] });
+      expect(doc.body).toContain(`Visitor report from V ${where}`);
+      expect(res).toMatchObject({ intray: "town-hall", workedBy: "human" });
+      expect(res.note).toContain("the Town Hall in-tray as a visitor report (a human works it)");
+      expect(hallIds(world)).toContain(res.id);
+      expect(world.ops.intray(lab).map((d) => d.id)).not.toContain(res.id);
+    }
+    expect(intrayCount(world, "town-hall")).toBeGreaterThanOrEqual(3);
   });
 });

@@ -287,12 +287,16 @@ export function intrayWorker(world: World, building: Building | undefined): "man
  * A team-lead report is for the humans: a rollup (which a checkpoint report also is, tagged `rollup` by `submit_report`)
  * lands in the Town Hall in-tray. Routed by what the report is, not by who wrote it (town hall 2026-10-25, decision 6):
  * a manager's own work report, from an assignment it gave itself or got from a meeting, is an ordinary report in its
- * building's in-tray, which the manager decides in its next team-lead session and folds into its rollup.
+ * building's in-tray, which the manager decides in its next team-lead session and folds into its rollup. An unhomed
+ * visitor's report (tagged `visitor`, filed under the Town Hall) is one too: the humans work it.
  */
 export function isTownHallItem(world: World, doc: Doc): boolean {
-  if (doc.type !== "report" || !doc.buildingId || !doc.tags.includes("rollup")) return false;
+  if (doc.type !== "report" || !doc.buildingId) return false;
   const b = world.buildings.get(doc.buildingId);
-  return !!b && b.kind !== "town-hall";
+  if (!b) return false;
+  // an unhomed visitor's report is filed under the Town Hall itself (submit_report): the humans work it
+  if (doc.tags.includes("visitor")) return b.kind === "town-hall";
+  return doc.tags.includes("rollup") && b.kind !== "town-hall";
 }
 
 const GRANT_INTRAY_STATUSES = ["proposed", "countered", "checkpoint"] as const;
