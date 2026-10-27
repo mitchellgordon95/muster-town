@@ -34,7 +34,7 @@ API (the parts Root's UI uses):
 
 ## Why
 
-Mitchell doesn't trust open-ended automation, and shouldn't have to. Nor should a human have to approve every task. The gate moves from individual tasks to a **funded building proposal**: the building's manager proposes an objective with a few key results that a human can check in the live town, plus a token ask. The human negotiates it, funds it, and checks in at half spend. Inside a funded grant, agents work as they do today. Outside one, a building only gets a small exploration allowance, and every exploration task has to point at the goal.
+Mitchell doesn't trust open-ended automation, and shouldn't have to. Nor should a human have to approve every task. The gate moves from individual tasks to a **funded building proposal**: the building's manager proposes an objective with a few key results that a human can check in the live town, plus a token ask. The human negotiates it, funds it, and checks in when it is spent (a grant is good for the number granted). Inside a funded grant, agents work as they do today. Outside one, a building only gets a small exploration allowance, and every exploration task has to point at the goal.
 
 The board becomes the place where this lives. It is the first thing a resident looks at, and today it is almost always empty (nobody posts FYIs).
 
@@ -55,7 +55,7 @@ The board becomes the place where this lives. It is the first thing a resident l
    │ funded grant │─────────┘
    │ free execution: assign, commit, deploy, as today
    └──────┬───────┘
-          │ spend crosses 50%
+          │ spend reaches 100%
    ┌──────▼───────┐  new sessions on the grant pause; manager writes a checkpoint report
    │ checkpoint   │  human: continue / adjust (tokens, KRs) / cut
    └──────┬───────┘
@@ -67,7 +67,7 @@ The board becomes the place where this lives. It is the first thing a resident l
 2. **Proposal (building level, by the manager).** The manager bundles findings into one proposal: an objective, 2-3 key results, a token ask, and a stop condition. Key results must be **human-observable**: something a person can see in the live town, with a "how to check" line ("open the Prod banner: it shows today's and all-time tokens"). "Tests pass", "N commits" or "PR merged" don't count, because agents grade their own work generously. A building has at most one proposal open at a time, so the human reviews one coherent plan instead of competing asks.
 3. **Negotiation.** The human funds it as is, funds it with fewer tokens, counters (edits key results or tokens with a note, and it goes back to the manager), or rejects it. Every step is kept in the grant's history.
 4. **Execution.** Once funded, the manager and residents work freely inside the grant: the manager assigns tasks against its key results, reviews reports, and continues work; residents commit and deploy as now. Outward-facing actions (`request_human`, anything in the real world) stay human-gated as today.
-5. **Checkpoint at 50% spend.** When the grant's spend crosses half its tokens, new sessions on it are held (running ones finish). The manager gets an assignment, charged to the grant, to write a checkpoint report: each key result's status with evidence a human can check. The human continues, adjusts (tokens, key results, stop condition), or cuts the rest. A grant that reaches 100% is held the same way and can only be topped up or closed.
+5. **Checkpoint at 100% spend.** A funded grant runs to its full number (town hall mt_rjhwj2qggm, notes dc_z4zgfk6tsz: "the whole point of a grant is that it's good for the number granted"; the 50% checkpoint was removed 2026-10-27, and grants still held there were released at boot). When the grant's spend reaches its tokens, new sessions on it are held (running ones finish). The manager gets an assignment, charged to the grant, to write a checkpoint report: each key result's status with evidence a human can check. The human tops it up (adjust: tokens, stop condition) or cuts it. There is no halfway note.
 6. **Close.** A grant closes when the human marks its key results met, when the stop condition is hit, or when it is cut. Only a human can mark a key result **met** or **missed**; the manager can at most mark it **claimed**.
 
 ### Three spend lanes
@@ -103,7 +103,7 @@ export const GrantStatus = z.enum([
   "proposed",    // waiting for a human
   "countered",   // a human sent it back with changes; manager's move
   "funded",      // execution: sessions may draw on it
-  "checkpoint",  // spend crossed 50% (or 100%): new sessions held until a human decides
+  "checkpoint",  // spend reached 100%: new sessions held until a human decides
   "closed",      // done: see outcome
   "rejected",
 ]);
@@ -127,7 +127,7 @@ export const Grant = z.object({
   outcome: GrantOutcome.nullable().default(null),
   /** exploration reports the proposal draws on */
   findingsDocIds: z.array(Id).default([]),
-  /** spend fractions already checkpointed (0.5, 1), so each fires once per grantTokens value */
+  /** spend fractions already checkpointed (1; a legacy 0.5 may remain), so each fires once per grantTokens value */
   checkpointsDone: z.array(z.number()).default([]),
   /** the manager's latest checkpoint report */
   checkpointDocId: Id.nullable().default(null),
@@ -182,7 +182,7 @@ lane: ...same enum..., grantId: Id.nullable().default(null),
 "building.fund",   // fund / counter / reject proposals, decide checkpoints, mark KRs met/missed
 ```
 
-- **Spend is derived, not stored**: a grant's spend is `SUM(sessions.tokens WHERE grantId = ?)`, and today's exploration spend is the same sum over `lane = 'exploration'` sessions of the building started since 00:00 UTC. No second counter that can drift from `Budget.charge`. `Budget.charge` only has to check the 50% / 100% thresholds after each charge.
+- **Spend is derived, not stored**: a grant's spend is `SUM(sessions.tokens WHERE grantId = ?)`, and today's exploration spend is the same sum over `lane = 'exploration'` sessions of the building started since 00:00 UTC. No second counter that can drift from `Budget.charge`. `Budget.charge` only has to check the 100% threshold after each charge.
 - **`building.fund` is never effective for agents**: `Permissions.can` returns false for agent holders regardless of roles. The manager agent already holds `building.manage`, and an owner's permissions cap their agents', so without this an agent manager whose owner is admin could fund its own proposal.
 - Exploration's "names a key result or gap" is enforced when the assignment is created: `lane = exploration` requires `keyResultId` (a goal key result with no funded grant) or a non-empty `gap`; `lane = grant` requires `grantId` (its key result is implied; since 032).
 
@@ -196,7 +196,7 @@ lane: ...same enum..., grantId: Id.nullable().default(null),
 
 Then come the existing checks (daily per-agent cap, building remaining). A held assignment stays pending, like a `waitFor`, and the board says why ("held: grant at checkpoint"). It is not cancelled. Sessions are never cut mid-run: a session that starts under the line may overshoot, which is what `Budget.charge` already allows.
 
-When a charge pushes a grant past 50% (or 100%), core sets it to `checkpoint`, appends a `grant.checkpoint` event, and creates the manager's checkpoint assignment (lane `grant`, which is allowed to run while the grant is in `checkpoint`). The assignment is "Write the checkpoint for <objective>: each key result's status with evidence a human can check, spend so far, and whether to continue". The manager files it with a new `checkpoint_grant` verb, which links the report and sets the status of the grant's goal key result (up to `claimed`; since 032). Humans get a mention in their inbox.
+When a charge pushes a grant to 100%, core sets it to `checkpoint`, appends a `grant.checkpoint` event, and creates the manager's checkpoint assignment (lane `grant`, which is allowed to run while the grant is in `checkpoint`). The assignment is "Write the checkpoint for <objective>: each key result's status with evidence a human can check, spend so far, and whether to continue". The manager files it with a new `checkpoint_grant` verb, which links the report and sets the status of the grant's goal key result (up to `claimed`; since 032). Humans get a mention in their inbox.
 
 A human's decision on a proposal wakes the manager the same way (Mitchell, 1:1 2026-10-26: funding woke nobody, so a funded grant sat idle until the manager's next session). `Grants.decide` creates one front-of-queue assignment for the building's manager agent, the same hook as the checkpoint assignment: **fund** → lane `grant` on the grant (its key result implied), "Grant <id> funded: assign its first step or take it yourself", with the plan (key result, approach, testing plan, stop condition, findings) in the description; **counter** → directed, "Answer the counter on <objective>", with the note; **reject** → directed, "Grant <id> rejected: read the note". No manager agent → nothing is queued (a human works the in-tray). Continue and adjust at a checkpoint create none: the held grant-lane work resumes on the next tick.
 
@@ -249,7 +249,7 @@ Today the brief only *tells* agents to look at the board (`composeWorkBrief`, `p
 `budgetMode` defaulted to `open` during the rollout, so nothing changed for a building until a human flipped it. Since 2026-10-25 (town hall decision) a **new building is `goal-directed`** with the default exploration allowance (`explorationTokensPerDay: null`, 10% of its pool's daily inflow); the Town Hall stays `open` (it has no grants); existing buildings keep their stored setting (migration 025 wrote `open` into every row), and a human flips them in Building settings. Suggested order (each small, committed to main):
 
 1. Core: schema + tables + derived spend + grant/KR CRUD + `decide` + `building.fund` guard, with tests.
-2. Core/runtime: lanes on assignments and sessions, the `canStart` gate, the 50% / 100% checkpoint, and the checkpoint assignment, with tests.
+2. Core/runtime: lanes on assignments and sessions, the `canStart` gate, the checkpoint (100% only since 2026-10-27), and the checkpoint assignment, with tests.
 3. Web: board rework, proposal negotiation, checkpoint buttons, settings fields.
 4. Prompts: Key results block in the brief; manager instructions for `propose_grant` / `checkpoint_grant`.
 5. Flip Town Workshop to `goal-directed` first, as the pilot.

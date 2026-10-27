@@ -159,6 +159,7 @@ export class World {
     });
     this.layout.rebuild();
     this.repairDesks();
+    this.grantDesk.releaseHalfway();
   }
 
   /** Boot repair: residents without a desk get one; a body left standing on someone else's desk moves to its own. */

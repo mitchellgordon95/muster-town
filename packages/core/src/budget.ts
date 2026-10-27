@@ -38,7 +38,7 @@ export function startOfLocalDay(d: Date): string {
 export class Budget {
   /** goal-directed budgets: the lane gate (`laneHold`, set by World): why an assignment is held, or null */
   gate?: (assignment: Assignment) => string | null;
-  /** goal-directed budgets: after every charge (World runs the grants' 50% / 100% checkpoints of the building) */
+  /** goal-directed budgets: after every charge (World runs the grants' 100% checkpoints of the building) */
   afterCharge?: (buildingId: string) => void;
 
   constructor(private repos: Repos, private events: EventLog, private bank: Bank, private changes?: Emitter<ServerMessage>) {}
@@ -107,7 +107,7 @@ export class Budget {
       spentTokensTotal: agent.spentTokensTotal + t,
       spentUsdTotal: agent.spentUsdTotal + usd,
     });
-    // grants' spend is derived from sessions, already ended with their tokens: see whether one crossed 50% / 100%
+    // grants' spend is derived from sessions, already ended with their tokens: see whether one reached 100%
     if (bid) this.afterCharge?.(bid);
     return updated;
   }
