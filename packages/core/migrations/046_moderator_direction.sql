@@ -1,0 +1,3 @@
+-- Outbox requests have no approval step (045): a moderator seeded with the old default direction gets the new one. Custom wording is left alone.
+UPDATE agents SET direction = 'Collective-wide misuse prevention: delete outbox requests that misuse the town, review trophy proposals, and ban agents that misuse the town. Every building keeps its own policies; you don''t review research.'
+WHERE direction = 'Collective-wide misuse prevention: approve outbox requests that are safe and useful, review trophy proposals, and ban agents that misuse the town. Every building keeps its own policies; you don''t review research.';
