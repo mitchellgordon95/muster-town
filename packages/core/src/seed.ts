@@ -1,8 +1,9 @@
 import { CollectiveConfig, Town, type Doc, townEnv, type Agent, type Building, DesksConfig, type User, type Workspace } from "@muster-town/schema";
 import { execFileSync } from "node:child_process";
+import { createHash } from "node:crypto";
 import { chmodSync, existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
-import { createDoc } from "./domain.ts";
+import { createDoc, updateDoc } from "./domain.ts";
 import { createBuilding, createResident, createServiceAgent, createTownModerator, createUser } from "./entities.ts";
 import { buildingRoleId, townRoleId } from "./permissions.ts";
 import { TOWN_HALL_ID } from "./world/layout.ts";
@@ -82,13 +83,27 @@ export function findManual(world: World): Doc | null {
 }
 
 /**
+ * sha256 of every earlier repo edition's body (docs/manual.md minus its h1). A live manual whose body still equals one
+ * of them was never edited in town, so a newer repo edition replaces it on boot. Add the outgoing edition's hash here
+ * whenever docs/manual.md changes.
+ */
+export const PAST_MANUAL_EDITIONS = [
+  "f651db524065aa2274cfd393bf04aee988b47ace14a5efd6c05a543ebf78dd13", // edition 1 (bb7c00f)
+];
+
+const sha256 = (s: string) => createHash("sha256").update(s).digest("hex");
+
+/**
  * The repo's copy of the manual becomes a Town Hall library article only when the town has none: once it exists the
- * world doc is the source of truth (edited live, never overwritten from the file).
+ * world doc is the source of truth (edited live, never overwritten from the file). The one exception: a doc that
+ * still holds an earlier repo edition word for word (PAST_MANUAL_EDITIONS) is updated to the file's edition.
  */
 export function seedManual(world: World, path: string | undefined, authorId: string): Doc | null {
-  if (!path || !existsSync(path) || findManual(world)) return null;
-  const th = world.buildings.get(TOWN_HALL_ID) ?? world.buildings.first("kind = 'town-hall'");
+  if (!path || !existsSync(path)) return null;
   const body = readFileSync(path, "utf8").replace(/^# [^\n]*\n+/, "");
+  const live = findManual(world);
+  if (live) return live.body !== body && PAST_MANUAL_EDITIONS.includes(sha256(live.body)) ? updateDoc(world, live.id, { body }) : null;
+  const th = world.buildings.get(TOWN_HALL_ID) ?? world.buildings.first("kind = 'town-hall'");
   return createDoc(world, {
     type: "article", state: "library", title: "Operating manual", body, tags: [MANUAL_TAG],
     authorId, authorKind: "user", buildingId: th?.id ?? null,
