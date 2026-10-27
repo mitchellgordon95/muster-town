@@ -2,6 +2,71 @@
 
 Status: **steps 1a–c built** (7bef911, 2eae49f, 441a7f3: schema, `Grants` service, REST routes, board route; every building still `budgetMode: open`). Steps 2–5 are re-sequenced by `docs/waterfall.md` (2026-10-24), which moves the human's surface from the board to the Town Hall in-tray and the manager's 1:1; the board proposal/checkpoint buttons and the amber map dot below are superseded by it. Decided in the Town Workshop standup of 2026-10-21, notes `dc_taoar1c9ag`.
 
+## Objectives and KPIs (2026-10-27, 1:1 mt_akz25kqo2q, decisions 3 and 4; migration 043)
+
+Status: **design** (Lena, as_dgepcp6k7d). Build next. Mitchell and Pix asked for it; there is no North Star metric.
+
+### The framing: the town goal is three KPIs
+
+The town goal "Make Muster Town something strangers can fund, join, and trust" is not a key result anyone meets; it is three standing indicators, **Fund**, **Join** and **Trust**, that should rise week over week. They sit at the top of the town dashboard. Every building objective names the one of the three it moves. Key results are how a building commits to moving it this quarter; KPIs are how the town sees whether it moved. (Short form in `docs/goals.md`.)
+
+### Shape
+
+```
+town goal ── KPIs (Fund, Join, Trust; standing, never met or missed)
+building goal
+  └─ objective (2 or 3 per building; one sentence; a quarter horizon; names the KPI it moves)
+       └─ key result (2 to 4 per objective; text, howToCheck, status as today)
+            └─ grant (names exactly one key result, as today)
+```
+
+- **Objective** (`objectives` table): `id`, `buildingId`, `position`, `text` (1–300 chars, one sentence), `horizon` (a quarter label, e.g. `2026-Q4`, default the current quarter), `kpiId` (the town KPI it moves; nullable while drafting), `createdBy`, `editedBy`, `sourceDocIds`, `updatedAt`. Who writes them: the same rule as key results (a human with `building.manage`, or the building's own manager agent; a manager's writes go into its next rollup); deleting one is human-only and refused while it holds key results.
+- **Key result** gains `objectiveId` (nullable). New key results should name one; at most 4 per objective (the 5th is refused). At most 3 objectives per building (the 4th is refused). The minimums (2 objectives, 2 KRs each) are shown as hints, not enforced, so a building can be built up one row at a time.
+- **Grants, lanes, stoplight, blocked, checkpoints: unchanged.** They all key on the key result id, so they keep working whether or not the KR has an objective.
+- **KPI** (`kpis` table): `id`, `scope` (`town` for now), `key` (`fund`, `join`, `trust`), `name`, `measure` (one sentence: what is counted), `position`. The value is computed live from town data by `core/src/kpis.ts` (one function per key), never typed in, for the last 7 days and the 7 days before, plus 8 weekly points for a sparkline. Seeded by the migration with the three rows below.
+
+### The three town KPIs (weekly; "the owner" = users holding a town-scope admin role, i.e. Mitchell today)
+
+| KPI | Measure | Data it reads |
+|---|---|---|
+| **Fund** | Funders other than the owner: distinct humans who funded a grant or added a Bank input in the week, and the adjusted tokens they put in. | `grants.fundedBy`/`fundedAt`/`grantTokens`, `bank_inputs.userId`/`createdAt` |
+| **Join** | Strangers who came back: humans (not the owner) whose first activity fell in the week and who were active again on a later day within 14 days (their human avatar or a visitor they own appears in the event log). | `users.createdAt`, `agents.ownerUserId`, `events.agentId`/`ts` |
+| **Trust** | Humans (not the owner) who staked something a second time: answered an outbox request, or funded a grant after having funded one before. | `docs` type `human-report` (outbox answers), `grants.fundedBy` |
+
+Today all three read 0 or close to it: the town has one funder. That is the honest starting line, and the dashboard says so.
+
+### API
+
+- `GET /api/buildings/:id/objectives` → `{ objectives: [{...objective, keyResults: GoalKeyResult[]}], unsorted: GoalKeyResult[] }` (public). `POST /api/buildings/:id/objectives`, `PATCH /api/objectives/:id`, `DELETE /api/objectives/:id`.
+- `POST /api/buildings/:id/key-results` and `PATCH /api/key-results/:id` accept `objectiveId`.
+- `GET /api/kpis` → `{ framing, kpis: [{ id, key, name, measure, thisWeek, lastWeek, weeks: number[8], detail }] }` (public).
+- Verbs: `set_objective` (manager: `text`, `kpi` fund|join|trust, `horizon`, `sourceDocIds`; `id` to edit) and `set_key_result` gains `objectiveId`.
+- The desk brief's key-results block groups the KRs under their objectives ("Objective O1 (moves Trust, 2026-Q4): …"), then "Not under an objective yet".
+
+### UI
+
+- **Town dashboard**: a panel opened from the top bar and the Town Hall ("Dashboard"): the framing paragraph, then three KPI tiles (Fund, Join, Trust: this week, last week, an 8-week sparkline, the measure in one line), then each goal-directed building's objectives with the KPI each moves and its KRs' statuses.
+- **Building → Settings → Objectives and key results** replaces the flat Key results editor: objectives with their KRs nested, an "Add key result" under each objective, a KPI picker per objective, and an "Unsorted" group with a "Move under…" select.
+- **The board** groups its Key results rows by objective the same way.
+
+### Migration path (043)
+
+Additive only: create `objectives` and `kpis`, add `key_results.objectiveId` (null), seed the three KPI rows. Existing key results land in "Unsorted" and keep their ids, statuses and grants; nothing about grants, lanes or the stoplight changes. A human or the manager then writes the objectives and moves each KR under one (one PATCH per KR). No KR is moved automatically: the migration can't know which objective a KR serves.
+
+### Draft: the Town Workshop's objectives (for Mitchell and Pix to mark up)
+
+Horizon 2026-Q4. Only kr_vyrhhiyotb exists today; the other KRs are suggestions to keep or cut.
+
+1. **Moves Trust.** "A funder can see exactly what every token bought: the Bank counts each token type and every grant shows its sessions and their cost."
+   - kr_vyrhhiyotb: the Bank counts adjusted output tokens (live, grant gr_iq5m7dug56).
+   - (suggested) A grant's page lists every session it paid for with its adjusted tokens, summing to the grant's spend within 1%.
+2. **Moves Join.** "A stranger who arrives can understand the town and finish useful work in their first session without help."
+   - (suggested) 3 of 5 new visitors file a report in their first session (event log).
+   - (suggested) A human @mention or outbox answer reaches the agent within one session, verified live with a non-owner.
+3. **Moves Fund.** "Someone other than Mitchell can fund a building's key result end to end."
+   - (suggested) A non-owner funds one grant from the Town Hall in-tray (Fund KPI ≥ 1 in a week).
+   - (suggested) Several grant proposals per building can be open at once (Root, as_hhazzuk6pb).
+
 ## Model change (2026-10-25, migration 032): key results live on the building goal
 
 Mitchell decided this in his 1:1s with Pix (notes `dc_bo7xuobtbv`, meeting `mt_593ps69z8y`). It supersedes "a grant carries 2-3 key results" everywhere below.
