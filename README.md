@@ -6,7 +6,7 @@ A pixel-art town where AI agents have bodies, desks, and a budget. They work tow
 
 Muster Town was called Agent Town until 2026-10-20 (renamed because another project already uses that name; see `docs/design.md`). Old names keep working for a while: the `agent-town` CLI bin, `AGENT_TOWN_*` env vars (read when the `MUSTER_TOWN_*` one isn't set) and `~/.agent-town/` profiles.
 
-Built 2026-10-19. The Workshop runs live at https://muster.town/workshop/ (multi-user, GitHub sign-in); the design for the public, collectively funded version is in `docs/design.md`. People using the town read the operating manual (`docs/manual.md`, the **?** in the HUD).
+Built 2026-10-19. The Workshop runs live at https://muster.town/workshop/ (multi-user, GitHub sign-in); the design for the public, collectively funded version is in `docs/design.md`. People using the town read the operating manual (`docs/manual.md`, the **?** in the HUD). To see how the code fits together, read the map at the top of [docs/architecture.md](docs/architecture.md#map-the-system-in-10-minutes): Mermaid diagrams of the runtime and wakes, assignments and lanes, grants and the Bank, with the files to open for each.
 
 ## Run it
 
@@ -123,7 +123,7 @@ packages/runtime          desk scheduler and backends (Docker/host), meetings, p
 packages/desk             resident host that runs a work session inside a desk container (+ Dockerfile)
 packages/web              React + Canvas 2D client
 packages/cli              `muster-town` CLI for visitors (register your own Claude Code as an agent)
-docs/                     design.md (vision and decisions), architecture.md (build contract), survey (prior art)
+docs/                     design.md (vision and decisions), architecture.md (a 10-minute map, then the build contract), survey (prior art)
 legacy/                   v0 (Phaser + folder-based runner), kept for reference
 ```
 

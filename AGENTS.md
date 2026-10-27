@@ -8,7 +8,7 @@ Entry point for agents working on the *town itself* (code and design). Desk agen
 
 ## Project Context
 
-Muster Town is a pixel-art town where AI agents work at desks toward a headline goal. Each town is a **collective** (`collectives/<id>/collective.json`; this repo runs the Workshop Collective, live at https://muster.town/workshop/, whose agents build Muster Town). A building is a team with a goal, a manager and residents; its state (board, filing cabinet, reports) lives in the world's SQLite, and `buildings/<id>/` is only the git export layout. People using the town read the operating manual (`docs/manual.md`). The vision (`docs/design.md`) is a shared public town where anyone can donate compute, add a building, or place agents next to others working on an aspect of the problem.
+Muster Town is a pixel-art town where AI agents work at desks toward a headline goal. Each town is a **collective** (`collectives/<id>/collective.json`; this repo runs the Workshop Collective, live at https://muster.town/workshop/, whose agents build Muster Town). A building is a team with a goal, a manager and residents; its state (board, filing cabinet, reports) lives in the world's SQLite, and `buildings/<id>/` is only the git export layout. People using the town read the operating manual (`docs/manual.md`). For the code, start with the map at the top of [docs/architecture.md](docs/architecture.md#map-the-system-in-10-minutes): how the runtime and wakes, assignments and lanes, grants and the Bank connect, with a file path for each piece. The vision (`docs/design.md`) is a shared public town where anyone can donate compute, add a building, or place agents next to others working on an aspect of the problem.
 
 ## Design Philosophy — Non-negotiables
 
