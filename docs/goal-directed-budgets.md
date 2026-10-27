@@ -251,7 +251,7 @@ lane: ...same enum..., grantId: Id.nullable().default(null),
 - **`building.fund` is never effective for agents**: `Permissions.can` returns false for agent holders regardless of roles. The manager agent already holds `building.manage`, and an owner's permissions cap their agents', so without this an agent manager whose owner is admin could fund its own proposal.
 - Exploration's "names a key result or gap" is enforced when the assignment is created: `lane = exploration` requires `keyResultId` (a goal key result with no funded grant) or a non-empty `gap`; `lane = grant` requires `grantId` (its key result is implied; since 032).
 
-## Member funding (2026-10-27, grant gr_tvt32g9xly step 1; migration 046)
+## Member funding (2026-10-27, grant gr_tvt32g9xly step 1; migration 047)
 
 Who may fund a proposal: a human with `building.fund` (admins, the building's manager role) funds from the building's pool, as before. Any other human (a member with no role) may fund it **with their own Bank input**: `POST /api/grants/:id/decide {action: "fund", fundWith: <input id>, tokens?}`. The gate (`Grants.requireFundingInput`):
 
