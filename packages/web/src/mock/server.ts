@@ -1,7 +1,7 @@
 /** `Api` implemented against the in-memory Sim. Same interface as HttpApi, so every panel works offline. */
 import type { AccessRequest, AccessRequestView, Agent, Assignment, AuthMe, BlockedAssignment, BlockedBy, Building, Doc, Event, Meeting, Membership, RedeployLive } from "@muster-town/schema";
 import { BACKFILL, BOARD_TYPES, KPI_FRAMING, DEFAULT_POOL_ID, ZERO_TOKENS, addTokens, backfillFamily, splitRaw, type BankPool } from "@muster-town/schema";
-import type { Api, AgentDetail, AllocationRow, Bank, Budget, Cabinet, CabinetQuery, DocQuery, EventQuery, In, LayoutPreview, MessageResult, PlanPreview, RoomLayout, RequestAction, Snapshot, Socket, SocketHandlers, ThreadMessage, WriteDocInput } from "../api";
+import type { Api, AgentDetail, AllocationRow, Bank, Budget, Finance, Cabinet, CabinetQuery, DocQuery, EventQuery, In, LayoutPreview, MessageResult, PlanPreview, RoomLayout, RequestAction, Snapshot, Socket, SocketHandlers, ThreadMessage, WriteDocInput } from "../api";
 import { ApiError } from "../api";
 import type { PinSkillInput, PutSecretInput, SecretView, SkillPinView, SkillView } from "@muster-town/schema";
 import type { CreateBuildingInput, UpdateBuildingInput, CreateResidentInput, RegisterVisitorInput, ReviewInput, ChatInput, WorkInput, DonateInput, CreateMeetingInput, DocState, AddBankInput, BankInput, CreateBankPoolInput, UpdateBankPoolInput, DecideGrantInput, CreateKeyResultInput, UpdateKeyResultInput, CreateObjectiveInput, UpdateObjectiveInput } from "@muster-town/schema";
@@ -523,6 +523,22 @@ export class MockApi implements Api {
   // accounting pools: buildings without a poolId are in General; pools without a pct split what's left equally
   private bankPools: BankPool[] = [{ id: DEFAULT_POOL_ID, name: "General", pct: null, createdAt: now() }];
   private poolOf(b: Building) { return this.bankPools.some((p) => p.id === b.poolId) ? b.poolId! : DEFAULT_POOL_ID; }
+  // a toy finance summary over the toy Bank: nothing expired or overdrawn, a flat burn
+  async finance(): Promise<Finance> {
+    const b = await this.bank();
+    const credited = this.bankInputs.filter((i) => !i.cancelledAt).reduce((s, i) => s + i.creditedTokens, 0);
+    const donated = this.sim.allocations.reduce((s, a) => s + a.tokens, 0);
+    const leftBank = b.balanceTokens, leftDonations = b.heldTokens;
+    const usedBank = Math.max(0, credited - leftBank), usedDonations = Math.max(0, donated - leftDonations);
+    const used = usedBank + usedDonations, total = credited + donated, left = leftBank + leftDonations;
+    const burn = Math.round(used / 7);
+    const diff = used + left - total;
+    return {
+      total, credited, donated, used, usedBank, usedDonations, expired: 0, left, leftBank, leftDonations, overdrawn: 0, usageLedger: used,
+      projection: { days: 30, trailingDailyBurn: burn, burnDays: 7, projectedUse30d: burn * 30 },
+      sumCheck: { ok: diff === 0, diff, identity: "used + expired + left = total + overdrawn" }, at: now(),
+    };
+  }
   async bank(): Promise<Bank> {
     await wait();
     const live = this.bankInputs.filter((i) => !i.cancelledAt);
