@@ -147,12 +147,23 @@ become a rule later if it is touched anyway.
    mt_f45m8hbmct: `Grants.decisionAssignment`, the same hook as the checkpoint assignment; fund → grant lane, counter /
    reject → directed). The rest (continue, adjust, cut or close by a human, and a human's `kr.created` / `kr.updated` /
    `kr.deleted`) write one town-authored in-tray row (`managerIntrayRow`, core/src/wakes.ts; author `system`, shown as
-   Town; tag `wake:manager-intray:<eventId>:<buildingId>` so a replay writes nothing), called from the runtime's
-   `onEvent`; the row's `doc.created` wakes the manager through T like a resident's report, and it acknowledges it with
+   Town; tag `wake:manager-intray:<eventId>:<buildingId>` so a replay writes nothing), now the Waker's
+   `manager-intray-row` rule (step 4); the row's `doc.created` wakes the manager through T like a resident's report, and it acknowledges it with
    `review` approve. Grant events carry `payload.action` (the history entry) so the rule can tell fund from continue.
    `notifyManager` stays as the inbox line.
-4. **Waker with a persisted cursor**: move the `onEvent` branches into `WAKE_RULES`, persist `ManageState.offered` as
-   `wakeKey`s, replay on boot. No change in behaviour; this is the refactor that makes steps 2–3 rules.
+4. **Waker with a persisted cursor** — done 2026-10-27 (runtime/src/waker.ts). The runtime's `onEvent` branches are
+   now `WAKE_RULES`, a table in code (name, whose wake, kind M/T/Q/stop, first match wins in the old branch order):
+   meeting summaries, facilitation, meeting reply, the manager's 1:1, the manager's in-tray (T), step 3's
+   `manager-intray-row`, and stop. `startWaker` subscribes to the event log and keeps a cursor (the last event id
+   handled) in `meta` key `wakeCursor` (`TownMeta.wakeCursor`; no migration). On boot it replays `(cursor, lastId]`
+   for the durable rules only (`replay: true`, today just `manager-intray-row`, which writes under its wakeKey, so a
+   replay or a double delivery writes nothing); a first boot starts at the end of the log. The cursor only passes an
+   event once its durable rule has settled. Kick rules (start or feed a session through the runtime's starters) are
+   not replayed: the tick's level-triggered sweeps (`wakeManagers`, `scheduleMeetings`, `scheduleWork`) cover a
+   restart, as before. Stayed ad hoc: step 2's `relayWake`, called by the `tell` verb itself, because the tell's
+   reply must say whether it woke the recipient and "idle, no session running" must be judged at tell time, not at a
+   later replay; and `ManageState.offered`, kept in memory, because persisting it would change what a restarted
+   manager is offered (no change in behaviour was the rule). Tests: runtime test/waker.test.ts.
 5. **Leftovers, as needed**: `request_human` answered → wake a parked requester; a meeting decision amending an active
    assignment → interrupt (I); then the per-agent subscription table if a use for it shows up.
 
