@@ -1,5 +1,6 @@
 /** Toolbar shown while planning the town (see map/townPlan.ts): hints, the server's objections, the new building's form. */
 import { townPlan, useTownPlan } from "../map/townPlan";
+import { NumberInput } from "./ui";
 
 export function PlanToolbar() {
   const d = useTownPlan();
@@ -17,7 +18,7 @@ export function PlanToolbar() {
         <div className="plan-form">
           <input className="grow" aria-label="New building name" placeholder="New building name" value={c.name} onChange={(e) => townPlan.setNew({ name: e.target.value })} />
           <input className="grow" aria-label="Goal" placeholder="Goal (optional)" value={c.goal} onChange={(e) => townPlan.setNew({ goal: e.target.value })} />
-          <label>Desks <input type="number" min={1} max={24} style={{ width: 52 }} value={c.headcount} onChange={(e) => townPlan.setNew({ headcount: Math.max(1, +e.target.value || 1) })} /></label>
+          <label title="Follows the building's size as you draw or resize it; more desks grow it">Desks <NumberInput min={1} max={24} style={{ width: 52 }} value={c.headcount} onChange={(n) => townPlan.setNew({ headcount: n })} /></label>
           <button className="btn" onClick={() => townPlan.dropNew()} title="Delete">Remove</button>
         </div>
       ) : null}

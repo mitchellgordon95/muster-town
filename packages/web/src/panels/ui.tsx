@@ -1,5 +1,5 @@
 /** Small shared UI pieces for panels. */
-import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
+import { useCallback, useEffect, useRef, useState, type InputHTMLAttributes, type ReactNode } from "react";
 import type { Event } from "@muster-town/schema";
 import { store, useTown } from "../state";
 import { api } from "../api";
@@ -95,6 +95,20 @@ export function MTokensInput({ value, onChange, placeholder, min = 0, ariaLabel 
       <span className="unit" title={ADJ_HINT}>M {ADJ}</span>
     </div>
   );
+}
+/**
+ * A whole-number box that can be emptied while typing: the text is a draft, `onChange` gets each valid number
+ * (clamped to min..max), and leaving the box shows `value` again.
+ */
+export function NumberInput({ value, onChange, min, max, ...rest }: { value: number; onChange: (n: number) => void; min?: number; max?: number } & Omit<InputHTMLAttributes<HTMLInputElement>, "value" | "onChange" | "min" | "max" | "type">) {
+  const [text, setText] = useState<string | null>(null);
+  return <input {...rest} type="number" min={min} max={max} value={text ?? String(value)}
+    onChange={(e) => {
+      setText(e.target.value);
+      const n = Math.round(Number(e.target.value));
+      if (e.target.value.trim() !== "" && Number.isFinite(n)) onChange(Math.min(max ?? Infinity, Math.max(min ?? -Infinity, n)));
+    }}
+    onBlur={(e) => { setText(null); rest.onBlur?.(e); }} />;
 }
 export function KV({ items }: { items: [string, ReactNode][] }) {
   return <dl className="kv">{items.map(([k, v]) => <div key={k}><dt>{k}</dt><dd>{v}</dd></div>)}</dl>;

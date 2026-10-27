@@ -37,6 +37,11 @@ export function labSize(headcount: number): { w: number; h: number } {
   const cols = Math.min(3, n), rows = Math.ceil(n / cols);
   return { w: Math.max(cols * 4 + 3, 13), h: rows * 3 + 6 };
 }
+/** Most desks a lot holds (up to the form's 24); 0 = too small for one. Drawing or resizing the new building sets its desks to this. */
+export function desksFor(lot: { w: number; h: number }): number {
+  for (let n = 24; n >= 1; n--) { const s = labSize(n); if (lot.w >= s.w && lot.h >= s.h) return n; }
+  return 0;
+}
 
 let draft: PlanDraft | null = null;
 const listeners = new Set<() => void>();
@@ -90,8 +95,8 @@ export const townPlan = {
     const cur = this.lotOf(g.id);
     if (g.kind === "draw") {
       const lot = { x: Math.min(g.ax, x), y: Math.min(g.ay, y), w: Math.abs(x - g.ax) + 1, h: Math.abs(y - g.ay) + 1 };
-      if (!draft!.create) { set({ ...draft!, create: { lot, name: "", goal: "", headcount: 6 }, selected: "new" }); check(); }
-      else this.setLot("new", lot, false);
+      if (!draft!.create) { set({ ...draft!, create: { lot, name: "", goal: "", headcount: desksFor(lot) || 6 }, selected: "new" }); check(); }
+      else { this.setLot("new", lot, false); this.fitDesks(); }
       return;
     }
     if (!cur) return;
@@ -100,6 +105,12 @@ export const townPlan = {
     if (g.l) x0 = Math.min(x, x1 - 2); if (g.r) x1 = Math.max(x, x0 + 2);
     if (g.t) y0 = Math.min(y, y1 - 2); if (g.b) y1 = Math.max(y, y0 + 2);
     this.setLot(g.id, { x: x0, y: y0, w: x1 - x0 + 1, h: y1 - y0 + 1 }, false);
+    if (g.id === "new") this.fitDesks();
+  },
+  /** The new building's desks follow its drawn size (a lot too small for one desk keeps the last count; the drop grows it). */
+  fitDesks() {
+    const c = draft?.create, n = c ? desksFor(c.lot) : 0;
+    if (c && n && n !== c.headcount) set({ ...draft!, create: { ...c, headcount: n } });
   },
   /** After a drag: one Undo step back to where it started. A tiny new lot grows to the smallest that fits. */
   commitDrag(before: PlanDraft["history"][number]) {
