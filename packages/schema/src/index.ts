@@ -390,7 +390,7 @@ export const ReviewDecision = z.enum(["approve", "continue", "redirect", "stop"]
 export type ReviewDecision = z.infer<typeof ReviewDecision>;
 /**
  * Outbox request lifecycle: open (visible to every human at once, no approval step) → claimed → done.
- * "rejected" is legacy (the old moderator gate); "proposed"/"approved" from before migration 044 read as open.
+ * "rejected" is legacy (the old moderator gate); "proposed"/"approved" from before migration 045 read as open.
  */
 export const RequestStatus = z.preprocess((v) => (v === "proposed" || v === "approved" ? "open" : v), z.enum(["open", "claimed", "done", "rejected"]));
 
