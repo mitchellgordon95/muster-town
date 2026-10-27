@@ -13,7 +13,8 @@ export { Budget, PLACEHOLDER_LABEL, startOfLocalDay, type ChargeResult, type Bud
 export { Skills, parseSkillMd, skillsBlock, type SessionSkill, type SkillMd } from "./skills.ts";
 export { Media, MEDIA_MAX_BYTES, MEDIA_DAILY_BYTES, MEDIA_TYPES, mediaUrl, type MediaInfo } from "./media.ts";
 export { Secrets, REPO_TOKEN_SECRET, dataKeyFrom, encryptSecret, decryptSecret } from "./secrets.ts";
-export { Grants, EXPLORATION_SHARE, CHECKPOINTS, BLOCKED_NO_KRS, type ExplorationBudget, type DirectedBudget, type GrantBoard, type GoalKeyResult, type BlockedBuilding } from "./grants.ts";
+export { townKpis, kpiByKey, KPI_WEEKS, JOIN_RETURN_DAYS } from "./kpis.ts";
+export { Grants, quarterOf, type ObjectiveView, type ObjectiveTree, EXPLORATION_SHARE, CHECKPOINTS, BLOCKED_NO_KRS, type ExplorationBudget, type DirectedBudget, type GrantBoard, type GoalKeyResult, type BlockedBuilding } from "./grants.ts";
 export { BANK_ACCOUNTING, Bank, TOKEN_PRICES, adjustedOfUsage, booked, sliceBooked, type Booked, adjustedOutputTokens, listCostUsd, sessionView, tokenPrices, tokenWeights, type BankContributor, type BankSummary } from "./bank.ts";
 export { Ops, type Actor, type MessageAgentOptions, type MessageAgentResult, type RequestAction, type ThreadMessage } from "./ops.ts";
 export { createBuilding, updateBuilding, syncManagerRoles, createResident, registerVisitor, ensureAvatar, createUser, createServiceAgent, createTownModerator, updateFurniture, planTown } from "./entities.ts";

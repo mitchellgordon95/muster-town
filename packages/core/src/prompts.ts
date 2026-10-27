@@ -123,11 +123,22 @@ export function keyResultsBlock(world: World, building: Building, assignment?: A
   if (building.budgetMode !== "goal-directed") return "";
   const board = world.grantDesk.board(building.id);
   const grants = new Map(board.grants.map((g) => [g.id, g]));
-  const krs = board.keyResults.map((k) => {
+  const krLine = (k: (typeof board.keyResults)[number], indent = "") => {
     const g = k.grantId ? grants.get(k.grantId) : undefined;
     const funding = g ? `grant ${g.id} "${oneLine(g.objective, 120)}" (${g.status === "checkpoint" ? "at checkpoint: its sessions are held" : "funded"}; ${tok(g.spentTokens)} / ${tok(g.grantTokens ?? 0)} tokens)` : "no funded grant: open for exploration";
-    return `- ${k.id} [${k.status}] ${oneLine(k.text, 160)} (how to check: ${oneLine(k.howToCheck, 160)}); ${funding}`;
-  });
+    return `${indent}- ${k.id} [${k.status}] ${oneLine(k.text, 160)} (how to check: ${oneLine(k.howToCheck, 160)}); ${funding}`;
+  };
+  // grouped under the goal's objectives (each names the town KPI it moves), then the ones under none yet
+  const { objectives, unsorted } = board.objectives;
+  const krs = objectives.length
+    ? [
+      ...objectives.flatMap((o) => [
+        `Objective ${o.id} (moves ${o.kpiName ?? "no KPI yet"}, ${o.horizon}): ${oneLine(o.text, 200)}`,
+        ...(o.keyResults.length ? o.keyResults.map((k) => krLine(k, "  ")) : ["  (no key results under it yet)"]),
+      ]),
+      ...(unsorted.length ? ["Not under an objective yet:", ...unsorted.map((k) => krLine(k, "  "))] : []),
+    ]
+    : board.keyResults.map((k) => krLine(k));
   const orphans = board.grants.filter((g) => !g.keyResultId).map((g) => `- grant ${g.id} "${oneLine(g.objective, 120)}" names no key result`);
   const krText = (id: string | null) => { const k = id ? world.keyResults.get(id) : undefined; return k ? `${k.id} "${oneLine(k.text, 120)}"` : id ?? ""; };
   const lane = !assignment ? "" : assignment.lane === "grant"
@@ -147,7 +158,7 @@ export function managerGrantsBlock(world: World, building: Building): string {
   const open = world.grants.where("buildingId = ? AND status IN ('proposed', 'countered')", [building.id], "ORDER BY createdAt, rowid");
   const blocked = world.grantDesk.blocked(building);
   return `## Grants (this building is goal-directed)
-Key results live on the building goal. A human writes them, and so do you for this building: when a meeting or your 1:1 with Mitchell settles one, \`set_key_result\` (text, howToCheck, sourceDocIds = the meeting notes or report it comes from; id to edit one). Your next rollup lists every key result you wrote, appended for you, so Mitchell can keep or cut it; only a human marks one met or missed, or deletes it. A grant is the plan for one of them: \`propose_grant\` with its keyResultId, an objective, the approach, a stop condition, a token ask and optionally a testing plan (text + howToCheck lines: how the work will be checked). Funding it runs the plan.
+Key results live on the building goal, under its objectives: 2 or 3 objectives (one sentence for the quarter, each naming the town KPI it moves: Fund, Join or Trust), each holding 2 to 4 key results. A human writes them, and so do you for this building: when a meeting or your 1:1 with Mitchell settles one, \`set_objective\` (text, kpi, sourceDocIds; id to edit) and \`set_key_result\` (text, howToCheck, sourceDocIds = the meeting notes or report it comes from, objectiveId = the objective it serves; id to edit one or move it). Your next rollup lists every key result you wrote, appended for you, so Mitchell can keep or cut it; only a human marks one met or missed, or deletes it. A grant is the plan for one of them: \`propose_grant\` with its keyResultId, an objective, the approach, a stop condition, a token ask and optionally a testing plan (text + howToCheck lines: how the work will be checked). Funding it runs the plan.
 Every \`assign\` names its lane: "grant" with the grantId of a funded grant (its key result is implied), or "exploration" with the keyResultId of a goal key result that has no funded grant, or a gap (one sentence on what is missing between the goal and the live town). Work that traces to a human ask is "directed": give lane "directed" with sourceId = the human-authored source it comes from (a meeting with a human or its notes, a flag, a human-report, a rollup a human replied to, a human's tell); \`review\` continue/redirect and meeting decisions take the same lane fields. Directed work is never held by the exploration allowance (it is metered on its own: "Directed today"); naming a keyResultId (or a gap) says what it is for, and with a key result it runs until a grant proposal names it. Without a human source you can't create directed work: unguided exploration stays on the allowance. Assignments whose grant is at checkpoint, or exploration past today's allowance, stay pending (held), never cancelled.
 ${blocked ? `This building is ${blocked}: write key results for the goal with \`set_key_result\` once a meeting or your 1:1 has settled them (or propose them in a rollup).\n` : ""}${open.length ? `Open proposals (several can be open at once, each decided on its own): ${open.map((g) => `${g.id} (${g.status})${g.keyResultId ? "" : ", naming no key result yet"}${g.status === "countered" ? `; it is your move: answer the counter with \`propose_grant\` and grantId ${g.id} (the revised plan rewrites it under the same id)` : "; a human decides it in the Town Hall in-tray"}`).join("; ")}. Another key result without a funded grant can get its own proposal now.` : "No proposal is open: if exploration findings are in, draft one with `propose_grant` for a key result that has no funded grant (findings reports in findingsDocIds)."}
 A human's decision on your proposal wakes you with an assignment, like a reply to a report: funded → "Grant … funded: assign its first step or take it yourself" (lane grant, the plan in it; nothing runs until its steps are assignments), countered → "Answer the counter on …" (re-propose with \`propose_grant\`), rejected → "Grant … rejected: read the note". When a grant reaches 100% of its tokens (the only checkpoint; it runs to its full number before that) you get a "Write the checkpoint for …" assignment: \`checkpoint_grant\` (its key result's status up to claimed, with evidence), then \`submit_report\` with \`rollup: true\`; it lands in the Town Hall in-tray linked to the grant.`;

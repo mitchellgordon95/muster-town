@@ -1,7 +1,7 @@
 /** In-memory town for VITE_MOCK=1: holds state, animates it, and implements actions locally. */
-import type { Agent, Allocation, Assignment, Building, CreateKeyResultInput, DecideGrantInput, Doc, Event, GrantView, KeyResult, Meeting, Membership, Role, ServerMessage, Stoplight, UpdateKeyResultInput } from "@muster-town/schema";
+import type { Agent, Allocation, Assignment, Building, CreateKeyResultInput, CreateObjectiveInput, Objective, UpdateObjectiveInput, DecideGrantInput, Doc, Event, GrantView, KeyResult, Meeting, Membership, Role, ServerMessage, Stoplight, UpdateKeyResultInput } from "@muster-town/schema";
 import { BUILTIN_ROLES, stoplightOf } from "@muster-town/schema";
-import type { GoalKeyResult, Snapshot } from "../api";
+import type { GoalKeyResult, ObjectiveTree, Snapshot } from "../api";
 import * as F from "./fixture";
 import { bfs, computeLayout, type Layout } from "./layout";
 
@@ -32,6 +32,7 @@ export class Sim {
   meetings = new Map<string, Meeting>(clone(F.meetings).map((m) => [m.id, m]));
   grants = new Map<string, GrantView>(clone(F.grants).map((g) => [g.id, g]));
   keyResults = new Map<string, KeyResult>(clone(F.keyResults).map((k) => [k.id, k]));
+  objectives = new Map<string, Objective>(clone(F.objectives).map((o) => [o.id, o]));
   events: Event[] = clone(F.events);
   roles: Role[] = clone(F.roles);
   memberships: Membership[] = clone(F.memberships);
@@ -99,10 +100,10 @@ export class Sim {
     const b = this.buildings.find((x) => x.id === buildingId);
     const of = (g: GrantView) => g.buildingId === buildingId;
     const grants = [...this.grants.values()].filter((g) => of(g) && (g.status === "funded" || g.status === "checkpoint")).sort((x, y) => (x.fundedAt ?? "").localeCompare(y.fundedAt ?? ""));
-    const proposal = [...this.grants.values()].filter((g) => of(g) && (g.status === "proposed" || g.status === "countered")).sort((x, y) => y.updatedAt.localeCompare(x.updatedAt))[0] ?? null;
+    const proposals = [...this.grants.values()].filter((g) => of(g) && (g.status === "proposed" || g.status === "countered")).sort((x, y) => y.updatedAt.localeCompare(x.updatedAt));
     const keyResults = this.goalKeyResults(buildingId);
     const blocked = b?.budgetMode === "goal-directed" && !keyResults.length && !grants.length ? BLOCKED_NO_KRS : null;
-    return { goal: b?.goal ?? "", keyResults, blocked, stoplight: this.stoplight(buildingId), grants, proposal, exploration: { allowanceTokens: b?.explorationTokensPerDay ?? 0, spentTodayTokens: F.explorationSpentToday[buildingId] ?? 0 } };
+    return { goal: b?.goal ?? "", keyResults, objectives: this.objectiveTree(buildingId), blocked, stoplight: this.stoplight(buildingId), grants, proposals, exploration: { allowanceTokens: b?.explorationTokensPerDay ?? 0, spentTodayTokens: F.explorationSpentToday[buildingId] ?? 0 } };
   }
   /** The building's stoplight, as core's Grants.stoplight: null for open buildings and the Town Hall. */
   stoplight(buildingId: string): Stoplight | null {
@@ -120,12 +121,41 @@ export class Sim {
     const live = new Map([...this.grants.values()].filter((g) => g.keyResultId && (g.status === "funded" || g.status === "checkpoint")).map((g) => [g.keyResultId!, g.id]));
     return [...this.keyResults.values()].filter((k) => k.buildingId === buildingId).sort((a, b) => a.position - b.position).map((k) => ({ ...k, grantId: live.get(k.id) ?? null, createdByName: this.nameOf(k.createdBy), editedByName: this.nameOf(k.editedBy) }));
   }
+  /** GET /api/buildings/:id/objectives, as core's Grants.objectiveTree. */
+  objectiveTree(buildingId: string): ObjectiveTree {
+    const krs = this.goalKeyResults(buildingId);
+    const objectives = [...this.objectives.values()].filter((o) => o.buildingId === buildingId).sort((a, b) => a.position - b.position).map((o) => {
+      const k = F.kpis.find((x) => x.id === o.kpiId);
+      return { ...o, kpi: k?.key ?? null, kpiName: k?.name ?? null, keyResults: krs.filter((x) => x.objectiveId === o.id), createdByName: this.nameOf(o.createdBy), editedByName: this.nameOf(o.editedBy) };
+    });
+    const ids = new Set(objectives.map((o) => o.id));
+    return { objectives, unsorted: krs.filter((k) => !k.objectiveId || !ids.has(k.objectiveId)) };
+  }
+  createObjective(buildingId: string, i: CreateObjectiveInput): Objective {
+    const mine = [...this.objectives.values()].filter((o) => o.buildingId === buildingId);
+    if (mine.length >= 3) throw new Error("This goal already has 3 objectives (at most 3): edit one instead.");
+    const o: Objective = { id: newId("ob"), buildingId, position: Math.max(-1, ...mine.map((x) => x.position)) + 1, text: i.text.trim(), horizon: i.horizon ?? "2026-Q4", kpiId: i.kpi ? `kpi_${i.kpi}` : null, createdBy: "us_mitchell", editedBy: null, sourceDocIds: i.sourceDocIds ?? [], updatedAt: now() };
+    this.objectives.set(o.id, o);
+    this.event("objective.created", null, `Objective: ${o.text}`, { objectiveId: o.id }, buildingId);
+    return o;
+  }
+  updateObjective(id: string, i: UpdateObjectiveInput): Objective {
+    const o = this.objectives.get(id);
+    if (!o) throw new Error(`objective not found: ${id}`);
+    const next: Objective = { ...o, ...(i.text !== undefined && { text: i.text.trim() }), ...(i.horizon !== undefined && { horizon: i.horizon }), ...(i.kpi !== undefined && { kpiId: i.kpi ? `kpi_${i.kpi}` : null }), editedBy: "us_mitchell", updatedAt: now() };
+    this.objectives.set(id, next);
+    return next;
+  }
+  deleteObjective(id: string): void {
+    if ([...this.keyResults.values()].some((k) => k.objectiveId === id)) throw new Error("Key results hang off this objective: move them first.");
+    this.objectives.delete(id);
+  }
   /** POST /api/buildings/:id/key-results (only a human writes them; the mock's user is one). */
   createKeyResult(buildingId: string, i: CreateKeyResultInput): KeyResult {
     const b = this.buildings.find((x) => x.id === buildingId);
     if (!b) throw new Error(`building not found: ${buildingId}`);
     const last = Math.max(-1, ...this.goalKeyResults(buildingId).map((k) => k.position));
-    const k: KeyResult = { id: newId("kr"), buildingId, position: last + 1, text: i.text.trim(), howToCheck: i.howToCheck.trim(), status: "not-started", statusNote: "", statusBy: null, createdBy: "us_mitchell", editedBy: null, sourceDocIds: i.sourceDocIds ?? [], updatedAt: now() };
+    const k: KeyResult = { id: newId("kr"), buildingId, position: last + 1, text: i.text.trim(), howToCheck: i.howToCheck.trim(), status: "not-started", statusNote: "", statusBy: null, createdBy: "us_mitchell", editedBy: null, sourceDocIds: i.sourceDocIds ?? [], objectiveId: i.objectiveId ?? null, updatedAt: now() };
     this.keyResults.set(k.id, k);
     this.event("kr.created", null, `${b.name} key result: ${k.text}`, { keyResultId: k.id }, buildingId);
     return k;
@@ -135,8 +165,10 @@ export class Sim {
     const k = this.keyResults.get(id);
     if (!k) throw new Error(`key result not found: ${id}`);
     const words = { ...(i.text !== undefined && { text: i.text.trim() }), ...(i.howToCheck !== undefined && { howToCheck: i.howToCheck.trim() }), ...(i.sourceDocIds !== undefined && { sourceDocIds: i.sourceDocIds }) };
-    if (!i.status && !Object.keys(words).length) throw new Error("Nothing to change: give status, text or howToCheck.");
-    const next: KeyResult = { ...k, ...words, ...(Object.keys(words).length && { editedBy: "us_mitchell" }), ...(i.status ? { status: i.status, statusNote: i.note ?? "", statusBy: "us_mitchell" } : {}), updatedAt: now() };
+    const moved = i.objectiveId !== undefined && i.objectiveId !== k.objectiveId;
+    if (!i.status && !Object.keys(words).length && !moved) throw new Error("Nothing to change: give status, text, howToCheck or objectiveId.");
+    if (moved && i.objectiveId && [...this.keyResults.values()].filter((x) => x.objectiveId === i.objectiveId).length >= 4) throw new Error("That objective already has 4 key results (at most 4).");
+    const next: KeyResult = { ...k, ...words, ...(moved && { objectiveId: i.objectiveId ?? null }), ...(Object.keys(words).length && { editedBy: "us_mitchell" }), ...(i.status ? { status: i.status, statusNote: i.note ?? "", statusBy: "us_mitchell" } : {}), updatedAt: now() };
     this.keyResults.set(id, next);
     for (const g of this.grants.values()) if (g.keyResultId === id) g.keyResult = { ...next };
     this.event("kr.updated", null, i.status ? `Key result ${i.status}: ${next.text}` : `Key result edited: ${next.text}`, { keyResultId: id, status: next.status, from: k.status }, k.buildingId);

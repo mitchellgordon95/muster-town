@@ -1,5 +1,6 @@
 import {
-  CloseGrantInput, CreateGrantInput, CreateKeyResultInput, DecideGrantInput, UpdateGrantInput, UpdateKeyResultInput,
+  CloseGrantInput, CreateGrantInput, CreateKeyResultInput, CreateObjectiveInput, DecideGrantInput, MAX_KEY_RESULTS_PER_OBJECTIVE, MAX_OBJECTIVES,
+  UpdateGrantInput, UpdateKeyResultInput, UpdateObjectiveInput, type KpiKey, type Objective,
   type Building, type Grant, type GrantHistoryEntry, type GrantStatus, type GrantView, type KeyResult, type Session, type Stoplight, type TokenCounts, ZERO_TOKENS, addTokens, stoplightOf,
 } from "@muster-town/schema";
 import { adjustedOfUsage } from "./bank.ts";
@@ -34,7 +35,17 @@ export interface ExplorationBudget { allowanceTokens: number; spentTodayTokens: 
 export type GoalKeyResult = KeyResult & { grantId: string | null; createdByName: string | null; editedByName: string | null };
 /** Today's (UTC) spend on directed work (a human asked for it): metered in its own bucket, never held by the allowance. */
 export interface DirectedBudget { spentTodayTokens: number }
-export interface GrantBoard { goal: string; keyResults: GoalKeyResult[]; blocked: string | null; stoplight: Stoplight | null; grants: GrantView[]; proposals: GrantView[]; exploration: ExplorationBudget; directed: DirectedBudget }
+/** An objective as the API returns it: the KPI it moves (key and name) and its key results in order. */
+export type ObjectiveView = Objective & { kpi: KpiKey | null; kpiName: string | null; keyResults: GoalKeyResult[]; createdByName: string | null; editedByName: string | null };
+/** GET /api/buildings/:id/objectives: the goal's objectives with their key results, then the key results under none. */
+export interface ObjectiveTree { objectives: ObjectiveView[]; unsorted: GoalKeyResult[] }
+/** The quarter `iso` falls in (UTC), e.g. "2026-Q4": an objective's default horizon. */
+export function quarterOf(iso: string = nowIso()): string {
+  const d = new Date(iso);
+  return `${d.getUTCFullYear()}-Q${Math.floor(d.getUTCMonth() / 3) + 1}`;
+}
+
+export interface GrantBoard { goal: string; keyResults: GoalKeyResult[]; objectives: ObjectiveTree; blocked: string | null; stoplight: Stoplight | null; grants: GrantView[]; proposals: GrantView[]; exploration: ExplorationBudget; directed: DirectedBudget }
 export interface BlockedBuilding { buildingId: string; name: string; reason: string; since: string | null }
 
 /**
@@ -67,6 +78,90 @@ export class Grants {
       ...k, grantId: live.get(k.id) ?? null,
       createdByName: k.createdBy ? this.world.nameOf(k.createdBy) : null, editedByName: k.editedBy ? this.world.nameOf(k.editedBy) : null,
     }));
+  }
+
+  /** The goal's objectives in order, each with its key results, then the key results under no objective ("Unsorted"). */
+  objectiveTree(buildingId: string, krs: GoalKeyResult[] = this.keyResults(buildingId)): ObjectiveTree {
+    const kpis = new Map(this.world.kpis.all().map((k) => [k.id, k]));
+    const objectives = this.world.objectives.where("buildingId = ?", [buildingId], "ORDER BY position, rowid").map((o) => ({
+      ...o, kpi: (o.kpiId && kpis.get(o.kpiId)?.key) || null, kpiName: (o.kpiId && kpis.get(o.kpiId)?.name) || null,
+      keyResults: krs.filter((k) => k.objectiveId === o.id),
+      createdByName: o.createdBy ? this.world.nameOf(o.createdBy) : null, editedByName: o.editedBy ? this.world.nameOf(o.editedBy) : null,
+    }));
+    const ids = new Set(objectives.map((o) => o.id));
+    return { objectives, unsorted: krs.filter((k) => !k.objectiveId || !ids.has(k.objectiveId)) };
+  }
+
+  /**
+   * POST /api/buildings/:id/objectives (and the manager's `set_objective`): an objective of the building goal, written
+   * like key results (a human with `building.manage` or the building's own manager agent). At most MAX_OBJECTIVES.
+   */
+  createObjective(actor: Actor, buildingId: string, input: CreateObjectiveInput): Objective {
+    const inp = CreateObjectiveInput.parse(input);
+    const b = this.world.buildings.require(buildingId, "building");
+    this.requireWriter(actor, b, "objectives");
+    this.requireSources(inp.sourceDocIds);
+    const n = this.world.objectives.count("buildingId = ?", [buildingId]);
+    if (n >= MAX_OBJECTIVES) throw new AppError("conflict", `${b.name}'s goal already has ${n} objectives (at most ${MAX_OBJECTIVES}): edit one instead.`);
+    const by = actor ? holderOf(actor) : null;
+    const last = this.world.objectives.first("buildingId = ?", [buildingId], "ORDER BY position DESC");
+    const o = this.world.objectives.upsert({
+      id: newId("ob"), buildingId, position: last ? last.position + 1 : 0, text: inp.text, horizon: inp.horizon ?? quarterOf(),
+      kpiId: inp.kpi ? this.kpiId(inp.kpi) : null, createdBy: by?.id ?? null, editedBy: null, sourceDocIds: inp.sourceDocIds, updatedAt: nowIso(),
+    });
+    this.world.events.append({
+      type: "objective.created", agentId: actor?.id ?? null, buildingId, text: `${b.name} objective: ${o.text}`,
+      payload: { objectiveId: o.id, by: by?.id ?? "system", byKind: by?.kind ?? "system", text: o.text, kpi: inp.kpi ?? null, horizon: o.horizon },
+    });
+    return o;
+  }
+
+  /** PATCH /api/objectives/:id (and `set_objective` with an id): the same writers as createObjective. */
+  updateObjective(actor: Actor, id: string, input: UpdateObjectiveInput): Objective {
+    const inp = UpdateObjectiveInput.parse(input);
+    const o = this.world.objectives.require(id, "objective");
+    this.requireWriter(actor, this.world.buildings.require(o.buildingId, "building"), "objectives");
+    if (inp.sourceDocIds) this.requireSources(inp.sourceDocIds);
+    const fields = {
+      ...(inp.text !== undefined && { text: inp.text }), ...(inp.horizon !== undefined && { horizon: inp.horizon }),
+      ...(inp.kpi !== undefined && { kpiId: inp.kpi ? this.kpiId(inp.kpi) : null }),
+      ...(inp.sourceDocIds !== undefined && { sourceDocIds: inp.sourceDocIds }), ...(inp.position !== undefined && { position: inp.position }),
+    };
+    if (!Object.keys(fields).length) throw badRequest("Nothing to change: give text, kpi, horizon, sourceDocIds or position.");
+    const by = actor ? holderOf(actor) : null;
+    const next = this.world.objectives.upsert({ ...o, ...fields, editedBy: by?.id ?? null, updatedAt: nowIso() });
+    this.world.events.append({
+      type: "objective.updated", agentId: actor?.id ?? null, buildingId: o.buildingId, text: `Objective edited: ${next.text}`,
+      payload: { objectiveId: o.id, by: by?.id ?? "system", byKind: by?.kind ?? "system", text: next.text, fromText: o.text, kpiId: next.kpiId, horizon: next.horizon },
+    });
+    return next;
+  }
+
+  /** DELETE /api/objectives/:id: a human with `building.manage`; refused while key results hang off it. */
+  deleteObjective(actor: Actor, id: string): void {
+    const o = this.world.objectives.require(id, "objective");
+    if (actor) {
+      if (actor.kind !== "human") throw forbidden("building.manage", "Only a human deletes an objective.");
+      this.world.permissions.require(actor, "building.manage", o.buildingId);
+    }
+    const n = this.world.keyResults.count("objectiveId = ?", [id]);
+    if (n) throw new AppError("conflict", `${n} key result${n === 1 ? "" : "s"} hang off this objective: move ${n === 1 ? "it" : "them"} first.`);
+    this.world.objectives.delete(id);
+    this.world.events.append({ type: "objective.deleted", agentId: actor?.id ?? null, buildingId: o.buildingId, text: `Objective removed: ${o.text}`, payload: { objectiveId: id } });
+  }
+
+  private kpiId(key: KpiKey): string {
+    const k = this.world.kpis.first("key = ?", [key]);
+    if (!k) throw badRequest(`Unknown KPI ${key}.`);
+    return k.id;
+  }
+
+  /** A key result's objective must be one of its building's, with room for one more (at most MAX_KEY_RESULTS_PER_OBJECTIVE). */
+  private requireObjectiveRoom(buildingId: string, objectiveId: string, movingId?: string): void {
+    const o = this.world.objectives.get(objectiveId);
+    if (!o || o.buildingId !== buildingId) throw badRequest(`${objectiveId} is not an objective of this building's goal.`);
+    const n = this.world.keyResults.where("objectiveId = ?", [objectiveId]).filter((k) => k.id !== movingId).length;
+    if (n >= MAX_KEY_RESULTS_PER_OBJECTIVE) throw new AppError("conflict", `Objective ${objectiveId} already has ${n} key results (at most ${MAX_KEY_RESULTS_PER_OBJECTIVE}).`);
   }
 
   /** The live (funded or checkpoint) grant working on a key result, if any. */
@@ -191,8 +286,9 @@ ${open.map((g) => `The open proposal ${g.id} ("${g.objective}")`).join("; ")} na
     const b = this.world.buildings.require(buildingId, "building");
     const live = this.world.grants.where(`buildingId = ? AND status IN ('funded', 'checkpoint')`, [buildingId], "ORDER BY fundedAt, rowid");
     const open = this.world.grants.where(`buildingId = ? AND status IN ('proposed', 'countered')`, [buildingId], "ORDER BY updatedAt DESC, rowid DESC");
+    const keyResults = this.keyResults(buildingId);
     return {
-      goal: b.goal, keyResults: this.keyResults(buildingId), blocked: this.blocked(b), stoplight: this.stoplight(b),
+      goal: b.goal, keyResults, objectives: this.objectiveTree(buildingId, keyResults), blocked: this.blocked(b), stoplight: this.stoplight(b),
       grants: live.map((g) => this.view(g)), proposals: open.map((g) => this.view(g)), exploration: this.exploration(buildingId), directed: this.directed(buildingId),
     };
   }
@@ -487,15 +583,16 @@ Key result (on the building goal): ${kr}${k ? "; it has no funded grant now, so 
     const b = this.world.buildings.require(buildingId, "building");
     this.requireWriter(actor, b);
     this.requireSources(inp.sourceDocIds);
+    if (inp.objectiveId) this.requireObjectiveRoom(buildingId, inp.objectiveId);
     const by = actor ? holderOf(actor) : null;
     const last = this.world.keyResults.first("buildingId = ?", [buildingId], "ORDER BY position DESC");
     const kr = this.world.keyResults.upsert({
       id: newId("kr"), buildingId, position: last ? last.position + 1 : 0, text: inp.text, howToCheck: inp.howToCheck,
-      status: "not-started", statusNote: "", statusBy: null, createdBy: by?.id ?? null, editedBy: null, sourceDocIds: inp.sourceDocIds, updatedAt: nowIso(),
+      status: "not-started", statusNote: "", statusBy: null, createdBy: by?.id ?? null, editedBy: null, sourceDocIds: inp.sourceDocIds, objectiveId: inp.objectiveId ?? null, updatedAt: nowIso(),
     });
     this.world.events.append({
       type: "kr.created", agentId: actor?.id ?? null, buildingId, text: `${b.name} key result: ${kr.text}`,
-      payload: { keyResultId: kr.id, by: by?.id ?? "system", byKind: by?.kind ?? "system", text: kr.text, howToCheck: kr.howToCheck, sourceDocIds: kr.sourceDocIds },
+      payload: { keyResultId: kr.id, by: by?.id ?? "system", byKind: by?.kind ?? "system", text: kr.text, howToCheck: kr.howToCheck, sourceDocIds: kr.sourceDocIds, objectiveId: kr.objectiveId },
     });
     return kr;
   }
@@ -540,10 +637,12 @@ Key result (on the building goal): ${kr}${k ? "; it has no funded grant now, so 
       ...(inp.sourceDocIds !== undefined && { sourceDocIds: inp.sourceDocIds }),
     };
     const edited = Object.keys(words).length > 0;
-    if (!inp.status && !edited) throw badRequest("Nothing to change: give status, text, howToCheck or sourceDocIds.");
-    if (edited) {
+    const moved = inp.objectiveId !== undefined && inp.objectiveId !== kr.objectiveId;
+    if (!inp.status && !edited && !moved) throw badRequest("Nothing to change: give status, text, howToCheck, sourceDocIds or objectiveId.");
+    if (edited || moved) {
       this.requireWriter(actor, this.world.buildings.require(kr.buildingId, "building"));
       if (inp.sourceDocIds) this.requireSources(inp.sourceDocIds);
+      if (moved && inp.objectiveId) this.requireObjectiveRoom(kr.buildingId, inp.objectiveId, kr.id);
     }
     if (actor && inp.status) {
       const judged = inp.status === "met" || inp.status === "missed" || kr.status === "met" || kr.status === "missed";
@@ -552,12 +651,12 @@ Key result (on the building goal): ${kr}${k ? "; it has no funded grant now, so 
     }
     const by = actor ? holderOf(actor) : null;
     const status = inp.status ? { status: inp.status, statusNote: inp.note, statusBy: by?.id ?? "system" } : {};
-    const next = this.world.keyResults.upsert({ ...kr, ...words, ...(edited && { editedBy: by?.id ?? null }), ...status, updatedAt: nowIso() });
+    const next = this.world.keyResults.upsert({ ...kr, ...words, ...(edited && { editedBy: by?.id ?? null }), ...(moved && { objectiveId: inp.objectiveId ?? null }), ...status, updatedAt: nowIso() });
     this.world.events.append({
-      type: "kr.updated", agentId: actor?.id ?? null, buildingId: kr.buildingId, text: inp.status ? `Key result ${inp.status}: ${next.text}` : `Key result edited: ${next.text}`,
+      type: "kr.updated", agentId: actor?.id ?? null, buildingId: kr.buildingId, text: inp.status ? `Key result ${inp.status}: ${next.text}` : edited ? `Key result edited: ${next.text}` : `Key result moved: ${next.text}`,
       payload: {
         grantId: this.liveGrantOf(kr.id)?.id ?? null, keyResultId: kr.id, status: next.status, from: kr.status,
-        by: by?.id ?? "system", byKind: by?.kind ?? "system", edited,
+        by: by?.id ?? "system", byKind: by?.kind ?? "system", edited, ...(moved && { objectiveId: next.objectiveId, fromObjectiveId: kr.objectiveId }),
         ...(edited && { text: next.text, howToCheck: next.howToCheck, sourceDocIds: next.sourceDocIds, fromText: kr.text }),
       },
     });
@@ -566,11 +665,11 @@ Key result (on the building goal): ${kr}${k ? "; it has no funded grant now, so 
 
   // ---- helpers ----
   /** A human with `building.manage`, or the building's own manager agent, writes the goal's key results. */
-  private requireWriter(actor: Actor, b: Building): void {
+  private requireWriter(actor: Actor, b: Building, what = "key results"): void {
     if (!actor) return;
     if (actor.kind !== "human") {
       if (b.managerAgentId === actor.id) return;
-      throw forbidden("building.manage", `Only a human or ${b.name}'s manager writes its goal's key results.`);
+      throw forbidden("building.manage", `Only a human or ${b.name}'s manager writes its goal's ${what}.`);
     }
     this.world.permissions.require(actor, "building.manage", b.id);
   }

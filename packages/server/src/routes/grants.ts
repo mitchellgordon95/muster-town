@@ -1,5 +1,5 @@
-import { AppError } from "@muster-town/core";
-import { CloseGrantInput, CreateGrantInput, CreateKeyResultInput, DecideGrantInput, GrantsQuery, UpdateGrantInput, UpdateKeyResultInput } from "@muster-town/schema";
+import { AppError, townKpis } from "@muster-town/core";
+import { CloseGrantInput, CreateGrantInput, CreateKeyResultInput, CreateObjectiveInput, DecideGrantInput, GrantsQuery, UpdateGrantInput, UpdateKeyResultInput, UpdateObjectiveInput } from "@muster-town/schema";
 import type { FastifyInstance } from "fastify";
 import { z } from "zod";
 import { actorOf, parse, type Params } from "../context.ts";
@@ -69,4 +69,32 @@ export async function grantRoutes(app: FastifyInstance) {
   app.patch<{ Params: Params }>("/api/key-results/:id", async (req) => ({
     keyResult: desk.updateKeyResult(actorOf(world, req), req.params.id, parse(UpdateKeyResultInput, req.body)),
   }));
+
+  // Objectives and KPIs (docs/goal-directed-budgets.md): objectives hold the goal's key results; KPIs are the town's
+  // standing indicators, computed live.
+  app.get<{ Params: Params }>("/api/buildings/:id/objectives", async (req) => {
+    world.buildings.require(req.params.id, "building");
+    return desk.objectiveTree(req.params.id);
+  });
+
+  app.post<{ Params: Params }>("/api/buildings/:id/objectives", async (req, reply) => {
+    const objective = desk.createObjective(actorOf(world, req), req.params.id, parse(CreateObjectiveInput, req.body));
+    return reply.code(201).send({ objective });
+  });
+
+  app.patch<{ Params: Params }>("/api/objectives/:id", async (req) => ({
+    objective: desk.updateObjective(actorOf(world, req), req.params.id, parse(UpdateObjectiveInput, req.body)),
+  }));
+
+  app.delete<{ Params: Params }>("/api/objectives/:id", async (req) => {
+    desk.deleteObjective(actorOf(world, req), req.params.id);
+    return { ok: true };
+  });
+
+  app.get("/api/kpis", async () => {
+    const { framing, kpis } = townKpis(world);
+    const objectives = world.buildings.all().filter((b) => b.budgetMode === "goal-directed")
+      .map((b) => ({ buildingId: b.id, name: b.name, goal: b.goal, ...desk.objectiveTree(b.id) }));
+    return { framing, kpis, buildings: objectives };
+  });
 }

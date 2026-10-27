@@ -3,7 +3,7 @@
  * and statuses as core's `keyResultsBlock` in the desk brief, so the web and the prompt agree.
  */
 import type { GrantView, KeyResultStatus } from "@muster-town/schema";
-import type { GoalKeyResult } from "../api";
+import type { GoalKeyResult, ObjectiveTree, ObjectiveView } from "../api";
 import { ADJ, fmtTokens } from "../format";
 
 /** Share of `total` spent, 0..1 (0 when there's no total). */
@@ -53,6 +53,27 @@ export function keyResultRows(board: { keyResults: GoalKeyResult[]; grants: Gran
   return { rows, orphans: board.grants.filter((g) => !named.has(g.id)) };
 }
 
+/** A group of board rows: an objective (null = "Not under an objective yet") and its key-result rows. */
+export interface ObjectiveGroup { objective: ObjectiveView | null; rows: KeyResultRow[] }
+
+/**
+ * The board's rows grouped like the desk brief: each objective with its key results, then the ones under none. With no
+ * objectives at all it is one ungrouped group (objective null), so a building without objectives reads as before.
+ */
+export function objectiveGroups(tree: ObjectiveTree | undefined, rows: KeyResultRow[]): ObjectiveGroup[] {
+  if (!tree?.objectives.length) return [{ objective: null, rows }];
+  const byId = new Map(rows.map((r) => [r.kr.id, r]));
+  const pick = (krs: GoalKeyResult[]) => krs.map((k) => byId.get(k.id)).filter((r): r is KeyResultRow => !!r);
+  const groups: ObjectiveGroup[] = tree.objectives.map((o) => ({ objective: o, rows: pick(o.keyResults) }));
+  const loose = pick(tree.unsorted);
+  return loose.length ? [...groups, { objective: null, rows: loose }] : groups;
+}
+
+/** "Moves Trust · 2026-Q4", an objective's subtitle. */
+export function objectiveLine(o: Pick<ObjectiveView, "kpiName" | "horizon">): string {
+  return `${o.kpiName ? `Moves ${o.kpiName}` : "Names no KPI yet"} · ${o.horizon}`;
+}
+
 /** "No funded grant: open for exploration", or the grant's state as the brief says it. */
 export function krFundingLine(grant: GrantView | null): string {
   return grant ? grantStateLine(grant) : "No funded grant: open for exploration";
@@ -70,7 +91,7 @@ export function settableStatuses(canFund: boolean): KeyResultStatus[] {
 /** The short blocked label for a building's panel, map sign and the Town Hall in-tray. */
 export const BLOCKED_LABEL = "Blocked: no key results";
 /** Who unblocks a blocked building, and how. */
-export const UNBLOCK_LINE = "A human unblocks it by writing the goal's key results in Building → Settings → Key results, or the manager does with set_key_result once a meeting or the 1:1 settles them.";
+export const UNBLOCK_LINE = "A human unblocks it by writing the goal's key results in Building → Settings → Objectives and key results, or the manager does with set_key_result once a meeting or the 1:1 settles them.";
 
 /** The blocked label when a goal-directed building is blocked (the server's `blockedAt`), else null. */
 export function blockedLabel(b: { kind: string; budgetMode: string; blockedAt?: string | null }): string | null {

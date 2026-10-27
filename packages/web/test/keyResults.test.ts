@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { BLOCKED_LABEL, UNBLOCK_LINE, blockedLabel, krAuthorLine, unfundableReason, explorationLine, grantSpendLine, grantStateLine, keyResultRows, krFundingLine, krStatusLabel, krTone, proposalLine, settableStatuses, spentShare } from "../src/panels/keyResults";
+import { BLOCKED_LABEL, UNBLOCK_LINE, blockedLabel, krAuthorLine, unfundableReason, explorationLine, grantSpendLine, grantStateLine, keyResultRows, krFundingLine, objectiveGroups, objectiveLine, krStatusLabel, krTone, proposalLine, settableStatuses, spentShare } from "../src/panels/keyResults";
 import { MockApi } from "../src/mock/server";
 import { stoplightOf } from "@muster-town/schema";
 import { stoplightLabel } from "../src/format";
@@ -24,11 +24,25 @@ describe("board key-results view", () => {
     const ws = await api.board("bl_workshop");
     expect(ws.goal).toMatch(/Muster Town/);
     expect(ws.grants.map((g) => [g.id, g.status])).toEqual([["gr_hud", "checkpoint"], ["gr_tour", "funded"]]);
-    expect(ws.proposal?.id).toBe("gr_cli");
+    expect(ws.proposals.map((p) => p.id)).toEqual(["gr_cli"]);
     expect(ws.exploration).toEqual({ allowanceTokens: 3_000_000, spentTodayTokens: 1_150_000 });
     const carbon = await api.board("bl_carbon");
     expect(carbon.grants).toEqual([]);
     expect(Array.isArray(carbon.docs)).toBe(true);
+  });
+  it("objective groups: each objective with its key results, then the ones under none; no objectives = one plain group", async () => {
+    const api = new MockApi();
+    const ws = await api.board("bl_workshop");
+    const { rows } = keyResultRows(ws);
+    const groups = objectiveGroups(ws.objectives, rows);
+    expect(groups.map((g) => [g.objective?.kpiName ?? null, g.rows.map((r) => r.kr.id)])).toEqual([
+      ["Trust", ["kr_bl_workshop_3"]], ["Join", ["kr_bl_workshop_0", "kr_bl_workshop_1"]], ["Fund", []], [null, ["kr_bl_workshop_2"]],
+    ]);
+    expect(objectiveLine(groups[0]!.objective!)).toBe("Moves Trust · 2026-Q4");
+    expect(objectiveGroups({ objectives: [], unsorted: [] }, rows)).toEqual([{ objective: null, rows }]);
+    const k = await api.kpis();
+    expect(k.kpis.map((x) => x.name)).toEqual(["Fund", "Join", "Trust"]);
+    expect(k.buildings.find((b) => b.buildingId === "bl_workshop")!.objectives).toHaveLength(3);
   });
   it("board rows: the goal's key results in order with the live grant on each; grants naming none are orphans", async () => {
     const api = new MockApi();

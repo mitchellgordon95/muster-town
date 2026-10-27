@@ -55,7 +55,7 @@ export async function checkpoint_grant(world: World, me: Agent, input: VerbIn<"c
 export async function set_key_result(world: World, me: Agent, input: VerbIn<"set_key_result">) {
   const bid = input.buildingId ?? homeOf(me);
   if (!bid) throw badRequest("You have no building; give buildingId.");
-  const words = { text: input.text, howToCheck: input.howToCheck, sourceDocIds: input.sourceDocIds };
+  const words = { text: input.text, howToCheck: input.howToCheck, sourceDocIds: input.sourceDocIds, objectiveId: input.objectiveId };
   let kr;
   if (input.id) {
     const cur = world.keyResults.get(input.id);
@@ -64,10 +64,35 @@ export async function set_key_result(world: World, me: Agent, input: VerbIn<"set
   } else {
     if (!input.text || !input.howToCheck) throw badRequest("A new key result needs text and howToCheck.");
     if (!input.sourceDocIds?.length && me.kind !== "human") throw badRequest("Name the meeting notes or report it comes from in sourceDocIds.");
-    kr = world.grantDesk.createKeyResult(me, bid, { text: input.text, howToCheck: input.howToCheck, sourceDocIds: input.sourceDocIds ?? [] });
+    kr = world.grantDesk.createKeyResult(me, bid, { text: input.text, howToCheck: input.howToCheck, sourceDocIds: input.sourceDocIds ?? [], objectiveId: input.objectiveId ?? null });
   }
   return {
-    keyResult: { id: kr.id, text: kr.text, howToCheck: kr.howToCheck, status: kr.status, sourceDocIds: kr.sourceDocIds },
+    keyResult: { id: kr.id, text: kr.text, howToCheck: kr.howToCheck, status: kr.status, sourceDocIds: kr.sourceDocIds, objectiveId: kr.objectiveId },
     note: "On the building board now. Your next rollup lists it (appended for you) so a human can keep or cut it; propose_grant can name it.",
+  };
+}
+
+/**
+ * `set_objective` (the manager): add an objective to its own building's goal (at most 3), or edit one (`id`), on the
+ * same path as POST /api/buildings/:id/objectives. A new one names the KPI it moves and the notes or report it comes from.
+ */
+export async function set_objective(world: World, me: Agent, input: VerbIn<"set_objective">) {
+  const bid = input.buildingId ?? homeOf(me);
+  if (!bid) throw badRequest("You have no building; give buildingId.");
+  let o;
+  if (input.id) {
+    const cur = world.objectives.get(input.id);
+    if (!cur || cur.buildingId !== bid) throw badRequest(`${input.id} is not an objective of ${world.buildings.get(bid)?.name ?? bid}'s goal.`);
+    o = world.grantDesk.updateObjective(me, input.id, { text: input.text, kpi: input.kpi, horizon: input.horizon, sourceDocIds: input.sourceDocIds });
+  } else {
+    if (!input.text || !input.kpi) throw badRequest("A new objective needs text and kpi (fund, join or trust).");
+    if (!input.sourceDocIds?.length && me.kind !== "human") throw badRequest("Name the meeting notes or report it comes from in sourceDocIds.");
+    o = world.grantDesk.createObjective(me, bid, { text: input.text, kpi: input.kpi, horizon: input.horizon, sourceDocIds: input.sourceDocIds ?? [] });
+  }
+  const tree = world.grantDesk.objectiveTree(bid);
+  return {
+    objective: tree.objectives.find((x) => x.id === o.id) ?? o,
+    unsorted: tree.unsorted.map((k) => k.id),
+    note: "On the board now. Put key results under it with set_key_result (objectiveId; at most 4 each).",
   };
 }

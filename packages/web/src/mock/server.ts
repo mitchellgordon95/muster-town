@@ -1,12 +1,12 @@
 /** `Api` implemented against the in-memory Sim. Same interface as HttpApi, so every panel works offline. */
 import type { AccessRequest, AccessRequestView, Agent, Assignment, AuthMe, BlockedAssignment, BlockedBy, Building, Doc, Event, Meeting, Membership, RedeployLive } from "@muster-town/schema";
-import { BACKFILL, BOARD_TYPES, DEFAULT_POOL_ID, ZERO_TOKENS, addTokens, backfillFamily, splitRaw, type BankPool } from "@muster-town/schema";
+import { BACKFILL, BOARD_TYPES, KPI_FRAMING, DEFAULT_POOL_ID, ZERO_TOKENS, addTokens, backfillFamily, splitRaw, type BankPool } from "@muster-town/schema";
 import type { Api, AgentDetail, AllocationRow, Bank, Budget, Cabinet, CabinetQuery, DocQuery, EventQuery, In, LayoutPreview, MessageResult, PlanPreview, RoomLayout, RequestAction, Snapshot, Socket, SocketHandlers, ThreadMessage, WriteDocInput } from "../api";
 import { ApiError } from "../api";
 import type { PinSkillInput, PutSecretInput, SecretView, SkillPinView, SkillView } from "@muster-town/schema";
-import type { CreateBuildingInput, UpdateBuildingInput, CreateResidentInput, RegisterVisitorInput, ReviewInput, ChatInput, WorkInput, DonateInput, CreateMeetingInput, DocState, AddBankInput, BankInput, CreateBankPoolInput, UpdateBankPoolInput, DecideGrantInput, CreateKeyResultInput, UpdateKeyResultInput } from "@muster-town/schema";
+import type { CreateBuildingInput, UpdateBuildingInput, CreateResidentInput, RegisterVisitorInput, ReviewInput, ChatInput, WorkInput, DonateInput, CreateMeetingInput, DocState, AddBankInput, BankInput, CreateBankPoolInput, UpdateBankPoolInput, DecideGrantInput, CreateKeyResultInput, UpdateKeyResultInput, CreateObjectiveInput, UpdateObjectiveInput } from "@muster-town/schema";
 import { Sim, newId, spent } from "./sim";
-import { memoryDocs } from "./fixture";
+import { kpis as kpisFixture, memoryDocs } from "./fixture";
 import manualMd from "../../../../docs/manual.md?raw";
 
 const wait = (ms = 120) => new Promise((r) => setTimeout(r, ms));
@@ -94,6 +94,15 @@ export class MockApi implements Api {
   async createKeyResult(buildingId: string, i: In<typeof CreateKeyResultInput>) { await wait(); return clone(this.sim.createKeyResult(buildingId, i)); }
   async updateKeyResult(id: string, i: In<typeof UpdateKeyResultInput>) { await wait(); return clone(this.sim.updateKeyResult(id, i)); }
   async deleteKeyResult(id: string) { await wait(); this.sim.deleteKeyResult(id); }
+  async objectives(buildingId: string) { await wait(); return clone(this.sim.objectiveTree(buildingId)); }
+  async createObjective(buildingId: string, i: In<typeof CreateObjectiveInput>) { await wait(); return clone(this.sim.createObjective(buildingId, i)); }
+  async updateObjective(id: string, i: In<typeof UpdateObjectiveInput>) { await wait(); return clone(this.sim.updateObjective(id, i)); }
+  async deleteObjective(id: string) { await wait(); this.sim.deleteObjective(id); }
+  async kpis() {
+    await wait();
+    const buildings = this.sim.buildings.filter((b) => b.budgetMode === "goal-directed").map((b) => ({ buildingId: b.id, name: b.name, goal: b.goal, ...this.sim.objectiveTree(b.id) }));
+    return clone({ framing: KPI_FRAMING, kpis: kpisFixture, buildings });
+  }
   async dismiss(id: string, purge = false) { await wait(); this.sim.dismiss(id, purge); }
   async ban(id: string, reason: string) { await wait(); return clone(this.sim.ban(id, reason)); }
   async updateBuilding(id: string, i: In<typeof UpdateBuildingInput>) {

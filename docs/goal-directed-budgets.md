@@ -4,7 +4,7 @@ Status: **steps 1a–c built** (7bef911, 2eae49f, 441a7f3: schema, `Grants` serv
 
 ## Objectives and KPIs (2026-10-27, 1:1 mt_akz25kqo2q, decisions 3 and 4; migration 043)
 
-Status: **design** (Lena, as_dgepcp6k7d). Build next. Mitchell and Pix asked for it; there is no North Star metric.
+Status: **built** (Lena, as_g943yt9cr4): migration 043, `core/src/kpis.ts` (`townKpis`), `Grants.objectiveTree` / `createObjective` / `updateObjective` / `deleteObjective`, the routes and verbs below, the grouped board, desk brief and Settings editor, and the Dashboard panel (HUD ▤ button, and Town Hall → Settings). The Workshop's objectives below are still a draft: nobody has entered them yet. Mitchell and Pix asked for it; there is no North Star metric.
 
 ### The framing: the town goal is three KPIs
 

@@ -1,8 +1,8 @@
 /** Building panel (E at the door): overview, members + roles, meetings, settings (managers: building fields). Members lists residents (managers add and dismiss there) and roles. Board, filing cabinet and in-tray are places; the collective's secrets are a planning-desk tab. */
 import { useEffect, useMemo, useState, type ReactNode } from "react";
-import { DEFAULT_POOL_ID, type KeyResultStatus, type Meeting, type SnapshotBuilding, type Workspace } from "@muster-town/schema";
+import { DEFAULT_POOL_ID, MAX_KEY_RESULTS_PER_OBJECTIVE, MAX_OBJECTIVES, type KeyResultStatus, type KpiKey, type Meeting, type SnapshotBuilding, type Workspace } from "@muster-town/schema";
 import { fmtPct, poolColor } from "../pools";
-import { api, type GoalKeyResult } from "../api";
+import { api, type GoalKeyResult, type ObjectiveView } from "../api";
 import { store, useTown, roleOf } from "../state";
 import { Glyph, PanelShell } from "./PanelShell";
 import { Meter } from "./AgentPanel";
@@ -14,7 +14,7 @@ import { AttendeePicker, useAttendees } from "./AttendeePicker";
 import { attendeeInput } from "./attendees";
 import { layoutEdit } from "../map/layoutEdit";
 import { canOneOnOne, openOneOnOne } from "./oneOnOne";
-import { UNBLOCK_LINE, blockedLabel, krAuthorLine, krStatusLabel, krTone, settableStatuses } from "./keyResults";
+import { UNBLOCK_LINE, blockedLabel, krAuthorLine, krStatusLabel, krTone, objectiveLine, settableStatuses } from "./keyResults";
 import { openDocLink } from "./Markdown";
 
 export function BuildingPanel({ id, tab }: { id: string; tab?: string }) {
@@ -253,47 +253,120 @@ function Settings({ b }: { b: SnapshotBuilding }) {
       }}>Save settings</Act></div>
     </form>
     </Section>
-    {b.kind !== "town-hall" ? <KeyResultsEditor b={b} /> : null}
+    {b.kind !== "town-hall" ? <KeyResultsEditor b={b} /> : <Section title="Dashboard"><p className="direction">The town goal is three KPIs, Fund, Join and Trust, with every building's objectives under them. <button className="link" onClick={() => store.open({ kind: "dashboard" })}>Open the dashboard</button></p></Section>}
     {b.kind !== "town-hall" ? <PoolPicker b={b} /> : null}
     {b.kind !== "town-hall" && store.can("building.fund", b.id) ? <BudgetMode b={b} /> : null}
   </>);
 }
 
 /**
- * The goal's key results, the edit path (they're read on the building board). Only a human with building.manage writes
- * them (docs/goal-directed-budgets.md "Model change"); status up to claimed is the manager's, met / missed need
- * building.fund. A key result a draft, open or live grant names can't be deleted (the server says which grant).
+ * The goal's objectives and key results, the edit path (they're read on the building board; docs/goal-directed-budgets.md
+ * "Objectives and KPIs"). Each objective is one sentence for the quarter naming the town KPI it moves, and holds 2 to 4
+ * key results; key results under none sit in "Not under an objective yet". A human with building.manage writes them,
+ * and so does the manager; status up to claimed is the manager's, met / missed need building.fund. A key result a
+ * grant names can't be deleted, nor an objective that holds key results (the server says why).
  */
 function KeyResultsEditor({ b }: { b: SnapshotBuilding }) {
   const rev = useTown((s) => s.rev);
   useTown((s) => s.me);
-  const list = useLoad(() => api().keyResults(b.id), [b.id, rev]);
+  const tree = useLoad(() => api().objectives(b.id), [b.id, rev]);
   const canFund = store.can("building.fund", b.id);
   const human = store.can("building.manage", b.id); // the web is the humans' client: a manage holder here is a human
-  const [draft, setDraft] = useState({ text: "", howToCheck: "" });
-  const krs = list.data?.keyResults ?? [];
+  const objectives = tree.data?.objectives ?? [];
+  const unsorted = tree.data?.unsorted ?? [];
+  const all = [...objectives.flatMap((o) => o.keyResults), ...unsorted];
+  const num = new Map(all.map((k, i) => [k.id, i + 1]));
+  const row = (k: GoalKeyResult) => <KeyResultRow key={k.id} n={num.get(k.id)!} kr={k} canWrite={human} statuses={settableStatuses(canFund)} objectives={objectives} onChanged={tree.reload} />;
   return (
-    <Section title="Key results">
-      <p className="direction">What the goal means in checkable terms. They show on the building board, each grant names one, and a goal-directed building is blocked without them. Humans write them here; the manager writes them too (from a meeting or your 1:1) and lists each in its next rollup, so you can keep or cut it.</p>
-      {list.loading && !list.data ? <Loading /> : null}
-      <ErrorLine error={list.error} />
-      {list.data && !krs.length ? <Empty>No key results on the goal yet{b.budgetMode === "goal-directed" ? ": the building is blocked until one exists or a grant is funded" : ""}.</Empty> : null}
-      <ol className="kr-editor">
-        {krs.map((k, i) => <KeyResultRow key={k.id} n={i + 1} kr={k} canWrite={human} statuses={settableStatuses(canFund)} onChanged={list.reload} />)}
-      </ol>
-      {human ? (
-        <form className="form kr-add" onSubmit={(e) => e.preventDefault()}>
-          <Field label={`Key result ${krs.length + 1}`}><input value={draft.text} maxLength={300} placeholder="Something a human can check in the live town" onChange={(e) => setDraft({ ...draft, text: e.target.value })} /></Field>
-          <Field label="How to check"><input value={draft.howToCheck} maxLength={300} placeholder="Where to look and what you'd see" onChange={(e) => setDraft({ ...draft, howToCheck: e.target.value })} /></Field>
-          <div className="actions"><Act tone="primary" disabled={!draft.text.trim() || !draft.howToCheck.trim()} run={async () => {
-            await api().createKeyResult(b.id, { text: draft.text.trim(), howToCheck: draft.howToCheck.trim() });
-            setDraft({ text: "", howToCheck: "" });
-            store.toast("Key result added: it's on the board", "ok");
-            list.reload();
-          }}>Add key result</Act></div>
-        </form>
-      ) : null}
+    <Section title="Objectives and key results">
+      <p className="direction">{KPI_FRAMING_SHORT} Each objective is one sentence for the quarter and names the KPI it moves; its 2 to 4 key results say how you'll know, in terms a human can check in the live town. Each grant names one key result, and a goal-directed building is blocked without them. Humans write them here; the manager writes them too (from a meeting or your 1:1) and lists each key result in its next rollup, so you can keep or cut it.</p>
+      {tree.loading && !tree.data ? <Loading /> : null}
+      <ErrorLine error={tree.error} />
+      {tree.data && !all.length && !objectives.length ? <Empty>No objectives or key results on the goal yet{b.budgetMode === "goal-directed" ? ": the building is blocked until a key result exists or a grant is funded" : ""}.</Empty> : null}
+      {objectives.map((o, i) => (
+        <div key={o.id} className="kr-objective">
+          <ObjectiveRow n={i + 1} o={o} canWrite={human} onChanged={tree.reload} />
+          <ol className="kr-editor">{o.keyResults.map(row)}</ol>
+          {o.keyResults.length < 2 ? <div className="muted kr-hint">Aim for 2 to 4 key results under each objective.</div> : null}
+          {human && o.keyResults.length < MAX_KEY_RESULTS_PER_OBJECTIVE ? <AddKeyResult buildingId={b.id} objectiveId={o.id} n={all.length + 1} onChanged={tree.reload} /> : null}
+        </div>
+      ))}
+      {objectives.length && unsorted.length ? <div className="kr-objective-head muted">Not under an objective yet: move each under one</div> : null}
+      {unsorted.length ? <ol className="kr-editor">{unsorted.map(row)}</ol> : null}
+      {human && !objectives.length ? <AddKeyResult buildingId={b.id} objectiveId={null} n={all.length + 1} onChanged={tree.reload} /> : null}
+      {human && objectives.length < MAX_OBJECTIVES ? <AddObjective buildingId={b.id} n={objectives.length + 1} onChanged={tree.reload} /> : null}
     </Section>
+  );
+}
+
+const KPI_OPTIONS: { key: KpiKey; name: string }[] = [{ key: "fund", name: "Fund" }, { key: "join", name: "Join" }, { key: "trust", name: "Trust" }];
+const KPI_FRAMING_SHORT = "The town goal is three standing KPIs, Fund, Join and Trust (the town Dashboard shows them).";
+
+/** One objective: its sentence, the KPI it moves and its quarter (humans edit), delete (refused while it holds key results). */
+function ObjectiveRow({ n, o, canWrite, onChanged }: { n: number; o: ObjectiveView; canWrite: boolean; onChanged: () => void }) {
+  const [f, setF] = useState<{ text: string; kpi: KpiKey | ""; horizon: string }>({ text: o.text, kpi: o.kpi ?? "", horizon: o.horizon });
+  useEffect(() => setF({ text: o.text, kpi: o.kpi ?? "", horizon: o.horizon }), [o.text, o.kpi, o.horizon]);
+  const dirty = f.text !== o.text || f.kpi !== (o.kpi ?? "") || f.horizon !== o.horizon;
+  if (!canWrite) return <div className="kr-objective-head"><b>Objective {n}: {o.text}</b> <span className="muted">{objectiveLine(o)}</span></div>;
+  return (
+    <form className="form kr-objective-head" onSubmit={(e) => e.preventDefault()}>
+      <Field label={`Objective ${n}`}><input value={f.text} maxLength={300} onChange={(e) => setF({ ...f, text: e.target.value })} /></Field>
+      <div className="row">
+        <Field label="Moves"><select value={f.kpi} onChange={(e) => setF({ ...f, kpi: e.target.value as KpiKey | "" })}>
+          <option value="">(no KPI yet)</option>
+          {KPI_OPTIONS.map((k) => <option key={k.key} value={k.key}>{k.name}</option>)}
+        </select></Field>
+        <Field label="Quarter"><input value={f.horizon} maxLength={7} placeholder="2026-Q4" onChange={(e) => setF({ ...f, horizon: e.target.value })} /></Field>
+      </div>
+      <div className="actions">
+        <Act small tone="primary" disabled={!dirty || !f.text.trim() || !/^\d{4}-Q[1-4]$/.test(f.horizon)} run={async () => {
+          await api().updateObjective(o.id, { text: f.text.trim(), kpi: f.kpi || null, horizon: f.horizon });
+          store.toast(`Objective ${n} saved`, "ok");
+          onChanged();
+        }}>Save</Act>
+        <Act small tone="bad" title="Refused while key results hang off it" run={async () => {
+          if (!window.confirm(`Delete objective ${n} ("${o.text}")?`)) return;
+          await api().deleteObjective(o.id);
+          store.toast(`Objective ${n} deleted`, "ok");
+          onChanged();
+        }}>Delete</Act>
+      </div>
+    </form>
+  );
+}
+
+function AddObjective({ buildingId, n, onChanged }: { buildingId: string; n: number; onChanged: () => void }) {
+  const [f, setF] = useState({ text: "", kpi: "" as KpiKey | "" });
+  return (
+    <form className="form kr-add" onSubmit={(e) => e.preventDefault()}>
+      <Field label={`Objective ${n}`} hint="One sentence: what the building will achieve this quarter. 2 or 3 per goal."><input value={f.text} maxLength={300} placeholder="A stranger can …" onChange={(e) => setF({ ...f, text: e.target.value })} /></Field>
+      <Field label="Moves"><select value={f.kpi} onChange={(e) => setF({ ...f, kpi: e.target.value as KpiKey | "" })}>
+        <option value="">(pick the KPI it moves)</option>
+        {KPI_OPTIONS.map((k) => <option key={k.key} value={k.key}>{k.name}</option>)}
+      </select></Field>
+      <div className="actions"><Act tone="primary" disabled={!f.text.trim() || !f.kpi} run={async () => {
+        await api().createObjective(buildingId, { text: f.text.trim(), kpi: f.kpi || null });
+        setF({ text: "", kpi: "" });
+        store.toast("Objective added: put key results under it", "ok");
+        onChanged();
+      }}>Add objective</Act></div>
+    </form>
+  );
+}
+
+function AddKeyResult({ buildingId, objectiveId, n, onChanged }: { buildingId: string; objectiveId: string | null; n: number; onChanged: () => void }) {
+  const [draft, setDraft] = useState({ text: "", howToCheck: "" });
+  return (
+    <form className="form kr-add" onSubmit={(e) => e.preventDefault()}>
+      <Field label={`Key result ${n}`}><input value={draft.text} maxLength={300} placeholder="Something a human can check in the live town" onChange={(e) => setDraft({ ...draft, text: e.target.value })} /></Field>
+      <Field label="How to check"><input value={draft.howToCheck} maxLength={300} placeholder="Where to look and what you'd see" onChange={(e) => setDraft({ ...draft, howToCheck: e.target.value })} /></Field>
+      <div className="actions"><Act tone="primary" disabled={!draft.text.trim() || !draft.howToCheck.trim()} run={async () => {
+        await api().createKeyResult(buildingId, { text: draft.text.trim(), howToCheck: draft.howToCheck.trim(), objectiveId });
+        setDraft({ text: "", howToCheck: "" });
+        store.toast("Key result added: it's on the board", "ok");
+        onChanged();
+      }}>Add key result</Act></div>
+    </form>
   );
 }
 
@@ -310,7 +383,7 @@ function KeyResultAuthor({ kr }: { kr: GoalKeyResult }) {
 }
 
 /** One key result in the editor: words (humans), status (per `statuses`), delete. Dirty rows save explicitly. */
-function KeyResultRow({ n, kr, canWrite, statuses, onChanged }: { n: number; kr: GoalKeyResult; canWrite: boolean; statuses: KeyResultStatus[]; onChanged: () => void }) {
+function KeyResultRow({ n, kr, canWrite, statuses, objectives, onChanged }: { n: number; kr: GoalKeyResult; canWrite: boolean; statuses: KeyResultStatus[]; objectives: ObjectiveView[]; onChanged: () => void }) {
   const [f, setF] = useState({ text: kr.text, howToCheck: kr.howToCheck });
   useEffect(() => setF({ text: kr.text, howToCheck: kr.howToCheck }), [kr.text, kr.howToCheck]);
   const dirty = f.text !== kr.text || f.howToCheck !== kr.howToCheck;
@@ -331,6 +404,14 @@ function KeyResultRow({ n, kr, canWrite, statuses, onChanged }: { n: number; kr:
           </select>
         ) : <Pill tone={krTone(kr.status)} title={kr.statusNote || undefined}>{krStatusLabel(kr.status)}</Pill>}
         {canWrite ? null : <b>{kr.text}</b>}
+        {canWrite && objectives.length ? (
+          <select className="kr-move" value={kr.objectiveId ?? ""} title="The objective it serves" aria-label={`Objective of key result ${n}`} onChange={(e) => {
+            api().updateKeyResult(kr.id, { objectiveId: e.target.value || null }).then(() => { store.toast(`Key result ${n} moved`, "ok"); onChanged(); }, (err) => store.toast((err as Error).message, "bad"));
+          }}>
+            <option value="">{kr.objectiveId ? "Not under an objective" : "Move under…"}</option>
+            {objectives.map((o, i) => <option key={o.id} value={o.id}>Objective {i + 1}: {o.text.slice(0, 50)}</option>)}
+          </select>
+        ) : null}
       </div>
       {canWrite ? (
         <form className="form" onSubmit={(e) => e.preventDefault()}>

@@ -1,5 +1,5 @@
 import {
-  AccessRequest, Agent, Allocation, Assignment, BankCredit, BankDebit, BankInput, BankPool, Building, DesksConfig, Doc, Grant, Interrupt, KeyResult, Meeting, Membership, Message, Place, Role, Session, SkillPin, Town, UsageEntry, User,
+  AccessRequest, Agent, Allocation, Assignment, BankCredit, BankDebit, BankInput, BankPool, Building, DesksConfig, Doc, Grant, Interrupt, KeyResult, Kpi, Objective, Meeting, Membership, Message, Place, Role, Session, SkillPin, Town, UsageEntry, User,
   type ServerMessage, type TokenCountKind, type TokenCounts,
 } from "@muster-town/schema";
 import type { DB } from "./db.ts";
@@ -154,6 +154,8 @@ export function createRepos(db: DB, changes: Emitter<ServerMessage>) {
     sessions: new Table<Session, SessionWrite>(db, "sessions", Session, { json: ["byModel", "origin"] }),
     grants: new Table<Grant>(db, "grants", Grant, { json: ["findingsDocIds", "checkpointsDone", "history", "testingPlan"] }),
     keyResults: new Table<KeyResult>(db, "key_results", KeyResult, { json: ["sourceDocIds"] }),
+    objectives: new Table<Objective>(db, "objectives", Objective, { json: ["sourceDocIds"] }),
+    kpis: new Table<Kpi>(db, "kpis", Kpi),
     accessRequests: new Table<AccessRequest>(db, "access_requests", AccessRequest),
     skillPins: new Table<SkillPin>(db, "skill_pins", SkillPin, { bool: ["byHuman"] }),
     interrupts: new Table<Interrupt>(db, "interrupts", Interrupt, { bool: ["now"] }),

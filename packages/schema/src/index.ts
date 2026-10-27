@@ -792,9 +792,56 @@ export const KeyResult = z.object({
   editedBy: Id.nullable().default(null),
   /** the meeting notes or reports it came from */
   sourceDocIds: z.array(Id).default([]),
+  /** the building objective it serves (null = "Unsorted": not under an objective yet) */
+  objectiveId: Id.nullable().default(null),
   updatedAt: Iso,
 });
 export type KeyResult = z.infer<typeof KeyResult>;
+/** The town KPIs objectives move (docs/goal-directed-budgets.md "Objectives and KPIs"). */
+export const KpiKey = z.enum(["fund", "join", "trust"]);
+export type KpiKey = z.infer<typeof KpiKey>;
+/** At most 3 objectives per building and 4 key results per objective (2 each is the hint, not enforced). */
+export const MAX_OBJECTIVES = 3;
+export const MAX_KEY_RESULTS_PER_OBJECTIVE = 4;
+/**
+ * An objective of a building goal: one sentence, a quarter horizon (e.g. "2026-Q4"), and the town KPI it moves. Key
+ * results hang off it. Written like key results: a human with `building.manage` or the building's own manager agent.
+ */
+export const Objective = z.object({
+  id: Id,
+  buildingId: Id,
+  position: z.number().int(),
+  text: z.string().min(1).max(300),
+  horizon: z.string().min(1).max(20),
+  /** the town KPI it moves (null while drafting) */
+  kpiId: Id.nullable().default(null),
+  createdBy: Id.nullable().default(null),
+  editedBy: Id.nullable().default(null),
+  sourceDocIds: z.array(Id).default([]),
+  updatedAt: Iso,
+});
+export type Objective = z.infer<typeof Objective>;
+/** A standing town indicator (never met or missed); its value is computed live from town data. */
+export const Kpi = z.object({
+  id: Id,
+  scope: z.literal("town").default("town"),
+  key: KpiKey,
+  name: z.string(),
+  measure: z.string(),
+  position: z.number().int(),
+});
+export type Kpi = z.infer<typeof Kpi>;
+/** GET /api/kpis: a KPI with its live value: the last 7 days, the 7 before, and 8 weekly points (oldest first). */
+export const KpiView = Kpi.extend({
+  thisWeek: z.number().nonnegative(),
+  lastWeek: z.number().nonnegative(),
+  weeks: z.array(z.number().nonnegative()),
+  /** one line on what this week's number is made of, e.g. "0 funders, 0 tokens" */
+  detail: z.string(),
+});
+export type KpiView = z.infer<typeof KpiView>;
+/** The framing the dashboard and the docs show above the KPI tiles. */
+export const KPI_FRAMING = "The town goal, \"Make Muster Town something strangers can fund, join, and trust\", is not a key result anyone meets: it is three standing indicators, Fund, Join and Trust, that should rise week over week. Every building objective names the one it moves; key results are how a building commits to moving it this quarter, and these numbers are how the town sees whether it moved.";
 /**
  * A grant as the API returns it: the goal key result it names (null if none) and derived spend. `spentTokens` is
  * adjusted output tokens (Bank step 3), like `askTokens` and `grantTokens`; `spentCounts` is the five counters behind it.
@@ -862,7 +909,7 @@ export const EventType = z.enum([
   "meeting.created", "meeting.phase", "meeting.utterance", "meeting.decisions",
   "session.started", "session.ended",
   "building.created", "building.updated", "building.layout", "town.plan", "allocation.created", "budget.exhausted", "bank.input", "bank.credited", "bank.converted", "bank.share", "bank.pool", "bank.drift", "bank.cap", "bank.hold",
-  "grant.created", "grant.updated", "grant.proposed", "grant.countered", "grant.funded", "grant.rejected", "grant.checkpoint", "grant.closed", "kr.updated", "kr.created", "kr.deleted", "building.blocked",
+  "grant.created", "grant.updated", "grant.proposed", "grant.countered", "grant.funded", "grant.rejected", "grant.checkpoint", "grant.closed", "kr.updated", "kr.created", "kr.deleted", "objective.created", "objective.updated", "objective.deleted", "building.blocked",
   "skill.used", "skill.pinned", "skill.unpinned",
   "secret.set", "secret.deleted", "secret.granted",
   "export.done", "system",
@@ -893,8 +940,22 @@ export const CreateGrantInput = z.object({
 export const CreateKeyResultInput = z.object({
   text: z.string().trim().min(1).max(300), howToCheck: z.string().trim().min(1).max(300),
   sourceDocIds: z.array(Id).max(10).default([]).describe("the meeting notes or reports it comes from"),
+  objectiveId: Id.nullable().optional().describe("the objective of this building it serves (at most 4 key results each)"),
 });
 export type CreateKeyResultInput = z.input<typeof CreateKeyResultInput>;
+/** POST /api/buildings/:id/objectives: an objective of the building goal (at most 3). `horizon` defaults to the current quarter. */
+export const CreateObjectiveInput = z.object({
+  text: z.string().trim().min(1).max(300), horizon: z.string().trim().regex(/^\d{4}-Q[1-4]$/).optional(),
+  kpi: KpiKey.nullable().optional().describe("the town KPI it moves"),
+  sourceDocIds: z.array(Id).max(10).default([]),
+});
+export type CreateObjectiveInput = z.input<typeof CreateObjectiveInput>;
+/** PATCH /api/objectives/:id */
+export const UpdateObjectiveInput = z.object({
+  text: z.string().trim().min(1).max(300).optional(), horizon: z.string().trim().regex(/^\d{4}-Q[1-4]$/).optional(),
+  kpi: KpiKey.nullable().optional(), sourceDocIds: z.array(Id).max(10).optional(), position: z.number().int().optional(),
+});
+export type UpdateObjectiveInput = z.input<typeof UpdateObjectiveInput>;
 export type CreateGrantInput = z.input<typeof CreateGrantInput>;
 
 // ---------- verbs (MCP tools) ----------
@@ -968,6 +1029,15 @@ export const VerbInputs = {
     text: z.string().trim().min(1).max(300).optional().describe("the key result: something a human can check in the live town (required to add one)"),
     howToCheck: z.string().trim().min(1).max(300).optional().describe("the measure / target: where to look and what you'd see (required to add one)"),
     sourceDocIds: z.array(Id).max(10).optional().describe("the meeting notes or report it comes from (required to add one)"),
+    objectiveId: Id.nullable().optional().describe("the objective it serves (set_objective lists them; null moves it back to Unsorted)"),
+  }),
+  set_objective: z.object({
+    buildingId: Id.optional().describe("defaults to your building"),
+    id: Id.optional().describe("an objective to edit; leave it out to add one (at most 3 per building)"),
+    text: z.string().trim().min(1).max(300).optional().describe("one sentence: what the building will achieve this quarter (required to add one)"),
+    kpi: KpiKey.optional().describe("the town KPI it moves: fund, join or trust (required to add one)"),
+    horizon: z.string().trim().regex(/^\d{4}-Q[1-4]$/).optional().describe("a quarter, e.g. 2026-Q4 (default: this quarter)"),
+    sourceDocIds: z.array(Id).max(10).optional().describe("the meeting notes or report it comes from (required to add one)"),
   }),
   promote: z.object({ docId: Id, state: z.enum(["building", "library"]) }),
   ban: z.object({ agentId: Id, reason: z.string() }),
@@ -1000,7 +1070,8 @@ export const VERB_DESCRIPTIONS: Record<VerbName, string> = {
   cancel: "(manager/reviewer) Cancel a queued (not started) assignment in my building. Started assignments and other buildings' are refused.",
   propose_grant: "(manager) Propose a grant for my building in one call: the plan for one of the building goal's key results (keyResultId): an objective, the approach, a stop condition, a token ask, and optionally a testing plan (text + howToCheck lines). Funding it runs the plan. It goes to the Town Hall in-tray for a human to fund, counter or reject. A building can have several proposals open at once, each decided on its own. To answer a counter, pass its grantId: the new plan rewrites that proposal and re-proposes it under the same id.",
   checkpoint_grant: "(manager) File a grant's checkpoint: set the status of the grant's key result (on the building goal), at most claimed (only a human marks met or missed), with a note on the evidence; then submit_report with rollup: true, which links itself to the grant as its checkpoint report. The grant stays held until a human continues, adjusts or cuts it.",
-  set_key_result: "(manager) Write a key result on my building's goal, or edit one (id): the text, how to check it, and the meeting notes or report it comes from (sourceDocIds). It's on the board at once and listed in my next rollup so a human can cut it. Status is checkpoint_grant's; only a human marks met or missed or deletes one.",
+  set_key_result: "(manager) Write a key result on my building's goal, or edit one (id): the text, how to check it, the meeting notes or report it comes from (sourceDocIds), and the objective it serves (objectiveId; at most 4 key results each). It's on the board at once and listed in my next rollup so a human can cut it. Status is checkpoint_grant's; only a human marks met or missed or deletes one.",
+  set_objective: "(manager) Write an objective of my building's goal, or edit one (id): one sentence for this quarter, the town KPI it moves (fund, join or trust), the horizon (default this quarter) and the meeting notes or report it comes from. At most 3 per building; key results then hang off one (set_key_result objectiveId). Only a human deletes one.",
   promote: "(manager) Publish a document to the building (board if it's an fyi, else the filing cabinet) or promote it to the library.",
   ban: "(town moderator) Ban an agent town-wide pending review.",
   redeploy: "Pull main on the host, reinstall, rebuild the web client (and the desk image when image=true), then restart the collective's server. Use when Mitchell asks you to deploy or when main has changed and the running town is stale. The restart waits for every running work session, including yours, to end first: never poll or wait for the new build in the same session (that deadlocks until the drain gives up). Call it, say in your report which commit should be live, submit the report, and verify on your next session.",
@@ -1198,6 +1269,8 @@ export const UpdateKeyResultInput = z.object({
   howToCheck: z.string().trim().min(1).max(300).optional(),
   /** replaces the list; only with a words edit */
   sourceDocIds: z.array(Id).max(10).optional(),
+  /** move it under an objective of its building (null = back to Unsorted) */
+  objectiveId: Id.nullable().optional(),
 });
 export type UpdateKeyResultInput = z.input<typeof UpdateKeyResultInput>;
 /** GET /api/buildings/:id/grants?status= */

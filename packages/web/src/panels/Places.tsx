@@ -5,7 +5,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { BOARD_TYPES, DocType, type AccessRequestView, type Doc, type GrantView, type Meeting } from "@muster-town/schema";
 import { api, type Board, type Intray } from "../api";
-import { UNBLOCK_LINE, explorationLine, grantSpendLine, grantStateLine, keyResultRows, krFundingLine, krStatusLabel, krTone, proposalLine, spentShare, unfundableReason } from "./keyResults";
+import { UNBLOCK_LINE, explorationLine, grantSpendLine, grantStateLine, keyResultRows, krFundingLine, objectiveGroups, objectiveLine, krStatusLabel, krTone, proposalLine, spentShare, unfundableReason } from "./keyResults";
 import { store, useTown, roleOf } from "../state";
 import { DocRow, DocView, VERDICT_TONE, needOf } from "./DocView";
 import { Glyph, PanelShell } from "./PanelShell";
@@ -367,6 +367,8 @@ function KeyResultsView({ board, buildingId }: { board: Board; buildingId: strin
   const e = board.exploration;
   const eShare = spentShare(e.spentTodayTokens, e.allowanceTokens);
   const { rows, orphans } = keyResultRows(board);
+  const groups = objectiveGroups(board.objectives, rows);
+  const num = new Map(groups.flatMap((g) => g.rows).map((r, i) => [r.kr.id, i + 1]));
   const edit = canEdit ? <button className="link" onClick={() => store.open({ kind: "building", id: buildingId, tab: "Settings" })}>Edit in settings</button> : undefined;
   return (
     <Section title="Key results" right={edit}>
@@ -375,19 +377,27 @@ function KeyResultsView({ board, buildingId }: { board: Board; buildingId: strin
         {board.goal ? <div className="kr-goal"><span className="muted">Goal</span> {board.goal}</div> : null}
         {board.blocked ? <div className="kr-blocked"><Pill tone="bad">blocked</Pill> {board.blocked.replace(/^blocked: /, "")}. {canEdit ? "Write the goal's key results in Building → Settings." : "A human or the manager writes them; the manager's come out of a meeting or the 1:1."}</div> : null}
         {!rows.length && !board.blocked ? <Empty>No key results on the goal yet{canEdit ? ": write them in Building → Settings" : ""}.</Empty> : null}
-        <ol className="kr-rows">
-          {rows.map(({ kr, grant }, i) => (
-            <li key={kr.id} className="kr-row">
-              <div className="kr-row-head">
-                <span className="kr-n">{i + 1}</span>
-                <Pill tone={krTone(kr.status)} title={kr.statusNote || undefined}>{krStatusLabel(kr.status)}</Pill>
-                <b>{kr.text}</b>
-              </div>
-              <div className="muted kr-check">How to check: {kr.howToCheck}</div>
-              {grant ? <GrantLine grant={grant} /> : <div className="muted kr-funding">{krFundingLine(null)}</div>}
-            </li>
-          ))}
-        </ol>
+        {groups.map(({ objective: o, rows: group }, _, all) => (
+          <div key={o?.id ?? "unsorted"} className="kr-objective">
+            {o ? (
+              <div className="kr-objective-head"><b>{o.text}</b> <span className="muted">{objectiveLine(o)}</span></div>
+            ) : all.length > 1 ? <div className="kr-objective-head muted">Not under an objective yet</div> : null}
+            {o && !group.length ? <div className="muted kr-funding">No key results under it yet.</div> : null}
+            <ol className="kr-rows">
+              {group.map(({ kr, grant }) => (
+                <li key={kr.id} className="kr-row">
+                  <div className="kr-row-head">
+                    <span className="kr-n">{num.get(kr.id)}</span>
+                    <Pill tone={krTone(kr.status)} title={kr.statusNote || undefined}>{krStatusLabel(kr.status)}</Pill>
+                    <b>{kr.text}</b>
+                  </div>
+                  <div className="muted kr-check">How to check: {kr.howToCheck}</div>
+                  {grant ? <GrantLine grant={grant} /> : <div className="muted kr-funding">{krFundingLine(null)}</div>}
+                </li>
+              ))}
+            </ol>
+          </div>
+        ))}
         {orphans.map((g) => (
           <div key={g.id} className="kr-grant">
             <div className="muted">Names no key result yet</div>

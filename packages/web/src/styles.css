@@ -576,3 +576,23 @@ textarea[data-drop="over"] { outline: 2px dashed var(--accent, #7aa2ff); outline
 .connect-line { font-family: var(--mono); font-size: 12px; white-space: pre-wrap; word-break: break-all; background: var(--bg); border: 1px solid var(--line); border-radius: 6px; padding: 10px 12px; margin: 8px 0; user-select: all; }
 .connect-actions { display: flex; gap: 8px; }
 .warn-line { color: var(--warn); font-size: 12.5px; margin: 10px 0; }
+
+/* objectives (board, settings) and the town dashboard (KPIs) */
+.kr-objective { margin: 8px 0 10px; }
+.kr-objective-head { margin: 6px 0 4px; }
+.kr-objective-head .muted { font-size: 12px; }
+.kr-move { margin-left: auto; max-width: 180px; }
+.kr-hint { font-size: 12px; margin: 2px 0 6px; }
+.kpi-tiles { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: var(--gap); margin-top: 8px; }
+.kpi-tile { background: var(--panel-2); border: 1px solid var(--line); border-radius: var(--r); padding: 10px; }
+.kpi-name { font-weight: 600; }
+.kpi-value { font-size: 28px; font-weight: 700; line-height: 1.1; color: var(--text); }
+.kpi-delta, .kpi-measure, .kpi-detail { font-size: 12px; margin-top: 4px; }
+.kpi-spark { display: block; margin-top: 6px; }
+.kpi-spark-base { stroke: var(--line-2); stroke-width: 1; }
+.kpi-spark-line { stroke: var(--accent); stroke-width: 2; stroke-linejoin: round; stroke-linecap: round; }
+.kpi-spark-dot { fill: var(--accent); stroke: var(--panel-2); stroke-width: 2; }
+.kpi-building { margin: 8px 0 12px; }
+.kpi-objectives { margin: 4px 0 0; padding-left: 18px; }
+.kpi-objectives li { margin-bottom: 6px; }
+.kpi-krs { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 2px; }

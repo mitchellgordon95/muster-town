@@ -4,6 +4,7 @@
  */
 import type { z } from "zod";
 import type {
+  CreateObjectiveInput, UpdateObjectiveInput, Objective, KpiKey, KpiView,
   AccessRequest, AccessRequestView, Agent, Allocation, Assignment, AuthMe, BlockedAssignment, RedeployLive, Building, ClientMessage, DesksConfig, Doc, Event, Lot, Meeting, Place, Role, Membership, SessionSlots, Tile,
   ServerMessage, SessionView, TokenCounts, Town, CreateBuildingInput, UpdateBuildingInput, CreateResidentInput, RegisterVisitorInput,
   ReviewInput, PinSkillInput, SkillPinView, SkillView, PutSecretInput, SecretView, ChatInput, WorkInput, DonateInput, AddBankInput, BankInput, CreateBankPoolInput, UpdateBankPoolInput, CreateMeetingInput, DocState, DocType, Mailbox, Permission, DecideGrantInput, GrantView, KeyResult, CreateKeyResultInput, UpdateKeyResultInput, Stoplight,
@@ -139,6 +140,12 @@ export interface PlanPreview { errors: { buildingId: string | null; message: str
 export interface Intray { reports: Doc[]; grants: GrantView[]; access?: AccessRequestView[]; blocked?: { buildingId: string; name: string; reason: string; since: string | null }[] }
 /** A goal key result with the live (funded or checkpoint) grant working on it, if any, and who wrote / last edited it (core's GoalKeyResult). */
 export type GoalKeyResult = KeyResult & { grantId: string | null; createdByName?: string | null; editedByName?: string | null };
+/** An objective of a building goal with the KPI it moves and its key results (core's ObjectiveView). */
+export type ObjectiveView = Objective & { kpi: KpiKey | null; kpiName: string | null; keyResults: GoalKeyResult[]; createdByName?: string | null; editedByName?: string | null };
+/** GET /api/buildings/:id/objectives: the objectives with their key results, then the key results under none. */
+export interface ObjectiveTree { objectives: ObjectiveView[]; unsorted: GoalKeyResult[] }
+/** GET /api/kpis: the framing, the town KPIs with live values, and every goal-directed building's objectives. */
+export interface KpisView { framing: string; kpis: KpiView[]; buildings: (ObjectiveTree & { buildingId: string; name: string; goal: string })[] }
 /** GET /api/buildings/:id/key-results */
 export interface KeyResultsView { keyResults: GoalKeyResult[]; blocked: string | null }
 /** GET /api/buildings/:id/board: the FYIs plus the budget part (core's GrantBoard; open buildings have no grants). */
@@ -147,6 +154,8 @@ export interface Board {
   goal: string;
   /** the goal's key results, each with the live grant on it (null = open for exploration) */
   keyResults: GoalKeyResult[];
+  /** the same key results grouped under the goal's objectives, then the ones under none */
+  objectives: ObjectiveTree;
   /** "blocked: no key results to work toward", or null */
   blocked: string | null;
   /** green / yellow / red with the one-line reason; null for open buildings */
@@ -199,6 +208,16 @@ export interface Api {
   updateKeyResult(id: string, input: In<typeof UpdateKeyResultInput>): Promise<KeyResult>;
   /** DELETE /api/key-results/:id (409 while a draft, open or live grant names it) */
   deleteKeyResult(id: string): Promise<void>;
+  /** GET /api/buildings/:id/objectives */
+  objectives(buildingId: string): Promise<ObjectiveTree>;
+  /** POST /api/buildings/:id/objectives (a human with building.manage; at most 3) */
+  createObjective(buildingId: string, input: In<typeof CreateObjectiveInput>): Promise<Objective>;
+  /** PATCH /api/objectives/:id */
+  updateObjective(id: string, input: In<typeof UpdateObjectiveInput>): Promise<Objective>;
+  /** DELETE /api/objectives/:id (409 while key results hang off it) */
+  deleteObjective(id: string): Promise<void>;
+  /** GET /api/kpis: the town dashboard */
+  kpis(): Promise<KpisView>;
   /** `name` left out = the town picks one. */
   createResident(input: In<typeof CreateResidentInput>): Promise<Agent>;
   /** a signed-in person registers their own agent (Claude Code over MCP); the token is returned once */
@@ -384,7 +403,7 @@ export class HttpApi implements Api {
   async events(q: EventQuery) { return unwrap<Event[]>(await this.get(`/api/events${qs(q)}`), "events"); }
   async board(id: string, limit = 30) {
     const r = await this.get<Partial<Board>>(`/api/buildings/${id}/board${qs({ limit })}`);
-    return { docs: r.docs ?? [], goal: r.goal ?? "", keyResults: r.keyResults ?? [], blocked: r.blocked ?? null, stoplight: r.stoplight ?? null, grants: r.grants ?? [], proposals: r.proposals ?? [], exploration: r.exploration ?? { allowanceTokens: 0, spentTodayTokens: 0 } };
+    return { docs: r.docs ?? [], goal: r.goal ?? "", keyResults: r.keyResults ?? [], objectives: r.objectives ?? { objectives: [], unsorted: r.keyResults ?? [] }, blocked: r.blocked ?? null, stoplight: r.stoplight ?? null, grants: r.grants ?? [], proposals: r.proposals ?? [], exploration: r.exploration ?? { allowanceTokens: 0, spentTodayTokens: 0 } };
   }
   async cabinet(id: string, q: CabinetQuery = {}) {
     const r = await this.get<Partial<Cabinet>>(`/api/buildings/${id}/cabinet${qs({ limit: 30, ...q })}`);
@@ -410,6 +429,11 @@ export class HttpApi implements Api {
   async createKeyResult(buildingId: string, i: In<typeof CreateKeyResultInput>) { return unwrap<KeyResult>(await this.post(`/api/buildings/${buildingId}/key-results`, i), "keyResult"); }
   async updateKeyResult(id: string, i: In<typeof UpdateKeyResultInput>) { return unwrap<KeyResult>(await this.call("PATCH", `/api/key-results/${id}`, i), "keyResult"); }
   async deleteKeyResult(id: string) { await this.call("DELETE", `/api/key-results/${id}`); }
+  objectives(buildingId: string) { return this.get<ObjectiveTree>(`/api/buildings/${buildingId}/objectives`); }
+  async createObjective(buildingId: string, i: In<typeof CreateObjectiveInput>) { return unwrap<Objective>(await this.post(`/api/buildings/${buildingId}/objectives`, i), "objective"); }
+  async updateObjective(id: string, i: In<typeof UpdateObjectiveInput>) { return unwrap<Objective>(await this.call("PATCH", `/api/objectives/${id}`, i), "objective"); }
+  async deleteObjective(id: string) { await this.call("DELETE", `/api/objectives/${id}`); }
+  kpis() { return this.get<KpisView>("/api/kpis"); }
   async createResident(i: In<typeof CreateResidentInput>) { return unwrap<Agent>(await this.post("/api/agents/residents", i), "agent"); }
   registerVisitor(i: In<typeof RegisterVisitorInput>) { return this.post<{ agent: Agent; token: string }>("/api/agents/visitors", i); }
   async suggestName(avoid: string[] = []) { return unwrap<string>(await this.get(`/api/agents/name-suggestion?avoid=${encodeURIComponent(avoid.join(","))}`), "name"); }

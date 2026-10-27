@@ -88,6 +88,8 @@ export class World {
   readonly interrupts: Repos["interrupts"];
   readonly grants: Repos["grants"];
   readonly keyResults: Repos["keyResults"];
+  readonly objectives: Repos["objectives"];
+  readonly kpis: Repos["kpis"];
   readonly accessRequests: Repos["accessRequests"];
   readonly skillPins: Repos["skillPins"];
   readonly tokens: Repos["tokens"];
@@ -110,7 +112,7 @@ export class World {
     this.places = repos.places; this.docs = repos.docs; this.assignments = repos.assignments;
     this.messages = repos.messages; this.meetings = repos.meetings; this.sessions = repos.sessions;
     this.interrupts = repos.interrupts;
-    this.grants = repos.grants; this.keyResults = repos.keyResults; this.accessRequests = repos.accessRequests; this.skillPins = repos.skillPins;
+    this.grants = repos.grants; this.keyResults = repos.keyResults; this.objectives = repos.objectives; this.kpis = repos.kpis; this.accessRequests = repos.accessRequests; this.skillPins = repos.skillPins;
     this.tokens = repos.tokens; this.town = repos.town;
     this.events = new EventLog(db, this.changes);
     this.permissions = new Permissions(repos);

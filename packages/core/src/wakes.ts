@@ -65,6 +65,10 @@ function describe(world: World, e: Event): { title: string; what: string; summar
     let verb: string, detail: string;
     if (e.type === "kr.created") { verb = "written"; detail = `How to check: ${kr?.howToCheck ?? p.howToCheck ?? ""}`; }
     else if (e.type === "kr.deleted") { verb = "removed"; detail = "It is no longer on the goal; work that named it keeps running until you reassign it."; }
+    else if (p.edited !== true && p.objectiveId !== undefined && p.status === p.from) {
+      const o = typeof p.objectiveId === "string" ? world.objectives.get(p.objectiveId) : undefined;
+      verb = "moved"; detail = o ? `Now under objective ${o.id}: ${o.text}` : "Now under no objective (Unsorted).";
+    }
     else if (p.edited === true) { verb = "edited"; detail = `Was: ${String(p.fromText ?? "")}\nNow: ${text}\nHow to check: ${kr?.howToCheck ?? ""}`; }
     else { verb = `marked ${String(p.status)}`; detail = `Status ${String(p.from)} → ${String(p.status)}${kr?.statusNote ? `: ${kr.statusNote}` : ""}`; }
     return {
