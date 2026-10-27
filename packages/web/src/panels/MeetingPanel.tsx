@@ -10,6 +10,7 @@ import { portraitUrl } from "../map/sprites";
 import { roomMeetings } from "./room";
 import { AttendeePicker, useAttendees } from "./AttendeePicker";
 import { attendeeInput } from "./attendees";
+import { endMeetingConfirm } from "./endMeeting";
 import { SignInNote } from "../auth/auth";
 import { DocText, Markdown, docIdsIn } from "./Markdown";
 import { docUrl } from "../route";
@@ -149,7 +150,7 @@ function MeetingView({ m }: { m: Meeting }) {
           <textarea rows={2} value={text} disabled={!discussing} placeholder={discussing ? (oneOnOne ? `Say something to ${nameOf(m.facilitatorId)}…` : "Say something to the meeting…") : "Chat opens when the discussion starts…"} onChange={(e) => setText(e.target.value)}
             onKeyDown={(e) => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); void say(); } }} />
           <button className="btn primary" disabled={!discussing || !text.trim()}>Say</button>
-          {canRun ? <Act tone="bad" run={async () => store.putMeeting(await api().endMeeting(m.id))}>{oneOnOne ? "End 1:1" : "End meeting"}</Act> : null}
+          {canRun ? <Act tone="bad" run={async () => { const ask = endMeetingConfirm(m); if (ask && !confirm(ask)) return; store.putMeeting(await api().endMeeting(m.id)); }}>{oneOnOne ? "End 1:1" : "End meeting"}</Act> : null}
           <DraftDocs text={text} />
         </form>
       ) : null}
