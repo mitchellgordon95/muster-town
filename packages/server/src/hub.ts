@@ -1,4 +1,4 @@
-import { AppError, World } from "@muster-town/core";
+import { AppError, townRoleId, upsertGithubUser, World, type GithubProfile } from "@muster-town/core";
 import Database from "better-sqlite3";
 import type { FastifyInstance } from "fastify";
 import { mkdirSync, writeFileSync } from "node:fs";
@@ -75,8 +75,9 @@ export class Hub {
     for (const row of this.list("active")) await this.open(row);
   }
 
-  /** A new collective: hub row, dir, collective.json, a seeded World, served at once (no restart). */
-  async create(input: CreateCollectiveInput, ownerGithubId: string | null = null): Promise<HubCollective> {
+  /** A new collective: hub row, dir, collective.json, a seeded World, served at once (no restart); `owner` is its admin. */
+  async create(input: CreateCollectiveInput, owner: GithubProfile | null = null): Promise<HubCollective> {
+    const ownerGithubId = owner ? String(owner.id) : null;
     const i = CreateCollectiveInput.parse(input);
     if (RESERVED_SLUGS.has(i.slug)) throw new AppError("bad_request", `"${i.slug}" is reserved: pick another name for the address.`);
     if (this.get(i.slug)) throw new AppError("conflict", `muster.town/${i.slug} is taken: pick another name for the address.`);
@@ -86,6 +87,13 @@ export class Hub {
     writeFileSync(join(dir, "collective.json"), JSON.stringify({ name: row.name, goal: row.goal, tagline: row.tagline, buildings: [] }, null, 2) + "\n");
     this.db.prepare("INSERT INTO collectives (slug, name, tagline, goal, ownerGithubId, createdAt, state) VALUES (@slug, @name, @tagline, @goal, @ownerGithubId, @createdAt, @state)").run(row);
     await this.open(row);
+    if (owner) {
+      // the owner takes over the seeded "admin" placeholder under their own name (as the session does on a first visit)
+      const world = this.world(row.slug)!;
+      const r = upsertGithubUser(world, owner, { admins: [owner.login] });
+      if (r.linked) world.users.upsert({ ...r.user, name: owner.name?.trim() || owner.login });
+      world.ops.ensureAvatar(r.user.id);
+    }
     return row;
   }
 
@@ -97,6 +105,9 @@ export class Hub {
     const world = World.open(join(dataDir, "town.db"));
     world.seedDefaults({ adminName: "admin", townJsonPath: join(dir, "collective.json"), collectivePath: join(dir, "collective.json"), dataDir });
     world.start(10);
+    // the owner is this World's admin, also after a reopen (a first visit makes their user if there is none yet)
+    const owner = row.ownerGithubId != null ? world.users.first("githubId = ?", [Number(row.ownerGithubId)]) : null;
+    if (owner) world.permissions.grant({ kind: "user", id: owner.id }, townRoleId("admin"));
     const app = await this.mount(world, row, dir);
     await app.ready();
     this.mounted.set(row.slug, { row, world, app });

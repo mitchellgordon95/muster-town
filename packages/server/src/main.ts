@@ -10,7 +10,7 @@ import { basename, dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { buildApp } from "./app.ts";
 import { BackupJob } from "./backup/index.ts";
-import { loadAuthSettings, sessionSecretFile } from "./auth/index.ts";
+import { loadAuthSettings } from "./auth/index.ts";
 import { Hub } from "./hub.ts";
 import { desksFromEnv, loadEnvFile } from "./env.ts";
 import type { RuntimeHooks } from "./context.ts";
@@ -54,11 +54,11 @@ async function main() {
   const auth = loadAuthSettings({ dataDir: DATA_DIR, port: PORT });
   // off-site backup (deploy/README.md "Backups"): local copies beside the data dir (/data/workshop/backups on Fly); inert without the env
   const backup = new BackupJob({ db: world.db, dir: resolve(DATA_DIR, "..", "backups") });
-  // each hosted collective: its own World and app under /<slug>, no runtime (no sessions until step 3), no GitHub login
-  // (step 2), its own session secret and export dir
+  // each hosted collective: its own World and app under /<slug>, no runtime (no sessions until step 3), its own export
+  // dir; the root's session cookie and secret (one sign-in for the whole host, step 2), its owner as its admin
   const hub = new Hub(HOSTED_DIR, (w, row, dir) => buildApp({
     world: w, dev: DEV, runtime: null, prefix: `/${row.slug}`, exportDir: join(dir, "export"),
-    auth: { ...auth, githubClientId: null, githubClientSecret: null, sessionSecret: sessionSecretFile(join(dir, "data")) },
+    auth: { ...auth, admins: [], hosted: { slug: row.slug, ownerGithubId: row.ownerGithubId } },
   }));
   await hub.openAll();
   console.log(`[server] hub ${HOSTED_DIR}: ${hub.count} hosted collective(s)${hub.count ? ": " + hub.list("active").map((r) => "/" + r.slug + "/").join(", ") : ""}`);

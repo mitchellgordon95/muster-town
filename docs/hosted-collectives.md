@@ -15,8 +15,15 @@ meeting of 2026-10-27 17:21Z (mt_6830h8x5qk, decision 6) and waits for the Fund 
    with routes, ws and mcp mounted under `/<slug>/` (one Fastify plugin per prefix with its own `app.world`).
    `/workshop/` stays; the root `/api`, `/ws`, `/mcp` keep pointing at the Workshop. The web client reads its base from
    the URL at runtime. Fallback if too invasive: one child process per collective behind the hub as a reverse proxy.
+   Done 2026-10-27 (667c72b): one process, each hosted app dispatched from the root's first hook (not plugins).
 2. **One sign-in.** GitHub OAuth stays at the root (one callback), root-scoped cookie, a hub users table; a
    collective's user row is linked by githubId on first visit, visitor-until-let-in per collective, the creator is admin.
+   Done 2026-10-27, without a hub users table: the root's session cookie carries the GitHub identity (`gh`) and its
+   secret is shared by every hosted app, which finds or makes its own user by githubId on the first request (town
+   `visitor`: read-only, Ask to join). The hub row's owner holds `admin` in their World (granted at creation and at
+   every reopen; the owner takes over the seeded "admin" placeholder). Sign in at `/<slug>/` goes through the root's
+   flow with a checked return-to (`safeReturnTo`: same host, an active slug's path) and lands back there. A Workshop
+   admin is a guest in a hosted collective. Tests: `packages/server/test/hub-auth.test.ts`.
 3. **Start a collective.** The form on the homepage (below) and `POST /api/collectives`.
 4. **Live check** with a second GitHub account in a private window; manual section "Start your own collective";
    README points hosted users to the homepage.

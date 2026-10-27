@@ -18,6 +18,12 @@ export interface AuthSettings {
   fetch: typeof fetch;
   githubUrl: string;
   githubApiUrl: string;
+  /**
+   * A hosted collective's app (docs/hosted-collectives.md step 2): it shares the root's session cookie and secret,
+   * resolves the cookie's GitHub identity against its own World (a user row on first visit), sends `/auth/github` to
+   * the root's flow with a return-to of `/<slug>/`, and makes `ownerGithubId` its admin. Unset at the root.
+   */
+  hosted?: { slug: string; ownerGithubId: string | null } | null;
 }
 
 export const GITHUB_URL = "https://github.com";

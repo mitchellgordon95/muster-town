@@ -1,4 +1,4 @@
-import type { World } from "@muster-town/core";
+import { townRoleId, upsertGithubUser, type GithubProfile, type World } from "@muster-town/core";
 import { createHmac, randomBytes, timingSafeEqual } from "node:crypto";
 import type { FastifyRequest } from "fastify";
 import type { Auth } from "../context.ts";
@@ -52,21 +52,37 @@ export function cookie(name: string, value: string, o: { maxAge: number; path?: 
 
 export const isSecure = (s: AuthSettings) => s.publicUrl.startsWith("https:");
 
-export interface SessionPayload { userId: string; iat: number }
+/** `userId` is the root World's user; `gh` (GitHub sign-ins) is what a hosted World resolves the visitor by. */
+export interface SessionPayload { userId: string; iat: number; gh?: GithubProfile }
 
-export function sessionCookie(s: AuthSettings, userId: string, now = Date.now()): string {
-  return cookie(sessionCookieName(s.publicUrl), sign(s.sessionSecret, { userId, iat: Math.floor(now / 1000) } satisfies SessionPayload), { maxAge: SESSION_MAX_AGE_S, secure: isSecure(s) });
+export function sessionCookie(s: AuthSettings, userId: string, now = Date.now(), gh?: GithubProfile): string {
+  const payload: SessionPayload = { userId, iat: Math.floor(now / 1000), ...(gh ? { gh: { id: gh.id, login: gh.login, name: gh.name ?? null, avatarUrl: gh.avatarUrl ?? null } } : {}) };
+  return cookie(sessionCookieName(s.publicUrl), sign(s.sessionSecret, payload), { maxAge: SESSION_MAX_AGE_S, secure: isSecure(s) });
 }
 export const clearSessionCookie = (s: AuthSettings) => cookie(sessionCookieName(s.publicUrl), "", { maxAge: 0, secure: isSecure(s) });
 
-/** A fresh OAuth `state` nonce and the signed cookie that pins it to this browser. */
-export function newState(s: AuthSettings): { state: string; setCookie: string } {
+/** A fresh OAuth `state` nonce and the signed cookie that pins it (and where to land after) to this browser. */
+export function newState(s: AuthSettings, returnTo: string | null = null): { state: string; setCookie: string } {
   const state = randomBytes(16).toString("base64url");
-  return { state, setCookie: cookie(stateCookieName(s.publicUrl), sign(s.sessionSecret, { state, iat: Math.floor(Date.now() / 1000) }), { maxAge: STATE_MAX_AGE_S, path: "/auth", secure: isSecure(s) }) };
+  return { state, setCookie: cookie(stateCookieName(s.publicUrl), sign(s.sessionSecret, { state, iat: Math.floor(Date.now() / 1000), ...(returnTo ? { returnTo } : {}) }), { maxAge: STATE_MAX_AGE_S, path: "/auth", secure: isSecure(s) }) };
 }
-export function checkState(s: AuthSettings, req: FastifyRequest, state: string | undefined): boolean {
-  const v = unsign<{ state: string; iat: number }>(s.sessionSecret, parseCookies(req.headers.cookie)[stateCookieName(s.publicUrl)]);
-  return !!v && !!state && v.state === state && Date.now() / 1000 - v.iat <= STATE_MAX_AGE_S;
+/** The state cookie's return-to when `state` matches it and it hasn't expired; `false` when it doesn't check out. */
+export function checkState(s: AuthSettings, req: FastifyRequest, state: string | undefined): { returnTo: string | null } | false {
+  const v = unsign<{ state: string; iat: number; returnTo?: string }>(s.sessionSecret, parseCookies(req.headers.cookie)[stateCookieName(s.publicUrl)]);
+  return !!v && !!state && v.state === state && Date.now() / 1000 - v.iat <= STATE_MAX_AGE_S ? { returnTo: v.returnTo ?? null } : false;
+}
+
+/**
+ * Where a sign-in may land after the callback: a path on this host (no scheme, no `//`, no backslash) whose first
+ * segment is one of `slugs` and that ends that segment with `/` (`/demo/`, `/demo/#/doc/x`). Anything else: null.
+ */
+export function safeReturnTo(raw: unknown, slugs: (slug: string) => boolean): string | null {
+  if (typeof raw !== "string" || raw.length > 512 || !raw.startsWith("/") || raw.startsWith("//") || /[\\\s]/.test(raw)) return null;
+  let u: URL;
+  try { u = new URL(raw, "http://h.invalid"); } catch { return null; }
+  if (u.host !== "h.invalid") return null;
+  const m = /^\/([a-z0-9-]+)\//.exec(u.pathname);
+  return m && slugs(m[1]!) ? u.pathname + u.search + u.hash : null;
 }
 export const clearStateCookie = (s: AuthSettings) => cookie(stateCookieName(s.publicUrl), "", { maxAge: 0, path: "/auth", secure: isSecure(s) });
 
@@ -86,6 +102,26 @@ export function sessionAuth(world: World, s: AuthSettings, req: FastifyRequest, 
   if (!raw || !sameOrigin(s, req)) return null;
   const p = unsign<SessionPayload>(s.sessionSecret, raw);
   if (!p || typeof p.userId !== "string" || typeof p.iat !== "number" || now / 1000 - p.iat > SESSION_MAX_AGE_S) return null;
+  if (s.hosted) return hostedUser(world, s.hosted, p.gh);
   const user = world.users.get(p.userId);
   return user ? { kind: "user", user } : null;
+}
+
+/**
+ * The root session's GitHub identity in a hosted World: its user by githubId, created on first visit (town `visitor`
+ * only: a guest there until let in), and the collective's owner always holds `admin`. A session without GitHub (a
+ * pasted token's) is nobody here.
+ */
+function hostedUser(world: World, h: NonNullable<AuthSettings["hosted"]>, gh: GithubProfile | undefined): Auth | null {
+  if (!gh || typeof gh.id !== "number" || typeof gh.login !== "string") return null;
+  const owner = h.ownerGithubId != null && h.ownerGithubId === String(gh.id);
+  let user = world.users.first("githubId = ?", [gh.id]);
+  if (!user || (owner && !world.permissions.isAdmin({ kind: "user", id: user.id }))) {
+    const r = upsertGithubUser(world, gh, { admins: owner ? [gh.login] : [] });
+    // the owner takes over the seeded "admin" placeholder (its buildings and avatar) under their own name
+    user = r.linked ? world.users.upsert({ ...r.user, name: gh.name?.trim() || gh.login }) : r.user;
+    if (owner) world.permissions.grant({ kind: "user", id: user.id }, townRoleId("admin"));
+    world.ops.ensureAvatar(user.id);
+  }
+  return { kind: "user", user };
 }

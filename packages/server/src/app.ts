@@ -147,7 +147,8 @@ export async function buildApp(opts: BuildAppOptions): Promise<FastifyInstance> 
       const user = requireUser(req);
       if (!opts.world.permissions.isAdmin({ kind: "user", id: user.id })) throw new AppError("forbidden", "Only a town admin can create a collective for now.");
       if (!opts.hub) throw new AppError("internal", "This server hosts no other collectives (no hub).", 503);
-      const row = await opts.hub.create(parse(CreateCollectiveInput, req.body), user.githubId != null ? String(user.githubId) : null);
+      const owner = user.githubId != null && user.githubLogin ? { id: user.githubId, login: user.githubLogin, name: user.name, avatarUrl: user.avatarUrl ?? null } : null;
+      const row = await opts.hub.create(parse(CreateCollectiveInput, req.body), owner);
       return reply.code(201).send({ collective: { ...row, url: `/${row.slug}/` } });
     });
     // read per request, like the client: a pull shows without a restart
