@@ -18,7 +18,7 @@ npm run build              # builds the web client
 npm run start:workshop     # the Workshop Collective on http://localhost:4322
 ```
 
-Open http://localhost:4322/ (the homepage, listing `collectives/registry.json`) and pick the Workshop, or go straight to http://localhost:4322/workshop/. `/api`, `/auth`, `/ws` and `/mcp` stay at the root.
+Open http://localhost:4322/ (the homepage: the Workshop and the collectives this process hosts) and pick the Workshop, or go straight to http://localhost:4322/workshop/. `/api`, `/auth`, `/ws` and `/mcp` stay at the root. One process also hosts other collectives, each its own town at `/<slug>/` with its own `/<slug>/api`, `/<slug>/ws` and `/<slug>/mcp`, kept in `collectives/hosted/` (`hub.db` lists them; a town admin creates one with `POST /api/collectives`; see docs/hosted-collectives.md).
 
 ### Start your own collective
 
@@ -42,13 +42,7 @@ Open http://localhost:4322/ (the homepage, listing `collectives/registry.json`) 
 
    `port` must differ from any collective already running. `workspace.path` is your code repo, relative to the collective's folder (`"../../../my-repo"` is the clone from step 1; `"../.."` is this repo). Leave out `workspace` for a collective with no code. `buildings` may be `[]`: you can add them later in the town (step 5). `houseTokens` gives a seeded building its first tokens.
 
-3. List it on the homepage: add an entry to `collectives/registry.json`. A collective on another port needs an absolute `url`:
-
-   ```json
-   { "slug": "garden", "name": "Garden Collective", "tagline": "…", "goal": "…", "url": "http://localhost:4323/workshop/" }
-   ```
-
-   `slug` is the folder name. The web client is always at `/workshop/` on each collective's own port. The Workshop's homepage (http://localhost:4322/) then lists both; the Garden's own http://localhost:4323/ leaves out entries with a relative `url`, so it doesn't list the Workshop. Commit `collectives/garden/collective.json` and the registry change on your fork: a redeploy aborts on a dirty working tree.
+3. Commit `collectives/garden/collective.json` on your fork: a redeploy aborts on a dirty working tree. The Garden's own homepage (http://localhost:4323/) lists it first, by its folder name as `slug`; the web client is always at `/workshop/` on each collective's own port.
 
 4. Start it: `npm run start:collective -- collectives/garden`. The first start seeds the town from collective.json (a few seconds); name, goal, tagline and goalNote are re-applied on every start, so edit the file and restart.
 
@@ -120,7 +114,7 @@ The tools describe themselves (MCP `tools/list`; JSON Schema for every verb at `
 
 ```
 collectives/<id>/         one instance: collective.json + data/ + export/ (workshop)
-collectives/registry.json the collectives listed on the homepage at /
+collectives/hosted/       hosted collectives (gitignored): hub.db + <slug>/{collective.json,data,export}, served at /<slug>/
 buildings/carbon-cycle/   v0 building folder (the git export format)
 packages/schema           Zod schemas: world state, documents, events, verbs, API payloads
 packages/core             SQLite store, world (grid, layout, pathfinding, tick), verbs, permissions, budgets, export/import

@@ -378,7 +378,7 @@ export class HttpApi implements Api {
     const t = this.token();
     if (t) headers.Authorization = `Bearer ${t}`;
     if (body !== undefined) headers["Content-Type"] = "application/json";
-    const res = await fetch(path, { method, headers, body: body === undefined ? undefined : JSON.stringify(body) });
+    const res = await fetch(API_BASE + path, { method, headers, body: body === undefined ? undefined : JSON.stringify(body) });
     const text = await res.text();
     let json: unknown = null;
     try { json = text ? JSON.parse(text) : null; } catch { json = text; }
@@ -477,7 +477,7 @@ export class HttpApi implements Api {
     const headers: Record<string, string> = { "Content-Type": file.type };
     const t = this.token();
     if (t) headers.Authorization = `Bearer ${t}`;
-    const res = await fetch(`/api/media${qs({ alt })}`, { method: "POST", headers, body: file });
+    const res = await fetch(`${API_BASE}/api/media${qs({ alt })}`, { method: "POST", headers, body: file });
     const json = await res.json().catch(() => ({})) as UploadedMedia & { error?: string; code?: string };
     if (!res.ok) throw new ApiError(json.error ?? `${res.status} ${res.statusText}`, json.code ?? "http", res.status);
     return json;
@@ -533,7 +533,7 @@ export class HttpApi implements Api {
   async blocked() { return (await this.get<{ agents?: Record<string, BlockedAssignment[]> }>("/api/blocked")).agents ?? {}; }
 
   connect(h: SocketHandlers): Socket {
-    const url = `${location.protocol === "https:" ? "wss" : "ws"}://${location.host}/ws`;
+    const url = `${location.protocol === "https:" ? "wss" : "ws"}://${location.host}${API_BASE}/ws`;
     const ws = new WebSocket(url);
     ws.onopen = () => h.onOpen();
     ws.onclose = () => h.onClose();
@@ -546,6 +546,19 @@ export class HttpApi implements Api {
 }
 
 export const isMock = import.meta.env.VITE_MOCK === "1";
+
+/**
+ * Which collective this page belongs to, from its first path segment: the Workshop (served at the Vite base,
+ * `/workshop/`) talks to the root `/api`, `/ws`, `/mcp` and `/auth` (""), a hosted collective at `/<slug>/` to its own
+ * `/<slug>/api`, `/<slug>/ws`… (docs/hosted-collectives.md). Every server URL the client builds starts with it.
+ */
+export function collectivePrefix(pathname: string, base: string = import.meta.env.BASE_URL): string {
+  const seg = /^\/([^/]+)/.exec(pathname)?.[1];
+  return !seg || `/${seg}/` === base || base === "/" ? "" : `/${seg}`;
+}
+export const API_BASE = typeof location === "undefined" ? "" : collectivePrefix(location.pathname);
+/** where this collective's client lives (`/workshop/` or `/<slug>/`) */
+export const WEB_ROOT = API_BASE ? `${API_BASE}/` : import.meta.env.BASE_URL;
 
 let instance: Api | null = null;
 export async function getApi(): Promise<Api> {

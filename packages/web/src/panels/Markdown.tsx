@@ -7,7 +7,7 @@
 import { marked } from "marked";
 import { useMemo } from "react";
 import type { Doc } from "@muster-town/schema";
-import { api } from "../api";
+import { api, API_BASE } from "../api";
 import { store } from "../state";
 import { docUrl, grantUrl } from "../route";
 
@@ -26,6 +26,8 @@ export function sanitize(html: string): string {
       for (const a of [...child.attributes]) {
         const v = a.value.trim().toLowerCase();
         if (!ATTRS.has(a.name) || ((a.name === "href" || a.name === "src") && /^(javascript|data|vbscript):/.test(v))) child.removeAttribute(a.name);
+        // media is cited as `/api/media/…`: in a hosted collective that is its own `/<slug>/api/media/…`
+        else if ((a.name === "href" || a.name === "src") && API_BASE && a.value.startsWith("/api/media/")) child.setAttribute(a.name, API_BASE + a.value);
       }
       walk(child);
     }
@@ -196,7 +198,7 @@ export function Markdown({ text, className, breaks = false, newTab = false }: { 
         const a = (e.target as HTMLElement).closest("a");
         if (!a) return;
         const href = a.getAttribute("href") ?? "";
-        if (/^(https?:|mailto:)/i.test(href) || href.startsWith("/api/media/")) { a.target = "_blank"; a.rel = "noopener noreferrer"; return; }
+        if (/^(https?:|mailto:)/i.test(href) || href.startsWith(`${API_BASE}/api/media/`)) { a.target = "_blank"; a.rel = "noopener noreferrer"; return; }
         if (href.startsWith("#")) { e.preventDefault(); return; }
         const id = LINK_TARGET_RE.exec(href.split("/").pop() ?? "")?.[1];
         if (newTab && id) { a.href = urlOf(id); a.target = "_blank"; a.rel = "noopener noreferrer"; return; }

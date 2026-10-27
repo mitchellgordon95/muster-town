@@ -4,7 +4,7 @@ import { createElement } from "react";
 import type { AuthMe } from "@muster-town/schema";
 
 const registerVisitor = vi.fn(async (i: { name: string; buildingId?: string }) => ({ agent: { name: i.name }, token: "mt_secret" }));
-vi.mock("../src/api", () => ({ api: () => ({ registerVisitor }), ApiError: class extends Error {} }));
+vi.mock("../src/api", () => ({ api: () => ({ registerVisitor }), ApiError: class extends Error {}, API_BASE: "" }));
 
 const { connectStep, defaultAgentName, mcpAddLine, registerAgent, TokenOnce } = await import("../src/panels/ConnectAgent");
 

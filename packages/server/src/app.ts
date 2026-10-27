@@ -8,8 +8,9 @@ import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { ZodError } from "zod";
 import { authRoutes, defaultAuthSettings, sessionAuth, type AuthSettings } from "./auth/index.ts";
-import { ASK_FIRST, bearer, INTERACT_ALLOWLIST, interactingUser, resolveToken, WEB_BASE, type RuntimeHooks } from "./context.ts";
-import { collectives, DEFAULT_REGISTRY, renderHome } from "./home.ts";
+import { ASK_FIRST, bearer, INTERACT_ALLOWLIST, interactingUser, parse, requireUser, resolveToken, WEB_BASE, type RuntimeHooks } from "./context.ts";
+import { collectives, renderHome } from "./home.ts";
+import { CreateCollectiveInput, type Hub } from "./hub.ts";
 import type { BackupJob } from "./backup/index.ts";
 import { LoadMonitor } from "./load.ts";
 import { mcpRoutes } from "./mcp.ts";
@@ -38,10 +39,14 @@ export interface BuildAppOptions {
   logger?: boolean;
   /** sign-in settings (GitHub OAuth, session secret, admin allowlist); default: no GitHub, per-process secret */
   auth?: Partial<AuthSettings>;
-  /** the collectives listed on the homepage (default collectives/registry.json; read per request) */
-  registry?: string;
-  /** this server's collective (its dir name, e.g. `workshop`): its homepage entry is matched by slug */
+  /** this server's collective (its dir name, e.g. `workshop`): its homepage entry's slug */
   collective?: string;
+  /** the hosted collectives (`hub.ts`): listed on the homepage and served at `/<slug>/` by this app; root app only */
+  hub?: Hub | null;
+  /** a hosted collective's app: every route under `/<slug>` (no homepage); "" or unset = the Workshop at the root */
+  prefix?: string;
+  /** where `POST /api/export` writes (default env MUSTER_TOWN_EXPORT): a hosted collective's own export dir */
+  exportDir?: string;
   /** the off-site backup job (main.ts builds and starts it); `GET /api/health` shows its state as `backup` */
   backup?: BackupJob | null;
 }
@@ -57,11 +62,26 @@ export async function buildApp(opts: BuildAppOptions): Promise<FastifyInstance> 
   const load = new LoadMonitor();
   app.decorate("load", load);
   app.decorate("backup", opts.backup ?? null);
+  app.decorate("hub", opts.hub ?? null);
+  app.decorate("exportDir", opts.exportDir ?? null);
   app.decorateRequest("auth", null);
   const authSettings = defaultAuthSettings(opts.auth);
+  const prefix = opts.prefix ?? "";
+  const webBase = prefix ? `${prefix}/` : WEB_BASE;
 
   await app.register(cors, { origin: opts.dev ? true : false });
   await app.register(websocket);
+
+  // a hosted collective's URL (`/<slug>/…`, WebSocket upgrades too) goes to its own app before any Workshop hook runs
+  const hub = opts.hub;
+  if (hub) {
+    app.addHook("onRequest", async (req, reply) => {
+      const hosted = hub.match(req.url);
+      if (!hosted) return;
+      reply.hijack();
+      hosted.routing(req.raw, reply.raw);
+    });
+  }
 
   app.addHook("onRequest", async (req) => {
     // bearer token first, then the browser session cookie
@@ -73,7 +93,7 @@ export async function buildApp(opts: BuildAppOptions): Promise<FastifyInstance> 
     if (req.method === "GET" || req.method === "HEAD" || req.method === "OPTIONS") return;
     const userId = interactingUser(opts.world, req.auth);
     if (!userId || canInteract(opts.world, userId)) return;
-    if (INTERACT_ALLOWLIST.has(`${req.method} ${req.routeOptions.url ?? req.url.split("?")[0]}`)) return;
+    if (INTERACT_ALLOWLIST.has(`${req.method} ${(req.routeOptions.url ?? req.url.split("?")[0]).slice(prefix.length)}`)) return;
     throw new AppError("forbidden", ASK_FIRST);
   });
 
@@ -87,40 +107,55 @@ export async function buildApp(opts: BuildAppOptions): Promise<FastifyInstance> 
     return reply.code(500).send({ error: "Internal server error", code: "internal" });
   });
 
-  await app.register(authRoutes(authSettings));
-  await app.register(townRoutes);
-  await app.register(deskRoutes);
-  await app.register(agentRoutes);
-  await app.register(docRoutes);
-  await app.register(grantRoutes);
-  await app.register(mediaRoutes);
-  await app.register(skillRoutes);
-  await app.register(secretRoutes);
-  await app.register(verbRoutes);
-  await app.register(wsRoutes);
-  await app.register(mcpRoutes);
+  const routes = async (c: FastifyInstance) => {
+    await c.register(authRoutes(authSettings));
+    await c.register(townRoutes);
+    await c.register(deskRoutes);
+    await c.register(agentRoutes);
+    await c.register(docRoutes);
+    await c.register(grantRoutes);
+    await c.register(mediaRoutes);
+    await c.register(skillRoutes);
+    await c.register(secretRoutes);
+    await c.register(verbRoutes);
+    await c.register(wsRoutes);
+    await c.register(mcpRoutes);
+  };
+  if (prefix) await app.register(routes, { prefix });
+  else await routes(app);
 
   const dist = opts.webDist === false ? null : opts.webDist ?? DEFAULT_WEB_DIST;
   const haveWeb = !!dist && existsSync(join(dist, "index.html"));
   // Serve the client dynamically (wildcard): a rebuild after startup must be served without a restart.
   // index.html is never cached so a stale page can't point at an asset hash that no longer exists.
-  if (haveWeb) await app.register(fastifyStatic, { root: dist!, prefix: WEB_BASE, wildcard: true });
+  // a hosted collective serves the same client (its HTML still loads /workshop/assets/ from the root app)
+  if (haveWeb) await app.register(fastifyStatic, { root: dist!, prefix: webBase, wildcard: true });
   // /workshop goes to /workshop/, query kept; browsers carry the #fragment across the redirect on their own
-  const toWeb = async (req: FastifyRequest, reply: FastifyReply) => { const q = req.url.indexOf("?"); return reply.redirect(WEB_BASE + (q >= 0 ? req.url.slice(q) : "")); };
-  app.get(WEB_BASE.slice(0, -1), toWeb);
-  // the root is the collectives homepage. It takes no parameters, so a query (old `/?guest`, `/?as=`) still goes to the
-  // client; old `/#/doc|grant/…` links are forwarded by the page's inline script (the server never sees the fragment)
-  const registry = opts.registry ?? DEFAULT_REGISTRY;
-  app.get("/", async (req, reply) => {
-    if (/\?./.test(req.url)) return toWeb(req, reply);
-    return reply.type("text/html; charset=utf-8").send(renderHome(collectives(opts.world, registry, opts.collective), haveWeb ? dist : null));
-  });
-  app.get("/api/collectives", async () => ({ collectives: collectives(opts.world, registry, opts.collective) }));
-  // read per request, like the client: a pull shows without a restart
-  app.get("/skill.md", async (_req, reply) => {
-    if (!existsSync(SKILL_FILE)) return reply.code(404).send({ error: "Not found: GET /skill.md", code: "not_found" });
-    return reply.type("text/markdown; charset=utf-8").header("cache-control", "no-cache").send(readFileSync(SKILL_FILE, "utf8"));
-  });
+  const toWeb = async (req: FastifyRequest, reply: FastifyReply) => { const q = req.url.indexOf("?"); return reply.redirect(webBase + (q >= 0 ? req.url.slice(q) : "")); };
+  app.get(webBase.slice(0, -1), toWeb);
+  if (!prefix) {
+    // the root is the collectives homepage. It takes no parameters, so a query (old `/?guest`, `/?as=`) still goes to the
+    // client; old `/#/doc|grant/…` links are forwarded by the page's inline script (the server never sees the fragment)
+    const list = () => collectives(opts.world, opts.hub?.list("active") ?? [], opts.collective);
+    app.get("/", async (req, reply) => {
+      if (/\?./.test(req.url)) return toWeb(req, reply);
+      return reply.type("text/html; charset=utf-8").send(renderHome(list(), haveWeb ? dist : null));
+    });
+    app.get("/api/collectives", async () => ({ collectives: list() }));
+    // a hosted collective, served at once (docs/hosted-collectives.md): town admins only until step 3's Start form
+    app.post("/api/collectives", async (req, reply) => {
+      const user = requireUser(req);
+      if (!opts.world.permissions.isAdmin({ kind: "user", id: user.id })) throw new AppError("forbidden", "Only a town admin can create a collective for now.");
+      if (!opts.hub) throw new AppError("internal", "This server hosts no other collectives (no hub).", 503);
+      const row = await opts.hub.create(parse(CreateCollectiveInput, req.body), user.githubId != null ? String(user.githubId) : null);
+      return reply.code(201).send({ collective: { ...row, url: `/${row.slug}/` } });
+    });
+    // read per request, like the client: a pull shows without a restart
+    app.get("/skill.md", async (_req, reply) => {
+      if (!existsSync(SKILL_FILE)) return reply.code(404).send({ error: "Not found: GET /skill.md", code: "not_found" });
+      return reply.type("text/markdown; charset=utf-8").header("cache-control", "no-cache").send(readFileSync(SKILL_FILE, "utf8"));
+    });
+  }
   // never let a browser cache the page itself: a stale index.html would point at asset hashes that no longer exist
   app.addHook("onSend", async (_req, reply, payload) => {
     const ct = String(reply.getHeader("content-type") ?? "");
@@ -130,18 +165,18 @@ export async function buildApp(opts: BuildAppOptions): Promise<FastifyInstance> 
 
   app.setNotFoundHandler((req, reply) => {
     const path = req.url.split("?")[0];
-    const isApi = API_PREFIXES.some((p) => path === p || path.startsWith(p + "/"));
+    const isApi = API_PREFIXES.some((p) => path === prefix + p || path.startsWith(prefix + p + "/"));
     // a missing built asset is a real 404 (never index.html as JavaScript); only extension-less paths are SPA routes
     const looksLikeFile = /\.[a-z0-9]{1,8}$/i.test(path.split("/").pop() ?? "");
     if (haveWeb && !isApi && !looksLikeFile && (req.method === "GET" || req.method === "HEAD")) {
       // SPA routes only under the client's prefix; any other page path goes to the root
-      if (!path.startsWith(WEB_BASE)) return reply.redirect("/");
+      if (!path.startsWith(webBase)) return reply.redirect("/");
       reply.header("cache-control", "no-cache");
       return reply.sendFile("index.html");
     }
     return reply.code(404).send({ error: `Not found: ${req.method} ${path}`, code: "not_found" });
   });
 
-  app.addHook("onClose", async () => { load.close(); app.backup?.stop(); await (opts.runtime?.close?.() ?? opts.runtime?.stop?.()); });
+  app.addHook("onClose", async () => { load.close(); app.backup?.stop(); await opts.hub?.close(); await (opts.runtime?.close?.() ?? opts.runtime?.stop?.()); });
   return app;
 }

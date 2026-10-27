@@ -5,7 +5,7 @@
  */
 import { useSyncExternalStore } from "react";
 import type { AuthConfig } from "@muster-town/schema";
-import { isMock, tokenStore } from "../api";
+import { API_BASE, isMock, tokenStore, WEB_ROOT } from "../api";
 
 export interface AuthState {
   /** no token and no session: read-only */
@@ -29,7 +29,7 @@ export const useAuth = () => useSyncExternalStore(authStore.subscribe, authStore
 export async function loadAuthConfig(): Promise<AuthConfig | null> {
   if (isMock) return { githubClientId: "mock", publicUrl: location.origin };
   try {
-    const r = await fetch("/api/auth/config");
+    const r = await fetch(`${API_BASE}/api/auth/config`);
     return r.ok ? ((await r.json()) as AuthConfig) : null;
   } catch { return null; }
 }
@@ -47,12 +47,12 @@ export function takeAuthError(): string | null {
   return e || "GitHub sign-in failed.";
 }
 
-export function signInWithGithub() { if (!isMock) location.href = "/auth/github"; }
+export function signInWithGithub() { if (!isMock) location.href = `${API_BASE}/auth/github`; }
 
 export async function signOut() {
   tokenStore.set(null);
-  if (!isMock) await fetch("/auth/logout", { method: "POST" }).catch(() => undefined);
-  location.href = `${import.meta.env.BASE_URL}?guest`;
+  if (!isMock) await fetch(`${API_BASE}/auth/logout`, { method: "POST" }).catch(() => undefined);
+  location.href = `${WEB_ROOT}?guest`;
 }
 
 /** Sign-in buttons: GitHub when the server offers it, else paste a token (dev). */

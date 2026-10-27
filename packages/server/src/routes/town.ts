@@ -34,7 +34,9 @@ export async function townRoutes(app: FastifyInstance) {
    */
   app.get("/api/health", async () => ({ ok: true, runtime: !!app.runtime, commit: world.host.commit ?? null, time: new Date().toISOString(), accounting: BANK_ACCOUNTING, load: app.load.snapshot(),
     // goal-directed budgets: exploration (held at its allowance) and directed (a human asked; metered, never held) today
-    budgets: world.grantDesk.laneBudgets(), backup: app.backup?.snapshot() ?? null }));
+    budgets: world.grantDesk.laneBudgets(), backup: app.backup?.snapshot() ?? null,
+    // the root app (the Workshop) only: how many hosted collectives this process serves at /<slug>/
+    ...(app.hub ? { hosted: { count: app.hub.count } } : {}) }));
 
   if (app.dev) {
     // only to a browser on this machine talking to the server directly: never through a proxy or tunnel
@@ -340,7 +342,7 @@ export async function townRoutes(app: FastifyInstance) {
       throw new AppError("forbidden", "Only admins can run the export.");
     }
     requireAuth(req);
-    const r = world.export(townEnv("EXPORT") ?? "./export");
+    const r = world.export(app.exportDir ?? townEnv("EXPORT") ?? "./export");
     return { commit: r.commit, changed: r.changed, files: r.files, dir: r.dir };
   });
 
