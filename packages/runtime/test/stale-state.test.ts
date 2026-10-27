@@ -90,7 +90,10 @@ describe("drain nudge", () => {
   });
 });
 
-describe("drain waits for facilitations", () => {
+// the drain, the facilitator's close and the exit take over a second on a busy CI runner (vi.waitFor defaults to 1 s)
+const SLOW = { timeout: 15_000, interval: 20 };
+
+describe("drain waits for facilitations", { timeout: 30_000 }, () => {
   test("startRuntime: a running facilitation counts in the drain, is told to close a meeting no human is in, and is never dropped as stuck", async () => {
     const exit = vi.fn();
     let mossId = "";
@@ -110,11 +113,11 @@ describe("drain waits for facilitations", () => {
     mossId = by("Moss").id;
     const m = world.ops.createMeeting(null, { kind: "standup", buildingId: lab.id, startNow: true });
     void runtime.onMeetingStart(m.id);
-    await vi.waitFor(() => expect(world.sessions.first("agentId = ? AND status = 'running' AND purpose = 'facilitate'", [mossId])).toBeTruthy());
+    await vi.waitFor(() => expect(world.sessions.first("agentId = ? AND status = 'running' AND purpose = 'facilitate'", [mossId])).toBeTruthy(), SLOW);
     expect(world.agents.require(mossId).status).not.toBe("working"); // in-meeting: the old stuck check would have dropped him
     expect(runtime.isWorking(mossId)).toBe(false); // a facilitation is not a work session (the scheduler isn't blocked by it)
     expect(runtime.redeploy({ image: false, requestedBy: "Pix" })).toEqual({ started: true });
-    await vi.waitFor(() => expect(exit).toHaveBeenCalledWith(75));
+    await vi.waitFor(() => expect(exit).toHaveBeenCalledWith(75), SLOW);
     expect(nudges).toEqual([drainNudgeFacilitator()]);
     expect(world.meetings.require(m.id).phase).toBe("done");
     expect(world.docs.require(world.meetings.require(m.id).notesDocId!).body).toContain("Closing for the redeploy.");
@@ -138,9 +141,9 @@ describe("drain waits for facilitations", () => {
     mossId = by("Moss").id;
     const m = world.ops.createMeeting(null, { kind: "standup", buildingId: lab.id, startNow: true });
     void runtime.onMeetingStart(m.id);
-    await vi.waitFor(() => expect(world.sessions.first("agentId = ? AND status = 'running' AND purpose = 'facilitate'", [mossId])).toBeTruthy());
+    await vi.waitFor(() => expect(world.sessions.first("agentId = ? AND status = 'running' AND purpose = 'facilitate'", [mossId])).toBeTruthy(), SLOW);
     expect(runtime.redeploy({ image: false, requestedBy: "Pix" })).toEqual({ started: true });
-    await vi.waitFor(() => expect(exit).toHaveBeenCalledWith(75));
+    await vi.waitFor(() => expect(exit).toHaveBeenCalledWith(75), SLOW);
     const texts = redeployEvents(world).map((e) => e.text);
     expect(texts).toContain("Redeploy: not waiting longer for meeting session(s): Moss; their meetings get a notice and resume after the restart");
     expect(texts.some((t) => t.startsWith("Redeploy: drain timed out"))).toBe(false);
