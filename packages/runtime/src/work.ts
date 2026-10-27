@@ -28,6 +28,9 @@ export function preflightWork(ctx: Ctx, starting: Set<string>, agentId: string, 
   if (agent.status === "banned" || agent.status === "stopped" || agent.status === "retired") throw new AppError("conflict", `${agent.name} is ${agent.status}.`);
   const bid = homeOf(world, agentId);
   if (!bid) throw new AppError("bad_request", `${agent.name} has no building.`);
+  // a hosted collective with no key of its own: held, not out of budget ("No key yet")
+  const keyHold = world.budget.keyHold?.();
+  if (keyHold) throw new AppError("conflict", `${agent.name} is held: ${keyHold}`);
   if (!world.budget.canStart(agentId)) {
     if (agent.kind === "resident") world.setStatus(agentId, "out-of-budget");
     throw new AppError("conflict", `${agent.name} is out of budget.`);
@@ -144,7 +147,7 @@ export async function finishWorkSession(ctx: Ctx, sessionId: string, o: WorkOutc
   // the allocation that actually funded it: the fallback one when the desk failed over from the subscription
   const charged = o.fallback
     ? ctx.deskFallbacks.get(sessionId) ?? (bid ? world.budget.fallbackAllocation(bid)?.id ?? null : null)
-    : allocationId !== undefined ? allocationId : ctx.deskAllocations.has(sessionId) ? ctx.deskAllocations.get(sessionId) ?? null : fundingFor(world, agentId).allocationId;
+    : allocationId !== undefined ? allocationId : ctx.deskAllocations.has(sessionId) ? ctx.deskAllocations.get(sessionId) ?? null : fundingFor(world, agentId, ctx.env).allocationId;
   chargeUsage(world, agentId, { ...usage, byModel: o.byModel ?? undefined }, charged, ended.model, ended.grantId);
   ctx.deskAllocations.delete(sessionId);
   ctx.deskFallbacks.delete(sessionId);

@@ -4,6 +4,8 @@
  */
 import { addUsage, rawTokens, sdkTokenCounts, ZERO_TOKENS, type TokenUsage } from "@muster-town/schema";
 import type { Options, SDKUserMessage } from "@anthropic-ai/claude-agent-sdk";
+import { mkdirSync } from "node:fs";
+import { join } from "node:path";
 
 export type { Options, SDKUserMessage };
 
@@ -136,8 +138,25 @@ export function sessionEnv(apiKey: string | null, hostEnv: NodeJS.ProcessEnv = p
   return env;
 }
 
-/** One call, no tools: returns the final text and usage. */
-export async function oneShot(sdk: Sdk, opts: { model: string; system: string; prompt: string; apiKey?: string | null }): Promise<Usage & { text: string; error: string | null }> {
+/**
+ * The host env a hosted collective's runtime sees (docs/hosted-collectives.md): the same allowlist built from scratch, with
+ * no CLAUDE_*, ANTHROPIC_* or XDG_* (no host key, subscription token or config dir) and its own HOME and CLAUDE_CONFIG_DIR
+ * under the collective's dir, so a session never finds the host's ~/.claude login. Its only key is the one funding passes.
+ */
+export function hostedEnv(dir: string, hostEnv: NodeJS.ProcessEnv = process.env): Record<string, string> {
+  const env: Record<string, string> = {};
+  for (const [k, v] of Object.entries(hostEnv)) {
+    if (v !== undefined && !HOSTED_DROP.has(k) && (SESSION_ENV_NAMES.has(k) || k.startsWith("LC_"))) env[k] = v;
+  }
+  env.HOME = join(dir, "home");
+  env.CLAUDE_CONFIG_DIR = join(dir, "claude");
+  for (const d of [env.HOME, env.CLAUDE_CONFIG_DIR]) mkdirSync(d, { recursive: true });
+  return env;
+}
+const HOSTED_DROP = new Set(["HOME", "USERPROFILE", "APPDATA", "LOCALAPPDATA"]);
+
+/** One call, no tools: returns the final text and usage. `env`: the host env to allowlist from (a hosted runtime's own). */
+export async function oneShot(sdk: Sdk, opts: { model: string; system: string; prompt: string; apiKey?: string | null; env?: NodeJS.ProcessEnv }): Promise<Usage & { text: string; error: string | null }> {
   let text = "";
   let usage: Usage = noUsage();
   let error: string | null = null;
@@ -153,7 +172,7 @@ export async function oneShot(sdk: Sdk, opts: { model: string; system: string; p
         maxTurns: 1,
         settingSources: [],
         persistSession: false,
-        env: sessionEnv(opts.apiKey ?? null),
+        env: sessionEnv(opts.apiKey ?? null, opts.env),
       },
     });
     for await (const raw of q) {

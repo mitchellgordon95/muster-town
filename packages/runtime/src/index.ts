@@ -3,7 +3,7 @@
  * managers' team-lead sessions over the in-tray, meeting summaries + facilitation, proxy chat, interrupts, scheduler,
  * startup reconcile, dismissal (onAgentRetired), host redeploy (v1.3).
  */
-import { checkWaits, codeWorkspace, forkableQueue, forkManager, freeDesks, liveForks, meetingNotice, nextStartable, PRESENCE_TICK_MS, retireFork, slugify, syncManagerRoles, type World } from "@muster-town/core";
+import { AppError, checkWaits, codeWorkspace, forkableQueue, forkManager, freeDesks, liveForks, meetingNotice, nextStartable, PRESENCE_TICK_MS, retireFork, slugify, syncManagerRoles, type World } from "@muster-town/core";
 import { DesksConfig, type Agent, type ChatInput, type DeskActivityInput, type RedeployResult, type Session } from "@muster-town/schema";
 import { askAbout, chat } from "./chat.ts";
 import { DockerBackend, dockerSafe, HostBackend, type DeskBackend, type WorkBackend } from "./desk/backend.ts";
@@ -13,7 +13,7 @@ import { drainNudgeFacilitator, drainNudgeOneOnOne, gitHead, isAncestor, makeRed
 import { gitAuthEnv, noRepoTokenReason, onDeskActivity, repoToken, runDeskSession, type DeskSessionOptions } from "./desk/session.ts";
 import { closeQuietOneOnOnes, newManageState, openOneOnOnes, wakeManager } from "./manage.ts";
 import { advanceCollecting, facilitate, newMeetingState, onMeetingMention, onMeetingStart } from "./meetings.ts";
-import { realSdk, type Sdk } from "./sdk.ts";
+import { hostedEnv, realSdk, type Sdk } from "./sdk.ts";
 import type { Ctx } from "./session.ts";
 import { abortWork, finishWorkSession, interrupt, runWorkSession, type WorkOutcome } from "./work.ts";
 import { startWaker } from "./waker.ts";
@@ -28,7 +28,7 @@ export { fundingFor, fundingForSession, fundedBy, type Funding } from "./session
 export { type WorkOutcome } from "./work.ts";
 export { ruleFor, startWaker, WAKE_RULES, type WakeCtx, type WakeRule, type Waker } from "./waker.ts";
 export { isTerminalRedeployEvent, makeRedeployer, realCommandRunner, RESTART_EXIT_CODE, STUCK_POLLS, type CmdResult, type CommandRunner, type RedeployDeps, type RedeployRequest, type Redeployer } from "./redeploy.ts";
-export { InputChannel, oneShot, realSdk, usageOf, userMessage, type QueryHandle, type QueryParams, type Sdk } from "./sdk.ts";
+export { hostedEnv, InputChannel, oneShot, realSdk, usageOf, userMessage, type QueryHandle, type QueryParams, type Sdk } from "./sdk.ts";
 export { DISALLOWED_TOOLS, TOWN_TOOLS, WEB_TOOLS } from "./session.ts";
 export { COLLECTING_MS, MEETING_REPLIES_MAX, MEETING_REPLY_MAX_TURNS, MEETING_REPLY_VERBS, SUMMARY_MODEL } from "./meetings.ts";
 
@@ -62,7 +62,15 @@ export interface RuntimeOptions {
   dockerProbe?: DeskBackend;
   /** minimum time between docker probes (re-probe while on the host fallback; liveness check while on docker). Default 30000. */
   dockerProbeMs?: number;
+  /**
+   * A hosted collective's runtime (docs/hosted-collectives.md): `dir` is its own dir. Its sessions see `hostedEnv(dir)` (no host
+   * key, token or ~/.claude) and run on its own API key only; in-process sessions only (no desks), HOSTED_MAX_RUNNING at a time; no redeploy.
+   */
+  hosted?: { dir: string };
 }
+
+/** Work sessions a hosted collective runs at once (host sessions only: town tools + web, no shell). */
+export const HOSTED_MAX_RUNNING = 1;
 
 export interface Runtime {
   stop(): Promise<void>;
@@ -117,8 +125,13 @@ export function startRuntime(opts: RuntimeOptions): Runtime {
     p.then(done, done);
     return p;
   };
-  const desks = DesksConfig.parse({ ...world.desksConfig(), ...opts.desks });
+  const hosted = opts.hosted ?? null;
+  const desks = DesksConfig.parse({ ...world.desksConfig(), ...opts.desks, ...(hosted ? { backend: "host" } : {}) });
   const ctx: Ctx = { world, mcpUrl: opts.mcpUrl, repoRoot: opts.repoRoot ?? process.cwd(), desks, now, sdk: opts.sdk ?? realSdk, live: new Map(), facilitating: new Map(), deskAllocations: new Map(), deskFallbacks: new Map(), track };
+  if (hosted) {
+    const env = hostedEnv(hosted.dir);
+    Object.assign(ctx, { env, hosted: true, claudeDir: env.CLAUDE_CONFIG_DIR });
+  }
   // a collective with a repo whose desks get no GitHub token: private clones and pushes fail at the first work session, so say so at boot
   if (world.town.get().workspace?.repoUrl && !opts.deskOptions?.ghToken && desks.backend !== "host" && !repoToken(world, desks.ghToken)) {
     console.warn(`[runtime] WARNING: the collective has a repo but no GitHub token for it (${noRepoTokenReason(desks.ghToken)}): desks can't clone or push a private repo and redeploy can't pull one. Set the GH_TOKEN secret at the Town Hall.`);
@@ -153,7 +166,7 @@ export function startRuntime(opts: RuntimeOptions): Runtime {
     return track(new Promise<void>((r) => setImmediate(r)).then(fn).then(() => undefined, log(what)));
   };
 
-  let backend: WorkBackend | null = opts.deskBackend ?? null;
+  let backend: WorkBackend | null = hosted ? new HostBackend() : opts.deskBackend ?? null;
   const collectiveSlug = opts.collective ?? slugify(world.town.get().name);
   const sandboxProvider = desks.backend === "fly" ? "Fly.io" : null;
   const sandboxBackend = (): DeskBackend => {
@@ -293,7 +306,7 @@ export function startRuntime(opts: RuntimeOptions): Runtime {
   }
 
   /** work sessions live or starting, out of the host's cap (`desks.maxRunning` in the world: collective.json at seed, PUT /api/town/desks live) */
-  const slots = () => ({ running: new Set([...ctx.live.keys(), ...starting]).size, max: world.desksConfig().maxRunning });
+  const slots = () => ({ running: new Set([...ctx.live.keys(), ...starting]).size, max: hosted ? Math.min(HOSTED_MAX_RUNNING, world.desksConfig().maxRunning) : world.desksConfig().maxRunning });
   world.host.slots = slots;
   let slotsFull = false;
 
@@ -483,7 +496,8 @@ export function startRuntime(opts: RuntimeOptions): Runtime {
       try { meetingNotice(world, m.id, `${host}'s reply is waiting on a redeploy${commit}; the server is restarting and the meeting resumes after the restart.`); } catch (e) { log("restart notice")(e); }
     }
   }
-  const redeployer = makeRedeployer({
+  // a hosted collective never redeploys the host (its admin is a stranger)
+  const redeployer = hosted ? null : makeRedeployer({
     world, repoRoot: ctx.repoRoot, collective: dockerSafe(collectiveSlug), image: desks.image,
     // sandbox-desk hosts (Fly) have no docker: the desk image is built and pushed from outside the town
     imageBuild: !sandboxProvider,
@@ -526,10 +540,12 @@ export function startRuntime(opts: RuntimeOptions): Runtime {
       .filter((a) => !ctx.live.has(a.id) && !starting.has(a.id) && !!nextStartable(world, a.id)).map((a) => a.id),
     ...opts.redeploy,
   });
-  const redeploy = (o: RedeployRequest) => redeployer.redeploy(o);
-  world.host.redeploy = redeploy;
-  const hostRedeployStatus = () => redeployer.status();
-  world.host.redeployStatus = hostRedeployStatus;
+  const redeploy = (o: RedeployRequest): RedeployResult => {
+    if (!redeployer) throw new AppError("forbidden", "A hosted collective can't redeploy the host.");
+    return redeployer.redeploy(o);
+  };
+  const hostRedeployStatus = redeployer ? () => redeployer.status() : undefined;
+  if (redeployer) { world.host.redeploy = redeploy; world.host.redeployStatus = hostRedeployStatus; }
   const hostIsWorking = (agentId: string) => ctx.live.has(agentId) || starting.has(agentId);
   const hostInterrupt = (agentId: string, text: string, from?: string, now?: boolean) => interrupt(ctx, agentId, text, from, now);
   world.host.isWorking = hostIsWorking;

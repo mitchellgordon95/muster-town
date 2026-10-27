@@ -99,7 +99,7 @@ export function deskEnv(ctx: Ctx, session: Session, opts: DeskSessionOptions = {
     DESK_MAX_TURNS: String(building.maxTurnsPerSession),
   };
   Object.assign(env, grantedSecrets(ctx, session, building.id));
-  const auth = deskAuth(funding ?? fundingFor(world, agent.id));
+  const auth = deskAuth(funding ?? fundingFor(world, agent.id, ctx.env), ctx.env);
   Object.assign(env, auth.env);
   env.DESK_AUTH = auth.mode; // a label, not a secret: the desk logs it
   console.log(`[runtime] ${agent.name} session ${session.id} auth: ${auth.mode}${auth.env[FALLBACK_KEY_ENV] ? " (API-key fallback ready)" : ""}`);
@@ -155,8 +155,8 @@ export async function runDeskSession(ctx: Ctx, backend: DeskBackend, starting: S
   try {
     walkToDesk(ctx, agent);
     const handle = await backend.ensure(agent, building);
-    const funding = fundingForSession(world, agentId, assignmentId);
-    const mode = deskAuth(funding).mode;
+    const funding = fundingForSession(world, agentId, assignmentId, ctx.env);
+    const mode = deskAuth(funding, ctx.env).mode;
     session = world.ops.startSession(agentId, { purpose: "work", model: agent.model ?? building.model, assignmentId, backend: "docker", funding: mode === "none" ? null : mode, inputId: funding.inputId ?? null });
     ctx.deskAllocations.set(session.id, funding.allocationId);
     ctx.deskFallbacks.set(session.id, funding.fallback?.allocationId ?? null);
