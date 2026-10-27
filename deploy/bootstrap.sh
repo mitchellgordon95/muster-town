@@ -4,7 +4,7 @@
 # Re-running is safe: every step checks before it acts. See deploy/README.md for what comes before and after.
 set -euo pipefail
 
-REPO_SSH="${REPO_SSH:-git@github.com:mitchellgordon95/agent-town.git}"
+REPO_SSH="${REPO_SSH:-git@github.com:mitchellgordon95/muster-town.git}"
 DIR=/srv/muster-town
 BRANCH="${BRANCH:-prod}"
 SRC="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"

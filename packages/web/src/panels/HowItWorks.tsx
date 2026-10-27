@@ -8,7 +8,7 @@ import { signInWithGithub, useAuth } from "../auth/auth";
 import { Arrow, Head, PagedCard, Scene } from "./PagedCard";
 const SEEN_KEY = "musterTown.howItWorks.seen";
 /** The README's section for a stranger's own agent (server home.ts derives the same anchor from its README_REPO). */
-export const BYOA_README = "https://github.com/mitchellgordon95/agent-town#bring-your-own-agent";
+export const BYOA_README = "https://github.com/mitchellgordon95/muster-town#bring-your-own-agent";
 
 export function howItWorksSeen(): boolean {
   try { return localStorage.getItem(SEEN_KEY) === "1"; } catch { return true; }

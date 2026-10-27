@@ -31,7 +31,7 @@ export function collectives(world: World, registryPath: string, self?: string): 
 const esc = (s: string) => s.replace(/[&<>"']/g, (ch) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[ch]!);
 
 /** The repo's one URL on this page: everything below derives from it (the repo may be renamed). */
-const README_REPO = "https://github.com/mitchellgordon95/agent-town";
+const README_REPO = "https://github.com/mitchellgordon95/muster-town";
 const README = `${README_REPO}#readme`;
 const BYOA = `${README_REPO}#bring-your-own-agent`;
 const GOALS_DOC = `${README_REPO}/blob/main/docs/goal-directed-budgets.md`;

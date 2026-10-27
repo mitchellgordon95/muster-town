@@ -52,7 +52,7 @@ case "$cmd" in
     echo "[throwaway] building the image from GitHub ${BRANCH:-main} and deploying (same Dockerfile, size and region as muster-town)"
     # env overrides of fly.town.toml: its own public URL; desks pointed at a docker backend the Machine does not have, so a session
     # start fails at once instead of reaching Fly (maxRunning must be >= 1); no desks app
-    REPO_URL="${REPO_URL:-https://x-access-token:${GH_TOKEN:?GH_TOKEN (repo read) is needed to clone the private repo}@github.com/mitchellgordon95/agent-town.git}" \
+    REPO_URL="${REPO_URL:-https://x-access-token:${GH_TOKEN:?GH_TOKEN (repo read) is needed to clone the private repo}@github.com/mitchellgordon95/muster-town.git}" \
       "$(dirname "$0")/build.sh" "$APP" --yes --regions "$REGION" \
         --env "MUSTER_TOWN_PUBLIC_URL=https://$HOST" \
         --env 'MUSTER_TOWN_DESKS={"backend":"docker","maxRunning":1}' \

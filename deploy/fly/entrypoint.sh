@@ -37,7 +37,7 @@ export GIT_AUTHOR_NAME="Muster Town" GIT_AUTHOR_EMAIL="town@muster.town" GIT_COM
 
 # GitHub access for pull/redeploy: a host GH_TOKEN (Fly secret) becomes a credential helper here; it is never written to disk.
 # Without one, the server adds the collective's GH_TOKEN secret (Town Hall) to its git commands itself.
-git remote set-url origin "https://github.com/mitchellgordon95/agent-town.git"
+git remote set-url origin "https://github.com/mitchellgordon95/muster-town.git"
 if [ -n "${GH_TOKEN:-}" ]; then
   export GIT_CONFIG_COUNT=1 GIT_CONFIG_KEY_0=credential.helper
   export GIT_CONFIG_VALUE_0='!f() { echo username=x-access-token; echo "password=$GH_TOKEN"; }; f'
