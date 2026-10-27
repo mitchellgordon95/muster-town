@@ -54,8 +54,9 @@ export class Ops {
   }
   /** `poolId` (admin only) moves the building to another Bank pool at once; the rest needs building.manage. */
   updateBuilding(actor: Actor, id: string, patch: (typeof UpdateBuildingInput)["_input"]) {
-    const { poolId, explorationTokensPerDay, budgetMode, ...rest } = patch;
-    const budget = { ...(explorationTokensPerDay !== undefined && { explorationTokensPerDay }), ...(budgetMode !== undefined && { budgetMode }) };
+    const { poolId, explorationTokensPerDay, budgetMode, forks, ...rest } = patch;
+    // forks multiply a building's concurrent sessions, so turning them on is a budget call too
+    const budget = { ...(explorationTokensPerDay !== undefined && { explorationTokensPerDay }), ...(budgetMode !== undefined && { budgetMode }), ...(forks !== undefined && { forks }) };
     const other = Object.keys(rest).length || (poolId === undefined && !Object.keys(budget).length);
     if (actor && other) this.world.permissions.require(actor, "building.manage", id);
     // goal-directed budget settings are a human's call: a manager agent can't raise its own allowance
@@ -463,7 +464,7 @@ export class Ops {
   }
 
   /** Runtime: a session starts. Work sessions activate the assignment and set status `working`; manage sessions set `working` too. */
-  startSession(agentId: string, opts: { purpose: Session["purpose"]; model: string; assignmentId?: string | null; meetingId?: string | null; backend?: Session["backend"]; funding?: Session["funding"] }): Session {
+  startSession(agentId: string, opts: { purpose: Session["purpose"]; model: string; assignmentId?: string | null; meetingId?: string | null; backend?: Session["backend"]; funding?: Session["funding"]; inputId?: string | null }): Session {
     const agent = this.world.agents.require(agentId, "agent");
     const session = this.world.sessions.upsert({
       id: newId("se"), agentId, assignmentId: opts.assignmentId ?? null, meetingId: opts.meetingId ?? null, purpose: opts.purpose, backend: opts.backend ?? "host",
@@ -483,7 +484,10 @@ export class Ops {
       }
       this.world.setStatus(agentId, "working");
     } else if (opts.purpose === "manage") this.world.setStatus(agentId, "working"); // a manager's team-lead session (runtime/src/manage.ts)
-    this.world.events.append({ type: "session.started", agentId, buildingId: homeOf(agent), text: `${agent.name} started a ${opts.purpose} session${opts.funding ? ` (funded by ${opts.funding === "subscription" ? "subscription" : opts.funding === "donor-key" ? "a donor's API key" : "API key"})` : ""}`, payload: { sessionId: session.id, purpose: opts.purpose, assignmentId: opts.assignmentId ?? null, model: opts.model, backend: session.backend, funding: opts.funding ?? null, origin: session.origin ?? null } });
+    // member funding: `inputId` names the grant's own api-key input the session runs on (the Bank debits it first)
+    const input = opts.inputId ? this.world.bank.input(opts.inputId) : undefined;
+    const by = input ? `${input.label}'s API key` : opts.funding === "subscription" ? "subscription" : opts.funding === "donor-key" ? "a donor's API key" : "API key";
+    this.world.events.append({ type: "session.started", agentId, buildingId: homeOf(agent), text: `${agent.name} started a ${opts.purpose} session${opts.funding ? ` (funded by ${by})` : ""}`, payload: { sessionId: session.id, purpose: opts.purpose, assignmentId: opts.assignmentId ?? null, model: opts.model, backend: session.backend, funding: opts.funding ?? null, inputId: opts.inputId ?? null, grantId: session.grantId ?? null, origin: session.origin ?? null } });
     return session;
   }
 

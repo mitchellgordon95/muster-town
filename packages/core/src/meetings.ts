@@ -18,7 +18,7 @@ type CreateMeeting = (typeof CreateMeetingInput)["_input"];
  */
 export function defaultAttendees(world: World, buildingId: string | null): string[] {
   if (buildingId && buildingId !== TOWN_HALL_ID) {
-    return world.agents.where("homeBuildingId = ? AND kind = 'resident' AND status NOT IN ('banned','retired')", [buildingId], "ORDER BY createdAt").map((a) => a.id);
+    return world.agents.where("homeBuildingId = ? AND kind = 'resident' AND status NOT IN ('banned','retired') AND forkOf IS NULL", [buildingId], "ORDER BY createdAt").map((a) => a.id);
   }
   const ids = new Set<string>();
   for (const b of world.buildings.where("kind = 'lab'")) {

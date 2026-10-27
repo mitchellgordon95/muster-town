@@ -56,7 +56,8 @@ function fund(world: World, w: Window, isOwner: (id: string | null | undefined) 
   const inputs = (world.db.prepare("SELECT userId FROM bank_inputs WHERE createdAt >= ? AND createdAt < ?").all(w.from, w.to) as { userId: string }[])
     .filter((i) => !isOwner(i.userId));
   const funders = new Set([...grants.map((g) => g.fundedBy!), ...inputs.map((i) => i.userId)]);
-  const granted = grants.reduce((n, g) => n + (g.grantTokens ?? 0), 0);
+  // a grant closed early as done gave back its unspent rest, so it counts what it spent
+  const granted = grants.reduce((n, g) => n + (g.outcome === "done" ? Math.min(g.grantTokens ?? 0, world.grantDesk.spent(g.id)) : g.grantTokens ?? 0), 0);
   return {
     value: funders.size,
     detail: `${funders.size} funder${funders.size === 1 ? "" : "s"} other than the owner: ${grants.length} grant${grants.length === 1 ? "" : "s"} funded (${granted.toLocaleString("en-US")} adjusted tokens), ${inputs.length} Bank input${inputs.length === 1 ? "" : "s"} added`,

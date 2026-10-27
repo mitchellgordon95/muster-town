@@ -14,7 +14,8 @@ export const RESIDENT_NAMES = [
  * `avoid` also skips names (e.g. ones just offered). If the pool runs out, names get a number: "Lena 2".
  */
 export function suggestResidentName(world: World, avoid: Iterable<string> = [], rand: () => number = Math.random): string {
-  const taken = new Set([...world.agents.where().map((a) => a.name), ...avoid].map((n) => n.toLowerCase()));
+  // forks ("Pix 3") are named after their manager, so their names never block a resident's
+  const taken = new Set([...world.agents.where("forkOf IS NULL").map((a) => a.name), ...avoid].map((n) => n.toLowerCase()));
   const free = RESIDENT_NAMES.filter((n) => !taken.has(n.toLowerCase()));
   if (free.length) return free[Math.floor(rand() * free.length)];
   for (let i = 2; ; i++) {

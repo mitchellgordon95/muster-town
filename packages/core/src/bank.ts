@@ -361,6 +361,16 @@ export class Bank {
     return left + pending;
   }
 
+  /**
+   * Member funding: the API-key input a grant's sessions run on, when the grant names its own input (`fundedWith`) and
+   * that input is a live api-key input with its key and a balance left. Null otherwise (keep the pool's choice).
+   */
+  grantKeyInput(grant: { fundedWith: string | null } | null | undefined, now = new Date()): BankInput | null {
+    const inp = grant?.fundedWith ? this.repos.bankInputs.get(grant.fundedWith) : undefined;
+    if (!inp || inp.source !== "api-key" || !inp.hasApiKey || inp.cancelledAt) return null;
+    return this.inputBalance(inp.id, now) > 0 ? inp : null;
+  }
+
   /** An input's live credits, soonest to expire first, then the durable ones oldest first. */
   private inputCredits(inputId: string, now: Date): BankCredit[] {
     return this.repos.bankCredits.where("inputId = ? AND (expiresAt IS NULL OR expiresAt > ?)", [inputId, now.toISOString()], "ORDER BY expiresAt IS NULL, expiresAt, createdAt, rowid");
@@ -523,6 +533,11 @@ export class Bank {
    */
   fallbackInput(buildingId: string, now = new Date()): BankInput | null {
     if (this.available(buildingId, now).durable <= 0) return null;
+    return this.repos.bankInputs.first("source = 'api-key' AND hasApiKey = 1 AND cancelledAt IS NULL", [], "ORDER BY createdAt, rowid") ?? null;
+  }
+
+  /** The oldest live api-key input that still has its key (a hosted collective without one is held: "No key yet"). */
+  liveApiKeyInput(): BankInput | null {
     return this.repos.bankInputs.first("source = 'api-key' AND hasApiKey = 1 AND cancelledAt IS NULL", [], "ORDER BY createdAt, rowid") ?? null;
   }
 

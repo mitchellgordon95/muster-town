@@ -1,6 +1,6 @@
 /** Planning desk (Town Hall): create buildings, the whole-town resident roster (read-only; adding and dismissing live in each building's Members tab), roles, secrets (admins: the collective's secrets and grants, docs/secrets.md), export. Donating and Bank pools live at the Bank. */
 import { useMemo, useState } from "react";
-import { api, tokenStore } from "../api";
+import { api, API_BASE, tokenStore } from "../api";
 import { store, useTown, roleOf } from "../state";
 import { Glyph, PanelShell } from "./PanelShell";
 import { RolesTab } from "./BuildingPanel";
@@ -153,6 +153,34 @@ function Slots() {
   );
 }
 
+/**
+ * A hosted collective (served at `/<slug>/`): its key state for everyone, and for its admins the way to add one (the
+ * Bank) and to retire the collective (its address shows a retired notice and is never given out again).
+ */
+function ThisCollective() {
+  const funding = useTown((s) => s.health?.funding);
+  const me = useTown((s) => s.me);
+  const [sure, setSure] = useState(false);
+  const admin = !!me?.isAdmin;
+  return (
+    <Section title="This collective">
+      <p className="direction">
+        {funding === "api-key" ? "Runs on its own Anthropic API key (at the Bank)." : "No key yet: its agents are held until an admin adds an Anthropic API key at the Bank."}
+        {" "}Muster Town never spends its own credentials here.
+      </p>
+      {admin ? (
+        <div className="actions">
+          <button className="btn" onClick={() => { if (!store.walkTo("bank", { kind: "bank" })) store.open({ kind: "bank" }); }}>Open the Bank</button>
+          {sure
+            ? <><Act tone="bad" run={async () => { await api().retireCollective(); location.assign("/"); }}>Retire it for good</Act><button className="btn" onClick={() => setSure(false)}>Keep it</button></>
+            : <button className="btn" onClick={() => setSure(true)}>Retire this collective…</button>}
+        </div>
+      ) : null}
+      {admin && sure ? <p className="direction">Retiring stops everything here at once; {location.host}{API_BASE}/ shows a retired notice and the address is never reused.</p> : null}
+    </Section>
+  );
+}
+
 function System() {
   const [commit, setCommit] = useState<string | null>(null);
   const conn = useTown((s) => s.conn);
@@ -160,6 +188,7 @@ function System() {
   return (
     <>
       {store.can("town.redeploy") ? <Redeploy /> : null}
+      {API_BASE ? <ThisCollective /> : null}
       <Slots />
       <Section title="Git export">
         <p className="direction">Writes the town to a readable git mirror (buildings, docs, meetings, events) and commits if anything changed.</p>

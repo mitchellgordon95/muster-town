@@ -48,6 +48,21 @@ export async function checkpoint_grant(world: World, me: Agent, input: VerbIn<"c
 }
 
 /**
+ * `close_grant` (the manager): close a funded grant as done before it is spent (town hall mt_6830h8x5qk, decision 3). The
+ * key result goes to claimed with the note; the unspent rest returns to the Bank; without reportId the manager's next
+ * rollup this session links itself as the close report (`checkpointDocId`).
+ */
+export async function close_grant(world: World, me: Agent, input: VerbIn<"close_grant">) {
+  const g = world.grantDesk.closeDone(me, input.grantId, { note: input.note, reportId: input.reportId ?? null });
+  const unspentTokens = g.history.at(-1)?.tokens ?? 0;
+  return {
+    grantId: g.id, status: g.status, outcome: g.outcome, spentTokens: g.spentTokens, grantTokens: g.grantTokens, unspentTokens,
+    keyResult: g.keyResult && { id: g.keyResult.id, status: g.keyResult.status }, checkpointDocId: g.checkpointDocId,
+    note: `Closed as done; ${unspentTokens.toLocaleString("en-US")} unspent tokens returned to the Bank. ${g.checkpointDocId ? "Linked. " : "Now submit_report with rollup: true: it links itself to this grant as the close report. "}A human marks the key result met or missed from the Town Hall in-tray.`,
+  };
+}
+
+/**
  * `set_key_result` (the manager): add a key result to its own building's goal, or edit one (`id`), on the same path as
  * POST /api/buildings/:id/key-results. A new one names the meeting notes or report it comes from; the manager's next
  * rollup lists it so a human can cut it.

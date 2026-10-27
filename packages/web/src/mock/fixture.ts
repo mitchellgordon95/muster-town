@@ -23,7 +23,7 @@ export const users: User[] = [
   { id: "us_mitchell", name: "Mitchell", createdAt: ago(9000), donatedTokens: 50_000_000, hasApiKey: false },
 ];
 
-const base = { goal: "", description: "", poolId: null, explorationTokensPerDay: null, budgetMode: "open" as const, blockedAt: null, headcount: 6, model: "claude-opus-5-5", cheapModel: "claude-haiku-5-5", maxTurnsPerSession: 80, dailyTokensPerAgent: 2_000_000, meetings: [], rules: "", managerAgentId: null as string | null, codeAccess: false, furniture: {} };
+const base = { goal: "", description: "", poolId: null, explorationTokensPerDay: null, budgetMode: "open" as const, blockedAt: null, headcount: 6, model: "claude-opus-5-5", cheapModel: "claude-haiku-5-5", maxTurnsPerSession: 80, dailyTokensPerAgent: 2_000_000, meetings: [], rules: "", managerAgentId: null as string | null, codeAccess: false, forks: false, furniture: {} };
 export const buildings: Building[] = [
   { ...base, id: "bl_townhall", name: "Town Hall", kind: "town-hall", headcount: 3, description: "Library, trophy room, outbox, mod station, planning desk, schedule board, and the town meeting room.", createdAt: ago(9000) },
   {
@@ -41,7 +41,7 @@ export const buildings: Building[] = [
   },
 ];
 
-const agentBase = { ownerUserId: "us_mitchell", inheritsOwner: false, deniedPermissions: [] as Agent["deniedPermissions"], status: "idle" as const, activity: "", model: null, spentTokensToday: 0, spentTokensTotal: 0, spentUsdTotal: 0, currentAssignmentId: null, currentMeetingId: null, createdAt: ago(8900), lastActiveAt: null, lastSeenAt: null };
+const agentBase = { ownerUserId: "us_mitchell", inheritsOwner: false, deniedPermissions: [] as Agent["deniedPermissions"], status: "idle" as const, activity: "", model: null, spentTokensToday: 0, spentTokensTotal: 0, spentUsdTotal: 0, currentAssignmentId: null, currentMeetingId: null, createdAt: ago(8900), lastActiveAt: null, lastSeenAt: null, forkOf: null, forkN: null, familySpentToday: 0 };
 const resident = (id: string, name: string, sprite: number, title: string, direction: string, extra: Partial<Agent> = {}): Agent => ({
   ...agentBase, id, name, kind: "resident", buildingId: "bl_carbon", homeBuildingId: "bl_carbon", title, direction, sprite, pos: { x: 0, y: 0 }, ...extra,
 });
@@ -122,7 +122,7 @@ export const docs: Doc[] = [
   { ...docBase, id: "dc_proposed", type: "article", state: "library", title: "Why 350 ppm needs net-negative emissions", authorId: "ag_ingrid", buildingId: "bl_carbon", trophyProposedBy: "ag_moss", trophyWhy: "Connects the lab's work directly to the town goal.", body: "# Why 350 ppm needs net-negative emissions\n\nEven at zero emissions the ocean and land sinks keep drawing CO2 down, but too slowly: reaching 350 ppm by 2100 needs roughly 200 GtC of net removal.", createdAt: ago(900), updatedAt: ago(800) },
 ];
 
-const asgBase = { createdBy: "us_mitchell", createdByKind: "user" as const, fromMeetingId: null, fromReportId: null, fromAssignmentId: null, reportId: null, lane: "directed" as const, grantId: null, keyResultId: null, gap: null, sourceId: null, heldReason: null, origin: null };
+const asgBase = { createdBy: "us_mitchell", createdByKind: "user" as const, fromMeetingId: null, fromReportId: null, fromAssignmentId: null, reportId: null, lane: "directed" as const, grantId: null, keyResultId: null, gap: null, sourceId: null, heldReason: null, origin: null, chainId: null, queue: "agent" as const, model: null };
 const asg = (a: Omit<Assignment, keyof typeof asgBase | "position"> & Partial<Assignment>): Assignment => ({ ...asgBase, position: Date.parse(a.createdAt), ...a });
 const grantBase = { outcome: null, findingsDocIds: [] as string[], checkpointsDone: [] as number[], checkpointDocId: null as string | null, fundedBy: null as string | null, fundedWith: null as string | null, fundedAt: null as string | null, closedAt: null, spentTokens: 0, approach: "" };
 type Kr = NonNullable<GrantView["keyResult"]>;
@@ -158,11 +158,24 @@ export const grants: GrantView[] = [
   // the Workshop is goal-directed: a funded grant beside the checkpoint, and a countered proposal (its board's key results)
   {
     ...grantBase, id: "gr_tour", buildingId: "bl_workshop", status: "funded", proposedBy: "ag_keel", askTokens: 3_000_000, grantTokens: 2_500_000, spentTokens: 600_000,
-    fundedBy: "us_mitchell", fundedAt: ago(300),
+    // member-funded (fundWith): paid from Mitchell's own Bank input, so the row reads "… by Mitchell from Mitchell's API key"
+    fundedBy: "us_mitchell", fundedByName: "Mitchell", fundedWith: "bi_mitchell_key", fundedWithLabel: "Mitchell's API key", fundedAt: ago(300),
     objective: "A stranger can find the How it works tour from the landing page", stopCondition: "Stop when KR1 is met, or at 2.5M tokens.",
     ...plan(kr("bl_workshop", 1, "The landing page links the tour above the fold", "Open muster.town logged out at 1280x800", "met"), kr("bl_workshop", 1, "The tour's last scene links to the Bank", "Play the tour to the end", "at-risk"), kr("bl_workshop", 2, "Guests can open the tour without signing in", "Open /?guest and click How it works", "missed")),
     history: [{ at: ago(300), byId: "us_mitchell", byKind: "user", action: "fund", tokens: 2_500_000, note: "Funded at 2.5M, not 3M." }],
     createdAt: ago(400), updatedAt: ago(300),
+  },
+  // closed early as done by its manager (close_grant): waits in the Town Hall in-tray until a human marks its key result
+  {
+    ...grantBase, id: "gr_stress", buildingId: "bl_carbon", status: "closed", outcome: "done", proposedBy: "ag_moss", askTokens: 1_000_000, grantTokens: 1_000_000, spentTokens: 450_000,
+    fundedBy: "us_mitchell", fundedAt: ago(500), closedAt: ago(15), checkpointDocId: "dc_keel_cp",
+    objective: "Stress-test the lab's session runner at 10 parallel desks", stopCondition: "Stop when 10 desks finish one session each, or at 1M tokens.",
+    ...plan(kr("bl_carbon", 3, "10 desks finish a session in parallel with no lost reports", "Read the stress report in the lab cabinet", "claimed")),
+    history: [
+      { at: ago(500), byId: "us_mitchell", byKind: "user", action: "fund", tokens: 1_000_000, note: "" },
+      { at: ago(15), byId: "ag_moss", byKind: "agent", action: "close", tokens: 550_000, note: "All 10 desks finished; 0 lost reports (spent 450,000 of 1,000,000; returned 550,000 unspent tokens to the Bank)" },
+    ],
+    createdAt: ago(520), updatedAt: ago(15),
   },
   {
     ...grantBase, id: "gr_cli", buildingId: "bl_workshop", status: "countered", proposedBy: "ag_keel", askTokens: 1_500_000, grantTokens: null,

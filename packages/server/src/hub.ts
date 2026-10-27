@@ -1,4 +1,5 @@
-import { AppError, World } from "@muster-town/core";
+import { AppError, townRoleId, upsertGithubUser, World, type GithubProfile } from "@muster-town/core";
+import { apiKeyProblem, RESERVED_SLUGS as RESERVED, slugify, slugProblem } from "@muster-town/schema";
 import Database from "better-sqlite3";
 import type { FastifyInstance } from "fastify";
 import { mkdirSync, writeFileSync } from "node:fs";
@@ -17,13 +18,21 @@ export interface HubCollective {
 }
 
 /** Path segments a hosted collective can't take: the Workshop's own routes and the homepage's. */
-export const RESERVED_SLUGS = new Set(["workshop", "api", "auth", "ws", "mcp", "media", "next", "skill.md", "hosted", "assets", "home"]);
+export const RESERVED_SLUGS = new Set(RESERVED);
 
+/** What the API key starts a collective with: about $20 of Opus output at list price; the admin changes it at the Bank. */
+export const STARTER_KEY_TOKENS = 1_000_000;
+
+/**
+ * `POST /api/collectives`: the slug defaults to the name's (`slugify`); `apiKey` (optional, an Anthropic Console key,
+ * never a subscription token) becomes the collective's own Bank input and is never returned.
+ */
 export const CreateCollectiveInput = z.object({
-  slug: z.string().regex(/^[a-z0-9](?:[a-z0-9-]{0,38}[a-z0-9])?$/, "lowercase letters, digits and dashes (2 to 40, no dash at either end)").min(2),
+  slug: z.string().trim().optional(),
   name: z.string().trim().min(1).max(80),
   goal: z.string().trim().min(1).max(300),
   tagline: z.string().trim().max(200).default(""),
+  apiKey: z.string().trim().max(400).optional(),
 });
 export type CreateCollectiveInput = z.infer<typeof CreateCollectiveInput>;
 
@@ -40,6 +49,8 @@ interface Mounted { row: HubCollective; world: World; app: FastifyInstance }
 export class Hub {
   readonly db: Database.Database;
   private mounted = new Map<string, Mounted>();
+  /** retired apps still closing (close() waits for them) */
+  private closing: Promise<void>[] = [];
 
   constructor(readonly dir: string, private mount: MountHosted) {
     mkdirSync(dir, { recursive: true });
@@ -75,18 +86,67 @@ export class Hub {
     for (const row of this.list("active")) await this.open(row);
   }
 
-  /** A new collective: hub row, dir, collective.json, a seeded World, served at once (no restart). */
-  async create(input: CreateCollectiveInput, ownerGithubId: string | null = null): Promise<HubCollective> {
+  /** Active collectives a GitHub user owns (the per-person cap on `POST /api/collectives`). */
+  ownedBy(githubId: number | string): HubCollective[] {
+    return this.db.prepare("SELECT * FROM collectives WHERE ownerGithubId = ? AND state = 'active' ORDER BY createdAt").all(String(githubId)) as HubCollective[];
+  }
+
+  /**
+   * A new collective: hub row, dir, collective.json, a seeded World, served at once (no restart); `owner` is its admin
+   * and the `apiKey` (owner only) its first Bank input. The checks run before anything is written.
+   */
+  async create(input: CreateCollectiveInput, owner: GithubProfile | null = null): Promise<HubCollective> {
+    const ownerGithubId = owner ? String(owner.id) : null;
     const i = CreateCollectiveInput.parse(input);
-    if (RESERVED_SLUGS.has(i.slug)) throw new AppError("bad_request", `"${i.slug}" is reserved: pick another name for the address.`);
-    if (this.get(i.slug)) throw new AppError("conflict", `muster.town/${i.slug} is taken: pick another name for the address.`);
-    const row: HubCollective = { slug: i.slug, name: i.name, tagline: i.tagline, goal: i.goal, ownerGithubId, createdAt: new Date().toISOString(), state: "active" };
+    const slug = i.slug || slugify(i.name);
+    const bad = slugProblem(slug);
+    if (bad) throw new AppError("bad_request", bad);
+    if (this.get(slug)) throw new AppError("conflict", `muster.town/${slug} is taken: pick another name for the address.`);
+    const apiKey = i.apiKey?.trim() || null;
+    if (apiKey) {
+      const why = apiKeyProblem(apiKey);
+      if (why) throw new AppError("bad_request", why);
+      if (!owner) throw new AppError("bad_request", "A key needs an owner: sign in with GitHub to start a collective with one.");
+    }
+    const row: HubCollective = { slug, name: i.name, tagline: i.tagline, goal: i.goal, ownerGithubId, createdAt: new Date().toISOString(), state: "active" };
     const dir = this.dirOf(row.slug);
     mkdirSync(join(dir, "data"), { recursive: true });
     writeFileSync(join(dir, "collective.json"), JSON.stringify({ name: row.name, goal: row.goal, tagline: row.tagline, buildings: [] }, null, 2) + "\n");
     this.db.prepare("INSERT INTO collectives (slug, name, tagline, goal, ownerGithubId, createdAt, state) VALUES (@slug, @name, @tagline, @goal, @ownerGithubId, @createdAt, @state)").run(row);
     await this.open(row);
+    if (owner) {
+      // the owner takes over the seeded "admin" placeholder under their own name (as the session does on a first visit)
+      const world = this.world(row.slug)!;
+      const r = upsertGithubUser(world, owner, { admins: [owner.login] });
+      const user = r.linked ? world.users.upsert({ ...r.user, name: owner.name?.trim() || owner.login }) : r.user;
+      world.ops.ensureAvatar(user.id);
+      // stored in this collective's own database only (bank_inputs.apiKey); the API never returns it
+      if (apiKey) world.bank.addInput(user.id, { label: `${owner.login}'s API key`, source: "api-key", model: "claude-opus-5-5", tokens: STARTER_KEY_TOKENS, recurrence: "once", apiKey });
+    }
     return row;
+  }
+
+  /**
+   * Retire a collective: its row stays (the slug is never reused), `/<slug>/` shows the retired notice from now on, and
+   * its app and World close once the request that asked has been answered.
+   */
+  retire(slug: string): HubCollective {
+    const row = this.get(slug);
+    if (!row) throw new AppError("not_found", `No collective at /${slug}/.`);
+    if (row.state === "retired") return row;
+    this.db.prepare("UPDATE collectives SET state = 'retired' WHERE slug = ?").run(slug);
+    const m = this.mounted.get(slug);
+    this.mounted.delete(slug);
+    if (m) this.closing.push(new Promise((r) => setTimeout(r, 50)).then(async () => { await m.app.close(); m.world.close(); }));
+    return { ...row, state: "retired" };
+  }
+
+  /** The retired collective this URL names (first path segment), or null. */
+  retiredAt(url: string): HubCollective | null {
+    const seg = /^\/([a-z0-9-]+)(?:[/?#]|$)/.exec(url)?.[1];
+    if (!seg || RESERVED_SLUGS.has(seg) || this.mounted.has(seg)) return null;
+    const row = this.get(seg);
+    return row?.state === "retired" ? row : null;
   }
 
   private async open(row: HubCollective): Promise<void> {
@@ -95,8 +155,13 @@ export class Hub {
     const dataDir = join(dir, "data");
     mkdirSync(dataDir, { recursive: true });
     const world = World.open(join(dataDir, "town.db"));
+    // own key only: the snapshot shows "No key yet" until the collective has an API key of its own
+    world.host.hosted = true;
     world.seedDefaults({ adminName: "admin", townJsonPath: join(dir, "collective.json"), collectivePath: join(dir, "collective.json"), dataDir });
     world.start(10);
+    // the owner is this World's admin, also after a reopen (a first visit makes their user if there is none yet)
+    const owner = row.ownerGithubId != null ? world.users.first("githubId = ?", [Number(row.ownerGithubId)]) : null;
+    if (owner) world.permissions.grant({ kind: "user", id: owner.id }, townRoleId("admin"));
     const app = await this.mount(world, row, dir);
     await app.ready();
     this.mounted.set(row.slug, { row, world, app });
@@ -113,6 +178,7 @@ export class Hub {
 
   async close(): Promise<void> {
     if (!this.db.open) return;
+    await Promise.all(this.closing);
     for (const m of this.mounted.values()) { await m.app.close(); m.world.close(); }
     this.mounted.clear();
     this.db.close();

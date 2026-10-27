@@ -1,9 +1,12 @@
-import { DonateInput, type TokenCounts, type Agent, type Allocation, type AllocationAuth, type Assignment, type BuildingBudget, type ServerMessage } from "@muster-town/schema";
+import { DonateInput, type TokenCounts, type Agent, type Allocation, type AllocationAuth, type Assignment, type Building, type BuildingBudget, type ServerMessage } from "@muster-town/schema";
 import { type Bank, type Booked, booked } from "./bank.ts";
 import { badRequest } from "./errors.ts";
 import type { EventLog } from "./events.ts";
 import type { Repos } from "./store.ts";
 import { type Emitter, newId, nowIso } from "./util.ts";
+
+/** Manager forks: the family's daily cap, dailyTokensPerAgent × headcount, counted on the manager's row (`familySpentToday`). */
+export const familyCap = (b: Building): number => b.dailyTokensPerAgent * b.headcount;
 
 export interface ChargeResult {
   agent: Agent;
@@ -110,7 +113,11 @@ export class Budget {
       spentTokensToday: agent.spentTokensToday + t,
       spentTokensTotal: agent.spentTokensTotal + t,
       spentUsdTotal: agent.spentUsdTotal + usd,
+      // manager forks: the family root (an agent that isn't a fork) counts its own spend and its forks' (below)
+      ...(agent.forkOf ? {} : { familySpentToday: agent.familySpentToday + t }),
     });
+    const root = agent.forkOf ? this.repos.agents.get(agent.forkOf) : undefined;
+    if (root) this.repos.agents.upsert({ ...root, familySpentToday: root.familySpentToday + t });
     // grants' spend is derived from sessions, already ended with their tokens: see whether one reached 100%
     if (bid) this.afterCharge?.(bid);
     return updated;
@@ -132,9 +139,21 @@ export class Budget {
     const bid = a.homeBuildingId ?? a.buildingId;
     if (!bid) return false;
     const b = this.repos.buildings.require(bid, "building");
-    if (!(a.spentTokensToday < b.dailyTokensPerAgent && this.remaining(bid) > 0)) return false;
+    if (!(this.withinDaily(a, b) && this.remaining(bid) > 0)) return false;
     if (!assignment) return this.capHold(bid) === null;
     return this.holdReason(assignment) === null;
+  }
+
+  /**
+   * The daily cap. A fork is checked against its family (the manager's `familySpentToday`, its own sessions plus today's
+   * forks', under dailyTokensPerAgent × headcount) instead of its own row, which starts at 0; any other agent against
+   * its own dailyTokensPerAgent, and a manager of a building with forks on against its family too.
+   */
+  private withinDaily(a: Agent, b: Building): boolean {
+    const root = a.forkOf ? this.repos.agents.get(a.forkOf) : a;
+    const familyOk = !root || root.familySpentToday < familyCap(b);
+    if (a.forkOf) return familyOk;
+    return a.spentTokensToday < b.dailyTokensPerAgent && (!b.forks || b.managerAgentId !== a.id || familyOk);
   }
 
   /**
@@ -198,7 +217,12 @@ export class Budget {
         for (const r of this.repos.agents.where("homeBuildingId = ? AND kind = 'resident'", [bid])) {
           if (!SKIP_STATUSES.has(r.status) && r.status !== "out-of-budget") this.setStatus(r, "out-of-budget");
         }
-      } else if (agent.kind === "resident" && agent.spentTokensToday >= b.dailyTokensPerAgent) {
+      } else if (agent.kind === "resident" && agent.forkOf && !this.withinDaily(agent, b)) {
+        const root = this.repos.agents.require(agent.forkOf, "agent");
+        exhausted = "agent-daily";
+        this.events.append({ type: "budget.exhausted", buildingId: bid, agentId: agent.id, text: `${root.name} and forks used today's ${familyCap(b).toLocaleString("en-US")} adj. tokens`, payload: { scope: "family", forkOf: root.id, familySpentToday: root.familySpentToday } });
+        if (!SKIP_STATUSES.has(agent.status)) agent = this.setStatus(agent, "out-of-budget");
+      } else if (agent.kind === "resident" && !agent.forkOf && agent.spentTokensToday >= b.dailyTokensPerAgent) {
         exhausted = "agent-daily";
         this.events.append({ type: "budget.exhausted", buildingId: bid, agentId: agent.id, text: `${agent.name} used today's ${b.dailyTokensPerAgent.toLocaleString("en-US")} adj. tokens`, payload: { scope: "agent", spentTokensToday: agent.spentTokensToday } });
         if (!SKIP_STATUSES.has(agent.status)) agent = this.setStatus(agent, "out-of-budget");
@@ -211,7 +235,7 @@ export class Budget {
   resetDaily(): number {
     let n = 0;
     for (const a of this.repos.agents.all()) {
-      const reset = { ...a, spentTokensToday: 0 };
+      const reset = { ...a, spentTokensToday: 0, familySpentToday: 0 };
       if (a.status === "out-of-budget") {
         const bid = a.homeBuildingId ?? a.buildingId;
         if (bid && this.remaining(bid) > 0) { reset.status = "idle"; n++; }

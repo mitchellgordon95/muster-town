@@ -7,7 +7,7 @@ import type {
   CreateObjectiveInput, UpdateObjectiveInput, Objective, KpiKey, KpiView,
   AccessRequest, AccessRequestView, Agent, Allocation, Assignment, AuthMe, BlockedAssignment, RedeployLive, Building, ClientMessage, DesksConfig, Doc, Event, Lot, Meeting, Place, Role, Membership, SessionSlots, Tile,
   ServerMessage, SessionView, TokenCounts, Town, CreateBuildingInput, UpdateBuildingInput, CreateResidentInput, RegisterVisitorInput,
-  ReviewInput, PinSkillInput, SkillPinView, SkillView, PutSecretInput, SecretView, ChatInput, WorkInput, DonateInput, AddBankInput, BankInput, CreateBankPoolInput, UpdateBankPoolInput, CreateMeetingInput, DocState, DocType, Mailbox, Permission, DecideGrantInput, GrantView, KeyResult, CreateKeyResultInput, UpdateKeyResultInput, Stoplight,
+  ReviewInput, PinSkillInput, SkillPinView, SkillView, PutSecretInput, SecretView, ChatInput, WorkInput, DonateInput, AddBankInput, BankInput, CreateBankPoolInput, UpdateBankPoolInput, CreateMeetingInput, DocState, DocType, Mailbox, Permission, DecideGrantInput, CloseGrantInput, GrantView, KeyResult, CreateKeyResultInput, UpdateKeyResultInput, Stoplight,
 } from "@muster-town/schema";
 
 export type In<T extends z.ZodTypeAny> = z.input<T>;
@@ -115,7 +115,8 @@ export interface Bank {
   /** the credits' counters priced at list price (matches creditedTokens to rounding) */
   adjustedCreditedTokens: number;
   dailyInflowTokens: number;
-  inputs: (BankInput & { userName: string; creditedCounts: TokenCounts; adjustedCreditedTokens: number })[];
+  /** per input: `debitedTokens` (what grants it pays for drew by name) and `balanceTokens` (what it can still pay; member funding). Older servers leave them out. */
+  inputs: (BankInput & { userName: string; creditedCounts: TokenCounts; adjustedCreditedTokens: number; debitedTokens?: number; balanceTokens?: number })[];
   pools: BankPoolSummary[];
   buildings: BankBuildingShare[];
   contributors: BankContributor[];
@@ -216,6 +217,8 @@ export interface Api {
   grant(id: string): Promise<GrantView>;
   /** POST /api/grants/:id/decide (building.fund): fund / counter / reject a proposal, continue / adjust / cut a checkpoint */
   decideGrant(id: string, input: In<typeof DecideGrantInput>): Promise<GrantView>;
+  /** POST /api/grants/:id/close (`building.fund` any outcome; outcome "done" closes it early with the unspent rest back in the Bank) */
+  closeGrant(id: string, input: In<typeof CloseGrantInput>): Promise<GrantView>;
   /** GET /api/buildings/:id/key-results: the goal's key results (with the live grant on each) and the blocked reason */
   keyResults(buildingId: string): Promise<KeyResultsView>;
   /** POST /api/buildings/:id/key-results (a human with building.manage writes the goal's key results) */
@@ -346,6 +349,8 @@ export interface Api {
   /** every agent's queued assignments that can't start, with the reason (GET /api/blocked): the map's blocked badges and red lines */
   blocked(): Promise<Record<string, BlockedAssignment[]>>;
   health(): Promise<{ ok?: boolean; commit?: string | null }>;
+  /** a hosted collective's admin closes it for good (`POST /<slug>/api/collective/retire`) */
+  retireCollective(): Promise<{ retired: boolean; url: string }>;
   /** the humans' operating manual: the Town Hall article tagged `manual` (GET /api/manual); the HUD "?" opens it */
   manual(): Promise<{ doc: Doc; author: string }>;
   connect(handlers: SocketHandlers): Socket;
@@ -443,6 +448,7 @@ export class HttpApi implements Api {
   }
   async grant(id: string) { return unwrap<GrantView>(await this.get(`/api/grants/${id}`), "grant"); }
   async decideGrant(id: string, i: In<typeof DecideGrantInput>) { return unwrap<GrantView>(await this.post(`/api/grants/${id}/decide`, i), "grant"); }
+  async closeGrant(id: string, i: In<typeof CloseGrantInput>) { return unwrap<GrantView>(await this.post(`/api/grants/${id}/close`, i), "grant"); }
   async keyResults(buildingId: string) {
     const r = await this.get<Partial<KeyResultsView>>(`/api/buildings/${buildingId}/key-results`);
     return { keyResults: r.keyResults ?? [], blocked: r.blocked ?? null };
@@ -549,6 +555,7 @@ export class HttpApi implements Api {
   async redeploy(image: boolean) { return this.post<{ started?: boolean; queued?: boolean; running?: boolean }>("/api/admin/redeploy", { image }); }
   async redeployLive() { return this.get<RedeployLive>("/api/admin/redeploy"); }
   async health() { return this.get<{ ok?: boolean; commit?: string | null }>("/api/health"); }
+  async retireCollective() { return this.post<{ retired: boolean; url: string }>("/api/collective/retire"); }
   async manual() { return this.get<{ doc: Doc; author: string }>("/api/manual"); }
   async blocked() { return (await this.get<{ agents?: Record<string, BlockedAssignment[]> }>("/api/blocked")).agents ?? {}; }
 

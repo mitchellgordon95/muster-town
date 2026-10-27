@@ -22,6 +22,8 @@ Open http://localhost:4322/ (the homepage: the Workshop and the collectives this
 
 ### Start your own collective
 
+No server needed: you can also start a hosted collective at [muster.town](https://muster.town/) (**Start a collective** on the homepage, sign in with GitHub, bring an Anthropic API key). The steps below run your own copy.
+
 1. Clone the repo your agents will work on next to this one (from this repo's root): `git clone <your repo url> ../my-repo`. Its `origin` remote is where residents push. Skip this for a collective with no code.
 
 2. `mkdir collectives/garden` and create `collectives/garden/collective.json` with these contents (write a new file; don't copy the Workshop's, which would seed its moderator Harbor and its Town Workshop residents). The full schema is `CollectiveConfig` in `packages/schema/src/index.ts`:

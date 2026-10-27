@@ -1,5 +1,5 @@
 /** In-memory town for VITE_MOCK=1: holds state, animates it, and implements actions locally. */
-import type { Agent, Allocation, Assignment, Building, CreateKeyResultInput, CreateObjectiveInput, Objective, UpdateObjectiveInput, DecideGrantInput, Doc, Event, GrantView, KeyResult, Meeting, Membership, Role, ServerMessage, Stoplight, UpdateKeyResultInput } from "@muster-town/schema";
+import type { Agent, Allocation, Assignment, Building, CreateKeyResultInput, CreateObjectiveInput, Objective, UpdateObjectiveInput, DecideGrantInput, CloseGrantInput, Doc, Event, GrantView, KeyResult, Meeting, Membership, Role, ServerMessage, Stoplight, UpdateKeyResultInput } from "@muster-town/schema";
 import { BUILTIN_ROLES, stoplightOf } from "@muster-town/schema";
 import type { GoalKeyResult, ObjectiveTree, Snapshot } from "../api";
 import * as F from "./fixture";
@@ -91,7 +91,7 @@ export class Sim {
     const reports = [...this.docs.values()].filter((d) => (d.type === "report" || d.type === "flag") && d.decision === "pending"
       && (hall ? d.type === "report" && !!d.buildingId && managerOf(d.buildingId) === d.authorId : d.buildingId === buildingId && managerOf(d.buildingId) !== d.authorId))
       .sort((a, b) => a.createdAt.localeCompare(b.createdAt));
-    const grants = hall ? [...this.grants.values()].filter((g) => g.status === "proposed" || g.status === "countered" || g.status === "checkpoint") : [];
+    const grants = hall ? [...this.grants.values()].filter((g) => g.status === "proposed" || g.status === "countered" || g.status === "checkpoint" || awaitingMark(g)) : [];
     const blocked = hall ? this.buildings.filter((b) => b.kind !== "town-hall").flatMap((b) => { const r = this.grantBoard(b.id).blocked; return r ? [{ buildingId: b.id, name: b.name, reason: r, since: b.blockedAt ?? null }] : []; }) : [];
     return { reports, grants, blocked };
   }
@@ -199,13 +199,27 @@ export class Sim {
     Object.assign(g, {
       status, updatedAt: now(),
       ...(i.action === "fund" || i.action === "adjust" ? { grantTokens: tokens } : {}),
-      ...(i.action === "fund" ? { fundedBy: "us_mitchell", fundedAt: now() } : {}),
+      ...(i.action === "fund" ? { fundedBy: "us_mitchell", fundedByName: "Mitchell", fundedWith: i.fundWith ?? null, fundedWithLabel: i.fundWith ? "Mitchell's API key" : null, fundedAt: now() } : {}),
       ...(i.action === "counter" && tokens ? { askTokens: tokens } : {}),
       ...(i.action === "cut" ? { outcome: "cut", closedAt: now() } : i.action === "reject" ? { closedAt: now() } : {}),
     });
     g.history.push({ at: now(), byId: "us_mitchell", byKind: "user", action: i.action, tokens: tokens, note });
     const b = this.buildings.find((x) => x.id === g.buildingId);
     this.event(`grant.${status === "closed" ? "closed" : status}` as Event["type"], null, `Mitchell ${i.action === "cut" ? "cut" : `${i.action}ed`} ${b?.name ?? ""}'s ${g.objective}`, { grantId: g.id }, g.buildingId);
+    this.emitBuilding(this.buildings.find((x) => x.kind === "town-hall")?.id ?? null);
+    return g;
+  }
+  /** POST /api/grants/:id/close, as core's Grants.close (outcome "done": closeDone, the key result to claimed). */
+  closeGrant(id: string, i: CloseGrantInput): GrantView {
+    const g = this.grants.get(id);
+    if (!g) throw new Error("grant not found");
+    if (g.status !== "funded" && g.status !== "checkpoint") throw new Error(`This grant is ${g.status}.`);
+    const note = i.note ?? "";
+    const unspent = Math.max(0, (g.grantTokens ?? 0) - g.spentTokens);
+    Object.assign(g, { status: "closed", outcome: i.outcome, closedAt: now(), updatedAt: now() });
+    g.history.push({ at: now(), byId: "us_mitchell", byKind: "user", action: "close", tokens: i.outcome === "done" ? unspent : null, note });
+    if (i.outcome === "done" && g.keyResultId) this.updateKeyResult(g.keyResultId, { status: "claimed", note });
+    this.event("grant.closed", null, `Closed (${i.outcome}): ${g.objective}`, { grantId: g.id }, g.buildingId);
     this.emitBuilding(this.buildings.find((x) => x.kind === "town-hall")?.id ?? null);
     return g;
   }
@@ -312,7 +326,7 @@ export class Sim {
     const asg = this.putAssignment({
       id: newId("as"), agentId, buildingId: a.homeBuildingId ?? "bl_carbon", title: f.title, description: f.description,
       status: "pending", createdBy: f.by ?? "us_mitchell", createdByKind: "user", fromMeetingId: null, fromReportId: f.fromReportId ?? null, reportId: null,
-      fromAssignmentId: f.fromAssignmentId ?? null, lane: "directed", grantId: null, keyResultId: null, gap: null, sourceId: null, heldReason: null, origin: null, position: f.front && q.length ? q[0].position - 1 : Date.now(), createdAt: now(), updatedAt: now(),
+      fromAssignmentId: f.fromAssignmentId ?? null, lane: "directed", grantId: null, keyResultId: null, gap: null, sourceId: null, heldReason: null, origin: null, chainId: null, queue: "agent", model: null, position: f.front && q.length ? q[0].position - 1 : Date.now(), createdAt: now(), updatedAt: now(),
     });
     this.event("assignment.created", agentId, `Assignment for ${a.name}: ${asg.title}`, { assignmentId: asg.id }, a.homeBuildingId);
     return asg;
@@ -507,4 +521,9 @@ export class Sim {
     this.event("agent.created", a.id, `${name} moved into a desk`, {}, buildingId);
     return a;
   }
+}
+
+/** Closed early as done by the manager (close_grant) and its key result still claimed: a human marks it met or missed. */
+export function awaitingMark(g: GrantView): boolean {
+  return g.status === "closed" && g.outcome === "done" && g.keyResult?.status === "claimed";
 }

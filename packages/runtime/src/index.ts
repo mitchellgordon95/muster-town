@@ -24,7 +24,7 @@ export { FlyApi } from "./desk/fly.ts";
 export { SandboxBackend, type SandboxApi } from "./desk/sandbox.ts";
 export { DockerBackend, HostBackend, realDockerRunner, type DeskBackend, type DeskChild, type DeskHandle, type DockerRunner, type RunResult, type SpawnedChild, type WorkBackend, type LineSink } from "./desk/backend.ts";
 export { deskAuth, deskEnv, grantedSecrets, portOf, FALLBACK_KEY_ENV, type DeskAuthMode, type DeskSessionOptions } from "./desk/session.ts";
-export { fundingFor, fundedBy, type Funding } from "./session.ts";
+export { fundingFor, fundingForSession, fundedBy, type Funding } from "./session.ts";
 export { type WorkOutcome } from "./work.ts";
 export { ruleFor, startWaker, WAKE_RULES, type WakeCtx, type WakeRule, type Waker } from "./waker.ts";
 export { isTerminalRedeployEvent, makeRedeployer, realCommandRunner, RESTART_EXIT_CODE, STUCK_POLLS, type CmdResult, type CommandRunner, type RedeployDeps, type RedeployRequest, type Redeployer } from "./redeploy.ts";

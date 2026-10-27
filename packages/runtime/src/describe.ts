@@ -56,6 +56,7 @@ export function describeTool(world: World, name: string, input: unknown): string
     case "cancel": return "Cancelling a queued assignment";
     case "propose_grant": return `Proposing a grant: ${clip(i.objective, 60)}`;
     case "checkpoint_grant": return "Filing a grant checkpoint";
+    case "close_grant": return "Closing a grant as done";
     case "set_objective": return i.id ? "Editing an objective" : `Writing an objective: ${clip(i.text, 60)}`;
     case "set_key_result": return i.id ? "Editing a key result" : `Writing a key result: ${clip(i.text, 60)}`;
     case "promote": return `Promoting a doc to the ${i.state === "library" ? "library" : "board"}`;

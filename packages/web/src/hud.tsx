@@ -45,6 +45,14 @@ export function Hud({ onPasteToken, onHelp }: { onPasteToken?: () => void; onHel
   const notices = useMemo(() => {
     const out: Notice[] = [];
     // a redeploy in flight (or just finished): everyone sees it, so nobody is surprised by the restart
+    // a hosted collective without an API key of its own: its agents are held (docs/hosted-collectives.md, own-key block)
+    if (health?.funding === "none") {
+      out.push({
+        key: "no-key", icon: "bank", tone: "warn", cta: "Bank →",
+        text: <><b>No key yet</b>: add your Anthropic API key at the Bank</>,
+        go: () => walkOrOpen("bank", { kind: "bank" }),
+      });
+    }
     // docker down (OrbStack stopped): code desks can't start, so workshop sessions are paused until it's back
     if (dockerDown(events, health)) {
       const paused = buildings.filter((b) => b.codeAccess).map((b) => b.name);

@@ -7,6 +7,7 @@ import { AppError, badRequest, forbidden } from "../errors.ts";
 import { isCheckpointAssignment } from "../lanes.ts";
 import { docWhere, notifyMentions } from "../mentions.ts";
 import { appendLog, ownerOf, writeWikiPage } from "../memory.ts";
+import { checkForkModel } from "../forks.ts";
 import { actOrigin } from "../origin.ts";
 import { nowIso } from "../util.ts";
 import { describeWait, validateWait } from "../waits.ts";
@@ -200,12 +201,17 @@ export async function submit_report(world: World, me: Agent, input: VerbIn<"subm
   const current = assignmentId ? world.assignments.get(assignmentId) : undefined;
   // goal-directed budgets: the rollup of a checkpoint assignment is the grant's checkpoint report (a grant may have no reports yet)
   const checkpointGrantId = input.rollup && current && isCheckpointAssignment(current) ? current.grantId : null;
+  // close_grant without a reportId: this session's rollup is the close report of the grants the manager closed as done in it
+  const closedGrants = input.rollup && isManager && session && !checkpointGrantId
+    ? world.grants.where("buildingId = ? AND status = 'closed' AND outcome = 'done' AND checkpointDocId IS NULL AND closedAt >= ?", [bid!, session.startedAt])
+      .filter((g) => g.history.at(-1)?.byId === me.id)
+    : [];
   // a manager's rollup lists every key result it wrote or edited since its last rollup, so a human can cut it (1:1 mt_ayi4y9ybyj)
   const krWrites = input.rollup && isManager ? world.grantDesk.writtenSinceRollup(me.id, bid!) : [];
   if (unhomedVisitor && !bid) throw badRequest("The town has no Town Hall to file a visitor report in.");
   if (input.rollup) {
     if (!isManager) throw badRequest("Only a building's manager agent submits rollups.");
-    if (!sourceIds.length && !checkpointGrantId && !krWrites.length) throw badRequest("A rollup lists the reports it covers in provenance.sourceIds.");
+    if (!sourceIds.length && !checkpointGrantId && !closedGrants.length && !krWrites.length) throw badRequest("A rollup lists the reports it covers in provenance.sourceIds.");
     for (const id of sourceIds) {
       const d = world.docs.get(id);
       if (!d || d.type !== "report" || d.buildingId !== bid) throw badRequest(`Rollup source ${id} is not a report of your building.`);
@@ -227,12 +233,13 @@ export async function submit_report(world: World, me: Agent, input: VerbIn<"subm
       type: "report", state: "building", title: input.title, body, verdict: input.verdict, decision: "pending",
       authorId: me.id, authorKind: "agent", buildingId: bid, provenance: input.provenance,
       sessionId: session?.id, assignmentId: assignmentId ?? undefined,
-      tags: [...(input.rollup ? ["rollup"] : []), ...(unhomedVisitor ? ["visitor"] : []), ...(checkpointGrantId ? ["checkpoint"] : []), ...(resumeWhen ? ["parked"] : [])],
+      tags: [...(input.rollup ? ["rollup"] : []), ...(unhomedVisitor ? ["visitor"] : []), ...(checkpointGrantId ? ["checkpoint"] : []), ...(closedGrants.length ? ["grant-close"] : []), ...(resumeWhen ? ["parked"] : [])],
     }, `${me.name} submitted a ${input.rollup ? "rollup" : "report"}: ${input.title}`);
     if (checkpointGrantId) {
       const g = world.grants.get(checkpointGrantId);
       if (g) world.grants.upsert({ ...g, checkpointDocId: doc.id, updatedAt: nowIso() });
     }
+    for (const g of closedGrants) world.grants.upsert({ ...g, checkpointDocId: doc.id, updatedAt: nowIso() });
     // decision 1d: humans aren't notified of reports a manager agent will consume; only Town Hall items reach them
     notifyMentions(world, me, `${doc.title}\n${doc.body}`, { where: docWhere(doc), docId: doc.id, buildingId: doc.buildingId, agentsOnly: !!manager });
     // a cancelled assignment (stopped/dismissed mid-session) stays cancelled; the report still lands
@@ -308,15 +315,23 @@ export async function request_human(world: World, me: Agent, input: VerbIn<"requ
 }
 
 export async function assign(world: World, me: Agent, input: VerbIn<"assign">) {
-  const target = world.agents.require(input.agentId, "agent");
+  // manager forks: no agentId = the building queue (forks on); the manager holds it until a fork takes it
+  const building = input.agentId ? null : world.buildings.get(homeOf(me) ?? "");
+  if (!input.agentId) {
+    if (!building) throw badRequest("Name the agentId to assign.");
+    if (!building.forks) throw badRequest(`Name the agentId to assign: ${building.name} doesn't queue work to the building (forks are off).`);
+    if (!managerAgentOf(world, building)) throw badRequest(`${building.name} has no manager agent to fork; name the agentId.`);
+  } else if (input.model) throw badRequest("`model` is for building-queue work (leave agentId out); a named agent runs on its own model.");
+  const target = building ? managerAgentOf(world, building)! : world.agents.require(input.agentId!, "agent");
   const bid = homeOf(target);
   if (!world.permissions.can(me, "building.assign", bid)) throw forbidden("building.assign");
   const waitFor = input.waitFor ? validateWait(world, input.waitFor) : null;
+  const model = building ? checkForkModel(building, input.model) : null;
   // wakes step 1: an agent's assign carries its session's human origin (hops + 1); a human's is stamped by createAssignment
   const a = createAssignment(world, { agentId: target.id, title: input.title, description: input.description, createdBy: world.holderOf(me), waitFor,
-    lane: laneOf(input), ...(me.kind === "human" ? {} : { origin: actOrigin(world, me, null) }) });
-  sendMessage(world, { kind: "system", fromId: me.id, fromKind: "system", toId: target.id, body: `New assignment from ${me.name}: ${input.title}${waitFor ? ` (starts after ${describeWait(world, waitFor)})` : ""}` });
-  return { assignmentId: a.id, lane: a.lane, ...(a.heldReason ? { held: a.heldReason } : {}), ...(waitFor ? { waitingOn: describeWait(world, waitFor) } : {}) };
+    lane: laneOf(input), ...(me.kind === "human" ? {} : { origin: actOrigin(world, me, null) }), ...(building ? { queue: "building" as const, model } : {}) });
+  if (!building) sendMessage(world, { kind: "system", fromId: me.id, fromKind: "system", toId: target.id, body: `New assignment from ${me.name}: ${input.title}${waitFor ? ` (starts after ${describeWait(world, waitFor)})` : ""}` });
+  return { assignmentId: a.id, lane: a.lane, ...(building ? { queue: "building" as const, ...(model ? { model } : {}) } : {}), ...(a.heldReason ? { held: a.heldReason } : {}), ...(waitFor ? { waitingOn: describeWait(world, waitFor) } : {}) };
 }
 
 /**

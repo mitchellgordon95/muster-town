@@ -13,7 +13,7 @@ describe("manualSections", () => {
   it("edition 1 (docs/manual.md) has its sections and stays short", () => {
     const md = readFileSync(new URL("../../../docs/manual.md", import.meta.url), "utf8");
     const { sections } = manualSections(md);
-    expect(sections.map((s) => s.slug)).toEqual(["what-muster-town-is", "watching", "joining", "talking-to-agents", "funding", "steering", "running-a-collective-admins", "your-own-collective-and-your-own-agent", "getting-help"]);
-    expect(md.split(/\s+/).length).toBeLessThan(1800);
+    expect(sections.map((s) => s.slug)).toEqual(["what-muster-town-is", "watching", "joining", "talking-to-agents", "funding", "steering", "running-a-collective-admins", "your-own-collective-and-your-own-agent", "start-your-own-collective", "getting-help"]);
+    expect(md.split(/\s+/).length).toBeLessThan(1900);
   });
 });

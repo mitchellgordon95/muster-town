@@ -1,4 +1,4 @@
-import { Doc, QUEUE_ORDER, type Agent, type Assignment, type Building, type AccessRequestView, type GrantView, type LaneFields, type Message, type Origin, type ReviewDecision, type WaitFor } from "@muster-town/schema";
+import { Doc, QUEUE_ORDER, type Agent, type Assignment, type AssignmentQueue, type Building, type AccessRequestView, type GrantView, type LaneFields, type Message, type Origin, type ReviewDecision, type WaitFor } from "@muster-town/schema";
 import { AppError } from "./errors.ts";
 import { DIRECTED, meetingHadHuman, resolveLane, type Lane } from "./lanes.ts";
 import type { Holder } from "./permissions.ts";
@@ -50,8 +50,12 @@ export function canSeeDoc(holder: Holder, d: Doc): boolean {
  * (`fromAssignmentId`, or the assignment behind `fromReportId`) inherits its lane, else it is directed. `laneOverride`
  * skips the validation (system-made work such as the checkpoint assignment).
  */
-export function createAssignment(world: World, a: { agentId: string; title: string; description: string; createdBy: Holder | { kind: "system"; id: string }; fromReportId?: string | null; fromMeetingId?: string | null; fromAssignmentId?: string | null; buildingId?: string; front?: boolean; waitFor?: WaitFor | null; parked?: number; lane?: LaneFields; laneOverride?: Lane; origin?: Origin | null }): Assignment {
-  const agent = world.agents.require(a.agentId, "agent");
+export function createAssignment(world: World, a: { agentId: string; title: string; description: string; createdBy: Holder | { kind: "system"; id: string }; fromReportId?: string | null; fromMeetingId?: string | null; fromAssignmentId?: string | null; buildingId?: string; front?: boolean; waitFor?: WaitFor | null; parked?: number; lane?: LaneFields; laneOverride?: Lane; origin?: Origin | null; queue?: AssignmentQueue; model?: string | null }): Assignment {
+  let agent = world.agents.require(a.agentId, "agent");
+  let queue: AssignmentQueue = a.queue ?? "agent";
+  // a fork lives for one session: work made for it (a park continuation, a review follow-up) goes on the building queue,
+  // held by the manager until the next fork takes it
+  if (agent.forkOf) { agent = world.agents.require(agent.forkOf, "agent"); queue = "building"; }
   const buildingId = a.buildingId ?? agent.homeBuildingId ?? agent.buildingId;
   if (!buildingId) throw new AppError("bad_request", `${agent.name} has no building to work in.`);
   const fromReport = a.fromReportId ? world.docs.get(a.fromReportId) : undefined;
@@ -65,16 +69,19 @@ export function createAssignment(world: World, a: { agentId: string; title: stri
     : fromReport?.authorKind === "user" ? humanOrigin(fromReport.authorId, fromReport.id)
     : (meeting && meetingOrigin(meeting)) ?? from?.origin ?? null;
   const ts = nowIso();
+  const id = newId("as");
   const assignment = world.assignments.upsert({
-    id: newId("as"), agentId: agent.id, buildingId, title: a.title, description: a.description, status: "pending",
+    id, agentId: agent.id, buildingId, title: a.title, description: a.description, status: "pending",
     createdBy: a.createdBy.id, createdByKind: a.createdBy.kind === "system" ? "user" : a.createdBy.kind,
     fromMeetingId: a.fromMeetingId ?? null, fromReportId: a.fromReportId ?? null, reportId: null,
     fromAssignmentId: a.fromAssignmentId ?? null, position: a.front ? frontPosition(world, agent.id) : Date.now(), createdAt: ts, updatedAt: ts,
     waitFor: a.waitFor ?? null, ...(a.parked ? { parked: a.parked } : {}), ...lane, heldReason: null, origin,
+    // the chain is the first assignment's id: a retry, a park continuation and a review follow-up continue `from`'s
+    chainId: from ? from.chainId ?? from.id : id, queue, model: a.model ?? null,
     // v1.4: a visitor's loop runs outside the town, so its assignments are offers it accepts (never scheduled)
     ...(agent.kind === "visitor" ? { offered: true } : {}),
   });
-  world.events.append({ type: "assignment.created", agentId: agent.id, buildingId, text: `${assignment.offered ? "Offered to" : "New assignment for"} ${agent.name}: ${a.title}${assignment.waitFor ? ` (waits on ${describeWait(world, assignment.waitFor)})` : ""}`, payload: { assignmentId: assignment.id, lane: assignment.lane, grantId: assignment.grantId, offered: !!assignment.offered, waitFor: assignment.waitFor, createdBy: a.createdBy.id, fromReportId: a.fromReportId ?? null, fromMeetingId: a.fromMeetingId ?? null, origin } });
+  world.events.append({ type: "assignment.created", agentId: agent.id, buildingId, text: `${assignment.offered ? "Offered to" : "New assignment for"} ${agent.name}: ${a.title}${assignment.waitFor ? ` (waits on ${describeWait(world, assignment.waitFor)})` : ""}`, payload: { assignmentId: assignment.id, chainId: assignment.chainId, queue, lane: assignment.lane, grantId: assignment.grantId, offered: !!assignment.offered, waitFor: assignment.waitFor, createdBy: a.createdBy.id, fromReportId: a.fromReportId ?? null, fromMeetingId: a.fromMeetingId ?? null, origin } });
   return assignment;
 }
 
@@ -85,7 +92,15 @@ export function pendingQueue(world: World, agentId: string): Assignment[] {
 
 /** The pending assignment the scheduler runs next for this agent (offers to visitors never run; nor do waiting ones). */
 export function nextPending(world: World, agentId: string): Assignment | undefined {
-  return world.assignments.first("agentId = ? AND status = 'pending' AND (offered IS NULL OR offered = 0) AND waitFor IS NULL", [agentId], QUEUE_ORDER);
+  return world.assignments.first(`agentId = ? AND status = 'pending' AND (offered IS NULL OR offered = 0) AND waitFor IS NULL${ownQueue(world, agentId)}`, [agentId], QUEUE_ORDER);
+}
+
+/** Building-queue work held by the manager waits for a fork; a fork runs the building-queue assignment it took. */
+const ownQueue = (world: World, agentId: string) => world.agents.get(agentId)?.forkOf ? "" : " AND queue = 'agent'";
+
+/** Manager forks: the building's queue (pending, `queue = 'building'`, not yet taken by a fork) in queue order, waiting ones included. */
+export function buildingQueue(world: World, buildingId: string): Assignment[] {
+  return world.assignments.where("buildingId = ? AND status = 'pending' AND queue = 'building' AND agentId IN (SELECT id FROM agents WHERE forkOf IS NULL)", [buildingId], QUEUE_ORDER);
 }
 
 /**
@@ -95,7 +110,7 @@ export function nextPending(world: World, agentId: string): Assignment | undefin
  */
 export function nextStartable(world: World, agentId: string): Assignment | undefined {
   if (!world.budget.canStart(agentId)) return undefined;
-  return world.assignments.where("agentId = ? AND status = 'pending' AND (offered IS NULL OR offered = 0) AND waitFor IS NULL", [agentId], QUEUE_ORDER)
+  return world.assignments.where(`agentId = ? AND status = 'pending' AND (offered IS NULL OR offered = 0) AND waitFor IS NULL${ownQueue(world, agentId)}`, [agentId], QUEUE_ORDER)
     .find((a) => world.budget.canStart(agentId, a));
 }
 
@@ -314,9 +329,16 @@ export function intrayOf(world: World, buildingId: string): Doc[] {
   return world.docs.where("type IN ('report', 'flag') AND decision = 'pending' AND buildingId = ?", [buildingId], "ORDER BY createdAt, rowid").filter((d) => !isTownHallItem(world, d));
 }
 
-/** Grants a human must decide on (proposed, countered, at a checkpoint), every building, oldest first: Town Hall in-tray rows. */
+/**
+ * Grants a human must decide on, every building, oldest first: Town Hall in-tray rows. Proposed, countered and checkpoint
+ * grants, and grants the manager closed as done (`close_grant`) whose key result is still claimed: the human marks it met
+ * or missed, and the row leaves.
+ */
 export function grantsAwaitingDecision(world: World): GrantView[] {
-  return world.grants.where(`status IN (${GRANT_INTRAY_STATUSES.map((s) => `'${s}'`).join(", ")})`, [], "ORDER BY updatedAt, rowid").map((g) => world.grantDesk.view(g));
+  return world.grants.where(
+    `status IN (${GRANT_INTRAY_STATUSES.map((s) => `'${s}'`).join(", ")}) OR (status = 'closed' AND outcome = 'done' AND keyResultId IN (SELECT id FROM key_results WHERE status = 'claimed'))`,
+    [], "ORDER BY updatedAt, rowid",
+  ).map((g) => world.grantDesk.view(g));
 }
 
 /** The Town Hall in-tray: managers' rollups and checkpoint reports, grants awaiting a human's decision, people asking to join, and blocked buildings (not counted in the badge). */

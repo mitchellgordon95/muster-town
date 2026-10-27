@@ -21,6 +21,7 @@ export { financeSummary, townFinance, FINANCE_BURN_DAYS, FINANCE_PROJECTION_DAYS
 export { Ops, type Actor, type MessageAgentOptions, type MessageAgentResult, type RequestAction, type ThreadMessage } from "./ops.ts";
 export { createBuilding, updateBuilding, syncManagerRoles, createResident, registerVisitor, ensureAvatar, createUser, createServiceAgent, createTownModerator, updateFurniture, planTown } from "./entities.ts";
 export { RESIDENT_NAMES, suggestResidentName } from "./names.ts";
+export { forkManager, retireFork, nextForkN, familyCap, forkModels, checkForkModel } from "./forks.ts";
 export { decisionKey, decisionWakes, managerIntrayRow, mentionKey, mentionWake, relayKey, relayWake, RELAY_MAX_AGE_MS, RELAY_MAX_HOPS, requestAnswerKey, requestAnswerWake, wakeKey } from "./wakes.ts";
 export { checkWaits, describeWait, validateWait, waitMet } from "./waits.ts";
 export { blockedBy, townBlocked } from "./blockers.ts";
@@ -30,7 +31,7 @@ export { requestAccess, decideAccess, pendingAccessRequests, pendingAccessCount,
 export { migrateRoles, type MigrateRolesResult } from "./migrate-roles.ts";
 export {
   applyDecision, createAssignment, createDoc, updateDoc, extractProposal, summarizeDoc, canSeeDoc, sendMessage,
-  setAssignmentStatus, pendingQueue, nextPending, nextStartable, moveToFront, intrayOf, intrayCount, intrayCounts, townHallIntray, grantsAwaitingDecision,
+  setAssignmentStatus, pendingQueue, nextPending, nextStartable, buildingQueue, moveToFront, intrayOf, intrayCount, intrayCounts, townHallIntray, grantsAwaitingDecision,
   managerAgentOf, intrayWorker, isTownHallItem, requirePendingReport, plantFlag, pickUpFlag, flagPlaceId, type DocSummary,
 } from "./domain.ts";
 export { replyToReport, replyStamp, isMergeReply, MERGE_INSTRUCTION, type ReplyResult } from "./reply.ts";

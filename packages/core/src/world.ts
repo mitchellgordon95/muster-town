@@ -46,6 +46,8 @@ export interface HostHooks {
   docker?: boolean;
   /** Work-session slots: live or starting sessions out of `desks.maxRunning`. Unset without a runtime. */
   slots?(): { running: number; max: number };
+  /** A hosted collective (docs/hosted-collectives.md): runs only on its own API key, never the host's credentials. */
+  hosted?: boolean;
 }
 
 export class World {
@@ -275,7 +277,8 @@ export class World {
       flags: this.docs.where("type = 'flag' AND decision = 'pending' AND pickedUpAt IS NULL AND flagPos IS NOT NULL", [], "ORDER BY createdAt").map(mapFlagOf).filter((f) => f !== null),
       grid: this.layout.grid,
       meetings: this.meetings.where("phase IN ('scheduled','collecting','discussing')", [], "ORDER BY scheduledAt"),
-      health: { docker: this.host.docker ?? true, ...(this.host.slots ? { slots: this.host.slots() } : {}) },
+      health: { docker: this.host.docker ?? true, ...(this.host.slots ? { slots: this.host.slots() } : {}),
+        ...(this.host.hosted ? { funding: this.bank.liveApiKeyInput() ? "api-key" as const : "none" as const } : {}) },
     };
   }
 
