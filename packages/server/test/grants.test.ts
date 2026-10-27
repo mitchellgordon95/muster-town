@@ -58,12 +58,12 @@ describe("grants routes", () => {
     expect(proposed.body.grant.status).toBe("proposed");
     expect((await json(app, "GET", `/api/grants/${id}`)).body.grant.status).toBe("proposed");
 
-    // the board carries the goal, the open proposal and the exploration allowance
+    // the board carries the goal, the open proposals and the exploration allowance
     const board = await json(app, "GET", `/api/buildings/${LAB}/board`);
     expect(board.status).toBe(200);
     expect(board.body).toHaveProperty("docs");
     expect(board.body.goal).toBe(world.buildings.require(LAB, "building").goal);
-    expect(board.body.proposal.id).toBe(id);
+    expect(board.body.proposals.map((p: { id: string }) => p.id)).toEqual([id]);
     expect(board.body.grants).toEqual([]);
     expect(board.body.exploration).toMatchObject({ spentTodayTokens: 0 });
 
@@ -78,7 +78,7 @@ describe("grants routes", () => {
     expect(funded.body.grant).toMatchObject({ status: "funded", grantTokens: 5_000_000 });
     expect((await json(app, "POST", `/api/grants/${id}/decide`, { headers: auth, body: { action: "fund" } })).status).toBe(409);
     expect((await json(app, "GET", `/api/buildings/${LAB}/grants?status=funded`)).body.grants.map((g: any) => g.id)).toEqual([id]);
-    expect((await json(app, "GET", `/api/buildings/${LAB}/board`)).body).toMatchObject({ proposal: null, grants: [{ id }] });
+    expect((await json(app, "GET", `/api/buildings/${LAB}/board`)).body).toMatchObject({ proposals: [], grants: [{ id }] });
 
     expect((await json(app, "GET", `/api/buildings/${LAB}/board`)).body.keyResults[0]).toMatchObject({ id: krs[0], grantId: id });
     expect((await json(app, "DELETE", `/api/key-results/${krs[0]}`, { headers: auth })).status).toBe(409);

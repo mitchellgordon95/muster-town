@@ -152,7 +152,8 @@ export interface Board {
   /** green / yellow / red with the one-line reason; null for open buildings */
   stoplight: Stoplight | null;
   grants: GrantView[];
-  proposal: GrantView | null;
+  /** open proposals (proposed or countered), newest first: several can be open at once */
+  proposals: GrantView[];
   exploration: { allowanceTokens: number; spentTodayTokens: number };
 }
 
@@ -383,7 +384,7 @@ export class HttpApi implements Api {
   async events(q: EventQuery) { return unwrap<Event[]>(await this.get(`/api/events${qs(q)}`), "events"); }
   async board(id: string, limit = 30) {
     const r = await this.get<Partial<Board>>(`/api/buildings/${id}/board${qs({ limit })}`);
-    return { docs: r.docs ?? [], goal: r.goal ?? "", keyResults: r.keyResults ?? [], blocked: r.blocked ?? null, stoplight: r.stoplight ?? null, grants: r.grants ?? [], proposal: r.proposal ?? null, exploration: r.exploration ?? { allowanceTokens: 0, spentTodayTokens: 0 } };
+    return { docs: r.docs ?? [], goal: r.goal ?? "", keyResults: r.keyResults ?? [], blocked: r.blocked ?? null, stoplight: r.stoplight ?? null, grants: r.grants ?? [], proposals: r.proposals ?? [], exploration: r.exploration ?? { allowanceTokens: 0, spentTodayTokens: 0 } };
   }
   async cabinet(id: string, q: CabinetQuery = {}) {
     const r = await this.get<Partial<Cabinet>>(`/api/buildings/${id}/cabinet${qs({ limit: 30, ...q })}`);

@@ -129,7 +129,7 @@ The board becomes the place where this lives. It is the first thing a resident l
 ```
 
 1. **Exploration (goal-scoped).** Each building has a daily exploration allowance. An exploration assignment has to name either a key result (of a funded or proposed grant) or a *goal gap*: one sentence on what is missing between the goal and the live town ("a visitor can't tell what Prod is for"). Its output is the session report, which works as a findings note. Nothing open-ended: an assignment without a key result or gap is rejected when it is created.
-2. **Proposal (building level, by the manager).** The manager bundles findings into one proposal: an objective, 2-3 key results, a token ask, and a stop condition. Key results must be **human-observable**: something a person can see in the live town, with a "how to check" line ("open the Prod banner: it shows today's and all-time tokens"). "Tests pass", "N commits" or "PR merged" don't count, because agents grade their own work generously. A building has at most one proposal open at a time, so the human reviews one coherent plan instead of competing asks.
+2. **Proposal (building level, by the manager).** The manager bundles findings into one proposal: an objective, 2-3 key results, a token ask, and a stop condition. Key results must be **human-observable**: something a person can see in the live town, with a "how to check" line ("open the Prod banner: it shows today's and all-time tokens"). "Tests pass", "N commits" or "PR merged" don't count, because agents grade their own work generously. A building can have several proposals open at once, one per plan, and the Town Hall in-tray shows and decides each on its own (Mitchell, 1:1 mt_akz25kqo2q, 2026-10-27; this replaced the original one-open-proposal limit).
 3. **Negotiation.** The human funds it as is, funds it with fewer tokens, counters (edits key results or tokens with a note, and it goes back to the manager), or rejects it. Every step is kept in the grant's history.
 4. **Execution.** Once funded, the manager and residents work freely inside the grant: the manager assigns tasks against its key results, reviews reports, and continues work; residents commit and deploy as now. Outward-facing actions (`request_human`, anything in the real world) stay human-gated as today.
 5. **Checkpoint at 100% spend.** A funded grant runs to its full number (town hall mt_rjhwj2qggm, notes dc_z4zgfk6tsz: "the whole point of a grant is that it's good for the number granted"; the 50% checkpoint was removed 2026-10-27, and grants still held there were released at boot). When the grant's spend reaches its tokens, new sessions on it are held (running ones finish). The manager gets an assignment, charged to the grant, to write a checkpoint report: each key result's status with evidence a human can check. The human tops it up (adjust: tokens, stop condition) or cuts it. There is no halfway note.
@@ -271,7 +271,7 @@ All under the existing Fastify app. Reads are public like the rest of the town; 
 
 | method & path | who | what |
 |---|---|---|
-| `GET /api/buildings/:id/board` | anyone | `{ goal, grants: Grant+KRs+spentTokens (funded, checkpoint), proposal (proposed/countered, if any), exploration: { allowanceTokens, spentTodayTokens }, fyis: Doc[] }` |
+| `GET /api/buildings/:id/board` | anyone | `{ goal, grants: Grant+KRs+spentTokens (funded, checkpoint), proposals (proposed/countered, newest first), exploration: { allowanceTokens, spentTodayTokens }, fyis: Doc[] }` |
 | `GET /api/buildings/:id/grants?status=` | anyone | all grants, newest first, with KRs and spend |
 | `GET /api/grants/:id` | anyone | one grant with KRs, spend, history |
 | `POST /api/buildings/:id/grants` | `building.manage` | create a draft: `{ objective, stopCondition, askTokens, keyResults: [{text, howToCheck}] (2-3), findingsDocIds }` |
@@ -283,7 +283,7 @@ All under the existing Fastify app. Reads are public like the rest of the town; 
 | `PATCH /api/buildings/:id` | `building.manage` | gains `explorationTokensPerDay`, `budgetMode` |
 | `POST /api/agents/:id/work` and the `assign` verb (existing) | `building.assign` | gain `lane`, `grantId`, `keyResultId`, `gap` |
 
-MCP verbs (agents): `board` returns the same shape as `GET …/board`. New manager verbs: `propose_grant` (create + propose in one call; while the building's proposal is `countered` it rewrites that proposal with the new plan and re-proposes it under the same id, so queued grant work stays attached and no desk session is needed to answer a counter) and `checkpoint_grant` (`{ grantId, reportId?, status?, note? }` since 032). `assign` gains `lane`, `grantId`, `keyResultId`, `gap`. Events: `grant.proposed`, `grant.countered`, `grant.funded`, `grant.checkpoint`, `grant.closed`, `kr.updated`, all pushed to the web over the existing websocket.
+MCP verbs (agents): `board` returns the same shape as `GET …/board`. New manager verbs: `propose_grant` (create + propose in one call; with `grantId` of a `countered` proposal it rewrites that proposal with the new plan and re-proposes it under the same id (without `grantId`, a countered proposal for the same key result is the one answered; otherwise it is a new proposal next to the open ones), so queued grant work stays attached and no desk session is needed to answer a counter) and `checkpoint_grant` (`{ grantId, reportId?, status?, note? }` since 032). `assign` gains `lane`, `grantId`, `keyResultId`, `gap`. Events: `grant.proposed`, `grant.countered`, `grant.funded`, `grant.checkpoint`, `grant.closed`, `kr.updated`, all pushed to the web over the existing websocket.
 
 ## The desk brief
 
@@ -297,7 +297,7 @@ Today the brief only *tells* agents to look at the board (`composeWorkBrief`, `p
 1. **Goal**: the building goal.
 2. **Key results of the goal**, numbered in goal order, each a row: status pill (`krTone`: met green, missed red, claimed / at risk amber), the text, a "how to check" line, and the live grant working on it (objective, status, a spend bar `spent / grant`, "held" at checkpoint) or "No funded grant: open for exploration". Live grants naming no key result (pre-032) follow the list. When the building is blocked, a red "blocked" line says why. The board is read-only: a human with `building.manage` gets an **Edit in settings** link (Building → Settings → Key results); funding decisions stay in the Town Hall in-tray. `kr.*`, `grant.*` and `building.blocked` events bump the client's `rev`, so the board and the settings editor reload live.
 3. **Exploration**: a small meter, "1.2M / 3M tokens today".
-4. **Proposal** (if one is open): one line pointing at the Town Hall in-tray.
+4. **Proposals** (if any are open): one line each pointing at the Town Hall in-tray.
 5. **Standing rules** (as today, collapsed by default).
 6. **FYIs** (as today).
 

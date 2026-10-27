@@ -42,10 +42,12 @@ describe("grants service", () => {
     expect(p.status).toBe("proposed");
     expect(p.history.map((h) => h.action)).toEqual(["propose"]);
     expect(world.messages.where("toId = ? AND kind = 'system'", [admin.id]).some((m) => m.body.includes("proposed"))).toBe(true);
-    expect(world.grantDesk.board(LAB).proposal?.id).toBe(g.id);
-    // one open proposal per building
+    expect(world.grantDesk.board(LAB).proposals.map((x) => x.id)).toEqual([g.id]);
+    // several open proposals per building, each on its own (newest first on the board)
     const g2 = draft();
-    expect(() => world.grantDesk.propose(manager, g2.id)).toThrow(/open proposal/);
+    expect(world.grantDesk.propose(manager, g2.id).status).toBe("proposed");
+    expect(world.grantDesk.board(LAB).proposals.map((x) => x.id)).toEqual([g2.id, g.id]);
+    world.grantDesk.close(manager, g2.id, { outcome: "stopped" });
     // can't edit once proposed
     expect(() => world.grantDesk.update(manager, g.id, { askTokens: 1 })).toThrow(/proposed grant/);
   });
@@ -64,7 +66,7 @@ describe("grants service", () => {
     const f = world.grantDesk.decide(admin, g.id, { action: "fund" });
     expect(f).toMatchObject({ status: "funded", grantTokens: 6_000_000, fundedBy: admin.ownerUserId, spentTokens: 0 });
     expect(f.history.map((h) => [h.action, h.byKind])).toEqual([["propose", "agent"], ["counter", "user"], ["edit", "agent"], ["propose", "agent"], ["fund", "user"]]);
-    expect(world.grantDesk.board(LAB)).toMatchObject({ proposal: null, grants: [{ id: g.id }] });
+    expect(world.grantDesk.board(LAB)).toMatchObject({ proposals: [], grants: [{ id: g.id }] });
     expect(() => world.grantDesk.decide(admin, g.id, { action: "fund" })).toThrow(/funded grant/);
   });
 

@@ -399,7 +399,7 @@ function KeyResultsView({ board, buildingId }: { board: Board; buildingId: strin
           <span className={`kr-bar ${eShare >= 1 ? "bad" : eShare > 0.8 ? "warn" : ""}`}><i style={{ width: `${eShare * 100}%` }} /></span>
           <span className="muted">{explorationLine(e)}</span>
         </div>
-        {board.proposal ? <div className="kr-proposal muted">{proposalLine(board.proposal)}</div> : null}
+        {board.proposals.map((p) => <div key={p.id} className="kr-proposal muted">{proposalLine(p)}</div>)}
       </div>
     </Section>
   );

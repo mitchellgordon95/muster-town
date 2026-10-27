@@ -222,13 +222,24 @@ describe("goal-directed budgets: the 100% checkpoint", () => {
     expect(world.grants.require(g.id)).toMatchObject({ status: "funded", checkpointDocId: up.id });
   });
 
-  it("propose_grant creates and proposes in one call; one open proposal per building", async () => {
-    const { world, mei, krs } = setup();
+  it("propose_grant creates and proposes in one call; several proposals can be open per building", async () => {
+    const { world, mei, admin, krs } = setup();
     const r = await world.verbs.propose_grant(mei, { keyResultId: krs[1]!.id, objective: "o", stopCondition: "s", askTokens: 1000, testingPlan: KRS });
     expect(r).toMatchObject({ status: "proposed", keyResult: { id: krs[1]!.id }, testingPlan: KRS });
-    expect(world.grantDesk.board(LAB).proposal?.id).toBe(r.grantId);
-    await expect(world.verbs.propose_grant(mei, { keyResultId: krs[1]!.id, objective: "o2", stopCondition: "s", askTokens: 1000 })).rejects.toThrow(/open proposal/);
-    expect(world.grants.count("buildingId = ?", [LAB])).toBe(1);
+    expect(world.grantDesk.board(LAB).proposals.map((p) => p.id)).toEqual([r.grantId]);
+    const r2 = await world.verbs.propose_grant(mei, { keyResultId: krs[0]!.id, objective: "o2", stopCondition: "s", askTokens: 1000 });
+    expect(r2.grantId).not.toBe(r.grantId);
+    expect(r2.note).toMatch(/1 other open proposal/);
+    expect(world.grantDesk.board(LAB).proposals.map((p) => p.id).sort()).toEqual([r.grantId, r2.grantId].sort());
+    // each is decided on its own: countering one leaves the other proposed; funding the other doesn't touch the counter
+    world.grantDesk.decide(admin, r.grantId, { action: "counter", note: "smaller" });
+    world.grantDesk.decide(admin, r2.grantId, { action: "fund" });
+    expect(world.grants.require(r.grantId).status).toBe("countered");
+    expect(world.grants.require(r2.grantId).status).toBe("funded");
+    // a third, for a key result that already has a countered one, with a fresh plan: grantId names which is answered
+    const r3 = await world.verbs.propose_grant(mei, { keyResultId: krs[1]!.id, objective: "o3", stopCondition: "s", askTokens: 500, grantId: r.grantId });
+    expect(r3.grantId).toBe(r.grantId);
+    expect(world.grants.count("buildingId = ?", [LAB])).toBe(2);
   });
 
   it("propose_grant on a countered proposal rewrites it in place and re-proposes it under the same id", async () => {
@@ -245,8 +256,11 @@ describe("goal-directed budgets: the 100% checkpoint", () => {
     expect(g.history.map((h) => h.action)).toEqual(["propose", "counter", "edit", "propose"]);
     expect(g.history.at(-1)?.note).toBe("at your scope");
     expect(world.assignments.require(queued.id)).toMatchObject({ grantId: r.grantId, status: "pending" });
-    // a proposal still awaiting the human's decision is not overwritten
-    await expect(world.verbs.propose_grant(mei, { keyResultId: krs[1]!.id, objective: "o3", stopCondition: "s", askTokens: 1 })).rejects.toThrow(/awaiting a human/);
+    // a proposal still awaiting the human's decision is not overwritten: grantId must name a countered one
+    await expect(world.verbs.propose_grant(mei, { keyResultId: krs[1]!.id, objective: "o3", stopCondition: "s", askTokens: 1, grantId: r.grantId })).rejects.toThrow(/only a countered proposal/);
+    // without grantId it is a new proposal next to it
+    const fresh = await world.verbs.propose_grant(mei, { keyResultId: krs[1]!.id, objective: "o3", stopCondition: "s", askTokens: 1 });
+    expect(fresh.grantId).not.toBe(r.grantId);
   });
 });
 

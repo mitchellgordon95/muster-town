@@ -1,21 +1,28 @@
-import type { Agent } from "@muster-town/schema";
+import type { Agent, Grant } from "@muster-town/schema";
 import { homeOf } from "../domain.ts";
 import { AppError, badRequest } from "../errors.ts";
 import type { World } from "../world.ts";
 import type { VerbIn } from "./types.ts";
 
 /**
- * `propose_grant` (the manager): create the draft and propose it in one call; it lands in the Town Hall in-tray.
- * While the building's proposal is countered, the call is the manager's answer: it rewrites that proposal with the
- * given plan and re-proposes it under the same id (work queued on it stays attached). A proposal still awaiting a
- * decision is refused: one open proposal per building.
+ * `propose_grant` (the manager): create the draft and propose it in one call; it lands in the Town Hall in-tray. A
+ * building can have several proposals open at once (1:1 mt_akz25kqo2q). With `grantId` the call answers a counter: it
+ * rewrites that countered proposal with the given plan and re-proposes it under the same id (work queued on it stays
+ * attached). Without one, a countered proposal for the same key result is taken as the one being answered (the old
+ * one-proposal habit); otherwise it is a new proposal.
  */
 export async function propose_grant(world: World, me: Agent, input: VerbIn<"propose_grant">) {
   const bid = homeOf(me);
   if (!bid) throw badRequest("You have no building to propose a grant for.");
-  const { note, ...fields } = input;
-  const open = world.grants.first("buildingId = ? AND status IN ('proposed', 'countered')", [bid]);
-  if (open && open.status !== "countered") throw new AppError("conflict", `Your building already has an open proposal (${open.id}: ${open.objective}) awaiting a human's decision. Finish it first.`);
+  const { note, grantId, ...fields } = input;
+  let open: Grant | undefined;
+  if (grantId) {
+    open = world.grants.get(grantId);
+    if (!open || open.buildingId !== bid) throw badRequest(`${grantId} is not a proposal of your building.`);
+    if (open.status !== "countered") throw new AppError("conflict", `${grantId} is ${open.status}: only a countered proposal is re-proposed. Leave grantId out for a new proposal.`);
+  } else {
+    open = world.grants.first("buildingId = ? AND status = 'countered' AND keyResultId = ?", [bid, fields.keyResultId], "ORDER BY updatedAt DESC");
+  }
   const g = world.transaction(() => {
     if (open) {
       world.grantDesk.update(me, open.id, { ...fields, note: "Revised after the counter" });
@@ -24,9 +31,10 @@ export async function propose_grant(world: World, me: Agent, input: VerbIn<"prop
     const draft = world.grantDesk.create(me, bid, fields);
     return world.grantDesk.propose(me, draft.id, note);
   });
+  const others = world.grants.count("buildingId = ? AND id != ? AND status IN ('proposed', 'countered')", [bid, g.id]);
   return {
     grantId: g.id, status: g.status, keyResult: g.keyResult && { id: g.keyResult.id, text: g.keyResult.text }, testingPlan: g.testingPlan,
-    note: open ? `Re-proposed ${g.id} with this plan after the counter. A human funds, counters or rejects it from the Town Hall in-tray.` : "A human funds, counters or rejects it from the Town Hall in-tray.",
+    note: `${open ? `Re-proposed ${g.id} with this plan after the counter.` : `New proposal ${g.id}.`} A human funds, counters or rejects it from the Town Hall in-tray.${others ? ` Your building has ${others} other open proposal(s); each is decided on its own.` : ""}`,
   };
 }
 

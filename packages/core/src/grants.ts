@@ -34,7 +34,7 @@ export interface ExplorationBudget { allowanceTokens: number; spentTodayTokens: 
 export type GoalKeyResult = KeyResult & { grantId: string | null; createdByName: string | null; editedByName: string | null };
 /** Today's (UTC) spend on directed work (a human asked for it): metered in its own bucket, never held by the allowance. */
 export interface DirectedBudget { spentTodayTokens: number }
-export interface GrantBoard { goal: string; keyResults: GoalKeyResult[]; blocked: string | null; stoplight: Stoplight | null; grants: GrantView[]; proposal: GrantView | null; exploration: ExplorationBudget; directed: DirectedBudget }
+export interface GrantBoard { goal: string; keyResults: GoalKeyResult[]; blocked: string | null; stoplight: Stoplight | null; grants: GrantView[]; proposals: GrantView[]; exploration: ExplorationBudget; directed: DirectedBudget }
 export interface BlockedBuilding { buildingId: string; name: string; reason: string; since: string | null }
 
 /**
@@ -124,7 +124,7 @@ export class Grants {
   private blockedAssignment(b: Building): void {
     const manager = managerAgentOf(this.world, b);
     if (!manager) return;
-    const open = this.world.grants.first("buildingId = ? AND status IN ('proposed', 'countered')", [b.id]);
+    const open = this.world.grants.where("buildingId = ? AND status IN ('proposed', 'countered')", [b.id], "ORDER BY createdAt, rowid");
     createAssignment(this.world, {
       agentId: manager.id, buildingId: b.id, front: true, createdBy: { kind: "system", id: "system" }, laneOverride: DIRECTED,
       title: `Get human decisions: ${b.name} is ${BLOCKED_NO_KRS}`.slice(0, 160),
@@ -132,9 +132,9 @@ export class Grants {
 
 1. Draft 2-3 key results for the goal, each something a human can check in the live town, with a how-to-check line. Draw on the building's reports and exploration findings.
 2. Settle them with Mitchell in your next 1:1 or a meeting, then write each with \`set_key_result\` (sourceDocIds: the meeting notes or report it comes from). Your next rollup lists them so Mitchell can keep or cut them. If you can't meet, put them in a rollup (\`submit_report\` with \`rollup: true\`; Needs from Mitchell: "Approve these key results for ${b.name}'s goal, or tell me what to change").
-3. Once the goal has key results, propose a grant for one of them with \`propose_grant\` (keyResultId).${open ? `
+3. Once the goal has key results, propose a grant for one of them with \`propose_grant\` (keyResultId).${open.length ? `
 
-The open proposal ${open.id} ("${open.objective}") names no goal key result yet; once there are key results, edit it to name one or withdraw it.` : ""}`,
+${open.map((g) => `The open proposal ${g.id} ("${g.objective}")`).join("; ")} name${open.length === 1 ? "s" : ""} no goal key result yet; once there are key results, edit ${open.length === 1 ? "it" : "each"} to name one or withdraw ${open.length === 1 ? "it" : "them"}.` : ""}`,
     });
   }
 
@@ -186,14 +186,14 @@ The open proposal ${open.id} ("${open.objective}") names no goal key result yet;
       .map((b) => ({ buildingId: b.id, name: b.name, exploration: this.exploration(b.id), directed: this.directed(b.id) }));
   }
 
-  /** GET /api/buildings/:id/board's budget part: live grants, the open proposal, exploration today. */
+  /** GET /api/buildings/:id/board's budget part: live grants, the open proposals (newest first), exploration today. */
   board(buildingId: string): GrantBoard {
     const b = this.world.buildings.require(buildingId, "building");
     const live = this.world.grants.where(`buildingId = ? AND status IN ('funded', 'checkpoint')`, [buildingId], "ORDER BY fundedAt, rowid");
-    const open = this.world.grants.first(`buildingId = ? AND status IN ('proposed', 'countered')`, [buildingId], "ORDER BY updatedAt DESC");
+    const open = this.world.grants.where(`buildingId = ? AND status IN ('proposed', 'countered')`, [buildingId], "ORDER BY updatedAt DESC, rowid DESC");
     return {
       goal: b.goal, keyResults: this.keyResults(buildingId), blocked: this.blocked(b), stoplight: this.stoplight(b),
-      grants: live.map((g) => this.view(g)), proposal: open ? this.view(open) : null, exploration: this.exploration(buildingId), directed: this.directed(buildingId),
+      grants: live.map((g) => this.view(g)), proposals: open.map((g) => this.view(g)), exploration: this.exploration(buildingId), directed: this.directed(buildingId),
     };
   }
 
@@ -233,14 +233,12 @@ The open proposal ${open.id} ("${open.objective}") names no goal key result yet;
     return this.view(next);
   }
 
-  /** draft / countered → proposed (`building.manage`). One open proposal per building. Tells the humans who can fund. */
+  /** draft / countered → proposed (`building.manage`). Several can be open per building, each decided on its own. Tells the humans who can fund. */
   propose(actor: Actor, id: string, note = ""): GrantView {
     const g = this.world.grants.require(id, "grant");
     if (actor) this.world.permissions.require(actor, "building.manage", g.buildingId);
     this.requireStatus(g, ["draft", "countered"], "proposed");
     if (!g.keyResultId) throw badRequest("A grant names one of the building goal's key results: set keyResultId first (a human or the manager writes the goal's key results).");
-    const other = this.world.grants.first(`buildingId = ? AND id != ? AND status IN ('proposed', 'countered')`, [g.buildingId, g.id]);
-    if (other) throw new AppError("conflict", `This building already has an open proposal (${other.id}: ${other.objective}). Withdraw or finish it first.`);
     const next = this.save(g, actor, { status: "proposed" }, "propose", g.askTokens, note);
     this.event("grant.proposed", next, actor, `Proposal: ${next.objective} (${fmt(next.askTokens)} tokens)`);
     this.notifyFunders(next, actor, `${this.world.nameOf(next.proposedBy)} proposed "${next.objective}" for ${fmt(next.askTokens)} tokens. Fund, counter or reject it on the board.`);
@@ -438,7 +436,7 @@ It is your move: nothing on the key result runs until this is settled.
 Key result (on the building goal): ${kr}
 
 1. Read the note and the proposal (${g.id}: objective, approach, testing plan, stop condition, ask).
-2. Revise what the note asks for and re-propose it with \`propose_grant\` (the revised plan rewrites the proposal under the same id and sends it back to the Town Hall in-tray); or, if the counter means the plan is wrong, withdraw it and say what you'd propose instead.
+2. Revise what the note asks for and re-propose it with \`propose_grant\` and grantId ${g.id} (the revised plan rewrites this proposal under the same id and sends it back to the Town Hall in-tray; your other open proposals are untouched); or, if the counter means the plan is wrong, withdraw it and say what you'd propose instead.
 3. Say in your report what changed and why.`,
       });
     } else {

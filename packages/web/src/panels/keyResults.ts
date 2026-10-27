@@ -27,7 +27,7 @@ export function explorationLine(e: { allowanceTokens: number; spentTodayTokens: 
   return `${fmtTokens(e.spentTodayTokens)} / ${fmtTokens(e.allowanceTokens)} ${ADJ} today`;
 }
 
-/** One line for the open proposal; it's decided in the Town Hall in-tray, never on the board. */
+/** One line per open proposal; it's decided in the Town Hall in-tray, never on the board. */
 export function proposalLine(p: Pick<GrantView, "objective" | "status" | "askTokens">): string {
   return p.status === "countered"
     ? `Proposal "${p.objective}" was countered: the manager revises it and proposes again.`
