@@ -112,6 +112,14 @@ export class TownMeta {
   isSet(): boolean {
     return !!this.db.prepare("SELECT 1 FROM meta WHERE key = 'town'").get();
   }
+  /** The runtime Waker's cursor: the last event id it has handled (docs/wakes.md §4 step 4); null before its first boot. */
+  wakeCursor(): number | null {
+    const r = this.db.prepare("SELECT value FROM meta WHERE key = 'wakeCursor'").get() as { value: string } | undefined;
+    return r ? Number(JSON.parse(r.value)) : null;
+  }
+  setWakeCursor(id: number): void {
+    this.db.prepare("INSERT INTO meta (key, value) VALUES ('wakeCursor', ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value").run(JSON.stringify(id));
+  }
   /** collective.json `desks` (stored at seed; defaults when absent). */
   desks(): DesksConfig {
     const r = this.db.prepare("SELECT value FROM meta WHERE key = 'desks'").get() as { value: string } | undefined;
