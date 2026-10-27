@@ -3,6 +3,7 @@ import { AppError, badRequest, forbidden } from "../errors.ts";
 import { homeOf, sendMessage, setAssignmentStatus } from "../domain.ts";
 import { notifyMentions } from "../mentions.ts";
 import { actOrigin } from "../origin.ts";
+import { relayWake } from "../wakes.ts";
 import { chebyshev, newId, nowIso } from "../util.ts";
 import type { World } from "../world.ts";
 import type { VerbIn } from "./types.ts";
@@ -81,13 +82,17 @@ export async function tell(world: World, me: Agent, input: VerbIn<"tell">) {
   const id = newId("ms");
   const origin = actOrigin(world, me, id);
   const msg = sendMessage(world, { id, kind: "tell", fromId: me.id, fromKind: "agent", toId: to.id, body: input.text, origin });
-  world.events.append({ type: "agent.told", agentId: me.id, buildingId: me.buildingId, text: `${me.name} → ${to.name}: ${input.text.slice(0, 200)}`, payload: { to: to.id, toId: to.id, toKind: to.kind, messageId: msg.id, text: input.text, origin } });
+  const told = world.events.append({ type: "agent.told", agentId: me.id, buildingId: me.buildingId, text: `${me.name} → ${to.name}: ${input.text.slice(0, 200)}`, payload: { to: to.id, toId: to.id, toKind: to.kind, messageId: msg.id, text: input.text, origin } });
   // the recipient already has the message; third parties named with @Name get a mention
   notifyMentions(world, me, input.text, { where: `a message to ${to.name}`, buildingId: me.buildingId, skip: [to.id] });
-  return { sent: true, to: to.id, messageId: msg.id, ...(idleNote(world, me, to) && { note: idleNote(world, me, to) }) };
+  // wakes step 2: a tell that traces to a human queues work for an idle resident
+  const woke = relayWake(world, me, told);
+  if (woke) return { sent: true, to: to.id, messageId: msg.id, assignmentId: woke.id, note: `${to.name} was ${to.status}: it traces to ${world.nameOf(woke.origin!.userId)}, so the town queued "${woke.title}" (${woke.id}) for ${to.name}.` };
+  const note = idleNote(world, me, to);
+  return { sent: true, to: to.id, messageId: msg.id, ...(note && { note }) };
 }
 
-/** A tell never starts work: for a resident with no live session (idle, stopped, out of budget) it waits unseen, so say so. */
+/** A tell with no human origin (or past the hop cap / 24 h) never starts work: for a resident with no live session (idle, stopped, out of budget) it waits unseen, so say so. */
 function idleNote(world: World, me: Agent, to: Agent): string | undefined {
   if (to.kind !== "resident" || !["idle", "stopped", "out-of-budget"].includes(to.status)) return undefined;
   const how = world.permissions.can(me, "building.assign", homeOf(to))

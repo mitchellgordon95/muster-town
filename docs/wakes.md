@@ -136,9 +136,13 @@ become a rule later if it is touched anyway.
    session's origin (the agent's latest running session) with `hops + 1`; a continuation inherits the assignment it
    continues. Shown in `agent.told`, `assignment.created`, `session.started` and `agent.mentioned` payloads and in the
    inbox (`for`, `origin`). Not a verb input. Changes nothing else. Tests: core test/origin.test.ts.
-2. **Human-origin tells wake** (Mitchell's ask, decision 2): in `tell`, origin + idle resident → a directed "Message from"
-   assignment (merged per origin, hop cap); a working recipient gets an interrupt. Replace `idleNote` with the
-   result. About 60 lines.
+2. **Human-origin tells wake** — done 2026-10-27 (`relayWake`, core/src/wakes.ts, called from the `tell` verb). A tell
+   whose `origin` is at most 3 hops and 24 h from the human, sent to an idle (or out-of-budget) resident with no work
+   session running, queues a pending directed "Message from <human> (via <sender>): …" assignment at the front of the
+   queue (sourceId = `origin.via`, origin copied). Later tells for the same human and path merge into it while it is
+   pending. The description carries `wake:relay:<eventId>:<agentId>`, so a replay is a no-op. A busy recipient, a tell
+   with no origin, or one past the caps stays inbox only (`idleNote`). `canStart` stays the gate. No migration. A
+   human's REST tell (`messageAgent`, hop 0) already did this. Tests: core test/wakes-relay.test.ts.
 3. **Manager wakes on grant and KR events** — done 2026-10-26. Grant decisions as assignments (Mitchell's ask, 1:1
    mt_f45m8hbmct: `Grants.decisionAssignment`, the same hook as the checkpoint assignment; fund → grant lane, counter /
    reject → directed). The rest (continue, adjust, cut or close by a human, and a human's `kr.created` / `kr.updated` /
