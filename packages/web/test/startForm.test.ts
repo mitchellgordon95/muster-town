@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { addressOf, errorField, SIGN_IN_TO_START, startBody, startProblems } from "../src/home/startForm";
 
-const draft = { name: "Garden Club!", goal: "Map every community garden in town", tagline: "", apiKey: "" };
+const draft = { name: "Garden Club!", goal: "Map every community garden in town", apiKey: "" };
 
 describe("Start form (home/startForm.ts)", () => {
   it("derives the address from the name like POST /api/collectives", () => {
@@ -13,7 +13,7 @@ describe("Start form (home/startForm.ts)", () => {
 
   it("accepts a name and a goal; the key is optional", () => {
     expect(startProblems(draft)).toEqual({});
-    expect(startBody(draft)).toEqual({ name: "Garden Club!", goal: draft.goal, tagline: "", slug: "garden-club" });
+    expect(startBody(draft)).toEqual({ name: "Garden Club!", goal: draft.goal, slug: "garden-club" });
   });
 
   it("refuses an empty name or goal, a reserved or too-short address", () => {

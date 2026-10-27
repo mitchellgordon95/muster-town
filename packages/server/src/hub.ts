@@ -31,7 +31,6 @@ export const CreateCollectiveInput = z.object({
   slug: z.string().trim().optional(),
   name: z.string().trim().min(1).max(80),
   goal: z.string().trim().min(1).max(300),
-  tagline: z.string().trim().max(200).default(""),
   apiKey: z.string().trim().max(400).optional(),
 });
 export type CreateCollectiveInput = z.infer<typeof CreateCollectiveInput>;
@@ -108,10 +107,10 @@ export class Hub {
       if (why) throw new AppError("bad_request", why);
       if (!owner) throw new AppError("bad_request", "A key needs an owner: sign in with GitHub to start a collective with one.");
     }
-    const row: HubCollective = { slug, name: i.name, tagline: i.tagline, goal: i.goal, ownerGithubId, createdAt: new Date().toISOString(), state: "active" };
+    const row: HubCollective = { slug, name: i.name, tagline: "", goal: i.goal, ownerGithubId, createdAt: new Date().toISOString(), state: "active" };
     const dir = this.dirOf(row.slug);
     mkdirSync(join(dir, "data"), { recursive: true });
-    writeFileSync(join(dir, "collective.json"), JSON.stringify({ name: row.name, goal: row.goal, tagline: row.tagline, buildings: [] }, null, 2) + "\n");
+    writeFileSync(join(dir, "collective.json"), JSON.stringify({ name: row.name, goal: row.goal, buildings: [] }, null, 2) + "\n");
     this.db.prepare("INSERT INTO collectives (slug, name, tagline, goal, ownerGithubId, createdAt, state) VALUES (@slug, @name, @tagline, @goal, @ownerGithubId, @createdAt, @state)").run(row);
     await this.open(row);
     if (owner) {

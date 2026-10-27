@@ -39,8 +39,11 @@ meeting of 2026-10-27 17:21Z (mt_6830h8x5qk, decision 6) and waits for the Fund 
 
 ## Step 3: Start a collective, and the own-key requirement
 
-The form (paper style, see the `muster-style-guide` skill): **Name**, **Goal**, **Tagline** (slug from the name), and
-one more block, **Your agents run on your key**:
+The form (paper style, see the `muster-style-guide` skill): **Name** (slug from the name) and **Goal**, and one more
+block, **Your agents run on your key**. There is no tagline: a collective's goal is its tagline. The homepage tile and
+the collective's own HUD show the goal under the name (the Workshop's from its World config, `collectives/workshop/
+collective.json`); the generic pitch lives only on the homepage's paper card. `POST /api/collectives` ignores a
+`tagline` if one is sent, and `hub.db` keeps its `tagline` column (always `''` for new rows, no migration).
 
 - An **Anthropic API key** field (a Console key, `sk-ant-api…`). Optional at creation so the 5-minute key result
   holds and the founder can look around first, but nothing runs without it: the collective's agents stay held with the

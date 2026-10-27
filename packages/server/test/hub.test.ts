@@ -27,7 +27,7 @@ async function setup(dir = mkdtempSync(join(tmpdir(), "hub-"))) {
   cleanups.push(async () => { await app.close(); world.close(); });
   return { world, hub, app, dir, admin: { authorization: `Bearer ${seed.adminToken}` } };
 }
-const demo = { slug: "demo", name: "Demo Collective", goal: "Show the hub works", tagline: "a hosted one" };
+const demo = { slug: "demo", name: "Demo Collective", goal: "Show the hub works" };
 
 describe("the hub", () => {
   it("creates a hosted collective live and serves its own World at /demo/", async () => {

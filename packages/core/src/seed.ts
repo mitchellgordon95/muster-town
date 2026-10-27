@@ -93,6 +93,7 @@ export const PAST_MANUAL_EDITIONS = [
   "322c0e934c1fd220b32a63cc3af86e75619eee160d6e70bcc48c291cfac39886", // edition 3 (00a6223)
   "7ecbbe7e59578305c428bf0d20a3343e4e84a859ee40aea2ec8e62c1565b88d4", // edition 3.1 (c68edcf)
   "7699c98dde9692834f7d9a57e436bccfb77051f5d363faa5e1e8219da028ea29", // edition 3.2 (a2091b9)
+  "77d4684ab7e1f1543c155ec41fac97dca585c5ae93b879d3a4c9aff0fbeb3e38", // edition 3.3 (522c527)
 ];
 
 const sha256 = (s: string) => createHash("sha256").update(s).digest("hex");

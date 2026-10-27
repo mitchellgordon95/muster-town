@@ -1,4 +1,4 @@
-/** HUD (top-left town card: name, tagline, goal, status counts, notices), interaction hint, say box, toasts. */
+/** HUD (top-left town card: name, goal, status counts, notices), interaction hint, say box, toasts. */
 import { useMemo, useState, type ReactNode, type RefObject } from "react";
 import type { AgentStatus, AuthMe } from "@muster-town/schema";
 import { store, useTown, type PanelRef } from "./state";
@@ -119,7 +119,6 @@ export function Hud({ onPasteToken, onHelp }: { onPasteToken?: () => void; onHel
         <div>
           {HOMEPAGE ? <a className="hud-town" href={HOMEPAGE} title="All collectives">Muster Town</a> : null}
           <h1>{town.name}</h1>
-          {!collapsed ? <div className="tagline">{town.tagline}</div> : null}
         </div>
         {collapsed && notices.length ? <span className="notice-dot" title={`${notices.length} notice${notices.length === 1 ? "" : "s"}`}>{notices.length}</span> : null}
         <button className="icon-btn dash-btn" onClick={() => store.open({ kind: "dashboard" })} title="Dashboard: the town KPIs (Fund, Join, Trust) and every building's objectives" aria-label="Dashboard">▤</button>

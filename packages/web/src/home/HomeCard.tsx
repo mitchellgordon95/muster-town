@@ -23,7 +23,7 @@ export function Tile({ c }: { c: HomeCollective }) {
     return (
       <li className="tile-item">
         <div className="tile placeholder"><span className="tile-soon">Coming soon</span><span className="tile-name">{c.name}</span></div>
-        {c.tagline ? <p className="tile-tag">{c.tagline}</p> : null}
+        {c.goal ? <p className="tile-tag">{c.goal}</p> : null}
       </li>
     );
   }
@@ -34,7 +34,7 @@ export function Tile({ c }: { c: HomeCollective }) {
         {c.preview ? <span className="tile-live" /> : null}
         <span className="tile-name">{c.name}</span>
       </a>
-      {c.tagline ? <p className="tile-tag">{c.tagline}</p> : null}
+      {c.goal ? <p className="tile-tag">{c.goal}</p> : null}
     </li>
   );
 }

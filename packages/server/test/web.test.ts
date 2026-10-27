@@ -65,7 +65,7 @@ describe("collectives homepage and /api/collectives", () => {
   let world: World;
   beforeAll(() => {
     world = World.open(":memory:");
-    world.town.set({ name: "Live Name", goal: "Live goal", tagline: "live <tagline>" });
+    world.town.set({ name: "Live Name", goal: "Live <goal>", tagline: "old tagline" });
   });
   afterAll(() => world.close());
 
@@ -73,16 +73,18 @@ describe("collectives homepage and /api/collectives", () => {
     const app = await buildApp({ world, webDist: false });
     const { collectives } = (await app.inject("/api/collectives")).json();
     expect(collectives).toEqual([
-      { slug: "workshop", name: "Live Name", tagline: "live <tagline>", goal: "Live goal", url: "/workshop/" },
+      { slug: "workshop", name: "Live Name", goal: "Live <goal>", url: "/workshop/" },
       { ...PLACEHOLDER },
     ]);
     const html = (await app.inject("/")).body;
     expect(html).toContain("Live Name");
-    expect(html).toContain("live &lt;tagline&gt;");
+    expect(html).toContain('<p class="tile-tag">Live &lt;goal&gt;</p>');
+    // a collective's goal is its tagline: the town row's old tagline is not shown
+    expect(html).not.toContain("old tagline");
     expect(html).toContain("Coming soon");
     // the placeholder gets no link: one tile link only; the embedded list can't close its script tag
     expect(html.match(/<a class="tile"/g)).toHaveLength(1);
-    expect(html).toContain('"tagline":"live \\u003ctagline>"');
+    expect(html).toContain('"goal":"Live \\u003cgoal>"');
     // no web build: a bare page, no bundle tags
     expect(html).not.toContain('<script type="module"');
     await app.close();

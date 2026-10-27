@@ -72,7 +72,6 @@ kbd { font-family: var(--mono); font-size: 11px; background: #2a2d3a; border: 1p
 .hud h1 { font-size: 15px; margin: 0; letter-spacing: .2px; }
 .hud-town { display: block; font-size: 10px; text-transform: uppercase; letter-spacing: .1em; color: var(--faint); font-weight: 700; text-decoration: none; margin-bottom: 1px; }
 .hud-town:hover { color: var(--accent); }
-.tagline { color: var(--muted); font-size: 12px; margin-top: 2px; }
 .conn { width: 8px; height: 8px; border-radius: 50%; margin-top: 6px; background: var(--warn); flex: none; }
 .conn.open { background: var(--ok); } .conn.closed { background: var(--bad); }
 .goal { margin: 10px 0 8px; font-size: 13px; color: var(--text); background: #1d2a1f; border: 1px solid #2c4430; border-radius: 6px; padding: 6px 9px; }

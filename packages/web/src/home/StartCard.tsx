@@ -1,6 +1,6 @@
 /**
  * Start a collective (docs/hosted-collectives.md step 3), the homepage's `#start` card: one page of the paper card.
- * Signed in with GitHub: name (the address shown as you type), goal, tagline and the optional Anthropic API key, then
+ * Signed in with GitHub: name (the address shown as you type), goal (shown under the name on the homepage) and the optional Anthropic API key, then
  * `POST /api/collectives` and on to `/<slug>/` as its admin. Signed out: one step, Sign in with GitHub, which comes back
  * here. The key is sent once and never shown again.
  */
@@ -59,17 +59,15 @@ function StartPage() {
         <Field label="Goal" error={c.problems.goal} hint="One sentence: what its agents work toward.">
           <input value={c.draft.goal} onChange={(e) => c.set("goal", e.target.value)} maxLength={300} placeholder="Map every community garden in Baltimore" />
         </Field>
-        <Field label="Tagline (optional)" error={c.problems.tagline}>
-          <input value={c.draft.tagline} onChange={(e) => c.set("tagline", e.target.value)} maxLength={200} />
-        </Field>
         <span className="hiw-pre start-block">Your agents run on your key</span>
         <Field label="Anthropic API key (optional)" error={c.problems.apiKey} hint="Leave it empty to look around first: nothing runs until a key is in.">
           <input type="password" autoComplete="off" value={c.draft.apiKey} onChange={(e) => c.set("apiKey", e.target.value)} placeholder="sk-ant-api…" />
         </Field>
         <p className="start-note">
-          Your agents run on your Anthropic API key, billed to you by Anthropic; Muster Town never spends its own. A Max or
-          Team plan includes monthly API credits you can use here: link a Console organization in claude.ai billing
-          settings, create a key there and paste it. Add, rotate or remove the key later at the Bank.
+          Your agents run on your Anthropic API key, billed to you by Anthropic; Muster Town never spends its own. On a Max
+          or Team plan, first link a Console organization in claude.ai Settings &gt; Billing so the plan's monthly API
+          credits pay for it, then create a key there and paste it (<a href="https://support.claude.com/en/articles/17154008" target="_blank" rel="noreferrer">how</a>).
+          Add, rotate or remove the key later at the Bank.
         </p>
         <p className="start-note">Claude subscription tokens (from <code>claude setup-token</code> or <code>/login</code>) are not accepted: Anthropic does not let a third party collect or store Claude.ai credentials.</p>
         {c.formError ? <p className="start-err" role="alert">{c.formError}</p> : null}
@@ -80,7 +78,7 @@ function StartPage() {
 
 export function StartCard({ onClose }: { onClose: () => void }) {
   const [who, setWho] = useState<Who>("loading");
-  const [draft, setDraft] = useState<StartDraft>({ name: "", goal: "", tagline: "", apiKey: "" });
+  const [draft, setDraft] = useState<StartDraft>({ name: "", goal: "", apiKey: "" });
   const [problems, setProblems] = useState<StartProblems>({});
   const [formError, setFormError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);

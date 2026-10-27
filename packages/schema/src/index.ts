@@ -46,7 +46,7 @@ export type Town = z.infer<typeof Town>;
 export const Collective = z.object({
   slug: z.string().regex(/^[a-z0-9-]+$/),
   name: z.string().min(1),
-  tagline: z.string().default(""),
+  /** shown under the name: a collective's goal is its tagline */
   goal: z.string().default(""),
   /** where its town opens (e.g. `/workshop/`); empty for a placeholder */
   url: z.string().default(""),
