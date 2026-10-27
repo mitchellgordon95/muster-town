@@ -1,11 +1,14 @@
-/** The three S3 calls the backup job needs (put, list, delete), path-style against `AWS_ENDPOINT_URL_S3`, signed with sigv4.ts. */
+/** The S3 calls the backup job needs (put, list, delete) and the restore needs (get), path-style against `AWS_ENDPOINT_URL_S3`, signed with sigv4.ts. */
 import { awsEncode, signV4, type SigV4Credentials } from "./sigv4.ts";
 
 export interface S3Target { endpoint: string; bucket: string; creds: SigV4Credentials }
 
 /** `fetch` is injectable for tests (default: global fetch). */
 export class S3 {
-  constructor(private target: S3Target, private fetchFn: typeof fetch = fetch) {}
+  private readonly target: S3Target;
+  private readonly fetchFn: typeof fetch;
+  // no parameter properties: node's strip-only type stripping (scripts/backup/restore-helper.mjs imports this file directly) rejects them
+  constructor(target: S3Target, fetchFn: typeof fetch = fetch) { this.target = target; this.fetchFn = fetchFn; }
 
   /** `host/bucket/`, for health and logs: no credentials in it */
   get dest(): string { return `${new URL(this.target.endpoint).host}/${this.target.bucket}/`; }
@@ -43,6 +46,11 @@ export class S3 {
       token = /<IsTruncated>true<\/IsTruncated>/.test(xml) ? decodeXml(/<NextContinuationToken>([^<]*)<\/NextContinuationToken>/.exec(xml)?.[1] ?? "") || undefined : undefined;
     } while (token);
     return keys.sort();
+  }
+
+  /** One object (the restore side, scripts/backup/restore-helper.mjs): the response, body unread. */
+  async get(key: string): Promise<Response> {
+    return this.call("GET", this.url(key));
   }
 
   async delete(key: string): Promise<void> {

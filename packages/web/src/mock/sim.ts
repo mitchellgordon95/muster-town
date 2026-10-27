@@ -280,7 +280,7 @@ export class Sim {
     const asg = this.putAssignment({
       id: newId("as"), agentId, buildingId: a.homeBuildingId ?? "bl_carbon", title: f.title, description: f.description,
       status: "pending", createdBy: f.by ?? "us_mitchell", createdByKind: "user", fromMeetingId: null, fromReportId: f.fromReportId ?? null, reportId: null,
-      fromAssignmentId: f.fromAssignmentId ?? null, lane: "directed", grantId: null, keyResultId: null, gap: null, sourceId: null, heldReason: null, position: f.front && q.length ? q[0].position - 1 : Date.now(), createdAt: now(), updatedAt: now(),
+      fromAssignmentId: f.fromAssignmentId ?? null, lane: "directed", grantId: null, keyResultId: null, gap: null, sourceId: null, heldReason: null, origin: null, position: f.front && q.length ? q[0].position - 1 : Date.now(), createdAt: now(), updatedAt: now(),
     });
     this.event("assignment.created", agentId, `Assignment for ${a.name}: ${asg.title}`, { assignmentId: asg.id }, a.homeBuildingId);
     return asg;

@@ -7,7 +7,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { gunzipSync } from "node:zlib";
 import { afterAll, describe, expect, it } from "vitest";
-import { BackupJob, backupKeyFrom, decryptBackup, encryptBackup, msUntilNextRun, objectKey } from "../src/backup/index.ts";
+import { BackupJob, backupKeyFrom, decryptBackup, encryptBackup, msUntilNextRun, objectKey, S3 } from "../src/backup/index.ts";
 import { signV4 } from "../src/backup/sigv4.ts";
 import { json, seededApp } from "./helpers.ts";
 
@@ -134,6 +134,7 @@ describe("the job", () => {
           res.setHeader("content-type", "application/xml");
           return res.end(`<?xml version="1.0"?><ListBucketResult><IsTruncated>false</IsTruncated>${keys.map((k) => `<Contents><Key>${k}</Key></Contents>`).join("")}</ListBucketResult>`);
         }
+        if (req.method === "GET" && objects.has(key)) { res.statusCode = 200; return res.end(objects.get(key)); }
         res.statusCode = 400; res.end("bad");
       });
     });
@@ -170,6 +171,9 @@ describe("the job", () => {
     const rdb = new Database(restored, { readonly: true });
     expect((rdb.prepare("SELECT COUNT(*) AS n FROM t").get() as { n: number }).n).toBe(100);
     rdb.close();
+    // the restore side reads the same object back with S3.get (signed)
+    const got = Buffer.from(await (await new S3({ endpoint, bucket: "bkt", creds: { accessKeyId: "AK", secretAccessKey: "SK", region: "auto" } }).get(r1.key)).arrayBuffer());
+    expect(got.equals(blob)).toBe(true);
     const snap = job.snapshot()!;
     expect(snap).toEqual({ lastAt: "2026-10-27T04:17:00.000Z", bytes: r1.bytes, dest: snap.dest, error: null });
     expect(JSON.stringify(snap)).not.toMatch(/SK|AK|7777/);
