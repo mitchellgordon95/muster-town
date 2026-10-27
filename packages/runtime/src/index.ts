@@ -3,8 +3,8 @@
  * managers' team-lead sessions over the in-tray, meeting summaries + facilitation, proxy chat, interrupts, scheduler,
  * startup reconcile, dismissal (onAgentRetired), host redeploy (v1.3).
  */
-import { checkWaits, codeWorkspace, managerIntrayRow, meetingNotice, nextStartable, PRESENCE_TICK_MS, slugify, syncManagerRoles, type World } from "@muster-town/core";
-import { DesksConfig, type ChatInput, type DeskActivityInput, type Event, type RedeployResult, type Session } from "@muster-town/schema";
+import { checkWaits, codeWorkspace, meetingNotice, nextStartable, PRESENCE_TICK_MS, slugify, syncManagerRoles, type World } from "@muster-town/core";
+import { DesksConfig, type ChatInput, type DeskActivityInput, type RedeployResult, type Session } from "@muster-town/schema";
 import { askAbout, chat } from "./chat.ts";
 import { DockerBackend, dockerSafe, HostBackend, type DeskBackend, type WorkBackend } from "./desk/backend.ts";
 import { FlyApi } from "./desk/fly.ts";
@@ -16,6 +16,7 @@ import { advanceCollecting, facilitate, newMeetingState, onMeetingMention, onMee
 import { realSdk, type Sdk } from "./sdk.ts";
 import type { Ctx } from "./session.ts";
 import { abortWork, finishWorkSession, interrupt, runWorkSession, type WorkOutcome } from "./work.ts";
+import { startWaker } from "./waker.ts";
 
 export { describeTool } from "./describe.ts";
 export { prompts } from "@muster-town/core";
@@ -25,6 +26,7 @@ export { DockerBackend, HostBackend, realDockerRunner, type DeskBackend, type De
 export { deskAuth, deskEnv, grantedSecrets, portOf, FALLBACK_KEY_ENV, type DeskAuthMode, type DeskSessionOptions } from "./desk/session.ts";
 export { fundingFor, fundedBy, type Funding } from "./session.ts";
 export { type WorkOutcome } from "./work.ts";
+export { ruleFor, startWaker, WAKE_RULES, type WakeCtx, type WakeRule, type Waker } from "./waker.ts";
 export { isTerminalRedeployEvent, makeRedeployer, realCommandRunner, RESTART_EXIT_CODE, STUCK_POLLS, type CmdResult, type CommandRunner, type RedeployDeps, type RedeployRequest, type Redeployer } from "./redeploy.ts";
 export { InputChannel, oneShot, realSdk, usageOf, userMessage, type QueryHandle, type QueryParams, type Sdk } from "./sdk.ts";
 export { DISALLOWED_TOOLS, TOWN_TOOLS, WEB_TOOLS } from "./session.ts";
@@ -146,9 +148,9 @@ export function startRuntime(opts: RuntimeOptions): Runtime {
   } catch (e) { log("reconcile")(e); }
 
   /** Run `fn` after the current (possibly transactional) event dispatch, tracked. */
-  const later = (fn: () => Promise<unknown>, what: string) => {
-    if (stopped) return;
-    void track(new Promise<void>((r) => setImmediate(r)).then(fn).catch(log(what)));
+  const later = (fn: () => Promise<unknown>, what: string): Promise<void> => {
+    if (stopped) return Promise.resolve();
+    return track(new Promise<void>((r) => setImmediate(r)).then(fn).then(() => undefined, log(what)));
   };
 
   let backend: WorkBackend | null = opts.deskBackend ?? null;
@@ -251,25 +253,19 @@ export function startRuntime(opts: RuntimeOptions): Runtime {
   const startWork = (agentId: string, assignmentId: string) => track((backend && !needsProbe() ? Promise.resolve(backend) : currentBackend()).then((b) =>
     b.kind === "host" ? runWorkSession(ctx, starting, agentId, assignmentId) : runDeskSession(ctx, b, starting, agentId, assignmentId, opts.deskOptions)));
 
-  const onEvent = (e: Event) => {
-    const p = e.payload as Record<string, unknown>;
-    if (e.type === "meeting.created" && p.phase === "collecting") later(() => onMeetingStart(ctx, mst, String(p.meetingId)), "meeting summaries");
-    else if (e.type === "meeting.phase" && p.phase === "collecting") later(() => onMeetingStart(ctx, mst, String(p.meetingId)), "meeting summaries");
-    else if (e.type === "meeting.phase" && p.phase === "discussing") later(() => facilitate(ctx, mst, String(p.meetingId)), "facilitation");
-    else if (e.type === "agent.mentioned" && p.meetingId) later(() => onMeetingMention(ctx, mst, String(p.meetingId), String(p.toId), String(p.byId), String(p.byKind)), "meeting reply");
-    // the manager's 1:1 opened, the human spoke, or it ended: start, feed or wrap up the manager's session
-    else if ((e.type === "meeting.created" || e.type === "meeting.utterance" || e.type === "meeting.phase") && e.buildingId && world.meetings.get(String(p.meetingId))?.kind === "one-on-one") {
-      const bid = e.buildingId; later(async () => wakeManagers(bid), "manager 1:1");
-    }
-    // a resident's report (or a human's flag) landed in a managed building's in-tray: wake (or feed) the manager's team-lead session
-    else if (e.type === "doc.created" && (p.docType === "report" || p.docType === "flag") && e.buildingId) { const bid = e.buildingId; later(async () => wakeManagers(bid), "manager session"); }
-    // a human decided a grant or wrote a key result: a town-written in-tray row for the manager; its doc.created wakes it (core/src/wakes.ts)
-    else if (e.type === "grant.funded" || e.type === "grant.closed" || e.type === "kr.created" || e.type === "kr.updated" || e.type === "kr.deleted") later(async () => { managerIntrayRow(world, e); }, "manager in-tray row");
-    else if ((e.type === "agent.status" && (p.status === "stopped" || p.status === "banned")) || e.type === "agent.banned") {
-      if (e.agentId) abortWork(ctx, e.agentId, killGraceMs);
-    }
-  };
-  const unsubscribe = world.events.subscribe(onEvent);
+  // which events wake whom: the rule table over the event log, with a persisted cursor (waker.ts, docs/wakes.md §4 step 4)
+  const waker = startWaker({
+    world, later, stopped: () => stopped,
+    wake: {
+      world,
+      meetingStart: (id) => onMeetingStart(ctx, mst, id),
+      facilitate: (id) => facilitate(ctx, mst, id),
+      meetingMention: (id, toId, byId, byKind) => onMeetingMention(ctx, mst, id, toId, byId, byKind),
+      wakeManagers: (bid) => wakeManagers(bid),
+      abort: (agentId) => abortWork(ctx, agentId, killGraceMs),
+    },
+  });
+  void track(waker.booted.catch(log("waker replay")));
 
   function scheduleMeetings(t: number): void {
     const meetings = world.meetings.all();
@@ -510,7 +506,7 @@ export function startRuntime(opts: RuntimeOptions): Runtime {
       if (world.host.startedAt === bootIso) delete world.host.startedAt;
       if (world.host.isLive === hostIsLive) delete world.host.isLive;
       if (timer) clearInterval(timer);
-      unsubscribe();
+      waker.stop();
       for (const id of [...ctx.live.keys()]) abortWork(ctx, id);
       await whenIdle();
     },
