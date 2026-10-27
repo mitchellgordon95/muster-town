@@ -8,7 +8,7 @@ import { AppError, codeWorkspace, REPO_TOKEN_SECRET, type World } from "@muster-
 import { townEnvBoth, type AllocationAuth, type DeskActivityInput, type DesksConfig, type Session } from "@muster-town/schema";
 import { describeTool } from "../describe.ts";
 import { InputChannel } from "../sdk.ts";
-import { clipJson, clipThought, fundedBy, fundingFor, homeOf, type Ctx, type Funding, type LiveSession } from "../session.ts";
+import { clipJson, clipThought, fundedBy, fundingFor, fundingForSession, homeOf, type Ctx, type Funding, type LiveSession } from "../session.ts";
 import { finishWorkSession, preflightWork, walkToDesk } from "../work.ts";
 import { DESK_BIN, type DeskBackend } from "./backend.ts";
 
@@ -155,9 +155,9 @@ export async function runDeskSession(ctx: Ctx, backend: DeskBackend, starting: S
   try {
     walkToDesk(ctx, agent);
     const handle = await backend.ensure(agent, building);
-    const funding = fundingFor(world, agentId);
+    const funding = fundingForSession(world, agentId, assignmentId);
     const mode = deskAuth(funding).mode;
-    session = world.ops.startSession(agentId, { purpose: "work", model: agent.model ?? building.model, assignmentId, backend: "docker", funding: mode === "none" ? null : mode });
+    session = world.ops.startSession(agentId, { purpose: "work", model: agent.model ?? building.model, assignmentId, backend: "docker", funding: mode === "none" ? null : mode, inputId: funding.inputId ?? null });
     ctx.deskAllocations.set(session.id, funding.allocationId);
     ctx.deskFallbacks.set(session.id, funding.fallback?.allocationId ?? null);
     world.events.append({ type: "agent.activity", agentId, buildingId: building.id, text: `Starting work (${fundedBy(mode === "none" ? null : mode)})`, payload: { sessionId: session.id, purpose: "work", backend: "docker", funding: mode } });

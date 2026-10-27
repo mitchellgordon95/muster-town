@@ -115,6 +115,8 @@ export interface Funding {
   apiKey: string | null;
   /** subscription sessions: the donor-key / api-key allocation a desk fails over to when the subscription hits its spend limit */
   fallback?: { allocationId: string | null; apiKey: string };
+  /** member funding: the grant's own api-key input the session runs on (its key), when it has one */
+  inputId?: string;
 }
 
 /**
@@ -147,6 +149,19 @@ export function fundingFor(world: World, agentId: string, env: NodeJS.ProcessEnv
   const alloc = world.budget.pickAllocation(bid);
   if (!alloc) return { allocationId: null, auth: null, apiKey: null };
   return { allocationId: alloc.id, auth: alloc.auth, apiKey: alloc.auth === "donor-key" ? world.budget.apiKeyFor(alloc) : envKey };
+}
+
+/**
+ * Funding for a session on an assignment: when the assignment's grant was funded from a member's own live api-key input
+ * with a balance (`fundedWith`), the session runs on that input's key (the Bank debits that input first, see
+ * Bank.drawFromInput). Otherwise, or without an assignment, the building's choice (`fundingFor`).
+ */
+export function fundingForSession(world: World, agentId: string, assignmentId: string | null | undefined, env: NodeJS.ProcessEnv = process.env): Funding {
+  const asg = assignmentId ? world.assignments.get(assignmentId) : undefined;
+  const input = asg?.grantId && homeOf(world, agentId) ? world.bank.grantKeyInput(world.grants.get(asg.grantId)) : null;
+  const key = input ? world.bank.apiKeyFor(input.id) : null;
+  if (input && key) return { allocationId: null, auth: "api-key", apiKey: key, inputId: input.id };
+  return fundingFor(world, agentId, env);
 }
 
 /** "funded by subscription" / "funded by API key" / "funded by a donor's API key", for status lines. */
@@ -202,8 +217,8 @@ export async function runAgentSession(ctx: Ctx, spec: SessionSpec): Promise<Sess
   const { world } = ctx;
   const agent = world.agents.require(spec.agentId, "agent");
   const bid = homeOf(world, agent.id);
-  const funding = fundingFor(world, agent.id);
-  const session = world.ops.startSession(agent.id, { purpose: spec.purpose, model: spec.model, assignmentId: spec.assignmentId ?? null, meetingId: spec.meetingId ?? null, backend: "host", funding: funding.auth });
+  const funding = fundingForSession(world, agent.id, spec.assignmentId);
+  const session = world.ops.startSession(agent.id, { purpose: spec.purpose, model: spec.model, assignmentId: spec.assignmentId ?? null, meetingId: spec.meetingId ?? null, backend: "host", funding: funding.auth, inputId: funding.inputId ?? null });
   const live: LiveSession = { kind: "host", agentId: agent.id, sessionId: session.id, purpose: spec.purpose, input: new InputChannel(), q: null, reportSubmitted: false, stopped: false };
   // work and manage sessions take interrupts and count as the agent's live session (scheduler, redeploy drain, abort)
   if (spec.purpose === "work" || spec.purpose === "manage") ctx.live.set(agent.id, live);

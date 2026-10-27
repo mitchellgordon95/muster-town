@@ -360,6 +360,16 @@ export class Bank {
     return left + pending;
   }
 
+  /**
+   * Member funding: the API-key input a grant's sessions run on, when the grant names its own input (`fundedWith`) and
+   * that input is a live api-key input with its key and a balance left. Null otherwise (keep the pool's choice).
+   */
+  grantKeyInput(grant: { fundedWith: string | null } | null | undefined, now = new Date()): BankInput | null {
+    const inp = grant?.fundedWith ? this.repos.bankInputs.get(grant.fundedWith) : undefined;
+    if (!inp || inp.source !== "api-key" || !inp.hasApiKey || inp.cancelledAt) return null;
+    return this.inputBalance(inp.id, now) > 0 ? inp : null;
+  }
+
   /** An input's live credits, soonest to expire first, then the durable ones oldest first. */
   private inputCredits(inputId: string, now: Date): BankCredit[] {
     return this.repos.bankCredits.where("inputId = ? AND (expiresAt IS NULL OR expiresAt > ?)", [inputId, now.toISOString()], "ORDER BY expiresAt IS NULL, expiresAt, createdAt, rowid");
