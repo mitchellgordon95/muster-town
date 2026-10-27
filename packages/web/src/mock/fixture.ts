@@ -23,7 +23,7 @@ export const users: User[] = [
   { id: "us_mitchell", name: "Mitchell", createdAt: ago(9000), donatedTokens: 50_000_000, hasApiKey: false },
 ];
 
-const base = { goal: "", description: "", poolId: null, explorationTokensPerDay: null, budgetMode: "open" as const, blockedAt: null, headcount: 6, model: "claude-opus-5-5", cheapModel: "claude-haiku-5-5", maxTurnsPerSession: 80, dailyTokensPerAgent: 2_000_000, meetings: [], rules: "", managerAgentId: null as string | null, codeAccess: false, furniture: {} };
+const base = { goal: "", description: "", poolId: null, explorationTokensPerDay: null, budgetMode: "open" as const, blockedAt: null, headcount: 6, model: "claude-opus-5-5", cheapModel: "claude-haiku-5-5", maxTurnsPerSession: 80, dailyTokensPerAgent: 2_000_000, meetings: [], rules: "", managerAgentId: null as string | null, codeAccess: false, forks: false, furniture: {} };
 export const buildings: Building[] = [
   { ...base, id: "bl_townhall", name: "Town Hall", kind: "town-hall", headcount: 3, description: "Library, trophy room, outbox, mod station, planning desk, schedule board, and the town meeting room.", createdAt: ago(9000) },
   {
@@ -41,7 +41,7 @@ export const buildings: Building[] = [
   },
 ];
 
-const agentBase = { ownerUserId: "us_mitchell", inheritsOwner: false, deniedPermissions: [] as Agent["deniedPermissions"], status: "idle" as const, activity: "", model: null, spentTokensToday: 0, spentTokensTotal: 0, spentUsdTotal: 0, currentAssignmentId: null, currentMeetingId: null, createdAt: ago(8900), lastActiveAt: null, lastSeenAt: null };
+const agentBase = { ownerUserId: "us_mitchell", inheritsOwner: false, deniedPermissions: [] as Agent["deniedPermissions"], status: "idle" as const, activity: "", model: null, spentTokensToday: 0, spentTokensTotal: 0, spentUsdTotal: 0, currentAssignmentId: null, currentMeetingId: null, createdAt: ago(8900), lastActiveAt: null, lastSeenAt: null, forkOf: null, forkN: null, familySpentToday: 0 };
 const resident = (id: string, name: string, sprite: number, title: string, direction: string, extra: Partial<Agent> = {}): Agent => ({
   ...agentBase, id, name, kind: "resident", buildingId: "bl_carbon", homeBuildingId: "bl_carbon", title, direction, sprite, pos: { x: 0, y: 0 }, ...extra,
 });
@@ -122,7 +122,7 @@ export const docs: Doc[] = [
   { ...docBase, id: "dc_proposed", type: "article", state: "library", title: "Why 350 ppm needs net-negative emissions", authorId: "ag_ingrid", buildingId: "bl_carbon", trophyProposedBy: "ag_moss", trophyWhy: "Connects the lab's work directly to the town goal.", body: "# Why 350 ppm needs net-negative emissions\n\nEven at zero emissions the ocean and land sinks keep drawing CO2 down, but too slowly: reaching 350 ppm by 2100 needs roughly 200 GtC of net removal.", createdAt: ago(900), updatedAt: ago(800) },
 ];
 
-const asgBase = { createdBy: "us_mitchell", createdByKind: "user" as const, fromMeetingId: null, fromReportId: null, fromAssignmentId: null, reportId: null, lane: "directed" as const, grantId: null, keyResultId: null, gap: null, sourceId: null, heldReason: null, origin: null };
+const asgBase = { createdBy: "us_mitchell", createdByKind: "user" as const, fromMeetingId: null, fromReportId: null, fromAssignmentId: null, reportId: null, lane: "directed" as const, grantId: null, keyResultId: null, gap: null, sourceId: null, heldReason: null, origin: null, chainId: null, queue: "agent" as const, model: null };
 const asg = (a: Omit<Assignment, keyof typeof asgBase | "position"> & Partial<Assignment>): Assignment => ({ ...asgBase, position: Date.parse(a.createdAt), ...a });
 const grantBase = { outcome: null, findingsDocIds: [] as string[], checkpointsDone: [] as number[], checkpointDocId: null as string | null, fundedBy: null as string | null, fundedWith: null as string | null, fundedAt: null as string | null, closedAt: null, spentTokens: 0, approach: "" };
 type Kr = NonNullable<GrantView["keyResult"]>;

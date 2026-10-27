@@ -127,7 +127,7 @@ export function topicsOf(world: World, authorId: string): string[] {
  * topics, plus the rule that makes the manager the building's conversational surface.
  */
 export function teamBlock(world: World, building: Building, managerId: string): string {
-  const residents = world.agents.where("homeBuildingId = ? AND kind = 'resident' AND status NOT IN ('retired', 'banned')", [building.id], "ORDER BY name");
+  const residents = world.agents.where("homeBuildingId = ? AND kind = 'resident' AND status NOT IN ('retired', 'banned') AND forkOf IS NULL", [building.id], "ORDER BY name");
   const lines = residents.filter((a) => a.id !== managerId).map((a) => {
     const queued = world.assignments.count("agentId = ? AND status = 'pending'", [a.id]);
     const cur = a.currentAssignmentId ? world.assignments.get(a.currentAssignmentId) : undefined;

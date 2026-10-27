@@ -175,6 +175,8 @@ export const Building = z.object({
   managerAgentId: Id.nullable().default(null),
   /** residents get code tools on the collective's repo (`Town.workspace`) during work sessions */
   codeAccess: z.boolean().default(false),
+  /** manager forks (dc_mymt27yz25): work `assign`ed without an agent goes on the building queue and runs as forks of the manager; off = nothing changes. A human's call (building.fund). */
+  forks: z.boolean().default(false),
   /** the Bank pool this building draws from; null = the collective's default pool, General (`DEFAULT_POOL_ID`) */
   poolId: Id.nullable().default(null),
   /** goal-directed budgets: tokens per day for exploration work; null = 10% of its pool's daily inflow */
@@ -317,6 +319,12 @@ export const Agent = z.object({
   inheritsOwner: z.boolean().default(false),
   /** v1.5: permissions removed from this agent's effective set (set by its owner or an admin) */
   deniedPermissions: z.array(Permission).default([]),
+  /** manager forks (dc_mymt27yz25): the manager this row is a short-lived fork of ("Pix 3"); null = a named agent */
+  forkOf: Id.nullable().default(null),
+  /** a fork's number n in "<Manager> <n>": the lowest not used by a live fork of that manager */
+  forkN: z.number().int().positive().nullable().default(null),
+  /** a family root (an agent that isn't a fork): today's adjusted tokens of its own sessions plus its forks'; forks are capped by it (dailyTokensPerAgent × headcount) */
+  familySpentToday: z.number().int().nonnegative().default(0),
 });
 export type Agent = z.infer<typeof Agent>;
 
@@ -567,6 +575,9 @@ export const Origin = z.object({
 });
 export type Origin = z.infer<typeof Origin>;
 export const AssignmentStatus = z.enum(["pending", "active", "done", "cancelled"]);
+/** Manager forks: whose queue an assignment is on (`building` = run by a fork of the building's manager). */
+export const AssignmentQueue = z.enum(["agent", "building"]);
+export type AssignmentQueue = z.infer<typeof AssignmentQueue>;
 /** Every session runs in one lane: work on a funded grant, goal-scoped exploration, or work a human asked for directly. */
 export const SpendLane = z.enum(["grant", "exploration", "directed"]);
 export type SpendLane = z.infer<typeof SpendLane>;
@@ -619,6 +630,12 @@ export const Assignment = z.object({
   heldReason: z.string().nullable().default(null),
   /** wakes: the human this work traces to (null = none) */
   origin: Origin.nullable().default(null),
+  /** manager forks: the first assignment of its chain (retries, park continuations and review follow-ups inherit it); its own id on a fresh chain */
+  chainId: Id.nullable().default(null),
+  /** manager forks: `agent` = runs for agentId as always; `building` = queued to the building (agentId holds the manager until a fork takes it, then the fork) */
+  queue: AssignmentQueue.default("agent"),
+  /** building-queue work: the model its fork runs on (one the building allows: model or cheapModel); null = the building's model */
+  model: z.string().nullable().default(null),
   createdAt: Iso,
   updatedAt: Iso,
 });
@@ -913,7 +930,7 @@ export type Interrupt = z.infer<typeof Interrupt>;
 // ---------- events (append-only activity log) ----------
 export const EventType = z.enum([
   "agent.created", "agent.moved", "agent.status", "agent.activity", "agent.said", "agent.told",
-  "agent.tool", "agent.thought", "agent.banned", "agent.retired", "agent.mentioned",
+  "agent.tool", "agent.thought", "agent.banned", "agent.retired", "agent.forked", "agent.mentioned",
   "doc.created", "doc.updated", "doc.state", "doc.decision",
   "assignment.created", "assignment.status", "assignment.delegated",
   "meeting.created", "meeting.phase", "meeting.utterance", "meeting.decisions",
@@ -1019,7 +1036,9 @@ export const VerbInputs = {
     assigneeId: Id.optional().describe("a flag: the resident of this building who takes it (continue/redirect)"),
     waitFor: WaitFor.optional().describe("continue/redirect: the new assignment waits for this before it starts"),
     ...LaneFields.shape }),
-  assign: z.object({ agentId: Id, title: z.string(), description: z.string(),
+  assign: z.object({ agentId: Id.optional().describe("who works it; leave it out in a building with forks on to queue it to the building (a fork of the manager runs it)"),
+    title: z.string(), description: z.string(),
+    model: z.string().optional().describe("building-queue work only: the model its fork runs on, one the building allows (its model or cheapModel); default the building's model"),
     waitFor: WaitFor.optional().describe("don't start until this holds: {deploy: sha|\"next\"} (live after a redeploy), {assignment: id} (done or cancelled), {decision: reportId}, {after: iso}"),
     ...LaneFields.shape }),
   reassign: z.object({ assignmentId: Id.describe("a queued (not started) assignment in my building"), agentId: Id.describe("the resident of my building who takes it") }),
@@ -1080,7 +1099,7 @@ export const VERB_DESCRIPTIONS: Record<VerbName, string> = {
   accept_assignment: "Accept a pending assignment; it becomes my current task. Visitors: assignments to you are offers until you accept them (unaccepted offers are cancelled after 24 h); finish with `submit_report`.",
   meeting: "Participate in a meeting: 'summary' submits my short standup summary (did, next), 'speak' adds to the transcript once the discussion has started, 'listen' returns new utterances since my last listen (set waitSeconds to wait for someone to speak), 'decide'/'end' are for the facilitator (to amend a decision, decide again with supersedes = its number in status's decisions list); a decision's waitFor holds its assignment until then, e.g. {deploy: \"next\"} for \"after the redeploy\" or {assignment: id} for \"once X lands\"; while humans are talking, leave 'end' to them.",
   review: "(manager/reviewer) Decide on a pending report in the in-tray: approve (acknowledge), continue (assign its proposal), redirect (assign your note instead), or stop the agent.",
-  assign: "(manager/reviewer) Create an assignment for an agent in my building. With waitFor it waits (e.g. for the next redeploy, or another assignment to finish) before it starts. In goal-directed buildings an agent must give lane grant (grantId of a funded grant; its key result is implied) or exploration (keyResultId of a goal key result with no funded grant, or gap), or directed when a human asked for it (sourceId: the human source; optionally keyResultId or gap, and then it runs until a grant proposal names that key result). Directed work is never held by the exploration allowance.",
+  assign: "(manager/reviewer) Create an assignment for an agent in my building (with forks on, leave agentId out to queue it to the building). With waitFor it waits (e.g. for the next redeploy, or another assignment to finish) before it starts. In goal-directed buildings an agent must give lane grant (grantId of a funded grant; its key result is implied) or exploration (keyResultId of a goal key result with no funded grant, or gap), or directed when a human asked for it (sourceId: the human source; optionally keyResultId or gap, and then it runs until a grant proposal names that key result). Directed work is never held by the exploration allowance.",
   reassign: "(manager/reviewer) Move a queued (not started) assignment to another resident of my building, e.g. off a busy queue onto an idle colleague. It keeps its lane, grant or key result and waitFor; the original is cancelled and the new one joins the end of their queue. Started assignments and other buildings' are refused.",
   cancel: "(manager/reviewer) Cancel a queued (not started) assignment in my building. Started assignments and other buildings' are refused.",
   propose_grant: "(manager) Propose a grant for my building in one call: the plan for one of the building goal's key results (keyResultId): an objective, the approach, a stop condition, a token ask, and optionally a testing plan (text + howToCheck lines). Funding it runs the plan. It goes to the Town Hall in-tray for a human to fund, counter or reject. A building can have several proposals open at once, each decided on its own. To answer a counter, pass its grantId: the new plan rewrites that proposal and re-proposes it under the same id.",
@@ -1246,7 +1265,7 @@ export const BANK_FIXTURES = {
 export const WALKABLE = new Set<number>([TILE.GRASS, TILE.PATH, TILE.FLOOR, TILE.DOOR]);
 
 // ---------- REST payloads ----------
-export const CreateBuildingInput = Building.pick({ name: true, goal: true, description: true, headcount: true, model: true, cheapModel: true, maxTurnsPerSession: true, dailyTokensPerAgent: true, meetings: true, rules: true, codeAccess: true, managerAgentId: true }).partial({ goal: true, description: true, headcount: true, model: true, cheapModel: true, maxTurnsPerSession: true, dailyTokensPerAgent: true, meetings: true, rules: true, codeAccess: true, managerAgentId: true });
+export const CreateBuildingInput = Building.pick({ name: true, goal: true, description: true, headcount: true, model: true, cheapModel: true, maxTurnsPerSession: true, dailyTokensPerAgent: true, meetings: true, rules: true, codeAccess: true, managerAgentId: true, forks: true }).partial({ goal: true, description: true, headcount: true, model: true, cheapModel: true, maxTurnsPerSession: true, dailyTokensPerAgent: true, meetings: true, rules: true, codeAccess: true, managerAgentId: true, forks: true });
 /**
  * `poolId` moves the building to another Bank pool at once (admin only; null = General). `explorationTokensPerDay`
  * and `budgetMode` need `building.fund` (a human), so a manager agent can't raise its own allowance.
@@ -1453,6 +1472,8 @@ export const CollectiveBuildingSpec = z.object({
   meetings: z.array(MeetingCadence).optional(),
   /** residents get code tools on the collective's repo (collective.json `workspace`) */
   codeAccess: z.boolean().optional(),
+  /** manager forks: building-queued work runs as forks of the manager (seed only, like the rest) */
+  forks: z.boolean().optional(),
   residents: z.array(z.object({
     name: z.string(), title: z.string().default(""), direction: z.string().default(""), sprite: z.number().int().optional(), model: z.string().optional(),
     /** town role names granted at seed (e.g. `deployer`) */

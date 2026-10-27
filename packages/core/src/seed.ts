@@ -197,7 +197,7 @@ export function seedDefaults(world: World, opts: SeedOptions = {}): SeedResult {
             name: spec.name ?? id, goal: spec.goal ?? "", description: spec.description ?? "", headcount: spec.headcount ?? Math.max(spec.residents.length + 1, 3),
             model: spec.model, cheapModel: spec.cheapModel, maxTurnsPerSession: spec.maxTurnsPerSession,
             dailyTokensPerAgent: spec.dailyTokensPerAgent, meetings: spec.meetings,
-            codeAccess: spec.codeAccess,
+            codeAccess: spec.codeAccess, forks: spec.forks,
           }, admin.id, { id });
           spec.residents.forEach((r, i) => {
             const a = createResident(world, { buildingId: b.id, name: r.name, title: r.title, direction: r.direction, sprite: r.sprite ?? (i + 1) % 7, model: r.model });

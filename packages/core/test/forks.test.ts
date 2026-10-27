@@ -1,0 +1,196 @@
+/** Manager forks step 1 (dc_mymt27yz25): the building queue, forkManager / retireFork, fork names, chainId and the family daily cap. */
+import { readFileSync } from "node:fs";
+import { dirname, join } from "node:path";
+import { fileURLToPath } from "node:url";
+import { describe, expect, it } from "vitest";
+import { RESIDENT_NAMES, buildingQueue, createAssignment, createBuilding, createResident, forkManager, nextStartable, retireFork, suggestResidentName, updateBuilding } from "../src/index.ts";
+import { seededWorld } from "./helpers.ts";
+
+const CHAINS_SQL = readFileSync(join(dirname(fileURLToPath(import.meta.url)), "..", "migrations", "049_assignment_chains.sql"), "utf8");
+
+/** A 3-desk open-budget lab with a manager Pix and a resident Ann; forks on unless `forks: false`. */
+function forkLab(opts: { forks?: boolean; daily?: number } = {}) {
+  const s = seededWorld();
+  const { world, seed } = s;
+  const b = createBuilding(world, { name: "Forky", headcount: 3, dailyTokensPerAgent: opts.daily ?? 1000, model: "claude-opus-5-5", cheapModel: "claude-haiku-5-5" }, seed.admin.id);
+  world.buildings.upsert({ ...world.buildings.require(b.id), budgetMode: "open" });
+  const pix = createResident(world, { buildingId: b.id, name: "Pix", sprite: 5 });
+  const ann = createResident(world, { buildingId: b.id, name: "Ann" });
+  updateBuilding(world, b.id, { managerAgentId: pix.id });
+  if (opts.forks !== false) world.ops.updateBuilding(null, b.id, { forks: true });
+  world.budget.donate(seed.admin.id, { tokens: 1_000_000, buildingId: b.id });
+  const queue = async (title: string, extra: { model?: string } = {}) => (await world.verbs.assign(world.agents.require(pix.id), { title, description: "d", ...extra })).assignmentId;
+  return { ...s, b: world.buildings.require(b.id), pix: world.agents.require(pix.id), ann, queue };
+}
+
+describe("manager forks: the building queue", () => {
+  it("assign without an agentId queues to the building (held by the manager, never run by it); refused with forks off", async () => {
+    const { world, pix, b, queue } = forkLab();
+    const id = await queue("Fix the thing");
+    expect(world.assignments.require(id)).toMatchObject({ agentId: pix.id, queue: "building", chainId: id, model: null, buildingId: b.id });
+    expect(buildingQueue(world, b.id).map((a) => a.id)).toEqual([id]);
+    expect(nextStartable(world, pix.id)).toBeUndefined();
+    await expect(queue("Live check", { model: "claude-sonnet-5-5" })).rejects.toThrow(/runs forks on claude-opus-5-5 or claude-haiku-5-5/);
+    expect(world.assignments.require(await queue("Live check", { model: "claude-haiku-5-5" })).model).toBe("claude-haiku-5-5");
+    await expect(world.verbs.assign(pix, { agentId: pix.id, title: "x", description: "d", model: "claude-haiku-5-5" })).rejects.toThrow(/building-queue work/);
+
+    const off = forkLab({ forks: false });
+    await expect(off.queue("Nope")).rejects.toThrow(/forks are off/);
+    // named assigns are unchanged
+    const named = await off.world.verbs.assign(off.pix, { agentId: off.ann.id, title: "Named", description: "d" });
+    expect(off.world.assignments.require(named.assignmentId)).toMatchObject({ queue: "agent", agentId: off.ann.id, chainId: named.assignmentId });
+  });
+
+  it("turning forks on is a budget call: a manager agent with building.manage can't", () => {
+    const { world, pix, b } = forkLab({ forks: false });
+    expect(() => world.ops.updateBuilding(pix, b.id, { forks: true })).toThrow();
+    expect(world.buildings.require(b.id).forks).toBe(false);
+  });
+});
+
+describe("manager forks: forkManager and retireFork", () => {
+  it("forks the manager onto a free desk without growing the lab, names it after the manager and retires it", async () => {
+    const { world, pix, b, queue } = forkLab();
+    const a1 = await queue("One"), a2 = await queue("Two", { model: "claude-haiku-5-5" });
+    const f1 = forkManager(world, b.id, a1);
+    expect(f1.fork).toMatchObject({ name: "Pix 1", forkOf: pix.id, forkN: 1, sprite: 5, model: "claude-opus-5-5", kind: "resident", homeBuildingId: b.id, currentAssignmentId: a1, inheritsOwner: false });
+    expect(f1.desk).toBe(2); // Pix and Ann sit at 0 and 1
+    expect(world.assignments.require(a1)).toMatchObject({ agentId: f1.fork.id, queue: "building" });
+    expect(nextStartable(world, f1.fork.id)?.id).toBe(a1);
+    expect(buildingQueue(world, b.id).map((a) => a.id)).toEqual([a2]);
+    const forked = world.events.list({ types: ["agent.forked"] }).at(-1)!;
+    expect(forked.text).toBe(`Pix forked Pix 1 for "One" at desk 2`);
+    expect(forked.payload).toMatchObject({ forkOf: pix.id, forkN: 1, desk: 2, assignmentId: a1, chainId: a1, chainReportId: null });
+    // the resident permission set: member, not manager
+    expect(world.permissions.can(f1.fork, "building.assign", b.id)).toBe(false);
+    expect(world.permissions.can(f1.fork, "building.review", b.id)).toBe(false);
+    expect(world.permissions.can(pix, "building.assign", b.id)).toBe(true);
+
+    // every desk taken: refused, nothing written, headcount unchanged
+    const rows = world.agents.all().length;
+    expect(() => forkManager(world, b.id, a2)).toThrow(/no free desk/);
+    expect(world.agents.all().length).toBe(rows);
+    expect(world.buildings.require(b.id).headcount).toBe(3);
+    expect(world.assignments.require(a2).agentId).toBe(pix.id);
+
+    // retire: desk released, tokens revoked, event with the report and adj. tokens; the name is free again
+    world.tokens.create("agent", f1.fork.id);
+    world.budget.charge(f1.fork.id, 41_000 / 100, 0);
+    const r = retireFork(world, f1.fork.id, { reportId: "dc_report1" });
+    expect(r.status).toBe("retired");
+    expect(world.layout.deskOf(f1.fork.id)).toBeUndefined();
+    expect(world.db.prepare("SELECT COUNT(*) AS n FROM tokens WHERE kind = 'agent' AND id = ?").get(f1.fork.id)).toEqual({ n: 0 });
+    const retired = world.events.list({ types: ["agent.retired"] }).at(-1)!;
+    expect(retired.text).toBe("Pix 1 retired (report dc_report1, 0k adj. tokens)");
+    expect(retired.payload).toMatchObject({ forkOf: pix.id, forkN: 1, reportId: "dc_report1", tokens: 410, desk: 2 });
+    expect(retireFork(world, f1.fork.id).status).toBe("retired"); // idempotent
+
+    const f2 = forkManager(world, b.id, a2);
+    expect(f2.fork).toMatchObject({ name: "Pix 1", forkN: 1, model: "claude-haiku-5-5" });
+    expect(f2.fork.id).not.toBe(f1.fork.id);
+  });
+
+  it("names take the lowest n no live fork uses; resident names ignore forks", async () => {
+    const { world, b, pix, queue } = forkLab();
+    world.ops.updateBuilding(null, b.id, { headcount: 5 });
+    world.agents.patch(pix.id, { name: "Ada" });
+    const [x, y, z] = [await queue("x"), await queue("y"), await queue("z")];
+    const fx = forkManager(world, b.id, x).fork, fy = forkManager(world, b.id, y).fork;
+    expect([fx.name, fy.name]).toEqual(["Ada 1", "Ada 2"]);
+    retireFork(world, fx.id);
+    expect(forkManager(world, b.id, z).fork.name).toBe("Ada 1");
+    // with the pool used up, numbered names start at "Ada 2": a live fork with that name doesn't block it
+    expect(suggestResidentName(world, RESIDENT_NAMES, () => 0)).toBe("Ada 2");
+  });
+
+  it("work made for a fork (park continuation, follow-up) and work it still holds go back on the building queue", async () => {
+    const { world, pix, b, queue } = forkLab();
+    const a1 = await queue("One");
+    const { fork } = forkManager(world, b.id, a1);
+    const cont = createAssignment(world, { agentId: fork.id, title: "One (continued)", description: "d", createdBy: { kind: "system", id: "system" }, fromAssignmentId: a1 });
+    expect(world.assignments.require(cont.id)).toMatchObject({ agentId: pix.id, queue: "building", chainId: a1 });
+    world.assignments.upsert({ ...world.assignments.require(cont.id), agentId: fork.id });
+    retireFork(world, fork.id, { reason: "died" });
+    expect(world.assignments.require(cont.id)).toMatchObject({ agentId: pix.id, queue: "building" });
+    expect(world.events.list({ types: ["agent.retired"] }).at(-1)!.payload).toMatchObject({ reason: "died" });
+    // its own assignment never started (the runtime starts it after the fork), so it is back on the queue as well
+    expect((world.events.list({ types: ["agent.retired"] }).at(-1)!.payload.requeued as string[]).sort()).toEqual([a1, cont.id].sort());
+    expect(buildingQueue(world, b.id).map((a) => a.id).sort()).toEqual([a1, cont.id].sort());
+  });
+
+  it("refuses with forks off, without a manager, or for work not on the building queue", async () => {
+    const { world, b, ann, queue } = forkLab();
+    const named = (await world.verbs.assign(world.agents.require(b.managerAgentId!), { agentId: ann.id, title: "Named", description: "d" })).assignmentId;
+    expect(() => forkManager(world, b.id, named)).toThrow(/isn't on Forky's building queue/);
+    const q = await queue("Q");
+    world.ops.updateBuilding(null, b.id, { forks: false });
+    expect(() => forkManager(world, b.id, q)).toThrow(/doesn't run forks/);
+  });
+});
+
+describe("manager forks: chainId", () => {
+  it("new assignments carry the chain's first id through retries and report follow-ups", () => {
+    const { world, ann } = forkLab();
+    const sys = { kind: "system" as const, id: "system" };
+    const a = createAssignment(world, { agentId: ann.id, title: "A", description: "d", createdBy: sys });
+    const retry = createAssignment(world, { agentId: ann.id, title: "A again", description: "d", createdBy: sys, fromAssignmentId: a.id });
+    const follow = createAssignment(world, { agentId: ann.id, title: "Follow-up", description: "d", createdBy: sys, fromReportId: createReport(world, ann.id, retry.id) });
+    expect([a.chainId, retry.chainId, follow.chainId]).toEqual([a.id, a.id, a.id]);
+  });
+
+  it("migration 049 backfills chainId from fromAssignmentId and fromReportId links", () => {
+    const { world, ann } = forkLab();
+    const sys = { kind: "system" as const, id: "system" };
+    const root = createAssignment(world, { agentId: ann.id, title: "Root", description: "d", createdBy: sys });
+    const retry = createAssignment(world, { agentId: ann.id, title: "Retry", description: "d", createdBy: sys, fromAssignmentId: root.id });
+    const rep = createReport(world, ann.id, retry.id);
+    const cont = createAssignment(world, { agentId: ann.id, title: "Continued", description: "d", createdBy: sys, fromReportId: rep });
+    const lone = createAssignment(world, { agentId: ann.id, title: "Lone", description: "d", createdBy: sys });
+    const orphan = createAssignment(world, { agentId: ann.id, title: "Orphan", description: "d", createdBy: sys, fromAssignmentId: lone.id });
+    world.db.prepare("DELETE FROM assignments WHERE id = ?").run(lone.id);
+    world.db.exec("UPDATE assignments SET chainId = NULL");
+    world.db.exec(CHAINS_SQL);
+    const chain = (id: string) => world.assignments.require(id).chainId;
+    expect([chain(root.id), chain(retry.id), chain(cont.id)]).toEqual([root.id, root.id, root.id]);
+    expect(chain(orphan.id)).toBe(orphan.id);
+    expect(world.db.prepare("SELECT COUNT(*) AS n FROM assignments WHERE chainId IS NULL").get()).toEqual({ n: 0 });
+  });
+});
+
+describe("manager forks: the family daily cap", () => {
+  it("forks count against the manager's family (dailyTokensPerAgent × headcount), the manager's own sessions included", async () => {
+    const { world, pix, b, queue } = forkLab({ daily: 100 }); // family cap 300
+    const a1 = await queue("One");
+    const { fork } = forkManager(world, b.id, a1);
+    world.budget.charge(pix.id, 90, 0);
+    expect(world.agents.require(pix.id).familySpentToday).toBe(90);
+    expect(world.budget.charge(fork.id, 150, 0).exhausted).toBeNull(); // over its own 100: forks aren't capped per agent
+    expect(world.agents.require(pix.id).familySpentToday).toBe(240);
+    expect(world.agents.require(fork.id).familySpentToday).toBe(0);
+    expect(world.budget.canStart(fork.id)).toBe(true);
+    const r = world.budget.charge(fork.id, 60, 0);
+    expect(r.exhausted).toBe("agent-daily");
+    expect(world.events.list({ types: ["budget.exhausted"] }).at(-1)!.payload).toMatchObject({ scope: "family", forkOf: pix.id, familySpentToday: 300 });
+    expect(world.budget.canStart(fork.id)).toBe(false);
+    // the manager is held by its family cap too (its own 90 is under 100)
+    expect(world.budget.canStart(pix.id)).toBe(false);
+    world.budget.resetDaily();
+    expect(world.agents.require(pix.id).familySpentToday).toBe(0);
+    expect(world.budget.canStart(pix.id)).toBe(true);
+  });
+
+  it("with forks off nothing changes: residents are capped per agent", () => {
+    const { world, pix, ann } = forkLab({ daily: 100, forks: false });
+    world.budget.charge(ann.id, 250, 0);
+    expect(world.budget.canStart(pix.id)).toBe(true);
+    expect(world.budget.canStart(ann.id)).toBe(false);
+  });
+});
+
+/** A report doc on the assignment (what submit_report leaves behind). */
+function createReport(world: ReturnType<typeof seededWorld>["world"], authorId: string, assignmentId: string): string {
+  const id = `dc_r${Math.random().toString(36).slice(2, 10)}`;
+  const ts = new Date().toISOString();
+  world.docs.upsert({ id, type: "report", state: "building", title: "R", body: "b", authorId, authorKind: "agent", buildingId: world.agents.require(authorId).homeBuildingId, assignmentId, createdAt: ts, updatedAt: ts } as never);
+  return id;
+}

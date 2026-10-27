@@ -85,6 +85,8 @@ describe("role migration (v1.1 DB)", () => {
     db.exec("DROP TABLE objectives; DROP TABLE kpis"); // added by 043 (objectives and KPIs; key_results.objectiveId goes with 025's table)
     db.exec("DROP TABLE transcripts"); // added by 044 (session transcripts)
     db.exec("ALTER TABLE docs DROP COLUMN flagPos; ALTER TABLE docs DROP COLUMN pickedUpAt; ALTER TABLE docs DROP COLUMN pickedUpBy"); // added by 042 (flags on the map)
+    db.exec("DROP INDEX agents_fork; ALTER TABLE agents DROP COLUMN forkOf; ALTER TABLE agents DROP COLUMN forkN; ALTER TABLE agents DROP COLUMN familySpentToday"); // added by 048 (manager forks)
+    db.exec("DROP INDEX assignments_chain; ALTER TABLE assignments DROP COLUMN chainId; ALTER TABLE assignments DROP COLUMN queue; ALTER TABLE assignments DROP COLUMN model; ALTER TABLE buildings DROP COLUMN forks"); // added by 048
     db.exec("ALTER TABLE agents DROP COLUMN lastSeenAt"); // added by 015 (visitor presence)
     db.exec("ALTER TABLE assignments DROP COLUMN offered"); // added by 015
     db.exec("ALTER TABLE assignments DROP COLUMN waitFor; ALTER TABLE assignments DROP COLUMN parked"); // added by 020 (assignment waits)
