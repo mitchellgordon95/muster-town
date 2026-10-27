@@ -7,6 +7,8 @@ import { Markdown, openDocLink } from "./Markdown";
 import { docUrl } from "../route";
 import { SkillDetails } from "./Skills";
 import { ADJ, Act, Field, Pill, nameOf, timeAgo, fmtTokens, usd } from "./ui";
+import { useMediaPaste } from "./mediaPaste";
+import { MediaThumb } from "./MediaThumb";
 
 export const DECISION_TONE: Record<string, string> = { pending: "warn", approve: "ok", continue: "ok", redirect: "info", stop: "bad" };
 /** How a decision reads on a pill. `approve` is "Acknowledge" in v1.2: no assignment follows. */
@@ -45,6 +47,7 @@ export function decisionLabel(doc: Pick<Doc, "decision" | "decisionNote">): stri
  */
 export function ReplyBox({ doc, onDone }: { doc: Doc; onDone?: () => void }) {
   const [text, setText] = useState("");
+  const media = useMediaPaste(setText);
   const empty = !text.trim();
   const author = nameOf(doc.authorId);
   const send = async () => {
@@ -56,10 +59,10 @@ export function ReplyBox({ doc, onDone }: { doc: Doc; onDone?: () => void }) {
   };
   return (
     <div className="reply-box">
-      <textarea rows={3} placeholder={'Reply… ("merge" tells the author to merge; leave empty to archive)'} value={text} onChange={(e) => setText(e.target.value)}
+      <textarea {...media.props} rows={3} placeholder={'Reply… ("merge" tells the author to merge; paste or drop a screenshot; leave empty to archive)'} value={text} onChange={(e) => setText(e.target.value)}
         onKeyDown={(e) => { if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) { e.preventDefault(); void send().catch((err) => store.toast(String((err as Error).message ?? err), "bad")); } }} />
       <div className="actions">
-        <Act tone={empty ? "ok" : "primary"} run={send} title={empty ? "Mark handled. No assignment is created." : `Append your reply to the report and give it to ${author} as the next assignment`}>{empty ? "Archive" : "Send reply"}</Act>
+        <Act tone={empty ? "ok" : "primary"} disabled={media.uploading > 0} run={send} title={empty ? "Mark handled. No assignment is created." : `Append your reply to the report and give it to ${author} as the next assignment`}>{empty ? "Archive" : "Send reply"}</Act>
       </div>
     </div>
   );
@@ -74,6 +77,7 @@ export function FlagDecideBox({ doc, onDone }: { doc: Doc; onDone?: () => void }
   const residents = useTown((s) => Object.values(s.agents).filter((a) => a.kind === "resident" && (a.homeBuildingId ?? a.buildingId) === doc.buildingId && a.status !== "retired" && a.status !== "banned"));
   const [assigneeId, setAssigneeId] = useState("");
   const [note, setNote] = useState("");
+  const media = useMediaPaste(setNote);
   const assignee = residents.find((a) => a.id === assigneeId);
   const decide = (decision: "approve" | "continue" | "redirect") => async () => {
     const d = await api().review(doc.id, { decision, note: note.trim(), ...(decision === "approve" ? {} : { assigneeId }) });
@@ -89,7 +93,7 @@ export function FlagDecideBox({ doc, onDone }: { doc: Doc; onDone?: () => void }
           {residents.map((a) => <option key={a.id} value={a.id}>{a.name} ({a.status})</option>)}
         </select>
       </Field>
-      <textarea rows={2} placeholder="Optional note: with one, your note becomes the assignment and the flag is its context" value={note} onChange={(e) => setNote(e.target.value)} />
+      <textarea {...media.props} rows={2} placeholder="Optional note: with one, your note becomes the assignment and the flag is its context" value={note} onChange={(e) => setNote(e.target.value)} />
       <div className="actions">
         <Act small run={decide("approve")} title="Nothing to do: mark the flag handled, no assignment">Handled</Act>
         <Act small tone="primary" disabled={!assignee} run={decide(note.trim() ? "redirect" : "continue")} title={assignee ? `Give it to ${assignee.name} as a directed assignment` : "Pick a resident first"}>{assignee ? `Assign to ${assignee.name}` : "Assign"}</Act>
@@ -211,6 +215,7 @@ export function DocRow({ doc, onOpen }: { doc: Doc; onOpen: () => void }) {
   const cost = docCost(doc);
   return (
     <button className="doc-row" onClick={onOpen}>
+      <MediaThumb body={doc.body} />
       <div className="doc-row-title">{doc.title}</div>
       <div className="doc-row-meta">
         <Pill tone="type">{doc.type.replace(/-/g, " ")}</Pill>

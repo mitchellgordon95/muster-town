@@ -304,6 +304,14 @@ export class MockApi implements Api {
   async plantFlag(buildingId: string, text: string) { await wait(); this.need(this.sim.buildings.find((b) => b.id === buildingId), "building"); return clone(this.sim.plantFlag(buildingId, text)); }
   async reply(docId: string, text: string) { await wait(); this.need(this.sim.docs.get(docId), "doc"); return clone(this.sim.reply(docId, text)); }
   async archive(docId: string) { return this.reply(docId, ""); }
+  async uploadMedia(file: Blob, alt = "") {
+    await wait(400);
+    const id = newId("mf");
+    const ext = ({ "image/png": "png", "image/jpeg": "jpg", "image/gif": "gif", "image/webp": "webp", "video/webm": "webm", "video/mp4": "mp4" } as Record<string, string>)[file.type];
+    if (!ext) throw new ApiError(`Unsupported media type ${file.type || "(none)"}`, "bad_request", 400);
+    const url = `${URL.createObjectURL(file)}#${id}.${ext}`;
+    return { media: { id, url, mime: file.type, bytes: file.size }, markdown: `![${alt || (ext === "webm" || ext === "mp4" ? "video" : "screenshot")}](${url})` };
+  }
   async ask(docId: string, question: string) {
     await wait(700);
     const d = this.need(this.sim.docs.get(docId), "doc");

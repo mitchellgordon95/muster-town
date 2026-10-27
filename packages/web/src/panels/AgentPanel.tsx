@@ -15,6 +15,7 @@ import { portraitUrl } from "../map/sprites";
 import { SignInNote } from "../auth/auth";
 import { slotsFull } from "../redeploy";
 import { canOneOnOne, openOneOnOne } from "./oneOnOne";
+import { useMediaPaste } from "./mediaPaste";
 
 type Msg = { role: "user" | "assistant"; text: string; ts: string };
 const chats = new Map<string, Msg[]>();
@@ -286,6 +287,7 @@ function Timeline({ items, empty, agentName }: { items: Item[]; empty: string; a
 
 function Composer({ agent, talkable, canControl, outOfBudget, log, setLog }: { agent: Agent; talkable: boolean; canControl: boolean; outOfBudget: boolean; log: Msg[]; setLog: (f: (l: Msg[]) => Msg[]) => void }) {
   const [text, setText] = useState("");
+  const media = useMediaPaste(setText);
   const [busy, setBusy] = useState(false);
   const [now, setNow] = useState(true);
   const [asking, setAsking] = useState(!talkable);
@@ -324,7 +326,7 @@ function Composer({ agent, talkable, canControl, outOfBudget, log, setLog }: { a
   return (
     <form className="chatbar composer" onSubmit={(e) => { e.preventDefault(); void send(); }}>
       <div className="talk-status">{status}</div>
-      <textarea rows={2} value={text} placeholder={placeholder} onChange={(e) => setText(e.target.value)}
+      <textarea {...media.props} rows={2} value={text} placeholder={placeholder} onChange={(e) => setText(e.target.value)}
         onKeyDown={(e) => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); void send(); } }} />
       <div className="composer-actions">
         {canAsk ? (
@@ -339,7 +341,7 @@ function Composer({ agent, talkable, canControl, outOfBudget, log, setLog }: { a
           </label>
         ) : null}
         {working && canControl ? <Act small tone="bad" run={async () => { await api().stop(agent.id); store.toast(`${agent.name} stopped`, "ok"); }}>Stop</Act> : null}
-        <button className="btn primary" disabled={busy || !text.trim()}>{busy ? <span className="spin" /> : null}{asking ? "Ask" : "Send"}</button>
+        <button className="btn primary" disabled={busy || !text.trim() || media.uploading > 0}>{busy ? <span className="spin" /> : null}{asking ? "Ask" : "Send"}</button>
       </div>
     </form>
   );

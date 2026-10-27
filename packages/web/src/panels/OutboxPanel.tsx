@@ -7,6 +7,7 @@ import { DocView } from "./DocView";
 import { Glyph, PanelShell } from "./PanelShell";
 import { Act, Empty, ErrorLine, Loading, Pill, Section, nameOf, timeAgo, useLoad } from "./ui";
 import { Markdown } from "./Markdown";
+import { useMediaPaste } from "./mediaPaste";
 
 const GROUPS: { status: NonNullable<Doc["requestStatus"]>; title: string; empty: string }[] = [
   { status: "approved", title: "Open requests", empty: "Nothing open. When an agent needs something done in the world, it shows up here." },
@@ -62,6 +63,7 @@ export function OutboxPanel() {
 export function RequestCard({ doc, onOpen, moderate }: { doc: Doc; onOpen: () => void; moderate?: boolean }) {
   const me = useTown((s) => s.me);
   const [body, setBody] = useState("");
+  const media = useMediaPaste(setBody);
   const [finishing, setFinishing] = useState(false);
   const canModerate = moderate ?? store.can("town.approve_request");
   const mine = doc.claimedByUserId && doc.claimedByUserId === me?.user.id;
@@ -84,9 +86,9 @@ export function RequestCard({ doc, onOpen, moderate }: { doc: Doc; onOpen: () =>
       </div>
       {finishing ? (
         <div className="finish">
-          <textarea rows={4} value={body} onChange={(e) => setBody(e.target.value)} placeholder="What you did, what you observed, links, numbers with units…" />
+          <textarea {...media.props} rows={4} value={body} onChange={(e) => setBody(e.target.value)} placeholder="What you did, what you observed, links, numbers with units, photos (paste or drop)…" />
           <div className="actions">
-            <Act small tone="ok" disabled={!body.trim()} run={async () => { await act("done", "Thanks! Your report is in the library.", body.trim())(); setFinishing(false); }}>Submit report</Act>
+            <Act small tone="ok" disabled={!body.trim() || media.uploading > 0} run={async () => { await act("done", "Thanks! Your report is in the library.", body.trim())(); setFinishing(false); }}>Submit report</Act>
             <button className="btn sm" onClick={() => setFinishing(false)}>Cancel</button>
           </div>
         </div>

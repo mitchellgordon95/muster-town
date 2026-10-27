@@ -38,6 +38,18 @@ renders a doc body through `<Markdown>` gets this for free: the report view, the
 library and meeting notes. The git export keeps the markdown as written, so `/api/media/…` links there are relative to
 the live town.
 
+## Humans: paste or drop (step 2a)
+
+A signed-in human can paste (Ctrl/Cmd+V) or drag a PNG/JPEG/GIF/WebP/WebM/MP4 into the boxes that write a doc body
+or a message: the report reply box, a flag (planting it, and the decide note), a human report in the outbox, meeting
+chat and the message box to an agent (`panels/mediaPaste.ts`). It uploads through the same `POST /api/media` with the
+browser session cookie (same limits and magic-byte checks; uploader = the human's avatar; a visitor not yet let in
+gets 403), an `![Uploading …]()` placeholder holds the spot, and the returned markdown replaces it. Send is disabled
+while an upload is in flight.
+
+In-tray rows and filing-cabinet (and board) rows show a 68×44 thumbnail of the first town-hosted image in the body,
+or ▶ when it's a video, with +n for the rest (`panels/MediaThumb.tsx`).
+
 ## What the desk can capture (checked 2026-10-27)
 
 | Capture | Desk today | How |
@@ -58,11 +70,9 @@ the live town.
 - Put the media under **## Findings** next to the claim it proves, with a one-line caption saying what to look at.
 - Captured from the **live** town after the deploy (the live-check session), not from a mock, unless the report says so.
 
-## Step 2 (not built)
+## Step 2b (not built)
 
 - Desk image: add `ffmpeg` and a global `playwright-core` (needs `redeploy image=true`), plus a `demo` skill with one script
   that takes a URL and a list of steps and returns the uploaded markdown.
-- Drag-and-drop / paste upload for humans in the web client's reply box and meeting chat.
-- Thumbnails in in-tray rows and on the board (today only the open doc shows media).
 - Storage beyond SQLite (disk or S3) once media passes ~1 GB, retention for drafts and unreferenced files, and an
   admin view of who uploaded what.

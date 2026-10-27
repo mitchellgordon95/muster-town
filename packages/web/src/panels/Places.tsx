@@ -17,6 +17,8 @@ import { stoplightLabel } from "../format";
 import { ADJ, ADJ_HINT, Act, Empty, ErrorLine, Field, Loading, MTokensInput, Pill, Section, breakdownTitle, clock, fmtTokens, nameOf, timeAgo, usd, useLoad } from "./ui";
 import { fromMillions, toMillions } from "../format";
 import { portraitUrl } from "../map/sprites";
+import { useMediaPaste } from "./mediaPaste";
+import { MediaThumb } from "./MediaThumb";
 
 // ---------- in-tray ----------
 
@@ -74,6 +76,7 @@ export function PlantFlag({ targets, onClose }: { targets: { id: string; name: s
   const agents = useTown((s) => s.agents);
   const [buildingId, setBuildingId] = useState(targets[0]?.id ?? "");
   const [text, setText] = useState("");
+  const media = useMediaPaste(setText);
   const target = targets.find((t) => t.id === buildingId) ?? targets[0];
   const manager = target?.managerAgentId ? agents[target.managerAgentId] : undefined;
   if (!target) return null;
@@ -94,12 +97,12 @@ export function PlantFlag({ targets, onClose }: { targets: { id: string; name: s
           </select>
         </Field>
       ) : null}
-      <textarea rows={3} autoFocus placeholder={`What do you want done in ${target.name}? One quick fix per flag; the first line is its title.`} value={text} onChange={(e) => setText(e.target.value)}
+      <textarea {...media.props} rows={3} autoFocus placeholder={`What do you want done in ${target.name}? One quick fix per flag; the first line is its title. Paste or drop a screenshot to show it.`} value={text} onChange={(e) => setText(e.target.value)}
         onKeyDown={(e) => { if (e.key === "Enter" && (e.metaKey || e.ctrlKey) && text.trim()) { e.preventDefault(); void plant().catch((err) => store.toast(String((err as Error).message ?? err), "bad")); } }} />
       <div className="actions">
         <span className="muted">{manager ? `★ ${manager.name} gets it in the ${target.name} in-tray and assigns it to a resident.` : `${target.name} has no manager agent: whoever works its in-tray assigns it.`}</span>
         <button className="btn sm" onClick={onClose}>Cancel</button>
-        <Act small tone="primary" disabled={!text.trim()} run={plant}>Plant</Act>
+        <Act small tone="primary" disabled={!text.trim() || media.uploading > 0} run={plant}>Plant</Act>
       </div>
     </div>
   );
@@ -302,6 +305,7 @@ function IntrayRow({ doc, onOpen, onOpenDoc, showBuilding }: { doc: Doc; onOpen:
   return (
     <div className="intray-item">
       <button className="doc-row intray-row" onClick={onOpen}>
+        <MediaThumb body={doc.body} />
         <div className="intray-who">
           {showBuilding ? <BuildingTag buildingId={doc.buildingId} /> : null}
           {a ? <img src={portraitUrl(a.sprite, 1)} alt="" /> : null}<b>{isManager ? `★ ${nameOf(doc.authorId)}` : nameOf(doc.authorId)}</b><span>{timeAgo(doc.createdAt)}</span>
