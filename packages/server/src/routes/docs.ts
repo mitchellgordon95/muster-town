@@ -13,7 +13,7 @@ const DocsQuery = z.object({
 });
 const PromoteBody = z.object({ state: z.enum(["building", "library", "trophy"]) });
 const TrophyBody = z.object({ approve: z.boolean() });
-const RequestBody = z.object({ action: z.enum(["approve", "reject", "claim", "done"]), body: z.string().optional() });
+const RequestBody = z.object({ action: z.enum(["claim", "done", "delete"]), body: z.string().optional() });
 const MeetingsQuery = z.object({ buildingId: z.string().optional(), phase: MeetingPhase.optional() });
 const EndBody = z.object({ closing: z.string().optional() });
 
@@ -98,7 +98,7 @@ export async function docRoutes(app: FastifyInstance) {
   app.post<{ Params: Params }>("/api/docs/:id/request", async (req) => {
     const { action, body } = parse(RequestBody, req.body);
     const r = world.ops.requestAction(actorOf(world, req), req.params.id, action, body);
-    return { doc: r.request, humanReport: r.humanReport };
+    return { doc: r.request, deleted: r.request === null, humanReport: r.humanReport };
   });
 
   // ---- meetings ----

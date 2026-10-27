@@ -645,13 +645,13 @@ function ModRequests({ can }: { can: boolean }) {
   const rev = useTown((s) => s.rev);
   const list = useLoad(() => api().docs({ type: "request", limit: 200 }), [rev]);
   const [open, setOpen] = useState<Doc | null>(null);
-  const proposed = (list.data ?? []).filter((d) => (d.requestStatus ?? "proposed") === "proposed").sort((a, b) => a.createdAt.localeCompare(b.createdAt));
+  const active = (list.data ?? []).filter((d) => d.requestStatus === "open" || d.requestStatus === "claimed").sort((a, b) => b.createdAt.localeCompare(a.createdAt));
   if (open) return <DocView doc={open} onBack={() => setOpen(null)} backLabel="Requests" />;
   return (
     <>
-      <p className="direction">Agents' requests for humans stay hidden until a moderator approves them. Approved requests appear in the outbox.</p>
+      <p className="direction">Agents' requests go straight to the outbox, where any human decides whether to do one. Delete a request only if it misuses the town.</p>
       <ErrorLine error={list.error} />
-      {list.loading && !list.data ? <Loading /> : !proposed.length ? <Empty>No requests awaiting approval.</Empty> : proposed.map((d) => <RequestCard key={d.id} doc={d} onOpen={() => setOpen(d)} moderate={can} />)}
+      {list.loading && !list.data ? <Loading /> : !active.length ? <Empty>No open requests.</Empty> : active.map((d) => <RequestCard key={d.id} doc={d} onOpen={() => setOpen(d)} moderate={can} />)}
     </>
   );
 }

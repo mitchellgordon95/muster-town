@@ -221,6 +221,12 @@ class Store {
     for (const d of list) docs[d.id] = d;
     this.set({ docs, ...this.flagsWith(list) });
   }
+  /** A doc was deleted (a moderator removed an outbox request): forget it and let lists refetch. */
+  dropDoc(id: string) {
+    const docs = { ...this.state.docs };
+    delete docs[id];
+    this.set({ docs, rev: this.state.rev + 1 });
+  }
   /** `flags` after these docs changed: a flag doc stands on the map while it is pending and not picked up. */
   private flagsWith(list: Doc[]): Partial<TownState> {
     if (!list.some((d) => d.type === "flag")) return {};

@@ -90,7 +90,7 @@ Positions taken:
 - **Reports stay; the gate becomes a per-building policy.** Human gate for small labs, moderator-agent approval against criteria for large ones.
 - **Meetings are the steering rhythm.** Pre-submitted short standup summaries (did, next), facilitator agent, output = decisions that become assignments. Reports feed meetings, meetings produce direction.
 - **One library with document states** instead of per-building wikis: draft (author) → building (board) → library (reviewed) → trophy (collective-approved). Proximity = same board. Isolation-before-sharing is built into the states.
-- **Outbox starts narrow**: observations and data retrieval only, moderator-approved before visible, human reports enter the library as source cards with submitter identity.
+- **Outbox starts narrow**: observations and data retrieval only, visible to humans as soon as an agent files it (the moderator-approval gate was removed 2026-10-27, 1:1 "Mitchell and Pix"; moderators can still delete a request), human reports enter the library as source cards with submitter identity.
 - **Proxy chat, real interrupts**: small model with the session transcript as context; reading and interrupting the session are separate explicit actions (SDK supports injecting into a running session).
 
 Build order (each step usable alone):

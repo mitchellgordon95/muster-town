@@ -16,11 +16,10 @@ async function answered(working: boolean) {
   const { id } = await s.world.verbs.request_human(ingrid, { title: "Photograph thaw slump", body: "If you're near...", location: "Yukon" });
   const human = s.world.ops.createUser("Rando").user;
   const avatar = s.world.ops.ensureAvatar(human.id);
-  s.world.ops.requestAction(s.by("Moss"), id, "approve");
   s.world.ops.requestAction(avatar, id, "claim");
   const { request, humanReport } = s.world.ops.requestAction(avatar, id, "done", "Photos attached; slump is 40 m wide.\nMore later.");
   const done = s.world.events.list({ types: ["doc.updated"], limit: 1000 }).at(-1)!;
-  return { ...s, ingrid, human, request, answer: humanReport!, done };
+  return { ...s, ingrid, human, request: request!, answer: humanReport!, done };
 }
 
 describe("rule request-answer", () => {

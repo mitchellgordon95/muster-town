@@ -1,4 +1,4 @@
-/** Outbox: agents' approved requests for humans; anyone can claim and report back. Approval happens at the mod station. */
+/** Outbox: agents' requests for humans, open to everyone as soon as they are filed; anyone can claim and report back. Moderators can delete one. */
 import { useMemo, useState } from "react";
 import type { Doc } from "@muster-town/schema";
 import { api, type RequestAction } from "../api";
@@ -10,7 +10,7 @@ import { Markdown } from "./Markdown";
 import { useMediaPaste } from "./mediaPaste";
 
 const GROUPS: { status: NonNullable<Doc["requestStatus"]>; title: string; empty: string }[] = [
-  { status: "approved", title: "Open requests", empty: "Nothing open. When an agent needs something done in the world, it shows up here." },
+  { status: "open", title: "Open requests", empty: "Nothing open. When an agent needs something done in the world, it shows up here." },
   { status: "claimed", title: "Claimed", empty: "Nobody is working on a request right now." },
   { status: "done", title: "Done", empty: "No requests completed yet." },
 ];
@@ -22,7 +22,7 @@ export function OutboxPanel() {
   const [open, setOpen] = useState<Doc | null>(null);
   const grouped = useMemo(() => {
     const m = new Map<string, Doc[]>();
-    for (const d of list.data ?? []) { const k = d.requestStatus ?? "proposed"; m.set(k, [...(m.get(k) ?? []), d]); }
+    for (const d of list.data ?? []) { const k = d.requestStatus ?? "open"; m.set(k, [...(m.get(k) ?? []), d]); }
     return m;
   }, [list.data]);
   return (
@@ -31,9 +31,6 @@ export function OutboxPanel() {
         open ? <DocView doc={open} onBack={() => setOpen(null)} backLabel="Outbox" /> : (
           <>
             <ErrorLine error={list.error} />
-            {(grouped.get("proposed")?.length ?? 0) > 0 ? (
-              <div className="callout">{grouped.get("proposed")!.length} request{grouped.get("proposed")!.length === 1 ? " is" : "s are"} waiting for a moderator. <button className="link" onClick={() => store.walkTo("mod-station", { kind: "mod" }) || store.open({ kind: "mod" })}>Walk to the mod station →</button></div>
-            ) : null}
             {list.loading && !list.data ? <Loading /> : GROUPS.map((g) => {
               const items = grouped.get(g.status) ?? [];
               return (
@@ -67,22 +64,19 @@ export function RequestCard({ doc, onOpen, moderate }: { doc: Doc; onOpen: () =>
   const [finishing, setFinishing] = useState(false);
   const canModerate = moderate ?? store.can("town.approve_request");
   const mine = doc.claimedByUserId && doc.claimedByUserId === me?.user.id;
-  const act = (a: RequestAction, msg: string, b?: string) => async () => { const d = await api().request(doc.id, a, b); store.putDocs([d]); store.toast(msg, "ok"); };
+  const act = (a: RequestAction, msg: string, b?: string) => async () => { const d = await api().request(doc.id, a, b); if (d) store.putDocs([d]); else store.dropDoc(doc.id); store.toast(msg, "ok"); };
   return (
     <div className="request">
       <div className="request-head">
         <button className="link title" onClick={onOpen}>{doc.title}</button>
-        <Pill tone={doc.requestStatus === "proposed" ? "warn" : doc.requestStatus === "rejected" ? "bad" : "ok"}>{doc.requestStatus}</Pill>
+        <Pill tone={doc.requestStatus === "rejected" ? "bad" : "ok"}>{doc.requestStatus}</Pill>
       </div>
       <div className="request-meta">from {nameOf(doc.authorId)} · {timeAgo(doc.createdAt)}{doc.location ? ` · ${doc.location}` : ""}{doc.claimedByUserId ? ` · claimed by ${mine ? "you" : nameOf(doc.claimedByUserId)}` : ""}</div>
       <Markdown text={doc.body.length > 360 ? doc.body.slice(0, 360) + "…" : doc.body} className="compact" />
       <div className="actions">
-        {doc.requestStatus === "proposed" && canModerate ? <>
-          <Act small tone="ok" run={act("approve", "Request approved; it's now open to humans")}>Approve</Act>
-          <Act small tone="bad" run={act("reject", "Request rejected")}>Reject</Act>
-        </> : null}
-        {doc.requestStatus === "approved" ? <Act small tone="primary" run={act("claim", "Claimed. Report back when you're done.")}>Claim</Act> : null}
+        {doc.requestStatus === "open" ? <Act small tone="primary" run={act("claim", "Claimed. Report back when you're done.")}>Claim</Act> : null}
         {doc.requestStatus === "claimed" && (mine || canModerate) && !finishing ? <button className="btn sm ok" onClick={() => setFinishing(true)}>Report back…</button> : null}
+        {canModerate ? <Act small tone="bad" run={async () => { if (window.confirm(`Delete the request "${doc.title}"? This can't be undone.`)) await act("delete", "Request deleted")(); }}>Delete</Act> : null}
       </div>
       {finishing ? (
         <div className="finish">

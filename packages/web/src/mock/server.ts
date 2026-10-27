@@ -381,14 +381,13 @@ export class MockApi implements Api {
   async request(docId: string, action: RequestAction, body?: string) {
     await wait();
     const d = this.need(this.sim.docs.get(docId), "doc");
-    const next = { approve: "approved", reject: "rejected", claim: "claimed", done: "done" } as const;
-    d.requestStatus = next[action];
-    if (action === "approve") d.state = "library";
+    if (action === "delete") { this.sim.docs.delete(docId); return null; }
+    d.requestStatus = action === "claim" ? "claimed" : "done";
     if (action === "claim") d.claimedByUserId = "us_mitchell";
     if (action === "done") {
       const hr = this.sim.putDoc({ id: newId("dc"), type: "human-report", state: "library", title: `Re: ${d.title}`, body: body || "(no details)", authorId: "us_mitchell", authorKind: "user", buildingId: d.buildingId, provenance: { sourceIds: [], urls: [] }, tags: [], createdAt: now(), updatedAt: now() });
       this.sim.event("doc.created", null, `Mitchell answered a request: ${d.title}`, { docId: hr.id });
-    } else this.sim.event("doc.updated", null, `Request "${d.title}" ${next[action]}`, { docId });
+    } else this.sim.event("doc.updated", null, `Request "${d.title}" claimed`, { docId });
     return clone(this.sim.putDoc(d));
   }
 

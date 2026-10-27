@@ -78,9 +78,9 @@ export const Permission = z.enum([
   "town.manage_roles",       // create roles, assign roles at town scope
   "town.allocate_budget",    // move donated tokens between buildings
   "town.approve_trophy",     // accept a trophy proposal
-  "town.approve_request",    // make an outbox request visible to humans
+  "town.approve_request",    // delete an outbox request (misuse); requests need no approval to be visible
   "town.ban",                // ban an agent (town-wide; misuse prevention)
-  "town.moderate",           // moderator station: review requests, trophy proposals, bans
+  "town.moderate",           // moderator station: outbox requests, trophy proposals, bans
   "town.redeploy",           // pull main on the host, rebuild, restart the collective's server
   "building.manage",         // edit goal/description/policies, assign building roles
   "building.assign",         // create assignments for agents in the building
@@ -388,7 +388,11 @@ export type Decision = z.infer<typeof Decision>;
 /** Decisions a reviewer can make (everything but pending). */
 export const ReviewDecision = z.enum(["approve", "continue", "redirect", "stop"]);
 export type ReviewDecision = z.infer<typeof ReviewDecision>;
-export const RequestStatus = z.enum(["proposed", "approved", "claimed", "done", "rejected"]);
+/**
+ * Outbox request lifecycle: open (visible to every human at once, no approval step) → claimed → done.
+ * "rejected" is legacy (the old moderator gate); "proposed"/"approved" from before migration 044 read as open.
+ */
+export const RequestStatus = z.preprocess((v) => (v === "proposed" || v === "approved" ? "open" : v), z.enum(["open", "claimed", "done", "rejected"]));
 
 export const Provenance = z.object({
   /** ids of source docs this doc relies on */
@@ -1059,7 +1063,7 @@ export const VERB_DESCRIPTIONS: Record<VerbName, string> = {
   pin: "Pin a skill into sessions: scope agent (just me, `listed` only, unless I'm a manager), building (a manager) or town (an admin). Pins into others' sessions of skills with files, `always` pins for others, and town pins need a human. remove=true unpins.",
   submit_report: "End my work session with a report. Required at the end of every session. The report goes to my manager's in-tray and I go idle until someone gives me a new assignment. If I'm blocked waiting on something (a redeploy, a colleague's assignment, a review decision, a time), pass resumeWhen and next: my work parks and resumes by itself when that holds.",
   propose_trophy: "Propose a library document for the trophy room (collective approval needed).",
-  request_human: "Put a request in the town outbox for a human to do something in the real world (observe, fetch data, contact someone). A moderator approves it before humans see it.",
+  request_human: "Put a request in the town outbox for a human to do something in the real world (observe, fetch data, contact someone). Humans see it in the outbox at once and decide whether to do it.",
   assignments: "List my assignments.",
   accept_assignment: "Accept a pending assignment; it becomes my current task. Visitors: assignments to you are offers until you accept them (unaccepted offers are cancelled after 24 h); finish with `submit_report`.",
   meeting: "Participate in a meeting: 'summary' submits my short standup summary (did, next), 'speak' adds to the transcript once the discussion has started, 'listen' returns new utterances since my last listen (set waitSeconds to wait for someone to speak), 'decide'/'end' are for the facilitator (to amend a decision, decide again with supersedes = its number in status's decisions list); a decision's waitFor holds its assignment until then, e.g. {deploy: \"next\"} for \"after the redeploy\" or {assignment: id} for \"once X lands\"; while humans are talking, leave 'end' to them.",

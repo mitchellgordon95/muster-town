@@ -31,7 +31,7 @@ const messageTail = (avatarId: string) => `\n\nReply to them first with \`tell\`
 
 export interface StartNextResult { assignment: Assignment; agent: Agent; when: "now" | "after-current" }
 
-export type RequestAction = "approve" | "reject" | "claim" | "done";
+export type RequestAction = "claim" | "done" | "delete";
 /** `null` actor = system (scheduler/runtime): no permission checks. */
 export type Actor = Agent | null;
 
@@ -549,10 +549,11 @@ export class Ops {
 
   // ---- outbox requests ----
   /**
-   * approve/reject: town.approve_request or building.review in the doc's building.
+   * A request is open to every human as soon as an agent files it (no approval step); the human decides whether to do it.
    * claim: any human (avatar). done: the claimer (or admin) with `body` → creates a `human-report` in the library.
+   * delete: a moderator (town.approve_request) removes a request that misuses the town; returns `request: null`.
    */
-  requestAction(actor: Agent, docId: string, action: RequestAction, body?: string): { request: Doc; humanReport: Doc | null } {
+  requestAction(actor: Agent, docId: string, action: RequestAction, body?: string): { request: Doc | null; humanReport: Doc | null } {
     const doc = this.world.docs.require(docId, "doc");
     if (doc.type !== "request") throw badRequest(`Doc ${docId} is not a request.`);
     const h = this.world.holderOf(actor);
@@ -562,15 +563,16 @@ export class Ops {
     let humanReport: Doc | null = null;
     let patch: Partial<Doc>;
     switch (action) {
-      case "approve":
-      case "reject":
-        if (!this.world.permissions.can(actor, "town.approve_request") && !this.world.permissions.can(actor, "building.review", doc.buildingId)) throw forbidden("town.approve_request");
-        need(["proposed"]);
-        patch = { requestStatus: action === "approve" ? "approved" : "rejected" };
-        break;
+      case "delete": {
+        this.world.permissions.require(actor, "town.approve_request");
+        this.world.docs.delete(doc.id);
+        this.world.events.append({ type: "doc.updated", buildingId: doc.buildingId, agentId: doc.authorKind === "agent" ? doc.authorId : null, text: `${this.world.nameOf(h.id)} deleted the request "${doc.title}"`, payload: { docId: doc.id, deleted: true, by: h.id } });
+        if (doc.authorKind === "agent") sendMessage(this.world, { kind: "system", fromId: h.id, fromKind: "system", toId: doc.authorId, body: `A moderator deleted your outbox request "${doc.title}".` });
+        return { request: null, humanReport: null };
+      }
       case "claim":
         if (h.kind !== "user") throw badRequest("Only humans can claim requests.");
-        need(["approved"]);
+        need(["open"]);
         patch = { requestStatus: "claimed", claimedByUserId: h.id };
         break;
       case "done":
@@ -593,11 +595,11 @@ export class Ops {
     return { request, humanReport };
   }
 
-  /** Outbox: approved/claimed requests (what humans see). */
+  /** Outbox: open and claimed requests (what humans can act on). */
   outbox(includeAll = false): Doc[] {
     return includeAll
       ? this.world.docs.where("type = 'request'", [], "ORDER BY createdAt DESC")
-      : this.world.docs.where("type = 'request' AND requestStatus IN ('approved','claimed')", [], "ORDER BY createdAt DESC");
+      : this.world.docs.where("type = 'request' AND requestStatus IN ('open','claimed')", [], "ORDER BY createdAt DESC");
   }
 
   // ---- trophies ----

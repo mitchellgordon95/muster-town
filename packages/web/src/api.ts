@@ -167,7 +167,7 @@ export interface Board {
 }
 
 export interface WriteDocInput { type?: DocType; title: string; body: string; state?: "draft" | "building"; tags?: string[] }
-export type RequestAction = "approve" | "reject" | "claim" | "done";
+export type RequestAction = "claim" | "done" | "delete";
 
 export interface Socket { send(msg: ClientMessage): void; close(): void }
 export interface SocketHandlers { onMessage(msg: unknown): void; onOpen(): void; onClose(): void }
@@ -286,7 +286,8 @@ export interface Api {
   putSecret(name: string, input: In<typeof PutSecretInput>): Promise<SecretView>;
   deleteSecret(name: string): Promise<{ removed: boolean }>;
   trophy(docId: string, approve: boolean): Promise<Doc>;
-  request(docId: string, action: RequestAction, body?: string): Promise<Doc>;
+  /** delete (moderators) resolves to null: the request is gone */
+  request(docId: string, action: RequestAction, body?: string): Promise<Doc | null>;
   // meetings
   meetings(q: { buildingId?: string; phase?: string }): Promise<Meeting[]>;
   /** open (or return) the human's 1:1 with the building's manager agent */
@@ -493,7 +494,7 @@ export class HttpApi implements Api {
   deleteSecret(name: string) { return this.call<{ removed: boolean }>("DELETE", `/api/secrets/${encodeURIComponent(name)}`); }
   unpinSkill(pinId: string) { return this.call<{ removed: boolean }>("DELETE", `/api/skill-pins/${pinId}`); }
   async trophy(id: string, approve: boolean) { return unwrap<Doc>(await this.post(`/api/docs/${id}/trophy`, { approve }), "doc"); }
-  async request(id: string, action: RequestAction, body?: string) { return unwrap<Doc>(await this.post(`/api/docs/${id}/request`, { action, body }), "doc"); }
+  async request(id: string, action: RequestAction, body?: string) { return unwrap<Doc | null>(await this.post(`/api/docs/${id}/request`, { action, body }), "doc"); }
   async meetings(q: { buildingId?: string; phase?: string }) { return unwrap<Meeting[]>(await this.get(`/api/meetings${qs(q)}`), "meetings"); }
   async createMeeting(i: In<typeof CreateMeetingInput>) { return unwrap<Meeting>(await this.post("/api/meetings", i), "meeting"); }
   async meeting(id: string) { return unwrap<Meeting>(await this.get(`/api/meetings/${id}`), "meeting"); }

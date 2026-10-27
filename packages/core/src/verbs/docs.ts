@@ -294,9 +294,9 @@ export async function request_human(world: World, me: Agent, input: VerbIn<"requ
   const holder = world.holderOf(me);
   const doc = createDoc(world, {
     type: "request", state: "building", title: input.title, body: input.body, location: input.location,
-    requestStatus: "proposed", tags: [input.kind], authorId: holder.id, authorKind: holder.kind, buildingId: bid,
+    requestStatus: "open", tags: [input.kind], authorId: holder.id, authorKind: holder.kind, buildingId: bid,
   }, `${me.name} asked for human help: ${input.title}`);
-  return { id: doc.id, requestStatus: doc.requestStatus, note: "A moderator must approve it before humans see it in the outbox." };
+  return { id: doc.id, requestStatus: doc.requestStatus, note: "It is in the town outbox now; a human decides whether to do it and reports back." };
 }
 
 export async function assign(world: World, me: Agent, input: VerbIn<"assign">) {

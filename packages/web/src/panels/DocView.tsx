@@ -22,7 +22,7 @@ export function DocMeta({ doc }: { doc: Doc }) {
       <Pill tone={`state-${doc.state}`}>{doc.state}</Pill>
       {doc.verdict ? <Pill tone={VERDICT_TONE[doc.verdict]} title="Agent's verdict">verdict: {doc.verdict}</Pill> : null}
       {doc.decision ? <Pill tone={DECISION_TONE[doc.decision]} title="Manager's decision">{decisionLabel(doc)}</Pill> : null}
-      {doc.requestStatus ? <Pill tone={doc.requestStatus === "proposed" ? "warn" : doc.requestStatus === "rejected" ? "bad" : "ok"}>{doc.requestStatus}</Pill> : null}
+      {doc.requestStatus ? <Pill tone={doc.requestStatus === "rejected" ? "bad" : "ok"}>{doc.requestStatus}</Pill> : null}
     </div>
   );
 }
@@ -220,7 +220,7 @@ export function DocRow({ doc, onOpen }: { doc: Doc; onOpen: () => void }) {
       <div className="doc-row-meta">
         <Pill tone="type">{doc.type.replace(/-/g, " ")}</Pill>
         {doc.decision ? <Pill tone={DECISION_TONE[doc.decision]}>{decisionLabel(doc)}</Pill> : null}
-        {doc.requestStatus ? <Pill tone={doc.requestStatus === "proposed" ? "warn" : "ok"}>{doc.requestStatus}</Pill> : null}
+        {doc.requestStatus ? <Pill tone={doc.requestStatus === "rejected" ? "bad" : "ok"}>{doc.requestStatus}</Pill> : null}
         <span>{nameOf(doc.authorId)} · {timeAgo(doc.updatedAt)}{cost ? ` · ${cost}` : ""}</span>
       </div>
     </button>

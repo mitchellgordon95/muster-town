@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { buildingRoleId, cabinetDocs, createBuilding, createResident, createTownModerator, extractProposal, intrayWorker, isTownHallItem, managerAgentOf, setAssignmentStatus, TOWN_HALL_ID } from "../src/index.ts";
 import { seededWorld, tickUntil } from "./helpers.ts";
+import { RequestStatus } from "@muster-town/schema";
 
 const REPORT = `## Summary
 Did a thing.
@@ -304,25 +305,39 @@ describe("say / tell / inbox / look", () => {
 });
 
 describe("request_human lifecycle", () => {
-  it("proposed → approved → claimed → done creates a library human-report and notifies the agent", async () => {
+  it("open (no approval step) → claimed → done creates a library human-report and notifies the agent", async () => {
     const { world, by, seed } = seededWorld();
     const ingrid = by("Ingrid");
     const { id } = await world.verbs.request_human(ingrid, { title: "Photograph thaw slump", body: "If you're near...", location: "Yukon" });
-    expect(world.docs.require(id)).toMatchObject({ type: "request", state: "building", requestStatus: "proposed", location: "Yukon" });
-    expect(world.ops.outbox()).toHaveLength(0);
+    expect(world.docs.require(id)).toMatchObject({ type: "request", state: "building", requestStatus: "open", location: "Yukon" });
+    expect(world.ops.outbox().map((d) => d.id)).toEqual([id]);
     const other = world.ops.createUser("Rando").user;
     const randoAvatar = world.ops.ensureAvatar(other.id);
-    expect(() => world.ops.requestAction(randoAvatar, id, "approve")).toThrow(/approve_request/);
-    expect(() => world.ops.requestAction(randoAvatar, id, "claim")).toThrow(/proposed/);
-    world.ops.requestAction(by("Moss"), id, "approve"); // moderator via building.review
-    expect(world.ops.outbox().map((d) => d.id)).toEqual([id]);
     world.ops.requestAction(randoAvatar, id, "claim");
+    expect(() => world.ops.requestAction(randoAvatar, id, "claim")).toThrow(/claimed/);
     expect(world.docs.require(id).claimedByUserId).toBe(other.id);
     expect(() => world.ops.requestAction(world.ops.ensureAvatar(seed.admin.id), id, "done")).toThrow(/needs a report body/);
     const { humanReport } = world.ops.requestAction(randoAvatar, id, "done", "Photos attached; slump is 40 m wide.");
     expect(humanReport).toMatchObject({ type: "human-report", state: "library", authorId: other.id, authorKind: "user" });
     expect(world.docs.require(id).requestStatus).toBe("done");
     expect((await world.verbs.inbox(ingrid, {})).messages.some((m) => m.body.includes(humanReport!.id))).toBe(true);
+  });
+
+  it("only a moderator can delete a request; the requester is told", async () => {
+    const { world, by, seed } = seededWorld();
+    const ingrid = by("Ingrid");
+    const { id } = await world.verbs.request_human(ingrid, { title: "Spam", body: "x" });
+    const rando = world.ops.ensureAvatar(world.ops.createUser("Rando").user.id);
+    expect(() => world.ops.requestAction(rando, id, "delete")).toThrow(/approve_request/);
+    expect(world.ops.requestAction(world.ops.ensureAvatar(seed.admin.id), id, "delete").request).toBeNull();
+    expect(world.docs.get(id)).toBeUndefined();
+    expect(world.ops.outbox()).toHaveLength(0);
+    expect((await world.verbs.inbox(ingrid, {})).messages.some((m) => m.body.includes("deleted your outbox request"))).toBe(true);
+  });
+
+  it("legacy proposed/approved requests read as open", () => {
+    expect(RequestStatus.parse("proposed")).toBe("open");
+    expect(RequestStatus.parse("approved")).toBe("open");
   });
 });
 
