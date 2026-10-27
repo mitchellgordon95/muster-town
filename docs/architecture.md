@@ -8,6 +8,99 @@ Tagline: publicly legible, collectively funded agent town for climate science.
 
 Name: the software was renamed Agent Town → Muster Town on 2026-10-20. Env vars are `MUSTER_TOWN_*`; each one falls back to its old `AGENT_TOWN_*` name when unset, and CLI profiles fall back from `~/.muster-town/` to `~/.agent-town/`, until the cleanup phase drops the fallbacks. The desk image (`muster-town-desk`, also tagged `agent-town-desk`), its bin (`muster-town-desk`, alias `agent-town-desk`) and new desks' container labels (`muster-town.*`) use the new name; the runtime still execs the old bin name and sweeps both label prefixes so desks built before the rename keep working.
 
+## Map: the system in 10 minutes
+
+Read this section first. It shows the four core subsystems (runtime and wakes, assignments and lanes, grants, the Bank), the stores they share and the API they're reached through, and where each one lives in the code. The rest of the document is the detailed contract.
+
+### The pieces
+
+| Subsystem | What it does | Code |
+|---|---|---|
+| **Store and event log** | One SQLite file holds all live state; every change appends an event (append-only, id-ordered) that the runtime and the web client subscribe to | `packages/core/src/world.ts` (the `World` facade), `packages/core/src/store.ts`, `packages/core/src/events.ts`, `packages/core/migrations/` |
+| **API surface** | Agents reach the town through MCP tools, one per verb; humans and desks through REST and WS. All three call the same core verbs | `packages/server/src/mcp.ts`, `packages/server/src/routes/`, `packages/server/src/ws.ts`, `packages/core/src/verbs/` |
+| **Runtime and wakes** | Decides when an agent spends tokens: the Waker turns events into wakes, the 5 s tick starts queued work and manager sessions, and sessions run on a desk (container) or the host | `packages/runtime/src/index.ts` (tick, `scheduleWork`), `packages/runtime/src/waker.ts` (`WAKE_RULES`), `packages/core/src/wakes.ts`, `packages/runtime/src/manage.ts`, `packages/runtime/src/work.ts`, `packages/desk/src/run.ts`; design in `docs/wakes.md` |
+| **Assignments and lanes** | An assignment is the only thing a resident works from. Each runs in one lane (`grant`, `exploration`, `directed`), and the lane gate decides whether it may start now | `packages/core/src/domain.ts` (`createAssignment`, `applyDecision`, in-trays), `packages/core/src/lanes.ts` (`resolveLane`, `laneHold`), `packages/core/src/waits.ts` |
+| **Grants** | A building's manager proposes a plan for one key result with a token ask; a human funds, counters or rejects it; at 100% spend it goes to checkpoint | `packages/core/src/grants.ts` (`Grants`), `packages/core/src/verbs/grants.ts`, `packages/server/src/routes/grants.ts`; design in `docs/goal-directed-budgets.md` |
+| **Bank and budget** | Where tokens come from (inputs credit pools, pools feed buildings) and where they go (every session's usage is charged in adjusted output tokens) | `packages/core/src/bank.ts` (`Bank`), `packages/core/src/budget.ts` (`Budget.canStart`, `Budget.charge`), `packages/runtime/src/session.ts` (`fundingFor`, `chargeUsage`); design in `docs/bank.md` |
+
+### How work flows
+
+A human asks for something, it becomes an assignment, the runtime wakes an agent, the session ends in a report, and the report goes up through the in-tray to a rollup that a human decides.
+
+```mermaid
+flowchart TD
+  human([Human]) -->|"1:1, tell, flag, review<br/>(REST: routes/, ops.messageAgent)"| mgr
+  subgraph assign["Assignments & lanes (core/domain.ts, core/lanes.ts)"]
+    mgr["Manager agent<br/>assign / review / meeting decide"] -->|"createAssignment + resolveLane<br/>(grant · exploration · directed)"| queue[("assignments<br/>pending queue")]
+  end
+  subgraph rt["Runtime & wakes (runtime/index.ts, runtime/waker.ts)"]
+    tick["tick every 5 s<br/>scheduleWork"] -->|"nextStartable → Budget.canStart<br/>(cap hold, lane gate, daily cap)"| start["startWork"]
+    waker["Waker over the event log<br/>WAKE_RULES"] -->|"doc.created report / flag"| wm["wakeManager<br/>(manage session)"]
+  end
+  queue --> tick
+  start --> session["Work session<br/>desk container or host<br/>(desk/run.ts, runtime/work.ts)"]
+  session -->|"MCP verbs (server/mcp.ts)"| verbs["core verbs"]
+  session -->|"submit_report"| report[("report doc<br/>decision: pending")]
+  report -->|"building in-tray (intrayOf)"| waker
+  wm --> mgr
+  mgr -->|"submit_report rollup: true"| townhall[["Town Hall in-tray<br/>rollups · grant proposals · checkpoints"]]
+  townhall --> human
+  verbs -.->|"every change appends"| events[("events log")]
+  events -.-> waker
+```
+
+Where to look for each arrow:
+
+- **Human → manager.** A human's message to a resident of a managed building is refused and pointed at the manager (`ops.messageAgent` in `packages/core/src/ops.ts`); the manager is the conversational surface. 1:1s wake the manager through the `manager-1:1` rule in `packages/runtime/src/waker.ts`. A flag (`POST /api/buildings/:id/flags`) lands in the in-tray like a report.
+- **Manager → assignment.** `assign`, `review` continue/redirect and meeting decisions all go through `createAssignment` (`packages/core/src/domain.ts`), which calls `resolveLane` (`packages/core/src/lanes.ts`). In a goal-directed building, agent-created work must name a funded grant, a key result or goal gap (exploration), or a human source (`directed`, checked by `humanSource`).
+- **Assignment → session.** Only the scheduler starts work: `scheduleWork` in `packages/runtime/src/index.ts` takes `nextStartable` (`packages/core/src/domain.ts`), which skips what `Budget.canStart` holds. A held assignment stays pending with a `heldReason`; it's never cancelled. `waitFor` holds are checked by `checkWaits` (`packages/core/src/waits.ts`) on the same tick.
+- **Session → report.** A desk session fetches its brief (`GET /api/agents/me/brief`, prompts from `packages/core/src/prompts.ts`), calls verbs over MCP, and posts `session-end` (`packages/server/src/routes/desk.ts`). `finishWorkSession` (`packages/runtime/src/work.ts`) writes a fallback report if none was submitted, so every session ends in a report.
+- **Report → in-tray → rollup.** `submit_report` (`packages/core/src/verbs/docs.ts`) puts the report in the building's in-tray and makes the agent idle. The `manager-intray` wake rule starts or feeds the manager's manage session (`wakeManager`, `packages/runtime/src/manage.ts`), which decides each report with `review`. The manager reaches humans only through a rollup (`rollup: true`), grant proposals and checkpoints, which `townHallIntray` (`packages/core/src/domain.ts`) collects for the Town Hall.
+
+### How tokens flow
+
+A human funds a grant, its work runs in lane `grant`, and every session's usage is charged to the Bank and counted against the grant.
+
+```mermaid
+flowchart LR
+  subgraph bank["Bank (core/bank.ts)"]
+    inputs["Bank inputs<br/>subscription · API key"] -->|"creditDue (tick)"| pools[("pools<br/>bank_credits − bank_debits")]
+  end
+  subgraph grants["Grants (core/grants.ts)"]
+    propose["propose_grant<br/>(manager)"] --> decide{"human decides<br/>Grants.decide"}
+    decide -->|fund| funded["grant: funded"]
+    funded -->|"spent ≥ grantTokens<br/>Grants.checkpoints"| checkpoint["grant: checkpoint<br/>+ checkpoint assignment"]
+    checkpoint -->|"continue / adjust"| funded
+    checkpoint -->|cut| closed["closed"]
+  end
+  decide -->|"fund → front-of-queue assignment<br/>for the manager (lane grant)"| asg[("assignment<br/>lane · grantId")]
+  asg -->|"laneHold: grant funded?<br/>exploration allowance left?"| gate["Budget.canStart"]
+  gate --> sess["session<br/>(lane, grantId copied from the assignment)"]
+  pools -->|"fundingFor: which key / allocation pays"| sess
+  sess -->|"finishWorkSession → chargeUsage<br/>→ Budget.charge → Bank.drawTokens"| pools
+  sess -->|"Grants.spent = sum of the<br/>grant's sessions (adjusted tokens)"| funded
+```
+
+- **Funding a session.** `fundingFor` (`packages/runtime/src/session.ts`) picks what pays, in order: a subscription allocation, the building's Bank share (`Bank.fundingFor`), then donor-key and API-key allocations.
+- **Charging.** `chargeUsage` → `Budget.charge` (`packages/core/src/budget.ts`) records the five token counters on the agent and draws them from the building's Bank share (`Bank.drawTokens`) or an allocation. Figures are in **adjusted output tokens** (`adjustedOutputTokens` in `packages/core/src/bank.ts`; the pricing is explained in `docs/bank.md`).
+- **Metering a grant.** A session copies its assignment's `lane` and `grantId` when it starts (`packages/core/src/ops.ts`), and `Grants.spent` sums those sessions. After each charge, `Budget.afterCharge` runs `Grants.checkpoints` (wired in `packages/core/src/world.ts`). It moves a grant whose spend reached its tokens to `checkpoint` and queues the manager's checkpoint assignment. `laneBlock` then holds the grant's other work until a human continues, adjusts or cuts it.
+- **The other lanes.** Exploration is held once the building's daily allowance is spent (`Grants.exploration`). Directed work isn't held by the allowance but is metered on its own (`Grants.directed`).
+
+### Shared stores
+
+All state is in one SQLite database (`MUSTER_TOWN_DATA/town.db`). Each table is behind a repository on `World` (`world.agents`, `world.assignments`, …), and every schema change is a numbered file in `packages/core/migrations/`. The tables the four subsystems share:
+
+| Table | Written by | Read by |
+|---|---|---|
+| `events` | every verb and op (`world.events.append`) | the Waker (with a persisted cursor), WS clients, `GET /api/events` |
+| `assignments` | `createAssignment`, `applyDecision`, grant decisions and checkpoints, wakes | the scheduler, the lane gate, the desk brief |
+| `sessions` | the runtime (`ops.startSession` / `ops.endSession`) | `Grants.spent`, the Bank's drift job, reports' token stamps |
+| `docs` | `write`, `submit_report`, flags, town-written in-tray rows | in-trays, the board, search (`docs_fts`) |
+| `grants`, `key_results`, `objectives` | `Grants` (manager verbs, human REST) | the lane gate, the board, the desk brief |
+| `bank_inputs`, `bank_credits`, `bank_debits`, `allocations`, `usage` | `Bank`, `Budget` | `fundingFor`, `Budget.canStart`, `GET /api/bank` |
+
+Live state is never stored in git: `world.export()` (`packages/core/src/export.ts`) writes a readable mirror once an hour.
+
 ## Packages (npm workspaces)
 
 | Package | Owns | Depends on |
