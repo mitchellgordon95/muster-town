@@ -266,8 +266,9 @@ export type BankPool = z.infer<typeof BankPool>;
 /**
  * Tokens a building's session drew from the Bank: from an expiring credit (`creditId`), else from the durable credits.
  * `poolId` is the pool it drew from (what the pool's share is charged against); `buildingId` is who spent it.
+ * `inputId` / `grantId`: set when a grant's own input paid (member funding: the grant's `fundedWith`), not for pool draws.
  */
-export const BankDebit = z.object({ id: Id, buildingId: Id, poolId: Id, agentId: Id, creditId: Id.nullable().default(null), ...TOKEN_COUNTS_SHAPE, rawTokens: z.number().int().nonnegative().default(0), tokens: z.number().int().nonnegative().default(0), createdAt: Iso });
+export const BankDebit = z.object({ id: Id, buildingId: Id, poolId: Id, agentId: Id, creditId: Id.nullable().default(null), inputId: Id.nullable().default(null), grantId: Id.nullable().default(null), ...TOKEN_COUNTS_SHAPE, rawTokens: z.number().int().nonnegative().default(0), tokens: z.number().int().nonnegative().default(0), createdAt: Iso });
 export type BankDebit = z.infer<typeof BankDebit>;
 /** One charge of model usage: who spent it and which building it counts for (the agent's home). The usage ledger behind tokensToday / tokensAllTime. */
 export const UsageEntry = z.object({ id: Id, agentId: Id, buildingId: Id.nullable().default(null), ...TOKEN_COUNTS_SHAPE, rawTokens: z.number().int().nonnegative().default(0), tokens: z.number().int().nonnegative().default(0), usd: z.number().nonnegative().default(0), createdAt: Iso });
@@ -766,6 +767,8 @@ export const Grant = z.object({
   proposedBy: Id,
   /** a user id; never an agent */
   fundedBy: Id.nullable().default(null),
+  /** the Bank input that pays its sessions first (a member funding it with their own input); null = the building's pool */
+  fundedWith: Id.nullable().default(null),
   fundedAt: Iso.nullable().default(null),
   closedAt: Iso.nullable().default(null),
   /** the negotiation: every propose / counter / fund / checkpoint decision / close, oldest first */
@@ -849,7 +852,10 @@ export const KPI_FRAMING = "The town goal, \"Make Muster Town something stranger
  * A grant as the API returns it: the goal key result it names (null if none) and derived spend. `spentTokens` is
  * adjusted output tokens (Bank step 3), like `askTokens` and `grantTokens`; `spentCounts` is the five counters behind it.
  */
-export const GrantView = Grant.extend({ keyResult: KeyResult.nullable(), spentTokens: z.number().int().nonnegative(), spentCounts: TokenCounts.optional() });
+export const GrantView = Grant.extend({
+  keyResult: KeyResult.nullable(), spentTokens: z.number().int().nonnegative(), spentCounts: TokenCounts.optional(),
+  fundedByName: z.string().nullable().optional(), fundedWithLabel: z.string().nullable().optional(),
+});
 export type GrantView = z.infer<typeof GrantView>;
 
 // ---------- sessions (a resident's work session) ----------
@@ -911,7 +917,7 @@ export const EventType = z.enum([
   "assignment.created", "assignment.status", "assignment.delegated",
   "meeting.created", "meeting.phase", "meeting.utterance", "meeting.decisions",
   "session.started", "session.ended",
-  "building.created", "building.updated", "building.layout", "town.plan", "allocation.created", "budget.exhausted", "bank.input", "bank.credited", "bank.converted", "bank.share", "bank.pool", "bank.drift", "bank.cap", "bank.hold",
+  "building.created", "building.updated", "building.layout", "town.plan", "allocation.created", "budget.exhausted", "bank.input", "bank.credited", "bank.debited", "bank.converted", "bank.share", "bank.pool", "bank.drift", "bank.cap", "bank.hold",
   "grant.created", "grant.updated", "grant.proposed", "grant.countered", "grant.funded", "grant.rejected", "grant.checkpoint", "grant.closed", "kr.updated", "kr.created", "kr.deleted", "objective.created", "objective.updated", "objective.deleted", "building.blocked",
   "skill.used", "skill.pinned", "skill.unpinned",
   "secret.set", "secret.deleted", "secret.granted",
@@ -1249,6 +1255,7 @@ export type UpdateGrantInput = z.input<typeof UpdateGrantInput>;
 /**
  * POST /api/grants/:id/decide (`building.fund`). On a proposed grant: fund (tokens default to the ask), counter
  * (edits + note, back to the manager), reject. On a checkpoint grant: continue, adjust (tokens/testing plan/stop condition), cut.
+ * A member without `building.fund` may fund a proposed grant with `fundWith`: their own active input with the tokens.
  */
 export const DecideGrantInput = z.object({
   action: z.enum(["fund", "counter", "reject", "continue", "adjust", "cut"]),
@@ -1256,6 +1263,8 @@ export const DecideGrantInput = z.object({
   testingPlan: z.array(TestingPlanItem).max(5).optional(),
   stopCondition: z.string().trim().min(1).max(500).optional(),
   note: z.string().max(2000).default(""),
+  /** fund only: pay its sessions from this Bank input of the funder's. Lets a member without `building.fund` fund it. */
+  fundWith: Id.optional(),
 });
 export type DecideGrantInput = z.input<typeof DecideGrantInput>;
 /** POST /api/grants/:id/close: the manager may close as `stopped`; `building.fund` any outcome. */

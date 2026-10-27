@@ -145,7 +145,7 @@ export async function finishWorkSession(ctx: Ctx, sessionId: string, o: WorkOutc
   const charged = o.fallback
     ? ctx.deskFallbacks.get(sessionId) ?? (bid ? world.budget.fallbackAllocation(bid)?.id ?? null : null)
     : allocationId !== undefined ? allocationId : ctx.deskAllocations.has(sessionId) ? ctx.deskAllocations.get(sessionId) ?? null : fundingFor(world, agentId).allocationId;
-  chargeUsage(world, agentId, { ...usage, byModel: o.byModel ?? undefined }, charged, ended.model);
+  chargeUsage(world, agentId, { ...usage, byModel: o.byModel ?? undefined }, charged, ended.model, ended.grantId);
   ctx.deskAllocations.delete(sessionId);
   ctx.deskFallbacks.delete(sessionId);
   return ended;

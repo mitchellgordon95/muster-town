@@ -87,14 +87,16 @@ export const homeOf = (world: World, agentId: string) => {
  * Charge usage to the agent and (if its building has budget) an allocation. Never throws. Booked in adjusted output
  * tokens (Bank step 3): the counters priced at `model`'s list price, per model with `byModel` (the session's own figure).
  */
-export function chargeUsage(world: World, agentId: string, u: Pick<Usage, "tokens" | "counts" | "costUsd"> & { byModel?: Usage["byModel"] }, allocationId?: string | null, model?: string | null): void {
+export function chargeUsage(world: World, agentId: string, u: Pick<Usage, "tokens" | "counts" | "costUsd"> & { byModel?: Usage["byModel"] }, allocationId?: string | null, model?: string | null, grantId?: string | null): void {
   if (u.tokens <= 0 && u.costUsd <= 0) return;
   // the five counters when the SDK gave them; a bare raw total is split by the back-fill rule (docs/bank.md)
   const counts = rawTokens(u.counts) > 0 ? u.counts : splitRaw(u.tokens, model);
-  const price = { model, byModel: rawTokens(u.counts) > 0 ? u.byModel : null };
+  const price = { model, byModel: rawTokens(u.counts) > 0 ? u.byModel : null, grantId: grantId ?? null };
   try {
     const bid = homeOf(world, agentId);
-    if (bid && world.budget.remaining(bid) > 0) {
+    // a member-funded grant's own input can pay even when the building's pool is empty
+    const ownInput = grantId ? world.grants.get(grantId)?.fundedWith ?? null : null;
+    if (bid && (world.budget.remaining(bid) > 0 || ownInput)) {
       world.budget.charge(agentId, counts, u.costUsd, allocationId ?? undefined, price);
     } else {
       // no allocation to draw from (e.g. Town Hall's librarian): record spend on the agent and in the usage ledger only
@@ -271,6 +273,6 @@ export async function runAgentSession(ctx: Ctx, spec: SessionSpec): Promise<Sess
   }
   const status: Exclude<Session["status"], "running"> = live.stopped ? "interrupted" : error ? "error" : "done";
   outcome.session = world.ops.endSession(session.id, { status, counts: usage.counts, byModel: usage.byModel, costUsd: usage.costUsd, turns: usage.turns, error, sdkSessionId });
-  chargeUsage(world, agent.id, usage, funding.allocationId, outcome.session.model);
+  chargeUsage(world, agent.id, usage, funding.allocationId, outcome.session.model, outcome.session.grantId);
   return outcome;
 }
