@@ -414,6 +414,7 @@ export function BoardPanel({ buildingId }: { buildingId: string }) {
       ? "The building's key results, the manager's standing rules and building-wide FYIs. Everything else is in the filing cabinet beside it."
       : "The manager's standing rules and building-wide FYIs. Everything else is in the filing cabinet beside it."}>
       {goal && board.data ? <KeyResultsView board={board.data} buildingId={buildingId} /> : null}
+      {b?.kind !== "town-hall" ? <DocList board={board} townWide /> : null}
       {b ? <StandingRules buildingId={b.id} rules={b.rules ?? ""} /> : null}
       <DocList board={board} />
     </PanelShell>
@@ -576,12 +577,22 @@ function CabinetBrowser({ buildingId }: { buildingId: string }) {
   );
 }
 
-/** Board FYIs, newest first. */
-function DocList({ board: list }: { board: { data: Board | null; error: string | null; loading: boolean } }) {
+/**
+ * Board FYIs, newest first. `townWide`: the "Town-wide" section (the Town Hall board's FYIs, which the API lists first
+ * on every building's board), hidden when there are none; otherwise the building's own FYIs.
+ */
+function DocList({ board: list, townWide = false }: { board: { data: Board | null; error: string | null; loading: boolean }; townWide?: boolean }) {
   const [open, setOpen] = useState<Doc | null>(null);
-  const docs = list.data?.docs;
+  const all = list.data?.docs;
+  const docs = useMemo(() => all?.filter((d) => !!d.townWide === townWide), [all, townWide]);
   useEffect(() => { if (docs) store.putDocs(docs); }, [docs]);
   if (open) return <DocView doc={open} onBack={() => setOpen(null)} backLabel="Board" />;
+  if (townWide) return docs?.length ? (
+    <>
+      <h4 className="sub-head">Town-wide <span className="muted">from the Town Hall board; they apply in every building</span></h4>
+      <div className="doc-list">{docs.map((d) => <DocRow key={d.id} doc={d} onOpen={() => setOpen(d)} />)}</div>
+    </>
+  ) : null;
   return (
     <>
       <ErrorLine error={list.error} />

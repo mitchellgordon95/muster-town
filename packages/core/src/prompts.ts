@@ -7,6 +7,8 @@ import { intrayCounts, intrayOf } from "./domain.ts";
 import { decisionOutcomes, previousMeeting, type DecisionOutcome } from "./meetings.ts";
 import { memoryBlock, teamBlock, WIKI_HOWTO } from "./memory.ts";
 import { skillsBlock } from "./skills.ts";
+import { townBoardDocs } from "./verbs/docs.ts";
+import { TOWN_HALL_ID } from "./world/layout.ts";
 import { docGist, NEED, oneLine, relativeTime, sectionOf, trunc } from "./text.ts";
 import type { World } from "./world.ts";
 
@@ -82,7 +84,7 @@ export function recentWorkBlock(world: World, agentId: string, opts: { limit?: n
  * The system prompt of a work session. \`memory\` is the agent's "## What you know" + "## Your log" block
  * (\`memoryBlock\`); \`team\` the manager's "## Your team" block (\`teamBlock\`), only for the building's manager agent.
  */
-export function workSystemPrompt(agent: Agent, building: Building, town: Town, opts: { desk?: boolean; memory?: string; team?: string; skills?: string; keyResults?: string } = {}): string {
+export function workSystemPrompt(agent: Agent, building: Building, town: Town, opts: { desk?: boolean; memory?: string; team?: string; skills?: string; keyResults?: string; townBoard?: string } = {}): string {
   return `You are ${agent.name}, a resident of the ${building.name} of ${town.name}. ${OWNERSHIP}
 Town goal: ${town.goal || "(none set)"}
 Building goal: ${building.goal || "(none set)"}${opts.keyResults ? `\n${opts.keyResults}` : ""}
@@ -96,7 +98,7 @@ ${REPORT_FORMAT}
 
 You have about ${building.maxTurnsPerSession} turns; budget them. ${opts.desk
     ? "You work at your own desk: a private sandbox computer with your home directory (/home/agent), a shell, Python with the usual scientific libraries, and the web. Files you keep there persist between sessions; the town library is still where shared work goes."
-    : "Your only tools are the town tools (mcp__town__*), WebSearch and WebFetch."}${standingRules(building)}${opts.skills ? `\n\n${opts.skills}` : ""}${opts.team ? `\n\n${opts.team}` : ""}
+    : "Your only tools are the town tools (mcp__town__*), WebSearch and WebFetch."}${opts.townBoard ? `\n\n${opts.townBoard}` : ""}${standingRules(building)}${opts.skills ? `\n\n${opts.skills}` : ""}${opts.team ? `\n\n${opts.team}` : ""}
 
 ${opts.memory ?? ""}`;
 }
@@ -105,11 +107,24 @@ ${opts.memory ?? ""}`;
  * The memory and team blocks for an agent's work session (the manager agent of a building gets the team), and in
  * goal-directed buildings the Key results block for `assignment`'s session.
  */
-export function sessionMemory(world: World, agent: Agent, building: Building, assignment?: Assignment | null): { memory: string; team?: string; keyResults?: string } {
+export function sessionMemory(world: World, agent: Agent, building: Building, assignment?: Assignment | null): { memory: string; team?: string; keyResults?: string; townBoard?: string } {
   const manager = building.managerAgentId === agent.id && building.kind !== "town-hall";
   const keyResults = keyResultsBlock(world, building, assignment);
   const grants = manager ? managerGrantsBlock(world, building) : "";
-  return { memory: memoryBlock(world, agent.id), ...(manager ? { team: `${teamBlock(world, building, agent.id)}\n\n${managerIntrayBlock(world, building, agent.id)}${grants ? `\n\n${grants}` : ""}` } : {}), ...(keyResults ? { keyResults } : {}) };
+  const townBoard = townBoardBlock(world);
+  return { memory: memoryBlock(world, agent.id), ...(townBoard ? { townBoard } : {}), ...(manager ? { team: `${teamBlock(world, building, agent.id)}\n\n${managerIntrayBlock(world, building, agent.id)}${grants ? `\n\n${grants}` : ""}` } : {}), ...(keyResults ? { keyResults } : {}) };
+}
+
+/**
+ * "Town-wide FYIs": the Town Hall board's FYIs (town-wide rules), newest first, in every work session's brief before
+ * the building's standing rules. Empty string when the Town Hall board is empty.
+ */
+export function townBoardBlock(world: World, limit = 10): string {
+  if (!world.buildings.get(TOWN_HALL_ID)) return "";
+  const docs = townBoardDocs(world, limit);
+  if (!docs.length) return "";
+  const each = Math.max(400, Math.floor(6000 / docs.length));
+  return `Town-wide FYIs (the Town Hall board; they apply in every building):\n${docs.map((d) => `### ${d.title} (${d.id})\n${trunc(d.body.trim(), each)}`).join("\n\n")}`;
 }
 
 const tok = (n: number) => n.toLocaleString("en-US");

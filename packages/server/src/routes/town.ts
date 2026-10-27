@@ -1,4 +1,4 @@
-import { AppError, BANK_ACCOUNTING, accessRequestOf, boardDocs, canInteract, decideAccess, requestAccess, sessionView, cabinetCounts, cabinetDocs } from "@muster-town/core";
+import { AppError, BANK_ACCOUNTING, accessRequestOf, boardDocs, boardWithTownDocs, canInteract, decideAccess, requestAccess, sessionView, cabinetCounts, cabinetDocs } from "@muster-town/core";
 import { AccessDecisionInput, AccessRequestInput, AddBankInput, CreateBankPoolInput, CreateBuildingInput, DesksPatch, UpdateBankPoolInput, DocType, DonateInput, LayoutInput, Membership, PlanInput, PlantFlagInput, RedeployInput, UpdateBuildingInput, apiKeyProblem, townEnv, type AccessRequest, type AuthMe, type RedeployLive } from "@muster-town/schema";
 import type { FastifyInstance, FastifyRequest } from "fastify";
 import { brotliDecompressSync } from "node:zlib";
@@ -205,7 +205,7 @@ export async function townRoutes(app: FastifyInstance) {
   app.get<{ Params: Params }>("/api/buildings/:id/board", async (req) => {
     const { limit } = parse(LimitQuery, req.query);
     world.buildings.require(req.params.id, "building");
-    return { docs: boardDocs(world, req.params.id, limit), ...world.grantDesk.board(req.params.id) };
+    return { docs: boardWithTownDocs(world, req.params.id, limit), ...world.grantDesk.board(req.params.id) };
   });
 
   /**
