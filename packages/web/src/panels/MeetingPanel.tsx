@@ -14,6 +14,7 @@ import { endMeetingConfirm } from "./endMeeting";
 import { SignInNote } from "../auth/auth";
 import { DocText, Markdown, docIdsIn } from "./Markdown";
 import { docUrl } from "../route";
+import { useMediaPaste } from "./mediaPaste";
 
 const PHASES: Meeting["phase"][] = ["scheduled", "collecting", "discussing", "done"];
 
@@ -74,6 +75,7 @@ function MeetingView({ m }: { m: Meeting }) {
   const agents = useTown((s) => s.agents);
   const me = useTown((s) => s.me);
   const [text, setText] = useState("");
+  const media = useMediaPaste(setText);
   const end = useRef<HTMLDivElement>(null);
   useEffect(() => { end.current?.scrollIntoView({ block: "nearest" }); }, [m.transcript.length]);
   const buildings = useTown((s) => s.buildings);
@@ -147,9 +149,9 @@ function MeetingView({ m }: { m: Meeting }) {
       {open && !me ? <SignInNote to="speak in the meeting" /> : null}
       {open && me && (!oneOnOne || canRun) ? (
         <form className="chatbar" onSubmit={(e) => { e.preventDefault(); void say(); }}>
-          <textarea rows={2} value={text} disabled={!discussing} placeholder={discussing ? (oneOnOne ? `Say something to ${nameOf(m.facilitatorId)}…` : "Say something to the meeting…") : "Chat opens when the discussion starts…"} onChange={(e) => setText(e.target.value)}
+          <textarea {...media.props} rows={2} value={text} disabled={!discussing} placeholder={discussing ? (oneOnOne ? `Say something to ${nameOf(m.facilitatorId)}…` : "Say something to the meeting…") : "Chat opens when the discussion starts…"} onChange={(e) => setText(e.target.value)}
             onKeyDown={(e) => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); void say(); } }} />
-          <button className="btn primary" disabled={!discussing || !text.trim()}>Say</button>
+          <button className="btn primary" disabled={!discussing || !text.trim() || media.uploading > 0}>Say</button>
           {canRun ? <Act tone="bad" run={async () => { const ask = endMeetingConfirm(m); if (ask && !confirm(ask)) return; store.putMeeting(await api().endMeeting(m.id)); }}>{oneOnOne ? "End 1:1" : "End meeting"}</Act> : null}
           <DraftDocs text={text} />
         </form>

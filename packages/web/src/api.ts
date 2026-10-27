@@ -47,6 +47,8 @@ export interface StartNextResult { assignment: Assignment; agent: Agent; when: "
 export interface MessageResult { mode: "interrupted" | "queued" | "started"; messageId: string; assignmentId?: string }
 /** One `tell` between an agent and your avatar (GET /api/agents/:id/thread). */
 export interface ThreadMessage { id: string; fromId: string; toId: string; from: string; mine: boolean; body: string; at: string }
+/** `POST /api/media`: the stored file and the markdown to cite it with. */
+export interface UploadedMedia { media: { id: string; url: string; mime: string; bytes: number }; markdown: string }
 export interface DocQuery { state?: DocState; type?: DocType; buildingId?: string; q?: string; limit?: number }
 export interface CabinetQuery { type?: DocType; authorId?: string; limit?: number }
 /** `GET /api/buildings/:id/cabinet`: the matching docs (newest first) and unfiltered counts per (type, author). */
@@ -244,6 +246,8 @@ export interface Api {
   plantFlag(buildingId: string, text: string): Promise<Doc>;
   /** POST /api/docs/:id/reply — the reply becomes the author's next assignment; empty text archives */
   reply(docId: string, text: string): Promise<{ doc: Doc; assignment: Assignment | null }>;
+  /** Upload one image or video as the signed-in human (docs/multimedia.md); returns its paste-ready markdown. */
+  uploadMedia(file: Blob, alt?: string): Promise<UploadedMedia>;
   /** POST /api/docs/:id/archive — acknowledge with no reply */
   archive(docId: string): Promise<{ doc: Doc; assignment: Assignment | null }>;
   /** POST /api/docs/:id/ask — a cheap-model answer about the report, without its author */
@@ -431,6 +435,15 @@ export class HttpApi implements Api {
   async review(id: string, i: In<typeof ReviewInput>) { return unwrap<Doc>(await this.post(`/api/docs/${id}/review`, i), "doc"); }
   async plantFlag(buildingId: string, text: string) { return unwrap<Doc>(await this.post(`/api/buildings/${buildingId}/flags`, { text }), "doc"); }
   reply(id: string, text: string) { return this.post<{ doc: Doc; assignment: Assignment | null }>(`/api/docs/${id}/reply`, { text }); }
+  async uploadMedia(file: Blob, alt = "") {
+    const headers: Record<string, string> = { "Content-Type": file.type };
+    const t = this.token();
+    if (t) headers.Authorization = `Bearer ${t}`;
+    const res = await fetch(`/api/media${qs({ alt })}`, { method: "POST", headers, body: file });
+    const json = await res.json().catch(() => ({})) as UploadedMedia & { error?: string; code?: string };
+    if (!res.ok) throw new ApiError(json.error ?? `${res.status} ${res.statusText}`, json.code ?? "http", res.status);
+    return json;
+  }
   archive(id: string) { return this.post<{ doc: Doc; assignment: Assignment | null }>(`/api/docs/${id}/archive`); }
   async ask(id: string, question: string, history: { role: "user" | "assistant"; text: string }[] = []) { return (await this.post<{ reply: string }>(`/api/docs/${id}/ask`, { question, history })).reply; }
   async promote(id: string, state: DocState) { return unwrap<Doc>(await this.post(`/api/docs/${id}/promote`, { state }), "doc"); }

@@ -1,5 +1,9 @@
+import { World, townRoleId } from "@muster-town/core";
+import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
-import { seededApp } from "./helpers.ts";
+import { buildApp } from "../src/app.ts";
+import { defaultAuthSettings, sessionCookie } from "../src/auth/index.ts";
+import { REPO_ROOT, seededApp } from "./helpers.ts";
 
 const cleanups: (() => Promise<void>)[] = [];
 afterEach(async () => { while (cleanups.length) await cleanups.pop()!(); });
@@ -53,5 +57,25 @@ describe("media routes", () => {
     expect(lie.json().error).toContain("video/webm");
     const big = await s.app.inject({ method: "POST", url: "/api/media", headers: { ...s.auth, "content-type": "image/png" }, payload: Buffer.concat([PNG, Buffer.alloc(9 * 1024 * 1024)]) });
     expect(big.statusCode).toBeGreaterThanOrEqual(400);
+  });
+
+  it("a human pastes from the browser: the session cookie uploads as their avatar; a visitor not let in gets 403", async () => {
+    const world = World.open(":memory:");
+    const seed = world.seedDefaults({ importDir: join(REPO_ROOT, "buildings/carbon-cycle"), townJsonPath: join(REPO_ROOT, "town.json") });
+    const auth = defaultAuthSettings({ publicUrl: "http://localhost:4322" });
+    const app = await buildApp({ world, dev: false, runtime: null, webDist: false, auth });
+    cleanups.push(async () => { await app.close(); world.close(); });
+    const cookie = sessionCookie(auth, seed.admin.id).split(";")[0]!;
+    const up = await app.inject({ method: "POST", url: "/api/media?alt=paste", headers: { cookie, origin: "http://localhost:4322", "content-type": "image/png" }, payload: PNG });
+    expect(up.statusCode).toBe(201);
+    expect(up.json().media.authorId).toBe(world.ops.ensureAvatar(seed.admin.id).id);
+    expect(up.json().markdown).toMatch(/^!\[paste\]\(\/api\/media\/mf_[a-z0-9]{10}\.png\)$/);
+    // the cookie never rides on another site's request
+    const cross = await app.inject({ method: "POST", url: "/api/media", headers: { cookie, origin: "https://evil.example", "content-type": "image/png" }, payload: PNG });
+    expect(cross.statusCode).toBe(401);
+    const { user } = world.ops.createUser("Octo");
+    world.permissions.grant({ kind: "user", id: user.id }, townRoleId("visitor"));
+    const visitor = sessionCookie(auth, user.id).split(";")[0]!;
+    expect((await app.inject({ method: "POST", url: "/api/media", headers: { cookie: visitor, "content-type": "image/png" }, payload: PNG })).statusCode).toBe(403);
   });
 });
