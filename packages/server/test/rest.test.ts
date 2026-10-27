@@ -324,6 +324,9 @@ describe("meetings, roles, budget, events, human moves", () => {
     const added = await json(app, "POST", "/api/bank/inputs", { headers: auth, body: { label: "Key", source: "api-key", model: "m", tokens: 2000, apiKey: "sk-secret" } });
     expect(added.status).toBe(201);
     expect(JSON.stringify(added.body)).not.toContain("sk-secret");
+    const finance = await json(app, "GET", "/api/finance");
+    expect(finance.status).toBe(200);
+    expect(finance.body).toMatchObject({ credited: 2000, leftBank: 2000, overdrawn: 0, projection: { days: 30 }, sumCheck: { ok: true, diff: 0 } });
     const bank = await json(app, "GET", "/api/bank");
     expect(bank.body).toMatchObject({ balanceTokens: 2000, expiringTokens: 0, durableTokens: 2000, inputs: [{ label: "Key", hasApiKey: true }] });
     expect(bank.body.buildings.find((b: any) => b.buildingId === "carbon-cycle")).toMatchObject({ pct: 100, explicit: false, durableTokens: 2000 });

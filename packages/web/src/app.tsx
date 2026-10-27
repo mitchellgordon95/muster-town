@@ -22,6 +22,7 @@ import { PlanningPanel } from "./panels/PlanningPanel";
 import { BoardPanel, CabinetPanel, IntrayPanel, ModStationPanel, PlantFlag, SchedulePanel } from "./panels/Places";
 import { flagTargets } from "./panels/flag";
 import { DashboardPanel } from "./panels/DashboardPanel";
+import { FinancePanel } from "./panels/FinancePanel";
 import { BankPanel } from "./panels/BankPanel";
 import { GrantPanel } from "./panels/GrantPanel";
 import { HowItWorks, howItWorksSeen } from "./panels/HowItWorks";
@@ -171,6 +172,7 @@ function PanelHost({ panel }: { panel: PanelRef }) {
     case "planning": return <PlanningPanel tab={panel.tab} />;
     case "bank": return <BankPanel />;
     case "dashboard": return <DashboardPanel />;
+    case "finance": return <FinancePanel />;
     case "grant": return <GrantPanel key={panel.id} id={panel.id!} />;
     case "schedule": return <SchedulePanel />;
     case "mod": return <ModStationPanel />;

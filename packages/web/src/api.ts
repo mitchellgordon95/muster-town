@@ -64,6 +64,22 @@ export interface Budget {
 export interface HeldByAuth { subscription: number; apiKey: number; donorKey: number }
 /** `GET /api/allocations?buildingId=`: a building's allocations (retired ones too), newest first. */
 export type AllocationRow = Allocation & { remainingTokens: number; userName: string };
+/**
+ * `GET /api/finance` (public) — core's FinanceSummary: what the town received, used, let expire and has left, in adj. tokens.
+ * Identity: used + expired + left = total + overdrawn (overdrawn = usage past what was received, the overshoot debt).
+ */
+export interface Finance {
+  total: number; credited: number; donated: number;
+  used: number; usedBank: number; usedDonations: number;
+  expired: number;
+  left: number; leftBank: number; leftDonations: number;
+  overdrawn: number;
+  /** the usage ledger's all-time total; can exceed `used` by usage nothing funds */
+  usageLedger: number;
+  projection: { days: number; trailingDailyBurn: number; burnDays: number; projectedUse30d: number };
+  sumCheck: { ok: boolean; diff: number; identity: string };
+  at: string;
+}
 /** `GET /api/bank` — core's BankSummary: the accounting pools, the inputs, each building's view (from its pool), and the top contributors. */
 export interface BankPoolSummary {
   id: string; name: string;
@@ -313,6 +329,8 @@ export interface Api {
   retireAllocation(id: string): Promise<Allocation>;
   budget(): Promise<Budget>;
   bank(): Promise<Bank>;
+  /** public: the town's finance summary (used, expired, left, a 30-day projection) */
+  finance(): Promise<Finance>;
   addBankInput(input: In<typeof AddBankInput>): Promise<BankInput>;
   cancelBankInput(id: string): Promise<BankInput>;
   /** admin: accounting pools (a pool's `pct` null = an equal split of what's left); returns the new Bank summary */
@@ -526,6 +544,7 @@ export class HttpApi implements Api {
     const r = await this.get<Bank>("/api/bank");
     return { ...r, inputs: r.inputs ?? [], pools: r.pools ?? [], buildings: r.buildings ?? [], contributors: r.contributors ?? [] };
   }
+  async finance() { return this.get<Finance>("/api/finance"); }
   async addBankInput(i: In<typeof AddBankInput>) { return unwrap<BankInput>(await this.post("/api/bank/inputs", i), "input"); }
   async cancelBankInput(id: string) { return unwrap<BankInput>(await this.call("DELETE", `/api/bank/inputs/${id}`), "input"); }
   async createBankPool(i: In<typeof CreateBankPoolInput>) { return unwrap<Bank>(await this.post("/api/bank/pools", i), "bank"); }

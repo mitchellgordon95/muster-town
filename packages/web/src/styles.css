@@ -596,3 +596,7 @@ textarea[data-drop="over"] { outline: 2px dashed var(--accent, #7aa2ff); outline
 .kpi-objectives { margin: 4px 0 0; padding-left: 18px; }
 .kpi-objectives li { margin-bottom: 6px; }
 .kpi-krs { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 2px; }
+/* Finance (public): the sum check under the summary, and overdrawn lines */
+.finance-check { font-size: 12.5px; margin: 8px 0; }
+.finance-check.ok { color: var(--ok); }
+.finance-overdrawn, .finance-overdrawn td { color: var(--bad); }

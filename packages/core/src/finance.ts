@@ -1,0 +1,129 @@
+import type { Allocation, BankCredit, BankDebit, UsageEntry } from "@muster-town/schema";
+import type { Repos } from "./store.ts";
+
+const DAY_MS = 86_400_000;
+/** The trailing window the daily burn is averaged over, and how far the projection looks ahead. */
+export const FINANCE_BURN_DAYS = 7;
+export const FINANCE_PROJECTION_DAYS = 30;
+
+/**
+ * GET /api/finance: a collective's tokens at a glance (Bank Transparency grant gr_gi5jbgzv4k, step 1). Every figure is
+ * adjusted output tokens, like the Bank. The identity is `used + expired + left = total + overdrawn`: `overdrawn` is
+ * usage no credit or donation has paid for yet (the pools' overshoot debt), so it is in `used` but not in `total`,
+ * and `left` never goes below 0.
+ */
+export interface FinanceSummary {
+  /** credited + donated: everything the collective has received */
+  total: number;
+  /** what the Bank's inputs credited (sum of the credits) */
+  credited: number;
+  /** what was donated straight to buildings (a retired allocation counts only what it spent, as in contributors) */
+  donated: number;
+  /** drawn from the Bank (its debits, overshoot included) plus spent from direct donations */
+  used: number;
+  usedBank: number;
+  usedDonations: number;
+  /** subscription credits that expired before anyone drew them (they don't roll over) */
+  expired: number;
+  /** what can still be spent: the Bank's balance plus unspent live donations (never negative) */
+  left: number;
+  leftBank: number;
+  leftDonations: number;
+  /** usage beyond what was received: durable debits past the durable credits, plus allocations spent past their size */
+  overdrawn: number;
+  /** the usage ledger's all-time total; it can exceed `used` by usage nothing funds (e.g. the Town Hall's librarian) */
+  usageLedger: number;
+  projection: {
+    days: number;
+    /** average adjusted tokens used per day over the last `burnDays` days of the usage ledger */
+    trailingDailyBurn: number;
+    /** days the burn is averaged over: 7, or fewer (whole days, at least 1) when the ledger is younger than that */
+    burnDays: number;
+    projectedUse30d: number;
+  };
+  /** used + expired + left − overdrawn vs total; ok when they match exactly */
+  sumCheck: { ok: boolean; diff: number; identity: string };
+  at: string;
+}
+
+export interface FinanceInputs {
+  credits: Pick<BankCredit, "id" | "tokens" | "expiresAt">[];
+  debits: Pick<BankDebit, "creditId" | "tokens">[];
+  allocations: Pick<Allocation, "tokens" | "spentTokens" | "retired">[];
+  usage: Pick<UsageEntry, "tokens" | "createdAt">[];
+}
+
+/**
+ * The pure aggregation behind GET /api/finance. A subscription credit (expiresAt set) is drawn from by debits naming
+ * it; once expired, what wasn't drawn is `expired`, and until then it is left. Durable credits (expiresAt null) are
+ * drawn by debits with creditId null; debits past them are `overdrawn` (overshoot debt), so durable left is ≥ 0.
+ */
+export function financeSummary(inp: FinanceInputs, now = new Date()): FinanceSummary {
+  const iso = now.toISOString();
+  const byCredit = new Map<string, number>();
+  let durableDebits = 0, usedBank = 0;
+  for (const d of inp.debits) {
+    usedBank += d.tokens;
+    if (d.creditId) byCredit.set(d.creditId, (byCredit.get(d.creditId) ?? 0) + d.tokens);
+    else durableDebits += d.tokens;
+  }
+  let credited = 0, durableIn = 0, expired = 0, leftExpiring = 0, overdrawn = 0;
+  const known = new Set<string>();
+  for (const c of inp.credits) {
+    credited += c.tokens;
+    known.add(c.id);
+    if (!c.expiresAt) { durableIn += c.tokens; continue; }
+    const drawn = byCredit.get(c.id) ?? 0;
+    const rest = c.tokens - drawn;
+    if (rest < 0) overdrawn -= rest;
+    else if (c.expiresAt > iso) leftExpiring += rest;
+    else expired += rest;
+  }
+  // a debit naming a credit that no longer exists has nothing paying for it
+  for (const [id, t] of byCredit) if (!known.has(id)) overdrawn += t;
+  const leftDurable = Math.max(0, durableIn - durableDebits);
+  overdrawn += Math.max(0, durableDebits - durableIn);
+
+  let donated = 0, usedDonations = 0, leftDonations = 0;
+  for (const a of inp.allocations) {
+    donated += a.retired ? Math.min(a.tokens, a.spentTokens) : a.tokens;
+    usedDonations += a.spentTokens;
+    if (!a.retired) leftDonations += Math.max(0, a.tokens - a.spentTokens);
+    overdrawn += Math.max(0, a.spentTokens - a.tokens);
+  }
+
+  const total = credited + donated;
+  const used = usedBank + usedDonations;
+  const leftBank = leftExpiring + leftDurable;
+  const left = leftBank + leftDonations;
+
+  let usageLedger = 0, first = Infinity, recent = 0;
+  const since = now.getTime() - FINANCE_BURN_DAYS * DAY_MS;
+  for (const u of inp.usage) {
+    usageLedger += u.tokens;
+    const t = new Date(u.createdAt).getTime();
+    if (t < first) first = t;
+    if (t > since && t <= now.getTime()) recent += u.tokens;
+  }
+  const age = Number.isFinite(first) ? Math.ceil((now.getTime() - first) / DAY_MS) : 0;
+  const burnDays = Math.min(FINANCE_BURN_DAYS, Math.max(1, age));
+  const trailingDailyBurn = Math.round(recent / burnDays);
+
+  const diff = used + expired + left - overdrawn - total;
+  return {
+    total, credited, donated, used, usedBank, usedDonations, expired, left, leftBank, leftDonations, overdrawn, usageLedger,
+    projection: { days: FINANCE_PROJECTION_DAYS, trailingDailyBurn, burnDays, projectedUse30d: trailingDailyBurn * FINANCE_PROJECTION_DAYS },
+    sumCheck: { ok: diff === 0, diff, identity: "used + expired + left = total + overdrawn" },
+    at: iso,
+  };
+}
+
+/** financeSummary over the world's ledgers (World.finance). */
+export function townFinance(repos: Repos, now = new Date()): FinanceSummary {
+  return financeSummary({
+    credits: repos.bankCredits.all(),
+    debits: repos.bankDebits.all(),
+    allocations: repos.allocations.all(),
+    usage: repos.usage.all(),
+  }, now);
+}

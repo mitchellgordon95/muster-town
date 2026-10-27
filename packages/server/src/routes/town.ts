@@ -298,6 +298,8 @@ export async function townRoutes(app: FastifyInstance) {
 
   // ---- bank ----
   app.get("/api/bank", async () => world.bank.summary());
+  // public, read-only: total received, used, expired, left, overdrawn and a 30-day projection (docs/bank.md "Finance")
+  app.get("/api/finance", async () => world.bank.finance());
 
   app.post("/api/bank/inputs", async (req, reply) => {
     const user = requireUser(req);
