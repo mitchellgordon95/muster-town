@@ -1,5 +1,5 @@
 /** Resident work sessions (host backend + shared end-of-session logic), interrupts, and reviewer sessions over the in-tray. */
-import { AppError, appendLog, codeWorkspace, createDoc, fallbackReportBody, FALLBACK_REPORT_PREFIX, latestReportOf, recentWorkBlock, sessionMemory, sessionView, setAssignmentStatus, skillsBlock, workPrompt, workSystemPrompt } from "@muster-town/core";
+import { AppError, appendLog, chainBlock, codeWorkspace, createDoc, fallbackReportBody, FALLBACK_REPORT_PREFIX, latestReportOf, recentWorkBlock, sessionMemory, sessionView, setAssignmentStatus, skillsBlock, workPrompt, workSystemPrompt } from "@muster-town/core";
 import { countsOf, rawTokens, splitRaw, type Agent, type AllocationAuth, type Assignment, type Building, type Doc, type Session, type TokenCounts } from "@muster-town/schema";
 import { chargeUsage, fundingFor, homeOf, runAgentSession, type Ctx } from "./session.ts";
 
@@ -52,7 +52,7 @@ export async function runWorkSession(ctx: Ctx, starting: Set<string>, agentId: s
     const out = await runAgentSession(ctx, {
       agentId, purpose: "work", model: agent.model ?? building.model, maxTurns: building.maxTurnsPerSession, web: true,
       assignmentId, system: workSystemPrompt(agent, building, world.town.get(), { ...sessionMemory(world, agent, building, assignment), skills: skillsBlock(world.skills.forAgent(agentId)) }),
-      prompt: workPrompt(assignment, latestReport(ctx, agentId), recentWorkBlock(world, agentId)),
+      prompt: workPrompt(assignment, latestReport(ctx, agentId), recentWorkBlock(world, agentId), agent.forkOf ? chainBlock(world, assignment) : undefined),
       finish: (o, allocationId) => finishWorkSession(ctx, o.session.id, { ...o }, allocationId),
     });
     return out.session;

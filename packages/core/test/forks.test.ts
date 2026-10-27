@@ -3,7 +3,7 @@ import { readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
-import { RESIDENT_NAMES, buildingQueue, createAssignment, createBuilding, createResident, forkManager, nextStartable, retireFork, suggestResidentName, updateBuilding } from "../src/index.ts";
+import { CHAIN_PLAN_RULE, RESIDENT_NAMES, buildingQueue, chainBlock, createAssignment, createDoc, createBuilding, createResident, forkManager, nextStartable, retireFork, suggestResidentName, updateBuilding, workPrompt } from "../src/index.ts";
 import { seededWorld } from "./helpers.ts";
 
 const CHAINS_SQL = readFileSync(join(dirname(fileURLToPath(import.meta.url)), "..", "migrations", "049_assignment_chains.sql"), "utf8");
@@ -194,3 +194,32 @@ function createReport(world: ReturnType<typeof seededWorld>["world"], authorId: 
   world.docs.upsert({ id, type: "report", state: "building", title: "R", body: "b", authorId, authorKind: "agent", buildingId: world.agents.require(authorId).homeBuildingId, assignmentId, createdAt: ts, updatedAt: ts } as never);
   return id;
 }
+
+describe("manager forks: the chain block in a fork's work prompt (step 2)", () => {
+  it("fresh chain: first session; later: the previous report on the chain in full plus earlier hops on one line, never the session's own", async () => {
+    const { world, pix, b, queue } = forkLab();
+    const a1 = await queue("Build it");
+    const asg = world.assignments.require(a1);
+    expect(chainBlock(world, asg)).toContain(`This is the first session on this work (chain ${a1}).`);
+    expect(chainBlock(world, asg)).toContain(CHAIN_PLAN_RULE);
+    expect(workPrompt(asg, undefined, undefined, chainBlock(world, asg))).not.toContain("This is your first session.");
+    const report = (title: string, assignmentId: string, body: string, sessionId?: string) => createDoc(world, {
+      type: "report", state: "building", title, body, verdict: "continue", authorId: pix.id, authorKind: "agent", buildingId: b.id, assignmentId, ...(sessionId ? { sessionId } : {}),
+    });
+    const r1 = report("Hop one", a1, "## Findings\nfirst plan");
+    const a2 = createAssignment(world, { agentId: pix.id, title: "Hop two", description: "d", createdBy: { kind: "system", id: "system" }, fromReportId: r1.id, queue: "building" });
+    expect(a2.chainId).toBe(a1);
+    const r2 = report("Hop two done", a2.id, "## Findings\nsecond plan: do X, then Y");
+    const a3 = createAssignment(world, { agentId: pix.id, title: "Hop three", description: "d", createdBy: { kind: "system", id: "system" }, fromReportId: r2.id, queue: "building" });
+    const block = chainBlock(world, a3);
+    expect(block).toContain(`This work continues chain ${a1} (2 reports so far)`);
+    expect(block).toContain(`"Hop two done" by Pix (${r2.id}, verdict continue`);
+    expect(block).toContain("second plan: do X, then Y");
+    expect(block).not.toContain("first plan");
+    expect(block).toContain(`Earlier on this chain (oldest first): "Hop one" (${r1.id}, verdict continue).`);
+    // a desk brief is composed after its session started: that session's own report is left out
+    report("Hop three (this session)", a3.id, "mine", "se_this");
+    expect(chainBlock(world, a3, "se_this")).toContain("second plan");
+    expect(chainBlock(world, a3)).toContain("mine");
+  });
+});

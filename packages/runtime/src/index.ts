@@ -3,8 +3,8 @@
  * managers' team-lead sessions over the in-tray, meeting summaries + facilitation, proxy chat, interrupts, scheduler,
  * startup reconcile, dismissal (onAgentRetired), host redeploy (v1.3).
  */
-import { checkWaits, codeWorkspace, meetingNotice, nextStartable, PRESENCE_TICK_MS, slugify, syncManagerRoles, type World } from "@muster-town/core";
-import { DesksConfig, type ChatInput, type DeskActivityInput, type RedeployResult, type Session } from "@muster-town/schema";
+import { checkWaits, codeWorkspace, forkableQueue, forkManager, freeDesks, liveForks, meetingNotice, nextStartable, PRESENCE_TICK_MS, retireFork, slugify, syncManagerRoles, type World } from "@muster-town/core";
+import { DesksConfig, type Agent, type ChatInput, type DeskActivityInput, type RedeployResult, type Session } from "@muster-town/schema";
 import { askAbout, chat } from "./chat.ts";
 import { DockerBackend, dockerSafe, HostBackend, type DeskBackend, type WorkBackend } from "./desk/backend.ts";
 import { FlyApi } from "./desk/fly.ts";
@@ -296,12 +296,64 @@ export function startRuntime(opts: RuntimeOptions): Runtime {
   const slots = () => ({ running: new Set([...ctx.live.keys(), ...starting]).size, max: world.desksConfig().maxRunning });
   world.host.slots = slots;
   let slotsFull = false;
+
+  /** manager forks (dc_mymt27yz25 §2): forks whose work session (startWork) hasn't settled yet; the sweep leaves them alone */
+  const forkRuns = new Set<string>();
+  /**
+   * Retire a fork after its session's bookkeeping, whatever the outcome (report, park, failure, budget cut): its desk is
+   * freed, queued work it still holds (a park continuation is already there) goes back on the building queue.
+   */
+  function retireAfter(forkId: string, why?: string): void {
+    const f = world.agents.get(forkId);
+    if (!f?.forkOf || f.status === "retired") return;
+    const s = world.sessions.first("agentId = ? AND purpose = 'work'", [forkId], "ORDER BY startedAt DESC, rowid DESC");
+    try {
+      retireFork(world, forkId, { reportId: s?.reportId ?? null, reason: why ?? (s ? s.error ?? undefined : "no session started") });
+    } catch (e) { log(`retire ${f.name}`)(e); }
+  }
+  /** Forks with no session in flight (orphaned at restart, a missed end, a desk that died): retire them so their desks free up. */
+  function sweepForks(): void {
+    for (const f of liveForks(world)) {
+      if (forkRuns.has(f.id) || ctx.live.has(f.id) || starting.has(f.id) || reaping.has(f.id)) continue;
+      if (world.sessions.count("agentId = ? AND status = 'running'", [f.id])) continue;
+      retireAfter(f.id);
+    }
+  }
+  /**
+   * Spawn forks for buildings with `forks` on: startable building-queue work in queue order, while the building has a
+   * free desk and the host a free slot. Lanes, waitFor and heldReason work as for a resident's queue (forkableQueue).
+   */
+  function spawnForks(held: string[], startedNow: number): void {
+    for (const b of world.buildings.all()) {
+      if (!b.forks) continue;
+      // like a resident of a code building: no fork on the host backend (the resident loop warns)
+      if (backend?.kind === "host" && codeWorkspace(world.town.get(), b)) continue;
+      let free = freeDesks(world, b);
+      for (const a of forkableQueue(world, b)) {
+        if (free <= 0) break;
+        const s = slots();
+        if (s.running + startedNow >= s.max) { held.push(a.agentId); break; }
+        let fork: Agent;
+        try { fork = forkManager(world, b.id, a.id).fork; } catch (e) { log(`fork for "${a.title}"`)(e); break; }
+        free--;
+        startedNow++;
+        forkRuns.add(fork.id);
+        void startWork(fork.id, a.id).catch(log(`work session for ${fork.name}`)).finally(() => {
+          forkRuns.delete(fork.id);
+          retireAfter(fork.id);
+        });
+      }
+    }
+  }
+
   function scheduleWork(): void {
+    sweepForks();
     if (draining) return;
     const held: string[] = [];
     // sessions this pass started (startWork registers them as `starting` only after its first await)
     let startedNow = 0;
-    for (const a of world.agents.where("kind = 'resident' AND status = 'idle'", [], "ORDER BY createdAt")) {
+    // forks run only through spawnForks (below): the fork row exists from the spawn, before its session does
+    for (const a of world.agents.where("kind = 'resident' AND status = 'idle' AND forkOf IS NULL", [], "ORDER BY createdAt")) {
       if (ctx.live.has(a.id) || starting.has(a.id) || reaping.has(a.id)) continue;
       // queue order (position, createdAt, rowid), skipping what Budget.canStart holds (lane gate: they stay pending with a heldReason)
       const next = nextStartable(world, a.id);
@@ -323,6 +375,7 @@ export function startRuntime(opts: RuntimeOptions): Runtime {
       startedNow++;
       void startWork(a.id, next.id).catch(log(`work session for ${a.name}`));
     }
+    spawnForks(held, startedNow);
     // one notice when the slots fill, one when they free up (not every pass)
     if (held.length && !slotsFull) {
       slotsFull = true;
