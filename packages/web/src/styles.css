@@ -292,6 +292,9 @@ kbd { font-family: var(--mono); font-size: 11px; background: #2a2d3a; border: 1p
 .md pre code { background: none; padding: 0; }
 .md table { border-collapse: collapse; font-size: 12.5px; margin: 8px 0; display: block; overflow-x: auto; }
 .md td, .md th { border: 1px solid var(--line); padding: 4px 8px; text-align: left; }
+.md .md-media { display: block; max-width: 100%; max-height: 520px; height: auto; margin: 8px 0; border: 1px solid var(--line); border-radius: 6px; background: #12131a; }
+.md video.md-media { width: 100%; }
+.md a.md-media-link { display: inline-block; max-width: 100%; cursor: zoom-in; }
 .md th { background: #22252f; }
 .md img { max-width: 100%; }
 .md.compact { font-size: 12.5px; color: #c4c7dc; } .md.compact p { margin: 4px 0; }

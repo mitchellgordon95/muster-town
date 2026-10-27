@@ -32,8 +32,40 @@ export function sanitize(html: string): string {
   };
   const root = doc.body.firstElementChild!;
   walk(root);
+  inlineMedia(root);
   linkDocIds(root);
   return root.innerHTML;
+}
+
+/** An image whose src is a video file (`![demo](/api/media/mf_….webm)`, docs/multimedia.md) plays inline; images open full size on click. */
+const VIDEO_SRC_RE = /\.(webm|mp4)(\?.*)?$/i;
+function inlineMedia(root: Element) {
+  const owner = root.ownerDocument;
+  for (const img of [...root.querySelectorAll("img")]) {
+    const src = img.getAttribute("src") ?? "";
+    if (!src) continue;
+    if (VIDEO_SRC_RE.test(src)) {
+      const v = owner.createElement("video");
+      v.setAttribute("src", src);
+      v.setAttribute("controls", "");
+      v.setAttribute("preload", "metadata");
+      v.setAttribute("playsinline", "");
+      v.className = "md-media";
+      const alt = img.getAttribute("alt");
+      if (alt) v.setAttribute("title", alt);
+      img.replaceWith(v);
+    } else {
+      img.setAttribute("loading", "lazy");
+      img.className = "md-media";
+      if (!img.closest("a")) {
+        const a = owner.createElement("a");
+        a.setAttribute("href", src);
+        a.className = "md-media-link";
+        img.replaceWith(a);
+        a.append(img);
+      }
+    }
+  }
 }
 
 /** A doc or grant id as the server mints it: `dc_` / `gr_` + 10 lowercase alphanumerics. */
@@ -164,7 +196,7 @@ export function Markdown({ text, className, breaks = false, newTab = false }: { 
         const a = (e.target as HTMLElement).closest("a");
         if (!a) return;
         const href = a.getAttribute("href") ?? "";
-        if (/^(https?:|mailto:)/i.test(href)) { a.target = "_blank"; a.rel = "noopener noreferrer"; return; }
+        if (/^(https?:|mailto:)/i.test(href) || href.startsWith("/api/media/")) { a.target = "_blank"; a.rel = "noopener noreferrer"; return; }
         if (href.startsWith("#")) { e.preventDefault(); return; }
         const id = LINK_TARGET_RE.exec(href.split("/").pop() ?? "")?.[1];
         if (newTab && id) { a.href = urlOf(id); a.target = "_blank"; a.rel = "noopener noreferrer"; return; }
