@@ -2,6 +2,7 @@ import { AddBankInput, CreateBankPoolInput, DEFAULT_POOL_ID, UpdateBankPoolInput
 import { CAP_THOUGHT, TYPICAL_SESSIONS, capReason, countDeaths, learnedCap, median, nearCap, type BankDeaths } from "./caps.ts";
 import { driftRows, parseResetsAt, previousUtcDay, utcDay, type DriftRow } from "./drift.ts";
 import { badRequest, forbidden } from "./errors.ts";
+import { townFinance, type FinanceSummary } from "./finance.ts";
 import type { EventLog } from "./events.ts";
 import type { Holder, Permissions } from "./permissions.ts";
 import type { Repos } from "./store.ts";
@@ -577,6 +578,11 @@ export class Bank {
   /** A pool's share of the daily inflow (0 for a pool with no share). */
   poolDailyInflow(poolId: string): number {
     return Math.floor(this.dailyInflow() * (this.shares().get(poolId)?.pct ?? 0) / 100);
+  }
+
+  /** GET /api/finance: received, used, expired, left, overdrawn and a 30-day projection (finance.ts). */
+  finance(now = new Date()): FinanceSummary {
+    return townFinance(this.repos, now);
   }
 
   summary(): BankSummary {
