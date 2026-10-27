@@ -24,6 +24,7 @@ import { flagTargets } from "./panels/flag";
 import { BankPanel } from "./panels/BankPanel";
 import { GrantPanel } from "./panels/GrantPanel";
 import { HowItWorks, howItWorksSeen } from "./panels/HowItWorks";
+import { ManualSheet } from "./panels/Manual";
 import { isDocHash, startDocRoutes } from "./route";
 
 type TownHooks = { teleportTo(agentId: string): boolean; walkTo(placeId: string): boolean; openPanel(kind: PanelKind, id?: string): void; townMap(): void; store: typeof store };
@@ -171,12 +172,16 @@ function PanelHost({ panel }: { panel: PanelRef }) {
     case "grant": return <GrantPanel key={panel.id} id={panel.id!} />;
     case "schedule": return <SchedulePanel />;
     case "mod": return <ModStationPanel />;
+    case "manual": return null; // a paper sheet over the town, not a side panel (App)
   }
 }
 
 export function App() {
   const [phase, setPhase] = useState<Phase>({ k: "booting" });
-  const panel = useTown((s) => s.panel);
+  const open = useTown((s) => s.panel);
+  // the manual is a paper sheet over the town; the side panel and the map's inset ignore it
+  const manual = open?.kind === "manual" ? open : null;
+  const panel = manual ? null : open;
   const ready = useTown((s) => !!s.grid);
   const [target, setTarget] = useState<Target | null>(null);
   const [saying, setSaying] = useState(false);
@@ -237,7 +242,7 @@ export function App() {
     <div className="app">
       <MapCanvas panelInset={panel ? pw : 0} onTarget={setTarget} onMove={onMove} />
       {!ready ? <div className="loading-screen"><div className="spin big" /><div>Entering town…</div></div> : null}
-      <Hud onPasteToken={() => setPhase({ k: "login" })} onHelp={() => setHelp(true)} />
+      <Hud onPasteToken={() => setPhase({ k: "login" })} onHelp={() => store.open({ kind: "manual" })} />
       <Minimap />
       <div className="bottom" style={{ right: panel ? pw : 0 }}>
         <Hint target={target} saying={saying || flagHere !== undefined} canFlag={canFlag && !guest} />
@@ -249,6 +254,7 @@ export function App() {
       <PlanToolbar />
       <Toasts />
       {help && ready ? <HowItWorks onClose={() => setHelp(false)} /> : null}
+      {manual && ready ? <ManualSheet section={manual.id} /> : null}
       {isMock ? <div className="mock-badge" title="VITE_MOCK=1: in-memory fake server">mock</div> : null}
     </div>
   );

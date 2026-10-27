@@ -1,7 +1,7 @@
 /**
  * The in-town "How this works" overlay: one page, your first minute (watch, then sign in). What Muster Town is and how
  * it is funded moved to the homepage's pitch card (home/HomeCard.tsx); the HUD's "Muster Town" kicker leads there.
- * Shown once per browser (localStorage), dismissable, reopened from the HUD's "?".
+ * Shown once per browser (localStorage), dismissable; it links the operating manual (`/#/manual`), which the HUD's "?" opens.
  */
 import { useMemo } from "react";
 import { signInWithGithub, useAuth } from "../auth/auth";
@@ -24,6 +24,7 @@ function Start({ onConnect }: { onConnect: () => void }) {
       <Scene kind="talk" />
       <Arrow n={2}>Sign in with GitHub to talk and review</Arrow>
       <Scene kind="connect" />
+      <p className="hiw-byoa"><a href="#/manual" onClick={onConnect}>Read the operating manual</a> for everything else.</p>
       <p className="hiw-byoa">Have your own Claude Code? <a href="#/connect" onClick={onConnect}>Connect it</a> to work here too (<a href={BYOA_README} target="_blank" rel="noreferrer">how</a>).</p>
     </div>
   );
