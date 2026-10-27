@@ -431,9 +431,10 @@ ${open.map((g) => `The open proposal ${g.id} ("${g.objective}")`).join("; ")} na
     }
   }
 
-  /** POST /api/grants/:id/close: the manager may close (or withdraw) as `stopped`; `building.fund` any outcome. */
+  /** POST /api/grants/:id/close: the manager may close (or withdraw) as `stopped`, or as `done` (closeDone); `building.fund` any outcome. */
   close(actor: Actor, id: string, input: CloseGrantInput): GrantView {
     const inp = CloseGrantInput.parse(input);
+    if (inp.outcome === "done") return this.closeDone(actor, id, { note: inp.note });
     const g = this.world.grants.require(id, "grant");
     if (actor && !this.world.permissions.can(actor, "building.fund", g.buildingId)) {
       if (inp.outcome !== "stopped") throw forbidden("building.fund", `Only a human who can fund this building can close a grant as "${inp.outcome}"; a manager can close it as "stopped".`);
@@ -444,6 +445,39 @@ ${open.map((g) => `The open proposal ${g.id} ("${g.objective}")`).join("; ")} na
     const next = this.save(g, actor, { status: "closed", outcome: inp.outcome, closedAt: nowIso() }, "close", null, inp.note);
     this.event("grant.closed", next, actor, `Closed (${inp.outcome}): ${next.objective}`);
     return this.view(next);
+  }
+
+  /**
+   * The manager's `close_grant` (and POST /api/grants/:id/close with outcome "done"): the work is done before the grant is spent, so the manager
+   * closes a funded (or checkpoint) grant as `closed`, outcome `done`, and claims its key result with the note as evidence
+   * (Mitchell, town hall mt_6830h8x5qk decision 3). The unspent rest goes back to the Bank by construction: reservations
+   * only count live grants. The grant then waits in the Town Hall in-tray until a human marks its key result met or missed.
+   * `reportId` links the close report (`checkpointDocId`); without it the manager's next rollup this session links itself.
+   */
+  closeDone(actor: Actor, grantId: string, input: { note: string; reportId?: string | null }): GrantView {
+    const g = this.world.grants.require(grantId, "grant");
+    // the manager (close_grant) or a human who can fund the building (the web "Close grant" button)
+    if (actor && !this.world.permissions.can(actor, "building.manage", g.buildingId) && !this.world.permissions.can(actor, "building.fund", g.buildingId)) throw forbidden("building.manage");
+    if (TERMINAL.includes(g.status)) throw new AppError("conflict", `This grant is already ${g.status}.`);
+    this.requireStatus(g, LIVE, "closed as done");
+    const note = (input.note ?? "").trim();
+    if (!note) throw badRequest("Give the evidence that the work is done (note).");
+    if (input.reportId) {
+      const d = this.world.docs.get(input.reportId);
+      if (!d || d.type !== "report" || d.buildingId !== g.buildingId) throw badRequest(`${input.reportId} is not a report of this building.`);
+    }
+    const grantTokens = g.grantTokens ?? 0;
+    const spentTokens = this.spent(g.id);
+    const unspentTokens = Math.max(0, grantTokens - spentTokens);
+    const returned = `returned ${fmt(unspentTokens)} unspent tokens to the Bank`;
+    return this.world.transaction(() => {
+      const next = this.save(g, actor, { status: "closed", outcome: "done", closedAt: nowIso(), ...(input.reportId && { checkpointDocId: input.reportId }) }, "close", unspentTokens,
+        `${note} (spent ${fmt(spentTokens)} of ${fmt(grantTokens)}; ${returned})`);
+      if (g.keyResultId) this.updateKeyResult(actor, g.keyResultId, { status: "claimed", note });
+      this.event("grant.closed", next, actor, `Closed (done): ${next.objective}; ${returned}`, { outcome: "done", spentTokens, grantTokens, unspentTokens });
+      this.notifyFunders(next, actor, `The manager closed the grant "${next.objective}" as done: ${note} It spent ${fmt(spentTokens)} of ${fmt(grantTokens)} tokens and ${returned}. Mark its key result met or missed in the Town Hall in-tray.`);
+      return this.view(next);
+    });
   }
 
   /**
@@ -735,10 +769,10 @@ Key result (on the building goal): ${kr}${k ? "; it has no funded grant now, so 
     return this.world.grants.upsert({ ...g, ...patch, history: [...g.history, this.entry(actor, action, tokens, note)], updatedAt: nowIso() });
   }
 
-  private event(type: EventType, g: Grant, actor: Actor, text: string): void {
+  private event(type: EventType, g: Grant, actor: Actor, text: string, extra: Record<string, unknown> = {}): void {
     // action: the history entry that made it (fund, continue, adjust, cut, close…); the manager in-tray rule reads it (core/src/wakes.ts)
     const action = g.history.at(-1)?.action ?? null;
-    this.world.events.append({ type, agentId: actor?.id ?? null, buildingId: g.buildingId, text, payload: { grantId: g.id, status: g.status, action } });
+    this.world.events.append({ type, agentId: actor?.id ?? null, buildingId: g.buildingId, text, payload: { grantId: g.id, status: g.status, action, ...extra } });
   }
 
   /** Inbox note to every human (avatar) who can fund the building. */

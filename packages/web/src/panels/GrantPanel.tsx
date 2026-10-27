@@ -62,7 +62,7 @@ function History({ grant: g }: { grant: GrantView }) {
           <li key={i}>
             <time title={h.at}>{clock(h.at)}</time>
             <span>
-              <b>{nameOf(h.byId)}</b> {h.action}{h.tokens != null ? ` ${fmtTokens(h.tokens)} ${ADJ}` : ""} <span className="muted">· {timeAgo(h.at)}</span>
+              <b>{nameOf(h.byId)}</b> {h.action === "close" && h.tokens != null ? `closed, returned ${fmtTokens(h.tokens)} ${ADJ} unspent to the Bank` : `${h.action}${h.tokens != null ? ` ${fmtTokens(h.tokens)} ${ADJ}` : ""}`} <span className="muted">· {timeAgo(h.at)}</span>
               {h.note ? <div className="muted"><DocText text={h.note} /></div> : null}
             </span>
           </li>
