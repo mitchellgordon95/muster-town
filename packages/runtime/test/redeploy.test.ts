@@ -48,7 +48,7 @@ describe("redeploy", () => {
     h.r.redeploy({ image: true, requestedBy: "Pix" });
     await h.r.done();
     expect(h.runner.calls.some((c) => c.startsWith("docker"))).toBe(false);
-    expect(h.texts()).toContain("Redeploy: desk image … skipped (this host runs sandbox desks and has no desk-app deploy token, FLY_DESKS_ACCESS_TOKEN; push it from outside, see fly.desk.toml)");
+    expect(h.texts()).toContain("Redeploy: desk image … skipped (this host runs sandbox desks and has no desk-app deploy token, FLY_DESKS_ACCESS_TOKEN, in its env or Town Hall → Secrets; push it from outside, see fly.desk.toml)");
     expect(h.exit).toHaveBeenCalledWith(75);
   });
 

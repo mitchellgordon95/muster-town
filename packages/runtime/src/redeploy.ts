@@ -259,7 +259,7 @@ export function makeRedeployer(deps: RedeployDeps): Redeployer {
       return true;
     }
     if (o.image && !buildImage && !pushEnv) {
-      say("Redeploy: desk image … skipped (this host runs sandbox desks and has no desk-app deploy token, FLY_DESKS_ACCESS_TOKEN; push it from outside, see fly.desk.toml)", { step: "push desk image", phase: "end", ok: true, skipped: true });
+      say("Redeploy: desk image … skipped (this host runs sandbox desks and has no desk-app deploy token, FLY_DESKS_ACCESS_TOKEN, in its env or Town Hall → Secrets; push it from outside, see fly.desk.toml)", { step: "push desk image", phase: "end", ok: true, skipped: true });
     }
     if (!(await rebuild(lockChanged))) return;
 

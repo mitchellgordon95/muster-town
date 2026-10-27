@@ -434,9 +434,10 @@ export function startRuntime(opts: RuntimeOptions): Runtime {
     world, repoRoot: ctx.repoRoot, collective: dockerSafe(collectiveSlug), image: desks.image,
     // sandbox-desk hosts (Fly) have no docker: the desk image is built and pushed from outside the town
     imageBuild: !sandboxProvider,
-    // ...unless the host has the desk app's deploy token: then it pushes the image itself (Fly's remote builder) and recreates idle desks
+    // ...unless the host has the desk app's deploy token: then it pushes the image itself (Fly's remote builder) and recreates idle desks.
+    // The token is a host env var or, failing that, the collective secret of the same name set at Town Hall → Secrets.
     imagePushEnv: () => {
-      const token = sandboxProvider ? process.env.FLY_DESKS_ACCESS_TOKEN?.trim() : "";
+      const token = sandboxProvider ? (process.env.FLY_DESKS_ACCESS_TOKEN?.trim() || world.secrets.value("FLY_DESKS_ACCESS_TOKEN")?.trim()) : "";
       return token ? { FLY_ACCESS_TOKEN: token, FLY_APP: process.env.FLY_APP || "muster-desks" } : null;
     },
     recreateDesks: async () => {
