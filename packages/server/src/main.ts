@@ -10,7 +10,8 @@ import { basename, dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { buildApp } from "./app.ts";
 import { BackupJob } from "./backup/index.ts";
-import { loadAuthSettings } from "./auth/index.ts";
+import { loadAuthSettings, sessionSecretFile } from "./auth/index.ts";
+import { Hub } from "./hub.ts";
 import { desksFromEnv, loadEnvFile } from "./env.ts";
 import type { RuntimeHooks } from "./context.ts";
 
@@ -28,6 +29,8 @@ const DATA_DIR = resolve(REPO_ROOT, townEnv("DATA") ?? join(COLLECTIVE_DIR, "dat
 // world.export() and the export route read it back through townEnv; set both names so either spelling sees it
 process.env.MUSTER_TOWN_EXPORT = process.env.AGENT_TOWN_EXPORT = resolve(REPO_ROOT, townEnv("EXPORT") ?? join(COLLECTIVE_DIR, "export"));
 // opt-in only: dev mode hands the admin token to any local browser that asks (`npm run dev` sets it)
+/** the hosted collectives (docs/hosted-collectives.md): hub.db and one dir per collective, beside the Workshop's dir (/data/hosted on Fly) */
+const HOSTED_DIR = resolve(DATA_DIR, "../..", "hosted");
 const DEV = ["1", "true", "yes"].includes((townEnv("DEV") ?? "").trim().toLowerCase());
 
 async function main() {
@@ -51,7 +54,15 @@ async function main() {
   const auth = loadAuthSettings({ dataDir: DATA_DIR, port: PORT });
   // off-site backup (deploy/README.md "Backups"): local copies beside the data dir (/data/workshop/backups on Fly); inert without the env
   const backup = new BackupJob({ db: world.db, dir: resolve(DATA_DIR, "..", "backups") });
-  const app = await buildApp({ world, dev: DEV, auth, collective: basename(COLLECTIVE_DIR), backup });
+  // each hosted collective: its own World and app under /<slug>, no runtime (no sessions until step 3), no GitHub login
+  // (step 2), its own session secret and export dir
+  const hub = new Hub(HOSTED_DIR, (w, row, dir) => buildApp({
+    world: w, dev: DEV, runtime: null, prefix: `/${row.slug}`, exportDir: join(dir, "export"),
+    auth: { ...auth, githubClientId: null, githubClientSecret: null, sessionSecret: sessionSecretFile(join(dir, "data")) },
+  }));
+  await hub.openAll();
+  console.log(`[server] hub ${HOSTED_DIR}: ${hub.count} hosted collective(s)${hub.count ? ": " + hub.list("active").map((r) => "/" + r.slug + "/").join(", ") : ""}`);
+  const app = await buildApp({ world, dev: DEV, auth, collective: basename(COLLECTIVE_DIR), backup, hub });
   await app.listen({ port: PORT, host: HOST });
   const url = `http://localhost:${PORT}`;
   console.log(`[server] Muster Town at ${url} (dev=${DEV})`);

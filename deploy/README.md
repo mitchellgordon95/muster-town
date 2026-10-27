@@ -13,7 +13,7 @@ alternative; that box was deleted.
   The image (`deploy/fly/Dockerfile`) is only the runtime plus a baked copy of the checkout for the first boot. `deploy/fly/entrypoint.sh` is the
   supervisor: it restarts the server when it exits 75, so the town's own `redeploy` (git pull, install, build, drain) keeps working unchanged.
 - **Config:** `fly.town.toml` (env, volume, health check). Desk backend and callback URL come from `MUSTER_TOWN_DESKS` (JSON) in its `[env]`,
-  so the Mac's dev `collective.json` keeps docker desks; `maxRunning` is not in it (a live setting, kept in the database). Secrets are Fly secrets
+  so the Mac's dev `collective.json` keeps docker desks; `maxRunning` is not in it (a live setting kept in the database, default 30: Planning → System → Session slots, or `PUT /api/town/desks {"maxRunning":N}`; a stored value is kept). Secrets are Fly secrets
   (`fly secrets list -a muster-town`): `CLAUDE_CODE_OAUTH_TOKEN`, `ANTHROPIC_API_KEY`, `GITHUB_CLIENT_ID/SECRET`, `AGENT_TOWN_ADMINS`,
   `MUSTER_TOWN_DATA_KEY`, `FLY_API_TOKEN` (the desks app's deploy token). No `DESK_ENV_*`: the runtime dropped that fallback on 2026-10-25;
   tool credentials for desks are Town Hall secrets with grants (docs/secrets.md).
@@ -175,7 +175,7 @@ Open internet out, per-second billing, no prepayment. Code: `packages/runtime/sr
   destroys every idle resident's desk Machine (`DELETE /machines/<id>?force=true`; the `deskhome-*` volumes stay), so the next session creates it from the new `:desk`.
   By hand: `FLY_ACCESS_TOKEN=<token> bash scripts/fly-desk-image.sh`, then `fly machine destroy --force <id>` per desk-* Machine (never `fly volumes destroy`):
   starting a stopped Machine keeps its old image.
-- **Config:** `"desks": { "backend": "fly", "townUrl": "https://<where the town is reachable from the internet>", "maxRunning": 6 }`.
+- **Config:** `"desks": { "backend": "fly", "townUrl": "https://<where the town is reachable from the internet>" }`; leave `maxRunning` out (default 30, a live setting; see Config above).
   Optional: `snapshot` (an image ref; default `registry.fly.io/$FLY_APP:desk`), `region` (default `iad`), `cpuKind` (`shared`|`performance`), `cpus`, `memoryMb`.
 - **Model:** one Machine per agent (`desk-<collective>-<agent>`) with a 5 GB volume mounted at `/home/agent`. A Machine stops after the session
   (and by itself after 6 h at the latest); a stopped one costs only its root disk, and its volume persists. A session is started in the background

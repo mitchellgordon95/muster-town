@@ -3,7 +3,10 @@
  * and the town MCP server → activity posts → control polling (interrupts, stop) → session-end.
  * Exit codes: 0 normal, 2 stopped, 1 error.
  */
+import { existsSync, readdirSync, readFileSync } from "node:fs";
 import { homedir } from "node:os";
+import { join } from "node:path";
+import { brotliCompressSync, constants } from "node:zlib";
 import { SPEND_LIMIT, townEnv } from "@muster-town/schema";
 import type { DeskActivityInput, DeskBrief, DeskSessionEndInput, DeskWorkspace } from "./contract.ts";
 import { blocksOf, InputChannel, noUsage, plusUsage, usageOf, type LooseMessage, type Options, type QueryHandle, type Sdk, type Usage } from "./sdk.ts";
@@ -23,6 +26,8 @@ export interface RunDeps {
   sdk: Sdk;
   env?: NodeJS.ProcessEnv;
   log?: (line: string) => void;
+  /** where the SDK writes transcripts (tests); default $CLAUDE_CONFIG_DIR or ~/.claude */
+  claudeDir?: string;
   /** override workspace setup (tests); default runs git/gh/npm */
   setupWorkspace?: (ws: DeskWorkspace, brief: DeskBrief) => string;
   controlIntervalMs?: number;
@@ -76,6 +81,26 @@ export function failoverEnv(base: Record<string, string>, key: string): Record<s
   return { ...rest, ANTHROPIC_API_KEY: key };
 }
 
+/**
+ * The JSONL the Agent SDK wrote for each of `sdkSessionIds` (`<claudeDir>/projects/<cwd slug>/<id>.jsonl`), joined in
+ * order (a failover rerun is a second SDK session), or null when none is on disk.
+ */
+export function readTranscript(claudeDir: string, sdkSessionIds: string[]): Buffer | null {
+  const root = join(claudeDir, "projects");
+  if (!sdkSessionIds.length || !existsSync(root)) return null;
+  const parts: Buffer[] = [];
+  for (const id of sdkSessionIds) {
+    for (const d of readdirSync(root)) {
+      const f = join(root, d, `${id}.jsonl`);
+      if (!existsSync(f)) continue;
+      const b = readFileSync(f);
+      parts.push(b.length && b[b.length - 1] !== 0x0a ? Buffer.concat([b, Buffer.from("\n")]) : b);
+      break;
+    }
+  }
+  return parts.length ? Buffer.concat(parts) : null;
+}
+
 export async function runSession(sessionId: string, deps: RunDeps): Promise<number> {
   const { town, sdk } = deps;
   const env = deps.env ?? process.env;
@@ -87,6 +112,8 @@ export async function runSession(sessionId: string, deps: RunDeps): Promise<numb
   let finalText = "";
   let error: string | null = null;
   let sdkSessionId: string | null = null;
+  /** every SDK session this town session ran (two after a failover), for the transcript upload */
+  const sdkSessionIds: string[] = [];
   let reportSubmitted = false;
   let stopped = false;
   /** the session hit the subscription's limit and reran on the fallback API key */
@@ -229,7 +256,7 @@ export async function runSession(sessionId: string, deps: RunDeps): Promise<numb
       try {
         for await (const raw of query) {
           const m = raw as LooseMessage;
-          if (m.session_id && !sdkSessionId) sdkSessionId = m.session_id;
+          if (m.session_id && !sdkSessionId) { sdkSessionId = m.session_id; sdkSessionIds.push(m.session_id); }
           if (m.type === "assistant") {
             for (const b of blocksOf(m)) {
               if (b.type === "tool_use" && b.name) {
@@ -302,6 +329,18 @@ export async function runSession(sessionId: string, deps: RunDeps): Promise<numb
     input.close();
     await polling;
     await flush();
+  }
+
+  // ---- transcript (docs/transcripts.md): best effort, before session-end so a restart right after can't cut it ----
+  try {
+    const raw = readTranscript(deps.claudeDir ?? (env.CLAUDE_CONFIG_DIR || join(homedir(), ".claude")), sdkSessionIds);
+    if (raw) {
+      const br = brotliCompressSync(raw, { params: { [constants.BROTLI_PARAM_QUALITY]: 9, [constants.BROTLI_PARAM_SIZE_HINT]: raw.length } });
+      await town.transcript(sessionId, br);
+      log(`transcript uploaded (${raw.length} bytes, ${br.length} compressed)`);
+    } else if (sdkSessionIds.length) log("transcript not found on disk");
+  } catch (e) {
+    log(`transcript upload failed: ${errMsg(e)}`);
   }
 
   // ---- 9. session-end ----

@@ -2,6 +2,9 @@
  * One agent session over the town MCP endpoint: start → stream SDK messages into events →
  * end + charge. Work/review/facilitation sessions all go through `runAgentSession`.
  */
+import { existsSync, readdirSync, readFileSync } from "node:fs";
+import { homedir } from "node:os";
+import { join } from "node:path";
 import type { DesksConfig } from "@muster-town/schema";
 import type { World } from "@muster-town/core";
 import { rawTokens, splitRaw, VERB_NAMES, type AllocationAuth, type Session, type VerbName } from "@muster-town/schema";
@@ -23,6 +26,8 @@ export interface Ctx {
   deskAllocations: Map<string, string | null>;
   /** desk sessions' fallback allocation (charged instead when the desk failed over to the API key), by sessionId */
   deskFallbacks: Map<string, string | null>;
+  /** where host sessions' Agent SDK writes its JSONL (tests); default $CLAUDE_CONFIG_DIR or ~/.claude */
+  claudeDir?: string;
   /** register background work so tests (and stop()) can await it */
   track<T>(p: Promise<T>): Promise<T>;
 }
@@ -169,6 +174,28 @@ export const clipJson = (v: unknown, n = 500) => {
   try { const s = JSON.stringify(v); return s.length > n ? s.slice(0, n) + "…" : s; } catch { return ""; }
 };
 
+/** The SDK's JSONL for `sdkSessionId` under `<claudeDir>/projects/<cwd slug>/`, or null. */
+export function findSdkTranscript(claudeDir: string, sdkSessionId: string): Buffer | null {
+  const root = join(claudeDir, "projects");
+  if (!existsSync(root)) return null;
+  for (const d of readdirSync(root)) {
+    const f = join(root, d, `${sdkSessionId}.jsonl`);
+    if (existsSync(f)) return readFileSync(f);
+  }
+  return null;
+}
+
+/** Keep a host session's transcript in the town (docs/transcripts.md). Best effort: a failure is logged, never thrown. */
+export function keepHostTranscript(ctx: Ctx, session: Session, sdkSessionId: string | null): void {
+  if (!sdkSessionId) return;
+  try {
+    const raw = findSdkTranscript(ctx.claudeDir ?? (process.env.CLAUDE_CONFIG_DIR || join(homedir(), ".claude")), sdkSessionId);
+    if (raw?.length) ctx.world.transcripts.put(session, raw, { compressed: false, source: "host" });
+  } catch (e) {
+    ctx.world.events.append({ type: "system", agentId: session.agentId, text: `Transcript for session ${session.id} not kept: ${e instanceof Error ? e.message : String(e)}`.slice(0, 300), payload: { transcript: false, sessionId: session.id } });
+  }
+}
+
 export async function runAgentSession(ctx: Ctx, spec: SessionSpec): Promise<SessionOutcome> {
   const { world } = ctx;
   const agent = world.agents.require(spec.agentId, "agent");
@@ -236,6 +263,7 @@ export async function runAgentSession(ctx: Ctx, spec: SessionSpec): Promise<Sess
   }
   if (!live.reportSubmitted && world.sessions.get(session.id)?.reportId) live.reportSubmitted = true;
 
+  keepHostTranscript(ctx, session, sdkSessionId);
   const outcome: SessionOutcome = { ...usage, sdkSessionId, session, finalText, error, reportSubmitted: live.reportSubmitted, stopped: live.stopped };
   if (spec.finish) {
     outcome.session = await spec.finish(outcome, funding.allocationId);

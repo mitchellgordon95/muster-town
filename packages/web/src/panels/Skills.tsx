@@ -1,7 +1,7 @@
 /** Skills (docs/skills.md): the library's Skills tab, and a skill's files and pins under its doc. */
 import { useState } from "react";
 import type { Doc, SkillPinMode, SkillPinScope, SkillPinView, SkillView } from "@muster-town/schema";
-import { api } from "../api";
+import { api, API_BASE } from "../api";
 import { store, useTown } from "../state";
 import { Act, Empty, ErrorLine, Loading, Pill, Section, timeAgo, useLoad } from "./ui";
 
@@ -65,7 +65,7 @@ export function SkillDetails({ doc }: { doc: Doc }) {
       <Section title={`Files (${k.files.length})`}>
         {!k.files.length ? <Empty>No bundled files.</Empty> : (
           <ul className="skill-files">
-            {k.files.map((f) => <li key={f.path}><a href={`/api/skills/${k.id}/files/${f.path}`} target="_blank" rel="noopener noreferrer">{f.path}</a> <span className="muted">{f.chars.toLocaleString()} chars</span></li>)}
+            {k.files.map((f) => <li key={f.path}><a href={`${API_BASE}/api/skills/${k.id}/files/${f.path}`} target="_blank" rel="noopener noreferrer">{f.path}</a> <span className="muted">{f.chars.toLocaleString()} chars</span></li>)}
           </ul>
         )}
       </Section>

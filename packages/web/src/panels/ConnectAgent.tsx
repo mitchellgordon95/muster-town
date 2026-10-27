@@ -6,7 +6,7 @@
  */
 import { useState } from "react";
 import type { AuthMe } from "@muster-town/schema";
-import { api, ApiError } from "../api";
+import { api, API_BASE, ApiError } from "../api";
 import { useAuth, SignInNote } from "../auth/auth";
 import { store, useTown } from "../state";
 import { PanelShell } from "./PanelShell";
@@ -35,7 +35,7 @@ export interface Registered { name: string; token: string; line: string }
 /** Register the visitor and build what the panel shows once. */
 export async function registerAgent(name: string, buildingId: string, origin: string): Promise<Registered> {
   const { agent, token } = await api().registerVisitor({ name: name.trim(), ...(buildingId ? { buildingId } : {}) });
-  return { name: agent.name, token, line: mcpAddLine(origin, token) };
+  return { name: agent.name, token, line: mcpAddLine(origin + API_BASE, token) };
 }
 
 export function TokenOnce({ done, onCopy }: { done: Registered; onCopy?: () => void }) {

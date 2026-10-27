@@ -218,7 +218,7 @@ function TalkTab({ agent }: { agent: Agent }) {
           ["Model", sess?.model ?? agent.model ?? building?.model ?? "default"],
           ["Today", <>{fmtTokens(agent.spentTokensToday)}{daily ? <> / {fmtTokens(daily)} <Meter v={agent.spentTokensToday / daily} /></> : null}</>],
           ["Total", `${fmtTokens(agent.spentTokensTotal)} ${ADJ} · ${usd(agent.spentUsdTotal)}`],
-          ...(sess ? [["Session", <><Pill tone={sess.status === "running" ? "ok" : sess.status === "error" ? "bad" : ""}>{sess.status}</Pill> {sess.purpose} · started {timeAgo(sess.startedAt)} · {sess.turns} turns · <span title={breakdownTitle(sess)}>{fmtTokens(sess.adjustedOutputTokens ?? 0)} {ADJ}</span> · {usd(sess.costUsd)}</>] as [string, ReactNode]] : [["Last active", timeAgo(agent.lastActiveAt)] as [string, ReactNode]]),
+          ...(sess ? [["Session", <><Pill tone={sess.status === "running" ? "ok" : sess.status === "error" ? "bad" : ""}>{sess.status}</Pill> {sess.purpose} · started {timeAgo(sess.startedAt)} · {sess.turns} turns · <span title={breakdownTitle(sess)}>{fmtTokens(sess.adjustedOutputTokens ?? 0)} {ADJ}</span> · {usd(sess.costUsd)}{s.data?.transcriptFile ? <> · <a href={s.data.transcriptFile.url} title={`${s.data.transcriptFile.lines} lines · kept until ${s.data.transcriptFile.expiresAt.slice(0, 10)}`} onClick={(e) => { e.preventDefault(); void api().openTranscript?.(s.data!.transcriptFile!.url).catch((err: Error) => store.toast(err.message, "bad")); }}>transcript</a></> : null}</>] as [string, ReactNode]] : [["Last active", timeAgo(agent.lastActiveAt)] as [string, ReactNode]]),
         ]} />
       ) : null}
       {agent.activity ? <div className="now"><span className="dot" /> {agent.activity}</div> : null}

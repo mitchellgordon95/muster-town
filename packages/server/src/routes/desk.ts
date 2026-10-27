@@ -2,7 +2,7 @@
  * Agent-scoped API for desks (bearer **agent** token): the process inside an agent's container fetches its
  * brief, streams activity, polls control (interrupts + stop), and reports the end of its work session.
  */
-import { AppError, composeWorkBrief } from "@muster-town/core";
+import { AppError, TRANSCRIPT_MAX_UPLOAD, composeWorkBrief } from "@muster-town/core";
 import { DeskActivityInput, DeskControlAckInput, DeskSessionEndInput, type Agent, type DeskControl, type Session } from "@muster-town/schema";
 import type { FastifyInstance, FastifyRequest } from "fastify";
 import { z } from "zod";
@@ -18,6 +18,7 @@ function requireAgent(req: FastifyRequest): Agent {
 
 export async function deskRoutes(app: FastifyInstance) {
   const world = app.world;
+  app.addContentTypeParser("application/x-brotli", { parseAs: "buffer", bodyLimit: TRANSCRIPT_MAX_UPLOAD + 1024 }, (_req, body, done) => done(null, body));
 
   /** The caller's session, or 403 (unknown sessions are 403 too: don't leak ids). */
   const ownSession = (agent: Agent, sessionId: string, needRunning: boolean): Session => {
@@ -75,5 +76,18 @@ export async function deskRoutes(app: FastifyInstance) {
     const { session: _id, ...outcome } = input;
     const session = await app.runtime.finishWorkSession(s.id, outcome);
     return { session };
+  });
+
+  /**
+   * The session's SDK transcript (docs/transcripts.md): the brotli of the JSONL the Agent SDK wrote, as the raw body
+   * (Content-Type application/x-brotli). The desk sends it just before session-end; a later upload replaces it.
+   */
+  app.post("/api/agents/me/transcript", async (req, reply) => {
+    const agent = requireAgent(req);
+    const { session } = parse(SessionQuery, req.query);
+    const s = ownSession(agent, session, false);
+    if (!Buffer.isBuffer(req.body)) throw new AppError("bad_request", "Send the brotli JSONL as the raw body with Content-Type application/x-brotli.");
+    const transcript = world.transcripts.put(s, req.body, { compressed: true, source: "desk" });
+    return reply.code(201).send({ transcript });
   });
 }

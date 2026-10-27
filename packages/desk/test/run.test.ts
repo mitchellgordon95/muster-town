@@ -1,3 +1,7 @@
+import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { brotliDecompressSync } from "node:zlib";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { EXIT_ERROR, EXIT_OK, EXIT_STOPPED, runSession } from "../src/run.ts";
 import { TownClient } from "../src/town.ts";
@@ -19,6 +23,27 @@ beforeEach(async () => { town = await startFakeTown(); logs.length = 0; });
 afterEach(async () => { await town.close(); });
 
 describe("runSession", () => {
+  it("uploads the SDK's JSONL transcript (brotli) before session-end", async () => {
+    const claudeDir = mkdtempSync(join(tmpdir(), "desk-claude-"));
+    mkdirSync(join(claudeDir, "projects", "-home-agent-work"), { recursive: true });
+    writeFileSync(join(claudeDir, "projects", "-home-agent-work", "sdk-1.jsonl"), '{"type":"user"}\n{"type":"assistant"}');
+    town.briefs.set("s1", brief("s1"));
+    const sdk = fakeSdk(async function* () { yield assistant({ type: "text", text: "hi" }); });
+    await runSession("s1", deps(sdk, { claudeDir }));
+    expect(brotliDecompressSync(town.transcripts.get("s1")!).toString()).toBe('{"type":"user"}\n{"type":"assistant"}\n');
+    const i = town.requests.indexOf("POST /api/agents/me/transcript");
+    expect(i).toBeGreaterThan(0);
+    expect(i).toBeLessThan(town.requests.indexOf("POST /api/agents/me/session-end"));
+  });
+
+  it("skips the upload when the SDK left no transcript", async () => {
+    town.briefs.set("s1", brief("s1"));
+    const sdk = fakeSdk(async function* () { yield assistant({ type: "text", text: "hi" }); });
+    await runSession("s1", deps(sdk, { claudeDir: mkdtempSync(join(tmpdir(), "desk-claude-")) }));
+    expect(town.transcripts.size).toBe(0);
+    expect(town.ends).toHaveLength(1);
+  });
+
   it("fetches the brief, runs the query with bypassed permissions, posts activity and session-end", async () => {
     town.briefs.set("s1", brief("s1"));
     const sdk = fakeSdk(async function* () {

@@ -122,7 +122,9 @@ export async function agentRoutes(app: FastifyInstance) {
   app.get<{ Params: Params }>("/api/agents/:id/session", async (req) => {
     const agent = world.agents.require(req.params.id, "agent");
     const session = world.ops.currentSession(agent.id) ?? null;
-    return { session: session ? sessionView(session) : null, transcript: session ? sessionTranscript(world, session) : [] };
+    // transcriptFile: the kept SDK transcript (docs/transcripts.md), only for an admin, the building's manager or the agent
+    const file = session && req.auth && (canEditPermissions(req, agent) || world.transcripts.canRead(actorOf(world, req), session)) ? world.transcripts.info(session.id) : null;
+    return { session: session ? sessionView(session) : null, transcript: session ? sessionTranscript(world, session) : [], transcriptFile: file };
   });
 
   app.post<{ Params: Params }>("/api/agents/:id/work", async (req, reply) => {

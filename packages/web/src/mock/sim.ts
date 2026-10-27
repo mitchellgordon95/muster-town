@@ -66,7 +66,7 @@ export class Sim {
   /** the runtime's last docker probe (the mock starts with docker down, so the HUD's red notice shows) */
   dockerUp = false;
   /** the host's session cap (desks.maxRunning) */
-  maxRunning = 20;
+  maxRunning = 30;
 
   subscribe(fn: (m: ServerMessage) => void) { this.subs.add(fn); return () => this.subs.delete(fn); }
   emit(m: ServerMessage) { const c = clone(m); for (const s of this.subs) setTimeout(() => s(c), 0); }

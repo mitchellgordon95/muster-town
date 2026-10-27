@@ -3,9 +3,8 @@ import { mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import { CollectiveRegistry } from "@muster-town/schema";
 import { buildApp } from "../src/app.ts";
-import { DEFAULT_REGISTRY } from "../src/home.ts";
+import { PLACEHOLDER } from "../src/home.ts";
 
 describe("web client under /workshop/", () => {
   let app: Awaited<ReturnType<typeof buildApp>>;
@@ -64,31 +63,18 @@ describe("web client under /workshop/", () => {
 
 describe("collectives homepage and /api/collectives", () => {
   let world: World;
-  const dir = mkdtempSync(join(tmpdir(), "registry-"));
-  const reg = join(dir, "registry.json");
   beforeAll(() => {
     world = World.open(":memory:");
     world.town.set({ name: "Live Name", goal: "Live goal", tagline: "live <tagline>" });
   });
   afterAll(() => world.close());
-  const build = (registry: string) => buildApp({ world, webDist: false, registry });
 
-  it("the checked-in registry parses and lists the Workshop plus a placeholder", () => {
-    const { collectives } = CollectiveRegistry.parse(JSON.parse(readFileSync(DEFAULT_REGISTRY, "utf8")));
-    expect(collectives.find((c) => c.url === "/workshop/")).toBeTruthy();
-    expect(collectives.some((c) => c.placeholder)).toBe(true);
-  });
-
-  it("lists the registry, with this server's entry from the live town row", async () => {
-    writeFileSync(reg, JSON.stringify({ collectives: [
-      { slug: "workshop", name: "Old", tagline: "old", goal: "old", url: "/workshop/" },
-      { slug: "next", name: "Your collective here", tagline: "soon", placeholder: true },
-    ] }));
-    const app = await build(reg);
+  it("without hosted collectives: this server's entry from the live town row, then the placeholder", async () => {
+    const app = await buildApp({ world, webDist: false });
     const { collectives } = (await app.inject("/api/collectives")).json();
     expect(collectives).toEqual([
       { slug: "workshop", name: "Live Name", tagline: "live <tagline>", goal: "Live goal", url: "/workshop/" },
-      { slug: "next", name: "Your collective here", tagline: "soon", goal: "", url: "", placeholder: true },
+      { ...PLACEHOLDER },
     ]);
     const html = (await app.inject("/")).body;
     expect(html).toContain("Live Name");
@@ -102,29 +88,11 @@ describe("collectives homepage and /api/collectives", () => {
     await app.close();
   });
 
-  it("a second collective matches its own entry by slug: listed once, opening here; the Workshop's relative url is left out", async () => {
-    writeFileSync(reg, JSON.stringify({ collectives: [
-      { slug: "workshop", name: "Workshop Collective", url: "/workshop/" },
-      { slug: "garden", name: "Old", url: "http://localhost:4323/workshop/" },
-      { slug: "far", name: "Far", url: "https://far.example/workshop/" },
-    ] }));
-    const app = await buildApp({ world, webDist: false, registry: reg, collective: "garden" });
+  it("another collective dir lists itself by its own slug, opening here", async () => {
+    const app = await buildApp({ world, webDist: false, collective: "garden" });
     const { collectives } = (await app.inject("/api/collectives")).json();
-    expect(collectives.map((c: { slug: string; name: string; url: string }) => [c.slug, c.name, c.url])).toEqual([
-      ["garden", "Live Name", "/workshop/"],
-      ["far", "Far", "https://far.example/workshop/"],
-    ]);
+    expect(collectives.map((c: { slug: string; url: string }) => [c.slug, c.url])).toEqual([["garden", "/workshop/"], ["next", ""]]);
     expect((await app.inject("/")).body.match(/data-preview/g)).toHaveLength(1);
     await app.close();
-  });
-
-  it("a missing or invalid registry lists just this server's collective", async () => {
-    for (const path of [join(dir, "nope.json"), reg]) {
-      if (path === reg) writeFileSync(reg, "{ not json");
-      const app = await build(path);
-      const { collectives } = (await app.inject("/api/collectives")).json();
-      expect(collectives).toEqual([{ slug: "workshop", url: "/workshop/", name: "Live Name", tagline: "live <tagline>", goal: "Live goal" }]);
-      await app.close();
-    }
   });
 });

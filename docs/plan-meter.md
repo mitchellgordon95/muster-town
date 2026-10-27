@@ -44,5 +44,4 @@ Open: whether the five-hour window should hold sessions until it resets instead 
 ## Related facts from the same session
 
 - A work slot busy around the clock burns about 5M raw tokens an hour, roughly $3 an hour on the key.
-- A running desk costs about 0.2 GB of memory, 0.7 GB while compiling; idle desks cost nothing (Cleo's measurements,
-  dc_klkyolse8o and dc_fnlpbktrr5 in the workshop). `desks.maxRunning` caps concurrency (docs/architecture.md).
+- `desks.maxRunning` caps concurrency (default 30; docs/architecture.md).

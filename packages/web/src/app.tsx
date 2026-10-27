@@ -1,6 +1,6 @@
 /** Boot (auth, WS, snapshot), layout, global keys, dev hooks. */
 import { Component, useCallback, useEffect, useRef, useState, type ReactNode } from "react";
-import { api, ApiError, getApi, isMock, tokenStore, type Socket } from "./api";
+import { api, ApiError, getApi, isMock, tokenStore, WEB_ROOT, type Socket } from "./api";
 import { store, useTown, type PanelKind, type PanelRef } from "./state";
 import { layoutEdit } from "./map/layoutEdit";
 import { LayoutToolbar } from "./panels/LayoutToolbar";
@@ -239,7 +239,7 @@ export function App() {
     store.said.set(store.avatarId ?? "__me", { text, at: performance.now() });
   }, []);
 
-  if (phase.k === "login") return <Login error={phase.error} onDone={() => { location.href = import.meta.env.BASE_URL; }} onCancel={authStore.get().guest ? () => setPhase({ k: "ready" }) : undefined} />;
+  if (phase.k === "login") return <Login error={phase.error} onDone={() => { location.href = WEB_ROOT; }} onCancel={authStore.get().guest ? () => setPhase({ k: "ready" }) : undefined} />;
   return (
     <div className="app">
       <MapCanvas panelInset={panel ? pw : 0} onTarget={setTarget} onMove={onMove} />

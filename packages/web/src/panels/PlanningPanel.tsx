@@ -131,7 +131,7 @@ function Redeploy() {
   );
 }
 
-/** Session slots: how many work sessions the host runs at once (a running session costs ~0.2 GB, ~0.7 GB while compiling). */
+/** Session slots: how many work sessions the town runs at once (desks.maxRunning, default 30). */
 function Slots() {
   const slots = useTown((s) => s.health?.slots ?? null);
   const admin = useTown((s) => !!s.me?.isAdmin);
@@ -141,7 +141,7 @@ function Slots() {
   return (
     <Section title="Session slots">
       <p className="direction">
-        <b>{slots.running} of {slots.max}</b> work sessions running{full ? "; queued work is waiting for a free slot" : ""}. Each running session costs about 0.2 GB of memory (0.7 GB while it compiles); idle agents cost nothing. Raise the cap when the host grows, lower it to protect it.
+        <b>{slots.running} of {slots.max}</b> work sessions running{full ? "; queued work is waiting for a free slot" : ""}.
       </p>
       {admin ? (
         <div className="actions">

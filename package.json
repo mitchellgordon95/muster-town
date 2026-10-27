@@ -8,6 +8,7 @@
   "scripts": {
     "build": "npm run build -ws --if-present",
     "typecheck": "npm run typecheck -ws --if-present",
+    "check:docs": "tsx scripts/check-doc-refs.ts",
     "test": "npm run test -ws --if-present",
     "dev": "MUSTER_TOWN_DEV=1 npx tsx watch packages/server/src/main.ts",
     "start": "npm run build && npm run start:workshop",

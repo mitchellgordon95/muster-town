@@ -167,7 +167,7 @@ export interface Board {
 }
 
 export interface WriteDocInput { type?: DocType; title: string; body: string; state?: "draft" | "building"; tags?: string[] }
-export type RequestAction = "approve" | "reject" | "claim" | "done";
+export type RequestAction = "claim" | "done" | "delete";
 
 export interface Socket { send(msg: ClientMessage): void; close(): void }
 export interface SocketHandlers { onMessage(msg: unknown): void; onOpen(): void; onClose(): void }
@@ -233,7 +233,7 @@ export interface Api {
   setAgentPermissions(id: string, patch: { inheritsOwner?: boolean; deniedPermissions?: Permission[] }): Promise<Pick<AgentDetail, "agent" | "effectivePermissions" | "permissions">>;
   /** null = its home building's model */
   setAgentModel(id: string, model: string | null): Promise<Pick<AgentDetail, "agent" | "effectivePermissions" | "permissions">>;
-  session(id: string): Promise<{ session: SessionView | null; transcript: Event[] }>;
+  session(id: string): Promise<{ session: SessionView | null; transcript: Event[]; transcriptFile?: { url: string; bytes: number; lines: number; expiresAt: string } | null }>;
   work(id: string, input: In<typeof WorkInput>): Promise<Assignment | null>;
   /** Message the agent's session: queued for the next turn boundary, or `now` to stop the current turn first. */
   interrupt(id: string, text: string, now?: boolean): Promise<void>;
@@ -257,6 +257,8 @@ export interface Api {
   delegateAssignment(assignmentId: string, agentId: string, front?: boolean): Promise<{ assignment: Assignment; agent: Agent; from: Assignment }>;
   /** admin: how many work sessions may run at once on the host (queued work waits for a free slot) */
   setMaxRunning(maxRunning: number): Promise<{ desks: DesksConfig; slots: SessionSlots | null }>;
+  /** open a session transcript in a new tab (admins, the building's manager, the agent itself) */
+  openTranscript?(url: string): Promise<void>;
   // docs
   docs(q: DocQuery): Promise<Doc[]>;
   doc(id: string): Promise<Doc>;
@@ -284,7 +286,8 @@ export interface Api {
   putSecret(name: string, input: In<typeof PutSecretInput>): Promise<SecretView>;
   deleteSecret(name: string): Promise<{ removed: boolean }>;
   trophy(docId: string, approve: boolean): Promise<Doc>;
-  request(docId: string, action: RequestAction, body?: string): Promise<Doc>;
+  /** delete (moderators) resolves to null: the request is gone */
+  request(docId: string, action: RequestAction, body?: string): Promise<Doc | null>;
   // meetings
   meetings(q: { buildingId?: string; phase?: string }): Promise<Meeting[]>;
   /** open (or return) the human's 1:1 with the building's manager agent */
@@ -376,7 +379,7 @@ export class HttpApi implements Api {
     const t = this.token();
     if (t) headers.Authorization = `Bearer ${t}`;
     if (body !== undefined) headers["Content-Type"] = "application/json";
-    const res = await fetch(path, { method, headers, body: body === undefined ? undefined : JSON.stringify(body) });
+    const res = await fetch(API_BASE + path, { method, headers, body: body === undefined ? undefined : JSON.stringify(body) });
     const text = await res.text();
     let json: unknown = null;
     try { json = text ? JSON.parse(text) : null; } catch { json = text; }
@@ -442,7 +445,7 @@ export class HttpApi implements Api {
   agent(id: string) { return this.get<AgentDetail>(`/api/agents/${id}`); }
   setAgentPermissions(id: string, patch: { inheritsOwner?: boolean; deniedPermissions?: Permission[] }) { return this.call<Pick<AgentDetail, "agent" | "effectivePermissions" | "permissions">>("PATCH", `/api/agents/${id}/permissions`, patch); }
   setAgentModel(id: string, model: string | null) { return this.call<Pick<AgentDetail, "agent" | "effectivePermissions" | "permissions">>("PATCH", `/api/agents/${id}/model`, { model }); }
-  session(id: string) { return this.get<{ session: SessionView | null; transcript: Event[] }>(`/api/agents/${id}/session`); }
+  session(id: string) { return this.get<{ session: SessionView | null; transcript: Event[]; transcriptFile?: { url: string; bytes: number; lines: number; expiresAt: string } | null }>(`/api/agents/${id}/session`); }
   async work(id: string, i: In<typeof WorkInput>) { return unwrap<Assignment | null>(await this.post(`/api/agents/${id}/work`, i), "assignment"); }
   async interrupt(id: string, text: string, now = false) { await this.post(`/api/agents/${id}/interrupt`, { text, now }); }
   async chat(id: string, i: In<typeof ChatInput>) { return (await this.post<{ reply: string }>(`/api/agents/${id}/chat`, i)).reply; }
@@ -462,11 +465,20 @@ export class HttpApi implements Api {
   async review(id: string, i: In<typeof ReviewInput>) { return unwrap<Doc>(await this.post(`/api/docs/${id}/review`, i), "doc"); }
   async plantFlag(buildingId: string, text: string) { return unwrap<Doc>(await this.post(`/api/buildings/${buildingId}/flags`, { text }), "doc"); }
   reply(id: string, text: string) { return this.post<{ doc: Doc; assignment: Assignment | null }>(`/api/docs/${id}/reply`, { text }); }
+  /** Open a session transcript (docs/transcripts.md) in a new tab: fetched with the bearer token, shown as text. */
+  async openTranscript(url: string) {
+    const tab = window.open("", "_blank");
+    const t = this.token();
+    const res = await fetch(url, { headers: t ? { Authorization: `Bearer ${t}` } : {} });
+    if (!res.ok) { tab?.close(); throw new Error(((await res.json().catch(() => ({}))) as { error?: string }).error ?? `transcript: ${res.status}`); }
+    const blobUrl = URL.createObjectURL(new Blob([await res.text()], { type: "text/plain;charset=utf-8" }));
+    if (tab) tab.location.href = blobUrl; else window.location.href = blobUrl;
+  }
   async uploadMedia(file: Blob, alt = "") {
     const headers: Record<string, string> = { "Content-Type": file.type };
     const t = this.token();
     if (t) headers.Authorization = `Bearer ${t}`;
-    const res = await fetch(`/api/media${qs({ alt })}`, { method: "POST", headers, body: file });
+    const res = await fetch(`${API_BASE}/api/media${qs({ alt })}`, { method: "POST", headers, body: file });
     const json = await res.json().catch(() => ({})) as UploadedMedia & { error?: string; code?: string };
     if (!res.ok) throw new ApiError(json.error ?? `${res.status} ${res.statusText}`, json.code ?? "http", res.status);
     return json;
@@ -482,7 +494,7 @@ export class HttpApi implements Api {
   deleteSecret(name: string) { return this.call<{ removed: boolean }>("DELETE", `/api/secrets/${encodeURIComponent(name)}`); }
   unpinSkill(pinId: string) { return this.call<{ removed: boolean }>("DELETE", `/api/skill-pins/${pinId}`); }
   async trophy(id: string, approve: boolean) { return unwrap<Doc>(await this.post(`/api/docs/${id}/trophy`, { approve }), "doc"); }
-  async request(id: string, action: RequestAction, body?: string) { return unwrap<Doc>(await this.post(`/api/docs/${id}/request`, { action, body }), "doc"); }
+  async request(id: string, action: RequestAction, body?: string) { return unwrap<Doc | null>(await this.post(`/api/docs/${id}/request`, { action, body }), "doc"); }
   async meetings(q: { buildingId?: string; phase?: string }) { return unwrap<Meeting[]>(await this.get(`/api/meetings${qs(q)}`), "meetings"); }
   async createMeeting(i: In<typeof CreateMeetingInput>) { return unwrap<Meeting>(await this.post("/api/meetings", i), "meeting"); }
   async meeting(id: string) { return unwrap<Meeting>(await this.get(`/api/meetings/${id}`), "meeting"); }
@@ -522,7 +534,7 @@ export class HttpApi implements Api {
   async blocked() { return (await this.get<{ agents?: Record<string, BlockedAssignment[]> }>("/api/blocked")).agents ?? {}; }
 
   connect(h: SocketHandlers): Socket {
-    const url = `${location.protocol === "https:" ? "wss" : "ws"}://${location.host}/ws`;
+    const url = `${location.protocol === "https:" ? "wss" : "ws"}://${location.host}${API_BASE}/ws`;
     const ws = new WebSocket(url);
     ws.onopen = () => h.onOpen();
     ws.onclose = () => h.onClose();
@@ -535,6 +547,19 @@ export class HttpApi implements Api {
 }
 
 export const isMock = import.meta.env.VITE_MOCK === "1";
+
+/**
+ * Which collective this page belongs to, from its first path segment: the Workshop (served at the Vite base,
+ * `/workshop/`) talks to the root `/api`, `/ws`, `/mcp` and `/auth` (""), a hosted collective at `/<slug>/` to its own
+ * `/<slug>/api`, `/<slug>/ws`… (docs/hosted-collectives.md). Every server URL the client builds starts with it.
+ */
+export function collectivePrefix(pathname: string, base: string = import.meta.env.BASE_URL): string {
+  const seg = /^\/([^/]+)/.exec(pathname)?.[1];
+  return !seg || `/${seg}/` === base || base === "/" ? "" : `/${seg}`;
+}
+export const API_BASE = typeof location === "undefined" ? "" : collectivePrefix(location.pathname);
+/** where this collective's client lives (`/workshop/` or `/<slug>/`) */
+export const WEB_ROOT = API_BASE ? `${API_BASE}/` : import.meta.env.BASE_URL;
 
 let instance: Api | null = null;
 export async function getApi(): Promise<Api> {

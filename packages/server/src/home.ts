@@ -1,31 +1,29 @@
 import type { World } from "@muster-town/core";
-import { CollectiveRegistry, type Collective } from "@muster-town/schema";
+import type { Collective } from "@muster-town/schema";
 import { existsSync, readFileSync } from "node:fs";
-import { dirname, join, resolve } from "node:path";
-import { fileURLToPath } from "node:url";
+import { join } from "node:path";
 import { WEB_BASE } from "./context.ts";
+import type { HubCollective } from "./hub.ts";
 
-export const DEFAULT_REGISTRY = resolve(dirname(fileURLToPath(import.meta.url)), "../../../collectives/registry.json");
+/** The tile shown while no hosted collective exists yet. */
+export const PLACEHOLDER: Collective = {
+  slug: "next",
+  name: "Your collective here",
+  tagline: "A placeholder: the next collective, with its own goal, buildings and agents, will be listed here.",
+  goal: "",
+  url: "",
+  placeholder: true,
+};
 
 /**
- * The collectives on the homepage: `registry.json`, read on every request (an edit shows without a restart).
- * This server's own entry (slug = `self`, the collective dir's name; without `self`, the one at url = WEB_BASE) opens at
- * WEB_BASE and takes its name, tagline and goal from the live town row. Another entry at url = WEB_BASE would open this
- * server's town under the wrong name, so it is left out (give other collectives an absolute url). A missing or invalid
- * file lists just this server's collective.
+ * The collectives on the homepage: this server's own (slug `self`, at WEB_BASE, name, tagline and goal from the live
+ * town row), then the hub's active hosted collectives at `/<slug>/`; the placeholder tile while there are none.
  */
-export function collectives(world: World, registryPath: string, self?: string): Collective[] {
-  let list: Collective[] = [];
-  try {
-    if (existsSync(registryPath)) list = CollectiveRegistry.parse(JSON.parse(readFileSync(registryPath, "utf8"))).collectives;
-  } catch (e) {
-    console.warn(`[server] ignoring ${registryPath}: ${e instanceof Error ? e.message : String(e)}`);
-  }
+export function collectives(world: World, hosted: HubCollective[], self = "workshop"): Collective[] {
   const town = world.town.get();
-  const live = { name: town.name, tagline: town.tagline, goal: town.goal };
-  const isSelf = (c: Collective) => (self ? c.slug === self : c.url === WEB_BASE);
-  if (!list.some(isSelf)) list = [{ slug: self ?? (WEB_BASE.replace(/\//g, "") || "town"), url: WEB_BASE, ...live }, ...list];
-  return list.flatMap((c) => (isSelf(c) ? [{ ...c, ...live, url: WEB_BASE, placeholder: undefined }] : c.url === WEB_BASE ? [] : [c]));
+  const own: Collective = { slug: self, name: town.name, tagline: town.tagline ?? "", goal: town.goal ?? "", url: WEB_BASE };
+  const rest = hosted.map((h): Collective => ({ slug: h.slug, name: h.name, tagline: h.tagline, goal: h.goal, url: `/${h.slug}/` }));
+  return [own, ...(rest.length ? rest : [PLACEHOLDER])];
 }
 
 const esc = (s: string) => s.replace(/[&<>"']/g, (ch) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[ch]!);
@@ -48,6 +46,13 @@ export function homeBundleTags(dist: string | null): string {
   return (head.match(/<script type="module"[^>]*><\/script>|<link rel="(?:stylesheet|modulepreload)"[^>]*>/g) ?? []).join("\n");
 }
 
+/** The town snapshot a tile previews: the Workshop's root `/api/town`, a hosted collective's `/<slug>/api/town`. */
+function previewOf(c: Collective): string | undefined {
+  if (c.placeholder || !c.url) return undefined;
+  if (c.url === WEB_BASE) return "/api/town";
+  return /^\/[a-z0-9-]+\/$/.test(c.url) ? `${c.url}api/town` : undefined;
+}
+
 /** One square tile (the same markup as web/src/home/HomeCard.tsx `Tile`): this server's town gets a live preview. */
 function tile(c: Collective): string {
   const tag = c.tagline ? `\n  <p class="tile-tag">${esc(c.tagline)}</p>` : "";
@@ -56,7 +61,8 @@ function tile(c: Collective): string {
   <div class="tile placeholder"><span class="tile-soon">Coming soon</span><span class="tile-name">${esc(c.name)}</span></div>${tag}
 </li>`;
   }
-  const preview = c.url === WEB_BASE ? `<canvas class="tile-map" data-preview="/api/town" aria-hidden="true"></canvas><span class="tile-live"></span>` : "";
+  const src = previewOf(c);
+  const preview = src ? `<canvas class="tile-map" data-preview="${esc(src)}" aria-hidden="true"></canvas><span class="tile-live"></span>` : "";
   return `<li class="tile-item">
   <a class="tile" href="${esc(c.url)}">${preview}<span class="tile-name">${esc(c.name)}</span></a>${tag}
 </li>`;
@@ -68,7 +74,7 @@ function tile(c: Collective): string {
  */
 export function renderHome(list: Collective[], dist: string | null = null): string {
   // what the bundle needs: the list, and which tile previews this server's town
-  const data = list.map((c) => ({ slug: c.slug, name: c.name, tagline: c.tagline, url: c.url, placeholder: c.placeholder, preview: c.url === WEB_BASE && !c.placeholder ? "/api/town" : undefined }));
+  const data = list.map((c) => ({ slug: c.slug, name: c.name, tagline: c.tagline, url: c.url, placeholder: c.placeholder, preview: previewOf(c) }));
   return `<!doctype html>
 <html lang="en">
 <head>

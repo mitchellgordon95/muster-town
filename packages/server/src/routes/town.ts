@@ -1,6 +1,7 @@
 import { AppError, BANK_ACCOUNTING, accessRequestOf, boardDocs, canInteract, decideAccess, requestAccess, sessionView, cabinetCounts, cabinetDocs } from "@muster-town/core";
 import { AccessDecisionInput, AccessRequestInput, AddBankInput, CreateBankPoolInput, CreateBuildingInput, DesksPatch, UpdateBankPoolInput, DocType, DonateInput, LayoutInput, Membership, PlanInput, PlantFlagInput, RedeployInput, UpdateBuildingInput, townEnv, type AccessRequest, type AuthMe, type RedeployLive } from "@muster-town/schema";
 import type { FastifyInstance, FastifyRequest } from "fastify";
+import { brotliDecompressSync } from "node:zlib";
 import { z } from "zod";
 import { actorOf, adminToken, parse, requireAuth, requireUser, type Params } from "../context.ts";
 
@@ -33,7 +34,9 @@ export async function townRoutes(app: FastifyInstance) {
    */
   app.get("/api/health", async () => ({ ok: true, runtime: !!app.runtime, commit: world.host.commit ?? null, time: new Date().toISOString(), accounting: BANK_ACCOUNTING, load: app.load.snapshot(),
     // goal-directed budgets: exploration (held at its allowance) and directed (a human asked; metered, never held) today
-    budgets: world.grantDesk.laneBudgets(), backup: app.backup?.snapshot() ?? null }));
+    budgets: world.grantDesk.laneBudgets(), backup: app.backup?.snapshot() ?? null,
+    // the root app (the Workshop) only: how many hosted collectives this process serves at /<slug>/
+    ...(app.hub ? { hosted: { count: app.hub.count } } : {}) }));
 
   if (app.dev) {
     // only to a browser on this machine talking to the server directly: never through a proxy or tunnel
@@ -92,6 +95,37 @@ export async function townRoutes(app: FastifyInstance) {
       ? world.sessions.where("agentId = ?", [q.agentId], `ORDER BY startedAt DESC, rowid DESC LIMIT ${q.limit}`)
       : world.sessions.where("1 = 1", [], `ORDER BY startedAt DESC, rowid DESC LIMIT ${q.limit}`);
     return { sessions: rows.map(sessionView) };
+  });
+
+  /** Whether the caller may read a session's transcript: an admin, a manager of its building, or the session's agent. */
+  const canReadTranscript = (req: FastifyRequest, sessionId: string): boolean => {
+    const a = req.auth;
+    const s = world.sessions.get(sessionId);
+    if (!a || !s) return false;
+    if (a.kind === "user" && world.permissions.isAdmin({ kind: "user", id: a.user.id })) return true;
+    return world.transcripts.canRead(actorOf(world, req), s);
+  };
+
+  /** One session: `{ session, transcript }`; `transcript` (size, expiry, url) only for those who may read it, else null. */
+  app.get<{ Params: Params }>("/api/sessions/:id", async (req) => {
+    const s = world.sessions.require(req.params.id, "session");
+    return { session: sessionView(s), transcript: canReadTranscript(req, s.id) ? world.transcripts.info(s.id) : null };
+  });
+
+  /**
+   * The session's SDK transcript as JSONL (docs/transcripts.md), shown as text (`?download=1` saves it as a file).
+   * Admins, managers of the session's building and the session's agent; others get 403, a session without one 404.
+   */
+  app.get<{ Params: Params; Querystring: { download?: string } }>("/api/sessions/:id/transcript", async (req, reply) => {
+    const s = world.sessions.require(req.params.id, "session");
+    if (!req.auth) throw new AppError("unauthorized", "Sign in to read a session transcript.");
+    if (!canReadTranscript(req, s.id)) throw new AppError("forbidden", "Only an admin, a manager of the session's building or the agent itself can read its transcript.");
+    const data = world.transcripts.read(s.id);
+    if (!data) throw new AppError("not_found", `No transcript kept for session ${s.id}.`);
+    reply.header("content-type", "text/plain; charset=utf-8").header("x-content-type-options", "nosniff").header("cache-control", "private, no-store")
+      .header("content-disposition", `${req.query.download ? "attachment" : "inline"}; filename="${s.id}.jsonl"`);
+    if (/\bbr\b/.test(String(req.headers["accept-encoding"] ?? ""))) return reply.header("content-encoding", "br").send(data);
+    return reply.send(brotliDecompressSync(data));
   });
 
   // ---- buildings ----
@@ -308,7 +342,7 @@ export async function townRoutes(app: FastifyInstance) {
       throw new AppError("forbidden", "Only admins can run the export.");
     }
     requireAuth(req);
-    const r = world.export(townEnv("EXPORT") ?? "./export");
+    const r = world.export(app.exportDir ?? townEnv("EXPORT") ?? "./export");
     return { commit: r.commit, changed: r.changed, files: r.files, dir: r.dir };
   });
 
