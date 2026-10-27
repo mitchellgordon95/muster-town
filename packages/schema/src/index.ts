@@ -717,7 +717,8 @@ export const GrantStatus = z.enum([
   "rejected",
 ]);
 export type GrantStatus = z.infer<typeof GrantStatus>;
-export const GrantOutcome = z.enum(["met", "stopped", "spent", "cut"]);
+/** done: the manager closed it early because the work is done (close_grant); "met" stays the human's word on the key result */
+export const GrantOutcome = z.enum(["met", "stopped", "spent", "cut", "done"]);
 export type GrantOutcome = z.infer<typeof GrantOutcome>;
 export const GrantAction = z.enum(["propose", "counter", "fund", "reject", "checkpoint", "continue", "adjust", "cut", "close", "edit"]);
 export const GrantHistoryEntry = z.object({
@@ -1023,6 +1024,11 @@ export const VerbInputs = {
     status: z.enum(["not-started", "on-track", "at-risk", "claimed"]).optional().describe("the grant's key result's status (only a human marks met or missed)"),
     note: z.string().max(2000).default("").describe("the evidence for that status"),
   }),
+  close_grant: z.object({
+    grantId: Id.describe("a funded (or checkpoint) grant of my building whose work is done"),
+    note: z.string().trim().min(1).max(2000).describe("the evidence that the work is done: what a human can check in the live town; it becomes the key result's claimed note"),
+    reportId: Id.optional().describe("an already filed report with the evidence; leave it out when you close first and then submit_report with rollup: true in this session (that report links itself as the close report)"),
+  }),
   set_key_result: z.object({
     buildingId: Id.optional().describe("defaults to your building (a manager writes only its own building's)"),
     id: Id.optional().describe("a key result of that goal to edit; leave it out to add one"),
@@ -1070,6 +1076,7 @@ export const VERB_DESCRIPTIONS: Record<VerbName, string> = {
   cancel: "(manager/reviewer) Cancel a queued (not started) assignment in my building. Started assignments and other buildings' are refused.",
   propose_grant: "(manager) Propose a grant for my building in one call: the plan for one of the building goal's key results (keyResultId): an objective, the approach, a stop condition, a token ask, and optionally a testing plan (text + howToCheck lines). Funding it runs the plan. It goes to the Town Hall in-tray for a human to fund, counter or reject. A building can have several proposals open at once, each decided on its own. To answer a counter, pass its grantId: the new plan rewrites that proposal and re-proposes it under the same id.",
   checkpoint_grant: "(manager) File a grant's checkpoint: set the status of the grant's key result (on the building goal), at most claimed (only a human marks met or missed), with a note on the evidence; then submit_report with rollup: true, which links itself to the grant as its checkpoint report. The grant stays held until a human continues, adjusts or cuts it.",
+  close_grant: "(manager) Close a funded grant early because its work is done: it closes as done, its key result goes to claimed with your note as the evidence, and the unspent tokens return to the Bank. Then submit_report with rollup: true (it links itself as the close report); a human marks the key result met or missed from the Town Hall in-tray. Use checkpoint_grant instead when the grant is held at its 100% checkpoint and the work is not done.",
   set_key_result: "(manager) Write a key result on my building's goal, or edit one (id): the text, how to check it, the meeting notes or report it comes from (sourceDocIds), and the objective it serves (objectiveId; at most 4 key results each). It's on the board at once and listed in my next rollup so a human can cut it. Status is checkpoint_grant's; only a human marks met or missed or deletes one.",
   set_objective: "(manager) Write an objective of my building's goal, or edit one (id): one sentence for this quarter, the town KPI it moves (fund, join or trust), the horizon (default this quarter) and the meeting notes or report it comes from. At most 3 per building; key results then hang off one (set_key_result objectiveId). Only a human deletes one.",
   promote: "(manager) Publish a document to the building (board if it's an fyi, else the filing cabinet) or promote it to the library.",
