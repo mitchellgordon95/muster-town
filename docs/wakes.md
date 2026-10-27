@@ -1,6 +1,6 @@
 # Wakes: what starts an agent, and one mechanism for all of it
 
-Design note, 2026-10-26 (Keel, as_czxid3dp46; asked by Mitchell in 1:1 mt_pwcpdkmdyc). §4 is the build order; steps 1 (origin recorded) and 3 (manager wakes on grant and KR events) are built.
+Design note, 2026-10-26 (Keel, as_czxid3dp46; asked by Mitchell in 1:1 mt_pwcpdkmdyc). §4 is the build order; steps 1, 2, 3 and 5 are built (step 4, the Waker refactor, is in progress).
 Code references are to main at 6988a43.
 
 A **wake** is anything that makes an idle agent spend tokens: it starts a session, or it pushes new input into a session
@@ -25,13 +25,13 @@ Everything else lands in the **inbox** (`sendMessage`). The inbox never wakes an
 | Flag, continued or redirected | assignee | Q (domain.ts:230); the flag itself wakes the manager through T | — |
 | Report decided: continue or redirect | author / assignee | Q | — |
 | Report decided: approve | nobody | — | — |
-| Meeting decision with an assignee | assignee | Q (`fromMeeting`, so directed is allowed) | It amends an *active* assignment only by inbox (meetings.ts:253) |
+| Meeting decision with an assignee | assignee | Q (`fromMeeting`, so directed is allowed) | Amending an *active* assignment: step 5 rule `decision` interrupts the running session, or queues a pending assignment with the decision's lane when none runs |
 | 1:1 opened, human speaks, 1:1 closed | manager | T (index.ts:261) | — |
 | Meeting created or started (invite) | attendees | M: one summary session each; an inbox `meeting` line | — |
 | @mention in a meeting, by the facilitator or a human | the mentioned attendee | M (reply session, capped) | — |
-| @mention in a doc, `say` or `tell` | mentioned agent | inbox only (mentions.ts:4: "never starts work") | ok for agent→agent; **missing when a human is behind it** |
-| `tell`, agent → agent | recipient | inbox only; the sender gets `idleNote` | **missing when a human is behind it** (Mitchell → Pix → Kelly, ms_l8fnqdk15x) |
-| Human message to a resident | resident | I if it is working; else Q (a "Message from X" assignment at the front of the queue) | Refused for residents of a building with a manager (ops.ts:400); visitors get it queued |
+| @mention in a doc, `say` or `tell` | mentioned agent | inbox only without a human origin; with one, step 5 rule `mention` queues a directed assignment for an idle resident | — |
+| `tell`, agent → agent | recipient | inbox only without a human origin (the sender gets `idleNote`); with one, step 2 `relayWake` | — |
+| Human message to a resident | resident | I if it is working; else Q (a "Message from X" assignment at the front of the queue) | Refused for residents of a building with a manager (ops.ts:400), on purpose: the manager is the building's conversational surface. Visitors get it queued |
 | `grant.funded` by **fund** | manager | Q: a front-of-queue grant-lane assignment "Grant X funded: assign its first step or take it yourself" with the plan (`Grants.decisionAssignment`, 2026-10-26) | — |
 | `grant.funded` by continue or adjust | manager; held grant work | T: a town-written in-tray row "Grant X continued/adjusted: N tokens" (`managerIntrayRow`, core/src/wakes.ts); held grant-lane work is released by the lane gate on the next tick | — |
 | `grant.countered`, `grant.rejected` | manager | Q: a directed assignment ("Answer the counter on X" with the note / "Grant X rejected: read the note"), plus the inbox `system` line (`notifyManager`) | — |
@@ -42,7 +42,7 @@ Everything else lands in the **inbox** (`sendMessage`). The inbox never wakes an
 | `waitFor` met (deploy, assignment, decision, after) | the parked assignee | Q: `checkWaits` on the tick clears the wait. After 24 h, T gets a `wait-expired` report | — |
 | Redeploy | running agents; parked work | I (notice); Q for `deploy` waits; T resumes the 1:1 (meetings.md §6) | — |
 | Exploration allowance reset (UTC midnight) / daily budget reset | held agents | Q: `laneHold` is re-evaluated on every tick; `resetDaily` and `resumeEligible` set agents back to idle | Nothing is announced, but the work resumes |
-| A human answers `request_human` | requester | inbox only (ops.ts:560) | Should wake the requester if they parked on it (today the only way is `waitFor decision`) |
+| A human answers `request_human` | requester | step 5 rule `request-answer`: an interrupt if the requester is working, else a pending directed assignment | — |
 | Agent stopped or banned | that agent | `abortWork` (a negative wake) | — |
 
 Two things are missing, and they have the same cause: **an event that a human started does not reach the agent who has
@@ -153,7 +153,24 @@ become a rule later if it is touched anyway.
    `notifyManager` stays as the inbox line.
 4. **Waker with a persisted cursor**: move the `onEvent` branches into `WAKE_RULES`, persist `ManageState.offered` as
    `wakeKey`s, replay on boot. No change in behaviour; this is the refactor that makes steps 2–3 rules.
-5. **Leftovers, as needed**: `request_human` answered → wake a parked requester; a meeting decision amending an active
-   assignment → interrupt (I); then the per-agent subscription table if a use for it shows up.
+5. **Leftovers** — done 2026-10-27 (core/src/wakes.ts; tests core test/wakes-step5.test.ts). Three rules, each called
+   where its event is appended (like step 2's `relayWake`, and for the same reason: "is the agent working or idle" is
+   judged at that moment, so they stay out of the Waker's replay). Each writes one item keyed
+   `wake:<rule>:<eventId>:<agentId>` (in the assignment description or the interrupt text), so a second delivery writes
+   nothing; none starts a session (`canStart` stays the gate).
+   - `request-answer` (`requestAnswerWake`, from `requestAction` done): the requester's running work session gets the
+     answer as an interrupt (in-process, else queued for the desk, as a human's message); an idle or out-of-budget
+     resident gets a pending directed "Answer to your request <title>: <first line>" at the front (sourceId = the
+     human-report, origin = the answering human). The inbox line stays.
+   - `decision` (`decisionWakes`, from `meetingDecide`): a decision that supersedes one whose assignment is *active* for
+     the same assignee interrupts the running session with the decision text; if no session runs and the agent is
+     idle, a pending "Amended in meeting: …" assignment with the decision's lane fields (else the amended assignment's).
+   - `mention` (`mentionWake`, from `notifyMentions`): an @mention whose origin is at most 3 hops and 24 h from the
+     human (a human's own @mention is hop 0), to an idle resident with no work session, queues a pending directed
+     "Mentioned by <author> [for <human>]: …" at the front; repeats for the same human and path merge into it. No
+     origin, past the caps, a busy target, or a mention inside a live meeting the target attends (M covers it) stay
+     inbox only.
+   Not done: the per-agent subscription table (no use for it yet). The one remaining "gap" in §1, a human messaging a
+   resident of a managed building, is refused on purpose.
 
 Steps 2 and 3 fix today's gaps without step 4. Step 4 is worth doing once there is a third or fourth rule to add.

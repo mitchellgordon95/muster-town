@@ -10,6 +10,7 @@ import { newId, nowIso } from "./util.ts";
 import { humanOrigin, meetingOrigin } from "./origin.ts";
 import { sessionView, unknownModels } from "./bank.ts";
 import { validateWait } from "./waits.ts";
+import { requestAnswerWake } from "./wakes.ts";
 import type { World } from "./world.ts";
 
 export interface MessageAgentOptions {
@@ -586,7 +587,9 @@ export class Ops {
         break;
     }
     const request = updateDoc(this.world, doc.id, patch);
-    this.world.events.append({ type: "doc.updated", buildingId: doc.buildingId, agentId: doc.authorKind === "agent" ? doc.authorId : null, text: `Request "${doc.title}" is ${request.requestStatus}`, payload: { docId: doc.id, requestStatus: request.requestStatus, by: h.id } });
+    const updated = this.world.events.append({ type: "doc.updated", buildingId: doc.buildingId, agentId: doc.authorKind === "agent" ? doc.authorId : null, text: `Request "${doc.title}" is ${request.requestStatus}`, payload: { docId: doc.id, requestStatus: request.requestStatus, by: h.id, ...(humanReport ? { humanReportId: humanReport.id } : {}) } });
+    // wakes step 5: the answer reaches the requester (interrupt if working, else a pending directed assignment)
+    if (humanReport) requestAnswerWake(this.world, request, humanReport, updated);
     return { request, humanReport };
   }
 

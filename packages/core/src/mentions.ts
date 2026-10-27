@@ -1,13 +1,15 @@
 /**
  * `@Name` mentions in docs, reports, meeting utterances, `say` and `tell`.
  * A mention puts a `mention` message in the mentioned agent's inbox (a human's avatar gets one too; the web shows it
- * from the `agent.mentioned` event). It never starts work by itself: it's a request to look.
+ * from the `agent.mentioned` event). Without a human origin it never starts work: it's a request to look. With one (at
+ * most 3 hops, 24 h) an idle resident gets a queued directed assignment (`mentionWake`, wakes step 5).
  */
 import type { Agent, Message } from "@muster-town/schema";
 import { sendMessage } from "./domain.ts";
 import { actOrigin } from "./origin.ts";
 import { holderOf, type Holder } from "./permissions.ts";
 import { truncate } from "./util.ts";
+import { mentionWake } from "./wakes.ts";
 import type { World } from "./world.ts";
 
 const escapeRe = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
@@ -74,11 +76,13 @@ export function notifyMentions(world: World, author: Agent, text: string, ctx: M
     if (ctx.agentsOnly && target.kind === "human") continue;
     const body = `${author.name} mentioned you in ${ctx.where}: ${excerptAround(text, target.name)}`;
     const msg = sendMessage(world, { kind: "mention", fromId: by.id, fromKind: by.kind, toId: target.id, body, docId: ctx.docId ?? null, meetingId: ctx.meetingId ?? null, origin });
-    world.events.append({
+    const mentioned = world.events.append({
       type: "agent.mentioned", agentId: target.id, buildingId: ctx.buildingId ?? target.homeBuildingId ?? target.buildingId,
       text: body,
       payload: { byId: by.id, byKind: by.kind, toId: target.id, toKind: target.kind, messageId: msg.id, ...(ctx.docId ? { docId: ctx.docId } : {}), ...(ctx.meetingId ? { meetingId: ctx.meetingId } : {}), origin },
     });
+    // wakes step 5: a mention that traces to a human queues work for an idle resident (inbox only otherwise)
+    mentionWake(world, author, mentioned, ctx.where);
     sent.push(msg);
   }
   return sent;
