@@ -123,7 +123,7 @@ describe("blocked state", () => {
     const api = new MockApi();
     expect((await api.intray("bl_townhall")).blocked).toEqual([]);
     await api.updateBuilding("bl_carbon", { budgetMode: "goal-directed" });
-    await api.decideGrant("gr_ocean", { action: "reject", note: "" });
+    for (const id of ["gr_ocean", "gr_land"]) await api.decideGrant(id, { action: "reject", note: "" });
     for (const k of (await api.board("bl_carbon")).keyResults) await api.deleteKeyResult(k.id);
     expect((await api.intray("bl_townhall")).blocked?.map((x) => x.buildingId)).toEqual(["bl_carbon"]);
     expect((await api.intray("bl_carbon")).blocked).toEqual([]);
