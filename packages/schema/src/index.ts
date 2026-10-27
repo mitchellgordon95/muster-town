@@ -1460,10 +1460,10 @@ export const DesksConfig = z.object({
   /** where desks get GH_TOKEN: `gh auth token` on the host, the host's GH_TOKEN env, or none */
   ghToken: z.enum(["gh-cli", "env", "none"]).default("gh-cli"),
   /**
-   * How many work sessions may run at once on this host (a running session costs ~0.2 GB, peaking ~0.7 GB while it
-   * compiles). Queued work waits for a free slot; the scheduler never starts more. Changeable live (PUT /api/town/desks).
+   * How many work sessions may run at once (a cost guard: on Fly each desk is its own Machine). Queued work waits for a
+   * free slot; the scheduler never starts more. Changeable live (PUT /api/town/desks); a stored value wins over this default.
    */
-  maxRunning: z.number().int().positive().default(20),
+  maxRunning: z.number().int().positive().default(30),
 });
 export type DesksConfig = z.infer<typeof DesksConfig>;
 /** `PUT /api/town/desks` (admin): the host settings that can change while the server runs. */
