@@ -89,3 +89,29 @@ The five counters stay alongside: ledger rows (`usage`, `bank_debits`, `bank_cre
 Conversion (migration `037_adjusted_tokens.sql`, once): every size above ÷30 (Opus and any non-Fable model) or ÷24 (an input whose model is Fable), rounded; the ledger's `tokens` recomputed from its counters at Opus 5.5 weights (a credit at its input's model). One `bank.converted` event lists every converted input, grant, building and allocation as `[before, after]`. Live figures (2026-10-26): bi_au5kt05vlj 40M/day, cap 280M → 1,333,333/day, cap 9,333,333; bi_foh0utko9b 20M/day, cap 100M → 666,667/day, cap 3,333,333; gr_iq5m7dug56 24,000,000 → 800,000. New defaults: `dailyTokensPerAgent` 350,000, the seed's house budget 1,700,000.
 
 Tests: `core/test/bank-adjusted.test.ts` (037), `core/test/token-counters.test.ts` (booking), `server/test/live.test.ts` (`accounting`), `server/test/desk.test.ts`, `server/test/adjusted.test.ts`.
+
+## Unexpected out-of-tokens deaths and the cap hold (step 5)
+
+Code: `packages/core/src/caps.ts`; GET /api/bank `deaths` and `cap`; the Bank page's "Out-of-tokens deaths and the cap".
+
+**An unexpected out-of-tokens death** (plan dc_2uqmfdittg, KR kr_vyrhhiyotb) is either
+- a **cap death**: a session that died on the subscription cap. Read from `bank.cap` (step 4), a `session.ended` whose
+  `error` matches SPEND_LIMIT, or, for history before the desk reported it, an `agent.thought` whose text starts
+  "You've hit your" and matches SPEND_LIMIT (the SDK's result echoed by the desk; agents' own thoughts about the limit don't
+  count). Counted once per session; or
+- a **`budget.exhausted`** event (an agent's daily allowance or a building's budget ran out), each event counted.
+
+The Bank warns before neither, so every one is a death it did not predict. The counter is the number of these with a
+timestamp in the 7 days before now (rolling). Baseline: 7 in the week to 2026-10-26 by hand count; the event log itself
+shows 10 cap-death sessions and 12 `budget.exhausted` for 10-20..10-26. Target: 0.
+
+**The learned cap**: each `bank.cap` gives the subscription's adjusted spend that day when it hit
+(`subscriptionAdjustedToday`). Per UTC day take the lowest; the learned daily cap is the median of those over the last 14
+days. No cap event yet = "no cap seen" and nothing is held.
+
+**The hold**: today's subscription spend is the adjusted output tokens of sessions ended since 00:00 UTC (or since a cap
+reset that already passed today) funded by the subscription. The typical session is the median adjusted size of the last
+50 ended sessions that used tokens. When spend ≥ learned cap − typical session, a building whose next session would run on
+the subscription and has no fallback (no donor-key / api-key allocation, no API-key Bank input) holds new starts:
+assignments stay pending with `heldReason` "near the subscription cap (…), resets at …" and the map shows it. With a
+fallback nothing is held; the session fails over as before. A `bank.hold` event is logged once per day when it first applies.

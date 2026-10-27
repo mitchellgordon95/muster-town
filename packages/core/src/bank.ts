@@ -1,4 +1,5 @@
 import { AddBankInput, CreateBankPoolInput, DEFAULT_POOL_ID, UpdateBankPoolInput, ZERO_TOKENS, addTokens, countsOf, rawPerAdjusted, rawTokens, sliceTokens, splitRaw, subTokens, type TokenCounts, type BankCredit, type BankInput, type BankPool, type BankRecurrence, type Agent, type Building, type Session, type SessionView } from "@muster-town/schema";
+import { CAP_THOUGHT, TYPICAL_SESSIONS, capReason, countDeaths, learnedCap, median, nearCap, type BankDeaths } from "./caps.ts";
 import { driftRows, parseResetsAt, previousUtcDay, utcDay, type DriftRow } from "./drift.ts";
 import { badRequest, forbidden } from "./errors.ts";
 import type { EventLog } from "./events.ts";
@@ -199,6 +200,30 @@ export interface BankSummary {
   contributors: BankContributor[];
   /** Bank step 4: the latest drift run (adjusted output tokens × output list price vs the SDK's costUsd); null before the first */
   drift: BankDrift | null;
+  /** Bank step 5: unexpected out-of-tokens deaths over the last 7 days (docs/bank.md) */
+  deaths: BankDeaths;
+  /** Bank step 5: the subscription's learned daily cap and whether new subscription starts are held near it */
+  cap: BankCapState;
+}
+
+/** The subscription cap as the Bank has learned it from `bank.cap` events (GET /api/bank `cap`). */
+export interface BankCapState {
+  /** the subscription input (null when there is none) */
+  inputId: string | null;
+  /** learned daily cap in adjusted output tokens; null = no cap seen yet (then nothing is held) */
+  learnedCap: number | null;
+  /** days with a cap event the learned cap is the median of */
+  days: number;
+  /** the subscription's adjusted spend since today's window opened (00:00 UTC, or a cap reset that already passed today) */
+  spentToday: number;
+  windowStart: string;
+  /** median adjusted size of the last 50 ended sessions that used tokens (null with none) */
+  typicalSession: number | null;
+  /** new subscription-funded starts are held */
+  held: boolean;
+  reason: string | null;
+  /** when the cap resets: the latest cap event's reset if still ahead, else the next 00:00 UTC */
+  resetsAt: string;
 }
 
 /** The latest drift run: its UTC day, the per-model rows over all buildings, and the per-building rows. */
@@ -610,7 +635,56 @@ export class Bank {
       }),
       contributors: this.contributors(),
       drift: this.latestDrift(),
+      deaths: this.deaths(now),
+      cap: this.capState(now),
     };
+  }
+
+  // ---- Bank step 5: deaths and the cap hold (caps.ts) ----
+  /** Unexpected out-of-tokens deaths over the 7 days before `now` (definition in caps.ts and docs/bank.md). */
+  deaths(now = new Date()): BankDeaths {
+    const from = new Date(now.getTime() - 7 * DAY_MS).toISOString();
+    const evs = [
+      ...this.events.list({ types: ["bank.cap", "budget.exhausted"], from, limit: 5000 }),
+      ...this.events.list({ types: ["session.ended"], from, payloadKey: "error", limit: 5000 }),
+      ...this.events.list({ types: ["agent.thought"], from, textLike: "You've hit your%", limit: 5000 }).filter((e) => CAP_THOUGHT.test(e.text)),
+    ];
+    return countDeaths(evs, now);
+  }
+
+  private capCache: { at: number; state: BankCapState } | null = null;
+  /** the day the `bank.hold` event was last logged (once per day) */
+  private holdDay: string | null = null;
+
+  /** The learned subscription cap and whether starts are held near it; cached 30 s (recordCap clears it). */
+  capState(now = new Date()): BankCapState {
+    if (this.capCache && now.getTime() - this.capCache.at >= 0 && now.getTime() - this.capCache.at < 30_000) return this.capCache.state;
+    const today = utcDay(now);
+    const caps = this.events.list({ types: ["bank.cap"], from: new Date(now.getTime() - 15 * DAY_MS).toISOString(), desc: true, limit: 5000 });
+    const learned = learnedCap(caps.map((e) => ({ day: String(e.payload.day ?? e.ts.slice(0, 10)), subscriptionAdjustedToday: Number(e.payload.subscriptionAdjustedToday ?? e.payload.adjustedSpendToday ?? 0) })), today);
+    const midnight = `${today}T00:00:00.000Z`, nowIso = now.toISOString();
+    const resets = caps.map((e) => e.payload.resetsAt).filter((r): r is string => typeof r === "string");
+    // a cap that reset earlier today reopens the window; the next reset is the latest one still ahead, else next midnight
+    const passed = resets.filter((r) => r > midnight && r <= nowIso).sort().pop();
+    const windowStart = passed ?? midnight;
+    const ahead = resets.filter((r) => r > nowIso).sort().pop();
+    const resetsAt = ahead ?? new Date(Date.parse(midnight) + DAY_MS).toISOString();
+    let spentToday = 0;
+    for (const s of this.repos.sessions.where("status != 'running' AND endedAt >= ?", [windowStart])) {
+      if (!s.funding || s.funding === "subscription") spentToday += adjustedOfUsage(s.model, s, s.byModel);
+    }
+    const recent = this.repos.sessions.where("status != 'running' AND tokens > 0", [], `ORDER BY endedAt DESC LIMIT ${TYPICAL_SESSIONS}`);
+    const typicalSession = median(recent.map((s) => adjustedOfUsage(s.model, s, s.byModel)));
+    const held = nearCap(spentToday, learned?.cap ?? null, typicalSession);
+    const reason = held && learned ? capReason(spentToday, learned.cap, resetsAt) : null;
+    const inputId = this.repos.bankInputs.first("source = 'subscription' AND cancelledAt IS NULL", [], "ORDER BY createdAt, rowid")?.id ?? null;
+    const state: BankCapState = { inputId, learnedCap: learned?.cap ?? null, days: learned?.days ?? 0, spentToday, windowStart, typicalSession, held, reason, resetsAt };
+    if (held && this.holdDay !== today && !this.events.list({ types: ["bank.hold"], from: midnight, limit: 1 }).length) {
+      this.holdDay = today;
+      this.events.append({ type: "bank.hold", text: `Bank: new subscription starts held, ${reason}`, payload: { ...state } });
+    }
+    this.capCache = { at: now.getTime(), state };
+    return state;
   }
 
   // ---- Bank step 4: calibration ----
@@ -680,6 +754,7 @@ export class Bank {
     }
     const input = this.repos.bankInputs.first("source = 'subscription' AND cancelledAt IS NULL", [], "ORDER BY createdAt, rowid")?.id ?? null;
     const resetsAt = parseResetsAt(message, at);
+    this.capCache = null;
     const agent = this.repos.agents.get(session.agentId);
     this.events.append({
       type: "bank.cap", agentId: session.agentId, buildingId,

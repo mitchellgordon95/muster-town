@@ -15,6 +15,12 @@ export interface EventQuery {
   agentId?: string;
   buildingId?: string;
   types?: EventType[];
+  /** only events at or after this ISO time */
+  from?: string;
+  /** only events whose text matches this SQL LIKE pattern */
+  textLike?: string;
+  /** only events whose payload has this key set (not null) */
+  payloadKey?: string;
   limit?: number;
   /** newest first instead of oldest first */
   desc?: boolean;
@@ -54,6 +60,9 @@ export class EventLog {
     if (q.agentId) { where.push("agentId = ?"); params.push(q.agentId); }
     if (q.buildingId) { where.push("buildingId = ?"); params.push(q.buildingId); }
     if (q.types?.length) { where.push(`type IN (${q.types.map(() => "?").join(",")})`); params.push(...q.types); }
+    if (q.from) { where.push("ts >= ?"); params.push(q.from); }
+    if (q.textLike) { where.push("text LIKE ?"); params.push(q.textLike); }
+    if (q.payloadKey) { where.push("json_extract(payload, ?) IS NOT NULL"); params.push(`$.${q.payloadKey}`); }
     const limit = Math.min(Math.max(q.limit ?? 100, 1), 5000);
     const sql = `SELECT * FROM events ${where.length ? "WHERE " + where.join(" AND ") : ""} ORDER BY id ${q.desc ? "DESC" : "ASC"} LIMIT ${limit}`;
     const rows = this.db.prepare(sql).all(...params) as Record<string, unknown>[];

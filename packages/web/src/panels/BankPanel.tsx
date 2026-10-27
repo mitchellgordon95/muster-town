@@ -54,6 +54,21 @@ export function BankPanel() {
           </table>
         </Section>
       ) : null}
+      {bank?.deaths && bank.cap ? (
+        <Section title="Out-of-tokens deaths and the cap">
+          <table className="table">
+            <tbody>
+              <tr title={bank.deaths.events.map((e) => `${e.ts.slice(0, 16).replace("T", " ")} ${e.kind}: ${e.text}`).join("\n")}>
+                <td>Unexpected out-of-tokens deaths, last 7 days (baseline 7, target 0)</td>
+                <td style={bank.deaths.total ? { color: "#c0392b" } : undefined}><b>{bank.deaths.total}</b> (cap {bank.deaths.capDeaths}, exhausted {bank.deaths.exhausted})</td>
+              </tr>
+              <tr><td>Learned subscription cap per day</td><td>{bank.cap.learnedCap === null ? "no cap seen" : `${fmtTokens(bank.cap.learnedCap)} (median of ${bank.cap.days} day${bank.cap.days === 1 ? "" : "s"})`}</td></tr>
+              <tr className="sub-row"><td>Subscription spend today · typical session</td><td>{fmtTokens(bank.cap.spentToday)} · {bank.cap.typicalSession === null ? "n/a" : fmtTokens(bank.cap.typicalSession)}</td></tr>
+              {bank.cap.held ? <tr><td>New subscription starts</td><td style={{ color: "#c0392b" }}>held: {bank.cap.reason}</td></tr> : null}
+            </tbody>
+          </table>
+        </Section>
+      ) : null}
       {bank && <>
         <BankContributors bank={bank} />
         <Donate onChange={changed} />

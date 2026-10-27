@@ -102,6 +102,18 @@ export interface Bank {
   contributors: BankContributor[];
   /** Bank step 4: the latest drift run (null before the first; older servers leave it out) */
   drift?: BankDrift | null;
+  /** Bank step 5: unexpected out-of-tokens deaths, last 7 days (older servers leave it out) */
+  deaths?: BankDeaths;
+  /** Bank step 5: the learned subscription cap and the hold near it (older servers leave it out) */
+  cap?: BankCapState;
+}
+export interface BankDeaths {
+  since: string; capDeaths: number; exhausted: number; total: number;
+  events: { ts: string; kind: "cap" | "exhausted"; agentId: string | null; buildingId: string | null; sessionId: string | null; text: string }[];
+}
+export interface BankCapState {
+  inputId: string | null; learnedCap: number | null; days: number; spentToday: number; windowStart: string;
+  typicalSession: number | null; held: boolean; reason: string | null; resetsAt: string;
 }
 /** One drift row (core's DriftRow): ratio = adjusted output tokens × output list price / the SDK's costUsd */
 export interface DriftRow {
