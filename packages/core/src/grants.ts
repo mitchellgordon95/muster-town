@@ -364,6 +364,9 @@ ${open.map((g) => `The open proposal ${g.id} ("${g.objective}")`).join("; ")} na
       case "fund": {
         this.requireStatus(g, ["proposed"], "funded");
         if (!g.keyResultId) throw badRequest("This grant names no goal key result: write the building's key results, then counter it so the manager names one.");
+        // one live grant per key result: the lane gate, board and checkpoints read liveGrantOf (the first one)
+        const live = this.liveGrantOf(g.keyResultId);
+        if (live && live.id !== g.id) throw new AppError("conflict", `Key result ${g.keyResultId} already has a live grant ${live.id} ("${live.objective}", ${live.status}): close it before funding another, or counter this one to name another key result.`);
         const fundedWith = inp.fundWith ?? null;
         next = this.save(g, actor, { ...edits, status: "funded", grantTokens: tokens, checkpointsDone: passed(spent, tokens), fundedBy: actor ? holderOf(actor).id : "system", fundedWith, fundedAt: nowIso() }, "fund", tokens, inp.note);
         const from = fundedWith ? ` funded from ${this.world.bank.input(fundedWith)?.label ?? fundedWith}` : "";
