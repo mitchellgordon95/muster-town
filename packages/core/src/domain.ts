@@ -206,10 +206,33 @@ export function plantFlag(world: World, actor: Agent, buildingId: string, text: 
   const body = text.trim();
   if (!body) throw new AppError("bad_request", "A flag needs a note: what you want done.");
   const holder = world.holderOf(actor);
+  // it stands where the planter stands (dc_r40dq3znse), until the building's manager walks there and picks it up
+  const flagPos = world.layout.isWalkable(actor.pos.x, actor.pos.y) ? { x: actor.pos.x, y: actor.pos.y } : undefined;
   return createDoc(world, {
     type: "flag", state: "building", title: truncate(firstLine(body) || body, 120), body, decision: "pending",
-    authorId: holder.id, authorKind: holder.kind, buildingId,
+    authorId: holder.id, authorKind: holder.kind, buildingId, flagPos,
   }, `${actor.name} planted a flag in ${building.name}: ${truncate(firstLine(body) || body, 80)}`);
+}
+
+/** The place id an agent walks to (`go`) to pick up a flag standing on the map. */
+export const flagPlaceId = (docId: string) => `flag:${docId}`;
+
+/**
+ * An agent arrived on a flag's tile (`go flag:<id>`). The building's manager (any agent with building.review there) picks it up: it leaves the map (the
+ * in-tray entry stays as the record) and the manager gets its text to read. Anyone else just stands by it.
+ */
+export function pickUpFlag(world: World, me: Agent, flag: Doc): { pickedUp: boolean; flag: { id: string; title: string; body: string; by: string; buildingId: string | null }; note?: string } {
+  const view = { id: flag.id, title: flag.title, body: flag.body, by: world.nameOf(flag.authorId), buildingId: flag.buildingId };
+  if (flag.pickedUpAt) return { pickedUp: false, flag: view, note: `${world.nameOf(flag.pickedUpBy ?? "")} already picked it up.` };
+  // whoever decides the building's in-tray picks it up: its manager agent, or an agent holding building.review there
+  if (!flag.buildingId || !world.permissions.can(me, "building.review", flag.buildingId)) {
+    const b = flag.buildingId ? world.buildings.get(flag.buildingId) : undefined;
+    const manager = b ? managerAgentOf(world, b) : undefined;
+    return { pickedUp: false, flag: view, note: `Only ${manager ? manager.name : "the building's manager"} picks this flag up.` };
+  }
+  const doc = updateDoc(world, flag.id, { pickedUpAt: nowIso(), pickedUpBy: me.id });
+  world.events.append({ type: "doc.updated", agentId: me.id, buildingId: doc.buildingId, text: `${me.name} picked up ${view.by}'s flag: ${truncate(doc.title, 80)}`, payload: { docId: doc.id, flagPickedUp: true } });
+  return { pickedUp: true, flag: view, note: "Picked up. Now delegate it with `review` (continue or redirect with assigneeId), or approve it if nothing needs doing." };
 }
 
 /**
@@ -220,6 +243,8 @@ export function plantFlag(world: World, actor: Agent, buildingId: string, text: 
  */
 function decideFlag(world: World, flag: Doc, decision: ReviewDecision, note: string, decider: Holder | { kind: "system"; id: string }, opts: { waitFor?: WaitFor | null; assigneeId?: string | null }): { doc: Doc; assignment: Assignment | null } {
   if (decision === "stop") throw new AppError("bad_request", "A flag has no agent to stop: approve it (handled), or continue/redirect it to a resident (assigneeId).");
+  // an agent (the manager) walks to a flag standing on the map and picks it up before deciding it; a human decides from the in-tray
+  if (decider.kind === "agent" && flag.flagPos && !flag.pickedUpAt) throw new AppError("bad_request", `Pick the flag up first: it stands on the map at (${flag.flagPos.x}, ${flag.flagPos.y}). \`go\` to ${flagPlaceId(flag.id)}, read it, then decide it.`);
   let assignee: Agent | undefined;
   if (decision !== "approve") {
     if (!opts.assigneeId) throw new AppError("bad_request", `${decision === "continue" ? "Continue" : "Redirect"} on a flag needs assigneeId: the resident of ${world.buildings.get(flag.buildingId ?? "")?.name ?? "the building"} who takes it.`);

@@ -82,6 +82,7 @@ describe("role migration (v1.1 DB)", () => {
     db.exec("DROP TABLE access_requests"); // added by 036 (who may interact)
     db.exec("ALTER TABLE buildings DROP COLUMN furniture"); // added by 013 (movable furniture)
     db.exec("ALTER TABLE messages DROP COLUMN origin; ALTER TABLE assignments DROP COLUMN origin; ALTER TABLE sessions DROP COLUMN origin"); // added by 041 (wakes origin)
+    db.exec("ALTER TABLE docs DROP COLUMN flagPos; ALTER TABLE docs DROP COLUMN pickedUpAt; ALTER TABLE docs DROP COLUMN pickedUpBy"); // added by 042 (flags on the map)
     db.exec("ALTER TABLE agents DROP COLUMN lastSeenAt"); // added by 015 (visitor presence)
     db.exec("ALTER TABLE assignments DROP COLUMN offered"); // added by 015
     db.exec("ALTER TABLE assignments DROP COLUMN waitFor; ALTER TABLE assignments DROP COLUMN parked"); // added by 020 (assignment waits)

@@ -74,7 +74,7 @@ export class Sim {
     // Unlike the real server, the mock keeps retired agents in the snapshot so the client's filter is exercised.
     return clone({
       type: "snapshot", town: this.town, buildings: this.buildings.map((b) => ({ ...b, intray: this.intrayCount(b.id), budget: this.budgetOf(b.id), stoplight: this.stoplight(b.id) })),
-      agents: [...this.agents.values()].filter((a) => a.status !== "banned"), places: this.layout.places, grid: this.layout.grid,
+      agents: [...this.agents.values()].filter((a) => a.status !== "banned"), places: this.layout.places, flags: [], grid: this.layout.grid,
       meetings: [...this.meetings.values()].filter((m) => m.phase !== "done" && m.phase !== "cancelled"),
       health: { docker: this.dockerUp, slots: { running: [...this.agents.values()].filter((a) => a.status === "working").length, max: this.maxRunning } },
     });

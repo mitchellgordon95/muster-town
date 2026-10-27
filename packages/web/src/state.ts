@@ -4,8 +4,8 @@
  * so 10 Hz position batches never re-render React.
  */
 import { useSyncExternalStore } from "react";
-import { ServerMessage } from "@muster-town/schema";
-import type { Agent, Assignment, AuthMe, BlockedAssignment, Doc, Event, Meeting, Permission, Place, SnapshotBuilding, Town, TownHealth } from "@muster-town/schema";
+import { mapFlagOf, ServerMessage } from "@muster-town/schema";
+import type { Agent, Assignment, AuthMe, BlockedAssignment, Doc, Event, MapFlag, Meeting, Permission, Place, SnapshotBuilding, Town, TownHealth } from "@muster-town/schema";
 import type { Bank, Grid, Snapshot } from "./api";
 import { redeployStatus, type RedeployLiveAt } from "./redeploy";
 
@@ -26,6 +26,8 @@ export interface TownState {
   buildings: SnapshotBuilding[];
   agents: Record<string, Agent>;
   places: Place[];
+  /** flags standing on the map (planted, not yet picked up by the manager); the snapshot's, then kept by `doc` frames */
+  flags: MapFlag[];
   grid: Grid | null;
   gridVersion: number;
   meetings: Record<string, Meeting>;
@@ -50,7 +52,7 @@ const MAX_EVENTS = 600;
 
 class Store {
   state: TownState = {
-    conn: "connecting", me: null, town: null, buildings: [], agents: {}, places: [], grid: null, gridVersion: 0,
+    conn: "connecting", me: null, town: null, buildings: [], agents: {}, places: [], flags: [], grid: null, gridVersion: 0,
     meetings: {}, events: [], docs: {}, assignments: {}, panel: null, toasts: [], rev: 0, bank: null, health: null, redeployLive: null, blocked: {},
   };
   /** Latest server position per agent (tile coords). Mutated in place; the renderer interpolates. */
@@ -102,7 +104,7 @@ class Store {
         return;
       }
       case "event": return this.applyEvent(m.event);
-      case "doc": return this.set({ docs: { ...s.docs, [m.doc.id]: m.doc }, rev: s.rev + 1 });
+      case "doc": return this.set({ docs: { ...s.docs, [m.doc.id]: m.doc }, ...this.flagsWith([m.doc]), rev: s.rev + 1 });
       case "meeting": return this.set({ meetings: { ...s.meetings, [m.meeting.id]: m.meeting }, rev: s.rev + 1 });
       case "assignment": {
         this.set({ assignments: { ...s.assignments, [m.assignment.id]: m.assignment }, rev: s.rev + 1 });
@@ -158,7 +160,7 @@ class Store {
     const meetings: Record<string, Meeting> = {};
     for (const mt of m.meetings) meetings[mt.id] = mt;
     this.set({
-      town: m.town, buildings: m.buildings, agents, places: m.places, grid: m.grid, meetings, health: m.health ?? this.state.health,
+      town: m.town, buildings: m.buildings, agents, places: m.places, flags: m.flags ?? [], grid: m.grid, meetings, health: m.health ?? this.state.health,
       gridVersion: this.state.gridVersion + 1, rev: this.state.rev + 1,
     });
   }
@@ -217,7 +219,15 @@ class Store {
     if (!list.length) return;
     const docs = { ...this.state.docs };
     for (const d of list) docs[d.id] = d;
-    this.set({ docs });
+    this.set({ docs, ...this.flagsWith(list) });
+  }
+  /** `flags` after these docs changed: a flag doc stands on the map while it is pending and not picked up. */
+  private flagsWith(list: Doc[]): Partial<TownState> {
+    if (!list.some((d) => d.type === "flag")) return {};
+    const ids = new Set(list.map((d) => d.id));
+    const flags = this.state.flags.filter((f) => !ids.has(f.docId));
+    for (const d of list) { const f = mapFlagOf(d); if (f) flags.push(f); }
+    return { flags };
   }
   putAssignments(list: Assignment[]) {
     if (!list.length) return;

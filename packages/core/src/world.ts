@@ -1,4 +1,4 @@
-import { townEnv, type Agent, type AgentStatus, type DesksConfig, type RedeployLive, type RedeployResult, type ServerMessage, type Tile } from "@muster-town/schema";
+import { mapFlagOf, townEnv, type Agent, type AgentStatus, type DesksConfig, type RedeployLive, type RedeployResult, type ServerMessage, type Tile } from "@muster-town/schema";
 import { Bank } from "./bank.ts";
 import { Budget } from "./budget.ts";
 import { Grants } from "./grants.ts";
@@ -266,6 +266,7 @@ export class World {
       buildings: this.buildingsWithIntray(),
       agents: this.agents.where("status NOT IN ('banned','retired')"),
       places: this.layout.places,
+      flags: this.docs.where("type = 'flag' AND decision = 'pending' AND pickedUpAt IS NULL AND flagPos IS NOT NULL", [], "ORDER BY createdAt").map(mapFlagOf).filter((f) => f !== null),
       grid: this.layout.grid,
       meetings: this.meetings.where("phase IN ('scheduled','collecting','discussing')", [], "ORDER BY scheduledAt"),
       health: { docker: this.host.docker ?? true, ...(this.host.slots ? { slots: this.host.slots() } : {}) },

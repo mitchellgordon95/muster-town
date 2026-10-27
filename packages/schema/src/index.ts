@@ -426,6 +426,10 @@ export const Doc = z.object({
   requestStatus: RequestStatus.optional(),
   location: z.string().optional(),
   claimedByUserId: Id.optional(),
+  // flag-specific: the tile it stands on, until the building's manager walks to it and picks it up (`go flag:<id>`)
+  flagPos: Tile.optional(),
+  pickedUpAt: Iso.optional(),
+  pickedUpBy: Id.optional(),
   // trophy-specific
   trophyProposedBy: Id.optional(),
   trophyWhy: z.string().optional(),
@@ -1078,8 +1082,17 @@ export function stoplightOf(keyResults: { grantId: string | null }[], live: { st
 export const SnapshotBuilding = Building.extend({ intray: z.number().int().nonnegative().default(0), budget: BuildingBudget.optional(), stoplight: Stoplight.nullable().optional() });
 export type SnapshotBuilding = z.infer<typeof SnapshotBuilding>;
 
+/** A flag standing on the map: planted by a human, not yet picked up by its building's manager (nor decided). */
+export const MapFlag = z.object({ docId: Id, buildingId: Id, x: z.number().int(), y: z.number().int(), title: z.string(), authorId: Id, createdAt: Iso });
+export type MapFlag = z.infer<typeof MapFlag>;
+/** The doc of a flag that stands on the map, as a MapFlag; null once it is picked up, decided, or never had a tile. */
+export function mapFlagOf(d: Doc): MapFlag | null {
+  if (d.type !== "flag" || !d.flagPos || d.pickedUpAt || d.decision !== "pending" || !d.buildingId) return null;
+  return { docId: d.id, buildingId: d.buildingId, x: d.flagPos.x, y: d.flagPos.y, title: d.title, authorId: d.authorId, createdAt: d.createdAt };
+}
+
 export const ServerMessage = z.discriminatedUnion("type", [
-  z.object({ type: z.literal("snapshot"), avatarAgentId: Id.optional(), town: Town, buildings: z.array(SnapshotBuilding), agents: z.array(Agent), places: z.array(Place), grid: z.object({ w: z.number(), h: z.number(), /** row-major tile kinds */ tiles: z.array(z.number()) }), meetings: z.array(Meeting), health: z.object({ docker: z.boolean(), slots: z.object({ running: z.number().int().nonnegative(), max: z.number().int().positive() }).optional() }).optional() }),
+  z.object({ type: z.literal("snapshot"), avatarAgentId: Id.optional(), town: Town, buildings: z.array(SnapshotBuilding), agents: z.array(Agent), places: z.array(Place), flags: z.array(MapFlag).default([]), grid: z.object({ w: z.number(), h: z.number(), /** row-major tile kinds */ tiles: z.array(z.number()) }), meetings: z.array(Meeting), health: z.object({ docker: z.boolean(), slots: z.object({ running: z.number().int().nonnegative(), max: z.number().int().positive() }).optional() }).optional() }),
   z.object({ type: z.literal("event"), event: Event }),
   z.object({ type: z.literal("agent"), agent: Agent }),
   z.object({ type: z.literal("agents.pos"), positions: z.array(z.object({ id: Id, x: z.number(), y: z.number(), status: AgentStatus })) }),

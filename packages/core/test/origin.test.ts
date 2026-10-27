@@ -1,6 +1,6 @@
 /** Wakes step 1 (docs/wakes.md): the human origin is stamped by the town, inherited by sessions, copied by relays. */
 import { describe, expect, it } from "vitest";
-import { createAssignment } from "../src/index.ts";
+import { createAssignment, pickUpFlag } from "../src/index.ts";
 import { seededWorld } from "./helpers.ts";
 
 function setup() {
@@ -49,6 +49,7 @@ describe("origin", () => {
   it("a flag, a 1:1 decision and a continuation carry the human; agent-made work without one carries none", async () => {
     const { world, mei, noor, userId, admin } = setup();
     const flag = world.ops.plantFlag(admin, "carbon-cycle", "Look at the ocean sink");
+    pickUpFlag(world, mei, flag); // the manager walked to it (go flag:<id>)
     const d = await world.verbs.review(mei, { docId: flag.id, decision: "continue", assigneeId: noor.id });
     expect(world.assignments.require(d.assignmentId!).origin).toMatchObject({ userId, via: flag.id, hops: 0 });
 

@@ -1,6 +1,6 @@
 import type { Agent, LookResult, MailboxDigest, Message } from "@muster-town/schema";
 import { AppError, badRequest, forbidden } from "../errors.ts";
-import { homeOf, sendMessage, setAssignmentStatus } from "../domain.ts";
+import { homeOf, pickUpFlag, sendMessage, setAssignmentStatus } from "../domain.ts";
 import { notifyMentions } from "../mentions.ts";
 import { actOrigin } from "../origin.ts";
 import { relayWake } from "../wakes.ts";
@@ -58,6 +58,13 @@ function digestFor(world: World, me: Agent): { digest?: MailboxDigest } {
 }
 
 export async function go(world: World, me: Agent, input: VerbIn<"go">) {
+  // a planted flag (flag:<docId>): walk to it; the building's manager picks it up and reads it (dc_r40dq3znse)
+  if (input.to.startsWith("flag:")) {
+    const flag = world.docs.get(input.to.slice(5));
+    if (!flag || flag.type !== "flag" || !flag.flagPos) throw new AppError("not_found", `No flag on the map: ${input.to}.`);
+    const arrived = await world.movement.go(me, flag.flagPos, `${world.nameOf(flag.authorId)}'s flag`);
+    return { arrived: true, to: input.to, pos: arrived.pos, ...pickUpFlag(world, me, world.docs.require(flag.id, "doc")) };
+  }
   const place = world.layout.place(input.to);
   const target = (place && world.standingTile(place.id, me.id)) ?? world.agents.get(input.to)?.pos;
   if (!target) throw new AppError("not_found", `Unknown place or agent: ${input.to}. Use \`look\` to list places.`);

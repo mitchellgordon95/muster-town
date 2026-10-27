@@ -341,3 +341,14 @@ export function drawBankSign(g: CanvasRenderingContext2D, x: number, y: number, 
   });
   g.textAlign = "left";
 }
+
+/** A planted flag in world space: a pole whose foot is at (x, y) and a red pennant that flutters. */
+export function drawFlag(g: CanvasRenderingContext2D, x: number, y: number, now: number) {
+  const top = y - 14, wave = Math.floor(now / 300) % 2;
+  g.fillStyle = "rgba(0,0,0,.28)";
+  g.beginPath(); g.ellipse(x, y, 3, 1.5, 0, 0, Math.PI * 2); g.fill();
+  g.fillStyle = "#5b4636";
+  g.fillRect(x - 0.5, top, 1, y - top);
+  g.fillStyle = "#e0453a";
+  g.beginPath(); g.moveTo(x + 0.5, top); g.lineTo(x + 7, top + 2.5 + wave); g.lineTo(x + 0.5, top + 5); g.closePath(); g.fill();
+}

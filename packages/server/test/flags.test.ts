@@ -1,4 +1,4 @@
-import { buildingRoleId } from "@muster-town/core";
+import { buildingRoleId, pickUpFlag } from "@muster-town/core";
 import { afterEach, describe, expect, it } from "vitest";
 import { json, seededApp } from "./helpers.ts";
 
@@ -29,6 +29,12 @@ describe("flags routes", () => {
     expect((await json(app, "GET", `/api/buildings/${LAB}/intray`)).body.reports.map((d: { id: string }) => d.id)).toContain(id);
     expect((await json(app, "GET", `/api/buildings/town-hall/intray`)).body.reports.map((d: { id: string }) => d.id)).not.toContain(id);
 
+    expect(planted.body.doc.flagPos).toBeDefined();
+    expect((await json(app, "GET", "/api/town")).body.flags.map((f: { docId: string }) => f.docId)).toEqual([id]);
+    // an agent manager walks to the standing flag before deciding it
+    expect((await json(app, "POST", `/api/docs/${id}/review`, { headers: mgr, body: { decision: "continue", assigneeId: by("Moss").id } })).body.error).toMatch(/Pick the flag up first/);
+    pickUpFlag(world, manager, world.docs.require(id, "doc"));
+    expect((await json(app, "GET", "/api/town")).body.flags).toEqual([]);
     expect((await json(app, "POST", `/api/docs/${id}/review`, { headers: mgr, body: { decision: "continue" } })).status).toBe(400);
     const decided = await json(app, "POST", `/api/docs/${id}/review`, { headers: mgr, body: { decision: "continue", assigneeId: by("Moss").id } });
     expect(decided.status).toBe(200);
