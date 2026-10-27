@@ -222,6 +222,36 @@ describe("goal-directed budgets: the 100% checkpoint", () => {
     expect(world.grants.require(g.id)).toMatchObject({ status: "funded", checkpointDocId: up.id });
   });
 
+  it("close_grant: the manager closes a funded grant early as done; KR claimed, unspent returned, in the Town Hall in-tray until a human marks it", async () => {
+    const { world, mei, noor, admin, krs, fund, spend } = setup();
+    const g = fund(4_000_000);
+    spend(noor.id, 1_000_000, "grant", g.id);
+    await expect(world.verbs.close_grant(noor, { grantId: g.id, note: "done" })).rejects.toThrow(/building.manage/);
+    const draft = world.grantDesk.create(mei, LAB, { keyResultId: krs[1]!.id, objective: "o", stopCondition: "s", askTokens: 1 });
+    await expect(world.verbs.close_grant(mei, { grantId: world.grantDesk.propose(mei, draft.id).id, note: "done" })).rejects.toThrow(/proposed grant can't be closed/);
+    world.ops.startSession(mei.id, { purpose: "work", model: "m" });
+    const r = await world.verbs.close_grant(mei, { grantId: g.id, note: "the banner shows Usage live" });
+    expect(r).toMatchObject({ status: "closed", outcome: "done", spentTokens: 1_000_000, grantTokens: 4_000_000, unspentTokens: 3_000_000, keyResult: { status: "claimed" }, checkpointDocId: null });
+    expect(world.keyResults.require(krs[0]!.id)).toMatchObject({ status: "claimed", statusNote: "the banner shows Usage live" });
+    expect(world.grants.require(g.id).history.at(-1)).toMatchObject({ action: "close", tokens: 3_000_000 });
+    expect(world.grants.require(g.id).history.at(-1)!.note).toMatch(/returned 3,000,000 unspent tokens to the Bank/);
+    const ev = world.events.recent({ types: ["grant.closed"] }).at(-1)!;
+    expect(ev.payload).toMatchObject({ grantId: g.id, outcome: "done", spentTokens: 1_000_000, grantTokens: 4_000_000, unspentTokens: 3_000_000 });
+    await expect(world.verbs.close_grant(mei, { grantId: g.id, note: "again" })).rejects.toThrow(/already closed/);
+    // the manager can't mark met; the rollup links itself as the close report
+    expect(() => world.grantDesk.updateKeyResult(mei, krs[0]!.id, { status: "met" })).toThrow(/building.fund/);
+    const up = await world.verbs.submit_report(mei, { title: "Closed", body: "## Shipped\nx\n## Decided\nx\n## Key results\nx\n## Needs from Mitchell\nmark it", verdict: "stop", rollup: true });
+    expect(world.docs.require(up.id).tags).toContain("grant-close");
+    expect(world.grants.require(g.id).checkpointDocId).toBe(up.id);
+    // in the Town Hall in-tray (and its count) until a human marks the KR met
+    const th = world.buildings.first("kind = 'town-hall'")!;
+    expect(world.ops.townHallIntray().grants.map((x) => x.id)).toContain(g.id);
+    const before = world.ops.intrayCount(th.id);
+    world.grantDesk.updateKeyResult(admin, krs[0]!.id, { status: "met", note: "checked" });
+    expect(world.ops.townHallIntray().grants.map((x) => x.id)).not.toContain(g.id);
+    expect(world.ops.intrayCount(th.id)).toBe(before - 1);
+  });
+
   it("propose_grant creates and proposes in one call; several proposals can be open per building", async () => {
     const { world, mei, admin, krs } = setup();
     const r = await world.verbs.propose_grant(mei, { keyResultId: krs[1]!.id, objective: "o", stopCondition: "s", askTokens: 1000, testingPlan: KRS });

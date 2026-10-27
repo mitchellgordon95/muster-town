@@ -200,12 +200,17 @@ export async function submit_report(world: World, me: Agent, input: VerbIn<"subm
   const current = assignmentId ? world.assignments.get(assignmentId) : undefined;
   // goal-directed budgets: the rollup of a checkpoint assignment is the grant's checkpoint report (a grant may have no reports yet)
   const checkpointGrantId = input.rollup && current && isCheckpointAssignment(current) ? current.grantId : null;
+  // close_grant without a reportId: this session's rollup is the close report of the grants the manager closed as done in it
+  const closedGrants = input.rollup && isManager && session && !checkpointGrantId
+    ? world.grants.where("buildingId = ? AND status = 'closed' AND outcome = 'done' AND checkpointDocId IS NULL AND closedAt >= ?", [bid!, session.startedAt])
+      .filter((g) => g.history.at(-1)?.byId === me.id)
+    : [];
   // a manager's rollup lists every key result it wrote or edited since its last rollup, so a human can cut it (1:1 mt_ayi4y9ybyj)
   const krWrites = input.rollup && isManager ? world.grantDesk.writtenSinceRollup(me.id, bid!) : [];
   if (unhomedVisitor && !bid) throw badRequest("The town has no Town Hall to file a visitor report in.");
   if (input.rollup) {
     if (!isManager) throw badRequest("Only a building's manager agent submits rollups.");
-    if (!sourceIds.length && !checkpointGrantId && !krWrites.length) throw badRequest("A rollup lists the reports it covers in provenance.sourceIds.");
+    if (!sourceIds.length && !checkpointGrantId && !closedGrants.length && !krWrites.length) throw badRequest("A rollup lists the reports it covers in provenance.sourceIds.");
     for (const id of sourceIds) {
       const d = world.docs.get(id);
       if (!d || d.type !== "report" || d.buildingId !== bid) throw badRequest(`Rollup source ${id} is not a report of your building.`);
@@ -227,12 +232,13 @@ export async function submit_report(world: World, me: Agent, input: VerbIn<"subm
       type: "report", state: "building", title: input.title, body, verdict: input.verdict, decision: "pending",
       authorId: me.id, authorKind: "agent", buildingId: bid, provenance: input.provenance,
       sessionId: session?.id, assignmentId: assignmentId ?? undefined,
-      tags: [...(input.rollup ? ["rollup"] : []), ...(unhomedVisitor ? ["visitor"] : []), ...(checkpointGrantId ? ["checkpoint"] : []), ...(resumeWhen ? ["parked"] : [])],
+      tags: [...(input.rollup ? ["rollup"] : []), ...(unhomedVisitor ? ["visitor"] : []), ...(checkpointGrantId ? ["checkpoint"] : []), ...(closedGrants.length ? ["grant-close"] : []), ...(resumeWhen ? ["parked"] : [])],
     }, `${me.name} submitted a ${input.rollup ? "rollup" : "report"}: ${input.title}`);
     if (checkpointGrantId) {
       const g = world.grants.get(checkpointGrantId);
       if (g) world.grants.upsert({ ...g, checkpointDocId: doc.id, updatedAt: nowIso() });
     }
+    for (const g of closedGrants) world.grants.upsert({ ...g, checkpointDocId: doc.id, updatedAt: nowIso() });
     // decision 1d: humans aren't notified of reports a manager agent will consume; only Town Hall items reach them
     notifyMentions(world, me, `${doc.title}\n${doc.body}`, { where: docWhere(doc), docId: doc.id, buildingId: doc.buildingId, agentsOnly: !!manager });
     // a cancelled assignment (stopped/dismissed mid-session) stays cancelled; the report still lands

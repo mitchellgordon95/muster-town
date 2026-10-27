@@ -314,9 +314,16 @@ export function intrayOf(world: World, buildingId: string): Doc[] {
   return world.docs.where("type IN ('report', 'flag') AND decision = 'pending' AND buildingId = ?", [buildingId], "ORDER BY createdAt, rowid").filter((d) => !isTownHallItem(world, d));
 }
 
-/** Grants a human must decide on (proposed, countered, at a checkpoint), every building, oldest first: Town Hall in-tray rows. */
+/**
+ * Grants a human must decide on, every building, oldest first: Town Hall in-tray rows. Proposed, countered and checkpoint
+ * grants, and grants the manager closed as done (`close_grant`) whose key result is still claimed: the human marks it met
+ * or missed, and the row leaves.
+ */
 export function grantsAwaitingDecision(world: World): GrantView[] {
-  return world.grants.where(`status IN (${GRANT_INTRAY_STATUSES.map((s) => `'${s}'`).join(", ")})`, [], "ORDER BY updatedAt, rowid").map((g) => world.grantDesk.view(g));
+  return world.grants.where(
+    `status IN (${GRANT_INTRAY_STATUSES.map((s) => `'${s}'`).join(", ")}) OR (status = 'closed' AND outcome = 'done' AND keyResultId IN (SELECT id FROM key_results WHERE status = 'claimed'))`,
+    [], "ORDER BY updatedAt, rowid",
+  ).map((g) => world.grantDesk.view(g));
 }
 
 /** The Town Hall in-tray: managers' rollups and checkpoint reports, grants awaiting a human's decision, people asking to join, and blocked buildings (not counted in the badge). */

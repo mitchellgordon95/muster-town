@@ -4,7 +4,7 @@ import { BACKFILL, BOARD_TYPES, KPI_FRAMING, DEFAULT_POOL_ID, ZERO_TOKENS, addTo
 import type { Api, AgentDetail, AllocationRow, Bank, Budget, Cabinet, CabinetQuery, DocQuery, EventQuery, In, LayoutPreview, MessageResult, PlanPreview, RoomLayout, RequestAction, Snapshot, Socket, SocketHandlers, ThreadMessage, WriteDocInput } from "../api";
 import { ApiError } from "../api";
 import type { PinSkillInput, PutSecretInput, SecretView, SkillPinView, SkillView } from "@muster-town/schema";
-import type { CreateBuildingInput, UpdateBuildingInput, CreateResidentInput, RegisterVisitorInput, ReviewInput, ChatInput, WorkInput, DonateInput, CreateMeetingInput, DocState, AddBankInput, BankInput, CreateBankPoolInput, UpdateBankPoolInput, DecideGrantInput, CreateKeyResultInput, UpdateKeyResultInput, CreateObjectiveInput, UpdateObjectiveInput } from "@muster-town/schema";
+import type { CreateBuildingInput, UpdateBuildingInput, CreateResidentInput, RegisterVisitorInput, ReviewInput, ChatInput, WorkInput, DonateInput, CreateMeetingInput, DocState, AddBankInput, BankInput, CreateBankPoolInput, UpdateBankPoolInput, DecideGrantInput, CloseGrantInput, CreateKeyResultInput, UpdateKeyResultInput, CreateObjectiveInput, UpdateObjectiveInput } from "@muster-town/schema";
 import { Sim, newId, spent } from "./sim";
 import { kpis as kpisFixture, memoryDocs } from "./fixture";
 import manualMd from "../../../../docs/manual.md?raw";
@@ -90,6 +90,7 @@ export class MockApi implements Api {
   }
   async grant(id: string) { await wait(60); return clone(this.need(this.sim.grants.get(id), "grant")); }
   async decideGrant(id: string, i: In<typeof DecideGrantInput>) { await wait(); return clone(this.sim.decideGrant(id, i)); }
+  async closeGrant(id: string, i: In<typeof CloseGrantInput>) { await wait(); return clone(this.sim.closeGrant(id, i)); }
   async keyResults(buildingId: string) { await wait(); this.need(this.sim.buildings.find((b) => b.id === buildingId), "building"); return clone(this.sim.grantBoard(buildingId)); }
   async createKeyResult(buildingId: string, i: In<typeof CreateKeyResultInput>) { await wait(); return clone(this.sim.createKeyResult(buildingId, i)); }
   async updateKeyResult(id: string, i: In<typeof UpdateKeyResultInput>) { await wait(); return clone(this.sim.updateKeyResult(id, i)); }
