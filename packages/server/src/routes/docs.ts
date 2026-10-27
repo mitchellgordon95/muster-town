@@ -1,4 +1,4 @@
-import { AppError, canSeeDoc, searchDocs } from "@muster-town/core";
+import { AppError, canSeeDoc, findManual, searchDocs } from "@muster-town/core";
 import { AskInput, CreateMeetingInput, DocState, DocType, MeetingPhase, MeetingSayInput, ReplyInput, ReviewInput, VerbInputs } from "@muster-town/schema";
 import type { FastifyInstance } from "fastify";
 import { z } from "zod";
@@ -33,6 +33,13 @@ export async function docRoutes(app: FastifyInstance) {
     if (q.type) { where.push("type = ?"); params.push(q.type); }
     if (q.buildingId) { where.push("buildingId = ?"); params.push(q.buildingId); }
     return { docs: world.docs.where(where.join(" AND "), params, `ORDER BY updatedAt DESC, rowid DESC LIMIT ${q.limit}`) };
+  });
+
+  /** The humans' operating manual (the Town Hall article tagged `manual`; the HUD "?" opens it). */
+  app.get("/api/manual", async () => {
+    const doc = findManual(world);
+    if (!doc) throw new AppError("not_found", "no operating manual yet");
+    return { doc, author: world.nameOf(doc.authorId) };
   });
 
   app.get<{ Params: Params }>("/api/docs/:id", async (req) => {

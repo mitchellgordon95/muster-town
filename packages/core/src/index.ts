@@ -39,7 +39,7 @@ export { HEARING_RANGE, nearbyAgents } from "./verbs/social.ts";
 export { searchDocs, ftsQuery, boardDocs, cabinetDocs, cabinetCounts } from "./verbs/docs.ts";
 export { exportWorld, importExport, docExportPath, type ExportResult } from "./export.ts";
 export { importV0, type ImportV0Options, type ImportV0Result } from "./import-v0.ts";
-export { seedDefaults, originUrl, HOUSE_BUDGET_TOKENS, HOUSE_LABEL, type SeedOptions, type SeedResult } from "./seed.ts";
+export { seedDefaults, seedManual, findManual, MANUAL_TAG, originUrl, HOUSE_BUDGET_TOKENS, HOUSE_LABEL, type SeedOptions, type SeedResult } from "./seed.ts";
 export * as prompts from "./prompts.ts";
 export * from "./prompts.ts";
 export * from "./memory.ts";

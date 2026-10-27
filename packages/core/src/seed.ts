@@ -1,7 +1,8 @@
-import { CollectiveConfig, Town, townEnv, type Agent, type Building, DesksConfig, type User, type Workspace } from "@muster-town/schema";
+import { CollectiveConfig, Town, type Doc, townEnv, type Agent, type Building, DesksConfig, type User, type Workspace } from "@muster-town/schema";
 import { execFileSync } from "node:child_process";
 import { chmodSync, existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
+import { createDoc } from "./domain.ts";
 import { createBuilding, createResident, createServiceAgent, createTownModerator, createUser } from "./entities.ts";
 import { buildingRoleId, townRoleId } from "./permissions.ts";
 import { TOWN_HALL_ID } from "./world/layout.ts";
@@ -24,6 +25,8 @@ export interface SeedOptions {
   houseTokens?: number;
   /** path to collective.json; its buildings (imports, residents, workspaces, reviewers) and town moderators are created at seed */
   collectivePath?: string;
+  /** the humans' operating manual (docs/manual.md): seeded as a Town Hall library article tagged `manual` when none exists */
+  manualPath?: string;
 }
 export interface SeedResult {
   /** false if the DB already had users (seed is idempotent) */
@@ -71,6 +74,27 @@ function collectiveWorkspace(collectivePath: string | undefined): Workspace | un
   return cfg.workspace ? { ...cfg.workspace, path: resolve(dirname(resolve(collectivePath)), cfg.workspace.path) } : undefined;
 }
 
+export const MANUAL_TAG = "manual";
+
+/** The humans' operating manual: the newest non-draft doc tagged `manual` (the HUD "?" opens it). */
+export function findManual(world: World): Doc | null {
+  return world.docs.first(`state != 'draft' AND EXISTS (SELECT 1 FROM json_each(docs.tags) WHERE value = ?)`, [MANUAL_TAG], "ORDER BY updatedAt DESC, rowid DESC") ?? null;
+}
+
+/**
+ * The repo's copy of the manual becomes a Town Hall library article only when the town has none: once it exists the
+ * world doc is the source of truth (edited live, never overwritten from the file).
+ */
+export function seedManual(world: World, path: string | undefined, authorId: string): Doc | null {
+  if (!path || !existsSync(path) || findManual(world)) return null;
+  const th = world.buildings.get(TOWN_HALL_ID) ?? world.buildings.first("kind = 'town-hall'");
+  const body = readFileSync(path, "utf8").replace(/^# [^\n]*\n+/, "");
+  return createDoc(world, {
+    type: "article", state: "library", title: "Operating manual", body, tags: [MANUAL_TAG],
+    authorId, authorKind: "user", buildingId: th?.id ?? null,
+  }, "The operating manual was placed in the library");
+}
+
 /**
  * Seed an empty town: town.json, admin user + token, built-in roles, Town Hall with Ada (service
  * librarian at the library), optional v0 lab import + Moss (reviewer) + house allocation; admin manages the lab;
@@ -106,6 +130,7 @@ export function seedDefaults(world: World, opts: SeedOptions = {}): SeedResult {
     // v1.2: the town moderator role (no moderator agents are created in existing DBs)
     world.permissions.ensureTownRoles();
     const th = world.buildings.get(TOWN_HALL_ID) ?? world.buildings.first("kind = 'town-hall'")!;
+    seedManual(world, opts.manualPath, existing.id);
     const lab = world.buildings.first("kind = 'lab'", [], "ORDER BY createdAt") ?? null;
     return {
       created: false, admin: existing, adminToken: world.tokens.getOrCreate("user", existing.id), townHall: th,
@@ -178,6 +203,7 @@ export function seedDefaults(world: World, opts: SeedOptions = {}): SeedResult {
     world.events.append({ type: "system", text: "Town seeded", payload: { adminId: admin.id, labId: lab?.id ?? null } });
     return { created: true, admin: world.users.require(admin.id), adminToken, townHall: world.buildings.require(townHall.id), ada, lab, moss, moderators };
   });
+  seedManual(world, opts.manualPath, result.admin.id);
   if (opts.dataDir) {
     mkdirSync(opts.dataDir, { recursive: true });
     const file = join(opts.dataDir, "admin-token");

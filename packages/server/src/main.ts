@@ -38,6 +38,7 @@ async function main() {
     townJsonPath: COLLECTIVE_JSON,
     collectivePath: COLLECTIVE_JSON,
     dataDir: DATA_DIR,
+    manualPath: join(REPO_ROOT, "docs", "manual.md"),
   });
   console.log(seed.created ? `[server] seeded collective "${collectiveCfg.name ?? "?"}" in ${DATA_DIR}` : `[server] opened collective "${collectiveCfg.name ?? "?"}" from ${DATA_DIR}`);
   const desksOverride = desksFromEnv(townEnv("DESKS"));
