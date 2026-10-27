@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
-import { intrayCounts, intrayOf, managerIntrayBlock, townHallIntray } from "../src/index.ts";
+import { applyDecision, intrayCounts, intrayOf, managerIntrayBlock, townHallIntray } from "../src/index.ts";
 import { buildingRoleId } from "../src/permissions.ts";
-import { seededWorld } from "./helpers.ts";
+import { seededWorld, tickUntil } from "./helpers.ts";
 
 const LAB = "carbon-cycle";
 
@@ -34,6 +34,7 @@ describe("plant a flag", () => {
   it("the manager delegates it with review + assigneeId: continue = the flag verbatim, redirect = the note; directed lane even in a goal-directed building", async () => {
     const { world, admin, by, manager } = managed();
     const flag = world.ops.plantFlag(admin, LAB, "Fix the banner typo");
+    await tickUntil(world, world.verbs.go(manager, { to: `flag:${flag.id}` }));
     await expect(world.verbs.review(manager, { docId: flag.id, decision: "continue", note: "" })).rejects.toThrow(/assigneeId/);
     await expect(world.verbs.review(manager, { docId: flag.id, decision: "stop", note: "" })).rejects.toThrow(/no agent to stop/);
     await expect(world.verbs.review(manager, { docId: flag.id, decision: "continue", note: "", assigneeId: admin.id })).rejects.toThrow(/not a resident/);
@@ -45,14 +46,47 @@ describe("plant a flag", () => {
     await expect(world.verbs.review(manager, { docId: flag.id, decision: "approve", note: "" })).rejects.toThrow(/already decided/);
 
     const flag2 = world.ops.plantFlag(admin, LAB, "Check the board loads");
+    await tickUntil(world, world.verbs.go(manager, { to: `flag:${flag2.id}` }));
     const r2 = await world.verbs.review(manager, { docId: flag2.id, decision: "redirect", note: "Open the board and report what you see", assigneeId: by("Noor").id });
     const a2 = world.assignments.require(r2.assignmentId!);
     expect(a2).toMatchObject({ agentId: by("Noor").id, title: "Open the board and report what you see", lane: "directed" });
     expect(a2.description).toContain("Check the board loads");
 
     const flag3 = world.ops.plantFlag(admin, LAB, "Nothing to do here");
+    await tickUntil(world, world.verbs.go(manager, { to: `flag:${flag3.id}` }));
     const r3 = await world.verbs.review(manager, { docId: flag3.id, decision: "approve", note: "already done" });
     expect(r3.assignmentId).toBeNull();
     expect(intrayOf(world, LAB).filter((d) => d.type === "flag")).toHaveLength(0);
+  });
+
+  it("it stands on the map where the human planted it until the manager walks to it and picks it up; then it leaves the map", async () => {
+    const { world, admin, by, manager } = managed();
+    const at = { ...world.agents.require(admin.id).pos };
+    const flag = world.ops.plantFlag(admin, LAB, "Fix the banner typo\nThe lab banner says 'Carbon Cylce'.");
+    expect(flag.flagPos).toEqual(at);
+    expect(world.snapshot().flags).toEqual([expect.objectContaining({ docId: flag.id, buildingId: LAB, x: at.x, y: at.y, title: "Fix the banner typo" })]);
+    expect(managerIntrayBlock(world, world.buildings.require(LAB), manager.id)).toContain(`go to flag:${flag.id}`);
+    // the manager can't decide it from the desk: walk there first
+    await expect(world.verbs.review(manager, { docId: flag.id, decision: "continue", note: "", assigneeId: by("Moss").id })).rejects.toThrow(/Pick the flag up first/);
+    // anyone else walks there and leaves it standing
+    const other = await tickUntil(world, world.verbs.go(by("Noor"), { to: `flag:${flag.id}` }));
+    expect(other).toMatchObject({ pickedUp: false, pos: at });
+    expect(world.snapshot().flags).toHaveLength(1);
+    const got = await tickUntil(world, world.verbs.go(manager, { to: `flag:${flag.id}` }));
+    expect(got).toMatchObject({ pickedUp: true, pos: at, flag: { id: flag.id, body: expect.stringContaining("Carbon Cylce") } });
+    expect(world.docs.require(flag.id)).toMatchObject({ pickedUpBy: manager.id });
+    expect(world.snapshot().flags).toHaveLength(0);
+    expect(intrayOf(world, LAB).map((d) => d.id)).toContain(flag.id); // the in-tray keeps the record
+    const r = await world.verbs.review(manager, { docId: flag.id, decision: "continue", note: "", assigneeId: by("Moss").id });
+    expect(r.assignmentId).not.toBeNull();
+    await expect(world.verbs.go(manager, { to: "flag:dc_nope" })).rejects.toThrow(/No flag/);
+  });
+
+  it("a human decides a standing flag from the in-tray without walking; it leaves the map", () => {
+    const { world, admin } = managed();
+    const flag = world.ops.plantFlag(admin, LAB, "Nothing to do here");
+    expect(world.snapshot().flags).toHaveLength(1);
+    applyDecision(world, flag.id, "approve", "handled", world.holderOf(admin));
+    expect(world.snapshot().flags).toHaveLength(0);
   });
 });

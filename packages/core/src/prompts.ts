@@ -178,7 +178,7 @@ export const ROLLUP_RULE_HOURS = 24;
 export function managerIntrayBlock(world: World, building: Building, managerId: string, now = Date.now()): string {
   const pending = intrayOf(world, building.id);
   const rows = pending.map((d) => {
-    if (d.type === "flag") return `- ${d.id} FLAG by ${world.nameOf(d.authorId)} (${relativeTime(d.createdAt, now)}): ${oneLine(d.body, 200)}`;
+    if (d.type === "flag") return `- ${d.id} FLAG by ${world.nameOf(d.authorId)} (${relativeTime(d.createdAt, now)})${flagWhere(d)}: ${oneLine(d.body, 200)}`;
     const need = sectionOf(d.body, NEED);
     return `- ${d.id} "${oneLine(d.title, 100)}" by ${world.nameOf(d.authorId)} (verdict ${d.verdict ?? "?"}, ${relativeTime(d.createdAt, now)}${d.tags.includes("parked") ? ", parked" : ""})${need ? `: needs: ${oneLine(need, 160)}` : ""}`;
   });
@@ -191,7 +191,7 @@ export function managerIntrayBlock(world: World, building: Building, managerId: 
   return `## Your in-tray (you work it; Mitchell doesn't see these reports)
 ${rows.length ? rows.join("\n") : "(empty)"}
 
-Decide each report with \`review\` (\`read\` it first): approve = acknowledge finished work (the default; idle is fine), continue = its proposal becomes the author's next assignment, redirect = your note becomes it, stop = the author stops.${flags ? " A FLAG is a quick request a human planted in this building: delegate it with `review` plus `assigneeId` (a resident of this building; continue = the flag's text becomes their directed assignment verbatim, redirect = your note does, with the flag as context); approve only when nothing needs doing. It is directed work (a human asked), so the allowance never holds it." : ""} Your own work reports (from work you assigned yourself) land here too: decide them the same way and fold them into your rollup; only rollups reach the Town Hall. Decide yourself whether to wait for more reports or roll up; undecided reports stay here. ${ESCALATION_CRITERIA}
+Decide each report with \`review\` (\`read\` it first): approve = acknowledge finished work (the default; idle is fine), continue = its proposal becomes the author's next assignment, redirect = your note becomes it, stop = the author stops.${flags ? " A FLAG is a quick request a human planted in this building. One that stands on the map: walk to it first (\`go\` to flag:<its id>), which picks it up and gives you its text; then delegate it with `review` plus `assigneeId` (a resident of this building; continue = the flag's text becomes their directed assignment verbatim, redirect = your note does, with the flag as context); approve only when nothing needs doing. It is directed work (a human asked), so the allowance never holds it." : ""} Your own work reports (from work you assigned yourself) land here too: decide them the same way and fold them into your rollup; only rollups reach the Town Hall. Decide yourself whether to wait for more reports or roll up; undecided reports stay here. ${ESCALATION_CRITERIA}
 
 Rollups are how Mitchell hears from you: \`submit_report\` with \`rollup: true\` and the covered reports' ids in provenance.sourceIds. Four short sections: Shipped (live, with commits or doc ids), Decided (each covered report → what you decided), Key results (each funded grant's KRs with the spend numbers, plus today's spend by lane: exploration ${tok(lanes.exploration.spentTodayTokens)} / ${tok(lanes.exploration.allowanceTokens)} tokens, directed ${tok(lanes.directed.spentTodayTokens)} tokens), Needs from Mitchell (at most two items; "Nothing needed" is valid). Roll up when a covered report hit an escalation criterion, or when ${ROLLUP_RULE_HOURS} h have passed since your last rollup and something was decided; nothing happened → no rollup. Last rollup: ${sinceLast}; reports decided since: ${decidedSince}.${krWrites.length ? `
 Key results you wrote since then (changes a key result, so roll up; your rollup lists them for you): ${krWrites.map((w) => `${w.action} ${w.keyResultId} "${oneLine(w.text, 80)}"`).join("; ")}.` : ""}`;
@@ -211,14 +211,17 @@ ${rows || "(see the in-tray)"}
 End the session in one of two ways. If a rollup is due (the rule in "## Your in-tray"), \`submit_report\` with \`rollup: true\` and the covered reports' ids in provenance.sourceIds. Otherwise don't call \`submit_report\` at all: just stop, and the session ends quietly (an idle building is silent). The "Finish with submit_report" rule above is for work sessions, not this one.`;
 }
 
+/** Where a flag stands on the map, for the manager's prompts: walk there (`go flag:<id>`) to pick it up. */
+const flagWhere = (d: Doc) => d.pickedUpAt ? ", picked up" : d.flagPos ? `, standing on the map at (${d.flagPos.x}, ${d.flagPos.y}): go to flag:${d.id} to pick it up` : "";
+
 /** One in-tray line for the team-lead prompts: a report with its verdict, or a flag with its note. */
 const intrayLine = (nameOf: (id: string) => string) => (d: Doc) => d.type === "flag"
-  ? `- ${d.id} FLAG by ${nameOf(d.authorId)}: ${oneLine(d.body, 200)}`
+  ? `- ${d.id} FLAG by ${nameOf(d.authorId)}${flagWhere(d)}: ${oneLine(d.body, 200)}`
   : `- ${d.id} "${oneLine(d.title, 100)}" by ${nameOf(d.authorId)} (verdict ${d.verdict ?? "?"})`;
 
 /** A report (or a human's flag) that landed while the manager's team-lead session runs (streamed into it). */
 export function managerNewReport(d: Doc, nameOf: (id: string) => string): string {
-  if (d.type === "flag") return `${nameOf(d.authorId)} planted a flag in your building (${d.id}): ${oneLine(d.body, 300)}\nDelegate it with \`review\` (continue or redirect, with assigneeId = the resident who takes it), or approve it if nothing needs doing. End as before: a rollup only if one is due, else just stop.`;
+  if (d.type === "flag") return `${nameOf(d.authorId)} planted a flag in your building (${d.id})${flagWhere(d)}: ${oneLine(d.body, 300)}\n${d.flagPos && !d.pickedUpAt ? `Walk to it and pick it up first (\`go\` to flag:${d.id}), then delegate it` : "Delegate it"} with \`review\` (continue or redirect, with assigneeId = the resident who takes it), or approve it if nothing needs doing. End as before: a rollup only if one is due, else just stop.`;
   return `A new report landed in your in-tray: ${d.id} "${oneLine(d.title, 100)}" by ${nameOf(d.authorId)} (verdict ${d.verdict ?? "?"}). Decide it with the others, or leave it pending. End as before: a rollup only if one is due, else just stop.`;
 }
 

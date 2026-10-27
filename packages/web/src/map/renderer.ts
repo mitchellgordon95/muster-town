@@ -9,7 +9,7 @@ import { authStore } from "../auth/auth";
 import { T, CHAR_W, CHAR_H, charSheet, tiles, HUMAN_SPRITE } from "./sprites";
 import { layoutEdit, type LayoutDraft } from "./layoutEdit";
 import { townPlan, type PlanDraft } from "./townPlan";
-import { bubbleFor, buildingBudgetLine, drawBadge, drawBankSign, drawBlockLine, drawBubble, drawLabel, drawPill, drawSign, drawTip, residentBudgetLine, type Bubble } from "./overlay";
+import { bubbleFor, buildingBudgetLine, drawBadge, drawFlag, drawBankSign, drawBlockLine, drawBubble, drawLabel, drawPill, drawSign, drawTip, residentBudgetLine, type Bubble } from "./overlay";
 import { blockedByRedeploy } from "../redeploy";
 import { api } from "../api";
 import { drawFlow, type Flow } from "./flow";
@@ -470,8 +470,10 @@ export class MapRenderer {
     g.fillRect(ox - T, oy - T, cw / z + 2 * T, ch / z + 2 * T);
     g.drawImage(w.bitmap, 0, 0);
 
-    // bodies, sorted by feet y
     const s = store.state;
+    // planted flags (dc_r40dq3znse): a pole on the tile it was planted on, until the building's manager picks it up
+    for (const f of s.flags) drawFlag(g, f.x * T + T - 4, f.y * T + T - 2, now);
+    // bodies, sorted by feet y
     // w/h: drawn body size, by the agent's model tier
     type D = { id: string; a: Agent | null; x: number; y: number; moving: boolean; w: number; h: number };
     const list: D[] = [];
