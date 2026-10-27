@@ -5,8 +5,9 @@
  */
 import { Agent, type Assignment, type Building } from "@muster-town/schema";
 import { AppError, badRequest } from "./errors.ts";
-import { managerAgentOf } from "./domain.ts";
-export { familyCap } from "./budget.ts";
+import { buildingQueue, managerAgentOf } from "./domain.ts";
+import { familyCap } from "./budget.ts";
+export { familyCap };
 import { buildingRoleId } from "./permissions.ts";
 import { newId, nowIso } from "./util.ts";
 import type { World } from "./world.ts";
@@ -30,6 +31,25 @@ export function nextForkN(world: World, managerId: string): number {
   while (used.has(n)) n++;
   return n;
 }
+
+/**
+ * Step 2, the runtime's spawn check: the building-queue work a fork may start now, in queue order. Empty when forks are
+ * off, there is no manager to fork, the building's budget or the family's daily cap is spent. Waiting and offered rows
+ * are skipped; a row the lane gate holds keeps its `heldReason` (as for a resident's queue).
+ */
+export function forkableQueue(world: World, b: Building): Assignment[] {
+  if (!b.forks) return [];
+  const manager = managerAgentOf(world, b);
+  if (!manager || manager.status === "banned" || manager.status === "retired") return [];
+  if (world.budget.remaining(b.id) <= 0 || manager.familySpentToday >= familyCap(b)) return [];
+  return buildingQueue(world, b.id).filter((a) => !a.waitFor && !a.offered && world.budget.holdReason(a) === null);
+}
+
+/** Desks a fork can take: the building's headcount minus the desks in use (named residents' and live forks'). */
+export const freeDesks = (world: World, b: Building): number => Math.max(0, b.headcount - world.layout.deskCount(b.id));
+
+/** Live (not retired) forks, e.g. for the runtime's sweep of forks whose session is gone. */
+export const liveForks = (world: World): Agent[] => world.agents.where("forkOf IS NOT NULL AND status != 'retired'");
 
 /** The desk number (0-based, as in the `desks` table) the agent sits at, or null. */
 function deskN(world: World, agentId: string): number | null {

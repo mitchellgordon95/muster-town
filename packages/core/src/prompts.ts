@@ -164,8 +164,8 @@ ${blocked ? `This building is ${blocked}: write key results for the goal with \`
 A human's decision on your proposal wakes you with an assignment, like a reply to a report: funded → "Grant … funded: assign its first step or take it yourself" (lane grant, the plan in it; nothing runs until its steps are assignments), countered → "Answer the counter on …" (re-propose with \`propose_grant\`), rejected → "Grant … rejected: read the note". When a grant reaches 100% of its tokens (the only checkpoint; it runs to its full number before that) you get a "Write the checkpoint for …" assignment: \`checkpoint_grant\` (its key result's status up to claimed, with evidence), then \`submit_report\` with \`rollup: true\`; it lands in the Town Hall in-tray linked to the grant. When a grant's work is done before its tokens are (its key result can be claimed with evidence a human can check), close it yourself with \`close_grant\` (grantId, the evidence as note), then \`submit_report\` with \`rollup: true\`: it closes as done, the unspent tokens return to the Bank, and a human marks the key result met or missed from the Town Hall in-tray. Use \`checkpoint_grant\` only when the grant is held at its 100% checkpoint and the work is not done.`;
 }
 
-export function workPrompt(assignment: Assignment, lastReport: Doc | undefined, recentWork?: string): string {
-  const prev = lastReport
+export function workPrompt(assignment: Assignment, lastReport: Doc | undefined, recentWork?: string, chain?: string): string {
+  const prev = chain !== undefined ? `\n\n${chain}` : lastReport
     ? `\n\nYour previous report: "${lastReport.title}" (${lastReport.id}, verdict ${lastReport.verdict ?? "?"}, decision ${lastReport.decision ?? "?"}${lastReport.decisionNote ? `, note: ${lastReport.decisionNote}` : ""}). \`read\` it if you need the details.`
     : "\n\nThis is your first session.";
   return `Your assignment (${assignment.id}): ${assignment.title}
@@ -173,6 +173,40 @@ export function workPrompt(assignment: Assignment, lastReport: Doc | undefined, 
 ${assignment.description}${prev}${recentWork ? `\n\n${recentWork}` : ""}
 
 Start with \`look\`, then the board. End with \`submit_report\`.`;
+}
+
+/** The longest previous-report body the chain block quotes (reports run 1 to 3k chars). */
+const CHAIN_REPORT_MAX = 6000;
+/** How many earlier hops the chain block lists (newest kept). */
+const CHAIN_HOPS_MAX = 10;
+export const CHAIN_PLAN_RULE = "A plan the next session needs goes in your report's Findings (or a topic page), not only in a desk file: a desk file is a cache, and the next session on this work may run at another desk.";
+
+/**
+ * Manager forks (dc_mymt27yz25 §5.3): a fork's work prompt carries its assignment chain in place of "Your previous
+ * report": the previous report on the chain in full, the earlier hops on one line (title, id, verdict), and the rule
+ * on where a plan goes. On a fresh chain: "This is the first session on this work." `excludeSessionId` leaves out the
+ * session's own report (a desk brief is composed after the session starts).
+ */
+export function chainBlock(world: World, assignment: Assignment, excludeSessionId?: string): string {
+  const chainId = assignment.chainId ?? assignment.id;
+  const reports = world.docs.where(
+    `type = 'report' AND assignmentId IN (SELECT id FROM assignments WHERE chainId = ? OR id = ?)${excludeSessionId ? " AND (sessionId IS NULL OR sessionId != ?)" : ""}`,
+    excludeSessionId ? [chainId, assignment.id, excludeSessionId] : [chainId, assignment.id], "ORDER BY createdAt, rowid");
+  if (!reports.length) return `This is the first session on this work (chain ${chainId}).\n\n${CHAIN_PLAN_RULE}`;
+  const prev = reports[reports.length - 1];
+  const earlier = reports.slice(0, -1).slice(-CHAIN_HOPS_MAX);
+  const skipped = reports.length - 1 - earlier.length;
+  const body = prev.body.length > CHAIN_REPORT_MAX ? `${prev.body.slice(0, CHAIN_REPORT_MAX)}\n…(cut; \`read\` ${prev.id} for the rest)` : prev.body;
+  const hops = earlier.length
+    ? `\n\nEarlier on this chain (oldest first${skipped ? `, ${skipped} older not listed` : ""}): ${earlier.map((d) => `"${oneLine(d.title, 100)}" (${d.id}, verdict ${d.verdict ?? "?"})`).join("; ")}.`
+    : "";
+  return `This work continues chain ${chainId} (${reports.length} report${reports.length === 1 ? "" : "s"} so far). The previous report on it: "${prev.title}" by ${world.nameOf(prev.authorId)} (${prev.id}, verdict ${prev.verdict ?? "?"}, decision ${prev.decision ?? "?"}${prev.decisionNote ? `, note: ${prev.decisionNote}` : ""}):
+
+<previous-report>
+${body}
+</previous-report>${hops}
+
+${CHAIN_PLAN_RULE}`;
 }
 
 /** Why a manager escalates instead of deciding: the four criteria of docs/waterfall.md §3.1. */
@@ -471,7 +505,8 @@ export function composeWorkBrief(world: World, sessionId: string): DeskBrief {
   const system = workSystemPrompt(agent, building, town, { desk: true, ...sessionMemory(world, agent, building, assignment), skills: skillsBlock(world.skills.forAgent(agent.id)) }) + (workspace ? workshopPrompt(workspace, repoNameOf(workspace.repoUrl)) : "");
   const recent = recentWorkBlock(world, agent.id, { excludeSessionId: session.id });
   const prompt = assignment
-    ? workPrompt(assignment, world.docs.first("authorId = ? AND type = 'report' AND (sessionId IS NULL OR sessionId != ?)", [agent.id, session.id], "ORDER BY createdAt DESC, rowid DESC"), recent)
+    ? workPrompt(assignment, world.docs.first("authorId = ? AND type = 'report' AND (sessionId IS NULL OR sessionId != ?)", [agent.id, session.id], "ORDER BY createdAt DESC, rowid DESC"), recent,
+      agent.forkOf ? chainBlock(world, assignment, session.id) : undefined)
     : `${CHECK_IN}\n\n${recent}\n\nStart with \`look\`, then the board. End with \`submit_report\`.`;
   return { agent, building, town, assignment, session, system, prompt, ...(workspace ? { workspace } : {}) };
 }

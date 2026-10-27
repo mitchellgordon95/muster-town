@@ -335,6 +335,8 @@ export class Ops {
     if (agent.status === "banned" || agent.status === "retired") throw new AppError("conflict", `${agent.name} is ${agent.status === "retired" ? "dismissed" : "banned"}.`);
     // starting it by hand overrides what it waits on
     const assignment = moveToFront(this.world, a.waitFor ? this.world.assignments.upsert({ ...a, waitFor: null, updatedAt: nowIso() }).id : a.id);
+    // manager forks: building-queue work runs as the next fork (when a desk is free), never as the manager holding it
+    if (a.queue === "building") return { assignment, agent, when: "now" };
     const resumed = agent.status === "stopped" ? this.world.setStatus(agent.id, "idle", `${agent.name} was resumed to start "${a.title}"`) : agent;
     const busy = resumed.status === "working" || resumed.status === "in-meeting";
     return { assignment, agent: resumed, when: busy ? "after-current" : "now" };
@@ -349,7 +351,8 @@ export class Ops {
   retryAssignment(actor: Actor, assignmentId: string, opts: { front?: boolean } = {}): Assignment {
     const { a, agent } = this.controlAssignment(actor, assignmentId);
     if (a.status !== "cancelled" && a.status !== "done") throw new AppError("conflict", `Only cancelled or done assignments can be retried; "${a.title}" is ${a.status}.`);
-    if (agent.status === "banned" || agent.status === "retired") throw new AppError("conflict", `${agent.name} is ${agent.status === "retired" ? "dismissed" : "banned"}.`);
+    // a retired fork's work is retried on the building queue (createAssignment hands it to the manager)
+    if (agent.status === "banned" || (agent.status === "retired" && !agent.forkOf)) throw new AppError("conflict", `${agent.name} is ${agent.status === "retired" ? "dismissed" : "banned"}.`);
     return createAssignment(this.world, {
       agentId: agent.id, buildingId: a.buildingId, title: a.title, description: a.description,
       fromReportId: a.fromReportId, fromMeetingId: a.fromMeetingId, fromAssignmentId: a.id, front: !!opts.front,
@@ -401,10 +404,16 @@ export class Ops {
     const user = this.world.users.require(userId, "user");
     const avatar = this.ensureAvatar(userId);
     const agent = this.world.agents.require(agentId, "agent");
+    const isWorking = opts.isWorking ?? this.world.host.isWorking?.bind(this.world.host);
+    const workingNow = (id: string) => isWorking ? isWorking(id) : this.world.sessions.count("agentId = ? AND status = 'running' AND purpose = 'work'", [id]) > 0;
+    // manager forks: a live fork takes the message as an interrupt; once its session is over it goes to the manager
+    if (agent.forkOf && (agent.status === "retired" || !workingNow(agent.id))) {
+      return this.messageAgent(userId, agent.forkOf, `(Sent to ${agent.name}, your fork, after its session ended: it reaches you as its manager.)\n\n${body}`, opts);
+    }
     if (agent.status === "banned" || agent.status === "retired") throw new AppError("conflict", `${agent.name} is ${agent.status === "retired" ? "dismissed" : "banned"}.`);
     if (agent.kind !== "resident" && agent.kind !== "visitor") throw badRequest(`${agent.name} isn't a resident or visitor; only they can be messaged.`);
     // the manager is a building's conversational surface: residents work from assignments and don't take messages
-    if (agent.kind === "resident") {
+    if (agent.kind === "resident" && !agent.forkOf) {
       const b = this.world.buildings.get(homeOf(agent) ?? "");
       const mgr = b?.managerAgentId ? this.world.agents.get(b.managerAgentId) : undefined;
       if (b && mgr && mgr.id !== agent.id && mgr.status !== "retired" && mgr.status !== "banned") {
@@ -418,8 +427,7 @@ export class Ops {
     // v1.4: a visitor's loop runs outside the town: the message waits in its mailbox (inbox, look notices, digest)
     if (agent.kind === "visitor") return { mode: "queued", messageId: msg.id };
 
-    const isWorking = opts.isWorking ?? this.world.host.isWorking?.bind(this.world.host);
-    const working = isWorking ? isWorking(agent.id) : this.world.sessions.count("agentId = ? AND status = 'running' AND purpose = 'work'", [agent.id]) > 0;
+    const working = workingNow(agent.id);
     if (working) {
       if (opts.now === false) return { mode: "queued", messageId: msg.id };
       const itext = `${user.name} messaged you (it is also in your inbox):\n\n${body}\n\nReply to them first with \`tell\` (their avatar id is ${avatar.id}).`;
@@ -487,7 +495,7 @@ export class Ops {
     // member funding: `inputId` names the grant's own api-key input the session runs on (the Bank debits it first)
     const input = opts.inputId ? this.world.bank.input(opts.inputId) : undefined;
     const by = input ? `${input.label}'s API key` : opts.funding === "subscription" ? "subscription" : opts.funding === "donor-key" ? "a donor's API key" : "API key";
-    this.world.events.append({ type: "session.started", agentId, buildingId: homeOf(agent), text: `${agent.name} started a ${opts.purpose} session${opts.funding ? ` (funded by ${by})` : ""}`, payload: { sessionId: session.id, purpose: opts.purpose, assignmentId: opts.assignmentId ?? null, model: opts.model, backend: session.backend, funding: opts.funding ?? null, inputId: opts.inputId ?? null, grantId: session.grantId ?? null, origin: session.origin ?? null } });
+    this.world.events.append({ type: "session.started", agentId, buildingId: homeOf(agent), text: `${agent.name} started a ${opts.purpose} session${opts.funding ? ` (funded by ${by})` : ""}`, payload: { sessionId: session.id, purpose: opts.purpose, assignmentId: opts.assignmentId ?? null, model: opts.model, backend: session.backend, funding: opts.funding ?? null, inputId: opts.inputId ?? null, grantId: session.grantId ?? null, origin: session.origin ?? null, ...(agent.forkOf ? { forkOf: agent.forkOf } : {}) } });
     return session;
   }
 
@@ -505,7 +513,7 @@ export class Ops {
     });
     const agent = this.world.agents.require(s.agentId, "agent");
     if (agent.status === "working") this.world.setStatus(agent.id, "idle");
-    this.world.events.append({ type: "session.ended", agentId: agent.id, buildingId: homeOf(agent), text: `${agent.name}'s ${s.purpose} session ended (${result.status})`, payload: { sessionId, status: result.status, model: session.model, tokens: session.tokens, ...countsOf(session), ...(result.byModel ? { byModel: result.byModel } : {}), adjustedOutputTokens: sessionView(session).adjustedOutputTokens, costUsd: session.costUsd, turns: session.turns, reportId: session.reportId, error: session.error } });
+    this.world.events.append({ type: "session.ended", agentId: agent.id, buildingId: homeOf(agent), text: `${agent.name}'s ${s.purpose} session ended (${result.status})`, payload: { sessionId, status: result.status, model: session.model, tokens: session.tokens, ...countsOf(session), ...(result.byModel ? { byModel: result.byModel } : {}), adjustedOutputTokens: sessionView(session).adjustedOutputTokens, costUsd: session.costUsd, turns: session.turns, reportId: session.reportId, error: session.error, ...(agent.forkOf ? { forkOf: agent.forkOf } : {}) } });
     // Bank step 4: a subscription-cap death (the desk's SPEND_LIMIT, or an error that reads like one) → bank.cap
     const cap = result.spendLimit || (session.error && SPEND_LIMIT.test(session.error) ? session.error : null);
     if (cap) this.world.bank.recordCap(session, homeOf(agent), cap);
