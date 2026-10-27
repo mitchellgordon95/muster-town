@@ -542,6 +542,22 @@ export const WaitFor = z.union([
 export type WaitFor = z.infer<typeof WaitFor>;
 /** How long a wait may stay unmet before the assignment is cancelled into the in-tray. */
 export const WAIT_TTL_MS = 24 * 60 * 60_000;
+/**
+ * Wakes step 1 (docs/wakes.md): the human a chain of work traces to. The town stamps it when a human acts (a tell, an
+ * assign, a flag, a 1:1, a decision on a report); a session inherits it from its assignment or its meeting; `tell`,
+ * `assign` and @mentions copy the acting session's origin with `hops + 1`. Never a verb input, so agents can't forge it.
+ */
+export const Origin = z.object({
+  /** the human user */
+  userId: Id,
+  /** what the human did it through: a message, meeting, doc or assignment id (null = no record of its own) */
+  via: z.string().nullable(),
+  /** relays since the human acted (0 = the human's own act) */
+  hops: z.number().int().nonnegative(),
+  /** when the human acted */
+  at: Iso,
+});
+export type Origin = z.infer<typeof Origin>;
 export const AssignmentStatus = z.enum(["pending", "active", "done", "cancelled"]);
 /** Every session runs in one lane: work on a funded grant, goal-scoped exploration, or work a human asked for directly. */
 export const SpendLane = z.enum(["grant", "exploration", "directed"]);
@@ -593,6 +609,8 @@ export const Assignment = z.object({
   sourceId: Id.nullable().default(null),
   /** why the scheduler isn't starting it although it is next ("held: grant at checkpoint"); null = not held. Never cancelled for it. */
   heldReason: z.string().nullable().default(null),
+  /** wakes: the human this work traces to (null = none) */
+  origin: Origin.nullable().default(null),
   createdAt: Iso,
   updatedAt: Iso,
 });
@@ -630,6 +648,8 @@ export const Message = z.object({
   meetingId: Id.nullable().default(null),
   /** mention: the doc the mention is in (read it with `read`) */
   docId: Id.nullable().default(null),
+  /** wakes: the human behind it (a human's own tell, or a relay by an agent whose session has one) */
+  origin: Origin.nullable().default(null),
   createdAt: Iso,
   readAt: Iso.nullable().default(null),
 });
@@ -808,6 +828,8 @@ export const Session = z.object({
   lane: SpendLane.nullish(),
   /** the grant this session's tokens count against (a grant's spend is the sum over its sessions) */
   grantId: Id.nullish(),
+  /** wakes: the human behind the session, from its assignment or its meeting (null = none) */
+  origin: Origin.nullish(),
 });
 export type Session = z.infer<typeof Session>;
 /** A session as the API serves it: with `adjustedOutputTokens` (Bank step 2), derived on read, never stored. */

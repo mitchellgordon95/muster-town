@@ -7,6 +7,7 @@ import { AppError, badRequest, forbidden } from "./errors.ts";
 import { createMeeting, createOneOnOne, endMeeting, meetingDecide, meetingSpeak, noteHumanTyping, setMeetingPhase } from "./meetings.ts";
 import { replyToReport, type ReplyResult } from "./reply.ts";
 import { newId, nowIso } from "./util.ts";
+import { humanOrigin, meetingOrigin } from "./origin.ts";
 import { sessionView, unknownModels } from "./bank.ts";
 import { validateWait } from "./waits.ts";
 import type { World } from "./world.ts";
@@ -408,8 +409,10 @@ export class Ops {
         throw new AppError("conflict", `${agent.name} doesn't take messages: residents of the ${b.name} work from assignments. Talk to ${mgr.name}, its manager, who turns requests into assignments; or give ${agent.name} an assignment directly.`);
       }
     }
-    const msg = sendMessage(this.world, { kind: "tell", fromId: avatar.id, fromKind: "agent", toId: agent.id, body });
-    this.world.events.append({ type: "agent.told", agentId: avatar.id, buildingId: avatar.buildingId, text: `${user.name} → ${agent.name}: ${body.slice(0, 200)}`, payload: { to: agent.id, toId: agent.id, toKind: agent.kind, messageId: msg.id, text: body, fromUser: userId } });
+    const msgId = newId("ms");
+    const origin = humanOrigin(userId, msgId);
+    const msg = sendMessage(this.world, { id: msgId, kind: "tell", fromId: avatar.id, fromKind: "agent", toId: agent.id, body, origin });
+    this.world.events.append({ type: "agent.told", agentId: avatar.id, buildingId: avatar.buildingId, text: `${user.name} → ${agent.name}: ${body.slice(0, 200)}`, payload: { to: agent.id, toId: agent.id, toKind: agent.kind, messageId: msg.id, text: body, fromUser: userId, origin } });
     // v1.4: a visitor's loop runs outside the town: the message waits in its mailbox (inbox, look notices, digest)
     if (agent.kind === "visitor") return { mode: "queued", messageId: msg.id };
 
@@ -436,7 +439,7 @@ export class Ops {
       assignment = createAssignment(this.world, {
         agentId: agent.id, title: prefix + (first.length > 80 ? first.slice(0, 79) + "…" : first),
         description: `${user.name} messaged you:\n\n${body}` + messageTail(avatar.id),
-        createdBy: { kind: "user", id: userId }, front: true,
+        createdBy: { kind: "user", id: userId }, front: true, origin,
       });
     }
     return { mode: this.world.budget.canStart(agent.id) ? "started" : "queued", messageId: msg.id, assignmentId: assignment.id };
@@ -467,6 +470,9 @@ export class Ops {
       funding: opts.funding ?? null,
       // goal-directed budgets: the session spends in its assignment's lane (a grant's spend is the sum of its sessions)
       ...(opts.assignmentId ? (({ lane, grantId }) => ({ lane, grantId }))(this.world.assignments.require(opts.assignmentId, "assignment")) : {}),
+      // wakes step 1: the session works for its assignment's human, or for the human in its meeting (a 1:1, a mention reply)
+      origin: (opts.assignmentId ? this.world.assignments.get(opts.assignmentId)?.origin : null)
+        ?? (opts.meetingId ? (((m) => m && meetingOrigin(m))(this.world.meetings.get(opts.meetingId)) ?? null) : null),
     });
     if (opts.purpose === "work") {
       if (opts.assignmentId) {
@@ -476,7 +482,7 @@ export class Ops {
       }
       this.world.setStatus(agentId, "working");
     } else if (opts.purpose === "manage") this.world.setStatus(agentId, "working"); // a manager's team-lead session (runtime/src/manage.ts)
-    this.world.events.append({ type: "session.started", agentId, buildingId: homeOf(agent), text: `${agent.name} started a ${opts.purpose} session${opts.funding ? ` (funded by ${opts.funding === "subscription" ? "subscription" : opts.funding === "donor-key" ? "a donor's API key" : "API key"})` : ""}`, payload: { sessionId: session.id, purpose: opts.purpose, assignmentId: opts.assignmentId ?? null, model: opts.model, backend: session.backend, funding: opts.funding ?? null } });
+    this.world.events.append({ type: "session.started", agentId, buildingId: homeOf(agent), text: `${agent.name} started a ${opts.purpose} session${opts.funding ? ` (funded by ${opts.funding === "subscription" ? "subscription" : opts.funding === "donor-key" ? "a donor's API key" : "API key"})` : ""}`, payload: { sessionId: session.id, purpose: opts.purpose, assignmentId: opts.assignmentId ?? null, model: opts.model, backend: session.backend, funding: opts.funding ?? null, origin: session.origin ?? null } });
     return session;
   }
 

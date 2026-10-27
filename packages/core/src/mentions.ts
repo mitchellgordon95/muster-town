@@ -5,6 +5,7 @@
  */
 import type { Agent, Message } from "@muster-town/schema";
 import { sendMessage } from "./domain.ts";
+import { actOrigin } from "./origin.ts";
 import { holderOf, type Holder } from "./permissions.ts";
 import { truncate } from "./util.ts";
 import type { World } from "./world.ts";
@@ -67,15 +68,16 @@ export function notifyMentions(world: World, author: Agent, text: string, ctx: M
   const exclude = [author.id, by.id, ...(ctx.skip ?? [])];
   const already = new Set(previousText ? extractMentions(previousText, world, exclude).map((a) => a.id) : []);
   const sent: Message[] = [];
+  const origin = actOrigin(world, author, ctx.docId ?? ctx.meetingId ?? null);
   for (const target of extractMentions(text, world, exclude)) {
     if (already.has(target.id)) continue;
     if (ctx.agentsOnly && target.kind === "human") continue;
     const body = `${author.name} mentioned you in ${ctx.where}: ${excerptAround(text, target.name)}`;
-    const msg = sendMessage(world, { kind: "mention", fromId: by.id, fromKind: by.kind, toId: target.id, body, docId: ctx.docId ?? null, meetingId: ctx.meetingId ?? null });
+    const msg = sendMessage(world, { kind: "mention", fromId: by.id, fromKind: by.kind, toId: target.id, body, docId: ctx.docId ?? null, meetingId: ctx.meetingId ?? null, origin });
     world.events.append({
       type: "agent.mentioned", agentId: target.id, buildingId: ctx.buildingId ?? target.homeBuildingId ?? target.buildingId,
       text: body,
-      payload: { byId: by.id, byKind: by.kind, toId: target.id, toKind: target.kind, messageId: msg.id, ...(ctx.docId ? { docId: ctx.docId } : {}), ...(ctx.meetingId ? { meetingId: ctx.meetingId } : {}) },
+      payload: { byId: by.id, byKind: by.kind, toId: target.id, toKind: target.kind, messageId: msg.id, ...(ctx.docId ? { docId: ctx.docId } : {}), ...(ctx.meetingId ? { meetingId: ctx.meetingId } : {}), origin },
     });
     sent.push(msg);
   }

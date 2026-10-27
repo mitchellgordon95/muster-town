@@ -7,6 +7,7 @@ import { AppError, badRequest, forbidden } from "../errors.ts";
 import { isCheckpointAssignment } from "../lanes.ts";
 import { docWhere, notifyMentions } from "../mentions.ts";
 import { appendLog, ownerOf, writeWikiPage } from "../memory.ts";
+import { actOrigin } from "../origin.ts";
 import { nowIso } from "../util.ts";
 import { describeWait, validateWait } from "../waits.ts";
 import type { World } from "../world.ts";
@@ -303,8 +304,9 @@ export async function assign(world: World, me: Agent, input: VerbIn<"assign">) {
   const bid = homeOf(target);
   if (!world.permissions.can(me, "building.assign", bid)) throw forbidden("building.assign");
   const waitFor = input.waitFor ? validateWait(world, input.waitFor) : null;
+  // wakes step 1: an agent's assign carries its session's human origin (hops + 1); a human's is stamped by createAssignment
   const a = createAssignment(world, { agentId: target.id, title: input.title, description: input.description, createdBy: world.holderOf(me), waitFor,
-    lane: laneOf(input) });
+    lane: laneOf(input), ...(me.kind === "human" ? {} : { origin: actOrigin(world, me, null) }) });
   sendMessage(world, { kind: "system", fromId: me.id, fromKind: "system", toId: target.id, body: `New assignment from ${me.name}: ${input.title}${waitFor ? ` (starts after ${describeWait(world, waitFor)})` : ""}` });
   return { assignmentId: a.id, lane: a.lane, ...(a.heldReason ? { held: a.heldReason } : {}), ...(waitFor ? { waitingOn: describeWait(world, waitFor) } : {}) };
 }

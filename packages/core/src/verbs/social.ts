@@ -2,7 +2,8 @@ import type { Agent, LookResult, MailboxDigest, Message } from "@muster-town/sch
 import { AppError, badRequest, forbidden } from "../errors.ts";
 import { homeOf, sendMessage, setAssignmentStatus } from "../domain.ts";
 import { notifyMentions } from "../mentions.ts";
-import { chebyshev, nowIso } from "../util.ts";
+import { actOrigin } from "../origin.ts";
+import { chebyshev, newId, nowIso } from "../util.ts";
 import type { World } from "../world.ts";
 import type { VerbIn } from "./types.ts";
 
@@ -76,8 +77,11 @@ export async function tell(world: World, me: Agent, input: VerbIn<"tell">) {
   const to = world.agents.get(input.to);
   if (!to) throw new AppError("not_found", `No agent with id ${input.to}.`);
   if (to.id === me.id) throw badRequest("You can't tell yourself.");
-  const msg = sendMessage(world, { kind: "tell", fromId: me.id, fromKind: "agent", toId: to.id, body: input.text });
-  world.events.append({ type: "agent.told", agentId: me.id, buildingId: me.buildingId, text: `${me.name} → ${to.name}: ${input.text.slice(0, 200)}`, payload: { to: to.id, toId: to.id, toKind: to.kind, messageId: msg.id, text: input.text } });
+  // wakes step 1: a human's avatar stamps its own tell; an agent passes on its session's human origin (hops + 1)
+  const id = newId("ms");
+  const origin = actOrigin(world, me, id);
+  const msg = sendMessage(world, { id, kind: "tell", fromId: me.id, fromKind: "agent", toId: to.id, body: input.text, origin });
+  world.events.append({ type: "agent.told", agentId: me.id, buildingId: me.buildingId, text: `${me.name} → ${to.name}: ${input.text.slice(0, 200)}`, payload: { to: to.id, toId: to.id, toKind: to.kind, messageId: msg.id, text: input.text, origin } });
   // the recipient already has the message; third parties named with @Name get a mention
   notifyMentions(world, me, input.text, { where: `a message to ${to.name}`, buildingId: me.buildingId, skip: [to.id] });
   return { sent: true, to: to.id, messageId: msg.id, ...(idleNote(world, me, to) && { note: idleNote(world, me, to) }) };
@@ -93,7 +97,9 @@ function idleNote(world: World, me: Agent, to: Agent): string | undefined {
 }
 
 export function formatMessage(world: World, m: Message) {
-  return { id: m.id, kind: m.kind, from: m.fromKind === "system" ? "system" : world.nameOf(m.fromId), fromId: m.fromId, body: m.body, meetingId: m.meetingId, docId: m.docId, at: m.createdAt };
+  return { id: m.id, kind: m.kind, from: m.fromKind === "system" ? "system" : world.nameOf(m.fromId), fromId: m.fromId, body: m.body, meetingId: m.meetingId, docId: m.docId, at: m.createdAt,
+    // wakes step 1: the human behind it ("for Mitchell, via ms_…, 1 hop")
+    ...(m.origin ? { for: world.nameOf(m.origin.userId), origin: m.origin } : {}) };
 }
 
 export async function inbox(world: World, me: Agent, input: VerbIn<"inbox">) {

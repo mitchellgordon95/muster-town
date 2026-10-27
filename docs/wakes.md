@@ -1,6 +1,6 @@
 # Wakes: what starts an agent, and one mechanism for all of it
 
-Design note, 2026-10-26 (Keel, as_czxid3dp46; asked by Mitchell in 1:1 mt_pwcpdkmdyc). §4 is the build order; step 3 (manager wakes on grant and KR events) is built.
+Design note, 2026-10-26 (Keel, as_czxid3dp46; asked by Mitchell in 1:1 mt_pwcpdkmdyc). §4 is the build order; steps 1 (origin recorded) and 3 (manager wakes on grant and KR events) are built.
 Code references are to main at 6988a43.
 
 A **wake** is anything that makes an idle agent spend tokens: it starts a session, or it pushes new input into a session
@@ -127,8 +127,15 @@ become a rule later if it is touched anyway.
 
 ## 4. Build order (each step: tests, docs, main)
 
-1. **Origin, recorded only**: the migration, stamping on human acts, inheritance by sessions, copying by tell/assign/mention.
-   It shows in the inbox ("for Mitchell, via …") and changes nothing else. About 120 lines plus tests.
+1. **Origin, recorded only** — done 2026-10-27 (migration 041, core/src/origin.ts). `origin {userId, via, hops, at}` on
+   messages, assignments and sessions (JSON columns). Stamped (hops 0): a human's tell (`messageAgent` or a human's
+   avatar's `tell`, via the message id), an assignment a human creates (`createdBy` a user: assign, review, decisions;
+   via its meeting or report), work from a human-written doc (a flag; via the doc), a decision in a meeting a human took
+   part in (via the meeting: the 1:1's human, else the last human who spoke). A session takes its assignment's origin,
+   else its meeting's (a 1:1 manage session, a mention reply). `tell`, `assign` and @mentions copy the acting
+   session's origin (the agent's latest running session) with `hops + 1`; a continuation inherits the assignment it
+   continues. Shown in `agent.told`, `assignment.created`, `session.started` and `agent.mentioned` payloads and in the
+   inbox (`for`, `origin`). Not a verb input. Changes nothing else. Tests: core test/origin.test.ts.
 2. **Human-origin tells wake** (Mitchell's ask, decision 2): in `tell`, origin + idle resident → a directed "Message from"
    assignment (merged per origin, hop cap); a working recipient gets an interrupt. Replace `idleNote` with the
    result. About 60 lines.

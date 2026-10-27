@@ -1,7 +1,8 @@
-import { Doc, QUEUE_ORDER, type Agent, type Assignment, type Building, type AccessRequestView, type GrantView, type LaneFields, type Message, type ReviewDecision, type WaitFor } from "@muster-town/schema";
+import { Doc, QUEUE_ORDER, type Agent, type Assignment, type Building, type AccessRequestView, type GrantView, type LaneFields, type Message, type Origin, type ReviewDecision, type WaitFor } from "@muster-town/schema";
 import { AppError } from "./errors.ts";
 import { DIRECTED, meetingHadHuman, resolveLane, type Lane } from "./lanes.ts";
 import type { Holder } from "./permissions.ts";
+import { humanOrigin, meetingOrigin } from "./origin.ts";
 import { describeWait } from "./waits.ts";
 import { extractSection, firstLine, newId, nowIso, truncate } from "./util.ts";
 import type { World } from "./world.ts";
@@ -49,7 +50,7 @@ export function canSeeDoc(holder: Holder, d: Doc): boolean {
  * (`fromAssignmentId`, or the assignment behind `fromReportId`) inherits its lane, else it is directed. `laneOverride`
  * skips the validation (system-made work such as the checkpoint assignment).
  */
-export function createAssignment(world: World, a: { agentId: string; title: string; description: string; createdBy: Holder | { kind: "system"; id: string }; fromReportId?: string | null; fromMeetingId?: string | null; fromAssignmentId?: string | null; buildingId?: string; front?: boolean; waitFor?: WaitFor | null; parked?: number; lane?: LaneFields; laneOverride?: Lane }): Assignment {
+export function createAssignment(world: World, a: { agentId: string; title: string; description: string; createdBy: Holder | { kind: "system"; id: string }; fromReportId?: string | null; fromMeetingId?: string | null; fromAssignmentId?: string | null; buildingId?: string; front?: boolean; waitFor?: WaitFor | null; parked?: number; lane?: LaneFields; laneOverride?: Lane; origin?: Origin | null }): Assignment {
   const agent = world.agents.require(a.agentId, "agent");
   const buildingId = a.buildingId ?? agent.homeBuildingId ?? agent.buildingId;
   if (!buildingId) throw new AppError("bad_request", `${agent.name} has no building to work in.`);
@@ -58,17 +59,22 @@ export function createAssignment(world: World, a: { agentId: string; title: stri
   const from = fromId ? world.assignments.get(fromId) : undefined;
   const meeting = a.fromMeetingId ? world.meetings.get(a.fromMeetingId) : undefined;
   const lane = a.laneOverride ?? resolveLane(world, buildingId, a.createdBy, a.lane, { from, fromMeeting: !!a.fromMeetingId, humanMeetingId: meeting && meetingHadHuman(meeting) ? meeting.id : undefined });
+  // wakes step 1: the human it traces to: given, else a human's own act (assign, decision, flag, 1:1), else what it continues
+  const origin = a.origin !== undefined ? a.origin
+    : a.createdBy.kind === "user" ? humanOrigin(a.createdBy.id, a.fromMeetingId ?? a.fromReportId ?? null)
+    : fromReport?.authorKind === "user" ? humanOrigin(fromReport.authorId, fromReport.id)
+    : (meeting && meetingOrigin(meeting)) ?? from?.origin ?? null;
   const ts = nowIso();
   const assignment = world.assignments.upsert({
     id: newId("as"), agentId: agent.id, buildingId, title: a.title, description: a.description, status: "pending",
     createdBy: a.createdBy.id, createdByKind: a.createdBy.kind === "system" ? "user" : a.createdBy.kind,
     fromMeetingId: a.fromMeetingId ?? null, fromReportId: a.fromReportId ?? null, reportId: null,
     fromAssignmentId: a.fromAssignmentId ?? null, position: a.front ? frontPosition(world, agent.id) : Date.now(), createdAt: ts, updatedAt: ts,
-    waitFor: a.waitFor ?? null, ...(a.parked ? { parked: a.parked } : {}), ...lane, heldReason: null,
+    waitFor: a.waitFor ?? null, ...(a.parked ? { parked: a.parked } : {}), ...lane, heldReason: null, origin,
     // v1.4: a visitor's loop runs outside the town, so its assignments are offers it accepts (never scheduled)
     ...(agent.kind === "visitor" ? { offered: true } : {}),
   });
-  world.events.append({ type: "assignment.created", agentId: agent.id, buildingId, text: `${assignment.offered ? "Offered to" : "New assignment for"} ${agent.name}: ${a.title}${assignment.waitFor ? ` (waits on ${describeWait(world, assignment.waitFor)})` : ""}`, payload: { assignmentId: assignment.id, lane: assignment.lane, grantId: assignment.grantId, offered: !!assignment.offered, waitFor: assignment.waitFor, createdBy: a.createdBy.id, fromReportId: a.fromReportId ?? null, fromMeetingId: a.fromMeetingId ?? null } });
+  world.events.append({ type: "assignment.created", agentId: agent.id, buildingId, text: `${assignment.offered ? "Offered to" : "New assignment for"} ${agent.name}: ${a.title}${assignment.waitFor ? ` (waits on ${describeWait(world, assignment.waitFor)})` : ""}`, payload: { assignmentId: assignment.id, lane: assignment.lane, grantId: assignment.grantId, offered: !!assignment.offered, waitFor: assignment.waitFor, createdBy: a.createdBy.id, fromReportId: a.fromReportId ?? null, fromMeetingId: a.fromMeetingId ?? null, origin } });
   return assignment;
 }
 
@@ -116,8 +122,9 @@ export function setAssignmentStatus(world: World, id: string, status: Assignment
   return a;
 }
 
-export function sendMessage(world: World, m: Omit<Message, "id" | "createdAt" | "readAt" | "meetingId" | "docId"> & { meetingId?: string | null; docId?: string | null }): Message {
-  return world.messages.upsert({ meetingId: null, docId: null, ...m, id: newId("ms"), createdAt: nowIso(), readAt: null });
+/** `id` may be given (a human's tell stamps an origin via its own message id); `origin` defaults to none. */
+export function sendMessage(world: World, m: Omit<Message, "id" | "createdAt" | "readAt" | "meetingId" | "docId" | "origin"> & { id?: string; meetingId?: string | null; docId?: string | null; origin?: Origin | null }): Message {
+  return world.messages.upsert({ meetingId: null, docId: null, origin: null, ...m, id: m.id ?? newId("ms"), createdAt: nowIso(), readAt: null });
 }
 
 /** "Proposal for next session" section → {title, text}. */
