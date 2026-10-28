@@ -83,3 +83,11 @@ Policy: a redeploy never waits indefinitely on a meeting, and a meeting never go
 - **Resume.** Nothing is lost: the transcript is in the world. After the restart the first tick wakes the manager for every open 1:1 (`wakeManager`, the same path as opening one); `oneOnOnePrompt` lists the human's lines after the manager's last reply as unanswered and asks it to answer them now without greeting again. A standup is re-facilitated from its transcript ("picking up after a restart", §3.5).
 - **Code.** `runtime/redeploy.ts` (`inMeeting`, `drainMeetingMs`, `beforeRestart`), `runtime/index.ts` (`inMeetingSession`, `postRestartNotices`), `runtime/manage.ts`, `core/meetings.ts` (`meetingNotice`), `core/prompts.ts` (`oneOnOnePrompt`). Tests: `runtime/test/one-on-one.test.ts`, `runtime/test/stale-state.test.ts`, `core/test/one-on-one.test.ts`.
 
+
+## 7. "is writing…" for agents (town hall mt_q1w4o85ao9 decision 5 item 1)
+
+The meeting panel shows "<name> is writing…" under the transcript while an agent drafts, so a human doesn't read a slow reply (or the facilitator writing decisions) as a stall. It is a heuristic kept in memory on the server (`noteAgentDrafting` / `agentsDrafting` in packages/core/src/meetings.ts), not a column:
+
+- **Set** during the discussion when an agent's `listen` returns something from someone else, and for the facilitator after any `listen` or `status` (it is steering or writing decisions).
+- **Cleared** when that agent calls `listen` again (waiting to hear is not writing), speaks, decides or ends; when its session ends; when the meeting leaves collecting/discussing; or after `AGENT_DRAFTING_MS` (5 min).
+- Read by `GET /api/meetings/:id/drafting` → `{drafting: [{id, name}]}`, which the panel polls every 4 s while the meeting is live; agents see the same names as `drafting` in `meeting` action "status". A restart drops every mark.

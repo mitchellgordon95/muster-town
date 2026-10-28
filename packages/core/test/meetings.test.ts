@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { HUMAN_QUIET_MS, HUMAN_TYPING_MS, noteHumanTyping } from "../src/meetings.ts";
+import { AGENT_DRAFTING_MS, HUMAN_QUIET_MS, HUMAN_TYPING_MS, noteAgentDrafting, noteHumanTyping } from "../src/meetings.ts";
 import { seededWorld } from "./helpers.ts";
 
 describe("meetings", () => {
@@ -50,6 +50,44 @@ describe("meetings", () => {
     world.ops.meetingTyping(by("Noor"), m.id);
     expect(await world.verbs.meeting(by("Moss"), { meetingId: m.id, action: "status" })).toMatchObject({ humanTyping: false });
     expect(await world.verbs.meeting(by("Moss"), { meetingId: m.id, action: "end" })).toMatchObject({ phase: "done" });
+  });
+
+  it("an agent is drafting from hearing something until it speaks, decides, ends, its session ends or the window lapses", async () => {
+    const { world, by, admin } = seededWorld();
+    const m = world.ops.createMeeting(admin, { kind: "standup", buildingId: "carbon-cycle", startNow: true });
+    world.ops.startMeeting(admin, m.id);
+    const names = () => world.ops.meetingDrafting(m.id).map((d) => d.name);
+    // Noor hears nothing: not drafting; Mitchell speaks, Noor hears it: drafting until she answers
+    await world.verbs.meeting(by("Noor"), { meetingId: m.id, action: "listen" });
+    expect(names()).toEqual([]);
+    world.ops.meetingSay(admin, m.id, "Noor, where is the SOCAT pull?");
+    await world.verbs.meeting(by("Noor"), { meetingId: m.id, action: "listen" });
+    expect(await world.verbs.meeting(by("Mei"), { meetingId: m.id, action: "status" })).toMatchObject({ drafting: ["Noor"] });
+    await world.verbs.meeting(by("Noor"), { meetingId: m.id, action: "speak", text: "Tomorrow." });
+    expect(names()).toEqual([]);
+    // listening again (waiting to hear) is not writing
+    await world.verbs.meeting(by("Mei"), { meetingId: m.id, action: "listen" });
+    expect(names()).toEqual(["Mei"]);
+    await world.verbs.meeting(by("Mei"), { meetingId: m.id, action: "listen" });
+    expect(names()).toEqual([]);
+    // the facilitator checking status is writing decisions until it decides
+    await world.verbs.meeting(by("Moss"), { meetingId: m.id, action: "status" });
+    expect(names()).toEqual(["Moss"]);
+    await world.verbs.meeting(by("Moss"), { meetingId: m.id, action: "decide", decisions: [{ text: "Noor: SOCAT", assigneeId: null, assignmentId: null }] });
+    expect(names()).toEqual([]);
+    // a stale mark lapses; a session end clears one
+    noteAgentDrafting(world, m.id, by("Mei").id, Date.now() - AGENT_DRAFTING_MS - 1000);
+    expect(names()).toEqual([]);
+    world.meetings.upsert({ ...world.meetings.require(m.id), transcript: [] });
+    world.ops.meetingSay(admin, m.id, "Anyone?");
+    await world.verbs.meeting(by("Noor"), { meetingId: m.id, action: "listen" });
+    const s = world.ops.startSession(by("Noor").id, { purpose: "meeting-reply", meetingId: m.id, model: "claude-opus-5-5" });
+    world.ops.endSession(s.id, { status: "done" });
+    expect(names()).toEqual([]);
+    // a closed meeting has nobody drafting
+    await world.verbs.meeting(by("Mei"), { meetingId: m.id, action: "listen" });
+    world.ops.endMeeting(admin, m.id);
+    expect(names()).toEqual([]);
   });
 
   it("nobody speaks while collecting; the last summary in starts the discussion", async () => {

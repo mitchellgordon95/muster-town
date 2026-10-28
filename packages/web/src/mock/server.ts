@@ -463,6 +463,7 @@ export class MockApi implements Api {
     return clone(m);
   }
   async typingMeeting(_id: string) { await wait(20); }
+  async meetingDrafting(_id: string) { await wait(20); return []; }
   async endMeeting(id: string) {
     await wait();
     const m = this.need(this.sim.meetings.get(id), "meeting");

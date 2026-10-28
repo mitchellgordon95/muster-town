@@ -319,6 +319,8 @@ export interface Api {
   endMeeting(id: string): Promise<Meeting>;
   /** a human has an unsent message in the say box (ping every few seconds while it's there) */
   typingMeeting(id: string): Promise<void>;
+  /** agents writing a reply or decisions in the meeting right now */
+  meetingDrafting(id: string): Promise<{ id: string; name: string }[]>;
   // roles, budget, export
   roles(buildingId?: string): Promise<{ roles: Role[]; memberships: Membership[] }>;
   assignRole(m: Membership): Promise<void>;
@@ -528,6 +530,7 @@ export class HttpApi implements Api {
   async sayMeeting(id: string, text: string) { return unwrap<Meeting>(await this.post(`/api/meetings/${id}/say`, { text }), "meeting"); }
   async endMeeting(id: string) { return unwrap<Meeting>(await this.post(`/api/meetings/${id}/end`), "meeting"); }
   async typingMeeting(id: string) { await this.post(`/api/meetings/${id}/typing`); }
+  async meetingDrafting(id: string) { return unwrap<{ id: string; name: string }[]>(await this.get(`/api/meetings/${id}/drafting`), "drafting"); }
   async roles(buildingId?: string) {
     const r = await this.get<{ roles?: Role[]; memberships?: Membership[] } | Role[]>(`/api/roles${qs({ buildingId })}`);
     return Array.isArray(r) ? { roles: r, memberships: [] } : { roles: r.roles ?? [], memberships: r.memberships ?? [] };

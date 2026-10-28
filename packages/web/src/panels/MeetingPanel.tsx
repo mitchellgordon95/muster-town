@@ -96,6 +96,7 @@ function MeetingView({ m }: { m: Meeting }) {
     const timer = setInterval(ping, TYPING_PING_MS);
     return () => clearInterval(timer);
   }, [drafting, m.id]);
+  const writing = useDrafting(m.id, open);
   const say = async () => {
     const t = text.trim(); if (!t || !discussing) return;
     setText("");
@@ -145,6 +146,7 @@ function MeetingView({ m }: { m: Meeting }) {
             <div ref={end} />
           </div>
         )}
+        {writing.length ? <div className="utt-writing muted">{writingLine(writing.map((w) => w.name))}</div> : null}
       </Section>
       {open && !me ? <SignInNote to="speak in the meeting" /> : null}
       {open && me && (!oneOnOne || canRun) ? (
@@ -170,6 +172,28 @@ function MeetingView({ m }: { m: Meeting }) {
       <div className="foot-note">Scheduled {timeAgo(m.scheduledAt)}{m.startedAt ? ` · started ${timeAgo(m.startedAt)}` : ""}{m.endedAt ? ` · ended ${timeAgo(m.endedAt)}` : ""}</div>
     </PanelShell>
   );
+}
+
+/** under the server's 5 min drafting window; a poll only while the meeting is live */
+const DRAFTING_POLL_MS = 4_000;
+
+/** Agents writing a reply or decisions right now (server-side heuristic: they heard something and haven't spoken yet). */
+function useDrafting(meetingId: string, live: boolean): { id: string; name: string }[] {
+  const [who, setWho] = useState<{ id: string; name: string }[]>([]);
+  useEffect(() => {
+    if (!live) { setWho([]); return; }
+    let stop = false;
+    const poll = () => { api().meetingDrafting(meetingId).then((d) => { if (!stop) setWho(d); }, () => undefined); };
+    poll();
+    const timer = setInterval(poll, DRAFTING_POLL_MS);
+    return () => { stop = true; clearInterval(timer); };
+  }, [meetingId, live]);
+  return who;
+}
+
+export function writingLine(names: string[]): string {
+  if (names.length === 1) return `${names[0]} is writing…`;
+  return `${names.slice(0, -1).join(", ")} and ${names[names.length - 1]} are writing…`;
 }
 
 /** The docs cited in the say-box draft, by title, each opening in a new tab: check a `dc_…` id before you say it without leaving the meeting. */

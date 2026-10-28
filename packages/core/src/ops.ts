@@ -4,7 +4,7 @@ import { CHECK_IN } from "./prompts.ts";
 import { createBuilding, createResident, createUser, ensureAvatar, planTown, registerVisitor, updateBuilding, updateFurniture } from "./entities.ts";
 import type { Furniture } from "./world/furniture.ts";
 import { AppError, badRequest, forbidden } from "./errors.ts";
-import { createMeeting, createOneOnOne, endMeeting, meetingDecide, meetingSpeak, noteHumanTyping, setMeetingPhase } from "./meetings.ts";
+import { agentsDrafting, clearAgentDrafting, createMeeting, createOneOnOne, endMeeting, meetingDecide, meetingSpeak, noteHumanTyping, setMeetingPhase } from "./meetings.ts";
 import { replyToReport, type ReplyResult } from "./reply.ts";
 import { newId, nowIso } from "./util.ts";
 import { humanOrigin, meetingOrigin } from "./origin.ts";
@@ -513,6 +513,7 @@ export class Ops {
     });
     const agent = this.world.agents.require(s.agentId, "agent");
     if (agent.status === "working") this.world.setStatus(agent.id, "idle");
+    clearAgentDrafting(this.world, agent.id);
     this.world.events.append({ type: "session.ended", agentId: agent.id, buildingId: homeOf(agent), text: `${agent.name}'s ${s.purpose} session ended (${result.status})`, payload: { sessionId, status: result.status, model: session.model, tokens: session.tokens, ...countsOf(session), ...(result.byModel ? { byModel: result.byModel } : {}), adjustedOutputTokens: sessionView(session).adjustedOutputTokens, costUsd: session.costUsd, turns: session.turns, reportId: session.reportId, error: session.error, ...(agent.forkOf ? { forkOf: agent.forkOf } : {}) } });
     // Bank step 4: a subscription-cap death (the desk's SPEND_LIMIT, or an error that reads like one) → bank.cap
     const cap = result.spendLimit || (session.error && SPEND_LIMIT.test(session.error) ? session.error : null);
@@ -642,6 +643,11 @@ export class Ops {
   meetingTyping(actor: Agent, meetingId: string): void {
     const m = this.world.meetings.require(meetingId, "meeting");
     if (m.phase === "discussing" && this.world.holderOf(actor).kind === "user") noteHumanTyping(this.world, m.id);
+  }
+  /** Agents writing a reply or decisions right now (the panel's "is writing…"). */
+  meetingDrafting(meetingId: string): { id: string; name: string }[] {
+    this.world.meetings.require(meetingId, "meeting");
+    return agentsDrafting(this.world, meetingId).map((id) => ({ id, name: this.world.nameOf(id) }));
   }
   meetingDecide(actor: Actor, meetingId: string, decisions: Meeting["decisions"]): Meeting { return meetingDecide(this.world, actor, meetingId, decisions); }
   /** `actor` null = the town itself; `cause` names why ("facilitation-end"), recorded in the meeting.phase event. */

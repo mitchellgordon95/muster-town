@@ -163,6 +163,7 @@ export function meetingSpeak(world: World, actor: Agent, meetingId: string, text
   if (m.kind === "one-on-one" && h.id !== m.facilitatorId && h.id !== m.withUserId) throw new AppError("forbidden", "Only the manager and the human who opened it speak in a 1:1.");
   const updated = world.meetings.upsert({ ...m, transcript: [...m.transcript, { speakerId: h.id, speakerKind: h.kind, text, at: nowIso() }] });
   world.events.append({ type: "meeting.utterance", agentId: actor.kind === "human" ? null : actor.id, buildingId: m.buildingId, text: `${actor.name}: ${text.slice(0, 300)}`, payload: { meetingId: m.id, speakerId: h.id, speakerKind: h.kind } });
+  if (actor.kind !== "human") clearAgentDrafting(world, actor.id, m.id);
   notifyMentions(world, actor, text, { where: `meeting "${m.title}"`, meetingId: m.id, buildingId: m.buildingId });
   return updated;
 }
@@ -201,6 +202,41 @@ export function noteHumanTyping(world: World, meetingId: string, now = Date.now(
 export function humanTyping(world: World, meetingId: string, now = Date.now()): boolean {
   const at = typing.get(world)?.get(meetingId);
   return at !== undefined && now - at < HUMAN_TYPING_MS;
+}
+
+/** An agent marked drafting shows "is writing…" for at most this long without speaking (it may have moved on). */
+export const AGENT_DRAFTING_MS = 5 * 60_000;
+
+/** meetingId -> agentId -> since (in-memory; resets on restart, which only drops the indicator) */
+const drafting = new WeakMap<World, Map<string, Map<string, number>>>();
+
+/**
+ * An agent is drafting a reply: its listen returned something to answer, or (the facilitator) every summary is in and it is
+ * writing decisions. The meeting panel shows "<name> is writing…" until it speaks, decides, ends, its session ends, or AGENT_DRAFTING_MS.
+ */
+export function noteAgentDrafting(world: World, meetingId: string, agentId: string, now = Date.now()): void {
+  let map = drafting.get(world);
+  if (!map) { map = new Map(); drafting.set(world, map); }
+  let m = map.get(meetingId);
+  if (!m) { m = new Map(); map.set(meetingId, m); }
+  if (!m.has(agentId)) m.set(agentId, now);
+}
+
+/** Clear an agent's drafting mark in one meeting, or (no meetingId) in every meeting. */
+export function clearAgentDrafting(world: World, agentId: string, meetingId?: string): void {
+  const map = drafting.get(world);
+  if (!map) return;
+  for (const [id, m] of map) if (!meetingId || id === meetingId) m.delete(agentId);
+}
+
+/** Agent ids drafting in a live meeting right now, oldest first. */
+export function agentsDrafting(world: World, meetingId: string, now = Date.now()): string[] {
+  const m = drafting.get(world)?.get(meetingId);
+  if (!m) return [];
+  const live = world.meetings.get(meetingId);
+  if (!live || (live.phase !== "discussing" && live.phase !== "collecting")) { m.clear(); return []; }
+  for (const [id, at] of m) if (now - at >= AGENT_DRAFTING_MS) m.delete(id);
+  return [...m.entries()].sort((a, b) => a[1] - b[1]).map(([id]) => id);
 }
 
 /** A human spoke within HUMAN_QUIET_MS, or is typing right now. */

@@ -1,6 +1,6 @@
 import type { Agent, Meeting } from "@muster-town/schema";
 import { AppError, badRequest } from "../errors.ts";
-import { endMeeting, humanStillTalking, humanTyping, meetingDecide, meetingSpeak, setMeetingPhase } from "../meetings.ts";
+import { agentsDrafting, clearAgentDrafting, endMeeting, humanStillTalking, humanTyping, meetingDecide, meetingSpeak, noteAgentDrafting, setMeetingPhase } from "../meetings.ts";
 import type { World } from "../world.ts";
 import type { VerbIn } from "./types.ts";
 
@@ -23,12 +23,15 @@ export async function meeting(world: World, me: Agent, input: VerbIn<"meeting">)
   const name = (id: string) => world.nameOf(id);
   switch (input.action) {
     case "status":
+      // the facilitator checking status once every summary is in is about to steer or write decisions
+      if (m.phase === "discussing" && world.holderOf(me).id === m.facilitatorId && me.kind !== "human") noteAgentDrafting(world, m.id, me.id);
       return {
         id: m.id, title: m.title, kind: m.kind, phase: m.phase, agenda: m.agenda, facilitator: m.facilitatorId ? name(m.facilitatorId) : null,
         attendees: m.attendeeIds.map((id) => ({ id, name: name(id), summary: m.summaries[id] ?? null })),
         transcript: m.transcript.slice(-30).map((u) => ({ speaker: name(u.speakerId), speakerKind: u.speakerKind, text: u.text, at: u.at })),
         decisions: m.decisions.map((d, i) => ({ n: i + 1, ...d })),
         humanTyping: humanTyping(world, m.id),
+        drafting: agentsDrafting(world, m.id).map(name),
       };
     case "summary": {
       if (!input.text?.trim()) throw badRequest("summary needs text (up to three short lines).");
@@ -49,20 +52,28 @@ export async function meeting(world: World, me: Agent, input: VerbIn<"meeting">)
       const from = map.get(key) ?? 0;
       const self = world.holderOf(me).id;
       const live = m.phase === "collecting" || m.phase === "discussing";
+      clearAgentDrafting(world, me.id, m.id); // listening is not writing
       if (input.waitSeconds && live && !m.transcript.slice(from).some((u) => u.speakerId !== self)) {
         await waitForUtterance(world, m.id, self, from, input.waitSeconds * 1000);
       }
       const now = world.meetings.require(m.id, "meeting");
       map.set(key, now.transcript.length);
+      const heard = now.transcript.slice(from).filter((u) => u.speakerId !== self);
+      // something to answer (or, for the facilitator, decisions to write): show "is writing…" until it speaks
+      if (now.phase === "discussing" && me.kind !== "human" && (heard.length || self === now.facilitatorId)) noteAgentDrafting(world, m.id, me.id);
       return {
         phase: now.phase,
         humanTyping: humanTyping(world, m.id),
-        utterances: now.transcript.slice(from).filter((u) => u.speakerId !== self).map((u) => ({ speaker: name(u.speakerId), speakerKind: u.speakerKind, text: u.text, at: u.at })),
+        utterances: heard.map((u) => ({ speaker: name(u.speakerId), speakerKind: u.speakerKind, text: u.text, at: u.at })),
       };
     }
     case "decide":
       if (!input.decisions?.length) throw badRequest("decide needs decisions.");
-      return { decisions: meetingDecide(world, me, m.id, input.decisions).decisions.map((d, i) => ({ n: i + 1, ...d })) };
+      {
+        const decided = meetingDecide(world, me, m.id, input.decisions);
+        clearAgentDrafting(world, me.id, m.id);
+        return { decisions: decided.decisions.map((d, i) => ({ n: i + 1, ...d })) };
+      }
     case "end": {
       if (me.kind !== "human" && m.kind === "one-on-one") throw new AppError("conflict", "The human ends a 1:1. Answer them; your turn ends when you stop, and their next message wakes you.");
       if (me.kind !== "human" && humanStillTalking(world, m)) {
@@ -71,6 +82,7 @@ export async function meeting(world: World, me: Agent, input: VerbIn<"meeting">)
           : "A human is talking in this meeting. Keep listening (waitSeconds 60) and answer them; they'll end it with End meeting, or you can end it once they've been quiet for a few minutes.");
       }
       const ended = endMeeting(world, me, m.id, input.text);
+      clearAgentDrafting(world, me.id, m.id);
       return { phase: ended.phase, notesDocId: world.meetings.require(m.id).notesDocId };
     }
   }

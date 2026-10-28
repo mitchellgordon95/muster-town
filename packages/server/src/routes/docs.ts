@@ -147,6 +147,9 @@ export async function docRoutes(app: FastifyInstance) {
     return reply.code(204).send();
   });
 
+  // agents writing a reply or decisions right now; the meeting panel polls this while the meeting is live
+  app.get<{ Params: Params }>("/api/meetings/:id/drafting", async (req) => ({ drafting: world.ops.meetingDrafting(req.params.id) }));
+
   app.post<{ Params: Params }>("/api/meetings/:id/end", async (req) => {
     requireAuth(req);
     const { closing } = parse(EndBody, req.body);
