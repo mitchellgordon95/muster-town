@@ -1,4 +1,5 @@
 /** Planning desk (Town Hall): create buildings, the whole-town resident roster (read-only; adding and dismissing live in each building's Members tab), roles, secrets (admins: the collective's secrets and grants, docs/secrets.md), export. Donating and Bank pools live at the Bank. */
+import { isFork } from "../forks";
 import { useMemo, useState } from "react";
 import { api, API_BASE, tokenStore } from "../api";
 import { store, useTown, roleOf } from "../state";
@@ -72,7 +73,7 @@ function Residents() {
   const all = useTown((s) => s.buildings);
   const agents = useTown((s) => s.agents);
   useTown((s) => s.me);
-  const byBuilding = useMemo(() => all.map((b) => ({ b, residents: Object.values(agents).filter((a) => a.kind === "resident" && a.homeBuildingId === b.id && a.status !== "retired").sort((x, y) => x.createdAt.localeCompare(y.createdAt)) })).filter((x) => x.residents.length || x.b.kind !== "town-hall"), [all, agents]);
+  const byBuilding = useMemo(() => all.map((b) => ({ b, residents: Object.values(agents).filter((a) => a.kind === "resident" && !isFork(a) && a.homeBuildingId === b.id && a.status !== "retired").sort((x, y) => x.createdAt.localeCompare(y.createdAt)) })).filter((x) => x.residents.length || x.b.kind !== "town-hall"), [all, agents]);
   return (
     <>
       <p className="direction">Every resident in town. To add or dismiss residents, open a building's settings.</p>

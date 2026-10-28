@@ -1,5 +1,5 @@
 /** One document: metadata, provenance, markdown, and the actions the viewer is permitted to take. */
-import { forkTip } from "../forks";
+import { forkTip, isFork } from "../forks";
 import { useState } from "react";
 import type { Doc } from "@muster-town/schema";
 import { api } from "../api";
@@ -75,7 +75,7 @@ export function ReplyBox({ doc, onDone }: { doc: Doc; onDone?: () => void }) {
  * Normally the building's manager agent does this in its team-lead session; the box is for in-trays humans work.
  */
 export function FlagDecideBox({ doc, onDone }: { doc: Doc; onDone?: () => void }) {
-  const residents = useTown((s) => Object.values(s.agents).filter((a) => a.kind === "resident" && (a.homeBuildingId ?? a.buildingId) === doc.buildingId && a.status !== "retired" && a.status !== "banned"));
+  const residents = useTown((s) => Object.values(s.agents).filter((a) => a.kind === "resident" && !isFork(a) && (a.homeBuildingId ?? a.buildingId) === doc.buildingId && a.status !== "retired" && a.status !== "banned"));
   const [assigneeId, setAssigneeId] = useState("");
   const [note, setNote] = useState("");
   const media = useMediaPaste(setNote);

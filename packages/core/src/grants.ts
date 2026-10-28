@@ -584,7 +584,7 @@ Approach: ${g.approach || "(none written)"}
 ${plan ? `Testing plan:\n${plan}\n` : ""}Stop condition: ${g.stopCondition}${g.findingsDocIds.length ? `\nFindings it draws on: ${g.findingsDocIds.join(", ")}` : ""}
 
 1. Cut the plan into steps, each one session's worth with a check a human can make in the live town.
-2. \`assign\` the first step in lane grant with grantId ${g.id}: to the resident whose wiki covers it, or to yourself when it is yours (one owner per step). Sessions on it are charged to the grant and held at its 100% checkpoint.
+2. \`assign\` the first step in lane grant with grantId ${g.id}: ${building.forks ? "with no agentId (the building queue; a fork runs it), attaching the topic pages that cover it (pages, at most 3)" : "to the resident whose wiki covers it"}, or to yourself when it is yours (one owner per step). Sessions on it are charged to the grant and held at its 100% checkpoint.
 3. Say in your report who got what and what the next step is.`,
       });
     } else if (decision === "countered") {

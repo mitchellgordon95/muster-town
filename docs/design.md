@@ -178,6 +178,10 @@ Decisions:
 - **A fork's memory** (`forkMemoryBlock`, frozen at spawn, under the 8,000-char total): (1) "What <Manager> knows", the manager's private wiki cut at 3,000; (2) the attached pages, each cut at 2,500, or else the 2 whose titles best match the assignment title (FTS); (3) the topic index if it still fits, else a one-line `search` pointer. Outside the cap: the manager's log tail (12 lines).
 - **Forks write back** topic pages and skills only: a fork's `write` type "wiki" without `topicOf` is refused ("forks write topic pages (topicOf) or skills"). Its `write` type "log" lines and the runtime's per-session line go to the **manager's** log as "[Pix 3] …", so the manager's log is the building's journal. Forks keep the resident permission set, so manager verbs are refused.
 
+### The manager with forks on (step 6)
+- The manager's "## Your team" lists live forks and the building queue (pending, held, waiting) instead of per-resident queues, and routes work by topic pages: `assign` with no agentId, pages ≤ 3. Counters that mean people (Join, the building's resident count, assignee pickers) count named residents only (`forkOf IS NULL`), so ghosts don't inflate them.
+- Ghost outline tint = a hue hashed from the building id (buildings have no stored colour). Retired forks are not in the snapshot; author lists use `GET /api/agents/:id`. The fork panel and the manager's Forks tab show what a fork did.
+
 ## Design review 6 — the waterfall (2026-10-24, town hall, Mitchell + Pix)
 
 Mitchell: he does not want to talk to or read reports from non-manager agents by default ("unless I really want to drill down for some reason"); he pictures a waterfall where he talks to the managers and they delegate inside their buildings; reports stay but managers roll them up; "town hall meetings and rollup reports into a townhall intray is probably the right interface right now, with drill downs into buildings being legible in a similar recursive manner".

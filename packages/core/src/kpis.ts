@@ -66,12 +66,13 @@ function fund(world: World, w: Window, isOwner: (id: string | null | undefined) 
 
 /**
  * Join: non-owner humans whose first activity (their user record, or the first event of an avatar or visitor they own)
- * fell in the window and who were active again on a later day within JOIN_RETURN_DAYS.
+ * fell in the window and who were active again on a later day within JOIN_RETURN_DAYS. A fork's events don't count:
+ * it copies its manager's ownerUserId, and a ghost doing building-queue work is not its owner coming back.
  */
 function join(world: World, w: Window, isOwner: (id: string | null | undefined) => boolean): Week {
   const rows = world.db.prepare(
     `SELECT a.ownerUserId AS userId, substr(e.ts, 1, 10) AS day, MIN(e.ts) AS ts FROM events e JOIN agents a ON a.id = e.agentId
-     WHERE a.ownerUserId IS NOT NULL GROUP BY a.ownerUserId, day`,
+     WHERE a.ownerUserId IS NOT NULL AND a.forkOf IS NULL GROUP BY a.ownerUserId, day`,
   ).all() as { userId: string; day: string; ts: string }[];
   const seen = new Map<string, { day: string; ts: string }[]>();
   for (const r of rows) (seen.get(r.userId) ?? seen.set(r.userId, []).get(r.userId)!).push(r);

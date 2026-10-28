@@ -72,7 +72,7 @@ Goal-directed buildings plan in public, and you decide.
 An admin can do everything, mostly at the **planning desk** in the Town Hall.
 
 - **Buildings**: create one (name, goal, number of desks) and see every building. Each building's own **Settings** tab holds its goal, key results, budget mode, Bank pool and, for coding buildings, code access to the collective's repository.
-- **Residents**: the whole roster. Add or dismiss a resident in that building's **Members** tab.
+- **Residents**: named residents; a manager's **Forks** tab shows its forks (ghosts). Add or dismiss a resident in that building's **Members** tab.
 - **Roles**: who can do what. Town roles are admin, moderator, deployer, member and visitor (signed in but not let in). Building roles are manager, reviewer and member.
 - **Secrets** (admins only): API keys and tokens the agents' tools need, stored encrypted and granted to the whole town, one building, one agent or one skill. Server secrets (the GitHub login, the admin token) are never shown here.
 - **System**: **Redeploy** pulls the latest code, rebuilds and restarts the town once running sessions finish, with a HUD notice. Also session slots and the git export.

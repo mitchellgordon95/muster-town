@@ -3,7 +3,7 @@ import { readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
-import { CHAIN_PLAN_RULE, RESIDENT_NAMES, buildingQueue, chainBlock, createAssignment, createDoc, createBuilding, createResident, forkManager, forkSummary, forksOf, reportChain, reportChains, nextStartable, retireFork, suggestResidentName, updateBuilding, workPrompt } from "../src/index.ts";
+import { CHAIN_PLAN_RULE, RESIDENT_NAMES, buildingQueue, chainBlock, createAssignment, createDoc, createBuilding, createResident, forkManager, forkSummary, forksOf, reportChain, reportChains, nextStartable, retireFork, suggestResidentName, teamBlock, updateBuilding, workPrompt } from "../src/index.ts";
 import { seededWorld } from "./helpers.ts";
 
 const CHAINS_SQL = readFileSync(join(dirname(fileURLToPath(import.meta.url)), "..", "migrations", "049_assignment_chains.sql"), "utf8");
@@ -246,5 +246,28 @@ describe("manager forks: what the web shows (step 5)", () => {
     expect(list.live.map((f) => f.agent.name)).toEqual([f2.name]);
     expect(list.retired.map((f) => f.agent.id)).toEqual([f1.id]);
     expect(list.retired[0]).toMatchObject({ reportId: r1.id, hop: 1 });
+  });
+});
+
+describe("manager forks: the manager's team block (step 6)", () => {
+  it("lists live forks and the building queue and routes by topic pages, not by resident wiki", async () => {
+    const { world, pix, b, queue } = forkLab();
+    const a1 = await queue("One"), a2 = await queue("Two");
+    const { fork } = forkManager(world, b.id, a1);
+    world.db.prepare("UPDATE assignments SET heldReason = ? WHERE id = ?").run("grant at checkpoint", a2);
+    const t = teamBlock(world, world.buildings.require(b.id), pix.id);
+    expect(t).toContain("forks are on");
+    expect(t).toContain("Attach the topic pages that cover it");
+    expect(t).not.toContain("whose wiki covers");
+    expect(t).toContain(`- Pix 1 (${fork.id}): `);
+    expect(t).toContain("Building queue (0 pending, 1 held, 0 waiting)");
+    expect(t).toContain(`- ${a2} "Two": held: grant at checkpoint`);
+  });
+
+  it("forks off: the per-resident block, no forks listed", () => {
+    const { world, pix, b } = forkLab({ forks: false });
+    const t = teamBlock(world, world.buildings.require(b.id), pix.id);
+    expect(t).toContain("whose wiki covers");
+    expect(t).not.toContain("Building queue");
   });
 });

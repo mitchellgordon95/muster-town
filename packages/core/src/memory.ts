@@ -8,7 +8,7 @@
  * the manager, the building's only conversational surface, can turn a human's request into the right assignment.
  */
 import type { Agent, Assignment, Building, Doc } from "@muster-town/schema";
-import { createDoc, homeOf, updateDoc } from "./domain.ts";
+import { buildingQueue, createDoc, homeOf, updateDoc } from "./domain.ts";
 import { AppError } from "./errors.ts";
 import { docGist, ftsQuery, oneLine, relativeTime } from "./text.ts";
 import { nowIso } from "./util.ts";
@@ -286,6 +286,7 @@ export function topicsOf(world: World, authorId: string): string[] {
  * topics, plus the rule that makes the manager the building's conversational surface.
  */
 export function teamBlock(world: World, building: Building, managerId: string): string {
+  if (building.forks) return forkTeamBlock(world, building, managerId);
   const residents = world.agents.where("homeBuildingId = ? AND kind = 'resident' AND status NOT IN ('retired', 'banned') AND forkOf IS NULL", [building.id], "ORDER BY name");
   const lines = residents.filter((a) => a.id !== managerId).map((a) => {
     const queued = world.assignments.count("agentId = ? AND status = 'pending'", [a.id]);
@@ -297,4 +298,29 @@ export function teamBlock(world: World, building: Building, managerId: string): 
   return `## Your team (you are the manager of the ${building.name})
 Humans talk to you; residents don't take messages, they work from assignments. When a human writes to you, reply with \`tell\` first, then turn what they want into assignments with \`assign\`: pick the resident whose wiki covers the topic (a resident with no page on it starts from the reports), one owner per piece of work, and say in your report who got what. Do the work yourself only when it is yours.
 ${lines.length ? lines.join("\n") : "(no other residents yet)"}`;
+}
+
+/**
+ * "## Your team" when the building has forks on (design note dc_mymt27yz25 §5): work goes on the building queue and a
+ * fork of the manager runs it, so instead of per-resident queues it lists the live forks and the building queue
+ * (pending, held, waiting), and the routing rule is "attach the topic pages that cover it", not "pick the resident".
+ */
+export function forkTeamBlock(world: World, building: Building, managerId: string): string {
+  const forks = world.agents.where("forkOf = ? AND status NOT IN ('retired', 'banned')", [managerId], "ORDER BY forkN");
+  const forkLines = forks.map((f) => {
+    const cur = f.currentAssignmentId ? world.assignments.get(f.currentAssignmentId) : undefined;
+    return `- ${f.name} (${f.id}): ${f.status}${cur ? ` on "${oneLine(cur.title, 60)}" (${cur.id})` : ""}`;
+  });
+  const queue = buildingQueue(world, building.id);
+  const state = (a: Assignment) => a.heldReason ? `held: ${oneLine(a.heldReason, 60)}` : a.waitFor ? `waiting: ${oneLine(JSON.stringify(a.waitFor), 60)}` : "pending";
+  const counts = { pending: 0, held: 0, waiting: 0 };
+  for (const a of queue) counts[a.heldReason ? "held" : a.waitFor ? "waiting" : "pending"]++;
+  const queueLines = queue.slice(0, 12).map((a) => `- ${a.id} "${oneLine(a.title, 60)}": ${state(a)}`);
+  if (queue.length > 12) queueLines.push(`- … and ${queue.length - 12} more`);
+  return `## Your team (you are the manager of the ${building.name}; forks are on)
+Humans talk to you; forks don't take messages, they work from assignments. When a human writes to you, reply with \`tell\` first, then turn what they want into assignments with \`assign\` and no agentId: it goes on the building queue and a fork of you runs it. Attach the topic pages that cover it (\`assign\` pages, at most 3) so the fork starts from what the building knows; one assignment per piece of work, and say in your report what went on the queue. Do the work yourself only when it is yours.
+Live forks (${forks.length}):
+${forkLines.length ? forkLines.join("\n") : "(none running)"}
+Building queue (${counts.pending} pending, ${counts.held} held, ${counts.waiting} waiting):
+${queueLines.length ? queueLines.join("\n") : "(empty)"}`;
 }

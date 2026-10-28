@@ -6,7 +6,7 @@
 import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import type { Agent, Assignment, BlockedBy, Doc, Event, Permission } from "@muster-town/schema";
 import { api, type AgentPermissionsView, type ForkSummary, type ThreadMessage } from "../api";
-import { forkTip } from "../forks";
+import { forkTip, isFork } from "../forks";
 import { store, useTown, roleOf } from "../state";
 import { DismissButton, canDismiss } from "./Dismiss";
 import { PanelShell } from "./PanelShell";
@@ -558,7 +558,7 @@ function DelegatePicker({ from, run, onDone }: { from: Agent; run: (toId: string
   const buildings = useTown((s) => s.buildings);
   const bname = (id: string | null) => buildings.find((b) => b.id === id)?.name ?? "";
   const options = useMemo(() => Object.values(agents)
-    .filter((x) => x.id !== from.id && x.kind === "resident" && x.status !== "retired" && x.status !== "banned")
+    .filter((x) => x.id !== from.id && x.kind === "resident" && !isFork(x) && x.status !== "retired" && x.status !== "banned")
     .sort((x, y) => Number(y.homeBuildingId === from.homeBuildingId) - Number(x.homeBuildingId === from.homeBuildingId) || bname(x.homeBuildingId).localeCompare(bname(y.homeBuildingId)) || x.name.localeCompare(y.name)), [agents, buildings, from.id, from.homeBuildingId]);
   const [to, setTo] = useState(options[0]?.id ?? "");
   if (!options.length) return <div className="asg-delegate"><Empty>No other resident to hand this to.</Empty></div>;
