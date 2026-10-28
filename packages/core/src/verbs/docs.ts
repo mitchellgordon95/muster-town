@@ -50,9 +50,11 @@ export function boardWithTownDocs(world: World, buildingId: string, limit: numbe
   return [...townBoardDocs(world, limit).map((d) => ({ ...d, townWide: true as const })), ...own];
 }
 
-/** Who may post an FYI to the Town Hall board: town admins, and humans or agents with building.manage on any building. */
+/** Who may post an FYI to the Town Hall board: town admins, humans or agents with building.manage on any building, and a live fork of a manager who may. */
 export function canPostTownBoard(world: World, me: Agent): boolean {
   if (world.permissions.isAdmin(me)) return true;
+  const manager = world.permissions.managerOfFork(me);
+  if (manager) return canPostTownBoard(world, manager);
   return world.buildings.all().some((b) => world.permissions.can(me, "building.manage", b.id));
 }
 
@@ -166,7 +168,7 @@ export async function write(world: World, me: Agent, input: VerbIn<"write">) {
   // a skill's title is its SKILL.md name (validated, unique town-wide)
   const title = input.type === "skill" ? world.skills.validate(input.body, holder.id, input.id).name : input.title;
   if (input.state === "building" && input.type === "fyi" && bid === TOWN_HALL_ID) {
-    if (!canPostTownBoard(world, me)) throw forbidden("building.manage", "Only town admins and managers (building.manage on a building) post to the Town Hall board. Save it as a draft, or ask your manager.");
+    if (!canPostTownBoard(world, me)) throw forbidden("building.manage", "Only town admins, managers (building.manage on a building) and their forks post to the Town Hall board. Save it as a draft, or ask your manager.");
   } else if (input.state === "building" && !world.permissions.can(me, "doc.write_building", bid)) throw forbidden("doc.write_building", "Not allowed to publish to this building's board (needs doc.write_building). Save it as a draft instead.");
   if (input.id) {
     const cur = world.docs.get(input.id);

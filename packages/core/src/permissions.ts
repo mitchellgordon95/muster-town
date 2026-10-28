@@ -23,6 +23,13 @@ export function holderOf(x: Holder | Agent): Holder {
 export const townRoleId = (name: TownRoleName) => `role:${name}`;
 export const buildingRoleId = (buildingId: string, name: BuildingRoleName) => `role:${buildingId}:${name}`;
 
+/**
+ * What a live fork of a building's manager inherits from that manager (forks step 2, Mitchell's 1:1 mt_8t3alpkquv): so a
+ * queued fork can finish "commit, redeploy, announce" itself. Posting to the Town Hall board follows the manager too
+ * (`canPostTownBoard`). Nothing else: building.manage/assign/review stay with the manager.
+ */
+const FORK_INHERITED: readonly Permission[] = ["town.redeploy"];
+
 export class Permissions {
   constructor(private repos: Repos) {}
 
@@ -38,7 +45,8 @@ export class Permissions {
    *   inherited = agent.inheritsOwner && ownerCan   (human avatars always inherit)
    *   result    = owner ? (own || inherited) && ownerCan : own   — an agent never exceeds its owner
    * then `deniedPermissions` removes it. `building.fund` is never effective for agents (only human avatars, as their
-   * user): otherwise a manager agent whose owner is admin could fund its own proposal.
+   * user): otherwise a manager agent whose owner is admin could fund its own proposal. A live fork of its building's
+   * manager also counts the manager's grant for the permissions in FORK_INHERITED (still capped by the owner).
    */
   can(holder: Holder | Agent, permission: Permission, buildingId?: string | null): boolean {
     const x = this.resolve(holder);
@@ -48,7 +56,11 @@ export class Permissions {
     if (x.deniedPermissions?.includes(permission)) return false;
     if (permission === "building.fund" && x.kind !== "human") return false;
     const owner = this.ownerOf(x);
-    const own = this.rolesGrant({ kind: "agent", id: x.id }, permission, buildingId);
+    let own = this.rolesGrant({ kind: "agent", id: x.id }, permission, buildingId);
+    if (!own && FORK_INHERITED.includes(permission)) {
+      const manager = this.managerOfFork(x);
+      own = !!manager && this.can(manager, permission, buildingId);
+    }
     if (!owner) return own;
     const ownerCan = this.rolesGrant(owner, permission, buildingId);
     return (own || this.inherits(x)) && ownerCan;
@@ -76,6 +88,13 @@ export class Permissions {
   /** The agent's owner as a user holder, or null when ownerless (service agents, seeded residents). */
   ownerOf(agent: Agent): Holder | null {
     return agent.ownerUserId && this.repos.users.get(agent.ownerUserId) ? { kind: "user", id: agent.ownerUserId } : null;
+  }
+
+  /** The manager a live fork works for: its `forkOf`, while that agent still manages the fork's home building; else null. */
+  managerOfFork(agent: Agent): Agent | null {
+    if (!agent.forkOf || agent.status === "retired" || !agent.homeBuildingId) return null;
+    if (this.repos.buildings.get(agent.homeBuildingId)?.managerAgentId !== agent.forkOf) return null;
+    return this.repos.agents.get(agent.forkOf) ?? null;
   }
 
   private inherits(agent: Agent): boolean {
