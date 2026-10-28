@@ -7,6 +7,7 @@ import { Agent, type Assignment, type Building } from "@muster-town/schema";
 import { AppError, badRequest } from "./errors.ts";
 import { buildingQueue, managerAgentOf } from "./domain.ts";
 import { familyCap } from "./budget.ts";
+import { sessionView } from "./bank.ts";
 export { familyCap };
 import { buildingRoleId } from "./permissions.ts";
 import { newId, nowIso } from "./util.ts";
@@ -58,6 +59,56 @@ function deskN(world: World, agentId: string): number | null {
 }
 
 /**
+ * Soft desk affinity (§2.5): the desk the chain's latest fork sat at in this building, from its `agent.forked` event, so
+ * a continuation lands on the home volume that holds the chain's desk files when that desk is free.
+ */
+export function chainDesk(world: World, buildingId: string, chainId: string): number | null {
+  const r = world.db.prepare(
+    "SELECT json_extract(payload, '$.desk') AS n FROM events WHERE type = 'agent.forked' AND buildingId = ? AND json_extract(payload, '$.chainId') = ? ORDER BY id DESC LIMIT 1",
+  ).get(buildingId, chainId) as { n: number | null } | undefined;
+  return typeof r?.n === "number" ? r.n : null;
+}
+
+/** A desk slot's sandbox (Machine or container) and home volume (§2.5, table desk_slots). */
+export interface DeskSlotRow { buildingId: string; n: number; sandboxName: string; volumeName: string; createdAt: string }
+
+/** The slot's row, or null when no fork has used it yet. */
+export function deskSlotRow(world: World, buildingId: string, n: number): DeskSlotRow | null {
+  return (world.db.prepare("SELECT buildingId, n, sandboxName, volumeName, createdAt FROM desk_slots WHERE buildingId = ? AND n = ?").get(buildingId, n) as DeskSlotRow | undefined) ?? null;
+}
+
+export function deskSlotRows(world: World, buildingId?: string): DeskSlotRow[] {
+  return world.db.prepare(`SELECT buildingId, n, sandboxName, volumeName, createdAt FROM desk_slots${buildingId ? " WHERE buildingId = ?" : ""} ORDER BY buildingId, n`)
+    .all(...(buildingId ? [buildingId] : [])) as DeskSlotRow[];
+}
+
+/**
+ * Set a slot's sandbox and volume names. Step 7's volume adoption points a slot at a resident's existing home
+ * (`volumeName: "deskhome-<agentId>"`) so its ~/pw, notes and checkouts carry over to the forks at that desk; the
+ * slot's sandbox must then be recreated (removed while idle) to mount it.
+ */
+export function setDeskSlot(world: World, buildingId: string, n: number, names: { sandboxName: string; volumeName: string }): DeskSlotRow {
+  world.buildings.require(buildingId, "building");
+  if (!Number.isInteger(n) || n < 0) throw badRequest(`Desk slot ${n} isn't a desk number.`);
+  world.db.prepare(
+    "INSERT INTO desk_slots (buildingId, n, sandboxName, volumeName, createdAt) VALUES (?, ?, ?, ?, ?) ON CONFLICT(buildingId, n) DO UPDATE SET sandboxName = excluded.sandboxName, volumeName = excluded.volumeName",
+  ).run(buildingId, n, names.sandboxName, names.volumeName, nowIso());
+  return deskSlotRow(world, buildingId, n)!;
+}
+
+/**
+ * The desk slot a fork works in (its building and desk n), created with `defaults` on first use; null for a named
+ * resident (per-agent desk until step 7) or a fork without a desk.
+ */
+export function forkDeskSlot(world: World, agentId: string, defaults: (buildingId: string, n: number) => { sandboxName: string; volumeName: string }): DeskSlotRow | null {
+  const a = world.agents.get(agentId);
+  if (!a?.forkOf) return null;
+  const r = world.db.prepare("SELECT buildingId, n FROM desks WHERE agentId = ?").get(agentId) as { buildingId: string; n: number } | undefined;
+  if (!r) return null;
+  return deskSlotRow(world, r.buildingId, r.n) ?? setDeskSlot(world, r.buildingId, r.n, defaults(r.buildingId, r.n));
+}
+
+/**
  * Fork the building's manager for a building-queue assignment, in one transaction: a new resident row ("<Manager> <n>",
  * the manager's sprite, the assignment's model or the building's, the resident permission set), the lowest free desk
  * WITHOUT growing the lab (refused when every desk is taken), the assignment handed to the fork, and `agent.forked`.
@@ -80,8 +131,11 @@ export function forkManager(world: World, buildingId: string, assignmentId: stri
       sprite: manager.sprite, model: a.model ?? b.model, pos: world.layout.door(b.id) ?? manager.pos, status: "idle",
       currentAssignmentId: a.id, inheritsOwner: false, forkOf: manager.id, forkN: n, createdAt: nowIso(),
     }), { silent: true });
-    // desks stay the cap: no grow (claimDesk throws a conflict when the lab is full, and the transaction rolls back)
-    const place = world.layout.claimDesk(b.id, id);
+    // desks stay the cap: no grow (claimDesk throws a conflict when the lab is full, and the transaction rolls back);
+    // a continuation prefers its chain's last desk when free (soft affinity), else the lowest free one
+    const chainId = a.chainId ?? a.id;
+    const prefer = chainDesk(world, b.id, chainId);
+    const place = world.layout.claimDesk(b.id, id, { prefer });
     const fork = world.agents.patch(id, { pos: place.pos });
     world.permissions.grant(fork, buildingRoleId(b.id, "member"));
     const assignment = world.assignments.upsert({ ...a, agentId: id, updatedAt: nowIso() });
@@ -91,7 +145,7 @@ export function forkManager(world: World, buildingId: string, assignmentId: stri
     ).get(a.chainId ?? a.id) as { id: string } | undefined)?.id ?? null;
     world.events.append({
       type: "agent.forked", agentId: id, buildingId: b.id, text: `${manager.name} forked ${fork.name} for "${a.title}" at desk ${desk}`,
-      payload: { forkOf: manager.id, forkN: n, desk, assignmentId: a.id, chainId: a.chainId, chainReportId, model: fork.model },
+      payload: { forkOf: manager.id, forkN: n, desk, assignmentId: a.id, chainId, chainReportId, model: fork.model, chainDesk: prefer, sameDesk: prefer === desk },
     });
     return { fork, desk, assignment };
   });
@@ -128,4 +182,87 @@ export function retireFork(world: World, forkId: string, outcome: { reportId?: s
     });
     return retired;
   });
+}
+
+/** One fork as the web shows it (step 5): its assignment, chain hop, session (tokens), report and the topic pages it edited. */
+export interface ForkSummary {
+  agent: Agent;
+  forkOfName: string;
+  assignmentId: string | null;
+  assignmentTitle: string | null;
+  chainId: string | null;
+  hop: number | null;
+  sessionId: string | null;
+  tokens: number;
+  transcript: boolean;
+  reportId: string | null;
+  reportTitle: string | null;
+  pagesEdited: { id: string; title: string }[];
+}
+
+/** A report's place on its assignment chain (§5.3): the chain, which hop it is (1 = first assignment) and the previous hop's report. */
+export interface ReportChain { chainId: string; hop: number; prevReportId: string | null; sessionId: string | null; assignmentId: string; forkOf: string | null }
+
+/** The chain a report belongs to, or null when it has no assignment. Hop counts the chain's assignments created up to its own. */
+export function reportChain(world: World, doc: { id: string; authorId?: string; assignmentId?: string | null; sessionId?: string | null; createdAt: string }): ReportChain | null {
+  const a = doc.assignmentId ? world.assignments.get(doc.assignmentId) : null;
+  if (!a) return null;
+  const chainId = a.chainId ?? a.id;
+  // ties on createdAt (same millisecond) fall back to insert order
+  const hop = (world.db.prepare(
+    "SELECT COUNT(*) AS n FROM assignments WHERE (chainId = ? OR id = ?) AND (createdAt < ? OR (createdAt = ? AND rowid <= (SELECT rowid FROM assignments WHERE id = ?)))",
+  ).get(chainId, chainId, a.createdAt, a.createdAt, a.id) as { n: number }).n;
+  const prev = world.db.prepare(
+    "SELECT id FROM docs WHERE type = 'report' AND id != ? AND assignmentId != ? AND createdAt <= ? AND assignmentId IN (SELECT id FROM assignments WHERE chainId = ? OR id = ?) ORDER BY createdAt DESC, rowid DESC LIMIT 1",
+  ).get(doc.id, a.id, doc.createdAt, chainId, chainId) as { id: string } | undefined;
+  return { chainId, hop: Math.max(1, hop), prevReportId: prev?.id ?? null, sessionId: doc.sessionId ?? null, assignmentId: a.id, forkOf: (doc.authorId ? world.agents.get(doc.authorId)?.forkOf : null) ?? null };
+}
+
+/** Chains of the fork-authored reports among `docs`, by doc id (the in-tray's chain badges). Named residents' reports are left out. */
+export function reportChains(world: World, docs: { id: string; authorId: string; assignmentId?: string | null; sessionId?: string | null; createdAt: string }[]): Record<string, ReportChain> {
+  const out: Record<string, ReportChain> = {};
+  for (const d of docs) {
+    if (!world.agents.get(d.authorId)?.forkOf) continue;
+    const c = reportChain(world, d);
+    if (c) out[d.id] = c;
+  }
+  return out;
+}
+
+/** A fork's summary from its latest session (live or retired); null for an agent that isn't a fork. */
+export function forkSummary(world: World, fork: Agent): ForkSummary | null {
+  if (!fork.forkOf) return null;
+  const session = world.sessions.first("agentId = ?", [fork.id], "ORDER BY startedAt DESC, rowid DESC") ?? null;
+  const report = (session?.reportId ? world.docs.get(session.reportId) : null) ?? world.docs.first("type = 'report' AND authorId = ?", [fork.id], "ORDER BY createdAt DESC, rowid DESC") ?? null;
+  // a retired fork's assignment may be back on the building queue: its spawn event still names it
+  const forked = world.db.prepare("SELECT json_extract(payload, '$.assignmentId') AS id FROM events WHERE type = 'agent.forked' AND agentId = ? ORDER BY id DESC LIMIT 1").get(fork.id) as { id: string | null } | undefined;
+  const asgId = fork.currentAssignmentId ?? session?.assignmentId ?? report?.assignmentId ?? forked?.id ?? null;
+  const asg = asgId ? world.assignments.get(asgId) : null;
+  const chain = asg ? reportChain(world, { id: report?.id ?? "", assignmentId: asg.id, createdAt: report?.createdAt ?? asg.createdAt }) : null;
+  const pages = world.db.prepare(
+    `SELECT id, title FROM docs WHERE topicOf IS NOT NULL AND (authorId = ? OR id IN (SELECT docId FROM doc_revisions WHERE replacedBy = ?)) ORDER BY updatedAt DESC`,
+  ).all(fork.id, fork.id) as { id: string; title: string }[];
+  return {
+    agent: fork, forkOfName: world.nameOf(fork.forkOf), assignmentId: asg?.id ?? null, assignmentTitle: asg?.title ?? null,
+    chainId: chain?.chainId ?? null, hop: chain?.hop ?? null, sessionId: session?.id ?? null, tokens: session ? sessionView(session).adjustedOutputTokens : 0,
+    transcript: !!session && world.transcripts.info(session.id) !== null, reportId: report?.id ?? null, reportTitle: report?.title ?? null, pagesEdited: pages,
+  };
+}
+
+/** What a manager and all its forks (live and retired) spent, summed from the rows the Bank books; a read-side sum only. */
+export interface FamilySpend { today: number; total: number; usdTotal: number; forks: number }
+
+/** Design note §7 "rollups by family": the manager's own spend plus every fork's, today and all-time, in adjusted tokens. */
+export function familySpend(world: World, managerId: string): FamilySpend {
+  const r = world.db.prepare(
+    "SELECT COALESCE(SUM(spentTokensToday), 0) AS today, COALESCE(SUM(spentTokensTotal), 0) AS total, COALESCE(SUM(spentUsdTotal), 0) AS usd, COALESCE(SUM(forkOf IS NOT NULL), 0) AS forks FROM agents WHERE id = ? OR forkOf = ?",
+  ).get(managerId, managerId) as { today: number; total: number; usd: number; forks: number };
+  return { today: r.today, total: r.total, usdTotal: r.usd, forks: r.forks };
+}
+
+/** A manager's forks for its Forks tab: the live ones, then the last 50 retired, newest first, and the family's spend. */
+export function forksOf(world: World, managerId: string): { live: ForkSummary[]; retired: ForkSummary[]; family: FamilySpend } {
+  const live = world.agents.where("forkOf = ? AND status != 'retired'", [managerId], "ORDER BY forkN");
+  const retired = world.agents.where("forkOf = ? AND status = 'retired'", [managerId], "ORDER BY createdAt DESC, rowid DESC LIMIT 50");
+  return { live: live.map((a) => forkSummary(world, a)!), retired: retired.map((a) => forkSummary(world, a)!), family: familySpend(world, managerId) };
 }

@@ -83,4 +83,21 @@ describe("town KPIs", () => {
     expect(by.join!.thisWeek).toBe(1);
     expect(by.fund!.thisWeek).toBe(0);
   });
+
+  it("Join skips fork events: a fork copies its manager's ownerUserId, but its work is not the owner coming back", () => {
+    const { world } = setup();
+    const { user } = createUser(world, "Stranger");
+    const av = world.ops.ensureAvatar(user.id);
+    world.agents.upsert({ ...av, id: "ag_fork1", name: `${av.name} 1`, forkOf: av.id, forkN: 1 }, { silent: true });
+    const later = Date.now() + 2 * 86_400_000;
+    const insert = world.db.prepare("INSERT INTO events (ts, type, agentId, buildingId, text, payload) VALUES (?, 'agent.said', ?, NULL, 'x', '{}')");
+    insert.run(new Date().toISOString(), "ag_fork1");
+    insert.run(new Date(later).toISOString(), "ag_fork1");
+    const join = () => townKpis(world, later + 1000).kpis.find((k) => k.key === "join")!;
+    expect(join().thisWeek).toBe(0);
+    expect(join().detail).toMatch(/0 of 1 newcomer/);
+    // the stranger's own avatar coming back on a later day does count
+    insert.run(new Date(later).toISOString(), av.id);
+    expect(join().thisWeek).toBe(1);
+  });
 });

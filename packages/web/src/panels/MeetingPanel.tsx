@@ -1,6 +1,6 @@
 /** Meeting: phase, attendees + summaries, live transcript, say box, decisions. */
 import { useEffect, useMemo, useRef, useState } from "react";
-import type { Meeting, SnapshotBuilding } from "@muster-town/schema";
+import type { Meeting, MeetingAttachment, SnapshotBuilding } from "@muster-town/schema";
 import { api } from "../api";
 import { store, useTown, roleOf } from "../state";
 import { Glyph, PanelShell } from "./PanelShell";
@@ -13,7 +13,8 @@ import { attendeeInput } from "./attendees";
 import { endMeetingConfirm } from "./endMeeting";
 import { SignInNote } from "../auth/auth";
 import { DocText, Markdown, docIdsIn } from "./Markdown";
-import { docUrl } from "../route";
+import { docUrl, grantUrl } from "../route";
+import type { PanelRef } from "../state";
 import { useMediaPaste } from "./mediaPaste";
 
 const PHASES: Meeting["phase"][] = ["scheduled", "collecting", "discussing", "done"];
@@ -140,6 +141,7 @@ function MeetingView({ m }: { m: Meeting }) {
                 <div key={i} className={`utt ${u.speakerKind} ${isMe ? "me" : ""}`}>
                   <div className="utt-head"><b>{u.speakerKind === "system" ? "Town" : u.speakerKind === "user" ? (isMe ? "You" : nameOf(u.speakerId)) : nameOf(u.speakerId)}</b><time>{clock(u.at)}</time></div>
                   <Markdown text={u.text} className="bubble" breaks newTab={open} />
+                  {u.attachment ? <Presented a={u.attachment} newTab={open} /> : null}
                 </div>
               );
             })}
@@ -213,5 +215,41 @@ function DraftDocs({ text }: { text: string }) {
     <div className="doc-chips">
       {ids.map((id) => <a key={id} className="doc-chip" href={docUrl(id)} target="_blank" rel="noopener noreferrer" title={docs[id] ? id : "Not a document you can see"}>{docs[id]?.title ?? id}</a>)}
     </div>
+  );
+}
+
+/** The panel a presented town page opens (`ref` from the server's resolveAttachment). */
+function pageRef(ref: string): PanelRef | null {
+  const [k, id] = ref.split(/[:/](.*)/s);
+  if (k === "grant" || k === "agent" || k === "building") return id ? { kind: k, id } : null;
+  if (k === "manual") return { kind: "manual", ...(id ? { id } : {}) };
+  if (k === "bank" || k === "finance" || k === "dashboard" || k === "connect") return { kind: k };
+  return null;
+}
+
+/** What a speaker presented with their line (docs/meetings.md §8): an image inline, a doc card with its opening, or a page card. */
+function Presented({ a, newTab }: { a: MeetingAttachment; newTab: boolean }) {
+  const tab = newTab ? { target: "_blank", rel: "noopener noreferrer" } : {};
+  if (a.kind === "media" && a.url) {
+    return (
+      <figure className="presented media">
+        {/\.(webm|mp4)$/.test(a.url) ? <video src={a.url} controls muted /> : <a href={a.url} {...tab}><img src={a.url} alt={a.title} /></a>}
+      </figure>
+    );
+  }
+  if (a.kind === "doc") {
+    return (
+      <a className="presented card" href={docUrl(a.ref)} {...tab} onClick={newTab ? undefined : (e) => { e.preventDefault(); store.open({ kind: "library", docId: a.ref }); }}>
+        <span className="presented-kind">Presented doc</span><b>{a.title}</b>{a.excerpt ? <span className="presented-excerpt">{a.excerpt}</span> : null}
+      </a>
+    );
+  }
+  const to = pageRef(a.ref);
+  const href = to?.kind === "grant" && to.id ? grantUrl(to.id) : to && (to.kind === "finance" || to.kind === "connect") ? `#/${to.kind}` : to?.kind === "manual" ? `#/manual${to.id ? `/${to.id}` : ""}` : null;
+  if (href && newTab) return <a className="presented card" href={href} {...tab}><span className="presented-kind">Presented page</span><b>{a.title}</b></a>;
+  return (
+    <button className="presented card" disabled={!to} onClick={() => to && store.open(to)}>
+      <span className="presented-kind">Presented page</span><b>{a.title}</b>
+    </button>
   );
 }

@@ -638,7 +638,7 @@ export class Ops {
     if (actor && m.facilitatorId !== actor.id && !this.world.permissions.can(actor, "meeting.facilitate", m.buildingId ?? "town-hall") && !this.world.permissions.can(actor, "building.review", m.buildingId ?? "town-hall")) throw forbidden("meeting.facilitate");
     return setMeetingPhase(this.world, meetingId, "discussing");
   }
-  meetingSay(actor: Agent, meetingId: string, text: string): Meeting { return meetingSpeak(this.world, actor, meetingId, text); }
+  meetingSay(actor: Agent, meetingId: string, text: string, attach?: string): Meeting { return meetingSpeak(this.world, actor, meetingId, text, attach); }
   /** POST /meetings/:id/typing: a human has an unsent message in the say box; agents may not end the meeting meanwhile. */
   meetingTyping(actor: Agent, meetingId: string): void {
     const m = this.world.meetings.require(meetingId, "meeting");

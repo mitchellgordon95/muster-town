@@ -471,6 +471,8 @@ export const Doc = z.object({
   // trophy-specific
   trophyProposedBy: Id.optional(),
   trophyWhy: z.string().optional(),
+  /** wiki only: a building-owned topic page of this building (published there; its manager and the manager's forks rewrite it, every rewrite revisioned) */
+  topicOf: Id.optional(),
   createdAt: Iso,
   updatedAt: Iso,
 });
@@ -662,6 +664,8 @@ export const Assignment = z.object({
   queue: AssignmentQueue.default("agent"),
   /** building-queue work: the model its fork runs on (one the building allows: model or cheapModel); null = the building's model */
   model: z.string().nullable().default(null),
+  /** manager forks: topic pages (doc ids, at most 3) the manager attached for its fork's memory block */
+  pages: z.array(Id).max(3).optional(),
   createdAt: Iso,
   updatedAt: Iso,
 });
@@ -723,12 +727,29 @@ export const MeetingDecision = z.object({
   /** goal-directed budgets: the decision's lane (as `assign`); left out = directed (its source is the meeting when a human took part) */
   ...LaneFields.shape,
 });
+/**
+ * What a speaker presents with an utterance (docs/meetings.md §8): a doc (title and opening lines kept as said), a town
+ * page (`ref` bank, finance, dashboard, manual[/section], connect, grant:<id>, agent:<id>, building:<id>) or an uploaded
+ * image or video (`url` /api/media/…). The meeting panel shows it inline; the notes keep the reference.
+ */
+export const MeetingAttachment = z.object({
+  kind: z.enum(["doc", "page", "media"]),
+  /** doc id, page ref, or media id */
+  ref: z.string(),
+  title: z.string(),
+  /** doc: the opening of its body when it was presented */
+  excerpt: z.string().optional(),
+  /** media: where it is served */
+  url: z.string().optional(),
+});
+export type MeetingAttachment = z.infer<typeof MeetingAttachment>;
 export const MeetingUtterance = z.object({
   /** `system` for a line the town posts itself (speakerId "system"), e.g. a reply waiting on a redeploy */
   speakerId: Id,
   speakerKind: z.enum(["agent", "user", "system"]),
   text: z.string(),
   at: Iso,
+  attachment: MeetingAttachment.optional(),
 });
 export const Meeting = z.object({
   id: Id,
@@ -1030,6 +1051,7 @@ export const VerbInputs = {
     state: z.enum(["draft", "building"]).default("draft").describe("'building' publishes it: type 'fyi' goes on the building's board, anything else is filed in its filing cabinet"),
     provenance: Provenance.optional(),
     tags: z.array(z.string()).optional(),
+    topicOf: Id.optional().describe("type 'wiki' only: a building-owned topic page of this building (your building id) instead of a private page: published there, rewritten by its manager and the manager's forks (found by title within the building), every rewrite kept as a revision"),
     buildingId: Id.optional().describe("type 'fyi' only: the board to post to (default your building); \"town-hall\" posts a town-wide FYI that shows on every building's board (town admins and managers only)"),
     files: z.array(SkillFileInput).max(SKILL_LIMITS.files).optional().describe("type 'skill' only: bundled files (scripts, references) stored in the skill's folder; when given, replaces the skill's whole file set"),
   }),
@@ -1055,6 +1077,7 @@ export const VerbInputs = {
     meetingId: Id,
     action: z.enum(["status", "summary", "speak", "listen", "decide", "end"]),
     text: z.string().optional(),
+    attach: z.string().optional().describe("speak only: present something with the line, shown inline in the meeting panel: a doc id (dc_…), an uploaded image or video (mf_… or its /api/media/… url), a grant (gr_…) or agent (ag_…), or a town page: bank, finance, dashboard, manual, connect, building:<id>"),
     decisions: z.array(MeetingDecision).optional(),
     waitSeconds: z.number().int().min(0).max(120).optional().describe("listen only: wait up to this long for someone to speak (default 0 = return now)"),
   }),
@@ -1065,6 +1088,7 @@ export const VerbInputs = {
     ...LaneFields.shape }),
   assign: z.object({ agentId: Id.optional().describe("who works it; leave it out in a building with forks on to queue it to the building (a fork of the manager runs it)"),
     title: z.string(), description: z.string(),
+    pages: z.array(Id).max(3).optional().describe("topic pages (type wiki with topicOf) of this building that cover the work, at most 3: loaded into its fork's memory"),
     model: z.string().optional().describe("building-queue work only: the model its fork runs on, one the building allows (its model or cheapModel); default the building's model"),
     waitFor: WaitFor.optional().describe("don't start until this holds: {deploy: sha|\"next\"} (live after a redeploy), {assignment: id} (done or cancelled), {decision: reportId}, {after: iso}"),
     ...LaneFields.shape }),
@@ -1124,7 +1148,7 @@ export const VERB_DESCRIPTIONS: Record<VerbName, string> = {
   request_human: "Put a request in the town outbox for a human to do something in the real world (observe, fetch data, contact someone). Humans see it in the outbox at once and decide whether to do it.",
   assignments: "List my assignments.",
   accept_assignment: "Accept a pending assignment; it becomes my current task. Visitors: assignments to you are offers until you accept them (unaccepted offers are cancelled after 24 h); finish with `submit_report`.",
-  meeting: "Participate in a meeting: 'summary' submits my short standup summary (did, next), 'speak' adds to the transcript once the discussion has started, 'listen' returns new utterances since my last listen (set waitSeconds to wait for someone to speak), 'decide'/'end' are for the facilitator (to amend a decision, decide again with supersedes = its number in status's decisions list); a decision's waitFor holds its assignment until then, e.g. {deploy: \"next\"} for \"after the redeploy\" or {assignment: id} for \"once X lands\"; while humans are talking, leave 'end' to them.",
+  meeting: "Participate in a meeting: 'summary' submits my short standup summary (did, next), 'speak' adds to the transcript once the discussion has started (attach presents a doc, a town page or an uploaded screenshot with it, shown inline to everyone), 'listen' returns new utterances since my last listen (set waitSeconds to wait for someone to speak), 'decide'/'end' are for the facilitator (to amend a decision, decide again with supersedes = its number in status's decisions list); a decision's waitFor holds its assignment until then, e.g. {deploy: \"next\"} for \"after the redeploy\" or {assignment: id} for \"once X lands\"; while humans are talking, leave 'end' to them.",
   review: "(manager/reviewer) Decide on a pending report in the in-tray: approve (acknowledge), continue (assign its proposal), redirect (assign your note instead), or stop the agent.",
   assign: "(manager/reviewer) Create an assignment for an agent in my building (with forks on, leave agentId out to queue it to the building). With waitFor it waits (e.g. for the next redeploy, or another assignment to finish) before it starts. In goal-directed buildings an agent must give lane grant (grantId of a funded grant; its key result is implied) or exploration (keyResultId of a goal key result with no funded grant, or gap), or directed when a human asked for it (sourceId: the human source; optionally keyResultId or gap, and then it runs until a grant proposal names that key result). Directed work is never held by the exploration allowance.",
   reassign: "(manager/reviewer) Move a queued (not started) assignment to another resident of my building, e.g. off a busy queue onto an idle colleague. It keeps its lane, grant or key result and waitFor; the original is cancelled and the new one joins the end of their queue. Started assignments and other buildings' are refused.",
@@ -1228,7 +1252,9 @@ export function mapFlagOf(d: Doc): MapFlag | null {
 }
 
 export const ServerMessage = z.discriminatedUnion("type", [
-  z.object({ type: z.literal("snapshot"), avatarAgentId: Id.optional(), town: Town, buildings: z.array(SnapshotBuilding), agents: z.array(Agent), places: z.array(Place), flags: z.array(MapFlag).default([]), grid: z.object({ w: z.number(), h: z.number(), /** row-major tile kinds */ tiles: z.array(z.number()) }), meetings: z.array(Meeting), health: z.object({ docker: z.boolean(), slots: z.object({ running: z.number().int().nonnegative(), max: z.number().int().positive() }).optional() }).optional() }),
+  z.object({ type: z.literal("snapshot"), avatarAgentId: Id.optional(), town: Town, buildings: z.array(SnapshotBuilding), agents: z.array(Agent), places: z.array(Place), flags: z.array(MapFlag).default([]), grid: z.object({ w: z.number(), h: z.number(), /** row-major tile kinds */ tiles: z.array(z.number()) }), meetings: z.array(Meeting), health: z.object({ docker: z.boolean(), slots: z.object({ running: z.number().int().nonnegative(), max: z.number().int().positive() }).optional() }).optional(),
+    /** outbox requests nobody has claimed yet (requestStatus open): the badge on the map's outbox */
+    outbox: z.number().int().nonnegative().optional() }),
   z.object({ type: z.literal("event"), event: Event }),
   z.object({ type: z.literal("agent"), agent: Agent }),
   z.object({ type: z.literal("agents.pos"), positions: z.array(z.object({ id: Id, x: z.number(), y: z.number(), status: AgentStatus })) }),
@@ -1236,6 +1262,8 @@ export const ServerMessage = z.discriminatedUnion("type", [
   z.object({ type: z.literal("meeting"), meeting: Meeting }),
   z.object({ type: z.literal("building"), building: Building.extend({ intray: z.number().int().nonnegative().optional(), budget: BuildingBudget.optional(), stoplight: Stoplight.nullable().optional() }) }),
   z.object({ type: z.literal("assignment"), assignment: Assignment }),
+  /** the outbox's unclaimed count changed (a request was filed, claimed or deleted) */
+  z.object({ type: z.literal("outbox"), open: z.number().int().nonnegative() }),
   z.object({ type: z.literal("error"), message: z.string() }),
 ]);
 export type ServerMessage = z.infer<typeof ServerMessage>;
@@ -1395,7 +1423,7 @@ export type UpdateBankPoolInput = z.input<typeof UpdateBankPoolInput>;
 export const CreateMeetingInput = z.object({ kind: MeetingKind.exclude(["one-on-one"]), buildingId: Id.nullable(), title: z.string().optional(), scheduledAt: Iso.optional(), agenda: z.string().optional(), startNow: z.boolean().default(false),
   /** who to invite; omitted = the building's residents (town hall: managers, reviewers, moderators) */
   attendeeIds: z.array(Id).min(1).optional() });
-export const MeetingSayInput = z.object({ text: z.string() });
+export const MeetingSayInput = z.object({ text: z.string(), attach: z.string().optional() });
 export const SeedInput = z.object({ importDir: z.string().optional() });
 /** POST /api/admin/redeploy (permission `town.redeploy`); also the `redeploy` verb's input */
 export const RedeployInput = z.object({ image: z.boolean().default(false) });

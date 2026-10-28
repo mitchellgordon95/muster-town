@@ -1,5 +1,5 @@
 /** Resident work sessions (host backend + shared end-of-session logic), interrupts, and reviewer sessions over the in-tray. */
-import { AppError, appendLog, chainBlock, codeWorkspace, createDoc, fallbackReportBody, FALLBACK_REPORT_PREFIX, latestReportOf, recentWorkBlock, sessionMemory, sessionView, setAssignmentStatus, skillsBlock, workPrompt, workSystemPrompt } from "@muster-town/core";
+import { AppError, appendAgentLog, chainBlock, codeWorkspace, createDoc, fallbackReportBody, FALLBACK_REPORT_PREFIX, latestReportOf, recentWorkBlock, sessionMemory, sessionView, setAssignmentStatus, skillsBlock, workPrompt, workSystemPrompt } from "@muster-town/core";
 import { countsOf, rawTokens, splitRaw, type Agent, type AllocationAuth, type Assignment, type Building, type Doc, type Session, type TokenCounts } from "@muster-town/schema";
 import { chargeUsage, fundingFor, homeOf, runAgentSession, type Ctx } from "./session.ts";
 
@@ -141,7 +141,8 @@ export async function finishWorkSession(ctx: Ctx, sessionId: string, o: WorkOutc
       const asg = session.assignmentId ? world.assignments.get(session.assignmentId) : undefined;
       const what = asg ? `Assignment "${asg.title}" (${asg.id})` : "Check-in session";
       const rep = report ? `, report "${report.title}" (${report.id}, verdict ${report.verdict ?? "?"})` : ", no report";
-      appendLog(world, { id: agentId, kind: "agent", name: agentNow.name, buildingId: bid, agentId }, `${what}: ${status}${rep}, ${adjusted.toLocaleString("en-US")} adj. tokens`);
+      // a fork's line goes to its manager's log as "[Pix 3] …" (the building's journal)
+      appendAgentLog(world, agentNow, `${what}: ${status}${rep}, ${adjusted.toLocaleString("en-US")} adj. tokens`);
     } catch (e) { console.warn(`[runtime] log line for ${agentNow.name}: ${e instanceof Error ? e.message : String(e)}`); }
   }
   // the allocation that actually funded it: the fallback one when the desk failed over from the subscription

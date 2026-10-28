@@ -6,9 +6,10 @@ import {
 import { AppError, badRequest, forbidden } from "../errors.ts";
 import { isCheckpointAssignment } from "../lanes.ts";
 import { docWhere, notifyMentions } from "../mentions.ts";
-import { appendLog, ownerOf, writeWikiPage } from "../memory.ts";
+import { appendAgentLog, canWriteTopic, MAX_ATTACHED_PAGES, ownerOf, revisionsOf, writeTopicPage, writeWikiPage } from "../memory.ts";
 import { checkForkModel } from "../forks.ts";
 import { actOrigin } from "../origin.ts";
+import { ftsQuery } from "../text.ts";
 import { nowIso } from "../util.ts";
 import { describeWait, validateWait } from "../waits.ts";
 import type { World } from "../world.ts";
@@ -68,12 +69,7 @@ export function cabinetCounts(world: World, buildingId: string): { type: Doc["ty
     .all(buildingId) as { type: Doc["type"]; authorId: string; n: number }[];
 }
 
-/** FTS5 query from free text: quoted terms OR'd together (ranked by bm25). */
-export function ftsQuery(q: string): string | null {
-  const terms = q.match(/[\p{L}\p{N}]+/gu);
-  if (!terms?.length) return null;
-  return terms.slice(0, 20).map((t) => `"${t}"`).join(" OR ");
-}
+export { ftsQuery };
 
 export function searchDocs(world: World, holderId: string, input: { query: string; type?: Doc["type"]; state?: Doc["state"]; buildingId?: string; limit: number }): Doc[] {
   const where = ["(d.state != 'draft' OR d.authorId = ?)"];
@@ -110,7 +106,8 @@ export async function read(world: World, me: Agent, input: VerbIn<"read">) {
     return { ...d, author: world.nameOf(d.authorId), sources, files,
       ...(files.length ? { filesNote: "Read one with `read` {id, file}. On a desk you can save them under ~/skills/<name>/ and run the scripts." } : {}) };
   }
-  return { ...d, author: world.nameOf(d.authorId), sources };
+  const revisions = d.topicOf ? revisionsOf(world, d.id).map((r) => ({ ...r, author: world.nameOf(r.authorId), replacedByName: world.nameOf(r.replacedBy) })) : undefined;
+  return { ...d, author: world.nameOf(d.authorId), sources, ...(revisions ? { revisions } : {}) };
 }
 
 /** `skills`: what I can use right now: my pinned skills first, then my building's and the library's (and my drafts). */
@@ -144,14 +141,24 @@ export async function write(world: World, me: Agent, input: VerbIn<"write">) {
   if (input.buildingId) world.buildings.require(input.buildingId, "building");
   const bid = input.buildingId ?? me.buildingId ?? me.homeBuildingId;
   if (input.type === "notebook") throw badRequest('The notebook became a wiki: write one private page per topic with type "wiki" (title = the topic), and durable events as one-line entries with type "log".');
+  if (input.topicOf && input.type !== "wiki") throw badRequest("`topicOf` is only for wiki pages (type \"wiki\").");
   if (input.type === "wiki") {
     if (!input.title.trim()) throw badRequest('A wiki page needs a title: the topic it covers (e.g. "The Bank").');
+    const cur = input.id ? world.docs.get(input.id) : undefined;
+    const topicOf = input.topicOf ?? (cur?.type === "wiki" ? cur.topicOf : undefined);
+    if (topicOf) {
+      if (topicOf !== homeOf(me)) throw badRequest(`\`topicOf\` is your building id (${homeOf(me) ?? "you have none"}): topic pages belong to the building you work in.`);
+      if (!canWriteTopic(world, me, topicOf)) throw forbidden("building.manage", "Only the building's manager and its forks write its topic pages. Write a private page (leave topicOf out), or put it in your report.");
+      const { doc, created } = writeTopicPage(world, me, topicOf, input.title, input.body, input.id);
+      return { id: doc.id, state: doc.state, topicOf, note: created ? `Topic page "${doc.title}" created in ${world.buildings.get(topicOf)?.name ?? topicOf} (everyone there reads it; its manager and forks rewrite it).` : `Topic page "${doc.title}" rewritten; the old version is kept as a revision.` };
+    }
+    if (me.forkOf) throw new AppError("forbidden", "forks write topic pages (topicOf) or skills");
     const { doc, created } = writeWikiPage(world, ownerOf(me, holder), input.title, input.body, input.id);
     return { id: doc.id, state: doc.state, note: created ? `Wiki page "${doc.title}" created (private; shown to you at the start of every session).` : `Wiki page "${doc.title}" rewritten.` };
   }
   if (input.type === "log") {
-    const doc = appendLog(world, ownerOf(me, holder), input.body);
-    return { id: doc.id, state: doc.state, note: "Logged." };
+    const doc = appendAgentLog(world, me, input.body);
+    return { id: doc.id, state: doc.state, note: me.forkOf ? `Logged in ${world.nameOf(me.forkOf)}'s log.` : "Logged." };
   }
   if (input.files && input.type !== "skill") throw badRequest("`files` are only for skills (type \"skill\").");
   // a skill's title is its SKILL.md name (validated, unique town-wide)
@@ -353,11 +360,24 @@ export async function assign(world: World, me: Agent, input: VerbIn<"assign">) {
   if (!world.permissions.can(me, "building.assign", bid)) throw forbidden("building.assign");
   const waitFor = input.waitFor ? validateWait(world, input.waitFor) : null;
   const model = building ? checkForkModel(building, input.model) : null;
+  const pages = input.pages?.length ? attachablePages(world, bid, input.pages) : undefined;
   // wakes step 1: an agent's assign carries its session's human origin (hops + 1); a human's is stamped by createAssignment
   const a = createAssignment(world, { agentId: target.id, title: input.title, description: input.description, createdBy: world.holderOf(me), waitFor,
     lane: laneOf(input), ...(me.kind === "human" ? {} : { origin: actOrigin(world, me, null) }), ...(building ? { queue: "building" as const, model } : {}) });
+  if (pages) world.assignments.patch(a.id, { pages });
   if (!building) sendMessage(world, { kind: "system", fromId: me.id, fromKind: "system", toId: target.id, body: `New assignment from ${me.name}: ${input.title}${waitFor ? ` (starts after ${describeWait(world, waitFor)})` : ""}` });
-  return { assignmentId: a.id, lane: a.lane, ...(building ? { queue: "building" as const, ...(model ? { model } : {}) } : {}), ...(a.heldReason ? { held: a.heldReason } : {}), ...(waitFor ? { waitingOn: describeWait(world, waitFor) } : {}) };
+  return { assignmentId: a.id, lane: a.lane, ...(pages ? { pages } : {}), ...(building ? { queue: "building" as const, ...(model ? { model } : {}) } : {}), ...(a.heldReason ? { held: a.heldReason } : {}), ...(waitFor ? { waitingOn: describeWait(world, waitFor) } : {}) };
+}
+
+/** `assign … pages`: distinct topic pages of the building, at most MAX_ATTACHED_PAGES. */
+function attachablePages(world: World, bid: string | null, ids: string[]): string[] {
+  const uniq = [...new Set(ids)];
+  if (uniq.length > MAX_ATTACHED_PAGES) throw badRequest(`Attach at most ${MAX_ATTACHED_PAGES} topic pages.`);
+  for (const id of uniq) {
+    const d = world.docs.get(id);
+    if (!d || d.type !== "wiki" || !d.topicOf || d.topicOf !== bid) throw badRequest(`${id} isn't a topic page of this building (\`write\` type "wiki" with topicOf).`);
+  }
+  return uniq;
 }
 
 /**

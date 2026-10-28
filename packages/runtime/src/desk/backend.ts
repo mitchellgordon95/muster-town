@@ -11,7 +11,17 @@ export interface DeskHandle {
   /** container name */
   name: string;
   agentId: string;
+  /** ms `ensure` spent creating a sandbox that didn't exist (absent when it was reused) */
+  createdMs?: number;
 }
+
+/** A fork's desk slot (design note dc_mymt27yz25 §2.5): the sandbox and home volume of desk n of a building. */
+export interface SlotNames { sandboxName: string; volumeName: string }
+/**
+ * Resolves an agent to its desk slot's names: a fork works in its desk slot's sandbox (created with `defaults` on first
+ * use, table desk_slots); a named resident gets null and keeps its per-agent desk.
+ */
+export type SlotResolver = (agentId: string, defaults: (buildingId: string, n: number) => SlotNames) => SlotNames | null;
 
 /** A running `exec` in a desk. `wait` resolves with the exit code (-1 if it couldn't start). */
 export interface DeskChild {
@@ -34,8 +44,10 @@ export interface DeskBackend {
   killExec?(handle: DeskHandle, argv: string[]): Promise<void>;
   /** best-effort: stop `agent-town-desk run --session <id>` left running in the agent's desk by a previous server process */
   killOrphan?(agentId: string, sessionId: string): Promise<void>;
-  /** dismissed agent: `docker rm -f` its desk; the home volume is kept unless `purge` */
+  /** dismissed agent: `docker rm -f` its desk; the home volume is kept unless `purge`. A fork's slot desk is the building's: kept */
   remove?(agentId: string, opts?: { purge?: boolean }): Promise<void>;
+  /** remove a desk slot's sandbox by name (its home volume stays), e.g. to recreate it on a new image */
+  removeSandbox?(name: string): Promise<void>;
 }
 
 /** In-process work sessions (today's `runAgentSession` path). Always available; no code tools. */
@@ -85,7 +97,14 @@ export interface DockerBackendOptions {
   memory?: string;
   cpus?: string;
   runner?: DockerRunner;
+  /** forks' desk slots (default: every agent has its own desk) */
+  slotOf?: SlotResolver;
 }
+
+/** A desk slot's default names: `desk-<collective>-<building>-<n>` and `deskhome-<building>-<n>`. */
+export const slotDefaults = (collective: string) => (buildingId: string, n: number): SlotNames => ({
+  sandboxName: `desk-${collective}-${dockerSafe(buildingId)}-${n}`, volumeName: `deskhome-${dockerSafe(buildingId)}-${n}`,
+});
 
 /** Default desk image. Rename compat: hosts may still have only the old tag (see imageTags in redeploy.ts). */
 export const DESK_IMAGE = "muster-town-desk";
@@ -107,6 +126,7 @@ export class DockerBackend implements DeskBackend {
   private readonly collective: string;
   private readonly memory: string;
   private readonly cpus: string;
+  private readonly slotOf: SlotResolver;
 
   constructor(opts: DockerBackendOptions) {
     this.collective = dockerSafe(opts.collective);
@@ -114,6 +134,13 @@ export class DockerBackend implements DeskBackend {
     this.memory = opts.memory ?? "2g";
     this.cpus = opts.cpus ?? "2";
     this.runner = opts.runner ?? realDockerRunner;
+    this.slotOf = opts.slotOf ?? (() => null);
+  }
+
+  /** The agent's desk: its desk slot's container and volume for a fork, else its own. */
+  private deskOf(agentId: string): SlotNames & { slot: boolean } {
+    const slot = this.slotOf(agentId, slotDefaults(this.collective));
+    return slot ? { ...slot, slot: true } : { sandboxName: this.containerName(agentId), volumeName: this.volumeName(agentId), slot: false };
   }
 
   containerName(agentId: string): string {
@@ -132,23 +159,28 @@ export class DockerBackend implements DeskBackend {
   }
 
   async ensure(agent: Agent, _building: Building): Promise<DeskHandle> {
-    const name = this.containerName(agent.id);
+    const desk = this.deskOf(agent.id);
+    const name = desk.sandboxName;
+    let createdMs: number | undefined;
     const state = await this.runner.run(["inspect", "-f", "{{.State.Running}}", name], { timeoutMs: 15_000 });
     if (state.code !== 0) {
+      const t0 = Date.now();
       const r = await this.runner.run([
         "run", "-d", "--name", name,
-        "-v", `${this.volumeName(agent.id)}:/home/agent`,
+        "-v", `${desk.volumeName}:/home/agent`,
         "--add-host=host.docker.internal:host-gateway",
         "--memory", this.memory, "--cpus", this.cpus,
-        "--label", "muster-town.desk=1", "--label", `muster-town.agent=${agent.id}`, "--label", `muster-town.collective=${this.collective}`,
+        // a slot desk outlives the fork that created it: label it by slot, not by agent
+        "--label", "muster-town.desk=1", "--label", desk.slot ? `muster-town.slot=${name}` : `muster-town.agent=${agent.id}`, "--label", `muster-town.collective=${this.collective}`,
         this.image, "sleep", "infinity",
       ]);
       if (r.code !== 0) throw new Error(`docker run ${name} failed: ${r.stderr.trim().slice(0, 300)}`);
+      createdMs = Date.now() - t0;
     } else if (state.stdout.trim() !== "true") {
       const r = await this.runner.run(["start", name], { timeoutMs: 60_000 });
       if (r.code !== 0) throw new Error(`docker start ${name} failed: ${r.stderr.trim().slice(0, 300)}`);
     }
-    return { name, agentId: agent.id };
+    return { name, agentId: agent.id, ...(createdMs !== undefined ? { createdMs } : {}) };
   }
 
   exec(handle: DeskHandle, argv: string[], env: Record<string, string>, onLine?: LineSink): DeskChild {
@@ -173,6 +205,7 @@ export class DockerBackend implements DeskBackend {
 
   /** Dismiss: remove the desk container (`docker rm -f`); with `purge`, also the home volume. Best effort. */
   async remove(agentId: string, opts: { purge?: boolean } = {}): Promise<void> {
+    if (this.deskOf(agentId).slot) return; // a fork's desk is its slot's, shared by the forks after it
     const name = this.containerName(agentId);
     const r = await this.runner.run(["rm", "-f", name], { timeoutMs: 60_000 });
     if (r.code !== 0 && !/no such container/i.test(r.stderr)) console.warn(`[runtime] docker rm -f ${name} failed: ${r.stderr.trim().slice(0, 200)}`);
@@ -182,9 +215,14 @@ export class DockerBackend implements DeskBackend {
     }
   }
 
+  async removeSandbox(name: string): Promise<void> {
+    const r = await this.runner.run(["rm", "-f", name], { timeoutMs: 60_000 });
+    if (r.code !== 0 && !/no such container/i.test(r.stderr)) console.warn(`[runtime] docker rm -f ${name} failed: ${r.stderr.trim().slice(0, 200)}`);
+  }
+
   /** The container (and a `docker exec`'d session in it) outlives the server process; after a restart, stop the leftover session. */
   async killOrphan(agentId: string, sessionId: string): Promise<void> {
-    await this.killExec({ name: this.containerName(agentId), agentId }, [DESK_BIN, "run", "--session", sessionId]);
+    await this.killExec({ name: this.deskOf(agentId).sandboxName, agentId }, [DESK_BIN, "run", "--session", sessionId]);
   }
 
   /** `docker exec <name> sh -c <killTreeCommand>`: killing the CLI doesn't stop the process inside the container. */

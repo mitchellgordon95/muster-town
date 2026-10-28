@@ -1,4 +1,4 @@
-import { AppError, BANK_ACCOUNTING, accessRequestOf, boardDocs, boardWithTownDocs, canInteract, decideAccess, requestAccess, sessionView, cabinetCounts, cabinetDocs } from "@muster-town/core";
+import { AppError, BANK_ACCOUNTING, accessRequestOf, boardDocs, boardWithTownDocs, canInteract, decideAccess, deskSlotRows, requestAccess, sessionView, setDeskSlot, cabinetCounts, cabinetDocs, reportChains } from "@muster-town/core";
 import { AccessDecisionInput, AccessRequestInput, AddBankInput, CreateBankPoolInput, CreateBuildingInput, DesksPatch, UpdateBankPoolInput, DocType, DonateInput, LayoutInput, Membership, PlanInput, PlantFlagInput, RedeployInput, UpdateBuildingInput, apiKeyProblem, townEnv, type AccessRequest, type AuthMe, type RedeployLive } from "@muster-town/schema";
 import type { FastifyInstance, FastifyRequest } from "fastify";
 import { brotliDecompressSync } from "node:zlib";
@@ -14,6 +14,8 @@ const EventsQuery = z.object({
 const SessionsQuery = z.object({ agentId: z.string().optional(), limit: z.coerce.number().int().positive().max(200).default(50) });
 const LimitQuery = z.object({ limit: z.coerce.number().int().positive().max(200).default(30) });
 const CabinetQuery = LimitQuery.extend({ type: DocType.optional(), authorId: z.string().optional() });
+/** A desk slot's sandbox (Machine or container) and home volume names (manager forks step 7, volume adoption). */
+const DeskSlotPut = z.object({ sandboxName: z.string().trim().min(1).max(80), volumeName: z.string().trim().min(1).max(80) });
 
 const LOOPBACK = new Set(["127.0.0.1", "::1", "::ffff:127.0.0.1"]);
 /** From this machine and not relayed: a reverse proxy or tunnel also connects from loopback, but adds forwarding headers. */
@@ -166,6 +168,39 @@ export async function townRoutes(app: FastifyInstance) {
   });
 
   /**
+   * Manager forks, step 7 (volume adoption, dc_mymt27yz25 §8): the building's desks (n → the named resident or fork
+   * sitting there) and its desk slots (n → the sandbox and home volume a fork at that desk gets, table desk_slots).
+   * Needs building.manage (or admin). → { desks, slots }
+   */
+  app.get<{ Params: Params }>("/api/buildings/:id/desk-slots", async (req) => {
+    const b = world.buildings.require(req.params.id, "building");
+    world.permissions.require(actorOf(world, req), "building.manage", b.id);
+    return deskSlotsView(b.id);
+  });
+
+  /**
+   * Point a desk slot at a sandbox and home volume, e.g. a retired resident's `deskhome-<agentId>` so its ~/pw, notes
+   * and checkouts carry over to the forks at that desk. Needs building.manage (or admin). The slot's old sandbox, if
+   * one exists, mounts the new volume only after it is removed while idle (the image-push recreate does that). → { slot, desks, slots }
+   */
+  app.put<{ Params: Params & { n: string } }>("/api/buildings/:id/desk-slots/:n", async (req) => {
+    const b = world.buildings.require(req.params.id, "building");
+    const actor = actorOf(world, req);
+    world.permissions.require(actor, "building.manage", b.id);
+    const n = Number(req.params.n);
+    if (!Number.isInteger(n) || n < 0 || n >= b.headcount) throw new AppError("bad_request", `Desk slot ${req.params.n} isn't one of ${b.name}'s desks (headcount ${b.headcount}).`, 400);
+    const names = parse(DeskSlotPut, req.body);
+    const slot = setDeskSlot(world, b.id, n, names);
+    world.events.append({ type: "building.updated", buildingId: b.id, agentId: actor.id, text: `${b.name} desk slot ${n} → ${names.volumeName} (${names.sandboxName})`, payload: { fields: ["deskSlot"], deskSlot: slot } });
+    return { slot, ...deskSlotsView(b.id) };
+  });
+  function deskSlotsView(buildingId: string) {
+    const desks = (world.db.prepare("SELECT n, agentId FROM desks WHERE buildingId = ? ORDER BY n").all(buildingId) as { n: number; agentId: string }[])
+      .map((d) => ({ ...d, agentName: world.agents.get(d.agentId)?.name ?? null }));
+    return { desks, slots: deskSlotRows(world, buildingId) };
+  }
+
+  /**
    * Town planning (humans with town.manage_buildings): new lots for existing buildings and/or one new building on
    * a drawn lot. `dryRun` returns errors and the grid as it would look.
    */
@@ -192,7 +227,9 @@ export async function townRoutes(app: FastifyInstance) {
   app.get<{ Params: Params }>("/api/buildings/:id/intray", async (req) => {
     const b = world.buildings.require(req.params.id, "building");
     if (b.kind === "town-hall") return world.ops.townHallIntray();
-    return { reports: world.ops.intray(b.id) };
+    // chains: fork-authored reports' place on their assignment chain (the in-tray row's chain badge)
+    const reports = world.ops.intray(b.id);
+    return { reports, chains: reportChains(world, reports) };
   });
 
   /** A human plants a flag (a short request) in a building: a pending `flag` doc in its in-tray for the manager to delegate (`building.assign`). */

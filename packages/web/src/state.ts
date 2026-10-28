@@ -29,6 +29,8 @@ export interface TownState {
   places: Place[];
   /** flags standing on the map (planted, not yet picked up by the manager); the snapshot's, then kept by `doc` frames */
   flags: MapFlag[];
+  /** outbox requests nobody has claimed yet: the snapshot's count, then kept by `outbox` frames (the map's outbox badge) */
+  outbox: number;
   grid: Grid | null;
   gridVersion: number;
   meetings: Record<string, Meeting>;
@@ -53,7 +55,7 @@ const MAX_EVENTS = 600;
 
 class Store {
   state: TownState = {
-    conn: "connecting", me: null, town: null, buildings: [], agents: {}, places: [], flags: [], grid: null, gridVersion: 0,
+    conn: "connecting", me: null, town: null, buildings: [], agents: {}, places: [], flags: [], outbox: 0, grid: null, gridVersion: 0,
     meetings: {}, events: [], docs: {}, assignments: {}, panel: null, toasts: [], rev: 0, bank: null, health: null, redeployLive: null, blocked: {},
   };
   /** Latest server position per agent (tile coords). Mutated in place; the renderer interpolates. */
@@ -106,6 +108,7 @@ class Store {
       }
       case "event": return this.applyEvent(m.event);
       case "doc": return this.set({ docs: { ...s.docs, [m.doc.id]: m.doc }, ...this.flagsWith([m.doc]), rev: s.rev + 1 });
+      case "outbox": return this.set({ outbox: m.open, rev: s.rev + 1 });
       case "meeting": return this.set({ meetings: { ...s.meetings, [m.meeting.id]: m.meeting }, rev: s.rev + 1 });
       case "assignment": {
         this.set({ assignments: { ...s.assignments, [m.assignment.id]: m.assignment }, rev: s.rev + 1 });
@@ -161,7 +164,7 @@ class Store {
     const meetings: Record<string, Meeting> = {};
     for (const mt of m.meetings) meetings[mt.id] = mt;
     this.set({
-      town: m.town, buildings: m.buildings, agents, places: m.places, flags: m.flags ?? [], grid: m.grid, meetings, health: m.health ?? this.state.health,
+      town: m.town, buildings: m.buildings, agents, places: m.places, flags: m.flags ?? [], outbox: m.outbox ?? 0, grid: m.grid, meetings, health: m.health ?? this.state.health,
       gridVersion: this.state.gridVersion + 1, rev: this.state.rev + 1,
     });
   }

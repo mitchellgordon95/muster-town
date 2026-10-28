@@ -258,6 +258,25 @@ describe("meetings, roles, budget, events, human moves", () => {
     expect(list.body.meetings.map((x: any) => x.id)).toContain(m.body.meeting.id);
   });
 
+  it("say with attach: the utterance carries it, GET returns it, the notes keep it (docs/meetings.md §8)", async () => {
+    const { app, auth, world } = await setup();
+    const doc = world.docs.first("state != 'draft'")!;
+    const m = await json(app, "POST", "/api/meetings", { headers: auth, body: { kind: "standup", buildingId: "carbon-cycle" } });
+    const id = m.body.meeting.id;
+    await json(app, "POST", `/api/meetings/${id}/start`, { headers: auth });
+    const said = await json(app, "POST", `/api/meetings/${id}/say`, { headers: auth, body: { text: "Have a look", attach: doc.id } });
+    expect(said.status).toBe(200);
+    expect(said.body.meeting.transcript.at(-1).attachment).toMatchObject({ kind: "doc", ref: doc.id, title: doc.title });
+    await json(app, "POST", `/api/meetings/${id}/say`, { headers: auth, body: { text: "And the Bank", attach: "bank" } });
+    expect((await json(app, "POST", `/api/meetings/${id}/say`, { headers: auth, body: { text: "x", attach: "nowhere" } })).status).toBe(400);
+    const got = await json(app, "GET", `/api/meetings/${id}`);
+    expect(got.body.meeting.transcript.map((u: any) => u.attachment?.kind)).toEqual(["doc", "page"]);
+    const ended = await json(app, "POST", `/api/meetings/${id}/end`, { headers: auth, body: {} });
+    const notes = world.docs.require(ended.body.meeting.notesDocId, "doc");
+    expect(notes.body).toContain(`(presented: [${doc.title}](${doc.id}))`);
+    expect(notes.body).toContain("(page bank)");
+  });
+
   it("meeting create with chosen attendees; bad ids are 4xx", async () => {
     const { app, auth, by } = await setup();
     const ids = [by("Mei").id, by("Noor").id];
@@ -406,5 +425,29 @@ describe("town planning", () => {
     const moss = world.agents.first("name = 'Moss'")!;
     const agent = { authorization: `Bearer ${world.tokens.getOrCreate("agent", moss.id)}` };
     expect((await json(app, "PUT", "/api/town/plan", { headers: agent, body: { lots: {}, dryRun: true } })).status).toBe(403);
+  });
+});
+
+describe("desk slots (manager forks step 7, volume adoption)", () => {
+  it("GET lists desks and slots; PUT points a slot at a volume (building.manage); bad n is 400; a resident is refused", async () => {
+    const { app, auth, by, world } = await setup();
+    const empty = await json(app, "GET", "/api/buildings/carbon-cycle/desk-slots", { headers: auth });
+    expect(empty.status).toBe(200);
+    expect(empty.body.slots).toEqual([]);
+    const mei = empty.body.desks.find((d: any) => d.agentId === by("Mei").id);
+    expect(mei).toMatchObject({ agentName: "Mei" });
+
+    const put = await json(app, "PUT", `/api/buildings/carbon-cycle/desk-slots/${mei.n}`, { headers: auth, body: { sandboxName: `desk-c-carbon-cycle-${mei.n}`, volumeName: `deskhome-${by("Mei").id}` } });
+    expect(put.status).toBe(200);
+    expect(put.body.slot).toMatchObject({ buildingId: "carbon-cycle", n: mei.n, volumeName: `deskhome-${by("Mei").id}` });
+    expect(put.body.slots).toHaveLength(1);
+    expect(world.events.recent({ buildingId: "carbon-cycle", limit: 5 }).some((e) => e.type === "building.updated" && /desk slot/.test(e.text))).toBe(true);
+
+    expect((await json(app, "PUT", "/api/buildings/carbon-cycle/desk-slots/99", { headers: auth, body: { sandboxName: "x", volumeName: "y" } })).status).toBe(400);
+    expect((await json(app, "PUT", `/api/buildings/carbon-cycle/desk-slots/${mei.n}`, { headers: auth, body: { sandboxName: "" } })).status).toBe(400);
+    const tomas = { authorization: `Bearer ${world.tokens.getOrCreate("agent", by("Tomas").id)}` };
+    expect((await json(app, "GET", "/api/buildings/carbon-cycle/desk-slots", { headers: tomas })).status).toBe(403);
+    expect((await json(app, "PUT", `/api/buildings/carbon-cycle/desk-slots/${mei.n}`, { headers: tomas, body: { sandboxName: "a", volumeName: "b" } })).status).toBe(403);
+    expect((await json(app, "GET", "/api/buildings/carbon-cycle/desk-slots")).status).toBe(401);
   });
 });

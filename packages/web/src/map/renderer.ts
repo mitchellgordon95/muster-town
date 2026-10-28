@@ -6,7 +6,7 @@ import type { Agent, Place } from "@muster-town/schema";
 import { store, type PanelRef, isManager, roleOf } from "../state";
 import { World } from "./world";
 import { authStore } from "../auth/auth";
-import { T, CHAR_W, CHAR_H, charSheet, tiles, HUMAN_SPRITE } from "./sprites";
+import { T, CHAR_W, CHAR_H, charSheet, outlineSheet, tiles, HUMAN_SPRITE } from "./sprites";
 import { layoutEdit, type LayoutDraft } from "./layoutEdit";
 import { townPlan, type PlanDraft } from "./townPlan";
 import { bubbleFor, buildingBudgetLine, drawBadge, drawFlag, drawBankSign, drawBlockLine, drawBubble, drawLabel, drawPill, drawSign, drawTip, residentBudgetLine, type Bubble } from "./overlay";
@@ -18,6 +18,7 @@ import { avatarSize } from "./avatarSize";
 import { stackBodies } from "./stacks";
 import { whoIsHere } from "../whoIsHere";
 import { TILE } from "@muster-town/schema";
+import { GHOST_ALPHA, buildingTint, forkLabel, forkTip, ghostAlpha } from "../forks";
 
 /** `index`/`count`: position among everything in reach, so the HUD can show "Tab 2/3" when targets overlap. */
 const keyOf = (t: Target) => `${t.panel.kind}:${t.panel.id ?? ""}:${t.label}`;
@@ -79,6 +80,8 @@ export class MapRenderer {
   private pendingTile: { x: number; y: number } | null = null;
   private hitboxes: { id: string; x: number; y: number; w: number; h: number }[] = [];
   hoverId: string | null = null;
+  /** when each fork's ghost first appeared on the map (its 400 ms fade-in) */
+  private ghostSince = new Map<string, number>();
   /** Building banners on screen, for click-to-open their building panel. */
   private signHits: { id: string; x: number; y: number; w: number; h: number }[] = [];
   hoverSign: string | null = null;
@@ -351,7 +354,8 @@ export class MapRenderer {
       b.x = b.fx + (b.tx - b.fx) * p; b.y = b.fy + (b.ty - b.fy) * p;
       b.moving = p < 1 || a.status === "walking";
     }
-    for (const id of this.bodies.keys()) if (!s.agents[id] || s.agents[id].status === "retired") this.bodies.delete(id);
+    for (const id of this.bodies.keys()) if (!s.agents[id] || s.agents[id].status === "retired") { this.bodies.delete(id); this.ghostSince.delete(id); }
+    for (const id of this.bodies.keys()) if (s.agents[id]?.forkOf && !this.ghostSince.has(id)) this.ghostSince.set(id, now);
   }
 
   private updateTarget() {
@@ -494,9 +498,18 @@ export class MapRenderer {
       const frame = d.moving ? (tick % 2 ? 2 : 0) : d.a?.status === "working" ? tick % 2 : 0;
       g.fillStyle = "rgba(0,0,0,.28)";
       g.beginPath(); g.ellipse(d.x, d.y, Math.round(d.w * 5 / CHAR_W), 2, 0, 0, Math.PI * 2); g.fill();
-      // a guest's body is a local-only ghost
-      g.globalAlpha = d.id === "__me" && authStore.get().guest ? 0.45 : d.a && (d.a.status === "stopped" || d.a.status === "banned") ? 0.55 : d.a?.status === "offline" ? 0.4 : 1;
-      g.drawImage(charSheet(sprite), frame * CHAR_W, 0, CHAR_W, CHAR_H, Math.round(d.x - d.w / 2), Math.round(d.y - d.h + 1), d.w, d.h);
+      const bx = Math.round(d.x - d.w / 2), by = Math.round(d.y - d.h + 1);
+      if (d.a?.forkOf) {
+        // a manager's fork: the manager's sprite as a ghost (0.6, fading in over 400 ms) with a 1-px outline in its building's tint
+        const a = ghostAlpha(now - (this.ghostSince.get(d.id) ?? now));
+        g.globalAlpha = Math.min(1, a / GHOST_ALPHA);
+        g.drawImage(outlineSheet(sprite, buildingTint(d.a.homeBuildingId ?? d.a.buildingId)), frame * CHAR_W, 0, CHAR_W, CHAR_H, bx, by, d.w, d.h);
+        g.globalAlpha = a;
+      } else {
+        // a guest's body is a local-only ghost
+        g.globalAlpha = d.id === "__me" && authStore.get().guest ? 0.45 : d.a && (d.a.status === "stopped" || d.a.status === "banned") ? 0.55 : d.a?.status === "offline" ? 0.4 : 1;
+      }
+      g.drawImage(charSheet(sprite), frame * CHAR_W, 0, CHAR_W, CHAR_H, bx, by, d.w, d.h);
       g.globalAlpha = 1;
     }
 
@@ -564,7 +577,8 @@ export class MapRenderer {
       const hl = d.id === targetId || d.id === this.hoverId;
       const home = d.a?.homeBuildingId ? s.buildings.find((b) => b.id === d.a!.homeBuildingId) : undefined;
       const st = stacks.get(d.id);
-      drawLabel(g, p.x, p.y + 3 + (st?.k ?? 0) * 30, name, d.a?.status ?? "idle", hl, isMe, d.a && !isMe ? residentBudgetLine(d.a, home?.dailyTokensPerAgent) : null, !!d.a && isManager(d.a, s.buildings));
+      const fork = !isMe && d.a?.forkN ? { n: d.a.forkN, tint: buildingTint(d.a.homeBuildingId ?? d.a.buildingId) } : null;
+      drawLabel(g, p.x, p.y + 3 + (st?.k ?? 0) * 30, fork ? forkLabel(d.a!).base : name, d.a?.status ?? "idle", hl, isMe, d.a && !isMe ? residentBudgetLine(d.a, home?.dailyTokensPerAgent) : null, !!d.a && isManager(d.a, s.buildings), fork);
       // held by a draining redeploy: its next session starts after the restart
       if (!isMe && blocked.has(d.id)) { const q = toScreen(d.x + d.w / 2 - 2, d.y - d.h + 4); drawPill(g, q.x, q.y, "⟳ redeploy"); }
       if (!isMe) this.hitboxes.push({ id: d.id, x: p.x - d.w * z / 2, y: p.y - d.h * z, w: d.w * z, h: d.h * z + 31 });
@@ -593,6 +607,12 @@ export class MapRenderer {
       const q = toScreen(p.pos.x * T + T - 2, (p.pos.y + (below ? 1 : -1)) * T + 1);
       if (q.x > -40 && q.x < cw + 40 && q.y > -40 && q.y < ch + 40) drawBadge(g, q.x, q.y, b.intray);
     }
+    // the outbox badge: requests nobody has claimed yet, on the counter (the tile row above its standing spot)
+    if (s.outbox) {
+      const p = s.places.find((x) => x.kind === "outbox");
+      const q = p ? toScreen(p.pos.x * T + T - 2, (p.pos.y - 1) * T + 1) : null;
+      if (q && q.x > -40 && q.x < cw + 40 && q.y > -40 && q.y < ch + 40) drawBadge(g, q.x, q.y, s.outbox);
+    }
     // bubbles last so they sit above every label
     const bubbles: { d: (typeof list)[number]; b: Bubble }[] = [];
     for (const d of list) {
@@ -615,5 +635,9 @@ export class MapRenderer {
       const name = s.agents[tipFor.id]?.name ?? "";
       drawTip(g, tipFor.x, tipFor.y + tipFor.h + 4, `${name}: ${rows.length} queued, can't start (click for the queue)`, rows.map((r) => `${r.title}: ${r.blockedBy.text}`), cw, ch);
     }
+    // a hovered fork: "fork of Pix · as_…" under its label
+    const hf = !tipFor && this.hoverId ? s.agents[this.hoverId] : undefined;
+    const hb = hf?.forkOf ? this.hitboxes.find((h) => h.id === hf.id) : undefined;
+    if (hf && hb) drawTip(g, hb.x, hb.y + hb.h + 4, hf.name, [forkTip(hf, (id) => s.agents[id]?.name ?? store.names.get(id) ?? id, hf.currentAssignmentId)], cw, ch);
   }
 }

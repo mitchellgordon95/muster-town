@@ -48,6 +48,25 @@ export function charSheet(i: number): HTMLCanvasElement {
   if (!c) { c = pixelCanvas([STAND, TYPE, WALK], PALETTES[k]); charCache.set(k, c); }
   return c;
 }
+/** The character sheet's 1-px outline in `color` (the silhouette grown by one pixel, minus the sprite): a fork's ghost. */
+const outlineCache = new Map<string, HTMLCanvasElement>();
+export function outlineSheet(i: number, color: string): HTMLCanvasElement {
+  const key = `${i}|${color}`;
+  let c = outlineCache.get(key);
+  if (!c) {
+    const src = charSheet(i);
+    c = document.createElement("canvas");
+    c.width = src.width; c.height = src.height;
+    const g = c.getContext("2d")!;
+    for (const [dx, dy] of [[-1, 0], [1, 0], [0, -1], [0, 1]]) g.drawImage(src, dx, dy);
+    g.globalCompositeOperation = "source-in";
+    g.fillStyle = color; g.fillRect(0, 0, c.width, c.height);
+    g.globalCompositeOperation = "destination-out";
+    g.drawImage(src, 0, 0);
+    outlineCache.set(key, c);
+  }
+  return c;
+}
 /** A single frame scaled up, as a data URL (for panel headers). */
 export function portraitUrl(i: number, scale = 3): string {
   const src = charSheet(i);

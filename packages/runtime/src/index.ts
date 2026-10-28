@@ -3,10 +3,10 @@
  * managers' team-lead sessions over the in-tray, meeting summaries + facilitation, proxy chat, interrupts, scheduler,
  * startup reconcile, dismissal (onAgentRetired), host redeploy (v1.3).
  */
-import { AppError, checkWaits, codeWorkspace, forkableQueue, forkManager, freeDesks, liveForks, meetingNotice, nextStartable, PRESENCE_TICK_MS, retireFork, slugify, syncManagerRoles, type World } from "@muster-town/core";
+import { AppError, checkWaits, codeWorkspace, deskSlotRows, forkableQueue, forkDeskSlot, forkManager, freeDesks, liveForks, meetingNotice, nextStartable, PRESENCE_TICK_MS, retireFork, slugify, syncManagerRoles, type World } from "@muster-town/core";
 import { DesksConfig, type Agent, type ChatInput, type DeskActivityInput, type RedeployResult, type Session } from "@muster-town/schema";
 import { askAbout, chat } from "./chat.ts";
-import { DockerBackend, dockerSafe, HostBackend, type DeskBackend, type WorkBackend } from "./desk/backend.ts";
+import { DockerBackend, dockerSafe, HostBackend, type DeskBackend, type SlotResolver, type WorkBackend } from "./desk/backend.ts";
 import { FlyApi } from "./desk/fly.ts";
 import { SandboxBackend } from "./desk/sandbox.ts";
 import { drainNudgeFacilitator, drainNudgeOneOnOne, gitHead, isAncestor, makeRedeployer, type RedeployDeps, type RedeployRequest } from "./redeploy.ts";
@@ -169,16 +169,19 @@ export function startRuntime(opts: RuntimeOptions): Runtime {
   let backend: WorkBackend | null = hosted ? new HostBackend() : opts.deskBackend ?? null;
   const collectiveSlug = opts.collective ?? slugify(world.town.get().name);
   const sandboxProvider = desks.backend === "fly" ? "Fly.io" : null;
+  /** a fork works in its desk slot's sandbox (dc_mymt27yz25 §2.5, table desk_slots); named residents keep their own */
+  const slotOf: SlotResolver = (agentId, defaults) => forkDeskSlot(world, agentId, defaults);
   const sandboxBackend = (): DeskBackend => {
     const app = process.env.FLY_APP ?? "";
     const image = desks.snapshot.includes("/") ? desks.snapshot : `registry.fly.io/${app}:desk`;
     return new SandboxBackend({
       api: new FlyApi({ app, token: process.env.FLY_API_TOKEN ?? "", image, region: desks.region, cpuKind: desks.cpuKind, cpus: desks.cpus, memoryMb: desks.memoryMb }),
       collective: collectiveSlug, heartbeatMs: 0, // Machines have no idle auto-stop; each one also stops itself after its max lifetime
+      slotOf,
     });
   };
   const dockerProbe: DeskBackend | null = desks.backend === "host" ? null : opts.dockerProbe
-    ?? (sandboxProvider ? sandboxBackend() : new DockerBackend({ collective: collectiveSlug, image: desks.image }));
+    ?? (sandboxProvider ? sandboxBackend() : new DockerBackend({ collective: collectiveSlug, image: desks.image, slotOf }));
   const probeEveryMs = opts.dockerProbeMs ?? 30_000;
   // Docker down → a town notice (once per outage, also across restarts: the last alert in the log says where we are)
   let dockerDown = (world.events.latestWith("system", "alert", ["docker-down", "docker-up"])?.payload as { alert?: string } | undefined)?.alert === "docker-down";
@@ -511,10 +514,18 @@ export function startRuntime(opts: RuntimeOptions): Runtime {
       const removed: string[] = [], kept: string[] = [];
       const b = dockerProbe;
       if (!b?.remove || !sandboxProvider) return { removed, kept };
-      for (const a of world.agents.where("kind = 'resident'")) {
+      for (const a of world.agents.where("kind = 'resident' AND forkOf IS NULL")) {
         if (ctx.live.has(a.id) || starting.has(a.id)) { kept.push(a.name); continue; }
         await b.remove(a.id); // the Machine only: the home volume stays
         removed.push(a.name);
+      }
+      // forks' desk slots: a slot whose desk a fork holds is in use (its session may be starting)
+      if (b.removeSandbox) {
+        for (const slot of deskSlotRows(world)) {
+          if (world.db.prepare("SELECT 1 FROM desks WHERE buildingId = ? AND n = ?").get(slot.buildingId, slot.n)) { kept.push(slot.sandboxName); continue; }
+          await b.removeSandbox(slot.sandboxName);
+          removed.push(slot.sandboxName);
+        }
       }
       return { removed, kept };
     },

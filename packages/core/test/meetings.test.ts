@@ -104,6 +104,40 @@ describe("meetings", () => {
     expect(world.meetings.require(m.id).transcript).toHaveLength(1);
   });
 
+  it("a speaker presents a doc, a town page or a screenshot with a line; status, listen and the notes carry it", async () => {
+    const { world, by, admin } = seededWorld();
+    const m = world.ops.createMeeting(admin, { kind: "standup", buildingId: "carbon-cycle", startNow: true });
+    world.ops.startMeeting(admin, m.id);
+    const doc = (await world.verbs.write(by("Mei"), { title: "Ocean sink 2024", body: "# Result\n\nThe ocean took up **3.4 ± 0.4** GtC.", state: "building", type: "note" })) as { id: string };
+    const draft = (await world.verbs.write(by("Mei"), { title: "Private", body: "not yet", type: "note" })) as { id: string };
+    const png = world.media.put(by("Mei").id, "image/png", Buffer.from("89504e470d0a1a0a0000000d49484452", "hex"));
+    const said = await world.verbs.meeting(by("Mei"), { meetingId: m.id, action: "speak", text: "Here's the number.", attach: doc.id });
+    expect(said).toMatchObject({ ok: true, presented: `[Ocean sink 2024](${doc.id})` });
+    await world.verbs.meeting(by("Mei"), { meetingId: m.id, action: "speak", text: "And the chart.", attach: png.url });
+    await world.verbs.meeting(by("Noor"), { meetingId: m.id, action: "speak", text: "The Bank shows it.", attach: "bank" });
+    world.ops.meetingSay(admin, m.id, "See Noor.", by("Noor").id);
+    const t = world.meetings.require(m.id).transcript;
+    expect(t.map((u) => u.attachment)).toEqual([
+      { kind: "doc", ref: doc.id, title: "Ocean sink 2024", excerpt: "Result The ocean took up 3.4 ± 0.4 GtC." },
+      { kind: "media", ref: png.id, title: "Screenshot", url: png.url },
+      { kind: "page", ref: "bank", title: "The Bank" },
+      { kind: "page", ref: `agent:${by("Noor").id}`, title: "Noor" },
+    ]);
+    // drafts, unknown ids and unknown pages are refused, and nothing is said
+    await expect(world.verbs.meeting(by("Mei"), { meetingId: m.id, action: "speak", text: "x", attach: draft.id })).rejects.toMatchObject({ code: "bad_request" });
+    await expect(world.verbs.meeting(by("Mei"), { meetingId: m.id, action: "speak", text: "x", attach: "gr_nope" })).rejects.toMatchObject({ code: "not_found" });
+    await expect(world.verbs.meeting(by("Mei"), { meetingId: m.id, action: "speak", text: "x", attach: "somewhere" })).rejects.toMatchObject({ code: "bad_request" });
+    expect(world.meetings.require(m.id).transcript).toHaveLength(4);
+    const heard = await world.verbs.meeting(by("Moss"), { meetingId: m.id, action: "listen" });
+    expect(heard).toMatchObject({ utterances: [{ presented: `[Ocean sink 2024](${doc.id})` }, { presented: `![Screenshot](${png.url})` }, { presented: "The Bank (page bank)" }, { speaker: "Mitchell" }] });
+    const status = await world.verbs.meeting(by("Moss"), { meetingId: m.id, action: "status" });
+    expect((status as { transcript: { presented?: string }[] }).transcript[1]!.presented).toBe(`![Screenshot](${png.url})`);
+    world.ops.endMeeting(admin, m.id);
+    const notes = world.docs.require(world.meetings.require(m.id).notesDocId!).body;
+    expect(notes).toContain(`Here's the number. (presented: [Ocean sink 2024](${doc.id}))`);
+    expect(notes).toContain(`(presented: ![Screenshot](${png.url}))`);
+  });
+
   it("listen with waitSeconds waits for the next utterance; a human ends the meeting", async () => {
     const { world, by, admin } = seededWorld();
     const m = world.ops.createMeeting(admin, { kind: "standup", buildingId: "carbon-cycle", startNow: true });

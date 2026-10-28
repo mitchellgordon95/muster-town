@@ -158,6 +158,13 @@ export class World {
       const th = grant || (doc && isTownHallItem(this, doc)) ? this.buildings.first("kind = 'town-hall'") : undefined;
       if (th && th.id !== b?.id) this.changes.emit({ type: "building", building: { ...th, intray: intrayCount(this, th.id) } });
     });
+    // outbox badge: a request was filed, claimed, finished or deleted → resend the unclaimed count
+    this.events.addHook((e) => {
+      const p = e.payload as Record<string, unknown>;
+      const filed = e.type === "doc.created" && p.docType === "request";
+      const moved = e.type === "doc.updated" && (typeof p.requestStatus === "string" || (p.deleted === true && typeof p.docId === "string"));
+      if (filed || moved) this.changes.emit({ type: "outbox", open: this.outboxOpen() });
+    });
     // goal-directed: a grant, key-result or budget-settings change may block or unblock the building (wakes its manager once)
     this.events.addHook((e) => {
       if (!e.buildingId || !(e.type.startsWith("grant.") || e.type === "kr.created" || e.type === "kr.deleted" || e.type === "building.updated")) return;
@@ -283,7 +290,13 @@ export class World {
       meetings: this.meetings.where("phase IN ('scheduled','collecting','discussing')", [], "ORDER BY scheduledAt"),
       health: { docker: this.host.docker ?? true, ...(this.host.slots ? { slots: this.host.slots() } : {}),
         ...(this.host.hosted ? { funding: this.bank.liveApiKeyInput() ? "api-key" as const : "none" as const } : {}) },
+      outbox: this.outboxOpen(),
     };
+  }
+
+  /** Outbox requests nobody has claimed yet (requestStatus open): the map's outbox badge. */
+  outboxOpen(): number {
+    return this.docs.count("type = 'request' AND requestStatus = 'open'");
   }
 
   /** Buildings as the snapshot carries them: plus `intray` (pending report count), `budget` and `stoplight`. */

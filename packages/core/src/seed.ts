@@ -83,9 +83,9 @@ export function findManual(world: World): Doc | null {
 }
 
 /**
- * sha256 of every earlier repo edition's body (docs/manual.md minus its h1). A live manual whose body still equals one
- * of them was never edited in town, so a newer repo edition replaces it on boot. Add the outgoing edition's hash here
- * whenever docs/manual.md changes.
+ * sha256 of the repo editions seeded before the manual carried a `seeded:` tag (docs/manual.md minus its h1). Only a
+ * migration path: an untagged live manual whose body equals one of them is updated once and tagged from then on. Do not
+ * add to this list; the tag tracks every later edition by itself.
  */
 export const PAST_MANUAL_EDITIONS = [
   "f651db524065aa2274cfd393bf04aee988b47ace14a5efd6c05a543ebf78dd13", // edition 1 (bb7c00f)
@@ -95,23 +95,39 @@ export const PAST_MANUAL_EDITIONS = [
   "7699c98dde9692834f7d9a57e436bccfb77051f5d363faa5e1e8219da028ea29", // edition 3.2 (a2091b9)
   "77d4684ab7e1f1543c155ec41fac97dca585c5ae93b879d3a4c9aff0fbeb3e38", // edition 3.3 (522c527)
   "3a539011337b3187dca63d4c08282acea0a383b9651c6f41775abee8fe8cca13", // edition 3.4 (c3b6e98)
+  "dec83f524423d75ec7aa0198e2b7803cbddf9d87650095f50f9eafc5512fd5e6", // edition 3.5 (1ece19a)
+  "8e9d2ca9d8d6219cffe279b683133305dfcb9dca05aa1935b1a4c634f83fb301", // edition 3.6 (1d0c6ba)
+  "321db2c776538cd1a623c724c857546b056dee069d1b0dbbfa25ece8282374bd", // edition 3.7 (6a93861)
+  "b7d222565d0b6713287e4d20478a1f3163242c139c15ac70ad7ab5d8e831b0ae", // edition 3.8 (93e8ba3)
 ];
 
 const sha256 = (s: string) => createHash("sha256").update(s).digest("hex");
 
+/** Tag on the live manual naming the body the seed last wrote: `seeded:<first 16 hex of its sha256>`. */
+export const MANUAL_SEEDED_PREFIX = "seeded:";
+const seededTag = (body: string) => MANUAL_SEEDED_PREFIX + sha256(body).slice(0, 16);
+
 /**
  * The repo's copy of the manual becomes a Town Hall library article only when the town has none: once it exists the
- * world doc is the source of truth (edited live, never overwritten from the file). The one exception: a doc that
- * still holds an earlier repo edition word for word (PAST_MANUAL_EDITIONS) is updated to the file's edition.
+ * world doc is the source of truth (edited live, never overwritten from the file). The one exception: a doc whose body
+ * is still the one the seed last wrote (its `seeded:` tag, or for docs seeded before the tag an entry of
+ * PAST_MANUAL_EDITIONS) was never edited in town, so it is updated to the file's edition and re-tagged on boot.
  */
 export function seedManual(world: World, path: string | undefined, authorId: string): Doc | null {
   if (!path || !existsSync(path)) return null;
   const body = readFileSync(path, "utf8").replace(/^# [^\n]*\n+/, "");
   const live = findManual(world);
-  if (live) return live.body !== body && PAST_MANUAL_EDITIONS.includes(sha256(live.body)) ? updateDoc(world, live.id, { body }) : null;
+  if (live) {
+    const mark = live.tags.find((t) => t.startsWith(MANUAL_SEEDED_PREFIX));
+    const untouched = mark ? mark === seededTag(live.body) : live.body === body || PAST_MANUAL_EDITIONS.includes(sha256(live.body));
+    if (!untouched) return null;
+    const tags = [...live.tags.filter((t) => t !== mark), seededTag(body)];
+    if (live.body === body) return mark === seededTag(body) ? null : world.docs.patch(live.id, { tags });
+    return updateDoc(world, live.id, { body, tags });
+  }
   const th = world.buildings.get(TOWN_HALL_ID) ?? world.buildings.first("kind = 'town-hall'");
   return createDoc(world, {
-    type: "article", state: "library", title: "Operating manual", body, tags: [MANUAL_TAG],
+    type: "article", state: "library", title: "Operating manual", body, tags: [MANUAL_TAG, seededTag(body)],
     authorId, authorKind: "user", buildingId: th?.id ?? null,
   }, "The operating manual was placed in the library");
 }

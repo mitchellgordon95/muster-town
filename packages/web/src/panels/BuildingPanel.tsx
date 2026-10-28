@@ -1,4 +1,5 @@
 /** Building panel (E at the door): overview, members + roles, meetings, settings (managers: building fields). Members lists residents (managers add and dismiss there) and roles. Board, filing cabinet and in-tray are places; the collective's secrets are a planning-desk tab. */
+import { isFork } from "../forks";
 import { useEffect, useMemo, useState, type ReactNode } from "react";
 import { DEFAULT_POOL_ID, MAX_KEY_RESULTS_PER_OBJECTIVE, MAX_OBJECTIVES, type KeyResultStatus, type KpiKey, type Meeting, type SnapshotBuilding, type Workspace } from "@muster-town/schema";
 import { fmtPct, poolColor } from "../pools";
@@ -111,11 +112,12 @@ function Members({ b }: { b: SnapshotBuilding }) {
   const agents = useTown((s) => s.agents);
   useTown((s) => s.me);
   const members = useMemo(() => Object.values(agents).filter((a) => (a.homeBuildingId ?? a.buildingId) === b.id && a.kind !== "human" && a.status !== "retired").sort((x, y) => x.name.localeCompare(y.name)), [agents, b.id]);
-  const residents = members.filter((a) => a.kind === "resident").length;
+  const residents = members.filter((a) => a.kind === "resident" && !isFork(a)).length;
+  const forks = members.filter(isFork).length;
   const manage = store.can("building.manage", b.id);
   return (
     <>
-      <Section title={`Residents (${residents} / ${b.headcount})`}>
+      <Section title={`Residents (${residents} / ${b.headcount})${forks ? ` + ${forks} fork${forks === 1 ? "" : "s"}` : ""}`}>
         {!members.length ? <Empty>{manage ? "No one works here yet. Add a resident below." : "No one works here yet."}</Empty> : (
           <div className="members">
             {members.map((a) => (

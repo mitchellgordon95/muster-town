@@ -4,7 +4,8 @@
  */
 import { useEffect, useMemo, useState } from "react";
 import { BOARD_TYPES, DocType, type AccessRequestView, type Doc, type GrantView, type Meeting } from "@muster-town/schema";
-import { api, type Board, type Intray } from "../api";
+import { api, type Board, type Intray, type ReportChain } from "../api";
+import { forkTip } from "../forks";
 import { UNBLOCK_LINE, explorationLine, grantSpendLine, grantStateLine, keyResultRows, krFundingLine, objectiveGroups, objectiveLine, krStatusLabel, krTone, proposalLine, spentShare, unfundableReason } from "./keyResults";
 import { store, useTown, roleOf } from "../state";
 import { DocRow, DocView, VERDICT_TONE, needOf } from "./DocView";
@@ -58,7 +59,7 @@ export function IntrayPanel({ buildingId }: { buildingId: string }) {
             <TownHallIntray reports={reports} grants={grants} access={access} blocked={list.data?.blocked ?? []} onOpen={openDoc} onDecided={list.reload} />
           ) : !reports.length ? <Empty>The in-tray is empty. When a resident finishes a session, its report lands here and the resident goes idle; a flag you plant (F on the map) lands here too.</Empty> : (
             <div className="doc-list">
-              {reports.map((d) => <IntrayRow key={d.id} doc={d} onOpen={() => setOpenId(d.id)} />)}
+              {reports.map((d) => <IntrayRow key={d.id} doc={d} chain={list.data?.chains?.[d.id]} onOpen={() => setOpenId(d.id)} onOpenDoc={openDoc} />)}
             </div>
           )}
         </>
@@ -351,8 +352,9 @@ export function GrantRow({ grant: g, onDecided, onOpenDoc }: { grant: GrantView;
   );
 }
 
-function IntrayRow({ doc, onOpen, onOpenDoc, showBuilding }: { doc: Doc; onOpen: () => void; onOpenDoc?: (id: string) => void; showBuilding?: boolean }) {
-  const a = useTown((s) => s.agents[doc.authorId]);
+function IntrayRow({ doc, chain, onOpen, onOpenDoc, showBuilding }: { doc: Doc; chain?: ReportChain; onOpen: () => void; onOpenDoc?: (id: string) => void; showBuilding?: boolean }) {
+  // a retired fork isn't in the snapshot: its row shows its manager's sprite
+  const a = useTown((s) => s.agents[doc.authorId] ?? (chain?.forkOf ? s.agents[chain.forkOf] : undefined));
   const isManager = useTown((s) => !!doc.buildingId && s.buildings.find((b) => b.id === doc.buildingId)?.managerAgentId === doc.authorId);
   const flag = doc.type === "flag";
   const need = flag ? null : needOf(doc.body);
@@ -372,7 +374,7 @@ function IntrayRow({ doc, onOpen, onOpenDoc, showBuilding }: { doc: Doc; onOpen:
         <MediaThumb body={doc.body} />
         <div className="intray-who">
           {showBuilding ? <BuildingTag buildingId={doc.buildingId} /> : null}
-          {a ? <img src={portraitUrl(a.sprite, 1)} alt="" /> : null}<b>{isManager ? `★ ${nameOf(doc.authorId)}` : nameOf(doc.authorId)}</b><span>{timeAgo(doc.createdAt)}</span>
+          {a ? <img src={portraitUrl(a.sprite, 1)} alt="" /> : null}<b title={chain?.forkOf ? forkTip(chain, nameOf, chain.assignmentId, chain.sessionId) : undefined}>{isManager ? `★ ${nameOf(doc.authorId)}` : nameOf(doc.authorId)}</b><span>{timeAgo(doc.createdAt)}</span>
           {rollup ? <Pill tone="ok">rollup</Pill> : null}
           {doc.tags.includes("visitor") ? <Pill tone="warn" title="A visitor agent with no home building filed this; a human works it">visitor report</Pill> : null}
           {flag ? <Pill tone="warn" title="A quick request a human planted here; the manager delegates it">⚑ flag</Pill> : null}
@@ -385,6 +387,15 @@ function IntrayRow({ doc, onOpen, onOpenDoc, showBuilding }: { doc: Doc; onOpen:
           {doc.tokens ? <span title={ADJ_HINT}>{fmtTokens(doc.tokens)} {ADJ}{doc.costUsd ? ` · ${usd(doc.costUsd)}` : ""}</span> : null}
         </div>
       </button>
+      {chain ? (
+        // a fork's report: its place on the assignment chain, the fork's session (agent panel) and the previous hop
+        <div className="intray-covered intray-chain">
+          <button className="link" title={`The fork's session${chain.sessionId ? ` ${chain.sessionId}` : ""}: tokens and transcript`} onClick={() => store.open({ kind: "agent", id: doc.authorId })}>
+            <Pill tone="neutral">chain {chain.chainId} · hop {chain.hop}</Pill>
+          </button>
+          {chain.prevReportId ? <button className="link" onClick={() => onOpenDoc?.(chain.prevReportId!)}>← previous hop</button> : <span className="muted">first hop</span>}
+        </div>
+      ) : null}
       {rollup && covered.length ? (
         <div className="intray-covered">
           <button className="link" onClick={() => setExpanded(!expanded)}>{expanded ? "▾" : "▸"} covers {covered.length} report{covered.length === 1 ? "" : "s"}</button>

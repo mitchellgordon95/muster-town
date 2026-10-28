@@ -5,7 +5,7 @@
 import type { Agent, Assignment, Building, DeskBrief, DeskWorkspace, Doc, Event, Meeting, Town, Workspace } from "@muster-town/schema";
 import { intrayCounts, intrayOf } from "./domain.ts";
 import { decisionOutcomes, previousMeeting, type DecisionOutcome } from "./meetings.ts";
-import { memoryBlock, teamBlock, WIKI_HOWTO } from "./memory.ts";
+import { forkMemoryBlock, memoryBlock, teamBlock, topicIndexBlock, WIKI_HOWTO } from "./memory.ts";
 import { skillsBlock } from "./skills.ts";
 import { townBoardDocs } from "./verbs/docs.ts";
 import { TOWN_HALL_ID } from "./world/layout.ts";
@@ -112,7 +112,11 @@ export function sessionMemory(world: World, agent: Agent, building: Building, as
   const keyResults = keyResultsBlock(world, building, assignment);
   const grants = manager ? managerGrantsBlock(world, building) : "";
   const townBoard = townBoardBlock(world);
-  return { memory: memoryBlock(world, agent.id), ...(townBoard ? { townBoard } : {}), ...(manager ? { team: `${teamBlock(world, building, agent.id)}\n\n${managerIntrayBlock(world, building, agent.id)}${grants ? `\n\n${grants}` : ""}` } : {}), ...(keyResults ? { keyResults } : {}) };
+  // a fork gets a frozen read-only copy of its manager's memory (dc_mymt27yz25 §5.2); everyone else their own wiki and log,
+  // then the building's topic index
+  const index = agent.forkOf ? "" : topicIndexBlock(world, building.id);
+  const memory = agent.forkOf ? forkMemoryBlock(world, agent, assignment) : `${memoryBlock(world, agent.id)}${index ? `\n\n${index}` : ""}`;
+  return { memory, ...(townBoard ? { townBoard } : {}), ...(manager ? { team: `${teamBlock(world, building, agent.id)}\n\n${managerIntrayBlock(world, building, agent.id)}${grants ? `\n\n${grants}` : ""}` } : {}), ...(keyResults ? { keyResults } : {}) };
 }
 
 /**

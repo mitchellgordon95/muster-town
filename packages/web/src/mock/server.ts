@@ -152,12 +152,14 @@ export class MockApi implements Api {
         const rank = (x: Assignment) => (x.status === "active" ? 0 : x.status === "pending" ? 1 : 2);
         return rank(a) - rank(b) || (a.status === "pending" && b.status === "pending" ? a.position - b.position : b.updatedAt.localeCompare(a.updatedAt));
       }),
+      ...(agent.forkOf ? { fork: this.sim.forkSummary(agent)! } : {}),
       ...(agent.kind === "visitor" ? { mailbox: {
         unread: this.unread.get(id) ?? 0, mentions: 0,
         offered: [...this.sim.assignments.values()].filter((a) => a.agentId === id && a.status === "pending" && a.offered).length,
       } } : {}),
     });
   }
+  async forks(managerId: string) { await wait(); return clone(this.sim.forksOf(managerId)); }
   async session(id: string) {
     const d = await this.agent(id);
     const since = d.currentSession?.startedAt ?? new Date(Date.now() - 90 * 60_000).toISOString();
@@ -384,14 +386,16 @@ export class MockApi implements Api {
   async request(docId: string, action: RequestAction, body?: string) {
     await wait();
     const d = this.need(this.sim.docs.get(docId), "doc");
-    if (action === "delete") { this.sim.docs.delete(docId); return null; }
+    if (action === "delete") { this.sim.docs.delete(docId); this.sim.emit({ type: "outbox", open: this.sim.outboxOpen() }); return null; }
     d.requestStatus = action === "claim" ? "claimed" : "done";
     if (action === "claim") d.claimedByUserId = "us_mitchell";
     if (action === "done") {
       const hr = this.sim.putDoc({ id: newId("dc"), type: "human-report", state: "library", title: `Re: ${d.title}`, body: body || "(no details)", authorId: "us_mitchell", authorKind: "user", buildingId: d.buildingId, provenance: { sourceIds: [], urls: [] }, tags: [], createdAt: now(), updatedAt: now() });
       this.sim.event("doc.created", null, `Mitchell answered a request: ${d.title}`, { docId: hr.id });
     } else this.sim.event("doc.updated", null, `Request "${d.title}" claimed`, { docId });
-    return clone(this.sim.putDoc(d));
+    const out = clone(this.sim.putDoc(d));
+    this.sim.emit({ type: "outbox", open: this.sim.outboxOpen() });
+    return out;
   }
 
   async meetings(q: { buildingId?: string; phase?: string }) {
@@ -542,7 +546,8 @@ export class MockApi implements Api {
     const burn = Math.round(used / 7);
     const diff = used + left - total;
     return {
-      total, credited, donated, used, usedBank, usedDonations, expired: 0, left, leftBank, leftDonations, overdrawn: 0, usageLedger: used,
+      total, credited, donated, used, usedBank, usedDonations, expired: 0, left, leftBank, leftDonations, overdrawn: 0,
+      overdrawnBreakdown: { durableOvershoot: 0, subscriptionOverdrawn: 0, deletedCreditDebits: 0, allocationOverspent: 0 }, usageLedger: used,
       projection: { days: 30, trailingDailyBurn: burn, burnDays: 7, projectedUse30d: burn * 30 },
       sumCheck: { ok: diff === 0, diff, identity: "used + expired + left = total + overdrawn" }, at: now(),
     };

@@ -41,7 +41,7 @@ describe("SandboxBackend", () => {
   test("ensure creates a missing desk with labels, home volume and mount", async () => {
     const f = fakeApi();
     const h = await new SandboxBackend({ api: f.api, collective: "Workshop Collective" }).ensure(agent, building);
-    expect(h).toEqual({ name: "desk-workshop-collective-ag_abc123", agentId: "ag_abc123" });
+    expect(h).toEqual({ name: "desk-workshop-collective-ag_abc123", agentId: "ag_abc123", createdMs: expect.any(Number) });
     expect(f.created).toEqual([{
       name: "desk-workshop-collective-ag_abc123", volume: "deskhome-ag_abc123", mountPath: "/home/agent",
       labels: { "muster-town.desk": "1", "muster-town.agent": "ag_abc123", "muster-town.collective": "workshop-collective" },
@@ -167,5 +167,34 @@ describe("sandbox desks reach the town at desks.townUrl", () => {
     await runtime.tickOnce();
     await vi.waitFor(() => expect(desk.execs).toHaveLength(1));
     expect(desk.execs[0].env).toMatchObject({ MUSTER_TOWN_URL: "https://muster.town", AGENT_TOWN_URL: "https://muster.town" });
+  });
+});
+
+describe("SandboxBackend desk slots (manager forks step 3)", () => {
+  const fork = { id: "ag_fork1" } as Agent;
+  const slotOf = (id: string, d: (b: string, n: number) => { sandboxName: string; volumeName: string }) => (id === fork.id ? d("workshop", 2) : null);
+
+  test("a fork's desk is its slot's sandbox and volume, labelled by slot; create time is reported; residents keep theirs", async () => {
+    const f = fakeApi();
+    const sb = new SandboxBackend({ api: f.api, collective: "c", slotOf });
+    const h = await sb.ensure(fork, building);
+    expect(h.name).toBe("desk-c-workshop-2");
+    expect(typeof h.createdMs).toBe("number");
+    expect(f.created[0]).toMatchObject({ name: "desk-c-workshop-2", volume: "deskhome-workshop-2", labels: { "muster-town.slot": "desk-c-workshop-2" } });
+    expect((await sb.ensure(agent, building)).name).toBe("desk-c-ag_abc123");
+    // a warm slot is reused: no create, no create time
+    const warm = fakeApi({ found: { id: "s", name: "n", state: "stopped" } });
+    const w = await new SandboxBackend({ api: warm.api, collective: "c", slotOf }).ensure(fork, building);
+    expect(w).toEqual({ name: "desk-c-workshop-2", agentId: fork.id });
+    expect(warm.calls).toEqual(["find desk-c-workshop-2", "start desk-c-workshop-2"]);
+  });
+
+  test("dismissing a fork leaves its slot's sandbox; removeSandbox removes one by name (volume kept)", async () => {
+    const f = fakeApi();
+    const sb = new SandboxBackend({ api: f.api, collective: "c", slotOf });
+    await sb.remove(fork.id, { purge: true });
+    expect(f.calls).toEqual([]);
+    await sb.removeSandbox("desk-c-workshop-2");
+    expect(f.calls).toEqual(["remove desk-c-workshop-2 -"]);
   });
 });

@@ -5,12 +5,13 @@
  */
 import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import type { Agent, Assignment, BlockedBy, Doc, Event, Permission } from "@muster-town/schema";
-import { api, type AgentPermissionsView, type ThreadMessage } from "../api";
+import { api, type AgentPermissionsView, type ForkSummary, type ThreadMessage } from "../api";
+import { forkTip, isFork } from "../forks";
 import { store, useTown, roleOf } from "../state";
 import { DismissButton, canDismiss } from "./Dismiss";
 import { PanelShell } from "./PanelShell";
 import { DocText, Markdown } from "./Markdown";
-import { ADJ, Act, Empty, KV, Pill, Section, StatusPill, breakdownTitle, clock, fmtTokens, timeAgo, usd, useLoad } from "./ui";
+import { ADJ, Act, Empty, ErrorLine, KV, Loading, Pill, Section, StatusPill, breakdownTitle, clock, fmtTokens, nameOf, timeAgo, usd, useLoad } from "./ui";
 import { portraitUrl } from "../map/sprites";
 import { SignInNote } from "../auth/auth";
 import { slotsFull } from "../redeploy";
@@ -21,15 +22,21 @@ type Msg = { role: "user" | "assistant"; text: string; ts: string };
 const chats = new Map<string, Msg[]>();
 
 export function AgentPanel({ id, tab }: { id: string; tab?: string }) {
-  const agent = useTown((s) => s.agents[id]);
+  const live = useTown((s) => s.agents[id]);
   const rev = useTown((s) => s.rev);
   const buildings = useTown((s) => s.buildings);
   const detail = useLoad(() => api().agent(id), [id]);
   useEffect(() => { if (detail.data) { store.mergeEvents(detail.data.recentEvents); store.putAssignments(detail.data.assignments); if (detail.data.latestReport) store.putDocs([detail.data.latestReport]); } }, [detail.data]);
   useEffect(() => { detail.reload(); }, [rev, detail.reload]); // docs/assignments changed somewhere
-  if (!agent) return <PanelShell title="Unknown agent"><Empty>This agent isn't in the town.</Empty></PanelShell>;
-  const tabs = agent.kind === "resident" ? ["Talk", "Assignments", "Memory"] : agent.kind === "visitor" ? ["Talk", "Assignments"] : ["Talk"];
+  // a retired fork isn't in the snapshot: its panel comes from GET /api/agents/:id
+  const agent = live ?? (detail.data?.agent.id === id && detail.data.agent.forkOf ? detail.data.agent : undefined);
+  if (!agent) return <PanelShell title="Unknown agent">{detail.loading ? <Loading /> : <Empty>This agent isn't in the town.</Empty>}</PanelShell>;
   const building = buildings.find((b) => b.id === (agent.homeBuildingId ?? agent.buildingId));
+  const fork = detail.data?.agent.id === id ? detail.data.fork : undefined;
+  // a fork has no private memory (it writes topic pages); a building's manager gets its Forks tab
+  const tabs = agent.forkOf ? ["Fork", "Talk", "Assignments"]
+    : agent.kind === "resident" ? ["Talk", "Assignments", "Memory", ...(building?.managerAgentId === agent.id ? ["Forks"] : [])]
+    : agent.kind === "visitor" ? ["Talk", "Assignments"] : ["Talk"];
   const mailbox = detail.data?.agent.id === id ? detail.data.mailbox : undefined;
   const role = [roleOf(agent) || agent.kind, building?.name].filter(Boolean).join(" · ");
   const perms = detail.data?.agent.id === id ? detail.data.permissions : undefined;
@@ -39,21 +46,75 @@ export function AgentPanel({ id, tab }: { id: string; tab?: string }) {
       icon={<img className="portrait" src={portraitUrl(agent.sprite)} alt="" />}
       title={<>{agent.name} {building?.managerAgentId === agent.id ? <Pill tone="warn" title={`Set as ${building.name}'s manager in its settings: facilitates its meetings`}>★ manager</Pill> : null} <StatusPill status={agent.status} /></>}
       subtitle={<>
-        {agent.kind === "visitor" ? <>{role}<Presence agent={agent} mailbox={mailbox} /></> : role}
+        {agent.kind === "visitor" ? <>{role}<Presence agent={agent} mailbox={mailbox} /></> : agent.forkOf ? <span title={forkTip(agent, nameOf, fork?.assignmentId, fork?.sessionId)}>fork of {nameOf(agent.forkOf)}{building ? ` · ${building.name}` : ""}</span> : role}
         {perms ? <AgentPermissions agent={agent} view={perms} effective={detail.data?.effectivePermissions ?? []} reload={detail.reload} /> : null}
         {perms?.canSetModel ? <AgentModel agent={agent} buildingModel={building?.model} reload={detail.reload} /> : null}
       </>}
       tabs={tabs}
-      initialTab={tab && tabs.includes(tab) ? tab : "Talk"}
+      initialTab={tab && tabs.includes(tab) ? tab : tabs[0]}
     >
       {(t) => (
         <>
+          {t === "Fork" ? <ForkTab fork={fork} loading={!detail.data} /> : null}
+          {t === "Forks" ? <ForksTab managerId={agent.id} /> : null}
           {t === "Talk" ? <TalkTab agent={agent} /> : null}
           {t === "Assignments" ? <AssignmentsTab agent={agent} /> : null}
           {t === "Memory" ? <MemoryTab agent={agent} topics={detail.data?.agent.id === id ? detail.data.memoryTopics ?? [] : []} memory={detail.data?.agent.id === id ? detail.data.memory : undefined} loading={!detail.data} /> : null}
         </>
       )}
     </PanelShell>
+  );
+}
+
+/** The transcript link for a session (GET /api/sessions/:id/transcript; admins, the building's managers and the agent). */
+function TranscriptLink({ sessionId }: { sessionId: string }) {
+  const url = `/api/sessions/${sessionId}/transcript`;
+  return <a href={url} onClick={(e) => { e.preventDefault(); void api().openTranscript?.(url).catch((err: Error) => store.toast(err.message, "bad")); }}>transcript</a>;
+}
+
+/** A fork's own panel (dc_mymt27yz25 §6): which manager, its assignment and chain hop, its session, report and the topic pages it edited. */
+function ForkTab({ fork, loading }: { fork?: ForkSummary; loading: boolean }) {
+  if (!fork) return loading ? <Loading /> : <Empty>No fork details.</Empty>;
+  const openDoc = (docId: string) => store.open({ kind: "library", docId });
+  return (
+    <Section title="Fork">
+      <KV items={[
+        ["Fork of", <button className="link" onClick={() => store.open({ kind: "agent", id: fork.agent.forkOf! })}>{fork.forkOfName}</button>],
+        ["Assignment", fork.assignmentId ? <>{fork.assignmentTitle} <span className="muted">({fork.assignmentId})</span></> : "none"],
+        ...(fork.chainId ? [["Chain", <Pill tone="neutral">chain {fork.chainId} · hop {fork.hop}</Pill>] as [string, ReactNode]] : []),
+        ["Session", fork.sessionId ? <>{fork.sessionId} · {fmtTokens(fork.tokens)} {ADJ}{fork.transcript ? <> · <TranscriptLink sessionId={fork.sessionId} /></> : null}</> : "not started"],
+        ["Report", fork.reportId ? <button className="link" onClick={() => openDoc(fork.reportId!)}>{fork.reportTitle ?? fork.reportId}</button> : fork.agent.status === "retired" ? "none" : "not yet"],
+        ...(fork.pagesEdited.length ? [["Topic pages", <>{fork.pagesEdited.map((p, i) => <span key={p.id}>{i ? ", " : ""}<button className="link" onClick={() => openDoc(p.id)}>{p.title}</button></span>)}</>] as [string, ReactNode]] : []),
+        ["Status", fork.agent.status === "retired" ? `retired ${timeAgo(fork.agent.lastActiveAt ?? fork.agent.createdAt)}` : <StatusPill status={fork.agent.status} />],
+      ]} />
+    </Section>
+  );
+}
+
+/** The manager's Forks tab: its live ghosts, then the last 50 retired forks (GET /api/agents/:id/forks). */
+function ForksTab({ managerId }: { managerId: string }) {
+  const rev = useTown((s) => s.rev);
+  const list = useLoad(() => api().forks(managerId), [managerId, rev]);
+  if (list.loading && !list.data) return <Loading />;
+  const row = (f: ForkSummary) => (
+    <button key={f.agent.id} className="doc-row" title={forkTip(f.agent, nameOf, f.assignmentId, f.sessionId)} onClick={() => store.open({ kind: "agent", id: f.agent.id })}>
+      <div className="intray-who"><b>{f.agent.name}</b>{f.agent.status === "retired" ? <span>retired {timeAgo(f.agent.lastActiveAt ?? f.agent.createdAt)}</span> : <StatusPill status={f.agent.status} />}</div>
+      <div className="doc-row-title">{f.assignmentTitle ?? "no assignment"}</div>
+      <div className="doc-row-meta">
+        {f.chainId ? <Pill tone="neutral">chain {f.chainId} · hop {f.hop}</Pill> : null}
+        {f.sessionId ? <span>{fmtTokens(f.tokens)} {ADJ}</span> : null}
+        {f.reportTitle ? <span>report: {f.reportTitle}</span> : null}
+      </div>
+    </button>
+  );
+  const live = list.data?.live ?? [], retired = list.data?.retired ?? [], family = list.data?.family;
+  return (
+    <>
+      <ErrorLine error={list.error} />
+      {family ? <KV items={[["With forks", `today ${fmtTokens(family.today)} · total ${fmtTokens(family.total)} ${ADJ} · ${usd(family.usdTotal)} (${family.forks} fork${family.forks === 1 ? "" : "s"})`]]} /> : null}
+      <Section title={<>Live <Pill>{live.length}</Pill></>}>{live.length ? <div className="doc-list">{live.map(row)}</div> : <Empty>No fork is working now.</Empty>}</Section>
+      <Section title={<>Retired <Pill>{retired.length}</Pill></>}>{retired.length ? <div className="doc-list">{retired.map(row)}</div> : <Empty>No fork has finished yet. With forks on, the building's queued work runs on forks of its manager.</Empty>}</Section>
+    </>
   );
 }
 
@@ -204,6 +265,9 @@ function TalkTab({ agent }: { agent: Agent }) {
   const building = store.state.buildings.find((b) => b.id === agent.homeBuildingId);
   const daily = building?.dailyTokensPerAgent ?? 0;
   const sess = s.data?.session;
+  // a manager's spend with its forks (design note §7): the Bank books each fork on its own row, this sums them
+  const family = useLoad(() => isManager ? api().forks(agent.id).then((f) => f.family ?? null) : Promise.resolve(null), [agent.id, isManager, agent.spentTokensTotal]);
+  const fam = family.data && family.data.forks > 0 ? family.data : null;
   const canControl = !isHuman && !isService && (store.can("building.assign", agent.homeBuildingId) || agent.ownerUserId === me?.user.id);
   return (
     <div className="chat-wrap">
@@ -218,6 +282,7 @@ function TalkTab({ agent }: { agent: Agent }) {
           ["Model", sess?.model ?? agent.model ?? building?.model ?? "default"],
           ["Today", <>{fmtTokens(agent.spentTokensToday)}{daily ? <> / {fmtTokens(daily)} <Meter v={agent.spentTokensToday / daily} /></> : null}</>],
           ["Total", `${fmtTokens(agent.spentTokensTotal)} ${ADJ} · ${usd(agent.spentUsdTotal)}`],
+          ...(fam ? [["With forks", <span title={`${agent.name} and ${fam.forks} fork${fam.forks === 1 ? "" : "s"} (live and retired); each fork keeps its own row`}>today {fmtTokens(fam.today)}{daily && building ? <> / {fmtTokens(daily * building.headcount)}</> : null} · total {fmtTokens(fam.total)} {ADJ} · {usd(fam.usdTotal)}</span>] as [string, ReactNode]] : []),
           ...(sess ? [["Session", <><Pill tone={sess.status === "running" ? "ok" : sess.status === "error" ? "bad" : ""}>{sess.status}</Pill> {sess.purpose} · started {timeAgo(sess.startedAt)} · {sess.turns} turns · <span title={breakdownTitle(sess)}>{fmtTokens(sess.adjustedOutputTokens ?? 0)} {ADJ}</span> · {usd(sess.costUsd)}{s.data?.transcriptFile ? <> · <a href={s.data.transcriptFile.url} title={`${s.data.transcriptFile.lines} lines · kept until ${s.data.transcriptFile.expiresAt.slice(0, 10)}`} onClick={(e) => { e.preventDefault(); void api().openTranscript?.(s.data!.transcriptFile!.url).catch((err: Error) => store.toast(err.message, "bad")); }}>transcript</a></> : null}</>] as [string, ReactNode]] : [["Last active", timeAgo(agent.lastActiveAt)] as [string, ReactNode]]),
         ]} />
       ) : null}
@@ -498,7 +563,7 @@ function DelegatePicker({ from, run, onDone }: { from: Agent; run: (toId: string
   const buildings = useTown((s) => s.buildings);
   const bname = (id: string | null) => buildings.find((b) => b.id === id)?.name ?? "";
   const options = useMemo(() => Object.values(agents)
-    .filter((x) => x.id !== from.id && x.kind === "resident" && x.status !== "retired" && x.status !== "banned")
+    .filter((x) => x.id !== from.id && x.kind === "resident" && !isFork(x) && x.status !== "retired" && x.status !== "banned")
     .sort((x, y) => Number(y.homeBuildingId === from.homeBuildingId) - Number(x.homeBuildingId === from.homeBuildingId) || bname(x.homeBuildingId).localeCompare(bname(y.homeBuildingId)) || x.name.localeCompare(y.name)), [agents, buildings, from.id, from.homeBuildingId]);
   const [to, setTo] = useState(options[0]?.id ?? "");
   if (!options.length) return <div className="asg-delegate"><Empty>No other resident to hand this to.</Empty></div>;

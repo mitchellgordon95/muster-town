@@ -335,6 +335,26 @@ describe("request_human lifecycle", () => {
     expect((await world.verbs.inbox(ingrid, {})).messages.some((m) => m.body.includes("deleted your outbox request"))).toBe(true);
   });
 
+  it("the outbox badge counts only unclaimed requests: snapshot and live `outbox` frames", async () => {
+    const { world, by, seed } = seededWorld();
+    const ingrid = by("Ingrid");
+    const sent: number[] = [];
+    world.changes.subscribe((m) => { if (m.type === "outbox") sent.push(m.open); });
+    const a = await world.verbs.request_human(ingrid, { title: "Photo the slump", body: "x" });
+    const b = await world.verbs.request_human(ingrid, { title: "Call the office", body: "y" });
+    await world.verbs.request_human(ingrid, { title: "Spam", body: "z" });
+    expect(world.snapshot().outbox).toBe(3);
+    const avatar = world.ops.ensureAvatar(world.ops.createUser("Rando").user.id);
+    world.ops.requestAction(avatar, a.id, "claim");
+    world.ops.requestAction(avatar, a.id, "done", "Done.");
+    world.ops.requestAction(avatar, b.id, "claim");
+    const spam = world.ops.outbox().find((d) => d.title === "Spam")!;
+    world.ops.requestAction(world.ops.ensureAvatar(seed.admin.id), spam.id, "delete");
+    expect(sent).toEqual([1, 2, 3, 2, 2, 1, 0]);
+    expect(world.snapshot().outbox).toBe(0);
+    expect(world.ops.outbox().filter((d) => d.requestStatus === "open")).toHaveLength(0);
+  });
+
   it("legacy proposed/approved requests read as open", () => {
     expect(RequestStatus.parse("proposed")).toBe("open");
     expect(RequestStatus.parse("approved")).toBe("open");

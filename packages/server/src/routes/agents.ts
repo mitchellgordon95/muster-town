@@ -1,4 +1,4 @@
-import { AppError, blockedBy, canInteract, logOf, sessionView, suggestResidentName, townBlocked, topicsOf, wikiOf, type World } from "@muster-town/core";
+import { AppError, blockedBy, forkSummary, forksOf, canInteract, logOf, sessionView, suggestResidentName, townBlocked, topicsOf, wikiOf, type World } from "@muster-town/core";
 import { AgentModelPatch, AgentPermissionsPatch, ChatInput, CreateResidentInput, Event, InterruptInput, MessageAgentInput, RegisterVisitorInput, WorkInput, type Agent, type Session } from "@muster-town/schema";
 import type { FastifyInstance, FastifyRequest } from "fastify";
 import { z } from "zod";
@@ -115,8 +115,13 @@ export async function agentRoutes(app: FastifyInstance) {
         .map((a) => { const b = blockedBy(world, a); return b ? { ...a, blockedBy: b } : a; }),
       // v1.4: visitors' mailbox counts (unread messages, unread mentions, open offers) for the agent panel header
       ...(agent.kind === "visitor" ? { mailbox: world.presence.mailbox(agent.id) } : {}),
+      // manager forks: a fork's assignment, session, report and edited topic pages (live or retired)
+      ...(agent.forkOf ? { fork: forkSummary(world, agent) } : {}),
     };
   });
+
+  /** A manager's forks (its Forks tab): { live, retired } (the last 50 retired), readable by whoever can see the agent. */
+  app.get<{ Params: Params }>("/api/agents/:id/forks", async (req) => forksOf(world, world.agents.require(req.params.id, "agent").id));
 
   /** Every agent's blocked queued assignments with the reason (the map's blocked badges and red lines): { agents: { [agentId]: BlockedAssignment[] } } */
   app.get("/api/blocked", async () => ({ agents: townBlocked(world) }));

@@ -27,6 +27,9 @@ export function migrate(db: DB, dir = MIGRATIONS_DIR): number {
     .map((f) => ({ f, n: Number(/^(\d+)/.exec(f)?.[1] ?? NaN) }))
     .filter((x) => x.f.endsWith(".sql") && Number.isFinite(x.n))
     .sort((a, b) => a.n - b.n);
+  // two files with one number: the second would be skipped silently once the first is recorded
+  const dup = files.find((x, i) => i > 0 && files[i - 1].n === x.n);
+  if (dup) throw new Error(`[core] two migrations numbered ${dup.n}: renumber ${dup.f}`);
   for (const { f, n } of files) {
     if (applied.has(n)) continue;
     const sql = readFileSync(join(dir, f), "utf8");

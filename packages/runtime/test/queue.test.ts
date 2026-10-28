@@ -53,3 +53,22 @@ describe("scheduler queue order", () => {
     expect(world.assignments.require(a.id).status).toBe("pending");
   });
 });
+
+describe("the scheduler and the gate (Budget.canStart)", () => {
+  test("a tick never starts an assignment that canStart refuses: a lane-held one stays pending with its reason and starts once the gate opens", async () => {
+    const { world, runtime, by, seed, lab } = setup(work);
+    const admin = world.ops.ensureAvatar(seed.admin.id);
+    const noor = by("Noor");
+    const kr = world.grantDesk.createKeyResult(admin, lab.id, { text: "A visitor can see today's spend", howToCheck: "Open the banner" });
+    world.ops.updateBuilding(admin, lab.id, { budgetMode: "goal-directed" });
+    const g = world.grantDesk.propose(admin, world.grantDesk.create(admin, lab.id, { keyResultId: kr.id, objective: "o", stopCondition: "s", askTokens: 1_000_000 }).id);
+    const a = world.ops.createWork(admin, noor.id, { title: "grant work", lane: "grant", grantId: g.id });
+    expect(world.budget.canStart(noor.id, world.assignments.require(a.id))).toBe(false);
+    for (let i = 0; i < 3; i++) { await runtime.tickOnce(); await runtime.whenIdle(); }
+    expect(world.sessions.where("agentId = ? AND purpose = 'work'", [noor.id])).toHaveLength(0);
+    expect(world.assignments.require(a.id)).toMatchObject({ status: "pending", heldReason: "held: grant not funded yet" });
+    world.grantDesk.decide(admin, g.id, { action: "fund" });
+    await runtime.tickOnce(); await runtime.whenIdle();
+    expect(world.sessions.where("agentId = ? AND purpose = 'work'", [noor.id]).map((s) => s.assignmentId)).toEqual([a.id]);
+  });
+});
