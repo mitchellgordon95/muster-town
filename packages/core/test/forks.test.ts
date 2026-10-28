@@ -3,7 +3,7 @@ import { readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
-import { CHAIN_PLAN_RULE, RESIDENT_NAMES, buildingQueue, chainBlock, createAssignment, createDoc, createBuilding, createResident, forkManager, nextStartable, retireFork, suggestResidentName, updateBuilding, workPrompt } from "../src/index.ts";
+import { CHAIN_PLAN_RULE, RESIDENT_NAMES, buildingQueue, chainBlock, createAssignment, createDoc, createBuilding, createResident, forkManager, forkSummary, forksOf, reportChain, reportChains, nextStartable, retireFork, suggestResidentName, updateBuilding, workPrompt } from "../src/index.ts";
 import { seededWorld } from "./helpers.ts";
 
 const CHAINS_SQL = readFileSync(join(dirname(fileURLToPath(import.meta.url)), "..", "migrations", "049_assignment_chains.sql"), "utf8");
@@ -221,5 +221,30 @@ describe("manager forks: the chain block in a fork's work prompt (step 2)", () =
     report("Hop three (this session)", a3.id, "mine", "se_this");
     expect(chainBlock(world, a3, "se_this")).toContain("second plan");
     expect(chainBlock(world, a3)).toContain("mine");
+  });
+});
+
+describe("manager forks: what the web shows (step 5)", () => {
+  it("reportChain gives hop and previous report; forkSummary and forksOf list a manager's live and retired forks", async () => {
+    const { world, pix, ann, b, queue } = forkLab();
+    const a1 = await queue("Build it");
+    const f1 = forkManager(world, b.id, a1).fork;
+    const r1 = createDoc(world, { type: "report", state: "building", title: "Hop one", body: "b", verdict: "continue", authorId: f1.id, authorKind: "agent", buildingId: b.id, assignmentId: a1 });
+    retireFork(world, f1.id, { reportId: r1.id });
+    const a2 = createAssignment(world, { agentId: pix.id, title: "Hop two", description: "d", createdBy: { kind: "system", id: "system" }, fromReportId: r1.id, queue: "building" });
+    const f2 = forkManager(world, b.id, a2.id).fork;
+    const r2 = createDoc(world, { type: "report", state: "building", title: "Hop two done", body: "b", verdict: "continue", authorId: f2.id, authorKind: "agent", buildingId: b.id, assignmentId: a2.id });
+    expect(reportChain(world, r1)).toMatchObject({ chainId: a1, hop: 1, prevReportId: null });
+    expect(reportChain(world, r2)).toMatchObject({ chainId: a1, hop: 2, prevReportId: r1.id });
+    // only fork-authored reports get a chain badge
+    const own = createDoc(world, { type: "report", state: "building", title: "Ann's", body: "b", authorId: ann.id, authorKind: "agent", buildingId: b.id, assignmentId: a1 });
+    expect(Object.keys(reportChains(world, [r1, r2, own])).sort()).toEqual([r1.id, r2.id].sort());
+    const s = forkSummary(world, world.agents.require(f2.id))!;
+    expect(s).toMatchObject({ forkOfName: "Pix", assignmentId: a2.id, assignmentTitle: "Hop two", chainId: a1, hop: 2, reportId: r2.id, pagesEdited: [] });
+    expect(forkSummary(world, pix)).toBeNull();
+    const list = forksOf(world, pix.id);
+    expect(list.live.map((f) => f.agent.name)).toEqual([f2.name]);
+    expect(list.retired.map((f) => f.agent.id)).toEqual([f1.id]);
+    expect(list.retired[0]).toMatchObject({ reportId: r1.id, hop: 1 });
   });
 });

@@ -152,12 +152,14 @@ export class MockApi implements Api {
         const rank = (x: Assignment) => (x.status === "active" ? 0 : x.status === "pending" ? 1 : 2);
         return rank(a) - rank(b) || (a.status === "pending" && b.status === "pending" ? a.position - b.position : b.updatedAt.localeCompare(a.updatedAt));
       }),
+      ...(agent.forkOf ? { fork: this.sim.forkSummary(agent)! } : {}),
       ...(agent.kind === "visitor" ? { mailbox: {
         unread: this.unread.get(id) ?? 0, mentions: 0,
         offered: [...this.sim.assignments.values()].filter((a) => a.agentId === id && a.status === "pending" && a.offered).length,
       } } : {}),
     });
   }
+  async forks(managerId: string) { await wait(); return clone(this.sim.forksOf(managerId)); }
   async session(id: string) {
     const d = await this.agent(id);
     const since = d.currentSession?.startedAt ?? new Date(Date.now() - 90 * 60_000).toISOString();

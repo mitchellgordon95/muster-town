@@ -7,6 +7,7 @@ import { Agent, type Assignment, type Building } from "@muster-town/schema";
 import { AppError, badRequest } from "./errors.ts";
 import { buildingQueue, managerAgentOf } from "./domain.ts";
 import { familyCap } from "./budget.ts";
+import { sessionView } from "./bank.ts";
 export { familyCap };
 import { buildingRoleId } from "./permissions.ts";
 import { newId, nowIso } from "./util.ts";
@@ -181,4 +182,76 @@ export function retireFork(world: World, forkId: string, outcome: { reportId?: s
     });
     return retired;
   });
+}
+
+/** One fork as the web shows it (step 5): its assignment, chain hop, session (tokens), report and the topic pages it edited. */
+export interface ForkSummary {
+  agent: Agent;
+  forkOfName: string;
+  assignmentId: string | null;
+  assignmentTitle: string | null;
+  chainId: string | null;
+  hop: number | null;
+  sessionId: string | null;
+  tokens: number;
+  transcript: boolean;
+  reportId: string | null;
+  reportTitle: string | null;
+  pagesEdited: { id: string; title: string }[];
+}
+
+/** A report's place on its assignment chain (§5.3): the chain, which hop it is (1 = first assignment) and the previous hop's report. */
+export interface ReportChain { chainId: string; hop: number; prevReportId: string | null; sessionId: string | null; assignmentId: string; forkOf: string | null }
+
+/** The chain a report belongs to, or null when it has no assignment. Hop counts the chain's assignments created up to its own. */
+export function reportChain(world: World, doc: { id: string; authorId?: string; assignmentId?: string | null; sessionId?: string | null; createdAt: string }): ReportChain | null {
+  const a = doc.assignmentId ? world.assignments.get(doc.assignmentId) : null;
+  if (!a) return null;
+  const chainId = a.chainId ?? a.id;
+  // ties on createdAt (same millisecond) fall back to insert order
+  const hop = (world.db.prepare(
+    "SELECT COUNT(*) AS n FROM assignments WHERE (chainId = ? OR id = ?) AND (createdAt < ? OR (createdAt = ? AND rowid <= (SELECT rowid FROM assignments WHERE id = ?)))",
+  ).get(chainId, chainId, a.createdAt, a.createdAt, a.id) as { n: number }).n;
+  const prev = world.db.prepare(
+    "SELECT id FROM docs WHERE type = 'report' AND id != ? AND assignmentId != ? AND createdAt <= ? AND assignmentId IN (SELECT id FROM assignments WHERE chainId = ? OR id = ?) ORDER BY createdAt DESC, rowid DESC LIMIT 1",
+  ).get(doc.id, a.id, doc.createdAt, chainId, chainId) as { id: string } | undefined;
+  return { chainId, hop: Math.max(1, hop), prevReportId: prev?.id ?? null, sessionId: doc.sessionId ?? null, assignmentId: a.id, forkOf: (doc.authorId ? world.agents.get(doc.authorId)?.forkOf : null) ?? null };
+}
+
+/** Chains of the fork-authored reports among `docs`, by doc id (the in-tray's chain badges). Named residents' reports are left out. */
+export function reportChains(world: World, docs: { id: string; authorId: string; assignmentId?: string | null; sessionId?: string | null; createdAt: string }[]): Record<string, ReportChain> {
+  const out: Record<string, ReportChain> = {};
+  for (const d of docs) {
+    if (!world.agents.get(d.authorId)?.forkOf) continue;
+    const c = reportChain(world, d);
+    if (c) out[d.id] = c;
+  }
+  return out;
+}
+
+/** A fork's summary from its latest session (live or retired); null for an agent that isn't a fork. */
+export function forkSummary(world: World, fork: Agent): ForkSummary | null {
+  if (!fork.forkOf) return null;
+  const session = world.sessions.first("agentId = ?", [fork.id], "ORDER BY startedAt DESC, rowid DESC") ?? null;
+  const report = (session?.reportId ? world.docs.get(session.reportId) : null) ?? world.docs.first("type = 'report' AND authorId = ?", [fork.id], "ORDER BY createdAt DESC, rowid DESC") ?? null;
+  // a retired fork's assignment may be back on the building queue: its spawn event still names it
+  const forked = world.db.prepare("SELECT json_extract(payload, '$.assignmentId') AS id FROM events WHERE type = 'agent.forked' AND agentId = ? ORDER BY id DESC LIMIT 1").get(fork.id) as { id: string | null } | undefined;
+  const asgId = fork.currentAssignmentId ?? session?.assignmentId ?? report?.assignmentId ?? forked?.id ?? null;
+  const asg = asgId ? world.assignments.get(asgId) : null;
+  const chain = asg ? reportChain(world, { id: report?.id ?? "", assignmentId: asg.id, createdAt: report?.createdAt ?? asg.createdAt }) : null;
+  const pages = world.db.prepare(
+    `SELECT id, title FROM docs WHERE topicOf IS NOT NULL AND (authorId = ? OR id IN (SELECT docId FROM doc_revisions WHERE replacedBy = ?)) ORDER BY updatedAt DESC`,
+  ).all(fork.id, fork.id) as { id: string; title: string }[];
+  return {
+    agent: fork, forkOfName: world.nameOf(fork.forkOf), assignmentId: asg?.id ?? null, assignmentTitle: asg?.title ?? null,
+    chainId: chain?.chainId ?? null, hop: chain?.hop ?? null, sessionId: session?.id ?? null, tokens: session ? sessionView(session).adjustedOutputTokens : 0,
+    transcript: !!session && world.transcripts.info(session.id) !== null, reportId: report?.id ?? null, reportTitle: report?.title ?? null, pagesEdited: pages,
+  };
+}
+
+/** A manager's forks for its Forks tab: the live ones, then the last 50 retired, newest first. */
+export function forksOf(world: World, managerId: string): { live: ForkSummary[]; retired: ForkSummary[] } {
+  const live = world.agents.where("forkOf = ? AND status != 'retired'", [managerId], "ORDER BY forkN");
+  const retired = world.agents.where("forkOf = ? AND status = 'retired'", [managerId], "ORDER BY createdAt DESC, rowid DESC LIMIT 50");
+  return { live: live.map((a) => forkSummary(world, a)!), retired: retired.map((a) => forkSummary(world, a)!) };
 }

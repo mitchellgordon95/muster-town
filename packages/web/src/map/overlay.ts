@@ -80,9 +80,11 @@ export function roundRect(g: CanvasRenderingContext2D, x: number, y: number, w: 
 }
 
 /** Name tag centred at (x, y) = just below the feet, with an optional small line (the budget) under it. `manager` adds a gold star after the name. */
-export function drawLabel(g: CanvasRenderingContext2D, x: number, y: number, name: string, status: string, highlight: boolean, isMe: boolean, sub?: string | null, manager = false) {
+export function drawLabel(g: CanvasRenderingContext2D, x: number, y: number, name: string, status: string, highlight: boolean, isMe: boolean, sub?: string | null, manager = false, fork: { n: number; tint: string } | null = null) {
+  g.font = SFONT;
+  const nw = fork ? g.measureText(String(fork.n)).width + 2 : 0;
   g.font = FONT;
-  const tw = g.measureText(name).width;
+  const tw = g.measureText(name).width + nw;
   const mw = manager ? g.measureText(" \u2605").width : 0;
   const w = tw + mw + 18, h = 16;
   const lx = Math.round(x - w / 2), ly = Math.round(y);
@@ -93,6 +95,8 @@ export function drawLabel(g: CanvasRenderingContext2D, x: number, y: number, nam
   g.fillStyle = highlight || isMe ? "#14151c" : "#e8e9f0";
   g.textBaseline = "middle";
   g.fillText(name, lx + 14, ly + h / 2 + 0.5);
+  // a fork: its n as a subscript after the manager's name, in the building's tint
+  if (fork) { g.font = SFONT; g.fillStyle = highlight ? "#14151c" : fork.tint; g.fillText(String(fork.n), lx + 16 + tw - nw, ly + h / 2 + 4); g.font = FONT; }
   if (manager) { g.fillStyle = "#f5c542"; g.fillText(" \u2605", lx + 14 + tw, ly + h / 2 + 0.5); }
   if (!sub) return;
   g.font = SFONT;

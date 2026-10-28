@@ -1,4 +1,4 @@
-import { AppError, BANK_ACCOUNTING, accessRequestOf, boardDocs, boardWithTownDocs, canInteract, decideAccess, requestAccess, sessionView, cabinetCounts, cabinetDocs } from "@muster-town/core";
+import { AppError, BANK_ACCOUNTING, accessRequestOf, boardDocs, boardWithTownDocs, canInteract, decideAccess, requestAccess, sessionView, cabinetCounts, cabinetDocs, reportChains } from "@muster-town/core";
 import { AccessDecisionInput, AccessRequestInput, AddBankInput, CreateBankPoolInput, CreateBuildingInput, DesksPatch, UpdateBankPoolInput, DocType, DonateInput, LayoutInput, Membership, PlanInput, PlantFlagInput, RedeployInput, UpdateBuildingInput, apiKeyProblem, townEnv, type AccessRequest, type AuthMe, type RedeployLive } from "@muster-town/schema";
 import type { FastifyInstance, FastifyRequest } from "fastify";
 import { brotliDecompressSync } from "node:zlib";
@@ -192,7 +192,9 @@ export async function townRoutes(app: FastifyInstance) {
   app.get<{ Params: Params }>("/api/buildings/:id/intray", async (req) => {
     const b = world.buildings.require(req.params.id, "building");
     if (b.kind === "town-hall") return world.ops.townHallIntray();
-    return { reports: world.ops.intray(b.id) };
+    // chains: fork-authored reports' place on their assignment chain (the in-tray row's chain badge)
+    const reports = world.ops.intray(b.id);
+    return { reports, chains: reportChains(world, reports) };
   });
 
   /** A human plants a flag (a short request) in a building: a pending `flag` doc in its in-tray for the manager to delegate (`building.assign`). */

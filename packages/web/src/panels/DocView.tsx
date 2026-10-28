@@ -1,4 +1,5 @@
 /** One document: metadata, provenance, markdown, and the actions the viewer is permitted to take. */
+import { forkTip } from "../forks";
 import { useState } from "react";
 import type { Doc } from "@muster-town/schema";
 import { api } from "../api";
@@ -158,7 +159,7 @@ export function DocView({ doc: initial, onBack, backLabel = "Back", review, onDe
       <h2 className="doc-title">{doc.title}</h2>
       <DocMeta doc={doc} />
       <div className="doc-byline">
-        by <b>{nameOf(doc.authorId)}</b> · {timeAgo(doc.createdAt)}
+        by <b title={forkTip(store.state.agents[doc.authorId], nameOf, doc.assignmentId, doc.sessionId) || undefined}>{nameOf(doc.authorId)}</b> · {timeAgo(doc.createdAt)}
         {cost ? <> · <span title="What this session cost">{cost}</span></> : null}
         {doc.location ? <> · at {doc.location}</> : null}
         {" · "}<CopyLink id={doc.id} />
@@ -221,7 +222,7 @@ export function DocRow({ doc, onOpen }: { doc: Doc; onOpen: () => void }) {
         <Pill tone="type">{doc.type.replace(/-/g, " ")}</Pill>
         {doc.decision ? <Pill tone={DECISION_TONE[doc.decision]}>{decisionLabel(doc)}</Pill> : null}
         {doc.requestStatus ? <Pill tone={doc.requestStatus === "rejected" ? "bad" : "ok"}>{doc.requestStatus}</Pill> : null}
-        <span>{nameOf(doc.authorId)} · {timeAgo(doc.updatedAt)}{cost ? ` · ${cost}` : ""}</span>
+        <span title={forkTip(store.state.agents[doc.authorId], nameOf, doc.assignmentId, doc.sessionId) || undefined}>{nameOf(doc.authorId)} · {timeAgo(doc.updatedAt)}{cost ? ` · ${cost}` : ""}</span>
       </div>
     </button>
   );

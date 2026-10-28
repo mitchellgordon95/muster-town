@@ -29,7 +29,28 @@ export interface AgentDetail {
   /** v1.5: what the agent can do (town-level, plus building-scoped for its home building) */
   effectivePermissions?: Permission[];
   permissions?: AgentPermissionsView;
+  /** manager forks (step 5): a fork's assignment, session, report and edited topic pages */
+  fork?: ForkSummary;
 }
+/** One manager fork (GET /api/agents/:id `fork`, GET /api/agents/:id/forks), as core's forkSummary. */
+export interface ForkSummary {
+  agent: Agent;
+  forkOfName: string;
+  assignmentId: string | null;
+  assignmentTitle: string | null;
+  chainId: string | null;
+  hop: number | null;
+  sessionId: string | null;
+  /** the session's adjusted output tokens */
+  tokens: number;
+  /** a kept transcript exists for the session */
+  transcript: boolean;
+  reportId: string | null;
+  reportTitle: string | null;
+  pagesEdited: { id: string; title: string }[];
+}
+/** A fork-authored report's place on its assignment chain (the in-tray's chain badge). */
+export interface ReportChain { chainId: string; hop: number; prevReportId: string | null; sessionId: string | null; assignmentId: string; forkOf: string | null }
 /** v1.5: how an agent's permissions resolve (GET /api/agents/:id, PATCH /api/agents/:id/permissions). */
 export interface AgentPermissionsView {
   inheritsOwner: boolean;
@@ -156,7 +177,7 @@ export type PlanCreate = In<typeof CreateBuildingInput> & { lot: Lot };
 export interface PlanPreview { errors: { buildingId: string | null; message: string }[]; grid: Grid; places: Place[] }
 
 /** GET /api/buildings/:id/intray: `grants` (proposed, countered, checkpoint) only for the Town Hall */
-export interface Intray { reports: Doc[]; grants: GrantView[]; access?: AccessRequestView[]; blocked?: { buildingId: string; name: string; reason: string; since: string | null }[] }
+export interface Intray { reports: Doc[]; chains?: Record<string, ReportChain>; grants: GrantView[]; access?: AccessRequestView[]; blocked?: { buildingId: string; name: string; reason: string; since: string | null }[] }
 /** A goal key result with the live (funded or checkpoint) grant working on it, if any, and who wrote / last edited it (core's GoalKeyResult). */
 export type GoalKeyResult = KeyResult & { grantId: string | null; createdByName?: string | null; editedByName?: string | null };
 /** An objective of a building goal with the KPI it moves and its key results (core's ObjectiveView). */
@@ -251,6 +272,8 @@ export interface Api {
   /** town.ban */
   ban(id: string, reason: string): Promise<Agent>;
   agent(id: string): Promise<AgentDetail>;
+  /** a manager's forks: live, then the last 50 retired */
+  forks(managerId: string): Promise<{ live: ForkSummary[]; retired: ForkSummary[] }>;
   /** Owner or admin: inherit the owner's permissions or not, and per-agent denies. */
   setAgentPermissions(id: string, patch: { inheritsOwner?: boolean; deniedPermissions?: Permission[] }): Promise<Pick<AgentDetail, "agent" | "effectivePermissions" | "permissions">>;
   /** null = its home building's model */
@@ -449,7 +472,7 @@ export class HttpApi implements Api {
   savePlan(lots: Record<string, Lot>, create?: PlanCreate) { return this.call<{ buildings: Building[]; created: Building | null }>("PUT", "/api/town/plan", { lots, create }); }
   async intray(id: string) {
     const r = await this.get<Partial<Intray>>(`/api/buildings/${id}/intray`);
-    return { reports: r.reports ?? [], grants: r.grants ?? [], access: r.access ?? [], blocked: r.blocked ?? [] };
+    return { reports: r.reports ?? [], chains: r.chains ?? {}, grants: r.grants ?? [], access: r.access ?? [], blocked: r.blocked ?? [] };
   }
   async grant(id: string) { return unwrap<GrantView>(await this.get(`/api/grants/${id}`), "grant"); }
   async decideGrant(id: string, i: In<typeof DecideGrantInput>) { return unwrap<GrantView>(await this.post(`/api/grants/${id}/decide`, i), "grant"); }
@@ -472,6 +495,7 @@ export class HttpApi implements Api {
   async dismiss(id: string, purge = false) { await this.call("DELETE", `/api/agents/${id}${purge ? "?purge=1" : ""}`); }
   async ban(id: string, reason: string) { return unwrap<Agent>(await this.post(`/api/agents/${id}/ban`, { reason }), "agent"); }
   agent(id: string) { return this.get<AgentDetail>(`/api/agents/${id}`); }
+  forks(managerId: string) { return this.get<{ live: ForkSummary[]; retired: ForkSummary[] }>(`/api/agents/${managerId}/forks`); }
   setAgentPermissions(id: string, patch: { inheritsOwner?: boolean; deniedPermissions?: Permission[] }) { return this.call<Pick<AgentDetail, "agent" | "effectivePermissions" | "permissions">>("PATCH", `/api/agents/${id}/permissions`, patch); }
   setAgentModel(id: string, model: string | null) { return this.call<Pick<AgentDetail, "agent" | "effectivePermissions" | "permissions">>("PATCH", `/api/agents/${id}/model`, { model }); }
   session(id: string) { return this.get<{ session: SessionView | null; transcript: Event[]; transcriptFile?: { url: string; bytes: number; lines: number; expiresAt: string } | null }>(`/api/agents/${id}/session`); }

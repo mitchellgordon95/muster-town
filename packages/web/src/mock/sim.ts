@@ -1,7 +1,7 @@
 /** In-memory town for VITE_MOCK=1: holds state, animates it, and implements actions locally. */
 import type { Agent, Allocation, Assignment, Building, CreateKeyResultInput, CreateObjectiveInput, Objective, UpdateObjectiveInput, DecideGrantInput, CloseGrantInput, Doc, Event, GrantView, KeyResult, Meeting, Membership, Role, ServerMessage, Stoplight, UpdateKeyResultInput } from "@muster-town/schema";
 import { BUILTIN_ROLES, stoplightOf } from "@muster-town/schema";
-import type { GoalKeyResult, ObjectiveTree, Snapshot } from "../api";
+import type { ForkSummary, GoalKeyResult, ObjectiveTree, ReportChain, Snapshot } from "../api";
 import * as F from "./fixture";
 import { bfs, computeLayout, type Layout } from "./layout";
 
@@ -88,7 +88,7 @@ export class Sim {
    * Pending reports for a building, oldest first (GET /api/buildings/:id/intray). As in core, a report by its
    * building's manager agent is a Town Hall item; the Town Hall's in-tray also has the grants awaiting a human.
    */
-  intray(buildingId: string): { reports: Doc[]; grants: GrantView[]; blocked: { buildingId: string; name: string; reason: string; since: string | null }[] } {
+  intray(buildingId: string): { reports: Doc[]; chains: Record<string, ReportChain>; grants: GrantView[]; blocked: { buildingId: string; name: string; reason: string; since: string | null }[] } {
     const hall = this.buildings.find((b) => b.id === buildingId)?.kind === "town-hall";
     const managerOf = (id: string | null) => this.buildings.find((b) => b.id === id)?.managerAgentId;
     const reports = [...this.docs.values()].filter((d) => (d.type === "report" || d.type === "flag") && d.decision === "pending"
@@ -96,7 +96,45 @@ export class Sim {
       .sort((a, b) => a.createdAt.localeCompare(b.createdAt));
     const grants = hall ? [...this.grants.values()].filter((g) => g.status === "proposed" || g.status === "countered" || g.status === "checkpoint" || awaitingMark(g)) : [];
     const blocked = hall ? this.buildings.filter((b) => b.kind !== "town-hall").flatMap((b) => { const r = this.grantBoard(b.id).blocked; return r ? [{ buildingId: b.id, name: b.name, reason: r, since: b.blockedAt ?? null }] : []; }) : [];
-    return { reports, grants, blocked };
+    return { reports, chains: this.reportChains(reports), grants, blocked };
+  }
+  /** As core's reportChain: a report's chain, hop and previous hop's report. */
+  reportChain(d: Doc): ReportChain | null {
+    const a = d.assignmentId ? this.assignments.get(d.assignmentId) : undefined;
+    if (!a) return null;
+    const chainId = a.chainId ?? a.id;
+    const chain = [...this.assignments.values()].filter((x) => x.id === chainId || x.chainId === chainId);
+    const hop = chain.filter((x) => x.createdAt <= a.createdAt).length;
+    const ids = new Set(chain.filter((x) => x.id !== a.id).map((x) => x.id));
+    const prev = [...this.docs.values()].filter((x) => x.type === "report" && x.id !== d.id && x.assignmentId && ids.has(x.assignmentId) && x.createdAt <= d.createdAt)
+      .sort((x, y) => y.createdAt.localeCompare(x.createdAt))[0];
+    return { chainId, hop: Math.max(1, hop), prevReportId: prev?.id ?? null, sessionId: d.sessionId ?? null, assignmentId: a.id, forkOf: this.agents.get(d.authorId)?.forkOf ?? null };
+  }
+  /** Chains of the fork-authored reports among `docs` (the in-tray's chain badges). */
+  reportChains(docs: Doc[]): Record<string, ReportChain> {
+    const out: Record<string, ReportChain> = {};
+    for (const d of docs) { const c = this.agents.get(d.authorId)?.forkOf ? this.reportChain(d) : null; if (c) out[d.id] = c; }
+    return out;
+  }
+  /** As core's forkSummary. */
+  forkSummary(f: Agent): ForkSummary | null {
+    if (!f.forkOf) return null;
+    const report = [...this.docs.values()].filter((d) => d.type === "report" && d.authorId === f.id).sort((x, y) => y.createdAt.localeCompare(x.createdAt))[0];
+    const asg = this.assignments.get(f.currentAssignmentId ?? report?.assignmentId ?? "") ?? [...this.assignments.values()].find((a) => a.agentId === f.id);
+    const chain = asg ? this.reportChain({ ...(report ?? { id: "", createdAt: asg.createdAt }), assignmentId: asg.id } as Doc) : null;
+    return {
+      agent: f, forkOfName: this.nameOf(f.forkOf) ?? f.forkOf, assignmentId: asg?.id ?? null, assignmentTitle: asg?.title ?? null, chainId: chain?.chainId ?? null, hop: chain?.hop ?? null,
+      sessionId: report?.sessionId ?? (f.status === "working" ? `se_${f.id}` : null), tokens: report?.tokens ?? f.spentTokensToday, transcript: !!report?.sessionId,
+      reportId: report?.id ?? null, reportTitle: report?.title ?? null,
+      pagesEdited: [...this.docs.values()].filter((d) => d.topicOf && d.authorId === f.id).map((d) => ({ id: d.id, title: d.title })),
+    };
+  }
+  forksOf(managerId: string) {
+    const all = [...this.agents.values()].filter((a) => a.forkOf === managerId);
+    return {
+      live: all.filter((a) => a.status !== "retired").sort((x, y) => (x.forkN ?? 0) - (y.forkN ?? 0)).map((a) => this.forkSummary(a)!),
+      retired: all.filter((a) => a.status === "retired").sort((x, y) => y.createdAt.localeCompare(x.createdAt)).slice(0, 50).map((a) => this.forkSummary(a)!),
+    };
   }
   /** The budget part of GET /api/buildings/:id/board, as core's Grants.board (exploration spend is the fixture's). */
   grantBoard(buildingId: string) {
