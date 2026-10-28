@@ -43,9 +43,11 @@ describe("finance page", () => {
   });
 });
 
-// the live shape of GET /api/finance/spend: sessions counted 1,150 against 1,100 used, so a not-funded row of −50
+// the live shape of GET /api/finance/spend: sessions counted 1,150 against 1,100 used: a weight-mismatch row of −30
+// (pre-conversion pricing) and a not-funded row of −20
 const sp: FinanceSpend = {
-  used: 1100, sessionsTotal: 1150, unattributed: 0, notFunded: 50, at: "2026-10-28T16:31:50.056Z",
+  used: 1100, sessionsTotal: 1150, unattributed: 0, weightMismatch: 30, convertedAt: "2026-10-27T00:00:24.000Z", notFunded: 20, at: "2026-10-28T16:31:50.056Z",
+  weightMismatchNote: "Sessions ended before the Bank's conversion to adjusted tokens (2026-10-27 00:00Z) are counted here at their own model's weights; the Bank booked them with no model, at Opus weights. The difference is pricing, not spend: nothing went unpaid.",
   rows: [
     { kind: "building", id: "workshop", name: "Town Workshop", tokens: 900, share: 0.8182, sessions: 9, children: [
       { kind: "grant", id: "gr_a", name: "Refactor the Bank", tokens: 500, share: 0.4545, sessions: 4, children: [
@@ -55,9 +57,10 @@ const sp: FinanceSpend = {
       { kind: "no-assignment", id: null, name: "Manager sessions, no assignment", tokens: 100, share: 0.0909, sessions: 2 },
     ] },
     { kind: "building", id: "bl_b", name: "Bank Transparency", tokens: 250, share: 0.2273, sessions: 2 },
-    { kind: "not-funded", id: null, name: "Not funded: session spend beyond what the Bank and donations paid for", tokens: -50, share: -0.0455, sessions: 0 },
+    { kind: "weight-mismatch", id: null, name: "Weight mismatch: sessions before the Bank's conversion to adjusted tokens, counted here at their own model's weights but booked by the Bank at Opus weights", tokens: -30, share: -0.0273, sessions: 12 },
+    { kind: "not-funded", id: null, name: "Not funded: session spend beyond what the Bank and donations paid for", tokens: -20, share: -0.0182, sessions: 0 },
   ],
-  check: { ok: true, diff: 0, identity: "buildings + unattributed − not funded = used" },
+  check: { ok: true, diff: 0, identity: "buildings + unattributed − weight mismatch − not funded = used" },
 };
 
 describe("finance page: spending", () => {
@@ -74,7 +77,7 @@ describe("finance page: spending", () => {
   });
   it("renders building → grant → assignment with the synthetic rows, collapsible", () => {
     const html = renderToStaticMarkup(<FinanceView f={f} pools={null} spend={sp} />);
-    for (const s of ["Spending", "Town Workshop", "900", "81.8%", "Refactor the Bank", "Step 1: the ledger", "No grant", "Manager sessions, no assignment", "Not funded", "-50", "Sessions counted more than", "✓ Adds up: the rows sum to used", "/api/finance/spend"]) expect(html).toContain(s);
+    for (const s of ["Spending", "Town Workshop", "900", "81.8%", "Refactor the Bank", "Step 1: the ledger", "No grant", "Manager sessions, no assignment", "Weight mismatch", "-30", "12 sessions", "The difference is pricing, not spend", "Not funded", "-20", "Sessions counted more than", "✓ Adds up: the rows sum to used", "/api/finance/spend"]) expect(html).toContain(s);
     expect(html).toContain("<details");
     expect(renderToStaticMarkup(<FinanceView f={f} pools={null} spend={{ ...sp, check: { ...sp.check, ok: false, diff: 3 } }} />)).toContain("✗ Does not add up (off by 3)");
   });

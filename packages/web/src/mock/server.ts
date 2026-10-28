@@ -556,7 +556,7 @@ export class MockApi implements Api {
   async financeSpend(): Promise<FinanceSpend> {
     const { used } = await this.finance();
     const rows: FinanceSpend["rows"] = used ? [{ kind: "unattributed", id: null, name: "Unattributed (usage no session counts)", tokens: used, share: 1, sessions: 0 }] : [];
-    return { used, sessionsTotal: 0, unattributed: used, notFunded: 0, rows, check: { ok: true, diff: 0, identity: "buildings + unattributed − not funded = used" }, at: now() };
+    return { used, sessionsTotal: 0, unattributed: used, weightMismatch: 0, weightMismatchNote: "The toy Bank was born adjusted: no pre-conversion sessions.", convertedAt: null, notFunded: 0, rows, check: { ok: true, diff: 0, identity: "buildings + unattributed − weight mismatch − not funded = used" }, at: now() };
   }
   async bank(): Promise<Bank> {
     await wait();

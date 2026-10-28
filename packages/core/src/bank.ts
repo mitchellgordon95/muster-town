@@ -661,7 +661,7 @@ export class Bank {
 
   /** GET /api/finance/spend: `used` by building → grant → assignment, from the sessions table (finance-spend.ts). */
   spend(now = new Date()): FinanceSpend {
-    return townSpend(this.repos, now);
+    return townSpend(this.repos, this.events, now);
   }
 
   summary(): BankSummary {

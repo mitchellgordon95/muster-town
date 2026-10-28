@@ -1,12 +1,12 @@
 import { describe, expect, it } from "vitest";
-import { createBuilding, createResident, financeSpend, NO_ASSIGNMENT, NO_BUILDING, NO_GRANT, type SpendInputs, type SpendNode } from "../src/index.ts";
+import { createBuilding, createResident, financeSpend, ledgerBookedBeforeConversion, NO_ASSIGNMENT, NO_BUILDING, NO_GRANT, WEIGHT_MISMATCH, type SpendInputs, type SpendNode } from "../src/index.ts";
 import { seededWorld } from "./helpers.ts";
 
 const T0 = new Date("2026-10-28T12:00:00.000Z");
 const OPUS = "claude-opus-5-5";
 // output-only Opus counters: adjusted tokens = output
 const s = (agentId: string, assignmentId: string | null, output: number, grantId: string | null = null) =>
-  ({ agentId, assignmentId, grantId, model: OPUS, input: 0, output, cacheRead: 0, cacheWrite5m: 0, cacheWrite1h: 0, byModel: null });
+  ({ agentId, assignmentId, grantId, model: OPUS, input: 0, output, cacheRead: 0, cacheWrite5m: 0, cacheWrite1h: 0, byModel: null, endedAt: "2026-10-28T11:00:00.000Z" });
 
 // two buildings: Bank (grant g1 with assignments a1, a2; an exploration assignment a3; a manager session) and Lab
 const base: SpendInputs = {
@@ -30,13 +30,14 @@ const base: SpendInputs = {
   agents: [{ id: "ag_asha", buildingId: "bank" }, { id: "ag_nell", buildingId: "bank" }, { id: "ag_lab", buildingId: "lab" }, { id: "ag_old", buildingId: "lab" }],
   buildings: [{ id: "bank", name: "Bank Transparency" }, { id: "lab", name: "Lab" }],
   grants: [{ id: "g1", objective: "Spend breakdown" }],
+  convertedAt: null,
 };
 const sum = (rows: SpendNode[]) => rows.reduce((t, r) => t + r.tokens, 0);
 
 describe("financeSpend (GET /api/finance/spend)", () => {
   it("is empty with an ok check on an empty town", () => {
-    const f = financeSpend({ sessions: [], assignments: [], agents: [], buildings: [], grants: [] }, 0, T0);
-    expect(f).toMatchObject({ used: 0, sessionsTotal: 0, unattributed: 0, notFunded: 0, rows: [], check: { ok: true, diff: 0 } });
+    const f = financeSpend({ sessions: [], assignments: [], agents: [], buildings: [], grants: [], convertedAt: null }, 0, T0);
+    expect(f).toMatchObject({ used: 0, sessionsTotal: 0, unattributed: 0, weightMismatch: 0, convertedAt: null, notFunded: 0, rows: [], check: { ok: true, diff: 0 } });
   });
 
   it("splits building → grant → assignment, with a manager row and a no-grant group; usage before counters is unattributed", () => {
@@ -73,6 +74,42 @@ describe("financeSpend (GET /api/finance/spend)", () => {
     expect(f.rows.at(-1)).toMatchObject({ kind: "not-funded", tokens: -400, share: -0.4 });
     expect(f.rows.find((r) => r.id === null && r.kind === "building")).toMatchObject({ name: NO_BUILDING, tokens: 250 });
     expect(sum(f.rows)).toBe(1_000);
+  });
+
+  it("takes the pre-conversion weight mismatch off as its own row: sessions ended before bank.converted priced at their model vs the ledger's Opus weights", () => {
+    const CONVERTED = "2026-10-27T00:00:24.000Z", FABLE = "claude-fable-5-1";
+    const before = "2026-10-26T12:00:00.000Z", after = "2026-10-27T12:00:00.000Z";
+    const fable = (counts: Partial<Record<"output" | "cacheRead", number>>, endedAt: string | null) =>
+      ({ agentId: "ag_lab", assignmentId: "a4", grantId: null, model: FABLE, input: 0, output: 0, cacheRead: 0, cacheWrite5m: 0, cacheWrite1h: 0, byModel: null, endedAt, ...counts });
+    // back-filled by migration 034 (only a raw total, 24,000): split at the Fable ratio → 1,000 here; the ledger split it at the Opus ratio → 800
+    const backfilled = fable({ output: 884, cacheRead: 23_116 }, before);
+    expect(ledgerBookedBeforeConversion(backfilled)).toBe(800);
+    // real counters: Fable's cache-read weight 0.005 → 1,100 here; migration 037 booked the ledger row at Opus's 0.01 → 1,200
+    const real = fable({ output: 1_000, cacheRead: 20_000 }, before);
+    expect(ledgerBookedBeforeConversion(real)).toBe(1_200);
+    const sessions = [
+      backfilled, real,
+      { ...s("ag_lab", "a4", 707), cacheRead: 29_293, endedAt: before }, // back-filled Opus (raw 30,000): 1,000 on both sides
+      fable({ output: 884, cacheRead: 23_116 }, after), // after the conversion: priced the same way on both sides
+      fable({ output: 884, cacheRead: 23_116 }, null), // never ended: not pre-conversion
+    ];
+    const inp: SpendInputs = { ...base, sessions, convertedAt: CONVERTED };
+    // sessions 5,100; the ledger booked 5,000 for them (mismatch +200 − 100 = +100 over 2 sessions); used 4,900 → 100 not funded
+    const f = financeSpend(inp, 4_900, T0);
+    expect(f).toMatchObject({ used: 4_900, sessionsTotal: 5_100, weightMismatch: 100, unattributed: 0, notFunded: 100, convertedAt: CONVERTED, check: { ok: true, diff: 0, identity: "buildings + unattributed − weight mismatch − not funded = used" } });
+    expect(f.rows.map((r) => [r.kind, r.tokens, r.sessions])).toEqual([["building", 5_100, 5], ["weight-mismatch", -100, 2], ["not-funded", -100, 0]]);
+    expect(f.rows[1].name).toBe(WEIGHT_MISMATCH);
+    expect(f.weightMismatchNote).toContain("2026-10-27 00:00Z");
+    expect(sum(f.rows)).toBe(4_900);
+    // used 5,050: the ledger booked 5,000, so 50 is unattributed, and the mismatch row still comes off
+    const g = financeSpend(inp, 5_050, T0);
+    expect(g).toMatchObject({ unattributed: 50, weightMismatch: 100, notFunded: 0, check: { ok: true, diff: 0 } });
+    expect(g.rows.map((r) => [r.kind, r.tokens])).toEqual([["building", 5_100], ["unattributed", 50], ["weight-mismatch", -100]]);
+    expect(sum(g.rows)).toBe(5_050);
+    // a Bank born adjusted (no bank.converted event): no mismatch, the whole gap is not funded
+    const h = financeSpend({ ...inp, convertedAt: null }, 4_900, T0);
+    expect(h).toMatchObject({ weightMismatch: 0, notFunded: 200, check: { ok: true, diff: 0 } });
+    expect(h.rows.map((r) => r.kind)).toEqual(["building", "not-funded"]);
   });
 
   it("balances on a real world: sessions booked through the Bank sum with the unattributed row to used", () => {
