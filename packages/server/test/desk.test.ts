@@ -47,6 +47,19 @@ async function setup() {
 }
 
 describe("agent-scoped desk API", () => {
+  it("once the server quiesces for a restart, desk and MCP calls get 503 restarting with Retry-After; other routes don't", async () => {
+    const { app, world, as, start } = await setup();
+    const { agent, sessionId } = await start("Noor");
+    expect((await json(app, "GET", `/api/agents/me/control?session=${sessionId}`, { headers: as(agent) })).status).toBe(200);
+    await world.host.quiesce!(1000);
+    const r = await app.inject({ method: "GET", url: `/api/agents/me/control?session=${sessionId}`, headers: as(agent) });
+    expect(r.statusCode).toBe(503);
+    expect(r.headers["retry-after"]).toBe("5");
+    expect(JSON.parse(r.body)).toMatchObject({ restarting: true });
+    expect((await app.inject({ method: "POST", url: "/mcp", headers: { ...as(agent), "content-type": "application/json" }, payload: "{}" })).statusCode).toBe(503);
+    expect((await app.inject({ method: "GET", url: "/api/health" })).statusCode).toBe(200);
+  });
+
   it("brief for the caller's running session; 403 for another agent's or a user token; 401 without one", async () => {
     const { app, as, by, admin, start } = await setup();
     const { agent, sessionId, assignmentId } = await start("Noor");

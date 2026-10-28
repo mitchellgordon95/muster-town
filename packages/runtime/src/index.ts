@@ -3,18 +3,18 @@
  * managers' team-lead sessions over the in-tray, meeting summaries + facilitation, proxy chat, interrupts, scheduler,
  * startup reconcile, dismissal (onAgentRetired), host redeploy (v1.3).
  */
-import { AppError, checkWaits, codeWorkspace, deskSlotRows, forkableQueue, forkDeskSlot, forkManager, freeDesks, liveForks, meetingNotice, nextStartable, PRESENCE_TICK_MS, retireFork, slugify, syncManagerRoles, type World } from "@muster-town/core";
+import { AppError, checkWaits, setAssignmentStatus, codeWorkspace, deskSlotRows, forkableQueue, forkDeskSlot, forkManager, freeDesks, liveForks, meetingNotice, nextStartable, PRESENCE_TICK_MS, retireFork, slugify, syncManagerRoles, type World } from "@muster-town/core";
 import { DesksConfig, type Agent, type ChatInput, type DeskActivityInput, type RedeployResult, type Session } from "@muster-town/schema";
 import { askAbout, chat } from "./chat.ts";
 import { DockerBackend, dockerSafe, HostBackend, type DeskBackend, type SlotResolver, type WorkBackend } from "./desk/backend.ts";
 import { FlyApi } from "./desk/fly.ts";
 import { SandboxBackend } from "./desk/sandbox.ts";
-import { drainNudgeFacilitator, drainNudgeOneOnOne, gitHead, isAncestor, makeRedeployer, type RedeployDeps, type RedeployRequest } from "./redeploy.ts";
+import { drainNudgeFacilitator, drainNudgeOneOnOne, gitHead, isAncestor, makeRedeployer, takeAdoptable, type RedeployDeps, type RedeployRequest } from "./redeploy.ts";
 import { gitAuthEnv, noRepoTokenReason, onDeskActivity, repoToken, runDeskSession, type DeskSessionOptions } from "./desk/session.ts";
 import { closeQuietOneOnOnes, newManageState, openOneOnOnes, wakeManager } from "./manage.ts";
 import { advanceCollecting, facilitate, newMeetingState, onMeetingMention, onMeetingStart } from "./meetings.ts";
-import { hostedEnv, realSdk, type Sdk } from "./sdk.ts";
-import type { Ctx } from "./session.ts";
+import { hostedEnv, InputChannel, realSdk, type Sdk } from "./sdk.ts";
+import { fundingForSession, type Ctx } from "./session.ts";
 import { abortWork, finishWorkSession, interrupt, runWorkSession, type WorkOutcome } from "./work.ts";
 import { startWaker } from "./waker.ts";
 
@@ -27,7 +27,7 @@ export { deskAuth, deskEnv, grantedSecrets, portOf, FALLBACK_KEY_ENV, type DeskA
 export { fundingFor, fundingForSession, fundedBy, type Funding } from "./session.ts";
 export { type WorkOutcome } from "./work.ts";
 export { ruleFor, startWaker, WAKE_RULES, type WakeCtx, type WakeRule, type Waker } from "./waker.ts";
-export { isTerminalRedeployEvent, makeRedeployer, realCommandRunner, RESTART_EXIT_CODE, STUCK_POLLS, type CmdResult, type CommandRunner, type RedeployDeps, type RedeployRequest, type Redeployer } from "./redeploy.ts";
+export { adoptPath, ADOPT_MAX_AGE_MS, takeAdoptable, isTerminalRedeployEvent, makeRedeployer, realCommandRunner, RESTART_EXIT_CODE, STUCK_POLLS, type CmdResult, type CommandRunner, type RedeployDeps, type RedeployRequest, type Redeployer } from "./redeploy.ts";
 export { hostedEnv, InputChannel, oneShot, realSdk, usageOf, userMessage, type QueryHandle, type QueryParams, type Sdk } from "./sdk.ts";
 export { DISALLOWED_TOOLS, TOWN_TOOLS, WEB_TOOLS } from "./session.ts";
 export { COLLECTING_MS, MEETING_REPLIES_MAX, MEETING_REPLY_MAX_TURNS, MEETING_REPLY_VERBS, SUMMARY_MODEL } from "./meetings.ts";
@@ -56,6 +56,8 @@ export interface RuntimeOptions {
   deskOptions?: DeskSessionOptions;
   /** a stopped/banned agent's desk process gets this long to exit on its own before it is killed. Default 10000. */
   killGraceMs?: number;
+  /** how long an adopted desk session may stay silent before it counts as lost (tests). Default ADOPTED_SILENT_MS. */
+  adoptedSilentMs?: number;
   /** redeploy knobs (tests inject the command runner and `exit`; never the real process.exit) */
   redeploy?: Pick<RedeployDeps, "run" | "exit" | "exitDelayMs" | "drainTimeoutMs" | "drainPollMs" | "againDelayMs" | "drainWrapUpMs" | "drainMeetingMs">;
   /** the docker desk backend probed when `desks.backend` is auto/docker (tests inject a fake); default a DockerBackend */
@@ -68,6 +70,9 @@ export interface RuntimeOptions {
    */
   hosted?: { dir: string };
 }
+
+/** An adopted desk session that neither polls control nor posts activity for this long has lost its desk: it is ended and re-queued. */
+export const ADOPTED_SILENT_MS = 5 * 60_000;
 
 /** Work sessions a hosted collective runs at once (host sessions only: town tools + web, no shell). */
 export const HOSTED_MAX_RUNNING = 1;
@@ -98,6 +103,8 @@ export interface Runtime {
   onDeskActivity(agentId: string, input: DeskActivityInput): void;
   /** End a work session (desk session-end, or a desk that died): fallback report, status, charge. Idempotent. */
   finishWorkSession(sessionId: string, outcome: WorkOutcome): Promise<Session>;
+  /** A desk polled control or posted activity for its session: an adopted session is alive (its watchdog resets). */
+  deskSeen(agentId: string, sessionId: string): void;
   /** The backend work sessions use (resolves once `auto` has probed docker). */
   backend(): Promise<"host" | "docker">;
   /**
@@ -109,6 +116,8 @@ export interface Runtime {
   redeploy(o: RedeployRequest): RedeployResult;
   /** What the startup reconcile did (orphaned sessions ended, active assignments re-queued). */
   readonly reconciled: { orphanedSessions: string[]; requeuedAssignments: string[] };
+  /** Desk work sessions the previous server handed over at its restart that this one adopted (session ids). */
+  readonly adopted: string[];
 }
 
 const HOUR_MS = 3_600_000;
@@ -152,6 +161,33 @@ export function startRuntime(opts: RuntimeOptions): Runtime {
   // A fresh runtime has no live children: running Session rows are orphans from a previous process, and their
   // active assignments go back to pending so the scheduler picks them up again.
   try { syncManagerRoles(world); } catch (e) { log("manager roles")(e); } // buildings whose manager was named before it granted the role
+  const collectiveSlug = opts.collective ?? slugify(world.town.get().name);
+  // Desk work sessions the previous server left running at its redeploy restart (docs/architecture.md "Redeploy"): they kept running in
+  // their desks, so adopt them (a live entry with no child, alive while the desk polls control) instead of orphaning them.
+  /** adopted desk sessions: when each last polled control or posted activity (ms) */
+  const adoptedSeen = new Map<string, number>();
+  const adopted: string[] = [];
+  if (!hosted) {
+    for (const sid of takeAdoptable(ctx.repoRoot, dockerSafe(collectiveSlug))) {
+      const s = world.sessions.get(sid);
+      if (!s || s.status !== "running" || s.backend !== "docker" || s.purpose !== "work" || ctx.live.has(s.agentId)) continue;
+      const input = new InputChannel();
+      input.close();
+      ctx.live.set(s.agentId, { kind: "desk", agentId: s.agentId, sessionId: s.id, purpose: "work", input, q: null, reportSubmitted: !!s.reportId, stopped: false, adopted: true });
+      // the same funding lookup the session started with, so its end charges the same allocation
+      try {
+        const funding = fundingForSession(world, s.agentId, s.assignmentId, ctx.env);
+        ctx.deskAllocations.set(s.id, funding.allocationId);
+        ctx.deskFallbacks.set(s.id, funding.fallback?.allocationId ?? null);
+      } catch (e) { console.log("[runtime] adopt funding:", e instanceof Error ? e.message : e); }
+      adoptedSeen.set(s.id, now().getTime());
+      adopted.push(s.id);
+    }
+    if (adopted.length) {
+      const names = adopted.map((sid) => world.nameOf(world.sessions.require(sid).agentId)).join(", ");
+      world.events.append({ type: "system", text: `Adopted ${adopted.length} desk session(s) that kept running through the restart: ${names}`, payload: { adopted } });
+    }
+  }
   let reconciled: Runtime["reconciled"] = { orphanedSessions: [], requeuedAssignments: [] };
   try {
     reconciled = world.ops.reconcile(ctx.live.keys());
@@ -167,7 +203,6 @@ export function startRuntime(opts: RuntimeOptions): Runtime {
   };
 
   let backend: WorkBackend | null = hosted ? new HostBackend() : opts.deskBackend ?? null;
-  const collectiveSlug = opts.collective ?? slugify(world.town.get().name);
   const sandboxProvider = desks.backend === "fly" ? "Fly.io" : null;
   /** a fork works in its desk slot's sandbox (dc_mymt27yz25 §2.5, table desk_slots); named residents keep their own */
   const slotOf: SlotResolver = (agentId, defaults) => forkDeskSlot(world, agentId, defaults);
@@ -362,7 +397,33 @@ export function startRuntime(opts: RuntimeOptions): Runtime {
     }
   }
 
+  /**
+   * Adopted desk sessions: forget one whose session ended (its desk posted session-end); end one whose desk went silent
+   * (no control poll or activity for ADOPTED_SILENT_MS) as lost, booking nothing, and put its assignment back in the queue.
+   */
+  function watchAdopted(): void {
+    const t = now().getTime();
+    for (const [agentId, l] of [...ctx.live]) {
+      if (!l.adopted) continue;
+      const s = world.sessions.get(l.sessionId);
+      if (s?.status !== "running") { ctx.live.delete(agentId); adoptedSeen.delete(l.sessionId); continue; }
+      if (t - (adoptedSeen.get(l.sessionId) ?? t) < (opts.adoptedSilentMs ?? ADOPTED_SILENT_MS)) continue;
+      adoptedSeen.delete(l.sessionId);
+      dropLive(agentId, "desk lost after restart");
+      const asg = s.assignmentId ? world.assignments.get(s.assignmentId) : undefined;
+      if (asg?.status === "active") {
+        try {
+          setAssignmentStatus(world, asg.id, "pending");
+          if (world.agents.get(agentId)?.currentAssignmentId === asg.id) world.agents.patch(agentId, { currentAssignmentId: null });
+        } catch (e) { log("re-queue lost desk session")(e); }
+      }
+      if (world.agents.get(agentId)?.status === "working") world.setStatus(agentId, "idle");
+      world.events.append({ type: "system", agentId, text: `${world.nameOf(agentId)}'s adopted desk session went silent after the restart; ended and re-queued`, payload: { sessionId: s.id, adoptedLost: true } });
+    }
+  }
+
   function scheduleWork(): void {
+    watchAdopted();
     sweepForks();
     if (draining) return;
     const held: string[] = [];
@@ -472,7 +533,7 @@ export function startRuntime(opts: RuntimeOptions): Runtime {
   function pruneLive(): void {
     for (const [agentId, l] of [...ctx.live]) {
       const s = world.sessions.get(l.sessionId);
-      if (s?.status === "running" && (l.kind !== "desk" || l.child)) continue;
+      if (s?.status === "running" && (l.kind !== "desk" || l.child || l.adopted)) continue;
       dropLive(agentId, "orphaned: stale live session");
     }
   }
@@ -531,8 +592,11 @@ export function startRuntime(opts: RuntimeOptions): Runtime {
     },
     gitEnv: () => gitAuthEnv(world, desks.ghToken),
     isWorking: (agentId) => ctx.live.has(agentId) || starting.has(agentId),
-    // facilitations count too, but only for drainMeetingMs: then the notice goes into the meeting and it resumes after the restart (docs/meetings.md §6)
-    working: () => { pruneLive(); return [...new Set([...ctx.live.keys(), ...starting, ...ctx.facilitating.keys()])]; },
+    // facilitations count too, but only for drainMeetingMs: then the notice goes into the meeting and it resumes after the restart (docs/meetings.md §6).
+    // Desk work sessions don't: they keep running through the restart and the next server adopts them (`adoptable`).
+    working: () => { pruneLive(); return [...new Set([...[...ctx.live.values()].filter((l) => l.kind !== "desk").map((l) => l.agentId), ...starting, ...ctx.facilitating.keys()])]; },
+    adoptable: () => { pruneLive(); return [...ctx.live.values()].filter((l) => l.kind === "desk" && !l.stopped).map((l) => l.sessionId); },
+    quiesce: async () => { await world.host.quiesce?.(30_000); },
     inMeeting: (agentId) => inMeetingSession(agentId),
     beforeRestart: (head) => postRestartNotices(head),
     drop: (agentId) => dropLive(agentId, "orphaned: redeploy drain found it stuck"),
@@ -600,8 +664,18 @@ export function startRuntime(opts: RuntimeOptions): Runtime {
     presenceTick,
     whenIdle,
     isWorking: (agentId) => ctx.live.has(agentId) || starting.has(agentId),
-    onDeskActivity: (agentId, input) => onDeskActivity(ctx, agentId, input),
-    finishWorkSession: (sessionId, outcome) => finishWorkSession(ctx, sessionId, outcome),
+    onDeskActivity: (agentId, input) => {
+      if (adoptedSeen.has(input.session)) adoptedSeen.set(input.session, now().getTime());
+      onDeskActivity(ctx, agentId, input);
+    },
+    finishWorkSession: async (sessionId, outcome) => {
+      const ended = await finishWorkSession(ctx, sessionId, outcome);
+      // an adopted session has no desk child to clean up after it: forget it now
+      const l = ctx.live.get(ended.agentId);
+      if (l?.adopted && l.sessionId === sessionId) { ctx.live.delete(ended.agentId); adoptedSeen.delete(sessionId); }
+      return ended;
+    },
+    deskSeen: (_agentId, sessionId) => { if (adoptedSeen.has(sessionId)) adoptedSeen.set(sessionId, now().getTime()); },
     backend: () => backendReady.then((b) => b.kind),
     async onAgentRetired(agentId, o = {}) {
       abortWork(ctx, agentId, 0);
@@ -612,5 +686,6 @@ export function startRuntime(opts: RuntimeOptions): Runtime {
     },
     redeploy,
     get reconciled() { return reconciled; },
+    adopted,
   };
 }

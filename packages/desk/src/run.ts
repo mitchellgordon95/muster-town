@@ -10,6 +10,7 @@ import { brotliCompressSync, constants } from "node:zlib";
 import { SPEND_LIMIT, townEnv } from "@muster-town/schema";
 import type { DeskActivityInput, DeskBrief, DeskSessionEndInput, DeskWorkspace } from "./contract.ts";
 import { blocksOf, InputChannel, noUsage, plusUsage, usageOf, type LooseMessage, type Options, type QueryHandle, type Sdk, type Usage } from "./sdk.ts";
+import { startMcpProxy, type McpProxy } from "./mcp-proxy.ts";
 import type { TownClient } from "./town.ts";
 import { setupWorkspace } from "./workspace.ts";
 
@@ -32,6 +33,8 @@ export interface RunDeps {
   setupWorkspace?: (ws: DeskWorkspace, brief: DeskBrief) => string;
   controlIntervalMs?: number;
   flushMs?: number;
+  /** the MCP proxy's waits while the town restarts (tests); default RESTART_BACKOFF_MS */
+  mcpBackoffMs?: number[];
 }
 
 /** Keep tool inputs postable: long strings (file bodies, heredocs) are clipped. */
@@ -216,6 +219,7 @@ export async function runSession(sessionId: string, deps: RunDeps): Promise<numb
   const controlTimer = setInterval(() => void pollControl(), controlMs);
 
   let cwd = homedir();
+  let proxy: McpProxy | null = null;
   try {
     // ---- 5. workspace ----
     if (brief.workspace) {
@@ -227,6 +231,8 @@ export async function runSession(sessionId: string, deps: RunDeps): Promise<numb
     }
 
     // ---- 6. query ----
+    // the town MCP server goes through a local proxy that rides out a town restart (mcp-proxy.ts)
+    proxy = await startMcpProxy({ target: town.mcpUrl, backoffMs: deps.mcpBackoffMs, log });
     const maxTurnsEnv = Number(env.DESK_MAX_TURNS);
     const options: Options = {
       cwd,
@@ -234,7 +240,7 @@ export async function runSession(sessionId: string, deps: RunDeps): Promise<numb
       maxTurns: Number.isInteger(maxTurnsEnv) && maxTurnsEnv > 0 ? maxTurnsEnv : brief.building.maxTurnsPerSession ?? 80,
       systemPrompt: { type: "preset", preset: "claude_code", append: brief.system },
       mcpServers: {
-        town: { type: "http", url: town.mcpUrl, headers: { Authorization: `Bearer ${townEnv("TOKEN", env) ?? ""}` }, alwaysLoad: true },
+        town: { type: "http", url: proxy.url, headers: { Authorization: `Bearer ${townEnv("TOKEN", env) ?? ""}` }, alwaysLoad: true },
       },
       permissionMode: "bypassPermissions",
       allowDangerouslySkipPermissions: true,
@@ -327,6 +333,7 @@ export async function runSession(sessionId: string, deps: RunDeps): Promise<numb
     clearInterval(controlTimer);
     clearInterval(flushTimer);
     input.close();
+    await proxy?.close();
     await polling;
     await flush();
   }

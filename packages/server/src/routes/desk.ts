@@ -55,6 +55,7 @@ export async function deskRoutes(app: FastifyInstance) {
     const agent = requireAgent(req);
     const { session } = parse(SessionQuery, req.query);
     const s = ownSession(agent, session, false);
+    if (s.status === "running") app.runtime?.deskSeen?.(agent.id, s.id);
     const now = world.agents.require(agent.id, "agent");
     const stop = s.status !== "running" || now.status === "stopped" || now.status === "banned" || now.status === "retired";
     return { interrupts: world.ops.pendingInterrupts(agent.id, s.id).map((i) => ({ id: i.id, text: i.text, from: i.from, now: i.now })), stop };

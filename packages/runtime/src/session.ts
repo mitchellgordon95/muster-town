@@ -48,6 +48,8 @@ export interface LiveSession {
   stopped: boolean;
   /** desk sessions: the `docker exec` child */
   child?: { kill(): void };
+  /** desk sessions the previous server left running at its redeploy restart: no child here; alive while the desk polls control */
+  adopted?: boolean;
 }
 
 export const TOWN_TOOLS = VERB_NAMES.map((v) => `mcp__town__${v}`);

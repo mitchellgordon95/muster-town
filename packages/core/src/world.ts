@@ -45,6 +45,11 @@ export interface HostHooks {
   docker?: boolean;
   /** Work-session slots: live or starting sessions out of `desks.maxRunning`. Unset without a runtime. */
   slots?(): { running: number; max: number };
+  /**
+   * Set by the server: from now on answer desk and MCP calls 503 `{ restarting: true }` (the desk resends them), and resolve
+   * once the calls already running have finished, or after `ms`. The redeploy calls it just before the restart.
+   */
+  quiesce?(ms: number): Promise<void>;
   /** A hosted collective (docs/hosted-collectives.md): runs only on its own API key, never the host's credentials. */
   hosted?: boolean;
 }

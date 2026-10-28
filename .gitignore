@@ -14,6 +14,7 @@ collectives/*/.env
 .agent-town-redeploy-done-*.json
 .muster-town-redeploy.lock
 .muster-town-redeploy-done-*.json
+.muster-town-adopt-*.json
 # Claude Code worktrees (one per background job); an untracked one must not fail the redeploy dirty-tree check
 .claude/worktrees/
 collectives/hosted/

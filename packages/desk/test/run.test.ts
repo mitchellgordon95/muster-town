@@ -10,7 +10,7 @@ import { assistant, brief, fakeSdk, result, sleep, startFakeTown, toolResult, TO
 let town: FakeTown;
 const logs: string[] = [];
 const deps = (sdk: ReturnType<typeof fakeSdk>, extra = {}) => ({
-  town: new TownClient({ baseUrl: town.url, token: TOKEN, backoffMs: [5, 5] }),
+  town: new TownClient({ baseUrl: town.url, token: TOKEN, backoffMs: [5, 5], restartBackoffMs: [5, 5] }),
   sdk,
   env: { AGENT_TOWN_TOKEN: TOKEN } as NodeJS.ProcessEnv,
   log: (l: string) => logs.push(l),
@@ -64,7 +64,7 @@ describe("runSession", () => {
     expect(opts.model).toBe("claude-opus-5-5");
     expect(opts.maxTurns).toBe(40);
     expect(opts.systemPrompt).toEqual({ type: "preset", preset: "claude_code", append: "You are Ada." });
-    expect(opts.mcpServers).toEqual({ town: { type: "http", url: `${town.url}/mcp`, headers: { Authorization: `Bearer ${TOKEN}` }, alwaysLoad: true } });
+    expect(opts.mcpServers).toEqual({ town: { type: "http", url: expect.stringMatching(/^http:\/\/127\.0\.0\.1:\d+\/mcp$/), headers: { Authorization: `Bearer ${TOKEN}` }, alwaysLoad: true } });
     expect(sdk.sessions[0]!.received).toEqual(["Do the assignment."]);
 
     expect(town.activity).toContainEqual({ session: "s1", kind: "thought", text: "Looking at the data." });
@@ -211,14 +211,14 @@ describe("TownClient", () => {
       if (++calls < 3) throw new TypeError("fetch failed");
       return fetch(...args);
     }) as typeof fetch;
-    const c = new TownClient({ baseUrl: town.url, token: TOKEN, fetch: f, backoffMs: [5, 5] });
+    const c = new TownClient({ baseUrl: town.url, token: TOKEN, fetch: f, backoffMs: [5, 5], restartBackoffMs: [5, 5] });
     expect(await c.control("s1")).toEqual({ interrupts: [], stop: false });
     expect(calls).toBe(3);
   });
-  it("gives up after 3 attempts", async () => {
+  it("gives up when the restart backoff runs out", async () => {
     let calls = 0;
     const f = (async () => { calls++; throw new TypeError("fetch failed"); }) as typeof fetch;
-    const c = new TownClient({ baseUrl: town.url, token: TOKEN, fetch: f, backoffMs: [1, 1] });
+    const c = new TownClient({ baseUrl: town.url, token: TOKEN, fetch: f, backoffMs: [1, 1], restartBackoffMs: [1, 1] });
     await expect(c.ack(["x"])).rejects.toThrow("fetch failed");
     expect(calls).toBe(3);
   });

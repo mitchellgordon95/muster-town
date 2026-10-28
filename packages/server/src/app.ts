@@ -100,6 +100,29 @@ export async function buildApp(opts: BuildAppOptions): Promise<FastifyInstance> 
     });
   }
 
+  // A redeploy restarting the server (docs/architecture.md "Redeploy"): desk and MCP calls that arrive once it is exiting get 503
+  // `{ restarting: true }` with Retry-After (the desk resends them after the restart: they never ran); calls already
+  // running are let finish, bounded (`world.host.quiesce`).
+  const deskCall = (url: string) => url === `${prefix}/mcp` || url.startsWith(`${prefix}/mcp?`) || url.startsWith(`${prefix}/api/agents/me/`);
+  let quiescing = false;
+  let inFlight = 0;
+  app.addHook("onRequest", async (req, reply) => {
+    if (!deskCall(req.url)) return;
+    if (quiescing) return reply.code(503).header("retry-after", "5").send({ error: "The town is restarting; retry in a few seconds.", code: "restarting", restarting: true });
+    inFlight++;
+    let done = false;
+    const end = () => { if (!done) { done = true; inFlight--; } };
+    req.raw.once("close", end);
+    reply.raw.once("close", end);
+  });
+  if (!opts.prefix) {
+    opts.world.host.quiesce = async (ms: number) => {
+      quiescing = true;
+      const until = Date.now() + ms;
+      while (inFlight > 0 && Date.now() < until) await new Promise((r) => setTimeout(r, 50));
+    };
+  }
+
   app.addHook("onRequest", async (req) => {
     // bearer token first, then the browser session cookie
     req.auth = resolveToken(opts.world, bearer(req.headers.authorization)) ?? sessionAuth(opts.world, authSettings, req);

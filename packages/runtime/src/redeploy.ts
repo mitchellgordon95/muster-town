@@ -1,8 +1,10 @@
 /**
  * v1.3 redeploy (host-executed): pull main (or the deploy branch), reinstall when the lockfile changed, rebuild the web client,
- * optionally rebuild the desk image, drain (hold new work sessions and wait, up to `drainTimeoutMs`, for running ones
- * to end), pull again (the sessions drained are usually the ones about to push) and rebuild if that moved HEAD,
- * recreate idle desks, then exit 75 so `scripts/serve.sh` restarts the server.
+ * optionally rebuild the desk image, drain (hold new work sessions and wait, up to `drainTimeoutMs`, for the host
+ * sessions running in this process to end; desk work sessions are not waited for: they keep running through the restart
+ * and the next server adopts them, docs/architecture.md "Redeploy"), pull again and rebuild if that moved HEAD, recreate idle desks,
+ * hand the desk sessions to the next server (`adoptPath`), stop taking desk and MCP calls (`quiesce`), then exit 75
+ * so `scripts/serve.sh` restarts the server.
  * Every step's start/end is a `system` event (output tail in the payload). Single-flight: a request while one runs joins
  * it (the post-drain pull picks up its commits); past that pull it is carried in the done-file and the restarted server
  * runs once more. Runs in the background.
@@ -56,13 +58,17 @@ export interface RedeployDeps {
   branch?: string;
   /** whether the agent has a live work session (its desk is left alone) */
   isWorking(agentId: string): boolean;
-  /** agent ids with a live work session (drain waits for this to be empty); default: none */
+  /** agent ids with a live session in this process (host sessions, sessions still starting): the drain waits for this to be empty; default: none */
   working?(): string[];
+  /** desk work sessions (session ids) that keep running through the restart: the next server adopts them (`adoptPath`). Default: none. */
+  adoptable?(): string[];
+  /** just before the exit: answer desk and MCP calls 503 restarting and let running ones finish (world.host.quiesce). Default: none. */
+  quiesce?(): Promise<void>;
   /** agent ids with pending work that the drain's hold keeps from starting (badged in the UI); default: none */
   blocked?(): string[];
   /** hold (true) or release (false) the scheduler's new work sessions while draining */
   hold?(on: boolean): void;
-  /** how long the drain waits before restarting anyway (sessions still running are orphaned; at startup they are stopped in their desks and re-queued). Default 30 min. */
+  /** how long the drain waits for host sessions before restarting anyway (sessions still running are orphaned and re-queued at startup). Default 3 min. */
   drainTimeoutMs?: number;
   /** drain poll period. Default 5000. */
   drainPollMs?: number;
@@ -263,13 +269,14 @@ export function makeRedeployer(deps: RedeployDeps): Redeployer {
     }
     if (!(await rebuild(lockChanged))) return;
 
-    // (e) drain: no new work sessions; wait for the running ones to end (a restart would orphan them)
+    // (e) drain: no new work sessions; wait for the host sessions running in this process to end (a restart would orphan
+    // them). Desk work sessions are not in `working`: they run in their desks and the next server adopts them.
     setPhase("drain");
     deps.hold?.(true);
     held = true;
     const working = () => deps.working?.() ?? [];
     const names = (ids: string[]) => ids.map((id) => deps.world.agents.get(id)?.name ?? id).join(", ");
-    const timeoutMs = deps.drainTimeoutMs ?? 30 * 60_000;
+    const timeoutMs = deps.drainTimeoutMs ?? 3 * 60_000;
     const blocked = () => deps.blocked?.() ?? [];
     let left = working();
     if (left.length) {
@@ -387,9 +394,14 @@ export function makeRedeployer(deps: RedeployDeps): Redeployer {
     const live = await head();
     run_ = { ...run_, state: "restarting", working: [], blocked: [], ...(live ? { head: live } : {}) };
     try { writeFileSync(donePath, JSON.stringify({ ...run_, ...(again ? { again } : {}) })); } catch { /* no repo dir (tests): the UI just won't hear "done" */ }
+    const adopt = deps.adoptable?.() ?? [];
+    if (adopt.length) {
+      try { writeFileSync(adoptPath(cwd, deps.collective), JSON.stringify({ sessions: adopt, at: new Date().toISOString() })); } catch { /* no repo dir (tests) */ }
+    }
     try { deps.beforeRestart?.(live); } catch (e) { console.log("[runtime] restart notice:", e instanceof Error ? e.message : e); }
-    say("Redeploy: restarting server", { step: "restart", phase: "end", ok: true });
+    say(`Redeploy: restarting server${adopt.length ? `; ${adopt.length} desk session(s) keep running and are adopted after it` : ""}`, { step: "restart", phase: "end", ok: true, adopt });
     await new Promise<void>((r) => setTimeout(r, deps.exitDelayMs ?? 500));
+    try { await deps.quiesce?.(); } catch (e) { console.log("[runtime] quiesce:", e instanceof Error ? e.message : e); }
     try { unlinkSync(lockPath); } catch { /* already gone */ }
     exit(RESTART_EXIT_CODE);
   }
@@ -464,6 +476,27 @@ export function makeRedeployer(deps: RedeployDeps): Redeployer {
     setTimeout(() => { if (!flight) self.redeploy(o); }, deps.againDelayMs ?? 10_000).unref?.();
   }
   return self;
+}
+
+/** The file a restarting server lists its running desk sessions in, for the next server to adopt (per collective). */
+export function adoptPath(repoRoot: string, collective: string): string {
+  return join(repoRoot, `.muster-town-adopt-${collective}.json`);
+}
+
+/** A file this old was left by a crash or an aborted exit, not the restart just now: its sessions aren't adopted. */
+export const ADOPT_MAX_AGE_MS = 10 * 60_000;
+
+/** The desk sessions the previous server handed over (and the file removed), or [] when there are none or the file is stale. */
+export function takeAdoptable(repoRoot: string, collective: string, now = Date.now()): string[] {
+  const path = adoptPath(repoRoot, collective);
+  try {
+    const v = JSON.parse(readFileSync(path, "utf8")) as { sessions?: unknown; at?: unknown };
+    unlinkSync(path);
+    if (typeof v.at !== "string" || now - Date.parse(v.at) > ADOPT_MAX_AGE_MS || !Array.isArray(v.sessions)) return [];
+    return v.sessions.filter((s): s is string => typeof s === "string");
+  } catch {
+    return [];
+  }
 }
 
 /** HEAD of the checkout at `repoRoot` (the code this server started from), or null when it isn't a git checkout. */
