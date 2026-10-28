@@ -177,6 +177,11 @@ sudo systemctl daemon-reload && sudo systemctl enable --now muster-pinger.timer
 systemctl list-timers muster-pinger.timer
 journalctl -u muster-pinger.service -n 5
 ```
+Each channel sends on its own: SMS needs the four Twilio/`ALERT_SMS_TO` names, email needs `ALERT_EMAIL_TO` and the
+SMTP pair, so a box without a Gmail app password still gets SMS.
+
+Installed on Wright's box (`ubuntu-2gb-hil-1`, user `node`) 2026-10-28 from 49e2622: all seven names set (the SMTP pair
+is the box's existing Gmail app password), dry run "ok (fails 0)", timer enabled. Updating it: re-run step 1.
 
 ## Single-VPS deployment (legacy; the OVH box is gone)
 Plan and reasoning: town docs dc_mltonxkizi (deploy + CI) and dc_vxgg8r55ha (stress test: 6 desks at once).

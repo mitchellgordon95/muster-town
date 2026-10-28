@@ -32,6 +32,7 @@ from email.message import EmailMessage
 from pathlib import Path
 
 ENV_NAMES = ["ALERT_TWILIO_SID", "ALERT_TWILIO_AUTH", "ALERT_TWILIO_FROM", "ALERT_SMS_TO", "ALERT_EMAIL_TO", "ALERT_SMTP_USER", "ALERT_SMTP_PASS"]
+CHANNEL_ENV = {"sms": ENV_NAMES[:4], "email": ["ALERT_EMAIL_TO", "ALERT_SMTP_USER", "ALERT_SMTP_PASS"]}
 FAILS_FOR_RED = 3
 REALERT_S = 3600
 TIMEOUT_S = 10
@@ -85,10 +86,11 @@ class Sender:
             print(f"[dry-run] SMS: {sms[:300]}")
             print(f"[dry-run] email: {subject}\n{body}")
             return
-        if self.missing:
-            print(f"muster-pinger: not sending, missing {', '.join(self.missing)}: {subject}", file=sys.stderr)
-            return
         for name, f in (("sms", lambda: self.sms(sms[:300])), ("email", lambda: self.email(subject, body))):
+            gap = [k for k in CHANNEL_ENV[name] if k in self.missing]
+            if gap:  # each channel sends on its own, so SMS works without the SMTP pair and vice versa
+                print(f"muster-pinger: {name} not sent, missing {', '.join(gap)}: {subject}", file=sys.stderr)
+                continue
             try:
                 f()
                 print(f"muster-pinger: {name} sent: {subject}")
