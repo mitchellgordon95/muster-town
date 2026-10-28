@@ -12,7 +12,7 @@ import { buildApp } from "./app.ts";
 import { BackupJob } from "./backup/index.ts";
 import { loadAuthSettings } from "./auth/index.ts";
 import { Hub } from "./hub.ts";
-import { defaultMetrics, Monitor, processProbes } from "./monitor.ts";
+import { Counters, defaultMetrics, Monitor, processProbes } from "./monitor.ts";
 import { desksFromEnv, loadEnvFile } from "./env.ts";
 import type { RuntimeHooks } from "./context.ts";
 import type { FastifyInstance } from "fastify";
@@ -57,8 +57,9 @@ async function main() {
   // off-site backup (deploy/README.md "Backups"): local copies beside the data dir (/data/workshop/backups on Fly); inert without the env
   const backup = new BackupJob({ db: world.db, dir: resolve(DATA_DIR, "..", "backups") });
   // in-process monitor (dc_f2hpf9u1ya): town events + Prod FYIs, red ones by SMS/email when the ALERT_* secrets are set
-  const probes = processProbes(world, DATA_DIR, () => backup.snapshot());
-  const monitor = new Monitor({ world, metrics: defaultMetrics(probes) });
+  const counters = new Counters();
+  const probes = processProbes(world, DATA_DIR, () => backup.snapshot(), counters);
+  const monitor = new Monitor({ world, metrics: defaultMetrics(probes), counters });
   const runtimeMod = await loadRuntime();
   /** the server's own URL, once it listens: hosted runtimes call their MCP endpoint at <url>/<slug>/mcp */
   let url: string | null = null;

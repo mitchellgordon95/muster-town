@@ -3,6 +3,7 @@ import { ClientMessage, type ServerMessage } from "@muster-town/schema";
 import type { FastifyInstance, FastifyRequest } from "fastify";
 import type { WebSocket } from "ws";
 import { ASK_FIRST, resolveToken } from "./context.ts";
+import { WS_NORMAL_CLOSE } from "./monitor.ts";
 
 /** Drop a client that falls this far behind instead of buffering without bound. */
 const MAX_BUFFERED = 8 * 1024 * 1024;
@@ -74,7 +75,7 @@ export async function wsRoutes(app: FastifyInstance) {
       }
     });
 
-    socket.on("close", gone);
-    socket.on("error", gone);
+    socket.on("close", (code: number) => { if (!WS_NORMAL_CLOSE.has(code)) app.monitor?.counters.wsError(); gone(); });
+    socket.on("error", () => { app.monitor?.counters.wsError(); gone(); });
   });
 }

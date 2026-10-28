@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it } from "vitest";
 import { buildApp } from "../src/app.ts";
-import { ALERT_ENV, CLEAR_AFTER, Monitor, OUTBOUND_CAP, defaultMetrics, type Probes, type Senders } from "../src/monitor.ts";
+import { ALERT_ENV, CLEAR_AFTER, Counters, Monitor, OUTBOUND_CAP, defaultMetrics, processProbes, type Probes, type Senders } from "../src/monitor.ts";
 import { json, seededApp } from "./helpers.ts";
 
 const MIN = 60_000;
@@ -9,10 +9,11 @@ const fullEnv = Object.fromEntries(ALERT_ENV.map((k) => [k, "x"]));
 
 function rig(o: { env?: Record<string, string>; probes?: Partial<Probes> } = {}) {
   let t = Date.parse("2026-10-28T20:00:00Z");
-  const state = { rss: 0.2 * GB, lag: 0 as number | null, disk: 0.5 as number | null, slots: { running: 1, max: 30 }, queue: 0, backup: null as Probes["backup"] extends () => infer R ? R : never };
+  const state = { rss: 0.2 * GB, lag: 0 as number | null, disk: 0.5 as number | null, slots: { running: 1, max: 30 }, queue: 0, backup: null as Probes["backup"] extends () => infer R ? R : never,
+    http: { total: 0, errors: 0 }, ws: 0, sessions: { failed15: 0, ended30: 0, failed30: 0 } };
   const probes: Probes = {
     rssBytes: () => state.rss, lagP99Ms: () => state.lag, diskFree: () => state.disk, slots: () => state.slots,
-    queueWaiting: () => state.queue, backup: () => state.backup, ...o.probes,
+    queueWaiting: () => state.queue, backup: () => state.backup, http: () => state.http, wsErrors: () => state.ws, sessions: () => state.sessions, ...o.probes,
   };
   const sent: { kind: "sms" | "email"; text: string }[] = [];
   const senders: Senders = { sms: async (text) => { sent.push({ kind: "sms", text }); }, email: async (subject) => { sent.push({ kind: "email", text: subject }); } };
@@ -117,6 +118,50 @@ describe("monitor thresholds", () => {
     expect(m.view().alerts).toMatchObject([{ key: "backup", level: "red" }]);
   });
 
+  it("5xx: needs 50 responses in 5 min; yellow over 2%, red over 10%", async () => {
+    const { r, m, step } = await setup();
+    r.state.http = { total: 40, errors: 20 };
+    await step(1);
+    expect(m.view().alerts).toEqual([]);
+    r.state.http = { total: 100, errors: 3 };
+    await step(1);
+    expect(m.view().alerts).toMatchObject([{ key: "5xx", level: "yellow", value: 3 }]);
+    r.state.http = { total: 100, errors: 11 };
+    await step(1);
+    expect(m.view().alerts).toMatchObject([{ key: "5xx", level: "red", value: 11 }]);
+    expect(r.sent.map((x) => x.kind)).toEqual(["sms", "email"]);
+  });
+
+  it("ws: yellow over 20 errors in 5 min, red over 100", async () => {
+    const { r, m, step } = await setup();
+    r.state.ws = 20;
+    await step(1);
+    expect(m.view().alerts).toEqual([]);
+    r.state.ws = 21;
+    await step(1);
+    expect(m.view().alerts).toMatchObject([{ key: "ws", level: "yellow", value: 21 }]);
+    r.state.ws = 101;
+    await step(1);
+    expect(m.view().alerts[0]!.level).toBe("red");
+  });
+
+  it("sessions: yellow at 3 failures in 15 min; red when half of 4+ sessions ended in 30 min failed", async () => {
+    const { r, m, step } = await setup();
+    r.state.sessions = { failed15: 3, ended30: 10, failed30: 3 };
+    await step(1);
+    expect(m.view().alerts).toMatchObject([{ key: "sessions", level: "yellow", value: 3 }]);
+    r.state.sessions = { failed15: 3, ended30: 6, failed30: 3 };
+    await step(1);
+    expect(m.view().alerts[0]!.level).toBe("red");
+  });
+
+  it("sessions: red needs at least 4 sessions ended", async () => {
+    const { r, m, step } = await setup();
+    r.state.sessions = { failed15: 3, ended30: 3, failed30: 3 };
+    await step(1);
+    expect(m.view().alerts).toMatchObject([{ key: "sessions", level: "yellow" }]);
+  });
+
   it("caps outbound at 10 messages an hour", async () => {
     const { m, r } = await setup();
     const results = [];
@@ -172,5 +217,48 @@ describe("monitor routes", () => {
     expect(ok.status).toBe(200);
     expect(ok.body).toMatchObject({ sms: "skipped", email: "skipped" });
     expect(typeof ok.body.eventId).toBe("number");
+  });
+});
+
+describe("monitor counters", () => {
+  it("Counters keeps a 5 min window in minute buckets", () => {
+    let t = Date.parse("2026-10-28T20:00:00Z");
+    const c = new Counters(() => t);
+    c.response(200); c.response(503); c.wsError();
+    t += 2 * MIN;
+    c.response(500); c.response(404);
+    expect(c.http(t)).toEqual({ total: 4, errors: 2 });
+    expect(c.wsErrors(t)).toBe(1);
+    t += 4 * MIN; // the first minute is out of the window
+    expect(c.http(t)).toEqual({ total: 2, errors: 1 });
+    expect(c.wsErrors(t)).toBe(0);
+    t += 10 * MIN;
+    c.response(200);
+    expect(c.http(t)).toEqual({ total: 1, errors: 0 });
+  });
+
+  it("processProbes counts failed and ended sessions from the sessions table", async () => {
+    const s = await seededApp();
+    close = s.close;
+    const now = Date.parse("2026-10-28T20:00:00Z");
+    const agentId = s.world.agents.all()[0]!.id;
+    const add = (id: string, status: string, minAgo: number | null) => s.world.db.prepare(
+      "INSERT INTO sessions (id, agentId, purpose, status, model, startedAt, endedAt) VALUES (?, ?, 'work', ?, 'm', ?, ?)",
+    ).run(id, agentId, status, new Date(now - 60 * MIN).toISOString(), minAgo == null ? null : new Date(now - minAgo * MIN).toISOString());
+    add("se_a", "error", 5); add("se_b", "error", 20); add("se_c", "done", 10); add("se_d", "error", 40); add("se_e", "running", null);
+    const p = processProbes(s.world, "/nonexistent", () => null, new Counters(() => now));
+    expect(p.sessions(now)).toEqual({ failed15: 1, ended30: 3, failed30: 2 });
+    p.close();
+  });
+
+  it("the app counts responses into the monitor's counters", async () => {
+    const s = await seededApp();
+    const r = rig({ env: {} });
+    const m = new Monitor({ world: s.world, metrics: [], env: {}, log: r.log, buildingId: null });
+    const app = await buildApp({ world: s.world, dev: false, webDist: false, monitor: m });
+    close = async () => { await app.close(); await s.close(); };
+    await json(app, "GET", "/api/health");
+    await json(app, "GET", "/api/nope");
+    expect(m.counters.http(Date.now())).toEqual({ total: 2, errors: 0 });
   });
 });

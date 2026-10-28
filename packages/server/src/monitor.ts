@@ -1,6 +1,7 @@
 /**
  * In-process monitor (grant gr_rntk0echpi, design dc_f2hpf9u1ya): every 60 s it samples what the server already knows
- * (RSS, event-loop lag p99, data-volume free space, session slots, backup age), raises and clears alerts with
+ * (RSS, event-loop lag p99, data-volume free space, session slots, backup age, the 5xx share, WebSocket errors and failed
+ * Claude sessions), raises and clears alerts with
  * hysteresis, and sends each one down one path: a town event (type `alert`) plus a Prod board FYI, and for red ones an
  * SMS (Twilio REST) and an email (Gmail SMTP) when all seven ALERT_* secrets are set, at most 10 outbound messages an hour.
  * State lives in memory plus one `meta` row (key `monitor`), so a restart keeps the open alerts and notices a gap.
@@ -69,7 +70,53 @@ export interface Probes {
   /** pending assignments not held by a waitFor */
   queueWaiting(): number;
   backup(): BackupView | null;
+  /** HTTP responses and how many were 5xx, over the last 5 min (Counters) */
+  http(now: number): { total: number; errors: number };
+  /** WebSocket errors and abnormal closes over the last 5 min (Counters) */
+  wsErrors(now: number): number;
+  /** Claude sessions that ended in `error` in the last 15 min, and sessions that ended / of them failed in the last 30 min */
+  sessions(now: number): { failed15: number; ended30: number; failed30: number };
 }
+
+/** Bucket width of `Counters`; the windows below are whole buckets. */
+const BUCKET_MS = 60_000;
+export const COUNT_WINDOW_MS = 5 * MIN;
+
+/**
+ * Event counters the HTTP and WebSocket layers bump (app.ts onResponse, ws.ts error / abnormal close): per-minute buckets,
+ * the last 5 min kept, so a burst of traffic costs no memory.
+ */
+export class Counters {
+  private buckets = new Map<number, { total: number; errors: number; ws: number }>();
+  constructor(private readonly now: () => number = Date.now) {}
+
+  /** one HTTP response with this status code */
+  response(status: number) { const b = this.bucket(); b.total++; if (status >= 500) b.errors++; }
+  /** one WebSocket `error`, or a close with a code other than normal / going away / no status */
+  wsError() { this.bucket().ws++; }
+
+  http(now: number) { let total = 0, errors = 0; for (const b of this.window(now)) { total += b.total; errors += b.errors; } return { total, errors }; }
+  wsErrors(now: number) { let n = 0; for (const b of this.window(now)) n += b.ws; return n; }
+
+  private bucket() {
+    const k = Math.floor(this.now() / BUCKET_MS);
+    let b = this.buckets.get(k);
+    if (!b) {
+      b = { total: 0, errors: 0, ws: 0 };
+      this.buckets.set(k, b);
+      for (const old of this.buckets.keys()) if (old <= k - COUNT_WINDOW_MS / BUCKET_MS) this.buckets.delete(old);
+    }
+    return b;
+  }
+
+  private *window(now: number) {
+    const k = Math.floor(now / BUCKET_MS);
+    for (const [key, b] of this.buckets) if (key > k - COUNT_WINDOW_MS / BUCKET_MS && key <= k) yield b;
+  }
+}
+
+/** WebSocket close codes that are not errors: normal, going away (tab closed), no status sent */
+export const WS_NORMAL_CLOSE = new Set([1000, 1001, 1005]);
 
 /** The thresholds of dc_f2hpf9u1ya, over `probes`. */
 export function defaultMetrics(p: Probes): Metric[] {
@@ -94,11 +141,26 @@ export function defaultMetrics(p: Probes): Metric[] {
         const ageH = b.lastAt ? Math.round(((now - Date.parse(b.lastAt)) / HOUR_MS) * 10) / 10 : -1;
         return { value: ageH, yellow: b.error != null || ageH > 26, red: ageH > 26 };
       } },
+    // the windows are in the counters / the query, so these alert on the sample that crosses
+    { key: "5xx", describe: (v) => `${v}% of HTTP responses were 5xx over 5 min`, yellowForMs: 0, redForMs: 0,
+      read: (now) => {
+        const h = p.http(now);
+        if (h.total < 50) return { value: 0, yellow: false, red: false };
+        const v = Math.round((h.errors / h.total) * 1000) / 10;
+        return { value: v, yellow: v > 2, red: v > 10 };
+      } },
+    { key: "ws", describe: (v) => `${v} WebSocket errors in 5 min`, yellowForMs: 0, redForMs: 0,
+      read: (now) => { const v = p.wsErrors(now); return { value: v, yellow: v > 20, red: v > 100 }; } },
+    { key: "sessions", describe: (v) => `${v} Claude sessions failed in 15 min`, yellowForMs: 0, redForMs: 0,
+      read: (now) => {
+        const s = p.sessions(now);
+        return { value: s.failed15, yellow: s.failed15 >= 3, red: s.ended30 >= 4 && s.failed30 * 2 >= s.ended30 };
+      } },
   ];
 }
 
 /** The real probes: process memory, an event-loop histogram reset each sample, statfs on the data dir, the runtime's slots. */
-export function processProbes(world: World, dataDir: string, backup: () => BackupView | null): Probes & { close(): void } {
+export function processProbes(world: World, dataDir: string, backup: () => BackupView | null, counters: Counters): Probes & { close(): void } {
   const h: IntervalHistogram = monitorEventLoopDelay({ resolution: 20 });
   h.enable();
   return {
@@ -109,6 +171,16 @@ export function processProbes(world: World, dataDir: string, backup: () => Backu
     slots: () => world.host.slots?.() ?? null,
     queueWaiting: () => (world.db.prepare("SELECT COUNT(*) AS n FROM assignments WHERE status = 'pending' AND waitFor IS NULL").get() as { n: number }).n,
     backup,
+    http: (now) => counters.http(now),
+    wsErrors: (now) => counters.wsErrors(now),
+    sessions: (now) => {
+      const since = (ms: number) => new Date(now - ms).toISOString();
+      const r = world.db.prepare(`SELECT
+          COALESCE(SUM(status = 'error' AND endedAt >= ?), 0) AS failed15,
+          COUNT(*) AS ended30, COALESCE(SUM(status = 'error'), 0) AS failed30
+        FROM sessions WHERE endedAt IS NOT NULL AND endedAt >= ?`).get(since(15 * MIN), since(30 * MIN)) as { failed15: number; ended30: number; failed30: number };
+      return r;
+    },
     close: () => h.disable(),
   };
 }
@@ -122,12 +194,16 @@ export interface MonitorOptions {
   senders?: Senders;
   now?: () => number;
   log?: Pick<Console, "log" | "warn">;
+  /** what app.ts / ws.ts bump (default: a fresh one on this monitor's clock) */
+  counters?: Counters;
   /** the board FYIs go to (default: the building named "Prod"; none = events only) */
   buildingId?: string | null;
 }
 
 export class Monitor {
   readonly outbound: boolean;
+  /** the HTTP / WebSocket error counters the 5xx and ws metrics read (when built over the same Counters) */
+  readonly counters: Counters;
   private readonly senders: Senders | null;
   private readonly now: () => number;
   private readonly log: Pick<Console, "log" | "warn">;
@@ -143,6 +219,7 @@ export class Monitor {
     this.world = opts.world;
     this.now = opts.now ?? Date.now;
     this.log = opts.log ?? console;
+    this.counters = opts.counters ?? new Counters(this.now);
     const env = opts.env ?? process.env;
     const missing = ALERT_ENV.filter((k) => !env[k]?.trim());
     this.outbound = missing.length === 0;
