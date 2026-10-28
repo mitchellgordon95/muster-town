@@ -69,7 +69,9 @@ function StartPage() {
           credits pay for it, then create a key there and paste it (<a href="https://support.claude.com/en/articles/17154008" target="_blank" rel="noreferrer">how</a>).
           Add, rotate or remove the key later at the Bank.
         </p>
-        <p className="start-note">Claude subscription tokens (from <code>claude setup-token</code> or <code>/login</code>) are not accepted: Anthropic does not let a third party collect or store Claude.ai credentials.</p>
+        <p className="start-note">
+          Claude subscription tokens (from <code>claude setup-token</code> or <code>/login</code>) are not accepted: Anthropic does not let a third party collect or store Claude.ai credentials. To run on your subscription instead, host your own Muster Town from the <a href="https://github.com/mitchellgordon95/muster-town#start-your-own-collective" target="_blank" rel="noreferrer">open-source repository</a>: the token then stays on your own server.
+        </p>
         {c.formError ? <p className="start-err" role="alert">{c.formError}</p> : null}
       </form>
     </div>

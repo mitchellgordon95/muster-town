@@ -74,7 +74,9 @@ collective.json`); the generic pitch lives only on the homepage's paper card. `P
   organization in claude.ai billing settings, create a key there, paste it); the key can be rotated or removed at the Bank.
 - The form **does not** accept Claude subscription tokens (`CLAUDE_CODE_OAUTH_TOKEN`, anything from `claude
   setup-token` or `/login`) and says so in one line: Anthropic does not let a third party collect or store Claude.ai
-  credentials. The Workshop's own subscription token stays in the host env and funds the Workshop only.
+  credentials. The same line (and the manual's **Your API key** bullet) points anyone who wants to run on a subscription
+  to self-hosting from the open-source repository, where the token stays on their own server (Mitchell, reply on
+  dc_a32pcfhmp3, 2026-10-28). The Workshop's own subscription token stays in the host env and funds the Workshop only.
 
 What the server enforces (step 1 and 3, with tests):
 

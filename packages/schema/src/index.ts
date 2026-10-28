@@ -76,7 +76,7 @@ export function slugProblem(slug: string): string | null {
 export function apiKeyProblem(key: string): string | null {
   const k = key.trim();
   if (!k) return null;
-  if (k.startsWith("sk-ant-oat")) return "That is a Claude subscription token: Anthropic does not let a third party store those. Paste an API key from the Claude Console (sk-ant-api…).";
+  if (k.startsWith("sk-ant-oat")) return "That is a Claude subscription token: Anthropic does not let a third party store those. Paste an API key from the Claude Console (sk-ant-api…), or host your own Muster Town from the open-source repository to run on your subscription.";
   if (!/^sk-ant-api\S{8,}$/.test(k)) return "An Anthropic API key starts with sk-ant-api (create one in the Claude Console).";
   return null;
 }
