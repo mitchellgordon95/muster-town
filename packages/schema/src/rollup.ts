@@ -119,3 +119,52 @@ export function rollupWarnings(p: ParsedRollup): string[] {
   if (pics > ROLLUP_MAX_PICTURES) out.push(`${pics} pictures; keep it to ${ROLLUP_MAX_PICTURES}`);
   return out;
 }
+
+/**
+ * What "## Needs from Mitchell" may carry (1:1 mt_uf1bwd3exq): only what has no other channel. `submit_report` refuses
+ * a Needs section that names an item already waiting for a human elsewhere, and appends the generated in-tray line.
+ */
+export const ROLLUP_MAX_NEEDS = 2;
+export const ROLLUP_NEEDS_RULE = `"## Needs from Mitchell" carries at most ${ROLLUP_MAX_NEEDS} items, and only what has no other channel: a decision Mitchell reserved, a question needing an answer in words, a 1:1 invite, or a real-world action with no outbox request. Never an open grant proposal or checkpoint (gr_…), an open outbox request or a report already in the Town Hall in-tray (dc_…): Mitchell sees those there, and the town appends an "Already waiting in your in-tray" line listing them.`;
+
+const NEEDS_ID = /\b(?:gr|dc)_[a-z0-9]+\b/g;
+
+/** The line range [start, end) of the "## Needs from …" section (start = the heading), or null. */
+function needsRange(lines: string[]): [number, number] | null {
+  let fence = false, start = -1;
+  for (let i = 0; i < lines.length; i++) {
+    if (/^\s*```/.test(lines[i]!)) fence = !fence;
+    const h = fence ? null : HEADING.exec(lines[i]!);
+    if (!h) continue;
+    if (start >= 0) return [start, i];
+    if (sectionOf(h[1]!) === "Needs from") start = i;
+  }
+  return start >= 0 ? [start, lines.length] : null;
+}
+
+/** The text of the Needs section (without its heading); "" when there is none. */
+function rollupNeeds(body: string): string {
+  const lines = body.replace(/\r\n/g, "\n").split("\n");
+  const r = needsRange(lines);
+  return r ? lines.slice(r[0] + 1, r[1]).join("\n").trim() : "";
+}
+
+/** The gr_/dc_ ids the Needs section names, in order, once each. */
+export function rollupNeedsIds(body: string): string[] {
+  return [...new Set(rollupNeeds(body).match(NEEDS_ID) ?? [])];
+}
+
+/** The Needs section's list items (lines starting "- ", "* " or "1. "); 0 for prose or "Nothing needed". */
+export function rollupNeedsCount(body: string): number {
+  return rollupNeeds(body).split("\n").filter((l) => /^(?:[-*]|\d+[.)])\s+\S/.test(l)).length;
+}
+
+/** The body with `line` appended at the end of its Needs section (or at the end of the body when it has none). */
+export function withNeedsLine(body: string, line: string): string {
+  const lines = body.replace(/\r\n/g, "\n").split("\n");
+  const r = needsRange(lines);
+  if (!r || r[1] === lines.length) return `${body.trimEnd()}\n\n${line}`;
+  let end = r[1];
+  while (end > r[0] + 1 && !lines[end - 1]!.trim()) end--;
+  return [...lines.slice(0, end), "", line, "", ...lines.slice(r[1])].join("\n");
+}

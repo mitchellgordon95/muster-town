@@ -1,6 +1,8 @@
-import { BOARD_TYPES, parseRollup, rollupWarnings, type Agent, type Doc, type LaneFields } from "@muster-town/schema";
 import {
-  applyDecision, canSeeDoc, createAssignment, createDoc, homeOf, isTownHallItem, managerAgentOf, requirePendingReport, sendMessage,
+  BOARD_TYPES, parseRollup, ROLLUP_MAX_NEEDS, ROLLUP_NEEDS_RULE, rollupNeedsCount, rollupNeedsIds, rollupWarnings, withNeedsLine, type Agent, type Doc, type LaneFields,
+} from "@muster-town/schema";
+import {
+  applyDecision, canSeeDoc, createAssignment, createDoc, grantsAwaitingDecision, homeOf, isTownHallItem, managerAgentOf, requirePendingReport, sendMessage,
   setAssignmentStatus, summarizeDoc, updateDoc,
 } from "../domain.ts";
 import { AppError, badRequest, forbidden } from "../errors.ts";
@@ -254,7 +256,17 @@ export async function submit_report(world: World, me: Agent, input: VerbIn<"subm
   const format = input.rollup ? parseRollup(input.body) : null;
   if (format?.missingSections.length) throw badRequest(`A rollup has four sections: ## Shipped, ## Decided, ## Key results, ## Needs from Mitchell. Missing: ${format.missingSections.map((s) => `## ${s}`).join(", ")}.`);
   const formatWarnings = format ? rollupWarnings(format) : [];
-  const formatNote = formatWarnings.length ? ` Format warnings (filed anyway; the in-tray shows plain text instead of cards): ${formatWarnings.join("; ")}. Next rollup: each Shipped item gets **What it is:**, **What you'd see:** (one cropped picture) and **Your call:**.` : "";
+  // Needs from Mitchell carries only what has no other channel (1:1 mt_uf1bwd3exq): naming an item that already waits
+  // for a human in the Town Hall in-tray or the outbox is refused; the town lists those itself (rollupWaitingLine)
+  if (format) {
+    // a checkpoint or close rollup asks about its own grant: that is what the rollup is for
+    const own = new Set([checkpointGrantId, ...closedGrants.map((g) => g.id)]);
+    const dup = rollupNeedsIds(input.body).filter((id) => !own.has(id)).flatMap((id) => { const why = waitingForHuman(world, id); return why ? [`${id} (${why})`] : []; });
+    if (dup.length) throw badRequest(`Needs from Mitchell names what already waits for him elsewhere: ${dup.join(", ")}. Take it out and resubmit; the town appends an "Already waiting in your in-tray" line that lists it. The rule: ${ROLLUP_NEEDS_RULE}`);
+    const needs = rollupNeedsCount(input.body);
+    if (needs > ROLLUP_MAX_NEEDS) formatWarnings.push(`${needs} Needs items; keep it to ${ROLLUP_MAX_NEEDS}`);
+  }
+  const formatNote = formatWarnings.length ? ` Format warnings (filed anyway; unlabelled Shipped items show as plain text instead of cards): ${formatWarnings.join("; ")}. Next rollup: each Shipped item gets **What it is:**, **What you'd see:** (one cropped picture) and **Your call:**; Needs keeps to ${ROLLUP_MAX_NEEDS} items.` : "";
   // P2: park instead of ending: the continuation waits for `resumeWhen` and then starts by itself (at most MAX_PARKS in a row)
   const resumeWhen = input.resumeWhen ? validateWait(world, input.resumeWhen) : null;
   const parks = (current?.parked ?? 0) + 1;
@@ -264,8 +276,9 @@ export async function submit_report(world: World, me: Agent, input: VerbIn<"subm
     if ("assignment" in resumeWhen && resumeWhen.assignment === current.id) throw badRequest("resumeWhen can't wait on your own current assignment.");
   }
   const owner = unhomedVisitor && me.ownerUserId ? world.users.get(me.ownerUserId)?.name ?? null : null;
-  const body = krWrites.length ? `${input.body.trimEnd()}\n\n${krWritesSection(krWrites)}`
-    : unhomedVisitor ? `${input.body.trimEnd()}\n\n_Visitor report from ${me.name}${owner ? `, ${owner}'s agent` : ""}; it has no home building._` : input.body;
+  const filed = format ? withNeedsLine(input.body, rollupWaitingLine(world, bid!)) : input.body;
+  const body = krWrites.length ? `${filed.trimEnd()}\n\n${krWritesSection(krWrites)}`
+    : unhomedVisitor ? `${input.body.trimEnd()}\n\n_Visitor report from ${me.name}${owner ? `, ${owner}'s agent` : ""}; it has no home building._` : filed;
   return world.transaction(() => {
     const doc = createDoc(world, {
       type: "report", state: "building", title: input.title, body, verdict: input.verdict, decision: "pending",
@@ -312,6 +325,31 @@ export async function submit_report(world: World, me: Agent, input: VerbIn<"subm
     }
     return { id: doc.id, decision, intray, workedBy, nextAssignmentId: null, ...(formatWarnings.length ? { warnings: formatWarnings } : {}), note: `Report submitted to ${where}.${formatNote} Your session ends now; you'll get a new assignment if there's more to do.` };
   });
+}
+
+/** Why `id` already waits for a human outside a rollup's Needs (a grant in the Town Hall in-tray, an open outbox request, a pending rollup), or null. */
+function waitingForHuman(world: World, id: string): string | null {
+  if (id.startsWith("gr_")) {
+    const g = grantsAwaitingDecision(world).find((v) => v.id === id);
+    return !g || g.status === "countered" ? null : g.status === "proposed" ? "a grant proposal in the Town Hall in-tray" : "a grant decision in the Town Hall in-tray";
+  }
+  const d = world.docs.get(id);
+  if (d?.type === "request" && d.requestStatus === "open") return "an open outbox request";
+  if (d?.type === "report" && d.decision === "pending" && isTownHallItem(world, d)) return "a report in the Town Hall in-tray";
+  return null;
+}
+
+/**
+ * The generated line under a rollup's Needs (1:1 mt_uf1bwd3exq): what of this building already waits for the humans,
+ * computed at submit time. Not written by the manager.
+ */
+function rollupWaitingLine(world: World, buildingId: string): string {
+  const proposals = world.grants.where("buildingId = ? AND status = 'proposed'", [buildingId], "ORDER BY createdAt, rowid").map((g) => g.id);
+  const requests = world.docs.where("type = 'request' AND requestStatus = 'open' AND buildingId = ?", [buildingId], "ORDER BY createdAt, rowid").map((d) => d.id);
+  const rollups = world.docs.where("type = 'report' AND decision = 'pending' AND buildingId = ? AND tags LIKE '%\"rollup\"%'", [buildingId], "ORDER BY createdAt, rowid").map((d) => d.id);
+  if (!proposals.length && !requests.length && !rollups.length) return "_Nothing else waiting in your in-tray._";
+  const part = (ids: string[], one: string) => `${ids.length} ${one}${ids.length === 1 ? "" : "s"}${ids.length ? ` (${ids.join(", ")})` : ""}`;
+  return `_Already waiting in your in-tray: ${part(proposals, "proposal")}, ${part(requests, "request")}, ${part(rollups, "rollup")}._`;
 }
 
 /** The lane fields of a verb input (`assign`, `review`), or undefined when none is given (a continuation inherits). */

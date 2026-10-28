@@ -2,7 +2,7 @@
  * Persona, world rules, and task prompts for every kind of session. Keep them tight.
  * Lives in core so the server can brief desks (`composeWorkBrief`) and the runtime can brief in-process sessions.
  */
-import { ROLLUP_MAX_ITEMS, ROLLUP_MAX_PICTURES, type Agent, type Assignment, type Building, type DeskBrief, type DeskWorkspace, type Doc, type Event, type Meeting, type Town, type Workspace } from "@muster-town/schema";
+import { ROLLUP_MAX_ITEMS, ROLLUP_MAX_PICTURES, ROLLUP_NEEDS_RULE, type Agent, type Assignment, type Building, type DeskBrief, type DeskWorkspace, type Doc, type Event, type Meeting, type Town, type Workspace } from "@muster-town/schema";
 import { intrayCounts, intrayOf } from "./domain.ts";
 import { decisionOutcomes, previousMeeting, type DecisionOutcome } from "./meetings.ts";
 import { forkMemoryBlock, memoryBlock, teamBlock, topicIndexBlock, WIKI_HOWTO } from "./memory.ts";
@@ -229,7 +229,7 @@ ${CHAIN_PLAN_RULE}`;
 }
 
 /** Why a manager escalates instead of deciding: the four criteria of docs/waterfall.md §3.1. */
-export const ESCALATION_CRITERIA = `Decide yourself unless the decision (a) changes the building goal or a key result, (b) spends money outside a funded grant or the exploration allowance, (c) needs a human in the real world (\`request_human\`), or (d) the report's author asks for something only a human can give (merge rights, a secret, a credential, a decision Mitchell reserved). Those go into your next rollup's "Needs from Mitchell", never to Mitchell directly.`;
+export const ESCALATION_CRITERIA = `Decide yourself unless the decision (a) changes the building goal or a key result, (b) spends money outside a funded grant or the exploration allowance, (c) needs a human in the real world (\`request_human\`), or (d) the report's author asks for something only a human can give (merge rights, a secret, a credential, a decision Mitchell reserved). Those go into your next rollup's "Needs from Mitchell", never to Mitchell directly, unless they already have a channel: an outbox request or a grant proposal reaches him on its own, so leave it out of Needs.`;
 
 /** How often a manager rolls up, docs/waterfall.md §3.2. */
 export const ROLLUP_RULE_HOURS = 24;
@@ -261,8 +261,8 @@ Rollups are how Mitchell hears from you: \`submit_report\` with \`rollup: true\`
 - \`## Shipped\`: at most ${ROLLUP_MAX_ITEMS} numbered items (\`**1. Title**\`), each with \`**What it is:**\` (plain words, ids after), \`**What you'd see:**\` (where in the UI, the live numbers), one cropped picture (\`![alt](/api/media/…)\`, ≤300 px tall, at most ${ROLLUP_MAX_PICTURES} in the rollup; API-only changes say so instead) and \`**Your call:**\` (one line, or "None"). The in-tray shows them as cards.
 - \`## Decided\`: one line per covered report (id → decision).
 - \`## Key results\`: a table, one row per funded grant's key result (status, spent / granted), plus today's spend by lane: exploration ${tok(lanes.exploration.spentTodayTokens)} / ${tok(lanes.exploration.allowanceTokens)} tokens, directed ${tok(lanes.directed.spentTodayTokens)} tokens.
-- \`## Needs from Mitchell\`: at most two items; "Nothing needed" is valid.
-A rollup without the four headings is refused; a Shipped item without the three labels is filed with a warning. Roll up when a covered report hit an escalation criterion, or when ${ROLLUP_RULE_HOURS} h have passed since your last rollup and something was decided; nothing happened → no rollup. Last rollup: ${sinceLast}; reports decided since: ${decidedSince}.${krWrites.length ? `
+- \`## Needs from Mitchell\`: ${ROLLUP_NEEDS_RULE} "Nothing needed" is valid.
+A rollup without the four headings, or whose Needs names a grant proposal, outbox request or rollup already waiting for Mitchell, is refused; a Shipped item without the three labels is filed with a warning. Roll up when a covered report hit an escalation criterion, or when ${ROLLUP_RULE_HOURS} h have passed since your last rollup and something was decided; nothing happened → no rollup. Last rollup: ${sinceLast}; reports decided since: ${decidedSince}.${krWrites.length ? `
 Key results you wrote since then (changes a key result, so roll up; your rollup lists them for you): ${krWrites.map((w) => `${w.action} ${w.keyResultId} "${oneLine(w.text, 80)}"`).join("; ")}.` : ""}`;
 }
 

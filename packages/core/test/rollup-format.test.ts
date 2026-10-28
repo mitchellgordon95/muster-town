@@ -1,4 +1,4 @@
-import { parseRollup, rollupHasCards, rollupWarnings } from "@muster-town/schema";
+import { parseRollup, rollupHasCards, rollupNeedsIds, rollupWarnings, withNeedsLine } from "@muster-town/schema";
 import { describe, expect, it } from "vitest";
 import { buildingRoleId, managerIntrayBlock } from "../src/index.ts";
 import { seededWorld } from "./helpers.ts";
@@ -66,5 +66,40 @@ describe("the rollup format (1:1 mt_vcn0e66r1t)", () => {
     const block = managerIntrayBlock(world, world.buildings.require(LAB), mei.id);
     for (const s of ["## Shipped", "## Decided", "## Key results", "## Needs from Mitchell", "**What it is:**", "**What you'd see:**", "**Your call:**"]) expect(block).toContain(s);
     expect(block).not.toContain("Four short sections");
+  }, 30_000);
+});
+
+describe("Needs from Mitchell carries only what has no other channel (1:1 mt_uf1bwd3exq)", () => {
+  const body = (needs: string) => `## Shipped\nNone.\n## Decided\n- dc_a → approved\n## Key results\nx\n## Needs from Mitchell\n${needs}`;
+  it("reads the Needs ids and inserts the generated line at the end of the section", () => {
+    expect(rollupNeedsIds(body("- Fund gr_abc123 (dc_x1, gr_abc123)"))).toEqual(["gr_abc123", "dc_x1"]);
+    expect(rollupNeedsIds("## Shipped\ngr_zz\n## Needs from Mitchell\nNothing needed.")).toEqual([]);
+    expect(withNeedsLine(body("Nothing needed."), "_L_")).toBe(`${body("Nothing needed.")}\n\n_L_`);
+    expect(withNeedsLine("## Needs from Mitchell\n- a\n\n## Key results\nx", "_L_")).toBe("## Needs from Mitchell\n- a\n\n_L_\n\n## Key results\nx");
+  });
+  it("refuses a Needs item naming a pending proposal, outbox request or Town Hall rollup; allows the rest; appends the in-tray line", async () => {
+    const { world, by, admin } = seededWorld();
+    const mei = by("Mei"), noor = by("Noor");
+    world.ops.updateBuilding(admin, LAB, { managerAgentId: mei.id });
+    world.permissions.grant({ kind: "agent", id: mei.id }, buildingRoleId(LAB, "manager"));
+    const r = await world.verbs.submit_report(noor, { title: "Done", body: "## What I did\nx", verdict: "stop" });
+    const prov = { sourceIds: [r.id], urls: [] };
+    const roll = (needs: string) => world.verbs.submit_report(mei, { title: "R", body: body(needs), verdict: "stop", rollup: true, provenance: prov });
+    // nothing waiting yet
+    const first = await roll("Nothing needed.");
+    expect(world.docs.require(first.id).body).toBe(`${body("Nothing needed.")}\n\n_Nothing else waiting in your in-tray._`);
+    const kr = world.grantDesk.createKeyResult(admin, LAB, { text: "k", howToCheck: "h" });
+    const g = await world.verbs.propose_grant(mei, { keyResultId: kr.id, objective: "o", stopCondition: "s", askTokens: 1000 });
+    const req = await world.verbs.request_human(mei, { title: "Look outside", body: "b", kind: "observation" });
+    await expect(roll(`- Fund ${g.grantId}, please.`)).rejects.toThrow(new RegExp(`${g.grantId} \\(a grant proposal in the Town Hall in-tray\\)`));
+    await expect(roll(`- Do ${req.id}`)).rejects.toThrow(/an open outbox request/);
+    await expect(roll(`- Decide ${first.id}`)).rejects.toThrow(/a report in the Town Hall in-tray.*The rule: "## Needs from Mitchell" carries at most 2 items/);
+    // allowed: a reserved decision, a question in words, a 1:1 invite; a decided report or a resident's report is fine to name
+    const ok = await roll(`- Decide whether forks get town.redeploy (reserved), see ${r.id}.\n- Open a 1:1 with Pix on visitor agents.`);
+    expect(ok).not.toHaveProperty("warnings");
+    expect(world.docs.require(ok.id).body).toMatch(new RegExp(`Open a 1:1 with Pix on visitor agents\\.\\n\\n_Already waiting in your in-tray: 1 proposal \\(${g.grantId}\\), 1 request \\(${req.id}\\), 1 rollup \\(${first.id}\\)\\._$`));
+    // more than two Needs items are filed with a warning
+    const many = await roll("- a\n- b\n- c");
+    expect(many.warnings).toEqual(["3 Needs items; keep it to 2"]);
   }, 30_000);
 });
