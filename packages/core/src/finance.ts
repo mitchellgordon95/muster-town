@@ -29,8 +29,10 @@ export interface FinanceSummary {
   left: number;
   leftBank: number;
   leftDonations: number;
-  /** usage beyond what was received: durable debits past the durable credits, plus allocations spent past their size */
+  /** usage beyond what was received: durable debits past the durable credits, subscription credits drawn past their size, debits on deleted credits, and allocations spent past their size */
   overdrawn: number;
+  /** `overdrawn` by where it sits; the four parts always sum to `overdrawn` (dc_4exx02zf9g) */
+  overdrawnBreakdown: OverdrawnBreakdown;
   /** the usage ledger's all-time total; it can exceed `used` by usage nothing funds (e.g. the Town Hall's librarian) */
   usageLedger: number;
   projection: {
@@ -44,6 +46,18 @@ export interface FinanceSummary {
   /** used + expired + left − overdrawn vs total; ok when they match exactly */
   sumCheck: { ok: boolean; diff: number; identity: string };
   at: string;
+}
+
+/** The parts of `overdrawn`, each ≥ 0, summing to it exactly. */
+export interface OverdrawnBreakdown {
+  /** durable (permanent) debits past the durable credits: the pools' overshoot debt (dc_myhlhsevgz) */
+  durableOvershoot: number;
+  /** each subscription credit's debits past that credit's size (on the live town: the pre-conversion Fable draw, raw-capped credits converted by migration 037) */
+  subscriptionOverdrawn: number;
+  /** debits naming a credit that no longer exists */
+  deletedCreditDebits: number;
+  /** allocation (direct donation) spend past the allocation's size */
+  allocationOverspent: number;
 }
 
 export interface FinanceInputs {
@@ -67,7 +81,8 @@ export function financeSummary(inp: FinanceInputs, now = new Date()): FinanceSum
     if (d.creditId) byCredit.set(d.creditId, (byCredit.get(d.creditId) ?? 0) + d.tokens);
     else durableDebits += d.tokens;
   }
-  let credited = 0, durableIn = 0, expired = 0, leftExpiring = 0, overdrawn = 0;
+  let credited = 0, durableIn = 0, expired = 0, leftExpiring = 0;
+  const ob: OverdrawnBreakdown = { durableOvershoot: 0, subscriptionOverdrawn: 0, deletedCreditDebits: 0, allocationOverspent: 0 };
   const known = new Set<string>();
   for (const c of inp.credits) {
     credited += c.tokens;
@@ -75,23 +90,24 @@ export function financeSummary(inp: FinanceInputs, now = new Date()): FinanceSum
     if (!c.expiresAt) { durableIn += c.tokens; continue; }
     const drawn = byCredit.get(c.id) ?? 0;
     const rest = c.tokens - drawn;
-    if (rest < 0) overdrawn -= rest;
+    if (rest < 0) ob.subscriptionOverdrawn -= rest;
     else if (c.expiresAt > iso) leftExpiring += rest;
     else expired += rest;
   }
   // a debit naming a credit that no longer exists has nothing paying for it
-  for (const [id, t] of byCredit) if (!known.has(id)) overdrawn += t;
+  for (const [id, t] of byCredit) if (!known.has(id)) ob.deletedCreditDebits += t;
   const leftDurable = Math.max(0, durableIn - durableDebits);
-  overdrawn += Math.max(0, durableDebits - durableIn);
+  ob.durableOvershoot = Math.max(0, durableDebits - durableIn);
 
   let donated = 0, usedDonations = 0, leftDonations = 0;
   for (const a of inp.allocations) {
     donated += a.retired ? Math.min(a.tokens, a.spentTokens) : a.tokens;
     usedDonations += a.spentTokens;
     if (!a.retired) leftDonations += Math.max(0, a.tokens - a.spentTokens);
-    overdrawn += Math.max(0, a.spentTokens - a.tokens);
+    ob.allocationOverspent += Math.max(0, a.spentTokens - a.tokens);
   }
 
+  const overdrawn = ob.durableOvershoot + ob.subscriptionOverdrawn + ob.deletedCreditDebits + ob.allocationOverspent;
   const total = credited + donated;
   const used = usedBank + usedDonations;
   const leftBank = leftExpiring + leftDurable;
@@ -111,7 +127,7 @@ export function financeSummary(inp: FinanceInputs, now = new Date()): FinanceSum
 
   const diff = used + expired + left - overdrawn - total;
   return {
-    total, credited, donated, used, usedBank, usedDonations, expired, left, leftBank, leftDonations, overdrawn, usageLedger,
+    total, credited, donated, used, usedBank, usedDonations, expired, left, leftBank, leftDonations, overdrawn, overdrawnBreakdown: ob, usageLedger,
     projection: { days: FINANCE_PROJECTION_DAYS, trailingDailyBurn, burnDays, projectedUse30d: trailingDailyBurn * FINANCE_PROJECTION_DAYS },
     sumCheck: { ok: diff === 0, diff, identity: "used + expired + left = total + overdrawn" },
     at: iso,

@@ -41,6 +41,29 @@ describe("financeSummary (GET /api/finance)", () => {
     expect(f.used + f.expired + f.left).toBe(f.total + f.overdrawn);
   });
 
+  it("breaks overdrawn into durable overshoot, subscription credits drawn past size, deleted-credit debits and allocation overspend, summing to it", () => {
+    const f = financeSummary({ ...none,
+      credits: [
+        { id: "k", tokens: 1000, expiresAt: null },
+        { id: "s1", tokens: 500, expiresAt: iso(-1) }, // expired, drawn 70 past its size
+        { id: "s2", tokens: 400, expiresAt: iso(1) }, // live, drawn 100
+      ],
+      debits: [
+        { creditId: null, tokens: 1250 },
+        { creditId: "s1", tokens: 570 },
+        { creditId: "s2", tokens: 100 },
+        { creditId: "gone", tokens: 40 },
+      ],
+      allocations: [{ tokens: 100, spentTokens: 130, retired: false }, { tokens: 200, spentTokens: 205, retired: true }],
+    }, T0);
+    expect(f.overdrawnBreakdown).toEqual({ durableOvershoot: 250, subscriptionOverdrawn: 70, deletedCreditDebits: 40, allocationOverspent: 35 });
+    const b = f.overdrawnBreakdown;
+    expect(b.durableOvershoot + b.subscriptionOverdrawn + b.deletedCreditDebits + b.allocationOverspent).toBe(f.overdrawn);
+    expect(f).toMatchObject({ overdrawn: 395, left: 300, sumCheck: { ok: true, diff: 0 } });
+    // nothing overdrawn: every part 0
+    expect(financeSummary(none, T0).overdrawnBreakdown).toEqual({ durableOvershoot: 0, subscriptionOverdrawn: 0, deletedCreditDebits: 0, allocationOverspent: 0 });
+  });
+
   it("projects 30 days from the trailing 7-day burn, over fewer days while the ledger is younger than a week", () => {
     // 2.5 days of history: averaged over 3 whole days
     const young = financeSummary({ ...none, usage: [
@@ -66,6 +89,9 @@ describe("financeSummary (GET /api/finance)", () => {
     world.budget.donate(u.id, { tokens: 400, buildingId: bid, auth: "api-key" });
     const f = world.bank.finance(T0);
     expect(f).toMatchObject({ credited: 1000, usedBank: 1500, leftBank: 0, overdrawn: 500, sumCheck: { ok: true } });
+    const b = f.overdrawnBreakdown;
+    expect(b.durableOvershoot).toBe(500);
+    expect(b.durableOvershoot + b.subscriptionOverdrawn + b.deletedCreditDebits + b.allocationOverspent).toBe(f.overdrawn);
     expect(f.donated - before.donated).toBe(400);
     expect(f.leftDonations - before.leftDonations).toBe(400);
     expect(f.total).toBe(1000 + f.donated);
