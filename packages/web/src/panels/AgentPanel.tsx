@@ -266,7 +266,6 @@ function TalkTab({ agent }: { agent: Agent }) {
   const daily = building?.dailyTokensPerAgent ?? 0;
   const sess = s.data?.session;
   // a manager's spend with its forks (design note §7): the Bank books each fork on its own row, this sums them
-  const isManager = !!building && building.managerAgentId === agent.id;
   const family = useLoad(() => isManager ? api().forks(agent.id).then((f) => f.family ?? null) : Promise.resolve(null), [agent.id, isManager, agent.spentTokensTotal]);
   const fam = family.data && family.data.forks > 0 ? family.data : null;
   const canControl = !isHuman && !isService && (store.can("building.assign", agent.homeBuildingId) || agent.ownerUserId === me?.user.id);
