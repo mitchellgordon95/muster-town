@@ -9,6 +9,7 @@
     "build": "npm run build -ws --if-present",
     "typecheck": "npm run typecheck -ws --if-present",
     "check:docs": "tsx scripts/check-doc-refs.ts",
+    "check:deadcode": "knip --include files,dependencies,unlisted,binaries --no-progress",
     "test": "npm run test -ws --if-present",
     "dev": "MUSTER_TOWN_DEV=1 npx tsx watch packages/server/src/main.ts",
     "start": "npm run build && npm run start:workshop",
@@ -18,5 +19,12 @@
   },
   "engines": {
     "node": ">=20"
+  },
+  "devDependencies": {
+    "@muster-town/core": "*",
+    "@muster-town/schema": "*",
+    "knip": "^5.88.1",
+    "tsx": "^4.23.15",
+    "ws": "^8.22.0"
   }
 }

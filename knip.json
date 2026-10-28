@@ -1,0 +1,20 @@
+{
+  "$schema": "https://unpkg.com/knip@5/schema.json",
+  "workspaces": {
+    ".": {
+      "entry": ["scripts/**/*.{ts,mjs}"],
+      "project": ["scripts/**/*.{ts,mjs}"],
+      "ignoreBinaries": ["scripts/serve.sh"]
+    },
+    "packages/server": {
+      "entry": ["src/main.ts", "src/index.ts"]
+    },
+    "packages/desk": {
+      "entry": ["src/cli.ts", "src/index.ts"],
+      "ignoreDependencies": ["tsx"]
+    },
+    "packages/web": {
+      "entry": ["index.html", "home.html", "src/home/main.tsx"]
+    }
+  }
+}
