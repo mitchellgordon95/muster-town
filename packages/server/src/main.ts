@@ -12,6 +12,7 @@ import { buildApp } from "./app.ts";
 import { BackupJob } from "./backup/index.ts";
 import { loadAuthSettings } from "./auth/index.ts";
 import { Hub } from "./hub.ts";
+import { defaultMetrics, Monitor, processProbes } from "./monitor.ts";
 import { desksFromEnv, loadEnvFile } from "./env.ts";
 import type { RuntimeHooks } from "./context.ts";
 import type { FastifyInstance } from "fastify";
@@ -55,6 +56,9 @@ async function main() {
   const auth = loadAuthSettings({ dataDir: DATA_DIR, port: PORT });
   // off-site backup (deploy/README.md "Backups"): local copies beside the data dir (/data/workshop/backups on Fly); inert without the env
   const backup = new BackupJob({ db: world.db, dir: resolve(DATA_DIR, "..", "backups") });
+  // in-process monitor (dc_f2hpf9u1ya): town events + Prod FYIs, red ones by SMS/email when the ALERT_* secrets are set
+  const probes = processProbes(world, DATA_DIR, () => backup.snapshot());
+  const monitor = new Monitor({ world, metrics: defaultMetrics(probes) });
   const runtimeMod = await loadRuntime();
   /** the server's own URL, once it listens: hosted runtimes call their MCP endpoint at <url>/<slug>/mcp */
   let url: string | null = null;
@@ -85,7 +89,7 @@ async function main() {
   });
   await hub.openAll();
   console.log(`[server] hub ${HOSTED_DIR}: ${hub.count} hosted collective(s)${hub.count ? ": " + hub.list("active").map((r) => "/" + r.slug + "/").join(", ") : ""}`);
-  const app = await buildApp({ world, dev: DEV, auth, collective: basename(COLLECTIVE_DIR), backup, hub });
+  const app = await buildApp({ world, dev: DEV, auth, collective: basename(COLLECTIVE_DIR), backup, monitor, hub });
   await app.listen({ port: PORT, host: HOST });
   url = `http://localhost:${PORT}`;
   console.log(`[server] Muster Town at ${url} (dev=${DEV})`);
@@ -95,6 +99,7 @@ async function main() {
   console.log(auth.githubClientId ? `[server] GitHub login on (callback ${auth.publicUrl}/auth/github/callback; ${auth.admins.length} admin login(s))` : "[server] GitHub login off (no GITHUB_CLIENT_ID/GITHUB_CLIENT_SECRET); guests are read-only");
   console.log(`[server] MCP endpoint: ${url}/mcp (agent tokens only)`);
   backup.start();
+  monitor.start();
 
   try {
     if (!runtimeMod) throw new Error(runtimeError);

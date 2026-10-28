@@ -13,6 +13,7 @@ import { collectives, renderHome, renderRetired } from "./home.ts";
 import { CreateCollectiveInput, type Hub } from "./hub.ts";
 import type { BackupJob } from "./backup/index.ts";
 import { LoadMonitor } from "./load.ts";
+import type { Monitor } from "./monitor.ts";
 import { mcpRoutes } from "./mcp.ts";
 import { agentRoutes } from "./routes/agents.ts";
 import { deskRoutes } from "./routes/desk.ts";
@@ -49,6 +50,8 @@ export interface BuildAppOptions {
   exportDir?: string;
   /** the off-site backup job (main.ts builds and starts it); `GET /api/health` shows its state as `backup` */
   backup?: BackupJob | null;
+  /** the in-process monitor (main.ts builds and starts it, root app only); `GET /api/health` shows it as `monitor` */
+  monitor?: Monitor | null;
   /** a hosted collective's app: retire it (main.ts passes the hub's); `POST /<slug>/api/collective/retire`, its admins */
   retire?: (() => unknown) | null;
 }
@@ -66,6 +69,7 @@ export async function buildApp(opts: BuildAppOptions): Promise<FastifyInstance> 
   const load = new LoadMonitor();
   app.decorate("load", load);
   app.decorate("backup", opts.backup ?? null);
+  app.decorate("monitor", opts.monitor ?? null);
   app.decorate("hub", opts.hub ?? null);
   app.decorate("exportDir", opts.exportDir ?? null);
   app.decorateRequest("auth", null);
@@ -204,6 +208,6 @@ export async function buildApp(opts: BuildAppOptions): Promise<FastifyInstance> 
     return reply.code(404).send({ error: `Not found: ${req.method} ${path}`, code: "not_found" });
   });
 
-  app.addHook("onClose", async () => { load.close(); app.backup?.stop(); await opts.hub?.close(); await (opts.runtime?.close?.() ?? opts.runtime?.stop?.()); });
+  app.addHook("onClose", async () => { load.close(); app.backup?.stop(); app.monitor?.stop(); await opts.hub?.close(); await (opts.runtime?.close?.() ?? opts.runtime?.stop?.()); });
   return app;
 }

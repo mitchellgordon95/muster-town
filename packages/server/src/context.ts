@@ -5,6 +5,7 @@ import type { ZodTypeAny, z } from "zod";
 import type { BackupJob } from "./backup/index.ts";
 import type { Hub } from "./hub.ts";
 import type { LoadMonitor } from "./load.ts";
+import type { Monitor } from "./monitor.ts";
 
 /** Hooks the in-process runtime exposes to the server (`startRuntime` returns this). */
 /** where the web client is served (Vite `base`); `/` is the collectives homepage (`home.ts`) */
@@ -47,6 +48,8 @@ declare module "fastify" {
     load: LoadMonitor;
     /** the off-site backup job (null in tests and without one): `GET /api/health` `backup` */
     backup: BackupJob | null;
+    /** the in-process monitor (null in tests and hosted collectives): `GET /api/health` `monitor`, `POST /api/admin/monitor/test` */
+    monitor: Monitor | null;
     /** the hosted collectives (root app only; null in a hosted collective's app and without a hub) */
     hub: Hub | null;
     /** a hosted collective's export dir (null: env MUSTER_TOWN_EXPORT) */

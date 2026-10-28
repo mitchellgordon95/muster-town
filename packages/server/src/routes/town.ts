@@ -32,11 +32,12 @@ export async function townRoutes(app: FastifyInstance) {
    * `commit`: the git sha the running server started from (null without a runtime); `git merge-base --is-ancestor <sha> <commit>` says
    * whether a change is live. `load` (read-only): `lagMs` p99 event-loop delay over the last 10 s window, `rssMb`, `wsClients` open now.
    * `backup` (read-only): the off-site copy's `{lastAt, bytes, dest, error}`; null until the bucket and key are set
-   * (deploy/README.md "Backups"). Never the key or the bucket credentials.
+   * (deploy/README.md "Backups"). Never the key or the bucket credentials. `monitor` (read-only, null without one):
+   * `{lastSampleAt, outbound, alerts: [{key, level, since, value}]}` (monitor.ts); never a secret.
    */
   app.get("/api/health", async () => ({ ok: true, runtime: !!app.runtime, commit: world.host.commit ?? null, time: new Date().toISOString(), accounting: BANK_ACCOUNTING, load: app.load.snapshot(),
     // goal-directed budgets: exploration (held at its allowance) and directed (a human asked; metered, never held) today
-    budgets: world.grantDesk.laneBudgets(), backup: app.backup?.snapshot() ?? null,
+    budgets: world.grantDesk.laneBudgets(), backup: app.backup?.snapshot() ?? null, monitor: app.monitor?.view() ?? null,
     // the root app (the Workshop) only: how many hosted collectives this process serves at /<slug>/
     ...(app.hub ? { hosted: { count: app.hub.count } } : {}),
     // a hosted collective: its own key or none (its agents are held), never the host's funding
@@ -405,6 +406,14 @@ export async function townRoutes(app: FastifyInstance) {
     if (!app.runtime?.redeploy) throw new AppError("internal", "runtime not available", 503);
     const r = await app.runtime.redeploy({ image: input.image, requestedBy: actor.name });
     return reply.code(r.started ? 202 : 200).send(r);
+  });
+
+  /** Monitor (monitor.ts): one red test alert (key `test`) down the whole path; admins only; counts toward the 10/h cap. */
+  app.post("/api/admin/monitor/test", async (req) => {
+    const user = requireUser(req);
+    if (!world.permissions.isAdmin({ kind: "user", id: user.id })) throw new AppError("forbidden", "Only an admin can send a test alert.", 403);
+    if (!app.monitor) throw new AppError("internal", "This server runs no monitor.", 503);
+    return app.monitor.test(user.name);
   });
 }
 

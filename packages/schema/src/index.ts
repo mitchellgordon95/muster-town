@@ -987,6 +987,8 @@ export const EventType = z.enum([
   "skill.used", "skill.pinned", "skill.unpinned",
   "secret.set", "secret.deleted", "secret.granted",
   "export.done", "system",
+  /** the in-process monitor (packages/server/src/monitor.ts): an alert raised, re-sent, cleared, a test, or a gap in samples */
+  "alert",
 ]);
 export const Event = z.object({
   id: z.number().int(),
