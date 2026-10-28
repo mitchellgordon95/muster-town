@@ -19,6 +19,7 @@ export function OutboxPanel() {
   const rev = useTown((s) => s.rev);
   const list = useLoad(() => api().docs({ type: "request", limit: 200 }), [rev]);
   const reports = useLoad(() => api().docs({ type: "human-report", limit: 50 }), [rev]);
+  const unclaimed = useTown((s) => s.outbox);
   const [open, setOpen] = useState<Doc | null>(null);
   const grouped = useMemo(() => {
     const m = new Map<string, Doc[]>();
@@ -26,7 +27,7 @@ export function OutboxPanel() {
     return m;
   }, [list.data]);
   return (
-    <PanelShell icon={<Glyph kind="outbox" />} title="Outbox" subtitle="Requests from agents for humans to do in the real world" tabs={["Requests", "Human reports"]}>
+    <PanelShell icon={<Glyph kind="outbox" />} title={<>Outbox {unclaimed ? <Pill tone="warn" title="Requests nobody has claimed yet">{unclaimed}</Pill> : null}</>} subtitle="Requests from agents for humans to do in the real world" tabs={["Requests", "Human reports"]}>
       {(t) => t === "Requests" ? (
         open ? <DocView doc={open} onBack={() => setOpen(null)} backLabel="Outbox" /> : (
           <>

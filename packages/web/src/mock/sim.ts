@@ -78,8 +78,11 @@ export class Sim {
       agents: [...this.agents.values()].filter((a) => a.status !== "banned"), places: this.layout.places, flags: [], grid: this.layout.grid,
       meetings: [...this.meetings.values()].filter((m) => m.phase !== "done" && m.phase !== "cancelled"),
       health: { docker: this.dockerUp, slots: { running: [...this.agents.values()].filter((a) => a.status === "working").length, max: this.maxRunning } },
+      outbox: this.outboxOpen(),
     });
   }
+
+  outboxOpen() { return [...this.docs.values()].filter((d) => d.type === "request" && d.requestStatus === "open").length; }
 
   /**
    * Pending reports for a building, oldest first (GET /api/buildings/:id/intray). As in core, a report by its

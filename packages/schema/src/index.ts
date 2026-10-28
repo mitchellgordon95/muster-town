@@ -1234,7 +1234,9 @@ export function mapFlagOf(d: Doc): MapFlag | null {
 }
 
 export const ServerMessage = z.discriminatedUnion("type", [
-  z.object({ type: z.literal("snapshot"), avatarAgentId: Id.optional(), town: Town, buildings: z.array(SnapshotBuilding), agents: z.array(Agent), places: z.array(Place), flags: z.array(MapFlag).default([]), grid: z.object({ w: z.number(), h: z.number(), /** row-major tile kinds */ tiles: z.array(z.number()) }), meetings: z.array(Meeting), health: z.object({ docker: z.boolean(), slots: z.object({ running: z.number().int().nonnegative(), max: z.number().int().positive() }).optional() }).optional() }),
+  z.object({ type: z.literal("snapshot"), avatarAgentId: Id.optional(), town: Town, buildings: z.array(SnapshotBuilding), agents: z.array(Agent), places: z.array(Place), flags: z.array(MapFlag).default([]), grid: z.object({ w: z.number(), h: z.number(), /** row-major tile kinds */ tiles: z.array(z.number()) }), meetings: z.array(Meeting), health: z.object({ docker: z.boolean(), slots: z.object({ running: z.number().int().nonnegative(), max: z.number().int().positive() }).optional() }).optional(),
+    /** outbox requests nobody has claimed yet (requestStatus open): the badge on the map's outbox */
+    outbox: z.number().int().nonnegative().optional() }),
   z.object({ type: z.literal("event"), event: Event }),
   z.object({ type: z.literal("agent"), agent: Agent }),
   z.object({ type: z.literal("agents.pos"), positions: z.array(z.object({ id: Id, x: z.number(), y: z.number(), status: AgentStatus })) }),
@@ -1242,6 +1244,8 @@ export const ServerMessage = z.discriminatedUnion("type", [
   z.object({ type: z.literal("meeting"), meeting: Meeting }),
   z.object({ type: z.literal("building"), building: Building.extend({ intray: z.number().int().nonnegative().optional(), budget: BuildingBudget.optional(), stoplight: Stoplight.nullable().optional() }) }),
   z.object({ type: z.literal("assignment"), assignment: Assignment }),
+  /** the outbox's unclaimed count changed (a request was filed, claimed or deleted) */
+  z.object({ type: z.literal("outbox"), open: z.number().int().nonnegative() }),
   z.object({ type: z.literal("error"), message: z.string() }),
 ]);
 export type ServerMessage = z.infer<typeof ServerMessage>;

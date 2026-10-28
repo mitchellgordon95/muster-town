@@ -384,14 +384,16 @@ export class MockApi implements Api {
   async request(docId: string, action: RequestAction, body?: string) {
     await wait();
     const d = this.need(this.sim.docs.get(docId), "doc");
-    if (action === "delete") { this.sim.docs.delete(docId); return null; }
+    if (action === "delete") { this.sim.docs.delete(docId); this.sim.emit({ type: "outbox", open: this.sim.outboxOpen() }); return null; }
     d.requestStatus = action === "claim" ? "claimed" : "done";
     if (action === "claim") d.claimedByUserId = "us_mitchell";
     if (action === "done") {
       const hr = this.sim.putDoc({ id: newId("dc"), type: "human-report", state: "library", title: `Re: ${d.title}`, body: body || "(no details)", authorId: "us_mitchell", authorKind: "user", buildingId: d.buildingId, provenance: { sourceIds: [], urls: [] }, tags: [], createdAt: now(), updatedAt: now() });
       this.sim.event("doc.created", null, `Mitchell answered a request: ${d.title}`, { docId: hr.id });
     } else this.sim.event("doc.updated", null, `Request "${d.title}" claimed`, { docId });
-    return clone(this.sim.putDoc(d));
+    const out = clone(this.sim.putDoc(d));
+    this.sim.emit({ type: "outbox", open: this.sim.outboxOpen() });
+    return out;
   }
 
   async meetings(q: { buildingId?: string; phase?: string }) {

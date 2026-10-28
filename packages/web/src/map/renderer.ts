@@ -593,6 +593,12 @@ export class MapRenderer {
       const q = toScreen(p.pos.x * T + T - 2, (p.pos.y + (below ? 1 : -1)) * T + 1);
       if (q.x > -40 && q.x < cw + 40 && q.y > -40 && q.y < ch + 40) drawBadge(g, q.x, q.y, b.intray);
     }
+    // the outbox badge: requests nobody has claimed yet, on the counter (the tile row above its standing spot)
+    if (s.outbox) {
+      const p = s.places.find((x) => x.kind === "outbox");
+      const q = p ? toScreen(p.pos.x * T + T - 2, (p.pos.y - 1) * T + 1) : null;
+      if (q && q.x > -40 && q.x < cw + 40 && q.y > -40 && q.y < ch + 40) drawBadge(g, q.x, q.y, s.outbox);
+    }
     // bubbles last so they sit above every label
     const bubbles: { d: (typeof list)[number]; b: Bubble }[] = [];
     for (const d of list) {
