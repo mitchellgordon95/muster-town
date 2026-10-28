@@ -4,6 +4,7 @@ import { driftRows, parseResetsAt, previousUtcDay, utcDay, type DriftRow } from 
 import { badRequest, forbidden } from "./errors.ts";
 import { townFinance, type FinanceSummary } from "./finance.ts";
 import { townSpend, type FinanceSpend } from "./finance-spend.ts";
+import { townSources, type FinanceSources } from "./finance-sources.ts";
 import type { EventLog } from "./events.ts";
 import type { Holder, Permissions } from "./permissions.ts";
 import type { Repos } from "./store.ts";
@@ -662,6 +663,11 @@ export class Bank {
   /** GET /api/finance/spend: `used` by building → grant → assignment, from the sessions table (finance-spend.ts). */
   spend(now = new Date()): FinanceSpend {
     return townSpend(this.repos, this.events, now);
+  }
+
+  /** GET /api/finance/sources: what was received, per Bank input (with its dated credits) and per direct donation (finance-sources.ts). */
+  sources(now = new Date()): FinanceSources {
+    return townSources(this.repos, now);
   }
 
   summary(): BankSummary {

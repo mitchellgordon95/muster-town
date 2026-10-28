@@ -1,7 +1,7 @@
 /** `Api` implemented against the in-memory Sim. Same interface as HttpApi, so every panel works offline. */
 import type { AccessRequest, AccessRequestView, Agent, Assignment, AuthMe, BlockedAssignment, BlockedBy, Building, Doc, Event, Meeting, Membership, RedeployLive } from "@muster-town/schema";
 import { BACKFILL, BOARD_TYPES, KPI_FRAMING, DEFAULT_POOL_ID, ZERO_TOKENS, addTokens, backfillFamily, splitRaw, type BankPool } from "@muster-town/schema";
-import type { Api, AgentDetail, AllocationRow, Bank, Budget, Finance, FinanceSpend, Cabinet, CabinetQuery, DocQuery, EventQuery, In, LayoutPreview, MessageResult, PlanPreview, RoomLayout, RequestAction, Snapshot, Socket, SocketHandlers, ThreadMessage, WriteDocInput } from "../api";
+import type { Api, AgentDetail, AllocationRow, Bank, Budget, Finance, FinanceSources, FinanceSpend, Cabinet, CabinetQuery, DocQuery, EventQuery, In, LayoutPreview, MessageResult, PlanPreview, RoomLayout, RequestAction, Snapshot, Socket, SocketHandlers, ThreadMessage, WriteDocInput } from "../api";
 import { ApiError } from "../api";
 import type { PinSkillInput, PutSecretInput, SecretView, SkillPinView, SkillView } from "@muster-town/schema";
 import type { CreateBuildingInput, UpdateBuildingInput, CreateResidentInput, RegisterVisitorInput, ReviewInput, ChatInput, WorkInput, DonateInput, CreateMeetingInput, DocState, AddBankInput, BankInput, CreateBankPoolInput, UpdateBankPoolInput, DecideGrantInput, CloseGrantInput, CreateKeyResultInput, UpdateKeyResultInput, CreateObjectiveInput, UpdateObjectiveInput } from "@muster-town/schema";
@@ -558,6 +558,26 @@ export class MockApi implements Api {
     const { used } = await this.finance();
     const rows: FinanceSpend["rows"] = used ? [{ kind: "unattributed", id: null, name: "Unattributed (usage no session counts)", tokens: used, share: 1, sessions: 0 }] : [];
     return { used, sessionsTotal: 0, unattributed: used, weightMismatch: 0, weightMismatchNote: "The toy Bank was born adjusted: no pre-conversion sessions.", convertedAt: null, notFunded: 0, rows, check: { ok: true, diff: 0, identity: "buildings + unattributed − weight mismatch − not funded = used" }, at: now() };
+  }
+  // the toy's sources, counted like its finance(): each live input credited once at creation, each donation at its size
+  async financeSources(): Promise<FinanceSources> {
+    const { total } = await this.finance();
+    const name = (id: string) => this.sim.users.find((u) => u.id === id)?.name ?? "";
+    const inputs: FinanceSources["inputs"] = this.bankInputs.filter((i) => !i.cancelledAt).map((i) => ({
+      id: i.id, label: i.label, source: i.source, recurrence: i.recurrence, who: name(i.userId), createdAt: i.createdAt, cancelledAt: i.cancelledAt,
+      tokens: i.creditedTokens, firstAt: i.createdAt, lastAt: i.createdAt, expiredTokens: 0,
+      credits: [{ id: `${i.id}_c1`, createdAt: i.createdAt, expiresAt: null, tokens: i.creditedTokens, expiredTokens: 0 }],
+    }));
+    const donations: FinanceSources["donations"] = this.sim.allocations.map((a) => ({
+      id: a.id, label: a.label, who: name(a.userId), buildingId: a.buildingId, buildingName: this.sim.buildings.find((b) => b.id === a.buildingId)?.name ?? a.buildingId,
+      createdAt: a.createdAt, auth: a.auth, retired: a.retired, sizeTokens: a.tokens, spentTokens: a.spentTokens, tokens: a.tokens,
+    }));
+    const creditedTokens = inputs.reduce((s, r) => s + r.tokens, 0), donatedTokens = donations.reduce((s, d) => s + d.tokens, 0);
+    const totalReceived = creditedTokens + donatedTokens;
+    return {
+      inputs, donations, creditedTokens, donatedTokens, totalReceived, expiredTokens: 0,
+      sumCheck: { ok: true, diff: 0, identity: "credits + donations = total received" }, financeTotal: total, matchesFinance: totalReceived === total, at: now(),
+    };
   }
   async bank(): Promise<Bank> {
     await wait();

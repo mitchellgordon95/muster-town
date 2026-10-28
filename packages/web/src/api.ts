@@ -128,6 +128,28 @@ export interface FinanceSpend {
   check: { ok: boolean; diff: number; identity: string };
   at: string;
 }
+/** One dated credit of a Bank input in `GET /api/finance/sources`; `expiredTokens` is what expired undrawn (subscription credits only). */
+export interface SourceCredit { id: string; createdAt: string; expiresAt: string | null; tokens: number; expiredTokens: number }
+/**
+ * `GET /api/finance/sources` (public) — core's FinanceSources: where the tokens came from. One row per Bank input (with its
+ * dated credits; a synthetic `id: null` row holds credits of deleted inputs) and one per direct donation (a retired one
+ * counts min(size, spent) as `tokens`). creditedTokens + donatedTokens = totalReceived, which equals /api/finance `total`.
+ */
+export interface FinanceSources {
+  inputs: {
+    id: string | null; label: string; source: "api-key" | "subscription" | null; recurrence: "once" | "daily" | "weekly" | "monthly" | null;
+    who: string; createdAt: string | null; cancelledAt: string | null;
+    tokens: number; firstAt: string | null; lastAt: string | null; expiredTokens: number; credits: SourceCredit[];
+  }[];
+  donations: {
+    id: string; label: string; who: string; buildingId: string; buildingName: string; createdAt: string;
+    auth: "subscription" | "api-key" | "donor-key"; retired: boolean; sizeTokens: number; spentTokens: number; tokens: number;
+  }[];
+  creditedTokens: number; donatedTokens: number; totalReceived: number; expiredTokens: number;
+  sumCheck: { ok: boolean; diff: number; identity: string };
+  financeTotal: number; matchesFinance: boolean;
+  at: string;
+}
 /** `GET /api/bank` — core's BankSummary: the accounting pools, the inputs, each building's view (from its pool), and the top contributors. */
 export interface BankPoolSummary {
   id: string; name: string;
@@ -386,6 +408,8 @@ export interface Api {
   finance(): Promise<Finance>;
   /** public: where `used` went, by building → grant → assignment */
   financeSpend(): Promise<FinanceSpend>;
+  /** public: where the tokens came from, per input (dated credits) and per donation; sums to /api/finance total */
+  financeSources(): Promise<FinanceSources>;
   addBankInput(input: In<typeof AddBankInput>): Promise<BankInput>;
   cancelBankInput(id: string): Promise<BankInput>;
   /** admin: accounting pools (a pool's `pct` null = an equal split of what's left); returns the new Bank summary */
@@ -603,6 +627,7 @@ export class HttpApi implements Api {
   }
   async finance() { return this.get<Finance>("/api/finance"); }
   async financeSpend() { return this.get<FinanceSpend>("/api/finance/spend"); }
+  async financeSources() { return this.get<FinanceSources>("/api/finance/sources"); }
   async addBankInput(i: In<typeof AddBankInput>) { return unwrap<BankInput>(await this.post("/api/bank/inputs", i), "input"); }
   async cancelBankInput(id: string) { return unwrap<BankInput>(await this.call("DELETE", `/api/bank/inputs/${id}`), "input"); }
   async createBankPool(i: In<typeof CreateBankPoolInput>) { return unwrap<Bank>(await this.post("/api/bank/pools", i), "bank"); }
