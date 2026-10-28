@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { renderToStaticMarkup } from "react-dom/server";
-import type { BankPoolSummary, Finance } from "../src/api";
-import { FinanceView, overdrawnParts, poolDurable, runwayDays, sumCheckLine } from "../src/panels/FinancePanel";
+import type { BankPoolSummary, Finance, FinanceSpend } from "../src/api";
+import { FinanceView, overdrawnParts, pct, poolDurable, runwayDays, spendCheckLine, sumCheckLine } from "../src/panels/FinancePanel";
 
 // the live shape: 1,000 received, 1,100 used (200 overdrawn), 50 expired, 50 left
 const f: Finance = {
@@ -40,5 +40,45 @@ describe("finance page", () => {
     const html = renderToStaticMarkup(<FinanceView f={f} pools={[pool("General", -256870), pool("Research", 5000)]} />);
     for (const s of ["Total received", "1,000", "Used", "1,100", "Expired", "Left", "Overdrawn", "✓ Adds up", "20 / day", "average of the last 7 days", "600", "overdrawn by 256,870", "5,000"]) expect(html).toContain(s);
     expect(renderToStaticMarkup(<FinanceView f={{ ...f, sumCheck: { ...f.sumCheck, ok: false, diff: 5 } }} pools={null} />)).toContain("✗ Does not add up (off by 5)");
+  });
+});
+
+// the live shape of GET /api/finance/spend: sessions counted 1,150 against 1,100 used, so a not-funded row of −50
+const sp: FinanceSpend = {
+  used: 1100, sessionsTotal: 1150, unattributed: 0, notFunded: 50, at: "2026-10-28T16:31:50.056Z",
+  rows: [
+    { kind: "building", id: "workshop", name: "Town Workshop", tokens: 900, share: 0.8182, sessions: 9, children: [
+      { kind: "grant", id: "gr_a", name: "Refactor the Bank", tokens: 500, share: 0.4545, sessions: 4, children: [
+        { kind: "assignment", id: "as_a", name: "Step 1: the ledger", tokens: 500, share: 0.4545, sessions: 4 }] },
+      { kind: "no-grant", id: null, name: "No grant (exploration, directed and earlier work)", tokens: 300, share: 0.2727, sessions: 3, children: [
+        { kind: "assignment", id: "as_b", name: "Explore the map", tokens: 300, share: 0.2727, sessions: 3 }] },
+      { kind: "no-assignment", id: null, name: "Manager sessions, no assignment", tokens: 100, share: 0.0909, sessions: 2 },
+    ] },
+    { kind: "building", id: "bl_b", name: "Bank Transparency", tokens: 250, share: 0.2273, sessions: 2 },
+    { kind: "not-funded", id: null, name: "Not funded: session spend beyond what the Bank and donations paid for", tokens: -50, share: -0.0455, sessions: 0 },
+  ],
+  check: { ok: true, diff: 0, identity: "buildings + unattributed − not funded = used" },
+};
+
+describe("finance page: spending", () => {
+  it("says the top-level rows sum to used, and by how much they miss when they don't", () => {
+    expect(spendCheckLine(sp)).toEqual({ ok: true, text: "Adds up: the rows sum to used, 1,100" });
+    expect(sp.rows.reduce((s, r) => s + r.tokens, 0)).toBe(sp.used);
+    const bad = spendCheckLine({ ...sp, check: { ...sp.check, ok: false, diff: 7 } });
+    expect(bad.ok).toBe(false);
+    expect(bad.text).toBe("Does not add up (off by 7): the rows sum to 1,100, used is 1,100");
+  });
+  it("formats shares as percentages, negative for not funded", () => {
+    expect(pct(0.8182)).toBe("81.8%");
+    expect(pct(-0.0455)).toBe("-4.5%");
+  });
+  it("renders building → grant → assignment with the synthetic rows, collapsible", () => {
+    const html = renderToStaticMarkup(<FinanceView f={f} pools={null} spend={sp} />);
+    for (const s of ["Spending", "Town Workshop", "900", "81.8%", "Refactor the Bank", "Step 1: the ledger", "No grant", "Manager sessions, no assignment", "Not funded", "-50", "Sessions counted more than", "✓ Adds up: the rows sum to used", "/api/finance/spend"]) expect(html).toContain(s);
+    expect(html).toContain("<details");
+    expect(renderToStaticMarkup(<FinanceView f={f} pools={null} spend={{ ...sp, check: { ...sp.check, ok: false, diff: 3 } }} />)).toContain("✗ Does not add up (off by 3)");
+  });
+  it("leaves the section out when the spend can't be loaded", () => {
+    expect(renderToStaticMarkup(<FinanceView f={f} pools={null} />)).not.toContain("Spending");
   });
 });

@@ -106,6 +106,25 @@ export interface Finance {
   sumCheck: { ok: boolean; diff: number; identity: string };
   at: string;
 }
+/** One row of `GET /api/finance/spend`: a building, grant or assignment, or a synthetic row (no grant, no assignment, unattributed, not funded). */
+export interface SpendNode {
+  kind: "building" | "grant" | "no-grant" | "assignment" | "no-assignment" | "unattributed" | "not-funded";
+  /** null for the synthetic rows */
+  id: string | null;
+  name: string;
+  tokens: number;
+  /** tokens / used; negative for the not-funded row */
+  share: number;
+  sessions: number;
+  children?: SpendNode[];
+}
+/** `GET /api/finance/spend` (public) — core's FinanceSpend: `used` by building → grant → assignment; the top-level rows sum to `used`. */
+export interface FinanceSpend {
+  used: number; sessionsTotal: number; unattributed: number; notFunded: number;
+  rows: SpendNode[];
+  check: { ok: boolean; diff: number; identity: string };
+  at: string;
+}
 /** `GET /api/bank` — core's BankSummary: the accounting pools, the inputs, each building's view (from its pool), and the top contributors. */
 export interface BankPoolSummary {
   id: string; name: string;
@@ -362,6 +381,8 @@ export interface Api {
   bank(): Promise<Bank>;
   /** public: the town's finance summary (used, expired, left, a 30-day projection) */
   finance(): Promise<Finance>;
+  /** public: where `used` went, by building → grant → assignment */
+  financeSpend(): Promise<FinanceSpend>;
   addBankInput(input: In<typeof AddBankInput>): Promise<BankInput>;
   cancelBankInput(id: string): Promise<BankInput>;
   /** admin: accounting pools (a pool's `pct` null = an equal split of what's left); returns the new Bank summary */
@@ -578,6 +599,7 @@ export class HttpApi implements Api {
     return { ...r, inputs: r.inputs ?? [], pools: r.pools ?? [], buildings: r.buildings ?? [], contributors: r.contributors ?? [] };
   }
   async finance() { return this.get<Finance>("/api/finance"); }
+  async financeSpend() { return this.get<FinanceSpend>("/api/finance/spend"); }
   async addBankInput(i: In<typeof AddBankInput>) { return unwrap<BankInput>(await this.post("/api/bank/inputs", i), "input"); }
   async cancelBankInput(id: string) { return unwrap<BankInput>(await this.call("DELETE", `/api/bank/inputs/${id}`), "input"); }
   async createBankPool(i: In<typeof CreateBankPoolInput>) { return unwrap<Bank>(await this.post("/api/bank/pools", i), "bank"); }
