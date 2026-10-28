@@ -108,6 +108,7 @@ export class MockApi implements Api {
   }
   async dismiss(id: string, purge = false) { await wait(); this.sim.dismiss(id, purge); }
   async ban(id: string, reason: string) { await wait(); return clone(this.sim.ban(id, reason)); }
+  async building(id: string) { await wait(); return clone(this.need(this.sim.buildings.find((x) => x.id === id), "building")); }
   async updateBuilding(id: string, i: In<typeof UpdateBuildingInput>) {
     await wait();
     const b = this.need(this.sim.buildings.find((x) => x.id === id), "building");

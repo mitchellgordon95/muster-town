@@ -456,6 +456,7 @@ function BudgetMode({ b }: { b: SnapshotBuilding }) {
         <Field label="Exploration / day" hint="Leave blank for the default: 10% of the pool's daily inflow.">
           <MTokensInput value={explore} placeholder="default" onChange={setExplore} />
         </Field>
+        <ForksToggle b={b} />
         <div className="actions"><Act tone="primary" run={async () => {
           await api().updateBuilding(b.id, { budgetMode: mode, explorationTokensPerDay: explore.trim() === "" ? null : Math.max(0, fromMillions(explore) || 0) });
           store.toast(`${b.name} is now ${mode}`, "ok");
@@ -463,6 +464,38 @@ function BudgetMode({ b }: { b: SnapshotBuilding }) {
       </form>
     </Section>
   );
+}
+
+export const FORKS_HINT = "Queued building work runs on forks of the manager";
+
+/** The Forks switch's markup; `on` null = still reading the live value. */
+export function ForksField({ on, busy, onChange }: { on: boolean | null; busy?: boolean; onChange: (on: boolean) => void }) {
+  return (
+    <Field label="Forks" hint={FORKS_HINT}>
+      <span className="check"><input type="checkbox" aria-label="Forks" checked={!!on} disabled={on === null || busy} onChange={(e) => onChange(e.target.checked)} /> {on === null ? "…" : on ? "on" : "off"}</span>
+    </Field>
+  );
+}
+
+/** Manager forks on/off (PATCH /api/buildings/:id {forks}, building.fund); reads the live value from GET /api/buildings/:id and saves on click. */
+function ForksToggle({ b }: { b: SnapshotBuilding }) {
+  const [on, setOn] = useState<boolean | null>(null);
+  const [busy, setBusy] = useState(false);
+  useEffect(() => {
+    let live = true;
+    api().building(b.id).then((x) => { if (live) setOn(x.forks); }, () => { if (live) setOn(b.forks); });
+    return () => { live = false; };
+  }, [b.id, b.forks]);
+  return <ForksField on={on} busy={busy} onChange={async (next) => {
+    setBusy(true);
+    try {
+      const saved = await api().updateBuilding(b.id, { forks: next });
+      setOn(saved.forks);
+      store.toast(`Forks ${saved.forks ? "on" : "off"} for ${b.name}`, "ok");
+    } catch (e) {
+      store.toast((e as Error).message, "bad");
+    } finally { setBusy(false); }
+  }} />;
 }
 
 /** The Bank pool this building draws from. Only an admin can move it; the move takes effect at once. */

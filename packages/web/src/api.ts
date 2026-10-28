@@ -251,6 +251,8 @@ export interface Api {
   board(buildingId: string, limit?: number): Promise<Board>;
   cabinet(buildingId: string, q?: CabinetQuery): Promise<Cabinet>;
   createBuilding(input: In<typeof CreateBuildingInput>): Promise<Building>;
+  /** GET /api/buildings/:id: the building row as stored (live budget settings such as `forks`) */
+  building(id: string): Promise<Building>;
   updateBuilding(id: string, input: In<typeof UpdateBuildingInput>): Promise<Building>;
   /** Furniture of a room, and the human-only editor's dry run / save (lot-relative anchors). */
   layout(buildingId: string): Promise<RoomLayout>;
@@ -491,6 +493,7 @@ export class HttpApi implements Api {
     return { docs: r.docs ?? [], counts: r.counts ?? [] };
   }
   async createBuilding(i: In<typeof CreateBuildingInput>) { return unwrap<Building>(await this.post("/api/buildings", i), "building"); }
+  async building(id: string) { return unwrap<Building>(await this.get(`/api/buildings/${id}`), "building"); }
   async updateBuilding(id: string, i: In<typeof UpdateBuildingInput>) { return unwrap<Building>(await this.call("PATCH", `/api/buildings/${id}`, i), "building"); }
   layout(id: string) { return this.get<RoomLayout>(`/api/buildings/${id}/layout`); }
   previewLayout(id: string, furniture: Record<string, Tile>) { return this.call<LayoutPreview>("PUT", `/api/buildings/${id}/layout`, { furniture, dryRun: true }); }
