@@ -20,6 +20,7 @@ import { fromMillions, toMillions } from "../format";
 import { portraitUrl } from "../map/sprites";
 import { useMediaPaste } from "./mediaPaste";
 import { MediaThumb } from "./MediaThumb";
+import { RollupCards, rollupCardsOf } from "./RollupCards";
 
 // ---------- in-tray ----------
 
@@ -361,6 +362,7 @@ function IntrayRow({ doc, chain, onOpen, onOpenDoc, showBuilding }: { doc: Doc; 
   const preview = flag && doc.body.trim() !== doc.title ? doc.body.replace(/\s+/g, " ") : null;
   const rollup = doc.tags.includes("rollup");
   const covered = doc.provenance.sourceIds;
+  const cards = rollup ? rollupCardsOf(doc) : null;
   const [expanded, setExpanded] = useState(false);
   const docs = useTown((s) => s.docs);
   useEffect(() => {
@@ -387,6 +389,7 @@ function IntrayRow({ doc, chain, onOpen, onOpenDoc, showBuilding }: { doc: Doc; 
           {doc.tokens ? <span title={ADJ_HINT}>{fmtTokens(doc.tokens)} {ADJ}{doc.costUsd ? ` · ${usd(doc.costUsd)}` : ""}</span> : null}
         </div>
       </button>
+      {cards ? <div className="intray-cards"><RollupCards parsed={cards} /></div> : null}
       {chain ? (
         // a fork's report: its place on the assignment chain, the fork's session (agent panel) and the previous hop
         <div className="intray-covered intray-chain">

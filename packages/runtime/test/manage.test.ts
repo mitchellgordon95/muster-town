@@ -114,7 +114,7 @@ describe("manager team-lead session", () => {
       yield init();
       const id = s.received[0].match(/(dc_[a-z0-9]+)/)![1];
       yield* callVerb(s, "review", { docId: id, decision: "approve" });
-      yield* callVerb(s, "submit_report", { ...report("Rollup: carbon lab"), verdict: "continue" as const, rollup: true, provenance: { sourceIds: [id] } });
+      yield* callVerb(s, "submit_report", { title: "Rollup: carbon lab", body: `## Shipped\nNothing new.\n\n## Decided\n- ${id} → approved\n\n## Key results\nnone funded\n\n## Needs from Mitchell\nNothing needed.`, verdict: "continue" as const, rollup: true, provenance: { sourceIds: [id] } });
       yield result(200, 0.03);
     });
     const { world, runtime, sdk, by } = env;

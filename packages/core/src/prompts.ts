@@ -2,7 +2,7 @@
  * Persona, world rules, and task prompts for every kind of session. Keep them tight.
  * Lives in core so the server can brief desks (`composeWorkBrief`) and the runtime can brief in-process sessions.
  */
-import type { Agent, Assignment, Building, DeskBrief, DeskWorkspace, Doc, Event, Meeting, Town, Workspace } from "@muster-town/schema";
+import { ROLLUP_MAX_ITEMS, ROLLUP_MAX_PICTURES, type Agent, type Assignment, type Building, type DeskBrief, type DeskWorkspace, type Doc, type Event, type Meeting, type Town, type Workspace } from "@muster-town/schema";
 import { intrayCounts, intrayOf } from "./domain.ts";
 import { decisionOutcomes, previousMeeting, type DecisionOutcome } from "./meetings.ts";
 import { forkMemoryBlock, memoryBlock, teamBlock, topicIndexBlock, WIKI_HOWTO } from "./memory.ts";
@@ -257,7 +257,12 @@ ${rows.length ? rows.join("\n") : "(empty)"}
 
 Decide each report with \`review\` (\`read\` it first): approve = acknowledge finished work (the default; idle is fine), continue = its proposal becomes the author's next assignment, redirect = your note becomes it, stop = the author stops.${flags ? " A FLAG is a quick request a human planted in this building. One that stands on the map: walk to it first (\`go\` to flag:<its id>), which picks it up and gives you its text; then delegate it with `review` plus `assigneeId` (a resident of this building; continue = the flag's text becomes their directed assignment verbatim, redirect = your note does, with the flag as context); approve only when nothing needs doing. It is directed work (a human asked), so the allowance never holds it." : ""} Your own work reports (from work you assigned yourself) land here too: decide them the same way and fold them into your rollup; only rollups reach the Town Hall. Decide yourself whether to wait for more reports or roll up; undecided reports stay here. ${ESCALATION_CRITERIA}
 
-Rollups are how Mitchell hears from you: \`submit_report\` with \`rollup: true\` and the covered reports' ids in provenance.sourceIds. Four short sections: Shipped (live, with commits or doc ids), Decided (each covered report → what you decided), Key results (each funded grant's KRs with the spend numbers, plus today's spend by lane: exploration ${tok(lanes.exploration.spentTodayTokens)} / ${tok(lanes.exploration.allowanceTokens)} tokens, directed ${tok(lanes.directed.spentTodayTokens)} tokens), Needs from Mitchell (at most two items; "Nothing needed" is valid). Roll up when a covered report hit an escalation criterion, or when ${ROLLUP_RULE_HOURS} h have passed since your last rollup and something was decided; nothing happened → no rollup. Last rollup: ${sinceLast}; reports decided since: ${decidedSince}.${krWrites.length ? `
+Rollups are how Mitchell hears from you: \`submit_report\` with \`rollup: true\` and the covered reports' ids in provenance.sourceIds. The format, one screen: an optional one-line intro (the live commit), then
+- \`## Shipped\`: at most ${ROLLUP_MAX_ITEMS} numbered items (\`**1. Title**\`), each with \`**What it is:**\` (plain words, ids after), \`**What you'd see:**\` (where in the UI, the live numbers), one cropped picture (\`![alt](/api/media/…)\`, ≤300 px tall, at most ${ROLLUP_MAX_PICTURES} in the rollup; API-only changes say so instead) and \`**Your call:**\` (one line, or "None"). The in-tray shows them as cards.
+- \`## Decided\`: one line per covered report (id → decision).
+- \`## Key results\`: a table, one row per funded grant's key result (status, spent / granted), plus today's spend by lane: exploration ${tok(lanes.exploration.spentTodayTokens)} / ${tok(lanes.exploration.allowanceTokens)} tokens, directed ${tok(lanes.directed.spentTodayTokens)} tokens.
+- \`## Needs from Mitchell\`: at most two items; "Nothing needed" is valid.
+A rollup without the four headings is refused; a Shipped item without the three labels is filed with a warning. Roll up when a covered report hit an escalation criterion, or when ${ROLLUP_RULE_HOURS} h have passed since your last rollup and something was decided; nothing happened → no rollup. Last rollup: ${sinceLast}; reports decided since: ${decidedSince}.${krWrites.length ? `
 Key results you wrote since then (changes a key result, so roll up; your rollup lists them for you): ${krWrites.map((w) => `${w.action} ${w.keyResultId} "${oneLine(w.text, 80)}"`).join("; ")}.` : ""}`;
 }
 

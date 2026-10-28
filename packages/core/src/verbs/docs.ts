@@ -1,4 +1,4 @@
-import { BOARD_TYPES, type Agent, type Doc, type LaneFields } from "@muster-town/schema";
+import { BOARD_TYPES, parseRollup, rollupWarnings, type Agent, type Doc, type LaneFields } from "@muster-town/schema";
 import {
   applyDecision, canSeeDoc, createAssignment, createDoc, homeOf, isTownHallItem, managerAgentOf, requirePendingReport, sendMessage,
   setAssignmentStatus, summarizeDoc, updateDoc,
@@ -250,6 +250,11 @@ export async function submit_report(world: World, me: Agent, input: VerbIn<"subm
       if (!d || d.type !== "report" || d.buildingId !== bid) throw badRequest(`Rollup source ${id} is not a report of your building.`);
     }
   }
+  // the rollup format (1:1 mt_vcn0e66r1t): the four headings are required; a Shipped item without its labels is only warned
+  const format = input.rollup ? parseRollup(input.body) : null;
+  if (format?.missingSections.length) throw badRequest(`A rollup has four sections: ## Shipped, ## Decided, ## Key results, ## Needs from Mitchell. Missing: ${format.missingSections.map((s) => `## ${s}`).join(", ")}.`);
+  const formatWarnings = format ? rollupWarnings(format) : [];
+  const formatNote = formatWarnings.length ? ` Format warnings (filed anyway; the in-tray shows plain text instead of cards): ${formatWarnings.join("; ")}. Next rollup: each Shipped item gets **What it is:**, **What you'd see:** (one cropped picture) and **Your call:**.` : "";
   // P2: park instead of ending: the continuation waits for `resumeWhen` and then starts by itself (at most MAX_PARKS in a row)
   const resumeWhen = input.resumeWhen ? validateWait(world, input.resumeWhen) : null;
   const parks = (current?.parked ?? 0) + 1;
@@ -302,10 +307,10 @@ export async function submit_report(world: World, me: Agent, input: VerbIn<"subm
       : manager ? `the ${building!.name} in-tray, which ${manager.name}, your manager, works` : "your building's in-tray (a human works it)";
     const workedBy = manager ? "manager" : "human";
     if (parked) {
-      return { id: doc.id, decision, intray, workedBy, nextAssignmentId: parked.assignmentId,
-        note: `Report submitted to ${where}; your work is parked and resumes by itself after ${parked.waitingOn} (whoever works the in-tray can Stop or Redirect it there). Your session ends now.` };
+      return { id: doc.id, decision, intray, workedBy, nextAssignmentId: parked.assignmentId, ...(formatWarnings.length ? { warnings: formatWarnings } : {}),
+        note: `Report submitted to ${where}.${formatNote} Your work is parked and resumes by itself after ${parked.waitingOn} (whoever works the in-tray can Stop or Redirect it there). Your session ends now.` };
     }
-    return { id: doc.id, decision, intray, workedBy, nextAssignmentId: null, note: `Report submitted to ${where}. Your session ends now; you'll get a new assignment if there's more to do.` };
+    return { id: doc.id, decision, intray, workedBy, nextAssignmentId: null, ...(formatWarnings.length ? { warnings: formatWarnings } : {}), note: `Report submitted to ${where}.${formatNote} Your session ends now; you'll get a new assignment if there's more to do.` };
   });
 }
 
