@@ -20,6 +20,6 @@ Muster Town is a pixel-art town where AI agents work at desks toward a headline 
 ## Standing Rules
 
 1. Commit small and often to main. Never leave work uncommitted at the end of a session.
-2. Typecheck both packages before committing (`npm run typecheck`).
+2. Typecheck both packages before committing (`npm run typecheck`). Before every push, `.githooks/pre-push` runs what CI runs (`npm run check:docs`, `npm run check:deadcode`, `npm run typecheck`, `npm test`) and refuses the push if any fails; `npm install` turns it on (the root `prepare` script sets `core.hooksPath`), and `git push --no-verify` skips it. Fix the failure rather than skipping: CI on main must pass on attempt 1.
 3. Append a line to `docs/log.md` after meaningful work on the town (not on research content; that has its own logs).
 4. Keep `README.md` and `docs/architecture.md` true to the code.

@@ -95,6 +95,9 @@ export function setupWorkspace(ws: DeskWorkspace, opts: WorkspaceOptions = {}): 
     tryRun("git", ["config", "user.email", `${slug}@muster-town.local`], dir);
   }
 
+  // the repo's pre-push hook (`npm install` sets this too, via prepare; an existing checkout skips npm install)
+  if (existsSync(join(dir, ".githooks"))) tryRun("git", ["config", "core.hooksPath", ".githooks"], dir);
+
   if (opts.npmInstall !== false && existsSync(join(dir, "package.json")) && !existsSync(join(dir, "node_modules"))) {
     log("npm install");
     try {

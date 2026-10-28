@@ -1,0 +1,37 @@
+#!/bin/sh
+# Pre-push: refuse a push that would turn CI red (kr_cm5qb2wqh7, grant gr_x5gnnmo7yi).
+# Runs the same gates as .github/workflows/ci.yml, from the repo root:
+#   npm run check:docs, npm run check:deadcode, npm run typecheck, npm test
+# and stops at the first that fails, printing its output.
+# Installed by `npm install` / `npm ci` (root package.json "prepare" sets core.hooksPath=.githooks).
+# Skipped when every pushed ref is a delete. Escape hatch: `git push --no-verify`.
+
+set -u
+root=$(git rev-parse --show-toplevel) || exit 1
+cd "$root" || exit 1
+
+zero=0000000000000000000000000000000000000000
+only_deletes=1
+while read -r _local_ref local_sha _remote_ref _remote_sha; do
+  case "$local_sha" in
+    "$zero" | 0000000000000000000000000000000000000000000000000000000000000000) ;;
+    *) only_deletes=0 ;;
+  esac
+done
+[ "$only_deletes" = 1 ] && exit 0
+
+log=$(mktemp "${TMPDIR:-/tmp}/pre-push.XXXXXX") || exit 1
+trap 'rm -f "$log"' EXIT
+start=$(date +%s)
+for script in check:docs check:deadcode typecheck test; do
+  printf 'pre-push: npm run %s ... ' "$script" >&2
+  if npm run --silent "$script" >"$log" 2>&1; then
+    echo ok >&2
+  else
+    echo FAILED >&2
+    cat "$log" >&2
+    echo "pre-push: refused, 'npm run $script' failed (bypass with git push --no-verify)" >&2
+    exit 1
+  fi
+done
+echo "pre-push: all checks passed in $(( $(date +%s) - start ))s" >&2

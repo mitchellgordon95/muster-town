@@ -15,7 +15,8 @@
     "start": "npm run build && npm run start:workshop",
     "start:workshop": "scripts/serve.sh collectives/workshop",
     "start:collective": "scripts/serve.sh",
-    "desk:build": "docker build -t muster-town-desk -t agent-town-desk -f packages/desk/Dockerfile ."
+    "desk:build": "docker build -t muster-town-desk -t agent-town-desk -f packages/desk/Dockerfile .",
+    "prepare": "git config core.hooksPath .githooks 2>/dev/null || true"
   },
   "engines": {
     "node": ">=20"
