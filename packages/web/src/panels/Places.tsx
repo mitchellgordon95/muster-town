@@ -380,8 +380,8 @@ function IntrayRow({ doc, chain, onOpen, onOpenDoc, showBuilding }: { doc: Doc; 
           {flag ? <Pill tone="warn" title="A quick request a human planted here; the manager delegates it">⚑ flag</Pill> : null}
         </div>
         <div className="doc-row-title">{doc.title}</div>
-        {need ? <div className="intray-proposal">Needs: {need.length > 140 ? need.slice(0, 140) + "…" : need}</div> : null}
-        {preview ? <div className="intray-proposal">{preview.length > 160 ? preview.slice(0, 160) + "…" : preview}</div> : null}
+        {need ? <div className="intray-proposal">Needs: {need}</div> : null}
+        {preview ? <div className="intray-proposal">{preview}</div> : null}
         <div className="doc-row-meta">
           {doc.verdict ? <Pill tone={VERDICT_TONE[doc.verdict]}>verdict: {doc.verdict}</Pill> : null}
           {doc.tokens ? <span title={ADJ_HINT}>{fmtTokens(doc.tokens)} {ADJ}{doc.costUsd ? ` · ${usd(doc.costUsd)}` : ""}</span> : null}

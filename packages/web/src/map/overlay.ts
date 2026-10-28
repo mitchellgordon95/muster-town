@@ -113,7 +113,7 @@ export function drawLabel(g: CanvasRenderingContext2D, x: number, y: number, nam
 export function drawBubble(g: CanvasRenderingContext2D, x: number, y: number, b: Bubble, full: boolean) {
   g.font = BFONT;
   const maxW = full ? 210 : 150;
-  const lines = wrap(g, b.text, maxW, full ? 4 : 2);
+  const lines = wrap(g, b.text, maxW, full ? Infinity : 2); // hovered or selected: the whole text, never cut
   const lh = 14, padX = 7, padY = 5;
   const w = Math.min(maxW, Math.max(...lines.map((l) => g.measureText(l).width))) + padX * 2;
   const h = lines.length * lh + padY * 2;

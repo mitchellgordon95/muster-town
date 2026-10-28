@@ -411,7 +411,7 @@ function KeyResultRow({ n, kr, canWrite, statuses, objectives, onChanged }: { n:
             api().updateKeyResult(kr.id, { objectiveId: e.target.value || null }).then(() => { store.toast(`Key result ${n} moved`, "ok"); onChanged(); }, (err) => store.toast((err as Error).message, "bad"));
           }}>
             <option value="">{kr.objectiveId ? "Not under an objective" : "Move under…"}</option>
-            {objectives.map((o, i) => <option key={o.id} value={o.id}>Objective {i + 1}: {o.text.slice(0, 50)}</option>)}
+            {objectives.map((o, i) => <option key={o.id} value={o.id}>Objective {i + 1}: {o.text}</option>)}
           </select>
         ) : null}
       </div>

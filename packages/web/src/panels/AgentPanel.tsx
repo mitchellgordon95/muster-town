@@ -11,7 +11,7 @@ import { store, useTown, roleOf } from "../state";
 import { DismissButton, canDismiss } from "./Dismiss";
 import { PanelShell } from "./PanelShell";
 import { DocText, Markdown } from "./Markdown";
-import { ADJ, Act, Empty, ErrorLine, KV, Loading, Pill, Section, StatusPill, breakdownTitle, clock, fmtTokens, nameOf, timeAgo, usd, useLoad } from "./ui";
+import { ADJ, Act, Empty, ErrorLine, KV, Loading, Pill, Section, ShowMore, StatusPill, breakdownTitle, clock, fmtTokens, nameOf, timeAgo, usd, useLoad } from "./ui";
 import { portraitUrl } from "../map/sprites";
 import { SignInNote } from "../auth/auth";
 import { slotsFull } from "../redeploy";
@@ -578,8 +578,6 @@ function DelegatePicker({ from, run, onDone }: { from: Agent; run: (toId: string
 }
 
 function AssignmentRow({ a, actions, index, offline, footer, slotWait, blocked }: { a: Assignment; actions?: ReactNode; index?: number; offline?: boolean; footer?: ReactNode; slotWait?: boolean; blocked?: BlockedBy }) {
-  const [open, setOpen] = useState(false);
-  const long = a.description.length > 160;
   return (
     <div className={`asg ${a.status}`}>
       <div className="asg-head">
@@ -597,7 +595,7 @@ function AssignmentRow({ a, actions, index, offline, footer, slotWait, blocked }
             : blocked.text}
         </div>
       ) : null}
-      {a.description ? <div className="asg-desc" onClick={() => long && setOpen((o) => !o)}><DocText text={long && !open ? a.description.slice(0, 157) + "…" : a.description} /></div> : null}
+      {a.description ? <div className="asg-desc"><ShowMore text={a.description} max={160} render={(t) => <DocText text={t} />} /></div> : null}
       <div className="asg-meta">
         {a.fromAssignmentId ? "retried or delegated · " : a.fromMeetingId ? "from a meeting · " : a.fromReportId ? "from a report · " : ""}
         {a.status === "done" || a.status === "cancelled" ? `${a.status} ${timeAgo(a.updatedAt)}` : `created ${timeAgo(a.createdAt)}`}

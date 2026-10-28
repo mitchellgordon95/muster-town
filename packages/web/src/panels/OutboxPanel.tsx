@@ -73,7 +73,7 @@ export function RequestCard({ doc, onOpen, moderate }: { doc: Doc; onOpen: () =>
         <Pill tone={doc.requestStatus === "rejected" ? "bad" : "ok"}>{doc.requestStatus}</Pill>
       </div>
       <div className="request-meta">from {nameOf(doc.authorId)} · {timeAgo(doc.createdAt)}{doc.location ? ` · ${doc.location}` : ""}{doc.claimedByUserId ? ` · claimed by ${mine ? "you" : nameOf(doc.claimedByUserId)}` : ""}</div>
-      <Markdown text={doc.body.length > 360 ? doc.body.slice(0, 360) + "…" : doc.body} className="compact" />
+      <Markdown text={doc.body} className="compact" />
       <div className="actions">
         {doc.requestStatus === "open" ? <Act small tone="primary" run={act("claim", "Claimed. Report back when you're done.")}>Claim</Act> : null}
         {doc.requestStatus === "claimed" && (mine || canModerate) && !finishing ? <button className="btn sm ok" onClick={() => setFinishing(true)}>Report back…</button> : null}
