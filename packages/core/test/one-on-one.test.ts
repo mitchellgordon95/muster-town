@@ -65,4 +65,31 @@ describe("the manager's 1:1", () => {
     world.ops.endMeeting(admin, m.id);
     expect(meetingNotice(world, m.id, "late")).toBeNull(); // a closed meeting is left alone
   });
+
+  it("with agentId and docId: a 1:1 with the report's author, the report presented first; a fork or gone author reaches the manager", async () => {
+    const { world, by, admin } = seededWorld();
+    const mei = by("Mei"), noor = by("Noor"), ravi = by("Ravi");
+    world.ops.updateBuilding(admin, "carbon-cycle", { managerAgentId: mei.id });
+    const { id } = await world.verbs.submit_report(noor, { title: "Ocean sink", body: "## Findings\n2.9 GtC/yr", verdict: "continue" });
+    const m = world.ops.openOneOnOne(admin, "carbon-cycle", { agentId: noor.id, docId: id });
+    expect(m).toMatchObject({ facilitatorId: noor.id, attendeeIds: [noor.id], title: expect.stringContaining("Noor") });
+    expect(m.transcript[0]).toMatchObject({ speakerKind: "user", attachment: { kind: "doc", ref: id } });
+    expect(oneOnOnePrompt(m, world.nameOf.bind(world))).toContain(id);
+    // only Noor and the human speak in it; the manager's 1:1 is a separate meeting
+    await world.verbs.meeting(noor, { meetingId: m.id, action: "speak", text: "Happy to explain." });
+    await expect(world.verbs.meeting(mei, { meetingId: m.id, action: "speak", text: "hi" })).rejects.toMatchObject({ code: "forbidden" });
+    expect(world.ops.openOneOnOne(admin, "carbon-cycle").facilitatorId).toBe(mei.id);
+    // the same 1:1 about a second report presents it once more, not a new meeting
+    const r2 = await world.verbs.submit_report(noor, { title: "Land sink", body: "x", verdict: "continue" });
+    const again = world.ops.openOneOnOne(admin, "carbon-cycle", { agentId: noor.id, docId: r2.id });
+    expect(again.id).toBe(m.id);
+    expect(again.transcript.filter((u) => u.attachment?.kind === "doc").map((u) => u.attachment!.ref)).toEqual([id, r2.id]);
+    // a fork (live or retired) reaches the manager it forks from; a retired resident reaches the building's manager
+    world.agents.patch(ravi.id, { forkOf: mei.id });
+    expect(world.ops.openOneOnOne(admin, "carbon-cycle", { agentId: ravi.id }).facilitatorId).toBe(mei.id);
+    world.agents.patch(ravi.id, { forkOf: null, status: "retired" });
+    expect(world.ops.openOneOnOne(admin, "carbon-cycle", { agentId: ravi.id }).facilitatorId).toBe(mei.id);
+    // a resident can't open one
+    expect(() => world.ops.openOneOnOne(noor, "carbon-cycle", { agentId: mei.id })).toThrow();
+  });
 });

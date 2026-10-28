@@ -54,6 +54,32 @@ describe("the manager's 1:1", () => {
     expect(world.agents.require(mei.id).status).toBe("idle");
   });
 
+  test("a report's Talk to <author>: the resident author answers its own 1:1 (report id in its prompt) and the session ends with it", async () => {
+    const env = await managed(async function* (s) {
+      yield init();
+      const mid = s.received[0].match(/(mt_[a-z0-9]+)/)![1];
+      yield* callVerb(s, "meeting", { meetingId: mid, action: "speak", text: "Sure, ask away." });
+      yield result(100, 0.01);
+      expect(await s.next()).toContain("is over");
+      yield result(150, 0.02);
+    });
+    const { world, runtime, sdk, by, lab, admin } = env;
+    const noor = by("Noor");
+    const { id } = await world.verbs.submit_report(noor, { title: "Ocean sink", body: "## Findings\n2.9 GtC/yr", verdict: "continue" });
+    await runtime.whenIdle(); // the manager's in-tray session over the new report
+    const before = sdk.sessions.length;
+    const m = world.ops.openOneOnOne(admin, lab.id, { agentId: noor.id, docId: id });
+    await until(() => world.meetings.require(m.id).transcript.length === 2);
+    const s = sdk.sessions[before];
+    expect(s.received[0]).toContain(m.id);
+    expect(s.received[0]).toContain(id);
+    expect(world.sessions.first("agentId = ? AND status = 'running'", [noor.id])).toMatchObject({ purpose: "manage", meetingId: m.id });
+    world.ops.endMeeting(admin, m.id);
+    await runtime.whenIdle();
+    expect(world.sessions.first("agentId = ? AND meetingId = ?", [noor.id, m.id])).toMatchObject({ status: "done" });
+    expect(world.agents.require(noor.id).status).toBe("idle");
+  });
+
   test("a busy manager waits for the next tick; a quiet 1:1 is closed by the town", async () => {
     const env = await managed(async function* (s) { yield init(); yield result(100, 0.01); await s.next(); yield result(50, 0.01); });
     const { world, runtime, sdk, by, lab, admin, clock } = env;

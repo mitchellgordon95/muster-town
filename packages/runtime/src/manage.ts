@@ -6,7 +6,7 @@
  * into it, so it keeps the context of what it already decided; while a 1:1 is open it stays open between turns.
  */
 import { endMeeting, humanTyping, intrayOf, managePrompt, managerAgentOf, managerNewReport, oneOnOneEnded, oneOnOnePrompt, oneOnOneUtterance, sessionMemory, skillsBlock, workSystemPrompt, type World } from "@muster-town/core";
-import type { Doc, Meeting, Session } from "@muster-town/schema";
+import type { Agent, Doc, Meeting, Session } from "@muster-town/schema";
 import { homeOf, runAgentSession, type Ctx } from "./session.ts";
 
 export interface ManageState {
@@ -40,25 +40,48 @@ export interface ManageGate {
  * manage session can't wake itself; the manager's own work reports (self-assigned or meeting-decided work, town hall
  * 2026-10-25 decision 6) are in it and wake the session like a resident's. A 1:1 that ended is announced to the session it was fed
  * into (which then ends once no 1:1 is open). While draining, a 1:1 is still answered (and started) but new reports
- * wait; the restart cuts the session, and a fresh one picks the 1:1 up after it. Returns the started session's promise, if one started.
+ * wait; the restart cuts the session, and a fresh one picks the 1:1 up after it. A resident a human opened a 1:1 with is
+ * woken the same way, for its 1:1s only. Returns the started sessions' promises.
  */
-export function wakeManager(ctx: Ctx, st: ManageState, gate: ManageGate, buildingId: string): Promise<Session> | null {
+export function wakeManager(ctx: Ctx, st: ManageState, gate: ManageGate, buildingId: string): Promise<Session>[] {
   const { world } = ctx;
   const building = world.buildings.get(buildingId);
-  if (!building || building.kind === "town-hall") return null;
+  if (!building || building.kind === "town-hall") return [];
   const mgr = managerAgentOf(world, building);
-  if (!mgr || homeOf(world, mgr.id) !== building.id) return null;
+  const out: Promise<Session>[] = [];
+  const add = (p: Promise<Session> | null) => { if (p) out.push(p); };
+  if (mgr && homeOf(world, mgr.id) === building.id) add(wakeTalker(ctx, st, gate, mgr, intrayOf(world, building.id).filter((d) => !st.offered.has(d.id))));
+  // residents a human opened a 1:1 with (a report's "Talk to <author>", core/src/meetings.ts createOneOnOne): they
+  // answer it the same way, in a host session of their own, with no in-tray to offer
+  // (and those whose fed 1:1 just ended, so their session hears it and can end)
+  const ended = [...st.fed.keys()].map((id) => world.meetings.get(id)).filter((m) => m?.buildingId === building.id);
+  const others = new Set([...world.meetings.where("kind = 'one-on-one' AND buildingId = ? AND phase = 'discussing'", [building.id]), ...ended].map((m) => m!.facilitatorId));
+  for (const id of others) {
+    const a = id && id !== mgr?.id ? world.agents.get(id) : undefined;
+    if (a && a.kind === "resident" && homeOf(world, a.id) === building.id) add(wakeTalker(ctx, st, gate, a, []));
+  }
+  // 1:1s whose agent has no open 1:1 left (and no live session to tell): forget them
+  for (const [mid, f] of [...st.fed]) {
+    const m = world.meetings.get(mid);
+    if (m?.buildingId === building.id && m.phase !== "discussing" && ![...ctx.live.values()].some((l) => l.sessionId === f.sessionId)) st.fed.delete(mid);
+  }
+  return out;
+}
+
+/** One agent's turn of `wakeManager`: feed its live manage session, or start one over `fresh` reports and its open 1:1s. */
+function wakeTalker(ctx: Ctx, st: ManageState, gate: ManageGate, agent: Agent, fresh: Doc[]): Promise<Session> | null {
+  const { world } = ctx;
   const nameOf = world.nameOf.bind(world);
-  const fresh = intrayOf(world, building.id).filter((d) => !st.offered.has(d.id));
-  const talks = openOneOnOnes(world, mgr.id);
-  const live = ctx.live.get(mgr.id);
+  const talks = openOneOnOnes(world, agent.id);
+  const live = ctx.live.get(agent.id);
   const feedable = !!live && live.purpose === "manage" && live.kind === "host" && !live.stopped && !live.reportSubmitted && !live.input.closed;
   // 1:1s this session was fed that have since ended: tell it, so it can still record decisions, then let it end
   for (const [mid, f] of [...st.fed]) {
+    if (!live || live.sessionId !== f.sessionId) continue;
     const m = world.meetings.get(mid);
     if (m && m.phase === "discussing") continue;
     st.fed.delete(mid);
-    if (m && feedable && live!.sessionId === f.sessionId) live!.input.push(oneOnOneEnded(m));
+    if (m && feedable) live.input.push(oneOnOneEnded(m));
   }
   if (live) {
     // a work session (or a desk) is busy: the tick offers these once it has ended
@@ -73,17 +96,17 @@ export function wakeManager(ctx: Ctx, st: ManageState, gate: ManageGate, buildin
         if (live.input.push(oneOnOnePrompt(m, nameOf))) st.fed.set(m.id, { sessionId: live.sessionId, idx: m.transcript.length });
         continue;
       }
-      for (const u of m.transcript.slice(f.idx)) if (u.speakerId !== mgr.id && u.speakerKind !== "system") live.input.push(oneOnOneUtterance(m, nameOf(u.speakerId), u.text));
+      for (const u of m.transcript.slice(f.idx)) if (u.speakerId !== agent.id && u.speakerKind !== "system") live.input.push(oneOnOneUtterance(m, nameOf(u.speakerId), u.text));
       f.idx = m.transcript.length;
     }
     return null;
   }
   if (!fresh.length && !talks.length) return null;
   // a 1:1 starts even while a redeploy drains (a human is waiting; the drain doesn't hold for it), in-tray work doesn't
-  if (gate.starting(mgr.id) || mgr.status !== "idle" || (gate.draining() && !talks.length) || !gate.slotFree() || !world.budget.canStart(mgr.id)) return null;
+  if (gate.starting(agent.id) || agent.status !== "idle" || (gate.draining() && !talks.length) || !gate.slotFree() || !world.budget.canStart(agent.id)) return null;
   const offer = gate.draining() ? [] : fresh;
   for (const d of offer) st.offered.add(d.id);
-  return runManageSession(ctx, st, mgr.id, offer, talks);
+  return runManageSession(ctx, st, agent.id, offer, talks);
 }
 
 /** Close 1:1s nobody spoke in for ONE_ON_ONE_QUIET_MS (nobody typing either). The phase event wakes the manager to wrap up. */
@@ -128,7 +151,7 @@ export async function runManageSession(ctx: Ctx, st: ManageState, agentId: strin
   const rollup = s.reportId ? world.docs.get(s.reportId) : undefined;
   world.events.append({
     type: "system", agentId, buildingId: building.id,
-    text: `${agent.name}'s in-tray session ended (${s.status}): decided ${decided} report${decided === 1 ? "" : "s"}, ${rollup ? `rollup "${rollup.title}"` : "no rollup"}`,
+    text: `${agent.name}'s ${talks.length && managerAgentOf(world, building)?.id !== agentId ? "1:1" : "in-tray"} session ended (${s.status}): decided ${decided} report${decided === 1 ? "" : "s"}, ${rollup ? `rollup "${rollup.title}"` : "no rollup"}`,
     payload: { sessionId: s.id, purpose: "manage", decided, rollupId: rollup?.id ?? null },
   });
   return s;

@@ -344,8 +344,6 @@ export interface Api {
   uploadMedia(file: Blob, alt?: string): Promise<UploadedMedia>;
   /** POST /api/docs/:id/archive — acknowledge with no reply */
   archive(docId: string): Promise<{ doc: Doc; assignment: Assignment | null }>;
-  /** POST /api/docs/:id/ask — a cheap-model answer about the report, without its author */
-  ask(docId: string, question: string, history?: { role: "user" | "assistant"; text: string }[]): Promise<string>;
   promote(docId: string, state: DocState): Promise<Doc>;
   // skills (docs/skills.md): written with writeDoc type "skill"
   /** every published skill (plus my drafts) with files, pins and uses */
@@ -362,8 +360,8 @@ export interface Api {
   request(docId: string, action: RequestAction, body?: string): Promise<Doc | null>;
   // meetings
   meetings(q: { buildingId?: string; phase?: string }): Promise<Meeting[]>;
-  /** open (or return) the human's 1:1 with the building's manager agent */
-  openOneOnOne(buildingId: string): Promise<Meeting>;
+  /** open (or return) the human's 1:1 with the building's manager agent, or with `agentId` about the report `docId` */
+  openOneOnOne(buildingId: string, opts?: { agentId?: string; docId?: string }): Promise<Meeting>;
   createMeeting(input: In<typeof CreateMeetingInput>): Promise<Meeting>;
   meeting(id: string): Promise<Meeting>;
   startMeeting(id: string): Promise<Meeting>;
@@ -567,7 +565,6 @@ export class HttpApi implements Api {
     return json;
   }
   archive(id: string) { return this.post<{ doc: Doc; assignment: Assignment | null }>(`/api/docs/${id}/archive`); }
-  async ask(id: string, question: string, history: { role: "user" | "assistant"; text: string }[] = []) { return (await this.post<{ reply: string }>(`/api/docs/${id}/ask`, { question, history })).reply; }
   async promote(id: string, state: DocState) { return unwrap<Doc>(await this.post(`/api/docs/${id}/promote`, { state }), "doc"); }
   async skills() { return (await this.get<{ skills: SkillView[] }>("/api/skills")).skills; }
   async skill(id: string) { return (await this.get<{ skill: SkillView }>(`/api/skills/${id}`)).skill; }
@@ -581,7 +578,7 @@ export class HttpApi implements Api {
   async meetings(q: { buildingId?: string; phase?: string }) { return unwrap<Meeting[]>(await this.get(`/api/meetings${qs(q)}`), "meetings"); }
   async createMeeting(i: In<typeof CreateMeetingInput>) { return unwrap<Meeting>(await this.post("/api/meetings", i), "meeting"); }
   async meeting(id: string) { return unwrap<Meeting>(await this.get(`/api/meetings/${id}`), "meeting"); }
-  async openOneOnOne(buildingId: string) { return unwrap<Meeting>(await this.post(`/api/buildings/${buildingId}/one-on-one`), "meeting"); }
+  async openOneOnOne(buildingId: string, opts: { agentId?: string; docId?: string } = {}) { return unwrap<Meeting>(await this.post(`/api/buildings/${buildingId}/one-on-one`, opts), "meeting"); }
   async startMeeting(id: string) { return unwrap<Meeting>(await this.post(`/api/meetings/${id}/start`), "meeting"); }
   async sayMeeting(id: string, text: string, attach?: string) { return unwrap<Meeting>(await this.post(`/api/meetings/${id}/say`, attach ? { text, attach } : { text }), "meeting"); }
   async endMeeting(id: string) { return unwrap<Meeting>(await this.post(`/api/meetings/${id}/end`), "meeting"); }

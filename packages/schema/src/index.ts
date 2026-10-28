@@ -1391,8 +1391,6 @@ export const PlantFlagInput = z.object({ text: z.string().trim().min(1).max(2000
 export const ChatInput = z.object({ message: z.string(), history: z.array(z.object({ role: z.enum(["user", "assistant"]), text: z.string() })).default([]) });
 /** POST /api/docs/:id/reply: the reply text (empty = archive). */
 export const ReplyInput = z.object({ text: z.string().default("") });
-/** POST /api/docs/:id/ask: a question about a report, answered by a cheap-model proxy (not the author). */
-export const AskInput = z.object({ question: z.string().min(1), history: z.array(z.object({ role: z.enum(["user", "assistant"]), text: z.string() })).default([]) });
 export const InterruptInput = z.object({ text: z.string(), now: z.boolean().optional() });
 /** POST /api/agents/:id/message: a human messages an agent (a `tell` from their avatar). `now` (default true) interrupts a working agent; false leaves it in the inbox. */
 export const MessageAgentInput = z.object({ text: z.string().trim().min(1), now: z.boolean().default(true) });

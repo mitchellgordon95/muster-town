@@ -412,12 +412,12 @@ export class MockApi implements Api {
     if (m.phase === "collecting") this.collectSummaries(m);
     return clone(m);
   }
-  async openOneOnOne(buildingId: string) {
+  async openOneOnOne(buildingId: string, opts: { agentId?: string; docId?: string } = {}) {
     await wait();
     const b = this.need(this.sim.buildings.find((x) => x.id === buildingId), "building");
-    const mgr = b.managerAgentId ? this.sim.agents.get(b.managerAgentId) : undefined;
+    const mgr = opts.agentId ? this.sim.agents.get(opts.agentId) : b.managerAgentId ? this.sim.agents.get(b.managerAgentId) : undefined;
     if (!mgr) throw new ApiError(`${b.name} has no manager agent; send a message instead.`, "conflict", 409);
-    const open = [...this.sim.meetings.values()].find((m) => m.kind === "one-on-one" && m.buildingId === buildingId && m.phase === "discussing");
+    const open = [...this.sim.meetings.values()].find((m) => m.kind === "one-on-one" && m.facilitatorId === mgr.id && m.phase === "discussing");
     if (open) return clone(open);
     const m: Meeting = { id: newId("mt"), kind: "one-on-one", buildingId, title: `1:1: Mitchell and ${mgr.name}`, scheduledAt: now(), phase: "discussing", facilitatorId: mgr.id, attendeeIds: [mgr.id], agenda: "", summaries: {}, transcript: [], decisions: [], notesDocId: null, withUserId: "us_mitchell", createdAt: now(), startedAt: now(), endedAt: null };
     this.sim.putMeeting(m);

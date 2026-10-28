@@ -1,5 +1,5 @@
 import { AppError, canSeeDoc, findManual, revisionsOf, searchDocs } from "@muster-town/core";
-import { AskInput, CreateMeetingInput, DocState, DocType, MeetingPhase, MeetingSayInput, ReplyInput, ReviewInput, VerbInputs } from "@muster-town/schema";
+import { CreateMeetingInput, DocState, DocType, MeetingPhase, MeetingSayInput, ReplyInput, ReviewInput, VerbInputs } from "@muster-town/schema";
 import type { FastifyInstance } from "fastify";
 import { z } from "zod";
 import { actorOf, parse, requireAuth, viewerId, type Params } from "../context.ts";
@@ -72,17 +72,6 @@ export async function docRoutes(app: FastifyInstance) {
 
   app.post<{ Params: Params }>("/api/docs/:id/archive", async (req) => world.ops.archiveReport(actorOf(world, req), req.params.id));
 
-  /** Ask about a report without bothering its author (cheap-model proxy). → { reply } */
-  app.post<{ Params: Params }>("/api/docs/:id/ask", async (req) => {
-    requireAuth(req);
-    const { question, history } = parse(AskInput, req.body);
-    const doc = world.docs.get(req.params.id);
-    if (!doc || !canSeeDoc({ kind: "user", id: viewerId(req) }, doc)) throw new AppError("not_found", `doc not found: ${req.params.id}`);
-    if (!app.runtime?.askAbout) throw new AppError("internal", "runtime not available", 503);
-    const r = await app.runtime.askAbout(doc.id, question, viewerId(req), history);
-    return { reply: typeof r === "string" ? r : r.reply };
-  });
-
   app.post<{ Params: Params }>("/api/docs/:id/promote", async (req) => {
     const { state } = parse(PromoteBody, req.body);
     const actor = actorOf(world, req);
@@ -121,10 +110,16 @@ export async function docRoutes(app: FastifyInstance) {
     return reply.code(201).send({ meeting });
   });
 
-  /** The manager's 1:1 (docs/waterfall.md §3.4): open it, or return the human's open one in this building. */
+  /**
+   * A 1:1 (docs/waterfall.md §3.4): open it, or return the human's open one with that agent. Body (optional):
+   * `agentId` (default the building's manager; a fork or gone author resolves to its manager) and `docId` (a report
+   * the human's first line presents).
+   */
   app.post<{ Params: Params }>("/api/buildings/:id/one-on-one", async (req) => {
     requireAuth(req);
-    return { meeting: world.ops.openOneOnOne(actorOf(world, req), req.params.id) };
+    const body = (req.body ?? {}) as { agentId?: unknown; docId?: unknown };
+    const str = (v: unknown) => (typeof v === "string" && v.trim() ? v.trim() : undefined);
+    return { meeting: world.ops.openOneOnOne(actorOf(world, req), req.params.id, { agentId: str(body.agentId), docId: str(body.docId) }) };
   });
 
   app.get<{ Params: Params }>("/api/meetings/:id", async (req) => ({ meeting: world.meetings.require(req.params.id, "meeting") }));

@@ -11,6 +11,7 @@ import { ADJ, Act, Field, Pill, nameOf, timeAgo, fmtTokens, usd } from "./ui";
 import { useMediaPaste } from "./mediaPaste";
 import { MediaThumb } from "./MediaThumb";
 import { RollupCards, rollupCardsOf } from "./RollupCards";
+import { canOneOnOne, openOneOnOne, talkTarget } from "./oneOnOne";
 
 export const DECISION_TONE: Record<string, string> = { pending: "warn", approve: "ok", continue: "ok", redirect: "info", stop: "bad" };
 /** How a decision reads on a pill. `approve` is "Acknowledge" in v1.2: no assignment follows. */
@@ -104,45 +105,27 @@ export function FlagDecideBox({ doc, onDone }: { doc: Doc; onDone?: () => void }
   );
 }
 
-type AskTurn = { role: "user" | "assistant"; text: string };
-
-/** "Ask about this": questions about the report, answered without bothering its author. */
-export function AskBox({ doc }: { doc: Doc }) {
-  const [q, setQ] = useState("");
-  const [history, setHistory] = useState<AskTurn[]>([]);
-  const [busy, setBusy] = useState(false);
-  const ask = async () => {
-    const question = q.trim();
-    if (!question || busy) return;
-    setBusy(true);
-    setQ("");
-    const prior = history;
-    setHistory([...prior, { role: "user", text: question }]);
-    try {
-      const reply = await api().ask(doc.id, question, prior);
-      setHistory((h) => [...h, { role: "assistant" as const, text: reply }].slice(-12));
-    } catch (e) {
-      setHistory((h) => [...h, { role: "assistant", text: `(No answer: ${(e as Error).message ?? e})` }]);
-    } finally { setBusy(false); }
-  };
+/**
+ * A report's "Talk to <author>" (Mitchell, 1:1 mt_uf1bwd3exq): opens my 1:1 with the author, the report presented as
+ * the first line. A fork's report (or a gone author's) reaches its manager, and the button says so.
+ */
+export function TalkToAuthor({ doc }: { doc: Doc }) {
+  const agents = useTown((s) => s.agents);
+  const buildings = useTown((s) => s.buildings);
+  const me = useTown((s) => s.me);
+  const t = doc.type === "report" ? talkTarget(doc.authorId, agents, buildings) : null;
+  const home = t ? t.agent.homeBuildingId ?? t.agent.buildingId : null;
+  if (!me || !t || !canOneOnOne(home)) return null;
+  const why = t.via === "fork" ? `${nameOf(doc.authorId)} is a fork of ${t.agent.name}, so ${t.agent.name} answers` : t.via === "gone" ? `${nameOf(doc.authorId)} isn't working any more, so their manager ${t.agent.name} answers` : null;
   return (
-    <div className="ask-box">
-      <div className="ask-title">Ask about this <span>answered from the report and {nameOf(doc.authorId)}'s recent activity; {nameOf(doc.authorId)} isn't interrupted</span></div>
-      {history.length ? (
-        <div className="ask-log">
-          {history.map((t, i) => <div key={i} className={`ask-turn ${t.role}`}>{t.role === "user" ? <b>You: </b> : null}{t.text}</div>)}
-          {busy ? <div className="ask-turn assistant muted">…</div> : null}
-        </div>
-      ) : null}
-      <form className="ask-form" onSubmit={(e) => { e.preventDefault(); void ask(); }}>
-        <input value={q} placeholder="What does the PR change? Is anything still failing?" onChange={(e) => setQ(e.target.value)} />
-        <button className="btn" type="submit" disabled={!q.trim() || busy}>Ask</button>
-      </form>
-    </div>
+    <span className="talk-author">
+      <Act small tone="primary" run={() => openOneOnOne(home!, { agentId: t.agent.id, docId: doc.id })} title={`Open a 1:1 with ${t.agent.name} about this report${why ? ` (${why})` : ""}`}>Talk to {t.agent.name}</Act>
+      {why ? <span className="muted"> {why}</span> : null}
+    </span>
   );
 }
 
-/** `review`: show the reply box and Ask about this under the body (only the in-tray passes it). */
+/** `review`: show the reply box under the body (only the in-tray passes it). */
 export function DocView({ doc: initial, onBack, backLabel = "Back", review, onDecided }: { doc: Doc; onBack?: () => void; backLabel?: string; review?: boolean; onDecided?: () => void }) {
   const live = useTown((s) => s.docs[initial.id]);
   const doc = live && live.updatedAt >= initial.updatedAt ? live : initial;
@@ -169,6 +152,7 @@ export function DocView({ doc: initial, onBack, backLabel = "Back", review, onDe
       {doc.decisionNote && !doc.body.includes("## Reply from") ? <div className="callout"><b>{nameOf(doc.decidedBy)}:</b> {doc.decisionNote}</div> : null}
       {doc.trophyProposedBy ? <div className="callout gold"><b>Trophy proposal</b> by {nameOf(doc.trophyProposedBy)}{doc.trophyWhy ? `: ${doc.trophyWhy}` : ""}</div> : null}
       <div className="actions">
+        <TalkToAuthor doc={doc} />
         {canPromote && doc.state === "draft" ? <Act small run={run(() => api().promote(doc.id, "building"), "Published to the board")}>Publish to board</Act> : null}
         {canPromote && doc.state === "building" ? <Act small run={run(() => api().promote(doc.id, "library"), "Promoted to the library")}>Promote to library</Act> : null}
         {canTrophy && doc.trophyProposedBy && doc.state !== "trophy" ? <>
@@ -178,7 +162,7 @@ export function DocView({ doc: initial, onBack, backLabel = "Back", review, onDe
       </div>
       {cards ? <RollupCards parsed={cards} full /> : <Markdown text={doc.type === "skill" ? doc.body.replace(/^---\r?\n[\s\S]*?\r?\n---[ \t]*\r?\n?/, "") : stripLeadingH1(doc.body)} />}
       {doc.type === "skill" ? <SkillDetails doc={doc} /> : null}
-      {canReview ? doc.type === "flag" ? <FlagDecideBox doc={doc} onDone={onDecided} /> : <><ReplyBox doc={doc} onDone={onDecided} /><AskBox doc={doc} /></> : null}
+      {canReview ? doc.type === "flag" ? <FlagDecideBox doc={doc} onDone={onDecided} /> : <ReplyBox doc={doc} onDone={onDecided} /> : null}
       {sources.length || doc.provenance.urls.length ? (
         <div className="provenance">
           <h4>Provenance</h4>

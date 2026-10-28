@@ -631,7 +631,7 @@ export class Ops {
   createMeeting(actor: Actor, input: (typeof CreateMeetingInput)["_input"]): Meeting { return createMeeting(this.world, input, actor ?? undefined); }
   setMeetingPhase(meetingId: string, phase: Meeting["phase"]): Meeting { return setMeetingPhase(this.world, meetingId, phase); }
   /** POST /buildings/:id/one-on-one: a human opens (or returns to) their 1:1 with the building's manager agent. */
-  openOneOnOne(actor: Agent, buildingId: string): Meeting { return createOneOnOne(this.world, actor, buildingId); }
+  openOneOnOne(actor: Agent, buildingId: string, opts: { agentId?: string; docId?: string } = {}): Meeting { return createOneOnOne(this.world, actor, buildingId, opts); }
   /** POST /meetings/:id/start → discussing. */
   startMeeting(actor: Actor, meetingId: string): Meeting {
     const m = this.world.meetings.require(meetingId, "meeting");

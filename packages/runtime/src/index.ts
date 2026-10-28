@@ -5,7 +5,7 @@
  */
 import { AppError, checkWaits, setAssignmentStatus, codeWorkspace, deskSlotRows, forkableQueue, forkDeskSlot, forkManager, freeDesks, liveForks, meetingNotice, nextStartable, PRESENCE_TICK_MS, retireFork, slugify, syncManagerRoles, type World } from "@muster-town/core";
 import { DesksConfig, type Agent, type ChatInput, type DeskActivityInput, type RedeployResult, type Session } from "@muster-town/schema";
-import { askAbout, chat } from "./chat.ts";
+import { chat } from "./chat.ts";
 import { DockerBackend, dockerSafe, HostBackend, type DeskBackend, type SlotResolver, type WorkBackend } from "./desk/backend.ts";
 import { FlyApi } from "./desk/fly.ts";
 import { SandboxBackend } from "./desk/sandbox.ts";
@@ -80,8 +80,6 @@ export const HOSTED_MAX_RUNNING = 1;
 export interface Runtime {
   stop(): Promise<void>;
   chat(agentId: string, input: (typeof ChatInput)["_input"]): Promise<{ reply: string }>;
-  /** In-tray "Ask about this": a cheap-model answer about a report, without its author. */
-  askAbout(docId: string, question: string, userId: string, history?: { role: "user" | "assistant"; text: string }[]): Promise<{ reply: string }>;
   /** Deliver `text` as the next user message of the agent's running work session. False if none. */
   interrupt(agentId: string, text: string, from?: string, now?: boolean): Promise<boolean>;
   /** Meeting entered collecting (or scheduled → collecting): run attendees' summaries. */
@@ -465,13 +463,12 @@ export function startRuntime(opts: RuntimeOptions): Runtime {
     }
   }
 
-  /** Managers of `only` (or of every building): offer them their new in-tray reports (runtime/src/manage.ts). */
+  /** Managers of `only` (or of every building): offer them their new in-tray reports and 1:1s; residents their 1:1s (runtime/src/manage.ts). */
   function wakeManagers(only?: string): void {
     if (stopped) return;
     const gate = { draining: () => draining, starting: (id: string) => starting.has(id), slotFree: () => { const s = slots(); return s.running < s.max; } };
     for (const b of only ? [world.buildings.get(only)].filter((x) => !!x) : world.buildings.all()) {
-      const p = wakeManager(ctx, manage, gate, b.id);
-      if (p) void track(p).catch(log(`manager session in ${b.name}`));
+      for (const p of wakeManager(ctx, manage, gate, b.id)) void track(p).catch(log(`manager session in ${b.name}`));
     }
   }
 
@@ -656,7 +653,6 @@ export function startRuntime(opts: RuntimeOptions): Runtime {
       await whenIdle();
     },
     chat: (agentId, input) => chat(ctx, agentId, input),
-    askAbout: (docId, question, userId, history) => askAbout(ctx, docId, question, userId, history),
     interrupt: async (agentId, text, from, now) => interrupt(ctx, agentId, text, from, now),
     onMeetingStart: (meetingId) => track(onMeetingStart(ctx, mst, meetingId)),
     runWorkSession: (agentId, assignmentId) => startWork(agentId, assignmentId),

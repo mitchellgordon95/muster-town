@@ -149,21 +149,29 @@ describe("reports as replies", () => {
     expect(arc.body).toMatchObject({ doc: { id: b, decision: "approve" }, assignment: null });
     expect((await json(app, "GET", "/api/buildings/carbon-cycle/intray", { headers: auth })).body.reports.some((d: any) => d.id === a || d.id === b)).toBe(false);
 
-    const ask = await json(app, "POST", `/api/docs/${a}/ask`, { headers: auth, body: { question: "what PR?" } });
-    expect(ask.status).toBe(503);
-    expect((await json(app, "POST", `/api/docs/${a}/ask`, { body: { question: "what PR?" } })).status).toBe(401);
+    // "Ask about this" is gone: a report's "Talk to <author>" opens a 1:1 instead
+    expect((await json(app, "POST", `/api/docs/${a}/ask`, { headers: auth, body: { question: "what PR?" } })).status).toBe(404);
   });
 
-  it("ask calls runtime.askAbout", async () => {
-    const calls: unknown[] = [];
-    const { app, auth, by, world, seed } = await setup({ runtime: {
-      chat: async () => "", interrupt: async () => undefined,
-      askAbout: async (docId, q, userId) => { calls.push([docId, q, userId]); return { reply: "PR #3" }; },
-    } });
-    const { id } = await world.verbs.submit_report(by("Mei"), { title: "A", body: "PR #3", verdict: "continue" });
-    const r = await json(app, "POST", `/api/docs/${id}/ask`, { headers: auth, body: { question: "what PR?" } });
-    expect(r).toMatchObject({ status: 200, body: { reply: "PR #3" } });
-    expect(calls).toEqual([[id, "what PR?", seed.admin.id]]);
+  it("one-on-one takes agentId and docId: a 1:1 with the report's author, the report presented as the first line", async () => {
+    const { app, auth, by, world, seed } = await setup();
+    const mei = by("Mei"), noor = by("Noor");
+    const { id } = await world.verbs.submit_report(noor, { title: "Ocean sink", body: "## Findings\n2.9 GtC/yr", verdict: "continue" });
+    const r = await json(app, "POST", "/api/buildings/carbon-cycle/one-on-one", { headers: auth, body: { agentId: noor.id, docId: id } });
+    expect(r.status).toBe(200);
+    expect(r.body.meeting).toMatchObject({ kind: "one-on-one", phase: "discussing", facilitatorId: noor.id, attendeeIds: [noor.id] });
+    expect(r.body.meeting.transcript).toHaveLength(1);
+    expect(r.body.meeting.transcript[0]).toMatchObject({ speakerKind: "user", attachment: { kind: "doc", ref: id } });
+    expect(r.body.meeting.transcript[0].text).toContain(id);
+    // opening again about the same report returns the same 1:1 without presenting it twice
+    const again = await json(app, "POST", "/api/buildings/carbon-cycle/one-on-one", { headers: auth, body: { agentId: noor.id, docId: id } });
+    expect(again.body.meeting).toMatchObject({ id: r.body.meeting.id });
+    expect(again.body.meeting.transcript).toHaveLength(1);
+    // no body still means the building's manager
+    world.ops.updateBuilding(world.ops.ensureAvatar(seed.admin.id), "carbon-cycle", { managerAgentId: mei.id });
+    const mgr = await json(app, "POST", "/api/buildings/carbon-cycle/one-on-one", { headers: auth });
+    expect(mgr.body.meeting).toMatchObject({ facilitatorId: mei.id, transcript: [] });
+    expect((await json(app, "POST", "/api/buildings/carbon-cycle/one-on-one", { body: { agentId: noor.id } })).status).toBe(401);
   });
 });
 

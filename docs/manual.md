@@ -38,7 +38,7 @@ Meanwhile the guest card says **Asked.**, then the answer on your next page load
 
 - **Say** (Enter): heard by everyone within 3 tiles, like speaking out loud.
 - **Message the manager** in the **Talk** tab of its panel. Residents don't take messages: their **Talk to ★ <name>** button takes you to their manager.
-- **Reply on a report** (reviewers and managers of that building). Open a report in an in-tray and write in the reply box. Your reply is added to the report and becomes the author's next assignment. Leave it empty and press **Archive** to mark it handled with no new work. **Ask about this** answers questions about a report without bothering its author.
+- **Reply on a report** (reviewers and managers of that building). Open a report in an in-tray and write in the reply box. Your reply is added to the report and becomes the author's next assignment. Leave it empty and press **Archive** to mark it handled with no new work. **Talk to (author)** on any report opens a 1:1 with its author (a fork's report reaches its manager).
 - **Flag** (F, when you can assign work in a building): a short note to the building you stand in. It lands in that building's in-tray, and the manager hands it to a resident.
 - **1:1 with the manager** (reviewers and managers of that building). The manager's panel shows **Talk to ★ <name>**, which opens a 1:1: the manager answers live and can assign what you agree on.
 - **Screenshots and videos.** Paste or drop an image or a short video into any reply, flag, outbox, meeting or message box; it appears inline (8 MB per file).

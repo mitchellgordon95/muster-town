@@ -101,29 +101,64 @@ export function createMeeting(world: World, input: CreateMeeting, actor?: Agent)
   return meeting;
 }
 
+/** An agent a human can hold a 1:1 with: a resident (or manager) still working in the town. */
+const talkable = (a: Agent | undefined): boolean => !!a && a.kind === "resident" && !a.forkOf && a.status !== "stopped" && a.status !== "banned" && a.status !== "retired";
+
 /**
- * The manager's 1:1 (docs/waterfall.md §3.4): a human opens a meeting with the building's manager agent. Created
- * straight into `discussing` (no summaries) with the manager as facilitator and only attendee; the manager doesn't go
- * `in-meeting` (its host session answers, runtime/src/manage.ts). Returns the human's open 1:1 in the building if any.
- * Needs meeting.facilitate or building.review on the building, and a manager agent.
+ * Who answers a 1:1 about `authorId`'s work: the author itself if it is a working resident; a fork's parent (the
+ * manager it forks from; a fork's own session is a work session that can't hold a conversation); otherwise (gone,
+ * stopped, or a fork whose parent is gone) the manager of the author's building. `via` says why it isn't the author.
  */
-export function createOneOnOne(world: World, human: Agent, buildingId: string): Meeting {
+function oneOnOneTarget(world: World, authorId: string): { agent: Agent; via: "fork" | "gone" | null } | null {
+  const author = world.agents.get(authorId);
+  if (!author) return null;
+  if (talkable(author)) return { agent: author, via: null };
+  const parent = author.forkOf ? world.agents.get(author.forkOf) : undefined;
+  if (parent && talkable(parent)) return { agent: parent, via: "fork" };
+  const mgr = managerAgentOf(world, world.buildings.get(author.homeBuildingId ?? author.buildingId ?? ""));
+  return mgr ? { agent: mgr, via: author.forkOf ? "fork" : "gone" } : null;
+}
+
+/**
+ * A 1:1 (docs/waterfall.md §3.4): a human opens a meeting with one agent of the building, its manager by default or
+ * `opts.agentId` (a report's "Talk to <author>"; a fork or a gone author resolves through `oneOnOneTarget`). Created
+ * straight into `discussing` (no summaries) with that agent as facilitator and only attendee; it doesn't go
+ * `in-meeting` (its host session answers, runtime/src/manage.ts). With `opts.docId` the human's first line presents
+ * that doc, so the agent's prompt carries its id. Returns the human's open 1:1 with that agent if any (presenting
+ * the doc there if it isn't yet). Needs meeting.facilitate or building.review on the building.
+ */
+export function createOneOnOne(world: World, human: Agent, buildingId: string, opts: { agentId?: string; docId?: string } = {}): Meeting {
   const b = world.buildings.require(buildingId, "building");
   if (b.id === TOWN_HALL_ID || b.kind === "town-hall") throw badRequest("The Town Hall has no manager agent to talk to.");
   if (!world.permissions.can(human, "meeting.facilitate", b.id) && !world.permissions.can(human, "building.review", b.id)) throw forbidden("meeting.facilitate");
   const h = world.holderOf(human);
-  if (h.kind !== "user") throw badRequest("Only humans open a 1:1 with a manager.");
-  const mgr = managerAgentOf(world, b);
-  if (!mgr) throw new AppError("conflict", `${b.name} has no manager agent; send a message instead.`);
-  const open = world.meetings.where("kind = 'one-on-one' AND buildingId = ? AND withUserId = ? AND phase = 'discussing'", [b.id, h.id]);
-  if (open[0]) return open[0];
+  if (h.kind !== "user") throw badRequest("Only humans open a 1:1.");
+  const doc = opts.docId ? world.docs.get(opts.docId) : undefined;
+  if (opts.docId && !doc) throw notFound("Document", opts.docId);
+  let target: Agent | undefined;
+  if (opts.agentId) {
+    const t = oneOnOneTarget(world, opts.agentId);
+    if (!t) throw new AppError("conflict", `${world.nameOf(opts.agentId)} can't take a 1:1 and ${b.name} has no manager agent; reply to the report instead.`);
+    target = t.agent;
+    if ((target.homeBuildingId ?? target.buildingId) !== b.id) throw badRequest(`${target.name} doesn't work in ${b.name}.`);
+  } else {
+    target = managerAgentOf(world, b);
+    if (!target) throw new AppError("conflict", `${b.name} has no manager agent; send a message instead.`);
+  }
+  const open = world.meetings.where("kind = 'one-on-one' AND facilitatorId = ? AND withUserId = ? AND phase = 'discussing'", [target.id, h.id]);
+  const present = (m: Meeting): Meeting => {
+    if (!doc || m.transcript.some((u) => u.attachment?.kind === "doc" && u.attachment.ref === doc.id)) return m;
+    const by = doc.authorId === target.id ? "your" : `${world.nameOf(doc.authorId)}'s`;
+    return meetingSpeak(world, human, m.id, `I'd like to talk about ${by} ${doc.type} "${oneLine(doc.title, 120)}" (${doc.id}).`, doc.state === "draft" ? undefined : doc.id);
+  };
+  if (open[0]) return present(open[0]);
   const ts = nowIso();
   const meeting = world.meetings.upsert(Meeting.parse({
-    id: newId("mt"), kind: "one-on-one", buildingId: b.id, title: `1:1: ${world.nameOf(h.id)} and ${mgr.name}`, scheduledAt: ts, phase: "discussing",
-    facilitatorId: mgr.id, attendeeIds: [mgr.id], withUserId: h.id, createdAt: ts, startedAt: ts,
+    id: newId("mt"), kind: "one-on-one", buildingId: b.id, title: `1:1: ${world.nameOf(h.id)} and ${target.name}`, scheduledAt: ts, phase: "discussing",
+    facilitatorId: target.id, attendeeIds: [target.id], withUserId: h.id, createdAt: ts, startedAt: ts,
   }));
-  world.events.append({ type: "meeting.created", buildingId: b.id, agentId: mgr.id, text: `${world.nameOf(h.id)} opened a 1:1 with ${mgr.name}`, payload: { meetingId: meeting.id, kind: meeting.kind, phase: meeting.phase, by: h.id } });
-  return meeting;
+  world.events.append({ type: "meeting.created", buildingId: b.id, agentId: target.id, text: `${world.nameOf(h.id)} opened a 1:1 with ${target.name}${doc ? ` about ${doc.id}` : ""}`, payload: { meetingId: meeting.id, kind: meeting.kind, phase: meeting.phase, by: h.id, ...(doc ? { docId: doc.id } : {}) } });
+  return present(meeting);
 }
 
 /**
@@ -213,7 +248,7 @@ export function meetingSpeak(world: World, actor: Agent, meetingId: string, text
   if (m.phase !== "discussing") throw new AppError("conflict", m.phase === "collecting" || m.phase === "scheduled" ? "The meeting is still collecting summaries; you can speak once the discussion starts." : `Meeting is ${m.phase}; you can only speak during the discussion.`);
   if (!text.trim()) throw badRequest("Nothing to say.");
   const h = world.holderOf(actor);
-  if (m.kind === "one-on-one" && h.id !== m.facilitatorId && h.id !== m.withUserId) throw new AppError("forbidden", "Only the manager and the human who opened it speak in a 1:1.");
+  if (m.kind === "one-on-one" && h.id !== m.facilitatorId && h.id !== m.withUserId) throw new AppError("forbidden", "Only the agent and the human who opened it speak in a 1:1.");
   const attachment = attach?.trim() ? resolveAttachment(world, attach) : undefined;
   const updated = world.meetings.upsert({ ...m, transcript: [...m.transcript, { speakerId: h.id, speakerKind: h.kind, text, at: nowIso(), ...(attachment ? { attachment } : {}) }] });
   world.events.append({ type: "meeting.utterance", agentId: actor.kind === "human" ? null : actor.id, buildingId: m.buildingId, text: `${actor.name}: ${text.slice(0, 300)}`, payload: { meetingId: m.id, speakerId: h.id, speakerKind: h.kind, ...(attachment ? { attachment: { kind: attachment.kind, ref: attachment.ref } } : {}) } });

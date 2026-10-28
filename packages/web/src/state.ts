@@ -270,7 +270,8 @@ export const store = new Store();
 if (import.meta.env.DEV && typeof window !== "undefined") (window as unknown as { __muster?: Store }).__muster = store;
 
 export function useTown<T>(selector: (s: TownState) => T): T {
-  return useSyncExternalStore(store.subscribe, () => selector(store.state));
+  const get = () => selector(store.state);
+  return useSyncExternalStore(store.subscribe, get, get); // the server snapshot is the same store (static renders in tests)
 }
 
 export function placeAt(places: Place[], id: string) { return places.find((p) => p.id === id); }
