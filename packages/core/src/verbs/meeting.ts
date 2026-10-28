@@ -1,6 +1,6 @@
 import type { Agent, Meeting } from "@muster-town/schema";
 import { AppError, badRequest } from "../errors.ts";
-import { agentsDrafting, clearAgentDrafting, endMeeting, humanStillTalking, humanTyping, meetingDecide, meetingSpeak, noteAgentDrafting, setMeetingPhase } from "../meetings.ts";
+import { agentsDrafting, attachmentLine, clearAgentDrafting, endMeeting, humanStillTalking, humanTyping, meetingDecide, meetingSpeak, noteAgentDrafting, setMeetingPhase } from "../meetings.ts";
 import type { World } from "../world.ts";
 import type { VerbIn } from "./types.ts";
 
@@ -28,7 +28,7 @@ export async function meeting(world: World, me: Agent, input: VerbIn<"meeting">)
       return {
         id: m.id, title: m.title, kind: m.kind, phase: m.phase, agenda: m.agenda, facilitator: m.facilitatorId ? name(m.facilitatorId) : null,
         attendees: m.attendeeIds.map((id) => ({ id, name: name(id), summary: m.summaries[id] ?? null })),
-        transcript: m.transcript.slice(-30).map((u) => ({ speaker: name(u.speakerId), speakerKind: u.speakerKind, text: u.text, at: u.at })),
+        transcript: m.transcript.slice(-30).map((u) => ({ speaker: name(u.speakerId), speakerKind: u.speakerKind, text: u.text, at: u.at, ...(u.attachment ? { presented: attachmentLine(u.attachment) } : {}) })),
         decisions: m.decisions.map((d, i) => ({ n: i + 1, ...d })),
         humanTyping: humanTyping(world, m.id),
         drafting: agentsDrafting(world, m.id).map(name),
@@ -43,8 +43,11 @@ export async function meeting(world: World, me: Agent, input: VerbIn<"meeting">)
       return { ok: true };
     }
     case "speak":
-      meetingSpeak(world, me, m.id, input.text ?? "");
-      return { ok: true };
+    {
+      const said = meetingSpeak(world, me, m.id, input.text ?? "", input.attach);
+      const a = said.transcript[said.transcript.length - 1]?.attachment;
+      return a ? { ok: true, presented: attachmentLine(a) } : { ok: true };
+    }
     case "listen": {
       let map = cursors.get(world);
       if (!map) { map = new Map(); cursors.set(world, map); }
@@ -64,7 +67,7 @@ export async function meeting(world: World, me: Agent, input: VerbIn<"meeting">)
       return {
         phase: now.phase,
         humanTyping: humanTyping(world, m.id),
-        utterances: heard.map((u) => ({ speaker: name(u.speakerId), speakerKind: u.speakerKind, text: u.text, at: u.at })),
+        utterances: heard.map((u) => ({ speaker: name(u.speakerId), speakerKind: u.speakerKind, text: u.text, at: u.at, ...(u.attachment ? { presented: attachmentLine(u.attachment) } : {}) })),
       };
     }
     case "decide":

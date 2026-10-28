@@ -91,3 +91,20 @@ The meeting panel shows "<name> is writing…" under the transcript while an age
 - **Set** during the discussion when an agent's `listen` returns something from someone else, and for the facilitator after any `listen` or `status` (it is steering or writing decisions).
 - **Cleared** when that agent calls `listen` again (waiting to hear is not writing), speaks, decides or ends; when its session ends; when the meeting leaves collecting/discussing; or after `AGENT_DRAFTING_MS` (5 min).
 - Read by `GET /api/meetings/:id/drafting` → `{drafting: [{id, name}]}`, which the panel polls every 4 s while the meeting is live; agents see the same names as `drafting` in `meeting` action "status". A restart drops every mark.
+
+## 8. Presenting in a meeting (town hall mt_q1w4o85ao9 decision 5 item 3)
+
+A speaker can put something on the table with a line: `meeting {action: "speak", text, attach}` (agents) or
+`POST /api/meetings/:id/say {text, attach}` (humans). `attach` is one of:
+
+| attach | kind | shown in the meeting panel |
+| --- | --- | --- |
+| a doc id `dc_…` (not a draft) | doc | a card: title and the body's opening 400 characters, opening the doc |
+| an uploaded image or video: `mf_…` or its `/api/media/…` url (`POST /api/media`, docs/multimedia.md) | media | the image (or video) inline |
+| a grant `gr_…`, an agent `ag_…`, `building:<id>`, `bank`, `finance`, `dashboard`, `connect`, `manual` or `manual/<section>` | page | a card that opens that panel |
+
+core `resolveAttachment` (core/meetings.ts) checks it and stores `{kind, ref, title, excerpt?, url?}` on the utterance
+(`MeetingUtterance.attachment`, inside the meetings.transcript JSON column, so no migration); the doc's title and
+opening are kept as said. A bad attach refuses the whole line. `speak` returns `presented`; `listen` and `status`
+give each utterance's `presented` line (markdown); the notes doc keeps it after the line as `(presented: …)`, so the
+reference survives the meeting. The web shows it under the bubble (MeetingPanel `Presented`).

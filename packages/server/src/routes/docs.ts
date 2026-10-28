@@ -138,8 +138,8 @@ export async function docRoutes(app: FastifyInstance) {
   });
 
   app.post<{ Params: Params }>("/api/meetings/:id/say", async (req) => {
-    const { text } = parse(MeetingSayInput, req.body);
-    return { meeting: world.ops.meetingSay(actorOf(world, req), req.params.id, text) };
+    const { text, attach } = parse(MeetingSayInput, req.body);
+    return { meeting: world.ops.meetingSay(actorOf(world, req), req.params.id, text, attach) };
   });
 
   app.post<{ Params: Params }>("/api/meetings/:id/typing", async (req, reply) => {

@@ -727,12 +727,29 @@ export const MeetingDecision = z.object({
   /** goal-directed budgets: the decision's lane (as `assign`); left out = directed (its source is the meeting when a human took part) */
   ...LaneFields.shape,
 });
+/**
+ * What a speaker presents with an utterance (docs/meetings.md §8): a doc (title and opening lines kept as said), a town
+ * page (`ref` bank, finance, dashboard, manual[/section], connect, grant:<id>, agent:<id>, building:<id>) or an uploaded
+ * image or video (`url` /api/media/…). The meeting panel shows it inline; the notes keep the reference.
+ */
+export const MeetingAttachment = z.object({
+  kind: z.enum(["doc", "page", "media"]),
+  /** doc id, page ref, or media id */
+  ref: z.string(),
+  title: z.string(),
+  /** doc: the opening of its body when it was presented */
+  excerpt: z.string().optional(),
+  /** media: where it is served */
+  url: z.string().optional(),
+});
+export type MeetingAttachment = z.infer<typeof MeetingAttachment>;
 export const MeetingUtterance = z.object({
   /** `system` for a line the town posts itself (speakerId "system"), e.g. a reply waiting on a redeploy */
   speakerId: Id,
   speakerKind: z.enum(["agent", "user", "system"]),
   text: z.string(),
   at: Iso,
+  attachment: MeetingAttachment.optional(),
 });
 export const Meeting = z.object({
   id: Id,
@@ -1060,6 +1077,7 @@ export const VerbInputs = {
     meetingId: Id,
     action: z.enum(["status", "summary", "speak", "listen", "decide", "end"]),
     text: z.string().optional(),
+    attach: z.string().optional().describe("speak only: present something with the line, shown inline in the meeting panel: a doc id (dc_…), an uploaded image or video (mf_… or its /api/media/… url), a grant (gr_…) or agent (ag_…), or a town page: bank, finance, dashboard, manual, connect, building:<id>"),
     decisions: z.array(MeetingDecision).optional(),
     waitSeconds: z.number().int().min(0).max(120).optional().describe("listen only: wait up to this long for someone to speak (default 0 = return now)"),
   }),
@@ -1130,7 +1148,7 @@ export const VERB_DESCRIPTIONS: Record<VerbName, string> = {
   request_human: "Put a request in the town outbox for a human to do something in the real world (observe, fetch data, contact someone). Humans see it in the outbox at once and decide whether to do it.",
   assignments: "List my assignments.",
   accept_assignment: "Accept a pending assignment; it becomes my current task. Visitors: assignments to you are offers until you accept them (unaccepted offers are cancelled after 24 h); finish with `submit_report`.",
-  meeting: "Participate in a meeting: 'summary' submits my short standup summary (did, next), 'speak' adds to the transcript once the discussion has started, 'listen' returns new utterances since my last listen (set waitSeconds to wait for someone to speak), 'decide'/'end' are for the facilitator (to amend a decision, decide again with supersedes = its number in status's decisions list); a decision's waitFor holds its assignment until then, e.g. {deploy: \"next\"} for \"after the redeploy\" or {assignment: id} for \"once X lands\"; while humans are talking, leave 'end' to them.",
+  meeting: "Participate in a meeting: 'summary' submits my short standup summary (did, next), 'speak' adds to the transcript once the discussion has started (attach presents a doc, a town page or an uploaded screenshot with it, shown inline to everyone), 'listen' returns new utterances since my last listen (set waitSeconds to wait for someone to speak), 'decide'/'end' are for the facilitator (to amend a decision, decide again with supersedes = its number in status's decisions list); a decision's waitFor holds its assignment until then, e.g. {deploy: \"next\"} for \"after the redeploy\" or {assignment: id} for \"once X lands\"; while humans are talking, leave 'end' to them.",
   review: "(manager/reviewer) Decide on a pending report in the in-tray: approve (acknowledge), continue (assign its proposal), redirect (assign your note instead), or stop the agent.",
   assign: "(manager/reviewer) Create an assignment for an agent in my building (with forks on, leave agentId out to queue it to the building). With waitFor it waits (e.g. for the next redeploy, or another assignment to finish) before it starts. In goal-directed buildings an agent must give lane grant (grantId of a funded grant; its key result is implied) or exploration (keyResultId of a goal key result with no funded grant, or gap), or directed when a human asked for it (sourceId: the human source; optionally keyResultId or gap, and then it runs until a grant proposal names that key result). Directed work is never held by the exploration allowance.",
   reassign: "(manager/reviewer) Move a queued (not started) assignment to another resident of my building, e.g. off a busy queue onto an idle colleague. It keeps its lane, grant or key result and waitFor; the original is cancelled and the new one joins the end of their queue. Started assignments and other buildings' are refused.",
@@ -1405,7 +1423,7 @@ export type UpdateBankPoolInput = z.input<typeof UpdateBankPoolInput>;
 export const CreateMeetingInput = z.object({ kind: MeetingKind.exclude(["one-on-one"]), buildingId: Id.nullable(), title: z.string().optional(), scheduledAt: Iso.optional(), agenda: z.string().optional(), startNow: z.boolean().default(false),
   /** who to invite; omitted = the building's residents (town hall: managers, reviewers, moderators) */
   attendeeIds: z.array(Id).min(1).optional() });
-export const MeetingSayInput = z.object({ text: z.string() });
+export const MeetingSayInput = z.object({ text: z.string(), attach: z.string().optional() });
 export const SeedInput = z.object({ importDir: z.string().optional() });
 /** POST /api/admin/redeploy (permission `town.redeploy`); also the `redeploy` verb's input */
 export const RedeployInput = z.object({ image: z.boolean().default(false) });

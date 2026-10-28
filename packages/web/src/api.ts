@@ -340,7 +340,7 @@ export interface Api {
   createMeeting(input: In<typeof CreateMeetingInput>): Promise<Meeting>;
   meeting(id: string): Promise<Meeting>;
   startMeeting(id: string): Promise<Meeting>;
-  sayMeeting(id: string, text: string): Promise<Meeting>;
+  sayMeeting(id: string, text: string, attach?: string): Promise<Meeting>;
   endMeeting(id: string): Promise<Meeting>;
   /** a human has an unsent message in the say box (ping every few seconds while it's there) */
   typingMeeting(id: string): Promise<void>;
@@ -553,7 +553,7 @@ export class HttpApi implements Api {
   async meeting(id: string) { return unwrap<Meeting>(await this.get(`/api/meetings/${id}`), "meeting"); }
   async openOneOnOne(buildingId: string) { return unwrap<Meeting>(await this.post(`/api/buildings/${buildingId}/one-on-one`), "meeting"); }
   async startMeeting(id: string) { return unwrap<Meeting>(await this.post(`/api/meetings/${id}/start`), "meeting"); }
-  async sayMeeting(id: string, text: string) { return unwrap<Meeting>(await this.post(`/api/meetings/${id}/say`, { text }), "meeting"); }
+  async sayMeeting(id: string, text: string, attach?: string) { return unwrap<Meeting>(await this.post(`/api/meetings/${id}/say`, attach ? { text, attach } : { text }), "meeting"); }
   async endMeeting(id: string) { return unwrap<Meeting>(await this.post(`/api/meetings/${id}/end`), "meeting"); }
   async typingMeeting(id: string) { await this.post(`/api/meetings/${id}/typing`); }
   async meetingDrafting(id: string) { return unwrap<{ id: string; name: string }[]>(await this.get(`/api/meetings/${id}/drafting`), "drafting"); }

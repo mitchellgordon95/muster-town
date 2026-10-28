@@ -1,4 +1,4 @@
-import { CreateMeetingInput, Meeting, type Agent } from "@muster-town/schema";
+import { CreateMeetingInput, Meeting, type Agent, type MeetingAttachment } from "@muster-town/schema";
 import { applyDecision, createAssignment, createDoc, managerAgentOf, sendMessage, setAssignmentStatus, updateDoc } from "./domain.ts";
 import { AppError, badRequest, forbidden, notFound } from "./errors.ts";
 import { buildingRoleId, townRoleId } from "./permissions.ts";
@@ -155,14 +155,68 @@ export function setMeetingPhase(world: World, meetingId: string, phase: Meeting[
   return updated;
 }
 
-export function meetingSpeak(world: World, actor: Agent, meetingId: string, text: string): Meeting {
+/** Town pages a speaker can present by name (the web opens the matching panel). */
+const PAGES: Record<string, string> = { bank: "The Bank", finance: "Finance", dashboard: "Dashboard", manual: "Operating manual", connect: "Connect your agent" };
+const EXCERPT_CHARS = 400;
+
+/**
+ * Resolve what a speaker presents (`attach` on speak, docs/meetings.md §8): a doc id, a media id or /api/media url, a
+ * grant or agent id, or a town page name. Doc title and opening are kept as said, so the line reads the same after
+ * the doc changes. Drafts are refused: the room couldn't open them.
+ */
+export function resolveAttachment(world: World, attach: string): MeetingAttachment {
+  const ref = attach.trim();
+  const media = /^(?:\/api\/media\/)?(mf_[a-z0-9]{10})(?:\.[a-z0-9]+)?$/.exec(ref);
+  if (media) {
+    const f = world.media.get(media[1]!);
+    if (!f) throw new AppError("not_found", `No uploaded file ${media[1]}. Upload it with POST /api/media first.`);
+    return { kind: "media", ref: f.id, title: f.mime.startsWith("video/") ? "Video" : "Screenshot", url: f.url };
+  }
+  if (/^dc_/.test(ref)) {
+    const d = world.docs.get(ref);
+    if (!d) throw notFound("Document", ref);
+    if (d.state === "draft") throw badRequest(`${ref} is a draft, so the room can't open it; publish it (state "building") first.`);
+    return { kind: "doc", ref, title: d.title, excerpt: oneLine(d.body.replace(/[#*_`>]/g, ""), EXCERPT_CHARS) };
+  }
+  if (/^gr_/.test(ref)) {
+    const g = world.grants.get(ref);
+    if (!g) throw notFound("Grant", ref);
+    return { kind: "page", ref: `grant:${ref}`, title: `Grant: ${g.objective}` };
+  }
+  if (/^ag_/.test(ref)) {
+    const a = world.agents.get(ref);
+    if (!a) throw notFound("Agent", ref);
+    return { kind: "page", ref: `agent:${ref}`, title: a.name };
+  }
+  const building = /^building:(.+)$/.exec(ref);
+  if (building) {
+    const b = world.buildings.get(building[1]!);
+    if (!b) throw notFound("Building", building[1]!);
+    return { kind: "page", ref, title: b.name };
+  }
+  const manual = /^manual\/([a-z0-9-]+)$/.exec(ref);
+  if (manual) return { kind: "page", ref, title: `Operating manual: ${manual[1]}` };
+  const page = PAGES[ref.toLowerCase()];
+  if (page) return { kind: "page", ref: ref.toLowerCase(), title: page };
+  throw badRequest(`Can't present "${ref}": attach a doc id (dc_…), an uploaded image (mf_… or /api/media/…), a grant (gr_…), an agent (ag_…), building:<id>, or one of ${Object.keys(PAGES).join(", ")}, manual/<section>.`);
+}
+
+/** How an attachment reads in plain text (listen, status, the notes doc). */
+export function attachmentLine(a: MeetingAttachment): string {
+  if (a.kind === "media") return `![${a.title}](${a.url})`;
+  if (a.kind === "doc") return `[${a.title}](${a.ref})`;
+  return `${a.title} (page ${a.ref})`;
+}
+
+export function meetingSpeak(world: World, actor: Agent, meetingId: string, text: string, attach?: string): Meeting {
   const m = world.meetings.require(meetingId, "meeting");
   if (m.phase !== "discussing") throw new AppError("conflict", m.phase === "collecting" || m.phase === "scheduled" ? "The meeting is still collecting summaries; you can speak once the discussion starts." : `Meeting is ${m.phase}; you can only speak during the discussion.`);
   if (!text.trim()) throw badRequest("Nothing to say.");
   const h = world.holderOf(actor);
   if (m.kind === "one-on-one" && h.id !== m.facilitatorId && h.id !== m.withUserId) throw new AppError("forbidden", "Only the manager and the human who opened it speak in a 1:1.");
-  const updated = world.meetings.upsert({ ...m, transcript: [...m.transcript, { speakerId: h.id, speakerKind: h.kind, text, at: nowIso() }] });
-  world.events.append({ type: "meeting.utterance", agentId: actor.kind === "human" ? null : actor.id, buildingId: m.buildingId, text: `${actor.name}: ${text.slice(0, 300)}`, payload: { meetingId: m.id, speakerId: h.id, speakerKind: h.kind } });
+  const attachment = attach?.trim() ? resolveAttachment(world, attach) : undefined;
+  const updated = world.meetings.upsert({ ...m, transcript: [...m.transcript, { speakerId: h.id, speakerKind: h.kind, text, at: nowIso(), ...(attachment ? { attachment } : {}) }] });
+  world.events.append({ type: "meeting.utterance", agentId: actor.kind === "human" ? null : actor.id, buildingId: m.buildingId, text: `${actor.name}: ${text.slice(0, 300)}`, payload: { meetingId: m.id, speakerId: h.id, speakerKind: h.kind, ...(attachment ? { attachment: { kind: attachment.kind, ref: attachment.ref } } : {}) } });
   if (actor.kind !== "human") clearAgentDrafting(world, actor.id, m.id);
   notifyMentions(world, actor, text, { where: `meeting "${m.title}"`, meetingId: m.id, buildingId: m.buildingId });
   return updated;
@@ -346,7 +400,7 @@ export function endMeeting(world: World, actor: Agent | null, meetingId: string,
     `# ${m.title}`, "", `Kind: ${m.kind}. Facilitator: ${m.facilitatorId ? name(m.facilitatorId) : "none"}. Attendees: ${m.attendeeIds.map(name).join(", ") || "none"}.`,
     "", "## Agenda", "", m.agenda || "(none)",
     "", "## Summaries", "", ...(Object.entries(m.summaries).map(([id, s]) => `**${name(id)}:** ${s}`)), Object.keys(m.summaries).length ? "" : "(none)",
-    "## Discussion", "", ...m.transcript.map((u) => `- **${name(u.speakerId)}:** ${u.text}`), m.transcript.length ? "" : "(none)",
+    "## Discussion", "", ...m.transcript.map((u) => `- **${name(u.speakerId)}:** ${u.text}${u.attachment ? ` (presented: ${attachmentLine(u.attachment)})` : ""}`), m.transcript.length ? "" : "(none)",
     "## Decisions", "", ...m.decisions.map((d, i) => `${i + 1}. ${d.supersededBy ? `~~${d.text}~~ (superseded by ${d.supersededBy})` : d.text}${d.assigneeId ? ` → ${name(d.assigneeId)}` : ""}`), m.decisions.length ? "" : "(none)",
     ...(closing ? ["## Closing", "", closing] : []),
   ].join("\n");
