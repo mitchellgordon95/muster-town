@@ -33,7 +33,7 @@ function setup() {
 }
 
 describe("goal-directed budgets: lanes on assignments", () => {
-  it("every lab is lane-gated, even one created without budgetMode or with a stale `open` row; the Town Hall never is", () => {
+  it("every lab is lane-gated, even one created without budgetMode or with a stale open row; the Town Hall never is", () => {
     const { world, seed, mei } = setup();
     const agent = { kind: "agent" as const, id: mei.id };
     const fresh = createBuilding(world, { name: "Fresh lab" }, seed.admin.id);
@@ -318,7 +318,7 @@ describe("goal-directed budgets: the 100% checkpoint", () => {
 });
 
 describe("goal-directed budgets: the Key results block", () => {
-  it("sits right after the building goal with goal KRs, statuses, the grant on each, spend and the session's lane; empty in open buildings", () => {
+  it("sits right after the building goal with goal KRs, statuses, the grant on each, spend and the session's lane; empty in the Town Hall", () => {
     const { world, mei, noor, admin, krs, fund, spend } = setup();
     const g = fund(4_000_000);
     spend(noor.id, 1_000_000, "grant", g.id);

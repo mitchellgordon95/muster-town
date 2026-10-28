@@ -73,14 +73,15 @@ describe("board key-results view", () => {
     expect(settableStatuses(false)).not.toContain("met");
     expect(settableStatuses(true)).toContain("missed");
   });
-  it("stoplight: the mock board and snapshot carry it for goal-directed buildings; the rule is the schema's", async () => {
+  it("stoplight: the mock board and snapshot carry it for every lab, never the Town Hall; the rule is the schema's", async () => {
     const api = new MockApi();
     const ws = await api.board("bl_workshop");
     expect(ws.stoplight).toEqual({ light: "yellow", reason: 'grant "HUD works on narrow screens" is held at its checkpoint; 2 of 4 key results have no funded grant' });
     const snap = await api.town();
     expect(snap.buildings.find((b) => b.id === "bl_workshop")?.stoplight?.light).toBe("yellow");
-    expect(snap.buildings.find((b) => b.id === "bl_carbon")?.stoplight).toBeNull();
-    expect((await api.board("bl_carbon")).stoplight).toBeNull();
+    expect(snap.buildings.find((b) => b.id === "bl_carbon")?.stoplight?.light).toBe("red");
+    expect((await api.board("bl_carbon")).stoplight?.light).toBe("red");
+    expect(snap.buildings.find((b) => b.id === "bl_townhall")?.stoplight).toBeNull();
     const kr = (grantId: string | null) => ({ grantId });
     expect(stoplightOf([kr("g")], [{ status: "funded", objective: "x" }])).toEqual({ light: "green", reason: "1 funded grant running on its key result" });
     expect(stoplightOf([kr(null)], [])).toEqual({ light: "red", reason: "no funded grant on its key result" });
@@ -98,12 +99,11 @@ describe("board key-results view", () => {
 });
 
 describe("blocked state", () => {
-  it("only a goal-directed building with blockedAt reads blocked; the Town Hall never does", () => {
+  it("only a lab with blockedAt reads blocked; the Town Hall never does", () => {
     const at = "2026-10-25T18:00:00.000Z";
-    expect(blockedLabel({ kind: "lab", budgetMode: "goal-directed", blockedAt: at })).toBe(BLOCKED_LABEL);
-    expect(blockedLabel({ kind: "lab", budgetMode: "goal-directed", blockedAt: null })).toBeNull();
-    expect(blockedLabel({ kind: "lab", budgetMode: "open", blockedAt: at })).toBeNull();
-    expect(blockedLabel({ kind: "town-hall", budgetMode: "goal-directed", blockedAt: at })).toBeNull();
+    expect(blockedLabel({ kind: "lab", blockedAt: at })).toBe(BLOCKED_LABEL);
+    expect(blockedLabel({ kind: "lab", blockedAt: null })).toBeNull();
+    expect(blockedLabel({ kind: "town-hall", blockedAt: at })).toBeNull();
     expect(UNBLOCK_LINE).toMatch(/human/);
     expect(UNBLOCK_LINE).toMatch(/Settings/);
   });

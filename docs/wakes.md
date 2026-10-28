@@ -38,7 +38,7 @@ Everything else lands in the **inbox** (`sendMessage`). The inbox never wakes an
 | cut, or a human closes a grant | manager | T: a town-written in-tray row "Grant X cut" (`managerIntrayRow`), plus the inbox `system` line (`notifyManager`) | — |
 | `grant.checkpoint` (100% spent) | manager | Q: a front-of-queue "Write the checkpoint" assignment | — |
 | `kr.created` / `kr.updated` / `kr.deleted` by a human | manager | T: a town-written in-tray row "Key result X written/edited/marked S/removed by Mitchell" (`managerIntrayRow`); `syncBlocked` as before. The manager's own KR writes and status marks write none | — |
-| Building becomes blocked (goal-directed, no KRs) | manager | Q: a "Get human decisions" assignment (grants.ts:110) | — |
+| Lab becomes blocked (no KRs, no funded grant) | manager | Q: a "Get human decisions" assignment (grants.ts:110) | — |
 | `waitFor` met (deploy, assignment, decision, after) | the parked assignee | Q: `checkWaits` on the tick clears the wait. After 24 h, T gets a `wait-expired` report | — |
 | Redeploy | running agents; parked work | I (notice); Q for `deploy` waits; T resumes the 1:1 (meetings.md §6) | — |
 | Exploration allowance reset (UTC midnight) / daily budget reset | held agents | Q: `laneHold` is re-evaluated on every tick; `resetDaily` and `resumeEligible` set agents back to idle | Nothing is announced, but the work resumes |
@@ -91,7 +91,7 @@ Assignment and Session. It is stamped and passed on by the town, never claimed b
 The rule for Mitchell's case: **a `tell` (or @mention) with an origin, sent to an idle resident, becomes a directed
 assignment** ("Message from Pix for Mitchell: …", at the front of the queue). It is appended to that recipient's pending
 message assignment for the same origin, in the same way `messageAgent` merges follow-ups today. The lane is `directed`
-("a human asked for it"), which a goal-directed building allows when a human created the work. If the recipient is
+("a human asked for it"), which every lab allows when a human created the work. If the recipient is
 working, the message is delivered as an interrupt (I). Without an origin, a tell stays inbox-only, as today.
 
 ## 3. What changes, migration, risks

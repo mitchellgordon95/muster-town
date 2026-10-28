@@ -147,7 +147,7 @@ export class Sim {
     const blocked = !!b && b.kind !== "town-hall" && !keyResults.length && !grants.length ? BLOCKED_NO_KRS : null;
     return { goal: b?.goal ?? "", keyResults, objectives: this.objectiveTree(buildingId), blocked, stoplight: this.stoplight(buildingId), grants, proposals, exploration: { allowanceTokens: b?.explorationTokensPerDay ?? 0, spentTodayTokens: F.explorationSpentToday[buildingId] ?? 0 } };
   }
-  /** The building's stoplight, as core's Grants.stoplight: null for open buildings and the Town Hall. */
+  /** The building's stoplight, as core's Grants.stoplight: null for the Town Hall. */
   stoplight(buildingId: string): Stoplight | null {
     const b = this.buildings.find((x) => x.id === buildingId);
     if (!b || b.kind === "town-hall") return null;

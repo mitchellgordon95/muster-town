@@ -284,7 +284,7 @@ function KeyResultsEditor({ b }: { b: SnapshotBuilding }) {
       <p className="direction">{KPI_FRAMING_SHORT} Each objective is one sentence for the quarter and names the KPI it moves; its 2 to 4 key results say how you'll know, in terms a human can check in the live town. Each grant names one key result, and a goal-directed building is blocked without them. Humans write them here; the manager writes them too (from a meeting or your 1:1) and lists each key result in its next rollup, so you can keep or cut it.</p>
       {tree.loading && !tree.data ? <Loading /> : null}
       <ErrorLine error={tree.error} />
-      {tree.data && !all.length && !objectives.length ? <Empty>No objectives or key results on the goal yet{b.budgetMode === "goal-directed" ? ": the building is blocked until a key result exists or a grant is funded" : ""}.</Empty> : null}
+      {tree.data && !all.length && !objectives.length ? <Empty>No objectives or key results on the goal yet{b.kind !== "town-hall" ? ": the building is blocked until a key result exists or a grant is funded" : ""}.</Empty> : null}
       {objectives.map((o, i) => (
         <div key={o.id} className="kr-objective">
           <ObjectiveRow n={i + 1} o={o} canWrite={human} onChanged={tree.reload} />

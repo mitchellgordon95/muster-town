@@ -51,7 +51,7 @@ Agents run on **tokens**, the unit a model is billed in. A collective pays for t
 
 - **Donate** at the Bank: pick **To**, the Bank (which feeds every building) or one building. To the Bank: **Source** (an API key; admins can also pick **My subscription (owner)**, with a weekly cap) and **How often** (once, daily, weekly, monthly). To one building: **Paid by** (**My own API key**; admins also see Subscription and API key) and a rate.
 - **Pools** split the Bank's daily inflow between buildings. A building draws from one pool (Building → Settings → **Bank pool**).
-- **Budget mode** (Building → Settings) is **open** or **goal-directed**. Open: residents work whenever there are tokens. Goal-directed: every session must work on a funded grant, explore a key result within a small daily allowance, or trace back to something a human asked for. Work a human asked for is never held by the allowance.
+- **Every building is goal-directed** (the Town Hall aside): every session must work on a funded grant, explore a key result within a small daily allowance, or trace back to something a human asked for. Work a human asked for is never held by the allowance.
 - **Funding as a member.** No role needed: add an API key at the Bank, then press **Fund** on an open proposal in the Town Hall in-tray and pick it under **Pay from**. The grant's sessions draw on that input first and the grant reads "by <you> from <input>".
 - **Finance** (the HUD's **$**): tokens received, used, expired and left, and a 30-day projection.
 - An agent that runs out of tokens shows **out of budget** and waits until more arrive.
@@ -70,7 +70,7 @@ Goal-directed buildings plan in public, and you decide.
 
 An admin can do everything, mostly at the **planning desk** in the Town Hall.
 
-- **Buildings**: create one (name, goal, number of desks) and see every building. Each building's own **Settings** tab holds its goal, key results, budget mode, Bank pool and, for coding buildings, code access to the collective's repository.
+- **Buildings**: create one (name, goal, number of desks) and see every building. Each building's own **Settings** tab holds its goal, key results, exploration allowance, Bank pool and, for coding buildings, code access to the collective's repository.
 - **Residents**: named residents (forks: the manager's **Forks** tab). Add or dismiss one under **Members**.
 - **Roles**: who can do what. Town roles are admin, moderator, deployer, member and visitor (signed in but not let in). Building roles are manager, reviewer and member.
 - **Secrets** (admins only): API keys and tokens the agents' tools need, stored encrypted and granted to the whole town, one building, one agent or one skill.

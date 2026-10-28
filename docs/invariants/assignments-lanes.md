@@ -6,20 +6,20 @@ Citation format: the same as in [grants.md](grants.md): a `- Test:` line with th
 
 ## Invariants
 
-1. **In a goal-directed building, agent-made work has a lane, and directed work cites a human source.** An agent must say `grant` (a grant of the building) or `exploration` (a goal key result or a gap); it creates `directed` work only with a `sourceId` that a human wrote or took part in. Humans may still create directed work. A continuation inherits its lane. Open buildings keep "no lane = directed".
+1. **In a lab, agent-made work has a lane, and directed work cites a human source.** An agent must say `grant` (a grant of the building) or `exploration` (a goal key result or a gap); it creates `directed` work only with a `sourceId` that a human wrote or took part in. Humans may still create directed work. A continuation inherits its lane. Only the Town Hall keeps "no lane = directed".
    - Test: `packages/core/test/lanes.test.ts` › `goal-directed: agents must say grant or exploration; fields are validated; humans may still create directed work`
    - Test: `packages/core/test/lanes.test.ts` › `an agent creates directed work only when it cites a human source; it is stored and never held by the allowance`
-   - Test: `packages/core/test/lanes.test.ts` › `open buildings keep today's behaviour: no lane = directed, agents may assign it`
+   - Test: `packages/core/test/lanes.test.ts` › `every lab is lane-gated, even one created without budgetMode or with a stale open row; the Town Hall never is`
 2. **Grant-lane work can't name a closed, rejected or draft grant.** `resolveLane` refuses them, because no work may be charged to them. A proposed or countered grant is accepted, but the lane gate holds the work until the grant is funded.
    - Test: `packages/core/test/lanes.test.ts` › `a grant assignment can't name a closed, rejected or draft grant; proposed, funded and checkpoint ones are accepted (and the gate holds the unfunded)`
 3. **Exploration can't name a key result that has a funded grant.** That work goes in the grant lane.
    - Test: `packages/core/test/lanes.test.ts` › `goal-directed: agents must say grant or exploration; fields are validated; humans may still create directed work`
 4. **A session copies its lane and `grantId` from its assignment when it starts**, so a grant's spend (summed from sessions) counts exactly the work done in its lane.
    - Test: `packages/core/test/lanes.test.ts` › `a session copies lane and grantId from its assignment at start`
-5. **The lane gate holds, it never cancels.** A held assignment stays `pending` with a `heldReason`, and work queued behind it still starts. Exploration is held once the building's exploration spend today reaches its allowance; directed work never is; open buildings never hold on lanes.
+5. **The lane gate holds, it never cancels.** A held assignment stays `pending` with a `heldReason`, and work queued behind it still starts. Exploration is held once the building's exploration spend today reaches its allowance; directed work never is; the Town Hall never holds on lanes.
    - Test: `packages/core/test/lanes.test.ts` › `a grant task is held while its grant is at checkpoint (stays pending, with a reason); work behind it still starts`
    - Test: `packages/core/test/lanes.test.ts` › `exploration is held once the building's exploration spend today reaches its allowance; directed is not`
-   - Test: `packages/core/test/lanes.test.ts` › `open buildings never hold on lanes`
+   - Test: `packages/core/test/lanes.test.ts` › `the Town Hall never holds on lanes; a lab does`
    - Test: `packages/core/test/blockers.test.ts` › `lane holds point at the Town Hall in-tray: grant at checkpoint, exploration allowance spent (used of allowance, reset time)`
 6. **Directed work that names a key result stops once a grant proposal names that key result.**
    - Test: `packages/core/test/lanes.test.ts` › `directed work naming a key result runs until a grant proposal names it`
