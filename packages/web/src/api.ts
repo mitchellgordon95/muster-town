@@ -32,6 +32,9 @@ export interface AgentDetail {
   /** manager forks (step 5): a fork's assignment, session, report and edited topic pages */
   fork?: ForkSummary;
 }
+/** A manager and all its forks' spend (GET /api/agents/:id/forks `family`), as core's familySpend: adjusted tokens the Bank booked. */
+export interface FamilySpend { today: number; total: number; usdTotal: number; forks: number }
+
 /** One manager fork (GET /api/agents/:id `fork`, GET /api/agents/:id/forks), as core's forkSummary. */
 export interface ForkSummary {
   agent: Agent;
@@ -273,7 +276,7 @@ export interface Api {
   ban(id: string, reason: string): Promise<Agent>;
   agent(id: string): Promise<AgentDetail>;
   /** a manager's forks: live, then the last 50 retired */
-  forks(managerId: string): Promise<{ live: ForkSummary[]; retired: ForkSummary[] }>;
+  forks(managerId: string): Promise<{ live: ForkSummary[]; retired: ForkSummary[]; family?: FamilySpend }>;
   /** Owner or admin: inherit the owner's permissions or not, and per-agent denies. */
   setAgentPermissions(id: string, patch: { inheritsOwner?: boolean; deniedPermissions?: Permission[] }): Promise<Pick<AgentDetail, "agent" | "effectivePermissions" | "permissions">>;
   /** null = its home building's model */
@@ -495,7 +498,7 @@ export class HttpApi implements Api {
   async dismiss(id: string, purge = false) { await this.call("DELETE", `/api/agents/${id}${purge ? "?purge=1" : ""}`); }
   async ban(id: string, reason: string) { return unwrap<Agent>(await this.post(`/api/agents/${id}/ban`, { reason }), "agent"); }
   agent(id: string) { return this.get<AgentDetail>(`/api/agents/${id}`); }
-  forks(managerId: string) { return this.get<{ live: ForkSummary[]; retired: ForkSummary[] }>(`/api/agents/${managerId}/forks`); }
+  forks(managerId: string) { return this.get<{ live: ForkSummary[]; retired: ForkSummary[]; family?: FamilySpend }>(`/api/agents/${managerId}/forks`); }
   setAgentPermissions(id: string, patch: { inheritsOwner?: boolean; deniedPermissions?: Permission[] }) { return this.call<Pick<AgentDetail, "agent" | "effectivePermissions" | "permissions">>("PATCH", `/api/agents/${id}/permissions`, patch); }
   setAgentModel(id: string, model: string | null) { return this.call<Pick<AgentDetail, "agent" | "effectivePermissions" | "permissions">>("PATCH", `/api/agents/${id}/model`, { model }); }
   session(id: string) { return this.get<{ session: SessionView | null; transcript: Event[]; transcriptFile?: { url: string; bytes: number; lines: number; expiresAt: string } | null }>(`/api/agents/${id}/session`); }

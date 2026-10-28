@@ -10,6 +10,7 @@
 import type { Agent, Assignment, Building, Doc } from "@muster-town/schema";
 import { buildingQueue, createDoc, homeOf, updateDoc } from "./domain.ts";
 import { AppError } from "./errors.ts";
+import { reportChain } from "./forks.ts";
 import { docGist, ftsQuery, oneLine, relativeTime } from "./text.ts";
 import { nowIso } from "./util.ts";
 import type { World } from "./world.ts";
@@ -309,7 +310,8 @@ export function forkTeamBlock(world: World, building: Building, managerId: strin
   const forks = world.agents.where("forkOf = ? AND status NOT IN ('retired', 'banned')", [managerId], "ORDER BY forkN");
   const forkLines = forks.map((f) => {
     const cur = f.currentAssignmentId ? world.assignments.get(f.currentAssignmentId) : undefined;
-    return `- ${f.name} (${f.id}): ${f.status}${cur ? ` on "${oneLine(cur.title, 60)}" (${cur.id})` : ""}`;
+    const chain = cur ? reportChain(world, { id: "", assignmentId: cur.id, createdAt: cur.createdAt }) : null;
+    return `- ${f.name} (${f.id}): ${f.status}${cur ? ` on "${oneLine(cur.title, 60)}" (${cur.id})` : ""}${chain ? ` · chain ${chain.chainId} · hop ${chain.hop}` : ""}`;
   });
   const queue = buildingQueue(world, building.id);
   const state = (a: Assignment) => a.heldReason ? `held: ${oneLine(a.heldReason, 60)}` : a.waitFor ? `waiting: ${oneLine(JSON.stringify(a.waitFor), 60)}` : "pending";

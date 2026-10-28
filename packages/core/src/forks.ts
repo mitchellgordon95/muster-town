@@ -249,9 +249,20 @@ export function forkSummary(world: World, fork: Agent): ForkSummary | null {
   };
 }
 
-/** A manager's forks for its Forks tab: the live ones, then the last 50 retired, newest first. */
-export function forksOf(world: World, managerId: string): { live: ForkSummary[]; retired: ForkSummary[] } {
+/** What a manager and all its forks (live and retired) spent, summed from the rows the Bank books; a read-side sum only. */
+export interface FamilySpend { today: number; total: number; usdTotal: number; forks: number }
+
+/** Design note §7 "rollups by family": the manager's own spend plus every fork's, today and all-time, in adjusted tokens. */
+export function familySpend(world: World, managerId: string): FamilySpend {
+  const r = world.db.prepare(
+    "SELECT COALESCE(SUM(spentTokensToday), 0) AS today, COALESCE(SUM(spentTokensTotal), 0) AS total, COALESCE(SUM(spentUsdTotal), 0) AS usd, COALESCE(SUM(forkOf IS NOT NULL), 0) AS forks FROM agents WHERE id = ? OR forkOf = ?",
+  ).get(managerId, managerId) as { today: number; total: number; usd: number; forks: number };
+  return { today: r.today, total: r.total, usdTotal: r.usd, forks: r.forks };
+}
+
+/** A manager's forks for its Forks tab: the live ones, then the last 50 retired, newest first, and the family's spend. */
+export function forksOf(world: World, managerId: string): { live: ForkSummary[]; retired: ForkSummary[]; family: FamilySpend } {
   const live = world.agents.where("forkOf = ? AND status != 'retired'", [managerId], "ORDER BY forkN");
   const retired = world.agents.where("forkOf = ? AND status = 'retired'", [managerId], "ORDER BY createdAt DESC, rowid DESC LIMIT 50");
-  return { live: live.map((a) => forkSummary(world, a)!), retired: retired.map((a) => forkSummary(world, a)!) };
+  return { live: live.map((a) => forkSummary(world, a)!), retired: retired.map((a) => forkSummary(world, a)!), family: familySpend(world, managerId) };
 }

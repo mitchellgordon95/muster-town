@@ -134,6 +134,7 @@ export class Sim {
     return {
       live: all.filter((a) => a.status !== "retired").sort((x, y) => (x.forkN ?? 0) - (y.forkN ?? 0)).map((a) => this.forkSummary(a)!),
       retired: all.filter((a) => a.status === "retired").sort((x, y) => y.createdAt.localeCompare(x.createdAt)).slice(0, 50).map((a) => this.forkSummary(a)!),
+      family: [this.agents.get(managerId), ...all].reduce((f, a) => a ? { ...f, today: f.today + a.spentTokensToday, total: f.total + a.spentTokensTotal, usdTotal: f.usdTotal + a.spentUsdTotal } : f, { today: 0, total: 0, usdTotal: 0, forks: all.length }),
     };
   }
   /** The budget part of GET /api/buildings/:id/board, as core's Grants.board (exploration spend is the fixture's). */

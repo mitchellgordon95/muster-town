@@ -3,7 +3,7 @@ import { readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
-import { CHAIN_PLAN_RULE, RESIDENT_NAMES, buildingQueue, chainBlock, createAssignment, createDoc, createBuilding, createResident, forkManager, forkSummary, forksOf, reportChain, reportChains, nextStartable, retireFork, suggestResidentName, teamBlock, updateBuilding, workPrompt } from "../src/index.ts";
+import { CHAIN_PLAN_RULE, RESIDENT_NAMES, buildingQueue, chainBlock, createAssignment, createDoc, createBuilding, createResident, forkManager, forkSummary, forksOf, familySpend, reportChain, reportChains, nextStartable, retireFork, suggestResidentName, teamBlock, updateBuilding, workPrompt } from "../src/index.ts";
 import { seededWorld } from "./helpers.ts";
 
 const CHAINS_SQL = readFileSync(join(dirname(fileURLToPath(import.meta.url)), "..", "migrations", "049_assignment_chains.sql"), "utf8");
@@ -247,6 +247,21 @@ describe("manager forks: what the web shows (step 5)", () => {
     expect(list.retired.map((f) => f.agent.id)).toEqual([f1.id]);
     expect(list.retired[0]).toMatchObject({ reportId: r1.id, hop: 1 });
   });
+
+  it("familySpend sums the manager and its live and retired forks, today and all-time, as the Bank booked them", async () => {
+    const { world, pix, ann, b, queue } = forkLab();
+    const a1 = await queue("One"), a2 = await queue("Two");
+    const f1 = forkManager(world, b.id, a1).fork;
+    retireFork(world, f1.id, {});
+    const f2 = forkManager(world, b.id, a2).fork;
+    const set = world.db.prepare("UPDATE agents SET spentTokensToday = ?, spentTokensTotal = ?, spentUsdTotal = ? WHERE id = ?");
+    set.run(100, 1000, 1.5, pix.id); set.run(0, 400, 0.5, f1.id); set.run(30, 30, 0.25, f2.id); set.run(7, 7, 7, ann.id);
+    expect(familySpend(world, pix.id)).toEqual({ today: 130, total: 1430, usdTotal: 2.25, forks: 2 });
+    expect(forksOf(world, pix.id).family).toEqual({ today: 130, total: 1430, usdTotal: 2.25, forks: 2 });
+    // forks keep their own rows: the sum reads them, it books nothing
+    expect(world.agents.require(f2.id).spentTokensTotal).toBe(30);
+    expect(familySpend(world, ann.id)).toEqual({ today: 7, total: 7, usdTotal: 7, forks: 0 });
+  });
 });
 
 describe("manager forks: the manager's team block (step 6)", () => {
@@ -258,6 +273,8 @@ describe("manager forks: the manager's team block (step 6)", () => {
     const t = teamBlock(world, world.buildings.require(b.id), pix.id);
     expect(t).toContain("forks are on");
     expect(t).toContain("Attach the topic pages that cover it");
+    expect(t).toContain(`${fork.name} (${fork.id}): `);
+    expect(t).toContain(`chain ${a1} · hop 1`);
     expect(t).not.toContain("whose wiki covers");
     expect(t).toContain(`- Pix 1 (${fork.id}): `);
     expect(t).toContain("Building queue (0 pending, 1 held, 0 waiting)");
