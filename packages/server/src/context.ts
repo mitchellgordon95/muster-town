@@ -1,6 +1,6 @@
 import { AppError, canInteract, townRoleId, type World } from "@muster-town/core";
 import type { Agent, DeskActivityInput, RedeployResult, Session, TokenCounts, User } from "@muster-town/schema";
-import type { FastifyReply, FastifyRequest } from "fastify";
+import type { FastifyRequest } from "fastify";
 import type { ZodTypeAny, z } from "zod";
 import type { BackupJob } from "./backup/index.ts";
 import type { Hub } from "./hub.ts";
@@ -133,10 +133,6 @@ export const ASK_FIRST = "Ask for access first: you can watch and read, but taki
 export function adminToken(world: World): string | null {
   const m = world.memberships.forRole(townRoleId("admin")).find((x) => x.holderKind === "user");
   return m ? world.tokens.getOrCreate("user", m.holderId) : null;
-}
-
-export function sendError(reply: FastifyReply, status: number, code: string, error: string) {
-  return reply.code(status).send({ error, code });
 }
 
 export type Params = { id: string };
