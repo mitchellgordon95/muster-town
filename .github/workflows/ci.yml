@@ -29,7 +29,7 @@ jobs:
           node-version: 22
           cache: npm
       - run: npm ci --no-audit --no-fund
-      # README/CLAUDE.md/AGENTS.md/SKILL.md/manual.md name only paths, npm scripts and verbs that exist (scripts/check-doc-refs.ts)
+      # README/CLAUDE.md/AGENTS.md/SKILL.md/manual.md name only paths, npm scripts and verbs that exist, and docs/invariants/*.md cite only tests that exist (scripts/check-doc-refs.ts)
       - run: npm run check:docs
       - run: npm run typecheck
       - run: npm test

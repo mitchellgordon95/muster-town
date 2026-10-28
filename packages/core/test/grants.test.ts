@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { buildingRoleId, newId, nowIso } from "../src/index.ts";
-import { stoplightOf } from "@muster-town/schema";
+import { GrantStatus, stoplightOf } from "@muster-town/schema";
 import { seededWorld } from "./helpers.ts";
 
 const LAB = "carbon-cycle";
@@ -94,6 +94,61 @@ describe("grants service", () => {
     world.grants.patch(g.id, { status: "checkpoint", checkpointsDone: [0.5, 1] });
     expect(() => world.grantDesk.decide(admin, g.id, { action: "continue" })).toThrow(/fully spent/);
     expect(world.grantDesk.decide(admin, g.id, { action: "cut" })).toMatchObject({ status: "closed", outcome: "cut" });
+  });
+
+  it("refuses funding a second live grant on a key result", () => {
+    const { world, manager, admin, krs, draft } = setup();
+    const first = world.grantDesk.decide(admin, world.grantDesk.propose(manager, draft().id).id, { action: "fund" });
+    // proposing on a key result with a live grant is fine: the proposal waits in the in-tray
+    const second = world.grantDesk.propose(manager, draft().id);
+    expect(second.status).toBe("proposed");
+    for (const status of ["funded", "checkpoint"] as const) {
+      world.grants.patch(first.id, { status });
+      expect(() => world.grantDesk.decide(admin, second.id, { action: "fund" })).toThrow(new RegExp(`live grant ${first.id}`));
+    }
+    expect(world.grantDesk.get(second.id).status).toBe("proposed");
+    expect(world.grantDesk.liveGrantOf(krs[0]!.id)?.id).toBe(first.id);
+    // once the live grant closes, the waiting proposal can be funded
+    world.grantDesk.decide(admin, first.id, { action: "cut" });
+    expect(world.grantDesk.decide(admin, second.id, { action: "fund" }).status).toBe("funded");
+    expect(world.grantDesk.liveGrantOf(krs[0]!.id)?.id).toBe(second.id);
+  });
+
+  it("refuses adjust to tokens at or below the grant's spend", () => {
+    const { world, manager, admin, draft, charge } = setup();
+    const g = world.grantDesk.decide(admin, world.grantDesk.propose(manager, draft().id).id, { action: "fund", tokens: 4_000_000 });
+    charge(g.id, 4_000_000);
+    world.grants.patch(g.id, { status: "checkpoint", checkpointsDone: [0.5, 1] });
+    for (const tokens of [1, 3_999_999, 4_000_000]) {
+      expect(() => world.grantDesk.decide(admin, g.id, { action: "adjust", tokens })).toThrow(/more than that/);
+    }
+    expect(() => world.grantDesk.decide(admin, g.id, { action: "adjust" })).toThrow(/more than that/); // the default keeps grantTokens = spend
+    expect(world.grantDesk.get(g.id)).toMatchObject({ status: "checkpoint", grantTokens: 4_000_000 });
+    expect(world.grantDesk.decide(admin, g.id, { action: "adjust", tokens: 4_000_001 })).toMatchObject({ status: "funded", grantTokens: 4_000_001 });
+  });
+
+  it("every grant status × action: only the legal transitions pass", () => {
+    const LEGAL: Record<string, GrantStatus[]> = {
+      propose: ["draft", "countered"],
+      fund: ["proposed"], counter: ["proposed"], reject: ["proposed"],
+      continue: ["checkpoint"], adjust: ["checkpoint"], cut: ["checkpoint"],
+    };
+    const AFTER: Record<string, GrantStatus> = { propose: "proposed", fund: "funded", counter: "countered", reject: "rejected", continue: "funded", adjust: "funded", cut: "closed" };
+    const { world, manager, admin, draft, charge } = setup();
+    for (const status of GrantStatus.options) {
+      for (const action of Object.keys(LEGAL)) {
+        const g = draft();
+        // a grant that has been funded for 1M tokens and spent 100k, so continue/adjust aren't refused for spend
+        world.grants.patch(g.id, { status, grantTokens: 1_000_000 });
+        charge(g.id, 100_000);
+        const act = () => action === "propose"
+          ? world.grantDesk.propose(manager, g.id)
+          : world.grantDesk.decide(admin, g.id, { action: action as "fund", tokens: action === "adjust" ? 2_000_000 : undefined, note: "n" });
+        if (LEGAL[action]!.includes(status)) expect(act().status, `${status} × ${action}`).toBe(AFTER[action]);
+        else expect(act, `${status} × ${action}`).toThrow(/grant can't be/);
+        world.grants.patch(g.id, { status: "closed" }); // keeps the key result free of live grants for the next case
+      }
+    }
   });
 
   it("close: the manager only as stopped; funders any outcome; proposals can only be withdrawn", () => {

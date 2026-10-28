@@ -11,6 +11,8 @@
 //   verbs    `mcp__town__<verb>`, a snake_case `code span`, `muster-town <command>`, and (SKILL.md) the `verb {…}` lines
 //            of a fenced block; checked against VERB_NAMES and the CLI's commands. Not in docs/manual.md, which names
 //            UI buttons in human prose.
+//   tests    (docs/invariants/*.md) each `- Test: `<file>` › `<it text>`` line: the file exists and contains the it text
+//            verbatim, so renaming a cited test fails the check. Each invariants doc cites at least one test.
 import { execFileSync } from "node:child_process";
 import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
 import { dirname, join, normalize } from "node:path";
@@ -23,7 +25,9 @@ const DOCS: { file: string; verbs: boolean }[] = [
   { file: "AGENTS.md", verbs: true },
   { file: "skills/muster-town/SKILL.md", verbs: true },
   { file: "docs/manual.md", verbs: false },
+  ...readdirSync(join(ROOT, "docs/invariants")).filter((f) => f.endsWith(".md")).sort().map((f) => ({ file: `docs/invariants/${f}`, verbs: true })),
 ];
+const CITATION = /^\s*- Test: `([^`]+)` › `([^`]+)`\s*$/;
 // paths the reader is told to create (README, "Start your own collective")
 const EXAMPLES = [/^collectives\/garden(\/|$)/];
 const EXT = /\.(md|ts|tsx|js|mjs|json|sh|toml|ya?ml|lock|html|css|sql|txt)$/;
@@ -80,16 +84,24 @@ function pathWords(text: string): string[] {
     });
 }
 
-interface Problem { file: string; line: number; kind: "path" | "script" | "verb"; ref: string }
+interface Problem { file: string; line: number; kind: "path" | "script" | "verb" | "test"; ref: string }
 
 function checkDoc(file: string, withVerbs: boolean): Problem[] {
   const problems: Problem[] = [];
   const lines = readFileSync(join(ROOT, file), "utf8").split("\n");
-  let fenced = false;
+  const invariants = file.startsWith("docs/invariants/");
+  let fenced = false, citations = 0;
   lines.forEach((text, i) => {
     const line = i + 1;
     const bad = (kind: Problem["kind"], ref: string) => problems.push({ file, line, kind, ref });
     if (/^\s*```/.test(text)) { fenced = !fenced; return; }
+    if (invariants && !fenced && /^\s*- Test:/.test(text)) {
+      const m = CITATION.exec(text);
+      citations++;
+      if (!m) bad("test", `${text.trim()} (want - Test: \`<file>\` › \`<it text>\`)`);
+      else if (!exists(m[1]!) || !statSync(join(ROOT, m[1]!)).isFile()) bad("test", m[1]!);
+      else if (!['"', "'", "`"].some((q) => readFileSync(join(ROOT, m[1]!), "utf8").includes(`it(${q}${m[2]}${q}`))) bad("test", `${m[1]} › ${m[2]}`);
+    }
     const spans = fenced ? [text.replace(/#.*$/, "")] : [...text.matchAll(/`([^`]+)`/g)].map((m) => m[1]!);
 
     for (const span of spans) {
@@ -117,6 +129,7 @@ function checkDoc(file: string, withVerbs: boolean): Problem[] {
       if (m && !verbs.has(m[1]!)) bad("verb", m[1]!);
     }
   });
+  if (invariants && !citations) problems.push({ file, line: 1, kind: "test", ref: "(no `- Test:` citation)" });
   return problems;
 }
 
