@@ -3,9 +3,11 @@
  * expired and left with the sum check (used + expired + left = total + overdrawn), the 30-day projection and the
  * trailing burn it rests on; then each Bank pool's permanent tokens as max(0, durable), with "overdrawn by N" when a
  * pool's durable balance is negative (overshoot debt, dc_myhlhsevgz). Under the overdrawn figure, its parts
- * (overdrawnBreakdown, dc_4exx02zf9g), which sum to it. Opened from the HUD's "$" or `#/finance`.
+ * (overdrawnBreakdown, dc_4exx02zf9g), which sum to it. Then Spending (gr_8gtgmd828o step 2) from GET /api/finance/spend:
+ * `used` by building → grant → assignment, each level collapsible, with the no-grant, no-assignment and unattributed or
+ * not-funded rows that make the top level sum to `used`. Opened from the HUD's "$" or `#/finance`.
  */
-import { api, type BankPoolSummary, type Finance } from "../api";
+import { api, type BankPoolSummary, type Finance, type FinanceSpend, type SpendNode } from "../api";
 import { Glyph, PanelShell } from "./PanelShell";
 import { ADJ, ErrorLine, Loading, Section, useLoad } from "./ui";
 
@@ -37,7 +39,54 @@ export function overdrawnParts(f: Finance): { key: string; label: string; tokens
   ].filter((p) => p.tokens > 0);
 }
 
-export function FinanceView({ f, pools }: { f: Finance; pools: BankPoolSummary[] | null }) {
+/** A share of `used` as a percentage, one decimal ("12.3%"); negative for the not-funded row. */
+export const pct = (share: number) => `${(share * 100).toFixed(1)}%`;
+
+/** The spend check in words: the top-level rows vs `used`. */
+export function spendCheckLine(sp: FinanceSpend): { ok: boolean; text: string } {
+  const sum = sp.rows.reduce((t, r) => t + r.tokens, 0);
+  return sp.check.ok
+    ? { ok: true, text: `Adds up: the rows sum to used, ${n(sp.used)}` }
+    : { ok: false, text: `Does not add up (off by ${n(sp.check.diff)}): the rows sum to ${n(sum)}, used is ${n(sp.used)}` };
+}
+
+const SPEND_NOTE: Partial<Record<SpendNode["kind"], string>> = {
+  "unattributed": "Used from the Bank or donations but counted by no session (sessions from before the token counters).",
+  "not-funded": "Sessions counted more than the Bank and donations paid for: spend nothing funded, taken off so the rows sum to used.",
+};
+
+function SpendRow({ node }: { node: SpendNode }) {
+  const line = (
+    <span className="spend-line">
+      <span className="spend-name" title={node.id ?? undefined}>{node.name}{node.sessions ? <span className="muted"> · {n(node.sessions)} session{node.sessions === 1 ? "" : "s"}</span> : null}</span>
+      <span className="spend-tokens">{n(node.tokens)}</span>
+      <span className="spend-share muted">{pct(node.share)}</span>
+    </span>
+  );
+  const note = SPEND_NOTE[node.kind];
+  if (!node.children?.length) return <div className={`spend-row spend-${node.kind}`}>{line}{note ? <div className="muted">{note}</div> : null}</div>;
+  return (
+    <details className={`spend-row spend-${node.kind}`}>
+      <summary>{line}</summary>
+      <div className="spend-children">{node.children.map((c, i) => <SpendRow key={c.id ?? `${c.kind}-${i}`} node={c} />)}</div>
+    </details>
+  );
+}
+
+export function SpendingView({ sp }: { sp: FinanceSpend }) {
+  const check = spendCheckLine(sp);
+  return (
+    <Section title="Spending">
+      <p className="muted">Where the {n(sp.used)} used went: by building, then grant, then assignment ({ADJ}, share of used). Open a row for its parts.</p>
+      <div className="spend-tree">
+        {sp.rows.map((r, i) => <SpendRow key={r.id ?? `${r.kind}-${i}`} node={r} />)}
+      </div>
+      <div className={check.ok ? "finance-check ok" : "error-line"} role="status">{check.ok ? "✓ " : "✗ "}{check.text}</div>
+    </Section>
+  );
+}
+
+export function FinanceView({ f, pools, spend = null }: { f: Finance; pools: BankPoolSummary[] | null; spend?: FinanceSpend | null }) {
   const check = sumCheckLine(f);
   const runway = runwayDays(f);
   const p = f.projection;
@@ -89,17 +138,18 @@ export function FinanceView({ f, pools }: { f: Finance; pools: BankPoolSummary[]
         </table>
       </Section>
     ) : null}
-    <p className="muted">As of {f.at.slice(0, 16).replace("T", " ")} UTC · in adjusted output tokens · from <code>GET /api/finance</code></p>
+    {spend ? <SpendingView sp={spend} /> : null}
+    <p className="muted">As of {f.at.slice(0, 16).replace("T", " ")} UTC · in adjusted output tokens · from <code>GET /api/finance</code>{spend ? <> and <code>/api/finance/spend</code></> : null}</p>
   </>;
 }
 
 export function FinancePanel() {
-  const d = useLoad(() => Promise.all([api().finance(), api().bank().then((b) => b.pools, () => null)]), []);
+  const d = useLoad(() => Promise.all([api().finance(), api().bank().then((b) => b.pools, () => null), api().financeSpend().catch(() => null)]), []);
   return (
     <PanelShell icon={<Glyph kind="bank" />} title="Finance" subtitle="What the town received, used, let expire and has left">
       {d.loading && !d.data ? <Loading /> : null}
       <ErrorLine error={d.error} />
-      {d.data ? <FinanceView f={d.data[0]} pools={d.data[1]} /> : null}
+      {d.data ? <FinanceView f={d.data[0]} pools={d.data[1]} spend={d.data[2]} /> : null}
     </PanelShell>
   );
 }
