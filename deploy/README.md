@@ -100,8 +100,18 @@ the same day. Still open:
   fresh random `MUSTER_TOWN_DATA_KEY` and none of the live secrets, so the restored collective secrets are unreadable there and it can neither
   spend tokens nor push to GitHub nor start desks. **Restoring onto muster-town itself** is the "Migrate a town in" path above with this
   `RESTORE.tgz`: stop nothing (the entrypoint swaps the state at the next restart and keeps the replaced state beside it).
-- **Drill:** _not run yet (grant step 4): fill in the date, the object restored, the scratch app, the agent count and newest doc on the copy vs
-  the scratch town vs the live town at backup time, and that the app was destroyed._
+- **Drill (2026-10-28, run by Mitchell with `scripts/backup/restore.sh`):** first backup on health `backup.lastAt` 2026-10-28T17:10:02.951Z,
+  13,460,785 bytes to `fly.storage.tigris.dev/muster-town-backups/town/`; restored the one object `town/2026-10-28.db.gz.enc` onto the scratch app
+  `muster-town-restore`:
+
+  | | decrypted copy | scratch town (muster-town-restore) |
+  |---|---|---|
+  | integrity_check | ok | (booted from it) |
+  | raw size | 33,935,360 bytes | same file |
+  | agents | 18 | 18 |
+  | newest doc | 2026-10-28T17:05:59.684Z | 2026-10-28T17:05:59.684Z |
+
+  Result: MATCH. The scratch app was destroyed afterwards and the Fly org token used for it (`restore-drill`) revoked.
 - **Token rotation:** the admin and agent tokens in the migrated database were issued on the Mac: rotate them (docs/secrets.md, Dara's design dc_ios62uyco3 §3f).
 - **Deploys:** gated by CI since 2026-10-23 (see "CI and redeploy" above). Branch protection on `main` is not on: pushing to main is still allowed and expected.
 - **One Machine** means a restart is a short outage; the volume is the only copy of the live world.

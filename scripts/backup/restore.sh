@@ -15,7 +15,8 @@
 # Environment: BUCKET_NAME, AWS_ENDPOINT_URL_S3, AWS_ACCESS_KEY_ID, AWS_SECRET_ACCESS_KEY (the ones `fly storage create` set on
 #   muster-town: `fly secrets list -a muster-town` shows their names, `fly storage` / the Tigris dashboard the values) and
 #   MUSTER_TOWN_BACKUP_KEY (Mitchell's password manager, "muster-town backup key"). A local file needs only the key.
-#   FLY_API_TOKEN: a Fly token that may create and destroy the scratch app (never the live town's). GH_TOKEN: repo read, to build the
+#   FLY_API_TOKEN: a Fly token that may create and destroy the scratch app (never the live town's deploy token:
+#   `fly tokens create org -o personal -n restore-drill -x 24h`, revoke it after). GH_TOKEN: repo read, to build the
 #   scratch image from GitHub (deploy/fly/build.sh). RESTORE_DIR (default ~/.muster-restore) keeps the downloaded and decrypted copies
 #   (0700; delete it when done: the decrypted copy holds every token of the live town).
 # Needs: node >= 22.6 (node:sqlite, or a `sqlite3` binary), tar, curl; flyctl for the Fly part. No npm install.
@@ -32,7 +33,7 @@ LOCAL=0; KEEP=0; YES=0; DESTROY=0; OBJECT=""; APP=""
 for a in "$@"; do
   case "$a" in
     --local) LOCAL=1;; --keep) KEEP=1;; --yes) YES=1;; --destroy) DESTROY=1;;
-    -h|--help) sed -n '2,24p' "$0" | sed 's/^# \{0,1\}//'; exit 0;;
+    -h|--help) sed -n '2,22p' "$0" | sed 's/^# \{0,1\}//'; exit 0;;
     --*) echo "unknown flag $a"; exit 2;;
     *) if [ "$DESTROY" = 1 ] && [ -z "$APP" ]; then APP="$a"; elif [ -z "$OBJECT" ]; then OBJECT="$a"; elif [ -z "$APP" ]; then APP="$a"; else echo "too many arguments"; exit 2; fi;;
   esac
@@ -56,7 +57,7 @@ need_fly() {
   FLY="${FLY:-fly}"
   command -v "$FLY" >/dev/null 2>&1 || FLY=flyctl
   command -v "$FLY" >/dev/null 2>&1 || { echo "flyctl not found (curl -L https://fly.io/install.sh | sh); --local needs none"; exit 1; }
-  : "${FLY_API_TOKEN:?set FLY_API_TOKEN to a token that may create and destroy $APP (never the live town's deploy token)}"
+  : "${FLY_API_TOKEN:?set FLY_API_TOKEN to an org token that may create and destroy $APP, e.g. fly tokens create org -o personal -n restore-drill -x 24h, never the live town deploy token}"
 }
 destroy_app() {
   if "$FLY" apps list 2>/dev/null | awk '{print $1}' | grep -qx "$APP"; then
@@ -99,7 +100,7 @@ fi
 if head -c 15 "$BLOB" | grep -q "SQLite format 3"; then say "WARNING: $NAME is an unencrypted SQLite file, not a backup object"; fi
 
 # 2. decrypt + gunzip, then the checks on the copy (read-only)
-: "${MUSTER_TOWN_BACKUP_KEY:?set MUSTER_TOWN_BACKUP_KEY (Mitchell's password manager, \"muster-town backup key\")}"
+: "${MUSTER_TOWN_BACKUP_KEY:?set MUSTER_TOWN_BACKUP_KEY from the password manager entry muster-town backup key}"
 DB="$WORK/data/town.db"
 $HELPER decrypt "$BLOB" "$DB"
 say "integrity_check and counts on the copy"
@@ -150,7 +151,7 @@ fi
 # 5. upload, restart, wait, compare
 say "uploading RESTORE.tgz to /data/RESTORE.tgz on $APP"
 "$FLY" ssh sftp put "$TGZ" /data/RESTORE.tgz -a "$APP"
-MACHINE="$("$FLY" machine list -a "$APP" -q | head -n 1)"
+MACHINE="$("$FLY" machine list -a "$APP" -q | tr -d ' \t\r' | grep -v '^$' | head -n 1)"
 say "restarting Machine $MACHINE (the entrypoint swaps the restored town in)"
 "$FLY" machine restart "$MACHINE" -a "$APP"
 sleep 5
