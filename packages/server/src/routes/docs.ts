@@ -1,4 +1,4 @@
-import { AppError, canSeeDoc, findManual, searchDocs } from "@muster-town/core";
+import { AppError, canSeeDoc, findManual, revisionsOf, searchDocs } from "@muster-town/core";
 import { AskInput, CreateMeetingInput, DocState, DocType, MeetingPhase, MeetingSayInput, ReplyInput, ReviewInput, VerbInputs } from "@muster-town/schema";
 import type { FastifyInstance } from "fastify";
 import { z } from "zod";
@@ -45,7 +45,8 @@ export async function docRoutes(app: FastifyInstance) {
   app.get<{ Params: Params }>("/api/docs/:id", async (req) => {
     const doc = world.docs.get(req.params.id);
     if (!doc || !canSeeDoc({ kind: "user", id: viewerId(req) }, doc)) throw new AppError("not_found", `doc not found: ${req.params.id}`);
-    return { doc, author: world.nameOf(doc.authorId) };
+    // topic pages: the bodies their rewrites replaced, oldest first (anyone who can read the page)
+    return { doc, author: world.nameOf(doc.authorId), ...(doc.topicOf ? { revisions: revisionsOf(world, doc.id) } : {}) };
   });
 
   app.post("/api/docs", async (req, reply) => {

@@ -30,3 +30,10 @@ export function docGist(d: Doc): string {
   const line = (d.type === "report" ? firstText(sectionOf(d.body, NEED)) : "") || firstText(d.body);
   return oneLine(line) || "(empty)";
 }
+
+/** FTS5 query from free text: quoted terms OR'd together (ranked by bm25). */
+export function ftsQuery(q: string): string | null {
+  const terms = q.match(/[\p{L}\p{N}]+/gu);
+  if (!terms?.length) return null;
+  return terms.slice(0, 20).map((t) => `"${t}"`).join(" OR ");
+}
