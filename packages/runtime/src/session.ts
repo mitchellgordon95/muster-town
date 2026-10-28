@@ -6,7 +6,7 @@ import { existsSync, readdirSync, readFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
 import type { DesksConfig } from "@muster-town/schema";
-import type { World } from "@muster-town/core";
+import { AppError, NO_KEY_HOLD, type World } from "@muster-town/core";
 import { rawTokens, splitRaw, VERB_NAMES, type AllocationAuth, type Session, type VerbName } from "@muster-town/schema";
 import { describeTool } from "./describe.ts";
 import { blocksOf, InputChannel, noUsage, sessionEnv, usageOf, type LooseMessage, type Options, type QueryHandle, type Sdk, type Usage } from "./sdk.ts";
@@ -26,8 +26,12 @@ export interface Ctx {
   deskAllocations: Map<string, string | null>;
   /** desk sessions' fallback allocation (charged instead when the desk failed over to the API key), by sessionId */
   deskFallbacks: Map<string, string | null>;
-  /** where host sessions' Agent SDK writes its JSONL (tests); default $CLAUDE_CONFIG_DIR or ~/.claude */
+  /** where host sessions' Agent SDK writes its JSONL (tests; a hosted runtime's own config dir); default $CLAUDE_CONFIG_DIR or ~/.claude */
   claudeDir?: string;
+  /** the host env funding and sessions allowlist from (a hosted runtime's scrubbed `hostedEnv`); default process.env */
+  env?: NodeJS.ProcessEnv;
+  /** a hosted collective's runtime: sessions run on its own API key only, never the host's login (see `keyless`) */
+  hosted?: boolean;
   /** register background work so tests (and stop()) can await it */
   track<T>(p: Promise<T>): Promise<T>;
 }
@@ -164,6 +168,9 @@ export function fundingForSession(world: World, agentId: string, assignmentId: s
   return fundingFor(world, agentId, env);
 }
 
+/** A hosted runtime's funding with no API key of its own: the call is refused (held, "No key yet"), never run on another login. */
+export const keyless = (ctx: Ctx, f: Pick<Funding, "apiKey">): boolean => !!ctx.hosted && !f.apiKey;
+
 /** "funded by subscription" / "funded by API key" / "funded by a donor's API key", for status lines. */
 export function fundedBy(auth: AllocationAuth | null | undefined): string {
   return auth === "subscription" ? "funded by subscription" : auth === "donor-key" ? "funded by a donor's API key" : auth === "api-key" ? "funded by API key" : "unfunded";
@@ -183,7 +190,7 @@ export function townOptions(ctx: Ctx, spec: SessionSpec, apiKey: string | null):
     allowedTools: [...townTools, ...(spec.web ? WEB_TOOLS : [])],
     disallowedTools: [...DISALLOWED_TOOLS, ...(spec.web ? [] : WEB_TOOLS), ...TOWN_TOOLS.filter((t) => !townTools.includes(t))],
     settingSources: [],
-    env: sessionEnv(apiKey),
+    env: sessionEnv(apiKey, ctx.env),
   };
 }
 
@@ -217,7 +224,8 @@ export async function runAgentSession(ctx: Ctx, spec: SessionSpec): Promise<Sess
   const { world } = ctx;
   const agent = world.agents.require(spec.agentId, "agent");
   const bid = homeOf(world, agent.id);
-  const funding = fundingForSession(world, agent.id, spec.assignmentId);
+  const funding = fundingForSession(world, agent.id, spec.assignmentId, ctx.env);
+  if (keyless(ctx, funding)) throw new AppError("conflict", `${agent.name} is held: ${NO_KEY_HOLD}`);
   const session = world.ops.startSession(agent.id, { purpose: spec.purpose, model: spec.model, assignmentId: spec.assignmentId ?? null, meetingId: spec.meetingId ?? null, backend: "host", funding: funding.auth, inputId: funding.inputId ?? null });
   const live: LiveSession = { kind: "host", agentId: agent.id, sessionId: session.id, purpose: spec.purpose, input: new InputChannel(), q: null, reportSubmitted: false, stopped: false };
   // work and manage sessions take interrupts and count as the agent's live session (scheduler, redeploy drain, abort)

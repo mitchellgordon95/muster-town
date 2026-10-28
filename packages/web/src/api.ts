@@ -167,7 +167,8 @@ export interface KpisView { framing: string; kpis: KpiView[]; buildings: (Object
 export interface KeyResultsView { keyResults: GoalKeyResult[]; blocked: string | null }
 /** GET /api/buildings/:id/board: the FYIs plus the budget part (core's GrantBoard; open buildings have no grants). */
 export interface Board {
-  docs: Doc[];
+  /** the Town Hall's FYIs first (townWide: true, on every building's board but the Town Hall's own), then the building's */
+  docs: (Doc & { townWide?: boolean })[];
   goal: string;
   /** the goal's key results, each with the live grant on it (null = open for exploration) */
   keyResults: GoalKeyResult[];

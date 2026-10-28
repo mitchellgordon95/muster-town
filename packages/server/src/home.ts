@@ -9,20 +9,19 @@ import type { HubCollective } from "./hub.ts";
 export const PLACEHOLDER: Collective = {
   slug: "next",
   name: "Your collective here",
-  tagline: "A placeholder: the next collective, with its own goal, buildings and agents, will be listed here.",
-  goal: "",
+  goal: "The next collective, with its own goal, buildings and agents, will be listed here.",
   url: "",
   placeholder: true,
 };
 
 /**
- * The collectives on the homepage: this server's own (slug `self`, at WEB_BASE, name, tagline and goal from the live
+ * The collectives on the homepage: this server's own (slug `self`, at WEB_BASE, name and goal from the live
  * town row), then the hub's active hosted collectives at `/<slug>/`; the placeholder tile while there are none.
  */
 export function collectives(world: World, hosted: HubCollective[], self = "workshop"): Collective[] {
   const town = world.town.get();
-  const own: Collective = { slug: self, name: town.name, tagline: town.tagline ?? "", goal: town.goal ?? "", url: WEB_BASE };
-  const rest = hosted.map((h): Collective => ({ slug: h.slug, name: h.name, tagline: h.tagline, goal: h.goal, url: `/${h.slug}/` }));
+  const own: Collective = { slug: self, name: town.name, goal: town.goal ?? "", url: WEB_BASE };
+  const rest = hosted.map((h): Collective => ({ slug: h.slug, name: h.name, goal: h.goal, url: `/${h.slug}/` }));
   return [own, ...(rest.length ? rest : [PLACEHOLDER])];
 }
 
@@ -53,9 +52,9 @@ function previewOf(c: Collective): string | undefined {
   return /^\/[a-z0-9-]+\/$/.test(c.url) ? `${c.url}api/town` : undefined;
 }
 
-/** One square tile (the same markup as web/src/home/HomeCard.tsx `Tile`): this server's town gets a live preview. */
+/** One square tile (the same markup as web/src/home/HomeCard.tsx `Tile`), its goal under it: this server's town gets a live preview. */
 function tile(c: Collective): string {
-  const tag = c.tagline ? `\n  <p class="tile-tag">${esc(c.tagline)}</p>` : "";
+  const tag = c.goal ? `\n  <p class="tile-tag">${esc(c.goal)}</p>` : "";
   if (c.placeholder || !c.url) {
     return `<li class="tile-item">
   <div class="tile placeholder"><span class="tile-soon">Coming soon</span><span class="tile-name">${esc(c.name)}</span></div>${tag}
@@ -74,7 +73,7 @@ function tile(c: Collective): string {
  */
 export function renderHome(list: Collective[], dist: string | null = null): string {
   // what the bundle needs: the list, and which tile previews this server's town
-  const data = list.map((c) => ({ slug: c.slug, name: c.name, tagline: c.tagline, url: c.url, placeholder: c.placeholder, preview: previewOf(c) }));
+  const data = list.map((c) => ({ slug: c.slug, name: c.name, goal: c.goal, url: c.url, placeholder: c.placeholder, preview: previewOf(c) }));
   return `<!doctype html>
 <html lang="en">
 <head>

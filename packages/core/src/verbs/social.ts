@@ -82,20 +82,28 @@ export async function say(world: World, me: Agent, input: VerbIn<"say">) {
 }
 
 export async function tell(world: World, me: Agent, input: VerbIn<"tell">) {
-  const to = world.agents.get(input.to);
+  let to = world.agents.get(input.to);
   if (!to) throw new AppError("not_found", `No agent with id ${input.to}.`);
+  // manager forks: a retired fork's mail goes to its manager (the manager itself is told the fork is gone)
+  let forwardedFrom: string | undefined;
+  if (to.forkOf && to.status === "retired") {
+    if (to.forkOf === me.id) throw badRequest(`${to.name} has retired (its session ended); queue the work to the building instead.`);
+    forwardedFrom = to.name;
+    to = world.agents.require(to.forkOf, "agent");
+  }
   if (to.id === me.id) throw badRequest("You can't tell yourself.");
+  const text = forwardedFrom ? `(To ${forwardedFrom}, your fork, after its session ended: it reaches you as its manager.)\n\n${input.text}` : input.text;
   // wakes step 1: a human's avatar stamps its own tell; an agent passes on its session's human origin (hops + 1)
   const id = newId("ms");
   const origin = actOrigin(world, me, id);
-  const msg = sendMessage(world, { id, kind: "tell", fromId: me.id, fromKind: "agent", toId: to.id, body: input.text, origin });
-  const told = world.events.append({ type: "agent.told", agentId: me.id, buildingId: me.buildingId, text: `${me.name} → ${to.name}: ${input.text.slice(0, 200)}`, payload: { to: to.id, toId: to.id, toKind: to.kind, messageId: msg.id, text: input.text, origin } });
+  const msg = sendMessage(world, { id, kind: "tell", fromId: me.id, fromKind: "agent", toId: to.id, body: text, origin });
+  const told = world.events.append({ type: "agent.told", agentId: me.id, buildingId: me.buildingId, text: `${me.name} → ${to.name}: ${text.slice(0, 200)}`, payload: { to: to.id, toId: to.id, toKind: to.kind, messageId: msg.id, text, origin, ...(forwardedFrom ? { forwardedFrom: input.to } : {}) } });
   // the recipient already has the message; third parties named with @Name get a mention
   notifyMentions(world, me, input.text, { where: `a message to ${to.name}`, buildingId: me.buildingId, skip: [to.id] });
   // wakes step 2: a tell that traces to a human queues work for an idle resident
   const woke = relayWake(world, me, told);
   if (woke) return { sent: true, to: to.id, messageId: msg.id, assignmentId: woke.id, note: `${to.name} was ${to.status}: it traces to ${world.nameOf(woke.origin!.userId)}, so the town queued "${woke.title}" (${woke.id}) for ${to.name}.` };
-  const note = idleNote(world, me, to);
+  const note = [forwardedFrom && `${forwardedFrom} has retired (forks live for one session); delivered to ${to.name}, its manager.`, idleNote(world, me, to)].filter(Boolean).join(" ");
   return { sent: true, to: to.id, messageId: msg.id, ...(note && { note }) };
 }
 

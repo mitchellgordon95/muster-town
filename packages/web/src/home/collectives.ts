@@ -2,7 +2,8 @@
 export interface HomeCollective {
   slug: string;
   name: string;
-  tagline?: string;
+  /** shown under the name (a collective's goal is its tagline) */
+  goal?: string;
   url?: string;
   placeholder?: boolean;
   /** this server's town snapshot (`/api/town`) for a live preview; absent for collectives served elsewhere */

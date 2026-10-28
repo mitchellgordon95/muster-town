@@ -30,17 +30,38 @@ meeting of 2026-10-27 17:21Z (mt_6830h8x5qk, decision 6) and waits for the Fund 
    GitHub id (429; a town admin has no cap), the slug derived from the name; the key is stored as described below;
    **No key yet** shows in the HUD and in Planning → System → This collective, where an admin also retires it (410
    notice at `/<slug>/`, slug never reused). Tests: `packages/server/test/hub-start.test.ts`, `packages/web/test/startForm.test.ts`.
-   **Not done in step 3:** hosted Worlds still run no runtime (`runtime: null` in main.ts), so no hosted agent runs even
-   with a key. What remains for that: start a runtime per hosted World with an empty credential env and `fundingFor`
-   limited to that World's own inputs, holding any session whose funding resolves to no key (the rules below), and a
-   desk image per collective or a shared one with per-World config. That is its own PR.
+   Hosted Worlds got their runtime in step 5.
 4. **Live check** with a second GitHub account in a private window; manual section "Start your own collective";
    README points hosted users to the homepage.
+5. **Hosted agents run, on the owner's key.** Done 2026-10-27: every hosted World gets its own runtime
+   (`startRuntime({ hosted: { dir } })`, started in main.ts once the server listens, stopped when the collective is
+   retired), calling its MCP endpoint at `/<slug>/mcp`, exporting to `<dir>/export`. The limits, the smallest design
+   that is safe on one Fly machine:
+   - **Env.** `hostedEnv(dir)` (runtime/src/sdk.ts) is built from scratch: the session allowlist minus HOME, plus
+     `LC_*`; no `CLAUDE_*`, `ANTHROPIC_*` or `XDG_*` from the host; `HOME=<dir>/home`, `CLAUDE_CONFIG_DIR=<dir>/claude`.
+     Funding, `sessionEnv`, `oneShot` and `deskAuth` all read it (`Ctx.env`), so the host's key, subscription token and
+     `~/.claude` login never reach a hosted session.
+   - **Hold.** Core `budget.keyHold`: a hosted World with no live API-key input of its own holds everything with
+     `NO_KEY_HOLD` ("No key yet: add your Anthropic API key at the Bank") as the assignment's `heldReason`; agents stay
+     idle, not out of budget, and work starts on the next tick after an admin adds a key. Behind it, a hosted session
+     whose funding has no key is refused before the SDK is called (work, manage, chat, Ask about, summaries).
+   - **Desks.** In-process (host backend) sessions only: town tools and web, no shell, no file tools, no container, so
+     no hosted agent can read another collective's files or the host's. Code buildings are not scheduled.
+     **One running session per hosted collective** (`HOSTED_MAX_RUNNING`). Per-collective containers (Fly Machine
+     desks) are a cost decision for Mitchell, not built.
+   - **Host actions.** No redeployer: a hosted admin's redeploy is refused (403), and the desk image, desk recreation
+     and the GitHub/Fly tokens are never read.
+   - **First resident.** A new collective has no buildings (`buildings: []`): its admin opens Planning → New building
+     (Desks = how many residents), adds the key at the Bank, and gives a resident an assignment.
+   Tests: `packages/runtime/test/hosted.test.ts`.
 
 ## Step 3: Start a collective, and the own-key requirement
 
-The form (paper style, see the `muster-style-guide` skill): **Name**, **Goal**, **Tagline** (slug from the name), and
-one more block, **Your agents run on your key**:
+The form (paper style, see the `muster-style-guide` skill): **Name** (slug from the name) and **Goal**, and one more
+block, **Your agents run on your key**. There is no tagline: a collective's goal is its tagline. The homepage tile and
+the collective's own HUD show the goal under the name (the Workshop's from its World config, `collectives/workshop/
+collective.json`); the generic pitch lives only on the homepage's paper card. `POST /api/collectives` ignores a
+`tagline` if one is sent, and `hub.db` keeps its `tagline` column (always `''` for new rows, no migration).
 
 - An **Anthropic API key** field (a Console key, `sk-ant-api…`). Optional at creation so the 5-minute key result
   holds and the founder can look around first, but nothing runs without it: the collective's agents stay held with the

@@ -1,5 +1,5 @@
 /** Resident work sessions (host backend + shared end-of-session logic), interrupts, and reviewer sessions over the in-tray. */
-import { AppError, appendLog, codeWorkspace, createDoc, fallbackReportBody, FALLBACK_REPORT_PREFIX, latestReportOf, recentWorkBlock, sessionMemory, sessionView, setAssignmentStatus, skillsBlock, workPrompt, workSystemPrompt } from "@muster-town/core";
+import { AppError, appendLog, chainBlock, codeWorkspace, createDoc, fallbackReportBody, FALLBACK_REPORT_PREFIX, latestReportOf, recentWorkBlock, sessionMemory, sessionView, setAssignmentStatus, skillsBlock, workPrompt, workSystemPrompt } from "@muster-town/core";
 import { countsOf, rawTokens, splitRaw, type Agent, type AllocationAuth, type Assignment, type Building, type Doc, type Session, type TokenCounts } from "@muster-town/schema";
 import { chargeUsage, fundingFor, homeOf, runAgentSession, type Ctx } from "./session.ts";
 
@@ -28,6 +28,9 @@ export function preflightWork(ctx: Ctx, starting: Set<string>, agentId: string, 
   if (agent.status === "banned" || agent.status === "stopped" || agent.status === "retired") throw new AppError("conflict", `${agent.name} is ${agent.status}.`);
   const bid = homeOf(world, agentId);
   if (!bid) throw new AppError("bad_request", `${agent.name} has no building.`);
+  // a hosted collective with no key of its own: held, not out of budget ("No key yet")
+  const keyHold = world.budget.keyHold?.();
+  if (keyHold) throw new AppError("conflict", `${agent.name} is held: ${keyHold}`);
   if (!world.budget.canStart(agentId)) {
     if (agent.kind === "resident") world.setStatus(agentId, "out-of-budget");
     throw new AppError("conflict", `${agent.name} is out of budget.`);
@@ -52,7 +55,7 @@ export async function runWorkSession(ctx: Ctx, starting: Set<string>, agentId: s
     const out = await runAgentSession(ctx, {
       agentId, purpose: "work", model: agent.model ?? building.model, maxTurns: building.maxTurnsPerSession, web: true,
       assignmentId, system: workSystemPrompt(agent, building, world.town.get(), { ...sessionMemory(world, agent, building, assignment), skills: skillsBlock(world.skills.forAgent(agentId)) }),
-      prompt: workPrompt(assignment, latestReport(ctx, agentId), recentWorkBlock(world, agentId)),
+      prompt: workPrompt(assignment, latestReport(ctx, agentId), recentWorkBlock(world, agentId), agent.forkOf ? chainBlock(world, assignment) : undefined),
       finish: (o, allocationId) => finishWorkSession(ctx, o.session.id, { ...o }, allocationId),
     });
     return out.session;
@@ -144,7 +147,7 @@ export async function finishWorkSession(ctx: Ctx, sessionId: string, o: WorkOutc
   // the allocation that actually funded it: the fallback one when the desk failed over from the subscription
   const charged = o.fallback
     ? ctx.deskFallbacks.get(sessionId) ?? (bid ? world.budget.fallbackAllocation(bid)?.id ?? null : null)
-    : allocationId !== undefined ? allocationId : ctx.deskAllocations.has(sessionId) ? ctx.deskAllocations.get(sessionId) ?? null : fundingFor(world, agentId).allocationId;
+    : allocationId !== undefined ? allocationId : ctx.deskAllocations.has(sessionId) ? ctx.deskAllocations.get(sessionId) ?? null : fundingFor(world, agentId, ctx.env).allocationId;
   chargeUsage(world, agentId, { ...usage, byModel: o.byModel ?? undefined }, charged, ended.model, ended.grantId);
   ctx.deskAllocations.delete(sessionId);
   ctx.deskFallbacks.delete(sessionId);

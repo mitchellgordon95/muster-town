@@ -12,6 +12,7 @@ import { actOrigin } from "../origin.ts";
 import { nowIso } from "../util.ts";
 import { describeWait, validateWait } from "../waits.ts";
 import type { World } from "../world.ts";
+import { TOWN_HALL_ID } from "../world/layout.ts";
 import type { VerbIn } from "./types.ts";
 
 const WRITE_FORBIDDEN_TYPES = new Set<Doc["type"]>(["report", "request", "human-report", "meeting-notes"]);
@@ -20,8 +21,8 @@ export async function board(world: World, me: Agent, input: VerbIn<"board">) {
   const bid = input.buildingId ?? me.buildingId ?? me.homeBuildingId;
   if (!bid) throw badRequest("You're not in a building; pass buildingId.");
   const b = world.buildings.require(bid, "building");
-  const docs = boardDocs(world, bid, input.limit);
-  return { building: { id: b.id, name: b.name, goal: b.goal }, docs: docs.map((d) => summarizeDoc(world, d)) };
+  const docs = boardWithTownDocs(world, bid, input.limit);
+  return { building: { id: b.id, name: b.name, goal: b.goal }, docs: docs.map((d) => ({ ...summarizeDoc(world, d), ...(d.townWide ? { townWide: true, from: "Town Hall" } : {}) })) };
 }
 
 const BOARD_SQL = BOARD_TYPES.map((t) => `'${t}'`).join(", ");
@@ -29,6 +30,27 @@ const BOARD_SQL = BOARD_TYPES.map((t) => `'${t}'`).join(", ");
 /** The building board: building-wide FYIs published to the building. Everything else is filed in the cabinet. */
 export function boardDocs(world: World, buildingId: string, limit: number): Doc[] {
   return world.docs.where(`buildingId = ? AND state = 'building' AND type IN (${BOARD_SQL})`, [buildingId], `ORDER BY updatedAt DESC, rowid DESC LIMIT ${limit}`);
+}
+
+/** The Town Hall board's FYIs: town-wide rules that show on every building's board. */
+export function townBoardDocs(world: World, limit: number): Doc[] {
+  return boardDocs(world, TOWN_HALL_ID, limit);
+}
+
+/**
+ * A building's board as `board` and GET /api/buildings/:id/board show it: the Town Hall's FYIs first, marked
+ * `townWide`, then the building's own (newest first, `limit` each). The Town Hall's own board is just its FYIs.
+ */
+export function boardWithTownDocs(world: World, buildingId: string, limit: number): (Doc & { townWide?: true })[] {
+  const own = boardDocs(world, buildingId, limit);
+  if (buildingId === TOWN_HALL_ID) return own;
+  return [...townBoardDocs(world, limit).map((d) => ({ ...d, townWide: true as const })), ...own];
+}
+
+/** Who may post an FYI to the Town Hall board: town admins, and humans or agents with building.manage on any building. */
+export function canPostTownBoard(world: World, me: Agent): boolean {
+  if (world.permissions.isAdmin(me)) return true;
+  return world.buildings.all().some((b) => world.permissions.can(me, "building.manage", b.id));
 }
 
 /** The building's filing cabinet: everything it has published that isn't a board FYI (reports, meeting notes, articles, notes…), newest first. */
@@ -118,7 +140,9 @@ export async function pin(world: World, me: Agent, input: VerbIn<"pin">) {
 export async function write(world: World, me: Agent, input: VerbIn<"write">) {
   if (WRITE_FORBIDDEN_TYPES.has(input.type)) throw badRequest(`Use ${input.type === "report" ? "submit_report" : input.type === "request" ? "request_human" : "the dedicated flow"} for ${input.type} docs.`);
   const holder = world.holderOf(me);
-  const bid = me.buildingId ?? me.homeBuildingId;
+  if (input.buildingId && input.type !== "fyi") throw badRequest("`buildingId` is only for FYIs (type \"fyi\"): it picks the board to post to, e.g. \"town-hall\" for a town-wide FYI.");
+  if (input.buildingId) world.buildings.require(input.buildingId, "building");
+  const bid = input.buildingId ?? me.buildingId ?? me.homeBuildingId;
   if (input.type === "notebook") throw badRequest('The notebook became a wiki: write one private page per topic with type "wiki" (title = the topic), and durable events as one-line entries with type "log".');
   if (input.type === "wiki") {
     if (!input.title.trim()) throw badRequest('A wiki page needs a title: the topic it covers (e.g. "The Bank").');
@@ -132,7 +156,9 @@ export async function write(world: World, me: Agent, input: VerbIn<"write">) {
   if (input.files && input.type !== "skill") throw badRequest("`files` are only for skills (type \"skill\").");
   // a skill's title is its SKILL.md name (validated, unique town-wide)
   const title = input.type === "skill" ? world.skills.validate(input.body, holder.id, input.id).name : input.title;
-  if (input.state === "building" && !world.permissions.can(me, "doc.write_building", bid)) throw forbidden("doc.write_building", "Not allowed to publish to this building's board (needs doc.write_building). Save it as a draft instead.");
+  if (input.state === "building" && input.type === "fyi" && bid === TOWN_HALL_ID) {
+    if (!canPostTownBoard(world, me)) throw forbidden("building.manage", "Only town admins and managers (building.manage on a building) post to the Town Hall board. Save it as a draft, or ask your manager.");
+  } else if (input.state === "building" && !world.permissions.can(me, "doc.write_building", bid)) throw forbidden("doc.write_building", "Not allowed to publish to this building's board (needs doc.write_building). Save it as a draft instead.");
   if (input.id) {
     const cur = world.docs.get(input.id);
     if (!cur) throw new AppError("not_found", `No document ${input.id}.`);

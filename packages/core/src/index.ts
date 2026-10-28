@@ -2,7 +2,7 @@
  * @muster-town/core — SQLite-backed world: store, layout/pathfinding/tick, verbs, permissions,
  * budgets, events, git export, v0 import, seed. No framework imports.
  */
-export { World, type HostHooks, type SnapshotMessage } from "./world.ts";
+export { NO_KEY_HOLD, World, type HostHooks, type SnapshotMessage } from "./world.ts";
 export { AppError, forbidden, notFound, badRequest, isAppError, type ErrorCode } from "./errors.ts";
 export { openDb, migrate, integrityCheck, sealCopy, type DB } from "./db.ts";
 export { Table, type ObjSchema, type TableOptions } from "./table.ts";
@@ -21,7 +21,7 @@ export { financeSummary, townFinance, FINANCE_BURN_DAYS, FINANCE_PROJECTION_DAYS
 export { Ops, type Actor, type MessageAgentOptions, type MessageAgentResult, type RequestAction, type ThreadMessage } from "./ops.ts";
 export { createBuilding, updateBuilding, syncManagerRoles, createResident, registerVisitor, ensureAvatar, createUser, createServiceAgent, createTownModerator, updateFurniture, planTown } from "./entities.ts";
 export { RESIDENT_NAMES, suggestResidentName } from "./names.ts";
-export { forkManager, retireFork, nextForkN, familyCap, forkModels, checkForkModel } from "./forks.ts";
+export { forkManager, retireFork, nextForkN, familyCap, forkModels, checkForkModel, forkableQueue, freeDesks, liveForks } from "./forks.ts";
 export { decisionKey, decisionWakes, managerIntrayRow, mentionKey, mentionWake, relayKey, relayWake, RELAY_MAX_AGE_MS, RELAY_MAX_HOPS, requestAnswerKey, requestAnswerWake, wakeKey } from "./wakes.ts";
 export { checkWaits, describeWait, validateWait, waitMet } from "./waits.ts";
 export { blockedBy, townBlocked } from "./blockers.ts";
@@ -40,7 +40,7 @@ export { createMeeting, createOneOnOne, setMeetingPhase, meetingSpeak, meetingNo
 export { makeVerbs, verbImpls, type Verbs, type VerbResult } from "./verbs/index.ts";
 export type { VerbIn, VerbRawIn } from "./verbs/types.ts";
 export { HEARING_RANGE, nearbyAgents } from "./verbs/social.ts";
-export { searchDocs, ftsQuery, boardDocs, cabinetDocs, cabinetCounts } from "./verbs/docs.ts";
+export { searchDocs, ftsQuery, boardDocs, boardWithTownDocs, townBoardDocs, canPostTownBoard, cabinetDocs, cabinetCounts } from "./verbs/docs.ts";
 export { exportWorld, importExport, docExportPath, type ExportResult } from "./export.ts";
 export { importV0, type ImportV0Options, type ImportV0Result } from "./import-v0.ts";
 export { seedDefaults, seedManual, findManual, MANUAL_TAG, originUrl, HOUSE_BUDGET_TOKENS, HOUSE_LABEL, type SeedOptions, type SeedResult } from "./seed.ts";

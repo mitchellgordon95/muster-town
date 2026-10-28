@@ -14,6 +14,7 @@ import { loadAuthSettings } from "./auth/index.ts";
 import { Hub } from "./hub.ts";
 import { desksFromEnv, loadEnvFile } from "./env.ts";
 import type { RuntimeHooks } from "./context.ts";
+import type { FastifyInstance } from "fastify";
 
 const REPO_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "../../..");
 /** A collective = one instance of the town: <dir>/collective.json + <dir>/data + <dir>/export. */
@@ -54,18 +55,39 @@ async function main() {
   const auth = loadAuthSettings({ dataDir: DATA_DIR, port: PORT });
   // off-site backup (deploy/README.md "Backups"): local copies beside the data dir (/data/workshop/backups on Fly); inert without the env
   const backup = new BackupJob({ db: world.db, dir: resolve(DATA_DIR, "..", "backups") });
-  // each hosted collective: its own World and app under /<slug>, no runtime yet (no sessions: a hosted World's runtime must run on its own key only), its own export
+  const runtimeMod = await loadRuntime();
+  /** the server's own URL, once it listens: hosted runtimes call their MCP endpoint at <url>/<slug>/mcp */
+  let url: string | null = null;
+  /**
+   * A hosted collective's runtime (step 5, docs/hosted-collectives.md): its own scrubbed env and claude dir, its own key only
+   * (held "No key yet" without one), in-process sessions only, one at a time, its own export dir, no redeploy.
+   */
+  const startHosted = async (app: FastifyInstance, w: World, slug: string, dir: string): Promise<void> => {
+    if (!runtimeMod || !url || app.runtime) return;
+    try {
+      app.runtime = await runtimeMod.startRuntime({ world: w, mcpUrl: `${url}/${slug}/mcp`, repoRoot: REPO_ROOT, collective: slug, exportDir: join(dir, "export"), hosted: { dir } });
+    } catch (e) {
+      console.warn(`[server] /${slug}/ runtime not started (${e instanceof Error ? e.message : String(e)})`);
+    }
+  };
+  // each hosted collective: its own World and app under /<slug>, its own runtime (started once the server listens), its own export
   // dir; the root's session cookie and secret (one sign-in for the whole host, step 2), its owner as its admin
-  const hub: Hub = new Hub(HOSTED_DIR, (w, row, dir) => buildApp({
-    world: w, dev: DEV, runtime: null, prefix: `/${row.slug}`, exportDir: join(dir, "export"),
-    auth: { ...auth, admins: [], hosted: { slug: row.slug, ownerGithubId: row.ownerGithubId } },
-    retire: (): unknown => hub.retire(row.slug),
-  }));
+  const hub: Hub = new Hub(HOSTED_DIR, async (w, row, dir) => {
+    const app = await buildApp({
+      world: w, dev: DEV, runtime: null, prefix: `/${row.slug}`, exportDir: join(dir, "export"),
+      auth: { ...auth, admins: [], hosted: { slug: row.slug, ownerGithubId: row.ownerGithubId } },
+      retire: (): unknown => hub.retire(row.slug),
+    });
+    // retire and shutdown close the app before its World: stop the runtime first
+    app.addHook("onClose", async () => { await (app.runtime?.close?.() ?? app.runtime?.stop?.()); });
+    await startHosted(app, w, row.slug, dir);
+    return app;
+  });
   await hub.openAll();
   console.log(`[server] hub ${HOSTED_DIR}: ${hub.count} hosted collective(s)${hub.count ? ": " + hub.list("active").map((r) => "/" + r.slug + "/").join(", ") : ""}`);
   const app = await buildApp({ world, dev: DEV, auth, collective: basename(COLLECTIVE_DIR), backup, hub });
   await app.listen({ port: PORT, host: HOST });
-  const url = `http://localhost:${PORT}`;
+  url = `http://localhost:${PORT}`;
   console.log(`[server] Muster Town at ${url} (dev=${DEV})`);
   // the token itself never goes to stdout (it would land in journald): seedDefaults wrote it to <data>/admin-token (0600)
   console.log(`[server] admin (${seed.admin.name}) token: in ${join(DATA_DIR, "admin-token")}`);
@@ -75,13 +97,16 @@ async function main() {
   backup.start();
 
   try {
-    const runtimePkg = "@muster-town/runtime"; // variable specifier: the server typechecks and runs without it
-    const mod = (await import(runtimePkg)) as { startRuntime?: (o: { world: World; mcpUrl: string; repoRoot: string; collective: string }) => RuntimeHooks | Promise<RuntimeHooks> };
-    if (typeof mod.startRuntime !== "function") throw new Error("@muster-town/runtime does not export startRuntime");
-    app.runtime = await mod.startRuntime({ world, mcpUrl: `${url}/mcp`, repoRoot: REPO_ROOT, collective: basename(COLLECTIVE_DIR) });
+    if (!runtimeMod) throw new Error(runtimeError);
+    app.runtime = await runtimeMod.startRuntime({ world, mcpUrl: `${url}/mcp`, repoRoot: REPO_ROOT, collective: basename(COLLECTIVE_DIR) });
     console.log("[server] runtime started");
   } catch (e) {
     console.warn(`[server] runtime not started (${e instanceof Error ? e.message : String(e)}); chat/interrupt return 503`);
+  }
+  // the hosted collectives opened at boot mounted before the URL was known
+  for (const r of hub.list("active")) {
+    const hApp = hub.match(`/${r.slug}/`), hWorld = hub.world(r.slug);
+    if (hApp && hWorld) await startHosted(hApp, hWorld, r.slug, hub.dirOf(r.slug));
   }
 
   const shutdown = async (sig: string) => {
@@ -90,6 +115,20 @@ async function main() {
   };
   process.on("SIGINT", () => void shutdown("SIGINT"));
   process.on("SIGTERM", () => void shutdown("SIGTERM"));
+}
+
+type RuntimeModule = { startRuntime: (o: { world: World; mcpUrl: string; repoRoot: string; collective: string; exportDir?: string; hosted?: { dir: string } }) => RuntimeHooks | Promise<RuntimeHooks> };
+let runtimeError = "";
+async function loadRuntime(): Promise<RuntimeModule | null> {
+  try {
+    const runtimePkg = "@muster-town/runtime"; // variable specifier: the server typechecks and runs without it
+    const mod = (await import(runtimePkg)) as Partial<RuntimeModule>;
+    if (typeof mod.startRuntime !== "function") throw new Error("@muster-town/runtime does not export startRuntime");
+    return mod as RuntimeModule;
+  } catch (e) {
+    runtimeError = e instanceof Error ? e.message : String(e);
+    return null;
+  }
 }
 
 main().catch((e) => {

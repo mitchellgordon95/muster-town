@@ -45,6 +45,8 @@ export function startOfLocalDay(d: Date): string {
 export class Budget {
   /** goal-directed budgets: the lane gate (`laneHold`, set by World): why an assignment is held, or null */
   gate?: (assignment: Assignment) => string | null;
+  /** hosted collectives: why nothing may start (no API key of its own yet), or null; set by World */
+  keyHold?: () => string | null;
   /** goal-directed budgets: after every charge (World runs the grants' 100% checkpoints of the building) */
   afterCharge?: (buildingId: string) => void;
 
@@ -138,6 +140,11 @@ export class Budget {
     const a = this.repos.agents.require(agentId, "agent");
     const bid = a.homeBuildingId ?? a.buildingId;
     if (!bid) return false;
+    // a hosted collective with no API key of its own: everything waits (the held assignment says why)
+    if (this.keyHold?.()) {
+      if (assignment) this.holdReason(assignment);
+      return false;
+    }
     const b = this.repos.buildings.require(bid, "building");
     if (!(this.withinDaily(a, b) && this.remaining(bid) > 0)) return false;
     if (!assignment) return this.capHold(bid) === null;
@@ -168,9 +175,9 @@ export class Budget {
     return this.bank.capState(now).reason;
   }
 
-  /** Why `assignment` is held (null = may run): the cap hold, else the lane gate; kept on the pending assignment as `heldReason`. */
+  /** Why `assignment` is held (null = may run): the no-key hold (hosted), the cap hold, else the lane gate; kept on the pending assignment as `heldReason`. */
   holdReason(assignment: Assignment): string | null {
-    const reason = this.capHold(assignment.buildingId) ?? this.gate?.(assignment) ?? null;
+    const reason = this.keyHold?.() ?? this.capHold(assignment.buildingId) ?? this.gate?.(assignment) ?? null;
     const cur = this.repos.assignments.get(assignment.id);
     if (cur && cur.status === "pending" && (cur.heldReason ?? null) !== reason) this.repos.assignments.upsert({ ...cur, heldReason: reason });
     return reason;

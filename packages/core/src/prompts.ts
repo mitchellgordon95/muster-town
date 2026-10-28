@@ -7,6 +7,8 @@ import { intrayCounts, intrayOf } from "./domain.ts";
 import { decisionOutcomes, previousMeeting, type DecisionOutcome } from "./meetings.ts";
 import { memoryBlock, teamBlock, WIKI_HOWTO } from "./memory.ts";
 import { skillsBlock } from "./skills.ts";
+import { townBoardDocs } from "./verbs/docs.ts";
+import { TOWN_HALL_ID } from "./world/layout.ts";
 import { docGist, NEED, oneLine, relativeTime, sectionOf, trunc } from "./text.ts";
 import type { World } from "./world.ts";
 
@@ -82,7 +84,7 @@ export function recentWorkBlock(world: World, agentId: string, opts: { limit?: n
  * The system prompt of a work session. \`memory\` is the agent's "## What you know" + "## Your log" block
  * (\`memoryBlock\`); \`team\` the manager's "## Your team" block (\`teamBlock\`), only for the building's manager agent.
  */
-export function workSystemPrompt(agent: Agent, building: Building, town: Town, opts: { desk?: boolean; memory?: string; team?: string; skills?: string; keyResults?: string } = {}): string {
+export function workSystemPrompt(agent: Agent, building: Building, town: Town, opts: { desk?: boolean; memory?: string; team?: string; skills?: string; keyResults?: string; townBoard?: string } = {}): string {
   return `You are ${agent.name}, a resident of the ${building.name} of ${town.name}. ${OWNERSHIP}
 Town goal: ${town.goal || "(none set)"}
 Building goal: ${building.goal || "(none set)"}${opts.keyResults ? `\n${opts.keyResults}` : ""}
@@ -96,7 +98,7 @@ ${REPORT_FORMAT}
 
 You have about ${building.maxTurnsPerSession} turns; budget them. ${opts.desk
     ? "You work at your own desk: a private sandbox computer with your home directory (/home/agent), a shell, Python with the usual scientific libraries, and the web. Files you keep there persist between sessions; the town library is still where shared work goes."
-    : "Your only tools are the town tools (mcp__town__*), WebSearch and WebFetch."}${standingRules(building)}${opts.skills ? `\n\n${opts.skills}` : ""}${opts.team ? `\n\n${opts.team}` : ""}
+    : "Your only tools are the town tools (mcp__town__*), WebSearch and WebFetch."}${opts.townBoard ? `\n\n${opts.townBoard}` : ""}${standingRules(building)}${opts.skills ? `\n\n${opts.skills}` : ""}${opts.team ? `\n\n${opts.team}` : ""}
 
 ${opts.memory ?? ""}`;
 }
@@ -105,11 +107,24 @@ ${opts.memory ?? ""}`;
  * The memory and team blocks for an agent's work session (the manager agent of a building gets the team), and in
  * goal-directed buildings the Key results block for `assignment`'s session.
  */
-export function sessionMemory(world: World, agent: Agent, building: Building, assignment?: Assignment | null): { memory: string; team?: string; keyResults?: string } {
+export function sessionMemory(world: World, agent: Agent, building: Building, assignment?: Assignment | null): { memory: string; team?: string; keyResults?: string; townBoard?: string } {
   const manager = building.managerAgentId === agent.id && building.kind !== "town-hall";
   const keyResults = keyResultsBlock(world, building, assignment);
   const grants = manager ? managerGrantsBlock(world, building) : "";
-  return { memory: memoryBlock(world, agent.id), ...(manager ? { team: `${teamBlock(world, building, agent.id)}\n\n${managerIntrayBlock(world, building, agent.id)}${grants ? `\n\n${grants}` : ""}` } : {}), ...(keyResults ? { keyResults } : {}) };
+  const townBoard = townBoardBlock(world);
+  return { memory: memoryBlock(world, agent.id), ...(townBoard ? { townBoard } : {}), ...(manager ? { team: `${teamBlock(world, building, agent.id)}\n\n${managerIntrayBlock(world, building, agent.id)}${grants ? `\n\n${grants}` : ""}` } : {}), ...(keyResults ? { keyResults } : {}) };
+}
+
+/**
+ * "Town-wide FYIs": the Town Hall board's FYIs (town-wide rules), newest first, in every work session's brief before
+ * the building's standing rules. Empty string when the Town Hall board is empty.
+ */
+export function townBoardBlock(world: World, limit = 10): string {
+  if (!world.buildings.get(TOWN_HALL_ID)) return "";
+  const docs = townBoardDocs(world, limit);
+  if (!docs.length) return "";
+  const each = Math.max(400, Math.floor(6000 / docs.length));
+  return `Town-wide FYIs (the Town Hall board; they apply in every building):\n${docs.map((d) => `### ${d.title} (${d.id})\n${trunc(d.body.trim(), each)}`).join("\n\n")}`;
 }
 
 const tok = (n: number) => n.toLocaleString("en-US");
@@ -164,8 +179,8 @@ ${blocked ? `This building is ${blocked}: write key results for the goal with \`
 A human's decision on your proposal wakes you with an assignment, like a reply to a report: funded → "Grant … funded: assign its first step or take it yourself" (lane grant, the plan in it; nothing runs until its steps are assignments), countered → "Answer the counter on …" (re-propose with \`propose_grant\`), rejected → "Grant … rejected: read the note". When a grant reaches 100% of its tokens (the only checkpoint; it runs to its full number before that) you get a "Write the checkpoint for …" assignment: \`checkpoint_grant\` (its key result's status up to claimed, with evidence), then \`submit_report\` with \`rollup: true\`; it lands in the Town Hall in-tray linked to the grant. When a grant's work is done before its tokens are (its key result can be claimed with evidence a human can check), close it yourself with \`close_grant\` (grantId, the evidence as note), then \`submit_report\` with \`rollup: true\`: it closes as done, the unspent tokens return to the Bank, and a human marks the key result met or missed from the Town Hall in-tray. Use \`checkpoint_grant\` only when the grant is held at its 100% checkpoint and the work is not done.`;
 }
 
-export function workPrompt(assignment: Assignment, lastReport: Doc | undefined, recentWork?: string): string {
-  const prev = lastReport
+export function workPrompt(assignment: Assignment, lastReport: Doc | undefined, recentWork?: string, chain?: string): string {
+  const prev = chain !== undefined ? `\n\n${chain}` : lastReport
     ? `\n\nYour previous report: "${lastReport.title}" (${lastReport.id}, verdict ${lastReport.verdict ?? "?"}, decision ${lastReport.decision ?? "?"}${lastReport.decisionNote ? `, note: ${lastReport.decisionNote}` : ""}). \`read\` it if you need the details.`
     : "\n\nThis is your first session.";
   return `Your assignment (${assignment.id}): ${assignment.title}
@@ -173,6 +188,40 @@ export function workPrompt(assignment: Assignment, lastReport: Doc | undefined, 
 ${assignment.description}${prev}${recentWork ? `\n\n${recentWork}` : ""}
 
 Start with \`look\`, then the board. End with \`submit_report\`.`;
+}
+
+/** The longest previous-report body the chain block quotes (reports run 1 to 3k chars). */
+const CHAIN_REPORT_MAX = 6000;
+/** How many earlier hops the chain block lists (newest kept). */
+const CHAIN_HOPS_MAX = 10;
+export const CHAIN_PLAN_RULE = "A plan the next session needs goes in your report's Findings (or a topic page), not only in a desk file: a desk file is a cache, and the next session on this work may run at another desk.";
+
+/**
+ * Manager forks (dc_mymt27yz25 §5.3): a fork's work prompt carries its assignment chain in place of "Your previous
+ * report": the previous report on the chain in full, the earlier hops on one line (title, id, verdict), and the rule
+ * on where a plan goes. On a fresh chain: "This is the first session on this work." `excludeSessionId` leaves out the
+ * session's own report (a desk brief is composed after the session starts).
+ */
+export function chainBlock(world: World, assignment: Assignment, excludeSessionId?: string): string {
+  const chainId = assignment.chainId ?? assignment.id;
+  const reports = world.docs.where(
+    `type = 'report' AND assignmentId IN (SELECT id FROM assignments WHERE chainId = ? OR id = ?)${excludeSessionId ? " AND (sessionId IS NULL OR sessionId != ?)" : ""}`,
+    excludeSessionId ? [chainId, assignment.id, excludeSessionId] : [chainId, assignment.id], "ORDER BY createdAt, rowid");
+  if (!reports.length) return `This is the first session on this work (chain ${chainId}).\n\n${CHAIN_PLAN_RULE}`;
+  const prev = reports[reports.length - 1];
+  const earlier = reports.slice(0, -1).slice(-CHAIN_HOPS_MAX);
+  const skipped = reports.length - 1 - earlier.length;
+  const body = prev.body.length > CHAIN_REPORT_MAX ? `${prev.body.slice(0, CHAIN_REPORT_MAX)}\n…(cut; \`read\` ${prev.id} for the rest)` : prev.body;
+  const hops = earlier.length
+    ? `\n\nEarlier on this chain (oldest first${skipped ? `, ${skipped} older not listed` : ""}): ${earlier.map((d) => `"${oneLine(d.title, 100)}" (${d.id}, verdict ${d.verdict ?? "?"})`).join("; ")}.`
+    : "";
+  return `This work continues chain ${chainId} (${reports.length} report${reports.length === 1 ? "" : "s"} so far). The previous report on it: "${prev.title}" by ${world.nameOf(prev.authorId)} (${prev.id}, verdict ${prev.verdict ?? "?"}, decision ${prev.decision ?? "?"}${prev.decisionNote ? `, note: ${prev.decisionNote}` : ""}):
+
+<previous-report>
+${body}
+</previous-report>${hops}
+
+${CHAIN_PLAN_RULE}`;
 }
 
 /** Why a manager escalates instead of deciding: the four criteria of docs/waterfall.md §3.1. */
@@ -471,7 +520,8 @@ export function composeWorkBrief(world: World, sessionId: string): DeskBrief {
   const system = workSystemPrompt(agent, building, town, { desk: true, ...sessionMemory(world, agent, building, assignment), skills: skillsBlock(world.skills.forAgent(agent.id)) }) + (workspace ? workshopPrompt(workspace, repoNameOf(workspace.repoUrl)) : "");
   const recent = recentWorkBlock(world, agent.id, { excludeSessionId: session.id });
   const prompt = assignment
-    ? workPrompt(assignment, world.docs.first("authorId = ? AND type = 'report' AND (sessionId IS NULL OR sessionId != ?)", [agent.id, session.id], "ORDER BY createdAt DESC, rowid DESC"), recent)
+    ? workPrompt(assignment, world.docs.first("authorId = ? AND type = 'report' AND (sessionId IS NULL OR sessionId != ?)", [agent.id, session.id], "ORDER BY createdAt DESC, rowid DESC"), recent,
+      agent.forkOf ? chainBlock(world, assignment, session.id) : undefined)
     : `${CHECK_IN}\n\n${recent}\n\nStart with \`look\`, then the board. End with \`submit_report\`.`;
   return { agent, building, town, assignment, session, system, prompt, ...(workspace ? { workspace } : {}) };
 }

@@ -1,9 +1,9 @@
 /** Proxy chat: one cheap call, no tools. The librarian (`service`) answers from the library index + search hits. */
-import { AppError, codeWorkspace, managerAgentOf, searchDocs } from "@muster-town/core";
+import { AppError, codeWorkspace, managerAgentOf, NO_KEY_HOLD, searchDocs } from "@muster-town/core";
 import { ChatInput } from "@muster-town/schema";
 import { chatContext, chatSystemPrompt, historyBlock, librarianContext, librarianSystemPrompt, memoryBlock, recentWorkBlock } from "@muster-town/core";
 import { oneShot } from "./sdk.ts";
-import { chargeUsage, fundingFor, homeOf, type Ctx } from "./session.ts";
+import { chargeUsage, fundingFor, homeOf, keyless, type Ctx } from "./session.ts";
 import { latestReport } from "./work.ts";
 
 const LIBRARY_INDEX_LIMIT = 200;
@@ -30,8 +30,9 @@ export async function chat(ctx: Ctx, agentId: string, raw: (typeof ChatInput)["_
     context = chatContext(agent, assignment, latestReport(ctx, agentId), world.events.recent({ agentId, limit: 40 }),
       { recentWork: recentWorkBlock(world, agentId, { readHint: false }), memory: memoryBlock(world, agentId) });
   }
-  const funding = fundingFor(world, agentId);
-  const out = await oneShot(ctx.sdk, { model, system, prompt: `${context}\n\n${historyBlock(input.history, input.message)}`, apiKey: funding.apiKey });
+  const funding = fundingFor(world, agentId, ctx.env);
+  if (keyless(ctx, funding)) return { reply: `(${agent.name} can't answer yet: ${NO_KEY_HOLD})` };
+  const out = await oneShot(ctx.sdk, { model, system, prompt: `${context}\n\n${historyBlock(input.history, input.message)}`, apiKey: funding.apiKey, env: ctx.env });
   chargeUsage(world, agentId, out, funding.allocationId, model);
   if (!out.text) return { reply: out.error ? `(${agent.name} can't answer right now: ${out.error})` : `(${agent.name} has nothing to say.)` };
   return { reply: out.text };
@@ -71,8 +72,9 @@ ${authorName}'s status: ${author?.status ?? "?"}. Doing: ${author?.activity || "
 ${authorName}'s latest activity:
 ${events.map((e) => `- ${e.ts.slice(0, 16)} [${e.type}] ${e.text}`).join("\n") || "(none)"}`;
   const charged = author && author.kind !== "human" ? author.id : null;
-  const funding = charged ? fundingFor(world, charged) : { allocationId: null, apiKey: null };
-  const out = await oneShot(ctx.sdk, { model, system, prompt: `${context}\n\n${historyBlock(history, question)}`, apiKey: funding.apiKey });
+  const funding = charged ? fundingFor(world, charged, ctx.env) : { allocationId: null, apiKey: null };
+  if (keyless(ctx, funding)) return { reply: `(No answer yet: ${NO_KEY_HOLD})` };
+  const out = await oneShot(ctx.sdk, { model, system, prompt: `${context}\n\n${historyBlock(history, question)}`, apiKey: funding.apiKey, env: ctx.env });
   if (charged) chargeUsage(world, charged, out, funding.allocationId, model);
   if (!out.text) return { reply: out.error ? `(No answer right now: ${out.error})` : "(No answer.)" };
   return { reply: out.text };

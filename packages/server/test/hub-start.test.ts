@@ -66,14 +66,19 @@ describe("Start a collective", () => {
     expect((await app.inject({ method: "GET", url: "/" })).body).toContain('<a class="btn" href="#start">Start a collective</a>');
     const octo = (await signIn(app, "code_octo")).cookie;
     expect((await json(app, "GET", "/api/me", { headers: { cookie: octo } })).body).toMatchObject({ canInteract: false });
-    const res = await start(app, octo, garden);
+    // a tagline sent by an old client is ignored: a collective's goal is its tagline
+    const res = await start(app, octo, { ...garden, tagline: "ignored" });
     expect(res.status).toBe(201);
-    expect(res.body.collective).toMatchObject({ slug: "garden-club", url: "/garden-club/", name: "Garden Club!", ownerGithubId: "2002" });
+    expect(res.body.collective).toMatchObject({ slug: "garden-club", url: "/garden-club/", name: "Garden Club!", ownerGithubId: "2002", tagline: "" });
     expect((await json(app, "GET", "/garden-club/api/me", { headers: { cookie: octo } })).body).toMatchObject({ isAdmin: true });
     // its first screen carries its name and goal; with no key its agents are held
     const town = (await json(app, "GET", "/garden-club/api/town")).body;
     expect(town.town).toMatchObject({ name: "Garden Club!", goal: garden.goal });
     expect(town.health.funding).toBe("none");
+    // the homepage lists it with its goal under the name
+    const home = (await app.inject({ method: "GET", url: "/" })).body;
+    expect(home).toContain(`<p class="tile-tag">${garden.goal}</p>`);
+    expect(home).not.toContain("ignored");
     expect((await json(app, "GET", "/garden-club/api/health")).body.funding).toBe("none");
     // the Workshop's own health says nothing about funding
     expect((await json(app, "GET", "/api/health")).body.funding).toBeUndefined();
