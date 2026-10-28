@@ -3,6 +3,7 @@ import { CAP_THOUGHT, TYPICAL_SESSIONS, capReason, countDeaths, learnedCap, medi
 import { driftRows, parseResetsAt, previousUtcDay, utcDay, type DriftRow } from "./drift.ts";
 import { badRequest, forbidden } from "./errors.ts";
 import { townFinance, type FinanceSummary } from "./finance.ts";
+import { townSpend, type FinanceSpend } from "./finance-spend.ts";
 import type { EventLog } from "./events.ts";
 import type { Holder, Permissions } from "./permissions.ts";
 import type { Repos } from "./store.ts";
@@ -656,6 +657,11 @@ export class Bank {
   /** GET /api/finance: received, used, expired, left, overdrawn and a 30-day projection (finance.ts). */
   finance(now = new Date()): FinanceSummary {
     return townFinance(this.repos, now);
+  }
+
+  /** GET /api/finance/spend: `used` by building → grant → assignment, from the sessions table (finance-spend.ts). */
+  spend(now = new Date()): FinanceSpend {
+    return townSpend(this.repos, now);
   }
 
   summary(): BankSummary {
