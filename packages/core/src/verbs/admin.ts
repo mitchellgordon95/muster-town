@@ -10,10 +10,10 @@ export async function redeploy(world: World, me: Agent, input: VerbIn<"redeploy"
   const run = world.host.redeploy;
   if (!run) throw new AppError("unreachable", "Redeploy is unavailable: the runtime is not running on the host.");
   const r = run({ image: input.image, requestedBy: me.name });
-  // the drain waits for every live work session, so a working agent that waits for the restart deadlocks it (Sage, 2026-10-20)
+  // host sessions are drained (a working host agent that waits for the restart deadlocks it, Sage 2026-10-20); desk sessions are adopted across it (0559aba)
   if (world.host.isWorking?.(me.id)) return { ...r, note: REDEPLOY_NOTE };
   return r;
 }
 
 /** Told to an agent that redeploys from inside its own work session. */
-export const REDEPLOY_NOTE = "The server restarts only after your work session (and every other running one) ends. Do not wait or poll for the new build: it cannot arrive while you are still running. Say in your report which commit should be live, submit the report, and verify on your next session.";
+export const REDEPLOY_NOTE = "The server restarts as soon as no host session is running (it waits up to 3 min for those); a desk work session like most agents' keeps running through the restart and the next server adopts it. Still never wait or poll for the new build in this session: say in your report which commit should be live, submit the report, and verify on your next session.";
