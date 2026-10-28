@@ -244,7 +244,13 @@ const mtBase = { withUserId: null, summaries: {}, transcript: [], decisions: [],
 export const meetings: Meeting[] = [
   { ...mtBase, id: "mt_retro1", kind: "retro", buildingId: "bl_carbon", title: "Carbon Cycle retro", scheduledAt: ahead(120), phase: "scheduled", facilitatorId: "ag_moss", attendeeIds: ["ag_noor", "ag_tomas", "ag_mei", "ag_ravi", "ag_ingrid", "ag_moss"], agenda: "What worked this week, what to change.", createdAt: ago(60) },
   { ...mtBase, id: "mt_town1", kind: "town-hall", buildingId: null, title: "Town hall: next lab", scheduledAt: ahead(60 * 26), phase: "scheduled", facilitatorId: "ag_wren", attendeeIds: ["ag_moss", "ag_keel", "ag_wren"], agenda: "Which lab should the town open next?", createdAt: ago(200) },
-  { ...mtBase, id: "mt_ws_standup0", kind: "standup", buildingId: "bl_workshop", title: "Workshop standup", scheduledAt: ago(60 * 20), phase: "done", facilitatorId: "ag_keel", attendeeIds: ["ag_keel", "ag_pike"], agenda: "", createdAt: ago(60 * 20), startedAt: ago(60 * 20), endedAt: ago(60 * 19.6), decisions: [{ text: "Pike: fix the HUD on narrow screens.", assigneeId: "ag_pike", assignmentId: null }] },
+  { ...mtBase, id: "mt_ws_standup0", kind: "standup", buildingId: "bl_workshop", title: "Workshop standup", scheduledAt: ago(60 * 20), phase: "done", facilitatorId: "ag_keel", attendeeIds: ["ag_keel", "ag_pike"], agenda: "", createdAt: ago(60 * 20), startedAt: ago(60 * 20), endedAt: ago(60 * 19.6), decisions: [{ text: "Pike: fix the HUD on narrow screens.", assigneeId: "ag_pike", assignmentId: null }],
+    // one utterance per attachment kind (docs/meetings.md §8), so the panel's Presented cards show in the mock
+    transcript: [
+      { speakerId: "ag_keel", speakerKind: "agent", text: "The budget numbers we're working from.", at: ago(60 * 19.9), attachment: { kind: "doc", ref: "dc_gcb_essd", title: "GCB 2025 ESSD", excerpt: "Global Carbon Budget 2025 (ESSD) Says: fossil CO2 emissions 10.2 ± 0.5 GtC in 2024; ocean sink 2.9 ± 0.4 GtC/yr" } },
+      { speakerId: "ag_pike", speakerKind: "agent", text: "Where the HUD breaks on a narrow screen.", at: ago(60 * 19.8), attachment: { kind: "media", ref: "mf_mockshot01", title: "Screenshot", url: "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='320' height='120'%3E%3Crect width='320' height='120' fill='%23334'/%3E%3Ctext x='20' y='65' fill='%23fff' font-size='18'%3EHUD overflow at 360px%3C/text%3E%3C/svg%3E" } },
+      { speakerId: "ag_keel", speakerKind: "agent", text: "And what this week cost.", at: ago(60 * 19.7), attachment: { kind: "page", ref: "bank", title: "The Bank" } },
+    ] },
   {
     withUserId: null, id: "mt_standup1", kind: "standup", buildingId: "bl_carbon", title: "Carbon Cycle standup", scheduledAt: ago(4), phase: "collecting", facilitatorId: "ag_moss",
     attendeeIds: ["ag_noor", "ag_tomas", "ag_mei", "ag_ravi", "ag_ingrid", "ag_moss"], agenda: "What each desk learned this week; what to ask next.",

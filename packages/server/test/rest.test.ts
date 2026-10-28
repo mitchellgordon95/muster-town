@@ -258,6 +258,25 @@ describe("meetings, roles, budget, events, human moves", () => {
     expect(list.body.meetings.map((x: any) => x.id)).toContain(m.body.meeting.id);
   });
 
+  it("say with attach: the utterance carries it, GET returns it, the notes keep it (docs/meetings.md §8)", async () => {
+    const { app, auth, world } = await setup();
+    const doc = world.docs.first("state != 'draft'")!;
+    const m = await json(app, "POST", "/api/meetings", { headers: auth, body: { kind: "standup", buildingId: "carbon-cycle" } });
+    const id = m.body.meeting.id;
+    await json(app, "POST", `/api/meetings/${id}/start`, { headers: auth });
+    const said = await json(app, "POST", `/api/meetings/${id}/say`, { headers: auth, body: { text: "Have a look", attach: doc.id } });
+    expect(said.status).toBe(200);
+    expect(said.body.meeting.transcript.at(-1).attachment).toMatchObject({ kind: "doc", ref: doc.id, title: doc.title });
+    await json(app, "POST", `/api/meetings/${id}/say`, { headers: auth, body: { text: "And the Bank", attach: "bank" } });
+    expect((await json(app, "POST", `/api/meetings/${id}/say`, { headers: auth, body: { text: "x", attach: "nowhere" } })).status).toBe(400);
+    const got = await json(app, "GET", `/api/meetings/${id}`);
+    expect(got.body.meeting.transcript.map((u: any) => u.attachment?.kind)).toEqual(["doc", "page"]);
+    const ended = await json(app, "POST", `/api/meetings/${id}/end`, { headers: auth, body: {} });
+    const notes = world.docs.require(ended.body.meeting.notesDocId, "doc");
+    expect(notes.body).toContain(`(presented: [${doc.title}](${doc.id}))`);
+    expect(notes.body).toContain("(page bank)");
+  });
+
   it("meeting create with chosen attendees; bad ids are 4xx", async () => {
     const { app, auth, by } = await setup();
     const ids = [by("Mei").id, by("Noor").id];
