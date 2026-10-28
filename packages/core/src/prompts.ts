@@ -136,10 +136,10 @@ const tok = (n: number) => n.toLocaleString("en-US");
 /**
  * Goal-directed buildings: "Key results", right after the building goal (docs/goal-directed-budgets.md, The desk brief):
  * the goal's key results with status and the funded grant working on each (objective, spend / grant), the blocked line
- * when there are none, today's exploration, and the session's own lane. Empty string in open buildings.
+ * when there are none, today's exploration, and the session's own lane. Empty string in the Town Hall.
  */
 export function keyResultsBlock(world: World, building: Building, assignment?: Assignment | null): string {
-  if (building.budgetMode !== "goal-directed") return "";
+  if (building.kind === "town-hall") return "";
   const board = world.grantDesk.board(building.id);
   const grants = new Map(board.grants.map((g) => [g.id, g]));
   const krLine = (k: (typeof board.keyResults)[number], indent = "") => {
@@ -173,7 +173,7 @@ Exploration today: ${tok(board.exploration.spentTodayTokens)} / ${tok(board.expl
 
 /** Goal-directed buildings: how the manager works with goal key results and grants (`assign` lanes, `propose_grant`, `checkpoint_grant`). */
 export function managerGrantsBlock(world: World, building: Building): string {
-  if (building.budgetMode !== "goal-directed") return "";
+  if (building.kind === "town-hall") return "";
   const open = world.grants.where("buildingId = ? AND status IN ('proposed', 'countered')", [building.id], "ORDER BY createdAt, rowid");
   const blocked = world.grantDesk.blocked(building);
   return `## Grants (this building is goal-directed)

@@ -18,10 +18,10 @@ function forkSetup(script: (s: FakeSession) => AsyncGenerator<unknown, void, unk
   meiId = mei.id;
   updateBuilding(world, lab.id, { managerAgentId: mei.id });
   const b = world.buildings.require(lab.id);
-  world.buildings.upsert({ ...b, headcount: world.layout.deskCount(lab.id) + (opts.spare ?? 2), budgetMode: "open" });
+  world.buildings.upsert({ ...b, headcount: world.layout.deskCount(lab.id) + (opts.spare ?? 2) });
   if (opts.forks !== false) world.ops.updateBuilding(null, lab.id, { forks: true });
   const queue = async (title: string, extra: Record<string, unknown> = {}) =>
-    (await world.verbs.assign(world.agents.require(mei.id), { title, description: "Do it.", ...extra })).assignmentId;
+    (await world.verbs.assign(world.agents.require(mei.id), { title, description: "Do it.", gap: "test gap", ...extra })).assignmentId;
   return { ...t, mei, queue };
 }
 

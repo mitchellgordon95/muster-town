@@ -52,7 +52,6 @@ describe("objectives (1:1 mt_akz25kqo2q)", () => {
   it("the desk brief groups key results under their objectives, then the ones under none", async () => {
     const { world, mei, admin, notes } = setup();
     const loose = world.grantDesk.createKeyResult(admin, LAB, { ...KR, text: "Loose one" });
-    world.ops.updateBuilding(admin, LAB, { budgetMode: "goal-directed" });
     const o = world.grantDesk.createObjective(mei, LAB, { text: "Strangers can join", kpi: "join", horizon: "2026-Q4", sourceDocIds: [notes.id] });
     const kr = world.grantDesk.createKeyResult(mei, LAB, { ...KR, sourceDocIds: [notes.id], objectiveId: o.id });
     const block = keyResultsBlock(world, world.buildings.require(LAB));

@@ -10,7 +10,7 @@ describe("plant a flag", () => {
   function managed() {
     const s = seededWorld();
     const manager = s.by("Mei");
-    s.world.ops.updateBuilding(s.admin, LAB, { managerAgentId: manager.id, budgetMode: "goal-directed" });
+    s.world.ops.updateBuilding(s.admin, LAB, { managerAgentId: manager.id });
     s.world.permissions.grant(manager, buildingRoleId(LAB, "manager"));
     return { ...s, manager };
   }

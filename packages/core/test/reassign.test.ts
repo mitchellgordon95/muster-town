@@ -10,7 +10,7 @@ function setup() {
   const { world, by, admin } = s;
   const mei = by("Mei"), noor = by("Noor");
   const kr = world.grantDesk.createKeyResult(admin, LAB, { text: "A visitor can see spend", howToCheck: "Open the banner" });
-  world.ops.updateBuilding(admin, LAB, { managerAgentId: mei.id, budgetMode: "goal-directed" });
+  world.ops.updateBuilding(admin, LAB, { managerAgentId: mei.id });
   world.permissions.grant({ kind: "agent", id: mei.id }, buildingRoleId(LAB, "manager"));
   const g = world.grantDesk.decide(admin, world.grantDesk.propose(mei, world.grantDesk.create(mei, LAB, { keyResultId: kr.id, objective: "o", stopCondition: "s", askTokens: 1_000_000 }).id).id, { action: "fund" });
   const residents = world.agents.where("kind = 'resident' AND homeBuildingId = ? AND id NOT IN (?, ?)", [LAB, mei.id, noor.id]);

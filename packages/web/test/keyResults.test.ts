@@ -88,10 +88,9 @@ describe("board key-results view", () => {
     expect([stoplightLabel("green"), stoplightLabel("yellow"), stoplightLabel("red")]).toEqual(["Running", "Partly blocked", "Blocked"]);
   });
 
-  it("mock: a goal-directed building with no key results and no live grant is blocked", async () => {
+  it("mock: a lab with no key results and no live grant is blocked", async () => {
     const api = new MockApi();
     const b = await api.createBuilding({ name: "Empty", goal: "Nothing yet", headcount: 2 });
-    await api.updateBuilding(b.id, { budgetMode: "goal-directed" });
     expect((await api.board(b.id)).blocked).toMatch(/no key results/);
     await api.createKeyResult(b.id, { text: "One", howToCheck: "Look" });
     expect((await api.board(b.id)).blocked).toBeNull();
@@ -122,7 +121,6 @@ describe("blocked state", () => {
   it("mock Town Hall in-tray lists blocked buildings; a building's own in-tray doesn't", async () => {
     const api = new MockApi();
     expect((await api.intray("bl_townhall")).blocked).toEqual([]);
-    await api.updateBuilding("bl_carbon", { budgetMode: "goal-directed" });
     for (const id of ["gr_ocean", "gr_land"]) await api.decideGrant(id, { action: "reject", note: "" });
     for (const k of (await api.board("bl_carbon")).keyResults) await api.deleteKeyResult(k.id);
     expect((await api.intray("bl_townhall")).blocked?.map((x) => x.buildingId)).toEqual(["bl_carbon"]);

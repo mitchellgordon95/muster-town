@@ -93,7 +93,7 @@ export async function grantRoutes(app: FastifyInstance) {
 
   app.get("/api/kpis", async () => {
     const { framing, kpis } = townKpis(world);
-    const objectives = world.buildings.all().filter((b) => b.budgetMode === "goal-directed")
+    const objectives = world.buildings.all().filter((b) => b.kind !== "town-hall")
       .map((b) => ({ buildingId: b.id, name: b.name, goal: b.goal, ...desk.objectiveTree(b.id) }));
     return { framing, kpis, buildings: objectives };
   });

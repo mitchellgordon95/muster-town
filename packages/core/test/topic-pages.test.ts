@@ -10,7 +10,7 @@ function lab() {
   const s = seededWorld();
   const { world, seed } = s;
   const b = createBuilding(world, { name: "Forky", headcount: 3, dailyTokensPerAgent: 100_000, model: "claude-opus-5-5", cheapModel: "claude-haiku-5-5" }, seed.admin.id);
-  world.buildings.upsert({ ...world.buildings.require(b.id), budgetMode: "open" });
+  world.grantDesk.createKeyResult(s.admin, b.id, { text: "Forks work", howToCheck: "Run the tests" }); // a key result, so the lab isn't blocked
   const pix = createResident(world, { buildingId: b.id, name: "Pix" });
   const ann = createResident(world, { buildingId: b.id, name: "Ann" });
   updateBuilding(world, b.id, { managerAgentId: pix.id });
@@ -19,7 +19,7 @@ function lab() {
   const agent = (id: string) => world.agents.require(id);
   const write = (who: string, input: { title: string; body: string; type?: "wiki" | "log" | "note"; topicOf?: string; id?: string }) =>
     world.verbs.write(agent(who), { type: "wiki", state: "draft", ...input });
-  const queue = async (title: string, pages?: string[]) => (await world.verbs.assign(agent(pix.id), { title, description: "d", ...(pages ? { pages } : {}) })).assignmentId;
+  const queue = async (title: string, pages?: string[]) => (await world.verbs.assign(agent(pix.id), { title, description: "d", gap: "test gap", ...(pages ? { pages } : {}) })).assignmentId;
   const fork = async (title: string, pages?: string[]) => { const id = await queue(title, pages); return { ...forkManager(world, b.id, id), assignmentId: id }; };
   return { ...s, b: world.buildings.require(b.id), pix: agent(pix.id), ann, write, queue, fork, agent };
 }
@@ -79,7 +79,7 @@ describe("assign pages", () => {
     const priv = (await write(pix.id, { title: "mine", body: "x" })).id;
     await expect(queue("Private", [priv])).rejects.toThrow(/isn't a topic page/);
     // named assignments can carry pages too
-    const named = await world.verbs.assign(agent(pix.id), { agentId: ann.id, title: "Named", description: "d", pages: [ids[3]] });
+    const named = await world.verbs.assign(agent(pix.id), { agentId: ann.id, title: "Named", description: "d", gap: "test gap", pages: [ids[3]] });
     expect(world.assignments.require(named.assignmentId).pages).toEqual([ids[3]]);
   });
 });

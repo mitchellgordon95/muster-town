@@ -110,10 +110,9 @@ describe("report state machine", () => {
   it("redirect assigns the note (required) with the proposal as context; stop stops and cancels; reviewer agents can review", async () => {
     const { world, by, admin } = seededWorld();
     const moss = by("Moss"), mei = by("Mei"), tomas = by("Tomas");
-    world.ops.updateBuilding(admin, "carbon-cycle", { budgetMode: "open" }); // agents can create directed work only in an open building
     const a = await world.verbs.submit_report(mei, { title: "R", body: REPORT, verdict: "continue" });
     await expect(world.verbs.review(moss, { docId: a.id, decision: "redirect", note: "  " })).rejects.toMatchObject({ code: "bad_request" });
-    const r = await world.verbs.review(moss, { docId: a.id, decision: "redirect", note: "Focus on the Southern Ocean.\nUse SOCAT." });
+    const r = await world.verbs.review(moss, { docId: a.id, decision: "redirect", note: "Focus on the Southern Ocean.\nUse SOCAT.", gap: "The ocean sink is unmeasured" });
     const next = world.assignments.require(r.assignmentId!);
     expect(next.title).toBe("Focus on the Southern Ocean.");
     expect(next.description).toMatch(/redirected you[\s\S]*Focus on the Southern Ocean\.\nUse SOCAT\./);
@@ -228,9 +227,8 @@ describe("assignments", () => {
   it("assign (permissioned), list, accept", async () => {
     const { world, by, admin } = seededWorld();
     const noor = by("Noor"), moss = by("Moss");
-    world.ops.updateBuilding(admin, "carbon-cycle", { budgetMode: "open" }); // agents can create directed work only in an open building
     await expect(world.verbs.assign(by("Mei"), { agentId: noor.id, title: "x", description: "y" })).rejects.toMatchObject({ code: "forbidden" });
-    const { assignmentId } = await world.verbs.assign(moss, { agentId: noor.id, title: "Check Mauna Loa", description: "y" });
+    const { assignmentId } = await world.verbs.assign(moss, { agentId: noor.id, title: "Check Mauna Loa", description: "y", gap: "No Mauna Loa check" });
     expect((await world.verbs.assignments(noor, {})).assignments[0]).toMatchObject({ id: assignmentId, status: "pending" });
     await world.verbs.accept_assignment(noor, { id: assignmentId });
     expect(world.agents.require(noor.id).currentAssignmentId).toBe(assignmentId);

@@ -144,13 +144,13 @@ export class Sim {
     const grants = [...this.grants.values()].filter((g) => of(g) && (g.status === "funded" || g.status === "checkpoint")).sort((x, y) => (x.fundedAt ?? "").localeCompare(y.fundedAt ?? ""));
     const proposals = [...this.grants.values()].filter((g) => of(g) && (g.status === "proposed" || g.status === "countered")).sort((x, y) => y.updatedAt.localeCompare(x.updatedAt));
     const keyResults = this.goalKeyResults(buildingId);
-    const blocked = b?.budgetMode === "goal-directed" && !keyResults.length && !grants.length ? BLOCKED_NO_KRS : null;
+    const blocked = !!b && b.kind !== "town-hall" && !keyResults.length && !grants.length ? BLOCKED_NO_KRS : null;
     return { goal: b?.goal ?? "", keyResults, objectives: this.objectiveTree(buildingId), blocked, stoplight: this.stoplight(buildingId), grants, proposals, exploration: { allowanceTokens: b?.explorationTokensPerDay ?? 0, spentTodayTokens: F.explorationSpentToday[buildingId] ?? 0 } };
   }
   /** The building's stoplight, as core's Grants.stoplight: null for open buildings and the Town Hall. */
   stoplight(buildingId: string): Stoplight | null {
     const b = this.buildings.find((x) => x.id === buildingId);
-    if (!b || b.kind === "town-hall" || b.budgetMode !== "goal-directed") return null;
+    if (!b || b.kind === "town-hall") return null;
     return stoplightOf(this.goalKeyResults(buildingId), [...this.grants.values()].filter((g) => g.buildingId === buildingId && (g.status === "funded" || g.status === "checkpoint")));
   }
   /** An agent's or user's name (core's World.nameOf), null for none. */

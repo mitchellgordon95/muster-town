@@ -60,7 +60,6 @@ describe("the scheduler and the gate (Budget.canStart)", () => {
     const admin = world.ops.ensureAvatar(seed.admin.id);
     const noor = by("Noor");
     const kr = world.grantDesk.createKeyResult(admin, lab.id, { text: "A visitor can see today's spend", howToCheck: "Open the banner" });
-    world.ops.updateBuilding(admin, lab.id, { budgetMode: "goal-directed" });
     const g = world.grantDesk.propose(admin, world.grantDesk.create(admin, lab.id, { keyResultId: kr.id, objective: "o", stopCondition: "s", askTokens: 1_000_000 }).id);
     const a = world.ops.createWork(admin, noor.id, { title: "grant work", lane: "grant", grantId: g.id });
     expect(world.budget.canStart(noor.id, world.assignments.require(a.id))).toBe(false);
