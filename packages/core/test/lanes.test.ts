@@ -67,6 +67,22 @@ describe("goal-directed budgets: lanes on assignments", () => {
     expect(cont).toMatchObject({ lane: "grant", grantId: g.id, keyResultId: krs[0]!.id });
   });
 
+  it("a grant assignment can't name a closed, rejected or draft grant; proposed, funded and checkpoint ones are accepted (and the gate holds the unfunded)", async () => {
+    const { world, mei, noor, admin, krs, fund } = setup();
+    const base = { agentId: noor.id, title: "t", description: "d", lane: "grant" as const };
+    const draft = world.grantDesk.create(mei, LAB, { keyResultId: krs[1]!.id, objective: "o", stopCondition: "s", askTokens: 1 });
+    await expect(world.verbs.assign(mei, { ...base, grantId: draft.id })).rejects.toThrow(/is draft: work can't be charged/);
+    world.grantDesk.propose(mei, draft.id);
+    const proposed = await world.verbs.assign(mei, { ...base, grantId: draft.id });
+    expect(world.budget.canStart(noor.id, world.assignments.require(proposed.assignmentId))).toBe(false);
+    world.grantDesk.decide(admin, draft.id, { action: "reject", note: "not now" });
+    await expect(world.verbs.assign(mei, { ...base, grantId: draft.id })).rejects.toThrow(/is rejected: work can't be charged/);
+    const g = fund();
+    expect((await world.verbs.assign(mei, { ...base, grantId: g.id })).assignmentId).toBeTruthy();
+    world.grantDesk.close(admin, g.id, { outcome: "met" });
+    await expect(world.verbs.assign(mei, { ...base, grantId: g.id })).rejects.toThrow(/is closed: work can't be charged/);
+  });
+
   it("a session copies lane and grantId from its assignment at start", () => {
     const { world, admin, noor, fund } = setup();
     const g = fund();

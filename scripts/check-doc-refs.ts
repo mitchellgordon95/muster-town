@@ -11,7 +11,7 @@
 //   verbs    `mcp__town__<verb>`, a snake_case `code span`, `muster-town <command>`, and (SKILL.md) the `verb {…}` lines
 //            of a fenced block; checked against VERB_NAMES and the CLI's commands. Not in docs/manual.md, which names
 //            UI buttons in human prose.
-//   tests    (docs/invariants/*.md) each `- Test: `<file>` › `<it text>`` line: the file exists and contains the it text
+//   tests    (docs/invariants/*.md) each `- Test: `<file>` › `<it text>`` line: the file exists and contains the it (or test) text
 //            verbatim, so renaming a cited test fails the check. Each invariants doc cites at least one test.
 import { execFileSync } from "node:child_process";
 import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
@@ -100,7 +100,7 @@ function checkDoc(file: string, withVerbs: boolean): Problem[] {
       citations++;
       if (!m) bad("test", `${text.trim()} (want - Test: \`<file>\` › \`<it text>\`)`);
       else if (!exists(m[1]!) || !statSync(join(ROOT, m[1]!)).isFile()) bad("test", m[1]!);
-      else if (!['"', "'", "`"].some((q) => readFileSync(join(ROOT, m[1]!), "utf8").includes(`it(${q}${m[2]}${q}`))) bad("test", `${m[1]} › ${m[2]}`);
+      else if (!["it", "test"].some((fn) => ['"', "'", "`"].some((q) => readFileSync(join(ROOT, m[1]!), "utf8").includes(`${fn}(${q}${m[2]}${q}`)))) bad("test", `${m[1]} › ${m[2]}`);
     }
     const spans = fenced ? [text.replace(/#.*$/, "")] : [...text.matchAll(/`([^`]+)`/g)].map((m) => m[1]!);
 
