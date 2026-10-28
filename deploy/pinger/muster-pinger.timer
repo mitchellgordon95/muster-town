@@ -1,0 +1,11 @@
+[Unit]
+Description=Run the muster.town health pinger every 60 s
+
+[Timer]
+OnBootSec=60
+OnUnitActiveSec=60
+AccuracySec=5
+Unit=muster-pinger.service
+
+[Install]
+WantedBy=timers.target

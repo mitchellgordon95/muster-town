@@ -1,0 +1,10 @@
+[Unit]
+Description=muster.town health pinger (one probe; deploy/pinger/muster_pinger.py)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+User=node
+ExecStart=/usr/bin/python3 /home/node/.miniclaw/workspace/scripts/muster-pinger.py
+TimeoutStartSec=60

@@ -119,6 +119,65 @@ the same day. Still open:
 - **Cold start:** a brand-new desk on a fresh Fly host pulls the ~1 GB desk image (about 90 s once); resuming a stopped desk takes about 1 s.
 - **Dev on the Mac:** don't start `collectives/workshop` there (it would fork the world); Fly desks from a Mac town need a public tunnel, so dev uses docker desks.
 
+### Monitoring (grant gr_rntk0echpi, design dc_f2hpf9u1ya)
+
+Two monitors, one alert path. Every alert, yellow or red, raise or clear, is a town event (type `alert`) and an FYI on the
+Prod board (the clear updates the same FYI). Red alerts also go out by SMS (Twilio) and email (Gmail SMTP), raise and clear,
+at most 10 outbound messages an hour across all keys.
+
+**In-process monitor** (`packages/server/src/monitor.ts`, root app only) samples every 60 s:
+
+| Key | What | Yellow | Red |
+|---|---|---|---|
+| `rss` | process RSS (2 GB Machine) | > 1.2 GB for 5 min | > 1.6 GB for 3 min |
+| `lag` | event-loop delay p99 over the minute | > 200 ms for 5 min | > 1000 ms for 3 min |
+| `disk` | free space on the data volume | < 25 % | < 10 % |
+| `slots` | running sessions vs `desks.maxRunning` | ≥ 80 % for 15 min | full with queued work for 15 min |
+| `backup` | health `backup` | `error` set | last copy older than 26 h |
+| `5xx` | 5xx share of HTTP responses, last 5 min (needs ≥ 50 responses) | > 2 % | > 10 % |
+| `ws` | WebSocket errors and abnormal closes, last 5 min | > 20 | > 100 |
+| `sessions` | Claude sessions ending in `error` | ≥ 3 in 15 min | ≥ 50 % of the sessions that ended in 30 min (min 4) |
+
+An alert clears after 5 samples in a row under yellow. A key that stays red re-alerts hourly. A gap of more than 5 min
+between samples writes a "monitor gap" event when sampling resumes. `GET /api/health` shows
+`monitor: {lastSampleAt, outbound, alerts: [{key, level, since, value}]}` (`lastSampleAt` is null for the first 60 s after boot).
+
+Outbound needs all seven Fly secrets; with any missing, `monitor.outbound` is false and alerts stay in town:
+```
+fly secrets set -a muster-town \
+  ALERT_TWILIO_SID=AC... ALERT_TWILIO_AUTH=... ALERT_TWILIO_FROM=+1... \
+  ALERT_SMS_TO=+1... ALERT_EMAIL_TO=... \
+  ALERT_SMTP_USER=...@gmail.com ALERT_SMTP_PASS=<Gmail app password>
+```
+Test the whole path with one red test alert (admin token; counts toward the 10/h cap):
+`curl -X POST -H "authorization: Bearer $ADMIN_TOKEN" https://muster.town/api/admin/monitor/test` returns
+`{eventId, fyiDocId, sms, email}`, each of `sms`/`email` being `sent`, `skipped` (no secrets, or over the cap) or `error`.
+
+#### VPS pinger (Wright's box)
+
+`deploy/pinger/muster_pinger.py` (Python 3 stdlib) covers what the server can't report itself: the Machine down, DNS or
+TLS broken, the monitor wedged. Each run is one probe of `GET https://muster.town/api/health` (10 s timeout; fail = no
+answer, non-200, or `ok` not true). After 3 failed probes in a row it sends a RED SMS and email, re-alerts hourly while
+down, and sends one "recovered" message when health answers again. When health shows `monitor.outbound: false` it
+forwards the server's open red alerts (hourly per key). It has no town token and writes nothing to the town.
+
+Install as user `node` (paths assume its home is `/home/node`; change `ExecStart` in the service if not):
+```
+# 1. files
+install -D -m 755 deploy/pinger/muster_pinger.py ~/.miniclaw/workspace/scripts/muster-pinger.py
+sudo install -m 644 deploy/pinger/muster-pinger.service deploy/pinger/muster-pinger.timer /etc/systemd/system/
+# 2. env file: the same seven ALERT_* names and values as the Fly secrets above (KEY=value, one a line)
+install -m 600 /dev/null ~/.miniclaw/muster-pinger.env && $EDITOR ~/.miniclaw/muster-pinger.env
+# 3. a dry run prints the messages instead of sending them (state: ~/.miniclaw/muster-pinger.json)
+python3 ~/.miniclaw/workspace/scripts/muster-pinger.py --dry-run
+python3 ~/.miniclaw/workspace/scripts/muster-pinger.py --dry-run --url http://127.0.0.1:9/ --state /tmp/p.json  # x3: the 3rd prints a RED
+# 4. run it every 60 s
+sudo systemctl daemon-reload && sudo systemctl enable --now muster-pinger.timer
+# 5. confirm: the timer is listed with a next run under a minute away, and the last probe was "ok"
+systemctl list-timers muster-pinger.timer
+journalctl -u muster-pinger.service -n 5
+```
+
 ## Single-VPS deployment (legacy; the OVH box is gone)
 Plan and reasoning: town docs dc_mltonxkizi (deploy + CI) and dc_vxgg8r55ha (stress test: 6 desks at once).
 
