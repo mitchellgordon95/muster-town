@@ -22,7 +22,6 @@ export const EXPLORATION_SHARE = BUDGET_POLICY.explorationShare;
  */
 export const CHECKPOINTS = [1] as const;
 
-const OPEN: GrantStatus[] = ["proposed", "countered"];
 const LIVE: GrantStatus[] = ["funded", "checkpoint"];
 const TERMINAL: GrantStatus[] = ["closed", "rejected"];
 

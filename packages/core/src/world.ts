@@ -20,7 +20,6 @@ import { seedDefaults, type SeedOptions, type SeedResult } from "./seed.ts";
 import { createRepos, type Repos } from "./store.ts";
 import { Emitter } from "./util.ts";
 import { makeVerbs, type Verbs } from "./verbs/index.ts";
-import { TOWN_HALL_ID } from "./world/layout.ts";
 import { WorldMap } from "./world/map.ts";
 import { Movement } from "./world/movement.ts";
 
