@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { createBuilding, createResident, financeSpend, ledgerBookedBeforeConversion, NO_ASSIGNMENT, NO_BUILDING, NO_GRANT, WEIGHT_MISMATCH, type SpendInputs, type SpendNode } from "../src/index.ts";
+import { countersSince, createBuilding, createResident, financeSpend, ledgerBookedBeforeConversion, NO_ASSIGNMENT, NO_BUILDING, NO_GRANT, WEIGHT_MISMATCH, type SpendInputs, type SpendNode } from "../src/index.ts";
 import { seededWorld } from "./helpers.ts";
 
 const T0 = new Date("2026-10-28T12:00:00.000Z");
@@ -78,37 +78,44 @@ describe("financeSpend (GET /api/finance/spend)", () => {
 
   it("takes the pre-conversion weight mismatch off as its own row: sessions ended before bank.converted priced at their model vs the ledger's Opus weights", () => {
     const CONVERTED = "2026-10-27T00:00:24.000Z", FABLE = "claude-fable-5-1";
-    const before = "2026-10-26T12:00:00.000Z", after = "2026-10-27T12:00:00.000Z";
+    // earlier: back-filled by migration 034; before: the runtime writes counters (first real-counter session); after: converted
+    const earlier = "2026-10-26T06:00:00.000Z", before = "2026-10-26T12:00:00.000Z", between = "2026-10-26T18:00:00.000Z", after = "2026-10-27T12:00:00.000Z";
     const fable = (counts: Partial<Record<"output" | "cacheRead", number>>, endedAt: string | null) =>
       ({ agentId: "ag_lab", assignmentId: "a4", grantId: null, model: FABLE, input: 0, output: 0, cacheRead: 0, cacheWrite5m: 0, cacheWrite1h: 0, byModel: null, endedAt, ...counts });
     // back-filled by migration 034 (only a raw total, 24,000): split at the Fable ratio → 1,000 here; the ledger split it at the Opus ratio → 800
-    const backfilled = fable({ output: 884, cacheRead: 23_116 }, before);
-    expect(ledgerBookedBeforeConversion(backfilled)).toBe(800);
+    const backfilled = fable({ output: 884, cacheRead: 23_116 }, earlier);
+    expect(ledgerBookedBeforeConversion(backfilled, before)).toBe(800);
+    expect(ledgerBookedBeforeConversion(backfilled, null)).toBe(800); // no real counters anywhere: everything is a migration back-fill
     // real counters: Fable's cache-read weight 0.005 → 1,100 here; migration 037 booked the ledger row at Opus's 0.01 → 1,200
     const real = fable({ output: 1_000, cacheRead: 20_000 }, before);
-    expect(ledgerBookedBeforeConversion(real)).toBe(1_200);
+    expect(ledgerBookedBeforeConversion(real, before)).toBe(1_200);
+    // a bare total the runtime split itself at the Fable ratio (raw 12,000 → 500 here) after counters began: the ledger
+    // got the same split and priced it at Opus weights → 558, not raw/30 = 400
+    const runtimeSplit = fable({ output: 442, cacheRead: 11_558 }, between);
+    expect(ledgerBookedBeforeConversion(runtimeSplit, before)).toBe(558);
     const sessions = [
-      backfilled, real,
-      { ...s("ag_lab", "a4", 707), cacheRead: 29_293, endedAt: before }, // back-filled Opus (raw 30,000): 1,000 on both sides
+      backfilled, real, runtimeSplit,
+      { ...s("ag_lab", "a4", 707), cacheRead: 29_293, endedAt: earlier }, // back-filled Opus (raw 30,000): 1,000 on both sides
       fable({ output: 884, cacheRead: 23_116 }, after), // after the conversion: priced the same way on both sides
       fable({ output: 884, cacheRead: 23_116 }, null), // never ended: not pre-conversion
     ];
     const inp: SpendInputs = { ...base, sessions, convertedAt: CONVERTED };
-    // sessions 5,100; the ledger booked 5,000 for them (mismatch +200 − 100 = +100 over 2 sessions); used 4,900 → 100 not funded
+    expect(countersSince(sessions)).toBe(before);
+    // sessions 5,600; the ledger booked 5,558 for them (mismatch +200 − 100 − 58 = +42 over 3 sessions); used 4,900 → 658 not funded
     const f = financeSpend(inp, 4_900, T0);
-    expect(f).toMatchObject({ used: 4_900, sessionsTotal: 5_100, weightMismatch: 100, unattributed: 0, notFunded: 100, convertedAt: CONVERTED, check: { ok: true, diff: 0, identity: "buildings + unattributed − weight mismatch − not funded = used" } });
-    expect(f.rows.map((r) => [r.kind, r.tokens, r.sessions])).toEqual([["building", 5_100, 5], ["weight-mismatch", -100, 2], ["not-funded", -100, 0]]);
+    expect(f).toMatchObject({ used: 4_900, sessionsTotal: 5_600, weightMismatch: 42, unattributed: 0, notFunded: 658, convertedAt: CONVERTED, check: { ok: true, diff: 0, identity: "buildings + unattributed − weight mismatch − not funded = used" } });
+    expect(f.rows.map((r) => [r.kind, r.tokens, r.sessions])).toEqual([["building", 5_600, 6], ["weight-mismatch", -42, 3], ["not-funded", -658, 0]]);
     expect(f.rows[1].name).toBe(WEIGHT_MISMATCH);
     expect(f.weightMismatchNote).toContain("2026-10-27 00:00Z");
     expect(sum(f.rows)).toBe(4_900);
-    // used 5,050: the ledger booked 5,000, so 50 is unattributed, and the mismatch row still comes off
-    const g = financeSpend(inp, 5_050, T0);
-    expect(g).toMatchObject({ unattributed: 50, weightMismatch: 100, notFunded: 0, check: { ok: true, diff: 0 } });
-    expect(g.rows.map((r) => [r.kind, r.tokens])).toEqual([["building", 5_100], ["unattributed", 50], ["weight-mismatch", -100]]);
-    expect(sum(g.rows)).toBe(5_050);
+    // used 5,608: the ledger booked 5,558, so 50 is unattributed, and the mismatch row still comes off
+    const g = financeSpend(inp, 5_608, T0);
+    expect(g).toMatchObject({ unattributed: 50, weightMismatch: 42, notFunded: 0, check: { ok: true, diff: 0 } });
+    expect(g.rows.map((r) => [r.kind, r.tokens])).toEqual([["building", 5_600], ["unattributed", 50], ["weight-mismatch", -42]]);
+    expect(sum(g.rows)).toBe(5_608);
     // a Bank born adjusted (no bank.converted event): no mismatch, the whole gap is not funded
     const h = financeSpend({ ...inp, convertedAt: null }, 4_900, T0);
-    expect(h).toMatchObject({ weightMismatch: 0, notFunded: 200, check: { ok: true, diff: 0 } });
+    expect(h).toMatchObject({ weightMismatch: 0, notFunded: 700, check: { ok: true, diff: 0 } });
     expect(h.rows.map((r) => r.kind)).toEqual(["building", "not-funded"]);
   });
 

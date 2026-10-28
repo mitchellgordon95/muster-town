@@ -13,7 +13,8 @@ import type { Repos } from "./store.ts";
  * counts: before sessions carried counters, 2026-10-26 20:29, and anything else outside the sessions table), minus
  * `weightMismatch` (sessions that ended before the Bank's conversion to adjusted tokens, `bank.converted`, whose
  * session row is priced at the session's own model while the ledger booked them with no model, at Opus weights: a
- * pre-conversion Fable session counts raw/24 here and raw/30 in the Bank; nothing unpaid, dc_7u3s419dv0), minus
+ * Fable session back-filled by migration 034 counts raw/24 here and raw/30 in the Bank, a later one its own counters at
+ * Fable vs Opus weights; nothing unpaid, dc_7u3s419dv0), minus
  * `notFunded` (what is left beyond `used`: sessions nothing in the Bank or donations paid for, e.g. the Town Hall's
  * librarian). At most one of `unattributed` and `notFunded` is non-zero.
  */
@@ -76,12 +77,30 @@ export const NOT_FUNDED = "Not funded: session spend beyond what the Bank and do
 export const SPEND_IDENTITY = "buildings + unattributed − weight mismatch − not funded = used";
 
 /**
- * What the ledger booked for a session that ended before the conversion: its counters with no model, at Opus weights
- * (migration 037 priced every usage and debit row that way). A back-filled session (only a raw total, split by
- * migration 034 at its model's ratio) was split at the Opus ratio in the ledger, so its raw total is re-split there.
+ * When the runtime started writing the five counters into sessions and usage rows (migration 034's deploy): the earliest
+ * end of a session with real counters. Sessions ended before it were back-filled by the migration from a raw total:
+ * split at their model's ratio in the sessions table, at the Opus ratio in the ledger. Null when no session has real
+ * counters yet (everything is a migration back-fill).
  */
-export function ledgerBookedBeforeConversion(s: SpendInputs["sessions"][number]): number {
-  const counts = isBackfilled(s, s.model) ? splitRaw(rawTokens(countsOf(s)), null) : countsOf(s);
+export function countersSince(sessions: SpendInputs["sessions"]): string | null {
+  let first: string | null = null;
+  for (const s of sessions) {
+    if (!s.endedAt || !rawTokens(countsOf(s)) || isBackfilled(s, s.model)) continue;
+    if (!first || s.endedAt < first) first = s.endedAt;
+  }
+  return first;
+}
+
+/**
+ * What the ledger booked for a session that ended before the conversion: its counters with no model, at Opus weights
+ * (migration 037 priced every usage and debit row that way). A session back-filled by migration 034 (ended before the
+ * runtime wrote counters, `countersSince`) was split at the Opus ratio in the ledger, so its raw total is re-split
+ * there. From `countersSince` on, the runtime wrote the same counters into the session and its usage row (real ones,
+ * or a bare total split at the session's model's ratio), so the ledger priced them as they are.
+ */
+export function ledgerBookedBeforeConversion(s: SpendInputs["sessions"][number], since: string | null): number {
+  const backfilledByMigration = !since || (s.endedAt != null && s.endedAt < since);
+  const counts = backfilledByMigration ? splitRaw(rawTokens(countsOf(s)), null) : countsOf(s);
   return adjustedOutputTokens(null, counts);
 }
 
@@ -101,11 +120,12 @@ export function financeSpend(inp: SpendInputs, used: number, now = new Date()): 
   const grantNames = new Map(inp.grants.map((g) => [g.id, g.objective]));
   const root = acc("building", null, "");
   let weightMismatch = 0, mismatched = 0;
+  const since = inp.convertedAt ? countersSince(inp.sessions) : null;
 
   for (const s of inp.sessions) {
     const tokens = adjustedOfUsage(s.model, s, s.byModel);
     if (inp.convertedAt && s.endedAt && s.endedAt < inp.convertedAt) {
-      const d = tokens - ledgerBookedBeforeConversion(s);
+      const d = tokens - ledgerBookedBeforeConversion(s, since);
       if (d) { weightMismatch += d; mismatched++; }
     }
     const a = s.assignmentId ? assignments.get(s.assignmentId) : undefined;
