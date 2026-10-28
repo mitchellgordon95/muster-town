@@ -21,4 +21,16 @@ describe("migrate", () => {
     // re-running is a no-op
     expect(migrate(db, dir)).toBe(3);
   });
+
+  it("refuses two migrations with the same number (the second would never run)", () => {
+    const dir = mkdtempSync(join(tmpdir(), "mig-"));
+    writeFileSync(join(dir, "001_init.sql"), "CREATE TABLE t (id INTEGER);");
+    writeFileSync(join(dir, "002_a.sql"), "ALTER TABLE t ADD COLUMN a INTEGER;");
+    writeFileSync(join(dir, "002_b.sql"), "ALTER TABLE t ADD COLUMN b INTEGER;");
+    expect(() => migrate(new Database(":memory:"), dir)).toThrow(/two migrations numbered 2: renumber 002_b\.sql/);
+  });
+
+  it("the shipped migrations have unique numbers", () => {
+    expect(() => migrate(new Database(":memory:"))).not.toThrow();
+  });
 });
