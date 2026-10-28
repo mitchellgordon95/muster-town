@@ -97,6 +97,9 @@ export function deskEnv(ctx: Ctx, session: Session, opts: DeskSessionOptions = {
     ...townEnvBoth("TOKEN", world.tokens.getOrCreate("agent", agent.id)),
     DESK_MODEL: session.model,
     DESK_MAX_TURNS: String(building.maxTurnsPerSession),
+    // a fork's desk slot is shared by the forks before and after it: its commits carry its own name, whatever the
+    // checkout's git config says (named residents keep the identity their desk's checkout was set up with)
+    ...(agent.forkOf ? gitIdentityEnv(agent.name) : {}),
   };
   Object.assign(env, grantedSecrets(ctx, session, building.id));
   const auth = deskAuth(funding ?? fundingFor(world, agent.id, ctx.env), ctx.env);
@@ -109,6 +112,12 @@ export function deskEnv(ctx: Ctx, session: Session, opts: DeskSessionOptions = {
     else console.warn(`[runtime] ${agent.name} session ${session.id}: no GH_TOKEN for the desk (${noRepoTokenReason(ctx.desks.ghToken)}); cloning a private repo and pushing will fail`);
   }
   return env;
+}
+
+/** Git author and committer for `name` (as the desk's workspace setup writes into a checkout: `<slug>@muster-town.local`). */
+export function gitIdentityEnv(name: string): Record<string, string> {
+  const email = `${name.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "") || "agent"}@muster-town.local`;
+  return { GIT_AUTHOR_NAME: name, GIT_AUTHOR_EMAIL: email, GIT_COMMITTER_NAME: name, GIT_COMMITTER_EMAIL: email };
 }
 
 /**
@@ -155,6 +164,10 @@ export async function runDeskSession(ctx: Ctx, backend: DeskBackend, starting: S
   try {
     walkToDesk(ctx, agent);
     const handle = await backend.ensure(agent, building);
+    if (handle.createdMs !== undefined) {
+      // a new desk sandbox (Machine or container): its create time, the cost a warm desk slot avoids
+      world.events.append({ type: "agent.activity", agentId, buildingId: building.id, text: `New desk ${handle.name} created in ${(handle.createdMs / 1000).toFixed(1)} s`, payload: { desk: handle.name, createdMs: handle.createdMs, forkOf: agent.forkOf ?? null } });
+    }
     const funding = fundingForSession(world, agentId, assignmentId, ctx.env);
     const mode = deskAuth(funding, ctx.env).mode;
     session = world.ops.startSession(agentId, { purpose: "work", model: agent.model ?? building.model, assignmentId, backend: "docker", funding: mode === "none" ? null : mode, inputId: funding.inputId ?? null });

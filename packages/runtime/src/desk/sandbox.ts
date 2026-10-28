@@ -13,12 +13,15 @@
  *  - the provider bills wall-clock time while a sandbox runs, so it is stopped shortly after its session ends.
  */
 import type { Agent, Building } from "@muster-town/schema";
-import { DESK_BIN, dockerSafe, killPattern, killTreeCommand, shq, type DeskBackend, type DeskChild, type DeskHandle, type LineSink } from "./backend.ts";
+import { DESK_BIN, dockerSafe, killPattern, killTreeCommand, shq, slotDefaults, type DeskBackend, type DeskChild, type DeskHandle, type LineSink, type SlotNames, type SlotResolver } from "./backend.ts";
 
 export type SandboxState = "started" | "stopped" | "other" | "error";
 export interface SandboxInfo { id: string; name: string; state: SandboxState }
 
-/** What `SandboxBackend` needs from a provider. Names are `desk-<collective>-<agent>`; the home volume is `deskhome-<agent>`. */
+/**
+ * What `SandboxBackend` needs from a provider. Names are `desk-<collective>-<agent>` with home volume `deskhome-<agent>`,
+ * or for a fork its desk slot's (`desk-<collective>-<building>-<n>`, `deskhome-<building>-<n>`, table desk_slots).
+ */
 export interface SandboxApi {
   available(): Promise<boolean>;
   find(name: string): Promise<SandboxInfo | null>;
@@ -41,6 +44,8 @@ export interface SandboxBackendOptions {
   idleStopMs?: number;
   /** activity ping while a session runs, so the provider's own idle auto-stop doesn't cut it off (0 = none, for providers without one) */
   heartbeatMs?: number;
+  /** forks' desk slots (default: every agent has its own sandbox) */
+  slotOf?: SlotResolver;
 }
 
 export const SANDBOX_HOME = "/home/agent";
@@ -58,23 +63,33 @@ export class SandboxBackend implements DeskBackend {
   private readonly heartbeatMs: number;
   private readonly active = new Map<string, number>();
   private readonly idleTimers = new Map<string, ReturnType<typeof setTimeout>>();
+  private readonly slotOf: SlotResolver;
 
   constructor(opts: SandboxBackendOptions) {
     this.api = opts.api;
     this.collective = dockerSafe(opts.collective);
     this.idleStopMs = opts.idleStopMs ?? 3 * 60_000;
     this.heartbeatMs = opts.heartbeatMs ?? 5 * 60_000;
+    this.slotOf = opts.slotOf ?? (() => null);
   }
 
   sandboxName(agentId: string): string { return `desk-${this.collective}-${dockerSafe(agentId)}`; }
   volumeName(agentId: string): string { return `deskhome-${dockerSafe(agentId)}`; }
+
+  /** The agent's sandbox: its desk slot's for a fork (a warm Machine the forks before it used), else its own. */
+  private deskOf(agentId: string): SlotNames & { slot: boolean } {
+    const slot = this.slotOf(agentId, slotDefaults(this.collective));
+    return slot ? { ...slot, slot: true } : { sandboxName: this.sandboxName(agentId), volumeName: this.volumeName(agentId), slot: false };
+  }
 
   available(): Promise<boolean> {
     return this.api.available().catch(() => false);
   }
 
   async ensure(agent: Agent, _building: Building): Promise<DeskHandle> {
-    const name = this.sandboxName(agent.id);
+    const desk = this.deskOf(agent.id);
+    const name = desk.sandboxName;
+    let createdMs: number | undefined;
     this.cancelIdleStop(name);
     let found = await this.api.find(name);
     if (found?.state === "error") {
@@ -84,14 +99,17 @@ export class SandboxBackend implements DeskBackend {
       found = null;
     }
     if (!found) {
+      const t0 = Date.now();
       await this.api.create({
-        name, volume: this.volumeName(agent.id), mountPath: SANDBOX_HOME,
-        labels: { "muster-town.desk": "1", "muster-town.agent": agent.id, "muster-town.collective": this.collective },
+        name, volume: desk.volumeName, mountPath: SANDBOX_HOME,
+        // a slot's sandbox outlives the fork that created it: label it by slot, not by agent
+        labels: { "muster-town.desk": "1", ...(desk.slot ? { "muster-town.slot": name } : { "muster-town.agent": agent.id }), "muster-town.collective": this.collective },
       });
+      createdMs = Date.now() - t0;
     } else if (found.state !== "started") {
       await this.api.start(name);
     }
-    return { name, agentId: agent.id };
+    return { name, agentId: agent.id, ...(createdMs !== undefined ? { createdMs } : {}) };
   }
 
   exec(handle: DeskHandle, argv: string[], env: Record<string, string>, onLine?: LineSink): DeskChild {
@@ -135,7 +153,7 @@ export class SandboxBackend implements DeskBackend {
 
   /** A sandbox (and a session in it) outlives the server process: after a restart, stop the leftover session. */
   async killOrphan(agentId: string, sessionId: string): Promise<void> {
-    const name = this.sandboxName(agentId);
+    const name = this.deskOf(agentId).sandboxName;
     try {
       const found = await this.api.find(name);
       if (found?.state !== "started") return;
@@ -144,11 +162,20 @@ export class SandboxBackend implements DeskBackend {
   }
 
   async remove(agentId: string, opts: { purge?: boolean } = {}): Promise<void> {
+    if (this.deskOf(agentId).slot) return; // a fork's sandbox is its slot's, shared by the forks after it
     const name = this.sandboxName(agentId);
     this.cancelIdleStop(name);
     try {
       await this.api.remove(name, { volume: opts.purge ? this.volumeName(agentId) : undefined });
     } catch (e) {
+      console.warn(`[runtime] removing sandbox ${name} failed: ${e instanceof Error ? e.message : String(e)}`);
+    }
+  }
+
+  async removeSandbox(name: string): Promise<void> {
+    if (this.active.has(name)) return;
+    this.cancelIdleStop(name);
+    try { await this.api.remove(name, {}); } catch (e) {
       console.warn(`[runtime] removing sandbox ${name} failed: ${e instanceof Error ? e.message : String(e)}`);
     }
   }

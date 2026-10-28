@@ -119,18 +119,19 @@ export class WorldMap {
   }
 
   /**
-   * Give the agent the lowest free desk in the building, never a taken one; rebuilds the layout. With `grow`, a full
-   * lab grows its headcount by a desk (up to MAX_HEADCOUNT) instead of refusing, so it always has a desk per resident.
+   * Give the agent the lowest free desk in the building (or desk `prefer` when it is free), never a taken one; rebuilds
+   * the layout. With `grow`, a full lab grows its headcount by a desk (up to MAX_HEADCOUNT) instead of refusing.
    */
-  claimDesk(buildingId: string, agentId: string, opts: { grow?: boolean } = {}): Place {
+  claimDesk(buildingId: string, agentId: string, opts: { grow?: boolean; prefer?: number | null } = {}): Place {
     const existing = this.deskOf(agentId);
     if (existing) return existing;
     const b = this.repos.buildings.require(buildingId, "building");
     const taken = new Set((this.db.prepare("SELECT n FROM desks WHERE buildingId = ?").all(buildingId) as { n: number }[]).map((r) => r.n));
-    let n = 0;
-    while (taken.has(n)) n++;
     // Town Hall's desks are the mod-station seats
     const capacity = b.kind === "town-hall" ? MOD_SEATS : b.headcount;
+    // `prefer` (a fork's chain desk) wins when it is free and within the headcount; else the lowest free desk
+    let n = opts.prefer != null && opts.prefer >= 0 && opts.prefer < capacity && !taken.has(opts.prefer) ? opts.prefer : 0;
+    while (taken.has(n)) n++;
     if (n >= capacity) {
       if (!opts.grow || b.kind === "town-hall" || n >= MAX_HEADCOUNT) {
         throw new AppError("conflict", `${b.name} has no free desk (${b.kind === "town-hall" ? "mod station seats" : "headcount"} ${capacity}).`);

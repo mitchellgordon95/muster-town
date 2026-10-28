@@ -58,6 +58,56 @@ function deskN(world: World, agentId: string): number | null {
 }
 
 /**
+ * Soft desk affinity (§2.5): the desk the chain's latest fork sat at in this building, from its `agent.forked` event, so
+ * a continuation lands on the home volume that holds the chain's desk files when that desk is free.
+ */
+export function chainDesk(world: World, buildingId: string, chainId: string): number | null {
+  const r = world.db.prepare(
+    "SELECT json_extract(payload, '$.desk') AS n FROM events WHERE type = 'agent.forked' AND buildingId = ? AND json_extract(payload, '$.chainId') = ? ORDER BY id DESC LIMIT 1",
+  ).get(buildingId, chainId) as { n: number | null } | undefined;
+  return typeof r?.n === "number" ? r.n : null;
+}
+
+/** A desk slot's sandbox (Machine or container) and home volume (§2.5, table desk_slots). */
+export interface DeskSlotRow { buildingId: string; n: number; sandboxName: string; volumeName: string; createdAt: string }
+
+/** The slot's row, or null when no fork has used it yet. */
+export function deskSlotRow(world: World, buildingId: string, n: number): DeskSlotRow | null {
+  return (world.db.prepare("SELECT buildingId, n, sandboxName, volumeName, createdAt FROM desk_slots WHERE buildingId = ? AND n = ?").get(buildingId, n) as DeskSlotRow | undefined) ?? null;
+}
+
+export function deskSlotRows(world: World, buildingId?: string): DeskSlotRow[] {
+  return world.db.prepare(`SELECT buildingId, n, sandboxName, volumeName, createdAt FROM desk_slots${buildingId ? " WHERE buildingId = ?" : ""} ORDER BY buildingId, n`)
+    .all(...(buildingId ? [buildingId] : [])) as DeskSlotRow[];
+}
+
+/**
+ * Set a slot's sandbox and volume names. Step 7's volume adoption points a slot at a resident's existing home
+ * (`volumeName: "deskhome-<agentId>"`) so its ~/pw, notes and checkouts carry over to the forks at that desk; the
+ * slot's sandbox must then be recreated (removed while idle) to mount it.
+ */
+export function setDeskSlot(world: World, buildingId: string, n: number, names: { sandboxName: string; volumeName: string }): DeskSlotRow {
+  world.buildings.require(buildingId, "building");
+  if (!Number.isInteger(n) || n < 0) throw badRequest(`Desk slot ${n} isn't a desk number.`);
+  world.db.prepare(
+    "INSERT INTO desk_slots (buildingId, n, sandboxName, volumeName, createdAt) VALUES (?, ?, ?, ?, ?) ON CONFLICT(buildingId, n) DO UPDATE SET sandboxName = excluded.sandboxName, volumeName = excluded.volumeName",
+  ).run(buildingId, n, names.sandboxName, names.volumeName, nowIso());
+  return deskSlotRow(world, buildingId, n)!;
+}
+
+/**
+ * The desk slot a fork works in (its building and desk n), created with `defaults` on first use; null for a named
+ * resident (per-agent desk until step 7) or a fork without a desk.
+ */
+export function forkDeskSlot(world: World, agentId: string, defaults: (buildingId: string, n: number) => { sandboxName: string; volumeName: string }): DeskSlotRow | null {
+  const a = world.agents.get(agentId);
+  if (!a?.forkOf) return null;
+  const r = world.db.prepare("SELECT buildingId, n FROM desks WHERE agentId = ?").get(agentId) as { buildingId: string; n: number } | undefined;
+  if (!r) return null;
+  return deskSlotRow(world, r.buildingId, r.n) ?? setDeskSlot(world, r.buildingId, r.n, defaults(r.buildingId, r.n));
+}
+
+/**
  * Fork the building's manager for a building-queue assignment, in one transaction: a new resident row ("<Manager> <n>",
  * the manager's sprite, the assignment's model or the building's, the resident permission set), the lowest free desk
  * WITHOUT growing the lab (refused when every desk is taken), the assignment handed to the fork, and `agent.forked`.
@@ -80,8 +130,11 @@ export function forkManager(world: World, buildingId: string, assignmentId: stri
       sprite: manager.sprite, model: a.model ?? b.model, pos: world.layout.door(b.id) ?? manager.pos, status: "idle",
       currentAssignmentId: a.id, inheritsOwner: false, forkOf: manager.id, forkN: n, createdAt: nowIso(),
     }), { silent: true });
-    // desks stay the cap: no grow (claimDesk throws a conflict when the lab is full, and the transaction rolls back)
-    const place = world.layout.claimDesk(b.id, id);
+    // desks stay the cap: no grow (claimDesk throws a conflict when the lab is full, and the transaction rolls back);
+    // a continuation prefers its chain's last desk when free (soft affinity), else the lowest free one
+    const chainId = a.chainId ?? a.id;
+    const prefer = chainDesk(world, b.id, chainId);
+    const place = world.layout.claimDesk(b.id, id, { prefer });
     const fork = world.agents.patch(id, { pos: place.pos });
     world.permissions.grant(fork, buildingRoleId(b.id, "member"));
     const assignment = world.assignments.upsert({ ...a, agentId: id, updatedAt: nowIso() });
@@ -91,7 +144,7 @@ export function forkManager(world: World, buildingId: string, assignmentId: stri
     ).get(a.chainId ?? a.id) as { id: string } | undefined)?.id ?? null;
     world.events.append({
       type: "agent.forked", agentId: id, buildingId: b.id, text: `${manager.name} forked ${fork.name} for "${a.title}" at desk ${desk}`,
-      payload: { forkOf: manager.id, forkN: n, desk, assignmentId: a.id, chainId: a.chainId, chainReportId, model: fork.model },
+      payload: { forkOf: manager.id, forkN: n, desk, assignmentId: a.id, chainId, chainReportId, model: fork.model, chainDesk: prefer, sameDesk: prefer === desk },
     });
     return { fork, desk, assignment };
   });

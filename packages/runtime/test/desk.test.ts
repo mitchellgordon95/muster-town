@@ -37,7 +37,7 @@ describe("DockerBackend", () => {
   test("ensure creates a missing desk with volume, host gateway and limits", async () => {
     const f = fakeRunner((a) => (a[0] === "inspect" ? { code: 1, stdout: "", stderr: "No such object" } : ok("cid")));
     const h = await new DockerBackend({ collective: "Workshop Collective", runner: f.runner }).ensure(agent, building);
-    expect(h).toEqual({ name: "desk-workshop-collective-ag_abc123", agentId: "ag_abc123" });
+    expect(h).toEqual({ name: "desk-workshop-collective-ag_abc123", agentId: "ag_abc123", createdMs: expect.any(Number) });
     expect(f.calls.map((c) => c.args.join(" "))).toEqual([
       "inspect -f {{.State.Running}} desk-workshop-collective-ag_abc123",
       "run -d --name desk-workshop-collective-ag_abc123 -v deskhome-ag_abc123:/home/agent --add-host=host.docker.internal:host-gateway --memory 2g --cpus 2"
