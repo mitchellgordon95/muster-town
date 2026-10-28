@@ -427,3 +427,27 @@ describe("town planning", () => {
     expect((await json(app, "PUT", "/api/town/plan", { headers: agent, body: { lots: {}, dryRun: true } })).status).toBe(403);
   });
 });
+
+describe("desk slots (manager forks step 7, volume adoption)", () => {
+  it("GET lists desks and slots; PUT points a slot at a volume (building.manage); bad n is 400; a resident is refused", async () => {
+    const { app, auth, by, world } = await setup();
+    const empty = await json(app, "GET", "/api/buildings/carbon-cycle/desk-slots", { headers: auth });
+    expect(empty.status).toBe(200);
+    expect(empty.body.slots).toEqual([]);
+    const mei = empty.body.desks.find((d: any) => d.agentId === by("Mei").id);
+    expect(mei).toMatchObject({ agentName: "Mei" });
+
+    const put = await json(app, "PUT", `/api/buildings/carbon-cycle/desk-slots/${mei.n}`, { headers: auth, body: { sandboxName: `desk-c-carbon-cycle-${mei.n}`, volumeName: `deskhome-${by("Mei").id}` } });
+    expect(put.status).toBe(200);
+    expect(put.body.slot).toMatchObject({ buildingId: "carbon-cycle", n: mei.n, volumeName: `deskhome-${by("Mei").id}` });
+    expect(put.body.slots).toHaveLength(1);
+    expect(world.events.recent({ buildingId: "carbon-cycle", limit: 5 }).some((e) => e.type === "building.updated" && /desk slot/.test(e.text))).toBe(true);
+
+    expect((await json(app, "PUT", "/api/buildings/carbon-cycle/desk-slots/99", { headers: auth, body: { sandboxName: "x", volumeName: "y" } })).status).toBe(400);
+    expect((await json(app, "PUT", `/api/buildings/carbon-cycle/desk-slots/${mei.n}`, { headers: auth, body: { sandboxName: "" } })).status).toBe(400);
+    const tomas = { authorization: `Bearer ${world.tokens.getOrCreate("agent", by("Tomas").id)}` };
+    expect((await json(app, "GET", "/api/buildings/carbon-cycle/desk-slots", { headers: tomas })).status).toBe(403);
+    expect((await json(app, "PUT", `/api/buildings/carbon-cycle/desk-slots/${mei.n}`, { headers: tomas, body: { sandboxName: "a", volumeName: "b" } })).status).toBe(403);
+    expect((await json(app, "GET", "/api/buildings/carbon-cycle/desk-slots")).status).toBe(401);
+  });
+});
