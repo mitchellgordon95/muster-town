@@ -542,7 +542,8 @@ export class MockApi implements Api {
     const burn = Math.round(used / 7);
     const diff = used + left - total;
     return {
-      total, credited, donated, used, usedBank, usedDonations, expired: 0, left, leftBank, leftDonations, overdrawn: 0, usageLedger: used,
+      total, credited, donated, used, usedBank, usedDonations, expired: 0, left, leftBank, leftDonations, overdrawn: 0,
+      overdrawnBreakdown: { durableOvershoot: 0, subscriptionOverdrawn: 0, deletedCreditDebits: 0, allocationOverspent: 0 }, usageLedger: used,
       projection: { days: 30, trailingDailyBurn: burn, burnDays: 7, projectedUse30d: burn * 30 },
       sumCheck: { ok: diff === 0, diff, identity: "used + expired + left = total + overdrawn" }, at: now(),
     };

@@ -2,7 +2,8 @@
  * Finance (public, gr_gi5jbgzv4k step 2): the town's tokens at a glance from GET /api/finance: total received, used,
  * expired and left with the sum check (used + expired + left = total + overdrawn), the 30-day projection and the
  * trailing burn it rests on; then each Bank pool's permanent tokens as max(0, durable), with "overdrawn by N" when a
- * pool's durable balance is negative (overshoot debt, dc_myhlhsevgz). Opened from the HUD's "$" or `#/finance`.
+ * pool's durable balance is negative (overshoot debt, dc_myhlhsevgz). Under the overdrawn figure, its parts
+ * (overdrawnBreakdown, dc_4exx02zf9g), which sum to it. Opened from the HUD's "$" or `#/finance`.
  */
 import { api, type BankPoolSummary, type Finance } from "../api";
 import { Glyph, PanelShell } from "./PanelShell";
@@ -23,6 +24,19 @@ export const runwayDays = (f: Finance): number | null => (f.projection.trailingD
 /** A pool's permanent tokens as shown: never below 0, the debt on its own line. */
 export const poolDurable = (p: Pick<BankPoolSummary, "durableTokens">) => ({ shown: Math.max(0, p.durableTokens), overdrawnBy: Math.max(0, -p.durableTokens) });
 
+/** The non-zero parts of `overdrawn`, labelled, in a fixed order; they sum to `overdrawn`. */
+export function overdrawnParts(f: Finance): { key: string; label: string; tokens: number; note?: string }[] {
+  const b = f.overdrawnBreakdown;
+  if (!b) return [];
+  return [
+    { key: "durableOvershoot", label: "permanent pools drawn past their credits (overshoot debt)", tokens: b.durableOvershoot },
+    { key: "subscriptionOverdrawn", label: "subscription credits drawn past their size", tokens: b.subscriptionOverdrawn,
+      note: "Pre-conversion Fable draw: credits capped in raw tokens, converted to adjusted tokens by migration 037." },
+    { key: "deletedCreditDebits", label: "drawn from credits since deleted", tokens: b.deletedCreditDebits },
+    { key: "allocationOverspent", label: "donations to buildings spent past their size", tokens: b.allocationOverspent },
+  ].filter((p) => p.tokens > 0);
+}
+
 export function FinanceView({ f, pools }: { f: Finance; pools: BankPoolSummary[] | null }) {
   const check = sumCheckLine(f);
   const runway = runwayDays(f);
@@ -39,6 +53,9 @@ export function FinanceView({ f, pools }: { f: Finance; pools: BankPoolSummary[]
           <tr title="Daily subscription tokens that renewed before they were drawn"><td>Expired (not drawn before renewal)</td><td>{n(f.expired)}</td></tr>
           <tr><td>Left</td><td><b>{n(f.left)}</b></td></tr>
           {f.overdrawn ? <tr className="finance-overdrawn" title="Usage past what was received: overshoot debt, carried against future permanent credits"><td>Overdrawn (used past what was received)</td><td>{n(f.overdrawn)}</td></tr> : null}
+          {overdrawnParts(f).map((p) => (
+            <tr key={p.key} className="sub-row"><td>{p.label}{p.note ? <div className="muted">{p.note}</div> : null}</td><td>{n(p.tokens)}</td></tr>
+          ))}
         </tbody>
       </table>
       <div className={check.ok ? "finance-check ok" : "error-line"} role="status">{check.ok ? "✓ " : "✗ "}{check.text}</div>

@@ -74,6 +74,8 @@ export interface Finance {
   expired: number;
   left: number; leftBank: number; leftDonations: number;
   overdrawn: number;
+  /** `overdrawn` by where it sits; the parts sum to `overdrawn` */
+  overdrawnBreakdown: { durableOvershoot: number; subscriptionOverdrawn: number; deletedCreditDebits: number; allocationOverspent: number };
   /** the usage ledger's all-time total; can exceed `used` by usage nothing funds */
   usageLedger: number;
   projection: { days: number; trailingDailyBurn: number; burnDays: number; projectedUse30d: number };
