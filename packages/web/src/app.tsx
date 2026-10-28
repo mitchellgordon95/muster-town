@@ -28,6 +28,7 @@ import { GrantPanel } from "./panels/GrantPanel";
 import { HowItWorks, howItWorksSeen } from "./panels/HowItWorks";
 import { ManualSheet } from "./panels/Manual";
 import { isDocHash, startDocRoutes } from "./route";
+import { PanelResizer, usePanelWidth } from "./panels/panelResize";
 
 type TownHooks = { teleportTo(agentId: string): boolean; walkTo(placeId: string): boolean; openPanel(kind: PanelKind, id?: string): void; townMap(): void; store: typeof store };
 
@@ -140,8 +141,6 @@ function checkBuild() {
   }, () => undefined);
 }
 
-function panelWidth() { return Math.round(Math.min(500, Math.max(360, window.innerWidth * 0.36))); }
-
 class PanelBoundary extends Component<{ children: ReactNode }, { error: string | null }> {
   state = { error: null as string | null };
   static getDerivedStateFromError(e: Error) { return { error: e.message }; }
@@ -196,14 +195,13 @@ export function App() {
   // human-only: a guest has no roles, and agents don't use the web client
   const canAssign = (id: string) => store.can("building.assign", id);
   const canFlag = flagTargets(buildings, canAssign).length > 0;
-  const [pw, setPw] = useState(panelWidth);
+  const [pw, setPw] = usePanelWidth();
   // first visit in this browser: explain the town once it has loaded; the HUD's "?" reopens it.
   // Not over a shared doc link (/#/doc/<id>): the reader came for that doc, and the intro stays unseen for next time.
   const [help, setHelp] = useState(() => !howItWorksSeen() && !isDocHash());
   const sayRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => { bootOnce().then(setPhase, (e) => setPhase({ k: "login", error: String(e) })); }, []);
-  useEffect(() => { const r = () => setPw(panelWidth()); window.addEventListener("resize", r); return () => window.removeEventListener("resize", r); }, []);
   useEffect(() => {
     window.musterTown = window.agentTown = {
       teleportTo: (id) => mapRenderer()?.teleportTo(id) ?? false,
@@ -253,7 +251,7 @@ export function App() {
         {flagHere !== undefined && canFlag && !guest ? <div className="flag-box"><PlantFlag targets={flagTargets(buildings, canAssign, flagHere)} onClose={() => setFlagHere(undefined)} /></div> : null}
         {saying && !guest ? <SayBox inputRef={sayRef} onSend={say} onCancel={() => setSaying(false)} /> : null}
       </div>
-      {panel ? <aside className="panel" style={{ width: pw }}><PanelBoundary key={`${panel.kind}:${panel.id ?? ""}:${panel.docId ?? ""}`}><PanelHost panel={panel} /></PanelBoundary></aside> : null}
+      {panel ? <aside className="panel" style={{ width: pw }}><PanelResizer width={pw} onResize={setPw} /><PanelBoundary key={`${panel.kind}:${panel.id ?? ""}:${panel.docId ?? ""}`}><PanelHost panel={panel} /></PanelBoundary></aside> : null}
       <LayoutToolbar />
       <PlanToolbar />
       <Toasts />

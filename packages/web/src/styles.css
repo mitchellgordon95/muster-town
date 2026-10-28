@@ -132,6 +132,10 @@ kbd { font-family: var(--mono); font-size: 11px; background: #2a2d3a; border: 1p
 /* ---------- panel ---------- */
 .panel { position: absolute; top: 0; right: 0; height: 100%; background: var(--panel); border-left: 1px solid var(--line); display: flex; flex-direction: column; box-shadow: -8px 0 32px rgba(0,0,0,.35); animation: slide .16s ease-out; }
 @keyframes slide { from { transform: translateX(12px); } }
+.panel-resizer { position: absolute; top: 0; left: -4px; width: 8px; height: 100%; cursor: col-resize; z-index: 5; touch-action: none; }
+.panel-resizer::after { content: ""; position: absolute; top: 0; bottom: 0; left: 3px; width: 2px; background: transparent; transition: background .12s; }
+.panel-resizer:hover::after, .panel-resizer:focus-visible::after, .panel-resizer.dragging::after { background: var(--accent, #7aa2ff); }
+.panel-resizer:focus { outline: none; }
 .panel-head { display: flex; align-items: center; gap: 12px; padding: 12px 14px; border-bottom: 1px solid var(--line); background: var(--panel-2); }
 .panel-icon { width: 40px; height: 44px; display: grid; place-items: center; background: #14151c; border: 1px solid var(--line); border-radius: 6px; flex: none; }
 .portrait, .glyph { image-rendering: pixelated; }
@@ -393,6 +397,7 @@ textarea[data-drop="over"] { outline: 2px dashed var(--accent, #7aa2ff); outline
 }
 @media (max-width: 760px) {
   .panel { width: 100% !important; }
+  .panel-resizer { display: none; }
   .minimap { display: none; }
   .hud { width: calc(100% - 24px); max-height: 58%; }
 }
