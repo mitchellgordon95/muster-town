@@ -4,8 +4,9 @@
  * trailing burn it rests on; then each Bank pool's permanent tokens as max(0, durable), with "overdrawn by N" when a
  * pool's durable balance is negative (overshoot debt, dc_myhlhsevgz). Under the overdrawn figure, its parts
  * (overdrawnBreakdown, dc_4exx02zf9g), which sum to it. Then Spending (gr_8gtgmd828o step 2) from GET /api/finance/spend:
- * `used` by building → grant → assignment, each level collapsible, with the no-grant, no-assignment and unattributed or
- * not-funded rows that make the top level sum to `used`. Opened from the HUD's "$" or `#/finance`.
+ * `used` by building → grant → assignment, each level collapsible, with the no-grant, no-assignment and unattributed,
+ * weight-mismatch (pre-conversion pricing, not spend; step 2b) and not-funded rows that make the top level sum to
+ * `used`. Opened from the HUD's "$" or `#/finance`.
  */
 import { api, type BankPoolSummary, type Finance, type FinanceSpend, type SpendNode } from "../api";
 import { Glyph, PanelShell } from "./PanelShell";
@@ -50,36 +51,39 @@ export function spendCheckLine(sp: FinanceSpend): { ok: boolean; text: string } 
     : { ok: false, text: `Does not add up (off by ${n(sp.check.diff)}): the rows sum to ${n(sum)}, used is ${n(sp.used)}` };
 }
 
-const SPEND_NOTE: Partial<Record<SpendNode["kind"], string>> = {
+/** The note under a synthetic row; the weight-mismatch one is the API's own line. */
+export const spendNotes = (sp: Pick<FinanceSpend, "weightMismatchNote">): Partial<Record<SpendNode["kind"], string>> => ({
   "unattributed": "Used from the Bank or donations but counted by no session (sessions from before the token counters).",
-  "not-funded": "Sessions counted more than the Bank and donations paid for: spend nothing funded, taken off so the rows sum to used.",
-};
+  "weight-mismatch": sp.weightMismatchNote,
+  "not-funded": "Sessions counted more than the Bank and donations paid for, once the weight mismatch is set aside: usage the Bank recorded with no debit or donation behind it, taken off so the rows sum to used.",
+});
 
-function SpendRow({ node }: { node: SpendNode }) {
+function SpendRow({ node, notes }: { node: SpendNode; notes: Partial<Record<SpendNode["kind"], string>> }) {
   const line = (
     <span className="spend-line">
-      <span className="spend-name" title={node.id ?? undefined}>{node.name}{node.sessions ? <span className="muted"> · {n(node.sessions)} session{node.sessions === 1 ? "" : "s"}</span> : null}</span>
+      <span className="spend-name" title={node.id ?? node.name}>{node.name}{node.sessions ? <span className="muted"> · {n(node.sessions)} session{node.sessions === 1 ? "" : "s"}</span> : null}</span>
       <span className="spend-tokens">{n(node.tokens)}</span>
       <span className="spend-share muted">{pct(node.share)}</span>
     </span>
   );
-  const note = SPEND_NOTE[node.kind];
+  const note = notes[node.kind];
   if (!node.children?.length) return <div className={`spend-row spend-${node.kind}`}>{line}{note ? <div className="muted">{note}</div> : null}</div>;
   return (
     <details className={`spend-row spend-${node.kind}`}>
       <summary>{line}</summary>
-      <div className="spend-children">{node.children.map((c, i) => <SpendRow key={c.id ?? `${c.kind}-${i}`} node={c} />)}</div>
+      <div className="spend-children">{node.children.map((c, i) => <SpendRow key={c.id ?? `${c.kind}-${i}`} node={c} notes={notes} />)}</div>
     </details>
   );
 }
 
 export function SpendingView({ sp }: { sp: FinanceSpend }) {
   const check = spendCheckLine(sp);
+  const notes = spendNotes(sp);
   return (
     <Section title="Spending">
       <p className="muted">Where the {n(sp.used)} used went: by building, then grant, then assignment ({ADJ}, share of used). Open a row for its parts.</p>
       <div className="spend-tree">
-        {sp.rows.map((r, i) => <SpendRow key={r.id ?? `${r.kind}-${i}`} node={r} />)}
+        {sp.rows.map((r, i) => <SpendRow key={r.id ?? `${r.kind}-${i}`} node={r} notes={notes} />)}
       </div>
       <div className={check.ok ? "finance-check ok" : "error-line"} role="status">{check.ok ? "✓ " : "✗ "}{check.text}</div>
     </Section>

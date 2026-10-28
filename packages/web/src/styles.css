@@ -609,6 +609,7 @@ textarea[data-drop="over"] { outline: 2px dashed var(--accent, #7aa2ff); outline
 .spend-children { margin-left: 4px; border-left: 1px solid var(--line); padding-left: 16px; }
 .spend-building > summary .spend-name { font-weight: 600; }
 .spend-not-funded .spend-tokens { color: var(--bad); }
+.spend-weight-mismatch .spend-tokens { color: var(--muted); }
 div.spend-row > .muted { font-size: 11.5px; }
 
 /* meeting: what a speaker presented with their line */

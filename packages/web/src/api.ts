@@ -106,21 +106,24 @@ export interface Finance {
   sumCheck: { ok: boolean; diff: number; identity: string };
   at: string;
 }
-/** One row of `GET /api/finance/spend`: a building, grant or assignment, or a synthetic row (no grant, no assignment, unattributed, not funded). */
+/** One row of `GET /api/finance/spend`: a building, grant or assignment, or a synthetic row (no grant, no assignment, unattributed, weight mismatch, not funded). */
 export interface SpendNode {
-  kind: "building" | "grant" | "no-grant" | "assignment" | "no-assignment" | "unattributed" | "not-funded";
+  kind: "building" | "grant" | "no-grant" | "assignment" | "no-assignment" | "unattributed" | "weight-mismatch" | "not-funded";
   /** null for the synthetic rows */
   id: string | null;
   name: string;
   tokens: number;
-  /** tokens / used; negative for the not-funded row */
+  /** tokens / used; negative for the weight-mismatch and not-funded rows */
   share: number;
   sessions: number;
   children?: SpendNode[];
 }
 /** `GET /api/finance/spend` (public) — core's FinanceSpend: `used` by building → grant → assignment; the top-level rows sum to `used`. */
 export interface FinanceSpend {
-  used: number; sessionsTotal: number; unattributed: number; notFunded: number;
+  used: number; sessionsTotal: number; unattributed: number;
+  /** pre-conversion sessions priced at their own model here vs at Opus weights in the Bank's ledger: pricing, not spend */
+  weightMismatch: number; weightMismatchNote: string; convertedAt: string | null;
+  notFunded: number;
   rows: SpendNode[];
   check: { ok: boolean; diff: number; identity: string };
   at: string;
