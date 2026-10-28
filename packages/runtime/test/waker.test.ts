@@ -114,7 +114,7 @@ describe("WAKE_RULES: each of the old onEvent branches is one rule, first match 
     const admin = world.ops.ensureAvatar(seed.admin.id);
     for (const d of intrayOf(world, lab.id)) await world.verbs.review(admin.id, { docId: d.id, decision: "approve" });
     const mei = env.by("Mei");
-    world.ops.updateBuilding(admin, lab.id, { managerAgentId: mei.id, budgetMode: "open" });
+    world.ops.updateBuilding(admin, lab.id, { managerAgentId: mei.id });
     const kr = world.grantDesk.createKeyResult(admin, lab.id, { text: "Visitors can read the goal", howToCheck: "Open the board" });
     await settle(); await runtime.whenIdle();
     const rows = () => world.docs.where("authorId = 'system' AND buildingId = ? AND type = 'report' AND tags LIKE '%manager-intray%'", [lab.id]);

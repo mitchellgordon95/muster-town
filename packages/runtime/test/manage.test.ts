@@ -4,13 +4,15 @@ import { callVerb, deferred, init, result, setup, type FakeSession, type Script 
 
 const report = (title: string) => ({ title, verdict: "stop" as const, body: "## What I did\nMeasured it.\n\n## Findings\n2.4 ± 0.1 ppm/yr.\n\n## What I need from you\nNothing needed." });
 
-/** Seeded lab (open budget mode) with Mei as its manager agent and the seed's reports decided; `script` drives every SDK session. */
+/** Seeded lab (marked blocked already, so the blocked wake stays out of the way) with Mei as its manager agent and the seed's reports decided; `script` drives every SDK session. */
 async function managed(script: Script) {
   const env = setup(script);
   const admin = env.world.ops.ensureAvatar(env.seed.admin.id);
   for (const d of intrayOf(env.world, env.lab.id)) await env.world.verbs.review(admin.id, { docId: d.id, decision: "approve" });
-  // open budget mode: a goal-directed lab with no key results is blocked, which wakes the manager with work of its own
-  env.world.ops.updateBuilding(admin, env.lab.id, { managerAgentId: env.by("Mei").id, budgetMode: "open" });
+  // a lab with no key results is blocked, which wakes the manager with work of its own once per transition: start it
+  // out blocked, so setting the manager doesn't fire that wake (the test below covers it)
+  env.world.buildings.patch(env.lab.id, { blockedAt: new Date().toISOString() });
+  env.world.ops.updateBuilding(admin, env.lab.id, { managerAgentId: env.by("Mei").id });
   return env;
 }
 const manageSessions = (s: FakeSession[], mei: string) => s.filter((x) => x.agentId === mei);
@@ -101,7 +103,8 @@ describe("manager team-lead session", () => {
     const { world, runtime, by, lab } = env;
     const mei = by("Mei");
     world.setStatus(mei.id, "working"); // keep the scheduler from starting the wake: only its creation is under test
-    world.ops.updateBuilding(env.world.ops.ensureAvatar(env.seed.admin.id), lab.id, { budgetMode: "goal-directed" });
+    world.buildings.patch(lab.id, { blockedAt: null });
+    world.ops.updateBuilding(env.world.ops.ensureAvatar(env.seed.admin.id), lab.id, { explorationTokensPerDay: null }); // a budget change re-checks the blocked state
     for (let i = 0; i < 3; i++) { await runtime.tickOnce(); await runtime.whenIdle(); }
     const wakes = world.assignments.where("agentId = ? AND title LIKE 'Get human decisions%'", [mei.id]);
     expect(wakes).toHaveLength(1);

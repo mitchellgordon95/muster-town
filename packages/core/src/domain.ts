@@ -253,7 +253,7 @@ export function pickUpFlag(world: World, me: Agent, flag: Doc): { pickedUp: bool
 /**
  * Decide a flag. approve = handled, no assignment. continue = the flag's note becomes `assigneeId`'s directed
  * assignment verbatim; redirect = the decider's note does, with the flag as context. Either needs a resident of the
- * flag's building. The lane is directed whatever the building's budget mode: a human asked for it, as with a meeting
+ * flag's building. The lane is directed in any building: a human asked for it, as with a meeting
  * decision. stop has no agent to stop.
  */
 function decideFlag(world: World, flag: Doc, decision: ReviewDecision, note: string, decider: Holder | { kind: "system"; id: string }, opts: { waitFor?: WaitFor | null; assigneeId?: string | null }): { doc: Doc; assignment: Assignment | null } {

@@ -37,8 +37,6 @@ export function createBuilding(
   return world.transaction(() => {
     const building = world.buildings.upsert({
       ...inp, codeAccess: inp.codeAccess ?? (opts.kind !== "town-hall" && !!world.town.get().workspace), id, kind: opts.kind ?? "lab", createdAt: nowIso(), createdBy: creatorUserId ?? undefined, ...(opts.lot ? { lot: opts.lot } : {}),
-      // new buildings are goal-directed (schema default) with the default exploration allowance; the Town Hall has no grants, so it stays open
-      ...(opts.kind === "town-hall" ? { budgetMode: "open" as const } : {}),
     } as Building);
     world.permissions.ensureTownRoles();
     world.permissions.ensureBuildingRoles(id);

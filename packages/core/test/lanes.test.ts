@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { buildingRoleId, createAssignment, keyResultsBlock, newId, nextStartable, nowIso, sessionMemory, workSystemPrompt } from "../src/index.ts";
+import { buildingRoleId, createAssignment, createBuilding, keyResultsBlock, newId, nextStartable, nowIso, sessionMemory, workSystemPrompt } from "../src/index.ts";
+import { laneBlock, resolveLane } from "../src/lanes.ts";
 import { BUDGET_POLICY } from "../src/policy.ts";
 import { seededWorld } from "./helpers.ts";
 
@@ -10,14 +11,14 @@ const KRS = [
 ];
 const REPORT = "## What I did\nx\n## Findings\ny\n## What I need from you\nNothing needed.";
 
-/** Mei manages the lab (manager agent + role), Noor is a resident; `goal` flips the lab to goal-directed. */
-function setup(goal = true) {
+/** Mei manages the lab (manager agent + role), Noor is a resident. Every lab is lane-gated. */
+function setup() {
   const s = seededWorld();
   const { world, by, admin } = s;
   const mei = by("Mei"), noor = by("Noor");
-  // a human writes the goal's key results (before goal-directed, so the lab is never blocked here)
+  // a human writes the goal's key results, so the lab is never blocked here
   const krs = KRS.map((k) => world.grantDesk.createKeyResult(admin, LAB, k));
-  world.ops.updateBuilding(admin, LAB, { managerAgentId: mei.id, budgetMode: goal ? "goal-directed" : "open" });
+  world.ops.updateBuilding(admin, LAB, { managerAgentId: mei.id });
   world.permissions.grant({ kind: "agent", id: mei.id }, buildingRoleId(LAB, "manager"));
   const fund = (tokens = 4_000_000, keyResultId = krs[0]!.id) => {
     const g = world.grantDesk.propose(mei, world.grantDesk.create(mei, LAB, { keyResultId, objective: "Visitors can tell what the lab is for", stopCondition: "two failed tries", askTokens: tokens, testingPlan: [{ text: "Banner shows Usage", howToCheck: "Open the banner" }] }).id);
@@ -32,11 +33,15 @@ function setup(goal = true) {
 }
 
 describe("goal-directed budgets: lanes on assignments", () => {
-  it("open buildings keep today's behaviour: no lane = directed, agents may assign it", async () => {
-    const { world, mei, noor } = setup(false);
-    const r = await world.verbs.assign(mei, { agentId: noor.id, title: "t", description: "d" });
-    expect(world.assignments.require(r.assignmentId)).toMatchObject({ lane: "directed", grantId: null, keyResultId: null, gap: null, heldReason: null });
-    expect(world.budget.canStart(noor.id, world.assignments.require(r.assignmentId))).toBe(true);
+  it("every lab is lane-gated, even one created without budgetMode or with a stale open row; the Town Hall never is", () => {
+    const { world, seed, mei } = setup();
+    const agent = { kind: "agent" as const, id: mei.id };
+    const fresh = createBuilding(world, { name: "Fresh lab" }, seed.admin.id);
+    expect(() => resolveLane(world, fresh.id, agent, undefined)).toThrow(/goal-directed.*agents can't create directed work/);
+    world.buildings.upsert({ ...world.buildings.require(fresh.id), budgetMode: "open" }); // nothing reads the column any more
+    expect(() => resolveLane(world, fresh.id, agent, undefined)).toThrow(/agents can't create directed work/);
+    const hall = world.buildings.first("kind = 'town-hall'")!;
+    expect(resolveLane(world, hall.id, agent, undefined)).toMatchObject({ lane: "directed", grantId: null, keyResultId: null, gap: null, sourceId: null });
   });
 
   it("goal-directed: agents must say grant or exploration; fields are validated; humans may still create directed work", async () => {
@@ -130,12 +135,14 @@ describe("goal-directed budgets: the canStart gate", () => {
     expect(world.grantDesk.exploration(LAB).allowanceTokens).toBe(Math.floor(world.bank.poolDailyInflow(pool) * BUDGET_POLICY.explorationShare));
   });
 
-  it("open buildings never hold on lanes", () => {
-    const { world, admin, noor, spend } = setup(false);
+  it("the Town Hall never holds on lanes; a lab does", () => {
+    const { world, admin, noor, spend } = setup();
     world.ops.updateBuilding(admin, LAB, { explorationTokensPerDay: 1 });
     const ex = world.ops.createWork(admin, noor.id, { title: "explore", lane: "exploration", gap: "gap" });
     spend(noor.id, 50, "exploration");
-    expect(world.budget.canStart(noor.id, ex)).toBe(true);
+    expect(laneBlock(world, ex)?.kind).toBe("exploration");
+    const hall = world.buildings.first("kind = 'town-hall'")!;
+    expect(laneBlock(world, { ...ex, buildingId: hall.id })).toBeNull();
   });
 });
 
@@ -311,7 +318,7 @@ describe("goal-directed budgets: the 100% checkpoint", () => {
 });
 
 describe("goal-directed budgets: the Key results block", () => {
-  it("sits right after the building goal with goal KRs, statuses, the grant on each, spend and the session's lane; empty in open buildings", () => {
+  it("sits right after the building goal with goal KRs, statuses, the grant on each, spend and the session's lane; empty in the Town Hall", () => {
     const { world, mei, noor, admin, krs, fund, spend } = setup();
     const g = fund(4_000_000);
     spend(noor.id, 1_000_000, "grant", g.id);
@@ -328,9 +335,7 @@ describe("goal-directed budgets: the Key results block", () => {
     expect(sys).toMatch(/Building goal: .*\nKey results of the building goal \(this building is goal-directed/);
     // the manager gets the grants instructions
     expect(sessionMemory(world, mei, b).team).toContain("propose_grant");
-    world.ops.updateBuilding(admin, LAB, { budgetMode: "open" });
-    expect(keyResultsBlock(world, world.buildings.require(LAB), a)).toBe("");
-    expect(sessionMemory(world, mei, world.buildings.require(LAB)).team).not.toContain("propose_grant");
+    expect(keyResultsBlock(world, world.buildings.first("kind = 'town-hall'")!, a)).toBe("");
   });
 });
 

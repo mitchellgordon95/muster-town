@@ -169,7 +169,7 @@ export class World {
       if (!e.buildingId || !(e.type.startsWith("grant.") || e.type === "kr.created" || e.type === "kr.deleted" || e.type === "building.updated")) return;
       this.grantDesk.syncBlocked(e.buildingId);
     });
-    // the stoplight (map banner, board) follows grants, key results and the budget mode: resend the building with it
+    // the stoplight (map banner, board) follows grants, key results: resend the building with it
     this.events.addHook((e) => {
       if (!e.buildingId || !(e.type.startsWith("grant.") || e.type.startsWith("kr.") || e.type === "building.updated" || e.type === "building.blocked")) return;
       const b = this.buildings.get(e.buildingId);

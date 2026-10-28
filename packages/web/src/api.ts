@@ -213,7 +213,7 @@ export interface ObjectiveTree { objectives: ObjectiveView[]; unsorted: GoalKeyR
 export interface KpisView { framing: string; kpis: KpiView[]; buildings: (ObjectiveTree & { buildingId: string; name: string; goal: string })[] }
 /** GET /api/buildings/:id/key-results */
 export interface KeyResultsView { keyResults: GoalKeyResult[]; blocked: string | null }
-/** GET /api/buildings/:id/board: the FYIs plus the budget part (core's GrantBoard; open buildings have no grants). */
+/** GET /api/buildings/:id/board: the FYIs plus the budget part (core's GrantBoard; the Town Hall has no grants). */
 export interface Board {
   /** the Town Hall's FYIs first (townWide: true, on every building's board but the Town Hall's own), then the building's */
   docs: (Doc & { townWide?: boolean })[];
@@ -224,7 +224,7 @@ export interface Board {
   objectives: ObjectiveTree;
   /** "blocked: no key results to work toward", or null */
   blocked: string | null;
-  /** green / yellow / red with the one-line reason; null for open buildings */
+  /** green / yellow / red with the one-line reason; null for the Town Hall */
   stoplight: Stoplight | null;
   grants: GrantView[];
   /** open proposals (proposed or countered), newest first: several can be open at once */

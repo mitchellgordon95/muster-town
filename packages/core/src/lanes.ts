@@ -8,7 +8,8 @@ import type { World } from "./world.ts";
 export type Lane = Pick<Assignment, "lane" | "grantId" | "keyResultId" | "gap" | "sourceId">;
 export const DIRECTED: Lane = { lane: "directed", grantId: null, keyResultId: null, gap: null, sourceId: null };
 
-const goalDirected = (b: Building | undefined) => b?.budgetMode === "goal-directed";
+/** Every lab is lane-gated (grants, exploration, directed work with a human source); the Town Hall never is. */
+export const laneGated = (b: Building | undefined) => !!b && b.kind !== "town-hall";
 
 /** Did a human take part in the meeting (a 1:1, or a human spoke)? Its decisions trace to a human ask. */
 export function meetingHadHuman(m: Meeting): boolean {
@@ -57,7 +58,7 @@ export function resolveLane(world: World, buildingId: string, createdBy: Holder 
   if (!lane && opts.from) return { lane: opts.from.lane, grantId: opts.from.grantId, keyResultId: opts.from.keyResultId, gap: opts.from.gap, sourceId: opts.from.sourceId ?? null };
   if (!lane || lane === "directed") {
     const sourceId = input?.sourceId ? humanSource(world, input.sourceId) : opts.humanMeetingId ?? null;
-    if (goalDirected(building) && !sourceId && !opts.fromMeeting && createdBy.kind !== "system" && (createdBy.kind === "agent" || !BUDGET_POLICY.directedBypassesGrants)) {
+    if (laneGated(building) && !sourceId && !opts.fromMeeting && createdBy.kind !== "system" && (createdBy.kind === "agent" || !BUDGET_POLICY.directedBypassesGrants)) {
       throw badRequest(`${building!.name} is goal-directed: say lane "grant" (grantId of a funded grant) or "exploration" (keyResultId of a goal key result with no funded grant, or gap)${createdBy.kind === "agent" ? "; agents can't create directed work" : ""}.`);
     }
     const kr = input?.keyResultId ? world.keyResults.get(input.keyResultId) : undefined;
@@ -92,7 +93,7 @@ export function isCheckpointAssignment(a: Pick<Assignment, "lane" | "grantId" | 
 }
 
 /**
- * Why the lane gate holds this assignment now, or null (the gate half of `Budget.canStart`). Open buildings: never.
+ * Why the lane gate holds this assignment now, or null (the gate half of `Budget.canStart`). The Town Hall: never.
  * grant → the grant is funded (its checkpoint assignment also runs at checkpoint); exploration → the building's
  * exploration spend today is under its allowance; directed → never the allowance, but one naming a key result stops
  * once a grant proposal names that key result (its default stop condition).
@@ -104,7 +105,7 @@ export function laneHold(world: World, a: Assignment): string | null {
 /** `laneHold` with what it is: the grant hold (and its grant), the reservation hold, the spent exploration allowance, or directed work done (a grant proposal names its key result). */
 export function laneBlock(world: World, a: Assignment): { kind: "grant" | "reserved" | "exploration" | "done"; reason: string; grantId?: string; used?: number; allowance?: number } | null {
   const building = world.buildings.get(a.buildingId);
-  if (!goalDirected(building)) return null;
+  if (!laneGated(building)) return null;
   if (a.lane === "grant") {
     const g = a.grantId ? world.grants.get(a.grantId) : undefined;
     const grantId = a.grantId ?? undefined;

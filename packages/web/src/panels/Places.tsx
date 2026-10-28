@@ -422,7 +422,7 @@ export function BoardPanel({ buildingId }: { buildingId: string }) {
   const b = useTown((s) => s.buildings.find((x) => x.id === buildingId));
   const rev = useTown((s) => s.rev);
   const board = useLoad(() => api().board(buildingId, 50), [buildingId, rev]);
-  const goal = b?.budgetMode === "goal-directed";
+  const goal = b?.kind !== "town-hall";
   return (
     <PanelShell icon={<Glyph kind="board" />} title={`${b?.name ?? "Building"} board`} subtitle={goal
       ? "The building's key results, the manager's standing rules and building-wide FYIs. Everything else is in the filing cabinet beside it."

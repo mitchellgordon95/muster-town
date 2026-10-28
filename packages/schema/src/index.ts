@@ -207,7 +207,7 @@ export const Building = z.object({
   poolId: Id.nullable().default(null),
   /** goal-directed budgets: tokens per day for exploration work; null = 10% of its pool's daily inflow */
   explorationTokensPerDay: z.number().int().nonnegative().nullable().default(null),
-  /** budget rules: `goal-directed` (the default for new buildings since 2026-10-25, town hall decision) = grants and exploration gate sessions; `open` = no gate. Existing rows keep their stored value (migration 025 wrote `open`). */
+  /** Unused: nothing reads it since the `open` mode was removed (every lab is lane-gated, the Town Hall never is; core/src/lanes.ts `laneGated`). Kept with `open` in the enum because migration 025 wrote `open` on old rows; dropping the column is a later migration. */
   budgetMode: z.enum(["open", "goal-directed"]).default("goal-directed"),
   /** goal-directed: since when the building is blocked (its goal has no key results and it has no funded grant); null = not blocked. The manager is woken once per blocked transition. */
   blockedAt: Iso.nullable().default(null),
@@ -1325,12 +1325,11 @@ export const WALKABLE = new Set<number>([TILE.GRASS, TILE.PATH, TILE.FLOOR, TILE
 export const CreateBuildingInput = Building.pick({ name: true, goal: true, description: true, headcount: true, model: true, cheapModel: true, maxTurnsPerSession: true, dailyTokensPerAgent: true, meetings: true, rules: true, codeAccess: true, managerAgentId: true, forks: true }).partial({ goal: true, description: true, headcount: true, model: true, cheapModel: true, maxTurnsPerSession: true, dailyTokensPerAgent: true, meetings: true, rules: true, codeAccess: true, managerAgentId: true, forks: true });
 /**
  * `poolId` moves the building to another Bank pool at once (admin only; null = General). `explorationTokensPerDay`
- * and `budgetMode` need `building.fund` (a human), so a manager agent can't raise its own allowance.
+ * and `forks` need `building.fund` (a human), so a manager agent can't raise its own allowance.
  */
 export const UpdateBuildingInput = CreateBuildingInput.partial().extend({
   poolId: Id.nullable().optional(),
   explorationTokensPerDay: z.number().int().nonnegative().nullable().optional(),
-  budgetMode: z.enum(["open", "goal-directed"]).optional(),
 });
 /** PATCH /api/grants/:id while draft / countered. `testingPlan` replaces the list. */
 export const UpdateGrantInput = CreateGrantInput.partial().extend({ note: z.string().max(2000).optional() });

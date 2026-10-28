@@ -192,7 +192,6 @@ describe("grants service", () => {
 
   it("blocked: a goal-directed building with no goal KRs and no funded grant; the manager is woken once per transition", () => {
     const { world, manager, admin, krs } = setup();
-    world.ops.updateBuilding(admin, LAB, { budgetMode: "goal-directed" });
     world.buildings.patch(LAB, { managerAgentId: manager.id });
     const wakes = () => world.assignments.where("agentId = ? AND title LIKE 'Get human decisions%'", [manager.id]);
     expect(world.grantDesk.blocked(LAB)).toBeNull();
@@ -214,11 +213,9 @@ describe("grants service", () => {
     expect(wakes()).toHaveLength(2); // a new transition wakes again
   });
 
-  it("stoplight: null in open mode; red with no KRs or no funded grant, yellow with an unfunded KR or a held grant, green when every KR has a funded grant", () => {
+  it("stoplight: null in the Town Hall; red with no KRs or no funded grant, yellow with an unfunded KR or a held grant, green when every KR has a funded grant", () => {
     const { world, manager, admin, krs, draft } = setup();
-    world.ops.updateBuilding(admin, LAB, { budgetMode: "open" });
-    expect(world.grantDesk.stoplight(LAB)).toBeNull();
-    world.ops.updateBuilding(admin, LAB, { budgetMode: "goal-directed" });
+    expect(world.grantDesk.stoplight(world.buildings.first("kind = 'town-hall'")!)).toBeNull();
     expect(world.grantDesk.stoplight(LAB)).toEqual({ light: "red", reason: "no funded grant on any of its 2 key results" });
     expect(world.grantDesk.board(LAB).stoplight?.light).toBe("red");
     const g1 = world.grantDesk.decide(admin, world.grantDesk.propose(manager, draft(krs[1]!.id).id).id, { action: "fund" });

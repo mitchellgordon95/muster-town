@@ -44,7 +44,6 @@ describe("goal-directed budgets, step 1 foundation", () => {
   it("grants, key results, and the new building/session columns round-trip; spend derives from sessions", () => {
     const { world } = seededWorld();
     const b = world.buildings.require(LAB);
-    expect(b.budgetMode).toBe("goal-directed"); // the default for new buildings (town hall 2026-10-25)
     expect(b.explorationTokensPerDay).toBeNull();
     const now = nowIso();
     const g = world.grants.upsert({
@@ -73,22 +72,20 @@ describe("goal-directed budgets, step 1 foundation", () => {
 });
 
 describe("building budget settings", () => {
-  it("a new building is goal-directed with the default exploration allowance; the Town Hall stays open", () => {
+  it("a new building has the default exploration allowance", () => {
     const { world, admin } = seededWorld();
     const b = world.ops.createBuilding(admin, { name: "New lab" });
-    expect(b.budgetMode).toBe("goal-directed");
     expect(b.explorationTokensPerDay).toBeNull();
-    expect(world.buildings.first("kind = 'town-hall'")!.budgetMode).toBe("open");
   });
 
-  it("explorationTokensPerDay and budgetMode need building.fund: a human manager yes, an agent manager no", () => {
+  it("explorationTokensPerDay and forks need building.fund: a human manager yes, an agent manager no", () => {
     const { world, by } = seededWorld();
     const mgr = world.ops.createUser("Mgr").user;
     world.permissions.grant({ kind: "user", id: mgr.id }, buildingRoleId(LAB, "manager"));
     const avatar = world.ops.ensureAvatar(mgr.id);
-    const b = world.ops.updateBuilding(avatar, LAB, { explorationTokensPerDay: 1_500_000, budgetMode: "goal-directed" });
+    const b = world.ops.updateBuilding(avatar, LAB, { explorationTokensPerDay: 1_500_000, forks: true });
     expect(b.explorationTokensPerDay).toBe(1_500_000);
-    expect(b.budgetMode).toBe("goal-directed");
+    expect(b.forks).toBe(true);
     const resident = world.agents.first("homeBuildingId = ? AND kind = 'resident'", [LAB])!;
     world.permissions.grant(resident, buildingRoleId(LAB, "manager"));
     expect(() => world.ops.updateBuilding(resident, LAB, { explorationTokensPerDay: 9_000_000 })).toThrow(/building.fund/);

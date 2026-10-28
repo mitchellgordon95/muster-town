@@ -174,7 +174,7 @@ export class Grants {
   /** A goal-directed building is blocked when its goal has no key results and it has no funded grant: nothing to explore against or implement. */
   blocked(b: Building | string): string | null {
     const building = typeof b === "string" ? this.world.buildings.get(b) : b;
-    if (!building || building.kind === "town-hall" || building.budgetMode !== "goal-directed") return null;
+    if (!building || building.kind === "town-hall") return null;
     if (this.world.keyResults.count("buildingId = ?", [building.id])) return null;
     if (this.world.grants.count("buildingId = ? AND status IN ('funded', 'checkpoint')", [building.id])) return null;
     return BLOCKED_NO_KRS;
@@ -183,17 +183,17 @@ export class Grants {
   /**
    * The building's stoplight (town hall 2026-10-25; the map banner and the board): green = a funded grant runs on every
    * key result, yellow = a key result has no funded grant or a grant is held at its checkpoint, red = no key results or
-   * no funded grant at all. Open buildings and the Town Hall: null.
+   * no funded grant at all. The Town Hall: null.
    */
   stoplight(b: Building | string): Stoplight | null {
     const building = typeof b === "string" ? this.world.buildings.get(b) : b;
-    if (!building || building.kind === "town-hall" || building.budgetMode !== "goal-directed") return null;
+    if (!building || building.kind === "town-hall") return null;
     return stoplightOf(this.keyResults(building.id), this.world.grants.where("buildingId = ? AND status IN ('funded', 'checkpoint')", [building.id], "ORDER BY fundedAt, rowid"));
   }
 
   /** Every blocked building (the Town Hall in-tray's summary). */
   blockedBuildings(): BlockedBuilding[] {
-    return this.world.buildings.where("kind != 'town-hall' AND budgetMode = 'goal-directed'", [], "ORDER BY createdAt, rowid").flatMap((b) => {
+    return this.world.buildings.where("kind != 'town-hall'", [], "ORDER BY createdAt, rowid").flatMap((b) => {
       const reason = this.blocked(b);
       return reason ? [{ buildingId: b.id, name: b.name, reason, since: b.blockedAt ?? null }] : [];
     });
@@ -277,9 +277,9 @@ ${open.map((g) => `The open proposal ${g.id} ("${g.objective}")`).join("; ")} na
       "lane = ? AND startedAt >= ? AND agentId IN (SELECT id FROM agents WHERE homeBuildingId = ?)", [lane, day.toISOString(), buildingId]));
   }
 
-  /** GET /api/health's `budgets`: each goal-directed building's exploration and directed spend today. */
+  /** GET /api/health's `budgets`: each lab's exploration and directed spend today. */
   laneBudgets(): { buildingId: string; name: string; exploration: ExplorationBudget; directed: DirectedBudget }[] {
-    return this.world.buildings.where("budgetMode = 'goal-directed'", [], "ORDER BY rowid")
+    return this.world.buildings.where("kind != 'town-hall'", [], "ORDER BY rowid")
       .map((b) => ({ buildingId: b.id, name: b.name, exploration: this.exploration(b.id), directed: this.directed(b.id) }));
   }
 

@@ -51,9 +51,8 @@ No server needed: you can also start a hosted collective at [muster.town](https:
 
 6. Fund it so its residents can work. A new building has no tokens and is **goal-directed**: its manager can only assign work on a funded grant of a goal key result, or exploration out of a daily allowance that is 0 while the Bank is empty, so on day one nothing starts ("out of budget", "no key results"). The shortest way to a first session:
    - Tokens: at the Bank, **Donate**, To: your building, Paid by: **Subscription**, Tokens: e.g. 5 M, **Fund Lab**. A building seeded with `houseTokens` already has them; skip this.
-   - Mode: in the building's **Settings**, **Budget mode** → `open`, **Save budget mode**. Residents now draw on those tokens up to the building's daily tokens per agent (10 M by default), and the manager can assign them work.
-
-   Switching to goal-directed later means writing the goal's key results (Settings) and funding a grant for one. The manager's queue may keep a "Get human decisions: … no key results" assignment from before the switch; cancel it in its agent panel (Assignments tab) if you don't want key results yet.
+   - Key result: in the building's **Settings**, **Objectives and key results**, add one (text + how to check). This unblocks the building.
+   - Exploration: in **Settings**, **Budget mode**, set **Exploration / day** (e.g. 5 M) and save. The manager can now assign exploration work on that key result out of the building's tokens; to fund a bigger plan, fund the manager's grant proposal in the Town Hall in-tray.
 
 ### Residents push code
 

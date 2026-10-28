@@ -93,9 +93,9 @@ export const BLOCKED_LABEL = "Blocked: no key results";
 /** Who unblocks a blocked building, and how. */
 export const UNBLOCK_LINE = "A human unblocks it by writing the goal's key results in Building → Settings → Objectives and key results, or the manager does with set_key_result once a meeting or the 1:1 settles them.";
 
-/** The blocked label when a goal-directed building is blocked (the server's `blockedAt`), else null. */
-export function blockedLabel(b: { kind: string; budgetMode: string; blockedAt?: string | null }): string | null {
-  return b.kind !== "town-hall" && b.budgetMode === "goal-directed" && b.blockedAt ? BLOCKED_LABEL : null;
+/** The blocked label when a lab is blocked (the server's `blockedAt`), else null. */
+export function blockedLabel(b: { kind: string; blockedAt?: string | null }): string | null {
+  return b.kind !== "town-hall" && b.blockedAt ? BLOCKED_LABEL : null;
 }
 
 /** Why a proposal can't be funded yet (it names no goal key result), or null when it can. */

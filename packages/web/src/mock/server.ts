@@ -103,7 +103,7 @@ export class MockApi implements Api {
   async deleteObjective(id: string) { await wait(); this.sim.deleteObjective(id); }
   async kpis() {
     await wait();
-    const buildings = this.sim.buildings.filter((b) => b.budgetMode === "goal-directed").map((b) => ({ buildingId: b.id, name: b.name, goal: b.goal, ...this.sim.objectiveTree(b.id) }));
+    const buildings = this.sim.buildings.filter((b) => b.kind !== "town-hall").map((b) => ({ buildingId: b.id, name: b.name, goal: b.goal, ...this.sim.objectiveTree(b.id) }));
     return clone({ framing: KPI_FRAMING, kpis: kpisFixture, buildings });
   }
   async dismiss(id: string, purge = false) { await wait(); this.sim.dismiss(id, purge); }

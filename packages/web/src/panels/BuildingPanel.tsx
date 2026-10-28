@@ -284,7 +284,7 @@ function KeyResultsEditor({ b }: { b: SnapshotBuilding }) {
       <p className="direction">{KPI_FRAMING_SHORT} Each objective is one sentence for the quarter and names the KPI it moves; its 2 to 4 key results say how you'll know, in terms a human can check in the live town. Each grant names one key result, and a goal-directed building is blocked without them. Humans write them here; the manager writes them too (from a meeting or your 1:1) and lists each key result in its next rollup, so you can keep or cut it.</p>
       {tree.loading && !tree.data ? <Loading /> : null}
       <ErrorLine error={tree.error} />
-      {tree.data && !all.length && !objectives.length ? <Empty>No objectives or key results on the goal yet{b.budgetMode === "goal-directed" ? ": the building is blocked until a key result exists or a grant is funded" : ""}.</Empty> : null}
+      {tree.data && !all.length && !objectives.length ? <Empty>No objectives or key results on the goal yet{b.kind !== "town-hall" ? ": the building is blocked until a key result exists or a grant is funded" : ""}.</Empty> : null}
       {objectives.map((o, i) => (
         <div key={o.id} className="kr-objective">
           <ObjectiveRow n={i + 1} o={o} canWrite={human} onChanged={tree.reload} />
@@ -440,26 +440,19 @@ function KeyResultRow({ n, kr, canWrite, statuses, objectives, onChanged }: { n:
   );
 }
 
-/** Open vs goal-directed (docs/goal-directed-budgets.md). Humans who can fund only: a manager agent can't change its own budget. */
+/** The exploration allowance and forks (docs/goal-directed-budgets.md); every lab is goal-directed. Humans who can fund only: a manager agent can't change its own budget. */
 function BudgetMode({ b }: { b: SnapshotBuilding }) {
-  const [mode, setMode] = useState(b.budgetMode);
   const [explore, setExplore] = useState(b.explorationTokensPerDay == null ? "" : toMillions(b.explorationTokensPerDay));
   return (
     <Section title="Budget mode">
       <form className="form" onSubmit={(e) => e.preventDefault()}>
-        <Field label="Mode" hint="Open: residents draw on the pool as before. Goal-directed: work runs on funded grants or the daily exploration allowance; directed assignments still start, and the board shows the goal's key results (written above).">
-          <select value={mode} onChange={(e) => setMode(e.target.value as typeof mode)}>
-            <option value="open">open</option>
-            <option value="goal-directed">goal-directed</option>
-          </select>
-        </Field>
         <Field label="Exploration / day" hint="Leave blank for the default: 10% of the pool's daily inflow.">
           <MTokensInput value={explore} placeholder="default" onChange={setExplore} />
         </Field>
         <ForksToggle b={b} />
         <div className="actions"><Act tone="primary" run={async () => {
-          await api().updateBuilding(b.id, { budgetMode: mode, explorationTokensPerDay: explore.trim() === "" ? null : Math.max(0, fromMillions(explore) || 0) });
-          store.toast(`${b.name} is now ${mode}`, "ok");
+          await api().updateBuilding(b.id, { explorationTokensPerDay: explore.trim() === "" ? null : Math.max(0, fromMillions(explore) || 0) });
+          store.toast(`${b.name} budget settings saved`, "ok");
         }}>Save budget mode</Act></div>
       </form>
     </Section>
