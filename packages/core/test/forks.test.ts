@@ -230,6 +230,7 @@ describe("manager forks: what the web shows (step 5)", () => {
     const { world, pix, ann, b, queue } = forkLab();
     const a1 = await queue("Build it");
     const f1 = forkManager(world, b.id, a1).fork;
+    world.ops.startSession(f1.id, { purpose: "work", model: "m", assignmentId: a1 });
     const r1 = createDoc(world, { type: "report", state: "building", title: "Hop one", body: "b", verdict: "continue", authorId: f1.id, authorKind: "agent", buildingId: b.id, assignmentId: a1 });
     retireFork(world, f1.id, { reportId: r1.id });
     const a2 = createAssignment(world, { agentId: pix.id, title: "Hop two", description: "d", createdBy: { kind: "system", id: "system" }, fromReportId: r1.id, queue: "building" });
@@ -257,11 +258,32 @@ describe("manager forks: what the web shows (step 5)", () => {
     const f2 = forkManager(world, b.id, a2).fork;
     const set = world.db.prepare("UPDATE agents SET spentTokensToday = ?, spentTokensTotal = ?, spentUsdTotal = ? WHERE id = ?");
     set.run(100, 1000, 1.5, pix.id); set.run(0, 400, 0.5, f1.id); set.run(30, 30, 0.25, f2.id); set.run(7, 7, 7, ann.id);
-    expect(familySpend(world, pix.id)).toEqual({ today: 130, total: 1430, usdTotal: 2.25, forks: 2 });
-    expect(forksOf(world, pix.id).family).toEqual({ today: 130, total: 1430, usdTotal: 2.25, forks: 2 });
+    expect(familySpend(world, pix.id)).toEqual({ today: 130, forksToday: 30, cap: 3000, total: 1430, usdTotal: 2.25, forks: 2 });
+    expect(forksOf(world, pix.id).family).toEqual({ today: 130, forksToday: 30, cap: 3000, total: 1430, usdTotal: 2.25, forks: 2 });
     // forks keep their own rows: the sum reads them, it books nothing
     expect(world.agents.require(f2.id).spentTokensTotal).toBe(30);
-    expect(familySpend(world, ann.id)).toEqual({ today: 7, total: 7, usdTotal: 7, forks: 0 });
+    expect(familySpend(world, ann.id)).toEqual({ today: 7, forksToday: 0, cap: 3000, total: 7, usdTotal: 7, forks: 0 });
+  });
+
+  it("a retired fork's booked spend stays in the family's today, and forks that died before a session don't crowd the retired list (as_v969ocjeol)", async () => {
+    const { world, pix, b, queue } = forkLab(); // family cap 3 × 1000
+    const a1 = await queue("Worked");
+    const f1 = forkManager(world, b.id, a1).fork;
+    world.ops.startSession(f1.id, { purpose: "work", model: "m", assignmentId: a1 });
+    world.budget.recordUsage(f1.id, 250, 0.5);
+    retireFork(world, f1.id, {});
+    world.budget.recordUsage(pix.id, 40, 0.1);
+    // a burst of forks whose desk failed at startup: retired with no session and no spend
+    for (let i = 0; i < 3; i++) {
+      const a = await queue(`Dead ${i}`);
+      retireFork(world, forkManager(world, b.id, a).fork.id, {});
+    }
+    expect(world.agents.require(pix.id).familySpentToday).toBe(290);
+    const list = forksOf(world, pix.id);
+    expect(list.family).toMatchObject({ today: 290, forksToday: 250, cap: 3000, forks: 4 });
+    expect(list.family.today).toBe(world.agents.require(pix.id).familySpentToday);
+    expect(list.retired.map((f) => f.agent.id)).toEqual([f1.id]);
+    expect(list.notStarted).toBe(3);
   });
 });
 
