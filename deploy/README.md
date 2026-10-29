@@ -12,6 +12,8 @@ alternative; that box was deleted.
   outside the checkout so nothing done to `/data/repo` can touch it (the entrypoint moves it out once on a town deployed before this split).
   The image (`deploy/fly/Dockerfile`) is only the runtime plus a baked copy of the checkout for the first boot. `deploy/fly/entrypoint.sh` is the
   supervisor: it restarts the server when it exits 75, so the town's own `redeploy` (git pull, install, build, drain) keeps working unchanged.
+  On every boot it sets `origin` to `MUSTER_TOWN_REPO` (default `https://github.com/mitchellgordon95/muster-town.git`, what muster.town uses;
+  a town built from a fork sets its fork's URL in `[env]`).
 - **Config:** `fly.town.toml` (env, volume, health check). Desk backend and callback URL come from `MUSTER_TOWN_DESKS` (JSON) in its `[env]`,
   so the Mac's dev `collective.json` keeps docker desks; `maxRunning` is not in it (a live setting kept in the database, default 30: Planning → System → Session slots, or `PUT /api/town/desks {"maxRunning":N}`; a stored value is kept). Secrets are Fly secrets
   (`fly secrets list -a muster-town`): `CLAUDE_CODE_OAUTH_TOKEN`, `ANTHROPIC_API_KEY`, `GITHUB_CLIENT_ID/SECRET`, `AGENT_TOWN_ADMINS`,
@@ -122,7 +124,7 @@ the same day. Still open:
 ### Monitoring (grant gr_rntk0echpi, design dc_f2hpf9u1ya)
 
 Two monitors, one alert path. Every alert, yellow or red, raise or clear, is a town event (type `alert`) and an FYI on the
-Prod board (the clear updates the same FYI). Red alerts also go out by SMS (Twilio) and email (Gmail SMTP), raise and clear,
+Prod board (the clear updates the same FYI; a town with no building named Prod gets a town-wide Town Hall FYI instead). Red alerts also go out by SMS (Twilio) and email (Gmail SMTP), raise and clear,
 at most 10 outbound messages an hour across all keys.
 
 **In-process monitor** (`packages/server/src/monitor.ts`, root app only) samples every 60 s:

@@ -2,12 +2,13 @@
  * In-process monitor (grant gr_rntk0echpi, design dc_f2hpf9u1ya): every 60 s it samples what the server already knows
  * (RSS, event-loop lag p99, data-volume free space, session slots, backup age, the 5xx share, WebSocket errors and failed
  * Claude sessions), raises and clears alerts with
- * hysteresis, and sends each one down one path: a town event (type `alert`) plus a Prod board FYI, and for red ones an
+ * hysteresis, and sends each one down one path: a town event (type `alert`) plus a Prod board FYI (a town-wide one
+ * on the Town Hall board when no building is named Prod, e.g. a self-hosted town), and for red ones an
  * SMS (Twilio REST) and an email (Gmail SMTP) when all seven ALERT_* secrets are set, at most 10 outbound messages an hour.
  * State lives in memory plus one `meta` row (key `monitor`), so a restart keeps the open alerts and notices a gap.
  * `GET /api/health` shows `monitor` read-only; never a secret, phone number or address.
  */
-import { createDoc, updateDoc, type World } from "@muster-town/core";
+import { createDoc, TOWN_HALL_ID, updateDoc, type World } from "@muster-town/core";
 import { statfsSync } from "node:fs";
 import { createConnection, type Socket } from "node:net";
 import { monitorEventLoopDelay, type IntervalHistogram } from "node:perf_hooks";
@@ -196,7 +197,7 @@ export interface MonitorOptions {
   log?: Pick<Console, "log" | "warn">;
   /** what app.ts / ws.ts bump (default: a fresh one on this monitor's clock) */
   counters?: Counters;
-  /** the board FYIs go to (default: the building named "Prod"; none = events only) */
+  /** the board FYIs go to (default: the building named "Prod", else the Town Hall; null = events only) */
   buildingId?: string | null;
 }
 
@@ -339,7 +340,8 @@ export class Monitor {
 
   private buildingId(): string | null {
     if (this.opts.buildingId !== undefined) return this.opts.buildingId;
-    return this.world.buildings.all().find((b) => b.name.trim().toLowerCase() === "prod")?.id ?? null;
+    const all = this.world.buildings.all();
+    return (all.find((b) => b.name.trim().toLowerCase() === "prod") ?? all.find((b) => b.id === TOWN_HALL_ID || b.kind === "town-hall"))?.id ?? null;
   }
 
   private fyi(title: string, body: string): string | null {
