@@ -10,6 +10,8 @@
     "noUnusedParameters": true,
     "skipLibCheck": true,
     "noEmit": true,
+    "incremental": true,
+    "tsBuildInfoFile": "../../node_modules/.cache/tsc/web.tsbuildinfo",
     "isolatedModules": true,
     "allowImportingTsExtensions": true,
     "types": ["vite/client"]

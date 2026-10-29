@@ -29,12 +29,10 @@ jobs:
           node-version: 22
           cache: npm
       - run: npm ci --no-audit --no-fund
-      # README/CLAUDE.md/AGENTS.md/SKILL.md/manual.md name only paths, npm scripts and verbs that exist, and docs/invariants/*.md cite only tests that exist (scripts/check-doc-refs.ts)
-      - run: npm run check:docs
-      # no unused files, unused or unlisted dependencies, or unlisted binaries (knip.json; exports come later)
-      - run: npm run check:deadcode
-      - run: npm run typecheck
-      - run: npm test
+      # scripts/check.ts, the same full check a desk runs: check:docs (README/CLAUDE.md/AGENTS.md/SKILL.md/manual.md name
+      # only paths, npm scripts and verbs that exist; docs/invariants/*.md cite only tests that exist), check:deadcode
+      # (knip.json), typecheck, tests; stops at the first failure and ends with one per-step timing line
+      - run: npm run check
       - run: npm run build --workspace packages/web
 
   promote:
