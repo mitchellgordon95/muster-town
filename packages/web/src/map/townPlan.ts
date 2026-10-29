@@ -6,11 +6,12 @@
  * routed from the drafted lots; Save sends the moved lots and the new building in one call. Humans with town.manage_buildings only.
  */
 import { useSyncExternalStore } from "react";
-import type { Lot, Place } from "@muster-town/schema";
+import { desksForLot, labSize, type Lot, type Place } from "@muster-town/schema";
 import { api, type Grid } from "../api";
 import { store } from "../state";
 
-export interface NewBuilding { lot: Lot; name: string; goal: string; headcount: number }
+/** Its desks aren't set here: they follow the lot's floor space (`desksForLot`, the server's rule). */
+export interface NewBuilding { lot: Lot; name: string; goal: string }
 /** What a drag grabs: the whole lot, some of its walls, or the corner a new lot is drawn from. */
 export type Grab = { id: string; kind: "move"; gx: number; gy: number } | { id: string; kind: "resize"; l: boolean; r: boolean; t: boolean; b: boolean } | { id: "new"; kind: "draw"; ax: number; ay: number };
 
@@ -31,17 +32,8 @@ export interface PlanDraft {
   saving: boolean;
 }
 
-/** Smallest lab lot for a headcount (mirrors core's `labSize`; the server's check is final). */
-export function labSize(headcount: number): { w: number; h: number } {
-  const n = Math.max(1, headcount);
-  const cols = Math.min(3, n), rows = Math.ceil(n / cols);
-  return { w: Math.max(cols * 4 + 3, 13), h: rows * 3 + 6 };
-}
-/** Most desks a lot holds (up to the form's 24); 0 = too small for one. Drawing or resizing the new building sets its desks to this. */
-export function desksFor(lot: { w: number; h: number }): number {
-  for (let n = 24; n >= 1; n--) { const s = labSize(n); if (lot.w >= s.w && lot.h >= s.h) return n; }
-  return 0;
-}
+/** Desks in use in a building (named residents' and live forks'): a resize never takes a lab below them. */
+const occupiedDesks = (id: string) => store.state.places.filter((p) => p.kind === "desk" && p.buildingId === id && !p.id.startsWith("desk:free:")).length;
 
 let draft: PlanDraft | null = null;
 const listeners = new Set<() => void>();
@@ -95,8 +87,8 @@ export const townPlan = {
     const cur = this.lotOf(g.id);
     if (g.kind === "draw") {
       const lot = { x: Math.min(g.ax, x), y: Math.min(g.ay, y), w: Math.abs(x - g.ax) + 1, h: Math.abs(y - g.ay) + 1 };
-      if (!draft!.create) { set({ ...draft!, create: { lot, name: "", goal: "", headcount: desksFor(lot) || 6 }, selected: "new" }); check(); }
-      else { this.setLot("new", lot, false); this.fitDesks(); }
+      if (!draft!.create) { set({ ...draft!, create: { lot, name: "", goal: "" }, selected: "new" }); check(); }
+      else this.setLot("new", lot, false);
       return;
     }
     if (!cur) return;
@@ -105,19 +97,27 @@ export const townPlan = {
     if (g.l) x0 = Math.min(x, x1 - 2); if (g.r) x1 = Math.max(x, x0 + 2);
     if (g.t) y0 = Math.min(y, y1 - 2); if (g.b) y1 = Math.max(y, y0 + 2);
     this.setLot(g.id, { x: x0, y: y0, w: x1 - x0 + 1, h: y1 - y0 + 1 }, false);
-    if (g.id === "new") this.fitDesks();
   },
-  /** The new building's desks follow its drawn size (a lot too small for one desk keeps the last count; the drop grows it). */
-  fitDesks() {
-    const c = draft?.create, n = c ? desksFor(c.lot) : 0;
-    if (c && n && n !== c.headcount) set({ ...draft!, create: { ...c, headcount: n } });
+  /**
+   * Desks building `id` (`new` = the one being drawn) gets with its drafted lot, as the server will set them: from the
+   * floor space when it is new or resized (never below the desks in use), unchanged when it only moved.
+   */
+  desksOf(id: string): number | null {
+    const lot = this.lotOf(id);
+    if (!lot) return null;
+    if (id === "new") return desksForLot(lot);
+    const b = store.state.buildings.find((x) => x.id === id);
+    if (!b) return null;
+    const was = draft?.original[id];
+    if (b.kind !== "lab" || (was && was.w === lot.w && was.h === lot.h)) return b.headcount;
+    return Math.max(desksForLot(lot), occupiedDesks(id));
   },
   /** After a drag: one Undo step back to where it started. A tiny new lot grows to the smallest that fits. */
   commitDrag(before: PlanDraft["history"][number]) {
     if (!draft) return;
     const c = draft.create;
     if (c) {
-      const need = labSize(c.headcount);
+      const need = labSize(1);
       if (c.lot.w < need.w || c.lot.h < need.h) this.setLot("new", { ...c.lot, w: Math.max(c.lot.w, need.w), h: Math.max(c.lot.h, need.h) }, false);
     }
     if (draft.lots !== before.lots || draft.create !== before.create) set({ ...draft, history: [...draft.history, before] });
@@ -126,14 +126,10 @@ export const townPlan = {
     const l = draft?.selected ? this.lotOf(draft.selected) : null;
     if (l) this.setLot(draft!.selected!, { ...l, x: l.x + dx, y: l.y + dy });
   },
-  /** Name, goal, desks or review policy of the new building; more desks grow its lot to fit. */
+  /** Name or goal of the new building (its desks follow its size). */
   setNew(patch: Partial<Omit<NewBuilding, "lot">>) {
     if (!draft?.create) return;
-    const c = { ...draft.create, ...patch };
-    const need = labSize(c.headcount);
-    c.lot = { ...c.lot, w: Math.max(c.lot.w, need.w), h: Math.max(c.lot.h, need.h) };
-    set({ ...draft, create: c });
-    if (patch.headcount !== undefined) check();
+    set({ ...draft, create: { ...draft.create, ...patch } });
   },
   dropNew() {
     if (!draft?.create) return;
@@ -188,7 +184,7 @@ function check() {
 }
 
 export function useTownPlan(): PlanDraft | null {
-  return useSyncExternalStore(townPlan.subscribe, () => draft);
+  return useSyncExternalStore(townPlan.subscribe, () => draft, () => draft);
 }
 
 /** The Town Hall map table (E or a click): start town planning, or say why not. */

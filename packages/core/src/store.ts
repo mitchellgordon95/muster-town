@@ -1,5 +1,5 @@
 import {
-  AccessRequest, Agent, Allocation, Assignment, BankCredit, BankDebit, BankInput, BankPool, Building, DesksConfig, Doc, Grant, Interrupt, KeyResult, Kpi, Objective, Meeting, Membership, Message, Place, Role, Session, SkillPin, Town, UsageEntry, User,
+  AccessRequest, Agent, Allocation, Assignment, BankCredit, BankDebit, BankInput, BankPool, Building, DesksConfig, Doc, Grant, Interrupt, KeyResult, Kpi, Objective, Meeting, Membership, Message, Place, Role, Schedule, Session, SkillPin, Town, UsageEntry, User,
   type ServerMessage, type TokenCountKind, type TokenCounts,
 } from "@muster-town/schema";
 import type { DB } from "./db.ts";
@@ -152,6 +152,7 @@ export function createRepos(db: DB, changes: Emitter<ServerMessage>) {
     messages: new Table<Message>(db, "messages", Message, { json: ["origin"] }),
     meetings: new Table<Meeting>(db, "meetings", Meeting, { json: ["attendeeIds", "summaries", "transcript", "decisions", "brings", "deck"], bool: ["askHumans"] }, (meeting) => changes.emit({ type: "meeting", meeting })),
     sessions: new Table<Session, SessionWrite>(db, "sessions", Session, { json: ["byModel", "origin"] }),
+    schedules: new Table<Schedule>(db, "schedules", Schedule, { json: ["dailyAt", "pages", "origin"], bool: ["paused"] }),
     grants: new Table<Grant>(db, "grants", Grant, { json: ["findingsDocIds", "checkpointsDone", "history", "testingPlan"] }),
     keyResults: new Table<KeyResult>(db, "key_results", KeyResult, { json: ["sourceDocIds"] }),
     objectives: new Table<Objective>(db, "objectives", Objective, { json: ["sourceDocIds"] }),

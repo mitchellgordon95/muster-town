@@ -565,11 +565,6 @@ function waitLabel(w: NonNullable<Assignment["waitFor"]>): string {
   return `until ${runsAtLabel(w.after)}`;
 }
 
-/** A queued assignment's run time when it waits on a time still ahead (scheduled, not blocked), else null. */
-export function scheduledFor(a: Assignment, now = Date.now()): string | null {
-  const w = a.waitFor;
-  return a.status === "pending" && !a.offered && w && "after" in w && Date.parse(w.after) > now ? w.after : null;
-}
 
 /** Delegate: pick another resident (same building first) and hand them the queued assignment. */
 function DelegatePicker({ from, run, onDone }: { from: Agent; run: (toId: string) => Promise<{ assignment: Assignment; agent: Agent; from: Assignment }>; onDone: (r: { assignment: Assignment; agent: Agent; from: Assignment }) => void }) {
@@ -597,13 +592,11 @@ function AssignmentRow({ a, actions, index, offline, footer, slotWait, blocked }
       <div className="asg-head">
         <b>{index ? <span className="asg-n">{index}.</span> : null}{a.title}</b>
         {a.offered && a.status === "pending" ? <Pill tone="offered" title="Offered to a visitor: it starts when they accept it">offered</Pill>
-          : scheduledFor(a) ? <Pill tone="scheduled" title={`Scheduled: it starts by itself at this time (UTC ${scheduledFor(a)!.slice(0, 16).replace("T", " ")}). Start next overrides it.${a.parked ? " Parked by the agent's own report." : ""}`}>scheduled</Pill>
           : blocked && a.status === "pending" ? <Pill tone="bad" title={`Can't start yet: ${blocked.text}.${a.parked ? " Parked by the agent's own report." : ""}`}>{a.parked ? "parked" : "blocked"}</Pill>
           : a.waitFor && a.status === "pending" ? <Pill tone="offered" title={`Starts by itself once this happens (cancelled into the in-tray if not within 24 h). Start next overrides it.${a.parked ? " Parked by the agent's own report." : ""}`}>{a.parked ? "parked" : "waiting"}: {waitLabel(a.waitFor)}</Pill>
           : slotWait && a.status === "pending" ? <Pill tone="warn" title="Every session slot on the host is taken (Planning → System sets the cap). It starts when one frees up.">waiting for a slot</Pill>
           : <Pill tone={a.status === "active" ? (offline ? "" : "ok") : a.status === "pending" ? "warn" : a.status === "cancelled" ? "bad" : ""}>{a.status === "pending" ? "queued" : a.status === "active" && offline ? "active, visitor offline" : a.status}</Pill>}
       </div>
-      {scheduledFor(a) ? <div className="asg-when">runs at {runsAtLabel(scheduledFor(a)!)}</div> : null}
       {blocked && a.status === "pending" ? (
         <div className="asg-block">
           {blocked.agentId && blocked.agentId !== a.agentId ? <button type="button" className="link" title="Open who it waits on" onClick={() => store.open({ kind: "agent", id: blocked.agentId!, tab: "Assignments" })}>{blocked.text}</button>

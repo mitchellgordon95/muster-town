@@ -2,7 +2,7 @@ import { VERB_NAMES, VerbInputs, type Agent, type VerbName } from "@muster-town/
 import { AppError } from "../errors.ts";
 import type { World } from "../world.ts";
 import { redeploy } from "./admin.ts";
-import { assign, board, cancel, pin, promote, read, reassign, request_human, review, search, skills, submit_report, write } from "./docs.ts";
+import { assign, board, cancel, pin, promote, read, reassign, request_human, review, schedule, search, skills, submit_report, write } from "./docs.ts";
 import { checkpoint_grant, close_grant, propose_grant, set_key_result, set_objective } from "./grants.ts";
 import { meeting } from "./meeting.ts";
 import { accept_assignment, assignments, ban, go, inbox, look, say, tell } from "./social.ts";
@@ -10,7 +10,7 @@ import type { VerbIn, VerbRawIn } from "./types.ts";
 
 export const verbImpls = {
   look, go, say, tell, inbox, board, search, read, write, skills, pin, submit_report, request_human,
-  assignments, accept_assignment, meeting, review, assign, reassign, cancel, propose_grant, checkpoint_grant, close_grant, set_key_result, set_objective, promote, ban, redeploy,
+  assignments, accept_assignment, meeting, review, assign, schedule, reassign, cancel, propose_grant, checkpoint_grant, close_grant, set_key_result, set_objective, promote, ban, redeploy,
 } satisfies { [K in VerbName]: (world: World, actor: Agent, input: VerbIn<K>) => Promise<unknown> };
 
 export type VerbResult<K extends VerbName> = Awaited<ReturnType<(typeof verbImpls)[K]>>;

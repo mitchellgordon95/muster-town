@@ -145,6 +145,7 @@ export function MapCanvas(props: { panelInset: number; onTarget: (t: Target | nu
         const p = local(e);
         // a red "blocked N" badge opens that agent's queue, where each row says why
         const blocked = r.blockAt(p.x, p.y);
+        if (blocked?.startsWith("sched:")) { store.open({ kind: "building", id: blocked.slice(6), tab: "Overview" }); return; }
         if (blocked) { store.open({ kind: "agent", id: blocked, tab: "Assignments" }); return; }
         const id = r.hit(p.x, p.y);
         if (id) { store.open({ kind: "agent", id }); return; }

@@ -1,10 +1,10 @@
 /**
  * Why a queued assignment can't start (Mitchell's 1:1 mt_ryw7ejayvu): the agent's own budget, an unmet wait, or the lane
  * gate, as one `BlockedBy` with the reason in words and where the map's red line goes. Read-only: it never clears a
- * wait or changes `heldReason` (`checkWaits` and `Budget.holdReason` own those). A wait on a time is not a block: the
- * assignment is scheduled (`scheduledAt`), Mitchell's town hall mt_xywhisvdcm.
+ * wait or changes `heldReason` (`checkWaits` and `Budget.holdReason` own those). A wait on a time (an agent's own work
+ * parked with `resumeWhen {after}`) is not a block (`waitsOnTime`). Timed jobs are building schedules (schedules.ts).
  */
-import { QUEUE_ORDER, type Assignment, type BlockedAssignment, type BlockedBy, type BuildingStats, type ScheduledAssignment } from "@muster-town/schema";
+import { QUEUE_ORDER, type Assignment, type BlockedAssignment, type BlockedBy, type BuildingStats } from "@muster-town/schema";
 import { isTownHallItem } from "./domain.ts";
 import { laneBlock } from "./lanes.ts";
 import { truncate } from "./util.ts";
@@ -14,15 +14,15 @@ import type { World } from "./world.ts";
 /** 9,387,488 → "9.4M", 512,000 → "512k" */
 const short = (n: number) => n >= 1e6 ? `${(n / 1e6).toFixed(1)}M` : n >= 1e3 ? `${Math.round(n / 1e3)}k` : String(n);
 
-/** When this queued assignment is scheduled to run (its `waitFor {after}` time, still ahead), else null. */
-export function scheduledAt(a: Assignment, at: Date = new Date()): string | null {
+/** When this queued assignment resumes by itself (its `waitFor {after}` time, still ahead), else null. */
+export function waitsOnTime(a: Assignment, at: Date = new Date()): string | null {
   const w = a.waitFor;
   return a.status === "pending" && !a.offered && w && "after" in w && Date.parse(w.after) > at.getTime() ? w.after : null;
 }
 
 /** What keeps this pending assignment from starting, or null (it runs when it reaches the front of the queue, or it is scheduled). */
 export function blockedBy(world: World, a: Assignment, at: Date = new Date()): BlockedBy | null {
-  if (a.status !== "pending" || a.offered || scheduledAt(a, at)) return null;
+  if (a.status !== "pending" || a.offered || waitsOnTime(a, at)) return null;
   const th = world.buildings.first("kind = 'town-hall'");
   const townHall = th ? { placeId: `intray:${th.id}` } : {};
   const w = a.waitFor;
@@ -79,25 +79,15 @@ export function townBlocked(world: World, at: Date = new Date()): Record<string,
   return out;
 }
 
-/** Every queued assignment waiting on a time, soonest first (GET /api/scheduled; the building panel's Scheduled list). */
-export function townScheduled(world: World, at: Date = new Date()): ScheduledAssignment[] {
-  const out: ScheduledAssignment[] = [];
-  for (const a of world.assignments.where("status = 'pending' AND waitFor LIKE '%\"after\"%'", [], QUEUE_ORDER)) {
-    const runsAt = scheduledAt(a, at);
-    if (runsAt) out.push({ assignmentId: a.id, title: a.title, agentId: a.agentId, buildingId: a.buildingId, queue: a.queue, runsAt });
-  }
-  return out.sort((x, y) => x.runsAt.localeCompare(y.runsAt));
-}
-
-/** The building's work right now (GET /api/buildings/:id/stats): assignments running / queued / scheduled, its agents and forks, the live commit. */
+/** The building's work right now (GET /api/buildings/:id/stats): assignments running / queued, its active schedules, its agents and forks, the live commit. */
 export function buildingStats(world: World, buildingId: string, at: Date = new Date()): BuildingStats {
   const assignments = { running: 0, queued: 0, blocked: 0, scheduled: 0 };
   for (const a of world.assignments.where("buildingId = ? AND status IN ('pending', 'active')", [buildingId])) {
     if (a.status === "active") assignments.running++;
     else if (a.offered) continue;
-    else if (scheduledAt(a, at)) assignments.scheduled++;
     else { assignments.queued++; if (blockedBy(world, a, at)) assignments.blocked++; }
   }
+  assignments.scheduled = world.schedules.count("buildingId = ? AND status = 'active'", [buildingId]);
   let agents = 0, forks = 0, working = 0;
   for (const g of world.agents.where("homeBuildingId = ? AND kind = 'resident' AND status NOT IN ('retired', 'banned')", [buildingId])) {
     if (g.forkOf) forks++; else agents++;

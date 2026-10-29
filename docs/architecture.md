@@ -94,6 +94,7 @@ All state is in one SQLite database (`MUSTER_TOWN_DATA/town.db`). Each table is 
 |---|---|---|
 | `events` | every verb and op (`world.events.append`) | the Waker (with a persisted cursor), WS clients, `GET /api/events` |
 | `assignments` | `createAssignment`, `applyDecision`, grant decisions and checkpoints, wakes | the scheduler, the lane gate, the desk brief |
+| `schedules` | `createSchedule` (the `schedule` tool, POST /api/buildings/:id/schedules), `fireSchedules` on the tick (docs/scheduling.md) | `fireSchedules` (creates assignments), /api/scheduled, the building Overview, the manager's team block |
 | `sessions` | the runtime (`ops.startSession` / `ops.endSession`) | `Grants.spent`, the Bank's drift job, reports' token stamps |
 | `docs` | `write`, `submit_report`, flags, town-written in-tray rows | in-trays, the board, search (`docs_fts`) |
 | `grants`, `key_results`, `objectives` | `Grants` (manager verbs, human REST) | the lane gate, the board, the desk brief |
