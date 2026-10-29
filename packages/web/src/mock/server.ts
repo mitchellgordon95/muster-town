@@ -20,7 +20,7 @@ export class MockApi implements Api {
   /** one nightly schedule on the Carbon Cycle Lab (the building panel's Schedule list, the map's scheduled badge) */
   private schedules = new Map<string, Schedule>([["sc_nightly", {
     id: "sc_nightly", buildingId: "bl_carbon", title: "Nightly: check the live rollup", description: "Read the latest rollup and check its numbers against the live town.",
-    nextRunAt: new Date(Date.now() + 3 * 3600_000).toISOString(), everyMinutes: null, dailyAt: ["20:00"], endsAt: new Date(Date.now() + 14 * 86400_000).toISOString(),
+    nextRunAt: new Date(Date.now() + 3 * 3600_000).toISOString(), everyMinutes: null, dailyAt: ["08:00", "20:00"], endsAt: new Date(Date.now() + 14 * 86400_000).toISOString(), maxRuns: null, paused: false,
     lane: "exploration", grantId: null, keyResultId: null, gap: "rollup numbers drift from the live town", sourceId: null, pages: [], model: null, origin: null,
     status: "active", endedReason: null, lastRunAt: null, lastAssignmentId: null, runs: 2, createdBy: "ag_moss", createdByKind: "agent",
     createdAt: new Date(Date.now() - 2 * 86400_000).toISOString(), updatedAt: new Date().toISOString(),
@@ -782,6 +782,15 @@ export class MockApi implements Api {
     const x = this.schedules.get(id);
     if (!x) throw new Error("not found");
     const e: Schedule = { ...x, status: "ended", endedReason: "cancelled", nextRunAt: null };
+    this.schedules.set(id, e);
+    return clone(e);
+  }
+  /** like core's editSchedule, the pause / resume part */
+  async editSchedule(id: string, patch: { paused?: boolean }) {
+    await wait(40);
+    const x = this.schedules.get(id);
+    if (!x) throw new Error("not found");
+    const e: Schedule = { ...x, ...patch, updatedAt: now() };
     this.schedules.set(id, e);
     return clone(e);
   }

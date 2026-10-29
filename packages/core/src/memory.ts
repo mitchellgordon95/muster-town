@@ -334,5 +334,5 @@ ${queueLines.length ? queueLines.join("\n") : "(empty)"}${scheduleBlock(world, b
 export function scheduleBlock(world: World, buildingId: string): string {
   const rows = world.schedules.where("buildingId = ? AND status = 'active'", [buildingId], "ORDER BY nextRunAt LIMIT 10");
   if (!rows.length) return "";
-  return `\nSchedules (${rows.length} active; each fire creates one assignment for whoever is around; \`cancel\` scheduleId stops one):\n${rows.map((s) => `- ${s.id} "${oneLine(s.title, 60)}": next ${s.nextRunAt?.slice(0, 16).replace("T", " ")} UTC, ${describeRepeat(s)}${s.endsAt ? ` until ${s.endsAt.slice(0, 10)}` : ""}, ${s.runs} run(s)`).join("\n")}`;
+  return `\nSchedules (${rows.length} active; each fire creates one assignment for whoever is around; \`cancel\` scheduleId stops one):\n${rows.map((s) => `- ${s.id} "${oneLine(s.title, 60)}": ${s.paused ? "PAUSED, " : ""}next ${s.nextRunAt?.slice(0, 16).replace("T", " ")} UTC, ${describeRepeat(s)}${s.endsAt ? ` until ${s.endsAt.slice(0, 10)}` : ""}, ${s.runs} run(s)`).join("\n")}`;
 }

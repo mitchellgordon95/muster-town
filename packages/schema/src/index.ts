@@ -706,6 +706,10 @@ export const Schedule = z.object({
   dailyAt: z.array(z.string()).nullable().default(null),
   /** a repeating schedule ends here (null on a one-shot) */
   endsAt: Iso.nullable().default(null),
+  /** a repeat also ends once it has fired this many times (null = only endsAt) */
+  maxRuns: z.number().int().positive().nullable().default(null),
+  /** paused: keeps its next run but does not fire until resumed */
+  paused: z.boolean().default(false),
   lane: SpendLane.nullable().default(null),
   grantId: Id.nullable().default(null),
   keyResultId: Id.nullable().default(null),
@@ -732,6 +736,7 @@ export const ScheduleRepeat = z.object({
   everyHours: z.number().positive().max(24 * 7).optional().describe("repeat every N hours (at least 1)"),
   dailyAt: z.array(z.string().regex(/^([01]\d|2[0-3]):[0-5]\d$/, "HH:MM (UTC)")).min(1).max(24).optional().describe("repeat every day at these UTC times, e.g. [\"20:00\"]"),
   until: Iso.optional().describe("last day it may run (default 14 days out, at most 90)"),
+  times: z.number().int().min(1).max(1000).optional().describe("or end after this many runs (skipped runs don't count)"),
 }).strict();
 export type ScheduleRepeat = z.infer<typeof ScheduleRepeat>;
 /** POST /api/buildings/:id/schedules: what `assign` takes, plus when. `runsAt` left out = the repeat's first occurrence. */
@@ -741,6 +746,14 @@ export const CreateScheduleInput = LaneFields.extend({
   pages: z.array(Id).max(3).optional(), model: z.string().optional(),
 });
 export type CreateScheduleInput = z.infer<typeof CreateScheduleInput>;
+/** Edit a schedule (`schedule scheduleId`, POST /api/schedules/:id): what changes; a new repeat replaces the old one. */
+export const EditScheduleInput = z.object({
+  title: z.string().min(1).optional(), description: z.string().optional(),
+  runsAt: Iso.optional(), repeat: ScheduleRepeat.nullable().optional(),
+  pages: z.array(Id).max(3).optional(), model: z.string().nullable().optional(),
+  paused: z.boolean().optional(),
+}).strict();
+export type EditScheduleInput = z.infer<typeof EditScheduleInput>;
 /**
  * `GET /api/buildings/:id/stats` (town planning's side bar, Mitchell's town hall mt_xywhisvdcm): the building's work right now.
  * `queued` = pending (blocked ones included; `blocked` counts those); `scheduled` = the building's active schedules; `agents` = named residents, `forks` = live
@@ -1081,7 +1094,7 @@ export const EventType = z.enum([
   "agent.created", "agent.moved", "agent.status", "agent.activity", "agent.said", "agent.told",
   "agent.tool", "agent.thought", "agent.banned", "agent.retired", "agent.forked", "agent.mentioned",
   "doc.created", "doc.updated", "doc.state", "doc.decision",
-  "assignment.created", "assignment.status", "assignment.delegated", "schedule.created", "schedule.fired", "schedule.skipped", "schedule.ended",
+  "assignment.created", "assignment.status", "assignment.delegated", "schedule.created", "schedule.fired", "schedule.skipped", "schedule.edited", "schedule.ended",
   "meeting.created", "meeting.phase", "meeting.utterance", "meeting.decisions", "meeting.slide",
   "session.started", "session.ended",
   "building.created", "building.updated", "building.layout", "town.plan", "allocation.created", "budget.exhausted", "bank.input", "bank.credited", "bank.debited", "bank.converted", "bank.share", "bank.pool", "bank.drift", "bank.cap", "bank.hold",
@@ -1198,9 +1211,11 @@ export const VerbInputs = {
     waitFor: WaitFor.optional().describe("don't start until this holds: {deploy: sha|\"next\"} (live after a redeploy), {assignment: id} (done or cancelled), {decision: reportId}. A job for a later time is a \`schedule\`, not a wait"),
     ...LaneFields.shape }),
   schedule: CreateScheduleInput.extend({
-    title: z.string().min(1), description: z.string(),
+    scheduleId: Id.optional().describe("edit, pause or resume this schedule of my building (sc_…) instead of making one: give only what changes"),
+    paused: z.boolean().optional().describe("with scheduleId: true pauses it (keeps its next run, does not fire), false resumes it"),
+    title: z.string().min(1).optional().describe("required to make one"), description: z.string().optional().describe("required to make one"),
     runsAt: Iso.optional().describe("when it runs (ISO, at most 90 days ahead); left out with a repeat = its first occurrence"),
-    repeat: ScheduleRepeat.optional().describe("repeat it every N hours or every day at UTC times, until a date (default 14 days, at most 90); left out = runs once"),
+    repeat: ScheduleRepeat.nullable().optional().describe("repeat it every N hours or every day at UTC times, until a date (default 14 days, at most 90) or for a number of times; left out = runs once (with scheduleId: replaces the repeat, null makes it a one-shot)"),
     pages: z.array(Id).max(3).optional().describe("topic pages of this building for its fork's memory, at most 3"),
     model: z.string().optional().describe("forks buildings: the model its fork runs on (the building's model or cheapModel)"),
   }),
@@ -1262,7 +1277,7 @@ export const VERB_DESCRIPTIONS: Record<VerbName, string> = {
   meeting: "Participate in a meeting: 'summary' submits my short standup summary (did, next), 'speak' adds to the transcript once the discussion has started (attach presents a doc, a town page or an uploaded screenshot with it, shown inline to everyone), 'listen' returns new utterances since my last listen (set waitSeconds to wait for someone to speak), 'decide'/'end' are for the facilitator (to amend a decision, decide again with supersedes = its number in status's decisions list); a decision's waitFor holds its assignment until then, e.g. {deploy: \"next\"} for \"after the redeploy\" or {assignment: id} for \"once X lands\"; while humans are talking, leave 'end' to them.",
   review: "(manager/reviewer) Decide on a pending report in the in-tray: approve (acknowledge), continue (assign its proposal), redirect (assign your note instead), or stop the agent.",
   assign: "(manager/reviewer) Create an assignment for an agent in my building (with forks on, leave agentId out to queue it to the building). With waitFor it waits (e.g. for the next redeploy, or another assignment to finish) before it starts. In goal-directed buildings an agent must give lane grant (grantId of a funded grant; its key result is implied) or exploration (keyResultId of a goal key result with no funded grant, or gap), or directed when a human asked for it (sourceId: the human source; optionally keyResultId or gap, and then it runs until a grant proposal names that key result). Directed work is never held by the exploration allowance.",
-  schedule: "(manager/reviewer) Put a timed job on my building's schedule: it runs at runsAt (once) or on a repeat (every N hours, or daily at UTC times) until an end. Nothing is pinned to an agent: each time it fires it creates one normal assignment for whoever is around then (the building queue with forks on, else an idle resident, else the manager), with the lane fields, pages and model given here (lanes as in assign, re-checked at every fire). `cancel` with scheduleId stops it. Your own parked work still uses submit_report resumeWhen {after}.",
+  schedule: "(manager/reviewer) Put a timed job on my building's schedule: it runs at runsAt (once) or on a repeat (every N hours, or daily at UTC times) until an end. Nothing is pinned to an agent: each time it fires it creates one normal assignment for whoever is around then (the building queue with forks on, else an idle resident, else the manager), with the lane fields, pages and model given here (lanes as in assign, re-checked at every fire). Each fire is skipped (and logged) while the last fire's assignment is still queued or running; missed runs during downtime collapse into one. With scheduleId it edits, pauses (paused: true) or resumes (paused: false) one instead; `cancel` with scheduleId deletes it. Your own parked work still uses submit_report resumeWhen {after}.",
   reassign: "(manager/reviewer) Move a queued (not started) assignment to another resident of my building, e.g. off a busy queue onto an idle colleague. It keeps its lane, grant or key result and waitFor; the original is cancelled and the new one joins the end of their queue. Started assignments and other buildings' are refused.",
   cancel: "(manager/reviewer) Cancel a queued (not started) assignment in my building, or one of its schedules (scheduleId). Started assignments and other buildings' are refused.",
   propose_grant: "(manager) Propose a grant for my building in one call: the plan for one of the building goal's key results (keyResultId): an objective, the approach, a stop condition, a token ask, and optionally a testing plan (text + howToCheck lines). Funding it runs the plan. It goes to the Town Hall in-tray for a human to fund, counter or reject. A building can have several proposals open at once, each decided on its own. To answer a counter, pass its grantId: the new plan rewrites that proposal and re-proposes it under the same id.",

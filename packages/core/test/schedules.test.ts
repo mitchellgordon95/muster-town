@@ -1,6 +1,7 @@
 /** Building schedules (Mitchell, 1:1 mt_w7z9k1z112): a timed job lives on its building; whoever is around when it fires takes it. */
 import { describe, expect, it } from "vitest";
 import { createBuilding, createResident, fireSchedules, nextOccurrence, teamBlock, updateBuilding } from "../src/index.ts";
+import { World } from "../src/index.ts";
 import { seededWorld } from "./helpers.ts";
 
 const H = 3_600_000;
@@ -96,5 +97,66 @@ describe("schedules", () => {
     expect(world.schedules.require(r.scheduleId).endedReason).toMatch(/lane no longer holds/);
     expect(world.docs.first("type = 'report' AND buildingId = ? AND tags LIKE '%schedule-ended%'", [b.id])?.title).toBe("Schedule ended: Explore it");
     expect(made()).toEqual([]);
+  });
+  it("step 2: daily times fire twice a day; a run is skipped while the last is running; ends after `times` runs", async () => {
+    const { world, me, made } = lab({ forks: true });
+    const now = new Date();
+    const day = Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate() + 1);
+    const at = (h: number) => new Date(day + h * H);
+    const r = await world.verbs.schedule(me(), { title: "Deck sitting", description: "d", gap: "g", repeat: { dailyAt: ["20:00", "08:00"], times: 3 } });
+    expect(r.repeat).toBe("daily 08:00, 20:00 UTC, 3 times");
+    const s0 = world.schedules.require(r.scheduleId);
+    // created now; move its first run to tomorrow 08:00 to keep the test on fixed times
+    world.schedules.upsert({ ...s0, nextRunAt: at(8).toISOString() });
+    const f1 = fireSchedules(world, at(8)).fired;
+    expect(f1).toHaveLength(1);
+    expect(world.schedules.require(r.scheduleId).nextRunAt).toBe(at(20).toISOString());
+    world.assignments.patch(f1[0]!.id, { status: "active" });
+    expect(fireSchedules(world, at(20)).fired).toEqual([]);
+    expect(world.events.list({ types: ["schedule.skipped"] })[0]?.text).toMatch(/still running/);
+    expect(world.schedules.require(r.scheduleId)).toMatchObject({ runs: 1, nextRunAt: at(32).toISOString() });
+    world.assignments.patch(f1[0]!.id, { status: "done" });
+    const f2 = fireSchedules(world, at(32)).fired;
+    world.assignments.patch(f2[0]!.id, { status: "done" });
+    expect(fireSchedules(world, at(44)).fired).toHaveLength(1);
+    expect(world.schedules.require(r.scheduleId)).toMatchObject({ status: "ended", endedReason: "ran 3 times", runs: 3, nextRunAt: null });
+    expect(made()).toHaveLength(3);
+  });
+
+  it("step 2: pause keeps the next run but never fires; resume moves a passed run to the next occurrence; edit changes the repeat", async () => {
+    const { world, b, me, made } = lab({ forks: true });
+    const t0 = Date.now();
+    const r = await world.verbs.schedule(me(), { title: "Every 2 h", description: "d", gap: "g", runsAt: new Date(t0 + H).toISOString(), repeat: { everyHours: 2 } });
+    await expect(world.verbs.schedule(me(), { scheduleId: r.scheduleId, paused: true })).resolves.toMatchObject({ paused: true });
+    expect(fireSchedules(world, new Date(t0 + 4 * H)).fired).toEqual([]);
+    expect(world.schedules.require(r.scheduleId)).toMatchObject({ paused: true, nextRunAt: new Date(t0 + H).toISOString(), status: "active" });
+    // resuming later: the passed run is not fired late, the next one is the next step on its grid
+    const back = new Date(t0 + 4.5 * H);
+    const { editSchedule } = await import("../src/index.ts");
+    expect(editSchedule(world, me(), r.scheduleId, { paused: false }, back)).toMatchObject({ paused: false, nextRunAt: new Date(t0 + 5 * H).toISOString() });
+    // edit: a new repeat replaces the old one; the title changes; the lane cannot
+    await expect(world.verbs.schedule(me(), { scheduleId: r.scheduleId, gap: "other" })).rejects.toThrow(/keeps its lane/);
+    const e = await world.verbs.schedule(me(), { scheduleId: r.scheduleId, title: "Twice a day", repeat: { dailyAt: ["08:00", "20:00"] } });
+    expect(e).toMatchObject({ repeat: "daily 08:00, 20:00 UTC" });
+    expect(world.schedules.require(r.scheduleId)).toMatchObject({ title: "Twice a day", everyMinutes: null, dailyAt: ["08:00", "20:00"] });
+    expect(world.events.list({ types: ["schedule.edited"] }).map((x) => x.text)).toEqual([expect.stringMatching(/paused/), expect.stringMatching(/resumed/), expect.stringMatching(/edited/)]);
+    // only the building's managers; never an ended one
+    await world.verbs.cancel(me(), { scheduleId: r.scheduleId });
+    await expect(world.verbs.schedule(me(), { scheduleId: r.scheduleId, paused: false })).rejects.toThrow(/already ended/);
+    expect(made(b.id)).toEqual([]);
+  });
+
+  it("step 2: next run, pause and count survive a restart; missed runs catch up by at most one", async () => {
+    const { world, dbPath, me } = lab({ forks: true });
+    const t0 = Date.now();
+    const r = await world.verbs.schedule(me(), { title: "Hourly", description: "d", gap: "g", runsAt: new Date(t0 + H).toISOString(), repeat: { everyHours: 1, times: 5 } });
+    world.close();
+    const w2 = World.open(dbPath);
+    try {
+      expect(w2.schedules.require(r.scheduleId)).toMatchObject({ maxRuns: 5, paused: false, nextRunAt: new Date(t0 + H).toISOString() });
+      // down 10 h: one fire, not ten
+      expect(fireSchedules(w2, new Date(t0 + 10.5 * H)).fired).toHaveLength(1);
+      expect(w2.schedules.require(r.scheduleId)).toMatchObject({ runs: 1, nextRunAt: new Date(t0 + 11 * H).toISOString() });
+    } finally { w2.close(); }
   });
 });
