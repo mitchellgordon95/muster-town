@@ -10,7 +10,9 @@ export function useAttendees(building: SnapshotBuilding) {
   const { home, others, unavailable } = useMemo(() => inviteCandidates(Object.values(agents), hall ? null : building.id), [agents, building.id, hall]);
   const [picked, setPicked] = useState<Set<string>>(() => new Set(home.map((a) => a.id)));
   const toggle = (id: string) => setPicked((p) => { const n = new Set(p); if (n.has(id)) n.delete(id); else n.add(id); return n; });
-  return { home, others, unavailable, picked, toggle, hall };
+  /** a preset's attendees: `default` = the residents checked (as on open), `none` = pick by hand */
+  const reset = (to: "default" | "none") => setPicked(new Set(to === "default" ? home.map((a) => a.id) : []));
+  return { home, others, unavailable, picked, toggle, reset, hall };
 }
 
 export function AttendeePicker({ state }: { state: ReturnType<typeof useAttendees> }) {

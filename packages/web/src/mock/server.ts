@@ -406,7 +406,9 @@ export class MockApi implements Api {
   async createMeeting(i: In<typeof CreateMeetingInput>) {
     await wait();
     const attendees = i.attendeeIds ?? [...this.sim.agents.values()].filter((a) => a.kind === "resident" && (i.buildingId ? a.homeBuildingId === i.buildingId : true)).map((a) => a.id);
-    const m: Meeting = { id: newId("mt"), kind: i.kind, buildingId: i.buildingId, title: i.title || `${i.kind[0].toUpperCase()}${i.kind.slice(1)}`, scheduledAt: i.scheduledAt ?? now(), phase: i.startNow ? "collecting" : "scheduled", facilitatorId: "ag_moss", attendeeIds: attendees, agenda: i.agenda ?? "", summaries: {}, transcript: [], decisions: [], notesDocId: null, withUserId: null, createdAt: now(), startedAt: null, endedAt: null };
+    const m: Meeting = { id: newId("mt"), kind: i.kind, buildingId: i.buildingId, title: i.title || `${i.kind[0].toUpperCase()}${i.kind.slice(1)}`, scheduledAt: i.scheduledAt ?? now(), phase: i.startNow ? "collecting" : "scheduled", facilitatorId: "ag_moss", attendeeIds: attendees, agenda: Array.isArray(i.agenda) ? i.agenda.filter((a) => a.trim()).map((a, n) => `${n + 1}. ${a.trim()}`).join("\n") : i.agenda ?? "",
+      brings: { mode: i.brings?.mode ?? "status", text: i.brings?.text ?? "" }, askHumans: i.askHumans ?? i.kind === "town-hall", summaries: {}, transcript: [], decisions: [], notesDocId: null, withUserId: null, createdAt: now(), startedAt: null, endedAt: null };
+    if (m.phase === "collecting" && m.brings.mode === "nothing") { m.phase = "discussing"; m.startedAt = now(); }
     this.sim.putMeeting(m);
     this.sim.event("meeting.created", null, `${m.title} ${m.phase === "collecting" ? "is collecting summaries" : "scheduled"}`, { meetingId: m.id }, i.buildingId);
     if (m.phase === "collecting") this.collectSummaries(m);
@@ -419,7 +421,7 @@ export class MockApi implements Api {
     if (!mgr) throw new ApiError(`${b.name} has no manager agent; send a message instead.`, "conflict", 409);
     const open = [...this.sim.meetings.values()].find((m) => m.kind === "one-on-one" && m.facilitatorId === mgr.id && m.phase === "discussing");
     if (open) return clone(open);
-    const m: Meeting = { id: newId("mt"), kind: "one-on-one", buildingId, title: `1:1: Mitchell and ${mgr.name}`, scheduledAt: now(), phase: "discussing", facilitatorId: mgr.id, attendeeIds: [mgr.id], agenda: "", summaries: {}, transcript: [], decisions: [], notesDocId: null, withUserId: "us_mitchell", createdAt: now(), startedAt: now(), endedAt: null };
+    const m: Meeting = { id: newId("mt"), kind: "one-on-one", buildingId, title: `1:1: Mitchell and ${mgr.name}`, scheduledAt: now(), phase: "discussing", facilitatorId: mgr.id, attendeeIds: [mgr.id], agenda: "", brings: { mode: "nothing", text: "" }, askHumans: false, summaries: {}, transcript: [], decisions: [], notesDocId: null, withUserId: "us_mitchell", createdAt: now(), startedAt: now(), endedAt: null };
     this.sim.putMeeting(m);
     this.sim.event("meeting.created", mgr.id, `Mitchell opened a 1:1 with ${mgr.name}`, { meetingId: m.id }, buildingId);
     this.utter(m.id, mgr.id, "Hi Mitchell. What's on your mind?", 1200);

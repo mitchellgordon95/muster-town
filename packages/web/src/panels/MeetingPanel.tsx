@@ -8,8 +8,7 @@ import { phaseTone } from "./BuildingPanel";
 import { Act, Empty, Pill, Section, clock, nameOf, timeAgo } from "./ui";
 import { portraitUrl } from "../map/sprites";
 import { roomMeetings } from "./room";
-import { AttendeePicker, useAttendees } from "./AttendeePicker";
-import { attendeeInput } from "./attendees";
+import { CallMeetingForm } from "./CallMeetingForm";
 import { endMeetingConfirm } from "./endMeeting";
 import { SignInNote } from "../auth/auth";
 import { DocText, Markdown, docIdsIn } from "./Markdown";
@@ -51,22 +50,10 @@ export function MeetingPanel({ id }: { id?: string }) {
 
 const canCall = (buildingId: string | null) => store.can("meeting.facilitate", buildingId) || store.can("building.manage", buildingId);
 
-/** "Call a standup" for a building's room (town hall for Town Hall). Shown in an empty room and under a finished meeting. */
+/** The "Call a meeting" form for a building's room: open in an empty room, folded under a finished meeting. */
 function CallMeeting({ building, again }: { building: SnapshotBuilding; again?: boolean }) {
-  const hall = building.kind === "town-hall";
-  const invite = useAttendees(building);
   if (!canCall(building.id)) return null;
-  return (
-    <>
-      <div className="actions center">
-        <Act tone="primary" run={async () => {
-          const m = await api().createMeeting({ kind: hall ? "town-hall" : "standup", buildingId: hall ? null : building.id, startNow: true, ...attendeeInput(invite.picked) });
-          store.putMeeting(m); store.open({ kind: "meeting", id: m.id });
-        }}>{again ? "Call another" : "Call a"} {hall ? "town hall" : "standup"}</Act>
-      </div>
-      <AttendeePicker state={invite} />
-    </>
-  );
+  return again ? <details className="attendees"><summary>Call another meeting</summary><CallMeetingForm building={building} /></details> : <CallMeetingForm building={building} />;
 }
 
 /** under the server's HUMAN_TYPING_MS (30 s) so a held draft never lapses */
@@ -110,7 +97,8 @@ function MeetingView({ m }: { m: Meeting }) {
           {PHASES.map((p, i) => <li key={p} className={p === m.phase ? "on" : PHASES.indexOf(m.phase) > i ? "past" : ""}>{p}</li>)}
         </ol>
       )}
-      {m.agenda ? <div className="goal-card"><span>Agenda</span><DocText text={m.agenda} newTab={open} /></div> : null}
+      {m.agenda ? <div className="goal-card"><span>Agenda</span>{m.agenda.split("\n").map((l, i) => <div key={i}><DocText text={l} newTab={open} /></div>)}</div> : null}
+      {oneOnOne ? null : <div className="muted small-line">Attendees bring: {m.brings.mode === "nothing" ? "nothing (no summaries)" : m.brings.mode === "custom" ? m.brings.text : "a status update"}{m.askHumans ? " · opens with decisions needed from the humans" : ""}</div>}
       <div className="actions">
         {canRun && m.phase === "collecting" ? <Act tone="primary" run={async () => store.putMeeting(await api().startMeeting(m.id))}>Start discussion</Act> : null}
         {m.notesDocId ? <button className="btn" onClick={() => store.open({ kind: "library", docId: m.notesDocId! })}>Open notes</button> : null}

@@ -712,7 +712,14 @@ export type Message = z.infer<typeof Message>;
 
 // ---------- meetings ----------
 /** one-on-one: a human and the building's manager agent (docs/waterfall.md §3.4); opened from "Talk to ★", never scheduled */
-export const MeetingKind = z.enum(["standup", "retro", "planning", "town-hall", "one-on-one"]);
+/** in-tray-review, ad-hoc (and retro, planning): labels for history and filters, set by the "Call a meeting" preset; behaviour comes from `brings` and `askHumans` */
+export const MeetingKind = z.enum(["standup", "retro", "planning", "town-hall", "one-on-one", "in-tray-review", "ad-hoc"]);
+/**
+ * What each attendee brings before the discussion (Lena's dc_tcoy1plt2r): `status` = the Did/Next/Need summary,
+ * `nothing` = no collecting round (straight to discussion), `custom` = `text` replaces the Did/Next/Need instructions.
+ */
+export const MeetingBrings = z.object({ mode: z.enum(["status", "nothing", "custom"]).default("status"), text: z.string().max(500).default("") });
+export type MeetingBrings = z.infer<typeof MeetingBrings>;
 export const MeetingPhase = z.enum(["scheduled", "collecting", "discussing", "done", "cancelled"]);
 export const MeetingDecision = z.object({
   text: z.string(),
@@ -760,7 +767,11 @@ export const Meeting = z.object({
   phase: MeetingPhase.default("scheduled"),
   facilitatorId: Id.nullable().default(null),
   attendeeIds: z.array(Id).default([]),
+  /** the human's agenda items as numbered lines ("1. …"), or free text; "" = the facilitator proposes 2-4 items */
   agenda: z.string().default(""),
+  brings: MeetingBrings.default({}),
+  /** the facilitator opens with "Decisions needed from the humans" (default: kind is town-hall) */
+  askHumans: z.boolean().default(false),
   /** attendeeId -> short standup summary (did / next / need) submitted before discussion */
   summaries: z.record(z.string()).default({}),
   transcript: z.array(MeetingUtterance).default([]),
@@ -1419,9 +1430,29 @@ export type CreateBankPoolInput = z.input<typeof CreateBankPoolInput>;
 /** PATCH /api/bank/pools/:id (admin). */
 export const UpdateBankPoolInput = z.object({ name: z.string().trim().min(1).max(80).optional(), pct: z.number().min(0).max(100).nullable().optional() });
 export type UpdateBankPoolInput = z.input<typeof UpdateBankPoolInput>;
-export const CreateMeetingInput = z.object({ kind: MeetingKind.exclude(["one-on-one"]), buildingId: Id.nullable(), title: z.string().optional(), scheduledAt: Iso.optional(), agenda: z.string().optional(), startNow: z.boolean().default(false),
+export const CreateMeetingInput = z.object({ kind: MeetingKind.exclude(["one-on-one"]), buildingId: Id.nullable(), title: z.string().optional(), scheduledAt: Iso.optional(),
+  /** a string, or agenda items (stored as numbered lines; blank items dropped) */
+  agenda: z.union([z.string(), z.array(z.string())]).optional(), startNow: z.boolean().default(false),
+  brings: MeetingBrings.optional(),
+  /** omitted = kind is town-hall */
+  askHumans: z.boolean().optional(),
   /** who to invite; omitted = the building's residents (town hall: managers, reviewers, moderators) */
   attendeeIds: z.array(Id).min(1).optional() });
+/**
+ * The "Call a meeting" presets (Lena's dc_tcoy1plt2r): each pre-fills the form and every field stays editable. The
+ * preset is stored only as `kind` (a label); behaviour comes from `brings`, `askHumans` and the agenda. `attendees`:
+ * `default` = the building's residents (Town Hall: managers, reviewers, moderators), `none` = pick by hand.
+ */
+export const MEETING_PRESETS = [
+  { id: "standup", label: "Standup", kind: "standup", attendees: "default", brings: { mode: "status", text: "" }, agenda: [], askHumans: false },
+  { id: "town-hall", label: "Town hall", kind: "town-hall", attendees: "default", brings: { mode: "status", text: "" }, agenda: [], askHumans: true },
+  { id: "in-tray-review", label: "Review the in-tray", kind: "in-tray-review", attendees: "default", brings: { mode: "nothing", text: "" },
+    agenda: ["Read each in-tray item in one line with its ask; the human says approve / fund / counter / cut / later"], askHumans: true },
+  { id: "retro", label: "Retro", kind: "retro", attendees: "default", brings: { mode: "custom", text: "What went well, what went badly, one thing to change, with evidence" }, agenda: [], askHumans: false },
+  { id: "planning", label: "Planning", kind: "planning", attendees: "default", brings: { mode: "custom", text: "The work you propose next and its cost in tokens" }, agenda: [], askHumans: true },
+  { id: "blank", label: "Blank", kind: "ad-hoc", attendees: "none", brings: { mode: "nothing", text: "" }, agenda: [], askHumans: false },
+] as const satisfies readonly { id: string; label: string; kind: Exclude<z.infer<typeof MeetingKind>, "one-on-one">; attendees: "default" | "none"; brings: MeetingBrings; agenda: readonly string[]; askHumans: boolean }[];
+export type MeetingPreset = (typeof MEETING_PRESETS)[number];
 export const MeetingSayInput = z.object({ text: z.string(), attach: z.string().optional() });
 export const SeedInput = z.object({ importDir: z.string().optional() });
 /** POST /api/admin/redeploy (permission `town.redeploy`); also the `redeploy` verb's input */

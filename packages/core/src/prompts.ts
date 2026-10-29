@@ -379,7 +379,9 @@ export function meetingContextBlock(world: World, agent: Agent, meeting: Pick<Me
   return `# Your full context\n\n${out.join("\n\n")}`;
 }
 
-export function summarySystemPrompt(agent: Agent): string {
+/** `brings` custom: the human's line replaces the Did/Next/Need instructions (Lena's dc_tcoy1plt2r). */
+export function summarySystemPrompt(agent: Agent, brings?: Meeting["brings"]): string {
+  if (brings?.mode === "custom" && brings.text.trim()) return `You are ${agent.name}, an attendee of a meeting. The humans who called it asked each attendee to bring: "${brings.text.trim()}". Answer that in two or three short lines in plain language, first person, the way you'd say them out loud to colleagues, from your own work below. Keep each line under 25 words. No ids, file paths, jargon, or long numbers; at most one key number with its unit if it matters. No preamble, no markdown. If you have nothing for it, say so in one line; never invent work.`;
   return `You are ${agent.name}, giving your update at a standup. Write two short lines in plain language, first person, the way you'd say them out loud to colleagues:
 Did: what I did since the last meeting, against what I said I'd do there, in one sentence; say plainly if something I promised didn't happen.
 Next: what I'll do next, in one sentence.
@@ -446,19 +448,23 @@ ${needs}`;
 export function facilitatePrompt(meeting: Meeting, nameOf: (id: string) => string, material?: string): string {
   const summaries = meeting.attendeeIds.map((id) => `- ${nameOf(id)} (${id}): ${meeting.summaries[id]?.replace(/\n/g, " / ") ?? "(no summary)"}`).join("\n");
   const transcript = meeting.transcript.slice(-20).map((u) => `- ${nameOf(u.speakerId)}: ${u.text}`).join("\n");
-  const townHall = meeting.kind === "town-hall";
+  const askHumans = meeting.askHumans;
+  const agenda = meeting.agenda.trim();
+  const brought = meeting.brings.mode === "nothing" ? "Attendees were asked to bring nothing (no summaries): ask them with @Name when you need their view."
+    : meeting.brings.mode === "custom" ? `Attendees were asked to bring: "${meeting.brings.text}". Their answers:` : "Attendees and their summaries:";
   return `Facilitate meeting ${meeting.id}: "${meeting.title}" (${meeting.kind}).
-Agenda: ${meeting.agenda || "(none; summarise what's going on from the material below and propose 2-4 items)"}
+${agenda ? `Agenda set by the humans who called it. Cover these, in order, before your own items:\n${agenda}` : "Agenda: (none; summarise what's going on from the material below and propose 2-4 items)"}
 
-Attendees and their summaries:
-${summaries || "(none)"}
+${brought}
+${meeting.brings.mode === "nothing" ? meeting.attendeeIds.map((id) => `- ${nameOf(id)} (${id})`).join("\n") || "(none)" : summaries || "(none)"}
 ${material ? `\n${material}\n` : ""}
 Transcript so far:
 ${transcript || "(empty)"}
 
 Steps:
-1. \`meeting\` action "speak": ${meeting.transcript.length ? `the transcript above is not empty, so this is a pick-up after a server restart: say "picking up after a restart" in one line and carry on from where it left off (do not repeat an opening that is already there). Otherwise ` : ""}${townHall
-    ? "open with \"Decisions needed from the humans\": the yes/no questions drawn from the Needs and in-tray lines above (none: say so in one line), then a short agenda (2-4 lines). A town hall is for getting decisions from the humans; settle agent-to-agent back-and-forth outside the meeting, not in it."
+1. \`meeting\` action "speak": ${meeting.transcript.length ? `the transcript above is not empty, so this is a pick-up after a server restart: say "picking up after a restart" in one line and carry on from where it left off (do not repeat an opening that is already there). Otherwise ` : ""}${askHumans
+    ? `open with "Decisions needed from the humans": the yes/no questions drawn from the Needs and in-tray lines above (none: say so in one line), then ${agenda ? "the agenda above, in its order" : "a short agenda (2-4 lines)"}. This meeting is for getting decisions from the humans; settle agent-to-agent back-and-forth outside the meeting, not in it.`
+    : agenda ? "open with the agenda above, in its order (add at most 2 items of your own after it, from the material above), then take the items one at a time."
     : "open with a short agenda (2-4 lines) drawn from the summaries and the material above: unresolved Needs and in-tray items first."}
 2. Loop: \`meeting\` action "listen" with waitSeconds 60, and answer with "speak" when someone asks something. A human in the meeting may send several messages; keep listening and responding to each one. To question an attendee, write @Name in a "speak": they get a short turn and answer in the meeting, and their reply shows up in your next listens.
 3. \`meeting\` action "decide" with 1-5 decisions once the discussion has settled (you can decide again if more come up). Give each actionable decision an assigneeId from the attendee ids above (it becomes their next assignment); use null for general decisions. To change a decision you already recorded, decide again with \`supersedes\` set to its number \`n\` from status: its assignment is rewritten (same assignee) or cancelled, never duplicated.

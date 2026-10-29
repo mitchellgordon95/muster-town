@@ -90,15 +90,38 @@ export function createMeeting(world: World, input: CreateMeeting, actor?: Agent)
     if (a.kind !== "resident" && a.kind !== "visitor") throw badRequest(`Can't invite ${a.name}: only resident and visitor agents attend meetings (${a.kind}).`);
     if (a.status === "banned" || a.status === "retired") throw badRequest(`Can't invite ${a.name}: they are ${a.status}.`);
   }
+  const brings = inp.brings ?? { mode: "status" as const, text: "" };
+  if (brings.mode === "custom" && !brings.text.trim()) throw badRequest("Say what attendees should bring (custom), or pick status update or nothing.");
   const ts = nowIso();
-  const meeting = world.meetings.upsert(Meeting.parse({
-    id: newId("mt"), kind: inp.kind, buildingId: bid, title: inp.title ?? `${b?.name ?? "Town Hall"} ${inp.kind}`,
+  let meeting = world.meetings.upsert(Meeting.parse({
+    id: newId("mt"), kind: inp.kind, buildingId: bid, title: inp.title?.trim() || `${b?.name ?? "Town Hall"} ${inp.kind}`,
     scheduledAt: inp.scheduledAt ?? ts, phase: inp.startNow ? "collecting" : "scheduled",
-    facilitatorId: defaultFacilitator(world, bid, attendeeIds), attendeeIds, agenda: inp.agenda ?? "", createdAt: ts,
+    facilitatorId: defaultFacilitator(world, bid, attendeeIds), attendeeIds, agenda: agendaText(inp.agenda), createdAt: ts,
+    brings: { mode: brings.mode, text: brings.mode === "custom" ? brings.text.trim() : "" }, askHumans: inp.askHumans ?? inp.kind === "town-hall",
   }));
   world.events.append({ type: "meeting.created", buildingId: bid, text: `Meeting called: ${meeting.title}`, payload: { meetingId: meeting.id, kind: meeting.kind, phase: meeting.phase, by: actor ? world.holderOf(actor).id : "system" } });
-  for (const id of attendeeIds) sendMessage(world, { kind: "meeting", fromId: "system", fromKind: "system", toId: id, meetingId: meeting.id, body: `You're invited to "${meeting.title}" (${meeting.id}). Submit a short standup summary (what you did, what's next) with meeting action "summary"; the discussion starts once everyone's summary is in.` });
+  for (const id of attendeeIds) sendMessage(world, { kind: "meeting", fromId: "system", fromKind: "system", toId: id, meetingId: meeting.id, body: `You're invited to "${meeting.title}" (${meeting.id}). ${inviteAsk(meeting)}` });
+  // nothing to bring: no collecting round
+  if (inp.startNow && meeting.brings.mode === "nothing") meeting = setMeetingPhase(world, meeting.id, "discussing");
   return meeting;
+}
+
+/** Agenda items as numbered lines (blank ones dropped); a string is kept as written. */
+export function agendaText(agenda: string | string[] | undefined): string {
+  if (!agenda) return "";
+  if (typeof agenda === "string") return agenda.trim();
+  return agenda.map((a) => a.trim()).filter(Boolean).map((a, i) => `${i + 1}. ${a}`).join("\n");
+}
+
+/** One line on what attendees bring, for the invite, the meeting panel and the notes. */
+export function bringsLine(m: Pick<Meeting, "brings">): string {
+  return m.brings.mode === "nothing" ? "nothing (no summaries; straight to the discussion)" : m.brings.mode === "custom" ? m.brings.text : "a status update (did, next, need)";
+}
+
+function inviteAsk(m: Meeting): string {
+  if (m.brings.mode === "nothing") return "Nothing to prepare: the discussion starts straight away.";
+  if (m.brings.mode === "custom") return `Bring: ${m.brings.text}. Submit it in 2-3 short lines with meeting action "summary"; the discussion starts once everyone's is in.`;
+  return `Submit a short standup summary (what you did, what's next) with meeting action "summary"; the discussion starts once everyone's summary is in.`;
 }
 
 /** An agent a human can hold a 1:1 with: a resident (or manager) still working in the town. */
@@ -432,7 +455,7 @@ export function endMeeting(world: World, actor: Agent | null, meetingId: string,
   if (m.phase === "cancelled") throw new AppError("conflict", "Meeting was cancelled; there is nothing to end.");
   const name = (id: string) => world.nameOf(id);
   const body = [
-    `# ${m.title}`, "", `Kind: ${m.kind}. Facilitator: ${m.facilitatorId ? name(m.facilitatorId) : "none"}. Attendees: ${m.attendeeIds.map(name).join(", ") || "none"}.`,
+    `# ${m.title}`, "", `Kind: ${m.kind}. Facilitator: ${m.facilitatorId ? name(m.facilitatorId) : "none"}. Attendees: ${m.attendeeIds.map(name).join(", ") || "none"}. Attendees brought: ${bringsLine(m)}.${m.askHumans ? " Opened with decisions needed from the humans." : ""}`,
     "", "## Agenda", "", m.agenda || "(none)",
     "", "## Summaries", "", ...(Object.entries(m.summaries).map(([id, s]) => `**${name(id)}:** ${s}`)), Object.keys(m.summaries).length ? "" : "(none)",
     "## Discussion", "", ...m.transcript.map((u) => `- **${name(u.speakerId)}:** ${u.text}${u.attachment ? ` (presented: ${attachmentLine(u.attachment)})` : ""}`), m.transcript.length ? "" : "(none)",

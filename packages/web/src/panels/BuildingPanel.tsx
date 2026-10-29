@@ -11,8 +11,7 @@ import { DismissButton, canDismiss } from "./Dismiss";
 import { ADJ, Act, Empty, ErrorLine, Field, KV, Loading, MTokensInput, NumberInput, Pill, Section, StatusPill, fmtTokens, nameOf, timeAgo, usd, useLoad } from "./ui";
 import { fromMillions, toMillions } from "../format";
 import { PALETTES, portraitUrl } from "../map/sprites";
-import { AttendeePicker, useAttendees } from "./AttendeePicker";
-import { attendeeInput } from "./attendees";
+import { CallMeetingForm } from "./CallMeetingForm";
 import { layoutEdit } from "../map/layoutEdit";
 import { canOneOnOne, openOneOnOne } from "./oneOnOne";
 import { UNBLOCK_LINE, blockedLabel, krAuthorLine, krStatusLabel, krTone, objectiveLine, settableStatuses } from "./keyResults";
@@ -145,22 +144,9 @@ function MeetingsTab({ b }: { b: SnapshotBuilding }) {
   const all = useTown((s) => s.meetings);
   const list = useMemo(() => Object.values(all).filter((m) => m.buildingId === b.id || (b.kind === "town-hall" && m.buildingId === null)).sort((x, y) => y.createdAt.localeCompare(x.createdAt)), [all, b]);
   const can = store.can("meeting.facilitate", b.id) || store.can("building.manage", b.id);
-  const [kind, setKind] = useState<Exclude<Meeting["kind"], "one-on-one">>(b.kind === "town-hall" ? "town-hall" : "standup");
-  const invite = useAttendees(b);
   return (
     <>
-      {can ? (<>
-        <div className="inline-form">
-          <select value={kind} onChange={(e) => setKind(e.target.value as Exclude<Meeting["kind"], "one-on-one">)}>
-            {(["standup", "retro", "planning", "town-hall"] as const).map((k) => <option key={k} value={k}>{k}</option>)}
-          </select>
-          <Act tone="primary" run={async () => {
-            const m = await api().createMeeting({ kind, buildingId: b.kind === "town-hall" ? null : b.id, startNow: true, ...attendeeInput(invite.picked) });
-            store.putMeeting(m); store.open({ kind: "meeting", id: m.id });
-          }}>Call meeting</Act>
-        </div>
-        <AttendeePicker state={invite} />
-      </>) : null}
+      {can ? <CallMeetingForm building={b} /> : null}
       {!list.length ? <Empty>No meetings yet.</Empty> : list.map((m) => (
         <button key={m.id} className="doc-row" onClick={() => store.open({ kind: "meeting", id: m.id })}>
           <div className="doc-row-title">{m.title}</div>

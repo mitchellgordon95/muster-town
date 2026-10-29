@@ -76,7 +76,7 @@ describe("workshop code-access rules", () => {
 });
 
 describe("meeting prompts (docs/meetings.md §3.3, §3.5)", () => {
-  const meeting = { id: "mt_1", kind: "standup", title: "Lab standup", agenda: "", attendeeIds: ["ag_1"], summaries: {}, transcript: [], decisions: [] } as unknown as Meeting;
+  const meeting = { id: "mt_1", kind: "standup", title: "Lab standup", agenda: "", brings: { mode: "status", text: "" }, askHumans: false, attendeeIds: ["ag_1"], summaries: {}, transcript: [], decisions: [] } as unknown as Meeting;
   it("a reply turn is told its tools (read, search, speak) and the meeting id; no 'no tools' line", () => {
     const sys = meetingReplySystemPrompt(agent);
     expect(sys).not.toContain("no tools");

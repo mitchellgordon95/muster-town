@@ -20,6 +20,25 @@ describe("meetings", () => {
     expect(world.sessions.count("purpose = 'summary' AND status = 'error'")).toBe(m.attendeeIds.length);
   });
 
+  test("a scheduled meeting whose attendees bring nothing skips the summary round; custom brings reaches the summary prompt", async () => {
+    const systems: string[] = [];
+    const { world, runtime, lab } = setup(async function* (s) {
+      if (!s.agentId) { systems.push(systemOf(s)); yield text("Worst: the land sink run."); yield result(10, 0, "Worst: the land sink run."); }
+    });
+    const quiet = world.ops.createMeeting(null, { kind: "in-tray-review", buildingId: lab.id, brings: { mode: "nothing", text: "" } });
+    expect(quiet.phase).toBe("scheduled");
+    await runtime.onMeetingStart(quiet.id);
+    await runtime.whenIdle();
+    expect(world.meetings.require(quiet.id).phase).not.toBe("collecting");
+    expect(world.sessions.count("purpose = 'summary'")).toBe(0);
+    const retro = world.ops.createMeeting(null, { kind: "retro", buildingId: lab.id, startNow: true, brings: { mode: "custom", text: "The one thing that went worst" } });
+    await runtime.onMeetingStart(retro.id);
+    await runtime.whenIdle();
+    expect(systems.length).toBe(retro.attendeeIds.length);
+    expect(systems[0]).toContain("The one thing that went worst");
+    expect(systems[0]).not.toContain("Did:");
+  });
+
   test("collecting → summaries → discussing (as soon as all are in) → decisions create assignments → notes doc", async () => {
     let mossId = "", noorId = "";
     const { world, runtime, sdk, clock, by, lab } = setup(async function* (s) {

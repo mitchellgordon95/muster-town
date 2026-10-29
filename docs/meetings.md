@@ -108,3 +108,14 @@ core `resolveAttachment` (core/meetings.ts) checks it and stores `{kind, ref, ti
 opening are kept as said. A bad attach refuses the whole line. `speak` returns `presented`; `listen` and `status`
 give each utterance's `presented` line (markdown); the notes doc keeps it after the line as `(presented: …)`, so the
 reference survives the meeting. The web shows it under the bubble (MeetingPanel `Presented`).
+
+## 9. One "Call a meeting" form, presets (gr_jh0lu0w6yj step 2; Lena's design dc_tcoy1plt2r)
+
+One form (web `panels/CallMeetingForm.tsx`) in Building → Meetings and in the meeting room (open in an empty room, folded under a finished meeting as "Call another meeting"). The 1:1 stays its own "Talk to ★" button.
+
+- **Preset** (`MEETING_PRESETS` in schema, shared by web and tests): Standup, Town hall, Review the in-tray, Retro, Planning, Blank. It pre-fills the fields below and is stored only as `kind` (labels; `in-tray-review` and `ad-hoc` are new). Every field stays editable.
+- **Agenda**: items, stored as numbered lines in `Meeting.agenda` (core `agendaText`). The facilitator is told "Cover these, in order, before your own items"; empty = it proposes 2-4.
+- **What each attendee brings** (`Meeting.brings`, migration 052): `status` = the Did/Next/Need summary; `nothing` = no collecting round (core goes straight to `discussing` on startNow; runtime `onMeetingStart` does it for a scheduled one); `custom` = the human's line replaces the Did/Next/Need instructions in the summary system prompt and the invite.
+- **Ask the humans for decisions** (`Meeting.askHumans`, migration 052; default = kind is town-hall, and existing town halls were set to 1): the "Decisions needed from the humans" opener now follows this flag, not the kind.
+- The meeting panel shows the agenda line by line and "Attendees bring: …"; the notes header says what attendees brought and whether it opened with the humans' decisions.
+- Tests: core `test/meeting-form.test.ts`, runtime `meetings-chat-scheduler.test.ts` (nothing skips summaries; custom reaches the summary prompt).

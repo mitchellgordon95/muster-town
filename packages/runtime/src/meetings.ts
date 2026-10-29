@@ -49,7 +49,7 @@ async function summarize(ctx: Ctx, m: Meeting, agentId: string): Promise<void> {
   if (keyless(ctx, funding)) return;
   const session = world.ops.startSession(agentId, { purpose: "summary", model, meetingId: m.id });
   const events = world.events.recent({ agentId, limit: 20 });
-  const out = await oneShot(ctx.sdk, { model, system: summarySystemPrompt(agent), prompt: summaryPrompt(m, latestReport(ctx, agentId), events, recentWorkBlock(world, agentId, { short: true, readHint: false }), lastMeetingFor(world, m, agentId), meetingContextBlock(world, agent, m)), apiKey: funding.apiKey, env: ctx.env });
+  const out = await oneShot(ctx.sdk, { model, system: summarySystemPrompt(agent, m.brings), prompt: summaryPrompt(m, latestReport(ctx, agentId), events, recentWorkBlock(world, agentId, { short: true, readHint: false }), lastMeetingFor(world, m, agentId), meetingContextBlock(world, agent, m)), apiKey: funding.apiKey, env: ctx.env });
   const text = out.text.split("\n").map((l) => l.trim()).filter(Boolean).slice(0, 3).join("\n");
   let error = out.error;
   if (text && !error) { // a failed call's text is its error message ("Not logged in"), not a summary
@@ -126,7 +126,7 @@ async function replyInMeeting(ctx: Ctx, meetingId: string, agentId: string): Pro
 
 /**
  * A meeting entered `collecting` (or was created with startNow). Moves `scheduled` → `collecting`,
- * then every attendee writes a summary. Idempotent per meeting.
+ * then every attendee writes a summary (brings `nothing`: straight to discussing). Idempotent per meeting.
  */
 export async function onMeetingStart(ctx: Ctx, st: MeetingState, meetingId: string): Promise<void> {
   const { world } = ctx;
@@ -134,6 +134,8 @@ export async function onMeetingStart(ctx: Ctx, st: MeetingState, meetingId: stri
   if (m.phase === "scheduled") m = world.ops.setMeetingPhase(m.id, "collecting");
   if (m.phase !== "collecting" || st.summarized.has(m.id)) return;
   st.summarized.add(m.id);
+  // attendees bring nothing: no summaries, no 3-minute collecting round
+  if (m.brings.mode === "nothing") { world.ops.setMeetingPhase(m.id, "discussing"); return; }
   if (!st.collectingSince.has(m.id)) st.collectingSince.set(m.id, ctx.now().getTime());
   await Promise.all(m.attendeeIds.map((id) => summarize(ctx, m, id).catch((e) => console.log("[runtime] summary failed:", e))));
 }
