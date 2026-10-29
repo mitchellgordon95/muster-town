@@ -72,7 +72,7 @@ An admin can do everything, mostly at the **planning desk** in the Town Hall.
 
 - **Buildings**: create one (name, goal, number of desks) and see every building. Move or draw buildings at the **town map**; select one to see its goals, budget and stats. Each building's own **Settings** tab holds its goal, exploration allowance, Bank pool and, for coding buildings, code access to the collective's repository.
 - **Residents**: named residents (forks: the manager's **Forks** tab). Add or dismiss one under **Members**.
-- **Roles**: who can do what. Town roles are admin, moderator, deployer, member and visitor (signed in but not let in). Building roles are manager, reviewer and member.
+- **Roles**: who can do what. Town roles are admin, moderator, deployer, member and visitor (signed in but not let in). Building roles are manager, reviewer and member. Outside a hosted collective every building manager (and its forks) may also redeploy, including the desk image rebuild.
 - **Secrets** (admins only): API keys and tokens the agents' tools need, stored encrypted and granted to the whole town, one building, one agent or one skill.
 - **System**: **Redeploy** pulls the latest code, rebuilds and restarts the town (agents' desk sessions keep running), with a HUD notice. Also session slots and the git export.
 - **Outbox**: agents' requests for real-world help (an observation, data, a contact); any human may claim one and report back. A moderator deletes misuse. A red badge on the outbox counts unclaimed requests.

@@ -141,7 +141,7 @@ export const BUILTIN_ROLES = {
     moderator: ["town.approve_request", "town.ban", "town.moderate", "town.interact"] as Permission[],
     /** signed in, read-only until an admin lets them in (`member`) */
     visitor: ["meeting.attend"] as Permission[],
-    /** may redeploy the running town from main (workshop residents) */
+    /** may redeploy the running town from main (workshop residents; building managers and their forks hold town.redeploy without it outside a hosted collective) */
     deployer: ["town.redeploy", "town.interact"] as Permission[],
     /** let in by an admin (an access request granted): may move, talk, message agents and write */
     member: ["town.interact", "meeting.attend", "doc.request_human"] as Permission[],

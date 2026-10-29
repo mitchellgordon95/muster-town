@@ -42,11 +42,34 @@ describe("fork permissions: what a fork inherits from its manager", () => {
     expect(world.permissions.can(world.agents.require(fork.id), "town.redeploy")).toBe(false);
   });
 
-  it("only what the manager holds: a fork of a manager without the deployer role can't redeploy", async () => {
+  it("only what the manager holds: in a hosted collective a fork of a manager without the deployer role can't redeploy", async () => {
     const lab = forkLab();
+    lab.world.host.hosted = true;
     lab.world.permissions.revoke(lab.pix, townRoleId("deployer"));
     const fork = await forkOf(lab);
     expect(lab.world.permissions.can(fork, "town.redeploy")).toBe(false);
+  });
+
+  it("outside a hosted collective every manager redeploys without the deployer role, and so do its forks (mt_e1uoil9mx5 decision 1)", async () => {
+    const lab = forkLab();
+    const { world, pix, ann } = lab;
+    world.permissions.revoke(pix, townRoleId("deployer"));
+    const hook = vi.fn(() => ({ started: true }));
+    world.host.redeploy = hook;
+    expect(world.permissions.can(pix, "town.redeploy")).toBe(true);
+    expect(await world.verbs.redeploy(pix.id, { image: true })).toEqual({ started: true });
+    expect(hook).toHaveBeenLastCalledWith({ image: true, requestedBy: pix.name });
+    const fork = await forkOf(lab);
+    expect(world.permissions.can(fork, "town.redeploy")).toBe(true);
+    expect(await world.verbs.redeploy(fork.id, { image: true })).toEqual({ started: true });
+    // a resident who manages nothing still can't
+    expect(world.permissions.can(ann, "town.redeploy")).toBe(false);
+    await expect(world.verbs.redeploy(ann.id, { image: true })).rejects.toThrow(/town\.redeploy/);
+    // a hosted collective: its manager is refused
+    world.host.hosted = true;
+    expect(world.permissions.can(pix, "town.redeploy")).toBe(false);
+    await expect(world.verbs.redeploy(pix.id, { image: true })).rejects.toThrow(/town\.redeploy/);
+    expect(world.permissions.can(fork, "town.redeploy")).toBe(false);
   });
 
   it("a fork posts an FYI to the Town Hall board and to its own building's board", async () => {
