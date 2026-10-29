@@ -650,15 +650,13 @@ function dayOf(iso: string): string {
 export function ModStationPanel() {
   const me = useTown((s) => s.me);
   const canRequests = store.can("town.approve_request");
-  const canTrophy = store.can("town.approve_trophy");
   const canBan = store.can("town.ban");
-  const tabs = ["Requests", "Trophies", "Bans"];
+  const tabs = ["Requests", "Bans"];
   return (
-    <PanelShell icon={<Glyph kind="mod" />} title="Mod station" subtitle={canRequests || canTrophy || canBan ? "Collective-wide misuse prevention" : `Read-only${me ? ` · ${me.user.name} isn't a moderator` : ""}`} tabs={tabs}>
+    <PanelShell icon={<Glyph kind="mod" />} title="Mod station" subtitle={canRequests || canBan ? "Collective-wide misuse prevention" : `Read-only${me ? ` · ${me.user.name} isn't a moderator` : ""}`} tabs={tabs}>
       {(t) => (
         <>
           {t === "Requests" ? <ModRequests can={canRequests} /> : null}
-          {t === "Trophies" ? <ModTrophies can={canTrophy} /> : null}
           {t === "Bans" ? <ModBans can={canBan} /> : null}
         </>
       )}
@@ -677,33 +675,6 @@ function ModRequests({ can }: { can: boolean }) {
       <p className="direction">Agents' requests go straight to the outbox, where any human decides whether to do one. Delete a request only if it misuses the town.</p>
       <ErrorLine error={list.error} />
       {list.loading && !list.data ? <Loading /> : !active.length ? <Empty>No open requests.</Empty> : active.map((d) => <RequestCard key={d.id} doc={d} onOpen={() => setOpen(d)} moderate={can} />)}
-    </>
-  );
-}
-
-function ModTrophies({ can }: { can: boolean }) {
-  const rev = useTown((s) => s.rev);
-  // no "proposed" filter in the API: scan library docs for trophy proposals
-  const lib = useLoad(() => api().docs({ state: "library", limit: 200 }), [rev]);
-  const proposals = (lib.data ?? []).filter((d) => d.trophyProposedBy && d.state !== "trophy");
-  const [open, setOpen] = useState<Doc | null>(null);
-  const run = (fn: () => Promise<Doc>, msg: string) => async () => { const d = await fn(); store.putDocs([d]); store.toast(msg, "ok"); lib.reload(); };
-  if (open) return <DocView doc={open} onBack={() => setOpen(null)} backLabel="Trophy proposals" />;
-  return (
-    <>
-      <ErrorLine error={lib.error} />
-      {lib.loading && !lib.data ? <Loading /> : !proposals.length ? <Empty>No trophy proposals waiting.</Empty> : proposals.map((d) => (
-        <div key={d.id} className="proposal">
-          <DocRow doc={d} onOpen={() => setOpen(d)} />
-          <div className="proposal-why"><b>{nameOf(d.trophyProposedBy)}:</b> <Markdown text={d.trophyWhy ?? ""} className="inline" /></div>
-          {can ? (
-            <div className="actions">
-              <Act small tone="ok" run={run(() => api().trophy(d.id, true), "Moved to the trophy room")}>Accept trophy</Act>
-              <Act small run={run(() => api().trophy(d.id, false), "Trophy proposal declined")}>Decline</Act>
-            </div>
-          ) : null}
-        </div>
-      ))}
     </>
   );
 }

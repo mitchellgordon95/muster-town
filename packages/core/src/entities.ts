@@ -215,7 +215,7 @@ export function createTownModerator(world: World, input: { name: string; sprite?
     world.agents.upsert(Agent.parse({
       id, name: input.name, kind: "resident", buildingId: th.id, homeBuildingId: th.id, ownerUserId: th.createdBy ?? null,
       title: "Moderator", sprite: input.sprite ?? 6, model: input.model ?? null,
-      direction: input.direction ?? "Collective-wide misuse prevention: delete outbox requests that misuse the town, review trophy proposals, and ban agents that misuse the town. Every building keeps its own policies; you don't review research.",
+      direction: input.direction ?? "Collective-wide misuse prevention: delete outbox requests that misuse the town and ban agents that misuse the town. Every building keeps its own policies; you don't review research.",
       pos: world.layout.door(th.id) ?? { x: 0, y: 0 }, status: "idle", createdAt: nowIso(),
     }), { silent: true });
     const desk = world.layout.claimDesk(th.id, id);

@@ -103,10 +103,9 @@ export const Permission = z.enum([
   "town.manage_buildings",   // create/resize/delete buildings, set headcount
   "town.manage_roles",       // create roles, assign roles at town scope
   "town.allocate_budget",    // move donated tokens between buildings
-  "town.approve_trophy",     // accept a trophy proposal
   "town.approve_request",    // delete an outbox request (misuse); requests need no approval to be visible
   "town.ban",                // ban an agent (town-wide; misuse prevention)
-  "town.moderate",           // moderator station: outbox requests, trophy proposals, bans
+  "town.moderate",           // moderator station: outbox requests, bans
   "town.redeploy",           // pull main on the host, rebuild, restart the collective's server
   "building.manage",         // edit goal/description/policies, assign building roles
   "building.assign",         // create assignments for agents in the building
@@ -115,7 +114,6 @@ export const Permission = z.enum([
   "building.promote",        // promote a doc from building -> library
   "building.fund",           // fund / counter / reject grant proposals, decide checkpoints, mark key results met/missed (never effective for agents)
   "doc.write_building",      // publish own docs to the building board
-  "doc.propose_trophy",
   "doc.request_human",
   "meeting.facilitate",
   "meeting.attend",
@@ -140,7 +138,7 @@ export const BUILTIN_ROLES = {
   town: {
     admin: Permission.options, // everything
     /** collective-wide misuse prevention; seated at the Town Hall mod station */
-    moderator: ["town.approve_trophy", "town.approve_request", "town.ban", "town.moderate", "town.interact"] as Permission[],
+    moderator: ["town.approve_request", "town.ban", "town.moderate", "town.interact"] as Permission[],
     /** signed in, read-only until an admin lets them in (`member`) */
     visitor: ["meeting.attend"] as Permission[],
     /** may redeploy the running town from main (workshop residents) */
@@ -151,11 +149,11 @@ export const BUILTIN_ROLES = {
   building: {
     manager: [
       "building.manage", "building.assign", "building.review", "building.promote", "building.dismiss", "building.fund",
-      "doc.write_building", "doc.propose_trophy", "doc.request_human", "meeting.facilitate", "meeting.attend",
+      "doc.write_building", "doc.request_human", "meeting.facilitate", "meeting.attend",
     ] as Permission[],
     /** a second pair of eyes on reports (may decide in the in-tray and facilitate); no longer drives review by itself */
     reviewer: ["building.review", "building.assign", "meeting.facilitate", "meeting.attend", "doc.write_building"] as Permission[],
-    member: ["doc.write_building", "doc.propose_trophy", "doc.request_human", "meeting.attend"] as Permission[],
+    member: ["doc.write_building", "doc.request_human", "meeting.attend"] as Permission[],
   },
 } as const;
 
@@ -356,7 +354,7 @@ export type Agent = z.infer<typeof Agent>;
 
 // ---------- places (named points on the map) ----------
 export const PlaceKind = z.enum([
-  "desk", "door", "library", "trophy-room", "outbox", "meeting-room", "plaza",
+  "desk", "door", "library", "outbox", "meeting-room", "plaza",
   /** board:<buildingId> — wall board inside each lab */
   "board",
   /** cabinet:<buildingId> — filing cabinet beside the board: the building's reports and meeting notes */
@@ -365,8 +363,10 @@ export const PlaceKind = z.enum([
   "intray",
   /** mod-station — Town Hall desk where town moderators sit */
   "mod-station",
-  /** planning-desk — Town Hall: create buildings, add/dismiss residents, roles */
+  /** planning-desk — Town Hall: buildings, residents, roles, secrets, system */
   "planning",
+  /** town-map — Town Hall: the big map table; using it opens town planning (move, resize and draw buildings) */
+  "town-map",
   /** retired: the Town Hall donation box (donating is at the Bank); no layout emits it any more */
   "donation",
   /** schedule-board — Town Hall: upcoming meetings for every building */
@@ -411,7 +411,7 @@ export type DocType = z.infer<typeof DocType>;
 /** The only types pinned to a building's board (building-wide FYIs). Every other published doc is filed in its filing cabinet. */
 export const BOARD_TYPES: readonly DocType[] = ["fyi"];
 
-export const DocState = z.enum(["draft", "building", "library", "trophy"]);
+export const DocState = z.enum(["draft", "building", "library"]);
 export type DocState = z.infer<typeof DocState>;
 
 export const Verdict = z.enum(["continue", "pivot", "stop"]);
@@ -469,9 +469,6 @@ export const Doc = z.object({
   flagPos: Tile.optional(),
   pickedUpAt: Iso.optional(),
   pickedUpBy: Id.optional(),
-  // trophy-specific
-  trophyProposedBy: Id.optional(),
-  trophyWhy: z.string().optional(),
   /** wiki only: a building-owned topic page of this building (published there; its manager and the manager's forks rewrite it, every rewrite revisioned) */
   topicOf: Id.optional(),
   createdAt: Iso,
@@ -1099,7 +1096,6 @@ export const VerbInputs = {
     next: z.string().optional().describe("With resumeWhen: one line saying what you'll do when it resumes (the continuation's title)"),
     rollup: z.boolean().default(false).describe("Managers only: this report rolls up the residents' reports listed in provenance.sourceIds (required) for the Town Hall in-tray. Four sections (## Shipped, ## Decided, ## Key results, ## Needs from Mitchell; refused without them); each Shipped item has **What it is:**, **What you'd see:** (one cropped picture) and **Your call:** (warned without them). Needs never names an open proposal, outbox request or Town Hall in-tray report (refused); the town appends an \"Already waiting in your in-tray\" line."),
   }),
-  propose_trophy: z.object({ docId: Id, why: z.string() }),
   request_human: z.object({ title: z.string(), body: z.string(), location: z.string().optional(), kind: z.enum(["observation", "data", "contact", "other"]).default("observation") }),
   assignments: z.object({}),
   accept_assignment: z.object({ id: Id }),
@@ -1174,7 +1170,6 @@ export const VERB_DESCRIPTIONS: Record<VerbName, string> = {
   skills: "List the skills I can use: those pinned into my sessions first, then my building's and the library's, with when to use each, their bundled files and how often they're used. `read` a skill to load it.",
   pin: "Pin a skill into sessions: scope agent (just me, `listed` only, unless I'm a manager), building (a manager) or town (an admin). Pins into others' sessions of skills with files, `always` pins for others, and town pins need a human. remove=true unpins.",
   submit_report: "End my work session with a report. Required at the end of every session. The report goes to my manager's in-tray and I go idle until someone gives me a new assignment. If I'm blocked waiting on something (a redeploy, a colleague's assignment, a review decision, a time), pass resumeWhen and next: my work parks and resumes by itself when that holds.",
-  propose_trophy: "Propose a library document for the trophy room (collective approval needed).",
   request_human: "Put a request in the town outbox for a human to do something in the real world (observe, fetch data, contact someone). Humans see it in the outbox at once and decide whether to do it.",
   assignments: "List my assignments.",
   accept_assignment: "Accept a pending assignment; it becomes my current task. Visitors: assignments to you are offers until you accept them (unaccepted offers are cancelled after 24 h); finish with `submit_report`.",
@@ -1308,7 +1303,9 @@ export type ClientMessage = z.infer<typeof ClientMessage>;
 
 /** Tile kinds in the grid (row-major numbers). */
 export const TILE = {
-  GRASS: 0, PATH: 1, FLOOR: 2, WALL: 3, DESK: 4, SHELF: 5, PLANT: 6, DOOR: 7, TABLE: 8, COUNTER: 9, TROPHY: 10,
+  GRASS: 0, PATH: 1, FLOOR: 2, WALL: 3, DESK: 4, SHELF: 5, PLANT: 6, DOOR: 7, TABLE: 8, COUNTER: 9,
+  /** the Town Hall map table (place `town-map`: using it opens town planning); was the trophy cases */
+  TOWN_MAP: 10,
   /** a desk with a tray glyph: the manager's desk (in-tray) in each lab */
   MANAGER_DESK: 11,
   /** wall-mounted board (labs: the building board; Town Hall: the schedule board uses SCHEDULE) */

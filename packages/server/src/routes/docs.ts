@@ -11,13 +11,12 @@ const DocsQuery = z.object({
   q: z.string().optional(),
   limit: z.coerce.number().int().positive().max(200).default(50),
 });
-const PromoteBody = z.object({ state: z.enum(["building", "library", "trophy"]) });
-const TrophyBody = z.object({ approve: z.boolean() });
+const PromoteBody = z.object({ state: z.enum(["building", "library"]) });
 const RequestBody = z.object({ action: z.enum(["claim", "done", "delete"]), body: z.string().optional() });
 const MeetingsQuery = z.object({ buildingId: z.string().optional(), phase: MeetingPhase.optional() });
 const EndBody = z.object({ closing: z.string().optional() });
 
-/** Library/board docs, reviews, outbox lifecycle, trophies; meetings. */
+/** Library/board docs, reviews, outbox lifecycle; meetings. */
 export async function docRoutes(app: FastifyInstance) {
   const world = app.world;
 
@@ -84,14 +83,8 @@ export async function docRoutes(app: FastifyInstance) {
   app.post<{ Params: Params }>("/api/docs/:id/promote", async (req) => {
     const { state } = parse(PromoteBody, req.body);
     const actor = actorOf(world, req);
-    if (state === "trophy") return { doc: world.ops.decideTrophy(actor, req.params.id, true) };
     await world.verbs.promote(actor, { docId: req.params.id, state });
     return { doc: world.docs.require(req.params.id, "doc") };
-  });
-
-  app.post<{ Params: Params }>("/api/docs/:id/trophy", async (req) => {
-    const { approve } = parse(TrophyBody, req.body);
-    return { doc: world.ops.decideTrophy(actorOf(world, req), req.params.id, approve) };
   });
 
   app.post<{ Params: Params }>("/api/docs/:id/request", async (req) => {

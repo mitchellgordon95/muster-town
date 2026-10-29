@@ -53,7 +53,8 @@ function southFacingPieces(kind: "lab" | "town-hall", headcount: number, lot: { 
       { key: "intray", label: "Town Hall in-tray", at: { x: 14, y: 9 }, cells: one(TILE.MANAGER_DESK), stands: [{ x: 0, y: -1 }] },
       { key: "schedule", label: "Schedule board", at: { x: 15, y: 6 }, cells: one(TILE.SCHEDULE), stands: [{ x: 0, y: 1 }] },
       { key: "library", label: "Library shelves", at: { x: 2, y: 2 }, cells: row(5, TILE.SHELF), stands: [{ x: 2, y: 1 }] },
-      { key: "trophy", label: "Trophy cases", at: { x: 10, y: 2 }, cells: row(5, TILE.TROPHY), stands: [{ x: 2, y: 1 }] },
+      // the town map table where the trophy cases were: 5x2, used from the middle of its front edge (opens town planning)
+      { key: "town-map", label: "Town map table", at: { x: 10, y: 2 }, cells: [...row(5, TILE.TOWN_MAP), ...row(5, TILE.TOWN_MAP).map((c) => ({ ...c, dy: 1 }))], stands: [{ x: 2, y: 2 }] },
       { key: "outbox", label: "Outbox counter", at: { x: 2, y: 6 }, cells: row(4, TILE.COUNTER), stands: [{ x: 1, y: 1 }] },
       { key: "meeting", label: "Meeting table", at: { x: 10, y: 6 }, cells: row(4, TILE.TABLE), stands: [{ x: 1, y: 1 }], table: true },
       { key: "plant:0", label: "Plant", at: { x: 1, y: 1 }, cells: one(TILE.PLANT), stands: [] },

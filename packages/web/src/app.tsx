@@ -15,7 +15,7 @@ import { authStore, forceGuest, loadAuthConfig, takeAuthError, useAuth } from ".
 import { AgentPanel } from "./panels/AgentPanel";
 import { ConnectAgentPanel } from "./panels/ConnectAgent";
 import { BuildingPanel } from "./panels/BuildingPanel";
-import { LibraryPanel, TrophyPanel } from "./panels/LibraryPanel";
+import { LibraryPanel } from "./panels/LibraryPanel";
 import { OutboxPanel } from "./panels/OutboxPanel";
 import { MeetingPanel } from "./panels/MeetingPanel";
 import { PlanningPanel } from "./panels/PlanningPanel";
@@ -161,7 +161,6 @@ function PanelHost({ panel }: { panel: PanelRef }) {
     case "building": return <BuildingPanel key={`${panel.id}:${panel.tab ?? ""}`} id={panel.id!} tab={panel.tab} />;
     case "connect": return <ConnectAgentPanel />;
     case "library": return <LibraryPanel docId={panel.docId} />;
-    case "trophy": return <TrophyPanel docId={panel.docId} />;
     case "outbox": return <OutboxPanel />;
     case "meeting": return <MeetingPanel key={panel.id} id={panel.id} />;
     case "intray": return <IntrayPanel key={panel.id} buildingId={panel.id!} />;

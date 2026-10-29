@@ -12,7 +12,7 @@ export function hostOf(url: unknown): string {
 
 function placeName(world: World, to: string): string {
   const p = world.layout.place(to);
-  if (p) return ["library", "trophy-room", "outbox", "plaza"].includes(p.id) ? p.name.toLowerCase() : p.name;
+  if (p) return ["library", "outbox", "plaza"].includes(p.id) ? p.name.toLowerCase() : p.name;
   const a = world.agents.get(to);
   return a ? a.name : to;
 }
@@ -37,7 +37,6 @@ export function describeTool(world: World, name: string, input: unknown): string
     }
     case "write": return `Writing ${String(i.type ?? "note")} "${clip(i.title, 60)}"`;
     case "submit_report": return `Submitting report: ${clip(i.title, 60)}`;
-    case "propose_trophy": return "Proposing a trophy";
     case "request_human": return `Asking humans for help: ${clip(i.title, 60)}`;
     case "assignments": return "Checking assignments";
     case "accept_assignment": return "Accepting an assignment";

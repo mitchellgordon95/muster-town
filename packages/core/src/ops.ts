@@ -615,18 +615,6 @@ export class Ops {
       : this.world.docs.where("type = 'request' AND requestStatus IN ('open','claimed')", [], "ORDER BY createdAt DESC");
   }
 
-  // ---- trophies ----
-  decideTrophy(actor: Actor, docId: string, approve: boolean): Doc {
-    if (actor) this.world.permissions.require(actor, "town.approve_trophy");
-    const d = this.world.docs.require(docId, "doc");
-    if (!d.trophyProposedBy && approve && d.state !== "library") throw badRequest("Doc wasn't proposed and isn't in the library.");
-    const doc = approve
-      ? updateDoc(this.world, d.id, { state: "trophy" })
-      : updateDoc(this.world, d.id, { trophyProposedBy: undefined, trophyWhy: undefined });
-    this.world.events.append({ type: approve ? "doc.state" : "doc.updated", buildingId: d.buildingId, text: approve ? `"${d.title}" entered the trophy room` : `Trophy proposal for "${d.title}" declined`, payload: { docId, state: doc.state, trophy: approve } });
-    return doc;
-  }
-
   // ---- meetings ----
   createMeeting(actor: Actor, input: (typeof CreateMeetingInput)["_input"]): Meeting { return createMeeting(this.world, input, actor ?? undefined); }
   setMeetingPhase(meetingId: string, phase: Meeting["phase"]): Meeting { return setMeetingPhase(this.world, meetingId, phase); }

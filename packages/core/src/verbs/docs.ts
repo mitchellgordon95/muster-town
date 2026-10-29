@@ -176,7 +176,7 @@ export async function write(world: World, me: Agent, input: VerbIn<"write">) {
     if (cur.authorId !== holder.id) throw new AppError("forbidden", "You can only update documents you wrote.");
     if (cur.type === "wiki" || cur.type === "log" || cur.type === "notebook") throw badRequest(cur.type === "log" ? "That's your log; append to it with type \"log\"." : "That's a page of your wiki; rewrite it with type \"wiki\".");
     if ((cur.type === "skill") !== (input.type === "skill")) throw badRequest(cur.type === "skill" ? "That's a skill; update it with type \"skill\"." : "A doc can't become a skill; write a new one with type \"skill\".");
-    const state = cur.state === "library" || cur.state === "trophy" ? cur.state : (input.type === "source" && input.state === "building" ? "library" : input.state);
+    const state = cur.state === "library" ? cur.state : (input.type === "source" && input.state === "building" ? "library" : input.state);
     const doc = world.transaction(() => {
       if (input.files) world.skills.setFiles(cur.id, input.files);
       return updateDoc(world, cur.id, {
@@ -369,16 +369,6 @@ export async function review(world: World, me: Agent, input: VerbIn<"review">) {
   const waitFor = input.waitFor ? validateWait(world, input.waitFor) : null;
   const res = world.transaction(() => applyDecision(world, doc.id, input.decision, input.note, world.holderOf(me), { waitFor, assigneeId: input.assigneeId ?? null, lane: laneOf(input) }));
   return { docId: doc.id, decision: input.decision, assignmentId: res.assignment?.id ?? null };
-}
-
-export async function propose_trophy(world: World, me: Agent, input: VerbIn<"propose_trophy">) {
-  const d = world.docs.require(input.docId, "doc");
-  if (d.state !== "library") throw badRequest("Only library documents can be proposed for the trophy room.");
-  const bid = me.buildingId ?? me.homeBuildingId;
-  if (!world.permissions.can(me, "doc.propose_trophy", bid) && !world.permissions.can(me, "doc.propose_trophy", d.buildingId)) throw forbidden("doc.propose_trophy");
-  const doc = updateDoc(world, d.id, { trophyProposedBy: world.holderOf(me).id, trophyWhy: input.why });
-  world.events.append({ type: "doc.updated", agentId: me.kind === "human" ? null : me.id, buildingId: doc.buildingId, text: `${me.name} proposed "${doc.title}" for the trophy room`, payload: { docId: doc.id, trophyProposed: true, why: input.why } });
-  return { docId: doc.id, proposed: true };
 }
 
 export async function request_human(world: World, me: Agent, input: VerbIn<"request_human">) {

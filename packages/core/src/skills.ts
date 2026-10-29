@@ -130,7 +130,7 @@ export class Skills {
   /** Skills an agent can see in lists: its own drafts, its building's published skills, the library's. */
   visibleTo(me: Agent, query?: string): Doc[] {
     const holder = holderOf(me);
-    const where = ["type = 'skill'", "((state = 'draft' AND authorId = ?) OR (state = 'building' AND buildingId = ?) OR state IN ('library', 'trophy'))"];
+    const where = ["type = 'skill'", "((state = 'draft' AND authorId = ?) OR (state = 'building' AND buildingId = ?) OR state = 'library')"];
     const params: unknown[] = [holder.id, homeOf(me) ?? ""];
     for (const w of (query?.match(/[\p{L}\p{N}-]+/gu) ?? []).slice(0, 8)) { where.push("(title LIKE ? OR body LIKE ?)"); params.push(`%${w}%`, `%${w}%`); }
     return this.world.docs.where(where.join(" AND "), params, "ORDER BY updatedAt DESC, rowid DESC");
@@ -172,7 +172,7 @@ export class Skills {
     if (input.scope === "town") {
       if (!perms.isAdmin(me)) throw new AppError("forbidden", "Only an admin pins skills town-wide.");
       needHuman("A town pin");
-      if (!removing && skill.state !== "library" && skill.state !== "trophy") throw badRequest("Only library skills can be pinned town-wide: a manager promotes it first.");
+      if (!removing && skill.state !== "library") throw badRequest("Only library skills can be pinned town-wide: a manager promotes it first.");
       return null;
     }
     if (input.scope === "building") {
@@ -180,7 +180,7 @@ export class Skills {
       if (!bid) throw badRequest("You're not in a building; pass targetId.");
       this.world.buildings.require(bid, "building");
       if (!perms.can(me, "building.manage", bid)) throw new AppError("forbidden", "Only the building's manager pins skills into its sessions (needs building.manage).");
-      if (!removing && !(skill.state === "library" || skill.state === "trophy" || (skill.state === "building" && skill.buildingId === bid))) throw badRequest("A building pin needs a skill published in that building or in the library.");
+      if (!removing && !(skill.state === "library" || (skill.state === "building" && skill.buildingId === bid))) throw badRequest("A building pin needs a skill published in that building or in the library.");
       if (input.mode === "always") needHuman("An always-on building pin");
       if (fileCount > 0) needHuman("Pinning a skill with bundled files into others' sessions");
       return bid;
