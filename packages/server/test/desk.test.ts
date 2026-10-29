@@ -175,6 +175,22 @@ describe("agent-scoped desk API", () => {
     expect(world.allocations.first("buildingId = ?", ["carbon-cycle"])).toMatchObject({ spentTokens: 224, spentRawTokens: 1500, spentInput: 20, spentOutput: 180, spentCacheRead: 1200, spentCacheWrite5m: 80, spentCacheWrite1h: 20 });
   });
 
+  it("session-end with wall/cpu/steal stores them and serves them on /api/sessions; a host session gets wallMs only", async () => {
+    const { app, as, admin, world, start, by } = await setup();
+    const { agent, sessionId } = await start("Tomas");
+    const body = { session: sessionId, tokens: 10, turns: 1, reportSubmitted: false, wallMs: 1_860_000, cpuMs: 270_000, stealMs: 2_184_000 };
+    const r = await json(app, "POST", "/api/agents/me/session-end", { headers: as(agent), body });
+    expect(r.body.session).toMatchObject({ wallMs: 1_860_000, cpuMs: 270_000, stealMs: 2_184_000 });
+    expect((await json(app, "GET", `/api/sessions/${sessionId}`, { headers: admin })).body.session).toMatchObject({ wallMs: 1_860_000, cpuMs: 270_000, stealMs: 2_184_000 });
+    expect((await json(app, "GET", `/api/sessions?agentId=${agent.id}`, { headers: admin })).body.sessions[0]).toMatchObject({ id: sessionId, cpuMs: 270_000 });
+    // an older desk (no fields) still ends; wall comes from the timestamps
+    const host = world.ops.startSession(by("Mei").id, { purpose: "work", model: "m", backend: "host" });
+    const ended = world.ops.endSession(host.id, { status: "done" });
+    expect(ended.wallMs).toBeGreaterThanOrEqual(0);
+    expect(ended).toMatchObject({ cpuMs: null, stealMs: null });
+    expect((await json(app, "GET", `/api/sessions/${host.id}`, { headers: admin })).body.session).toMatchObject({ wallMs: ended.wallMs, cpuMs: null, stealMs: null });
+  });
+
   it("interrupt still goes straight to an in-process session's runtime when it takes it", async () => {
     const { app, admin, by, runtime } = await setup();
     const spy = vi.spyOn(runtime, "interrupt").mockResolvedValue(true);

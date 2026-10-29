@@ -16,6 +16,7 @@ const deps = (sdk: ReturnType<typeof fakeSdk>, extra = {}) => ({
   log: (l: string) => logs.push(l),
   controlIntervalMs: 20,
   flushMs: 10,
+  readProcStat: () => null,
   ...extra,
 });
 
@@ -34,6 +35,15 @@ describe("runSession", () => {
     const i = town.requests.indexOf("POST /api/agents/me/transcript");
     expect(i).toBeGreaterThan(0);
     expect(i).toBeLessThan(town.requests.indexOf("POST /api/agents/me/session-end"));
+  });
+
+  it("posts wallMs, cpuMs and stealMs from /proc/stat in session-end", async () => {
+    town.briefs.set("s1", brief("s1"));
+    const reads = [{ cpu: 1000, steal: 10 }, { cpu: 1450, steal: 3610 }];
+    const sdk = fakeSdk(async function* () { yield assistant({ type: "text", text: "hi" }); });
+    await runSession("s1", deps(sdk, { readProcStat: () => reads.shift() ?? null }));
+    expect(town.ends[0]).toMatchObject({ cpuMs: 4500, stealMs: 36000 });
+    expect(town.ends[0]!.wallMs).toBeGreaterThanOrEqual(0);
   });
 
   it("skips the upload when the SDK left no transcript", async () => {
@@ -74,7 +84,7 @@ describe("runSession", () => {
 
     expect(town.ends).toHaveLength(1);
     const counts = { input: 100, output: 10, cacheRead: 0, cacheWrite5m: 0, cacheWrite1h: 0 };
-    expect(town.ends[0]).toEqual({ session: "s1", tokens: 110, counts, byModel: { m: counts }, costUsd: 0.5, turns: 1, reportSubmitted: true, sdkSessionId: "sdk-1", finalText: "Report filed." });
+    expect(town.ends[0]).toEqual({ session: "s1", tokens: 110, counts, byModel: { m: counts }, costUsd: 0.5, turns: 1, reportSubmitted: true, sdkSessionId: "sdk-1", finalText: "Report filed.", wallMs: expect.any(Number) });
   });
 
   it("honours DESK_MODEL / DESK_MAX_TURNS overrides", async () => {

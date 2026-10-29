@@ -43,6 +43,29 @@ export function fmtTokens(n: number): string {
   return String(n);
 }
 
+/** ms → "45s", "4.5m", "31m", "1.2h" (one decimal under 10 of a unit). */
+export function fmtMs(ms: number): string {
+  const one = (v: number, u: string) => `${v < 10 ? Number(v.toFixed(1)) : Math.round(v)}${u}`;
+  if (ms < 60_000) return `${Math.round(ms / 1000)}s`;
+  if (ms < 3_600_000) return one(ms / 60_000, "m");
+  return one(ms / 3_600_000, "h");
+}
+
+/**
+ * A session's performance line (gr_uhh6u39vv9): "wall 31m · cpu 4.5m · steal 89%", steal as a share of cpu + steal
+ * (one decimal under 10%). cpu and steal are left out when not measured (a host session, an older desk); null = nothing measured.
+ */
+export function fmtPerf(p: { wallMs?: number | null; cpuMs?: number | null; stealMs?: number | null }): string | null {
+  if (p.wallMs == null) return null;
+  const parts = [`wall ${fmtMs(p.wallMs)}`];
+  if (p.cpuMs != null) parts.push(`cpu ${fmtMs(p.cpuMs)}`);
+  if (p.cpuMs != null && p.stealMs != null) {
+    const pct = p.cpuMs + p.stealMs > 0 ? (100 * p.stealMs) / (p.cpuMs + p.stealMs) : 0;
+    parts.push(`steal ${pct < 10 ? Number(pct.toFixed(1)) : Math.round(pct)}%`);
+  }
+  return parts.join(" · ");
+}
+
 /** Token count → the "M tokens" input's text: 275_000_000 → "275", 500_000 → "0.5". */
 export function toMillions(n: number): string {
   return String(Number((n / 1e6).toFixed(6)));

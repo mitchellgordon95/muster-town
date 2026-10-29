@@ -688,7 +688,8 @@ export function startRuntime(opts: RuntimeOptions): Runtime {
       if (timer) clearInterval(timer);
       waker.stop();
       for (const id of [...ctx.live.keys()]) abortWork(ctx, id);
-      await whenIdle();
+      // the redeployer runs in the background and writes events: it must be done before the caller closes the DB
+      await Promise.all([whenIdle(), redeployer?.stop()]);
     },
     chat: (agentId, input) => chat(ctx, agentId, input),
     interrupt: async (agentId, text, from, now) => interrupt(ctx, agentId, text, from, now),

@@ -114,7 +114,7 @@ export function Hud({ onPasteToken, onHelp }: { onPasteToken?: () => void; onHel
   }, [buildings, meetings, me, events, agents, health, redeployLive]); // eslint-disable-line react-hooks/exhaustive-deps
   if (!town) return null;
   return (
-    <div className={`hud ${collapsed ? "collapsed" : ""}`}>
+    <div className={`hud ${collapsed ? "collapsed" : ""} ${auth.guest ? "guest" : ""}`}>
       <div className="hud-top">
         <div>
           {HOMEPAGE ? <a className="hud-town" href={HOMEPAGE} title="All collectives">Muster Town</a> : null}
@@ -166,7 +166,7 @@ export function Hud({ onPasteToken, onHelp }: { onPasteToken?: () => void; onHel
             {counts.map(([s, n]) => <span key={s} className="count-chip"><i style={{ background: STATUS_COLOR[s] }} />{n} {s.replace(/-/g, " ")}</span>)}
           </div>}
           {notices.length ? (
-            <div className="hud-block">
+            <div className="hud-block hud-notices">
               <div className="hud-label">Notices</div>
               {notices.map((n) => (
                 <button key={n.key} className={`hud-row ${n.tone}`} onClick={n.go}>

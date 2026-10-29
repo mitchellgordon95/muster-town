@@ -11,6 +11,7 @@ import type { Actor } from "./ops.ts";
 import { DIRECTED } from "./lanes.ts";
 import { holderOf } from "./permissions.ts";
 import { BUDGET_POLICY } from "./policy.ts";
+import { whereOf } from "./table.ts";
 import { newId, nowIso } from "./util.ts";
 import type { World } from "./world.ts";
 
@@ -242,11 +243,8 @@ ${open.map((g) => `The open proposal ${g.id} ("${g.objective}")`).join("; ")} na
   /** Newest first. Drafts are left out unless `includeDrafts` (the building's managers). */
   list(buildingId: string, opts: { status?: GrantStatus; includeDrafts?: boolean } = {}): GrantView[] {
     this.world.buildings.require(buildingId, "building");
-    const where = ["buildingId = ?"];
-    const params: unknown[] = [buildingId];
-    if (opts.status) { where.push("status = ?"); params.push(opts.status); }
-    if (!opts.includeDrafts) where.push("status != 'draft'");
-    return this.world.grants.where(where.join(" AND "), params, "ORDER BY createdAt DESC, rowid DESC").map((g) => this.view(g));
+    const where = whereOf({ buildingId, status: opts.status }, [!opts.includeDrafts && { sql: "status != 'draft'", params: [] }]);
+    return this.world.grants.where(where.sql, where.params, "ORDER BY createdAt DESC, rowid DESC").map((g) => this.view(g));
   }
 
   /** Can this actor see drafts (and edit) in the building? */

@@ -107,7 +107,7 @@ export async function townRoutes(app: FastifyInstance) {
     const a = req.auth;
     const s = world.sessions.get(sessionId);
     if (!a || !s) return false;
-    if (a.kind === "user" && world.permissions.isAdmin({ kind: "user", id: a.user.id })) return true;
+    if (a.kind === "user" && world.permissions.isUserAdmin(a.user.id)) return true;
     return world.transcripts.canRead(actorOf(world, req), s);
   };
 
@@ -214,7 +214,7 @@ export async function townRoutes(app: FastifyInstance) {
   /** Host settings that change live (admin): `{maxRunning}` = how many work sessions may run at once. → { desks, slots } */
   app.put("/api/town/desks", async (req) => {
     const user = requireUser(req);
-    if (!world.permissions.isAdmin({ kind: "user", id: user.id })) throw new AppError("forbidden", "Only an admin can change the host's session slots.", 403);
+    world.permissions.requireAdmin({ kind: "user", id: user.id }, "Only an admin can change the host's session slots.");
     const desks = world.setDesksConfig(parse(DesksPatch, req.body));
     return { desks, slots: world.host.slots?.() ?? null };
   });
@@ -338,7 +338,9 @@ export async function townRoutes(app: FastifyInstance) {
    */
   app.post("/api/allocations/retire-placeholders", async (req) => {
     const a = requireAuth(req);
-    if (a.kind !== "user" || !world.permissions.isAdmin({ kind: "user", id: a.user.id })) throw new AppError("forbidden", "Only an admin can retire placeholder allocations.");
+    const onlyAdmin = "Only an admin can retire placeholder allocations.";
+    if (a.kind !== "user") throw new AppError("forbidden", onlyAdmin); // a user's own call, never an agent token
+    world.permissions.requireAdmin({ kind: "user", id: a.user.id }, onlyAdmin);
     const body = parse(z.object({ ids: z.array(z.string()).default([]), unlabelled: z.boolean().default(false), dryRun: z.boolean().default(false) }), req.body ?? {});
     return { allocations: world.budget.retirePlaceholders({ ...body, byName: actorOf(world, req).name }), dryRun: body.dryRun };
   });
@@ -432,7 +434,7 @@ export async function townRoutes(app: FastifyInstance) {
   /** Monitor (monitor.ts): one red test alert (key `test`) down the whole path; admins only; counts toward the 10/h cap. */
   app.post("/api/admin/monitor/test", async (req) => {
     const user = requireUser(req);
-    if (!world.permissions.isAdmin({ kind: "user", id: user.id })) throw new AppError("forbidden", "Only an admin can send a test alert.", 403);
+    world.permissions.requireAdmin({ kind: "user", id: user.id }, "Only an admin can send a test alert.");
     if (!app.monitor) throw new AppError("internal", "This server runs no monitor.", 503);
     return app.monitor.test(user.name);
   });

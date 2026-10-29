@@ -1,5 +1,6 @@
 import { Event, type ServerMessage } from "@muster-town/schema";
 import type { DB } from "./db.ts";
+import { whereOf } from "./table.ts";
 import { Emitter, nowIso } from "./util.ts";
 
 export type EventType = Event["type"];
@@ -54,18 +55,15 @@ export class EventLog {
   }
 
   list(q: EventQuery = {}): Event[] {
-    const where: string[] = [];
-    const params: unknown[] = [];
-    if (q.since !== undefined) { where.push("id > ?"); params.push(q.since); }
-    if (q.agentId) { where.push("agentId = ?"); params.push(q.agentId); }
-    if (q.buildingId) { where.push("buildingId = ?"); params.push(q.buildingId); }
-    if (q.types?.length) { where.push(`type IN (${q.types.map(() => "?").join(",")})`); params.push(...q.types); }
-    if (q.from) { where.push("ts >= ?"); params.push(q.from); }
-    if (q.textLike) { where.push("text LIKE ?"); params.push(q.textLike); }
-    if (q.payloadKey) { where.push("json_extract(payload, ?) IS NOT NULL"); params.push(`$.${q.payloadKey}`); }
+    const where = whereOf({ agentId: q.agentId, buildingId: q.buildingId, type: q.types?.length ? q.types : undefined }, [
+      q.since !== undefined && { sql: "id > ?", params: [q.since] },
+      q.from && { sql: "ts >= ?", params: [q.from] },
+      q.textLike && { sql: "text LIKE ?", params: [q.textLike] },
+      q.payloadKey && { sql: "json_extract(payload, ?) IS NOT NULL", params: [`$.${q.payloadKey}`] },
+    ]);
     const limit = Math.min(Math.max(q.limit ?? 100, 1), 5000);
-    const sql = `SELECT * FROM events ${where.length ? "WHERE " + where.join(" AND ") : ""} ORDER BY id ${q.desc ? "DESC" : "ASC"} LIMIT ${limit}`;
-    const rows = this.db.prepare(sql).all(...params) as Record<string, unknown>[];
+    const sql = `SELECT * FROM events ${where.sql ? "WHERE " + where.sql : ""} ORDER BY id ${q.desc ? "DESC" : "ASC"} LIMIT ${limit}`;
+    const rows = this.db.prepare(sql).all(...where.params) as Record<string, unknown>[];
     return rows.map((r) => Event.parse({ ...r, payload: JSON.parse(String(r.payload ?? "{}")) }));
   }
 
