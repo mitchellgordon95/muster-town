@@ -2,7 +2,7 @@
 import type { AccessRequest, AccessRequestView, Agent, Assignment, AuthMe, BlockedAssignment, BlockedBy, BuildingStats, Schedule, Building, Doc, Event, Meeting, Membership, RedeployLive, ReviewDeck, ReviewSlide } from "@muster-town/schema";
 import { NEW_LAB_LOT, REVIEW_DECK_ID, desksForLot, parseDeck } from "@muster-town/schema";
 import { BACKFILL, BOARD_TYPES, KPI_FRAMING, DEFAULT_POOL_ID, ZERO_TOKENS, addTokens, backfillFamily, splitRaw, type BankPool } from "@muster-town/schema";
-import type { Api, AgentDetail, AllocationRow, Bank, Budget, Finance, FinancePools, FinanceSources, FinanceSpend, Cabinet, CabinetQuery, DocQuery, EventQuery, In, LayoutPreview, MessageResult, PlanPreview, RoomLayout, RequestAction, Snapshot, Socket, SocketHandlers, ThreadMessage, WriteDocInput } from "../api";
+import type { Api, AgentDetail, AllocationRow, Bank, Budget, Finance, FinanceFly, FinancePools, FinanceSources, FinanceSpend, Cabinet, CabinetQuery, DocQuery, EventQuery, In, LayoutPreview, MessageResult, PlanPreview, RoomLayout, RequestAction, Snapshot, Socket, SocketHandlers, ThreadMessage, WriteDocInput } from "../api";
 import { ApiError } from "../api";
 import type { PinSkillInput, PutSecretInput, SecretView, SkillPinView, SkillView } from "@muster-town/schema";
 import type { CreateBuildingInput, UpdateBuildingInput, CreateResidentInput, RegisterVisitorInput, ReviewInput, ChatInput, WorkInput, DonateInput, CreateMeetingInput, DocState, AddBankInput, BankInput, CreateBankPoolInput, UpdateBankPoolInput, DecideGrantInput, CloseGrantInput, CreateKeyResultInput, UpdateKeyResultInput, CreateObjectiveInput, UpdateObjectiveInput } from "@muster-town/schema";
@@ -635,6 +635,22 @@ export class MockApi implements Api {
       poolsLeftTokens, poolsOverdrawnTokens, unsharedTokens, usedBank: 0,
       donatedTokens: buildings.reduce((s, x) => s + x.donated, 0), heldTokens: buildings.reduce((s, x) => s + x.held, 0),
       sumCheck: { drawsOk: true, drawsDiff: 0, balanceOk: true, balanceDiff: 0, ok: true, identities: { draws: "Σ building draws = Σ pool draws = Bank debits", balance: "Σ pools left − Σ pools overdrawn + unshared = Bank balance − overshoot" } },
+      at: now(),
+    };
+  }
+  // the toy runs on no Fly Machine: desks and the town are unpriced, so every Fly line is $0 over an empty 7-day window
+  async financeFly(): Promise<FinanceFly> {
+    const today = now().slice(0, 10);
+    const days: FinanceFly["days"] = Array.from({ length: 7 }, (_, i) => ({ day: new Date(Date.now() - i * 86_400_000).toISOString().slice(0, 10), deskMs: 0, deskUsd: 0, townUsd: 0, totalUsd: 0, sessions: 0, buildings: [] }));
+    return {
+      windowDays: 7, from: days[6]!.day, to: today,
+      rates: { desk: null, town: null, extraRamUsdPerGbMonth: 6, region: "iad", source: "https://docs.fly.io/about/pricing", pricedAt: "2026-10-29" },
+      desksBackend: "host", townOnFly: false, capUsdPerDay: null,
+      today: { day: today, deskUsd: 0, townUsd: 0, totalUsd: 0, capUsdPerDay: null, underCap: null },
+      days, buildings: [], totals: { deskMs: 0, deskHours: 0, deskUsd: 0, townUsd: 0, totalUsd: 0, sessions: 0, unmeasuredSessions: 0 },
+      notCounted: ["Volume storage, stopped Machines' root file systems and bandwidth"],
+      assumptions: ["The toy town runs on no Fly Machine: nothing is priced"],
+      sumCheck: { ok: true, diff: 0, identity: "per day desk + town = total; Σ days desk time = Σ buildings desk time", daysOk: true, buildingsOk: true },
       at: now(),
     };
   }

@@ -366,6 +366,13 @@ export async function townRoutes(app: FastifyInstance) {
   app.get("/api/finance/sources", async () => world.bank.sources());
   // public, read-only: pools (share, left, overdrawn) and buildings (drawn, donated, held, allowance); gr_mijwhoiy2f
   app.get("/api/finance/pools", async () => world.bank.pools((id) => world.grantDesk.exploration(id).allowanceTokens));
+  // the Fly.io hosting estimate (Bank Transparency, 1:1 mt_s6f8mvjw9h): desks priced only on the fly backend, the town Machine only when the server runs on one;
+  // the daily desk bill cap is Prod's desk-perf step 3 (gr_uhh6u39vv9): pass it here once desks config carries it
+  app.get<{ Querystring: { days?: string } }>("/api/finance/fly", async (req) => {
+    const desks = world.desksConfig();
+    const days = req.query.days ? Number(req.query.days) : undefined;
+    return world.bank.fly(desks, !!process.env.FLY_APP_NAME, { capUsdPerDay: null, windowDays: Number.isFinite(days) ? days : undefined });
+  });
 
   app.post("/api/bank/inputs", async (req, reply) => {
     const user = requireUser(req);

@@ -177,6 +177,28 @@ export interface FinancePools {
   sumCheck: { drawsOk: boolean; drawsDiff: number; balanceOk: boolean; balanceDiff: number; ok: boolean; identities: { draws: string; balance: string } };
   at: string;
 }
+/** One Fly Machine size's list price in `GET /api/finance/fly`. */
+export interface FlyRate { preset: string; memoryMb: number; usdPerMonth: number; usdPerHour: number }
+/** A building's desk time and cost in `GET /api/finance/fly` (over the window, or within one day). */
+export interface FlyBuilding { id: string | null; name: string; deskMs: number; deskUsd: number; sessions: number }
+/**
+ * `GET /api/finance/fly` (public) — core's FinanceFly: what hosting on Fly.io costs, estimated from the town's own
+ * records at Fly's list prices, per UTC day over the window (default 30 days, `?days=`): desk sessions' wall time ×
+ * the desk Machine size's $/h, split by building, plus the town Machine's share of the day. Identities: per day
+ * desk + town = total, and Σ days desk time = Σ buildings desk time. `notCounted` says what Fly bills that isn't here.
+ */
+export interface FinanceFly {
+  windowDays: number; from: string; to: string;
+  rates: { desk: FlyRate | null; town: FlyRate | null; extraRamUsdPerGbMonth: number; region: string; source: string; pricedAt: string };
+  desksBackend: string; townOnFly: boolean; capUsdPerDay: number | null;
+  today: { day: string; deskUsd: number; townUsd: number; totalUsd: number; capUsdPerDay: number | null; underCap: boolean | null };
+  days: { day: string; deskMs: number; deskUsd: number; townUsd: number; totalUsd: number; sessions: number; buildings: FlyBuilding[] }[];
+  buildings: FlyBuilding[];
+  totals: { deskMs: number; deskHours: number; deskUsd: number; townUsd: number; totalUsd: number; sessions: number; unmeasuredSessions: number };
+  notCounted: string[]; assumptions: string[];
+  sumCheck: { ok: boolean; diff: number; identity: string; daysOk: boolean; buildingsOk: boolean };
+  at: string;
+}
 /** `GET /api/bank` — core's BankSummary: the accounting pools, the inputs, each building's view (from its pool), and the top contributors. */
 export interface BankPoolSummary {
   id: string; name: string;
@@ -444,6 +466,8 @@ export interface Api {
   financeSources(): Promise<FinanceSources>;
   /** public: the pools (share, left, overdrawn) and each building's draws, donations, held tokens and allowance */
   financePools(): Promise<FinancePools>;
+  /** public: the Fly.io hosting estimate per day and per building (desk sessions' wall time at list price + the town Machine) */
+  financeFly(): Promise<FinanceFly>;
   addBankInput(input: In<typeof AddBankInput>): Promise<BankInput>;
   cancelBankInput(id: string): Promise<BankInput>;
   /** admin: accounting pools (a pool's `pct` null = an equal split of what's left); returns the new Bank summary */
@@ -675,6 +699,7 @@ export class HttpApi implements Api {
   async financeSpend() { return this.get<FinanceSpend>("/api/finance/spend"); }
   async financeSources() { return this.get<FinanceSources>("/api/finance/sources"); }
   async financePools() { return this.get<FinancePools>("/api/finance/pools"); }
+  async financeFly() { return this.get<FinanceFly>("/api/finance/fly"); }
   async addBankInput(i: In<typeof AddBankInput>) { return unwrap<BankInput>(await this.post("/api/bank/inputs", i), "input"); }
   async cancelBankInput(id: string) { return unwrap<BankInput>(await this.call("DELETE", `/api/bank/inputs/${id}`), "input"); }
   async createBankPool(i: In<typeof CreateBankPoolInput>) { return unwrap<Bank>(await this.post("/api/bank/pools", i), "bank"); }

@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { renderToStaticMarkup } from "react-dom/server";
-import type { BankPoolSummary, Finance, FinancePools, FinanceSources, FinanceSpend } from "../src/api";
-import { donationNote, FinanceView, inputName, overdrawnParts, poolsBalanceLine, poolsDrawsLine, sourcesCheckLine, pct, poolDurable, runwayDays, spendCheckLine, sumCheckLine } from "../src/panels/FinancePanel";
+import type { BankPoolSummary, Finance, FinanceFly, FinancePools, FinanceSources, FinanceSpend } from "../src/api";
+import { donationNote, FinanceView, flyCheckLine, flyWindowTotals, inputName, overdrawnParts, poolsBalanceLine, poolsDrawsLine, sourcesCheckLine, pct, poolDurable, runwayDays, spendCheckLine, sumCheckLine } from "../src/panels/FinancePanel";
 
 // the live shape: 1,000 received, 1,100 used (200 overdrawn), 50 expired, 50 left
 const f: Finance = {
@@ -181,5 +181,54 @@ describe("finance page: pools", () => {
   });
   it("leaves the section out when the pools can't be loaded", () => {
     expect(renderToStaticMarkup(<FinanceView f={f} pools={null} />)).not.toContain("Drawn from pools");
+  });
+});
+
+// GET /api/finance/fly: a 10-day window, two buildings; the desk Machine at shared-cpu-2x, the town Machine always on
+const rate = { preset: "shared-cpu-2x", memoryMb: 2048, usdPerMonth: 13.39, usdPerHour: 0.018597 };
+const flyDay = (day: string, deskMs: number, townUsd: number, buildings: FinanceFly["buildings"] = []): FinanceFly["days"][number] =>
+  ({ day, deskMs, deskUsd: Math.round(deskMs / 3_600_000 * rate.usdPerHour * 1e6) / 1e6, townUsd, totalUsd: Math.round((deskMs / 3_600_000 * rate.usdPerHour + townUsd) * 1e6) / 1e6, sessions: buildings.reduce((s, b) => s + b.sessions, 0), buildings });
+const fly: FinanceFly = {
+  windowDays: 10, from: "2026-10-20", to: "2026-10-29",
+  rates: { desk: rate, town: rate, extraRamUsdPerGbMonth: 6, region: "iad", source: "https://docs.fly.io/about/pricing", pricedAt: "2026-10-29" },
+  desksBackend: "fly", townOnFly: true, capUsdPerDay: 10,
+  today: { day: "2026-10-29", deskUsd: 1.2, townUsd: 0.11, totalUsd: 1.31, capUsdPerDay: 10, underCap: true },
+  days: [
+    { ...flyDay("2026-10-29", 0, 0.11), deskUsd: 1.2, totalUsd: 1.31, deskMs: 64.5 * 3_600_000, sessions: 12 },
+    ...Array.from({ length: 9 }, (_, i) => flyDay(`2026-10-${28 - i}`, 2 * 3_600_000, 0.446328)),
+  ],
+  buildings: [{ id: "workshop", name: "Town Workshop", deskMs: 60 * 3_600_000, deskUsd: 1.11582, sessions: 20 }, { id: "bl_b", name: "Bank Transparency", deskMs: 22.5 * 3_600_000, deskUsd: 0.418432, sessions: 5 }],
+  totals: { deskMs: 82.5 * 3_600_000, deskHours: 82.5, deskUsd: 1.534252, townUsd: 4.126952, totalUsd: 5.661204, sessions: 25, unmeasuredSessions: 3 },
+  notCounted: ["Volume storage: $0.15 per GB-month for each desk volume"],
+  assumptions: ["Every desk session is priced at the desk Machine size the town runs today"],
+  sumCheck: { ok: true, diff: 0, identity: "per day desk + town = total; Σ days desk time = Σ buildings desk time", daysOk: true, buildingsOk: true },
+  at: "2026-10-29T12:00:00.000Z",
+};
+
+describe("finance page: hosting (Fly.io)", () => {
+  it("sums the newest days of the window", () => {
+    const week = flyWindowTotals(fly, 7);
+    expect(week.days).toBe(7);
+    expect(week.townUsd).toBeCloseTo(0.11 + 6 * 0.446328, 6);
+    expect(week.deskUsd).toBeCloseTo(1.2 + 6 * 2 * rate.usdPerHour, 5);
+    expect(flyWindowTotals(fly, 99).days).toBe(10);
+  });
+  it("says the Fly figures add up, and what misses when they don't", () => {
+    expect(flyCheckLine(fly)).toEqual({ ok: true, text: "Adds up: every day's desks + town Machine = its total, and the buildings' desk time sums to the days' (83 h)" });
+    expect(flyCheckLine({ ...fly, sumCheck: { ...fly.sumCheck, ok: false, buildingsOk: false, diff: 1_800_000 } }).text).toBe("Does not add up: the buildings' desk time misses the days' by 30 min");
+    expect(flyCheckLine({ ...fly, sumCheck: { ...fly.sumCheck, ok: false, daysOk: false, diff: 0.000002 } }).text).toContain("misses its total by $0.000002");
+  });
+  it("renders today, the week, the window, the rates, the cap, each building and the ✓ line, in dollars", () => {
+    const html = renderToStaticMarkup(<FinanceView f={f} pools={null} fly={fly} />);
+    for (const s of ["Hosting (Fly.io)", "in US dollars", "not Fly&#x27;s bill", "Today (so far)", "$1.20", "$0.11", "$1.31", "Last 7 days", "Last 10 days (2026-10-20 → 2026-10-29)", "Daily desk cap", "$10.00 per day · today under the cap",
+      "shared-cpu-2x, 2 GB: $0.0186/h ($13.39 per 30 days)", "Desk time, last 10 days", "83 h over 25 sessions", "3 timed from start and end", "Town Workshop", "60 h · 20 sessions", "$1.12", "Bank Transparency", "$0.42", "Desks, last 10 days", "$1.53",
+      "Not counted: Volume storage", "How this is estimated", "✓ Adds up: every day", "(Hosting in US dollars)", "/api/finance/fly"]) expect(html).toContain(s);
+  });
+  it("says so when nothing is on Fly or no cap is set", () => {
+    const html = renderToStaticMarkup(<FinanceView f={f} pools={null} fly={{ ...fly, rates: { ...fly.rates, desk: null, town: null }, desksBackend: "docker", townOnFly: false, today: { ...fly.today, capUsdPerDay: null, underCap: null } }} />);
+    for (const s of ["desks are not on Fly (docker)", "the server is not on a Fly Machine: $0", "none set"]) expect(html).toContain(s);
+  });
+  it("leaves the section out when the endpoint can't be loaded", () => {
+    expect(renderToStaticMarkup(<FinanceView f={f} pools={null} />)).not.toContain("Hosting (Fly.io)");
   });
 });
