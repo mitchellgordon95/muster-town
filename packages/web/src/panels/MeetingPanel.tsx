@@ -4,7 +4,7 @@ import type { Meeting, MeetingAttachment, SnapshotBuilding } from "@muster-town/
 import { api } from "../api";
 import { store, useTown, roleOf } from "../state";
 import { Glyph, PanelShell } from "./PanelShell";
-import { Act, Empty, Pill, Section, clock, nameOf, timeAgo } from "./ui";
+import { Act, Empty, Pill, Section, clock, nameOf, timeAgo, useLoad } from "./ui";
 import { portraitUrl } from "../map/sprites";
 import { buildingMeetings, phaseTone, roomMeetings } from "./room";
 import { CallMeetingForm } from "./CallMeetingForm";
@@ -45,8 +45,16 @@ export function MeetingPanel({ id }: { id?: string }) {
 
 /** The room's list: every meeting of the building, upcoming then past (what the building panel's old Meetings tab showed). `skip`: the meeting already shown above it. */
 function RoomMeetings({ building, skip }: { building: SnapshotBuilding; skip?: string }) {
-  const meetings = useTown((s) => s.meetings);
-  const { upcoming, past } = useMemo(() => buildingMeetings(Object.values(meetings), building.id, building.kind === "town-hall"), [meetings, building]);
+  const live = useTown((s) => s.meetings);
+  const rev = useTown((s) => s.rev);
+  // the snapshot carries only scheduled/active meetings; fetch the rest for the past list (as the schedule board does)
+  const all = useLoad(() => api().meetings({}), [rev]);
+  const { upcoming, past } = useMemo(() => {
+    const m = new Map<string, Meeting>();
+    for (const x of all.data ?? []) m.set(x.id, x);
+    for (const x of Object.values(live)) m.set(x.id, x);
+    return buildingMeetings([...m.values()], building.id, building.kind === "town-hall");
+  }, [all.data, live, building]);
   const row = (m: Meeting) => (
     <button key={m.id} className="doc-row" onClick={() => store.open({ kind: "meeting", id: m.id })}>
       <div className="doc-row-title">{m.title}</div>
