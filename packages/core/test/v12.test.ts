@@ -1,11 +1,12 @@
 /** v1.2: dismiss, role migration from a v1.1 DB, places, reconcile, collective moderators. */
 import Database from "better-sqlite3";
 import { BUILTIN_ROLES, Permission } from "@muster-town/schema";
-import { writeFileSync } from "node:fs";
+import { copyFileSync, mkdirSync, readdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import { buildingRoleId, findPath, TOWN_HALL_ID, townRoleId, World } from "../src/index.ts";
-import { freshWorld, seededWorld, tempDir, undoTokenCounters } from "./helpers.ts";
+import { migrate } from "../src/db.ts";
+import { freshWorld, seededWorld, tempDir } from "./helpers.ts";
 
 describe("dismiss", () => {
   it("frees the desk, revokes tokens, removes memberships, cancels assignments, keeps docs; retired hidden from the snapshot", async () => {
@@ -41,62 +42,36 @@ describe("dismiss", () => {
 });
 
 describe("role migration (v1.1 DB)", () => {
-  /** Seed with the current code, then rewrite the data into its v1.1 shape and drop the 005 version row. */
+  /**
+   * A v1.1 DB built forward: a fresh file with only migrations 001–004 applied (the v1.1 schema), then the v1.1 data by SQL.
+   * World.open then runs every later migration on it, so adding a migration never needs an edit here.
+   */
   function v11Db(): string {
-    const { world, dbPath, by } = seededWorld();
-    const moss = by("Moss"), ravi = by("Ravi");
-    world.close();
+    const dir = tempDir(), dbPath = join(dir, "town.db"), migrations = join(dir, "migrations");
+    mkdirSync(migrations);
+    const all = join(import.meta.dirname, "..", "migrations");
+    for (const f of readdirSync(all).filter((f) => /^00[1-4]_.*\.sql$/.test(f))) copyFileSync(join(all, f), join(migrations, f));
     const db = new Database(dbPath);
+    expect(migrate(db, migrations)).toBe(4);
+    const now = new Date().toISOString(), pos = JSON.stringify({ x: 1, y: 1 });
     const oldManager = ["building.manage", "building.assign", "building.review", "building.ban", "building.promote", "doc.write_building", "doc.propose_trophy", "doc.request_human", "meeting.facilitate", "meeting.attend"];
     const oldModerator = ["building.review", "building.ban", "building.promote", "building.assign", "doc.write_building", "doc.propose_trophy", "meeting.attend"];
     const oldAdmin = ["town.manage_buildings", "town.manage_roles", "town.allocate_budget", "town.approve_trophy", "town.approve_request", "building.manage", "building.assign", "building.review", "building.ban", "building.promote", "doc.write_building", "doc.propose_trophy", "doc.request_human", "meeting.facilitate", "meeting.attend"];
-    db.prepare("UPDATE roles SET permissions = ? WHERE name = 'manager'").run(JSON.stringify(oldManager));
-    db.prepare("UPDATE roles SET permissions = ? WHERE id = 'role:admin'").run(JSON.stringify(oldAdmin));
-    db.prepare("UPDATE roles SET id = 'role:carbon-cycle:moderator', name = 'moderator', permissions = ? WHERE id = 'role:carbon-cycle:reviewer'").run(JSON.stringify(oldModerator));
-    db.prepare("UPDATE memberships SET roleId = 'role:carbon-cycle:moderator' WHERE roleId = 'role:carbon-cycle:reviewer'").run();
-    db.prepare("DELETE FROM roles WHERE id = 'role:moderator'").run();
-    db.exec("ALTER TABLE buildings ADD COLUMN reviewPolicy TEXT NOT NULL DEFAULT 'human'"); // dropped by 029 (no review-policy setting)
-    db.prepare("UPDATE buildings SET reviewPolicy = 'moderator' WHERE id = 'carbon-cycle'").run();
-    db.prepare("UPDATE agents SET status = 'awaiting-review' WHERE id = ?").run(ravi.id);
-    db.prepare("DELETE FROM schema_version WHERE version >= 5").run();
-    db.exec("ALTER TABLE sessions DROP COLUMN byModel"); // added by 035 (session usage per model)
-    undoTokenCounters(db); // 034 (token counters)
-    db.exec("ALTER TABLE messages DROP COLUMN docId"); // added by 006 (mentions); a v1.1 DB doesn't have it
-    db.exec("ALTER TABLE buildings DROP COLUMN rules"); // added by 008 (standing rules)
-    db.exec("ALTER TABLE interrupts DROP COLUMN now"); // added by 009 (interrupt now)
-    db.exec("ALTER TABLE buildings DROP COLUMN managerAgentId"); // added by 010 (explicit manager)
-    db.exec("ALTER TABLE assignments DROP COLUMN position"); // added by 011 (assignment queue)
-    db.exec("ALTER TABLE assignments DROP COLUMN fromAssignmentId"); // added by 011
-    db.exec("DROP TABLE bank_inputs; DROP TABLE bank_credits"); // added by 012 (bank)
-    db.exec("DROP TABLE bank_debits"); // added by 017 (bank shares; 023 dropped bank_shares)
-    db.exec("DROP TABLE bank_pools; ALTER TABLE buildings DROP COLUMN poolId"); // added by 023 (accounting pools)
-    db.exec("DROP TABLE usage"); // added by 024 (usage ledger)
-    db.exec("DROP INDEX sessions_grant; DROP TABLE grants; DROP TABLE key_results; ALTER TABLE sessions DROP COLUMN lane; ALTER TABLE sessions DROP COLUMN grantId"); // added by 025 (grants)
-    db.exec("ALTER TABLE buildings DROP COLUMN explorationTokensPerDay; ALTER TABLE buildings DROP COLUMN budgetMode"); // added by 025
-    db.exec("ALTER TABLE assignments DROP COLUMN lane; ALTER TABLE assignments DROP COLUMN grantId; ALTER TABLE assignments DROP COLUMN keyResultId; ALTER TABLE assignments DROP COLUMN gap; ALTER TABLE assignments DROP COLUMN heldReason"); // added by 030 (assignment lanes)
-    db.exec("DROP TABLE skill_files; DROP TABLE skill_pins; DROP INDEX events_type"); // added by 026 (skills)
-    db.exec("DROP TABLE secrets"); // added by 027 (collective secrets)
-    db.exec("ALTER TABLE meetings DROP COLUMN withUserId"); // added by 031 (one-on-one)
-    db.exec("ALTER TABLE assignments DROP COLUMN sourceId"); // added by 036 (human-directed work)
-    db.exec("ALTER TABLE buildings DROP COLUMN blockedAt"); // added by 032 (goal key results; its grants / key_results changes go with 025's tables)
-    db.exec("DROP TABLE access_requests"); // added by 036 (who may interact)
-    db.exec("ALTER TABLE buildings DROP COLUMN furniture"); // added by 013 (movable furniture)
-    db.exec("ALTER TABLE messages DROP COLUMN origin; ALTER TABLE assignments DROP COLUMN origin; ALTER TABLE sessions DROP COLUMN origin"); // added by 041 (wakes origin)
-    db.exec("DROP TABLE objectives; DROP TABLE kpis"); // added by 043 (objectives and KPIs; key_results.objectiveId goes with 025's table)
-    db.exec("DROP TABLE transcripts"); // added by 044 (session transcripts)
-    db.exec("ALTER TABLE docs DROP COLUMN flagPos; ALTER TABLE docs DROP COLUMN pickedUpAt; ALTER TABLE docs DROP COLUMN pickedUpBy"); // added by 042 (flags on the map)
-    db.exec("DROP INDEX agents_fork; ALTER TABLE agents DROP COLUMN forkOf; ALTER TABLE agents DROP COLUMN forkN; ALTER TABLE agents DROP COLUMN familySpentToday"); // added by 048 (manager forks)
-    db.exec("DROP INDEX assignments_chain; ALTER TABLE assignments DROP COLUMN chainId; ALTER TABLE assignments DROP COLUMN queue; ALTER TABLE assignments DROP COLUMN model; ALTER TABLE buildings DROP COLUMN forks"); // added by 048
-    db.exec("DROP INDEX docs_topic; ALTER TABLE docs DROP COLUMN topicOf; DROP TABLE doc_revisions; ALTER TABLE assignments DROP COLUMN pages"); // added by 051 (topic pages)
-    db.exec("DROP TABLE desk_slots"); // added by 050 (desk slots)
-    db.exec("ALTER TABLE agents DROP COLUMN lastSeenAt"); // added by 015 (visitor presence)
-    db.exec("ALTER TABLE assignments DROP COLUMN offered"); // added by 015
-    db.exec("ALTER TABLE assignments DROP COLUMN waitFor; ALTER TABLE assignments DROP COLUMN parked"); // added by 020 (assignment waits)
-    db.exec("ALTER TABLE allocations DROP COLUMN auth; ALTER TABLE allocations DROP COLUMN label; ALTER TABLE allocations DROP COLUMN retired; ALTER TABLE sessions DROP COLUMN funding"); // added by 021 (allocation funding)
-    db.exec("ALTER TABLE agents DROP COLUMN inheritsOwner; ALTER TABLE agents DROP COLUMN deniedPermissions"); // added by 016 (agent permissions)
-    db.exec("ALTER TABLE buildings DROP COLUMN codeAccess"); // added by 022 (collective repo)
-    db.exec("DROP INDEX users_github_id; ALTER TABLE users DROP COLUMN githubLogin; ALTER TABLE users DROP COLUMN githubId; ALTER TABLE users DROP COLUMN avatarUrl"); // added by 014 (GitHub login)
-    expect((db.prepare("SELECT holderId FROM memberships WHERE roleId = 'role:carbon-cycle:moderator'").all() as { holderId: string }[]).map((r) => r.holderId)).toEqual([moss.id]);
+    db.prepare("INSERT INTO users (id, name, createdAt) VALUES ('us_admin', 'Admin', ?)").run(now);
+    const building = db.prepare("INSERT INTO buildings (id, name, kind, headcount, reviewPolicy, createdAt) VALUES (?, ?, ?, ?, ?, ?)");
+    building.run(TOWN_HALL_ID, "Town Hall", "town-hall", 1, "human", now);
+    building.run("carbon-cycle", "Carbon Cycle Lab", "lab", 3, "moderator", now);
+    const role = db.prepare("INSERT INTO roles (id, name, scope, buildingId, permissions, builtin) VALUES (?, ?, ?, ?, ?, 1)");
+    role.run("role:admin", "admin", "town", null, JSON.stringify(oldAdmin));
+    role.run("role:carbon-cycle:manager", "manager", "building", "carbon-cycle", JSON.stringify(oldManager));
+    role.run("role:carbon-cycle:moderator", "moderator", "building", "carbon-cycle", JSON.stringify(oldModerator));
+    const agent = db.prepare("INSERT INTO agents (id, name, kind, buildingId, homeBuildingId, title, pos, status, createdAt) VALUES (?, ?, 'resident', 'carbon-cycle', 'carbon-cycle', ?, ?, ?, ?)");
+    agent.run("ag_moss", "Moss", "Reviewer", pos, "idle", now);
+    agent.run("ag_ravi", "Ravi", "Researcher", pos, "awaiting-review", now);
+    const member = db.prepare("INSERT INTO memberships (roleId, holderKind, holderId) VALUES (?, ?, ?)");
+    member.run("role:admin", "user", "us_admin");
+    member.run("role:carbon-cycle:moderator", "agent", "ag_moss");
+    expect((db.prepare("SELECT version FROM schema_version ORDER BY version").all() as { version: number }[]).map((r) => r.version)).toEqual([1, 2, 3, 4]);
     db.close();
     return dbPath;
   }
