@@ -1,5 +1,5 @@
 import {
-  Agent, CreateBuildingInput, CreateResidentInput, RegisterVisitorInput,
+  Agent, CreateBuildingInput, desksForLot, CreateResidentInput, RegisterVisitorInput,
   type Building, type Lot, type Tile, type User,
 } from "@muster-town/schema";
 import { AppError, badRequest } from "./errors.ts";
@@ -154,14 +154,15 @@ function followBodies(world: World, before: ReturnType<typeof bodiesBefore>, pic
  */
 export function planTown(world: World, lots: Record<string, Lot>, create: (In<typeof CreateBuildingInput> & { lot: Lot }) | undefined, creatorUserId: string | null): { buildings: Building[]; created: Building | null } {
   const map = world.layout;
-  const preview = map.planPreview(lots, create && { name: create.name, headcount: create.headcount, lot: create.lot });
+  const preview = map.planPreview(lots, create && { name: create.name, lot: create.lot });
   if (preview.errors.length) throw badRequest(preview.errors.map((e) => e.message).join(" "));
   const changed = Object.entries(lots).map(([id, lot]) => ({ old: world.buildings.require(id, "building"), lot }))
     .filter(({ old, lot }) => !old.lot || old.lot.x !== lot.x || old.lot.y !== lot.y || old.lot.w !== lot.w || old.lot.h !== lot.h);
   if (!changed.length && !create) return { buildings: [], created: null };
   const before = bodiesBefore(world);
   return world.transaction(() => {
-    for (const { old, lot } of changed) world.buildings.upsert({ ...old, lot });
+    // desks follow the floor space (a sent headcount is ignored): a resized lab gets map.headcountFor, a new one desksForLot
+    for (const { old, lot } of changed) world.buildings.upsert({ ...old, lot, headcount: map.headcountFor(old, lot) });
     map.rebuild();
     const inOld = (pos: Tile) => changed.find(({ old: { lot: l } }) => l && pos.x >= l.x && pos.x < l.x + l.w && pos.y >= l.y && pos.y < l.y + l.h);
     followBodies(world, before, (pos) => {
@@ -170,12 +171,12 @@ export function planTown(world: World, lots: Record<string, Lot>, create: (In<ty
       return map.isWalkable(pos.x, pos.y) ? null : pos;
     });
     for (const { old, lot } of changed) {
-      world.events.append({ type: "town.plan", buildingId: old.id, text: `${old.name} was ${old.lot && (old.lot.w !== lot.w || old.lot.h !== lot.h) ? "resized" : "moved"}`, payload: { by: creatorUserId, before: old.lot ?? null, after: lot } });
+      world.events.append({ type: "town.plan", buildingId: old.id, text: `${old.name} was ${old.lot && (old.lot.w !== lot.w || old.lot.h !== lot.h) ? "resized" : "moved"}`, payload: { by: creatorUserId, before: old.lot ?? null, after: lot, desks: { before: old.headcount, after: world.buildings.require(old.id).headcount } } });
     }
     let created: Building | null = null;
     if (create) {
       const { lot, ...input } = create;
-      created = createBuilding(world, input, creatorUserId, { lot, starterResidents: true });
+      created = createBuilding(world, { ...input, headcount: desksForLot(lot) }, creatorUserId, { lot, starterResidents: true });
       followBodies(world, bodiesBefore(world), (pos) => (map.isWalkable(pos.x, pos.y) ? null : pos));
     }
     return { buildings: changed.map(({ old }) => world.buildings.require(old.id)), created };

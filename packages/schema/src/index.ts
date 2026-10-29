@@ -1821,4 +1821,5 @@ export { toJsonSchema } from "./json-schema.ts";
 export * from "./tokens.ts";
 export * from "./rollup.ts";
 export * from "./deck.ts";
+export * from "./desks.ts";
 export { townEnv, townEnvBoth, ENV_PREFIX, OLD_ENV_PREFIX, type TownEnvName } from "./env.ts";
