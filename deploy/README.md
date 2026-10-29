@@ -139,8 +139,10 @@ at most 10 outbound messages an hour across all keys.
 | `5xx` | 5xx share of HTTP responses, last 5 min (needs ≥ 50 responses) | > 2 % | > 10 % |
 | `ws` | WebSocket errors and abnormal closes, last 5 min | > 20 | > 100 |
 | `sessions` | Claude sessions ending in `error` | ≥ 3 in 15 min | ≥ 50 % of the sessions that ended in 30 min (min 4) |
+| `desk-steal` | steal share (steal / (cpu + steal)) of desk sessions (not `host`) of ≥ 5 min that ended since the last sample | ≥ 25 % | one ≥ 50 %, or two ≥ 35 % within an hour |
 
-An alert clears after 5 samples in a row under yellow. A key that stays red re-alerts hourly. A gap of more than 5 min
+An alert clears after 5 samples in a row under yellow (`desk-steal`: after 5 clean sessions; a sample with no newly ended
+desk session changes nothing). `desk-steal` cpu and steal are the whole desk Machine's (2 vCPUs summed, desk perf step 1). A key that stays red re-alerts hourly. A gap of more than 5 min
 between samples writes a "monitor gap" event when sampling resumes. `GET /api/health` shows
 `monitor: {lastSampleAt, outbound, alerts: [{key, level, since, value}]}` (`lastSampleAt` is null for the first 60 s after boot).
 
@@ -153,7 +155,7 @@ fly secrets set -a muster-town \
 ```
 Test the whole path with one red test alert (admin token; counts toward the 10/h cap):
 `curl -X POST -H "authorization: Bearer $ADMIN_TOKEN" https://muster.town/api/admin/monitor/test` returns
-`{eventId, fyiDocId, sms, email}`, each of `sms`/`email` being `sent`, `skipped` (no secrets, or over the cap) or `error`.
+`{eventId, fyiDocId, sms, email}` (`?metric=desk-steal`, or any key above, tags the test event with that key), each of `sms`/`email` being `sent`, `skipped` (no secrets, or over the cap) or `error`.
 
 #### VPS pinger (Wright's box)
 
