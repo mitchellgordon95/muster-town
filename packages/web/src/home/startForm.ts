@@ -39,3 +39,22 @@ export function errorField(status: number, message: string): keyof StartDraft | 
 
 /** Where sign-in sends a signed-out visitor: GitHub, then back to this form. */
 export const SIGN_IN_TO_START = `/auth/github?return_to=${encodeURIComponent("/#start")}`;
+
+/**
+ * Wait until the new collective answers at `url` (`/<slug>/`): its own `/<slug>/api/health` says `ok`. Before the hosted
+ * app is serving, that path redirects to the homepage (HTML, not JSON) or fails, so only a JSON `ok: true` counts.
+ * True once it answers; false after `tries` attempts `delayMs` apart (the Start card then offers a link instead of a 404).
+ */
+export async function waitForTown(url: string, opts: { fetch?: typeof fetch; tries?: number; delayMs?: number } = {}): Promise<boolean> {
+  const get = opts.fetch ?? fetch;
+  const tries = opts.tries ?? 30, delayMs = opts.delayMs ?? 500;
+  const health = `${url.replace(/\/?$/, "/")}api/health`;
+  for (let i = 0; i < tries; i++) {
+    if (i) await new Promise((r) => setTimeout(r, delayMs));
+    try {
+      const res = await get(health, { cache: "no-store", redirect: "manual" });
+      if (res.ok && ((await res.json()) as { ok?: unknown }).ok === true) return true;
+    } catch { /* not up yet */ }
+  }
+  return false;
+}
