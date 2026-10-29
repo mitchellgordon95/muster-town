@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { renderToStaticMarkup } from "react-dom/server";
-import type { BankPoolSummary, Finance, FinanceSpend } from "../src/api";
-import { FinanceView, overdrawnParts, pct, poolDurable, runwayDays, spendCheckLine, sumCheckLine } from "../src/panels/FinancePanel";
+import type { BankPoolSummary, Finance, FinanceSources, FinanceSpend } from "../src/api";
+import { donationNote, FinanceView, inputName, overdrawnParts, sourcesCheckLine, pct, poolDurable, runwayDays, spendCheckLine, sumCheckLine } from "../src/panels/FinancePanel";
 
 // the live shape: 1,000 received, 1,100 used (200 overdrawn), 50 expired, 50 left
 const f: Finance = {
@@ -83,5 +83,55 @@ describe("finance page: spending", () => {
   });
   it("leaves the section out when the spend can't be loaded", () => {
     expect(renderToStaticMarkup(<FinanceView f={f} pools={null} />)).not.toContain("Spending");
+  });
+});
+
+// GET /api/finance/sources for the same 1,000 received: 800 credited by two inputs (one cancelled), 200 donated (one retired)
+const src: FinanceSources = {
+  inputs: [
+    { id: "in_a", label: "Mitchell's Max plan", source: "subscription", recurrence: "daily", who: "Mitchell", createdAt: "2026-10-20T00:00:00.000Z", cancelledAt: null,
+      tokens: 600, firstAt: "2026-10-20T00:00:00.000Z", lastAt: "2026-10-27T00:00:00.000Z", expiredTokens: 50, credits: [
+        { id: "cr_1", createdAt: "2026-10-20T00:00:00.000Z", expiresAt: "2026-10-21T00:00:00.000Z", tokens: 300, expiredTokens: 50 },
+        { id: "cr_2", createdAt: "2026-10-27T00:00:00.000Z", expiresAt: "2026-10-28T00:00:00.000Z", tokens: 300, expiredTokens: 0 }] },
+    { id: "in_b", label: "", source: "api-key", recurrence: "once", who: "Kelly", createdAt: "2026-10-21T00:00:00.000Z", cancelledAt: "2026-10-25T09:00:00.000Z",
+      tokens: 200, firstAt: "2026-10-21T00:00:00.000Z", lastAt: "2026-10-21T00:00:00.000Z", expiredTokens: 0, credits: [
+        { id: "cr_3", createdAt: "2026-10-21T00:00:00.000Z", expiresAt: null, tokens: 200, expiredTokens: 0 }] },
+  ],
+  donations: [
+    { id: "al_a", label: "For the map", who: "Lena", buildingId: "workshop", buildingName: "Town Workshop", createdAt: "2026-10-22T00:00:00.000Z", auth: "donor-key", retired: false, sizeTokens: 150, spentTokens: 20, tokens: 150 },
+    { id: "al_b", label: "", who: "Ravi", buildingId: "bl_b", buildingName: "Bank Transparency", createdAt: "2026-10-23T00:00:00.000Z", auth: "api-key", retired: true, sizeTokens: 90, spentTokens: 50, tokens: 50 },
+  ],
+  creditedTokens: 800, donatedTokens: 200, totalReceived: 1000, expiredTokens: 50,
+  sumCheck: { ok: true, diff: 0, identity: "credits + donations = total received" }, financeTotal: 1000, matchesFinance: true, at: "2026-10-29T00:00:00.000Z",
+};
+
+describe("finance page: sources", () => {
+  it("names inputs and notes donations counted under their size", () => {
+    expect(inputName(src.inputs[0])).toBe("Mitchell's Max plan");
+    expect(inputName(src.inputs[1])).toBe("API key from Kelly");
+    expect(donationNote(src.donations[0])).toBeNull();
+    expect(donationNote(src.donations[1])).toBe("counted at what it spent (size 90)");
+  });
+  it("checks the subtotals against total received and the Tokens total", () => {
+    expect(sourcesCheckLine(src)).toEqual({ ok: true, text: "Adds up: credited 800 + donated 200 = 1,000, the Tokens section's total" });
+    expect(sourcesCheckLine({ ...src, sumCheck: { ...src.sumCheck, ok: false, diff: 4 } }).text).toMatch(/^Does not add up \(off by 4\)/);
+    const off = sourcesCheckLine({ ...src, financeTotal: 990, matchesFinance: false });
+    expect(off).toEqual({ ok: false, text: "Does not match the Tokens total (off by 10): credited 800 + donated 200 = 1,000, Tokens total 990" });
+  });
+  it("renders each input with its dated credits behind a toggle, each donation, the subtotals and the checked total, above Spending", () => {
+    const html = renderToStaticMarkup(<FinanceView f={f} pools={null} spend={sp} sources={src} />);
+    for (const s of ["Sources", "What the town received and from whom", "Mitchell&#x27;s Max plan", "subscription · daily", "2026-10-20 → 2026-10-27", "600",
+      "API key from Kelly", "cancelled", "Cancelled 2026-10-25", "permanent", "expires 2026-10-21 00:00", "50 expired undrawn",
+      "For the map", "to Town Workshop", "from Ravi", "to Bank Transparency", "counted at what it spent (size 90)", "2026-10-23",
+      "Credited through the Bank", "800", "Donated to buildings", "Total received", "✓ Adds up: credited 800 + donated 200 = 1,000", "/api/finance/sources"]) expect(html).toContain(s);
+    // the credits sit inside the input's <details>, after its <summary>
+    const first = html.slice(html.indexOf("<details"), html.indexOf("</details>"));
+    expect(first).toContain("<summary>");
+    expect(first.slice(first.indexOf("</summary>"))).toContain("expires 2026-10-21 00:00");
+    expect(html.indexOf("Sources")).toBeLessThan(html.indexOf("Spending"));
+    expect(renderToStaticMarkup(<FinanceView f={f} pools={null} sources={{ ...src, financeTotal: 990, matchesFinance: false }} />)).toContain("✗ Does not match the Tokens total (off by 10)");
+  });
+  it("leaves the section out when the sources can't be loaded", () => {
+    expect(renderToStaticMarkup(<FinanceView f={f} pools={null} />)).not.toContain("Credited through the Bank");
   });
 });

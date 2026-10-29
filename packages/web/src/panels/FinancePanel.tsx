@@ -6,9 +6,11 @@
  * (overdrawnBreakdown, dc_4exx02zf9g), which sum to it. Then Spending (gr_8gtgmd828o step 2) from GET /api/finance/spend:
  * `used` by building → grant → assignment, each level collapsible, with the no-grant, no-assignment and unattributed,
  * weight-mismatch (pre-conversion pricing, not spend; step 2b) and not-funded rows that make the top level sum to
- * `used`. Opened from the HUD's "$" or `#/finance`.
+ * `used`. Above it, Sources (gr_gbpbbwy9b8 step 2) from GET /api/finance/sources: each Bank input (open it for its
+ * dated credits) and each direct donation, the two subtotals and Total received, checked against /api/finance `total`.
+ * Opened from the HUD's "$" or `#/finance`.
  */
-import { api, type BankPoolSummary, type Finance, type FinanceSpend, type SpendNode } from "../api";
+import { api, type BankPoolSummary, type Finance, type FinanceSources, type FinanceSpend, type SpendNode } from "../api";
 import { Glyph, PanelShell } from "./PanelShell";
 import { ADJ, ErrorLine, Loading, Section, useLoad } from "./ui";
 
@@ -90,7 +92,83 @@ export function SpendingView({ sp }: { sp: FinanceSpend }) {
   );
 }
 
-export function FinanceView({ f, pools, spend = null }: { f: Finance; pools: BankPoolSummary[] | null; spend?: FinanceSpend | null }) {
+const day = (iso: string | null) => (iso ? iso.slice(0, 10) : "—");
+const SOURCE_NAME = { subscription: "subscription", "api-key": "API key" } as const;
+type SourceInputRow = FinanceSources["inputs"][number];
+type SourceDonationRow = FinanceSources["donations"][number];
+
+/** An input's name: its label, else its source and who added it. */
+export const inputName = (i: SourceInputRow) => i.label || [i.source ? SOURCE_NAME[i.source] : "input", i.who && `from ${i.who}`].filter(Boolean).join(" ");
+
+/** A donation counted under its size (retired, or spent less): the title saying so; null when it counts at its size. */
+export const donationNote = (d: SourceDonationRow) => (d.retired || d.tokens < d.sizeTokens ? `counted at what it spent (size ${n(d.sizeTokens)})` : null);
+
+/** The sources check in words: the subtotals vs Total received, and Total received vs the Tokens section's total. */
+export function sourcesCheckLine(s: FinanceSources): { ok: boolean; text: string } {
+  const sum = `credited ${n(s.creditedTokens)} + donated ${n(s.donatedTokens)} = ${n(s.creditedTokens + s.donatedTokens)}`;
+  if (!s.sumCheck.ok) return { ok: false, text: `Does not add up (off by ${n(s.sumCheck.diff)}): ${sum}, total received ${n(s.totalReceived)}` };
+  if (!s.matchesFinance) return { ok: false, text: `Does not match the Tokens total (off by ${n(s.totalReceived - s.financeTotal)}): ${sum}, Tokens total ${n(s.financeTotal)}` };
+  return { ok: true, text: `Adds up: ${sum}, the Tokens section's total` };
+}
+
+function SourceInputLine({ i }: { i: SourceInputRow }) {
+  const meta = [i.source ? SOURCE_NAME[i.source] : null, i.recurrence, i.who && i.label ? `from ${i.who}` : null, i.cancelledAt ? "cancelled" : null].filter(Boolean).join(" · ");
+  const title = i.cancelledAt ? `Cancelled ${day(i.cancelledAt)}` : (i.id ?? undefined);
+  const line = (
+    <span className="spend-line" title={title}>
+      <span className="spend-name">{inputName(i)}{meta ? <span className="muted"> · {meta}</span> : null}</span>
+      <span className="spend-share muted">{i.firstAt ? (i.firstAt.slice(0, 10) === i.lastAt?.slice(0, 10) ? day(i.firstAt) : `${day(i.firstAt)} → ${day(i.lastAt)}`) : "never credited"}</span>
+      <span className="spend-tokens">{n(i.tokens)}</span>
+    </span>
+  );
+  const cls = `spend-row${i.cancelledAt ? " muted" : ""}`;
+  if (!i.credits.length) return <div className={cls}>{line}</div>;
+  return (
+    <details className={cls}>
+      <summary>{line}</summary>
+      <div className="spend-children">
+        {i.credits.map((c) => (
+          <div key={c.id} className="spend-row">
+            <span className="spend-line">
+              <span className="spend-name">{day(c.createdAt)}<span className="muted"> · {c.expiresAt ? `expires ${c.expiresAt.slice(0, 16).replace("T", " ")}` : "permanent"}{c.expiredTokens > 0 ? ` · ${n(c.expiredTokens)} expired undrawn` : ""}</span></span>
+              <span className="spend-tokens">{n(c.tokens)}</span>
+            </span>
+          </div>
+        ))}
+      </div>
+    </details>
+  );
+}
+
+export function SourcesView({ s }: { s: FinanceSources }) {
+  const check = sourcesCheckLine(s);
+  return (
+    <Section title="Sources">
+      <p className="muted">What the town received and from whom: each Bank input (subscriptions and API keys; open one for its dated credits) and each donation straight to a building ({ADJ}).</p>
+      <div className="spend-tree">
+        {s.inputs.map((i) => <SourceInputLine key={i.id ?? "deleted"} i={i} />)}
+        <div className="spend-row spend-building"><span className="spend-line"><span className="spend-name"><b>Credited through the Bank</b></span><span className="spend-tokens"><b>{n(s.creditedTokens)}</b></span></span></div>
+        {s.donations.map((d) => {
+          const note = donationNote(d);
+          return (
+            <div key={d.id} className="spend-row" title={note ?? d.id}>
+              <span className="spend-line">
+                <span className="spend-name">{d.label || (d.who ? `from ${d.who}` : "donation")}<span className="muted"> · to {d.buildingName}{d.label && d.who ? ` · from ${d.who}` : ""}{note ? ` · ${note}` : ""}</span></span>
+                <span className="spend-share muted">{day(d.createdAt)}</span>
+                <span className="spend-tokens">{n(d.tokens)}</span>
+              </span>
+            </div>
+          );
+        })}
+        <div className="spend-row"><span className="spend-line"><span className="spend-name"><b>Donated to buildings</b></span><span className="spend-tokens"><b>{n(s.donatedTokens)}</b></span></span></div>
+        <div className="spend-row"><span className="spend-line"><span className="spend-name"><b>Total received</b></span><span className="spend-tokens"><b>{n(s.totalReceived)}</b></span></span></div>
+      </div>
+      <div className={check.ok ? "finance-check ok" : "error-line"} role="status">{check.ok ? "✓ " : "✗ "}{check.text}</div>
+    </Section>
+  );
+}
+
+export function FinanceView({ f, pools, spend = null, sources = null }: { f: Finance; pools: BankPoolSummary[] | null; spend?: FinanceSpend | null; sources?: FinanceSources | null }) {
   const check = sumCheckLine(f);
   const runway = runwayDays(f);
   const p = f.projection;
@@ -142,18 +220,19 @@ export function FinanceView({ f, pools, spend = null }: { f: Finance; pools: Ban
         </table>
       </Section>
     ) : null}
+    {sources ? <SourcesView s={sources} /> : null}
     {spend ? <SpendingView sp={spend} /> : null}
-    <p className="muted">As of {f.at.slice(0, 16).replace("T", " ")} UTC · in adjusted output tokens · from <code>GET /api/finance</code>{spend ? <> and <code>/api/finance/spend</code></> : null}</p>
+    <p className="muted">As of {f.at.slice(0, 16).replace("T", " ")} UTC · in adjusted output tokens · from <code>GET /api/finance</code>{sources ? <>, <code>/api/finance/sources</code></> : null}{spend ? <> and <code>/api/finance/spend</code></> : null}</p>
   </>;
 }
 
 export function FinancePanel() {
-  const d = useLoad(() => Promise.all([api().finance(), api().bank().then((b) => b.pools, () => null), api().financeSpend().catch(() => null)]), []);
+  const d = useLoad(() => Promise.all([api().finance(), api().bank().then((b) => b.pools, () => null), api().financeSpend().catch(() => null), api().financeSources().catch(() => null)]), []);
   return (
     <PanelShell icon={<Glyph kind="bank" />} title="Finance" subtitle="What the town received, used, let expire and has left">
       {d.loading && !d.data ? <Loading /> : null}
       <ErrorLine error={d.error} />
-      {d.data ? <FinanceView f={d.data[0]} pools={d.data[1]} spend={d.data[2]} /> : null}
+      {d.data ? <FinanceView f={d.data[0]} pools={d.data[1]} spend={d.data[2]} sources={d.data[3]} /> : null}
     </PanelShell>
   );
 }
