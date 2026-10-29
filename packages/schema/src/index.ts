@@ -199,8 +199,6 @@ export const Building = z.object({
   managerAgentId: Id.nullable().default(null),
   /** residents get code tools on the collective's repo (`Town.workspace`) during work sessions */
   codeAccess: z.boolean().default(false),
-  /** manager forks (dc_mymt27yz25): work `assign`ed without an agent goes on the building queue and runs as forks of the manager; off = nothing changes. A human's call (building.fund). */
-  forks: z.boolean().default(false),
   /** the Bank pool this building draws from; null = the collective's default pool, General (`DEFAULT_POOL_ID`) */
   poolId: Id.nullable().default(null),
   /** goal-directed budgets: tokens per day for exploration work; null = 10% of its pool's daily inflow */
@@ -1376,7 +1374,7 @@ export const BANK_FIXTURES = {
 export const WALKABLE = new Set<number>([TILE.GRASS, TILE.PATH, TILE.FLOOR, TILE.DOOR]);
 
 // ---------- REST payloads ----------
-export const CreateBuildingInput = Building.pick({ name: true, goal: true, description: true, headcount: true, model: true, cheapModel: true, maxTurnsPerSession: true, dailyTokensPerAgent: true, meetings: true, rules: true, codeAccess: true, managerAgentId: true, forks: true }).partial({ goal: true, description: true, headcount: true, model: true, cheapModel: true, maxTurnsPerSession: true, dailyTokensPerAgent: true, meetings: true, rules: true, codeAccess: true, managerAgentId: true, forks: true });
+export const CreateBuildingInput = Building.pick({ name: true, goal: true, description: true, headcount: true, model: true, cheapModel: true, maxTurnsPerSession: true, dailyTokensPerAgent: true, meetings: true, rules: true, codeAccess: true, managerAgentId: true }).partial({ goal: true, description: true, headcount: true, model: true, cheapModel: true, maxTurnsPerSession: true, dailyTokensPerAgent: true, meetings: true, rules: true, codeAccess: true, managerAgentId: true });
 /**
  * `poolId` moves the building to another Bank pool at once (admin only; null = General). `explorationTokensPerDay`
  * and `forks` need `building.fund` (a human), so a manager agent can't raise its own allowance.
@@ -1611,8 +1609,6 @@ export const CollectiveBuildingSpec = z.object({
   meetings: z.array(MeetingCadence).optional(),
   /** residents get code tools on the collective's repo (collective.json `workspace`) */
   codeAccess: z.boolean().optional(),
-  /** manager forks: building-queued work runs as forks of the manager (seed only, like the rest) */
-  forks: z.boolean().optional(),
   residents: z.array(z.object({
     name: z.string(), title: z.string().default(""), direction: z.string().default(""), sprite: z.number().int().optional(), model: z.string().optional(),
     /** town role names granted at seed (e.g. `deployer`) */

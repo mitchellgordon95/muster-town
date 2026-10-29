@@ -6,8 +6,8 @@ import { callVerb, init, result, setup, type FakeSession } from "./helpers.ts";
 
 const REPORT = { title: "Done", verdict: "stop", body: "## What I did\nIt.\n\n## Findings\nThe plan: step A then B.\n\n## What I need from you\nNothing needed." };
 
-/** The seeded lab with Mei as manager, room for two forks, forks on. */
-function forkSetup(script: (s: FakeSession) => AsyncGenerator<unknown, void, unknown>, opts: { forks?: boolean; spare?: number; backend?: DeskBackend } = {}) {
+/** The seeded lab with Mei as manager, room for two forks. */
+function forkSetup(script: (s: FakeSession) => AsyncGenerator<unknown, void, unknown>, opts: { spare?: number; backend?: DeskBackend } = {}) {
   let meiId = "";
   // the manager's own sessions (woken by its forks' reports) just end
   const t = setup(async function* (s) {
@@ -21,7 +21,6 @@ function forkSetup(script: (s: FakeSession) => AsyncGenerator<unknown, void, unk
   const b = world.buildings.require(lab.id);
   // labs are lane-gated: queued exploration needs an allowance
   world.buildings.upsert({ ...b, explorationTokensPerDay: 10_000_000, headcount: world.layout.deskCount(lab.id) + (opts.spare ?? 2) });
-  if (opts.forks !== false) world.ops.updateBuilding(null, lab.id, { forks: true });
   const queue = async (title: string, extra: Record<string, unknown> = {}) =>
     (await world.verbs.assign(world.agents.require(mei.id), { title, description: "Do it.", gap: "test gap", ...extra })).assignmentId;
   return { ...t, mei, queue };
@@ -82,13 +81,12 @@ describe("manager forks: spawn and retire", () => {
     ]);
   });
 
-  test("forks off: building-queue rows can't exist and named residents run as before", async () => {
-    const { world, runtime, by, queue } = forkSetup(async function* (s) {
+  test("named residents' own work runs as before, not as a fork", async () => {
+    const { world, runtime, by } = forkSetup(async function* (s) {
       yield init();
       yield* callVerb(s, "submit_report", REPORT);
       yield result(100, 0.01);
-    }, { forks: false });
-    await expect(queue("Nope")).rejects.toThrow(/forks are off/);
+    });
     world.ops.createWork(null, by("Noor").id, { title: "Named" });
     await pass(runtime);
     expect(world.events.recent({ limit: 200 }).some((e) => e.type === "agent.forked")).toBe(false);

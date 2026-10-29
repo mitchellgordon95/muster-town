@@ -378,11 +378,10 @@ export async function request_human(world: World, me: Agent, input: VerbIn<"requ
 }
 
 export async function assign(world: World, me: Agent, input: VerbIn<"assign">) {
-  // manager forks: no agentId = the building queue (forks on); the manager holds it until a fork takes it
+  // manager forks: no agentId = the building queue; the manager holds it until a fork takes it. agentId = a named agent (the manager taking work itself)
   const building = input.agentId ? null : world.buildings.get(homeOf(me) ?? "");
   if (!input.agentId) {
     if (!building) throw badRequest("Name the agentId to assign.");
-    if (!building.forks) throw badRequest(`Name the agentId to assign: ${building.name} doesn't queue work to the building (forks are off).`);
     if (!managerAgentOf(world, building)) throw badRequest(`${building.name} has no manager agent to fork; name the agentId.`);
   } else if (input.model) throw badRequest("`model` is for building-queue work (leave agentId out); a named agent runs on its own model.");
   const target = building ? managerAgentOf(world, building)! : world.agents.require(input.agentId!, "agent");

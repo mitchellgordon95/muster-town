@@ -247,59 +247,26 @@ function Settings({ b }: { b: SnapshotBuilding }) {
     </Section>
     {b.kind === "town-hall" ? <Section title="Dashboard"><p className="direction">The town goal is three KPIs, Fund, Join and Trust, with every building's objectives under them. <button className="link" onClick={() => store.open({ kind: "dashboard" })}>Open the dashboard</button></p></Section> : null}
     {b.kind !== "town-hall" ? <PoolPicker b={b} /> : null}
-    {b.kind !== "town-hall" && store.can("building.fund", b.id) ? <BudgetMode b={b} /> : null}
+    {b.kind !== "town-hall" && store.can("building.fund", b.id) ? <ExplorationBudget b={b} /> : null}
   </>);
 }
 
-/** The exploration allowance and forks (docs/goal-directed-budgets.md); every lab is goal-directed. Humans who can fund only: a manager agent can't change its own budget. */
-function BudgetMode({ b }: { b: SnapshotBuilding }) {
+/** The exploration allowance (docs/goal-directed-budgets.md); every lab is goal-directed and runs on forks. Humans who can fund only: a manager agent can't change its own budget. */
+function ExplorationBudget({ b }: { b: SnapshotBuilding }) {
   const [explore, setExplore] = useState(b.explorationTokensPerDay == null ? "" : toMillions(b.explorationTokensPerDay));
   return (
-    <Section title="Budget mode">
+    <Section title="Exploration budget">
       <form className="form" onSubmit={(e) => e.preventDefault()}>
         <Field label="Exploration / day" hint="Leave blank for the default: 10% of the pool's daily inflow.">
           <MTokensInput value={explore} placeholder="default" onChange={setExplore} />
         </Field>
-        <ForksToggle b={b} />
         <div className="actions"><Act tone="primary" run={async () => {
           await api().updateBuilding(b.id, { explorationTokensPerDay: explore.trim() === "" ? null : Math.max(0, fromMillions(explore) || 0) });
-          store.toast(`${b.name} budget settings saved`, "ok");
-        }}>Save budget mode</Act></div>
+          store.toast(`${b.name} exploration budget saved`, "ok");
+        }}>Save exploration budget</Act></div>
       </form>
     </Section>
   );
-}
-
-export const FORKS_HINT = "Queued building work runs on forks of the manager";
-
-/** The Forks switch's markup; `on` null = still reading the live value. */
-export function ForksField({ on, busy, onChange }: { on: boolean | null; busy?: boolean; onChange: (on: boolean) => void }) {
-  return (
-    <Field label="Forks" hint={FORKS_HINT}>
-      <span className="check"><input type="checkbox" aria-label="Forks" checked={!!on} disabled={on === null || busy} onChange={(e) => onChange(e.target.checked)} /> {on === null ? "…" : on ? "on" : "off"}</span>
-    </Field>
-  );
-}
-
-/** Manager forks on/off (PATCH /api/buildings/:id {forks}, building.fund); reads the live value from GET /api/buildings/:id and saves on click. */
-function ForksToggle({ b }: { b: SnapshotBuilding }) {
-  const [on, setOn] = useState<boolean | null>(null);
-  const [busy, setBusy] = useState(false);
-  useEffect(() => {
-    let live = true;
-    api().building(b.id).then((x) => { if (live) setOn(x.forks); }, () => { if (live) setOn(b.forks); });
-    return () => { live = false; };
-  }, [b.id, b.forks]);
-  return <ForksField on={on} busy={busy} onChange={async (next) => {
-    setBusy(true);
-    try {
-      const saved = await api().updateBuilding(b.id, { forks: next });
-      setOn(saved.forks);
-      store.toast(`Forks ${saved.forks ? "on" : "off"} for ${b.name}`, "ok");
-    } catch (e) {
-      store.toast((e as Error).message, "bad");
-    } finally { setBusy(false); }
-  }} />;
 }
 
 /** The Bank pool this building draws from. Only an admin can move it; the move takes effect at once. */
