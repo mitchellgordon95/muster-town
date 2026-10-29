@@ -117,7 +117,7 @@ function SourceInputLine({ i }: { i: SourceInputRow }) {
   const line = (
     <span className="spend-line" title={title}>
       <span className="spend-name">{inputName(i)}{meta ? <span className="muted"> · {meta}</span> : null}</span>
-      <span className="spend-share muted">{i.firstAt ? (i.firstAt.slice(0, 10) === i.lastAt?.slice(0, 10) ? day(i.firstAt) : `${day(i.firstAt)} → ${day(i.lastAt)}`) : "never credited"}</span>
+      <span className="spend-share spend-date muted">{i.firstAt ? (i.firstAt.slice(0, 10) === i.lastAt?.slice(0, 10) ? <span className="day">{day(i.firstAt)}</span> : <><span className="day">{day(i.firstAt)} →</span> <span className="day">{day(i.lastAt)}</span></>) : "never credited"}</span>
       <span className="spend-tokens">{n(i.tokens)}</span>
     </span>
   );
@@ -154,7 +154,7 @@ export function SourcesView({ s }: { s: FinanceSources }) {
             <div key={d.id} className="spend-row" title={note ?? d.id}>
               <span className="spend-line">
                 <span className="spend-name">{d.label || (d.who ? `from ${d.who}` : "donation")}<span className="muted"> · to {d.buildingName}{d.label && d.who ? ` · from ${d.who}` : ""}{note ? ` · ${note}` : ""}</span></span>
-                <span className="spend-share muted">{day(d.createdAt)}</span>
+                <span className="spend-share spend-date muted"><span className="day">{day(d.createdAt)}</span></span>
                 <span className="spend-tokens">{n(d.tokens)}</span>
               </span>
             </div>

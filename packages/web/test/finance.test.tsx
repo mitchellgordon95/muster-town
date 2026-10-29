@@ -120,7 +120,7 @@ describe("finance page: sources", () => {
   });
   it("renders each input with its dated credits behind a toggle, each donation, the subtotals and the checked total, above Spending", () => {
     const html = renderToStaticMarkup(<FinanceView f={f} pools={null} spend={sp} sources={src} />);
-    for (const s of ["Sources", "What the town received and from whom", "Mitchell&#x27;s Max plan", "subscription · daily", "2026-10-20 → 2026-10-27", "600",
+    for (const s of ["Sources", "What the town received and from whom", "Mitchell&#x27;s Max plan", "subscription · daily", '<span class="day">2026-10-20 →</span> <span class="day">2026-10-27</span>', "600",
       "API key from Kelly", "cancelled", "Cancelled 2026-10-25", "permanent", "expires 2026-10-21 00:00", "50 expired undrawn",
       "For the map", "to Town Workshop", "from Ravi", "to Bank Transparency", "counted at what it spent (size 90)", "2026-10-23",
       "Credited through the Bank", "800", "Donated to buildings", "Total received", "✓ Adds up: credited 800 + donated 200 = 1,000", "/api/finance/sources"]) expect(html).toContain(s);
