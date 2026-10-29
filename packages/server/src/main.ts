@@ -106,6 +106,7 @@ async function main() {
   console.log(`[server] MCP endpoint: ${url}/mcp (agent tokens only)`);
   backup.start();
   monitor.start();
+  directory?.start();
 
   try {
     if (!runtimeMod) throw new Error(runtimeError);
