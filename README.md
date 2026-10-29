@@ -127,4 +127,4 @@ docs/                     design.md (vision and decisions), architecture.md (a 1
 legacy/                   v0 (Phaser + folder-based runner), kept for reference
 ```
 
-`npm run typecheck && npm test` must pass before committing. API routes are listed in `docs/architecture.md`.
+`npm run check` must pass before committing: the same check CI runs (`scripts/check.ts`: check:docs, check:deadcode, typecheck, tests), ending with one timing line per step. `npm run check --fast` is the repeat run after a small change (no knip; only the tests affected since the merge-base with origin/main; typecheck is incremental either way). API routes are listed in `docs/architecture.md`.

@@ -1,0 +1,7 @@
+{
+  // One program for the six node packages, used by `npm run typecheck` / `npm run check` (scripts/check.ts). Run
+  // separately, each package re-checks core and schema; together they take ~15 s instead of ~47 s on a 2-vCPU desk.
+  // web has its own options (DOM, Bundler, JSX) and stays a second program. The tsbuildinfo cache is not committed.
+  "compilerOptions": { "target": "ES2022", "module": "NodeNext", "moduleResolution": "NodeNext", "strict": true, "skipLibCheck": true, "noEmit": true, "allowImportingTsExtensions": true, "esModuleInterop": true, "types": ["node"], "incremental": true, "tsBuildInfoFile": "node_modules/.cache/tsc/node.tsbuildinfo" },
+  "include": ["packages/schema/src", "packages/core/src", "packages/core/test", "packages/runtime/src", "packages/runtime/test", "packages/server/src", "packages/server/test", "packages/cli/src", "packages/cli/test", "packages/desk/src", "packages/desk/test"]
+}

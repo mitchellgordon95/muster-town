@@ -7,7 +7,8 @@
   ],
   "scripts": {
     "build": "npm run build -ws --if-present",
-    "typecheck": "npm run typecheck -ws --if-present",
+    "typecheck": "tsx scripts/check.ts typecheck",
+    "check": "tsx scripts/check.ts",
     "check:docs": "tsx scripts/check-doc-refs.ts",
     "check:deadcode": "knip --include files,dependencies,unlisted,binaries --no-progress",
     "test": "npm run test -ws --if-present",
