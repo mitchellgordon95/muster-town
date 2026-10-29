@@ -1,7 +1,7 @@
 import { World } from "@muster-town/core";
 import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
 import { buildApp } from "../src/app.ts";
-import { Directory, LIMITS, newToken } from "../src/directory/index.ts";
+import { Directory, directoryEnabled, LIMITS, newToken } from "../src/directory/index.ts";
 import { normalizeHost } from "../src/directory/net.ts";
 
 describe("normalizeHost", () => {
@@ -19,6 +19,20 @@ describe("normalizeHost", () => {
     "x.invalid", "x.test", "x.example", "muster.town", "garden.muster.town", "-bad.example.org", "bad-.example.org",
     "a..b.org", "host.123", "a_b.example.org", "x".repeat(64) + ".org",
   ])("rejects %j", (input) => expect(normalizeHost(input)).toHaveProperty("error"));
+});
+
+describe("directoryEnabled", () => {
+  it("the flag decides; unset, on only for muster.town", () => {
+    expect(directoryEnabled("on", undefined)).toBe(true);
+    expect(directoryEnabled(" ON ", "https://example.org")).toBe(true);
+    expect(directoryEnabled("off", "https://muster.town")).toBe(false);
+    expect(directoryEnabled(undefined, "https://muster.town")).toBe(true);
+    expect(directoryEnabled("", "https://muster.town/")).toBe(true);
+    expect(directoryEnabled(undefined, "https://town.example.org")).toBe(false);
+    expect(directoryEnabled(undefined, "https://www.muster.town")).toBe(false);
+    expect(directoryEnabled(undefined, undefined)).toBe(false);
+    expect(directoryEnabled(undefined, "not a url")).toBe(false);
+  });
 });
 
 describe("Directory", () => {

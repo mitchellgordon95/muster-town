@@ -12,7 +12,7 @@ import { buildApp } from "./app.ts";
 import { BackupJob } from "./backup/index.ts";
 import { loadAuthSettings } from "./auth/index.ts";
 import { Hub } from "./hub.ts";
-import { Directory } from "./directory/index.ts";
+import { Directory, directoryEnabled } from "./directory/index.ts";
 import { Counters, defaultMetrics, Monitor, processProbes } from "./monitor.ts";
 import { desksFromEnv, loadEnvFile } from "./env.ts";
 import type { RuntimeHooks } from "./context.ts";
@@ -61,8 +61,10 @@ async function main() {
   const counters = new Counters();
   const probes = processProbes(world, DATA_DIR, () => backup.snapshot(), counters);
   const monitor = new Monitor({ world, metrics: defaultMetrics(probes), counters });
-  // the self-hosted towns directory (design dc_d6chojzl2a): muster.town only (fly.town.toml); behind Fly's proxy the client IP is Fly-Client-IP
-  const directory = townEnv("DIRECTORY")?.trim().toLowerCase() === "on" ? new Directory({ world, clientIpHeader: process.env.FLY_APP_NAME ? "fly-client-ip" : null }) : null;
+  // the self-hosted towns directory (design dc_d6chojzl2a): muster.town only; behind Fly's proxy the client IP is Fly-Client-IP.
+  // MUSTER_TOWN_DIRECTORY=on|off decides; unset, it is on where MUSTER_TOWN_PUBLIC_URL is muster.town (an [env] change in
+  // fly.town.toml reaches the Machine only with an image deploy, the town's redeploy is code only)
+  const directory = directoryEnabled(townEnv("DIRECTORY"), townEnv("PUBLIC_URL")) ? new Directory({ world, clientIpHeader: process.env.FLY_APP_NAME ? "fly-client-ip" : null }) : null;
   const runtimeMod = await loadRuntime();
   /** the server's own URL, once it listens: hosted runtimes call their MCP endpoint at <url>/<slug>/mcp */
   let url: string | null = null;

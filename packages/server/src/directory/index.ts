@@ -22,6 +22,20 @@ export const LIST_CACHE_MS = MIN;
 /** in-memory and per process (one Machine; a restart resets them, which is acceptable) */
 export const LIMITS = { registerPerIpPerDay: 10, pendingPerIp: 5, newPerDay: 200, maxVerified: 500, maxPending: 200 };
 
+/**
+ * Whether this town runs the directory: MUSTER_TOWN_DIRECTORY=on|off decides; unset, it is on only where MUSTER_TOWN_PUBLIC_URL is
+ * muster.town (an [env] change in fly.town.toml reaches the Machine only with an image deploy; the town's redeploy is code only).
+ */
+export function directoryEnabled(flag: string | undefined, publicUrl: string | undefined): boolean {
+  const f = flag?.trim().toLowerCase();
+  if (f) return f === "on";
+  try {
+    return publicUrl ? new URL(publicUrl).hostname.toLowerCase() === "muster.town" : false;
+  } catch {
+    return false;
+  }
+}
+
 export interface DirectoryOptions {
   world: World;
   now?: () => number;
