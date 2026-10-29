@@ -130,13 +130,13 @@ export function drawBubble(g: CanvasRenderingContext2D, x: number, y: number, b:
 }
 
 /** Count badge (the in-tray on a manager's desk; "×N" over stacked bodies), centred at (x, y). */
-/** `neutral`: grey (a stack's ×N, a count of bodies, not a problem); red otherwise. Returns its box, for hit-testing. */
-export function drawBadge(g: CanvasRenderingContext2D, x: number, y: number, n: number | string, tone: "bad" | "neutral" = "bad", hl = false) {
+/** `neutral`: grey (a stack's ×N, a count of bodies, not a problem); `scheduled`: blue (work waiting on a time); red otherwise. Returns its box, for hit-testing. */
+export function drawBadge(g: CanvasRenderingContext2D, x: number, y: number, n: number | string, tone: "bad" | "neutral" | "scheduled" = "bad", hl = false) {
   const text = typeof n === "string" ? n : n > 99 ? "99+" : String(n);
   g.font = "700 10px ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, sans-serif";
   const w = Math.max(16, g.measureText(text).width + 9), h = 16;
   const bx = Math.round(x - w / 2), by = Math.round(y - h / 2);
-  g.fillStyle = tone === "neutral" ? "#5d6177" : "#e5484d"; g.strokeStyle = hl ? "#fff" : "#14151c"; g.lineWidth = 2;
+  g.fillStyle = tone === "neutral" ? "#5d6177" : tone === "scheduled" ? "#2f6fd6" : "#e5484d"; g.strokeStyle = hl ? "#fff" : "#14151c"; g.lineWidth = 2;
   roundRect(g, bx, by, w, h, 8); g.stroke(); g.fill();
   g.fillStyle = "#fff"; g.textBaseline = "middle"; g.textAlign = "center";
   g.fillText(text, x, by + h / 2 + 0.5);

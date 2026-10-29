@@ -9,7 +9,7 @@ import { Glyph, PanelShell } from "./PanelShell";
 import { Meter } from "./AgentPanel";
 import { DismissButton, canDismiss } from "./Dismiss";
 import { ADJ, Act, Empty, ErrorLine, Field, KV, Loading, MTokensInput, NumberInput, Pill, Section, StatusPill, fmtTokens, nameOf, usd, useLoad } from "./ui";
-import { fromMillions, toMillions } from "../format";
+import { fromMillions, runsAtLabel, toMillions } from "../format";
 import { PALETTES, portraitUrl } from "../map/sprites";
 import { layoutEdit } from "../map/layoutEdit";
 import { canOneOnOne, openOneOnOne } from "./oneOnOne";
@@ -93,6 +93,7 @@ function Overview({ b }: { b: SnapshotBuilding }) {
           </button>
         </div>
       ) : null}
+      <ScheduledList b={b} />
       <KV items={[
         ["Adj. tokens used", usage ? <><b>{fmtTokens(usage.today)}</b> today · <b>{fmtTokens(usage.allTime)}</b> all-time</> : budget.loading ? "…" : "—"],
         ...(b.kind !== "town-hall" ? [
@@ -108,6 +109,24 @@ function Overview({ b }: { b: SnapshotBuilding }) {
         ] : []) as [string, ReactNode][],
       ]} />
     </>
+  );
+}
+
+/** The building's queued work waiting on a time (GET /api/scheduled): scheduled, not blocked; soonest first. */
+export function ScheduledList({ b }: { b: SnapshotBuilding }) {
+  const all = useTown((s) => s.scheduled);
+  const agents = useTown((s) => s.agents);
+  const rows = useMemo(() => all.filter((x) => x.buildingId === b.id), [all, b.id]);
+  if (!rows.length) return null;
+  return (
+    <Section title={<>Scheduled <Pill tone="scheduled">{rows.length}</Pill></>}>
+      <div className="doc-list">{rows.map((x) => (
+        <button key={x.assignmentId} type="button" className="doc-row" title="Open the queue it sits in" onClick={() => store.open({ kind: "agent", id: x.agentId, tab: "Assignments" })}>
+          <b>{x.title}</b>
+          <div className="doc-row-meta"><span>runs at {runsAtLabel(x.runsAt)}</span><span>{x.queue === "building" ? "building queue (a fork runs it)" : agents[x.agentId]?.name ?? x.agentId}</span></div>
+        </button>
+      ))}</div>
+    </Section>
   );
 }
 

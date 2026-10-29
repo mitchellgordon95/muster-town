@@ -10,6 +10,7 @@
 import type { Agent, Assignment, Building, Doc } from "@muster-town/schema";
 import { buildingQueue, createDoc, homeOf, updateDoc } from "./domain.ts";
 import { AppError } from "./errors.ts";
+import { scheduledAt } from "./blockers.ts";
 import { reportChain } from "./forks.ts";
 import { docGist, ftsQuery, oneLine, relativeTime } from "./text.ts";
 import { nowIso } from "./util.ts";
@@ -304,7 +305,7 @@ ${lines.length ? lines.join("\n") : "(no other residents yet)"}`;
 /**
  * "## Your team" when the building has forks on (design note dc_mymt27yz25 §5): work goes on the building queue and a
  * fork of the manager runs it, so instead of per-resident queues it lists the live forks and the building queue
- * (pending, held, waiting), and the routing rule is "attach the topic pages that cover it", not "pick the resident".
+ * (pending, held, waiting, scheduled: a time still ahead, not a block), and the routing rule is "attach the topic pages that cover it", not "pick the resident".
  */
 export function forkTeamBlock(world: World, building: Building, managerId: string): string {
   const forks = world.agents.where("forkOf = ? AND status NOT IN ('retired', 'banned')", [managerId], "ORDER BY forkN");
@@ -314,15 +315,16 @@ export function forkTeamBlock(world: World, building: Building, managerId: strin
     return `- ${f.name} (${f.id}): ${f.status}${cur ? ` on "${oneLine(cur.title, 60)}" (${cur.id})` : ""}${chain ? ` · chain ${chain.chainId} · hop ${chain.hop}` : ""}`;
   });
   const queue = buildingQueue(world, building.id);
-  const state = (a: Assignment) => a.heldReason ? `held: ${oneLine(a.heldReason, 60)}` : a.waitFor ? `waiting: ${oneLine(JSON.stringify(a.waitFor), 60)}` : "pending";
-  const counts = { pending: 0, held: 0, waiting: 0 };
-  for (const a of queue) counts[a.heldReason ? "held" : a.waitFor ? "waiting" : "pending"]++;
+  const kind = (a: Assignment) => a.heldReason ? "held" : scheduledAt(a) ? "scheduled" : a.waitFor ? "waiting" : "pending";
+  const state = (a: Assignment) => ({ held: `held: ${oneLine(a.heldReason ?? "", 60)}`, scheduled: `scheduled: runs at ${scheduledAt(a)?.slice(0, 16).replace("T", " ")} UTC`, waiting: `waiting: ${oneLine(JSON.stringify(a.waitFor), 60)}`, pending: "pending" })[kind(a)];
+  const counts = { pending: 0, held: 0, waiting: 0, scheduled: 0 };
+  for (const a of queue) counts[kind(a)]++;
   const queueLines = queue.slice(0, 12).map((a) => `- ${a.id} "${oneLine(a.title, 60)}": ${state(a)}`);
   if (queue.length > 12) queueLines.push(`- … and ${queue.length - 12} more`);
   return `## Your team (you are the manager of the ${building.name}; forks are on)
 Humans talk to you; forks don't take messages, they work from assignments. When a human writes to you, reply with \`tell\` first, then turn what they want into assignments with \`assign\` and no agentId: it goes on the building queue and a fork of you runs it. Attach the topic pages that cover it (\`assign\` pages, at most 3) so the fork starts from what the building knows; one assignment per piece of work, and say in your report what went on the queue. Do the work yourself only when it is yours.
 Live forks (${forks.length}):
 ${forkLines.length ? forkLines.join("\n") : "(none running)"}
-Building queue (${counts.pending} pending, ${counts.held} held, ${counts.waiting} waiting):
+Building queue (${counts.pending} pending, ${counts.held} held, ${counts.waiting} waiting, ${counts.scheduled} scheduled):
 ${queueLines.length ? queueLines.join("\n") : "(empty)"}`;
 }

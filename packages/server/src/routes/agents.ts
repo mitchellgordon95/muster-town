@@ -1,4 +1,4 @@
-import { AppError, blockedBy, forkSummary, forksOf, canInteract, logOf, sessionView, suggestResidentName, townBlocked, topicsOf, wikiOf, type World } from "@muster-town/core";
+import { AppError, blockedBy, forkSummary, forksOf, canInteract, logOf, sessionView, suggestResidentName, townBlocked, townScheduled, topicsOf, wikiOf, type World } from "@muster-town/core";
 import { AgentModelPatch, AgentPermissionsPatch, ChatInput, CreateResidentInput, Event, InterruptInput, MessageAgentInput, RegisterVisitorInput, WorkInput, type Agent, type Session } from "@muster-town/schema";
 import type { FastifyInstance, FastifyRequest } from "fastify";
 import { z } from "zod";
@@ -125,6 +125,8 @@ export async function agentRoutes(app: FastifyInstance) {
 
   /** Every agent's blocked queued assignments with the reason (the map's blocked badges and red lines): { agents: { [agentId]: BlockedAssignment[] } } */
   app.get("/api/blocked", async () => ({ agents: townBlocked(world) }));
+  /** Queued assignments waiting on a time (scheduled, not blocked), soonest first: { assignments: ScheduledAssignment[] } */
+  app.get("/api/scheduled", async () => ({ assignments: townScheduled(world) }));
 
   app.get<{ Params: Params }>("/api/agents/:id/session", async (req) => {
     const agent = world.agents.require(req.params.id, "agent");

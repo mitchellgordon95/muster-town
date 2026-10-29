@@ -5,6 +5,22 @@ export function stoplightLabel(light: "green" | "yellow" | "red"): string {
   return light === "green" ? "Running" : light === "yellow" ? "Partly blocked" : "Blocked";
 }
 
+/**
+ * When a scheduled assignment runs (its `waitFor {after}`), in the viewer's time and in UTC: "Thu 29 Oct, 16:00 your
+ * time · 20:00 UTC"; just the UTC part when the viewer is on UTC. `now` decides whether the day is shown ("today").
+ */
+export function runsAtLabel(iso: string, now: Date = new Date()): string {
+  const d = new Date(iso);
+  const hm = (h: number, m: number) => `${String(h).padStart(2, "0")}:${String(m).padStart(2, "0")}`;
+  const utc = `${hm(d.getUTCHours(), d.getUTCMinutes())} UTC`;
+  const sameUtcDay = d.toISOString().slice(0, 10) === now.toISOString().slice(0, 10);
+  const utcDay = sameUtcDay ? "" : `${d.toLocaleDateString("en-GB", { weekday: "short", day: "numeric", month: "short", timeZone: "UTC" })}, `;
+  if (d.getTimezoneOffset() === 0) return `${utcDay}${utc}`;
+  const sameDay = d.toDateString() === now.toDateString();
+  const day = sameDay ? "" : `${d.toLocaleDateString("en-GB", { weekday: "short", day: "numeric", month: "short" })}, `;
+  return `${day}${hm(d.getHours(), d.getMinutes())} your time · ${utcDay}${utc}`;
+}
+
 /** The Bank's unit (step 3): every token figure is adjusted output tokens; this is its short label. */
 export const ADJ = "adj. tokens";
 /** What the unit means, for a hover title. */

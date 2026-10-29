@@ -11,6 +11,7 @@ import { layoutEdit, type LayoutDraft } from "./layoutEdit";
 import { townPlan, type PlanDraft } from "./townPlan";
 import { bubbleFor, buildingBudgetLine, drawBadge, drawFlag, drawBankSign, drawBlockLine, drawBubble, drawLabel, drawPill, drawSign, drawTip, residentBudgetLine, type Bubble } from "./overlay";
 import { blockedByRedeploy } from "../redeploy";
+import { runsAtLabel } from "../format";
 import { api } from "../api";
 import { drawFlow, type Flow } from "./flow";
 import { fitZoom, quickWalkGoal } from "./overview";
@@ -215,7 +216,7 @@ export class MapRenderer {
     return null;
   }
 
-  /** Agent whose red "blocked N" badge is under a screen point (CSS px). */
+  /** Agent whose red "blocked N" or blue "scheduled N" badge is under a screen point (CSS px). */
   blockAt(cx: number, cy: number): string | null {
     for (let i = this.blockHits.length - 1; i >= 0; i--) {
       const h = this.blockHits[i];
@@ -606,12 +607,18 @@ export class MapRenderer {
       const q = toScreen(d.x + d.w / 2, d.y - d.h + 2);
       if (q.x > -40 && q.x < cw + 40 && q.y > -40 && q.y < ch + 40) drawBadge(g, q.x, q.y, `×${st.n}`, "neutral");
     }
-    // a red "blocked N" over the head of each agent whose queue can't start: hover lists the reasons, click opens the queue
+    // a red "blocked N" over the head of each agent whose queue can't start, and a blue "scheduled N" (above it, when both)
+    // for queued work waiting on a time: hover lists the reasons and run times, click opens the queue
     this.blockHits = [];
-    for (const d of blockedNow) {
+    const sched = new Map<string, number>();
+    for (const x of s.scheduled) sched.set(x.agentId, (sched.get(x.agentId) ?? 0) + 1);
+    for (const d of list) {
+      const nb = blockedNow.includes(d) ? s.blocked[d.id].length : 0, ns = d.id !== "__me" ? sched.get(d.id) ?? 0 : 0;
+      if (!nb && !ns) continue;
       const q = toScreen(d.x - d.w / 2, d.y - d.h + 2);
       if (q.x < -60 || q.x > cw + 60 || q.y < -40 || q.y > ch + 40) continue;
-      this.blockHits.push({ id: d.id, ...drawBadge(g, q.x - 18, q.y, `blocked ${s.blocked[d.id].length}`, "bad", d.id === this.hoverBlock) });
+      if (nb) this.blockHits.push({ id: d.id, ...drawBadge(g, q.x - 18, q.y, `blocked ${nb}`, "bad", d.id === this.hoverBlock) });
+      if (ns) this.blockHits.push({ id: d.id, ...drawBadge(g, q.x - 18, nb ? q.y - 19 : q.y, `scheduled ${ns}`, "scheduled", d.id === this.hoverBlock) });
     }
     // in-tray badges on the managers' desks, after the name labels so a body standing at the in-tray never covers them: the desk is the tile above the place's standing spot, or below it
     // (the Town Hall in-tray, and rooms south of the road)
@@ -646,10 +653,12 @@ export class MapRenderer {
     }
     // the hovered blocked badge's reasons, above everything
     const tipFor = this.hoverBlock ? this.blockHits.find((h) => h.id === this.hoverBlock) : undefined;
-    const rows = tipFor ? s.blocked[tipFor.id] : undefined;
-    if (tipFor && rows?.length) {
+    const rows = tipFor ? s.blocked[tipFor.id] ?? [] : [];
+    const later = tipFor ? s.scheduled.filter((x) => x.agentId === tipFor.id) : [];
+    if (tipFor && (rows.length || later.length)) {
       const name = s.agents[tipFor.id]?.name ?? "";
-      drawTip(g, tipFor.x, tipFor.y + tipFor.h + 4, `${name}: ${rows.length} queued, can't start (click for the queue)`, rows.map((r) => `${r.title}: ${r.blockedBy.text}`), cw, ch);
+      const head = [rows.length ? `${rows.length} queued, can't start` : "", later.length ? `${later.length} scheduled` : ""].filter(Boolean).join("; ");
+      drawTip(g, tipFor.x, tipFor.y + tipFor.h + 4, `${name}: ${head} (click for the queue)`, [...rows.map((r) => `${r.title}: ${r.blockedBy.text}`), ...later.map((x) => `${x.title}: runs at ${runsAtLabel(x.runsAt)}`)], cw, ch);
     }
     // a hovered fork: "fork of Pix · as_…" under its label
     const hf = !tipFor && this.hoverId ? s.agents[this.hoverId] : undefined;
