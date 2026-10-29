@@ -111,7 +111,7 @@ reference survives the meeting. The web shows it under the bubble (MeetingPanel 
 
 ## 9. One "Call a meeting" form, presets (gr_jh0lu0w6yj step 2; Lena's design dc_tcoy1plt2r)
 
-One form (web `panels/CallMeetingForm.tsx`) in Building → Meetings and in the meeting room (open in an empty room, folded under a finished meeting as "Call another meeting"). The 1:1 stays its own "Talk to ★" button.
+One form (web `panels/CallMeetingForm.tsx`) in the meeting room (open in an empty room, folded under a finished meeting as "Call another meeting"). The room is the only entry point (the building panel has no Meetings tab since Mitchell's 1:1 mt_auczm6f1j1): click the table on the map, walk up and press E, or Overview → "Walk to the meeting table"; it lists the building's meetings, upcoming then past, and shows the live one with the rest folded under it. A link into the old tab opens the room (web `panels/room.ts` `redirectPanel`). The 1:1 stays its own "Talk to ★" button.
 
 - **Preset** (`MEETING_PRESETS` in schema, shared by web and tests): Standup, Town hall, Review the in-tray, Retro, Planning, Blank. It pre-fills the fields below and is stored only as `kind` (labels; `in-tray-review` and `ad-hoc` are new). Every field stays editable.
 - **Agenda**: items, stored as numbered lines in `Meeting.agenda` (core `agendaText`). The facilitator is told "Cover these, in order, before your own items"; empty = it proposes 2-4.

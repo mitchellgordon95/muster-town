@@ -8,6 +8,7 @@ import { mapFlagOf, ServerMessage } from "@muster-town/schema";
 import type { Agent, Assignment, AuthMe, BlockedAssignment, Doc, Event, MapFlag, Meeting, Permission, Place, SnapshotBuilding, Town, TownHealth } from "@muster-town/schema";
 import type { Bank, Grid, Snapshot } from "./api";
 import { redeployStatus, type RedeployLiveAt } from "./redeploy";
+import { redirectPanel } from "./panels/room";
 
 /**
  * Every panel is a place: walk up and press E. `intray`/`board`/`cabinet` take a building id; the Town Hall places
@@ -247,7 +248,7 @@ class Store {
   }
   putMeeting(m: Meeting) { this.set({ meetings: { ...this.state.meetings, [m.id]: m } }); }
 
-  open(panel: PanelRef | null) { this.set({ panel: panel?.kind === "admin" ? { ...panel, kind: "planning" } : panel }); }
+  open(panel: PanelRef | null) { this.set({ panel: redirectPanel(panel) }); }
   /** Walk the avatar to a place (animated when a path exists, else teleport), then open `panel`. Set by the map. */
   walkTo: (placeId: string, panel?: PanelRef) => boolean = () => false;
   toast(text: string, tone: Toast["tone"] = "info", panel?: PanelRef) {

@@ -4,10 +4,9 @@ import type { Meeting, MeetingAttachment, SnapshotBuilding } from "@muster-town/
 import { api } from "../api";
 import { store, useTown, roleOf } from "../state";
 import { Glyph, PanelShell } from "./PanelShell";
-import { phaseTone } from "./BuildingPanel";
 import { Act, Empty, Pill, Section, clock, nameOf, timeAgo } from "./ui";
 import { portraitUrl } from "../map/sprites";
-import { roomMeetings } from "./room";
+import { buildingMeetings, phaseTone, roomMeetings } from "./room";
 import { CallMeetingForm } from "./CallMeetingForm";
 import { endMeetingConfirm } from "./endMeeting";
 import { SignInNote } from "../auth/auth";
@@ -24,10 +23,9 @@ export function MeetingPanel({ id }: { id?: string }) {
   const buildings = useTown((s) => s.buildings);
   const roomOf = id?.startsWith("room:") ? id.slice(5) : null;
   const building = roomOf ? buildings.find((b) => b.id === roomOf) : null;
-  const { meeting, last } = useMemo(() => {
-    if (id && !roomOf) return { meeting: meetings[id] ?? null, last: null };
-    const { live, last } = roomMeetings(Object.values(meetings), roomOf ?? "", building?.kind === "town-hall");
-    return { meeting: live, last };
+  const meeting = useMemo(() => {
+    if (id && !roomOf) return meetings[id] ?? null;
+    return roomMeetings(Object.values(meetings), roomOf ?? "", building?.kind === "town-hall").live;
   }, [id, roomOf, meetings, building]);
   // fetch if we only have an id
   useEffect(() => { if (id && !roomOf && !meetings[id]) api().meeting(id).then((m) => store.putMeeting(m), () => undefined); }, [id, roomOf, meetings]);
@@ -37,15 +35,30 @@ export function MeetingPanel({ id }: { id?: string }) {
       <PanelShell icon={<Glyph kind="meeting" />} title={building ? `${building.name} meeting room` : "Meeting"} subtitle="No meeting here right now">
         <Empty>The table is empty.{building && canCall(building.id) ? " Call a meeting and the residents will send their summaries." : ""}</Empty>
         {building ? <CallMeeting building={building} /> : null}
-        {last ? (
-          <div className="actions center">
-            <button className="btn" onClick={() => store.open({ kind: "meeting", id: last.id })}>Last meeting: {last.title} ({last.phase}, {timeAgo(last.endedAt ?? last.createdAt)})</button>
-          </div>
-        ) : null}
+        {building ? <RoomMeetings building={building} /> : null}
       </PanelShell>
     );
   }
-  return <MeetingView m={meeting} />;
+  return <MeetingView m={meeting} room={building ?? undefined} />;
+}
+
+/** The room's list: every meeting of the building, upcoming then past (what the building panel's old Meetings tab showed). `skip`: the meeting already shown above it. */
+function RoomMeetings({ building, skip }: { building: SnapshotBuilding; skip?: string }) {
+  const meetings = useTown((s) => s.meetings);
+  const { upcoming, past } = useMemo(() => buildingMeetings(Object.values(meetings), building.id, building.kind === "town-hall"), [meetings, building]);
+  const row = (m: Meeting) => (
+    <button key={m.id} className="doc-row" onClick={() => store.open({ kind: "meeting", id: m.id })}>
+      <div className="doc-row-title">{m.title}</div>
+      <div className="doc-row-meta"><Pill tone={phaseTone(m.phase)}>{m.phase}</Pill><span>{m.kind} · {m.attendeeIds.length} attendees · {timeAgo(m.createdAt)}</span></div>
+    </button>
+  );
+  const next = upcoming.filter((m) => m.id !== skip);
+  return (
+    <>
+      {next.length ? <Section title={`Upcoming (${next.length})`}>{next.map(row)}</Section> : null}
+      <Section title={`Past meetings (${past.length})`}>{past.length ? past.map(row) : <Empty>No meetings yet.</Empty>}</Section>
+    </>
+  );
 }
 
 const canCall = (buildingId: string | null) => store.can("meeting.facilitate", buildingId) || store.can("building.manage", buildingId);
@@ -59,7 +72,7 @@ function CallMeeting({ building, again }: { building: SnapshotBuilding; again?: 
 /** under the server's HUMAN_TYPING_MS (30 s) so a held draft never lapses */
 const TYPING_PING_MS = 10_000;
 
-function MeetingView({ m }: { m: Meeting }) {
+function MeetingView({ m, room: roomPanel }: { m: Meeting; room?: SnapshotBuilding }) {
   const agents = useTown((s) => s.agents);
   const me = useTown((s) => s.me);
   const [text, setText] = useState("");
@@ -160,6 +173,7 @@ function MeetingView({ m }: { m: Meeting }) {
         )}
       </Section>
       <div className="foot-note">Scheduled {timeAgo(m.scheduledAt)}{m.startedAt ? ` · started ${timeAgo(m.startedAt)}` : ""}{m.endedAt ? ` · ended ${timeAgo(m.endedAt)}` : ""}</div>
+      {roomPanel ? <details className="attendees"><summary>Other meetings in this room</summary><RoomMeetings building={roomPanel} skip={m.id} /></details> : null}
     </PanelShell>
   );
 }

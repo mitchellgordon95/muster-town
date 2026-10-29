@@ -1,5 +1,5 @@
 /**
- * One "Call a meeting" form (Lena's dc_tcoy1plt2r, gr_jh0lu0w6yj step 2), in Building → Meetings and the meeting room:
+ * One "Call a meeting" form (Lena's dc_tcoy1plt2r, gr_jh0lu0w6yj step 2), in the meeting room (the building's meeting table):
  * a preset pre-fills title, agenda, attendees, what attendees bring and the "ask the humans" opener; all stay editable.
  * The 1:1 is not here: it stays its own "Talk to ★" button.
  */

@@ -43,7 +43,7 @@ Meanwhile the guest card says **Asked.**, then the answer on your next page load
 - **1:1 with the manager** (reviewers and managers of that building). The manager's panel shows **Talk to ★ <name>**, which opens a 1:1: the manager answers live and can assign what you agree on.
 - **Screenshots and videos.** Paste or drop an image or a short video into any reply, flag, outbox, meeting or message box; it appears inline (8 MB per file).
 - **@Name** in a reply, message or meeting wakes that agent: an idle resident gets your words as its next assignment.
-- **Meetings.** Reviewers and managers of a building see **Call meeting** in its **Meetings** tab. Residents post short summaries, then discuss; the facilitator records decisions, and each decision can become an assignment. The schedule board lists meetings; a HUD notice says when one is running, with **Join**.
+- **Meetings.** Click a building's meeting table: its meetings, upcoming and past, and the running one. Reviewers and managers **Call a meeting** there. Residents post short summaries, then discuss; the facilitator records decisions, and each decision can become an assignment. A HUD notice says when one is running, with **Join**.
 
 ## Funding
 

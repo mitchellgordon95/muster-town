@@ -1,17 +1,16 @@
-/** Building panel (E at the door): overview, goals and grants (labs; GoalsTab.tsx), members + roles, meetings, settings (managers: building fields). Members lists residents (managers add and dismiss there) and roles. Board, filing cabinet and in-tray are places; the collective's secrets are a planning-desk tab. */
+/** Building panel (E at the door): overview, goals and grants (labs; GoalsTab.tsx), members + roles, settings (managers: building fields). Members lists residents (managers add and dismiss there) and roles. Board, filing cabinet and in-tray are places; the collective's secrets are a planning-desk tab. */
 import { isFork } from "../forks";
 import { useEffect, useMemo, useState, type ReactNode } from "react";
-import { DEFAULT_POOL_ID, type Meeting, type SnapshotBuilding, type Workspace } from "@muster-town/schema";
+import { DEFAULT_POOL_ID, type SnapshotBuilding, type Workspace } from "@muster-town/schema";
 import { fmtPct, poolColor } from "../pools";
 import { api } from "../api";
 import { store, useTown, roleOf } from "../state";
 import { Glyph, PanelShell } from "./PanelShell";
 import { Meter } from "./AgentPanel";
 import { DismissButton, canDismiss } from "./Dismiss";
-import { ADJ, Act, Empty, ErrorLine, Field, KV, Loading, MTokensInput, NumberInput, Pill, Section, StatusPill, fmtTokens, nameOf, timeAgo, usd, useLoad } from "./ui";
+import { ADJ, Act, Empty, ErrorLine, Field, KV, Loading, MTokensInput, NumberInput, Pill, Section, StatusPill, fmtTokens, nameOf, usd, useLoad } from "./ui";
 import { fromMillions, toMillions } from "../format";
 import { PALETTES, portraitUrl } from "../map/sprites";
-import { CallMeetingForm } from "./CallMeetingForm";
 import { layoutEdit } from "../map/layoutEdit";
 import { canOneOnOne, openOneOnOne } from "./oneOnOne";
 import { UNBLOCK_LINE, blockedLabel } from "./keyResults";
@@ -22,7 +21,7 @@ export function BuildingPanel({ id, tab }: { id: string; tab?: string }) {
   useTown((s) => s.me); // re-render when my permissions change (store.can below)
   if (!b) return <PanelShell title="Unknown building"><Empty>No building with id {id}.</Empty></PanelShell>;
   const lab = b.kind !== "town-hall";
-  const tabs = ["Overview", ...(lab ? ["Goals", "Grants"] : []), "Members", "Meetings", ...(store.can("building.manage", id) ? ["Settings"] : [])];
+  const tabs = ["Overview", ...(lab ? ["Goals", "Grants"] : []), "Members", ...(store.can("building.manage", id) ? ["Settings"] : [])];
   return (
     <PanelShell icon={<Glyph kind="building" />} title={b.name} subtitle={b.kind === "town-hall" ? "Town Hall" : "Lab"} tabs={tabs} initialTab={tab && tabs.includes(tab) ? tab : "Overview"}>
       {(t) => (
@@ -31,7 +30,6 @@ export function BuildingPanel({ id, tab }: { id: string; tab?: string }) {
           {t === "Goals" ? <GoalsTab b={b} /> : null}
           {t === "Grants" ? <GrantsTab b={b} /> : null}
           {t === "Members" ? <Members b={b} /> : null}
-          {t === "Meetings" ? <MeetingsTab b={b} /> : null}
           {t === "Settings" ? <Settings b={b} /> : null}
         </>
       )}
@@ -62,6 +60,7 @@ function Overview({ b }: { b: SnapshotBuilding }) {
   const hasBoard = places.some((p) => p.id === `board:${b.id}`);
   const hasCabinet = places.some((p) => p.id === `cabinet:${b.id}`);
   const hasTray = places.some((p) => p.id === `intray:${b.id}`);
+  const hasRoom = places.some((p) => p.id === `meeting-room:${b.id}`);
   return (
     <>
       {b.goal ? <div className="goal-card"><span>Goal</span>{b.goal}</div> : null}
@@ -72,7 +71,7 @@ function Overview({ b }: { b: SnapshotBuilding }) {
         </div>
       ) : null}
       {b.kind !== "town-hall" ? <GoalTabsSummary b={b} /> : null}
-      {hasBoard || hasTray ? (
+      {hasBoard || hasTray || hasRoom ? (
         <div className="walk-links">
           {hasBoard ? <button className="walk-link" onClick={() => walk(`board:${b.id}`, { kind: "board", id: b.id })}><Glyph kind="board" /><span>Walk to the board</span></button> : null}
           {hasCabinet ? <button className="walk-link" onClick={() => walk(`cabinet:${b.id}`, { kind: "cabinet", id: b.id })}><Glyph kind="cabinet" /><span>Walk to the filing cabinet</span></button> : null}
@@ -81,6 +80,7 @@ function Overview({ b }: { b: SnapshotBuilding }) {
               <Glyph kind="intray" /><span>Walk to the in-tray</span>{b.intray ? <Pill tone="warn">{b.intray} waiting</Pill> : null}
             </button>
           ) : null}
+          {hasRoom ? <button className="walk-link" onClick={() => walk(`meeting-room:${b.id}`, { kind: "meeting", id: `room:${b.id}` })}><Glyph kind="meeting" /><span>Walk to the meeting table</span></button> : null}
         </div>
       ) : null}
       {b.kind !== "town-hall" && b.managerAgentId && agents[b.managerAgentId] && canOneOnOne(b.id) ? (
@@ -138,25 +138,6 @@ function Members({ b }: { b: SnapshotBuilding }) {
       </Section>
       {manage ? <NewResident buildingId={b.id} /> : null}
       <RolesTab buildingId={b.id} />
-    </>
-  );
-}
-
-export function phaseTone(p: Meeting["phase"]) { return p === "collecting" ? "warn" : p === "discussing" ? "ok" : p === "done" ? "" : p === "cancelled" ? "bad" : "info"; }
-
-function MeetingsTab({ b }: { b: SnapshotBuilding }) {
-  const all = useTown((s) => s.meetings);
-  const list = useMemo(() => Object.values(all).filter((m) => m.buildingId === b.id || (b.kind === "town-hall" && m.buildingId === null)).sort((x, y) => y.createdAt.localeCompare(x.createdAt)), [all, b]);
-  const can = store.can("meeting.facilitate", b.id) || store.can("building.manage", b.id);
-  return (
-    <>
-      {can ? <CallMeetingForm building={b} /> : null}
-      {!list.length ? <Empty>No meetings yet.</Empty> : list.map((m) => (
-        <button key={m.id} className="doc-row" onClick={() => store.open({ kind: "meeting", id: m.id })}>
-          <div className="doc-row-title">{m.title}</div>
-          <div className="doc-row-meta"><Pill tone={phaseTone(m.phase)}>{m.phase}</Pill><span>{m.kind} · {m.attendeeIds.length} attendees · {timeAgo(m.createdAt)}</span></div>
-        </button>
-      ))}
     </>
   );
 }
