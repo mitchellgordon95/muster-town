@@ -13,7 +13,7 @@ export function PlanToolbar({ inset = 0 }: { inset?: number }) {
     <div className="layout-bar" role="toolbar" aria-label="Plan the town" style={inset ? { left: `calc((100% - ${inset}px) / 2)`, maxWidth: `min(640px, calc(100% - ${inset}px - 24px))` } : undefined}>
       <div className="layout-bar-title">
         <b>Planning the town</b>
-        <span>Drag a building to move it, its walls to resize it, empty grass to draw a new one; arrows nudge</span>
+        <span>Drag a building anywhere on the grass to move it, its walls to resize it, empty grass to draw a new one; roads route themselves; arrows nudge</span>
       </div>
       {c ? (
         <div className="plan-form">

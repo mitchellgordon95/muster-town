@@ -1,6 +1,6 @@
 import { BANK_FIXTURES, BANK_LOT, TILE, WALKABLE, type Building, type Lot, type Place, type Tile } from "@muster-town/schema";
 import { piecesFor, resolveFurniture } from "./furniture.ts";
-import { doorOf, ROAD_Y } from "./road.ts";
+import { deriveRoads, doorOf, ROAD_Y } from "./road.ts";
 
 export { ROAD_Y };
 
@@ -98,11 +98,18 @@ export interface LayoutResult {
  * Build the tile grid and places from buildings (with lots) and desk occupancy.
  * `occupancy`: buildingId -> (deskIndex -> agentId); `names`: agentId -> name.
  */
+/** Size of the town grid for these lots (the planner's dry run routes roads on the same grid). */
+export function townSize(lots: Lot[]): { w: number; h: number } {
+  const right = Math.max(TOWN_HALL_X + TOWN_HALL_SIZE.w, ...lots.map((l) => l.x + l.w));
+  return {
+    w: Math.max(64, right + 6, BANK_LOT.x + BANK_LOT.w + 3),
+    h: Math.max(ROAD_Y + 6, BANK_LOT.y + BANK_LOT.h + 3, ...lots.map((l) => l.y + l.h + 3)),
+  };
+}
+
 export function computeLayout(buildings: Building[], occupancy: Map<string, Map<number, string>>, names: Map<string, string>): LayoutResult {
   const lots = buildings.filter((b) => b.lot);
-  const right = Math.max(TOWN_HALL_X + TOWN_HALL_SIZE.w, ...lots.map((b) => b.lot!.x + b.lot!.w));
-  const w = Math.max(64, right + 6, BANK_LOT.x + BANK_LOT.w + 3);
-  const h = Math.max(ROAD_Y + 6, BANK_LOT.y + BANK_LOT.h + 3, ...lots.map((b) => b.lot!.y + b.lot!.h + 3));
+  const { w, h } = townSize(lots.map((b) => b.lot!));
   const tiles = new Array<number>(w * h).fill(TILE.GRASS);
   const set = (x: number, y: number, t: number) => { if (x >= 0 && y >= 0 && x < w && y < h) tiles[y * w + x] = t; };
   const places: Place[] = [];
@@ -111,9 +118,9 @@ export function computeLayout(buildings: Building[], occupancy: Map<string, Map<
   /** meeting-room place id -> its table tiles (seats are computed once the grid is complete) */
   const tables = new Map<string, Tile[]>();
 
-  // road and trees
-  for (let x = 0; x < w; x++) { set(x, ROAD_Y, TILE.PATH); set(x, ROAD_Y + 1, TILE.PATH); }
+  // trees, then the roads (the trunk plus a road from every door, derived from the lots) over them
   for (let x = 2; x < w; x += 6) set(x, ROAD_Y + 3, TILE.PLANT);
+  for (const t of deriveRoads(lots.map((b) => ({ id: b.id, lot: b.lot! })), w, h).tiles) set(t.x, t.y, TILE.PATH);
   bankRoom(set, places);
 
   for (const b of lots) {
@@ -124,9 +131,6 @@ export function computeLayout(buildings: Building[], occupancy: Map<string, Map<
     }
     const door = doorOf(b.lot!);
     set(door.x, door.y, TILE.DOOR);
-    // the walk to the road: down from a door north of it, up from one south of it
-    for (let y = y0 + bh; y < ROAD_Y; y++) set(door.x, y, TILE.PATH);
-    for (let y = ROAD_Y + 2; y < y0; y++) set(door.x, y, TILE.PATH);
     doors.set(b.id, door);
     places.push({ id: `door:${b.id}`, kind: "door", name: `${b.name} door`, buildingId: b.id, pos: door });
 
@@ -211,8 +215,6 @@ function bankRoom(set: (x: number, y: number, t: number) => void, places: Place[
   put([F.map], TILE.BANK_MAP);
   const door = { x: x0 + F.door.x, y: y0 + F.door.y };
   set(door.x, door.y, TILE.DOOR);
-  // the walk from the road down to the door
-  for (let y = ROAD_Y + 2; y < door.y; y++) set(door.x, y, TILE.PATH);
   places.push(
     { id: "bank", kind: "bank", name: "Bank", buildingId: null, pos: { x: x0 + F.counterStand.x, y: y0 + F.counterStand.y } },
     { id: "bank-map", kind: "bank-map", name: "Bank town map", buildingId: null, pos: { x: x0 + F.mapStand.x, y: y0 + F.mapStand.y } },
