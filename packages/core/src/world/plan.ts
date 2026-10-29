@@ -1,15 +1,15 @@
 import { BANK_LOT, type Building, type Lot } from "@muster-town/schema";
-import { sizeFor } from "./layout.ts";
-import { doorOf, facesNorth, ROAD_Y } from "./road.ts";
+import { sizeFor, townSize } from "./layout.ts";
+import { deriveRoads, doorOf, ROAD_Y } from "./road.ts";
 
 export { doorOf };
 
 /**
  * Town planning: the rules for where buildings may stand. One function drives the planner's dry run and the
- * server's check on Save. A building sits on either side of the road (not on it) with at least one tile of grass on
- * every side. North of the road its door is bottom middle and walks straight down to the road; south of it the door
- * is top middle and walks straight up. That walk may not cross another building or the Bank, and no building may
- * touch the Bank (which also keeps the Bank's own short walk to the road clear).
+ * server's check on Save. A building stands on any free grass on the map (not on the trunk road) with at least one
+ * tile of grass on every side, the Bank included. Roads aren't planned: they are derived from the lots
+ * (`deriveRoads`), one from each door to the trunk road or a road already routed, so the only road rule is that
+ * every door reaches one. North of the trunk the door is bottom middle; south of it, top middle.
  */
 export interface PlanError { buildingId: string | null; message: string }
 export interface PlanLot { id: string; name: string; kind: Building["kind"]; headcount: number; lot: Lot }
@@ -32,21 +32,19 @@ export function validatePlan(lots: PlanLot[]): PlanError[] {
     else if (w < need.w || h < need.h) errors.push({ buildingId: b.id, message: `${b.name} needs at least ${need.w}×${need.h} tiles for ${b.kind === "town-hall" ? "its rooms" : `${b.headcount} desk${b.headcount === 1 ? "" : "s"}`}.` });
     else if (w > MAX_LOT.w || h > MAX_LOT.h) errors.push({ buildingId: b.id, message: `${b.name} can be at most ${MAX_LOT.w}×${MAX_LOT.h} tiles.` });
     else if (x < 1 || y < 1 || x + w > MAX_TOWN_X || y + h > MAX_TOWN_Y) errors.push({ buildingId: b.id, message: `${b.name} is off the edge of the map.` });
-    else if (y + h > ROAD_Y && y < ROAD_Y + 2) errors.push({ buildingId: b.id, message: `${b.name} can't stand on the road: put it north or south of it.` });
+    else if (y + h > ROAD_Y && y < ROAD_Y + 2) errors.push({ buildingId: b.id, message: `${b.name} can't stand on the main road.` });
     else if (hit(grow(BANK_LOT, 1), b.lot)) errors.push({ buildingId: b.id, message: `${b.name} overlaps or touches the Bank (leave a tile between them).` });
   }
   for (let i = 0; i < lots.length; i++) for (let j = i + 1; j < lots.length; j++) {
     const a = lots[i], b = lots[j];
     if (hit(grow(a.lot, 1), b.lot)) errors.push({ buildingId: a.id, message: `${a.name} and ${b.name} overlap or touch (leave a tile between them).` });
   }
-  for (const a of lots) {
-    const d = doorOf(a.lot);
-    const path: Lot = facesNorth(a.lot)
-      ? { x: d.x, y: ROAD_Y + 2, w: 1, h: Math.max(0, a.lot.y - ROAD_Y - 2) }
-      : { x: d.x, y: a.lot.y + a.lot.h, w: 1, h: Math.max(0, ROAD_Y - a.lot.y - a.lot.h) };
-    if (!path.h) continue;
-    for (const b of lots) if (b.id !== a.id && hit(path, b.lot)) errors.push({ buildingId: a.id, message: `${a.name}'s path to the road runs through ${b.name}.` });
-    if (hit(path, BANK_LOT)) errors.push({ buildingId: a.id, message: `${a.name}'s path to the road runs through the Bank.` });
+  if (errors.length) return errors;
+  const size = townSize(lots.map((b) => b.lot));
+  const roads = deriveRoads(lots.map((b) => ({ id: b.id, lot: b.lot })), size.w, size.h);
+  for (const id of roads.unreached) {
+    const b = lots.find((l) => l.id === id);
+    errors.push({ buildingId: b?.id ?? null, message: `${b?.name ?? "The Bank"}: no road can reach its door (it's boxed in).` });
   }
   return errors;
 }

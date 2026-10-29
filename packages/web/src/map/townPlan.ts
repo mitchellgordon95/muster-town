@@ -2,8 +2,8 @@
  * Town planning mode: the Edit layout idea one level up. A client-side draft of every building's lot, shown in the
  * same zoomed-out view as the Bank's town map. Drag a building to move it, drag its walls to resize it, drag on
  * empty grass to draw a new one. Every change asks the server for a dry run (its rules are final: no overlaps,
- * a tile of grass between buildings, every door's path to the road clear) and shows the grid it returns; Save
- * sends the moved lots and the new building in one call. Humans with town.manage_buildings only.
+ * a tile of grass between buildings, every door reachable by a road) and shows the grid it returns, with the roads
+ * routed from the drafted lots; Save sends the moved lots and the new building in one call. Humans with town.manage_buildings only.
  */
 import { useSyncExternalStore } from "react";
 import type { Lot, Place } from "@muster-town/schema";
