@@ -194,6 +194,10 @@ export interface ForkSummary {
   hop: number | null;
   sessionId: string | null;
   tokens: number;
+  /** the session's wall, CPU and steal ms (gr_uhh6u39vv9); null = running or not measured */
+  wallMs: number | null;
+  cpuMs: number | null;
+  stealMs: number | null;
   transcript: boolean;
   reportId: string | null;
   reportTitle: string | null;
@@ -245,6 +249,7 @@ export function forkSummary(world: World, fork: Agent): ForkSummary | null {
   return {
     agent: fork, forkOfName: world.nameOf(fork.forkOf), assignmentId: asg?.id ?? null, assignmentTitle: asg?.title ?? null,
     chainId: chain?.chainId ?? null, hop: chain?.hop ?? null, sessionId: session?.id ?? null, tokens: session ? sessionView(session).adjustedOutputTokens : 0,
+    wallMs: session?.wallMs ?? null, cpuMs: session?.cpuMs ?? null, stealMs: session?.stealMs ?? null,
     transcript: !!session && world.transcripts.info(session.id) !== null, reportId: report?.id ?? null, reportTitle: report?.title ?? null, pagesEdited: pages,
   };
 }

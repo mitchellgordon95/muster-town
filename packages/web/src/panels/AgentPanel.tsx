@@ -17,7 +17,7 @@ import { SignInNote } from "../auth/auth";
 import { slotsFull } from "../redeploy";
 import { canOneOnOne, openOneOnOne } from "./oneOnOne";
 import { useMediaPaste } from "./mediaPaste";
-import { runsAtLabel } from "../format";
+import { fmtPerf, runsAtLabel } from "../format";
 
 type Msg = { role: "user" | "assistant"; text: string; ts: string };
 const chats = new Map<string, Msg[]>();
@@ -83,7 +83,7 @@ function ForkTab({ fork, loading }: { fork?: ForkSummary; loading: boolean }) {
         ["Fork of", <button className="link" onClick={() => store.open({ kind: "agent", id: fork.agent.forkOf! })}>{fork.forkOfName}</button>],
         ["Assignment", fork.assignmentId ? <>{fork.assignmentTitle} <span className="muted">({fork.assignmentId})</span></> : "none"],
         ...(fork.chainId ? [["Chain", <Pill tone="neutral">chain {fork.chainId} · hop {fork.hop}</Pill>] as [string, ReactNode]] : []),
-        ["Session", fork.sessionId ? <>{fork.sessionId} · {fork.tokens || fork.agent.status === "retired" ? <>{fmtTokens(fork.tokens)} {ADJ}</> : "running (tokens book when it ends)"}{fork.transcript ? <> · <TranscriptLink sessionId={fork.sessionId} /></> : null}</> : "not started"],
+        ["Session", fork.sessionId ? <>{fork.sessionId} · {fork.tokens || fork.agent.status === "retired" ? <>{fmtTokens(fork.tokens)} {ADJ}</> : "running (tokens book when it ends)"}{fmtPerf(fork) ? <> · {fmtPerf(fork)}</> : null}{fork.transcript ? <> · <TranscriptLink sessionId={fork.sessionId} /></> : null}</> : "not started"],
         ["Report", fork.reportId ? <button className="link" onClick={() => openDoc(fork.reportId!)}>{fork.reportTitle ?? fork.reportId}</button> : fork.agent.status === "retired" ? "none" : "not yet"],
         ...(fork.pagesEdited.length ? [["Topic pages", <>{fork.pagesEdited.map((p, i) => <span key={p.id}>{i ? ", " : ""}<button className="link" onClick={() => openDoc(p.id)}>{p.title}</button></span>)}</>] as [string, ReactNode]] : []),
         ["Status", fork.agent.status === "retired" ? `retired ${timeAgo(fork.agent.lastActiveAt ?? fork.agent.createdAt)}` : <StatusPill status={fork.agent.status} />],
@@ -104,6 +104,7 @@ function ForksTab({ managerId }: { managerId: string }) {
       <div className="doc-row-meta">
         {f.chainId ? <Pill tone="neutral">chain {f.chainId} · hop {f.hop}</Pill> : null}
         {f.sessionId ? <span>{f.tokens || f.agent.status === "retired" ? <>{fmtTokens(f.tokens)} {ADJ}</> : "running"}</span> : null}
+        {f.sessionId && fmtPerf(f) ? <span>{fmtPerf(f)}</span> : null}
         {f.reportTitle ? <span>report: {f.reportTitle}</span> : null}
       </div>
     </button>

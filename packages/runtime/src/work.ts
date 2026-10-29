@@ -85,6 +85,10 @@ export interface WorkOutcome {
   fallback?: boolean;
   /** the SDK's message when the desk classified a result as SPEND_LIMIT (core logs `bank.cap`) */
   spendLimit?: string;
+  /** desk session-end: wall ms and the Machine's CPU and steal ms over the session (/proc/stat) */
+  wallMs?: number;
+  cpuMs?: number;
+  stealMs?: number;
 }
 
 /**
@@ -130,7 +134,7 @@ export async function finishWorkSession(ctx: Ctx, sessionId: string, o: WorkOutc
   }
   const status: Exclude<Session["status"], "running"> = stopped ? "interrupted" : error ? "error" : "done";
   const funding = o.fundingUsed ?? (o.fallback ? "api-key" : undefined);
-  const ended = world.ops.endSession(sessionId, { status, counts, byModel: o.byModel, costUsd: usage.costUsd, turns: usage.turns, error, sdkSessionId: o.sdkSessionId ?? null, funding, spendLimit: o.spendLimit ?? null });
+  const ended = world.ops.endSession(sessionId, { status, counts, byModel: o.byModel, costUsd: usage.costUsd, turns: usage.turns, error, sdkSessionId: o.sdkSessionId ?? null, funding, spendLimit: o.spendLimit ?? null, wallMs: o.wallMs, cpuMs: o.cpuMs, stealMs: o.stealMs });
   // stamp the session's usage onto the report it produced (submitted or fallback), in adjusted output tokens (Bank step 3)
   const adjusted = sessionView(ended).adjustedOutputTokens;
   const report = ended.reportId ? world.docs.get(ended.reportId) : undefined;
