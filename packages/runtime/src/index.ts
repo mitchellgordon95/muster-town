@@ -3,8 +3,8 @@
  * managers' team-lead sessions over the in-tray, meeting summaries + facilitation, proxy chat, interrupts, scheduler,
  * startup reconcile, dismissal (onAgentRetired), host redeploy (v1.3).
  */
-import { AppError, checkWaits, setAssignmentStatus, codeWorkspace, deskSlotRows, forkableQueue, forkDeskSlot, forkManager, freeDesks, liveForks, meetingNotice, nextStartable, PRESENCE_TICK_MS, retireFork, slugify, syncManagerRoles, type World } from "@muster-town/core";
-import { DesksConfig, type Agent, type ChatInput, type DeskActivityInput, type RedeployResult, type Session } from "@muster-town/schema";
+import { AppError, checkWaits, setAssignmentStatus, codeWorkspace, deskSlotRows, forkableQueue, forkDeskSlot, forkManager, freeDesks, liveForks, meetingNotice, nextStartable, nowIso, PRESENCE_TICK_MS, retireFork, sendMessage, slugify, syncManagerRoles, type World } from "@muster-town/core";
+import { DesksConfig, type Agent, type Assignment, type Building, type ChatInput, type DeskActivityInput, type RedeployResult, type Session } from "@muster-town/schema";
 import { chat } from "./chat.ts";
 import { DockerBackend, dockerSafe, HostBackend, type DeskBackend, type SlotResolver, type WorkBackend } from "./desk/backend.ts";
 import { FlyApi } from "./desk/fly.ts";
@@ -76,6 +76,10 @@ export const ADOPTED_SILENT_MS = 5 * 60_000;
 
 /** Work sessions a hosted collective runs at once (host sessions only: town tools + web, no shell). */
 export const HOSTED_MAX_RUNNING = 1;
+/** consecutive fork spawns whose desk fails before a session exists, per assignment, before the work waits (see onForkStartupFailure) */
+export const FORK_STARTUP_RETRIES = 2;
+/** how long that work then waits before the scheduler forks for it again */
+export const FORK_STARTUP_BACKOFF_MS = 10 * 60_000;
 
 export interface Runtime {
   stop(): Promise<void>;
@@ -369,6 +373,35 @@ export function startRuntime(opts: RuntimeOptions): Runtime {
     }
   }
   /**
+   * Forks whose desk failed before a session existed (a sandbox the provider can't place or start), per assignment:
+   * each failure is one spawn-retire cycle, and without a cap the scheduler would fork again every tick (10-29: 117
+   * cycles in 12 min for one assignment whose slot volume sat on a full Fly host). After FORK_STARTUP_RETRIES in a
+   * row the assignment waits FORK_STARTUP_BACKOFF_MS (waitFor.after, so the queue shows why) and the manager is told.
+   */
+  const startupFailures = new Map<string, number>();
+  function onForkStartupFailure(a: Assignment, b: Building, e: unknown): void {
+    const reason = e instanceof Error ? e.message : String(e);
+    const n = (startupFailures.get(a.id) ?? 0) + 1;
+    if (n < FORK_STARTUP_RETRIES) { startupFailures.set(a.id, n); return; }
+    startupFailures.delete(a.id);
+    const cur = world.assignments.get(a.id);
+    if (!cur || cur.status !== "pending" || cur.waitFor) return;
+    const until = new Date(now().getTime() + FORK_STARTUP_BACKOFF_MS).toISOString();
+    world.assignments.upsert({ ...cur, waitFor: { after: until }, updatedAt: nowIso() });
+    const title = cur.title.length > 80 ? `${cur.title.slice(0, 79)}…` : cur.title;
+    world.events.append({
+      type: "system", agentId: cur.agentId, buildingId: b.id,
+      text: `"${title}" couldn't start ${n} times in a row (desk failed at startup: ${reason}); it waits until ${until} before the next fork`,
+      payload: { alert: "fork-startup-failed", assignmentId: cur.id, attempts: n, reason, retryAt: until },
+    });
+    if (b.managerAgentId) {
+      sendMessage(world, {
+        kind: "system", fromId: "system", fromKind: "system", toId: b.managerAgentId,
+        body: `Your building queue item "${title}" (${cur.id}) couldn't start ${n} times in a row: desk failed at startup: ${reason}. It waits until ${until} before the next fork. If the desk slot is the cause (e.g. Fly can't place a Machine on the slot's volume), point the slot at another volume: PUT /api/buildings/${b.id}/desk-slots/<n>.`,
+      });
+    }
+  }
+  /**
    * Spawn forks for buildings with `forks` on: startable building-queue work in queue order, while the building has a
    * free desk and the host a free slot. Lanes, waitFor and heldReason work as for a resident's queue (forkableQueue).
    */
@@ -387,9 +420,13 @@ export function startRuntime(opts: RuntimeOptions): Runtime {
         free--;
         startedNow++;
         forkRuns.add(fork.id);
-        void startWork(fork.id, a.id).catch(log(`work session for ${fork.name}`)).finally(() => {
+        let failed: { error: unknown } | null = null;
+        void startWork(fork.id, a.id).then(() => startupFailures.delete(a.id), (e) => { log(`work session for ${fork.name}`)(e); failed = { error: e }; }).finally(() => {
           forkRuns.delete(fork.id);
-          retireAfter(fork.id);
+          // rejected before a session row existed: the desk itself failed (a session that ended in error has a fallback report)
+          const atStartup = failed && !world.sessions.count("agentId = ? AND purpose = 'work'", [fork.id]);
+          retireAfter(fork.id, atStartup ? `desk failed at startup: ${failed!.error instanceof Error ? failed!.error.message : String(failed!.error)}` : undefined);
+          if (atStartup) onForkStartupFailure(a, b, failed!.error);
         });
       }
     }
