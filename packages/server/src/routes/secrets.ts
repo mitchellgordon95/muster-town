@@ -1,4 +1,3 @@
-import { AppError } from "@muster-town/core";
 import { PutSecretInput } from "@muster-town/schema";
 import type { FastifyInstance, FastifyRequest } from "fastify";
 import { parse, requireUser } from "../context.ts";
@@ -12,7 +11,7 @@ export async function secretRoutes(app: FastifyInstance) {
   const world = app.world;
   const admin = (req: FastifyRequest) => {
     const user = requireUser(req);
-    if (!world.permissions.isAdmin({ kind: "user", id: user.id })) throw new AppError("forbidden", "Only a collective admin can manage secrets.", 403);
+    world.permissions.requireAdmin({ kind: "user", id: user.id }, "Only a collective admin can manage secrets.");
     return user;
   };
 

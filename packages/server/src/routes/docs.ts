@@ -1,4 +1,4 @@
-import { AppError, canSeeDoc, findManual, revisionsOf, searchDocs } from "@muster-town/core";
+import { AppError, canSeeDoc, findManual, revisionsOf, searchDocs, whereOf } from "@muster-town/core";
 import { CreateMeetingInput, DocState, DocType, MeetingPhase, MeetingPresentInput, MeetingSayInput, ReplyInput, ReviewInput, VerbInputs } from "@muster-town/schema";
 import type { FastifyInstance } from "fastify";
 import { z } from "zod";
@@ -26,12 +26,8 @@ export async function docRoutes(app: FastifyInstance) {
     if (q.q?.trim()) {
       return { docs: searchDocs(world, viewer, { query: q.q, type: q.type, state: q.state, buildingId: q.buildingId, limit: q.limit }) };
     }
-    const where = ["(state != 'draft' OR authorId = ?)"];
-    const params: unknown[] = [viewer];
-    if (q.state) { where.push("state = ?"); params.push(q.state); }
-    if (q.type) { where.push("type = ?"); params.push(q.type); }
-    if (q.buildingId) { where.push("buildingId = ?"); params.push(q.buildingId); }
-    return { docs: world.docs.where(where.join(" AND "), params, `ORDER BY updatedAt DESC, rowid DESC LIMIT ${q.limit}`) };
+    const where = whereOf({ state: q.state, type: q.type, buildingId: q.buildingId }, [{ sql: "(state != 'draft' OR authorId = ?)", params: [viewer] }]);
+    return { docs: world.docs.where(where.sql, where.params, `ORDER BY updatedAt DESC, rowid DESC LIMIT ${q.limit}`) };
   });
 
   /** The humans' operating manual (the Town Hall article tagged `manual`; the HUD "?" opens it). */
@@ -96,14 +92,10 @@ export async function docRoutes(app: FastifyInstance) {
   // ---- meetings ----
   app.get("/api/meetings", async (req) => {
     const q = parse(MeetingsQuery, req.query);
-    const where: string[] = ["1=1"];
-    const params: unknown[] = [];
-    if (q.buildingId) {
-      if (q.buildingId === "town-hall") where.push("(buildingId IS NULL OR buildingId = 'town-hall')");
-      else { where.push("buildingId = ?"); params.push(q.buildingId); }
-    }
-    if (q.phase) { where.push("phase = ?"); params.push(q.phase); }
-    return { meetings: world.meetings.where(where.join(" AND "), params, "ORDER BY scheduledAt DESC, rowid DESC LIMIT 100") };
+    const townHall = q.buildingId === "town-hall";
+    const where = whereOf({ buildingId: townHall ? undefined : q.buildingId, phase: q.phase },
+      [townHall && { sql: "(buildingId IS NULL OR buildingId = 'town-hall')", params: [] }]);
+    return { meetings: world.meetings.where(where.sql, where.params, "ORDER BY scheduledAt DESC, rowid DESC LIMIT 100") };
   });
 
   app.post("/api/meetings", async (req, reply) => {

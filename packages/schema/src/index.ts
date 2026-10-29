@@ -1050,6 +1050,13 @@ export const Session = z.object({
   grantId: Id.nullish(),
   /** wakes: the human behind the session, from its assignment or its meeting (null = none) */
   origin: Origin.nullish(),
+  /**
+   * Desk session performance (gr_uhh6u39vv9 step 1): wall-clock ms; CPU (user+nice+system) and steal ms from the desk
+   * Machine's /proc/stat. A host session gets wallMs only (endedAt − startedAt); null = not measured (older sessions).
+   */
+  wallMs: z.number().int().nullish(),
+  cpuMs: z.number().int().nullish(),
+  stealMs: z.number().int().nullish(),
 });
 export type Session = z.infer<typeof Session>;
 /** A session as the API serves it: with `adjustedOutputTokens` (Bank step 2), derived on read, never stored. */
@@ -1803,6 +1810,10 @@ export const DeskSessionEndInput = z.object({
   fallback: z.boolean().optional(),
   /** the SDK's message when it classified a result as SPEND_LIMIT (kept after a failover clears `error`); the server logs `bank.cap` */
   spendLimit: z.string().max(2000).optional(),
+  /** the session's wall-clock ms, and the Machine's CPU and steal ms over it from /proc/stat (absent: an older desk, or unreadable) */
+  wallMs: z.number().int().nonnegative().optional(),
+  cpuMs: z.number().int().nonnegative().optional(),
+  stealMs: z.number().int().nonnegative().optional(),
 });
 export type DeskSessionEndInput = z.infer<typeof DeskSessionEndInput>;
 

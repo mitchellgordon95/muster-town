@@ -10,6 +10,7 @@ import {
 import { canSeeDoc, homeOf } from "./domain.ts";
 import { AppError, badRequest } from "./errors.ts";
 import { holderOf, type Holder } from "./permissions.ts";
+import { whereOf } from "./table.ts";
 import { newId, nowIso } from "./util.ts";
 import type { World } from "./world.ts";
 
@@ -130,10 +131,12 @@ export class Skills {
   /** Skills an agent can see in lists: its own drafts, its building's published skills, the library's. */
   visibleTo(me: Agent, query?: string): Doc[] {
     const holder = holderOf(me);
-    const where = ["type = 'skill'", "((state = 'draft' AND authorId = ?) OR (state = 'building' AND buildingId = ?) OR state = 'library')"];
-    const params: unknown[] = [holder.id, homeOf(me) ?? ""];
-    for (const w of (query?.match(/[\p{L}\p{N}-]+/gu) ?? []).slice(0, 8)) { where.push("(title LIKE ? OR body LIKE ?)"); params.push(`%${w}%`, `%${w}%`); }
-    return this.world.docs.where(where.join(" AND "), params, "ORDER BY updatedAt DESC, rowid DESC");
+    const words = (query?.match(/[\p{L}\p{N}-]+/gu) ?? []).slice(0, 8);
+    const where = whereOf({ type: "skill" }, [
+      { sql: "((state = 'draft' AND authorId = ?) OR (state = 'building' AND buildingId = ?) OR state = 'library')", params: [holder.id, homeOf(me) ?? ""] },
+      ...words.map((w) => ({ sql: "(title LIKE ? OR body LIKE ?)", params: [`%${w}%`, `%${w}%`] })),
+    ]);
+    return this.world.docs.where(where.sql, where.params, "ORDER BY updatedAt DESC, rowid DESC");
   }
 
   /** Every skill (for the web's Skills tab): published ones, plus the viewer's drafts. */

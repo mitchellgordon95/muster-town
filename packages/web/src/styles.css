@@ -425,6 +425,16 @@ textarea[data-drop="over"] { outline: 2px dashed var(--accent, #7aa2ff); outline
   .panel-resizer { display: none; }
   .minimap { display: none; }
   .hud { width: calc(100% - 24px); max-height: 58%; }
+  /* a guest on a phone: the card stays under ~35% of the screen so the agent beside the ghost shows (KR 2, dc_el70fwhsar) */
+  .hud.guest { max-height: 35%; padding: 10px 12px; }
+  .hud.guest .goal { margin: 6px 0 4px; padding: 5px 8px; }
+  .hud.guest .hud-block { margin-top: 6px; }
+  .hud.guest .hud-notices { display: none; }
+  .hud.guest .here-list { flex-direction: row; flex-wrap: wrap; align-items: center; gap: 4px; margin-bottom: 6px; }
+  .hud.guest .here-row { width: auto; padding: 2px 7px; }
+  .hud.guest .here-row span { display: none; }
+  .hud.guest .here-more { padding-left: 2px; }
+  .hud.guest .guest-text { margin-bottom: 6px; }
 }
 
 /* v1.2 places */

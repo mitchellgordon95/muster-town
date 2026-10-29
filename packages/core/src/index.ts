@@ -5,7 +5,7 @@
 export { NO_KEY_HOLD, World, type HostHooks, type SnapshotMessage } from "./world.ts";
 export { AppError, forbidden, notFound, badRequest, isAppError, type ErrorCode } from "./errors.ts";
 export { openDb, migrate, integrityCheck, sealCopy, type DB } from "./db.ts";
-export { Table, type ObjSchema, type TableOptions } from "./table.ts";
+export { Table, whereOf, type ObjSchema, type SqlFragment, type TableOptions } from "./table.ts";
 export { Memberships, Tokens, Users, BankInputs, TownMeta, type Repos, type TokenRow, type TokenKind } from "./store.ts";
 export { EventLog, type NewEvent, type EventQuery, type EventType } from "./events.ts";
 export { Permissions, holderOf, isAgent, townRoleId, buildingRoleId, type Holder, type BuildingRoleName, type TownRoleName } from "./permissions.ts";
@@ -64,3 +64,4 @@ export { Movement, WALK_TILES_PER_SEC, WALK_TIMEOUT_MS } from "./world/movement.
 export { Emitter, newId, newToken, nowIso, chebyshev, slugify, parseFrontmatter, stringifyFrontmatter, extractSection, firstLine } from "./util.ts";
 export { reviewDeck, presentedReviewDeck, decisionWaiters, grantHistoryLine, rollupHistoryLine, waitedFor } from "./review-deck.ts";
 export { actOrigin } from "./origin.ts";
+export { stayReason, TALK_MS, walkHome, walkIdleHome } from "./home.ts";

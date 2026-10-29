@@ -10,6 +10,7 @@ import { newId, nowIso } from "./util.ts";
 import { humanOrigin, meetingOrigin } from "./origin.ts";
 import { sessionView, unknownModels } from "./bank.ts";
 import { validateWait } from "./waits.ts";
+import { walkHome } from "./home.ts";
 import { requestAnswerWake } from "./wakes.ts";
 import type { World } from "./world.ts";
 
@@ -503,13 +504,17 @@ export class Ops {
    * Runtime: a session ended. A work session still `working` (no report) leaves the agent idle. Does not charge; call budget.charge.
    * `counts` are the five token counters; a bare `tokens` (no breakdown) is split by the back-fill rule for the session's model.
    */
-  endSession(sessionId: string, result: { status: Exclude<Session["status"], "running">; counts?: TokenCounts; byModel?: Record<string, TokenCounts>; tokens?: number; costUsd?: number; turns?: number; error?: string | null; sdkSessionId?: string | null; funding?: Session["funding"]; spendLimit?: string | null }): Session {
+  endSession(sessionId: string, result: { status: Exclude<Session["status"], "running">; counts?: TokenCounts; byModel?: Record<string, TokenCounts>; tokens?: number; costUsd?: number; turns?: number; error?: string | null; sdkSessionId?: string | null; funding?: Session["funding"]; spendLimit?: string | null; wallMs?: number; cpuMs?: number; stealMs?: number }): Session {
     const s = this.world.sessions.require(sessionId, "session");
     const counts = result.counts ? countsOf(result.counts) : result.tokens !== undefined ? splitRaw(result.tokens, s.model) : countsOf(s);
+    const endedAt = nowIso();
+    // performance (gr_uhh6u39vv9): a desk posts wall/cpu/steal from its /proc/stat; otherwise wall is endedAt − startedAt
+    const wallMs = result.wallMs ?? Math.max(0, Date.parse(endedAt) - Date.parse(s.startedAt));
     const session = this.world.sessions.upsert({
       ...s, ...counts, status: result.status, costUsd: result.costUsd ?? s.costUsd, turns: result.turns ?? s.turns,
-      error: result.error ?? null, sdkSessionId: result.sdkSessionId ?? s.sdkSessionId, endedAt: nowIso(), funding: result.funding ?? s.funding ?? null,
+      error: result.error ?? null, sdkSessionId: result.sdkSessionId ?? s.sdkSessionId, endedAt, funding: result.funding ?? s.funding ?? null,
       byModel: result.byModel && Object.keys(result.byModel).length ? result.byModel : s.byModel ?? null,
+      wallMs: Number.isFinite(wallMs) ? Math.round(wallMs) : null, cpuMs: result.cpuMs ?? null, stealMs: result.stealMs ?? null,
     });
     const agent = this.world.agents.require(s.agentId, "agent");
     if (agent.status === "working") this.world.setStatus(agent.id, "idle");
@@ -518,6 +523,8 @@ export class Ops {
     // Bank step 4: a subscription-cap death (the desk's SPEND_LIMIT, or an error that reads like one) → bank.cap
     const cap = result.spendLimit || (session.error && SPEND_LIMIT.test(session.error) ? session.error : null);
     if (cap) this.world.bank.recordCap(session, homeOf(agent), cap);
+    // the body goes back to its desk unless it's in a meeting, walking or talking (flag dc_ihwq7bfi4o)
+    walkHome(this.world, agent.id);
     // Bank step 2: a model the price table doesn't know is priced as Opus 5.5; say so once per model per process
     const unknown = unknownModels(session.model, session.byModel).filter((m) => !warnedModels.has(m));
     if (unknown.length) {

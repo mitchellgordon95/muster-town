@@ -13,6 +13,7 @@ import { checkForkModel } from "../forks.ts";
 import { attachablePages, cancelSchedule, createSchedule, describeRepeat } from "../schedules.ts";
 import { actOrigin } from "../origin.ts";
 import { ftsQuery } from "../text.ts";
+import { whereOf } from "../table.ts";
 import { nowIso } from "../util.ts";
 import { describeWait, validateWait } from "../waits.ts";
 import type { World } from "../world.ts";
@@ -61,11 +62,8 @@ export function canPostTownBoard(world: World, me: Agent): boolean {
 
 /** The building's filing cabinet: everything it has published that isn't a board FYI (reports, meeting notes, articles, notes…), newest first. */
 export function cabinetDocs(world: World, buildingId: string, limit: number, filter: { type?: Doc["type"]; authorId?: string } = {}): Doc[] {
-  const where = [`buildingId = ? AND state != 'draft' AND type NOT IN (${BOARD_SQL})`];
-  const params: unknown[] = [buildingId];
-  if (filter.type) { where.push("type = ?"); params.push(filter.type); }
-  if (filter.authorId) { where.push("authorId = ?"); params.push(filter.authorId); }
-  return world.docs.where(where.join(" AND "), params, `ORDER BY createdAt DESC, rowid DESC LIMIT ${limit}`);
+  const where = whereOf({ type: filter.type, authorId: filter.authorId }, [{ sql: `buildingId = ? AND state != 'draft' AND type NOT IN (${BOARD_SQL})`, params: [buildingId] }]);
+  return world.docs.where(where.sql, where.params, `ORDER BY createdAt DESC, rowid DESC LIMIT ${limit}`);
 }
 
 /** How many docs the cabinet holds per (type, author): the file browser's folder counts and author filter. */
@@ -77,16 +75,13 @@ export function cabinetCounts(world: World, buildingId: string): { type: Doc["ty
 export { ftsQuery };
 
 export function searchDocs(world: World, holderId: string, input: { query: string; type?: Doc["type"]; state?: Doc["state"]; buildingId?: string; limit: number }): Doc[] {
-  const where = ["(d.state != 'draft' OR d.authorId = ?)"];
-  const params: unknown[] = [holderId];
-  if (input.type) { where.push("d.type = ?"); params.push(input.type); }
-  if (input.state) { where.push("d.state = ?"); params.push(input.state); }
-  if (input.buildingId) { where.push("d.buildingId = ?"); params.push(input.buildingId); }
+  const where = whereOf({ "d.type": input.type, "d.state": input.state, "d.buildingId": input.buildingId },
+    [{ sql: "(d.state != 'draft' OR d.authorId = ?)", params: [holderId] }]);
   const fts = ftsQuery(input.query);
-  if (!fts) return world.docs.query(`SELECT d.* FROM docs d WHERE ${where.join(" AND ")} ORDER BY d.updatedAt DESC LIMIT ${input.limit}`, params);
+  if (!fts) return world.docs.query(`SELECT d.* FROM docs d WHERE ${where.sql} ORDER BY d.updatedAt DESC LIMIT ${input.limit}`, where.params);
   return world.docs.query(
-    `SELECT d.* FROM docs_fts JOIN docs d ON d.rowid = docs_fts.rowid WHERE docs_fts MATCH ? AND ${where.join(" AND ")} ORDER BY bm25(docs_fts, 3.0, 1.0) LIMIT ${input.limit}`,
-    [fts, ...params]);
+    `SELECT d.* FROM docs_fts JOIN docs d ON d.rowid = docs_fts.rowid WHERE docs_fts MATCH ? AND ${where.sql} ORDER BY bm25(docs_fts, 3.0, 1.0) LIMIT ${input.limit}`,
+    [fts, ...where.params]);
 }
 
 export async function search(world: World, me: Agent, input: VerbIn<"search">) {

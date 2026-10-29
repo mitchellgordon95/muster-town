@@ -155,6 +155,7 @@ town people can sign in to; everything else is optional.
 | `MUSTER_TOWN_DATA`, `MUSTER_TOWN_EXPORT` | override `<collective>/data` and `<collective>/export` | same |
 | `PORT`, `HOST` | listen port (default collective.json `port`, else 4321) and address (default `0.0.0.0`) | same |
 | `MUSTER_TOWN_DESKS` | JSON that overrides collective.json `desks`, e.g. `{"backend":"docker"}`, `{"backend":"host"}`; `maxRunning` (default 30) caps sessions at once and is a live setting (`PUT /api/town/desks`) | `packages/server/src/env.ts`, `DesksConfig` in `packages/schema/src/index.ts` |
+| `MUSTER_TOWN_REPO` | path B only: the git URL the container sets as `origin` on every boot, so the town's redeploy pulls from it (default `https://github.com/mitchellgordon95/muster-town.git`; set your fork's). Path A keeps the checkout's own `origin` | `deploy/fly/entrypoint.sh` |
 | `MUSTER_TOWN_DEPLOY_BRANCH` | the branch the town's redeploy pulls (default `main`; `prod` is the last commit that passed CI) | `packages/runtime/src/redeploy.ts` |
 | `GH_TOKEN` | host fallback repo token for desks when `desks.ghToken` is `env` (better: a `GH_TOKEN` collective secret at the Town Hall, docs/secrets.md) | `packages/runtime/src/desk/session.ts` |
 | `BUCKET_NAME`, `AWS_ENDPOINT_URL_S3`, `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`, `MUSTER_TOWN_BACKUP_KEY` (+ optional `AWS_REGION`, default `auto`) | the nightly off-site backup (section 5); all five or it is off | `packages/server/src/backup/index.ts` |
@@ -230,13 +231,13 @@ section will say how once it ships.
 
 ## Known gaps
 
-What makes self-hosting harder than this page would like, as of 2026-10-29. None of these is fixed here.
+What makes self-hosting harder than this page would like, as of 2026-10-29. Struck items are fixed.
 
 1. **No published Docker image, and the Docker build is untested off Fly.** `deploy/fly/Dockerfile` expects a build
    context prepared like `deploy/fly/build.sh` does (`.git` shipped as `gitdir`, `deploy/fly/dockerignore`); the steps in
    2B follow that script but have not been run with plain `docker build`.
-2. **The image pulls upstream.** `deploy/fly/entrypoint.sh` resets `origin` to `github.com/mitchellgordon95/muster-town`
-   on every boot, so a town built from a fork redeploys from upstream, not the fork. Path A keeps your own `origin`.
+2. ~~**The image pulls upstream.**~~ Fixed: `deploy/fly/entrypoint.sh` sets `origin` from `MUSTER_TOWN_REPO` (default
+   upstream), so a town built from a fork redeploys from the fork when you set it.
 3. **No code tools in the container.** The image has no Docker, so desks can't run there: agents run in-process inside the
    town's own server process (no sandbox) and code-access buildings never get sessions. Agents that write code need
    path A with Docker, or Fly.
@@ -246,8 +247,8 @@ What makes self-hosting harder than this page would like, as of 2026-10-29. None
    a backup and restore) is still to do.
 5. **The web client is always at `/workshop/`**, whatever your collective is called.
 6. **The seeded admin is called "Mitchell"** unless `MUSTER_TOWN_ADMIN_NAME` is set before the first start.
-7. **Monitor FYIs go to a building named "Prod"**: without one, alerts are only town events. Outbound alerts are wired to
-   Twilio and Gmail SMTP only.
+7. ~~**Monitor FYIs need a building named "Prod"**~~. Fixed: without one they go to the Town Hall board as town-wide
+   FYIs. Still open: outbound alerts are wired to Twilio and Gmail SMTP only.
 8. **The full restore drill is Fly-only**: `scripts/backup/restore.sh` without `--local` boots a scratch app on Fly; off Fly
    you restore by hand as in section 5.
 9. **Directory registration** (section 6) does not exist yet.

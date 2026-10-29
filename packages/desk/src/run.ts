@@ -13,6 +13,7 @@ import { blocksOf, InputChannel, noUsage, plusUsage, usageOf, type LooseMessage,
 import { startMcpProxy, type McpProxy } from "./mcp-proxy.ts";
 import type { TownClient } from "./town.ts";
 import { setupWorkspace } from "./workspace.ts";
+import { startPerf } from "./perf.ts";
 
 export const EXIT_OK = 0;
 export const EXIT_ERROR = 1;
@@ -35,6 +36,8 @@ export interface RunDeps {
   flushMs?: number;
   /** the MCP proxy's waits while the town restarts (tests); default RESTART_BACKOFF_MS */
   mcpBackoffMs?: number[];
+  /** the /proc/stat reading (tests); default reads /proc/stat */
+  readProcStat?: () => { cpu: number; steal: number } | null;
 }
 
 /** Keep tool inputs postable: long strings (file bodies, heredocs) are clipped. */
@@ -124,6 +127,8 @@ export async function runSession(sessionId: string, deps: RunDeps): Promise<numb
   /** the SDK's message when a result read as SPEND_LIMIT: posted at session end so the server logs `bank.cap` */
   let spendLimit: string | null = null;
   let fundingUsed: FundingMode | null = env.DESK_AUTH && FUNDING.has(env.DESK_AUTH) ? env.DESK_AUTH as FundingMode : null;
+  /** wall, CPU and steal over the session (gr_uhh6u39vv9), from the Machine's /proc/stat */
+  const perf = startPerf(deps.readProcStat);
 
   const endSession = async (): Promise<void> => {
     const body: DeskSessionEndInput = {
@@ -140,6 +145,7 @@ export async function runSession(sessionId: string, deps: RunDeps): Promise<numb
       ...(fundingUsed ? { fundingUsed } : {}),
       ...(fellBack ? { fallback: true } : {}),
       ...(spendLimit ? { spendLimit } : {}),
+      ...perf.finish(),
     };
     try {
       await town.sessionEnd(body);

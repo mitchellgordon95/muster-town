@@ -47,6 +47,10 @@ export interface ForkSummary {
   sessionId: string | null;
   /** the session's adjusted output tokens */
   tokens: number;
+  /** the session's wall, CPU and steal ms (null = running or not measured) */
+  wallMs?: number | null;
+  cpuMs?: number | null;
+  stealMs?: number | null;
   /** a kept transcript exists for the session */
   transcript: boolean;
   reportId: string | null;

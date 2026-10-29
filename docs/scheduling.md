@@ -7,7 +7,7 @@ assignment on one agent's queue with `waitFor {after}`; the recurring design of 
 
 ## What it is
 
-A **schedule** belongs to a building (table `schedules`, migration `056_schedules.sql`; `Schedule` in
+A **schedule** belongs to a building (table `schedules`, migration `057_schedules.sql`; `Schedule` in
 `packages/schema`). It stores what `assign` takes (title, description, lane fields `lane`/`grantId`/`keyResultId`/`gap`/
 `sourceId`, `pages`, `model`), the human `origin` it traces to, and when:
 

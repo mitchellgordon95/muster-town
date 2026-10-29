@@ -1,4 +1,5 @@
 import { afterEach, describe, expect, it } from "vitest";
+import { TOWN_HALL_ID } from "@muster-town/core";
 import { buildApp } from "../src/app.ts";
 import { ALERT_ENV, CLEAR_AFTER, Counters, Monitor, OUTBOUND_CAP, defaultMetrics, processProbes, type Probes, type Senders } from "../src/monitor.ts";
 import { json, seededApp } from "./helpers.ts";
@@ -185,6 +186,20 @@ describe("monitor thresholds", () => {
     expect(world.db.prepare("SELECT type FROM events WHERE id = ?").get(res.eventId)).toEqual({ type: "alert" });
     expect(r.sent).toEqual([]);
     expect(JSON.stringify(m.view())).not.toContain("ALERT_");
+  });
+
+  it("FYIs go to the building named Prod, else the Town Hall board (a self-hosted town without Prod)", async () => {
+    const s = await seededApp();
+    close = s.close;
+    const r = rig({ env: {} });
+    const make = () => new Monitor({ world: s.world, metrics: [], env: {}, now: r.now, log: r.log });
+    s.world.buildings.all().filter((b) => b.name.trim().toLowerCase() === "prod").forEach((b) => s.world.buildings.patch(b.id, { name: `${b.name} old` }));
+    const th = (await make().test("Admin")).fyiDocId!;
+    expect(s.world.docs.get(th)).toMatchObject({ type: "fyi", buildingId: TOWN_HALL_ID });
+    const other = s.world.buildings.all().find((b) => b.kind !== "town-hall")!;
+    s.world.buildings.patch(other.id, { name: "Prod" });
+    const prod = (await make().test("Admin")).fyiDocId!;
+    expect(s.world.docs.get(prod)).toMatchObject({ type: "fyi", buildingId: other.id });
   });
 
   it("keeps open alerts across a restart and writes a gap event when sampling resumes", async () => {

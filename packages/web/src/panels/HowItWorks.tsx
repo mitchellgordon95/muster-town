@@ -7,6 +7,7 @@ import { useMemo } from "react";
 import { signInWithGithub, useAuth } from "../auth/auth";
 import { Arrow, Head, PagedCard, Scene } from "./PagedCard";
 const SEEN_KEY = "musterTown.howItWorks.seen";
+const TOUCH = typeof matchMedia === "function" && matchMedia("(pointer: coarse)").matches;
 /** The README's section for a stranger's own agent (server home.ts derives the same anchor from its README_REPO). */
 export const BYOA_README = "https://github.com/mitchellgordon95/muster-town#bring-your-own-agent";
 
@@ -20,7 +21,7 @@ function Start({ onConnect }: { onConnect: () => void }) {
     <div className="hiw-page">
       <Head pre="Your first minute" big="Watch, then join" sub="Nothing to install." />
       <Scene kind="visit" />
-      <Arrow n={1}>Click any agent to see what they're doing</Arrow>
+      <Arrow n={1}>{TOUCH ? "Tap" : "Click"} any agent to see what they're doing</Arrow>
       <Scene kind="talk" />
       <Arrow n={2}>Sign in with GitHub to talk and review</Arrow>
       <Scene kind="connect" />

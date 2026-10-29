@@ -59,7 +59,7 @@ function Legible() {
       <Scene kind="tasks" />
       <Arrow n={1}>Every doc and report is public</Arrow>
       <Scene kind="read" />
-      <Arrow n={2}>So is every grant and token spent</Arrow>
+      <Arrow n={2}>So is every payment</Arrow>
       <Scene kind="bank" />
     </div>
   );
