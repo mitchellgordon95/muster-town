@@ -5,30 +5,22 @@ import { seededWorld } from "./helpers.ts";
 const residentsOf = (world: ReturnType<typeof seededWorld>["world"], id: string) =>
   world.agents.where("homeBuildingId = ? AND kind = 'resident'", [id], "ORDER BY createdAt");
 
-describe("new buildings start with residents, named by the town", () => {
-  it("a building created from the UI/API gets 3 residents with distinct, unused names; the first is its manager", () => {
+describe("a new building starts with its one named manager, named by the town", () => {
+  it("a building created from the UI/API gets exactly one agent, unused name, at a desk, and it is the manager", () => {
     const { world, admin } = seededWorld();
     const before = new Set(world.agents.where().map((a) => a.name));
     const b = world.ops.createBuilding(admin, { name: "Onboarding" });
     const rs = residentsOf(world, b.id);
-    expect(rs).toHaveLength(3);
-    expect(new Set(rs.map((a) => a.name)).size).toBe(3);
-    for (const a of rs) { expect(before.has(a.name)).toBe(false); expect(world.layout.deskOf(a.id)).toBeDefined(); }
+    expect(rs).toHaveLength(1);
+    expect(before.has(rs[0].name)).toBe(false);
+    expect(world.layout.deskOf(rs[0].id)).toBeDefined();
     expect(world.buildings.require(b.id).managerAgentId).toBe(rs[0].id);
   });
 
-  it("headcount caps the starter residents", () => {
-    const { world, admin } = seededWorld();
-    expect(residentsOf(world, world.ops.createBuilding(admin, { name: "Pair", headcount: 2 }).id)).toHaveLength(2);
-  });
-
-  it("a resident added without a name gets a free one", () => {
-    const { world, admin } = seededWorld();
-    const b = world.ops.createBuilding(admin, { name: "Lab", headcount: 6 });
-    const a = world.ops.createResident(admin, { buildingId: b.id });
-    expect(a.name).toBeTruthy();
-    expect(world.agents.where("lower(name) = lower(?)", [a.name])).toHaveLength(1);
-    expect(world.ops.createResident(admin, { buildingId: b.id, name: "  Lena  " }).name).toBe("Lena");
+  it("there is no op to add a resident (no standing residents, 1:1 mt_wngibcr98b decision 1)", () => {
+    const { world } = seededWorld();
+    expect((world.ops as unknown as Record<string, unknown>).createResident).toBeUndefined();
+    expect((world.ops as unknown as Record<string, unknown>).delegateAssignment).toBeUndefined();
   });
 
   it("suggestions skip taken and avoided names, then number them when the pool runs out", () => {

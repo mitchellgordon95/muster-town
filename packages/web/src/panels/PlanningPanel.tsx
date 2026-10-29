@@ -1,8 +1,8 @@
-/** Planning desk (Town Hall): create buildings, the whole-town resident roster (read-only; adding and dismissing live in each building's Members tab), roles, secrets (admins: the collective's secrets and grants, docs/secrets.md), export. Donating and Bank pools live at the Bank. */
+/** Planning desk (Town Hall): create buildings, each building's one named manager (read-only; 1:1 mt_wngibcr98b decision 1: no standing residents), roles, secrets (admins: the collective's secrets and grants, docs/secrets.md), export. Donating and Bank pools live at the Bank. */
 import { isFork } from "../forks";
 import { useMemo, useState } from "react";
 import { api, API_BASE, tokenStore } from "../api";
-import { store, useTown, roleOf } from "../state";
+import { store, useTown } from "../state";
 import { Glyph, PanelShell } from "./PanelShell";
 import { RolesTab } from "./BuildingPanel";
 import { SecretsTab } from "./Secrets";
@@ -11,13 +11,13 @@ import { portraitUrl } from "../map/sprites";
 
 export function PlanningPanel({ tab }: { tab?: string }) {
   const me = useTown((s) => s.me);
-  const tabs = ["Buildings", "Residents", "Roles", ...(me?.isAdmin ? ["Secrets"] : []), "System"];
+  const tabs = ["Buildings", "Managers", "Roles", ...(me?.isAdmin ? ["Secrets"] : []), "System"];
   return (
     <PanelShell icon={<Glyph kind="planning" />} title="Planning desk" subtitle={me ? `Signed in as ${me.user.name}${me.isAdmin ? " · admin" : ""}` : "Read-only · sign in to plan"} tabs={tabs} initialTab={tab && tabs.includes(tab) ? tab : "Buildings"}>
       {(t) => (
         <>
           {t === "Buildings" ? <Buildings /> : null}
-          {t === "Residents" ? <Residents /> : null}
+          {t === "Managers" ? <Managers /> : null}
           {t === "Roles" ? <RolesTab /> : null}
           {t === "Secrets" ? <SecretsTab /> : null}
           {t === "System" ? <System /> : null}
@@ -62,30 +62,27 @@ function Buildings() {
   );
 }
 
-function Residents() {
+/** Each building's one named manager (its queued work runs on forks of it); no roster to add to or dismiss from. */
+function Managers() {
   const all = useTown((s) => s.buildings);
   const agents = useTown((s) => s.agents);
   useTown((s) => s.me);
-  const byBuilding = useMemo(() => all.map((b) => ({ b, residents: Object.values(agents).filter((a) => a.kind === "resident" && !isFork(a) && a.homeBuildingId === b.id && a.status !== "retired").sort((x, y) => x.createdAt.localeCompare(y.createdAt)) })).filter((x) => x.residents.length || x.b.kind !== "town-hall"), [all, agents]);
+  const labs = useMemo(() => all.filter((b) => b.kind !== "town-hall"), [all]);
   return (
     <>
-      <p className="direction">Every resident in town. To add or dismiss residents, open a building's settings.</p>
-      {byBuilding.map(({ b, residents }) => {
-        const manage = b.kind !== "town-hall" && store.can("building.manage", b.id);
+      <p className="direction">Every building has one named manager; its queued work runs on forks of it. A building's Members tab shows its live forks.</p>
+      {labs.map((b) => {
+        const a = b.managerAgentId ? agents[b.managerAgentId] : undefined;
+        const forks = Object.values(agents).filter((x) => isFork(x) && x.forkOf === a?.id && x.status !== "retired").length;
         return (
-          <Section key={b.id} title={`${b.name} (${residents.length}${b.kind === "town-hall" ? "" : ` / ${b.headcount}`})`}>
-            {!residents.length ? <Empty>No residents yet.</Empty> : residents.map((a) => (
-              <button key={a.id} className="member" title={manage ? `Manage in ${b.name}'s members` : undefined} onClick={() => store.open(manage ? { kind: "building", id: b.id, tab: "Members" } : { kind: "agent", id: a.id })}>
+          <Section key={b.id} title={b.name}>
+            {!a ? <Empty>No manager agent: humans work its in-tray.</Empty> : (
+              <button className="member" onClick={() => store.open({ kind: "building", id: b.id, tab: "Members" })}>
                 <img src={portraitUrl(a.sprite, 2)} alt="" />
-                <div><b>{a.name}</b><span>{roleOf(a)}</span></div>
+                <div><b>{a.name}</b><span>{forks ? `${forks} fork${forks === 1 ? "" : "s"} working` : "Manager"}</span></div>
                 <StatusPill status={a.status} />
               </button>
-            ))}
-            {manage ? (
-              <div className="walk-links">
-                <button className="walk-link" onClick={() => store.open({ kind: "building", id: b.id, tab: "Members" })}><Glyph kind="building" /><span>Add or dismiss in {b.name} members</span></button>
-              </div>
-            ) : null}
+            )}
           </Section>
         );
       })}

@@ -228,12 +228,14 @@ describe("assignments", () => {
     const { world, by, admin } = seededWorld();
     const noor = by("Noor"), moss = by("Moss");
     await expect(world.verbs.assign(by("Mei"), { agentId: noor.id, title: "x", description: "y" })).rejects.toMatchObject({ code: "forbidden" });
-    const { assignmentId } = await world.verbs.assign(moss, { agentId: noor.id, title: "Check Mauna Loa", description: "y", gap: "No Mauna Loa check" });
-    expect((await world.verbs.assignments(noor, {})).assignments[0]).toMatchObject({ id: assignmentId, status: "pending" });
-    await world.verbs.accept_assignment(noor, { id: assignmentId });
-    expect(world.agents.require(noor.id).currentAssignmentId).toBe(assignmentId);
-    expect((await world.verbs.look(noor, {})).notices.currentAssignment).toBe("Check Mauna Loa");
-    expect((await world.verbs.inbox(noor, {})).messages.some((m) => m.body.includes("Check Mauna Loa"))).toBe(true);
+    // one named manager per building (1:1 mt_wngibcr98b decision 1): an agent names only itself (or a visitor)
+    await expect(world.verbs.assign(moss, { agentId: noor.id, title: "x", description: "y", gap: "g" })).rejects.toThrow(/Leave agentId out/);
+    const { assignmentId } = await world.verbs.assign(moss, { agentId: moss.id, title: "Check Mauna Loa", description: "y", gap: "No Mauna Loa check" });
+    expect((await world.verbs.assignments(moss, {})).assignments[0]).toMatchObject({ id: assignmentId, status: "pending" });
+    await world.verbs.accept_assignment(moss, { id: assignmentId });
+    expect(world.agents.require(moss.id).currentAssignmentId).toBe(assignmentId);
+    expect((await world.verbs.look(moss, {})).notices.currentAssignment).toBe("Check Mauna Loa");
+    expect((await world.verbs.inbox(moss, {})).messages.some((m) => m.body.includes("Check Mauna Loa"))).toBe(true);
   });
 
   it("done and cancelled are terminal; a report on a cancelled assignment leaves it cancelled", async () => {

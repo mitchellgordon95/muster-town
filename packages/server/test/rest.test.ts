@@ -51,7 +51,7 @@ describe("auth & town", () => {
 });
 
 describe("buildings & agents", () => {
-  it("creates a building and a resident; validation and permission errors map to status codes", async () => {
+  it("creates a building with its manager (no resident routes); validation and permission errors map to status codes", async () => {
     const { app, auth, world } = await setup();
     const b = await json(app, "POST", "/api/buildings", { headers: auth, body: { name: "Ocean Lab", goal: "Ocean heat", headcount: 5 } });
     expect(b.status).toBe(201);
@@ -62,16 +62,13 @@ describe("buildings & agents", () => {
     expect(bad.status).toBe(400);
     expect(bad.body.code).toBe("bad_request");
 
-    const r = await json(app, "POST", "/api/agents/residents", { headers: auth, body: { buildingId: bid, name: "Nia", title: "Oceanographer", direction: "Argo floats" } });
-    expect(r.status).toBe(201);
-    expect(r.body.agent).toMatchObject({ name: "Nia", kind: "resident", homeBuildingId: bid });
-
-    const sug = await json(app, "GET", "/api/agents/name-suggestion?avoid=Lena,Milo");
-    expect(sug.status).toBe(200);
-    expect(["lena", "milo", "nia"]).not.toContain(sug.body.name.toLowerCase());
-    const unnamed = await json(app, "POST", "/api/agents/residents", { headers: auth, body: { buildingId: bid } });
-    expect(unnamed.status).toBe(201);
-    expect(unnamed.body.agent.name).toBeTruthy();
+    // the new building moves in its one named manager; there is no route to add a resident (1:1 mt_wngibcr98b decision 1)
+    const managerId = world.buildings.require(bid).managerAgentId!;
+    expect(world.agents.require(managerId)).toMatchObject({ kind: "resident", homeBuildingId: bid });
+    expect((await json(app, "POST", "/api/agents/residents", { headers: auth, body: { buildingId: bid, name: "Nia" } })).status).toBe(404);
+    expect((await json(app, "GET", "/api/agents/name-suggestion")).status).toBe(404);
+    expect((await json(app, "POST", "/api/assignments/as_x/delegate", { headers: auth, body: { agentId: managerId } })).status).toBe(404);
+    const r = { body: { agent: world.agents.require(managerId) } };
 
     const detail = await json(app, "GET", `/api/agents/${r.body.agent.id}`);
     expect(detail.body).toMatchObject({ agent: { id: r.body.agent.id }, currentSession: null, latestReport: null, assignments: [] });

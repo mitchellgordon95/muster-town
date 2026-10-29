@@ -69,7 +69,7 @@ describe("topic pages", () => {
 
 describe("assign pages", () => {
   it("stores up to 3 topic pages of the building on the assignment; refuses others", async () => {
-    const { world, b, pix, ann, write, queue, agent } = lab();
+    const { world, b, pix, write, queue, agent } = lab();
     const ids = [];
     for (const t of ["A", "B", "C", "D"]) ids.push((await write(pix.id, { title: t, body: t, topicOf: b.id })).id);
     const a = await queue("Work", ids.slice(0, 2));
@@ -78,7 +78,7 @@ describe("assign pages", () => {
     const priv = (await write(pix.id, { title: "mine", body: "x" })).id;
     await expect(queue("Private", [priv])).rejects.toThrow(/isn't a topic page/);
     // named assignments can carry pages too
-    const named = await world.verbs.assign(agent(pix.id), { agentId: ann.id, title: "Named", description: "d", gap: "test gap", pages: [ids[3]] });
+    const named = await world.verbs.assign(agent(pix.id), { agentId: pix.id, title: "Named", description: "d", gap: "test gap", pages: [ids[3]] });
     expect(world.assignments.require(named.assignmentId).pages).toEqual([ids[3]]);
   });
 });

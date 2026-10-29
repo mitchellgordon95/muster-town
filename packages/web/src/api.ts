@@ -7,7 +7,7 @@ import type {
   ReviewDeck,
   CreateObjectiveInput, UpdateObjectiveInput, Objective, KpiKey, KpiView,
   AccessRequest, AccessRequestView, Agent, Allocation, Assignment, AuthMe, BlockedAssignment, BuildingStats, Schedule, RedeployLive, Building, ClientMessage, DesksConfig, Doc, Event, Lot, Meeting, Place, Role, Membership, SessionSlots, Tile,
-  ServerMessage, SessionView, TokenCounts, Town, CreateBuildingInput, UpdateBuildingInput, CreateResidentInput, RegisterVisitorInput,
+  ServerMessage, SessionView, TokenCounts, Town, CreateBuildingInput, UpdateBuildingInput, RegisterVisitorInput,
   ReviewInput, PinSkillInput, SkillPinView, SkillView, PutSecretInput, SecretView, ChatInput, WorkInput, DonateInput, AddBankInput, BankInput, CreateBankPoolInput, UpdateBankPoolInput, CreateMeetingInput, DocState, DocType, Mailbox, Permission, DecideGrantInput, CloseGrantInput, GrantView, KeyResult, CreateKeyResultInput, UpdateKeyResultInput, Stoplight,
 } from "@muster-town/schema";
 
@@ -341,14 +341,8 @@ export interface Api {
   deleteObjective(id: string): Promise<void>;
   /** GET /api/kpis: the town dashboard */
   kpis(): Promise<KpisView>;
-  /** `name` left out = the town picks one. */
-  createResident(input: In<typeof CreateResidentInput>): Promise<Agent>;
   /** a signed-in person registers their own agent (Claude Code over MCP); the token is returned once */
   registerVisitor(input: In<typeof RegisterVisitorInput>): Promise<{ agent: Agent; token: string }>;
-  /** An unused resident name for the new-resident form; `avoid` = names already offered (reroll). */
-  suggestName(avoid?: string[]): Promise<string>;
-  /** DELETE /api/agents/:id — dismiss (retire) a resident; purge also deletes its desk volume */
-  dismiss(id: string, purge?: boolean): Promise<void>;
   /** town.ban */
   ban(id: string, reason: string): Promise<Agent>;
   agent(id: string): Promise<AgentDetail>;
@@ -378,8 +372,6 @@ export interface Api {
   cancelAssignment(assignmentId: string): Promise<{ assignment: Assignment; agent: Agent }>;
   /** A cancelled or done assignment again, as a new pending one (front of the queue by default). */
   retryAssignment(assignmentId: string, front?: boolean): Promise<{ assignment: Assignment; agent: Agent }>;
-  /** hand a queued assignment to another resident: the original is cancelled (`from`), the copy joins their queue */
-  delegateAssignment(assignmentId: string, agentId: string, front?: boolean): Promise<{ assignment: Assignment; agent: Agent; from: Assignment }>;
   /** admin: how many work sessions may run at once on the host (queued work waits for a free slot) */
   setMaxRunning(maxRunning: number): Promise<{ desks: DesksConfig; slots: SessionSlots | null }>;
   /** open a session transcript in a new tab (admins, the building's manager, the agent itself) */
@@ -587,10 +579,7 @@ export class HttpApi implements Api {
   async updateObjective(id: string, i: In<typeof UpdateObjectiveInput>) { return unwrap<Objective>(await this.call("PATCH", `/api/objectives/${id}`, i), "objective"); }
   async deleteObjective(id: string) { await this.call("DELETE", `/api/objectives/${id}`); }
   kpis() { return this.get<KpisView>("/api/kpis"); }
-  async createResident(i: In<typeof CreateResidentInput>) { return unwrap<Agent>(await this.post("/api/agents/residents", i), "agent"); }
   registerVisitor(i: In<typeof RegisterVisitorInput>) { return this.post<{ agent: Agent; token: string }>("/api/agents/visitors", i); }
-  async suggestName(avoid: string[] = []) { return unwrap<string>(await this.get(`/api/agents/name-suggestion?avoid=${encodeURIComponent(avoid.join(","))}`), "name"); }
-  async dismiss(id: string, purge = false) { await this.call("DELETE", `/api/agents/${id}${purge ? "?purge=1" : ""}`); }
   async ban(id: string, reason: string) { return unwrap<Agent>(await this.post(`/api/agents/${id}/ban`, { reason }), "agent"); }
   agent(id: string) { return this.get<AgentDetail>(`/api/agents/${id}`); }
   forks(managerId: string) { return this.get<{ live: ForkSummary[]; retired: ForkSummary[]; notStarted?: number; family?: FamilySpend }>(`/api/agents/${managerId}/forks`); }
@@ -608,7 +597,6 @@ export class HttpApi implements Api {
   startNext(id: string) { return this.post<StartNextResult>(`/api/assignments/${id}/start-next`); }
   cancelAssignment(id: string) { return this.post<{ assignment: Assignment; agent: Agent }>(`/api/assignments/${id}/cancel`); }
   retryAssignment(id: string, front = true) { return this.post<{ assignment: Assignment; agent: Agent }>(`/api/assignments/${id}/retry`, { front }); }
-  delegateAssignment(id: string, agentId: string, front = true) { return this.post<{ assignment: Assignment; agent: Agent; from: Assignment }>(`/api/assignments/${id}/delegate`, { agentId, front }); }
   setMaxRunning(maxRunning: number) { return this.call<{ desks: DesksConfig; slots: SessionSlots | null }>("PUT", "/api/town/desks", { maxRunning }); }
   async docs(q: DocQuery) { return unwrap<Doc[]>(await this.get(`/api/docs${qs(q)}`), "docs"); }
   async doc(id: string) { return unwrap<Doc>(await this.get(`/api/docs/${id}`), "doc"); }

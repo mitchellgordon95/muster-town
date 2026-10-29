@@ -31,25 +31,25 @@ describe("plant a flag", () => {
     expect(() => world.ops.plantFlag(admin, "town-hall", "nope")).toThrow(/Town Hall/);
   });
 
-  it("the manager delegates it with review + assigneeId: continue = the flag verbatim, redirect = the note; directed lane even in a goal-directed building", async () => {
+  it("the manager queues it to the building with review: continue = the flag verbatim, redirect = the note; directed lane even in a goal-directed building; no other named agent takes it", async () => {
     const { world, admin, by, manager } = managed();
     const flag = world.ops.plantFlag(admin, LAB, "Fix the banner typo");
     await tickUntil(world, world.verbs.go(manager, { to: `flag:${flag.id}` }));
-    await expect(world.verbs.review(manager, { docId: flag.id, decision: "continue", note: "" })).rejects.toThrow(/assigneeId/);
     await expect(world.verbs.review(manager, { docId: flag.id, decision: "stop", note: "" })).rejects.toThrow(/no agent to stop/);
-    await expect(world.verbs.review(manager, { docId: flag.id, decision: "continue", note: "", assigneeId: admin.id })).rejects.toThrow(/not a resident/);
-    const r = await world.verbs.review(manager, { docId: flag.id, decision: "continue", note: "", assigneeId: by("Moss").id });
+    await expect(world.verbs.review(manager, { docId: flag.id, decision: "continue", note: "", assigneeId: admin.id })).rejects.toThrow(/can't take the flag/);
+    await expect(world.verbs.review(manager, { docId: flag.id, decision: "continue", note: "", assigneeId: by("Moss").id })).rejects.toThrow(/can't take the flag/);
+    const r = await world.verbs.review(manager, { docId: flag.id, decision: "continue", note: "" });
     const a = world.assignments.require(r.assignmentId!);
-    expect(a).toMatchObject({ agentId: by("Moss").id, title: "Fix the banner typo", lane: "directed", fromReportId: flag.id, status: "pending" });
+    expect(a).toMatchObject({ agentId: manager.id, queue: "building", title: "Fix the banner typo", lane: "directed", fromReportId: flag.id, status: "pending" });
     expect(a.description).toContain("planted a flag");
     expect(world.docs.require(flag.id).decision).toBe("continue");
     await expect(world.verbs.review(manager, { docId: flag.id, decision: "approve", note: "" })).rejects.toThrow(/already decided/);
 
     const flag2 = world.ops.plantFlag(admin, LAB, "Check the board loads");
     await tickUntil(world, world.verbs.go(manager, { to: `flag:${flag2.id}` }));
-    const r2 = await world.verbs.review(manager, { docId: flag2.id, decision: "redirect", note: "Open the board and report what you see", assigneeId: by("Noor").id });
+    const r2 = await world.verbs.review(manager, { docId: flag2.id, decision: "redirect", note: "Open the board and report what you see", assigneeId: manager.id });
     const a2 = world.assignments.require(r2.assignmentId!);
-    expect(a2).toMatchObject({ agentId: by("Noor").id, title: "Open the board and report what you see", lane: "directed" });
+    expect(a2).toMatchObject({ agentId: manager.id, queue: "agent", title: "Open the board and report what you see", lane: "directed" });
     expect(a2.description).toContain("Check the board loads");
 
     const flag3 = world.ops.plantFlag(admin, LAB, "Nothing to do here");
@@ -77,7 +77,7 @@ describe("plant a flag", () => {
     expect(world.docs.require(flag.id)).toMatchObject({ pickedUpBy: manager.id });
     expect(world.snapshot().flags).toHaveLength(0);
     expect(intrayOf(world, LAB).map((d) => d.id)).toContain(flag.id); // the in-tray keeps the record
-    const r = await world.verbs.review(manager, { docId: flag.id, decision: "continue", note: "", assigneeId: by("Moss").id });
+    const r = await world.verbs.review(manager, { docId: flag.id, decision: "continue", note: "" });
     expect(r.assignmentId).not.toBeNull();
     await expect(world.verbs.go(manager, { to: "flag:dc_nope" })).rejects.toThrow(/No flag/);
   });

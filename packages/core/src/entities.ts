@@ -43,19 +43,18 @@ export function createBuilding(
     if (creatorUserId) world.permissions.grant({ kind: "user", id: creatorUserId }, buildingRoleId(id, "manager"));
     world.layout.rebuild();
     world.events.append({ type: "building.created", buildingId: id, text: `${building.name} was built`, payload: { createdBy: creatorUserId } });
-    if (opts.starterResidents && building.kind === "lab") seedStarterResidents(world, id);
+    if (opts.starterResidents && building.kind === "lab") seedManager(world, id);
     return world.buildings.require(id);
   });
 }
 
-/** Residents a building made from the UI/API starts with: the first is its manager, the rest are workers. */
-export const STARTER_RESIDENTS = 3;
-
-/** Move in up to STARTER_RESIDENTS residents with town-picked names (capped by headcount); the first becomes manager. */
-function seedStarterResidents(world: World, buildingId: string): void {
-  const n = Math.min(STARTER_RESIDENTS, world.buildings.require(buildingId).headcount);
-  const residents = Array.from({ length: n }, () => createResident(world, { buildingId }));
-  if (residents[0]) world.buildings.upsert({ ...world.buildings.require(buildingId), managerAgentId: residents[0].id });
+/**
+ * A building made from the UI/API moves in its one named manager, town-named, at a desk (1:1 mt_wngibcr98b decision 1:
+ * no standing residents; its queued work runs on forks of the manager).
+ */
+function seedManager(world: World, buildingId: string): void {
+  const manager = createResident(world, { buildingId });
+  world.buildings.upsert({ ...world.buildings.require(buildingId), managerAgentId: manager.id });
   syncManagerRoles(world);
 }
 

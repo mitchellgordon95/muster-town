@@ -1,5 +1,5 @@
-import { AppError, blockedBy, forkSummary, forksOf, canInteract, logOf, sessionView, suggestResidentName, townBlocked, townSchedules, buildingSchedules, createSchedule, cancelSchedule, editSchedule, actOrigin, topicsOf, wikiOf, type World } from "@muster-town/core";
-import { AgentModelPatch, AgentPermissionsPatch, ChatInput, CreateResidentInput, Event, InterruptInput, MessageAgentInput, RegisterVisitorInput, WorkInput, type Agent, type Session } from "@muster-town/schema";
+import { AppError, blockedBy, forkSummary, forksOf, canInteract, logOf, sessionView, townBlocked, townSchedules, buildingSchedules, createSchedule, cancelSchedule, editSchedule, actOrigin, topicsOf, wikiOf, type World } from "@muster-town/core";
+import { AgentModelPatch, AgentPermissionsPatch, ChatInput, Event, InterruptInput, MessageAgentInput, RegisterVisitorInput, WorkInput, type Agent, type Session } from "@muster-town/schema";
 import type { FastifyInstance, FastifyRequest } from "fastify";
 import { z } from "zod";
 import { actorOf, ASK_FIRST, parse, requireAuth, requireUser, type Params } from "../context.ts";
@@ -19,18 +19,6 @@ function runtimeOr503(app: FastifyInstance) {
 
 export async function agentRoutes(app: FastifyInstance) {
   const world = app.world;
-
-  app.post("/api/agents/residents", async (req, reply) => {
-    const input = parse(CreateResidentInput, req.body);
-    const agent = world.ops.createResident(actorOf(world, req), input);
-    return reply.code(201).send({ agent });
-  });
-
-  /** A free resident name for the "new resident" form; `avoid` (comma-separated) skips names already offered, for a reroll. */
-  app.get("/api/agents/name-suggestion", async (req) => {
-    const { avoid } = parse(z.object({ avoid: z.string().default("") }), req.query);
-    return { name: suggestResidentName(world, avoid.split(",").map((s) => s.trim()).filter(Boolean)) };
-  });
 
   app.post("/api/agents/visitors", async (req, reply) => {
     const user = requireUser(req);
@@ -236,15 +224,9 @@ export async function agentRoutes(app: FastifyInstance) {
     return reply.code(201).send({ assignment, agent: world.agents.require(assignment.agentId, "agent") });
   });
 
-  /** Delegate a queued assignment to another resident: the original is cancelled, a copy joins their queue (front unless `front: false`). → 201 { assignment, agent, from } */
-  app.post<{ Params: Params }>("/api/assignments/:id/delegate", async (req, reply) => {
-    const { agentId, front } = parse(z.object({ agentId: z.string(), front: z.boolean().default(true) }), req.body ?? {});
-    const r = world.ops.delegateAssignment(actorOf(world, req), req.params.id, agentId, { front });
-    return reply.code(201).send({ assignment: r.assignment, agent: world.agents.require(r.assignment.agentId, "agent"), from: r.from });
-  });
-
   /**
-   * Dismiss: building.manage on the agent's home building (or admin). `?purge=1` also deletes the desk's home volume.
+   * Retire an agent (API only since 1:1 mt_wngibcr98b decision 1: no web dismiss, no standing residents to manage):
+   * building.manage on the agent's home building (or admin). Its row, reports, wiki and log stay (paper trail). `?purge=1` also deletes the desk's home volume.
    * → { agent, cancelledAssignments, revokedTokens, removedMemberships, deskFreed, purge }
    */
   app.delete<{ Params: Params }>("/api/agents/:id", async (req) => {
