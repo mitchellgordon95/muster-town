@@ -33,6 +33,9 @@ Citation format: the same as in [grants.md](grants.md): a `- Test:` line with th
    - Test: `packages/core/test/wakes-relay.test.ts` › `inbox only: a busy recipient, a tell with no origin, past the hop cap, or older than 24 h`
    - Test: `packages/core/test/wakes-step5.test.ts` › `inbox only: no origin, past the hop cap, older than 24 h, or a busy target`
    - Test: `packages/core/test/origin.test.ts` › `origin is not a verb input: an agent can't put it on its tell`
+9. **Nothing in the runtime touches the world after `stop()` resolves.** `runtime.stop()` stops the waker, aborts live sessions and awaits the redeployer's `stop()`: an in-flight redeploy ends at its next step, drain poll or lock wait, never exits the process, and writes no event after stop, so a caller can close the DB right after (the stale-state drain flake of main run 40454959781).
+   - Test: `packages/runtime/test/redeploy.test.ts` › `stop() ends an in-flight drain without exiting and writes no event after it`
+   - Test: `packages/runtime/test/redeploy.test.ts` › `runtime.stop() resolves only after an in-flight redeploy step has finished, and nothing touches the world after it`
 
 ## How it connects
 
