@@ -1,4 +1,4 @@
-import { BANK_FIXTURES, BANK_LOT, TILE, WALKABLE, type Building, type Lot, type Place, type Tile } from "@muster-town/schema";
+import { BANK_FIXTURES, BANK_LOT, labSize, MAX_HEADCOUNT, TILE, WALKABLE, type Building, type Lot, type Place, type Tile } from "@muster-town/schema";
 import { piecesFor, resolveFurniture } from "./furniture.ts";
 import { deriveRoads, doorOf, ROAD_Y } from "./road.ts";
 
@@ -11,8 +11,7 @@ export interface Grid { w: number; h: number; tiles: number[] }
 export const TOWN_HALL_X = 48;
 export const LOT_GAP = 4;
 export const TOWN_HALL_SIZE = { w: 17, h: 11 } as const;
-/** Largest headcount that fits under the fixed road (rows*3 + 6 <= ROAD_Y - 2). */
-export const MAX_HEADCOUNT = 3 * Math.floor((ROAD_Y - 2 - 6) / 3);
+export { MAX_HEADCOUNT };
 
 export const TOWN_HALL_ID = "town-hall";
 /** Seats at the Town Hall mod station (town moderators' desks). */
@@ -34,11 +33,7 @@ export const TOWN_HALL_FIXTURES = {
   bench: [{ x: 10, y: 9 }, { x: 11, y: 9 }], benchSeats: [{ x: 10, y: 8 }, { x: 11, y: 8 }],
 } as const;
 
-export function labSize(headcount: number): { w: number; h: number } {
-  const n = Math.max(1, headcount);
-  const cols = Math.min(3, n), rows = Math.ceil(n / cols);
-  return { w: Math.max(cols * 4 + 3, 13), h: rows * 3 + 6 };
-}
+export { labSize };
 export function sizeFor(b: Building): { w: number; h: number } {
   return b.kind === "town-hall" ? { ...TOWN_HALL_SIZE } : labSize(b.headcount);
 }

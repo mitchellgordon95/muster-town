@@ -127,6 +127,8 @@ kbd { font-family: var(--mono); font-size: 11px; background: #2a2d3a; border: 1p
 .plan-form input, .plan-form select { width: auto; padding: 5px 8px; }
 .plan-form .grow { flex: 1 1 150px; min-width: 0; }
 .plan-form label { display: flex; gap: 4px; align-items: center; color: var(--muted); }
+.plan-size { color: var(--muted); font-variant-numeric: tabular-nums; white-space: nowrap; }
+.plan-selected { display: flex; gap: 8px; align-items: baseline; font-size: 12px; }
 .loading-screen { position: absolute; inset: 0; display: grid; place-content: center; justify-items: center; gap: 14px; color: var(--muted); background: var(--bg); }
 
 /* ---------- panel ---------- */

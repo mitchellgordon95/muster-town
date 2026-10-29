@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { BANK_LOT, TILE } from "@muster-town/schema";
+import { BANK_LOT, deskRoom, desksForLot, TILE, TILES_PER_DESK } from "@muster-town/schema";
 import { computeLayout, deriveRoads, doorOf, doorstepOf, findPath, labSize, MAX_TOWN_Y, piecesFor, planLot, ROAD_Y, validateLayout, validatePlan, type Grid, type PlanLot } from "../src/index.ts";
 import { seededWorld } from "./helpers.ts";
 
@@ -139,6 +139,52 @@ describe("town planning", () => {
     expect(created!.lot).toEqual(lot);
     expect(world.layout.door(created!.id)).toEqual({ x: lot.x + Math.floor(lot.w / 2), y: lot.y + lot.h - 1 });
     expect(world.permissions.can(admin, "building.manage", created!.id)).toBe(true);
+  });
+
+  it("desks follow floor space: one per TILES_PER_DESK tiles inside the walls, at least 1, never more than fit (dc_1hjoh9aurq)", () => {
+    expect(TILES_PER_DESK).toBe(26);
+    // the live town's labs when desks became derived keep their desks
+    expect(desksForLot({ w: 15, h: 12 })).toBe(5);
+    expect(desksForLot({ w: 15, h: 9 })).toBe(3);
+    expect(desksForLot({ w: 13, h: 9 })).toBe(2);
+    expect(desksForLot({ w: 21, h: 18 })).toBe(11); // 19×16 = 304 tiles / 26 = 11.7 → 11 (12 would fit)
+    expect(desksForLot({ w: 13, h: 38 })).toBe(2); // 11×36 = 396 tiles → 15, but a lab narrower than 15 holds only 2 (labSize)
+    for (const w of [13, 14, 15, 20, 30, 48]) for (const h of [9, 10, 12, 20, 38]) {
+      const n = desksForLot({ w, h });
+      expect(n).toBeGreaterThanOrEqual(1);
+      expect(n).toBeLessThanOrEqual(Math.max(1, deskRoom({ w, h })));
+      expect(n).toBeLessThanOrEqual(Math.max(1, Math.floor(((w - 2) * (h - 2)) / TILES_PER_DESK)));
+    }
+    expect(desksForLot({ w: 3, h: 3 })).toBe(1);
+  });
+
+  it("resizing a lab sets its desks from the new floor space; moving keeps them; a client headcount is ignored", () => {
+    const { world, admin } = seededWorld();
+    const b = world.buildings.require("carbon-cycle"), old = b.lot!;
+    const moved = { ...old, x: old.x - 2 };
+    world.ops.planTown(admin, { "carbon-cycle": moved });
+    expect(world.buildings.require("carbon-cycle").headcount).toBe(b.headcount);
+    const big = { ...moved, y: moved.y + moved.h - 20, w: moved.w + 4, h: 20 };
+    const dry = world.ops.planPreview(admin, { "carbon-cycle": big });
+    expect(dry.errors).toEqual([]);
+    expect(dry.places.filter((p) => p.kind === "desk" && p.buildingId === "carbon-cycle")).toHaveLength(desksForLot(big));
+    world.ops.planTown(admin, { "carbon-cycle": big });
+    expect(world.buildings.require("carbon-cycle").headcount).toBe(desksForLot(big));
+    expect(world.events.recent({ limit: 5 }).find((e) => e.type === "town.plan" && e.text.includes("resized"))?.payload).toMatchObject({ desks: { before: b.headcount, after: desksForLot(big) } });
+    // shrinking never goes below the desks in use: the plan asks for a lot big enough for them
+    const used = world.layout.deskCount("carbon-cycle");
+    expect(used).toBeGreaterThan(desksForLot({ w: 13, h: 9 }));
+    const small = { ...big, w: 13, h: 9 };
+    const err = world.ops.planPreview(admin, { "carbon-cycle": small }).errors;
+    expect(err.map((e) => e.message).join(" ")).toMatch(new RegExp(`${used} desks`));
+  });
+
+  it("a new building drawn on the map gets its desks from its lot, whatever headcount is sent", () => {
+    const { world, admin } = seededWorld();
+    const right = Math.max(...world.buildings.all().map((b) => b.lot!.x + b.lot!.w));
+    const lot = { x: right + 3, y: ROAD_Y - 2 - 12, w: 15, h: 12 };
+    const { created } = world.ops.planTown(admin, {}, { name: "Kelp Lab", headcount: 20, lot });
+    expect(created!.headcount).toBe(5);
   });
 
   it("needs a human with town.manage_buildings", () => {

@@ -1,4 +1,4 @@
-import { TILE, type Building, type Lot, type Place, type Tile } from "@muster-town/schema";
+import { desksForLot, TILE, type Building, type Lot, type Place, type Tile } from "@muster-town/schema";
 import type { DB } from "../db.ts";
 import { AppError, notFound } from "../errors.ts";
 import type { Repos } from "../store.ts";
@@ -87,16 +87,25 @@ export class WorldMap {
    * map) without saving it. Returns the errors and the whole grid as it would look (drawn even when illegal, so the
    * planner sees where things are). The new building's id in `places` is `new`.
    */
-  planPreview(lots: Record<string, Lot>, create?: { name: string; headcount?: number; lot: Lot }): { errors: PlanError[]; grid: Grid; places: Place[] } {
+  planPreview(lots: Record<string, Lot>, create?: { name: string; lot: Lot }): { errors: PlanError[]; grid: Grid; places: Place[] } {
     const all = this.repos.buildings.all();
     const unknown = Object.keys(lots).filter((id) => !all.some((b) => b.id === id));
     if (unknown.length) throw new AppError("bad_request", `Unknown building: ${unknown.join(", ")}.`);
-    const next = all.map((b) => (lots[b.id] ? { ...b, lot: lots[b.id] } : b));
-    if (create) next.push({ id: "new", name: create.name || "New building", kind: "lab", headcount: create.headcount ?? 6, lot: create.lot, furniture: {} } as Building);
+    const next = all.map((b) => (lots[b.id] ? { ...b, lot: lots[b.id], headcount: this.headcountFor(b, lots[b.id]) } : b));
+    if (create) next.push({ id: "new", name: create.name || "New building", kind: "lab", headcount: desksForLot(create.lot), lot: create.lot, furniture: {} } as Building);
     const plan = next.map(planLot).filter((p): p is PlanLot => !!p);
     const errors = validatePlan(plan);
     const res = this.compute(next);
     return { errors, grid: res.grid, places: res.places };
+  }
+
+  /**
+   * A lab's desks on lot `lot` (dc_1hjoh9aurq): a resize sets them from its floor space (`desksForLot`), but never below
+   * the desks in use (the plan then asks for a lot big enough for them); a move keeps them. The Town Hall's never change.
+   */
+  headcountFor(b: Building, lot: Lot): number {
+    if (b.kind !== "lab" || (b.lot && b.lot.w === lot.w && b.lot.h === lot.h)) return b.headcount;
+    return Math.max(desksForLot(lot), this.deskCount(b.id));
   }
 
   place(id: string): Place | undefined {
