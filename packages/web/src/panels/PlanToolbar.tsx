@@ -2,14 +2,15 @@
 import { townPlan, useTownPlan } from "../map/townPlan";
 import { NumberInput } from "./ui";
 
-export function PlanToolbar() {
+/** `inset` = the side bar's width: the toolbar centres on the map left of it. */
+export function PlanToolbar({ inset = 0 }: { inset?: number }) {
   const d = useTownPlan();
   if (!d) return null;
   const c = d.create;
   const moved = Object.keys(townPlan.changed()).length;
   const dirty = townPlan.dirty();
   return (
-    <div className="layout-bar" role="toolbar" aria-label="Plan the town">
+    <div className="layout-bar" role="toolbar" aria-label="Plan the town" style={inset ? { left: `calc((100% - ${inset}px) / 2)`, maxWidth: `min(640px, calc(100% - ${inset}px - 24px))` } : undefined}>
       <div className="layout-bar-title">
         <b>Planning the town</b>
         <span>Drag a building to move it, its walls to resize it, empty grass to draw a new one; arrows nudge</span>

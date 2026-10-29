@@ -1,4 +1,4 @@
-import { AppError, BANK_ACCOUNTING, accessRequestOf, boardWithTownDocs, canInteract, decideAccess, deskSlotRows, requestAccess, sessionView, setDeskSlot, cabinetCounts, cabinetDocs, reportChains, reviewDeck, presentedReviewDeck } from "@muster-town/core";
+import { AppError, BANK_ACCOUNTING, buildingStats, accessRequestOf, boardWithTownDocs, canInteract, decideAccess, deskSlotRows, requestAccess, sessionView, setDeskSlot, cabinetCounts, cabinetDocs, reportChains, reviewDeck, presentedReviewDeck } from "@muster-town/core";
 import { AccessDecisionInput, AccessRequestInput, AddBankInput, CreateBankPoolInput, CreateBuildingInput, DesksPatch, UpdateBankPoolInput, DocType, DonateInput, LayoutInput, Membership, PlanInput, PlantFlagInput, RedeployInput, UpdateBuildingInput, apiKeyProblem, townEnv, REVIEW_DECK_ID, type AccessRequest, type AuthMe, type RedeployLive } from "@muster-town/schema";
 import type { FastifyInstance, FastifyRequest } from "fastify";
 import { brotliDecompressSync } from "node:zlib";
@@ -35,7 +35,7 @@ export async function townRoutes(app: FastifyInstance) {
    * (deploy/README.md "Backups"). Never the key or the bucket credentials. `monitor` (read-only, null without one):
    * `{lastSampleAt, outbound, alerts: [{key, level, since, value}]}` (monitor.ts); never a secret.
    */
-  app.get("/api/health", async () => ({ ok: true, runtime: !!app.runtime, commit: world.host.commit ?? null, time: new Date().toISOString(), accounting: BANK_ACCOUNTING, load: app.load.snapshot(),
+  app.get("/api/health", async () => ({ ok: true, runtime: !!app.runtime, commit: world.host.commit ?? null, startedAt: world.host.startedAt ?? null, time: new Date().toISOString(), accounting: BANK_ACCOUNTING, load: app.load.snapshot(),
     // goal-directed budgets: exploration (held at its allowance) and directed (a human asked; metered, never held) today
     budgets: world.grantDesk.laneBudgets(), backup: app.backup?.snapshot() ?? null, monitor: app.monitor?.view() ?? null,
     // the root app (the Workshop) only: how many hosted collectives this process serves at /<slug>/
@@ -144,6 +144,12 @@ export async function townRoutes(app: FastifyInstance) {
       // goal-directed: the goal's key results (each with its live grant, if any), the blocked reason (null = not blocked) and the stoplight
       keyResults: world.grantDesk.keyResults(building.id), blocked: world.grantDesk.blocked(building), stoplight: world.grantDesk.stoplight(building),
     };
+  });
+
+  // town planning's side bar: the building's assignments running / queued / scheduled, its agents and forks, the live commit
+  app.get<{ Params: Params }>("/api/buildings/:id/stats", async (req) => {
+    world.buildings.require(req.params.id, "building");
+    return { stats: buildingStats(world, req.params.id) };
   });
 
   app.post("/api/buildings", async (req, reply) => {
