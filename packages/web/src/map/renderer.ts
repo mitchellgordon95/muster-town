@@ -583,7 +583,7 @@ export class MapRenderer {
       if (!b.lot) continue;
       const p = toScreen((b.lot.x + b.lot.w / 2) * T, b.lot.y * T - 3);
       const sub = b.kind === "town-hall" ? (s.town?.name ?? "") : b.goal;
-      if (p.x > -300 && p.x < cw + 300 && p.y > -40 && p.y < ch + 60) this.signHits.push({ id: b.id, ...drawSign(g, p.x, p.y, b.name, sub, buildingBudgetLine(b.budget), b.id === this.hoverSign, b.stoplight) });
+      if (p.x > -300 && p.x < cw + 300 && p.y > -40 && p.y < ch + 60) this.signHits.push({ id: b.id, ...drawSign(g, p.x, p.y, b.name, sub, authStore.get().guest ? null : buildingBudgetLine(b.budget), b.id === this.hoverSign, b.stoplight) });
     }
     // the Bank's marquee hangs over the path, just outside its front door
     if (w.bank) {
@@ -602,7 +602,7 @@ export class MapRenderer {
       const home = d.a?.homeBuildingId ? s.buildings.find((b) => b.id === d.a!.homeBuildingId) : undefined;
       const st = stacks.get(d.id);
       const fork = !isMe && d.a?.forkN ? { n: d.a.forkN, tint: buildingTint(d.a.homeBuildingId ?? d.a.buildingId) } : null;
-      drawLabel(g, p.x, p.y + 3 + (st?.k ?? 0) * 30, fork ? forkLabel(d.a!).base : name, d.a?.status ?? "idle", hl, isMe, d.a && !isMe ? residentBudgetLine(d.a, home?.dailyTokensPerAgent) : null, !!d.a && isManager(d.a, s.buildings), fork);
+      drawLabel(g, p.x, p.y + 3 + (st?.k ?? 0) * 30, fork ? forkLabel(d.a!).base : name, d.a?.status ?? "idle", hl, isMe, d.a && !isMe && !authStore.get().guest ? residentBudgetLine(d.a, home?.dailyTokensPerAgent) : null, !!d.a && isManager(d.a, s.buildings), fork);
       // held by a draining redeploy: its next session starts after the restart
       if (!isMe && blocked.has(d.id)) { const q = toScreen(d.x + d.w / 2 - 2, d.y - d.h + 4); drawPill(g, q.x, q.y, "⟳ redeploy"); }
       if (!isMe) this.hitboxes.push({ id: d.id, x: p.x - d.w * z / 2, y: p.y - d.h * z, w: d.w * z, h: d.h * z + 31 });
