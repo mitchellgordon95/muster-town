@@ -39,3 +39,14 @@ describe("presentation mode: the synced slide", () => {
     expect(called.deck).toMatchObject({ docId: "review-deck", slide: 1 });
   });
 });
+
+// mt_xywhisvdcm: a slide whose item was decided during the presentation stays in place, its buttons off
+describe("presentation mode: a decided slide", () => {
+  it("shows its decision instead of the buttons", async () => {
+    const { SlideDecision } = await import("../src/panels/ReviewDeck");
+    const slide = { text: "_Decided: cut_", notes: "", title: "t", pictures: [], key: "proposal:gr_1", kind: "proposal" as const, itemId: "gr_1", group: 0, buildingId: null, since: null, waiters: 0, history: "", grantId: "gr_1", decided: "cut" };
+    const html = renderToStaticMarkup(<SlideDecision slide={slide} n={2} grants={[]} reports={[]} onDecided={() => undefined} onOpenDoc={() => undefined} meetingId="mt_1" />);
+    expect(html).toContain("Decided: cut");
+    expect(html).not.toContain("Already decided");
+  });
+});

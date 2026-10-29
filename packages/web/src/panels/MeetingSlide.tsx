@@ -1,12 +1,15 @@
 /**
- * Presentation mode (gr_jh0lu0w6yj step 5, design dc_y7a8g257of §1/§3): the slide a meeting presents, above its chat.
+ * Presentation mode (gr_jh0lu0w6yj step 5, design dc_y7a8g257of §1/§3): the slide a meeting presents, in a centred
+ * modal over the map while the chat stays in the side panel (Mitchell, mt_xywhisvdcm: no scrolling between the two;
+ * on a narrow screen, where the panel is the whole width, it stays above the chat).
  * `meeting.deck` = {docId, slide, presenterId} lives on the meeting row, so every attendee's panel follows the slide
  * over the existing meeting websocket updates. Moving a slide (← → while it has focus, or the arrows) calls
  * POST /api/meetings/:id/present, which also posts "— slide n: <title>" to the transcript. The presenter alone sees
  * the Notes line and the next slide's title. On the review deck the slide's own decision buttons are there too, and a
  * decision made on them is also recorded as one of the meeting's decisions.
  */
-import { useEffect, useMemo, useRef, type KeyboardEvent, type ReactNode } from "react";
+import { useEffect, useMemo, useRef, useState, type KeyboardEvent, type ReactNode } from "react";
+import { createPortal } from "react-dom";
 import { REVIEW_DECK_ID, parseDeck, type DeckSlide, type Meeting } from "@muster-town/schema";
 import { api } from "../api";
 import { store, useTown } from "../state";
@@ -32,7 +35,8 @@ export function MeetingSlide({ m }: { m: Meeting & { deck: NonNullable<Meeting["
   const hallId = useTown((s) => s.buildings.find((b) => b.kind === "town-hall")?.id ?? null);
   const review = m.deck.docId === REVIEW_DECK_ID;
   // the review deck is assembled live: reload it when the slide moves or a slide decision lands
-  const deck = useLoad(() => (review ? api().reviewDeck().then((d) => ({ title: d.title, slides: d.slides as DeckSlide[] })) : api().doc(m.deck.docId).then((d) => { const p = parseDeck(d.body); return { title: p.title ?? d.title, slides: p.slides }; })), [m.deck.docId, review ? m.deck.slide : 0, review ? m.decisions.length : 0]);
+  // review deck: the meeting's pinned slide list (a decided item's slide stays at its number, marked decided)
+  const deck = useLoad(() => (review ? api().reviewDeck(m.id).then((d) => ({ title: d.title, slides: d.slides as DeckSlide[] })) : api().doc(m.deck.docId).then((d) => { const p = parseDeck(d.body); return { title: p.title ?? d.title, slides: p.slides }; })), [m.deck.docId, review ? m.deck.slide : 0, review ? m.decisions.length : 0]);
   const intray = useLoad(() => (review && me && hallId ? api().intray(hallId) : Promise.resolve(null)), [review, !!me, hallId, m.decisions.length]);
   const reviewSlides = useMemo(() => (review ? (deck.data?.slides ?? []) : []), [review, deck.data]);
   const box = useRef<HTMLDivElement>(null);
@@ -44,7 +48,9 @@ export function MeetingSlide({ m }: { m: Meeting & { deck: NonNullable<Meeting["
     if (t === m.deck.slide) return;
     api().presentMeeting(m.id, m.deck.docId, t).then((x) => store.putMeeting(x), (e: Error) => store.toast(e.message, "bad"));
   } : null;
-  useEffect(() => { if (presenter) box.current?.focus({ preventScroll: true }); }, [presenter]);
+  const [hidden, setHidden] = useState(false);
+  const narrow = useNarrow();
+  useEffect(() => { if (presenter && !hidden) box.current?.focus({ preventScroll: true }); }, [presenter, hidden]);
   const key = (e: KeyboardEvent<HTMLDivElement>) => {
     const el = e.target as HTMLElement;
     if (!go || el.closest("input, textarea, select, [contenteditable]") || e.metaKey || e.ctrlKey || e.altKey) return;
@@ -55,8 +61,16 @@ export function MeetingSlide({ m }: { m: Meeting & { deck: NonNullable<Meeting["
   };
   const slide = reviewSlides[clampSlide(m.deck.slide, reviewSlides.length) - 1] as Parameters<typeof SlideDecision>[0]["slide"] | undefined;
   const openDoc = (id: string) => store.open({ kind: "library", docId: id });
-  return (
-    <div className="deck meeting-deck" ref={box} tabIndex={0} onKeyDown={key} aria-roledescription="slide deck" aria-label={deck.data?.title ?? "Presented deck"}>
+  const at = clampSlide(m.deck.slide, count);
+  const bar = (
+    <div className="meeting-slide-bar">
+      <b>Presenting:</b> {deck.data?.title ?? "…"}{count ? ` · slide ${at} of ${count}` : ""}{slide?.decided ? ` · decided: ${slide.decided}` : ""}
+      {narrow ? null : <> · <button className="link" onClick={() => setHidden(!hidden)}>{hidden ? "Show slides" : "Hide slides"}</button></>}
+    </div>
+  );
+  const body = (
+    <div className={`deck meeting-deck${narrow ? "" : " slide-modal"}`} ref={box} tabIndex={0} onKeyDown={key} role={narrow ? undefined : "dialog"} aria-roledescription="slide deck" aria-label={deck.data?.title ?? "Presented deck"}>
+      {narrow ? null : <button className="slide-modal-close link" onClick={() => setHidden(true)} title="Hide the slides (the meeting keeps presenting; Show slides in the panel brings them back)">Hide ✕</button>}
       <ErrorLine error={deck.error} />
       {deck.loading && !deck.data ? <Loading /> : deck.data ? (
         <PresentedSlide title={deck.data.title} slides={deck.data.slides} n={m.deck.slide} presenter={presenter} go={go}>
@@ -66,6 +80,21 @@ export function MeetingSlide({ m }: { m: Meeting & { deck: NonNullable<Meeting["
       {go && live ? <div className="deck-help muted">← → or space to move the slide for everyone · <button className="link" onClick={() => api().presentMeeting(m.id, null).then((x) => store.putMeeting(x), (e: Error) => store.toast(e.message, "bad"))}>Stop presenting</button></div> : null}
     </div>
   );
+  if (narrow) return body;
+  return <>{bar}{hidden ? null : createPortal(<div className="slide-modal-wrap">{body}</div>, document.body)}</>;
+}
+
+/** The side panel takes the whole width at ≤760px (panelResize): there the slide stays inline above the chat. */
+function useNarrow(): boolean {
+  const q = typeof window !== "undefined" && window.matchMedia ? window.matchMedia("(max-width: 760px)") : null;
+  const [narrow, setNarrow] = useState(() => q?.matches ?? false);
+  useEffect(() => {
+    if (!q) return;
+    const f = () => setNarrow(q.matches);
+    q.addEventListener("change", f);
+    return () => q.removeEventListener("change", f);
+  }, []);
+  return narrow;
 }
 
 /** Live meetings a signed-in human can present in (not 1:1s), newest first. */
