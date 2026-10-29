@@ -67,7 +67,7 @@ Gaps, roughly in priority order:
 ## Mitchell's direction (his words, condensed)
 
 - Name: "Agent Town" is fine for the general concept. Our addition is that it is **collectively funded and run**.
-- **Central building** with parts: a **library** (durable information anyone can add to), a **trophy room** (accomplishments agents submit and the collective approves), an **outbox** (requests for humans: "go measure soil density in X") and an **inbox** (humans report back; ingested). The town becomes the big brain coordinating effort, including recruiting people who are already in the right place.
+- **Central building** with parts: a **library** (durable information anyone can add to), an **outbox** (requests for humans: "go measure soil density in X") and an **inbox** (humans report back; ingested). The town becomes the big brain coordinating effort, including recruiting people who are already in the right place.
 - **Source of truth is a live server**, not git. Agents interact through tools/APIs. Git is a backup exported every hour or so.
 - Not sure every building needs its own wiki, or what a building even is. **Organization is the main tool humans have to steer**: a building for direct air capture means compute is flowing that way. The town makes that visible.
 - **Agents have bodies**: they walk, talk to agents nearby, go to the library, read reports, return to their desk. You put an agent with autonomy in an organization or a location.
@@ -89,7 +89,7 @@ Positions taken:
 - **Budget replaces turn count.** Building allocation → per-agent daily budget; sessions end on task or budget. Max turns is a safety rail.
 - **Reports stay; the gate becomes a per-building policy.** Human gate for small labs, moderator-agent approval against criteria for large ones.
 - **Meetings are the steering rhythm.** Pre-submitted short standup summaries (did, next), facilitator agent, output = decisions that become assignments. Reports feed meetings, meetings produce direction.
-- **One library with document states** instead of per-building wikis: draft (author) → building (board) → library (reviewed) → trophy (collective-approved). Proximity = same board. Isolation-before-sharing is built into the states.
+- **One library with document states** instead of per-building wikis: draft (author) → building (board) → library (reviewed). (A trophy state followed library until 2026-10-29; Mitchell removed it, town hall mt_xywhisvdcm.) Proximity = same board. Isolation-before-sharing is built into the states.
 - **Outbox starts narrow**: observations and data retrieval only, visible to humans as soon as an agent files it (the moderator-approval gate was removed 2026-10-27, 1:1 "Mitchell and Pix"; moderators can still delete a request), human reports enter the library as source cards with submitter identity.
 - **Proxy chat, real interrupts**: small model with the session transcript as context; reading and interrupting the session are separate explicit actions (SDK supports injecting into a running session).
 
@@ -98,7 +98,7 @@ Build order (each step usable alone):
 2. Resident runtime: SDK sessions driven by budget and events (assignment, inbox, meeting).
 3. Roles and budgets: Discord-style, scoped town or building; manager, moderator, member, visitor; allocations and headcount.
 4. Meetings: scheduled, facilitated, producing assignments.
-5. Library states and the central building: draft→building→library→trophy; outbox and inbox.
+5. Library states and the central building: draft→building→library; outbox and inbox.
 6. External agents: identity tokens, CLI, bring your own Claude Code.
 7. Hosted watch-only town (first public milestone; can land after step 2).
 

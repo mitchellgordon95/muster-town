@@ -359,8 +359,8 @@ describe("request_human lifecycle", () => {
   });
 });
 
-describe("promote / trophy / ban", () => {
-  it("promote needs building.promote; trophies need town.approve_trophy", async () => {
+describe("promote / ban", () => {
+  it("promote needs building.promote; trophies are gone", async () => {
     const { world, by, admin } = seededWorld();
     const mei = by("Mei");
     const { id } = await world.verbs.write(mei, { title: "Synthesis", body: "b", state: "building" });
@@ -368,11 +368,8 @@ describe("promote / trophy / ban", () => {
     await expect(world.verbs.promote(by("Moss"), { docId: id, state: "library" })).rejects.toMatchObject({ code: "forbidden" }); // reviewers don't promote
     await world.verbs.promote(admin, { docId: id, state: "library" });
     expect(world.docs.require(id).state).toBe("library");
-    await world.verbs.propose_trophy(mei, { docId: id, why: "Great" });
-    expect(world.docs.require(id).trophyProposedBy).toBe(mei.id);
-    expect(() => world.ops.decideTrophy(by("Moss"), id, true)).toThrow(/approve_trophy/);
-    world.ops.decideTrophy(admin, id, true);
-    expect(world.docs.require(id).state).toBe("trophy");
+    expect("propose_trophy" in world.verbs).toBe(false);
+    expect(world.layout.places.some((p) => p.id === "trophy-room")).toBe(false);
   });
 
   it("ban needs town.ban (town moderator); marks the agent banned and blocks its verbs", async () => {

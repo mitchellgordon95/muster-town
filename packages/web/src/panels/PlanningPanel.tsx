@@ -8,7 +8,6 @@ import { RolesTab } from "./BuildingPanel";
 import { SecretsTab } from "./Secrets";
 import { Act, Empty, Field, NumberInput, Section, StatusPill } from "./ui";
 import { portraitUrl } from "../map/sprites";
-import { townPlan } from "../map/townPlan";
 
 export function PlanningPanel({ tab }: { tab?: string }) {
   const me = useTown((s) => s.me);
@@ -36,6 +35,7 @@ function Buildings() {
   const can = store.can("town.manage_buildings");
   return (
     <>
+      <p className="direction">To move, resize or draw buildings, use the town map table in the Town Hall (walk up and press E, or click it).</p>
       <Section title="Buildings">
         {buildings.map((b) => (
           <button key={b.id} className="doc-row" onClick={() => store.open({ kind: "building", id: b.id })}>
@@ -44,13 +44,6 @@ function Buildings() {
           </button>
         ))}
       </Section>
-      {can && !api().mock ? (
-        <div className="walk-links">
-          <button className="walk-link" onClick={() => townPlan.start()} title="Zoom out to the whole town: move, resize and draw buildings">
-            <Glyph kind="planning" /><span>Plan the town on the map</span>
-          </button>
-        </div>
-      ) : null}
       {can ? (
         <Section title="New building">
           <form className="form" onSubmit={(e) => e.preventDefault()}>

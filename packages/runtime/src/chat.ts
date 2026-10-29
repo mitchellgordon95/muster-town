@@ -20,7 +20,7 @@ export async function chat(ctx: Ctx, agentId: string, raw: (typeof ChatInput)["_
   let system: string;
   let context: string;
   if (agent.kind === "service") {
-    const index = world.docs.where("state IN ('library','trophy')", [], `ORDER BY updatedAt DESC LIMIT ${LIBRARY_INDEX_LIMIT}`);
+    const index = world.docs.where("state = 'library'", [], `ORDER BY updatedAt DESC LIMIT ${LIBRARY_INDEX_LIMIT}`);
     const hits = searchDocs(world, agent.id, { query: input.message, limit: 6 }).filter((d) => d.state !== "draft");
     system = librarianSystemPrompt(agent, town);
     context = librarianContext(index, hits, (id) => (id ? world.buildings.get(id)?.name ?? id : "town"));

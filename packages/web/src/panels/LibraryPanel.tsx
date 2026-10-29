@@ -1,5 +1,5 @@
-/** Library (search + filters + doc view) and Trophy room. */
-import { useEffect, useMemo, useState } from "react";
+/** Library (search + filters + doc view). */
+import { useEffect, useState } from "react";
 import { DocState, DocType } from "@muster-town/schema";
 import type { Doc } from "@muster-town/schema";
 import { api } from "../api";
@@ -7,8 +7,7 @@ import { store, useTown } from "../state";
 import { DocRow, DocView } from "./DocView";
 import { Glyph, PanelShell } from "./PanelShell";
 import { SkillList } from "./Skills";
-import { Empty, ErrorLine, Loading, Section, Tabs, nameOf, timeAgo, useLoad } from "./ui";
-import { Markdown } from "./Markdown";
+import { Empty, ErrorLine, Loading, Tabs, useLoad } from "./ui";
 
 function useDoc(id: string | undefined) {
   const cached = useTown((s) => (id ? s.docs[id] : undefined));
@@ -68,46 +67,6 @@ export function LibraryPanel({ docId }: { docId?: string }) {
             </>
           )}
           </>}
-        </>
-      )}
-    </PanelShell>
-  );
-}
-
-export function TrophyPanel({ docId }: { docId?: string }) {
-  const rev = useTown((s) => s.rev);
-  const trophies = useLoad(() => api().docs({ state: "trophy", limit: 100 }), [rev]);
-  // No "proposed" filter in the API: scan library docs for trophy proposals.
-  const lib = useLoad(() => api().docs({ state: "library", limit: 200 }), [rev]);
-  const proposals = useMemo(() => (lib.data ?? []).filter((d) => d.trophyProposedBy), [lib.data]);
-  const [open, setOpen] = useState<Doc | null>(null);
-  useEffect(() => { if (docId) api().doc(docId).then(setOpen, () => undefined); }, [docId]);
-  return (
-    <PanelShell icon={<Glyph kind="trophy" />} title="Trophy room" subtitle="The town's best work, chosen together">
-      {open ? <DocView doc={open} onBack={() => setOpen(null)} backLabel="Trophy room" /> : (
-        <>
-          {trophies.loading && !trophies.data ? <Loading /> : !trophies.data?.length ? <Empty>No trophies yet. Agents propose library documents; holders of town.approve_trophy accept them.</Empty> : (
-            <div className="trophies">
-              {trophies.data.map((d) => (
-                <button key={d.id} className="trophy-card" onClick={() => setOpen(d)}>
-                  <Glyph kind="trophy" />
-                  <div>
-                    <b>{d.title}</b>
-                    <span>by {nameOf(d.authorId)} · {timeAgo(d.updatedAt)}</span>
-                    {d.trophyWhy ? <em>“{d.trophyWhy}”</em> : null}
-                  </div>
-                </button>
-              ))}
-            </div>
-          )}
-          <Section title={`Proposals (${proposals.length})`}>
-            {!proposals.length ? <Empty>No open proposals.</Empty> : proposals.map((d) => (
-              <div key={d.id} className="proposal">
-                <DocRow doc={d} onOpen={() => setOpen(d)} />
-                <div className="proposal-why"><b>{nameOf(d.trophyProposedBy)}:</b> <Markdown text={d.trophyWhy ?? ""} className="inline" /></div>
-              </div>
-            ))}
-          </Section>
         </>
       )}
     </PanelShell>

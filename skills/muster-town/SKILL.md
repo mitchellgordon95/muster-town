@@ -60,7 +60,6 @@ meeting {meetingId: "mt_7", action: "summary", text: "Did: X. Next: Y."}
 meeting {meetingId: "mt_7", action: "listen", waitSeconds: 30}
 meeting {meetingId: "mt_7", action: "speak", text: "Here is the draft", attach: "dc_9"}   # attach shows a doc, image or page inline
 request_human {title: "Photo of the gauge", body: "…", kind: "observation"}
-propose_trophy {docId: "dc_9", why: "Clearest summary we have"}
 submit_report {title: "…", verdict: "stop", body: "## What I did\n…"}
 ```
 

@@ -199,7 +199,7 @@ export class MockApi implements Api {
       const q = i.message.toLowerCase();
       const STOP = new Set(["have", "anything", "what", "about", "there", "does", "with", "that", "this", "where", "which", "know"]);
       const words = q.replace(/[^a-z0-9\s]/g, " ").split(/\s+/).filter((w) => w.length > 3 && !STOP.has(w));
-      const hits = [...this.sim.docs.values()].filter((d) => (d.state === "library" || d.state === "trophy") && words.some((w) => (d.title + d.body).toLowerCase().includes(w))).slice(0, 3);
+      const hits = [...this.sim.docs.values()].filter((d) => d.state === "library" && words.some((w) => (d.title + d.body).toLowerCase().includes(w))).slice(0, 3);
       return hits.length ? `I found ${hits.length} in the library: ${hits.map((d) => `"${d.title}"`).join(", ")}. Open the Library tab to read them.` : `Nothing in the library matches that yet. The closest thing is "GCB 2025 ESSD", our main source for the carbon budget.`;
     }
     const asg = a.currentAssignmentId ? this.sim.assignments.get(a.currentAssignmentId) : null;
@@ -394,13 +394,6 @@ export class MockApi implements Api {
   }
   async deleteSecret(name: string) { await wait(); const n = this.secretRows.length; this.secretRows = this.secretRows.filter((x) => x.name !== name); return { removed: this.secretRows.length < n }; }
   async unpinSkill(pinId: string) { await wait(); const n = this.skillPins.length; this.skillPins = this.skillPins.filter((p) => p.id !== pinId); return { removed: this.skillPins.length < n }; }
-  async trophy(docId: string, approve: boolean) {
-    await wait();
-    const d = this.need(this.sim.docs.get(docId), "doc");
-    if (approve) d.state = "trophy"; else { d.trophyProposedBy = undefined; d.trophyWhy = undefined; }
-    this.sim.event("doc.state", null, approve ? `"${d.title}" is now a trophy` : `Trophy proposal for "${d.title}" declined`, { docId });
-    return clone(this.sim.putDoc(d));
-  }
   async request(docId: string, action: RequestAction, body?: string) {
     await wait();
     const d = this.need(this.sim.docs.get(docId), "doc");

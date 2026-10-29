@@ -135,7 +135,6 @@ export function DocView({ doc: initial, onBack, backLabel = "Back", review, onDe
   const b = doc.buildingId;
   const canReview = !!review && (doc.type === "report" || doc.type === "flag") && doc.decision === "pending" && store.can("building.review", b);
   const canPromote = store.can("building.promote", b);
-  const canTrophy = store.can("town.approve_trophy");
   const run = (fn: () => Promise<Doc>, msg: string) => async () => { const d = await fn(); store.putDocs([d]); store.toast(msg, "ok"); };
   const sources = doc.provenance.sourceIds;
   const cost = docCost(doc);
@@ -152,15 +151,10 @@ export function DocView({ doc: initial, onBack, backLabel = "Back", review, onDe
         {" · "}<CopyLink id={doc.id} />
       </div>
       {doc.decisionNote && !doc.body.includes("## Reply from") ? <div className="callout"><b>{nameOf(doc.decidedBy)}:</b> {doc.decisionNote}</div> : null}
-      {doc.trophyProposedBy ? <div className="callout gold"><b>Trophy proposal</b> by {nameOf(doc.trophyProposedBy)}{doc.trophyWhy ? `: ${doc.trophyWhy}` : ""}</div> : null}
       <div className="actions">
         <TalkToAuthor doc={doc} />
         {canPromote && doc.state === "draft" ? <Act small run={run(() => api().promote(doc.id, "building"), "Published to the board")}>Publish to board</Act> : null}
         {canPromote && doc.state === "building" ? <Act small run={run(() => api().promote(doc.id, "library"), "Promoted to the library")}>Promote to library</Act> : null}
-        {canTrophy && doc.trophyProposedBy && doc.state !== "trophy" ? <>
-          <Act small tone="ok" run={run(() => api().trophy(doc.id, true), "Moved to the trophy room")}>Accept trophy</Act>
-          <Act small run={run(() => api().trophy(doc.id, false), "Trophy proposal declined")}>Decline</Act>
-        </> : null}
       </div>
       {doc.type === "deck" ? <DeckView id={doc.id} body={doc.body} /> : cards ? <RollupCards parsed={cards} full /> : <Markdown text={doc.type === "skill" ? doc.body.replace(/^---\r?\n[\s\S]*?\r?\n---[ \t]*\r?\n?/, "") : stripLeadingH1(doc.body)} />}
       {doc.type === "skill" ? <SkillDetails doc={doc} /> : null}

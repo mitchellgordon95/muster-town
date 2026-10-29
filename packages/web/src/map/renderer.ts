@@ -24,8 +24,8 @@ import { GHOST_ALPHA, buildingTint, forkLabel, forkTip, ghostAlpha } from "../fo
 /** `index`/`count`: position among everything in reach, so the HUD can show "Tab 2/3" when targets overlap. */
 const keyOf = (t: Target) => `${t.panel.kind}:${t.panel.id ?? ""}:${t.label}`;
 
-/** `action: "flow"`: E opens the Bank's town map (the zoomed-out coin flow) instead of a panel. */
-export interface Target { label: string; panel: PanelRef; agentId?: string; index?: number; count?: number; action?: "flow" }
+/** `action`: E does this instead of opening a panel. `flow`: the Bank's town map (the zoomed-out coin flow); `plan`: town planning (the Town Hall map table). */
+export interface Target { label: string; panel: PanelRef; agentId?: string; index?: number; count?: number; action?: "flow" | "plan" }
 interface Body { x: number; y: number; fx: number; fy: number; tx: number; ty: number; t0: number; dur: number; moving: boolean; key: string }
 
 const SPEED = 5 * T; // px per second
@@ -45,7 +45,6 @@ export const PLACE_PANEL: Partial<Record<Place["kind"], (p: Place) => PanelRef &
   schedule: () => ({ kind: "schedule", verb: "Read the meeting schedule" }),
   "mod-station": () => ({ kind: "mod", verb: "Visit the mod station" }),
   library: () => ({ kind: "library", verb: "Browse the library" }),
-  "trophy-room": () => ({ kind: "trophy", verb: "Visit the trophy room" }),
   outbox: () => ({ kind: "outbox", verb: "Check the outbox" }),
   bank: () => ({ kind: "bank", verb: "Visit the Bank" }),
   "meeting-room": (p) => ({ kind: "meeting", id: `room:${p.buildingId ?? ""}`, verb: `Join the ${p.name.toLowerCase()}` }),
@@ -235,6 +234,13 @@ export class MapRenderer {
   }
 
   /** The meeting-room place whose table is under a screen point (CSS px): the table opens the building's meetings, like a banner opens its panel. */
+  /** the Town Hall map table (TILE.TOWN_MAP) under a canvas point: a click opens town planning */
+  mapTableAt(cx: number, cy: number): boolean {
+    const w = this.world; if (!w) return false;
+    const t = this.tileAt(cx, cy);
+    return w.at(t.x, t.y) === TILE.TOWN_MAP;
+  }
+
   tableAt(cx: number, cy: number): Place | null {
     const w = this.world; if (!w) return null;
     const t = this.tileAt(cx, cy);
@@ -390,6 +396,7 @@ export class MapRenderer {
       const d = Math.hypot(p.pos.x * T + T / 2 - this.me.x, p.pos.y * T + T - 2 - this.me.y);
       if (d >= INTERACT_PX) continue;
       if (p.kind === "bank-map") { near.push({ d, t: { label: "Look at the town map", panel: { kind: "building", id: p.buildingId ?? undefined }, action: "flow" } }); continue; }
+      if (p.kind === "town-map") { near.push({ d, t: { label: "Plan the town", panel: { kind: "planning" }, action: "plan" } }); continue; }
       const f = PLACE_PANEL[p.kind]; if (!f) continue;
       const { verb, ...panel } = f(p); near.push({ d, t: { label: verb, panel } });
     }

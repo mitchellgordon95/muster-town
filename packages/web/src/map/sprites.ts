@@ -114,11 +114,6 @@ const PLANT = [
   "...LLLLLLLL.....", "....LLLLLL......", ".....LLLL.......", "......tt........", "......tt........",
   "....oooooo......", "....oooooo......", ".....oooo.......", ".....oooo.......", "................",
 ];
-const TROPHY = [
-  "................", ".KKKKKKKKKKKKKK.", ".KccccccccccccK.", ".KcYYYYYYYYYYcK.", ".KYcYYYYYYYYcYK.", ".KYcYYYYYYyYcYK.",
-  ".KcYYYYYYyYYccK.", ".KccYYYYyYYcccK.", ".KcccYYYYYccccK.", ".KccccYYYcccccK.", ".KcccyYYYYccccK.",
-  ".KccyyyyyyyyccK.", ".KKKKKKKKKKKKKK.", ".KDDDDDDDDDDDDK.", ".KKKKKKKKKKKKKK.", ".KK..........KK.",
-];
 const PAL: Record<string, string> = {
   G: "#5f9e4f", g: "#6fae5f", h: "#e9d77a", P: "#c9b587", p: "#b9a577", q: "#d6c497",
   F: "#b58a5a", f: "#9c7347", N: "#8b90a6", o: "#9499ae", n: "#767b92",
@@ -127,7 +122,6 @@ const PAL: Record<string, string> = {
   B: "#5a3d22", r: "#c94f4f", b: "#4f8fc9", L: "#3f8f4f", l: "#6fbf6f", t: "#6b4a2b", O: "#a0522d",
   Y: "#e8b840", y: "#b8862a",
 };
-const TROPHY_PAL = { ...PAL, c: "#2b3d55", K: "#3a2a1a" };
 /** The Bank: the same wall art in gold, and a cream marble floor with gold inlay. */
 const GOLD_PAL = { ...PAL, W: "#d9a92c", w: "#6e4f0e", m: "#b3851a", x: "#8f6a12", u: "#e8bf3f", v: "#f7dc78" };
 const MARBLE = grid16((x, y) => (x % 8 === 0 || y % 8 === 0 ? ((x + y) % 8 === 0 ? "Y" : "y") : (x * 3 + y * 5) % 17 === 0 ? "a" : "A"));
@@ -157,7 +151,6 @@ export function tiles(): Record<string, HTMLCanvasElement> {
     grass: pixelCanvas([GRASS], PAL), path: pixelCanvas([PATH], PAL), wood: pixelCanvas([WOOD], PAL),
     stone: pixelCanvas([STONE], PAL), wallFace: pixelCanvas([WALL_FACE], PAL), wallTop: pixelCanvas([WALL_TOP], PAL),
     deskL: half(0), deskR: half(T), deskPlain: plainDesk(deskSheet), shelf: pixelCanvas([SHELF], PAL), plant: pixelCanvas([PLANT], PLANT_PAL),
-    trophy: pixelCanvas([TROPHY], TROPHY_PAL),
     goldFace: pixelCanvas([WALL_FACE], GOLD_PAL), goldTop: pixelCanvas([WALL_TOP], GOLD_PAL), marble: pixelCanvas([MARBLE], MARBLE_PAL),
   };
   return tileCache;
@@ -348,7 +341,44 @@ export function drawBankMap(g: CanvasRenderingContext2D, px: number, py: number)
   g.fillRect(px + 10, py + 9, 1, 1); g.fillRect(px + 12, py + 8, 1, 1);
 }
 
-export type IconKind = "library" | "trophy" | "outbox" | "meeting" | "building" | "admin" | "intray" | "board" | "cabinet" | "schedule" | "mod" | "planning" | "bank";
+/** The Town Hall map table, 5 x 2 tiles (TILE.TOWN_MAP; place `town-map` opens town planning): one sheet, each tile draws its slice. */
+export const TOWN_MAP_SIZE = { w: 5, h: 2 } as const;
+let townMapSheet: HTMLCanvasElement | null = null;
+function townMapArt(): HTMLCanvasElement {
+  if (townMapSheet) return townMapSheet;
+  const W = TOWN_MAP_SIZE.w * T, H = TOWN_MAP_SIZE.h * T;
+  const c = document.createElement("canvas"); c.width = W; c.height = H;
+  const g = c.getContext("2d")!;
+  const r = (x: number, y: number, w: number, h: number, col: string) => { g.fillStyle = col; g.fillRect(x, y, w, h); };
+  // shadow and legs, the wooden table, then the map spread on it
+  r(3, H - 3, W - 6, 3, "rgba(0,0,0,.25)");
+  r(3, H - 7, 3, 6, "#4a3018"); r(W - 6, H - 7, 3, 6, "#4a3018");
+  r(0, 1, W, H - 7, "#5a3a1f"); r(0, 1, W, 1, "#a8774a"); r(1, 2, W - 2, H - 10, "#946538");
+  const mx = 3, my = 3, mw = W - 6, mh = H - 13;
+  r(mx, my, mw, mh, "#e9dcb4"); r(mx, my, mw, 1, "#f6edcf"); r(mx, my + mh - 1, mw, 1, "#cdbb8c");
+  // grass patches, the river, the road across the middle with the Bank south of it
+  r(mx + 1, my + 1, mw - 2, mh - 2, "#cfe0a8");
+  for (let x = 0; x < mw - 2; x++) r(mx + 1 + x, my + 2 + Math.round(1.5 + 1.5 * Math.sin(x / 5)), 1, 2, "#7fb3d9");
+  const ry = my + Math.floor(mh / 2);
+  r(mx + 1, ry, mw - 2, 2, "#c9b587"); r(mx + 1, ry, mw - 2, 1, "#d6c497");
+  // buildings north of the road (the Town Hall the biggest, stone grey), more to the south, the Bank in gold
+  const lots: [number, number, number, number, string][] = [
+    [6, ry - 6, 8, 5, "#8b90a6"], [17, ry - 5, 6, 4, "#b58a5a"], [26, ry - 5, 7, 4, "#b58a5a"], [36, ry - 6, 9, 5, "#4f8fc9"], [48, ry - 5, 6, 4, "#b58a5a"], [57, ry - 5, 7, 4, "#86b06b"], [66, ry - 6, 6, 5, "#b58a5a"],
+    [10, ry + 3, 7, 4, "#b58a5a"], [22, ry + 3, 8, 4, "#e8b840"], [35, ry + 3, 6, 4, "#c94f4f"], [46, ry + 3, 8, 4, "#b58a5a"], [60, ry + 3, 7, 4, "#86b06b"],
+  ];
+  for (const [x, y, w, h, col] of lots) { r(mx + x, y, w, h, "#2e3248"); r(mx + x + 1, y + 1, w - 2, h - 2, col); r(mx + x + Math.floor(w / 2), y + h - 1, 1, 1, "#efe2bf"); }
+  // a red pin on the Town Hall and a compass rose in the corner
+  r(mx + 9, ry - 9, 2, 2, "#d9483b"); r(mx + 9, ry - 7, 1, 2, "#5a3a1f");
+  r(mx + mw - 6, my + 1, 1, 5, "#5a3a1f"); r(mx + mw - 8, my + 3, 5, 1, "#5a3a1f"); r(mx + mw - 6, my + 1, 1, 1, "#d9483b");
+  townMapSheet = c;
+  return c;
+}
+/** One tile of the map table: `ix`, `iy` = the tile's column and row within the table. */
+export function drawTownMap(g: CanvasRenderingContext2D, px: number, py: number, ix: number, iy: number) {
+  g.drawImage(townMapArt(), (ix % TOWN_MAP_SIZE.w) * T, (iy % TOWN_MAP_SIZE.h) * T, T, T, px, py, T, T);
+}
+
+export type IconKind = "library" | "outbox" | "meeting" | "building" | "admin" | "intray" | "board" | "cabinet" | "schedule" | "mod" | "planning" | "bank";
 const iconCache = new Map<string, string>();
 /** Tile-art icons for panel headers (2x scale). */
 export function iconUrl(kind: IconKind): string {
@@ -362,7 +392,6 @@ export function iconUrl(kind: IconKind): string {
   g.scale(2, 2);
   switch (kind) {
     case "library": g.drawImage(tl.shelf, 0, 0); break;
-    case "trophy": g.drawImage(tl.trophy, 0, 0); break;
     case "outbox": drawCounter(g, 0, 2, { l: false, r: false }, true); break;
     case "meeting": drawChair(g, 0, -4, "down"); drawTable(g, 0, 2, { l: false, r: false, u: false, d: false }); break;
     case "admin": g.drawImage(tl.plant, 2, 0); break;

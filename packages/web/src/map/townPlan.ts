@@ -190,3 +190,10 @@ function check() {
 export function useTownPlan(): PlanDraft | null {
   return useSyncExternalStore(townPlan.subscribe, () => draft);
 }
+
+/** The Town Hall map table (E or a click): start town planning, or say why not. */
+export function openTownPlanning() {
+  if (api().mock) { store.toast("Town planning needs the real server.", "bad"); return; }
+  if (!store.can("town.manage_buildings")) { store.toast("Town planning is for humans with town.manage_buildings: sign in as an admin to move, resize and draw buildings.", "bad"); return; }
+  townPlan.start();
+}

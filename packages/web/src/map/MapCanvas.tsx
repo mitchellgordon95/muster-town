@@ -2,7 +2,7 @@ import { useEffect, useRef } from "react";
 import { store } from "../state";
 import { MapRenderer, type Target } from "./renderer";
 import { layoutEdit } from "./layoutEdit";
-import { townPlan, type Grab, type PlanDraft } from "./townPlan";
+import { openTownPlanning, townPlan, type Grab, type PlanDraft } from "./townPlan";
 
 const NUDGE: Record<string, [number, number]> = { arrowup: [0, -1], w: [0, -1], arrowdown: [0, 1], s: [0, 1], arrowleft: [-1, 0], a: [-1, 0], arrowright: [1, 0], d: [1, 0] };
 
@@ -52,7 +52,7 @@ export function MapCanvas(props: { panelInset: number; onTarget: (t: Target | nu
       // the Bank's town map: Esc or E puts the camera back (walking away does too)
       if (r.flow && (k === "escape" || k === "e")) { r.closeFlow(); e.preventDefault(); e.stopImmediatePropagation(); return; }
       if (MOVE_KEYS.has(k)) { r.keyDown(k); e.preventDefault(); }
-      else if (k === "e" && !e.repeat) { const t = r.currentTarget; if (t) { if (t.action === "flow") r.openFlow(); else store.open(t.panel); e.preventDefault(); } }
+      else if (k === "e" && !e.repeat) { const t = r.currentTarget; if (t) { if (t.action === "flow") r.openFlow(); else if (t.action === "plan") openTownPlanning(); else store.open(t.panel); e.preventDefault(); } }
       else if (k === "tab" && r.cycleTarget(e.shiftKey ? -1 : 1)) e.preventDefault();
       else if (k === "-" || k === "_") r.zoom = Math.max(2, r.zoom - 1);
       else if (k === "=" || k === "+") r.zoom = Math.min(5, r.zoom + 1);
@@ -131,7 +131,7 @@ export function MapCanvas(props: { panelInset: number; onTarget: (t: Target | nu
         const id = r.hoverBlock ? null : r.hit(p.x, p.y);
         r.hoverId = id;
         r.hoverSign = id || r.hoverBlock ? null : r.signAt(p.x, p.y);
-        const table = !id && !r.hoverSign && !r.hoverBlock && !!r.tableAt(p.x, p.y);
+        const table = !id && !r.hoverSign && !r.hoverBlock && (!!r.tableAt(p.x, p.y) || r.mapTableAt(p.x, p.y));
         ref.current!.style.cursor = id || r.hoverSign || r.hoverBlock || table ? "pointer" : "default";
       }}
       onMouseLeave={() => {
@@ -153,7 +153,9 @@ export function MapCanvas(props: { panelInset: number; onTarget: (t: Target | nu
         if (sign) { store.open({ kind: "building", id: sign, tab: "Overview" }); return; }
         // a meeting table opens its room: the building's meetings, Call a meeting, the live one
         const table = r.tableAt(p.x, p.y);
-        if (table) store.open({ kind: "meeting", id: `room:${table.buildingId ?? ""}` });
+        if (table) { store.open({ kind: "meeting", id: `room:${table.buildingId ?? ""}` }); return; }
+        // the Town Hall map table opens town planning
+        if (r.mapTableAt(p.x, p.y)) openTownPlanning();
       }}
     />
   );

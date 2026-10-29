@@ -2,7 +2,7 @@
 import { BANK_FIXTURES, BANK_LOT, TILE, WALKABLE } from "@muster-town/schema";
 import type { Building, Place } from "@muster-town/schema";
 import type { Grid } from "../api";
-import { T, tiles, drawTable, drawCounter, drawDoor, drawManagerDesk, drawChair, drawBoard, drawCabinet, drawSchedule, drawBench, drawVault, drawGold, drawPillar, drawGoldCounter, drawBankMap } from "./sprites";
+import { T, tiles, drawTable, drawCounter, drawDoor, drawManagerDesk, drawChair, drawBoard, drawCabinet, drawSchedule, drawBench, drawVault, drawGold, drawPillar, drawGoldCounter, drawBankMap, drawTownMap } from "./sprites";
 
 type Lot = { x: number; y: number; w: number; h: number };
 
@@ -123,7 +123,13 @@ export class World {
           }
           case TILE.SHELF: g.drawImage(tl.shelf, px, py); break;
           case TILE.PLANT: g.drawImage(tl.plant, px, py); break;
-          case TILE.TROPHY: g.drawImage(tl.trophy, px, py); break;
+          case TILE.TOWN_MAP: {
+            let ix = 0, iy = 0;
+            while (this.at(x - ix - 1, y) === TILE.TOWN_MAP) ix++;
+            while (this.at(x, y - iy - 1) === TILE.TOWN_MAP) iy++;
+            drawTownMap(g, px, py, ix, iy);
+            break;
+          }
           case TILE.DOOR: drawDoor(g, px, py, bank); break;
           case TILE.MANAGER_DESK: drawManagerDesk(g, px, py); break;
           case TILE.BOARD: g.drawImage(tl.wallFace, px, py); drawBoard(g, px, py); break;

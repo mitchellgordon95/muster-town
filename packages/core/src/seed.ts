@@ -187,7 +187,7 @@ export function seedDefaults(world: World, opts: SeedOptions = {}): SeedResult {
     world.permissions.grant({ kind: "user", id: admin.id }, townRoleId("admin"));
 
     const townHall = createBuilding(world, {
-      name: "Town Hall", goal: world.town.get().goal, description: "Library, trophy room, outbox, and the town meeting room.", headcount: 1,
+      name: "Town Hall", goal: world.town.get().goal, description: "Library, town map, outbox, and the town meeting room.", headcount: 1,
     }, admin.id, { id: TOWN_HALL_ID, kind: "town-hall" });
     const ada = createServiceAgent(world, { name: "Ada", title: "Librarian", placeId: "library", sprite: 0 });
 

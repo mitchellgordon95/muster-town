@@ -20,7 +20,7 @@ describe("permissions", () => {
     const { world, by, seed } = seededWorld();
     const other = createBuilding(world, { name: "Other" }, null);
     const admin = { kind: "user" as const, id: seed.admin.id };
-    expect(world.permissions.can(admin, "town.approve_trophy")).toBe(true);
+    expect(world.permissions.can(admin, "town.approve_request")).toBe(true);
     expect(world.permissions.can(admin, "building.review", other.id)).toBe(true);
     const mei = by("Mei");
     expect(world.permissions.can(mei, "doc.write_building", "carbon-cycle")).toBe(true);
