@@ -33,13 +33,16 @@ export async function townRoutes(app: FastifyInstance) {
    * whether a change is live. `load` (read-only): `lagMs` p99 event-loop delay over the last 10 s window, `rssMb`, `wsClients` open now.
    * `backup` (read-only): the off-site copy's `{lastAt, bytes, dest, error}`; null until the bucket and key are set
    * (deploy/README.md "Backups"). Never the key or the bucket credentials. `monitor` (read-only, null without one):
-   * `{lastSampleAt, outbound, alerts: [{key, level, since, value}]}` (monitor.ts); never a secret.
+   * `{lastSampleAt, outbound, alerts: [{key, level, since, value}]}` (monitor.ts); never a secret. `directory` (root app, only where the
+   * directory is on): `{verified, listed, pending, lastTickAt}` (directory/index.ts).
    */
   app.get("/api/health", async () => ({ ok: true, runtime: !!app.runtime, commit: world.host.commit ?? null, startedAt: world.host.startedAt ?? null, time: new Date().toISOString(), accounting: BANK_ACCOUNTING, load: app.load.snapshot(),
     // goal-directed budgets: exploration (held at its allowance) and directed (a human asked; metered, never held) today
     budgets: world.grantDesk.laneBudgets(), backup: app.backup?.snapshot() ?? null, monitor: app.monitor?.view() ?? null,
     // the root app (the Workshop) only: how many hosted collectives this process serves at /<slug>/
     ...(app.hub ? { hosted: { count: app.hub.count } } : {}),
+    // the self-hosted towns directory (root app where it's on): {verified, listed, pending, lastTickAt}
+    ...(app.directory ? { directory: app.directory.view() } : {}),
     // a hosted collective: its own key or none (its agents are held), never the host's funding
     ...(world.host.hosted ? { funding: world.bank.liveApiKeyInput() ? "api-key" : "none" } : {}) }));
 

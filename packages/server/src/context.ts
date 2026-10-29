@@ -3,6 +3,7 @@ import type { Agent, DeskActivityInput, RedeployResult, Session, TokenCounts, Us
 import type { FastifyRequest } from "fastify";
 import type { ZodTypeAny, z } from "zod";
 import type { BackupJob } from "./backup/index.ts";
+import type { Directory } from "./directory/index.ts";
 import type { Hub } from "./hub.ts";
 import type { LoadMonitor } from "./load.ts";
 import type { Monitor } from "./monitor.ts";
@@ -52,6 +53,8 @@ declare module "fastify" {
     monitor: Monitor | null;
     /** the hosted collectives (root app only; null in a hosted collective's app and without a hub) */
     hub: Hub | null;
+    /** the self-hosted towns directory (root app where MUSTER_TOWN_DIRECTORY is on; else null): `GET /api/health` `directory` */
+    directory: Directory | null;
     /** a hosted collective's export dir (null: env MUSTER_TOWN_EXPORT) */
     exportDir: string | null;
   }
