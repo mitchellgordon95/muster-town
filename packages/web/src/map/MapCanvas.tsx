@@ -156,7 +156,9 @@ export function MapCanvas(props: { panelInset: number; onTarget: (t: Target | nu
         const table = r.tableAt(p.x, p.y);
         if (table) { store.open({ kind: "meeting", id: `room:${table.buildingId ?? ""}` }); return; }
         // the Town Hall map table opens town planning
-        if (r.mapTableAt(p.x, p.y)) openTownPlanning();
+        if (r.mapTableAt(p.x, p.y)) { openTownPlanning(); return; }
+        // anywhere else (a tap on a phone too): walk there, like the minimap's click; not over the Bank's town map
+        if (!r.flow) { const t = r.tileAt(p.x, p.y); r.walkToTile(t.x, t.y); }
       }}
     />
   );
