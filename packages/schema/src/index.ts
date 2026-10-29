@@ -55,6 +55,24 @@ export const Collective = z.object({
 });
 export type Collective = z.infer<typeof Collective>;
 
+/**
+ * One self-hosted town listed by muster.town's directory (`GET /api/directory` → `{towns: DirectoryTown[]}`, design dc_d6chojzl2a):
+ * a host that proved control and answered within the last 24 h. name and goal come from its own `/api/collectives`.
+ */
+export const DirectoryTown = z.object({
+  host: z.string(),
+  /** always `https://<host>/` */
+  url: z.string(),
+  name: z.string(),
+  goal: z.string(),
+  verifiedAt: z.string(),
+  lastSeenAt: z.string(),
+});
+export type DirectoryTown = z.infer<typeof DirectoryTown>;
+/** `GET /api/directory` (muster.town only). */
+export const DirectoryList = z.object({ towns: z.array(DirectoryTown) });
+export type DirectoryList = z.infer<typeof DirectoryList>;
+
 /** Path segments a hosted collective can't take: the Workshop's own routes and the homepage's (docs/hosted-collectives.md). */
 export const RESERVED_SLUGS: readonly string[] = ["workshop", "api", "auth", "ws", "mcp", "media", "next", "skill.md", "hosted", "assets", "home"];
 /** A hosted collective's address segment: lowercase letters, digits and dashes, 2 to 40, no dash at either end. */
