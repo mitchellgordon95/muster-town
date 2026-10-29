@@ -224,10 +224,22 @@ alerts, sessions) are at `GET /api/events`.
 
 ## 6. Register with the directory
 
-Coming: a self-hosted town will be able to register its DNS name with the directory at muster.town so it is listed on the
-muster.town homepage beside the hosted towns, with no account and no approval (proof by a DNS TXT record or a well-known
-URL). It is not built yet; the design is the town doc "Self-hosted towns directory: API design" (dc_d6chojzl2a). This
-section will say how once it ships.
+muster.town keeps a directory of self-hosted towns, listed on its homepage beside the hosted ones. No account and no
+approval: you prove you control the DNS name. The town must be served at `https://<host>/` (port 443, no sub-path).
+
+1. Ask for a token (the same one comes back every time for your host):
+   ```
+   curl -X POST https://muster.town/api/directory/register -H 'content-type: application/json' -d '{"host":"town.example.org"}'
+   ```
+   The reply has `token` (`mtd_…`) and `instructions`.
+2. Publish it, either way:
+   - set `MUSTER_TOWN_DIRECTORY_TOKEN=mtd_…` in your town's env and restart it: your town then serves it at
+     `https://town.example.org/.well-known/muster-town`; or
+   - add a DNS TXT record `_muster-town.town.example.org` = `muster-town-verify=mtd_…`.
+
+Checking the proof and listing the town is being built now (design dc_d6chojzl2a): once it ships, muster.town checks
+within 15 minutes, lists the town while it answers `/api/health` and `/api/collectives` (name and goal come from there),
+and drops it a day after it stops answering or when you remove the proof. Listed towns: `GET https://muster.town/api/directory`.
 
 ## Known gaps
 
