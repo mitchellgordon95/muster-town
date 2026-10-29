@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { buildingRoleId, createAssignment, createDoc, newId, nowIso, reviewDeck } from "../src/index.ts";
+import { REVIEW_DECK_ID } from "@muster-town/schema";
+import { buildingRoleId, createAssignment, createDoc, newId, nowIso, presentedReviewDeck, reviewDeck } from "../src/index.ts";
 import { seededWorld } from "./helpers.ts";
 
 const LAB = "carbon-cycle";
@@ -136,5 +137,45 @@ describe("review deck (GET /api/review-deck)", () => {
     expect(world.grants.require(r.grantId)).toMatchObject({ picture: media.id, whatYoudSee: "The in-tray shows it" });
     const s = ours(reviewDeck(world)).find((x) => x.grantId === r.grantId)!;
     expect(s.pictures[0]!.src).toBe(media.url);
+  });
+
+  it("a findings doc's example picture (`mf_….png`, no such media) is skipped; the first real one is shown, else no picture (mt_xywhisvdcm)", () => {
+    const { world, manager, krs } = setup();
+    const media = world.media.put(manager.id, "image/png", Buffer.from("89504e470d0a1a0a0000000d49484452", "hex"));
+    const design = createDoc(world, { type: "note", title: "design", body: "Paste gives `![alt](/api/media/mf_….png)`:\n![alt](/api/media/mf_….png)\n![gone](/api/media/mf_nope.png)", authorId: manager.id, authorKind: "agent", buildingId: LAB, state: "building" });
+    const shot = createDoc(world, { type: "note", title: "shot", body: `![the deck](${media.url})`, authorId: manager.id, authorKind: "agent", buildingId: LAB, state: "building" });
+    const plan = (findingsDocIds: string[]) => world.grantDesk.propose(manager, world.grantDesk.create(manager, LAB, { keyResultId: krs[0]!.id, objective: `Plan ${findingsDocIds.length}`, approach: "", stopCondition: "done", askTokens: 1000, testingPlan: [], findingsDocIds }).id);
+    const without = plan([design.id]);
+    const withShot = plan([design.id, shot.id]);
+    const slides = reviewDeck(world).slides;
+    const a = slides.find((x) => x.grantId === without.id)!;
+    expect(a.pictures).toEqual([]);
+    expect(a.text).toContain("_no picture_");
+    expect(slides.find((x) => x.grantId === withShot.id)!.pictures).toEqual([{ alt: "the deck", src: media.url }]);
+  });
+
+  it("presented in a meeting, the slide list is pinned: a decided item's slide keeps its number, marked decided; new items append (mt_xywhisvdcm)", () => {
+    const { world, admin, proposal, rollup } = setup();
+    const g1 = proposal();
+    const g2 = proposal(undefined);
+    const m = world.ops.createMeeting(admin, { kind: "in-tray-review", buildingId: null, startNow: true, deck: { docId: REVIEW_DECK_ID } });
+    expect(m.deck?.pinned?.length).toBe(reviewDeck(world).slides.length);
+    const before = presentedReviewDeck(world, m.deck!.pinned).slides;
+    const at = before.findIndex((s) => s.grantId === g1.id);
+    world.ops.meetingPresent(admin, m.id, REVIEW_DECK_ID, at + 1);
+    world.grantDesk.decide(admin, g1.id, { action: "reject", deckSlide: at + 1 });
+    const r = rollup(["Go?"], ago(0.1));
+    expect(reviewDeck(world).slides.some((s) => s.grantId === g1.id)).toBe(false); // the live deck dropped it
+    const pinned = world.meetings.require(m.id).deck!.pinned;
+    const after = presentedReviewDeck(world, pinned).slides;
+    expect(after.slice(0, before.length).map((s) => s.key)).toEqual(before.map((s) => s.key));
+    expect(after[at]).toMatchObject({ grantId: g1.id, decided: "rejected" });
+    expect(after[at]!.text).toMatch(/^_Decided: rejected_/);
+    expect(after.find((s) => s.grantId === g2.id)!.decided).toBeUndefined();
+    expect(after.at(-1)!.docIds).toEqual([r.id]);
+    // moving on keeps the numbering, and the transcript line names the pinned slide
+    const moved = world.ops.meetingPresent(admin, m.id, REVIEW_DECK_ID, after.length);
+    expect(moved.transcript.at(-1)!.text).toBe(`— slide ${after.length}: ${after.at(-1)!.title}`);
+    expect(moved.deck!.pinned!.map((p) => p.key)).toEqual(after.map((s) => s.key));
   });
 });

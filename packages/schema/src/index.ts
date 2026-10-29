@@ -728,7 +728,14 @@ export const REVIEW_DECK_ID = "review-deck";
  * the slide everyone sees (from 1), and the presenter: whoever called the meeting with it or last moved a slide (a holder id; null = the town).
  * The presenter alone sees the Notes line and the next slide's title.
  */
-export const MeetingDeck = z.object({ docId: z.string().min(1), slide: z.number().int().positive().default(1), presenterId: Id.nullable().default(null) });
+/**
+ * The review deck as it stood when a meeting last presented or moved a slide (Mitchell, mt_xywhisvdcm decision 7): the
+ * slide list stays pinned during the presentation, so deciding an item doesn't renumber the slides under the presenter.
+ * Only what a slide needs once its item has left the in-tray: its text, and what identifies its decision.
+ */
+export const PinnedSlide = z.object({ key: z.string(), kind: z.string(), title: z.string().default(""), text: z.string().default(""), itemId: z.string().nullable().default(null), grantId: z.string().optional(), docIds: z.array(z.string()).optional() });
+export type PinnedSlide = z.infer<typeof PinnedSlide>;
+export const MeetingDeck = z.object({ docId: z.string().min(1), slide: z.number().int().positive().default(1), presenterId: Id.nullable().default(null), pinned: z.array(PinnedSlide).optional() });
 export type MeetingDeck = z.infer<typeof MeetingDeck>;
 export const MeetingPhase = z.enum(["scheduled", "collecting", "discussing", "done", "cancelled"]);
 export const MeetingDecision = z.object({

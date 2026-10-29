@@ -10,7 +10,7 @@
  * one applies (a grant's last human entry; the building's previous rollup decision; a meeting with a human its
  * provenance names).
  */
-import { isNoCall, parseRollup, type Doc, type GrantView, type Meeting, type ReviewDeck, type ReviewSlide, type ReviewSlideKind, type RollupItem } from "@muster-town/schema";
+import { isNoCall, parseRollup, type Doc, type GrantView, type Meeting, type PinnedSlide, type ReviewDeck, type ReviewSlide, type ReviewSlideKind, type RollupItem } from "@muster-town/schema";
 import { grantsAwaitingDecision, townHallIntray } from "./domain.ts";
 import type { World } from "./world.ts";
 
@@ -81,12 +81,17 @@ function mediaSrc(world: World, id: string): string | null {
   return `/api/media/${id}.${ext[r.mime] ?? "png"}`;
 }
 
-/** A proposal's picture: its own (propose_grant `picture`), else the first media in its findings docs. */
+/**
+ * A proposal's picture: its own (propose_grant `picture`), else the first uploaded media its findings docs cite.
+ * Only a picture that exists counts: a design doc's example `![alt](/api/media/mf_….png)` is not one (mt_xywhisvdcm).
+ */
 function proposalPicture(world: World, g: GrantView): { alt: string; src: string } | null {
   if (g.picture) { const src = mediaSrc(world, g.picture); if (src) return { alt: g.objective, src }; }
   for (const id of g.findingsDocIds) {
-    const m = IMAGE.exec(world.docs.get(id)?.body ?? "");
-    if (m && m[2]!.includes("/api/media/")) return { alt: m[1] || "finding", src: m[2]! };
+    for (const m of (world.docs.get(id)?.body ?? "").matchAll(new RegExp(IMAGE.source, "g"))) {
+      const media = /^\/api\/media\/(mf_[a-z0-9]+)(?:\.[a-z0-9]+)?$/.exec(m[2]!);
+      if (media && mediaSrc(world, media[1]!)) return { alt: m[1] || "finding", src: m[2]! };
+    }
   }
   return null;
 }
@@ -224,4 +229,54 @@ function townSlide(world: World, now: Date, decisions: number, oldest: string | 
     flagLine,
   ].filter(Boolean).join("\n\n");
   return { text, notes: "", title: "State of the town", pictures: [], key: "town", kind: "town", itemId: null, group: 0, buildingId: null, since: null, waiters: 0, history: "" };
+}
+
+// ---- the deck a meeting presents: pinned while it presents (Mitchell, mt_xywhisvdcm decision 7) ----
+
+const DOC_PAST: Record<string, string> = { approve: "approved", continue: "continued", redirect: "redirected", stop: "stopped" };
+
+/** What became of a pinned slide's item once it left the in-tray: "cut", "funded", "approved", "met"… ("decided" when unknown). */
+export function decidedLabel(world: World, p: PinnedSlide): string {
+  const grantId = p.grantId ?? (p.itemId?.startsWith("gr_") ? p.itemId : undefined);
+  if (grantId) {
+    const g = world.grants.get(grantId);
+    if (g && p.kind === "close") {
+      const kr = g.keyResultId ? world.keyResults.get(g.keyResultId) : undefined;
+      if (kr && (kr.status === "met" || kr.status === "missed")) return `key result marked ${kr.status}`;
+    }
+    const e = g ? [...g.history].reverse().find((h) => h.byKind === "user") : undefined;
+    if (e) return ACTION_PAST[e.action] ?? e.action;
+    if (g) return g.status;
+  }
+  const doc = p.docIds?.[0] ? world.docs.get(p.docIds[0]) : null;
+  if (doc) return doc.decision && doc.decision !== "pending" ? DOC_PAST[doc.decision] ?? doc.decision : "archived";
+  if (p.kind === "blocked") return "key results written";
+  return "decided";
+}
+
+const pin = (s: ReviewSlide): PinnedSlide => ({ key: s.key, kind: s.kind, title: s.title, text: s.text, itemId: s.itemId, ...(s.grantId ? { grantId: s.grantId } : {}), ...(s.docIds ? { docIds: s.docIds } : {}) });
+
+/**
+ * The review deck as a meeting presents it: the slides in the order `pinned` froze them, each refreshed from the live
+ * in-tray while its item is still there; a slide whose item was decided stays at its number, marked `decided` (no
+ * buttons), and new in-tray items append at the end. `pinned` is what to store for the next call. No pin = the live deck.
+ */
+export function presentedReviewDeck(world: World, pinned: PinnedSlide[] | undefined, now = new Date()): ReviewDeck & { pinned: PinnedSlide[] } {
+  const live = reviewDeck(world, now);
+  if (!pinned?.length) return { ...live, pinned: live.slides.map(pin) };
+  const byKey = new Map(live.slides.map((s) => [s.key, s]));
+  const slides: ReviewSlide[] = [];
+  const next: PinnedSlide[] = [];
+  for (const p of pinned) {
+    const s = byKey.get(p.key);
+    byKey.delete(p.key);
+    if (s) { slides.push(s); next.push(pin(s)); continue; }
+    const decided = decidedLabel(world, p);
+    slides.push({ text: `_Decided: ${decided}_\n\n${p.text}`, notes: "", title: p.title, pictures: [...p.text.matchAll(new RegExp(IMAGE.source, "g"))].map((m) => ({ alt: m[1]!, src: m[2]! })),
+      key: p.key, kind: p.kind as ReviewSlideKind, itemId: p.itemId, group: 0, buildingId: null, since: null, waiters: 0, history: "", decided,
+      ...(p.grantId ? { grantId: p.grantId } : {}), ...(p.docIds ? { docIds: p.docIds } : {}) });
+    next.push(p);
+  }
+  for (const s of byKey.values()) { slides.push(s); next.push(pin(s)); }
+  return { ...live, slides, pinned: next };
 }

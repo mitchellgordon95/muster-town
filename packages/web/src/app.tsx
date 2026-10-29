@@ -201,6 +201,8 @@ export function App() {
   const [help, setHelp] = useState(() => !howItWorksSeen() && !isDocHash());
   const sayRef = useRef<HTMLInputElement>(null);
 
+  // the presented slide's modal (MeetingSlide) centres itself on the map, left of the side panel
+  useEffect(() => { document.documentElement.style.setProperty("--panel-w", `${panel ? pw : 0}px`); }, [panel, pw]);
   useEffect(() => { bootOnce().then(setPhase, (e) => setPhase({ k: "login", error: String(e) })); }, []);
   useEffect(() => {
     window.musterTown = window.agentTown = {

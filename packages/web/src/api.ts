@@ -310,7 +310,7 @@ export interface Api {
   /** pending reports for the building's in-tray, oldest first; the Town Hall's also has the grants awaiting a human */
   intray(buildingId: string): Promise<Intray>;
   /** GET /api/review-deck: the Town Hall in-tray as slides, computed by the server (design dc_y7a8g257of §2) */
-  reviewDeck(): Promise<ReviewDeck>;
+  reviewDeck(meetingId?: string): Promise<ReviewDeck>;
   /** GET /api/grants/:id: one grant or proposal (drafts only for its building's managers and funders) */
   grant(id: string): Promise<GrantView>;
   /** GET /api/buildings/:id/grants: every grant and proposal of the building (drafts only for its managers and funders) */
@@ -557,7 +557,7 @@ export class HttpApi implements Api {
     const r = await this.get<Partial<Intray>>(`/api/buildings/${id}/intray`);
     return { reports: r.reports ?? [], chains: r.chains ?? {}, grants: r.grants ?? [], access: r.access ?? [], blocked: r.blocked ?? [] };
   }
-  reviewDeck() { return this.get<ReviewDeck>("/api/review-deck"); }
+  reviewDeck(meetingId?: string) { return this.get<ReviewDeck>(`/api/review-deck${qs({ meeting: meetingId })}`); }
   async grant(id: string) { return unwrap<GrantView>(await this.get(`/api/grants/${id}`), "grant"); }
   async grants(buildingId: string) { return (await this.get<{ grants?: GrantView[] }>(`/api/buildings/${buildingId}/grants`)).grants ?? []; }
   async decideGrant(id: string, i: In<typeof DecideGrantInput>) { return unwrap<GrantView>(await this.post(`/api/grants/${id}/decide`, i), "grant"); }
