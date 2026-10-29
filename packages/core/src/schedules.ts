@@ -161,17 +161,16 @@ export function editSchedule(world: World, actor: Agent, id: string, raw: unknow
 }
 
 /**
- * Who takes a fired schedule's work: the building queue when forks are on (held by the manager until a fork takes it);
- * else the idle resident with the shortest queue; else the manager; else nobody (null).
+ * Who takes a fired schedule's work: the building queue (held by the manager until a fork takes it); a building with no
+ * manager agent: the idle resident with the shortest queue; else nobody (null).
  */
 export function scheduleTaker(world: World, b: Building): { agentId: string; queue: "agent" | "building" } | null {
   const manager = managerAgentOf(world, b);
-  if (b.forks && manager) return { agentId: manager.id, queue: "building" };
+  if (manager) return { agentId: manager.id, queue: "building" };
   const idle = world.agents.where("homeBuildingId = ? AND kind = 'resident' AND forkOf IS NULL AND status = 'idle'", [b.id])
-    .filter((a) => a.id !== manager?.id)
     .map((a) => ({ a, n: world.assignments.count("agentId = ? AND status IN ('pending', 'active')", [a.id]) }))
     .sort((x, y) => x.n - y.n);
-  const pick = idle[0]?.a ?? manager;
+  const pick = idle[0]?.a;
   return pick ? { agentId: pick.id, queue: "agent" } : null;
 }
 

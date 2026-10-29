@@ -8,8 +8,8 @@ import { seededWorld } from "./helpers.ts";
 
 const CHAINS_SQL = readFileSync(join(dirname(fileURLToPath(import.meta.url)), "..", "migrations", "049_assignment_chains.sql"), "utf8");
 
-/** A 3-desk lab (one key result, so not blocked) with a manager Pix and a resident Ann; forks on unless `forks: false`. */
-function forkLab(opts: { forks?: boolean; daily?: number } = {}) {
+/** A 3-desk lab (one key result, so not blocked) with a manager Pix and a resident Ann. */
+function forkLab(opts: { daily?: number } = {}) {
   const s = seededWorld();
   const { world, seed } = s;
   const b = createBuilding(world, { name: "Forky", headcount: 3, dailyTokensPerAgent: opts.daily ?? 1000, model: "claude-opus-5-5", cheapModel: "claude-haiku-5-5" }, seed.admin.id);
@@ -18,14 +18,13 @@ function forkLab(opts: { forks?: boolean; daily?: number } = {}) {
   const ann = createResident(world, { buildingId: b.id, name: "Ann" });
   updateBuilding(world, b.id, { managerAgentId: pix.id });
   world.buildings.upsert({ ...world.buildings.require(b.id), explorationTokensPerDay: 10_000_000 }); // labs are lane-gated: queued exploration needs an allowance
-  if (opts.forks !== false) world.ops.updateBuilding(null, b.id, { forks: true });
   world.budget.donate(seed.admin.id, { tokens: 1_000_000, buildingId: b.id });
   const queue = async (title: string, extra: { model?: string } = {}) => (await world.verbs.assign(world.agents.require(pix.id), { title, description: "d", gap: "test gap", ...extra })).assignmentId;
   return { ...s, b: world.buildings.require(b.id), pix: world.agents.require(pix.id), ann, queue };
 }
 
 describe("manager forks: the building queue", () => {
-  it("assign without an agentId queues to the building (held by the manager, never run by it); refused with forks off", async () => {
+  it("assign without an agentId queues to the building (held by the manager, never run by it); a named assign stays on the agent's queue", async () => {
     const { world, pix, b, queue } = forkLab();
     const id = await queue("Fix the thing");
     expect(world.assignments.require(id)).toMatchObject({ agentId: pix.id, queue: "building", chainId: id, model: null, buildingId: b.id });
@@ -35,17 +34,17 @@ describe("manager forks: the building queue", () => {
     expect(world.assignments.require(await queue("Live check", { model: "claude-haiku-5-5" })).model).toBe("claude-haiku-5-5");
     await expect(world.verbs.assign(pix, { agentId: pix.id, title: "x", description: "d", model: "claude-haiku-5-5" })).rejects.toThrow(/building-queue work/);
 
-    const off = forkLab({ forks: false });
-    await expect(off.queue("Nope")).rejects.toThrow(/forks are off/);
-    // named assigns are unchanged
-    const named = await off.world.verbs.assign(off.pix, { agentId: off.ann.id, title: "Named", description: "d", gap: "test gap" });
-    expect(off.world.assignments.require(named.assignmentId)).toMatchObject({ queue: "agent", agentId: off.ann.id, chainId: named.assignmentId });
+    // the manager taking work itself names its own agentId
+    const named = await world.verbs.assign(pix, { agentId: pix.id, title: "Mine", description: "d", gap: "test gap" });
+    expect(world.assignments.require(named.assignmentId)).toMatchObject({ queue: "agent", agentId: pix.id, chainId: named.assignmentId });
   });
 
-  it("turning forks on is a budget call: a manager agent with building.manage can't", () => {
-    const { world, pix, b } = forkLab({ forks: false });
-    expect(() => world.ops.updateBuilding(pix, b.id, { forks: true })).toThrow();
-    expect(world.buildings.require(b.id).forks).toBe(false);
+  it("forks are the only mode: there is no forks setting to turn off (1:1 mt_wngibcr98b)", async () => {
+    const { world, b, queue } = forkLab();
+    expect("forks" in world.buildings.require(b.id)).toBe(false);
+    world.ops.updateBuilding(null, b.id, { forks: false } as never); // an old client's field is dropped
+    const id = await queue("Still queued");
+    expect(buildingQueue(world, b.id).map((a) => a.id)).toEqual([id]);
   });
 });
 
@@ -119,13 +118,13 @@ describe("manager forks: forkManager and retireFork", () => {
     expect(buildingQueue(world, b.id).map((a) => a.id).sort()).toEqual([a1, cont.id].sort());
   });
 
-  it("refuses with forks off, without a manager, or for work not on the building queue", async () => {
+  it("refuses without a manager, or for work not on the building queue", async () => {
     const { world, b, ann, queue } = forkLab();
     const named = (await world.verbs.assign(world.agents.require(b.managerAgentId!), { agentId: ann.id, title: "Named", description: "d", gap: "test gap" })).assignmentId;
     expect(() => forkManager(world, b.id, named)).toThrow(/isn't on Forky's building queue/);
     const q = await queue("Q");
-    world.ops.updateBuilding(null, b.id, { forks: false });
-    expect(() => forkManager(world, b.id, q)).toThrow(/doesn't run forks/);
+    updateBuilding(world, b.id, { managerAgentId: null });
+    expect(() => forkManager(world, b.id, q)).toThrow(/no manager agent to fork/);
   });
 });
 
@@ -180,8 +179,8 @@ describe("manager forks: the family daily cap", () => {
     expect(world.budget.canStart(pix.id)).toBe(true);
   });
 
-  it("with forks off nothing changes: residents are capped per agent", () => {
-    const { world, pix, ann } = forkLab({ daily: 100, forks: false });
+  it("a named resident other than the manager is capped per agent; its spend isn't the manager's family", () => {
+    const { world, pix, ann } = forkLab({ daily: 100 });
     world.budget.charge(ann.id, 250, 0);
     expect(world.budget.canStart(pix.id)).toBe(true);
     expect(world.budget.canStart(ann.id)).toBe(false);
@@ -294,7 +293,6 @@ describe("manager forks: the manager's team block (step 6)", () => {
     const { fork } = forkManager(world, b.id, a1);
     world.db.prepare("UPDATE assignments SET heldReason = ? WHERE id = ?").run("grant at checkpoint", a2);
     const t = teamBlock(world, world.buildings.require(b.id), pix.id);
-    expect(t).toContain("forks are on");
     expect(t).toContain("Attach the topic pages that cover it");
     expect(t).toContain(`${fork.name} (${fork.id}): `);
     expect(t).toContain(`chain ${a1} · hop 1`);
@@ -302,12 +300,5 @@ describe("manager forks: the manager's team block (step 6)", () => {
     expect(t).toContain(`- Pix 1 (${fork.id}): `);
     expect(t).toContain("Building queue (0 pending, 1 held, 0 waiting, 0 resuming at a time)");
     expect(t).toContain(`- ${a2} "Two": held: grant at checkpoint`);
-  });
-
-  it("forks off: the per-resident block, no forks listed", () => {
-    const { world, pix, b } = forkLab({ forks: false });
-    const t = teamBlock(world, world.buildings.require(b.id), pix.id);
-    expect(t).toContain("whose wiki covers");
-    expect(t).not.toContain("Building queue");
   });
 });

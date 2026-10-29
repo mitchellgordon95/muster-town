@@ -154,13 +154,13 @@ export class Budget {
   /**
    * The daily cap. A fork is checked against its family (the manager's `familySpentToday`, its own sessions plus today's
    * forks', under dailyTokensPerAgent × headcount) instead of its own row, which starts at 0; any other agent against
-   * its own dailyTokensPerAgent, and a manager of a building with forks on against its family too.
+   * its own dailyTokensPerAgent, and a building's manager against its family too.
    */
   private withinDaily(a: Agent, b: Building): boolean {
     const root = a.forkOf ? this.repos.agents.get(a.forkOf) : a;
     const familyOk = !root || root.familySpentToday < familyCap(b);
     if (a.forkOf) return familyOk;
-    return a.spentTokensToday < b.dailyTokensPerAgent && (!b.forks || b.managerAgentId !== a.id || familyOk);
+    return a.spentTokensToday < b.dailyTokensPerAgent && (b.managerAgentId !== a.id || familyOk);
   }
 
   /**
