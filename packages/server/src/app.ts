@@ -8,15 +8,18 @@ import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { ZodError } from "zod";
 import { authRoutes, defaultAuthSettings, sessionAuth, type AuthSettings } from "./auth/index.ts";
+import { townEnv } from "@muster-town/schema";
 import { ASK_FIRST, bearer, INTERACT_ALLOWLIST, interactingUser, parse, requireUser, resolveToken, WEB_BASE, type RuntimeHooks } from "./context.ts";
 import { collectives, renderHome, renderRetired } from "./home.ts";
 import { CreateCollectiveInput, type Hub } from "./hub.ts";
 import type { BackupJob } from "./backup/index.ts";
+import type { Directory } from "./directory/index.ts";
 import { LoadMonitor } from "./load.ts";
 import type { Monitor } from "./monitor.ts";
 import { mcpRoutes } from "./mcp.ts";
 import { agentRoutes } from "./routes/agents.ts";
 import { deskRoutes } from "./routes/desk.ts";
+import { directoryRoutes } from "./routes/directory.ts";
 import { docRoutes } from "./routes/docs.ts";
 import { grantRoutes } from "./routes/grants.ts";
 import { mediaRoutes } from "./routes/media.ts";
@@ -52,6 +55,8 @@ export interface BuildAppOptions {
   backup?: BackupJob | null;
   /** the in-process monitor (main.ts builds and starts it, root app only); `GET /api/health` shows it as `monitor` */
   monitor?: Monitor | null;
+  /** the self-hosted towns directory (main.ts builds it where MUSTER_TOWN_DIRECTORY=on; root app only): `/api/directory*` */
+  directory?: Directory | null;
   /** a hosted collective's app: retire it (main.ts passes the hub's); `POST /<slug>/api/collective/retire`, its admins */
   retire?: (() => unknown) | null;
 }
@@ -209,6 +214,13 @@ export async function buildApp(opts: BuildAppOptions): Promise<FastifyInstance> 
       if (!existsSync(SKILL_FILE)) return reply.code(404).send({ error: "Not found: GET /skill.md", code: "not_found" });
       return reply.type("text/markdown; charset=utf-8").header("cache-control", "no-cache").send(readFileSync(SKILL_FILE, "utf8"));
     });
+    // every town: the token that proves this host to muster.town's directory (design dc_d6chojzl2a), read per request
+    app.get("/.well-known/muster-town", async (_req, reply) => {
+      const token = townEnv("DIRECTORY_TOKEN")?.trim();
+      if (!token) return reply.code(404).send({ error: "Not found: GET /.well-known/muster-town (MUSTER_TOWN_DIRECTORY_TOKEN is not set)", code: "not_found" });
+      return reply.type("text/plain; charset=utf-8").header("cache-control", "no-cache").send(token);
+    });
+    if (opts.directory) await app.register(directoryRoutes(opts.directory));
   }
   // the monitor's 5xx share (monitor.ts Counters); hosted collectives' requests are hijacked above and not counted
   if (opts.monitor) { const c = opts.monitor.counters; app.addHook("onResponse", async (_req, reply) => { c.response(reply.statusCode); }); }

@@ -21,6 +21,8 @@ primary_region = "iad"
   # GH_TOKEN Fly secret is the fallback (ghToken "env"). No maxRunning here: it is a live setting (PUT /api/town/desks) kept in the database.
   MUSTER_TOWN_DESKS = '{"backend":"fly","townUrl":"https://muster.town","ghToken":"env"}'
   FLY_APP = "muster-desks"
+  # the self-hosted towns directory (design dc_d6chojzl2a): POST /api/directory/register and GET /api/directory exist only here
+  MUSTER_TOWN_DIRECTORY = "on"
 
 [mounts]
   source = "town_data"
