@@ -4,8 +4,9 @@ import { api, ApiError, getApi, isMock, tokenStore, WEB_ROOT, type Socket } from
 import { store, useTown, type PanelKind, type PanelRef } from "./state";
 import { layoutEdit } from "./map/layoutEdit";
 import { LayoutToolbar } from "./panels/LayoutToolbar";
-import { townPlan } from "./map/townPlan";
+import { townPlan, useTownPlan } from "./map/townPlan";
 import { PlanToolbar } from "./panels/PlanToolbar";
+import { PlanSideBar } from "./panels/PlanSideBar";
 import { MapCanvas, mapRenderer, typing } from "./map/MapCanvas";
 import { Minimap } from "./map/Minimap";
 import type { Target } from "./map/renderer";
@@ -187,12 +188,16 @@ export function App() {
   // the manual is a paper sheet over the town; the side panel and the map's inset ignore it
   const manual = open?.kind === "manual" ? open : null;
   const panel = manual ? null : open;
+  // town planning: the selected building's side bar (goals, budget, stats) takes the panel's place
+  const planSel = useTownPlan()?.selected ?? null;
+  const buildings = useTown((s) => s.buildings);
+  const planSide = !panel && planSel && planSel !== "new" && buildings.some((b) => b.id === planSel) ? planSel : null;
+  const inset = panel || planSide ? 1 : 0;
   const ready = useTown((s) => !!s.grid);
   const [target, setTarget] = useState<Target | null>(null);
   const [saying, setSaying] = useState(false);
   // plant a flag (F): the building I stood in when I pressed it, null outside; undefined = closed
   const [flagHere, setFlagHere] = useState<string | null | undefined>(undefined);
-  const buildings = useTown((s) => s.buildings);
   useTown((s) => s.me);
   // human-only: a guest has no roles, and agents don't use the web client
   const canAssign = (id: string) => store.can("building.assign", id);
@@ -204,7 +209,7 @@ export function App() {
   const sayRef = useRef<HTMLInputElement>(null);
 
   // the presented slide's modal (MeetingSlide) centres itself on the map, left of the side panel
-  useEffect(() => { document.documentElement.style.setProperty("--panel-w", `${panel ? pw : 0}px`); }, [panel, pw]);
+  useEffect(() => { document.documentElement.style.setProperty("--panel-w", `${inset ? pw : 0}px`); }, [inset, pw]);
   useEffect(() => { bootOnce().then(setPhase, (e) => setPhase({ k: "login", error: String(e) })); }, []);
   useEffect(() => {
     window.musterTown = window.agentTown = {
@@ -246,18 +251,19 @@ export function App() {
   if (phase.k === "login") return <Login error={phase.error} onDone={() => { location.href = WEB_ROOT; }} onCancel={authStore.get().guest ? () => setPhase({ k: "ready" }) : undefined} />;
   return (
     <div className="app">
-      <MapCanvas panelInset={panel ? pw : 0} onTarget={setTarget} onMove={onMove} />
+      <MapCanvas panelInset={inset ? pw : 0} onTarget={setTarget} onMove={onMove} />
       {!ready ? <div className="loading-screen"><div className="spin big" /><div>Entering town…</div></div> : null}
       <Hud onPasteToken={() => setPhase({ k: "login" })} onHelp={() => store.open({ kind: "manual" })} />
       <Minimap />
-      <div className="bottom" style={{ right: panel ? pw : 0 }}>
+      <div className="bottom" style={{ right: inset ? pw : 0 }}>
         <Hint target={target} saying={saying || flagHere !== undefined} canFlag={canFlag && !guest} />
         {flagHere !== undefined && canFlag && !guest ? <div className="flag-box"><PlantFlag targets={flagTargets(buildings, canAssign, flagHere)} onClose={() => setFlagHere(undefined)} /></div> : null}
         {saying && !guest ? <SayBox inputRef={sayRef} onSend={say} onCancel={() => setSaying(false)} /> : null}
       </div>
       {panel ? <aside className="panel" style={{ width: pw }}><PanelResizer width={pw} onResize={setPw} /><PanelBoundary key={`${panel.kind}:${panel.id ?? ""}:${panel.docId ?? ""}`}><PanelHost panel={panel} /></PanelBoundary></aside> : null}
+      {planSide ? <aside className="panel plan-side" style={{ width: pw }} aria-label="Selected building"><PanelResizer width={pw} onResize={setPw} /><PanelBoundary key={`plan:${planSide}`}><PlanSideBar id={planSide} /></PanelBoundary></aside> : null}
       <LayoutToolbar />
-      <PlanToolbar />
+      <PlanToolbar inset={inset ? pw : 0} />
       <Toasts />
       {help && ready ? <HowItWorks onClose={() => setHelp(false)} /> : null}
       {manual && ready ? <ManualSheet section={manual.id} /> : null}

@@ -1,5 +1,5 @@
 /** `Api` implemented against the in-memory Sim. Same interface as HttpApi, so every panel works offline. */
-import type { AccessRequest, AccessRequestView, Agent, Assignment, AuthMe, BlockedAssignment, BlockedBy, ScheduledAssignment, Building, Doc, Event, Meeting, Membership, RedeployLive, ReviewDeck, ReviewSlide } from "@muster-town/schema";
+import type { AccessRequest, AccessRequestView, Agent, Assignment, AuthMe, BlockedAssignment, BlockedBy, BuildingStats, ScheduledAssignment, Building, Doc, Event, Meeting, Membership, RedeployLive, ReviewDeck, ReviewSlide } from "@muster-town/schema";
 import { REVIEW_DECK_ID, parseDeck } from "@muster-town/schema";
 import { BACKFILL, BOARD_TYPES, KPI_FRAMING, DEFAULT_POOL_ID, ZERO_TOKENS, addTokens, backfillFamily, splitRaw, type BankPool } from "@muster-town/schema";
 import type { Api, AgentDetail, AllocationRow, Bank, Budget, Finance, FinancePools, FinanceSources, FinanceSpend, Cabinet, CabinetQuery, DocQuery, EventQuery, In, LayoutPreview, MessageResult, PlanPreview, RoomLayout, RequestAction, Snapshot, Socket, SocketHandlers, ThreadMessage, WriteDocInput } from "../api";
@@ -769,6 +769,23 @@ export class MockApi implements Api {
       if (w && "after" in w && Date.parse(w.after) > Date.now()) out.push({ assignmentId: a.id, title: a.title, agentId: a.agentId, buildingId: a.buildingId, queue: a.queue, runsAt: w.after });
     }
     return clone(out.sort((x, y) => x.runsAt.localeCompare(y.runsAt)));
+  }
+  /** like core's buildingStats (the side bar of town planning): its assignments and agents; blocked ones aren't told apart here */
+  async buildingStats(buildingId: string) {
+    await wait(40);
+    const assignments = { running: 0, queued: 0, blocked: 0, scheduled: 0 };
+    for (const a of this.sim.assignments.values()) {
+      if (a.buildingId !== buildingId) continue;
+      const w = a.status === "pending" ? a.waitFor : null;
+      if (a.status === "active") assignments.running++;
+      else if (a.status !== "pending") continue;
+      else if (w && "after" in w && Date.parse(w.after) > Date.now()) assignments.scheduled++;
+      else assignments.queued++;
+    }
+    const mine = [...this.sim.agents.values()].filter((g) => g.homeBuildingId === buildingId && g.kind === "resident" && g.status !== "retired");
+    const stats: BuildingStats = { assignments, agents: mine.filter((g) => !g.forkOf).length, forks: mine.filter((g) => g.forkOf).length,
+      working: mine.filter((g) => g.status === "working").length, host: { commit: "mock", startedAt: null } };
+    return clone(stats);
   }
   /**
    * At boot, like a server restarted mid-drain: a stale "waiting for Moss" drain (the live view already says nothing runs),

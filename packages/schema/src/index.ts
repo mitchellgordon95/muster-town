@@ -691,6 +691,16 @@ export interface BlockedAssignment { assignmentId: string; title: string; blocke
  * mt_xywhisvdcm). GET /api/scheduled lists them, soonest first; `runsAt` is the wait's time.
  */
 export interface ScheduledAssignment { assignmentId: string; title: string; agentId: string; buildingId: string; queue: AssignmentQueue; runsAt: string }
+/**
+ * `GET /api/buildings/:id/stats` (town planning's side bar, Mitchell's town hall mt_xywhisvdcm): the building's work right now.
+ * `queued` = pending and not scheduled (blocked ones included; `blocked` counts those); `agents` = named residents, `forks` = live
+ * forks of its manager, `working` = of both, those in a work session; `host` = the live server's commit and when it started.
+ */
+export interface BuildingStats {
+  assignments: { running: number; queued: number; blocked: number; scheduled: number };
+  agents: number; forks: number; working: number;
+  host: { commit: string | null; startedAt: string | null };
+}
 /** SQL tail for "next pending first": every queue query orders by this. */
 export const QUEUE_ORDER = "ORDER BY position, createdAt, rowid";
 

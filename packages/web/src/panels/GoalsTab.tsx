@@ -12,7 +12,7 @@ import { UNBLOCK_LINE, blockedLabel, goalsSummary, grantGroups, grantSpendLine, 
 import { openDocLink } from "./Markdown";
 
 /** The building's objective tree and grants, reloaded on every town change. */
-function useGoalData(buildingId: string) {
+export function useGoalData(buildingId: string) {
   const rev = useTown((s) => s.rev);
   const tree = useLoad(() => api().objectives(buildingId), [buildingId, rev]);
   const grants = useLoad(() => api().grants(buildingId), [buildingId, rev]);

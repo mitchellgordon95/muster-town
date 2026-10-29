@@ -4,7 +4,7 @@
  * wait or changes `heldReason` (`checkWaits` and `Budget.holdReason` own those). A wait on a time is not a block: the
  * assignment is scheduled (`scheduledAt`), Mitchell's town hall mt_xywhisvdcm.
  */
-import { QUEUE_ORDER, type Assignment, type BlockedAssignment, type BlockedBy, type ScheduledAssignment } from "@muster-town/schema";
+import { QUEUE_ORDER, type Assignment, type BlockedAssignment, type BlockedBy, type BuildingStats, type ScheduledAssignment } from "@muster-town/schema";
 import { isTownHallItem } from "./domain.ts";
 import { laneBlock } from "./lanes.ts";
 import { truncate } from "./util.ts";
@@ -87,4 +87,21 @@ export function townScheduled(world: World, at: Date = new Date()): ScheduledAss
     if (runsAt) out.push({ assignmentId: a.id, title: a.title, agentId: a.agentId, buildingId: a.buildingId, queue: a.queue, runsAt });
   }
   return out.sort((x, y) => x.runsAt.localeCompare(y.runsAt));
+}
+
+/** The building's work right now (GET /api/buildings/:id/stats): assignments running / queued / scheduled, its agents and forks, the live commit. */
+export function buildingStats(world: World, buildingId: string, at: Date = new Date()): BuildingStats {
+  const assignments = { running: 0, queued: 0, blocked: 0, scheduled: 0 };
+  for (const a of world.assignments.where("buildingId = ? AND status IN ('pending', 'active')", [buildingId])) {
+    if (a.status === "active") assignments.running++;
+    else if (a.offered) continue;
+    else if (scheduledAt(a, at)) assignments.scheduled++;
+    else { assignments.queued++; if (blockedBy(world, a, at)) assignments.blocked++; }
+  }
+  let agents = 0, forks = 0, working = 0;
+  for (const g of world.agents.where("homeBuildingId = ? AND kind = 'resident' AND status NOT IN ('retired', 'banned')", [buildingId])) {
+    if (g.forkOf) forks++; else agents++;
+    if (g.status === "working") working++;
+  }
+  return { assignments, agents, forks, working, host: { commit: world.host.commit ?? null, startedAt: world.host.startedAt ?? null } };
 }

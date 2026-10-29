@@ -1,6 +1,6 @@
 /** Why a queued assignment can't start (Mitchell's 1:1 mt_ryw7ejayvu): blockedBy on each, townBlocked for the map. */
 import { describe, expect, it } from "vitest";
-import { blockedBy, buildingRoleId, newId, nowIso, scheduledAt, townBlocked, townScheduled } from "../src/index.ts";
+import { blockedBy, buildingRoleId, buildingStats, newId, nowIso, scheduledAt, townBlocked, townScheduled } from "../src/index.ts";
 import { seededWorld } from "./helpers.ts";
 
 const LAB = "carbon-cycle";
@@ -55,6 +55,23 @@ describe("blockedBy", () => {
     expect(scheduledAt(late, after)).toBeNull();
     expect(blockedBy(world, late, after)).toBeNull();
     expect(Object.values(townBlocked(world)).flat().map((x) => x.title)).toEqual(["On deploy"]);
+  });
+
+  it("buildingStats (town planning's side bar): running, queued (blocked among them), scheduled; agents, forks, working; the live build", () => {
+    const { world, by, admin } = seededWorld();
+    const mei = by("Mei"), noor = by("Noor");
+    world.host.commit = "abcdef1234567"; world.host.startedAt = "2026-10-29T16:30:00.000Z";
+    const first = world.ops.createWork(admin, noor.id, { title: "Running" });
+    world.ops.startSession(noor.id, { purpose: "work", model: "m", assignmentId: first.id });
+    world.ops.createWork(admin, mei.id, { title: "Plain" });
+    world.ops.createWork(admin, mei.id, { title: "On deploy", waitFor: { deploy: "next" } });
+    world.ops.createWork(admin, mei.id, { title: "Later", waitFor: { after: new Date(Date.now() + 3600_000).toISOString() } });
+    const s = buildingStats(world, mei.homeBuildingId!);
+    expect(s.assignments).toEqual({ running: 1, queued: 2, blocked: 1, scheduled: 1 });
+    const residents = world.agents.where("homeBuildingId = ? AND kind = 'resident' AND status NOT IN ('retired', 'banned')", [mei.homeBuildingId!]);
+    expect(s).toMatchObject({ agents: residents.length, forks: 0, host: { commit: "abcdef1234567", startedAt: "2026-10-29T16:30:00.000Z" } });
+    expect(s.working).toBe(residents.filter((a) => a.status === "working").length);
+    expect(buildingStats(world, "town-hall").assignments).toEqual({ running: 0, queued: 0, blocked: 0, scheduled: 0 });
   });
 
   it("lane holds point at the Town Hall in-tray: grant at checkpoint, exploration allowance spent (used of allowance, reset time)", () => {
