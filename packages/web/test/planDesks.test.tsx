@@ -3,6 +3,8 @@ import { renderToStaticMarkup } from "react-dom/server";
 import { store } from "../src/state";
 import { townPlan } from "../src/map/townPlan";
 import { PlanToolbar } from "../src/panels/PlanToolbar";
+import { Buildings } from "../src/panels/PlanningPanel";
+import { Settings } from "../src/panels/BuildingPanel";
 
 vi.mock("../src/api", async (orig) => ({ ...(await orig<object>()), api: () => ({ mock: false, previewPlan: () => new Promise(() => {}) }) }));
 
@@ -36,5 +38,23 @@ describe("town planner desks follow floor space (Mitchell's flag dc_1hjoh9aurq)"
     expect(html).toContain("15×9 · 3 desks");
     expect(html).not.toContain("Desks <");
     townPlan.cancel();
+  });
+});
+
+describe("the New building form and a building's Settings show desks read-only (flag dc_1hjoh9aurq part 2)", () => {
+  it("New building: no desks input, the default lot's derived count", () => {
+    vi.spyOn(store, "can").mockReturnValue(true);
+    const html = renderToStaticMarkup(<Buildings />);
+    expect(html).toContain("New building");
+    expect(html).toContain("15×12 · 5 desks");
+    expect(html).not.toMatch(/<input[^>]*type="number"/);
+  });
+  it("Settings: the lot and its desks as text, no desks input", () => {
+    const b = { id: "bl_x", name: "Ocean Lab", kind: "lab", headcount: 5, lot: { x: 10, y: 20, w: 15, h: 12 }, goal: "", description: "", model: "m", cheapModel: "c",
+      maxTurnsPerSession: 80, dailyTokensPerAgent: 2_000_000, managerAgentId: null, codeAccess: false, poolId: null } as never;
+    store.state = { ...store.state, buildings: [b] };
+    const html = renderToStaticMarkup(<Settings b={b} />);
+    expect(html).toContain("15×12 · 5 desks");
+    expect(html).not.toContain("headcount");
   });
 });

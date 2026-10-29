@@ -1,4 +1,4 @@
-import { AgentPermissionsPatch, WorkInput, SPEND_LIMIT, countsOf, splitRaw, type TokenCounts, type Agent, type Lot, type PlanInput, type Assignment, type Interrupt, type CreateBuildingInput, type UpdateBuildingInput, type CreateMeetingInput, type CreateResidentInput, type Doc, type Meeting, type Membership, type RegisterVisitorInput, type Session } from "@muster-town/schema";
+import { AgentPermissionsPatch, WorkInput, NEW_LAB_LOT, desksForLot, SPEND_LIMIT, countsOf, splitRaw, type TokenCounts, type Agent, type Lot, type PlanInput, type Assignment, type Interrupt, type CreateBuildingInput, type UpdateBuildingInput, type CreateMeetingInput, type CreateResidentInput, type Doc, type Meeting, type Membership, type RegisterVisitorInput, type Session } from "@muster-town/schema";
 import { createAssignment, createDoc, homeOf, intrayCount, intrayOf, moveToFront, pendingQueue, plantFlag, sendMessage, setAssignmentStatus, townHallIntray, updateDoc } from "./domain.ts";
 import { CHECK_IN } from "./prompts.ts";
 import { createBuilding, createResident, createUser, ensureAvatar, planTown, registerVisitor, updateBuilding, updateFurniture } from "./entities.ts";
@@ -51,11 +51,15 @@ export class Ops {
   createBuilding(actor: Actor, input: (typeof CreateBuildingInput)["_input"]) {
     if (actor) this.world.permissions.require(actor, "town.manage_buildings");
     const creator = actor ? this.world.holderOf(actor) : null;
-    return createBuilding(this.world, input, creator?.kind === "user" ? creator.id : null, { starterResidents: true });
+    // desks follow floor space (flag dc_1hjoh9aurq): a sent headcount is ignored; the lab gets NEW_LAB_LOT's desks
+    return createBuilding(this.world, { ...input, headcount: desksForLot(NEW_LAB_LOT) }, creator?.kind === "user" ? creator.id : null, { starterResidents: true });
   }
-  /** `poolId` (admin only) moves the building to another Bank pool at once; the rest needs building.manage. */
+  /**
+   * `poolId` (admin only) moves the building to another Bank pool at once; the rest needs building.manage.
+   * A sent `headcount` is ignored, not refused: desks follow the lot (resize it in town planning to change them).
+   */
   updateBuilding(actor: Actor, id: string, patch: (typeof UpdateBuildingInput)["_input"]) {
-    const { poolId, explorationTokensPerDay, forks, ...rest } = patch;
+    const { poolId, explorationTokensPerDay, forks, headcount: _ignored, ...rest } = patch;
     // forks multiply a building's concurrent sessions, so turning them on is a budget call too
     const budget = { ...(explorationTokensPerDay !== undefined && { explorationTokensPerDay }), ...(forks !== undefined && { forks }) };
     const other = Object.keys(rest).length || (poolId === undefined && !Object.keys(budget).length);

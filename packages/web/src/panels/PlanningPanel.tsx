@@ -6,7 +6,8 @@ import { store, useTown, roleOf } from "../state";
 import { Glyph, PanelShell } from "./PanelShell";
 import { RolesTab } from "./BuildingPanel";
 import { SecretsTab } from "./Secrets";
-import { Act, Empty, Field, NumberInput, Section, StatusPill } from "./ui";
+import { NEW_LAB_LOT, TILES_PER_DESK, desksForLot } from "@muster-town/schema";
+import { Act, Empty, Field, Section, StatusPill } from "./ui";
 import { portraitUrl } from "../map/sprites";
 
 export function PlanningPanel({ tab }: { tab?: string }) {
@@ -27,11 +28,10 @@ export function PlanningPanel({ tab }: { tab?: string }) {
   );
 }
 
-function Buildings() {
+export function Buildings() {
   const buildings = useTown((s) => s.buildings);
   const [name, setName] = useState("");
   const [goal, setGoal] = useState("");
-  const [headcount, setHeadcount] = useState(6);
   const can = store.can("town.manage_buildings");
   return (
     <>
@@ -49,9 +49,9 @@ function Buildings() {
           <form className="form" onSubmit={(e) => e.preventDefault()}>
             <Field label="Name"><input value={name} onChange={(e) => setName(e.target.value)} placeholder="e.g. Ocean Alkalinity Lab" /></Field>
             <Field label="Goal"><textarea rows={2} value={goal} onChange={(e) => setGoal(e.target.value)} placeholder="What should this building figure out?" /></Field>
-            <Field label="Desks" hint="Code access is on when the collective has a repo; residents push code only if the host has Docker and a Claude token in the collective's .env (README, Run it)."><NumberInput min={1} max={24} value={headcount} onChange={setHeadcount} /></Field>
+            <Field label="Desks" hint={`Desks follow floor space (one per ${TILES_PER_DESK} floor tiles): resize the building on the town map table to change them. Code access is on when the collective has a repo; residents push code only if the host has Docker and a Claude token in the collective's .env (README, Run it).`}><span>{NEW_LAB_LOT.w}×{NEW_LAB_LOT.h} · {desksForLot(NEW_LAB_LOT)} desks</span></Field>
             <div className="actions"><Act tone="primary" disabled={!name.trim()} run={async () => {
-              const b = await api().createBuilding({ name: name.trim(), goal: goal.trim(), headcount });
+              const b = await api().createBuilding({ name: name.trim(), goal: goal.trim() });
               setName(""); setGoal("");
               store.toast(`${b.name} is under construction`, "ok");
             }}>Create building</Act></div>

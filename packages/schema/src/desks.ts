@@ -29,3 +29,6 @@ export function deskRoom(lot: { w: number; h: number }): number {
 export function desksForLot(lot: { w: number; h: number }): number {
   return Math.max(1, Math.min(Math.floor(floorTiles(lot) / TILES_PER_DESK), deskRoom(lot)));
 }
+
+/** The lot a building made without a drawn lot (the Planning desk's "New building" form, POST /api/buildings) gets: a 6-desk lab's size. Its desks are desksForLot of it. */
+export const NEW_LAB_LOT: { w: number; h: number } = labSize(6);

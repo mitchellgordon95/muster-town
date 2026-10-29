@@ -1,6 +1,6 @@
 /** `Api` implemented against the in-memory Sim. Same interface as HttpApi, so every panel works offline. */
 import type { AccessRequest, AccessRequestView, Agent, Assignment, AuthMe, BlockedAssignment, BlockedBy, BuildingStats, Schedule, Building, Doc, Event, Meeting, Membership, RedeployLive, ReviewDeck, ReviewSlide } from "@muster-town/schema";
-import { REVIEW_DECK_ID, parseDeck } from "@muster-town/schema";
+import { NEW_LAB_LOT, REVIEW_DECK_ID, desksForLot, parseDeck } from "@muster-town/schema";
 import { BACKFILL, BOARD_TYPES, KPI_FRAMING, DEFAULT_POOL_ID, ZERO_TOKENS, addTokens, backfillFamily, splitRaw, type BankPool } from "@muster-town/schema";
 import type { Api, AgentDetail, AllocationRow, Bank, Budget, Finance, FinancePools, FinanceSources, FinanceSpend, Cabinet, CabinetQuery, DocQuery, EventQuery, In, LayoutPreview, MessageResult, PlanPreview, RoomLayout, RequestAction, Snapshot, Socket, SocketHandlers, ThreadMessage, WriteDocInput } from "../api";
 import { ApiError } from "../api";
@@ -93,7 +93,7 @@ export class MockApi implements Api {
       .sort((a, b) => b.createdAt.localeCompare(a.createdAt)).slice(0, q.limit ?? 30);
     return clone({ docs, counts: [...counts.values()] });
   }
-  async createBuilding(i: In<typeof CreateBuildingInput>) { await wait(); return clone(this.sim.createBuilding(i.name, i.goal ?? "", i.headcount ?? 6)); }
+  async createBuilding(i: In<typeof CreateBuildingInput>) { await wait(); return clone(this.sim.createBuilding(i.name, i.goal ?? "", desksForLot(NEW_LAB_LOT))); } // desks follow floor space: a sent headcount is ignored
   async intray(buildingId: string) {
     await wait();
     const b = this.need(this.sim.buildings.find((x) => x.id === buildingId), "building");
@@ -137,10 +137,9 @@ export class MockApi implements Api {
   async updateBuilding(id: string, i: In<typeof UpdateBuildingInput>) {
     await wait();
     const b = this.need(this.sim.buildings.find((x) => x.id === id), "building");
-    const headcountChanged = i.headcount !== undefined && i.headcount !== b.headcount;
-    Object.assign(b, i);
+    const { headcount: _ignored, ...rest } = i; // desks follow floor space: a sent headcount is ignored, like the server
+    Object.assign(b, rest);
     this.sim.emit({ type: "building", building: b }); // no intray: the client keeps the last count
-    if (headcountChanged) this.sim.relayout();
     this.sim.event("building.updated", null, `${b.name} settings updated`, {}, id);
     return clone(b);
   }

@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { BANK_LOT, TILE } from "@muster-town/schema";
-import { World, createBuilding, createResident, findPath, isWalkable, MAX_HEADCOUNT, ROAD_Y } from "../src/index.ts";
+import { World, createBuilding, createResident, updateBuilding, findPath, isWalkable, MAX_HEADCOUNT, ROAD_Y } from "../src/index.ts";
 import { freshWorld, seededWorld, tickUntil } from "./helpers.ts";
 
 const overlap = (a: { x: number; y: number; w: number; h: number }, b: typeof a) =>
@@ -82,7 +82,7 @@ describe("layout", () => {
     expect(w2.buildings.all().map((b) => [b.id, b.lot])).toEqual(before);
     const b = createBuilding(w2, { name: "Small", headcount: 1 }, seed.admin.id);
     createResident(w2, { buildingId: b.id, name: "Solo", title: "t", direction: "d" });
-    w2.ops.updateBuilding(null, b.id, { headcount: 9 });
+    updateBuilding(w2, b.id, { headcount: 9 }); // internal path; the REST route ignores headcount
     const all = w2.buildings.all();
     for (let i = 0; i < all.length; i++) for (let j = i + 1; j < all.length; j++) expect(overlap(all[i].lot!, all[j].lot!)).toBe(false);
     createResident(w2, { buildingId: b.id, name: "Extra", title: "t", direction: "d" });

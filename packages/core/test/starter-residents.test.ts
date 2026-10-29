@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { RESIDENT_NAMES, suggestResidentName } from "../src/index.ts";
+import { RESIDENT_NAMES, createBuilding, suggestResidentName } from "../src/index.ts";
 import { seededWorld } from "./helpers.ts";
 
 const residentsOf = (world: ReturnType<typeof seededWorld>["world"], id: string) =>
@@ -19,12 +19,12 @@ describe("new buildings start with residents, named by the town", () => {
 
   it("headcount caps the starter residents", () => {
     const { world, admin } = seededWorld();
-    expect(residentsOf(world, world.ops.createBuilding(admin, { name: "Pair", headcount: 2 }).id)).toHaveLength(2);
+    expect(residentsOf(world, createBuilding(world, { name: "Pair", headcount: 2 }, null, { starterResidents: true }).id)).toHaveLength(2);
   });
 
   it("a resident added without a name gets a free one", () => {
     const { world, admin } = seededWorld();
-    const b = world.ops.createBuilding(admin, { name: "Lab", headcount: 6 });
+    const b = world.ops.createBuilding(admin, { name: "Lab" });
     const a = world.ops.createResident(admin, { buildingId: b.id });
     expect(a.name).toBeTruthy();
     expect(world.agents.where("lower(name) = lower(?)", [a.name])).toHaveLength(1);
