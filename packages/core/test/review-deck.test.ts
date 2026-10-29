@@ -119,6 +119,16 @@ describe("review deck (GET /api/review-deck)", () => {
     expect(world.events.list({ types: ["doc.decision"] }).at(-1)!.payload).not.toHaveProperty("deckSlide");
   });
 
+  it("the proposal slide shows a long approach whole (no-truncation rule)", async () => {
+    const { world, manager, krs } = setup();
+    const approach = `${"Step one adds a Goals tab next to Tab. ".repeat(24)}The last words stay.`;
+    expect(approach.length).toBeGreaterThan(900);
+    const r = await world.verbs.propose_grant(manager, { keyResultId: krs[0]!.id, objective: "Long approach", stopCondition: "done", askTokens: 100_000, testingPlan: [], findingsDocIds: [], approach, note: "" });
+    const s = ours(reviewDeck(world)).find((x) => x.grantId === r.grantId)!;
+    expect(s.text).toContain(approach.trim());
+    expect(s.text).not.toMatch(/…/);
+  });
+
   it("propose_grant stores picture and whatYoudSee; the proposal slide shows the picture when the media exists", async () => {
     const { world, manager, krs } = setup();
     const media = world.media.put(manager.id, "image/png", Buffer.from("89504e470d0a1a0a0000000d49484452", "hex"));

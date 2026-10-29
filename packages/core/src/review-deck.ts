@@ -28,7 +28,8 @@ export function waitedFor(sinceIso: string | null, now: Date): string {
 const KR_LIGHT: Record<string, string> = { "not-started": "⚪", "on-track": "🟢", "at-risk": "🟡", claimed: "🔵", met: "✅", missed: "❌" };
 const LIGHT: Record<string, string> = { green: "🟢", yellow: "🟡", red: "🔴" };
 const ACTION_PAST: Record<string, string> = { propose: "proposed", counter: "countered", fund: "funded", reject: "rejected", checkpoint: "held", continue: "continued", adjust: "adjusted", cut: "cut", close: "closed", edit: "edited" };
-const oneLine = (s: string, max = 160) => { const t = s.replace(/\s+/g, " ").trim(); return t.length > max ? `${t.slice(0, max - 1)}…` : t; };
+/** Collapses whitespace to one line; never cuts (no-truncation rule): the slide scrolls. */
+const oneLine = (s: string) => s.replace(/\s+/g, " ").trim();
 
 /** Pending assignments parked on each decision id (`waitFor {decision}`: managers' waits and parked continuations alike). */
 export function decisionWaiters(world: World): Map<string, number> {
@@ -69,7 +70,7 @@ export function rollupHistoryLine(world: World, doc: Doc, now: Date): string {
   const prev = world.docs.first("type = 'report' AND buildingId = ? AND decision IS NOT NULL AND decision != 'pending' AND createdAt < ? AND id != ? AND tags LIKE '%\"rollup\"%'", [doc.buildingId, doc.createdAt, doc.id], "ORDER BY createdAt DESC, rowid DESC");
   if (!prev) return "";
   const verb = prev.decisionNote ? "replied to" : prev.decision === "approve" ? "approved" : `decided (${prev.decision})`;
-  return `${prev.decidedBy ? world.nameOf(prev.decidedBy) : "A human"} ${verb} the previous rollup "${oneLine(prev.title, 80)}" ${prev.decidedAt ? `${waitedFor(prev.decidedAt, now)} ago` : ""}${prev.decisionNote ? `: "${oneLine(prev.decisionNote)}"` : ""}`.replace(/\s+$/, "");
+  return `${prev.decidedBy ? world.nameOf(prev.decidedBy) : "A human"} ${verb} the previous rollup "${oneLine(prev.title)}" ${prev.decidedAt ? `${waitedFor(prev.decidedAt, now)} ago` : ""}${prev.decisionNote ? `: "${oneLine(prev.decisionNote)}"` : ""}`.replace(/\s+$/, "");
 }
 
 const IMAGE = /!\[([^\]\n]*)\]\(([^)\s]+)(?:\s+"[^"]*")?\)/;
@@ -127,7 +128,7 @@ function grantSlide(world: World, g: GrantView, now: Date): Draft {
   }
   const at = [...g.history].reverse().find((h) => h.action === "propose")?.at ?? g.updatedAt;
   return { ...base, kind: "proposal", group: 4, since: at, title: `${b}: proposal — ${g.objective}`, body: card({
-    whatItIs: `${g.objective} (${g.id}). ${kr}.${g.approach ? ` ${oneLine(g.approach, 400)}` : ""}`,
+    whatItIs: `${g.objective} (${g.id}). ${kr}.${g.approach ? ` ${oneLine(g.approach)}` : ""}`,
     whatYoudSee: g.whatYoudSee || testing,
     picture: proposalPicture(world, g),
     yourCall: `Fund ${fmt(g.askTokens)} adjusted tokens, counter or reject. Stops when: ${g.stopCondition}`,
@@ -212,7 +213,7 @@ function townSlide(world: World, now: Date, decisions: number, oldest: string | 
   });
   const flags = world.docs.where("type = 'flag' AND decision = 'pending' AND createdAt < ?", [new Date(now.getTime() - FLAG_AFTER_MS).toISOString()], "ORDER BY createdAt");
   const flagLine = flags.length
-    ? `⚑ Your flag${flags.length === 1 ? "" : "s"} still waiting on a manager: ${flags.map((f) => `${world.buildings.get(f.buildingId ?? "")?.name ?? "?"} "${oneLine(f.title, 60)}" ${waitedFor(f.createdAt, now)}`).join("; ")}.`
+    ? `⚑ Your flag${flags.length === 1 ? "" : "s"} still waiting on a manager: ${flags.map((f) => `${world.buildings.get(f.buildingId ?? "")?.name ?? "?"} "${oneLine(f.title)}" ${waitedFor(f.createdAt, now)}`).join("; ")}.`
     : "";
   const text = [
     "# Review deck: the state of the town",
