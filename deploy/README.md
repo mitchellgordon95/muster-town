@@ -195,7 +195,20 @@ the TXT and well-known proof instructions; 10 calls per IP per day, 5 pending ho
 IP is `Fly-Client-IP`) and `GET /api/directory` → `{towns: [{host, url, name, goal, verifiedAt, lastSeenAt}]}` (verified towns
 seen in the last 24 h; cached 60 s). Rows live in `directory_towns` in town.db (migration 059), so the nightly backup covers
 them. Every town, muster.town included, serves `GET /.well-known/muster-town` = env `MUSTER_TOWN_DIRECTORY_TOKEN` (404 unset).
-Proof checking, `POST /api/directory/verify`, the hourly re-check and admin removal are step 2 (not built yet).
+
+**Proof and the checker** (`directory/index.ts`, `directory/net.ts`). A check tries the TXT record
+`_muster-town.<host>` = `muster-town-verify=<token>` (or the bare token; 3 s × 2 tries), then
+`https://<host>/.well-known/muster-town`; on a pass it fetches the town's `/api/health` (`ok: true`) and `/api/collectives`
+element 0 for the tile's name (80 chars) and goal (300). Every fetch goes through `safeGet`: https only, no redirects, 5 s,
+1 KB / 64 KB caps, and it refuses any host that resolves to a loopback, private, link-local, CGNAT, ULA (Fly 6PN `fdaa::`) or
+multicast address. `POST /api/directory/verify {host}` runs one check now (one per host per 60 s, 30 per IP per hour) and
+returns `{host, status, proof, verifiedAt, lastSeenAt, lastError}`. The checker ticks every 5 min (≤ 20 due rows, 4 at a time;
+the queue is `nextCheckAt` in the table, so a restart loses nothing): pending hosts at +1, +5, +15 min, +1 h, +6 h, then daily,
+deleted after 7 days; verified hosts hourly (± 10 min). A verified host whose proof is gone on two checks ≥ 1 h apart is
+delisted and goes back to pending (same token; a DNS timeout never counts). One that stops answering leaves the list after
+24 h and is deleted after 7 days. `GET /api/health` shows `directory: {verified, listed, pending, lastTickAt}`.
+**Removing a town:** an admin's `DELETE /api/directory/<host> {"reason": "…"}` deletes the row and adds the host to
+`directory_blocked`, so it can't register again (unblock: delete its `directory_blocked` row).
 
 ## Single-VPS deployment (legacy; the OVH box is gone)
 Plan and reasoning: town docs dc_mltonxkizi (deploy + CI) and dc_vxgg8r55ha (stress test: 6 desks at once).
