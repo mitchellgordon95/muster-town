@@ -614,7 +614,7 @@ textarea[data-drop="over"] { outline: 2px dashed var(--accent, #7aa2ff); outline
 .spend-tree { font-size: 12.5px; padding-left: 14px; }
 .spend-row > summary { cursor: pointer; list-style-position: outside; }
 .spend-line { display: inline-flex; width: 100%; gap: 8px; align-items: baseline; padding: 2px 0; }
-.spend-name { flex: 1; min-width: 0; overflow-wrap: anywhere; }
+.spend-name { flex: 1 1 auto; min-width: 0; overflow-wrap: anywhere; } /* basis auto: a one-line date range (Sources) shrinks to its min-content before the name does; with basis 0 the name got only the leftover and broke per character */
 .spend-tokens { text-align: right; min-width: 90px; font-variant-numeric: tabular-nums; }
 .spend-share { text-align: right; min-width: 48px; font-variant-numeric: tabular-nums; }
 .spend-children { margin-left: 4px; border-left: 1px solid var(--line); padding-left: 16px; }
