@@ -48,14 +48,13 @@ export function createBuilding(
   });
 }
 
-/** Residents a building made from the UI/API starts with: the first is its manager, the rest are workers. */
-export const STARTER_RESIDENTS = 3;
+/** The model a new building's manager runs on (flag dc_knetp3kqnu); its forks inherit it. */
+export const STARTER_MANAGER_MODEL = "claude-fable-5-1";
 
-/** Move in up to STARTER_RESIDENTS residents with town-picked names (capped by headcount); the first becomes manager. */
+/** A building made from the UI/API starts with one agent, its manager (town-picked name, Fable); work runs on its forks. */
 function seedStarterResidents(world: World, buildingId: string): void {
-  const n = Math.min(STARTER_RESIDENTS, world.buildings.require(buildingId).headcount);
-  const residents = Array.from({ length: n }, () => createResident(world, { buildingId }));
-  if (residents[0]) world.buildings.upsert({ ...world.buildings.require(buildingId), managerAgentId: residents[0].id });
+  const manager = createResident(world, { buildingId, model: STARTER_MANAGER_MODEL });
+  world.buildings.upsert({ ...world.buildings.require(buildingId), managerAgentId: manager.id });
   syncManagerRoles(world);
 }
 
