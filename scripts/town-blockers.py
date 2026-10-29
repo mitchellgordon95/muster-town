@@ -6,8 +6,9 @@ Usage (on a desk or any shell with the town token):
 
 It pages GET /api/events?since=<id>&limit=500 forward from the cache (or from the start the first time), keeps the cache,
 and prints one markdown table per blocker: redeploy drains, decisions waiting on a human, assignments waiting on a
-redeploy or a colleague, budgets exhausted. Work waiting on a time (waitFor {after}) is scheduled, not blocked (Mitchell,
-town hall mt_xywhisvdcm): it gets its own line under section 3 and is left out of the blocker rows and "Pending now". The Workshop manager pastes the tables into the "Town blockers" topic page at
+redeploy or a colleague, budgets exhausted. Timed jobs are building schedules (Mitchell, 1:1 mt_w7z9k1z112), not
+blockers: the "Scheduled, not a blocker" line under section 3 reads them from GET /api/scheduled and the schedule.fired
+events; parked work resuming at a time (resumeWhen {after}) is left out of the blocker rows and "Pending now". The Workshop manager pastes the tables into the "Town blockers" topic page at
 every rollup. Every number is derived only from the events named in the code below; nothing is estimated.
 """
 import argparse, collections, json, os, re, statistics, sys, urllib.request
@@ -124,12 +125,15 @@ print("| Waiting on | Started | Wait median | p90 | max |\n|---|---|---|---|---|
 for k in ("deploy", "assignment", "decision", "none"):
     xs = by.get(k, [])
     if xs: print(f"| {k} | {len(xs)} | {med(xs):.0f} min | {pct(xs, .9):.0f} min | {mx(xs) / 60:.1f} h |")
-# scheduled (a time) is by design: pending ones whose time is still ahead are not counted as waiting
+# a time is by design: parked work whose resume time is still ahead is not counted as waiting
 runs = lambda a: (cr[a][1].get("waitFor") or {}).get("after") if a in cr else None
-sched = {a: t for a, t in pend.items() if runs(a) and P(runs(a)) > now}
-blk = {a: t for a, t in pend.items() if a not in sched}
-print(f"| Pending now (not scheduled) | {len(blk)} | oldest {mx([(now - t).total_seconds() / 3600 for t in blk.values()]):.1f} h | | |")
-xs = by.get("after", [])
-print(f"\nScheduled, not a blocker: {len(xs)} started on their time{f' (created to start median {med(xs):.0f} min)' if xs else ''}; {len(sched)} scheduled now{': next ' + min(runs(a) for a in sched)[:16].replace('T', ' ') + ' UTC' if sched else ''}.")
+resuming = {a: t for a, t in pend.items() if runs(a) and P(runs(a)) > now}
+blk = {a: t for a, t in pend.items() if a not in resuming}
+print(f"| Pending now (not resuming at a time) | {len(blk)} | oldest {mx([(now - t).total_seconds() / 3600 for t in blk.values()]):.1f} h | | |")
+# building schedules: the live list (GET /api/scheduled) and the runs fired in the window (schedule.fired events)
+live = json.load(urllib.request.urlopen(urllib.request.Request(f"{URL}/api/scheduled", headers={"Authorization": f"Bearer {TOK}"}))).get("schedules", [])
+fired = [e for e in ev if e["type"] == "schedule.fired" and P(e["ts"]) >= since]
+nxt = min((x["nextRunAt"] for x in live if x.get("nextRunAt")), default=None)
+print(f"\nScheduled, not a blocker: {len(live)} building schedules active now{': next ' + nxt[:16].replace('T', ' ') + ' UTC' if nxt else ''}; {len(fired)} runs fired in the window; parked work resuming at a time: {len(resuming)} now, {len(by.get('after', []))} resumed in the window.")
 be = [e for e in ev if e["type"] == "budget.exhausted" and P(e["ts"]) >= since]
 print(f"\n## 4. Budgets exhausted\n\n{len(be)} times: {', '.join(f'{k} {v}' for k, v in collections.Counter(e['text'].split(' used')[0].split(' has run')[0] for e in be).most_common())}")

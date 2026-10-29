@@ -1,4 +1,4 @@
-import { AppError, blockedBy, forkSummary, forksOf, canInteract, logOf, sessionView, suggestResidentName, townBlocked, townScheduled, topicsOf, wikiOf, type World } from "@muster-town/core";
+import { AppError, blockedBy, forkSummary, forksOf, canInteract, logOf, sessionView, suggestResidentName, townBlocked, townSchedules, buildingSchedules, createSchedule, cancelSchedule, actOrigin, topicsOf, wikiOf, type World } from "@muster-town/core";
 import { AgentModelPatch, AgentPermissionsPatch, ChatInput, CreateResidentInput, Event, InterruptInput, MessageAgentInput, RegisterVisitorInput, WorkInput, type Agent, type Session } from "@muster-town/schema";
 import type { FastifyInstance, FastifyRequest } from "fastify";
 import { z } from "zod";
@@ -125,8 +125,20 @@ export async function agentRoutes(app: FastifyInstance) {
 
   /** Every agent's blocked queued assignments with the reason (the map's blocked badges and red lines): { agents: { [agentId]: BlockedAssignment[] } } */
   app.get("/api/blocked", async () => ({ agents: townBlocked(world) }));
-  /** Queued assignments waiting on a time (scheduled, not blocked), soonest first: { assignments: ScheduledAssignment[] } */
-  app.get("/api/scheduled", async () => ({ assignments: townScheduled(world) }));
+  /** Every building's active schedules, soonest run first (the map's scheduled badges): { schedules: Schedule[] } */
+  app.get("/api/scheduled", async () => ({ schedules: townSchedules(world) }));
+  /** A building's schedules (active soonest first, then the 20 most recently ended): { schedules: Schedule[] } */
+  app.get<{ Params: Params }>("/api/buildings/:id/schedules", async (req) => ({ schedules: buildingSchedules(world, world.buildings.require(req.params.id, "building").id) }));
+  /** Put a timed job on a building's schedule (building.assign; CreateScheduleInput). → 201 { schedule } */
+  app.post<{ Params: Params }>("/api/buildings/:id/schedules", async (req, reply) => {
+    const actor = actorOf(world, req);
+    const b = world.buildings.require(req.params.id, "building");
+    if (!world.permissions.can(actor, "building.assign", b.id)) throw new AppError("forbidden", "You need building.assign on this building to schedule work in it.");
+    const schedule = createSchedule(world, b.id, world.holderOf(actor), req.body ?? {}, actOrigin(world, actor, null));
+    return reply.code(201).send({ schedule });
+  });
+  /** Stop a schedule (building.assign on its building). → { schedule } */
+  app.post<{ Params: Params }>("/api/schedules/:id/cancel", async (req) => ({ schedule: cancelSchedule(world, actorOf(world, req), req.params.id) }));
 
   app.get<{ Params: Params }>("/api/agents/:id/session", async (req) => {
     const agent = world.agents.require(req.params.id, "agent");

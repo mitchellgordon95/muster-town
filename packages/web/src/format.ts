@@ -6,7 +6,7 @@ export function stoplightLabel(light: "green" | "yellow" | "red"): string {
 }
 
 /**
- * When a scheduled assignment runs (its `waitFor {after}`), in the viewer's time and in UTC: "Thu 29 Oct, 16:00 your
+ * When a schedule runs next (or parked work resumes), in the viewer's time and in UTC: "Thu 29 Oct, 16:00 your
  * time · 20:00 UTC"; just the UTC part when the viewer is on UTC. `now` decides whether the day is shown ("today").
  */
 export function runsAtLabel(iso: string, now: Date = new Date()): string {
@@ -19,6 +19,13 @@ export function runsAtLabel(iso: string, now: Date = new Date()): string {
   const sameDay = d.toDateString() === now.toDateString();
   const day = sameDay ? "" : `${d.toLocaleDateString("en-GB", { weekday: "short", day: "numeric", month: "short" })}, `;
   return `${day}${hm(d.getHours(), d.getMinutes())} your time · ${utcDay}${utc}`;
+}
+
+/** A schedule's repeat: "every 6 h", "daily 08:00, 20:00 UTC", "once" (as core's describeRepeat). */
+export function repeatLabel(s: { everyMinutes: number | null; dailyAt: string[] | null }): string {
+  if (s.everyMinutes) return s.everyMinutes % 60 ? `every ${s.everyMinutes} min` : `every ${s.everyMinutes / 60} h`;
+  if (s.dailyAt?.length) return `daily ${s.dailyAt.join(", ")} UTC`;
+  return "once";
 }
 
 /** The Bank's unit (step 3): every token figure is adjusted output tokens; this is its short label. */
