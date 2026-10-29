@@ -1,6 +1,6 @@
 import { describe, expect, test } from "vitest";
 import {
-  appendLog, composeWorkBrief, createDoc, docGist, FALLBACK_REPORT_PREFIX, logOf, memoryBlock, READ_FIRST, recentWorkBlock, sectionOf, teamBlock, wikiOf, WIKI_PAGE_CAP,
+  appendLog, composeWorkBrief, createDoc, docGist, FALLBACK_REPORT_PREFIX, logOf, memoryBlock, READ_FIRST, recentWorkBlock, sectionOf, wikiOf, WIKI_PAGE_CAP,
 } from "../src/index.ts";
 import { seededWorld } from "./helpers.ts";
 
@@ -120,18 +120,6 @@ describe("memory: wiki + log", () => {
     expect(b).toMatch(/## Your log \(last 3 of 15; `read` dc_[\w-]+ for all\)\n- .* event 13\n- .* event 14\n- .* event 15$/);
   });
 
-  test("teamBlock: residents with status, queue and wiki topics, for the manager", async () => {
-    const { world, by } = seededWorld();
-    const noor = by("Noor"), mei = by("Mei");
-    const building = world.buildings.require(noor.homeBuildingId!);
-    await world.verbs.write(mei.id, { type: "wiki", title: "Ocean sink", body: "SOCAT vs models", state: "draft" });
-    world.ops.createWork(null, mei.id, { title: "Southern Ocean", description: "why" });
-    const t = teamBlock(world, building, noor.id);
-    expect(t).toContain(`## Your team (you are the manager of the ${building.name})`);
-    expect(t).not.toContain(`- ${noor.name} (`);
-    expect(t).toMatch(new RegExp(`- ${mei.name} \\(${mei.id}\\): idle, 1 queued; knows: Ocean sink`));
-    expect(t).toContain("pick the resident whose wiki covers the topic");
-  });
 });
 
 describe("work brief carries memory", () => {

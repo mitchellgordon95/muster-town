@@ -467,6 +467,8 @@ export interface Api {
   buildingSchedules(buildingId: string): Promise<Schedule[]>;
   /** stop a schedule (POST /api/schedules/:id/cancel; building.assign) */
   cancelSchedule(id: string): Promise<Schedule>;
+  /** edit, pause or resume a schedule (POST /api/schedules/:id; building.assign) */
+  editSchedule(id: string, patch: { paused?: boolean }): Promise<Schedule>;
   /** the building's work right now (GET /api/buildings/:id/stats): town planning's side bar */
   buildingStats(buildingId: string): Promise<BuildingStats>;
   health(): Promise<{ ok?: boolean; commit?: string | null }>;
@@ -689,6 +691,7 @@ export class HttpApi implements Api {
   async scheduled() { return (await this.get<{ schedules?: Schedule[] }>("/api/scheduled")).schedules ?? []; }
   async buildingSchedules(buildingId: string) { return (await this.get<{ schedules?: Schedule[] }>(`/api/buildings/${encodeURIComponent(buildingId)}/schedules`)).schedules ?? []; }
   async cancelSchedule(id: string) { return (await this.post<{ schedule: Schedule }>(`/api/schedules/${encodeURIComponent(id)}/cancel`)).schedule; }
+  async editSchedule(id: string, patch: { paused?: boolean }) { return (await this.post<{ schedule: Schedule }>(`/api/schedules/${encodeURIComponent(id)}`, patch)).schedule; }
   async buildingStats(id: string) { return unwrap<BuildingStats>(await this.get(`/api/buildings/${id}/stats`), "stats"); }
 
   connect(h: SocketHandlers): Socket {

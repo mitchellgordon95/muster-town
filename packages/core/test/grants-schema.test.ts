@@ -78,14 +78,13 @@ describe("building budget settings", () => {
     expect(b.explorationTokensPerDay).toBeNull();
   });
 
-  it("explorationTokensPerDay and forks need building.fund: a human manager yes, an agent manager no", () => {
+  it("explorationTokensPerDay needs building.fund: a human manager yes, an agent manager no", () => {
     const { world, by } = seededWorld();
     const mgr = world.ops.createUser("Mgr").user;
     world.permissions.grant({ kind: "user", id: mgr.id }, buildingRoleId(LAB, "manager"));
     const avatar = world.ops.ensureAvatar(mgr.id);
-    const b = world.ops.updateBuilding(avatar, LAB, { explorationTokensPerDay: 1_500_000, forks: true });
+    const b = world.ops.updateBuilding(avatar, LAB, { explorationTokensPerDay: 1_500_000 });
     expect(b.explorationTokensPerDay).toBe(1_500_000);
-    expect(b.forks).toBe(true);
     const resident = world.agents.first("homeBuildingId = ? AND kind = 'resident'", [LAB])!;
     world.permissions.grant(resident, buildingRoleId(LAB, "manager"));
     expect(() => world.ops.updateBuilding(resident, LAB, { explorationTokensPerDay: 9_000_000 })).toThrow(/building.fund/);

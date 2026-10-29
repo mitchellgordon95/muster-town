@@ -1,4 +1,4 @@
-import { AppError, blockedBy, forkSummary, forksOf, canInteract, logOf, sessionView, suggestResidentName, townBlocked, townSchedules, buildingSchedules, createSchedule, cancelSchedule, actOrigin, topicsOf, wikiOf, type World } from "@muster-town/core";
+import { AppError, blockedBy, forkSummary, forksOf, canInteract, logOf, sessionView, suggestResidentName, townBlocked, townSchedules, buildingSchedules, createSchedule, cancelSchedule, editSchedule, actOrigin, topicsOf, wikiOf, type World } from "@muster-town/core";
 import { AgentModelPatch, AgentPermissionsPatch, ChatInput, CreateResidentInput, Event, InterruptInput, MessageAgentInput, RegisterVisitorInput, WorkInput, type Agent, type Session } from "@muster-town/schema";
 import type { FastifyInstance, FastifyRequest } from "fastify";
 import { z } from "zod";
@@ -137,6 +137,8 @@ export async function agentRoutes(app: FastifyInstance) {
     const schedule = createSchedule(world, b.id, world.holderOf(actor), req.body ?? {}, actOrigin(world, actor, null));
     return reply.code(201).send({ schedule });
   });
+  /** Edit, pause or resume a schedule (building.assign on its building; EditScheduleInput). → { schedule } */
+  app.post<{ Params: Params }>("/api/schedules/:id", async (req) => ({ schedule: editSchedule(world, actorOf(world, req), req.params.id, req.body ?? {}) }));
   /** Stop a schedule (building.assign on its building). → { schedule } */
   app.post<{ Params: Params }>("/api/schedules/:id/cancel", async (req) => ({ schedule: cancelSchedule(world, actorOf(world, req), req.params.id) }));
 

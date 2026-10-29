@@ -621,17 +621,6 @@ export class MapRenderer {
       if (q.x < -60 || q.x > cw + 60 || q.y < -40 || q.y > ch + 40) continue;
       this.blockHits.push({ id: d.id, ...drawBadge(g, q.x - 18, q.y, `blocked ${s.blocked[d.id].length}`, "bad", d.id === this.hoverBlock) });
     }
-    // a blue "scheduled N" by each building's in-tray: its active schedules (they live on the building, not on anyone);
-    // hover lists the next runs, click opens the building's Overview
-    const sched = new Map<string, number>();
-    for (const x of s.scheduled) sched.set(x.buildingId, (sched.get(x.buildingId) ?? 0) + 1);
-    for (const [bid, n] of sched) {
-      const p = s.places.find((x) => x.id === `intray:${bid}`);
-      if (!p) continue;
-      const below = s.grid && s.grid.tiles[(p.pos.y + 1) * s.grid.w + p.pos.x] === TILE.MANAGER_DESK;
-      const q = toScreen(p.pos.x * T - 30, (p.pos.y + (below ? 1 : -1)) * T + 1);
-      if (q.x > -60 && q.x < cw + 60 && q.y > -40 && q.y < ch + 40) this.blockHits.push({ id: `sched:${bid}`, ...drawBadge(g, q.x, q.y, `scheduled ${n}`, "scheduled", this.hoverBlock === `sched:${bid}`) });
-    }
     // in-tray badges on the managers' desks, after the name labels so a body standing at the in-tray never covers them: the desk is the tile above the place's standing spot, or below it
     // (the Town Hall in-tray, and rooms south of the road)
     for (const b of s.buildings) {
@@ -662,6 +651,18 @@ export class MapRenderer {
       const p = toScreen(d.x, d.y - d.h);
       if (p.x < -200 || p.x > cw + 200 || p.y < -100 || p.y > ch + 200) continue;
       drawBubble(g, p.x, p.y, bubble, d.id === targetId || d.id === this.hoverId);
+    }
+    // a blue "scheduled N" by each building's in-tray: its active schedules (they live on the building, not on anyone);
+    // hover lists the next runs, click opens the building's Overview. After the bubbles: it sits over a desk row, and a
+    // working agent's "Running: …" bubble there would hide it
+    const sched = new Map<string, number>();
+    for (const x of s.scheduled) sched.set(x.buildingId, (sched.get(x.buildingId) ?? 0) + 1);
+    for (const [bid, n] of sched) {
+      const p = s.places.find((x) => x.id === `intray:${bid}`);
+      if (!p) continue;
+      const below = s.grid && s.grid.tiles[(p.pos.y + 1) * s.grid.w + p.pos.x] === TILE.MANAGER_DESK;
+      const q = toScreen(p.pos.x * T - 30, (p.pos.y + (below ? 1 : -1)) * T + 1);
+      if (q.x > -60 && q.x < cw + 60 && q.y > -40 && q.y < ch + 40) this.blockHits.push({ id: `sched:${bid}`, ...drawBadge(g, q.x, q.y, `scheduled ${n}`, "scheduled", this.hoverBlock === `sched:${bid}`) });
     }
     // the hovered blocked badge's reasons, above everything
     const tipFor = this.hoverBlock ? this.blockHits.find((h) => h.id === this.hoverBlock) : undefined;

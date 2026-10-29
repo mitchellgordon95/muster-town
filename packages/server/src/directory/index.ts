@@ -2,7 +2,7 @@
  * The self-hosted towns directory (grant gr_8cdix9mpye, design dc_d6chojzl2a): strangers register a DNS name with
  * muster.town, prove control (TXT or `/.well-known/muster-town`), and verified towns seen in the last 24 h are listed.
  * Step 1: register + list. Step 2 adds verify, the checker, admin removal and the health section.
- * Rows live in `directory_towns` (migration 058) in the town's own db, so the nightly backup covers them.
+ * Rows live in `directory_towns` (migration 059) in the town's own db, so the nightly backup covers them.
  * Only built where MUSTER_TOWN_DIRECTORY=on (main.ts); the clock is injectable for tests (the Monitor pattern).
  */
 import { AppError, type World } from "@muster-town/core";

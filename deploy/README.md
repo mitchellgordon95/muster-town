@@ -191,7 +191,7 @@ is the box's existing Gmail app password), dry run "ok (fails 0)", timer enabled
 `POST /api/directory/register {host}` (no account, no approval; returns the same `mtd_…` token for a host every time, with
 the TXT and well-known proof instructions; 10 calls per IP per day, 5 pending hosts per IP, 200 new hosts a day; the client
 IP is `Fly-Client-IP`) and `GET /api/directory` → `{towns: [{host, url, name, goal, verifiedAt, lastSeenAt}]}` (verified towns
-seen in the last 24 h; cached 60 s). Rows live in `directory_towns` in town.db (migration 058), so the nightly backup covers
+seen in the last 24 h; cached 60 s). Rows live in `directory_towns` in town.db (migration 059), so the nightly backup covers
 them. Every town, muster.town included, serves `GET /.well-known/muster-town` = env `MUSTER_TOWN_DIRECTORY_TOKEN` (404 unset).
 Proof checking, `POST /api/directory/verify`, the hourly re-check and admin removal are step 2 (not built yet).
 
