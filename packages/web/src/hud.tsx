@@ -186,7 +186,8 @@ const ASK_AGAIN_MS = 24 * 3600_000;
 
 /**
  * Signed in but not let in yet (dc_f0cumcfubk): the guest card's one next step is Ask to join, with an optional line
- * on what they'd like to do. An admin decides in the Town Hall in-tray; the answer shows here on the next load.
+ * on what they'd like to do. An admin decides in the Town Hall in-tray; the answer shows here as soon as it lands (the
+ * decision event refetches `me`, app.tsx onAccessDecided).
  */
 function AskToJoin({ me }: { me: AuthMe }) {
   const [text, setText] = useState("");
