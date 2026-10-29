@@ -637,6 +637,8 @@ textarea[data-drop="over"] { outline: 2px dashed var(--accent, #7aa2ff); outline
 .spend-not-funded .spend-tokens { color: var(--bad); }
 .spend-weight-mismatch .spend-tokens { color: var(--muted); }
 div.spend-row > .muted { font-size: 11.5px; }
+.pool-overdrawn .spend-tokens { color: var(--bad); }
+.spend-tree .nowrap { white-space: nowrap; } /* Pools: a label and its number stay on one line */
 
 /* meeting: what a speaker presented with their line */
 .presented { display: block; margin: 4px 0 0; }

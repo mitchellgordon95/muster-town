@@ -8,9 +8,14 @@
  * weight-mismatch (pre-conversion pricing, not spend; step 2b) and not-funded rows that make the top level sum to
  * `used`. Above it, Sources (gr_gbpbbwy9b8 step 2) from GET /api/finance/sources: each Bank input (open it for its
  * dated credits) and each direct donation, the two subtotals and Total received, checked against /api/finance `total`.
+ * Between Sources and Spending, Pools (gr_mijwhoiy2f step 2) from GET /api/finance/pools: each pool's share, what it has left
+ * (expiring today, permanent) and drew, its overdrawn debt on its own row, checked against the Bank balance; then each
+ * building's draws, donations, held tokens and exploration allowance, its draws checked against the Bank's debits. When
+ * the endpoint can't be loaded, the older "Bank pools" table from /api/bank stands in for it.
  * Opened from the HUD's "$" or `#/finance`.
  */
-import { api, type BankPoolSummary, type Finance, type FinanceSources, type FinanceSpend, type SpendNode } from "../api";
+import { api, type BankPoolSummary, type Finance, type FinancePools, type FinanceSources, type FinanceSpend, type SpendNode } from "../api";
+import type { ReactNode } from "react";
 import { Glyph, PanelShell } from "./PanelShell";
 import { ADJ, ErrorLine, Loading, Section, useLoad } from "./ui";
 
@@ -168,7 +173,79 @@ export function SourcesView({ s }: { s: FinanceSources }) {
   );
 }
 
-export function FinanceView({ f, pools, spend = null, sources = null }: { f: Finance; pools: BankPoolSummary[] | null; spend?: FinanceSpend | null; sources?: FinanceSources | null }) {
+/** The pools' balance check in words: pools left − overdrawn + unshared vs the Bank balance − overshoot. */
+export function poolsBalanceLine(fp: FinancePools): { ok: boolean; text: string } {
+  const lhs = fp.poolsLeftTokens - fp.poolsOverdrawnTokens + fp.unsharedTokens, rhs = fp.balanceTokens - fp.overshootTokens;
+  const pools = `pools left ${n(fp.poolsLeftTokens)} − overdrawn ${n(fp.poolsOverdrawnTokens)}${fp.unsharedTokens ? ` + unshared ${n(fp.unsharedTokens)}` : ""} = ${n(lhs)}`;
+  const bank = `Bank balance ${n(fp.balanceTokens)}${fp.overshootTokens ? ` − overshoot ${n(fp.overshootTokens)}` : ""} = ${n(rhs)}`;
+  return fp.sumCheck.balanceOk ? { ok: true, text: `Adds up: ${pools}; ${bank}` } : { ok: false, text: `Does not add up (off by ${n(fp.sumCheck.balanceDiff)}): ${pools}; ${bank}` };
+}
+
+/** The draws check in words: Σ building draws and Σ pool draws vs every Bank debit. */
+export function poolsDrawsLine(fp: FinancePools): { ok: boolean; text: string } {
+  const b = fp.buildings.reduce((s, x) => s + x.drawn, 0), p = fp.pools.reduce((s, x) => s + x.drawn, 0);
+  const sum = `building draws ${n(b)}, pool draws ${n(p)}, Bank debits ${n(fp.usedBank)}`;
+  return fp.sumCheck.drawsOk ? { ok: true, text: `Adds up: building draws = pool draws = Bank debits = ${n(fp.usedBank)}` } : { ok: false, text: `Does not add up (off by ${n(fp.sumCheck.drawsDiff)}): ${sum}` };
+}
+
+const Check = ({ c }: { c: { ok: boolean; text: string } }) => <div className={c.ok ? "finance-check ok" : "error-line"} role="status">{c.ok ? "✓ " : "✗ "}{c.text}</div>;
+
+/** A label and its number, never broken apart. */
+const Pair = ({ children }: { children: ReactNode }) => <span className="nowrap">{children}</span>;
+
+const Total = ({ label, tokens }: { label: string; tokens: number }) => (
+  <div className="spend-row"><span className="spend-line"><span className="spend-name"><b>{label}</b></span><span className="spend-tokens"><b>{n(tokens)}</b></span></span></div>
+);
+
+export function PoolsView({ fp }: { fp: FinancePools }) {
+  return (
+    <Section title="Pools">
+      <p className="muted">Each pool owns its share of every Bank credit; its buildings draw from it first come, first served. Left ({ADJ}) splits into expiring (subscription) and permanent (API key).</p>
+      <div className="spend-tree">
+        {fp.pools.map((p) => (
+          <div key={p.id ?? "deleted"} className="pool-group">
+            <div className="spend-row spend-building" title={p.buildings.length ? `Buildings: ${p.buildings.map((b) => b.name).join(", ")}` : (p.id ?? undefined)}>
+              <span className="spend-line">
+                <span className="spend-name"><b>{p.name}</b>{p.buildings.length ? <span className="muted"> · {p.buildings.map((b) => b.name).join(", ")}</span> : null}</span>
+                <span className="spend-share">{p.id ? `${p.pct}%` : "—"}</span>
+                <span className="spend-tokens">{n(p.left)}</span>
+              </span>
+              <div className="muted"><Pair>expiring {n(p.expiringLeft)}</Pair> · <Pair>permanent {n(p.durableLeft)}</Pair> · <Pair>drawn all time {n(p.drawn)}</Pair></div>
+            </div>
+            {p.overdrawn ? (
+              <div className="spend-row finance-overdrawn pool-overdrawn" title="Permanent tokens drawn past the pool's share (overshoot debt), paid back from later API-key credits">
+                <span className="spend-line"><span className="spend-name">{p.name} overdrawn: permanent tokens drawn past its share</span><span className="spend-tokens">−{n(p.overdrawn)}</span></span>
+              </div>
+            ) : null}
+          </div>
+        ))}
+        {fp.unsharedTokens ? (
+          <div className="spend-row" title="Credit tokens no pool owns: shares under 100% and rounding">
+            <span className="spend-line"><span className="spend-name">Unshared: tokens no pool owns</span><span className="spend-share">{fp.sharedPct < 100 ? `${Math.round((100 - fp.sharedPct) * 100) / 100}%` : ""}</span><span className="spend-tokens">{n(fp.unsharedTokens)}</span></span>
+          </div>
+        ) : null}
+        <Total label="Bank balance less overshoot" tokens={fp.poolsLeftTokens - fp.poolsOverdrawnTokens + fp.unsharedTokens} />
+      </div>
+      <Check c={poolsBalanceLine(fp)} />
+      <p className="muted">What each building drew from its pool, all time; under it, donations straight to it, what of them it still holds, and today&apos;s exploration allowance.</p>
+      <div className="spend-tree">
+        {fp.buildings.map((b) => (
+          <div key={b.id ?? "deleted"} className="spend-row" title={b.id ?? undefined}>
+            <span className="spend-line">
+              <span className="spend-name">{b.name}{b.poolName ? <span className="muted"> · {b.poolName}</span> : null}</span>
+              <span className="spend-tokens">{n(b.drawn)}</span>
+            </span>
+            <div className="muted">{b.drawsFromBank ? <><Pair>donated {n(b.donated)}</Pair> · <Pair>held {n(b.held)}</Pair> · <Pair>exploration {n(b.explorationTokensPerDay)} / day</Pair></> : b.id ? "draws nothing from the Bank" : "debits of buildings since deleted"}</div>
+          </div>
+        ))}
+        <Total label="Drawn from pools" tokens={fp.buildings.reduce((s, b) => s + b.drawn, 0)} />
+      </div>
+      <Check c={poolsDrawsLine(fp)} />
+    </Section>
+  );
+}
+
+export function FinanceView({ f, pools, spend = null, sources = null, poolsFin = null }: { f: Finance; pools: BankPoolSummary[] | null; spend?: FinanceSpend | null; sources?: FinanceSources | null; poolsFin?: FinancePools | null }) {
   const check = sumCheckLine(f);
   const runway = runwayDays(f);
   const p = f.projection;
@@ -201,7 +278,7 @@ export function FinanceView({ f, pools, spend = null, sources = null }: { f: Fin
       </table>
       <p className="muted">A straight line from the trailing burn: new credits, donations and renewals are not counted.</p>
     </Section>
-    {pools && pools.length ? (
+    {!poolsFin && pools && pools.length ? (
       <Section title="Bank pools">
         <table className="table">
           <thead><tr><th>Pool</th><th>Expires today</th><th>Permanent</th></tr></thead>
@@ -221,18 +298,19 @@ export function FinanceView({ f, pools, spend = null, sources = null }: { f: Fin
       </Section>
     ) : null}
     {sources ? <SourcesView s={sources} /> : null}
+    {poolsFin ? <PoolsView fp={poolsFin} /> : null}
     {spend ? <SpendingView sp={spend} /> : null}
-    <p className="muted">As of {f.at.slice(0, 16).replace("T", " ")} UTC · in adjusted output tokens · from <code>GET /api/finance</code>{sources ? <>, <code>/api/finance/sources</code></> : null}{spend ? <> and <code>/api/finance/spend</code></> : null}</p>
+    <p className="muted">As of {f.at.slice(0, 16).replace("T", " ")} UTC · in adjusted output tokens · from <code>GET /api/finance</code>{sources ? <>, <code>/api/finance/sources</code></> : null}{poolsFin ? <>, <code>/api/finance/pools</code></> : null}{spend ? <> and <code>/api/finance/spend</code></> : null}</p>
   </>;
 }
 
 export function FinancePanel() {
-  const d = useLoad(() => Promise.all([api().finance(), api().bank().then((b) => b.pools, () => null), api().financeSpend().catch(() => null), api().financeSources().catch(() => null)]), []);
+  const d = useLoad(() => Promise.all([api().finance(), api().bank().then((b) => b.pools, () => null), api().financeSpend().catch(() => null), api().financeSources().catch(() => null), api().financePools().catch(() => null)]), []);
   return (
     <PanelShell icon={<Glyph kind="bank" />} title="Finance" subtitle="What the town received, used, let expire and has left">
       {d.loading && !d.data ? <Loading /> : null}
       <ErrorLine error={d.error} />
-      {d.data ? <FinanceView f={d.data[0]} pools={d.data[1]} spend={d.data[2]} sources={d.data[3]} /> : null}
+      {d.data ? <FinanceView f={d.data[0]} pools={d.data[1]} spend={d.data[2]} sources={d.data[3]} poolsFin={d.data[4]} /> : null}
     </PanelShell>
   );
 }

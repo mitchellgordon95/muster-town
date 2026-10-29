@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { renderToStaticMarkup } from "react-dom/server";
-import type { BankPoolSummary, Finance, FinanceSources, FinanceSpend } from "../src/api";
-import { donationNote, FinanceView, inputName, overdrawnParts, sourcesCheckLine, pct, poolDurable, runwayDays, spendCheckLine, sumCheckLine } from "../src/panels/FinancePanel";
+import type { BankPoolSummary, Finance, FinancePools, FinanceSources, FinanceSpend } from "../src/api";
+import { donationNote, FinanceView, inputName, overdrawnParts, poolsBalanceLine, poolsDrawsLine, sourcesCheckLine, pct, poolDurable, runwayDays, spendCheckLine, sumCheckLine } from "../src/panels/FinancePanel";
 
 // the live shape: 1,000 received, 1,100 used (200 overdrawn), 50 expired, 50 left
 const f: Finance = {
@@ -133,5 +133,53 @@ describe("finance page: sources", () => {
   });
   it("leaves the section out when the sources can't be loaded", () => {
     expect(renderToStaticMarkup(<FinanceView f={f} pools={null} />)).not.toContain("Credited through the Bank");
+  });
+});
+
+// GET /api/finance/pools: General (70%) overdrawn by 120 permanent, Labs (30%), 10 unshared (rounding); 950 drawn, all of it by buildings
+const fp: FinancePools = {
+  pools: [
+    { id: "general", name: "General", pct: 70, explicit: false, isDefault: true, buildings: [{ id: "workshop", name: "Town Workshop" }, { id: "town-hall", name: "Town Hall" }],
+      expiringLeft: 30, durableLeft: 0, left: 30, overdrawn: 120, drawn: 800, dailyInflowTokens: 210 },
+    { id: "pl_labs", name: "Labs", pct: 30, explicit: true, isDefault: false, buildings: [{ id: "bl_b", name: "Bank Transparency" }],
+      expiringLeft: 20, durableLeft: 60, left: 80, overdrawn: 0, drawn: 150, dailyInflowTokens: 90 },
+  ],
+  buildings: [
+    { id: "workshop", name: "Town Workshop", poolId: "general", poolName: "General", drawsFromBank: true, drawn: 800, drawnSubscription: 600, drawnDurable: 200, drawnMemberFunded: 0, donated: 150, donationsSpent: 20, held: 130, explorationTokensPerDay: 40000 },
+    { id: "bl_b", name: "Bank Transparency", poolId: "pl_labs", poolName: "Labs", drawsFromBank: true, drawn: 150, drawnSubscription: 150, drawnDurable: 0, drawnMemberFunded: 0, donated: 50, donationsSpent: 50, held: 0, explorationTokensPerDay: 25000 },
+    { id: "town-hall", name: "Town Hall", poolId: "general", poolName: "General", drawsFromBank: false, drawn: 0, drawnSubscription: 0, drawnDurable: 0, drawnMemberFunded: 0, donated: 0, donationsSpent: 0, held: 0, explorationTokensPerDay: 0 },
+  ],
+  sharedPct: 100, balanceTokens: 120, overshootTokens: 120, poolsLeftTokens: 110, poolsOverdrawnTokens: 120, unsharedTokens: 10,
+  usedBank: 950, donatedTokens: 200, heldTokens: 130,
+  sumCheck: { drawsOk: true, drawsDiff: 0, balanceOk: true, balanceDiff: 0, ok: true, identities: { draws: "Σ building draws = Σ pool draws = Bank debits", balance: "Σ pools left − Σ pools overdrawn + unshared = Bank balance − overshoot" } },
+  at: "2026-10-29T04:00:00.000Z",
+};
+
+describe("finance page: pools", () => {
+  it("checks the pools against the Bank balance and the building draws against the Bank debits", () => {
+    expect(poolsBalanceLine(fp)).toEqual({ ok: true, text: "Adds up: pools left 110 − overdrawn 120 + unshared 10 = 0; Bank balance 120 − overshoot 120 = 0" });
+    expect(poolsDrawsLine(fp)).toEqual({ ok: true, text: "Adds up: building draws = pool draws = Bank debits = 950" });
+  });
+  it("says by how much a failing check misses", () => {
+    const bad: FinancePools = { ...fp, usedBank: 960, sumCheck: { ...fp.sumCheck, drawsOk: false, drawsDiff: 20, balanceOk: false, balanceDiff: 7, ok: false } };
+    expect(poolsDrawsLine(bad)).toEqual({ ok: false, text: "Does not add up (off by 20): building draws 950, pool draws 950, Bank debits 960" });
+    expect(poolsBalanceLine(bad).text).toMatch(/^Does not add up \(off by 7\): pools left 110/);
+    const html = renderToStaticMarkup(<FinanceView f={f} pools={null} poolsFin={bad} />);
+    expect(html).toContain("✗ Does not add up (off by 20)");
+    expect(html).toContain("✗ Does not add up (off by 7)");
+  });
+  it("renders each pool with its share and left, an overdrawn pool's debt on its own row, then each building, between Sources and Spending", () => {
+    const html = renderToStaticMarkup(<FinanceView f={f} pools={[pool("General", -256870)]} spend={sp} sources={src} poolsFin={fp} />);
+    for (const s of ["Pools", "General", "70%", "Labs", "30%", "Town Workshop, Town Hall", "General overdrawn: permanent tokens drawn past its share", "−120", "Unshared", "Bank balance less overshoot",
+      "✓ Adds up: pools left 110", "Drawn from pools", "800", "drawn all time 800", "permanent 60", "donated 150", "held 130", "exploration 40,000 / day", "25,000", "draws nothing from the Bank", "✓ Adds up: building draws = pool draws = Bank debits = 950", "/api/finance/pools"]) expect(html).toContain(s);
+    expect(html).toContain('class="spend-row finance-overdrawn pool-overdrawn"');
+    expect(html.indexOf("Credited through the Bank")).toBeLessThan(html.indexOf("Bank balance less overshoot"));
+    expect(html.indexOf("Bank balance less overshoot")).toBeLessThan(html.indexOf("Spending"));
+    // the pools endpoint replaces the older /api/bank pools table
+    expect(html).not.toContain("overdrawn by 256,870");
+    expect(renderToStaticMarkup(<FinanceView f={f} pools={null} poolsFin={{ ...fp, pools: [{ ...fp.pools[1] }] }} />)).not.toContain("pool-overdrawn");
+  });
+  it("leaves the section out when the pools can't be loaded", () => {
+    expect(renderToStaticMarkup(<FinanceView f={f} pools={null} />)).not.toContain("Drawn from pools");
   });
 });

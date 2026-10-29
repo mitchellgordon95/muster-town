@@ -150,6 +150,28 @@ export interface FinanceSources {
   financeTotal: number; matchesFinance: boolean;
   at: string;
 }
+/**
+ * `GET /api/finance/pools` (public) — core's FinancePools: how the Bank's tokens are divided into pools (each pool's % of
+ * every credit, what it has left and any overdrawn debt) and what each building drew, was donated and holds. A synthetic
+ * `id: null` row holds debits of deleted pools / buildings. Two checks: Σ building draws = Σ pool draws = Bank debits, and
+ * Σ pools left − Σ pools overdrawn + unshared = Bank balance − overshoot.
+ */
+export interface FinancePools {
+  pools: {
+    id: string | null; name: string; pct: number; explicit: boolean; isDefault: boolean; buildings: { id: string; name: string }[];
+    expiringLeft: number; durableLeft: number; left: number; overdrawn: number; drawn: number; dailyInflowTokens: number;
+  }[];
+  buildings: {
+    id: string | null; name: string; poolId: string | null; poolName: string; drawsFromBank: boolean;
+    drawn: number; drawnSubscription: number; drawnDurable: number; drawnMemberFunded: number;
+    donated: number; donationsSpent: number; held: number; explorationTokensPerDay: number;
+  }[];
+  sharedPct: number; balanceTokens: number; overshootTokens: number;
+  poolsLeftTokens: number; poolsOverdrawnTokens: number; unsharedTokens: number;
+  usedBank: number; donatedTokens: number; heldTokens: number;
+  sumCheck: { drawsOk: boolean; drawsDiff: number; balanceOk: boolean; balanceDiff: number; ok: boolean; identities: { draws: string; balance: string } };
+  at: string;
+}
 /** `GET /api/bank` — core's BankSummary: the accounting pools, the inputs, each building's view (from its pool), and the top contributors. */
 export interface BankPoolSummary {
   id: string; name: string;
@@ -410,6 +432,8 @@ export interface Api {
   financeSpend(): Promise<FinanceSpend>;
   /** public: where the tokens came from, per input (dated credits) and per donation; sums to /api/finance total */
   financeSources(): Promise<FinanceSources>;
+  /** public: the pools (share, left, overdrawn) and each building's draws, donations, held tokens and allowance */
+  financePools(): Promise<FinancePools>;
   addBankInput(input: In<typeof AddBankInput>): Promise<BankInput>;
   cancelBankInput(id: string): Promise<BankInput>;
   /** admin: accounting pools (a pool's `pct` null = an equal split of what's left); returns the new Bank summary */
@@ -628,6 +652,7 @@ export class HttpApi implements Api {
   async finance() { return this.get<Finance>("/api/finance"); }
   async financeSpend() { return this.get<FinanceSpend>("/api/finance/spend"); }
   async financeSources() { return this.get<FinanceSources>("/api/finance/sources"); }
+  async financePools() { return this.get<FinancePools>("/api/finance/pools"); }
   async addBankInput(i: In<typeof AddBankInput>) { return unwrap<BankInput>(await this.post("/api/bank/inputs", i), "input"); }
   async cancelBankInput(id: string) { return unwrap<BankInput>(await this.call("DELETE", `/api/bank/inputs/${id}`), "input"); }
   async createBankPool(i: In<typeof CreateBankPoolInput>) { return unwrap<Bank>(await this.post("/api/bank/pools", i), "bank"); }

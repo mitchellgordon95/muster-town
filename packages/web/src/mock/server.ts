@@ -1,7 +1,7 @@
 /** `Api` implemented against the in-memory Sim. Same interface as HttpApi, so every panel works offline. */
 import type { AccessRequest, AccessRequestView, Agent, Assignment, AuthMe, BlockedAssignment, BlockedBy, Building, Doc, Event, Meeting, Membership, RedeployLive } from "@muster-town/schema";
 import { BACKFILL, BOARD_TYPES, KPI_FRAMING, DEFAULT_POOL_ID, ZERO_TOKENS, addTokens, backfillFamily, splitRaw, type BankPool } from "@muster-town/schema";
-import type { Api, AgentDetail, AllocationRow, Bank, Budget, Finance, FinanceSources, FinanceSpend, Cabinet, CabinetQuery, DocQuery, EventQuery, In, LayoutPreview, MessageResult, PlanPreview, RoomLayout, RequestAction, Snapshot, Socket, SocketHandlers, ThreadMessage, WriteDocInput } from "../api";
+import type { Api, AgentDetail, AllocationRow, Bank, Budget, Finance, FinancePools, FinanceSources, FinanceSpend, Cabinet, CabinetQuery, DocQuery, EventQuery, In, LayoutPreview, MessageResult, PlanPreview, RoomLayout, RequestAction, Snapshot, Socket, SocketHandlers, ThreadMessage, WriteDocInput } from "../api";
 import { ApiError } from "../api";
 import type { PinSkillInput, PutSecretInput, SecretView, SkillPinView, SkillView } from "@muster-town/schema";
 import type { CreateBuildingInput, UpdateBuildingInput, CreateResidentInput, RegisterVisitorInput, ReviewInput, ChatInput, WorkInput, DonateInput, CreateMeetingInput, DocState, AddBankInput, BankInput, CreateBankPoolInput, UpdateBankPoolInput, DecideGrantInput, CloseGrantInput, CreateKeyResultInput, UpdateKeyResultInput, CreateObjectiveInput, UpdateObjectiveInput } from "@muster-town/schema";
@@ -579,6 +579,35 @@ export class MockApi implements Api {
     return {
       inputs, donations, creditedTokens, donatedTokens, totalReceived, expiredTokens: 0,
       sumCheck: { ok: true, diff: 0, identity: "credits + donations = total received" }, financeTotal: total, matchesFinance: totalReceived === total, at: now(),
+    };
+  }
+  // the toy's pools from its bank(): nothing drawn (the toy Bank never debits), so left is each pool's share and nothing is overdrawn;
+  // a flat toy exploration allowance per building that draws
+  async financePools(): Promise<FinancePools> {
+    const b = await this.bank();
+    const pools: FinancePools["pools"] = b.pools.map((p) => ({
+      id: p.id, name: p.name, pct: p.pct, explicit: p.explicit, isDefault: p.isDefault, buildings: p.buildings.map((x) => ({ id: x.buildingId, name: x.name })),
+      expiringLeft: p.expiringTokens, durableLeft: Math.max(0, p.durableTokens), left: p.expiringTokens + Math.max(0, p.durableTokens), overdrawn: Math.max(0, -p.durableTokens),
+      drawn: 0, dailyInflowTokens: Math.floor(b.dailyInflowTokens * p.pct / 100),
+    }));
+    const buildings: FinancePools["buildings"] = this.sim.buildings.map((x) => {
+      const al = this.sim.allocations.filter((a) => a.buildingId === x.id);
+      const draws = x.kind !== "town-hall";
+      const pool = pools.find((p) => p.id === this.poolOf(x))!;
+      return {
+        id: x.id, name: x.name, poolId: pool.id, poolName: pool.name, drawsFromBank: draws, drawn: 0, drawnSubscription: 0, drawnDurable: 0, drawnMemberFunded: 0,
+        donated: al.reduce((s, a) => s + (a.retired ? Math.min(a.tokens, a.spentTokens) : a.tokens), 0), donationsSpent: al.reduce((s, a) => s + a.spentTokens, 0),
+        held: al.reduce((s, a) => s + (a.retired ? 0 : Math.max(0, a.tokens - a.spentTokens)), 0), explorationTokensPerDay: draws ? 50_000 : 0,
+      };
+    });
+    const poolsLeftTokens = pools.reduce((s, p) => s + p.left, 0), poolsOverdrawnTokens = pools.reduce((s, p) => s + p.overdrawn, 0);
+    const unsharedTokens = b.balanceTokens - poolsLeftTokens + poolsOverdrawnTokens;
+    return {
+      pools, buildings, sharedPct: pools.reduce((s, p) => s + p.pct, 0), balanceTokens: b.balanceTokens, overshootTokens: 0,
+      poolsLeftTokens, poolsOverdrawnTokens, unsharedTokens, usedBank: 0,
+      donatedTokens: buildings.reduce((s, x) => s + x.donated, 0), heldTokens: buildings.reduce((s, x) => s + x.held, 0),
+      sumCheck: { drawsOk: true, drawsDiff: 0, balanceOk: true, balanceDiff: 0, ok: true, identities: { draws: "Σ building draws = Σ pool draws = Bank debits", balance: "Σ pools left − Σ pools overdrawn + unshared = Bank balance − overshoot" } },
+      at: now(),
     };
   }
   async bank(): Promise<Bank> {
