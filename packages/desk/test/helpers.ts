@@ -1,6 +1,6 @@
 import { createServer, type Server } from "node:http";
 import type { AddressInfo } from "node:net";
-import type { DeskActivityInput, DeskBrief, DeskControl, DeskSessionEndInput } from "../src/contract.ts";
+import type { DeskActivityInput, DeskBriefView as DeskBrief, DeskControl, DeskSessionEndInput } from "@muster-town/schema";
 import type { QueryHandle, QueryParams, Sdk, SDKUserMessage } from "../src/sdk.ts";
 
 export const TOKEN = "agent-token-1";
