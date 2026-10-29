@@ -109,6 +109,11 @@ export interface Redeployer {
   running(): boolean;
   /** resolves when the in-flight redeploy (if any) has finished */
   done(): Promise<void>;
+  /**
+   * The runtime is stopping (its DB closes next): the in-flight run stops at its next step, drain poll or lock wait
+   * without exiting, writes no more events, and this resolves once it has unwound. Later requests are refused.
+   */
+  stop(): Promise<void>;
   /** live state for `GET /api/admin/redeploy` */
   status(): RedeployLive;
 }
@@ -148,6 +153,9 @@ export function makeRedeployer(deps: RedeployDeps): Redeployer {
   const gitEnv = () => deps.gitEnv?.() ?? {};
   const branch = deps.branch ?? townEnv("DEPLOY_BRANCH")?.trim() ?? "main";
   let flight: Promise<void> | null = null;
+  /** set by stop(): nothing touches the world (its DB is closing) and the run unwinds */
+  let stopped = false;
+  let carriedTimer: ReturnType<typeof setTimeout> | null = null;
   let held = false;
   let run_: RedeployRun = { state: "running", requestedBy: "", commits: null, working: [], blocked: [] };
   /** the in-flight request (a joining request may turn on its image) */
@@ -159,8 +167,12 @@ export function makeRedeployer(deps: RedeployDeps): Redeployer {
   let carried: RedeployRequest | null = null;
 
   /** every event carries the run; the last one of a run (restarting, failed, done, aborted) also says `terminal: true` */
-  const say = (text: string, payload: Record<string, unknown> = {}) =>
+  const say = (text: string, payload: Record<string, unknown> = {}) => {
+    if (stopped) return;
     deps.world.events.append({ type: "system", text, payload: { redeploy: true, run: { ...run_ }, ...(TERMINAL_STATES.has(run_.state) ? { terminal: true } : {}), ...payload } });
+  };
+  /** thrown out of the run once stop() is called: the catch below says nothing (say is off) */
+  const halt = () => { if (stopped) throw new Error("redeploy stopped: the runtime is shutting down"); };
   let phase = "idle";
   let since: string | null = null;
   const setPhase = (p: string) => { phase = p; since = p === "idle" ? null : new Date().toISOString(); };
@@ -195,6 +207,7 @@ export function makeRedeployer(deps: RedeployDeps): Redeployer {
 
   /** One step: start event, run, end event. Returns the result, or null (after a failure event) on a non-zero exit. */
   async function step(label: string, cmd: string, args: string[], timeoutMs: number, okNote?: () => Promise<string>): Promise<CmdResult | null> {
+    halt();
     setPhase(label);
     say(`Redeploy: ${label} …`, { step: label, phase: "start" });
     const r = await run(cmd, args, { cwd, timeoutMs, ...(cmd === "git" ? { env: gitEnv() } : {}) });
@@ -302,6 +315,7 @@ export function makeRedeployer(deps: RedeployDeps): Redeployer {
       const dropped = new Set<string>();
       while (left.length && Date.now() < until) {
         await new Promise<void>((r) => setTimeout(r, Math.min(deps.drainPollMs ?? 5000, Math.max(1, until - Date.now()))));
+        halt();
         left = working().filter((id) => !dropped.has(id) && !cut.has(id));
         // a meeting doesn't hold the deploy: past its grace, post the notice, restart, resume (a human may talk for an hour)
         if (Date.now() >= meetingsUntil) {
@@ -401,6 +415,7 @@ export function makeRedeployer(deps: RedeployDeps): Redeployer {
     try { deps.beforeRestart?.(live); } catch (e) { console.log("[runtime] restart notice:", e instanceof Error ? e.message : e); }
     say(`Redeploy: restarting server${adopt.length ? `; ${adopt.length} desk session(s) keep running and are adopted after it` : ""}`, { step: "restart", phase: "end", ok: true, adopt });
     await new Promise<void>((r) => setTimeout(r, deps.exitDelayMs ?? 500));
+    halt();
     try { await deps.quiesce?.(); } catch (e) { console.log("[runtime] quiesce:", e instanceof Error ? e.message : e); }
     try { unlinkSync(lockPath); } catch { /* already gone */ }
     exit(RESTART_EXIT_CODE);
@@ -429,12 +444,14 @@ export function makeRedeployer(deps: RedeployDeps): Redeployer {
       if (Date.now() - started > (deps.lockWaitMs ?? 10 * 60_000)) throw new Error(`another redeploy holds ${lockPath}`);
       if (Date.now() - started < 1000) say("Redeploy: waiting for another collective's redeploy to finish", { step: "lock", phase: "wait" });
       await new Promise((r) => setTimeout(r, deps.lockPollMs ?? 3000));
+      halt();
     }
     try { return await fn(); } finally { if (locked) { try { unlinkSync(lockPath); } catch { /* already gone */ } } }
   }
 
   const self: Redeployer = {
     redeploy(o) {
+      if (stopped) return { started: false };
       if (flight && cur) {
         // join the running one: its post-drain pull picks up anything pushed by now. Past that pull, run again after the restart.
         if (!finalPulled) {
@@ -459,13 +476,18 @@ export function makeRedeployer(deps: RedeployDeps): Redeployer {
           setPhase("idle");
           // a failed run drops the requests that joined it (they saw the failure event)
           again = null;
-          // only reached without a real exit (failure, or tests): let the scheduler start sessions again
-          if (held) { held = false; deps.hold?.(false); }
+          // only reached without a real exit (failure, stop, or tests): let the scheduler start sessions again
+          if (held) { held = false; if (!stopped) deps.hold?.(false); }
         });
       return { started: true };
     },
     running: () => !!flight,
     done: () => flight ?? Promise.resolve(),
+    async stop() {
+      stopped = true;
+      if (carriedTimer) clearTimeout(carriedTimer);
+      await (flight ?? Promise.resolve());
+    },
     status: () => ({
       running: !!flight, phase: flight ? phase : "idle", since: flight ? since : null,
       waitingFor: flight && phase === "drain" ? run_.working.map((id) => deps.world.agents.get(id)?.name ?? id) : [],
@@ -473,7 +495,8 @@ export function makeRedeployer(deps: RedeployDeps): Redeployer {
   };
   if (carried) {
     const o = carried;
-    setTimeout(() => { if (!flight) self.redeploy(o); }, deps.againDelayMs ?? 10_000).unref?.();
+    carriedTimer = setTimeout(() => { if (!flight) self.redeploy(o); }, deps.againDelayMs ?? 10_000);
+    carriedTimer.unref?.();
   }
   return self;
 }

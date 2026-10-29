@@ -221,6 +221,40 @@ describe("redeploy", () => {
     expect(h.exit).toHaveBeenCalledWith(75);
   });
 
+  test("stop() ends an in-flight drain without exiting and writes no event after it", async () => {
+    const holds: boolean[] = [];
+    const h = harness(base(), [], { working: () => ["ag_9"], hold: (on) => holds.push(on), drainTimeoutMs: 60_000 });
+    h.r.redeploy({ image: false, requestedBy: "Pix" });
+    await vi.waitFor(() => expect(h.texts().some((t) => t.startsWith("Redeploy: draining"))).toBe(true));
+    const before = h.texts().length;
+    await h.r.stop();
+    expect(h.r.running()).toBe(false);
+    expect(h.exit).not.toHaveBeenCalled();
+    expect(h.texts()).toHaveLength(before);
+    expect(holds).toEqual([true]);
+    expect(h.r.redeploy({ image: false, requestedBy: "Pix" })).toEqual({ started: false });
+  });
+
+  test("runtime.stop() resolves only after an in-flight redeploy step has finished, and nothing touches the world after it", async () => {
+    let release!: () => void;
+    const gate = new Promise<void>((r) => { release = r; });
+    const inner = fakeRunner(base());
+    const run: CommandRunner = async (cmd, args, opts) => { if (args[0] === "pull") await gate; return inner.run(cmd, args, opts); };
+    const exit = vi.fn();
+    const { world, runtime } = setup(async function* () { yield result(1, 0); }, { redeploy: { run, exit, exitDelayMs: 1, drainPollMs: 1 }, repoRoot: "/repo" });
+    expect(runtime.redeploy({ image: false, requestedBy: "Pix" })).toEqual({ started: true });
+    await vi.waitFor(() => expect(world.events.recent({ limit: 50 }).some((e) => e.text.startsWith("Redeploy: git pull"))).toBe(true));
+    let stopped = false;
+    const stopping = runtime.stop().then(() => { stopped = true; });
+    await new Promise((r) => setTimeout(r, 20));
+    expect(stopped).toBe(false);
+    const before = world.events.recent({ limit: 500 }).length;
+    release();
+    await stopping;
+    expect(world.events.recent({ limit: 500 })).toHaveLength(before);
+    expect(exit).not.toHaveBeenCalled();
+  });
+
   test("drain: image=true recreates desks after the drain, so no desk is kept for a session", async () => {
     let live = ["ag_2"];
     const ps: [string, CmdResult] = ["docker ps -a", ok("desk-climate-ag_1\tag_1\ndesk-climate-ag_2\tag_2\n")];
