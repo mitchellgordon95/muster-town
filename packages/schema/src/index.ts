@@ -1681,6 +1681,26 @@ export const DeskBrief = z.object({
   workspace: DeskWorkspace.optional(),
 });
 export type DeskBrief = z.infer<typeof DeskBrief>;
+/**
+ * What the desk parses the brief with: only the fields it reads, the rest passed through. A desk image often runs an
+ * older commit than the server (it is rebuilt only with `redeploy image=true`), so a new enum value or field in
+ * Agent, Building, Session, Town or Assignment must not stop a session from starting. The server builds the full
+ * DeskBrief; the type check below keeps the view a subset of it.
+ */
+export const DeskBriefView = z.object({
+  agent: z.object({ id: Id, name: z.string() }).passthrough(),
+  building: z.object({ id: Id, name: z.string(), maxTurnsPerSession: z.number().int().positive().optional() }).passthrough(),
+  town: z.object({}).passthrough(),
+  assignment: z.object({ id: Id }).passthrough().nullable().optional(),
+  session: z.object({ id: Id, model: z.string() }).passthrough(),
+  system: z.string(),
+  prompt: z.string(),
+  workspace: DeskWorkspace.nullable().optional(),
+});
+export type DeskBriefView = z.infer<typeof DeskBriefView>;
+type Assert<T extends true> = T;
+/** fails to compile when DeskBrief stops being a valid DeskBriefView input (exported only so tsc keeps it) */
+export type DeskBriefIsAView = Assert<DeskBrief extends z.input<typeof DeskBriefView> ? true : false>;
 
 /** POST /api/agents/me/activity → 204 */
 export const DeskActivityInput = z.object({
@@ -1694,7 +1714,8 @@ export type DeskActivityInput = z.infer<typeof DeskActivityInput>;
 
 /** GET /api/agents/me/control?session= */
 export const DeskControl = z.object({
-  interrupts: z.array(z.object({ id: Id, text: z.string(), from: z.string() })),
+  /** `now`: interrupt the running turn instead of waiting for the next one (ops.pendingInterrupts) */
+  interrupts: z.array(z.object({ id: Id, text: z.string(), from: z.string(), now: z.boolean().optional() })),
   stop: z.boolean(),
 });
 export type DeskControl = z.infer<typeof DeskControl>;
