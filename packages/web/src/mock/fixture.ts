@@ -133,7 +133,7 @@ export const docs: Doc[] = [
 
 const asgBase = { createdBy: "us_mitchell", createdByKind: "user" as const, fromMeetingId: null, fromReportId: null, fromAssignmentId: null, reportId: null, lane: "directed" as const, grantId: null, keyResultId: null, gap: null, sourceId: null, heldReason: null, origin: null, chainId: null, queue: "agent" as const, model: null };
 const asg = (a: Omit<Assignment, keyof typeof asgBase | "position"> & Partial<Assignment>): Assignment => ({ ...asgBase, position: Date.parse(a.createdAt), ...a });
-const grantBase = { outcome: null, findingsDocIds: [] as string[], checkpointsDone: [] as number[], checkpointDocId: null as string | null, fundedBy: null as string | null, fundedWith: null as string | null, fundedAt: null as string | null, closedAt: null, spentTokens: 0, approach: "" };
+const grantBase = { outcome: null, findingsDocIds: [] as string[], checkpointsDone: [] as number[], checkpointDocId: null as string | null, fundedBy: null as string | null, fundedWith: null as string | null, fundedAt: null as string | null, closedAt: null, spentTokens: 0, approach: "", picture: null as string | null, whatYoudSee: "" };
 type Kr = NonNullable<GrantView["keyResult"]>;
 const kr = (buildingId: string, position: number, text: string, howToCheck: string, status: Kr["status"] = "not-started"): Kr =>
   ({ id: `kr_${buildingId}_${position}`, buildingId, position, text, howToCheck, status, statusNote: "", statusBy: null, createdBy: "us_mitchell", editedBy: null, sourceDocIds: [], objectiveId: null, updatedAt: ago(30) });

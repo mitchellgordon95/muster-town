@@ -312,6 +312,12 @@ textarea[data-drop="over"] { outline: 2px dashed var(--accent, #7aa2ff); outline
 .deck:focus-visible .deck-slide { border-color: var(--accent, #7aa2ff); }
 .deck-slide { height: max(280px, calc(100vh - 330px)); overflow-y: auto; background: #1b1d27; border: 1px solid var(--line); border-radius: var(--r); padding: 16px 20px; font-size: 15px; overflow-wrap: anywhere; }
 .deck-slide.empty { height: auto; }
+/* the review deck (Town Hall in-tray): the slide leaves room for its decision buttons below it */
+.review-deck .deck-slide { height: auto; min-height: 200px; max-height: calc(100vh - 420px); }
+.review-deck-head { display: flex; gap: 10px; align-items: baseline; flex-wrap: wrap; }
+.review-decide { border: 1px solid var(--line); border-radius: var(--r); padding: 8px 10px; }
+.review-decide .grant-row { border: none; padding: 0; }
+.intray-head { margin: 4px 0 8px; align-items: baseline; }
 .deck-slide .md img, .deck-slide .md video { max-width: 100%; max-height: calc(100vh - 460px); object-fit: contain; display: block; margin: 8px auto; }
 .deck-notes { background: #262a1e; border: 1px solid var(--line); border-radius: var(--r); padding: 6px 10px; font-size: 12.5px; overflow-wrap: anywhere; }
 .deck-nav { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }

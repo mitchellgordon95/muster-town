@@ -305,7 +305,7 @@ ${open.map((g) => `The open proposal ${g.id} ("${g.objective}")`).join("; ")} na
     const g = this.world.grants.upsert({
       id: newId("gr"), buildingId, keyResultId: inp.keyResultId, objective: inp.objective, approach: inp.approach, testingPlan: inp.testingPlan,
       stopCondition: inp.stopCondition, askTokens: inp.askTokens,
-      grantTokens: null, status: "draft", outcome: null, findingsDocIds: inp.findingsDocIds, checkpointsDone: [], checkpointDocId: null,
+      grantTokens: null, status: "draft", outcome: null, findingsDocIds: inp.findingsDocIds, picture: inp.picture ?? null, whatYoudSee: inp.whatYoudSee ?? "", checkpointsDone: [], checkpointDocId: null,
       proposedBy: actor?.id ?? "system", fundedBy: null, fundedWith: null, fundedAt: null, closedAt: null, history: [], createdAt: now, updatedAt: now,
     });
     this.event("grant.created", g, actor, `Draft proposal: ${g.objective}`);
@@ -357,6 +357,8 @@ ${open.map((g) => `The open proposal ${g.id} ("${g.objective}")`).join("; ")} na
     if (inp.fundWith) this.requireFundingInput(actor, g, inp.fundWith, tokens);
     else if (actor) this.world.permissions.require(actor, "building.fund", g.buildingId);
     const spent = this.spent(g.id);
+    // decided on a review-deck slide: the event says which
+    const deck = inp.deckSlide ? { deckSlide: inp.deckSlide } : {};
     const edits = { ...(inp.stopCondition && { stopCondition: inp.stopCondition }), ...(inp.testingPlan && { testingPlan: inp.testingPlan }) };
     let next: Grant;
     switch (inp.action) {
@@ -369,7 +371,7 @@ ${open.map((g) => `The open proposal ${g.id} ("${g.objective}")`).join("; ")} na
         const fundedWith = inp.fundWith ?? null;
         next = this.save(g, actor, { ...edits, status: "funded", grantTokens: tokens, checkpointsDone: passed(spent, tokens), fundedBy: actor ? holderOf(actor).id : "system", fundedWith, fundedAt: nowIso() }, "fund", tokens, inp.note);
         const from = fundedWith ? ` funded from ${this.world.bank.input(fundedWith)?.label ?? fundedWith}` : "";
-        this.event("grant.funded", next, actor, `Funded: ${next.objective} (${fmt(tokens)} tokens${from})`);
+        this.event("grant.funded", next, actor, `Funded: ${next.objective} (${fmt(tokens)} tokens${from})`, deck);
         this.decisionAssignment(next, actor, "funded", inp.note);
         break;
       }
@@ -377,7 +379,7 @@ ${open.map((g) => `The open proposal ${g.id} ("${g.objective}")`).join("; ")} na
         this.requireStatus(g, ["proposed"], "countered");
         if (!inp.note.trim()) throw badRequest("A counter needs a note saying what to change.");
         next = this.save(g, actor, { ...edits, status: "countered", ...(inp.tokens && { askTokens: inp.tokens }) }, "counter", inp.tokens ?? null, inp.note);
-        this.event("grant.countered", next, actor, `Countered: ${next.objective}`);
+        this.event("grant.countered", next, actor, `Countered: ${next.objective}`, deck);
         this.notifyManager(next, actor, `A human countered your proposal "${next.objective}": ${inp.note}`);
         this.decisionAssignment(next, actor, "countered", inp.note);
         break;
@@ -385,7 +387,7 @@ ${open.map((g) => `The open proposal ${g.id} ("${g.objective}")`).join("; ")} na
       case "reject":
         this.requireStatus(g, ["proposed"], "rejected");
         next = this.save(g, actor, { status: "rejected", closedAt: nowIso() }, "reject", null, inp.note);
-        this.event("grant.rejected", next, actor, `Rejected: ${next.objective}`);
+        this.event("grant.rejected", next, actor, `Rejected: ${next.objective}`, deck);
         this.notifyManager(next, actor, `A human rejected your proposal "${next.objective}"${inp.note ? `: ${inp.note}` : "."}`);
         this.decisionAssignment(next, actor, "rejected", inp.note);
         break;
@@ -393,7 +395,7 @@ ${open.map((g) => `The open proposal ${g.id} ("${g.objective}")`).join("; ")} na
         this.requireStatus(g, ["checkpoint"], "continued");
         if (spent >= (g.grantTokens ?? 0)) throw new AppError("conflict", "The grant is fully spent: top it up (adjust with more tokens) or cut it.");
         next = this.save(g, actor, { status: "funded" }, "continue", null, inp.note);
-        this.event("grant.funded", next, actor, `Continued: ${next.objective}`);
+        this.event("grant.funded", next, actor, `Continued: ${next.objective}`, deck);
         break;
       case "adjust": {
         this.requireStatus(g, ["checkpoint"], "adjusted");
@@ -401,13 +403,13 @@ ${open.map((g) => `The open proposal ${g.id} ("${g.objective}")`).join("; ")} na
         if (tokens <= spent) throw badRequest(`The grant has spent ${fmt(spent)} tokens: an adjusted grant must be more than that.`);
         const checkpointsDone = tokens === g.grantTokens ? g.checkpointsDone : passed(spent, tokens);
         next = this.save(g, actor, { ...edits, status: "funded", grantTokens: tokens, checkpointsDone }, "adjust", tokens, inp.note);
-        this.event("grant.funded", next, actor, `Adjusted: ${next.objective} (${fmt(tokens)} tokens)`);
+        this.event("grant.funded", next, actor, `Adjusted: ${next.objective} (${fmt(tokens)} tokens)`, deck);
         break;
       }
       case "cut":
         this.requireStatus(g, ["checkpoint"], "cut");
         next = this.save(g, actor, { status: "closed", outcome: "cut", closedAt: nowIso() }, "cut", null, inp.note);
-        this.event("grant.closed", next, actor, `Cut: ${next.objective}`);
+        this.event("grant.closed", next, actor, `Cut: ${next.objective}`, deck);
         this.notifyManager(next, actor, `A human cut the grant "${next.objective}" at its checkpoint${inp.note ? `: ${inp.note}` : "."}`);
         break;
     }

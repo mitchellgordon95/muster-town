@@ -59,3 +59,34 @@ export function parseDeck(body: string): ParsedDeck {
   const h1 = first ? /^ {0,3}#\s+(.+?)\s*#*\s*$/m.exec(first.text) : null;
   return { title: h1 ? h1[1]!.replace(/\*\*|__/g, "") : null, slides };
 }
+
+/**
+ * The review deck (design dc_y7a8g257of §2, gr_jh0lu0w6yj step 4): GET /api/review-deck, assembled in code from the
+ * Town Hall in-tray and key results on every request (zero tokens). Each slide is a DeckSlide (DeckView renders it)
+ * plus what its decision buttons need. Slide 1 is the state of the town; then one slide per pending decision,
+ * blocking-most first; rollups with no call collapse into one closing "For the record" slide.
+ */
+export type ReviewSlideKind = "town" | "checkpoint" | "blocked" | "proposal" | "rollup" | "report" | "close" | "record";
+export interface ReviewSlide extends DeckSlide {
+  /** stable across reloads: what the viewer moves to after a decision */
+  key: string;
+  kind: ReviewSlideKind;
+  /** the decision the slide is for: a grant (gr_…), a report (dc_…) or a building id (blocked); null on slide 1 */
+  itemId: string | null;
+  /** 1 checkpoint · 2 blocked · 3 work parked on it · 4 proposal · 5 rollup with a call (or another report) · 6 closed as done · 7 for the record; 0 = slide 1 */
+  group: number;
+  buildingId: string | null;
+  /** when the item started waiting on a human (ISO), and how many assignments are parked on its decision */
+  since: string | null;
+  waiters: number;
+  /** one line of what was decided before ("" when nothing applies) */
+  history: string;
+  /** grant slides: the grant (GrantView) whose buttons the slide shows */
+  grantId?: string;
+  /** report slides: the report the buttons decide; "For the record": every report Approve all archives */
+  docIds?: string[];
+}
+export interface ReviewDeck { title: string; generatedAt: string; slides: ReviewSlide[] }
+
+/** "None", "None.", "**None**", "none needed": a rollup item with nothing for the human to decide. */
+export const isNoCall = (call: string) => !call.trim() || /^none\b/i.test(call.replace(/[*_`]/g, "").trim());

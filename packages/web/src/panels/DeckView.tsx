@@ -4,7 +4,7 @@
  * Keys (while the deck has focus): ← → PgUp PgDn space, Home/End, `f` fullscreen (the panel at its maximum width),
  * `n` presenter notes, Esc leaves fullscreen. The URL follows the slide (`#/doc/<id>/<n>`), so back steps through slides.
  */
-import { useEffect, useMemo, useRef, useState, type KeyboardEvent } from "react";
+import { useEffect, useMemo, useRef, useState, type KeyboardEvent, type ReactNode } from "react";
 import { parseDeck, type ParsedDeck } from "@muster-town/schema";
 import { Markdown } from "./Markdown";
 import { isPanelFull, setPanelFull } from "./panelResize";
@@ -23,14 +23,15 @@ export function slideForKey(key: string, shift: boolean, n: number, count: numbe
 
 export const clampSlide = (n: number, count: number) => Math.min(Math.max(1, count), Math.max(1, Math.floor(n) || 1));
 
-/** The slide itself, the counter and the dot strip; `go` moves (from 1). Pure, so tests render it. */
-export function DeckSlides({ deck, n, go, showNotes }: { deck: ParsedDeck; n: number; go: (n: number) => void; showNotes?: boolean }) {
+/** The slide itself, the counter and the dot strip; `go` moves (from 1); `children` sit under the slide (the review deck's decision buttons). Pure, so tests render it. */
+export function DeckSlides({ deck, n, go, showNotes, children }: { deck: ParsedDeck; n: number; go: (n: number) => void; showNotes?: boolean; children?: ReactNode }) {
   const count = deck.slides.length;
   if (!count) return <div className="deck-slide empty muted">This deck has no slides yet. Split slides with a line <code>---</code>.</div>;
   const s = deck.slides[n - 1]!;
   return (
     <>
       <div className="deck-slide" key={n}><Markdown text={s.text} /></div>
+      {children}
       {showNotes ? <div className="deck-notes"><b>Notes:</b> {s.notes || <span className="muted">none on this slide</span>}</div> : null}
       <div className="deck-nav">
         <button className="btn sm" disabled={n <= 1} onClick={() => go(n - 1)} aria-label="Previous slide">←</button>

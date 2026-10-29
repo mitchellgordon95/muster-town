@@ -21,6 +21,7 @@ import { portraitUrl } from "../map/sprites";
 import { useMediaPaste } from "./mediaPaste";
 import { MediaThumb } from "./MediaThumb";
 import { RollupCards, rollupCardsOf } from "./RollupCards";
+import { ReviewDeckView } from "./ReviewDeck";
 
 // ---------- in-tray ----------
 
@@ -32,6 +33,7 @@ export function IntrayPanel({ buildingId }: { buildingId: string }) {
   // refetch whenever the count on the building changes (WS `building`) or any doc arrives
   const list = useLoad(() => api().intray(buildingId), [buildingId, b?.intray, rev]);
   const [openId, setOpenId] = useState<string | null>(null);
+  const [asDeck, setAsDeck] = useState(false);
   const canReview = store.can("building.review", buildingId);
   const reports = useMemo(() => [...(list.data?.reports ?? [])].sort((x, y) => x.createdAt.localeCompare(y.createdAt)), [list.data]);
   const grants = list.data?.grants ?? [];
@@ -50,11 +52,14 @@ export function IntrayPanel({ buildingId }: { buildingId: string }) {
   return (
     <PanelShell icon={<Glyph kind="intray" />} title={<>In-tray {count ? <Pill tone="warn" title="Reports, rollups and proposals waiting">{count}</Pill> : null}{flags ? <> <Pill tone="warn" title="Flags humans planted here, waiting for the manager to delegate">⚑ {flags}</Pill></> : null}</>} subtitle={subtitle}>
       {open ? (
-        <DocView doc={open} review onBack={() => setOpenId(null)} backLabel="In-tray" onDecided={() => { setOpenId(null); list.reload(); }} />
+        <DocView doc={open} review onBack={() => setOpenId(null)} backLabel={asDeck ? "Review deck" : "In-tray"} onDecided={() => { setOpenId(null); list.reload(); }} />
+      ) : hall && asDeck ? (
+        <ReviewDeckView grants={grants} reports={reports} onClose={() => setAsDeck(false)} onDecided={list.reload} onOpenDoc={openDoc} />
       ) : (
         <>
           {!canReview && !hall ? <div className="callout">You can read the in-tray. Decisions are for the building's manager and reviewer.</div> : null}
           {manager && !hall ? <div className="callout">★ {manager.name}, the building's manager, works this in-tray and rolls up to the Town Hall in-tray. You can still decide here.</div> : null}
+          {hall ? <ReviewAsDeckButton count={count} onOpen={() => setAsDeck(true)} /> : null}
           <ErrorLine error={list.error} />
           {list.loading && !list.data ? <Loading /> : hall ? (
             <TownHallIntray reports={reports} grants={grants} access={access} blocked={list.data?.blocked ?? []} onOpen={openDoc} onDecided={list.reload} />
@@ -66,6 +71,16 @@ export function IntrayPanel({ buildingId }: { buildingId: string }) {
         </>
       )}
     </PanelShell>
+  );
+}
+
+/** The Town Hall in-tray header's "Review as deck": the in-tray as slides (design dc_y7a8g257of §2). */
+export function ReviewAsDeckButton({ count, onOpen }: { count: number; onOpen: () => void }) {
+  return (
+    <div className="intray-head actions">
+      <button className="btn sm primary" onClick={onOpen} title="One slide per pending decision, blocking-most first, with the decision buttons on each slide (← → to move)">▶ Review as deck</button>
+      <span className="muted">{count ? `${count} waiting: slide 1 is the state of the town` : "slide 1 is the state of the town"}</span>
+    </div>
   );
 }
 
@@ -236,7 +251,7 @@ function useMyFundingInputs(enabled: boolean) {
  * A proposal or checkpoint row with its decision controls (POST /api/grants/:id/decide, `building.fund`); the same row
  * shows any other status read-only in the grant panel.
  */
-export function GrantRow({ grant: g, onDecided, onOpenDoc }: { grant: GrantView; onDecided: () => void; onOpenDoc: (id: string) => void }) {
+export function GrantRow({ grant: g, onDecided, onOpenDoc, deckSlide }: { grant: GrantView; onDecided: () => void; onOpenDoc: (id: string) => void; deckSlide?: number }) {
   useTown((s) => s.me);
   const manager = useTown((s) => { const b = s.buildings.find((x) => x.id === g.buildingId); return b?.managerAgentId ? s.agents[b.managerAgentId] : undefined; });
   const author = useTown((s) => s.agents[g.proposedBy]);
@@ -260,7 +275,7 @@ export function GrantRow({ grant: g, onDecided, onOpenDoc }: { grant: GrantView;
   const tokensOk = Number.isFinite(n) && n > 0;
   const decide = (action: "fund" | "counter" | "reject" | "continue" | "adjust" | "cut", msg: string) => async () => {
     const withTokens = action === "fund" || action === "adjust" || (action === "counter" && n !== g.askTokens);
-    await api().decideGrant(g.id, { action, note, ...(withTokens && tokensOk ? { tokens: n } : {}), ...(action === "fund" && from ? { fundWith: from } : {}) });
+    await api().decideGrant(g.id, { action, note, ...(withTokens && tokensOk ? { tokens: n } : {}), ...(action === "fund" && from ? { fundWith: from } : {}), ...(deckSlide ? { deckSlide } : {}) });
     store.toast(msg, "ok");
     onDecided();
   };

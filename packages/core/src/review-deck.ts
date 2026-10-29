@@ -1,0 +1,226 @@
+/**
+ * The review deck (design dc_y7a8g257of §2, gr_jh0lu0w6yj step 4): the Town Hall in-tray as slides, assembled in code
+ * on every GET /api/review-deck (zero tokens, always current). Slide 1 is the state of the town; then one slide per
+ * pending decision, blocking-most first:
+ *   1. checkpoint grants held · 2. blocked buildings · 3. items work is parked on (most waiters first) ·
+ *   4. grant proposals, oldest first · 5. rollups with a real "Your call" (one slide per such item), and other reports ·
+ *   6. grants closed as done whose key result needs met or missed · then one "For the record" slide for rollups whose
+ *   every call is None.
+ * Each slide says how long it has waited and how many assignments are parked on it, and carries one history line when
+ * one applies (a grant's last human entry; the building's previous rollup decision; a meeting with a human its
+ * provenance names).
+ */
+import { isNoCall, parseRollup, type Doc, type GrantView, type Meeting, type ReviewDeck, type ReviewSlide, type ReviewSlideKind, type RollupItem } from "@muster-town/schema";
+import { grantsAwaitingDecision, townHallIntray } from "./domain.ts";
+import type { World } from "./world.ts";
+
+const H = 3_600_000;
+const FLAG_AFTER_MS = 2 * H;
+const fmt = (n: number) => n >= 1_000_000 ? `${(n / 1_000_000).toFixed(2).replace(/\.?0+$/, "")}M` : n >= 1000 ? `${Math.round(n / 1000)}k` : String(n);
+/** "4.1 h", "2.3 d", "12 min" */
+export function waitedFor(sinceIso: string | null, now: Date): string {
+  if (!sinceIso) return "";
+  const ms = Math.max(0, now.getTime() - Date.parse(sinceIso));
+  if (ms < H) return `${Math.max(1, Math.round(ms / 60_000))} min`;
+  if (ms < 48 * H) return `${(ms / H).toFixed(1)} h`;
+  return `${(ms / (24 * H)).toFixed(1)} d`;
+}
+const KR_LIGHT: Record<string, string> = { "not-started": "⚪", "on-track": "🟢", "at-risk": "🟡", claimed: "🔵", met: "✅", missed: "❌" };
+const LIGHT: Record<string, string> = { green: "🟢", yellow: "🟡", red: "🔴" };
+const ACTION_PAST: Record<string, string> = { propose: "proposed", counter: "countered", fund: "funded", reject: "rejected", checkpoint: "held", continue: "continued", adjust: "adjusted", cut: "cut", close: "closed", edit: "edited" };
+const oneLine = (s: string, max = 160) => { const t = s.replace(/\s+/g, " ").trim(); return t.length > max ? `${t.slice(0, max - 1)}…` : t; };
+
+/** Pending assignments parked on each decision id (`waitFor {decision}`: managers' waits and parked continuations alike). */
+export function decisionWaiters(world: World): Map<string, number> {
+  const n = new Map<string, number>();
+  for (const a of world.assignments.where("status = 'pending' AND waitFor LIKE '%\"decision\"%'")) {
+    const id = a.waitFor && "decision" in a.waitFor ? a.waitFor.decision : null;
+    if (id) n.set(id, (n.get(id) ?? 0) + 1);
+  }
+  return n;
+}
+
+/** A meeting a human took part in (a 1:1, a town hall, or one a user spoke in), found from a mt_ id or its notes doc. */
+function humanMeetingOf(world: World, id: string): Meeting | null {
+  const m = id.startsWith("mt_") ? world.meetings.get(id) : world.meetings.first("notesDocId = ?", [id]);
+  if (!m) return null;
+  return m.withUserId || m.kind === "town-hall" || m.transcript.some((u) => u.speakerKind === "user") ? m : null;
+}
+
+function meetingLine(world: World, sourceIds: string[]): string {
+  for (const id of sourceIds) {
+    const m = humanMeetingOf(world, id);
+    const d = m?.decisions.find((x) => !x.supersededBy);
+    if (m && d) return `In ${m.withUserId ? "1:1" : m.kind === "town-hall" ? "town hall" : "meeting"} ${m.id}${m.notesDocId ? ` (notes ${m.notesDocId})` : ""}: "${oneLine(d.text)}"`;
+  }
+  return "";
+}
+
+/** A grant's last human entry: "Mitchell countered 2.0 d ago: "halve the ask"". */
+export function grantHistoryLine(world: World, g: GrantView, now: Date): string {
+  const e = [...g.history].reverse().find((h) => h.byKind === "user");
+  if (!e) return "";
+  return `${world.nameOf(e.byId)} ${ACTION_PAST[e.action] ?? e.action} ${waitedFor(e.at, now)} ago${e.note.trim() ? `: "${oneLine(e.note)}"` : ""}`;
+}
+
+/** The same building's previous decided rollup: its decision and note. */
+export function rollupHistoryLine(world: World, doc: Doc, now: Date): string {
+  if (!doc.buildingId) return "";
+  const prev = world.docs.first("type = 'report' AND buildingId = ? AND decision IS NOT NULL AND decision != 'pending' AND createdAt < ? AND id != ? AND tags LIKE '%\"rollup\"%'", [doc.buildingId, doc.createdAt, doc.id], "ORDER BY createdAt DESC, rowid DESC");
+  if (!prev) return "";
+  const verb = prev.decisionNote ? "replied to" : prev.decision === "approve" ? "approved" : `decided (${prev.decision})`;
+  return `${prev.decidedBy ? world.nameOf(prev.decidedBy) : "A human"} ${verb} the previous rollup "${oneLine(prev.title, 80)}" ${prev.decidedAt ? `${waitedFor(prev.decidedAt, now)} ago` : ""}${prev.decisionNote ? `: "${oneLine(prev.decisionNote)}"` : ""}`.replace(/\s+$/, "");
+}
+
+const IMAGE = /!\[([^\]\n]*)\]\(([^)\s]+)(?:\s+"[^"]*")?\)/;
+function mediaSrc(world: World, id: string): string | null {
+  const r = world.db.prepare("SELECT mime FROM media WHERE id = ?").get(id) as { mime: string } | undefined;
+  if (!r) return null;
+  const ext: Record<string, string> = { "image/png": "png", "image/jpeg": "jpg", "image/gif": "gif", "image/webp": "webp", "video/webm": "webm", "video/mp4": "mp4" };
+  return `/api/media/${id}.${ext[r.mime] ?? "png"}`;
+}
+
+/** A proposal's picture: its own (propose_grant `picture`), else the first media in its findings docs. */
+function proposalPicture(world: World, g: GrantView): { alt: string; src: string } | null {
+  if (g.picture) { const src = mediaSrc(world, g.picture); if (src) return { alt: g.objective, src }; }
+  for (const id of g.findingsDocIds) {
+    const m = IMAGE.exec(world.docs.get(id)?.body ?? "");
+    if (m && m[2]!.includes("/api/media/")) return { alt: m[1] || "finding", src: m[2]! };
+  }
+  return null;
+}
+
+interface Draft { kind: ReviewSlideKind; group: number; itemId: string | null; buildingId: string | null; since: string | null; title: string; body: string; history: string; grantId?: string; docIds?: string[]; keySuffix?: string }
+
+function card(fields: { whatItIs: string; whatYoudSee: string; picture: { alt: string; src: string } | null; pictures?: { alt: string; src: string }[]; yourCall: string }): string {
+  const pics = fields.pictures ?? (fields.picture ? [fields.picture] : []);
+  return [
+    `**What it is:** ${fields.whatItIs || "_not given_"}`,
+    `**What you'd see:** ${fields.whatYoudSee || "_not given_"}`,
+    pics.length ? pics.map((p) => `![${p.alt}](${p.src})`).join("\n") : "_no picture_",
+    `**Your call:** ${fields.yourCall || "_not given_"}`,
+  ].join("\n\n");
+}
+
+function grantSlide(world: World, g: GrantView, now: Date): Draft {
+  const b = world.buildings.get(g.buildingId)?.name ?? g.buildingId;
+  const kr = g.keyResult ? `Key result ${g.keyResult.id}: ${g.keyResult.text}` : "No key result named yet";
+  const testing = g.testingPlan.map((t) => t.howToCheck).join(" · ");
+  const base = { itemId: g.id, buildingId: g.buildingId, grantId: g.id, history: grantHistoryLine(world, g, now) };
+  if (g.status === "checkpoint") {
+    const pct = g.grantTokens ? Math.round((g.spentTokens / g.grantTokens) * 100) : 0;
+    const at = [...g.history].reverse().find((h) => h.action === "checkpoint")?.at ?? g.updatedAt;
+    return { ...base, kind: "checkpoint", group: 1, since: at, title: `${b}: checkpoint held — ${g.objective}`, body: card({
+      whatItIs: `${g.objective} (${g.id}). ${kr}. Its grant work is stopped until you decide.`,
+      whatYoudSee: testing || g.keyResult?.howToCheck || "",
+      picture: proposalPicture(world, g),
+      yourCall: `Spent ${fmt(g.spentTokens)} of ${fmt(g.grantTokens ?? 0)} adjusted tokens (${pct}%). Continue, adjust (top up) or cut.${g.checkpointDocId ? ` Checkpoint report ${g.checkpointDocId}.` : ""}`,
+    }) };
+  }
+  if (g.status === "closed") {
+    return { ...base, kind: "close", group: 6, since: g.closedAt ?? g.updatedAt, title: `${b}: closed as done — mark the key result`, body: card({
+      whatItIs: `${g.objective} (${g.id}). ${kr}.`,
+      whatYoudSee: g.keyResult?.statusNote || g.keyResult?.howToCheck || "",
+      picture: proposalPicture(world, g),
+      yourCall: `Mark the key result met or missed (spent ${fmt(g.spentTokens)} of ${fmt(g.grantTokens ?? 0)}).${g.checkpointDocId ? ` Close report ${g.checkpointDocId}.` : ""}`,
+    }) };
+  }
+  const at = [...g.history].reverse().find((h) => h.action === "propose")?.at ?? g.updatedAt;
+  return { ...base, kind: "proposal", group: 4, since: at, title: `${b}: proposal — ${g.objective}`, body: card({
+    whatItIs: `${g.objective} (${g.id}). ${kr}.${g.approach ? ` ${oneLine(g.approach, 400)}` : ""}`,
+    whatYoudSee: g.whatYoudSee || testing,
+    picture: proposalPicture(world, g),
+    yourCall: `Fund ${fmt(g.askTokens)} adjusted tokens, counter or reject. Stops when: ${g.stopCondition}`,
+  }) };
+}
+
+/** The deck for `now`. Pure over the world: the same in-tray gives the same slides. */
+export function reviewDeck(world: World, now = new Date()): ReviewDeck {
+  const intray = townHallIntray(world);
+  const waiters = decisionWaiters(world);
+  const drafts: Draft[] = [];
+  const record: Doc[] = [];
+
+  for (const g of grantsAwaitingDecision(world)) {
+    if (g.status === "countered") continue; // waiting on the manager, not a human
+    drafts.push(grantSlide(world, g, now));
+  }
+  for (const x of intray.blocked) {
+    drafts.push({ kind: "blocked", group: 2, itemId: x.buildingId, buildingId: x.buildingId, since: x.since, history: "", title: `${x.name}: blocked`, body: card({
+      whatItIs: `${x.name} has no key results to work toward and no funded grant, so none of its work can be funded.`,
+      whatYoudSee: "The building's map sign is a red stoplight; its board shows the blocked callout.",
+      picture: null,
+      yourCall: "Write its key results (Building → Settings), or ask its manager to propose them in a 1:1.",
+    }) });
+  }
+  for (const d of intray.reports) {
+    const rollup = d.tags.includes("rollup");
+    const parsed = rollup ? parseRollup(d.body) : null;
+    const who = `${world.buildings.get(d.buildingId ?? "")?.name ?? "Town"}`;
+    const history = (rollup ? rollupHistoryLine(world, d, now) : "") || meetingLine(world, d.provenance.sourceIds);
+    const base = { itemId: d.id, buildingId: d.buildingId, since: d.createdAt, history, docIds: [d.id] };
+    if (parsed && parsed.items.length && !parsed.missingSections.length) {
+      const calls = parsed.items.map((it, i) => [it, i] as [RollupItem, number]).filter(([it]) => !isNoCall(it.yourCall));
+      if (!calls.length) { record.push(d); continue; }
+      for (const [it, i] of calls) {
+        drafts.push({ ...base, kind: "rollup", group: 5, keySuffix: String(i + 1), title: `${who} rollup: ${it.title}`, body: `_${d.title} (${d.id}) · item ${i + 1} of ${parsed.items.length}_\n\n${card({ whatItIs: it.whatItIs, whatYoudSee: it.whatYoudSee, picture: null, pictures: it.pictures, yourCall: it.yourCall })}` });
+      }
+    } else {
+      // an old-format rollup, a checkpoint or visitor report, an escalation: its markdown with the plain buttons
+      drafts.push({ ...base, kind: "report", group: 5, title: `${who}: ${d.title}`, body: d.body.replace(/^\s*#\s+[^\n]*\n+/, "") });
+    }
+  }
+
+  // what work is parked on comes right after the blocking groups, most waiters first
+  const waitersOf = (d: Draft) => (d.itemId ? waiters.get(d.itemId) ?? 0 : 0) + (d.grantId ? waiters.get(world.grants.get(d.grantId)?.checkpointDocId ?? "") ?? 0 : 0);
+  for (const d of drafts) if (d.group > 3 && waitersOf(d) > 0) d.group = 3;
+  const t = (s: string | null) => (s ? Date.parse(s) : 0);
+  drafts.sort((a, b) => a.group - b.group || (a.group === 3 ? waitersOf(b) - waitersOf(a) : 0) || t(a.since) - t(b.since) || (a.keySuffix ?? "").localeCompare(b.keySuffix ?? ""));
+
+  const slides: ReviewSlide[] = [];
+  const decisions = new Set(drafts.map((d) => d.itemId)).size + record.length;
+  const oldest = [...drafts.map((d) => d.since), ...record.map((d) => d.createdAt)].filter((s): s is string => !!s).sort()[0] ?? null;
+  slides.push(townSlide(world, now, decisions, oldest, intray.access.length));
+  for (const d of drafts) {
+    const w = waitersOf(d);
+    const top = [d.since ? `Waiting ${waitedFor(d.since, now)}` : "", w ? `${w} assignment${w === 1 ? "" : "s"} parked on this` : ""].filter(Boolean).join(" · ");
+    const text = `${top ? `_${top}_\n\n` : ""}## ${d.title}\n\n${d.body}${d.history ? `\n\n_History: ${d.history}_` : ""}`;
+    slides.push({ text, notes: "", title: d.title, pictures: [...text.matchAll(new RegExp(IMAGE.source, "g"))].map((m) => ({ alt: m[1]!, src: m[2]! })),
+      key: `${d.kind}:${d.itemId}${d.keySuffix ? `:${d.keySuffix}` : ""}`, kind: d.kind, itemId: d.itemId, group: d.group, buildingId: d.buildingId,
+      since: d.since, waiters: w, history: d.history, ...(d.grantId ? { grantId: d.grantId } : {}), ...(d.docIds ? { docIds: d.docIds } : {}) });
+  }
+  if (record.length) {
+    const names = record.map((d) => `${world.buildings.get(d.buildingId ?? "")?.name ?? "?"}: ${d.title} (${d.id})`);
+    const title = "For the record (no decision)";
+    slides.push({ text: `## ${title}\n\nThese rollups ask nothing of you: every Shipped item's call is None.\n\n${names.map((n) => `- ${n}`).join("\n")}`, notes: "", title, pictures: [],
+      key: "record", kind: "record", itemId: null, group: 7, buildingId: null, since: record[0]!.createdAt, waiters: 0, history: "", docIds: record.map((d) => d.id) });
+  }
+  return { title: "Review deck", generatedAt: now.toISOString(), slides };
+}
+
+function townSlide(world: World, now: Date, decisions: number, oldest: string | null, asking: number): ReviewSlide {
+  const bank = world.bank.balance(now);
+  const cap = world.bank.capState(now);
+  const lanes = world.grantDesk.laneBudgets();
+  const explSpent = lanes.reduce((s, l) => s + l.exploration.spentTodayTokens, 0);
+  const explAllow = lanes.reduce((s, l) => s + l.exploration.allowanceTokens, 0);
+  const directed = lanes.reduce((s, l) => s + l.directed.spentTodayTokens, 0);
+  const rows = world.buildings.where("kind != 'town-hall'", [], "ORDER BY rowid").map((b) => {
+    const light = world.grantDesk.stoplight(b);
+    const krs = world.grantDesk.keyResults(b.id);
+    return `| ${b.name} | ${light ? LIGHT[light.light] ?? "" : ""} | ${krs.length ? krs.map((k) => `${KR_LIGHT[k.status] ?? "⚪"} ${k.status.replace(/-/g, " ")}`).join(" · ") : "_none_"} |`;
+  });
+  const flags = world.docs.where("type = 'flag' AND decision = 'pending' AND createdAt < ?", [new Date(now.getTime() - FLAG_AFTER_MS).toISOString()], "ORDER BY createdAt");
+  const flagLine = flags.length
+    ? `⚑ Your flag${flags.length === 1 ? "" : "s"} still waiting on a manager: ${flags.map((f) => `${world.buildings.get(f.buildingId ?? "")?.name ?? "?"} "${oneLine(f.title, 60)}" ${waitedFor(f.createdAt, now)}`).join("; ")}.`
+    : "";
+  const text = [
+    "# Review deck: the state of the town",
+    `**Bank:** ${fmt(bank)} adjusted tokens left · subscription spend today ${fmt(cap.spentToday)}${cap.learnedCap ? ` of a ${fmt(cap.learnedCap)} daily cap` : ""}${cap.held ? " (new starts held)" : ""}`,
+    `**Spend today by lane:** exploration ${fmt(explSpent)} of ${fmt(explAllow)} allowance · directed ${fmt(directed)}`,
+    `**${decisions} decision${decisions === 1 ? "" : "s"} below${oldest ? `, oldest waiting ${waitedFor(oldest, now)}` : ""}.**${asking ? ` ${asking} ${asking === 1 ? "person is" : "people are"} asking to join (in the in-tray list).` : ""}`,
+    `| Building | Light | Key results |\n|---|---|---|\n${rows.join("\n")}`,
+    flagLine,
+  ].filter(Boolean).join("\n\n");
+  return { text, notes: "", title: "State of the town", pictures: [], key: "town", kind: "town", itemId: null, group: 0, buildingId: null, since: null, waiters: 0, history: "" };
+}

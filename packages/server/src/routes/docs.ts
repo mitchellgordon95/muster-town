@@ -66,11 +66,11 @@ export async function docRoutes(app: FastifyInstance) {
 
   /** Reports as replies: one text box, one button. → { doc, assignment | null }. Empty text = archive. */
   app.post<{ Params: Params }>("/api/docs/:id/reply", async (req) => {
-    const { text } = parse(ReplyInput, req.body);
-    return world.ops.replyToReport(actorOf(world, req), req.params.id, text);
+    const { text, deckSlide } = parse(ReplyInput, req.body);
+    return world.ops.replyToReport(actorOf(world, req), req.params.id, text, { deckSlide });
   });
 
-  app.post<{ Params: Params }>("/api/docs/:id/archive", async (req) => world.ops.archiveReport(actorOf(world, req), req.params.id));
+  app.post<{ Params: Params }>("/api/docs/:id/archive", async (req) => world.ops.archiveReport(actorOf(world, req), req.params.id, { deckSlide: parse(ReplyInput, req.body ?? {}).deckSlide }));
 
   app.post<{ Params: Params }>("/api/docs/:id/promote", async (req) => {
     const { state } = parse(PromoteBody, req.body);

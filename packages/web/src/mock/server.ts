@@ -1,5 +1,5 @@
 /** `Api` implemented against the in-memory Sim. Same interface as HttpApi, so every panel works offline. */
-import type { AccessRequest, AccessRequestView, Agent, Assignment, AuthMe, BlockedAssignment, BlockedBy, Building, Doc, Event, Meeting, Membership, RedeployLive } from "@muster-town/schema";
+import type { AccessRequest, AccessRequestView, Agent, Assignment, AuthMe, BlockedAssignment, BlockedBy, Building, Doc, Event, Meeting, Membership, RedeployLive, ReviewDeck, ReviewSlide } from "@muster-town/schema";
 import { BACKFILL, BOARD_TYPES, KPI_FRAMING, DEFAULT_POOL_ID, ZERO_TOKENS, addTokens, backfillFamily, splitRaw, type BankPool } from "@muster-town/schema";
 import type { Api, AgentDetail, AllocationRow, Bank, Budget, Finance, FinancePools, FinanceSources, FinanceSpend, Cabinet, CabinetQuery, DocQuery, EventQuery, In, LayoutPreview, MessageResult, PlanPreview, RoomLayout, RequestAction, Snapshot, Socket, SocketHandlers, ThreadMessage, WriteDocInput } from "../api";
 import { ApiError } from "../api";
@@ -89,6 +89,21 @@ export class MockApi implements Api {
     await wait();
     const b = this.need(this.sim.buildings.find((x) => x.id === buildingId), "building");
     return clone({ ...this.sim.intray(buildingId), access: b.kind === "town-hall" ? this.access.filter((r) => r.status === "pending") : [] });
+  }
+  /** A small stand-in for the server's review deck (core/src/review-deck.ts): slide 1, one slide per grant or report. */
+  async reviewDeck(): Promise<ReviewDeck> {
+    await wait();
+    const t = this.sim.intray("town-hall");
+    const slide = (x: Omit<ReviewSlide, "notes" | "pictures" | "since" | "waiters" | "history" | "buildingId">, since: string | null = null): ReviewSlide =>
+      ({ notes: "", pictures: [], since, waiters: 0, history: "", buildingId: null, ...x });
+    const slides: ReviewSlide[] = [slide({ key: "town", kind: "town", itemId: null, group: 0, title: "State of the town", text: `# Review deck: the state of the town\n\n**${t.grants.length + t.reports.length} decisions below.**` })];
+    for (const g of t.grants.filter((x) => x.status !== "countered")) {
+      const kind = g.status === "checkpoint" ? "checkpoint" : g.status === "closed" ? "close" : "proposal";
+      slides.push(slide({ key: `${kind}:${g.id}`, kind, itemId: g.id, grantId: g.id, group: kind === "checkpoint" ? 1 : kind === "proposal" ? 4 : 6, title: g.objective, text: `## ${g.objective}\n\n**What it is:** ${g.objective}\n\n**Your call:** fund, counter or reject` }, g.updatedAt));
+    }
+    for (const d of t.reports) slides.push(slide({ key: `report:${d.id}`, kind: "report", itemId: d.id, docIds: [d.id], group: 5, title: d.title, text: `## ${d.title}\n\n${d.body}` }, d.createdAt));
+    slides.sort((a, b) => a.group - b.group);
+    return clone({ title: "Review deck", generatedAt: new Date().toISOString(), slides });
   }
   async grant(id: string) { await wait(60); return clone(this.need(this.sim.grants.get(id), "grant")); }
   async decideGrant(id: string, i: In<typeof DecideGrantInput>) { await wait(); return clone(this.sim.decideGrant(id, i)); }

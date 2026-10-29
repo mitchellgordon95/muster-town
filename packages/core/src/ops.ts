@@ -225,14 +225,14 @@ export class Ops {
    * "Reply from" section, acknowledges the report, and (non-empty text) mentions the author and gives it a
    * `Reply on: …` assignment (`fromReportId` set). Empty text = archive.
    */
-  replyToReport(actor: Actor, docId: string, text: string): ReplyResult {
+  replyToReport(actor: Actor, docId: string, text: string, opts: { deckSlide?: number } = {}): ReplyResult {
     const doc = this.world.docs.require(docId, "doc");
     if (actor && !this.world.permissions.isAdmin(actor) && !this.world.permissions.can(actor, "building.review", doc.buildingId)) throw forbidden("building.review");
-    return replyToReport(this.world, actor, docId, text);
+    return replyToReport(this.world, actor, docId, text, opts);
   }
   /** POST /api/docs/:id/archive: a reply with no text (acknowledge, no assignment). */
-  archiveReport(actor: Actor, docId: string): ReplyResult {
-    return this.replyToReport(actor, docId, "");
+  archiveReport(actor: Actor, docId: string, opts: { deckSlide?: number } = {}): ReplyResult {
+    return this.replyToReport(actor, docId, "", opts);
   }
 
   // ---- reconcile (runtime startup) ----

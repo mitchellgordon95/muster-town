@@ -4,6 +4,7 @@
  */
 import type { z } from "zod";
 import type {
+  ReviewDeck,
   CreateObjectiveInput, UpdateObjectiveInput, Objective, KpiKey, KpiView,
   AccessRequest, AccessRequestView, Agent, Allocation, Assignment, AuthMe, BlockedAssignment, RedeployLive, Building, ClientMessage, DesksConfig, Doc, Event, Lot, Meeting, Place, Role, Membership, SessionSlots, Tile,
   ServerMessage, SessionView, TokenCounts, Town, CreateBuildingInput, UpdateBuildingInput, CreateResidentInput, RegisterVisitorInput,
@@ -308,6 +309,8 @@ export interface Api {
   // agents
   /** pending reports for the building's in-tray, oldest first; the Town Hall's also has the grants awaiting a human */
   intray(buildingId: string): Promise<Intray>;
+  /** GET /api/review-deck: the Town Hall in-tray as slides, computed by the server (design dc_y7a8g257of §2) */
+  reviewDeck(): Promise<ReviewDeck>;
   /** GET /api/grants/:id: one grant or proposal (drafts only for its building's managers and funders) */
   grant(id: string): Promise<GrantView>;
   /** POST /api/grants/:id/decide (building.fund): fund / counter / reject a proposal, continue / adjust / cut a checkpoint */
@@ -383,11 +386,11 @@ export interface Api {
   /** POST /api/buildings/:id/flags — plant a flag (a short request) in a building; it lands in the manager's in-tray as a pending `flag` doc */
   plantFlag(buildingId: string, text: string): Promise<Doc>;
   /** POST /api/docs/:id/reply — the reply becomes the author's next assignment; empty text archives */
-  reply(docId: string, text: string): Promise<{ doc: Doc; assignment: Assignment | null }>;
+  reply(docId: string, text: string, deckSlide?: number): Promise<{ doc: Doc; assignment: Assignment | null }>;
   /** Upload one image or video as the signed-in human (docs/multimedia.md); returns its paste-ready markdown. */
   uploadMedia(file: Blob, alt?: string): Promise<UploadedMedia>;
   /** POST /api/docs/:id/archive — acknowledge with no reply */
-  archive(docId: string): Promise<{ doc: Doc; assignment: Assignment | null }>;
+  archive(docId: string, deckSlide?: number): Promise<{ doc: Doc; assignment: Assignment | null }>;
   promote(docId: string, state: DocState): Promise<Doc>;
   // skills (docs/skills.md): written with writeDoc type "skill"
   /** every published skill (plus my drafts) with files, pins and uses */
@@ -550,6 +553,7 @@ export class HttpApi implements Api {
     const r = await this.get<Partial<Intray>>(`/api/buildings/${id}/intray`);
     return { reports: r.reports ?? [], chains: r.chains ?? {}, grants: r.grants ?? [], access: r.access ?? [], blocked: r.blocked ?? [] };
   }
+  reviewDeck() { return this.get<ReviewDeck>("/api/review-deck"); }
   async grant(id: string) { return unwrap<GrantView>(await this.get(`/api/grants/${id}`), "grant"); }
   async decideGrant(id: string, i: In<typeof DecideGrantInput>) { return unwrap<GrantView>(await this.post(`/api/grants/${id}/decide`, i), "grant"); }
   async closeGrant(id: string, i: In<typeof CloseGrantInput>) { return unwrap<GrantView>(await this.post(`/api/grants/${id}/close`, i), "grant"); }
@@ -593,7 +597,7 @@ export class HttpApi implements Api {
   async writeDoc(i: WriteDocInput) { return unwrap<Doc>(await this.post("/api/docs", i), "doc"); }
   async review(id: string, i: In<typeof ReviewInput>) { return unwrap<Doc>(await this.post(`/api/docs/${id}/review`, i), "doc"); }
   async plantFlag(buildingId: string, text: string) { return unwrap<Doc>(await this.post(`/api/buildings/${buildingId}/flags`, { text }), "doc"); }
-  reply(id: string, text: string) { return this.post<{ doc: Doc; assignment: Assignment | null }>(`/api/docs/${id}/reply`, { text }); }
+  reply(id: string, text: string, deckSlide?: number) { return this.post<{ doc: Doc; assignment: Assignment | null }>(`/api/docs/${id}/reply`, { text, ...(deckSlide ? { deckSlide } : {}) }); }
   /** Open a session transcript (docs/transcripts.md) in a new tab: fetched with the bearer token, shown as text. */
   async openTranscript(url: string) {
     const tab = window.open("", "_blank");
@@ -612,7 +616,7 @@ export class HttpApi implements Api {
     if (!res.ok) throw new ApiError(json.error ?? `${res.status} ${res.statusText}`, json.code ?? "http", res.status);
     return json;
   }
-  archive(id: string) { return this.post<{ doc: Doc; assignment: Assignment | null }>(`/api/docs/${id}/archive`); }
+  archive(id: string, deckSlide?: number) { return this.post<{ doc: Doc; assignment: Assignment | null }>(`/api/docs/${id}/archive`, deckSlide ? { deckSlide } : undefined); }
   async promote(id: string, state: DocState) { return unwrap<Doc>(await this.post(`/api/docs/${id}/promote`, { state }), "doc"); }
   async skills() { return (await this.get<{ skills: SkillView[] }>("/api/skills")).skills; }
   async skill(id: string) { return (await this.get<{ skill: SkillView }>(`/api/skills/${id}`)).skill; }

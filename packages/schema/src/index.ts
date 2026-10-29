@@ -837,6 +837,9 @@ export const Grant = z.object({
   outcome: GrantOutcome.nullable().default(null),
   /** exploration reports the proposal draws on */
   findingsDocIds: z.array(Id).default([]),
+  /** the proposal's picture (an uploaded mf_… media id) and "what you'd see" line: the review deck's proposal slide (gr_jh0lu0w6yj step 4) */
+  picture: z.string().nullable().default(null),
+  whatYoudSee: z.string().default(""),
   /** spend fractions already checkpointed (1; a legacy 0.5 may remain), so each fires once per grantTokens value */
   checkpointsDone: z.array(z.number()).default([]),
   /** the manager's latest checkpoint report */
@@ -1023,6 +1026,8 @@ export const CreateGrantInput = z.object({
   askTokens: z.number().int().positive(),
   testingPlan: z.array(TestingPlanItem).max(5).default([]).describe("optional: how the work will be checked, each line with a how-to-check"),
   findingsDocIds: z.array(Id).default([]),
+  picture: z.string().trim().regex(/^mf_[a-z0-9]+$/, "an uploaded media id (mf_…)").optional().describe("optional: an uploaded picture (mf_…) of what the work would show; the review deck's proposal slide shows it"),
+  whatYoudSee: z.string().trim().max(300).optional().describe("optional: one line on where a human would see the result in the live town and what they'd see; the review deck's proposal slide shows it"),
 });
 /** POST /api/buildings/:id/key-results: a key result on the building goal (humans with `building.manage`). */
 export const CreateKeyResultInput = z.object({
@@ -1359,6 +1364,8 @@ export const DecideGrantInput = z.object({
   note: z.string().max(2000).default(""),
   /** fund only: pay its sessions from this Bank input of the funder's. Lets a member without `building.fund` fund it. */
   fundWith: Id.optional(),
+  /** the review deck's slide (from 1) the decision was made on; recorded as the event's payload.deckSlide */
+  deckSlide: z.number().int().positive().optional(),
 });
 export type DecideGrantInput = z.input<typeof DecideGrantInput>;
 /** POST /api/grants/:id/close: the manager may close as `stopped`; `building.fund` any outcome. */
@@ -1402,7 +1409,7 @@ export const ReviewInput = z.object({ decision: ReviewDecision, note: z.string()
 export const PlantFlagInput = z.object({ text: z.string().trim().min(1).max(2000) });
 export const ChatInput = z.object({ message: z.string(), history: z.array(z.object({ role: z.enum(["user", "assistant"]), text: z.string() })).default([]) });
 /** POST /api/docs/:id/reply: the reply text (empty = archive). */
-export const ReplyInput = z.object({ text: z.string().default("") });
+export const ReplyInput = z.object({ text: z.string().default(""), deckSlide: z.number().int().positive().optional() });
 export const InterruptInput = z.object({ text: z.string(), now: z.boolean().optional() });
 /** POST /api/agents/:id/message: a human messages an agent (a `tell` from their avatar). `now` (default true) interrupts a working agent; false leaves it in the inbox. */
 export const MessageAgentInput = z.object({ text: z.string().trim().min(1), now: z.boolean().default(true) });

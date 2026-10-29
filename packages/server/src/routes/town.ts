@@ -1,4 +1,4 @@
-import { AppError, BANK_ACCOUNTING, accessRequestOf, boardWithTownDocs, canInteract, decideAccess, deskSlotRows, requestAccess, sessionView, setDeskSlot, cabinetCounts, cabinetDocs, reportChains } from "@muster-town/core";
+import { AppError, BANK_ACCOUNTING, accessRequestOf, boardWithTownDocs, canInteract, decideAccess, deskSlotRows, requestAccess, sessionView, setDeskSlot, cabinetCounts, cabinetDocs, reportChains, reviewDeck } from "@muster-town/core";
 import { AccessDecisionInput, AccessRequestInput, AddBankInput, CreateBankPoolInput, CreateBuildingInput, DesksPatch, UpdateBankPoolInput, DocType, DonateInput, LayoutInput, Membership, PlanInput, PlantFlagInput, RedeployInput, UpdateBuildingInput, apiKeyProblem, townEnv, type AccessRequest, type AuthMe, type RedeployLive } from "@muster-town/schema";
 import type { FastifyInstance, FastifyRequest } from "fastify";
 import { brotliDecompressSync } from "node:zlib";
@@ -232,6 +232,12 @@ export async function townRoutes(app: FastifyInstance) {
     const reports = world.ops.intray(b.id);
     return { reports, chains: reportChains(world, reports) };
   });
+
+  /**
+   * The review deck (design dc_y7a8g257of §2): the Town Hall in-tray as slides, computed on each request from the
+   * in-tray and key results (zero tokens). Readable by anyone, like the in-tray.
+   */
+  app.get("/api/review-deck", async () => reviewDeck(world));
 
   /** A human plants a flag (a short request) in a building: a pending `flag` doc in its in-tray for the manager to delegate (`building.assign`). */
   app.post<{ Params: Params }>("/api/buildings/:id/flags", async (req, reply) => {

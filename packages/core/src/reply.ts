@@ -29,7 +29,7 @@ export interface ReplyResult { doc: Doc; assignment: Assignment | null }
  * Permission checks are the caller's (ops). Works on pending and already-handled reports; an empty reply on an
  * already-handled report changes nothing.
  */
-export function replyToReport(world: World, replier: Agent | null, docId: string, rawText: string): ReplyResult {
+export function replyToReport(world: World, replier: Agent | null, docId: string, rawText: string, opts: { deckSlide?: number } = {}): ReplyResult {
   const report = world.docs.require(docId, "doc");
   if (report.type !== "report") throw new AppError("bad_request", `Doc ${docId} is a ${report.type}, not a report.`);
   const text = rawText.trim();
@@ -44,7 +44,7 @@ export function replyToReport(world: World, replier: Agent | null, docId: string
     world.events.append({
       type: "doc.decision", agentId: author?.id ?? null, buildingId: doc.buildingId,
       text: text ? `${name} replied to "${doc.title}": ${truncate(text, 80)}` : `Archived: "${doc.title}"`,
-      payload: { docId, decision: "approve", note: text, decidedBy: by.id, reply: !!text },
+      payload: { docId, decision: "approve", note: text, decidedBy: by.id, reply: !!text, ...(opts.deckSlide ? { deckSlide: opts.deckSlide } : {}) },
     });
     if (!text || !author) return { doc, assignment: null };
 
