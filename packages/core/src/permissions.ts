@@ -1,5 +1,5 @@
 import { BUILTIN_ROLES, Permission, type Agent, type Role } from "@muster-town/schema";
-import { forbidden } from "./errors.ts";
+import { AppError, forbidden } from "./errors.ts";
 import { BUDGET_POLICY } from "./policy.ts";
 import type { Repos } from "./store.ts";
 
@@ -87,6 +87,16 @@ export class Permissions {
     const own = this.holdsAdmin({ kind: "agent", id: x.id });
     if (!owner) return own;
     return (own || this.inherits(x)) && this.holdsAdmin(owner) && !(x.deniedPermissions?.length);
+  }
+
+  /** Whether the user (by id) holds the admin role: the boolean half of `requireAdmin` for a signed-in human. */
+  isUserAdmin(userId: string): boolean {
+    return this.isAdmin({ kind: "user", id: userId });
+  }
+
+  /** Throws the one admin-only 403 (`AppError("forbidden")`, no permission attached) unless `holder` is an admin. */
+  requireAdmin(holder: Holder | Agent, message = "Only an admin can do this."): void {
+    if (!this.isAdmin(holder)) throw new AppError("forbidden", message);
   }
 
   /** The agent's owner as a user holder, or null when ownerless (service agents, seeded residents). */

@@ -165,7 +165,7 @@ export async function buildApp(opts: BuildAppOptions): Promise<FastifyInstance> 
     const retire = opts.retire;
     app.post(`${prefix}/api/collective/retire`, async (req) => {
       const user = requireUser(req);
-      if (!opts.world.permissions.isAdmin({ kind: "user", id: user.id })) throw new AppError("forbidden", "Only an admin of this collective can retire it.");
+      opts.world.permissions.requireAdmin({ kind: "user", id: user.id }, "Only an admin of this collective can retire it.");
       retire();
       return { retired: true, url: "/" };
     });
@@ -194,7 +194,7 @@ export async function buildApp(opts: BuildAppOptions): Promise<FastifyInstance> 
     app.post("/api/collectives", async (req, reply) => {
       const user = requireUser(req);
       if (!opts.hub) throw new AppError("internal", "This server hosts no other collectives (no hub).", 503);
-      const admin = opts.world.permissions.isAdmin({ kind: "user", id: user.id });
+      const admin = opts.world.permissions.isUserAdmin(user.id);
       const owner = user.githubId != null && user.githubLogin ? { id: user.githubId, login: user.githubLogin, name: user.name, avatarUrl: user.avatarUrl ?? null } : null;
       if (!owner && !admin) throw new AppError("forbidden", "Sign in with GitHub to start a collective.");
       if (owner && !admin) {

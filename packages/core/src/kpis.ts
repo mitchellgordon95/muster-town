@@ -39,7 +39,7 @@ function ownerCheck(world: World): (userId: string | null | undefined) => boolea
   const memo = new Map<string, boolean>();
   return (id) => {
     if (!id) return true; // the system acted: not a stranger
-    if (!memo.has(id)) memo.set(id, world.users.get(id) ? world.permissions.isAdmin({ kind: "user", id }) : true);
+    if (!memo.has(id)) memo.set(id, world.users.get(id) ? world.permissions.isUserAdmin(id) : true);
     return memo.get(id)!;
   };
 }

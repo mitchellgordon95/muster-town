@@ -33,6 +33,17 @@ describe("permissions", () => {
     expect(() => world.permissions.require(mei, "building.dismiss", "carbon-cycle")).toThrow(expect.objectContaining({ code: "forbidden", permission: "building.dismiss" }));
   });
 
+  it("isUserAdmin/requireAdmin: admins pass, everyone else gets the one admin-only 403 without a permission", () => {
+    const { world, by, seed } = seededWorld();
+    const plain = world.ops.createUser("Plain").user;
+    expect(world.permissions.isUserAdmin(seed.admin.id)).toBe(true);
+    expect(world.permissions.isUserAdmin(plain.id)).toBe(false);
+    expect(() => world.permissions.requireAdmin({ kind: "user", id: seed.admin.id })).not.toThrow();
+    const err = (() => { try { world.permissions.requireAdmin({ kind: "user", id: plain.id }); } catch (e) { return e; } })();
+    expect(err).toMatchObject({ code: "forbidden", status: 403, message: "Only an admin can do this.", permission: undefined });
+    expect(() => world.permissions.requireAdmin(by("Mei"), "Only an admin pins this.")).toThrow(expect.objectContaining({ code: "forbidden", message: "Only an admin pins this." }));
+  });
+
   it("creator gets manager; human avatars act with their user's roles; role assignment is permissioned", () => {
     const { world, seed } = seededWorld();
     const u = world.ops.createUser("Builder").user;
