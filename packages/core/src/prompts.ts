@@ -5,7 +5,7 @@
 import { ROLLUP_MAX_ITEMS, ROLLUP_MAX_PICTURES, ROLLUP_NEEDS_RULE, type Agent, type Assignment, type Building, type DeskBrief, type DeskWorkspace, type Doc, type Event, type Meeting, type Town, type Workspace } from "@muster-town/schema";
 import { intrayCounts, intrayOf } from "./domain.ts";
 import { decisionOutcomes, previousMeeting, type DecisionOutcome } from "./meetings.ts";
-import { forkMemoryBlock, memoryBlock, teamBlock, topicIndexBlock, WIKI_HOWTO } from "./memory.ts";
+import { FORK_MANAGER_WIKI_CAP, forkMemoryBlock, memoryBlock, teamBlock, topicIndexBlock, topicPages, WIKI_HOWTO, WIKI_PAGE_CAP, WIKI_TOTAL_CAP, wikiOf } from "./memory.ts";
 import { skillsBlock } from "./skills.ts";
 import { townBoardDocs } from "./verbs/docs.ts";
 import { TOWN_HALL_ID } from "./world/layout.ts";
@@ -295,7 +295,7 @@ export function managerNewReport(d: Doc, nameOf: (id: string) => string): string
 }
 
 /** The manager's 1:1 (docs/waterfall.md §3.4): a human opened it; their messages stream into this session. */
-export function oneOnOnePrompt(meeting: Meeting, nameOf: (id: string) => string): string {
+export function oneOnOnePrompt(meeting: Meeting, nameOf: (id: string) => string, decisions?: string): string {
   const who = meeting.withUserId ? nameOf(meeting.withUserId) : "A human";
   const transcript = meeting.transcript.map((u) => `- ${nameOf(u.speakerId)}: ${u.text}`).join("\n");
   // a pick-up: the human spoke after the manager's last line (its previous session was cut, e.g. by a redeploy's restart)
@@ -306,7 +306,7 @@ export function oneOnOnePrompt(meeting: Meeting, nameOf: (id: string) => string)
     : "";
   return `${who} opened a 1:1 with you: meeting ${meeting.id}. This is a conversation, not a work session: you have no assignment.
 ${transcript ? `\nSo far:\n${transcript}\n${pickUp}` : `\nThey haven't said anything yet; greet them in one line and ask what they need.\n`}
-Answer with the \`meeting\` tool, action "speak", meetingId ${meeting.id}: short, plain, concrete. Their next messages arrive here as messages in this session, so don't \`listen\`; after you've spoken, stop and wait. When you agree on work, record it with action "decide" (a decision with an assigneeId becomes that agent's assignment, yours if you take it), or \`assign\` it if you manage the building; say who and what in the meeting too. If they opened it about a report, its id is in their first line: \`read\` it before you answer. You can't do the work yourself here (no code or web tools). The human ends the 1:1, not you, and there is no report: don't call \`submit_report\` (the "Finish with submit_report" rule above is for work sessions).`;
+Answer with the \`meeting\` tool, action "speak", meetingId ${meeting.id}: short, plain, concrete. Their next messages arrive here as messages in this session, so don't \`listen\`; after you've spoken, stop and wait. When you agree on work, record it with action "decide" (a decision with an assigneeId becomes that agent's assignment, yours if you take it), or \`assign\` it if you manage the building; say who and what in the meeting too. If they opened it about a report, its id is in their first line: \`read\` it before you answer. You can't do the work yourself here (no code or web tools). The human ends the 1:1, not you, and there is no report: don't call \`submit_report\` (the "Finish with submit_report" rule above is for work sessions).${decisions ? `\n\n${decisions}` : ""}`;
 }
 
 /** A human's line in the 1:1, streamed into the manager's session. */
@@ -317,6 +317,66 @@ export function oneOnOneUtterance(meeting: Meeting, speaker: string, text: strin
 /** The human ended the 1:1 (or it went quiet and the town closed it). */
 export function oneOnOneEnded(meeting: Meeting): string {
   return `The 1:1 ${meeting.id} is over (the human ended it, or it went quiet and the town closed it). If something was agreed and isn't recorded yet, record it now with meeting "decide" (possible for 5 minutes); then stop. Notes are filed for you.`;
+}
+
+/** Whether a human took part in a meeting: a 1:1's human, or any line a human spoke. */
+function hadHuman(m: Meeting): boolean {
+  return !!m.withUserId || m.transcript.some((u) => u.speakerKind === "user");
+}
+
+/**
+ * "Decisions from meetings with a human": the decisions (number, text, meeting id, kind, date) of every finished
+ * meeting a human took part in, 1:1s included, since this building's last meeting of `meeting`'s kind; the building's
+ * own meetings, or every building's for a town hall (town hall mt_1u7mwyjrrz, gr_jh0lu0w6yj step 1).
+ */
+export function humanDecisionsBlock(world: World, meeting: Pick<Meeting, "id" | "kind" | "buildingId">, limit = 40): string {
+  const scope = meeting.buildingId ? "buildingId = ?" : "buildingId IS NULL";
+  const scopeArgs = meeting.buildingId ? [meeting.buildingId] : [];
+  const last = world.meetings.first(`phase = 'done' AND kind = ? AND ${scope} AND id != ?`, [meeting.kind, ...scopeArgs, meeting.id], "ORDER BY endedAt DESC, rowid DESC");
+  const since = last?.endedAt ?? "";
+  const where = meeting.buildingId ? "phase = 'done' AND endedAt > ? AND id != ? AND buildingId = ?" : "phase = 'done' AND endedAt > ? AND id != ?";
+  const ms = world.meetings.where(where, [since, meeting.id, ...scopeArgs], "ORDER BY endedAt, rowid").filter((m) => hadHuman(m) && m.decisions.some((d) => !d.supersededBy));
+  const lines = ms.flatMap((m) => m.decisions.flatMap((d, i) => d.supersededBy ? [] : [`- ${m.id} ${m.kind} ${(m.endedAt ?? m.createdAt).slice(0, 16).replace("T", " ")}Z${!m.buildingId ? "" : meeting.buildingId ? "" : ` (${world.buildings.get(m.buildingId)?.name ?? m.buildingId})`} #${i + 1}: ${oneLine(d.text, 300)}`]));
+  const shown = lines.slice(-limit);
+  const head = `## Decisions from meetings with a human since the last ${meeting.kind}${last ? ` (${last.id}, ${since.slice(0, 16).replace("T", " ")}Z)` : ""}${meeting.buildingId ? "" : ", every building"}`;
+  return `${head}\n${shown.length ? `${lines.length > shown.length ? `(the latest ${shown.length} of ${lines.length})\n` : ""}${shown.join("\n")}` : "(none)"}`;
+}
+
+/**
+ * A meeting session's full context (town hall mt_1u7mwyjrrz: "residents in meetings should have access to their full
+ * context"): the agent's own memory exactly as a work session gets it (wiki and log, or a fork's frozen copy of its
+ * manager's), the building's topic index plus the newest page bodies in whatever is left of WIKI_TOTAL_CAP after the
+ * wiki (the budget forks use, dc_epn1hq77z2; a cut page says so and gives its id), the decisions of meetings with a
+ * human since the last of this kind, and the town-wide FYIs.
+ */
+export function meetingContextBlock(world: World, agent: Agent, meeting: Pick<Meeting, "id" | "kind" | "buildingId">, opts: { now?: number } = {}): string {
+  const now = opts.now ?? Date.now();
+  const bid = meeting.buildingId ?? agent.homeBuildingId ?? agent.buildingId ?? "";
+  const out: string[] = [agent.forkOf ? forkMemoryBlock(world, agent, null, { now }) : memoryBlock(world, agent.id, { now })];
+  const index = agent.forkOf ? "" : topicIndexBlock(world, bid, { now }); // a fork's memory block already carries it
+  if (index) out.push(index);
+  const wikiChars = agent.forkOf
+    ? Math.min(wikiOf(world, agent.forkOf).reduce((n, p) => n + p.body.trim().length, 0), FORK_MANAGER_WIKI_CAP)
+    : wikiOf(world, agent.id).reduce((n, p) => n + Math.min(p.body.trim().length, WIKI_PAGE_CAP), 0);
+  const budget = Math.max(0, WIKI_TOTAL_CAP - wikiChars);
+  const pages = topicPages(world, bid);
+  if (pages.length) {
+    let used = 0;
+    const body: string[] = [];
+    for (const p of pages) {
+      const text = p.body.trim();
+      const room = Math.min(WIKI_PAGE_CAP, budget - used);
+      if (room < 300) break;
+      body.push(`### ${p.title} (${p.id}, updated ${relativeTime(p.updatedAt, now)})\n${text.length > room ? `${text.slice(0, room)}\n…(cut: page is ${text.length} chars; \`read\` ${p.id} for the rest)` : text}`);
+      used += Math.min(text.length, room);
+    }
+    const rest = pages.length - body.length;
+    if (body.length) out.push(`## Topic pages, newest first (${body.length} of ${pages.length}${rest ? `; \`read\` the others from the index above` : ""})\n${body.join("\n\n")}`);
+  }
+  out.push(humanDecisionsBlock(world, meeting));
+  const board = townBoardBlock(world);
+  if (board) out.push(board);
+  return `# Your full context\n\n${out.join("\n\n")}`;
 }
 
 export function summarySystemPrompt(agent: Agent): string {
@@ -334,7 +394,7 @@ export function lastMeetingFor(world: World, meeting: Meeting, agentId: string):
   return prev ? { title: prev.title, said: prev.summaries[agentId], decisions: decisionOutcomes(world, prev, agentId) } : null;
 }
 
-export function summaryPrompt(meeting: Meeting, lastReport: Doc | undefined, events: Event[], recentWork?: string, last?: LastMeetingForAttendee | null): string {
+export function summaryPrompt(meeting: Meeting, lastReport: Doc | undefined, events: Event[], recentWork?: string, last?: LastMeetingForAttendee | null, context?: string): string {
   const lastBlock = last
     ? `Last meeting ("${last.title}"):\nLast time you said: ${last.said?.replace(/\n/g, " / ") ?? "(no summary)"}\nDecisions assigned to you last time:\n${last.decisions.map((d) => `- ${oneLine(d.text, 200)} → ${d.outcome}`).join("\n") || "(none)"}`
     : "Last meeting: (none; first meeting)";
@@ -345,13 +405,13 @@ ${lastBlock}
 My latest report: ${lastReport ? `"${lastReport.title}" (decision ${lastReport.decision ?? "?"})\n${trunc(lastReport.body, 4000)}` : "(none yet)"}
 ${recentWork ? `\n${recentWork}\n` : ""}
 My recent activity:
-${events.map((e) => `- ${e.ts.slice(0, 16)} ${e.text}`).join("\n") || "(none)"}`;
+${events.map((e) => `- ${e.ts.slice(0, 16)} ${e.text}`).join("\n") || "(none)"}${context ? `\n\n${context}` : ""}`;
 }
 
-export function facilitateSystemPrompt(facilitator: Agent, building: Building | undefined, town: Town): string {
+export function facilitateSystemPrompt(facilitator: Agent, building: Building | undefined, town: Town, context?: string): string {
   return `You are ${facilitator.name}, facilitating a meeting in ${building?.name ?? "Town Hall"} of ${town.name}. Building goal: ${building?.goal || town.goal || "(none)"}
 
-You run the meeting with the \`meeting\` tool (mcp__town__meeting) like everyone else. Be brief and concrete. Humans may speak in the meeting; their words carry weight. Do not call submit_report.${standingRules(building)}`;
+You run the meeting with the \`meeting\` tool (mcp__town__meeting) like everyone else. Be brief and concrete. Humans may speak in the meeting; their words carry weight. Do not call submit_report.${standingRules(building)}${context ? `\n\n${context}` : ""}`;
 }
 
 /**

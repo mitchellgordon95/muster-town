@@ -5,7 +5,7 @@
  * only when one is due; otherwise it ends without a report. Reports that land and the human's 1:1 lines are streamed
  * into it, so it keeps the context of what it already decided; while a 1:1 is open it stays open between turns.
  */
-import { endMeeting, humanTyping, intrayOf, managePrompt, managerAgentOf, managerNewReport, oneOnOneEnded, oneOnOnePrompt, oneOnOneUtterance, sessionMemory, skillsBlock, workSystemPrompt, type World } from "@muster-town/core";
+import { endMeeting, humanDecisionsBlock, humanTyping, intrayOf, managePrompt, managerAgentOf, managerNewReport, oneOnOneEnded, oneOnOnePrompt, oneOnOneUtterance, sessionMemory, skillsBlock, workSystemPrompt, type World } from "@muster-town/core";
 import type { Agent, Doc, Meeting, Session } from "@muster-town/schema";
 import { homeOf, runAgentSession, type Ctx } from "./session.ts";
 
@@ -93,7 +93,7 @@ function wakeTalker(ctx: Ctx, st: ManageState, gate: ManageGate, agent: Agent, f
     for (const m of talks) {
       const f = st.fed.get(m.id);
       if (f?.sessionId !== live.sessionId) {
-        if (live.input.push(oneOnOnePrompt(m, nameOf))) st.fed.set(m.id, { sessionId: live.sessionId, idx: m.transcript.length });
+        if (live.input.push(oneOnOnePrompt(m, nameOf, humanDecisionsBlock(world, m)))) st.fed.set(m.id, { sessionId: live.sessionId, idx: m.transcript.length });
         continue;
       }
       for (const u of m.transcript.slice(f.idx)) if (u.speakerId !== agent.id && u.speakerKind !== "system") live.input.push(oneOnOneUtterance(m, nameOf(u.speakerId), u.text));
@@ -134,14 +134,14 @@ export async function runManageSession(ctx: Ctx, st: ManageState, agentId: strin
   const run = runAgentSession(ctx, {
     agentId, purpose: "manage", model: agent.model ?? building.model, maxTurns: building.maxTurnsPerSession, web: false, meetingId: first?.id ?? null,
     system: workSystemPrompt(agent, building, world.town.get(), { ...sessionMemory(world, agent, building), skills: skillsBlock(world.skills.forAgent(agentId)) }),
-    prompt: first ? oneOnOnePrompt(first, nameOf) : managePrompt(building, fresh, nameOf),
+    prompt: first ? oneOnOnePrompt(first, nameOf, humanDecisionsBlock(world, first)) : managePrompt(building, fresh, nameOf),
     keepOpen: () => openOneOnOnes(world, agentId).length > 0,
   });
   // runAgentSession registered the live session before its first await: queue what the prompt didn't cover
   const live = ctx.live.get(agentId);
   if (live && first) {
     for (const m of talks) st.fed.set(m.id, { sessionId: live.sessionId, idx: m.transcript.length });
-    for (const m of more) live.input.push(oneOnOnePrompt(m, nameOf));
+    for (const m of more) live.input.push(oneOnOnePrompt(m, nameOf, humanDecisionsBlock(world, m)));
     for (const d of fresh) live.input.push(managerNewReport(d, nameOf));
   }
   const out = await run;
