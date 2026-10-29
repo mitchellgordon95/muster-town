@@ -1,9 +1,9 @@
-import { CreateMeetingInput, Meeting, REVIEW_DECK_ID, parseDeck, type Agent, type DeckSlide, type MeetingAttachment } from "@muster-town/schema";
+import { CreateMeetingInput, Meeting, REVIEW_DECK_ID, parseDeck, type Agent, type DeckSlide, type PinnedSlide, type MeetingAttachment } from "@muster-town/schema";
 import { applyDecision, createAssignment, createDoc, managerAgentOf, sendMessage, setAssignmentStatus, updateDoc } from "./domain.ts";
 import { AppError, badRequest, forbidden, notFound } from "./errors.ts";
 import { buildingRoleId, townRoleId } from "./permissions.ts";
 import { notifyMentions } from "./mentions.ts";
-import { reviewDeck } from "./review-deck.ts";
+import { presentedReviewDeck } from "./review-deck.ts";
 import { oneLine } from "./text.ts";
 import { newId, nowIso } from "./util.ts";
 import { validateWait } from "./waits.ts";
@@ -101,7 +101,7 @@ export function createMeeting(world: World, input: CreateMeeting, actor?: Agent)
     scheduledAt: inp.scheduledAt ?? ts, phase: inp.startNow ? "collecting" : "scheduled",
     facilitatorId: defaultFacilitator(world, bid, attendeeIds), attendeeIds, agenda: agendaText(inp.agenda), createdAt: ts,
     brings: { mode: brings.mode, text: brings.mode === "custom" ? brings.text.trim() : "" }, askHumans: inp.askHumans ?? inp.kind === "town-hall",
-    deck: deckDocId ? { docId: deckDocId, slide: 1, presenterId: actor ? world.holderOf(actor).id : null } : null,
+    deck: deckDocId ? { docId: deckDocId, slide: 1, presenterId: actor ? world.holderOf(actor).id : null, ...(inp.startNow && deckDocId === REVIEW_DECK_ID ? { pinned: presentedReviewDeck(world, undefined).pinned } : {}) } : null,
   }));
   world.events.append({ type: "meeting.created", buildingId: bid, text: `Meeting called: ${meeting.title}`, payload: { meetingId: meeting.id, kind: meeting.kind, phase: meeting.phase, by: actor ? world.holderOf(actor).id : "system" } });
   for (const id of attendeeIds) sendMessage(world, { kind: "meeting", fromId: "system", fromKind: "system", toId: id, meetingId: meeting.id, body: `You're invited to "${meeting.title}" (${meeting.id}). ${inviteAsk(meeting)}` });
@@ -215,7 +215,10 @@ export function setMeetingPhase(world: World, meetingId: string, phase: Meeting[
   if (m.phase === phase) return m;
   if (m.phase === "done" || m.phase === "cancelled") throw new AppError("conflict", `Meeting is already ${m.phase}.`);
   const ts = nowIso();
-  const updated = world.meetings.upsert({ ...m, phase, startedAt: phase === "discussing" ? m.startedAt ?? ts : m.startedAt, endedAt: phase === "done" || phase === "cancelled" ? ts : m.endedAt });
+  // a review deck is pinned as the meeting goes live: slide numbers hold from here on (mt_xywhisvdcm)
+  const live = phase === "collecting" || phase === "discussing";
+  const deck = live && m.deck?.docId === REVIEW_DECK_ID && !m.deck.pinned ? { ...m.deck, pinned: presentedReviewDeck(world, undefined).pinned } : m.deck;
+  const updated = world.meetings.upsert({ ...m, phase, deck, startedAt: phase === "discussing" ? m.startedAt ?? ts : m.startedAt, endedAt: phase === "done" || phase === "cancelled" ? ts : m.endedAt });
   for (const id of m.attendeeIds) {
     const a = world.agents.get(id);
     if (!a) continue;
@@ -317,8 +320,9 @@ export function meetingNotice(world: World, meetingId: string, text: string): Me
 // ---- presentation mode (gr_jh0lu0w6yj step 5, design dc_y7a8g257of §1/§3) ----
 
 /** A deck's title and slides: a stored deck doc, or the review deck (REVIEW_DECK_ID), assembled now from the in-tray. */
-export function deckSlides(world: World, docId: string): { title: string; slides: DeckSlide[] } {
-  if (docId === REVIEW_DECK_ID) { const d = reviewDeck(world); return { title: d.title, slides: d.slides }; }
+export function deckSlides(world: World, docId: string, pinned?: PinnedSlide[]): { title: string; slides: DeckSlide[]; pinned?: PinnedSlide[] } {
+  // presented in a meeting: the review deck's slide list is pinned, so a decision doesn't renumber it (mt_xywhisvdcm)
+  if (docId === REVIEW_DECK_ID) { const d = presentedReviewDeck(world, pinned); return { title: d.title, slides: d.slides, pinned: d.pinned }; }
   const doc = world.docs.get(docId);
   if (!doc) throw notFound("doc", docId);
   if (doc.type !== "deck") throw badRequest(`${docId} is a ${doc.type}, not a deck: only a deck doc (or the review deck) can be presented.`);
@@ -337,7 +341,7 @@ export interface CurrentSlide { deckId: string; deckTitle: string; n: number; co
 export function currentSlide(world: World, m: Pick<Meeting, "deck">): CurrentSlide | null {
   if (!m.deck) return null;
   let d: { title: string; slides: DeckSlide[] };
-  try { d = deckSlides(world, m.deck.docId); } catch { return null; }
+  try { d = deckSlides(world, m.deck.docId, m.deck.pinned); } catch { return null; }
   if (!d.slides.length) return { deckId: m.deck.docId, deckTitle: d.title, n: 0, count: 0, title: "", text: "", notes: "", nextTitle: null };
   const n = Math.min(m.deck.slide, d.slides.length);
   const s = d.slides[n - 1]!;
@@ -368,13 +372,13 @@ export function presentSlide(world: World, actor: Agent, meetingId: string, docI
     world.events.append({ type: "meeting.slide", agentId: actor.kind === "human" ? null : actor.id, buildingId: m.buildingId, text: `${actor.name} stopped presenting in ${m.title}`, payload: { meetingId: m.id, docId: null, by } });
     return updated;
   }
-  const d = deckSlides(world, docId);
+  const d = deckSlides(world, docId, m.deck?.docId === docId ? m.deck.pinned : undefined);
   if (!d.slides.length) throw badRequest(`${docId} has no slides yet.`);
   const n = Math.min(Math.max(1, Math.floor(slide)), d.slides.length);
   const newDeck = !m.deck || m.deck.docId !== docId;
   const moved = newDeck || m.deck!.slide !== n;
   const lines = moved ? [...(newDeck ? [notice(`— ${actor.name} is presenting "${d.title}" (${d.slides.length} slides)`)] : []), notice(slideLine(n, d.slides[n - 1]!.title))] : [];
-  const updated = world.meetings.upsert({ ...m, deck: { docId, slide: n, presenterId: by }, transcript: [...m.transcript, ...lines] });
+  const updated = world.meetings.upsert({ ...m, deck: { docId, slide: n, presenterId: by, ...(d.pinned ? { pinned: d.pinned } : {}) }, transcript: [...m.transcript, ...lines] });
   if (moved) world.events.append({ type: "meeting.slide", agentId: actor.kind === "human" ? null : actor.id, buildingId: m.buildingId, text: `${m.title}: ${slideLine(n, d.slides[n - 1]!.title)}`, payload: { meetingId: m.id, docId, slide: n, by } });
   return updated;
 }

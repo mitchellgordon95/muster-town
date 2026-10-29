@@ -1,5 +1,5 @@
-import { AppError, BANK_ACCOUNTING, accessRequestOf, boardWithTownDocs, canInteract, decideAccess, deskSlotRows, requestAccess, sessionView, setDeskSlot, cabinetCounts, cabinetDocs, reportChains, reviewDeck } from "@muster-town/core";
-import { AccessDecisionInput, AccessRequestInput, AddBankInput, CreateBankPoolInput, CreateBuildingInput, DesksPatch, UpdateBankPoolInput, DocType, DonateInput, LayoutInput, Membership, PlanInput, PlantFlagInput, RedeployInput, UpdateBuildingInput, apiKeyProblem, townEnv, type AccessRequest, type AuthMe, type RedeployLive } from "@muster-town/schema";
+import { AppError, BANK_ACCOUNTING, accessRequestOf, boardWithTownDocs, canInteract, decideAccess, deskSlotRows, requestAccess, sessionView, setDeskSlot, cabinetCounts, cabinetDocs, reportChains, reviewDeck, presentedReviewDeck } from "@muster-town/core";
+import { AccessDecisionInput, AccessRequestInput, AddBankInput, CreateBankPoolInput, CreateBuildingInput, DesksPatch, UpdateBankPoolInput, DocType, DonateInput, LayoutInput, Membership, PlanInput, PlantFlagInput, RedeployInput, UpdateBuildingInput, apiKeyProblem, townEnv, REVIEW_DECK_ID, type AccessRequest, type AuthMe, type RedeployLive } from "@muster-town/schema";
 import type { FastifyInstance, FastifyRequest } from "fastify";
 import { brotliDecompressSync } from "node:zlib";
 import { z } from "zod";
@@ -235,9 +235,15 @@ export async function townRoutes(app: FastifyInstance) {
 
   /**
    * The review deck (design dc_y7a8g257of §2): the Town Hall in-tray as slides, computed on each request from the
-   * in-tray and key results (zero tokens). Readable by anyone, like the in-tray.
+   * in-tray and key results (zero tokens). Readable by anyone, like the in-tray. `?meeting=<id>`: the deck as that
+   * meeting presents it, its slide list pinned (a decided item's slide stays at its number, marked `decided`).
    */
-  app.get("/api/review-deck", async () => reviewDeck(world));
+  app.get<{ Querystring: { meeting?: string } }>("/api/review-deck", async (req) => {
+    const deck = req.query.meeting ? world.meetings.get(req.query.meeting)?.deck : null;
+    if (!deck?.pinned || deck.docId !== REVIEW_DECK_ID) return reviewDeck(world);
+    const { pinned: _pinned, ...d } = presentedReviewDeck(world, deck.pinned);
+    return d;
+  });
 
   /** A human plants a flag (a short request) in a building: a pending `flag` doc in its in-tray for the manager to delegate (`building.assign`). */
   app.post<{ Params: Params }>("/api/buildings/:id/flags", async (req, reply) => {

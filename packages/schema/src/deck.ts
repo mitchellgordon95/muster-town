@@ -85,6 +85,8 @@ export interface ReviewSlide extends DeckSlide {
   grantId?: string;
   /** report slides: the report the buttons decide; "For the record": every report Approve all archives */
   docIds?: string[];
+  /** a presented deck only: the slide's item was decided during the presentation ("cut", "approved"…); it stays in place, buttons off */
+  decided?: string;
 }
 export interface ReviewDeck { title: string; generatedAt: string; slides: ReviewSlide[] }
 

@@ -29,6 +29,8 @@ export function landingSlide(slides: ReviewSlide[], wantKey: string | null, n: n
 
 /** The decision buttons for one slide: pure over its props, so tests render it. */
 export function SlideDecision({ slide, n, grants, reports, onDecided, onOpenDoc, meetingId }: { slide: ReviewSlide; n: number; grants: GrantView[]; reports: Doc[]; onDecided: () => void; onOpenDoc: (id: string) => void; meetingId?: string }) {
+  // a presented deck keeps a decided item's slide in place (mt_xywhisvdcm): its decision, no buttons
+  if (slide.decided) return <div className="review-decide muted">Decided: {slide.decided}. Move on with →.</div>;
   if (slide.grantId) {
     const g = grants.find((x) => x.id === slide.grantId);
     return g ? <div className="review-decide"><GrantRow grant={g} onDecided={onDecided} onOpenDoc={onOpenDoc} deckSlide={n} meetingId={meetingId} /></div> : <div className="review-decide muted">Already decided.</div>;
