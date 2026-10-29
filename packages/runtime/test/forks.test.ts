@@ -1,18 +1,19 @@
 /** Manager forks step 2 (dc_mymt27yz25 §2, §5.3): the scheduler spawns forks from the building queue, retires them at session end, routes messages. */
 import { describe, expect, test } from "vitest";
 import { buildingQueue, updateBuilding } from "@muster-town/core";
+import type { DeskBackend } from "../src/index.ts";
 import { callVerb, init, result, setup, type FakeSession } from "./helpers.ts";
 
 const REPORT = { title: "Done", verdict: "stop", body: "## What I did\nIt.\n\n## Findings\nThe plan: step A then B.\n\n## What I need from you\nNothing needed." };
 
 /** The seeded lab with Mei as manager, room for two forks, forks on. */
-function forkSetup(script: (s: FakeSession) => AsyncGenerator<unknown, void, unknown>, opts: { forks?: boolean; spare?: number } = {}) {
+function forkSetup(script: (s: FakeSession) => AsyncGenerator<unknown, void, unknown>, opts: { forks?: boolean; spare?: number; backend?: DeskBackend } = {}) {
   let meiId = "";
   // the manager's own sessions (woken by its forks' reports) just end
   const t = setup(async function* (s) {
     if (s.agentId === meiId) { yield init(); yield result(1, 0); return; }
     yield* script(s);
-  });
+  }, opts.backend ? { deskBackend: opts.backend } : {});
   const { world, lab, by } = t;
   const mei = by("Mei");
   meiId = mei.id;
@@ -161,5 +162,45 @@ describe("manager forks: messages", () => {
     expect(msg.toId).toBe(mei.id);
     expect(msg.body).toContain("after its session ended");
     expect(msg.body).toContain("One more thing");
+  });
+});
+
+describe("manager forks: a desk that fails at startup", () => {
+  test("after 2 forks in a row whose desk fails before a session exists, the work waits 10 min (waitFor.after), the manager is told, and the retire reason carries the error", async () => {
+    const failing: DeskBackend = {
+      kind: "docker",
+      available: async () => true,
+      ensure: async () => { throw new Error("insufficient resources to create new machine with existing volume 'vol_x'"); },
+      exec: () => { throw new Error("unreachable"); },
+    };
+    const { world, runtime, mei, clock, queue } = forkSetup(async function* () { yield init(); yield result(1, 0); }, { backend: failing });
+    const a = await queue("Needs a desk");
+    const forked = () => world.events.recent({ limit: 300 }).filter((e) => e.type === "agent.forked");
+    const retired = () => world.events.recent({ limit: 300 }).filter((e) => e.type === "agent.retired");
+    await pass(runtime);
+    expect(forked()).toHaveLength(1);
+    expect(retired()[0]!.payload).toMatchObject({ tokens: 0, reason: "desk failed at startup: insufficient resources to create new machine with existing volume 'vol_x'", requeued: [a] });
+    // still queued, no wait yet: the second try runs on the next pass
+    expect(world.assignments.require(a)).toMatchObject({ status: "pending", agentId: mei.id, waitFor: null });
+    await pass(runtime);
+    expect(forked()).toHaveLength(2);
+    const parked = world.assignments.require(a);
+    expect(parked.status).toBe("pending");
+    expect(parked.waitFor).toEqual({ after: new Date(clock.t + 10 * 60_000).toISOString() });
+    const alert = world.events.recent({ limit: 300 }).find((e) => e.type === "system" && e.payload?.alert === "fork-startup-failed")!;
+    expect(alert.text).toContain('"Needs a desk" couldn\'t start 2 times in a row (desk failed at startup: insufficient resources');
+    expect(alert.payload).toMatchObject({ assignmentId: a, attempts: 2 });
+    const note = world.messages.first("toId = ? AND kind = 'system'", [mei.id])!;
+    expect(note.body).toContain(`"Needs a desk" (${a}) couldn't start 2 times in a row`);
+    expect(note.body).toContain("desk-slots");
+    // no third fork while it waits
+    await pass(runtime);
+    await pass(runtime);
+    expect(forked()).toHaveLength(2);
+    // after the backoff the scheduler tries again (and the count starts over)
+    clock.t += 10 * 60_000 + 1000;
+    await pass(runtime);
+    expect(forked()).toHaveLength(3);
+    expect(world.assignments.require(a)).toMatchObject({ status: "pending", waitFor: null });
   });
 });
