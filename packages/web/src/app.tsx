@@ -98,9 +98,12 @@ async function boot(): Promise<Phase> {
   loadRedeployLive();
   loadBank();
   setInterval(loadBank, 60_000);
-  // what blocks each queued assignment: on connect, after assignment changes (at most every 2 s), and every 30 s (deploys, decisions, time)
+  // what blocks each queued assignment, and what is scheduled: on connect, after assignment changes (at most every 2 s), and every 30 s (deploys, decisions, time)
   let blockedTimer: ReturnType<typeof setTimeout> | null = null;
-  const loadBlocked = () => { a.blocked().then((blocked) => store.set({ blocked }), () => undefined); };
+  const loadBlocked = () => {
+    a.blocked().then((blocked) => store.set({ blocked }), () => undefined);
+    a.scheduled().then((scheduled) => store.set({ scheduled }), () => undefined);
+  };
   store.onAssignmentChanged = () => { blockedTimer ??= setTimeout(() => { blockedTimer = null; loadBlocked(); }, 2000); };
   loadBlocked();
   setInterval(loadBlocked, 30_000);

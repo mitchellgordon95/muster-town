@@ -1,5 +1,5 @@
 /** `Api` implemented against the in-memory Sim. Same interface as HttpApi, so every panel works offline. */
-import type { AccessRequest, AccessRequestView, Agent, Assignment, AuthMe, BlockedAssignment, BlockedBy, Building, Doc, Event, Meeting, Membership, RedeployLive, ReviewDeck, ReviewSlide } from "@muster-town/schema";
+import type { AccessRequest, AccessRequestView, Agent, Assignment, AuthMe, BlockedAssignment, BlockedBy, ScheduledAssignment, Building, Doc, Event, Meeting, Membership, RedeployLive, ReviewDeck, ReviewSlide } from "@muster-town/schema";
 import { REVIEW_DECK_ID, parseDeck } from "@muster-town/schema";
 import { BACKFILL, BOARD_TYPES, KPI_FRAMING, DEFAULT_POOL_ID, ZERO_TOKENS, addTokens, backfillFamily, splitRaw, type BankPool } from "@muster-town/schema";
 import type { Api, AgentDetail, AllocationRow, Bank, Budget, Finance, FinancePools, FinanceSources, FinanceSpend, Cabinet, CabinetQuery, DocQuery, EventQuery, In, LayoutPreview, MessageResult, PlanPreview, RoomLayout, RequestAction, Snapshot, Socket, SocketHandlers, ThreadMessage, WriteDocInput } from "../api";
@@ -762,13 +762,20 @@ export class MockApi implements Api {
         b = { kind: "decision", targetId: w.decision, placeId: `intray:${d?.buildingId ?? a.buildingId}`, text: `waits for a decision on "${d?.title ?? w.decision}"` };
       } else if ("deploy" in w) {
         b = { kind: "deploy", targetId: w.deploy, placeId: `door:${a.buildingId}`, text: w.deploy === "next" ? "waits for the next redeploy" : `waits for deploy ${w.deploy.slice(0, 7)} (live is mock)` };
-      } else {
-        if (Date.parse(w.after) <= Date.now()) continue;
-        b = { kind: "after", targetId: null, text: `not before ${w.after}` };
-      }
+      } else continue; // a time: scheduled, not blocked
       (out[a.agentId] ??= []).push({ assignmentId: a.id, title: a.title, blockedBy: b });
     }
     return clone(out);
+  }
+  /** like core's townScheduled: queued assignments waiting on a time still ahead, soonest first */
+  async scheduled() {
+    await wait(40);
+    const out: ScheduledAssignment[] = [];
+    for (const a of this.sim.assignments.values()) {
+      const w = a.status === "pending" ? a.waitFor : null;
+      if (w && "after" in w && Date.parse(w.after) > Date.now()) out.push({ assignmentId: a.id, title: a.title, agentId: a.agentId, buildingId: a.buildingId, queue: a.queue, runsAt: w.after });
+    }
+    return clone(out.sort((x, y) => x.runsAt.localeCompare(y.runsAt)));
   }
   /**
    * At boot, like a server restarted mid-drain: a stale "waiting for Moss" drain (the live view already says nothing runs),

@@ -5,7 +5,7 @@
  */
 import { useSyncExternalStore } from "react";
 import { mapFlagOf, ServerMessage } from "@muster-town/schema";
-import type { Agent, Assignment, AuthMe, BlockedAssignment, Doc, Event, MapFlag, Meeting, Permission, Place, SnapshotBuilding, Town, TownHealth } from "@muster-town/schema";
+import type { Agent, Assignment, AuthMe, BlockedAssignment, Doc, ScheduledAssignment, Event, MapFlag, Meeting, Permission, Place, SnapshotBuilding, Town, TownHealth } from "@muster-town/schema";
 import type { Bank, Grid, Snapshot } from "./api";
 import { redeployStatus, type RedeployLiveAt } from "./redeploy";
 import { redirectPanel } from "./panels/room";
@@ -50,6 +50,8 @@ export interface TownState {
   redeployLive: RedeployLiveAt | null;
   /** `GET /api/blocked`: per agent, its queued assignments that can't start and why (queue rows, the map's blocked badges and red lines) */
   blocked: Record<string, BlockedAssignment[]>;
+  /** `GET /api/scheduled`: queued assignments waiting on a time, soonest first (the map's scheduled badges, the building panel's Scheduled list) */
+  scheduled: ScheduledAssignment[];
 }
 
 const MAX_EVENTS = 600;
@@ -57,7 +59,7 @@ const MAX_EVENTS = 600;
 class Store {
   state: TownState = {
     conn: "connecting", me: null, town: null, buildings: [], agents: {}, places: [], flags: [], outbox: 0, grid: null, gridVersion: 0,
-    meetings: {}, events: [], docs: {}, assignments: {}, panel: null, toasts: [], rev: 0, bank: null, health: null, redeployLive: null, blocked: {},
+    meetings: {}, events: [], docs: {}, assignments: {}, panel: null, toasts: [], rev: 0, bank: null, health: null, redeployLive: null, blocked: {}, scheduled: [],
   };
   /** Latest server position per agent (tile coords). Mutated in place; the renderer interpolates. */
   readonly livePos = new Map<string, { x: number; y: number; at: number }>();

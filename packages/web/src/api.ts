@@ -6,7 +6,7 @@ import type { z } from "zod";
 import type {
   ReviewDeck,
   CreateObjectiveInput, UpdateObjectiveInput, Objective, KpiKey, KpiView,
-  AccessRequest, AccessRequestView, Agent, Allocation, Assignment, AuthMe, BlockedAssignment, RedeployLive, Building, ClientMessage, DesksConfig, Doc, Event, Lot, Meeting, Place, Role, Membership, SessionSlots, Tile,
+  AccessRequest, AccessRequestView, Agent, Allocation, Assignment, AuthMe, BlockedAssignment, ScheduledAssignment, RedeployLive, Building, ClientMessage, DesksConfig, Doc, Event, Lot, Meeting, Place, Role, Membership, SessionSlots, Tile,
   ServerMessage, SessionView, TokenCounts, Town, CreateBuildingInput, UpdateBuildingInput, CreateResidentInput, RegisterVisitorInput,
   ReviewInput, PinSkillInput, SkillPinView, SkillView, PutSecretInput, SecretView, ChatInput, WorkInput, DonateInput, AddBankInput, BankInput, CreateBankPoolInput, UpdateBankPoolInput, CreateMeetingInput, DocState, DocType, Mailbox, Permission, DecideGrantInput, CloseGrantInput, GrantView, KeyResult, CreateKeyResultInput, UpdateKeyResultInput, Stoplight,
 } from "@muster-town/schema";
@@ -458,6 +458,8 @@ export interface Api {
   /** the live server's build (`commit` null when unknown); a reconnect compares it with the one this bundle came from */
   /** every agent's queued assignments that can't start, with the reason (GET /api/blocked): the map's blocked badges and red lines */
   blocked(): Promise<Record<string, BlockedAssignment[]>>;
+  /** queued assignments waiting on a time, soonest first (GET /api/scheduled): scheduled, not blocked */
+  scheduled(): Promise<ScheduledAssignment[]>;
   health(): Promise<{ ok?: boolean; commit?: string | null }>;
   /** a hosted collective's admin closes it for good (`POST /<slug>/api/collective/retire`) */
   retireCollective(): Promise<{ retired: boolean; url: string }>;
@@ -676,6 +678,7 @@ export class HttpApi implements Api {
   async retireCollective() { return this.post<{ retired: boolean; url: string }>("/api/collective/retire"); }
   async manual() { return this.get<{ doc: Doc; author: string }>("/api/manual"); }
   async blocked() { return (await this.get<{ agents?: Record<string, BlockedAssignment[]> }>("/api/blocked")).agents ?? {}; }
+  async scheduled() { return (await this.get<{ assignments?: ScheduledAssignment[] }>("/api/scheduled")).assignments ?? []; }
 
   connect(h: SocketHandlers): Socket {
     const url = `${location.protocol === "https:" ? "wss" : "ws"}://${location.host}${API_BASE}/ws`;

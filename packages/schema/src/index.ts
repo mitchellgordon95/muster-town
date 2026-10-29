@@ -677,7 +677,7 @@ export type Assignment = z.infer<typeof Assignment>;
  * where the map's red line goes: the blocking colleague's body (`agentId`) or a place (`placeId`: the in-tray that holds
  * the decision, the Town Hall in-tray for a grant or allowance hold, the building's door for a deploy). Neither = no line.
  */
-export const BlockedKind = z.enum(["assignment", "deploy", "decision", "after", "grant", "exploration", "reserved", "budget"]);
+export const BlockedKind = z.enum(["assignment", "deploy", "decision", "grant", "exploration", "reserved", "budget"]);
 export type BlockedKind = z.infer<typeof BlockedKind>;
 export const BlockedBy = z.object({
   kind: BlockedKind,
@@ -689,6 +689,11 @@ export const BlockedBy = z.object({
 export type BlockedBy = z.infer<typeof BlockedBy>;
 /** One blocked queued assignment of an agent (GET /api/blocked). */
 export interface BlockedAssignment { assignmentId: string; title: string; blockedBy: BlockedBy }
+/**
+ * A queued assignment waiting on a time (`waitFor {after}`, not yet reached): scheduled, not blocked (Mitchell, town hall
+ * mt_xywhisvdcm). GET /api/scheduled lists them, soonest first; `runsAt` is the wait's time.
+ */
+export interface ScheduledAssignment { assignmentId: string; title: string; agentId: string; buildingId: string; queue: AssignmentQueue; runsAt: string }
 /** SQL tail for "next pending first": every queue query orders by this. */
 export const QUEUE_ORDER = "ORDER BY position, createdAt, rowid";
 
