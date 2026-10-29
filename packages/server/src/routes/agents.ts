@@ -45,7 +45,7 @@ export async function agentRoutes(app: FastifyInstance) {
   const canEditPermissions = (req: FastifyRequest, agent: Agent): boolean => {
     const a = req.auth;
     if (!a) return false;
-    if (a.kind === "user") return agent.ownerUserId === a.user.id || world.permissions.isAdmin({ kind: "user", id: a.user.id });
+    if (a.kind === "user") return agent.ownerUserId === a.user.id || world.permissions.isUserAdmin(a.user.id);
     return a.agent.kind === "human" ? agent.ownerUserId === a.agent.ownerUserId || world.permissions.isAdmin(a.agent) : world.permissions.isAdmin(a.agent);
   };
 

@@ -119,7 +119,7 @@ function hostedUser(world: World, h: NonNullable<AuthSettings["hosted"]>, gh: Gi
   if (!gh || typeof gh.id !== "number" || typeof gh.login !== "string") return null;
   const owner = h.ownerGithubId != null && h.ownerGithubId === String(gh.id);
   let user = world.users.first("githubId = ?", [gh.id]);
-  if (!user || (owner && !world.permissions.isAdmin({ kind: "user", id: user.id }))) {
+  if (!user || (owner && !world.permissions.isUserAdmin(user.id))) {
     const r = upsertGithubUser(world, gh, { admins: owner ? [gh.login] : [] });
     // the owner takes over the seeded "admin" placeholder (its buildings and avatar) under their own name
     user = r.linked ? world.users.upsert({ ...r.user, name: gh.name?.trim() || gh.login }) : r.user;
