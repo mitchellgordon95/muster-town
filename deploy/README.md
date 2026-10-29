@@ -189,7 +189,7 @@ is the box's existing Gmail app password), dry run "ok (fails 0)", timer enabled
 
 ### Self-hosted towns directory (grant gr_8cdix9mpye, design dc_d6chojzl2a)
 
-`MUSTER_TOWN_DIRECTORY = "on"` in `fly.town.toml` turns on the directory routes on muster.town only:
+`MUSTER_TOWN_DIRECTORY = "on"` in `fly.town.toml` turns on the directory routes on muster.town only (unset, they are on wherever `MUSTER_TOWN_PUBLIC_URL` is `https://muster.town`, because an `[env]` change reaches the Machine only with an image deploy; `off` turns them off):
 `POST /api/directory/register {host}` (no account, no approval; returns the same `mtd_…` token for a host every time, with
 the TXT and well-known proof instructions; 10 calls per IP per day, 5 pending hosts per IP, 200 new hosts a day; the client
 IP is `Fly-Client-IP`) and `GET /api/directory` → `{towns: [{host, url, name, goal, verifiedAt, lastSeenAt}]}` (verified towns
