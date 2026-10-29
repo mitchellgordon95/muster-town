@@ -19,6 +19,35 @@ export interface TableOptions {
 
 type Row = Record<string, unknown>;
 
+/** A raw SQL condition with its `?` params, in order. */
+export interface SqlFragment { sql: string; params: unknown[] }
+
+/**
+ * Builds a WHERE body (without the keyword) from optional filters, for `Table.where` and raw queries.
+ * Each `conds` entry is `col = ?`, or `col IN (?, …)` for an array (an empty array matches nothing);
+ * undefined, null and "" values are unset filters and are skipped. `extra` are raw fragments
+ * (falsy entries skipped, so `cond && {…}` works). Everything is joined with AND, conds first;
+ * each fragment keeps its own params, so the params line up with the `?`s. Nothing applies → `sql` is "".
+ */
+export function whereOf(conds: Record<string, unknown>, extra: (SqlFragment | false | null | undefined | "")[] = []): SqlFragment {
+  const sql: string[] = [];
+  const params: unknown[] = [];
+  for (const [col, v] of Object.entries(conds)) {
+    if (v === undefined || v === null || v === "") continue;
+    if (!/^[A-Za-z_][\w.]*$/.test(col)) throw new Error(`[core] whereOf: bad column ${col}`);
+    if (Array.isArray(v)) {
+      sql.push(v.length ? `${col} IN (${v.map(() => "?").join(", ")})` : "0 = 1");
+      params.push(...v);
+    } else { sql.push(`${col} = ?`); params.push(v); }
+  }
+  for (const f of extra) {
+    if (!f) continue;
+    sql.push(f.sql);
+    params.push(...f.params);
+  }
+  return { sql: sql.join(" AND "), params };
+}
+
 /**
  * Maps one schema object type to one table. Every write is validated with the schema;
  * every read is parsed back through it (so defaults apply and bad rows fail loudly).
@@ -106,9 +135,9 @@ export class Table<T extends object, W extends object = T> {
     return v;
   }
 
-  /** `where` is a SQL fragment with `?` params; `tail` is e.g. `ORDER BY createdAt DESC LIMIT 20`. */
+  /** `where` is a SQL fragment with `?` params ("" = every row, e.g. an empty `whereOf`); `tail` is e.g. `ORDER BY createdAt DESC LIMIT 20`. */
   where(where = "1=1", params: unknown[] = [], tail = ""): T[] {
-    const rows = this.stmt(`SELECT * FROM "${this.name}" WHERE ${where} ${tail}`).all(...params) as Row[];
+    const rows = this.stmt(`SELECT * FROM "${this.name}" WHERE ${where || "1=1"} ${tail}`).all(...params) as Row[];
     return rows.map((r) => this.fromRow(r));
   }
 
