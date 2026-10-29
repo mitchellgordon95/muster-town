@@ -17,7 +17,7 @@
 import { api, type BankPoolSummary, type Finance, type FinancePools, type FinanceSources, type FinanceSpend, type SpendNode } from "../api";
 import type { ReactNode } from "react";
 import { Glyph, PanelShell } from "./PanelShell";
-import { ADJ, ErrorLine, Loading, Section, useLoad } from "./ui";
+import { ADJ, ADJ_HINT, ErrorLine, Loading, Section, useLoad } from "./ui";
 
 const n = (x: number) => Math.round(x).toLocaleString("en-US");
 
@@ -41,7 +41,7 @@ export function overdrawnParts(f: Finance): { key: string; label: string; tokens
   return [
     { key: "durableOvershoot", label: "permanent pools drawn past their credits (overshoot debt)", tokens: b.durableOvershoot },
     { key: "subscriptionOverdrawn", label: "subscription credits drawn past their size", tokens: b.subscriptionOverdrawn,
-      note: "Pre-conversion Fable draw: credits capped in raw tokens, converted to adjusted tokens by migration 037." },
+      note: "Left over from the Bank's switch to adj. tokens on 2026-10-27: before it, Fable sessions drew on credits sized in raw tokens, and converting those credits left the draws past their new size." },
     { key: "deletedCreditDebits", label: "drawn from credits since deleted", tokens: b.deletedCreditDebits },
     { key: "allocationOverspent", label: "donations to buildings spent past their size", tokens: b.allocationOverspent },
   ].filter((p) => p.tokens > 0);
@@ -60,9 +60,9 @@ export function spendCheckLine(sp: FinanceSpend): { ok: boolean; text: string } 
 
 /** The note under a synthetic row; the weight-mismatch one is the API's own line. */
 export const spendNotes = (sp: Pick<FinanceSpend, "weightMismatchNote">): Partial<Record<SpendNode["kind"], string>> => ({
-  "unattributed": "Used from the Bank or donations but counted by no session (sessions from before the token counters).",
+  "unattributed": "Paid for from the Bank or donations but not traceable to any one work session: work from before sessions counted their own tokens.",
   "weight-mismatch": sp.weightMismatchNote,
-  "not-funded": "Sessions counted more than the Bank and donations paid for, once the weight mismatch is set aside: usage the Bank recorded with no debit or donation behind it, taken off so the rows sum to used.",
+  "not-funded": "Work sessions that were never charged to the Bank or a donation: the sessions counted more than was paid for, even after the weight mismatch above. Taken off here so the rows sum to Used, which counts only what was paid.",
 });
 
 function SpendRow({ node, notes }: { node: SpendNode; notes: Partial<Record<SpendNode["kind"], string>> }) {
@@ -200,7 +200,7 @@ const Total = ({ label, tokens }: { label: string; tokens: number }) => (
 export function PoolsView({ fp }: { fp: FinancePools }) {
   return (
     <Section title="Pools">
-      <p className="muted">Each pool owns its share of every Bank credit; its buildings draw from it first come, first served. Left ({ADJ}) splits into expiring (subscription) and permanent (API key).</p>
+      <p className="muted">Each pool owns its share of every Bank credit; its buildings draw from it first come, first served. Left ({ADJ}) splits into expiring (subscription tokens: what is not used before the daily renewal is lost) and permanent (API-key tokens: kept until used).</p>
       <div className="spend-tree">
         {fp.pools.map((p) => (
           <div key={p.id ?? "deleted"} className="pool-group">
@@ -250,9 +250,14 @@ export function FinanceView({ f, pools, spend = null, sources = null, poolsFin =
   const runway = runwayDays(f);
   const p = f.projection;
   return <>
+    <p className="muted finance-intro">
+      Every amount here is in <abbr title={ADJ_HINT}>{ADJ}</abbr> (adjusted output tokens): the unit the town pays for AI model work in, where
+      one output token counts 1 and input and cached tokens count at their lower price (1 adj. token ≈ 30 raw tokens on Opus, 24 on Fable).
+      A ✓ line under a section means the server checked that its numbers add up; ✗ would say by how much they are off.
+    </p>
     <Section title="Tokens">
       <table className="table finance-summary">
-        <thead><tr><th /><th>{ADJ}</th></tr></thead>
+        <thead><tr><th /><th title={ADJ_HINT}>{ADJ}</th></tr></thead>
         <tbody>
           <tr><td>Total received</td><td><b>{n(f.total)}</b></td></tr>
           <tr className="sub-row"><td>credited to the Bank (subscriptions, API keys)</td><td>{n(f.credited)}</td></tr>

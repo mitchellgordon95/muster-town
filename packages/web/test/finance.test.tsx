@@ -33,12 +33,12 @@ describe("finance page", () => {
     expect(parts.map((p) => p.key)).toEqual(["durableOvershoot", "subscriptionOverdrawn", "allocationOverspent"]);
     expect(parts.reduce((s, p) => s + p.tokens, 0)).toBe(f.overdrawn);
     const html = renderToStaticMarkup(<FinanceView f={f} pools={null} />);
-    for (const s of ["overshoot debt", "120", "subscription credits drawn past their size", "Pre-conversion Fable draw", "migration 037", "spent past their size"]) expect(html).toContain(s);
+    for (const s of ["overshoot debt", "120", "subscription credits drawn past their size", "switch to adj. tokens on 2026-10-27", "Fable sessions drew on credits sized in raw tokens", "spent past their size"]) expect(html).toContain(s);
     expect(html).not.toContain("credits since deleted");
   });
   it("renders total, used, expired, left, the projection and the pools", () => {
     const html = renderToStaticMarkup(<FinanceView f={f} pools={[pool("General", -256870), pool("Research", 5000)]} />);
-    for (const s of ["Total received", "1,000", "Used", "1,100", "Expired", "Left", "Overdrawn", "✓ Adds up", "20 / day", "average of the last 7 days", "600", "overdrawn by 256,870", "5,000"]) expect(html).toContain(s);
+    for (const s of ["the unit the town pays for AI model work in", "A ✓ line under a section means", "Total received", "1,000", "Used", "1,100", "Expired", "Left", "Overdrawn", "✓ Adds up", "20 / day", "average of the last 7 days", "600", "overdrawn by 256,870", "5,000"]) expect(html).toContain(s);
     expect(renderToStaticMarkup(<FinanceView f={{ ...f, sumCheck: { ...f.sumCheck, ok: false, diff: 5 } }} pools={null} />)).toContain("✗ Does not add up (off by 5)");
   });
 });
@@ -77,7 +77,7 @@ describe("finance page: spending", () => {
   });
   it("renders building → grant → assignment with the synthetic rows, collapsible", () => {
     const html = renderToStaticMarkup(<FinanceView f={f} pools={null} spend={sp} />);
-    for (const s of ["Spending", "Town Workshop", "900", "81.8%", "Refactor the Bank", "Step 1: the ledger", "No grant", "Manager sessions, no assignment", "Weight mismatch", "-30", "12 sessions", "The difference is pricing, not spend", "Not funded", "-20", "Sessions counted more than", "✓ Adds up: the rows sum to used", "/api/finance/spend"]) expect(html).toContain(s);
+    for (const s of ["Spending", "Town Workshop", "900", "81.8%", "Refactor the Bank", "Step 1: the ledger", "No grant", "Manager sessions, no assignment", "Weight mismatch", "-30", "12 sessions", "The difference is pricing, not spend", "Not funded", "-20", "never charged to the Bank or a donation", "✓ Adds up: the rows sum to used", "/api/finance/spend"]) expect(html).toContain(s);
     expect(html).toContain("<details");
     expect(renderToStaticMarkup(<FinanceView f={f} pools={null} spend={{ ...sp, check: { ...sp.check, ok: false, diff: 3 } }} />)).toContain("✗ Does not add up (off by 3)");
   });
