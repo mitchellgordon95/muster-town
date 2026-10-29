@@ -16,6 +16,8 @@ interface Walk {
   elapsed: number;
   prevStatus: AgentStatus;
   label: string;
+  /** set when the walk heads for another agent (a `go` to an agent id: talking to it) */
+  toAgentId?: string;
   resolve: (a: Agent) => void;
   reject: (e: Error) => void;
   timer: ReturnType<typeof setTimeout>;
@@ -37,7 +39,7 @@ export class Movement {
   }
 
   /** Walk `agent` to `target`. Resolves with the updated agent on arrival; rejects on unreachable/timeout/superseded. */
-  go(agent: Agent, target: Tile, label = `${target.x},${target.y}`): Promise<Agent> {
+  go(agent: Agent, target: Tile, label = `${target.x},${target.y}`, toAgentId?: string): Promise<Agent> {
     const path = findPath(this.map.grid, agent.pos, target);
     if (!path) return Promise.reject(new AppError("unreachable", `No walkable path to ${label}.`));
     const prior = this.walks.get(agent.id);
@@ -46,7 +48,7 @@ export class Movement {
     const prevStatus = prior ? prior.prevStatus : agent.status;
     return new Promise<Agent>((resolve, reject) => {
       const walk: Walk = {
-        agentId: agent.id, path, progress: 0, elapsed: 0, prevStatus, label, resolve, reject,
+        agentId: agent.id, path, progress: 0, elapsed: 0, prevStatus, label, toAgentId, resolve, reject,
         timer: setTimeout(() => this.finish(walk, new AppError("timeout", `Timed out walking to ${label}.`)), WALK_TIMEOUT_MS),
       };
       walk.timer.unref?.();
@@ -103,7 +105,7 @@ export class Movement {
     const status = a.status === "walking" ? w.prevStatus : a.status;
     const updated = this.repos.agents.upsert({ ...a, status, buildingId, activity: err ? a.activity : `Arrived at ${w.label}` });
     if (err) { w.reject(err); return; }
-    this.events.append({ type: "agent.moved", agentId: a.id, buildingId: updated.buildingId, text: `${a.name} walked to ${w.label}`, payload: { to: w.label, pos: a.pos } });
+    this.events.append({ type: "agent.moved", agentId: a.id, buildingId: updated.buildingId, text: `${a.name} walked to ${w.label}`, payload: { to: w.label, pos: a.pos, ...(w.toAgentId ? { toAgentId: w.toAgentId } : {}) } });
     w.resolve(updated);
   }
 }

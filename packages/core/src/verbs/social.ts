@@ -69,7 +69,7 @@ export async function go(world: World, me: Agent, input: VerbIn<"go">) {
   const target = (place && world.standingTile(place.id, me.id)) ?? world.agents.get(input.to)?.pos;
   if (!target) throw new AppError("not_found", `Unknown place or agent: ${input.to}. Use \`look\` to list places.`);
   const label = place?.name ?? world.nameOf(input.to);
-  const arrived = await world.movement.go(me, target, label);
+  const arrived = await world.movement.go(me, target, label, place ? undefined : input.to);
   return { arrived: true, to: input.to, pos: arrived.pos, place: world.layout.placeAt(arrived.pos)?.id ?? null };
 }
 

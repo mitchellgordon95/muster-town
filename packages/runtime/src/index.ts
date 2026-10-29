@@ -3,7 +3,7 @@
  * managers' team-lead sessions over the in-tray, meeting summaries + facilitation, proxy chat, interrupts, scheduler,
  * startup reconcile, dismissal (onAgentRetired), host redeploy (v1.3).
  */
-import { AppError, checkWaits, setAssignmentStatus, codeWorkspace, deskSlotRows, forkableQueue, forkDeskSlot, forkManager, freeDesks, liveForks, meetingNotice, nextStartable, nowIso, PRESENCE_TICK_MS, retireFork, sendMessage, slugify, syncManagerRoles, type World } from "@muster-town/core";
+import { AppError, checkWaits, setAssignmentStatus, codeWorkspace, deskSlotRows, forkableQueue, forkDeskSlot, forkManager, freeDesks, liveForks, meetingNotice, walkIdleHome, nextStartable, nowIso, PRESENCE_TICK_MS, retireFork, sendMessage, slugify, syncManagerRoles, type World } from "@muster-town/core";
 import { DesksConfig, type Agent, type Assignment, type Building, type ChatInput, type DeskActivityInput, type RedeployResult, type Session } from "@muster-town/schema";
 import { chat } from "./chat.ts";
 import { DockerBackend, dockerSafe, HostBackend, type DeskBackend, type SlotResolver, type WorkBackend } from "./desk/backend.ts";
@@ -539,6 +539,7 @@ export function startRuntime(opts: RuntimeOptions): Runtime {
     try { scheduleMeetings(t); } catch (e) { log("meetings")(e); }
     try { checkWaits(world, d); } catch (e) { log("waits")(e); }
     try { closeQuietOneOnOnes(ctx); } catch (e) { log("quiet 1:1s")(e); }
+    try { walkIdleHome(world, t); } catch (e) { log("walk home")(e); }
     try { for (const b of world.buildings.all()) world.grantDesk.syncBlocked(b.id); } catch (e) { log("blocked buildings")(e); }
     await backendReady;
     if (stopped) return;
