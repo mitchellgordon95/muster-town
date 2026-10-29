@@ -7,6 +7,7 @@ import { presentedReviewDeck } from "./review-deck.ts";
 import { oneLine } from "./text.ts";
 import { newId, nowIso } from "./util.ts";
 import { validateWait } from "./waits.ts";
+import { walkHome } from "./home.ts";
 import { decisionWakes } from "./wakes.ts";
 import { TOWN_HALL_ID } from "./world/layout.ts";
 import type { World } from "./world.ts";
@@ -232,6 +233,8 @@ export function setMeetingPhase(world: World, meetingId: string, phase: Meeting[
   }
   const byText = by ? ` (by ${by.kind === "system" ? `the town: ${by.id}` : world.nameOf(by.id)})` : "";
   world.events.append({ type: "meeting.phase", agentId: by?.kind === "agent" ? by.id : null, buildingId: m.buildingId, text: `${m.title}: ${phase}${byText}`, payload: { meetingId: m.id, phase, from: m.phase, ...(by ? { by } : {}) } });
+  // the meeting is over: attendees and the facilitator walk back to their desks (flag dc_ihwq7bfi4o)
+  if (phase === "done" || phase === "cancelled") for (const id of new Set([...m.attendeeIds, ...(m.facilitatorId ? [m.facilitatorId] : [])])) walkHome(world, id);
   return updated;
 }
 

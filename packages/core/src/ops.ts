@@ -10,6 +10,7 @@ import { newId, nowIso } from "./util.ts";
 import { humanOrigin, meetingOrigin } from "./origin.ts";
 import { sessionView, unknownModels } from "./bank.ts";
 import { validateWait } from "./waits.ts";
+import { walkHome } from "./home.ts";
 import { requestAnswerWake } from "./wakes.ts";
 import type { World } from "./world.ts";
 
@@ -522,6 +523,8 @@ export class Ops {
     // Bank step 4: a subscription-cap death (the desk's SPEND_LIMIT, or an error that reads like one) → bank.cap
     const cap = result.spendLimit || (session.error && SPEND_LIMIT.test(session.error) ? session.error : null);
     if (cap) this.world.bank.recordCap(session, homeOf(agent), cap);
+    // the body goes back to its desk unless it's in a meeting, walking or talking (flag dc_ihwq7bfi4o)
+    walkHome(this.world, agent.id);
     // Bank step 2: a model the price table doesn't know is priced as Opus 5.5; say so once per model per process
     const unknown = unknownModels(session.model, session.byModel).filter((m) => !warnedModels.has(m));
     if (unknown.length) {

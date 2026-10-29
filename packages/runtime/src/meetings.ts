@@ -1,5 +1,5 @@
 /** Meetings: summaries while collecting (SUMMARY_MODEL, no tools), @-replies as short read/search sessions, then a facilitated discussion over MCP. */
-import { TOWN_HALL_ID } from "@muster-town/core";
+import { TOWN_HALL_ID, walkHome } from "@muster-town/core";
 import type { Meeting, VerbName } from "@muster-town/schema";
 import { recentWorkBlock } from "@muster-town/core";
 import { facilitateMaterial, meetingContextBlock, facilitatePrompt, facilitateSystemPrompt, lastMeetingFor, meetingReplyPrompt, meetingReplySystemPrompt, summaryPrompt, summarySystemPrompt } from "@muster-town/core";
@@ -188,5 +188,6 @@ export async function facilitate(ctx: Ctx, st: MeetingState, meetingId: string):
     if (world.movement.isWalking(id)) world.movement.cancel(id, "Meeting ended.");
     const a = world.agents.get(id);
     if (a?.status === "in-meeting" && !a.currentMeetingId) world.setStatus(id, "idle");
+    walkHome(world, id); // the cancel above may have stopped the walk home that the meeting's end started
   }
 }
