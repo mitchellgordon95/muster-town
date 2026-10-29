@@ -5,6 +5,7 @@ import { badRequest, forbidden } from "./errors.ts";
 import { townFinance, type FinanceSummary } from "./finance.ts";
 import { townSpend, type FinanceSpend } from "./finance-spend.ts";
 import { townSources, type FinanceSources } from "./finance-sources.ts";
+import { townPools, type FinancePools } from "./finance-pools.ts";
 import type { EventLog } from "./events.ts";
 import type { Holder, Permissions } from "./permissions.ts";
 import type { Repos } from "./store.ts";
@@ -668,6 +669,11 @@ export class Bank {
   /** GET /api/finance/sources: what was received, per Bank input (with its dated credits) and per direct donation (finance-sources.ts). */
   sources(now = new Date()): FinanceSources {
     return townSources(this.repos, now);
+  }
+
+  /** GET /api/finance/pools: each pool's share, left and overdrawn, and each building's draws, donations, held and allowance (finance-pools.ts). */
+  pools(allowance: (buildingId: string) => number, now = new Date()): FinancePools {
+    return townPools(this.repos, this, allowance, now);
   }
 
   summary(): BankSummary {
