@@ -6,11 +6,13 @@
  */
 import { createContext, useContext, useEffect, useState, type ReactNode } from "react";
 import { Head, PagedCard } from "../panels/PagedCard";
-import { addressOf, errorField, SIGN_IN_TO_START, startBody, startProblems, type StartDraft, type StartProblems } from "./startForm";
+import { addressOf, errorField, SIGN_IN_TO_START, startBody, startProblems, waitForTown, type StartDraft, type StartProblems } from "./startForm";
 
 type Who = "loading" | "github" | "signed-out" | "no-github" | "github-off";
 
-interface Ctx { who: Who; draft: StartDraft; set: (k: keyof StartDraft, v: string) => void; problems: StartProblems; formError: string | null }
+/** After the 201: waiting for the new town to answer, or it didn't in time (a link to it instead of landing on a 404). */
+type Made = { url: string; ready: "waiting" | "late" };
+interface Ctx { who: Who; draft: StartDraft; set: (k: keyof StartDraft, v: string) => void; problems: StartProblems; formError: string | null; made: Made | null }
 const StartCtx = createContext<Ctx | null>(null);
 
 /** Who is asking: signed in with GitHub (may start one), signed out, signed in without GitHub, or no GitHub here. */
@@ -45,6 +47,16 @@ function StartPage() {
       <div className="hiw-page">
         <Head pre="Start a collective" big="Your own Muster Town" sub="One goal, its own agents, at its own address." />
         <p className="start-note">{line}</p>
+      </div>
+    );
+  }
+  if (c.made) {
+    return (
+      <div className="hiw-page">
+        <Head pre="Start a collective" big={c.draft.name.trim()} sub="One goal, its own agents, at its own address." />
+        {c.made.ready === "waiting"
+          ? <p className="start-note" role="status">Setting up your town at <b>muster.town{c.made.url}</b>…</p>
+          : <p className="start-err" role="alert">Your town is made, but it isn't answering yet. <a href={c.made.url}>Open muster.town{c.made.url}</a> in a moment.</p>}
       </div>
     );
   }
@@ -84,6 +96,7 @@ export function StartCard({ onClose }: { onClose: () => void }) {
   const [problems, setProblems] = useState<StartProblems>({});
   const [formError, setFormError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  const [made, setMade] = useState<Made | null>(null);
   useEffect(() => { void whoAmI().then(setWho); }, []);
   const set = (k: keyof StartDraft, v: string) => { setDraft((d) => ({ ...d, [k]: v })); setProblems((p) => ({ ...p, [k]: undefined })); setFormError(null); };
 
@@ -95,7 +108,14 @@ export function StartCard({ onClose }: { onClose: () => void }) {
     try {
       const res = await fetch("/api/collectives", { method: "POST", credentials: "same-origin", headers: { "content-type": "application/json" }, body: JSON.stringify(startBody(draft)) });
       const out = (await res.json().catch(() => ({}))) as { collective?: { url: string }; error?: string };
-      if (res.ok && out.collective) { location.assign(out.collective.url); return; }
+      if (res.ok && out.collective) {
+        // land only once the new town answers: never on a 404 that a refresh would fix (flag dc_1kylouq1l7)
+        const url = out.collective.url;
+        setMade({ url, ready: "waiting" });
+        if (await waitForTown(url)) { location.assign(url); return; }
+        setMade({ url, ready: "late" });
+        return;
+      }
       const msg = out.error ?? `Something went wrong (${res.status}). Try again.`;
       const field = errorField(res.status, msg);
       if (field === "form") setFormError(msg); else setProblems((p) => ({ ...p, [field]: msg }));
@@ -104,11 +124,12 @@ export function StartCard({ onClose }: { onClose: () => void }) {
     } finally { setBusy(false); }
   };
 
-  const primary = who === "github" ? { label: busy ? "Starting…" : "Start the collective", onClick: () => void start() }
+  const primary = made ? (made.ready === "late" ? { label: "Open your town", onClick: () => location.assign(made.url) } : { label: "Setting up…", onClick: () => undefined })
+    : who === "github" ? { label: busy ? "Starting…" : "Start the collective", onClick: () => void start() }
     : who === "signed-out" || who === "no-github" ? { label: "Sign in with GitHub", onClick: () => location.assign(SIGN_IN_TO_START) }
     : null;
   return (
-    <StartCtx.Provider value={{ who, draft, set, problems, formError }}>
+    <StartCtx.Provider value={{ who, draft, set, problems, formError, made }}>
       <PagedCard label="Start a collective" pages={[StartPage]} onClose={onClose} last={{ primary }} />
     </StartCtx.Provider>
   );
