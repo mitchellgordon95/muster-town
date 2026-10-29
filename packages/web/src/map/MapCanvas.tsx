@@ -131,7 +131,8 @@ export function MapCanvas(props: { panelInset: number; onTarget: (t: Target | nu
         const id = r.hoverBlock ? null : r.hit(p.x, p.y);
         r.hoverId = id;
         r.hoverSign = id || r.hoverBlock ? null : r.signAt(p.x, p.y);
-        ref.current!.style.cursor = id || r.hoverSign || r.hoverBlock ? "pointer" : "default";
+        const table = !id && !r.hoverSign && !r.hoverBlock && !!r.tableAt(p.x, p.y);
+        ref.current!.style.cursor = id || r.hoverSign || r.hoverBlock || table ? "pointer" : "default";
       }}
       onMouseLeave={() => {
         if (current) { current.hoverId = null; current.hoverSign = null; current.hoverBlock = null; }
@@ -149,7 +150,10 @@ export function MapCanvas(props: { panelInset: number; onTarget: (t: Target | nu
         if (id) { store.open({ kind: "agent", id }); return; }
         // a building's banner opens its panel on Overview
         const sign = r.signAt(p.x, p.y);
-        if (sign) store.open({ kind: "building", id: sign, tab: "Overview" });
+        if (sign) { store.open({ kind: "building", id: sign, tab: "Overview" }); return; }
+        // a meeting table opens its room: the building's meetings, Call a meeting, the live one
+        const table = r.tableAt(p.x, p.y);
+        if (table) store.open({ kind: "meeting", id: `room:${table.buildingId ?? ""}` });
       }}
     />
   );

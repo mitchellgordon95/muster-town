@@ -233,6 +233,22 @@ export class MapRenderer {
     return null;
   }
 
+  /** The meeting-room place whose table is under a screen point (CSS px): the table opens the building's meetings, like a banner opens its panel. */
+  tableAt(cx: number, cy: number): Place | null {
+    const w = this.world; if (!w) return null;
+    const t = this.tileAt(cx, cy);
+    if (w.at(t.x, t.y) !== TILE.TABLE) return null;
+    const b = w.buildingAt(t.x, t.y);
+    // the nearest room of this building (a table outside any building: a room within 5 tiles)
+    let best: Place | null = null, bestD = b ? Infinity : 5;
+    for (const p of w.places) {
+      if (p.kind !== "meeting-room" || (b && p.buildingId !== b.id)) continue;
+      const d = Math.abs(p.pos.x - t.x) + Math.abs(p.pos.y - t.y);
+      if (d < bestD) { best = p; bestD = d; }
+    }
+    return best;
+  }
+
   private ensureWorld() {
     const s = store.state;
     if (!s.grid) return;
