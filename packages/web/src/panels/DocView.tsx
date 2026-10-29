@@ -11,6 +11,7 @@ import { ADJ, Act, Field, Pill, nameOf, timeAgo, fmtTokens, usd } from "./ui";
 import { useMediaPaste } from "./mediaPaste";
 import { MediaThumb } from "./MediaThumb";
 import { RollupCards, rollupCardsOf } from "./RollupCards";
+import { DeckView } from "./DeckView";
 import { canOneOnOne, openOneOnOne, talkTarget } from "./oneOnOne";
 
 export const DECISION_TONE: Record<string, string> = { pending: "warn", approve: "ok", continue: "ok", redirect: "info", stop: "bad" };
@@ -160,7 +161,7 @@ export function DocView({ doc: initial, onBack, backLabel = "Back", review, onDe
           <Act small run={run(() => api().trophy(doc.id, false), "Trophy proposal declined")}>Decline</Act>
         </> : null}
       </div>
-      {cards ? <RollupCards parsed={cards} full /> : <Markdown text={doc.type === "skill" ? doc.body.replace(/^---\r?\n[\s\S]*?\r?\n---[ \t]*\r?\n?/, "") : stripLeadingH1(doc.body)} />}
+      {doc.type === "deck" ? <DeckView id={doc.id} body={doc.body} /> : cards ? <RollupCards parsed={cards} full /> : <Markdown text={doc.type === "skill" ? doc.body.replace(/^---\r?\n[\s\S]*?\r?\n---[ \t]*\r?\n?/, "") : stripLeadingH1(doc.body)} />}
       {doc.type === "skill" ? <SkillDetails doc={doc} /> : null}
       {canReview ? doc.type === "flag" ? <FlagDecideBox doc={doc} onDone={onDecided} /> : <ReplyBox doc={doc} onDone={onDecided} /> : null}
       {sources.length || doc.provenance.urls.length ? (

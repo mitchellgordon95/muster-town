@@ -30,16 +30,36 @@ export function savePanelWidth(w: number | null, s: Store | null = storage()): v
 /** what the panel shows: the saved width clamped to this window, else the default */
 export function panelWidthFor(vw: number, saved: number | null): number { return saved === null ? defaultPanelWidth(vw) : clampPanelWidth(saved, vw); }
 
-/** width state for the app: follows window resizes, persists what the handle sets, `null` resets */
+/**
+ * Fullscreen (a deck's `f`): the panel at its maximum width until it is turned off, without touching the saved width.
+ * Components ask for it with setPanelFull; the app's usePanelWidth follows.
+ */
+const FULL_EVENT = "musterTown:panel-full";
+let panelFull = false;
+export const isPanelFull = () => panelFull;
+export function setPanelFull(on: boolean) {
+  if (on === panelFull) return;
+  panelFull = on;
+  if (typeof window !== "undefined") window.dispatchEvent(new Event(FULL_EVENT));
+}
+
+/** width state for the app: follows window resizes, persists what the handle sets, `null` resets; fullscreen wins */
 export function usePanelWidth(): [number, (w: number | null) => void] {
   const [saved, setSaved] = useState(() => savedPanelWidth());
   const [vw, setVw] = useState(() => window.innerWidth);
-  useEffect(() => { const r = () => setVw(window.innerWidth); window.addEventListener("resize", r); return () => window.removeEventListener("resize", r); }, []);
+  const [full, setFull] = useState(panelFull);
+  useEffect(() => {
+    const r = () => setVw(window.innerWidth);
+    const f = () => setFull(panelFull);
+    window.addEventListener("resize", r); window.addEventListener(FULL_EVENT, f);
+    return () => { window.removeEventListener("resize", r); window.removeEventListener(FULL_EVENT, f); };
+  }, []);
   const set = (w: number | null) => {
     const v = w === null ? null : clampPanelWidth(w, window.innerWidth);
+    setPanelFull(false); // dragging the handle leaves fullscreen
     savePanelWidth(v); setSaved(v);
   };
-  return [panelWidthFor(vw, saved), set];
+  return [full ? panelMax(vw) : panelWidthFor(vw, saved), set];
 }
 
 export const RESIZE_HINT = "Drag to resize · double-click to reset";

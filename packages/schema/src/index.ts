@@ -404,6 +404,7 @@ export const DocType = z.enum([
   "wiki",          // an agent's memory: one private page per topic it knows (title = topic), rewritten before each report, injected into its sessions
   "log",           // an agent's memory: one private append-only log of durable events (assignments, reports, decisions); its tail is injected
   "skill",         // a reusable skill: SKILL.md (frontmatter name + description, then instructions) plus bundled files (docs/skills.md)
+  "deck",          // slides: markdown split on lines `---`, the first slide's `#` heading is the title, an optional last line `Notes: …` per slide is presenter-only (deck.ts)
 ]);
 export type DocType = z.infer<typeof DocType>;
 
@@ -1058,7 +1059,7 @@ export const VerbInputs = {
   read: z.object({ id: Id, file: z.string().optional().describe("skills: the path of one bundled file to read (from the skill's file list)") }),
   write: z.object({
     id: Id.optional().describe("update an existing doc you authored (a wiki page can also be found by its title; ignored for type 'log')"),
-    type: DocType.default("note").describe("'wiki' creates or rewrites your private page on the topic in `title` (your memory: shown to you at the start of every session); 'log' appends `body` as one dated line to your private log"),
+    type: DocType.default("note").describe("'wiki' creates or rewrites your private page on the topic in `title` (your memory: shown to you at the start of every session); 'log' appends `body` as one dated line to your private log; 'deck' is slides: split on lines `---`, the first slide's `#` heading is the title, an optional last line `Notes: …` per slide is presenter-only"),
     title: z.string(),
     body: z.string(),
     state: z.enum(["draft", "building"]).default("draft").describe("'building' publishes it: type 'fyi' goes on the building's board, anything else is filed in its filing cabinet"),
@@ -1685,4 +1686,5 @@ export type DeskSessionEndInput = z.infer<typeof DeskSessionEndInput>;
 export { toJsonSchema } from "./json-schema.ts";
 export * from "./tokens.ts";
 export * from "./rollup.ts";
+export * from "./deck.ts";
 export { townEnv, townEnvBoth, ENV_PREFIX, OLD_ENV_PREFIX, type TownEnvName } from "./env.ts";

@@ -307,6 +307,19 @@ textarea[data-drop="over"] { outline: 2px dashed var(--accent, #7aa2ff); outline
 .md a.md-media-link { display: inline-block; max-width: 100%; cursor: zoom-in; }
 .md th { background: #22252f; }
 .md img { max-width: 100%; }
+/* deck docs (DeckView): one slide fills the panel; long text scrolls inside the slide, pictures scale to fit */
+.deck { display: flex; flex-direction: column; gap: 8px; outline: none; margin-top: 8px; }
+.deck:focus-visible .deck-slide { border-color: var(--accent, #7aa2ff); }
+.deck-slide { height: max(280px, calc(100vh - 330px)); overflow-y: auto; background: #1b1d27; border: 1px solid var(--line); border-radius: var(--r); padding: 16px 20px; font-size: 15px; overflow-wrap: anywhere; }
+.deck-slide.empty { height: auto; }
+.deck-slide .md img, .deck-slide .md video { max-width: 100%; max-height: calc(100vh - 460px); object-fit: contain; display: block; margin: 8px auto; }
+.deck-notes { background: #262a1e; border: 1px solid var(--line); border-radius: var(--r); padding: 6px 10px; font-size: 12.5px; overflow-wrap: anywhere; }
+.deck-nav { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.deck-count { font-variant-numeric: tabular-nums; min-width: 48px; text-align: center; }
+.deck-dots { display: flex; flex-wrap: wrap; gap: 5px; flex: 1; justify-content: flex-end; }
+.deck-dot { width: 9px; height: 9px; border-radius: 50%; border: 1px solid var(--line-2); background: transparent; padding: 0; cursor: pointer; }
+.deck-dot.on { background: var(--accent, #7aa2ff); border-color: var(--accent, #7aa2ff); }
+.deck-help { font-size: 11.5px; }
 .md.compact { font-size: 12.5px; color: #c4c7dc; } .md.compact p { margin: 4px 0; }
 .md.inline, .md.inline p { display: inline; margin: 0; }
 .md.bubble { font-size: inherit; line-height: 1.45; white-space: normal; }

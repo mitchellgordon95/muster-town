@@ -5,6 +5,7 @@
  */
 import type { Agent, Assignment, Building, Doc, Event, GrantView, KpiView, Meeting, Membership, Objective, Role, Town, User } from "@muster-town/schema";
 import { BUILTIN_ROLES } from "@muster-town/schema";
+import deckShot from "./deck-shot.svg?no-inline";
 
 export const ago = (min: number) => new Date(Date.now() - min * 60_000).toISOString();
 
@@ -68,6 +69,8 @@ export const agents: Agent[] = [
   { ...agentBase, id: "ag_me", name: "Mitchell", kind: "human", inheritsOwner: true, buildingId: null, homeBuildingId: null, title: "Town owner", direction: "", sprite: 7, pos: { x: 0, y: 0 }, lastActiveAt: ago(2) },
 ];
 
+/** the mock deck's picture (a static file, since the doc sanitizer drops data: URLs) */
+const DECK_SHOT = deckShot;
 const docBase = { authorKind: "agent" as const, provenance: { sourceIds: [], urls: [] }, tags: [] as string[] };
 const REPORT_NOOR = `# Airborne fraction, 1959–2024
 
@@ -107,6 +110,7 @@ export const docs: Doc[] = [
   { ...docBase, id: "dc_gcb_essd", type: "source", state: "library", title: "GCB 2025 ESSD", tags: ["gcb-2025-essd"], authorId: "ag_ravi", buildingId: "bl_carbon", body: "# Global Carbon Budget 2025 (ESSD)\n\n**Says:** fossil CO2 emissions 10.2 ± 0.5 GtC in 2024; ocean sink 2.9 ± 0.4 GtC/yr; land sink 3.2 ± 0.9 GtC/yr (2014–2023).\n\n**Link:** https://essd.copernicus.org/\n\nSee also the [data note](gcb-2025-data.md).", provenance: { sourceIds: [], urls: ["https://essd.copernicus.org/"] }, createdAt: ago(5000), updatedAt: ago(5000) },
   { ...docBase, id: "dc_gcb_data", type: "source", state: "library", title: "GCB 2025 data", tags: ["gcb-2025-data"], authorId: "ag_ravi", buildingId: "bl_carbon", body: "# GCB 2025 data files\n\nNational and global budget spreadsheets (v1.0). Budget imbalance for the last decade: −0.4 GtC/yr.", createdAt: ago(5000), updatedAt: ago(5000) },
   { ...docBase, id: "dc_carbonbrief", type: "source", state: "library", title: "Carbon Brief on GCB 2025", tags: ["carbon-brief-gcb-2025"], authorId: "ag_ravi", buildingId: "bl_carbon", body: "# Carbon Brief: Global Carbon Budget 2025\n\nJournalistic summary. Useful framing; numbers should be cited from the [ESSD paper](gcb-2025-essd.md).", createdAt: ago(4990), updatedAt: ago(4990) },
+  { ...docBase, id: "dc_ws_deck", type: "deck", state: "building", title: "Workshop review deck (demo)", authorId: "ag_pike", buildingId: "bl_workshop", tags: ["deck", "demo"], body: "# Workshop review deck (demo)\n\nThree slides. Use ← → or space, Home/End, `f` for fullscreen, `n` for presenter notes.\nNotes: open with the budget line, then go slide by slide.\n\n---\n\n## The HUD on a narrow screen\n\n![HUD overflow at 360px](" + DECK_SHOT + ")\n\n**What it is:** the HUD wraps instead of clipping. **Your call:** None.\nNotes: Pike's fix; screenshot from the mock.\n\n---\n\n## A long slide scrolls inside the slide\n\n```yaml\n---\nnot: a slide split\n---\n```\n\n" + Array.from({ length: 30 }, (_, i) => `- Line ${i + 1}: long slide text scrolls inside the slide and is never clipped.`).join("\n"), createdAt: ago(50), updatedAt: ago(45) },
   { ...docBase, id: "dc_master", type: "article", state: "building", title: "Master article", authorId: "us_mitchell", authorKind: "user", buildingId: "bl_carbon", body: "# Carbon Cycle Lab — master article\n\n## Where the carbon goes\nOf every 10 tonnes of carbon emitted, about 4.4 stay in the air, 2.6 go to the ocean and 3.0 to land ([GCB 2025](../sources/gcb-2025-essd.md)).\n\n## Open questions\n- Is the land sink weakening? (Tomas)\n- What does 350 ppm imply for net-negative emissions? (Ingrid)\n\nLatest report: [Noor on the airborne fraction](dc_noor_r2).", createdAt: ago(6000), updatedAt: ago(30) },
   { ...docBase, id: "dc_ravi_r1", type: "report", state: "building", title: "Ravi run 1: GCB 2025 headline budget", authorId: "ag_ravi", buildingId: "bl_carbon", verdict: "continue", decision: "approve", decidedBy: "us_mitchell", decidedAt: ago(320), tokens: 980_000, costUsd: 7.1, body: "# GCB 2025 headline budget\n\n## Summary\nFossil emissions 10.2 GtC (2024), +0.8% on 2023. Land-use change 1.1 ± 0.7 GtC.\n\n## Proposal for next session\nHow uncertain is the land-use change term, and why is it the largest error bar?", createdAt: ago(340), updatedAt: ago(320) },
   { ...docBase, id: "dc_noor_r2", type: "report", state: "building", title: "Noor run 2: Airborne fraction 1959–2024", authorId: "ag_noor", buildingId: "bl_carbon", verdict: "continue", decision: "pending", tokens: 412_000, costUsd: 3.3, assignmentId: "as_noor2", provenance: { sourceIds: ["dc_gcb_essd", "dc_gcb_data"], urls: ["https://gml.noaa.gov/ccgg/trends/gl_gr.html"] }, body: REPORT_NOOR, createdAt: ago(12), updatedAt: ago(12) },
