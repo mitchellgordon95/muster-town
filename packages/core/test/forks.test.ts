@@ -300,7 +300,7 @@ describe("manager forks: the manager's team block (step 6)", () => {
     expect(t).toContain(`chain ${a1} · hop 1`);
     expect(t).not.toContain("whose wiki covers");
     expect(t).toContain(`- Pix 1 (${fork.id}): `);
-    expect(t).toContain("Building queue (0 pending, 1 held, 0 waiting, 0 scheduled)");
+    expect(t).toContain("Building queue (0 pending, 1 held, 0 waiting, 0 resuming at a time)");
     expect(t).toContain(`- ${a2} "Two": held: grant at checkpoint`);
   });
 

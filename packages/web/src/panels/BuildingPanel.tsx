@@ -1,7 +1,7 @@
 /** Building panel (E at the door): overview, goals and grants (labs; GoalsTab.tsx), members + roles, settings (managers: building fields). Members lists residents (managers add and dismiss there) and roles. Board, filing cabinet and in-tray are places; the collective's secrets are a planning-desk tab. */
 import { isFork } from "../forks";
 import { useEffect, useMemo, useState, type ReactNode } from "react";
-import { DEFAULT_POOL_ID, type SnapshotBuilding, type Workspace } from "@muster-town/schema";
+import { DEFAULT_POOL_ID, type Schedule, type SnapshotBuilding, type Workspace } from "@muster-town/schema";
 import { fmtPct, poolColor } from "../pools";
 import { api } from "../api";
 import { store, useTown, roleOf } from "../state";
@@ -9,7 +9,7 @@ import { Glyph, PanelShell } from "./PanelShell";
 import { Meter } from "./AgentPanel";
 import { DismissButton, canDismiss } from "./Dismiss";
 import { ADJ, Act, Empty, ErrorLine, Field, KV, Loading, MTokensInput, NumberInput, Pill, Section, StatusPill, fmtTokens, nameOf, usd, useLoad } from "./ui";
-import { fromMillions, runsAtLabel, toMillions } from "../format";
+import { fromMillions, repeatLabel, runsAtLabel, toMillions } from "../format";
 import { PALETTES, portraitUrl } from "../map/sprites";
 import { layoutEdit } from "../map/layoutEdit";
 import { canOneOnOne, openOneOnOne } from "./oneOnOne";
@@ -112,20 +112,36 @@ function Overview({ b }: { b: SnapshotBuilding }) {
   );
 }
 
-/** The building's queued work waiting on a time (GET /api/scheduled): scheduled, not blocked; soonest first. */
+/** What a fire creates, in words: its lane and who takes it ("exploration · the building queue (a fork runs it)"). */
+function createsLabel(x: Schedule, b: SnapshotBuilding): string {
+  const lane = x.lane === "grant" ? `grant ${x.grantId}` : x.lane === "exploration" ? `exploration${x.keyResultId ? ` ${x.keyResultId}` : ""}` : "directed";
+  return `${lane} · ${b.forks ? "the building queue (a fork runs it)" : "an idle resident, else the manager"}`;
+}
+
+/** The building's schedule (GET /api/scheduled): timed jobs that live on the building; each run goes to whoever is around. */
 export function ScheduledList({ b }: { b: SnapshotBuilding }) {
   const all = useTown((s) => s.scheduled);
-  const agents = useTown((s) => s.agents);
+  useTown((s) => s.me);
   const rows = useMemo(() => all.filter((x) => x.buildingId === b.id), [all, b.id]);
-  if (!rows.length) return null;
+  if (b.kind === "town-hall") return null;
+  const canCancel = store.can("building.assign", b.id);
   return (
-    <Section title={<>Scheduled <Pill tone="scheduled">{rows.length}</Pill></>}>
-      <div className="doc-list">{rows.map((x) => (
-        <button key={x.assignmentId} type="button" className="doc-row" title="Open the queue it sits in" onClick={() => store.open({ kind: "agent", id: x.agentId, tab: "Assignments" })}>
-          <b>{x.title}</b>
-          <div className="doc-row-meta"><span>runs at {runsAtLabel(x.runsAt)}</span><span>{x.queue === "building" ? "building queue (a fork runs it)" : agents[x.agentId]?.name ?? x.agentId}</span></div>
-        </button>
-      ))}</div>
+    <Section title={<>Schedule {rows.length ? <Pill tone="scheduled">{rows.length}</Pill> : null}</>}>
+      {!rows.length ? <Empty>Nothing scheduled. A manager adds a timed job with the <code>schedule</code> tool; each run goes to whoever is around.</Empty> : (
+        <div className="doc-list">{rows.map((x) => (
+          <div key={x.id} className="doc-row" title={x.description}>
+            <b>{x.title}</b>
+            <div className="doc-row-meta">
+              <span>next {x.nextRunAt ? runsAtLabel(x.nextRunAt) : "—"}</span>
+              <span>{repeatLabel(x)}{x.endsAt ? ` until ${x.endsAt.slice(0, 10)}` : ""}{x.runs ? ` · ran ${x.runs}×` : ""}</span>
+            </div>
+            <div className="doc-row-meta">
+              <span>creates: {createsLabel(x, b)}</span>
+              {canCancel ? <Act small run={async () => { await api().cancelSchedule(x.id); store.set({ scheduled: store.state.scheduled.filter((y) => y.id !== x.id) }); }}>Cancel</Act> : null}
+            </div>
+          </div>
+        ))}</div>
+      )}
     </Section>
   );
 }

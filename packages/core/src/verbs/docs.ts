@@ -8,8 +8,9 @@ import {
 import { AppError, badRequest, forbidden } from "../errors.ts";
 import { isCheckpointAssignment } from "../lanes.ts";
 import { docWhere, notifyMentions } from "../mentions.ts";
-import { appendAgentLog, canWriteTopic, MAX_ATTACHED_PAGES, ownerOf, revisionsOf, writeTopicPage, writeWikiPage } from "../memory.ts";
+import { appendAgentLog, canWriteTopic, ownerOf, revisionsOf, writeTopicPage, writeWikiPage } from "../memory.ts";
 import { checkForkModel } from "../forks.ts";
+import { attachablePages, cancelSchedule, createSchedule, describeRepeat } from "../schedules.ts";
 import { actOrigin } from "../origin.ts";
 import { ftsQuery } from "../text.ts";
 import { nowIso } from "../util.ts";
@@ -383,6 +384,8 @@ export async function request_human(world: World, me: Agent, input: VerbIn<"requ
 }
 
 export async function assign(world: World, me: Agent, input: VerbIn<"assign">) {
+  // a timed job is a building schedule (Mitchell, 1:1 mt_w7z9k1z112): nothing is pinned to an agent before it fires
+  if (input.waitFor && "after" in input.waitFor) throw badRequest("A timed job goes on the building's schedule: use `schedule` (title, description, runsAt, optional repeat); whoever is around when it fires takes it.");
   // manager forks: no agentId = the building queue (forks on); the manager holds it until a fork takes it
   const building = input.agentId ? null : world.buildings.get(homeOf(me) ?? "");
   if (!input.agentId) {
@@ -404,15 +407,14 @@ export async function assign(world: World, me: Agent, input: VerbIn<"assign">) {
   return { assignmentId: a.id, lane: a.lane, ...(pages ? { pages } : {}), ...(building ? { queue: "building" as const, ...(model ? { model } : {}) } : {}), ...(a.heldReason ? { held: a.heldReason } : {}), ...(waitFor ? { waitingOn: describeWait(world, waitFor) } : {}) };
 }
 
-/** `assign … pages`: distinct topic pages of the building, at most MAX_ATTACHED_PAGES. */
-function attachablePages(world: World, bid: string | null, ids: string[]): string[] {
-  const uniq = [...new Set(ids)];
-  if (uniq.length > MAX_ATTACHED_PAGES) throw badRequest(`Attach at most ${MAX_ATTACHED_PAGES} topic pages.`);
-  for (const id of uniq) {
-    const d = world.docs.get(id);
-    if (!d || d.type !== "wiki" || !d.topicOf || d.topicOf !== bid) throw badRequest(`${id} isn't a topic page of this building (\`write\` type "wiki" with topicOf).`);
-  }
-  return uniq;
+/** `schedule`: a timed job on my building (Mitchell, 1:1 mt_w7z9k1z112); whoever is around when it fires takes the work. */
+export async function schedule(world: World, me: Agent, input: VerbIn<"schedule">) {
+  const bid = homeOf(me);
+  if (!bid) throw badRequest("You have no building to schedule work in.");
+  if (!world.permissions.can(me, "building.assign", bid)) throw forbidden("building.assign");
+  const s = createSchedule(world, bid, world.holderOf(me), input, me.kind === "human" ? null : actOrigin(world, me, null));
+  return { scheduleId: s.id, nextRunAt: s.nextRunAt, repeat: describeRepeat(s), ...(s.endsAt ? { endsAt: s.endsAt } : {}), lane: s.lane,
+    note: "On your building's schedule: when it fires, a normal assignment goes to whoever is around (the building queue with forks on, else an idle resident, else you). `cancel` with scheduleId stops it." };
 }
 
 /**
@@ -442,7 +444,14 @@ export async function reassign(world: World, me: Agent, input: VerbIn<"reassign"
 
 /** `cancel` (the manager): cancel a queued assignment in the building (POST /assignments/:id/cancel). */
 export async function cancel(world: World, me: Agent, input: VerbIn<"cancel">) {
-  const { a } = queuedInMyBuilding(world, me, input.assignmentId);
+  if (!!input.assignmentId === !!input.scheduleId) throw badRequest("Give assignmentId (a queued assignment) or scheduleId (a schedule), not both.");
+  if (input.scheduleId) {
+    const sc = world.schedules.require(input.scheduleId, "schedule");
+    if (sc.buildingId !== homeOf(me)) throw forbidden("building.assign");
+    const e = cancelSchedule(world, me, sc.id);
+    return { scheduleId: e.id, status: e.status };
+  }
+  const { a } = queuedInMyBuilding(world, me, input.assignmentId!);
   const c = world.ops.cancelAssignment(me, a.id);
   return { assignmentId: c.id, status: c.status };
 }

@@ -1,5 +1,5 @@
 /** `Api` implemented against the in-memory Sim. Same interface as HttpApi, so every panel works offline. */
-import type { AccessRequest, AccessRequestView, Agent, Assignment, AuthMe, BlockedAssignment, BlockedBy, BuildingStats, ScheduledAssignment, Building, Doc, Event, Meeting, Membership, RedeployLive, ReviewDeck, ReviewSlide } from "@muster-town/schema";
+import type { AccessRequest, AccessRequestView, Agent, Assignment, AuthMe, BlockedAssignment, BlockedBy, BuildingStats, Schedule, Building, Doc, Event, Meeting, Membership, RedeployLive, ReviewDeck, ReviewSlide } from "@muster-town/schema";
 import { REVIEW_DECK_ID, parseDeck } from "@muster-town/schema";
 import { BACKFILL, BOARD_TYPES, KPI_FRAMING, DEFAULT_POOL_ID, ZERO_TOKENS, addTokens, backfillFamily, splitRaw, type BankPool } from "@muster-town/schema";
 import type { Api, AgentDetail, AllocationRow, Bank, Budget, Finance, FinancePools, FinanceSources, FinanceSpend, Cabinet, CabinetQuery, DocQuery, EventQuery, In, LayoutPreview, MessageResult, PlanPreview, RoomLayout, RequestAction, Snapshot, Socket, SocketHandlers, ThreadMessage, WriteDocInput } from "../api";
@@ -17,6 +17,14 @@ const clone = <T,>(x: T): T => JSON.parse(JSON.stringify(x));
 export class MockApi implements Api {
   readonly mock = true;
   private sim = new Sim();
+  /** one nightly schedule on the Carbon Cycle Lab (the building panel's Schedule list, the map's scheduled badge) */
+  private schedules = new Map<string, Schedule>([["sc_nightly", {
+    id: "sc_nightly", buildingId: "bl_carbon", title: "Nightly: check the live rollup", description: "Read the latest rollup and check its numbers against the live town.",
+    nextRunAt: new Date(Date.now() + 3 * 3600_000).toISOString(), everyMinutes: null, dailyAt: ["20:00"], endsAt: new Date(Date.now() + 14 * 86400_000).toISOString(),
+    lane: "exploration", grantId: null, keyResultId: null, gap: "rollup numbers drift from the live town", sourceId: null, pages: [], model: null, origin: null,
+    status: "active", endedReason: null, lastRunAt: null, lastAssignmentId: null, runs: 2, createdBy: "ag_moss", createdByKind: "agent",
+    createdAt: new Date(Date.now() - 2 * 86400_000).toISOString(), updatedAt: new Date().toISOString(),
+  }]]);
   private started = false;
   private prevStatus = new Map<string, Agent["status"]>();
   /** v1.4: unread messages per visitor (the fixture visitor starts with two) */
@@ -755,20 +763,27 @@ export class MockApi implements Api {
         b = { kind: "decision", targetId: w.decision, placeId: `intray:${d?.buildingId ?? a.buildingId}`, text: `waits for a decision on "${d?.title ?? w.decision}"` };
       } else if ("deploy" in w) {
         b = { kind: "deploy", targetId: w.deploy, placeId: `door:${a.buildingId}`, text: w.deploy === "next" ? "waits for the next redeploy" : `waits for deploy ${w.deploy.slice(0, 7)} (live is mock)` };
-      } else continue; // a time: scheduled, not blocked
+      } else continue; // a time: parked work resumes by itself, not blocked
       (out[a.agentId] ??= []).push({ assignmentId: a.id, title: a.title, blockedBy: b });
     }
     return clone(out);
   }
-  /** like core's townScheduled: queued assignments waiting on a time still ahead, soonest first */
+  /** like core's townSchedules: every building's active schedules, soonest first */
   async scheduled() {
     await wait(40);
-    const out: ScheduledAssignment[] = [];
-    for (const a of this.sim.assignments.values()) {
-      const w = a.status === "pending" ? a.waitFor : null;
-      if (w && "after" in w && Date.parse(w.after) > Date.now()) out.push({ assignmentId: a.id, title: a.title, agentId: a.agentId, buildingId: a.buildingId, queue: a.queue, runsAt: w.after });
-    }
-    return clone(out.sort((x, y) => x.runsAt.localeCompare(y.runsAt)));
+    return clone([...this.schedules.values()].filter((x) => x.status === "active").sort((x, y) => (x.nextRunAt ?? "").localeCompare(y.nextRunAt ?? "")));
+  }
+  async buildingSchedules(buildingId: string) {
+    await wait(40);
+    return clone([...this.schedules.values()].filter((x) => x.buildingId === buildingId));
+  }
+  async cancelSchedule(id: string) {
+    await wait(40);
+    const x = this.schedules.get(id);
+    if (!x) throw new Error("not found");
+    const e: Schedule = { ...x, status: "ended", endedReason: "cancelled", nextRunAt: null };
+    this.schedules.set(id, e);
+    return clone(e);
   }
   /** like core's buildingStats (the side bar of town planning): its assignments and agents; blocked ones aren't told apart here */
   async buildingStats(buildingId: string) {
@@ -776,12 +791,10 @@ export class MockApi implements Api {
     const assignments = { running: 0, queued: 0, blocked: 0, scheduled: 0 };
     for (const a of this.sim.assignments.values()) {
       if (a.buildingId !== buildingId) continue;
-      const w = a.status === "pending" ? a.waitFor : null;
       if (a.status === "active") assignments.running++;
-      else if (a.status !== "pending") continue;
-      else if (w && "after" in w && Date.parse(w.after) > Date.now()) assignments.scheduled++;
-      else assignments.queued++;
+      else if (a.status === "pending") assignments.queued++;
     }
+    assignments.scheduled = [...this.schedules.values()].filter((x) => x.buildingId === buildingId && x.status === "active").length;
     const mine = [...this.sim.agents.values()].filter((g) => g.homeBuildingId === buildingId && g.kind === "resident" && g.status !== "retired");
     const stats: BuildingStats = { assignments, agents: mine.filter((g) => !g.forkOf).length, forks: mine.filter((g) => g.forkOf).length,
       working: mine.filter((g) => g.status === "working").length, host: { commit: "mock", startedAt: null } };
