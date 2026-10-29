@@ -8,7 +8,7 @@ import { homedir } from "node:os";
 import { join } from "node:path";
 import { brotliCompressSync, constants } from "node:zlib";
 import { SPEND_LIMIT, townEnv } from "@muster-town/schema";
-import type { DeskActivityInput, DeskBrief, DeskSessionEndInput, DeskWorkspace } from "./contract.ts";
+import type { DeskActivityInput, DeskBriefView, DeskSessionEndInput, DeskWorkspace } from "@muster-town/schema";
 import { blocksOf, InputChannel, noUsage, plusUsage, usageOf, type LooseMessage, type Options, type QueryHandle, type Sdk, type Usage } from "./sdk.ts";
 import { startMcpProxy, type McpProxy } from "./mcp-proxy.ts";
 import type { TownClient } from "./town.ts";
@@ -30,7 +30,7 @@ export interface RunDeps {
   /** where the SDK writes transcripts (tests); default $CLAUDE_CONFIG_DIR or ~/.claude */
   claudeDir?: string;
   /** override workspace setup (tests); default runs git/gh/npm */
-  setupWorkspace?: (ws: DeskWorkspace, brief: DeskBrief) => string;
+  setupWorkspace?: (ws: DeskWorkspace, brief: DeskBriefView) => string;
   controlIntervalMs?: number;
   flushMs?: number;
   /** the MCP proxy's waits while the town restarts (tests); default RESTART_BACKOFF_MS */
@@ -151,7 +151,7 @@ export async function runSession(sessionId: string, deps: RunDeps): Promise<numb
   const exitCode = () => (stopped ? EXIT_STOPPED : error ? EXIT_ERROR : EXIT_OK);
 
   // ---- 4. brief ----
-  let brief: DeskBrief;
+  let brief: DeskBriefView;
   try {
     brief = await town.brief(sessionId);
     log(`brief: ${brief.agent.name} @ ${brief.building.name}, session ${sessionId}`);
@@ -224,7 +224,7 @@ export async function runSession(sessionId: string, deps: RunDeps): Promise<numb
     // ---- 5. workspace ----
     if (brief.workspace) {
       post({ kind: "status", text: `Setting up ${brief.workspace.branch}` });
-      const setup = deps.setupWorkspace ?? ((ws: DeskWorkspace, b: DeskBrief) =>
+      const setup = deps.setupWorkspace ?? ((ws: DeskWorkspace, b: DeskBriefView) =>
         setupWorkspace(ws, { ghToken: env.GH_TOKEN || undefined, agentName: b.agent.name, log }));
       cwd = setup(brief.workspace, brief);
       log(`workspace ready: ${cwd} on ${brief.workspace.branch}`);

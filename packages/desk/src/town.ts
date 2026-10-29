@@ -1,5 +1,5 @@
 /** Typed client for the agent-scoped town endpoints (bearer agent token), with retries on network errors. */
-import { DeskBrief, DeskControl, type DeskActivityInput, type DeskSessionEndInput } from "./contract.ts";
+import { DeskBriefView, DeskControl, type DeskActivityInput, type DeskSessionEndInput } from "@muster-town/schema";
 import { RESTART_BACKOFF_MS, restarting } from "./restart.ts";
 
 export class TownError extends Error {
@@ -82,8 +82,8 @@ export class TownClient {
     throw lastErr instanceof Error ? lastErr : new Error(String(lastErr));
   }
 
-  async brief(session: string): Promise<DeskBrief> {
-    return DeskBrief.parse(await this.request("GET", `/api/agents/me/brief?session=${encodeURIComponent(session)}`));
+  async brief(session: string): Promise<DeskBriefView> {
+    return DeskBriefView.parse(await this.request("GET", `/api/agents/me/brief?session=${encodeURIComponent(session)}`));
   }
 
   async activity(input: DeskActivityInput): Promise<void> {

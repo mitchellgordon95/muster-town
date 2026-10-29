@@ -6,7 +6,7 @@
 import { execFileSync } from "node:child_process";
 import { existsSync, mkdirSync } from "node:fs";
 import { dirname, join } from "node:path";
-import type { DeskWorkspace } from "./contract.ts";
+import type { DeskWorkspace } from "@muster-town/schema";
 
 export interface WorkspaceOptions {
   /** when set, `gh auth setup-git` runs so git pushes authenticate with GH_TOKEN */
