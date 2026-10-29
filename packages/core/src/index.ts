@@ -5,7 +5,7 @@
 export { NO_KEY_HOLD, World, type HostHooks, type SnapshotMessage } from "./world.ts";
 export { AppError, forbidden, notFound, badRequest, isAppError, type ErrorCode } from "./errors.ts";
 export { openDb, migrate, integrityCheck, sealCopy, type DB } from "./db.ts";
-export { Table, type ObjSchema, type TableOptions } from "./table.ts";
+export { Table, whereOf, type ObjSchema, type SqlFragment, type TableOptions } from "./table.ts";
 export { Memberships, Tokens, Users, BankInputs, TownMeta, type Repos, type TokenRow, type TokenKind } from "./store.ts";
 export { EventLog, type NewEvent, type EventQuery, type EventType } from "./events.ts";
 export { Permissions, holderOf, isAgent, townRoleId, buildingRoleId, type Holder, type BuildingRoleName, type TownRoleName } from "./permissions.ts";
