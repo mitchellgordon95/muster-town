@@ -158,7 +158,7 @@ class PanelBoundary extends Component<{ children: ReactNode }, { error: string |
 function PanelHost({ panel }: { panel: PanelRef }) {
   switch (panel.kind) {
     case "agent": return <AgentPanel key={panel.id} id={panel.id!} tab={panel.tab} />;
-    case "building": return <BuildingPanel key={panel.id} id={panel.id!} tab={panel.tab} />;
+    case "building": return <BuildingPanel key={`${panel.id}:${panel.tab ?? ""}`} id={panel.id!} tab={panel.tab} />;
     case "connect": return <ConnectAgentPanel />;
     case "library": return <LibraryPanel docId={panel.docId} />;
     case "trophy": return <TrophyPanel docId={panel.docId} />;

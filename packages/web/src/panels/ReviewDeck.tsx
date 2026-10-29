@@ -44,7 +44,7 @@ export function SlideDecision({ slide, n, grants, reports, onDecided, onOpenDoc 
   }
   if (slide.kind === "blocked" && slide.buildingId) {
     const id = slide.buildingId;
-    return store.can("building.manage", id) ? <div className="review-decide actions"><button className="btn sm" onClick={() => store.open({ kind: "building", id, tab: "Settings" })}>Write its key results →</button></div> : null;
+    return store.can("building.manage", id) ? <div className="review-decide actions"><button className="btn sm" onClick={() => store.open({ kind: "building", id, tab: "Goals" })}>Write its key results →</button></div> : null;
   }
   const docId = slide.docIds?.[0];
   const doc = docId ? reports.find((d) => d.id === docId) : undefined;

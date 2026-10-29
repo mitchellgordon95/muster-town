@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { BLOCKED_LABEL, UNBLOCK_LINE, blockedLabel, krAuthorLine, unfundableReason, explorationLine, grantSpendLine, grantStateLine, keyResultRows, krFundingLine, objectiveGroups, objectiveLine, krStatusLabel, krTone, proposalLine, settableStatuses, spentShare } from "../src/panels/keyResults";
+import { BLOCKED_LABEL, UNBLOCK_LINE, blockedLabel, goalsSummary, grantGroups, grantSteps, grantsSummary, krAuthorLine, krGrantWord, unfundableReason, grantSpendLine, objectiveLine, krStatusLabel, krTone, settableStatuses, spentShare } from "../src/panels/keyResults";
+import type { FinanceSpend } from "../src/api";
 import { MockApi } from "../src/mock/server";
 import { stoplightOf } from "@muster-town/schema";
 import { stoplightLabel } from "../src/format";
@@ -9,12 +10,6 @@ describe("board key-results view", () => {
     expect(grantSpendLine({ spentTokens: 1_040_000, grantTokens: 2_000_000 })).toBe("1M / 2M adj. tokens (52%)");
     expect(spentShare(3, 2)).toBe(1);
     expect(spentShare(5, 0)).toBe(0);
-    expect(grantStateLine({ status: "checkpoint" })).toMatch(/held/);
-  });
-  it("exploration meter and the proposal line (no buttons: it points at the Town Hall in-tray)", () => {
-    expect(explorationLine({ spentTodayTokens: 1_150_000, allowanceTokens: 3_000_000 })).toBe("1.1M / 3M adj. tokens today");
-    expect(proposalLine({ objective: "X", status: "proposed", askTokens: 4_000_000 })).toBe('Proposal "X" (asks 4M adj. tokens) is waiting for a human in the Town Hall in-tray.');
-    expect(proposalLine({ objective: "X", status: "countered", askTokens: 1 })).toMatch(/countered/);
   });
   it("key-result tones", () => {
     expect([krTone("met"), krTone("missed"), krTone("claimed"), krTone("not-started")]).toEqual(["ok", "bad", "warn", ""]);
@@ -30,34 +25,40 @@ describe("board key-results view", () => {
     expect(carbon.grants).toEqual([]);
     expect(Array.isArray(carbon.docs)).toBe(true);
   });
-  it("objective groups: each objective with its key results, then the ones under none; no objectives = one plain group", async () => {
+  it("Goals tab: one grant word per key result and the Overview line; the mock's objectives carry their KPI", async () => {
     const api = new MockApi();
-    const ws = await api.board("bl_workshop");
-    const { rows } = keyResultRows(ws);
-    const groups = objectiveGroups(ws.objectives, rows);
-    expect(groups.map((g) => [g.objective?.kpiName ?? null, g.rows.map((r) => r.kr.id)])).toEqual([
-      ["Trust", ["kr_bl_workshop_3"]], ["Join", ["kr_bl_workshop_0", "kr_bl_workshop_1"]], ["Fund", []], [null, ["kr_bl_workshop_2"]],
+    const tree = await api.objectives("bl_workshop");
+    const grants = await api.grants("bl_workshop");
+    expect(grants.map((g) => [g.id, g.status]).sort()).toEqual([["gr_cli", "countered"], ["gr_hud", "checkpoint"], ["gr_tour", "funded"]]);
+    const all = [...tree.objectives.flatMap((o) => o.keyResults), ...tree.unsorted];
+    expect(all.map((k) => [k.id, krGrantWord(k.id, grants)]).sort()).toEqual([
+      ["kr_bl_workshop_0", "funded"], ["kr_bl_workshop_1", "funded"], ["kr_bl_workshop_2", "proposed"], ["kr_bl_workshop_3", "open"],
     ]);
-    expect(objectiveLine(groups[0]!.objective!)).toBe("Moves Trust · 2026-Q4");
-    expect(objectiveGroups({ objectives: [], unsorted: [] }, rows)).toEqual([{ objective: null, rows }]);
+    expect(goalsSummary(tree, grants)).toBe("3 objectives, 4 key results, 2 funded");
+    expect(objectiveLine(tree.objectives[0]!)).toBe("Moves Trust · 2026-Q4");
+    expect(krStatusLabel("not-started")).toBe("not started");
+    expect(krGrantWord("kr_x", [{ keyResultId: "kr_x", status: "closed" }])).toBe("open");
     const k = await api.kpis();
     expect(k.kpis.map((x) => x.name)).toEqual(["Fund", "Join", "Trust"]);
-    expect(k.buildings.find((b) => b.buildingId === "bl_workshop")!.objectives).toHaveLength(3);
   });
-  it("board rows: the goal's key results in order with the live grant on each; grants naming none are orphans", async () => {
-    const api = new MockApi();
-    const ws = await api.board("bl_workshop");
-    expect(ws.blocked).toBeNull();
-    const { rows, orphans } = keyResultRows(ws);
-    expect(rows.map((r) => [r.kr.id, r.kr.status, r.grant?.id ?? null])).toEqual([
-      ["kr_bl_workshop_0", "claimed", "gr_hud"], ["kr_bl_workshop_1", "met", "gr_tour"], ["kr_bl_workshop_2", "not-started", null], ["kr_bl_workshop_3", "not-started", null],
-    ]);
-    expect(orphans).toEqual([]);
-    expect(krFundingLine(null)).toMatch(/open for exploration/);
-    expect(krFundingLine(rows[0].grant)).toMatch(/held/);
-    expect(krStatusLabel("not-started")).toBe("not started");
-    const orphan = keyResultRows({ keyResults: [], grants: ws.grants });
-    expect(orphan.orphans.map((g) => g.id)).toEqual(["gr_hud", "gr_tour"]);
+  it("Grants tab: open proposals oldest first, then funded, then checkpoint / closed / rejected; drafts left out", () => {
+    const g = (id: string, status: string, createdAt: string, updatedAt = createdAt) => ({ id, status, createdAt, updatedAt, fundedAt: null }) as unknown as Parameters<typeof grantGroups>[0][number];
+    const list = [g("a", "closed", "1", "5"), g("b", "proposed", "3"), g("c", "funded", "2"), g("d", "countered", "1"), g("e", "checkpoint", "1", "9"), g("f", "draft", "1"), g("h", "rejected", "1", "2")];
+    const { proposals, funded, settled } = grantGroups(list);
+    expect([proposals.map((x) => x.id), funded.map((x) => x.id), settled.map((x) => x.id)]).toEqual([["d", "b"], ["c"], ["e", "a", "h"]]);
+    expect(grantsSummary(list)).toBe("2 proposals, 1 funded, 3 closed or held");
+    expect(grantsSummary([g("b", "proposed", "3")])).toBe("1 proposal, 0 funded");
+  });
+  it("a grant's step assignments come from the finance spend tree (building → grant → assignment)", () => {
+    const spend = { rows: [{ kind: "building", id: "b1", name: "B", tokens: 9, share: 1, sessions: 3, children: [
+      { kind: "grant", id: "gr_1", name: "G", tokens: 9, share: 1, sessions: 3, children: [
+        { kind: "assignment", id: "as_1", name: "Step 1", tokens: 5, share: 0.5, sessions: 2 },
+        { kind: "no-assignment", id: null, name: "other", tokens: 4, share: 0.5, sessions: 1 },
+      ] },
+    ] }] } as unknown as FinanceSpend;
+    expect(grantSteps(spend, "b1", "gr_1").map((s) => s.name)).toEqual(["Step 1"]);
+    expect(grantSteps(spend, "b1", "gr_2")).toEqual([]);
+    expect(grantSteps(null, "b1", "gr_1")).toEqual([]);
   });
   it("settings edit path: a human adds, edits, judges and deletes a key result; one a grant names can't be deleted", async () => {
     const api = new MockApi();
@@ -105,7 +106,7 @@ describe("blocked state", () => {
     expect(blockedLabel({ kind: "lab", blockedAt: null })).toBeNull();
     expect(blockedLabel({ kind: "town-hall", blockedAt: at })).toBeNull();
     expect(UNBLOCK_LINE).toMatch(/human/);
-    expect(UNBLOCK_LINE).toMatch(/Settings/);
+    expect(UNBLOCK_LINE).toMatch(/Goals → Edit/);
   });
   it("names who wrote a key result (a human or the manager) and who edited it; nothing for older ones", () => {
     expect(krAuthorLine({ createdByName: "Pix", editedByName: null })).toBe("Written by Pix");

@@ -1,9 +1,9 @@
 /**
- * Pure helpers for the board's key-results view (goal-directed buildings, docs/waterfall.md §5): the same numbers
- * and statuses as core's `keyResultsBlock` in the desk brief, so the web and the prompt agree.
+ * Pure helpers for the building panel's Goals and Grants tabs and the Town Hall in-tray (goal-directed buildings): the
+ * same numbers and statuses as core's `keyResultsBlock` in the desk brief, so the web and the prompt agree.
  */
 import type { GrantView, KeyResultStatus } from "@muster-town/schema";
-import type { GoalKeyResult, ObjectiveTree, ObjectiveView } from "../api";
+import type { FinanceSpend, ObjectiveTree, ObjectiveView, SpendNode } from "../api";
 import { ADJ, fmtTokens } from "../format";
 
 /** Share of `total` spent, 0..1 (0 when there's no total). */
@@ -17,66 +17,14 @@ export function grantSpendLine(g: Pick<GrantView, "spentTokens" | "grantTokens">
   return `${fmtTokens(g.spentTokens)} / ${fmtTokens(total)} ${ADJ} (${Math.round(spentShare(g.spentTokens, total) * 100)}%)`;
 }
 
-/** "Funded" or "At checkpoint: its sessions are held", as the brief says it. */
-export function grantStateLine(g: Pick<GrantView, "status">): string {
-  return g.status === "checkpoint" ? "At checkpoint: its sessions are held until a human decides" : "Funded";
-}
-
-/** "1.2M / 3M tokens today", the exploration meter's label. */
-export function explorationLine(e: { allowanceTokens: number; spentTodayTokens: number }): string {
-  return `${fmtTokens(e.spentTodayTokens)} / ${fmtTokens(e.allowanceTokens)} ${ADJ} today`;
-}
-
-/** One line per open proposal; it's decided in the Town Hall in-tray, never on the board. */
-export function proposalLine(p: Pick<GrantView, "objective" | "status" | "askTokens">): string {
-  return p.status === "countered"
-    ? `Proposal "${p.objective}" was countered: the manager revises it and proposes again.`
-    : `Proposal "${p.objective}" (asks ${fmtTokens(p.askTokens)} ${ADJ}) is waiting for a human in the Town Hall in-tray.`;
-}
-
 /** Pill tone per key-result status: met green, missed red, claimed / at risk amber, the rest neutral. */
 export function krTone(s: KeyResultStatus): string {
   return s === "met" ? "ok" : s === "missed" ? "bad" : s === "claimed" || s === "at-risk" ? "warn" : "";
 }
 
-/** A board row: a goal key result and the live grant working on it (null = open for exploration). */
-export interface KeyResultRow { kr: GoalKeyResult; grant: GrantView | null }
-
-/**
- * The board's rows in goal order, each key result with its live grant, plus the live grants that name no key result
- * (pre-032 grants, shown after the list so their spend stays visible). Same reading as core's `keyResultsBlock`.
- */
-export function keyResultRows(board: { keyResults: GoalKeyResult[]; grants: GrantView[] }): { rows: KeyResultRow[]; orphans: GrantView[] } {
-  const grants = new Map(board.grants.map((g) => [g.id, g]));
-  const rows = board.keyResults.map((kr) => ({ kr, grant: (kr.grantId && grants.get(kr.grantId)) || null }));
-  const named = new Set(board.keyResults.map((k) => k.grantId).filter(Boolean));
-  return { rows, orphans: board.grants.filter((g) => !named.has(g.id)) };
-}
-
-/** A group of board rows: an objective (null = "Not under an objective yet") and its key-result rows. */
-export interface ObjectiveGroup { objective: ObjectiveView | null; rows: KeyResultRow[] }
-
-/**
- * The board's rows grouped like the desk brief: each objective with its key results, then the ones under none. With no
- * objectives at all it is one ungrouped group (objective null), so a building without objectives reads as before.
- */
-export function objectiveGroups(tree: ObjectiveTree | undefined, rows: KeyResultRow[]): ObjectiveGroup[] {
-  if (!tree?.objectives.length) return [{ objective: null, rows }];
-  const byId = new Map(rows.map((r) => [r.kr.id, r]));
-  const pick = (krs: GoalKeyResult[]) => krs.map((k) => byId.get(k.id)).filter((r): r is KeyResultRow => !!r);
-  const groups: ObjectiveGroup[] = tree.objectives.map((o) => ({ objective: o, rows: pick(o.keyResults) }));
-  const loose = pick(tree.unsorted);
-  return loose.length ? [...groups, { objective: null, rows: loose }] : groups;
-}
-
 /** "Moves Trust · 2026-Q4", an objective's subtitle. */
 export function objectiveLine(o: Pick<ObjectiveView, "kpiName" | "horizon">): string {
   return `${o.kpiName ? `Moves ${o.kpiName}` : "Names no KPI yet"} · ${o.horizon}`;
-}
-
-/** "No funded grant: open for exploration", or the grant's state as the brief says it. */
-export function krFundingLine(grant: GrantView | null): string {
-  return grant ? grantStateLine(grant) : "No funded grant: open for exploration";
 }
 
 /** The human-readable status, "not started" for "not-started". */
@@ -91,7 +39,7 @@ export function settableStatuses(canFund: boolean): KeyResultStatus[] {
 /** The short blocked label for a building's panel, map sign and the Town Hall in-tray. */
 export const BLOCKED_LABEL = "Blocked: no key results";
 /** Who unblocks a blocked building, and how. */
-export const UNBLOCK_LINE = "A human unblocks it by writing the goal's key results in Building → Settings → Objectives and key results, or the manager does with set_key_result once a meeting or the 1:1 settles them.";
+export const UNBLOCK_LINE = "A human unblocks it by writing the goal's key results in Building → Goals → Edit, or the manager does with set_key_result once a meeting or the 1:1 settles them.";
 
 /** The blocked label when a lab is blocked (the server's `blockedAt`), else null. */
 export function blockedLabel(b: { kind: string; blockedAt?: string | null }): string | null {
@@ -108,4 +56,47 @@ export function krAuthorLine(k: { createdByName?: string | null; editedByName?: 
   const by = k.createdByName ?? null, ed = k.editedByName ?? null;
   if (!by) return ed ? `Edited by ${ed}` : null;
   return ed && ed !== by ? `Written by ${by}, edited by ${ed}` : `Written by ${by}`;
+}
+
+// ---------- the building panel's Goals and Grants tabs ----------
+
+/** A key result's grant state in one word: a live (funded or checkpoint) grant names it, an open proposal does, or neither. */
+export type KrGrantWord = "funded" | "proposed" | "open";
+const LIVE = new Set<GrantView["status"]>(["funded", "checkpoint"]);
+const OPEN_PROPOSAL = new Set<GrantView["status"]>(["proposed", "countered"]);
+export function krGrantWord(krId: string, grants: Pick<GrantView, "keyResultId" | "status">[]): KrGrantWord {
+  const mine = grants.filter((g) => g.keyResultId === krId);
+  return mine.some((g) => LIVE.has(g.status)) ? "funded" : mine.some((g) => OPEN_PROPOSAL.has(g.status)) ? "proposed" : "open";
+}
+
+const plural = (n: number, one: string, many = `${one}s`) => `${n} ${n === 1 ? one : many}`;
+
+/** The Overview's Goals line: "3 objectives, 5 key results, 2 funded". */
+export function goalsSummary(tree: ObjectiveTree, grants: Pick<GrantView, "keyResultId" | "status">[]): string {
+  const krs = [...tree.objectives.flatMap((o) => o.keyResults), ...tree.unsorted];
+  const funded = krs.filter((k) => krGrantWord(k.id, grants) === "funded").length;
+  return `${plural(tree.objectives.length, "objective")}, ${plural(krs.length, "key result")}, ${funded} funded`;
+}
+
+/** The Grants tab's order: open proposals (oldest first), then funded (newest funding first), then checkpoint / closed / rejected (latest first). Drafts aren't grants yet. */
+export function grantGroups<G extends Pick<GrantView, "status" | "createdAt" | "updatedAt" | "fundedAt">>(grants: G[]): { proposals: G[]; funded: G[]; settled: G[] } {
+  const by = (k: (g: G) => string, asc: boolean) => (a: G, b: G) => asc ? k(a).localeCompare(k(b)) : k(b).localeCompare(k(a));
+  return {
+    proposals: grants.filter((g) => OPEN_PROPOSAL.has(g.status)).sort(by((g) => g.createdAt, true)),
+    funded: grants.filter((g) => g.status === "funded").sort(by((g) => g.fundedAt ?? g.createdAt, false)),
+    settled: grants.filter((g) => g.status === "checkpoint" || g.status === "closed" || g.status === "rejected").sort(by((g) => g.updatedAt, false)),
+  };
+}
+
+/** The Overview's Grants line: "1 proposal, 3 funded", plus ", 2 closed or held" when there are any. */
+export function grantsSummary(grants: Pick<GrantView, "status" | "createdAt" | "updatedAt" | "fundedAt">[]): string {
+  const { proposals, funded, settled } = grantGroups(grants);
+  return `${plural(proposals.length, "proposal")}, ${funded.length} funded${settled.length ? `, ${settled.length} closed or held` : ""}`;
+}
+
+/** A grant's step assignments with their spend, from GET /api/finance/spend (building → grant → assignment). */
+export function grantSteps(spend: FinanceSpend | null | undefined, buildingId: string, grantId: string): SpendNode[] {
+  const b = spend?.rows.find((r) => r.kind === "building" && r.id === buildingId);
+  const g = b?.children?.find((r) => r.kind === "grant" && r.id === grantId);
+  return (g?.children ?? []).filter((r) => r.kind === "assignment");
 }

@@ -6,7 +6,7 @@ import { useEffect, useMemo, useState } from "react";
 import { BOARD_TYPES, DocType, type AccessRequestView, type Doc, type GrantView, type Meeting } from "@muster-town/schema";
 import { api, type Board, type Intray, type ReportChain } from "../api";
 import { forkTip } from "../forks";
-import { UNBLOCK_LINE, explorationLine, grantSpendLine, grantStateLine, keyResultRows, krFundingLine, objectiveGroups, objectiveLine, krStatusLabel, krTone, proposalLine, spentShare, unfundableReason } from "./keyResults";
+import { UNBLOCK_LINE, unfundableReason } from "./keyResults";
 import { store, useTown, roleOf } from "../state";
 import { DocRow, DocView, VERDICT_TONE, needOf } from "./DocView";
 import { Glyph, PanelShell } from "./PanelShell";
@@ -14,7 +14,6 @@ import { phaseTone } from "./BuildingPanel";
 import { RequestCard } from "./OutboxPanel";
 import { DocText, Markdown } from "./Markdown";
 import { grantUrl } from "../route";
-import { stoplightLabel } from "../format";
 import { ADJ, ADJ_HINT, Act, Empty, ErrorLine, Field, Loading, MTokensInput, Pill, Section, breakdownTitle, clock, fmtTokens, nameOf, timeAgo, usd, useLoad } from "./ui";
 import { fromMillions, toMillions } from "../format";
 import { portraitUrl } from "../map/sprites";
@@ -144,7 +143,7 @@ function TownHallIntray({ reports, grants, access, blocked, onOpen, onDecided }:
           <div className="intray-who"><BuildingTag buildingId={x.buildingId} />{x.since ? <span>since {timeAgo(x.since)}</span> : null}</div>
           <div className="doc-row-meta">
             <span>{x.reason.replace(/^blocked: /, "")}</span>
-            {store.can("building.manage", x.buildingId) ? <button className="link" onClick={() => store.open({ kind: "building", id: x.buildingId, tab: "Settings" })}>Write its key results →</button> : null}
+            {store.can("building.manage", x.buildingId) ? <button className="link" onClick={() => store.open({ kind: "building", id: x.buildingId, tab: "Goals" })}>Write its key results →</button> : null}
           </div>
         </div>
       ))}</div>
@@ -452,106 +451,12 @@ export function BoardPanel({ buildingId }: { buildingId: string }) {
   const b = useTown((s) => s.buildings.find((x) => x.id === buildingId));
   const rev = useTown((s) => s.rev);
   const board = useLoad(() => api().board(buildingId, 50), [buildingId, rev]);
-  const goal = b?.kind !== "town-hall";
   return (
-    <PanelShell icon={<Glyph kind="board" />} title={`${b?.name ?? "Building"} board`} subtitle={goal
-      ? "The building's key results, the manager's standing rules and building-wide FYIs. Everything else is in the filing cabinet beside it."
-      : "The manager's standing rules and building-wide FYIs. Everything else is in the filing cabinet beside it."}>
-      {goal && board.data ? <KeyResultsView board={board.data} buildingId={buildingId} /> : null}
+    <PanelShell icon={<Glyph kind="board" />} title={`${b?.name ?? "Building"} board`} subtitle="Notes only: town-wide FYIs, the manager's standing rules and building-wide FYIs. The goal's key results and grants are on the building's Goals and Grants tabs; everything else is in the filing cabinet beside it.">
       {b?.kind !== "town-hall" ? <DocList board={board} townWide /> : null}
       {b ? <StandingRules buildingId={b.id} rules={b.rules ?? ""} /> : null}
       <DocList board={board} />
     </PanelShell>
-  );
-}
-
-/**
- * Goal-directed buildings: the key results of the building goal, first on the board (town hall 2026-10-25, decision 3):
- * each with its status, how to check it and the funded grant working on it (spend / grant), the blocked line when there
- * are none, then exploration and the open proposal. Read-only: humans with building.manage edit them in Building →
- * Settings (the link below), and funding decisions stay in the Town Hall in-tray.
- */
-function KeyResultsView({ board, buildingId }: { board: Board; buildingId: string }) {
-  useTown((s) => s.me);
-  const canEdit = store.can("building.manage", buildingId);
-  const e = board.exploration;
-  const eShare = spentShare(e.spentTodayTokens, e.allowanceTokens);
-  const { rows, orphans } = keyResultRows(board);
-  const groups = objectiveGroups(board.objectives, rows);
-  const num = new Map(groups.flatMap((g) => g.rows).map((r, i) => [r.kr.id, i + 1]));
-  const edit = canEdit ? <button className="link" onClick={() => store.open({ kind: "building", id: buildingId, tab: "Settings" })}>Edit in settings</button> : undefined;
-  return (
-    <Section title="Key results" right={edit}>
-      <div className="kr-view">
-        {board.stoplight ? <Stoplight light={board.stoplight.light} reason={board.stoplight.reason} /> : null}
-        {board.goal ? <div className="kr-goal"><span className="muted">Goal</span> {board.goal}</div> : null}
-        {board.blocked ? <div className="kr-blocked"><Pill tone="bad">blocked</Pill> {board.blocked.replace(/^blocked: /, "")}. {canEdit ? "Write the goal's key results in Building → Settings." : "A human or the manager writes them; the manager's come out of a meeting or the 1:1."}</div> : null}
-        {!rows.length && !board.blocked ? <Empty>No key results on the goal yet{canEdit ? ": write them in Building → Settings" : ""}.</Empty> : null}
-        {groups.map(({ objective: o, rows: group }, _, all) => (
-          <div key={o?.id ?? "unsorted"} className="kr-objective">
-            {o ? (
-              <div className="kr-objective-head"><b>{o.text}</b> <span className="muted">{objectiveLine(o)}</span></div>
-            ) : all.length > 1 ? <div className="kr-objective-head muted">Not under an objective yet</div> : null}
-            {o && !group.length ? <div className="muted kr-funding">No key results under it yet.</div> : null}
-            <ol className="kr-rows">
-              {group.map(({ kr, grant }) => (
-                <li key={kr.id} className="kr-row">
-                  <div className="kr-row-head">
-                    <span className="kr-n">{num.get(kr.id)}</span>
-                    <Pill tone={krTone(kr.status)} title={kr.statusNote || undefined}>{krStatusLabel(kr.status)}</Pill>
-                    <b>{kr.text}</b>
-                  </div>
-                  <div className="muted kr-check">How to check: {kr.howToCheck}</div>
-                  {grant ? <GrantLine grant={grant} /> : <div className="muted kr-funding">{krFundingLine(null)}</div>}
-                </li>
-              ))}
-            </ol>
-          </div>
-        ))}
-        {orphans.map((g) => (
-          <div key={g.id} className="kr-grant">
-            <div className="muted">Names no key result yet</div>
-            <GrantLine grant={g} />
-          </div>
-        ))}
-        <div className="kr-bar-row kr-exploration">
-          <span>Exploration</span>
-          <span className={`kr-bar ${eShare >= 1 ? "bad" : eShare > 0.8 ? "warn" : ""}`}><i style={{ width: `${eShare * 100}%` }} /></span>
-          <span className="muted">{explorationLine(e)}</span>
-        </div>
-        {board.proposals.map((p) => <div key={p.id} className="kr-proposal muted">{proposalLine(p)}</div>)}
-      </div>
-    </Section>
-  );
-}
-
-/**
- * The building's stoplight (town hall 2026-10-25): a three-lamp housing with the lit one glowing, its label and the
- * one-line reason (also the hover title). Green = a funded grant runs on every key result, yellow = partly blocked,
- * red = fully blocked. The map's banner shows the same lamp.
- */
-export function Stoplight({ light, reason }: { light: "green" | "yellow" | "red"; reason: string }) {
-  const label = stoplightLabel(light);
-  return (
-    <div className={`kr-light ${light}`} title={`${label}: ${reason}`} role="status" aria-label={`${label}: ${reason}`}>
-      <span className="lamp" aria-hidden="true"><i className="r" /><i className="y" /><i className="g" /></span>
-      <b>{label}</b>
-      <span className="muted">{reason}</span>
-    </div>
-  );
-}
-
-/** A live grant under its key result: objective, status, spend bar; held note at checkpoint. */
-function GrantLine({ grant: g }: { grant: GrantView }) {
-  return (
-    <div className="kr-funding">
-      <div className="kr-grant-head"><span>Grant: <button className="link" title={`Open grant ${g.id}`} onClick={() => store.open({ kind: "grant", id: g.id })}>{g.objective}</button></span><Pill tone={g.status === "checkpoint" ? "warn" : "ok"}>{g.status}</Pill></div>
-      <div className="kr-bar-row">
-        <span className="kr-bar"><i style={{ width: `${spentShare(g.spentTokens, g.grantTokens ?? 0) * 100}%` }} /></span>
-        <span className="muted">{grantSpendLine(g)}</span>
-      </div>
-      {g.status === "checkpoint" ? <div className="muted">{grantStateLine(g)}</div> : null}
-    </div>
   );
 }
 
