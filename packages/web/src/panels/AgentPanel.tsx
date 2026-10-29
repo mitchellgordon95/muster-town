@@ -82,7 +82,7 @@ function ForkTab({ fork, loading }: { fork?: ForkSummary; loading: boolean }) {
         ["Fork of", <button className="link" onClick={() => store.open({ kind: "agent", id: fork.agent.forkOf! })}>{fork.forkOfName}</button>],
         ["Assignment", fork.assignmentId ? <>{fork.assignmentTitle} <span className="muted">({fork.assignmentId})</span></> : "none"],
         ...(fork.chainId ? [["Chain", <Pill tone="neutral">chain {fork.chainId} · hop {fork.hop}</Pill>] as [string, ReactNode]] : []),
-        ["Session", fork.sessionId ? <>{fork.sessionId} · {fmtTokens(fork.tokens)} {ADJ}{fork.transcript ? <> · <TranscriptLink sessionId={fork.sessionId} /></> : null}</> : "not started"],
+        ["Session", fork.sessionId ? <>{fork.sessionId} · {fork.tokens || fork.agent.status === "retired" ? <>{fmtTokens(fork.tokens)} {ADJ}</> : "running (tokens book when it ends)"}{fork.transcript ? <> · <TranscriptLink sessionId={fork.sessionId} /></> : null}</> : "not started"],
         ["Report", fork.reportId ? <button className="link" onClick={() => openDoc(fork.reportId!)}>{fork.reportTitle ?? fork.reportId}</button> : fork.agent.status === "retired" ? "none" : "not yet"],
         ...(fork.pagesEdited.length ? [["Topic pages", <>{fork.pagesEdited.map((p, i) => <span key={p.id}>{i ? ", " : ""}<button className="link" onClick={() => openDoc(p.id)}>{p.title}</button></span>)}</>] as [string, ReactNode]] : []),
         ["Status", fork.agent.status === "retired" ? `retired ${timeAgo(fork.agent.lastActiveAt ?? fork.agent.createdAt)}` : <StatusPill status={fork.agent.status} />],
@@ -102,7 +102,7 @@ function ForksTab({ managerId }: { managerId: string }) {
       <div className="doc-row-title">{f.assignmentTitle ?? "no assignment"}</div>
       <div className="doc-row-meta">
         {f.chainId ? <Pill tone="neutral">chain {f.chainId} · hop {f.hop}</Pill> : null}
-        {f.sessionId ? <span>{fmtTokens(f.tokens)} {ADJ}</span> : null}
+        {f.sessionId ? <span>{f.tokens || f.agent.status === "retired" ? <>{fmtTokens(f.tokens)} {ADJ}</> : "running"}</span> : null}
         {f.reportTitle ? <span>report: {f.reportTitle}</span> : null}
       </div>
     </button>
@@ -111,9 +111,9 @@ function ForksTab({ managerId }: { managerId: string }) {
   return (
     <>
       <ErrorLine error={list.error} />
-      {family ? <KV items={[["With forks", `today ${fmtTokens(family.today)} · total ${fmtTokens(family.total)} ${ADJ} · ${usd(family.usdTotal)} (${family.forks} fork${family.forks === 1 ? "" : "s"})`]]} /> : null}
+      {family ? <KV items={[["With forks", <>today {fmtTokens(family.today)}{family.cap ? <> / {fmtTokens(family.cap)} <Meter v={family.today / family.cap} /></> : null} (forks {fmtTokens(family.forksToday)}) · total {fmtTokens(family.total)} {ADJ} · {usd(family.usdTotal)} ({family.forks} fork{family.forks === 1 ? "" : "s"})</>]]} /> : null}
       <Section title={<>Live <Pill>{live.length}</Pill></>}>{live.length ? <div className="doc-list">{live.map(row)}</div> : <Empty>No fork is working now.</Empty>}</Section>
-      <Section title={<>Retired <Pill>{retired.length}</Pill></>}>{retired.length ? <div className="doc-list">{retired.map(row)}</div> : <Empty>No fork has finished yet. With forks on, the building's queued work runs on forks of its manager.</Empty>}</Section>
+      <Section title={<>Retired <Pill>{retired.length}</Pill></>}>{retired.length ? <div className="doc-list">{retired.map(row)}</div> : <Empty>No fork has finished yet. With forks on, the building's queued work runs on forks of its manager.</Empty>}{list.data?.notStarted ? <div className="muted">{list.data.notStarted} more retired before a session started (desk failed at startup; nothing spent), not listed.</div> : null}</Section>
     </>
   );
 }
@@ -268,6 +268,9 @@ function TalkTab({ agent }: { agent: Agent }) {
   // a manager's spend with its forks (design note §7): the Bank books each fork on its own row, this sums them
   const family = useLoad(() => isManager ? api().forks(agent.id).then((f) => f.family ?? null) : Promise.resolve(null), [agent.id, isManager, agent.spentTokensTotal]);
   const fam = family.data && family.data.forks > 0 ? family.data : null;
+  // a fork is capped by its family, not by its own row (booked only when its session ends): show the manager's family count
+  const root = useTown((st) => (agent.forkOf ? st.agents[agent.forkOf] : undefined));
+  const famCap = daily && building ? daily * building.headcount : 0;
   const canControl = !isHuman && !isService && (store.can("building.assign", agent.homeBuildingId) || agent.ownerUserId === me?.user.id);
   return (
     <div className="chat-wrap">
@@ -280,9 +283,12 @@ function TalkTab({ agent }: { agent: Agent }) {
       ) : !isHuman && !isService ? (
         <KV items={[
           ["Model", sess?.model ?? agent.model ?? building?.model ?? "default"],
-          ["Today", <>{fmtTokens(agent.spentTokensToday)}{daily ? <> / {fmtTokens(daily)} <Meter v={agent.spentTokensToday / daily} /></> : null}</>],
+          agent.forkOf ? ["Today", <span title={`${root?.name ?? "The manager"} and its forks share one daily cap (dailyTokensPerAgent × headcount). A fork's spend is booked when its session ends.`}>
+            family {fmtTokens(root?.familySpentToday ?? 0)}{famCap ? <> / {fmtTokens(famCap)} <Meter v={(root?.familySpentToday ?? 0) / famCap} /></> : null} · this fork {agent.status === "retired" || agent.spentTokensToday ? fmtTokens(agent.spentTokensToday) : "books at session end"}
+          </span>]
+          : ["Today", <>{fmtTokens(agent.spentTokensToday)}{daily ? <> / {fmtTokens(daily)} <Meter v={agent.spentTokensToday / daily} /></> : null}</>],
           ["Total", `${fmtTokens(agent.spentTokensTotal)} ${ADJ} · ${usd(agent.spentUsdTotal)}`],
-          ...(fam ? [["With forks", <span title={`${agent.name} and ${fam.forks} fork${fam.forks === 1 ? "" : "s"} (live and retired); each fork keeps its own row`}>today {fmtTokens(fam.today)}{daily && building ? <> / {fmtTokens(daily * building.headcount)}</> : null} · total {fmtTokens(fam.total)} {ADJ} · {usd(fam.usdTotal)}</span>] as [string, ReactNode]] : []),
+          ...(fam ? [["With forks", <span title={`${agent.name} and ${fam.forks} fork${fam.forks === 1 ? "" : "s"} (live and retired); each fork keeps its own row`}>today {fmtTokens(fam.today)}{fam.cap ? <> / {fmtTokens(fam.cap)} <Meter v={fam.today / fam.cap} /></> : null} (forks {fmtTokens(fam.forksToday)}) · total {fmtTokens(fam.total)} {ADJ} · {usd(fam.usdTotal)}</span>] as [string, ReactNode]] : []),
           ...(sess ? [["Session", <><Pill tone={sess.status === "running" ? "ok" : sess.status === "error" ? "bad" : ""}>{sess.status}</Pill> {sess.purpose} · started {timeAgo(sess.startedAt)} · {sess.turns} turns · <span title={breakdownTitle(sess)}>{fmtTokens(sess.adjustedOutputTokens ?? 0)} {ADJ}</span> · {usd(sess.costUsd)}{s.data?.transcriptFile ? <> · <a href={s.data.transcriptFile.url} title={`${s.data.transcriptFile.lines} lines · kept until ${s.data.transcriptFile.expiresAt.slice(0, 10)}`} onClick={(e) => { e.preventDefault(); void api().openTranscript?.(s.data!.transcriptFile!.url).catch((err: Error) => store.toast(err.message, "bad")); }}>transcript</a></> : null}</>] as [string, ReactNode]] : [["Last active", timeAgo(agent.lastActiveAt)] as [string, ReactNode]]),
         ]} />
       ) : null}

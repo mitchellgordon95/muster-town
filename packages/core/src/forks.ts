@@ -249,20 +249,32 @@ export function forkSummary(world: World, fork: Agent): ForkSummary | null {
   };
 }
 
-/** What a manager and all its forks (live and retired) spent, summed from the rows the Bank books; a read-side sum only. */
-export interface FamilySpend { today: number; total: number; usdTotal: number; forks: number }
+/**
+ * What a manager and all its forks (live and retired) spent, summed from the rows the Bank books; a read-side sum only.
+ * `forksToday` is the forks' part of `today`; `cap` is the family's daily cap (familyCap of the manager's building, 0 without one).
+ * A fork's spend is booked when its session ends, so a running fork adds nothing yet.
+ */
+export interface FamilySpend { today: number; forksToday: number; cap: number; total: number; usdTotal: number; forks: number }
 
 /** Design note §7 "rollups by family": the manager's own spend plus every fork's, today and all-time, in adjusted tokens. */
 export function familySpend(world: World, managerId: string): FamilySpend {
   const r = world.db.prepare(
-    "SELECT COALESCE(SUM(spentTokensToday), 0) AS today, COALESCE(SUM(spentTokensTotal), 0) AS total, COALESCE(SUM(spentUsdTotal), 0) AS usd, COALESCE(SUM(forkOf IS NOT NULL), 0) AS forks FROM agents WHERE id = ? OR forkOf = ?",
-  ).get(managerId, managerId) as { today: number; total: number; usd: number; forks: number };
-  return { today: r.today, total: r.total, usdTotal: r.usd, forks: r.forks };
+    "SELECT COALESCE(SUM(spentTokensToday), 0) AS today, COALESCE(SUM(CASE WHEN forkOf IS NOT NULL THEN spentTokensToday ELSE 0 END), 0) AS forksToday, COALESCE(SUM(spentTokensTotal), 0) AS total, COALESCE(SUM(spentUsdTotal), 0) AS usd, COALESCE(SUM(forkOf IS NOT NULL), 0) AS forks FROM agents WHERE id = ? OR forkOf = ?",
+  ).get(managerId, managerId) as { today: number; forksToday: number; total: number; usd: number; forks: number };
+  const m = world.agents.get(managerId);
+  const b = m ? world.buildings.get(m.homeBuildingId ?? m.buildingId ?? "") : undefined;
+  return { today: r.today, forksToday: r.forksToday, cap: b ? familyCap(b) : 0, total: r.total, usdTotal: r.usd, forks: r.forks };
 }
 
-/** A manager's forks for its Forks tab: the live ones, then the last 50 retired, newest first, and the family's spend. */
-export function forksOf(world: World, managerId: string): { live: ForkSummary[]; retired: ForkSummary[]; family: FamilySpend } {
+/**
+ * A manager's forks for its Forks tab: the live ones, then the last 50 retired that started a session, newest first,
+ * and the family's spend. Forks whose desk failed before any session (they spent nothing) are only counted
+ * (`notStarted`): listed, a burst of them pushed every fork that did work out of the 50 (as_v969ocjeol).
+ */
+export function forksOf(world: World, managerId: string): { live: ForkSummary[]; retired: ForkSummary[]; notStarted: number; family: FamilySpend } {
   const live = world.agents.where("forkOf = ? AND status != 'retired'", [managerId], "ORDER BY forkN");
-  const retired = world.agents.where("forkOf = ? AND status = 'retired'", [managerId], "ORDER BY createdAt DESC, rowid DESC LIMIT 50");
-  return { live: live.map((a) => forkSummary(world, a)!), retired: retired.map((a) => forkSummary(world, a)!), family: familySpend(world, managerId) };
+  const started = "EXISTS (SELECT 1 FROM sessions s WHERE s.agentId = agents.id)";
+  const retired = world.agents.where(`forkOf = ? AND status = 'retired' AND ${started}`, [managerId], "ORDER BY createdAt DESC, rowid DESC LIMIT 50");
+  const { n: notStarted } = world.db.prepare(`SELECT COUNT(*) AS n FROM agents WHERE forkOf = ? AND status = 'retired' AND NOT ${started}`).get(managerId) as { n: number };
+  return { live: live.map((a) => forkSummary(world, a)!), retired: retired.map((a) => forkSummary(world, a)!), notStarted, family: familySpend(world, managerId) };
 }
