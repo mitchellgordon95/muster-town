@@ -134,7 +134,7 @@ const talkable = (a: Agent | undefined): boolean => !!a && a.kind === "resident"
  */
 function oneOnOneTarget(world: World, authorId: string): { agent: Agent; via: "fork" | "gone" | null } | null {
   const author = world.agents.get(authorId);
-  if (!author) return null;
+  if (!author || author.kind === "human") return null;
   if (talkable(author)) return { agent: author, via: null };
   const parent = author.forkOf ? world.agents.get(author.forkOf) : undefined;
   if (parent && talkable(parent)) return { agent: parent, via: "fork" };
@@ -144,13 +144,15 @@ function oneOnOneTarget(world: World, authorId: string): { agent: Agent; via: "f
 
 /**
  * A 1:1 (docs/waterfall.md §3.4): a human opens a meeting with one agent of the building, its manager by default or
- * `opts.agentId` (a report's "Talk to <author>"; a fork or a gone author resolves through `oneOnOneTarget`). Created
+ * `opts.agentId` (a doc's "Talk to <author>"; a fork or a gone author resolves through `oneOnOneTarget`). Created
  * straight into `discussing` (no summaries) with that agent as facilitator and only attendee; it doesn't go
- * `in-meeting` (its host session answers, runtime/src/manage.ts). With `opts.docId` the human's first line presents
- * that doc, so the agent's prompt carries its id. Returns the human's open 1:1 with that agent if any (presenting
- * the doc there if it isn't yet). Needs meeting.facilitate or building.review on the building.
+ * `in-meeting` (its host session answers, runtime/src/manage.ts). With `opts.docId` (any doc) or `opts.grantId` (a
+ * grant's "Talk to <manager>": its proposer, resolved the same way, else the building's manager) the human's first
+ * line presents it, so the agent's prompt carries its id (and a grant's key result). Returns the human's open 1:1
+ * with that agent if any (presenting the subject there if it isn't yet). Needs meeting.facilitate or building.review
+ * on the building.
  */
-export function createOneOnOne(world: World, human: Agent, buildingId: string, opts: { agentId?: string; docId?: string } = {}): Meeting {
+export function createOneOnOne(world: World, human: Agent, buildingId: string, opts: { agentId?: string; docId?: string; grantId?: string } = {}): Meeting {
   const b = world.buildings.require(buildingId, "building");
   if (b.id === TOWN_HALL_ID || b.kind === "town-hall") throw badRequest("The Town Hall has no manager agent to talk to.");
   if (!world.permissions.can(human, "meeting.facilitate", b.id) && !world.permissions.can(human, "building.review", b.id)) throw forbidden("meeting.facilitate");
@@ -158,8 +160,15 @@ export function createOneOnOne(world: World, human: Agent, buildingId: string, o
   if (h.kind !== "user") throw badRequest("Only humans open a 1:1.");
   const doc = opts.docId ? world.docs.get(opts.docId) : undefined;
   if (opts.docId && !doc) throw notFound("Document", opts.docId);
+  const grant = opts.grantId ? world.grants.get(opts.grantId) : undefined;
+  if (opts.grantId && !grant) throw notFound("Grant", opts.grantId);
+  if (grant && grant.buildingId !== b.id) throw badRequest(`${grant.id} belongs to another building.`);
   let target: Agent | undefined;
-  if (opts.agentId) {
+  if (grant && !opts.agentId) {
+    const proposer = oneOnOneTarget(world, grant.proposedBy)?.agent;
+    target = proposer && (proposer.homeBuildingId ?? proposer.buildingId) === b.id ? proposer : managerAgentOf(world, b);
+    if (!target) throw new AppError("conflict", `${b.name} has no manager agent; send a message instead.`);
+  } else if (opts.agentId) {
     const t = oneOnOneTarget(world, opts.agentId);
     if (!t) throw new AppError("conflict", `${world.nameOf(opts.agentId)} can't take a 1:1 and ${b.name} has no manager agent; reply to the report instead.`);
     target = t.agent;
@@ -170,6 +179,12 @@ export function createOneOnOne(world: World, human: Agent, buildingId: string, o
   }
   const open = world.meetings.where("kind = 'one-on-one' AND facilitatorId = ? AND withUserId = ? AND phase = 'discussing'", [target.id, h.id]);
   const present = (m: Meeting): Meeting => {
+    if (grant) {
+      if (m.transcript.some((u) => u.attachment?.ref === `grant:${grant.id}`)) return m;
+      const kr = grant.keyResultId ? world.keyResults.get(grant.keyResultId) : undefined;
+      const what = grant.status === "proposed" || grant.status === "countered" || grant.status === "draft" ? "proposal" : "grant";
+      return meetingSpeak(world, human, m.id, `I'd like to talk about the ${grant.status} ${what} "${oneLine(grant.objective, 120)}" (${grant.id})${kr ? `, for key result ${kr.id}: "${oneLine(kr.text, 160)}"` : ""}.`, grant.id);
+    }
     if (!doc || m.transcript.some((u) => u.attachment?.kind === "doc" && u.attachment.ref === doc.id)) return m;
     const by = doc.authorId === target.id ? "your" : `${world.nameOf(doc.authorId)}'s`;
     return meetingSpeak(world, human, m.id, `I'd like to talk about ${by} ${doc.type} "${oneLine(doc.title, 120)}" (${doc.id}).`, doc.state === "draft" ? undefined : doc.id);
@@ -180,7 +195,7 @@ export function createOneOnOne(world: World, human: Agent, buildingId: string, o
     id: newId("mt"), kind: "one-on-one", buildingId: b.id, title: `1:1: ${world.nameOf(h.id)} and ${target.name}`, scheduledAt: ts, phase: "discussing",
     facilitatorId: target.id, attendeeIds: [target.id], withUserId: h.id, createdAt: ts, startedAt: ts,
   }));
-  world.events.append({ type: "meeting.created", buildingId: b.id, agentId: target.id, text: `${world.nameOf(h.id)} opened a 1:1 with ${target.name}${doc ? ` about ${doc.id}` : ""}`, payload: { meetingId: meeting.id, kind: meeting.kind, phase: meeting.phase, by: h.id, ...(doc ? { docId: doc.id } : {}) } });
+  world.events.append({ type: "meeting.created", buildingId: b.id, agentId: target.id, text: `${world.nameOf(h.id)} opened a 1:1 with ${target.name}${doc || grant ? ` about ${(grant ?? doc)!.id}` : ""}`, payload: { meetingId: meeting.id, kind: meeting.kind, phase: meeting.phase, by: h.id, ...(doc ? { docId: doc.id } : {}), ...(grant ? { grantId: grant.id } : {}) } });
   return present(meeting);
 }
 

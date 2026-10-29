@@ -20,6 +20,7 @@ import { fromMillions, toMillions } from "../format";
 import { portraitUrl } from "../map/sprites";
 import { useMediaPaste } from "./mediaPaste";
 import { MediaThumb } from "./MediaThumb";
+import { canOneOnOne, grantTalkTarget, openOneOnOne } from "./oneOnOne";
 import { RollupCards, rollupCardsOf } from "./RollupCards";
 import { ReviewDeckView } from "./ReviewDeck";
 
@@ -248,6 +249,19 @@ function useMyFundingInputs(enabled: boolean) {
 }
 
 /**
+ * A grant's "Talk to <manager>" (Mitchell, 1:1 mt_u6euky43hg): opens my 1:1 with its proposer (else the building's
+ * manager), the grant and its key result presented as the first line. Same visibility as a doc's Talk to <author>.
+ */
+function TalkAboutGrant({ grant: g }: { grant: GrantView }) {
+  const agents = useTown((s) => s.agents);
+  const buildings = useTown((s) => s.buildings);
+  const me = useTown((s) => s.me);
+  const t = grantTalkTarget(g.proposedBy, g.buildingId, agents, buildings);
+  if (!me || !t || !canOneOnOne(g.buildingId)) return null;
+  return <span className="talk-author"><Act small tone="primary" run={() => openOneOnOne(g.buildingId, { grantId: g.id })} title={`Open a 1:1 with ${t.name} about this grant and its key result`}>Talk to {t.name}</Act></span>;
+}
+
+/**
  * A proposal or checkpoint row with its decision controls (POST /api/grants/:id/decide, `building.fund`); the same row
  * shows any other status read-only in the grant panel.
  */
@@ -298,6 +312,7 @@ export function GrantRow({ grant: g, onDecided, onOpenDoc, deckSlide }: { grant:
         <span>{timeAgo(g.updatedAt)}</span>
         <Pill tone={checkpoint ? "warn" : g.status === "rejected" ? "bad" : g.status === "countered" || g.status === "draft" || g.status === "closed" ? "" : "ok"}>{g.status}</Pill>
         <GrantLink id={g.id} />
+        <TalkAboutGrant grant={g} />
       </div>
       <div className="doc-row-title">{g.objective}</div>
       <div className="doc-row-meta">

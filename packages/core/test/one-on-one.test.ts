@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { meetingNotice } from "../src/meetings.ts";
 import { oneOnOnePrompt } from "../src/prompts.ts";
+import { buildingRoleId } from "../src/index.ts";
 import { seededWorld } from "./helpers.ts";
 
 describe("the manager's 1:1", () => {
@@ -91,5 +92,34 @@ describe("the manager's 1:1", () => {
     expect(world.ops.openOneOnOne(admin, "carbon-cycle", { agentId: ravi.id }).facilitatorId).toBe(mei.id);
     // a resident can't open one
     expect(() => world.ops.openOneOnOne(noor, "carbon-cycle", { agentId: mei.id })).toThrow();
+  });
+
+  it("any agent-authored doc type opens a 1:1 with its author; a human's doc has no author to talk to; a grant reaches its proposer with its key result (1:1 mt_u6euky43hg)", async () => {
+    const { world, by, admin } = seededWorld();
+    const mei = by("Mei"), noor = by("Noor");
+    world.ops.updateBuilding(admin, "carbon-cycle", { managerAgentId: mei.id });
+    world.permissions.grant({ kind: "agent", id: mei.id }, buildingRoleId("carbon-cycle", "manager"));
+    const art = await world.verbs.write(noor, { title: "Ocean sink primer", body: "2.9 GtC/yr", type: "article", state: "building" });
+    const m = world.ops.openOneOnOne(admin, "carbon-cycle", { agentId: noor.id, docId: art.id });
+    expect(m.facilitatorId).toBe(noor.id);
+    expect(m.transcript[0]).toMatchObject({ attachment: { kind: "doc", ref: art.id }, text: expect.stringContaining('your article "Ocean sink primer"') });
+    // a human author: nobody to resolve to
+    const human = world.agents.require(world.ops.ensureAvatar(world.holderOf(admin).id).id);
+    expect(() => world.ops.openOneOnOne(admin, "carbon-cycle", { agentId: human.id })).toThrow(/can't take a 1:1/);
+    // a grant: its proposer (the manager) answers; the first line presents the grant and names its key result
+    const notes = world.docs.upsert({ ...world.docs.first("1 = 1")!, id: "dc_notes1", type: "meeting-notes", state: "building", buildingId: "carbon-cycle", title: "1:1 notes", body: "KR" });
+    const kr = (await world.verbs.set_key_result(mei, { text: "Sink numbers on the banner", howToCheck: "Open the banner", sourceDocIds: [notes.id] })).keyResult;
+    const { grantId } = await world.verbs.propose_grant(mei, { keyResultId: kr.id, objective: "Ship the sink banner", stopCondition: "s", askTokens: 1000 });
+    const g = world.ops.openOneOnOne(admin, "carbon-cycle", { grantId });
+    expect(g.facilitatorId).toBe(mei.id);
+    expect(g.transcript[0]).toMatchObject({ speakerKind: "user", attachment: { kind: "page", ref: `grant:${grantId}` } });
+    expect(g.transcript[0]!.text).toContain(grantId);
+    expect(g.transcript[0]!.text).toContain(kr.id);
+    expect(oneOnOnePrompt(g, world.nameOf.bind(world))).toContain("Sink numbers on the banner");
+    // presented once; a grant of another building is refused; an unknown grant is not found
+    expect(world.ops.openOneOnOne(admin, "carbon-cycle", { grantId }).transcript).toHaveLength(1);
+    const other = world.buildings.first("id != ? AND kind != 'town-hall'", ["carbon-cycle"]);
+    if (other) expect(() => world.ops.openOneOnOne(admin, other.id, { grantId })).toThrow(/another building/);
+    expect(() => world.ops.openOneOnOne(admin, "carbon-cycle", { grantId: "gr_nope" })).toThrow(/not found|No grant|Grant/);
   });
 });

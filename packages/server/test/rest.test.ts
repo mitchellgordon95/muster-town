@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it } from "vitest";
-import { townRoleId } from "@muster-town/core";
+import { buildingRoleId, townRoleId } from "@muster-town/core";
 import { json, seededApp } from "./helpers.ts";
 
 const cleanups: (() => Promise<void>)[] = [];
@@ -172,6 +172,25 @@ describe("reports as replies", () => {
     const mgr = await json(app, "POST", "/api/buildings/carbon-cycle/one-on-one", { headers: auth });
     expect(mgr.body.meeting).toMatchObject({ facilitatorId: mei.id, transcript: [] });
     expect((await json(app, "POST", "/api/buildings/carbon-cycle/one-on-one", { body: { agentId: noor.id } })).status).toBe(401);
+  });
+
+  it("one-on-one takes grantId: the grant presented to its proposer; an article opens the same way (1:1 mt_u6euky43hg)", async () => {
+    const { app, auth, by, world, seed } = await setup();
+    const mei = by("Mei"), noor = by("Noor");
+    world.ops.updateBuilding(world.ops.ensureAvatar(seed.admin.id), "carbon-cycle", { managerAgentId: mei.id });
+    world.permissions.grant({ kind: "agent", id: mei.id }, buildingRoleId("carbon-cycle", "manager"));
+    const notes = world.docs.upsert({ ...world.docs.first("1 = 1")!, id: "dc_notes1", type: "meeting-notes", state: "building", buildingId: "carbon-cycle", title: "notes", body: "KR" });
+    const kr = (await world.verbs.set_key_result(mei, { text: "Sink banner", howToCheck: "Open it", sourceDocIds: [notes.id] })).keyResult;
+    const { grantId } = await world.verbs.propose_grant(mei, { keyResultId: kr.id, objective: "Ship the sink banner", stopCondition: "s", askTokens: 1000 });
+    const r = await json(app, "POST", "/api/buildings/carbon-cycle/one-on-one", { headers: auth, body: { grantId } });
+    expect(r.status).toBe(200);
+    expect(r.body.meeting).toMatchObject({ facilitatorId: mei.id });
+    expect(r.body.meeting.transcript[0]).toMatchObject({ speakerKind: "user", attachment: { kind: "page", ref: `grant:${grantId}` } });
+    expect(r.body.meeting.transcript[0].text).toContain(kr.id);
+    expect((await json(app, "POST", "/api/buildings/carbon-cycle/one-on-one", { headers: auth, body: { grantId: "gr_nope" } })).status).toBe(404);
+    const art = await world.verbs.write(noor, { title: "Primer", body: "x", type: "article", state: "building" });
+    const a = await json(app, "POST", "/api/buildings/carbon-cycle/one-on-one", { headers: auth, body: { agentId: noor.id, docId: art.id } });
+    expect(a.body.meeting.transcript[0]).toMatchObject({ attachment: { kind: "doc", ref: art.id } });
   });
 });
 

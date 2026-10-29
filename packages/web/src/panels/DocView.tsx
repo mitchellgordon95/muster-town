@@ -107,20 +107,21 @@ export function FlagDecideBox({ doc, onDone }: { doc: Doc; onDone?: () => void }
 }
 
 /**
- * A report's "Talk to <author>" (Mitchell, 1:1 mt_uf1bwd3exq): opens my 1:1 with the author, the report presented as
- * the first line. A fork's report (or a gone author's) reaches its manager, and the button says so.
+ * A doc's "Talk to <author>" (Mitchell, 1:1s mt_uf1bwd3exq for reports, mt_u6euky43hg for every type): opens my 1:1
+ * with the author, the doc presented as the first line. A fork's doc (or a gone author's) reaches its manager, and the
+ * button says so. A human's doc has none.
  */
 export function TalkToAuthor({ doc }: { doc: Doc }) {
   const agents = useTown((s) => s.agents);
   const buildings = useTown((s) => s.buildings);
   const me = useTown((s) => s.me);
-  const t = doc.type === "report" ? talkTarget(doc.authorId, agents, buildings) : null;
+  const t = talkTarget(doc.authorId, agents, buildings);
   const home = t ? t.agent.homeBuildingId ?? t.agent.buildingId : null;
   if (!me || !t || !canOneOnOne(home)) return null;
   const why = t.via === "fork" ? `${nameOf(doc.authorId)} is a fork of ${t.agent.name}, so ${t.agent.name} answers` : t.via === "gone" ? `${nameOf(doc.authorId)} isn't working any more, so their manager ${t.agent.name} answers` : null;
   return (
     <span className="talk-author">
-      <Act small tone="primary" run={() => openOneOnOne(home!, { agentId: t.agent.id, docId: doc.id })} title={`Open a 1:1 with ${t.agent.name} about this report${why ? ` (${why})` : ""}`}>Talk to {t.agent.name}</Act>
+      <Act small tone="primary" run={() => openOneOnOne(home!, { agentId: t.agent.id, docId: doc.id })} title={`Open a 1:1 with ${t.agent.name} about this ${doc.type.replace(/-/g, " ")}${why ? ` (${why})` : ""}`}>Talk to {t.agent.name}</Act>
       {why ? <span className="muted"> {why}</span> : null}
     </span>
   );
