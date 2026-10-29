@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { LookResult, TILE } from "@muster-town/schema";
-import { createAssignment, intrayCount, nextPending, OFFER_TTL_MS, TOWN_HALL_FIXTURES, tileAt } from "../src/index.ts";
+import { createAssignment, createBuilding, intrayCount, nextPending, OFFER_TTL_MS, TOWN_HALL_FIXTURES, tileAt } from "../src/index.ts";
 import { seededWorld, tickUntil } from "./helpers.ts";
 
 const later = (ms: number) => new Date(Date.now() + ms);
@@ -8,7 +8,7 @@ const later = (ms: number) => new Date(Date.now() + ms);
 describe("v1.4 visitors: where they live", () => {
   it("a visitor registered into a building claims a free desk there, like a resident", () => {
     const { world, seed } = seededWorld();
-    const lab = world.ops.createBuilding(null, { name: "Roomy", headcount: 4 }).id;
+    const lab = createBuilding(world, { name: "Roomy", headcount: 4 }, null, { starterResidents: true }).id;
     const free = world.layout.places.filter((p) => p.id.startsWith(`desk:free:${lab}:`)).length;
     const { agent } = world.ops.registerVisitor(seed.admin.id, { name: "Mitch's Claude", buildingId: lab });
     expect(agent.homeBuildingId).toBe(lab);
@@ -38,7 +38,7 @@ describe("v1.4 visitors: where they live", () => {
 
   it("a full building puts the visitor on the bench, still homed there", () => {
     const { world, seed } = seededWorld();
-    const b = world.ops.createBuilding(null, { name: "Tiny", headcount: 1 });
+    const b = createBuilding(world, { name: "Tiny", headcount: 1 }, null, { starterResidents: true });
     expect(world.agents.where("homeBuildingId = ? AND kind = 'resident'", [b.id])).toHaveLength(1); // its starter resident fills it
     const { agent } = world.ops.registerVisitor(seed.admin.id, { name: "V", buildingId: b.id });
     expect(world.layout.deskOf(agent.id)).toBeUndefined();
@@ -71,7 +71,7 @@ describe("v1.4 visitors: presence", () => {
 
   it("going offline sends the body home; the next call is the 'back' transition with an agent.status event", async () => {
     const { world, seed } = seededWorld();
-    const lab = world.ops.createBuilding(null, { name: "Roomy", headcount: 4 }).id;
+    const lab = createBuilding(world, { name: "Roomy", headcount: 4 }, null, { starterResidents: true }).id;
     const v = world.ops.registerVisitor(seed.admin.id, { name: "V", buildingId: lab }).agent;
     const desk = world.layout.deskOf(v.id)!.pos;
     await tickUntil(world, world.verbs.go(v, { to: "library" }));
@@ -197,7 +197,7 @@ describe("visitor reports reach a human (dc_04i3sll7q5)", () => {
 
   it("a homed visitor's report goes to its home building's in-tray, as today", async () => {
     const { world, seed } = seededWorld();
-    const lab = world.ops.createBuilding(null, { name: "Roomy", headcount: 4 }).id;
+    const lab = createBuilding(world, { name: "Roomy", headcount: 4 }, null, { starterResidents: true }).id;
     const v = world.ops.registerVisitor(seed.admin.id, { name: "V", buildingId: lab }).agent;
     const res = await world.verbs.submit_report(v, { title: "R", body: R, verdict: "stop" });
     expect(world.docs.require(res.id)).toMatchObject({ buildingId: lab, tags: [] });
@@ -208,7 +208,7 @@ describe("visitor reports reach a human (dc_04i3sll7q5)", () => {
 
   it("an unhomed visitor on the bench, on the plaza or inside someone's lab reports to the Town Hall in-tray", async () => {
     const { world, seed } = seededWorld();
-    const lab = world.ops.createBuilding(null, { name: "Other", headcount: 4 }).id;
+    const lab = createBuilding(world, { name: "Other", headcount: 4 }, null, { starterResidents: true }).id;
     for (const where of ["town-hall", null, lab]) {
       const v = world.ops.registerVisitor(seed.admin.id, { name: `V ${where}` }).agent;
       world.agents.patch(v.id, { buildingId: where });

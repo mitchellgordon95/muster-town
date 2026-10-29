@@ -142,6 +142,8 @@ class Store {
   onBankChanged?: () => void;
   /** refetch `blocked` (set at boot; debounced there) */
   onAssignmentChanged?: () => void;
+  /** refetch `me`: an admin decided this person's request to join (set at boot) */
+  onAccessDecided?: () => void;
 
   /** Names of agents that left the snapshot (dismissed, banned) so docs keep a readable author. */
   readonly names = new Map<string, string>();
@@ -193,6 +195,7 @@ class Store {
     // a grant decided or a building blocked/unblocked moves lane holds
     if (e.type.startsWith("grant.") || e.type === "building.blocked") this.onAssignmentChanged?.();
     if (e.type === "system" && e.payload.redeploy) this.onRedeployEvent?.();
+    if (isMyAccessDecision(e, s.me?.user.id)) this.onAccessDecided?.();
     this.toastRedeploy();
     // a message addressed to the human's avatar
     const me = this.avatarId;
@@ -212,6 +215,8 @@ class Store {
     const events = [...byId.values()].sort((a, b) => a.id - b.id).slice(-MAX_EVENTS);
     this.set({ events });
     if (list.some((e) => e.type === "system" && e.payload.redeploy)) this.onRedeployEvent?.();
+    // missed while the socket was down (a refetch after reconnect): the refetch of `me` only toasts on a real change
+    if (list.some((e) => isMyAccessDecision(e, this.state.me?.user.id))) this.onAccessDecided?.();
     this.toastRedeploy();
   }
   /** A redeploy that just finished or failed gets a toast (also when its event arrives in a refetch after the restart). */
@@ -269,6 +274,22 @@ class Store {
 }
 
 export const store = new Store();
+
+/**
+ * An admin let this signed-in person in, or declined them (core decideAccess's `system` event, payload
+ * `{ accessRequestId, userId, granted }`; the ask itself has no `granted`). Every socket gets the event, so the
+ * requester's page refetches `me` instead of waiting for a reload (flag dc_1kylouq1l7).
+ */
+export function isMyAccessDecision(e: Event, userId: string | undefined): boolean {
+  return !!userId && e.type === "system" && !!e.payload.accessRequestId && e.payload.userId === userId && typeof e.payload.granted === "boolean";
+}
+
+/** The toast for a change in `me` after a decision, or null when nothing changed (a stale event, a refetch of the same state). */
+export function accessDecisionToast(before: AuthMe | null, after: AuthMe): { text: string; tone: "ok" | "info" } | null {
+  if (before?.canInteract === false && after.canInteract) return { text: "You're in: an admin let you join. You can walk, talk and connect your agent now.", tone: "ok" };
+  if (before?.accessRequest?.status === "pending" && after.accessRequest?.status === "declined") return { text: "Your request to join was declined this time. You can ask again tomorrow.", tone: "info" };
+  return null;
+}
 // dev and mock builds only: lets a browser check (or a curious dev) open panels from the console, e.g. __muster.open({ kind: "agent", id })
 if (import.meta.env.DEV && typeof window !== "undefined") (window as unknown as { __muster?: Store }).__muster = store;
 

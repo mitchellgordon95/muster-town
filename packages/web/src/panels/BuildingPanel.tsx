@@ -1,7 +1,7 @@
 /** Building panel (E at the door): overview, goals and grants (labs; GoalsTab.tsx), members + roles, settings (managers: building fields). Members shows the one named manager, its live forks and the roles (no add or dismiss: 1:1 mt_wngibcr98b decision 1). Board, filing cabinet and in-tray are places; the collective's secrets are a planning-desk tab. */
 import { isFork } from "../forks";
 import { useEffect, useMemo, useState, type ReactNode } from "react";
-import { DEFAULT_POOL_ID, type Schedule, type SnapshotBuilding, type Workspace } from "@muster-town/schema";
+import { DEFAULT_POOL_ID, TILES_PER_DESK, type Schedule, type SnapshotBuilding, type Workspace } from "@muster-town/schema";
 import { fmtPct, poolColor } from "../pools";
 import { api } from "../api";
 import { store, useTown, roleOf } from "../state";
@@ -237,8 +237,8 @@ function AddHolder({ onAdd }: { onAdd: (kind: "agent" | "user", id: string) => P
   );
 }
 
-function Settings({ b }: { b: SnapshotBuilding }) {
-  const [f, setF] = useState({ goal: b.goal, description: b.description, headcount: b.headcount, model: b.model, cheapModel: b.cheapModel, maxTurnsPerSession: b.maxTurnsPerSession, managerAgentId: b.managerAgentId, codeAccess: b.codeAccess });
+export function Settings({ b }: { b: SnapshotBuilding }) {
+  const [f, setF] = useState({ goal: b.goal, description: b.description, model: b.model, cheapModel: b.cheapModel, maxTurnsPerSession: b.maxTurnsPerSession, managerAgentId: b.managerAgentId, codeAccess: b.codeAccess });
   const [daily, setDaily] = useState(toMillions(b.dailyTokensPerAgent));
   const dailyTokens = fromMillions(daily);
   const agents = useTown((s) => s.agents);
@@ -250,7 +250,7 @@ function Settings({ b }: { b: SnapshotBuilding }) {
     <form className="form" onSubmit={(e) => e.preventDefault()}>
       <Field label="Goal"><textarea rows={2} value={f.goal} onChange={(e) => set("goal", e.target.value)} /></Field>
       <Field label="Description"><textarea rows={3} value={f.description} onChange={(e) => set("description", e.target.value)} /></Field>
-      <Field label="Desks (headcount)"><NumberInput min={1} max={24} value={f.headcount} onChange={(n) => set("headcount", n)} /></Field>
+      <Field label="Desks" hint={`Desks follow floor space (one per ${TILES_PER_DESK} floor tiles; a full lab adds one when a fork needs it). Resize the building on the town map table to change them; this also sets the daily cap (daily budget / agent × desks).`}><span>{b.lot ? `${b.lot.w}×${b.lot.h} · ` : ""}{b.headcount} desk{b.headcount === 1 ? "" : "s"}</span></Field>
       <Field label="Manager" hint="The building's one named agent: it works the in-tray (its forks' reports), facilitates meetings and wears the ★ badge; queued work runs on its forks; its rollups go to the Town Hall in-tray. None: you work the in-tray.">
         <select value={f.managerAgentId ?? ""} onChange={(e) => set("managerAgentId", e.target.value || null)}>
           <option value="">none</option>

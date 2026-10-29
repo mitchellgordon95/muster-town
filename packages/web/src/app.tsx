@@ -1,7 +1,7 @@
 /** Boot (auth, WS, snapshot), layout, global keys, dev hooks. */
 import { Component, useCallback, useEffect, useRef, useState, type ReactNode } from "react";
 import { api, ApiError, getApi, isMock, tokenStore, WEB_ROOT, type Socket } from "./api";
-import { store, useTown, type PanelKind, type PanelRef } from "./state";
+import { accessDecisionToast, store, useTown, type PanelKind, type PanelRef } from "./state";
 import { layoutEdit } from "./map/layoutEdit";
 import { LayoutToolbar } from "./panels/LayoutToolbar";
 import { townPlan, useTownPlan } from "./map/townPlan";
@@ -106,6 +106,14 @@ async function boot(): Promise<Phase> {
     a.scheduled().then((scheduled) => store.set({ scheduled }), () => undefined);
   };
   store.onAssignmentChanged = () => { blockedTimer ??= setTimeout(() => { blockedTimer = null; loadBlocked(); }, 2000); };
+  // an admin decided this person's request to join: refetch `me` so the guest card turns into the member HUD without a reload
+  store.onAccessDecided = () => {
+    a.me().then((me) => {
+      const t = accessDecisionToast(store.state.me, me);
+      store.set({ me });
+      if (t) store.toast(t.text, t.tone);
+    }, () => undefined);
+  };
   loadBlocked();
   setInterval(loadBlocked, 30_000);
   return { k: "ready" };

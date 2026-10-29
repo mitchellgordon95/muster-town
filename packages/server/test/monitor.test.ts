@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, it } from "vitest";
 import { TOWN_HALL_ID } from "@muster-town/core";
 import { buildApp } from "../src/app.ts";
-import { ALERT_ENV, CLEAR_AFTER, Counters, Monitor, OUTBOUND_CAP, defaultMetrics, processProbes, type Probes, type Senders } from "../src/monitor.ts";
+import { ALERT_ENV, CLEAR_AFTER, Counters, type DeskSession, Monitor, OUTBOUND_CAP, defaultMetrics, processProbes, type Probes, type Senders } from "../src/monitor.ts";
 import { json, seededApp } from "./helpers.ts";
 
 const MIN = 60_000;
@@ -11,10 +11,11 @@ const fullEnv = Object.fromEntries(ALERT_ENV.map((k) => [k, "x"]));
 function rig(o: { env?: Record<string, string>; probes?: Partial<Probes> } = {}) {
   let t = Date.parse("2026-10-28T20:00:00Z");
   const state = { rss: 0.2 * GB, lag: 0 as number | null, disk: 0.5 as number | null, slots: { running: 1, max: 30 }, queue: 0, backup: null as Probes["backup"] extends () => infer R ? R : never,
-    http: { total: 0, errors: 0 }, ws: 0, sessions: { failed15: 0, ended30: 0, failed30: 0 } };
+    http: { total: 0, errors: 0 }, ws: 0, sessions: { failed15: 0, ended30: 0, failed30: 0 }, desk: [] as DeskSession[] };
   const probes: Probes = {
     rssBytes: () => state.rss, lagP99Ms: () => state.lag, diskFree: () => state.disk, slots: () => state.slots,
-    queueWaiting: () => state.queue, backup: () => state.backup, http: () => state.http, wsErrors: () => state.ws, sessions: () => state.sessions, ...o.probes,
+    queueWaiting: () => state.queue, backup: () => state.backup, http: () => state.http, wsErrors: () => state.ws, sessions: () => state.sessions,
+    deskSessions: (since) => state.desk.filter((d) => d.endedAt > since), ...o.probes,
   };
   const sent: { kind: "sms" | "email"; text: string }[] = [];
   const senders: Senders = { sms: async (text) => { sent.push({ kind: "sms", text }); }, email: async (subject) => { sent.push({ kind: "email", text: subject }); } };
@@ -163,6 +164,69 @@ describe("monitor thresholds", () => {
     expect(m.view().alerts).toMatchObject([{ key: "sessions", level: "yellow" }]);
   });
 
+  describe("desk-steal", () => {
+    // a desk session that ends `minAgo` before the next sample, with this steal share
+    const end = (s: Awaited<ReturnType<typeof setup>>, share: number, minAgo = 0.5) =>
+      s.r.state.desk.push({ id: `se_${s.r.state.desk.length}`, endedAt: s.r.now() + MIN - minAgo * MIN, share });
+
+    it("red on one session at 50% steal share, SMS + email", async () => {
+      const s = await setup();
+      await s.step(1);
+      end(s, 0.5);
+      await s.step(1);
+      expect(s.m.view().alerts).toMatchObject([{ key: "desk-steal", level: "red", value: 50 }]);
+      expect(s.r.sent.map((x) => x.kind)).toEqual(["sms", "email"]);
+      expect(s.world.docs.get(s.alerts().at(-1)!.docId!)!.title).toContain("[RED] desk session steal 50%");
+    });
+
+    it("red on two sessions at 35% within an hour; yellow when they are further apart", async () => {
+      const s = await setup();
+      end(s, 0.36);
+      await s.step(1);
+      expect(s.m.view().alerts).toMatchObject([{ key: "desk-steal", level: "yellow", value: 36 }]);
+      expect(s.r.sent).toEqual([]); // yellow stays in town
+      await s.step(30);
+      end(s, 0.4);
+      await s.step(1);
+      expect(s.m.view().alerts).toMatchObject([{ key: "desk-steal", level: "red", value: 40 }]);
+
+      await s.close();
+      const t = await setup();
+      end(t, 0.36);
+      await t.step(1);
+      await t.step(61);
+      end(t, 0.4);
+      await t.step(1);
+      expect(t.m.view().alerts).toMatchObject([{ key: "desk-steal", level: "yellow", value: 40 }]);
+    });
+
+    it("yellow at 25%, nothing under it; samples with no new session change nothing", async () => {
+      const s = await setup();
+      end(s, 0.24);
+      await s.step(1);
+      expect(s.m.view().alerts).toEqual([]);
+      end(s, 0.25);
+      await s.step(1);
+      expect(s.m.view().alerts).toMatchObject([{ key: "desk-steal", level: "yellow", value: 25 }]);
+      await s.step(20);
+      expect(s.m.view().alerts).toHaveLength(1);
+    });
+
+    it("clears after 5 clean sessions, not 5 samples", async () => {
+      const s = await setup();
+      end(s, 0.9);
+      await s.step(1);
+      expect(s.m.view().alerts).toMatchObject([{ level: "red" }]);
+      await s.step(10);
+      for (let i = 0; i < CLEAR_AFTER - 2; i++) { end(s, 0.1); await s.step(1); }
+      end(s, 0.1, 0.4); end(s, 0.1, 0.2); // two in one sample count two
+      await s.step(1);
+      expect(s.m.view().alerts).toEqual([]);
+      expect(s.alerts().at(-1)).toMatchObject({ key: "desk-steal", phase: "clear", level: "red" });
+      expect(s.r.sent).toHaveLength(4); // raise + clear, SMS and email each
+    });
+  });
+
   it("caps outbound at 10 messages an hour", async () => {
     const { m, r } = await setup();
     const results = [];
@@ -232,6 +296,12 @@ describe("monitor routes", () => {
     expect(ok.status).toBe(200);
     expect(ok.body).toMatchObject({ sms: "skipped", email: "skipped" });
     expect(typeof ok.body.eventId).toBe("number");
+    const desk = await json(app, "POST", "/api/admin/monitor/test?metric=desk-steal", { headers: s.auth });
+    expect(desk.status).toBe(200);
+    expect(desk.body).toMatchObject({ sms: "skipped", email: "skipped" });
+    expect(JSON.parse((s.world.db.prepare("SELECT payload FROM events WHERE id = ?").get(desk.body.eventId) as { payload: string }).payload)).toMatchObject({ key: "desk-steal", phase: "test" });
+    expect(s.world.docs.get(desk.body.fyiDocId)!.title).toBe("[RED] Monitor test alert for desk-steal");
+    expect((await json(app, "POST", "/api/admin/monitor/test?metric=nope", { headers: s.auth })).status).toBe(400);
   });
 });
 
@@ -263,6 +333,25 @@ describe("monitor counters", () => {
     add("se_a", "error", 5); add("se_b", "error", 20); add("se_c", "done", 10); add("se_d", "error", 40); add("se_e", "running", null);
     const p = processProbes(s.world, "/nonexistent", () => null, new Counters(() => now));
     expect(p.sessions(now)).toEqual({ failed15: 1, ended30: 3, failed30: 2 });
+    p.close();
+  });
+
+  it("processProbes reads finished desk sessions of 5 min or more, never host sessions", async () => {
+    const s = await seededApp();
+    close = s.close;
+    const now = Date.parse("2026-10-28T20:00:00Z");
+    const agentId = s.world.agents.all()[0]!.id;
+    const add = (id: string, backend: string, wallMin: number, cpuMs: number | null, stealMs: number | null, endMinAgo: number | null = 1) => s.world.db.prepare(
+      "INSERT INTO sessions (id, agentId, purpose, status, model, backend, startedAt, endedAt, wallMs, cpuMs, stealMs) VALUES (?, ?, 'work', 'done', 'm', ?, ?, ?, ?, ?, ?)",
+    ).run(id, agentId, backend, new Date(now - 90 * MIN).toISOString(), endMinAgo == null ? null : new Date(now - endMinAgo * MIN).toISOString(), wallMin * MIN, cpuMs, stealMs);
+    add("se_desk", "docker", 30, 1000, 3000);
+    add("se_host", "host", 30, 1000, 3000);
+    add("se_short", "docker", 4, 1000, 3000);
+    add("se_nocpu", "docker", 30, null, null);
+    add("se_old", "docker", 30, 1000, 3000, 120);
+    add("se_running", "docker", 30, 1000, 3000, null);
+    const p = processProbes(s.world, "/nonexistent", () => null, new Counters(() => now));
+    expect(p.deskSessions(now - 60 * MIN)).toEqual([{ id: "se_desk", endedAt: now - MIN, share: 0.75 }]);
     p.close();
   });
 

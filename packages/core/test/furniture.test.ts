@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { TILE } from "@muster-town/schema";
-import { createBuilding, findPath, isWalkable, labSize, MAX_HEADCOUNT, piecesFor, TOWN_HALL_SIZE, validateLayout } from "../src/index.ts";
+import { createBuilding, findPath, updateBuilding, isWalkable, labSize, MAX_HEADCOUNT, piecesFor, TOWN_HALL_SIZE, validateLayout } from "../src/index.ts";
 import { seededWorld } from "./helpers.ts";
 
 const at = (world: ReturnType<typeof seededWorld>["world"], x: number, y: number) => world.layout.grid.tiles[y * world.layout.grid.w + x];
@@ -84,7 +84,7 @@ describe("furniture", () => {
     const b = createBuilding(world, { name: "Small", headcount: 1 }, seed.admin.id);
     world.ops.updateFurniture(admin, b.id, { plant: { x: 3, y: 3 }, board: { x: 1, y: 0 } });
     // growing to 3 desks gives a bigger lot; the stored spots are still legal there
-    world.ops.updateBuilding(admin, b.id, { headcount: 3 });
+    updateBuilding(world, b.id, { headcount: 3 }); // internal path: REST ignores headcount
     const now = world.buildings.require(b.id);
     const lot = now.lot!;
     expect(at(world, lot.x + 1, lot.y)).toBe(TILE.BOARD);

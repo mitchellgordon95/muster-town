@@ -139,8 +139,10 @@ at most 10 outbound messages an hour across all keys.
 | `5xx` | 5xx share of HTTP responses, last 5 min (needs ≥ 50 responses) | > 2 % | > 10 % |
 | `ws` | WebSocket errors and abnormal closes, last 5 min | > 20 | > 100 |
 | `sessions` | Claude sessions ending in `error` | ≥ 3 in 15 min | ≥ 50 % of the sessions that ended in 30 min (min 4) |
+| `desk-steal` | steal share (steal / (cpu + steal)) of desk sessions (not `host`) of ≥ 5 min that ended since the last sample | ≥ 25 % | one ≥ 50 %, or two ≥ 35 % within an hour |
 
-An alert clears after 5 samples in a row under yellow. A key that stays red re-alerts hourly. A gap of more than 5 min
+An alert clears after 5 samples in a row under yellow (`desk-steal`: after 5 clean sessions; a sample with no newly ended
+desk session changes nothing). `desk-steal` cpu and steal are the whole desk Machine's (2 vCPUs summed, desk perf step 1). A key that stays red re-alerts hourly. A gap of more than 5 min
 between samples writes a "monitor gap" event when sampling resumes. `GET /api/health` shows
 `monitor: {lastSampleAt, outbound, alerts: [{key, level, since, value}]}` (`lastSampleAt` is null for the first 60 s after boot).
 
@@ -153,7 +155,7 @@ fly secrets set -a muster-town \
 ```
 Test the whole path with one red test alert (admin token; counts toward the 10/h cap):
 `curl -X POST -H "authorization: Bearer $ADMIN_TOKEN" https://muster.town/api/admin/monitor/test` returns
-`{eventId, fyiDocId, sms, email}`, each of `sms`/`email` being `sent`, `skipped` (no secrets, or over the cap) or `error`.
+`{eventId, fyiDocId, sms, email}` (`?metric=desk-steal`, or any key above, tags the test event with that key), each of `sms`/`email` being `sent`, `skipped` (no secrets, or over the cap) or `error`.
 
 #### VPS pinger (Wright's box)
 
@@ -184,6 +186,16 @@ SMTP pair, so a box without a Gmail app password still gets SMS.
 
 Installed on Wright's box (`ubuntu-2gb-hil-1`, user `node`) 2026-10-28 from 49e2622: all seven names set (the SMTP pair
 is the box's existing Gmail app password), dry run "ok (fails 0)", timer enabled. Updating it: re-run step 1.
+
+### Self-hosted towns directory (grant gr_8cdix9mpye, design dc_d6chojzl2a)
+
+`MUSTER_TOWN_DIRECTORY = "on"` in `fly.town.toml` turns on the directory routes on muster.town only (unset, they are on wherever `MUSTER_TOWN_PUBLIC_URL` is `https://muster.town`, because an `[env]` change reaches the Machine only with an image deploy; `off` turns them off):
+`POST /api/directory/register {host}` (no account, no approval; returns the same `mtd_…` token for a host every time, with
+the TXT and well-known proof instructions; 10 calls per IP per day, 5 pending hosts per IP, 200 new hosts a day; the client
+IP is `Fly-Client-IP`) and `GET /api/directory` → `{towns: [{host, url, name, goal, verifiedAt, lastSeenAt}]}` (verified towns
+seen in the last 24 h; cached 60 s). Rows live in `directory_towns` in town.db (migration 059), so the nightly backup covers
+them. Every town, muster.town included, serves `GET /.well-known/muster-town` = env `MUSTER_TOWN_DIRECTORY_TOKEN` (404 unset).
+Proof checking, `POST /api/directory/verify`, the hourly re-check and admin removal are step 2 (not built yet).
 
 ## Single-VPS deployment (legacy; the OVH box is gone)
 Plan and reasoning: town docs dc_mltonxkizi (deploy + CI) and dc_vxgg8r55ha (stress test: 6 desks at once).

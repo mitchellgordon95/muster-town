@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { addressOf, errorField, SIGN_IN_TO_START, startBody, startProblems } from "../src/home/startForm";
+import { addressOf, errorField, SIGN_IN_TO_START, startBody, startProblems, waitForTown } from "../src/home/startForm";
 
 const draft = { name: "Garden Club!", goal: "Map every community garden in town", apiKey: "" };
 
@@ -36,5 +36,16 @@ describe("Start form (home/startForm.ts)", () => {
     expect(errorField(400, "An Anthropic API key starts with sk-ant-api (create one in the Claude Console).")).toBe("apiKey");
     expect(errorField(429, "You already run muster.town/x/: one collective per person for now.")).toBe("form");
     expect(SIGN_IN_TO_START).toBe("/auth/github?return_to=%2F%23start");
+  });
+
+  it("waits for the new town's /<slug>/api/health to say ok before landing (flag dc_1kylouq1l7), and gives up after its tries", async () => {
+    const asked: string[] = [];
+    // not up yet: the root redirects (manual: an opaque redirect, not ok), then the homepage HTML, then the town's JSON
+    const replies = [new Response(null, { status: 302 }), new Response("<!doctype html>", { status: 200 }), Response.json({ ok: true })];
+    const fetch = (async (u: string) => { asked.push(u); return replies.shift() ?? Response.json({ ok: true }); }) as unknown as typeof globalThis.fetch;
+    expect(await waitForTown("/garden-club/", { fetch, delayMs: 0 })).toBe(true);
+    expect(asked).toEqual(["/garden-club/api/health", "/garden-club/api/health", "/garden-club/api/health"]);
+    const down = (async () => { throw new TypeError("network"); }) as unknown as typeof globalThis.fetch;
+    expect(await waitForTown("/garden-club", { fetch: down, tries: 3, delayMs: 0 })).toBe(false);
   });
 });

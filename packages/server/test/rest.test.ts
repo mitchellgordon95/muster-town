@@ -53,10 +53,17 @@ describe("auth & town", () => {
 describe("buildings & agents", () => {
   it("creates a building with its manager (no resident routes); validation and permission errors map to status codes", async () => {
     const { app, auth, world } = await setup();
-    const b = await json(app, "POST", "/api/buildings", { headers: auth, body: { name: "Ocean Lab", goal: "Ocean heat", headcount: 5 } });
+    const b = await json(app, "POST", "/api/buildings", { headers: auth, body: { name: "Ocean Lab", goal: "Ocean heat", headcount: 20 } });
     expect(b.status).toBe(201);
-    expect(b.body.building).toMatchObject({ name: "Ocean Lab", kind: "lab", headcount: 5 });
+    // desks follow floor space (flag dc_1hjoh9aurq): the sent headcount is ignored, the lab gets NEW_LAB_LOT (15×12) → 5 desks
+    expect(b.body.building).toMatchObject({ name: "Ocean Lab", kind: "lab", headcount: 5, lot: { w: 15, h: 12 } });
     const bid = b.body.building.id;
+    const repatched = await json(app, "PATCH", `/api/buildings/${bid}`, { headers: auth, body: { headcount: 12, goal: "Ocean heat content" } });
+    expect(repatched.status).toBe(200);
+    expect(repatched.body.building).toMatchObject({ goal: "Ocean heat content", headcount: 5, lot: { w: 15, h: 12 } });
+    const only = await json(app, "PATCH", `/api/buildings/${bid}`, { headers: auth, body: { headcount: 1 } });
+    expect(only.status).toBe(200);
+    expect(only.body.building.headcount).toBe(5);
 
     const bad = await json(app, "POST", "/api/buildings", { headers: auth, body: { goal: "no name" } });
     expect(bad.status).toBe(400);

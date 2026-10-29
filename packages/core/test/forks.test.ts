@@ -92,7 +92,7 @@ describe("manager forks: forkManager and retireFork", () => {
 
   it("names take the lowest n no live fork uses; resident names ignore forks", async () => {
     const { world, b, pix, queue } = forkLab();
-    world.ops.updateBuilding(null, b.id, { headcount: 5 });
+    updateBuilding(world, b.id, { headcount: 5 }); // internal path: REST ignores headcount
     world.agents.patch(pix.id, { name: "Ada" });
     const [x, y, z] = [await queue("x"), await queue("y"), await queue("z")];
     const fx = forkManager(world, b.id, x).fork, fy = forkManager(world, b.id, y).fork;

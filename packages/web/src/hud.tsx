@@ -186,7 +186,8 @@ const ASK_AGAIN_MS = 24 * 3600_000;
 
 /**
  * Signed in but not let in yet (dc_f0cumcfubk): the guest card's one next step is Ask to join, with an optional line
- * on what they'd like to do. An admin decides in the Town Hall in-tray; the answer shows here on the next load.
+ * on what they'd like to do. An admin decides in the Town Hall in-tray; the answer shows here as soon as it lands (the
+ * decision event refetches `me`, app.tsx onAccessDecided).
  */
 function AskToJoin({ me }: { me: AuthMe }) {
   const [text, setText] = useState("");
@@ -213,10 +214,10 @@ function AskToJoin({ me }: { me: AuthMe }) {
 
 export function Hint({ target, saying, canFlag }: { target: Target | null; saying: boolean; canFlag?: boolean }) {
   if (saying) return null;
-  if (TOUCH) return <div className="hint">Tap a person or a sign to open it</div>;
+  if (TOUCH) return <div className="hint">Tap the ground to walk · tap a person or a sign to open it</div>;
   return (
     <div className="hint">
-      {target ? <><kbd>E</kbd> {target.label}{target.count && target.count > 1 ? <><span className="sep" /><kbd>Tab</kbd> next {target.index}/{target.count}</> : null}</> : <><kbd>WASD</kbd> walk <span className="sep" /> <kbd>E</kbd> interact <span className="sep" /> <kbd>Enter</kbd> say <span className="sep" />{canFlag ? <><kbd>F</kbd> flag <span className="sep" /></> : null} <kbd>Esc</kbd> close</>}
+      {target ? <><kbd>E</kbd> {target.label}{target.count && target.count > 1 ? <><span className="sep" /><kbd>Tab</kbd> next {target.index}/{target.count}</> : null}</> : <><kbd>WASD</kbd> or click to walk <span className="sep" /> <kbd>E</kbd> interact <span className="sep" /> <kbd>Enter</kbd> say <span className="sep" />{canFlag ? <><kbd>F</kbd> flag <span className="sep" /></> : null} <kbd>Esc</kbd> close</>}
     </div>
   );
 }
