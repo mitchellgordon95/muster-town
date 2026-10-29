@@ -31,8 +31,14 @@ jobs:
       - run: npm ci --no-audit --no-fund
       # scripts/check.ts, the same full check a desk runs: check:docs (README/CLAUDE.md/AGENTS.md/SKILL.md/manual.md name
       # only paths, npm scripts and verbs that exist; docs/invariants/*.md cite only tests that exist), check:deadcode
-      # (knip.json), typecheck, tests; stops at the first failure and ends with one per-step timing line
-      - run: npm run check
+      # (knip.json), typecheck, tests; stops at the first failure and ends with one per-step timing line, which the next
+      # step copies to the job summary (shown on the run page without opening the log), red runs included
+      - run: npm run check 2>&1 | tee check.log
+        shell: bash # -o pipefail: the step fails when the check does, not when tee succeeds
+      - if: ${{ !cancelled() }}
+        run: |
+          line=$(grep -E '^check( --fast)?: .*total ' check.log | tail -1 || true)
+          echo "\`${line:-check: no timing line (stopped before the first step finished)}\`" >> "$GITHUB_STEP_SUMMARY"
       - run: npm run build --workspace packages/web
 
   promote:
