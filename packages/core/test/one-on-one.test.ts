@@ -113,7 +113,7 @@ describe("the manager's 1:1", () => {
     const g = world.ops.openOneOnOne(admin, "carbon-cycle", { grantId });
     expect(g.facilitatorId).toBe(mei.id);
     expect(g.transcript[0]).toMatchObject({ speakerKind: "user", attachment: { kind: "page", ref: `grant:${grantId}` } });
-    expect(g.transcript[0]!.text).toContain(grantId);
+    expect(g.transcript[0]!.text).toContain(`the proposal "Ship the sink banner" (${grantId})`);
     expect(g.transcript[0]!.text).toContain(kr.id);
     expect(oneOnOnePrompt(g, world.nameOf.bind(world))).toContain("Sink numbers on the banner");
     // presented once; a grant of another building is refused; an unknown grant is not found
