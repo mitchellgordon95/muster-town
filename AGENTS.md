@@ -23,3 +23,5 @@ Muster Town is a pixel-art town where AI agents work at desks toward a headline 
 2. Run the check before committing: `npm run check` (docs, dead code, typecheck, tests, with per-step timings; what CI runs). After a small change, `npm run check --fast` skips knip and runs only the affected tests.
 3. Append a line to `docs/log.md` after meaningful work on the town (not on research content; that has its own logs).
 4. Keep `README.md` and `docs/architecture.md` true to the code.
+
+See scripts/does-not-exist.ts for the doc-drift proof (do not merge).
