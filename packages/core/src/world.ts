@@ -127,7 +127,7 @@ export class World {
     this.grants = repos.grants; this.keyResults = repos.keyResults; this.objectives = repos.objectives; this.kpis = repos.kpis; this.accessRequests = repos.accessRequests; this.skillPins = repos.skillPins;
     this.tokens = repos.tokens; this.town = repos.town;
     this.events = new EventLog(db, this.changes);
-    this.permissions = new Permissions(repos);
+    this.permissions = new Permissions(repos, () => !!this.host.hosted);
     this.bank = new Bank(repos, this.events, this.permissions);
     this.budget = new Budget(repos, this.events, this.bank, this.changes);
     this.layout = new WorldMap(db, repos);

@@ -31,7 +31,8 @@ export const buildingRoleId = (buildingId: string, name: BuildingRoleName) => `r
 const FORK_INHERITED: readonly Permission[] = ["town.redeploy"];
 
 export class Permissions {
-  constructor(private repos: Repos) {}
+  /** `hosted`: whether this World is a hosted collective (docs/hosted-collectives.md); managers there never redeploy. */
+  constructor(private repos: Repos, private hosted: () => boolean = () => false) {}
 
   /** Roles held directly (a human avatar's are its user's). Inherited permissions are not roles: see `effective`. */
   rolesOf(holder: Holder | Agent): Role[] {
@@ -47,6 +48,8 @@ export class Permissions {
    * then `deniedPermissions` removes it. `building.fund` is never effective for agents (only human avatars, as their
    * user): otherwise a manager agent whose owner is admin could fund its own proposal. A live fork of its building's
    * manager also counts the manager's grant for the permissions in FORK_INHERITED (still capped by the owner).
+   * Outside a hosted collective a building's manager holds `town.redeploy` without the deployer role (Mitchell, town hall
+   * mt_e1uoil9mx5 decision 1: every manager and fork of this collective may rebuild the desk image), so its forks do too.
    */
   can(holder: Holder | Agent, permission: Permission, buildingId?: string | null): boolean {
     const x = this.resolve(holder);
@@ -57,6 +60,7 @@ export class Permissions {
     if (permission === "building.fund" && x.kind !== "human") return false;
     const owner = this.ownerOf(x);
     let own = this.rolesGrant({ kind: "agent", id: x.id }, permission, buildingId);
+    if (!own && permission === "town.redeploy" && !this.hosted()) own = this.managesABuilding(x);
     if (!own && FORK_INHERITED.includes(permission)) {
       const manager = this.managerOfFork(x);
       own = !!manager && this.can(manager, permission, buildingId);
@@ -95,6 +99,12 @@ export class Permissions {
     if (!agent.forkOf || agent.status === "retired" || !agent.homeBuildingId) return null;
     if (this.repos.buildings.get(agent.homeBuildingId)?.managerAgentId !== agent.forkOf) return null;
     return this.repos.agents.get(agent.forkOf) ?? null;
+  }
+
+  /** A live agent named some building's manager (`managerAgentId`). */
+  private managesABuilding(agent: Agent): boolean {
+    if (agent.status === "retired" || agent.status === "banned" || agent.forkOf) return false;
+    return !!this.repos.buildings.first("managerAgentId = ?", [agent.id]);
   }
 
   private inherits(agent: Agent): boolean {

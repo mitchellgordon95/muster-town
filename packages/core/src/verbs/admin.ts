@@ -4,7 +4,7 @@ import { AppError, forbidden } from "../errors.ts";
 import type { World } from "../world.ts";
 import type { VerbIn } from "./types.ts";
 
-/** Pull main, reinstall, rebuild, restart. Needs `town.redeploy` (role `deployer`, or admin). */
+/** Pull main, reinstall, rebuild, restart. Needs `town.redeploy`: role `deployer`, admin, or (outside a hosted collective) a building manager and its forks. */
 export async function redeploy(world: World, me: Agent, input: VerbIn<"redeploy">) {
   if (!world.permissions.can(me, "town.redeploy")) throw forbidden("town.redeploy");
   const run = world.host.redeploy;
