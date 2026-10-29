@@ -22,9 +22,10 @@ export function runsAtLabel(iso: string, now: Date = new Date()): string {
 }
 
 /** A schedule's repeat: "every 6 h", "daily 08:00, 20:00 UTC", "once" (as core's describeRepeat). */
-export function repeatLabel(s: { everyMinutes: number | null; dailyAt: string[] | null }): string {
-  if (s.everyMinutes) return s.everyMinutes % 60 ? `every ${s.everyMinutes} min` : `every ${s.everyMinutes / 60} h`;
-  if (s.dailyAt?.length) return `daily ${s.dailyAt.join(", ")} UTC`;
+export function repeatLabel(s: { everyMinutes: number | null; dailyAt: string[] | null; maxRuns?: number | null }): string {
+  const times = s.maxRuns ? `, ${s.maxRuns} time${s.maxRuns === 1 ? "" : "s"}` : "";
+  if (s.everyMinutes) return (s.everyMinutes % 60 ? `every ${s.everyMinutes} min` : `every ${s.everyMinutes / 60} h`) + times;
+  if (s.dailyAt?.length) return `daily ${s.dailyAt.join(", ")} UTC${times}`;
   return "once";
 }
 

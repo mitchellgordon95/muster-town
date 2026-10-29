@@ -121,6 +121,7 @@ function createsLabel(x: Schedule, b: SnapshotBuilding): string {
 /** The building's schedule (GET /api/scheduled): timed jobs that live on the building; each run goes to whoever is around. */
 export function ScheduledList({ b }: { b: SnapshotBuilding }) {
   const all = useTown((s) => s.scheduled);
+  const assignments = useTown((s) => s.assignments);
   useTown((s) => s.me);
   const rows = useMemo(() => all.filter((x) => x.buildingId === b.id), [all, b.id]);
   if (b.kind === "town-hall") return null;
@@ -128,19 +129,27 @@ export function ScheduledList({ b }: { b: SnapshotBuilding }) {
   return (
     <Section title={<>Schedule {rows.length ? <Pill tone="scheduled">{rows.length}</Pill> : null}</>}>
       {!rows.length ? <Empty>Nothing scheduled. A manager adds a timed job with the <code>schedule</code> tool; each run goes to whoever is around.</Empty> : (
-        <div className="doc-list">{rows.map((x) => (
-          <div key={x.id} className="doc-row" title={x.description}>
-            <b>{x.title}</b>
-            <div className="doc-row-meta">
-              <span>next {x.nextRunAt ? runsAtLabel(x.nextRunAt) : "—"}</span>
-              <span>{repeatLabel(x)}{x.endsAt ? ` until ${x.endsAt.slice(0, 10)}` : ""}{x.runs ? ` · ran ${x.runs}×` : ""}</span>
+        <div className="doc-list">{rows.map((x) => {
+          const last = x.lastAssignmentId ? assignments[x.lastAssignmentId] : undefined;
+          const swap = (y: Schedule) => store.set({ scheduled: store.state.scheduled.map((z) => z.id === y.id ? y : z) });
+          return (
+            <div key={x.id} className="doc-row" title={x.description}>
+              <b>{x.title}</b> {x.paused ? <Pill tone="warn">paused</Pill> : null}
+              <div className="doc-row-meta">
+                <span>next {x.paused ? "— (paused)" : x.nextRunAt ? runsAtLabel(x.nextRunAt) : "—"}</span>
+                <span>{repeatLabel(x)}{x.endsAt ? ` until ${x.endsAt.slice(0, 10)}` : ""}{x.runs ? ` · ran ${x.runs}×` : ""}</span>
+              </div>
+              {x.lastAssignmentId ? <div className="doc-row-meta"><span>last fired: {last ? `"${last.title}" (${last.status === "pending" ? "queued" : last.status === "active" ? "running" : last.status})` : x.lastAssignmentId}{x.lastRunAt ? ` · ${runsAtLabel(x.lastRunAt)}` : ""}</span></div> : null}
+              <div className="doc-row-meta">
+                <span>creates: {createsLabel(x, b)}</span>
+                {canCancel ? <span>
+                  <Act small run={async () => swap(await api().editSchedule(x.id, { paused: !x.paused }))}>{x.paused ? "Resume" : "Pause"}</Act>{" "}
+                  <Act small run={async () => { await api().cancelSchedule(x.id); store.set({ scheduled: store.state.scheduled.filter((y) => y.id !== x.id) }); }}>Cancel</Act>
+                </span> : null}
+              </div>
             </div>
-            <div className="doc-row-meta">
-              <span>creates: {createsLabel(x, b)}</span>
-              {canCancel ? <Act small run={async () => { await api().cancelSchedule(x.id); store.set({ scheduled: store.state.scheduled.filter((y) => y.id !== x.id) }); }}>Cancel</Act> : null}
-            </div>
-          </div>
-        ))}</div>
+          );
+        })}</div>
       )}
     </Section>
   );
