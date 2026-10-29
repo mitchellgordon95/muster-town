@@ -1,7 +1,7 @@
 /**
  * In-process monitor (grant gr_rntk0echpi, design dc_f2hpf9u1ya): every 60 s it samples what the server already knows
- * (RSS, event-loop lag p99, data-volume free space, session slots, backup age, the 5xx share, WebSocket errors and failed
- * Claude sessions), raises and clears alerts with
+ * (RSS, event-loop lag p99, data-volume free space, session slots, backup age, the 5xx share, WebSocket errors, failed
+ * Claude sessions and the steal share of finished desk sessions), raises and clears alerts with
  * hysteresis, and sends each one down one path: a town event (type `alert`) plus a Prod board FYI (a town-wide one
  * on the Town Hall board when no building is named Prod, e.g. a self-hosted town), and for red ones an
  * SMS (Twilio REST) and an email (Gmail SMTP) when all seven ALERT_* secrets are set, at most 10 outbound messages an hour.
@@ -19,7 +19,11 @@ export type Level = "yellow" | "red";
 export type SendResult = "sent" | "skipped" | "error";
 
 /** One sample of a metric: its value, and whether the yellow / red condition holds right now (before any "for N min"). */
-export interface Reading { value: number; yellow: boolean; red: boolean }
+export interface Reading {
+  value: number; yellow: boolean; red: boolean;
+  /** how many clean observations a reading under yellow counts toward CLEAR_AFTER (default 1; desk-steal: its sessions) */
+  clean?: number;
+}
 
 /**
  * A metric: a key, a reader (null = no data this sample: nothing changes), and how long each condition must hold
@@ -77,7 +81,16 @@ export interface Probes {
   wsErrors(now: number): number;
   /** Claude sessions that ended in `error` in the last 15 min, and sessions that ended / of them failed in the last 30 min */
   sessions(now: number): { failed15: number; ended30: number; failed30: number };
+  /** finished desk sessions (backend not `host`, wallMs >= 5 min, cpu + steal measured) that ended after `sinceMs`, oldest first */
+  deskSessions(sinceMs: number): DeskSession[];
 }
+
+/** A finished desk session's steal share: stealMs / (cpuMs + stealMs), 0..1 (desk perf step 1, migration 056). */
+export interface DeskSession { id: string; endedAt: number; share: number }
+/** desk sessions shorter than this are ignored by `desk-steal` */
+export const DESK_MIN_WALL_MS = 5 * MIN;
+/** desk-steal thresholds (kr_4pf0n8q9jl step 2): red on one session at RED, or two within an hour at RED2; yellow at YELLOW */
+export const DESK_STEAL = { red: 0.5, red2: 0.35, yellow: 0.25 } as const;
 
 /** Bucket width of `Counters`; the windows below are whole buckets. */
 const BUCKET_MS = 60_000;
@@ -157,7 +170,33 @@ export function defaultMetrics(p: Probes): Metric[] {
         const s = p.sessions(now);
         return { value: s.failed15, yellow: s.failed15 >= 3, red: s.ended30 >= 4 && s.failed30 * 2 >= s.ended30 };
       } },
+    deskStealMetric(p),
   ];
+}
+
+/**
+ * `desk-steal`: on each sample, the desk sessions that ended since the last one (null when none: nothing changes, so an
+ * open alert waits for the next session). Red when one has a steal share >= 50 %, or one >= 35 % with another >= 35 %
+ * in the hour before it; yellow at 25 % (in town only). The value is the worst new share in %. Each clean session
+ * counts one toward CLEAR_AFTER, so the alert clears after 5 clean sessions. cpu and steal are the whole desk
+ * Machine's (2 vCPUs summed), not just the agent's process.
+ */
+export function deskStealMetric(p: Pick<Probes, "deskSessions">): Metric {
+  let cursor: number | null = null;
+  return {
+    key: "desk-steal", describe: (v) => `desk session steal ${v}% of cpu + steal`, yellowForMs: 0, redForMs: 0,
+    read: (now) => {
+      const since = cursor ?? now - SAMPLE_MS;
+      const recent = p.deskSessions(Math.min(since, now - HOUR_MS));
+      const fresh = recent.filter((s) => s.endedAt > since);
+      cursor = Math.max(since, ...recent.map((s) => s.endedAt));
+      if (fresh.length === 0) return null;
+      const worst = Math.max(...fresh.map((s) => s.share));
+      const pair = fresh.some((s) => s.share >= DESK_STEAL.red2 && recent.some((o) => o !== s && o.share >= DESK_STEAL.red2 && Math.abs(o.endedAt - s.endedAt) <= HOUR_MS));
+      const yellow = worst >= DESK_STEAL.yellow;
+      return { value: Math.round(worst * 100), yellow, red: worst >= DESK_STEAL.red || pair, clean: yellow ? 0 : fresh.length };
+    },
+  };
 }
 
 /** The real probes: process memory, an event-loop histogram reset each sample, statfs on the data dir, the runtime's slots. */
@@ -182,6 +221,10 @@ export function processProbes(world: World, dataDir: string, backup: () => Backu
         FROM sessions WHERE endedAt IS NOT NULL AND endedAt >= ?`).get(since(15 * MIN), since(30 * MIN)) as { failed15: number; ended30: number; failed30: number };
       return r;
     },
+    deskSessions: (sinceMs) => (world.db.prepare(`SELECT id, endedAt, cpuMs, stealMs FROM sessions
+        WHERE endedAt IS NOT NULL AND endedAt > ? AND backend != 'host' AND wallMs >= ? AND cpuMs IS NOT NULL AND stealMs IS NOT NULL AND cpuMs + stealMs > 0
+        ORDER BY endedAt`).all(new Date(sinceMs).toISOString(), DESK_MIN_WALL_MS) as { id: string; endedAt: string; cpuMs: number; stealMs: number }[])
+      .map((r) => ({ id: r.id, endedAt: Date.parse(r.endedAt), share: r.stealMs / (r.cpuMs + r.stealMs) })),
     close: () => h.disable(),
   };
 }
@@ -239,6 +282,9 @@ export class Monitor {
 
   stop() { if (this.timer) clearInterval(this.timer); this.timer = null; }
 
+  /** the metric keys this monitor samples */
+  keys(): string[] { return this.opts.metrics.map((m) => m.key); }
+
   view(): MonitorView {
     return {
       lastSampleAt: this.lastSampleAt ? new Date(this.lastSampleAt).toISOString() : null,
@@ -272,7 +318,7 @@ export class Monitor {
       }
       open.value = r.value;
       if (r.yellow || r.red) open.okCount = 0;
-      else if (++open.okCount >= CLEAR_AFTER) { jobs.push(this.clear(m, open, now)); continue; }
+      else if ((open.okCount += r.clean ?? 1) >= CLEAR_AFTER) { jobs.push(this.clear(m, open, now)); continue; }
       if (level === "red" && open.level === "yellow") jobs.push(this.raise(m, "red", r.value, now, open));
       else if (level === "red" && now - open.notifiedAt >= REALERT_MS) jobs.push(this.raise(m, "red", r.value, now, open, true));
     }
@@ -285,12 +331,14 @@ export class Monitor {
    * POST /api/admin/monitor/test: one red alert (key `test`) down the whole path (event, FYI, SMS, email); it counts
    * toward the cap and is not kept open.
    */
-  async test(by: string): Promise<{ eventId: number; fyiDocId: string | null; sms: SendResult; email: SendResult }> {
+  async test(by: string, metric?: string): Promise<{ eventId: number; fyiDocId: string | null; sms: SendResult; email: SendResult }> {
     const now = this.now();
-    const text = `Test alert (red) from the muster.town monitor, requested by ${by}. Nothing is wrong.`;
-    const fyiDocId = this.fyi("[RED] Monitor test alert", `${text}\n\n${new Date(now).toISOString()}`);
-    const eventId = this.event(text, { key: "test", level: "red", phase: "test", docId: fyiDocId });
-    const out = await this.send(`muster.town RED test: ${text}`, "[muster.town] RED: test alert", text);
+    const key = metric ?? "test";
+    const what = metric ? ` for ${metric}` : "";
+    const text = `Test alert (red)${what} from the muster.town monitor, requested by ${by}. Nothing is wrong.`;
+    const fyiDocId = this.fyi(`[RED] Monitor test alert${what}`, `${text}\n\n${new Date(now).toISOString()}`);
+    const eventId = this.event(text, { key, level: "red", phase: "test", docId: fyiDocId });
+    const out = await this.send(`muster.town RED test: ${text}`, `[muster.town] RED: test alert${what}`, text);
     this.save();
     return { eventId, fyiDocId, ...out };
   }

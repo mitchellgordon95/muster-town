@@ -431,12 +431,19 @@ export async function townRoutes(app: FastifyInstance) {
     return reply.code(r.started ? 202 : 200).send(r);
   });
 
-  /** Monitor (monitor.ts): one red test alert (key `test`) down the whole path; admins only; counts toward the 10/h cap. */
+  /**
+   * Monitor (monitor.ts): one red test alert down the whole path; admins only; counts toward the 10/h cap.
+   * `?metric=<key>` (e.g. `desk-steal`) tags it with that metric's key; default key `test`.
+   */
   app.post("/api/admin/monitor/test", async (req) => {
     const user = requireUser(req);
     world.permissions.requireAdmin({ kind: "user", id: user.id }, "Only an admin can send a test alert.");
     if (!app.monitor) throw new AppError("internal", "This server runs no monitor.", 503);
-    return app.monitor.test(user.name);
+    const metric = (req.query as { metric?: unknown }).metric;
+    if (metric !== undefined && (typeof metric !== "string" || !app.monitor.keys().includes(metric))) {
+      throw new AppError("bad_request", `metric must be one of: ${app.monitor.keys().join(", ")}`, 400);
+    }
+    return app.monitor.test(user.name, metric);
   });
 }
 
