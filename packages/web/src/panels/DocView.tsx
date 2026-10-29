@@ -49,13 +49,13 @@ export function decisionLabel(doc: Pick<Doc, "decision" | "decisionNote">): stri
  * Reports as replies: one text box, one button. The reply is appended to the report, mentions the author, and
  * becomes the author's next assignment. "merge" tells the author to merge its PR. Empty = archive.
  */
-export function ReplyBox({ doc, onDone, deckSlide }: { doc: Doc; onDone?: () => void; deckSlide?: number }) {
+export function ReplyBox({ doc, onDone, deckSlide, meetingId }: { doc: Doc; onDone?: () => void; deckSlide?: number; meetingId?: string }) {
   const [text, setText] = useState("");
   const media = useMediaPaste(setText);
   const empty = !text.trim();
   const author = nameOf(doc.authorId);
   const send = async () => {
-    const r = empty ? await api().archive(doc.id, deckSlide) : await api().reply(doc.id, text.trim(), deckSlide);
+    const r = empty ? await api().archive(doc.id, deckSlide, meetingId) : await api().reply(doc.id, text.trim(), deckSlide, meetingId);
     store.putDocs([r.doc]);
     store.toast(empty ? "Archived." : r.assignment ? `Reply sent. ${author} picks it up next.` : `Reply recorded. ${author} gets no new assignment.`, "ok");
     setText("");

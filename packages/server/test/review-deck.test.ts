@@ -27,4 +27,31 @@ describe("GET /api/review-deck", () => {
     expect(world.events.list({ types: ["grant.rejected"] }).at(-1)!.payload).toMatchObject({ grantId: r.grantId, deckSlide: slide });
     expect((await json(app, "GET", "/api/review-deck")).body.slides.some((x: { grantId?: string }) => x.grantId === r.grantId)).toBe(false);
   });
+
+  // gr_jh0lu0w6yj step 5: Presentation with chat
+  it("a meeting presents the review deck: POST /present moves the slide and posts '— slide n'; a decision with meetingId is a meeting decision too", async () => {
+    const s = await seededApp();
+    cleanups.push(s.close);
+    const { world, app, auth } = s;
+    const manager = world.agents.first("homeBuildingId = ? AND kind != 'human'", [LAB])!;
+    world.permissions.grant(manager, buildingRoleId(LAB, "manager"));
+    const kr = (await json(app, "POST", `/api/buildings/${LAB}/key-results`, { headers: auth, body: { text: "A banner line", howToCheck: "Open the banner" } })).body.keyResult.id;
+    const r = await world.verbs.propose_grant(manager, { keyResultId: kr, objective: "Banner", stopCondition: "done", askTokens: 100_000, testingPlan: [], findingsDocIds: [], approach: "", note: "" });
+    const called = await json(app, "POST", "/api/meetings", { headers: auth, body: { kind: "in-tray-review", buildingId: null, startNow: true, brings: { mode: "nothing", text: "" }, askHumans: true, deck: { docId: "review-deck" } } });
+    expect(called.status).toBe(201);
+    const id = called.body.meeting.id;
+    expect(called.body.meeting.deck).toMatchObject({ docId: "review-deck", slide: 1 });
+    const deck = (await json(app, "GET", "/api/review-deck")).body;
+    const slide = deck.slides.findIndex((x: { grantId?: string }) => x.grantId === r.grantId) + 1;
+    const moved = await json(app, "POST", `/api/meetings/${id}/present`, { headers: auth, body: { docId: "review-deck", slide } });
+    expect(moved.status).toBe(200);
+    expect(moved.body.meeting.deck.slide).toBe(slide);
+    expect(moved.body.meeting.transcript.at(-1).text).toBe(`— slide ${slide}: ${deck.slides[slide - 1].title}`);
+    expect((await json(app, "POST", `/api/meetings/${id}/present`, { body: { docId: "review-deck", slide: 1 } })).status).toBe(401);
+    const d = await json(app, "POST", `/api/grants/${r.grantId}/decide`, { headers: auth, body: { action: "reject", deckSlide: slide, meetingId: id } });
+    expect(d.status).toBe(200);
+    expect(world.events.list({ types: ["grant.rejected"] }).at(-1)!.payload).toMatchObject({ deckSlide: slide });
+    const m = world.meetings.require(id);
+    expect(m.decisions.at(-1)!.text).toContain(`rejected ${r.grantId} "Banner" (on slide ${slide})`);
+  });
 });

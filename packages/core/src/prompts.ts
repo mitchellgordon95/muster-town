@@ -4,7 +4,7 @@
  */
 import { ROLLUP_MAX_ITEMS, ROLLUP_MAX_PICTURES, ROLLUP_NEEDS_RULE, type Agent, type Assignment, type Building, type DeskBrief, type DeskWorkspace, type Doc, type Event, type Meeting, type Town, type Workspace } from "@muster-town/schema";
 import { intrayCounts, intrayOf } from "./domain.ts";
-import { decisionOutcomes, previousMeeting, type DecisionOutcome } from "./meetings.ts";
+import { currentSlide, decisionOutcomes, previousMeeting, type DecisionOutcome } from "./meetings.ts";
 import { FORK_MANAGER_WIKI_CAP, forkMemoryBlock, memoryBlock, teamBlock, topicIndexBlock, topicPages, WIKI_HOWTO, WIKI_PAGE_CAP, WIKI_TOTAL_CAP, wikiOf } from "./memory.ts";
 import { skillsBlock } from "./skills.ts";
 import { townBoardDocs } from "./verbs/docs.ts";
@@ -421,6 +421,18 @@ You run the meeting with the \`meeting\` tool (mcp__town__meeting) like everyone
  * pending reports with their "What I need from you" line; the Town Hall's manager reports plus per-building counts),
  * the previous meeting's decisions with outcomes, and the "Need:" lines of this meeting's summaries.
  */
+/** A presentation meeting (gr_jh0lu0w6yj step 5): the slide on screen now, whole, with how slide moves show up. "" for a chat meeting. */
+export function presentingBlock(world: World, meeting: Meeting): string {
+  const s = currentSlide(world, meeting);
+  if (!s) return "";
+  if (!s.count) return `Presenting: "${s.deckTitle}" (no slides yet).\n\n`;
+  return `Presenting: "${s.deckTitle}", slide ${s.n} of ${s.count}${s.title ? ` "${s.title}"` : ""}. Everyone sees it above the chat. When the presenter moves on, the transcript gets a line "— slide n: <title>", and \`meeting\` status and listen return the current slide (\`slide\`). When a human talks about a slide, answer about that slide, or @mention the manager of the building it concerns. A human decides on the slide's own buttons; that decision is added to this meeting's decisions for you, so don't record it again.
+The slide on screen now:
+${s.text || "(no text)"}${s.notes ? `\nPresenter notes: ${s.notes}` : ""}
+
+`;
+}
+
 export function facilitateMaterial(world: World, meeting: Meeting): string {
   const nameOf = (id: string) => world.nameOf(id);
   const need = (d: Doc) => { const n = sectionOf(d.body, NEED).split("\n").map((l) => l.trim()).find(Boolean) ?? ""; return n ? ` — needs: ${oneLine(n, 200)}` : ""; };
@@ -436,7 +448,7 @@ export function facilitateMaterial(world: World, meeting: Meeting): string {
   const prev = previousMeeting(world, meeting);
   const last = prev ? `("${prev.title}"):\n${decisionOutcomes(world, prev).map((d) => `- ${d.n}. ${oneLine(d.text, 200)}${d.assigneeId ? ` → ${nameOf(d.assigneeId)}` : ""}: ${d.outcome}`).join("\n") || "(no decisions)"}` : "(none; first meeting)";
   const needs = meeting.attendeeIds.flatMap((id) => (meeting.summaries[id] ?? "").split("\n").filter((l) => /^need:/i.test(l.trim())).map((l) => `- ${nameOf(id)}: ${l.trim().replace(/^need:\s*/i, "")}`)).join("\n") || "(none)";
-  return `In-tray (${meeting.buildingId ? "this building's pending reports" : "the Town Hall's: managers' rollups and proposals, then each building's count"}):
+  return `${presentingBlock(world, meeting)}In-tray (${meeting.buildingId ? "this building's pending reports" : "the Town Hall's: managers' rollups and proposals, then each building's count"}):
 ${intray}
 
 Last meeting's decisions and what became of them ${last}

@@ -264,7 +264,7 @@ function TalkAboutGrant({ grant: g }: { grant: GrantView }) {
  * A proposal or checkpoint row with its decision controls (POST /api/grants/:id/decide, `building.fund`); the same row
  * shows any other status read-only in the grant panel.
  */
-export function GrantRow({ grant: g, onDecided, onOpenDoc, deckSlide }: { grant: GrantView; onDecided: () => void; onOpenDoc: (id: string) => void; deckSlide?: number }) {
+export function GrantRow({ grant: g, onDecided, onOpenDoc, deckSlide, meetingId }: { grant: GrantView; onDecided: () => void; onOpenDoc: (id: string) => void; deckSlide?: number; meetingId?: string }) {
   useTown((s) => s.me);
   const manager = useTown((s) => { const b = s.buildings.find((x) => x.id === g.buildingId); return b?.managerAgentId ? s.agents[b.managerAgentId] : undefined; });
   const author = useTown((s) => s.agents[g.proposedBy]);
@@ -288,7 +288,7 @@ export function GrantRow({ grant: g, onDecided, onOpenDoc, deckSlide }: { grant:
   const tokensOk = Number.isFinite(n) && n > 0;
   const decide = (action: "fund" | "counter" | "reject" | "continue" | "adjust" | "cut", msg: string) => async () => {
     const withTokens = action === "fund" || action === "adjust" || (action === "counter" && n !== g.askTokens);
-    await api().decideGrant(g.id, { action, note, ...(withTokens && tokensOk ? { tokens: n } : {}), ...(action === "fund" && from ? { fundWith: from } : {}), ...(deckSlide ? { deckSlide } : {}) });
+    await api().decideGrant(g.id, { action, note, ...(withTokens && tokensOk ? { tokens: n } : {}), ...(action === "fund" && from ? { fundWith: from } : {}), ...(deckSlide ? { deckSlide } : {}), ...(deckSlide && meetingId ? { meetingId } : {}) });
     store.toast(msg, "ok");
     onDecided();
   };

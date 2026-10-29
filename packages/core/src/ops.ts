@@ -4,7 +4,7 @@ import { CHECK_IN } from "./prompts.ts";
 import { createBuilding, createResident, createUser, ensureAvatar, planTown, registerVisitor, updateBuilding, updateFurniture } from "./entities.ts";
 import type { Furniture } from "./world/furniture.ts";
 import { AppError, badRequest, forbidden } from "./errors.ts";
-import { agentsDrafting, clearAgentDrafting, createMeeting, createOneOnOne, endMeeting, meetingDecide, meetingSpeak, noteHumanTyping, setMeetingPhase } from "./meetings.ts";
+import { agentsDrafting, clearAgentDrafting, createMeeting, createOneOnOne, endMeeting, meetingDecide, meetingSpeak, noteHumanTyping, presentSlide, recordSlideDecision, setMeetingPhase } from "./meetings.ts";
 import { replyToReport, type ReplyResult } from "./reply.ts";
 import { newId, nowIso } from "./util.ts";
 import { humanOrigin, meetingOrigin } from "./origin.ts";
@@ -639,6 +639,20 @@ export class Ops {
     return setMeetingPhase(this.world, meetingId, "discussing");
   }
   meetingSay(actor: Agent, meetingId: string, text: string, attach?: string): Meeting { return meetingSpeak(this.world, actor, meetingId, text, attach); }
+  /** POST /meetings/:id/present: show a deck's slide above every attendee's chat (null docId stops presenting). */
+  meetingPresent(actor: Agent, meetingId: string, docId: string | null, slide?: number): Meeting { return presentSlide(this.world, actor, meetingId, docId, slide); }
+  /** A grant decided on a slide presented in a live meeting: also one of the meeting's decisions. */
+  slideGrantDecision(actor: Actor, meetingId: string, grantId: string, action: string): Meeting | null {
+    const g = this.world.grants.get(grantId);
+    const past: Record<string, string> = { fund: "funded", counter: "countered", reject: "rejected", continue: "continued", adjust: "adjusted", cut: "cut" };
+    return recordSlideDecision(this.world, meetingId, `${actor?.name ?? "The town"} ${past[action] ?? action} ${grantId}${g ? ` "${g.objective}"` : ""}`);
+  }
+  /** A report replied to or archived on a slide presented in a live meeting: also one of the meeting's decisions. */
+  slideReplyDecision(actor: Actor, meetingId: string, docId: string, text: string): Meeting | null {
+    const d = this.world.docs.get(docId);
+    const what = `${docId}${d ? ` "${d.title}"` : ""}`;
+    return recordSlideDecision(this.world, meetingId, text.trim() ? `${actor?.name ?? "The town"} replied to ${what}: ${text.trim()}` : `${actor?.name ?? "The town"} approved ${what}`);
+  }
   /** POST /meetings/:id/typing: a human has an unsent message in the say box; agents may not end the meeting meanwhile. */
   meetingTyping(actor: Agent, meetingId: string): void {
     const m = this.world.meetings.require(meetingId, "meeting");

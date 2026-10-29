@@ -1,6 +1,6 @@
 import type { Agent, Meeting } from "@muster-town/schema";
 import { AppError, badRequest } from "../errors.ts";
-import { agentsDrafting, attachmentLine, clearAgentDrafting, endMeeting, humanStillTalking, humanTyping, meetingDecide, meetingSpeak, noteAgentDrafting, setMeetingPhase } from "../meetings.ts";
+import { agentsDrafting, attachmentLine, clearAgentDrafting, currentSlide, endMeeting, humanStillTalking, humanTyping, meetingDecide, meetingSpeak, noteAgentDrafting, setMeetingPhase } from "../meetings.ts";
 import type { World } from "../world.ts";
 import type { VerbIn } from "./types.ts";
 
@@ -15,6 +15,12 @@ function waitForUtterance(world: World, meetingId: string, self: string, from: n
     const timer = setTimeout(done, ms);
     const unsubscribe = world.changes.subscribe((c) => { if (c.type === "meeting" && c.meeting.id === meetingId && settled(c.meeting)) done(); });
   });
+}
+
+/** A presentation meeting: the slide everyone is looking at (the facilitator answers about it), else nothing. */
+function slideOut(world: World, m: Meeting): { slide?: { deck: string; n: number; of: number; title: string; text: string; notes?: string } } {
+  const s = currentSlide(world, m);
+  return s ? { slide: { deck: s.deckTitle, n: s.n, of: s.count, title: s.title, text: s.text, ...(s.notes ? { notes: s.notes } : {}) } } : {};
 }
 
 export async function meeting(world: World, me: Agent, input: VerbIn<"meeting">) {
@@ -32,6 +38,7 @@ export async function meeting(world: World, me: Agent, input: VerbIn<"meeting">)
         decisions: m.decisions.map((d, i) => ({ n: i + 1, ...d })),
         humanTyping: humanTyping(world, m.id),
         drafting: agentsDrafting(world, m.id).map(name),
+        ...slideOut(world, m),
       };
     case "summary": {
       if (!input.text?.trim()) throw badRequest("summary needs text (up to three short lines).");
@@ -68,6 +75,7 @@ export async function meeting(world: World, me: Agent, input: VerbIn<"meeting">)
         phase: now.phase,
         humanTyping: humanTyping(world, m.id),
         utterances: heard.map((u) => ({ speaker: name(u.speakerId), speakerKind: u.speakerKind, text: u.text, at: u.at, ...(u.attachment ? { presented: attachmentLine(u.attachment) } : {}) })),
+        ...slideOut(world, now),
       };
     }
     case "decide":

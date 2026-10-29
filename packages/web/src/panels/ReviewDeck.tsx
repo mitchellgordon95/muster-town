@@ -5,12 +5,13 @@
  * and reply box; Approve all on "For the record"), sent with `deckSlide`. Deciding moves on to the next item's slide.
  */
 import { useEffect, useRef, useState, type KeyboardEvent } from "react";
-import type { Doc, GrantView, ReviewSlide } from "@muster-town/schema";
+import { REVIEW_DECK_ID, type Doc, type GrantView, type ReviewSlide } from "@muster-town/schema";
 import { api } from "../api";
 import { store } from "../state";
 import { DeckSlides, clampSlide, slideForKey } from "./DeckView";
 import { ReplyBox, TalkToAuthor } from "./DocView";
 import { GrantRow } from "./Places";
+import { PresentButtons } from "./MeetingSlide";
 import { isPanelFull, setPanelFull } from "./panelResize";
 import { Act, ErrorLine, Loading, useLoad } from "./ui";
 
@@ -27,15 +28,15 @@ export function landingSlide(slides: ReviewSlide[], wantKey: string | null, n: n
 }
 
 /** The decision buttons for one slide: pure over its props, so tests render it. */
-export function SlideDecision({ slide, n, grants, reports, onDecided, onOpenDoc }: { slide: ReviewSlide; n: number; grants: GrantView[]; reports: Doc[]; onDecided: () => void; onOpenDoc: (id: string) => void }) {
+export function SlideDecision({ slide, n, grants, reports, onDecided, onOpenDoc, meetingId }: { slide: ReviewSlide; n: number; grants: GrantView[]; reports: Doc[]; onDecided: () => void; onOpenDoc: (id: string) => void; meetingId?: string }) {
   if (slide.grantId) {
     const g = grants.find((x) => x.id === slide.grantId);
-    return g ? <div className="review-decide"><GrantRow grant={g} onDecided={onDecided} onOpenDoc={onOpenDoc} deckSlide={n} /></div> : <div className="review-decide muted">Already decided.</div>;
+    return g ? <div className="review-decide"><GrantRow grant={g} onDecided={onDecided} onOpenDoc={onOpenDoc} deckSlide={n} meetingId={meetingId} /></div> : <div className="review-decide muted">Already decided.</div>;
   }
   if (slide.kind === "record") {
     const ids = slide.docIds ?? [];
     const approveAll = async () => {
-      const done = await Promise.all(ids.map((id) => api().archive(id, n)));
+      const done = await Promise.all(ids.map((id) => api().archive(id, n, meetingId)));
       store.putDocs(done.map((r) => r.doc));
       store.toast(`Approved ${ids.length} rollup${ids.length === 1 ? "" : "s"} for the record.`, "ok");
       onDecided();
@@ -52,7 +53,7 @@ export function SlideDecision({ slide, n, grants, reports, onDecided, onOpenDoc 
   return (
     <div className="review-decide">
       <div className="actions"><TalkToAuthor doc={doc} /><button className="link" onClick={() => onOpenDoc(doc.id)}>Open the report</button></div>
-      <ReplyBox doc={doc} onDone={onDecided} deckSlide={n} />
+      <ReplyBox doc={doc} onDone={onDecided} deckSlide={n} meetingId={meetingId} />
     </div>
   );
 }
@@ -83,7 +84,7 @@ export function ReviewDeckView({ grants, reports, onClose, onDecided, onOpenDoc 
   const slide = slides[clampSlide(n, slides.length) - 1];
   return (
     <div className="deck review-deck" ref={box} tabIndex={0} onKeyDown={key} aria-roledescription="slide deck" aria-label="Review deck">
-      <div className="review-deck-head"><button className="link back" onClick={onClose}>← In-tray list</button><span className="muted">assembled live from the in-tray · 0 tokens</span></div>
+      <div className="review-deck-head"><button className="link back" onClick={onClose}>← In-tray list</button><span className="muted">assembled live from the in-tray · 0 tokens</span> <PresentButtons docId={REVIEW_DECK_ID} slide={clampSlide(n, slides.length)} /></div>
       <ErrorLine error={deck.error} />
       {deck.loading && !deck.data ? <Loading /> : (
         <DeckSlides deck={{ title: deck.data?.title ?? "Review deck", slides }} n={clampSlide(n, slides.length)} go={go}>

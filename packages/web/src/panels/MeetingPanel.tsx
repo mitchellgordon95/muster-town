@@ -15,6 +15,7 @@ import { DocText, Markdown, docIdsIn } from "./Markdown";
 import { docUrl, grantUrl } from "../route";
 import type { PanelRef } from "../state";
 import { useMediaPaste } from "./mediaPaste";
+import { MeetingSlide } from "./MeetingSlide";
 
 const PHASES: Meeting["phase"][] = ["scheduled", "collecting", "discussing", "done"];
 
@@ -98,7 +99,7 @@ function MeetingView({ m }: { m: Meeting }) {
         </ol>
       )}
       {m.agenda ? <div className="goal-card"><span>Agenda</span>{m.agenda.split("\n").map((l, i) => <div key={i}><DocText text={l} newTab={open} /></div>)}</div> : null}
-      {oneOnOne ? null : <div className="muted small-line">Attendees bring: {m.brings.mode === "nothing" ? "nothing (no summaries)" : m.brings.mode === "custom" ? m.brings.text : "a status update"}{m.askHumans ? " · opens with decisions needed from the humans" : ""}</div>}
+      {oneOnOne ? null : <div className="muted small-line">{m.deck ? "Presentation with chat · " : ""}Attendees bring: {m.brings.mode === "nothing" ? "nothing (no summaries)" : m.brings.mode === "custom" ? m.brings.text : "a status update"}{m.askHumans ? " · opens with decisions needed from the humans" : ""}</div>}
       <div className="actions">
         {canRun && m.phase === "collecting" ? <Act tone="primary" run={async () => store.putMeeting(await api().startMeeting(m.id))}>Start discussion</Act> : null}
         {m.notesDocId ? <button className="btn" onClick={() => store.open({ kind: "library", docId: m.notesDocId! })}>Open notes</button> : null}
@@ -120,6 +121,7 @@ function MeetingView({ m }: { m: Meeting }) {
         </div>
       </Section>}
 
+      {m.deck ? <MeetingSlide m={{ ...m, deck: m.deck }} /> : null}
       <Section title="Transcript">
         {!m.transcript.length ? <Empty>{m.phase === "collecting" ? "Discussion starts as soon as every summary is in." : oneOnOne && open ? `Say what's on your mind; ${nameOf(m.facilitatorId)} answers here.` : "Nobody has spoken."}</Empty> : (
           <div className="transcript">

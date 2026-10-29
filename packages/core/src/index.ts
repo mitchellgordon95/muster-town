@@ -39,7 +39,7 @@ export {
 } from "./domain.ts";
 export { replyToReport, replyStamp, isMergeReply, MERGE_INSTRUCTION, type ReplyResult } from "./reply.ts";
 export { extractMentions, notifyMentions, type MentionContext } from "./mentions.ts";
-export { createMeeting, createOneOnOne, setMeetingPhase, meetingSpeak, meetingNotice, SYSTEM_SPEAKER, meetingDecide, endMeeting, type MeetingBy, humanTyping, defaultAttendees, defaultFacilitator, previousMeeting, agendaText, bringsLine, decisionOutcomes, type DecisionOutcome } from "./meetings.ts";
+export { createMeeting, createOneOnOne, setMeetingPhase, meetingSpeak, meetingNotice, SYSTEM_SPEAKER, meetingDecide, endMeeting, type MeetingBy, humanTyping, defaultAttendees, defaultFacilitator, previousMeeting, agendaText, bringsLine, decisionOutcomes, type DecisionOutcome, presentSlide, currentSlide, deckSlides, slideLine, recordSlideDecision, type CurrentSlide } from "./meetings.ts";
 export { makeVerbs, verbImpls, type Verbs, type VerbResult } from "./verbs/index.ts";
 export type { VerbIn, VerbRawIn } from "./verbs/types.ts";
 export { HEARING_RANGE, nearbyAgents } from "./verbs/social.ts";

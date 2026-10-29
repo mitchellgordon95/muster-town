@@ -1,5 +1,5 @@
 import { AppError, canSeeDoc, findManual, revisionsOf, searchDocs } from "@muster-town/core";
-import { CreateMeetingInput, DocState, DocType, MeetingPhase, MeetingSayInput, ReplyInput, ReviewInput, VerbInputs } from "@muster-town/schema";
+import { CreateMeetingInput, DocState, DocType, MeetingPhase, MeetingPresentInput, MeetingSayInput, ReplyInput, ReviewInput, VerbInputs } from "@muster-town/schema";
 import type { FastifyInstance } from "fastify";
 import { z } from "zod";
 import { actorOf, parse, requireAuth, viewerId, type Params } from "../context.ts";
@@ -66,11 +66,20 @@ export async function docRoutes(app: FastifyInstance) {
 
   /** Reports as replies: one text box, one button. → { doc, assignment | null }. Empty text = archive. */
   app.post<{ Params: Params }>("/api/docs/:id/reply", async (req) => {
-    const { text, deckSlide } = parse(ReplyInput, req.body);
-    return world.ops.replyToReport(actorOf(world, req), req.params.id, text, { deckSlide });
+    const { text, deckSlide, meetingId } = parse(ReplyInput, req.body);
+    const actor = actorOf(world, req);
+    const r = world.ops.replyToReport(actor, req.params.id, text, { deckSlide });
+    if (meetingId) world.ops.slideReplyDecision(actor, meetingId, req.params.id, text);
+    return r;
   });
 
-  app.post<{ Params: Params }>("/api/docs/:id/archive", async (req) => world.ops.archiveReport(actorOf(world, req), req.params.id, { deckSlide: parse(ReplyInput, req.body ?? {}).deckSlide }));
+  app.post<{ Params: Params }>("/api/docs/:id/archive", async (req) => {
+    const { deckSlide, meetingId } = parse(ReplyInput, req.body ?? {});
+    const actor = actorOf(world, req);
+    const r = world.ops.archiveReport(actor, req.params.id, { deckSlide });
+    if (meetingId) world.ops.slideReplyDecision(actor, meetingId, req.params.id, "");
+    return r;
+  });
 
   app.post<{ Params: Params }>("/api/docs/:id/promote", async (req) => {
     const { state } = parse(PromoteBody, req.body);
@@ -142,6 +151,13 @@ export async function docRoutes(app: FastifyInstance) {
     requireAuth(req);
     world.ops.meetingTyping(actorOf(world, req), req.params.id);
     return reply.code(204).send();
+  });
+
+  /** Presentation mode (gr_jh0lu0w6yj step 5): show a deck's slide above every attendee's chat; `docId` null stops. */
+  app.post<{ Params: Params }>("/api/meetings/:id/present", async (req) => {
+    requireAuth(req);
+    const { docId, slide } = parse(MeetingPresentInput, req.body);
+    return { meeting: world.ops.meetingPresent(actorOf(world, req), req.params.id, docId, slide) };
   });
 
   // agents writing a reply or decisions right now; the meeting panel polls this while the meeting is live

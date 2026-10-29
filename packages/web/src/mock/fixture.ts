@@ -244,7 +244,7 @@ export const assignments: Assignment[] = [
 ];
 
 const ahead = (min: number) => new Date(Date.now() + min * 60_000).toISOString();
-const mtBase = { withUserId: null, brings: { mode: "status" as const, text: "" }, askHumans: false, summaries: {}, transcript: [], decisions: [], notesDocId: null, startedAt: null, endedAt: null };
+const mtBase = { withUserId: null, brings: { mode: "status" as const, text: "" }, askHumans: false, deck: null, summaries: {}, transcript: [], decisions: [], notesDocId: null, startedAt: null, endedAt: null };
 export const meetings: Meeting[] = [
   { ...mtBase, id: "mt_retro1", kind: "retro", buildingId: "bl_carbon", title: "Carbon Cycle retro", scheduledAt: ahead(120), phase: "scheduled", facilitatorId: "ag_moss", attendeeIds: ["ag_noor", "ag_tomas", "ag_mei", "ag_ravi", "ag_ingrid", "ag_moss"], agenda: "What worked this week, what to change.", createdAt: ago(60) },
   { ...mtBase, id: "mt_town1", kind: "town-hall", buildingId: null, title: "Town hall: next lab", scheduledAt: ahead(60 * 26), phase: "scheduled", facilitatorId: "ag_wren", attendeeIds: ["ag_moss", "ag_keel", "ag_wren"], agenda: "Which lab should the town open next?", askHumans: true, createdAt: ago(200) },
@@ -256,7 +256,7 @@ export const meetings: Meeting[] = [
       { speakerId: "ag_keel", speakerKind: "agent", text: "And what this week cost.", at: ago(60 * 19.7), attachment: { kind: "page", ref: "bank", title: "The Bank" } },
     ] },
   {
-    withUserId: null, brings: { mode: "status", text: "" }, askHumans: false, id: "mt_standup1", kind: "standup", buildingId: "bl_carbon", title: "Carbon Cycle standup", scheduledAt: ago(4), phase: "collecting", facilitatorId: "ag_moss",
+    withUserId: null, brings: { mode: "status", text: "" }, askHumans: false, deck: null, id: "mt_standup1", kind: "standup", buildingId: "bl_carbon", title: "Carbon Cycle standup", scheduledAt: ago(4), phase: "collecting", facilitatorId: "ag_moss",
     attendeeIds: ["ag_noor", "ag_tomas", "ag_mei", "ag_ravi", "ag_ingrid", "ag_moss"], agenda: "What each desk learned this week; what to ask next.",
     summaries: {
       ag_noor: "Airborne fraction steady at 0.44 ± 0.07 since 1959.\n2023 spike explained by El Niño land-sink drop.\nNext: test for a trend with ENSO removed.",

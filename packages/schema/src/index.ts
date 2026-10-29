@@ -721,6 +721,15 @@ export const MeetingKind = z.enum(["standup", "retro", "planning", "town-hall", 
  */
 export const MeetingBrings = z.object({ mode: z.enum(["status", "nothing", "custom"]).default("status"), text: z.string().max(500).default("") });
 export type MeetingBrings = z.infer<typeof MeetingBrings>;
+/** The literal docId of the review deck (GET /api/review-deck): it is computed from the in-tray, not a stored doc. */
+export const REVIEW_DECK_ID = "review-deck";
+/**
+ * A presentation meeting's deck (design dc_y7a8g257of §1/§3): a deck doc (dc_…) or the review deck (REVIEW_DECK_ID),
+ * the slide everyone sees (from 1), and the presenter: whoever called the meeting with it or last moved a slide (a holder id; null = the town).
+ * The presenter alone sees the Notes line and the next slide's title.
+ */
+export const MeetingDeck = z.object({ docId: z.string().min(1), slide: z.number().int().positive().default(1), presenterId: Id.nullable().default(null) });
+export type MeetingDeck = z.infer<typeof MeetingDeck>;
 export const MeetingPhase = z.enum(["scheduled", "collecting", "discussing", "done", "cancelled"]);
 export const MeetingDecision = z.object({
   text: z.string(),
@@ -773,6 +782,8 @@ export const Meeting = z.object({
   brings: MeetingBrings.default({}),
   /** the facilitator opens with "Decisions needed from the humans" (default: kind is town-hall) */
   askHumans: z.boolean().default(false),
+  /** Presentation with chat: the deck shown above the chat, kept in sync (null = a chat meeting) */
+  deck: MeetingDeck.nullable().default(null),
   /** attendeeId -> short standup summary (did / next / need) submitted before discussion */
   summaries: z.record(z.string()).default({}),
   transcript: z.array(MeetingUtterance).default([]),
@@ -995,7 +1006,7 @@ export const EventType = z.enum([
   "agent.tool", "agent.thought", "agent.banned", "agent.retired", "agent.forked", "agent.mentioned",
   "doc.created", "doc.updated", "doc.state", "doc.decision",
   "assignment.created", "assignment.status", "assignment.delegated",
-  "meeting.created", "meeting.phase", "meeting.utterance", "meeting.decisions",
+  "meeting.created", "meeting.phase", "meeting.utterance", "meeting.decisions", "meeting.slide",
   "session.started", "session.ended",
   "building.created", "building.updated", "building.layout", "town.plan", "allocation.created", "budget.exhausted", "bank.input", "bank.credited", "bank.debited", "bank.converted", "bank.share", "bank.pool", "bank.drift", "bank.cap", "bank.hold",
   "grant.created", "grant.updated", "grant.proposed", "grant.countered", "grant.funded", "grant.rejected", "grant.checkpoint", "grant.closed", "kr.updated", "kr.created", "kr.deleted", "objective.created", "objective.updated", "objective.deleted", "building.blocked",
@@ -1366,6 +1377,8 @@ export const DecideGrantInput = z.object({
   fundWith: Id.optional(),
   /** the review deck's slide (from 1) the decision was made on; recorded as the event's payload.deckSlide */
   deckSlide: z.number().int().positive().optional(),
+  /** decided on a slide presented in this live meeting: also recorded as one of its decisions */
+  meetingId: Id.optional(),
 });
 export type DecideGrantInput = z.input<typeof DecideGrantInput>;
 /** POST /api/grants/:id/close: the manager may close as `stopped`; `building.fund` any outcome. */
@@ -1409,7 +1422,7 @@ export const ReviewInput = z.object({ decision: ReviewDecision, note: z.string()
 export const PlantFlagInput = z.object({ text: z.string().trim().min(1).max(2000) });
 export const ChatInput = z.object({ message: z.string(), history: z.array(z.object({ role: z.enum(["user", "assistant"]), text: z.string() })).default([]) });
 /** POST /api/docs/:id/reply: the reply text (empty = archive). */
-export const ReplyInput = z.object({ text: z.string().default(""), deckSlide: z.number().int().positive().optional() });
+export const ReplyInput = z.object({ text: z.string().default(""), deckSlide: z.number().int().positive().optional(), meetingId: Id.optional() });
 export const InterruptInput = z.object({ text: z.string(), now: z.boolean().optional() });
 /** POST /api/agents/:id/message: a human messages an agent (a `tell` from their avatar). `now` (default true) interrupts a working agent; false leaves it in the inbox. */
 export const MessageAgentInput = z.object({ text: z.string().trim().min(1), now: z.boolean().default(true) });
@@ -1444,23 +1457,28 @@ export const CreateMeetingInput = z.object({ kind: MeetingKind.exclude(["one-on-
   brings: MeetingBrings.optional(),
   /** omitted = kind is town-hall */
   askHumans: z.boolean().optional(),
+  /** Mode "Presentation with chat": the deck doc id (type deck) or REVIEW_DECK_ID; omitted = chat */
+  deck: z.object({ docId: z.string().trim().min(1) }).optional(),
   /** who to invite; omitted = the building's residents (town hall: managers, reviewers, moderators) */
   attendeeIds: z.array(Id).min(1).optional() });
 /**
  * The "Call a meeting" presets (Lena's dc_tcoy1plt2r): each pre-fills the form and every field stays editable. The
  * preset is stored only as `kind` (a label); behaviour comes from `brings`, `askHumans` and the agenda. `attendees`:
- * `default` = the building's residents (Town Hall: managers, reviewers, moderators), `none` = pick by hand.
+ * `default` = the building's residents (Town Hall: managers, reviewers, moderators), `none` = pick by hand. `deck` set =
+ * Mode "Presentation with chat" with that deck (Review the in-tray: the review deck).
  */
 export const MEETING_PRESETS = [
-  { id: "standup", label: "Standup", kind: "standup", attendees: "default", brings: { mode: "status", text: "" }, agenda: [], askHumans: false },
-  { id: "town-hall", label: "Town hall", kind: "town-hall", attendees: "default", brings: { mode: "status", text: "" }, agenda: [], askHumans: true },
+  { id: "standup", label: "Standup", kind: "standup", attendees: "default", brings: { mode: "status", text: "" }, agenda: [], askHumans: false, deck: null },
+  { id: "town-hall", label: "Town hall", kind: "town-hall", attendees: "default", brings: { mode: "status", text: "" }, agenda: [], askHumans: true, deck: null },
   { id: "in-tray-review", label: "Review the in-tray", kind: "in-tray-review", attendees: "default", brings: { mode: "nothing", text: "" },
-    agenda: ["Read each in-tray item in one line with its ask; the human says approve / fund / counter / cut / later"], askHumans: true },
-  { id: "retro", label: "Retro", kind: "retro", attendees: "default", brings: { mode: "custom", text: "What went well, what went badly, one thing to change, with evidence" }, agenda: [], askHumans: false },
-  { id: "planning", label: "Planning", kind: "planning", attendees: "default", brings: { mode: "custom", text: "The work you propose next and its cost in tokens" }, agenda: [], askHumans: true },
-  { id: "blank", label: "Blank", kind: "ad-hoc", attendees: "none", brings: { mode: "nothing", text: "" }, agenda: [], askHumans: false },
-] as const satisfies readonly { id: string; label: string; kind: Exclude<z.infer<typeof MeetingKind>, "one-on-one">; attendees: "default" | "none"; brings: MeetingBrings; agenda: readonly string[]; askHumans: boolean }[];
+    agenda: ["Read each in-tray item in one line with its ask; the human says approve / fund / counter / cut / later"], askHumans: true, deck: REVIEW_DECK_ID },
+  { id: "retro", label: "Retro", kind: "retro", attendees: "default", brings: { mode: "custom", text: "What went well, what went badly, one thing to change, with evidence" }, agenda: [], askHumans: false, deck: null },
+  { id: "planning", label: "Planning", kind: "planning", attendees: "default", brings: { mode: "custom", text: "The work you propose next and its cost in tokens" }, agenda: [], askHumans: true, deck: null },
+  { id: "blank", label: "Blank", kind: "ad-hoc", attendees: "none", brings: { mode: "nothing", text: "" }, agenda: [], askHumans: false, deck: null },
+] as const satisfies readonly { id: string; label: string; kind: Exclude<z.infer<typeof MeetingKind>, "one-on-one">; attendees: "default" | "none"; brings: MeetingBrings; agenda: readonly string[]; askHumans: boolean; deck: string | null }[];
 export type MeetingPreset = (typeof MEETING_PRESETS)[number];
+/** POST /api/meetings/:id/present: show `docId`'s slide `slide` above every attendee's chat; `docId` null stops presenting. */
+export const MeetingPresentInput = z.object({ docId: z.string().trim().min(1).nullable(), slide: z.number().int().positive().default(1) });
 export const MeetingSayInput = z.object({ text: z.string(), attach: z.string().optional() });
 export const SeedInput = z.object({ importDir: z.string().optional() });
 /** POST /api/admin/redeploy (permission `town.redeploy`); also the `redeploy` verb's input */

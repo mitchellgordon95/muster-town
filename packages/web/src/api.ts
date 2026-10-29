@@ -388,11 +388,11 @@ export interface Api {
   /** POST /api/buildings/:id/flags — plant a flag (a short request) in a building; it lands in the manager's in-tray as a pending `flag` doc */
   plantFlag(buildingId: string, text: string): Promise<Doc>;
   /** POST /api/docs/:id/reply — the reply becomes the author's next assignment; empty text archives */
-  reply(docId: string, text: string, deckSlide?: number): Promise<{ doc: Doc; assignment: Assignment | null }>;
+  reply(docId: string, text: string, deckSlide?: number, meetingId?: string): Promise<{ doc: Doc; assignment: Assignment | null }>;
   /** Upload one image or video as the signed-in human (docs/multimedia.md); returns its paste-ready markdown. */
   uploadMedia(file: Blob, alt?: string): Promise<UploadedMedia>;
   /** POST /api/docs/:id/archive — acknowledge with no reply */
-  archive(docId: string, deckSlide?: number): Promise<{ doc: Doc; assignment: Assignment | null }>;
+  archive(docId: string, deckSlide?: number, meetingId?: string): Promise<{ doc: Doc; assignment: Assignment | null }>;
   promote(docId: string, state: DocState): Promise<Doc>;
   // skills (docs/skills.md): written with writeDoc type "skill"
   /** every published skill (plus my drafts) with files, pins and uses */
@@ -415,6 +415,8 @@ export interface Api {
   meeting(id: string): Promise<Meeting>;
   startMeeting(id: string): Promise<Meeting>;
   sayMeeting(id: string, text: string, attach?: string): Promise<Meeting>;
+  /** show a deck's slide above every attendee's chat (docId null stops presenting) */
+  presentMeeting(id: string, docId: string | null, slide?: number): Promise<Meeting>;
   endMeeting(id: string): Promise<Meeting>;
   /** a human has an unsent message in the say box (ping every few seconds while it's there) */
   typingMeeting(id: string): Promise<void>;
@@ -600,7 +602,7 @@ export class HttpApi implements Api {
   async writeDoc(i: WriteDocInput) { return unwrap<Doc>(await this.post("/api/docs", i), "doc"); }
   async review(id: string, i: In<typeof ReviewInput>) { return unwrap<Doc>(await this.post(`/api/docs/${id}/review`, i), "doc"); }
   async plantFlag(buildingId: string, text: string) { return unwrap<Doc>(await this.post(`/api/buildings/${buildingId}/flags`, { text }), "doc"); }
-  reply(id: string, text: string, deckSlide?: number) { return this.post<{ doc: Doc; assignment: Assignment | null }>(`/api/docs/${id}/reply`, { text, ...(deckSlide ? { deckSlide } : {}) }); }
+  reply(id: string, text: string, deckSlide?: number, meetingId?: string) { return this.post<{ doc: Doc; assignment: Assignment | null }>(`/api/docs/${id}/reply`, { text, ...(deckSlide ? { deckSlide } : {}), ...(meetingId ? { meetingId } : {}) }); }
   /** Open a session transcript (docs/transcripts.md) in a new tab: fetched with the bearer token, shown as text. */
   async openTranscript(url: string) {
     const tab = window.open("", "_blank");
@@ -619,7 +621,7 @@ export class HttpApi implements Api {
     if (!res.ok) throw new ApiError(json.error ?? `${res.status} ${res.statusText}`, json.code ?? "http", res.status);
     return json;
   }
-  archive(id: string, deckSlide?: number) { return this.post<{ doc: Doc; assignment: Assignment | null }>(`/api/docs/${id}/archive`, deckSlide ? { deckSlide } : undefined); }
+  archive(id: string, deckSlide?: number, meetingId?: string) { return this.post<{ doc: Doc; assignment: Assignment | null }>(`/api/docs/${id}/archive`, deckSlide ? { deckSlide, ...(meetingId ? { meetingId } : {}) } : undefined); }
   async promote(id: string, state: DocState) { return unwrap<Doc>(await this.post(`/api/docs/${id}/promote`, { state }), "doc"); }
   async skills() { return (await this.get<{ skills: SkillView[] }>("/api/skills")).skills; }
   async skill(id: string) { return (await this.get<{ skill: SkillView }>(`/api/skills/${id}`)).skill; }
@@ -635,6 +637,7 @@ export class HttpApi implements Api {
   async meeting(id: string) { return unwrap<Meeting>(await this.get(`/api/meetings/${id}`), "meeting"); }
   async openOneOnOne(buildingId: string, opts: { agentId?: string; docId?: string; grantId?: string } = {}) { return unwrap<Meeting>(await this.post(`/api/buildings/${buildingId}/one-on-one`, opts), "meeting"); }
   async startMeeting(id: string) { return unwrap<Meeting>(await this.post(`/api/meetings/${id}/start`), "meeting"); }
+  async presentMeeting(id: string, docId: string | null, slide?: number) { return unwrap<Meeting>(await this.post(`/api/meetings/${id}/present`, { docId, ...(slide ? { slide } : {}) }), "meeting"); }
   async sayMeeting(id: string, text: string, attach?: string) { return unwrap<Meeting>(await this.post(`/api/meetings/${id}/say`, attach ? { text, attach } : { text }), "meeting"); }
   async endMeeting(id: string) { return unwrap<Meeting>(await this.post(`/api/meetings/${id}/end`), "meeting"); }
   async typingMeeting(id: string) { await this.post(`/api/meetings/${id}/typing`); }
