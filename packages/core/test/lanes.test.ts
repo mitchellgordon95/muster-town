@@ -270,9 +270,13 @@ describe("goal-directed budgets: the 100% checkpoint", () => {
     const th = world.buildings.first("kind = 'town-hall'")!;
     expect(world.ops.townHallIntray().grants.map((x) => x.id)).toContain(g.id);
     const before = world.ops.intrayCount(th.id);
+    const sent: number[] = [];
+    world.changes.subscribe((m) => { if (m.type === "building" && m.building.id === th.id && m.building.intray !== undefined) sent.push(m.building.intray); });
     world.grantDesk.updateKeyResult(admin, krs[0]!.id, { status: "met", note: "checked" });
     expect(world.ops.townHallIntray().grants.map((x) => x.id)).not.toContain(g.id);
     expect(world.ops.intrayCount(th.id)).toBe(before - 1);
+    // marking the KR is not a grant event, but the Town Hall badge is resent with the new count
+    expect(sent.at(-1)).toBe(before - 1);
   });
 
   it("propose_grant creates and proposes in one call; several proposals can be open per building", async () => {

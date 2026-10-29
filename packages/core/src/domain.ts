@@ -353,13 +353,18 @@ export function intrayCount(world: World, buildingId: string): number {
   return intrayOf(world, buildingId).length + (b?.kind === "town-hall" ? grantsAwaitingDecision(world).length + pendingAccessCount(world) : 0);
 }
 
-/** In-tray counts by building id (buildings with none are absent). Rollups count for the Town Hall. */
+/**
+ * In-tray counts by building id (buildings with none are absent). Rollups count for the Town Hall. Each count is
+ * `intrayCount` of that building: exactly the items its in-tray lists. A pending report or flag filed under the Town Hall
+ * that is not a Town Hall item (not a visitor's report: none is made today, `plantFlag` refuses the Town Hall) is listed
+ * nowhere, so it counts nowhere.
+ */
 export function intrayCounts(world: World): Map<string, number> {
   const th = world.buildings.first("kind = 'town-hall'");
   const counts = new Map<string, number>();
   const bump = (id: string) => counts.set(id, (counts.get(id) ?? 0) + 1);
   for (const d of world.docs.where("type IN ('report', 'flag') AND decision = 'pending' AND buildingId IS NOT NULL")) {
-    if (isTownHallItem(world, d)) { if (th) bump(th.id); } else bump(d.buildingId!);
+    if (isTownHallItem(world, d)) { if (th) bump(th.id); } else if (d.buildingId !== th?.id) bump(d.buildingId!);
   }
   if (th) for (let i = grantsAwaitingDecision(world).length + pendingAccessCount(world); i > 0; i--) bump(th.id);
   return counts;

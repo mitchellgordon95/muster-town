@@ -58,7 +58,9 @@ export function SlideDecision({ slide, n, grants, reports, onDecided, onOpenDoc 
 }
 
 export function ReviewDeckView({ grants, reports, onClose, onDecided, onOpenDoc }: { grants: GrantView[]; reports: Doc[]; onClose: () => void; onDecided: () => void; onOpenDoc: (id: string) => void }) {
-  const deck = useLoad(() => api().reviewDeck(), []);
+  // reload when the in-tray list changes (the badge moved: a rollup arrived, a grant closed), so slide 1 and the slides match the list
+  const listKey = [...grants.map((g) => `${g.id}:${g.status}`), ...reports.map((d) => d.id)].join(",");
+  const deck = useLoad(() => api().reviewDeck(), [listKey]);
   const slides = deck.data?.slides ?? [];
   const [n, setN] = useState(1);
   const want = useRef<string | null>(null);

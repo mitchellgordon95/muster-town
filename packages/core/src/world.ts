@@ -150,11 +150,12 @@ export class World {
       if (a) this.agents.upsert({ ...a, activity: e.text, lastActiveAt: e.ts });
     });
     // in-tray badge: a report arrived or was decided, or a grant moved → resend the building with its count;
-    // a manager's report and every grant change also resend the Town Hall, whose in-tray they land in
+    // a manager's report and every grant change also resend the Town Hall, whose in-tray they land in; so does a key result
+    // marked met or missed (or deleted), which takes a closed-as-done grant out of the Town Hall in-tray without a grant event
     this.events.addHook((e) => {
       const p = e.payload as Record<string, unknown>;
       const report = (e.type === "doc.created" && p.docType === "report") || e.type === "doc.decision";
-      const grant = e.type.startsWith("grant.");
+      const grant = e.type.startsWith("grant.") || e.type === "kr.updated" || e.type === "kr.deleted";
       if (!(report || grant) || !e.buildingId) return;
       const b = this.buildings.get(e.buildingId);
       if (b) this.changes.emit({ type: "building", building: { ...b, intray: intrayCount(this, b.id) } });

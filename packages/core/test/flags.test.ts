@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { applyDecision, intrayCounts, intrayOf, managerIntrayBlock, townHallIntray } from "../src/index.ts";
+import { applyDecision, createDoc, intrayCount, intrayCounts, intrayOf, managerIntrayBlock, townHallIntray } from "../src/index.ts";
 import { buildingRoleId } from "../src/permissions.ts";
 import { seededWorld, tickUntil } from "./helpers.ts";
 
@@ -88,5 +88,25 @@ describe("plant a flag", () => {
     expect(world.snapshot().flags).toHaveLength(1);
     applyDecision(world, flag.id, "approve", "handled", world.holderOf(admin));
     expect(world.snapshot().flags).toHaveLength(0);
+  });
+});
+
+/** The badge counts exactly what the in-tray lists (as_zx5xumjcag): the map's count is `intrayCounts`, the panel lists `intrayOf` / `townHallIntray`. */
+describe("in-tray count = in-tray list", () => {
+  it("every building's badge equals its listed items, even with a stray pending flag or report filed under the Town Hall", () => {
+    const { world, admin } = seededWorld();
+    const th = world.buildings.first("kind = 'town-hall'")!;
+    world.ops.plantFlag(admin, LAB, "A lab flag");
+    // legacy data: plantFlag refuses the Town Hall, and only a visitor's report is a Town Hall item there; neither is listed anywhere
+    createDoc(world, { type: "flag", state: "building", title: "stray", body: "stray", decision: "pending", authorId: admin.id, authorKind: "user", buildingId: th.id });
+    createDoc(world, { type: "report", state: "building", title: "stray report", body: "x", decision: "pending", authorId: admin.id, authorKind: "user", buildingId: th.id });
+    const counts = intrayCounts(world);
+    for (const b of world.buildings.all()) {
+      const t = b.id === th.id ? townHallIntray(world) : null;
+      const listed = t ? t.reports.length + t.grants.length + t.access.length : intrayOf(world, b.id).length;
+      expect([b.id, counts.get(b.id) ?? 0]).toEqual([b.id, listed]);
+      expect([b.id, intrayCount(world, b.id)]).toEqual([b.id, listed]);
+    }
+    expect(townHallIntray(world).reports.map((d) => d.title)).not.toContain("stray");
   });
 });
