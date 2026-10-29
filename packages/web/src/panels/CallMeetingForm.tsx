@@ -1,10 +1,12 @@
 /**
  * One "Call a meeting" form (Lena's dc_tcoy1plt2r, gr_jh0lu0w6yj step 2), in Building → Meetings and the meeting room:
  * a preset pre-fills title, agenda, attendees, what attendees bring and the "ask the humans" opener; all stay editable.
+ * Mode: Chat, or Presentation with chat (gr_jh0lu0w6yj step 5): a deck (the review deck, or a deck doc by id) shown
+ * above the chat, starting on slide 1; "Review the in-tray" pre-fills it with the review deck.
  * The 1:1 is not here: it stays its own "Talk to ★" button.
  */
 import { useState } from "react";
-import { MEETING_PRESETS, type MeetingBrings, type MeetingPreset, type SnapshotBuilding } from "@muster-town/schema";
+import { MEETING_PRESETS, REVIEW_DECK_ID, type MeetingBrings, type MeetingPreset, type SnapshotBuilding } from "@muster-town/schema";
 import { api } from "../api";
 import { store } from "../state";
 import { Act } from "./ui";
@@ -22,10 +24,13 @@ export function CallMeetingForm({ building }: { building: SnapshotBuilding }) {
   const [agenda, setAgenda] = useState<string[]>(() => [...preset.agenda]);
   const [brings, setBrings] = useState<MeetingBrings>(() => ({ ...preset.brings }));
   const [askHumans, setAskHumans] = useState<boolean>(preset.askHumans);
+  // Presentation with chat: the deck's id (REVIEW_DECK_ID or a deck doc dc_…); null = chat
+  const [deck, setDeck] = useState<string | null>(preset.deck);
   const pick = (id: string) => {
     const p = presetById(id);
-    setPreset(p); setTitle(""); setAgenda([...p.agenda]); setBrings({ ...p.brings }); setAskHumans(p.askHumans); invite.reset(p.attendees);
+    setPreset(p); setTitle(""); setAgenda([...p.agenda]); setBrings({ ...p.brings }); setAskHumans(p.askHumans); setDeck(p.deck); invite.reset(p.attendees);
   };
+  const deckDoc = deck !== null && deck !== REVIEW_DECK_ID;
   const setItem = (i: number, v: string) => setAgenda((a) => a.map((x, j) => (j === i ? v : x)));
   return (
     <div className="call-meeting">
@@ -55,12 +60,20 @@ export function CallMeetingForm({ building }: { building: SnapshotBuilding }) {
         </select>
       </label>
       {brings.mode === "custom" ? <input value={brings.text} maxLength={500} placeholder="Bring: the one thing that went worst this week and why" onChange={(e) => setBrings((b) => ({ ...b, text: e.target.value }))} /> : null}
+      <label>Mode
+        <select value={deck === null ? "chat" : deckDoc ? "doc" : "review"} onChange={(e) => setDeck(e.target.value === "chat" ? null : e.target.value === "review" ? REVIEW_DECK_ID : "")}>
+          <option value="chat">Chat</option>
+          <option value="review">Presentation with chat: the review deck (Town Hall in-tray)</option>
+          <option value="doc">Presentation with chat: a deck doc…</option>
+        </select>
+      </label>
+      {deckDoc ? <input value={deck} placeholder="The deck doc's id (dc_…): open a deck and copy it from its URL" onChange={(e) => setDeck(e.target.value.trim())} /> : null}
       <label className="check"><input type="checkbox" checked={askHumans} onChange={(e) => setAskHumans(e.target.checked)} /> Ask the humans for decisions (the facilitator opens with "Decisions needed from the humans")</label>
       <div className="actions">
-        <Act tone="primary" disabled={brings.mode === "custom" && !brings.text.trim()} run={async () => {
+        <Act tone="primary" disabled={(brings.mode === "custom" && !brings.text.trim()) || (deckDoc && !deck)} run={async () => {
           const m = await api().createMeeting({
             kind: preset.kind, buildingId: hall ? null : building.id, startNow: true, ...attendeeInput(invite.picked),
-            ...(title.trim() ? { title: title.trim() } : {}), agenda: agenda.filter((a) => a.trim()), brings, askHumans,
+            ...(title.trim() ? { title: title.trim() } : {}), agenda: agenda.filter((a) => a.trim()), brings, askHumans, ...(deck ? { deck: { docId: deck } } : {}),
           });
           store.putMeeting(m); store.open({ kind: "meeting", id: m.id });
         }}>Call meeting</Act>

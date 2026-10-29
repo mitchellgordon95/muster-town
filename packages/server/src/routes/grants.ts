@@ -43,9 +43,14 @@ export async function grantRoutes(app: FastifyInstance) {
     grant: desk.propose(actorOf(world, req), req.params.id, parse(ProposeInput, req.body ?? {}).note),
   }));
 
-  app.post<{ Params: Params }>("/api/grants/:id/decide", async (req) => ({
-    grant: desk.decide(actorOf(world, req), req.params.id, parse(DecideGrantInput, req.body)),
-  }));
+  app.post<{ Params: Params }>("/api/grants/:id/decide", async (req) => {
+    const input = parse(DecideGrantInput, req.body);
+    const actor = actorOf(world, req);
+    const grant = desk.decide(actor, req.params.id, input);
+    // decided on a slide presented in a live meeting: one of its decisions too
+    if (input.meetingId) world.ops.slideGrantDecision(actor, input.meetingId, req.params.id, input.action);
+    return { grant };
+  });
 
   app.post<{ Params: Params }>("/api/grants/:id/close", async (req) => ({
     grant: desk.close(actorOf(world, req), req.params.id, parse(CloseGrantInput, req.body)),

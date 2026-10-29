@@ -10,6 +10,7 @@ import { Markdown } from "./Markdown";
 import { isPanelFull, setPanelFull } from "./panelResize";
 import { setShownDeck, slideHash, slideOfHash } from "../route";
 import { store } from "../state";
+import { PresentButtons } from "./MeetingSlide";
 
 /** The slide (from 1) a key moves to, or null when the key isn't the deck's. */
 export function slideForKey(key: string, shift: boolean, n: number, count: number): number | null {
@@ -95,6 +96,7 @@ export function DeckView({ id, body }: { id: string; body: string }) {
       <DeckSlides deck={deck} n={clampSlide(n, count)} go={go} showNotes={notes} />
       <div className="deck-help muted">
         ← → or space to move · Home/End · <button className="link" onClick={() => setPanelFull(!isPanelFull())}>{full ? "f: exit fullscreen" : "f: fullscreen"}</button> · <button className="link" onClick={() => setNotes((v) => !v)}>{notes ? "n: hide notes" : "n: presenter notes"}</button>
+        {" "}<PresentButtons docId={id} slide={clampSlide(n, count)} />
       </div>
     </div>
   );

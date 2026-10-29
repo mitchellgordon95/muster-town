@@ -119,3 +119,16 @@ One form (web `panels/CallMeetingForm.tsx`) in Building → Meetings and in the 
 - **Ask the humans for decisions** (`Meeting.askHumans`, migration 052; default = kind is town-hall, and existing town halls were set to 1): the "Decisions needed from the humans" opener now follows this flag, not the kind.
 - The meeting panel shows the agenda line by line and "Attendees bring: …"; the notes header says what attendees brought and whether it opened with the humans' decisions.
 - Tests: core `test/meeting-form.test.ts`, runtime `meetings-chat-scheduler.test.ts` (nothing skips summaries; custom reaches the summary prompt).
+
+## 10. Presentation with chat (gr_jh0lu0w6yj step 5; design dc_y7a8g257of §1 presenter view, §3)
+
+A meeting can present a deck above its chat: a deck doc (type `deck`) or the review deck (the literal id `review-deck`, `REVIEW_DECK_ID`; computed from the in-tray, not stored).
+
+- **State**: `Meeting.deck = {docId, slide, presenterId}` (JSON column, migration 054; null = a chat meeting). The meeting row changes on every move, so every open meeting panel follows the slide over the existing websocket `meeting` updates.
+- **Mode in the Call-a-meeting form**: Chat | Presentation with chat (the review deck, or a deck doc by id), sent as `CreateMeetingInput.deck {docId}`; the meeting starts on slide 1 with whoever called it as presenter. The "Review the in-tray" preset (`MEETING_PRESETS[].deck`) pre-fills the review deck, nothing to bring, decisions opener on.
+- **Present**: `POST /api/meetings/:id/present {docId|null, slide}` (core `presentSlide`; the facilitator, anyone with meeting.facilitate, or any signed-in human; only while collecting or discussing). The web shows "Present in <meeting>" on a deck doc (DeckView) and on Review as deck while a meeting is live; it opens the meeting. `docId` null stops presenting.
+- **Transcript lines**: each move posts a system line "— slide n: <slide title>" (a new deck first posts "— <name> is presenting "<title>" (N slides)"); the same slide twice posts nothing. Event `meeting.slide`. The notes keep the lines, so each remark sits under its slide.
+- **Presenter view**: web `panels/MeetingSlide.tsx` shows the slide above the transcript; ← → (with focus) or the arrows move it for everyone. Only the presenter (`presenterId`, the last to move it) sees the Notes line and the next slide's title.
+- **Facilitator**: `facilitateMaterial` opens with "Presenting: …, slide n of N" and the slide's whole text and notes; `meeting` status and listen return `slide {deck, n, of, title, text, notes?}`.
+- **Decisions from a slide**: on the review deck the slide carries its in-tray buttons (GrantRow, reply box, Approve all). They send `deckSlide` and `meetingId`; the grant decide and reply/archive routes then also record a meeting decision "<name> funded gr_… "<objective>" (on slide n)" (core `recordSlideDecision`, event `meeting.decisions` with payload.deckSlide), besides the in-tray event's payload.deckSlide.
+- Tests: core `test/presentation.test.ts`, server `test/review-deck.test.ts` (present route, decision with meetingId), web `test/meetingSlide.test.tsx`.
