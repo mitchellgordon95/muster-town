@@ -402,12 +402,11 @@ export function startRuntime(opts: RuntimeOptions): Runtime {
     }
   }
   /**
-   * Spawn forks for buildings with `forks` on: startable building-queue work in queue order, while the building has a
+   * Spawn forks for every building (forks are the only mode, 1:1 mt_wngibcr98b): startable building-queue work in queue order, while the building has a
    * free desk and the host a free slot. Lanes, waitFor and heldReason work as for a resident's queue (forkableQueue).
    */
   function spawnForks(held: string[], startedNow: number): void {
     for (const b of world.buildings.all()) {
-      if (!b.forks) continue;
       // like a resident of a code building: no fork on the host backend (the resident loop warns)
       if (backend?.kind === "host" && codeWorkspace(world.town.get(), b)) continue;
       let free = freeDesks(world, b);

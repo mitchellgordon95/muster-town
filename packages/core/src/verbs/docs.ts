@@ -10,7 +10,7 @@ import { isCheckpointAssignment } from "../lanes.ts";
 import { docWhere, notifyMentions } from "../mentions.ts";
 import { appendAgentLog, canWriteTopic, ownerOf, revisionsOf, writeTopicPage, writeWikiPage } from "../memory.ts";
 import { checkForkModel } from "../forks.ts";
-import { attachablePages, cancelSchedule, createSchedule, describeRepeat } from "../schedules.ts";
+import { attachablePages, cancelSchedule, createSchedule, describeRepeat, editSchedule } from "../schedules.ts";
 import { actOrigin } from "../origin.ts";
 import { ftsQuery } from "../text.ts";
 import { whereOf } from "../table.ts";
@@ -381,11 +381,10 @@ export async function request_human(world: World, me: Agent, input: VerbIn<"requ
 export async function assign(world: World, me: Agent, input: VerbIn<"assign">) {
   // a timed job is a building schedule (Mitchell, 1:1 mt_w7z9k1z112): nothing is pinned to an agent before it fires
   if (input.waitFor && "after" in input.waitFor) throw badRequest("A timed job goes on the building's schedule: use `schedule` (title, description, runsAt, optional repeat); whoever is around when it fires takes it.");
-  // manager forks: no agentId = the building queue (forks on); the manager holds it until a fork takes it
+  // manager forks: no agentId = the building queue; the manager holds it until a fork takes it. agentId = a named agent (the manager taking work itself)
   const building = input.agentId ? null : world.buildings.get(homeOf(me) ?? "");
   if (!input.agentId) {
     if (!building) throw badRequest("Name the agentId to assign.");
-    if (!building.forks) throw badRequest(`Name the agentId to assign: ${building.name} doesn't queue work to the building (forks are off).`);
     if (!managerAgentOf(world, building)) throw badRequest(`${building.name} has no manager agent to fork; name the agentId.`);
   } else if (input.model) throw badRequest("`model` is for building-queue work (leave agentId out); a named agent runs on its own model.");
   const target = building ? managerAgentOf(world, building)! : world.agents.require(input.agentId!, "agent");
@@ -407,9 +406,20 @@ export async function schedule(world: World, me: Agent, input: VerbIn<"schedule"
   const bid = homeOf(me);
   if (!bid) throw badRequest("You have no building to schedule work in.");
   if (!world.permissions.can(me, "building.assign", bid)) throw forbidden("building.assign");
-  const s = createSchedule(world, bid, world.holderOf(me), input, me.kind === "human" ? null : actOrigin(world, me, null));
+  const { scheduleId, paused, ...rest } = input;
+  if (scheduleId) {
+    const sc = world.schedules.require(scheduleId, "schedule");
+    if (sc.buildingId !== bid) throw forbidden("building.assign");
+    const { lane, grantId, keyResultId, gap, sourceId, ...edit } = rest;
+    if (lane || grantId || keyResultId || gap || sourceId) throw badRequest("A schedule keeps its lane: `cancel` it with scheduleId and schedule it again in the new lane.");
+    const e = editSchedule(world, me, sc.id, { ...edit, ...(paused !== undefined ? { paused } : {}) });
+    return { scheduleId: e.id, nextRunAt: e.nextRunAt, repeat: describeRepeat(e), ...(e.endsAt ? { endsAt: e.endsAt } : {}), paused: e.paused, runs: e.runs };
+  }
+  if (paused !== undefined) throw badRequest("paused goes with scheduleId (pause or resume an existing schedule).");
+  if (!rest.title || rest.description === undefined) throw badRequest("A new schedule needs a title and a description (or give scheduleId to edit one).");
+  const s = createSchedule(world, bid, world.holderOf(me), { ...rest, repeat: rest.repeat ?? undefined }, me.kind === "human" ? null : actOrigin(world, me, null));
   return { scheduleId: s.id, nextRunAt: s.nextRunAt, repeat: describeRepeat(s), ...(s.endsAt ? { endsAt: s.endsAt } : {}), lane: s.lane,
-    note: "On your building's schedule: when it fires, a normal assignment goes to whoever is around (the building queue with forks on, else an idle resident, else you). `cancel` with scheduleId stops it." };
+    note: "On your building's schedule: when it fires, a normal assignment goes to whoever is around (the building queue with forks on, else an idle resident, else you); a run is skipped while the last one is still queued or running. `schedule` with scheduleId edits or pauses it; `cancel` with scheduleId deletes it." };
 }
 
 /**

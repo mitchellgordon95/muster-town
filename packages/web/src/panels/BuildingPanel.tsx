@@ -115,12 +115,13 @@ function Overview({ b }: { b: SnapshotBuilding }) {
 /** What a fire creates, in words: its lane and who takes it ("exploration · the building queue (a fork runs it)"). */
 function createsLabel(x: Schedule, b: SnapshotBuilding): string {
   const lane = x.lane === "grant" ? `grant ${x.grantId}` : x.lane === "exploration" ? `exploration${x.keyResultId ? ` ${x.keyResultId}` : ""}` : "directed";
-  return `${lane} · ${b.forks ? "the building queue (a fork runs it)" : "an idle resident, else the manager"}`;
+  return `${lane} · ${b.managerAgentId ? "the building queue (a fork runs it)" : "an idle resident"}`;
 }
 
 /** The building's schedule (GET /api/scheduled): timed jobs that live on the building; each run goes to whoever is around. */
 export function ScheduledList({ b }: { b: SnapshotBuilding }) {
   const all = useTown((s) => s.scheduled);
+  const assignments = useTown((s) => s.assignments);
   useTown((s) => s.me);
   const rows = useMemo(() => all.filter((x) => x.buildingId === b.id), [all, b.id]);
   if (b.kind === "town-hall") return null;
@@ -128,19 +129,27 @@ export function ScheduledList({ b }: { b: SnapshotBuilding }) {
   return (
     <Section title={<>Schedule {rows.length ? <Pill tone="scheduled">{rows.length}</Pill> : null}</>}>
       {!rows.length ? <Empty>Nothing scheduled. A manager adds a timed job with the <code>schedule</code> tool; each run goes to whoever is around.</Empty> : (
-        <div className="doc-list">{rows.map((x) => (
-          <div key={x.id} className="doc-row" title={x.description}>
-            <b>{x.title}</b>
-            <div className="doc-row-meta">
-              <span>next {x.nextRunAt ? runsAtLabel(x.nextRunAt) : "—"}</span>
-              <span>{repeatLabel(x)}{x.endsAt ? ` until ${x.endsAt.slice(0, 10)}` : ""}{x.runs ? ` · ran ${x.runs}×` : ""}</span>
+        <div className="doc-list">{rows.map((x) => {
+          const last = x.lastAssignmentId ? assignments[x.lastAssignmentId] : undefined;
+          const swap = (y: Schedule) => store.set({ scheduled: store.state.scheduled.map((z) => z.id === y.id ? y : z) });
+          return (
+            <div key={x.id} className="doc-row" title={x.description}>
+              <b>{x.title}</b> {x.paused ? <Pill tone="warn">paused</Pill> : null}
+              <div className="doc-row-meta">
+                <span>next {x.paused ? "— (paused)" : x.nextRunAt ? runsAtLabel(x.nextRunAt) : "—"}</span>
+                <span>{repeatLabel(x)}{x.endsAt ? ` until ${x.endsAt.slice(0, 10)}` : ""}{x.runs ? ` · ran ${x.runs}×` : ""}</span>
+              </div>
+              {x.lastAssignmentId ? <div className="doc-row-meta"><span>last fired: {last ? `"${last.title}" (${last.status === "pending" ? "queued" : last.status === "active" ? "running" : last.status})` : x.lastAssignmentId}{x.lastRunAt ? ` · ${runsAtLabel(x.lastRunAt)}` : ""}</span></div> : null}
+              <div className="doc-row-meta">
+                <span>creates: {createsLabel(x, b)}</span>
+                {canCancel ? <span>
+                  <Act small run={async () => swap(await api().editSchedule(x.id, { paused: !x.paused }))}>{x.paused ? "Resume" : "Pause"}</Act>{" "}
+                  <Act small run={async () => { await api().cancelSchedule(x.id); store.set({ scheduled: store.state.scheduled.filter((y) => y.id !== x.id) }); }}>Cancel</Act>
+                </span> : null}
+              </div>
             </div>
-            <div className="doc-row-meta">
-              <span>creates: {createsLabel(x, b)}</span>
-              {canCancel ? <Act small run={async () => { await api().cancelSchedule(x.id); store.set({ scheduled: store.state.scheduled.filter((y) => y.id !== x.id) }); }}>Cancel</Act> : null}
-            </div>
-          </div>
-        ))}</div>
+          );
+        })}</div>
       )}
     </Section>
   );
@@ -263,59 +272,26 @@ export function Settings({ b }: { b: SnapshotBuilding }) {
     </Section>
     {b.kind === "town-hall" ? <Section title="Dashboard"><p className="direction">The town goal is three KPIs, Fund, Join and Trust, with every building's objectives under them. <button className="link" onClick={() => store.open({ kind: "dashboard" })}>Open the dashboard</button></p></Section> : null}
     {b.kind !== "town-hall" ? <PoolPicker b={b} /> : null}
-    {b.kind !== "town-hall" && store.can("building.fund", b.id) ? <BudgetMode b={b} /> : null}
+    {b.kind !== "town-hall" && store.can("building.fund", b.id) ? <ExplorationBudget b={b} /> : null}
   </>);
 }
 
-/** The exploration allowance and forks (docs/goal-directed-budgets.md); every lab is goal-directed. Humans who can fund only: a manager agent can't change its own budget. */
-function BudgetMode({ b }: { b: SnapshotBuilding }) {
+/** The exploration allowance (docs/goal-directed-budgets.md); every lab is goal-directed and runs on forks. Humans who can fund only: a manager agent can't change its own budget. */
+function ExplorationBudget({ b }: { b: SnapshotBuilding }) {
   const [explore, setExplore] = useState(b.explorationTokensPerDay == null ? "" : toMillions(b.explorationTokensPerDay));
   return (
-    <Section title="Budget mode">
+    <Section title="Exploration budget">
       <form className="form" onSubmit={(e) => e.preventDefault()}>
         <Field label="Exploration / day" hint="Leave blank for the default: 10% of the pool's daily inflow.">
           <MTokensInput value={explore} placeholder="default" onChange={setExplore} />
         </Field>
-        <ForksToggle b={b} />
         <div className="actions"><Act tone="primary" run={async () => {
           await api().updateBuilding(b.id, { explorationTokensPerDay: explore.trim() === "" ? null : Math.max(0, fromMillions(explore) || 0) });
-          store.toast(`${b.name} budget settings saved`, "ok");
-        }}>Save budget mode</Act></div>
+          store.toast(`${b.name} exploration budget saved`, "ok");
+        }}>Save exploration budget</Act></div>
       </form>
     </Section>
   );
-}
-
-export const FORKS_HINT = "Queued building work runs on forks of the manager";
-
-/** The Forks switch's markup; `on` null = still reading the live value. */
-export function ForksField({ on, busy, onChange }: { on: boolean | null; busy?: boolean; onChange: (on: boolean) => void }) {
-  return (
-    <Field label="Forks" hint={FORKS_HINT}>
-      <span className="check"><input type="checkbox" aria-label="Forks" checked={!!on} disabled={on === null || busy} onChange={(e) => onChange(e.target.checked)} /> {on === null ? "…" : on ? "on" : "off"}</span>
-    </Field>
-  );
-}
-
-/** Manager forks on/off (PATCH /api/buildings/:id {forks}, building.fund); reads the live value from GET /api/buildings/:id and saves on click. */
-function ForksToggle({ b }: { b: SnapshotBuilding }) {
-  const [on, setOn] = useState<boolean | null>(null);
-  const [busy, setBusy] = useState(false);
-  useEffect(() => {
-    let live = true;
-    api().building(b.id).then((x) => { if (live) setOn(x.forks); }, () => { if (live) setOn(b.forks); });
-    return () => { live = false; };
-  }, [b.id, b.forks]);
-  return <ForksField on={on} busy={busy} onChange={async (next) => {
-    setBusy(true);
-    try {
-      const saved = await api().updateBuilding(b.id, { forks: next });
-      setOn(saved.forks);
-      store.toast(`Forks ${saved.forks ? "on" : "off"} for ${b.name}`, "ok");
-    } catch (e) {
-      store.toast((e as Error).message, "bad");
-    } finally { setBusy(false); }
-  }} />;
 }
 
 /** The Bank pool this building draws from. Only an admin can move it; the move takes effect at once. */

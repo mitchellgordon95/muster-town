@@ -4,7 +4,7 @@
  * whoever is around then: the building queue when forks are on (a fork runs it), else an idle resident, else the manager.
  * Each fire is ordinary work that ends in a report the manager decides; the schedule only saves re-typing the `assign`.
  */
-import { CreateScheduleInput, type Agent, type Assignment, type Building, type Origin, type Schedule } from "@muster-town/schema";
+import { CreateScheduleInput, EditScheduleInput, type Agent, type Assignment, type Building, type Origin, type Schedule, type ScheduleRepeat } from "@muster-town/schema";
 import { createAssignment, createDoc, managerAgentOf } from "./domain.ts";
 import { AppError, badRequest } from "./errors.ts";
 import { checkForkModel } from "./forks.ts";
@@ -34,11 +34,38 @@ export function nextOccurrence(s: Pick<Schedule, "everyMinutes" | "dailyAt">, af
   return null;
 }
 
-/** "every 6 h", "daily 08:00, 20:00 UTC", or "once" (UI, tools, events). */
-export function describeRepeat(s: Pick<Schedule, "everyMinutes" | "dailyAt">): string {
-  if (s.everyMinutes) return s.everyMinutes % 60 ? `every ${s.everyMinutes} min` : `every ${s.everyMinutes / 60} h`;
-  if (s.dailyAt?.length) return `daily ${s.dailyAt.join(", ")} UTC`;
+/** "every 6 h", "daily 08:00, 20:00 UTC, 10 times", or "once" (UI, tools, events). */
+export function describeRepeat(s: Pick<Schedule, "everyMinutes" | "dailyAt"> & { maxRuns?: number | null }): string {
+  const times = s.maxRuns ? `, ${s.maxRuns} time${s.maxRuns === 1 ? "" : "s"}` : "";
+  if (s.everyMinutes) return (s.everyMinutes % 60 ? `every ${s.everyMinutes} min` : `every ${s.everyMinutes / 60} h`) + times;
+  if (s.dailyAt?.length) return `daily ${s.dailyAt.join(", ")} UTC${times}`;
   return "once";
+}
+
+/** A repeat's stored fields (all null = a one-shot): every N minutes or daily UTC times, and an optional run count. */
+function repeatOf(r: ScheduleRepeat | null | undefined): Pick<Schedule, "everyMinutes" | "dailyAt" | "maxRuns"> {
+  if (!r) return { everyMinutes: null, dailyAt: null, maxRuns: null };
+  if (r.everyHours && r.dailyAt) throw badRequest("repeat: give everyHours or dailyAt, not both.");
+  if (!r.everyHours && !r.dailyAt) throw badRequest("repeat: give everyHours (every N hours) or dailyAt ([\"HH:MM\"] UTC).");
+  const everyMinutes = r.everyHours ? Math.round(r.everyHours * 60) : null;
+  if (everyMinutes !== null && everyMinutes < 60) throw badRequest("repeat.everyHours: at least 1.");
+  return { everyMinutes, dailyAt: r.dailyAt ? [...new Set(r.dailyAt)].sort() : null, maxRuns: r.times ?? null };
+}
+
+/** A run time a caller gave (or the first occurrence): not in the past, at most MAX_SCHEDULE_DAYS out. */
+function checkRunsAt(next: Date, at: Date, given?: string): Date {
+  if (next.getTime() < at.getTime() - 60_000) throw badRequest(`runsAt ${given ?? next.toISOString()} is in the past.`);
+  if (next.getTime() > at.getTime() + MAX_SCHEDULE_DAYS * DAY) throw badRequest(`runsAt: at most ${MAX_SCHEDULE_DAYS} days ahead.`);
+  return next.getTime() < at.getTime() ? at : next;
+}
+
+/** A repeat's end date: `until` (default DEFAULT_SCHEDULE_DAYS out), at most MAX_SCHEDULE_DAYS, not before its first run. */
+function endOf(r: ScheduleRepeat | null | undefined, next: Date, at: Date): string | null {
+  if (!r) return null;
+  const until = r.until ? Date.parse(r.until) : at.getTime() + DEFAULT_SCHEDULE_DAYS * DAY;
+  if (until > at.getTime() + MAX_SCHEDULE_DAYS * DAY) throw badRequest(`repeat.until: at most ${MAX_SCHEDULE_DAYS} days ahead (a schedule is renewed on purpose, not left running).`);
+  if (until < next.getTime()) throw badRequest("repeat.until is before the first run.");
+  return new Date(until).toISOString();
 }
 
 /** `assign … pages`, a schedule's pages: distinct topic pages of the building, at most MAX_ATTACHED_PAGES. */
@@ -64,35 +91,22 @@ export function createSchedule(world: World, buildingId: string, by: Holder, raw
   const b = world.buildings.require(buildingId, "building");
   if (b.kind === "town-hall") throw badRequest("The Town Hall has no workers to run a schedule; schedule work on a building.");
   const r = input.repeat;
-  if (r?.everyHours && r.dailyAt) throw badRequest("repeat: give everyHours or dailyAt, not both.");
-  if (r && !r.everyHours && !r.dailyAt) throw badRequest("repeat: give everyHours (every N hours) or dailyAt ([\"HH:MM\"] UTC).");
-  const everyMinutes = r?.everyHours ? Math.round(r.everyHours * 60) : null;
-  if (everyMinutes !== null && everyMinutes < 60) throw badRequest("repeat.everyHours: at least 1.");
-  const dailyAt = r?.dailyAt ? [...new Set(r.dailyAt)].sort() : null;
-  const max = at.getTime() + MAX_SCHEDULE_DAYS * DAY;
-  let next: Date | null = input.runsAt ? new Date(input.runsAt) : nextOccurrence({ everyMinutes, dailyAt }, at);
+  const rep = repeatOf(r);
+  let next: Date | null = input.runsAt ? new Date(input.runsAt) : nextOccurrence(rep, at);
   if (!next) throw badRequest("A schedule needs runsAt (when it runs), a repeat, or both.");
-  if (next.getTime() < at.getTime() - 60_000) throw badRequest(`runsAt ${input.runsAt} is in the past.`);
-  if (next.getTime() > max) throw badRequest(`runsAt: at most ${MAX_SCHEDULE_DAYS} days ahead.`);
-  if (next.getTime() < at.getTime()) next = at;
-  let endsAt: string | null = null;
-  if (r) {
-    const until = r.until ? Date.parse(r.until) : at.getTime() + DEFAULT_SCHEDULE_DAYS * DAY;
-    if (until > max) throw badRequest(`repeat.until: at most ${MAX_SCHEDULE_DAYS} days ahead (a schedule is renewed on purpose, not left running).`);
-    if (until < next.getTime()) throw badRequest("repeat.until is before the first run.");
-    endsAt = new Date(until).toISOString();
-  }
+  next = checkRunsAt(next, at, input.runsAt);
+  const endsAt = endOf(r, next, at);
   const lane = resolveLane(world, b.id, by, input);
   const pages = input.pages?.length ? attachablePages(world, b.id, input.pages) : [];
   const model = input.model ? checkForkModel(b, input.model) : null;
   const ts = at.toISOString();
   const s = world.schedules.upsert({
     id: newId("sc"), buildingId: b.id, title: input.title, description: input.description, nextRunAt: next.toISOString(),
-    everyMinutes, dailyAt, endsAt, lane: lane.lane, grantId: lane.grantId, keyResultId: lane.keyResultId, gap: lane.gap, sourceId: lane.sourceId,
+    ...rep, endsAt, paused: false, lane: lane.lane, grantId: lane.grantId, keyResultId: lane.keyResultId, gap: lane.gap, sourceId: lane.sourceId,
     pages, model, origin, status: "active", endedReason: null, lastRunAt: null, lastAssignmentId: null, runs: 0,
     createdBy: by.id, createdByKind: by.kind === "agent" ? "agent" : "user", createdAt: ts, updatedAt: ts,
   });
-  world.events.append({ type: "schedule.created", buildingId: b.id, text: `${world.nameOf(by.id)} scheduled "${truncate(s.title, 80)}" in ${b.name}: ${describeRepeat(s)}, next ${s.nextRunAt!.slice(0, 16).replace("T", " ")} UTC`, payload: { scheduleId: s.id, nextRunAt: s.nextRunAt, everyMinutes, dailyAt, endsAt, lane: s.lane } });
+  world.events.append({ type: "schedule.created", buildingId: b.id, text: `${world.nameOf(by.id)} scheduled "${truncate(s.title, 80)}" in ${b.name}: ${describeRepeat(s)}, next ${s.nextRunAt!.slice(0, 16).replace("T", " ")} UTC`, payload: { scheduleId: s.id, nextRunAt: s.nextRunAt, ...rep, endsAt, lane: s.lane } });
   return s;
 }
 
@@ -114,41 +128,75 @@ export function cancelSchedule(world: World, actor: Agent, id: string): Schedule
 }
 
 /**
- * Who takes a fired schedule's work: the building queue when forks are on (held by the manager until a fork takes it);
- * else the idle resident with the shortest queue; else the manager; else nobody (null).
+ * `schedule scheduleId` / POST /api/schedules/:id: edit, pause or resume a schedule (building.assign on its building).
+ * A new repeat replaces the old one (null = one-shot) and, without runsAt, starts at its first occurrence from now. Pausing
+ * keeps the next run; resuming a schedule whose next run passed while paused moves a repeat to its next occurrence (a
+ * one-shot fires on the next tick). The lane stays: cancel and schedule again to change it.
+ */
+export function editSchedule(world: World, actor: Agent, id: string, raw: unknown, at: Date = new Date()): Schedule {
+  const parsed = EditScheduleInput.safeParse(raw);
+  if (!parsed.success) throw badRequest(`Invalid schedule edit: ${parsed.error.issues.map((i) => `${i.path.join(".") || "input"}: ${i.message}`).join("; ")}`);
+  const input = parsed.data;
+  const s = world.schedules.require(id, "schedule");
+  if (!world.permissions.can(actor, "building.assign", s.buildingId)) throw new AppError("forbidden", "You need building.assign on the schedule's building to change it.");
+  if (s.status === "ended") throw new AppError("conflict", `Schedule "${s.title}" already ended (${s.endedReason ?? "ended"}); schedule it again.`);
+  const rep = input.repeat !== undefined ? repeatOf(input.repeat) : { everyMinutes: s.everyMinutes, dailyAt: s.dailyAt, maxRuns: s.maxRuns };
+  let next = s.nextRunAt ? new Date(s.nextRunAt) : at;
+  if (input.runsAt) next = checkRunsAt(new Date(input.runsAt), at, input.runsAt);
+  else if (input.repeat) next = nextOccurrence(rep, at)!;
+  const paused = input.paused ?? s.paused;
+  if (!paused && next.getTime() < at.getTime() && (rep.everyMinutes || rep.dailyAt?.length)) next = nextOccurrence(rep, at, next)!;
+  const endsAt = input.repeat !== undefined ? endOf(input.repeat, next, at) : s.endsAt;
+  if (rep.maxRuns && s.runs >= rep.maxRuns) throw badRequest(`repeat.times: it has already run ${s.runs} time(s); give more, or cancel it.`);
+  const changed = Object.keys(input).filter((k) => k !== "paused" || input.paused !== s.paused);
+  const e = world.schedules.upsert({
+    ...s, ...rep, endsAt, paused, nextRunAt: next.toISOString(), updatedAt: at.toISOString(),
+    ...(input.title !== undefined ? { title: input.title } : {}), ...(input.description !== undefined ? { description: input.description } : {}),
+    ...(input.pages !== undefined ? { pages: attachablePages(world, s.buildingId, input.pages) } : {}),
+    ...(input.model !== undefined ? { model: input.model ? checkForkModel(world.buildings.require(s.buildingId, "building"), input.model) : null } : {}),
+  });
+  const what = input.paused !== undefined && input.paused !== s.paused ? (input.paused ? "paused" : "resumed") : "edited";
+  world.events.append({ type: "schedule.edited", buildingId: s.buildingId, text: `${actor.name} ${what} schedule "${truncate(e.title, 80)}": ${describeRepeat(e)}${e.paused ? ", paused" : `, next ${e.nextRunAt!.slice(0, 16).replace("T", " ")} UTC`}`, payload: { scheduleId: s.id, changed, paused: e.paused, nextRunAt: e.nextRunAt } });
+  return e;
+}
+
+/**
+ * Who takes a fired schedule's work: the building queue (held by the manager until a fork takes it); a building with no
+ * manager agent: the idle resident with the shortest queue; else nobody (null).
  */
 export function scheduleTaker(world: World, b: Building): { agentId: string; queue: "agent" | "building" } | null {
   const manager = managerAgentOf(world, b);
-  if (b.forks && manager) return { agentId: manager.id, queue: "building" };
+  if (manager) return { agentId: manager.id, queue: "building" };
   const idle = world.agents.where("homeBuildingId = ? AND kind = 'resident' AND forkOf IS NULL AND status = 'idle'", [b.id])
-    .filter((a) => a.id !== manager?.id)
     .map((a) => ({ a, n: world.assignments.count("agentId = ? AND status IN ('pending', 'active')", [a.id]) }))
     .sort((x, y) => x.n - y.n);
-  const pick = idle[0]?.a ?? manager;
+  const pick = idle[0]?.a;
   return pick ? { agentId: pick.id, queue: "agent" } : null;
 }
 
 /**
  * Fire every due schedule: one assignment each for whoever is around. Missed runs during downtime collapse into one; a
  * fire is skipped while the last one's assignment is still queued (no pile-up). A one-shot ends after it runs; a repeat
- * moves to its next occurrence and ends past `endsAt`. A lane that no longer holds ends it with an in-tray report.
+ * moves to its next occurrence and ends past `endsAt` or after `maxRuns` fires. A lane that no longer holds ends it with an in-tray report.
  */
 export function fireSchedules(world: World, at: Date = new Date()): { fired: Assignment[]; ended: Schedule[] } {
   const fired: Assignment[] = [], ended: Schedule[] = [];
-  for (const s of world.schedules.where("status = 'active' AND nextRunAt <= ?", [at.toISOString()], "ORDER BY nextRunAt")) {
+  for (const s of world.schedules.where("status = 'active' AND paused = 0 AND nextRunAt <= ?", [at.toISOString()], "ORDER BY nextRunAt")) {
     const b = world.buildings.get(s.buildingId);
     if (!b) { ended.push(endSchedule(world, s.id, "its building is gone", at)); continue; }
     const next = nextOccurrence(s, at, new Date(s.nextRunAt!));
     const past = (d: Date | null) => !d || (s.endsAt ? d.getTime() > Date.parse(s.endsAt) : true);
     const advance = (patch: Partial<Schedule>) => {
-      const u = world.schedules.upsert({ ...s, ...patch, nextRunAt: past(next) ? null : next!.toISOString(), updatedAt: at.toISOString() });
-      if (past(next)) ended.push(endSchedule(world, s.id, s.everyMinutes || s.dailyAt?.length ? "past its end" : "ran", at));
+      const counted = !!s.maxRuns && (patch.runs ?? s.runs) >= s.maxRuns;
+      const u = world.schedules.upsert({ ...s, ...patch, nextRunAt: past(next) || counted ? null : next!.toISOString(), updatedAt: at.toISOString() });
+      if (counted) ended.push(endSchedule(world, s.id, `ran ${s.maxRuns} time${s.maxRuns === 1 ? "" : "s"}`, at));
+      else if (past(next)) ended.push(endSchedule(world, s.id, s.everyMinutes || s.dailyAt?.length ? "past its end" : "ran", at));
       return u;
     };
     if (s.endsAt && Date.parse(s.nextRunAt!) > Date.parse(s.endsAt)) { ended.push(endSchedule(world, s.id, "past its end", at)); continue; }
     const last = s.lastAssignmentId ? world.assignments.get(s.lastAssignmentId) : undefined;
-    if (last?.status === "pending") {
-      world.events.append({ type: "schedule.skipped", buildingId: s.buildingId, text: `Schedule "${truncate(s.title, 80)}" skipped a run: its last assignment is still queued`, payload: { scheduleId: s.id, assignmentId: last.id } });
+    if (last?.status === "pending" || last?.status === "active") {
+      world.events.append({ type: "schedule.skipped", buildingId: s.buildingId, text: `Schedule "${truncate(s.title, 80)}" skipped a run: its last assignment is still ${last.status === "pending" ? "queued" : "running"}`, payload: { scheduleId: s.id, assignmentId: last.id, status: last.status } });
       advance({});
       continue;
     }

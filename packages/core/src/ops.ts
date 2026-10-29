@@ -59,9 +59,8 @@ export class Ops {
    * A sent `headcount` is ignored, not refused: desks follow the lot (resize it in town planning to change them).
    */
   updateBuilding(actor: Actor, id: string, patch: (typeof UpdateBuildingInput)["_input"]) {
-    const { poolId, explorationTokensPerDay, forks, headcount: _ignored, ...rest } = patch;
-    // forks multiply a building's concurrent sessions, so turning them on is a budget call too
-    const budget = { ...(explorationTokensPerDay !== undefined && { explorationTokensPerDay }), ...(forks !== undefined && { forks }) };
+    const { poolId, explorationTokensPerDay, headcount: _ignored, ...rest } = patch;
+    const budget = { ...(explorationTokensPerDay !== undefined && { explorationTokensPerDay }) };
     const other = Object.keys(rest).length || (poolId === undefined && !Object.keys(budget).length);
     if (actor && other) this.world.permissions.require(actor, "building.manage", id);
     // goal-directed budget settings are a human's call: a manager agent can't raise its own allowance

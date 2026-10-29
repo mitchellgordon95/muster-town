@@ -14,7 +14,6 @@ function lab() {
   const pix = createResident(world, { buildingId: b.id, name: "Pix" });
   const ann = createResident(world, { buildingId: b.id, name: "Ann" });
   updateBuilding(world, b.id, { managerAgentId: pix.id });
-  world.ops.updateBuilding(null, b.id, { forks: true });
   world.budget.donate(seed.admin.id, { tokens: 1_000_000, buildingId: b.id });
   const agent = (id: string) => world.agents.require(id);
   const write = (who: string, input: { title: string; body: string; type?: "wiki" | "log" | "note"; topicOf?: string; id?: string }) =>

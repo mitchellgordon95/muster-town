@@ -34,12 +34,11 @@ export function nextForkN(world: World, managerId: string): number {
 }
 
 /**
- * Step 2, the runtime's spawn check: the building-queue work a fork may start now, in queue order. Empty when forks are
- * off, there is no manager to fork, the building's budget or the family's daily cap is spent. Waiting and offered rows
+ * Step 2, the runtime's spawn check: the building-queue work a fork may start now, in queue order. Empty when there is
+ * no manager to fork, the building's budget or the family's daily cap is spent. Waiting and offered rows
  * are skipped; a row the lane gate holds keeps its `heldReason` (as for a resident's queue).
  */
 export function forkableQueue(world: World, b: Building): Assignment[] {
-  if (!b.forks) return [];
   const manager = managerAgentOf(world, b);
   if (!manager || manager.status === "banned" || manager.status === "retired") return [];
   if (world.budget.remaining(b.id) <= 0 || manager.familySpentToday >= familyCap(b)) return [];
@@ -116,7 +115,6 @@ export function forkDeskSlot(world: World, agentId: string, defaults: (buildingI
  */
 export function forkManager(world: World, buildingId: string, assignmentId: string): { fork: Agent; desk: number; assignment: Assignment } {
   const b = world.buildings.require(buildingId, "building");
-  if (!b.forks) throw badRequest(`${b.name} doesn't run forks (its \`forks\` setting is off).`);
   const manager = managerAgentOf(world, b);
   if (!manager) throw new AppError("conflict", `${b.name} has no manager agent to fork.`);
   const a = world.assignments.require(assignmentId, "assignment");

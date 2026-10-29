@@ -11,7 +11,6 @@ function lab() {
   const pix = createResident(world, { buildingId: b.id, name: "Pix" });
   createResident(world, { buildingId: b.id, name: "Ann" });
   updateBuilding(world, b.id, { managerAgentId: pix.id });
-  world.ops.updateBuilding(null, b.id, { forks: true });
   world.budget.donate(seed.admin.id, { tokens: 1_000_000, buildingId: b.id });
   const queue = async (title: string) => (await world.verbs.assign(world.agents.require(pix.id), { title, description: "d", gap: "test gap" })).assignmentId;
   const names = (bid: string, n: number) => ({ sandboxName: `desk-c-${bid}-${n}`, volumeName: `deskhome-${bid}-${n}` });

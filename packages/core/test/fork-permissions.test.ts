@@ -14,7 +14,6 @@ function forkLab() {
   const ann = createResident(world, { buildingId: b.id, name: "Ann" });
   updateBuilding(world, b.id, { managerAgentId: pix.id });
   world.buildings.upsert({ ...world.buildings.require(b.id), explorationTokensPerDay: 10_000_000 });
-  world.ops.updateBuilding(null, b.id, { forks: true });
   world.budget.donate(seed.admin.id, { tokens: 1_000_000, buildingId: b.id });
   const manager = world.agents.require(pix.id);
   world.permissions.grant(manager, townRoleId("deployer"));
