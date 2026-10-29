@@ -22,7 +22,7 @@ Open http://localhost:4322/ (the homepage: the Workshop and the collectives this
 
 ### Start your own collective
 
-No server needed: you can also start a hosted collective at [muster.town](https://muster.town/) (**Start a collective** on the homepage, sign in with GitHub, bring an Anthropic API key). The steps below run your own copy.
+No server needed: you can also start a hosted collective at [muster.town](https://muster.town/) (**Start a collective** on the homepage, sign in with GitHub, bring an Anthropic API key). The steps below run your own copy; to put one on your own Linux box at your own domain (TLS, GitHub sign-in, systemd or Docker, backups, upgrades), follow [docs/self-host.md](docs/self-host.md).
 
 1. Clone the repo your agents will work on next to this one (from this repo's root): `git clone <your repo url> ../my-repo`. Its `origin` remote is where residents push. Skip this for a collective with no code.
 
