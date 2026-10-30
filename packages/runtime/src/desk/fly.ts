@@ -7,6 +7,7 @@
  * it is started in the background on the Machine (a wrapper script writing /tmp/run-<id>.log and /tmp/run-<id>.exit) and
  * followed with short polling execs. That also means a server restart doesn't lose the process.
  */
+import type { DeskSize } from "@muster-town/core";
 import type { LineSink } from "./backend.ts";
 import { shq, type SandboxApi, type SandboxInfo } from "./sandbox.ts";
 
@@ -17,6 +18,7 @@ export interface FlyOptions {
   /** the desk image, e.g. registry.fly.io/<app>:desk (see fly.desk.toml) */
   image: string;
   region?: string;
+  /** the default size (performance-1x, 2048 MB since gr_uhh6u39vv9 step 3: shared-cpu-2x desks saw 84–91 % steal) */
   cpuKind?: "shared" | "performance";
   cpus?: number;
   memoryMb?: number;
@@ -27,7 +29,8 @@ export interface FlyOptions {
   fetch?: typeof fetch;
 }
 
-interface FlyMachine { id: string; name: string; state: string }
+interface FlyGuest { cpu_kind: string; cpus: number; memory_mb: number }
+interface FlyMachine { id: string; name: string; state: string; config?: { guest?: FlyGuest } & Record<string, unknown> }
 interface FlyVolume { id: string; name: string; state: string; region?: string; attached_machine_id?: string | null }
 interface ExecResult { stdout: string; stderr: string; exit_code: number; exit_signal: number }
 
@@ -50,7 +53,7 @@ export class FlyApi implements SandboxApi {
     // options the caller leaves unset (passed as `undefined`, as the runtime does from its config) must not wipe the defaults
     const given = Object.fromEntries(Object.entries(opts).filter(([, v]) => v !== undefined));
     this.opts = {
-      region: "iad", cpuKind: "shared", cpus: 2, memoryMb: 2048, volumeGb: 5, maxLifetimeSec: 6 * 3600, pollMs: 1500, ...given,
+      region: "iad", cpuKind: "performance", cpus: 1, memoryMb: 2048, volumeGb: 5, maxLifetimeSec: 6 * 3600, pollMs: 1500, ...given,
     } as Required<Omit<FlyOptions, "fetch">>;
   }
 
@@ -99,8 +102,9 @@ export class FlyApi implements SandboxApi {
     return { id: m.id, name, state };
   }
 
-  async create(spec: { name: string; labels: Record<string, string>; volume: string; mountPath: string }): Promise<SandboxInfo> {
+  async create(spec: { name: string; labels: Record<string, string>; volume: string; mountPath: string; size?: DeskSize }): Promise<SandboxInfo> {
     const o = this.opts;
+    const size = spec.size ?? { cpuKind: o.cpuKind, cpus: o.cpus, memoryMb: o.memoryMb };
     const volName = flyVolumeName(spec.volume);
     const vols = (await this.req<FlyVolume[]>("GET", "/volumes")).body.filter((v) => !/destroy/.test(v.state) && v.name === volName);
     const vol = vols[0] ?? (await this.req<FlyVolume>("POST", "/volumes", { name: volName, region: o.region, size_gb: o.volumeGb })).body;
@@ -112,7 +116,7 @@ export class FlyApi implements SandboxApi {
         // bounded, so a Machine left running by a dead server stops itself; the runtime starts it again when needed
         init: { cmd: ["sleep", String(o.maxLifetimeSec)] },
         restart: { policy: "no" },
-        guest: { cpu_kind: o.cpuKind, cpus: o.cpus, memory_mb: o.memoryMb },
+        guest: { cpu_kind: size.cpuKind, cpus: size.cpus, memory_mb: size.memoryMb },
         mounts: [{ volume: vol.id, path: spec.mountPath }],
         metadata: spec.labels,
       },
@@ -164,6 +168,22 @@ export class FlyApi implements SandboxApi {
       }
     }
     await this.waitState(id, "started");
+  }
+
+  /**
+   * Moves the Machine to `size` with the Machines API's update call (the whole config, guest changed). A stopped Machine
+   * is updated with `skip_launch` so it stays stopped until `start`; a started one restarts on the new size.
+   */
+  async resize(name: string, size: DeskSize): Promise<boolean> {
+    const id = await this.id(name);
+    const m = (await this.req<FlyMachine>("GET", `/machines/${id}`)).body;
+    const g = m.config?.guest;
+    if (!m.config || (g && g.cpu_kind === size.cpuKind && g.cpus === size.cpus && g.memory_mb === size.memoryMb)) return false;
+    const stopped = m.state !== "started";
+    const config = { ...m.config, guest: { ...(g ?? {}), cpu_kind: size.cpuKind, cpus: size.cpus, memory_mb: size.memoryMb } };
+    await this.req("POST", `/machines/${id}`, { config, ...(stopped ? { skip_launch: true } : {}) });
+    if (stopped) await this.waitState(id, "stopped").catch(() => {}); else await this.waitState(id, "started");
+    return true;
   }
 
   async stop(name: string): Promise<void> {

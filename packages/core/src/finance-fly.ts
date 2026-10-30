@@ -75,7 +75,8 @@ export interface FinanceFly {
 }
 
 export interface FlyInputs {
-  sessions: Pick<Session, "agentId" | "assignmentId" | "backend" | "startedAt" | "endedAt" | "wallMs">[];
+  /** cpuKind / cpus / memoryMb: the size the session ran on (migration 060); absent = DESK_LEGACY_SIZE */
+  sessions: (Pick<Session, "agentId" | "assignmentId" | "backend" | "startedAt" | "endedAt" | "wallMs"> & Partial<Pick<Session, "cpuKind" | "cpus" | "memoryMb">>)[];
   assignments: Pick<Assignment, "id" | "buildingId">[];
   agents: Pick<Agent, "id" | "buildingId">[];
   buildings: Pick<Building, "id" | "name">[];
@@ -106,8 +107,10 @@ export const FLY_PRICES = {
 
 /** The town Machine as fly.town.toml `[[vm]]` sizes it (a core test pins this to the file). */
 export const TOWN_MACHINE = { cpuKind: "shared", cpus: 2, memoryMb: 2048 } as const;
-/** The desk Machine defaults of runtime/desk/fly.ts (FlyApi), used when desks config leaves a field unset. */
-export const DESK_MACHINE_DEFAULTS = { cpuKind: "shared", cpus: 2, memoryMb: 2048 } as const;
+/** The desk Machine defaults of runtime/desk/fly.ts (FlyApi), used when desks config leaves a field unset (performance-1x since gr_uhh6u39vv9 step 3). */
+export const DESK_MACHINE_DEFAULTS = { cpuKind: "performance", cpus: 1, memoryMb: 2048 } as const;
+/** What a desk session without a recorded size (before migration 060) ran on. */
+export const DESK_LEGACY_SIZE = { cpuKind: "shared", cpus: 2, memoryMb: 2048 } as const;
 
 export const FLY_IDENTITY = "per day desk + town = total; Σ days desk time = Σ buildings desk time";
 export const FLY_NOT_COUNTED = [
@@ -141,7 +144,10 @@ export function financeFly(inp: FlyInputs, now = new Date()): FinanceFly {
     ? flyRate(desks.cpuKind ?? DESK_MACHINE_DEFAULTS.cpuKind, desks.cpus ?? DESK_MACHINE_DEFAULTS.cpus, desks.memoryMb ?? DESK_MACHINE_DEFAULTS.memoryMb)
     : null;
   const townRate = inp.townOnFly ? flyRate(TOWN_MACHINE.cpuKind, TOWN_MACHINE.cpus, TOWN_MACHINE.memoryMb) : null;
-  const deskUsdPerMs = (deskRate?.usdPerHour ?? 0) / 3_600_000;
+  // each session at the size it ran on (recorded since migration 060; older ones ran on DESK_LEGACY_SIZE)
+  const legacyRate = flyRate(DESK_LEGACY_SIZE.cpuKind, DESK_LEGACY_SIZE.cpus, DESK_LEGACY_SIZE.memoryMb);
+  const sessionUsdPerMs = (s: FlyInputs["sessions"][number]) => desks.backend !== "fly" ? 0
+    : ((s.cpuKind && s.cpus && s.memoryMb ? flyRate(s.cpuKind, s.cpus, s.memoryMb) : legacyRate)?.usdPerHour ?? 0) / 3_600_000;
   const townUsdPerMs = (townRate?.usdPerHour ?? 0) / 3_600_000;
 
   const assignments = new Map(inp.assignments.map((a) => [a.id, a.buildingId]));
@@ -149,10 +155,10 @@ export function financeFly(inp: FlyInputs, now = new Date()): FinanceFly {
   const names = new Map(inp.buildings.map((b) => [b.id, b.name]));
   const nameOf = (id: string | null) => (id ? names.get(id) ?? id : "No building (town-wide sessions)");
 
-  interface DayAcc { deskMs: number; sessions: Set<number>; buildings: Map<string, { id: string | null; deskMs: number; sessions: number }> }
+  interface DayAcc { deskMs: number; deskUsd: number; sessions: Set<number>; buildings: Map<string, { id: string | null; deskMs: number; deskUsd: number; sessions: number }> }
   const days = new Map<string, DayAcc>();
-  for (let d = 0; d < windowDays; d++) days.set(dayOf(fromMs + d * DAY_MS), { deskMs: 0, sessions: new Set(), buildings: new Map() });
-  const perBuilding = new Map<string, { id: string | null; deskMs: number; sessions: number }>();
+  for (let d = 0; d < windowDays; d++) days.set(dayOf(fromMs + d * DAY_MS), { deskMs: 0, deskUsd: 0, sessions: new Set(), buildings: new Map() });
+  const perBuilding = new Map<string, { id: string | null; deskMs: number; deskUsd: number; sessions: number }>();
   let sessions = 0, unmeasured = 0;
 
   inp.sessions.forEach((s, i) => {
@@ -168,7 +174,8 @@ export function financeFly(inp: FlyInputs, now = new Date()): FinanceFly {
     const buildingId = (s.assignmentId ? assignments.get(s.assignmentId) : undefined) ?? agents.get(s.agentId) ?? null;
     const key = buildingId ?? "";
     sessions++;
-    const b = perBuilding.get(key) ?? { id: buildingId, deskMs: 0, sessions: 0 };
+    const usdPerMs = sessionUsdPerMs(s);
+    const b = perBuilding.get(key) ?? { id: buildingId, deskMs: 0, deskUsd: 0, sessions: 0 };
     perBuilding.set(key, b);
     b.sessions++;
     for (let t = Math.max(start, fromMs); t < Math.min(end, nowMs); t = startOfDay(t) + DAY_MS) {
@@ -177,27 +184,30 @@ export function financeFly(inp: FlyInputs, now = new Date()): FinanceFly {
       if (ms <= 0) break;
       const day = days.get(dayOf(t))!;
       day.deskMs += ms;
+      day.deskUsd += ms * usdPerMs;
       day.sessions.add(i);
-      const db = day.buildings.get(key) ?? { id: buildingId, deskMs: 0, sessions: 0 };
+      const db = day.buildings.get(key) ?? { id: buildingId, deskMs: 0, deskUsd: 0, sessions: 0 };
       day.buildings.set(key, db);
       db.deskMs += ms;
+      db.deskUsd += ms * usdPerMs;
       db.sessions++;
       b.deskMs += ms;
+      b.deskUsd += ms * usdPerMs;
     }
   });
 
   const dayRows: FlyDay[] = [...days.entries()].map(([day, d]) => {
     const dayStart = new Date(day + "T00:00:00.000Z").getTime();
     const elapsedMs = Math.max(0, Math.min(DAY_MS, nowMs - dayStart));
-    const deskUsd = round(d.deskMs * deskUsdPerMs), townUsd = round(elapsedMs * townUsdPerMs);
+    const deskUsd = round(d.deskUsd), townUsd = round(elapsedMs * townUsdPerMs);
     return {
       day, deskMs: d.deskMs, deskUsd, townUsd, totalUsd: round(deskUsd + townUsd), sessions: d.sessions.size,
-      buildings: [...d.buildings.values()].map((b) => ({ id: b.id, name: nameOf(b.id), deskMs: b.deskMs, deskUsd: round(b.deskMs * deskUsdPerMs), sessions: b.sessions }))
+      buildings: [...d.buildings.values()].map((b) => ({ id: b.id, name: nameOf(b.id), deskMs: b.deskMs, deskUsd: round(b.deskUsd), sessions: b.sessions }))
         .sort((x, y) => y.deskMs - x.deskMs || x.name.localeCompare(y.name)),
     };
   }).sort((x, y) => y.day.localeCompare(x.day));
 
-  const buildings: FlyBuilding[] = [...perBuilding.values()].map((b) => ({ id: b.id, name: nameOf(b.id), deskMs: b.deskMs, deskUsd: round(b.deskMs * deskUsdPerMs), sessions: b.sessions }))
+  const buildings: FlyBuilding[] = [...perBuilding.values()].map((b) => ({ id: b.id, name: nameOf(b.id), deskMs: b.deskMs, deskUsd: round(b.deskUsd), sessions: b.sessions }))
     .sort((x, y) => y.deskMs - x.deskMs || x.name.localeCompare(y.name));
   const deskMs = dayRows.reduce((s, d) => s + d.deskMs, 0);
   const deskUsd = round(dayRows.reduce((s, d) => s + d.deskUsd, 0));
@@ -211,7 +221,7 @@ export function financeFly(inp: FlyInputs, now = new Date()): FinanceFly {
   const cap = inp.capUsdPerDay ?? null;
   const assumptions = [
     deskRate
-      ? `Every desk session is priced at the desk Machine size the town runs today (${deskRate.preset}, ${deskRate.memoryMb} MB, $${deskRate.usdPerHour.toFixed(4)}/h); sessions that ran at another size are not re-priced`
+      ? `Each desk session is priced at the Machine size it ran on (sessions cpuKind / cpus / memoryMb); sessions from before that was recorded ran on ${legacyRate?.preset} ${DESK_LEGACY_SIZE.memoryMb} MB ($${legacyRate?.usdPerHour.toFixed(4)}/h). New desks: ${deskRate.preset}, ${deskRate.memoryMb} MB, $${deskRate.usdPerHour.toFixed(4)}/h`
       : `Desks are not on Fly (desks.backend ${desks.backend}), so desk time is shown but costs $0 here`,
     townRate
       ? `The town Machine (${townRate.preset}, ${townRate.memoryMb} MB, $${townRate.usdPerHour.toFixed(4)}/h) is counted for every hour of every day in the window; a restart or image deploy keeps it billed`
