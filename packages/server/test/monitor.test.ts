@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { deskSizeFor, DESK_FALLBACK_SIZE, TOWN_HALL_ID } from "@muster-town/core";
 import { buildApp } from "../src/app.ts";
 import { ALERT_ENV, CLEAR_AFTER, Counters, type DeskSession, Monitor, OUTBOUND_CAP, defaultMetrics, processProbes, type Probes, type Senders } from "../src/monitor.ts";
@@ -329,6 +329,34 @@ describe("monitor thresholds", () => {
     expect(s.world.docs.get(prod)).toMatchObject({ type: "fyi", buildingId: other.id });
   });
 
+  it("fires one self-test alert on the first start with the secrets, never again across restarts, never without them", async () => {
+    const { r, m, make, alerts, world } = await setup();
+    expect(m.view().selfTestAt).toBeNull();
+    m.start(60 * MIN);
+    await vi.waitFor(() => expect(r.sent).toHaveLength(2));
+    m.stop();
+    expect(r.sent.map((x) => x.kind)).toEqual(["sms", "email"]);
+    expect(r.sent[0]!.text).toContain("self-test");
+    expect(m.view().selfTestAt).toBe("2026-10-28T20:00:00.000Z");
+    const test = alerts().filter((a) => a.phase === "test");
+    expect(test).toHaveLength(1);
+    expect(world.docs.get(test[0]!.docId!)!.title).toBe("[RED] Monitor test alert");
+    r.tick(10 * MIN);
+    const m2 = make(); // a restart with the secrets still set
+    expect(m2.view().selfTestAt).toBe("2026-10-28T20:00:00.000Z");
+    expect(await m2.selfTest()).toBe(false);
+    expect(r.sent).toHaveLength(2);
+    expect(r.logs.filter((l) => l.startsWith("monitor: self-test alert sent"))).toHaveLength(1);
+  });
+
+  it("no self-test without the secrets", async () => {
+    const { r, make } = await setup({ env: {} });
+    const m = make();
+    expect(await m.selfTest()).toBe(false);
+    expect(m.view().selfTestAt).toBeNull();
+    expect(r.sent).toEqual([]);
+  });
+
   it("keeps open alerts across a restart and writes a gap event when sampling resumes", async () => {
     const { r, m, make, step, alerts } = await setup();
     r.state.disk = 0.2;
@@ -367,7 +395,7 @@ describe("monitor routes", () => {
     close = async () => { await app.close(); await s.close(); };
     await m.sample();
     const h = await json(app, "GET", "/api/health");
-    expect(h.body.monitor).toEqual({ lastSampleAt: "2026-10-28T20:00:00.000Z", outbound: false, alerts: [] });
+    expect(h.body.monitor).toEqual({ lastSampleAt: "2026-10-28T20:00:00.000Z", outbound: false, alerts: [], selfTestAt: null });
     expect((await json(app, "POST", "/api/admin/monitor/test")).status).toBe(401);
     const agentToken = s.world.tokens.getOrCreate("agent", s.by("Ada")?.id ?? s.world.agents.all().find((a) => a.kind === "resident")!.id);
     expect((await json(app, "POST", "/api/admin/monitor/test", { headers: { authorization: `Bearer ${agentToken}` } })).status).toBe(403);

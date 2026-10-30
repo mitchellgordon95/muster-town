@@ -157,7 +157,7 @@ GET /api/finance/fly `capUsdPerDay` is the same cap.
 An alert clears after 5 samples in a row under yellow (`desk-steal`: after 5 clean sessions; a sample with no newly ended
 desk session changes nothing). `desk-steal` cpu and steal are the whole desk Machine's (2 vCPUs summed, desk perf step 1). A key that stays red re-alerts hourly. A gap of more than 5 min
 between samples writes a "monitor gap" event when sampling resumes. `GET /api/health` shows
-`monitor: {lastSampleAt, outbound, alerts: [{key, level, since, value}]}` (`lastSampleAt` is null for the first 60 s after boot).
+`monitor: {lastSampleAt, outbound, alerts: [{key, level, since, value}], selfTestAt}` (`lastSampleAt` is null for the first 60 s after boot).
 
 Outbound needs all seven Fly secrets; with any missing, `monitor.outbound` is false and alerts stay in town:
 ```
@@ -166,7 +166,10 @@ fly secrets set -a muster-town \
   ALERT_SMS_TO=+1... ALERT_EMAIL_TO=... \
   ALERT_SMTP_USER=...@gmail.com ALERT_SMTP_PASS=<Gmail app password>
 ```
-Test the whole path with one red test alert (admin token; counts toward the 10/h cap):
+The first boot with all seven set (the restart `fly secrets set` causes) fires one red test alert down the whole path by
+itself (event, Prod FYI "[RED] Monitor test alert", SMS, email) and records when as `monitor.selfTestAt` on
+`GET /api/health`; it never repeats across later restarts. Repeat it on demand with one red test alert (admin token;
+counts toward the 10/h cap):
 `curl -X POST -H "authorization: Bearer $ADMIN_TOKEN" https://muster.town/api/admin/monitor/test` returns
 `{eventId, fyiDocId, sms, email}` (`?metric=desk-steal`, or any key above, tags the test event with that key), each of `sms`/`email` being `sent`, `skipped` (no secrets, or over the cap) or `error`.
 
