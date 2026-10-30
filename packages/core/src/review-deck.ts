@@ -3,15 +3,16 @@
  * on every GET /api/review-deck (zero tokens, always current). Slide 1 is the state of the town; then one slide per
  * pending decision, blocking-most first:
  *   1. checkpoint grants held · 2. blocked buildings · 3. items work is parked on (most waiters first) ·
- *   4. grant proposals, oldest first · 5. rollups with a real "Your call" (one slide per such item), and other reports ·
+ *   4. grant proposals, oldest first, then goal proposals (docs/goals.md step 4) · 5. rollups with a real "Your call" (one slide per such item), and other reports ·
  *   6. grants closed as done whose key result needs met or missed · then one "For the record" slide for rollups whose
  *   every call is None.
  * Each slide says how long it has waited and how many assignments are parked on it, and carries one history line when
  * one applies (a grant's last human entry; the building's previous rollup decision; a meeting with a human its
  * provenance names).
  */
-import { isNoCall, parseRollup, type Doc, type GrantView, type Meeting, type PinnedSlide, type ReviewDeck, type ReviewSlide, type ReviewSlideKind, type RollupItem } from "@muster-town/schema";
+import { ROOT_GOAL_ID, isNoCall, parseRollup, type Doc, type GrantView, type Meeting, type PinnedSlide, type ReviewDeck, type ReviewSlide, type ReviewSlideKind, type RollupItem } from "@muster-town/schema";
 import { grantsAwaitingDecision, townHallIntray } from "./domain.ts";
+import type { GoalProposalView } from "./goals.ts";
 import type { World } from "./world.ts";
 
 const H = 3_600_000;
@@ -140,6 +141,34 @@ function grantSlide(world: World, g: GrantView, now: Date): Draft {
   }) };
 }
 
+const GOAL_ACTION: Record<string, string> = { "add-goal": "add a goal", "add-kr": "add a key result", edit: "edit", move: "move", retire: "retire a goal", promote: "promote a key result to a goal" };
+
+/** A manager's goal proposal (propose_goal / propose_key_result): Accept, Edit and accept, or Cut, as in the goal editor. */
+function goalProposalSlide(world: World, p: GoalProposalView): Draft {
+  const tree = world.goalTree;
+  const node = tree.nodeOfProposal(p);
+  const kr = p.targetId ? world.keyResults.get(p.targetId) : undefined;
+  const old = kr?.text ?? (p.targetId ? tree.get(p.targetId)?.text : undefined);
+  const parent = p.parentId ? tree.get(p.parentId)?.text : undefined;
+  const where = node ? tree.ancestors(node).reverse().map((g) => g.text).join(" › ") : "the tree";
+  const b = p.buildingId ? world.buildings.get(p.buildingId)?.name ?? p.buildingId : "a human";
+  const change = old && p.fields.text && p.fields.text !== old ? `"${oneLine(old)}" → "${oneLine(p.fields.text)}"`
+    : old ? `"${oneLine(old)}"${parent && (p.action === "move" || p.action === "retire") ? ` → under "${oneLine(parent)}"` : ""}`
+    : `"${oneLine(p.fields.text ?? "")}"${parent ? ` under "${oneLine(parent)}"` : ""}`;
+  const extra = [p.fields.howToCheck ? `How to check: ${oneLine(p.fields.howToCheck)}` : "", p.fields.due ? `Due ${p.fields.due}` : ""].filter(Boolean).join(" · ");
+  const owner = tree.ownerOf(node ?? ROOT_GOAL_ID);
+  return {
+    kind: "goal-proposal", group: 4, itemId: p.id, buildingId: p.buildingId, since: p.createdAt, history: meetingLine(world, p.sourceDocIds),
+    title: `${b}: goal proposal — ${GOAL_ACTION[p.action] ?? p.action}`,
+    body: card({
+      whatItIs: `${p.proposedByName} proposes to ${GOAL_ACTION[p.action] ?? p.action}: ${change} (${p.id}).${p.outsideScope ? " Outside its building's subtree." : ""} Why: ${oneLine(p.why) || "_not given_"}`,
+      whatYoudSee: `In the Goal tree at ${where}.${extra ? ` ${extra}.` : ""}`,
+      picture: null,
+      yourCall: `Accept, edit and accept, or cut (a note goes back to the proposer). Routed to ${owner.userId ? world.users.get(owner.userId)?.name ?? owner.userId : "the town admins"}.`,
+    }),
+  };
+}
+
 /** The deck for `now`. Pure over the world: the same in-tray gives the same slides. */
 export function reviewDeck(world: World, now = new Date()): ReviewDeck {
   const intray = townHallIntray(world);
@@ -151,6 +180,7 @@ export function reviewDeck(world: World, now = new Date()): ReviewDeck {
     if (g.status === "countered") continue; // waiting on the manager, not a human
     drafts.push(grantSlide(world, g, now));
   }
+  for (const p of intray.goalProposals) drafts.push(goalProposalSlide(world, p));
   for (const x of intray.blocked) {
     drafts.push({ kind: "blocked", group: 2, itemId: x.buildingId, buildingId: x.buildingId, since: x.since, history: "", title: `${x.name}: blocked`, body: card({
       whatItIs: `${x.name} has no key results to work toward and no funded grant, so none of its work can be funded.`,
@@ -181,7 +211,8 @@ export function reviewDeck(world: World, now = new Date()): ReviewDeck {
   const waitersOf = (d: Draft) => (d.itemId ? waiters.get(d.itemId) ?? 0 : 0) + (d.grantId ? waiters.get(world.grants.get(d.grantId)?.checkpointDocId ?? "") ?? 0 : 0);
   for (const d of drafts) if (d.group > 3 && waitersOf(d) > 0) d.group = 3;
   const t = (s: string | null) => (s ? Date.parse(s) : 0);
-  drafts.sort((a, b) => a.group - b.group || (a.group === 3 ? waitersOf(b) - waitersOf(a) : 0) || t(a.since) - t(b.since) || (a.keySuffix ?? "").localeCompare(b.keySuffix ?? ""));
+  const goalLast = (d: Draft) => (d.kind === "goal-proposal" ? 1 : 0);
+  drafts.sort((a, b) => a.group - b.group || (a.group === 3 ? waitersOf(b) - waitersOf(a) : 0) || goalLast(a) - goalLast(b) || t(a.since) - t(b.since) || (a.keySuffix ?? "").localeCompare(b.keySuffix ?? ""));
 
   const slides: ReviewSlide[] = [];
   const decisions = new Set(drafts.map((d) => d.itemId)).size + record.length;
@@ -247,6 +278,10 @@ export function decidedLabel(world: World, p: PinnedSlide): string {
     const e = g ? [...g.history].reverse().find((h) => h.byKind === "user") : undefined;
     if (e) return ACTION_PAST[e.action] ?? e.action;
     if (g) return g.status;
+  }
+  if (p.kind === "goal-proposal" && p.itemId) {
+    const gp = world.goalProposals.get(p.itemId);
+    if (gp) return gp.status === "superseded" ? "superseded by a newer proposal" : gp.status;
   }
   const doc = p.docIds?.[0] ? world.docs.get(p.docIds[0]) : null;
   if (doc) return doc.decision && doc.decision !== "pending" ? DOC_PAST[doc.decision] ?? doc.decision : "archived";

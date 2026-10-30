@@ -1068,6 +1068,33 @@ export interface GoalTreeNode {
   keyResults: { id: string; text: string; howToCheck: string; status: string; due: string | null; archivedAt: string | null; buildingId: string; grantId: string | null }[];
   children: GoalTreeNode[];
 }
+/**
+ * Where a Town Hall item routes, as one viewer sees it (docs/goals.md "Routing", build step 4): the goal it belongs to,
+ * that goal's effective owner (null = the town admins), whether it is the viewer's ("Mine") and whether the viewer may
+ * decide it (an admin anywhere; a goal's owner on grants and goal proposals in their subtree).
+ */
+export interface IntrayRoute { goalId: string; ownerId: string | null; ownerName: string; mine: boolean; canDecide: boolean }
+/** The in-tray's routes keyed by item id (grant, goal proposal or report), and the viewer's default list. */
+export interface IntrayRoutes { routes: Record<string, IntrayRoute>; defaultView: "mine" | "all" }
+
+/** One row of a goal's Spend tab: adjusted output tokens and session count, split by lane ("none" = no lane recorded). */
+export interface SpendByLane { grant: number; exploration: number; directed: number; none: number }
+/**
+ * GET /api/goals/:id/spend (docs/goals.md "Spend tab", build step 4): the subtree's spend over a window, read from
+ * session rows only (no Bank read or write). A session belongs to a goal by its lane: grant → its grant's key result's
+ * goal; a named key result → that key result's goal; anything else → its building's attachment.
+ */
+export interface GoalSpend {
+  goalId: string; days: number; from: string; to: string;
+  total: number; sessions: number; byLane: SpendByLane;
+  /** one bucket per day (windows up to 14 days) or per week, oldest first */
+  series: { start: string; tokens: number; byLane: SpendByLane }[];
+  seriesUnit: "day" | "week";
+  byBuilding: { id: string; name: string; tokens: number; sessions: number; byLane: SpendByLane }[];
+  byKeyResult: { id: string; text: string; goalId: string; status: string; tokens: number; sessions: number }[];
+  /** the subtree's key results marked met or missed inside the window */
+  results: { id: string; text: string; status: "met" | "missed"; at: string }[];
+}
 const Due = z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "a date YYYY-MM-DD");
 /** POST /api/goals: a child goal (`goals.edit` on the parent). */
 export const CreateGoalInput = z.object({

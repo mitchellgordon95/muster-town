@@ -9,6 +9,7 @@ import { ROOT_GOAL_ID, type GoalTreeNode, type KeyResultStatus } from "@muster-t
 import { api, type GoalProposalView } from "../api";
 import { store, useTown } from "../state";
 import { Glyph, PanelShell } from "./PanelShell";
+import { GoalSpendTab } from "./GoalSpendTab";
 import { krStatusLabel, krTone } from "./keyResults";
 import { allBuildings, archivedLine, buildingScope, canEditGoal, findGoal, isArchived, moveTargets, pastDue, pathTo, retirePlan, subtreeIds, treeRows, type TreeKr } from "./goalTree";
 import { Act, Empty, ErrorLine, Feed, Field, Loading, Pill, Section, Tabs, nameOf, useLoad } from "./ui";
@@ -144,8 +145,8 @@ function GoalDetail({ root, node, me, onSelect, onDone }: { root: GoalTreeNode; 
       {node.children.length ? <Section title="Goals under it">
         <ul className="goal-tree">{node.children.map((c) => <li key={c.id} className="goal-row"><button className="link" onClick={() => onSelect(c.id)}>{c.text}</button></li>)}</ul>
       </Section> : null}
-      <Tabs tabs={[{ id: "History", label: "History" }, { id: "Subtree", label: "Subtree" }]} active={tab} onChange={setTab} />
-      {tab === "History" ? <History id={node.id} /> : <Subtree node={node} />}
+      <Tabs tabs={[{ id: "History", label: "History" }, { id: "Subtree", label: "Subtree" }, { id: "Spend", label: "Spend" }]} active={tab} onChange={setTab} />
+      {tab === "History" ? <History id={node.id} /> : tab === "Spend" ? <GoalSpendTab goalId={node.id} /> : <Subtree node={node} />}
     </div>
   );
 }
@@ -345,6 +346,17 @@ function ProposalCard({ root, p, me, onDone }: { root: GoalTreeNode; p: GoalProp
       </> : null}
     </div>
   );
+}
+
+/**
+ * One goal proposal with its Accept / Edit and accept / Cut, outside the editor (the Town Hall in-tray and the review
+ * deck, step 4): loads the tree it needs for the proposal's place and the viewer's `goals.edit` there.
+ */
+export function GoalProposalItem({ p, onDone }: { p: GoalProposalView; onDone: () => void }) {
+  const me = useMe();
+  const tree = useLoad(() => api().goalTree(), [p.id]);
+  if (!tree.data) return tree.error ? <ErrorLine error={tree.error} /> : <Loading />;
+  return <ProposalCard root={tree.data} p={p} me={me} onDone={onDone} />;
 }
 
 function subtreeKr(root: GoalTreeNode, id: string): TreeKr | null {

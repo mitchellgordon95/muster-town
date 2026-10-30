@@ -1,9 +1,9 @@
-import { AppError, BANK_ACCOUNTING, deskPreset, deskSizeFor, type World, buildingStats, accessRequestOf, boardWithTownDocs, canInteract, decideAccess, deskSlotRows, requestAccess, sessionView, setDeskSlot, cabinetCounts, cabinetDocs, reportChains, reviewDeck, presentedReviewDeck } from "@muster-town/core";
+import { AppError, BANK_ACCOUNTING, deskPreset, deskSizeFor, type World, buildingStats, accessRequestOf, boardWithTownDocs, canInteract, decideAccess, deskSlotRows, requestAccess, sessionView, setDeskSlot, cabinetCounts, cabinetDocs, reportChains, reviewDeck, presentedReviewDeck, intrayRoutes } from "@muster-town/core";
 import { AccessDecisionInput, AccessRequestInput, AddBankInput, CreateBankPoolInput, CreateBuildingInput, DesksPatch, UpdateBankPoolInput, DocType, DonateInput, LayoutInput, Membership, PlantFlagInput, RedeployInput, UpdateBuildingInput, apiKeyProblem, townEnv, REVIEW_DECK_ID, type AccessRequest, type AuthMe, type RedeployLive } from "@muster-town/schema";
 import type { FastifyInstance, FastifyRequest } from "fastify";
 import { brotliDecompressSync } from "node:zlib";
 import { z } from "zod";
-import { actorOf, adminToken, parse, requireAuth, requireUser, type Params } from "../context.ts";
+import { actorOf, adminToken, parse, requireAuth, requireUser, viewerOf, type Params } from "../context.ts";
 
 const EventsQuery = z.object({
   since: z.coerce.number().int().nonnegative().optional(),
@@ -226,7 +226,11 @@ export async function townRoutes(app: FastifyInstance) {
    */
   app.get<{ Params: Params }>("/api/buildings/:id/intray", async (req) => {
     const b = world.buildings.require(req.params.id, "building");
-    if (b.kind === "town-hall") return world.ops.townHallIntray();
+    if (b.kind === "town-hall") {
+      // routes: each item's goal, owner, "Mine" and whether this viewer may decide it (docs/goals.md step 4)
+      const intray = world.ops.townHallIntray();
+      return { ...intray, ...intrayRoutes(world, viewerOf(world, req), intray) };
+    }
     // chains: fork-authored reports' place on their assignment chain (the in-tray row's chain badge)
     const reports = world.ops.intray(b.id);
     return { reports, chains: reportChains(world, reports) };
@@ -239,9 +243,11 @@ export async function townRoutes(app: FastifyInstance) {
    */
   app.get<{ Querystring: { meeting?: string } }>("/api/review-deck", async (req) => {
     const deck = req.query.meeting ? world.meetings.get(req.query.meeting)?.deck : null;
-    if (!deck?.pinned || deck.docId !== REVIEW_DECK_ID) return reviewDeck(world);
+    const intray = world.ops.townHallIntray();
+    const routes = intrayRoutes(world, viewerOf(world, req), intray);
+    if (!deck?.pinned || deck.docId !== REVIEW_DECK_ID) return { ...reviewDeck(world), ...routes };
     const { pinned: _pinned, ...d } = presentedReviewDeck(world, deck.pinned);
-    return d;
+    return { ...d, ...routes };
   });
 
   /** A human plants a flag (a short request) in a building: a pending `flag` doc in its in-tray for the manager to delegate (`building.assign`). */

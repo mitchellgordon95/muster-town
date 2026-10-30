@@ -495,7 +495,8 @@ export class Goals {
     return g;
   }
 
-  private nodeOfProposal(p: GoalProposal): string | null {
+  /** The goal a proposal lands on: its target (a key result's goal), else its parent; `goals.edit` there decides it. */
+  nodeOfProposal(p: GoalProposal): string | null {
     if (p.targetId) {
       const kr = this.world.keyResults.get(p.targetId);
       if (kr) return kr.goalId ?? null;

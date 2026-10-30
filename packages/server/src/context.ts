@@ -99,6 +99,13 @@ export function actorOf(world: World, req: FastifyRequest): Agent {
   return a.kind === "user" ? world.ops.ensureAvatar(a.user.id) : world.agents.require(a.agent.id, "agent");
 }
 
+/** The signed-in viewer as an agent (a human's avatar), or undefined when anonymous: reads that differ per viewer but need no sign-in. */
+export function viewerOf(world: World, req: FastifyRequest): Agent | undefined {
+  const a = req.auth;
+  if (!a) return undefined;
+  return a.kind === "user" ? world.ops.ensureAvatar(a.user.id) : world.agents.get(a.agent.id) ?? undefined;
+}
+
 /** Holder id used for draft visibility ("" for anonymous). */
 export function viewerId(req: FastifyRequest): string {
   const a = req.auth;

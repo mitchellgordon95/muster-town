@@ -1,10 +1,12 @@
 import { CreateGoalInput, CreateTreeKeyResultInput, DecideGoalProposalInput, GoalProposalStatus, ProposeGoalInput, RetireGoalInput, UpdateGoalInput } from "@muster-town/schema";
+import { worldGoalSpend } from "@muster-town/core";
 import type { FastifyInstance } from "fastify";
 import { z } from "zod";
 import { actorOf, parse, type Params } from "../context.ts";
 
 const TreeQuery = z.object({ retired: z.enum(["0", "1"]).optional() });
 const ProposalsQuery = z.object({ status: GoalProposalStatus.optional(), buildingId: z.string().optional() });
+const SpendQuery = z.object({ days: z.coerce.number().int().min(1).max(90).default(7) });
 const AttachInput = z.object({ goalId: z.string().min(1) });
 
 /**
@@ -30,6 +32,9 @@ export async function goalRoutes(app: FastifyInstance) {
 
   /** The goal's history, newest first (the editor's History tab): goal, key result, attachment and proposal events. */
   app.get<{ Params: Params }>("/api/goals/:id/history", async (req) => ({ events: tree.history(req.params.id) }));
+
+  /** The goal's Spend tab: its subtree's spend from session rows, by lane, building, key result and day or week (read-only; no Bank read or write). */
+  app.get<{ Params: Params }>("/api/goals/:id/spend", async (req) => worldGoalSpend(world, req.params.id, parse(SpendQuery, req.query).days));
 
   app.post("/api/goals", async (req, reply) => reply.code(201).send({ goal: tree.create(actorOf(world, req), parse(CreateGoalInput, req.body)) }));
 

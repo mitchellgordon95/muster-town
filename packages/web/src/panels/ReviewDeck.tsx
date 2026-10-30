@@ -5,12 +5,13 @@
  * and reply box; Approve all on "For the record"), sent with `deckSlide`. Deciding moves on to the next item's slide.
  */
 import { useEffect, useRef, useState, type KeyboardEvent } from "react";
-import { REVIEW_DECK_ID, type Doc, type GrantView, type ReviewSlide } from "@muster-town/schema";
-import { api } from "../api";
+import { REVIEW_DECK_ID, type Doc, type GrantView, type IntrayRoute, type ReviewSlide } from "@muster-town/schema";
+import { api, type GoalProposalView } from "../api";
 import { store } from "../state";
 import { DeckSlides, clampSlide, slideForKey } from "./DeckView";
 import { ReplyBox, TalkToAuthor } from "./DocView";
 import { GrantRow } from "./Places";
+import { GoalProposalItem } from "./GoalTreePanel";
 import { PresentButtons } from "./MeetingSlide";
 import { isPanelFull, setPanelFull } from "./panelResize";
 import { Act, ErrorLine, Loading, useLoad } from "./ui";
@@ -27,13 +28,26 @@ export function landingSlide(slides: ReviewSlide[], wantKey: string | null, n: n
   return i >= 0 ? i + 1 : clampSlide(n, slides.length);
 }
 
+/**
+ * "Mine" (docs/goals.md step 4): slide 1, the For the record slide and every slide whose item is routed to the viewer;
+ * "All": every slide.
+ */
+export function mineSlides(slides: ReviewSlide[], routes: Record<string, IntrayRoute>, view: "mine" | "all"): ReviewSlide[] {
+  if (view === "all") return slides;
+  return slides.filter((s) => !s.itemId || s.kind === "record" || routes[s.grantId ?? s.docIds?.[0] ?? s.itemId]?.mine);
+}
+
 /** The decision buttons for one slide: pure over its props, so tests render it. */
-export function SlideDecision({ slide, n, grants, reports, onDecided, onOpenDoc, meetingId }: { slide: ReviewSlide; n: number; grants: GrantView[]; reports: Doc[]; onDecided: () => void; onOpenDoc: (id: string) => void; meetingId?: string }) {
+export function SlideDecision({ slide, n, grants, reports, goalProposals = [], routes = {}, onDecided, onOpenDoc, meetingId }: { slide: ReviewSlide; n: number; grants: GrantView[]; reports: Doc[]; goalProposals?: GoalProposalView[]; routes?: Record<string, IntrayRoute>; onDecided: () => void; onOpenDoc: (id: string) => void; meetingId?: string }) {
   // a presented deck keeps a decided item's slide in place (mt_xywhisvdcm): its decision, no buttons
   if (slide.decided) return <div className="review-decide muted">Decided: {slide.decided}. Move on with →.</div>;
   if (slide.grantId) {
     const g = grants.find((x) => x.id === slide.grantId);
-    return g ? <div className="review-decide"><GrantRow grant={g} onDecided={onDecided} onOpenDoc={onOpenDoc} deckSlide={n} meetingId={meetingId} /></div> : <div className="review-decide muted">Already decided.</div>;
+    return g ? <div className="review-decide"><GrantRow grant={g} canDecide={routes[g.id]?.canDecide} route={routes[g.id]} onDecided={onDecided} onOpenDoc={onOpenDoc} deckSlide={n} meetingId={meetingId} /></div> : <div className="review-decide muted">Already decided.</div>;
+  }
+  if (slide.kind === "goal-proposal") {
+    const p = goalProposals.find((x) => x.id === slide.itemId);
+    return p ? <div className="review-decide"><GoalProposalItem p={p} onDone={onDecided} /></div> : <div className="review-decide muted">Already decided.</div>;
   }
   if (slide.kind === "record") {
     const ids = slide.docIds ?? [];
@@ -60,17 +74,18 @@ export function SlideDecision({ slide, n, grants, reports, onDecided, onOpenDoc,
   );
 }
 
-export function ReviewDeckView({ grants, reports, onClose, onDecided, onOpenDoc }: { grants: GrantView[]; reports: Doc[]; onClose: () => void; onDecided: () => void; onOpenDoc: (id: string) => void }) {
+export function ReviewDeckView({ grants, reports, goalProposals = [], view = "all", onClose, onDecided, onOpenDoc }: { grants: GrantView[]; reports: Doc[]; goalProposals?: GoalProposalView[]; view?: "mine" | "all"; onClose: () => void; onDecided: () => void; onOpenDoc: (id: string) => void }) {
   // reload when the in-tray list changes (the badge moved: a rollup arrived, a grant closed), so slide 1 and the slides match the list
-  const listKey = [...grants.map((g) => `${g.id}:${g.status}`), ...reports.map((d) => d.id)].join(",");
+  const listKey = [...grants.map((g) => `${g.id}:${g.status}`), ...reports.map((d) => d.id), ...goalProposals.map((p) => p.id), view].join(",");
   const deck = useLoad(() => api().reviewDeck(), [listKey]);
-  const slides = deck.data?.slides ?? [];
+  const routes = deck.data?.routes ?? {};
+  const slides = mineSlides(deck.data?.slides ?? [], routes, view);
   const [n, setN] = useState(1);
   const want = useRef<string | null>(null);
   const box = useRef<HTMLDivElement>(null);
   useEffect(() => { box.current?.focus({ preventScroll: true }); return () => setPanelFull(false); }, []);
   // the deck reloaded after a decision: land on the next item's slide
-  useEffect(() => { if (deck.data) { setN((cur) => landingSlide(deck.data!.slides, want.current, cur)); want.current = null; } }, [deck.data]);
+  useEffect(() => { if (deck.data) { setN((cur) => landingSlide(mineSlides(deck.data!.slides, deck.data!.routes ?? {}, view), want.current, cur)); want.current = null; } }, [deck.data]);
   const go = (to: number) => setN(clampSlide(to, slides.length));
   const decided = () => { want.current = nextSlideKey(slides, n); onDecided(); deck.reload(); };
   const key = (e: KeyboardEvent<HTMLDivElement>) => {
@@ -90,7 +105,7 @@ export function ReviewDeckView({ grants, reports, onClose, onDecided, onOpenDoc 
       <ErrorLine error={deck.error} />
       {deck.loading && !deck.data ? <Loading /> : (
         <DeckSlides deck={{ title: deck.data?.title ?? "Review deck", slides }} n={clampSlide(n, slides.length)} go={go}>
-          {slide ? <SlideDecision key={slide.key} slide={slide} n={clampSlide(n, slides.length)} grants={grants} reports={reports} onDecided={decided} onOpenDoc={onOpenDoc} /> : null}
+          {slide ? <SlideDecision key={slide.key} slide={slide} n={clampSlide(n, slides.length)} grants={grants} reports={reports} goalProposals={goalProposals} routes={routes} onDecided={decided} onOpenDoc={onOpenDoc} /> : null}
         </DeckSlides>
       )}
       <div className="deck-help muted">← → or space to move · Home/End · <button className="link" onClick={() => setPanelFull(!isPanelFull())}>f: fullscreen</button> · Esc: back to the list</div>
