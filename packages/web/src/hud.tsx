@@ -6,7 +6,7 @@ import { STATUS_COLOR } from "./map/overlay";
 import { iconUrl, type IconKind } from "./map/sprites";
 import type { Target } from "./map/renderer";
 import { api, isMock } from "./api";
-import { dockerDown, effectiveRedeploy, fundingFailover, redeployLine, redeployTone, slotsFull } from "./redeploy";
+import { dockerDown, effectiveRedeploy, fundingAlert, redeployLine, redeployTone, slotsFull } from "./redeploy";
 import { joinMeeting } from "./panels/Places";
 import { SignInButtons, signOut, useAuth } from "./auth/auth";
 import { mapRenderer } from "./map/MapCanvas";
@@ -75,12 +75,13 @@ export function Hud({ onPasteToken, onHelp }: { onPasteToken?: () => void; onHel
         go: () => walkOrOpen("planning-desk", { kind: "planning", tab: "System" }),
       });
     }
-    // a session failed over from the subscription to an API key (never silent: post-mortem 2026-10-30)
-    const fo = fundingFailover(events);
+    // the Bank's credential alerts are never silent (post-mortem 2026-10-30): a desk's funding claim that doesn't match
+    // what it was handed, or a day's Console spend the Bank can't explain
+    const fo = fundingAlert(events);
     if (fo) {
       out.push({
-        key: `failover:${fo.id}`, icon: "planning", tone: "warn", cta: "Bank →",
-        text: <><b>API key spent</b>: {fo.text}</>,
+        key: `funding:${fo.id}`, icon: "planning", tone: "warn", cta: "Bank →",
+        text: <><b>Funding alert</b>: {fo.text}</>,
         go: () => walkOrOpen("bank", { kind: "bank" }),
       });
     }

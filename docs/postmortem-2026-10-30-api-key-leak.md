@@ -83,15 +83,33 @@ First commit:
   being drawn down.
 - Tests: `runtime/test/secrets.test.ts`, `desk.test.ts`, `work.test.ts`, `hosted.test.ts`, `desk/test/run.test.ts`.
 
+## Follow-up shipped 2026-10-30 (Bank Transparency, 1:1 mt_x40qq8poc3)
+
+Mitchell's worry after the fix: `fundingFor` and the runtime still passed a desk *two* credentials (the token, plus a
+failover key in `AGENT_TOWN_FALLBACK_API_KEY`) and the desk switched between them inside one session, so the semantics
+could drift again. Now (docs/invariants/bank.md 9 and 10):
+
+- **One credential per session env, enforced.** `assertOneCredential` (runtime `sdk.ts`) runs on every env that leaves
+  the host (host `sessionEnv`, desk `deskEnv`): exactly one of the credential variables, no failover key beside it.
+  `Funding` has no `fallback`; the desk's in-session rerun on a key is gone (a fallback key from an old runtime is dropped).
+- **Failover is the next session's pick.** A session that hits the subscription cap ends with `spendLimit`; the server
+  logs `bank.cap`, and while `capState().cappedAt` is set `Budget.fundingFor` hands subscription-funded sessions
+  `failoverFunding` (a donor-key allocation's key, else the api-key input's own) and books them to it.
+- **The Bank books what it handed out.** `sessions.credentialInputId` (migration 062) and `funding` are set at start from
+  the same `Funding` the env was built from. A desk's session-end `fundingUsed` is checked, not booked: a claim that
+  differs (or an old image's `fallback: true`) is `alert: funding-mismatch`.
+- **Daily reconciliation.** `reconcileDue` (runtime) → `reconcileFunding` (core `reconcile.ts`) once per UTC day for
+  the day before: unlisted api-key sessions, mismatches, and the Console's cost report (Admin API, raw HTTP, with the
+  collective secret `ANTHROPIC_ADMIN_KEY`) against the Bank's api-key spend (tolerance max($1, 10%)). One `system` event
+  per day; `alert: funding-reconcile` when unexplained. The HUD shows funding alerts for a day.
+
 ## Still open (proposals)
 
-1. **Reconcile against the Console.** Once a day, read the Anthropic Admin usage/cost report for the org and compare it
-   with the Bank's api-key spend for the same day; any Console spend the Bank cannot account for is a Town Hall alert.
-   This is the check that would have caught this in a day instead of eight.
-2. **Record the credential actually used.** The desk reports `DESK_AUTH` back; a host session should record what
-   `sessionEnv` set, not what `fundingFor` planned (today the two agree by construction, which is one step short of
-   evidence). The SDK's `rate_limit_event` stream (docs/token-accounting-handoff.md) only arrives on subscription
-   sessions, so its absence on a session that should be subscription-funded is itself a signal.
+1. ~~Reconcile against the Console.~~ Shipped above; it needs the Admin API key as the collective secret `ANTHROPIC_ADMIN_KEY`
+   (Town Hall → Secrets) to read the Console. Without it the in-town half runs and the daily event says the Console was not checked.
+2. ~~Record the credential actually used.~~ Shipped above (`credentialInputId`). The SDK's `rate_limit_event` stream
+   (docs/token-accounting-handoff.md) only arrives on subscription sessions, so its absence on a session that should be
+   subscription-funded is still an unused signal.
 3. **Budget in dollars** (docs/token-accounting-handoff.md): the raw-token unit made the $290 invisible inside a
    "tokens" number dominated by cache reads.
 

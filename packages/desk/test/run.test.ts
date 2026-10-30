@@ -245,8 +245,9 @@ describe("TownClient", () => {
   });
 });
 
-describe("subscription → API-key failover", () => {
+describe("subscription limit: one credential per session, no in-session failover (1:1 mt_x40qq8poc3)", () => {
   const LIMIT = "You've hit your org's monthly spend limit · your session limit resets 8:50pm (UTC)";
+  // an old runtime's fallback key in the env: dropped, never a second credential
   const subEnv = { AGENT_TOWN_TOKEN: TOKEN, CLAUDE_CODE_OAUTH_TOKEN: "oat-secret", AGENT_TOWN_FALLBACK_API_KEY: "sk-fallback", DESK_AUTH: "subscription" } as NodeJS.ProcessEnv;
   const limited = () => result(1, { is_error: true, subtype: "success", result: LIMIT, total_cost_usd: 0, modelUsage: {} });
   const reports = async function* () {
@@ -254,39 +255,31 @@ describe("subscription → API-key failover", () => {
     yield toolResult("r1");
   };
 
-  it("a spend-limit error reruns the session once on the fallback key; session-end says fallback", async () => {
+  it("a spend-limit error ends the session with the error and spendLimit; no rerun on the fallback key, which never reaches the SDK", async () => {
     town.briefs.set("s1", brief("s1"));
-    const sdk = fakeSdk(async function* (s) {
-      if (s.params.options!.env!.CLAUDE_CODE_OAUTH_TOKEN) { yield assistant({ type: "text", text: LIMIT }); yield limited(); }
-      else yield* reports();
-    });
+    const sdk = fakeSdk(async function* () { yield assistant({ type: "text", text: LIMIT }); yield limited(); });
     const code = await runSession("s1", deps(sdk, { env: subEnv }));
-    expect(code).toBe(EXIT_OK);
-    expect(sdk.sessions).toHaveLength(2);
-    const [first, second] = sdk.sessions.map((x) => x.params.options!.env!);
-    expect(first.CLAUDE_CODE_OAUTH_TOKEN).toBe("oat-secret");
-    expect(first.ANTHROPIC_API_KEY).toBeUndefined();
-    expect(first.AGENT_TOWN_FALLBACK_API_KEY).toBeUndefined(); // never handed to Claude Code
-    expect(second.ANTHROPIC_API_KEY).toBe("sk-fallback");
-    expect(second.CLAUDE_CODE_OAUTH_TOKEN).toBeUndefined();
-    expect(sdk.sessions[1]!.received).toEqual(["Do the assignment."]); // the whole session again
-    expect(logs).toContain("subscription limit hit; retrying on the API key");
+    expect(code).toBe(EXIT_ERROR);
+    expect(sdk.sessions).toHaveLength(1);
+    const env = sdk.sessions[0]!.params.options!.env!;
+    expect(env.CLAUDE_CODE_OAUTH_TOKEN).toBe("oat-secret");
+    expect(env.ANTHROPIC_API_KEY).toBeUndefined();
+    expect(env.AGENT_TOWN_FALLBACK_API_KEY).toBeUndefined();
+    expect(logs).toContain("subscription limit hit; the session ends here and the next one runs on the Bank's API key");
     expect(logs.join("\n")).not.toMatch(/sk-fallback|oat-secret/);
-    expect(town.activity).toContainEqual({ session: "s1", kind: "status", text: "Switching to API-key funding (subscription limit)" });
+    expect(town.activity).toContainEqual({ session: "s1", kind: "status", text: "Subscription limit hit: ending; the next session runs on the API key" });
     expect(town.ends).toHaveLength(1);
-    expect(town.ends[0]).toMatchObject({ session: "s1", reportSubmitted: true, fundingUsed: "api-key", fallback: true });
-    expect(town.ends[0].error).toBeUndefined();
+    expect(town.ends[0]).toMatchObject({ session: "s1", reportSubmitted: false, fundingUsed: "subscription", error: LIMIT, spendLimit: expect.stringContaining("spend limit") });
+    expect(town.ends[0].fallback).toBeUndefined();
   });
 
-  it("a thrown limit error fails over too", async () => {
+  it("a thrown limit error ends the same way", async () => {
     town.briefs.set("s1", brief("s1"));
-    const sdk = fakeSdk(async function* (s) {
-      if (s.params.options!.env!.CLAUDE_CODE_OAUTH_TOKEN) throw new Error("Claude AI usage limit reached|1760000000");
-      yield* reports();
-    });
-    expect(await runSession("s1", deps(sdk, { env: subEnv }))).toBe(EXIT_OK);
-    expect(sdk.sessions).toHaveLength(2);
-    expect(town.ends[0]).toMatchObject({ fallback: true, reportSubmitted: true });
+    const sdk = fakeSdk(async function* () { throw new Error("Claude AI usage limit reached|1760000000"); });
+    expect(await runSession("s1", deps(sdk, { env: subEnv }))).toBe(EXIT_ERROR);
+    expect(sdk.sessions).toHaveLength(1);
+    expect(town.ends[0]).toMatchObject({ fundingUsed: "subscription", spendLimit: expect.stringContaining("usage limit") });
+    expect(town.ends[0].fallback).toBeUndefined();
   });
 
   it("other errors don't fail over", async () => {
@@ -298,26 +291,12 @@ describe("subscription → API-key failover", () => {
     expect(town.ends[0].fallback).toBeUndefined();
   });
 
-  it("retries once only: a second limit error ends the session with the error", async () => {
+  it("a report already submitted before the limit stands: the session ends done", async () => {
     town.briefs.set("s1", brief("s1"));
-    const sdk = fakeSdk(async function* () { yield limited(); });
-    expect(await runSession("s1", deps(sdk, { env: subEnv }))).toBe(EXIT_ERROR);
-    expect(sdk.sessions).toHaveLength(2);
-    expect(town.ends[0]).toMatchObject({ fallback: true, fundingUsed: "api-key", reportSubmitted: false, error: LIMIT });
-  });
-
-  it("no fallback key, or a report already submitted: no retry", async () => {
-    town.briefs.set("s1", brief("s1"));
-    const noKey = fakeSdk(async function* () { yield limited(); });
-    const { AGENT_TOWN_FALLBACK_API_KEY: _k, ...withoutKey } = subEnv;
-    expect(await runSession("s1", deps(noKey, { env: withoutKey }))).toBe(EXIT_ERROR);
-    expect(noKey.sessions).toHaveLength(1);
-    expect(town.ends[0]).toMatchObject({ error: LIMIT, fundingUsed: "subscription" }); // the message, not the SDK's "success" subtype
-
-    town.ends.length = 0;
     const reported = fakeSdk(async function* () { yield* reports(); yield limited(); });
     await runSession("s1", deps(reported, { env: subEnv }));
     expect(reported.sessions).toHaveLength(1);
+    expect(town.ends[0]).toMatchObject({ reportSubmitted: true, fundingUsed: "subscription" });
     expect(town.ends[0].fallback).toBeUndefined();
   });
 });

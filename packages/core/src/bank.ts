@@ -230,6 +230,12 @@ export interface BankCapState {
   reason: string | null;
   /** when the cap resets: the latest cap event's reset if still ahead, else the next 00:00 UTC */
   resetsAt: string;
+  /**
+   * The subscription is capped right now: the latest `bank.cap` whose reset is still ahead (or, with no reset in its
+   * message, one in the current window), else null. While set, `Budget.fundingFor` hands subscription-funded sessions
+   * the failover credential instead (one credential per session; the failover is the next session's pick).
+   */
+  cappedAt: string | null;
 }
 
 /** The latest drift run: its UTC day, the per-model rows over all buildings, and the per-building rows. */
@@ -831,6 +837,7 @@ export class Bank {
     const windowStart = passed ?? midnight;
     const ahead = resets.filter((r) => r > nowIso).sort().pop();
     const resetsAt = ahead ?? new Date(Date.parse(midnight) + DAY_MS).toISOString();
+    const cappedAt = caps.find((e) => (typeof e.payload.resetsAt === "string" ? e.payload.resetsAt > nowIso : e.ts >= windowStart))?.ts ?? null;
     let spentToday = 0;
     for (const s of this.repos.sessions.where("status != 'running' AND endedAt >= ?", [windowStart])) {
       if (!s.funding || s.funding === "subscription") spentToday += adjustedOfUsage(s.model, s, s.byModel);
@@ -840,7 +847,7 @@ export class Bank {
     const held = nearCap(spentToday, learned?.cap ?? null, typicalSession);
     const reason = held && learned ? capReason(spentToday, learned.cap, resetsAt) : null;
     const inputId = this.repos.bankInputs.first("source = 'subscription' AND cancelledAt IS NULL", [], "ORDER BY createdAt, rowid")?.id ?? null;
-    const state: BankCapState = { inputId, learnedCap: learned?.cap ?? null, days: learned?.days ?? 0, spentToday, windowStart, typicalSession, held, reason, resetsAt };
+    const state: BankCapState = { inputId, learnedCap: learned?.cap ?? null, days: learned?.days ?? 0, spentToday, windowStart, typicalSession, held, reason, resetsAt, cappedAt };
     if (held && this.holdDay !== today && !this.events.list({ types: ["bank.hold"], from: midnight, limit: 1 }).length) {
       this.holdDay = today;
       this.events.append({ type: "bank.hold", text: `Bank: new subscription starts held, ${reason}`, payload: { ...state } });
