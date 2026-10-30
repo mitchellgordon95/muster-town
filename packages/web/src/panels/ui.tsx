@@ -16,6 +16,12 @@ export function clock(iso: string): string {
   const d = new Date(iso);
   return d.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
 }
+/** "10-29 14:02": a feed line's stamp, dated so events days apart don't read as one day (goal History). */
+export function dayClock(iso: string): string {
+  const d = new Date(iso);
+  const two = (n: number) => String(n).padStart(2, "0");
+  return `${two(d.getMonth() + 1)}-${two(d.getDate())} ${clock(iso)}`;
+}
 import { ADJ, ADJ_HINT } from "../format";
 import { clipText } from "./showMore";
 export { ADJ, ADJ_HINT, breakdownTitle, fmtTokens, fromMillions, toMillions } from "../format";
@@ -137,7 +143,7 @@ export function Feed({ events, empty = "Nothing yet.", showWho }: { events: Even
     <div className="feed" ref={ref} onScroll={(e) => { const el = e.currentTarget; stick.current = el.scrollHeight - el.scrollTop - el.clientHeight < 40; }}>
       {events.map((e) => (
         <div key={e.id} className={`ev ${EVENT_TONE[e.type] ?? ""}`}>
-          <time title={e.ts}>{clock(e.ts)}</time>
+          <time title={e.ts}>{dayClock(e.ts)}</time>
           {showWho && e.agentId ? <b>{agents[e.agentId]?.name ?? "?"}</b> : null}
           <span>{e.text}</span>
         </div>
