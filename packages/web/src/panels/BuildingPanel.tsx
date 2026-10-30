@@ -1,7 +1,7 @@
 /** Building panel (E at the door): overview, goals, grants and schedule (labs; GoalsTab.tsx), settings (managers: building fields). No Members tab (flag dc_v7ejy1j5ri): managers and roles live on the planning desk (Managers, Roles); live forks show on the map. Board, filing cabinet and in-tray are places; the collective's secrets are a planning-desk tab. */
 import { isFork } from "../forks";
 import { useEffect, useMemo, useState, type ReactNode } from "react";
-import { DEFAULT_POOL_ID, TILES_PER_DESK, type Schedule, type SnapshotBuilding, type Workspace } from "@muster-town/schema";
+import { DEFAULT_POOL_ID, ROOT_GOAL_ID, TILES_PER_DESK, type Schedule, type SnapshotBuilding, type Workspace } from "@muster-town/schema";
 import { fmtPct, poolColor } from "../pools";
 import { api } from "../api";
 import { store, useTown } from "../state";
@@ -13,6 +13,7 @@ import { layoutEdit } from "../map/layoutEdit";
 import { canOneOnOne, openOneOnOne } from "./oneOnOne";
 import { UNBLOCK_LINE, blockedLabel } from "./keyResults";
 import { GoalTabsSummary, GoalsTab, GrantsTab } from "./GoalsTab";
+import { GoalPicker, goalPath, useGoalTree } from "./GoalPicker";
 
 export function BuildingPanel({ id, tab }: { id: string; tab?: string }) {
   const b = useTown((s) => s.buildings.find((x) => x.id === id));
@@ -192,9 +193,33 @@ export function Settings({ b }: { b: SnapshotBuilding }) {
     </form>
     </Section>
     {b.kind === "town-hall" ? <Section title="Dashboard"><p className="direction">The town goal is three KPIs, Fund, Join and Trust, with every building's objectives under them. <button className="link" onClick={() => store.open({ kind: "dashboard" })}>Open the dashboard</button></p></Section> : null}
+    {b.kind !== "town-hall" ? <AttachedTo b={b} /> : null}
     {b.kind !== "town-hall" ? <PoolPicker b={b} /> : null}
     {b.kind !== "town-hall" && store.can("building.fund", b.id) ? <ExplorationBudget b={b} /> : null}
   </>);
+}
+
+/**
+ * The goal of the town tree this building is attached to (docs/goals.md): its subtree is what its work may name. Never
+ * empty. Admins change it here (a goal's owner can too; the server checks goals.edit on both ends).
+ */
+function AttachedTo({ b }: { b: SnapshotBuilding }) {
+  const root = useGoalTree();
+  const [goalId, setGoalId] = useState(b.goalId ?? ROOT_GOAL_ID);
+  const can = store.can("goals.edit");
+  return (
+    <Section title="Attached to">
+      <form className="form" onSubmit={(e) => e.preventDefault()}>
+        <Field label="Goal" hint={`${goalPath(root, b.goalId ?? ROOT_GOAL_ID)}. A building is attached to exactly one goal; its work (grants, exploration) names open key results in that goal's subtree.`}>
+          <GoalPicker value={goalId} onChange={setGoalId} disabled={!can} />
+        </Field>
+        {can ? <div className="actions"><Act tone="primary" disabled={goalId === (b.goalId ?? ROOT_GOAL_ID)} run={async () => {
+          await api().updateBuilding(b.id, { goalId });
+          store.toast(`${b.name} attached to ${goalPath(root, goalId)}`, "ok");
+        }}>Attach</Act></div> : null}
+      </form>
+    </Section>
+  );
 }
 
 /** The exploration allowance (docs/goal-directed-budgets.md); every lab is goal-directed and runs on forks. Humans who can fund only: a manager agent can't change its own budget. */

@@ -43,7 +43,7 @@ export function humanSource(world: World, sourceId: string): string {
 
 /**
  * The lane of a new assignment (docs/goal-directed-budgets.md, three spend lanes). Given fields are validated:
- * exploration names a key result of the building goal that no funded grant works on, or a goal gap; grant names a grant
+ * exploration names an open key result in the building's subtree of the town goal tree (docs/goals.md) that no funded grant works on, or a goal gap; grant names a grant
  * of the building (its key result is implied and stored on the assignment; a keyResultId given must be that one). No
  * fields: a continuation (`from`) inherits its lane, anything else is directed. In a goal-directed building an agent
  * creates directed work only when it cites a human source (`sourceId`, 1:1 mt_ryw7ejayvu). Meeting decisions stay
@@ -61,16 +61,17 @@ export function resolveLane(world: World, buildingId: string, createdBy: Holder 
     if (laneGated(building) && !sourceId && !opts.fromMeeting && createdBy.kind !== "system" && (createdBy.kind === "agent" || !BUDGET_POLICY.directedBypassesGrants)) {
       throw badRequest(`${building!.name} is goal-directed: say lane "grant" (grantId of a funded grant) or "exploration" (keyResultId of a goal key result with no funded grant, or gap)${createdBy.kind === "agent" ? "; agents can't create directed work" : ""}.`);
     }
-    const kr = input?.keyResultId ? world.keyResults.get(input.keyResultId) : undefined;
-    if (input?.keyResultId && (!kr || kr.buildingId !== buildingId)) throw badRequest(`Key result ${input.keyResultId} is not one of this building's goal key results.`);
+    // a named key result is open and in the building's subtree of the town goal tree (docs/goals.md)
+    const kr = input?.keyResultId ? world.goalTree.requireInScope(buildingId, input.keyResultId) : undefined;
     const proposed = kr ? world.grants.first("keyResultId = ? AND status NOT IN ('draft', 'rejected')", [kr.id], "ORDER BY createdAt") : undefined;
     if (proposed) throw badRequest(`Key result ${kr!.id} already has a grant proposal (${proposed.id}, ${proposed.status}): directed work naming it would stop at once; leave keyResultId out or work in lane "grant".`);
     return { ...DIRECTED, keyResultId: kr?.id ?? null, gap, sourceId };
   }
   const kr = input?.keyResultId ? world.keyResults.get(input.keyResultId) : undefined;
   if (input?.keyResultId && !kr) throw badRequest(`Unknown key result ${input.keyResultId}.`);
-  if (kr && kr.buildingId !== buildingId) throw badRequest(`Key result ${kr.id} is not one of this building's goal key results.`);
   if (lane === "exploration") {
+    // an open key result in the building's subtree (docs/goals.md: Goals.inScope)
+    if (kr) world.goalTree.requireInScope(buildingId, kr.id);
     if (!kr && !gap) throw badRequest("An exploration assignment names a key result of the building goal (keyResultId) or a goal gap (gap: one sentence on what is missing between the goal and the live town).");
     const live = kr ? world.grantDesk.liveGrantOf(kr.id) : undefined;
     if (live) throw badRequest(`Key result ${kr!.id} has a funded grant (${live.id}): work on it in lane "grant" with grantId ${live.id}.`);

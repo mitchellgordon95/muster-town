@@ -74,10 +74,13 @@ export class Grants {
     };
   }
 
-  /** The building goal's key results in order, each with the live grant working on it (null = open for exploration). */
+  /**
+   * The key results in the building's subtree of the town goal tree (docs/goals.md; open and archived) in order, each
+   * with the live grant working on it (null = open for exploration).
+   */
   keyResults(buildingId: string): GoalKeyResult[] {
-    const live = new Map(this.world.grants.where("buildingId = ? AND status IN ('funded', 'checkpoint') AND keyResultId IS NOT NULL", [buildingId], "ORDER BY fundedAt, rowid").map((g) => [g.keyResultId!, g.id]));
-    return this.world.keyResults.where("buildingId = ?", [buildingId], "ORDER BY position, rowid").map((k) => ({
+    const live = new Map(this.world.grants.where("status IN ('funded', 'checkpoint') AND keyResultId IS NOT NULL", [], "ORDER BY fundedAt, rowid").map((g) => [g.keyResultId!, g.id]));
+    return this.world.goalTree.keyResultsInScope(buildingId).map((k) => ({
       ...k, grantId: live.get(k.id) ?? null,
       createdByName: k.createdBy ? this.world.nameOf(k.createdBy) : null, editedByName: k.editedBy ? this.world.nameOf(k.editedBy) : null,
     }));
@@ -112,6 +115,11 @@ export class Grants {
       id: newId("ob"), buildingId, position: last ? last.position + 1 : 0, text: inp.text, horizon: inp.horizon ?? quarterOf(),
       kpiId: inp.kpi ? this.kpiId(inp.kpi) : null, createdBy: by?.id ?? null, editedBy: null, sourceDocIds: inp.sourceDocIds, updatedAt: nowIso(),
     });
+    // an objective is a goal of the town tree with the same id, under the building's attachment (docs/goals.md)
+    this.world.goals.upsert({
+      id: o.id, parentId: this.world.goalTree.attachmentOf(b), position: o.position, text: o.text, ownerId: null, status: "active", retiredAt: null, retiredBy: null, retiredNote: "",
+      createdBy: o.createdBy, editedBy: null, sourceDocIds: o.sourceDocIds, createdAt: o.updatedAt, updatedAt: o.updatedAt,
+    });
     this.world.events.append({
       type: "objective.created", agentId: actor?.id ?? null, buildingId, text: `${b.name} objective: ${o.text}`,
       payload: { objectiveId: o.id, by: by?.id ?? "system", byKind: by?.kind ?? "system", text: o.text, kpi: inp.kpi ?? null, horizon: o.horizon },
@@ -133,6 +141,8 @@ export class Grants {
     if (!Object.keys(fields).length) throw badRequest("Nothing to change: give text, kpi, horizon, sourceDocIds or position.");
     const by = actor ? holderOf(actor) : null;
     const next = this.world.objectives.upsert({ ...o, ...fields, editedBy: by?.id ?? null, updatedAt: nowIso() });
+    const goal = this.world.goals.get(o.id);
+    if (goal) this.world.goals.upsert({ ...goal, text: next.text, position: next.position, sourceDocIds: next.sourceDocIds, editedBy: next.editedBy, updatedAt: next.updatedAt });
     this.world.events.append({
       type: "objective.updated", agentId: actor?.id ?? null, buildingId: o.buildingId, text: `Objective edited: ${next.text}`,
       payload: { objectiveId: o.id, by: by?.id ?? "system", byKind: by?.kind ?? "system", text: next.text, fromText: o.text, kpiId: next.kpiId, horizon: next.horizon },
@@ -149,7 +159,10 @@ export class Grants {
     }
     const n = this.world.keyResults.count("objectiveId = ?", [id]);
     if (n) throw new AppError("conflict", `${n} key result${n === 1 ? "" : "s"} hang off this objective: move ${n === 1 ? "it" : "them"} first.`);
+    const kids = this.world.goals.count("parentId = ?", [id]) + this.world.keyResults.count("goalId = ?", [id]);
+    if (kids) throw new AppError("conflict", `This objective is a goal of the town tree with ${kids} goal${kids === 1 ? "" : "s"} or key result${kids === 1 ? "" : "s"} under it: move them first.`);
     this.world.objectives.delete(id);
+    this.world.goals.delete(id);
     this.world.events.append({ type: "objective.deleted", agentId: actor?.id ?? null, buildingId: o.buildingId, text: `Objective removed: ${o.text}`, payload: { objectiveId: id } });
   }
 
@@ -172,11 +185,11 @@ export class Grants {
     return this.world.grants.first("keyResultId = ? AND status IN ('funded', 'checkpoint')", [keyResultId], "ORDER BY fundedAt, rowid");
   }
 
-  /** A goal-directed building is blocked when its goal has no key results and it has no funded grant: nothing to explore against or implement. */
+  /** A goal-directed building is blocked when its subtree has no open key result and it has no funded grant: nothing to explore against or implement. */
   blocked(b: Building | string): string | null {
     const building = typeof b === "string" ? this.world.buildings.get(b) : b;
     if (!building || building.kind === "town-hall") return null;
-    if (this.world.keyResults.count("buildingId = ?", [building.id])) return null;
+    if (this.world.goalTree.hasOpenKr(building.id)) return null;
     if (this.world.grants.count("buildingId = ? AND status IN ('funded', 'checkpoint')", [building.id])) return null;
     return BLOCKED_NO_KRS;
   }
@@ -353,7 +366,7 @@ ${open.map((g) => `The open proposal ${g.id} ("${g.objective}")`).join("; ")} na
     if (inp.fundWith && inp.action !== "fund") throw badRequest("fundWith goes with action \"fund\" only.");
     const tokens = inp.tokens ?? g.askTokens;
     if (inp.fundWith) this.requireFundingInput(actor, g, inp.fundWith, tokens);
-    else if (actor) this.world.permissions.require(actor, "building.fund", g.buildingId);
+    else if (actor && !this.canFund(actor, g)) throw forbidden("building.fund");
     const spent = this.spent(g.id);
     // decided on a review-deck slide: the event says which
     const deck = inp.deckSlide ? { deckSlide: inp.deckSlide } : {};
@@ -438,7 +451,7 @@ ${open.map((g) => `The open proposal ${g.id} ("${g.objective}")`).join("; ")} na
     const inp = CloseGrantInput.parse(input);
     if (inp.outcome === "done") return this.closeDone(actor, id, { note: inp.note });
     const g = this.world.grants.require(id, "grant");
-    if (actor && !this.world.permissions.can(actor, "building.fund", g.buildingId)) {
+    if (actor && !this.canFund(actor, g)) {
       if (inp.outcome !== "stopped") throw forbidden("building.fund", `Only a human who can fund this building can close a grant as "${inp.outcome}"; a manager can close it as "stopped".`);
       this.world.permissions.require(actor, "building.manage", g.buildingId);
     }
@@ -459,7 +472,7 @@ ${open.map((g) => `The open proposal ${g.id} ("${g.objective}")`).join("; ")} na
   closeDone(actor: Actor, grantId: string, input: { note: string; reportId?: string | null }): GrantView {
     const g = this.world.grants.require(grantId, "grant");
     // the manager (close_grant) or a human who can fund the building (the web "Close grant" button)
-    if (actor && !this.world.permissions.can(actor, "building.manage", g.buildingId) && !this.world.permissions.can(actor, "building.fund", g.buildingId)) throw forbidden("building.manage");
+    if (actor && !this.world.permissions.can(actor, "building.manage", g.buildingId) && !this.canFund(actor, g)) throw forbidden("building.manage");
     if (TERMINAL.includes(g.status)) throw new AppError("conflict", `This grant is already ${g.status}.`);
     this.requireStatus(g, LIVE, "closed as done");
     const note = (input.note ?? "").trim();
@@ -650,9 +663,12 @@ Key result (on the building goal): ${kr}${k ? "; it has no funded grant now, so 
     if (inp.objectiveId) this.requireObjectiveRoom(buildingId, inp.objectiveId);
     const by = actor ? holderOf(actor) : null;
     const last = this.world.keyResults.first("buildingId = ?", [buildingId], "ORDER BY position DESC");
+    // in the town tree: under its objective (a goal with the same id), else under the building's attachment
+    const goalId = inp.objectiveId && this.world.goals.get(inp.objectiveId) ? inp.objectiveId : this.world.goalTree.attachmentOf(b);
     const kr = this.world.keyResults.upsert({
       id: newId("kr"), buildingId, position: last ? last.position + 1 : 0, text: inp.text, howToCheck: inp.howToCheck,
-      status: "not-started", statusNote: "", statusBy: null, createdBy: by?.id ?? null, editedBy: null, sourceDocIds: inp.sourceDocIds, objectiveId: inp.objectiveId ?? null, updatedAt: nowIso(),
+      status: "not-started", statusNote: "", statusBy: null, createdBy: by?.id ?? null, editedBy: null, sourceDocIds: inp.sourceDocIds, objectiveId: inp.objectiveId ?? null,
+      goalId, due: inp.due ?? null, archivedAt: null, underReviewSince: null, postmortemDocId: null, updatedAt: nowIso(),
     });
     this.world.events.append({
       type: "kr.created", agentId: actor?.id ?? null, buildingId, text: `${b.name} key result: ${kr.text}`,
@@ -698,7 +714,7 @@ Key result (on the building goal): ${kr}${k ? "; it has no funded grant now, so 
     const kr = this.world.keyResults.require(id, "key result");
     const words = {
       ...(inp.text !== undefined && { text: inp.text }), ...(inp.howToCheck !== undefined && { howToCheck: inp.howToCheck }),
-      ...(inp.sourceDocIds !== undefined && { sourceDocIds: inp.sourceDocIds }),
+      ...(inp.sourceDocIds !== undefined && { sourceDocIds: inp.sourceDocIds }), ...(inp.due !== undefined && { due: inp.due }),
     };
     const edited = Object.keys(words).length > 0;
     const moved = inp.objectiveId !== undefined && inp.objectiveId !== kr.objectiveId;
@@ -710,12 +726,18 @@ Key result (on the building goal): ${kr}${k ? "; it has no funded grant now, so 
     }
     if (actor && inp.status) {
       const judged = inp.status === "met" || inp.status === "missed" || kr.status === "met" || kr.status === "missed";
-      if (judged) this.world.permissions.require(actor, "building.fund", kr.buildingId);
-      else if (!this.canManage(actor, kr.buildingId)) throw forbidden("building.manage");
+      // a human who can fund the building, or the owner of the key result's goal (docs/goals.md "Owners on nodes")
+      if (judged) {
+        if (!this.world.permissions.can(actor, "building.fund", kr.buildingId) && !(kr.goalId && this.world.goalTree.owns(actor, kr.goalId))) throw forbidden("building.fund");
+      } else if (!this.canManage(actor, kr.buildingId)) throw forbidden("building.manage");
     }
     const by = actor ? holderOf(actor) : null;
-    const status = inp.status ? { status: inp.status, statusNote: inp.note, statusBy: by?.id ?? "system" } : {};
-    const next = this.world.keyResults.upsert({ ...kr, ...words, ...(edited && { editedBy: by?.id ?? null }), ...(moved && { objectiveId: inp.objectiveId ?? null }), ...status, updatedAt: nowIso() });
+    const now = nowIso();
+    // met or missed archives it under its goal (the goal stays); undoing that brings it back
+    const archive = inp.status ? { archivedAt: inp.status === "met" || inp.status === "missed" ? kr.archivedAt ?? now : null } : {};
+    const status = inp.status ? { status: inp.status, statusNote: inp.note, statusBy: by?.id ?? "system", ...archive } : {};
+    const tree = moved ? { objectiveId: inp.objectiveId ?? null, goalId: inp.objectiveId ?? this.world.goalTree.attachmentOf(kr.buildingId) } : {};
+    const next = this.world.keyResults.upsert({ ...kr, ...words, ...(edited && { editedBy: by?.id ?? null }), ...tree, ...status, updatedAt: now });
     this.world.events.append({
       type: "kr.updated", agentId: actor?.id ?? null, buildingId: kr.buildingId, text: inp.status ? `Key result ${inp.status}: ${next.text}` : edited ? `Key result edited: ${next.text}` : `Key result moved: ${next.text}`,
       payload: {
@@ -753,9 +775,16 @@ Key result (on the building goal): ${kr}${k ? "; it has no funded grant now, so 
     }
   }
 
+  /** The grant's key result is open and in its building's subtree (docs/goals.md: `Goals.inScope`). */
   private requireGoalKeyResult(buildingId: string, keyResultId: string): void {
-    const kr = this.world.keyResults.get(keyResultId);
-    if (!kr || kr.buildingId !== buildingId) throw badRequest(`${keyResultId} is not a key result of this building's goal.`);
+    this.world.goalTree.requireInScope(buildingId, keyResultId);
+  }
+
+  /** Who decides a grant: a human with `building.fund` on its building, or the owner of its key result's goal (docs/goals.md "Owners on nodes"). */
+  canFund(actor: Actor, g: Grant): boolean {
+    if (!actor || this.world.permissions.can(actor, "building.fund", g.buildingId)) return true;
+    const kr = g.keyResultId ? this.world.keyResults.get(g.keyResultId) : undefined;
+    return !!kr?.goalId && this.world.goalTree.owns(actor, kr.goalId);
   }
 
   private requireStatus(g: Grant, ok: GrantStatus[], verb: string): void {
@@ -781,7 +810,7 @@ Key result (on the building goal): ${kr}${k ? "; it has no funded grant now, so 
   private notifyFunders(g: Grant, actor: Actor, body: string): void {
     const from = actor ? holderOf(actor) : { kind: "system" as const, id: "system" };
     for (const h of this.world.agents.where("kind = 'human' AND status != 'retired'")) {
-      if (h.id === actor?.id || !this.world.permissions.can(h, "building.fund", g.buildingId)) continue;
+      if (h.id === actor?.id || !this.canFund(h, g)) continue;
       sendMessage(this.world, { kind: "system", fromId: from.id, fromKind: from.kind, toId: h.id, body });
     }
   }

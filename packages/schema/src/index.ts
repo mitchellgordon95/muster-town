@@ -136,6 +136,7 @@ export const Permission = z.enum([
   "meeting.facilitate",
   "meeting.attend",
   "town.interact",           // act in the town at all (move, talk, message, write): members; signed-in visitors only read
+  "goals.edit",              // edit the town goal tree anywhere (admins); a goal's owner holds it within their subtree (docs/goals.md)
 ]);
 export type Permission = z.infer<typeof Permission>;
 
@@ -225,6 +226,8 @@ export const Building = z.object({
   budgetMode: z.enum(["open", "goal-directed"]).default("goal-directed"),
   /** goal-directed: since when the building is blocked (its goal has no key results and it has no funded grant); null = not blocked. The manager is woken once per blocked transition. */
   blockedAt: Iso.nullable().default(null),
+  /** the one goal of the town goal tree the building is attached to (docs/goals.md): set at creation (default the root), never unset; null only on rows not yet repaired */
+  goalId: Id.nullable().default(null),
   /** tile rectangle on the town grid; assigned by the server if absent */
   lot: Lot.optional(),
   /** moved furniture: piece key (`board`, `desk:3`, `meeting`, …) -> anchor tile relative to the lot; absent = default spot */
@@ -989,9 +992,114 @@ export const KeyResult = z.object({
   sourceDocIds: z.array(Id).default([]),
   /** the building objective it serves (null = "Unsorted": not under an objective yet) */
   objectiveId: Id.nullable().default(null),
+  /** the goal of the town goal tree it sits under (docs/goals.md); `buildingId` is the building that proposed it */
+  goalId: Id.nullable().default(null),
+  /** the date it is due (YYYY-MM-DD); null on key results from before the tree */
+  due: z.string().nullable().default(null),
+  /** set when a human marks it met or missed: it archives under its goal (the goal stays) */
+  archivedAt: Iso.nullable().default(null),
+  /** a reorg ("Change this goal", build step 5) put it under review */
+  underReviewSince: Iso.nullable().default(null),
+  postmortemDocId: Id.nullable().default(null),
   updatedAt: Iso,
 });
 export type KeyResult = z.infer<typeof KeyResult>;
+
+// ---------- the town goal tree (docs/goals.md) ----------
+/** The root of the town goal tree (the town goal) and its placeholder children. */
+export const ROOT_GOAL_ID = "gl_town";
+export const GoalStatus = z.enum(["active", "retired"]);
+/**
+ * A standing goal of the town tree: a direction, never met. One root (the town goal); any goal may have child goals
+ * (depth unbounded); key results are dated leaves under a goal. `ownerId`: a human (user id) who edits and funds within
+ * the subtree; null = the nearest owned ancestor's (the root's owner is the town admins).
+ */
+export const Goal = z.object({
+  id: Id,
+  parentId: Id.nullable().default(null),
+  position: z.number().int().default(0),
+  text: z.string().min(1).max(300),
+  ownerId: Id.nullable().default(null),
+  status: GoalStatus.default("active"),
+  retiredAt: Iso.nullable().default(null),
+  retiredBy: Id.nullable().default(null),
+  retiredNote: z.string().default(""),
+  createdBy: Id.nullable().default(null),
+  editedBy: Id.nullable().default(null),
+  sourceDocIds: z.array(Id).default([]),
+  createdAt: Iso,
+  updatedAt: Iso,
+});
+export type Goal = z.infer<typeof Goal>;
+export const GoalProposalAction = z.enum(["add-goal", "add-kr", "edit", "move", "retire", "promote"]);
+export type GoalProposalAction = z.infer<typeof GoalProposalAction>;
+export const GoalProposalStatus = z.enum(["open", "accepted", "cut", "superseded"]);
+/** A manager's (or fork's) proposed change to the tree; a human with `goals.edit` there accepts or cuts it. */
+export const GoalProposal = z.object({
+  id: Id,
+  action: GoalProposalAction,
+  /** the goal or key result it changes (edit, move, retire, promote) */
+  targetId: Id.nullable().default(null),
+  /** where it goes (add-goal, add-kr, move) */
+  parentId: Id.nullable().default(null),
+  /** the new words: text, howToCheck, due */
+  fields: z.record(z.string(), z.string()).default({}),
+  why: z.string().default(""),
+  proposedBy: Id,
+  buildingId: Id.nullable().default(null),
+  reorgId: Id.nullable().default(null),
+  sourceDocIds: z.array(Id).default([]),
+  status: GoalProposalStatus.default("open"),
+  decidedBy: Id.nullable().default(null),
+  decidedAt: Iso.nullable().default(null),
+  note: z.string().default(""),
+  /** what accepting it made or changed (a goal or key result id) */
+  resultId: Id.nullable().default(null),
+  createdAt: Iso,
+});
+export type GoalProposal = z.infer<typeof GoalProposal>;
+/** GET /api/goals's shape as the web reads it (core Goals.tree): a goal with its owner, attached buildings and children. */
+export interface GoalTreeNode {
+  id: string; parentId: string | null; text: string; status: "active" | "retired"; ownerId: string | null;
+  owner: { goalId: string; userId: string | null; name: string };
+  buildings: { id: string; name: string }[];
+  keyResults: { id: string; text: string; status: string; due: string | null; archivedAt: string | null }[];
+  children: GoalTreeNode[];
+}
+const Due = z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "a date YYYY-MM-DD");
+/** POST /api/goals: a child goal (`goals.edit` on the parent). */
+export const CreateGoalInput = z.object({
+  parentId: Id, text: z.string().trim().min(1).max(300), sourceDocIds: z.array(Id).default([]), position: z.number().int().optional(),
+});
+export type CreateGoalInput = z.input<typeof CreateGoalInput>;
+/** PATCH /api/goals/:id: words, order, parent (a move) or owner (a user id; null = inherit). */
+export const UpdateGoalInput = z.object({
+  text: z.string().trim().min(1).max(300).optional(), position: z.number().int().optional(), parentId: Id.optional(),
+  ownerId: Id.nullable().optional(), sourceDocIds: z.array(Id).optional(),
+});
+export type UpdateGoalInput = z.input<typeof UpdateGoalInput>;
+/** POST /api/goals/:id/retire: open key results and attached buildings under it move to `moveTo` (a sibling); without one it is refused while any remain. */
+export const RetireGoalInput = z.object({ moveTo: Id.optional(), note: z.string().max(2000).default("") });
+export type RetireGoalInput = z.input<typeof RetireGoalInput>;
+/** POST /api/goals/:id/key-results: a dated key result under the goal (`goals.edit` there). */
+export const CreateTreeKeyResultInput = z.object({
+  text: z.string().trim().min(1).max(300), howToCheck: z.string().trim().min(1).max(300), due: Due,
+  buildingId: Id.optional(), sourceDocIds: z.array(Id).default([]),
+});
+export type CreateTreeKeyResultInput = z.input<typeof CreateTreeKeyResultInput>;
+/** POST /api/goal-proposals (`propose_goal` / `propose_key_result`). */
+export const ProposeGoalInput = z.object({
+  action: GoalProposalAction, targetId: Id.optional(), parentId: Id.optional(),
+  text: z.string().trim().min(1).max(300).optional(), howToCheck: z.string().trim().min(1).max(300).optional(), due: Due.optional(),
+  why: z.string().trim().min(1).max(2000), sourceDocIds: z.array(Id).default([]), buildingId: Id.optional(),
+});
+export type ProposeGoalInput = z.input<typeof ProposeGoalInput>;
+/** POST /api/goal-proposals/:id/decide: accept (optionally with edited words) or cut (the note goes back to the proposer). */
+export const DecideGoalProposalInput = z.object({
+  action: z.enum(["accept", "cut"]), note: z.string().max(2000).default(""),
+  text: z.string().trim().min(1).max(300).optional(), howToCheck: z.string().trim().min(1).max(300).optional(), due: Due.optional(),
+});
+export type DecideGoalProposalInput = z.input<typeof DecideGoalProposalInput>;
 /** The town KPIs objectives move (docs/goal-directed-budgets.md "Objectives and KPIs"). */
 export const KpiKey = z.enum(["fund", "join", "trust"]);
 export type KpiKey = z.infer<typeof KpiKey>;
@@ -1123,6 +1231,7 @@ export const EventType = z.enum([
   "session.started", "session.ended",
   "building.created", "building.updated", "building.layout", "town.plan", "allocation.created", "budget.exhausted", "bank.input", "bank.credited", "bank.debited", "bank.converted", "bank.share", "bank.pool", "bank.drift", "bank.cap", "bank.hold",
   "grant.created", "grant.updated", "grant.proposed", "grant.countered", "grant.funded", "grant.rejected", "grant.checkpoint", "grant.closed", "kr.updated", "kr.created", "kr.deleted", "objective.created", "objective.updated", "objective.deleted", "building.blocked",
+  "goal.created", "goal.edited", "goal.moved", "goal.retired", "goal.owned", "goal.attached", "goal.proposal", "kr.archived",
   "skill.used", "skill.pinned", "skill.unpinned",
   "secret.set", "secret.deleted", "secret.granted",
   "export.done", "system",
@@ -1158,6 +1267,7 @@ export const CreateKeyResultInput = z.object({
   text: z.string().trim().min(1).max(300), howToCheck: z.string().trim().min(1).max(300),
   sourceDocIds: z.array(Id).max(10).default([]).describe("the meeting notes or reports it comes from"),
   objectiveId: Id.nullable().optional().describe("the objective of this building it serves (at most 4 key results each)"),
+  due: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional().describe("the date it is due (YYYY-MM-DD)"),
 });
 export type CreateKeyResultInput = z.input<typeof CreateKeyResultInput>;
 /** POST /api/buildings/:id/objectives: an objective of the building goal (at most 3). `horizon` defaults to the current quarter. */
@@ -1232,7 +1342,7 @@ export const VerbInputs = {
     title: z.string(), description: z.string(),
     pages: z.array(Id).max(3).optional().describe("topic pages (type wiki with topicOf) of this building that cover the work, at most 3: loaded into its fork's memory"),
     model: z.string().optional().describe("building-queue work only: the model its fork runs on, one the building allows (its model or cheapModel); default the building's model"),
-    waitFor: WaitFor.optional().describe("don't start until this holds: {deploy: sha|\"next\"} (live after a redeploy), {assignment: id} (done or cancelled), {decision: reportId}. A job for a later time is a \`schedule\`, not a wait"),
+    waitFor: WaitFor.optional().describe("don't start until this holds: {deploy: sha|\"next\"} (live after a redeploy), {assignment: id} (done or cancelled), {decision: reportId}. A job for a later time is a `schedule`, not a wait"),
     ...LaneFields.shape }),
   schedule: CreateScheduleInput.extend({
     scheduleId: Id.optional().describe("edit, pause or resume this schedule of my building (sc_…) instead of making one: give only what changes"),
@@ -1274,6 +1384,23 @@ export const VerbInputs = {
     horizon: z.string().trim().regex(/^\d{4}-Q[1-4]$/).optional().describe("a quarter, e.g. 2026-Q4 (default: this quarter)"),
     sourceDocIds: z.array(Id).max(10).optional().describe("the meeting notes or report it comes from (required to add one)"),
   }),
+  propose_goal: z.object({
+    action: z.enum(["add-goal", "edit", "move", "retire", "promote"]).describe("add-goal (parentId, text), edit (targetId, text), move (targetId, parentId), retire (targetId; parentId = the sibling its open key results move to), promote (targetId = a key result that is really a standing goal)"),
+    targetId: Id.optional().describe("the goal (or, for move and promote, key result) it changes"),
+    parentId: Id.optional().describe("where it goes: the parent goal (add-goal, move) or the sibling (retire)"),
+    text: z.string().trim().min(1).max(300).optional().describe("the goal's words (add-goal, edit; optional for promote)"),
+    why: z.string().trim().min(1).max(2000).describe("why: what it serves, what you saw"),
+    sourceDocIds: z.array(Id).max(10).optional().describe("the meeting notes or reports it comes from"),
+  }),
+  propose_key_result: z.object({
+    goalId: Id.optional().describe("the goal it goes under (a new one; default your building's attachment)"),
+    id: Id.optional().describe("a key result to edit; leave it out to propose a new one"),
+    text: z.string().trim().min(1).max(300).optional().describe("a concrete thing in the live town (required for a new one)"),
+    howToCheck: z.string().trim().min(1).max(300).optional().describe("where to look and what you'd see (required for a new one)"),
+    due: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional().describe("the date it is due, YYYY-MM-DD (required for a new one)"),
+    why: z.string().trim().min(1).max(2000).describe("why: what it serves, what you saw"),
+    sourceDocIds: z.array(Id).max(10).optional().describe("the meeting notes or reports it comes from"),
+  }),
   promote: z.object({ docId: Id, state: z.enum(["building", "library"]) }),
   ban: z.object({ agentId: Id, reason: z.string() }),
   redeploy: z.object({ image: z.boolean().default(false).describe("also rebuild the desk image and recreate idle desk containers") }),
@@ -1307,6 +1434,8 @@ export const VERB_DESCRIPTIONS: Record<VerbName, string> = {
   close_grant: "(manager) Close a funded grant early because its work is done: it closes as done, its key result goes to claimed with your note as the evidence, and the unspent tokens return to the Bank. Then submit_report with rollup: true (it links itself as the close report); a human marks the key result met or missed from the Town Hall in-tray. Use checkpoint_grant instead when the grant is held at its 100% checkpoint and the work is not done.",
   set_key_result: "(manager) Write a key result on my building's goal, or edit one (id): the text, how to check it, the meeting notes or report it comes from (sourceDocIds), and the objective it serves (objectiveId; at most 4 key results each). It's on the board at once and listed in my next rollup so a human can cut it. Status is checkpoint_grant's; only a human marks met or missed or deletes one.",
   set_objective: "(manager) Write an objective of my building's goal, or edit one (id): one sentence for this quarter, the town KPI it moves (fund, join or trust), the horizon (default this quarter) and the meeting notes or report it comes from. At most 3 per building; key results then hang off one (set_key_result objectiveId). Only a human deletes one.",
+  propose_goal: "(manager) Propose a change to the town goal tree (it shows in your desk brief: your building's attachment and the goals under it): add a goal, edit or move one, retire one, or promote a key result to a standing goal. A human with goals.edit there (an admin or the goal's owner) accepts or cuts it; you hear back in your inbox. A proposal outside your building's subtree is allowed but flagged.",
+  propose_key_result: "(manager) Propose a dated key result under a goal in your building's subtree (text, howToCheck, due), or an edit to one (id). A human accepts or cuts it; once accepted, propose_grant can name it. set_key_result still writes one on your building's goal directly until the Town Hall goal editor lands.",
   promote: "(manager) Publish a document to the building (board if it's an fyi, else the filing cabinet) or promote it to the library.",
   ban: "(town moderator) Ban an agent town-wide pending review.",
   redeploy: "Pull main on the host, reinstall, rebuild the web client (and the desk image when image=true), then restart the collective's server. Use when Mitchell asks you to deploy or when main has changed and the running town is stale. The restart no longer waits for desk work sessions: yours keeps running through it (a town call during the few seconds the server is down is retried for you). Still never poll or wait for the new build in the same session: call it, say in your report which commit should be live, submit the report, and verify on your next session (park with resumeWhen {deploy: sha}).",
@@ -1498,7 +1627,8 @@ export function bankPlaces(x0: number, y0: number): Place[] {
 export const WALKABLE = new Set<number>([TILE.GRASS, TILE.PATH, TILE.FLOOR, TILE.DOOR]);
 
 // ---------- REST payloads ----------
-export const CreateBuildingInput = Building.pick({ name: true, goal: true, description: true, headcount: true, model: true, cheapModel: true, maxTurnsPerSession: true, dailyTokensPerAgent: true, meetings: true, rules: true, codeAccess: true, managerAgentId: true }).partial({ goal: true, description: true, headcount: true, model: true, cheapModel: true, maxTurnsPerSession: true, dailyTokensPerAgent: true, meetings: true, rules: true, codeAccess: true, managerAgentId: true });
+export const CreateBuildingInput = Building.pick({ name: true, goal: true, description: true, headcount: true, model: true, cheapModel: true, maxTurnsPerSession: true, dailyTokensPerAgent: true, meetings: true, rules: true, codeAccess: true, managerAgentId: true }).partial({ goal: true, description: true, headcount: true, model: true, cheapModel: true, maxTurnsPerSession: true, dailyTokensPerAgent: true, meetings: true, rules: true, codeAccess: true, managerAgentId: true })
+  .extend({ goalId: Id.optional().describe("the goal of the town tree it attaches to (default: the root); never unset") });
 /**
  * `poolId` moves the building to another Bank pool at once (admin only; null = General). `explorationTokensPerDay`
  * and `forks` need `building.fund` (a human), so a manager agent can't raise its own allowance.
@@ -1545,6 +1675,8 @@ export const UpdateKeyResultInput = z.object({
   sourceDocIds: z.array(Id).max(10).optional(),
   /** move it under an objective of its building (null = back to Unsorted) */
   objectiveId: Id.nullable().optional(),
+  /** the date it is due (YYYY-MM-DD) */
+  due: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
 });
 export type UpdateKeyResultInput = z.input<typeof UpdateKeyResultInput>;
 /** GET /api/buildings/:id/grants?status= */

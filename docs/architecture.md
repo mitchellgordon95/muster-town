@@ -98,6 +98,7 @@ All state is in one SQLite database (`MUSTER_TOWN_DATA/town.db`). Each table is 
 | `sessions` | the runtime (`ops.startSession` / `ops.endSession`) | `Grants.spent`, the Bank's drift job, reports' token stamps |
 | `docs` | `write`, `submit_report`, flags, town-written in-tray rows | in-trays, the board, search (`docs_fts`) |
 | `grants`, `key_results`, `objectives` | `Grants` (manager verbs, human REST) | the lane gate, the board, the desk brief |
+| `goals`, `goal_proposals`, `goal_changes`, `buildings.goalId` | `Goals` (`packages/core/src/goals.ts`; REST `packages/server/src/routes/goals.ts`; verbs `propose_goal`, `propose_key_result`) | `Goals.inScope` for grants and lanes, the desk brief, the in-tray routing (design: [docs/goals.md](goals.md)) |
 | `bank_inputs`, `bank_credits`, `bank_debits`, `allocations`, `usage` | `Bank`, `Budget` | `fundingFor`, `Budget.canStart`, `GET /api/bank` |
 
 Live state is never stored in git: `world.export()` (`packages/core/src/export.ts`) writes a readable mirror once an hour.
