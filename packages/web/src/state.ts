@@ -255,7 +255,8 @@ class Store {
   }
   putMeeting(m: Meeting) { this.set({ meetings: { ...this.state.meetings, [m.id]: m } }); }
 
-  open(panel: PanelRef | null) { this.set({ panel: redirectPanel(panel) }); }
+  /** Always a fresh ref, so re-opening a panel that's already open (e.g. E twice on one target) counts as a new open (app.tsx openSeq). */
+  open(panel: PanelRef | null) { const p = redirectPanel(panel); this.set({ panel: p ? { ...p } : null }); }
   /** Walk the avatar to a place (animated when a path exists, else teleport), then open `panel`. Set by the map. */
   walkTo: (placeId: string, panel?: PanelRef) => boolean = () => false;
   toast(text: string, tone: Toast["tone"] = "info", panel?: PanelRef) {
