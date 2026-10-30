@@ -1,7 +1,7 @@
-import { AddBankInput, CreateBankPoolInput, DEFAULT_POOL_ID, UpdateBankPoolInput, ZERO_TOKENS, addTokens, countsOf, rawPerAdjusted, rawTokens, sliceTokens, splitRaw, subTokens, type TokenCounts, type BankCredit, type BankInput, type BankPool, type BankRecurrence, type Agent, type Building, type Session, type SessionView } from "@muster-town/schema";
+import { AddBankInput, CreateBankPoolInput, DEFAULT_POOL_ID, UpdateBankPoolInput, ZERO_TOKENS, addTokens, oauthTokenProblem, countsOf, rawPerAdjusted, rawTokens, sliceTokens, splitRaw, subTokens, type TokenCounts, type BankCredit, type BankInput, type BankPool, type BankRecurrence, type Agent, type Building, type Session, type SessionView } from "@muster-town/schema";
 import { CAP_THOUGHT, TYPICAL_SESSIONS, capReason, countDeaths, learnedCap, median, nearCap, type BankDeaths } from "./caps.ts";
 import { driftRows, parseResetsAt, previousUtcDay, utcDay, type DriftRow } from "./drift.ts";
-import { badRequest, forbidden } from "./errors.ts";
+import { AppError, badRequest, forbidden } from "./errors.ts";
 import { townFinance, type FinanceSummary } from "./finance.ts";
 import { townSpend, type FinanceSpend } from "./finance-spend.ts";
 import { townSources, type FinanceSources } from "./finance-sources.ts";
@@ -261,6 +261,29 @@ function advance(from: Date, recurrence: Exclude<BankRecurrence, "once">): Date 
 /** A debit that names a durable (API-key) credit: a grant's own input paid it. It counts against durable like a pool draw. */
 const DURABLE_CREDIT = "creditId IN (SELECT id FROM bank_credits WHERE expiresAt IS NULL)";
 
+/**
+ * What a session runs on. The Bank is the only place a model credential lives (post-mortem 2026-10-30: a key in the host
+ * env was billed for eight days while the town recorded the subscription): a subscription input's OAuth token, an api-key
+ * input's key, or a donor's key on their allocation. Every SDK call takes exactly one; none is `NoCredential`.
+ */
+export interface Credential {
+  kind: "subscription" | "api-key";
+  /** the secret: never logged, never returned by the API */
+  secret: string;
+  /** the Bank input it came from; null for a donor's key (`users.apiKey`) */
+  inputId: string | null;
+}
+/** Held: nothing in the Bank can run this session (the reason is the assignment's `heldReason`, the chat's reply). */
+export class NoCredential extends AppError {
+  constructor(message = NO_KEY_HOLD) { super("conflict", message); this.name = "NoCredential"; }
+}
+/** Why work is held when the Bank holds no credential at all (a hosted collective before its owner adds a key, a fresh town). */
+export const NO_KEY_HOLD = "No credential in the Bank yet: add your Claude subscription token or an Anthropic API key at the Bank";
+/** Why work is held when the subscription would pay but its input has no token. */
+export const NO_TOKEN_HOLD = "The subscription input has no token: cancel it and add one with the token from `claude setup-token` at the Bank";
+/** A live input holding its credential (`hasApiKey`: an api-key input's key, a subscription input's token), oldest first. */
+const LIVE_KEYED = "source = ? AND hasApiKey = 1 AND cancelledAt IS NULL";
+
 export class Bank {
   constructor(private repos: Repos, private events: EventLog, private permissions: Permissions) {}
 
@@ -276,14 +299,22 @@ export class Bank {
       if (inp.recurrence !== "daily") throw badRequest("A subscription credits daily.");
       if (!inp.weeklyCapTokens) throw badRequest("A subscription needs weeklyCapTokens.");
       if (inp.apiKey) throw badRequest("A subscription doesn't take an API key.");
-    } else if (!inp.apiKey) throw badRequest("An api-key input needs apiKey.");
+      if (!inp.token) throw badRequest("A subscription input needs its token (from `claude setup-token`): the Bank is the only place a credential lives.");
+      const why = oauthTokenProblem(inp.token);
+      if (why) throw badRequest(why);
+    } else {
+      if (!inp.apiKey) throw badRequest("An api-key input needs apiKey.");
+      if (inp.token) throw badRequest("An api-key input doesn't take a subscription token.");
+      if (inp.apiKey.trim().startsWith("sk-ant-oat")) throw badRequest("That is a Claude subscription token: add it as a subscription input instead (the API checks a key's shape: `apiKeyProblem`).");
+    }
+    const secret = inp.apiKey ?? inp.token ?? null;
     const next = inp.recurrence === "once" ? now : inp.nextCreditAt ? new Date(inp.nextCreditAt) : now;
     let row = this.repos.bankInputs.upsert({
       id: newId("bi"), userId, label: inp.label, source: inp.source, model: inp.model, tokens: inp.tokens,
       recurrence: inp.recurrence, weeklyCapTokens: inp.weeklyCapTokens ?? null, nextCreditAt: next.toISOString(),
       creditedTokens: 0, hasApiKey: false, cancelledAt: null, createdAt: nowIso(),
     });
-    if (inp.apiKey) row = this.repos.bankInputs.setApiKey(row.id, inp.apiKey);
+    if (secret) row = this.repos.bankInputs.setApiKey(row.id, secret);
     const what = inp.recurrence === "once" ? "once" : inp.recurrence;
     this.events.append({ type: "bank.input", text: `${user.name} added ${inp.label} to the Bank (${inp.tokens.toLocaleString("en-US")} adj. tokens, ${what})`, payload: { inputId: row.id, userId, source: inp.source, recurrence: inp.recurrence, tokens: inp.tokens, ...this.creditCounts(inp.tokens, inp.model), rawTokens: rawTokens(this.creditCounts(inp.tokens, inp.model)), adjustedOutputTokens: inp.tokens } });
     this.creditDue(now);
@@ -310,9 +341,36 @@ export class Bank {
     return this.repos.bankInputs.get(inputId);
   }
 
-  /** Secret: the API key behind an input, if any. */
+  /** Secret: the credential behind an input, if any (an api-key input's key, a subscription input's token). */
   apiKeyFor(inputId: string): string | null {
     return this.repos.bankInputs.getApiKey(inputId);
+  }
+
+  /** The oldest live subscription input holding its token, or null. */
+  subscriptionInput(): BankInput | null {
+    return this.repos.bankInputs.first(LIVE_KEYED, ["subscription"], "ORDER BY createdAt, rowid") ?? null;
+  }
+
+  /** The subscription's credential (its input's OAuth token), or null when no live subscription input holds one. */
+  subscriptionCredential(): Credential | null {
+    const inp = this.subscriptionInput();
+    const secret = inp ? this.apiKeyFor(inp.id) : null;
+    return inp && secret ? { kind: "subscription", secret, inputId: inp.id } : null;
+  }
+
+  /** An api-key input's credential: `inputId`'s when it is live and holds its key, else the oldest live keyed api-key input's; null when none. */
+  apiKeyCredential(inputId?: string | null): Credential | null {
+    const inp = inputId ? this.repos.bankInputs.get(inputId) : this.liveApiKeyInput();
+    if (!inp || inp.source !== "api-key" || !inp.hasApiKey || inp.cancelledAt) return null;
+    const secret = this.apiKeyFor(inp.id);
+    return secret ? { kind: "api-key", secret, inputId: inp.id } : null;
+  }
+
+  /** The town's one credential for a session no pool funds (the Town Hall's chat and summaries): the subscription's, else an API key's. Throws `NoCredential`. */
+  townCredential(): Credential {
+    const c = this.subscriptionCredential() ?? this.apiKeyCredential();
+    if (!c) throw new NoCredential();
+    return c;
   }
 
   /** Tokens an input credited in the 7 days before `now`. */
@@ -540,9 +598,9 @@ export class Bank {
     return this.repos.bankInputs.first("source = 'api-key' AND hasApiKey = 1 AND cancelledAt IS NULL", [], "ORDER BY createdAt, rowid") ?? null;
   }
 
-  /** The oldest live api-key input that still has its key (a hosted collective without one is held: "No key yet"). */
+  /** The oldest live api-key input that still has its key (a hosted collective without one is held: `NO_KEY_HOLD`). */
   liveApiKeyInput(): BankInput | null {
-    return this.repos.bankInputs.first("source = 'api-key' AND hasApiKey = 1 AND cancelledAt IS NULL", [], "ORDER BY createdAt, rowid") ?? null;
+    return this.repos.bankInputs.first(LIVE_KEYED, ["api-key"], "ORDER BY createdAt, rowid") ?? null;
   }
 
   /** Where the building's next session should be funded from, or null when its pool's share is used up. */

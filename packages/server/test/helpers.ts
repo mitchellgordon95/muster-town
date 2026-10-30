@@ -10,6 +10,8 @@ export const REPO_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "../..
 export async function seededApp(opts: { runtime?: RuntimeHooks | null; dev?: boolean } = {}) {
   const world = World.open(":memory:");
   const seed = world.seedDefaults({ importDir: join(REPO_ROOT, "buildings/carbon-cycle"), townJsonPath: join(REPO_ROOT, "town.json") });
+  // the Bank is the only place a credential lives: give the test town its subscription token (never credited: first renewal far off)
+  world.bank.addInput(seed.admin.id, { label: "Test subscription", source: "subscription", model: "claude-sonnet-5-5", tokens: 1, recurrence: "daily", weeklyCapTokens: 1, nextCreditAt: "2099-01-01T00:00:00.000Z", token: "sk-ant-oat01-test-subscription-token" });
   const app = await buildApp({ world, dev: opts.dev ?? true, runtime: opts.runtime ?? null, webDist: false });
   const auth = { authorization: `Bearer ${seed.adminToken}` };
   const by = (name: string) => world.agents.first("name = ?", [name])!;

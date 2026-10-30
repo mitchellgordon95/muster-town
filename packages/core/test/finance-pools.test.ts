@@ -84,7 +84,7 @@ describe("financePools (GET /api/finance/pools)", () => {
     const lab2 = createBuilding(world, { name: "Lab 2" }, seed.admin.id);
     const labs = world.bank.createPool(seed.admin.id, { name: "Labs", pct: 25 });
     world.bank.setBuildingPool(seed.admin.id, "carbon-cycle", labs.id);
-    world.bank.addInput(seed.admin.id, { label: "Max plan", source: "subscription", model: "m", tokens: 4000, recurrence: "daily", weeklyCapTokens: 100_000 }, now);
+    world.bank.addInput(seed.admin.id, { label: "Max plan", source: "subscription", token: "sk-ant-oat01-test-token", model: "m", tokens: 4000, recurrence: "daily", weeklyCapTokens: 100_000 }, now);
     world.bank.addInput(seed.admin.id, { label: "Key", source: "api-key", model: "m", tokens: 8000, apiKey: "sk" }, now);
     const mei = world.agents.first("name = 'Mei'")!;
     world.bank.draw("carbon-cycle", mei.id, 3500, { now, overshoot: true }); // 1000 expiring + 2000 durable + 500 over

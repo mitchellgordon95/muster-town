@@ -65,7 +65,7 @@ describe("goal-directed budgets, step 1 foundation", () => {
 
   it("a pool's daily inflow is its share of the Bank's recurring inputs", () => {
     const { world, seed } = seededWorld();
-    world.bank.addInput(seed.admin.id, { label: "Sub", source: "subscription", model: "m", tokens: 20_000_000, recurrence: "daily", weeklyCapTokens: 140_000_000 });
+    world.bank.addInput(seed.admin.id, { label: "Sub", source: "subscription", token: "sk-ant-oat01-test-token", model: "m", tokens: 20_000_000, recurrence: "daily", weeklyCapTokens: 140_000_000 });
     expect(world.bank.dailyInflow()).toBe(20_000_000);
     expect(world.bank.poolDailyInflow("general")).toBe(20_000_000);
   });

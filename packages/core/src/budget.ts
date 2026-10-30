@@ -1,5 +1,5 @@
 import { DonateInput, type TokenCounts, type Agent, type Allocation, type AllocationAuth, type Assignment, type Building, type BuildingBudget, type ServerMessage } from "@muster-town/schema";
-import { type Bank, type Booked, booked } from "./bank.ts";
+import { type Bank, type Booked, type Credential, NO_TOKEN_HOLD, NoCredential, booked } from "./bank.ts";
 import { badRequest } from "./errors.ts";
 import type { EventLog } from "./events.ts";
 import type { Repos } from "./store.ts";
@@ -41,12 +41,25 @@ export function startOfLocalDay(d: Date): string {
   return m.toISOString();
 }
 
+/**
+ * How a session is paid for and what it runs on. Every SDK call (host or desk) takes one of these from `Budget.fundingFor`;
+ * the credential is always the Bank's (post-mortem 2026-10-30). `auth` is the ledger's word for it: donor-key is an
+ * api-key credential that is a donor's (`users.apiKey`), charged to their allocation.
+ */
+export interface Funding {
+  allocationId: string | null;
+  auth: AllocationAuth;
+  credential: Credential;
+  /** subscription funding: what a desk fails over to at the plan's spend limit, when the Bank owns a key for it (never the host's) */
+  fallback?: { allocationId: string | null; credential: Credential };
+  /** member funding: the grant's own api-key input the session runs on */
+  inputId?: string;
+}
+
 /** Donations, allocations, and charging. `world.budget`. */
 export class Budget {
   /** goal-directed budgets: the lane gate (`laneHold`, set by World): why an assignment is held, or null */
   gate?: (assignment: Assignment) => string | null;
-  /** hosted collectives: why nothing may start (no API key of its own yet), or null; set by World */
-  keyHold?: () => string | null;
   /** goal-directed budgets: after every charge (World runs the grants' 100% checkpoints of the building) */
   afterCharge?: (buildingId: string) => void;
 
@@ -61,6 +74,57 @@ export class Budget {
   /** What a session falls back to when the subscription hits its spend limit: the first donor-key or api-key allocation with tokens left. */
   fallbackAllocation(buildingId: string): Allocation | null {
     return this.pickAllocation(buildingId, ["donor-key", "api-key"]);
+  }
+
+  /**
+   * The Bank's one answer to "what runs this session, and who pays": the building's subscription allocations → its Bank
+   * share (today's subscription share on the subscription input's token; the durable share on the keyed api-key input)
+   * → donor-key allocations (the donor's key) → api-key allocations (the keyed api-key input, else the subscription) →
+   * nothing funds the building: the town's credential, charged to no allocation (chat, summaries; work is gated by
+   * `canStart`). A grant funded from a member's own input (`fundedWith`) runs on that input's key first. Retired
+   * allocations are never picked. A subscription funding carries a `fallback` only when the Bank owns a key for it: a
+   * donor-key allocation's, or the api-key input's own. Throws `NoCredential` when the Bank holds nothing that can run
+   * it: the host env is never consulted (post-mortem 2026-10-30).
+   */
+  fundingFor(buildingId: string, opts: { grant?: { id: string; fundedWith: string | null } | null; now?: Date } = {}): Funding {
+    const now = opts.now ?? new Date();
+    const bank = this.bank;
+    const gi = bank.grantKeyInput(opts.grant, now);
+    const own = gi ? bank.apiKeyCredential(gi.id) : null;
+    if (gi && own) return { allocationId: null, auth: "api-key", credential: own, inputId: gi.id };
+    const withFallback = (f: Funding): Funding => {
+      const fb = this.fallbackAllocation(buildingId);
+      const donor = fb ? this.apiKeyFor(fb) : null;
+      const input = bank.fallbackInput(buildingId, now);
+      const credential: Credential | null = donor ? { kind: "api-key", secret: donor, inputId: null } : input ? bank.apiKeyCredential(input.id) : null;
+      return credential ? { ...f, fallback: { allocationId: fb?.id ?? null, credential } } : f;
+    };
+    const subscription = (allocationId: string | null): Funding => {
+      const credential = bank.subscriptionCredential();
+      if (!credential) throw new NoCredential(this.repos.bankInputs.first("source = 'subscription' AND cancelledAt IS NULL", []) ? NO_TOKEN_HOLD : undefined);
+      return withFallback({ allocationId, auth: "subscription", credential });
+    };
+    /** an api-key share or allocation: the keyed api-key input, else the subscription (recorded as such) */
+    const keyed = (allocationId: string | null, credential: Credential | null): Funding =>
+      credential ? { allocationId, auth: "api-key", credential } : subscription(allocationId);
+    const sub = this.pickAllocation(buildingId, ["subscription"]);
+    if (sub) return subscription(sub.id);
+    const share = bank.fundingFor(buildingId, now);
+    if (share) return share.kind === "expiring" ? subscription(null) : keyed(null, bank.apiKeyCredential(share.inputId));
+    const alloc = this.pickAllocation(buildingId);
+    if (alloc?.auth === "donor-key") {
+      const key = this.apiKeyFor(alloc);
+      return key ? { allocationId: alloc.id, auth: "donor-key", credential: { kind: "api-key", secret: key, inputId: null } } : subscription(alloc.id);
+    }
+    if (alloc) return keyed(alloc.id, bank.apiKeyCredential());
+    const credential = bank.townCredential();
+    return { allocationId: null, auth: credential.kind, credential };
+  }
+
+  /** Why nothing in the building may start (the Bank holds no credential that can run it), or null. */
+  credentialHold(buildingId: string, now = new Date()): string | null {
+    try { this.fundingFor(buildingId, { now }); return null; }
+    catch (e) { if (e instanceof NoCredential) return e.message; throw e; }
   }
 
   /** Secret: the donor's Anthropic API key for a donor-key allocation (null for subscription / town api-key allocations). */
@@ -140,8 +204,8 @@ export class Budget {
     const a = this.repos.agents.require(agentId, "agent");
     const bid = a.homeBuildingId ?? a.buildingId;
     if (!bid) return false;
-    // a hosted collective with no API key of its own: everything waits (the held assignment says why)
-    if (this.keyHold?.()) {
+    // nothing in the Bank can run it (a fresh town, a hosted collective before its owner adds a key): everything waits (the held assignment says why)
+    if (this.credentialHold(bid)) {
       if (assignment) this.holdReason(assignment);
       return false;
     }
@@ -175,9 +239,9 @@ export class Budget {
     return this.bank.capState(now).reason;
   }
 
-  /** Why `assignment` is held (null = may run): the no-key hold (hosted), the cap hold, else the lane gate; kept on the pending assignment as `heldReason`. */
+  /** Why `assignment` is held (null = may run): the credential hold, the cap hold, else the lane gate; kept on the pending assignment as `heldReason`. */
   holdReason(assignment: Assignment): string | null {
-    const reason = this.keyHold?.() ?? this.capHold(assignment.buildingId) ?? this.gate?.(assignment) ?? null;
+    const reason = this.credentialHold(assignment.buildingId) ?? this.capHold(assignment.buildingId) ?? this.gate?.(assignment) ?? null;
     const cur = this.repos.assignments.get(assignment.id);
     if (cur && cur.status === "pending" && (cur.heldReason ?? null) !== reason) this.repos.assignments.upsert({ ...cur, heldReason: reason });
     return reason;

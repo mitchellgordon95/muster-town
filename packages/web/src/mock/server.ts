@@ -731,7 +731,7 @@ export class MockApi implements Api {
     await wait();
     const input: BankInput = {
       id: newId("bi"), userId: "us_mitchell", label: i.label, source: i.source, model: i.model, tokens: i.tokens, recurrence: i.recurrence ?? "once",
-      weeklyCapTokens: i.weeklyCapTokens ?? null, nextCreditAt: null, creditedTokens: i.tokens, hasApiKey: !!i.apiKey, cancelledAt: null, createdAt: now(),
+      weeklyCapTokens: i.weeklyCapTokens ?? null, nextCreditAt: null, creditedTokens: i.tokens, hasApiKey: !!(i.apiKey || i.token), cancelledAt: null, createdAt: now(),
     };
     this.bankInputs.push(input);
     this.sim.event("bank.input", null, `Mitchell added ${i.label} to the Bank`, {}, null);

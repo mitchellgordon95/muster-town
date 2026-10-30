@@ -12,7 +12,7 @@ const logs: string[] = [];
 const deps = (sdk: ReturnType<typeof fakeSdk>, extra = {}) => ({
   town: new TownClient({ baseUrl: town.url, token: TOKEN, backoffMs: [5, 5], restartBackoffMs: [5, 5] }),
   sdk,
-  env: { AGENT_TOWN_TOKEN: TOKEN } as NodeJS.ProcessEnv,
+  env: { AGENT_TOWN_TOKEN: TOKEN, CLAUDE_CODE_OAUTH_TOKEN: "sk-ant-oat01-test-token", DESK_AUTH: "subscription" } as NodeJS.ProcessEnv, // the runtime always hands a desk one credential
   log: (l: string) => logs.push(l),
   controlIntervalMs: 20,
   flushMs: 10,
@@ -84,13 +84,13 @@ describe("runSession", () => {
 
     expect(town.ends).toHaveLength(1);
     const counts = { input: 100, output: 10, cacheRead: 0, cacheWrite5m: 0, cacheWrite1h: 0 };
-    expect(town.ends[0]).toEqual({ session: "s1", tokens: 110, counts, byModel: { m: counts }, costUsd: 0.5, turns: 1, reportSubmitted: true, sdkSessionId: "sdk-1", finalText: "Report filed.", wallMs: expect.any(Number) });
+    expect(town.ends[0]).toEqual({ session: "s1", tokens: 110, counts, byModel: { m: counts }, costUsd: 0.5, turns: 1, reportSubmitted: true, sdkSessionId: "sdk-1", finalText: "Report filed.", wallMs: expect.any(Number), fundingUsed: "subscription" });
   });
 
   it("honours DESK_MODEL / DESK_MAX_TURNS overrides", async () => {
     town.briefs.set("s1", brief("s1"));
     const sdk = fakeSdk(async function* () { yield assistant({ type: "text", text: "hi" }); });
-    await runSession("s1", deps(sdk, { env: { AGENT_TOWN_TOKEN: TOKEN, DESK_MODEL: "claude-haiku-5-5", DESK_MAX_TURNS: "7" } }));
+    await runSession("s1", deps(sdk, { env: { AGENT_TOWN_TOKEN: TOKEN, CLAUDE_CODE_OAUTH_TOKEN: "sk-ant-oat01-test-token", DESK_MODEL: "claude-haiku-5-5", DESK_MAX_TURNS: "7" } }));
     expect(sdk.sessions[0]!.params.options!.model).toBe("claude-haiku-5-5");
     expect(sdk.sessions[0]!.params.options!.maxTurns).toBe(7);
   });

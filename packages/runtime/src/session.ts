@@ -6,10 +6,10 @@ import { existsSync, readdirSync, readFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
 import type { DesksConfig } from "@muster-town/schema";
-import { AppError, NO_KEY_HOLD, type World } from "@muster-town/core";
+import { AppError, NoCredential, type Credential, type Funding, type World } from "@muster-town/core";
 import { rawTokens, splitRaw, VERB_NAMES, type AllocationAuth, type Session, type VerbName } from "@muster-town/schema";
 import { describeTool } from "./describe.ts";
-import { blocksOf, hostApiKey, InputChannel, noUsage, sessionEnv, usageOf, type LooseMessage, type Options, type QueryHandle, type Sdk, type Usage } from "./sdk.ts";
+import { assertNoEnvCredentials, blocksOf, InputChannel, noUsage, sessionEnv, usageOf, type LooseMessage, type Options, type QueryHandle, type Sdk, type Usage } from "./sdk.ts";
 
 export interface Ctx {
   world: World;
@@ -30,7 +30,7 @@ export interface Ctx {
   claudeDir?: string;
   /** the host env funding and sessions allowlist from (a hosted runtime's scrubbed `hostedEnv`); default process.env */
   env?: NodeJS.ProcessEnv;
-  /** a hosted collective's runtime: sessions run on its own API key only, never the host's login (see `keyless`) */
+  /** a hosted collective's runtime: its own Bank only (no subscription inputs), in a scrubbed env (`hostedEnv`) */
   hosted?: boolean;
   /** register background work so tests (and stop()) can await it */
   track<T>(p: Promise<T>): Promise<T>;
@@ -113,77 +113,38 @@ export function chargeUsage(world: World, agentId: string, u: Pick<Usage, "token
   }
 }
 
-/** How a session is paid for. `auth` null: nothing funds it (no allocation, no Bank share); the env's own login is used. */
-export interface Funding {
-  allocationId: string | null;
-  auth: AllocationAuth | null;
-  /** the API key to run on (donor-key: the donor's; api-key: the input's or the env's ANTHROPIC_API_KEY); null for the subscription */
-  apiKey: string | null;
-  /** subscription sessions: the donor-key / api-key allocation a desk fails over to when the subscription hits its spend limit */
-  fallback?: { allocationId: string | null; apiKey: string };
-  /** member funding: the grant's own api-key input the session runs on (its key), when it has one */
-  inputId?: string;
-}
+export type { Funding };
 
 /**
- * Funding for an agent's next session, in order: the building's subscription allocations → its Bank share (today's
- * subscription share runs on the server's own login; the durable share on the oldest API-key input) → donor-key
- * allocations → api-key allocations. Retired allocations are never picked. A subscription funding carries a `fallback`
- * only when something in the Bank owns the key it would fail over to: a donor-key allocation's key, or the Bank's
- * api-key input's own key (`fallbackInput`). The host's `ANTHROPIC_API_KEY` is never a fallback and never a source
- * once the host has a subscription token (`hostApiKey`): an api-key share or allocation with no key of its own then
- * runs on the subscription and is recorded as such. Post-mortem 2026-10-30.
+ * Funding for an agent's next session: the Bank's one answer (`Budget.fundingFor`) for the agent's building. The host
+ * env is never consulted; the Bank holding nothing that can run it throws `NoCredential` (post-mortem 2026-10-30).
  */
-export function fundingFor(world: World, agentId: string, env: NodeJS.ProcessEnv = process.env): Funding {
+export function fundingFor(world: World, agentId: string): Funding {
   const bid = homeOf(world, agentId);
-  if (!bid) return { allocationId: null, auth: null, apiKey: null };
-  const hostKey = hostApiKey(env);
-  const onToken = !!env.CLAUDE_CODE_OAUTH_TOKEN;
-  /** an api-key share or allocation: on its key when it has one, else the host's (no token), else the subscription */
-  const keyed = (allocationId: string | null, key: string | null): Funding =>
-    key ? { allocationId, auth: "api-key", apiKey: key } : { allocationId, auth: onToken ? "subscription" : "api-key", apiKey: null };
-  const withFallback = (f: Funding): Funding => {
-    if (f.auth !== "subscription") return f;
-    const fb = world.budget.fallbackAllocation(bid);
-    const input = world.bank.fallbackInput(bid);
-    const key = (fb && world.budget.apiKeyFor(fb)) || (input && world.bank.apiKeyFor(input.id)) || null;
-    return key ? { ...f, fallback: { allocationId: fb?.id ?? null, apiKey: key } } : f;
-  };
-  const sub = world.budget.pickAllocation(bid, ["subscription"]);
-  if (sub) return withFallback({ allocationId: sub.id, auth: "subscription", apiKey: null });
-  const bank = world.bank.fundingFor(bid);
-  if (bank) {
-    if (bank.kind === "expiring") return withFallback({ allocationId: null, auth: "subscription", apiKey: null });
-    return keyed(null, (bank.inputId ? world.bank.apiKeyFor(bank.inputId) : null) ?? hostKey);
-  }
-  const alloc = world.budget.pickAllocation(bid);
-  if (!alloc) return { allocationId: null, auth: null, apiKey: null };
-  if (alloc.auth === "donor-key") return { allocationId: alloc.id, auth: "donor-key", apiKey: world.budget.apiKeyFor(alloc) };
-  return alloc.auth === "subscription" ? withFallback({ allocationId: alloc.id, auth: "subscription", apiKey: null }) : keyed(alloc.id, hostKey);
+  if (!bid) throw new NoCredential(`${world.nameOf(agentId)} has no building to be funded through`);
+  return world.budget.fundingFor(bid);
 }
+
 
 /**
  * Funding for a session on an assignment: when the assignment's grant was funded from a member's own live api-key input
  * with a balance (`fundedWith`), the session runs on that input's key (the Bank debits that input first, see
  * Bank.drawFromInput). Otherwise, or without an assignment, the building's choice (`fundingFor`).
  */
-export function fundingForSession(world: World, agentId: string, assignmentId: string | null | undefined, env: NodeJS.ProcessEnv = process.env): Funding {
+export function fundingForSession(world: World, agentId: string, assignmentId: string | null | undefined): Funding {
+  const bid = homeOf(world, agentId);
+  if (!bid) throw new NoCredential(`${world.nameOf(agentId)} has no building to be funded through`);
   const asg = assignmentId ? world.assignments.get(assignmentId) : undefined;
-  const input = asg?.grantId && homeOf(world, agentId) ? world.bank.grantKeyInput(world.grants.get(asg.grantId)) : null;
-  const key = input ? world.bank.apiKeyFor(input.id) : null;
-  if (input && key) return { allocationId: null, auth: "api-key", apiKey: key, inputId: input.id };
-  return fundingFor(world, agentId, env);
+  const grant = asg?.grantId ? world.grants.get(asg.grantId) ?? null : null;
+  return world.budget.fundingFor(bid, { grant });
 }
-
-/** A hosted runtime's funding with no API key of its own: the call is refused (held, "No key yet"), never run on another login. */
-export const keyless = (ctx: Ctx, f: Pick<Funding, "apiKey">): boolean => !!ctx.hosted && !f.apiKey;
 
 /** "funded by subscription" / "funded by API key" / "funded by a donor's API key", for status lines. */
 export function fundedBy(auth: AllocationAuth | null | undefined): string {
   return auth === "subscription" ? "funded by subscription" : auth === "donor-key" ? "funded by a donor's API key" : auth === "api-key" ? "funded by API key" : "unfunded";
 }
 
-export function townOptions(ctx: Ctx, spec: SessionSpec, apiKey: string | null): Options {
+export function townOptions(ctx: Ctx, spec: SessionSpec, credential: Credential): Options {
   const token = ctx.world.tokens.getOrCreate("agent", spec.agentId);
   const townTools = spec.verbs ? spec.verbs.map((v) => `mcp__town__${v}`) : TOWN_TOOLS;
   return {
@@ -197,7 +158,7 @@ export function townOptions(ctx: Ctx, spec: SessionSpec, apiKey: string | null):
     allowedTools: [...townTools, ...(spec.web ? WEB_TOOLS : [])],
     disallowedTools: [...DISALLOWED_TOOLS, ...(spec.web ? [] : WEB_TOOLS), ...TOWN_TOOLS.filter((t) => !townTools.includes(t))],
     settingSources: [],
-    env: sessionEnv(apiKey, ctx.env),
+    env: sessionEnv(credential, ctx.env),
   };
 }
 
@@ -231,8 +192,8 @@ export async function runAgentSession(ctx: Ctx, spec: SessionSpec): Promise<Sess
   const { world } = ctx;
   const agent = world.agents.require(spec.agentId, "agent");
   const bid = homeOf(world, agent.id);
-  const funding = fundingForSession(world, agent.id, spec.assignmentId, ctx.env);
-  if (keyless(ctx, funding)) throw new AppError("conflict", `${agent.name} is held: ${NO_KEY_HOLD}`);
+  const funding = fundingForSession(world, agent.id, spec.assignmentId);
+  assertNoEnvCredentials(ctx.env); // a credential in the host env is a second auth source: refuse before a session row exists
   const session = world.ops.startSession(agent.id, { purpose: spec.purpose, model: spec.model, assignmentId: spec.assignmentId ?? null, meetingId: spec.meetingId ?? null, backend: "host", funding: funding.auth, inputId: funding.inputId ?? null });
   const live: LiveSession = { kind: "host", agentId: agent.id, sessionId: session.id, purpose: spec.purpose, input: new InputChannel(), q: null, reportSubmitted: false, stopped: false };
   // work and manage sessions take interrupts and count as the agent's live session (scheduler, redeploy drain, abort)
@@ -254,7 +215,7 @@ export async function runAgentSession(ctx: Ctx, spec: SessionSpec): Promise<Sess
     if (queued.length) world.ops.ackInterrupts(queued.map((i) => i.id));
   }
   try {
-    const q = ctx.sdk.query({ prompt: live.input, options: townOptions(ctx, spec, funding.apiKey) });
+    const q = ctx.sdk.query({ prompt: live.input, options: townOptions(ctx, spec, funding.credential) });
     live.q = q;
     for await (const raw of q) {
       const m = raw as LooseMessage;

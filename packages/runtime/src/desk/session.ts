@@ -7,7 +7,7 @@ import { execFileSync } from "node:child_process";
 import { AppError, codeWorkspace, deskPreset, REPO_TOKEN_SECRET, type World } from "@muster-town/core";
 import { townEnvBoth, type AllocationAuth, type DeskActivityInput, type DesksConfig, type Session } from "@muster-town/schema";
 import { describeTool } from "../describe.ts";
-import { hostApiKey, InputChannel } from "../sdk.ts";
+import { credentialEnv, InputChannel } from "../sdk.ts";
 import { clipJson, clipThought, fundedBy, fundingFor, fundingForSession, homeOf, type Ctx, type Funding, type LiveSession } from "../session.ts";
 import { finishWorkSession, preflightWork, walkToDesk } from "../work.ts";
 import { DESK_BIN, type DeskBackend } from "./backend.ts";
@@ -40,35 +40,20 @@ export function portOf(mcpUrl: string): string {
   }
 }
 
-export type DeskAuthMode = AllocationAuth | "none";
+export type DeskAuthMode = AllocationAuth;
 
 /** The env var carrying the API key a desk fails over to when the subscription hits its spend limit. */
 export const FALLBACK_KEY_ENV = "AGENT_TOWN_FALLBACK_API_KEY";
 
 /**
- * Credentials for a desk session from its funding. Subscription → `CLAUDE_CODE_OAUTH_TOKEN` from the collective's
- * .env (ANTHROPIC_API_KEY is then NOT passed, since Claude Code prefers an API key when both are set), plus the
- * fallback key in AGENT_TOWN_FALLBACK_API_KEY when the funding carries one (a key the Bank owns, never the host's).
- * Donor-key → the donor's key. Api-key → the funding's key, else the host's key when the host has no token
- * (`hostApiKey`), else the token. Unfunded → the token, else the host key. Values are secrets: never log them.
+ * Credentials for a desk session from its funding: exactly one, the Bank's. Subscription → `CLAUDE_CODE_OAUTH_TOKEN`
+ * (the subscription input's token), plus the fallback key in AGENT_TOWN_FALLBACK_API_KEY when the Bank owns one for it.
+ * Donor-key / api-key → `ANTHROPIC_API_KEY`. Nothing comes from the host env. Values are secrets: never log them.
  */
-export function deskAuth(funding: Pick<Funding, "auth" | "apiKey" | "fallback">, env: NodeJS.ProcessEnv = process.env): { mode: DeskAuthMode; env: Record<string, string> } {
-  const token = env.CLAUDE_CODE_OAUTH_TOKEN || null;
-  const envKey = hostApiKey(env);
-  const sub = (): { mode: DeskAuthMode; env: Record<string, string> } => ({
-    mode: "subscription",
-    env: { CLAUDE_CODE_OAUTH_TOKEN: token!, ...(funding.fallback?.apiKey ? { [FALLBACK_KEY_ENV]: funding.fallback.apiKey } : {}) },
-  });
-  if (funding.auth === "donor-key" && funding.apiKey) return { mode: "donor-key", env: { ANTHROPIC_API_KEY: funding.apiKey } };
-  if (funding.auth === "subscription" && token) return sub();
-  if (funding.auth === "subscription" || funding.auth === "api-key") {
-    // a subscription with no token in the env can only run on the key
-    const key = funding.auth === "api-key" ? funding.apiKey ?? envKey : funding.fallback?.apiKey ?? envKey;
-    if (key) return { mode: "api-key", env: { ANTHROPIC_API_KEY: key } };
-  }
-  if (token) return sub();
-  if (envKey) return { mode: "api-key", env: { ANTHROPIC_API_KEY: envKey } };
-  return { mode: "none", env: {} };
+export function deskAuth(funding: Pick<Funding, "auth" | "credential" | "fallback">): { mode: DeskAuthMode; env: Record<string, string> } {
+  const env = credentialEnv(funding.credential);
+  if (funding.credential.kind === "subscription" && funding.fallback) env[FALLBACK_KEY_ENV] = funding.fallback.credential.secret;
+  return { mode: funding.auth, env };
 }
 
 /**
@@ -103,7 +88,7 @@ export function deskEnv(ctx: Ctx, session: Session, opts: DeskSessionOptions = {
     ...(agent.forkOf ? gitIdentityEnv(agent.name) : {}),
   };
   Object.assign(env, grantedSecrets(ctx, session, building.id));
-  const auth = deskAuth(funding ?? fundingFor(world, agent.id, ctx.env), ctx.env);
+  const auth = deskAuth(funding ?? fundingFor(world, agent.id));
   Object.assign(env, auth.env);
   env.DESK_AUTH = auth.mode; // a label, not a secret: the desk logs it
   console.log(`[runtime] ${agent.name} session ${session.id} auth: ${auth.mode}${auth.env[FALLBACK_KEY_ENV] ? " (API-key fallback ready)" : ""}`);
@@ -169,9 +154,9 @@ export async function runDeskSession(ctx: Ctx, backend: DeskBackend, starting: S
       // a new desk sandbox (Machine or container): its create time, the cost a warm desk slot avoids
       world.events.append({ type: "agent.activity", agentId, buildingId: building.id, text: `New desk ${handle.name} created in ${(handle.createdMs / 1000).toFixed(1)} s`, payload: { desk: handle.name, createdMs: handle.createdMs, forkOf: agent.forkOf ?? null } });
     }
-    const funding = fundingForSession(world, agentId, assignmentId, ctx.env);
-    const mode = deskAuth(funding, ctx.env).mode;
-    session = world.ops.startSession(agentId, { purpose: "work", model: agent.model ?? building.model, assignmentId, backend: "docker", funding: mode === "none" ? null : mode, inputId: funding.inputId ?? null, size: handle.size ?? null });
+    const funding = fundingForSession(world, agentId, assignmentId);
+    const mode = funding.auth;
+    session = world.ops.startSession(agentId, { purpose: "work", model: agent.model ?? building.model, assignmentId, backend: "docker", funding: mode, inputId: funding.inputId ?? null, size: handle.size ?? null });
     if (handle.sizeFallback && handle.size) {
       // gr_uhh6u39vv9 step 3: past the town-wide desk bill cap a session still starts, on the cheaper size
       const bill = world.deskBill();
@@ -179,7 +164,7 @@ export async function runDeskSession(ctx: Ctx, backend: DeskBackend, starting: S
     }
     ctx.deskAllocations.set(session.id, funding.allocationId);
     ctx.deskFallbacks.set(session.id, funding.fallback?.allocationId ?? null);
-    world.events.append({ type: "agent.activity", agentId, buildingId: building.id, text: `Starting work (${fundedBy(mode === "none" ? null : mode)})`, payload: { sessionId: session.id, purpose: "work", backend: "docker", funding: mode } });
+    world.events.append({ type: "agent.activity", agentId, buildingId: building.id, text: `Starting work (${fundedBy(mode)})`, payload: { sessionId: session.id, purpose: "work", backend: "docker", funding: mode } });
     const argv = [DESK_BIN, "run", "--session", session.id];
     const child = backend.exec(handle, argv, deskEnv(ctx, session, opts, funding), (stream, line) => {
       (stream === "stderr" ? console.warn : console.log)(`[desk ${handle.name}] ${line}`);

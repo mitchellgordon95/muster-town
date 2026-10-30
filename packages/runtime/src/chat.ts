@@ -1,9 +1,9 @@
 /** Proxy chat: one cheap call, no tools. The librarian (`service`) answers from the library index + search hits. */
-import { AppError, codeWorkspace, managerAgentOf, NO_KEY_HOLD, searchDocs } from "@muster-town/core";
+import { AppError, codeWorkspace, managerAgentOf, NoCredential, searchDocs, type Funding } from "@muster-town/core";
 import { ChatInput } from "@muster-town/schema";
 import { chatContext, chatSystemPrompt, historyBlock, librarianContext, librarianSystemPrompt, memoryBlock, recentWorkBlock } from "@muster-town/core";
 import { oneShot } from "./sdk.ts";
-import { chargeUsage, fundingFor, homeOf, keyless, type Ctx } from "./session.ts";
+import { chargeUsage, fundingFor, homeOf, type Ctx } from "./session.ts";
 import { latestReport } from "./work.ts";
 
 const LIBRARY_INDEX_LIMIT = 200;
@@ -30,9 +30,10 @@ export async function chat(ctx: Ctx, agentId: string, raw: (typeof ChatInput)["_
     context = chatContext(agent, assignment, latestReport(ctx, agentId), world.events.recent({ agentId, limit: 40 }),
       { recentWork: recentWorkBlock(world, agentId, { readHint: false }), memory: memoryBlock(world, agentId) });
   }
-  const funding = fundingFor(world, agentId, ctx.env);
-  if (keyless(ctx, funding)) return { reply: `(${agent.name} can't answer yet: ${NO_KEY_HOLD})` };
-  const out = await oneShot(ctx.sdk, { model, system, prompt: `${context}\n\n${historyBlock(input.history, input.message)}`, apiKey: funding.apiKey, env: ctx.env });
+  let funding: Funding;
+  try { funding = fundingFor(world, agentId); }
+  catch (e) { if (e instanceof NoCredential) return { reply: `(${agent.name} can't answer yet: ${e.message})` }; throw e; }
+  const out = await oneShot(ctx.sdk, { model, system, prompt: `${context}\n\n${historyBlock(input.history, input.message)}`, credential: funding.credential, env: ctx.env });
   chargeUsage(world, agentId, out, funding.allocationId, model);
   if (!out.text) return { reply: out.error ? `(${agent.name} can't answer right now: ${out.error})` : `(${agent.name} has nothing to say.)` };
   return { reply: out.text };

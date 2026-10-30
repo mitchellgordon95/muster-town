@@ -91,6 +91,15 @@ export function slugProblem(slug: string): string | null {
  * Why a hosted collective's key is refused (null: fine, or empty). An Anthropic Console API key only: Anthropic does
  * not let a third party collect or store Claude.ai credentials, so subscription tokens (`sk-ant-oat…`) are refused.
  */
+/** Why `token` can't be a subscription input's token (a Claude Code OAuth token from `claude setup-token`, `sk-ant-oat…`), or null. */
+export function oauthTokenProblem(token: string): string | null {
+  const t = token.trim();
+  if (!t) return null;
+  if (t.startsWith("sk-ant-api")) return "That is an Anthropic API key: add it as an api-key input instead.";
+  if (!/^sk-ant-oat\S{8,}$/.test(t)) return "A Claude subscription token starts with sk-ant-oat (run `claude setup-token`).";
+  return null;
+}
+
 export function apiKeyProblem(key: string): string | null {
   const k = key.trim();
   if (!k) return null;
@@ -292,6 +301,7 @@ export const BankInput = z.object({
   /** next renewal; null once a one-time input has credited or the input is cancelled */
   nextCreditAt: Iso.nullable().default(null),
   creditedTokens: z.number().int().nonnegative().default(0),
+  /** the input holds its credential: an api-key input's API key, a subscription input's OAuth token (the secret column; never returned) */
   hasApiKey: z.boolean().default(false),
   cancelledAt: Iso.nullable().default(null),
   createdAt: Iso,
@@ -1750,7 +1760,10 @@ export const AddBankInput = z.object({
   weeklyCapTokens: z.number().int().positive().optional(),
   /** first renewal for a recurring input (default: now) */
   nextCreditAt: Iso.optional(),
+  /** api-key inputs: the Anthropic API key (required) */
   apiKey: z.string().min(1).optional(),
+  /** subscription inputs: the Claude Code OAuth token from `claude setup-token` (required): the Bank is the only place a credential lives */
+  token: z.string().min(1).optional(),
 });
 export type AddBankInput = z.input<typeof AddBankInput>;
 /** POST /api/bank/pools (admin). `pct` null or left out: the pool splits what's left equally with the others. */

@@ -28,6 +28,8 @@ afterEach(async () => { while (cleanups.length) await cleanups.pop()!(); });
 async function setup() {
   const world = World.open(":memory:");
   const seed = world.seedDefaults({ importDir: join(REPO_ROOT, "buildings/carbon-cycle"), townJsonPath: join(REPO_ROOT, "town.json") });
+  // the Bank is the only place a credential lives: the test town's subscription token (never credited: first renewal far off)
+  world.bank.addInput(seed.admin.id, { label: "Test subscription", source: "subscription", model: "claude-sonnet-5-5", tokens: 1, recurrence: "daily", weeklyCapTokens: 1, nextCreditAt: "2099-01-01T00:00:00.000Z", token: "sk-ant-oat01-test-subscription-token" });
   const desk = new FakeDesk();
   const runtime = startRuntime({ world, mcpUrl: "http://127.0.0.1:4321/mcp", intervalMs: 0, exportDir: false, deskBackend: desk, killGraceMs: 0 });
   const app = await buildApp({ world, dev: true, runtime, webDist: false });

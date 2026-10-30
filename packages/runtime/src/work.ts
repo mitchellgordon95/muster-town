@@ -1,7 +1,13 @@
 /** Resident work sessions (host backend + shared end-of-session logic), interrupts, and reviewer sessions over the in-tray. */
-import { AppError, appendAgentLog, chainBlock, codeWorkspace, createDoc, fallbackReportBody, FALLBACK_REPORT_PREFIX, latestReportOf, recentWorkBlock, sessionMemory, sessionView, setAssignmentStatus, skillsBlock, workPrompt, workSystemPrompt } from "@muster-town/core";
+import { AppError, NoCredential, type World, appendAgentLog, chainBlock, codeWorkspace, createDoc, fallbackReportBody, FALLBACK_REPORT_PREFIX, latestReportOf, recentWorkBlock, sessionMemory, sessionView, setAssignmentStatus, skillsBlock, workPrompt, workSystemPrompt } from "@muster-town/core";
 import { countsOf, rawTokens, splitRaw, type Agent, type AllocationAuth, type Assignment, type Building, type Doc, type Session, type TokenCounts } from "@muster-town/schema";
 import { chargeUsage, fundingFor, homeOf, runAgentSession, type Ctx } from "./session.ts";
+
+/** The allocation a session of this agent would be charged to now, or null (also when the Bank holds no credential: the spend is still recorded). */
+function allocationOf(world: World, agentId: string): string | null {
+  try { return fundingFor(world, agentId).allocationId; }
+  catch (e) { if (e instanceof NoCredential) return null; throw e; }
+}
 
 
 export function latestReport(ctx: Ctx, agentId: string): Doc | undefined {
@@ -28,8 +34,8 @@ export function preflightWork(ctx: Ctx, starting: Set<string>, agentId: string, 
   if (agent.status === "banned" || agent.status === "stopped" || agent.status === "retired") throw new AppError("conflict", `${agent.name} is ${agent.status}.`);
   const bid = homeOf(world, agentId);
   if (!bid) throw new AppError("bad_request", `${agent.name} has no building.`);
-  // a hosted collective with no key of its own: held, not out of budget ("No key yet")
-  const keyHold = world.budget.keyHold?.();
+  // the Bank holds nothing that can run it (a fresh town, a hosted collective before its owner adds a key): held, not out of budget
+  const keyHold = world.budget.credentialHold(bid);
   if (keyHold) throw new AppError("conflict", `${agent.name} is held: ${keyHold}`);
   if (!world.budget.canStart(agentId)) {
     if (agent.kind === "resident") world.setStatus(agentId, "out-of-budget");
@@ -158,7 +164,7 @@ export async function finishWorkSession(ctx: Ctx, sessionId: string, o: WorkOutc
   // the allocation that actually funded it: the fallback one when the desk failed over from the subscription
   const charged = o.fallback
     ? ctx.deskFallbacks.get(sessionId) ?? (bid ? world.budget.fallbackAllocation(bid)?.id ?? null : null)
-    : allocationId !== undefined ? allocationId : ctx.deskAllocations.has(sessionId) ? ctx.deskAllocations.get(sessionId) ?? null : fundingFor(world, agentId, ctx.env).allocationId;
+    : allocationId !== undefined ? allocationId : ctx.deskAllocations.has(sessionId) ? ctx.deskAllocations.get(sessionId) ?? null : allocationOf(world, agentId);
   chargeUsage(world, agentId, { ...usage, byModel: o.byModel ?? undefined }, charged, ended.model, ended.grantId);
   ctx.deskAllocations.delete(sessionId);
   ctx.deskFallbacks.delete(sessionId);

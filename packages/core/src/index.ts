@@ -2,14 +2,14 @@
  * @muster-town/core — SQLite-backed world: store, layout/pathfinding/tick, verbs, permissions,
  * budgets, events, git export, v0 import, seed. No framework imports.
  */
-export { NO_KEY_HOLD, World, type HostHooks, type SnapshotMessage } from "./world.ts";
+export { World, type HostHooks, type SnapshotMessage } from "./world.ts";
 export { AppError, forbidden, notFound, badRequest, isAppError, type ErrorCode } from "./errors.ts";
 export { openDb, migrate, integrityCheck, sealCopy, type DB } from "./db.ts";
 export { Table, whereOf, type ObjSchema, type SqlFragment, type TableOptions } from "./table.ts";
 export { Memberships, Tokens, Users, BankInputs, TownMeta, type Repos, type TokenRow, type TokenKind } from "./store.ts";
 export { EventLog, type NewEvent, type EventQuery, type EventType } from "./events.ts";
 export { Permissions, holderOf, isAgent, townRoleId, buildingRoleId, type Holder, type BuildingRoleName, type TownRoleName } from "./permissions.ts";
-export { Budget, PLACEHOLDER_LABEL, startOfLocalDay, type ChargeResult, type BudgetSummary } from "./budget.ts";
+export { Budget, PLACEHOLDER_LABEL, startOfLocalDay, type ChargeResult, type BudgetSummary, type Funding } from "./budget.ts";
 export { Skills, parseSkillMd, skillsBlock, type SessionSkill, type SkillMd } from "./skills.ts";
 export { Transcripts, TRANSCRIPT_DEFAULT_DAYS, TRANSCRIPT_MAX_BYTES, TRANSCRIPT_MAX_UPLOAD, brotli, type TranscriptInfo } from "./transcripts.ts";
 export { Media, MEDIA_MAX_BYTES, MEDIA_DAILY_BYTES, MEDIA_TYPES, mediaUrl, type MediaInfo } from "./media.ts";
@@ -17,7 +17,7 @@ export { Secrets, REPO_TOKEN_SECRET, dataKeyFrom, encryptSecret, decryptSecret }
 export { townKpis, kpiByKey, KPI_WEEKS, JOIN_RETURN_DAYS } from "./kpis.ts";
 export { Goals, type GoalNode, type GoalProposalView } from "./goals.ts";
 export { Grants, quarterOf, type ObjectiveView, type ObjectiveTree, EXPLORATION_SHARE, CHECKPOINTS, BLOCKED_NO_KRS, type ExplorationBudget, type DirectedBudget, type GrantBoard, type GoalKeyResult, type BlockedBuilding } from "./grants.ts";
-export { BANK_ACCOUNTING, Bank, TOKEN_PRICES, adjustedOfUsage, booked, sliceBooked, type Booked, adjustedOutputTokens, listCostUsd, sessionView, tokenPrices, tokenWeights, type BankContributor, type BankSummary } from "./bank.ts";
+export { BANK_ACCOUNTING, Bank, NO_KEY_HOLD, NO_TOKEN_HOLD, NoCredential, TOKEN_PRICES, type Credential, adjustedOfUsage, booked, sliceBooked, type Booked, adjustedOutputTokens, listCostUsd, sessionView, tokenPrices, tokenWeights, type BankContributor, type BankSummary } from "./bank.ts";
 export { financeSummary, townFinance, FINANCE_BURN_DAYS, FINANCE_PROJECTION_DAYS, type FinanceInputs, type FinanceSummary, type OverdrawnBreakdown } from "./finance.ts";
 export { goalSpend, worldGoalSpend, type GoalSpendInputs } from "./goal-spend.ts";
 export { intrayRoutes } from "./intray-routes.ts";

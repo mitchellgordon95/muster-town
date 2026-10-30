@@ -2,6 +2,13 @@ import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { afterEach } from "vitest";
 import { World } from "@muster-town/core";
+
+/** The subscription token the test Bank holds (the Bank is the only place a credential lives; nothing comes from the env). */
+export const TEST_TOKEN = "sk-ant-oat01-test-subscription-token";
+/** Give a seeded world's Bank its subscription credential without crediting it (first renewal far off), so the money model is untouched. */
+export function seedCredential(world: World, adminId: string): void {
+  world.bank.addInput(adminId, { label: "Test subscription", source: "subscription", model: "claude-sonnet-5-5", tokens: 1, recurrence: "daily", weeklyCapTokens: 1, nextCreditAt: "2099-01-01T00:00:00.000Z", token: TEST_TOKEN });
+}
 import type { VerbName } from "@muster-town/schema";
 import { HostBackend, startRuntime, type RuntimeOptions, type Runtime, type Sdk } from "../src/index.ts";
 import type { Options, SDKUserMessage } from "../src/sdk.ts";
@@ -83,6 +90,7 @@ export async function* callVerb(s: FakeSession, verb: VerbName, input: Record<st
 export function setup(script: Script, extra: Partial<RuntimeOptions> = {}) {
   const world = World.open(":memory:");
   const seed = world.seedDefaults({ importDir: join(ROOT, "buildings/carbon-cycle"), townJsonPath: join(ROOT, "town.json") });
+  if (!extra.hosted) seedCredential(world, seed.admin.id); // a hosted collective's Bank starts empty ("No credential yet")
   const sdk = fakeSdk(world, script);
   const clock = { t: new Date("2026-10-19T10:00:00Z").getTime() };
   const runtime: Runtime = startRuntime({ world, mcpUrl: "http://127.0.0.1:4321/mcp", sdk, intervalMs: 0, exportDir: false, now: () => new Date(clock.t), deskBackend: new HostBackend(), ...extra });

@@ -4,7 +4,7 @@
  * EXPORT (<collective>/export), DEV, ADMIN_NAME. Plain PORT (collective.json port or 4321) and HOST (0.0.0.0).
  */
 import { World } from "@muster-town/core";
-import { assertOneCredential } from "@muster-town/runtime";
+import { assertNoEnvCredentials } from "@muster-town/runtime";
 import { townEnv } from "@muster-town/schema";
 import { existsSync, mkdirSync, readFileSync } from "node:fs";
 import { basename, dirname, join, resolve } from "node:path";
@@ -26,8 +26,8 @@ const COLLECTIVE_JSON = join(COLLECTIVE_DIR, "collective.json");
 
 const envKeys = loadEnvFile(join(COLLECTIVE_DIR, ".env"));
 if (envKeys.length) console.log(`[server] loaded ${envKeys.length} key(s) from ${join(COLLECTIVE_DIR, ".env")}: ${envKeys.join(", ")}`);
-// one host credential, or no boot: two (a token and a key) let Claude Code bill the key while the town records the subscription (post-mortem 2026-10-30)
-console.log(`[server] model credential: ${assertOneCredential() ?? "none (the CLI's own login, if any)"}`);
+// no model credential in the host env, or no boot: the Bank is the only auth source (a token and a key in the env let Claude Code bill the key while the town recorded the subscription: post-mortem 2026-10-30)
+assertNoEnvCredentials();
 const collectiveCfg = existsSync(COLLECTIVE_JSON) ? (JSON.parse(readFileSync(COLLECTIVE_JSON, "utf8")) as { port?: number; name?: string }) : {};
 const PORT = Number(process.env.PORT ?? collectiveCfg.port ?? 4321);
 const HOST = process.env.HOST ?? "0.0.0.0";

@@ -50,6 +50,22 @@ arithmetic. The accounting was right about the wrong thing.
 
 ## What changed (shipped 2026-10-30)
 
+Second commit, the same day, after Mitchell's call that all SDK usage must take its credential from the Bank:
+
+- **The Bank is the only place a credential lives.** A subscription input stores its OAuth token (pasted at the Town
+  Hall from `claude setup-token`) in the same secret column an api-key input keeps its key. `Budget.fundingFor` is the
+  one chooser every SDK call goes through (host sessions, chat, meetings, summaries, desks) and returns exactly one
+  `Credential`; a Bank with nothing that can run the session throws `NoCredential`, which holds the work with the reason
+  (`NO_KEY_HOLD`, `NO_TOKEN_HOLD`) and answers the chat. The hosted-collective special case (`keyless`) is gone: it is
+  now the general rule.
+- **The env holds no credential, enforced.** `assertNoEnvCredentials`: the server refuses to boot, and a session refuses
+  to start, if `CLAUDE_CODE_OAUTH_TOKEN`, `ANTHROPIC_API_KEY` or `ANTHROPIC_AUTH_TOKEN` is set in the host env. A desk
+  handed none or two fails. The `CLAUDE_CODE_OAUTH_TOKEN` Fly secret is removed with the key.
+- The first commit's "one credential in the env" rules below are superseded by this; its failover alert and the
+  desk's refusal of two credentials stand.
+
+First commit:
+
 - **One credential per session, or a hard failure.** `assertOneCredential` (runtime `sdk.ts`): the server refuses to
   boot when the host env carries more than one of `CLAUDE_CODE_OAUTH_TOKEN`, `ANTHROPIC_API_KEY`, `ANTHROPIC_AUTH_TOKEN`
   (`packages/server/src/main.ts` logs the one it found). A desk refuses to start a session handed both
@@ -62,8 +78,9 @@ arithmetic. The accounting was right about the wrong thing.
   `deskAuth`). An api-key share or allocation with no key of its own runs on the subscription and is recorded as such.
 - **A failover is never silent.** `finishWorkSession` appends a `system` event with `alert: funding-failover` naming the
   session and what paid; the HUD shows the latest one for a day ("API key spent: …", Bank →).
-- **Ops:** the `ANTHROPIC_API_KEY` Fly secret is gone from `muster-town`; the town runs on the token only. A key the town
-  may spend is added at the Town Hall as a Bank input with its key, where the Bank shows it being drawn down.
+- **Ops:** the `ANTHROPIC_API_KEY` Fly secret is gone from `muster-town` (and, with the second commit, the
+  `CLAUDE_CODE_OAUTH_TOKEN` secret too). Credentials are Bank inputs added at the Town Hall, where the Bank shows them
+  being drawn down.
 - Tests: `runtime/test/secrets.test.ts`, `desk.test.ts`, `work.test.ts`, `hosted.test.ts`, `desk/test/run.test.ts`.
 
 ## Still open (proposals)

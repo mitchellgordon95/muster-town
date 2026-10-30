@@ -73,7 +73,7 @@ export function sessionEnv(env: NodeJS.ProcessEnv): { env: Record<string, string
   if (creds.length > 1) throw new Error(`${creds.join(" and ")} are both set: a desk runs on one model credential`);
   if (out.CLAUDE_CODE_OAUTH_TOKEN) return { env: out, auth: label ?? "subscription token", fallbackKey };
   if (out.ANTHROPIC_API_KEY) return { env: out, auth: label ?? "api key", fallbackKey: null };
-  return { env: out, auth: "none (the CLI's own login, if any)", fallbackKey: null };
+  throw new Error("no model credential: the town hands a desk CLAUDE_CODE_OAUTH_TOKEN or ANTHROPIC_API_KEY from its Bank");
 }
 
 /** The SDK env for the failover rerun: the fallback API key, no subscription token. */

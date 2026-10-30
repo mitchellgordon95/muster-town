@@ -394,7 +394,7 @@ describe("meetings, roles, budget, events, human moves", () => {
     expect(fly.body.rates.source).toContain("fly.io");
     const bank = await json(app, "GET", "/api/bank");
     expect(pools.body.buildings.find((b: any) => b.id === "carbon-cycle")).toMatchObject({ poolId: "general", drawn: 0, held: bank.body.buildings.find((b: any) => b.buildingId === "carbon-cycle").heldTokens });
-    expect(bank.body).toMatchObject({ balanceTokens: 2000, expiringTokens: 0, durableTokens: 2000, inputs: [{ label: "Key", hasApiKey: true }] });
+    expect(bank.body).toMatchObject({ balanceTokens: 2000, expiringTokens: 0, durableTokens: 2000, inputs: expect.arrayContaining([expect.objectContaining({ label: "Key", hasApiKey: true })]) });
     expect(bank.body.buildings.find((b: any) => b.buildingId === "carbon-cycle")).toMatchObject({ pct: 100, explicit: false, durableTokens: 2000 });
     expect(bank.body.pools).toMatchObject([{ id: "general", name: "General", pct: 100, explicit: false, isDefault: true, durableTokens: 2000 }]);
     // accounting pools: create one with 40%, move carbon-cycle into it, rename, delete only when empty

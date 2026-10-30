@@ -42,7 +42,7 @@ meeting of 2026-10-27 17:21Z (mt_6830h8x5qk, decision 6) and waits for the Fund 
      Funding, `sessionEnv`, `oneShot` and `deskAuth` all read it (`Ctx.env`), so the host's key, subscription token and
      `~/.claude` login never reach a hosted session.
    - **Hold.** Core `budget.keyHold`: a hosted World with no live API-key input of its own holds everything with
-     `NO_KEY_HOLD` ("No key yet: add your Anthropic API key at the Bank") as the assignment's `heldReason`; agents stay
+     `NO_KEY_HOLD` ("No credential in the Bank yet: …") as the assignment's `heldReason`; agents stay
      idle, not out of budget, and work starts on the next tick after an admin adds a key. Behind it, a hosted session
      whose funding has no key is refused before the SDK is called (work, manage, chat, Ask about, summaries).
    - **Desks.** In-process (host backend) sessions only: town tools and web, no shell, no file tools, no container, so
@@ -65,7 +65,7 @@ collective.json`); the generic pitch lives only on the homepage's paper card. `P
 
 - An **Anthropic API key** field (a Console key, `sk-ant-api…`). Optional at creation so the 5-minute key result
   holds and the founder can look around first, but nothing runs without it: the collective's agents stay held with the
-  notice "No key yet: add your Anthropic API key at the Bank" until the admin adds one.
+  notice "No key yet" (`NO_KEY_HOLD` on held work) until the admin adds one.
 - The key is stored as the collective's own Bank input (source `api-key`, `POST /<slug>/api/bank/inputs`), in that
   collective's database, the same way the Bank stores API-key inputs today. It is never returned by the API and never
   logged.
@@ -80,12 +80,12 @@ collective.json`); the generic pitch lives only on the homepage's paper card. `P
 
 What the server enforces (step 1 and 3, with tests):
 
-- A hosted World runs with an **empty credential env**: `fundingFor` (packages/runtime/src/session.ts) must see
-  no `ANTHROPIC_API_KEY`, no `CLAUDE_CODE_OAUTH_TOKEN` and no fallback key for a hosted World, so `hostApiKey`
-  there is null and `world.bank.fallbackInput` only finds that collective's own inputs. A session whose
-  funding resolves to `auth: null` or `apiKey: null` in a hosted World is not started: the agent is held with the
-  notice above (today `sessionEnv` would fall through to "none (the CLI's own login, if any)", which on the Fly host
-  is the Workshop's login; that path must be closed for hosted Worlds).
+- A hosted World runs with an **empty credential env** (`hostedEnv`), and since 2026-10-30 so does every World: the
+  Bank is the only place a credential lives (`Budget.fundingFor` resolves one `Credential` from the World's own inputs
+  and allocations, never the env; `assertNoEnvCredentials` refuses a session, and the Workshop's boot, if the env
+  holds one). A hosted Bank refuses subscription inputs, so its only credentials are API keys; with none, every
+  funding throws `NoCredential` and the agent is held with the notice above, which is the same rule the Workshop
+  follows with an empty Bank.
 - Test: a hosted World created while the host env carries both credentials never passes either value to a desk, and
   its first session after the admin adds a key runs with `DESK_AUTH=api-key` and that key.
 - The subscription allocation kinds (`subscription` in `AllocationAuth`, "My subscription (owner)" at the Bank) are

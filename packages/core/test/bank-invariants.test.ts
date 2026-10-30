@@ -35,7 +35,7 @@ describe("bank invariants", () => {
 
   it("after downtime a renewal credits once, and a subscription's catch-up credit expires at the next renewal after now", () => {
     const { world, seed } = seededWorld();
-    const inp = world.bank.addInput(seed.admin.id, { label: "Max plan", source: "subscription", model: "m", tokens: 400, recurrence: "daily", weeklyCapTokens: 100_000 }, T0);
+    const inp = world.bank.addInput(seed.admin.id, { label: "Max plan", source: "subscription", token: "sk-ant-oat01-test-token", model: "m", tokens: 400, recurrence: "daily", weeklyCapTokens: 100_000 }, T0);
     expect(world.bank.balance(at(0.5))).toBe(400);
     // the server is down from day 0.5 to day 5.5: five renewals are missed, one is paid
     expect(world.bank.creditDue(at(5.5))).toBe(400);

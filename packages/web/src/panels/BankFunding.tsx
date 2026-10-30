@@ -84,7 +84,8 @@ export function Donate({ onChange }: { onChange: () => void }) {
   const n = fromMillions(tokens);
   const cap = fromMillions(weeklyCap);
   const amountOk = Number.isFinite(n) && n >= 1;
-  const needsKey = bank ? !sub : auth === "donor-key";
+  // every Bank input carries its credential (an API key, or the subscription's token): the Bank is the only place one lives
+  const needsKey = bank ? true : auth === "donor-key";
   const keyOk = !needsKey || !!apiKey.trim() || (!bank && !!me.user.hasApiKey);
   const ready = amountOk && keyOk && (bank ? !sub || (Number.isFinite(cap) && cap >= 1) : !!building);
   const saveRate = (v: number) => { setRate(v); try { if (v > 0) localStorage.setItem(RATE_KEY, String(v)); } catch { /* private window */ } };
@@ -93,7 +94,7 @@ export function Donate({ onChange }: { onChange: () => void }) {
       await api().addBankInput({
         label: label.trim() || (sub ? `${me.user.name}'s subscription` : `${me.user.name}'s API key`),
         source, model, tokens: n, recurrence: sub ? "daily" : recurrence,
-        weeklyCapTokens: sub ? cap : undefined, apiKey: sub ? undefined : apiKey.trim(),
+        weeklyCapTokens: sub ? cap : undefined, apiKey: sub ? undefined : apiKey.trim(), token: sub ? apiKey.trim() : undefined,
       });
       store.toast(`Added ${fmtTokens(n)} ${ADJ}${sub || recurrence !== "once" ? ` ${sub ? "daily" : recurrence}` : ""} to the Bank`, "ok");
     } else {
@@ -151,8 +152,8 @@ export function Donate({ onChange }: { onChange: () => void }) {
           {bank ? <Field label="Model"><input value={model} onChange={(e) => setModel(e.target.value)} /></Field> : null}
         </div>
         {needsKey ? (
-          <Field label={!bank && me.user.hasApiKey ? "Anthropic API key (optional: you have one stored)" : "Anthropic API key"} hint="Stored server-side, never shown again.">
-            <input type="password" autoComplete="off" value={apiKey} onChange={(e) => setApiKey(e.target.value)} placeholder="sk-ant-…" />
+          <Field label={sub ? "Claude subscription token" : !bank && me.user.hasApiKey ? "Anthropic API key (optional: you have one stored)" : "Anthropic API key"} hint={sub ? "From `claude setup-token` on your machine. Stored server-side, never shown again; the town's sessions run on it." : "Stored server-side, never shown again."}>
+            <input type="password" autoComplete="off" value={apiKey} onChange={(e) => setApiKey(e.target.value)} placeholder={sub ? "sk-ant-oat…" : "sk-ant-api…"} />
           </Field>
         ) : null}
         <div className="foot-note">{bank ? (sub ? "Subscription tokens expire at each daily renewal; buildings spend them first." : "Credited to the Bank and split between the pools by their %.") : AUTH_HINT[auth]}</div>

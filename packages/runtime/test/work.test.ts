@@ -1,5 +1,5 @@
 import { describe, expect, test, vi } from "vitest";
-import { callVerb, deferred, init, result, setup, text, toolUse, type FakeSession } from "./helpers.ts";
+import { callVerb, deferred, init, result, setup, TEST_TOKEN, text, toolUse, type FakeSession } from "./helpers.ts";
 
 const REPORT = { title: "Mauna Loa growth rate", verdict: "continue", body: "## Summary\nGrowth 2.4 ± 0.1 ppm/yr.\n\n## Proposal for next session\nHow does the 13C record attribute the rise?\nBecause attribution matters." };
 
@@ -48,9 +48,9 @@ describe("work session", () => {
     expect(opts.maxTurns).toBe(lab.maxTurnsPerSession);
     expect(opts.model).toBe(lab.model);
     expect(opts.permissionMode).toBeUndefined();
-    // house allocation has no donor key: the host's one credential (the token, else its key), never both (post-mortem 2026-10-30)
-    if (process.env.CLAUDE_CODE_OAUTH_TOKEN) { expect(opts.env?.CLAUDE_CODE_OAUTH_TOKEN).toBe(process.env.CLAUDE_CODE_OAUTH_TOKEN); expect(opts.env?.ANTHROPIC_API_KEY).toBeUndefined(); }
-    else expect(opts.env?.ANTHROPIC_API_KEY).toBe(process.env.ANTHROPIC_API_KEY);
+    // house allocation has no key of its own: the Bank's subscription token, and nothing from the host env (post-mortem 2026-10-30)
+    expect(opts.env?.CLAUDE_CODE_OAUTH_TOKEN).toBe(TEST_TOKEN);
+    expect(opts.env?.ANTHROPIC_API_KEY).toBeUndefined();
     expect(Object.keys(opts.env ?? {}).some((k) => k.startsWith("DESK_ENV_") || k.startsWith("MUSTER_TOWN_"))).toBe(false); // allowlisted host env
     expect(sdk.sessions[0].received[0]).toContain("Measure the growth rate");
 

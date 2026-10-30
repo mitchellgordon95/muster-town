@@ -59,7 +59,7 @@ No server needed: you can also start a hosted collective at [muster.town](https:
 A building with Code access only gets work sessions on a host with Docker. Without Docker the server logs `docker not available` once and that building's agents stay idle. To make them push branches:
 
 1. Docker: Docker Engine on Linux, OrbStack or Docker Desktop on a Mac. Then `npm run desk:build` (builds the desk image).
-2. A Claude token for the desks in `collectives/<id>/.env` (desks don't see your `claude` login): `CLAUDE_CODE_OAUTH_TOKEN=…` from `claude setup-token` (runs on your subscription), or `ANTHROPIC_API_KEY=…`, never both: the server refuses to boot with two credentials (Claude Code would bill the key). A key the town may spend beside the subscription is a Bank input at the Town Hall. Precedence is a key the Bank lists (a donor's, an input's), then the host's one credential.
+2. A credential in the Bank, not in the env: once the town is up, open the Town Hall → Bank and add an input with your Claude subscription token from `claude setup-token` (**My subscription**, admin only) or an Anthropic API key. Sessions run on nothing else (desks don't see your `claude` login), and the server refuses to boot if `CLAUDE_CODE_OAUTH_TOKEN` or `ANTHROPIC_API_KEY` is in its environment. Until the Bank holds one, work is held with "No credential in the Bank yet".
 3. `gh auth login` on the host: desks push with its token (`gh auth token`), so it needs write access to the workspace repo.
 4. Restart the collective.
 

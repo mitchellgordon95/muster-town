@@ -28,7 +28,7 @@ export { fundingFor, fundingForSession, fundedBy, type Funding } from "./session
 export { type WorkOutcome } from "./work.ts";
 export { ruleFor, startWaker, WAKE_RULES, type WakeCtx, type WakeRule, type Waker } from "./waker.ts";
 export { adoptPath, ADOPT_MAX_AGE_MS, takeAdoptable, isTerminalRedeployEvent, makeRedeployer, realCommandRunner, RESTART_EXIT_CODE, STUCK_POLLS, type CmdResult, type CommandRunner, type RedeployDeps, type RedeployRequest, type Redeployer } from "./redeploy.ts";
-export { assertOneCredential, CREDENTIAL_ENVS, hostApiKey, hostedEnv, InputChannel, oneShot, realSdk, usageOf, userMessage, type QueryHandle, type QueryParams, type Sdk } from "./sdk.ts";
+export { assertNoEnvCredentials, CREDENTIAL_ENVS, credentialEnv, hostedEnv, InputChannel, oneShot, realSdk, usageOf, userMessage, type QueryHandle, type QueryParams, type Sdk } from "./sdk.ts";
 export { DISALLOWED_TOOLS, TOWN_TOOLS, WEB_TOOLS } from "./session.ts";
 export { COLLECTING_MS, MEETING_REPLIES_MAX, MEETING_REPLY_MAX_TURNS, MEETING_REPLY_VERBS, SUMMARY_MODEL } from "./meetings.ts";
 
@@ -178,7 +178,7 @@ export function startRuntime(opts: RuntimeOptions): Runtime {
       ctx.live.set(s.agentId, { kind: "desk", agentId: s.agentId, sessionId: s.id, purpose: "work", input, q: null, reportSubmitted: !!s.reportId, stopped: false, adopted: true });
       // the same funding lookup the session started with, so its end charges the same allocation
       try {
-        const funding = fundingForSession(world, s.agentId, s.assignmentId, ctx.env);
+        const funding = fundingForSession(world, s.agentId, s.assignmentId);
         ctx.deskAllocations.set(s.id, funding.allocationId);
         ctx.deskFallbacks.set(s.id, funding.fallback?.allocationId ?? null);
       } catch (e) { console.log("[runtime] adopt funding:", e instanceof Error ? e.message : e); }

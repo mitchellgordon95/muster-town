@@ -1,10 +1,10 @@
 /** Meetings: summaries while collecting (SUMMARY_MODEL, no tools), @-replies as short read/search sessions, then a facilitated discussion over MCP. */
-import { TOWN_HALL_ID, walkHome } from "@muster-town/core";
+import { NoCredential, TOWN_HALL_ID, walkHome, type Funding } from "@muster-town/core";
 import type { Meeting, VerbName } from "@muster-town/schema";
 import { recentWorkBlock } from "@muster-town/core";
 import { facilitateMaterial, meetingContextBlock, facilitatePrompt, facilitateSystemPrompt, lastMeetingFor, meetingReplyPrompt, meetingReplySystemPrompt, summaryPrompt, summarySystemPrompt } from "@muster-town/core";
 import { oneShot } from "./sdk.ts";
-import { chargeUsage, fundingFor, homeOf, keyless, runAgentSession, type Ctx } from "./session.ts";
+import { chargeUsage, fundingFor, homeOf, runAgentSession, type Ctx } from "./session.ts";
 import { latestReport } from "./work.ts";
 
 export const COLLECTING_MS = 3 * 60_000;
@@ -45,11 +45,12 @@ async function summarize(ctx: Ctx, m: Meeting, agentId: string): Promise<void> {
   const agent = world.agents.get(agentId);
   if (!agent || agent.kind === "human" || m.summaries[agentId] || !world.budget.canStart(agentId)) return;
   const model = SUMMARY_MODEL;
-  const funding = fundingFor(world, agentId, ctx.env);
-  if (keyless(ctx, funding)) return;
+  let funding: Funding;
+  try { funding = fundingFor(world, agentId); }
+  catch (e) { if (e instanceof NoCredential) return; throw e; }
   const session = world.ops.startSession(agentId, { purpose: "summary", model, meetingId: m.id });
   const events = world.events.recent({ agentId, limit: 20 });
-  const out = await oneShot(ctx.sdk, { model, system: summarySystemPrompt(agent, m.brings), prompt: summaryPrompt(m, latestReport(ctx, agentId), events, recentWorkBlock(world, agentId, { short: true, readHint: false }), lastMeetingFor(world, m, agentId), meetingContextBlock(world, agent, m)), apiKey: funding.apiKey, env: ctx.env });
+  const out = await oneShot(ctx.sdk, { model, system: summarySystemPrompt(agent, m.brings), prompt: summaryPrompt(m, latestReport(ctx, agentId), events, recentWorkBlock(world, agentId, { short: true, readHint: false }), lastMeetingFor(world, m, agentId), meetingContextBlock(world, agent, m)), credential: funding.credential, env: ctx.env });
   const text = out.text.split("\n").map((l) => l.trim()).filter(Boolean).slice(0, 3).join("\n");
   let error = out.error;
   if (text && !error) { // a failed call's text is its error message ("Not logged in"), not a summary

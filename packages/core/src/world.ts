@@ -58,7 +58,6 @@ export interface HostHooks {
 }
 
 /** A hosted collective's work waits on this until an admin adds an Anthropic API key at its Bank (HUD: "No key yet"). */
-export const NO_KEY_HOLD = "No key yet: add your Anthropic API key at the Bank";
 
 export class World {
   readonly db: DB;
@@ -146,7 +145,6 @@ export class World {
     this.grantDesk = new Grants(this);
     this.goalTree = new Goals(this);
     this.budget.gate = (a) => laneHold(this, a);
-    this.budget.keyHold = () => (this.host.hosted && !this.bank.liveApiKeyInput() ? NO_KEY_HOLD : null);
     this.budget.afterCharge = (bid) => this.grantDesk.checkpoints(bid);
     this.skills = new Skills(this);
     this.secrets = new Secrets(this);

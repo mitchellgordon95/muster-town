@@ -16,7 +16,7 @@ describe("bank", () => {
     expect(world.bank.apiKeyFor(inp.id)).toBe("sk-test");
     expect(world.bank.creditDue(at(30))).toBe(0);
     expect(world.bank.summary()).toMatchObject({ balanceTokens: 5000, creditedTokens: 5000, dailyInflowTokens: 0 });
-    expect(world.bank.summary().inputs[0]).toMatchObject({ userName: "Donor" });
+    expect(world.bank.summary().inputs.find((i) => i.id === inp.id)).toMatchObject({ userName: "Donor" });
     world.bank.cancelInput(donor.id, inp.id);
     expect(world.bank.apiKeyFor(inp.id)).toBeNull();
     expect(world.bank.balance()).toBe(5000);
@@ -44,7 +44,7 @@ describe("bank", () => {
   it("a subscription is admin-only and credits min(daily quota, weekly cap left) each day", () => {
     const { world, seed } = seededWorld();
     const other = world.ops.createUser("Other").user;
-    const sub = { label: "Max plan", source: "subscription" as const, model: "m", tokens: 400, recurrence: "daily" as const, weeklyCapTokens: 1000 };
+    const sub = { label: "Max plan", source: "subscription" as const, token: "sk-ant-oat01-test-token", model: "m", tokens: 400, recurrence: "daily" as const, weeklyCapTokens: 1000 };
     expect(() => world.bank.addInput(other.id, sub, T0)).toThrow(/owner/);
     expect(() => world.bank.addInput(seed.admin.id, { ...sub, recurrence: "weekly" }, T0)).toThrow(/daily/);
     world.bank.addInput(seed.admin.id, sub, T0); // day 0: 400
@@ -115,7 +115,7 @@ describe("bank", () => {
     const lab2 = createBuilding(world, { name: "Lab 2" }, seed.admin.id);
     const quarter = world.bank.createPool(seed.admin.id, { name: "Quarter", pct: 25 });
     world.bank.setBuildingPool(seed.admin.id, "carbon-cycle", quarter.id);
-    world.bank.addInput(seed.admin.id, { label: "Max plan", source: "subscription", model: "m", tokens: 4000, recurrence: "daily", weeklyCapTokens: 100_000 }, T0);
+    world.bank.addInput(seed.admin.id, { label: "Max plan", source: "subscription", token: "sk-ant-oat01-test-token", model: "m", tokens: 4000, recurrence: "daily", weeklyCapTokens: 100_000 }, T0);
     world.bank.addInput(seed.admin.id, { label: "Key", source: "api-key", model: "m", tokens: 8000, apiKey: "sk" }, T0);
     const now = at(0.5);
     expect(world.bank.available("carbon-cycle", now)).toEqual({ expiring: 1000, durable: 2000 });

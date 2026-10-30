@@ -31,6 +31,6 @@ describe("adjusted output tokens in the API", () => {
     expect(bank.rawCreditedTokens).toBe(30_000);
     expect(bank.creditedCounts).toMatchObject({ output: 707, cacheRead: 29_293 });
     expect(bank.adjustedCreditedTokens).toBe(1_000);
-    expect(bank.inputs[0]).toMatchObject({ creditedTokens: 1_000, adjustedCreditedTokens: 1_000 });
+    expect(bank.inputs.find((i: { label: string }) => i.label === "Key")).toMatchObject({ creditedTokens: 1_000, adjustedCreditedTokens: 1_000 });
   });
 });

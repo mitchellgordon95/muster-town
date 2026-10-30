@@ -18,35 +18,34 @@ function setup() {
     world.grantDesk.propose(manager, g.id);
     return g;
   };
-  world.bank.addInput(seed.admin.id, { label: "Town key", source: "api-key", model: "m", tokens: 1_000_000, apiKey: "sk-town" } as never);
+  world.bank.addInput(seed.admin.id, { label: "Town key", source: "api-key", model: "m", tokens: 1_000_000, apiKey: "sk-ant-api03-town" } as never);
   const user = world.ops.createUser("Member").user;
   const member = world.ops.ensureAvatar(user.id);
-  const input = world.bank.addInput(user.id, { label: "Member key", source: "api-key", model: "m", tokens: 50_000, apiKey: "sk-member" } as never);
+  const input = world.bank.addInput(user.id, { label: "Member key", source: "api-key", model: "m", tokens: 50_000, apiKey: "sk-ant-api03-member" } as never);
   return { world, admin, manager, member, input, mk };
 }
 
 describe("fundingForSession (member funding)", () => {
   it("a member-funded grant's session runs on the member's key; a pool-funded one keeps the pool's key", () => {
     const { world, admin, manager, member, input, mk } = setup();
-    const env = { ANTHROPIC_API_KEY: "" } as NodeJS.ProcessEnv;
     const mine = mk(), pool = mk();
     world.grantDesk.decide(member, mine.id, { action: "fund", fundWith: input.id });
     world.grantDesk.decide(admin, pool.id, { action: "fund" });
     const work = (grantId: string) => world.ops.createWork(admin, manager.id, { title: "Step", lane: "grant", grantId }).id;
-    expect(fundingForSession(world, manager.id, work(mine.id), env)).toMatchObject({ auth: "api-key", apiKey: "sk-member", inputId: input.id, allocationId: null });
-    const p = fundingForSession(world, manager.id, work(pool.id), env);
-    expect(p).toMatchObject({ auth: "api-key", apiKey: "sk-town" });
+    expect(fundingForSession(world, manager.id, work(mine.id))).toMatchObject({ auth: "api-key", credential: { kind: "api-key", secret: "sk-ant-api03-member", inputId: input.id }, inputId: input.id, allocationId: null });
+    const p = fundingForSession(world, manager.id, work(pool.id));
+    expect(p).toMatchObject({ auth: "api-key", credential: { secret: "sk-ant-api03-town" } });
     expect(p.inputId).toBeUndefined();
     // the started session names the input it ran on
     const asg = work(mine.id);
-    const f = fundingForSession(world, manager.id, asg, env);
+    const f = fundingForSession(world, manager.id, asg);
     world.ops.startSession(manager.id, { purpose: "work", model: "m", assignmentId: asg, funding: f.auth, inputId: f.inputId });
     const ev = world.events.list({ types: ["session.started"] }).at(-1)!;
     expect(ev.payload).toMatchObject({ inputId: input.id, grantId: mine.id, funding: "api-key" });
     expect(ev.text).toMatch(/funded by Member key's API key/);
     // a cancelled input falls back to the pool's key
     world.bank.cancelInput(member.ownerUserId!, input.id);
-    expect(fundingForSession(world, manager.id, work(mine.id), env)).toMatchObject({ apiKey: "sk-town" });
+    expect(fundingForSession(world, manager.id, work(mine.id))).toMatchObject({ credential: { secret: "sk-ant-api03-town" } });
     world.close();
   });
 });

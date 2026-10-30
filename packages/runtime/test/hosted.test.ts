@@ -4,7 +4,7 @@ import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, test } from "vitest";
 import { NO_KEY_HOLD } from "@muster-town/core";
 import { HOSTED_MAX_RUNNING } from "../src/index.ts";
-import { callVerb, init, result, setup, type FakeSession } from "./helpers.ts";
+import { callVerb, init, result, setup, TEST_TOKEN, type FakeSession } from "./helpers.ts";
 
 /** A hosted collective's runtime (docs/hosted-collectives.md, step 5): its own key only, never the host's credentials. */
 const HOST_KEY = "sk-ant-api03-WORKSHOP-HOST-KEY";
@@ -46,9 +46,9 @@ describe("hosted runtime", () => {
     expect(world.assignments.get(asg.id)!.heldReason).toBe(NO_KEY_HOLD);
     await runtime.tickOnce();
     await runtime.whenIdle();
-    await expect(runtime.runWorkSession(noor.id, asg.id)).rejects.toThrow(/No key yet/);
+    await expect(runtime.runWorkSession(noor.id, asg.id)).rejects.toThrow(NO_KEY_HOLD);
     const reply = await runtime.chat(noor.id, { message: "hi", history: [] });
-    expect(reply.reply).toMatch(/No key yet/);
+    expect(reply.reply).toContain(NO_KEY_HOLD);
     expect(sdk.sessions).toHaveLength(0);
     expect(world.assignments.get(asg.id)!.status).toBe("pending");
     expect(world.agents.get(noor.id)!.status).toBe("idle");
@@ -81,14 +81,19 @@ describe("hosted runtime", () => {
     expect(() => runtime.redeploy({ image: false, requestedBy: "owner" })).toThrow(/can't redeploy/);
   });
 
-  test("the Workshop's runtime (not hosted) still sees the host env", async () => {
-    delete process.env.ANTHROPIC_API_KEY; // the host carries one credential (two is a hard failure: post-mortem 2026-10-30)
+  test("the Workshop's runtime (not hosted) runs on its Bank's subscription token; a credential in its env is a hard failure", async () => {
     const { world, runtime, sdk, by } = setup(work);
     const noor = by("Noor");
     const asg = world.ops.createWork(null, noor.id, { title: "Look around" });
-    await runtime.runWorkSession(noor.id, asg.id);
-    const env = sdk.sessions[0]!.options.env as Record<string, string>;
-    expect(env.CLAUDE_CODE_OAUTH_TOKEN).toBe(HOST_TOKEN);
+    // the host env still carries the key and token this file plants: the session refuses to start (post-mortem 2026-10-30)
+    await expect(runtime.runWorkSession(noor.id, asg.id)).rejects.toThrow(/the Bank is the only place/);
+    delete process.env.ANTHROPIC_API_KEY;
+    delete process.env.CLAUDE_CODE_OAUTH_TOKEN;
+    const session = await runtime.runWorkSession(noor.id, world.ops.createWork(null, noor.id, { title: "Look again" }).id);
+    expect(session.funding).toBe("subscription");
+    const env = sdk.sessions.at(-1)!.options.env as Record<string, string>;
+    expect(env.CLAUDE_CODE_OAUTH_TOKEN).toBe(TEST_TOKEN);
+    expect(env.ANTHROPIC_API_KEY).toBeUndefined();
     expect(typeof world.host.redeploy).toBe("function");
   });
 });
