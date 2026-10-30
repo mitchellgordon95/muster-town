@@ -42,9 +42,9 @@ export const PLACE_PANEL: Partial<Record<Place["kind"], (p: Place) => PanelRef &
     return { kind: "intray", id: p.buildingId ?? undefined, verb: `Check the in-tray${n ? ` (${n} waiting)` : ""}` };
   },
   planning: () => ({ kind: "planning", verb: "Use the planning desk" }),
-  // the Town Hall's board lists every building's meetings; a lab's board is its timed jobs (the Overview's Schedule section)
+  // the Town Hall's board lists every building's meetings; a lab's board is its timed jobs (the building panel's Schedule tab)
   schedule: (p) => p.id === "schedule-board" ? { kind: "schedule", verb: "Read the meeting schedule" }
-    : { kind: "building", id: p.buildingId ?? undefined, tab: "Overview", section: "schedule", verb: `Read the ${bname(p)} schedule` },
+    : { kind: "building", id: p.buildingId ?? undefined, tab: "Schedule", verb: `Read the ${bname(p)} schedule` },
   "mod-station": () => ({ kind: "mod", verb: "Visit the mod station" }),
   library: () => ({ kind: "library", verb: "Browse the library" }),
   outbox: () => ({ kind: "outbox", verb: "Check the outbox" }),
@@ -707,7 +707,7 @@ export class MapRenderer {
       drawBubble(g, p.x, p.y, bubble, d.id === targetId || d.id === this.hoverId);
     }
     // each building's schedule board (a calendar on its back wall, baked into the world): its active schedules as
-    // marks on the page and a count pip, a white outline on hover; hover lists them, click opens the Schedule section.
+    // marks on the page and a count pip, a white outline on hover; hover lists them, click opens the Schedule tab.
     // After the bubbles, so a desk agent's "Running: …" bubble can't hide the pip
     for (const p of s.places) {
       if (p.kind !== "schedule" || !p.id.startsWith("schedule:") || !s.grid) continue;

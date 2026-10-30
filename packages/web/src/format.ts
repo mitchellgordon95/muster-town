@@ -32,7 +32,7 @@ export function repeatLabel(s: { everyMinutes: number | null; dailyAt: string[] 
 /** The schedule board's hover title: what the board is and what a click does. */
 export function scheduleTipTitle(building: string, n: number, open: string): string {
   return n ? `${building} schedule: ${n} timed job${n === 1 ? "" : "s"} (whoever is around takes each run; ${open} for the list)`
-    : `${building} schedule: nothing scheduled (${open} to open the Schedule section)`;
+    : `${building} schedule: nothing scheduled (${open} to open the Schedule tab)`;
 }
 /** One schedule on the board's hover: title, next run (your time · UTC), repeat, paused. */
 export function scheduleTipRow(x: { title: string; nextRunAt: string | null; everyMinutes: number | null; dailyAt: string[] | null; maxRuns?: number | null; paused?: boolean }): string {
