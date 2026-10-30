@@ -1,6 +1,7 @@
 import Database from "better-sqlite3";
 import { copyFileSync, mkdirSync, readdirSync } from "node:fs";
 import { join } from "node:path";
+import { TILE, WALKABLE } from "@muster-town/schema";
 import { describe, expect, it } from "vitest";
 import { buildingRoleId, createBuilding, createUser, migrate } from "../src/index.ts";
 import { seededWorld, tempDir } from "./helpers.ts";
@@ -135,6 +136,14 @@ describe("the town goal tree (docs/goals.md, step 1)", () => {
 });
 
 describe("the goal editor (docs/goals.md, step 3)", () => {
+  it("the Town Hall's goal tree wall chart: a GOAL_CHART tile on the back wall, its place on the walkable floor below", () => {
+    const { world } = setup();
+    const p = world.layout.places.find((x) => x.id === "goal-tree")!;
+    const g = world.layout.grid;
+    expect(p.kind).toBe("goal-tree");
+    expect(WALKABLE.has(g.tiles[p.pos.y * g.w + p.pos.x])).toBe(true);
+    expect(g.tiles[(p.pos.y - 1) * g.w + p.pos.x]).toBe(TILE.GOAL_CHART);
+  });
   it("a goal's History tab: its own edits, its key results, attachments and proposals, newest first; not its siblings'", () => {
     const { admin, tree, labGoal, otherGoal } = setup();
     tree.update(admin, labGoal.id, { text: "A funder sees every token" });
