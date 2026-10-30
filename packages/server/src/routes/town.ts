@@ -33,7 +33,7 @@ export async function townRoutes(app: FastifyInstance) {
    * whether a change is live. `load` (read-only): `lagMs` p99 event-loop delay over the last 10 s window, `rssMb`, `wsClients` open now.
    * `backup` (read-only): the off-site copy's `{lastAt, bytes, dest, error}`; null until the bucket and key are set
    * (deploy/README.md "Backups"). Never the key or the bucket credentials. `monitor` (read-only, null without one):
-   * `{lastSampleAt, outbound, alerts: [{key, level, since, value}]}` (monitor.ts); never a secret. `directory` (root app, only where the
+   * `{lastSampleAt, alerts: [{key, level, since, value}]}` (monitor.ts; the VPS pinger reads the red ones). `directory` (root app, only where the
    * directory is on): `{verified, listed, pending, lastTickAt}` (directory/index.ts). `desks` (gr_uhh6u39vv9 step 3): `{backend, size,
    * billCapUsd, billTodayUsd, billPct, overCap, day}`, today's (UTC) desk bill at Fly list prices against the town-wide cap.
    */
@@ -443,7 +443,7 @@ export async function townRoutes(app: FastifyInstance) {
   });
 
   /**
-   * Monitor (monitor.ts): one red test alert down the whole path; admins only; counts toward the 10/h cap.
+   * Monitor (monitor.ts): one red test alert (event + FYI; the server sends no SMS or email); admins only.
    * `?metric=<key>` (e.g. `desk-steal`) tags it with that metric's key; default key `test`.
    */
   app.post("/api/admin/monitor/test", async (req) => {

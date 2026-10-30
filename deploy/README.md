@@ -124,8 +124,10 @@ the same day. Still open:
 ### Monitoring (grant gr_rntk0echpi, design dc_f2hpf9u1ya)
 
 Two monitors, one alert path. Every alert, yellow or red, raise or clear, is a town event (type `alert`) and an FYI on the
-Prod board (the clear updates the same FYI; a town with no building named Prod gets a town-wide Town Hall FYI instead). Red alerts also go out by SMS (Twilio) and email (Gmail SMTP), raise and clear,
-at most 10 outbound messages an hour across all keys.
+Prod board (the clear updates the same FYI; a town with no building named Prod gets a town-wide Town Hall FYI instead).
+The server sends no SMS or email itself: the VPS pinger below is the single outside alert path (Mitchell, town hall
+2026-10-30, notes dc_gf2k156np0). It reads the open red alerts from `GET /api/health` and texts once on red, once on
+cleared, and once when health itself is down.
 
 **In-process monitor** (`packages/server/src/monitor.ts`, root app only) samples every 60 s:
 
@@ -157,36 +159,30 @@ GET /api/finance/fly `capUsdPerDay` is the same cap.
 An alert clears after 5 samples in a row under yellow (`desk-steal`: after 5 clean sessions; a sample with no newly ended
 desk session changes nothing, and an open `desk-steal` alert clears as stale after 3 h with no desk session ending). `desk-steal` cpu and steal are the whole desk Machine's (2 vCPUs summed, desk perf step 1). A key that stays red re-alerts every 6 h. A gap of more than 5 min
 between samples writes a "monitor gap" event when sampling resumes. `GET /api/health` shows
-`monitor: {lastSampleAt, outbound, alerts: [{key, level, since, value}], selfTestAt}` (`lastSampleAt` is null for the first 60 s after boot).
+`monitor: {lastSampleAt, alerts: [{key, level, since, value}]}` (`lastSampleAt` is null for the first 60 s after boot).
+No `ALERT_*` Fly secrets exist or are needed: the server never sends SMS or email (that path and its one-time self-test
+were removed 2026-10-30; an older `meta` row's `sent`/`selfTestAt` keys are ignored).
 
-Outbound needs all seven Fly secrets; with any missing, `monitor.outbound` is false and alerts stay in town:
-```
-fly secrets set -a muster-town \
-  ALERT_TWILIO_SID=AC... ALERT_TWILIO_AUTH=... ALERT_TWILIO_FROM=+1... \
-  ALERT_SMS_TO=+1... ALERT_EMAIL_TO=... \
-  ALERT_SMTP_USER=...@gmail.com ALERT_SMTP_PASS=<Gmail app password>
-```
-The first boot with all seven set (the restart `fly secrets set` causes) fires one red test alert down the whole path by
-itself (event, Prod FYI "[RED] Monitor test alert", SMS, email) and records when as `monitor.selfTestAt` on
-`GET /api/health`; it never repeats across later restarts. Repeat it on demand with one red test alert (admin token;
-counts toward the 10/h cap):
+One red test alert in town (admin token):
 `curl -X POST -H "authorization: Bearer $ADMIN_TOKEN" https://muster.town/api/admin/monitor/test` returns
-`{eventId, fyiDocId, sms, email}` (`?metric=desk-steal`, or any key above, tags the test event with that key), each of `sms`/`email` being `sent`, `skipped` (no secrets, or over the cap) or `error`.
+`{eventId, fyiDocId}` (`?metric=desk-steal`, or any key above, tags the test event with that key). It is not kept open, so
+the pinger does not forward it; to test the pinger end to end, point it at a dead URL (step 3 below).
 
 #### VPS pinger (Wright's box)
 
 `deploy/pinger/muster_pinger.py` (Python 3 stdlib) covers what the server can't report itself: the Machine down, DNS or
 TLS broken, the monitor wedged. Each run is one probe of `GET https://muster.town/api/health` (10 s timeout; fail = no
 answer, non-200, or `ok` not true). After 3 failed probes in a row it sends a RED SMS and email, reminds every 6 h while
-down, and sends one "recovered" message when health answers again. When health shows `monitor.outbound: false` it
-forwards the server's open red alerts on change only: once when a key turns red, every 6 h while it stays red, once when it clears. It has no town token and writes nothing to the town.
+down, and sends one "recovered" message when health answers again. It forwards the server's open red alerts (health
+`monitor.alerts`) on change only: once when a key turns red, every 6 h while it stays red, once when it clears. It has no
+town token and writes nothing to the town. It is the only thing that texts or emails about muster.town.
 
 Install as user `node` (paths assume its home is `/home/node`; change `ExecStart` in the service if not):
 ```
 # 1. files
 install -D -m 755 deploy/pinger/muster_pinger.py ~/.miniclaw/workspace/scripts/muster-pinger.py
 sudo install -m 644 deploy/pinger/muster-pinger.service deploy/pinger/muster-pinger.timer /etc/systemd/system/
-# 2. env file: the same seven ALERT_* names and values as the Fly secrets above (KEY=value, one a line)
+# 2. env file: the seven ALERT_* names in the script's docstring (Twilio SID/auth/from, the SMS and email recipients, the Gmail SMTP user and app password), KEY=value, one a line
 install -m 600 /dev/null ~/.miniclaw/muster-pinger.env && $EDITOR ~/.miniclaw/muster-pinger.env
 # 3. a dry run prints the messages instead of sending them (state: ~/.miniclaw/muster-pinger.json)
 python3 ~/.miniclaw/workspace/scripts/muster-pinger.py --dry-run
@@ -200,8 +196,9 @@ journalctl -u muster-pinger.service -n 5
 Each channel sends on its own: SMS needs the four Twilio/`ALERT_SMS_TO` names, email needs `ALERT_EMAIL_TO` and the
 SMTP pair, so a box without a Gmail app password still gets SMS.
 
-Installed on Wright's box (`ubuntu-2gb-hil-1`, user `node`) 2026-10-28 from 49e2622: all seven names set (the SMTP pair
-is the box's existing Gmail app password), dry run "ok (fails 0)", timer enabled. Updating it: re-run step 1.
+Installed on Wright's box (`ubuntu-2gb-hil-1`, user `node`) 2026-10-28 from 49e2622, updated 2026-10-30 (7820226: change-only
+forwarding): all seven names set (the SMTP pair is the box's existing Gmail app password), dry run "ok (fails 0)", timer
+enabled. Updating it: re-run step 1.
 
 ### Self-hosted towns directory (grant gr_8cdix9mpye, design dc_d6chojzl2a)
 
