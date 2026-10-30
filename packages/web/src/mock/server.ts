@@ -334,6 +334,14 @@ export class MockApi implements Api {
     if (d.buildingId !== hall?.id || d.state !== "building" || !BOARD_TYPES.includes(d.type)) throw new ApiError("Only a town-wide FYI on the Town Hall board can be taken off it here.", "bad_request", 400);
     return clone(this.sim.putDoc({ ...d, state: "draft", updatedAt: now() }));
   }
+  async editBoardNote(docId: string, i: { title: string; body: string }) {
+    await wait();
+    const d = this.need(this.sim.docs.get(docId), "doc");
+    if (d.state !== "building" || !BOARD_TYPES.includes(d.type)) throw new ApiError("Only a note on a board (a published FYI) can be edited here.", "bad_request", 400);
+    const title = i.title.trim(), body = i.body.trim();
+    if (!title || !body) throw new ApiError("A board note needs a title and a body.", "bad_request", 400);
+    return clone(this.sim.putDoc({ ...d, title, body, updatedAt: now() }));
+  }
   async review(docId: string, i: In<typeof ReviewInput>) { await wait(); return clone(this.sim.review(docId, i.decision, i.note ?? "", i.assigneeId)); }
   async plantFlag(buildingId: string, text: string) { await wait(); this.need(this.sim.buildings.find((b) => b.id === buildingId), "building"); return clone(this.sim.plantFlag(buildingId, text)); }
   async reply(docId: string, text: string) { await wait(); this.need(this.sim.docs.get(docId), "doc"); return clone(this.sim.reply(docId, text)); }

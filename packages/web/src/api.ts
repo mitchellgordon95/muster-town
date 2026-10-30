@@ -418,6 +418,8 @@ export interface Api {
   promote(docId: string, state: DocState): Promise<Doc>;
   /** POST /api/docs/:id/unpublish — take a town-wide FYI off the Town Hall board (back to its author's drafts; author or admin) */
   unpublish(docId: string): Promise<Doc>;
+  /** PATCH /api/docs/:id — edit a board note's title/body in place (its author, a town admin or the building's manager) */
+  editBoardNote(docId: string, input: { title: string; body: string }): Promise<Doc>;
   // skills (docs/skills.md): written with writeDoc type "skill"
   /** every published skill (plus my drafts) with files, pins and uses */
   skills(): Promise<SkillView[]>;
@@ -632,6 +634,7 @@ export class HttpApi implements Api {
   async doc(id: string) { return unwrap<Doc>(await this.get(`/api/docs/${id}`), "doc"); }
   async writeDoc(i: WriteDocInput) { return unwrap<Doc>(await this.post("/api/docs", i), "doc"); }
   async unpublish(id: string) { return unwrap<Doc>(await this.post(`/api/docs/${id}/unpublish`, {}), "doc"); }
+  async editBoardNote(id: string, i: { title: string; body: string }) { return unwrap<Doc>(await this.call("PATCH", `/api/docs/${id}`, i), "doc"); }
   async review(id: string, i: In<typeof ReviewInput>) { return unwrap<Doc>(await this.post(`/api/docs/${id}/review`, i), "doc"); }
   async plantFlag(buildingId: string, text: string) { return unwrap<Doc>(await this.post(`/api/buildings/${buildingId}/flags`, { text }), "doc"); }
   reply(id: string, text: string, deckSlide?: number, meetingId?: string) { return this.post<{ doc: Doc; assignment: Assignment | null }>(`/api/docs/${id}/reply`, { text, ...(deckSlide ? { deckSlide } : {}), ...(meetingId ? { meetingId } : {}) }); }

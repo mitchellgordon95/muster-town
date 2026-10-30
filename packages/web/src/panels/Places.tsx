@@ -454,14 +454,14 @@ export function BoardPanel({ buildingId }: { buildingId: string }) {
   if (b?.kind === "town-hall") return (
     <PanelShell icon={<Glyph kind="board" />} title="Town Hall board" subtitle="Town-wide FYIs: each one shows in the Town-wide section of every building's board and in every agent's brief.">
       {canPostTownBoard() ? <TownNoteForm buildingId={b.id} onPosted={board.reload} /> : null}
-      <DocList board={board} onUnpublished={board.reload} />
+      <DocList board={board} onUnpublished={board.reload} onEdited={board.reload} />
     </PanelShell>
   );
   return (
     <PanelShell icon={<Glyph kind="board" />} title={`${b?.name ?? "Building"} board`} subtitle="Notes only: town-wide FYIs, the manager's standing rules and building-wide FYIs. The goal's key results and grants are on the building's Goals and Grants tabs; everything else is in the filing cabinet beside it.">
-      <DocList board={board} townWide />
+      <DocList board={board} townWide onEdited={board.reload} />
       {b ? <StandingRules buildingId={b.id} rules={b.rules ?? ""} /> : null}
-      <DocList board={board} />
+      <DocList board={board} onEdited={board.reload} />
     </PanelShell>
   );
 }
@@ -475,6 +475,12 @@ export function canPostTownBoard(): boolean {
 export function canUnpublish(d: Doc): boolean {
   const me = store.state.me;
   return !!me && (me.isAdmin || d.authorId === me.user.id);
+}
+
+/** = core canEditBoardNote's rule (flag dc_4itg2gxfqf): the note's author, a town admin, or a manager of its building. Guests: never. */
+export function canEditBoardNote(d: Doc): boolean {
+  const me = store.state.me;
+  return !!me && (me.isAdmin || d.authorId === me.user.id || store.can("building.manage", d.buildingId));
 }
 
 /** The Town Hall board's "Post a town-wide note" (Mitchell's flag dc_ym8fjxqjiv): a type fyi doc, state building, buildingId town-hall. */
@@ -572,35 +578,65 @@ function CabinetBrowser({ buildingId }: { buildingId: string }) {
  * Board FYIs, newest first. `townWide`: the "Town-wide" section (the Town Hall board's FYIs, which the API lists first
  * on every building's board), hidden when there are none; otherwise the building's own FYIs.
  */
-function DocList({ board: list, townWide = false, onUnpublished }: { board: { data: Board | null; error: string | null; loading: boolean }; townWide?: boolean; /** the Town Hall board: rows get "Take off the board" for their author or an admin */ onUnpublished?: () => void }) {
+function DocList({ board: list, townWide = false, onUnpublished, onEdited }: { board: { data: Board | null; error: string | null; loading: boolean }; townWide?: boolean; /** the Town Hall board: rows get "Take off the board" for their author or an admin */ onUnpublished?: () => void; /** rows get "Edit" for their author, an admin or the building's manager */ onEdited?: () => void }) {
   const [open, setOpen] = useState<Doc | null>(null);
   const all = list.data?.docs;
   const docs = useMemo(() => all?.filter((d) => !!d.townWide === townWide), [all, townWide]);
   useEffect(() => { if (docs) store.putDocs(docs); }, [docs]);
   if (open) return <DocView doc={open} onBack={() => setOpen(null)} backLabel="Board" />;
+  const row = (d: Doc) => <BoardNoteRow key={d.id} doc={d} onOpen={() => setOpen(d)} onUnpublished={onUnpublished} onEdited={onEdited} />;
   if (townWide) return docs?.length ? (
     <>
       <h4 className="sub-head">Town-wide <span className="muted">from the Town Hall board; they apply in every building</span></h4>
-      <div className="doc-list">{docs.map((d) => <DocRow key={d.id} doc={d} onOpen={() => setOpen(d)} />)}</div>
+      <div className="doc-list">{docs.map(row)}</div>
     </>
   ) : null;
   return (
     <>
       <ErrorLine error={list.error} />
       {list.loading && !list.data ? <Loading /> : !docs?.length ? <Empty>No FYIs on the board.</Empty> : (
-        <div className="doc-list">{docs.map((d) => onUnpublished && canUnpublish(d) ? (
-          <div key={d.id} className="board-fyi">
-            <DocRow doc={d} onOpen={() => setOpen(d)} />
-            <Act run={async () => {
-              const r = await api().unpublish(d.id);
-              store.putDocs([r]);
-              store.toast(`"${d.title}" is off the Town Hall board (back in ${d.authorId === store.state.me?.user.id ? "your" : `${nameOf(d.authorId)}'s`} drafts)`, "ok");
-              onUnpublished();
-            }} small title="Back to its author's drafts: it leaves every building's Town-wide section">Take off the board</Act>
-          </div>
-        ) : <DocRow key={d.id} doc={d} onOpen={() => setOpen(d)} />)}</div>
+        <div className="doc-list">{docs.map(row)}</div>
       )}
     </>
+  );
+}
+
+/** One board note: its row, plus "Edit" (title and body inline, flag dc_4itg2gxfqf) and, on the Town Hall board, "Take off the board". */
+export function BoardNoteRow({ doc: d, onOpen, onUnpublished, onEdited }: { doc: Doc; onOpen: () => void; onUnpublished?: () => void; onEdited?: () => void }) {
+  const [draft, setDraft] = useState<{ title: string; body: string } | null>(null);
+  const media = useMediaPaste((body) => setDraft((x) => x && { ...x, body: typeof body === "function" ? body(x.body) : body }));
+  const edit = !!onEdited && canEditBoardNote(d);
+  const unpublish = !!onUnpublished && canUnpublish(d);
+  if (draft) return (
+    <div className="rules-card board-note-edit">
+      <form className="form" onSubmit={(e) => e.preventDefault()}>
+        <input value={draft.title} onChange={(e) => setDraft({ ...draft, title: e.target.value })} placeholder="Title" aria-label="Title" autoFocus />
+        <textarea {...media.props} rows={6} value={draft.body} onChange={(e) => setDraft({ ...draft, body: e.target.value })} placeholder="Markdown; paste or drop a screenshot." aria-label="Body" />
+        <div className="actions">
+          <Act tone="primary" disabled={!draft.title.trim() || !draft.body.trim()} run={async () => {
+            const r = await api().editBoardNote(d.id, { title: draft.title.trim(), body: draft.body.trim() });
+            store.putDocs([r]);
+            setDraft(null);
+            store.toast(`Saved "${r.title}" on the board`, "ok");
+            onEdited?.();
+          }}>Save</Act>
+          <button type="button" className="btn" onClick={() => setDraft(null)}>Cancel</button>
+        </div>
+      </form>
+    </div>
+  );
+  if (!edit && !unpublish) return <DocRow doc={d} onOpen={onOpen} />;
+  return (
+    <div className="board-fyi">
+      <DocRow doc={d} onOpen={onOpen} />
+      {edit ? <button type="button" className="btn sm" onClick={() => setDraft({ title: d.title, body: d.body })} title="Edit the note's title and body in place">Edit</button> : null}
+      {unpublish ? <Act run={async () => {
+        const r = await api().unpublish(d.id);
+        store.putDocs([r]);
+        store.toast(`"${d.title}" is off the Town Hall board (back in ${d.authorId === store.state.me?.user.id ? "your" : `${nameOf(d.authorId)}'s`} drafts)`, "ok");
+        onUnpublished?.();
+      }} small title="Back to its author's drafts: it leaves every building's Town-wide section">Take off the board</Act> : null}
+    </div>
   );
 }
 
