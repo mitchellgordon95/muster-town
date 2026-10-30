@@ -52,7 +52,7 @@ export function MapCanvas(props: { panelInset: number; onTarget: (t: Target | nu
       // the Bank's town map: Esc or E puts the camera back (walking away does too)
       if (r.flow && (k === "escape" || k === "e")) { r.closeFlow(); e.preventDefault(); e.stopImmediatePropagation(); return; }
       if (MOVE_KEYS.has(k)) { r.keyDown(k); e.preventDefault(); }
-      else if (k === "e" && !e.repeat) { const t = r.currentTarget; if (t) { if (t.action === "flow") r.openFlow(); else if (t.action === "plan") openTownPlanning(); else store.open(t.panel); e.preventDefault(); } }
+      else if (k === "e" && !e.repeat) { const t = r.currentTarget; if (t) { r.interact(t); e.preventDefault(); } }
       else if (k === "tab" && r.cycleTarget(e.shiftKey ? -1 : 1)) e.preventDefault();
       else if (k === "-" || k === "_") r.zoom = Math.max(2, r.zoom - 1);
       else if (k === "=" || k === "+") r.zoom = Math.min(5, r.zoom + 1);
@@ -131,7 +131,7 @@ export function MapCanvas(props: { panelInset: number; onTarget: (t: Target | nu
         const id = r.hoverBlock ? null : r.hit(p.x, p.y);
         r.hoverId = id;
         r.hoverSign = id || r.hoverBlock ? null : r.signAt(p.x, p.y);
-        const table = !id && !r.hoverSign && !r.hoverBlock && (!!r.tableAt(p.x, p.y) || r.mapTableAt(p.x, p.y));
+        const table = !id && !r.hoverSign && !r.hoverBlock && (!!r.tableAt(p.x, p.y) || r.mapTableAt(p.x, p.y) || (!r.flow && !!r.placeAt(p.x, p.y)));
         ref.current!.style.cursor = id || r.hoverSign || r.hoverBlock || table ? "pointer" : "default";
       }}
       onMouseLeave={() => {
@@ -157,6 +157,9 @@ export function MapCanvas(props: { panelInset: number; onTarget: (t: Target | nu
         if (table) { store.open({ kind: "meeting", id: `room:${table.buildingId ?? ""}` }); return; }
         // the Town Hall map table opens town planning
         if (r.mapTableAt(p.x, p.y)) { openTownPlanning(); return; }
+        // a place (board, cabinet, in-tray, door, Bank, library, ...): walk to it, then do what E does there
+        const place = r.flow ? null : r.placeAt(p.x, p.y);
+        if (place) { r.walkToInteract(place.place, place.target); return; }
         // anywhere else (a tap on a phone too): walk there, like the minimap's click; not over the Bank's town map
         if (!r.flow) { const t = r.tileAt(p.x, p.y); r.walkToTile(t.x, t.y); }
       }}

@@ -60,6 +60,7 @@ describe("monitor thresholds", () => {
     const docId = raise[0]!.docId!;
     expect(world.docs.get(docId)).toMatchObject({ type: "fyi", state: "building" });
     expect(world.docs.get(docId)!.title).toContain("[RED]");
+    expect(world.docs.get(docId)!.body).toContain(`clears this after ${CLEAR_AFTER} samples in a row under yellow`);
 
     r.state.rss = 0.5 * GB;
     await step(CLEAR_AFTER - 1);
@@ -217,12 +218,15 @@ describe("monitor thresholds", () => {
       end(s, 0.9);
       await s.step(1);
       expect(s.m.view().alerts).toMatchObject([{ level: "red" }]);
+      const docId = s.alerts().at(-1)!.docId!;
+      expect(s.world.docs.get(docId)!.body).toContain(`clears this after ${CLEAR_AFTER} desk sessions in a row under yellow`);
       await s.step(10);
       for (let i = 0; i < CLEAR_AFTER - 2; i++) { end(s, 0.1); await s.step(1); }
       end(s, 0.1, 0.4); end(s, 0.1, 0.2); // two in one sample count two
       await s.step(1);
       expect(s.m.view().alerts).toEqual([]);
       expect(s.alerts().at(-1)).toMatchObject({ key: "desk-steal", phase: "clear", level: "red" });
+      expect(s.world.docs.get(docId)!.body).toContain(`after ${CLEAR_AFTER} desk sessions under yellow`);
       expect(s.r.sent).toHaveLength(4); // raise + clear, SMS and email each
     });
   });
