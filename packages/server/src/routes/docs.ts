@@ -1,4 +1,4 @@
-import { AppError, canSeeDoc, findManual, revisionsOf, searchDocs, whereOf } from "@muster-town/core";
+import { AppError, canSeeDoc, findManual, revisionsOf, searchDocs, unpublishTownFyi, whereOf } from "@muster-town/core";
 import { CreateMeetingInput, DocState, DocType, MeetingPhase, MeetingPresentInput, MeetingSayInput, ReplyInput, ReviewInput, VerbInputs } from "@muster-town/schema";
 import type { FastifyInstance } from "fastify";
 import { z } from "zod";
@@ -75,6 +75,9 @@ export async function docRoutes(app: FastifyInstance) {
     if (meetingId) world.ops.slideReplyDecision(actor, meetingId, req.params.id, "");
     return r;
   });
+
+  /** Take a town-wide FYI off the Town Hall board (back to its author's drafts): its author or a town admin. */
+  app.post<{ Params: Params }>("/api/docs/:id/unpublish", async (req) => ({ doc: unpublishTownFyi(world, actorOf(world, req), req.params.id) }));
 
   app.post<{ Params: Params }>("/api/docs/:id/promote", async (req) => {
     const { state } = parse(PromoteBody, req.body);
