@@ -33,13 +33,16 @@ export async function townRoutes(app: FastifyInstance) {
    * whether a change is live. `load` (read-only): `lagMs` p99 event-loop delay over the last 10 s window, `rssMb`, `wsClients` open now.
    * `backup` (read-only): the off-site copy's `{lastAt, bytes, dest, error}`; null until the bucket and key are set
    * (deploy/README.md "Backups"). Never the key or the bucket credentials. `monitor` (read-only, null without one):
-   * `{lastSampleAt, outbound, alerts: [{key, level, since, value}]}` (monitor.ts); never a secret.
+   * `{lastSampleAt, outbound, alerts: [{key, level, since, value}]}` (monitor.ts); never a secret. `directory` (root app, only where the
+   * directory is on): `{verified, listed, pending, lastTickAt}` (directory/index.ts).
    */
   app.get("/api/health", async () => ({ ok: true, runtime: !!app.runtime, commit: world.host.commit ?? null, startedAt: world.host.startedAt ?? null, time: new Date().toISOString(), accounting: BANK_ACCOUNTING, load: app.load.snapshot(),
     // goal-directed budgets: exploration (held at its allowance) and directed (a human asked; metered, never held) today
     budgets: world.grantDesk.laneBudgets(), backup: app.backup?.snapshot() ?? null, monitor: app.monitor?.view() ?? null,
     // the root app (the Workshop) only: how many hosted collectives this process serves at /<slug>/
     ...(app.hub ? { hosted: { count: app.hub.count } } : {}),
+    // the self-hosted towns directory (root app where it's on): {verified, listed, pending, lastTickAt}
+    ...(app.directory ? { directory: app.directory.view() } : {}),
     // a hosted collective: its own key or none (its agents are held), never the host's funding
     ...(world.host.hosted ? { funding: world.bank.liveApiKeyInput() ? "api-key" : "none" } : {}) }));
 
@@ -363,6 +366,13 @@ export async function townRoutes(app: FastifyInstance) {
   app.get("/api/finance/sources", async () => world.bank.sources());
   // public, read-only: pools (share, left, overdrawn) and buildings (drawn, donated, held, allowance); gr_mijwhoiy2f
   app.get("/api/finance/pools", async () => world.bank.pools((id) => world.grantDesk.exploration(id).allowanceTokens));
+  // the Fly.io hosting estimate (Bank Transparency, 1:1 mt_s6f8mvjw9h): desks priced only on the fly backend, the town Machine only when the server runs on one;
+  // the daily desk bill cap is Prod's desk-perf step 3 (gr_uhh6u39vv9): pass it here once desks config carries it
+  app.get<{ Querystring: { days?: string } }>("/api/finance/fly", async (req) => {
+    const desks = world.desksConfig();
+    const days = req.query.days ? Number(req.query.days) : undefined;
+    return world.bank.fly(desks, !!process.env.FLY_APP_NAME, { capUsdPerDay: null, windowDays: Number.isFinite(days) ? days : undefined });
+  });
 
   app.post("/api/bank/inputs", async (req, reply) => {
     const user = requireUser(req);
