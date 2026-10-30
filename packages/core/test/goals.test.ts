@@ -1,6 +1,7 @@
 import Database from "better-sqlite3";
 import { copyFileSync, mkdirSync, readdirSync } from "node:fs";
 import { join } from "node:path";
+import { TILE, WALKABLE } from "@muster-town/schema";
 import { describe, expect, it } from "vitest";
 import { buildingRoleId, createBuilding, createUser, migrate } from "../src/index.ts";
 import { seededWorld, tempDir } from "./helpers.ts";
@@ -131,6 +132,32 @@ describe("the town goal tree (docs/goals.md, step 1)", () => {
     const loose = world.grantDesk.createKeyResult(admin, LAB, { text: "k2", howToCheck: "h" });
     expect(loose.goalId).toBe(labGoal.id);
     expect(world.grantDesk.keyResults(LAB).map((k) => k.id)).toEqual([kr.id, loose.id]);
+  });
+});
+
+describe("the goal editor (docs/goals.md, step 3)", () => {
+  it("the Town Hall's goal tree wall chart: a GOAL_CHART tile on the back wall, its place on the walkable floor below", () => {
+    const { world } = setup();
+    const p = world.layout.places.find((x) => x.id === "goal-tree")!;
+    const g = world.layout.grid;
+    expect(p.kind).toBe("goal-tree");
+    expect(WALKABLE.has(g.tiles[p.pos.y * g.w + p.pos.x])).toBe(true);
+    expect(g.tiles[(p.pos.y - 1) * g.w + p.pos.x]).toBe(TILE.GOAL_CHART);
+  });
+  it("a goal's History tab: its own edits, its key results, attachments and proposals, newest first; not its siblings'", () => {
+    const { admin, tree, labGoal, otherGoal } = setup();
+    tree.update(admin, labGoal.id, { text: "A funder sees every token" });
+    const kr = tree.addKeyResult(admin, labGoal.id, { text: "The Bank counts every token type", howToCheck: "GET /api/health", due });
+    tree.update(admin, otherGoal.id, { text: "Someone else's goal" });
+    const child = tree.create(admin, { parentId: labGoal.id, text: "A child goal" });
+    const types = tree.history(labGoal.id).map((e) => e.type);
+    expect(types[0]).toBe("goal.created");
+    expect(types).toEqual(expect.arrayContaining(["goal.edited", "kr.created", "goal.attached", "goal.created"]));
+    const texts = tree.history(labGoal.id).map((e) => e.text).join("\n");
+    expect(texts).not.toMatch(/Someone else's goal/);
+    expect(texts).toMatch(new RegExp(kr.text));
+    expect(tree.history(child.id).map((e) => e.type)).toEqual(["goal.created"]);
+    expect(() => tree.history("gl_nope")).toThrow();
   });
 });
 

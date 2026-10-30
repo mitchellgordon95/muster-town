@@ -396,6 +396,8 @@ export const PlaceKind = z.enum([
   "bank-map",
   /** bank — the Bank's vault (`bank`) and stations (`bank:<slug>`, BANK_FIXTURES.stations): each opens one tab of the Bank panel */
   "bank",
+  /** goal-tree — Town Hall: the goal tree wall chart; using it opens the goal editor (docs/goals.md "The Town Hall goal editor") */
+  "goal-tree",
 ]);
 export type PlaceKind = z.infer<typeof PlaceKind>;
 export const Place = z.object({
@@ -1060,10 +1062,10 @@ export const GoalProposal = z.object({
 export type GoalProposal = z.infer<typeof GoalProposal>;
 /** GET /api/goals's shape as the web reads it (core Goals.tree): a goal with its owner, attached buildings and children. */
 export interface GoalTreeNode {
-  id: string; parentId: string | null; text: string; status: "active" | "retired"; ownerId: string | null;
+  id: string; parentId: string | null; text: string; status: "active" | "retired"; ownerId: string | null; retiredNote?: string;
   owner: { goalId: string; userId: string | null; name: string };
   buildings: { id: string; name: string }[];
-  keyResults: { id: string; text: string; status: string; due: string | null; archivedAt: string | null }[];
+  keyResults: { id: string; text: string; howToCheck: string; status: string; due: string | null; archivedAt: string | null; buildingId: string; grantId: string | null }[];
   children: GoalTreeNode[];
 }
 const Due = z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "a date YYYY-MM-DD");
@@ -1584,6 +1586,8 @@ export const TILE = {
   BANK_LEDGER: 22, BANK_FOUNTAIN: 23, BANK_SPENDING: 24, BANK_SERVER: 25,
   /** a goal's signpost at the end of its plaza (place `plaza:<goalId>`; the map labels it with the goal's words) */
   SIGNPOST: 26,
+  /** the Town Hall goal tree: a wall chart on its back wall (place `goal-tree`: opens the goal editor) */
+  GOAL_CHART: 27,
 } as const;
 /**
  * The Bank: a fixed landmark (not a building row, so it never takes a budget share) below the root plaza, opposite

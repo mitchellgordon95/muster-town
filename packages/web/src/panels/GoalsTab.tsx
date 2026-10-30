@@ -43,7 +43,8 @@ export function GoalsTab({ b }: { b: SnapshotBuilding }) {
   const canFund = store.can("building.fund", b.id);
   const [editing, setEditing] = useState(false);
   const { tree, grants } = useGoalData(b.id);
-  const toggle = canManage ? <button className="link" onClick={() => setEditing(!editing)}>{editing ? "Done editing" : "Edit"}</button> : undefined;
+  const atHall = <button className="link" title="The town goal tree: goals, key results and proposals" onClick={() => store.open({ kind: "goals", id: b.goalId ?? undefined })}>Goal tree at the Town Hall →</button>;
+  const toggle = canManage ? <span className="goal-actions">{atHall}<button className="link" onClick={() => setEditing(!editing)}>{editing ? "Done editing" : "Edit"}</button></span> : atHall;
   if (editing) return <KeyResultsEditor b={b} right={toggle} />;
   const objectives = tree.data?.objectives ?? [];
   const unsorted = tree.data?.unsorted ?? [];

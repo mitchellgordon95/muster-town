@@ -21,7 +21,7 @@ export function DashboardPanel() {
           <p className="direction">{d.data.framing}</p>
           <div className="kpi-tiles">{d.data.kpis.map((k) => <KpiTile key={k.id} k={k} />)}</div>
         </Section>
-        <Section title="Building objectives">
+        <Section title="Building objectives" right={<button className="link" onClick={() => store.open({ kind: "goals" })}>The goal tree →</button>}>
           {!d.data.buildings.length ? <Empty>No goal-directed buildings yet.</Empty> : null}
           {d.data.buildings.map((b) => (
             <div key={b.buildingId} className="kpi-building">

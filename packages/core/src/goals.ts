@@ -1,6 +1,6 @@
 import {
   CreateGoalInput, CreateTreeKeyResultInput, DecideGoalProposalInput, ProposeGoalInput, ROOT_GOAL_ID, RetireGoalInput, UpdateGoalInput,
-  type Building, type Goal, type GoalProposal, type KeyResult,
+  Event, type Building, type Goal, type GoalProposal, type KeyResult,
 } from "@muster-town/schema";
 import { sendMessage } from "./domain.ts";
 import { AppError, badRequest, forbidden } from "./errors.ts";
@@ -457,6 +457,25 @@ export class Goals {
     const next = this.world.keyResults.upsert({ ...kr, goalId: to.id, objectiveId: this.world.objectives.get(to.id) ? to.id : null, updatedAt: nowIso() });
     this.world.events.append({ type: "kr.updated", agentId: actor?.id ?? null, buildingId: kr.buildingId, text: `Key result moved to "${clip(to.text, 60)}": ${kr.text}`, payload: { keyResultId: kr.id, status: kr.status, from: kr.status, goalId: to.id, fromGoalId: kr.goalId, by: actor ? holderOf(actor).id : "system", edited: false } });
     return next;
+  }
+
+  // ---- history (the editor's History tab: the event log is the audit trail) ----
+  /**
+   * A goal's history, newest first: its own goal.* events, its key results' kr.* events, buildings attached to or moved
+   * off it, and goal proposals that name it. No audit table: these are the event log's rows.
+   */
+  history(goalId: string, limit = 100): Event[] {
+    this.require(goalId);
+    const krIds = this.world.keyResults.where("goalId = ?", [goalId]).map((k) => k.id);
+    const proposalIds = this.world.goalProposals.where("targetId = ? OR parentId = ?", [goalId, goalId]).map((p) => p.id);
+    const inList = (n: number) => n ? `IN (${Array(n).fill("?").join(",")})` : "IN (NULL)";
+    const rows = this.world.db.prepare(
+      `SELECT * FROM events WHERE (type LIKE 'goal.%' AND (json_extract(payload, '$.goalId') = ? OR json_extract(payload, '$.fromGoalId') = ? OR json_extract(payload, '$.parentId') = ?))
+        OR (type LIKE 'kr.%' AND (json_extract(payload, '$.keyResultId') ${inList(krIds.length)} OR json_extract(payload, '$.goalId') = ? OR json_extract(payload, '$.fromGoalId') = ?))
+        OR (type = 'goal.proposal' AND json_extract(payload, '$.proposalId') ${inList(proposalIds.length)})
+       ORDER BY id DESC LIMIT ${Math.min(Math.max(limit, 1), 500)}`,
+    ).all(goalId, goalId, goalId, ...krIds, goalId, goalId, ...proposalIds) as Record<string, unknown>[];
+    return rows.map((r) => Event.parse({ ...r, payload: JSON.parse(String(r.payload ?? "{}")) }));
   }
 
   // ---- boot ----

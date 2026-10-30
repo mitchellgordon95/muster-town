@@ -22,6 +22,7 @@ import { MeetingPanel } from "./panels/MeetingPanel";
 import { PlanningPanel } from "./panels/PlanningPanel";
 import { BoardPanel, CabinetPanel, IntrayPanel, ModStationPanel, PlantFlag, SchedulePanel } from "./panels/Places";
 import { flagTargets } from "./panels/flag";
+import { GoalTreePanel } from "./panels/GoalTreePanel";
 import { DashboardPanel } from "./panels/DashboardPanel";
 import { BankPanel } from "./panels/BankPanel";
 import { GrantPanel } from "./panels/GrantPanel";
@@ -191,6 +192,7 @@ function PanelHost({ panel }: { panel: PanelRef }) {
     // the Bank's tabs are things in its room (BANK_FIXTURES.stations); a tab deep-link re-lands per open
     case "bank": return <BankPanel key={panel.tab ? `${panel.tab}:${openSeq(panel)}` : ""} tab={panel.tab} />;
     case "dashboard": return <DashboardPanel />;
+    case "goals": return <GoalTreePanel key={panel.id ?? ""} goalId={panel.id} />;
     case "grant": return <GrantPanel key={panel.id} id={panel.id!} />;
     case "schedule": return <SchedulePanel />;
     case "mod": return <ModStationPanel />;

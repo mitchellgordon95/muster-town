@@ -28,6 +28,9 @@ export async function goalRoutes(app: FastifyInstance) {
     };
   });
 
+  /** The goal's history, newest first (the editor's History tab): goal, key result, attachment and proposal events. */
+  app.get<{ Params: Params }>("/api/goals/:id/history", async (req) => ({ events: tree.history(req.params.id) }));
+
   app.post("/api/goals", async (req, reply) => reply.code(201).send({ goal: tree.create(actorOf(world, req), parse(CreateGoalInput, req.body)) }));
 
   app.patch<{ Params: Params }>("/api/goals/:id", async (req) => ({ goal: tree.update(actorOf(world, req), req.params.id, parse(UpdateGoalInput, req.body)) }));

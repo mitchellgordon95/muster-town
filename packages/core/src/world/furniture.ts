@@ -54,6 +54,8 @@ function southFacingPieces(kind: "lab" | "town-hall", headcount: number, lot: { 
       { key: "schedule", label: "Schedule board", at: { x: 15, y: 6 }, cells: one(TILE.SCHEDULE), stands: [{ x: 0, y: 1 }] },
       // the Town Hall board on the back wall: town-wide FYIs (Mitchell's flag dc_ym8fjxqjiv)
       { key: "board", label: "Town Hall board", at: { x: 8, y: 0 }, cells: one(TILE.BOARD), stands: [{ x: 0, y: 1 }], wall: true },
+      // the goal tree wall chart above the town map table: opens the goal editor (docs/goals.md)
+      { key: "goal-tree", label: "Goal tree", at: { x: 12, y: 0 }, cells: one(TILE.GOAL_CHART), stands: [{ x: 0, y: 1 }], wall: true },
       { key: "library", label: "Library shelves", at: { x: 2, y: 2 }, cells: row(5, TILE.SHELF), stands: [{ x: 2, y: 1 }] },
       // the town map table where the trophy cases were: 5x2, used from the middle of its front edge (opens town planning)
       { key: "town-map", label: "Town map table", at: { x: 10, y: 2 }, cells: [...row(5, TILE.TOWN_MAP), ...row(5, TILE.TOWN_MAP).map((c) => ({ ...c, dy: 1 }))], stands: [{ x: 2, y: 2 }] },

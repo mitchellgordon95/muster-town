@@ -29,7 +29,7 @@ export async function look(world: World, me: Agent, _input: VerbIn<"look">): Pro
   const visible = world.layout.places.filter((p) =>
     p.kind === "door" || p.kind === "plaza" || p.kind === "bank" || p.kind === "bank-map" || p.id === "library" || p.id === "outbox" ||
     // Town Hall stations everyone can walk to
-    p.kind === "mod-station" || p.kind === "planning" || p.kind === "town-map" || p.id === "schedule-board" || p.kind === "bench" || p.id === "intray:town-hall" || p.id === "board:town-hall" ||
+    p.kind === "mod-station" || p.kind === "planning" || p.kind === "town-map" || p.kind === "goal-tree" || p.id === "schedule-board" || p.kind === "bench" || p.id === "intray:town-hall" || p.id === "board:town-hall" ||
     // the board, schedule board, filing cabinet and in-tray (manager's desk) of the building I'm in / my home building
     ((p.kind === "board" || p.kind === "schedule" || p.kind === "cabinet" || p.kind === "intray") && mine(p)) ||
     (p.kind === "meeting-room" && (mine(p) || p.buildingId === "town-hall")) ||
