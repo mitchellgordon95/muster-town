@@ -12,8 +12,9 @@ import { redirectPanel } from "./panels/room";
 
 /**
  * Every panel is a place: walk up and press E. `intray`/`board`/`cabinet` take a building id; the Town Hall places
- * (planning desk, schedule board, mod station) and the Bank take none. `admin` is the old name for `planning`.
- * `finance` (public, the HUD's "$") has no place either.
+ * (planning desk, schedule board, mod station) and the Bank take none; the Bank's `tab` is the thing in its room you used.
+ * `admin` is the old name for `planning`.
+ * `finance` (public, the HUD's "$") is the Bank's Ledger tab (its ledger desk).
  * `grant` is the one panel without a place: a grant or proposal (`gr_…`), reached from any link to its id.
  */
 export type PanelKind = "agent" | "building" | "connect" | "library" | "outbox" | "meeting" | "intray" | "board" | "cabinet" | "planning" | "schedule" | "mod" | "bank" | "admin" | "grant" | "manual" | "dashboard" | "finance";

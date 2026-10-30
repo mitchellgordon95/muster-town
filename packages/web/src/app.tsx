@@ -23,7 +23,6 @@ import { PlanningPanel } from "./panels/PlanningPanel";
 import { BoardPanel, CabinetPanel, IntrayPanel, ModStationPanel, PlantFlag, SchedulePanel } from "./panels/Places";
 import { flagTargets } from "./panels/flag";
 import { DashboardPanel } from "./panels/DashboardPanel";
-import { FinancePanel } from "./panels/FinancePanel";
 import { BankPanel } from "./panels/BankPanel";
 import { GrantPanel } from "./panels/GrantPanel";
 import { HowItWorks, howItWorksSeen } from "./panels/HowItWorks";
@@ -189,9 +188,10 @@ function PanelHost({ panel }: { panel: PanelRef }) {
     case "cabinet": return <CabinetPanel key={panel.id} buildingId={panel.id!} />;
     case "admin":
     case "planning": return <PlanningPanel tab={panel.tab} />;
-    case "bank": return <BankPanel />;
+    // the Bank's tabs are things in its room (BANK_FIXTURES); Finance is its Ledger tab
+    case "bank": return <BankPanel key={panel.tab ? `${panel.tab}:${openSeq(panel)}` : ""} tab={panel.tab} />;
     case "dashboard": return <DashboardPanel />;
-    case "finance": return <FinancePanel />;
+    case "finance": return <BankPanel key={`Ledger:${openSeq(panel)}`} tab="Ledger" />;
     case "grant": return <GrantPanel key={panel.id} id={panel.id!} />;
     case "schedule": return <SchedulePanel />;
     case "mod": return <ModStationPanel />;

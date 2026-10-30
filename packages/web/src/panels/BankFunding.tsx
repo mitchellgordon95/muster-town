@@ -270,7 +270,7 @@ export function BankPools({ bank, onChange }: Props) {
     onChange();
   };
   return (
-    <Section title="Pools">
+    <Section title="Pool shares">
       <table className="table pools-table">
         <thead><tr><th>Pool</th><th>Share</th><th title="What its buildings can still draw today, first come first served">Can draw</th><th>Buildings</th>{isAdmin ? <th /> : null}</tr></thead>
         <tbody>

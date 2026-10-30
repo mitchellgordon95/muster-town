@@ -237,17 +237,92 @@ export function drawPillar(g: CanvasRenderingContext2D, px: number, py: number) 
   g.fillStyle = "#f5f0e2"; g.fillRect(px + 4, py + 3, 8, 10);
   g.fillStyle = "#d9cfb6"; g.fillRect(px + 6, py + 3, 1, 10); g.fillRect(px + 9, py + 3, 1, 10);
 }
-/** The Bank's teller counter: dark wood with a gold top; coins on every other tile. */
-export function drawGoldCounter(g: CanvasRenderingContext2D, px: number, py: number, n: { l: boolean; r: boolean }, coins: boolean) {
-  g.fillStyle = "#3b2414"; g.fillRect(px, py + 6, T, 10);
-  g.fillStyle = "#d7ad3a"; g.fillRect(px, py + 3, T, 4);
-  g.fillStyle = "#fff1b0"; g.fillRect(px, py + 3, T, 1);
-  if (!n.l) { g.fillStyle = "#8f6a12"; g.fillRect(px, py + 3, 1, 13); }
-  if (!n.r) { g.fillStyle = "#8f6a12"; g.fillRect(px + T - 1, py + 3, 1, 13); }
-  g.fillStyle = "#d7ad3a"; g.fillRect(px + 2, py + 10, T - 4, 1);
-  if (coins) {
-    g.fillStyle = "#a87a14"; g.fillRect(px + 5, py + 1, 6, 3);
-    g.fillStyle = "#f2c94c"; g.fillRect(px + 5, py, 6, 2);
+/** The Bank's donation box (Donate tab): a glass-topped wooden box on a stand, a coin dropping into its slot. */
+export function drawDonationBox(g: CanvasRenderingContext2D, px: number, py: number) {
+  g.fillStyle = "rgba(0,0,0,.2)"; g.fillRect(px + 3, py + 14, 10, 2);
+  g.fillStyle = "#6b4a2b"; g.fillRect(px + 7, py + 10, 2, 5); g.fillRect(px + 4, py + 14, 8, 1);
+  g.fillStyle = "#8a6236"; g.fillRect(px + 3, py + 4, 10, 7);
+  g.fillStyle = "#b8862a"; g.fillRect(px + 3, py + 4, 10, 1); g.fillRect(px + 3, py + 10, 10, 1);
+  g.fillStyle = "#cfe3ea"; g.fillRect(px + 4, py + 5, 8, 4);
+  g.fillStyle = "#f2c94c"; g.fillRect(px + 5, py + 7, 2, 2); g.fillRect(px + 8, py + 7, 3, 2);
+  g.fillStyle = "#14151c"; g.fillRect(px + 6, py + 4, 4, 1);
+  g.fillStyle = "#f2c94c"; g.fillRect(px + 7, py + 1, 2, 2);
+  g.fillStyle = "#fff1b0"; g.fillRect(px + 7, py + 1, 1, 1);
+}
+/** The Bank's inputs ticker (Inputs tab): a green-screen board on a post, a rising line of what comes in. */
+export function drawBankTicker(g: CanvasRenderingContext2D, px: number, py: number) {
+  g.fillStyle = "rgba(0,0,0,.2)"; g.fillRect(px + 4, py + 14, 8, 2);
+  g.fillStyle = "#6b4a12"; g.fillRect(px + 7, py + 10, 2, 5);
+  g.fillStyle = "#b8862a"; g.fillRect(px + 1, py + 1, 14, 10);
+  g.fillStyle = "#14251c"; g.fillRect(px + 2, py + 2, 12, 8);
+  g.fillStyle = "#4fd18b";
+  for (const [x, y] of [[3, 8], [5, 7], [7, 7], [9, 5], [11, 4], [12, 3]]) g.fillRect(px + x, py + y, 2, 1);
+  g.fillStyle = "#f2c94c"; g.fillRect(px + 12, py + 2, 1, 1);
+}
+/** The Bank's pools fountain (Pools tab), two tiles: a marble basin of water with coins in it; each tile draws its half. */
+export function drawBankFountain(g: CanvasRenderingContext2D, px: number, py: number, n: { l: boolean; r: boolean }) {
+  g.fillStyle = "rgba(0,0,0,.18)"; g.fillRect(px, py + 14, T, 2);
+  g.fillStyle = "#d9cfb6"; g.fillRect(px, py + 4, T, 11);
+  g.fillStyle = "#f5f0e2"; g.fillRect(px, py + 4, T, 2);
+  if (!n.l) { g.fillStyle = "#c2b79c"; g.fillRect(px, py + 4, 2, 11); }
+  if (!n.r) { g.fillStyle = "#c2b79c"; g.fillRect(px + T - 2, py + 4, 2, 11); }
+  g.fillStyle = "#3d7fc4"; g.fillRect(px + (n.l ? 0 : 2), py + 6, T - (n.l ? 0 : 2) - (n.r ? 0 : 2), 7);
+  g.fillStyle = "#7fb6e8"; g.fillRect(px + (n.l ? 1 : 3), py + 7, 5, 1);
+  g.fillStyle = "#f2c94c"; g.fillRect(px + (n.l ? 3 : 5), py + 10, 2, 2); g.fillRect(px + 10, py + 9, 2, 2);
+  if (n.l) { // the spout rises from the middle seam
+    g.fillStyle = "#f5f0e2"; g.fillRect(px - 1, py, 2, 6);
+    g.fillStyle = "#9fd0f2"; g.fillRect(px - 2, py + 1, 1, 4); g.fillRect(px + 1, py + 1, 1, 4);
+  }
+}
+/** The Bank's pressure gauge (Health tab: drift and out-of-tokens deaths): a round dial on a brass post. */
+export function drawBankGauge(g: CanvasRenderingContext2D, px: number, py: number) {
+  g.fillStyle = "rgba(0,0,0,.2)"; g.fillRect(px + 4, py + 14, 8, 2);
+  g.fillStyle = "#8f6a12"; g.fillRect(px + 7, py + 9, 2, 6); g.fillRect(px + 5, py + 14, 6, 1);
+  g.fillStyle = "#b8862a"; g.beginPath(); g.arc(px + 8, py + 6, 6, 0, Math.PI * 2); g.fill();
+  g.fillStyle = "#f5f0e2"; g.beginPath(); g.arc(px + 8, py + 6, 4.5, 0, Math.PI * 2); g.fill();
+  g.fillStyle = "#4fa36b"; g.fillRect(px + 4, py + 5, 2, 1);
+  g.fillStyle = "#e0a63a"; g.fillRect(px + 7, py + 2, 2, 1);
+  g.fillStyle = "#c0392b"; g.fillRect(px + 10, py + 5, 2, 1);
+  g.fillStyle = "#14151c"; g.fillRect(px + 8, py + 4, 1, 3); g.fillRect(px + 9, py + 3, 1, 1);
+}
+/** The Bank's ledger desk (Ledger tab), two tiles: a dark-wood desk with an open ledger and a quill; each tile draws its half. */
+export function drawBankLedger(g: CanvasRenderingContext2D, px: number, py: number, n: { l: boolean; r: boolean }) {
+  g.fillStyle = "#3b2414"; g.fillRect(px, py + 6, T, 8);
+  g.fillStyle = "#5a3920"; g.fillRect(px, py + 6, T, 2);
+  g.fillStyle = "#d7ad3a"; g.fillRect(px, py + 5, T, 1);
+  g.fillStyle = "#3b2414";
+  if (!n.l) g.fillRect(px + 1, py + 14, 2, 2);
+  if (!n.r) g.fillRect(px + T - 3, py + 14, 2, 2);
+  if (!n.l) { // the open book across the seam
+    g.fillStyle = "#f5f0e2"; g.fillRect(px + 8, py + 1, 8, 6);
+    g.fillStyle = "#9a9db3"; for (let y = 2; y <= 5; y++) g.fillRect(px + 9, py + y, 6, 1);
+  } else {
+    g.fillStyle = "#efe6cf"; g.fillRect(px, py + 1, 8, 6);
+    g.fillStyle = "#9a9db3"; for (let y = 2; y <= 5; y++) g.fillRect(px + 1, py + y, 5, 1);
+    g.fillStyle = "#c0392b"; g.fillRect(px + 2, py + 5, 3, 1);
+    g.fillStyle = "#f5f0e2"; g.fillRect(px + 11, py, 1, 6); g.fillRect(px + 12, py, 1, 2);
+  }
+}
+/** The Bank's lockboxes (Funding tab: what each building holds), two tiles: a wall of little brass-fronted safe-deposit doors. */
+export function drawBankLockbox(g: CanvasRenderingContext2D, px: number, py: number, n: { l: boolean; r: boolean }) {
+  g.fillStyle = "rgba(0,0,0,.18)"; g.fillRect(px, py + 14, T, 2);
+  g.fillStyle = "#6f778f"; g.fillRect(px, py + 1, T, 14);
+  g.fillStyle = "#8e96ad"; g.fillRect(px, py + 1, T, 1);
+  if (!n.l) { g.fillStyle = "#5c6378"; g.fillRect(px, py + 1, 1, 14); }
+  if (!n.r) { g.fillStyle = "#5c6378"; g.fillRect(px + T - 1, py + 1, 1, 14); }
+  for (const y of [3, 9]) for (const x of [2, 9]) {
+    g.fillStyle = "#d7ad3a"; g.fillRect(px + x, py + y, 5, 4);
+    g.fillStyle = "#8f6a12"; g.fillRect(px + x + 2, py + y + 1, 1, 2);
+  }
+}
+/** The Bank's server rack (Hosting tab: what the Fly.io Machines cost): a black cabinet of blinking units. */
+export function drawBankServer(g: CanvasRenderingContext2D, px: number, py: number) {
+  g.fillStyle = "rgba(0,0,0,.25)"; g.fillRect(px + 2, py + 14, 12, 2);
+  g.fillStyle = "#22242e"; g.fillRect(px + 3, py, 10, 15);
+  g.fillStyle = "#3a3d4c"; g.fillRect(px + 3, py, 10, 1);
+  for (const y of [2, 5, 8, 11]) {
+    g.fillStyle = "#3a3d4c"; g.fillRect(px + 4, py + y, 8, 2);
+    g.fillStyle = y === 5 ? "#e0a63a" : "#4fd18b"; g.fillRect(px + 10, py + y, 1, 1);
   }
 }
 

@@ -391,7 +391,7 @@ export const PlaceKind = z.enum([
   "bench",
   /** bank-map — the Bank: a town map; using it zooms out to the whole town and shows the Bank's tokens flowing to each building by share */
   "bank-map",
-  /** bank — the teller counter inside the Bank (BANK_LOT, south of the road): the town's token balance */
+  /** bank — the Bank's vault (`bank`) and stations (`bank:<slug>`, BANK_FIXTURES.stations): each opens one tab of the Bank panel */
   "bank",
 ]);
 export type PlaceKind = z.infer<typeof PlaceKind>;
@@ -1451,25 +1451,53 @@ export const TILE = {
   PILLAR: 20,
   /** a building's schedule board: a calendar on its back wall (place `schedule:<buildingId>`; the map marks its active schedules) */
   SCHEDULE_BOARD: 21,
+  /** the Bank's stations (BANK_FIXTURES.stations): each opens one tab of the Bank panel */
+  DONATION_BOX: 22, BANK_TICKER: 23, BANK_FOUNTAIN: 24, BANK_GAUGE: 25, BANK_LEDGER: 26, BANK_LOCKBOX: 27, BANK_SERVER: 28,
 } as const;
 /**
  * The Bank: a fixed landmark (not a building row, so it never takes a budget share) south of the road,
  * opposite the Town Hall, with its door in the top wall facing the road. Absolute tiles.
  */
 export const BANK_LOT = { x: 48, y: 45, w: 17, h: 9 } as const;
-/** The Bank's interior, relative to BANK_LOT. Shared so core's layout and the web mock build the same room. */
+/**
+ * The Bank's interior, relative to BANK_LOT. Shared so core's layout and the web mock build the same room.
+ * Every tab of the Bank panel is a thing in the room (Mitchell, 1:1 mt_ew2d0mm7h9): the vault (place `bank`) opens
+ * Balance, each station (place `bank:<slug>`) its own tab; money in on the left, money out on the right.
+ */
 export const BANK_FIXTURES = {
   door: { x: 8, y: 0 },
-  pillars: [{ x: 2, y: 2 }, { x: 14, y: 2 }, { x: 2, y: 5 }, { x: 14, y: 5 }],
-  /** the gold teller counter; the `bank` place stands in front of it */
-  counter: [{ x: 5, y: 5 }, { x: 6, y: 5 }, { x: 7, y: 5 }, { x: 8, y: 5 }, { x: 9, y: 5 }, { x: 10, y: 5 }, { x: 11, y: 5 }],
-  counterStand: { x: 8, y: 4 },
+  /** two columns framing the entrance */
+  pillars: [{ x: 6, y: 1 }, { x: 10, y: 1 }],
+  /** vault door in the back wall, gold bars stacked either side of the walk up to it; the `bank` place stands in front (Balance) */
+  vault: { x: 8, y: 8 }, vaultStand: { x: 8, y: 7 },
+  gold: [{ x: 6, y: 7 }, { x: 7, y: 7 }, { x: 9, y: 7 }, { x: 10, y: 7 }],
   /** the town map on its stand (place `bank-map`: E zooms out to the coin flow); stand below it */
-  map: { x: 12, y: 2 }, mapStand: { x: 12, y: 3 },
-  /** vault door in the back wall, gold bars stacked either side of the walk up to it */
-  vault: { x: 8, y: 8 },
-  gold: [{ x: 5, y: 7 }, { x: 6, y: 7 }, { x: 10, y: 7 }, { x: 11, y: 7 }],
+  map: { x: 14, y: 2 }, mapStand: { x: 14, y: 3 },
+  stations: [
+    { slug: "donate", tab: "Donate", name: "Donation box", tile: TILE.DONATION_BOX, cells: [{ x: 2, y: 2 }], stand: { x: 2, y: 3 } },
+    { slug: "inputs", tab: "Inputs", name: "Inputs ticker", tile: TILE.BANK_TICKER, cells: [{ x: 4, y: 2 }], stand: { x: 4, y: 3 } },
+    { slug: "pools", tab: "Pools", name: "Pools fountain", tile: TILE.BANK_FOUNTAIN, cells: [{ x: 2, y: 5 }, { x: 3, y: 5 }], stand: { x: 2, y: 6 } },
+    { slug: "health", tab: "Health", name: "Pressure gauge", tile: TILE.BANK_GAUGE, cells: [{ x: 5, y: 5 }], stand: { x: 5, y: 6 } },
+    { slug: "ledger", tab: "Ledger", name: "Ledger desk", tile: TILE.BANK_LEDGER, cells: [{ x: 11, y: 2 }, { x: 12, y: 2 }], stand: { x: 12, y: 3 } },
+    { slug: "funding", tab: "Funding", name: "Lockboxes", tile: TILE.BANK_LOCKBOX, cells: [{ x: 11, y: 5 }, { x: 12, y: 5 }], stand: { x: 11, y: 6 } },
+    { slug: "hosting", tab: "Hosting", name: "Server rack", tile: TILE.BANK_SERVER, cells: [{ x: 14, y: 5 }], stand: { x: 14, y: 6 } },
+  ],
 } as const;
+/** The Bank panel's tabs, in order; Balance is the vault's. */
+export const BANK_TABS = ["Balance", ...BANK_FIXTURES.stations.map((s) => s.tab)] as const;
+/** The Bank tab a place opens: `bank` → Balance, `bank:<slug>` → its station's tab. */
+export function bankTabOf(placeId: string): string {
+  return BANK_FIXTURES.stations.find((s) => `bank:${s.slug}` === placeId)?.tab ?? "Balance";
+}
+/** The Bank's places: the vault's `bank` first (code finds the Bank by it), then one per station. Absolute tiles from the lot's corner. */
+export function bankPlaces(x0: number, y0: number): Place[] {
+  const F = BANK_FIXTURES;
+  return [
+    { id: "bank", kind: "bank", name: "Bank vault", buildingId: null, pos: { x: x0 + F.vaultStand.x, y: y0 + F.vaultStand.y } },
+    ...F.stations.map((s): Place => ({ id: `bank:${s.slug}`, kind: "bank", name: `Bank ${s.name.toLowerCase()}`, buildingId: null, pos: { x: x0 + s.stand.x, y: y0 + s.stand.y } })),
+    { id: "bank-map", kind: "bank-map", name: "Bank town map", buildingId: null, pos: { x: x0 + F.mapStand.x, y: y0 + F.mapStand.y } },
+  ];
+}
 export const WALKABLE = new Set<number>([TILE.GRASS, TILE.PATH, TILE.FLOOR, TILE.DOOR]);
 
 // ---------- REST payloads ----------

@@ -2,7 +2,7 @@
  * Shareable URLs: `/#/doc/<id>` opens that doc in the library panel (`/#/doc/<id>/<n>`: a deck at slide n) and `/#/grant/<id>` opens that grant or
  * proposal; opening either puts its id in the address bar, so a link can be pasted into a report, chat or anywhere else.
  * `/#/connect` opens "Connect your agent" (the README's Bring your own agent section links it).
- * `/#/finance` opens the public Finance page (tokens used, expired, left and the 30-day projection).
+ * `/#/finance` opens the public Finance page, the Bank's Ledger tab (tokens used, expired, left and the 30-day projection).
  * `/#/manual` opens the operating manual (the HUD's "?"), `/#/manual/<section>` at that section.
  */
 import { store, type PanelRef } from "./state";

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { BANK_LOT, TILE } from "@muster-town/schema";
+import { BANK_FIXTURES, BANK_LOT, TILE, bankTabOf } from "@muster-town/schema";
 import { World, createBuilding, createResident, updateBuilding, findPath, isWalkable, MAX_HEADCOUNT, ROAD_Y } from "../src/index.ts";
 import { computeLayout } from "../src/world/layout.ts";
 import { freshWorld, seededWorld, tickUntil } from "./helpers.ts";
@@ -22,10 +22,20 @@ describe("layout", () => {
     expect(findPath(grid, world.layout.requirePlace("plaza").pos, bank.pos)).not.toBeNull();
     const at = (x: number, y: number) => grid.tiles[(BANK_LOT.y + y) * grid.w + BANK_LOT.x + x];
     expect(at(8, 8)).toBe(TILE.VAULT);
-    expect(at(8, 5)).toBe(TILE.COUNTER);
+    expect(bank.pos).toEqual({ x: BANK_LOT.x + 8, y: BANK_LOT.y + 7 }); // in front of the vault
     const map = world.layout.requirePlace("bank-map");
-    expect(at(12, 2)).toBe(TILE.BANK_MAP);
+    expect(at(14, 2)).toBe(TILE.BANK_MAP);
     expect(findPath(grid, bank.pos, map.pos)).not.toBeNull();
+    // the big counter is gone; every tab of the Bank panel is a station in the room, reachable from the door
+    expect(grid.tiles.filter((t, i) => t === TILE.COUNTER && world.layout.buildingAt({ x: i % grid.w, y: Math.floor(i / grid.w) }) === null).length).toBe(0);
+    for (const st of BANK_FIXTURES.stations) {
+      const p = world.layout.requirePlace(`bank:${st.slug}`);
+      expect(p.kind).toBe("bank");
+      expect(bankTabOf(p.id)).toBe(st.tab);
+      for (const c of st.cells) expect(at(c.x, c.y)).toBe(st.tile);
+      expect(findPath(grid, world.layout.requirePlace("plaza").pos, p.pos), st.name).not.toBeNull();
+    }
+    expect(bankTabOf("bank")).toBe("Balance");
     // outside, not in any building
     expect(world.layout.buildingAt(bank.pos)).toBeNull();
   });

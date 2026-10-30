@@ -14,12 +14,12 @@
  * the endpoint can't be loaded, the older "Bank pools" table from /api/bank stands in for it. Last, Hosting (Fly.io) from
  * GET /api/finance/fly (1:1 mt_s6f8mvjw9h): what the desks' Machines and the town Machine cost in dollars, today and over
  * the window, per building, estimated from desk sessions' wall time at Fly's list prices; the daily desk cap when one is set.
- * Opened from the HUD's "$" or `#/finance`.
+ * Its views are the Bank panel's Ledger, Inputs, Pools and Hosting tabs (BankPanel.tsx); the HUD's "$" and `#/finance`
+ * open the Ledger.
  */
-import { api, type BankPoolSummary, type Finance, type FinanceFly, type FinancePools, type FinanceSources, type FinanceSpend, type SpendNode } from "../api";
+import type { BankPoolSummary, Finance, FinanceFly, FinancePools, FinanceSources, FinanceSpend, SpendNode } from "../api";
 import type { ReactNode } from "react";
-import { Glyph, PanelShell } from "./PanelShell";
-import { ADJ, ADJ_HINT, ErrorLine, Loading, Section, useLoad } from "./ui";
+import { ADJ, ADJ_HINT, Section } from "./ui";
 
 const n = (x: number) => Math.round(x).toLocaleString("en-US");
 
@@ -267,7 +267,7 @@ export function flyCheckLine(fly: Pick<FinanceFly, "sumCheck" | "totals">): { ok
 
 const rateLine = (r: FinanceFly["rates"]["desk"]) => (r ? `${r.preset}, ${r.memoryMb >= 1024 ? `${r.memoryMb / 1024} GB` : `${r.memoryMb} MB`}: ${usd(r.usdPerHour, 4)}/h (${usd(r.usdPerMonth)} per 30 days)` : null);
 
-function FlyView({ fly }: { fly: FinanceFly }) {
+export function FlyView({ fly }: { fly: FinanceFly }) {
   const week = flyWindowTotals(fly, 7), all = flyWindowTotals(fly, fly.days.length);
   const t = fly.today;
   const desk = rateLine(fly.rates.desk), town = rateLine(fly.rates.town);
@@ -378,15 +378,4 @@ export function FinanceView({ f, pools, spend = null, sources = null, poolsFin =
     {fly ? <FlyView fly={fly} /> : null}
     <p className="muted">As of {f.at.slice(0, 16).replace("T", " ")} UTC · in adjusted output tokens{fly ? " (Hosting in US dollars)" : ""} · from <code>GET /api/finance</code>{sources ? <>, <code>/api/finance/sources</code></> : null}{poolsFin ? <>, <code>/api/finance/pools</code></> : null}{spend ? <>, <code>/api/finance/spend</code></> : null}{fly ? <> and <code>/api/finance/fly</code></> : null}</p>
   </>;
-}
-
-export function FinancePanel() {
-  const d = useLoad(() => Promise.all([api().finance(), api().bank().then((b) => b.pools, () => null), api().financeSpend().catch(() => null), api().financeSources().catch(() => null), api().financePools().catch(() => null), api().financeFly().catch(() => null)]), []);
-  return (
-    <PanelShell icon={<Glyph kind="bank" />} title="Finance" subtitle="What the town received, used, let expire and has left">
-      {d.loading && !d.data ? <Loading /> : null}
-      <ErrorLine error={d.error} />
-      {d.data ? <FinanceView f={d.data[0]} pools={d.data[1]} spend={d.data[2]} sources={d.data[3]} poolsFin={d.data[4]} fly={d.data[5]} /> : null}
-    </PanelShell>
-  );
 }

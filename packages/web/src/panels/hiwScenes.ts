@@ -5,7 +5,7 @@
  */
 import {
   T, CHAR_W, CHAR_H, HUMAN_SPRITE, tiles, charSheet,
-  drawDoor, drawVault, drawGold, drawPillar, drawGoldCounter, drawManagerDesk, drawBoard, drawCabinet,
+  drawDoor, drawVault, drawGold, drawPillar, drawDonationBox, drawBankLedger, drawManagerDesk, drawBoard, drawCabinet,
 } from "../map/sprites";
 
 export type SceneKind = "bank" | "buildings" | "work" | "agent" | "connect" | "tasks" | "visit" | "read" | "talk";
@@ -59,7 +59,8 @@ const DRAW: Record<SceneKind, (g: G) => void> = {
     drawVault(g, 3 * T, 0);
     drawPillar(g, 0, T); drawPillar(g, 6 * T, T);
     person(g, 4, 2 * T + 2, T - 6);
-    for (let x = 1; x <= 5; x++) drawGoldCounter(g, x * T, T + 4, { l: x > 1, r: x < 5 }, x % 2 === 0);
+    drawDonationBox(g, 1 * T, T + 4);
+    drawBankLedger(g, 4 * T, T + 4, { l: false, r: true }); drawBankLedger(g, 5 * T, T + 4, { l: true, r: false });
     drawGold(g, 1 * T, 2 * T); drawGold(g, 5 * T, 2 * T);
   },
   // buildings draw their share
