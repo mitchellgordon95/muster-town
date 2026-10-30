@@ -43,7 +43,7 @@ export function createBuilding(
     if (creatorUserId) world.permissions.grant({ kind: "user", id: creatorUserId }, buildingRoleId(id, "manager"));
     world.layout.rebuild();
     world.events.append({ type: "building.created", buildingId: id, text: `${building.name} was built`, payload: { createdBy: creatorUserId } });
-    if (opts.starterResidents && building.kind === "lab") seedStarterResidents(world, id);
+    if (opts.starterResidents && building.kind === "lab") seedManager(world, id);
     return world.buildings.require(id);
   });
 }
@@ -51,8 +51,11 @@ export function createBuilding(
 /** The model a new building's manager runs on (flag dc_knetp3kqnu); its forks inherit it. */
 export const STARTER_MANAGER_MODEL = "claude-fable-5-1";
 
-/** A building made from the UI/API starts with one agent, its manager (town-picked name, Fable); work runs on its forks. */
-function seedStarterResidents(world: World, buildingId: string): void {
+/**
+ * A building made from the UI/API moves in its one named manager, town-named, on Fable, at a desk (1:1 mt_wngibcr98b
+ * decision 1: no standing residents; its queued work runs on forks of the manager).
+ */
+function seedManager(world: World, buildingId: string): void {
   const manager = createResident(world, { buildingId, model: STARTER_MANAGER_MODEL });
   world.buildings.upsert({ ...world.buildings.require(buildingId), managerAgentId: manager.id });
   syncManagerRoles(world);

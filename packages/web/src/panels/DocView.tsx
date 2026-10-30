@@ -1,5 +1,5 @@
 /** One document: metadata, provenance, markdown, and the actions the viewer is permitted to take. */
-import { forkTip, isFork } from "../forks";
+import { forkTip } from "../forks";
 import { useState } from "react";
 import type { Doc } from "@muster-town/schema";
 import { api } from "../api";
@@ -7,7 +7,7 @@ import { store, useTown } from "../state";
 import { Markdown, openDocLink } from "./Markdown";
 import { docUrl } from "../route";
 import { SkillDetails } from "./Skills";
-import { ADJ, Act, Field, Pill, nameOf, timeAgo, fmtTokens, usd } from "./ui";
+import { ADJ, Act, Pill, nameOf, timeAgo, fmtTokens, usd } from "./ui";
 import { useMediaPaste } from "./mediaPaste";
 import { MediaThumb } from "./MediaThumb";
 import { RollupCards, rollupCardsOf } from "./RollupCards";
@@ -73,34 +73,30 @@ export function ReplyBox({ doc, onDone, deckSlide, meetingId }: { doc: Doc; onDo
 }
 
 /**
- * Deciding a flag (a human's quick request): pick the resident who takes it, an optional note, and "Assign"
- * (`review` continue = the flag's text verbatim, redirect = the note with the flag as context), or "Handled" (approve).
- * Normally the building's manager agent does this in its team-lead session; the box is for in-trays humans work.
+ * Deciding a flag (a human's quick request): an optional note, then "Queue it" (`review` continue = the flag's text
+ * verbatim, redirect = the note with the flag as context) onto the building queue, where a fork of the manager runs it,
+ * or "Handled" (approve). Normally the manager agent does this in its team-lead session (1:1 mt_wngibcr98b decision 1:
+ * no residents to pick from).
  */
 export function FlagDecideBox({ doc, onDone }: { doc: Doc; onDone?: () => void }) {
-  const residents = useTown((s) => Object.values(s.agents).filter((a) => a.kind === "resident" && !isFork(a) && (a.homeBuildingId ?? a.buildingId) === doc.buildingId && a.status !== "retired" && a.status !== "banned"));
-  const [assigneeId, setAssigneeId] = useState("");
+  const manager = useTown((s) => {
+    const b = s.buildings.find((x) => x.id === doc.buildingId);
+    return b?.managerAgentId ? s.agents[b.managerAgentId] : undefined;
+  });
   const [note, setNote] = useState("");
   const media = useMediaPaste(setNote);
-  const assignee = residents.find((a) => a.id === assigneeId);
   const decide = (decision: "approve" | "continue" | "redirect") => async () => {
-    const d = await api().review(doc.id, { decision, note: note.trim(), ...(decision === "approve" ? {} : { assigneeId }) });
+    const d = await api().review(doc.id, { decision, note: note.trim() });
     store.putDocs([d]);
-    store.toast(decision === "approve" ? "Flag marked handled." : `Flag assigned to ${assignee?.name ?? "the resident"}.`, "ok");
+    store.toast(decision === "approve" ? "Flag marked handled." : `Flag queued: a fork of ${manager?.name ?? "the manager"} runs it.`, "ok");
     onDone?.();
   };
   return (
     <div className="reply-box">
-      <Field label="Who takes it">
-        <select value={assigneeId} onChange={(e) => setAssigneeId(e.target.value)}>
-          <option value="">Pick a resident…</option>
-          {residents.map((a) => <option key={a.id} value={a.id}>{a.name} ({a.status})</option>)}
-        </select>
-      </Field>
       <textarea {...media.props} rows={2} placeholder="Optional note: with one, your note becomes the assignment and the flag is its context" value={note} onChange={(e) => setNote(e.target.value)} />
       <div className="actions">
         <Act small run={decide("approve")} title="Nothing to do: mark the flag handled, no assignment">Handled</Act>
-        <Act small tone="primary" disabled={!assignee} run={decide(note.trim() ? "redirect" : "continue")} title={assignee ? `Give it to ${assignee.name} as a directed assignment` : "Pick a resident first"}>{assignee ? `Assign to ${assignee.name}` : "Assign"}</Act>
+        <Act small tone="primary" disabled={!manager} run={decide(note.trim() ? "redirect" : "continue")} title={manager ? `Queue it to the building as a directed assignment: a fork of ${manager.name} runs it` : "This building has no manager agent to run it"}>Queue it</Act>
       </div>
     </div>
   );

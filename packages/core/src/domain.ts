@@ -251,22 +251,31 @@ export function pickUpFlag(world: World, me: Agent, flag: Doc): { pickedUp: bool
 }
 
 /**
- * Decide a flag. approve = handled, no assignment. continue = the flag's note becomes `assigneeId`'s directed
- * assignment verbatim; redirect = the decider's note does, with the flag as context. Either needs a resident of the
- * flag's building. The lane is directed in any building: a human asked for it, as with a meeting
- * decision. stop has no agent to stop.
+ * Decide a flag. approve = handled, no assignment. continue = the flag's note becomes a directed assignment verbatim;
+ * redirect = the decider's note does, with the flag as context. It goes to the building queue (a fork of the manager
+ * runs it); `assigneeId` names only the manager itself or a visitor homed in the building (1:1 mt_wngibcr98b decision 1:
+ * no standing residents). The lane is directed in any building: a human asked for it, as with a meeting decision. stop
+ * has no agent to stop.
  */
 function decideFlag(world: World, flag: Doc, decision: ReviewDecision, note: string, decider: Holder | { kind: "system"; id: string }, opts: { waitFor?: WaitFor | null; assigneeId?: string | null }): { doc: Doc; assignment: Assignment | null } {
-  if (decision === "stop") throw new AppError("bad_request", "A flag has no agent to stop: approve it (handled), or continue/redirect it to a resident (assigneeId).");
+  if (decision === "stop") throw new AppError("bad_request", "A flag has no agent to stop: approve it (handled), or continue/redirect it (the building queue).");
   // an agent (the manager) walks to a flag standing on the map and picks it up before deciding it; a human decides from the in-tray
   if (decider.kind === "agent" && flag.flagPos && !flag.pickedUpAt) throw new AppError("bad_request", `Pick the flag up first: it stands on the map at (${flag.flagPos.x}, ${flag.flagPos.y}). \`go\` to ${flagPlaceId(flag.id)}, read it, then decide it.`);
   let assignee: Agent | undefined;
+  let queue: "building" | undefined;
   if (decision !== "approve") {
-    if (!opts.assigneeId) throw new AppError("bad_request", `${decision === "continue" ? "Continue" : "Redirect"} on a flag needs assigneeId: the resident of ${world.buildings.get(flag.buildingId ?? "")?.name ?? "the building"} who takes it.`);
-    assignee = world.agents.require(opts.assigneeId, "agent");
-    const home = assignee.homeBuildingId ?? assignee.buildingId;
-    if (assignee.kind === "human" || home !== flag.buildingId) throw new AppError("bad_request", `${assignee.name} is not a resident of ${world.buildings.get(flag.buildingId ?? "")?.name ?? flag.buildingId}: a flag goes to one of the building's own residents.`);
-    if (assignee.status === "retired" || assignee.status === "banned") throw new AppError("bad_request", `${assignee.name} is ${assignee.status} and can't take the flag.`);
+    const building = world.buildings.get(flag.buildingId ?? "");
+    const manager = managerAgentOf(world, building);
+    if (!opts.assigneeId) {
+      if (!manager) throw new AppError("bad_request", `${building?.name ?? "The building"} has no manager agent to fork: approve the flag, or name a visitor of the building (assigneeId).`);
+      assignee = manager;
+      queue = "building";
+    } else {
+      assignee = world.agents.require(opts.assigneeId, "agent");
+      const home = assignee.homeBuildingId ?? assignee.buildingId;
+      if (assignee.kind === "human" || home !== flag.buildingId || (assignee.id !== manager?.id && assignee.kind !== "visitor")) throw new AppError("bad_request", `${assignee.name} can't take the flag: leave assigneeId out to queue it to ${building?.name ?? "the building"} (a fork of the manager runs it), or name the manager itself or a visitor of the building.`);
+      if (assignee.status === "retired" || assignee.status === "banned") throw new AppError("bad_request", `${assignee.name} is ${assignee.status} and can't take the flag.`);
+    }
   }
   const doc = updateDoc(world, flag.id, { decision, decisionNote: note || undefined, decidedBy: decider.id, decidedAt: nowIso() });
   world.events.append({ type: "doc.decision", agentId: assignee?.id ?? null, buildingId: doc.buildingId, text: `${DECISION_VERB[decision]} flag "${doc.title}"${assignee ? ` → ${assignee.name}` : ""}${note ? ` (${truncate(note, 80)})` : ""}`, payload: { docId: flag.id, decision, note, decidedBy: decider.id, assigneeId: assignee?.id ?? null } });
@@ -276,8 +285,8 @@ function decideFlag(world: World, flag: Doc, decision: ReviewDecision, note: str
   const description = decision === "continue"
     ? `${by} planted a flag in your building (${flag.id}):\n\n${flag.body}${note ? `\n\nYour manager's note: ${note}` : ""}`
     : `Your manager ${world.nameOf(decider.id)} gave you ${by}'s flag (${flag.id}):\n\n${note}\n\nThe flag said:\n\n${flag.body}`;
-  const assignment = createAssignment(world, { agentId: assignee.id, title, description, createdBy: decider, fromReportId: flag.id, waitFor: opts.waitFor, laneOverride: DIRECTED });
-  sendMessage(world, { kind: "system", fromId: decider.id, fromKind: "system", toId: assignee.id, body: `New assignment from ${world.nameOf(decider.id)} (${by}'s flag): ${title}${opts.waitFor ? ` (starts after ${describeWait(world, opts.waitFor)})` : ""}` });
+  const assignment = createAssignment(world, { agentId: assignee.id, title, description, createdBy: decider, fromReportId: flag.id, waitFor: opts.waitFor, laneOverride: DIRECTED, ...(queue ? { queue } : {}) });
+  if (!queue) sendMessage(world, { kind: "system", fromId: decider.id, fromKind: "system", toId: assignee.id, body: `New assignment from ${world.nameOf(decider.id)} (${by}'s flag): ${title}${opts.waitFor ? ` (starts after ${describeWait(world, opts.waitFor)})` : ""}` });
   if (assignee.status === "stopped") world.setStatus(assignee.id, "idle");
   return { doc, assignment };
 }

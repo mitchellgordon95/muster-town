@@ -1,7 +1,7 @@
 /**
  * Building schedules (Mitchell, 1:1 mt_w7z9k1z112; docs/scheduling.md): a timed job lives on its building, not on an
  * agent. `fireSchedules` (the runtime tick, next to `checkWaits`) turns each due schedule into one normal assignment for
- * whoever is around then: the building queue when forks are on (a fork runs it), else an idle resident, else the manager.
+ * the building queue (a fork of the manager runs it); a building with no manager agent has nobody to take it.
  * Each fire is ordinary work that ends in a report the manager decides; the schedule only saves re-typing the `assign`.
  */
 import { CreateScheduleInput, EditScheduleInput, type Agent, type Assignment, type Building, type Origin, type Schedule, type ScheduleRepeat } from "@muster-town/schema";
@@ -162,16 +162,11 @@ export function editSchedule(world: World, actor: Agent, id: string, raw: unknow
 
 /**
  * Who takes a fired schedule's work: the building queue (held by the manager until a fork takes it); a building with no
- * manager agent: the idle resident with the shortest queue; else nobody (null).
+ * manager agent: nobody (null). One named manager per building, no standing residents (1:1 mt_wngibcr98b decision 1).
  */
 export function scheduleTaker(world: World, b: Building): { agentId: string; queue: "agent" | "building" } | null {
   const manager = managerAgentOf(world, b);
-  if (manager) return { agentId: manager.id, queue: "building" };
-  const idle = world.agents.where("homeBuildingId = ? AND kind = 'resident' AND forkOf IS NULL AND status = 'idle'", [b.id])
-    .map((a) => ({ a, n: world.assignments.count("agentId = ? AND status IN ('pending', 'active')", [a.id]) }))
-    .sort((x, y) => x.n - y.n);
-  const pick = idle[0]?.a;
-  return pick ? { agentId: pick.id, queue: "agent" } : null;
+  return manager ? { agentId: manager.id, queue: "building" } : null;
 }
 
 /**

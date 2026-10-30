@@ -48,14 +48,14 @@ describe("no forced next step", () => {
     expect(after).not.toContain(r.id);
     expect(after).toContain("reports decided since: 1");
   });
-  it("the team-lead session prompt keeps the manager to decisions and rollups: every task becomes an assignment, independent ones to different residents in parallel", () => {
+  it("the team-lead session prompt keeps the manager to decisions and rollups: every task becomes an assignment, independent ones on forks in parallel, no reassign", () => {
     const { world } = seededWorld();
     const b = world.buildings.get("carbon-cycle")!;
     const p = managePrompt(b, [], (id) => world.nameOf(id));
     expect(p).toMatch(/A manager does only decisions and rollups/);
     expect(p).toMatch(/becomes an assignment the moment it appears/);
-    expect(p).toMatch(/different residents in parallel/);
-    expect(p).toMatch(/not queued on one resident/);
+    expect(p).toMatch(/run on forks in parallel/);
+    expect(p).not.toMatch(/reassign/);
     // town hall 2026-10-25, decision 6: delegate by default, self-assign when small, blocking or needing manager permissions
     expect(p).toMatch(/The default is to delegate; assign a task to yourself/);
     expect(p).toMatch(/small, blocking, or needs your manager permissions/);
