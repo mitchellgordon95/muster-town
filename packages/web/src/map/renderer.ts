@@ -8,7 +8,7 @@ import { World } from "./world";
 import { authStore } from "../auth/auth";
 import { T, CHAR_W, CHAR_H, charSheet, outlineSheet, tiles, HUMAN_SPRITE } from "./sprites";
 import { layoutEdit, type LayoutDraft } from "./layoutEdit";
-import { townPlan, type PlanDraft } from "./townPlan";
+import { openTownPlanning, townPlan, type PlanDraft } from "./townPlan";
 import { bubbleFor, buildingBudgetLine, drawBadge, drawFlag, drawBankSign, drawBlockLine, drawBubble, drawLabel, drawPill, drawSign, drawTip, residentBudgetLine, type Bubble } from "./overlay";
 import { blockedByRedeploy } from "../redeploy";
 import { repeatLabel, runsAtLabel } from "../format";
@@ -50,6 +50,15 @@ export const PLACE_PANEL: Partial<Record<Place["kind"], (p: Place) => PanelRef &
   "meeting-room": (p) => ({ kind: "meeting", id: `room:${p.buildingId ?? ""}`, verb: `Join the ${p.name.toLowerCase()}` }),
   door: (p) => ({ kind: "building", id: p.buildingId ?? undefined, verb: `Enter ${p.name.replace(/^door( of|:)?\s*/i, "") || "building"}` }),
 };
+
+/** What E (or a tap) does at a place, or null for places with nothing to do there (the plaza, the bench, desks: their agent is the target). */
+export function placeTarget(p: Place): Target | null {
+  if (p.kind === "bank-map") return { label: "Look at the town map", panel: { kind: "building", id: p.buildingId ?? undefined }, action: "flow" };
+  if (p.kind === "town-map") return { label: "Plan the town", panel: { kind: "planning" }, action: "plan" };
+  const f = PLACE_PANEL[p.kind]; if (!f) return null;
+  const { verb, ...panel } = f(p);
+  return { label: verb, panel };
+}
 
 export class MapRenderer {
   private g: CanvasRenderingContext2D;
@@ -114,6 +123,19 @@ export class MapRenderer {
     this.picked = keyOf(this.inReach[(i + dir + n) % n]);
     this.updateTarget();
     return true;
+  }
+
+  /** Do a target: E on the nearest, a tap on a place, the touch hint's button. */
+  interact(t: Target) {
+    if (t.action === "flow") this.openFlow();
+    else if (t.action === "plan") openTownPlanning();
+    else store.open(t.panel);
+  }
+  /** A tap or click on a place: walk to its spot, then do what E does there. */
+  walkToInteract(p: Place, t: Target) {
+    if (!this.world) return;
+    const goal = this.world.walkable(p.pos.x, p.pos.y) ? p.pos : this.world.nearestWalkable(p.pos.x, p.pos.y);
+    this.walkRoute(goal, () => this.interact(t));
   }
 
   /** Open the Bank's town map: zoom out to the whole town and stream the Bank's coins to each building. */
@@ -222,6 +244,25 @@ export class MapRenderer {
       if (cx >= h.x - 2 && cx <= h.x + h.w + 2 && cy >= h.y - 2 && cy <= h.y + h.h + 2) return h.id;
     }
     return null;
+  }
+
+  /**
+   * The interactable place under a screen point (CSS px): the nearest place spot within 1.5 tiles of it (the object often sits a tile off the spot),
+   * and never less than ~22 CSS px so a zoomed-out phone still gets a finger-sized target.
+   */
+  placeAt(cx: number, cy: number): { place: Place; target: Target } | null {
+    const w = this.world; if (!w) return null;
+    const { ox, oy, z } = this.view;
+    const wx = cx / z + ox, wy = cy / z + oy;
+    const r = Math.max(1.5 * T, 22 / z);
+    let best: { place: Place; target: Target } | null = null, bestD = r;
+    for (const p of store.state.places) {
+      const d = Math.hypot(p.pos.x * T + T / 2 - wx, p.pos.y * T + T / 2 - wy);
+      if (d >= bestD) continue;
+      const t = placeTarget(p); if (!t) continue;
+      best = { place: p, target: t }; bestD = d;
+    }
+    return best;
   }
 
   /** Building whose banner is under a screen point (CSS px). */
@@ -395,10 +436,7 @@ export class MapRenderer {
     for (const p of s.places) {
       const d = Math.hypot(p.pos.x * T + T / 2 - this.me.x, p.pos.y * T + T - 2 - this.me.y);
       if (d >= INTERACT_PX) continue;
-      if (p.kind === "bank-map") { near.push({ d, t: { label: "Look at the town map", panel: { kind: "building", id: p.buildingId ?? undefined }, action: "flow" } }); continue; }
-      if (p.kind === "town-map") { near.push({ d, t: { label: "Plan the town", panel: { kind: "planning" }, action: "plan" } }); continue; }
-      const f = PLACE_PANEL[p.kind]; if (!f) continue;
-      const { verb, ...panel } = f(p); near.push({ d, t: { label: verb, panel } });
+      const t = placeTarget(p); if (t) near.push({ d, t });
     }
     // stable order (not by distance) so Tab walks a fixed ring instead of reshuffling as you shuffle around
     const byDist = near.slice().sort((x, y) => x.d - y.d);
