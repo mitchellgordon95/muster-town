@@ -74,6 +74,8 @@ function southFacingPieces(kind: "lab" | "town-hall", headcount: number, lot: { 
   return [
     ...desks,
     { key: "board", label: "Board", at: { x: Math.floor(bw / 2) - 2, y: 0 }, cells: one(TILE.BOARD), stands: [{ x: 0, y: 1 }], wall: true },
+    // the building's schedule board (its timed jobs): a calendar on the back wall two tiles right of the board
+    { key: "schedule", label: "Schedule board", at: { x: Math.floor(bw / 2), y: 0 }, cells: one(TILE.SCHEDULE_BOARD), stands: [{ x: 0, y: 1 }], wall: true },
     { key: "intray", label: "In-tray (manager's desk)", at: { x: bw - 2, y: my }, cells: one(TILE.MANAGER_DESK), stands: [{ x: 0, y: 1 }] },
     { key: "cabinet", label: "Filing cabinet", at: { x: bw - 2, y: cy }, cells: one(TILE.CABINET), stands: [{ x: -1, y: 0 }] },
     { key: "meeting", label: "Meeting table", at: { x: bw - 5, y: yMeet }, cells: row(3, TILE.TABLE), stands: [{ x: 1, y: 1 }], table: true },

@@ -145,13 +145,13 @@ export function MapCanvas(props: { panelInset: number; onTarget: (t: Target | nu
         (document.activeElement as HTMLElement | null)?.blur();
         const r = current; if (!r || layoutEdit.draft || townPlan.draft) return;
         const p = local(e);
-        // a red "blocked N" badge opens that agent's queue, where each row says why
+        // a red "blocked N" badge opens that agent's queue, where each row says why; a schedule board opens its building's Schedule
         const blocked = r.blockAt(p.x, p.y);
         // on touch there is no hover: the first tap on a badge shows its reasons card, a second tap opens the queue
         const pt = (e.nativeEvent as PointerEvent).pointerType;
         if (blocked && (pt ? pt !== "mouse" : COARSE) && r.tapTip !== blocked) { r.tapTip = r.hoverBlock = blocked; return; }
         r.tapTip = null;
-        if (blocked?.startsWith("sched:")) { store.open({ kind: "building", id: blocked.slice(6), tab: "Overview" }); return; }
+        if (blocked?.startsWith("sched:")) { store.open({ kind: "building", id: blocked.slice(6), tab: "Overview", section: "schedule" }); return; }
         if (blocked) { store.open({ kind: "agent", id: blocked, tab: "Assignments" }); return; }
         const id = r.hit(p.x, p.y);
         if (id) { store.open({ kind: "agent", id }); return; }

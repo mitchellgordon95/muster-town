@@ -477,7 +477,7 @@ export interface Api {
   /** the live server's build (`commit` null when unknown); a reconnect compares it with the one this bundle came from */
   /** every agent's queued assignments that can't start, with the reason (GET /api/blocked): the map's blocked badges and red lines */
   blocked(): Promise<Record<string, BlockedAssignment[]>>;
-  /** every building's active schedules, soonest run first (GET /api/scheduled): the map's scheduled badges */
+  /** every building's active schedules, soonest run first (GET /api/scheduled): the map's schedule boards */
   scheduled(): Promise<Schedule[]>;
   /** a building's schedules, active then recently ended (GET /api/buildings/:id/schedules) */
   buildingSchedules(buildingId: string): Promise<Schedule[]>;

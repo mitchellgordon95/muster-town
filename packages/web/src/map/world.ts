@@ -2,7 +2,7 @@
 import { BANK_FIXTURES, BANK_LOT, TILE, WALKABLE } from "@muster-town/schema";
 import type { Building, Place } from "@muster-town/schema";
 import type { Grid } from "../api";
-import { T, tiles, drawTable, drawCounter, drawDoor, drawManagerDesk, drawChair, drawBoard, drawCabinet, drawSchedule, drawBench, drawVault, drawGold, drawPillar, drawGoldCounter, drawBankMap, drawTownMap } from "./sprites";
+import { T, tiles, drawTable, drawCounter, drawDoor, drawManagerDesk, drawChair, drawBoard, drawCabinet, drawSchedule, drawWallSchedule, drawBench, drawVault, drawGold, drawPillar, drawGoldCounter, drawBankMap, drawTownMap } from "./sprites";
 
 type Lot = { x: number; y: number; w: number; h: number };
 
@@ -105,7 +105,7 @@ export class World {
         // ground under furniture
         if (k === TILE.GRASS || k === TILE.PLANT && !b) g.drawImage(tl.grass, px, py);
         else if (k === TILE.PATH) g.drawImage(tl.path, px, py);
-        else if (k !== TILE.WALL && k !== TILE.BOARD) g.drawImage(floor, px, py);
+        else if (k !== TILE.WALL && k !== TILE.BOARD && k !== TILE.SCHEDULE_BOARD) g.drawImage(floor, px, py);
         switch (k) {
           case TILE.WALL: {
             const face = this.at(x, y + 1) !== TILE.WALL;
@@ -135,6 +135,7 @@ export class World {
           case TILE.BOARD: g.drawImage(tl.wallFace, px, py); drawBoard(g, px, py); break;
           case TILE.CABINET: drawCabinet(g, px, py); break;
           case TILE.SCHEDULE: drawSchedule(g, px, py); break;
+          case TILE.SCHEDULE_BOARD: g.drawImage(tl.wallFace, px, py); drawWallSchedule(g, px, py); break;
           case TILE.BANK_MAP: drawBankMap(g, px, py); break;
           case TILE.BENCH: drawBench(g, px, py, { l: this.at(x - 1, y) === TILE.BENCH, r: this.at(x + 1, y) === TILE.BENCH }); break;
           case TILE.TABLE: drawTable(g, px, py, {

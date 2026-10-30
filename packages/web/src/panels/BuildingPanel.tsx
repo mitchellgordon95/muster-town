@@ -1,6 +1,6 @@
 /** Building panel (E at the door): overview, goals and grants (labs; GoalsTab.tsx), members + roles, settings (managers: building fields). Members shows the one named manager, its live forks and the roles (no add or dismiss: 1:1 mt_wngibcr98b decision 1). Board, filing cabinet and in-tray are places; the collective's secrets are a planning-desk tab. */
 import { isFork } from "../forks";
-import { useEffect, useMemo, useState, type ReactNode } from "react";
+import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { DEFAULT_POOL_ID, TILES_PER_DESK, type Schedule, type SnapshotBuilding, type Workspace } from "@muster-town/schema";
 import { fmtPct, poolColor } from "../pools";
 import { api } from "../api";
@@ -123,10 +123,14 @@ export function ScheduledList({ b }: { b: SnapshotBuilding }) {
   const assignments = useTown((s) => s.assignments);
   useTown((s) => s.me);
   const rows = useMemo(() => all.filter((x) => x.buildingId === b.id), [all, b.id]);
+  // opened from the building's schedule board on the map: scroll here
+  const focus = useTown((s) => s.panel?.kind === "building" && s.panel.id === b.id && s.panel.section === "schedule");
+  const box = useRef<HTMLDivElement>(null);
+  useEffect(() => { if (focus) box.current?.scrollIntoView({ block: "start" }); }, [focus]);
   if (b.kind === "town-hall") return null;
   const canCancel = store.can("building.assign", b.id);
   return (
-    <Section title={<>Schedule {rows.length ? <Pill tone="scheduled">{rows.length}</Pill> : null}</>}>
+    <div ref={box}><Section title={<>Schedule {rows.length ? <Pill tone="scheduled">{rows.length}</Pill> : null}</>}>
       {!rows.length ? <Empty>Nothing scheduled. A manager adds a timed job with the <code>schedule</code> tool; each run goes to whoever is around.</Empty> : (
         <div className="doc-list">{rows.map((x) => {
           const last = x.lastAssignmentId ? assignments[x.lastAssignmentId] : undefined;
@@ -150,7 +154,7 @@ export function ScheduledList({ b }: { b: SnapshotBuilding }) {
           );
         })}</div>
       )}
-    </Section>
+    </Section></div>
   );
 }
 

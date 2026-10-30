@@ -17,7 +17,8 @@ import { redirectPanel } from "./panels/room";
  * `grant` is the one panel without a place: a grant or proposal (`gr_…`), reached from any link to its id.
  */
 export type PanelKind = "agent" | "building" | "connect" | "library" | "outbox" | "meeting" | "intray" | "board" | "cabinet" | "planning" | "schedule" | "mod" | "bank" | "admin" | "grant" | "manual" | "dashboard" | "finance";
-export interface PanelRef { kind: PanelKind; id?: string; docId?: string; tab?: string }
+/** `section`: scroll the panel to that section on open (`schedule`: the building Overview's Schedule, from its schedule board). */
+export interface PanelRef { kind: PanelKind; id?: string; docId?: string; tab?: string; section?: string }
 export interface Toast { id: number; text: string; tone: "info" | "ok" | "bad"; panel?: PanelRef }
 
 export interface TownState {
@@ -50,7 +51,7 @@ export interface TownState {
   redeployLive: RedeployLiveAt | null;
   /** `GET /api/blocked`: per agent, its queued assignments that can't start and why (queue rows, the map's blocked badges and red lines) */
   blocked: Record<string, BlockedAssignment[]>;
-  /** `GET /api/scheduled`: every building's active schedules, soonest run first (the map's scheduled badges) */
+  /** `GET /api/scheduled`: every building's active schedules, soonest run first (the map's schedule boards) */
   scheduled: Schedule[];
 }
 
