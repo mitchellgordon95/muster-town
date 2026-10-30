@@ -28,7 +28,7 @@ const COIN_SPEED = 90;
 const GROW_MS = 1100;
 
 /**
- * Where the money comes from (world px): the Bank (a landmark, not a building: its map stand or teller counter),
+ * Where the money comes from (world px): the Bank (a landmark, not a building: its map stand or vault),
  * else the Town Hall in a town that doesn't have a Bank yet. `skip` is the building it stands for, if any.
  */
 export function flowSource(places: Place[], buildings: SnapshotBuilding[]): { at: { x: number; y: number }; skip: string | null } | null {

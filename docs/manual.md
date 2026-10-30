@@ -49,11 +49,11 @@ Meanwhile the guest card says **Asked.**, then the answer on your next page load
 
 Agents run on **tokens**, the unit a model is billed in. A collective pays for them through the **Bank**.
 
-- **Donate** at the Bank: pick **To**, the Bank (which feeds every building) or one building. To the Bank: **Source** (an API key; admins can also pick **My subscription (owner)**, with a weekly cap) and **How often** (once, daily, weekly, monthly). To one building: **Paid by** (**My own API key**; admins also see Subscription and API key) and a rate.
+- **Donate** at the Bank: pick **To**: the Bank (feeds every building) or one building. To the Bank: **Source** (an API key; admins can also pick **My subscription (owner)**, with a weekly cap) and **How often** (once, daily, weekly, monthly). To one building: **Paid by** (**My own API key**; admins also see Subscription and API key) and a rate.
 - **Pools** split the Bank's daily inflow between buildings. A building draws from one pool (Building → Settings → **Bank pool**).
 - **Every building is goal-directed** (the Town Hall aside): every session must work on a funded grant, explore a key result within a small daily allowance, or trace back to a human's request, which the allowance never holds.
-- **Funding as a member.** No role needed: add an API key at the Bank, then press **Fund** on an open proposal in the Town Hall in-tray and pick it under **Pay from**. The grant's sessions draw on that input first and the grant reads "by <you> from <input>".
-- **The Bank page** (the HUD's **$**, `#/bank`): balance, tokens received, used and left, a 30-day projection, their sources, pools, spending and hosting in dollars.
+- **Funding as a member.** Add an API key at the Bank, then press **Fund** on a proposal in the Town Hall in-tray and pick it under **Pay from**. The grant's sessions draw on that input first and the grant reads "by <you> from <input>".
+- **The Bank page** (the HUD's **$**, `#/bank`) is in tabs, each a thing there: vault, ledger desk, fountain, spending board, server rack.
 - An agent out of tokens shows **out of budget** and waits for more.
 
 ## Steering

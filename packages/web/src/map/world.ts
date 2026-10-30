@@ -2,7 +2,7 @@
 import { BANK_FIXTURES, BANK_LOT, TILE, WALKABLE } from "@muster-town/schema";
 import type { Building, Place } from "@muster-town/schema";
 import type { Grid } from "../api";
-import { T, tiles, drawTable, drawCounter, drawDoor, drawManagerDesk, drawChair, drawBoard, drawCabinet, drawSchedule, drawWallSchedule, drawBench, drawVault, drawGold, drawPillar, drawGoldCounter, drawBankMap, drawTownMap } from "./sprites";
+import { T, tiles, drawTable, drawCounter, drawDoor, drawManagerDesk, drawChair, drawBoard, drawCabinet, drawSchedule, drawWallSchedule, drawBench, drawVault, drawGold, drawPillar, drawBankMap, drawTownMap, drawSpendingBoard, drawBankFountain, drawBankLedger, drawBankServer } from "./sprites";
 
 type Lot = { x: number; y: number; w: number; h: number };
 
@@ -11,13 +11,13 @@ export class World {
   readonly h: number;
   readonly bitmap: HTMLCanvasElement;
   private readonly t: number[];
-  /** The Bank's lot (it has no building row): found from its `bank` place, the counter stand. Null if the map has none. */
+  /** The Bank's lot (it has no building row): found from its `bank` place, the vault's stand. Null if the map has none. */
   readonly bank: Lot | null;
 
   constructor(grid: Grid, readonly buildings: Building[], readonly places: Place[]) {
     this.w = grid.w; this.h = grid.h; this.t = grid.tiles;
-    const counter = places.find((p) => p.kind === "bank");
-    this.bank = counter ? { x: counter.pos.x - BANK_FIXTURES.counterStand.x, y: counter.pos.y - BANK_FIXTURES.counterStand.y, w: BANK_LOT.w, h: BANK_LOT.h } : null;
+    const vault = places.find((p) => p.id === "bank");
+    this.bank = vault ? { x: vault.pos.x - BANK_FIXTURES.vaultStand.x, y: vault.pos.y - BANK_FIXTURES.vaultStand.y, w: BANK_LOT.w, h: BANK_LOT.h } : null;
     this.bitmap = document.createElement("canvas");
     this.bitmap.width = this.w * T; this.bitmap.height = this.h * T;
     this.bake();
@@ -137,13 +137,16 @@ export class World {
           case TILE.SCHEDULE: drawSchedule(g, px, py); break;
           case TILE.SCHEDULE_BOARD: g.drawImage(tl.wallFace, px, py); drawWallSchedule(g, px, py); break;
           case TILE.BANK_MAP: drawBankMap(g, px, py); break;
+          case TILE.BANK_SPENDING: drawSpendingBoard(g, px, py); break;
+          case TILE.BANK_SERVER: drawBankServer(g, px, py); break;
+          case TILE.BANK_FOUNTAIN: drawBankFountain(g, px, py, { l: this.at(x - 1, y) === k, r: this.at(x + 1, y) === k }); break;
+          case TILE.BANK_LEDGER: drawBankLedger(g, px, py, { l: this.at(x - 1, y) === k, r: this.at(x + 1, y) === k }); break;
           case TILE.BENCH: drawBench(g, px, py, { l: this.at(x - 1, y) === TILE.BENCH, r: this.at(x + 1, y) === TILE.BENCH }); break;
           case TILE.TABLE: drawTable(g, px, py, {
             l: this.at(x - 1, y) === TILE.TABLE, r: this.at(x + 1, y) === TILE.TABLE,
             u: this.at(x, y - 1) === TILE.TABLE, d: this.at(x, y + 1) === TILE.TABLE,
           }); break;
-          case TILE.COUNTER: if (bank) { drawGoldCounter(g, px, py, { l: this.at(x - 1, y) === TILE.COUNTER, r: this.at(x + 1, y) === TILE.COUNTER }, (x + y) % 2 === 0); break; }
-            drawCounter(g, px, py, { l: this.at(x - 1, y) === TILE.COUNTER, r: this.at(x + 1, y) === TILE.COUNTER }, (x + y) % 2 === 0); break;
+          case TILE.COUNTER: drawCounter(g, px, py, { l: this.at(x - 1, y) === TILE.COUNTER, r: this.at(x + 1, y) === TILE.COUNTER }, (x + y) % 2 === 0); break;
         }
       }
     // chairs on the free floor above and below each meeting table tile, drawn after the floor so they aren't covered

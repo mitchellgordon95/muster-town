@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import { renderToStaticMarkup } from "react-dom/server";
 import type { Finance, FinanceFly, FinancePools, FinanceSources, FinanceSpend } from "../src/api";
 import { donationNote, flyCheckLine, flyWindowTotals, inputName, overdrawnParts, poolsBalanceLine, poolsDrawsLine, sourcesCheckLine, pct, runwayDays, spendCheckLine, sumCheckLine, type FinanceData } from "../src/panels/BankFinance";
+import { BANK_TABS } from "@muster-town/schema";
 import { BankView } from "../src/panels/BankPanel";
 
 // the live shape: 1,000 received, 1,100 used (200 overdrawn), 50 expired, 50 left
@@ -11,8 +12,10 @@ const f: Finance = {
   sumCheck: { ok: true, diff: 0, identity: "used + expired + left = total + overdrawn" }, at: "2026-10-27T19:00:00.000Z",
 };
 const noop = () => undefined;
-/** The Bank page before GET /api/bank answers (a stranger, signed out), with these finance sections. */
-const page = (fin: Partial<FinanceData>) => renderToStaticMarkup(<BankView bank={null} fin={{ f, spend: null, sources: null, poolsFin: null, fly: null, ...fin }} rev={0} onChange={noop} onReload={noop} />);
+/** One tab of the Bank page before GET /api/bank answers (a stranger, signed out), with these finance sections. */
+const tabOf = (tab: string, fin: Partial<FinanceData>) => renderToStaticMarkup(<BankView tab={tab} bank={null} fin={{ f, spend: null, sources: null, poolsFin: null, fly: null, ...fin }} rev={0} onChange={noop} onReload={noop} />);
+/** Every tab of the Bank page, in order. */
+const page = (fin: Partial<FinanceData>) => BANK_TABS.map((t) => tabOf(t, fin)).join("");
 
 describe("finance page", () => {
   it("says the four figures add up, overdrawn included", () => {
@@ -40,10 +43,20 @@ describe("finance page", () => {
     for (const s of ["the unit the town pays for AI model work in", "A ✓ line under a section means", "Balance", "Total received", "1,000", "Used", "1,100", "Expired", "Left", "Overdrawn", "✓ Adds up", "20 / day", "average of the last 7 days", "600", "As of 2026-10-27 19:00 UTC", "GET /api/bank", "/api/finance"]) expect(html).toContain(s);
     expect(page({ f: { ...f, sumCheck: { ...f.sumCheck, ok: false, diff: 5 } } })).toContain("✗ Does not add up (off by 5)");
   });
-  it("lays the page out: Balance, Tokens, Next 30 days, Sources, Pool balances, Spending, Hosting, then the footer (1:1 mt_ew2d0mm7h9: one Bank page)", () => {
-    const html = page({ spend: sp, sources: src, poolsFin: fp, fly });
-    const order = ["Balance", "Tokens", "Next 30 days", "Sources", "Pool balances", "Spending", "Hosting (Fly.io)", "As of 2026-10-27"].map((s) => html.indexOf(`>${s}<`) >= 0 ? html.indexOf(`>${s}<`) : html.indexOf(s));
-    for (let i = 1; i < order.length; i++) expect(order[i], `section ${i}`).toBeGreaterThan(order[i - 1]);
+  it("splits the page into tabs, each a thing in the Bank's room, each ending with its sources (1:1 mt_ew2d0mm7h9)", () => {
+    expect([...BANK_TABS]).toEqual(["Overview", "Tokens & sources", "Pools", "Spending", "Hosting"]);
+    const all = { spend: sp, sources: src, poolsFin: fp, fly };
+    const has: Record<string, string[]> = {
+      Overview: ["Balance", "Next 30 days"], "Tokens & sources": ["Tokens", "Sources"], Pools: ["Pool balances"], Spending: ["Spending"], Hosting: ["Hosting (Fly.io)"],
+    };
+    for (const t of BANK_TABS) {
+      const html = tabOf(t, all);
+      for (const s of has[t]) expect(html, `${t} has ${s}`).toContain(`>${s}<`);
+      for (const [o, ss] of Object.entries(has)) if (o !== t) for (const s of ss) expect(html, `${t} lacks ${s}`).not.toContain(`>${s}<`);
+      expect(html, t).toContain("As of 2026-10-27");
+    }
+    const ov = tabOf("Overview", all);
+    expect(ov.indexOf(">Balance<")).toBeLessThan(ov.indexOf(">Next 30 days<"));
   });
 });
 
@@ -224,7 +237,7 @@ describe("finance page: hosting (Fly.io)", () => {
     const html = page({ fly });
     for (const s of ["Hosting (Fly.io)", "in US dollars", "not Fly&#x27;s bill", "Today (so far)", "$1.20", "$0.11", "$1.31", "Last 7 days", "Last 10 days (2026-10-20 → 2026-10-29)", "Daily desk cap", "$10.00 per day · today under the cap",
       "shared-cpu-2x, 2 GB: $0.0186/h ($13.39 per 30 days)", "Desk time, last 10 days", "83 h over 25 sessions", "3 timed from start and end", "Town Workshop", "60 h · 20 sessions", "$1.12", "Bank Transparency", "$0.42", "Desks, last 10 days", "$1.53",
-      "Not counted: Volume storage", "How this is estimated", "✓ Adds up: every day", "(Hosting in US dollars)", "/api/finance/fly", "Hosting (Fly.io), at the end, is in US dollars"]) expect(html).toContain(s);
+      "Not counted: Volume storage", "How this is estimated", "✓ Adds up: every day", "(Hosting in US dollars)", "/api/finance/fly", "Hosting (Fly.io), in its own tab, is in US dollars"]) expect(html).toContain(s);
   });
   it("says so when nothing is on Fly or no cap is set", () => {
     const html = page({ fly: { ...fly, rates: { ...fly.rates, desk: null, town: null }, desksBackend: "docker", townOnFly: false, today: { ...fly.today, capUsdPerDay: null, underCap: null } } });

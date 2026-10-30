@@ -314,7 +314,7 @@ export const FinanceIntro = ({ hosting = false }: { hosting?: boolean }) => (
   <p className="muted finance-intro">
     Every amount here is in <abbr title={ADJ_HINT}>{ADJ}</abbr> (adjusted output tokens): the unit the town pays for AI model work in, where
     one output token counts 1 and input and cached tokens count at their lower price (1 adj. token ≈ 30 raw tokens on Opus, 24 on Fable).
-    {hosting ? " Hosting (Fly.io), at the end, is in US dollars." : ""} A ✓ line under a section means the server checked that its numbers add up; ✗ would say by how much they are off.
+    {hosting ? " Hosting (Fly.io), in its own tab, is in US dollars." : ""} A ✓ line under a section means the server checked that its numbers add up; ✗ would say by how much they are off.
   </p>
 );
 
