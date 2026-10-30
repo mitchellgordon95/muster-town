@@ -41,10 +41,14 @@ export interface Metric {
 }
 
 export interface AlertView { key: string; level: Level; since: string; value: number }
-export interface MonitorView { lastSampleAt: string | null; outbound: boolean; alerts: AlertView[] }
+export interface MonitorView {
+  lastSampleAt: string | null; outbound: boolean; alerts: AlertView[];
+  /** when the one-time self-test alert went out (the first start with all ALERT_* secrets set); null until then */
+  selfTestAt: string | null;
+}
 
 interface OpenAlert extends AlertView { docId: string | null; notifiedAt: number; okCount: number }
-interface Persisted { lastSampleAt: string | null; alerts: OpenAlert[]; sent: number[] }
+interface Persisted { lastSampleAt: string | null; alerts: OpenAlert[]; sent: number[]; selfTestAt: string | null }
 
 export interface Senders {
   sms(text: string): Promise<void>;
@@ -283,6 +287,7 @@ export class Monitor {
   private holding = new Map<string, { yellow: number | null; red: number | null }>();
   private sent: number[] = [];
   private lastSampleAt: number | null = null;
+  private selfTestAt: string | null = null;
   private timer: NodeJS.Timeout | null = null;
 
   constructor(private opts: MonitorOptions) {
@@ -299,11 +304,28 @@ export class Monitor {
     this.lastSampleAt = p.lastSampleAt ? Date.parse(p.lastSampleAt) : null;
     for (const a of p.alerts) this.alerts.set(a.key, a);
     this.sent = p.sent;
+    this.selfTestAt = p.selfTestAt;
   }
 
   start(intervalMs = SAMPLE_MS) {
     this.timer = setInterval(() => { this.sample().catch((e) => this.log.warn(`[monitor] sample failed: ${e instanceof Error ? e.message : String(e)}`)); }, intervalMs);
     this.timer.unref();
+    this.selfTest().catch((e) => this.log.warn(`[monitor] self-test failed: ${e instanceof Error ? e.message : String(e)}`));
+  }
+
+  /**
+   * The first start with all seven ALERT_* secrets set fires one red test alert down the whole path by itself (event,
+   * FYI, SMS, email), so the secrets get proven the moment they exist without anyone calling the test endpoint. Recorded
+   * as `selfTestAt` in the persisted state and on /api/health, so it never repeats across restarts. Returns false when
+   * there was nothing to do (outbound off, or already done).
+   */
+  async selfTest(): Promise<boolean> {
+    if (!this.outbound || this.selfTestAt) return false;
+    this.selfTestAt = new Date(this.now()).toISOString();
+    this.save();
+    const r = await this.test("the monitor itself on its first start with the ALERT_* secrets set (one-time self-test)");
+    this.log.log(`monitor: self-test alert sent (event ${r.eventId}, sms ${r.sms}, email ${r.email})`);
+    return true;
   }
 
   stop() { if (this.timer) clearInterval(this.timer); this.timer = null; }
@@ -316,6 +338,7 @@ export class Monitor {
       lastSampleAt: this.lastSampleAt ? new Date(this.lastSampleAt).toISOString() : null,
       outbound: this.outbound,
       alerts: [...this.alerts.values()].map(({ key, level, since, value }) => ({ key, level, since, value })),
+      selfTestAt: this.selfTestAt,
     };
   }
 
@@ -432,12 +455,12 @@ export class Monitor {
 
   private load(): Persisted {
     const r = this.world.db.prepare("SELECT value FROM meta WHERE key = 'monitor'").get() as { value: string } | undefined;
-    try { const p = r ? JSON.parse(r.value) as Partial<Persisted> : {}; return { lastSampleAt: p.lastSampleAt ?? null, alerts: p.alerts ?? [], sent: p.sent ?? [] }; }
-    catch { return { lastSampleAt: null, alerts: [], sent: [] }; }
+    try { const p = r ? JSON.parse(r.value) as Partial<Persisted> : {}; return { lastSampleAt: p.lastSampleAt ?? null, alerts: p.alerts ?? [], sent: p.sent ?? [], selfTestAt: p.selfTestAt ?? null }; }
+    catch { return { lastSampleAt: null, alerts: [], sent: [], selfTestAt: null }; }
   }
 
   private save() {
-    const p: Persisted = { lastSampleAt: this.view().lastSampleAt, alerts: [...this.alerts.values()], sent: this.sent };
+    const p: Persisted = { lastSampleAt: this.view().lastSampleAt, alerts: [...this.alerts.values()], sent: this.sent, selfTestAt: this.selfTestAt };
     this.world.db.prepare("INSERT INTO meta (key, value) VALUES ('monitor', ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value").run(JSON.stringify(p));
   }
 }
