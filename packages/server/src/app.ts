@@ -21,6 +21,7 @@ import { agentRoutes } from "./routes/agents.ts";
 import { deskRoutes } from "./routes/desk.ts";
 import { directoryRoutes } from "./routes/directory.ts";
 import { docRoutes } from "./routes/docs.ts";
+import { goalRoutes } from "./routes/goals.ts";
 import { grantRoutes } from "./routes/grants.ts";
 import { mediaRoutes } from "./routes/media.ts";
 import { secretRoutes } from "./routes/secrets.ts";
@@ -165,6 +166,7 @@ export async function buildApp(opts: BuildAppOptions): Promise<FastifyInstance> 
     await c.register(agentRoutes);
     await c.register(docRoutes);
     await c.register(grantRoutes);
+    await c.register(goalRoutes);
     await c.register(mediaRoutes);
     await c.register(skillRoutes);
     await c.register(secretRoutes);

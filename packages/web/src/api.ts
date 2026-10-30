@@ -9,6 +9,7 @@ import type {
   AccessRequest, AccessRequestView, Agent, Allocation, Assignment, AuthMe, BlockedAssignment, BuildingStats, Schedule, RedeployLive, Building, ClientMessage, DesksConfig, Doc, Event, Lot, Meeting, Place, Role, Membership, SessionSlots, Tile,
   ServerMessage, SessionView, TokenCounts, Town, CreateBuildingInput, UpdateBuildingInput, RegisterVisitorInput,
   ReviewInput, PinSkillInput, SkillPinView, SkillView, PutSecretInput, SecretView, ChatInput, WorkInput, DonateInput, AddBankInput, BankInput, CreateBankPoolInput, UpdateBankPoolInput, CreateMeetingInput, DocState, DocType, Mailbox, Permission, DecideGrantInput, CloseGrantInput, GrantView, KeyResult, CreateKeyResultInput, UpdateKeyResultInput, Stoplight,
+  GoalTreeNode,
 } from "@muster-town/schema";
 
 export type In<T extends z.ZodTypeAny> = z.input<T>;
@@ -329,6 +330,8 @@ export interface Api {
   /** GET /api/buildings/:id: the building row as stored (live budget settings such as `forks`) */
   building(id: string): Promise<Building>;
   updateBuilding(id: string, input: In<typeof UpdateBuildingInput>): Promise<Building>;
+  /** GET /api/goals: the town goal tree from the root (docs/goals.md) */
+  goalTree(): Promise<GoalTreeNode>;
   /** Furniture of a room, and the human-only editor's dry run / save (lot-relative anchors). */
   layout(buildingId: string): Promise<RoomLayout>;
   previewLayout(buildingId: string, furniture: Record<string, Tile>): Promise<LayoutPreview>;
@@ -585,6 +588,7 @@ export class HttpApi implements Api {
   async createBuilding(i: In<typeof CreateBuildingInput>) { return unwrap<Building>(await this.post("/api/buildings", i), "building"); }
   async building(id: string) { return unwrap<Building>(await this.get(`/api/buildings/${id}`), "building"); }
   async updateBuilding(id: string, i: In<typeof UpdateBuildingInput>) { return unwrap<Building>(await this.call("PATCH", `/api/buildings/${id}`, i), "building"); }
+  async goalTree() { return (await this.get<{ root: GoalTreeNode }>("/api/goals")).root; }
   layout(id: string) { return this.get<RoomLayout>(`/api/buildings/${id}/layout`); }
   previewLayout(id: string, furniture: Record<string, Tile>) { return this.call<LayoutPreview>("PUT", `/api/buildings/${id}/layout`, { furniture, dryRun: true }); }
   async saveLayout(id: string, furniture: Record<string, Tile>) { return unwrap<Building>(await this.call("PUT", `/api/buildings/${id}/layout`, { furniture }), "building"); }

@@ -199,7 +199,7 @@ export class Sim {
     const b = this.buildings.find((x) => x.id === buildingId);
     if (!b) throw new Error(`building not found: ${buildingId}`);
     const last = Math.max(-1, ...this.goalKeyResults(buildingId).map((k) => k.position));
-    const k: KeyResult = { id: newId("kr"), buildingId, position: last + 1, text: i.text.trim(), howToCheck: i.howToCheck.trim(), status: "not-started", statusNote: "", statusBy: null, createdBy: "us_mitchell", editedBy: null, sourceDocIds: i.sourceDocIds ?? [], objectiveId: i.objectiveId ?? null, updatedAt: now() };
+    const k: KeyResult = { id: newId("kr"), buildingId, position: last + 1, text: i.text.trim(), howToCheck: i.howToCheck.trim(), status: "not-started", statusNote: "", statusBy: null, createdBy: "us_mitchell", editedBy: null, sourceDocIds: i.sourceDocIds ?? [], objectiveId: i.objectiveId ?? null, goalId: b.goalId, due: i.due ?? null, archivedAt: null, underReviewSince: null, postmortemDocId: null, updatedAt: now() };
     this.keyResults.set(k.id, k);
     this.event("kr.created", null, `${b.name} key result: ${k.text}`, { keyResultId: k.id }, buildingId);
     return k;
@@ -518,8 +518,8 @@ export class Sim {
     return a;
   }
 
-  createBuilding(name: string, goal = "", headcount = 6): Building {
-    const b: Building = { ...clone(F.buildings[1]), id: newId("bl"), name, goal, description: "", headcount, meetings: [], rules: "", codeAccess: !!F.town.workspace, lot: undefined, createdAt: now(), createdBy: "us_mitchell" };
+  createBuilding(name: string, goal = "", headcount = 6, goalId = "gl_town"): Building {
+    const b: Building = { ...clone(F.buildings[1]), id: newId("bl"), name, goal, goalId, description: "", headcount, meetings: [], rules: "", codeAccess: !!F.town.workspace, lot: undefined, createdAt: now(), createdBy: "us_mitchell" };
     this.buildings.push(b);
     for (const r of ["manager", "reviewer", "member"] as const)
       this.roles.push({ id: `rl_${b.id}_${r}`, name: r, scope: "building", buildingId: b.id, permissions: [...BUILTIN_ROLES.building[r]], builtin: true });

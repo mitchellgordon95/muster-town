@@ -34,6 +34,8 @@ Citation format: the same as in [grants.md](grants.md): a `- Test:` line with th
    - Test: `packages/core/test/assignment-queue.test.ts` › `new assignments get epoch-ms positions; the next pending orders by position, then createdAt, rowid`
    - Test: `packages/core/test/manager-verbs.test.ts` › `assign: no agentId = the building queue; agentId = the manager itself or a visitor, never another named agent`
    - Test: `packages/core/test/assignment-queue.test.ts` › `cancelAssignment: pending only; active, done and cancelled refuse`
+9. **A key result named by exploration or directed work is open and in the building's subtree of the town goal tree** (`Goals.inScope`, docs/goals.md): not met, missed or archived, and under the goal the building is attached to.
+   - Test: `packages/core/test/goals.test.ts` › `Goals.inScope: grants and exploration name an open key result in the building's subtree`
 
 ## How it connects
 

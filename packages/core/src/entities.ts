@@ -1,5 +1,5 @@
 import {
-  Agent, CreateBuildingInput, desksForLot, CreateResidentInput, RegisterVisitorInput,
+  Agent, CreateBuildingInput, ROOT_GOAL_ID, desksForLot, CreateResidentInput, RegisterVisitorInput,
   type Building, type Lot, type Tile, type User,
 } from "@muster-town/schema";
 import { AppError, badRequest } from "./errors.ts";
@@ -9,6 +9,7 @@ import { newId, nowIso } from "./util.ts";
 import type { Furniture } from "./world/furniture.ts";
 import { MAX_HEADCOUNT, TOWN_HALL_ID } from "./world/layout.ts";
 import { nearestWalkable } from "./world/path.ts";
+import type { Actor } from "./ops.ts";
 import type { World } from "./world.ts";
 
 type In<T extends { _input: unknown }> = T["_input"];
@@ -34,9 +35,13 @@ export function createBuilding(
   const id = opts.id ?? newId("bl");
   if (world.buildings.get(id)) throw new AppError("conflict", `Building ${id} already exists.`);
   if (creatorUserId) world.users.require(creatorUserId, "user");
+  // attached to one goal of the town tree from the start (docs/goals.md; default: the root)
+  const goalId = inp.goalId ?? ROOT_GOAL_ID;
+  const goal = world.goals.get(goalId);
+  if (!goal || goal.status !== "active") throw badRequest(`${goalId} is not an active goal of the town tree.`);
   return world.transaction(() => {
     const building = world.buildings.upsert({
-      ...inp, codeAccess: inp.codeAccess ?? (opts.kind !== "town-hall" && !!world.town.get().workspace), id, kind: opts.kind ?? "lab", createdAt: nowIso(), createdBy: creatorUserId ?? undefined, ...(opts.lot ? { lot: opts.lot } : {}),
+      ...inp, goalId, codeAccess: inp.codeAccess ?? (opts.kind !== "town-hall" && !!world.town.get().workspace), id, kind: opts.kind ?? "lab", createdAt: nowIso(), createdBy: creatorUserId ?? undefined, ...(opts.lot ? { lot: opts.lot } : {}),
     } as Building);
     world.permissions.ensureTownRoles();
     world.permissions.ensureBuildingRoles(id);
@@ -74,7 +79,7 @@ export function syncManagerRoles(world: World): void {
 }
 
 /** Update building settings (validated); re-lots if headcount grew. */
-export function updateBuilding(world: World, id: string, patch: Partial<In<typeof CreateBuildingInput>>): Building {
+export function updateBuilding(world: World, id: string, patch: Partial<In<typeof CreateBuildingInput>>, actor: Actor = null): Building {
   const cur = world.buildings.require(id, "building");
   const p = CreateBuildingInput.partial().parse(patch);
   if (p.headcount !== undefined) {
@@ -87,8 +92,11 @@ export function updateBuilding(world: World, id: string, patch: Partial<In<typeo
     if (!a || a.kind !== "resident" || a.homeBuildingId !== id || a.forkOf) throw badRequest("The manager must be a (named) resident of this building.");
     if (a.status === "stopped" || a.status === "banned" || a.status === "retired") throw badRequest(`Can't make ${a.name} manager: they are ${a.status}.`);
   }
-  const clean = Object.fromEntries(Object.entries(p).filter(([, v]) => v !== undefined));
+  const { goalId, ...rest } = p;
+  const clean = Object.fromEntries(Object.entries(rest).filter(([, v]) => v !== undefined));
   const updated = world.buildings.upsert({ ...cur, ...clean });
+  // the attachment moves through the tree's own path (goals.edit on both ends, a goal.attached event); it is never unset
+  if (goalId !== undefined && goalId !== cur.goalId) world.goalTree.attach(actor, id, goalId);
   syncManagerRoles(world);
   world.layout.rebuild();
   world.events.append({ type: "building.updated", buildingId: id, text: `${updated.name} settings updated`, payload: { fields: Object.keys(clean) } });

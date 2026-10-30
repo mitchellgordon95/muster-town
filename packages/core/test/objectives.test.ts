@@ -49,14 +49,15 @@ describe("objectives (1:1 mt_akz25kqo2q)", () => {
     expect(() => world.grantDesk.deleteObjective(admin, r.objective.id)).toThrow(/move them first/);
   });
 
-  it("the desk brief groups key results under their objectives, then the ones under none", async () => {
+  it("the desk brief lists the building's subtree: each goal (objectives are goals) with its open key results", async () => {
     const { world, mei, admin, notes } = setup();
     const loose = world.grantDesk.createKeyResult(admin, LAB, { ...KR, text: "Loose one" });
     const o = world.grantDesk.createObjective(mei, LAB, { text: "Strangers can join", kpi: "join", horizon: "2026-Q4", sourceDocIds: [notes.id] });
     const kr = world.grantDesk.createKeyResult(mei, LAB, { ...KR, sourceDocIds: [notes.id], objectiveId: o.id });
     const block = keyResultsBlock(world, world.buildings.require(LAB));
-    expect(block).toContain(`Objective ${o.id} (moves Join, 2026-Q4): Strangers can join\n  - ${kr.id} [not-started] A visitor can see`);
-    expect(block).toContain(`Not under an objective yet:\n  - ${loose.id} [not-started] Loose one`);
+    expect(block).toContain("Attached to: ");
+    expect(block).toContain(`  Goal ${o.id}: Strangers can join\n    - ${kr.id} [not-started] A visitor can see`);
+    expect(block).toMatch(new RegExp(`Goal gl_town: [^\n]*\n  - ${loose.id} \\[not-started\\] Loose one`));
   });
 });
 

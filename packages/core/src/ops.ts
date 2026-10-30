@@ -50,6 +50,8 @@ export class Ops {
 
   createBuilding(actor: Actor, input: (typeof CreateBuildingInput)["_input"]) {
     if (actor) this.world.permissions.require(actor, "town.manage_buildings");
+    // attached to the root unless a goal is picked; picking one takes goals.edit there (docs/goals.md)
+    if (actor && input.goalId) this.world.goalTree.requireEdit(actor, input.goalId);
     const creator = actor ? this.world.holderOf(actor) : null;
     // desks follow floor space (flag dc_1hjoh9aurq): a sent headcount is ignored; the lab gets NEW_LAB_LOT's desks
     return createBuilding(this.world, { ...input, headcount: desksForLot(NEW_LAB_LOT) }, creator?.kind === "user" ? creator.id : null, { starterResidents: true });
@@ -59,13 +61,15 @@ export class Ops {
    * A sent `headcount` is ignored, not refused: desks follow the lot (resize it in town planning to change them).
    */
   updateBuilding(actor: Actor, id: string, patch: (typeof UpdateBuildingInput)["_input"]) {
-    const { poolId, explorationTokensPerDay, headcount: _ignored, ...rest } = patch;
+    const { poolId, explorationTokensPerDay, headcount: _ignored, goalId, ...rest } = patch;
     const budget = { ...(explorationTokensPerDay !== undefined && { explorationTokensPerDay }) };
-    const other = Object.keys(rest).length || (poolId === undefined && !Object.keys(budget).length);
+    const other = Object.keys(rest).length || (poolId === undefined && goalId === undefined && !Object.keys(budget).length);
     if (actor && other) this.world.permissions.require(actor, "building.manage", id);
     // goal-directed budget settings are a human's call: a manager agent can't raise its own allowance
     if (actor && Object.keys(budget).length) this.world.permissions.require(actor, "building.fund", id);
     if (poolId !== undefined) this.world.bank.setBuildingPool(actor, id, poolId);
+    // the goal it is attached to: goals.edit (admins, or the owner) on both the old and the new goal, never unset
+    if (goalId !== undefined) this.world.goalTree.attach(actor, id, goalId);
     if (Object.keys(budget).length) {
       const b = this.world.buildings.upsert({ ...this.world.buildings.require(id, "building"), ...budget });
       this.world.events.append({ type: "building.updated", buildingId: id, text: `${b.name} budget settings updated`, payload: { fields: Object.keys(budget) } });

@@ -19,8 +19,9 @@ The first code span is the test file. The second is the `it` text, copied exactl
 3. **A grant's spend is derived from the sessions that carry its `grantId` and is never stored.**
    - Test: `packages/core/test/grants.test.ts` › `spend is derived from sessions; checkpoint decisions continue / adjust / cut`
    - Test: `packages/core/test/grants-schema.test.ts` › `grants, key results, and the new building/session columns round-trip; spend derives from sessions`
-4. **A grant that names no goal key result can't be proposed or funded.**
+4. **A grant that names no goal key result can't be proposed or funded.** The key result it names is open and in its building's subtree of the town goal tree (`Goals.inScope`, docs/goals.md).
    - Test: `packages/core/test/grants.test.ts` › `a grant without a goal key result can't be proposed or funded`
+   - Test: `packages/core/test/goals.test.ts` › `Goals.inScope: grants and exploration name an open key result in the building's subtree`
 5. **The 100% checkpoint fires once per `grantTokens` value and holds the grant. While it is held, only the manager's checkpoint assignment runs on it.**
    - Test: `packages/core/test/lanes.test.ts` › `a charge that reaches 100% holds the grant once and gives the manager the checkpoint assignment, which may run`
    - Test: `packages/core/test/lanes.test.ts` › `a grant task is held while its grant is at checkpoint (stays pending, with a reason); work behind it still starts`
@@ -33,6 +34,8 @@ The first code span is the test file. The second is the `it` text, copied exactl
    - Test: `packages/core/test/grants.test.ts` › `goal key results: only humans (or the building's own manager agent) write them; manager sets status up to claimed, only funders set or undo met / missed`
    - Test: `packages/core/test/kr-authors.test.ts` › `the building's manager creates and edits its own goal's KRs; residents, other buildings and deletes stay refused`
    - Test: `packages/core/test/lanes.test.ts` › `checkpoint_grant sets the grant's goal KR status up to claimed; the checkpoint session's rollup links itself and lands in the Town Hall in-tray`
+9. **The owner of a goal (a human) decides and funds grants, and marks key results met or missed, only within the goal's subtree;** admins and `building.fund` holders as before. Agents never fund.
+   - Test: `packages/core/test/goals.test.ts` › `owners (humans) inherit down the tree, edit and fund in their subtree only; routing ends at the owner`
 
 ## How it connects
 

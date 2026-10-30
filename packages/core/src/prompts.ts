@@ -145,19 +145,26 @@ export function keyResultsBlock(world: World, building: Building, assignment?: A
   const krLine = (k: (typeof board.keyResults)[number], indent = "") => {
     const g = k.grantId ? grants.get(k.grantId) : undefined;
     const funding = g ? `grant ${g.id} "${oneLine(g.objective, 120)}" (${g.status === "checkpoint" ? "at checkpoint: its sessions are held" : "funded"}; ${tok(g.spentTokens)} / ${tok(g.grantTokens ?? 0)} tokens)` : "no funded grant: open for exploration";
-    return `${indent}- ${k.id} [${k.status}] ${oneLine(k.text, 160)} (how to check: ${oneLine(k.howToCheck, 160)}); ${funding}`;
+    return `${indent}- ${k.id} [${k.status}${k.due ? `, due ${k.due}` : ""}${k.underReviewSince ? ", under review" : ""}] ${oneLine(k.text, 160)} (how to check: ${oneLine(k.howToCheck, 160)}); ${funding}`;
   };
-  // grouped under the goal's objectives (each names the town KPI it moves), then the ones under none yet
-  const { objectives, unsorted } = board.objectives;
-  const krs = objectives.length
-    ? [
-      ...objectives.flatMap((o) => [
-        `Objective ${o.id} (moves ${o.kpiName ?? "no KPI yet"}, ${o.horizon}): ${oneLine(o.text, 200)}`,
-        ...(o.keyResults.length ? o.keyResults.map((k) => krLine(k, "  ")) : ["  (no key results under it yet)"]),
-      ]),
-      ...(unsorted.length ? ["Not under an objective yet:", ...unsorted.map((k) => krLine(k, "  "))] : []),
-    ]
-    : board.keyResults.map((k) => krLine(k));
+  // the building's subtree of the town goal tree (docs/goals.md): each goal, then its open key results; archived ones are counted
+  const tree = world.goalTree;
+  const at = tree.attachmentOf(building);
+  const open = board.keyResults.filter((k) => !k.archivedAt && k.status !== "met" && k.status !== "missed");
+  const met = board.keyResults.filter((k) => k.status === "met").length;
+  const missed = board.keyResults.filter((k) => k.status === "missed").length;
+  const krs: string[] = [];
+  const walk = (goalId: string, indent: string) => {
+    const g = tree.get(goalId);
+    if (!g) return;
+    const mine = open.filter((k) => k.goalId === goalId);
+    krs.push(`${indent}Goal ${g.id}: ${oneLine(g.text, 200)}`, ...(mine.length ? mine.map((k) => krLine(k, `${indent}  `)) : [`${indent}  (no open key results under it)`]));
+    for (const c of tree.children(goalId)) walk(c.id, `${indent}  `);
+  };
+  walk(at, "");
+  const owner = tree.ownerOf(at);
+  const ownerName = owner.userId ? world.users.get(owner.userId)?.name ?? owner.userId : "the town admins";
+  const attached = `Attached to: ${tree.pathText(at)} (owner: ${ownerName}). Work names an open key result in this subtree.${met || missed ? ` Archived: ${met} met, ${missed} missed.` : ""}`;
   const orphans = board.grants.filter((g) => !g.keyResultId).map((g) => `- grant ${g.id} "${oneLine(g.objective, 120)}" names no key result`);
   const krText = (id: string | null) => { const k = id ? world.keyResults.get(id) : undefined; return k ? `${k.id} "${oneLine(k.text, 120)}"` : id ?? ""; };
   const lane = !assignment ? "" : assignment.lane === "grant"
@@ -167,7 +174,8 @@ export function keyResultsBlock(world: World, building: Building, assignment?: A
       : `This session: directed (a human asked for it${assignment.sourceId ? `: ${assignment.sourceId}` : " directly"})${assignment.keyResultId ? `, on key result ${krText(assignment.keyResultId)}; it is done once a grant proposal names that key result` : assignment.gap ? `, on gap: ${oneLine(assignment.gap, 300)}` : ""}.`;
   const list = [...krs, ...orphans];
   return `Key results of the building goal (this building is goal-directed: every session runs in a lane, grant, exploration or directed):
-${list.length ? list.join("\n") : `(none yet: the building is ${board.blocked ?? "waiting for key results"}. A human or the manager writes them (the manager with set_key_result, from a meeting or 1:1))`}
+${attached}
+${list.join("\n")}${open.length ? "" : `\n(no open key results: the building is ${board.blocked ?? "waiting for key results"}. A human or the manager writes them (the manager with set_key_result or propose_key_result, from a meeting or 1:1))`}
 Exploration today: ${tok(board.exploration.spentTodayTokens)} / ${tok(board.exploration.allowanceTokens)} tokens. Directed today: ${tok(board.directed.spentTodayTokens)} tokens (a human asked; never held by the allowance).${board.proposals.length ? ` Open proposal${board.proposals.length === 1 ? "" : "s"}: ${board.proposals.map((p) => `${p.id} "${oneLine(p.objective, 120)}" (${p.status}${p.keyResultId ? `, for ${p.keyResultId}` : ", names no key result yet"})`).join("; ")}.` : ""}${lane ? `\n${lane}` : ""}`;
 }
 
@@ -177,7 +185,7 @@ export function managerGrantsBlock(world: World, building: Building): string {
   const open = world.grants.where("buildingId = ? AND status IN ('proposed', 'countered')", [building.id], "ORDER BY createdAt, rowid");
   const blocked = world.grantDesk.blocked(building);
   return `## Grants (this building is goal-directed)
-Key results live on the building goal, under its objectives: 2 or 3 objectives (one sentence for the quarter, each naming the town KPI it moves: Fund, Join or Trust), each holding 2 to 4 key results. A human writes them, and so do you for this building: when a meeting or your 1:1 with Mitchell settles one, \`set_objective\` (text, kpi, sourceDocIds; id to edit) and \`set_key_result\` (text, howToCheck, sourceDocIds = the meeting notes or report it comes from, objectiveId = the objective it serves; id to edit one or move it). Your next rollup lists every key result you wrote, appended for you, so Mitchell can keep or cut it; only a human marks one met or missed, or deletes it. A grant is the plan for one of them: \`propose_grant\` with its keyResultId, an objective, the approach, a stop condition, a token ask and optionally a testing plan (text + howToCheck lines: how the work will be checked). Funding it runs the plan.
+The town has one goal tree (docs/goals.md): your building is attached to one goal, and your subtree is that goal and every goal under it; key results are dated leaves under a goal, and work (grants, exploration) names an open key result in your subtree. Admins and a goal's owner edit the tree; you propose changes with \`propose_goal\` (add, edit, move or retire a goal, promote a key result) and \`propose_key_result\` (goalId, text, howToCheck, due), and a human accepts or cuts each. Your building's objectives are goals of the tree with the same ids. Until the Town Hall goal editor lands you also write directly, as before: when a meeting or your 1:1 with Mitchell settles one, \`set_objective\` (text, kpi, sourceDocIds; id to edit) and \`set_key_result\` (text, howToCheck, sourceDocIds = the meeting notes or report it comes from, objectiveId = the objective it serves; id to edit one or move it). Your next rollup lists every key result you wrote, appended for you, so Mitchell can keep or cut it; only a human marks one met or missed, or deletes it. A grant is the plan for one of them: \`propose_grant\` with its keyResultId, an objective, the approach, a stop condition, a token ask and optionally a testing plan (text + howToCheck lines: how the work will be checked). Funding it runs the plan.
 Every \`assign\` names its lane: "grant" with the grantId of a funded grant (its key result is implied), or "exploration" with the keyResultId of a goal key result that has no funded grant, or a gap (one sentence on what is missing between the goal and the live town). Work that traces to a human ask is "directed": give lane "directed" with sourceId = the human-authored source it comes from (a meeting with a human or its notes, a flag, a human-report, a rollup a human replied to, a human's tell); \`review\` continue/redirect and meeting decisions take the same lane fields. Directed work is never held by the exploration allowance (it is metered on its own: "Directed today"); naming a keyResultId (or a gap) says what it is for, and with a key result it runs until a grant proposal names it. Without a human source you can't create directed work: unguided exploration stays on the allowance. Assignments whose grant is at checkpoint, or exploration past today's allowance, stay pending (held), never cancelled.
 ${blocked ? `This building is ${blocked}: write key results for the goal with \`set_key_result\` once a meeting or your 1:1 has settled them (or propose them in a rollup).\n` : ""}${open.length ? `Open proposals (several can be open at once, each decided on its own): ${open.map((g) => `${g.id} (${g.status})${g.keyResultId ? "" : ", naming no key result yet"}${g.status === "countered" ? `; it is your move: answer the counter with \`propose_grant\` and grantId ${g.id} (the revised plan rewrites it under the same id)` : "; a human decides it in the Town Hall in-tray"}`).join("; ")}. Another key result without a funded grant can get its own proposal now.` : "No proposal is open: if exploration findings are in, draft one with `propose_grant` for a key result that has no funded grant (findings reports in findingsDocIds)."}
 A human's decision on your proposal wakes you with an assignment, like a reply to a report: funded → "Grant … funded: assign its first step or take it yourself" (lane grant, the plan in it; nothing runs until its steps are assignments), countered → "Answer the counter on …" (re-propose with \`propose_grant\`), rejected → "Grant … rejected: read the note". When a grant reaches 100% of its tokens (the only checkpoint; it runs to its full number before that) you get a "Write the checkpoint for …" assignment: \`checkpoint_grant\` (its key result's status up to claimed, with evidence), then \`submit_report\` with \`rollup: true\`; it lands in the Town Hall in-tray linked to the grant. When a grant's work is done before its tokens are (its key result can be claimed with evidence a human can check), close it yourself with \`close_grant\` (grantId, the evidence as note), then \`submit_report\` with \`rollup: true\`: it closes as done, the unspent tokens return to the Bank, and a human marks the key result met or missed from the Town Hall in-tray. Use \`checkpoint_grant\` only when the grant is held at its 100% checkpoint and the work is not done.`;

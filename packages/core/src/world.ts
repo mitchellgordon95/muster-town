@@ -1,6 +1,7 @@
 import { mapFlagOf, townEnv, type Agent, type AgentStatus, type DesksConfig, type RedeployLive, type RedeployResult, type ServerMessage, type Tile } from "@muster-town/schema";
 import { Bank } from "./bank.ts";
 import { Budget } from "./budget.ts";
+import { Goals } from "./goals.ts";
 import { Grants } from "./grants.ts";
 import { laneHold } from "./lanes.ts";
 import { intrayCount, intrayCounts, isTownHallItem } from "./domain.ts";
@@ -68,6 +69,8 @@ export class World {
   readonly bank: Bank;
   /** goal-directed budgets: proposals, grants, key results, exploration allowance */
   readonly grantDesk: Grants;
+  /** the town goal tree (docs/goals.md) */
+  readonly goalTree: Goals;
   /** skills: SKILL.md docs, bundled files, pins, usage (docs/skills.md) */
   readonly skills: Skills;
   /** collective secrets: encrypted values and their grants (docs/secrets.md) */
@@ -103,6 +106,8 @@ export class World {
   readonly schedules: Repos["schedules"];
   readonly keyResults: Repos["keyResults"];
   readonly objectives: Repos["objectives"];
+  readonly goals: Repos["goals"];
+  readonly goalProposals: Repos["goalProposals"];
   readonly kpis: Repos["kpis"];
   readonly accessRequests: Repos["accessRequests"];
   readonly skillPins: Repos["skillPins"];
@@ -126,7 +131,7 @@ export class World {
     this.places = repos.places; this.docs = repos.docs; this.assignments = repos.assignments;
     this.messages = repos.messages; this.meetings = repos.meetings; this.sessions = repos.sessions;
     this.interrupts = repos.interrupts;
-    this.grants = repos.grants; this.schedules = repos.schedules; this.keyResults = repos.keyResults; this.objectives = repos.objectives; this.kpis = repos.kpis; this.accessRequests = repos.accessRequests; this.skillPins = repos.skillPins;
+    this.grants = repos.grants; this.schedules = repos.schedules; this.keyResults = repos.keyResults; this.objectives = repos.objectives; this.goals = repos.goals; this.goalProposals = repos.goalProposals; this.kpis = repos.kpis; this.accessRequests = repos.accessRequests; this.skillPins = repos.skillPins;
     this.tokens = repos.tokens; this.town = repos.town;
     this.events = new EventLog(db, this.changes);
     this.permissions = new Permissions(repos, () => !!this.host.hosted);
@@ -137,6 +142,7 @@ export class World {
     this.verbs = makeVerbs(this);
     this.ops = new Ops(this);
     this.grantDesk = new Grants(this);
+    this.goalTree = new Goals(this);
     this.budget.gate = (a) => laneHold(this, a);
     this.budget.keyHold = () => (this.host.hosted && !this.bank.liveApiKeyInput() ? NO_KEY_HOLD : null);
     this.budget.afterCharge = (bid) => this.grantDesk.checkpoints(bid);
@@ -174,7 +180,7 @@ export class World {
     });
     // goal-directed: a grant, key-result or budget-settings change may block or unblock the building (wakes its manager once)
     this.events.addHook((e) => {
-      if (!e.buildingId || !(e.type.startsWith("grant.") || e.type === "kr.created" || e.type === "kr.deleted" || e.type === "building.updated")) return;
+      if (!e.buildingId || !(e.type.startsWith("grant.") || e.type.startsWith("kr.") || e.type === "building.updated")) return;
       this.grantDesk.syncBlocked(e.buildingId);
     });
     // the stoplight (map banner, board) follows grants, key results: resend the building with it
@@ -183,6 +189,7 @@ export class World {
       const b = this.buildings.get(e.buildingId);
       if (b) this.changes.emit({ type: "building", building: { ...b, stoplight: this.grantDesk.stoplight(b) } });
     });
+    this.goalTree.ensure();
     this.layout.rebuild();
     this.repairDesks();
     this.grantDesk.releaseHalfway();

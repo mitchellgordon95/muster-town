@@ -88,7 +88,7 @@ describe("schedules", () => {
     const { world, b, me, made } = lab();
     const kr = world.keyResults.first("buildingId = ?", [b.id])!;
     const r = await world.verbs.schedule(me(), { title: "Explore it", description: "d", keyResultId: kr.id, runsAt: new Date(Date.now() + H).toISOString() });
-    world.keyResults.upsert({ ...kr, buildingId: "elsewhere" });
+    world.keyResults.upsert({ ...kr, status: "met", archivedAt: new Date().toISOString() }); // met: no longer open, so out of scope
     expect(fireSchedules(world, new Date(Date.now() + 2 * H)).fired).toEqual([]);
     expect(world.schedules.require(r.scheduleId).endedReason).toMatch(/lane no longer holds/);
     expect(world.docs.first("type = 'report' AND buildingId = ? AND tags LIKE '%schedule-ended%'", [b.id])?.title).toBe("Schedule ended: Explore it");

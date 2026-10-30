@@ -87,6 +87,22 @@ export async function set_key_result(world: World, me: Agent, input: VerbIn<"set
   };
 }
 
+/** `propose_goal` (the manager or its fork): a change to the town goal tree for a human to accept or cut (docs/goals.md). */
+export async function propose_goal(world: World, me: Agent, input: VerbIn<"propose_goal">) {
+  const p = world.goalTree.propose(me, { ...input, sourceDocIds: input.sourceDocIds ?? [], buildingId: homeOf(me) ?? undefined });
+  return { proposal: { id: p.id, action: p.action, status: p.status, outsideScope: p.outsideScope }, note: `Proposed ${p.id}. A human with goals.edit there accepts or cuts it; you hear back in your inbox.${p.outsideScope ? " It reaches outside your building's subtree, so it is flagged." : ""}` };
+}
+
+/** `propose_key_result` (the manager or its fork): a dated key result under a goal, or an edit to one, for a human to accept or cut. */
+export async function propose_key_result(world: World, me: Agent, input: VerbIn<"propose_key_result">) {
+  const bid = homeOf(me);
+  const sourceDocIds = input.sourceDocIds ?? [];
+  const p = input.id
+    ? world.goalTree.propose(me, { action: "edit", targetId: input.id, text: input.text, howToCheck: input.howToCheck, due: input.due, why: input.why, sourceDocIds, buildingId: bid ?? undefined })
+    : world.goalTree.propose(me, { action: "add-kr", parentId: input.goalId ?? (bid ? world.goalTree.attachmentOf(bid) : undefined), text: input.text, howToCheck: input.howToCheck, due: input.due, why: input.why, sourceDocIds, buildingId: bid ?? undefined });
+  return { proposal: { id: p.id, action: p.action, status: p.status, outsideScope: p.outsideScope }, note: `Proposed ${p.id}. A human accepts or cuts it; once accepted, propose_grant can name the key result.` };
+}
+
 /**
  * `set_objective` (the manager): add an objective to its own building's goal (at most 3), or edit one (`id`), on the
  * same path as POST /api/buildings/:id/objectives. A new one names the KPI it moves and the notes or report it comes from.
