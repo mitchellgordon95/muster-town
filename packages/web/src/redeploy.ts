@@ -102,3 +102,13 @@ export function dockerDown(events: Event[], health: { docker: boolean } | null):
   }
   return health ? !health.docker : false;
 }
+
+/** The latest `alert: funding-failover` system event of the last day (a desk hit the subscription's limit and finished on an API key), or null. */
+export function fundingFailover(events: Event[], now = Date.now()): Event | null {
+  for (let i = events.length - 1; i >= 0; i--) {
+    const e = events[i];
+    if (e.type !== "system" || (e.payload as { alert?: unknown }).alert !== "funding-failover") continue;
+    return now - Date.parse(e.ts) < 24 * 3600_000 ? e : null;
+  }
+  return null;
+}

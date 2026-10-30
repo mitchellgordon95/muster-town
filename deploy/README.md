@@ -16,7 +16,7 @@ alternative; that box was deleted.
   a town built from a fork sets its fork's URL in `[env]`).
 - **Config:** `fly.town.toml` (env, volume, health check). Desk backend and callback URL come from `MUSTER_TOWN_DESKS` (JSON) in its `[env]`,
   so the Mac's dev `collective.json` keeps docker desks; `maxRunning` is not in it (a live setting kept in the database, default 30: Planning → System → Session slots, or `PUT /api/town/desks {"maxRunning":N}`; a stored value is kept). Secrets are Fly secrets
-  (`fly secrets list -a muster-town`): `CLAUDE_CODE_OAUTH_TOKEN`, `ANTHROPIC_API_KEY`, `GITHUB_CLIENT_ID/SECRET`, `AGENT_TOWN_ADMINS`,
+  (`fly secrets list -a muster-town`): `CLAUDE_CODE_OAUTH_TOKEN` (the one model credential: an `ANTHROPIC_API_KEY` beside it stops the boot, see docs/postmortem-2026-10-30-api-key-leak.md; a key the town may spend is a Bank input), `GITHUB_CLIENT_ID/SECRET`, `AGENT_TOWN_ADMINS`,
   `MUSTER_TOWN_DATA_KEY`, `FLY_API_TOKEN` (the desks app's deploy token). No `DESK_ENV_*`: the runtime dropped that fallback on 2026-10-25;
   tool credentials for desks are Town Hall secrets with grants (docs/secrets.md).
 - **The repo token:** a collective secret named `GH_TOKEN` at the Town Hall (planning desk, Secrets tab): a fine-grained token for the collective's repo with

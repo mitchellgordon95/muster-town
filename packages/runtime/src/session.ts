@@ -9,7 +9,7 @@ import type { DesksConfig } from "@muster-town/schema";
 import { AppError, NO_KEY_HOLD, type World } from "@muster-town/core";
 import { rawTokens, splitRaw, VERB_NAMES, type AllocationAuth, type Session, type VerbName } from "@muster-town/schema";
 import { describeTool } from "./describe.ts";
-import { blocksOf, InputChannel, noUsage, sessionEnv, usageOf, type LooseMessage, type Options, type QueryHandle, type Sdk, type Usage } from "./sdk.ts";
+import { blocksOf, hostApiKey, InputChannel, noUsage, sessionEnv, usageOf, type LooseMessage, type Options, type QueryHandle, type Sdk, type Usage } from "./sdk.ts";
 
 export interface Ctx {
   world: World;
@@ -128,33 +128,38 @@ export interface Funding {
 /**
  * Funding for an agent's next session, in order: the building's subscription allocations → its Bank share (today's
  * subscription share runs on the server's own login; the durable share on the oldest API-key input) → donor-key
- * allocations → api-key allocations (the env's ANTHROPIC_API_KEY). Retired allocations are never picked. A subscription
- * funding carries a `fallback` (the first donor-key / api-key allocation with tokens left) when its key is known.
+ * allocations → api-key allocations. Retired allocations are never picked. A subscription funding carries a `fallback`
+ * only when something in the Bank owns the key it would fail over to: a donor-key allocation's key, or the Bank's
+ * api-key input's own key (`fallbackInput`). The host's `ANTHROPIC_API_KEY` is never a fallback and never a source
+ * once the host has a subscription token (`hostApiKey`): an api-key share or allocation with no key of its own then
+ * runs on the subscription and is recorded as such. Post-mortem 2026-10-30.
  */
 export function fundingFor(world: World, agentId: string, env: NodeJS.ProcessEnv = process.env): Funding {
   const bid = homeOf(world, agentId);
   if (!bid) return { allocationId: null, auth: null, apiKey: null };
-  const envKey = env.ANTHROPIC_API_KEY || null;
+  const hostKey = hostApiKey(env);
+  const onToken = !!env.CLAUDE_CODE_OAUTH_TOKEN;
+  /** an api-key share or allocation: on its key when it has one, else the host's (no token), else the subscription */
+  const keyed = (allocationId: string | null, key: string | null): Funding =>
+    key ? { allocationId, auth: "api-key", apiKey: key } : { allocationId, auth: onToken ? "subscription" : "api-key", apiKey: null };
   const withFallback = (f: Funding): Funding => {
     if (f.auth !== "subscription") return f;
     const fb = world.budget.fallbackAllocation(bid);
-    const key = fb ? world.budget.apiKeyFor(fb) ?? envKey : null;
-    if (fb && key) return { ...f, fallback: { allocationId: fb.id, apiKey: key } };
-    // no allocation to fall back to: the Bank's durable API-key input (the town's own key) serves instead
     const input = world.bank.fallbackInput(bid);
-    const bankKey = input ? world.bank.apiKeyFor(input.id) ?? envKey : null;
-    return input && bankKey ? { ...f, fallback: { allocationId: null, apiKey: bankKey } } : f;
+    const key = (fb && world.budget.apiKeyFor(fb)) || (input && world.bank.apiKeyFor(input.id)) || null;
+    return key ? { ...f, fallback: { allocationId: fb?.id ?? null, apiKey: key } } : f;
   };
   const sub = world.budget.pickAllocation(bid, ["subscription"]);
   if (sub) return withFallback({ allocationId: sub.id, auth: "subscription", apiKey: null });
   const bank = world.bank.fundingFor(bid);
   if (bank) {
     if (bank.kind === "expiring") return withFallback({ allocationId: null, auth: "subscription", apiKey: null });
-    return { allocationId: null, auth: "api-key", apiKey: (bank.inputId ? world.bank.apiKeyFor(bank.inputId) : null) ?? envKey };
+    return keyed(null, (bank.inputId ? world.bank.apiKeyFor(bank.inputId) : null) ?? hostKey);
   }
   const alloc = world.budget.pickAllocation(bid);
   if (!alloc) return { allocationId: null, auth: null, apiKey: null };
-  return { allocationId: alloc.id, auth: alloc.auth, apiKey: alloc.auth === "donor-key" ? world.budget.apiKeyFor(alloc) : envKey };
+  if (alloc.auth === "donor-key") return { allocationId: alloc.id, auth: "donor-key", apiKey: world.budget.apiKeyFor(alloc) };
+  return alloc.auth === "subscription" ? withFallback({ allocationId: alloc.id, auth: "subscription", apiKey: null }) : keyed(alloc.id, hostKey);
 }
 
 /**

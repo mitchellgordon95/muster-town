@@ -35,7 +35,7 @@ program
       log("MUSTER_TOWN_URL and MUSTER_TOWN_TOKEN (or AGENT_TOWN_URL and AGENT_TOWN_TOKEN) must be set");
       process.exit(EXIT_ERROR);
     }
-    if (!process.env.ANTHROPIC_API_KEY) log("warning: ANTHROPIC_API_KEY is not set");
+    if (!process.env.ANTHROPIC_API_KEY && !process.env.CLAUDE_CODE_OAUTH_TOKEN) log("warning: neither CLAUDE_CODE_OAUTH_TOKEN nor ANTHROPIC_API_KEY is set");
     const town = new TownClient({ baseUrl: url, token });
     const code = await runSession(opts.session, { town, sdk: realSdk, log });
     log(`exit ${code}`);

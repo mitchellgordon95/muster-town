@@ -224,14 +224,16 @@ describe("desk work sessions", () => {
 });
 
 describe("deskAuth (funding: subscription first, API-key failover)", () => {
-  const env = { CLAUDE_CODE_OAUTH_TOKEN: "oat", ANTHROPIC_API_KEY: "envkey" } as NodeJS.ProcessEnv;
+  const env = { CLAUDE_CODE_OAUTH_TOKEN: "oat" } as NodeJS.ProcessEnv;
   test("never both a key and the token; the fallback key rides along with the subscription only", () => {
     expect(deskAuth({ auth: "donor-key", apiKey: "donor" }, env)).toEqual({ mode: "donor-key", env: { ANTHROPIC_API_KEY: "donor" } });
     expect(deskAuth({ auth: "subscription", apiKey: null }, env)).toEqual({ mode: "subscription", env: { CLAUDE_CODE_OAUTH_TOKEN: "oat" } });
-    expect(deskAuth({ auth: "subscription", apiKey: null, fallback: { allocationId: "al_1", apiKey: "envkey" } }, env))
-      .toEqual({ mode: "subscription", env: { CLAUDE_CODE_OAUTH_TOKEN: "oat", AGENT_TOWN_FALLBACK_API_KEY: "envkey" } });
-    expect(deskAuth({ auth: "api-key", apiKey: "envkey" }, env)).toEqual({ mode: "api-key", env: { ANTHROPIC_API_KEY: "envkey" } });
-    expect(deskAuth({ auth: "api-key", apiKey: null }, env)).toEqual({ mode: "api-key", env: { ANTHROPIC_API_KEY: "envkey" } });
+    expect(deskAuth({ auth: "subscription", apiKey: null, fallback: { allocationId: "al_1", apiKey: "sk-bank" } }, env))
+      .toEqual({ mode: "subscription", env: { CLAUDE_CODE_OAUTH_TOKEN: "oat", AGENT_TOWN_FALLBACK_API_KEY: "sk-bank" } });
+    expect(deskAuth({ auth: "api-key", apiKey: "sk-bank" }, env)).toEqual({ mode: "api-key", env: { ANTHROPIC_API_KEY: "sk-bank" } });
+    // an api-key funding with no key of its own runs on the host's one credential (post-mortem 2026-10-30: never a hidden host key)
+    expect(deskAuth({ auth: "api-key", apiKey: null }, env)).toEqual({ mode: "subscription", env: { CLAUDE_CODE_OAUTH_TOKEN: "oat" } });
+    expect(deskAuth({ auth: "api-key", apiKey: null }, { ANTHROPIC_API_KEY: "envkey" } as NodeJS.ProcessEnv)).toEqual({ mode: "api-key", env: { ANTHROPIC_API_KEY: "envkey" } });
     // a subscription allocation with no token in the env can only run on the key
     expect(deskAuth({ auth: "subscription", apiKey: null }, { ANTHROPIC_API_KEY: "envkey" } as NodeJS.ProcessEnv)).toEqual({ mode: "api-key", env: { ANTHROPIC_API_KEY: "envkey" } });
     // unfunded: the token, else the env key
@@ -246,21 +248,32 @@ describe("desk funding and failover charging", () => {
 
   function funded() {
     vi.stubEnv("CLAUDE_CODE_OAUTH_TOKEN", "oat-secret");
-    vi.stubEnv("ANTHROPIC_API_KEY", "sk-town");
+    vi.stubEnv("ANTHROPIC_API_KEY", "");
     const s = deskSetup();
     const { world, lab, seed } = s;
     const house = world.allocations.first("buildingId = ?", [lab.id])!;
     world.budget.retire(house.id);
     const sub = world.budget.donate(seed.admin.id, { tokens: 100_000, buildingId: lab.id, auth: "subscription", label: "Mitchell's Claude subscription" });
-    const buffer = world.budget.donate(seed.admin.id, { tokens: 50_000, buildingId: lab.id, auth: "api-key", label: "API-key buffer" });
+    // the buffer owns its key (a donor-key allocation): a failover key is always one the Bank lists, never the host's
+    const buffer = world.budget.donate(seed.admin.id, { tokens: 50_000, buildingId: lab.id, apiKey: "sk-buffer", label: "API-key buffer" });
     return { ...s, sub, buffer };
   }
 
-  test("fundingFor: subscription first with the api-key allocation as fallback; retired allocations are skipped", () => {
+  test("fundingFor: subscription first with the keyed allocation as fallback; retired allocations are skipped", () => {
     const { world, by, sub, buffer } = funded();
-    expect(fundingFor(world, by("Noor").id)).toEqual({ allocationId: sub.id, auth: "subscription", apiKey: null, fallback: { allocationId: buffer.id, apiKey: "sk-town" } });
+    expect(fundingFor(world, by("Noor").id)).toEqual({ allocationId: sub.id, auth: "subscription", apiKey: null, fallback: { allocationId: buffer.id, apiKey: "sk-buffer" } });
     world.budget.retire(sub.id);
-    expect(fundingFor(world, by("Noor").id)).toEqual({ allocationId: buffer.id, auth: "api-key", apiKey: "sk-town" });
+    expect(fundingFor(world, by("Noor").id)).toEqual({ allocationId: buffer.id, auth: "donor-key", apiKey: "sk-buffer" });
+  });
+
+  test("fundingFor: an api-key allocation without a key is no fallback and runs on the host's one credential (post-mortem 2026-10-30)", () => {
+    const { world, by, lab, seed, sub, buffer } = funded();
+    world.budget.retire(buffer.id);
+    const plain = world.budget.donate(seed.admin.id, { tokens: 50_000, buildingId: lab.id, auth: "api-key", label: "town key?" });
+    expect(fundingFor(world, by("Noor").id)).toEqual({ allocationId: sub.id, auth: "subscription", apiKey: null });
+    world.budget.retire(sub.id);
+    expect(fundingFor(world, by("Noor").id)).toEqual({ allocationId: plain.id, auth: "subscription", apiKey: null });
+    expect(fundingFor(world, by("Noor").id, { ANTHROPIC_API_KEY: "sk-host" } as NodeJS.ProcessEnv)).toEqual({ allocationId: plain.id, auth: "api-key", apiKey: "sk-host" });
   });
 
   test("the desk env carries the token and the fallback key; session row and status say how it's funded", async () => {
@@ -270,7 +283,7 @@ describe("desk funding and failover charging", () => {
     void runtime.runWorkSession(noor.id, asg.id);
     await vi.waitFor(() => expect(desk.execs).toHaveLength(1));
     const env = desk.execs[0].env;
-    expect(env).toMatchObject({ CLAUDE_CODE_OAUTH_TOKEN: "oat-secret", AGENT_TOWN_FALLBACK_API_KEY: "sk-town", DESK_AUTH: "subscription" });
+    expect(env).toMatchObject({ CLAUDE_CODE_OAUTH_TOKEN: "oat-secret", AGENT_TOWN_FALLBACK_API_KEY: "sk-buffer", DESK_AUTH: "subscription" });
     expect(env.ANTHROPIC_API_KEY).toBeUndefined();
     const sid = desk.execs[0].argv[3];
     expect(world.sessions.require(sid).funding).toBe("subscription");
@@ -291,6 +304,10 @@ describe("desk funding and failover charging", () => {
     expect(ended.funding).toBe("api-key");
     expect(world.allocations.require(buffer.id).spentTokens).toBe(23);
     expect(world.allocations.require(sub.id).spentTokens).toBe(0);
+    // never silent: a system alert names the session and what paid
+    const alert = world.events.list({ types: ["system"] }).find((e) => (e.payload as { alert?: string }).alert === "funding-failover")!;
+    expect(alert.text).toContain("finished on the API key (API-key buffer)");
+    expect(alert.payload).toMatchObject({ sessionId: sid, allocationId: buffer.id });
     desk.execs[0].exit(0);
     await running;
   });

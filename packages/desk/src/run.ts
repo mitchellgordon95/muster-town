@@ -58,10 +58,10 @@ const FUNDING = new Set(["subscription", "api-key", "donor-key"]);
 type FundingMode = "subscription" | "api-key" | "donor-key";
 
 /**
- * Env for the Claude Code process the SDK spawns. `DESK_AUTH` (the town's funding order) says which credential
- * to use first: subscription → `CLAUDE_CODE_OAUTH_TOKEN` wins and ANTHROPIC_API_KEY is dropped (Claude Code prefers
- * an API key when both are set); api-key / donor-key → the key wins and the token is dropped. The fallback key is
- * never passed on; it comes back as `fallbackKey`. Values are secrets: never log them.
+ * Env for the Claude Code process the SDK spawns. The runtime hands a desk exactly one model credential (`DESK_AUTH`
+ * labels it): subscription → `CLAUDE_CODE_OAUTH_TOKEN`; api-key / donor-key → `ANTHROPIC_API_KEY`. Both at once is a
+ * hard failure (Claude Code would bill the key and the town would record the subscription: post-mortem 2026-10-30).
+ * The fallback key is never passed on; it comes back as `fallbackKey`. Values are secrets: never log them.
  */
 export function sessionEnv(env: NodeJS.ProcessEnv): { env: Record<string, string>; auth: string; fallbackKey: string | null } {
   const out: Record<string, string> = {};
@@ -69,14 +69,9 @@ export function sessionEnv(env: NodeJS.ProcessEnv): { env: Record<string, string
   let fallbackKey: string | null = null;
   for (const k of FALLBACK_KEY_ENVS) { fallbackKey ??= out[k] || null; delete out[k]; }
   const label = env.DESK_AUTH && env.DESK_AUTH !== "none" ? env.DESK_AUTH : null;
-  if ((label === "api-key" || label === "donor-key") && out.ANTHROPIC_API_KEY) {
-    delete out.CLAUDE_CODE_OAUTH_TOKEN;
-    return { env: out, auth: label, fallbackKey: null };
-  }
-  if (out.CLAUDE_CODE_OAUTH_TOKEN) {
-    delete out.ANTHROPIC_API_KEY;
-    return { env: out, auth: label ?? "subscription token", fallbackKey };
-  }
+  const creds = ["CLAUDE_CODE_OAUTH_TOKEN", "ANTHROPIC_API_KEY", "ANTHROPIC_AUTH_TOKEN"].filter((k) => out[k]);
+  if (creds.length > 1) throw new Error(`${creds.join(" and ")} are both set: a desk runs on one model credential`);
+  if (out.CLAUDE_CODE_OAUTH_TOKEN) return { env: out, auth: label ?? "subscription token", fallbackKey };
   if (out.ANTHROPIC_API_KEY) return { env: out, auth: label ?? "api key", fallbackKey: null };
   return { env: out, auth: "none (the CLI's own login, if any)", fallbackKey: null };
 }

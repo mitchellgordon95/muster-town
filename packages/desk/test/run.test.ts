@@ -95,16 +95,27 @@ describe("runSession", () => {
     expect(sdk.sessions[0]!.params.options!.maxTurns).toBe(7);
   });
 
-  it("passes CLAUDE_CODE_OAUTH_TOKEN through to the SDK session env (and drops ANTHROPIC_API_KEY), logging the mode only", async () => {
+  it("passes CLAUDE_CODE_OAUTH_TOKEN through to the SDK session env, logging the mode only", async () => {
     town.briefs.set("s1", brief("s1"));
     const sdk = fakeSdk(async function* () { yield assistant({ type: "text", text: "hi" }); });
-    await runSession("s1", deps(sdk, { env: { AGENT_TOWN_TOKEN: TOKEN, CLAUDE_CODE_OAUTH_TOKEN: "sk-ant-oat-secret", ANTHROPIC_API_KEY: "sk-ant-stale", DESK_AUTH: "subscription token" } }));
+    await runSession("s1", deps(sdk, { env: { AGENT_TOWN_TOKEN: TOKEN, CLAUDE_CODE_OAUTH_TOKEN: "sk-ant-oat-secret", DESK_AUTH: "subscription token" } }));
     const env = sdk.sessions[0]!.params.options!.env!;
     expect(env.CLAUDE_CODE_OAUTH_TOKEN).toBe("sk-ant-oat-secret");
     expect(env.ANTHROPIC_API_KEY).toBeUndefined();
     expect(env.AGENT_TOWN_TOKEN).toBe(TOKEN);
     expect(logs).toContain("auth: subscription token");
     expect(logs.join("\n")).not.toContain("sk-ant-oat-secret");
+  });
+
+  it("a token and an API key together is a hard failure: nothing reaches the SDK, the session ends in error (post-mortem 2026-10-30)", async () => {
+    town.briefs.set("s1", brief("s1"));
+    const sdk = fakeSdk(async function* () { yield assistant({ type: "text", text: "hi" }); });
+    const code = await runSession("s1", deps(sdk, { env: { AGENT_TOWN_TOKEN: TOKEN, CLAUDE_CODE_OAUTH_TOKEN: "sk-ant-oat-secret", ANTHROPIC_API_KEY: "sk-ant-stale", DESK_AUTH: "subscription" } }));
+    expect(code).toBe(EXIT_ERROR);
+    expect(sdk.sessions).toHaveLength(0);
+    expect(logs.join("\n")).toContain("CLAUDE_CODE_OAUTH_TOKEN and ANTHROPIC_API_KEY are both set");
+    expect(logs.join("\n")).not.toContain("sk-ant-");
+    expect(town.ends.at(-1)?.error).toContain("both set");
   });
 
   it("an API key (donor or env) reaches the SDK env unchanged when there is no subscription token", async () => {

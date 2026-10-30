@@ -28,7 +28,7 @@ export { fundingFor, fundingForSession, fundedBy, type Funding } from "./session
 export { type WorkOutcome } from "./work.ts";
 export { ruleFor, startWaker, WAKE_RULES, type WakeCtx, type WakeRule, type Waker } from "./waker.ts";
 export { adoptPath, ADOPT_MAX_AGE_MS, takeAdoptable, isTerminalRedeployEvent, makeRedeployer, realCommandRunner, RESTART_EXIT_CODE, STUCK_POLLS, type CmdResult, type CommandRunner, type RedeployDeps, type RedeployRequest, type Redeployer } from "./redeploy.ts";
-export { hostedEnv, InputChannel, oneShot, realSdk, usageOf, userMessage, type QueryHandle, type QueryParams, type Sdk } from "./sdk.ts";
+export { assertOneCredential, CREDENTIAL_ENVS, hostApiKey, hostedEnv, InputChannel, oneShot, realSdk, usageOf, userMessage, type QueryHandle, type QueryParams, type Sdk } from "./sdk.ts";
 export { DISALLOWED_TOOLS, TOWN_TOOLS, WEB_TOOLS } from "./session.ts";
 export { COLLECTING_MS, MEETING_REPLIES_MAX, MEETING_REPLY_MAX_TURNS, MEETING_REPLY_VERBS, SUMMARY_MODEL } from "./meetings.ts";
 

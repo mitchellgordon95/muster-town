@@ -6,7 +6,7 @@ import { STATUS_COLOR } from "./map/overlay";
 import { iconUrl, type IconKind } from "./map/sprites";
 import type { Target } from "./map/renderer";
 import { api, isMock } from "./api";
-import { dockerDown, effectiveRedeploy, redeployLine, redeployTone, slotsFull } from "./redeploy";
+import { dockerDown, effectiveRedeploy, fundingFailover, redeployLine, redeployTone, slotsFull } from "./redeploy";
 import { joinMeeting } from "./panels/Places";
 import { SignInButtons, signOut, useAuth } from "./auth/auth";
 import { mapRenderer } from "./map/MapCanvas";
@@ -73,6 +73,15 @@ export function Hud({ onPasteToken, onHelp }: { onPasteToken?: () => void; onHel
         key: "slots-full", icon: "planning", tone: "warn", cta: "System →",
         text: <><b>All {health?.slots?.max ?? ""} session slots in use</b>: queued work waits for a free slot</>,
         go: () => walkOrOpen("planning-desk", { kind: "planning", tab: "System" }),
+      });
+    }
+    // a session failed over from the subscription to an API key (never silent: post-mortem 2026-10-30)
+    const fo = fundingFailover(events);
+    if (fo) {
+      out.push({
+        key: `failover:${fo.id}`, icon: "planning", tone: "warn", cta: "Bank →",
+        text: <><b>API key spent</b>: {fo.text}</>,
+        go: () => walkOrOpen("bank", { kind: "bank" }),
       });
     }
     // checked against the runtime's live view: a run killed by a restart shows as interrupted, not waiting forever

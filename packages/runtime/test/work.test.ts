@@ -48,7 +48,9 @@ describe("work session", () => {
     expect(opts.maxTurns).toBe(lab.maxTurnsPerSession);
     expect(opts.model).toBe(lab.model);
     expect(opts.permissionMode).toBeUndefined();
-    expect(opts.env?.ANTHROPIC_API_KEY).toBe(process.env.ANTHROPIC_API_KEY); // house allocation has no donor key
+    // house allocation has no donor key: the host's one credential (the token, else its key), never both (post-mortem 2026-10-30)
+    if (process.env.CLAUDE_CODE_OAUTH_TOKEN) { expect(opts.env?.CLAUDE_CODE_OAUTH_TOKEN).toBe(process.env.CLAUDE_CODE_OAUTH_TOKEN); expect(opts.env?.ANTHROPIC_API_KEY).toBeUndefined(); }
+    else expect(opts.env?.ANTHROPIC_API_KEY).toBe(process.env.ANTHROPIC_API_KEY);
     expect(Object.keys(opts.env ?? {}).some((k) => k.startsWith("DESK_ENV_") || k.startsWith("MUSTER_TOWN_"))).toBe(false); // allowlisted host env
     expect(sdk.sessions[0].received[0]).toContain("Measure the growth rate");
 

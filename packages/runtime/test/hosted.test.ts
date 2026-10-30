@@ -82,6 +82,7 @@ describe("hosted runtime", () => {
   });
 
   test("the Workshop's runtime (not hosted) still sees the host env", async () => {
+    delete process.env.ANTHROPIC_API_KEY; // the host carries one credential (two is a hard failure: post-mortem 2026-10-30)
     const { world, runtime, sdk, by } = setup(work);
     const noor = by("Noor");
     const asg = world.ops.createWork(null, noor.id, { title: "Look around" });

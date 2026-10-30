@@ -134,6 +134,12 @@ export async function finishWorkSession(ctx: Ctx, sessionId: string, o: WorkOutc
   }
   const status: Exclude<Session["status"], "running"> = stopped ? "interrupted" : error ? "error" : "done";
   const funding = o.fundingUsed ?? (o.fallback ? "api-key" : undefined);
+  // a failover is never silent: the HUD shows the latest one (`alert: funding-failover`), the log keeps them all
+  if (o.fallback) {
+    const fbAlloc = ctx.deskFallbacks.get(sessionId) ?? (bid ? world.budget.fallbackAllocation(bid)?.id ?? null : null);
+    const paidBy = fbAlloc ? world.allocations.get(fbAlloc)?.label ?? "an API-key allocation" : "the Bank's API-key input";
+    world.events.append({ type: "system", agentId, buildingId: bid, text: `${agentNow.name}'s session hit the subscription's limit and finished on the API key (${paidBy})`, payload: { alert: "funding-failover", sessionId, allocationId: fbAlloc, costUsd: usage.costUsd } });
+  }
   const ended = world.ops.endSession(sessionId, { status, counts, byModel: o.byModel, costUsd: usage.costUsd, turns: usage.turns, error, sdkSessionId: o.sdkSessionId ?? null, funding, spendLimit: o.spendLimit ?? null, wallMs: o.wallMs, cpuMs: o.cpuMs, stealMs: o.stealMs });
   // stamp the session's usage onto the report it produced (submitted or fallback), in adjusted output tokens (Bank step 3)
   const adjusted = sessionView(ended).adjustedOutputTokens;

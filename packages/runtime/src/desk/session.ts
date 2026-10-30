@@ -7,7 +7,7 @@ import { execFileSync } from "node:child_process";
 import { AppError, codeWorkspace, deskPreset, REPO_TOKEN_SECRET, type World } from "@muster-town/core";
 import { townEnvBoth, type AllocationAuth, type DeskActivityInput, type DesksConfig, type Session } from "@muster-town/schema";
 import { describeTool } from "../describe.ts";
-import { InputChannel } from "../sdk.ts";
+import { hostApiKey, InputChannel } from "../sdk.ts";
 import { clipJson, clipThought, fundedBy, fundingFor, fundingForSession, homeOf, type Ctx, type Funding, type LiveSession } from "../session.ts";
 import { finishWorkSession, preflightWork, walkToDesk } from "../work.ts";
 import { DESK_BIN, type DeskBackend } from "./backend.ts";
@@ -48,12 +48,13 @@ export const FALLBACK_KEY_ENV = "AGENT_TOWN_FALLBACK_API_KEY";
 /**
  * Credentials for a desk session from its funding. Subscription → `CLAUDE_CODE_OAUTH_TOKEN` from the collective's
  * .env (ANTHROPIC_API_KEY is then NOT passed, since Claude Code prefers an API key when both are set), plus the
- * fallback key in AGENT_TOWN_FALLBACK_API_KEY when there is one. Donor-key → the donor's key. Api-key → the
- * funding's key or the env's ANTHROPIC_API_KEY. Unfunded → the token, else the env key. Values are secrets: never log them.
+ * fallback key in AGENT_TOWN_FALLBACK_API_KEY when the funding carries one (a key the Bank owns, never the host's).
+ * Donor-key → the donor's key. Api-key → the funding's key, else the host's key when the host has no token
+ * (`hostApiKey`), else the token. Unfunded → the token, else the host key. Values are secrets: never log them.
  */
 export function deskAuth(funding: Pick<Funding, "auth" | "apiKey" | "fallback">, env: NodeJS.ProcessEnv = process.env): { mode: DeskAuthMode; env: Record<string, string> } {
   const token = env.CLAUDE_CODE_OAUTH_TOKEN || null;
-  const envKey = env.ANTHROPIC_API_KEY || null;
+  const envKey = hostApiKey(env);
   const sub = (): { mode: DeskAuthMode; env: Record<string, string> } => ({
     mode: "subscription",
     env: { CLAUDE_CODE_OAUTH_TOKEN: token!, ...(funding.fallback?.apiKey ? { [FALLBACK_KEY_ENV]: funding.fallback.apiKey } : {}) },

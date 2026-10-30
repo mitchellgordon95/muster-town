@@ -81,8 +81,8 @@ collective.json`); the generic pitch lives only on the homepage's paper card. `P
 What the server enforces (step 1 and 3, with tests):
 
 - A hosted World runs with an **empty credential env**: `fundingFor` (packages/runtime/src/session.ts) must see
-  no `ANTHROPIC_API_KEY`, no `CLAUDE_CODE_OAUTH_TOKEN` and no fallback key for a hosted World, so every `envKey`
-  fallback there is null and `world.bank.fallbackInput` only finds that collective's own inputs. A session whose
+  no `ANTHROPIC_API_KEY`, no `CLAUDE_CODE_OAUTH_TOKEN` and no fallback key for a hosted World, so `hostApiKey`
+  there is null and `world.bank.fallbackInput` only finds that collective's own inputs. A session whose
   funding resolves to `auth: null` or `apiKey: null` in a hosted World is not started: the agent is held with the
   notice above (today `sessionEnv` would fall through to "none (the CLI's own login, if any)", which on the Fly host
   is the Workshop's login; that path must be closed for hosted Worlds).

@@ -124,17 +124,43 @@ export function blocksOf(m: LooseMessage): ContentBlock[] {
 const SESSION_ENV_NAMES = new Set(["PATH", "HOME", "USER", "LOGNAME", "SHELL", "TERM", "LANG", "TZ", "TMPDIR", "TMP", "TEMP", "HTTP_PROXY", "HTTPS_PROXY", "NO_PROXY", "http_proxy", "https_proxy", "no_proxy", "NODE_EXTRA_CA_CERTS", "SSL_CERT_FILE", "SSL_CERT_DIR", "SYSTEMROOT", "APPDATA", "LOCALAPPDATA", "USERPROFILE"]);
 const SESSION_ENV_PREFIXES = ["LC_", "XDG_", "CLAUDE_", "ANTHROPIC_"];
 
+/** The model credentials Claude Code reads from its env. Claude Code uses a key over the OAuth token when both are set, so a host carries exactly one. */
+export const CREDENTIAL_ENVS = ["CLAUDE_CODE_OAUTH_TOKEN", "ANTHROPIC_API_KEY", "ANTHROPIC_AUTH_TOKEN"] as const;
+
+/**
+ * The one model credential in `env`, or null. More than one is a hard failure (the server refuses to boot, a session
+ * refuses to start): from 2026-10-22 to 2026-10-30 the host carried both a subscription token and an API key, every
+ * host session was handed both, and Claude Code billed the key while the town recorded the subscription
+ * (docs/postmortem-2026-10-30-api-key-leak.md). A key the town may spend is a Bank input with its key, or a donor's.
+ */
+export function assertOneCredential(env: NodeJS.ProcessEnv = process.env): (typeof CREDENTIAL_ENVS)[number] | null {
+  const set = CREDENTIAL_ENVS.filter((k) => env[k]);
+  if (set.length > 1) throw new Error(`${set.join(" and ")} are both set: the town runs on one model credential (the subscription token, or an API key). Unset one; an API key the town may spend is a Bank input at the Town Hall.`);
+  return set[0] ?? null;
+}
+
+/** The host's own API key as a funding source: its one credential, when that is a key (never beside a token: `assertOneCredential`). */
+export function hostApiKey(env: NodeJS.ProcessEnv = process.env): string | null {
+  return env.CLAUDE_CODE_OAUTH_TOKEN ? null : env.ANTHROPIC_API_KEY || null;
+}
+
 /**
  * Environment for a host session: an allowlist of the host env (never `{...process.env}`, which holds host secrets:
- * the admin and deploy tokens, OAuth client secret, data key, DESK_ENV_*), plus the donor's API key when the allocation
- * has one.
+ * the admin and deploy tokens, OAuth client secret, data key, DESK_ENV_*), carrying exactly one model credential:
+ * `apiKey` (the funding's own: a donor's or a Bank input's) → `ANTHROPIC_API_KEY`; else the host's subscription token;
+ * else the host's API key (a host with no token). Never both: Claude Code prefers the key, which is how every host
+ * session ran on the API key from 2026-10-22 to 2026-10-30 while recorded as subscription-funded.
  */
 export function sessionEnv(apiKey: string | null, hostEnv: NodeJS.ProcessEnv = process.env): Record<string, string> {
   const env: Record<string, string> = {};
   for (const [k, v] of Object.entries(hostEnv)) {
     if (v !== undefined && (SESSION_ENV_NAMES.has(k) || SESSION_ENV_PREFIXES.some((p) => k.startsWith(p)))) env[k] = v;
   }
-  if (apiKey) env.ANTHROPIC_API_KEY = apiKey;
+  assertOneCredential(hostEnv);
+  for (const k of CREDENTIAL_ENVS) delete env[k];
+  const key = apiKey || hostApiKey(hostEnv);
+  if (key) env.ANTHROPIC_API_KEY = key;
+  else if (hostEnv.CLAUDE_CODE_OAUTH_TOKEN) env.CLAUDE_CODE_OAUTH_TOKEN = hostEnv.CLAUDE_CODE_OAUTH_TOKEN;
   return env;
 }
 
