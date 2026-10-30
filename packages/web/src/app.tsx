@@ -167,10 +167,19 @@ class PanelBoundary extends Component<{ children: ReactNode }, { error: string |
   }
 }
 
+/** One number per store.open call (each open makes a new PanelRef), so a tab deep-link re-lands on its tab even when that same ref is already open and the user has since switched tabs. */
+const openSeqs = new WeakMap<PanelRef, number>();
+let openSeqNext = 0;
+function openSeq(panel: PanelRef): number {
+  let n = openSeqs.get(panel);
+  if (n === undefined) { n = ++openSeqNext; openSeqs.set(panel, n); }
+  return n;
+}
+
 function PanelHost({ panel }: { panel: PanelRef }) {
   switch (panel.kind) {
     case "agent": return <AgentPanel key={panel.id} id={panel.id!} tab={panel.tab} />;
-    case "building": return <BuildingPanel key={`${panel.id}:${panel.tab ?? ""}`} id={panel.id!} tab={panel.tab} />;
+    case "building": return <BuildingPanel key={panel.tab ? `${panel.id}:${panel.tab}:${openSeq(panel)}` : `${panel.id}:`} id={panel.id!} tab={panel.tab} />;
     case "connect": return <ConnectAgentPanel />;
     case "library": return <LibraryPanel docId={panel.docId} />;
     case "outbox": return <OutboxPanel />;

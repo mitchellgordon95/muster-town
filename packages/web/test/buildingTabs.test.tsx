@@ -28,4 +28,11 @@ describe("building tabs (Mitchell's flag dc_v7ejy1j5ri)", () => {
     expect(html).toContain("Ocean Lab");
     expect(html).toContain("Moss");
   });
+  it("re-opening the same tab deep-link stores a fresh ref, so the panel re-lands on that tab (app.tsx keys on it)", () => {
+    const ref = { kind: "building" as const, id: "bl_x", tab: "Schedule" };
+    store.open(ref); const a = store.state.panel;
+    store.open(ref); const b = store.state.panel;
+    expect(a).toEqual(ref); expect(b).toEqual(ref); expect(a).not.toBe(b);
+    store.open(null);
+  });
 });
