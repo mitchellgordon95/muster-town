@@ -1,16 +1,27 @@
-import { desksForLot, TILE, type Building, type Lot, type Place, type Tile } from "@muster-town/schema";
+import { TILE, type Building, type Lot, type Place, type Tile } from "@muster-town/schema";
 import type { DB } from "../db.ts";
 import { AppError, notFound } from "../errors.ts";
 import type { Repos } from "../store.ts";
 import { movedOnly, piecesFor, resolveFurniture, validateLayout, type Furniture, type LayoutError, type Piece } from "./furniture.ts";
-import { assignLots, computeLayout, MAX_HEADCOUNT, MOD_SEATS, type DeskSlot, type Grid } from "./layout.ts";
+import { computeLayout, MAX_HEADCOUNT, MOD_SEATS, type DeskSlot, type Grid } from "./layout.ts";
 import { isWalkable } from "./path.ts";
-import { planLot, validatePlan, type PlanError, type PlanLot } from "./plan.ts";
+import type { Plaza } from "./tree.ts";
 
-/** World geometry service: `world.layout`. Rebuilt whenever buildings or desk occupancy change. */
+/** Where every place and meeting seat was before a rebuild, so bodies can follow (entities.ts `followBodies`). */
+export interface Before { places: Map<string, Tile>; seats: Map<string, Tile[]> }
+/** A building whose lot the tree moved or resized in a rebuild. */
+export interface Moved { id: string; from: Lot; to: Lot }
+
+/**
+ * World geometry service: `world.layout`. Rebuilt whenever buildings, desk occupancy or the goal tree change: the map is
+ * drawn from the tree (tree.ts), so a rebuild can move buildings; their bodies follow (`follow`, set by the World).
+ */
 export class WorldMap {
   grid: Grid = { w: 0, h: 0, tiles: [] };
   places: Place[] = [];
+  plazas: Plaza[] = [];
+  /** called after a rebuild that moved places or lots, so bodies follow (set by the World) */
+  follow: ((before: Before, moved: Moved[]) => void) | null = null;
   /** increments on every rebuild (lets the server know to resend the grid) */
   version = 0;
   private byId = new Map<string, Place>();
@@ -20,13 +31,22 @@ export class WorldMap {
 
   constructor(private db: DB, private repos: Repos) {}
 
-  /** Assign missing lots, recompute grid + places, persist places. Returns buildings whose lot changed. */
-  rebuild(): Building[] {
-    const changed = assignLots(this.repos.buildings.all());
-    for (const b of changed) this.repos.buildings.upsert(b);
+  /** Recompute the grid and places from the goal tree, store each building's lot, persist places; bodies follow. Returns the buildings the tree moved or resized. */
+  rebuild(): Moved[] {
+    // the first rebuild after a start compares against the places the last run stored, so bodies follow a map that changed across a deploy
+    const was = this.places.length ? this.places : this.repos.places.all();
+    const before: Before = { places: new Map(was.map((p) => [p.id, p.pos])), seats: new Map(was.map((p) => [p.id, this.seatsOf(p.id)])) };
     const buildings = this.repos.buildings.all();
     const res = this.compute(buildings);
+    const moved: Moved[] = [];
+    for (const b of buildings) {
+      const lot = res.lots.get(b.id);
+      if (!lot || (b.lot && b.lot.x === lot.x && b.lot.y === lot.y && b.lot.w === lot.w && b.lot.h === lot.h)) continue;
+      if (b.lot) moved.push({ id: b.id, from: b.lot, to: lot });
+      this.repos.buildings.upsert({ ...b, lot });
+    }
     this.grid = res.grid;
+    this.plazas = res.plazas;
     this.places = res.places;
     this.desks = res.desks;
     this.doors = res.doors;
@@ -37,7 +57,9 @@ export class WorldMap {
       for (const p of res.places) this.repos.places.upsert(p, { silent: true });
     })();
     this.version++;
-    return changed;
+    const shifted = res.places.some((p) => { const was = before.places.get(p.id); return !!was && (was.x !== p.pos.x || was.y !== p.pos.y); });
+    if (this.follow && before.places.size && (moved.length || shifted)) this.follow(before, moved);
+    return moved;
   }
 
   private compute(buildings: Building[]) {
@@ -47,7 +69,7 @@ export class WorldMap {
       occupancy.get(r.buildingId)!.set(r.n, r.agentId);
     }
     const names = new Map(this.repos.agents.all().map((a) => [a.id, a.name]));
-    return computeLayout(buildings, occupancy, names);
+    return computeLayout(buildings, this.repos.goals.where("status = 'active'"), occupancy, names);
   }
 
   /** The building's movable pieces, each with its default and current anchor (lot-relative). */
@@ -55,7 +77,7 @@ export class WorldMap {
     const b = this.repos.buildings.require(buildingId, "building");
     if (!b.lot) return { lot: undefined, pieces: [] };
     const pieces = piecesFor(b.kind, b.headcount, b.lot);
-    const { anchors } = resolveFurniture(b.lot, pieces, b.furniture);
+    const { anchors } = resolveFurniture(b.kind, b.lot, pieces, b.furniture);
     return { lot: b.lot, pieces: pieces.map((p) => ({ ...p, current: anchors[p.key] ?? p.at })) };
   }
 
@@ -70,7 +92,7 @@ export class WorldMap {
     const unknown = Object.keys(furniture).filter((k) => !pieces.some((p) => p.key === k));
     if (unknown.length) throw new AppError("bad_request", `Unknown furniture: ${unknown.join(", ")}.`);
     const anchors = Object.fromEntries(pieces.map((p) => [p.key, furniture[p.key] ?? p.current]));
-    const errors = validateLayout(b.lot, pieces, anchors);
+    const errors = validateLayout(b.kind, b.lot, pieces, anchors);
     const moved = movedOnly(pieces, anchors);
     const res = this.compute(this.repos.buildings.all().map((x) => (x.id === b.id ? { ...x, furniture: errors.length ? {} : moved } : x)));
     // an illegal draft can't be built as is: show it anyway, piece by piece, so the editor sees where things are
@@ -80,32 +102,6 @@ export class WorldMap {
       for (const p of pieces) for (const c of p.cells) put(b.lot.x + anchors[p.key].x + c.dx, b.lot.y + anchors[p.key].y + c.dy, c.tile);
     }
     return { errors, furniture: moved, grid: res.grid, places: res.places.filter((p) => p.buildingId === b.id) };
-  }
-
-  /**
-   * Check a town plan (`lots`: new lot per building, left out = stays put; `create`: one new building drawn on the
-   * map) without saving it. Returns the errors and the whole grid as it would look (drawn even when illegal, so the
-   * planner sees where things are). The new building's id in `places` is `new`.
-   */
-  planPreview(lots: Record<string, Lot>, create?: { name: string; lot: Lot }): { errors: PlanError[]; grid: Grid; places: Place[] } {
-    const all = this.repos.buildings.all();
-    const unknown = Object.keys(lots).filter((id) => !all.some((b) => b.id === id));
-    if (unknown.length) throw new AppError("bad_request", `Unknown building: ${unknown.join(", ")}.`);
-    const next = all.map((b) => (lots[b.id] ? { ...b, lot: lots[b.id], headcount: this.headcountFor(b, lots[b.id]) } : b));
-    if (create) next.push({ id: "new", name: create.name || "New building", kind: "lab", headcount: desksForLot(create.lot), lot: create.lot, furniture: {} } as Building);
-    const plan = next.map(planLot).filter((p): p is PlanLot => !!p);
-    const errors = validatePlan(plan);
-    const res = this.compute(next);
-    return { errors, grid: res.grid, places: res.places };
-  }
-
-  /**
-   * A lab's desks on lot `lot` (dc_1hjoh9aurq): a resize sets them from its floor space (`desksForLot`), but never below
-   * the desks in use (the plan then asks for a lot big enough for them); a move keeps them. The Town Hall's never change.
-   */
-  headcountFor(b: Building, lot: Lot): number {
-    if (b.kind !== "lab" || (b.lot && b.lot.w === lot.w && b.lot.h === lot.h)) return b.headcount;
-    return Math.max(desksForLot(lot), this.deskCount(b.id));
   }
 
   place(id: string): Place | undefined {

@@ -1,14 +1,16 @@
 /**
- * Town planning's side bar (Mitchell, town hall mt_xywhisvdcm decision 12): select a building while planning and its goal,
- * objectives and key results show here (the building panel's Goals tab, reused), then its budget (spend today against the
- * daily cap, funded and held grants) and stats (agents and forks, assignments running / queued / scheduled, the live build).
+ * The town map's side bar (Mitchell, town hall mt_xywhisvdcm decision 12; docs/goals.md "The map is the tree"): select a
+ * building on the town map and what it is attached to shows here (Change… opens its Settings: the map is drawn from the
+ * goal tree, so attaching it elsewhere moves it), then its budget (spend today against the daily cap, funded and held
+ * grants) and stats (agents and forks, assignments running / queued / scheduled, the live build).
  */
-import type { SnapshotBuilding } from "@muster-town/schema";
+import { ROOT_GOAL_ID, type SnapshotBuilding } from "@muster-town/schema";
 import { api } from "../api";
 import { townPlan } from "../map/townPlan";
-import { useTown } from "../state";
+import { store, useTown } from "../state";
 import { Meter } from "./AgentPanel";
-import { GoalsTab, useGoalData } from "./GoalsTab";
+import { goalPath, useGoalTree } from "./GoalPicker";
+import { useGoalData } from "./GoalsTab";
 import { grantGroups, grantSpendLine } from "./keyResults";
 import { Glyph } from "./PanelShell";
 import { ADJ, ErrorLine, KV, Loading, Pill, Section, fmtTokens, timeAgo, useLoad } from "./ui";
@@ -23,17 +25,31 @@ export function PlanSideBar({ id }: { id: string }) {
         <div className="panel-icon"><Glyph kind="building" /></div>
         <div className="who">
           <div className="who-title">{b.name}</div>
-          <div className="who-sub">{lab ? "Lab" : "Town Hall"} · selected in town planning</div>
+          <div className="who-sub">{lab ? "Lab" : "Town Hall"} · selected on the town map</div>
         </div>
         <button className="close" title="Deselect" aria-label="Deselect" onClick={() => townPlan.select(null)}>×</button>
       </header>
       <div className="panel-body">
         {b.goal ? <div className="goal-card"><span>Goal</span>{b.goal}</div> : null}
-        {lab ? <GoalsTab b={b} /> : null}
+        <AttachedLine b={b} />
         {lab ? <PlanBudget b={b} /> : null}
         <PlanStats b={b} />
       </div>
     </>
+  );
+}
+
+/** "Attached to: [goal path] · Change…" (Change… opens the building's Settings, where the attachment and Desks are set). */
+function AttachedLine({ b }: { b: SnapshotBuilding }) {
+  const root = useGoalTree();
+  const lab = b.kind !== "town-hall";
+  return (
+    <Section title="Attached to">
+      <p className="direction">
+        {goalPath(root, lab ? b.goalId ?? ROOT_GOAL_ID : ROOT_GOAL_ID)}
+        {lab && store.can("building.manage", b.id) ? <> · <button className="link" onClick={() => { townPlan.cancel(); store.open({ kind: "building", id: b.id, tab: "Settings" }); }}>Change…</button></> : null}
+      </p>
+    </Section>
   );
 }
 

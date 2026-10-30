@@ -1,18 +1,18 @@
 import { describe, expect, it } from "vitest";
 import { BANK_FIXTURES, BANK_LOT, TILE, bankTabOf } from "@muster-town/schema";
-import { World, createBuilding, createResident, updateBuilding, findPath, isWalkable, MAX_HEADCOUNT, ROAD_Y } from "../src/index.ts";
-import { computeLayout } from "../src/world/layout.ts";
+import { World, createBuilding, createResident, updateBuilding, findPath, isWalkable, MAX_HEADCOUNT } from "../src/index.ts";
 import { freshWorld, seededWorld, tickUntil } from "./helpers.ts";
 
 const overlap = (a: { x: number; y: number; w: number; h: number }, b: typeof a) =>
   a.x < b.x + b.w && b.x < a.x + a.w && a.y < b.y + b.h && b.y < a.y + a.h;
 
 describe("layout", () => {
-  it("the Bank sits south of the road, clear of every lot, with its counter reachable from the plaza", () => {
+  it("the Bank sits below the root plaza, clear of every lot, with its counter reachable from the plaza", () => {
     const { world, seed } = seededWorld();
     for (let i = 0; i < 4; i++) createBuilding(world, { name: `Lab ${i}`, headcount: 6 }, seed.admin.id);
     const { grid } = world.layout;
-    expect(BANK_LOT.y).toBeGreaterThan(ROAD_Y + 1);
+    // its doorstep is on the root plaza
+    expect(grid.tiles[(BANK_LOT.y - 1) * grid.w + BANK_LOT.x + BANK_FIXTURES.door.x]).toBe(TILE.PATH);
     expect(BANK_LOT.x + BANK_LOT.w).toBeLessThanOrEqual(grid.w);
     expect(BANK_LOT.y + BANK_LOT.h).toBeLessThanOrEqual(grid.h);
     for (const b of world.buildings.all()) expect(overlap(b.lot!, BANK_LOT), b.name).toBe(false);
@@ -40,27 +40,23 @@ describe("layout", () => {
     expect(world.layout.buildingAt(bank.pos)).toBeNull();
   });
 
-  it("every lab gets a schedule board on its back wall (north or south of the road), off the desks, reachable from its door", () => {
+  it("every lab gets a schedule board on its back wall (the bottom one: its door is in the top wall), off the desks, reachable from its door", () => {
     const { world, seed } = seededWorld();
     for (const n of [1, 4, 9, MAX_HEADCOUNT]) createBuilding(world, { name: `Lab ${n}`, headcount: n }, seed.admin.id);
-    const labs = world.buildings.all().filter((b) => b.kind === "lab");
-    // one lab moved south of the road: its door is in the top wall, so its back wall (and the board) is the bottom one
-    const south = { ...labs[0], lot: { ...labs[0].lot!, x: 2, y: BANK_LOT.y + BANK_LOT.h + 4 } };
-    const layout = computeLayout([...world.buildings.all().filter((b) => b.id !== south.id), south], new Map(), new Map());
-    const { grid, places, desks, doors } = layout;
+    const { grid, places } = world.layout;
     const at = (x: number, y: number) => grid.tiles[y * grid.w + x];
-    for (const b of [...labs.slice(1), south]) {
+    for (const b of world.buildings.all().filter((x) => x.kind === "lab")) {
       const p = places.find((x) => x.id === `schedule:${b.id}`)!;
       expect(p, b.name).toBeDefined();
       expect(p.kind).toBe("schedule");
-      const l = b.lot!, back = b.id === south.id ? l.y + l.h - 1 : l.y;
+      const l = b.lot!, back = l.y + l.h - 1;
       expect(at(p.pos.x, back), b.name).toBe(TILE.SCHEDULE_BOARD);
       expect(Math.abs(p.pos.y - back)).toBe(1);
       expect(isWalkable(grid, p.pos.x, p.pos.y)).toBe(true);
       // nobody's desk seat, and no other place's spot
-      for (const d of desks.get(b.id)!) expect(d.pos, b.name).not.toEqual(p.pos);
+      for (const d of world.layout.deskSlots(b.id)) expect(d.pos, b.name).not.toEqual(p.pos);
       for (const q of places) if (q.id !== p.id && q.kind !== "plaza") expect(q.pos, `${b.name}: ${q.id}`).not.toEqual(p.pos);
-      expect(findPath(grid, doors.get(b.id)!, p.pos), b.name).not.toBeNull();
+      expect(findPath(grid, world.layout.door(b.id)!, p.pos), b.name).not.toBeNull();
     }
     // the Town Hall keeps its meeting schedule board (on the floor) and gets no timed-jobs board
     expect(places.find((x) => x.id === "schedule:town-hall")).toBeUndefined();
@@ -76,12 +72,12 @@ describe("layout", () => {
       expect(b.lot).toBeDefined();
       expect(b.lot!.x).toBeGreaterThanOrEqual(0);
       expect(b.lot!.x + b.lot!.w).toBeLessThanOrEqual(world.layout.grid.w);
-      expect(b.lot!.y + b.lot!.h).toBeLessThan(ROAD_Y);
+      expect(b.lot!.y + b.lot!.h).toBeLessThanOrEqual(world.layout.grid.h);
     }
     for (let i = 0; i < bs.length; i++) for (let j = i + 1; j < bs.length; j++) expect(overlap(bs[i].lot!, bs[j].lot!), `${bs[i].name} vs ${bs[j].name}`).toBe(false);
-    // town hall centered at its fixed spot; the first lab is to its left
-    const th = world.buildings.require("town-hall"), lab = world.buildings.require("carbon-cycle");
-    expect(lab.lot!.x + lab.lot!.w).toBeLessThanOrEqual(th.lot!.x);
+    // the Town Hall stands at the root, above every lab
+    const th = world.buildings.require("town-hall");
+    for (const b of bs) if (b.id !== th.id) expect(b.lot!.y, b.name).toBeGreaterThan(th.lot!.y + th.lot!.h);
   });
 
   it("every desk (free or taken) is reachable from its building's door, and from the plaza", () => {
@@ -120,7 +116,7 @@ describe("layout", () => {
     expect(w2.buildings.all().map((b) => [b.id, b.lot])).toEqual(before);
     const b = createBuilding(w2, { name: "Small", headcount: 1 }, seed.admin.id);
     createResident(w2, { buildingId: b.id, name: "Solo", title: "t", direction: "d" });
-    updateBuilding(w2, b.id, { headcount: 9 }); // internal path; the REST route ignores headcount
+    updateBuilding(w2, b.id, { headcount: 9 }); // Desks sets the size; the tree re-lots it
     const all = w2.buildings.all();
     for (let i = 0; i < all.length; i++) for (let j = i + 1; j < all.length; j++) expect(overlap(all[i].lot!, all[j].lot!)).toBe(false);
     createResident(w2, { buildingId: b.id, name: "Extra", title: "t", direction: "d" });

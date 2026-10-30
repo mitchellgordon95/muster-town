@@ -6,7 +6,7 @@ import { store, useTown } from "../state";
 import { Glyph, PanelShell } from "./PanelShell";
 import { SecretsTab } from "./Secrets";
 import { GoalPicker } from "./GoalPicker";
-import { NEW_LAB_LOT, ROOT_GOAL_ID, TILES_PER_DESK, desksForLot, type SnapshotBuilding } from "@muster-town/schema";
+import { NEW_LAB_LOT, ROOT_GOAL_ID, desksForLot, type SnapshotBuilding } from "@muster-town/schema";
 import { Act, Empty, ErrorLine, Field, Loading, Pill, Section, StatusPill, nameOf, useLoad } from "./ui";
 import { portraitUrl } from "../map/sprites";
 
@@ -51,7 +51,7 @@ export function Buildings() {
             <Field label="Name"><input value={name} onChange={(e) => setName(e.target.value)} placeholder="e.g. Ocean Alkalinity Lab" /></Field>
             <Field label="Purpose"><textarea rows={2} value={goal} onChange={(e) => setGoal(e.target.value)} placeholder="What should this building figure out?" /></Field>
             <Field label="Goal" hint="The goal of the town goal tree it attaches to: its work names open key results under that goal. Default: the root (the town goal). Change it later in the building's Settings."><GoalPicker value={goalId} onChange={setGoalId} /></Field>
-            <Field label="Desks" hint={`Desks follow floor space (one per ${TILES_PER_DESK} floor tiles): resize the building on the town map table to change them. Code access is on when the collective has a repo; its agents push code only if the host has Docker and a Claude token in the collective's .env (README, Run it).`}><span>{NEW_LAB_LOT.w}×{NEW_LAB_LOT.h} · {desksForLot(NEW_LAB_LOT)} desks</span></Field>
+            <Field label="Desks" hint={`A new building gets ${desksForLot(NEW_LAB_LOT)} desks; change them in its Settings (its size on the map follows them, and it stands at the goal you pick). Code access is on when the collective has a repo; its agents push code only if the host has Docker and a Claude token in the collective's .env (README, Run it).`}><span>{NEW_LAB_LOT.w}×{NEW_LAB_LOT.h} · {desksForLot(NEW_LAB_LOT)} desks</span></Field>
             <div className="actions"><Act tone="primary" disabled={!name.trim()} run={async () => {
               const b = await api().createBuilding({ name: name.trim(), goal: goal.trim(), goalId });
               setName(""); setGoal(""); setGoalId(ROOT_GOAL_ID);

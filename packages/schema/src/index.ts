@@ -1582,12 +1582,14 @@ export const TILE = {
   SCHEDULE_BOARD: 21,
   /** the Bank's stations (BANK_FIXTURES.stations): each opens one tab of the Bank panel */
   BANK_LEDGER: 22, BANK_FOUNTAIN: 23, BANK_SPENDING: 24, BANK_SERVER: 25,
+  /** a goal's signpost at the end of its plaza (place `plaza:<goalId>`; the map labels it with the goal's words) */
+  SIGNPOST: 26,
 } as const;
 /**
- * The Bank: a fixed landmark (not a building row, so it never takes a budget share) south of the road,
- * opposite the Town Hall, with its door in the top wall facing the road. Absolute tiles.
+ * The Bank: a fixed landmark (not a building row, so it never takes a budget share) below the root plaza, opposite
+ * the Town Hall, with its door in the top wall on the plaza (core tree.ts). Absolute tiles.
  */
-export const BANK_LOT = { x: 48, y: 45, w: 17, h: 9 } as const;
+export const BANK_LOT = { x: 48, y: 14, w: 17, h: 9 } as const;
 /**
  * The Bank's interior, relative to BANK_LOT. Shared so core's layout and the web mock build the same room.
  * Every tab of the Bank panel is a thing in the room (Mitchell, 1:1 mt_ew2d0mm7h9): the vault (place `bank`) opens
@@ -1683,11 +1685,6 @@ export type UpdateKeyResultInput = z.input<typeof UpdateKeyResultInput>;
 export const GrantsQuery = z.object({ status: GrantStatus.optional() });
 /** PUT /api/buildings/:id/layout: lot-relative anchors for moved pieces (left out = stays put); `dryRun` only checks it. */
 export const LayoutInput = z.object({ furniture: z.record(Tile), dryRun: z.boolean().default(false) });
-/**
- * PUT /api/town/plan (town planning): new lots per building (left out = stays put), optionally one new building
- * drawn on the map; `dryRun` only checks it.
- */
-export const PlanInput = z.object({ lots: z.record(Lot).default({}), create: CreateBuildingInput.extend({ lot: Lot }).optional(), dryRun: z.boolean().default(false) });
 /** core `createResident` (seed, v0 import, a new building's manager): `name` left out or blank = the town picks an unused one. No REST route since 1:1 mt_wngibcr98b decision 1. */
 export const CreateResidentInput = z.object({ buildingId: Id, name: z.string().trim().optional(), title: z.string().default(""), direction: z.string().default(""), sprite: z.number().int().optional(), model: z.string().optional() });
 export const RegisterVisitorInput = z.object({ name: z.string(), buildingId: Id.optional(), title: z.string().optional(),

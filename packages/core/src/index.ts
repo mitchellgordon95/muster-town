@@ -25,7 +25,7 @@ export { financeFly, flyRate, townFly, DESK_MACHINE_DEFAULTS, FLY_IDENTITY, FLY_
 export { deskPreset, deskSizeFor, DESK_FALLBACK_SIZE, type DeskBill, type DeskSize } from "./desk-bill.ts";
 export { financePools, townPools, DELETED_BUILDING, DELETED_POOL, POOLS_BALANCE_IDENTITY, POOLS_DRAWS_IDENTITY, type FinancePools, type PoolBuildingRow, type PoolRow, type PoolsInputs } from "./finance-pools.ts";
 export { Ops, type Actor, type MessageAgentOptions, type MessageAgentResult, type RequestAction, type ThreadMessage } from "./ops.ts";
-export { createBuilding, STARTER_MANAGER_MODEL, updateBuilding, syncManagerRoles, createResident, registerVisitor, ensureAvatar, createUser, createServiceAgent, createTownModerator, updateFurniture, planTown } from "./entities.ts";
+export { createBuilding, STARTER_MANAGER_MODEL, updateBuilding, syncManagerRoles, createResident, registerVisitor, ensureAvatar, createUser, createServiceAgent, createTownModerator, updateFurniture, followRelayout } from "./entities.ts";
 export { RESIDENT_NAMES, suggestResidentName } from "./names.ts";
 export { forkManager, retireFork, nextForkN, familyCap, forkModels, checkForkModel, forkableQueue, freeDesks, liveForks, chainDesk, deskSlotRow, deskSlotRows, setDeskSlot, forkDeskSlot, type DeskSlotRow, forkSummary, forksOf, familySpend, type FamilySpend, reportChain, reportChains, type ForkSummary, type ReportChain } from "./forks.ts";
 export { decisionKey, decisionWakes, managerIntrayRow, mentionKey, mentionWake, relayKey, relayWake, RELAY_MAX_AGE_MS, RELAY_MAX_HOPS, requestAnswerKey, requestAnswerWake, wakeKey } from "./wakes.ts";
@@ -55,12 +55,12 @@ export * as prompts from "./prompts.ts";
 export * from "./prompts.ts";
 export * from "./memory.ts";
 export {
-  computeLayout, assignLots, labSize, tileAt, ROAD_Y, TOWN_HALL_X, TOWN_HALL_ID, TOWN_HALL_SIZE, LOT_GAP, MAX_HEADCOUNT, MOD_SEATS, TOWN_HALL_FIXTURES,
+  computeLayout, labSize, tileAt, TOWN_HALL_ID, TOWN_HALL_SIZE, MAX_HEADCOUNT, MOD_SEATS, TOWN_HALL_FIXTURES,
   type Grid, type DeskSlot, type LayoutResult,
 } from "./world/layout.ts";
-export { deriveRoads, doorstepOf, facesNorth, type Roads } from "./world/road.ts";
+export { deriveRoads, doorOf, doorstepOf, facesNorth, type Roads } from "./world/road.ts";
+export { treeLayout, BAND_STEP, type TreeLayout, type TreeGoal, type TreeBuilding, type Plaza } from "./world/tree.ts";
 export { findPath, isWalkable, nearestWalkable } from "./world/path.ts";
-export { validatePlan, planLot, doorOf, MAX_LOT, MAX_TOWN_X, MAX_TOWN_Y, type PlanError, type PlanLot } from "./world/plan.ts";
 export { piecesFor, validateLayout, resolveFurniture, movedOnly, type Piece, type Furniture, type LayoutError } from "./world/furniture.ts";
 export { WorldMap } from "./world/map.ts";
 export { Movement, WALK_TILES_PER_SEC, WALK_TIMEOUT_MS } from "./world/movement.ts";

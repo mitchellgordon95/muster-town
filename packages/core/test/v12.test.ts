@@ -126,7 +126,7 @@ describe("v1.2 places", () => {
     const g = world.layout.grid, tile = (x: number, y: number) => g.tiles[y * g.w + x];
     const lab = world.buildings.require("carbon-cycle").lot!;
     const board = world.layout.requirePlace("board:carbon-cycle").pos;
-    expect(tile(board.x, lab.y)).toBe(12); // TILE.BOARD on the top wall
+    expect(tile(board.x, lab.y + lab.h - 1)).toBe(12); // TILE.BOARD on the back wall (the bottom one: the door is in the top wall)
     const cabinet = world.layout.requirePlace("cabinet:carbon-cycle").pos;
     expect(tile(cabinet.x + 1, cabinet.y)).toBe(15); // TILE.CABINET to the right of where you stand...
     expect(tile(cabinet.x + 2, cabinet.y)).toBe(3); // ...against the right wall (TILE.WALL)
@@ -136,7 +136,7 @@ describe("v1.2 places", () => {
       expect(p, "cabinet stand shared with another fixture").not.toEqual(cabinet);
     }
     const intray = world.layout.requirePlace("intray:carbon-cycle").pos;
-    expect(tile(intray.x, intray.y - 1)).toBe(11); // TILE.MANAGER_DESK
+    expect(tile(intray.x, intray.y + 1)).toBe(11); // TILE.MANAGER_DESK (below where you stand: the room is mirrored)
     expect(g.tiles).not.toContain(13); // DONATION: the box is gone
     expect(world.layout.places.some((p) => p.kind === "donation")).toBe(false);
     expect(g.tiles).toContain(14); // SCHEDULE

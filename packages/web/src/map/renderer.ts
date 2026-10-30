@@ -9,7 +9,7 @@ import { authStore } from "../auth/auth";
 import { T, CHAR_W, CHAR_H, charSheet, outlineSheet, tiles, HUMAN_SPRITE } from "./sprites";
 import { layoutEdit, type LayoutDraft } from "./layoutEdit";
 import { openTownPlanning, townPlan, type PlanDraft } from "./townPlan";
-import { bubbleFor, buildingBudgetLine, drawBadge, drawFlag, drawBankSign, drawBlockLine, drawBubble, drawLabel, drawPill, drawSign, drawTip, residentBudgetLine, type Bubble } from "./overlay";
+import { bubbleFor, buildingBudgetLine, drawBadge, drawFlag, drawBankSign, drawBlockLine, drawBubble, drawGoalSign, drawLabel, drawPill, drawSign, drawTip, residentBudgetLine, type Bubble } from "./overlay";
 import { blockedByRedeploy } from "../redeploy";
 import { scheduleTipRow, scheduleTipTitle } from "../format";
 import { api } from "../api";
@@ -323,13 +323,9 @@ export class MapRenderer {
     if (!s.grid) return;
     // while editing a layout, show the server's dry-run grid for the draft
     const ed = layoutEdit.draft;
-    // planning the town: the dry-run grid, with the buildings where the draft has them
-    const plan = townPlan.draft;
-    const key = ed?.preview ? `edit:${ed.previewVersion}` : plan?.preview ? `plan:${plan.previewVersion}` : `snap:${s.gridVersion}`;
+    const key = ed?.preview ? `edit:${ed.previewVersion}` : `snap:${s.gridVersion}`;
     if (this.gridKey === key && this.world) return;
-    this.world = plan?.preview
-      ? new World(plan.preview, s.buildings.map((b) => (plan.lots[b.id] ? { ...b, lot: plan.lots[b.id] } : b)), plan.places ?? s.places)
-      : new World(ed?.preview ?? s.grid, s.buildings, s.places);
+    this.world = new World(ed?.preview ?? s.grid, s.buildings, s.places);
     this.gridKey = key;
     if (!this.me.placed) {
       const av = store.avatarId ? s.agents[store.avatarId] : null;
@@ -496,26 +492,17 @@ export class MapRenderer {
     }
   }
 
-  /** Town planning overlay (world px): every lot outlined, the selected one gold, illegal ones red, wall handles. */
+  /** The town map overlay (world px): every lot outlined, the selected one gold. */
   private drawTownPlan(plan: PlanDraft, z: number) {
     const g = this.g, px = 1 / z;
-    const bad = new Set(plan.errors.map((e) => e.buildingId));
-    const lots: [string, { x: number; y: number; w: number; h: number }][] = [...Object.entries(plan.lots), ...(plan.create ? [["new", plan.create.lot] as [string, typeof plan.create.lot]] : [])];
-    for (const [id, l] of lots) {
-      const sel = id === plan.selected;
-      const color = bad.has(id) ? "#ff5d5d" : sel ? "#ffd34d" : id === "new" ? "#7fd4ff" : "rgba(255,255,255,.7)";
-      g.fillStyle = bad.has(id) ? "rgba(255,93,93,.18)" : id === "new" ? "rgba(127,212,255,.16)" : sel ? "rgba(255,211,77,.12)" : "rgba(255,255,255,.04)";
+    for (const b of store.state.buildings) {
+      const l = b.lot;
+      if (!l) continue;
+      const sel = b.id === plan.selected;
+      g.fillStyle = sel ? "rgba(255,211,77,.14)" : "rgba(255,255,255,.04)";
       g.fillRect(l.x * T, l.y * T, l.w * T, l.h * T);
-      g.strokeStyle = color; g.lineWidth = (sel || bad.has(id) ? 3 : 1.5) * px;
-      g.setLineDash(id === "new" ? [6 * px, 4 * px] : []);
+      g.strokeStyle = sel ? "#ffd34d" : "rgba(255,255,255,.7)"; g.lineWidth = (sel ? 3 : 1.5) * px;
       g.strokeRect(l.x * T, l.y * T, l.w * T, l.h * T);
-      g.setLineDash([]);
-      // corner handles: drag a wall or corner to resize
-      if (sel) {
-        g.fillStyle = color;
-        const hs = 6 * px;
-        for (const [cx, cy] of [[l.x, l.y], [l.x + l.w, l.y], [l.x, l.y + l.h], [l.x + l.w, l.y + l.h]]) g.fillRect(cx * T - hs / 2, cy * T - hs / 2, hs, hs);
-      }
     }
   }
 
@@ -608,17 +595,29 @@ export class MapRenderer {
       drawFlow(g, now, this.flow, s.buildings, s.places, toScreen, cw, ch, this.leftInset + (viewW - this.leftInset) / 2, viewW);
       return;
     }
+    // each goal's signpost carries its words (the goal tree is the map)
+    const signs = s.places.filter((p) => p.kind === "plaza" && p.id.startsWith("plaza:"));
+    const drawSigns = (max: number) => {
+      const at = signs.map((p) => ({ p, sp: w.signpostOf(p) })).filter((x) => !!x.sp).map((x) => ({ p: x.p, q: toScreen(x.sp!.x * T, x.sp!.y * T) }));
+      for (const { p, q } of at) {
+        if (q.x < -300 || q.x > cw + 300 || q.y < -40 || q.y > ch + 40) continue;
+        // a label stops short of the next signpost on its row, so siblings' words don't overlap
+        const next = Math.min(...at.filter((o) => o.q.y === q.y && o.q.x > q.x).map((o) => o.q.x));
+        drawGoalSign(g, q.x, q.y - 1, p.name, Math.max(24, Math.min(max, next - q.x - 16)));
+      }
+    };
     if (plan) {
-      // planning: each lot's name, nothing else (bodies can't be clicked)
+      // the town map: each building's name and each goal's signpost, nothing else (bodies can't be clicked)
       this.hitboxes = []; this.signHits = []; this.blockHits = [];
-      const names = new Map(s.buildings.map((b) => [b.id, b.name]));
-      if (plan.create) names.set("new", plan.create.name.trim() || "New building");
-      for (const [id, l] of [...Object.entries(plan.lots), ...(plan.create ? [["new", plan.create.lot] as const] : [])]) {
-        const p = toScreen(l.x * T, l.y * T);
-        drawPill(g, p.x, p.y - 3, `${names.get(id) ?? id} · ${l.w}×${l.h}`);
+      drawSigns(140);
+      for (const b of s.buildings) {
+        if (!b.lot) continue;
+        const p = toScreen(b.lot.x * T, b.lot.y * T);
+        drawPill(g, p.x, p.y - 3, b.name);
       }
       return;
     }
+    drawSigns(220);
     // red dashed lines from each blocked agent (not working: a busy one isn't waiting) to what blocks its queue, one per
     // distinct blocker: the colleague's body (or desk), the in-tray holding the decision or the hold, the building's door
     const shown = s.panel?.kind === "agent" ? s.panel.id : null;

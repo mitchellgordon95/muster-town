@@ -1,7 +1,7 @@
-import { AgentPermissionsPatch, WorkInput, NEW_LAB_LOT, desksForLot, SPEND_LIMIT, countsOf, splitRaw, type TokenCounts, type Agent, type Lot, type PlanInput, type Assignment, type Interrupt, type CreateBuildingInput, type UpdateBuildingInput, type CreateMeetingInput, type CreateResidentInput, type Doc, type Meeting, type Membership, type RegisterVisitorInput, type Session } from "@muster-town/schema";
+import { AgentPermissionsPatch, WorkInput, NEW_LAB_LOT, desksForLot, SPEND_LIMIT, countsOf, splitRaw, type TokenCounts, type Agent, type Assignment, type Interrupt, type CreateBuildingInput, type UpdateBuildingInput, type CreateMeetingInput, type CreateResidentInput, type Doc, type Meeting, type Membership, type RegisterVisitorInput, type Session } from "@muster-town/schema";
 import { createAssignment, createDoc, homeOf, intrayCount, intrayOf, moveToFront, pendingQueue, plantFlag, sendMessage, setAssignmentStatus, townHallIntray, updateDoc } from "./domain.ts";
 import { CHECK_IN } from "./prompts.ts";
-import { createBuilding, createResident, createUser, ensureAvatar, planTown, registerVisitor, updateBuilding, updateFurniture } from "./entities.ts";
+import { createBuilding, createResident, createUser, ensureAvatar, registerVisitor, updateBuilding, updateFurniture } from "./entities.ts";
 import type { Furniture } from "./world/furniture.ts";
 import { AppError, badRequest, forbidden } from "./errors.ts";
 import { agentsDrafting, clearAgentDrafting, createMeeting, createOneOnOne, endMeeting, meetingDecide, meetingSpeak, noteHumanTyping, presentSlide, recordSlideDecision, setMeetingPhase } from "./meetings.ts";
@@ -53,15 +53,17 @@ export class Ops {
     // attached to the root unless a goal is picked; picking one takes goals.edit there (docs/goals.md)
     if (actor && input.goalId) this.world.goalTree.requireEdit(actor, input.goalId);
     const creator = actor ? this.world.holderOf(actor) : null;
-    // desks follow floor space (flag dc_1hjoh9aurq): a sent headcount is ignored; the lab gets NEW_LAB_LOT's desks
-    return createBuilding(this.world, { ...input, headcount: desksForLot(NEW_LAB_LOT) }, creator?.kind === "user" ? creator.id : null, { starterResidents: true });
+    // its size follows its desks (docs/goals.md "The map is the tree"): NEW_LAB_LOT's desks unless it says how many
+    return createBuilding(this.world, { ...input, headcount: input.headcount ?? desksForLot(NEW_LAB_LOT) }, creator?.kind === "user" ? creator.id : null, { starterResidents: true });
   }
   /**
    * `poolId` (admin only) moves the building to another Bank pool at once; the rest needs building.manage.
-   * A sent `headcount` is ignored, not refused: desks follow the lot (resize it in town planning to change them).
+   * `headcount` (Desks) sets the building's size on the map, which is drawn from the goal tree, and its daily cap
+   * (daily budget / agent × desks): `town.manage_buildings`, the permission that covered resizing on the map table.
    */
   updateBuilding(actor: Actor, id: string, patch: (typeof UpdateBuildingInput)["_input"]) {
-    const { poolId, explorationTokensPerDay, headcount: _ignored, goalId, ...rest } = patch;
+    const { poolId, explorationTokensPerDay, goalId, ...rest } = patch;
+    if (actor && rest.headcount !== undefined) this.world.permissions.require(actor, "town.manage_buildings");
     const budget = { ...(explorationTokensPerDay !== undefined && { explorationTokensPerDay }) };
     const other = Object.keys(rest).length || (poolId === undefined && goalId === undefined && !Object.keys(budget).length);
     if (actor && other) this.world.permissions.require(actor, "building.manage", id);
@@ -92,25 +94,6 @@ export class Ops {
     if (actor.kind !== "human") throw new AppError("forbidden", "Only humans can rearrange furniture.");
     this.world.permissions.require(actor, "building.manage", id);
   }
-  /**
-   * Town planning (move, resize, create buildings on the map): `town.manage_buildings`, the permission that already
-   * covers creating and resizing buildings. Humans only, like Edit layout: an agent token is refused.
-   */
-  planPreview(actor: Actor, lots: Record<string, Lot>, create?: (typeof PlanInput)["_output"]["create"]) {
-    this.requirePlanner(actor);
-    return this.world.layout.planPreview(lots, create);
-  }
-  planTown(actor: Actor, lots: Record<string, Lot>, create?: (typeof PlanInput)["_output"]["create"]) {
-    this.requirePlanner(actor);
-    const creator = actor ? this.world.holderOf(actor) : null;
-    return planTown(this.world, lots, create, creator?.kind === "user" ? creator.id : null);
-  }
-  private requirePlanner(actor: Actor) {
-    if (!actor) return;
-    if (actor.kind !== "human") throw new AppError("forbidden", "Only humans can plan the town.");
-    this.world.permissions.require(actor, "town.manage_buildings");
-  }
-
   // ---- roles ----
   assignRole(actor: Actor, m: Membership): void {
     this.requireRoleAdmin(actor, m.roleId);

@@ -274,8 +274,6 @@ export interface RoomLayout { lot?: Lot; pieces: LayoutPiece[] }
 export interface LayoutPreview { errors: { key: string | null; message: string }[]; furniture: Record<string, Tile>; grid: Grid; places: Place[] }
 
 /** Town planning: the new building drawn on the map (name etc. as for createBuilding, plus its lot). */
-export type PlanCreate = In<typeof CreateBuildingInput> & { lot: Lot };
-export interface PlanPreview { errors: { buildingId: string | null; message: string }[]; grid: Grid; places: Place[] }
 
 /** GET /api/buildings/:id/intray: `grants` (proposed, countered, checkpoint) only for the Town Hall */
 export interface Intray { reports: Doc[]; chains?: Record<string, ReportChain>; grants: GrantView[]; access?: AccessRequestView[]; blocked?: { buildingId: string; name: string; reason: string; since: string | null }[] }
@@ -337,8 +335,6 @@ export interface Api {
   previewLayout(buildingId: string, furniture: Record<string, Tile>): Promise<LayoutPreview>;
   saveLayout(buildingId: string, furniture: Record<string, Tile>): Promise<Building>;
   /** Town planning (humans with town.manage_buildings): dry run / save new lots, optionally plus one new building. */
-  previewPlan(lots: Record<string, Lot>, create?: PlanCreate): Promise<PlanPreview>;
-  savePlan(lots: Record<string, Lot>, create?: PlanCreate): Promise<{ buildings: Building[]; created: Building | null }>;
   // agents
   /** pending reports for the building's in-tray, oldest first; the Town Hall's also has the grants awaiting a human */
   intray(buildingId: string): Promise<Intray>;
@@ -592,8 +588,6 @@ export class HttpApi implements Api {
   layout(id: string) { return this.get<RoomLayout>(`/api/buildings/${id}/layout`); }
   previewLayout(id: string, furniture: Record<string, Tile>) { return this.call<LayoutPreview>("PUT", `/api/buildings/${id}/layout`, { furniture, dryRun: true }); }
   async saveLayout(id: string, furniture: Record<string, Tile>) { return unwrap<Building>(await this.call("PUT", `/api/buildings/${id}/layout`, { furniture }), "building"); }
-  previewPlan(lots: Record<string, Lot>, create?: PlanCreate) { return this.call<PlanPreview>("PUT", "/api/town/plan", { lots, create, dryRun: true }); }
-  savePlan(lots: Record<string, Lot>, create?: PlanCreate) { return this.call<{ buildings: Building[]; created: Building | null }>("PUT", "/api/town/plan", { lots, create }); }
   async intray(id: string) {
     const r = await this.get<Partial<Intray>>(`/api/buildings/${id}/intray`);
     return { reports: r.reports ?? [], chains: r.chains ?? {}, grants: r.grants ?? [], access: r.access ?? [], blocked: r.blocked ?? [] };

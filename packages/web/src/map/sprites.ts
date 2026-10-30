@@ -229,6 +229,14 @@ export function drawGold(g: CanvasRenderingContext2D, px: number, py: number) {
   };
   bar(1, 10); bar(8, 10); bar(4, 6); bar(1, 2); bar(8, 2);
 }
+/** A goal's signpost at the end of its plaza: a wooden board on a post (the map labels it with the goal's words). */
+export function drawSignpost(g: CanvasRenderingContext2D, px: number, py: number) {
+  g.fillStyle = "rgba(0,0,0,.2)"; g.fillRect(px + 5, py + 14, 7, 2);
+  g.fillStyle = "#5a3a1a"; g.fillRect(px + 7, py + 6, 2, 9);
+  g.fillStyle = "#3b2410"; g.fillRect(px + 1, py + 1, 14, 7);
+  g.fillStyle = "#a8743c"; g.fillRect(px + 2, py + 2, 12, 5);
+  g.fillStyle = "#fff4dc"; g.fillRect(px + 4, py + 3, 8, 1); g.fillRect(px + 4, py + 5, 6, 1);
+}
 /** A marble column with gold capitals (the Bank's interior). */
 export function drawPillar(g: CanvasRenderingContext2D, px: number, py: number) {
   g.fillStyle = "rgba(0,0,0,.18)"; g.fillRect(px + 2, py + 14, 13, 2);

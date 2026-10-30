@@ -1,7 +1,7 @@
 /** Building panel (E at the door): overview, goals, grants and schedule (labs; GoalsTab.tsx), settings (managers: building fields). No Members tab (flag dc_v7ejy1j5ri): managers and roles live on the planning desk (Managers, Roles); live forks show on the map. Board, filing cabinet and in-tray are places; the collective's secrets are a planning-desk tab. */
 import { isFork } from "../forks";
 import { useEffect, useMemo, useState, type ReactNode } from "react";
-import { DEFAULT_POOL_ID, ROOT_GOAL_ID, TILES_PER_DESK, type Schedule, type SnapshotBuilding, type Workspace } from "@muster-town/schema";
+import { DEFAULT_POOL_ID, MAX_HEADCOUNT, ROOT_GOAL_ID, type Schedule, type SnapshotBuilding, type Workspace } from "@muster-town/schema";
 import { fmtPct, poolColor } from "../pools";
 import { api } from "../api";
 import { store, useTown } from "../state";
@@ -157,6 +157,9 @@ export function Settings({ b }: { b: SnapshotBuilding }) {
   const [f, setF] = useState({ goal: b.goal, description: b.description, model: b.model, cheapModel: b.cheapModel, maxTurnsPerSession: b.maxTurnsPerSession, managerAgentId: b.managerAgentId, codeAccess: b.codeAccess });
   const [daily, setDaily] = useState(toMillions(b.dailyTokensPerAgent));
   const dailyTokens = fromMillions(daily);
+  // Desks sets the building's size on the map (drawn from the goal tree) and its daily cap: town.manage_buildings
+  const [desks, setDesks] = useState(b.headcount);
+  const canDesks = b.kind === "lab" && store.can("town.manage_buildings");
   const agents = useTown((s) => s.agents);
   const repo = useTown((s) => s.town?.workspace);
   const named = useMemo(() => Object.values(agents).filter((a) => a.kind === "resident" && !isFork(a) && a.homeBuildingId === b.id).sort((x, y) => x.name.localeCompare(y.name)), [agents, b.id]);
@@ -166,7 +169,11 @@ export function Settings({ b }: { b: SnapshotBuilding }) {
     <form className="form" onSubmit={(e) => e.preventDefault()}>
       <Field label="Goal"><textarea rows={2} value={f.goal} onChange={(e) => set("goal", e.target.value)} /></Field>
       <Field label="Description"><textarea rows={3} value={f.description} onChange={(e) => set("description", e.target.value)} /></Field>
-      <Field label="Desks" hint={`Desks follow floor space (one per ${TILES_PER_DESK} floor tiles; a full lab adds one when a fork needs it). Resize the building on the town map table to change them; this also sets the daily cap (daily budget / agent × desks).`}><span>{b.lot ? `${b.lot.w}×${b.lot.h} · ` : ""}{b.headcount} desk{b.headcount === 1 ? "" : "s"}</span></Field>
+      <Field label="Desks" hint={`The building's size on the map follows its desks (the map is drawn from the goal tree; a full lab adds one when a fork needs it). This also sets the daily cap (daily budget / agent × desks).${canDesks ? "" : " Changing it takes town.manage_buildings."}`}>
+        {canDesks
+          ? <span><input type="number" min={1} max={MAX_HEADCOUNT} value={desks} onChange={(e) => setDesks(Math.max(1, Math.min(MAX_HEADCOUNT, Math.floor(Number(e.target.value)) || 1)))} /> {b.lot ? `${b.lot.w}×${b.lot.h} now` : ""}</span>
+          : <span>{b.lot ? `${b.lot.w}×${b.lot.h} · ` : ""}{b.headcount} desk{b.headcount === 1 ? "" : "s"}</span>}
+      </Field>
       <Field label="Manager" hint="The building's one named agent: it works the in-tray (its forks' reports), facilitates meetings and wears the ★ badge; queued work runs on its forks; its rollups go to the Town Hall in-tray. None: you work the in-tray.">
         <select value={f.managerAgentId ?? ""} onChange={(e) => set("managerAgentId", e.target.value || null)}>
           <option value="">none</option>
@@ -187,7 +194,7 @@ export function Settings({ b }: { b: SnapshotBuilding }) {
         <span className="check"><input type="checkbox" checked={f.codeAccess} disabled={!repo && !f.codeAccess} onChange={(e) => set("codeAccess", e.target.checked)} /> {repo ? <>Work on <code>{repoLabel(repo)}</code></> : "No collective repo"}</span>
       </Field>
       <div className="actions"><Act tone="primary" disabled={!(dailyTokens > 0)} title={dailyTokens > 0 ? undefined : "Daily budget must be above 0" } run={async () => {
-        await api().updateBuilding(b.id, { ...f, dailyTokensPerAgent: dailyTokens });
+        await api().updateBuilding(b.id, { ...f, dailyTokensPerAgent: dailyTokens, ...(canDesks && desks !== b.headcount ? { headcount: desks } : {}) });
         store.toast("Settings saved", "ok");
       }}>Save settings</Act></div>
     </form>
@@ -210,7 +217,7 @@ function AttachedTo({ b }: { b: SnapshotBuilding }) {
   return (
     <Section title="Attached to">
       <form className="form" onSubmit={(e) => e.preventDefault()}>
-        <Field label="Goal" hint={`${goalPath(root, b.goalId ?? ROOT_GOAL_ID)}. A building is attached to exactly one goal; its work (grants, exploration) names open key results in that goal's subtree.`}>
+        <Field label="Goal" hint={`${goalPath(root, b.goalId ?? ROOT_GOAL_ID)}. A building is attached to exactly one goal: it stands at that goal's plaza on the map, and its work (grants, exploration) names open key results in that goal's subtree.`}>
           <GoalPicker value={goalId} onChange={setGoalId} disabled={!can} />
         </Field>
         {can ? <div className="actions"><Act tone="primary" disabled={goalId === (b.goalId ?? ROOT_GOAL_ID)} run={async () => {
