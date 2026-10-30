@@ -161,13 +161,15 @@ export class World {
     });
     // in-tray badge: a report arrived or was decided, or a grant moved → resend the building with its count;
     // a manager's report and every grant change also resend the Town Hall, whose in-tray they land in; so does a key result
-    // marked met or missed (or deleted), which takes a closed-as-done grant out of the Town Hall in-tray without a grant event
+    // marked met or missed (or deleted), which takes a closed-as-done grant out of the Town Hall in-tray without a grant event;
+    // and so does a goal proposal, made or decided
     this.events.addHook((e) => {
       const p = e.payload as Record<string, unknown>;
       const report = (e.type === "doc.created" && p.docType === "report") || e.type === "doc.decision";
-      const grant = e.type.startsWith("grant.") || e.type === "kr.updated" || e.type === "kr.deleted";
-      if (!(report || grant) || !e.buildingId) return;
-      const b = this.buildings.get(e.buildingId);
+      // a goal proposal made or decided (step 4: it is a Town Hall item, and a human's may name no building)
+      const grant = e.type.startsWith("grant.") || e.type === "kr.updated" || e.type === "kr.deleted" || e.type === "goal.proposal";
+      if (!(report || grant) || (!e.buildingId && e.type !== "goal.proposal")) return;
+      const b = e.buildingId ? this.buildings.get(e.buildingId) : undefined;
       if (b) this.changes.emit({ type: "building", building: { ...b, intray: intrayCount(this, b.id) } });
       const doc = report && typeof p.docId === "string" ? this.docs.get(p.docId) : undefined;
       const th = grant || (doc && isTownHallItem(this, doc)) ? this.buildings.first("kind = 'town-hall'") : undefined;

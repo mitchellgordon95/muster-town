@@ -7,6 +7,7 @@ import { describeWait } from "./waits.ts";
 import { extractSection, firstLine, newId, nowIso, truncate } from "./util.ts";
 import type { World } from "./world.ts";
 import type { BlockedBuilding } from "./grants.ts";
+import type { GoalProposalView } from "./goals.ts";
 import { pendingAccessCount, pendingAccessRequests } from "./access.ts";
 
 /** Doc as shown in lists (board, search). */
@@ -351,15 +352,18 @@ export function grantsAwaitingDecision(world: World): GrantView[] {
 }
 
 /** The Town Hall in-tray: managers' rollups and checkpoint reports, grants awaiting a human's decision, people asking to join, and blocked buildings (not counted in the badge). */
-export function townHallIntray(world: World): { reports: Doc[]; grants: GrantView[]; access: AccessRequestView[]; blocked: BlockedBuilding[] } {
+export function townHallIntray(world: World): { reports: Doc[]; grants: GrantView[]; goalProposals: GoalProposalView[]; access: AccessRequestView[]; blocked: BlockedBuilding[] } {
   const th = world.buildings.first("kind = 'town-hall'");
-  return { reports: th ? intrayOf(world, th.id) : [], grants: grantsAwaitingDecision(world), access: pendingAccessRequests(world), blocked: world.grantDesk.blockedBuildings() };
+  return { reports: th ? intrayOf(world, th.id) : [], grants: grantsAwaitingDecision(world), goalProposals: world.goalTree.listProposals({ status: "open" }), access: pendingAccessRequests(world), blocked: world.grantDesk.blockedBuildings() };
 }
+
+/** Open goal proposals (propose_goal / propose_key_result): Town Hall in-tray items a human accepts or cuts (docs/goals.md step 4). */
+const openGoalProposals = (world: World) => world.goalProposals.count("status = 'open'");
 
 /** In-tray size as the badge shows it: pending items of that in-tray (the Town Hall's counts its grants and access requests too). */
 export function intrayCount(world: World, buildingId: string): number {
   const b = world.buildings.get(buildingId);
-  return intrayOf(world, buildingId).length + (b?.kind === "town-hall" ? grantsAwaitingDecision(world).length + pendingAccessCount(world) : 0);
+  return intrayOf(world, buildingId).length + (b?.kind === "town-hall" ? grantsAwaitingDecision(world).length + openGoalProposals(world) + pendingAccessCount(world) : 0);
 }
 
 /**
@@ -375,7 +379,7 @@ export function intrayCounts(world: World): Map<string, number> {
   for (const d of world.docs.where("type IN ('report', 'flag') AND decision = 'pending' AND buildingId IS NOT NULL")) {
     if (isTownHallItem(world, d)) { if (th) bump(th.id); } else if (d.buildingId !== th?.id) bump(d.buildingId!);
   }
-  if (th) for (let i = grantsAwaitingDecision(world).length + pendingAccessCount(world); i > 0; i--) bump(th.id);
+  if (th) for (let i = grantsAwaitingDecision(world).length + openGoalProposals(world) + pendingAccessCount(world); i > 0; i--) bump(th.id);
   return counts;
 }
 
