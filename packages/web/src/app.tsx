@@ -188,7 +188,8 @@ function PanelHost({ panel }: { panel: PanelRef }) {
     case "cabinet": return <CabinetPanel key={panel.id} buildingId={panel.id!} />;
     case "admin":
     case "planning": return <PlanningPanel tab={panel.tab} />;
-    case "bank": return <BankPanel />;
+    // the Bank's tabs are things in its room (BANK_FIXTURES.stations); a tab deep-link re-lands per open
+    case "bank": return <BankPanel key={panel.tab ? `${panel.tab}:${openSeq(panel)}` : ""} tab={panel.tab} />;
     case "dashboard": return <DashboardPanel />;
     case "grant": return <GrantPanel key={panel.id} id={panel.id!} />;
     case "schedule": return <SchedulePanel />;

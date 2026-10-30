@@ -12,7 +12,7 @@ import { redirectPanel } from "./panels/room";
 
 /**
  * Every panel is a place: walk up and press E. `intray`/`board`/`cabinet` take a building id; the Town Hall places
- * (planning desk, schedule board, mod station) and the Bank take none (`bank` is public, also the HUD's "$" and `#/bank`;
+ * the old `#/finance` opens it too; its `tab` is the thing in its room you used, BANK_FIXTURES). `admin` is the old name for `planning`.
  * the old `#/finance` opens it too). `admin` is the old name for `planning`.
  * `grant` is the one panel without a place: a grant or proposal (`gr_…`), reached from any link to its id.
  */

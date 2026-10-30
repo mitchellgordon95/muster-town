@@ -1,4 +1,4 @@
-import { BANK_FIXTURES, BANK_LOT, labSize, MAX_HEADCOUNT, TILE, WALKABLE, type Building, type Lot, type Place, type Tile } from "@muster-town/schema";
+import { BANK_FIXTURES, BANK_LOT, bankPlaces, labSize, MAX_HEADCOUNT, TILE, WALKABLE, type Building, type Lot, type Place, type Tile } from "@muster-town/schema";
 import { piecesFor, resolveFurniture } from "./furniture.ts";
 import { deriveRoads, doorOf, ROAD_Y } from "./road.ts";
 
@@ -199,7 +199,7 @@ export function computeLayout(buildings: Building[], occupancy: Map<string, Map<
   return { grid, places, desks, doors, seats };
 }
 
-/** The Bank (fixed lot south of the road): gold walls are the renderer's job; here the room, its door and its place. */
+/** The Bank (fixed lot south of the road): gold walls are the renderer's job; here the room, its door, the vault and the stations, and their places. */
 function bankRoom(set: (x: number, y: number, t: number) => void, places: Place[]) {
   const { x: x0, y: y0, w: bw, h: bh } = BANK_LOT, F = BANK_FIXTURES;
   for (let y = 0; y < bh; y++) for (let x = 0; x < bw; x++) {
@@ -208,16 +208,13 @@ function bankRoom(set: (x: number, y: number, t: number) => void, places: Place[
   }
   const put = (cells: readonly Tile[], t: number) => { for (const c of cells) set(x0 + c.x, y0 + c.y, t); };
   put(F.pillars, TILE.PILLAR);
-  put(F.counter, TILE.COUNTER);
   put(F.gold, TILE.GOLD);
   put([F.vault], TILE.VAULT);
   put([F.map], TILE.BANK_MAP);
+  for (const st of F.stations) put(st.cells, st.tile);
   const door = { x: x0 + F.door.x, y: y0 + F.door.y };
   set(door.x, door.y, TILE.DOOR);
-  places.push(
-    { id: "bank", kind: "bank", name: "Bank", buildingId: null, pos: { x: x0 + F.counterStand.x, y: y0 + F.counterStand.y } },
-    { id: "bank-map", kind: "bank-map", name: "Bank town map", buildingId: null, pos: { x: x0 + F.mapStand.x, y: y0 + F.mapStand.y } },
-  );
+  places.push(...bankPlaces(x0, y0));
 }
 
 /**

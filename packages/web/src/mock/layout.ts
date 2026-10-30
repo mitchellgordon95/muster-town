@@ -3,7 +3,7 @@
  * including TOWN_HALL_FIXTURES, copied here because the web bundle can't import core); lots are packed
  * side by side around the Town Hall so the mock map stays compact. Core owns the real layout.
  */
-import { BANK_FIXTURES, BANK_LOT, TILE, WALKABLE } from "@muster-town/schema";
+import { BANK_FIXTURES, BANK_LOT, TILE, WALKABLE, bankPlaces } from "@muster-town/schema";
 import type { Agent, Building, Place } from "@muster-town/schema";
 import type { Grid } from "../api";
 
@@ -135,17 +135,14 @@ export function computeLayout(buildings: Building[], agents: Agent[]): Layout {
     const x0 = hallLot ? hallLot.x : MARGIN, y0 = roadY + 5, { w: bw, h: bh } = BANK_LOT, B = BANK_FIXTURES;
     for (let y = 0; y < bh; y++) for (let x = 0; x < bw; x++) set(x0 + x, y0 + y, x === 0 || y === 0 || x === bw - 1 || y === bh - 1 ? TILE.WALL : TILE.FLOOR);
     for (const p of B.pillars) set(x0 + p.x, y0 + p.y, TILE.PILLAR);
-    for (const p of B.counter) set(x0 + p.x, y0 + p.y, TILE.COUNTER);
     for (const p of B.gold) set(x0 + p.x, y0 + p.y, TILE.GOLD);
     set(x0 + B.vault.x, y0 + B.vault.y, TILE.VAULT);
     set(x0 + B.map.x, y0 + B.map.y, TILE.BANK_MAP);
+    for (const st of B.stations) for (const c of st.cells) set(x0 + c.x, y0 + c.y, st.tile);
     const door = { x: x0 + B.door.x, y: y0 + B.door.y };
     set(door.x, door.y, TILE.DOOR);
     for (let y = roadY + 2; y < door.y; y++) set(door.x, y, TILE.PATH);
-    places.push(
-      { id: "bank", kind: "bank", name: "Bank", buildingId: null, pos: { x: x0 + B.counterStand.x, y: y0 + B.counterStand.y } },
-      { id: "bank-map", kind: "bank-map", name: "Bank town map", buildingId: null, pos: { x: x0 + B.mapStand.x, y: y0 + B.mapStand.y } },
-    );
+    places.push(...bankPlaces(x0, y0));
   }
   return { grid: { w: W, h: H, tiles: t }, places, lots };
 }

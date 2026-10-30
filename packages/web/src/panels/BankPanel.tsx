@@ -1,11 +1,13 @@
 /**
- * The Bank (its teller counter, south of the road; also the HUD's "$", `#/bank` and the old `#/finance`): one page for the
- * town's tokens (1:1 mt_ew2d0mm7h9), public. In order: what is available now (Balance) and all time (Tokens, Next 30 days);
- * where tokens come from (contributors, the one Donate form, Bank inputs, Sources); how they are divided (pools, building
- * allocations, pool balances); where they go (Spending, Hosting (Fly.io) in dollars); then the Bank's health (drift, deaths
- * and the cap). The funding sections are BankFunding's, the finance ones BankFinance's, each over its own endpoint.
+ * The Bank (south of the road; also the HUD's "$", `#/bank` and the old `#/finance`): the town's tokens (1:1 mt_ew2d0mm7h9),
+ * public, in tabs, each a thing in the Bank's room (BANK_FIXTURES: walk up or tap it to open its tab). Overview (the vault):
+ * Balance, Next 30 days, top contributors, Donate. Tokens & sources (ledger desk): Tokens, Bank inputs, Sources. Pools
+ * (fountain): the pools and their balances. Spending (spending board): building funding, Spending, drift, out-of-tokens
+ * deaths and the cap. Hosting (server rack): Fly.io in dollars. The funding sections are BankFunding's, the finance ones
+ * BankFinance's, each over its own endpoint.
  */
 import { useState } from "react";
+import { BANK_TABS } from "@muster-town/schema";
 import { api, type Bank } from "../api";
 import { store, useTown } from "../state";
 import { Glyph, PanelShell } from "./PanelShell";
@@ -16,22 +18,46 @@ import { ADJ, ErrorLine, Loading, Section, breakdownTitle, fmtTokens } from "./u
 /** Refetch the summary the sign and these sections read. */
 const reload = () => { api().bank().then((bank) => store.set({ bank }), () => undefined); };
 
-export function BankPanel() {
+export function BankPanel({ tab }: { tab?: string }) {
   const bank = useTown((s) => s.bank);
   const fin = useFinance();
   const [rev, setRev] = useState(0);
   const changed = () => { reload(); setRev((r) => r + 1); };
   return (
-    <PanelShell icon={<Glyph kind="bank" />} title="The Bank" subtitle="The town's tokens: what came in, where they went and what is left; hosting in dollars">
-      {fin.loading && !fin.data ? <Loading /> : null}
-      <ErrorLine error={fin.error} />
-      <BankView bank={bank} fin={fin.data} rev={rev} onChange={changed} onReload={reload} />
+    <PanelShell icon={<Glyph kind="bank" />} title="The Bank" subtitle="The town's tokens: what came in, where they went and what is left; hosting in dollars"
+      tabs={[...BANK_TABS]} initialTab={tab && (BANK_TABS as readonly string[]).includes(tab) ? tab : "Overview"}>
+      {(t) => <>
+        {fin.loading && !fin.data ? <Loading /> : null}
+        <ErrorLine error={fin.error} />
+        <BankView tab={t} bank={bank} fin={fin.data} rev={rev} onChange={changed} onReload={reload} />
+      </>}
     </PanelShell>
   );
 }
 
-/** The page given its data: `bank` from GET /api/bank (null until loaded), `fin` the finance endpoints (null until loaded). */
-export function BankView({ bank, fin, rev, onChange, onReload }: { bank: Bank | null; fin: FinanceData | null; rev: number; onChange: () => void; onReload: () => void }) {
+type ViewProps = { tab: string; bank: Bank | null; fin: FinanceData | null; rev: number; onChange: () => void; onReload: () => void };
+
+/** One tab of the page given its data: `bank` from GET /api/bank (null until loaded), `fin` the finance endpoints (null until loaded); each tab ends with where its numbers come from. */
+export function BankView(props: ViewProps) {
+  return <><BankTab {...props} />{props.fin ? <FinanceFooter {...props.fin} /> : null}</>;
+}
+
+function BankTab({ tab, bank, fin, rev, onChange, onReload }: ViewProps) {
+  if (tab === "Tokens & sources") return (
+    <>
+      {fin ? <TokensView f={fin.f} /> : null}
+      {bank ? <BankInputs bank={bank} onChange={onReload} /> : null}
+      {fin?.sources ? <SourcesView s={fin.sources} /> : null}
+    </>
+  );
+  if (tab === "Pools") return (
+    <>
+      {bank ? <BankPools bank={bank} onChange={onReload} /> : null}
+      {fin?.poolsFin ? <PoolsView fp={fin.poolsFin} /> : null}
+    </>
+  );
+  if (tab === "Spending") return <BankSpending bank={bank} fin={fin} rev={rev} />;
+  if (tab === "Hosting") return fin?.fly ? <FlyView fly={fin.fly} /> : <p className="muted">No hosting figures yet.</p>;
   return (
     <>
       <FinanceIntro hosting={!!fin?.fly} />
@@ -56,21 +82,21 @@ export function BankView({ bank, fin, rev, onChange, onReload }: { bank: Bank | 
           </table>
         )}
       </Section>
-      {fin ? <TokensView f={fin.f} /> : null}
       {fin ? <ProjectionView f={fin.f} /> : null}
       {bank && <>
         <BankContributors bank={bank} />
         <Donate onChange={onChange} />
-        <BankInputs bank={bank} onChange={onReload} />
       </>}
-      {fin?.sources ? <SourcesView s={fin.sources} /> : null}
-      {bank && <>
-        <BankPools bank={bank} onChange={onReload} />
-        <BuildingFunding rev={rev} />
-      </>}
-      {fin?.poolsFin ? <PoolsView fp={fin.poolsFin} /> : null}
+    </>
+  );
+}
+
+/** The Spending tab: what each building was given and spent, then the Bank's health (drift, out-of-tokens deaths and the cap). */
+function BankSpending({ bank, fin, rev }: { bank: Bank | null; fin: FinanceData | null; rev: number }) {
+  return (
+    <>
+      {bank ? <BuildingFunding rev={rev} /> : null}
       {fin?.spend ? <SpendingView sp={fin.spend} /> : null}
-      {fin?.fly ? <FlyView fly={fin.fly} /> : null}
       {bank?.drift && bank.drift.models.length ? (
         <Section title={`Drift (${bank.drift.day}, 24 h)`}>
           <p className="muted">Adjusted output tokens × output list price vs what the SDK says the sessions cost. Target 0.90–1.10.</p>
@@ -101,7 +127,6 @@ export function BankView({ bank, fin, rev, onChange, onReload }: { bank: Bank | 
           </table>
         </Section>
       ) : null}
-      {fin ? <FinanceFooter {...fin} /> : null}
     </>
   );
 }

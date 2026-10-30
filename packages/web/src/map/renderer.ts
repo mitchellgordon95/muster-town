@@ -18,7 +18,7 @@ import { fitZoom, quickWalkGoal } from "./overview";
 import { avatarSize } from "./avatarSize";
 import { stackBodies } from "./stacks";
 import { whoIsHere } from "../whoIsHere";
-import { TILE } from "@muster-town/schema";
+import { TILE, bankTabOf } from "@muster-town/schema";
 import { GHOST_ALPHA, buildingTint, forkLabel, forkTip, ghostAlpha } from "../forks";
 
 /** `index`/`count`: position among everything in reach, so the HUD can show "Tab 2/3" when targets overlap. */
@@ -33,6 +33,7 @@ const SPEED = 5 * T; // px per second
 const ROUTE_SPEED = 11 * T;
 const INTERACT_PX = 26;
 const bname = (p: Place) => store.state.buildings.find((b) => b.id === p.buildingId)?.name ?? "the building";
+const BANK_VERB: Record<string, string> = { "Tokens & sources": "Open", Pools: "Look into", Spending: "Read", Hosting: "Check" };
 /** Every panel is a place: what E opens when you stand at each place kind. */
 export const PLACE_PANEL: Partial<Record<Place["kind"], (p: Place) => PanelRef & { verb: string }>> = {
   board: (p) => ({ kind: "board", id: p.buildingId ?? undefined, verb: `Read the ${bname(p)} board` }),
@@ -48,7 +49,11 @@ export const PLACE_PANEL: Partial<Record<Place["kind"], (p: Place) => PanelRef &
   "mod-station": () => ({ kind: "mod", verb: "Visit the mod station" }),
   library: () => ({ kind: "library", verb: "Browse the library" }),
   outbox: () => ({ kind: "outbox", verb: "Check the outbox" }),
-  bank: () => ({ kind: "bank", verb: "Visit the Bank" }),
+  // the vault opens Overview; each station its own tab (BANK_FIXTURES.stations)
+  bank: (p) => {
+    const tab = bankTabOf(p.id);
+    return { kind: "bank", tab, verb: p.id === "bank" ? "Open the Bank's vault" : `${BANK_VERB[tab] ?? "Use"} the ${p.name.replace(/^Bank /, "")}` };
+  },
   "meeting-room": (p) => ({ kind: "meeting", id: `room:${p.buildingId ?? ""}`, verb: `Join the ${p.name.toLowerCase()}` }),
   door: (p) => ({ kind: "building", id: p.buildingId ?? undefined, verb: `Enter ${p.name.replace(/^door( of|:)?\s*/i, "") || "building"}` }),
 };
