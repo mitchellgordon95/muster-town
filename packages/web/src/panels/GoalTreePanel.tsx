@@ -5,7 +5,7 @@
  * at a node (admins anywhere, an owner in their subtree) edit it; everyone else reads the same tree.
  */
 import { useEffect, useState, type ReactNode } from "react";
-import { ROOT_GOAL_ID, type GoalTreeNode, type KeyResultStatus } from "@muster-town/schema";
+import { ROOT_GOAL_ID, type GoalChangeView, type GoalTreeNode, type KeyResultStatus } from "@muster-town/schema";
 import { api, type GoalProposalView } from "../api";
 import { store, useTown } from "../state";
 import { Glyph, PanelShell } from "./PanelShell";
@@ -27,6 +27,13 @@ function useMe(): { userId: string | null; townWide: boolean } {
   return { userId: me?.user.id ?? null, townWide: store.can("goals.edit") };
 }
 
+/** "Plan with an agent" (docs/goals.md "The planning agent"): open (or return to) my 1:1 with the Planner, about `goalId`. */
+async function planWith(goalId?: string): Promise<void> {
+  const m = await api().openPlanner(goalId);
+  store.putMeeting(m);
+  store.open({ kind: "meeting", id: m.id });
+}
+
 export function GoalTreePanel({ goalId }: { goalId?: string }) {
   const rev = useGoalRev();
   const me = useMe();
@@ -41,7 +48,8 @@ export function GoalTreePanel({ goalId }: { goalId?: string }) {
   const anyEdit = me.townWide || (!!root && !!me.userId && treeRows(root, false).some((r) => r.node.ownerId === me.userId));
   const node = root && selected ? findGoal(root, selected) : null;
   return (
-    <PanelShell icon={<Glyph kind="goals" />} title="Goal tree" subtitle={anyEdit ? "The town's goals: edit, add key results, decide proposals" : "The town's goals and key results (read-only)"}>
+    <PanelShell icon={<Glyph kind="goals" />} title="Goal tree" subtitle={anyEdit ? "The town's goals: edit, add key results, decide proposals" : "The town's goals and key results (read-only)"}
+      actions={anyEdit ? <Act small run={() => planWith(selected ?? undefined)} title="Open a 1:1 with the Planner: it drafts proposals you accept or cut">Plan with an agent</Act> : undefined}>
       <ErrorLine error={tree.error ?? proposals.error} />
       {!root ? <Loading /> : <>
         {proposals.data?.length ? <Proposals root={root} list={proposals.data} me={me} onDone={reload} /> : null}
@@ -53,14 +61,14 @@ export function GoalTreePanel({ goalId }: { goalId?: string }) {
               </select>
               <label className="check"><input type="checkbox" checked={retired} onChange={(e) => setRetired(e.target.checked)} /> Show retired</label>
             </span>}>
-            <TreeList root={root} retired={retired} filter={filter} onSelect={setSelected} />
+            <TreeList root={root} retired={retired} filter={filter} onSelect={setSelected} canPlan={anyEdit} />
           </Section>}
       </>}
     </PanelShell>
   );
 }
 
-function TreeList({ root, retired, filter, onSelect }: { root: GoalTreeNode; retired: boolean; filter: string; onSelect: (id: string) => void }) {
+function TreeList({ root, retired, filter, onSelect, canPlan }: { root: GoalTreeNode; retired: boolean; filter: string; onSelect: (id: string) => void; canPlan: boolean }) {
   const scope = filter ? buildingScope(root, filter) : null;
   return (
     <ul className="goal-tree">
@@ -71,6 +79,7 @@ function TreeList({ root, retired, filter, onSelect }: { root: GoalTreeNode; ret
             {node.ownerId ? <Pill title={`Owner: ${node.owner.name}`}>{node.owner.name}</Pill> : null}
             {node.status === "retired" ? <Pill tone="bad">retired</Pill> : null}
             {node.buildings.map((b) => <button key={b.id} className="chip" title={`${b.name} is attached here`} onClick={() => store.open({ kind: "building", id: b.id })}>{b.name}</button>)}
+            {canPlan && node.status === "active" ? <Act small run={() => planWith(node.id)} title="Plan this goal with the Planner">Plan</Act> : null}
           </div>
           <KrLines krs={node.keyResults} />
         </li>
@@ -86,6 +95,7 @@ function KrLines({ krs, actions }: { krs: TreeKr[]; actions?: (k: TreeKr) => Rea
   const line = (k: TreeKr) => (
     <li key={k.id} className="goal-kr">
       <Pill tone={krTone(k.status as KeyResultStatus)}>{krStatusLabel(k.status as KeyResultStatus)}</Pill>
+      {k.underReviewSince ? <Pill tone="warn" title={`A "Change this goal" put it under review on ${k.underReviewSince.slice(0, 10)}: its grant keeps running until a human decides`}>under review</Pill> : null}
       {k.due ? <span className={`goal-due ${pastDue(k, today()) ? "late" : ""}`} title={pastDue(k, today()) ? "Past due" : "Due"}>{k.due}</span> : null}
       {k.grantId ? <button className="link goal-grant" onClick={() => store.open({ kind: "grant", id: k.grantId! })}>funded</button> : !isArchived(k) ? <span className="muted goal-grant">open</span> : null}
       <span className="goal-kr-text" title={k.howToCheck ? `How to check: ${k.howToCheck}` : undefined}>{k.text}</span>
@@ -106,7 +116,10 @@ function GoalDetail({ root, node, me, onSelect, onDone }: { root: GoalTreeNode; 
   const can = canEditGoal(node, me) && node.status === "active";
   const path = pathTo(root, node.id);
   const [tab, setTab] = useState("History");
-  const [form, setForm] = useState<"" | "edit" | "goal" | "kr" | "move" | "owner" | "retire">("");
+  const [form, setForm] = useState<"" | "edit" | "goal" | "kr" | "move" | "owner" | "retire" | "change">("");
+  const rev = useGoalRev();
+  const changes = useLoad(() => api().goalChanges({ goalId: node.id, open: true }), [node.id, rev]);
+  const open = changes.data?.[0] ?? null;
   const done = () => { setForm(""); onDone(); };
   const mark = (k: TreeKr, status: KeyResultStatus) => api().updateKeyResult(k.id, { status }).then(onDone);
   return (
@@ -128,8 +141,12 @@ function GoalDetail({ root, node, me, onSelect, onDone }: { root: GoalTreeNode; 
           {node.parentId ? <button className="btn sm" onClick={() => setForm(form === "move" ? "" : "move")}>Move</button> : null}
           <button className="btn sm" onClick={() => setForm(form === "owner" ? "" : "owner")}>Owner</button>
           {node.parentId ? <button className="btn sm bad" onClick={() => setForm(form === "retire" ? "" : "retire")}>Retire</button> : null}
+          {!open ? <button className="btn sm" onClick={() => setForm(form === "change" ? "" : "change")} title="X → Y: the buildings under it prepare, then a planning meeting decides what goes underneath">Change this goal</button> : null}
+          <Act small run={() => planWith(node.id)} title="Open a 1:1 with the Planner about this goal">Plan with an agent</Act>
         </div>
       ) : <div className="muted goal-meta">{node.status === "retired" ? `Retired${node.retiredNote ? `: ${node.retiredNote}` : "."}` : me.userId ? "Only an admin or this goal's owner edits it; managers propose with propose_goal." : "Sign in to see what you can change."}</div>}
+      {open ? <ChangeBanner c={open} /> : null}
+      {form === "change" ? <ChangeForm node={node} onDone={done} /> : null}
       {form === "edit" ? <EditForm node={node} onDone={done} /> : null}
       {form === "goal" ? <AddGoalForm parent={node} onDone={(id) => { done(); onSelect(id); }} /> : null}
       {form === "kr" ? <AddKrForm root={root} node={node} onDone={done} /> : null}
@@ -137,10 +154,10 @@ function GoalDetail({ root, node, me, onSelect, onDone }: { root: GoalTreeNode; 
       {form === "owner" ? <OwnerForm node={node} me={me} onDone={done} /> : null}
       {form === "retire" ? <RetireForm root={root} node={node} onDone={() => { done(); onSelect(node.parentId); }} /> : null}
       <Section title="Key results">
-        {node.keyResults.length ? <KrLines krs={node.keyResults} actions={can ? (k) => !isArchived(k) ? <span className="goal-kr-acts">
+        {node.keyResults.length ? <KrLines krs={node.keyResults} actions={can ? (k) => isArchived(k) ? null : k.underReviewSince ? <ReviewActs root={root} k={k} onDone={onDone} /> : <span className="goal-kr-acts">
           <Act small tone="ok" run={() => mark(k, "met")} title="A human marks it met: it archives under this goal">Met</Act>
           <Act small tone="bad" run={() => mark(k, "missed")} title="A human marks it missed: it archives under this goal">Missed</Act>
-        </span> : null : undefined} /> : <Empty>No key results under this goal{can ? ": add a dated one above." : "."}</Empty>}
+        </span> : undefined} /> : <Empty>No key results under this goal{can ? ": add a dated one above." : "."}</Empty>}
       </Section>
       {node.children.length ? <Section title="Goals under it">
         <ul className="goal-tree">{node.children.map((c) => <li key={c.id} className="goal-row"><button className="link" onClick={() => onSelect(c.id)}>{c.text}</button></li>)}</ul>
@@ -148,6 +165,53 @@ function GoalDetail({ root, node, me, onSelect, onDone }: { root: GoalTreeNode; 
       <Tabs tabs={[{ id: "History", label: "History" }, { id: "Subtree", label: "Subtree" }, { id: "Spend", label: "Spend" }]} active={tab} onChange={setTab} />
       {tab === "History" ? <History id={node.id} /> : tab === "Spend" ? <GoalSpendTab goalId={node.id} /> : <Subtree node={node} />}
     </div>
+  );
+}
+
+/** An open "Change this goal": where its prep stands and when (or whether) its planning meeting is open. */
+function ChangeBanner({ c }: { c: GoalChangeView }) {
+  const inCount = c.prep.filter((p) => p.status !== "waiting").length;
+  const when = new Date(c.meetingDeadline);
+  const stamp = `${when.toISOString().slice(5, 10)} ${when.toISOString().slice(11, 16)} UTC`;
+  return (
+    <div className="goal-change">
+      <div><Pill tone="warn">{c.status === "prep" ? "changing" : "reorg meeting"}</Pill> <s>{c.fromText}</s> → <b>{c.toText}</b></div>
+      <div className="muted">Filed by {c.createdByName}. Why: {c.why}</div>
+      <div className="muted">
+        {c.prep.length ? <>Prep reports: {inCount} of {c.prep.length} in ({c.prep.map((p) => `${p.buildingName}: ${p.status === "in" ? "in" : p.status === "waiting" ? "working" : "no manager"}`).join(", ")}). </> : "No building is attached under it. "}
+        {c.status === "prep" ? <>The meeting opens when every prep report is in, or at {stamp}.</> : <>The meeting is open: the goal reads the new words.</>}
+        {" "}{c.underReview.length} key result{c.underReview.length === 1 ? "" : "s"} under review · {c.proposals.length} proposal{c.proposals.length === 1 ? "" : "s"}.
+      </div>
+      {c.meetingId ? <button className="link" onClick={() => store.open({ kind: "meeting", id: c.meetingId! })}>Open the planning meeting →</button> : null}
+    </div>
+  );
+}
+
+function ChangeForm({ node, onDone }: { node: GoalTreeNode; onDone: () => void }) {
+  const [text, setText] = useState(node.text), [why, setWhy] = useState("");
+  return (
+    <div className="goal-form">
+      <Field label="Change this goal to" hint="Every building attached under it gets a prep assignment, its open key results go under review (grants keep running), and a planning meeting opens when the prep reports are in or after 24 h."><textarea rows={2} maxLength={300} value={text} onChange={(e) => setText(e.target.value)} /></Field>
+      <Field label="Why"><textarea rows={3} maxLength={2000} value={why} onChange={(e) => setWhy(e.target.value)} /></Field>
+      <Act small tone="primary" disabled={!text.trim() || text.trim() === node.text || !why.trim()} run={() => api().changeGoal(node.id, { toText: text.trim(), why: why.trim() }).then(onDone)}>File the change</Act>
+    </div>
+  );
+}
+
+/** An under-review key result (a reorg): Keep (clears the flag), Move (to another goal), or Archive (as missed). */
+function ReviewActs({ root, k, onDone }: { root: GoalTreeNode; k: TreeKr; onDone: () => void }) {
+  const [to, setTo] = useState("");
+  const targets = treeRows(root, false).map((r) => r.node).filter((g) => !g.keyResults.some((x) => x.id === k.id));
+  return (
+    <span className="goal-kr-acts">
+      <Act small tone="ok" run={() => api().reviewKeyResult(k.id, { action: "keep" }).then(onDone)} title="It still serves the goal: clear the flag">Keep</Act>
+      <select aria-label="Move to" value={to} onChange={(e) => setTo(e.target.value)}>
+        <option value="">Move to…</option>
+        {targets.map((g) => <option key={g.id} value={g.id}>{clip(g.text, 50)}</option>)}
+      </select>
+      {to ? <Act small run={() => api().reviewKeyResult(k.id, { action: "move", goalId: to }).then(onDone)}>Move</Act> : null}
+      <Act small tone="bad" run={() => api().reviewKeyResult(k.id, { action: "archive" }).then(onDone)} title="Archive it as missed; its grant becomes a Cut candidate">Archive</Act>
+    </span>
   );
 }
 

@@ -98,8 +98,8 @@ export async function propose_key_result(world: World, me: Agent, input: VerbIn<
   const bid = homeOf(me);
   const sourceDocIds = input.sourceDocIds ?? [];
   const p = input.id
-    ? world.goalTree.propose(me, { action: "edit", targetId: input.id, text: input.text, howToCheck: input.howToCheck, due: input.due, why: input.why, sourceDocIds, buildingId: bid ?? undefined })
-    : world.goalTree.propose(me, { action: "add-kr", parentId: input.goalId ?? (bid ? world.goalTree.attachmentOf(bid) : undefined), text: input.text, howToCheck: input.howToCheck, due: input.due, why: input.why, sourceDocIds, buildingId: bid ?? undefined });
+    ? world.goalTree.propose(me, { action: "edit", targetId: input.id, text: input.text, howToCheck: input.howToCheck, due: input.due, why: input.why, sourceDocIds, buildingId: bid ?? undefined, reorgId: input.reorgId })
+    : world.goalTree.propose(me, { action: "add-kr", parentId: input.goalId ?? (bid ? world.goalTree.attachmentOf(bid) : undefined), text: input.text, howToCheck: input.howToCheck, due: input.due, why: input.why, sourceDocIds, buildingId: bid ?? undefined, reorgId: input.reorgId });
   return { proposal: { id: p.id, action: p.action, status: p.status, outsideScope: p.outsideScope }, note: `Proposed ${p.id}. A human accepts or cuts it; once accepted, propose_grant can name the key result.` };
 }
 

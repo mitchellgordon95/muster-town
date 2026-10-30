@@ -46,8 +46,9 @@ export interface ManageGate {
 export function wakeManager(ctx: Ctx, st: ManageState, gate: ManageGate, buildingId: string): Promise<Session>[] {
   const { world } = ctx;
   const building = world.buildings.get(buildingId);
-  if (!building || building.kind === "town-hall") return [];
-  const mgr = managerAgentOf(world, building);
+  if (!building) return [];
+  // the Town Hall has no manager: only its residents' 1:1s (the Planner's "Plan with an agent") are answered
+  const mgr = building.kind === "town-hall" ? undefined : managerAgentOf(world, building);
   const out: Promise<Session>[] = [];
   const add = (p: Promise<Session> | null) => { if (p) out.push(p); };
   if (mgr && homeOf(world, mgr.id) === building.id) add(wakeTalker(ctx, st, gate, mgr, intrayOf(world, building.id).filter((d) => !st.offered.has(d.id))));
@@ -93,7 +94,7 @@ function wakeTalker(ctx: Ctx, st: ManageState, gate: ManageGate, agent: Agent, f
     for (const m of talks) {
       const f = st.fed.get(m.id);
       if (f?.sessionId !== live.sessionId) {
-        if (live.input.push(oneOnOnePrompt(m, nameOf, humanDecisionsBlock(world, m)))) st.fed.set(m.id, { sessionId: live.sessionId, idx: m.transcript.length });
+        if (live.input.push(oneOnOnePrompt(m, nameOf, talkBlocks(world, m)))) st.fed.set(m.id, { sessionId: live.sessionId, idx: m.transcript.length });
         continue;
       }
       for (const u of m.transcript.slice(f.idx)) if (u.speakerId !== agent.id && u.speakerKind !== "system") live.input.push(oneOnOneUtterance(m, nameOf(u.speakerId), u.text));
@@ -108,6 +109,9 @@ function wakeTalker(ctx: Ctx, st: ManageState, gate: ManageGate, agent: Agent, f
   for (const d of offer) st.offered.add(d.id);
   return runManageSession(ctx, st, agent.id, offer, talks);
 }
+
+/** What a 1:1's prompt carries after the conversation: the human's past decisions, and the Planner's brief in a Planner 1:1. */
+const talkBlocks = (world: World, m: Meeting): string => [humanDecisionsBlock(world, m), world.reorgs.plannerBrief(m)].filter(Boolean).join("\n\n");
 
 /** Close 1:1s nobody spoke in for ONE_ON_ONE_QUIET_MS (nobody typing either). The phase event wakes the manager to wrap up. */
 export function closeQuietOneOnOnes(ctx: Ctx): void {
@@ -134,14 +138,14 @@ export async function runManageSession(ctx: Ctx, st: ManageState, agentId: strin
   const run = runAgentSession(ctx, {
     agentId, purpose: "manage", model: agent.model ?? building.model, maxTurns: building.maxTurnsPerSession, web: false, meetingId: first?.id ?? null,
     system: workSystemPrompt(agent, building, world.town.get(), { ...sessionMemory(world, agent, building), skills: skillsBlock(world.skills.forAgent(agentId)) }),
-    prompt: first ? oneOnOnePrompt(first, nameOf, humanDecisionsBlock(world, first)) : managePrompt(building, fresh, nameOf),
+    prompt: first ? oneOnOnePrompt(first, nameOf, talkBlocks(world, first)) : managePrompt(building, fresh, nameOf),
     keepOpen: () => openOneOnOnes(world, agentId).length > 0,
   });
   // runAgentSession registered the live session before its first await: queue what the prompt didn't cover
   const live = ctx.live.get(agentId);
   if (live && first) {
     for (const m of talks) st.fed.set(m.id, { sessionId: live.sessionId, idx: m.transcript.length });
-    for (const m of more) live.input.push(oneOnOnePrompt(m, nameOf, humanDecisionsBlock(world, m)));
+    for (const m of more) live.input.push(oneOnOnePrompt(m, nameOf, talkBlocks(world, m)));
     for (const d of fresh) live.input.push(managerNewReport(d, nameOf));
   }
   const out = await run;

@@ -54,6 +54,31 @@ describe("the manager's 1:1", () => {
     expect(world.agents.require(mei.id).status).toBe("idle");
   });
 
+  test("Plan with an agent: the Planner answers its Town Hall 1:1 with the tree brief in its prompt and proposes for no building", async () => {
+    const env = await managed(async function* (s) {
+      yield init();
+      const mid = s.received[0].match(/(mt_[a-z0-9]+)/)![1];
+      expect(s.received[0]).toContain("You are the Planner");
+      yield* callVerb(s, "propose_goal", { action: "add-goal", parentId: "gl_join", text: "Strangers finish a task", why: "asked in the 1:1" });
+      yield* callVerb(s, "meeting", { meetingId: mid, action: "speak", text: "Drafted one proposal." });
+      yield result(100, 0.01);
+      expect(await s.next()).toContain("is over");
+      yield result(150, 0.02);
+    });
+    const { world, runtime, sdk, admin } = env;
+    // the Town Hall draws nothing from the Bank: an allocation of its own pays the Planner
+    world.budget.donate(env.seed.admin.id, { tokens: 1_000_000, buildingId: "town-hall", auth: "api-key" });
+    const m = world.reorgs.openPlanner(admin, "gl_join");
+    const planner = world.reorgs.planner()!;
+    await until(() => world.meetings.require(m.id).transcript.length === 2);
+    expect(sdk.sessions).toHaveLength(1);
+    expect(world.sessions.first("agentId = ? AND status = 'running'", [planner.id])).toMatchObject({ purpose: "manage", meetingId: m.id });
+    expect(world.goalProposals.first("proposedBy = ?", [planner.id])).toMatchObject({ buildingId: null, status: "open" });
+    world.ops.endMeeting(admin, m.id);
+    await runtime.whenIdle();
+    expect(world.agents.require(planner.id).status).toBe("idle");
+  });
+
   test("a report's Talk to <author>: the resident author answers its own 1:1 (report id in its prompt) and the session ends with it", async () => {
     const env = await managed(async function* (s) {
       yield init();
