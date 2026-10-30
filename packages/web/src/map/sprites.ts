@@ -325,6 +325,18 @@ export function drawBoard(g: CanvasRenderingContext2D, px: number, py: number) {
   g.fillStyle = "#c94f4f"; g.fillRect(px + 5, py + 4, 1, 1); g.fillRect(px + 11, py + 5, 1, 1);
   g.fillStyle = "#4f8fc9"; g.fillRect(px + 6, py + 8, 1, 1);
 }
+/**
+ * The Town Hall goal tree (TILE.GOAL_CHART, place `goal-tree`): a white chart on the back wall with a tiny org chart,
+ * one root box over two branches over three leaves. Draw the wall first.
+ */
+export function drawGoalChart(g: CanvasRenderingContext2D, px: number, py: number) {
+  g.fillStyle = "#2a2d3a"; g.fillRect(px + 1, py + 2, T - 2, 12);
+  g.fillStyle = "#f2efe6"; g.fillRect(px + 2, py + 3, T - 4, 10);
+  g.fillStyle = "#6b6f85"; g.fillRect(px + 7, py + 6, 1, 2); g.fillRect(px + 4, py + 7, 8, 1); g.fillRect(px + 4, py + 7, 1, 2); g.fillRect(px + 11, py + 7, 1, 2);
+  g.fillStyle = "#e0b04a"; g.fillRect(px + 6, py + 4, 3, 2);
+  g.fillStyle = "#4f8fc9"; g.fillRect(px + 3, py + 9, 3, 2); g.fillRect(px + 10, py + 9, 3, 2);
+  g.fillStyle = "#5fb36a"; g.fillRect(px + 7, py + 10, 2, 2);
+}
 /** Filing cabinet stood against a wall face: a grey steel cabinet with three drawers, the top one ajar. Draw the wall first. */
 export function drawCabinet(g: CanvasRenderingContext2D, px: number, py: number) {
   g.fillStyle = "rgba(0,0,0,.25)"; g.fillRect(px + 3, py + 15, 11, 1);
@@ -440,7 +452,7 @@ export function drawTownMap(g: CanvasRenderingContext2D, px: number, py: number,
   g.drawImage(townMapArt(), (ix % TOWN_MAP_SIZE.w) * T, (iy % TOWN_MAP_SIZE.h) * T, T, T, px, py, T, T);
 }
 
-export type IconKind = "library" | "outbox" | "meeting" | "building" | "admin" | "intray" | "board" | "cabinet" | "schedule" | "mod" | "planning" | "bank";
+export type IconKind = "library" | "outbox" | "meeting" | "building" | "admin" | "intray" | "board" | "cabinet" | "schedule" | "mod" | "planning" | "bank" | "goals";
 const iconCache = new Map<string, string>();
 /** Tile-art icons for panel headers (2x scale). */
 export function iconUrl(kind: IconKind): string {
@@ -462,6 +474,7 @@ export function iconUrl(kind: IconKind): string {
     case "cabinet": g.drawImage(tl.wallFace, 0, 0); drawCabinet(g, 0, 0); break;
     case "bank": drawGold(g, 0, 0); break;
     case "schedule": drawSchedule(g, 0, 0); break;
+    case "goals": g.drawImage(tl.wallFace, 0, 0); drawGoalChart(g, 0, 0); break;
     case "mod": g.drawImage(tl.deskL, 0, 0); g.fillStyle = "#7a8a6a"; g.fillRect(9, 9, 5, 4); g.fillStyle = "#e8e9f0"; g.fillRect(10, 10, 3, 1); break;
     case "planning": {
       g.drawImage(tl.deskL, 0, 0);

@@ -694,3 +694,31 @@ div.spend-row > .muted { font-size: 11.5px; }
 .call-meeting-agenda > .btn { align-self: flex-start; }
 .call-meeting .attendees { margin-bottom: 0; }
 .small-line { font-size: 12px; margin: -4px 0 10px; }
+
+/* the Town Hall goal editor (GoalTreePanel, docs/goals.md) */
+.goal-tree { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 4px; }
+.goal-tree-tools { display: flex; gap: 8px; align-items: center; font-size: 12px; }
+.goal-tree-tools select { max-width: 150px; }
+.goal-row { border-left: 2px solid #2f3a52; padding: 3px 0 3px 6px; font-size: 13px; }
+.goal-row.dim { opacity: .35; }
+.goal-row.retired .goal-text { text-decoration: line-through; color: var(--muted); }
+.goal-row-head { display: flex; gap: 6px; align-items: center; flex-wrap: wrap; }
+.goal-text { text-align: left; }
+.chip { font-size: 11px; padding: 1px 6px; border-radius: 9px; background: #24324a; border: 1px solid #34486a; color: var(--text); cursor: pointer; margin-right: 3px; }
+.goal-krs { list-style: none; margin: 3px 0 0 8px; padding: 0; display: flex; flex-direction: column; gap: 3px; }
+.goal-kr { display: flex; gap: 6px; align-items: baseline; flex-wrap: wrap; font-size: 12px; }
+.goal-due { font-size: 11px; color: var(--muted); font-variant-numeric: tabular-nums; }
+.goal-due.late { color: var(--warn); font-weight: 700; }
+.goal-grant { font-size: 11px; }
+.goal-kr-text { flex: 1; min-width: 160px; }
+.goal-kr-acts { display: inline-flex; gap: 4px; }
+.goal-detail { display: flex; flex-direction: column; gap: 8px; }
+.goal-path { font-size: 12px; }
+.goal-meta { font-size: 12px; }
+.goal-actions { display: flex; gap: 6px; flex-wrap: wrap; }
+.goal-form { border: 1px solid #2a2d3a; border-radius: var(--r); padding: 8px 10px; display: flex; flex-direction: column; gap: 6px; }
+.goal-proposals { display: flex; flex-direction: column; gap: 8px; }
+.goal-proposal { border: 1px solid #5a4a1c; border-radius: var(--r); padding: 7px 10px; font-size: 13px; display: flex; flex-direction: column; gap: 4px; }
+.goal-proposal.outside { border-color: #5a2a2e; }
+.goal-diff s { color: var(--muted); }
+.goal-why { font-size: 12px; }
