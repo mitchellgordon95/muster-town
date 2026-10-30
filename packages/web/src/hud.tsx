@@ -16,6 +16,8 @@ import { whoIsHere } from "./whoIsHere";
 const HOMEPAGE = import.meta.env.BASE_URL !== "/" ? "/" : null;
 /** Touch screens have no WASD, E or Enter: the hint says what a tap does instead. */
 const TOUCH = typeof matchMedia === "function" && matchMedia("(pointer: coarse)").matches;
+/** At phone width the expanded card covers about half the map, so a signed-in member starts with it collapsed. */
+const PHONE = typeof matchMedia === "function" && matchMedia("(max-width: 760px)").matches;
 
 const ORDER: AgentStatus[] = ["working", "in-meeting", "walking", "idle", "out-of-budget", "offline", "stopped", "banned"];
 
@@ -33,8 +35,11 @@ export function Hud({ onPasteToken, onHelp }: { onPasteToken?: () => void; onHel
   const events = useTown((s) => s.events);
   const health = useTown((s) => s.health);
   const redeployLive = useTown((s) => s.redeployLive);
-  const [collapsed, setCollapsed] = useState(false);
   const auth = useAuth();
+  // a guest keeps the card open: it holds Sign in (it is already kept short on a phone, styles.css .hud.guest)
+  // (null until toggled: sign-in state can settle after the first render)
+  const [toggled, setCollapsed] = useState<boolean | null>(null);
+  const collapsed = toggled ?? (PHONE && !auth.guest);
   const counts = useMemo(() => {
     const c = new Map<AgentStatus, number>();
     for (const a of Object.values(agents)) if (a.kind === "resident" || a.kind === "visitor") c.set(a.status, (c.get(a.status) ?? 0) + 1);
@@ -125,7 +130,7 @@ export function Hud({ onPasteToken, onHelp }: { onPasteToken?: () => void; onHel
         <button className="icon-btn dash-btn" onClick={() => store.open({ kind: "finance" })} title="Finance: tokens received, used, expired and left, and the 30-day projection" aria-label="Finance">$</button>
         {onHelp ? <button className="icon-btn help-btn" onClick={onHelp} title="Operating manual" aria-label="Operating manual">?</button> : null}
         <span className={`conn ${conn}`} title={`Server: ${conn}${isMock ? " (mock)" : ""}`} />
-        <button className="icon-btn" onClick={() => setCollapsed((c) => !c)} title={collapsed ? "Expand" : "Collapse"}>{collapsed ? "▾" : "▴"}</button>
+        <button className="icon-btn" onClick={() => setCollapsed(!collapsed)} title={collapsed ? "Expand" : "Collapse"}>{collapsed ? "▾" : "▴"}</button>
       </div>
       {collapsed ? null : (
         <>

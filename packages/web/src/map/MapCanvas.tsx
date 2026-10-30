@@ -6,6 +6,8 @@ import { openTownPlanning, townPlan, type Grab, type PlanDraft } from "./townPla
 
 const NUDGE: Record<string, [number, number]> = { arrowup: [0, -1], w: [0, -1], arrowdown: [0, 1], s: [0, 1], arrowleft: [-1, 0], a: [-1, 0], arrowright: [1, 0], d: [1, 0] };
 
+/** A touch screen, for browsers whose click events carry no pointerType. */
+const COARSE = typeof matchMedia === "function" && matchMedia("(pointer: coarse)").matches;
 const MOVE_KEYS = new Set(["w", "a", "s", "d", "arrowup", "arrowdown", "arrowleft", "arrowright"]);
 
 export function typing(): boolean {
@@ -135,7 +137,7 @@ export function MapCanvas(props: { panelInset: number; onTarget: (t: Target | nu
         ref.current!.style.cursor = id || r.hoverSign || r.hoverBlock || table ? "pointer" : "default";
       }}
       onMouseLeave={() => {
-        if (current) { current.hoverId = null; current.hoverSign = null; current.hoverBlock = null; }
+        if (current) { current.hoverId = null; current.hoverSign = null; current.hoverBlock = null; current.tapTip = null; }
         endPlanDrag();
         if (drag.current) { layoutEdit.commitDrag(drag.current.before); drag.current = null; }
       }}
@@ -145,6 +147,10 @@ export function MapCanvas(props: { panelInset: number; onTarget: (t: Target | nu
         const p = local(e);
         // a red "blocked N" badge opens that agent's queue, where each row says why
         const blocked = r.blockAt(p.x, p.y);
+        // on touch there is no hover: the first tap on a badge shows its reasons card, a second tap opens the queue
+        const pt = (e.nativeEvent as PointerEvent).pointerType;
+        if (blocked && (pt ? pt !== "mouse" : COARSE) && r.tapTip !== blocked) { r.tapTip = r.hoverBlock = blocked; return; }
+        r.tapTip = null;
         if (blocked?.startsWith("sched:")) { store.open({ kind: "building", id: blocked.slice(6), tab: "Overview" }); return; }
         if (blocked) { store.open({ kind: "agent", id: blocked, tab: "Assignments" }); return; }
         const id = r.hit(p.x, p.y);

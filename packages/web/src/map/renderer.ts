@@ -97,6 +97,8 @@ export class MapRenderer {
   /** the red "blocked N" badges (agent id per box), and the one under the mouse (its reasons show as a hover card) */
   private blockHits: { id: string; x: number; y: number; w: number; h: number }[] = [];
   hoverBlock: string | null = null;
+  /** The badge whose reasons card a tap opened (touch has no hover); a second tap on it opens the queue. */
+  tapTip: string | null = null;
   /** last frame's camera, for screen -> tile */
   private view = { ox: 0, oy: 0, z: 3 };
   onTarget?: (t: Target | null) => void;
@@ -704,16 +706,17 @@ export class MapRenderer {
     }
     // the hovered blocked badge's reasons, above everything
     const tipFor = this.hoverBlock ? this.blockHits.find((h) => h.id === this.hoverBlock) : undefined;
+    const open = tipFor && tipFor.id === this.tapTip ? "tap again" : "click";
     const schedOf = tipFor?.id.startsWith("sched:") ? tipFor.id.slice(6) : null;
     const rows = tipFor && !schedOf ? s.blocked[tipFor.id] ?? [] : [];
     if (tipFor && rows.length) {
       const name = s.agents[tipFor.id]?.name ?? "";
-      drawTip(g, tipFor.x, tipFor.y + tipFor.h + 4, `${name}: ${rows.length} queued, can't start (click for the queue)`, rows.map((r) => `${r.title}: ${r.blockedBy.text}`), cw, ch);
+      drawTip(g, tipFor.x, tipFor.y + tipFor.h + 4, `${name}: ${rows.length} queued, can't start (${open} for the queue)`, rows.map((r) => `${r.title}: ${r.blockedBy.text}`), cw, ch);
     }
     if (tipFor && schedOf) {
       const later = s.scheduled.filter((x) => x.buildingId === schedOf);
       const bname = s.buildings.find((b) => b.id === schedOf)?.name ?? "";
-      drawTip(g, tipFor.x, tipFor.y + tipFor.h + 4, `${bname}: ${later.length} scheduled (whoever is around takes each run; click for the list)`, later.map((x) => `${x.title}: next ${x.nextRunAt ? runsAtLabel(x.nextRunAt) : "—"}, ${repeatLabel(x)}`), cw, ch);
+      drawTip(g, tipFor.x, tipFor.y + tipFor.h + 4, `${bname}: ${later.length} scheduled (whoever is around takes each run; ${open} for the list)`, later.map((x) => `${x.title}: next ${x.nextRunAt ? runsAtLabel(x.nextRunAt) : "—"}, ${repeatLabel(x)}`), cw, ch);
     }
     // a hovered fork: "fork of Pix · as_…" under its label
     const hf = !tipFor && this.hoverId ? s.agents[this.hoverId] : undefined;
