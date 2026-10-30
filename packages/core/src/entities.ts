@@ -48,12 +48,15 @@ export function createBuilding(
   });
 }
 
+/** The model a new building's manager runs on (flag dc_knetp3kqnu); its forks inherit it. */
+export const STARTER_MANAGER_MODEL = "claude-fable-5-1";
+
 /**
- * A building made from the UI/API moves in its one named manager, town-named, at a desk (1:1 mt_wngibcr98b decision 1:
- * no standing residents; its queued work runs on forks of the manager).
+ * A building made from the UI/API moves in its one named manager, town-named, on Fable, at a desk (1:1 mt_wngibcr98b
+ * decision 1: no standing residents; its queued work runs on forks of the manager).
  */
 function seedManager(world: World, buildingId: string): void {
-  const manager = createResident(world, { buildingId });
+  const manager = createResident(world, { buildingId, model: STARTER_MANAGER_MODEL });
   world.buildings.upsert({ ...world.buildings.require(buildingId), managerAgentId: manager.id });
   syncManagerRoles(world);
 }
