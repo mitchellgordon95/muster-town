@@ -56,7 +56,7 @@ Each fire is ordinary work that ends in a report the manager decides, so "nothin
   calendar on its back wall two tiles right of the board (furniture piece `schedule`, tile `SCHEDULE_BOARD`, place
   `schedule:<buildingId>`), drawn always. Its page stays blank with nothing scheduled; each active schedule adds a bar
   (blue, grey when paused) and a count pip. Hover lists title, next run (your time · UTC), repeat and paused; a click
-  (or E at the board) opens the Overview at the Schedule section. The Town Hall's floor-standing schedule board stays
+  (or E at the board) opens the building panel's Schedule tab. The Town Hall's floor-standing schedule board stays
   the meeting schedule.
 - `scripts/town-blockers.py`: the "Scheduled, not a blocker" line reads `GET /api/scheduled` and `schedule.fired`.
 

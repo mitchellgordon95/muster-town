@@ -352,7 +352,6 @@ textarea[data-drop="over"] { outline: 2px dashed var(--accent, #7aa2ff); outline
 .md.bubble code { background: rgba(0,0,0,.25); padding: 0 4px; border-radius: 3px; } .md.bubble pre code { padding: 0; background: none; }
 
 /* building */
-.members { display: flex; flex-direction: column; gap: 4px; }
 .member { display: flex; align-items: center; gap: 10px; background: #1f2230; border: 1px solid var(--line); border-radius: var(--r); padding: 6px 10px; cursor: pointer; text-align: left; }
 .member:hover { border-color: var(--line-2); }
 .member img { width: 24px; height: 32px; image-rendering: pixelated; }

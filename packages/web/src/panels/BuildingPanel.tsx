@@ -1,15 +1,14 @@
-/** Building panel (E at the door): overview, goals and grants (labs; GoalsTab.tsx), members + roles, settings (managers: building fields). Members shows the one named manager, its live forks and the roles (no add or dismiss: 1:1 mt_wngibcr98b decision 1). Board, filing cabinet and in-tray are places; the collective's secrets are a planning-desk tab. */
+/** Building panel (E at the door): overview, goals, grants and schedule (labs; GoalsTab.tsx), settings (managers: building fields). No Members tab (flag dc_v7ejy1j5ri): managers and roles live on the planning desk (Managers, Roles); live forks show on the map. Board, filing cabinet and in-tray are places; the collective's secrets are a planning-desk tab. */
 import { isFork } from "../forks";
-import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { useEffect, useMemo, useState, type ReactNode } from "react";
 import { DEFAULT_POOL_ID, TILES_PER_DESK, type Schedule, type SnapshotBuilding, type Workspace } from "@muster-town/schema";
 import { fmtPct, poolColor } from "../pools";
 import { api } from "../api";
-import { store, useTown, roleOf } from "../state";
+import { store, useTown } from "../state";
 import { Glyph, PanelShell } from "./PanelShell";
 import { Meter } from "./AgentPanel";
-import { ADJ, Act, Empty, ErrorLine, Field, KV, Loading, MTokensInput, NumberInput, Pill, Section, StatusPill, fmtTokens, nameOf, usd, useLoad } from "./ui";
+import { ADJ, Act, Empty, Field, KV, Loading, MTokensInput, NumberInput, Pill, Section, fmtTokens, usd, useLoad } from "./ui";
 import { fromMillions, repeatLabel, runsAtLabel, toMillions } from "../format";
-import { portraitUrl } from "../map/sprites";
 import { layoutEdit } from "../map/layoutEdit";
 import { canOneOnOne, openOneOnOne } from "./oneOnOne";
 import { UNBLOCK_LINE, blockedLabel } from "./keyResults";
@@ -20,7 +19,7 @@ export function BuildingPanel({ id, tab }: { id: string; tab?: string }) {
   useTown((s) => s.me); // re-render when my permissions change (store.can below)
   if (!b) return <PanelShell title="Unknown building"><Empty>No building with id {id}.</Empty></PanelShell>;
   const lab = b.kind !== "town-hall";
-  const tabs = ["Overview", ...(lab ? ["Goals", "Grants"] : []), "Members", ...(store.can("building.manage", id) ? ["Settings"] : [])];
+  const tabs = ["Overview", ...(lab ? ["Goals", "Grants", "Schedule"] : []), ...(store.can("building.manage", id) ? ["Settings"] : [])];
   return (
     <PanelShell icon={<Glyph kind="building" />} title={b.name} subtitle={b.kind === "town-hall" ? "Town Hall" : "Lab"} tabs={tabs} initialTab={tab && tabs.includes(tab) ? tab : "Overview"}>
       {(t) => (
@@ -28,7 +27,7 @@ export function BuildingPanel({ id, tab }: { id: string; tab?: string }) {
           {t === "Overview" ? <Overview b={b} /> : null}
           {t === "Goals" ? <GoalsTab b={b} /> : null}
           {t === "Grants" ? <GrantsTab b={b} /> : null}
-          {t === "Members" ? <Members b={b} /> : null}
+          {t === "Schedule" ? <ScheduledList b={b} /> : null}
           {t === "Settings" ? <Settings b={b} /> : null}
         </>
       )}
@@ -92,7 +91,6 @@ function Overview({ b }: { b: SnapshotBuilding }) {
           </button>
         </div>
       ) : null}
-      <ScheduledList b={b} />
       <KV items={[
         ["Adj. tokens used", usage ? <><b>{fmtTokens(usage.today)}</b> today · <b>{fmtTokens(usage.allTime)}</b> all-time</> : budget.loading ? "…" : "—"],
         ...(b.kind !== "town-hall" ? [
@@ -117,20 +115,16 @@ function createsLabel(x: Schedule, b: SnapshotBuilding): string {
   return `${lane} · ${b.managerAgentId ? "the building queue (a fork runs it)" : "nobody (no manager agent)"}`;
 }
 
-/** The building's schedule (GET /api/scheduled): timed jobs that live on the building; each run goes to whoever is around. */
+/** The building's Schedule tab (GET /api/scheduled): timed jobs that live on the building; each run goes to whoever is around. The schedule board on the map opens it. */
 export function ScheduledList({ b }: { b: SnapshotBuilding }) {
   const all = useTown((s) => s.scheduled);
   const assignments = useTown((s) => s.assignments);
   useTown((s) => s.me);
   const rows = useMemo(() => all.filter((x) => x.buildingId === b.id), [all, b.id]);
-  // opened from the building's schedule board on the map: scroll here
-  const focus = useTown((s) => s.panel?.kind === "building" && s.panel.id === b.id && s.panel.section === "schedule");
-  const box = useRef<HTMLDivElement>(null);
-  useEffect(() => { if (focus) box.current?.scrollIntoView({ block: "start" }); }, [focus]);
   if (b.kind === "town-hall") return null;
   const canCancel = store.can("building.assign", b.id);
   return (
-    <div ref={box}><Section title={<>Schedule {rows.length ? <Pill tone="scheduled">{rows.length}</Pill> : null}</>}>
+    <Section title={<>Schedule {rows.length ? <Pill tone="scheduled">{rows.length}</Pill> : null}</>}>
       {!rows.length ? <Empty>Nothing scheduled. A manager adds a timed job with the <code>schedule</code> tool; each run goes to whoever is around.</Empty> : (
         <div className="doc-list">{rows.map((x) => {
           const last = x.lastAssignmentId ? assignments[x.lastAssignmentId] : undefined;
@@ -154,90 +148,7 @@ export function ScheduledList({ b }: { b: SnapshotBuilding }) {
           );
         })}</div>
       )}
-    </Section></div>
-  );
-}
-
-/**
- * Members: the building's one named manager and its live forks (1:1 mt_wngibcr98b decision 1: no standing residents,
- * no add or dismiss). Retired agents leave the list; their reports, wikis and logs stay readable by id and in search.
- */
-function Members({ b }: { b: SnapshotBuilding }) {
-  const agents = useTown((s) => s.agents);
-  useTown((s) => s.me);
-  const here = useMemo(() => Object.values(agents).filter((a) => (a.homeBuildingId ?? a.buildingId) === b.id && a.kind !== "human" && a.status !== "retired").sort((x, y) => (x.forkN ?? 0) - (y.forkN ?? 0) || x.name.localeCompare(y.name)), [agents, b.id]);
-  const manager = b.managerAgentId ? agents[b.managerAgentId] : undefined;
-  const forks = here.filter(isFork);
-  const others = here.filter((a) => !isFork(a) && a.id !== manager?.id);
-  const row = (a: (typeof here)[number]) => (
-    <div key={a.id} className="member-row">
-      <button className="member" onClick={() => store.open({ kind: "agent", id: a.id })}>
-        <img src={portraitUrl(a.sprite, 2)} alt="" />
-        <div><b>{a.name}</b><span>{roleOf(a) || (isFork(a) ? `fork of ${manager?.name ?? "the manager"}` : "")}</span></div>
-        <StatusPill status={a.status} />
-      </button>
-    </div>
-  );
-  return (
-    <>
-      {b.kind !== "town-hall" ? (
-        <>
-          <Section title="Manager">
-            {manager ? <div className="members">{row(manager)}</div> : <Empty>No manager agent: you work the in-tray.</Empty>}
-          </Section>
-          <Section title={<>Forks <Pill>{forks.length}</Pill></>}>
-            {forks.length ? <div className="members">{forks.map(row)}</div> : <Empty>No fork is working now. Queued building work runs on a fork of the manager, one per free desk ({b.headcount}).</Empty>}
-          </Section>
-        </>
-      ) : null}
-      {others.length ? <Section title={b.kind === "town-hall" ? "Agents" : "Other agents"}><div className="members">{others.map(row)}</div></Section> : null}
-      <RolesTab buildingId={b.id} />
-    </>
-  );
-}
-
-export function RolesTab({ buildingId }: { buildingId?: string }) {
-  const r = useLoad(() => api().roles(buildingId), [buildingId]);
-  const canManage = buildingId ? store.can("building.manage", buildingId) : store.can("town.manage_roles");
-  if (r.loading && !r.data) return <Loading />;
-  const roles = (r.data?.roles ?? []).filter((x) => (buildingId ? x.buildingId === buildingId : true));
-  return (
-    <>
-      <ErrorLine error={r.error} />
-      {roles.map((role) => {
-        const holders = (r.data?.memberships ?? []).filter((m) => m.roleId === role.id);
-        return (
-          <Section key={role.id} title={<>{role.name} <Pill tone="type">{role.scope}</Pill></>}>
-            <div className="holders">
-              {holders.length ? holders.map((h) => (
-                <span key={h.holderId} className="holder">
-                  {nameOf(h.holderId)}{h.holderKind === "user" ? " (human)" : ""}
-                  {canManage ? <button className="x" title="Remove role" onClick={async () => { try { await api().unassignRole(h); r.reload(); } catch (e) { store.toast((e as Error).message, "bad"); } }}>×</button> : null}
-                </span>
-              )) : <span className="muted">nobody</span>}
-            </div>
-            <div className="perms">{role.permissions.map((p) => <code key={p}>{p}</code>)}</div>
-            {canManage ? <AddHolder onAdd={async (holderKind, holderId) => { await api().assignRole({ roleId: role.id, holderKind, holderId }); r.reload(); }} /> : null}
-          </Section>
-        );
-      })}
-    </>
-  );
-}
-
-function AddHolder({ onAdd }: { onAdd: (kind: "agent" | "user", id: string) => Promise<void> }) {
-  const agents = useTown((s) => s.agents);
-  const [v, setV] = useState("");
-  return (
-    <div className="inline-form">
-      <select value={v} onChange={(e) => setV(e.target.value)}>
-        <option value="">Add holder…</option>
-        {Object.values(agents).filter((a) => a.kind !== "service").map((a) => (
-          <option key={a.id} value={a.kind === "human" ? `user:${a.ownerUserId ?? a.id}` : `agent:${a.id}`}>{a.name}{a.kind === "human" ? " (human)" : ""}</option>
-        ))}
-      </select>
-      <Act small disabled={!v} run={async () => { const [k, id] = v.split(":") as ["agent" | "user", string]; await onAdd(k, id); setV(""); }}>Add</Act>
-    </div>
+    </Section>
   );
 }
 

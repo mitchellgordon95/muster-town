@@ -20,7 +20,7 @@ describe("schedule board (flag dc_ym8fjxqjiv part 2)", () => {
   });
 
   it("the hover lists each schedule's next run, repeat and paused, and says when nothing is scheduled", () => {
-    expect(scheduleTipTitle("Town Workshop", 0, "click")).toBe("Town Workshop schedule: nothing scheduled (click to open the Schedule section)");
+    expect(scheduleTipTitle("Town Workshop", 0, "click")).toBe("Town Workshop schedule: nothing scheduled (click to open the Schedule tab)");
     expect(scheduleTipTitle("Town Workshop", 2, "click")).toContain("2 timed jobs");
     const row = scheduleTipRow({ title: "Daily Town blockers refresh", nextRunAt: "2026-10-30T19:30:00.000Z", everyMinutes: null, dailyAt: ["19:30"], maxRuns: null, paused: false });
     expect(row).toContain("Daily Town blockers refresh: next ");

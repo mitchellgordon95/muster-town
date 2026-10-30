@@ -17,8 +17,7 @@ import { redirectPanel } from "./panels/room";
  * `grant` is the one panel without a place: a grant or proposal (`gr_…`), reached from any link to its id.
  */
 export type PanelKind = "agent" | "building" | "connect" | "library" | "outbox" | "meeting" | "intray" | "board" | "cabinet" | "planning" | "schedule" | "mod" | "bank" | "admin" | "grant" | "manual" | "dashboard" | "finance";
-/** `section`: scroll the panel to that section on open (`schedule`: the building Overview's Schedule, from its schedule board). */
-export interface PanelRef { kind: PanelKind; id?: string; docId?: string; tab?: string; section?: string }
+export interface PanelRef { kind: PanelKind; id?: string; docId?: string; tab?: string }
 export interface Toast { id: number; text: string; tone: "info" | "ok" | "bad"; panel?: PanelRef }
 
 export interface TownState {

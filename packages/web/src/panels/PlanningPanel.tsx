@@ -1,13 +1,12 @@
-/** Planning desk (Town Hall): create buildings, each building's one named manager (read-only; 1:1 mt_wngibcr98b decision 1: no standing residents), roles, secrets (admins: the collective's secrets and grants, docs/secrets.md), export. Donating and Bank pools live at the Bank. */
+/** Planning desk (Town Hall): create buildings, each building's one named manager (admins pick it here; 1:1 mt_wngibcr98b decision 1: no standing residents; flag dc_v7ejy1j5ri: buildings and managers are managed here, no building Members tab), roles (town and building scoped), secrets (admins: the collective's secrets and grants, docs/secrets.md), export. Donating and Bank pools live at the Bank. */
 import { isFork } from "../forks";
 import { useMemo, useState } from "react";
 import { api, API_BASE, tokenStore } from "../api";
 import { store, useTown } from "../state";
 import { Glyph, PanelShell } from "./PanelShell";
-import { RolesTab } from "./BuildingPanel";
 import { SecretsTab } from "./Secrets";
-import { NEW_LAB_LOT, TILES_PER_DESK, desksForLot } from "@muster-town/schema";
-import { Act, Empty, Field, Section, StatusPill } from "./ui";
+import { NEW_LAB_LOT, TILES_PER_DESK, desksForLot, type SnapshotBuilding } from "@muster-town/schema";
+import { Act, Empty, ErrorLine, Field, Loading, Pill, Section, StatusPill, nameOf, useLoad } from "./ui";
 import { portraitUrl } from "../map/sprites";
 
 export function PlanningPanel({ tab }: { tab?: string }) {
@@ -62,7 +61,7 @@ export function Buildings() {
   );
 }
 
-/** Each building's one named manager (its queued work runs on forks of it); no roster to add to or dismiss from. */
+/** Each building's one named manager (its queued work runs on forks of it); no roster to add to or dismiss from. Holders of building.manage pick it here. */
 function Managers() {
   const all = useTown((s) => s.buildings);
   const agents = useTown((s) => s.agents);
@@ -70,23 +69,43 @@ function Managers() {
   const labs = useMemo(() => all.filter((b) => b.kind !== "town-hall"), [all]);
   return (
     <>
-      <p className="direction">Every building has one named manager; its queued work runs on forks of it. A building's Members tab shows its live forks.</p>
+      <p className="direction">Every building has one named manager; its queued work runs on forks of it, which you see working on the map.</p>
       {labs.map((b) => {
         const a = b.managerAgentId ? agents[b.managerAgentId] : undefined;
         const forks = Object.values(agents).filter((x) => isFork(x) && x.forkOf === a?.id && x.status !== "retired").length;
         return (
           <Section key={b.id} title={b.name}>
             {!a ? <Empty>No manager agent: humans work its in-tray.</Empty> : (
-              <button className="member" onClick={() => store.open({ kind: "building", id: b.id, tab: "Members" })}>
+              <button className="member" onClick={() => store.open({ kind: "agent", id: a.id })}>
                 <img src={portraitUrl(a.sprite, 2)} alt="" />
                 <div><b>{a.name}</b><span>{forks ? `${forks} fork${forks === 1 ? "" : "s"} working` : "Manager"}</span></div>
                 <StatusPill status={a.status} />
               </button>
             )}
+            {store.can("building.manage", b.id) ? <ManagerPicker key={b.managerAgentId ?? ""} b={b} /> : null}
           </Section>
         );
       })}
     </>
+  );
+}
+
+/** Change a building's manager: its named (non-fork) agents, or none (humans work the in-tray). */
+function ManagerPicker({ b }: { b: SnapshotBuilding }) {
+  const agents = useTown((s) => s.agents);
+  const named = useMemo(() => Object.values(agents).filter((a) => a.kind === "resident" && !isFork(a) && a.homeBuildingId === b.id).sort((x, y) => x.name.localeCompare(y.name)), [agents, b.id]);
+  const [v, setV] = useState(b.managerAgentId ?? "");
+  return (
+    <div className="inline-form">
+      <select aria-label={`${b.name} manager`} value={v} onChange={(e) => setV(e.target.value)}>
+        <option value="">none (humans work the in-tray)</option>
+        {named.map((a) => <option key={a.id} value={a.id} disabled={a.status === "stopped" || a.status === "banned"}>{a.name}{a.status === "stopped" || a.status === "banned" ? ` (${a.status})` : ""}</option>)}
+      </select>
+      <Act small disabled={v === (b.managerAgentId ?? "")} run={async () => {
+        await api().updateBuilding(b.id, { managerAgentId: v || null });
+        store.toast(`${b.name}: manager ${v ? `set to ${agents[v]?.name ?? v}` : "removed"}`, "ok");
+      }}>Set manager</Act>
+    </div>
   );
 }
 
@@ -190,5 +209,51 @@ function System() {
         <div className="actions"><button className="btn" onClick={() => { tokenStore.set(null); location.reload(); }}>Sign out</button></div>
       </Section>
     </>
+  );
+}
+
+/** Every role (the town's and each building's, named on its pill) and who holds it. */
+function RolesTab() {
+  const r = useLoad(() => api().roles(), []);
+  if (r.loading && !r.data) return <Loading />;
+  const roles = r.data?.roles ?? [];
+  return (
+    <>
+      <ErrorLine error={r.error} />
+      {roles.map((role) => {
+        const holders = (r.data?.memberships ?? []).filter((m) => m.roleId === role.id);
+        const canManage = role.buildingId ? store.can("building.manage", role.buildingId) : store.can("town.manage_roles");
+        return (
+          <Section key={role.id} title={<>{role.name} <Pill tone="type">{role.scope === "building" && role.buildingId ? store.state.buildings.find((b) => b.id === role.buildingId)?.name ?? role.buildingId : role.scope}</Pill></>}>
+            <div className="holders">
+              {holders.length ? holders.map((h) => (
+                <span key={h.holderId} className="holder">
+                  {nameOf(h.holderId)}{h.holderKind === "user" ? " (human)" : ""}
+                  {canManage ? <button className="x" title="Remove role" onClick={async () => { try { await api().unassignRole(h); r.reload(); } catch (e) { store.toast((e as Error).message, "bad"); } }}>×</button> : null}
+                </span>
+              )) : <span className="muted">nobody</span>}
+            </div>
+            <div className="perms">{role.permissions.map((p) => <code key={p}>{p}</code>)}</div>
+            {canManage ? <AddHolder onAdd={async (holderKind, holderId) => { await api().assignRole({ roleId: role.id, holderKind, holderId }); r.reload(); }} /> : null}
+          </Section>
+        );
+      })}
+    </>
+  );
+}
+
+function AddHolder({ onAdd }: { onAdd: (kind: "agent" | "user", id: string) => Promise<void> }) {
+  const agents = useTown((s) => s.agents);
+  const [v, setV] = useState("");
+  return (
+    <div className="inline-form">
+      <select value={v} onChange={(e) => setV(e.target.value)}>
+        <option value="">Add holder…</option>
+        {Object.values(agents).filter((a) => a.kind !== "service").map((a) => (
+          <option key={a.id} value={a.kind === "human" ? `user:${a.ownerUserId ?? a.id}` : `agent:${a.id}`}>{a.name}{a.kind === "human" ? " (human)" : ""}</option>
+        ))}
+      </select>
+      <Act small disabled={!v} run={async () => { const [k, id] = v.split(":") as ["agent" | "user", string]; await onAdd(k, id); setV(""); }}>Add</Act>
+    </div>
   );
 }
