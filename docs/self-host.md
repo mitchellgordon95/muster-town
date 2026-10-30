@@ -159,7 +159,6 @@ town people can sign in to; everything else is optional.
 | `MUSTER_TOWN_DEPLOY_BRANCH` | the branch the town's redeploy pulls (default `main`; `prod` is the last commit that passed CI) | `packages/runtime/src/redeploy.ts` |
 | `GH_TOKEN` | host fallback repo token for desks when `desks.ghToken` is `env` (better: a `GH_TOKEN` collective secret at the Town Hall, docs/secrets.md) | `packages/runtime/src/desk/session.ts` |
 | `BUCKET_NAME`, `AWS_ENDPOINT_URL_S3`, `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`, `MUSTER_TOWN_BACKUP_KEY` (+ optional `AWS_REGION`, default `auto`) | the nightly off-site backup (section 5); all five or it is off | `packages/server/src/backup/index.ts` |
-| `ALERT_TWILIO_SID`, `ALERT_TWILIO_AUTH`, `ALERT_TWILIO_FROM`, `ALERT_SMS_TO`, `ALERT_EMAIL_TO`, `ALERT_SMTP_USER`, `ALERT_SMTP_PASS` | red monitor alerts by SMS (Twilio) and email (Gmail SMTP); all seven or alerts stay in the town | `packages/server/src/monitor.ts` |
 | `MUSTER_TOWN_DEV` | dev only: hands the admin token to any browser that asks. Never set it on a public box | `packages/server/src/main.ts` |
 
 **Fly-only, leave unset:** `FLY_API_TOKEN`, `FLY_APP`, `FLY_DESKS_ACCESS_TOKEN` and `desks.backend: "fly"` run each agent
@@ -219,7 +218,7 @@ in `packages/core/src/db.ts`); there is no separate migrate step, and nothing go
 - `GET /api/health` → `commit` tells you what is running.
 
 **Logs.** stdout: `journalctl -u muster-town -f` (path A) or `docker compose logs -f town` (path B). Startup lines say
-what is on and off (GitHub login, data key, backup, monitor outbound, desk backend). The town's own events (deploys,
+what is on and off (GitHub login, data key, backup, desk backend). The town's own events (deploys,
 alerts, sessions) are at `GET /api/events`.
 
 ## 6. Register with the directory
@@ -260,7 +259,8 @@ What makes self-hosting harder than this page would like, as of 2026-10-29. Stru
 5. **The web client is always at `/workshop/`**, whatever your collective is called.
 6. **The seeded admin is called "Mitchell"** unless `MUSTER_TOWN_ADMIN_NAME` is set before the first start.
 7. ~~**Monitor FYIs need a building named "Prod"**~~. Fixed: without one they go to the Town Hall board as town-wide
-   FYIs. Still open: outbound alerts are wired to Twilio and Gmail SMTP only.
+   FYIs. Alerts outside the town: the server sends no SMS or email; run `deploy/pinger/muster_pinger.py` on another box
+   (deploy/README.md "VPS pinger") with `--url` pointing at your town, and it texts you once on red, once on cleared, once when health is down.
 8. **The full restore drill is Fly-only**: `scripts/backup/restore.sh` without `--local` boots a scratch app on Fly; off Fly
    you restore by hand as in section 5.
 9. **Directory registration** (section 6) does not exist yet.

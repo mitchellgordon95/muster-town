@@ -57,7 +57,7 @@ async function main() {
   const auth = loadAuthSettings({ dataDir: DATA_DIR, port: PORT });
   // off-site backup (deploy/README.md "Backups"): local copies beside the data dir (/data/workshop/backups on Fly); inert without the env
   const backup = new BackupJob({ db: world.db, dir: resolve(DATA_DIR, "..", "backups") });
-  // in-process monitor (dc_f2hpf9u1ya): town events + Prod FYIs, red ones by SMS/email when the ALERT_* secrets are set
+  // in-process monitor (dc_f2hpf9u1ya): town events + Prod FYIs; outside alerts come from the VPS pinger reading /api/health (deploy/pinger)
   const counters = new Counters();
   const probes = processProbes(world, DATA_DIR, () => backup.snapshot(), counters);
   const monitor = new Monitor({ world, metrics: defaultMetrics(probes), counters });

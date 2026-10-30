@@ -3,20 +3,19 @@
  * (RSS, event-loop lag p99, data-volume free space, session slots, backup age, the 5xx share, WebSocket errors, failed
  * Claude sessions and the steal share of finished desk sessions), raises and clears alerts with
  * hysteresis, and sends each one down one path: a town event (type `alert`) plus a Prod board FYI (a town-wide one
- * on the Town Hall board when no building is named Prod, e.g. a self-hosted town), and for red ones an
- * SMS (Twilio REST) and an email (Gmail SMTP) when all seven ALERT_* secrets are set, at most 10 outbound messages an hour.
+ * on the Town Hall board when no building is named Prod, e.g. a self-hosted town). The server sends no SMS or email
+ * itself: the one outside alert path is the VPS pinger on Wright's box (deploy/pinger/muster_pinger.py), which reads
+ * the open red alerts from `GET /api/health` and texts once on red, once on cleared, and once when health is down
+ * (Mitchell, town hall 2026-10-30, notes dc_gf2k156np0).
  * State lives in memory plus one `meta` row (key `monitor`), so a restart keeps the open alerts and notices a gap.
- * `GET /api/health` shows `monitor` read-only; never a secret, phone number or address.
+ * `GET /api/health` shows `monitor` read-only; never a secret.
  */
 import { createDoc, TOWN_HALL_ID, updateDoc, type World } from "@muster-town/core";
 import { statfsSync } from "node:fs";
-import { createConnection, type Socket } from "node:net";
 import { monitorEventLoopDelay, type IntervalHistogram } from "node:perf_hooks";
-import { connect as tlsConnect, type TLSSocket } from "node:tls";
 import type { BackupView } from "./backup/index.ts";
 
 export type Level = "yellow" | "red";
-export type SendResult = "sent" | "skipped" | "error";
 
 /** One sample of a metric: its value, and whether the yellow / red condition holds right now (before any "for N min"). */
 export interface Reading {
@@ -43,38 +42,26 @@ export interface Metric {
 }
 
 export interface AlertView { key: string; level: Level; since: string; value: number }
-export interface MonitorView {
-  lastSampleAt: string | null; outbound: boolean; alerts: AlertView[];
-  /** when the one-time self-test alert went out (the first start with all ALERT_* secrets set); null until then */
-  selfTestAt: string | null;
-}
+export interface MonitorView { lastSampleAt: string | null; alerts: AlertView[] }
 
 interface OpenAlert extends AlertView {
   docId: string | null; notifiedAt: number; okCount: number;
   /** the last sample that had a reading for this key (older persisted state lacks it: `since` stands in) */
   lastReadAt?: number;
 }
-interface Persisted { lastSampleAt: string | null; alerts: OpenAlert[]; sent: number[]; selfTestAt: string | null }
-
-export interface Senders {
-  sms(text: string): Promise<void>;
-  email(subject: string, text: string): Promise<void>;
-}
+/** older rows also carry `sent` and `selfTestAt` from the removed server-side SMS/email path; ignored */
+interface Persisted { lastSampleAt: string | null; alerts: OpenAlert[] }
 
 export const SAMPLE_MS = 60_000;
 /** an alert clears after this many consecutive samples under yellow */
 export const CLEAR_AFTER = 5;
-/** a key that stays red re-alerts at most this often (6 h: hourly texts about one stuck alert were spam, Mitchell 10-30) */
+/** a key that stays red re-alerts (event + FYI update) at most this often (6 h: hourly texts about one stuck alert were spam, Mitchell 10-30) */
 export const REALERT_MS = 6 * 60 * 60_000;
-/** outbound messages (each SMS and each email counts one) per rolling hour, all keys together */
-export const OUTBOUND_CAP = 10;
 const HOUR_MS = 60 * 60_000;
 /** a gap between samples longer than this writes a "monitor gap" event when sampling resumes */
 export const GAP_MS = 5 * 60_000;
 const MIN = 60_000;
 const MB = 1024 * 1024;
-
-export const ALERT_ENV = ["ALERT_TWILIO_SID", "ALERT_TWILIO_AUTH", "ALERT_TWILIO_FROM", "ALERT_SMS_TO", "ALERT_EMAIL_TO", "ALERT_SMTP_USER", "ALERT_SMTP_PASS"] as const;
 
 /** What the default metrics read; tests pass fakes. */
 export interface Probes {
@@ -271,10 +258,6 @@ export function processProbes(world: World, dataDir: string, backup: () => Backu
 export interface MonitorOptions {
   world: World;
   metrics: Metric[];
-  /** the seven ALERT_* values (process.env); any missing = in-town only */
-  env?: Record<string, string | undefined>;
-  /** default: Twilio REST + Gmail SMTP from env */
-  senders?: Senders;
   now?: () => number;
   log?: Pick<Console, "log" | "warn">;
   /** what app.ts / ws.ts bump (default: a fresh one on this monitor's clock) */
@@ -284,19 +267,15 @@ export interface MonitorOptions {
 }
 
 export class Monitor {
-  readonly outbound: boolean;
   /** the HTTP / WebSocket error counters the 5xx and ws metrics read (when built over the same Counters) */
   readonly counters: Counters;
-  private readonly senders: Senders | null;
   private readonly now: () => number;
   private readonly log: Pick<Console, "log" | "warn">;
   private readonly world: World;
   private alerts = new Map<string, OpenAlert>();
   /** per key: when the yellow / red condition started holding (null = not holding) */
   private holding = new Map<string, { yellow: number | null; red: number | null }>();
-  private sent: number[] = [];
   private lastSampleAt: number | null = null;
-  private selfTestAt: string | null = null;
   private timer: NodeJS.Timeout | null = null;
 
   constructor(private opts: MonitorOptions) {
@@ -304,37 +283,14 @@ export class Monitor {
     this.now = opts.now ?? Date.now;
     this.log = opts.log ?? console;
     this.counters = opts.counters ?? new Counters(this.now);
-    const env = opts.env ?? process.env;
-    const missing = ALERT_ENV.filter((k) => !env[k]?.trim());
-    this.outbound = missing.length === 0;
-    this.senders = !this.outbound ? null : opts.senders ?? envSenders(env);
-    if (!this.outbound) this.log.log("monitor: outbound disabled");
     const p = this.load();
     this.lastSampleAt = p.lastSampleAt ? Date.parse(p.lastSampleAt) : null;
     for (const a of p.alerts) this.alerts.set(a.key, a);
-    this.sent = p.sent;
-    this.selfTestAt = p.selfTestAt;
   }
 
   start(intervalMs = SAMPLE_MS) {
     this.timer = setInterval(() => { this.sample().catch((e) => this.log.warn(`[monitor] sample failed: ${e instanceof Error ? e.message : String(e)}`)); }, intervalMs);
     this.timer.unref();
-    this.selfTest().catch((e) => this.log.warn(`[monitor] self-test failed: ${e instanceof Error ? e.message : String(e)}`));
-  }
-
-  /**
-   * The first start with all seven ALERT_* secrets set fires one red test alert down the whole path by itself (event,
-   * FYI, SMS, email), so the secrets get proven the moment they exist without anyone calling the test endpoint. Recorded
-   * as `selfTestAt` in the persisted state and on /api/health, so it never repeats across restarts. Returns false when
-   * there was nothing to do (outbound off, or already done).
-   */
-  async selfTest(): Promise<boolean> {
-    if (!this.outbound || this.selfTestAt) return false;
-    this.selfTestAt = new Date(this.now()).toISOString();
-    this.save();
-    const r = await this.test("the monitor itself on its first start with the ALERT_* secrets set (one-time self-test)");
-    this.log.log(`monitor: self-test alert sent (event ${r.eventId}, sms ${r.sms}, email ${r.email})`);
-    return true;
   }
 
   stop() { if (this.timer) clearInterval(this.timer); this.timer = null; }
@@ -345,9 +301,7 @@ export class Monitor {
   view(): MonitorView {
     return {
       lastSampleAt: this.lastSampleAt ? new Date(this.lastSampleAt).toISOString() : null,
-      outbound: this.outbound,
       alerts: [...this.alerts.values()].map(({ key, level, since, value }) => ({ key, level, since, value })),
-      selfTestAt: this.selfTestAt,
     };
   }
 
@@ -389,20 +343,16 @@ export class Monitor {
     this.save();
   }
 
-  /**
-   * POST /api/admin/monitor/test: one red alert (key `test`) down the whole path (event, FYI, SMS, email); it counts
-   * toward the cap and is not kept open.
-   */
-  async test(by: string, metric?: string): Promise<{ eventId: number; fyiDocId: string | null; sms: SendResult; email: SendResult }> {
+  /** POST /api/admin/monitor/test: one red test alert (key `test`) as an event plus an FYI; it is not kept open. */
+  async test(by: string, metric?: string): Promise<{ eventId: number; fyiDocId: string | null }> {
     const now = this.now();
     const key = metric ?? "test";
     const what = metric ? ` for ${metric}` : "";
     const text = `Test alert (red)${what} from the muster.town monitor, requested by ${by}. Nothing is wrong.`;
     const fyiDocId = this.fyi(`[RED] Monitor test alert${what}`, `${text}\n\n${new Date(now).toISOString()}`);
     const eventId = this.event(text, { key, level: "red", phase: "test", docId: fyiDocId });
-    const out = await this.send(`muster.town RED test: ${text}`, `[muster.town] RED: test alert${what}`, text);
     this.save();
-    return { eventId, fyiDocId, ...out };
+    return { eventId, fyiDocId };
   }
 
   private async raise(m: Metric, level: Level, value: number, now: number, open?: OpenAlert, again = false) {
@@ -418,7 +368,6 @@ export class Monitor {
     if (alert.docId) this.updateFyi(alert.docId, `[${level.toUpperCase()}] ${what}`, body);
     else alert.docId = this.fyi(`[${level.toUpperCase()}] ${what}`, body);
     this.event(text, { key: m.key, level, phase: again ? "realert" : "raise", value, docId: alert.docId });
-    if (level === "red") await this.send(`muster.town RED: ${what}`, `[muster.town] RED: ${what}`, `${text}\n\nSince ${alert.since}.\nhttps://muster.town/api/health`);
   }
 
   private async clear(m: Metric, a: OpenAlert, now: number, stale = false) {
@@ -428,21 +377,6 @@ export class Monitor {
     const why = stale ? `as stale: no new reading for ${Math.round((m.expireMs ?? 0) / MIN)} min (last ${what})` : `after ${CLEAR_AFTER} ${m.cleanUnit ?? "samples"} under yellow (now ${what})`;
     if (a.docId) this.updateFyi(a.docId, `[CLEARED] ${a.level.toUpperCase()} ${m.key}: ${what}`, `**Cleared** at ${new Date(now).toISOString()} ${why}.\n\n- key: ${m.key}\n- was ${a.level.toUpperCase()} since ${a.since}`);
     this.event(text, { key: m.key, level: a.level, phase: "clear", value: a.value, docId: a.docId, ...(stale ? { stale: true } : {}) });
-    if (a.level === "red") await this.send(`muster.town cleared: ${what}`, `[muster.town] cleared: ${m.key}`, text);
-  }
-
-  /** SMS then email, each one message toward the hourly cap. */
-  private async send(sms: string, subject: string, body: string): Promise<{ sms: SendResult; email: SendResult }> {
-    if (!this.senders) return { sms: "skipped", email: "skipped" };
-    const one = async (k: "sms" | "email", f: () => Promise<void>): Promise<SendResult> => {
-      const now = this.now();
-      this.sent = this.sent.filter((t) => now - t < HOUR_MS);
-      if (this.sent.length >= OUTBOUND_CAP) { this.log.warn(`[monitor] ${k} skipped: ${OUTBOUND_CAP}/h cap reached`); return "skipped"; }
-      this.sent.push(now);
-      try { await f(); return "sent"; } catch (e) { this.log.warn(`[monitor] ${k} failed: ${e instanceof Error ? e.message : String(e)}`); return "error"; }
-    };
-    const s = this.senders;
-    return { sms: await one("sms", () => s.sms(sms.slice(0, 300))), email: await one("email", () => s.email(subject, body)) };
   }
 
   private event(text: string, payload: Record<string, unknown>): number {
@@ -469,85 +403,12 @@ export class Monitor {
 
   private load(): Persisted {
     const r = this.world.db.prepare("SELECT value FROM meta WHERE key = 'monitor'").get() as { value: string } | undefined;
-    try { const p = r ? JSON.parse(r.value) as Partial<Persisted> : {}; return { lastSampleAt: p.lastSampleAt ?? null, alerts: p.alerts ?? [], sent: p.sent ?? [], selfTestAt: p.selfTestAt ?? null }; }
-    catch { return { lastSampleAt: null, alerts: [], sent: [], selfTestAt: null }; }
+    try { const p = r ? JSON.parse(r.value) as Partial<Persisted> : {}; return { lastSampleAt: p.lastSampleAt ?? null, alerts: p.alerts ?? [] }; }
+    catch { return { lastSampleAt: null, alerts: [] }; }
   }
 
   private save() {
-    const p: Persisted = { lastSampleAt: this.view().lastSampleAt, alerts: [...this.alerts.values()], sent: this.sent, selfTestAt: this.selfTestAt };
+    const p: Persisted = { lastSampleAt: this.view().lastSampleAt, alerts: [...this.alerts.values()] };
     this.world.db.prepare("INSERT INTO meta (key, value) VALUES ('monitor', ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value").run(JSON.stringify(p));
-  }
-}
-
-/** Twilio REST and Gmail SMTP from the ALERT_* env. */
-export function envSenders(env: Record<string, string | undefined>, fetchFn: typeof fetch = fetch): Senders {
-  const v = (k: (typeof ALERT_ENV)[number]) => env[k]!.trim();
-  return {
-    async sms(text) {
-      const sid = v("ALERT_TWILIO_SID");
-      const res = await fetchFn(`https://api.twilio.com/2010-04-01/Accounts/${encodeURIComponent(sid)}/Messages.json`, {
-        method: "POST",
-        headers: { authorization: `Basic ${Buffer.from(`${sid}:${v("ALERT_TWILIO_AUTH")}`).toString("base64")}`, "content-type": "application/x-www-form-urlencoded" },
-        body: new URLSearchParams({ From: v("ALERT_TWILIO_FROM"), To: v("ALERT_SMS_TO"), Body: text }).toString(),
-        signal: AbortSignal.timeout(15_000),
-      });
-      if (!res.ok) throw new Error(`Twilio ${res.status}`);
-    },
-    email: (subject, text) => smtpSend({ host: "smtp.gmail.com", port: 587, user: v("ALERT_SMTP_USER"), pass: v("ALERT_SMTP_PASS"), to: v("ALERT_EMAIL_TO"), subject, text }),
-  };
-}
-
-/** A minimal SMTP client: plain connect, STARTTLS, AUTH PLAIN, one message. Throws with the server's reply code on failure (never the password). */
-export async function smtpSend(o: { host: string; port: number; user: string; pass: string; to: string; subject: string; text: string; timeoutMs?: number }): Promise<void> {
-  let sock: Socket | TLSSocket = createConnection({ host: o.host, port: o.port });
-  sock.setTimeout(o.timeoutMs ?? 20_000, () => sock.destroy(new Error("SMTP timeout")));
-  let buf = "";
-  let waiter: { resolve: (s: string) => void; reject: (e: Error) => void } | null = null;
-  let failed: Error | null = null;
-  const attach = (s: Socket | TLSSocket) => {
-    s.on("data", (d: Buffer) => { buf += d.toString("utf8"); pump(); });
-    s.on("error", (e: Error) => { failed = e; waiter?.reject(e); waiter = null; });
-  };
-  // a reply is complete at a line "NNN text" (multi-line replies use "NNN-text")
-  const pump = () => {
-    if (!waiter) return;
-    const lines = buf.split("\r\n");
-    for (let i = 0; i < lines.length - 1; i++) {
-      if (/^\d{3} /.test(lines[i]) || /^\d{3}$/.test(lines[i])) {
-        const reply = lines.slice(0, i + 1).join("\n");
-        buf = lines.slice(i + 1).join("\r\n");
-        const w = waiter; waiter = null; w.resolve(reply);
-        return;
-      }
-    }
-  };
-  const read = () => new Promise<string>((resolve, reject) => { if (failed) return reject(failed); waiter = { resolve, reject }; pump(); });
-  const expect = async (code: string, step: string) => { const r = await read(); if (!r.startsWith(code)) throw new Error(`SMTP ${step}: ${r.slice(0, 3)}`); };
-  const cmd = async (line: string, code: string, step: string) => { sock.write(line + "\r\n"); await expect(code, step); };
-  attach(sock);
-  try {
-    await new Promise<void>((resolve, reject) => { sock.once("connect", resolve); sock.once("error", reject); });
-    await expect("220", "greeting");
-    await cmd("EHLO muster.town", "250", "EHLO");
-    await cmd("STARTTLS", "220", "STARTTLS");
-    sock.removeAllListeners("data");
-    sock = await new Promise<TLSSocket>((resolve, reject) => {
-      const t = tlsConnect({ socket: sock as Socket, servername: o.host }, () => resolve(t));
-      t.once("error", reject);
-    });
-    sock.setTimeout(o.timeoutMs ?? 20_000, () => sock.destroy(new Error("SMTP timeout")));
-    attach(sock);
-    await cmd("EHLO muster.town", "250", "EHLO (TLS)");
-    await cmd(`AUTH PLAIN ${Buffer.from(`\0${o.user}\0${o.pass}`).toString("base64")}`, "235", "AUTH");
-    await cmd(`MAIL FROM:<${o.user}>`, "250", "MAIL FROM");
-    await cmd(`RCPT TO:<${o.to}>`, "250", "RCPT TO");
-    await cmd("DATA", "354", "DATA");
-    const msg = [`From: muster.town monitor <${o.user}>`, `To: <${o.to}>`, `Subject: ${o.subject.replace(/[\r\n]+/g, " ")}`, `Date: ${new Date().toUTCString()}`,
-      "MIME-Version: 1.0", "Content-Type: text/plain; charset=utf-8", "", ...o.text.split(/\r?\n/).map((l) => (l.startsWith(".") ? "." + l : l))].join("\r\n");
-    await cmd(`${msg}\r\n.`, "250", "message");
-    sock.write("QUIT\r\n");
-  } finally {
-    sock.end();
-    sock.destroy();
   }
 }

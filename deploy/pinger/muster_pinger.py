@@ -4,8 +4,8 @@
 One probe per run (a systemd timer runs it every 60 s): GET <url>/api/health with a 10 s timeout. A probe fails on no
 response, a non-200 or `ok` not true. After 3 failed probes in a row the pinger sends a RED alert by SMS (Twilio REST)
 and email (Gmail SMTP, STARTTLS on 587); while health stays down it reminds at most every 6 h; when health answers again
-it sends one "recovered" message. As a backstop, when the server reports `monitor.outbound: false` (its own senders
-aren't set up), the pinger forwards the red alerts listed in health `monitor.alerts` on change only: once when a key
+it sends one "recovered" message. It is the single outside alert path (the server sends no SMS or email itself; Mitchell,
+town hall 2026-10-30): it forwards the red alerts listed in health `monitor.alerts` on change only: once when a key
 turns red, a reminder every 6 h while it stays red, and once when it is no longer red. Never on every probe.
 
 Secrets come from an env file (default ~/.miniclaw/muster-pinger.env), with the server's names:
@@ -141,25 +141,21 @@ def run(url: str, state_path: Path, sender: Sender, now: float, result: tuple[bo
                         "[muster.town] recovered: health OK",
                         f"{url} answered OK at {stamp} after about {down_min} min down (red since {time.strftime('%H:%M:%SZ', time.gmtime(float(red_since)))}).")
         fails, red_since, last_alert = 0, None, 0.0
-        # backstop: red alerts the server could not send itself
-        # backstop: red alerts the server could not send itself, on change only (new red, 6-hourly reminder, cleared)
+        # the server's red alerts, on change only (new red, 6-hourly reminder, cleared); the server never sends them itself
         mon = (health or {}).get("monitor") or {}
         open_red = {a.get("key"): a for a in mon.get("alerts", []) if a.get("level") == "red"}
-        if mon.get("outbound") is False:
-            for key, a in open_red.items():
-                if key not in forwarded or now - float(forwarded[key]) >= REALERT_S:
-                    still = "still " if key in forwarded else ""
-                    sender.send(f"muster.town {still}RED: {key} = {a.get('value')} (since {a.get('since')}); forwarded by the pinger.",
-                                f"[muster.town] {still}RED: {key}",
-                                f"The server's monitor has a red alert it can't send itself (monitor.outbound false):\n\n{json.dumps(a, indent=2)}\n\n"
-                                f"The pinger reminds every {REALERT_S // 3600} h while it stays red and sends one message when it clears.\n{url}")
-                    forwarded[key] = now
-            for key in [k for k in forwarded if k not in open_red]:
-                sender.send(f"muster.town cleared: {key} is no longer red.", f"[muster.town] cleared: {key}",
-                            f"The server's monitor no longer lists {key} as red at {stamp}.\n{url}")
-            forwarded = {k: t for k, t in forwarded.items() if k in open_red}
-        else:
-            forwarded = {}  # the server sends its own alerts (or health has no monitor block)
+        for key, a in open_red.items():
+            if key not in forwarded or now - float(forwarded[key]) >= REALERT_S:
+                still = "still " if key in forwarded else ""
+                sender.send(f"muster.town {still}RED: {key} = {a.get('value')} (since {a.get('since')}); forwarded by the pinger.",
+                            f"[muster.town] {still}RED: {key}",
+                            f"The server's monitor has a red alert:\n\n{json.dumps(a, indent=2)}\n\n"
+                            f"The pinger reminds every {REALERT_S // 3600} h while it stays red and sends one message when it clears.\n{url}")
+                forwarded[key] = now
+        for key in [k for k in forwarded if k not in open_red]:
+            sender.send(f"muster.town cleared: {key} is no longer red.", f"[muster.town] cleared: {key}",
+                        f"The server's monitor no longer lists {key} as red at {stamp}.\n{url}")
+        forwarded = {k: t for k, t in forwarded.items() if k in open_red}
     else:
         fails += 1
         print(f"muster-pinger: probe failed ({fails} in a row): {why}", file=sys.stderr)

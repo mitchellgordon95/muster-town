@@ -1,14 +1,12 @@
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it } from "vitest";
 import { deskSizeFor, DESK_FALLBACK_SIZE, TOWN_HALL_ID } from "@muster-town/core";
 import { buildApp } from "../src/app.ts";
-import { ALERT_ENV, CLEAR_AFTER, Counters, DESK_STEAL_EXPIRE_MS, REALERT_MS, type DeskSession, Monitor, OUTBOUND_CAP, defaultMetrics, processProbes, type Probes, type Senders } from "../src/monitor.ts";
+import { CLEAR_AFTER, Counters, DESK_STEAL_EXPIRE_MS, REALERT_MS, type DeskSession, Monitor, defaultMetrics, processProbes, type Probes } from "../src/monitor.ts";
 import { json, seededApp } from "./helpers.ts";
 
 const MIN = 60_000;
 const GB = 1024 * 1024 * 1024;
-const fullEnv = Object.fromEntries(ALERT_ENV.map((k) => [k, "x"]));
-
-function rig(o: { env?: Record<string, string>; probes?: Partial<Probes> } = {}) {
+function rig(o: { probes?: Partial<Probes> } = {}) {
   let t = Date.parse("2026-10-28T20:00:00Z");
   const state = { rss: 0.2 * GB, lag: 0 as number | null, disk: 0.5 as number | null, slots: { running: 1, max: 30 }, queue: 0, backup: null as Probes["backup"] extends () => infer R ? R : never,
     http: { total: 0, errors: 0 }, ws: 0, sessions: { failed15: 0, ended30: 0, failed30: 0 }, desk: [] as DeskSession[] };
@@ -17,11 +15,9 @@ function rig(o: { env?: Record<string, string>; probes?: Partial<Probes> } = {})
     queueWaiting: () => state.queue, backup: () => state.backup, http: () => state.http, wsErrors: () => state.ws, sessions: () => state.sessions,
     deskSessions: (since) => state.desk.filter((d) => d.endedAt > since), deskBill: () => null, ...o.probes,
   };
-  const sent: { kind: "sms" | "email"; text: string }[] = [];
-  const senders: Senders = { sms: async (text) => { sent.push({ kind: "sms", text }); }, email: async (subject) => { sent.push({ kind: "email", text: subject }); } };
   const logs: string[] = [];
   const log = { log: (m: string) => logs.push(m), warn: (m: string) => logs.push(m) };
-  return { state, sent, logs, senders, log, probes, now: () => t, tick: (ms = MIN) => { t += ms; }, env: o.env ?? fullEnv };
+  return { state, logs, log, probes, now: () => t, tick: (ms = MIN) => { t += ms; } };
 }
 
 let close: (() => Promise<void>) | null = null;
@@ -32,7 +28,7 @@ async function setup(o: Parameters<typeof rig>[0] = {}) {
   close = s.close;
   const r = rig(o);
   const buildingId = s.world.buildings.all()[0]!.id;
-  const make = () => new Monitor({ world: s.world, metrics: defaultMetrics(r.probes), env: r.env, senders: r.senders, now: r.now, log: r.log, buildingId });
+  const make = () => new Monitor({ world: s.world, metrics: defaultMetrics(r.probes), now: r.now, log: r.log, buildingId });
   const m = make();
   const step = async (n = 1) => { for (let i = 0; i < n; i++) { r.tick(); await m.sample(); } };
   const alerts = () => (s.world.db.prepare("SELECT payload FROM events WHERE type = 'alert' ORDER BY id").all() as { payload: string }[]).map((e) => JSON.parse(e.payload) as { key: string; level: string; phase: string; docId: string | null });
@@ -47,13 +43,11 @@ describe("monitor thresholds", () => {
     expect(m.view().alerts).toEqual([]);
     await step(1); // condition has held 5 min
     expect(m.view().alerts).toMatchObject([{ key: "rss", level: "yellow", value: 1331 }]);
-    expect(r.sent).toEqual([]); // yellow stays in town
     r.state.rss = 1.7 * GB;
     await step(3);
     expect(m.view().alerts[0]!.level).toBe("yellow");
     await step(1);
     expect(m.view().alerts[0]!.level).toBe("red");
-    expect(r.sent.map((x) => x.kind)).toEqual(["sms", "email"]);
     const raise = alerts().filter((a) => a.phase === "raise");
     expect(raise.map((a) => a.level)).toEqual(["yellow", "red"]);
     // one FYI per raise; the escalation and the clear update it
@@ -69,7 +63,6 @@ describe("monitor thresholds", () => {
     expect(m.view().alerts).toEqual([]);
     expect(alerts().at(-1)).toMatchObject({ key: "rss", phase: "clear", level: "red", docId });
     expect(world.docs.get(docId)!.title).toContain("[CLEARED]");
-    expect(r.sent).toHaveLength(4); // red clear goes out too
   });
 
   it("hysteresis: a sample back over yellow resets the clear count", async () => {
@@ -96,7 +89,6 @@ describe("monitor thresholds", () => {
     expect(alerts().filter((a) => a.phase === "realert")).toHaveLength(0);
     await step(1);
     expect(alerts().filter((a) => a.phase === "realert")).toHaveLength(1);
-    expect(r.sent).toHaveLength(4);
   });
 
   it("slots: yellow at 80% for 15 min; red only when full with queued work for 15 min", async () => {
@@ -132,7 +124,6 @@ describe("monitor thresholds", () => {
     r.state.http = { total: 100, errors: 11 };
     await step(1);
     expect(m.view().alerts).toMatchObject([{ key: "5xx", level: "red", value: 11 }]);
-    expect(r.sent.map((x) => x.kind)).toEqual(["sms", "email"]);
   });
 
   it("ws: yellow over 20 errors in 5 min, red over 100", async () => {
@@ -170,13 +161,12 @@ describe("monitor thresholds", () => {
     const end = (s: Awaited<ReturnType<typeof setup>>, share: number, minAgo = 0.5) =>
       s.r.state.desk.push({ id: `se_${s.r.state.desk.length}`, endedAt: s.r.now() + MIN - minAgo * MIN, share });
 
-    it("red on one session at 50% steal share, SMS + email", async () => {
+    it("red on one session at 50% steal share", async () => {
       const s = await setup();
       await s.step(1);
       end(s, 0.5);
       await s.step(1);
       expect(s.m.view().alerts).toMatchObject([{ key: "desk-steal", level: "red", value: 50 }]);
-      expect(s.r.sent.map((x) => x.kind)).toEqual(["sms", "email"]);
       expect(s.world.docs.get(s.alerts().at(-1)!.docId!)!.title).toContain("[RED] desk session steal 50%");
     });
 
@@ -185,7 +175,6 @@ describe("monitor thresholds", () => {
       end(s, 0.36);
       await s.step(1);
       expect(s.m.view().alerts).toMatchObject([{ key: "desk-steal", level: "yellow", value: 36 }]);
-      expect(s.r.sent).toEqual([]); // yellow stays in town
       await s.step(30);
       end(s, 0.4);
       await s.step(1);
@@ -227,7 +216,6 @@ describe("monitor thresholds", () => {
       expect(s.m.view().alerts).toEqual([]);
       expect(s.alerts().at(-1)).toMatchObject({ key: "desk-steal", phase: "clear", level: "red" });
       expect(s.world.docs.get(docId)!.body).toContain(`after ${CLEAR_AFTER} desk sessions under yellow`);
-      expect(s.r.sent).toHaveLength(4); // raise + clear, SMS and email each
     });
 
     it("clears as stale when no desk session ends for DESK_STEAL_EXPIRE_MS, also after a restart", async () => {
@@ -271,23 +259,21 @@ describe("monitor thresholds", () => {
       s.run(s.r.now() - 2 * H, 1.2 * H); // 1.2 h × $0.045833 = $0.055
       await s.step(1);
       expect(s.m.view().alerts).toMatchObject([{ key: "desk-bill", level: "yellow", value: 55 }]);
-      expect(s.r.sent).toEqual([]);
       expect(s.world.deskBill(new Date(s.r.now()))).toMatchObject({ todayUsd: 0.055, capUsd: 0.1, overCap: false });
       expect(deskSizeFor(s.world.desksConfig(), s.world.deskBill(new Date(s.r.now())))).toEqual({ size: PERF, fallback: false });
     });
 
-    it("red at the cap: SMS + email, new desk sessions fall back to shared-cpu-2x, re-alert after REALERT_MS; resets at midnight UTC", async () => {
+    it("red at the cap: new desk sessions fall back to shared-cpu-2x, re-alert after REALERT_MS; resets at midnight UTC", async () => {
       const s = await billSetup();
       s.run(s.r.now() - 5 * H, 1.2 * H);
       s.run(s.r.now() - 3 * H, 1.2 * H);
       s.run(Date.parse("2026-10-27T22:00:00Z"), 1.5 * H); // yesterday's: not today's bill
       await s.step(1);
       expect(s.m.view().alerts).toMatchObject([{ key: "desk-bill", level: "red", value: 110 }]);
-      expect(s.r.sent.map((x) => x.kind)).toEqual(["sms", "email"]);
       expect(s.world.docs.get(s.alerts().at(-1)!.docId!)!.title).toContain("[RED] desk bill today 110% of the daily cap");
       expect(deskSizeFor(s.world.desksConfig(), s.world.deskBill(new Date(s.r.now())))).toEqual({ size: DESK_FALLBACK_SIZE, fallback: true });
       await s.step(60);
-      expect(s.r.sent).toHaveLength(2); // no re-alert after 1 h any more (REALERT_MS is 6 h)
+      expect(s.alerts().filter((a) => a.phase === "realert")).toHaveLength(0); // no re-alert after 1 h (REALERT_MS is 6 h)
       // sample at 21:01Z; three hours later the UTC day turns and the bill starts from 0
       await s.step(3 * 60);
       expect(s.world.deskBill(new Date(s.r.now()))).toMatchObject({ day: "2026-10-29", todayUsd: 0, overCap: false });
@@ -307,36 +293,21 @@ describe("monitor thresholds", () => {
     });
   });
 
-  it("caps outbound at 10 messages an hour", async () => {
-    const { m, r } = await setup();
-    const results = [];
-    for (let i = 0; i < 7; i++) results.push(await m.test("Admin"));
-    expect(r.sent).toHaveLength(OUTBOUND_CAP);
-    expect(results.at(-1)).toMatchObject({ sms: "skipped", email: "skipped" });
-    expect(results[0]).toMatchObject({ sms: "sent", email: "sent" });
-    r.tick(61 * MIN);
-    expect(await m.test("Admin")).toMatchObject({ sms: "sent", email: "sent" });
-  });
-
-  it("without the secrets: outbound false, one boot log line, red stays in town", async () => {
-    const { r, make, world, buildingId } = await setup({ env: {} });
-    void buildingId;
-    const m = make();
-    expect(m.outbound).toBe(false);
-    expect(r.logs.filter((l) => l === "monitor: outbound disabled")).toHaveLength(2); // one per Monitor built
+  it("the test alert is one event plus one FYI; the view and the result carry nothing else (no SMS or email from the server)", async () => {
+    const { m, world } = await setup();
     const res = await m.test("Admin");
-    expect(res).toMatchObject({ sms: "skipped", email: "skipped" });
+    expect(Object.keys(res).sort()).toEqual(["eventId", "fyiDocId"]);
     expect(res.fyiDocId).toBeTruthy();
     expect(world.db.prepare("SELECT type FROM events WHERE id = ?").get(res.eventId)).toEqual({ type: "alert" });
-    expect(r.sent).toEqual([]);
-    expect(JSON.stringify(m.view())).not.toContain("ALERT_");
+    expect(world.docs.get(res.fyiDocId!)!.title).toBe("[RED] Monitor test alert");
+    expect(m.view()).toEqual({ lastSampleAt: null, alerts: [] });
   });
 
   it("FYIs go to the building named Prod, else the Town Hall board (a self-hosted town without Prod)", async () => {
     const s = await seededApp();
     close = s.close;
-    const r = rig({ env: {} });
-    const make = () => new Monitor({ world: s.world, metrics: [], env: {}, now: r.now, log: r.log });
+    const r = rig();
+    const make = () => new Monitor({ world: s.world, metrics: [], now: r.now, log: r.log });
     s.world.buildings.all().filter((b) => b.name.trim().toLowerCase() === "prod").forEach((b) => s.world.buildings.patch(b.id, { name: `${b.name} old` }));
     const th = (await make().test("Admin")).fyiDocId!;
     expect(s.world.docs.get(th)).toMatchObject({ type: "fyi", buildingId: TOWN_HALL_ID });
@@ -346,32 +317,13 @@ describe("monitor thresholds", () => {
     expect(s.world.docs.get(prod)).toMatchObject({ type: "fyi", buildingId: other.id });
   });
 
-  it("fires one self-test alert on the first start with the secrets, never again across restarts, never without them", async () => {
-    const { r, m, make, alerts, world } = await setup();
-    expect(m.view().selfTestAt).toBeNull();
-    m.start(60 * MIN);
-    await vi.waitFor(() => expect(r.sent).toHaveLength(2));
-    m.stop();
-    expect(r.sent.map((x) => x.kind)).toEqual(["sms", "email"]);
-    expect(r.sent[0]!.text).toContain("self-test");
-    expect(m.view().selfTestAt).toBe("2026-10-28T20:00:00.000Z");
-    const test = alerts().filter((a) => a.phase === "test");
-    expect(test).toHaveLength(1);
-    expect(world.docs.get(test[0]!.docId!)!.title).toBe("[RED] Monitor test alert");
-    r.tick(10 * MIN);
-    const m2 = make(); // a restart with the secrets still set
-    expect(m2.view().selfTestAt).toBe("2026-10-28T20:00:00.000Z");
-    expect(await m2.selfTest()).toBe(false);
-    expect(r.sent).toHaveLength(2);
-    expect(r.logs.filter((l) => l.startsWith("monitor: self-test alert sent"))).toHaveLength(1);
-  });
-
-  it("no self-test without the secrets", async () => {
-    const { r, make } = await setup({ env: {} });
+  it("loads a meta row written before the server-side SMS/email path was removed (extra sent / selfTestAt keys are ignored)", async () => {
+    const { make, world } = await setup();
+    const old = { lastSampleAt: "2026-10-28T19:59:00.000Z", alerts: [{ key: "disk", level: "yellow", since: "2026-10-28T19:50:00.000Z", value: 20, docId: null, notifiedAt: 0, okCount: 0 }], sent: [1, 2], selfTestAt: "2026-10-28T19:00:00.000Z" };
+    world.db.prepare("INSERT INTO meta (key, value) VALUES ('monitor', ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value").run(JSON.stringify(old));
     const m = make();
-    expect(await m.selfTest()).toBe(false);
-    expect(m.view().selfTestAt).toBeNull();
-    expect(r.sent).toEqual([]);
+    expect(m.view()).toEqual({ lastSampleAt: "2026-10-28T19:59:00.000Z", alerts: [{ key: "disk", level: "yellow", since: "2026-10-28T19:50:00.000Z", value: 20 }] });
+    expect(JSON.stringify(m.view())).not.toContain("selfTestAt");
   });
 
   it("keeps open alerts across a restart and writes a gap event when sampling resumes", async () => {
@@ -406,23 +358,22 @@ describe("monitor routes", () => {
 
   it("health shows the monitor block; the test endpoint needs an admin", async () => {
     const s = await seededApp();
-    const r = rig({ env: {} });
-    const m = new Monitor({ world: s.world, metrics: defaultMetrics(r.probes), env: {}, now: r.now, log: r.log, buildingId: s.world.buildings.all()[0]!.id });
+    const r = rig();
+    const m = new Monitor({ world: s.world, metrics: defaultMetrics(r.probes), now: r.now, log: r.log, buildingId: s.world.buildings.all()[0]!.id });
     const app = await buildApp({ world: s.world, dev: false, webDist: false, monitor: m });
     close = async () => { await app.close(); await s.close(); };
     await m.sample();
     const h = await json(app, "GET", "/api/health");
-    expect(h.body.monitor).toEqual({ lastSampleAt: "2026-10-28T20:00:00.000Z", outbound: false, alerts: [], selfTestAt: null });
+    expect(h.body.monitor).toEqual({ lastSampleAt: "2026-10-28T20:00:00.000Z", alerts: [] });
     expect((await json(app, "POST", "/api/admin/monitor/test")).status).toBe(401);
     const agentToken = s.world.tokens.getOrCreate("agent", s.by("Ada")?.id ?? s.world.agents.all().find((a) => a.kind === "resident")!.id);
     expect((await json(app, "POST", "/api/admin/monitor/test", { headers: { authorization: `Bearer ${agentToken}` } })).status).toBe(403);
     const ok = await json(app, "POST", "/api/admin/monitor/test", { headers: s.auth });
     expect(ok.status).toBe(200);
-    expect(ok.body).toMatchObject({ sms: "skipped", email: "skipped" });
+    expect(Object.keys(ok.body).sort()).toEqual(["eventId", "fyiDocId"]);
     expect(typeof ok.body.eventId).toBe("number");
     const desk = await json(app, "POST", "/api/admin/monitor/test?metric=desk-steal", { headers: s.auth });
     expect(desk.status).toBe(200);
-    expect(desk.body).toMatchObject({ sms: "skipped", email: "skipped" });
     expect(JSON.parse((s.world.db.prepare("SELECT payload FROM events WHERE id = ?").get(desk.body.eventId) as { payload: string }).payload)).toMatchObject({ key: "desk-steal", phase: "test" });
     expect(s.world.docs.get(desk.body.fyiDocId)!.title).toBe("[RED] Monitor test alert for desk-steal");
     expect((await json(app, "POST", "/api/admin/monitor/test?metric=nope", { headers: s.auth })).status).toBe(400);
@@ -481,8 +432,8 @@ describe("monitor counters", () => {
 
   it("the app counts responses into the monitor's counters", async () => {
     const s = await seededApp();
-    const r = rig({ env: {} });
-    const m = new Monitor({ world: s.world, metrics: [], env: {}, log: r.log, buildingId: null });
+    const r = rig();
+    const m = new Monitor({ world: s.world, metrics: [], log: r.log, buildingId: null });
     const app = await buildApp({ world: s.world, dev: false, webDist: false, monitor: m });
     close = async () => { await app.close(); await s.close(); };
     await json(app, "GET", "/api/health");
