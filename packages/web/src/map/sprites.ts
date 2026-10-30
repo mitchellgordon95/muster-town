@@ -307,6 +307,20 @@ export function drawSchedule(g: CanvasRenderingContext2D, px: number, py: number
   g.fillStyle = "#7cc4ff"; g.fillRect(px + 2, py + 9, 2, 1);
 }
 
+/**
+ * A building's schedule board: the Town Hall's calendar (same frame, page and purple header) hung on the back wall
+ * with two binder rings, its days blank. The map draws the active schedules on it (`scheduleMarks`). Draw the wall first.
+ */
+export function drawWallSchedule(g: CanvasRenderingContext2D, px: number, py: number) {
+  g.fillStyle = "#2a2d3a"; g.fillRect(px + 1, py + 2, T - 2, 12);
+  g.fillStyle = "#f2efe6"; g.fillRect(px + 2, py + 3, T - 4, 10);
+  g.fillStyle = "#c79bff"; g.fillRect(px + 2, py + 3, T - 4, 2);
+  g.fillStyle = "#c5c8d6";
+  for (let x = 5; x < T - 2; x += 3) g.fillRect(px + x, py + 5, 1, 8);
+  g.fillRect(px + 2, py + 9, T - 4, 1);
+  g.fillStyle = "#9a9db3"; g.fillRect(px + 4, py + 1, 1, 3); g.fillRect(px + T - 5, py + 1, 1, 3);
+}
+
 /** v1.4 visitor bench (Town Hall, by the door): a wooden slatted bench against the bottom wall. */
 export function drawBench(g: CanvasRenderingContext2D, px: number, py: number, n: { l: boolean; r: boolean }) {
   g.fillStyle = "rgba(0,0,0,.22)"; g.fillRect(px, py + 13, T, 2);

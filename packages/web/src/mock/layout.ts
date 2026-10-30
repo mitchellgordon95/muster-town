@@ -113,6 +113,9 @@ export function computeLayout(buildings: Building[], agents: Agent[]): Layout {
       const boardX = x0 + Math.floor(bw / 2) - 2;
       set(boardX, y0, TILE.BOARD);
       places.push({ id: `board:${b.id}`, kind: "board", name: `${b.name} board`, buildingId: b.id, pos: { x: boardX, y: y0 + 1 } });
+      // = core's `schedule` piece: the schedule board two tiles right of the board
+      set(boardX + 2, y0, TILE.SCHEDULE_BOARD);
+      places.push({ id: `schedule:${b.id}`, kind: "schedule", name: `${b.name} schedule board (timed jobs)`, buildingId: b.id, pos: { x: boardX + 2, y: y0 + 1 } });
       const mx = x0 + bw - 2, my = y0 + 2;
       set(mx, my, TILE.MANAGER_DESK);
       places.push({ id: `intray:${b.id}`, kind: "intray", name: `${b.name} in-tray (manager's desk)`, buildingId: b.id, pos: { x: mx, y: my + 1 } });

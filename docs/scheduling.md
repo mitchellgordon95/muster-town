@@ -52,8 +52,12 @@ Each fire is ordinary work that ends in a report the manager decides, so "nothin
   `POST /api/schedules/:id` (`EditScheduleInput`: edit, pause, resume); `POST /api/schedules/:id/cancel`.
 - **Web**: building panel → Overview → **Schedule**: title, next run (your time · UTC), repeat and end (date and
   run count), runs so far, a "paused" pill, the last fired assignment and its state (queued, running, done), what it
-  creates (lane, who takes it), Pause/Resume and Cancel for `building.assign`. On the map, a blue **scheduled N** badge by the
-  building's in-tray; hover lists the next runs, click opens the Overview.
+  creates (lane, who takes it), Pause/Resume and Cancel for `building.assign`. On the map, every lab has a **schedule board**: a
+  calendar on its back wall two tiles right of the board (furniture piece `schedule`, tile `SCHEDULE_BOARD`, place
+  `schedule:<buildingId>`), drawn always. Its page stays blank with nothing scheduled; each active schedule adds a bar
+  (blue, grey when paused) and a count pip. Hover lists title, next run (your time · UTC), repeat and paused; a click
+  (or E at the board) opens the Overview at the Schedule section. The Town Hall's floor-standing schedule board stays
+  the meeting schedule.
 - `scripts/town-blockers.py`: the "Scheduled, not a blocker" line reads `GET /api/scheduled` and `schedule.fired`.
 
 ## What stays a wait

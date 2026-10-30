@@ -385,7 +385,7 @@ export const PlaceKind = z.enum([
   "town-map",
   /** retired: the Town Hall donation box (donating is at the Bank); no layout emits it any more */
   "donation",
-  /** schedule-board — Town Hall: upcoming meetings for every building */
+  /** schedule-board — Town Hall: upcoming meetings for every building; schedule:<buildingId> — each lab's schedule board (its timed jobs) */
   "schedule",
   /** visitor-bench — Town Hall, beside the door: where visitors without a building desk wait */
   "bench",
@@ -1441,6 +1441,8 @@ export const TILE = {
   GOLD: 19,
   /** the Bank: a marble column (decor, not walkable) */
   PILLAR: 20,
+  /** a building's schedule board: a calendar on its back wall (place `schedule:<buildingId>`; the map marks its active schedules) */
+  SCHEDULE_BOARD: 21,
 } as const;
 /**
  * The Bank: a fixed landmark (not a building row, so it never takes a budget share) south of the road,

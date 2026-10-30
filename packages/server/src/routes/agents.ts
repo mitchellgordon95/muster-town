@@ -113,7 +113,7 @@ export async function agentRoutes(app: FastifyInstance) {
 
   /** Every agent's blocked queued assignments with the reason (the map's blocked badges and red lines): { agents: { [agentId]: BlockedAssignment[] } } */
   app.get("/api/blocked", async () => ({ agents: townBlocked(world) }));
-  /** Every building's active schedules, soonest run first (the map's scheduled badges): { schedules: Schedule[] } */
+  /** Every building's active schedules, soonest run first (the map's schedule boards): { schedules: Schedule[] } */
   app.get("/api/scheduled", async () => ({ schedules: townSchedules(world) }));
   /** A building's schedules (active soonest first, then the 20 most recently ended): { schedules: Schedule[] } */
   app.get<{ Params: Params }>("/api/buildings/:id/schedules", async (req) => ({ schedules: buildingSchedules(world, world.buildings.require(req.params.id, "building").id) }));

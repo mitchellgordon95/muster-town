@@ -183,6 +183,7 @@ export function computeLayout(buildings: Building[], occupancy: Map<string, Map<
     desks.set(b.id, slots);
     places.push(
       { id: `board:${b.id}`, kind: "board", name: `${b.name} board`, buildingId: b.id, pos: stand("board") },
+      { id: `schedule:${b.id}`, kind: "schedule", name: `${b.name} schedule board (timed jobs)`, buildingId: b.id, pos: stand("schedule") },
       { id: `intray:${b.id}`, kind: "intray", name: `${b.name} in-tray (manager's desk)`, buildingId: b.id, pos: stand("intray") },
       { id: `cabinet:${b.id}`, kind: "cabinet", name: `${b.name} filing cabinet`, buildingId: b.id, pos: stand("cabinet") },
       { id: `meeting-room:${b.id}`, kind: "meeting-room", name: `${b.name} meeting room`, buildingId: b.id, pos: stand("meeting") },

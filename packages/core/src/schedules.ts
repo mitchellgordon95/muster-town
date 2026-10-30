@@ -237,7 +237,7 @@ export function buildingSchedules(world: World, buildingId: string): Schedule[] 
   ];
 }
 
-/** Every active schedule in the town, soonest run first (GET /api/scheduled; the map's scheduled badges). */
+/** Every active schedule in the town, soonest run first (GET /api/scheduled; the map's schedule boards). */
 export function townSchedules(world: World): Schedule[] {
   return world.schedules.where("status = 'active'", [], "ORDER BY nextRunAt");
 }
