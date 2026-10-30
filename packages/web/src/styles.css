@@ -256,6 +256,9 @@ kbd { font-family: var(--mono); font-size: 11px; background: #2a2d3a; border: 1p
 .doc-list { display: flex; flex-direction: column; gap: 6px; }
 .doc-row { display: block; width: 100%; text-align: left; background: #1f2230; border: 1px solid var(--line); border-radius: var(--r); padding: 8px 11px; cursor: pointer; margin-bottom: 6px; }
 .doc-list .doc-row { margin-bottom: 0; }
+.board-fyi { display: flex; gap: 6px; align-items: flex-start; }
+.board-fyi .doc-row { flex: 1; min-width: 0; }
+.town-note-form .form { display: flex; flex-direction: column; gap: 6px; margin-top: 6px; }
 .doc-row:hover { border-color: var(--line-2); background: #252838; }
 .doc-row-title { font-weight: 600; font-size: 13.5px; }
 .doc-row-act { display: flex; gap: 6px; align-items: center; }

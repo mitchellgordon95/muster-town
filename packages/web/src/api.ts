@@ -303,7 +303,7 @@ export interface Board {
   exploration: { allowanceTokens: number; spentTodayTokens: number };
 }
 
-export interface WriteDocInput { type?: DocType; title: string; body: string; state?: "draft" | "building"; tags?: string[] }
+export interface WriteDocInput { type?: DocType; title: string; body: string; state?: "draft" | "building"; tags?: string[]; /** FYIs only: the board to post to ("town-hall" = a town-wide FYI) */ buildingId?: string }
 export type RequestAction = "claim" | "done" | "delete";
 
 export interface Socket { send(msg: ClientMessage): void; close(): void }
@@ -412,6 +412,8 @@ export interface Api {
   /** POST /api/docs/:id/archive — acknowledge with no reply */
   archive(docId: string, deckSlide?: number, meetingId?: string): Promise<{ doc: Doc; assignment: Assignment | null }>;
   promote(docId: string, state: DocState): Promise<Doc>;
+  /** POST /api/docs/:id/unpublish — take a town-wide FYI off the Town Hall board (back to its author's drafts; author or admin) */
+  unpublish(docId: string): Promise<Doc>;
   // skills (docs/skills.md): written with writeDoc type "skill"
   /** every published skill (plus my drafts) with files, pins and uses */
   skills(): Promise<SkillView[]>;
@@ -625,6 +627,7 @@ export class HttpApi implements Api {
   async docs(q: DocQuery) { return unwrap<Doc[]>(await this.get(`/api/docs${qs(q)}`), "docs"); }
   async doc(id: string) { return unwrap<Doc>(await this.get(`/api/docs/${id}`), "doc"); }
   async writeDoc(i: WriteDocInput) { return unwrap<Doc>(await this.post("/api/docs", i), "doc"); }
+  async unpublish(id: string) { return unwrap<Doc>(await this.post(`/api/docs/${id}/unpublish`, {}), "doc"); }
   async review(id: string, i: In<typeof ReviewInput>) { return unwrap<Doc>(await this.post(`/api/docs/${id}/review`, i), "doc"); }
   async plantFlag(buildingId: string, text: string) { return unwrap<Doc>(await this.post(`/api/buildings/${buildingId}/flags`, { text }), "doc"); }
   reply(id: string, text: string, deckSlide?: number, meetingId?: string) { return this.post<{ doc: Doc; assignment: Assignment | null }>(`/api/docs/${id}/reply`, { text, ...(deckSlide ? { deckSlide } : {}), ...(meetingId ? { meetingId } : {}) }); }
