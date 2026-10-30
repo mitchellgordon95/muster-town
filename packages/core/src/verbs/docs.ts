@@ -60,6 +60,19 @@ export function canPostTownBoard(world: World, me: Agent): boolean {
   return world.buildings.all().some((b) => world.permissions.can(me, "building.manage", b.id));
 }
 
+/**
+ * Take a town-wide FYI off the Town Hall board (Mitchell's flag dc_ym8fjxqjiv): it goes back to its author's drafts,
+ * so it leaves every building's Town-wide section at once and nothing is deleted. Its author or a town admin.
+ */
+export function unpublishTownFyi(world: World, me: Agent, docId: string): Doc {
+  const d = world.docs.require(docId, "doc");
+  if (d.buildingId !== TOWN_HALL_ID || d.state !== "building" || !BOARD_TYPES.includes(d.type)) throw badRequest("Only a town-wide FYI on the Town Hall board can be taken off it here.");
+  if (d.authorId !== world.holderOf(me).id && !world.permissions.isAdmin(me)) throw forbidden("building.manage", "Only its author or a town admin takes a town-wide FYI off the Town Hall board.");
+  const doc = updateDoc(world, d.id, { state: "draft" });
+  world.events.append({ type: "doc.state", agentId: me.kind === "human" ? null : me.id, buildingId: doc.buildingId, text: `"${doc.title}" taken off the Town Hall board`, payload: { docId: doc.id, state: "draft", from: d.state, by: world.holderOf(me).id } });
+  return doc;
+}
+
 /** The building's filing cabinet: everything it has published that isn't a board FYI (reports, meeting notes, articles, notes…), newest first. */
 export function cabinetDocs(world: World, buildingId: string, limit: number, filter: { type?: Doc["type"]; authorId?: string } = {}): Doc[] {
   const where = whereOf({ type: filter.type, authorId: filter.authorId }, [{ sql: `buildingId = ? AND state != 'draft' AND type NOT IN (${BOARD_SQL})`, params: [buildingId] }]);
