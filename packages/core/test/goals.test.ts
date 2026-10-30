@@ -134,6 +134,24 @@ describe("the town goal tree (docs/goals.md, step 1)", () => {
   });
 });
 
+describe("the goal editor (docs/goals.md, step 3)", () => {
+  it("a goal's History tab: its own edits, its key results, attachments and proposals, newest first; not its siblings'", () => {
+    const { admin, tree, labGoal, otherGoal } = setup();
+    tree.update(admin, labGoal.id, { text: "A funder sees every token" });
+    const kr = tree.addKeyResult(admin, labGoal.id, { text: "The Bank counts every token type", howToCheck: "GET /api/health", due });
+    tree.update(admin, otherGoal.id, { text: "Someone else's goal" });
+    const child = tree.create(admin, { parentId: labGoal.id, text: "A child goal" });
+    const types = tree.history(labGoal.id).map((e) => e.type);
+    expect(types[0]).toBe("goal.created");
+    expect(types).toEqual(expect.arrayContaining(["goal.edited", "kr.created", "goal.attached", "goal.created"]));
+    const texts = tree.history(labGoal.id).map((e) => e.text).join("\n");
+    expect(texts).not.toMatch(/Someone else's goal/);
+    expect(texts).toMatch(new RegExp(kr.text));
+    expect(tree.history(child.id).map((e) => e.type)).toEqual(["goal.created"]);
+    expect(() => tree.history("gl_nope")).toThrow();
+  });
+});
+
 describe("migration 061: lossless from per-building objectives", () => {
   it("every building gets gl_<id> (the Town Hall the root), objectives keep their ids, KRs keep id/status/grants, met ones archive", () => {
     const dir = tempDir(), migrations = join(dir, "migrations");

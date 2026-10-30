@@ -1063,7 +1063,7 @@ export interface GoalTreeNode {
   id: string; parentId: string | null; text: string; status: "active" | "retired"; ownerId: string | null;
   owner: { goalId: string; userId: string | null; name: string };
   buildings: { id: string; name: string }[];
-  keyResults: { id: string; text: string; status: string; due: string | null; archivedAt: string | null }[];
+  keyResults: { id: string; text: string; howToCheck: string; status: string; due: string | null; archivedAt: string | null; buildingId: string; grantId: string | null }[];
   children: GoalTreeNode[];
 }
 const Due = z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "a date YYYY-MM-DD");
