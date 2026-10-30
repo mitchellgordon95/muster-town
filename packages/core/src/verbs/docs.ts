@@ -73,6 +73,29 @@ export function unpublishTownFyi(world: World, me: Agent, docId: string): Doc {
   return doc;
 }
 
+/** Who may edit a board note (Mitchell's flag dc_4itg2gxfqf): its author, a town admin, or a manager (building.manage) of the note's building. */
+export function canEditBoardNote(world: World, me: Agent, d: Doc): boolean {
+  if (d.authorId === world.holderOf(me).id || world.permissions.isAdmin(me)) return true;
+  return !!d.buildingId && world.permissions.can(me, "building.manage", d.buildingId);
+}
+
+/**
+ * Edit a board note's title and body in place (PATCH /api/docs/:id, the board panel's Edit). Only a published FYI on
+ * a board; its author, a town admin or the building's manager. It stays where it is; only title and body change.
+ */
+export function editBoardNote(world: World, me: Agent, docId: string, patch: { title?: string; body?: string }): Doc {
+  const d = world.docs.require(docId, "doc");
+  if (d.state !== "building" || !BOARD_TYPES.includes(d.type)) throw badRequest("Only a note on a board (a published FYI) can be edited here.");
+  if (!canEditBoardNote(world, me, d)) throw forbidden("building.manage", "Only its author, a town admin or the building's manager edits a board note.");
+  const title = patch.title?.trim() ?? d.title;
+  const body = patch.body?.trim() ?? d.body;
+  if (!title || !body) throw badRequest("A board note needs a title and a body.");
+  const doc = updateDoc(world, d.id, { title, body });
+  world.events.append({ type: "doc.updated", agentId: me.kind === "human" ? null : me.id, buildingId: doc.buildingId, text: `${me.name} edited board note "${doc.title}"`, payload: { docId: doc.id, by: world.holderOf(me).id } });
+  notifyMentions(world, me, `${doc.title}\n${doc.body}`, { where: docWhere(doc), docId: doc.id, buildingId: doc.buildingId }, `${d.title}\n${d.body}`);
+  return doc;
+}
+
 /** The building's filing cabinet: everything it has published that isn't a board FYI (reports, meeting notes, articles, notes…), newest first. */
 export function cabinetDocs(world: World, buildingId: string, limit: number, filter: { type?: Doc["type"]; authorId?: string } = {}): Doc[] {
   const where = whereOf({ type: filter.type, authorId: filter.authorId }, [{ sql: `buildingId = ? AND state != 'draft' AND type NOT IN (${BOARD_SQL})`, params: [buildingId] }]);

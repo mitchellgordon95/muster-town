@@ -1,4 +1,4 @@
-import { AppError, canSeeDoc, findManual, revisionsOf, searchDocs, unpublishTownFyi, whereOf } from "@muster-town/core";
+import { AppError, canSeeDoc, findManual, revisionsOf, searchDocs, editBoardNote, unpublishTownFyi, whereOf } from "@muster-town/core";
 import { CreateMeetingInput, DocState, DocType, MeetingPhase, MeetingPresentInput, MeetingSayInput, ReplyInput, ReviewInput, VerbInputs } from "@muster-town/schema";
 import type { FastifyInstance } from "fastify";
 import { z } from "zod";
@@ -14,6 +14,7 @@ const DocsQuery = z.object({
 const PromoteBody = z.object({ state: z.enum(["building", "library"]) });
 const RequestBody = z.object({ action: z.enum(["claim", "done", "delete"]), body: z.string().optional() });
 const MeetingsQuery = z.object({ buildingId: z.string().optional(), phase: MeetingPhase.optional() });
+const EditBoardNoteBody = z.object({ title: z.string().max(300).optional(), body: z.string().max(100_000).optional() });
 const EndBody = z.object({ closing: z.string().optional() });
 
 /** Library/board docs, reviews, outbox lifecycle; meetings. */
@@ -78,6 +79,12 @@ export async function docRoutes(app: FastifyInstance) {
 
   /** Take a town-wide FYI off the Town Hall board (back to its author's drafts): its author or a town admin. */
   app.post<{ Params: Params }>("/api/docs/:id/unpublish", async (req) => ({ doc: unpublishTownFyi(world, actorOf(world, req), req.params.id) }));
+
+  /** Edit a board note's title/body (the board panel's Edit): its author, a town admin or the building's manager. */
+  app.patch<{ Params: Params }>("/api/docs/:id", async (req) => {
+    requireAuth(req);
+    return { doc: editBoardNote(world, actorOf(world, req), req.params.id, parse(EditBoardNoteBody, req.body)) };
+  });
 
   app.post<{ Params: Params }>("/api/docs/:id/promote", async (req) => {
     const { state } = parse(PromoteBody, req.body);

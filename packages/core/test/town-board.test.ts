@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { boardWithTownDocs, buildingRoleId, sessionMemory, unpublishTownFyi, workSystemPrompt, TOWN_HALL_ID } from "../src/index.ts";
+import { boardWithTownDocs, buildingRoleId, editBoardNote, sessionMemory, unpublishTownFyi, workSystemPrompt, TOWN_HALL_ID } from "../src/index.ts";
 import { seededWorld } from "./helpers.ts";
 
 const LAB = "carbon-cycle";
@@ -60,5 +60,27 @@ describe("Town Hall board (town-wide FYIs)", () => {
     expect(unpublishTownFyi(world, admin, b.id).state).toBe("draft");
     expect(boardWithTownDocs(world, LAB, 20).map((d) => d.id)).toEqual([own.id]);
     expect(() => unpublishTownFyi(world, manager, a.id)).toThrow(/Town Hall board/);
+  });
+
+  it("a board note is edited in place by its author, an admin or the building's manager (flag dc_4itg2gxfqf)", async () => {
+    const { world, by, admin } = seededWorld();
+    const mei = by("Mei");
+    const others = world.agents.where("homeBuildingId = ? AND kind != 'human' AND id != ?", [LAB, mei.id]);
+    const [manager, member] = others;
+    world.permissions.grant(manager, buildingRoleId(LAB, "manager"));
+    const own = await world.verbs.write(mei, { type: "fyi", title: "lab fyi", body: "old", state: "building" });
+    // a member who isn't its author can't; its author, the manager and an admin can
+    expect(() => editBoardNote(world, member, own.id, { body: "x" })).toThrow(/author, a town admin or the building's manager/);
+    expect(editBoardNote(world, mei, own.id, { title: " lab fyi v2 ", body: "new" })).toMatchObject({ title: "lab fyi v2", body: "new", state: "building", buildingId: LAB });
+    expect(editBoardNote(world, manager, own.id, { body: "by manager" }).body).toBe("by manager");
+    expect(editBoardNote(world, admin, own.id, { body: "by admin" }).title).toBe("lab fyi v2");
+    expect(boardWithTownDocs(world, LAB, 20).find((d) => d.id === own.id)?.body).toBe("by admin");
+    // a town-wide note: the lab's manager isn't the Town Hall's manager
+    const town = await world.verbs.write(admin, { type: "fyi", title: "Town rule", body: "x", state: "building", buildingId: TOWN_HALL_ID });
+    expect(() => editBoardNote(world, manager, town.id, { body: "y" })).toThrow(/building's manager/);
+    // only published board notes, never emptied
+    expect(() => editBoardNote(world, mei, own.id, { body: "  " })).toThrow(/title and a body/);
+    const note = await world.verbs.write(mei, { type: "note", title: "n", body: "x", state: "building" });
+    expect(() => editBoardNote(world, mei, note.id, { body: "y" })).toThrow(/Only a note on a board/);
   });
 });
