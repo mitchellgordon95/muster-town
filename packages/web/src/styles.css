@@ -719,6 +719,8 @@ div.spend-row > .muted { font-size: 11.5px; }
 .goal-form { border: 1px solid #2a2d3a; border-radius: var(--r); padding: 8px 10px; display: flex; flex-direction: column; gap: 6px; }
 .goal-proposals { display: flex; flex-direction: column; gap: 8px; }
 .goal-proposal { border: 1px solid #5a4a1c; border-radius: var(--r); padding: 7px 10px; font-size: 13px; display: flex; flex-direction: column; gap: 4px; }
+.goal-change { border: 1px solid #5a4a1c; border-radius: var(--r); padding: 7px 10px; margin: 6px 0; font-size: 13px; display: flex; flex-direction: column; gap: 4px; }
+.goal-kr-acts select { font-size: 12px; max-width: 140px; }
 .goal-proposal.outside { border-color: #5a2a2e; }
 .goal-diff s { color: var(--muted); }
 .goal-why { font-size: 12px; }

@@ -456,7 +456,11 @@ export function facilitateMaterial(world: World, meeting: Meeting): string {
   const prev = previousMeeting(world, meeting);
   const last = prev ? `("${prev.title}"):\n${decisionOutcomes(world, prev).map((d) => `- ${d.n}. ${oneLine(d.text, 200)}${d.assigneeId ? ` → ${nameOf(d.assigneeId)}` : ""}: ${d.outcome}`).join("\n") || "(no decisions)"}` : "(none; first meeting)";
   const needs = meeting.attendeeIds.flatMap((id) => (meeting.summaries[id] ?? "").split("\n").filter((l) => /^need:/i.test(l.trim())).map((l) => `- ${nameOf(id)}: ${l.trim().replace(/^need:\s*/i, "")}`)).join("\n") || "(none)";
-  return `${presentingBlock(world, meeting)}In-tray (${meeting.buildingId ? "this building's pending reports" : "the Town Hall's: managers' rollups and proposals, then each building's count"}):
+  // a reorg meeting ("Change this goal"): the change, the prep reports, the proposals and the under-review key results first
+  const reorg = world.reorgs.material(meeting);
+  return `${reorg ? `${reorg}
+
+` : ""}${presentingBlock(world, meeting)}In-tray (${meeting.buildingId ? "this building's pending reports" : "the Town Hall's: managers' rollups and proposals, then each building's count"}):
 ${intray}
 
 Last meeting's decisions and what became of them ${last}

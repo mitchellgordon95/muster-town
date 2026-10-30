@@ -1,4 +1,4 @@
-import { CreateGoalInput, CreateTreeKeyResultInput, DecideGoalProposalInput, GoalProposalStatus, ProposeGoalInput, RetireGoalInput, UpdateGoalInput } from "@muster-town/schema";
+import { ChangeGoalInput, CreateGoalInput, CreateTreeKeyResultInput, ReviewKeyResultInput, DecideGoalProposalInput, GoalProposalStatus, ProposeGoalInput, RetireGoalInput, UpdateGoalInput } from "@muster-town/schema";
 import { worldGoalSpend } from "@muster-town/core";
 import type { FastifyInstance } from "fastify";
 import { z } from "zod";
@@ -8,6 +8,8 @@ const TreeQuery = z.object({ retired: z.enum(["0", "1"]).optional() });
 const ProposalsQuery = z.object({ status: GoalProposalStatus.optional(), buildingId: z.string().optional() });
 const SpendQuery = z.object({ days: z.coerce.number().int().min(1).max(90).default(7) });
 const AttachInput = z.object({ goalId: z.string().min(1) });
+const ChangesQuery = z.object({ goalId: z.string().optional(), open: z.enum(["0", "1"]).optional() });
+const PlanInput = z.object({ goalId: z.string().min(1).optional() });
 
 /**
  * The town goal tree (docs/goals.md, build step 1). Reads are public: the tree is the town's answer to "what is this
@@ -57,6 +59,17 @@ export async function goalRoutes(app: FastifyInstance) {
       keyResults: tree.keyResultsInScope(b.id).filter((k) => tree.inScope(b.id, k.id)),
     };
   });
+
+  /** "Change this goal" (the reorg, build step 5): X → Y, prep assignments, under-review key results and a planning meeting. */
+  app.post<{ Params: Params }>("/api/goals/:id/change", async (req, reply) => reply.code(201).send({ change: world.reorgs.file(actorOf(world, req), req.params.id, parse(ChangeGoalInput, req.body)) }));
+
+  app.get("/api/goal-changes", async (req) => { const q = parse(ChangesQuery, req.query); return { changes: world.reorgs.list({ goalId: q.goalId, open: q.open === "1" }) }; });
+
+  /** An under-review key result: keep, move (goalId) or archive as missed (a human with goals.edit there). */
+  app.post<{ Params: Params }>("/api/key-results/:id/review", async (req) => ({ keyResult: world.reorgs.reviewKr(actorOf(world, req), req.params.id, parse(ReviewKeyResultInput, req.body)) }));
+
+  /** "Plan with an agent": open (or return to) the human's 1:1 with the Planner, about a goal when `goalId` is given. */
+  app.post("/api/planner/one-on-one", async (req) => ({ meeting: world.reorgs.openPlanner(actorOf(world, req), parse(PlanInput, req.body ?? {}).goalId) }));
 
   app.get("/api/goal-proposals", async (req) => ({ proposals: tree.listProposals(parse(ProposalsQuery, req.query)) }));
 

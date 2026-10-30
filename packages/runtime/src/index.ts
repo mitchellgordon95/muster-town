@@ -544,6 +544,7 @@ export function startRuntime(opts: RuntimeOptions): Runtime {
     try { checkWaits(world, d); } catch (e) { log("waits")(e); }
     try { fireSchedules(world, d); } catch (e) { log("schedules")(e); }
     try { closeQuietOneOnOnes(ctx); } catch (e) { log("quiet 1:1s")(e); }
+    try { world.reorgs.tick(d); } catch (e) { log("reorgs")(e); }
     try { walkIdleHome(world, t); } catch (e) { log("walk home")(e); }
     try { for (const b of world.buildings.all()) world.grantDesk.syncBlocked(b.id); } catch (e) { log("blocked buildings")(e); }
     await backendReady;
