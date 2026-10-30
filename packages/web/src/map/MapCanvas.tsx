@@ -6,6 +6,8 @@ import { openTownPlanning, townPlan, type Grab, type PlanDraft } from "./townPla
 
 const NUDGE: Record<string, [number, number]> = { arrowup: [0, -1], w: [0, -1], arrowdown: [0, 1], s: [0, 1], arrowleft: [-1, 0], a: [-1, 0], arrowright: [1, 0], d: [1, 0] };
 
+/** A touch screen, for browsers whose click events carry no pointerType. */
+const COARSE = typeof matchMedia === "function" && matchMedia("(pointer: coarse)").matches;
 const MOVE_KEYS = new Set(["w", "a", "s", "d", "arrowup", "arrowdown", "arrowleft", "arrowright"]);
 
 export function typing(): boolean {
@@ -52,7 +54,7 @@ export function MapCanvas(props: { panelInset: number; onTarget: (t: Target | nu
       // the Bank's town map: Esc or E puts the camera back (walking away does too)
       if (r.flow && (k === "escape" || k === "e")) { r.closeFlow(); e.preventDefault(); e.stopImmediatePropagation(); return; }
       if (MOVE_KEYS.has(k)) { r.keyDown(k); e.preventDefault(); }
-      else if (k === "e" && !e.repeat) { const t = r.currentTarget; if (t) { if (t.action === "flow") r.openFlow(); else if (t.action === "plan") openTownPlanning(); else store.open(t.panel); e.preventDefault(); } }
+      else if (k === "e" && !e.repeat) { const t = r.currentTarget; if (t) { r.interact(t); e.preventDefault(); } }
       else if (k === "tab" && r.cycleTarget(e.shiftKey ? -1 : 1)) e.preventDefault();
       else if (k === "-" || k === "_") r.zoom = Math.max(2, r.zoom - 1);
       else if (k === "=" || k === "+") r.zoom = Math.min(5, r.zoom + 1);
@@ -131,11 +133,11 @@ export function MapCanvas(props: { panelInset: number; onTarget: (t: Target | nu
         const id = r.hoverBlock ? null : r.hit(p.x, p.y);
         r.hoverId = id;
         r.hoverSign = id || r.hoverBlock ? null : r.signAt(p.x, p.y);
-        const table = !id && !r.hoverSign && !r.hoverBlock && (!!r.tableAt(p.x, p.y) || r.mapTableAt(p.x, p.y));
+        const table = !id && !r.hoverSign && !r.hoverBlock && (!!r.tableAt(p.x, p.y) || r.mapTableAt(p.x, p.y) || (!r.flow && !!r.placeAt(p.x, p.y)));
         ref.current!.style.cursor = id || r.hoverSign || r.hoverBlock || table ? "pointer" : "default";
       }}
       onMouseLeave={() => {
-        if (current) { current.hoverId = null; current.hoverSign = null; current.hoverBlock = null; }
+        if (current) { current.hoverId = null; current.hoverSign = null; current.hoverBlock = null; current.tapTip = null; }
         endPlanDrag();
         if (drag.current) { layoutEdit.commitDrag(drag.current.before); drag.current = null; }
       }}
@@ -143,9 +145,13 @@ export function MapCanvas(props: { panelInset: number; onTarget: (t: Target | nu
         (document.activeElement as HTMLElement | null)?.blur();
         const r = current; if (!r || layoutEdit.draft || townPlan.draft) return;
         const p = local(e);
-        // a red "blocked N" badge opens that agent's queue, where each row says why
+        // a red "blocked N" badge opens that agent's queue, where each row says why; a schedule board opens its building's Schedule
         const blocked = r.blockAt(p.x, p.y);
-        if (blocked?.startsWith("sched:")) { store.open({ kind: "building", id: blocked.slice(6), tab: "Overview" }); return; }
+        // on touch there is no hover: the first tap on a badge shows its reasons card, a second tap opens the queue
+        const pt = (e.nativeEvent as PointerEvent).pointerType;
+        if (blocked && (pt ? pt !== "mouse" : COARSE) && r.tapTip !== blocked) { r.tapTip = r.hoverBlock = blocked; return; }
+        r.tapTip = null;
+        if (blocked?.startsWith("sched:")) { store.open({ kind: "building", id: blocked.slice(6), tab: "Overview", section: "schedule" }); return; }
         if (blocked) { store.open({ kind: "agent", id: blocked, tab: "Assignments" }); return; }
         const id = r.hit(p.x, p.y);
         if (id) { store.open({ kind: "agent", id }); return; }
@@ -157,6 +163,9 @@ export function MapCanvas(props: { panelInset: number; onTarget: (t: Target | nu
         if (table) { store.open({ kind: "meeting", id: `room:${table.buildingId ?? ""}` }); return; }
         // the Town Hall map table opens town planning
         if (r.mapTableAt(p.x, p.y)) { openTownPlanning(); return; }
+        // a place (board, cabinet, in-tray, door, Bank, library, ...): walk to it, then do what E does there
+        const place = r.flow ? null : r.placeAt(p.x, p.y);
+        if (place) { r.walkToInteract(place.place, place.target); return; }
         // anywhere else (a tap on a phone too): walk there, like the minimap's click; not over the Bank's town map
         if (!r.flow) { const t = r.tileAt(p.x, p.y); r.walkToTile(t.x, t.y); }
       }}

@@ -8,10 +8,10 @@ import { World } from "./world";
 import { authStore } from "../auth/auth";
 import { T, CHAR_W, CHAR_H, charSheet, outlineSheet, tiles, HUMAN_SPRITE } from "./sprites";
 import { layoutEdit, type LayoutDraft } from "./layoutEdit";
-import { townPlan, type PlanDraft } from "./townPlan";
+import { openTownPlanning, townPlan, type PlanDraft } from "./townPlan";
 import { bubbleFor, buildingBudgetLine, drawBadge, drawFlag, drawBankSign, drawBlockLine, drawBubble, drawLabel, drawPill, drawSign, drawTip, residentBudgetLine, type Bubble } from "./overlay";
 import { blockedByRedeploy } from "../redeploy";
-import { repeatLabel, runsAtLabel } from "../format";
+import { scheduleTipRow, scheduleTipTitle } from "../format";
 import { api } from "../api";
 import { drawFlow, type Flow } from "./flow";
 import { fitZoom, quickWalkGoal } from "./overview";
@@ -42,7 +42,9 @@ export const PLACE_PANEL: Partial<Record<Place["kind"], (p: Place) => PanelRef &
     return { kind: "intray", id: p.buildingId ?? undefined, verb: `Check the in-tray${n ? ` (${n} waiting)` : ""}` };
   },
   planning: () => ({ kind: "planning", verb: "Use the planning desk" }),
-  schedule: () => ({ kind: "schedule", verb: "Read the meeting schedule" }),
+  // the Town Hall's board lists every building's meetings; a lab's board is its timed jobs (the Overview's Schedule section)
+  schedule: (p) => p.id === "schedule-board" ? { kind: "schedule", verb: "Read the meeting schedule" }
+    : { kind: "building", id: p.buildingId ?? undefined, tab: "Overview", section: "schedule", verb: `Read the ${bname(p)} schedule` },
   "mod-station": () => ({ kind: "mod", verb: "Visit the mod station" }),
   library: () => ({ kind: "library", verb: "Browse the library" }),
   outbox: () => ({ kind: "outbox", verb: "Check the outbox" }),
@@ -50,6 +52,27 @@ export const PLACE_PANEL: Partial<Record<Place["kind"], (p: Place) => PanelRef &
   "meeting-room": (p) => ({ kind: "meeting", id: `room:${p.buildingId ?? ""}`, verb: `Join the ${p.name.toLowerCase()}` }),
   door: (p) => ({ kind: "building", id: p.buildingId ?? undefined, verb: `Enter ${p.name.replace(/^door( of|:)?\s*/i, "") || "building"}` }),
 };
+
+/** What E (or a tap) does at a place, or null for places with nothing to do there (the plaza, the bench, desks: their agent is the target). */
+export function placeTarget(p: Place): Target | null {
+  if (p.kind === "bank-map") return { label: "Look at the town map", panel: { kind: "building", id: p.buildingId ?? undefined }, action: "flow" };
+  if (p.kind === "town-map") return { label: "Plan the town", panel: { kind: "planning" }, action: "plan" };
+  const f = PLACE_PANEL[p.kind]; if (!f) return null;
+  const { verb, ...panel } = f(p);
+  return { label: verb, panel };
+}
+
+/**
+ * The active schedules drawn on a schedule board whose tile's top-left is at (x, y) on screen, `z` screen px per
+ * world px: one bar per schedule on the calendar's rows (blue, grey when paused), at most 4. None: the page stays blank.
+ */
+function scheduleMarks(g: CanvasRenderingContext2D, x: number, y: number, z: number, paused: boolean[]) {
+  const spots = [[3, 6], [9, 6], [3, 10], [9, 10]];
+  paused.slice(0, 4).forEach((p, i) => {
+    g.fillStyle = p ? "#9a9db3" : "#2f6fd6";
+    g.fillRect(x + spots[i][0] * z, y + spots[i][1] * z, 4 * z, 2 * z);
+  });
+}
 
 export class MapRenderer {
   private g: CanvasRenderingContext2D;
@@ -88,6 +111,8 @@ export class MapRenderer {
   /** the red "blocked N" badges (agent id per box), and the one under the mouse (its reasons show as a hover card) */
   private blockHits: { id: string; x: number; y: number; w: number; h: number }[] = [];
   hoverBlock: string | null = null;
+  /** The badge whose reasons card a tap opened (touch has no hover); a second tap on it opens the queue. */
+  tapTip: string | null = null;
   /** last frame's camera, for screen -> tile */
   private view = { ox: 0, oy: 0, z: 3 };
   onTarget?: (t: Target | null) => void;
@@ -114,6 +139,19 @@ export class MapRenderer {
     this.picked = keyOf(this.inReach[(i + dir + n) % n]);
     this.updateTarget();
     return true;
+  }
+
+  /** Do a target: E on the nearest, a tap on a place, the touch hint's button. */
+  interact(t: Target) {
+    if (t.action === "flow") this.openFlow();
+    else if (t.action === "plan") openTownPlanning();
+    else store.open(t.panel);
+  }
+  /** A tap or click on a place: walk to its spot, then do what E does there. */
+  walkToInteract(p: Place, t: Target) {
+    if (!this.world) return;
+    const goal = this.world.walkable(p.pos.x, p.pos.y) ? p.pos : this.world.nearestWalkable(p.pos.x, p.pos.y);
+    this.walkRoute(goal, () => this.interact(t));
   }
 
   /** Open the Bank's town map: zoom out to the whole town and stream the Bank's coins to each building. */
@@ -215,13 +253,32 @@ export class MapRenderer {
     return null;
   }
 
-  /** Agent whose red "blocked N" badge is under a screen point (CSS px), or `sched:<buildingId>` for a building's blue "scheduled N". */
+  /** Agent whose red "blocked N" badge is under a screen point (CSS px), or `sched:<buildingId>` for a building's schedule board. */
   blockAt(cx: number, cy: number): string | null {
     for (let i = this.blockHits.length - 1; i >= 0; i--) {
       const h = this.blockHits[i];
       if (cx >= h.x - 2 && cx <= h.x + h.w + 2 && cy >= h.y - 2 && cy <= h.y + h.h + 2) return h.id;
     }
     return null;
+  }
+
+  /**
+   * The interactable place under a screen point (CSS px): the nearest place spot within 1.5 tiles of it (the object often sits a tile off the spot),
+   * and never less than ~22 CSS px so a zoomed-out phone still gets a finger-sized target.
+   */
+  placeAt(cx: number, cy: number): { place: Place; target: Target } | null {
+    const w = this.world; if (!w) return null;
+    const { ox, oy, z } = this.view;
+    const wx = cx / z + ox, wy = cy / z + oy;
+    const r = Math.max(1.5 * T, 22 / z);
+    let best: { place: Place; target: Target } | null = null, bestD = r;
+    for (const p of store.state.places) {
+      const d = Math.hypot(p.pos.x * T + T / 2 - wx, p.pos.y * T + T / 2 - wy);
+      if (d >= bestD) continue;
+      const t = placeTarget(p); if (!t) continue;
+      best = { place: p, target: t }; bestD = d;
+    }
+    return best;
   }
 
   /** Building whose banner is under a screen point (CSS px). */
@@ -395,10 +452,7 @@ export class MapRenderer {
     for (const p of s.places) {
       const d = Math.hypot(p.pos.x * T + T / 2 - this.me.x, p.pos.y * T + T - 2 - this.me.y);
       if (d >= INTERACT_PX) continue;
-      if (p.kind === "bank-map") { near.push({ d, t: { label: "Look at the town map", panel: { kind: "building", id: p.buildingId ?? undefined }, action: "flow" } }); continue; }
-      if (p.kind === "town-map") { near.push({ d, t: { label: "Plan the town", panel: { kind: "planning" }, action: "plan" } }); continue; }
-      const f = PLACE_PANEL[p.kind]; if (!f) continue;
-      const { verb, ...panel } = f(p); near.push({ d, t: { label: verb, panel } });
+      const t = placeTarget(p); if (t) near.push({ d, t });
     }
     // stable order (not by distance) so Tab walks a fixed ring instead of reshuffling as you shuffle around
     const byDist = near.slice().sort((x, y) => x.d - y.d);
@@ -652,30 +706,34 @@ export class MapRenderer {
       if (p.x < -200 || p.x > cw + 200 || p.y < -100 || p.y > ch + 200) continue;
       drawBubble(g, p.x, p.y, bubble, d.id === targetId || d.id === this.hoverId);
     }
-    // a blue "scheduled N" by each building's in-tray: its active schedules (they live on the building, not on anyone);
-    // hover lists the next runs, click opens the building's Overview. After the bubbles: it sits over a desk row, and a
-    // working agent's "Running: …" bubble there would hide it
-    const sched = new Map<string, number>();
-    for (const x of s.scheduled) sched.set(x.buildingId, (sched.get(x.buildingId) ?? 0) + 1);
-    for (const [bid, n] of sched) {
-      const p = s.places.find((x) => x.id === `intray:${bid}`);
-      if (!p) continue;
-      const below = s.grid && s.grid.tiles[(p.pos.y + 1) * s.grid.w + p.pos.x] === TILE.MANAGER_DESK;
-      const q = toScreen(p.pos.x * T - 30, (p.pos.y + (below ? 1 : -1)) * T + 1);
-      if (q.x > -60 && q.x < cw + 60 && q.y > -40 && q.y < ch + 40) this.blockHits.push({ id: `sched:${bid}`, ...drawBadge(g, q.x, q.y, `scheduled ${n}`, "scheduled", this.hoverBlock === `sched:${bid}`) });
+    // each building's schedule board (a calendar on its back wall, baked into the world): its active schedules as
+    // marks on the page and a count pip, a white outline on hover; hover lists them, click opens the Schedule section.
+    // After the bubbles, so a desk agent's "Running: …" bubble can't hide the pip
+    for (const p of s.places) {
+      if (p.kind !== "schedule" || !p.id.startsWith("schedule:") || !s.grid) continue;
+      const bid = p.id.slice(9), gw = s.grid.w;
+      const ty = s.grid.tiles[(p.pos.y - 1) * gw + p.pos.x] === TILE.SCHEDULE_BOARD ? p.pos.y - 1 : p.pos.y + 1;
+      const q = toScreen(p.pos.x * T, ty * T), side = T * z;
+      if (q.x < -60 || q.x > cw + 60 || q.y < -40 || q.y > ch + 40) continue;
+      const mine = s.scheduled.filter((x) => x.buildingId === bid);
+      this.blockHits.push({ id: `sched:${bid}`, x: q.x, y: q.y, w: side, h: side });
+      scheduleMarks(g, q.x, q.y, z, mine.map((x) => x.paused));
+      if (this.hoverBlock === `sched:${bid}`) { g.strokeStyle = "#fff"; g.lineWidth = 2; g.strokeRect(q.x + z, q.y + 2 * z, side - 2 * z, 12 * z); }
+      if (mine.length) drawBadge(g, q.x + side - 2, q.y + 2, mine.length, mine.every((x) => x.paused) ? "neutral" : "scheduled", this.hoverBlock === `sched:${bid}`);
     }
     // the hovered blocked badge's reasons, above everything
     const tipFor = this.hoverBlock ? this.blockHits.find((h) => h.id === this.hoverBlock) : undefined;
+    const open = tipFor && tipFor.id === this.tapTip ? "tap again" : "click";
     const schedOf = tipFor?.id.startsWith("sched:") ? tipFor.id.slice(6) : null;
     const rows = tipFor && !schedOf ? s.blocked[tipFor.id] ?? [] : [];
     if (tipFor && rows.length) {
       const name = s.agents[tipFor.id]?.name ?? "";
-      drawTip(g, tipFor.x, tipFor.y + tipFor.h + 4, `${name}: ${rows.length} queued, can't start (click for the queue)`, rows.map((r) => `${r.title}: ${r.blockedBy.text}`), cw, ch);
+      drawTip(g, tipFor.x, tipFor.y + tipFor.h + 4, `${name}: ${rows.length} queued, can't start (${open} for the queue)`, rows.map((r) => `${r.title}: ${r.blockedBy.text}`), cw, ch);
     }
     if (tipFor && schedOf) {
       const later = s.scheduled.filter((x) => x.buildingId === schedOf);
       const bname = s.buildings.find((b) => b.id === schedOf)?.name ?? "";
-      drawTip(g, tipFor.x, tipFor.y + tipFor.h + 4, `${bname}: ${later.length} scheduled (whoever is around takes each run; click for the list)`, later.map((x) => `${x.title}: next ${x.nextRunAt ? runsAtLabel(x.nextRunAt) : "—"}, ${repeatLabel(x)}`), cw, ch);
+      drawTip(g, tipFor.x, tipFor.y + tipFor.h + 4, scheduleTipTitle(bname, later.length, open), later.map(scheduleTipRow), cw, ch);
     }
     // a hovered fork: "fork of Pix · as_…" under its label
     const hf = !tipFor && this.hoverId ? s.agents[this.hoverId] : undefined;

@@ -6,9 +6,8 @@
 import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import type { Agent, Assignment, BlockedBy, Doc, Event, Permission } from "@muster-town/schema";
 import { api, type AgentPermissionsView, type ForkSummary, type ThreadMessage } from "../api";
-import { forkTip, isFork } from "../forks";
+import { forkTip } from "../forks";
 import { store, useTown, roleOf } from "../state";
-import { DismissButton, canDismiss } from "./Dismiss";
 import { PanelShell } from "./PanelShell";
 import { DocText, Markdown } from "./Markdown";
 import { ADJ, Act, Empty, ErrorLine, KV, Loading, Pill, Section, ShowMore, StatusPill, breakdownTitle, clock, fmtTokens, nameOf, timeAgo, usd, useLoad } from "./ui";
@@ -491,8 +490,6 @@ function AssignmentsTab({ agent }: { agent: Agent }) {
   const put = (r: { assignment?: Assignment; assignments?: Assignment[]; agent?: Agent }) => {
     store.putAssignments([...(r.assignments ?? []), ...(r.assignment ? [r.assignment] : [])]);
   };
-  /** the queued assignment whose Delegate picker is open */
-  const [delegating, setDelegating] = useState<string | null>(null);
   // every session slot on the host is taken: the next assignment waits for one (Planning → System has the cap)
   const noSlot = useTown((s) => slotsFull(s.events, s.health));
   // why each queued one can't start (GET /api/blocked, refetched as queues change)
@@ -532,11 +529,8 @@ function AssignmentsTab({ agent }: { agent: Agent }) {
                 const r = await api().startNext(a.id); put(r);
                 store.toast(r.when === "now" ? `${agent.name} is starting "${a.title}"` : `"${a.title}" runs after the current session`, "ok");
               }}>Start next</Act>
-              <button type="button" className={`btn sm ${delegating === a.id ? "primary" : ""}`} title="Hand this to another resident instead of waiting" onClick={() => setDelegating(delegating === a.id ? null : a.id)}>Delegate</button>
               <Act small tone="bad" run={async () => { put(await api().cancelAssignment(a.id)); }}>Cancel</Act>
             </>
-          ) : null} footer={delegating === a.id ? (
-            <DelegatePicker from={agent} onDone={(r) => { setDelegating(null); put({ assignments: [r.from, r.assignment], agent: r.agent }); store.toast(`"${a.title}" is now ${r.agent.name}'s, at the front of their queue`, "ok"); }} run={(toId) => api().delegateAssignment(a.id, toId, true)} />
           ) : null} />
         ))}
       </Section>
@@ -547,12 +541,6 @@ function AssignmentsTab({ agent }: { agent: Agent }) {
           ) : null} />
         ))}
       </Section>
-      {canDismiss(agent) ? (
-        <Section title="Manager">
-          <p className="direction">Dismissing retires {agent.name}: the desk is freed and they leave the map. Reports and notes stay in the library under their name.</p>
-          <DismissButton agent={agent} />
-        </Section>
-      ) : null}
     </>
   );
 }
@@ -565,26 +553,6 @@ function waitLabel(w: NonNullable<Assignment["waitFor"]>): string {
   return `until ${runsAtLabel(w.after)}`;
 }
 
-
-/** Delegate: pick another resident (same building first) and hand them the queued assignment. */
-function DelegatePicker({ from, run, onDone }: { from: Agent; run: (toId: string) => Promise<{ assignment: Assignment; agent: Agent; from: Assignment }>; onDone: (r: { assignment: Assignment; agent: Agent; from: Assignment }) => void }) {
-  const agents = useTown((s) => s.agents);
-  const buildings = useTown((s) => s.buildings);
-  const bname = (id: string | null) => buildings.find((b) => b.id === id)?.name ?? "";
-  const options = useMemo(() => Object.values(agents)
-    .filter((x) => x.id !== from.id && x.kind === "resident" && !isFork(x) && x.status !== "retired" && x.status !== "banned")
-    .sort((x, y) => Number(y.homeBuildingId === from.homeBuildingId) - Number(x.homeBuildingId === from.homeBuildingId) || bname(x.homeBuildingId).localeCompare(bname(y.homeBuildingId)) || x.name.localeCompare(y.name)), [agents, buildings, from.id, from.homeBuildingId]);
-  const [to, setTo] = useState(options[0]?.id ?? "");
-  if (!options.length) return <div className="asg-delegate"><Empty>No other resident to hand this to.</Empty></div>;
-  return (
-    <div className="asg-delegate">
-      <select value={to} onChange={(e) => setTo(e.target.value)} aria-label="Delegate to">
-        {options.map((x) => <option key={x.id} value={x.id}>{x.name}{x.homeBuildingId !== from.homeBuildingId ? ` · ${bname(x.homeBuildingId)}` : ""}{x.status === "working" ? " (working)" : x.status === "stopped" ? " (stopped)" : ""}</option>)}
-      </select>
-      <Act small tone="primary" disabled={!to} title="Cancel it here and queue it first for them" run={async () => onDone(await run(to))}>Hand over</Act>
-    </div>
-  );
-}
 
 function AssignmentRow({ a, actions, index, offline, footer, slotWait, blocked }: { a: Assignment; actions?: ReactNode; index?: number; offline?: boolean; footer?: ReactNode; slotWait?: boolean; blocked?: BlockedBy }) {
   return (

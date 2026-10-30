@@ -4,7 +4,7 @@ import { BUILTIN_ROLES, Permission } from "@muster-town/schema";
 import { copyFileSync, mkdirSync, readdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
-import { buildingRoleId, findPath, TOWN_HALL_ID, townRoleId, World } from "../src/index.ts";
+import { buildingRoleId, createResident, findPath, TOWN_HALL_ID, townRoleId, World } from "../src/index.ts";
 import { migrate } from "../src/db.ts";
 import { freshWorld, seededWorld, tempDir } from "./helpers.ts";
 
@@ -36,7 +36,7 @@ describe("dismiss", () => {
     await expect(world.verbs.look(mei.id, {})).rejects.toMatchObject({ code: "forbidden" });
     expect(() => world.ops.dismissAgent(admin, mei.id)).toThrow(/already dismissed/);
     // the freed desk can be taken by a new resident
-    const fresh = world.ops.createResident(admin, { buildingId: "carbon-cycle", name: "Fern", title: "t", direction: "d" });
+    const fresh = createResident(world, { buildingId: "carbon-cycle", name: "Fern", title: "t", direction: "d" });
     expect(world.layout.deskOf(fresh.id)!.pos).toEqual(deskPos);
   });
 });

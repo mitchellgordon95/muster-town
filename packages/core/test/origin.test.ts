@@ -39,7 +39,7 @@ describe("origin", () => {
     expect(world.messages.require(t.messageId).origin).toEqual({ ...a.origin, hops: 1 });
     const mention = world.messages.first("toId = ? AND kind = 'mention'", [by("Tomas").id], "ORDER BY createdAt DESC");
     expect(mention?.origin).toEqual({ ...a.origin, hops: 1 });
-    const as = await world.verbs.assign(mei, { agentId: noor.id, title: "Pull SOCAT", description: "for Mitchell", lane: "exploration", gap: "SOCAT 2025 is missing" });
+    const as = await world.verbs.assign(mei, { title: "Pull SOCAT", description: "for Mitchell", lane: "exploration", gap: "SOCAT 2025 is missing" });
     expect(world.assignments.require(as.assignmentId).origin).toEqual({ ...a.origin, hops: 1 });
     // the inbox shows who it is for
     const inbox = (await world.verbs.inbox(noor, {})).messages.find((m) => m.id === t.messageId)!;
@@ -50,7 +50,7 @@ describe("origin", () => {
     const { world, mei, noor, userId, admin } = setup();
     const flag = world.ops.plantFlag(admin, "carbon-cycle", "Look at the ocean sink");
     pickUpFlag(world, mei, flag); // the manager walked to it (go flag:<id>)
-    const d = await world.verbs.review(mei, { docId: flag.id, decision: "continue", assigneeId: noor.id });
+    const d = await world.verbs.review(mei, { docId: flag.id, decision: "continue" });
     expect(world.assignments.require(d.assignmentId!).origin).toMatchObject({ userId, via: flag.id, hops: 0 });
 
     const m = world.ops.openOneOnOne(admin, "carbon-cycle");

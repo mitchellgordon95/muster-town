@@ -1,16 +1,15 @@
-/** Building panel (E at the door): overview, goals and grants (labs; GoalsTab.tsx), members + roles, settings (managers: building fields). Members lists residents (managers add and dismiss there) and roles. Board, filing cabinet and in-tray are places; the collective's secrets are a planning-desk tab. */
+/** Building panel (E at the door): overview, goals and grants (labs; GoalsTab.tsx), members + roles, settings (managers: building fields). Members shows the one named manager, its live forks and the roles (no add or dismiss: 1:1 mt_wngibcr98b decision 1). Board, filing cabinet and in-tray are places; the collective's secrets are a planning-desk tab. */
 import { isFork } from "../forks";
-import { useEffect, useMemo, useState, type ReactNode } from "react";
+import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { DEFAULT_POOL_ID, TILES_PER_DESK, type Schedule, type SnapshotBuilding, type Workspace } from "@muster-town/schema";
 import { fmtPct, poolColor } from "../pools";
 import { api } from "../api";
 import { store, useTown, roleOf } from "../state";
 import { Glyph, PanelShell } from "./PanelShell";
 import { Meter } from "./AgentPanel";
-import { DismissButton, canDismiss } from "./Dismiss";
 import { ADJ, Act, Empty, ErrorLine, Field, KV, Loading, MTokensInput, NumberInput, Pill, Section, StatusPill, fmtTokens, nameOf, usd, useLoad } from "./ui";
 import { fromMillions, repeatLabel, runsAtLabel, toMillions } from "../format";
-import { PALETTES, portraitUrl } from "../map/sprites";
+import { portraitUrl } from "../map/sprites";
 import { layoutEdit } from "../map/layoutEdit";
 import { canOneOnOne, openOneOnOne } from "./oneOnOne";
 import { UNBLOCK_LINE, blockedLabel } from "./keyResults";
@@ -115,7 +114,7 @@ function Overview({ b }: { b: SnapshotBuilding }) {
 /** What a fire creates, in words: its lane and who takes it ("exploration · the building queue (a fork runs it)"). */
 function createsLabel(x: Schedule, b: SnapshotBuilding): string {
   const lane = x.lane === "grant" ? `grant ${x.grantId}` : x.lane === "exploration" ? `exploration${x.keyResultId ? ` ${x.keyResultId}` : ""}` : "directed";
-  return `${lane} · ${b.managerAgentId ? "the building queue (a fork runs it)" : "an idle resident"}`;
+  return `${lane} · ${b.managerAgentId ? "the building queue (a fork runs it)" : "nobody (no manager agent)"}`;
 }
 
 /** The building's schedule (GET /api/scheduled): timed jobs that live on the building; each run goes to whoever is around. */
@@ -124,10 +123,14 @@ export function ScheduledList({ b }: { b: SnapshotBuilding }) {
   const assignments = useTown((s) => s.assignments);
   useTown((s) => s.me);
   const rows = useMemo(() => all.filter((x) => x.buildingId === b.id), [all, b.id]);
+  // opened from the building's schedule board on the map: scroll here
+  const focus = useTown((s) => s.panel?.kind === "building" && s.panel.id === b.id && s.panel.section === "schedule");
+  const box = useRef<HTMLDivElement>(null);
+  useEffect(() => { if (focus) box.current?.scrollIntoView({ block: "start" }); }, [focus]);
   if (b.kind === "town-hall") return null;
   const canCancel = store.can("building.assign", b.id);
   return (
-    <Section title={<>Schedule {rows.length ? <Pill tone="scheduled">{rows.length}</Pill> : null}</>}>
+    <div ref={box}><Section title={<>Schedule {rows.length ? <Pill tone="scheduled">{rows.length}</Pill> : null}</>}>
       {!rows.length ? <Empty>Nothing scheduled. A manager adds a timed job with the <code>schedule</code> tool; each run goes to whoever is around.</Empty> : (
         <div className="doc-list">{rows.map((x) => {
           const last = x.lastAssignmentId ? assignments[x.lastAssignmentId] : undefined;
@@ -151,36 +154,43 @@ export function ScheduledList({ b }: { b: SnapshotBuilding }) {
           );
         })}</div>
       )}
-    </Section>
+    </Section></div>
   );
 }
 
+/**
+ * Members: the building's one named manager and its live forks (1:1 mt_wngibcr98b decision 1: no standing residents,
+ * no add or dismiss). Retired agents leave the list; their reports, wikis and logs stay readable by id and in search.
+ */
 function Members({ b }: { b: SnapshotBuilding }) {
   const agents = useTown((s) => s.agents);
   useTown((s) => s.me);
-  const members = useMemo(() => Object.values(agents).filter((a) => (a.homeBuildingId ?? a.buildingId) === b.id && a.kind !== "human" && a.status !== "retired").sort((x, y) => x.name.localeCompare(y.name)), [agents, b.id]);
-  const residents = members.filter((a) => a.kind === "resident" && !isFork(a)).length;
-  const forks = members.filter(isFork).length;
-  const manage = store.can("building.manage", b.id);
+  const here = useMemo(() => Object.values(agents).filter((a) => (a.homeBuildingId ?? a.buildingId) === b.id && a.kind !== "human" && a.status !== "retired").sort((x, y) => (x.forkN ?? 0) - (y.forkN ?? 0) || x.name.localeCompare(y.name)), [agents, b.id]);
+  const manager = b.managerAgentId ? agents[b.managerAgentId] : undefined;
+  const forks = here.filter(isFork);
+  const others = here.filter((a) => !isFork(a) && a.id !== manager?.id);
+  const row = (a: (typeof here)[number]) => (
+    <div key={a.id} className="member-row">
+      <button className="member" onClick={() => store.open({ kind: "agent", id: a.id })}>
+        <img src={portraitUrl(a.sprite, 2)} alt="" />
+        <div><b>{a.name}</b><span>{roleOf(a) || (isFork(a) ? `fork of ${manager?.name ?? "the manager"}` : "")}</span></div>
+        <StatusPill status={a.status} />
+      </button>
+    </div>
+  );
   return (
     <>
-      <Section title={`Residents (${residents} / ${b.headcount})${forks ? ` + ${forks} fork${forks === 1 ? "" : "s"}` : ""}`}>
-        {!members.length ? <Empty>{manage ? "No one works here yet. Add a resident below." : "No one works here yet."}</Empty> : (
-          <div className="members">
-            {members.map((a) => (
-              <div key={a.id} className="member-row">
-                <button className="member" onClick={() => store.open({ kind: "agent", id: a.id })}>
-                  <img src={portraitUrl(a.sprite, 2)} alt="" />
-                  <div><b>{a.name}</b><span>{roleOf(a)}</span></div>
-                  <StatusPill status={a.status} />
-                </button>
-                {canDismiss(a) ? <DismissButton agent={a} small /> : null}
-              </div>
-            ))}
-          </div>
-        )}
-      </Section>
-      {manage ? <NewResident buildingId={b.id} /> : null}
+      {b.kind !== "town-hall" ? (
+        <>
+          <Section title="Manager">
+            {manager ? <div className="members">{row(manager)}</div> : <Empty>No manager agent: you work the in-tray.</Empty>}
+          </Section>
+          <Section title={<>Forks <Pill>{forks.length}</Pill></>}>
+            {forks.length ? <div className="members">{forks.map(row)}</div> : <Empty>No fork is working now. Queued building work runs on a fork of the manager, one per free desk ({b.headcount}).</Empty>}
+          </Section>
+        </>
+      ) : null}
+      {others.length ? <Section title={b.kind === "town-hall" ? "Agents" : "Other agents"}><div className="members">{others.map(row)}</div></Section> : null}
       <RolesTab buildingId={b.id} />
     </>
   );
@@ -237,7 +247,7 @@ export function Settings({ b }: { b: SnapshotBuilding }) {
   const dailyTokens = fromMillions(daily);
   const agents = useTown((s) => s.agents);
   const repo = useTown((s) => s.town?.workspace);
-  const residents = useMemo(() => Object.values(agents).filter((a) => a.kind === "resident" && a.homeBuildingId === b.id).sort((x, y) => x.name.localeCompare(y.name)), [agents, b.id]);
+  const named = useMemo(() => Object.values(agents).filter((a) => a.kind === "resident" && !isFork(a) && a.homeBuildingId === b.id).sort((x, y) => x.name.localeCompare(y.name)), [agents, b.id]);
   const set = <K extends keyof typeof f>(k: K, v: (typeof f)[K]) => setF((x) => ({ ...x, [k]: v }));
   return (<>
     <Section title="Building">
@@ -245,10 +255,10 @@ export function Settings({ b }: { b: SnapshotBuilding }) {
       <Field label="Goal"><textarea rows={2} value={f.goal} onChange={(e) => set("goal", e.target.value)} /></Field>
       <Field label="Description"><textarea rows={3} value={f.description} onChange={(e) => set("description", e.target.value)} /></Field>
       <Field label="Desks" hint={`Desks follow floor space (one per ${TILES_PER_DESK} floor tiles; a full lab adds one when a fork needs it). Resize the building on the town map table to change them; this also sets the daily cap (daily budget / agent × desks).`}><span>{b.lot ? `${b.lot.w}×${b.lot.h} · ` : ""}{b.headcount} desk{b.headcount === 1 ? "" : "s"}</span></Field>
-      <Field label="Manager" hint="The resident who works this building's in-tray (its residents' reports), facilitates its meetings and wears the ★ badge; its rollups go to the Town Hall in-tray (its own work reports stay here, and it decides them). None: you work the in-tray, and the reviewer agent, else the first resident to join, facilitates.">
+      <Field label="Manager" hint="The building's one named agent: it works the in-tray (its forks' reports), facilitates meetings and wears the ★ badge; queued work runs on its forks; its rollups go to the Town Hall in-tray. None: you work the in-tray.">
         <select value={f.managerAgentId ?? ""} onChange={(e) => set("managerAgentId", e.target.value || null)}>
           <option value="">none</option>
-          {residents.map((a) => <option key={a.id} value={a.id} disabled={a.status === "stopped" || a.status === "banned"}>{a.name}{a.status === "stopped" || a.status === "banned" ? ` (${a.status})` : ""}</option>)}
+          {named.map((a) => <option key={a.id} value={a.id} disabled={a.status === "stopped" || a.status === "banned"}>{a.name}{a.status === "stopped" || a.status === "banned" ? ` (${a.status})` : ""}</option>)}
         </select>
       </Field>
       <div className="row2">
@@ -332,44 +342,6 @@ function PoolPicker({ b }: { b: SnapshotBuilding }) {
           {row ? <div className="foot-note">The pool can still draw {fmtTokens(row.expiringTokens + Math.max(0, row.durableTokens))} today ({fmtTokens(row.expiringTokens)} expiring, {fmtTokens(row.durableTokens)} permanent), {others(bank.pools.find((p) => p.id === poolId)?.buildings ?? [])}.</div> : null}
         </form>
       )}
-    </Section>
-  );
-}
-
-function NewResident({ buildingId }: { buildingId: string }) {
-  const [name, setName] = useState("");
-  const [sprite, setSprite] = useState(1);
-  const [seen, setSeen] = useState<string[]>([]);
-  const suggest = async (avoid: string[]) => {
-    const n = await api().suggestName(avoid);
-    setName(n);
-    setSeen([...avoid, n]);
-  };
-  useEffect(() => { suggest([]).catch(() => {}); }, [buildingId]);
-  return (
-    <Section title="New resident">
-      <form className="form" onSubmit={(e) => e.preventDefault()}>
-        <Field label="Name" hint="The town suggests an unused name; reroll it or type your own. Residents have no title or job description: they take whatever assignment they're given, end to end.">
-          <div className="name-pick">
-            <input value={name} onChange={(e) => setName(e.target.value)} placeholder="Leave blank and the town picks one" />
-            <Act small title="Suggest another name" run={() => suggest(seen)}>Reroll</Act>
-          </div>
-        </Field>
-        <Field label="Look">
-          <div className="sprites">
-            {PALETTES.map((_, i) => i === 7 ? null : (
-              <button type="button" key={i} className={i === sprite ? "on" : ""} onClick={() => setSprite(i)}><img src={portraitUrl(i, 2)} alt={`sprite ${i}`} /></button>
-            ))}
-          </div>
-        </Field>
-        <div className="actions">
-          <Act tone="primary" run={async () => {
-            const a = await api().createResident({ buildingId, name: name.trim() || undefined, sprite });
-            await suggest([a.name]).catch(() => setName(""));
-            store.toast(`${a.name} moved in`, "ok", { kind: "agent", id: a.id });
-          }}>Add resident</Act>
-        </div>
-      </form>
     </Section>
   );
 }

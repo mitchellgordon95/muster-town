@@ -51,7 +51,6 @@ export function describeTool(world: World, name: string, input: unknown): string
     }
     case "review": return `Reviewing a report: ${String(i.decision ?? "")}`;
     case "assign": return `Assigning work to ${world.nameOf(String(i.agentId ?? ""))}`;
-    case "reassign": return `Reassigning work to ${world.nameOf(String(i.agentId ?? ""))}`;
     case "cancel": return i.scheduleId ? "Cancelling a schedule" : "Cancelling a queued assignment";
     case "schedule": return `Scheduling: ${clip(i.title, 60)}`;
     case "propose_grant": return `Proposing a grant: ${clip(i.objective, 60)}`;

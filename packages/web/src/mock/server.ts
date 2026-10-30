@@ -5,7 +5,7 @@ import { BACKFILL, BOARD_TYPES, KPI_FRAMING, DEFAULT_POOL_ID, ZERO_TOKENS, addTo
 import type { Api, AgentDetail, AllocationRow, Bank, Budget, Finance, FinanceFly, FinancePools, FinanceSources, FinanceSpend, Cabinet, CabinetQuery, DocQuery, EventQuery, In, LayoutPreview, MessageResult, PlanPreview, RoomLayout, RequestAction, Snapshot, Socket, SocketHandlers, ThreadMessage, WriteDocInput } from "../api";
 import { ApiError } from "../api";
 import type { PinSkillInput, PutSecretInput, SecretView, SkillPinView, SkillView } from "@muster-town/schema";
-import type { CreateBuildingInput, UpdateBuildingInput, CreateResidentInput, RegisterVisitorInput, ReviewInput, ChatInput, WorkInput, DonateInput, CreateMeetingInput, DocState, AddBankInput, BankInput, CreateBankPoolInput, UpdateBankPoolInput, DecideGrantInput, CloseGrantInput, CreateKeyResultInput, UpdateKeyResultInput, CreateObjectiveInput, UpdateObjectiveInput } from "@muster-town/schema";
+import type { CreateBuildingInput, UpdateBuildingInput, RegisterVisitorInput, ReviewInput, ChatInput, WorkInput, DonateInput, CreateMeetingInput, DocState, AddBankInput, BankInput, CreateBankPoolInput, UpdateBankPoolInput, DecideGrantInput, CloseGrantInput, CreateKeyResultInput, UpdateKeyResultInput, CreateObjectiveInput, UpdateObjectiveInput } from "@muster-town/schema";
 import { Sim, newId, spent } from "./sim";
 import { kpis as kpisFixture, memoryDocs } from "./fixture";
 import manualMd from "../../../../docs/manual.md?raw";
@@ -17,13 +17,19 @@ const clone = <T,>(x: T): T => JSON.parse(JSON.stringify(x));
 export class MockApi implements Api {
   readonly mock = true;
   private sim = new Sim();
-  /** one nightly schedule on the Carbon Cycle Lab (the building panel's Schedule list, the map's scheduled badge) */
+  /** two schedules on the Carbon Cycle Lab, one paused (the building panel's Schedule list, the marks on its schedule board) */
   private schedules = new Map<string, Schedule>([["sc_nightly", {
     id: "sc_nightly", buildingId: "bl_carbon", title: "Nightly: check the live rollup", description: "Read the latest rollup and check its numbers against the live town.",
     nextRunAt: new Date(Date.now() + 3 * 3600_000).toISOString(), everyMinutes: null, dailyAt: ["08:00", "20:00"], endsAt: new Date(Date.now() + 14 * 86400_000).toISOString(), maxRuns: null, paused: false,
     lane: "exploration", grantId: null, keyResultId: null, gap: "rollup numbers drift from the live town", sourceId: null, pages: [], model: null, origin: null,
     status: "active", endedReason: null, lastRunAt: null, lastAssignmentId: null, runs: 2, createdBy: "ag_moss", createdByKind: "agent",
     createdAt: new Date(Date.now() - 2 * 86400_000).toISOString(), updatedAt: new Date().toISOString(),
+  }], ["sc_weekly", {
+    id: "sc_weekly", buildingId: "bl_carbon", title: "Every 6 h: refresh the emissions source cards", description: "Re-check the Global Carbon Budget source cards for new releases.",
+    nextRunAt: new Date(Date.now() + 5 * 3600_000).toISOString(), everyMinutes: 360, dailyAt: null, endsAt: new Date(Date.now() + 7 * 86400_000).toISOString(), maxRuns: null, paused: true,
+    lane: "exploration", grantId: null, keyResultId: null, gap: "source cards go stale", sourceId: null, pages: [], model: null, origin: null,
+    status: "active", endedReason: null, lastRunAt: null, lastAssignmentId: null, runs: 0, createdBy: "ag_moss", createdByKind: "agent",
+    createdAt: new Date(Date.now() - 86400_000).toISOString(), updatedAt: new Date().toISOString(),
   }]]);
   private started = false;
   private prevStatus = new Map<string, Agent["status"]>();
@@ -131,7 +137,6 @@ export class MockApi implements Api {
     const buildings = this.sim.buildings.filter((b) => b.kind !== "town-hall").map((b) => ({ buildingId: b.id, name: b.name, goal: b.goal, ...this.sim.objectiveTree(b.id) }));
     return clone({ framing: KPI_FRAMING, kpis: kpisFixture, buildings });
   }
-  async dismiss(id: string, purge = false) { await wait(); this.sim.dismiss(id, purge); }
   async ban(id: string, reason: string) { await wait(); return clone(this.sim.ban(id, reason)); }
   async building(id: string) { await wait(); return clone(this.need(this.sim.buildings.find((x) => x.id === id), "building")); }
   async updateBuilding(id: string, i: In<typeof UpdateBuildingInput>) {
@@ -150,11 +155,6 @@ export class MockApi implements Api {
   async savePlan(): Promise<{ buildings: Building[]; created: Building | null }> { throw new ApiError("Town planning needs the real server.", "unsupported", 501); }
   async saveLayout(): Promise<Building> { throw new ApiError("Edit layout needs the real server.", "unsupported", 501); }
   async registerVisitor(i: In<typeof RegisterVisitorInput>) { await wait(); return { agent: clone(this.sim.createVisitor(i.name, i.buildingId)), token: `mt_mock_${Math.random().toString(36).slice(2, 14)}` }; }
-  async createResident(i: In<typeof CreateResidentInput>) { await wait(); return clone(this.sim.createResident(i.buildingId, i.name || await this.suggestName(), i.title ?? "", i.direction ?? "", i.sprite)); }
-  async suggestName(avoid: string[] = []) {
-    const taken = new Set([...[...this.sim.agents.values()].map((a) => a.name), ...avoid].map((n) => n.toLowerCase()));
-    return ["Lena", "Milo", "Wren", "Juno", "Kai", "Rhea", "Otto", "Sana"].find((n) => !taken.has(n.toLowerCase())) ?? `Resident ${this.sim.agents.size + 1}`;
-  }
   async setAgentPermissions(): Promise<never> { throw new ApiError("Agent permissions need the real server.", "unsupported", 501); }
   async setAgentModel(id: string, model: string | null) {
     await wait();
@@ -308,19 +308,6 @@ export class MockApi implements Api {
     return clone({ assignment: n, agent });
   }
 
-  async delegateAssignment(id: string, agentId: string, front = true) {
-    await wait();
-    const { a, agent } = this.ownAsg(id);
-    if (a.status !== "pending") throw new ApiError(`Assignment "${a.title}" is ${a.status}, not queued.`, "conflict", 409);
-    const to = this.need(this.sim.agents.get(agentId), "agent");
-    if (to.id === agent.id) throw new ApiError(`"${a.title}" is already ${agent.name}'s.`, "bad_request", 400);
-    if (to.kind !== "resident") throw new ApiError(`${to.name} is a ${to.kind}; only residents take delegated assignments.`, "bad_request", 400);
-    a.status = "cancelled"; this.sim.putAssignment(a);
-    const n = this.sim.newAssignment(to.id, { title: a.title, description: a.description, fromReportId: a.fromReportId, fromAssignmentId: a.id, front });
-    window.setTimeout(() => this.sim.runNext(to.id), 1200);
-    return clone({ assignment: n, agent: to, from: a });
-  }
-
   async setMaxRunning(maxRunning: number) {
     await wait();
     this.sim.maxRunning = maxRunning;
@@ -338,7 +325,14 @@ export class MockApi implements Api {
   async doc(id: string) { await wait(60); return clone(this.need(this.sim.docs.get(id), "doc")); }
   async writeDoc(i: WriteDocInput) {
     await wait();
-    return clone(this.sim.putDoc({ id: newId("dc"), type: i.type ?? "note", state: i.state ?? "draft", title: i.title, body: i.body, authorId: "us_mitchell", authorKind: "user", buildingId: null, provenance: { sourceIds: [], urls: [] }, tags: i.tags ?? [], createdAt: now(), updatedAt: now() }));
+    return clone(this.sim.putDoc({ id: newId("dc"), type: i.type ?? "note", state: i.state ?? "draft", title: i.title, body: i.body, authorId: "us_mitchell", authorKind: "user", buildingId: i.buildingId ?? null, provenance: { sourceIds: [], urls: [] }, tags: i.tags ?? [], createdAt: now(), updatedAt: now() }));
+  }
+  async unpublish(docId: string) {
+    await wait();
+    const d = this.need(this.sim.docs.get(docId), "doc");
+    const hall = this.sim.buildings.find((b) => b.kind === "town-hall");
+    if (d.buildingId !== hall?.id || d.state !== "building" || !BOARD_TYPES.includes(d.type)) throw new ApiError("Only a town-wide FYI on the Town Hall board can be taken off it here.", "bad_request", 400);
+    return clone(this.sim.putDoc({ ...d, state: "draft", updatedAt: now() }));
   }
   async review(docId: string, i: In<typeof ReviewInput>) { await wait(); return clone(this.sim.review(docId, i.decision, i.note ?? "", i.assigneeId)); }
   async plantFlag(buildingId: string, text: string) { await wait(); this.need(this.sim.buildings.find((b) => b.id === buildingId), "building"); return clone(this.sim.plantFlag(buildingId, text)); }

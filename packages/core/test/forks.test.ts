@@ -119,8 +119,8 @@ describe("manager forks: forkManager and retireFork", () => {
   });
 
   it("refuses without a manager, or for work not on the building queue", async () => {
-    const { world, b, ann, queue } = forkLab();
-    const named = (await world.verbs.assign(world.agents.require(b.managerAgentId!), { agentId: ann.id, title: "Named", description: "d", gap: "test gap" })).assignmentId;
+    const { world, b, queue } = forkLab();
+    const named = (await world.verbs.assign(world.agents.require(b.managerAgentId!), { agentId: b.managerAgentId!, title: "Named", description: "d", gap: "test gap" })).assignmentId;
     expect(() => forkManager(world, b.id, named)).toThrow(/isn't on Forky's building queue/);
     const q = await queue("Q");
     updateBuilding(world, b.id, { managerAgentId: null });

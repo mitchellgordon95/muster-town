@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { BANK_LOT, TILE } from "@muster-town/schema";
 import { World, createBuilding, createResident, updateBuilding, findPath, isWalkable, MAX_HEADCOUNT, ROAD_Y } from "../src/index.ts";
+import { computeLayout } from "../src/world/layout.ts";
 import { freshWorld, seededWorld, tickUntil } from "./helpers.ts";
 
 const overlap = (a: { x: number; y: number; w: number; h: number }, b: typeof a) =>
@@ -27,6 +28,33 @@ describe("layout", () => {
     expect(findPath(grid, bank.pos, map.pos)).not.toBeNull();
     // outside, not in any building
     expect(world.layout.buildingAt(bank.pos)).toBeNull();
+  });
+
+  it("every lab gets a schedule board on its back wall (north or south of the road), off the desks, reachable from its door", () => {
+    const { world, seed } = seededWorld();
+    for (const n of [1, 4, 9, MAX_HEADCOUNT]) createBuilding(world, { name: `Lab ${n}`, headcount: n }, seed.admin.id);
+    const labs = world.buildings.all().filter((b) => b.kind === "lab");
+    // one lab moved south of the road: its door is in the top wall, so its back wall (and the board) is the bottom one
+    const south = { ...labs[0], lot: { ...labs[0].lot!, x: 2, y: BANK_LOT.y + BANK_LOT.h + 4 } };
+    const layout = computeLayout([...world.buildings.all().filter((b) => b.id !== south.id), south], new Map(), new Map());
+    const { grid, places, desks, doors } = layout;
+    const at = (x: number, y: number) => grid.tiles[y * grid.w + x];
+    for (const b of [...labs.slice(1), south]) {
+      const p = places.find((x) => x.id === `schedule:${b.id}`)!;
+      expect(p, b.name).toBeDefined();
+      expect(p.kind).toBe("schedule");
+      const l = b.lot!, back = b.id === south.id ? l.y + l.h - 1 : l.y;
+      expect(at(p.pos.x, back), b.name).toBe(TILE.SCHEDULE_BOARD);
+      expect(Math.abs(p.pos.y - back)).toBe(1);
+      expect(isWalkable(grid, p.pos.x, p.pos.y)).toBe(true);
+      // nobody's desk seat, and no other place's spot
+      for (const d of desks.get(b.id)!) expect(d.pos, b.name).not.toEqual(p.pos);
+      for (const q of places) if (q.id !== p.id && q.kind !== "plaza") expect(q.pos, `${b.name}: ${q.id}`).not.toEqual(p.pos);
+      expect(findPath(grid, doors.get(b.id)!, p.pos), b.name).not.toBeNull();
+    }
+    // the Town Hall keeps its meeting schedule board (on the floor) and gets no timed-jobs board
+    expect(places.find((x) => x.id === "schedule:town-hall")).toBeUndefined();
+    expect(places.find((x) => x.id === "schedule-board")?.kind).toBe("schedule");
   });
 
   it("lots never overlap and stay inside the grid, for many buildings of mixed sizes", () => {

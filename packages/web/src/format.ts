@@ -29,6 +29,16 @@ export function repeatLabel(s: { everyMinutes: number | null; dailyAt: string[] 
   return "once";
 }
 
+/** The schedule board's hover title: what the board is and what a click does. */
+export function scheduleTipTitle(building: string, n: number, open: string): string {
+  return n ? `${building} schedule: ${n} timed job${n === 1 ? "" : "s"} (whoever is around takes each run; ${open} for the list)`
+    : `${building} schedule: nothing scheduled (${open} to open the Schedule section)`;
+}
+/** One schedule on the board's hover: title, next run (your time · UTC), repeat, paused. */
+export function scheduleTipRow(x: { title: string; nextRunAt: string | null; everyMinutes: number | null; dailyAt: string[] | null; maxRuns?: number | null; paused?: boolean }): string {
+  return `${x.title}: ${x.paused ? "paused, " : ""}next ${x.nextRunAt ? runsAtLabel(x.nextRunAt) : "—"}, ${repeatLabel(x)}`;
+}
+
 /** The Bank's unit (step 3): every token figure is adjusted output tokens; this is its short label. */
 export const ADJ = "adj. tokens";
 /** What the unit means, for a hover title. */

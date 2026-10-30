@@ -107,6 +107,7 @@ kbd { font-family: var(--mono); font-size: 11px; background: #2a2d3a; border: 1p
 
 .bottom { position: absolute; left: 0; bottom: 16px; display: flex; justify-content: center; pointer-events: none; }
 .hint { background: rgba(20,21,28,.92); border: 1px solid var(--line); border-radius: 8px; padding: 6px 12px; font-size: 13px; white-space: nowrap; pointer-events: none; box-shadow: 0 4px 16px rgba(0,0,0,.3); }
+.hint.hint-tap { pointer-events: auto; white-space: normal; max-width: calc(100vw - 24px); text-align: center; color: inherit; font: inherit; font-size: 14px; padding: 10px 16px; min-height: 44px; cursor: pointer; }
 .hint .sep { display: inline-block; width: 1px; height: 12px; background: var(--line-2); margin: 0 8px; vertical-align: middle; }
 .saybox { pointer-events: auto; width: min(520px, 90%); display: flex; align-items: center; gap: 8px; background: rgba(20,21,28,.96); border: 1px solid #4a6f96; border-radius: 8px; padding: 6px 8px 6px 12px; }
 .saybox span { color: var(--accent); font-weight: 600; font-size: 12px; }
@@ -255,6 +256,9 @@ kbd { font-family: var(--mono); font-size: 11px; background: #2a2d3a; border: 1p
 .doc-list { display: flex; flex-direction: column; gap: 6px; }
 .doc-row { display: block; width: 100%; text-align: left; background: #1f2230; border: 1px solid var(--line); border-radius: var(--r); padding: 8px 11px; cursor: pointer; margin-bottom: 6px; }
 .doc-list .doc-row { margin-bottom: 0; }
+.board-fyi { display: flex; gap: 6px; align-items: flex-start; }
+.board-fyi .doc-row { flex: 1; min-width: 0; }
+.town-note-form .form { display: flex; flex-direction: column; gap: 6px; margin-top: 6px; }
 .doc-row:hover { border-color: var(--line-2); background: #252838; }
 .doc-row-title { font-weight: 600; font-size: 13.5px; }
 .doc-row-act { display: flex; gap: 6px; align-items: center; }
@@ -427,6 +431,8 @@ textarea[data-drop="over"] { outline: 2px dashed var(--accent, #7aa2ff); outline
   .panel-resizer { display: none; }
   .minimap { display: none; }
   .hud { width: calc(100% - 24px); max-height: 58%; }
+  /* collapsed (the default for a member on a phone): one line, so the map stays usable */
+  .hud.collapsed { width: auto; max-width: calc(100% - 24px); padding: 8px 10px; }
   /* a guest on a phone: the card stays under ~35% of the screen so the agent beside the ghost shows (KR 2, dc_el70fwhsar) */
   .hud.guest { max-height: 35%; padding: 10px 12px; }
   .hud.guest .goal { margin: 6px 0 4px; padding: 5px 8px; }

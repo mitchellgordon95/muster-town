@@ -299,8 +299,10 @@ function FlyView({ fly }: { fly: FinanceFly }) {
         <div className="spend-tree">
           {fly.buildings.map((b) => (
             <div key={b.id ?? "none"} className="spend-row spend-building" title={b.id ?? undefined}>
-              <span className="spend-name">{b.name}<span className="muted"> · {hours(b.deskMs)} · {n(b.sessions)} session{b.sessions === 1 ? "" : "s"}</span></span>
-              <span className="spend-tokens">{usd(b.deskUsd)}</span>
+              <span className="spend-line">
+                <span className="spend-name">{b.name}<span className="muted"> · {hours(b.deskMs)} · {n(b.sessions)} session{b.sessions === 1 ? "" : "s"}</span></span>
+                <span className="spend-tokens">{usd(b.deskUsd)}</span>
+              </span>
             </div>
           ))}
           <div className="spend-row"><span className="spend-line"><span className="spend-name"><b>Desks, last {all.days} days</b></span><span className="spend-tokens"><b>{usd(all.deskUsd)}</b></span></span></div>

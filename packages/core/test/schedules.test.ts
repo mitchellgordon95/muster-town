@@ -44,12 +44,9 @@ describe("schedules", () => {
     expect(made(b.id)).toHaveLength(1);
   });
 
-  it("no manager agent: an idle resident takes it, else nobody", () => {
-    const { world, b, pix, ann } = lab();
+  it("no manager agent: nobody takes it, even with an idle named agent (no standing residents)", () => {
+    const { world, b } = lab();
     updateBuilding(world, b.id, { managerAgentId: null });
-    world.agents.upsert({ ...world.agents.require(pix.id), status: "working" });
-    expect(scheduleTaker(world, world.buildings.require(b.id))).toEqual({ agentId: ann.id, queue: "agent" });
-    world.agents.upsert({ ...world.agents.require(ann.id), status: "working" });
     expect(scheduleTaker(world, world.buildings.require(b.id))).toBeNull();
   });
 

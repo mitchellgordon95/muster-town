@@ -60,6 +60,19 @@ export function canPostTownBoard(world: World, me: Agent): boolean {
   return world.buildings.all().some((b) => world.permissions.can(me, "building.manage", b.id));
 }
 
+/**
+ * Take a town-wide FYI off the Town Hall board (Mitchell's flag dc_ym8fjxqjiv): it goes back to its author's drafts,
+ * so it leaves every building's Town-wide section at once and nothing is deleted. Its author or a town admin.
+ */
+export function unpublishTownFyi(world: World, me: Agent, docId: string): Doc {
+  const d = world.docs.require(docId, "doc");
+  if (d.buildingId !== TOWN_HALL_ID || d.state !== "building" || !BOARD_TYPES.includes(d.type)) throw badRequest("Only a town-wide FYI on the Town Hall board can be taken off it here.");
+  if (d.authorId !== world.holderOf(me).id && !world.permissions.isAdmin(me)) throw forbidden("building.manage", "Only its author or a town admin takes a town-wide FYI off the Town Hall board.");
+  const doc = updateDoc(world, d.id, { state: "draft" });
+  world.events.append({ type: "doc.state", agentId: me.kind === "human" ? null : me.id, buildingId: doc.buildingId, text: `"${doc.title}" taken off the Town Hall board`, payload: { docId: doc.id, state: "draft", from: d.state, by: world.holderOf(me).id } });
+  return doc;
+}
+
 /** The building's filing cabinet: everything it has published that isn't a board FYI (reports, meeting notes, articles, notes…), newest first. */
 export function cabinetDocs(world: World, buildingId: string, limit: number, filter: { type?: Doc["type"]; authorId?: string } = {}): Doc[] {
   const where = whereOf({ type: filter.type, authorId: filter.authorId }, [{ sql: `buildingId = ? AND state != 'draft' AND type NOT IN (${BOARD_SQL})`, params: [buildingId] }]);
@@ -390,6 +403,9 @@ export async function assign(world: World, me: Agent, input: VerbIn<"assign">) {
   const target = building ? managerAgentOf(world, building)! : world.agents.require(input.agentId!, "agent");
   const bid = homeOf(target);
   if (!world.permissions.can(me, "building.assign", bid)) throw forbidden("building.assign");
+  // one named manager per building, no standing residents (1:1 mt_wngibcr98b decision 1): an agent names only itself
+  // (the manager taking the work) or a visitor; everything else is building-queue work
+  if (!building && me.kind !== "human" && target.id !== me.id && target.kind !== "visitor") throw badRequest(`Leave agentId out to queue it to the building (a fork of the manager runs it); agentId is only for taking the work yourself (${me.id}) or offering it to a visitor.`);
   const waitFor = input.waitFor ? validateWait(world, input.waitFor) : null;
   const model = building ? checkForkModel(building, input.model) : null;
   const pages = input.pages?.length ? attachablePages(world, bid, input.pages) : undefined;
@@ -419,11 +435,11 @@ export async function schedule(world: World, me: Agent, input: VerbIn<"schedule"
   if (!rest.title || rest.description === undefined) throw badRequest("A new schedule needs a title and a description (or give scheduleId to edit one).");
   const s = createSchedule(world, bid, world.holderOf(me), { ...rest, repeat: rest.repeat ?? undefined }, me.kind === "human" ? null : actOrigin(world, me, null));
   return { scheduleId: s.id, nextRunAt: s.nextRunAt, repeat: describeRepeat(s), ...(s.endsAt ? { endsAt: s.endsAt } : {}), lane: s.lane,
-    note: "On your building's schedule: when it fires, a normal assignment goes to whoever is around (the building queue with forks on, else an idle resident, else you); a run is skipped while the last one is still queued or running. `schedule` with scheduleId edits or pauses it; `cancel` with scheduleId deletes it." };
+    note: "On your building's schedule: when it fires, a normal assignment goes to the building queue (a fork of you runs it); a run is skipped while the last one is still queued or running. `schedule` with scheduleId edits or pauses it; `cancel` with scheduleId deletes it." };
 }
 
 /**
- * The manager's queued assignment in its own building, for `reassign` / `cancel`: refused when it has started (or
+ * The manager's queued assignment in its own building, for `cancel`: refused when it has started (or
  * ended) or belongs to another building.
  */
 function queuedInMyBuilding(world: World, me: Agent, assignmentId: string) {
@@ -431,20 +447,9 @@ function queuedInMyBuilding(world: World, me: Agent, assignmentId: string) {
   const bid = homeOf(me);
   const owner = world.agents.require(a.agentId, "agent");
   if (!bid || !world.permissions.can(me, "building.assign", bid)) throw forbidden("building.assign");
-  if (a.buildingId !== bid || homeOf(owner) !== bid) throw new AppError("forbidden", `"${a.title}" belongs to another building (${world.buildings.get(a.buildingId)?.name ?? a.buildingId}); you can move or cancel only your own building's queued assignments.`);
-  if (a.status !== "pending") throw new AppError("conflict", a.status === "active" ? `"${a.title}" has started (${owner.name} is on it); only queued assignments can be moved or cancelled.` : `Assignment "${a.title}" is already ${a.status}.`);
+  if (a.buildingId !== bid || homeOf(owner) !== bid) throw new AppError("forbidden", `"${a.title}" belongs to another building (${world.buildings.get(a.buildingId)?.name ?? a.buildingId}); you can cancel only your own building's queued assignments.`);
+  if (a.status !== "pending") throw new AppError("conflict", a.status === "active" ? `"${a.title}" has started (${owner.name} is on it); only queued assignments can be cancelled.` : `Assignment "${a.title}" is already ${a.status}.`);
   return { a, owner, bid };
-}
-
-/** `reassign` (the manager): move a queued assignment to another resident of the building (POST /assignments/:id/delegate). */
-export async function reassign(world: World, me: Agent, input: VerbIn<"reassign">) {
-  const { a, owner, bid } = queuedInMyBuilding(world, me, input.assignmentId);
-  const to = world.agents.require(input.agentId, "agent");
-  if (homeOf(to) !== bid) throw badRequest(`${to.name} isn't a resident of ${world.buildings.get(bid)?.name ?? bid}; reassign only within your building.`);
-  const { assignment } = world.ops.delegateAssignment(me, a.id, to.id);
-  const waitingOn = assignment.waitFor ? describeWait(world, assignment.waitFor) : null;
-  sendMessage(world, { kind: "system", fromId: me.id, fromKind: "system", toId: to.id, body: `New assignment from ${me.name} (was ${owner.name}'s): ${a.title}${waitingOn ? ` (starts after ${waitingOn})` : ""}` });
-  return { assignmentId: assignment.id, from: { assignmentId: a.id, agentId: owner.id, status: "cancelled" }, agentId: to.id, lane: assignment.lane, grantId: assignment.grantId, keyResultId: assignment.keyResultId, ...(waitingOn ? { waitingOn } : {}) };
 }
 
 /** `cancel` (the manager): cancel a queued assignment in the building (POST /assignments/:id/cancel). */

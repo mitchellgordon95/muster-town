@@ -29,6 +29,8 @@ export const TOWN_HALL_FIXTURES = {
   intray: { x: 14, y: 9 }, intrayStand: { x: 14, y: 8 },
   /** schedule board next to the town meeting room table */
   schedule: { x: 15, y: 6 }, scheduleStand: { x: 15, y: 7 },
+  /** the Town Hall board (town-wide FYIs) on the back wall, above the middle */
+  board: { x: 8, y: 0 }, boardStand: { x: 8, y: 1 },
   /** v1.4 visitor bench (default spot; furniture piece `bench`): visitors wait on the row above it */
   bench: [{ x: 10, y: 9 }, { x: 11, y: 9 }], benchSeats: [{ x: 10, y: 8 }, { x: 11, y: 8 }],
 } as const;
@@ -157,6 +159,7 @@ export function computeLayout(buildings: Building[], occupancy: Map<string, Map<
         { id: "planning-desk", kind: "planning", name: "Planning desk", buildingId: b.id, pos: stand("planning") },
         { id: `intray:${b.id}`, kind: "intray", name: "Town Hall in-tray (rollups, proposals, checkpoints)", buildingId: b.id, pos: stand("intray") },
         { id: "schedule-board", kind: "schedule", name: "Schedule board", buildingId: b.id, pos: stand("schedule") },
+        { id: `board:${b.id}`, kind: "board", name: "Town Hall board (town-wide FYIs)", buildingId: b.id, pos: stand("board") },
         { id: "visitor-bench", kind: "bench", name: "Visitor bench", buildingId: b.id, pos: stand("bench") },
         { id: "library", kind: "library", name: "Library", buildingId: b.id, pos: stand("library") },
         { id: "town-map", kind: "town-map", name: "Town map (town planning)", buildingId: b.id, pos: stand("town-map") },
@@ -180,6 +183,7 @@ export function computeLayout(buildings: Building[], occupancy: Map<string, Map<
     desks.set(b.id, slots);
     places.push(
       { id: `board:${b.id}`, kind: "board", name: `${b.name} board`, buildingId: b.id, pos: stand("board") },
+      { id: `schedule:${b.id}`, kind: "schedule", name: `${b.name} schedule board (timed jobs)`, buildingId: b.id, pos: stand("schedule") },
       { id: `intray:${b.id}`, kind: "intray", name: `${b.name} in-tray (manager's desk)`, buildingId: b.id, pos: stand("intray") },
       { id: `cabinet:${b.id}`, kind: "cabinet", name: `${b.name} filing cabinet`, buildingId: b.id, pos: stand("cabinet") },
       { id: `meeting-room:${b.id}`, kind: "meeting-room", name: `${b.name} meeting room`, buildingId: b.id, pos: stand("meeting") },

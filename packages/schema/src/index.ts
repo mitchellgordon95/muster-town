@@ -385,7 +385,7 @@ export const PlaceKind = z.enum([
   "town-map",
   /** retired: the Town Hall donation box (donating is at the Bank); no layout emits it any more */
   "donation",
-  /** schedule-board — Town Hall: upcoming meetings for every building */
+  /** schedule-board — Town Hall: upcoming meetings for every building; schedule:<buildingId> — each lab's schedule board (its timed jobs) */
   "schedule",
   /** visitor-bench — Town Hall, beside the door: where visitors without a building desk wait */
   "bench",
@@ -704,8 +704,8 @@ export type BlockedBy = z.infer<typeof BlockedBy>;
 export interface BlockedAssignment { assignmentId: string; title: string; blockedBy: BlockedBy }
 /**
  * A building's schedule (Mitchell, 1:1 mt_w7z9k1z112; docs/scheduling.md): a timed job lives on its building, not on an
- * agent. When `nextRunAt` comes it creates one normal assignment and hands it to whoever is around: the building queue
- * (forks on), else an idle resident, else the manager. No repeat = one-shot; `everyMinutes` or `dailyAt` ("HH:MM" UTC)
+ * agent. When `nextRunAt` comes it creates one normal assignment on the building queue (a fork of the manager runs it);
+ * a building with no manager agent has nobody to take it. No repeat = one-shot; `everyMinutes` or `dailyAt` ("HH:MM" UTC)
  * repeat it until `endsAt`. GET /api/scheduled lists the active ones, soonest first.
  */
 export const ScheduleStatus = z.enum(["active", "ended"]);
@@ -1225,10 +1225,10 @@ export const VerbInputs = {
   }),
   // permissioned
   review: z.object({ docId: Id, decision: ReviewDecision.describe("approve = acknowledge only; continue = next assignment from the report's Proposal; redirect = next assignment from your note (required); stop = stop the agent. A flag (a human's quick request): continue = its text becomes assigneeId's directed assignment verbatim, redirect = your note does"), note: z.string().default(""),
-    assigneeId: Id.optional().describe("a flag: the resident of this building who takes it (continue/redirect)"),
+    assigneeId: Id.optional().describe("a flag (continue/redirect): leave it out to queue it to the building (a fork of the manager runs it); or yourself, or a visitor of the building"),
     waitFor: WaitFor.optional().describe("continue/redirect: the new assignment waits for this before it starts"),
     ...LaneFields.shape }),
-  assign: z.object({ agentId: Id.optional().describe("who works it; leave it out in a building with forks on to queue it to the building (a fork of the manager runs it)"),
+  assign: z.object({ agentId: Id.optional().describe("leave it out to queue it to the building (a fork of the manager runs it); or your own id to take it yourself, or a visitor's id to offer it to them"),
     title: z.string(), description: z.string(),
     pages: z.array(Id).max(3).optional().describe("topic pages (type wiki with topicOf) of this building that cover the work, at most 3: loaded into its fork's memory"),
     model: z.string().optional().describe("building-queue work only: the model its fork runs on, one the building allows (its model or cheapModel); default the building's model"),
@@ -1243,7 +1243,6 @@ export const VerbInputs = {
     pages: z.array(Id).max(3).optional().describe("topic pages of this building for its fork's memory, at most 3"),
     model: z.string().optional().describe("forks buildings: the model its fork runs on (the building's model or cheapModel)"),
   }),
-  reassign: z.object({ assignmentId: Id.describe("a queued (not started) assignment in my building"), agentId: Id.describe("the resident of my building who takes it") }),
   cancel: z.object({ assignmentId: Id.optional().describe("a queued (not started) assignment in my building"), scheduleId: Id.optional().describe("or a schedule of my building (sc_…): it stops firing") }),
   propose_grant: CreateGrantInput.extend({
     note: z.string().max(2000).default("").describe("what the human should know when deciding"),
@@ -1301,8 +1300,7 @@ export const VERB_DESCRIPTIONS: Record<VerbName, string> = {
   meeting: "Participate in a meeting: 'summary' submits my short standup summary (did, next), 'speak' adds to the transcript once the discussion has started (attach presents a doc, a town page or an uploaded screenshot with it, shown inline to everyone), 'listen' returns new utterances since my last listen (set waitSeconds to wait for someone to speak), 'decide'/'end' are for the facilitator (to amend a decision, decide again with supersedes = its number in status's decisions list); a decision's waitFor holds its assignment until then, e.g. {deploy: \"next\"} for \"after the redeploy\" or {assignment: id} for \"once X lands\"; while humans are talking, leave 'end' to them.",
   review: "(manager/reviewer) Decide on a pending report in the in-tray: approve (acknowledge), continue (assign its proposal), redirect (assign your note instead), or stop the agent.",
   assign: "(manager/reviewer) Create an assignment for an agent in my building (with forks on, leave agentId out to queue it to the building). With waitFor it waits (e.g. for the next redeploy, or another assignment to finish) before it starts. In goal-directed buildings an agent must give lane grant (grantId of a funded grant; its key result is implied) or exploration (keyResultId of a goal key result with no funded grant, or gap), or directed when a human asked for it (sourceId: the human source; optionally keyResultId or gap, and then it runs until a grant proposal names that key result). Directed work is never held by the exploration allowance.",
-  schedule: "(manager/reviewer) Put a timed job on my building's schedule: it runs at runsAt (once) or on a repeat (every N hours, or daily at UTC times) until an end. Nothing is pinned to an agent: each time it fires it creates one normal assignment for whoever is around then (the building queue with forks on, else an idle resident, else the manager), with the lane fields, pages and model given here (lanes as in assign, re-checked at every fire). Each fire is skipped (and logged) while the last fire's assignment is still queued or running; missed runs during downtime collapse into one. With scheduleId it edits, pauses (paused: true) or resumes (paused: false) one instead; `cancel` with scheduleId deletes it. Your own parked work still uses submit_report resumeWhen {after}.",
-  reassign: "(manager/reviewer) Move a queued (not started) assignment to another resident of my building, e.g. off a busy queue onto an idle colleague. It keeps its lane, grant or key result and waitFor; the original is cancelled and the new one joins the end of their queue. Started assignments and other buildings' are refused.",
+  schedule: "(manager/reviewer) Put a timed job on my building's schedule: it runs at runsAt (once) or on a repeat (every N hours, or daily at UTC times) until an end. Nothing is pinned to an agent: each time it fires it creates one normal assignment on the building queue (a fork of the manager runs it), with the lane fields, pages and model given here (lanes as in assign, re-checked at every fire). Each fire is skipped (and logged) while the last fire's assignment is still queued or running; missed runs during downtime collapse into one. With scheduleId it edits, pauses (paused: true) or resumes (paused: false) one instead; `cancel` with scheduleId deletes it. Your own parked work still uses submit_report resumeWhen {after}.",
   cancel: "(manager/reviewer) Cancel a queued (not started) assignment in my building, or one of its schedules (scheduleId). Started assignments and other buildings' are refused.",
   propose_grant: "(manager) Propose a grant for my building in one call: the plan for one of the building goal's key results (keyResultId): an objective, the approach, a stop condition, a token ask, and optionally a testing plan (text + howToCheck lines). Funding it runs the plan. It goes to the Town Hall in-tray for a human to fund, counter or reject. A building can have several proposals open at once, each decided on its own. To answer a counter, pass its grantId: the new plan rewrites that proposal and re-proposes it under the same id.",
   checkpoint_grant: "(manager) File a grant's checkpoint: set the status of the grant's key result (on the building goal), at most claimed (only a human marks met or missed), with a note on the evidence; then submit_report with rollup: true, which links itself to the grant as its checkpoint report. The grant stays held until a human continues, adjusts or cuts it.",
@@ -1451,6 +1449,8 @@ export const TILE = {
   GOLD: 19,
   /** the Bank: a marble column (decor, not walkable) */
   PILLAR: 20,
+  /** a building's schedule board: a calendar on its back wall (place `schedule:<buildingId>`; the map marks its active schedules) */
+  SCHEDULE_BOARD: 21,
 } as const;
 /**
  * The Bank: a fixed landmark (not a building row, so it never takes a budget share) south of the road,
@@ -1531,7 +1531,7 @@ export const LayoutInput = z.object({ furniture: z.record(Tile), dryRun: z.boole
  * drawn on the map; `dryRun` only checks it.
  */
 export const PlanInput = z.object({ lots: z.record(Lot).default({}), create: CreateBuildingInput.extend({ lot: Lot }).optional(), dryRun: z.boolean().default(false) });
-/** POST /api/agents/residents: `name` left out or blank = the town picks an unused one (GET /api/agents/name-suggestion previews one). */
+/** core `createResident` (seed, v0 import, a new building's manager): `name` left out or blank = the town picks an unused one. No REST route since 1:1 mt_wngibcr98b decision 1. */
 export const CreateResidentInput = z.object({ buildingId: Id, name: z.string().trim().optional(), title: z.string().default(""), direction: z.string().default(""), sprite: z.number().int().optional(), model: z.string().optional() });
 export const RegisterVisitorInput = z.object({ name: z.string(), buildingId: Id.optional(), title: z.string().optional(),
   /** default true: the visitor acts with its owner's permissions (capped by them) */

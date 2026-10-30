@@ -433,11 +433,12 @@ export class Sim {
     this.emitBuilding(buildingId);
     return d;
   }
-  /** As core's decideFlag: approve = handled; continue/redirect = a directed assignment for a resident of the flag's building. */
+  /** As core's decideFlag: approve = handled; continue/redirect = a directed assignment for the building's manager (the mock has no forks), or the named assignee. */
   private decideFlag(d: Doc, decision: "approve" | "continue" | "redirect" | "stop", note: string, assigneeId?: string): Doc {
     if (decision === "stop") throw new Error("A flag has no agent to stop.");
-    const a = decision === "approve" ? undefined : this.agents.get(assigneeId ?? "");
-    if (decision !== "approve" && (!a || (a.homeBuildingId ?? a.buildingId) !== d.buildingId)) throw new Error("Pick a resident of the building to take the flag.");
+    const manager = this.buildings.find((b) => b.id === d.buildingId)?.managerAgentId;
+    const a = decision === "approve" ? undefined : this.agents.get(assigneeId ?? manager ?? "");
+    if (decision !== "approve" && (!a || (a.homeBuildingId ?? a.buildingId) !== d.buildingId)) throw new Error("This building has no manager agent to run the flag.");
     Object.assign(d, { decision, decisionNote: note || undefined, decidedBy: "us_mitchell", decidedAt: now() });
     this.putDoc(d);
     this.event("doc.decision", a?.id ?? null, `Mitchell ${decision === "approve" ? "handled" : "delegated"} the flag "${d.title}"${a ? ` → ${a.name}` : ""}`, { docId: d.id, decision }, d.buildingId);
@@ -507,20 +508,6 @@ export class Sim {
     return { doc: d, assignment: asg };
   }
 
-  /** DELETE /api/agents/:id — retire: free the desk, cancel assignments, drop memberships; the row stays. */
-  dismiss(agentId: string, purge: boolean) {
-    const a = this.agents.get(agentId);
-    if (!a) throw new Error("agent not found");
-    if (a.status === "retired") throw new Error(`${a.name} was already dismissed.`);
-    for (const x of this.assignments.values()) if (x.agentId === a.id && (x.status === "pending" || x.status === "active")) { x.status = "cancelled"; this.putAssignment(x); }
-    this.memberships = this.memberships.filter((m) => !(m.holderKind === "agent" && m.holderId === a.id));
-    this.sessionLeft.delete(a.id);
-    this.patchAgent(a.id, { status: "retired", activity: "", currentAssignmentId: null, currentMeetingId: null });
-    this.layout = computeLayout(this.buildings, [...this.agents.values()]);
-    this.event("agent.retired", a.id, `${a.name} was dismissed by Mitchell${purge ? " (desk volume deleted)" : ""}`, { purge }, a.homeBuildingId);
-    return a;
-  }
-
   /** POST /api/agents/:id/ban (town.ban). */
   ban(agentId: string, reason: string) {
     const a = this.agents.get(agentId);
@@ -551,18 +538,6 @@ export class Sim {
     a.pos = this.home(a);
     this.emit({ type: "agent", agent: a });
     this.event("agent.created", a.id, `${name} arrived as a visitor`, {}, buildingId ?? null);
-    return a;
-  }
-
-  createResident(buildingId: string, name: string, title: string, direction: string, sprite?: number): Agent {
-    const a: Agent = { ...clone(this.agents.get("ag_mei")!), id: newId("ag"), name, title, direction, sprite: sprite ?? Math.floor(Math.random() * 12), buildingId, homeBuildingId: buildingId, status: "idle", activity: "", spentTokensToday: 0, spentTokensTotal: 0, spentUsdTotal: 0, createdAt: now() };
-    this.agents.set(a.id, a);
-    this.memberships.push({ roleId: `rl_${buildingId === "bl_carbon" ? "carbon" : buildingId}_member`, holderKind: "agent", holderId: a.id });
-    this.relayout(false);
-    this.layout = computeLayout(this.buildings, [...this.agents.values()]);
-    a.pos = this.home(a);
-    this.emit({ type: "agent", agent: a });
-    this.event("agent.created", a.id, `${name} moved into a desk`, {}, buildingId);
     return a;
   }
 }
