@@ -181,7 +181,7 @@ export function Settings({ b }: { b: SnapshotBuilding }) {
         <Field label="Max turns / session" hint="Safety rail"><NumberInput min={1} value={f.maxTurnsPerSession} onChange={(n) => set("maxTurnsPerSession", n)} /></Field>
       </div>
       <Field label="Code access" hint={repo
-        ? "Residents work on the collective's repo, each on their own branch. Every building shares this one repo; it's set for the whole collective. Needs Docker and a Claude token in the collective's .env on the host (README, Run it)."
+        ? "The manager and its forks work on the collective's repo, each on its own branch. Every building shares this one repo; it's set for the whole collective. Needs Docker and a Claude token in the collective's .env on the host (README, Run it)."
         : "This collective has no repo yet (collective.json `workspace`), so there is nothing to give code access to."}>
         <span className="check"><input type="checkbox" checked={f.codeAccess} disabled={!repo && !f.codeAccess} onChange={(e) => set("codeAccess", e.target.checked)} /> {repo ? <>Work on <code>{repoLabel(repo)}</code></> : "No collective repo"}</span>
       </Field>

@@ -34,7 +34,7 @@ export function MeetingPanel({ id }: { id?: string }) {
   if (!meeting) {
     return (
       <PanelShell icon={<Glyph kind="meeting" />} title={building ? `${building.name} meeting room` : "Meeting"} subtitle="No meeting here right now">
-        <Empty>The table is empty.{building && canCall(building.id) ? " Call a meeting and the residents will send their summaries." : ""}</Empty>
+        <Empty>The table is empty.{building && canCall(building.id) ? " Call a meeting and the attendees will send their summaries." : ""}</Empty>
         {building ? <CallMeeting building={building} /> : null}
         {building ? <RoomMeetings building={building} /> : null}
       </PanelShell>

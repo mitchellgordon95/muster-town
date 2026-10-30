@@ -63,7 +63,7 @@ export function IntrayPanel({ buildingId }: { buildingId: string }) {
           <ErrorLine error={list.error} />
           {list.loading && !list.data ? <Loading /> : hall ? (
             <TownHallIntray reports={reports} grants={grants} access={access} blocked={list.data?.blocked ?? []} onOpen={openDoc} onDecided={list.reload} />
-          ) : !reports.length ? <Empty>The in-tray is empty. When a resident finishes a session, its report lands here and the resident goes idle; a flag you plant (F on the map) lands here too.</Empty> : (
+          ) : !reports.length ? <Empty>The in-tray is empty. When the manager or a fork finishes a session, its report lands here and that agent goes idle; a flag you plant (F on the map) lands here too.</Empty> : (
             <div className="doc-list">
               {reports.map((d) => <IntrayRow key={d.id} doc={d} chain={list.data?.chains?.[d.id]} onOpen={() => setOpenId(d.id)} onOpenDoc={openDoc} />)}
             </div>
@@ -117,7 +117,7 @@ export function PlantFlag({ targets, onClose }: { targets: { id: string; name: s
       <textarea {...media.props} rows={3} autoFocus placeholder={`What do you want done in ${target.name}? One quick fix per flag; the first line is its title. Paste or drop a screenshot to show it.`} value={text} onChange={(e) => setText(e.target.value)}
         onKeyDown={(e) => { if (e.key === "Enter" && (e.metaKey || e.ctrlKey) && text.trim()) { e.preventDefault(); void plant().catch((err) => store.toast(String((err as Error).message ?? err), "bad")); } }} />
       <div className="actions">
-        <span className="muted">{manager ? `★ ${manager.name} gets it in the ${target.name} in-tray and assigns it to a resident.` : `${target.name} has no manager agent: whoever works its in-tray assigns it.`}</span>
+        <span className="muted">{manager ? `★ ${manager.name} gets it in the ${target.name} in-tray and a fork runs it.` : `${target.name} has no manager agent: whoever works its in-tray assigns it.`}</span>
         <button className="btn sm" onClick={onClose}>Cancel</button>
         <Act small tone="primary" disabled={!text.trim() || media.uploading > 0} run={plant}>Plant</Act>
       </div>
