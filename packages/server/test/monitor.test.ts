@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { deskSizeFor, DESK_FALLBACK_SIZE, TOWN_HALL_ID } from "@muster-town/core";
 import { buildApp } from "../src/app.ts";
-import { ALERT_ENV, CLEAR_AFTER, Counters, type DeskSession, Monitor, OUTBOUND_CAP, defaultMetrics, processProbes, type Probes, type Senders } from "../src/monitor.ts";
+import { ALERT_ENV, CLEAR_AFTER, Counters, DESK_STEAL_EXPIRE_MS, REALERT_MS, type DeskSession, Monitor, OUTBOUND_CAP, defaultMetrics, processProbes, type Probes, type Senders } from "../src/monitor.ts";
 import { json, seededApp } from "./helpers.ts";
 
 const MIN = 60_000;
@@ -88,11 +88,11 @@ describe("monitor thresholds", () => {
     expect(m.view().alerts).toEqual([]);
   });
 
-  it("re-alerts a key that stays red at most hourly", async () => {
+  it("re-alerts a key that stays red at most every REALERT_MS (6 h)", async () => {
     const { r, step, alerts } = await setup();
     r.state.disk = 0.05;
     await step(1);
-    await step(59);
+    await step(REALERT_MS / MIN - 1);
     expect(alerts().filter((a) => a.phase === "realert")).toHaveLength(0);
     await step(1);
     expect(alerts().filter((a) => a.phase === "realert")).toHaveLength(1);
@@ -229,6 +229,23 @@ describe("monitor thresholds", () => {
       expect(s.world.docs.get(docId)!.body).toContain(`after ${CLEAR_AFTER} desk sessions under yellow`);
       expect(s.r.sent).toHaveLength(4); // raise + clear, SMS and email each
     });
+
+    it("clears as stale when no desk session ends for DESK_STEAL_EXPIRE_MS, also after a restart", async () => {
+      const s = await setup();
+      end(s, 0.9);
+      await s.step(1);
+      end(s, 0.1); // one clean session: value 0..10 but still red (needs 5)
+      await s.step(1);
+      expect(s.m.view().alerts).toMatchObject([{ key: "desk-steal", level: "red", value: 10 }]);
+      await s.step(DESK_STEAL_EXPIRE_MS / MIN - 1);
+      expect(s.m.view().alerts).toHaveLength(1);
+      // a restart keeps the clock: lastReadAt is persisted
+      const m2 = s.make();
+      s.r.tick(); await m2.sample();
+      expect(m2.view().alerts).toEqual([]);
+      expect(s.alerts().at(-1)).toMatchObject({ key: "desk-steal", phase: "clear", level: "red", stale: true });
+      expect(s.world.docs.get(s.alerts().at(-1)!.docId!)!.body).toContain("as stale");
+    });
   });
 
   describe("desk-bill", () => {
@@ -259,7 +276,7 @@ describe("monitor thresholds", () => {
       expect(deskSizeFor(s.world.desksConfig(), s.world.deskBill(new Date(s.r.now())))).toEqual({ size: PERF, fallback: false });
     });
 
-    it("red at the cap: SMS + email, new desk sessions fall back to shared-cpu-2x, re-alert hourly; resets at midnight UTC", async () => {
+    it("red at the cap: SMS + email, new desk sessions fall back to shared-cpu-2x, re-alert after REALERT_MS; resets at midnight UTC", async () => {
       const s = await billSetup();
       s.run(s.r.now() - 5 * H, 1.2 * H);
       s.run(s.r.now() - 3 * H, 1.2 * H);
@@ -270,7 +287,7 @@ describe("monitor thresholds", () => {
       expect(s.world.docs.get(s.alerts().at(-1)!.docId!)!.title).toContain("[RED] desk bill today 110% of the daily cap");
       expect(deskSizeFor(s.world.desksConfig(), s.world.deskBill(new Date(s.r.now())))).toEqual({ size: DESK_FALLBACK_SIZE, fallback: true });
       await s.step(60);
-      expect(s.r.sent).toHaveLength(4); // the hourly re-alert
+      expect(s.r.sent).toHaveLength(2); // no re-alert after 1 h any more (REALERT_MS is 6 h)
       // sample at 21:01Z; three hours later the UTC day turns and the bill starts from 0
       await s.step(3 * 60);
       expect(s.world.deskBill(new Date(s.r.now()))).toMatchObject({ day: "2026-10-29", todayUsd: 0, overCap: false });

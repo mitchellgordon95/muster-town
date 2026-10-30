@@ -38,6 +38,8 @@ export interface Metric {
   redForMs: number;
   /** what one clean observation is, in the FYI's clear text (default "samples"; desk-steal: "desk sessions") */
   cleanUnit?: string;
+  /** an open alert with no reading (read() null) for this long clears as stale (desk-steal: no desk session ended) */
+  expireMs?: number;
 }
 
 export interface AlertView { key: string; level: Level; since: string; value: number }
@@ -47,7 +49,11 @@ export interface MonitorView {
   selfTestAt: string | null;
 }
 
-interface OpenAlert extends AlertView { docId: string | null; notifiedAt: number; okCount: number }
+interface OpenAlert extends AlertView {
+  docId: string | null; notifiedAt: number; okCount: number;
+  /** the last sample that had a reading for this key (older persisted state lacks it: `since` stands in) */
+  lastReadAt?: number;
+}
 interface Persisted { lastSampleAt: string | null; alerts: OpenAlert[]; sent: number[]; selfTestAt: string | null }
 
 export interface Senders {
@@ -58,8 +64,8 @@ export interface Senders {
 export const SAMPLE_MS = 60_000;
 /** an alert clears after this many consecutive samples under yellow */
 export const CLEAR_AFTER = 5;
-/** a key that stays red re-alerts at most this often */
-export const REALERT_MS = 60 * 60_000;
+/** a key that stays red re-alerts at most this often (6 h: hourly texts about one stuck alert were spam, Mitchell 10-30) */
+export const REALERT_MS = 6 * 60 * 60_000;
 /** outbound messages (each SMS and each email counts one) per rolling hour, all keys together */
 export const OUTBOUND_CAP = 10;
 const HOUR_MS = 60 * 60_000;
@@ -210,10 +216,13 @@ export function deskBillMetric(p: Pick<Probes, "deskBill">): Metric {
  * counts one toward CLEAR_AFTER, so the alert clears after 5 clean sessions. cpu and steal are the whole desk
  * Machine's (2 vCPUs summed), not just the agent's process.
  */
+/** an open desk-steal alert clears after this long with no desk session ending (a stale reading must not stay red for days) */
+export const DESK_STEAL_EXPIRE_MS = 3 * HOUR_MS;
+
 export function deskStealMetric(p: Pick<Probes, "deskSessions">): Metric {
   let cursor: number | null = null;
   return {
-    key: "desk-steal", describe: (v) => `desk session steal ${v}% of cpu + steal`, yellowForMs: 0, redForMs: 0, cleanUnit: "desk sessions",
+    key: "desk-steal", describe: (v) => `desk session steal ${v}% of cpu + steal`, yellowForMs: 0, redForMs: 0, cleanUnit: "desk sessions", expireMs: DESK_STEAL_EXPIRE_MS,
     read: (now) => {
       const since = cursor ?? now - SAMPLE_MS;
       const recent = p.deskSessions(Math.min(since, now - HOUR_MS));
@@ -354,13 +363,17 @@ export class Monitor {
     for (const m of this.opts.metrics) {
       let r: Reading | null;
       try { r = m.read(now); } catch (e) { this.log.warn(`[monitor] ${m.key}: ${e instanceof Error ? e.message : String(e)}`); continue; }
-      if (!r) continue;
+      const open = this.alerts.get(m.key);
+      if (!r) {
+        if (open && m.expireMs != null && now - (open.lastReadAt ?? Date.parse(open.since)) >= m.expireMs) jobs.push(this.clear(m, open, now, true));
+        continue;
+      }
+      if (open) open.lastReadAt = now;
       const h = this.holding.get(m.key) ?? { yellow: null, red: null };
       h.yellow = r.yellow || r.red ? h.yellow ?? now : null;
       h.red = r.red ? h.red ?? now : null;
       this.holding.set(m.key, h);
       const level: Level | null = h.red != null && now - h.red >= m.redForMs ? "red" : h.yellow != null && now - h.yellow >= m.yellowForMs ? "yellow" : null;
-      const open = this.alerts.get(m.key);
       if (!open) {
         if (level) jobs.push(this.raise(m, level, r.value, now));
         continue;
@@ -408,12 +421,13 @@ export class Monitor {
     if (level === "red") await this.send(`muster.town RED: ${what}`, `[muster.town] RED: ${what}`, `${text}\n\nSince ${alert.since}.\nhttps://muster.town/api/health`);
   }
 
-  private async clear(m: Metric, a: OpenAlert, now: number) {
+  private async clear(m: Metric, a: OpenAlert, now: number, stale = false) {
     this.alerts.delete(m.key);
     const what = m.describe(a.value);
-    const text = `Alert cleared (was ${a.level.toUpperCase()}): ${what} (${m.key})`;
-    if (a.docId) this.updateFyi(a.docId, `[CLEARED] ${a.level.toUpperCase()} ${m.key}: ${what}`, `**Cleared** at ${new Date(now).toISOString()} after ${CLEAR_AFTER} ${m.cleanUnit ?? "samples"} under yellow (now ${what}).\n\n- key: ${m.key}\n- was ${a.level.toUpperCase()} since ${a.since}`);
-    this.event(text, { key: m.key, level: a.level, phase: "clear", value: a.value, docId: a.docId });
+    const text = `Alert cleared${stale ? " as stale" : ""} (was ${a.level.toUpperCase()}): ${what} (${m.key})`;
+    const why = stale ? `as stale: no new reading for ${Math.round((m.expireMs ?? 0) / MIN)} min (last ${what})` : `after ${CLEAR_AFTER} ${m.cleanUnit ?? "samples"} under yellow (now ${what})`;
+    if (a.docId) this.updateFyi(a.docId, `[CLEARED] ${a.level.toUpperCase()} ${m.key}: ${what}`, `**Cleared** at ${new Date(now).toISOString()} ${why}.\n\n- key: ${m.key}\n- was ${a.level.toUpperCase()} since ${a.since}`);
+    this.event(text, { key: m.key, level: a.level, phase: "clear", value: a.value, docId: a.docId, ...(stale ? { stale: true } : {}) });
     if (a.level === "red") await this.send(`muster.town cleared: ${what}`, `[muster.town] cleared: ${m.key}`, text);
   }
 
