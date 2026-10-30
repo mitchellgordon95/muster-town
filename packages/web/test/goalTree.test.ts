@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import type { GoalTreeNode } from "@muster-town/schema";
 import { archivedLine, buildingScope, canEditGoal, moveTargets, pastDue, pathTo, retirePlan, treeRows } from "../src/panels/goalTree";
 import { proposalNode } from "../src/panels/GoalTreePanel";
+import { clock, dayClock } from "../src/panels/ui";
 
 const kr = (id: string, status: string, due: string | null = "2026-12-01", archivedAt: string | null = null) =>
   ({ id, text: id, howToCheck: "look", status, due, archivedAt, buildingId: "b", grantId: null });
@@ -68,5 +69,15 @@ describe("the Town Hall goal editor (docs/goals.md, step 3)", () => {
     expect(proposalNode(root, { action: "add-kr", targetId: null, parentId: "gl_b" }).id).toBe("gl_b");
     expect(proposalNode(root, { action: "move", targetId: "gl_a", parentId: "gl_join" }).id).toBe("gl_a");
     expect(proposalNode(root, { action: "add-goal", targetId: null, parentId: null }).id).toBe("gl_town");
+  });
+});
+
+describe("goal History stamps (Feed)", () => {
+  it("carries the month and day, so events days apart don't read as one day", () => {
+    const a = new Date(2026, 9, 26, 9, 5).toISOString();
+    const b = new Date(2026, 9, 29, 14, 2).toISOString();
+    expect(dayClock(a)).toMatch(/^10-26 /);
+    expect(dayClock(b)).toMatch(/^10-29 /);
+    expect(dayClock(b)).toContain(clock(b));
   });
 });
