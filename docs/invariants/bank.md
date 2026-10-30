@@ -31,11 +31,13 @@ What must always hold where tokens come from and where they go: the Bank (`packa
    - Test: `packages/core/test/bank.test.ts` › `pools split the Bank equally unless an admin sets a share; explicit shares can't pass 100%; empty pools get nothing`
    - Test: `packages/core/test/bank.test.ts` › `a pool holding only the Town Hall gets no auto share (the Town Hall draws nothing)`
    - Test: `packages/core/test/bank.test.ts` › `buildings in one pool share it first come first served; the Town Hall in General draws nothing`
-8. **Funding order is fixed: a member-funded grant's own input first, then subscription, the building's Bank share, donor-key, and api-key.** A subscription-funded session still gets a fallback API key.
+8. **Funding order is fixed: a member-funded grant's own input first, then subscription, the building's Bank share, donor-key, and api-key.** A subscription-funded session gets a fallback API key only when the Bank owns one. Every session runs on exactly one credential the Bank holds (a subscription input's token, an api-key input's key, a donor's key); a Bank with none holds the work, and a credential in the host env is a hard failure (post-mortem 2026-10-30).
    - Test: `packages/core/test/member-funding.test.ts` › `a session on the grant is paid from the input first, then the pool; each debit names the input`
    - Test: `packages/core/test/budget.test.ts` › `funding order: subscription → donor-key → api-key; the fallback is the first donor-key / api-key allocation`
    - Test: `packages/core/test/bank.test.ts` › `charge draws from the pool share before the building's allocations and keeps the building able to start`
-   - Test: `packages/runtime/test/bank-fallback.test.ts` › `a subscription-funded building still gets a fallback key from the Bank's API-key input`
+   - Test: `packages/runtime/test/bank-fallback.test.ts` › `a subscription-funded building runs on the subscription input's token, with the API-key input's own key as fallback`
+   - Test: `packages/runtime/test/bank-fallback.test.ts` › `nothing in the Bank: held with NO_KEY_HOLD; a subscription input without its token: NO_TOKEN_HOLD (never the host env)`
+   - Test: `packages/runtime/test/secrets.test.ts` › `a credential in the host env is a second auth source and a hard failure (post-mortem 2026-10-30: the env's key was billed for eight days)`
 9. **Exhaustion stops new starts and is undone only by new tokens.** When a building's budget or an agent's daily allowance runs out, `out-of-budget` is set once with one `budget.exhausted` event. A new donation, `resetDaily` or a raised cap resumes work.
    - Test: `packages/core/test/budget.test.ts` › `daily exhaustion → out-of-budget + event; resetDaily resumes`
    - Test: `packages/core/test/budget.test.ts` › `raising the building's daily cap un-blocks a resident that hit the old one`
