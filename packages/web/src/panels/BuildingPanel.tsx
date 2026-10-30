@@ -14,6 +14,19 @@ import { canOneOnOne, openOneOnOne } from "./oneOnOne";
 import { UNBLOCK_LINE, blockedLabel } from "./keyResults";
 import { GoalTabsSummary, GoalsTab, GrantsTab } from "./GoalsTab";
 import { GoalPicker, goalPath, useGoalTree } from "./GoalPicker";
+import { findGoal } from "./goalTree";
+
+/** "Reports to: <owner> via <goal>" (docs/goals.md "Owners on nodes"): the attachment's effective owner; the goal opens the Town Hall goal tree. */
+function ReportsTo({ b }: { b: SnapshotBuilding }) {
+  const root = useGoalTree();
+  if (!root) return null;
+  const goalId = b.goalId ?? ROOT_GOAL_ID;
+  const node = findGoal(root, goalId);
+  if (!node) return null;
+  return (
+    <div className="muted goal-meta">Reports to <b>{node.owner.name}</b> via <button className="link" title={goalPath(root, goalId)} onClick={() => store.open({ kind: "goals", id: goalId })}>{node.text.length > 70 ? `${node.text.slice(0, 69)}…` : node.text}</button></div>
+  );
+}
 
 export function BuildingPanel({ id, tab }: { id: string; tab?: string }) {
   const b = useTown((s) => s.buildings.find((x) => x.id === id));
@@ -69,6 +82,7 @@ function Overview({ b }: { b: SnapshotBuilding }) {
           {store.can("building.manage", b.id) ? <> <button className="link" onClick={() => store.open({ kind: "building", id: b.id, tab: "Goals" })}>Write them in Goals →</button></> : null}
         </div>
       ) : null}
+      {b.kind !== "town-hall" ? <ReportsTo b={b} /> : null}
       {b.kind !== "town-hall" ? <GoalTabsSummary b={b} /> : null}
       {hasBoard || hasTray || hasRoom ? (
         <div className="walk-links">

@@ -286,14 +286,14 @@ function RetireForm({ root, node, onDone }: { root: GoalTreeNode; node: GoalTree
 
 const ACTION: Record<GoalProposalView["action"], string> = { "add-goal": "New goal", "add-kr": "New key result", edit: "Edit", move: "Move", retire: "Retire", promote: "Promote to a goal" };
 
-/** The goal (in the tree) a proposal belongs to: its target goal, a target key result's goal, else where it goes. */
+/** The goal (in the tree) a proposal belongs to, as core Goals.nodeOfProposal: its target goal or key result's goal, else where it goes. */
 export function proposalNode(root: GoalTreeNode, p: Pick<GoalProposalView, "targetId" | "parentId" | "action">): GoalTreeNode {
   const krGoal = (id: string): GoalTreeNode | null => {
     const walk = (n: GoalTreeNode): GoalTreeNode | null => n.keyResults.some((k) => k.id === id) ? n : n.children.map(walk).find(Boolean) ?? null;
     return walk(root);
   };
   const at = p.targetId ? findGoal(root, p.targetId) ?? krGoal(p.targetId) : null;
-  return (p.action === "move" || !at) && p.parentId ? findGoal(root, p.parentId) ?? at ?? root : at ?? root;
+  return at ?? (p.parentId ? findGoal(root, p.parentId) : null) ?? root;
 }
 
 function Proposals({ root, list, me, onDone }: { root: GoalTreeNode; list: GoalProposalView[]; me: { userId: string | null; townWide: boolean }; onDone: () => void }) {
