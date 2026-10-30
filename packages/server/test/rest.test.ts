@@ -78,7 +78,9 @@ describe("buildings & agents", () => {
     const r = { body: { agent: world.agents.require(managerId) } };
 
     const detail = await json(app, "GET", `/api/agents/${r.body.agent.id}`);
-    expect(detail.body).toMatchObject({ agent: { id: r.body.agent.id }, currentSession: null, latestReport: null, assignments: [] });
+    expect(detail.body).toMatchObject({ agent: { id: r.body.agent.id }, currentSession: null, latestReport: null });
+    // its only queued work is the system's "no key results" ask, which goes to the manager
+    expect(detail.body.assignments.map((a: { createdBy: string }) => a.createdBy)).toEqual(["system"]);
 
     const patched = await json(app, "PATCH", `/api/buildings/${bid}`, { headers: auth, body: { goal: "Ocean heat content" } });
     expect(patched.body.building.goal).toBe("Ocean heat content");
