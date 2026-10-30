@@ -6,6 +6,7 @@ import { laneHold } from "./lanes.ts";
 import { intrayCount, intrayCounts, isTownHallItem } from "./domain.ts";
 import { migrateRoles } from "./migrate-roles.ts";
 import { openDb, type DB } from "./db.ts";
+import { deskBillToday, type BillSession, type DeskBill } from "./desk-bill.ts";
 import { EventLog } from "./events.ts";
 import { exportWorld, importExport, type ExportResult } from "./export.ts";
 import { importV0, type ImportV0Options, type ImportV0Result } from "./import-v0.ts";
@@ -206,9 +207,23 @@ export class World {
   }
   /** Change the live host settings (`PUT /api/town/desks`); the scheduler reads them on every pass. */
   setDesksConfig(patch: Partial<DesksConfig>): DesksConfig {
-    const desks = this.town.setDesks({ ...this.town.desks(), ...patch });
-    this.events.append({ type: "system", text: `Session slots set to ${desks.maxRunning}`, payload: { desks: true, maxRunning: desks.maxRunning } });
+    const given = Object.fromEntries(Object.entries(patch).filter(([, v]) => v !== undefined)) as Partial<DesksConfig>;
+    const desks = this.town.setDesks({ ...this.town.desks(), ...given });
+    const what = [given.maxRunning !== undefined ? `Session slots set to ${desks.maxRunning}` : null, given.billCapUsd !== undefined ? `Desk bill cap set to $${desks.billCapUsd}/day` : null].filter(Boolean).join("; ");
+    this.events.append({ type: "system", text: what || "Desk settings saved", payload: { desks: true, maxRunning: desks.maxRunning, billCapUsd: desks.billCapUsd } });
     return desks;
+  }
+
+  /**
+   * Today's (UTC) town-wide desk bill against `desks.billCapUsd` (gr_uhh6u39vv9 step 3). Desks off Fly cost nothing here.
+   * The runtime reads it at each desk session start; GET /api/health `desks` and the monitor's `desk-bill` show it.
+   */
+  deskBill(now = new Date()): DeskBill {
+    const desks = this.desksConfig();
+    const dayStart = new Date(Math.floor(now.getTime() / 86_400_000) * 86_400_000).toISOString();
+    const rows = desks.backend !== "fly" ? [] : this.db.prepare(`SELECT backend, startedAt, endedAt, wallMs, cpuKind, cpus, memoryMb FROM sessions
+      WHERE backend != 'host' AND (endedAt IS NULL OR endedAt >= ?)`).all(dayStart) as BillSession[];
+    return deskBillToday(rows, desks.billCapUsd, now);
   }
 
   /** Run `fn` in one SQLite transaction. */

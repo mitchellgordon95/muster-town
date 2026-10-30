@@ -4,7 +4,7 @@
  * The desk itself talks to the town over the agent-scoped API (brief, activity, control, session-end).
  */
 import { execFileSync } from "node:child_process";
-import { AppError, codeWorkspace, REPO_TOKEN_SECRET, type World } from "@muster-town/core";
+import { AppError, codeWorkspace, deskPreset, REPO_TOKEN_SECRET, type World } from "@muster-town/core";
 import { townEnvBoth, type AllocationAuth, type DeskActivityInput, type DesksConfig, type Session } from "@muster-town/schema";
 import { describeTool } from "../describe.ts";
 import { InputChannel } from "../sdk.ts";
@@ -170,7 +170,12 @@ export async function runDeskSession(ctx: Ctx, backend: DeskBackend, starting: S
     }
     const funding = fundingForSession(world, agentId, assignmentId, ctx.env);
     const mode = deskAuth(funding, ctx.env).mode;
-    session = world.ops.startSession(agentId, { purpose: "work", model: agent.model ?? building.model, assignmentId, backend: "docker", funding: mode === "none" ? null : mode, inputId: funding.inputId ?? null });
+    session = world.ops.startSession(agentId, { purpose: "work", model: agent.model ?? building.model, assignmentId, backend: "docker", funding: mode === "none" ? null : mode, inputId: funding.inputId ?? null, size: handle.size ?? null });
+    if (handle.sizeFallback && handle.size) {
+      // gr_uhh6u39vv9 step 3: past the town-wide desk bill cap a session still starts, on the cheaper size
+      const bill = world.deskBill();
+      world.events.append({ type: "system", agentId, buildingId: building.id, text: `Desk bill cap reached ($${bill.todayUsd.toFixed(2)} of $${bill.capUsd}/day): ${agent.name}'s session runs on ${deskPreset(handle.size)} instead`, payload: { deskBillCap: true, sessionId: session.id, size: handle.size, todayUsd: bill.todayUsd, capUsd: bill.capUsd } });
+    }
     ctx.deskAllocations.set(session.id, funding.allocationId);
     ctx.deskFallbacks.set(session.id, funding.fallback?.allocationId ?? null);
     world.events.append({ type: "agent.activity", agentId, buildingId: building.id, text: `Starting work (${fundedBy(mode === "none" ? null : mode)})`, payload: { sessionId: session.id, purpose: "work", backend: "docker", funding: mode } });

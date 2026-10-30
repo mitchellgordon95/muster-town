@@ -99,6 +99,13 @@ describe("financeFly (GET /api/finance/fly)", () => {
     const live = world.bank.fly({ backend: "fly" }, true, { windowDays: 7 });
     expect(live.sumCheck.ok).toBe(true);
     expect(live.days).toHaveLength(7);
-    expect(live.rates.desk).toMatchObject({ preset: "shared-cpu-2x" });
+    expect(live.rates.desk).toMatchObject({ preset: "performance-1x" });
+  });
+  it("prices each session at the size it ran on; one without a recorded size at shared-cpu-2x (gr_uhh6u39vv9 step 3)", () => {
+    const one = (size: { cpuKind?: "shared" | "performance"; cpus?: number; memoryMb?: number }) =>
+      financeFly({ ...base, sessions: [{ ...s("ag_a", "a1", "2026-10-29T01:00:00Z", { wallMs: 2 * H }), ...size }], desks: { backend: "fly" } }, NOW).today.deskUsd;
+    expect(one({ cpuKind: "performance", cpus: 1, memoryMb: 2048 })).toBeCloseTo(2 * 0.045833, 5);
+    expect(one({ cpuKind: "performance", cpus: 2, memoryMb: 4096 })).toBeCloseTo(2 * 66 / 720, 5);
+    expect(one({})).toBeCloseTo(2 * 0.018597, 5);
   });
 });

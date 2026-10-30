@@ -60,12 +60,13 @@ export function fmtMs(ms: number): string {
 }
 
 /**
- * A session's performance line (gr_uhh6u39vv9): "wall 31m · cpu 4.5m · steal 89%", steal as a share of cpu + steal
- * (one decimal under 10%). cpu and steal are left out when not measured (a host session, an older desk); null = nothing measured.
+ * A session's performance line (gr_uhh6u39vv9): "perf-1x · wall 31m · cpu 4.5m · steal 3%", steal as a share of cpu + steal
+ * (one decimal under 10%). The desk size and cpu/steal are left out when not recorded (a host session, an older desk); null = nothing measured.
  */
-export function fmtPerf(p: { wallMs?: number | null; cpuMs?: number | null; stealMs?: number | null }): string | null {
+export function fmtPerf(p: { wallMs?: number | null; cpuMs?: number | null; stealMs?: number | null; cpuKind?: "shared" | "performance" | null; cpus?: number | null }): string | null {
   if (p.wallMs == null) return null;
   const parts = [`wall ${fmtMs(p.wallMs)}`];
+  if (p.cpuKind && p.cpus) parts.unshift(`${p.cpuKind === "shared" ? "shared" : "perf"}-${p.cpus}x`);
   if (p.cpuMs != null) parts.push(`cpu ${fmtMs(p.cpuMs)}`);
   if (p.cpuMs != null && p.stealMs != null) {
     const pct = p.cpuMs + p.stealMs > 0 ? (100 * p.stealMs) / (p.cpuMs + p.stealMs) : 0;

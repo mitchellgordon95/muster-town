@@ -5,6 +5,7 @@
  */
 import { execFile, spawn } from "node:child_process";
 import { createInterface } from "node:readline";
+import type { DeskSize } from "@muster-town/core";
 import type { Agent, Building } from "@muster-town/schema";
 
 export interface DeskHandle {
@@ -13,6 +14,10 @@ export interface DeskHandle {
   agentId: string;
   /** ms `ensure` spent creating a sandbox that didn't exist (absent when it was reused) */
   createdMs?: number;
+  /** the Machine size the sandbox runs on (Fly desks; absent for docker), recorded on the session (gr_uhh6u39vv9 step 3) */
+  size?: DeskSize;
+  /** the size is the desk bill cap's fallback (shared-cpu-2x), not the configured one */
+  sizeFallback?: boolean;
 }
 
 /** A fork's desk slot (design note dc_mymt27yz25 §2.5): the sandbox and home volume of desk n of a building. */

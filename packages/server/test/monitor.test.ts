@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it } from "vitest";
-import { TOWN_HALL_ID } from "@muster-town/core";
+import { deskSizeFor, DESK_FALLBACK_SIZE, TOWN_HALL_ID } from "@muster-town/core";
 import { buildApp } from "../src/app.ts";
 import { ALERT_ENV, CLEAR_AFTER, Counters, type DeskSession, Monitor, OUTBOUND_CAP, defaultMetrics, processProbes, type Probes, type Senders } from "../src/monitor.ts";
 import { json, seededApp } from "./helpers.ts";
@@ -15,7 +15,7 @@ function rig(o: { env?: Record<string, string>; probes?: Partial<Probes> } = {})
   const probes: Probes = {
     rssBytes: () => state.rss, lagP99Ms: () => state.lag, diskFree: () => state.disk, slots: () => state.slots,
     queueWaiting: () => state.queue, backup: () => state.backup, http: () => state.http, wsErrors: () => state.ws, sessions: () => state.sessions,
-    deskSessions: (since) => state.desk.filter((d) => d.endedAt > since), ...o.probes,
+    deskSessions: (since) => state.desk.filter((d) => d.endedAt > since), deskBill: () => null, ...o.probes,
   };
   const sent: { kind: "sms" | "email"; text: string }[] = [];
   const senders: Senders = { sms: async (text) => { sent.push({ kind: "sms", text }); }, email: async (subject) => { sent.push({ kind: "email", text: subject }); } };
@@ -231,6 +231,65 @@ describe("monitor thresholds", () => {
     });
   });
 
+  describe("desk-bill", () => {
+    const H = 60 * MIN;
+    const PERF = { cpuKind: "performance", cpus: 1, memoryMb: 2048 } as const;
+    // the real World.deskBill over sessions rows, on the monitor's clock; a $0.10/day cap so an hour of performance-1x
+    // ($33/month = $0.0458/h) is 46 % of it
+    async function billSetup() {
+      const s = await setup();
+      s.world.setDesksConfig({ backend: "fly", billCapUsd: 0.1 });
+      s.r.probes.deskBill = (now) => { const b = s.world.deskBill(new Date(now)); return { todayUsd: b.todayUsd, capUsd: b.capUsd }; };
+      const agentId = s.world.agents.all()[0]!.id;
+      const run = (startMs: number, wallMs: number, size: typeof PERF | null = PERF) => {
+        const se = s.world.ops.startSession(agentId, { purpose: "work", model: "m", backend: "docker", size });
+        s.world.db.prepare("UPDATE sessions SET status = 'done', startedAt = ?, endedAt = ?, wallMs = ? WHERE id = ?")
+          .run(new Date(startMs).toISOString(), new Date(startMs + wallMs).toISOString(), wallMs, se.id);
+      };
+      return { ...s, run };
+    }
+
+    it("yellow at 50% of the daily cap, in town only", async () => {
+      const s = await billSetup();
+      s.run(s.r.now() - 2 * H, 1.2 * H); // 1.2 h × $0.045833 = $0.055
+      await s.step(1);
+      expect(s.m.view().alerts).toMatchObject([{ key: "desk-bill", level: "yellow", value: 55 }]);
+      expect(s.r.sent).toEqual([]);
+      expect(s.world.deskBill(new Date(s.r.now()))).toMatchObject({ todayUsd: 0.055, capUsd: 0.1, overCap: false });
+      expect(deskSizeFor(s.world.desksConfig(), s.world.deskBill(new Date(s.r.now())))).toEqual({ size: PERF, fallback: false });
+    });
+
+    it("red at the cap: SMS + email, new desk sessions fall back to shared-cpu-2x, re-alert hourly; resets at midnight UTC", async () => {
+      const s = await billSetup();
+      s.run(s.r.now() - 5 * H, 1.2 * H);
+      s.run(s.r.now() - 3 * H, 1.2 * H);
+      s.run(Date.parse("2026-10-27T22:00:00Z"), 1.5 * H); // yesterday's: not today's bill
+      await s.step(1);
+      expect(s.m.view().alerts).toMatchObject([{ key: "desk-bill", level: "red", value: 110 }]);
+      expect(s.r.sent.map((x) => x.kind)).toEqual(["sms", "email"]);
+      expect(s.world.docs.get(s.alerts().at(-1)!.docId!)!.title).toContain("[RED] desk bill today 110% of the daily cap");
+      expect(deskSizeFor(s.world.desksConfig(), s.world.deskBill(new Date(s.r.now())))).toEqual({ size: DESK_FALLBACK_SIZE, fallback: true });
+      await s.step(60);
+      expect(s.r.sent).toHaveLength(4); // the hourly re-alert
+      // sample at 21:01Z; three hours later the UTC day turns and the bill starts from 0
+      await s.step(3 * 60);
+      expect(s.world.deskBill(new Date(s.r.now()))).toMatchObject({ day: "2026-10-29", todayUsd: 0, overCap: false });
+      expect(deskSizeFor(s.world.desksConfig(), s.world.deskBill(new Date(s.r.now())))).toEqual({ size: PERF, fallback: false });
+      await s.step(CLEAR_AFTER);
+      expect(s.m.view().alerts).toEqual([]);
+      expect(s.alerts().at(-1)).toMatchObject({ key: "desk-bill", phase: "clear" });
+    });
+
+    it("sessions without a recorded size are priced at shared-cpu-2x; a running one counts up to now", async () => {
+      const s = await billSetup();
+      s.run(s.r.now() - 2 * H, H, null); // $13.39/720 = $0.018597
+      const agentId = s.world.agents.all()[0]!.id;
+      const live = s.world.ops.startSession(agentId, { purpose: "work", model: "m", backend: "docker", size: PERF });
+      s.world.db.prepare("UPDATE sessions SET startedAt = ? WHERE id = ?").run(new Date(s.r.now() - 0.5 * H).toISOString(), live.id);
+      expect(s.world.deskBill(new Date(s.r.now()))).toMatchObject({ todayUsd: 0.041513, sessions: 2 });
+    });
+  });
+
   it("caps outbound at 10 messages an hour", async () => {
     const { m, r } = await setup();
     const results = [];
@@ -284,6 +343,22 @@ describe("monitor thresholds", () => {
 });
 
 describe("monitor routes", () => {
+  it("health shows the desks block; an admin changes the town-wide desk bill cap, finance/fly follows", async () => {
+    const s = await seededApp();
+    const app = await buildApp({ world: s.world, dev: false, webDist: false });
+    close = async () => { await app.close(); await s.close(); };
+    s.world.setDesksConfig({ backend: "fly" });
+    const h = await json(app, "GET", "/api/health");
+    expect(h.body.desks).toMatchObject({ backend: "fly", size: "performance-1x", billCapUsd: 10, billTodayUsd: 0, billPct: 0, overCap: false });
+    expect((await json(app, "PUT", "/api/town/desks", { body: { billCapUsd: 15 } })).status).toBe(401);
+    const put = await json(app, "PUT", "/api/town/desks", { headers: s.auth, body: { billCapUsd: 15 } });
+    expect(put.status).toBe(200);
+    expect(put.body.desks).toMatchObject({ billCapUsd: 15, maxRunning: 30 }); // the slots are left alone
+    expect((await json(app, "GET", "/api/health")).body.desks.billCapUsd).toBe(15);
+    expect((await json(app, "GET", "/api/finance/fly")).body.capUsdPerDay).toBe(15);
+    expect((await json(app, "PUT", "/api/town/desks", { headers: s.auth, body: {} })).status).toBe(400);
+  });
+
   it("health shows the monitor block; the test endpoint needs an admin", async () => {
     const s = await seededApp();
     const r = rig({ env: {} });

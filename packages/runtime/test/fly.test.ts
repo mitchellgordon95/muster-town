@@ -27,6 +27,9 @@ function fakeFly(opts: { startFails?: number; machines?: any[]; volumes?: any[] 
     if (path.endsWith("/stop")) return reply(200, { ok: true });
     if (path.endsWith("/exec")) { const a = execAnswers.shift() ?? (() => ({})); const r = a(body.command); return reply(200, { stdout: "", stderr: "", exit_code: 0, exit_signal: 0, ...r }); }
     if (method === "DELETE") return reply(200, { ok: true });
+    const one = machines.find((m) => path === `/machines/${m.id}`);
+    if (one && method === "GET") return reply(200, one);
+    if (one && method === "POST") { one.config = body.config; return reply(200, one); }
     return reply(404, { error: "unexpected " + method + " " + path });
   }) as unknown as typeof fetch;
   return { reqs, machines, volumes, execAnswers, fetchFn };
@@ -50,7 +53,7 @@ describe("FlyApi", () => {
     const m = f.reqs.find((r) => r.method === "POST" && r.path === "/machines")!;
     expect(m.body).toMatchObject({
       name: "desk-workshop-ag-1", region: "ord",
-      config: { image: "registry.fly.io/muster-desks:desk", restart: { policy: "no" }, guest: { cpu_kind: "shared", cpus: 2, memory_mb: 4096 }, mounts: [{ volume: "vol_1", path: "/home/agent" }], metadata: { "muster-town.agent": "ag_1" } },
+      config: { image: "registry.fly.io/muster-desks:desk", restart: { policy: "no" }, guest: { cpu_kind: "performance", cpus: 1, memory_mb: 4096 }, mounts: [{ volume: "vol_1", path: "/home/agent" }], metadata: { "muster-town.agent": "ag_1" } },
     });
     expect(m.body.config.init.cmd[0]).toBe("sleep");
     expect(f.reqs.some((r) => r.path.includes("/wait?state=started"))).toBe(true);
@@ -62,7 +65,21 @@ describe("FlyApi", () => {
     const f = fakeFly();
     await api(f, { region: undefined, cpuKind: undefined, cpus: undefined, memoryMb: undefined }).create({ name: "desk-c-ag_1", labels: {}, volume: "deskhome-ag_1", mountPath: "/home/agent" });
     const m = f.reqs.find((r) => r.method === "POST" && r.path === "/machines")!;
-    expect(m.body).toMatchObject({ region: "iad", config: { guest: { cpu_kind: "shared", cpus: 2, memory_mb: 2048 } } });
+    expect(m.body).toMatchObject({ region: "iad", config: { guest: { cpu_kind: "performance", cpus: 1, memory_mb: 2048 } } });
+  });
+
+  test("create takes a per-session size; resize updates the guest only when it differs, keeping a stopped Machine stopped", async () => {
+    const f = fakeFly();
+    await api(f).create({ name: "desk-c-ag_1", labels: {}, volume: "deskhome-ag_1", mountPath: "/home/agent", size: { cpuKind: "shared", cpus: 2, memoryMb: 2048 } });
+    expect(f.reqs.find((r) => r.method === "POST" && r.path === "/machines")!.body.config.guest).toEqual({ cpu_kind: "shared", cpus: 2, memory_mb: 2048 });
+
+    const g = fakeFly({ machines: [{ id: "m_9", name: "desk-c-ag-1", state: "stopped", config: { image: "img", guest: { cpu_kind: "shared", cpus: 2, memory_mb: 2048 }, mounts: [{ volume: "v", path: "/home/agent" }] } }] });
+    const a = api(g);
+    expect(await a.resize("desk-c-ag_1", { cpuKind: "performance", cpus: 1, memoryMb: 2048 })).toBe(true);
+    const upd = g.reqs.find((r) => r.method === "POST" && r.path === "/machines/m_9")!;
+    expect(upd.body).toEqual({ config: { image: "img", guest: { cpu_kind: "performance", cpus: 1, memory_mb: 2048 }, mounts: [{ volume: "v", path: "/home/agent" }] }, skip_launch: true });
+    expect(await a.resize("desk-c-ag_1", { cpuKind: "performance", cpus: 1, memoryMb: 2048 })).toBe(false);
+    expect(g.reqs.filter((r) => r.method === "POST" && r.path === "/machines/m_9")).toHaveLength(1);
   });
 
   test("create reuses an existing volume, and runs the Machine in that volume's region", async () => {
