@@ -2,7 +2,7 @@
 import { BANK_FIXTURES, BANK_LOT, TILE, WALKABLE } from "@muster-town/schema";
 import type { Building, Place } from "@muster-town/schema";
 import type { Grid } from "../api";
-import { T, tiles, drawTable, drawCounter, drawDoor, drawManagerDesk, drawChair, drawBoard, drawCabinet, drawSchedule, drawWallSchedule, drawBench, drawVault, drawGold, drawPillar, drawBankMap, drawTownMap, drawSpendingBoard, drawBankFountain, drawBankLedger, drawBankServer } from "./sprites";
+import { T, tiles, drawTable, drawCounter, drawDoor, drawManagerDesk, drawChair, drawBoard, drawCabinet, drawSchedule, drawWallSchedule, drawBench, drawVault, drawGold, drawPillar, drawBankMap, drawTownMap, drawSpendingBoard, drawBankFountain, drawBankLedger, drawBankServer, drawSignpost } from "./sprites";
 
 type Lot = { x: number; y: number; w: number; h: number };
 
@@ -42,6 +42,17 @@ export class World {
   inBank(x: number, y: number): boolean {
     const l = this.bank;
     return !!l && x >= l.x && y >= l.y && x < l.x + l.w && y < l.y + l.h;
+  }
+
+  /** The signpost tile of a goal's plaza (place `plaza:<goalId>`, standing on the strip's bottom row): at the end of the strip's top row. */
+  signpostOf(p: Place): { x: number; y: number } | null {
+    const y = p.pos.y - 1;
+    for (let x = p.pos.x; x < this.w; x++) {
+      const k = this.at(x, y);
+      if (k === TILE.SIGNPOST) return { x, y };
+      if (k !== TILE.PATH) return null;
+    }
+    return null;
   }
 
   /** Pixel offset for a body standing at (x,y): agents at a desk sit tucked under it, centred on the 2-tile desk. */
@@ -103,7 +114,7 @@ export class World {
         const bank = this.inBank(x, y);
         const floor = bank ? tl.marble : b?.kind === "town-hall" ? tl.stone : tl.wood;
         // ground under furniture
-        if (k === TILE.GRASS || k === TILE.PLANT && !b) g.drawImage(tl.grass, px, py);
+        if (k === TILE.GRASS || k === TILE.SIGNPOST || k === TILE.PLANT && !b) g.drawImage(tl.grass, px, py);
         else if (k === TILE.PATH) g.drawImage(tl.path, px, py);
         else if (k !== TILE.WALL && k !== TILE.BOARD && k !== TILE.SCHEDULE_BOARD) g.drawImage(floor, px, py);
         switch (k) {
@@ -137,6 +148,7 @@ export class World {
           case TILE.SCHEDULE: drawSchedule(g, px, py); break;
           case TILE.SCHEDULE_BOARD: g.drawImage(tl.wallFace, px, py); drawWallSchedule(g, px, py); break;
           case TILE.BANK_MAP: drawBankMap(g, px, py); break;
+          case TILE.SIGNPOST: drawSignpost(g, px, py); break;
           case TILE.BANK_SPENDING: drawSpendingBoard(g, px, py); break;
           case TILE.BANK_SERVER: drawBankServer(g, px, py); break;
           case TILE.BANK_FOUNTAIN: drawBankFountain(g, px, py, { l: this.at(x - 1, y) === k, r: this.at(x + 1, y) === k }); break;

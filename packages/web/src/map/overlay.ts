@@ -186,6 +186,22 @@ export function drawPill(g: CanvasRenderingContext2D, x: number, y: number, text
   g.fillText(text, bx + 5, by + h / 2 + 0.5);
 }
 
+/**
+ * A goal's signpost label (docs/goals.md "The map is the tree"): the goal's words on a wooden board, bottom-left at
+ * (x, y), cut to `max` px wide (the full words are in the place's name).
+ */
+export function drawGoalSign(g: CanvasRenderingContext2D, x: number, y: number, text: string, max = 220) {
+  g.font = "700 10px ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, sans-serif";
+  let t = text;
+  if (g.measureText(t).width > max) { while (t.length > 1 && g.measureText(`${t}…`).width > max) t = t.slice(0, -1); t = `${t.trimEnd()}…`; }
+  const w = g.measureText(t).width + 10, h = 15;
+  const bx = Math.round(x), by = Math.round(y - h);
+  g.fillStyle = "#8a5a2b"; g.strokeStyle = "#3b2410"; g.lineWidth = 2;
+  roundRect(g, bx, by, w, h, 3); g.stroke(); g.fill();
+  g.fillStyle = "#fff4dc"; g.textBaseline = "middle";
+  g.fillText(t, bx + 5, by + h / 2 + 0.5);
+}
+
 /** Break `text` into lines no wider than `max` px in the current font (a single over-long word gets its own line). */
 export function wrapText(g: CanvasRenderingContext2D, text: string, max: number): string[] {
   const lines: string[] = [];

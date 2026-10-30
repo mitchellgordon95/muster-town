@@ -1,5 +1,5 @@
 import {
-  Agent, CreateBuildingInput, ROOT_GOAL_ID, desksForLot, CreateResidentInput, RegisterVisitorInput,
+  Agent, CreateBuildingInput, ROOT_GOAL_ID, CreateResidentInput, RegisterVisitorInput,
   type Building, type Lot, type Tile, type User,
 } from "@muster-town/schema";
 import { AppError, badRequest } from "./errors.ts";
@@ -7,6 +7,7 @@ import { buildingRoleId, townRoleId } from "./permissions.ts";
 import { suggestResidentName } from "./names.ts";
 import { newId, nowIso } from "./util.ts";
 import type { Furniture } from "./world/furniture.ts";
+import type { Before, Moved } from "./world/map.ts";
 import { MAX_HEADCOUNT, TOWN_HALL_ID } from "./world/layout.ts";
 import { nearestWalkable } from "./world/path.ts";
 import type { Actor } from "./ops.ts";
@@ -105,35 +106,29 @@ export function updateBuilding(world: World, id: string, patch: Partial<In<typeo
 
 /**
  * Save a building's furniture (lot-relative anchors; pieces left out stay put). Throws on an illegal room.
- * Bodies follow: anyone at a place or meeting seat that moved goes to its new tile, anyone on a now-blocked
- * tile steps to the nearest free one, and walks are re-planned. Place ids don't change.
+ * Bodies follow (the rebuild's `followRelayout`): anyone at a place or meeting seat that moved goes to its new tile,
+ * anyone on a now-blocked tile steps to the nearest free one, and walks are re-planned. Place ids don't change.
  */
 export function updateFurniture(world: World, id: string, furniture: Furniture, by: string | null): Building {
   const b = world.buildings.require(id, "building");
   const map = world.layout;
   const preview = map.preview(id, furniture);
   if (preview.errors.length) throw badRequest(preview.errors.map((e) => e.message).join(" "));
-  const before = bodiesBefore(world);
   return world.transaction(() => {
     world.buildings.upsert({ ...b, furniture: preview.furniture });
     map.rebuild();
-    followBodies(world, before, (pos) => (map.buildingAt(pos)?.id === id ? pos : null));
     world.events.append({ type: "building.layout", buildingId: id, text: `${b.name} layout changed`, payload: { by, before: b.furniture, after: preview.furniture } });
     return world.buildings.require(id);
   });
 }
 
-/** Where every place and meeting seat is now, so bodies can follow a layout change. */
-function bodiesBefore(world: World) {
-  const map = world.layout;
-  return { places: new Map(map.places.map((p) => [p.id, p.pos])), seats: new Map(map.places.map((p) => [p.id, map.seatsOf(p.id)])) };
-}
-
 /**
- * After a rebuild: anyone at a place or meeting seat that moved goes to its new tile; anyone else `pick` returns a
- * tile for (null = leave alone) steps to the nearest free tile from there. Walks are re-planned. Place ids don't change.
+ * After a rebuild moved places or lots (the map is drawn from the goal tree, so attaching a building, adding, moving
+ * or retiring a goal, or a building's desks can move things): bodies inside a moved building move with it; anyone at a
+ * place or meeting seat that moved goes to its new tile; anyone a building now stands on steps to the nearest free
+ * tile. Walks in progress are re-planned along the new roads. Place ids don't change.
  */
-function followBodies(world: World, before: ReturnType<typeof bodiesBefore>, pick: (pos: Tile) => Tile | null) {
+export function followRelayout(world: World, before: Before, moved: Moved[]): void {
   const map = world.layout;
   const moves = new Map<string, Tile>();
   for (const p of map.places) {
@@ -142,10 +137,14 @@ function followBodies(world: World, before: ReturnType<typeof bodiesBefore>, pic
     const now = map.seatsOf(p.id);
     (before.seats.get(p.id) ?? []).forEach((s, i) => { if (now[i] && !moves.has(`${s.x},${s.y}`)) moves.set(`${s.x},${s.y}`, now[i]); });
   }
-  const moved = (t: Tile) => moves.get(`${t.x},${t.y}`) ?? t;
+  const inLot = (pos: Tile) => moved.find(({ from: l }) => pos.x >= l.x && pos.x < l.x + l.w && pos.y >= l.y && pos.y < l.y + l.h);
+  const pick = (pos: Tile): Tile | null => {
+    const m = inLot(pos);
+    if (m) return { x: pos.x + m.to.x - m.from.x, y: pos.y + m.to.y - m.from.y };
+    return map.isWalkable(pos.x, pos.y) ? null : pos;
+  };
   const positions: { id: string; x: number; y: number; status: Agent["status"] }[] = [];
   for (const a of world.agents.where("status != 'retired'")) {
-    if (world.movement.isWalking(a.id)) continue;
     const to = moves.get(`${a.pos.x},${a.pos.y}`) ?? pick(a.pos);
     if (!to) continue;
     const pos = nearestWalkable(map.grid, to);
@@ -153,44 +152,8 @@ function followBodies(world: World, before: ReturnType<typeof bodiesBefore>, pic
     world.agents.upsert({ ...a, pos }, { silent: true });
     positions.push({ id: a.id, x: pos.x, y: pos.y, status: a.status });
   }
-  world.movement.reroute(moved);
+  world.movement.reroute((t) => nearestWalkable(map.grid, moves.get(`${t.x},${t.y}`) ?? pick(t) ?? t));
   if (positions.length) world.changes.emit({ type: "agents.pos", positions });
-}
-
-/**
- * Town planning: move/resize buildings (`lots`, left out = stays put) and optionally build one new building on a
- * drawn lot, in one step. Throws on an illegal plan. Bodies inside a moved building move with it; anyone a
- * building now stands on steps to the nearest free tile.
- */
-export function planTown(world: World, lots: Record<string, Lot>, create: (In<typeof CreateBuildingInput> & { lot: Lot }) | undefined, creatorUserId: string | null): { buildings: Building[]; created: Building | null } {
-  const map = world.layout;
-  const preview = map.planPreview(lots, create && { name: create.name, lot: create.lot });
-  if (preview.errors.length) throw badRequest(preview.errors.map((e) => e.message).join(" "));
-  const changed = Object.entries(lots).map(([id, lot]) => ({ old: world.buildings.require(id, "building"), lot }))
-    .filter(({ old, lot }) => !old.lot || old.lot.x !== lot.x || old.lot.y !== lot.y || old.lot.w !== lot.w || old.lot.h !== lot.h);
-  if (!changed.length && !create) return { buildings: [], created: null };
-  const before = bodiesBefore(world);
-  return world.transaction(() => {
-    // desks follow the floor space (a sent headcount is ignored): a resized lab gets map.headcountFor, a new one desksForLot
-    for (const { old, lot } of changed) world.buildings.upsert({ ...old, lot, headcount: map.headcountFor(old, lot) });
-    map.rebuild();
-    const inOld = (pos: Tile) => changed.find(({ old: { lot: l } }) => l && pos.x >= l.x && pos.x < l.x + l.w && pos.y >= l.y && pos.y < l.y + l.h);
-    followBodies(world, before, (pos) => {
-      const c = inOld(pos);
-      if (c) return { x: pos.x + c.lot.x - c.old.lot!.x, y: pos.y + c.lot.y - c.old.lot!.y };
-      return map.isWalkable(pos.x, pos.y) ? null : pos;
-    });
-    for (const { old, lot } of changed) {
-      world.events.append({ type: "town.plan", buildingId: old.id, text: `${old.name} was ${old.lot && (old.lot.w !== lot.w || old.lot.h !== lot.h) ? "resized" : "moved"}`, payload: { by: creatorUserId, before: old.lot ?? null, after: lot, desks: { before: old.headcount, after: world.buildings.require(old.id).headcount } } });
-    }
-    let created: Building | null = null;
-    if (create) {
-      const { lot, ...input } = create;
-      created = createBuilding(world, { ...input, headcount: desksForLot(lot) }, creatorUserId, { lot, starterResidents: true });
-      followBodies(world, bodiesBefore(world), (pos) => (map.isWalkable(pos.x, pos.y) ? null : pos));
-    }
-    return { buildings: changed.map(({ old }) => world.buildings.require(old.id)), created };
-  });
 }
 
 /** Create a resident at the building's lowest free desk (a full lab grows by one); it gets `member` in that building. */
@@ -207,10 +170,8 @@ export function createResident(world: World, input: In<typeof CreateResidentInpu
       title: inp.title, direction: inp.direction, sprite: inp.sprite ?? (existing % 8) + 1, model: inp.model ?? null,
       pos: world.layout.door(b.id) ?? { x: 0, y: 0 }, status: "idle", createdAt: nowIso(),
     }), { silent: true });
-    // a full lab grows by a desk (and re-lots if it no longer fits); bodies at places follow a moved lot
-    const before = bodiesBefore(world);
+    // a full lab grows by a desk (and the tree re-lots it if it no longer fits; bodies follow, see followRelayout)
     const desk = world.layout.claimDesk(b.id, id, { grow: true });
-    followBodies(world, before, () => null);
     const agent = world.agents.patch(id, { pos: desk.pos });
     world.permissions.grant(agent, buildingRoleId(b.id, "member"));
     world.events.append({ type: "agent.created", agentId: id, buildingId: b.id, text: `${agent.name} joined ${b.name}`, payload: { kind: "resident" } });

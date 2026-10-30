@@ -1,15 +1,11 @@
 import { BANK_FIXTURES, BANK_LOT, bankPlaces, labSize, MAX_HEADCOUNT, TILE, WALKABLE, type Building, type Lot, type Place, type Tile } from "@muster-town/schema";
 import { piecesFor, resolveFurniture } from "./furniture.ts";
-import { deriveRoads, doorOf, ROAD_Y } from "./road.ts";
-
-export { ROAD_Y };
+import { deriveRoads, doorOf } from "./road.ts";
+import { treeLayout, type Plaza, type TreeGoal } from "./tree.ts";
 
 /** Row-major tile grid, same shape as the WS snapshot's `grid`. */
 export interface Grid { w: number; h: number; tiles: number[] }
 
-/** x of the Town Hall's left edge. Labs alternate left/right of it. */
-export const TOWN_HALL_X = 48;
-export const LOT_GAP = 4;
 export const TOWN_HALL_SIZE = { w: 17, h: 11 } as const;
 export { MAX_HEADCOUNT };
 
@@ -39,49 +35,12 @@ export { labSize };
 export function sizeFor(b: Building): { w: number; h: number } {
   return b.kind === "town-hall" ? { ...TOWN_HALL_SIZE } : labSize(b.headcount);
 }
-function lotFits(lot: Lot, need: { w: number; h: number }) {
-  return lot.w >= need.w && lot.h >= need.h;
-}
-
-/**
- * Assign lots to buildings without one (or whose lot is now too small). Existing fitting lots never move.
- * Labs alternate left/right of the Town Hall in creation order; a lab goes right if the left is full.
- * New lots are placed beyond the current extremes, so lots never overlap.
- * Returns the buildings whose lot changed.
- */
-export function assignLots(buildings: Building[]): Building[] {
-  const sorted = [...buildings].sort((a, b) => (a.kind === "town-hall" ? -1 : b.kind === "town-hall" ? 1 : a.createdAt.localeCompare(b.createdAt) || a.id.localeCompare(b.id)));
-  const placed: Lot[] = [];
-  const pending: Building[] = [];
-  for (const b of sorted) {
-    if (b.lot && lotFits(b.lot, sizeFor(b))) placed.push(b.lot);
-    else pending.push(b);
-  }
-  const changed: Building[] = [];
-  let labIndex = sorted.filter((b) => b.kind !== "town-hall" && b.lot && lotFits(b.lot, sizeFor(b))).length;
-  for (const b of pending) {
-    const { w, h } = sizeFor(b);
-    const y = ROAD_Y - 2 - h;
-    let x: number;
-    const minX = placed.length ? Math.min(...placed.map((l) => l.x)) : TOWN_HALL_X;
-    const maxX = placed.length ? Math.max(...placed.map((l) => l.x + l.w)) : TOWN_HALL_X + TOWN_HALL_SIZE.w;
-    if (b.kind === "town-hall" && !placed.some((l) => l.x < TOWN_HALL_X + TOWN_HALL_SIZE.w && l.x + l.w > TOWN_HALL_X)) {
-      x = TOWN_HALL_X;
-    } else {
-      const left = minX - LOT_GAP - w;
-      x = labIndex % 2 === 0 && left >= 2 ? left : maxX + LOT_GAP;
-      if (b.kind !== "town-hall") labIndex++;
-    }
-    const lot = { x, y, w, h };
-    placed.push(lot);
-    changed.push({ ...b, lot });
-  }
-  return changed;
-}
-
 export interface DeskSlot { buildingId: string; n: number; pos: Tile; agentId: string | null }
 export interface LayoutResult {
   grid: Grid;
+  /** every building's lot, as the tree puts it */
+  lots: Map<string, Lot>;
+  plazas: Plaza[];
   places: Place[];
   /** standing tiles for every desk, by building */
   desks: Map<string, DeskSlot[]>;
@@ -92,21 +51,14 @@ export interface LayoutResult {
 }
 
 /**
- * Build the tile grid and places from buildings (with lots) and desk occupancy.
- * `occupancy`: buildingId -> (deskIndex -> agentId); `names`: agentId -> name.
+ * Build the tile grid and places from the goal tree (`treeLayout` decides every lot and plaza; a building's stored lot
+ * is not read) and desk occupancy. `occupancy`: buildingId -> (deskIndex -> agentId); `names`: agentId -> name.
  */
-/** Size of the town grid for these lots (the planner's dry run routes roads on the same grid). */
-export function townSize(lots: Lot[]): { w: number; h: number } {
-  const right = Math.max(TOWN_HALL_X + TOWN_HALL_SIZE.w, ...lots.map((l) => l.x + l.w));
-  return {
-    w: Math.max(64, right + 6, BANK_LOT.x + BANK_LOT.w + 3),
-    h: Math.max(ROAD_Y + 6, BANK_LOT.y + BANK_LOT.h + 3, ...lots.map((l) => l.y + l.h + 3)),
-  };
-}
-
-export function computeLayout(buildings: Building[], occupancy: Map<string, Map<number, string>>, names: Map<string, string>): LayoutResult {
-  const lots = buildings.filter((b) => b.lot);
-  const { w, h } = townSize(lots.map((b) => b.lot!));
+export function computeLayout(buildings: Building[], goals: TreeGoal[], occupancy: Map<string, Map<number, string>>, names: Map<string, string>): LayoutResult {
+  const tree = treeLayout(goals, buildings.map((b) => ({ id: b.id, kind: b.kind, goalId: b.goalId, createdAt: b.createdAt, size: sizeFor(b) })));
+  const lots = buildings.filter((b) => tree.lots.has(b.id)).map((b) => ({ ...b, lot: tree.lots.get(b.id)! }));
+  const { w, h } = tree;
+  const hall = lots.find((b) => b.kind === "town-hall");
   const tiles = new Array<number>(w * h).fill(TILE.GRASS);
   const set = (x: number, y: number, t: number) => { if (x >= 0 && y >= 0 && x < w && y < h) tiles[y * w + x] = t; };
   const places: Place[] = [];
@@ -115,25 +67,32 @@ export function computeLayout(buildings: Building[], occupancy: Map<string, Map<
   /** meeting-room place id -> its table tiles (seats are computed once the grid is complete) */
   const tables = new Map<string, Tile[]>();
 
-  // trees, then the roads (the trunk plus a road from every door, derived from the lots) over them
-  for (let x = 2; x < w; x += 6) set(x, ROAD_Y + 3, TILE.PLANT);
-  for (const t of deriveRoads(lots.map((b) => ({ id: b.id, lot: b.lot! })), w, h).tiles) set(t.x, t.y, TILE.PATH);
+  // the roads (the plazas and the tree's edges between them), then a signpost and a place per plaza
+  const roads = deriveRoads(lots, tree, w, h);
+  for (const t of roads.tiles) set(t.x, t.y, TILE.PATH);
+  for (const p of tree.plazas) {
+    set(p.sign.x, p.sign.y, TILE.SIGNPOST);
+    const pos = { x: p.rect.x + 1, y: p.rect.y + 1 };
+    places.push({ id: `plaza:${p.goalId}`, kind: "plaza", name: p.text || "Goal", buildingId: null, pos });
+    // the root's plaza keeps its old id too: the town's meeting point (presence, arrivals)
+    if (!p.parentId) places.push({ id: "plaza", kind: "plaza", name: "Plaza", buildingId: null, pos: hall ? { x: doorOf(hall.lot, hall.kind).x - 2, y: p.rect.y } : pos });
+  }
   bankRoom(set, places);
 
   for (const b of lots) {
-    const { x: x0, y: y0, w: bw, h: bh } = b.lot!;
+    const { x: x0, y: y0, w: bw, h: bh } = b.lot;
     for (let y = 0; y < bh; y++) for (let x = 0; x < bw; x++) {
       const edge = x === 0 || y === 0 || x === bw - 1 || y === bh - 1;
       set(x0 + x, y0 + y, edge ? TILE.WALL : TILE.FLOOR);
     }
-    const door = doorOf(b.lot!);
+    const door = doorOf(b.lot, b.kind);
     set(door.x, door.y, TILE.DOOR);
     doors.set(b.id, door);
     places.push({ id: `door:${b.id}`, kind: "door", name: `${b.name} door`, buildingId: b.id, pos: door });
 
     // furniture: each piece at its stored anchor if that's legal, else its default
-    const pieces = piecesFor(b.kind, b.headcount, b.lot!);
-    const { anchors, dropped } = resolveFurniture(b.lot!, pieces, b.furniture);
+    const pieces = piecesFor(b.kind, b.headcount, b.lot);
+    const { anchors, dropped } = resolveFurniture(b.kind, b.lot, pieces, b.furniture);
     if (dropped.length) console.warn(`[layout] ${b.id}: ${dropped.join(", ")} back at the default spot (stored spot is no longer legal)`);
     const piece = new Map(pieces.map((p) => [p.key, p]));
     for (const p of pieces) {
@@ -165,7 +124,6 @@ export function computeLayout(buildings: Building[], occupancy: Map<string, Map<
         { id: "town-map", kind: "town-map", name: "Town map (town planning)", buildingId: b.id, pos: stand("town-map") },
         { id: "outbox", kind: "outbox", name: "Outbox", buildingId: b.id, pos: stand("outbox") },
         { id: `meeting-room:${b.id}`, kind: "meeting-room", name: "Town Hall meeting room", buildingId: b.id, pos: stand("meeting") },
-        { id: "plaza", kind: "plaza", name: "Plaza", buildingId: null, pos: { x: door.x, y: ROAD_Y } },
       );
       tables.set(`meeting-room:${b.id}`, cells("meeting"));
       continue;
@@ -196,7 +154,7 @@ export function computeLayout(buildings: Building[], occupancy: Map<string, Map<
     const room = places.find((p) => p.id === id)!.pos;
     seats.set(id, seatsAround(grid, table, room));
   }
-  return { grid, places, desks, doors, seats };
+  return { grid, lots: tree.lots, plazas: tree.plazas, places, desks, doors, seats };
 }
 
 /** The Bank (fixed lot south of the road): gold walls are the renderer's job; here the room, its door, the vault and the stations, and their places. */

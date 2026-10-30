@@ -1,5 +1,5 @@
 import { AppError, BANK_ACCOUNTING, deskPreset, deskSizeFor, type World, buildingStats, accessRequestOf, boardWithTownDocs, canInteract, decideAccess, deskSlotRows, requestAccess, sessionView, setDeskSlot, cabinetCounts, cabinetDocs, reportChains, reviewDeck, presentedReviewDeck } from "@muster-town/core";
-import { AccessDecisionInput, AccessRequestInput, AddBankInput, CreateBankPoolInput, CreateBuildingInput, DesksPatch, UpdateBankPoolInput, DocType, DonateInput, LayoutInput, Membership, PlanInput, PlantFlagInput, RedeployInput, UpdateBuildingInput, apiKeyProblem, townEnv, REVIEW_DECK_ID, type AccessRequest, type AuthMe, type RedeployLive } from "@muster-town/schema";
+import { AccessDecisionInput, AccessRequestInput, AddBankInput, CreateBankPoolInput, CreateBuildingInput, DesksPatch, UpdateBankPoolInput, DocType, DonateInput, LayoutInput, Membership, PlantFlagInput, RedeployInput, UpdateBuildingInput, apiKeyProblem, townEnv, REVIEW_DECK_ID, type AccessRequest, type AuthMe, type RedeployLive } from "@muster-town/schema";
 import type { FastifyInstance, FastifyRequest } from "fastify";
 import { brotliDecompressSync } from "node:zlib";
 import { z } from "zod";
@@ -211,23 +211,12 @@ export async function townRoutes(app: FastifyInstance) {
     return { desks, slots: deskSlotRows(world, buildingId) };
   }
 
-  /**
-   * Town planning (humans with town.manage_buildings): new lots for existing buildings and/or one new building on
-   * a drawn lot. `dryRun` returns errors and the grid as it would look.
-   */
   /** Host settings that change live (admin): `{maxRunning}` = how many work sessions may run at once. → { desks, slots } */
   app.put("/api/town/desks", async (req) => {
     const user = requireUser(req);
     world.permissions.requireAdmin({ kind: "user", id: user.id }, "Only an admin can change the host's session slots.");
     const desks = world.setDesksConfig(parse(DesksPatch, req.body));
     return { desks, slots: world.host.slots?.() ?? null };
-  });
-
-  app.put("/api/town/plan", async (req) => {
-    const input = parse(PlanInput, req.body);
-    const actor = actorOf(world, req);
-    if (input.dryRun) return world.ops.planPreview(actor, input.lots, input.create);
-    return world.ops.planTown(actor, input.lots, input.create);
   });
 
   /**

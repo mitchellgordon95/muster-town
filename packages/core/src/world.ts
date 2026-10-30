@@ -23,6 +23,7 @@ import { createRepos, type Repos } from "./store.ts";
 import { Emitter } from "./util.ts";
 import { makeVerbs, type Verbs } from "./verbs/index.ts";
 import { WorldMap } from "./world/map.ts";
+import { followRelayout } from "./entities.ts";
 import { Movement } from "./world/movement.ts";
 
 export type SnapshotMessage = Extract<ServerMessage, { type: "snapshot" }>;
@@ -138,6 +139,7 @@ export class World {
     this.bank = new Bank(repos, this.events, this.permissions);
     this.budget = new Budget(repos, this.events, this.bank, this.changes);
     this.layout = new WorldMap(db, repos);
+    this.layout.follow = (before, moved) => followRelayout(this, before, moved);
     this.movement = new Movement(repos, this.layout, this.events, this.changes);
     this.verbs = makeVerbs(this);
     this.ops = new Ops(this);
@@ -188,6 +190,10 @@ export class World {
       if (!e.buildingId || !(e.type.startsWith("grant.") || e.type.startsWith("kr.") || e.type === "building.updated" || e.type === "building.blocked")) return;
       const b = this.buildings.get(e.buildingId);
       if (b) this.changes.emit({ type: "building", building: { ...b, stoplight: this.grantDesk.stoplight(b) } });
+    });
+    // the map is drawn from the goal tree: any tree change (add, edit, move or retire a goal, attach a building) redraws it
+    this.events.addHook((e) => {
+      if (e.type === "goal.created" || e.type === "goal.edited" || e.type === "goal.moved" || e.type === "goal.retired" || e.type === "goal.attached") this.layout.rebuild();
     });
     this.goalTree.ensure();
     this.layout.rebuild();

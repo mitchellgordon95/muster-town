@@ -55,15 +55,15 @@ describe("buildings & agents", () => {
     const { app, auth, world } = await setup();
     const b = await json(app, "POST", "/api/buildings", { headers: auth, body: { name: "Ocean Lab", goal: "Ocean heat", headcount: 20 } });
     expect(b.status).toBe(201);
-    // desks follow floor space (flag dc_1hjoh9aurq): the sent headcount is ignored, the lab gets NEW_LAB_LOT (15×12) → 5 desks
-    expect(b.body.building).toMatchObject({ name: "Ocean Lab", kind: "lab", headcount: 5, lot: { w: 15, h: 12 } });
+    // Desks is the size setting (the map is drawn from the goal tree): the lot follows the headcount (labSize)
+    expect(b.body.building).toMatchObject({ name: "Ocean Lab", kind: "lab", headcount: 20, lot: { w: 15, h: 27 } });
     const bid = b.body.building.id;
     const repatched = await json(app, "PATCH", `/api/buildings/${bid}`, { headers: auth, body: { headcount: 12, goal: "Ocean heat content" } });
     expect(repatched.status).toBe(200);
-    expect(repatched.body.building).toMatchObject({ goal: "Ocean heat content", headcount: 5, lot: { w: 15, h: 12 } });
+    expect(repatched.body.building).toMatchObject({ goal: "Ocean heat content", headcount: 12, lot: { w: 15, h: 18 } });
     const only = await json(app, "PATCH", `/api/buildings/${bid}`, { headers: auth, body: { headcount: 1 } });
     expect(only.status).toBe(200);
-    expect(only.body.building.headcount).toBe(5);
+    expect(only.body.building).toMatchObject({ headcount: 1, lot: { w: 13, h: 9 } });
 
     const bad = await json(app, "POST", "/api/buildings", { headers: auth, body: { goal: "no name" } });
     expect(bad.status).toBe(400);
@@ -436,15 +436,17 @@ describe("edit layout", () => {
     const room = await json(app, "GET", "/api/buildings/carbon-cycle/layout");
     expect(room.status).toBe(200);
     expect(room.body.pieces.map((p: any) => p.key)).toEqual(expect.arrayContaining(["board", "desk:0", "meeting", "cabinet"]));
-    const dry = await json(app, "PUT", "/api/buildings/carbon-cycle/layout", { headers: auth, body: { furniture: { board: { x: 1, y: 0 } }, dryRun: true } });
+    // a lab's back wall is its bottom one (its door is in the top wall, on its goal's plaza)
+    const back = world.buildings.require("carbon-cycle").lot!.h - 1;
+    const dry = await json(app, "PUT", "/api/buildings/carbon-cycle/layout", { headers: auth, body: { furniture: { board: { x: 1, y: back } }, dryRun: true } });
     expect(dry.status).toBe(200);
     expect(dry.body.errors).toEqual([]);
     expect(world.buildings.require("carbon-cycle").furniture).toEqual({});
     const bad = await json(app, "PUT", "/api/buildings/carbon-cycle/layout", { headers: auth, body: { furniture: { board: { x: 5, y: 5 } } } });
     expect(bad.status).toBe(400);
-    const ok = await json(app, "PUT", "/api/buildings/carbon-cycle/layout", { headers: auth, body: { furniture: { board: { x: 1, y: 0 } } } });
+    const ok = await json(app, "PUT", "/api/buildings/carbon-cycle/layout", { headers: auth, body: { furniture: { board: { x: 1, y: back } } } });
     expect(ok.status).toBe(200);
-    expect(ok.body.building.furniture).toEqual({ board: { x: 1, y: 0 } });
+    expect(ok.body.building.furniture).toEqual({ board: { x: 1, y: back } });
     const moss = world.agents.first("name = 'Moss'")!;
     const agent = { authorization: `Bearer ${world.tokens.getOrCreate("agent", moss.id)}` };
     const refused = await json(app, "PUT", "/api/buildings/carbon-cycle/layout", { headers: agent, body: { furniture: {} } });
@@ -452,26 +454,25 @@ describe("edit layout", () => {
   });
 });
 
-describe("town planning", () => {
-  it("an admin dry-runs and saves a move plus a new building; illegal plans are 400, agent tokens 403", async () => {
+describe("the map is the goal tree (docs/goals.md, build step 2)", () => {
+  it("no plan route; attaching a building moves it to its goal's plaza; Desks resizes it (town.manage_buildings), agent tokens 403", async () => {
     const { app, world, auth } = await setup();
+    expect((await json(app, "PUT", "/api/town/plan", { headers: auth, body: { lots: {} } })).status).toBe(404);
+    const goal = await json(app, "POST", "/api/goals", { headers: auth, body: { parentId: "gl_town", text: "A goal with a plaza" } });
+    expect(goal.status).toBe(201);
+    const id = goal.body.goal.id;
     const lot = world.buildings.require("carbon-cycle").lot!;
-    const moved = { ...lot, y: lot.y - 3 };
-    const dry = await json(app, "PUT", "/api/town/plan", { headers: auth, body: { lots: { "carbon-cycle": moved }, dryRun: true } });
-    expect(dry.status).toBe(200);
-    expect(dry.body.errors).toEqual([]);
-    expect(world.buildings.require("carbon-cycle").lot).toEqual(lot);
-    const th = world.buildings.require("town-hall").lot!;
-    const bad = await json(app, "PUT", "/api/town/plan", { headers: auth, body: { lots: { "carbon-cycle": th } } });
-    expect(bad.status).toBe(400);
-    const right = Math.max(...world.buildings.all().map((b) => b.lot!.x + b.lot!.w));
-    const ok = await json(app, "PUT", "/api/town/plan", { headers: auth, body: { lots: { "carbon-cycle": moved }, create: { name: "Kelp Lab", headcount: 1, lot: { x: right + 2, y: 20, w: 13, h: 9 } } } });
-    expect(ok.status).toBe(200);
-    expect(ok.body.buildings[0].lot).toEqual(moved);
-    expect(ok.body.created.name).toBe("Kelp Lab");
+    const attach = await json(app, "PATCH", "/api/buildings/carbon-cycle", { headers: auth, body: { goalId: id } });
+    expect(attach.status).toBe(200);
+    const plaza = world.layout.plazas.find((p) => p.goalId === id)!;
+    expect(world.buildings.require("carbon-cycle").lot!.y).toBe(plaza.rect.y + plaza.rect.h);
+    expect(world.buildings.require("carbon-cycle").lot).not.toEqual(lot);
+    const desks = await json(app, "PATCH", "/api/buildings/carbon-cycle", { headers: auth, body: { headcount: 9 } });
+    expect(desks.status).toBe(200);
+    expect(world.buildings.require("carbon-cycle").lot).toMatchObject({ w: 15, h: 15 });
     const moss = world.agents.first("name = 'Moss'")!;
     const agent = { authorization: `Bearer ${world.tokens.getOrCreate("agent", moss.id)}` };
-    expect((await json(app, "PUT", "/api/town/plan", { headers: agent, body: { lots: {}, dryRun: true } })).status).toBe(403);
+    expect((await json(app, "PATCH", "/api/buildings/carbon-cycle", { headers: agent, body: { headcount: 12 } })).status).toBe(403);
   });
 });
 

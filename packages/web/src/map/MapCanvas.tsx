@@ -2,7 +2,7 @@ import { useEffect, useRef } from "react";
 import { store } from "../state";
 import { MapRenderer, type Target } from "./renderer";
 import { layoutEdit } from "./layoutEdit";
-import { openTownPlanning, townPlan, type Grab, type PlanDraft } from "./townPlan";
+import { openTownPlanning, townPlan } from "./townPlan";
 
 const NUDGE: Record<string, [number, number]> = { arrowup: [0, -1], w: [0, -1], arrowdown: [0, 1], s: [0, 1], arrowleft: [-1, 0], a: [-1, 0], arrowright: [1, 0], d: [1, 0] };
 
@@ -32,11 +32,8 @@ export function MapCanvas(props: { panelInset: number; onTarget: (t: Target | nu
     const down = (e: KeyboardEvent) => {
       const k = e.key.toLowerCase();
       if (townPlan.draft && !typing()) {
-        // town planning: arrows nudge the selected building, Delete drops the new one, Ctrl+Z undoes, Esc cancels
-        if ((e.ctrlKey || e.metaKey) && k === "z") townPlan.undo();
-        else if (k === "escape") townPlan.cancel();
-        else if ((k === "delete" || k === "backspace") && townPlan.draft.selected === "new") townPlan.dropNew();
-        else if (NUDGE[k] && !e.ctrlKey && !e.metaKey) townPlan.nudge(...NUDGE[k]);
+        // the town map: Esc closes it
+        if (k === "escape") townPlan.cancel();
         else return;
         e.preventDefault(); e.stopImmediatePropagation();
         return;
@@ -83,22 +80,15 @@ export function MapCanvas(props: { panelInset: number; onTarget: (t: Target | nu
   };
   /** the piece being dragged: which, where it was grabbed (tiles from its anchor), the draft before the drag */
   const drag = useRef<{ key: string; gx: number; gy: number; before: Record<string, { x: number; y: number }> } | null>(null);
-  /** town planning: what's being dragged, and the draft before the drag (one Undo step) */
-  const planDrag = useRef<{ grab: Grab; before: PlanDraft["history"][number] } | null>(null);
-  const endPlanDrag = () => { if (planDrag.current) { townPlan.commitDrag(planDrag.current.before); planDrag.current = null; } };
   return (
     <canvas
       ref={ref}
       className="map"
       onMouseDown={(e) => {
-        const plan = townPlan.draft;
-        if (current && plan) {
+        if (current && townPlan.draft) {
+          // the town map: a click selects the building under it (the side bar shows it); grass deselects
           const t = current.tileAt(local(e).x, local(e).y);
-          // a wall resizes, the inside moves, empty grass draws a new building
-          const grab: Grab = townPlan.grabAt(t.x, t.y) ?? { id: "new", kind: "draw", ax: t.x, ay: t.y };
-          townPlan.select(grab.id);
-          planDrag.current = { grab, before: { lots: plan.lots, create: plan.create } };
-          if (grab.kind === "draw") townPlan.drag(grab, t.x, t.y);
+          townPlan.select(townPlan.buildingAt(t.x, t.y));
           return;
         }
         const r = current, ed = layoutEdit.draft; if (!r || !ed) return;
@@ -110,16 +100,13 @@ export function MapCanvas(props: { panelInset: number; onTarget: (t: Target | nu
           drag.current = { key: piece.key, gx: t.x - ed.lot.x - a.x, gy: t.y - ed.lot.y - a.y, before: ed.anchors };
         }
       }}
-      onMouseUp={() => { endPlanDrag(); if (drag.current) { layoutEdit.commitDrag(drag.current.before); drag.current = null; } }}
+      onMouseUp={() => { if (drag.current) { layoutEdit.commitDrag(drag.current.before); drag.current = null; } }}
       onMouseMove={(e) => {
         const r = current; if (!r) return;
         const p = local(e);
         if (townPlan.draft) {
           const t = r.tileAt(p.x, p.y);
-          if (planDrag.current) townPlan.drag(planDrag.current.grab, t.x, t.y);
-          const g = planDrag.current?.grab ?? townPlan.grabAt(t.x, t.y);
-          ref.current!.style.cursor = !g ? "crosshair" : g.kind === "move" ? (planDrag.current ? "grabbing" : "grab") : g.kind === "draw" ? "crosshair"
-            : (g.l || g.r) && (g.t || g.b) ? ((g.l && g.t) || (g.r && g.b) ? "nwse-resize" : "nesw-resize") : g.l || g.r ? "ew-resize" : "ns-resize";
+          ref.current!.style.cursor = townPlan.buildingAt(t.x, t.y) ? "pointer" : "default";
           return;
         }
         const ed = layoutEdit.draft;
@@ -138,7 +125,6 @@ export function MapCanvas(props: { panelInset: number; onTarget: (t: Target | nu
       }}
       onMouseLeave={() => {
         if (current) { current.hoverId = null; current.hoverSign = null; current.hoverBlock = null; current.tapTip = null; }
-        endPlanDrag();
         if (drag.current) { layoutEdit.commitDrag(drag.current.before); drag.current = null; }
       }}
       onClick={(e) => {
