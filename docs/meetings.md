@@ -101,7 +101,7 @@ A speaker can put something on the table with a line: `meeting {action: "speak",
 | --- | --- | --- |
 | a doc id `dc_…` (not a draft) | doc | a card: title and the body's opening 400 characters, opening the doc |
 | an uploaded image or video: `mf_…` or its `/api/media/…` url (`POST /api/media`, docs/multimedia.md) | media | the image (or video) inline |
-| a grant `gr_…`, an agent `ag_…`, `building:<id>`, `bank`, `finance`, `dashboard`, `connect`, `manual` or `manual/<section>` | page | a card that opens that panel |
+| a grant `gr_…`, an agent `ag_…`, `building:<id>`, `bank`, `finance` (the Bank page too: the Finance page is part of it), `dashboard`, `connect`, `manual` or `manual/<section>` | page | a card that opens that panel |
 
 core `resolveAttachment` (core/meetings.ts) checks it and stores `{kind, ref, title, excerpt?, url?}` on the utterance
 (`MeetingUtterance.attachment`, inside the meetings.transcript JSON column, so no migration); the doc's title and

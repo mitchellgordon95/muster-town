@@ -1,25 +1,22 @@
 /**
- * Finance (public, gr_gi5jbgzv4k step 2): the town's tokens at a glance from GET /api/finance: total received, used,
- * expired and left with the sum check (used + expired + left = total + overdrawn), the 30-day projection and the
- * trailing burn it rests on; then each Bank pool's permanent tokens as max(0, durable), with "overdrawn by N" when a
- * pool's durable balance is negative (overshoot debt, dc_myhlhsevgz). Under the overdrawn figure, its parts
- * (overdrawnBreakdown, dc_4exx02zf9g), which sum to it. Then Spending (gr_8gtgmd828o step 2) from GET /api/finance/spend:
- * `used` by building → grant → assignment, each level collapsible, with the no-grant, no-assignment and unattributed,
- * weight-mismatch (pre-conversion pricing, not spend; step 2b) and not-funded rows that make the top level sum to
- * `used`. Above it, Sources (gr_gbpbbwy9b8 step 2) from GET /api/finance/sources: each Bank input (open it for its
- * dated credits) and each direct donation, the two subtotals and Total received, checked against /api/finance `total`.
- * Between Sources and Spending, Pools (gr_mijwhoiy2f step 2) from GET /api/finance/pools: each pool's share, what it has left
- * (expiring today, permanent) and drew, its overdrawn debt on its own row, checked against the Bank balance; then each
- * building's draws, donations, held tokens and exploration allowance, its draws checked against the Bank's debits. When
- * the endpoint can't be loaded, the older "Bank pools" table from /api/bank stands in for it. Last, Hosting (Fly.io) from
- * GET /api/finance/fly (1:1 mt_s6f8mvjw9h): what the desks' Machines and the town Machine cost in dollars, today and over
- * the window, per building, estimated from desk sessions' wall time at Fly's list prices; the daily desk cap when one is set.
- * Opened from the HUD's "$" or `#/finance`.
+ * The Bank page's finance sections (1:1 mt_ew2d0mm7h9: one Bank page, the old Finance page folded into it), each over one
+ * public read-only endpoint and each left out when its endpoint can't be loaded (`useFinance`, `BankPanel` lays them out):
+ * Tokens from GET /api/finance: total received, used, expired and left with the sum check (used + expired + left = total +
+ * overdrawn) and under the overdrawn figure its parts (overdrawnBreakdown, dc_4exx02zf9g), which sum to it; the 30-day
+ * projection and the trailing burn it rests on. Sources (gr_gbpbbwy9b8 step 2) from GET /api/finance/sources: each Bank input
+ * (open it for its dated credits) and each direct donation, the two subtotals and Total received, checked against /api/finance
+ * `total`. Pool balances (gr_mijwhoiy2f step 2) from GET /api/finance/pools: each pool's share, what it has left (expiring
+ * today, permanent) and drew, its overdrawn debt on its own row, checked against the Bank balance; then each building's draws,
+ * donations, held tokens and exploration allowance, its draws checked against the Bank's debits. Spending (gr_8gtgmd828o step 2)
+ * from GET /api/finance/spend: `used` by building → grant → assignment, each level collapsible, with the no-grant, no-assignment
+ * and unattributed, weight-mismatch (pre-conversion pricing, not spend; step 2b) and not-funded rows that make the top level
+ * sum to `used`. Hosting (Fly.io) from GET /api/finance/fly (1:1 mt_s6f8mvjw9h): what the desks' Machines and the town Machine
+ * cost in dollars, today and over the window, per building, estimated from desk sessions' wall time at Fly's list prices; the
+ * daily desk cap when one is set. The Bank page opens from the Bank on the map, the HUD's "$", `#/bank` or the old `#/finance`.
  */
-import { api, type BankPoolSummary, type Finance, type FinanceFly, type FinancePools, type FinanceSources, type FinanceSpend, type SpendNode } from "../api";
+import { api, type Finance, type FinanceFly, type FinancePools, type FinanceSources, type FinanceSpend, type SpendNode } from "../api";
 import type { ReactNode } from "react";
-import { Glyph, PanelShell } from "./PanelShell";
-import { ADJ, ADJ_HINT, ErrorLine, Loading, Section, useLoad } from "./ui";
+import { ADJ, ADJ_HINT, Section, useLoad } from "./ui";
 
 const n = (x: number) => Math.round(x).toLocaleString("en-US");
 
@@ -32,9 +29,6 @@ export function sumCheckLine(f: Finance): { ok: boolean; text: string } {
 
 /** Days the tokens left last at the trailing burn (null when nothing is being used). */
 export const runwayDays = (f: Finance): number | null => (f.projection.trailingDailyBurn > 0 ? Math.floor(f.left / f.projection.trailingDailyBurn) : null);
-
-/** A pool's permanent tokens as shown: never below 0, the debt on its own line. */
-export const poolDurable = (p: Pick<BankPoolSummary, "durableTokens">) => ({ shown: Math.max(0, p.durableTokens), overdrawnBy: Math.max(0, -p.durableTokens) });
 
 /** The non-zero parts of `overdrawn`, labelled, in a fixed order; they sum to `overdrawn`. */
 export function overdrawnParts(f: Finance): { key: string; label: string; tokens: number; note?: string }[] {
@@ -201,7 +195,7 @@ const Total = ({ label, tokens }: { label: string; tokens: number }) => (
 
 export function PoolsView({ fp }: { fp: FinancePools }) {
   return (
-    <Section title="Pools">
+    <Section title="Pool balances">
       <p className="muted">Each pool owns its share of every Bank credit; its buildings draw from it first come, first served. Left ({ADJ}) splits into expiring (subscription tokens: what is not used before the daily renewal is lost) and permanent (API-key tokens: kept until used).</p>
       <div className="spend-tree">
         {fp.pools.map((p) => (
@@ -267,7 +261,7 @@ export function flyCheckLine(fly: Pick<FinanceFly, "sumCheck" | "totals">): { ok
 
 const rateLine = (r: FinanceFly["rates"]["desk"]) => (r ? `${r.preset}, ${r.memoryMb >= 1024 ? `${r.memoryMb / 1024} GB` : `${r.memoryMb} MB`}: ${usd(r.usdPerHour, 4)}/h (${usd(r.usdPerMonth)} per 30 days)` : null);
 
-function FlyView({ fly }: { fly: FinanceFly }) {
+export function FlyView({ fly }: { fly: FinanceFly }) {
   const week = flyWindowTotals(fly, 7), all = flyWindowTotals(fly, fly.days.length);
   const t = fly.today;
   const desk = rateLine(fly.rates.desk), town = rateLine(fly.rates.town);
@@ -315,16 +309,19 @@ function FlyView({ fly }: { fly: FinanceFly }) {
   );
 }
 
-export function FinanceView({ f, pools, spend = null, sources = null, poolsFin = null, fly = null }: { f: Finance; pools: BankPoolSummary[] | null; spend?: FinanceSpend | null; sources?: FinanceSources | null; poolsFin?: FinancePools | null; fly?: FinanceFly | null }) {
+/** One line above the sections: the unit every amount is in (and the Hosting exception when that section is there), and what a ✓ line means. */
+export const FinanceIntro = ({ hosting = false }: { hosting?: boolean }) => (
+  <p className="muted finance-intro">
+    Every amount here is in <abbr title={ADJ_HINT}>{ADJ}</abbr> (adjusted output tokens): the unit the town pays for AI model work in, where
+    one output token counts 1 and input and cached tokens count at their lower price (1 adj. token ≈ 30 raw tokens on Opus, 24 on Fable).
+    {hosting ? " Hosting (Fly.io), at the end, is in US dollars." : ""} A ✓ line under a section means the server checked that its numbers add up; ✗ would say by how much they are off.
+  </p>
+);
+
+/** Tokens: total received, used, expired, left, overdrawn and its parts, with the sum check in words. */
+export function TokensView({ f }: { f: Finance }) {
   const check = sumCheckLine(f);
-  const runway = runwayDays(f);
-  const p = f.projection;
-  return <>
-    <p className="muted finance-intro">
-      Every amount here is in <abbr title={ADJ_HINT}>{ADJ}</abbr> (adjusted output tokens): the unit the town pays for AI model work in, where
-      one output token counts 1 and input and cached tokens count at their lower price (1 adj. token ≈ 30 raw tokens on Opus, 24 on Fable).
-      A ✓ line under a section means the server checked that its numbers add up; ✗ would say by how much they are off.
-    </p>
+  return (
     <Section title="Tokens">
       <table className="table finance-summary">
         <thead><tr><th /><th title={ADJ_HINT}>{ADJ}</th></tr></thead>
@@ -343,6 +340,14 @@ export function FinanceView({ f, pools, spend = null, sources = null, poolsFin =
       </table>
       <div className={check.ok ? "finance-check ok" : "error-line"} role="status">{check.ok ? "✓ " : "✗ "}{check.text}</div>
     </Section>
+  );
+}
+
+/** Next N days: the trailing burn, the projection at that rate and the runway. */
+export function ProjectionView({ f }: { f: Finance }) {
+  const runway = runwayDays(f);
+  const p = f.projection;
+  return (
     <Section title={`Next ${p.days} days`}>
       <table className="table">
         <tbody>
@@ -353,40 +358,19 @@ export function FinanceView({ f, pools, spend = null, sources = null, poolsFin =
       </table>
       <p className="muted">A straight line from the trailing burn: new credits, donations and renewals are not counted.</p>
     </Section>
-    {!poolsFin && pools && pools.length ? (
-      <Section title="Bank pools">
-        <table className="table">
-          <thead><tr><th>Pool</th><th>Expires today</th><th>Permanent</th></tr></thead>
-          <tbody>
-            {pools.map((pl) => {
-              const d = poolDurable(pl);
-              return (
-                <tr key={pl.id}>
-                  <td>{pl.name}</td>
-                  <td>{n(pl.expiringTokens)}</td>
-                  <td>{n(d.shown)}{d.overdrawnBy ? <div className="finance-overdrawn">overdrawn by {n(d.overdrawnBy)}</div> : null}</td>
-                </tr>
-              );
-            })}
-          </tbody>
-        </table>
-      </Section>
-    ) : null}
-    {sources ? <SourcesView s={sources} /> : null}
-    {poolsFin ? <PoolsView fp={poolsFin} /> : null}
-    {spend ? <SpendingView sp={spend} /> : null}
-    {fly ? <FlyView fly={fly} /> : null}
-    <p className="muted">As of {f.at.slice(0, 16).replace("T", " ")} UTC · in adjusted output tokens{fly ? " (Hosting in US dollars)" : ""} · from <code>GET /api/finance</code>{sources ? <>, <code>/api/finance/sources</code></> : null}{poolsFin ? <>, <code>/api/finance/pools</code></> : null}{spend ? <>, <code>/api/finance/spend</code></> : null}{fly ? <> and <code>/api/finance/fly</code></> : null}</p>
-  </>;
-}
-
-export function FinancePanel() {
-  const d = useLoad(() => Promise.all([api().finance(), api().bank().then((b) => b.pools, () => null), api().financeSpend().catch(() => null), api().financeSources().catch(() => null), api().financePools().catch(() => null), api().financeFly().catch(() => null)]), []);
-  return (
-    <PanelShell icon={<Glyph kind="bank" />} title="Finance" subtitle="What the town received, used, let expire and has left">
-      {d.loading && !d.data ? <Loading /> : null}
-      <ErrorLine error={d.error} />
-      {d.data ? <FinanceView f={d.data[0]} pools={d.data[1]} spend={d.data[2]} sources={d.data[3]} poolsFin={d.data[4]} fly={d.data[5]} /> : null}
-    </PanelShell>
   );
 }
+
+/** What the Bank page's finance sections show: `f` from GET /api/finance, the rest null when its endpoint couldn't be loaded. */
+export interface FinanceData { f: Finance; spend: FinanceSpend | null; sources: FinanceSources | null; poolsFin: FinancePools | null; fly: FinanceFly | null }
+
+/** The five finance endpoints in parallel; only GET /api/finance is required (`error`), the others leave their section out. */
+export function useFinance(): { data: FinanceData | null; error: string | null; loading: boolean } {
+  const d = useLoad(() => Promise.all([api().finance(), api().financeSpend().catch(() => null), api().financeSources().catch(() => null), api().financePools().catch(() => null), api().financeFly().catch(() => null)]), []);
+  return { data: d.data ? { f: d.data[0], spend: d.data[1], sources: d.data[2], poolsFin: d.data[3], fly: d.data[4] } : null, error: d.error, loading: d.loading };
+}
+
+/** The footer: when the figures were read and which endpoints they came from. */
+export const FinanceFooter = ({ f, spend, sources, poolsFin, fly }: FinanceData) => (
+  <p className="muted">As of {f.at.slice(0, 16).replace("T", " ")} UTC · in adjusted output tokens{fly ? " (Hosting in US dollars)" : ""} · from <code>GET /api/bank</code>, <code>/api/finance</code>{sources ? <>, <code>/api/finance/sources</code></> : null}{poolsFin ? <>, <code>/api/finance/pools</code></> : null}{spend ? <>, <code>/api/finance/spend</code></> : null}{fly ? <> and <code>/api/finance/fly</code></> : null}</p>
+);

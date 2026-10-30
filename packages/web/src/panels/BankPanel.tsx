@@ -1,23 +1,40 @@
 /**
- * The Bank (its teller counter, south of the road): the town's available tokens, then the funding sections
- * (contributors, the one Donate form, building allocations, Bank inputs, pools) from BankFunding.
+ * The Bank (its teller counter, south of the road; also the HUD's "$", `#/bank` and the old `#/finance`): one page for the
+ * town's tokens (1:1 mt_ew2d0mm7h9), public. In order: what is available now (Balance) and all time (Tokens, Next 30 days);
+ * where tokens come from (contributors, the one Donate form, Bank inputs, Sources); how they are divided (pools, building
+ * allocations, pool balances); where they go (Spending, Hosting (Fly.io) in dollars); then the Bank's health (drift, deaths
+ * and the cap). The funding sections are BankFunding's, the finance ones BankFinance's, each over its own endpoint.
  */
 import { useState } from "react";
-import { api } from "../api";
+import { api, type Bank } from "../api";
 import { store, useTown } from "../state";
 import { Glyph, PanelShell } from "./PanelShell";
 import { BankContributors, BankInputs, BankPools, BuildingFunding, Donate } from "./BankFunding";
-import { ADJ, Loading, Section, breakdownTitle, fmtTokens } from "./ui";
+import { FinanceFooter, FinanceIntro, FlyView, PoolsView, ProjectionView, SourcesView, SpendingView, TokensView, useFinance, type FinanceData } from "./BankFinance";
+import { ADJ, ErrorLine, Loading, Section, breakdownTitle, fmtTokens } from "./ui";
 
 /** Refetch the summary the sign and these sections read. */
 const reload = () => { api().bank().then((bank) => store.set({ bank }), () => undefined); };
 
 export function BankPanel() {
   const bank = useTown((s) => s.bank);
+  const fin = useFinance();
   const [rev, setRev] = useState(0);
   const changed = () => { reload(); setRev((r) => r + 1); };
   return (
-    <PanelShell icon={<Glyph kind="bank" />} title="The Bank" subtitle="Adjusted output tokens (adj. tokens) available to the town">
+    <PanelShell icon={<Glyph kind="bank" />} title="The Bank" subtitle="The town's tokens: what came in, where they went and what is left; hosting in dollars">
+      {fin.loading && !fin.data ? <Loading /> : null}
+      <ErrorLine error={fin.error} />
+      <BankView bank={bank} fin={fin.data} rev={rev} onChange={changed} onReload={reload} />
+    </PanelShell>
+  );
+}
+
+/** The page given its data: `bank` from GET /api/bank (null until loaded), `fin` the finance endpoints (null until loaded). */
+export function BankView({ bank, fin, rev, onChange, onReload }: { bank: Bank | null; fin: FinanceData | null; rev: number; onChange: () => void; onReload: () => void }) {
+  return (
+    <>
+      <FinanceIntro hosting={!!fin?.fly} />
       <Section title="Balance">
         {!bank ? <Loading /> : (
           <table className="table" title={breakdownTitle(bank.creditedCounts)}>
@@ -39,6 +56,21 @@ export function BankPanel() {
           </table>
         )}
       </Section>
+      {fin ? <TokensView f={fin.f} /> : null}
+      {fin ? <ProjectionView f={fin.f} /> : null}
+      {bank && <>
+        <BankContributors bank={bank} />
+        <Donate onChange={onChange} />
+        <BankInputs bank={bank} onChange={onReload} />
+      </>}
+      {fin?.sources ? <SourcesView s={fin.sources} /> : null}
+      {bank && <>
+        <BankPools bank={bank} onChange={onReload} />
+        <BuildingFunding rev={rev} />
+      </>}
+      {fin?.poolsFin ? <PoolsView fp={fin.poolsFin} /> : null}
+      {fin?.spend ? <SpendingView sp={fin.spend} /> : null}
+      {fin?.fly ? <FlyView fly={fin.fly} /> : null}
       {bank?.drift && bank.drift.models.length ? (
         <Section title={`Drift (${bank.drift.day}, 24 h)`}>
           <p className="muted">Adjusted output tokens × output list price vs what the SDK says the sessions cost. Target 0.90–1.10.</p>
@@ -69,13 +101,7 @@ export function BankPanel() {
           </table>
         </Section>
       ) : null}
-      {bank && <>
-        <BankContributors bank={bank} />
-        <Donate onChange={changed} />
-        <BuildingFunding rev={rev} />
-        <BankInputs bank={bank} onChange={reload} />
-        <BankPools bank={bank} onChange={reload} />
-      </>}
-    </PanelShell>
+      {fin ? <FinanceFooter {...fin} /> : null}
+    </>
   );
 }

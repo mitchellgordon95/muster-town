@@ -235,7 +235,8 @@ function pageRef(ref: string): PanelRef | null {
   const [k, id] = ref.split(/[:/](.*)/s);
   if (k === "grant" || k === "agent" || k === "building") return id ? { kind: k, id } : null;
   if (k === "manual") return { kind: "manual", ...(id ? { id } : {}) };
-  if (k === "bank" || k === "finance" || k === "dashboard" || k === "connect") return { kind: k };
+  if (k === "finance") return { kind: "bank" }; // the old Finance page is part of the Bank now
+  if (k === "bank" || k === "dashboard" || k === "connect") return { kind: k };
   return null;
 }
 
@@ -257,7 +258,7 @@ function Presented({ a, newTab }: { a: MeetingAttachment; newTab: boolean }) {
     );
   }
   const to = pageRef(a.ref);
-  const href = to?.kind === "grant" && to.id ? grantUrl(to.id) : to && (to.kind === "finance" || to.kind === "connect") ? `#/${to.kind}` : to?.kind === "manual" ? `#/manual${to.id ? `/${to.id}` : ""}` : null;
+  const href = to?.kind === "grant" && to.id ? grantUrl(to.id) : to && (to.kind === "bank" || to.kind === "connect") ? `#/${to.kind}` : to?.kind === "manual" ? `#/manual${to.id ? `/${to.id}` : ""}` : null;
   if (href && newTab) return <a className="presented card" href={href} {...tab}><span className="presented-kind">Presented page</span><b>{a.title}</b></a>;
   return (
     <button className="presented card" disabled={!to} onClick={() => to && store.open(to)}>

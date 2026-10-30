@@ -1,7 +1,8 @@
 import { describe, expect, it } from "vitest";
 import { renderToStaticMarkup } from "react-dom/server";
-import type { BankPoolSummary, Finance, FinanceFly, FinancePools, FinanceSources, FinanceSpend } from "../src/api";
-import { donationNote, FinanceView, flyCheckLine, flyWindowTotals, inputName, overdrawnParts, poolsBalanceLine, poolsDrawsLine, sourcesCheckLine, pct, poolDurable, runwayDays, spendCheckLine, sumCheckLine } from "../src/panels/FinancePanel";
+import type { Finance, FinanceFly, FinancePools, FinanceSources, FinanceSpend } from "../src/api";
+import { donationNote, flyCheckLine, flyWindowTotals, inputName, overdrawnParts, poolsBalanceLine, poolsDrawsLine, sourcesCheckLine, pct, runwayDays, spendCheckLine, sumCheckLine, type FinanceData } from "../src/panels/BankFinance";
+import { BankView } from "../src/panels/BankPanel";
 
 // the live shape: 1,000 received, 1,100 used (200 overdrawn), 50 expired, 50 left
 const f: Finance = {
@@ -9,7 +10,9 @@ const f: Finance = {
   overdrawn: 200, overdrawnBreakdown: { durableOvershoot: 120, subscriptionOverdrawn: 70, deletedCreditDebits: 0, allocationOverspent: 10 }, usageLedger: 1200, projection: { days: 30, trailingDailyBurn: 20, burnDays: 7, projectedUse30d: 600 },
   sumCheck: { ok: true, diff: 0, identity: "used + expired + left = total + overdrawn" }, at: "2026-10-27T19:00:00.000Z",
 };
-const pool = (name: string, durableTokens: number): BankPoolSummary => ({ id: name, name, pct: 50, explicit: false, isDefault: name === "General", buildings: [], expiringTokens: 10, durableTokens });
+const noop = () => undefined;
+/** The Bank page before GET /api/bank answers (a stranger, signed out), with these finance sections. */
+const page = (fin: Partial<FinanceData>) => renderToStaticMarkup(<BankView bank={null} fin={{ f, spend: null, sources: null, poolsFin: null, fly: null, ...fin }} rev={0} onChange={noop} onReload={noop} />);
 
 describe("finance page", () => {
   it("says the four figures add up, overdrawn included", () => {
@@ -20,10 +23,6 @@ describe("finance page", () => {
     expect(bad.ok).toBe(false);
     expect(bad.text).toMatch(/^Does not add up \(off by 20\)/);
   });
-  it("shows an overdrawn pool as 0 with the debt on its own line", () => {
-    expect(poolDurable({ durableTokens: -256870 })).toEqual({ shown: 0, overdrawnBy: 256870 });
-    expect(poolDurable({ durableTokens: 42 })).toEqual({ shown: 42, overdrawnBy: 0 });
-  });
   it("gives the runway at the trailing burn, none without a burn", () => {
     expect(runwayDays(f)).toBe(2);
     expect(runwayDays({ ...f, projection: { ...f.projection, trailingDailyBurn: 0 } })).toBeNull();
@@ -32,14 +31,19 @@ describe("finance page", () => {
     const parts = overdrawnParts(f);
     expect(parts.map((p) => p.key)).toEqual(["durableOvershoot", "subscriptionOverdrawn", "allocationOverspent"]);
     expect(parts.reduce((s, p) => s + p.tokens, 0)).toBe(f.overdrawn);
-    const html = renderToStaticMarkup(<FinanceView f={f} pools={null} />);
+    const html = page({});
     for (const s of ["overshoot debt", "120", "subscription credits drawn past their size", "switch to adj. tokens on 2026-10-27", "Fable sessions drew on credits sized in raw tokens", "spent past their size"]) expect(html).toContain(s);
     expect(html).not.toContain("credits since deleted");
   });
-  it("renders total, used, expired, left, the projection and the pools", () => {
-    const html = renderToStaticMarkup(<FinanceView f={f} pools={[pool("General", -256870), pool("Research", 5000)]} />);
-    for (const s of ["the unit the town pays for AI model work in", "A ✓ line under a section means", "Total received", "1,000", "Used", "1,100", "Expired", "Left", "Overdrawn", "✓ Adds up", "20 / day", "average of the last 7 days", "600", "overdrawn by 256,870", "5,000"]) expect(html).toContain(s);
-    expect(renderToStaticMarkup(<FinanceView f={{ ...f, sumCheck: { ...f.sumCheck, ok: false, diff: 5 } }} pools={null} />)).toContain("✗ Does not add up (off by 5)");
+  it("renders the unit line, total, used, expired, left and the projection on the Bank page, with the footer", () => {
+    const html = page({});
+    for (const s of ["the unit the town pays for AI model work in", "A ✓ line under a section means", "Balance", "Total received", "1,000", "Used", "1,100", "Expired", "Left", "Overdrawn", "✓ Adds up", "20 / day", "average of the last 7 days", "600", "As of 2026-10-27 19:00 UTC", "GET /api/bank", "/api/finance"]) expect(html).toContain(s);
+    expect(page({ f: { ...f, sumCheck: { ...f.sumCheck, ok: false, diff: 5 } } })).toContain("✗ Does not add up (off by 5)");
+  });
+  it("lays the page out: Balance, Tokens, Next 30 days, Sources, Pool balances, Spending, Hosting, then the footer (1:1 mt_ew2d0mm7h9: one Bank page)", () => {
+    const html = page({ spend: sp, sources: src, poolsFin: fp, fly });
+    const order = ["Balance", "Tokens", "Next 30 days", "Sources", "Pool balances", "Spending", "Hosting (Fly.io)", "As of 2026-10-27"].map((s) => html.indexOf(`>${s}<`) >= 0 ? html.indexOf(`>${s}<`) : html.indexOf(s));
+    for (let i = 1; i < order.length; i++) expect(order[i], `section ${i}`).toBeGreaterThan(order[i - 1]);
   });
 });
 
@@ -76,13 +80,13 @@ describe("finance page: spending", () => {
     expect(pct(-0.0455)).toBe("-4.5%");
   });
   it("renders building → grant → assignment with the synthetic rows, collapsible", () => {
-    const html = renderToStaticMarkup(<FinanceView f={f} pools={null} spend={sp} />);
+    const html = page({ spend: sp });
     for (const s of ["Spending", "Town Workshop", "900", "81.8%", "Refactor the Bank", "Step 1: the ledger", "No grant", "Manager sessions, no assignment", "Weight mismatch", "-30", "12 sessions", "The difference is pricing, not spend", "Not funded", "-20", "never charged to the Bank or a donation", "✓ Adds up: the rows sum to used", "/api/finance/spend"]) expect(html).toContain(s);
     expect(html).toContain("<details");
-    expect(renderToStaticMarkup(<FinanceView f={f} pools={null} spend={{ ...sp, check: { ...sp.check, ok: false, diff: 3 } }} />)).toContain("✗ Does not add up (off by 3)");
+    expect(page({ spend: { ...sp, check: { ...sp.check, ok: false, diff: 3 } } })).toContain("✗ Does not add up (off by 3)");
   });
   it("leaves the section out when the spend can't be loaded", () => {
-    expect(renderToStaticMarkup(<FinanceView f={f} pools={null} />)).not.toContain("Spending");
+    expect(page({})).not.toContain("Spending");
   });
 });
 
@@ -119,7 +123,7 @@ describe("finance page: sources", () => {
     expect(off).toEqual({ ok: false, text: "Does not match the Tokens total (off by 10): credited 800 + donated 200 = 1,000, Tokens total 990" });
   });
   it("renders each input with its dated credits behind a toggle, each donation, the subtotals and the checked total, above Spending", () => {
-    const html = renderToStaticMarkup(<FinanceView f={f} pools={null} spend={sp} sources={src} />);
+    const html = page({ spend: sp, sources: src });
     for (const s of ["Sources", "What the town received and from whom", "Mitchell&#x27;s Max plan", "subscription · daily", '<span class="day">2026-10-20 →</span> <span class="day">2026-10-27</span>', "600",
       "API key from Kelly", "cancelled", "Cancelled 2026-10-25", "permanent", "expires 2026-10-21 00:00", "50 expired undrawn",
       "For the map", "to Town Workshop", "from Ravi", "to Bank Transparency", "counted at what it spent (size 90)", "2026-10-23",
@@ -129,10 +133,10 @@ describe("finance page: sources", () => {
     expect(first).toContain("<summary>");
     expect(first.slice(first.indexOf("</summary>"))).toContain("expires 2026-10-21 00:00");
     expect(html.indexOf("Sources")).toBeLessThan(html.indexOf("Spending"));
-    expect(renderToStaticMarkup(<FinanceView f={f} pools={null} sources={{ ...src, financeTotal: 990, matchesFinance: false }} />)).toContain("✗ Does not match the Tokens total (off by 10)");
+    expect(page({ sources: { ...src, financeTotal: 990, matchesFinance: false } })).toContain("✗ Does not match the Tokens total (off by 10)");
   });
   it("leaves the section out when the sources can't be loaded", () => {
-    expect(renderToStaticMarkup(<FinanceView f={f} pools={null} />)).not.toContain("Credited through the Bank");
+    expect(page({})).not.toContain("Credited through the Bank");
   });
 });
 
@@ -164,23 +168,21 @@ describe("finance page: pools", () => {
     const bad: FinancePools = { ...fp, usedBank: 960, sumCheck: { ...fp.sumCheck, drawsOk: false, drawsDiff: 20, balanceOk: false, balanceDiff: 7, ok: false } };
     expect(poolsDrawsLine(bad)).toEqual({ ok: false, text: "Does not add up (off by 20): building draws 950, pool draws 950, Bank debits 960" });
     expect(poolsBalanceLine(bad).text).toMatch(/^Does not add up \(off by 7\): pools left 110/);
-    const html = renderToStaticMarkup(<FinanceView f={f} pools={null} poolsFin={bad} />);
+    const html = page({ poolsFin: bad });
     expect(html).toContain("✗ Does not add up (off by 20)");
     expect(html).toContain("✗ Does not add up (off by 7)");
   });
   it("renders each pool with its share and left, an overdrawn pool's debt on its own row, then each building, between Sources and Spending", () => {
-    const html = renderToStaticMarkup(<FinanceView f={f} pools={[pool("General", -256870)]} spend={sp} sources={src} poolsFin={fp} />);
-    for (const s of ["Pools", "General", "70%", "Labs", "30%", "Town Workshop, Town Hall", "General overdrawn: permanent tokens drawn past its share", "−120", "Unshared", "Bank balance less overshoot",
+    const html = page({ spend: sp, sources: src, poolsFin: fp });
+    for (const s of ["Pool balances", "General", "70%", "Labs", "30%", "Town Workshop, Town Hall", "General overdrawn: permanent tokens drawn past its share", "−120", "Unshared", "Bank balance less overshoot",
       "✓ Adds up: pools left 110", "Drawn from pools", "800", "drawn all time 800", "permanent 60", "donated 150", "held 130", "exploration 40,000 / day", "25,000", "draws nothing from the Bank", "✓ Adds up: building draws = pool draws = Bank debits = 950", "/api/finance/pools"]) expect(html).toContain(s);
     expect(html).toContain('class="spend-row finance-overdrawn pool-overdrawn"');
     expect(html.indexOf("Credited through the Bank")).toBeLessThan(html.indexOf("Bank balance less overshoot"));
     expect(html.indexOf("Bank balance less overshoot")).toBeLessThan(html.indexOf("Spending"));
-    // the pools endpoint replaces the older /api/bank pools table
-    expect(html).not.toContain("overdrawn by 256,870");
-    expect(renderToStaticMarkup(<FinanceView f={f} pools={null} poolsFin={{ ...fp, pools: [{ ...fp.pools[1] }] }} />)).not.toContain("pool-overdrawn");
+    expect(page({ poolsFin: { ...fp, pools: [{ ...fp.pools[1] }] } })).not.toContain("pool-overdrawn");
   });
   it("leaves the section out when the pools can't be loaded", () => {
-    expect(renderToStaticMarkup(<FinanceView f={f} pools={null} />)).not.toContain("Drawn from pools");
+    expect(page({})).not.toContain("Drawn from pools");
   });
 });
 
@@ -219,16 +221,16 @@ describe("finance page: hosting (Fly.io)", () => {
     expect(flyCheckLine({ ...fly, sumCheck: { ...fly.sumCheck, ok: false, daysOk: false, diff: 0.000002 } }).text).toContain("misses its total by $0.000002");
   });
   it("renders today, the week, the window, the rates, the cap, each building and the ✓ line, in dollars", () => {
-    const html = renderToStaticMarkup(<FinanceView f={f} pools={null} fly={fly} />);
+    const html = page({ fly });
     for (const s of ["Hosting (Fly.io)", "in US dollars", "not Fly&#x27;s bill", "Today (so far)", "$1.20", "$0.11", "$1.31", "Last 7 days", "Last 10 days (2026-10-20 → 2026-10-29)", "Daily desk cap", "$10.00 per day · today under the cap",
       "shared-cpu-2x, 2 GB: $0.0186/h ($13.39 per 30 days)", "Desk time, last 10 days", "83 h over 25 sessions", "3 timed from start and end", "Town Workshop", "60 h · 20 sessions", "$1.12", "Bank Transparency", "$0.42", "Desks, last 10 days", "$1.53",
-      "Not counted: Volume storage", "How this is estimated", "✓ Adds up: every day", "(Hosting in US dollars)", "/api/finance/fly"]) expect(html).toContain(s);
+      "Not counted: Volume storage", "How this is estimated", "✓ Adds up: every day", "(Hosting in US dollars)", "/api/finance/fly", "Hosting (Fly.io), at the end, is in US dollars"]) expect(html).toContain(s);
   });
   it("says so when nothing is on Fly or no cap is set", () => {
-    const html = renderToStaticMarkup(<FinanceView f={f} pools={null} fly={{ ...fly, rates: { ...fly.rates, desk: null, town: null }, desksBackend: "docker", townOnFly: false, today: { ...fly.today, capUsdPerDay: null, underCap: null } }} />);
+    const html = page({ fly: { ...fly, rates: { ...fly.rates, desk: null, town: null }, desksBackend: "docker", townOnFly: false, today: { ...fly.today, capUsdPerDay: null, underCap: null } } });
     for (const s of ["desks are not on Fly (docker)", "the server is not on a Fly Machine: $0", "none set"]) expect(html).toContain(s);
   });
   it("leaves the section out when the endpoint can't be loaded", () => {
-    expect(renderToStaticMarkup(<FinanceView f={f} pools={null} />)).not.toContain("Hosting (Fly.io)");
+    expect(page({})).not.toContain("Hosting (Fly.io)");
   });
 });
