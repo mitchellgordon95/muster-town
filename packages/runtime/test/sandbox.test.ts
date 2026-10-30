@@ -48,6 +48,22 @@ describe("SandboxBackend", () => {
     }]);
   });
 
+  test("sizeFor: a new desk is created at the session's size, an existing one is resized first; the handle carries the size", async () => {
+    const perf = { cpuKind: "performance", cpus: 1, memoryMb: 2048 } as const;
+    const shared = { cpuKind: "shared", cpus: 2, memoryMb: 2048 } as const;
+    const fresh = fakeApi();
+    fresh.api.resize = async () => true;
+    const h = await new SandboxBackend({ api: fresh.api, collective: "c", sizeFor: () => ({ size: shared, fallback: true }) }).ensure(agent, building);
+    expect(fresh.created[0]!.size).toEqual(shared);
+    expect(h).toMatchObject({ size: shared, sizeFallback: true });
+
+    const old = fakeApi({ found: { id: "sb1", name: "desk-c-ag_abc123", state: "stopped" } });
+    old.api.resize = async (name, size) => { old.calls.push(`resize ${name} ${size.cpuKind}`); return true; };
+    const h2 = await new SandboxBackend({ api: old.api, collective: "c", sizeFor: () => ({ size: perf, fallback: false }) }).ensure(agent, building);
+    expect(old.calls).toEqual(["find desk-c-ag_abc123", "resize desk-c-ag_abc123 performance", "find desk-c-ag_abc123", "start desk-c-ag_abc123"]);
+    expect(h2).toMatchObject({ size: perf, sizeFallback: false });
+  });
+
   test("ensure starts a stopped desk, leaves a started one alone, replaces one in error (home volume kept)", async () => {
     const stopped = fakeApi({ found: { id: "s", name: "n", state: "stopped" } });
     await new SandboxBackend({ api: stopped.api, collective: "c" }).ensure(agent, building);

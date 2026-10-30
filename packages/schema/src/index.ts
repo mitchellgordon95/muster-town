@@ -1086,6 +1086,14 @@ export const Session = z.object({
   wallMs: z.number().int().nullish(),
   cpuMs: z.number().int().nullish(),
   stealMs: z.number().int().nullish(),
+  /**
+   * The desk Machine size the session ran on (gr_uhh6u39vv9 step 3, migration 060): Fly's guest as the runtime set it
+   * at session start (performance 1 × 2048 normally, shared 2 × 2048 once the day's desk bill is over the cap).
+   * null = a host session, a docker desk, or a session from before 060 (those ran on shared 2 × 2048).
+   */
+  cpuKind: z.enum(["shared", "performance"]).nullish(),
+  cpus: z.number().int().nullish(),
+  memoryMb: z.number().int().nullish(),
 });
 export type Session = z.infer<typeof Session>;
 /** A session as the API serves it: with `adjustedOutputTokens` (Bank step 2), derived on read, never stored. */
@@ -1716,7 +1724,7 @@ export const DesksConfig = z.object({
   image: z.string().default("muster-town-desk"),
   /** the desk image for `fly` (default registry.fly.io/$FLY_APP:desk, built from fly.desk.toml) */
   snapshot: z.string().default("muster-town-desk"),
-  /** `fly` only: where desk Machines run, and their size (defaults iad, shared 2 vCPU, 2048 MB) */
+  /** `fly` only: where desk Machines run, and their size (defaults iad, performance 1 vCPU, 2048 MB) */
   region: z.string().optional(),
   cpuKind: z.enum(["shared", "performance"]).optional(),
   cpus: z.number().int().positive().optional(),
@@ -1732,10 +1740,17 @@ export const DesksConfig = z.object({
   maxRunning: z.number().int().positive().default(30),
   /** how many days session transcripts are kept (docs/transcripts.md); collective.json `desks.transcriptDays` */
   transcriptDays: z.number().int().positive().default(90),
+  /**
+   * Town-wide desk bill cap, USD per UTC day (gr_uhh6u39vv9 step 3; Mitchell, 1:1 mt_s6f8mvjw9h): once the day's desk
+   * sessions cost this much at Fly list prices, new desk sessions start on shared-cpu-2x instead of performance-1x
+   * (never refused) and the monitor's `desk-bill` goes red. Stored in the meta row `desks`; PUT /api/town/desks changes it.
+   */
+  billCapUsd: z.number().nonnegative().default(10),
 });
 export type DesksConfig = z.infer<typeof DesksConfig>;
 /** `PUT /api/town/desks` (admin): the host settings that can change while the server runs. */
-export const DesksPatch = z.object({ maxRunning: z.number().int().positive().max(1000) });
+export const DesksPatch = z.object({ maxRunning: z.number().int().positive().max(1000).optional(), billCapUsd: z.number().nonnegative().max(10_000).optional() })
+  .refine((p) => p.maxRunning !== undefined || p.billCapUsd !== undefined, "give maxRunning or billCapUsd");
 export type DesksPatch = z.infer<typeof DesksPatch>;
 
 export const CollectiveConfig = Town.extend({

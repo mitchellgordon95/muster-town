@@ -85,6 +85,8 @@ export interface Probes {
   sessions(now: number): { failed15: number; ended30: number; failed30: number };
   /** finished desk sessions (backend not `host`, wallMs >= 5 min, cpu + steal measured) that ended after `sinceMs`, oldest first */
   deskSessions(sinceMs: number): DeskSession[];
+  /** today's (UTC) desk bill against the town-wide cap (World.deskBill); null = no cap */
+  deskBill(now: number): { todayUsd: number; capUsd: number } | null;
 }
 
 /** A finished desk session's steal share: stealMs / (cpuMs + stealMs), 0..1 (desk perf step 1, migration 056). */
@@ -173,7 +175,28 @@ export function defaultMetrics(p: Probes): Metric[] {
         return { value: s.failed15, yellow: s.failed15 >= 3, red: s.ended30 >= 4 && s.failed30 * 2 >= s.ended30 };
       } },
     deskStealMetric(p),
+    deskBillMetric(p),
   ];
+}
+
+/** desk-bill thresholds (gr_uhh6u39vv9 step 3): yellow (in town) at half the daily cap, red at the cap */
+export const DESK_BILL = { yellow: 0.5, red: 1 } as const;
+
+/**
+ * `desk-bill`: today's (UTC) desk bill as a % of `desks.billCapUsd` ($10/day, Mitchell in mt_s6f8mvjw9h). Yellow at 50 %;
+ * red at 100 %, when new desk sessions already start on shared-cpu-2x (runtime, never refused). A red one re-alerts every
+ * REALERT_MS while it holds; at the next UTC day the bill starts again from 0, so it clears CLEAR_AFTER samples later.
+ */
+export function deskBillMetric(p: Pick<Probes, "deskBill">): Metric {
+  return {
+    key: "desk-bill", describe: (v) => `desk bill today ${v}% of the daily cap (new desk sessions run on shared-cpu-2x at 100%)`, yellowForMs: 0, redForMs: 0,
+    read: (now) => {
+      const b = p.deskBill(now);
+      if (!b || b.capUsd <= 0) return null;
+      const share = b.todayUsd / b.capUsd;
+      return { value: Math.round(share * 1000) / 10, yellow: share >= DESK_BILL.yellow, red: share >= DESK_BILL.red };
+    },
+  };
 }
 
 /**
@@ -227,6 +250,7 @@ export function processProbes(world: World, dataDir: string, backup: () => Backu
         WHERE endedAt IS NOT NULL AND endedAt > ? AND backend != 'host' AND wallMs >= ? AND cpuMs IS NOT NULL AND stealMs IS NOT NULL AND cpuMs + stealMs > 0
         ORDER BY endedAt`).all(new Date(sinceMs).toISOString(), DESK_MIN_WALL_MS) as { id: string; endedAt: string; cpuMs: number; stealMs: number }[])
       .map((r) => ({ id: r.id, endedAt: Date.parse(r.endedAt), share: r.stealMs / (r.cpuMs + r.stealMs) })),
+    deskBill: (now) => { const b = world.deskBill(new Date(now)); return { todayUsd: b.todayUsd, capUsd: b.capUsd }; },
     close: () => h.disable(),
   };
 }

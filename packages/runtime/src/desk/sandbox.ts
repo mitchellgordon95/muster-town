@@ -12,6 +12,7 @@
  *    from the town would close it;
  *  - the provider bills wall-clock time while a sandbox runs, so it is stopped shortly after its session ends.
  */
+import type { DeskSize } from "@muster-town/core";
 import type { Agent, Building } from "@muster-town/schema";
 import { DESK_BIN, dockerSafe, killPattern, killTreeCommand, shq, slotDefaults, type DeskBackend, type DeskChild, type DeskHandle, type LineSink, type SlotNames, type SlotResolver } from "./backend.ts";
 
@@ -25,9 +26,14 @@ export interface SandboxInfo { id: string; name: string; state: SandboxState }
 export interface SandboxApi {
   available(): Promise<boolean>;
   find(name: string): Promise<SandboxInfo | null>;
-  create(spec: { name: string; labels: Record<string, string>; volume: string; mountPath: string }): Promise<SandboxInfo>;
+  create(spec: { name: string; labels: Record<string, string>; volume: string; mountPath: string; size?: DeskSize }): Promise<SandboxInfo>;
   start(name: string): Promise<void>;
   stop(name: string): Promise<void>;
+  /**
+   * Set the sandbox's size before a session (gr_uhh6u39vv9 step 3): a no-op when it already has it. A started one is
+   * restarted on the new size; a stopped one stays stopped. Resolves true when it changed. Providers without sizes leave it out.
+   */
+  resize?(name: string, size: DeskSize): Promise<boolean>;
   /** write `content` to `path` in the sandbox with mode 0600 */
   writeSecretFile(name: string, path: string, content: string): Promise<void>;
   /** run `command` (a shell line) to the end; stdout and stderr go to `onLine`; resolves with the exit code */
@@ -46,6 +52,8 @@ export interface SandboxBackendOptions {
   heartbeatMs?: number;
   /** forks' desk slots (default: every agent has its own sandbox) */
   slotOf?: SlotResolver;
+  /** the size the next session's sandbox gets (the configured one, or the desk bill cap's fallback); unset = the provider's default */
+  sizeFor?: () => { size: DeskSize; fallback: boolean };
 }
 
 export const SANDBOX_HOME = "/home/agent";
@@ -64,6 +72,7 @@ export class SandboxBackend implements DeskBackend {
   private readonly active = new Map<string, number>();
   private readonly idleTimers = new Map<string, ReturnType<typeof setTimeout>>();
   private readonly slotOf: SlotResolver;
+  private readonly sizeFor: SandboxBackendOptions["sizeFor"];
 
   constructor(opts: SandboxBackendOptions) {
     this.api = opts.api;
@@ -71,6 +80,7 @@ export class SandboxBackend implements DeskBackend {
     this.idleStopMs = opts.idleStopMs ?? 3 * 60_000;
     this.heartbeatMs = opts.heartbeatMs ?? 5 * 60_000;
     this.slotOf = opts.slotOf ?? (() => null);
+    this.sizeFor = opts.sizeFor;
   }
 
   sandboxName(agentId: string): string { return `desk-${this.collective}-${dockerSafe(agentId)}`; }
@@ -91,6 +101,7 @@ export class SandboxBackend implements DeskBackend {
     const name = desk.sandboxName;
     let createdMs: number | undefined;
     this.cancelIdleStop(name);
+    const sized = this.api.resize ? this.sizeFor?.() : undefined;
     let found = await this.api.find(name);
     if (found?.state === "error") {
       // a Machine that failed (e.g. never started after create) stays in that state for good: replace it, home volume kept
@@ -101,15 +112,18 @@ export class SandboxBackend implements DeskBackend {
     if (!found) {
       const t0 = Date.now();
       await this.api.create({
-        name, volume: desk.volumeName, mountPath: SANDBOX_HOME,
+        name, volume: desk.volumeName, mountPath: SANDBOX_HOME, ...(sized ? { size: sized.size } : {}),
         // a slot's sandbox outlives the fork that created it: label it by slot, not by agent
         labels: { "muster-town.desk": "1", ...(desk.slot ? { "muster-town.slot": name } : { "muster-town.agent": agent.id }), "muster-town.collective": this.collective },
       });
       createdMs = Date.now() - t0;
-    } else if (found.state !== "started") {
-      await this.api.start(name);
+    } else {
+      // an existing desk (e.g. created on shared-cpu-2x before step 3) moves to this session's size; not while a session runs in it
+      const resized = sized && !this.active.has(name) ? await this.api.resize!(name, sized.size) : false;
+      const state = resized ? (await this.api.find(name))?.state : found.state;
+      if (state !== "started") await this.api.start(name);
     }
-    return { name, agentId: agent.id, ...(createdMs !== undefined ? { createdMs } : {}) };
+    return { name, agentId: agent.id, ...(createdMs !== undefined ? { createdMs } : {}), ...(sized ? { size: sized.size, sizeFallback: sized.fallback } : {}) };
   }
 
   exec(handle: DeskHandle, argv: string[], env: Record<string, string>, onLine?: LineSink): DeskChild {

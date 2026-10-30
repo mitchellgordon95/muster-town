@@ -140,6 +140,19 @@ at most 10 outbound messages an hour across all keys.
 | `ws` | WebSocket errors and abnormal closes, last 5 min | > 20 | > 100 |
 | `sessions` | Claude sessions ending in `error` | ≥ 3 in 15 min | ≥ 50 % of the sessions that ended in 30 min (min 4) |
 | `desk-steal` | steal share (steal / (cpu + steal)) of desk sessions (not `host`) of ≥ 5 min that ended since the last sample | ≥ 25 % | one ≥ 50 %, or two ≥ 35 % within an hour |
+| `desk-bill` | today's (UTC) desk bill at Fly list prices as a % of `desks.billCapUsd` (default $10/day) | ≥ 50 % | ≥ 100 % (new desk sessions already run on shared-cpu-2x) |
+
+**Desk size and the daily desk bill cap** (grant gr_uhh6u39vv9 step 3; Mitchell, 1:1 mt_s6f8mvjw9h). Desk Machines run on
+performance-1x, 2048 MB ($33/month = $0.0458/h in iad): on shared-cpu-2x ($0.0186/h) desk sessions measured 84–91 % steal.
+The size is FlyApi's default (packages/runtime/src/desk/fly.ts); `desks.cpuKind`/`cpus`/`memoryMb` override it. An existing
+desk Machine is moved to the session's size at its next session start (Machines API update; a stopped one stays stopped
+until started), so no desk is recreated. Each session records the size it ran on (`sessions.cpuKind`, `cpus`, `memoryMb`,
+migration 060; null = host, docker, or before 060, which ran on shared-cpu-2x). One town-wide cap, `desks.billCapUsd`
+in the meta row `desks` (default 10, USD per UTC day; change it with `PUT /api/town/desks {"billCapUsd": 15}` as an admin):
+once today's desk bill (Σ desk sessions' wall time inside the day × their size's $/h) reaches it, new desk sessions still
+start but on shared-cpu-2x, with a town event "Desk bill cap reached"; `desk-bill` is red (re-alerts hourly) until the
+next UTC day. GET /api/health `desks` shows `{backend, size, billCapUsd, billTodayUsd, billPct, overCap, day}`;
+GET /api/finance/fly `capUsdPerDay` is the same cap.
 
 An alert clears after 5 samples in a row under yellow (`desk-steal`: after 5 clean sessions; a sample with no newly ended
 desk session changes nothing). `desk-steal` cpu and steal are the whole desk Machine's (2 vCPUs summed, desk perf step 1). A key that stays red re-alerts hourly. A gap of more than 5 min

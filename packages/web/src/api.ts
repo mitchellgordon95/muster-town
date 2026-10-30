@@ -51,6 +51,10 @@ export interface ForkSummary {
   wallMs?: number | null;
   cpuMs?: number | null;
   stealMs?: number | null;
+  /** the desk Machine size it ran on (null = host, docker or before the size was recorded) */
+  cpuKind?: "shared" | "performance" | null;
+  cpus?: number | null;
+  memoryMb?: number | null;
   /** a kept transcript exists for the session */
   transcript: boolean;
   reportId: string | null;

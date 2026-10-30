@@ -1,4 +1,4 @@
-import { AppError, BANK_ACCOUNTING, buildingStats, accessRequestOf, boardWithTownDocs, canInteract, decideAccess, deskSlotRows, requestAccess, sessionView, setDeskSlot, cabinetCounts, cabinetDocs, reportChains, reviewDeck, presentedReviewDeck } from "@muster-town/core";
+import { AppError, BANK_ACCOUNTING, deskPreset, deskSizeFor, type World, buildingStats, accessRequestOf, boardWithTownDocs, canInteract, decideAccess, deskSlotRows, requestAccess, sessionView, setDeskSlot, cabinetCounts, cabinetDocs, reportChains, reviewDeck, presentedReviewDeck } from "@muster-town/core";
 import { AccessDecisionInput, AccessRequestInput, AddBankInput, CreateBankPoolInput, CreateBuildingInput, DesksPatch, UpdateBankPoolInput, DocType, DonateInput, LayoutInput, Membership, PlanInput, PlantFlagInput, RedeployInput, UpdateBuildingInput, apiKeyProblem, townEnv, REVIEW_DECK_ID, type AccessRequest, type AuthMe, type RedeployLive } from "@muster-town/schema";
 import type { FastifyInstance, FastifyRequest } from "fastify";
 import { brotliDecompressSync } from "node:zlib";
@@ -34,11 +34,12 @@ export async function townRoutes(app: FastifyInstance) {
    * `backup` (read-only): the off-site copy's `{lastAt, bytes, dest, error}`; null until the bucket and key are set
    * (deploy/README.md "Backups"). Never the key or the bucket credentials. `monitor` (read-only, null without one):
    * `{lastSampleAt, outbound, alerts: [{key, level, since, value}]}` (monitor.ts); never a secret. `directory` (root app, only where the
-   * directory is on): `{verified, listed, pending, lastTickAt}` (directory/index.ts).
+   * directory is on): `{verified, listed, pending, lastTickAt}` (directory/index.ts). `desks` (gr_uhh6u39vv9 step 3): `{backend, size,
+   * billCapUsd, billTodayUsd, billPct, overCap, day}`, today's (UTC) desk bill at Fly list prices against the town-wide cap.
    */
   app.get("/api/health", async () => ({ ok: true, runtime: !!app.runtime, commit: world.host.commit ?? null, startedAt: world.host.startedAt ?? null, time: new Date().toISOString(), accounting: BANK_ACCOUNTING, load: app.load.snapshot(),
     // goal-directed budgets: exploration (held at its allowance) and directed (a human asked; metered, never held) today
-    budgets: world.grantDesk.laneBudgets(), backup: app.backup?.snapshot() ?? null, monitor: app.monitor?.view() ?? null,
+    budgets: world.grantDesk.laneBudgets(), backup: app.backup?.snapshot() ?? null, monitor: app.monitor?.view() ?? null, desks: desksHealth(world),
     // the root app (the Workshop) only: how many hosted collectives this process serves at /<slug>/
     ...(app.hub ? { hosted: { count: app.hub.count } } : {}),
     // the self-hosted towns directory (root app where it's on): {verified, listed, pending, lastTickAt}
@@ -367,11 +368,11 @@ export async function townRoutes(app: FastifyInstance) {
   // public, read-only: pools (share, left, overdrawn) and buildings (drawn, donated, held, allowance); gr_mijwhoiy2f
   app.get("/api/finance/pools", async () => world.bank.pools((id) => world.grantDesk.exploration(id).allowanceTokens));
   // the Fly.io hosting estimate (Bank Transparency, 1:1 mt_s6f8mvjw9h): desks priced only on the fly backend, the town Machine only when the server runs on one;
-  // the daily desk bill cap is Prod's desk-perf step 3 (gr_uhh6u39vv9): pass it here once desks config carries it
+  // the daily desk bill cap is Prod's desk-perf step 3 (gr_uhh6u39vv9): desks.billCapUsd, as health `desks` shows it
   app.get<{ Querystring: { days?: string } }>("/api/finance/fly", async (req) => {
     const desks = world.desksConfig();
     const days = req.query.days ? Number(req.query.days) : undefined;
-    return world.bank.fly(desks, !!process.env.FLY_APP_NAME, { capUsdPerDay: null, windowDays: Number.isFinite(days) ? days : undefined });
+    return world.bank.fly(desks, !!process.env.FLY_APP_NAME, { capUsdPerDay: desks.billCapUsd, windowDays: Number.isFinite(days) ? days : undefined });
   });
 
   app.post("/api/bank/inputs", async (req, reply) => {
@@ -459,4 +460,11 @@ export async function townRoutes(app: FastifyInstance) {
 
 function accessView(r: AccessRequest | null): AuthMe["accessRequest"] {
   return r ? { status: r.status, message: r.message, decidedAt: r.decidedAt } : null;
+}
+
+/** GET /api/health `desks`: the desk size new sessions get and today's desk bill against the town-wide cap (gr_uhh6u39vv9 step 3). */
+export function desksHealth(world: World) {
+  const desks = world.desksConfig();
+  const bill = world.deskBill();
+  return { backend: desks.backend, size: deskPreset(deskSizeFor(desks, bill).size), billCapUsd: bill.capUsd, billTodayUsd: bill.todayUsd, billPct: bill.pct, overCap: bill.overCap, day: bill.day };
 }

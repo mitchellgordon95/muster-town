@@ -3,7 +3,7 @@
  * managers' team-lead sessions over the in-tray, meeting summaries + facilitation, proxy chat, interrupts, scheduler,
  * startup reconcile, dismissal (onAgentRetired), host redeploy (v1.3).
  */
-import { AppError, checkWaits, fireSchedules, setAssignmentStatus, codeWorkspace, deskSlotRows, forkableQueue, forkDeskSlot, forkManager, freeDesks, liveForks, meetingNotice, walkIdleHome, nextStartable, nowIso, PRESENCE_TICK_MS, retireFork, sendMessage, slugify, syncManagerRoles, type World } from "@muster-town/core";
+import { AppError, checkWaits, deskSizeFor, fireSchedules, setAssignmentStatus, codeWorkspace, deskSlotRows, forkableQueue, forkDeskSlot, forkManager, freeDesks, liveForks, meetingNotice, walkIdleHome, nextStartable, nowIso, PRESENCE_TICK_MS, retireFork, sendMessage, slugify, syncManagerRoles, type World } from "@muster-town/core";
 import { DesksConfig, type Agent, type Assignment, type Building, type ChatInput, type DeskActivityInput, type RedeployResult, type Session } from "@muster-town/schema";
 import { chat } from "./chat.ts";
 import { DockerBackend, dockerSafe, HostBackend, type DeskBackend, type SlotResolver, type WorkBackend } from "./desk/backend.ts";
@@ -215,6 +215,8 @@ export function startRuntime(opts: RuntimeOptions): Runtime {
       api: new FlyApi({ app, token: process.env.FLY_API_TOKEN ?? "", image, region: desks.region, cpuKind: desks.cpuKind, cpus: desks.cpus, memoryMb: desks.memoryMb }),
       collective: collectiveSlug, heartbeatMs: 0, // Machines have no idle auto-stop; each one also stops itself after its max lifetime
       slotOf,
+      // performance-1x, or shared-cpu-2x once today's desk bill reached desks.billCapUsd (gr_uhh6u39vv9 step 3); read live, so PUT /api/town/desks applies at once
+      sizeFor: () => deskSizeFor(desks, world.deskBill()),
     });
   };
   const dockerProbe: DeskBackend | null = desks.backend === "host" ? null : opts.dockerProbe

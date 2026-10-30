@@ -196,6 +196,10 @@ export interface ForkSummary {
   wallMs: number | null;
   cpuMs: number | null;
   stealMs: number | null;
+  /** the desk Machine size the session ran on (gr_uhh6u39vv9 step 3); null = host, docker or before migration 060 */
+  cpuKind: "shared" | "performance" | null;
+  cpus: number | null;
+  memoryMb: number | null;
   transcript: boolean;
   reportId: string | null;
   reportTitle: string | null;
@@ -248,6 +252,7 @@ export function forkSummary(world: World, fork: Agent): ForkSummary | null {
     agent: fork, forkOfName: world.nameOf(fork.forkOf), assignmentId: asg?.id ?? null, assignmentTitle: asg?.title ?? null,
     chainId: chain?.chainId ?? null, hop: chain?.hop ?? null, sessionId: session?.id ?? null, tokens: session ? sessionView(session).adjustedOutputTokens : 0,
     wallMs: session?.wallMs ?? null, cpuMs: session?.cpuMs ?? null, stealMs: session?.stealMs ?? null,
+    cpuKind: session?.cpuKind ?? null, cpus: session?.cpus ?? null, memoryMb: session?.memoryMb ?? null,
     transcript: !!session && world.transcripts.info(session.id) !== null, reportId: report?.id ?? null, reportTitle: report?.title ?? null, pagesEdited: pages,
   };
 }
