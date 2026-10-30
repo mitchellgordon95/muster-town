@@ -45,7 +45,8 @@ export class Movement {
     const prior = this.walks.get(agent.id);
     if (prior) this.finish(prior, new AppError("conflict", "Walk superseded by a new `go`."));
     if (path.length === 0) return Promise.resolve(this.repos.agents.require(agent.id));
-    const prevStatus = prior ? prior.prevStatus : agent.status;
+    // a "walking" status with no walk is stale (a restart dropped the walk): arriving must not restore it
+    const prevStatus = prior ? prior.prevStatus : agent.status === "walking" ? "idle" : agent.status;
     return new Promise<Agent>((resolve, reject) => {
       const walk: Walk = {
         agentId: agent.id, path, progress: 0, elapsed: 0, prevStatus, label, toAgentId, resolve, reject,

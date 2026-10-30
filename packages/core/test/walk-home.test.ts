@@ -69,4 +69,31 @@ describe("bodies go home (flag dc_ihwq7bfi4o)", () => {
     const visitor = s.world.agents.first("kind = 'visitor'") ?? s.world.agents.first("kind = 'service'");
     if (visitor) expect(["no desk", "no body to move", "offline"].includes(stayReason(s.world, visitor.id) ?? "")).toBe(true);
   });
+
+  test("a restart mid-walk (Cleo, 2026-10-30): reconcile clears the stale \"walking\" status and the tick walks the body home", () => {
+    const s = seededWorld();
+    const noor = s.by("Noor");
+    const room = atTownHall(s, noor.id);
+    // what the database holds after the server died mid-walk: status "walking", no walk in memory
+    s.world.agents.patch(noor.id, { pos: { x: room.x, y: room.y + 2 }, status: "walking", activity: "Walking to Noor's desk" });
+    expect(s.world.movement.isWalking(noor.id)).toBe(false);
+    expect(walkIdleHome(s.world)).not.toContain(noor.id); // the bug: stuck for good
+    s.world.ops.reconcile();
+    expect(s.world.agents.require(noor.id).status).toBe("idle");
+    expect(walkIdleHome(s.world)).toContain(noor.id);
+    settle(s.world);
+    expect(s.world.agents.require(noor.id)).toMatchObject({ pos: s.world.layout.deskOf(noor.id)!.pos, status: "idle" });
+  });
+
+  test("a stale \"walking\" status is not restored on arrival", async () => {
+    const s = seededWorld();
+    const noor = s.by("Noor");
+    atTownHall(s, noor.id);
+    s.world.agents.patch(noor.id, { status: "walking" });
+    const desk = s.world.layout.deskOf(noor.id)!;
+    const walk = s.world.movement.go(s.world.agents.require(noor.id), desk.pos, desk.name);
+    settle(s.world);
+    await walk;
+    expect(s.world.agents.require(noor.id)).toMatchObject({ pos: desk.pos, status: "idle" });
+  });
 });
