@@ -722,3 +722,14 @@ div.spend-row > .muted { font-size: 11.5px; }
 .goal-proposal.outside { border-color: #5a2a2e; }
 .goal-diff s { color: var(--muted); }
 .goal-why { font-size: 12px; }
+
+/* goal Spend tab (docs/goals.md step 4) */
+.goal-spend { display: flex; flex-direction: column; gap: 8px; font-size: 12px; }
+.goal-spend-head { display: flex; gap: 6px; align-items: center; flex-wrap: wrap; }
+.goal-spend-bars { display: flex; gap: 3px; align-items: flex-end; height: 64px; }
+.goal-spend-bar { flex: 1; display: flex; flex-direction: column; justify-content: flex-end; align-items: center; height: 100%; min-width: 0; }
+.goal-spend-bar span { width: 100%; min-height: 1px; background: var(--accent, #6aa1ff); border-radius: 2px 2px 0 0; }
+.goal-spend-bar small { font-size: 9px; opacity: .7; white-space: nowrap; }
+.goal-spend-table { width: 100%; border-collapse: collapse; }
+.goal-spend-table th, .goal-spend-table td { text-align: left; padding: 2px 4px; border-bottom: 1px solid rgba(255,255,255,.08); }
+.intray-view { display: inline-flex; gap: 4px; margin-left: 8px; }

@@ -9,7 +9,7 @@ import type {
   AccessRequest, AccessRequestView, Agent, Allocation, Assignment, AuthMe, BlockedAssignment, BuildingStats, Schedule, RedeployLive, Building, ClientMessage, DesksConfig, Doc, Event, Lot, Meeting, Place, Role, Membership, SessionSlots, Tile,
   ServerMessage, SessionView, TokenCounts, Town, CreateBuildingInput, UpdateBuildingInput, RegisterVisitorInput,
   ReviewInput, PinSkillInput, SkillPinView, SkillView, PutSecretInput, SecretView, ChatInput, WorkInput, DonateInput, AddBankInput, BankInput, CreateBankPoolInput, UpdateBankPoolInput, CreateMeetingInput, DocState, DocType, Mailbox, Permission, DecideGrantInput, CloseGrantInput, GrantView, KeyResult, CreateKeyResultInput, UpdateKeyResultInput, Stoplight,
-  GoalTreeNode, Goal, GoalProposal, CreateGoalInput, UpdateGoalInput, RetireGoalInput, CreateTreeKeyResultInput, DecideGoalProposalInput,
+  GoalTreeNode, Goal, GoalProposal, GoalSpend, IntrayRoutes, CreateGoalInput, UpdateGoalInput, RetireGoalInput, CreateTreeKeyResultInput, DecideGoalProposalInput,
 } from "@muster-town/schema";
 
 export type In<T extends z.ZodTypeAny> = z.input<T>;
@@ -276,7 +276,7 @@ export interface LayoutPreview { errors: { key: string | null; message: string }
 /** Town planning: the new building drawn on the map (name etc. as for createBuilding, plus its lot). */
 
 /** GET /api/buildings/:id/intray: `grants` (proposed, countered, checkpoint) only for the Town Hall */
-export interface Intray { reports: Doc[]; chains?: Record<string, ReportChain>; grants: GrantView[]; access?: AccessRequestView[]; blocked?: { buildingId: string; name: string; reason: string; since: string | null }[] }
+export interface Intray extends Partial<IntrayRoutes> { reports: Doc[]; chains?: Record<string, ReportChain>; grants: GrantView[]; goalProposals?: GoalProposalView[]; access?: AccessRequestView[]; blocked?: { buildingId: string; name: string; reason: string; since: string | null }[] }
 /** A goal key result with the live (funded or checkpoint) grant working on it, if any, and who wrote / last edited it (core's GoalKeyResult). */
 /** A goal proposal as GET /api/goal-proposals returns it (core GoalProposalView): flagged when outside the proposer's subtree. */
 export type GoalProposalView = GoalProposal & { proposedByName: string; outsideScope: boolean };
@@ -335,6 +335,7 @@ export interface Api {
   /** The goal editor (docs/goals.md "The Town Hall goal editor"): GET /api/goals?retired=1, a goal's history, and the edits (`goals.edit`). */
   goalTreeWithRetired(): Promise<GoalTreeNode>;
   goalHistory(id: string): Promise<Event[]>;
+  goalSpend(id: string, days?: number): Promise<GoalSpend>;
   createGoal(input: In<typeof CreateGoalInput>): Promise<Goal>;
   updateGoal(id: string, input: In<typeof UpdateGoalInput>): Promise<Goal>;
   retireGoal(id: string, input: In<typeof RetireGoalInput>): Promise<Goal>;
@@ -350,7 +351,7 @@ export interface Api {
   /** pending reports for the building's in-tray, oldest first; the Town Hall's also has the grants awaiting a human */
   intray(buildingId: string): Promise<Intray>;
   /** GET /api/review-deck: the Town Hall in-tray as slides, computed by the server (design dc_y7a8g257of §2) */
-  reviewDeck(meetingId?: string): Promise<ReviewDeck>;
+  reviewDeck(meetingId?: string): Promise<ReviewDeck & Partial<IntrayRoutes>>;
   /** GET /api/grants/:id: one grant or proposal (drafts only for its building's managers and funders) */
   grant(id: string): Promise<GrantView>;
   /** GET /api/buildings/:id/grants: every grant and proposal of the building (drafts only for its managers and funders) */
@@ -598,6 +599,7 @@ export class HttpApi implements Api {
   async goalTree() { return (await this.get<{ root: GoalTreeNode }>("/api/goals")).root; }
   async goalTreeWithRetired() { return (await this.get<{ root: GoalTreeNode }>("/api/goals?retired=1")).root; }
   async goalHistory(id: string) { return (await this.get<{ events?: Event[] }>(`/api/goals/${id}/history`)).events ?? []; }
+  goalSpend(id: string, days = 7) { return this.get<GoalSpend>(`/api/goals/${id}/spend${qs({ days: String(days) })}`); }
   async createGoal(i: In<typeof CreateGoalInput>) { return unwrap<Goal>(await this.post("/api/goals", i), "goal"); }
   async updateGoal(id: string, i: In<typeof UpdateGoalInput>) { return unwrap<Goal>(await this.call("PATCH", `/api/goals/${id}`, i), "goal"); }
   async retireGoal(id: string, i: In<typeof RetireGoalInput>) { return unwrap<Goal>(await this.post(`/api/goals/${id}/retire`, i), "goal"); }
@@ -609,9 +611,9 @@ export class HttpApi implements Api {
   async saveLayout(id: string, furniture: Record<string, Tile>) { return unwrap<Building>(await this.call("PUT", `/api/buildings/${id}/layout`, { furniture }), "building"); }
   async intray(id: string) {
     const r = await this.get<Partial<Intray>>(`/api/buildings/${id}/intray`);
-    return { reports: r.reports ?? [], chains: r.chains ?? {}, grants: r.grants ?? [], access: r.access ?? [], blocked: r.blocked ?? [] };
+    return { reports: r.reports ?? [], chains: r.chains ?? {}, grants: r.grants ?? [], goalProposals: r.goalProposals ?? [], access: r.access ?? [], blocked: r.blocked ?? [], routes: r.routes ?? {}, defaultView: r.defaultView ?? "all" };
   }
-  reviewDeck(meetingId?: string) { return this.get<ReviewDeck>(`/api/review-deck${qs({ meeting: meetingId })}`); }
+  reviewDeck(meetingId?: string) { return this.get<ReviewDeck & Partial<IntrayRoutes>>(`/api/review-deck${qs({ meeting: meetingId })}`); }
   async grant(id: string) { return unwrap<GrantView>(await this.get(`/api/grants/${id}`), "grant"); }
   async grants(buildingId: string) { return (await this.get<{ grants?: GrantView[] }>(`/api/buildings/${buildingId}/grants`)).grants ?? []; }
   async decideGrant(id: string, i: In<typeof DecideGrantInput>) { return unwrap<GrantView>(await this.post(`/api/grants/${id}/decide`, i), "grant"); }
