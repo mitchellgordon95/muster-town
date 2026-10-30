@@ -1,34 +1,37 @@
 # Goals: one town-level goal tree
 
-Status: **design, for Mitchell's review before any build.** Decided in 1:1 mt_a3nvwfawer (2026-10-30, decision 1). First pass by Pix 2 (as_s5zqdgk3zi). The second pass, by Pix 1 (as_bb0wrwf0v7), adds owners, "Change this goal", KPI slides, skip-levels, postmortems and the kanban view. The third pass (Pix 1, as_9srttx6zen) rewrites finance around 1:1 mt_529jbnwvmi decision 1: one Bank balance, desks as the steer, streams and earmarks, free funds for exploration. Until this is built, today's model holds: per-building objectives and key results, described in `docs/goal-directed-budgets.md` ("Objectives and KPIs", migration 043).
+Status: **design, for Mitchell's review before any build.** Decided in 1:1 mt_a3nvwfawer (2026-10-30, decision 1). First pass by Pix 2 (as_s5zqdgk3zi). The second pass, by Pix 1 (as_bb0wrwf0v7), adds owners, "Change this goal", KPI slides, skip-levels, postmortems and the kanban view. The third pass (Pix 1, as_9srttx6zen) rewrites finance around 1:1 mt_529jbnwvmi decision 1: one Bank balance, desks as the steer, streams and earmarks, free funds for exploration. The fourth pass (Pix 1, as_hjwljl7eb8) folds in 1:1 mt_kh0zaqui0w: the map is drawn from the tree (§ "The map is the tree"), no KPIs for now, one root with placeholder children and unbounded depth, exactly one attachment per building, retiring moves open KRs to a sibling, and a UI inventory. Until this is built, today's model holds: per-building objectives and key results, described in `docs/goal-directed-budgets.md` ("Objectives and KPIs", migration 043).
 
 ## Why
 
 Today each building owns its own goal, objectives and key results. The only thread between buildings is a KPI label (fund, join or trust) on each objective. To learn what a building is doing, or to steer it, Mitchell has to visit it and talk to its manager. Goal editing sits on the planning map, where it doesn't belong. And a met key result quietly stops new grants, even when the direction behind it should stay: some met KRs were really standing goals.
 
-The fix is the move the Bank already made: goals come out of buildings. There is **one goal tree for the town**, edited at the Town Hall, and **buildings attach to subtrees** of it.
+The fix is the move the Bank already made: goals come out of buildings. There is **one goal tree for the town**, edited at the Town Hall, and **each building attaches to one node** of it. The map is drawn from the tree.
 
 A note on scope. Mitchell observed that this is turning into an org/corporation sim. It borrows only what the town needs: an owner per node, one reorg action, and a board view of the queue. It takes no lean, agile or waterfall ceremony. There are no sprints, standups, retros or scheduled planning. **The iteration is Mitchell's morning and evening review, plus small assignments in between.** The one scheduled meeting the tree needs is the reorg meeting (§ "Change this goal").
 
 ## The model in one picture
 
 ```
-Make Muster Town something strangers can fund, join, and trust     (root goal, owner: Mitchell)
-├─ Fund   (goal, watches dial kpi_fund)
+Make Muster Town something strangers can fund, join, and trust     (root goal, owner: Mitchell)  ← Town Hall
+├─ Fund   (placeholder goal)
 │   └─ Someone other than Mitchell can fund a key result end to end      (goal)   ← Workshop attached
-│        ├─ kr_6f9c200vsx  A member funds an open proposal from the in-tray   (KR, grant gr_tvt32g9xly)
+│        ├─ kr_6f9c200vsx  A member funds an open proposal from the in-tray   (KR, by 2026-11-30, grant gr_tvt32g9xly)
 │        └─ ✓ archived: met and missed KRs stay here, collapsed
-├─ Join   (goal, watches kpi_join)
-│   └─ A stranger finishes useful work in their first session            (goal)   ← Workshop, Onboarding attached
-│        └─ KR: 3 of 5 visitor first sessions file a report, by 2026-12-15   (target on a dial)
-└─ Trust  (goal, watches kpi_trust)
-     └─ A funder sees what every token bought                             (goal)   ← Workshop, Bank Transparency
+├─ Join   (placeholder goal)
+│   └─ A stranger finishes useful work in their first session            (goal)   ← Onboarding attached
+│        └─ kr_4li00ad46e  A visitor's first look carries a starter brief   (KR, by 2026-12-15)
+└─ Trust  (placeholder goal)
+     └─ A funder sees what every token bought                             (goal)   ← Bank Transparency attached
           └─ kr_vyrhhiyotb  The Bank counts adjusted output tokens       (KR, grant gr_iq5m7dug56)
 ```
 
-- **Standing goal.** A direction. It is never "met". A human *retires* it when priorities change, or *changes* it (a reorg). While it is active, it keeps generating key results and, through them, grants. Goals nest: the root, then one goal per town KPI (Fund, Join, Trust), then at most 4 more levels.
-- **Key result (KR).** A dated, checkable claim. It is either **a target on a dial by a date** ("Fund ≥ 3 funders in a week by 2026-12-31") or **a concrete thing in the live town by a date** ("The Town Hall in-tray reviews as one deck"). A KR is always a leaf under a goal. When a human marks it met or missed, it **archives under its goal**, and the goal stays.
-- **KPI dials** are not nodes. A dial is a live reading the town computes (`core/src/kpis.ts`, with 8 weekly points). Nobody types it in. A goal may *watch* a dial, and a KR may *target* one (dial, target value, date).
+(Illustrative: the attachments and dates are examples, not the migration's output. Each building appears once, since a building has exactly one attachment.)
+
+- **One root.** The root is the town goal. Fund, Join and Trust are its children today, as **placeholders**: Mitchell will iterate on the tree, and any other child of the root is allowed (1:1 mt_kh0zaqui0w).
+- **Standing goal.** A direction. It is never "met". A human *retires* it when priorities change, or *changes* it (a reorg). While it is active, it keeps generating key results and, through them, grants. **Depth is unbounded**: any goal can have child goals.
+- **Key result (KR).** A dated, checkable claim: **a concrete thing in the live town by a date** ("The Town Hall in-tray reviews as one deck"). A KR is always a leaf under a goal, and always has a date. When a human marks it met or missed, it **archives under its goal**, and the goal stays.
+- **No KPIs for now.** Mitchell hasn't decided how he feels about KPI dials (1:1 mt_kh0zaqui0w), so the tree has none: no goal watches a dial, no KR targets one, and Fund/Join/Trust have no dial. Today's dials (`core/src/kpis.ts`) and the Dashboard tiles stay as they are, outside the tree. Dial-target KRs and auto-claim are parked until he wants KPIs back.
 
 **The test for a KR.** A fork could write a grant proposal against it without asking anyone, and a human could check it in the live town. If a fork would have to ask "what do you mean?", the KR is still a goal.
 
@@ -36,28 +39,28 @@ Make Muster Town something strangers can fund, join, and trust     (root goal, o
 
 Everything is additive (see Migration). Ids stay stable: every `kr_…` keeps its id, statuses and grants, and every `ob_…` objective becomes a goal with the same id.
 
-- **`goals`** (new): `id` (`gl_…`, or the old `ob_…`), `parentId` (null only for the root), `position`, `text` (≤300 chars), `kpiId` (the dial it watches, nullable), `ownerId` (nullable; see Owners), `status` (`active` | `retired`), `retiredAt/By/Note`, `createdBy`, `editedBy`, `sourceDocIds`, `createdAt`, `updatedAt`.
-- **`key_results`** (existing) gains nullable columns: `goalId`, `due` (an ISO date; required for new KRs), `kpiId` + `target` (dial-target KRs only; "reading ≥ target" unless the dial is lower-is-better), `archivedAt`, `underReviewSince` (set by a reorg), `postmortemDocId`. `status`, `statusNote` and `statusBy` stay as they are. The old `buildingId` and `objectiveId` stay in place: they are written as the proposing building and read by nothing.
-- **`building_goals`** (new): `buildingId`, `goalId`, `attachedBy`, `attachedAt`. A building's **subtree** is the union of its attached goals and everything under them. Usually a building has one attachment; several buildings may share a goal.
+- **`goals`** (new): `id` (`gl_…`, or the old `ob_…`), `parentId` (null only for the root), `position`, `text` (≤300 chars), `ownerId` (nullable; see Owners), `status` (`active` | `retired`), `retiredAt/By/Note`, `createdBy`, `editedBy`, `sourceDocIds`, `createdAt`, `updatedAt`.
+- **`key_results`** (existing) gains nullable columns: `goalId`, `due` (an ISO date; required for new KRs), `archivedAt`, `underReviewSince` (set by a reorg), `postmortemDocId`. `status`, `statusNote` and `statusBy` stay as they are. The old `buildingId` and `objectiveId` stay in place: they are written as the proposing building and read by nothing.
+- **`buildings.goalId`** (new nullable column; nullable only so the migration is additive): the one goal the building is **attached** to. **Every building has exactly one attachment** (1:1 mt_kh0zaqui0w): it is set at creation (default: the root), editable in building settings, and never unset; the service refuses a null. A building's **subtree** is its goal and everything under it. Several buildings may share a goal. One attachment is also what the map needs: a building stands in one place (§ "The map is the tree"). Attach changes are events (`goal.attached`), so no history table.
 - **`goal_proposals`** (new): `id` (`gp_…`), `action` (`add-goal` | `add-kr` | `edit` | `move` | `retire` | `promote`; promote turns a KR into a goal), `targetId`, `parentId`, `fields` (JSON), `why`, `proposedBy`, `buildingId`, `reorgId` (nullable), `sourceDocIds`, `status` (`open` | `accepted` | `cut` | `superseded`), `decidedBy/At`, `note`.
 - **`goal_changes`** (new, the reorg): see "Change this goal".
-- **`kpis`** gains new dials (e.g. `collectives_month`, `visitor_first_session_work`). Each new dial needs a function in `kpis.ts`, so adding one is a code change, not an edit.
-- **History is the event log.** Every change appends an event with the actor and a before/after payload: `goal.created / edited / moved / retired / owned / changed`, `kr.created / updated / archived / under-review`, `goal.attached / detached`, `goal.proposal`. The editor's History tab reads these events. There is no audit table.
+- **History is the event log.** Every change appends an event with the actor and a before/after payload: `goal.created / edited / moved / retired / owned / changed`, `kr.created / updated / archived / under-review`, `goal.attached`, `goal.proposal`. The editor's History tab reads these events. There is no audit table.
 
 **Grants** keep `keyResultId` and `buildingId`. Only the scope check changes. Today the KR must belong to the grant's building (`grants.ts` `requireGoalKeyResult`, `lanes.ts` `resolveLane`). After the switch, the KR must be **open (not archived) and in the building's subtree**: one helper, `Goals.inScope(buildingId, krId)`. The grant's building still does the work, and the Bank pays by draw order (see Finance).
 
 ## Who can change the tree
 
-- **Humans with `goals.edit`** (town admins; Mitchell today) edit the tree anywhere: add, edit, move, retire, change (reorg), attach or detach, set owners, and mark KRs met or missed. A node's **owner** can do all of that inside the subtree they own (see Owners).
+- **Humans with `goals.edit`** (town admins; Mitchell today) edit the tree anywhere: add, edit, move, retire, change (reorg), attach a building (move it to another goal), set owners, and mark KRs met or missed. A node's **owner** can do all of that inside the subtree they own (see Owners).
 - **Managers and their forks propose.** `set_objective` and `set_key_result` become `propose_goal` / `propose_key_result`. They take the same fields plus `why`, and an `id` proposes an edit. Each creates a `goal_proposals` row. A proposal outside the building's subtree is allowed but flagged.
 - **KR status** up to `claimed` stays the manager's (`checkpoint_grant`, or a status-only `propose_key_result` on its subtree). A status change is not a tree edit.
+- **Retiring a goal that still has open KRs** (1:1 mt_kh0zaqui0w). The Retire dialog lists the open KRs under it and offers **Move to a sibling** (the human picks the sibling goal); the KRs and their grants move there unchanged. If the human picks no sibling, **Retire is refused** until the open KRs are moved or closed, so nothing is orphaned silently. Buildings attached to the goal (or below it) get the same treatment: the dialog moves them to the chosen sibling, or refuses, since a building is never unattached.
 
 ## The Town Hall goal editor
 
 There is a new place in the Town Hall, the **Goal tree** (a wall chart by the in-tray). It opens a panel with three parts:
 
-1. **Tree** (left). One line per row. A goal row shows its owner's avatar, its dial reading and its attached-building chips. A KR row shows its status pill, its due date (amber when past due), its dial reading against its target, and a grant word (funded / proposed / open). Archived KRs collapse under their goal ("✓ 4 done, 1 missed"). Retired goals hide behind "Show retired". A building filter dims everything outside one building's subtree.
-2. **Node detail** (right). Admins and the node's owner get inline edit, Move, Retire or Mark met/missed, Attach/Detach, Owner, and **Change this goal**. Everyone else gets the same panel read-only. Its tabs:
+1. **Tree** (left). One line per row. A goal row shows its owner's avatar and its attached-building chips. A KR row shows its status pill, its due date (amber when past due), and a grant word (funded / proposed / open). Archived KRs collapse under their goal ("✓ 4 done, 1 missed"). Retired goals hide behind "Show retired". A building filter dims everything outside one building's subtree.
+2. **Node detail** (right). Admins and the node's owner get inline edit, Move, Retire or Mark met/missed, Attach a building, Owner, and **Change this goal**. Everyone else gets the same panel read-only. Its tabs:
    - **History**: the node's events.
    - **Subtree**: the owner's view, see Owners.
    - **Spend**: read-only subtree spend from session bookings; see Finance.
@@ -66,6 +69,38 @@ There is a new place in the Town Hall, the **Goal tree** (a wall chart by the in
 3. **Proposals** (top strip). Each proposal shows the change in context: the parent path, old → new, who proposed it and why. Buttons: **Accept**, **Edit and accept**, **Cut** (its note goes back to the proposer as a mention). The same proposals show in the in-tray and the review deck.
 
 **Plan with an agent** (top right, and on every goal row) opens a 1:1 with Planner (below). Guests and members see the whole tree read-only. It is the town's public answer to "what is this place trying to do".
+
+## The map is the tree (1:1 mt_kh0zaqui0w)
+
+**What.** Building organization on the map is **generated from the goal tree, roads and all**. Nobody places buildings by hand.
+
+- **The Town Hall sits at the root.** The Bank stands beside it, as today.
+- **Each goal node is a plaza**: a small square of road with a signpost carrying the goal's text. It is a place (`plaza:<goalId>`), so agents can `go` there.
+- **A road runs from a node's plaza to each child's plaza.** The roads are the tree's edges and nothing else: the trunk rows (`ROAD_Y`) go.
+- **A building stands at the node it is attached to**, its door on that plaza. Several buildings on one goal ring its plaza.
+- **Walking from the Town Hall to a building walks down the tree**: root plaza → Fund → "Someone other than Mitchell can fund…" → the Workshop. A resident going to the Town Hall walks up it.
+- **Archived KRs and retired goals don't draw.** KRs are not on the map at all; a goal's plaza signpost can show "3 open KRs".
+
+**What goes.** Human drag placement on the planning side bar goes: no dragging buildings, no drawing new ones on grass, no drag-resize. Today's free placement plus derived roads (PR #83, `road.ts` `deriveRoads`, `layout.ts` `computeLayout`, `plan.ts` `validatePlan`) becomes **the renderer for the tree layout**: a new `treeLayout(goals, buildings)` computes every lot and plaza, and the existing code draws the grid and checks it. `deriveRoads` changes from "each door to the nearest road" to "each plaza to its parent's plaza, each door to its own plaza", with the same Dijkstra and turn cost.
+
+**What changes with it.**
+
+- **Size comes from desks.** Today desks follow floor space and a human resizes the lot on the map table. With no drag, the building's **Desks** setting becomes the editable number, and the lot size follows it (`sizeFor`, `labSize`).
+- **Creating a building** happens at the planning desk's Buildings form, which gains a **Goal** picker (default: the root). The layout places it.
+- **Any tree change redraws the map**: add, move or retire a goal, attach a building, or a reorg's accepted proposals. The server recomputes the layout and pushes the new grid. Bodies inside a moved building move with it; bodies outdoors re-path along the new roads (the walk-home fix of PR #120 already re-paths a body whose walk was cut off).
+
+**Consequences.**
+
+- **Exactly one attachment per building.** A building can stand in only one place. This replaces "a building attaches to one or more subtrees" everywhere in this doc, and it fits the rule that a building is never unattached.
+- **A stable, seeded layout.** Adding a sibling must not shuffle existing buildings. Children are laid out in a fixed order (`position`, then `createdAt`), never re-sorted. Each node's band keeps room for one more child, so most additions move nothing; when the room runs out, only the bands after it shift, and order never changes. The same tree always gives the same map (no randomness, or a seed stored with the town).
+- **Map bounds.** A wide or deep tree can outgrow today's limits (`MAX_TOWN_X` 240, `MAX_TOWN_Y`). The layout grows the map rather than refusing; those constants become derived.
+
+**Open (for Mitchell).**
+
+1. **What an empty goal node looks like**, one with no building attached anywhere under it: an empty plaza with its signpost (my suggestion, so the gap is visible), or nothing drawn until a building attaches.
+2. **Long walks on deep trees.** Walking is free in tokens but not in time, and a building six levels down is a long walk from the Town Hall. Options: shorter roads with depth, folding a chain of single-child goals into one plaza, or leaving it (the walk *is* the distance in the org).
+
+**Build.** Step 2, right after the core (see Build order).
 
 ## Owners on nodes
 
@@ -77,16 +112,15 @@ There is a new place in the Town Hall, the **Goal tree** (a wall chart by the in
 - a **goal proposal** belongs to its target or parent node;
 - a **rollup** belongs to the building's attachment.
 
-For a building with several attachments, the rollup goes to the nearest common owned ancestor of its attachments. The Town Hall in-tray stays one queue: each human sees **"Mine"** (items routed to them, the default) and **"All"**. The first human to decide an item clears it for everyone, as the per-user review marker already does. With one human, every route ends at Mitchell and nothing changes. With several, the in-trays split by subtree, which answers the multi-human review question without a meeting.
+The Town Hall in-tray stays one queue: each human sees **"Mine"** (items routed to them, the default) and **"All"**. The first human to decide an item clears it for everyone, as the per-user review marker already does. With one human, every route ends at Mitchell and nothing changes. With several, the in-trays split by subtree, which answers the multi-human review question without a meeting.
 
-**Permissions.** An owner holds `goals.edit` scoped to their subtree: they can edit, accept proposals, mark met/missed, attach, and set owners below them. Funding stays `building.fund`, a separate grant of power (open question 6).
+**Permissions.** An owner holds `goals.edit` scoped to their subtree: they can edit, accept proposals, mark met/missed, attach, and set owners below them. Funding stays `building.fund`, a separate grant of power (open question 1).
 
 **UI.** The node page's **Subtree** tab is the owner's rollup of rollups:
 
 - every attached building's last rollup line and stoplight;
 - open KRs by due date;
 - grants with spend against their ceilings;
-- the dials watched in the subtree;
 - what is waiting on the owner.
 
 The building panel's Overview gains "Reports to: <owner> via <goal>".
@@ -103,7 +137,7 @@ The building panel's Overview gains "Reports to: <owner> via <goal>".
 - **One directed assignment per building** under the node, on its building queue, with source = the note: "Review your work against Y. Bring proposals for what goes underneath (`propose_goal` / `propose_key_result` with `reorgId`), and say which of your KRs and grants still serve Y."
 - **"Under review" on every open KR under the node** (`underReviewSince`). The KR keeps its status, and its **grants keep running until a human cuts them**. The tree, desk briefs and in-tray show a "under review" pill. A new grant proposal on an under-review KR is allowed but flagged.
 
-**At the meeting.** The goal text becomes Y when the meeting starts. Each manager presents its proposals, and the human accepts or cuts them on the spot (Planner records each acceptance as a meeting decision). **The accepted proposals become the node's new children.** For each under-review KR, the human decides: **Keep** (clears the flag), **Move** (to another goal), or **Archive** (as missed, or retired with Q3's rule). Grants on archived KRs go to the in-tray as Cut candidates. When the meeting ends, the change becomes `decided`. KRs left undecided stay under review and get a deck slide each until they are decided.
+**At the meeting.** The goal text becomes Y when the meeting starts. Each manager presents its proposals, and the human accepts or cuts them on the spot (Planner records each acceptance as a meeting decision). **The accepted proposals become the node's new children.** For each under-review KR, the human decides: **Keep** (clears the flag), **Move** (to another goal), or **Archive** (as missed). Grants on archived KRs go to the in-tray as Cut candidates. When the meeting ends, the change becomes `decided` and the map redraws from the new tree (new plazas, buildings moved to their new goals). KRs left undecided stay under review and get a deck slide each until they are decided.
 
 **Why a meeting here, and nowhere else.** A reorg changes many buildings' work at once. Proposals from several managers have to be weighed against each other, and the in-tray handles one item at a time. Every other tree change is a single proposal.
 
@@ -115,7 +149,7 @@ The building panel's Overview gains "Reports to: <owner> via <goal>".
 
 **Human review of grants stays.** Buildings scout and propose; a human funds or cuts; funded grants run. No grant starts itself. Autonomy lives in the scouting, not in the spending.
 
-**Effort steering is desks.** A building attaches to a goal subtree, and its desks (`headcount`; forks take free desks) are that subtree's concurrency. More desks on a subtree means more sessions at once, so it spends faster. To steer, a human moves desks between buildings or attaches a bigger building to the subtree; that is what a VP does ("put more people on it"). The caveat: a building attached to two subtrees shares its desks between them, so the steer between those two is not clean. One building, one subtree is the normal case; the editor warns when a building has several attachments.
+**Effort steering is desks.** A building attaches to a goal subtree, and its desks (`headcount`; forks take free desks) are that subtree's concurrency. More desks on a subtree means more sessions at once, so it spends faster. To steer, a human moves desks between buildings or attaches a bigger building to the subtree; that is what a VP does ("put more people on it"). Since a building has exactly one attachment, its desks steer exactly one subtree.
 
 ### Streams
 
@@ -146,7 +180,7 @@ The building panel's Overview gains "Reports to: <owner> via <goal>".
 
 ### Spend tab (read-only, no Bank change)
 
-Every node's **Spend** tab shows its subtree's spend, read from session bookings (`sessions.adjustedOutputTokens`, with lane, grant and KR), by week and by lane, next to the results: KRs met or missed and the change in watched dials over the same weeks. A session belongs to a node by its lane: `grant` → the grant's KR's goal; `exploration` or `directed` naming a KR or goal → that node; anything else → the building's attachment (split evenly when it has several). It can ship with step 3.
+Every node's **Spend** tab shows its subtree's spend, read from session bookings (`sessions.adjustedOutputTokens`, with lane, grant and KR), by week and by lane, next to the results: KRs met or missed over the same weeks. A session belongs to a node by its lane: `grant` → the grant's KR's goal; `exploration` or `directed` naming a KR or goal → that node; anything else → the building's attachment. It can ship with step 4.
 
 **Bank changes, gated on Mitchell** (town-wide rule dc_vzqoh7ppen): dropping pools, streams with scopes and the draw order, free funds replacing the exploration allowance, per-session key caps. They are build steps 8 and 9 below and wait for his yes on the code, even though the design is decided.
 
@@ -159,9 +193,9 @@ Every node's **Spend** tab shows its subtree's spend, read from session bookings
 | `directed` | traces to a human source; may name a building KR | unchanged; a named KR must be in the subtree |
 
 - **No per-building exploration allowance.** Exploration runs while the town's free funds are above zero (see Finance), on the building's desks.
-- **Blocked.** A goal-directed building is blocked when it has **no attachment**, or when its subtree has **no open KR and no funded grant**. In the second case, the manager is woken once to *propose* the next KR. That is how a standing goal keeps generating work.
+- **Blocked.** A goal-directed building is blocked when its subtree has **no open KR and no funded grant** (it always has an attachment). Then the manager is woken once to *propose* the next KR. That is how a standing goal keeps generating work.
 - **Shared KRs.** Two buildings on one goal can both propose against one KR. The in-tray shows the proposals side by side, and "directed work naming a KR stops once a grant proposal names it" applies across buildings.
-- **The desk brief** lists the building's subtree(s): each goal's path from the root, its owner and dial, its open KRs (status, due date, grant word, under review), and "Archived: n met, m missed". Rollups replace "Key results I wrote" with "Goal proposals I made".
+- **The desk brief** lists the building's subtree: each goal's path from the root, its owner, its open KRs (status, due date, grant word, under review), and "Archived: n met, m missed". Rollups replace "Key results I wrote" with "Goal proposals I made".
 
 ## Postmortems on missed KRs
 
@@ -203,20 +237,19 @@ Cards show the title, lane chip, grant or KR, and age. The **WIP limit is the bu
 
 **Plan with an agent** opens a 1:1 between the human and **Planner**, a Town Hall resident. Planner belongs to no building's subtree. Its sessions are `directed`. Who pays is open question 1.
 
-- **Its first prompt.** The whole tree (statuses, due dates, owners, attachments, grant spend), every dial with 8 weekly points, an event digest since the human's last review, each building's latest rollup, and the open proposals. Started from a goal row, it is scoped to that subtree.
+- **Its first prompt.** The whole tree (statuses, due dates, owners, attachments, grant spend), an event digest since the human's last review, each building's latest rollup, and the open proposals. Started from a goal row, it is scoped to that subtree.
 - **What it does.** It drafts nodes as `goal_proposals`. They show inline in the 1:1 as cards with Accept / Edit / Cut, and anything undecided stays in the Proposals strip. It never edits the tree. It also facilitates reorg meetings.
 - **First jobs:**
   - draft `promote` proposals for the 12 met KRs that were really standing goals;
   - date every migrated KR;
-  - propose one dial-target KR for each of Fund, Join and Trust.
+  - turn Mitchell's "Standing goal?" answers in the KR inventory (dc_io1ry1ryjz) into proposals.
 
 ## Review cadence and the deck
 
 **No scheduled meetings except the reorg meeting.** Mitchell's morning and evening review is the cadence.
 
 - **The deck** (kr_2qg0ayfs1j):
-  - **Slide 1, the state of the town**: the three dials, past-due KRs, and tree changes since your last review.
-  - **One slide per KPI dial**: the dial's 8 weekly points as a line (`GET /api/kpis` already returns them), with this week vs last week, then every open KR targeting it (target, due, distance to go, its grant and spend) and the goals watching it. A dial with no KR targeting it says so: "Nothing targets Join." That is the cue to ask Planner for one. Dial slides come before decision slides because they are context, not decisions. They are as many as there are dials (3 today).
+  - **Slide 1, the state of the town**: past-due KRs, KRs due this week, and tree changes since your last review. No dials and no per-dial slides while KPIs are parked (1:1 mt_kh0zaqui0w).
   - **Decision slides**: checkpoints, grant proposals, reorg items (under-review KRs), then goal proposals. Within that order, items that block the most come first.
   - The deck shows only "Mine" items when more than one human owns nodes.
   - **A funder filter** (see Finance): the same deck for one funder's week. A key donor sees the sessions that ran on their key; a money donor sees their pro rata share of the week.
@@ -230,24 +263,26 @@ Cards show the title, lane chip, grant or KR, and age. The **WIP limit is the bu
 
 ## What gets removed or changes
 
-- **Planning map**: loses goal display and editing. It keeps placement plus one line, **Attached to: [goal chips] · Attach…** (admins).
+- **Planning map**: loses goal display and editing, and loses drag placement too: the map is drawn from the tree (§ "The map is the tree"). Selecting a building shows **Attached to: [goal] · Change…** (admins), its budget and its stats.
 - **Building Goals tab**: a read-only view of the building's subtree(s), with "Edit at the Town Hall →" and a **Propose a key result** form for the manager. The KR editor, Mark met/missed and Delete move to the editor.
 - **Objectives become goals.** `set_objective` goes. `GET /api/buildings/:id/objectives` returns the subtree in the old shape for one release.
 - **`buildings.goal`** stays as the building's one-line **Purpose** (door, prompts).
 - **Bank pools and the per-building exploration allowance go** (build steps 8 and 9, Bank-gated). Until then they run as today.
 - **Untouched**: grants, checkpoints, human review of grants, member funding (it becomes a grant-scoped stream in step 8), lanes' gate logic and the stoplight.
 
-## Migration (one additive migration; its number is checked against main right before merging, 061 at the time of writing)
+## Migration (one additive migration; its number is checked against main right before merging, 061 at the time of writing: main's highest is 060)
 
-1. Create the tables `goals`, `building_goals`, `goal_proposals` and `goal_changes`. Add the new `key_results` columns. Add `goals.edit` to the admin role.
-2. Seed the root `gl_town` (owner: the town admins), and under it `gl_fund`, `gl_join` and `gl_trust`, watching `kpi_fund`, `kpi_join` and `kpi_trust`.
-3. Turn every objective into a goal with the **same id**, under its KPI goal (or under the root if it has none). Its KRs get `goalId = objectiveId`, and its building is attached to it.
-4. Give each building with **unsorted KRs** a goal `gl_<buildingId>` (its goal line, under the root). Those KRs go under it, and the building is attached to it.
+1. Create the tables `goals`, `goal_proposals` and `goal_changes`. Add `buildings.goalId` and the new `key_results` columns. Add `goals.edit` to the admin role.
+2. Seed the root `gl_town` (owner: the town admins), and under it the placeholders `gl_fund`, `gl_join` and `gl_trust` (no dials).
+3. Give **every building** a goal `gl_<buildingId>` (its goal line, under the root) and attach the building to it. That makes exactly one attachment per building, including UI / UX, which has no KRs.
+4. Turn every objective into a goal with the **same id**, under its building's `gl_<buildingId>`. Its KRs get `goalId = objectiveId`. A building's unsorted KRs go directly under its `gl_<buildingId>`.
 5. Archive KRs that are `met` or `missed` (`archivedAt = updatedAt`). Nothing touches `grants`.
+
+Objectives go under their building's goal, not under Fund/Join/Trust by their KPI label, because the Workshop's three objectives carry three different labels and a building gets one attachment. So on day one Fund, Join and Trust are empty plazas, and the map shows six building goals off the root. **The sorting is Mitchell's**: the KR inventory, **dc_io1ry1ryjz** (all 31 KRs the town has had, with a blank "Standing goal?" column), is where he decides which met KRs become standing goals and where each belongs. Planner turns his answers into `promote` and `move` proposals.
 
 Live numbers (2026-10-30, commit 02f1bbe):
 
-| Building | Objectives → goals | KRs under objectives | Unsorted → `gl_<id>` | Archived | Funded grants |
+| Building | Objectives → goals | KRs under objectives | Unsorted (under `gl_<id>`) | Archived | Funded grants |
 |---|---|---|---|---|---|
 | Town Workshop | 3 | 5 | 0 | 0 | 2 (gr_iq5m7dug56, gr_tvt32g9xly) |
 | Prod | 2 | 5 | 3 | 3 | 2 (gr_rntk0echpi, gr_8cdix9mpye) |
@@ -258,35 +293,69 @@ Live numbers (2026-10-30, commit 02f1bbe):
 
 The result:
 
-- **14 goals** (the root, 3 KPI goals, 6 from objectives, 4 per-building), **31 KRs** (19 open, 12 archived), and 27 grants unchanged.
-- **Two buildings come out blocked.** Bank Transparency has no open KR. UI / UX has nothing to attach.
+- **16 goals** (the root, 3 placeholders, 6 per-building, 6 from objectives), **31 KRs** (19 open, 12 archived), 6 attachments (one per building), and 27 grants unchanged.
+- **Two buildings come out blocked.** Bank Transparency has no open KR (all 4 archived). UI / UX has none at all. Each manager is woken once to propose a KR.
 - **The root is the only owned node**, so every route ends at Mitchell, as today.
 
-The migration doesn't guess structure: no merging per-building goals into Fund/Join/Trust, no promotions. That cleanup is Mitchell's, in the editor, with Planner's drafts. The old columns stay, unread, until a later migration drops them; that rollup's "Your call" would say so.
+The migration doesn't guess structure: no moving per-building goals under Fund/Join/Trust, no promotions. That cleanup is Mitchell's, in the editor, with Planner's drafts. The old columns stay, unread, until a later migration drops them; that rollup's "Your call" would say so.
 
 ## Build order (after this doc is approved)
 
-1. **Core.** The migration; the `Goals` service (tree, `inScope`, edit, attach, owners and owner routing, proposals); the scope switch in `grants.ts` / `lanes.ts`; routes, verbs and the desk brief. Core tests check scope, owner routing and a lossless migration (every KR id, status and grant survives).
-2. **The Town Hall editor**, with Owner and the Subtree tab, plus the read-only building Goals tab and the map's attachment line.
-3. **The in-tray and the deck**: goal proposals, "Mine / All", the per-user review marker, and the KPI dial slides.
-4. **Change this goal**: `goal_changes`, under-review KRs, the reorg meeting, and Planner. Planner is needed here as the facilitator, and Plan with an agent ships with it.
-5. **Postmortems** on missed KRs, and the **Kanban** Queue tabs (building and node).
-6. **Skip-level 1:1s**, with the conversational fork session.
-7. **New dials** (collectives this month, visitor first sessions that finish work).
+1. **Core.** The migration; the `Goals` service (tree, `inScope`, edit, attach, owners and owner routing, proposals, retire with move-to-sibling); the scope switch in `grants.ts` / `lanes.ts`; routes, verbs and the desk brief; attachment required at building creation (default: the root). Core tests check scope, owner routing, "a building is never unattached" and a lossless migration (every KR id, status and grant survives).
+2. **The map from the tree.** `treeLayout` (stable, seeded) feeding `computeLayout`; `deriveRoads` routing plaza to parent plaza and door to plaza; `plaza:<goalId>` places with signposts; the trunk rows go; drag placement and drag-resize go from the planning side bar; Desks becomes the size setting; the planning desk's create form gains the Goal picker; the map redraws on every tree change and bodies re-path. Core tests: the same tree gives the same map, adding a sibling moves no earlier building, every door reaches its plaza.
+3. **The Town Hall editor**, with Owner and the Subtree tab, plus the read-only building Goals tab and the attach control in building settings.
+4. **The in-tray and the deck**: goal proposals, "Mine / All", the per-user review marker, and the state-of-the-town slide without dials. The read-only Spend tab ships here.
+5. **Change this goal**: `goal_changes`, under-review KRs, the reorg meeting, and Planner. Planner is needed here as the facilitator, and Plan with an agent ships with it.
+6. **Postmortems** on missed KRs, and the **Kanban** Queue tabs (building and node).
+7. **Skip-level 1:1s**, with the conversational fork session.
 
 8. **Streams and the draw order. Bank change, gated on Mitchell.** Inputs become streams (`goalId` scope, key `dailyLimitTokens`); pools go; the Bank pays narrowest stream first, then the general balance; key streams are picked at session start only when they cover the expected session, and the desk gets the cap; held keys show usage and can be revoked. Free funds replace the exploration allowance.
 9. **The funder filter on the deck. Bank-gated with step 8** (it reads which stream paid each session): the literal story for key donors, the pro rata story for money donors.
 
-The read-only **Spend tab** (subtree spend from session bookings) ships with step 3. There is no allocation by node and no budget tree.
+The read-only **Spend tab** (subtree spend from session bookings) ships with step 4. There is no allocation by node and no budget tree. "New dials" (the second pass's step 7) is dropped while KPIs are parked.
+
+## UI inventory: every web surface the tree touches
+
+From `packages/web/src` at main 5634e04. **Goes** = removed; **changes** = stays, reworked; **new** = doesn't exist yet. The step is the build step that does it.
+
+| Surface (file) | What it does today | Goes / changes / new | Step |
+|---|---|---|---|
+| Planning side bar (`PlanSideBar.tsx`, reuses `GoalsTab`) | Selected building's goal, objectives, KRs, budget, stats | **Changes**: goal editing goes; shows "Attached to: [goal] · Change…", budget, stats | 2 |
+| Town planning mode (`map/townPlan.ts`, `PlanToolbar.tsx`) | Drag to move, drag walls to resize, draw a new building on grass, Save | **Goes**: no drag placement, resize or draw; the map is drawn from the tree | 2 |
+| Town Hall town-map table (place `town-map`) | Opens town planning (humans with `town.manage_buildings`) | **Changes**: opens a read-only zoomed-out view of the tree map, or goes; Mitchell's call | 2 |
+| Map rendering (`map/MapCanvas.tsx`, `renderer.ts`, `overview.ts`, `Minimap.tsx`) | Draws lots and the trunk roads | **Changes**: draws plazas with signposts and tree roads; no trunk | 2 |
+| Planning desk Buildings tab (`PlanningPanel.tsx`) | Create a building (name, goal line) | **Changes**: gains a required **Goal** picker (default: the root) | 1 |
+| Building settings (`BuildingPanel.tsx` Settings) | Goal line, Desks (read-only, "resize on the town map table"), Exploration / day, Pool | **Changes**: new **Attached to** control (never empty); Desks becomes editable and sets the size; Exploration / day and Pool go with steps 8-9 | 1, 2, 8 |
+| Building panel Overview (`BuildingPanel.tsx`) | "Write them in Goals →" | **Changes**: "Reports to: <owner> via <goal>", link to the goal at the Town Hall | 3 |
+| Building Goals tab (`GoalsTab.tsx`, `keyResults.ts`) | Write and edit objectives and KRs, Mark met/missed, Delete | **Changes**: read-only subtree view, "Edit at the Town Hall →", Propose a key result | 3 |
+| Goal tree editor (Town Hall wall chart) | — | **New**: tree, node detail (History, Subtree, Spend, Queue, Talk to a resident), Proposals strip, Plan with an agent | 3, 5-7 |
+| Town Hall in-tray (`Places.tsx`) | Rollups, grant proposals and checkpoints, KR mark met/missed on a closed grant | **Changes**: goal proposals, "Mine / All", under-review pills, retire/reorg items | 4, 5 |
+| Review deck (`ReviewDeck.tsx`, `DeckView.tsx`) | State of the town, one slide per pending decision | **Changes**: goal-proposal and reorg slides; no dial slides; funder filter later | 4, 5, 9 |
+| Grant panel and grant cards (`GrantPanel.tsx`, in-tray `GrantRow`) | Shows the grant's key result | **Changes**: shows the KR's goal path from the root; "under review" pill | 4 |
+| Dashboard (`DashboardPanel.tsx`) | Three KPI tiles, then each building's objectives and KR statuses | **Changes**: the per-building objectives list becomes the tree (or a link to it); the KPI tiles stay, outside the tree, while KPIs are parked | 3 |
+| Bank panel (`BankPanel.tsx`, `BankFunding.tsx`) | Donate, allocations, inputs, accounting pools | **Changes**: pools and allocations go; inputs become streams with an optional goal scope; held keys show usage and Revoke | 8 |
+| Bank town map (`map/flow.ts`, place `bank-map`) | Lots tinted by pool, coin arcs sized by pool share | **Changes**: pools go, so it needs a new meaning (streams by scope) or it goes | 8 |
+| Finance panel (`FinancePanel.tsx`) | Totals, Sources, Pools, Spending by building | **Changes**: Pools section goes; Spending gains a by-goal view (the Spend tab's data) | 4, 8 |
+| Meeting panel (`MeetingPanel.tsx`) | 1:1s and building meetings | **Changes**: reorg meetings (kind `planning`), Plan with an agent proposal cards; cadence meetings go | 5 |
+| Building Queue tab, goal Queue tab | — | **New**: kanban views | 6 |
+
+Not touched: the Agent panel, the Library, Outbox, Manual and How it works (no objective or pool text found), Secrets, Skills, Connect your agent.
 
 ## Open questions for Mitchell
 
-1. ~~**Planner: who pays?**~~ *Answered by decision 1 (mt_529jbnwvmi): there are no pools or allowances to choose between. Planner's sessions are directed and pay by draw order like any session; its spend shows under the root.*
-2. **Dial-target KRs: auto-claim?** When a dial crosses a KR's target, should the town set the KR to `claimed` on its own (you still mark it met)?
-3. **Retiring a goal with open KRs or a funded grant.** Should that be refused until they close, or should the open KRs archive as missed while funded grants finish?
-4. **Must every goal sit under Fund / Join / Trust**, or may one hang off the root?
-5. **New buildings**: start unattached and blocked, or must the map require an attachment at creation?
-6. **What owners can do.** Is subtree-scoped `goals.edit` enough, or should an owner also fund grants under their node (`building.fund` scoped to the subtree)? And should a node be allowed an agent owner yet?
-7. **Reorg meeting date.** Is at least 24 h ahead right? Should a reorg on a node with no attached buildings skip the meeting and apply at once?
-8. **Skip-level with forks.** Is a conversational fork session (a fork speaking for one recent chain) acceptable, or should skip-levels pick only named residents and say "no one to talk to" when a subtree is all forks?
-9. ~~**Budget by node.**~~ *Answered by decision 1 (mt_529jbnwvmi): no allocation by node and no budget tree; only the read-only Spend tab. Steering is desks; earmarks are opt-in streams.*
+Answered in 1:1 mt_kh0zaqui0w (2026-10-30), folded into the doc above:
+
+- ~~**Dial-target KRs: auto-claim?**~~ *Parked: no KPIs yet. He said a crossing would set `claimed` and he'd still mark met, but there are no dial-target KRs and no dials in the tree until he wants KPIs back.*
+- ~~**Retiring a goal with open KRs.**~~ *Retire offers move-to-sibling; refused when no sibling is picked.*
+- ~~**Must every goal sit under Fund / Join / Trust?**~~ *One root (the town goal); Fund/Join/Trust are placeholder children; any other child is allowed; the tree will be iterated; depth unbounded; KRs are always dated leaves.*
+- ~~**New buildings unattached?**~~ *Never: attached at creation (default: the root), editable in building settings, never unset.*
+- ~~**Planner: who pays?**~~ and ~~**Budget by node**~~ *answered by mt_529jbnwvmi decision 1.*
+
+Still open:
+
+1. **What owners can do.** Is subtree-scoped `goals.edit` enough, or should an owner also fund grants under their node (`building.fund` scoped to the subtree)? And should a node be allowed an agent owner yet?
+2. **Reorg meeting date.** Is at least 24 h ahead right? Should a reorg on a node with no attached buildings skip the meeting and apply at once?
+3. **Skip-level with forks.** Is a conversational fork session (a fork speaking for one recent chain) acceptable, or should skip-levels pick only named residents and say "no one to talk to" when a subtree is all forks?
+4. **To confirm: a key below one session's cost.** A key whose own daily limit is below one session's expected cost can't run a session alone, and its donor is told so (inferred in § Sessions and keys, not yet confirmed).
+5. **The map: an empty goal node** (§ "The map is the tree", open 1): an empty plaza with a signpost, or nothing drawn?
+6. **The map: long walks on deep trees** (open 2): shorter roads with depth, folded single-child chains, or leave it?
