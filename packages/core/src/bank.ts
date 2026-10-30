@@ -6,6 +6,7 @@ import { townFinance, type FinanceSummary } from "./finance.ts";
 import { townSpend, type FinanceSpend } from "./finance-spend.ts";
 import { townSources, type FinanceSources } from "./finance-sources.ts";
 import { townPools, type FinancePools } from "./finance-pools.ts";
+import { townFly, type FinanceFly, type FlyInputs } from "./finance-fly.ts";
 import type { EventLog } from "./events.ts";
 import type { Holder, Permissions } from "./permissions.ts";
 import type { Repos } from "./store.ts";
@@ -674,6 +675,11 @@ export class Bank {
   /** GET /api/finance/pools: each pool's share, left and overdrawn, and each building's draws, donations, held and allowance (finance-pools.ts). */
   pools(allowance: (buildingId: string) => number, now = new Date()): FinancePools {
     return townPools(this.repos, this, allowance, now);
+  }
+
+  /** GET /api/finance/fly: the Fly.io hosting estimate per day (desk sessions' wall time at the desk size's list price + the town Machine) and per building (finance-fly.ts). */
+  fly(desks: FlyInputs["desks"], townOnFly: boolean, o: { capUsdPerDay?: number | null; windowDays?: number } = {}, now = new Date()): FinanceFly {
+    return townFly(this.repos, desks, townOnFly, o, now);
   }
 
   summary(): BankSummary {

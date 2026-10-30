@@ -11,10 +11,12 @@
  * Between Sources and Spending, Pools (gr_mijwhoiy2f step 2) from GET /api/finance/pools: each pool's share, what it has left
  * (expiring today, permanent) and drew, its overdrawn debt on its own row, checked against the Bank balance; then each
  * building's draws, donations, held tokens and exploration allowance, its draws checked against the Bank's debits. When
- * the endpoint can't be loaded, the older "Bank pools" table from /api/bank stands in for it.
+ * the endpoint can't be loaded, the older "Bank pools" table from /api/bank stands in for it. Last, Hosting (Fly.io) from
+ * GET /api/finance/fly (1:1 mt_s6f8mvjw9h): what the desks' Machines and the town Machine cost in dollars, today and over
+ * the window, per building, estimated from desk sessions' wall time at Fly's list prices; the daily desk cap when one is set.
  * Opened from the HUD's "$" or `#/finance`.
  */
-import { api, type BankPoolSummary, type Finance, type FinancePools, type FinanceSources, type FinanceSpend, type SpendNode } from "../api";
+import { api, type BankPoolSummary, type Finance, type FinanceFly, type FinancePools, type FinanceSources, type FinanceSpend, type SpendNode } from "../api";
 import type { ReactNode } from "react";
 import { Glyph, PanelShell } from "./PanelShell";
 import { ADJ, ADJ_HINT, ErrorLine, Loading, Section, useLoad } from "./ui";
@@ -245,7 +247,75 @@ export function PoolsView({ fp }: { fp: FinancePools }) {
   );
 }
 
-export function FinanceView({ f, pools, spend = null, sources = null, poolsFin = null }: { f: Finance; pools: BankPoolSummary[] | null; spend?: FinanceSpend | null; sources?: FinanceSources | null; poolsFin?: FinancePools | null }) {
+/** Dollars: cents for amounts, four places for an hourly rate. */
+export const usd = (x: number, places = 2) => `$${x.toFixed(places)}`;
+const hours = (ms: number) => { const h = ms / 3_600_000; return h >= 10 ? `${Math.round(h)} h` : h >= 1 ? `${h.toFixed(1)} h` : `${Math.round(ms / 60_000)} min`; };
+
+/** Desk, town and total dollars over the newest `n` days of the window (today included). */
+export function flyWindowTotals(fly: Pick<FinanceFly, "days">, n: number): { days: number; deskUsd: number; townUsd: number; totalUsd: number } {
+  const ds = fly.days.slice(0, n);
+  const sum = (k: "deskUsd" | "townUsd" | "totalUsd") => Math.round(ds.reduce((s, d) => s + d[k], 0) * 1e6) / 1e6;
+  return { days: ds.length, deskUsd: sum("deskUsd"), townUsd: sum("townUsd"), totalUsd: sum("totalUsd") };
+}
+
+/** The Fly check in words: each day's desk + town = total, and the buildings' desk time = the days'. */
+export function flyCheckLine(fly: Pick<FinanceFly, "sumCheck" | "totals">): { ok: boolean; text: string } {
+  const c = fly.sumCheck;
+  if (c.ok) return { ok: true, text: `Adds up: every day's desks + town Machine = its total, and the buildings' desk time sums to the days' (${hours(fly.totals.deskMs)})` };
+  return { ok: false, text: c.daysOk ? `Does not add up: the buildings' desk time misses the days' by ${hours(Math.abs(c.diff))}` : `Does not add up: a day's desks + town Machine misses its total by ${usd(Math.abs(c.diff), 6)}` };
+}
+
+const rateLine = (r: FinanceFly["rates"]["desk"]) => (r ? `${r.preset}, ${r.memoryMb >= 1024 ? `${r.memoryMb / 1024} GB` : `${r.memoryMb} MB`}: ${usd(r.usdPerHour, 4)}/h (${usd(r.usdPerMonth)} per 30 days)` : null);
+
+function FlyView({ fly }: { fly: FinanceFly }) {
+  const week = flyWindowTotals(fly, 7), all = flyWindowTotals(fly, fly.days.length);
+  const t = fly.today;
+  const desk = rateLine(fly.rates.desk), town = rateLine(fly.rates.town);
+  return (
+    <Section title="Hosting (Fly.io)">
+      <p className="muted">
+        What the town's servers cost, in US dollars: an estimate from the town's own records at Fly's list prices ({fly.rates.region}, read {fly.rates.pricedAt}),
+        not Fly's bill. Each desk session runs on its own Machine for as long as it lasts; the town Machine runs all day.
+      </p>
+      <table className="table finance-summary">
+        <thead><tr><th /><th>Desks</th><th>Town Machine</th><th>Total</th></tr></thead>
+        <tbody>
+          <tr title={`${t.day} UTC, so far`}><td>Today (so far)</td><td>{usd(t.deskUsd)}</td><td>{usd(t.townUsd)}</td><td><b>{usd(t.totalUsd)}</b></td></tr>
+          {all.days > 7 ? <tr><td>Last 7 days</td><td>{usd(week.deskUsd)}</td><td>{usd(week.townUsd)}</td><td><b>{usd(week.totalUsd)}</b></td></tr> : null}
+          <tr><td>Last {all.days} days ({fly.from} → {fly.to})</td><td>{usd(all.deskUsd)}</td><td>{usd(all.townUsd)}</td><td><b>{usd(all.totalUsd)}</b></td></tr>
+          <tr className="sub-row" title="A town-wide limit on what the desks may cost in one day (Prod's desk performance work); the desks stop moving to faster Machines past it">
+            <td>Daily desk cap</td><td colSpan={3}>{t.capUsdPerDay == null ? "none set" : `${usd(t.capUsdPerDay)} per day · today ${t.underCap ? "under" : "over"} the cap`}</td>
+          </tr>
+        </tbody>
+      </table>
+      <table className="table">
+        <tbody>
+          <tr><td>Desk Machine size</td><td>{desk ?? (fly.desksBackend === "fly" ? "no list price for this size" : `desks are not on Fly (${fly.desksBackend}): desk time shown, $0`)}</td></tr>
+          <tr><td>Town Machine size</td><td>{town ?? "the server is not on a Fly Machine: $0"}</td></tr>
+          <tr><td>Desk time, last {all.days} days</td><td>{hours(fly.totals.deskMs)} over {n(fly.totals.sessions)} session{fly.totals.sessions === 1 ? "" : "s"}{fly.totals.unmeasuredSessions ? <span className="muted"> · {n(fly.totals.unmeasuredSessions)} timed from start and end, not measured on the desk</span> : null}</td></tr>
+        </tbody>
+      </table>
+      {fly.buildings.length ? (
+        <div className="spend-tree">
+          {fly.buildings.map((b) => (
+            <div key={b.id ?? "none"} className="spend-row spend-building" title={b.id ?? undefined}>
+              <span className="spend-line">
+                <span className="spend-name">{b.name}<span className="muted"> · {hours(b.deskMs)} · {n(b.sessions)} session{b.sessions === 1 ? "" : "s"}</span></span>
+                <span className="spend-tokens">{usd(b.deskUsd)}</span>
+              </span>
+            </div>
+          ))}
+          <div className="spend-row"><span className="spend-line"><span className="spend-name"><b>Desks, last {all.days} days</b></span><span className="spend-tokens"><b>{usd(all.deskUsd)}</b></span></span></div>
+        </div>
+      ) : null}
+      <p className="muted">Not counted: {fly.notCounted.join("; ")}.</p>
+      <details className="spend-row"><summary className="muted">How this is estimated</summary><ul className="muted">{fly.assumptions.map((a, i) => <li key={i}>{a}</li>)}</ul></details>
+      <Check c={flyCheckLine(fly)} />
+    </Section>
+  );
+}
+
+export function FinanceView({ f, pools, spend = null, sources = null, poolsFin = null, fly = null }: { f: Finance; pools: BankPoolSummary[] | null; spend?: FinanceSpend | null; sources?: FinanceSources | null; poolsFin?: FinancePools | null; fly?: FinanceFly | null }) {
   const check = sumCheckLine(f);
   const runway = runwayDays(f);
   const p = f.projection;
@@ -305,17 +375,18 @@ export function FinanceView({ f, pools, spend = null, sources = null, poolsFin =
     {sources ? <SourcesView s={sources} /> : null}
     {poolsFin ? <PoolsView fp={poolsFin} /> : null}
     {spend ? <SpendingView sp={spend} /> : null}
-    <p className="muted">As of {f.at.slice(0, 16).replace("T", " ")} UTC · in adjusted output tokens · from <code>GET /api/finance</code>{sources ? <>, <code>/api/finance/sources</code></> : null}{poolsFin ? <>, <code>/api/finance/pools</code></> : null}{spend ? <> and <code>/api/finance/spend</code></> : null}</p>
+    {fly ? <FlyView fly={fly} /> : null}
+    <p className="muted">As of {f.at.slice(0, 16).replace("T", " ")} UTC · in adjusted output tokens{fly ? " (Hosting in US dollars)" : ""} · from <code>GET /api/finance</code>{sources ? <>, <code>/api/finance/sources</code></> : null}{poolsFin ? <>, <code>/api/finance/pools</code></> : null}{spend ? <>, <code>/api/finance/spend</code></> : null}{fly ? <> and <code>/api/finance/fly</code></> : null}</p>
   </>;
 }
 
 export function FinancePanel() {
-  const d = useLoad(() => Promise.all([api().finance(), api().bank().then((b) => b.pools, () => null), api().financeSpend().catch(() => null), api().financeSources().catch(() => null), api().financePools().catch(() => null)]), []);
+  const d = useLoad(() => Promise.all([api().finance(), api().bank().then((b) => b.pools, () => null), api().financeSpend().catch(() => null), api().financeSources().catch(() => null), api().financePools().catch(() => null), api().financeFly().catch(() => null)]), []);
   return (
     <PanelShell icon={<Glyph kind="bank" />} title="Finance" subtitle="What the town received, used, let expire and has left">
       {d.loading && !d.data ? <Loading /> : null}
       <ErrorLine error={d.error} />
-      {d.data ? <FinanceView f={d.data[0]} pools={d.data[1]} spend={d.data[2]} sources={d.data[3]} poolsFin={d.data[4]} /> : null}
+      {d.data ? <FinanceView f={d.data[0]} pools={d.data[1]} spend={d.data[2]} sources={d.data[3]} poolsFin={d.data[4]} fly={d.data[5]} /> : null}
     </PanelShell>
   );
 }

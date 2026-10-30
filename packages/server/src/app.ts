@@ -76,6 +76,7 @@ export async function buildApp(opts: BuildAppOptions): Promise<FastifyInstance> 
   app.decorate("backup", opts.backup ?? null);
   app.decorate("monitor", opts.monitor ?? null);
   app.decorate("hub", opts.hub ?? null);
+  app.decorate("directory", !opts.prefix ? opts.directory ?? null : null);
   app.decorate("exportDir", opts.exportDir ?? null);
   app.decorateRequest("auth", null);
   const authSettings = defaultAuthSettings(opts.auth);
@@ -246,6 +247,6 @@ export async function buildApp(opts: BuildAppOptions): Promise<FastifyInstance> 
     return reply.code(404).send({ error: `Not found: ${req.method} ${path}`, code: "not_found" });
   });
 
-  app.addHook("onClose", async () => { load.close(); app.backup?.stop(); app.monitor?.stop(); await opts.hub?.close(); await (opts.runtime?.close?.() ?? opts.runtime?.stop?.()); });
+  app.addHook("onClose", async () => { load.close(); app.backup?.stop(); app.monitor?.stop(); app.directory?.stop(); await opts.hub?.close(); await (opts.runtime?.close?.() ?? opts.runtime?.stop?.()); });
   return app;
 }

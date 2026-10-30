@@ -36,6 +36,8 @@ export interface Metric {
   read(now: number): Reading | null;
   yellowForMs: number;
   redForMs: number;
+  /** what one clean observation is, in the FYI's clear text (default "samples"; desk-steal: "desk sessions") */
+  cleanUnit?: string;
 }
 
 export interface AlertView { key: string; level: Level; since: string; value: number }
@@ -184,7 +186,7 @@ export function defaultMetrics(p: Probes): Metric[] {
 export function deskStealMetric(p: Pick<Probes, "deskSessions">): Metric {
   let cursor: number | null = null;
   return {
-    key: "desk-steal", describe: (v) => `desk session steal ${v}% of cpu + steal`, yellowForMs: 0, redForMs: 0,
+    key: "desk-steal", describe: (v) => `desk session steal ${v}% of cpu + steal`, yellowForMs: 0, redForMs: 0, cleanUnit: "desk sessions",
     read: (now) => {
       const since = cursor ?? now - SAMPLE_MS;
       const recent = p.deskSessions(Math.min(since, now - HOUR_MS));
@@ -352,7 +354,7 @@ export class Monitor {
     alert.value = value;
     alert.notifiedAt = now;
     this.alerts.set(m.key, alert);
-    const body = `**${level.toUpperCase()}** ${what}\n\n- key: ${m.key}\n- since: ${alert.since}\n- ${verb} at ${new Date(now).toISOString()}\n\nThe monitor clears this after ${CLEAR_AFTER} samples in a row under yellow and updates this FYI.`;
+    const body = `**${level.toUpperCase()}** ${what}\n\n- key: ${m.key}\n- since: ${alert.since}\n- ${verb} at ${new Date(now).toISOString()}\n\nThe monitor clears this after ${CLEAR_AFTER} ${m.cleanUnit ?? "samples"} in a row under yellow and updates this FYI.`;
     if (alert.docId) this.updateFyi(alert.docId, `[${level.toUpperCase()}] ${what}`, body);
     else alert.docId = this.fyi(`[${level.toUpperCase()}] ${what}`, body);
     this.event(text, { key: m.key, level, phase: again ? "realert" : "raise", value, docId: alert.docId });
@@ -363,7 +365,7 @@ export class Monitor {
     this.alerts.delete(m.key);
     const what = m.describe(a.value);
     const text = `Alert cleared (was ${a.level.toUpperCase()}): ${what} (${m.key})`;
-    if (a.docId) this.updateFyi(a.docId, `[CLEARED] ${a.level.toUpperCase()} ${m.key}: ${what}`, `**Cleared** at ${new Date(now).toISOString()} after ${CLEAR_AFTER} samples under yellow (now ${what}).\n\n- key: ${m.key}\n- was ${a.level.toUpperCase()} since ${a.since}`);
+    if (a.docId) this.updateFyi(a.docId, `[CLEARED] ${a.level.toUpperCase()} ${m.key}: ${what}`, `**Cleared** at ${new Date(now).toISOString()} after ${CLEAR_AFTER} ${m.cleanUnit ?? "samples"} under yellow (now ${what}).\n\n- key: ${m.key}\n- was ${a.level.toUpperCase()} since ${a.since}`);
     this.event(text, { key: m.key, level: a.level, phase: "clear", value: a.value, docId: a.docId });
     if (a.level === "red") await this.send(`muster.town cleared: ${what}`, `[muster.town] cleared: ${m.key}`, text);
   }
