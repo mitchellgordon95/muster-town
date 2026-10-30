@@ -79,6 +79,24 @@ describe("the hub", () => {
     expect((await first("/ws")).town.name).toBe("Workshop Collective");
   });
 
+  it("a collective's name in any capitalisation lands on its lowercase address", async () => {
+    const { app, admin, hub } = await setup();
+    await json(app, "POST", "/api/collectives", { headers: admin, body: { slug: "hollyville", name: "Hollyville", goal: "A town" } });
+    const at = async (url: string) => { const r = await app.inject(url); return [r.statusCode, r.headers.location]; };
+    expect(await at("/Hollyville/")).toEqual([301, "/hollyville/"]);
+    expect(await at("/HOLLYVILLE/")).toEqual([301, "/hollyville/"]);
+    expect(await at("/Hollyville")).toEqual([301, "/hollyville"]);
+    expect(await at("/Hollyville/api/health?x=1")).toEqual([301, "/hollyville/api/health?x=1"]);
+    expect((await json(app, "GET", "/hollyville/api/town")).body.town.name).toBe("Hollyville");
+    // an unknown name, or the Workshop's own routes, are the Workshop's as before
+    expect((await app.inject("/Nowhere/")).statusCode).not.toBe(301);
+    expect((await json(app, "GET", "/API/health")).status).not.toBe(301);
+    // a retired one too: its lowercase address shows the notice
+    hub.retire("hollyville");
+    expect(await at("/Hollyville/")).toEqual([301, "/hollyville/"]);
+    expect((await app.inject("/hollyville/")).statusCode).toBe(410);
+  });
+
   it("refuses reserved and taken slugs, and anyone but a town admin", async () => {
     const { app, admin, world } = await setup();
     const reserved = await json(app, "POST", "/api/collectives", { headers: admin, body: { ...demo, slug: "workshop" } });

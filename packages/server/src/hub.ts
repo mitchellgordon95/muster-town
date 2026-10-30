@@ -172,6 +172,19 @@ export class Hub {
     return seg ? this.mounted.get(seg)?.app ?? null : null;
   }
 
+  /**
+   * The same URL with its first path segment lowercased when only its case keeps it from naming a collective
+   * (muster.town/Hollyville → /hollyville/), mounted or retired; null otherwise. Slugs are always lowercase.
+   */
+  caseRedirect(url: string): string | null {
+    const seg = /^\/([A-Za-z0-9-]+)(?=[/?#]|$)/.exec(url)?.[1];
+    if (!seg) return null;
+    const lower = seg.toLowerCase();
+    if (lower === seg || RESERVED_SLUGS.has(lower)) return null;
+    if (!this.mounted.has(lower) && !this.get(lower)) return null;
+    return `/${lower}${url.slice(seg.length + 1)}`;
+  }
+
   world(slug: string): World | null { return this.mounted.get(slug)?.world ?? null; }
   get count(): number { return this.mounted.size; }
 

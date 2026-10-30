@@ -96,7 +96,12 @@ export async function buildApp(opts: BuildAppOptions): Promise<FastifyInstance> 
       if (!hosted) {
         // a retired collective keeps its address: a notice, never another collective or the Workshop's client
         const gone = hub.retiredAt(req.url);
-        if (!gone) return;
+        if (!gone) {
+          // a collective's name typed as spelled (muster.town/Hollyville) lands on its lowercase address
+          const to = req.headers.upgrade ? null : hub.caseRedirect(req.url);
+          if (to) return reply.redirect(to, 301);
+          return;
+        }
         const api = /^\/[^/]+\/(api|ws|mcp|auth)(\/|$|\?)/.test(req.url);
         if (api) return reply.code(410).send({ error: `${gone.name} (/${gone.slug}/) was retired.`, code: "gone" });
         return reply.code(410).type("text/html; charset=utf-8").send(renderRetired(gone, haveWeb ? dist : null));
