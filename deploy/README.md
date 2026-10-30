@@ -150,12 +150,12 @@ until started), so no desk is recreated. Each session records the size it ran on
 migration 060; null = host, docker, or before 060, which ran on shared-cpu-2x). One town-wide cap, `desks.billCapUsd`
 in the meta row `desks` (default 10, USD per UTC day; change it with `PUT /api/town/desks {"billCapUsd": 15}` as an admin):
 once today's desk bill (Σ desk sessions' wall time inside the day × their size's $/h) reaches it, new desk sessions still
-start but on shared-cpu-2x, with a town event "Desk bill cap reached"; `desk-bill` is red (re-alerts hourly) until the
+start but on shared-cpu-2x, with a town event "Desk bill cap reached"; `desk-bill` is red (re-alerts every 6 h) until the
 next UTC day. GET /api/health `desks` shows `{backend, size, billCapUsd, billTodayUsd, billPct, overCap, day}`;
 GET /api/finance/fly `capUsdPerDay` is the same cap.
 
 An alert clears after 5 samples in a row under yellow (`desk-steal`: after 5 clean sessions; a sample with no newly ended
-desk session changes nothing). `desk-steal` cpu and steal are the whole desk Machine's (2 vCPUs summed, desk perf step 1). A key that stays red re-alerts hourly. A gap of more than 5 min
+desk session changes nothing, and an open `desk-steal` alert clears as stale after 3 h with no desk session ending). `desk-steal` cpu and steal are the whole desk Machine's (2 vCPUs summed, desk perf step 1). A key that stays red re-alerts every 6 h. A gap of more than 5 min
 between samples writes a "monitor gap" event when sampling resumes. `GET /api/health` shows
 `monitor: {lastSampleAt, outbound, alerts: [{key, level, since, value}], selfTestAt}` (`lastSampleAt` is null for the first 60 s after boot).
 
@@ -177,9 +177,9 @@ counts toward the 10/h cap):
 
 `deploy/pinger/muster_pinger.py` (Python 3 stdlib) covers what the server can't report itself: the Machine down, DNS or
 TLS broken, the monitor wedged. Each run is one probe of `GET https://muster.town/api/health` (10 s timeout; fail = no
-answer, non-200, or `ok` not true). After 3 failed probes in a row it sends a RED SMS and email, re-alerts hourly while
+answer, non-200, or `ok` not true). After 3 failed probes in a row it sends a RED SMS and email, reminds every 6 h while
 down, and sends one "recovered" message when health answers again. When health shows `monitor.outbound: false` it
-forwards the server's open red alerts (hourly per key). It has no town token and writes nothing to the town.
+forwards the server's open red alerts on change only: once when a key turns red, every 6 h while it stays red, once when it clears. It has no town token and writes nothing to the town.
 
 Install as user `node` (paths assume its home is `/home/node`; change `ExecStart` in the service if not):
 ```
