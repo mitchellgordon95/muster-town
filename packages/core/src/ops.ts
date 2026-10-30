@@ -262,6 +262,13 @@ export class Ops {
       for (const ag of this.world.agents.where("status = 'working' AND kind != 'visitor'")) {
         if (!this.world.sessions.count("agentId = ? AND status = 'running'", [ag.id])) this.world.setStatus(ag.id, "idle");
       }
+      // bodies left "walking": walks live in memory, so a restart mid-walk leaves the status with no walk to finish it
+      // (and stayReason keeps a "walking" body where it is for good); the runtime tick then walks idle ones home
+      for (const ag of this.world.agents.where("status = 'walking'")) {
+        if (this.world.movement.isWalking(ag.id)) continue;
+        const working = this.world.sessions.count("agentId = ? AND status = 'running'", [ag.id]) > 0;
+        this.world.setStatus(ag.id, working ? "working" : "idle");
+      }
     });
     if (orphanedSessions.length || requeuedAssignments.length) {
       this.world.events.append({ type: "system", text: `Reconciled at startup: ${orphanedSessions.length} orphaned session(s), ${requeuedAssignments.length} assignment(s) back to pending`, payload: { orphanedSessions, requeuedAssignments } });
