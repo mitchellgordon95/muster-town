@@ -30,7 +30,7 @@ alternative; that box was deleted.
   commit is fast-forwarded to the `prod` branch and the workflow POSTs `/api/admin/redeploy` as the "CI" visitor (an agent with the town
   `deployer` role and no inherited permissions; its token is the Actions secret `MUSTER_TOWN_DEPLOY_TOKEN`). The town's redeploy then does what
   it always did (pull, install if the lockfile changed, build, drain up to 30 min, pull again, exit 75; see the drain policy below), but it pulls `prod`
-  (`MUSTER_TOWN_DEPLOY_BRANCH` in fly.town.toml), so a red commit on `main` never goes live. Residents of the Workshop push to `main` as before;
+  (`MUSTER_TOWN_DEPLOY_BRANCH` in fly.town.toml), so a red commit on `main` never goes live. The Workshop's manager and its forks push to `main` as before;
   nobody waits on a PR review; what they can't do is take the town down with a commit that fails its own tests. The `redeploy` verb and the
   planning desk button still work (they also pull `prod`), for a redeploy without a new commit. Rollback: `git revert` on main and let CI
   ship it; emergency: point `prod` at the last good sha and redeploy. A red run leaves the live town where it was and shows in the Actions tab.
@@ -265,7 +265,7 @@ Do this after the smoke test, with the Mac's world as the one source of truth fr
    `shred -u /tmp/town.db` on both machines.
 3. Rotate what came along in the db: the admin token and every agent token were issued on the Mac
    (Dara's design dc_ios62uyco3 §3f). Donated keys stay as they are.
-4. Not copied: desk home volumes (`deskhome-<agentId>` on the Mac's Docker). Residents get fresh desks and re-clone;
+4. Not copied: desk home volumes (`deskhome-<agentId>` on the Mac's Docker). Agents get fresh desks and re-clone;
    their notebooks and docs live in the db. If one needs files back:
    `docker run --rm -v deskhome-<id>:/v alpine tar -C /v -cz . > home.tgz` on the Mac, and the reverse on the box.
 5. From then on the Mac is dev only: don't start `collectives/workshop` there again (it would fork the world).
