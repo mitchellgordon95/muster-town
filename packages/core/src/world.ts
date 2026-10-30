@@ -2,6 +2,7 @@ import { mapFlagOf, townEnv, type Agent, type AgentStatus, type DesksConfig, typ
 import { Bank } from "./bank.ts";
 import { Budget } from "./budget.ts";
 import { Goals } from "./goals.ts";
+import { Reorgs } from "./goal-changes.ts";
 import { Grants } from "./grants.ts";
 import { laneHold } from "./lanes.ts";
 import { intrayCount, intrayCounts, isTownHallItem } from "./domain.ts";
@@ -71,6 +72,8 @@ export class World {
   readonly grantDesk: Grants;
   /** the town goal tree (docs/goals.md) */
   readonly goalTree: Goals;
+  /** "Change this goal" (the reorg) and the Planner (docs/goals.md, build step 5) */
+  readonly reorgs: Reorgs;
   /** skills: SKILL.md docs, bundled files, pins, usage (docs/skills.md) */
   readonly skills: Skills;
   /** collective secrets: encrypted values and their grants (docs/secrets.md) */
@@ -108,6 +111,7 @@ export class World {
   readonly objectives: Repos["objectives"];
   readonly goals: Repos["goals"];
   readonly goalProposals: Repos["goalProposals"];
+  readonly goalChanges: Repos["goalChanges"];
   readonly kpis: Repos["kpis"];
   readonly accessRequests: Repos["accessRequests"];
   readonly skillPins: Repos["skillPins"];
@@ -131,7 +135,7 @@ export class World {
     this.places = repos.places; this.docs = repos.docs; this.assignments = repos.assignments;
     this.messages = repos.messages; this.meetings = repos.meetings; this.sessions = repos.sessions;
     this.interrupts = repos.interrupts;
-    this.grants = repos.grants; this.schedules = repos.schedules; this.keyResults = repos.keyResults; this.objectives = repos.objectives; this.goals = repos.goals; this.goalProposals = repos.goalProposals; this.kpis = repos.kpis; this.accessRequests = repos.accessRequests; this.skillPins = repos.skillPins;
+    this.grants = repos.grants; this.schedules = repos.schedules; this.keyResults = repos.keyResults; this.objectives = repos.objectives; this.goals = repos.goals; this.goalProposals = repos.goalProposals; this.goalChanges = repos.goalChanges; this.kpis = repos.kpis; this.accessRequests = repos.accessRequests; this.skillPins = repos.skillPins;
     this.tokens = repos.tokens; this.town = repos.town;
     this.events = new EventLog(db, this.changes);
     this.permissions = new Permissions(repos, () => !!this.host.hosted);
@@ -144,6 +148,7 @@ export class World {
     this.ops = new Ops(this);
     this.grantDesk = new Grants(this);
     this.goalTree = new Goals(this);
+    this.reorgs = new Reorgs(this);
     this.budget.gate = (a) => laneHold(this, a);
     this.budget.afterCharge = (bid) => this.grantDesk.checkpoints(bid);
     this.skills = new Skills(this);
@@ -194,6 +199,12 @@ export class World {
     // the map is drawn from the goal tree: any tree change (add, edit, move or retire a goal, attach a building) redraws it
     this.events.addHook((e) => {
       if (e.type === "goal.created" || e.type === "goal.edited" || e.type === "goal.moved" || e.type === "goal.retired" || e.type === "goal.attached") this.layout.rebuild();
+    });
+    // "Change this goal": its planning meeting starting sets the new words; its end decides the change
+    this.events.addHook((e) => {
+      if (e.type !== "meeting.phase") return;
+      const m = this.meetings.get(String((e.payload as { meetingId?: unknown }).meetingId ?? ""));
+      if (m && m.kind === "planning" && !m.buildingId) this.reorgs.onMeetingPhase(m);
     });
     this.goalTree.ensure();
     this.layout.rebuild();

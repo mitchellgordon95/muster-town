@@ -15,6 +15,7 @@ import { docUrl, grantUrl } from "../route";
 import type { PanelRef } from "../state";
 import { useMediaPaste } from "./mediaPaste";
 import { MeetingSlide } from "./MeetingSlide";
+import { GoalProposalItem } from "./GoalTreePanel";
 
 const PHASES: Meeting["phase"][] = ["scheduled", "collecting", "discussing", "done"];
 
@@ -257,12 +258,26 @@ function Presented({ a, newTab }: { a: MeetingAttachment; newTab: boolean }) {
       </a>
     );
   }
+  // a goal proposal the Planner drafted in a 1:1 (or presented at a reorg meeting): a card with Accept / Edit and accept / Cut
+  if (a.ref.startsWith("goal-proposal:")) return <PresentedProposal id={a.ref.slice("goal-proposal:".length)} title={a.title} />;
   const to = pageRef(a.ref);
   const href = to?.kind === "grant" && to.id ? grantUrl(to.id) : to && (to.kind === "bank" || to.kind === "connect") ? `#/${to.kind}` : to?.kind === "manual" ? `#/manual${to.id ? `/${to.id}` : ""}` : null;
   if (href && newTab) return <a className="presented card" href={href} {...tab}><span className="presented-kind">Presented page</span><b>{a.title}</b></a>;
   return (
     <button className="presented card" disabled={!to} onClick={() => to && store.open(to)}>
       <span className="presented-kind">Presented page</span><b>{a.title}</b>
+    </button>
+  );
+}
+
+function PresentedProposal({ id, title }: { id: string; title: string }) {
+  const [bump, setBump] = useState(0);
+  const list = useLoad(() => api().goalProposals(), [id, bump]);
+  const p = list.data?.find((x) => x.id === id);
+  if (p?.status === "open") return <div className="presented card"><GoalProposalItem p={p} onDone={() => setBump((n) => n + 1)} /></div>;
+  return (
+    <button className="presented card" onClick={() => store.open({ kind: "goals" })}>
+      <span className="presented-kind">Goal proposal{p ? ` · ${p.status}` : ""}</span><b>{title}</b>
     </button>
   );
 }

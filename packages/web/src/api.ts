@@ -9,7 +9,7 @@ import type {
   AccessRequest, AccessRequestView, Agent, Allocation, Assignment, AuthMe, BlockedAssignment, BuildingStats, Schedule, RedeployLive, Building, ClientMessage, DesksConfig, Doc, Event, Lot, Meeting, Place, Role, Membership, SessionSlots, Tile,
   ServerMessage, SessionView, TokenCounts, Town, CreateBuildingInput, UpdateBuildingInput, RegisterVisitorInput,
   ReviewInput, PinSkillInput, SkillPinView, SkillView, PutSecretInput, SecretView, ChatInput, WorkInput, DonateInput, AddBankInput, BankInput, CreateBankPoolInput, UpdateBankPoolInput, CreateMeetingInput, DocState, DocType, Mailbox, Permission, DecideGrantInput, CloseGrantInput, GrantView, KeyResult, CreateKeyResultInput, UpdateKeyResultInput, Stoplight,
-  GoalTreeNode, Goal, GoalProposal, GoalSpend, IntrayRoutes, CreateGoalInput, UpdateGoalInput, RetireGoalInput, CreateTreeKeyResultInput, DecideGoalProposalInput,
+  GoalTreeNode, Goal, GoalProposal, GoalSpend, IntrayRoutes, CreateGoalInput, UpdateGoalInput, RetireGoalInput, CreateTreeKeyResultInput, DecideGoalProposalInput, ChangeGoalInput, ReviewKeyResultInput, GoalChangeView,
 } from "@muster-town/schema";
 
 export type In<T extends z.ZodTypeAny> = z.input<T>;
@@ -342,6 +342,12 @@ export interface Api {
   addTreeKeyResult(goalId: string, input: In<typeof CreateTreeKeyResultInput>): Promise<KeyResult>;
   goalProposals(status?: GoalProposal["status"]): Promise<GoalProposalView[]>;
   decideGoalProposal(id: string, input: In<typeof DecideGoalProposalInput>): Promise<GoalProposalView>;
+  /** "Change this goal" (the reorg, docs/goals.md step 5): file X → Y, list a goal's changes, decide an under-review key result. */
+  changeGoal(id: string, input: In<typeof ChangeGoalInput>): Promise<GoalChangeView>;
+  goalChanges(q?: { goalId?: string; open?: boolean }): Promise<GoalChangeView[]>;
+  reviewKeyResult(id: string, input: In<typeof ReviewKeyResultInput>): Promise<KeyResult>;
+  /** "Plan with an agent": open (or return to) my 1:1 with the Planner, about a goal. */
+  openPlanner(goalId?: string): Promise<Meeting>;
   /** Furniture of a room, and the human-only editor's dry run / save (lot-relative anchors). */
   layout(buildingId: string): Promise<RoomLayout>;
   previewLayout(buildingId: string, furniture: Record<string, Tile>): Promise<LayoutPreview>;
@@ -606,6 +612,10 @@ export class HttpApi implements Api {
   async addTreeKeyResult(goalId: string, i: In<typeof CreateTreeKeyResultInput>) { return unwrap<KeyResult>(await this.post(`/api/goals/${goalId}/key-results`, i), "keyResult"); }
   async goalProposals(status?: GoalProposal["status"]) { return (await this.get<{ proposals?: GoalProposalView[] }>(`/api/goal-proposals${qs({ status })}`)).proposals ?? []; }
   async decideGoalProposal(id: string, i: In<typeof DecideGoalProposalInput>) { return unwrap<GoalProposalView>(await this.post(`/api/goal-proposals/${id}/decide`, i), "proposal"); }
+  async changeGoal(id: string, i: In<typeof ChangeGoalInput>) { return unwrap<GoalChangeView>(await this.post(`/api/goals/${id}/change`, i), "change"); }
+  async goalChanges(q: { goalId?: string; open?: boolean } = {}) { return (await this.get<{ changes?: GoalChangeView[] }>(`/api/goal-changes${qs({ goalId: q.goalId, open: q.open ? "1" : undefined })}`)).changes ?? []; }
+  async reviewKeyResult(id: string, i: In<typeof ReviewKeyResultInput>) { return unwrap<KeyResult>(await this.post(`/api/key-results/${id}/review`, i), "keyResult"); }
+  async openPlanner(goalId?: string) { return unwrap<Meeting>(await this.post("/api/planner/one-on-one", goalId ? { goalId } : {}), "meeting"); }
   layout(id: string) { return this.get<RoomLayout>(`/api/buildings/${id}/layout`); }
   previewLayout(id: string, furniture: Record<string, Tile>) { return this.call<LayoutPreview>("PUT", `/api/buildings/${id}/layout`, { furniture, dryRun: true }); }
   async saveLayout(id: string, furniture: Record<string, Tile>) { return unwrap<Building>(await this.call("PUT", `/api/buildings/${id}/layout`, { furniture }), "building"); }

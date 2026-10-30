@@ -1075,7 +1075,7 @@ export interface GoalTreeNode {
   id: string; parentId: string | null; text: string; status: "active" | "retired"; ownerId: string | null; retiredNote?: string;
   owner: { goalId: string; userId: string | null; name: string };
   buildings: { id: string; name: string }[];
-  keyResults: { id: string; text: string; howToCheck: string; status: string; due: string | null; archivedAt: string | null; buildingId: string; grantId: string | null }[];
+  keyResults: { id: string; text: string; howToCheck: string; status: string; due: string | null; archivedAt: string | null; buildingId: string; grantId: string | null; underReviewSince?: string | null }[];
   children: GoalTreeNode[];
 }
 /**
@@ -1131,8 +1131,43 @@ export const ProposeGoalInput = z.object({
   action: GoalProposalAction, targetId: Id.optional(), parentId: Id.optional(),
   text: z.string().trim().min(1).max(300).optional(), howToCheck: z.string().trim().min(1).max(300).optional(), due: Due.optional(),
   why: z.string().trim().min(1).max(2000), sourceDocIds: z.array(Id).default([]), buildingId: Id.optional(),
+  /** a "Change this goal" (gc_…) the proposal answers: shown at its planning meeting */
+  reorgId: Id.optional(),
 });
 export type ProposeGoalInput = z.input<typeof ProposeGoalInput>;
+/** "Change this goal" (the reorg, docs/goals.md, build step 5): X → Y on a goal, prep reports from the buildings under it, then a planning meeting. */
+export const GoalChangeStatus = z.enum(["prep", "meeting", "decided"]);
+export const GoalChange = z.object({
+  id: Id,
+  goalId: Id,
+  fromText: z.string(),
+  toText: z.string().min(1).max(300),
+  why: z.string().default(""),
+  /** createdAt + 24 h: the planning meeting opens then if a prep report is still missing */
+  meetingDeadline: Iso,
+  meetingId: Id.nullable().default(null),
+  /** the human's note ("Change this goal: X → Y"): the human source of the prep assignments */
+  sourceDocId: Id.nullable().default(null),
+  status: GoalChangeStatus.default("prep"),
+  createdBy: Id.nullable().default(null),
+  createdAt: Iso,
+  decidedAt: Iso.nullable().default(null),
+});
+export type GoalChange = z.infer<typeof GoalChange>;
+/** GET /api/goal-changes: a change with its prep (one row per building under the goal) and its meeting's phase. */
+export interface GoalChangeView extends GoalChange {
+  createdByName: string;
+  prep: { buildingId: string; buildingName: string; assignmentId: string | null; reportId: string | null; status: "waiting" | "in" | "no-manager" }[];
+  meetingPhase: string | null;
+  underReview: string[];
+  proposals: string[];
+}
+/** POST /api/goals/:id/change: the goal's new words and why (an admin or the goal's owner). */
+export const ChangeGoalInput = z.object({ toText: z.string().trim().min(1).max(300), why: z.string().trim().min(1).max(2000) });
+export type ChangeGoalInput = z.input<typeof ChangeGoalInput>;
+/** POST /api/key-results/:id/review: a human decides an under-review key result (keep it, move it to another goal, or archive it as missed). */
+export const ReviewKeyResultInput = z.object({ action: z.enum(["keep", "move", "archive"]), goalId: Id.optional(), note: z.string().max(2000).default("") });
+export type ReviewKeyResultInput = z.input<typeof ReviewKeyResultInput>;
 /** POST /api/goal-proposals/:id/decide: accept (optionally with edited words) or cut (the note goes back to the proposer). */
 export const DecideGoalProposalInput = z.object({
   action: z.enum(["accept", "cut"]), note: z.string().max(2000).default(""),
@@ -1270,7 +1305,7 @@ export const EventType = z.enum([
   "session.started", "session.ended",
   "building.created", "building.updated", "building.layout", "town.plan", "allocation.created", "budget.exhausted", "bank.input", "bank.credited", "bank.debited", "bank.converted", "bank.share", "bank.pool", "bank.drift", "bank.cap", "bank.hold",
   "grant.created", "grant.updated", "grant.proposed", "grant.countered", "grant.funded", "grant.rejected", "grant.checkpoint", "grant.closed", "kr.updated", "kr.created", "kr.deleted", "objective.created", "objective.updated", "objective.deleted", "building.blocked",
-  "goal.created", "goal.edited", "goal.moved", "goal.retired", "goal.owned", "goal.attached", "goal.proposal", "kr.archived",
+  "goal.created", "goal.edited", "goal.moved", "goal.retired", "goal.owned", "goal.attached", "goal.proposal", "goal.changed", "kr.archived", "kr.under-review",
   "skill.used", "skill.pinned", "skill.unpinned",
   "secret.set", "secret.deleted", "secret.granted",
   "export.done", "system",
@@ -1430,6 +1465,7 @@ export const VerbInputs = {
     text: z.string().trim().min(1).max(300).optional().describe("the goal's words (add-goal, edit; optional for promote)"),
     why: z.string().trim().min(1).max(2000).describe("why: what it serves, what you saw"),
     sourceDocIds: z.array(Id).max(10).optional().describe("the meeting notes or reports it comes from"),
+    reorgId: Id.optional().describe("a \"Change this goal\" (gc_…) your proposal answers: it is shown at that change's planning meeting"),
   }),
   propose_key_result: z.object({
     goalId: Id.optional().describe("the goal it goes under (a new one; default your building's attachment)"),
@@ -1439,6 +1475,7 @@ export const VerbInputs = {
     due: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional().describe("the date it is due, YYYY-MM-DD (required for a new one)"),
     why: z.string().trim().min(1).max(2000).describe("why: what it serves, what you saw"),
     sourceDocIds: z.array(Id).max(10).optional().describe("the meeting notes or reports it comes from"),
+    reorgId: Id.optional().describe("a \"Change this goal\" (gc_…) your proposal answers: it is shown at that change's planning meeting"),
   }),
   promote: z.object({ docId: Id, state: z.enum(["building", "library"]) }),
   ban: z.object({ agentId: Id, reason: z.string() }),

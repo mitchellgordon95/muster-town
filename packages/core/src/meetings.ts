@@ -157,10 +157,12 @@ function oneOnOneTarget(world: World, authorId: string): { agent: Agent; via: "f
  * with that agent if any (presenting the subject there if it isn't yet). Needs meeting.facilitate or building.review
  * on the building.
  */
-export function createOneOnOne(world: World, human: Agent, buildingId: string, opts: { agentId?: string; docId?: string; grantId?: string } = {}): Meeting {
+export function createOneOnOne(world: World, human: Agent, buildingId: string, opts: { agentId?: string; docId?: string; grantId?: string; goalId?: string } = {}): Meeting {
   const b = world.buildings.require(buildingId, "building");
-  if (b.id === TOWN_HALL_ID || b.kind === "town-hall") throw badRequest("The Town Hall has no manager agent to talk to.");
-  if (!world.permissions.can(human, "meeting.facilitate", b.id) && !world.permissions.can(human, "building.review", b.id)) throw forbidden("meeting.facilitate");
+  // the Town Hall has no manager; its one agent to plan with is the Planner ("Plan with an agent", docs/goals.md)
+  const townHall = b.id === TOWN_HALL_ID || b.kind === "town-hall";
+  if (townHall && (!opts.agentId || !world.reorgs.isPlanner(world.agents.get(opts.agentId) ?? null))) throw badRequest("The Town Hall has no manager agent to talk to; plan with the Planner from the Goal tree.");
+  if (townHall ? !world.reorgs.canPlan(human, opts.goalId) : !world.permissions.can(human, "meeting.facilitate", b.id) && !world.permissions.can(human, "building.review", b.id)) throw forbidden("meeting.facilitate");
   const h = world.holderOf(human);
   if (h.kind !== "user") throw badRequest("Only humans open a 1:1.");
   const doc = opts.docId ? world.docs.get(opts.docId) : undefined;
@@ -183,7 +185,13 @@ export function createOneOnOne(world: World, human: Agent, buildingId: string, o
     if (!target) throw new AppError("conflict", `${b.name} has no manager agent; send a message instead.`);
   }
   const open = world.meetings.where("kind = 'one-on-one' AND facilitatorId = ? AND withUserId = ? AND phase = 'discussing'", [target.id, h.id]);
+  const goal = opts.goalId ? world.goals.get(opts.goalId) : undefined;
+  if (opts.goalId && !goal) throw notFound("Goal", opts.goalId);
   const present = (m: Meeting): Meeting => {
+    if (goal) {
+      if (m.transcript.some((u) => u.speakerKind === "user" && u.text.includes(`(${goal.id})`))) return m;
+      return meetingSpeak(world, human, m.id, `Let's plan under the goal "${oneLine(goal.text, 160)}" (${goal.id}).`);
+    }
     if (grant) {
       if (m.transcript.some((u) => u.attachment?.ref === `grant:${grant.id}`)) return m;
       const kr = grant.keyResultId ? world.keyResults.get(grant.keyResultId) : undefined;
@@ -266,6 +274,11 @@ export function resolveAttachment(world: World, attach: string): MeetingAttachme
     if (!g) throw notFound("Grant", ref);
     return { kind: "page", ref: `grant:${ref}`, title: `Grant: ${g.objective}` };
   }
+  if (/^gp_/.test(ref)) {
+    const p = world.goalProposals.get(ref);
+    if (!p) throw notFound("Goal proposal", ref);
+    return { kind: "page", ref: `goal-proposal:${ref}`, title: `Goal proposal (${p.action}): ${oneLine(p.fields.text ?? p.targetId ?? "", 120)}` };
+  }
   if (/^ag_/.test(ref)) {
     const a = world.agents.get(ref);
     if (!a) throw notFound("Agent", ref);
@@ -281,7 +294,7 @@ export function resolveAttachment(world: World, attach: string): MeetingAttachme
   if (manual) return { kind: "page", ref, title: `Operating manual: ${manual[1]}` };
   const page = PAGES[ref.toLowerCase()];
   if (page) return { kind: "page", ref: ref.toLowerCase(), title: page };
-  throw badRequest(`Can't present "${ref}": attach a doc id (dc_…), an uploaded image (mf_… or /api/media/…), a grant (gr_…), an agent (ag_…), building:<id>, or one of ${Object.keys(PAGES).join(", ")}, manual/<section>.`);
+  throw badRequest(`Can't present "${ref}": attach a doc id (dc_…), an uploaded image (mf_… or /api/media/…), a grant (gr_…), a goal proposal (gp_…), an agent (ag_…), building:<id>, or one of ${Object.keys(PAGES).join(", ")}, manual/<section>.`);
 }
 
 /** How an attachment reads in plain text (listen, status, the notes doc). */

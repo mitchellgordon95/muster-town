@@ -342,10 +342,17 @@ export class Goals {
   propose(actor: Actor, input: ProposeGoalInput): GoalProposalView {
     const inp = ProposeGoalInput.parse(input);
     const by = actor ? holderOf(actor) : { kind: "user" as const, id: "system" };
-    const buildingId = inp.buildingId ?? (actor && "homeBuildingId" in actor ? actor.homeBuildingId ?? null : null);
+    // the Planner (a Town Hall resident) proposes for no building (docs/goals.md "The planning agent")
+    const planner = this.world.reorgs.isPlanner(actor);
+    const buildingId = planner ? null : inp.buildingId ?? (actor && "homeBuildingId" in actor ? actor.homeBuildingId ?? null : null);
     if (buildingId) this.world.buildings.require(buildingId, "building");
+    if (inp.reorgId) {
+      const c = this.world.goalChanges.get(inp.reorgId);
+      if (!c) throw badRequest(`${inp.reorgId} is not a "Change this goal" (gc_…).`);
+      if (c.status === "decided") throw badRequest(`Change ${c.id} is already decided; propose without reorgId.`);
+    }
     // managers and their forks propose for their building; humans may too
-    if (actor && by.kind !== "user") {
+    if (actor && by.kind !== "user" && !planner) {
       const b = buildingId ? this.world.buildings.get(buildingId) : undefined;
       const manager = this.world.permissions.managerOfFork(actor)?.id ?? actor.id;
       if (!b || b.managerAgentId !== manager) throw forbidden("building.manage", "Only a building's manager (or its fork) proposes goal changes for it.");
@@ -390,7 +397,7 @@ export class Goals {
       }
       return this.world.goalProposals.upsert({
         id: newId("gp"), action: inp.action, targetId: inp.targetId ?? null, parentId: inp.parentId ?? null, fields, why: inp.why, proposedBy: by.id,
-        buildingId, reorgId: null, sourceDocIds: inp.sourceDocIds, status: "open", decidedBy: null, decidedAt: null, note: "", resultId: null, createdAt: now,
+        buildingId, reorgId: inp.reorgId ?? null, sourceDocIds: inp.sourceDocIds, status: "open", decidedBy: null, decidedAt: null, note: "", resultId: null, createdAt: now,
       });
     });
     const view = this.proposalView(p);
