@@ -1521,7 +1521,7 @@ export const LayoutInput = z.object({ furniture: z.record(Tile), dryRun: z.boole
  * drawn on the map; `dryRun` only checks it.
  */
 export const PlanInput = z.object({ lots: z.record(Lot).default({}), create: CreateBuildingInput.extend({ lot: Lot }).optional(), dryRun: z.boolean().default(false) });
-/** POST /api/agents/residents: `name` left out or blank = the town picks an unused one (GET /api/agents/name-suggestion previews one). */
+/** core `createResident` (seed, v0 import, a new building's manager): `name` left out or blank = the town picks an unused one. No REST route since 1:1 mt_wngibcr98b decision 1. */
 export const CreateResidentInput = z.object({ buildingId: Id, name: z.string().trim().optional(), title: z.string().default(""), direction: z.string().default(""), sprite: z.number().int().optional(), model: z.string().optional() });
 export const RegisterVisitorInput = z.object({ name: z.string(), buildingId: Id.optional(), title: z.string().optional(),
   /** default true: the visitor acts with its owner's permissions (capped by them) */
