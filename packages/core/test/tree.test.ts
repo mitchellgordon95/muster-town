@@ -62,6 +62,16 @@ describe("the map is the tree (docs/goals.md, build step 2)", () => {
     expect(plaza.get("gl_fund")!.rect.w).toBeGreaterThan(0);
   });
 
+  it("leaves grass left of the Bank for its marquee (the root plaza alone separates the Bank from the Town Hall's wall)", () => {
+    const { goals, buildings } = liveTree();
+    const tree = treeLayout(goals, buildings);
+    // the web hangs the marquee right-aligned one column left of the root's trunk, beside the Bank's rows (renderer.ts)
+    const marquee: Lot = { x: BANK_LOT.x - 4 - 20, y: BANK_LOT.y, w: 20, h: BANK_LOT.h };
+    for (const [id, lot] of tree.lots) expect(overlap(lot, marquee), id).toBe(false);
+    for (const p of tree.plazas) expect(overlap({ ...p.rect, w: p.rect.w + 1 }, marquee), p.goalId).toBe(false);
+    for (const [id, road] of tree.edges) for (const t of road) expect(overlap({ ...t, w: 1, h: 1 }, marquee), id).toBe(false);
+  });
+
   it("every plaza and every door reaches the Town Hall by road alone (the roads are the tree's edges)", () => {
     const { goals, buildings } = liveTree();
     const tree = treeLayout(goals, buildings);

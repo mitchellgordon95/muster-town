@@ -643,10 +643,11 @@ export class MapRenderer {
       const sub = b.kind === "town-hall" ? (s.town?.name ?? "") : b.goal;
       if (p.x > -300 && p.x < cw + 300 && p.y > -40 && p.y < ch + 60) this.signHits.push({ id: b.id, ...drawSign(g, p.x, p.y, b.name, sub, authStore.get().guest ? null : buildingBudgetLine(b.budget), b.id === this.hoverSign, b.stoplight) });
     }
-    // the Bank's marquee hangs over the path, just outside its front door
+    // the Bank's marquee stands on the grass left of the Bank, past the root's trunk road: above the Bank there are only
+    // the root plaza's two rows before the Town Hall's wall, too little for it at any zoom (core/world/tree.ts)
     if (w.bank) {
-      const p = toScreen((w.bank.x + w.bank.w / 2) * T, w.bank.y * T - 5);
-      if (p.x > -300 && p.x < cw + 300 && p.y > -40 && p.y < ch + 140) drawBankSign(g, p.x, p.y, s.bank, now);
+      const p = toScreen((w.bank.x - 4) * T - 4, (w.bank.y + w.bank.h / 2) * T);
+      if (p.x > -40 && p.x < cw + 600 && p.y > -80 && p.y < ch + 80) drawBankSign(g, p.x, p.y, s.bank, now, true);
     }
     this.hitboxes = [];
     const blocked = blockedByRedeploy(s.events);
