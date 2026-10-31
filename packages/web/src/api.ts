@@ -35,7 +35,7 @@ export interface AgentDetail {
   fork?: ForkSummary;
 }
 /** A manager and all its forks' spend (GET /api/agents/:id/forks `family`), as core's familySpend: adjusted tokens the Bank booked. */
-export interface FamilySpend { today: number; /** the forks' part of today */ forksToday: number; /** the family's daily cap (dailyTokensPerAgent × headcount) */ cap: number; total: number; usdTotal: number; forks: number }
+export interface FamilySpend { today: number; /** the forks' part of today */ forksToday: number; total: number; usdTotal: number; forks: number }
 
 /** One manager fork (GET /api/agents/:id `fork`, GET /api/agents/:id/forks), as core's forkSummary. */
 export interface ForkSummary {

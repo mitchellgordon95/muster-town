@@ -59,7 +59,7 @@ export class Ops {
     // the goal it is attached to: goals.edit (admins, or the owner) on both the old and the new goal, never unset
     if (goalId !== undefined) this.world.goalTree.attach(actor, id, goalId);
     const updated = other ? updateBuilding(this.world, id, rest) : this.world.buildings.require(id, "building");
-    this.world.budget.resumeEligible(id); // a raised dailyTokensPerAgent un-blocks residents that hit the old cap
+    this.world.budget.resumeEligible(id); // residents held out-of-budget whose building can start again go idle
     return updated;
   }
   /** Furniture is edited by humans only (Mitchell, 2026-10-20): an agent token is refused even with building.manage. */

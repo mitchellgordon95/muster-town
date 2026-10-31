@@ -7,8 +7,8 @@ import { store, useTown } from "../state";
 import { Glyph, PanelShell } from "./PanelShell";
 import { QueueTab } from "./QueueTab";
 import { Meter } from "./AgentPanel";
-import { ADJ, Act, Empty, Field, KV, MTokensInput, NumberInput, Pill, Section, fmtTokens, usd, useLoad } from "./ui";
-import { fromMillions, repeatLabel, runsAtLabel, toMillions } from "../format";
+import { Act, Empty, Field, KV, NumberInput, Pill, Section, fmtTokens, usd, useLoad } from "./ui";
+import { repeatLabel, runsAtLabel } from "../format";
 import { layoutEdit } from "../map/layoutEdit";
 import { canOneOnOne, openOneOnOne, openPlanner } from "./oneOnOne";
 import { UNBLOCK_LINE, blockedLabel } from "./keyResults";
@@ -132,7 +132,7 @@ function Overview({ b }: { b: SnapshotBuilding }) {
 /** The collective defaults as this building runs them (read-only here; an admin sets them in the Town Hall's Settings). */
 function defaultsLine(b: SnapshotBuilding, repo: Workspace | undefined): ReactNode {
   return <span title="Set for every building at once in the Town Hall's Settings (admins)">
-    {b.model} · cheap: {b.cheapModel} · {fmtTokens(b.dailyTokensPerAgent)} {ADJ} / agent / day · {b.maxTurnsPerSession} turns{b.codeAccess && repo ? <> · code on <code>{repoLabel(repo)}</code></> : " · no code access"}
+    {b.model} · cheap: {b.cheapModel} · {b.maxTurnsPerSession} turns{b.codeAccess && repo ? <> · code on <code>{repoLabel(repo)}</code></> : " · no code access"}
   </span>;
 }
 
@@ -233,7 +233,7 @@ export function Settings({ b }: { b: SnapshotBuilding }) {
 }
 
 /**
- * The collective defaults (1:1 mt_n25udpflus decision 3): model, cheap model, daily budget per agent, max turns and code
+ * The collective defaults (1:1 mt_n25udpflus decision 3): model, cheap model, max turns and code
  * access for every building at once (PUT /api/town/defaults, admins). Saving writes them through to every lab.
  */
 function CollectiveDefaults() {
@@ -243,10 +243,8 @@ function CollectiveDefaults() {
   const repo = town?.workspace;
   const d = BuildingDefaults.parse({ codeAccess: !!repo, ...town?.defaults });
   const [f, setF] = useState({ model: d.model, cheapModel: d.cheapModel, maxTurnsPerSession: d.maxTurnsPerSession, codeAccess: d.codeAccess });
-  const [daily, setDaily] = useState(toMillions(d.dailyTokensPerAgent));
-  const dailyTokens = fromMillions(daily);
   const set = <K extends keyof typeof f>(k: K, v: (typeof f)[K]) => setF((x) => ({ ...x, [k]: v }));
-  const next = { ...f, dailyTokensPerAgent: dailyTokens };
+  const next = f;
   const differ = labs.filter((x) => (Object.keys(next) as (keyof typeof next)[]).some((k) => x[k] !== next[k]));
   return (
     <Section title="Collective defaults">
@@ -257,7 +255,6 @@ function CollectiveDefaults() {
           <Field label="Cheap model" hint="Proxy chat"><input value={f.cheapModel} onChange={(e) => set("cheapModel", e.target.value)} /></Field>
         </div>
         <div className="row2">
-          <Field label="Daily budget / agent" hint="A manager and its forks share this × desks"><MTokensInput value={daily} onChange={setDaily} /></Field>
           <Field label="Max turns / session" hint="Safety rail"><NumberInput min={1} value={f.maxTurnsPerSession} onChange={(n) => set("maxTurnsPerSession", n)} /></Field>
         </div>
         <Field label="Code access" hint={repo
@@ -266,7 +263,7 @@ function CollectiveDefaults() {
           <span className="check"><input type="checkbox" checked={f.codeAccess} disabled={!repo && !f.codeAccess} onChange={(e) => set("codeAccess", e.target.checked)} /> {repo ? <>Work on <code>{repoLabel(repo)}</code></> : "No collective repo"}</span>
         </Field>
         {differ.length ? <p className="direction">Saving changes {differ.map((x) => x.name).join(", ")} (they run on other values now).</p> : null}
-        <div className="actions"><Act tone="primary" disabled={!(dailyTokens > 0) || !f.model.trim() || !f.cheapModel.trim()} title={dailyTokens > 0 ? undefined : "Daily budget must be above 0"} run={async () => {
+        <div className="actions"><Act tone="primary" disabled={!f.model.trim() || !f.cheapModel.trim()} run={async () => {
           const r = await api().setTownDefaults(next);
           if (town) store.set({ town: { ...town, defaults: r.defaults } });
           store.toast(`Collective defaults saved for ${r.buildings.length} building${r.buildings.length === 1 ? "" : "s"}`, "ok");

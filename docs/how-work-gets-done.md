@@ -176,6 +176,7 @@ Funded grants, proposals and reservations under *other* goals still claim the ge
 - **Concurrency = desks; money = free tokens.** Nothing else limits exploration.
 - **An optional cap** (`exploreCapTokensPerDay`) on any goal, inherited down: the sum of reservations opened today under that goal can't pass it. On the root it is the town-wide cap. Only a human with `goals.edit` and funding rights there (an admin or the goal's owner) sets it, as with today's exploration setting.
 - **Switching off** is the same setting: `explore: off` on a goal stops new explorations under it. Running ones finish.
+- **The daily caps are gone** (1:1 mt_q10xf3bkoq, 2026-10-31): the per-agent cap (`dailyTokensPerAgent`) and the fork-family cap (× headcount) no longer hold any work; desks, free tokens, the optional exploration cap and grant totals are the only gates. The column stays, read by nothing.
 
 ## 9. The map is drawn from the tree
 
