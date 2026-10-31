@@ -65,7 +65,6 @@ function measure(target) {
   const canvas = document.querySelector("canvas.map");
   const isMap = (el) => !el || el === canvas || el === document.body || el === document.documentElement || el.classList?.contains("app");
   const vis = (el) => { const s = getComputedStyle(el), r = el.getBoundingClientRect(); return s.visibility !== "hidden" && s.display !== "none" && +s.opacity > 0.05 && r.width > 0 && r.height > 0; };
-  // cover: grid sample of what's on top
   // cover: grid sample of what's on top, apart from the panel the moment opened (that is the thing clicked)
   const own = target ? document.querySelector(target) : null;
   let total = 0, covered = 0, panel = 0;
@@ -136,7 +135,6 @@ function measure(target) {
     lines: textLines,
     reached: target ? !!sel && vis(sel) : true,
     firstLine: panelLines.find((t) => t.length > 12 && !/^[×✕▤$?▴]$/.test(t)) ?? "",
-    actions: sel ? [...sel.querySelectorAll("button,a")].filter(vis).length : 0,
   };
 }
 
@@ -174,8 +172,7 @@ for (const size of SIZES) {
       return `${clicks} clicks to the map`;
     }],
     ["agent", "aside.panel", async () => {
-      // a working agent's name label on the canvas; click just above it (the sprite)
-      // a name label is drawn as "Pix" with its number apart, so match the first word
+      // a working agent's name label on the canvas, drawn as "Pix" with its number apart (so match the first word); click just above it (the sprite)
       const names = new Set(town.agents.filter((a) => a.kind === "resident" && a.status === "working").map((a) => a.name.split(" ")[0]));
       const hit = await page.evaluate((ns) => {
         const f = window.__frames.at(-2) ?? [];
@@ -188,7 +185,7 @@ for (const size of SIZES) {
         if (await row.isVisible().catch(() => false)) { await tap(row); await settle(2500); return `${hit ? `map click on ${hit.t} opened nothing; ` : ""}via "who is here" row`; }
         return hit ? `map click on ${hit.t} opened nothing` : "no agent on screen";
       }
-      return `map click on ${hit.t}`;
+      return `map click on ${hit?.t}`;
     }],
     ["building", "aside.panel", async () => { await closePanel(); await hash(`#/building/${building.id}`); return building.name; }],
     ["report", "aside.panel", async () => { await closePanel(); if (!reports[0]) return "no report"; await hash(`#/doc/${reports[0].id}`); return reports[0].id; }],
