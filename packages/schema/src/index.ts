@@ -2136,7 +2136,13 @@ export const AuthMe = z.object({
   /** holds `town.interact`: may move, talk and write; false = read-only until an admin lets them in */
   canInteract: z.boolean().default(true),
   /** the latest access request, if any */
-  accessRequest: z.object({ status: AccessRequestStatus, message: z.string(), decidedAt: z.string().nullable() }).nullable().default(null),
+  accessRequest: z.object({
+    status: AccessRequestStatus, message: z.string(), decidedAt: z.string().nullable(),
+    /** who decides: the admins' names (the pending card names them) */
+    deciders: z.array(z.string()).default([]),
+    /** median time from asking to a decision over every decided request; null = none decided yet */
+    typicalWaitMs: z.number().nullable().default(null),
+  }).nullable().default(null),
 });
 export type AuthMe = z.infer<typeof AuthMe>;
 /** `GET /api/auth/config`: what sign-in the server offers (`githubClientId` null = GitHub login not configured). */
