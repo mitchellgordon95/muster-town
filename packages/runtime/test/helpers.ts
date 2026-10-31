@@ -100,6 +100,8 @@ export function setup(script: Script, extra: Partial<RuntimeOptions> = {}) {
   if (!extra.hosted) seedCredential(world, seed.admin.id); // a hosted collective's Bank starts empty ("No credential yet")
   // the explore tick (docs/how-work-gets-done.md §3) would queue explorers on every idle desk: off unless a test turns it on
   world.goals.patch(ROOT_GOAL_ID, { explore: false });
+  // test Banks hold a few million tokens: the 500,000 operating reserve would block their grant funding (core free-tokens tests cover it)
+  world.town.set({ operatingReserveTokens: 0 });
   const sdk = fakeSdk(world, script);
   const clock = { t: new Date("2026-10-19T10:00:00Z").getTime() };
   const runtime: Runtime = startRuntime({ world, mcpUrl: "http://127.0.0.1:4321/mcp", sdk, intervalMs: 0, exportDir: false, now: () => new Date(clock.t), deskBackend: new HostBackend(), ...extra });
