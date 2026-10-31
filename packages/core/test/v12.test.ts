@@ -109,7 +109,7 @@ describe("role migration (v1.1 DB)", () => {
 
 describe("v1.2 places", () => {
   it("each lab has a board, a filing cabinet and an in-tray; Town Hall has the mod station, planning desk, its in-tray, schedule board (no donation box: donating is at the Bank); all reachable", () => {
-    const { world, by } = seededWorld();
+    const { world, by } = seededWorld("tree");
     const door = world.layout.requirePlace("door:carbon-cycle").pos;
     const plaza = world.layout.requirePlace("plaza").pos;
     const expected = {

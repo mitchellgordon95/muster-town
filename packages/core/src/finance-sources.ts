@@ -28,6 +28,10 @@ export interface SourceInput {
   who: string;
   createdAt: string | null;
   cancelledAt: string | null;
+  /** a recurring input limited to N credits: N and how many are still due (null = until cancelled); its next credit (null = none due) */
+  creditsTotal: number | null;
+  creditsLeft: number | null;
+  nextCreditAt: string | null;
   /** the sum of its credits' tokens */
   tokens: number;
   /** its first and last credit's date; null when it never credited */
@@ -75,7 +79,7 @@ export interface FinanceSources {
 }
 
 export interface SourcesInputs {
-  inputs: Pick<BankInput, "id" | "userId" | "label" | "source" | "recurrence" | "createdAt" | "cancelledAt">[];
+  inputs: (Pick<BankInput, "id" | "userId" | "label" | "source" | "recurrence" | "createdAt" | "cancelledAt"> & Partial<Pick<BankInput, "creditsTotal" | "creditsLeft" | "nextCreditAt">>)[];
   credits: Pick<BankCredit, "id" | "inputId" | "tokens" | "createdAt" | "expiresAt">[];
   debits: Pick<BankDebit, "creditId" | "tokens">[];
   allocations: Pick<Allocation, "id" | "userId" | "buildingId" | "label" | "createdAt" | "auth" | "retired" | "tokens" | "spentTokens">[];
@@ -99,7 +103,8 @@ export function financeSources(inp: SourcesInputs, financeTotal: number, now = n
   const rows = new Map<string, SourceInput>();
   for (const i of [...inp.inputs].sort(byDate)) rows.set(i.id, {
     id: i.id, label: i.label, source: i.source, recurrence: i.recurrence, who: userName.get(i.userId) ?? "",
-    createdAt: i.createdAt, cancelledAt: i.cancelledAt, tokens: 0, firstAt: null, lastAt: null, expiredTokens: 0, credits: [],
+    createdAt: i.createdAt, cancelledAt: i.cancelledAt, creditsTotal: i.creditsTotal ?? null, creditsLeft: i.creditsLeft ?? null,
+    nextCreditAt: i.nextCreditAt ?? null, tokens: 0, firstAt: null, lastAt: null, expiredTokens: 0, credits: [],
   });
   let orphan: SourceInput | null = null;
   for (const c of [...inp.credits].sort(byDate)) {
@@ -108,7 +113,7 @@ export function financeSources(inp: SourcesInputs, financeTotal: number, now = n
     let row = rows.get(c.inputId);
     if (!row) row = orphan ??= {
       id: null, label: DELETED_INPUT, source: null, recurrence: null, who: "", createdAt: null, cancelledAt: null,
-      tokens: 0, firstAt: null, lastAt: null, expiredTokens: 0, credits: [],
+      creditsTotal: null, creditsLeft: null, nextCreditAt: null, tokens: 0, firstAt: null, lastAt: null, expiredTokens: 0, credits: [],
     };
     row.credits.push({ id: c.id, createdAt: c.createdAt, expiresAt: c.expiresAt, tokens: c.tokens, expiredTokens });
     row.tokens += c.tokens;
