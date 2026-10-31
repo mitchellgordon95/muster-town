@@ -3,6 +3,7 @@ import { Bank } from "./bank.ts";
 import { Budget } from "./budget.ts";
 import { Goals } from "./goals.ts";
 import { Reorgs } from "./goal-changes.ts";
+import { Streams } from "./streams.ts";
 import { Grants } from "./grants.ts";
 import { laneHold } from "./lanes.ts";
 import { intrayCount, intrayCounts, isTownHallItem } from "./domain.ts";
@@ -74,6 +75,8 @@ export class World {
   readonly goalTree: Goals;
   /** "Change this goal" (the reorg) and the Planner (docs/goals.md, build step 5) */
   readonly reorgs: Reorgs;
+  /** goal tree step 7: funding streams, earmarks and the draw order */
+  readonly streams: Streams;
   /** skills: SKILL.md docs, bundled files, pins, usage (docs/skills.md) */
   readonly skills: Skills;
   /** collective secrets: encrypted values and their grants (docs/secrets.md) */
@@ -149,6 +152,7 @@ export class World {
     this.grantDesk = new Grants(this);
     this.goalTree = new Goals(this);
     this.reorgs = new Reorgs(this);
+    this.streams = new Streams(this);
     this.budget.gate = (a) => laneHold(this, a);
     this.budget.afterCharge = (bid) => this.grantDesk.checkpoints(bid);
     this.skills = new Skills(this);

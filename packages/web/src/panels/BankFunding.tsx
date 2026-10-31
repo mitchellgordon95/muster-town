@@ -4,7 +4,7 @@
  * millions (MTokensInput) and sent as whole tokens.
  */
 import { useState } from "react";
-import type { AllocationAuth, BankRecurrence } from "@muster-town/schema";
+import type { AllocationAuth, BankRecurrence, BankStreams, GoalTreeNode } from "@muster-town/schema";
 import { api, API_BASE, type Bank } from "../api";
 import { store, useTown } from "../state";
 import { fmtPct, poolColor } from "../pools";
@@ -69,6 +69,28 @@ export function KeyLimitNote() {
   );
 }
 
+const DAYS_PER: Record<BankRecurrence, number | null> = { once: null, daily: 1, weekly: 7, monthly: 30 };
+
+/**
+ * The small-donation warning (goal tree step 7, docs/goals.md "Sessions and keys"): one key runs a whole session, so a
+ * donation below one expected session (the p90 of the last 7 days' work sessions) never runs one alone; a recurring one
+ * accrues until it covers one. A warning, not a gate. Null when it covers one, or the size isn't known yet.
+ */
+export function smallDonationWarning(tokens: number, recurrence: BankRecurrence, streams: Pick<BankStreams, "expectedSessionTokens" | "sampleSessions"> | null): string | null {
+  if (!streams || !Number.isFinite(tokens) || tokens < 1 || tokens >= streams.expectedSessionTokens) return null;
+  const p90 = fmtTokens(streams.expectedSessionTokens);
+  const basis = streams.sampleSessions ? `the p90 of ${streams.sampleSessions} work sessions in the last 7 days` : "a typical work session";
+  const per = DAYS_PER[recurrence];
+  const accrue = per ? ` It accrues: about ${Math.ceil(streams.expectedSessionTokens / tokens) * per} days until it covers one.` : " On its own it never runs a session; it waits until it covers one.";
+  return `Your donation covers no whole session yet: one session is about ${p90} ${ADJ} (${basis}), and a session runs on one key from start to end.${accrue}`;
+}
+
+/** Every active goal, depth first, with its depth (the Donate form's earmark picker). */
+function flatGoals(n: GoalTreeNode | null, depth = 0): { id: string; text: string; depth: number }[] {
+  if (!n || n.status !== "active") return [];
+  return [{ id: n.id, text: n.text, depth }, ...n.children.flatMap((c) => flatGoals(c, depth + 1))];
+}
+
 /**
  * The one donation form. "To" picks the target: the Bank (an API key, once or recurring, shared by every building
  * through the pools; the owner can add their subscription, daily with a weekly cap) or one building (an allocation
@@ -89,6 +111,9 @@ export function Donate({ onChange }: { onChange: () => void }) {
   const [model, setModel] = useState("claude-opus-5-5");
   // a hosted collective (served at /<slug>/) runs on API keys only: no subscription source
   const [picked, setAuth] = useState<AllocationAuth>(API_BASE ? "api-key" : "subscription");
+  const [goalId, setGoalId] = useState("");
+  const streams = useLoad(() => api().bankStreams(), []);
+  const tree = useLoad(() => api().goalTree(), []);
   if (!me) return <Section title="Donate"><SignInNote to="donate" /></Section>;
   const admin = me.isAdmin;
   const bank = to === "bank";
@@ -102,6 +127,8 @@ export function Donate({ onChange }: { onChange: () => void }) {
   // every Bank input carries its credential (an API key, or the subscription's token): the Bank is the only place one lives
   const needsKey = bank ? true : auth === "donor-key";
   const keyOk = !needsKey || !!apiKey.trim() || (!bank && !!me.user.hasApiKey);
+  const warning = smallDonationWarning(n, sub ? "daily" : bank ? recurrence : "once", streams.data);
+  const goals = flatGoals(tree.data);
   const ready = amountOk && keyOk && (bank ? !sub || (Number.isFinite(cap) && cap >= 1) : !!building);
   const saveRate = (v: number) => { setRate(v); try { if (v > 0) localStorage.setItem(RATE_KEY, String(v)); } catch { /* private window */ } };
   const submit = async () => {
@@ -110,6 +137,7 @@ export function Donate({ onChange }: { onChange: () => void }) {
         label: label.trim() || (sub ? `${me.user.name}'s subscription` : `${me.user.name}'s API key`),
         source, model, tokens: n, recurrence: sub ? "daily" : recurrence,
         weeklyCapTokens: sub ? cap : undefined, apiKey: sub ? undefined : apiKey.trim(), token: sub ? apiKey.trim() : undefined,
+        goalId: !sub && goalId ? goalId : undefined,
       });
       store.toast(`Added ${fmtTokens(n)} ${ADJ}${sub || recurrence !== "once" ? ` ${sub ? "daily" : recurrence}` : ""} to the Bank`, "ok");
     } else {
@@ -166,12 +194,21 @@ export function Donate({ onChange }: { onChange: () => void }) {
           <Field label="Label (optional)"><input value={label} onChange={(e) => setLabel(e.target.value)} placeholder={bank ? (sub ? "Max plan" : "My key") : auth === "subscription" ? "Mitchell's Claude subscription, October" : auth === "api-key" ? "API-key buffer" : "My key"} /></Field>
           {bank ? <Field label="Model"><input value={model} onChange={(e) => setModel(e.target.value)} /></Field> : null}
         </div>
+        {bank && !sub ? (
+          <Field label="Earmark for (optional)" hint={goalId ? "Pays only for work under this goal, nearest earmark first; the rest of the town never draws on it." : "Left empty, it joins the general balance every building draws on."}>
+            <select value={goalId} onChange={(e) => setGoalId(e.target.value)}>
+              <option value="">No earmark (the general balance)</option>
+              {goals.map((g) => <option key={g.id} value={g.id}>{"\u00a0\u00a0".repeat(g.depth)}{g.text.length > 70 ? `${g.text.slice(0, 69)}…` : g.text}</option>)}
+            </select>
+          </Field>
+        ) : null}
         {needsKey ? (
           <Field label={sub ? "Claude subscription token" : !bank && me.user.hasApiKey ? "Anthropic API key (optional: you have one stored)" : "Anthropic API key"} hint={sub ? "From `claude setup-token` on your machine. Stored server-side, never shown again; the town's sessions run on it." : "Stored server-side, never shown again."}>
             <input type="password" autoComplete="off" value={apiKey} onChange={(e) => setApiKey(e.target.value)} placeholder={sub ? "sk-ant-oat…" : "sk-ant-api…"} />
           </Field>
         ) : null}
         {needsKey && !sub ? <KeyLimitNote /> : null}
+        {warning ? <div className="foot-note warn" role="status">⚠ {warning}</div> : null}
         <div className="foot-note">{bank ? (sub ? "Subscription tokens expire at each daily renewal; buildings spend them first." : "Credited to the Bank and split between the pools by their %.") : AUTH_HINT[auth]}</div>
         <div className="actions"><Act tone="primary" disabled={!ready} run={submit}>{bank ? "Donate to the Bank" : `Fund ${building?.name ?? "building"}`}</Act></div>
       </form>
@@ -258,6 +295,42 @@ export function BankInputs({ bank, onChange }: Props) {
                 <td>{!i.cancelledAt && me && (me.isAdmin || me.user.id === i.userId)
                   ? <Act small tone="bad" run={async () => { await api().cancelBankInput(i.id); store.toast(`Cancelled ${i.label}`, "ok"); onChange(); }}>Cancel</Act>
                   : null}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      )}
+    </Section>
+  );
+}
+
+const IDLE: Record<NonNullable<BankStreams["streams"][number]["idle"]>, string> = {
+  "below-one-session": "below one session",
+  "no-session-in-scope": "no session in scope",
+};
+
+/**
+ * Funding streams (goal tree step 7): every input with what it can still pay; an earmark shows its goal, whether it
+ * covers one expected session (only then is its key picked), when a session last drew on it, and an idle flag after 7
+ * days without a draw (its donor is told in town).
+ */
+export function BankStreamsSection({ rev }: { rev?: number }) {
+  const r = useLoad(() => api().bankStreams(), [rev]);
+  const d = r.data;
+  const rows = d?.streams.filter((x) => x.goalId || !x.cancelledAt) ?? [];
+  return (
+    <Section title="Streams" right={d ? <Pill title={d.sampleSessions ? `p90 of ${d.sampleSessions} work sessions in the last 7 days` : "default: too few sessions in the last 7 days"}>1 session ≈ {fmtTokens(d.expectedSessionTokens)}</Pill> : null}>
+      {r.loading && !d ? <Loading /> : !rows.length ? <Empty>No streams yet.</Empty> : (
+        <table className="table">
+          <thead><tr><th>Stream</th><th>For</th><th title={ADJ_HINT}>Left</th><th>Last draw</th></tr></thead>
+          <tbody>
+            {rows.map((x) => (
+              <tr key={x.inputId} className={x.cancelledAt ? "muted" : undefined}>
+                <td>{x.label} <span className="muted">· {x.userName}</span></td>
+                <td>{x.goalPath ? <span title={x.goalPath}>{x.goalPath.split(" › ").at(-1)}</span> : <span className="muted">general</span>}</td>
+                <td>{fmtTokens(x.balance)} {x.goalId && !x.coversSession ? <Pill tone="warn" title={x.daysToCover ? `about ${x.daysToCover} days of income to cover one` : undefined}>below one session</Pill> : null}</td>
+                <td>{x.goalId ? (x.lastDrawAt ? timeAgo(x.lastDrawAt) : "never") : <span className="muted" title="General draws are pooled, not named per input">pooled</span>}
+                  {x.idle ? <> <Pill tone="bad" title={`No draw for ${d!.idleDays} days; the donor was told`}>idle: {IDLE[x.idle]}</Pill></> : null}</td>
               </tr>
             ))}
           </tbody>

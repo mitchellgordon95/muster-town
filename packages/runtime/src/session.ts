@@ -107,19 +107,19 @@ export function chargeUsage(world: World, agentId: string, u: Pick<Usage, "token
  * building (1:1 mt_cz11aqe81a). Only an agent with no building is recorded on the agent and the usage ledger alone.
  * Never throws.
  */
-export function chargeBooked(world: World, agentId: string, b: Booked, usd: number, allocationId?: string | null, grantId?: string | null): void {
+export function chargeBooked(world: World, agentId: string, b: Booked, usd: number, allocationId?: string | null, grantId?: string | null, inputId?: string | null): void {
   if (b.tokens <= 0 && rawTokens(b.counts) <= 0 && usd <= 0) return;
   try {
-    debit(world, agentId, b, usd, allocationId, grantId);
+    debit(world, agentId, b, usd, allocationId, grantId, false, inputId);
   } catch (e) {
     console.log("[runtime] charge failed:", e instanceof Error ? e.message : e);
   }
 }
 
-function debit(world: World, agentId: string, b: Booked, usd: number, allocationId?: string | null, grantId?: string | null, running = false): void {
+function debit(world: World, agentId: string, b: Booked, usd: number, allocationId?: string | null, grantId?: string | null, running = false, inputId?: string | null): void {
   const bid = homeOf(world, agentId);
   if (!bid) world.budget.recordUsage(agentId, b, usd);
-  else world.budget.charge(agentId, b, usd, allocationId ?? undefined, { grantId: grantId ?? null, running });
+  else world.budget.charge(agentId, b, usd, allocationId ?? undefined, { grantId: grantId ?? null, inputId: inputId ?? null, running });
 }
 
 /** How often a running session's usage is booked (host loop and desk posts): once a minute. */
@@ -156,7 +156,7 @@ export function bookRunning(world: World, sessionId: string, seen: TokenUsage, a
       const s = world.sessions.get(sessionId);
       if (!s || s.status !== "running") return null;
       const d = settleUsage(world, sessionId, seen);
-      if (d.tokens > 0 || rawTokens(d.counts) > 0) debit(world, s.agentId, d, 0, allocationId, s.grantId, true);
+      if (d.tokens > 0 || rawTokens(d.counts) > 0) debit(world, s.agentId, d, 0, allocationId, s.grantId, true, s.credentialInputId);
       return d;
     });
   } catch (e) {
@@ -175,7 +175,7 @@ export function endAndCharge(world: World, sessionId: string, usage: Pick<Usage,
   // the settled per-model split rides on session.ended like before (endSession keeps the row's counters)
   const byModel = settled.byModel && Object.keys(settled.byModel).length ? { byModel: settled.byModel } : {};
   const ended = world.ops.endSession(sessionId, { ...end, ...byModel, costUsd: usage.costUsd, turns: usage.turns });
-  chargeBooked(world, ended.agentId, rest, usage.costUsd, allocationId, ended.grantId);
+  chargeBooked(world, ended.agentId, rest, usage.costUsd, allocationId, ended.grantId, ended.credentialInputId);
   return ended;
 }
 
@@ -199,16 +199,17 @@ export function fundingFor(world: World, agentId: string): Funding {
 
 
 /**
- * Funding for a session on an assignment: when the assignment's grant was funded from a member's own live api-key input
- * with a balance (`fundedWith`), the session runs on that input's key (the Bank debits that input first, see
- * Bank.drawFromInput). Otherwise, or without an assignment, the building's choice (`fundingFor`).
+ * Funding for a session on an assignment, in the draw order (goal tree step 7): when the assignment's grant was funded
+ * from a member's own live api-key input with a balance (`fundedWith`), that input's key; else the nearest earmark above
+ * the work's goal that covers a whole session (`Streams.pick`), on its key; else the building's choice (`fundingFor`).
+ * The input it ran on pays first when the session is charged (Bank.drawFromStream).
  */
 export function fundingForSession(world: World, agentId: string, assignmentId: string | null | undefined): Funding {
   const bid = homeOf(world, agentId);
   if (!bid) throw new NoCredential(`${world.nameOf(agentId)} has no building to be funded through`);
   const asg = assignmentId ? world.assignments.get(assignmentId) : undefined;
   const grant = asg?.grantId ? world.grants.get(asg.grantId) ?? null : null;
-  return world.budget.fundingFor(bid, { grant });
+  return world.budget.fundingFor(bid, { grant, stream: world.streams.pick(asg, bid) });
 }
 
 /** "funded by subscription" / "funded by API key" / "funded by a donor's API key", for status lines. */

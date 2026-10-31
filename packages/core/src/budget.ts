@@ -24,6 +24,8 @@ export interface ChargePrice {
   model?: string | null; byModel?: Record<string, TokenCounts> | null;
   /** the session's grant: when it names its own Bank input (`fundedWith`, member funding), that input pays first */
   grantId?: string | null;
+  /** the Bank input whose credential the session ran on: when it is an earmark (goal tree step 7), it pays next */
+  inputId?: string | null;
   /**
    * A booking while the session still runs (1:1 mt_x40qq8poc3 decision 2): debited like any charge, but the
    * out-of-budget check (event, statuses) waits for the session's end, so a working agent isn't flipped mid-session.
@@ -110,12 +112,15 @@ export class Budget {
    * booked to it; there is no second key inside a session. Throws `NoCredential` when the Bank holds nothing that can
    * run it: the host env is never consulted.
    */
-  fundingFor(buildingId: string, opts: { grant?: { id: string; fundedWith: string | null } | null; now?: Date } = {}): Funding {
+  fundingFor(buildingId: string, opts: { grant?: { id: string; fundedWith: string | null } | null; stream?: { id: string } | null; now?: Date } = {}): Funding {
     const now = opts.now ?? new Date();
     const bank = this.bank;
     const gi = bank.grantKeyInput(opts.grant, now);
     const own = gi ? bank.apiKeyCredential(gi.id) : null;
     if (gi && own) return { allocationId: null, auth: "api-key", credential: own, inputId: gi.id };
+    // goal tree step 7's draw order: the earmark Streams.pick chose (it covers a whole session), on its own key
+    const earmark = opts.stream ? bank.apiKeyCredential(opts.stream.id) : null;
+    if (earmark) return { allocationId: null, auth: "api-key", credential: earmark, inputId: opts.stream!.id };
     const subscription = (allocationId: string | null): Funding => {
       // capped right now: the next session is the failover (the Bank's key), not the subscription's token
       const failover = bank.capState(now).cappedAt ? this.failoverFunding(buildingId, now) : null;
@@ -283,7 +288,10 @@ export class Budget {
     let allocation: Allocation | null = null;
     if (bid) {
       const grant = price.grantId ? this.repos.grants.get(price.grantId) : undefined;
-      const own = grant?.fundedWith ? this.bank.drawFromInput(bid, agent.id, booking, grant) : booking;
+      const fromGrant = grant?.fundedWith ? this.bank.drawFromInput(bid, agent.id, booking, grant) : booking;
+      // the earmark the session ran on pays next (goal tree step 7), then the general balance
+      const stream = price.inputId && price.inputId !== grant?.fundedWith ? this.repos.bankInputs.get(price.inputId) : undefined;
+      const own = stream?.goalId ? this.bank.drawFromStream(bid, agent.id, fromGrant, stream.id, null) : fromGrant;
       const rest = allocationId ? own : this.bank.drawTokens(bid, agent.id, own);
       const left = rest.tokens, c = rest.counts;
       allocation = allocationId ? this.repos.allocations.require(allocationId, "allocation") : left > 0 ? this.pickAllocation(bid) : null;

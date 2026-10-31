@@ -538,6 +538,8 @@ export function startRuntime(opts: RuntimeOptions): Runtime {
     }
     try { world.bank.creditDue(d); } catch (e) { log("bank")(e); }
     try { world.bank.driftDue(d); } catch (e) { log("bank drift")(e); }
+    // goal tree step 7: an earmark with no draw for 7 days tells its donor (in town only)
+    try { world.streams.tick(d); } catch (e) { log("bank streams")(e); }
     // post-mortem 2026-10-30: once a day, the day before's funding against the Bank's books and the Console (alert when unexplained)
     void track(reconcileDue(ctx, d)).catch(log("bank reconcile"));
     if (t - lastPresence >= PRESENCE_TICK_MS) { lastPresence = t; presenceTick(); }

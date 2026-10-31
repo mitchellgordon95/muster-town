@@ -265,7 +265,9 @@ function advance(from: Date, recurrence: Exclude<BankRecurrence, "once">): Date 
  * Subscription credits expire at the next daily renewal and are spent first; API-key credits are durable. `world.bank`.
  */
 /** A debit that names a durable (API-key) credit: a grant's own input paid it. It counts against durable like a pool draw. */
-const DURABLE_CREDIT = "creditId IN (SELECT id FROM bank_credits WHERE expiresAt IS NULL)";
+const DURABLE_CREDIT = "creditId IN (SELECT id FROM bank_credits WHERE expiresAt IS NULL AND inputId NOT IN (SELECT id FROM bank_inputs WHERE goalId IS NOT NULL))";
+/** Goal tree step 7: a credit of an earmarked input (`goalId`): only its own subtree's sessions draw on it, never the pools. */
+const EARMARKED = "inputId IN (SELECT id FROM bank_inputs WHERE goalId IS NOT NULL)";
 
 /**
  * What a session runs on. The Bank is the only place a model credential lives (post-mortem 2026-10-30: a key in the host
@@ -288,7 +290,20 @@ export const NO_KEY_HOLD = "No credential in the Bank yet: add your Claude subsc
 /** Why work is held when the subscription would pay but its input has no token. */
 export const NO_TOKEN_HOLD = "The subscription input has no token: cancel it and add one with the token from `claude setup-token` at the Bank";
 /** A live input holding its credential (`hasApiKey`: an api-key input's key, a subscription input's token), oldest first. */
-const LIVE_KEYED = "source = ? AND hasApiKey = 1 AND cancelledAt IS NULL";
+const LIVE_KEYED = "source = ? AND hasApiKey = 1 AND cancelledAt IS NULL AND goalId IS NULL";
+/** A finished work session's p90 is the expected session cost a key stream must cover (docs/goals.md "Sessions and keys"). */
+export const EXPECTED_SESSION_DEFAULT = 120_000;
+/** Fewer finished work sessions than this in the window: the default instead of their p90. */
+const EXPECTED_SESSION_MIN_SAMPLE = 5;
+/** An earmark with no draw for this many days tells its donor (in town only; 1:1 mt_kh0zaqui0w). */
+export const STREAM_IDLE_DAYS = 7;
+
+/** The p-th percentile (0..1) of `xs`, nearest rank; 0 for none. */
+export function percentile(xs: number[], p: number): number {
+  if (!xs.length) return 0;
+  const sorted = [...xs].sort((a, b) => a - b);
+  return sorted[Math.min(sorted.length - 1, Math.max(0, Math.ceil(p * sorted.length) - 1))]!;
+}
 
 export class Bank {
   constructor(private repos: Repos, private events: EventLog, private permissions: Permissions) {}
@@ -313,16 +328,24 @@ export class Bank {
       if (inp.token) throw badRequest("An api-key input doesn't take a subscription token.");
       if (inp.apiKey.trim().startsWith("sk-ant-oat")) throw badRequest("That is a Claude subscription token: add it as a subscription input instead (the API checks a key's shape: `apiKeyProblem`).");
     }
+    const goalId = inp.goalId ?? null;
+    if (goalId) {
+      // an earmark is a donor's key scoped to a goal node; the owner's subscription stays the general balance
+      if (inp.source !== "api-key") throw badRequest("Only an API-key input can be earmarked for a goal.");
+      const g = this.repos.goals.get(goalId);
+      if (!g || g.status !== "active") throw badRequest(`No active goal ${goalId} to earmark for.`);
+    }
     const secret = inp.apiKey ?? inp.token ?? null;
     const next = inp.recurrence === "once" ? now : inp.nextCreditAt ? new Date(inp.nextCreditAt) : now;
     let row = this.repos.bankInputs.upsert({
       id: newId("bi"), userId, label: inp.label, source: inp.source, model: inp.model, tokens: inp.tokens,
       recurrence: inp.recurrence, weeklyCapTokens: inp.weeklyCapTokens ?? null, nextCreditAt: next.toISOString(),
-      creditedTokens: 0, hasApiKey: false, cancelledAt: null, createdAt: nowIso(),
+      creditedTokens: 0, hasApiKey: false, cancelledAt: null, createdAt: nowIso(), goalId, idleNotifiedAt: null,
     });
     if (secret) row = this.repos.bankInputs.setApiKey(row.id, secret);
     const what = inp.recurrence === "once" ? "once" : inp.recurrence;
-    this.events.append({ type: "bank.input", text: `${user.name} added ${inp.label} to the Bank (${inp.tokens.toLocaleString("en-US")} adj. tokens, ${what})`, payload: { inputId: row.id, userId, source: inp.source, recurrence: inp.recurrence, tokens: inp.tokens, ...this.creditCounts(inp.tokens, inp.model), rawTokens: rawTokens(this.creditCounts(inp.tokens, inp.model)), adjustedOutputTokens: inp.tokens } });
+    const earmark = goalId ? `, earmarked for "${this.repos.goals.get(goalId)?.text.slice(0, 60) ?? goalId}"` : "";
+    this.events.append({ type: "bank.input", text: `${user.name} added ${inp.label} to the Bank (${inp.tokens.toLocaleString("en-US")} adj. tokens, ${what}${earmark})`, payload: { inputId: row.id, userId, source: inp.source, recurrence: inp.recurrence, tokens: inp.tokens, goalId, ...this.creditCounts(inp.tokens, inp.model), rawTokens: rawTokens(this.creditCounts(inp.tokens, inp.model)), adjustedOutputTokens: inp.tokens } });
     this.creditDue(now);
     return this.repos.bankInputs.require(row.id, "bank input");
   }
@@ -439,6 +462,47 @@ export class Bank {
     return this.inputBalance(inp.id, now) > 0 ? inp : null;
   }
 
+  /** When a debit last named this input (its own draws: a grant's input or an earmark; pool draws are anonymous), or null. */
+  lastDrawAt(inputId: string): string | null {
+    return this.repos.bankDebits.first("inputId = ?", [inputId], "ORDER BY createdAt DESC, rowid DESC")?.createdAt ?? null;
+  }
+
+  /**
+   * Goal tree step 7: the expected cost of one session, in adjusted output tokens: the p90 of the work sessions that
+   * ended in the last 7 days (the building's when given and it has enough, else the town's; a default under 5).
+   */
+  expectedSession(buildingId?: string | null, now = new Date()): { tokens: number; sample: number } {
+    const since = new Date(now.getTime() - 7 * DAY_MS).toISOString();
+    const ended = this.repos.sessions.where("purpose = 'work' AND endedAt IS NOT NULL AND endedAt > ?", [since]);
+    const sizes = (rows: Session[]) => rows.map((s) => adjustedOfUsage(s.model, s, s.byModel)).filter((t) => t > 0);
+    if (buildingId) {
+      const homes = new Set(this.repos.agents.where("homeBuildingId = ? OR buildingId = ?", [buildingId, buildingId]).map((a) => a.id));
+      const own = sizes(ended.filter((s) => homes.has(s.agentId)));
+      if (own.length >= EXPECTED_SESSION_MIN_SAMPLE) return { tokens: percentile(own, 0.9), sample: own.length };
+    }
+    const all = sizes(ended);
+    return all.length >= EXPECTED_SESSION_MIN_SAMPLE ? { tokens: percentile(all, 0.9), sample: all.length } : { tokens: EXPECTED_SESSION_DEFAULT, sample: 0 };
+  }
+
+  /** Live keyed earmarks scoped to `goalId`, oldest first. */
+  earmarksFor(goalId: string): BankInput[] {
+    return this.repos.bankInputs.where("goalId = ? AND source = 'api-key' AND hasApiKey = 1 AND cancelledAt IS NULL", [goalId], "ORDER BY createdAt, rowid");
+  }
+
+  /** Every input with a goal scope, live or not (the streams list and the idle tick). */
+  earmarks(): BankInput[] {
+    return this.repos.bankInputs.where("goalId IS NOT NULL", [], "ORDER BY createdAt, rowid");
+  }
+
+  /** The streams list's rows: every live input and every earmark (a cancelled one keeps its unspent balance on show), newest first. */
+  streamInputs(): BankInput[] {
+    return this.repos.bankInputs.where("cancelledAt IS NULL OR goalId IS NOT NULL", [], "ORDER BY createdAt DESC, rowid DESC");
+  }
+
+  setIdleNotified(inputId: string, at: string): void {
+    this.repos.bankInputs.upsert({ ...this.repos.bankInputs.require(inputId, "bank input"), idleNotifiedAt: at });
+  }
+
   /** An input's live credits, soonest to expire first, then the durable ones oldest first. */
   private inputCredits(inputId: string, now: Date): BankCredit[] {
     return this.repos.bankCredits.where("inputId = ? AND (expiresAt IS NULL OR expiresAt > ?)", [inputId, now.toISOString()], "ORDER BY expiresAt IS NULL, expiresAt, createdAt, rowid");
@@ -452,7 +516,7 @@ export class Bank {
 
   private live(now: Date): BankCredit[] {
     const iso = now.toISOString();
-    return this.repos.bankCredits.where("expiresAt IS NULL OR expiresAt > ?", [iso], "ORDER BY expiresAt, createdAt, rowid");
+    return this.repos.bankCredits.where(`(expiresAt IS NULL OR expiresAt > ?) AND NOT ${EARMARKED}`, [iso], "ORDER BY expiresAt, createdAt, rowid");
   }
 
   private debited(where: string, params: unknown[]): number {
@@ -601,7 +665,7 @@ export class Bank {
    */
   fallbackInput(buildingId: string, now = new Date()): BankInput | null {
     if (this.available(buildingId, now).durable <= 0) return null;
-    return this.repos.bankInputs.first("source = 'api-key' AND hasApiKey = 1 AND cancelledAt IS NULL", [], "ORDER BY createdAt, rowid") ?? null;
+    return this.repos.bankInputs.first(LIVE_KEYED, ["api-key"], "ORDER BY createdAt, rowid") ?? null;
   }
 
   /** The oldest live api-key input that still has its key (a hosted collective without one is held: `NO_KEY_HOLD`). */
@@ -615,7 +679,7 @@ export class Bank {
     if (a.expiring > 0) return { kind: "expiring" };
     if (a.durable <= 0) return null;
     // the oldest live api-key input that still has its key
-    const input = this.repos.bankInputs.first("source = 'api-key' AND hasApiKey = 1 AND cancelledAt IS NULL", [], "ORDER BY createdAt, rowid");
+    const input = this.liveApiKeyInput();
     return { kind: "durable", inputId: input?.id ?? null };
   }
 
@@ -663,8 +727,19 @@ export class Bank {
    * Nothing is reserved: an input that runs dry just leaves the rest to the building's pool.
    */
   drawFromInput(buildingId: string, agentId: string, tokens: Booked, grant: { id: string; fundedWith: string | null }, now = new Date()): Booked {
+    return this.drawFromStream(buildingId, agentId, tokens, grant.fundedWith, grant.id, now);
+  }
+
+  /**
+   * Draw a session's tokens from one stream's own live credits first (a grant's `fundedWith`, or the earmark the session
+   * ran on: goal tree step 7's draw order), whole credits, soonest to expire first. Each debit names the input (and the
+   * grant, when there is one). Returns what is left for the general balance; an earmark that runs dry just leaves the
+   * rest to it (nothing is held).
+   */
+  drawFromStream(buildingId: string, agentId: string, tokens: Booked, inputId: string | null, grantId: string | null, now = new Date()): Booked {
     let left: Booked = { tokens: tokens.tokens, counts: countsOf(tokens.counts) };
-    const inp = grant.fundedWith ? this.repos.bankInputs.get(grant.fundedWith) : undefined;
+    const inp = inputId ? this.repos.bankInputs.get(inputId) : undefined;
+    const grant = { id: grantId };
     const pool = this.drawPool(buildingId);
     if (left.tokens <= 0 || !inp || inp.cancelledAt || !pool) return left;
     let paid = 0;
@@ -673,15 +748,15 @@ export class Bank {
       const room = c.tokens - this.debited("creditId = ?", [c.id]);
       if (room <= 0) continue;
       const part = sliceBooked(left, Math.min(room, left.tokens));
-      this.repos.bankDebits.upsert({ id: newId("bd"), buildingId, poolId: pool.id, agentId, creditId: c.id, inputId: inp.id, grantId: grant.id, ...part.counts, tokens: part.tokens, createdAt: now.toISOString() });
+      this.repos.bankDebits.upsert({ id: newId("bd"), buildingId, poolId: pool.id, agentId, creditId: c.id, inputId: inp.id, grantId, ...part.counts, tokens: part.tokens, createdAt: now.toISOString() });
       left = { tokens: left.tokens - part.tokens, counts: subTokens(left.counts, part.counts) };
       paid += part.tokens;
     }
     if (paid > 0) {
       const b = this.repos.buildings.get(buildingId);
       this.events.append({
-        type: "bank.debited", buildingId, agentId, text: `${inp.label} paid ${paid.toLocaleString("en-US")} adj. tokens of ${b?.name ?? buildingId}'s session on grant ${grant.id}`,
-        payload: { inputId: inp.id, userId: inp.userId, grantId: grant.id, tokens: paid, adjustedOutputTokens: paid, leftForPool: left.tokens },
+        type: "bank.debited", buildingId, agentId, text: `${inp.label} paid ${paid.toLocaleString("en-US")} adj. tokens of ${b?.name ?? buildingId}'s session ${grant.id ? `on grant ${grant.id}` : "(earmark)"}`,
+        payload: { inputId: inp.id, userId: inp.userId, grantId: grant.id, goalId: inp.goalId ?? null, tokens: paid, adjustedOutputTokens: paid, leftForPool: left.tokens },
       });
     }
     return left;
