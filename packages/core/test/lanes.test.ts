@@ -231,7 +231,7 @@ describe("goal-directed budgets: the 100% checkpoint", () => {
     expect(world.keyResults.require(krs[0]!.id).status).toBe("not-started");
     // no keyResultId: every open key result of the grant
     const r = await world.verbs.checkpoint_grant(mei, { grantId: g.id, status: "claimed", note: "banner shows it" });
-    expect(r).toMatchObject({ status: "checkpoint", checkpointDocId: null, keyResult: { id: krs[0]!.id, status: "claimed" } });
+    expect(r).toMatchObject({ status: "checkpoint", checkpointDocId: null, keyResults: krs.map((k) => ({ id: k.id, status: "claimed" })) });
     for (const k of krs) expect(world.keyResults.require(k.id)).toMatchObject({ status: "claimed", statusNote: "banner shows it" });
     const up = await world.verbs.submit_report(mei, { title: "Checkpoint", body: "## Shipped\nx\n## Decided\nx\n## Key results\nx\n## Needs from Mitchell\ncontinue", verdict: "continue", rollup: true });
     expect(up).toMatchObject({ intray: "town-hall" });
@@ -251,7 +251,7 @@ describe("goal-directed budgets: the 100% checkpoint", () => {
     const cp = world.assignments.first("agentId = ? AND status = 'pending' AND title LIKE 'Write the checkpoint%'", [mei.id])!;
     world.ops.startSession(mei.id, { purpose: "work", model: "m", assignmentId: cp.id });
     const r = await world.verbs.checkpoint_grant(mei, { grantId: g.id, status: "on-track", note: "steps 1-2 live" });
-    expect(r).toMatchObject({ status: "funded", keyResult: { id: g.keyResultId, status: "on-track" } });
+    expect(r).toMatchObject({ status: "funded", keyResults: [{ id: g.keyResultId, status: "on-track" }] });
     const up = await world.verbs.submit_report(mei, { title: "Checkpoint", body: "## Shipped\nx\n## Decided\nx\n## Key results\nx\n## Needs from Mitchell\nnothing", verdict: "continue", rollup: true });
     expect(world.grants.require(g.id)).toMatchObject({ status: "funded", checkpointDocId: up.id });
   });
@@ -266,7 +266,7 @@ describe("goal-directed budgets: the 100% checkpoint", () => {
     await expect(world.verbs.close_grant(mei, { grantId: world.grantDesk.propose(mei, draft.id).id, note: "done" })).rejects.toThrow(/proposed grant can't be closed/);
     world.ops.startSession(mei.id, { purpose: "work", model: "m" });
     const r = await world.verbs.close_grant(mei, { grantId: g.id, note: "the banner shows Usage live" });
-    expect(r).toMatchObject({ status: "closed", outcome: "done", spentTokens: 1_000_000, grantTokens: 4_000_000, unspentTokens: 3_000_000, keyResult: { status: "claimed" }, checkpointDocId: null });
+    expect(r).toMatchObject({ status: "closed", outcome: "done", spentTokens: 1_000_000, grantTokens: 4_000_000, unspentTokens: 3_000_000, keyResults: g.keyResults.map(() => ({ status: "claimed" })), checkpointDocId: null });
     for (const k of krs) expect(world.keyResults.require(k.id)).toMatchObject({ status: "claimed", statusNote: "the banner shows Usage live" });
     expect(world.grants.require(g.id).history.at(-1)).toMatchObject({ action: "close", tokens: 3_000_000 });
     expect(world.grants.require(g.id).history.at(-1)!.note).toMatch(/returned 3,000,000 unspent tokens to the Bank/);
@@ -297,7 +297,7 @@ describe("goal-directed budgets: the 100% checkpoint", () => {
     const g = fund(1_000_000);
     expect(() => world.grantDesk.close(mei, g.id, { outcome: "done", note: " " })).toThrow(/evidence/);
     const r = world.grantDesk.close(admin, g.id, { outcome: "done" });
-    expect(r).toMatchObject({ status: "closed", outcome: "done", keyResult: { status: "claimed" } });
+    expect(r).toMatchObject({ status: "closed", outcome: "done", keyResults: [{ status: "claimed" }] });
     const note = `Closed as done by ${world.nameOf(admin.id)} from the Town Hall.`;
     expect(world.keyResults.require(g.keyResultId!).statusNote).toBe(note);
     expect(world.grants.require(g.id).history.at(-1)!.note).toMatch(/^Closed as done by .+ from the Town Hall\. \(spent 0 of 1,000,000/);
@@ -306,7 +306,7 @@ describe("goal-directed budgets: the 100% checkpoint", () => {
   it("propose_grant creates and proposes in one call; several proposals can be open per building", async () => {
     const { world, mei, admin } = setup();
     const r = await world.verbs.propose_grant(mei, { keyResults: KRS, objective: "o", stopCondition: "s", askTokens: 1000 });
-    expect(r).toMatchObject({ status: "proposed", keyResult: { text: KRS[0]!.text }, keyResults: KRS.map((k) => ({ ...k, grantId: r.grantId })) });
+    expect(r).toMatchObject({ status: "proposed", keyResults: KRS.map((k) => ({ text: k.text })) });
     expect(world.grantDesk.board(LAB).proposals.map((p) => p.id)).toEqual([r.grantId]);
     const r2 = await world.verbs.propose_grant(mei, { keyResults: [KRS[0]!], objective: "o2", stopCondition: "s", askTokens: 1000 });
     expect(r2.grantId).not.toBe(r.grantId);
@@ -328,8 +328,8 @@ describe("goal-directed budgets: the 100% checkpoint", () => {
     const r = await world.verbs.propose_grant(mei, { keyResults: [KRS[1]!], objective: "o", stopCondition: "s", askTokens: 1000 });
     const queued = world.ops.createWork(mei, noor.id, { title: "kr", lane: "grant", grantId: r.grantId });
     world.grantDesk.decide(admin, r.grantId, { action: "counter", note: "track every token type" });
-    const again = await world.verbs.propose_grant(mei, { keyResults: KRS, objective: "o, every token type", approach: "five counters", stopCondition: "s2", askTokens: 2000, note: "at your scope" });
-    expect(again).toMatchObject({ grantId: r.grantId, status: "proposed", keyResults: KRS });
+    const again = await world.verbs.propose_grant(mei, { keyResults: KRS, objective: "o, every token type", approach: "five counters", stopCondition: "s2", askTokens: 2000, note: "at your scope", grantId: r.grantId });
+    expect(again).toMatchObject({ grantId: r.grantId, status: "proposed", keyResults: KRS.map((k) => ({ text: k.text })) });
     expect(again.note).toMatch(/Re-proposed/);
     expect(world.grants.count("buildingId = ?", [LAB])).toBe(1);
     const g = world.grants.require(r.grantId);
@@ -362,7 +362,7 @@ describe("goal-directed budgets: the Key results block", () => {
     expect(keyResultsBlock(world, world.buildings.require(LAB), ex)).toContain("This session: exploration on gap: Visitors can't find the board");
     const b = world.buildings.require(LAB);
     const sys = workSystemPrompt(noor, b, world.town.get(), sessionMemory(world, noor, b, a));
-    expect(sys).toMatch(/Building goal: .*\nKey results of the building goal \(this building is goal-directed/);
+    expect(sys).toMatch(/Building goal: .*\nGoals and grants \(this building is goal-directed/);
     // the manager gets the grants instructions
     expect(sessionMemory(world, mei, b).team).toContain("propose_grant");
     expect(keyResultsBlock(world, world.buildings.first("kind = 'town-hall'")!, a)).toBe("");
