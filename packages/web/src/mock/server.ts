@@ -5,7 +5,7 @@ import { BACKFILL, BOARD_TYPES, KPI_FRAMING, ZERO_TOKENS, addTokens, backfillFam
 import type { Api, AgentDetail, AllocationRow, Bank, Budget, Finance, FinanceFly, FinanceSources, FinanceSpend, Cabinet, CabinetQuery, DocQuery, EventQuery, In, LayoutPreview, FunderWeekView, JoinFunnelView, RoomLayout, RequestAction, SessionDetail, Snapshot, Socket, SocketHandlers, ThreadMessage, WriteDocInput } from "../api";
 import { ApiError } from "../api";
 import type { BankStreams, PinSkillInput, PutSecretInput, SecretView, SkillPinView, SkillView } from "@muster-town/schema";
-import type { CreateBuildingInput, UpdateBuildingInput, RegisterVisitorInput, ReviewInput, WorkInput, DonateInput, CreateMeetingInput, DocState, AddBankInput, BankInput, DecideGrantInput, CloseGrantInput, CreateKeyResultInput, UpdateKeyResultInput, CreateObjectiveInput, UpdateObjectiveInput } from "@muster-town/schema";
+import type { CreateBuildingInput, UpdateBuildingInput, RegisterVisitorInput, ReviewInput, WorkInput, DonateInput, CreateMeetingInput, DocState, AddBankInput, BankInput, DecideGrantInput, CloseGrantInput, UpdateKeyResultInput, CreateObjectiveInput, UpdateObjectiveInput } from "@muster-town/schema";
 import { Sim, newId, spent } from "./sim";
 import { explorationSpentToday, kpis as kpisFixture, memoryDocs } from "./fixture";
 import manualMd from "../../../../docs/manual.md?raw";
@@ -170,7 +170,6 @@ export class MockApi implements Api {
   async createGoal(): Promise<never> { throw new ApiError("Editing the goal tree needs the real server.", "unsupported", 501); }
   async updateGoal(): Promise<never> { throw new ApiError("Editing the goal tree needs the real server.", "unsupported", 501); }
   async retireGoal(): Promise<never> { throw new ApiError("Editing the goal tree needs the real server.", "unsupported", 501); }
-  async addTreeKeyResult(): Promise<never> { throw new ApiError("Editing the goal tree needs the real server.", "unsupported", 501); }
   async decideGoalProposal(): Promise<never> { throw new ApiError("Editing the goal tree needs the real server.", "unsupported", 501); }
   async changeGoal(): Promise<never> { throw new ApiError("Editing the goal tree needs the real server.", "unsupported", 501); }
   async goalChanges() { await wait(); return []; }
@@ -206,7 +205,6 @@ export class MockApi implements Api {
   async decideGrant(id: string, i: In<typeof DecideGrantInput>) { await wait(); return clone(this.sim.decideGrant(id, i)); }
   async closeGrant(id: string, i: In<typeof CloseGrantInput>) { await wait(); return clone(this.sim.closeGrant(id, i)); }
   async keyResults(buildingId: string) { await wait(); this.need(this.sim.buildings.find((b) => b.id === buildingId), "building"); return clone(this.sim.grantBoard(buildingId)); }
-  async createKeyResult(buildingId: string, i: In<typeof CreateKeyResultInput>) { await wait(); return clone(this.sim.createKeyResult(buildingId, i)); }
   async updateKeyResult(id: string, i: In<typeof UpdateKeyResultInput>) { await wait(); return clone(this.sim.updateKeyResult(id, i)); }
   async deleteKeyResult(id: string) { await wait(); this.sim.deleteKeyResult(id); }
   async objectives(buildingId: string) { await wait(); return clone(this.sim.objectiveTree(buildingId)); }

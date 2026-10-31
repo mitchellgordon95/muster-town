@@ -78,13 +78,15 @@ describe("manager team-lead session", () => {
     const settle = async () => { for (let i = 0; i < 3; i++) await new Promise((r) => setImmediate(r)); await runtime.whenIdle(); };
     const rows = () => world.docs.where("authorId = 'system' AND buildingId = ? AND type = 'report'", [lab.id]);
     const manages = () => world.sessions.where("agentId = ? AND purpose = 'manage'", [mei.id]);
-    const kr = world.grantDesk.createKeyResult(admin, lab.id, { text: "Visitors can read the goal", howToCheck: "Open the board" });
+    const draft = world.grantDesk.create(mei, lab.id, { keyResults: [{ text: "Visitors can read the goal", howToCheck: "Open the board" }], objective: "Goal on the board", approach: "a line", stopCondition: "two tries", askTokens: 10_000_000 });
+    const kr = world.keyResults.require(draft.keyResultId!);
+    world.grantDesk.updateKeyResult(admin, kr.id, { text: "Visitors can read the goal at a glance" });
     await settle();
     expect(rows()).toHaveLength(1);
     expect(manages()).toHaveLength(1);
     expect(world.docs.require(rows()[0]!.id).decision).toBe("approve");
     // funding wakes the manager with its own assignment (Grants.decisionAssignment): no row; continuing at the checkpoint writes one
-    const g = world.grantDesk.decide(admin, world.grantDesk.propose(mei, world.grantDesk.create(mei, lab.id, { keyResultId: kr.id, objective: "Goal on the board", approach: "a line", stopCondition: "two tries", askTokens: 10_000_000, testingPlan: [] }).id).id, { action: "fund" });
+    const g = world.grantDesk.decide(admin, world.grantDesk.propose(mei, draft.id).id, { action: "fund" });
     await settle();
     expect(rows()).toHaveLength(1);
     world.grants.patch(g.id, { status: "checkpoint", checkpointsDone: [0.5] });
@@ -103,18 +105,15 @@ describe("manager team-lead session", () => {
     expect(manages()).toHaveLength(2);
   });
 
-  test("a goal-directed building with no key results and no funded grant is blocked: the tick wakes its manager once", async () => {
-    const env = await managed(async function* () { yield init(); yield result(100, 0.01, "Drafting key results."); });
+  test("a goal-directed building with no funded grant is not blocked (key results belong to grants): the tick doesn't wake its manager", async () => {
+    const env = await managed(async function* () { yield init(); yield result(100, 0.01, "Nothing to do."); });
     const { world, runtime, by, lab } = env;
     const mei = by("Mei");
-    world.setStatus(mei.id, "working"); // keep the scheduler from starting the wake: only its creation is under test
+    world.setStatus(mei.id, "working"); // keep the scheduler from starting a wake: only its creation is under test
     world.buildings.patch(lab.id, { blockedAt: null });
-    world.ops.updateBuilding(env.world.ops.ensureAvatar(env.seed.admin.id), lab.id, { rules: "Re-check." }); // a settings change re-checks the blocked state
     for (let i = 0; i < 3; i++) { await runtime.tickOnce(); await runtime.whenIdle(); }
-    const wakes = world.assignments.where("agentId = ? AND title LIKE 'Get human decisions%'", [mei.id]);
-    expect(wakes).toHaveLength(1);
-    expect(wakes[0]!.description).toContain("rollup: true");
-    expect(world.buildings.require(lab.id).blockedAt).not.toBeNull();
+    expect(world.assignments.where("agentId = ? AND title LIKE 'Get human decisions%'", [mei.id])).toHaveLength(0);
+    expect(world.buildings.require(lab.id).blockedAt).toBeNull();
   });
 
   test("a rollup goes to the Town Hall and doesn't wake the manager again", async () => {

@@ -1,5 +1,5 @@
 import { AppError, townKpis } from "@muster-town/core";
-import { CloseGrantInput, CreateGrantInput, CreateKeyResultInput, CreateObjectiveInput, DecideGrantInput, GrantsQuery, UpdateGrantInput, UpdateKeyResultInput, UpdateObjectiveInput } from "@muster-town/schema";
+import { CloseGrantInput, CreateGrantInput, CreateObjectiveInput, DecideGrantInput, GrantsQuery, UpdateGrantInput, UpdateKeyResultInput, UpdateObjectiveInput } from "@muster-town/schema";
 import type { FastifyInstance } from "fastify";
 import { z } from "zod";
 import { actorOf, parse, type Params } from "../context.ts";
@@ -59,11 +59,6 @@ export async function grantRoutes(app: FastifyInstance) {
   app.get<{ Params: Params }>("/api/buildings/:id/key-results", async (req) => {
     world.buildings.require(req.params.id, "building");
     return { keyResults: desk.keyResults(req.params.id), blocked: desk.blocked(req.params.id) };
-  });
-
-  app.post<{ Params: Params }>("/api/buildings/:id/key-results", async (req, reply) => {
-    const keyResult = desk.createKeyResult(actorOf(world, req), req.params.id, parse(CreateKeyResultInput, req.body));
-    return reply.code(201).send({ keyResult });
   });
 
   app.delete<{ Params: Params }>("/api/key-results/:id", async (req) => {
