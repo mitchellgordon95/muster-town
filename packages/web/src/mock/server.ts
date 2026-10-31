@@ -1,6 +1,6 @@
 /** `Api` implemented against the in-memory Sim. Same interface as HttpApi, so every panel works offline. */
 import type { AccessRequest, AccessRequestView, Agent, Assignment, AuthMe, BlockedAssignment, BlockedBy, BuildingStats, Schedule, Building, Doc, Event, Meeting, Membership, RedeployLive, ReviewDeck, ReviewSlide } from "@muster-town/schema";
-import { NEW_LAB_LOT, REVIEW_DECK_ID, desksForLot, funderSlide, parseDeck } from "@muster-town/schema";
+import { BuildingDefaults, NEW_LAB_LOT, REVIEW_DECK_ID, desksForLot, funderSlide, parseDeck } from "@muster-town/schema";
 import { BACKFILL, BOARD_TYPES, KPI_FRAMING, DEFAULT_POOL_ID, ZERO_TOKENS, addTokens, backfillFamily, splitRaw, type BankPool, type GoalTreeNode, type GoalSpend, type QueueBoard, type FunderWeek } from "@muster-town/schema";
 import type { Api, AgentDetail, AllocationRow, Bank, Budget, Finance, FinanceFly, FinancePools, FinanceSources, FinanceSpend, Cabinet, CabinetQuery, DocQuery, EventQuery, In, LayoutPreview, FunderWeekView, MessageResult, RoomLayout, RequestAction, Snapshot, Socket, SocketHandlers, ThreadMessage, WriteDocInput } from "../api";
 import { ApiError } from "../api";
@@ -360,6 +360,15 @@ export class MockApi implements Api {
     const n = this.sim.newAssignment(agent.id, { title: a.title, description: a.description, fromReportId: a.fromReportId, fromAssignmentId: a.id, front });
     window.setTimeout(() => this.sim.runNext(agent.id), 1200);
     return clone({ assignment: n, agent });
+  }
+
+  async setTownDefaults(patch: Partial<BuildingDefaults>) {
+    await wait();
+    const defaults = BuildingDefaults.parse({ codeAccess: !!this.sim.town.workspace, ...this.sim.town.defaults, ...patch });
+    this.sim.town.defaults = defaults;
+    const buildings = this.sim.buildings.filter((b) => b.kind === "lab").map((b) => Object.assign(b, defaults));
+    for (const b of buildings) this.sim.emit({ type: "building", building: b });
+    return clone({ defaults, buildings });
   }
 
   async setMaxRunning(maxRunning: number) {

@@ -1,4 +1,4 @@
-import { CollectiveConfig, Town, type Doc, townEnv, type Agent, type Building, DesksConfig, type User, type Workspace } from "@muster-town/schema";
+import { BuildingDefaults, CollectiveConfig, Town, type Doc, townEnv, type Agent, type Building, DesksConfig, type User, type Workspace } from "@muster-town/schema";
 import { execFileSync } from "node:child_process";
 import { createHash } from "node:crypto";
 import { chmodSync, existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
@@ -132,6 +132,13 @@ export function seedManual(world: World, path: string | undefined, authorId: str
   }, "The operating manual was placed in the library");
 }
 
+/** The keys collective.json spells out under `defaults` (validated), or none. */
+function spelledDefaults(collectivePath: string | undefined): Partial<BuildingDefaults> {
+  if (!collectivePath || !existsSync(collectivePath)) return {};
+  const raw = (JSON.parse(readFileSync(collectivePath, "utf8")) as { defaults?: unknown }).defaults;
+  return raw ? BuildingDefaults.partial().parse(raw) : {};
+}
+
 /**
  * Seed an empty town: town.json, admin user + token, built-in roles, Town Hall with Ada (service
  * librarian at the library), optional v0 lab import + Moss (reviewer) + house allocation; admin manages the lab;
@@ -164,6 +171,14 @@ export function seedDefaults(world: World, opts: SeedOptions = {}): SeedResult {
       const spelled = (JSON.parse(readFileSync(opts.collectivePath, "utf8")) as { desks?: Partial<DesksConfig> }).desks;
       if (spelled && Object.keys(spelled).length) world.town.setDesks({ ...world.town.desks(), ...DesksConfig.partial().parse(spelled) });
     }
+    // the collective defaults (1:1 mt_n25udpflus decision 3), once: a town from before them takes its oldest lab's values,
+    // with collective.json `defaults` on top; nothing is written through (each building keeps its values until an admin saves them)
+    if (!world.town.hasDefaults()) {
+      const lab = world.buildings.first("kind = 'lab'", [], "ORDER BY createdAt");
+      const keys = ["model", "cheapModel", "maxTurnsPerSession", "dailyTokensPerAgent", "codeAccess"] as const;
+      const fromLab = lab ? Object.fromEntries(keys.map((k) => [k, lab[k]])) : {};
+      world.town.set({ defaults: BuildingDefaults.parse({ ...world.town.defaults(), ...fromLab, ...spelledDefaults(opts.collectivePath) }) });
+    }
     // v1.2: the town moderator role (no moderator agents are created in existing DBs)
     world.permissions.ensureTownRoles();
     const th = world.buildings.get(TOWN_HALL_ID) ?? world.buildings.first("kind = 'town-hall'")!;
@@ -181,7 +196,8 @@ export function seedDefaults(world: World, opts: SeedOptions = {}): SeedResult {
       const raw = JSON.parse(readFileSync(opts.townJsonPath, "utf8")) as Record<string, unknown>;
       town = { ...town, ...Town.partial().parse({ name: raw.name, goal: raw.goal, tagline: raw.tagline, goalNote: raw.goalNote }) };
     }
-    world.town.set(town);
+    // collective.json `defaults` before any building is made: every building copies them
+    world.town.set({ ...town, defaults: spelledDefaults(opts.collectivePath) });
     world.permissions.ensureTownRoles();
     const { user: admin, token: adminToken } = createUser(world, opts.adminName ?? townEnv("ADMIN_NAME") ?? "Mitchell");
     world.permissions.grant({ kind: "user", id: admin.id }, townRoleId("admin"));
@@ -215,6 +231,7 @@ export function seedDefaults(world: World, opts: SeedOptions = {}): SeedResult {
           const id = spec.id ?? (spec.name ?? "building").toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "");
           b = createBuilding(world, {
             name: spec.name ?? id, goal: spec.goal ?? "", description: spec.description ?? "", headcount: spec.headcount ?? Math.max(spec.residents.length + 1, 3),
+            // old collective.json files still set these per building; new ones put them under `defaults`
             model: spec.model, cheapModel: spec.cheapModel, maxTurnsPerSession: spec.maxTurnsPerSession,
             dailyTokensPerAgent: spec.dailyTokensPerAgent, meetings: spec.meetings,
             codeAccess: spec.codeAccess,

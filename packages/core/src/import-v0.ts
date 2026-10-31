@@ -43,7 +43,7 @@ export function importV0(world: World, dirIn: string, opts: ImportV0Options = {}
   return world.transaction(() => {
     const building = createBuilding(world, {
       name: cfg.name, goal: cfg.goal ?? "", description: cfg.description ?? "",
-      headcount: Math.max(6, desks.length + 1), maxTurnsPerSession: cfg.maxTurns ?? 80,
+      headcount: Math.max(6, desks.length + 1), maxTurnsPerSession: cfg.maxTurns,
       meetings: [{ kind: "standup", everyMinutes: 0 }],
     }, creator, { id: cfg.id });
 

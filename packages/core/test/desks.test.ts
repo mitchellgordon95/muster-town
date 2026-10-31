@@ -56,7 +56,7 @@ describe("work brief", () => {
     world.town.set({ workspace: { path: REPO_ROOT, repoUrl: "git@github.com:me/agent-town.git", base: "main", branchPrefix: "agent", tools: [] } });
     const noor = by("Noor");
     expect(deskWorkspace(world.town.get(), seed.lab!, noor, null)).toBeUndefined(); // a collective repo alone grants nothing
-    world.ops.updateBuilding(null, seed.lab!.id, { codeAccess: true });
+    world.setTownDefaults({ codeAccess: true });
     const asg = world.ops.createWork(null, noor.id, { title: "Fix the HUD!" });
     const s = world.ops.startSession(noor.id, { purpose: "work", model: "m", assignmentId: asg.id });
     const b = composeWorkBrief(world, s.id);
