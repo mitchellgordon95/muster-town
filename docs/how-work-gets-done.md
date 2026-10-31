@@ -220,7 +220,7 @@ Related buildings share a plaza because they share a top-level goal. Walking fro
 
 ## 11. Build order
 
-**Status.** Steps 1 and 3 shipped together (as_1nuoiauxlw), with step 2's `bank_reservations` table and its cap column (`goals.exploreCapTokensPerDay`, the §8 cap); step 2's tick, `explore` and `exploreChunkTokens` are still to do. See docs/goals.md "Free tokens and the optional exploration cap".
+**Status.** Steps 1 and 3 shipped together (as_1nuoiauxlw, PR #169, migration 067), with step 2's `bank_reservations` table and its cap column (`goals.exploreCapTokensPerDay`, the §8 cap); step 2's tick, `explore` and `exploreChunkTokens` are still to do. See docs/goals.md "Free tokens and the optional exploration cap".
 
 Each step is one PR, with tests and docs, merged green and redeployed by the Workshop under the merge rules (dc_vzqoh7ppen). Migrations are additive (new tables, new nullable columns, back-fills); their numbers are checked against main's highest right before merging (066 on 2026-10-31). Steps 1–3 touch the Bank, and Mitchell's go-ahead in mt_wql34b8gkl ("go ahead and do all the things") is the sign-off for them.
 
