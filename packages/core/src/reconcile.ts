@@ -31,7 +31,7 @@ const round = (n: number): number => Math.round(n * 100) / 100;
 export const RECONCILED_MARKER = "reconciledThrough";
 
 /** Remember that `day` is done (the marker only moves forward). */
-export function markReconciled(world: World, day: string): void {
+function markReconciled(world: World, day: string): void {
   const cur = world.town.marker(RECONCILED_MARKER);
   if (!cur || cur < day) world.town.setMarker(RECONCILED_MARKER, day);
 }
