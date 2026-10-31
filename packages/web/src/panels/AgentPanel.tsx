@@ -16,10 +16,12 @@ import { SignInNote } from "../auth/auth";
 import { slotsFull } from "../redeploy";
 import { canOneOnOne, openOneOnOne, openPlanner } from "./oneOnOne";
 import { fmtPerf, runsAtLabel } from "../format";
+import { DismissButton, canDismiss } from "./Dismiss";
 
 
 export function AgentPanel({ id, tab }: { id: string; tab?: string }) {
   const live = useTown((s) => s.agents[id]);
+  const isAdmin = useTown((s) => !!s.me?.isAdmin);
   const rev = useTown((s) => s.rev);
   const buildings = useTown((s) => s.buildings);
   const detail = useLoad(() => api().agent(id), [id]);
@@ -56,6 +58,12 @@ export function AgentPanel({ id, tab }: { id: string; tab?: string }) {
           {t === "Forks" ? <ForksTab managerId={agent.id} /> : null}
           {t === "Talk" ? <TalkTab agent={agent} /> : null}
           {t === "Assignments" ? <AssignmentsTab agent={agent} /> : null}
+          {t === "Assignments" && canDismiss(agent, building?.managerAgentId, isAdmin) ? (
+            <Section title="Dismiss">
+              <p className="direction">Dismissing retires {agent.name}: the desk is freed and they leave the map. Reports and notes stay in the library under their name.</p>
+              <DismissButton agent={agent} />
+            </Section>
+          ) : null}
           {t === "Memory" ? <MemoryTab agent={agent} topics={detail.data?.agent.id === id ? detail.data.memoryTopics ?? [] : []} memory={detail.data?.agent.id === id ? detail.data.memory : undefined} loading={!detail.data} /> : null}
         </>
       )}
