@@ -88,8 +88,7 @@ describe("Needs from Mitchell carries only what has no other channel (1:1 mt_uf1
     // nothing waiting yet
     const first = await roll("Nothing needed.");
     expect(world.docs.require(first.id).body).toBe(`${body("Nothing needed.")}\n\n_Nothing else waiting in your in-tray._`);
-    const kr = world.grantDesk.createKeyResult(admin, LAB, { text: "k", howToCheck: "h" });
-    const g = await world.verbs.propose_grant(mei, { keyResultId: kr.id, objective: "o", stopCondition: "s", askTokens: 1000 });
+    const g = await world.verbs.propose_grant(mei, { keyResults: [{ text: "k", howToCheck: "h" }], objective: "o", stopCondition: "s", askTokens: 1000 });
     const req = await world.verbs.request_human(mei, { title: "Look outside", body: "b", kind: "observation" });
     await expect(roll(`- Fund ${g.grantId}, please.`)).rejects.toThrow(new RegExp(`${g.grantId} \\(a grant proposal in the Town Hall in-tray\\)`));
     await expect(roll(`- Do ${req.id}`)).rejects.toThrow(/an open outbox request/);

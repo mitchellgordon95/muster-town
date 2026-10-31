@@ -17,8 +17,7 @@ function setup() {
   world.bank.addInput(donor.id, { label: "Earmark", source: "api-key", model: "m", tokens: 3_000, apiKey: "sk-earmark", goalId: a.id } as never);
   const manager = world.agents.first("homeBuildingId = ? AND kind != 'human'", [LAB])!;
   world.permissions.grant(manager, buildingRoleId(LAB, "manager"));
-  const kr = world.grantDesk.createKeyResult(admin, LAB, { text: "k", howToCheck: "h" });
-  const propose = (askTokens: number) => world.grantDesk.propose(manager, world.grantDesk.create(manager, LAB, { keyResultId: kr.id, objective: "o", stopCondition: "s", askTokens }).id);
+  const propose = (askTokens: number) => world.grantDesk.propose(manager, world.grantDesk.create(manager, LAB, { keyResults: [{ text: "k", howToCheck: "h" }], objective: "o", stopCondition: "s", askTokens }).id);
   const spend = (grantId: string, tokens: number) => world.sessions.upsert({
     id: newId("se"), agentId: manager.id, assignmentId: null, meetingId: null, purpose: "work", backend: "host", status: "done", model: "m",
     sdkSessionId: null, output: tokens, costUsd: 0, startedAt: nowIso(), endedAt: nowIso(), lane: "grant", grantId,

@@ -11,7 +11,6 @@ function lab() {
   const s = seededWorld();
   const { world, seed } = s;
   const b = createBuilding(world, { name: "Clockwork", headcount: 3, dailyTokensPerAgent: 1000, model: "claude-opus-5-5", cheapModel: "claude-haiku-5-5" }, seed.admin.id);
-  world.grantDesk.createKeyResult(s.admin, b.id, { text: "Schedules work", howToCheck: "Run the tests" });
   const pix = createResident(world, { buildingId: b.id, name: "Pix", sprite: 5 });
   const ann = createResident(world, { buildingId: b.id, name: "Ann" });
   updateBuilding(world, b.id, { managerAgentId: pix.id });
@@ -85,10 +84,10 @@ describe("schedules", () => {
   });
 
   it("a lane that no longer holds ends the schedule with a town-written report in the in-tray", async () => {
-    const { world, b, me, made } = lab();
-    const kr = world.keyResults.first("buildingId = ?", [b.id])!;
-    const r = await world.verbs.schedule(me(), { title: "Explore it", description: "d", keyResultId: kr.id, runsAt: new Date(Date.now() + H).toISOString() });
-    world.keyResults.upsert({ ...kr, status: "met", archivedAt: new Date().toISOString() }); // met: no longer open, so out of scope
+    const { world, b, me, made, admin } = lab();
+    const g = world.grantDesk.propose(admin, world.grantDesk.create(admin, b.id, { keyResults: [{ text: "Schedules work", howToCheck: "Run the tests" }], objective: "o", stopCondition: "s", askTokens: 1000 }).id);
+    const r = await world.verbs.schedule(me(), { title: "Explore it", description: "d", lane: "grant", grantId: g.id, runsAt: new Date(Date.now() + H).toISOString() });
+    world.grantDesk.decide(admin, g.id, { action: "reject", note: "no" }); // rejected: work can't be charged to it any more
     expect(fireSchedules(world, new Date(Date.now() + 2 * H)).fired).toEqual([]);
     expect(world.schedules.require(r.scheduleId).endedReason).toMatch(/lane no longer holds/);
     expect(world.docs.first("type = 'report' AND buildingId = ? AND tags LIKE '%schedule-ended%'", [b.id])?.title).toBe("Schedule ended: Explore it");

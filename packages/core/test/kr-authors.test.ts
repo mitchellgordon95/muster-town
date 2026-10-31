@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { buildingRoleId, sessionMemory } from "../src/index.ts";
+import { buildingRoleId } from "../src/index.ts";
 import { seededWorld } from "./helpers.ts";
 
 const LAB = "carbon-cycle";
@@ -17,19 +17,15 @@ function setup() {
   return { ...s, mei, noor, notes, other };
 }
 
-describe("managers write key results (1:1 mt_ayi4y9ybyj)", () => {
-  it("the building's manager creates and edits its own goal's KRs; residents, other buildings and deletes stay refused", async () => {
-    const { world, mei, noor, admin, notes, other } = setup();
-    const r = await world.verbs.set_key_result(mei, { ...KR, sourceDocIds: [notes.id] });
-    const kr = world.keyResults.require(r.keyResult.id);
-    expect(kr).toMatchObject({ buildingId: LAB, createdBy: mei.id, editedBy: null, sourceDocIds: [notes.id], status: "not-started" });
-    await expect(world.verbs.set_key_result(mei, KR)).rejects.toThrow(/sourceDocIds/);
-    await expect(world.verbs.set_key_result(mei, { ...KR, sourceDocIds: ["dc_nope"] })).rejects.toThrow(/not a published document/);
-    await expect(world.verbs.set_key_result(noor, { ...KR, sourceDocIds: [notes.id] })).rejects.toThrow(/manager writes/);
-    await expect(world.verbs.set_key_result(mei, { ...KR, buildingId: other.id, sourceDocIds: [notes.id] })).rejects.toThrow(/manager writes/);
-    const ed = await world.verbs.set_key_result(mei, { id: kr.id, howToCheck: "Open the banner, Usage line" });
-    expect(world.keyResults.require(ed.keyResult.id)).toMatchObject({ howToCheck: "Open the banner, Usage line", createdBy: mei.id, editedBy: mei.id });
-    await expect(world.verbs.set_key_result(mei, { id: kr.id, buildingId: other.id, text: "x" })).rejects.toThrow(/not a key result/);
+describe("managers write key results through their grants (docs/how-work-gets-done.md §4)", () => {
+  it("the manager's grant carries its KRs; the manager edits them; residents, met/missed and deletes stay refused", async () => {
+    const { world, mei, noor, admin, notes } = setup();
+    const r = await world.verbs.propose_grant(mei, { keyResults: [KR], objective: "Spend on the banner", stopCondition: "s", askTokens: 1000, findingsDocIds: [notes.id] });
+    const kr = world.keyResults.require(world.grants.require(r.grantId).keyResultId!);
+    expect(kr).toMatchObject({ buildingId: LAB, grantId: r.grantId, createdBy: mei.id, editedBy: null, status: "not-started", text: KR.text });
+    await expect(world.verbs.propose_grant(noor, { keyResults: [KR], objective: "o", stopCondition: "s", askTokens: 1000 })).rejects.toThrow();
+    world.grantDesk.updateKeyResult(mei, kr.id, { howToCheck: "Open the banner, Usage line" });
+    expect(world.keyResults.require(kr.id)).toMatchObject({ howToCheck: "Open the banner, Usage line", createdBy: mei.id, editedBy: mei.id });
     // status: up to claimed only; met / missed and delete stay human
     expect(() => world.grantDesk.updateKeyResult(mei, kr.id, { status: "met" })).toThrow(/building.fund/);
     expect(() => world.grantDesk.deleteKeyResult(mei, kr.id)).toThrow(/Only a human/);
@@ -41,26 +37,9 @@ describe("managers write key results (1:1 mt_ayi4y9ybyj)", () => {
     expect(world.keyResults.get(kr.id)).toBeUndefined();
   });
 
-  it("kr.created / kr.updated events carry the actor; the manager's next rollup lists what it wrote, then the one after doesn't", async () => {
-    const { world, mei, notes } = setup();
-    const r = await world.verbs.set_key_result(mei, { ...KR, sourceDocIds: [notes.id] });
-    await world.verbs.set_key_result(mei, { id: r.keyResult.id, text: "Visitors see today's spend" });
-    world.grantDesk.updateKeyResult(mei, r.keyResult.id, { status: "on-track" }); // status only: not an edit
-    const evs = world.events.list({ types: ["kr.created", "kr.updated"], buildingId: LAB });
-    expect(evs.map((e) => [e.type, e.agentId, e.payload.by, e.payload.byKind])).toEqual([
-      ["kr.created", mei.id, mei.id, "agent"], ["kr.updated", mei.id, mei.id, "agent"], ["kr.updated", mei.id, mei.id, "agent"],
-    ]);
-    expect(evs.map((e) => e.payload.edited)).toEqual([undefined, true, false]);
-    expect(world.grantDesk.writtenSinceRollup(mei.id, LAB).map((w) => w.action)).toEqual(["created", "edited"]);
-    // the in-tray block tells the manager; a rollup with no covered reports is fine when it lists KR writes
-    const b = world.buildings.require(LAB);
-    expect(sessionMemory(world, mei, b).team).toContain(`created ${r.keyResult.id}`);
-    const up = await world.verbs.submit_report(mei, { title: "KRs from the 1:1", body: "## Shipped\nx\n## Decided\nx\n## Key results\nx\n## Needs from Mitchell\nKeep or cut them.", verdict: "continue", rollup: true });
-    const body = world.docs.require(up.id).body;
-    expect(body).toContain("## Key results I wrote");
-    expect(body).toContain(`- created ${r.keyResult.id}: "${KR.text}" (how to check: ${KR.howToCheck}; from ${notes.id})`);
-    expect(body).toContain(`- edited ${r.keyResult.id}: "Visitors see today's spend"`);
-    expect(world.grantDesk.writtenSinceRollup(mei.id, LAB)).toEqual([]);
-    await expect(world.verbs.submit_report(mei, { title: "Again", body: "x", verdict: "continue", rollup: true })).rejects.toThrow(/sourceIds/);
+  it("set_key_result and propose_key_result are gone", () => {
+    const { world } = setup();
+    expect(world.verbs).not.toHaveProperty("set_key_result");
+    expect(world.verbs).not.toHaveProperty("propose_key_result");
   });
 });

@@ -73,13 +73,15 @@ describe("manager team-lead session", () => {
     const settle = async () => { for (let i = 0; i < 3; i++) await new Promise((r) => setImmediate(r)); await runtime.whenIdle(); };
     const rows = () => world.docs.where("authorId = 'system' AND buildingId = ? AND type = 'report'", [lab.id]);
     const manages = () => world.sessions.where("agentId = ? AND purpose = 'manage'", [mei.id]);
-    const kr = world.grantDesk.createKeyResult(admin, lab.id, { text: "Visitors can read the goal", howToCheck: "Open the board" });
+    const draft = world.grantDesk.create(mei, lab.id, { keyResults: [{ text: "Visitors can read the goal", howToCheck: "Open the board" }], objective: "Goal on the board", approach: "a line", stopCondition: "two tries", askTokens: 10_000_000 });
+    const kr = world.keyResults.require(draft.keyResultId!);
+    world.grantDesk.updateKeyResult(admin, kr.id, { text: "Visitors can read the goal at a glance" });
     await settle();
     expect(rows()).toHaveLength(1);
     expect(manages()).toHaveLength(1);
     expect(world.docs.require(rows()[0]!.id).decision).toBe("approve");
     // funding wakes the manager with its own assignment (Grants.decisionAssignment): no row; continuing at the checkpoint writes one
-    const g = world.grantDesk.decide(admin, world.grantDesk.propose(mei, world.grantDesk.create(mei, lab.id, { keyResultId: kr.id, objective: "Goal on the board", approach: "a line", stopCondition: "two tries", askTokens: 10_000_000, testingPlan: [] }).id).id, { action: "fund" });
+    const g = world.grantDesk.decide(admin, world.grantDesk.propose(mei, draft.id).id, { action: "fund" });
     await settle();
     expect(rows()).toHaveLength(1);
     world.grants.patch(g.id, { status: "checkpoint", checkpointsDone: [0.5] });
