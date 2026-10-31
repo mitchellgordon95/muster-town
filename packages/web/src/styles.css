@@ -661,6 +661,9 @@ textarea[data-drop="over"] { outline: 2px dashed var(--accent, #7aa2ff); outline
 /* Finance (public): the sum check under the summary, and overdrawn lines */
 .finance-check { font-size: 12.5px; margin: 8px 0; }
 .finance-check.ok { color: var(--ok); }
+.finance-terms { margin: 10px 0 4px; font-size: 12.5px; }
+.finance-terms dl { margin: 6px 0 0; }
+.finance-terms dd { margin: 0 0 6px 12px; }
 .finance-overdrawn, .finance-overdrawn td { color: var(--bad); }
 .spend-tree { font-size: 12.5px; padding-left: 14px; }
 .spend-row > summary { cursor: pointer; list-style-position: outside; }
