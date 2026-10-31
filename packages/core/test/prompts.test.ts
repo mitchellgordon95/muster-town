@@ -59,7 +59,7 @@ describe("no forced next step", () => {
     const block = managerIntrayBlock(world, b, mei.id, now);
     expect(block).toMatch(/Roll up when something new is live .* and the reports that cover it are decided, or when a covered report hit an escalation criterion; keep at least 4 h since your last rollup/);
     expect(block).not.toMatch(/24 h/);
-    expect(block).toContain("Live: fa73e88 since 07:12Z 2026-10-31, 4h ago (no rollup yet).");
+    expect(block).toContain("Live: fa73e88 since 2026-10-31 07:12 UTC (4 h ago) (no rollup yet).");
     const prov = { sourceIds: [(await world.verbs.submit_report(by("Noor"), { title: "x", body: "## What I did\nx", verdict: "stop" })).id], urls: [] };
     await world.verbs.submit_report(mei, { title: "Rollup", body: "## Shipped\nNone.\n## Decided\nx\n## Key results\nx\n## Needs from Mitchell\nNothing needed.", verdict: "stop", rollup: true, provenance: prov });
     expect(managerIntrayBlock(world, b, mei.id, now)).toContain("(already live at your last rollup).");

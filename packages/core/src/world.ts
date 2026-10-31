@@ -286,7 +286,7 @@ export class World {
    * Redraws the map at once (bodies follow, like a tree edit) and logs it.
    */
   setMapLayout(layout: MapLayout, actor: Actor): MapLayout {
-    if (!this.canSetMapLayout(actor)) throw forbidden("goals.edit", "Only an admin or a goal owner can change the map's shape.");
+    if (!this.canSetMapLayout(actor)) throw forbidden("goals.edit", "Only an admin or a goal captain can change the map's shape.");
     const was = this.town.get().mapLayout;
     if (was === layout) return layout;
     this.town.set({ mapLayout: layout });

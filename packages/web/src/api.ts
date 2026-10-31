@@ -406,7 +406,7 @@ export interface Api {
   /** admin: how many work sessions may run at once on the host (queued work waits for a free slot) */
   setMaxRunning(maxRunning: number): Promise<{ desks: DesksConfig; slots: SessionSlots | null }>;
   /** PUT /api/town/defaults (admin): the collective defaults; saving writes them through to every lab */
-  /** PUT /api/town/map-layout (an admin or a goal owner): the shape the map draws the goal tree in, for everyone */
+  /** PUT /api/town/map-layout (an admin or a goal captain): the shape the map draws the goal tree in, for everyone */
   setMapLayout(layout: MapLayout): Promise<{ mapLayout: MapLayout }>;
   setTownDefaults(patch: Partial<BuildingDefaults>): Promise<{ defaults: BuildingDefaults; buildings: Building[] }>;
   /** open a session transcript in a new tab (admins, the building's manager, the agent itself) */

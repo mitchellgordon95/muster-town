@@ -4,7 +4,7 @@
 // (run as `node --experimental-strip-types --no-warnings restore-helper.mjs ...`; restore.sh does). No SDK, no sqlite3 CLI: the
 // checks use node:sqlite (node >= 22.5) and fall back to a `sqlite3` binary when it is missing.
 //
-//   list                         every town/<date>.db.gz.enc key in the bucket, oldest first (env: BUCKET_NAME, AWS_*)
+//   list                         every town/<date>[T<HH>].db.gz.enc key in the bucket, oldest first (env: BUCKET_NAME, AWS_*)
 //   get <key> <out>              download one object (env: BUCKET_NAME, AWS_*)
 //   decrypt <blob> <out.db>      decrypt (MUSTER_TOWN_BACKUP_KEY) and gunzip a downloaded object into a database file
 //   check <db>                   JSON: {integrity, agents, newestDocAt, docs, bytes} from the copy (read-only)
@@ -69,7 +69,7 @@ async function check(path) {
 
 switch (cmd) {
   case "list": {
-    const keys = (await s3().list("town/")).filter((k) => /^town\/\d{4}-\d{2}-\d{2}\.db\.gz\.enc$/.test(k));
+    const keys = (await s3().list("town/")).filter((k) => /^town\/\d{4}-\d{2}-\d{2}(T\d{2})?\.db\.gz\.enc$/.test(k));
     for (const k of keys) console.log(k);
     break;
   }

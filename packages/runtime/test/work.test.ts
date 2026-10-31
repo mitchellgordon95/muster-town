@@ -227,7 +227,7 @@ describe("agent memory", () => {
     expect(system).toContain("Waiting on Mitchell: 0.44 or the 2024 value.");
     expect(system).toContain("Your memory between sessions is your wiki and your log");
     const log = world.docs.first("authorId = ? AND type = 'log'", [noor.id]);
-    expect(log?.body).toMatch(/^- \d{4}-\d{2}-\d{2} \d{2}:\d{2} Assignment "Reply to Mitchell" \(as_[\w-]+\): done, report "/);
+    expect(log?.body).toMatch(/^- \d{4}-\d{2}-\d{2} \d{2}:\d{2} UTC Assignment "Reply to Mitchell" \(as_[\w-]+\): done, report "/);
     const prompt = sdk.sessions[0].received[0];
     expect(prompt).toContain("## Your recent work");
     expect(prompt).toMatch(/- note "Dashboard number" \(dc_[\w-]+, just now\): Use the 10-year mean 0\.44 ± 0\.03\./);

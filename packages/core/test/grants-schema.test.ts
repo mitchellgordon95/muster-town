@@ -87,7 +87,7 @@ describe("goal budget settings (the optional exploration cap lives on the goal)"
     expect(world.grantDesk.exploration(LAB).cap).toEqual({ tokensPerDay: 1_500_000, goalId: goal.id, spentTodayTokens: 0 });
     const resident = world.agents.first("homeBuildingId = ? AND kind = 'resident'", [LAB])!;
     world.permissions.grant(resident, buildingRoleId(LAB, "manager"));
-    expect(() => world.goalTree.update(resident, goal.id, { exploreCapTokensPerDay: 9_000_000 })).toThrow(/owner of|building.fund/);
+    expect(() => world.goalTree.update(resident, goal.id, { exploreCapTokensPerDay: 9_000_000 })).toThrow(/captain of|building.fund/);
     expect(world.events.list({ types: ["goal.edited"] }).some((e) => e.payload.goalId === goal.id && e.payload.exploreCapTokensPerDay === 1_500_000)).toBe(true);
     void World;
   });

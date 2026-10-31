@@ -55,7 +55,7 @@ export type TownDefaultsPatch = z.infer<typeof TownDefaultsPatch>;
 
 /**
  * The shape the map draws the goal tree in (core world/tree.ts; 1:1 mt_q10xf3bkoq): first-level goals as fountain plazas
- * with streets below, the plain packed tree, or spokes round the Town Hall. Town-wide: admins and goal owners pick it
+ * with streets below, the plain packed tree, or spokes round the Town Hall. Town-wide: admins and goal captains pick it
  * on the town map; a new collective starts with "fountain".
  */
 export const MapLayout = z.enum(["fountain", "tree", "radial"]);
@@ -70,7 +70,7 @@ export const Town = z.object({
   workspace: Workspace.optional(),
   /** the collective's defaults for every building (stored; `TownMeta.defaults()` fills the gaps); PUT /api/town/defaults sets them */
   defaults: BuildingDefaults.partial().optional(),
-  /** how the map draws the goal tree; PUT /api/town/map-layout (an admin or a goal owner) sets it */
+  /** how the map draws the goal tree; PUT /api/town/map-layout (an admin or a goal captain) sets it */
   mapLayout: MapLayout.default("fountain"),
 });
 export type Town = z.infer<typeof Town>;
@@ -1724,7 +1724,7 @@ export const VERB_DESCRIPTIONS: Record<VerbName, string> = {
   checkpoint_grant: "(manager) File a grant's checkpoint: set the status of the grant's open key results (or one, keyResultId), at most claimed (only a human marks met or missed), with a note on the evidence; then submit_report with rollup: true, which links itself to the grant as its checkpoint report. The grant stays held until a human continues, adjusts or cuts it.",
   close_grant: "(manager) Close a funded grant early because its work is done: it closes as done, its open key results go to claimed with your note as the evidence, and the unspent tokens return to the Bank. Then submit_report with rollup: true (it links itself as the close report); a human marks each key result met or missed from the Town Hall in-tray. Use checkpoint_grant instead when the grant is held at its 100% checkpoint and the work is not done.",
   set_objective: "(manager) Write an objective of my building's goal, or edit one (id): one sentence for this quarter, the town KPI it moves (fund, join or trust), the horizon (default this quarter) and the meeting notes or report it comes from. At most 3 per building. Only a human deletes one.",
-  propose_goal: "(manager) Propose a change to the town goal tree (it shows in your desk brief: your building's attachment and the goals under it): add a goal, edit or move one, retire one, or promote a key result to a standing goal. A human with goals.edit there (an admin or the goal's owner) accepts or cuts it; you hear back in your inbox. A proposal outside your building's subtree is allowed but flagged.",
+  propose_goal: "(manager) Propose a change to the town goal tree (it shows in your desk brief: your building's attachment and the goals under it): add a goal, edit or move one, retire one, or promote a key result to a standing goal. A human with goals.edit there (an admin or the goal's captain) accepts or cuts it; you hear back in your inbox. A proposal outside your building's subtree is allowed but flagged.",
   promote: "(manager) Publish a document to the building (board if it's an fyi, else the filing cabinet) or promote it to the library.",
   ban: "(town moderator) Ban an agent town-wide pending review.",
   redeploy: "Pull main on the host, reinstall, rebuild the web client (and the desk image when image=true), then restart the collective's server. Use when Mitchell asks you to deploy or when main has changed and the running town is stale. The restart no longer waits for desk work sessions: yours keeps running through it (a town call during the few seconds the server is down is retried for you). Still never poll or wait for the new build in the same session: call it, say in your report which commit should be live, submit the report, and verify on your next session (park with resumeWhen {deploy: sha}).",
@@ -2122,7 +2122,13 @@ export const AuthMe = z.object({
   /** holds `town.interact`: may move, talk and write; false = read-only until an admin lets them in */
   canInteract: z.boolean().default(true),
   /** the latest access request, if any */
-  accessRequest: z.object({ status: AccessRequestStatus, message: z.string(), decidedAt: z.string().nullable() }).nullable().default(null),
+  accessRequest: z.object({
+    status: AccessRequestStatus, message: z.string(), decidedAt: z.string().nullable(),
+    /** who decides: the admins' names (the pending card names them) */
+    deciders: z.array(z.string()).default([]),
+    /** median time from asking to a decision over every decided request; null = none decided yet */
+    typicalWaitMs: z.number().nullable().default(null),
+  }).nullable().default(null),
 });
 export type AuthMe = z.infer<typeof AuthMe>;
 /** `GET /api/auth/config`: what sign-in the server offers (`githubClientId` null = GitHub login not configured). */

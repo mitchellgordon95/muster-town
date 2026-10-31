@@ -132,7 +132,7 @@ describe("Plan with an agent (docs/goals.md, step 5)", () => {
     expect(world.ops.openOneOnOne(admin, "town-hall").id).toBe(m.id);
     expect(() => world.ops.openOneOnOne(admin, "town-hall", { agentId: world.agents.first("kind = 'service'")!.id })).toThrow();
     const stranger = world.ops.ensureAvatar(createUser(world, "Stranger").user.id);
-    expect(() => world.reorgs.openPlanner(stranger, goal.id)).toThrow(/Only an admin or a goal's owner/);
+    expect(() => world.reorgs.openPlanner(stranger, goal.id)).toThrow(/Only an admin or a goal's captain/);
     const p = await world.verbs.propose_goal(planner, { action: "add-goal", parentId: goal.id, text: "Sub-goal", why: "drafted with the human" });
     expect(world.goalProposals.require(p.proposal.id)).toMatchObject({ buildingId: null, proposedBy: planner.id });
     // a proposal can be presented in the 1:1 as a card

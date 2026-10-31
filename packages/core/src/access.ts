@@ -68,6 +68,16 @@ export function pendingAccessRequests(world: World): AccessRequestView[] {
   });
 }
 
+/** The pending card's facts: the admins who decide (by name) and the median wait to a decision (null before the first). */
+export function accessContext(world: World): { deciders: string[]; typicalWaitMs: number | null } {
+  const deciders = world.memberships.forRole(townRoleId("admin")).filter((m) => m.holderKind === "user")
+    .map((m) => world.users.get(m.holderId)?.name).filter((n): n is string => !!n);
+  const waits = world.accessRequests.where("status != 'pending' AND decidedAt IS NOT NULL", [])
+    .map((r) => Date.parse(r.decidedAt!) - Date.parse(r.createdAt)).filter((ms) => ms >= 0).sort((a, b) => a - b);
+  const typicalWaitMs = waits.length ? waits[Math.floor((waits.length - 1) / 2)] : null;
+  return { deciders, typicalWaitMs };
+}
+
 export function pendingAccessCount(world: World): number {
   return world.accessRequests.count("status = 'pending'");
 }
