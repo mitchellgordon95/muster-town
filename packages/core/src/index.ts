@@ -69,7 +69,7 @@ export {
   type Grid, type DeskSlot, type LayoutResult,
 } from "./world/layout.ts";
 export { deriveRoads, doorOf, doorstepOf, facesNorth, type Roads } from "./world/road.ts";
-export { treeLayout, BAND_STEP, type TreeLayout, type TreeGoal, type TreeBuilding, type Plaza } from "./world/tree.ts";
+export { treeLayout, type TreeLayout, type TreeGoal, type TreeBuilding, type Plaza } from "./world/tree.ts";
 export { findPath, isWalkable, nearestWalkable } from "./world/path.ts";
 export { piecesFor, validateLayout, resolveFurniture, movedOnly, type Piece, type Furniture, type LayoutError } from "./world/furniture.ts";
 export { WorldMap } from "./world/map.ts";

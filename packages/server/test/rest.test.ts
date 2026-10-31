@@ -441,18 +441,17 @@ describe("edit layout", () => {
 });
 
 describe("the map is the goal tree (docs/goals.md, build step 2)", () => {
-  it("no plan route; attaching a building moves it to its goal's plaza; Desks resizes it (town.manage_buildings), agent tokens 403", async () => {
+  it("no plan route; attaching a building draws its goal, its place on the building's doorstep; Desks resizes it (town.manage_buildings), agent tokens 403", async () => {
     const { app, world, auth } = await setup();
     expect((await json(app, "PUT", "/api/town/plan", { headers: auth, body: { lots: {} } })).status).toBe(404);
     const goal = await json(app, "POST", "/api/goals", { headers: auth, body: { parentId: "gl_town", text: "A goal with a plaza" } });
     expect(goal.status).toBe(201);
     const id = goal.body.goal.id;
-    const lot = world.buildings.require("carbon-cycle").lot!;
+    expect(world.layout.place(`plaza:${id}`)).toBeUndefined(); // no building under it yet: nothing on the map
     const attach = await json(app, "PATCH", "/api/buildings/carbon-cycle", { headers: auth, body: { goalId: id } });
     expect(attach.status).toBe(200);
-    const plaza = world.layout.plazas.find((p) => p.goalId === id)!;
-    expect(world.buildings.require("carbon-cycle").lot!.y).toBe(plaza.rect.y + plaza.rect.h);
-    expect(world.buildings.require("carbon-cycle").lot).not.toEqual(lot);
+    const plaza = world.layout.requirePlace(`plaza:${id}`);
+    expect(world.buildings.require("carbon-cycle").lot!.y).toBe(plaza.pos.y + 1); // on the street, its goal's place on its doorstep
     const desks = await json(app, "PATCH", "/api/buildings/carbon-cycle", { headers: auth, body: { headcount: 9 } });
     expect(desks.status).toBe(200);
     expect(world.buildings.require("carbon-cycle").lot).toMatchObject({ w: 15, h: 15 });

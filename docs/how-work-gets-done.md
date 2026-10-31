@@ -185,8 +185,8 @@ Built as goal tree step 2 (`packages/core/src/world/tree.ts` `treeLayout`): the 
 
 **Proposed: the obvious fixes, whatever the shape.**
 
-- **No lot or plaza for a goal with no building under it.** It becomes a signpost on its parent's road. This closes the "empty-goal look" question from mt_kh0zaqui0w.
-- **No plaza per building.** A building's door opens on the road of the goal it is attached to.
+- **No lot or plaza for a goal with no building under it** (built, PR #168: nothing draws for it; a goal with no building of its own and one drawn child folds into that child). This closes the "empty-goal look" question from mt_kh0zaqui0w.
+- **No plaza per building** (built, PR #168): a building's door opens on its parent goal's street; a goal with drawn children gets its own street one row down, with a signpost. Buildings sit one tile apart.
 - **Pack.** Lots sit on both sides of a road, two tiles apart. A chain of single-child goals folds into one road with its signposts in a row, which closes "long walks".
 
 **Proposed shape: a tree from the Town Hall whose first level is plazas.** It is a hybrid of his first and third shapes:

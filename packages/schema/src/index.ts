@@ -1841,10 +1841,10 @@ export const TILE = {
   GOAL_CHART: 27,
 } as const;
 /**
- * The Bank: a fixed landmark (not a building row, so it never takes a budget share) below the root plaza, opposite
- * the Town Hall, with its door in the top wall on the plaza (core tree.ts). Absolute tiles.
+ * The Bank: a fixed landmark (not a building row, so it never takes a budget share) at the west end of the main street,
+ * below the Town Hall, with its door in the top wall on the street (core tree.ts). Absolute tiles.
  */
-export const BANK_LOT = { x: 48, y: 14, w: 17, h: 9 } as const;
+export const BANK_LOT = { x: 2, y: 14, w: 17, h: 9 } as const;
 /**
  * The Bank's interior, relative to BANK_LOT. Shared so core's layout and the web mock build the same room.
  * Every tab of the Bank panel is a thing in the room (Mitchell, 1:1 mt_ew2d0mm7h9): the vault (place `bank`) opens
