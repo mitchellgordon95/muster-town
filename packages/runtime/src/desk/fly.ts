@@ -31,7 +31,7 @@ export interface FlyOptions {
 
 interface FlyGuest { cpu_kind: string; cpus: number; memory_mb: number }
 interface FlyMachine { id: string; name: string; state: string; config?: { guest?: FlyGuest } & Record<string, unknown> }
-interface FlyVolume { id: string; name: string; state: string; region?: string; attached_machine_id?: string | null }
+interface FlyVolume { id: string; name: string; state: string; region?: string; attached_machine_id?: string | null; created_at?: string }
 interface ExecResult { stdout: string; stderr: string; exit_code: number; exit_signal: number }
 
 /** Fly names: machines are lowercase letters, digits and dashes; volumes lowercase letters, digits and underscores, 30 chars at most. */
@@ -86,6 +86,12 @@ export class FlyApi implements SandboxApi {
     return m.id;
   }
 
+  /** The live volumes named `volName`, newest first (a desk whose host filled up has a fork beside its old volume). */
+  private async volumes(volName: string): Promise<FlyVolume[]> {
+    const { body } = await this.req<FlyVolume[]>("GET", "/volumes");
+    return body.filter((v) => !/destroy/.test(v.state) && v.name === volName).sort((a, b) => (b.created_at ?? "").localeCompare(a.created_at ?? ""));
+  }
+
   async available(): Promise<boolean> {
     try {
       await Promise.race([this.req("GET", "/machines"), sleep(8000).then(() => { throw new Error("timeout"); })]);
@@ -106,9 +112,9 @@ export class FlyApi implements SandboxApi {
     const o = this.opts;
     const size = spec.size ?? { cpuKind: o.cpuKind, cpus: o.cpus, memoryMb: o.memoryMb };
     const volName = flyVolumeName(spec.volume);
-    const vols = (await this.req<FlyVolume[]>("GET", "/volumes")).body.filter((v) => !/destroy/.test(v.state) && v.name === volName);
-    const vol = vols[0] ?? (await this.req<FlyVolume>("POST", "/volumes", { name: volName, region: o.region, size_gb: o.volumeGb })).body;
-    const machineBody = {
+    const vols = await this.volumes(volName);
+    let vol = vols[0] ?? (await this.req<FlyVolume>("POST", "/volumes", { name: volName, region: o.region, size_gb: o.volumeGb })).body;
+    const machineBody = (vol: FlyVolume) => ({
       // a Machine must run where its volume lives (an existing one may predate the configured region)
       name: flyMachineName(spec.name), region: vol.region ?? o.region,
       config: {
@@ -120,14 +126,26 @@ export class FlyApi implements SandboxApi {
         mounts: [{ volume: vol.id, path: spec.mountPath }],
         metadata: spec.labels,
       },
-    };
+    });
     // a just-created volume or pushed image can take a moment to be visible to the Machines API
     let created!: { status: number; body: FlyMachine };
+    let forked = false;
     for (let i = 0; ; i++) {
       try {
-        created = await this.req<FlyMachine>("POST", "/machines", machineBody);
+        created = await this.req<FlyMachine>("POST", "/machines", machineBody(vol));
         break;
       } catch (e) {
+        // the host holding the volume is full (412 volume_placement_capacity, seen after an image redeploy removed idle
+        // desks): fork the home onto another host and use that. The source stays (the fork may hydrate from it);
+        // `volumes` returns the newest first and `remove` deletes every copy.
+        if (!forked && /volume_placement_capacity/.test(String(e))) {
+          forked = true;
+          vol = (await this.req<FlyVolume>("POST", "/volumes", {
+            name: volName, region: vol.region ?? o.region, size_gb: o.volumeGb, source_volume_id: vol.id,
+            compute: { cpu_kind: size.cpuKind, cpus: size.cpus, memory_mb: size.memoryMb },
+          })).body;
+          continue;
+        }
         if (i >= 4 || !/volume not found|manifest unknown|MANIFEST_UNKNOWN/.test(String(e))) throw e;
         await sleep(3000);
       }
@@ -255,8 +273,7 @@ export class FlyApi implements SandboxApi {
     this.ids.delete(name);
     if (opts.volume) {
       const volName = flyVolumeName(opts.volume);
-      const v = (await this.req<FlyVolume[]>("GET", "/volumes")).body.find((x) => x.name === volName && !/destroy/.test(x.state));
-      if (v) {
+      for (const v of await this.volumes(volName)) {
         // the volume can't go while the Machine is still being destroyed
         for (let i = 0; i < 5; i++) {
           try { await this.req("DELETE", `/volumes/${v.id}`, undefined, [200, 202, 204, 404]); break; } catch { await sleep(2000); }
