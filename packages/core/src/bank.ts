@@ -529,8 +529,10 @@ export class Bank {
     return this.repos.bankCredits.where(`(expiresAt IS NULL OR expiresAt > ?) AND NOT ${EARMARKED}`, [iso], "ORDER BY expiresAt, createdAt, rowid");
   }
 
+  /** Tokens debited by the rows `where` matches: one SQL SUM. (Loading the rows through the zod-parsing Table.where was ~half of
+   *  the server CPU on 2026-10-31: this runs per live credit, per building, grant and lane on every runtime tick and Bank request.) */
   private debited(where: string, params: unknown[]): number {
-    return this.repos.bankDebits.where(where, params).reduce((s, d) => s + d.tokens, 0);
+    return this.repos.bankDebits.sum("tokens", where, params);
   }
 
   /** Expiring (unexpired subscription credits) and durable tokens left in the Bank. Durable can't go below 0 here. */
