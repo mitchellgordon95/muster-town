@@ -207,6 +207,20 @@ Installed on Wright's box (`ubuntu-2gb-hil-1`, user `node`) 2026-10-28 from 49e2
 forwarding): all seven names set (the SMTP pair is the box's existing Gmail app password), dry run "ok (fails 0)", timer
 enabled. Updating it: re-run step 1.
 
+### Slow or 503 (post-mortem docs/postmortem-2026-10-31-cpu-throttle-503.md)
+
+- **503 with the Machine `started` and its check `critical`** (`fly status -a muster-town`): the process is alive but the loop is not
+  answering. Over `fly ssh console -a muster-town -C "sh -c 'head -1 /proc/stat; sleep 5; head -1 /proc/stat'"` the eighth
+  column is steal: growing ~100 ticks/s means the host is not getting its CPU (a shared size past its burst balance, or an
+  oversubscribed host). A restart boots into the same throttle; a dedicated core does not: `fly machine update <id>
+  -a muster-town --vm-size performance-1x --vm-memory 2048 --yes`, and keep `[[vm]]` in fly.town.toml and `TOWN_MACHINE`
+  (core finance-fly.ts, pinned by a test) in step.
+- **Slow with CPU to spare**: `GET /api/health` `load.lagMs` is the p99 loop stall per 10 s window; above ~500 ms, profile
+  the live server: upload `deploy/fly/profile-live.cjs` to the Machine (`fly ssh sftp shell`, or `echo <base64> | base64 -d`
+  into /tmp) and run `fly ssh console -a muster-town -C "node /tmp/profile-live.cjs"`. It opens Node's inspector on
+  localhost only, samples 20 s, prints self and inclusive time by function and file, and closes the inspector; the raw
+  profile is left at /tmp/town.cpuprofile. Look for `Table.where` and zod under a function that only needed a number.
+
 ### Self-hosted towns directory (grant gr_8cdix9mpye, design dc_d6chojzl2a)
 
 `MUSTER_TOWN_DIRECTORY = "on"` in `fly.town.toml` turns on the directory routes on muster.town only (unset, they are on wherever `MUSTER_TOWN_PUBLIC_URL` is `https://muster.town`, because an `[env]` change reaches the Machine only with an image deploy; `off` turns them off):

@@ -445,6 +445,9 @@ textarea[data-drop="over"] { outline: 2px dashed var(--accent, #7aa2ff); outline
   .hud.guest .here-row span { display: none; }
   .hud.guest .here-more { padding-left: 2px; }
   .hud.guest .guest-text { margin-bottom: 6px; }
+  /* the town map's and the room editor's toolbars sit at the bottom on a phone, clear of the HUD card at the top */
+  .layout-bar { top: auto; bottom: 12px; left: 12px !important; right: 12px; transform: none; max-width: none !important; gap: 6px; }
+  .layout-bar-title { flex-direction: column; gap: 2px; font-size: 12px; }
 }
 
 /* v1.2 places */

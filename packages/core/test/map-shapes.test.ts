@@ -1,7 +1,7 @@
 import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 import { BANK_FIXTURES, MapLayout, TILE, labSize, type Building, type Lot } from "@muster-town/schema";
-import { computeLayout, deriveRoads, migrate, openDb, TownMeta, doorstepOf, findPath, treeLayout, type Grid, type TreeBuilding, type TreeGoal } from "../src/index.ts";
+import { computeLayout, deriveRoads, MAX_HEADCOUNT, migrate, piecesFor, validateLayout, openDb, TownMeta, doorstepOf, findPath, treeLayout, type Grid, type TreeBuilding, type TreeGoal } from "../src/index.ts";
 
 /** The live tree on 2026-10-31 (GET /api/goals and /api/town on muster.town): 19 active goals, the Town Hall and 6 labs. */
 function liveTree() {
@@ -33,21 +33,28 @@ describe.each(MapLayout.options)("the %s map of the live tree", (shape) => {
     for (const b of raw) expect(drawn.has(b.goalId), b.goalId).toBe(true);
   });
 
-  it("keeps the Bank right under the Town Hall, their doors on one street", () => {
+  it("keeps the Bank right under the Town Hall, their doors on one street (on a town square: across the square)", () => {
     const hall = tree.lots.get("town-hall")!;
     expect(tree.bank.x).toBe(hall.x);
-    expect(tree.bank.y).toBe(hall.y + hall.h + 1);
+    const square = tree.paving?.[0];
+    if (square) {
+      expect(square.y).toBe(hall.y + hall.h);
+      expect(tree.bank.y).toBe(square.y + square.h);
+    } else expect(tree.bank.y).toBe(hall.y + hall.h + 1);
   });
 
   it("every door and every goal's place reaches the Town Hall by road alone", () => {
-    expect(deriveRoads(lots, tree, tree.w, tree.h).unreached).toEqual([]);
     const roads = deriveRoads(lots, tree, tree.w, tree.h);
+    expect(roads.unreached).toEqual([]);
     const tiles = new Array<number>(tree.w * tree.h).fill(TILE.WALL);
     for (const t of roads.tiles) tiles[t.y * tree.w + t.x] = TILE.PATH;
+    // a town square's paving is street too, round its fountain
+    for (const l of tree.paving ?? []) for (let y = l.y; y < l.y + l.h; y++) for (let x = l.x; x < l.x + l.w; x++) tiles[y * tree.w + x] = TILE.PAVING;
+    for (const p of tree.plazas) if (p.fountain) for (let y = p.fountain.y; y < p.fountain.y + p.fountain.h; y++) for (let x = p.fountain.x; x < p.fountain.x + p.fountain.w; x++) tiles[y * tree.w + x] = TILE.WALL;
     const grid: Grid = { w: tree.w, h: tree.h, tiles };
-    const hall = doorstepOf(tree.lots.get("town-hall")!, "town-hall");
+    const hall = doorstepOf(tree.lots.get("town-hall")!, roads.sides.get("town-hall")!);
     for (const p of tree.plazas) expect(findPath(grid, hall, p.pos), p.goalId).not.toBeNull();
-    for (const b of lots) expect(findPath(grid, hall, doorstepOf(b.lot, b.kind)), b.id).not.toBeNull();
+    for (const b of lots) expect(findPath(grid, hall, doorstepOf(b.lot, roads.sides.get(b.id)!)), b.id).not.toBeNull();
     expect(findPath(grid, hall, { x: tree.bank.x + BANK_FIXTURES.door.x, y: tree.bank.y - 1 })).not.toBeNull();
   });
 
@@ -77,18 +84,57 @@ describe.each(MapLayout.options)("the %s map of the live tree", (shape) => {
 });
 
 describe("map shapes differ", () => {
-  it("fountain gives each first-level goal with children a plaza three rows tall with a fountain; tree keeps one-row streets", () => {
+  it("fountain is a planned town: the Town Hall and the Bank face a paved square with a fountain, a main street runs through it, each first-level goal is a district on its own avenue with every door facing it (1:1 mt_3ldf9p5av1)", () => {
     const { goals, buildings } = liveTree();
     const f = treeLayout(goals, buildings, "fountain"), t = treeLayout(goals, buildings, "tree");
-    const fat = f.plazas.filter((p) => p.depth === 1 && p.street);
-    expect(fat.length).toBeGreaterThan(0);
-    for (const p of fat) {
-      expect(p.street!.h).toBe(3);
-      expect(p.fountain).not.toBeNull();
-      expect(overlap(p.fountain!, p.street!)).toBe(true);
+    const square = f.paving![0], hall = f.lots.get("town-hall")!, root = f.plazas.find((p) => !p.parentId)!;
+    expect(f.sides!.get("town-hall")).toBe("s");
+    expect(doorstepOf(hall, "s").y).toBe(square.y);
+    expect(f.bank.y - 1).toBe(square.y + square.h - 1);
+    expect(root.fountain).toMatchObject({ w: 3, h: 3 });
+    expect(overlap(root.fountain!, square)).toBe(true);
+    // the main street crosses the square and runs past it both ways
+    const main = root.street!;
+    expect(main.x).toBeLessThan(square.x);
+    expect(main.x + main.w).toBeGreaterThan(square.x + square.w);
+    // a district per first-level goal with a building under it: a signpost on the main street's edge, every lab's door
+    // in a side wall, its doorstep on the district's avenue
+    const districts = f.plazas.filter((p) => p.depth === 1);
+    expect(districts.map((p) => p.goalId).sort()).toEqual(["gl_join", "gl_trust"]);
+    for (const d of districts) expect(d.pos.y).toBe(main.y);
+    const avenues = new Set(districts.flatMap((d) => f.edges.get(d.goalId)!).map((e) => `${e.x},${e.y}`));
+    for (const b of buildings.filter((x) => x.kind === "lab")) {
+      const side = f.sides!.get(b.id)!;
+      expect(["e", "w"], b.id).toContain(side);
+      const step = doorstepOf(f.lots.get(b.id)!, side);
+      expect(avenues.has(`${step.x},${step.y}`), b.id).toBe(true);
     }
+    // dressed: trees, lamps, benches and flower beds, none on a road or a lot
+    const kinds = new Set(f.decor!.map((d) => d.tile));
+    for (const k of [TILE.TREE, TILE.LAMP, TILE.BENCH, TILE.FLOWERS]) expect(kinds.has(k), String(k)).toBe(true);
+    const solid = [...f.lots.values(), f.bank, main, root.fountain!];
+    for (const d of f.decor!) for (const l of solid) expect(overlap({ ...d.at, w: 1, h: 1 }, l), `decor at ${d.at.x},${d.at.y}`).toBe(false);
+    for (const d of f.decor!) expect(avenues.has(`${d.at.x},${d.at.y}`)).toBe(false);
+    // the tree keeps one-row streets, no square, every lab's door in its top wall
     for (const p of t.plazas) { expect(p.street?.h ?? 1).toBe(1); expect(p.fountain).toBeNull(); }
-    expect(f.lots.get("town-hall")).toEqual(t.lots.get("town-hall"));
+    expect(t.paving).toBeUndefined();
+  });
+
+  it("every default room is legal with its door in any wall, for every headcount", () => {
+    for (let n = 1; n <= MAX_HEADCOUNT; n++) for (const side of ["n", "s", "e", "w"] as const) {
+      expect(validateLayout("lab", labSize(n), piecesFor("lab", n, labSize(n), side), {}, side), `headcount ${n}, door ${side}`).toEqual([]);
+    }
+  });
+
+  it("radial: every lab's door faces the middle of the town", () => {
+    const { goals, buildings } = liveTree();
+    const r = treeLayout(goals, buildings, "radial"), hall = r.lots.get("town-hall")!;
+    const mid = { x: hall.x + hall.w / 2, y: hall.y + hall.h };
+    for (const b of buildings.filter((x) => x.kind === "lab")) {
+      const l = r.lots.get(b.id)!, d = doorstepOf(l, r.sides!.get(b.id)!);
+      // the doorstep is nearer the middle than the lot's centre is
+      expect(Math.hypot(d.x - mid.x, d.y - mid.y), b.id).toBeLessThan(Math.hypot(l.x + l.w / 2 - mid.x, l.y + l.h / 2 - mid.y));
+    }
   });
 });
 

@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { BANK_FIXTURES, BANK_LOT, ROOT_GOAL_ID, TILE, labSize, type Lot } from "@muster-town/schema";
-import { World, computeLayout, createBuilding, createResident, deriveRoads, doorstepOf, findPath, treeLayout, type Grid, type TreeBuilding, type TreeGoal } from "../src/index.ts";
+import { World, computeLayout, defaultSide, createBuilding, createResident, deriveRoads, doorstepOf, findPath, treeLayout, type Grid, type TreeBuilding, type TreeGoal } from "../src/index.ts";
 import { seededWorld } from "./helpers.ts";
 
 /** The live tree at def72e8 (16 goals, 6 labs + the Town Hall), in its shape. */
@@ -51,13 +51,13 @@ describe("the map is the tree (docs/goals.md, build step 2)", () => {
     expect(BANK_LOT.y).toBe(main.y + 1); // and the Bank below it
     const streets = tree.plazas.flatMap((p) => (p.street ? [p.street] : []));
     const onStreet = (t: { x: number; y: number }) => streets.some((s) => overlap({ ...t, w: 1, h: 1 }, s));
-    for (const b of buildings) expect(onStreet(doorstepOf(tree.lots.get(b.id)!, b.kind)), b.id).toBe(true);
+    for (const b of buildings) expect(onStreet(doorstepOf(tree.lots.get(b.id)!, defaultSide(b.kind))), b.id).toBe(true);
     // a goal with no drawn children has no street or signpost of its own: its place is its building's doorstep
     for (const b of buildings.filter((x) => x.kind === "lab")) {
       const p = plaza.get(b.goalId!)!;
       expect(p.street, b.id).toBeNull();
       expect(p.sign, b.id).toBeNull();
-      expect(p.pos).toEqual(doorstepOf(tree.lots.get(b.id)!, "lab"));
+      expect(p.pos).toEqual(doorstepOf(tree.lots.get(b.id)!, "n"));
     }
     // nothing overlaps: lots, the Bank, streets and signposts
     const rects: [string, Lot][] = [...tree.lots.entries(), ["bank", BANK_LOT], ...streets.map((r, i): [string, Lot] => [`street ${i}`, r]),
@@ -108,9 +108,9 @@ describe("the map is the tree (docs/goals.md, build step 2)", () => {
     const lots = buildings.map((b) => ({ id: b.id, kind: b.kind, lot: tree.lots.get(b.id)! }));
     expect(deriveRoads(lots, tree, tree.w, tree.h).unreached).toEqual([]);
     const grid = roadsOnly(lots, tree);
-    const hall = doorstepOf(tree.lots.get("town-hall")!, "town-hall");
+    const hall = doorstepOf(tree.lots.get("town-hall")!, "s");
     for (const p of tree.plazas) expect(findPath(grid, hall, p.pos), p.goalId).not.toBeNull();
-    for (const b of lots) expect(findPath(grid, hall, doorstepOf(b.lot, b.kind)), b.id).not.toBeNull();
+    for (const b of lots) expect(findPath(grid, hall, doorstepOf(b.lot, defaultSide(b.kind))), b.id).not.toBeNull();
     expect(findPath(grid, hall, { x: BANK_LOT.x + BANK_FIXTURES.door.x, y: BANK_LOT.y - 1 })).not.toBeNull();
   });
 
@@ -130,7 +130,7 @@ describe("the map is the tree (docs/goals.md, build step 2)", () => {
   });
 
   it("a tree change redraws the map: a new goal draws once a building attaches to it, the building moves there and its residents follow", () => {
-    const { world, seed, by } = seededWorld();
+    const { world, seed, by } = seededWorld("tree");
     // a second lab on the main street, so moving carbon-cycle to a goal of its own moves it (after the root's own buildings)
     const b = createBuilding(world, { name: "Sized", headcount: 7 }, seed.admin.id);
     expect(world.buildings.require(b.id).lot).toMatchObject(labSize(7));
@@ -146,7 +146,7 @@ describe("the map is the tree (docs/goals.md, build step 2)", () => {
     expect(plaza.kind).toBe("plaza");
     expect(plaza.name).toBe("Make the map the tree");
     // the building stands on the street, its goal's place on its doorstep, and Ravi is still at his desk
-    expect(plaza.pos).toEqual(doorstepOf(moved, "lab"));
+    expect(plaza.pos).toEqual(doorstepOf(moved, "n"));
     expect(world.agents.require(ravi.id).pos).toEqual(world.layout.deskOf(ravi.id)!.pos);
     expect(world.layout.deskOf(ravi.id)!.pos).not.toEqual(desk.pos);
     // retiring the goal (moving the building back first) takes it off the map
@@ -160,7 +160,7 @@ describe("the map is the tree (docs/goals.md, build step 2)", () => {
   });
 
   it("a map that changed across a restart (a deploy): residents follow their desks on the first rebuild", () => {
-    const { world, dbPath, by, seed } = seededWorld();
+    const { world, dbPath, by, seed } = seededWorld("tree");
     createBuilding(world, { name: "Neighbour" }, seed.admin.id); // so carbon-cycle moving off the main street moves it
     const g = world.goalTree.create(null, { parentId: ROOT_GOAL_ID, text: "Somewhere else" });
     const ravi = by("Ravi");

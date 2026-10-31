@@ -1,6 +1,6 @@
 import { BANK_FIXTURES, bankPlaces, labSize, MAX_HEADCOUNT, TILE, WALKABLE, type Building, type Lot, type Place, type Tile } from "@muster-town/schema";
 import { piecesFor, resolveFurniture } from "./furniture.ts";
-import { deriveRoads, doorOf } from "./road.ts";
+import { deriveRoads, doorOf, type Side } from "./road.ts";
 import { treeLayout, type Plaza, type TreeGoal } from "./tree.ts";
 import type { MapLayout } from "@muster-town/schema";
 
@@ -49,6 +49,8 @@ export interface LayoutResult {
   desks: Map<string, DeskSlot[]>;
   /** door tile per building */
   doors: Map<string, Tile>;
+  /** the wall each building's door is in */
+  sides: Map<string, Side>;
   /** seats around each meeting table, by meeting-room place id; the place's own tile first */
   seats: Map<string, Tile[]>;
 }
@@ -73,12 +75,16 @@ export function computeLayout(buildings: Building[], goals: TreeGoal[], occupanc
   // the roads (the streets and the drops between them), then a place per drawn goal and a signpost per junction
   const roads = deriveRoads(lots, tree, w, h);
   for (const t of roads.tiles) set(t.x, t.y, TILE.PATH);
+  // a town square's paving, then its decor (trees, lamps, benches, flower beds)
+  for (const l of tree.paving ?? []) for (let y = l.y; y < l.y + l.h; y++) for (let x = l.x; x < l.x + l.w; x++) set(x, y, TILE.PAVING);
+  for (const d of tree.decor ?? []) set(d.at.x, d.at.y, d.tile);
+  const sideOf = (id: string) => roads.sides.get(id)!;
   for (const p of tree.plazas) {
     if (p.sign) set(p.sign.x, p.sign.y, TILE.SIGNPOST);
-    if (p.fountain) for (let x = p.fountain.x; x < p.fountain.x + p.fountain.w; x++) set(x, p.fountain.y, TILE.FOUNTAIN);
+    if (p.fountain) for (let y = p.fountain.y; y < p.fountain.y + p.fountain.h; y++) for (let x = p.fountain.x; x < p.fountain.x + p.fountain.w; x++) set(x, y, TILE.FOUNTAIN);
     places.push({ id: `plaza:${p.goalId}`, kind: "plaza", name: p.text || "Goal", buildingId: null, pos: p.pos });
-    // the root keeps its old id too: the town's meeting point (presence, arrivals), on the main street by the Town Hall's door
-    if (!p.parentId) places.push({ id: "plaza", kind: "plaza", name: "Plaza", buildingId: null, pos: hall ? { x: doorOf(hall.lot, hall.kind).x - 2, y: p.pos.y } : p.pos });
+    // the root keeps its old id too: the town's meeting point (presence, arrivals), in front of the square's fountain or on the main street by the Town Hall's door
+    if (!p.parentId) places.push({ id: "plaza", kind: "plaza", name: "Plaza", buildingId: null, pos: p.fountain ? { x: p.fountain.x + Math.floor(p.fountain.w / 2), y: p.fountain.y + p.fountain.h } : hall ? { x: doorOf(hall.lot, sideOf(hall.id)).x - 2, y: p.pos.y } : p.pos });
   }
   bankRoom(set, places, tree.bank);
 
@@ -88,14 +94,14 @@ export function computeLayout(buildings: Building[], goals: TreeGoal[], occupanc
       const edge = x === 0 || y === 0 || x === bw - 1 || y === bh - 1;
       set(x0 + x, y0 + y, edge ? TILE.WALL : TILE.FLOOR);
     }
-    const door = doorOf(b.lot, b.kind);
+    const side = sideOf(b.id), door = doorOf(b.lot, side);
     set(door.x, door.y, TILE.DOOR);
     doors.set(b.id, door);
     places.push({ id: `door:${b.id}`, kind: "door", name: `${b.name} door`, buildingId: b.id, pos: door });
 
     // furniture: each piece at its stored anchor if that's legal, else its default
-    const pieces = piecesFor(b.kind, b.headcount, b.lot);
-    const { anchors, dropped } = resolveFurniture(b.kind, b.lot, pieces, b.furniture);
+    const pieces = piecesFor(b.kind, b.headcount, b.lot, side);
+    const { anchors, dropped } = resolveFurniture(b.kind, b.lot, pieces, b.furniture, side);
     if (dropped.length) console.warn(`[layout] ${b.id}: ${dropped.join(", ")} back at the default spot (stored spot is no longer legal)`);
     const piece = new Map(pieces.map((p) => [p.key, p]));
     for (const p of pieces) {
@@ -158,7 +164,7 @@ export function computeLayout(buildings: Building[], goals: TreeGoal[], occupanc
     const room = places.find((p) => p.id === id)!.pos;
     seats.set(id, seatsAround(grid, table, room));
   }
-  return { grid, lots: tree.lots, plazas: tree.plazas, bank: tree.bank, places, desks, doors, seats };
+  return { grid, lots: tree.lots, plazas: tree.plazas, bank: tree.bank, places, desks, doors, sides: roads.sides, seats };
 }
 
 /** The Bank (right below the Town Hall): gold walls are the renderer's job; here the room, its door, the vault and the stations, and their places. */

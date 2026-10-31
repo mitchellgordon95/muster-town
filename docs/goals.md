@@ -14,29 +14,6 @@ A note on scope. Mitchell observed that this is turning into an org/corporation 
 
 > Superseded by [how-work-gets-done.md](how-work-gets-done.md) §4: key results move from goals onto grants; goals keep none of their own.
 
-```
-Make Muster Town something strangers can fund, join, and trust     (root goal, captain: Mitchell)  ← Town Hall
-├─ Fund   (placeholder goal)
-│   └─ Someone other than Mitchell can fund a key result end to end      (goal)   ← Workshop attached
-│        ├─ kr_6f9c200vsx  A member funds an open proposal from the in-tray   (KR, by 2026-11-30, grant gr_tvt32g9xly)
-│        └─ ✓ archived: met and missed KRs stay here, collapsed
-├─ Join   (placeholder goal)
-│   └─ A stranger finishes useful work in their first session            (goal)   ← Onboarding attached
-│        └─ kr_4li00ad46e  A visitor's first look carries a starter brief   (KR, by 2026-12-15)
-└─ Trust  (placeholder goal)
-     └─ A funder sees what every token bought                             (goal)   ← Bank Transparency attached
-          └─ kr_vyrhhiyotb  The Bank counts adjusted output tokens       (KR, grant gr_iq5m7dug56)
-```
-
-(Illustrative: the attachments and dates are examples, not the migration's output. Each building appears once, since a building has exactly one attachment.)
-
-- **One root.** The root is the town goal. Fund, Join and Trust are its children today, as **placeholders**: Mitchell will iterate on the tree, and any other child of the root is allowed (1:1 mt_kh0zaqui0w).
-- **Standing goal.** A direction. It is never "met". A human *retires* it when priorities change, or *changes* it (a reorg). While it is active, it keeps generating key results and, through them, grants. **Depth is unbounded**: any goal can have child goals.
-- **Key result (KR).** A dated, checkable claim: **a concrete thing in the live town by a date** ("The Town Hall in-tray reviews as one deck"). A KR is always a leaf under a goal, and always has a date. When a human marks it met or missed, it **archives under its goal**, and the goal stays.
-- **No KPIs for now.** Mitchell hasn't decided how he feels about KPI dials (1:1 mt_kh0zaqui0w), so the tree has none: no goal watches a dial, no KR targets one, and Fund/Join/Trust have no dial. Today's dials (`core/src/kpis.ts`) and the Dashboard tiles stay as they are, outside the tree. Dial-target KRs and auto-claim are parked until he wants KPIs back.
-
-**The test for a KR.** A fork could write a grant proposal against it without asking anyone, and a human could check it in the live town. If a fork would have to ask "what do you mean?", the KR is still a goal.
-
 ## Data model
 
 Everything is additive (see Migration). Ids stay stable: every `kr_…` keeps its id, statuses and grants, and every `ob_…` objective becomes a goal with the same id.
@@ -54,10 +31,7 @@ Everything is additive (see Migration). Ids stay stable: every `kr_…` keeps it
 
 > Superseded by [how-work-gets-done.md](how-work-gets-done.md) §4: `propose_key_result` and KR status on goals go; managers propose grants (with their key results) and goals.
 
-- **Humans with `goals.edit`** (town admins; Mitchell today) edit the tree anywhere: add, edit, move, retire, change (reorg), attach a building (move it to another goal), set captains, and mark KRs met or missed. A node's **captain** can do all of that inside the subtree they own, and also **decide and fund grants** there (see Captains). Captains are humans only for now.
-- **Managers and their forks propose** (they never own nodes for now). `set_objective` and `set_key_result` become `propose_goal` / `propose_key_result`. They take the same fields plus `why`, and an `id` proposes an edit. Each creates a `goal_proposals` row. A proposal outside the building's subtree is allowed but flagged.
-- **KR status** up to `claimed` stays the manager's (`checkpoint_grant`, or a status-only `propose_key_result` on its subtree). A status change is not a tree edit.
-- **Retiring a goal that still has open KRs** (1:1 mt_kh0zaqui0w). The Retire dialog lists the open KRs under it and offers **Move to a sibling** (the human picks the sibling goal); the KRs and their grants move there unchanged. If the human picks no sibling, **Retire is refused** until the open KRs are moved or closed, so nothing is orphaned silently. Buildings attached to the goal (or below it) get the same treatment: the dialog moves them to the chosen sibling, or refuses, since a building is never unattached.
+Today: humans with `goals.edit` (town admins, and a node's captain on their subtree) edit the tree; managers and their forks propose goals (`propose_goal`) and grants with their key results (`propose_grant`).
 
 ## The Town Hall goal editor
 
@@ -205,17 +179,6 @@ The Bank's **Spend by goal** section (Spending tab; a tab on every node until 1:
 ## How lanes map onto subtrees
 
 > Superseded by [how-work-gets-done.md](how-work-gets-done.md) §3 and §4: exploration names a goal, not a key result; "blocked: no KRs" and the KR stoplight go.
-
-| Lane | Today | After |
-|---|---|---|
-| `grant` | grant is the building's, funded, below its checkpoint | unchanged |
-| `exploration` | names a KR of the building's goal (no funded grant) or a gap | names an **open KR in the building's subtree**, or a gap optionally anchored to a goal in its subtree |
-| `directed` | traces to a human source; may name a building KR | unchanged; a named KR must be in the subtree |
-
-- **No per-building exploration allowance.** Exploration runs while the town's free funds are above zero (see Finance), on the building's desks.
-- **Blocked.** A goal-directed building is blocked when its subtree has **no open KR and no funded grant** (it always has an attachment). Then the manager is woken once to *propose* the next KR. That is how a standing goal keeps generating work.
-- **Shared KRs.** Two buildings on one goal can both propose against one KR. The in-tray shows the proposals side by side, and "directed work naming a KR stops once a grant proposal names it" applies across buildings.
-- **The desk brief** lists the building's subtree: each goal's path from the root, its owner, its open KRs (status, due date, grant word, under review), and "Archived: n met, m missed". Rollups replace "Key results I wrote" with "Goal proposals I made".
 
 ## Postmortems on missed KRs
 
