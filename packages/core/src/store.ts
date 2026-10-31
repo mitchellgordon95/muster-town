@@ -165,7 +165,7 @@ export function createRepos(db: DB, changes: Emitter<ServerMessage>) {
     grants: new Table<Grant>(db, "grants", Grant, { json: ["findingsDocIds", "checkpointsDone", "history", "testingPlan"] }),
     keyResults: new Table<KeyResult>(db, "key_results", KeyResult, { json: ["sourceDocIds"] }),
     objectives: new Table<Objective>(db, "objectives", Objective, { json: ["sourceDocIds"] }),
-    goals: new Table<Goal>(db, "goals", Goal, { json: ["sourceDocIds"] }),
+    goals: new Table<Goal>(db, "goals", Goal, { json: ["sourceDocIds"], bool: ["explore"] }),
     goalProposals: new Table<GoalProposal>(db, "goal_proposals", GoalProposal, { json: ["fields", "sourceDocIds"] }),
     goalChanges: new Table<GoalChange>(db, "goal_changes", GoalChange),
     kpis: new Table<Kpi>(db, "kpis", Kpi),

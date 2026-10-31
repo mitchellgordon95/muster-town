@@ -129,8 +129,8 @@ export class MockApi implements Api {
     const owner = { goalId: "gl_town", userId: null, name: "the town admins" };
     const node = (id: string, parentId: string | null, text: string, children: GoalTreeNode[] = []): GoalTreeNode => ({
       id, parentId, text, status: "active", ownerId: null, owner, keyResults: [], children,
-      exploreCapTokensPerDay: MOCK_CAP[id] ?? null,
-      funding: { exploreCap: this.capAt(id), exploreSpentTodayTokens: F_SPENT_TODAY(), free: this.free(id) },
+      exploreCapTokensPerDay: MOCK_CAP[id] ?? null, explore: null, exploreChunkTokens: null,
+      funding: { exploreCap: this.capAt(id), explore: { on: true, onFrom: null, chunkTokens: 100_000, chunkFrom: null }, exploreSpentTodayTokens: F_SPENT_TODAY(), free: this.free(id) },
       buildings: this.sim.buildings.filter((b) => (b.goalId ?? "gl_town") === id).map((b) => ({ id: b.id, name: b.name, headcount: b.headcount, inUse: Math.min(b.headcount, [...this.sim.agents.values()].filter((a) => a.homeBuildingId === b.id && a.status === "working").length) })),
     });
     return clone(node("gl_town", null, this.sim.town.goal || "The town goal", [node("gl_fund", "gl_town", "Fund"), node("gl_join", "gl_town", "Join"), node("gl_trust", "gl_town", "Trust")]));

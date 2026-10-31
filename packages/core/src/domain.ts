@@ -51,7 +51,7 @@ export function canSeeDoc(holder: Holder, d: Doc): boolean {
  * (`fromAssignmentId`, or the assignment behind `fromReportId`) inherits its lane, else it is directed. `laneOverride`
  * skips the validation (system-made work such as the checkpoint assignment).
  */
-export function createAssignment(world: World, a: { agentId: string; title: string; description: string; createdBy: Holder | { kind: "system"; id: string }; fromReportId?: string | null; fromMeetingId?: string | null; fromAssignmentId?: string | null; buildingId?: string; front?: boolean; waitFor?: WaitFor | null; parked?: number; lane?: LaneFields; laneOverride?: Lane; origin?: Origin | null; queue?: AssignmentQueue; model?: string | null }): Assignment {
+export function createAssignment(world: World, a: { agentId: string; title: string; description: string; createdBy: Holder | { kind: "system"; id: string }; fromReportId?: string | null; fromMeetingId?: string | null; fromAssignmentId?: string | null; buildingId?: string; front?: boolean; waitFor?: WaitFor | null; parked?: number; lane?: LaneFields; laneOverride?: Lane; origin?: Origin | null; queue?: AssignmentQueue; model?: string | null; reservationId?: string | null }): Assignment {
   let agent = world.agents.require(a.agentId, "agent");
   let queue: AssignmentQueue = a.queue ?? "agent";
   // a fork lives for one session: work made for it (a park continuation, a review follow-up) goes on the building queue,
@@ -76,7 +76,7 @@ export function createAssignment(world: World, a: { agentId: string; title: stri
     createdBy: a.createdBy.id, createdByKind: a.createdBy.kind === "system" ? "user" : a.createdBy.kind,
     fromMeetingId: a.fromMeetingId ?? null, fromReportId: a.fromReportId ?? null, reportId: null,
     fromAssignmentId: a.fromAssignmentId ?? null, position: a.front ? frontPosition(world, agent.id) : Date.now(), createdAt: ts, updatedAt: ts,
-    waitFor: a.waitFor ?? null, ...(a.parked ? { parked: a.parked } : {}), ...lane, heldReason: null, origin,
+    waitFor: a.waitFor ?? null, ...(a.parked ? { parked: a.parked } : {}), ...lane, heldReason: null, origin, reservationId: a.reservationId ?? null,
     // the chain is the first assignment's id: a retry, a park continuation and a review follow-up continue `from`'s
     chainId: from ? from.chainId ?? from.id : id, queue, model: a.model ?? null,
     // v1.4: a visitor's loop runs outside the town, so its assignments are offers it accepts (never scheduled)

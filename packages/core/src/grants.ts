@@ -125,7 +125,7 @@ export class Grants {
     // an objective is a goal of the town tree with the same id, under the building's attachment (docs/goals.md)
     this.world.goals.upsert({
       id: o.id, parentId: this.world.goalTree.attachmentOf(b), position: o.position, text: o.text, ownerId: null, status: "active", retiredAt: null, retiredBy: null, retiredNote: "",
-      createdBy: o.createdBy, editedBy: null, sourceDocIds: o.sourceDocIds, exploreCapTokensPerDay: null, createdAt: o.updatedAt, updatedAt: o.updatedAt,
+      createdBy: o.createdBy, editedBy: null, sourceDocIds: o.sourceDocIds, exploreCapTokensPerDay: null, explore: null, exploreChunkTokens: null, createdAt: o.updatedAt, updatedAt: o.updatedAt,
     });
     this.world.events.append({
       type: "objective.created", agentId: actor?.id ?? null, buildingId, text: `${b.name} objective: ${o.text}`,
