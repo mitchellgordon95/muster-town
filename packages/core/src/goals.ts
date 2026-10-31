@@ -13,7 +13,8 @@ import type { World } from "./world.ts";
 export interface GoalNode extends Goal {
   /** the effective owner: this goal's, else the nearest owned ancestor's (null = the town admins, the root's owners) */
   owner: { goalId: string; userId: string | null; name: string };
-  buildings: { id: string; name: string }[];
+  /** attached here: `headcount` = the building's desks (docs/goals.md "Effort steering is desks"), `inUse` = desks seated now */
+  buildings: { id: string; name: string; headcount: number; inUse: number }[];
   keyResults: (KeyResult & { grantId: string | null })[];
   children: GoalNode[];
 }
@@ -160,10 +161,11 @@ export class Goals {
     const live = new Map(this.world.grants.where("status IN ('funded', 'checkpoint') AND keyResultId IS NOT NULL", [], "ORDER BY fundedAt, rowid").map((g) => [g.keyResultId!, g.id]));
     const krs = new Map<string, (KeyResult & { grantId: string | null })[]>();
     for (const k of this.world.keyResults.where("goalId IS NOT NULL", [], "ORDER BY position, rowid")) krs.set(k.goalId!, [...(krs.get(k.goalId!) ?? []), { ...k, grantId: live.get(k.id) ?? null }]);
-    const attached = new Map<string, { id: string; name: string }[]>();
+    // desks are the steer (docs/goals.md "Effort steering is desks"): each building's headcount and the desks seated now
+    const attached = new Map<string, GoalNode["buildings"]>();
     for (const b of this.world.buildings.all()) {
       const at = this.attachmentOf(b);
-      attached.set(at, [...(attached.get(at) ?? []), { id: b.id, name: b.name }]);
+      attached.set(at, [...(attached.get(at) ?? []), { id: b.id, name: b.name, headcount: b.headcount, inUse: Math.min(b.headcount, this.world.layout.deskCount(b.id)) }]);
     }
     const names = new Map<string, string>();
     const ownerName = (id: string | null) => {

@@ -65,6 +65,20 @@ export function allBuildings(root: GoalTreeNode): { id: string; name: string }[]
   return [...root.buildings, ...root.children.flatMap(allBuildings)];
 }
 
+/**
+ * The desks working a goal (docs/goals.md "Effort steering is desks"): the headcount of every building attached at it
+ * or anywhere below, and how many of those desks are seated now. The root's total is the town's desks.
+ */
+export function subtreeDesks(node: Pick<GoalTreeNode, "buildings" | "children">): { desks: number; inUse: number } {
+  return node.children.map(subtreeDesks).reduce((a, c) => ({ desks: a.desks + c.desks, inUse: a.inUse + c.inUse }), {
+    desks: node.buildings.reduce((n, b) => n + b.headcount, 0),
+    inUse: node.buildings.reduce((n, b) => n + b.inUse, 0),
+  });
+}
+
+/** "6 desks", "1 desk". */
+export const deskWord = (n: number): string => `${n} desk${n === 1 ? "" : "s"}`;
+
 /** One line of the tree as the editor lists it: the goal and its depth. Retired goals only when `retired`. */
 export function treeRows(root: GoalTreeNode, retired: boolean, depth = 0): { node: GoalTreeNode; depth: number }[] {
   if (root.status === "retired" && !retired) return [];
