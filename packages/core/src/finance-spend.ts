@@ -24,8 +24,10 @@ export interface SpendNode {
   kind: SpendKind;
   /** the building, grant or assignment id; null for the synthetic rows */
   id: string | null;
-  /** building name, grant objective, assignment title, or the synthetic row's label */
+  /** building name, the grant's short title (`grantTitle` of its objective), assignment title, or the synthetic row's label */
   name: string;
+  /** grant rows only: the grant's full objective (`name` is its first clause, at most 60 characters) */
+  objective?: string;
   tokens: number;
   /** tokens / used (0 when used is 0); the weight-mismatch and not-funded rows' shares are negative */
   share: number;
@@ -51,7 +53,7 @@ export interface FinanceSpend {
   convertedAt: string | null;
   /** (sessionsTotal − weightMismatch) − used when positive: session spend outside the Bank and donations */
   notFunded: number;
-  /** buildings by tokens, then an "Unattributed" row, a negative "Weight mismatch" row and a negative "Not funded" row when non-zero: these rows sum to `used` */
+  /** buildings by tokens, then an unattributed row, a negative weight-mismatch row and a negative "Not funded" row when non-zero: these rows sum to `used` */
   rows: SpendNode[];
   /** the rows' sum vs used; ok when they match exactly */
   check: { ok: boolean; diff: number; identity: string };
@@ -69,11 +71,27 @@ export interface SpendInputs {
 }
 
 export const NO_BUILDING = "No building (town-wide sessions)";
-export const NO_GRANT = "No grant (exploration, directed and earlier work)";
-export const NO_ASSIGNMENT = "Manager sessions, no assignment (manage, review, facilitate, summary, meeting replies)";
-export const UNATTRIBUTED = "Unattributed: usage no session counts (before sessions carried counters, 2026-10-26 20:29)";
-export const WEIGHT_MISMATCH = "Weight mismatch: sessions before the Bank's conversion to adjusted tokens, counted here at their own model's weights but booked by the Bank at Opus weights (a Fable session: 24 raw per token here, 30 in the Bank); nothing unpaid";
-export const NOT_FUNDED = "Not funded: session spend beyond what the Bank and donations paid for";
+export const NO_GRANT = "Not under a grant: work a human asked for, the building's own daily allowance, and sessions from before grants existed";
+export const NO_ASSIGNMENT = "The manager's own sessions: reading reports, running meetings and replying (no assignment)";
+export const UNATTRIBUTED = "Usage from before sessions carried counters (before 2026-10-26 20:29)";
+export const WEIGHT_MISMATCH = "Priced differently before the switch to adjusted tokens (nothing went unpaid)";
+export const NOT_FUNDED = "Not funded: work sessions the Bank never charged";
+
+/** The longest grant row name: longer first clauses are cut at a word and end in "…". */
+const GRANT_TITLE_MAX = 60;
+
+/**
+ * A grant row's name: its objective's first clause (up to the first comma, colon or semicolon), at most
+ * GRANT_TITLE_MAX characters, ending in "…" whenever anything was cut (the full objective rides along as `objective`).
+ */
+export function grantTitle(objective: string): string {
+  const full = objective.trim().replace(/\s+/g, " ");
+  const clause = full.split(/[,:;]/)[0].trim();
+  if (clause.length <= GRANT_TITLE_MAX) return clause.length < full.length ? `${clause}…` : clause;
+  const cut = clause.slice(0, GRANT_TITLE_MAX - 1);
+  const space = cut.lastIndexOf(" ");
+  return `${(space > GRANT_TITLE_MAX / 2 ? cut.slice(0, space) : cut).trimEnd()}…`;
+}
 export const SPEND_IDENTITY = "buildings + unattributed − weight mismatch − not funded = used";
 
 /**
@@ -104,8 +122,8 @@ export function ledgerBookedBeforeConversion(s: SpendInputs["sessions"][number],
   return adjustedOutputTokens(null, counts);
 }
 
-interface Acc { kind: SpendKind; id: string | null; name: string; tokens: number; sessions: number; kids: Map<string, Acc> }
-const acc = (kind: SpendKind, id: string | null, name: string): Acc => ({ kind, id, name, tokens: 0, sessions: 0, kids: new Map() });
+interface Acc { kind: SpendKind; id: string | null; name: string; objective?: string; tokens: number; sessions: number; kids: Map<string, Acc> }
+const acc = (kind: SpendKind, id: string | null, name: string, objective?: string): Acc => ({ kind, id, name, ...(objective != null ? { objective } : {}), tokens: 0, sessions: 0, kids: new Map() });
 function child(parent: Acc, key: string, make: () => Acc): Acc {
   let c = parent.kids.get(key);
   if (!c) parent.kids.set(key, c = make());
@@ -138,7 +156,10 @@ export function financeSpend(inp: SpendInputs, used: number, now = new Date()): 
     } else {
       const grantId = s.grantId ?? a?.grantId ?? null;
       const g = grantId
-        ? child(b, `grant:${grantId}`, () => acc("grant", grantId, grantNames.get(grantId) ?? grantId))
+        ? child(b, `grant:${grantId}`, () => {
+          const objective = grantNames.get(grantId);
+          return objective ? acc("grant", grantId, grantTitle(objective), objective) : acc("grant", grantId, grantId);
+        })
         : child(b, "no-grant", () => acc("no-grant", null, NO_GRANT));
       path.push(g, child(g, s.assignmentId, () => acc("assignment", s.assignmentId, a?.title ?? s.assignmentId!)));
     }
@@ -149,7 +170,7 @@ export function financeSpend(inp: SpendInputs, used: number, now = new Date()): 
   const share = (t: number) => (used ? Math.round((t / used) * 1e4) / 1e4 : 0);
   const out = (n: Acc): SpendNode => {
     const kids = [...n.kids.values()].sort((x, y) => y.tokens - x.tokens).map(out);
-    return { kind: n.kind, id: n.id, name: n.name, tokens: n.tokens, share: share(n.tokens), sessions: n.sessions, ...(kids.length ? { children: kids } : {}) };
+    return { kind: n.kind, id: n.id, name: n.name, ...(n.objective != null ? { objective: n.objective } : {}), tokens: n.tokens, share: share(n.tokens), sessions: n.sessions, ...(kids.length ? { children: kids } : {}) };
   };
   const rows = [...root.kids.values()].sort((x, y) => y.tokens - x.tokens).map(out);
   const sessionsTotal = root.tokens;
@@ -164,7 +185,7 @@ export function financeSpend(inp: SpendInputs, used: number, now = new Date()): 
   const converted = inp.convertedAt ? inp.convertedAt.slice(0, 16).replace("T", " ") + "Z" : "never";
   return {
     used, sessionsTotal, unattributed, weightMismatch,
-    weightMismatchNote: `Sessions ended before the Bank's conversion to adjusted tokens (${converted}) are counted here at their own model's weights; the Bank booked them with no model, at Opus weights. The difference is pricing, not spend: nothing went unpaid.`,
+    weightMismatchNote: `Sessions that ended before the Bank switched to adjusted tokens (${converted}) are priced here at their own model's rate and in the Bank at one rate for every model. The difference is pricing, not spend: nothing went unpaid.`,
     convertedAt: inp.convertedAt, notFunded, rows,
     check: { ok: diff === 0, diff, identity: SPEND_IDENTITY },
     at: now.toISOString(),

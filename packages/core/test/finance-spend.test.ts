@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { countersSince, createBuilding, createResident, financeSpend, ledgerBookedBeforeConversion, NO_ASSIGNMENT, NO_BUILDING, NO_GRANT, WEIGHT_MISMATCH, type SpendInputs, type SpendNode } from "../src/index.ts";
+import { countersSince, createBuilding, createResident, financeSpend, grantTitle, ledgerBookedBeforeConversion, NO_ASSIGNMENT, NO_BUILDING, NO_GRANT, UNATTRIBUTED, WEIGHT_MISMATCH, type SpendInputs, type SpendNode } from "../src/index.ts";
 import { seededWorld } from "./helpers.ts";
 
 const T0 = new Date("2026-10-28T12:00:00.000Z");
@@ -47,7 +47,7 @@ describe("financeSpend (GET /api/finance/spend)", () => {
     expect(f.rows.map((r) => [r.kind, r.name, r.tokens])).toEqual([
       ["building", "Bank Transparency", 720],
       ["building", "Lab", 430],
-      ["unattributed", expect.stringContaining("Unattributed"), 350],
+      ["unattributed", UNATTRIBUTED, 350],
     ]);
     expect(sum(f.rows)).toBe(f.used);
 
@@ -117,6 +117,18 @@ describe("financeSpend (GET /api/finance/spend)", () => {
     const h = financeSpend({ ...inp, convertedAt: null }, 4_900, T0);
     expect(h).toMatchObject({ weightMismatch: 0, notFunded: 700, check: { ok: true, diff: 0 } });
     expect(h.rows.map((r) => r.kind)).toEqual(["building", "not-funded"]);
+  });
+
+  it("names a grant row by its objective's first clause, at most 60 characters, and carries the full objective", () => {
+    const long = "A stranger can read the Bank page: every term defined on the page or in one linked glossary";
+    const f = financeSpend({ ...base, grants: [{ id: "g1", objective: long }] }, 1_500, T0);
+    expect(f.rows[0].children![0]).toMatchObject({ kind: "grant", id: "g1", name: "A stranger can read the Bank page…", objective: long });
+    expect(f.rows[0].children![1]).not.toHaveProperty("objective");
+    expect(grantTitle("Spend breakdown")).toBe("Spend breakdown");
+    expect(grantTitle("Users can review, at a glance")).toBe("Users can review…");
+    const cut = grantTitle("Every Bank row and every grant row reads as a plain sentence that a stranger understands");
+    expect(cut).toBe("Every Bank row and every grant row reads as a plain…");
+    expect(cut.length).toBeLessThanOrEqual(60);
   });
 
   it("balances on a real world: sessions booked through the Bank sum with the unattributed row to used", () => {

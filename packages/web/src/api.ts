@@ -121,7 +121,10 @@ export interface SpendNode {
   kind: "building" | "grant" | "no-grant" | "assignment" | "no-assignment" | "unattributed" | "weight-mismatch" | "not-funded";
   /** null for the synthetic rows */
   id: string | null;
+  /** a grant row's name is its short title (first clause, at most 60 characters) */
   name: string;
+  /** grant rows only: the grant's full objective */
+  objective?: string;
   tokens: number;
   /** tokens / used; negative for the weight-mismatch and not-funded rows */
   share: number;
