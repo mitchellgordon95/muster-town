@@ -76,7 +76,7 @@ export function Hud({ onPasteToken, onHelp }: { onPasteToken?: () => void; onHel
       });
     }
     // the Bank's credential alerts are never silent (post-mortem 2026-10-30): a desk's funding claim that doesn't match
-    // what it was handed, or a day's Console spend the Bank can't explain
+    // what it was handed, or an api-key session on a key the Bank doesn't list (the Bank checks only itself)
     const fo = fundingAlert(events);
     if (fo) {
       out.push({

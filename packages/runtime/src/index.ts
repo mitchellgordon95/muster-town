@@ -16,7 +16,7 @@ import { advanceCollecting, facilitate, newMeetingState, onMeetingMention, onMee
 import { hostedEnv, InputChannel, realSdk, type Sdk } from "./sdk.ts";
 import { fundingForSession, type Ctx } from "./session.ts";
 import { reconcileDue } from "./reconcile.ts";
-export { fetchConsoleCost, reconcileDue } from "./reconcile.ts";
+export { reconcileDue } from "./reconcile.ts";
 import { abortWork, finishWorkSession, interrupt, runWorkSession, type WorkOutcome } from "./work.ts";
 import { startWaker } from "./waker.ts";
 
