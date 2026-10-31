@@ -425,8 +425,9 @@ export function BankPools({ bank, onChange }: Props) {
               <td>
                 <span className="pool-pick">
                   <span className="pool-swatch" style={{ background: poolColor(bank, r.poolId) }} />
-                  {r.poolName}
-                  {r.poolGoalId ? <span className="muted"> (from goal <button className="link" title={r.poolGoalText ?? undefined} onClick={() => store.open({ kind: "goals", id: r.poolGoalId! })}>{goalShortName(r.poolGoalText ?? r.poolGoalId)}</button>)</span> : null}
+                  {r.poolGoalId
+                    ? <button className="link" title={`From goal ${r.poolGoalText ?? r.poolGoalId}`} onClick={() => store.open({ kind: "goals", id: r.poolGoalId! })}>{r.poolName}</button>
+                    : r.poolName}
                 </span>
               </td>
               <td title={r.heldByAuth ? `${fmtTokens(r.heldByAuth.subscription)} subscription · ${fmtTokens(r.heldByAuth.apiKey)} API key · ${fmtTokens(r.heldByAuth.donorKey)} donors' keys` : undefined}>{fmtTokens(r.heldTokens)}</td>
