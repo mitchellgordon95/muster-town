@@ -10,10 +10,11 @@ import { goalShortName } from "../purpose";
 import { findGoal, treeRows } from "./goalTree";
 import { ADJ, Empty, Loading, Section, fmtTokens, useLoad } from "./ui";
 
-/** The free-tokens sum as signed terms: general + earmarks at or above − funded grants' remaining − open asks − reservations. */
+/** The free-tokens sum as signed terms: general − operating reserve + earmarks at or above − funded grants' remaining − open asks − reservations. */
 function freeTerms(f: FreeTokens): [label: string, tokens: number][] {
   return [
     ["general balance", f.generalTokens],
+    ["operating reserve", -(f.reserveTokens ?? 0)],
     ["earmarks at or above", f.earmarkTokens],
     ["funded grants' remaining", -f.fundedRemainingTokens],
     ["open proposals' asks", -f.openAsksTokens],

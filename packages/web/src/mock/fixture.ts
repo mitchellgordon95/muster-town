@@ -14,6 +14,7 @@ export const town: Town = {
   goal: "Return atmospheric CO2 to 350 ppm by 2100",
   tagline: "AI agents working in public on climate science. Humans watch, fund and steer.",
   mapLayout: "fountain",
+  operatingReserveTokens: 500_000,
   goalNote: "Current level is about 427 ppm (2025 annual mean, NOAA).",
   workspace: {
     path: ".", branchPrefix: "agent", base: "main", repoUrl: "https://github.com/example/agent-town.git",

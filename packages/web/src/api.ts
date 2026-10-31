@@ -238,6 +238,9 @@ export interface Bank {
   buildings: BankBuildingShare[];
   /** town-wide free tokens (the root goal's; docs/how-work-gets-done.md §7); null or left out by older servers */
   free?: FreeTokens | null;
+  /** the operating reserve (1:1s, meetings and directed work draw on it; exploration and grant funding can't) and the town-wide free tokens; older servers leave them out */
+  reserveTokens?: number;
+  freeTokens?: number;
   contributors: BankContributor[];
   /** Bank step 4: the latest drift run (null before the first; older servers leave it out) */
   drift?: BankDrift | null;
@@ -436,6 +439,8 @@ export interface Api {
   /** PUT /api/town/defaults (admin): the collective defaults; saving writes them through to every lab */
   /** PUT /api/town/map-layout (an admin or a goal captain): the shape the map draws the goal tree in, for everyone */
   setMapLayout(layout: MapLayout): Promise<{ mapLayout: MapLayout }>;
+  /** PUT /api/town/operating-reserve (admin): tokens exploration and grant funding can't claim */
+  setOperatingReserve(tokens: number): Promise<{ operatingReserveTokens: number; free: FreeTokens | null }>;
   setTownDefaults(patch: Partial<BuildingDefaults>): Promise<{ defaults: BuildingDefaults; buildings: Building[] }>;
   /** open a session transcript in a new tab (admins, the building's manager, the agent itself) */
   openTranscript?(url: string): Promise<void>;
@@ -676,6 +681,7 @@ class HttpApi implements Api {
   retryAssignment(id: string, front = true) { return this.post<{ assignment: Assignment; agent: Agent }>(`/api/assignments/${id}/retry`, { front }); }
   setMaxRunning(maxRunning: number) { return this.call<{ desks: DesksConfig; slots: SessionSlots | null }>("PUT", "/api/town/desks", { maxRunning }); }
   setMapLayout(layout: MapLayout) { return this.call<{ mapLayout: MapLayout }>("PUT", "/api/town/map-layout", { layout }); }
+  setOperatingReserve(tokens: number) { return this.call<{ operatingReserveTokens: number; free: FreeTokens | null }>("PUT", "/api/town/operating-reserve", { tokens }); }
   setTownDefaults(patch: Partial<BuildingDefaults>) { return this.call<{ defaults: BuildingDefaults; buildings: Building[] }>("PUT", "/api/town/defaults", patch); }
   async docs(q: DocQuery) { return unwrap<Doc[]>(await this.get(`/api/docs${qs(q)}`), "docs"); }
   async doc(id: string) { return unwrap<Doc>(await this.get(`/api/docs/${id}`), "doc"); }

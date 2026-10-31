@@ -144,8 +144,9 @@ export class MockApi implements Api {
     const grants = [...this.sim.grants.values()];
     const fundedRemainingTokens = grants.filter((g) => g.status === "funded" || g.status === "checkpoint").reduce((s, g) => s + Math.max(0, (g.grantTokens ?? 0) - g.spentTokens), 0);
     const openAsksTokens = grants.filter((g) => g.status === "proposed" || g.status === "countered").reduce((s, g) => s + g.askTokens, 0);
-    const freeTokens = Math.max(0, generalTokens + earmarkTokens - fundedRemainingTokens - openAsksTokens);
-    return { goalId, generalTokens, earmarkTokens, fundedRemainingTokens, openAsksTokens, reservedTokens: 0, freeTokens };
+    const reserveTokens = this.sim.town.operatingReserveTokens;
+    const freeTokens = Math.max(0, generalTokens - reserveTokens - fundedRemainingTokens - openAsksTokens) + earmarkTokens;
+    return { goalId, generalTokens, reserveTokens, earmarkTokens, fundedRemainingTokens, openAsksTokens, reservedTokens: 0, freeTokens };
   }
   /** the mock's goal tree: the root with its Fund/Join/Trust placeholders (the root sets an exploration cap its children inherit); buildings sit where their goalId says */
   async goalTree(): Promise<GoalTreeNode> {
@@ -384,6 +385,12 @@ export class MockApi implements Api {
     await wait();
     this.sim.town.mapLayout = layout;
     return clone({ mapLayout: layout });
+  }
+
+  async setOperatingReserve(tokens: number) {
+    await wait();
+    this.sim.town.operatingReserveTokens = tokens;
+    return clone({ operatingReserveTokens: tokens, free: this.free("gl_town") });
   }
 
   async setTownDefaults(patch: Partial<BuildingDefaults>) {
@@ -776,7 +783,7 @@ export class MockApi implements Api {
       creditedCounts: inputs.reduce((s, i) => addTokens(s, i.creditedCounts), { ...ZERO_TOKENS }),
       adjustedCreditedTokens: inputs.reduce((s, i) => s + i.adjustedCreditedTokens, 0),
       inputs,
-      buildings, contributors, free: this.free("gl_town"),
+      buildings, contributors, free: this.free("gl_town"), reserveTokens: this.sim.town.operatingReserveTokens, freeTokens: this.free("gl_town").freeTokens,
     });
   }
   async addBankInput(i: In<typeof AddBankInput>) {

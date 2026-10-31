@@ -15,7 +15,7 @@ import { BankContributors, BankInputs, BankStreamsSection, BuildingFunding, Dona
 import { FinanceFooter, FinanceIntro, FinanceTerms, FlyView, ProjectionView, SourcesView, SpendingView, TokensView, useFinance, type FinanceData } from "./BankFinance";
 import { BankFreeTokens, FreeTokensTree } from "./FreeTokens";
 import { SpendByGoal } from "./GoalSpend";
-import { ADJ, ErrorLine, Loading, Section, breakdownTitle, fmtTokens } from "./ui";
+import { ADJ, Act, ErrorLine, Loading, NumberInput, Section, breakdownTitle, fmtTokens } from "./ui";
 import { claimedTokens } from "../format";
 
 /** Refetch the summary the sign and these sections read. */
@@ -68,6 +68,7 @@ function BankTab({ tab, bank, fin, rev, onChange, onReload }: ViewProps) {
               <tr><td>Town total (Bank + held by buildings)</td><td><b>{bank.townTokens.toLocaleString("en-US")}</b></td></tr>
               <tr><td>In the Bank (one balance every building draws on)</td><td>{bank.balanceTokens.toLocaleString("en-US")}</td></tr>
               <tr><td>Claimed (open reservations + open proposals&apos; asks + funded grants&apos; remaining)</td><td>{bank.free ? claimedTokens(bank.free).toLocaleString("en-US") : "…"}</td></tr>
+              {bank.reserveTokens !== undefined ? <OperatingReserveRow bank={bank} onChange={onReload} /> : null}
               <tr><td>Free (what exploration or a new grant may still claim)</td><td>{bank.free ? bank.free.freeTokens.toLocaleString("en-US") : "…"}</td></tr>
               <tr><td>Expected inflow per day</td><td>{fmtTokens(bank.dailyInflowTokens)}</td></tr>
               <tr className="sub-row" title={breakdownTitle(bank.creditedCounts)}><td>Credited so far: input · output · cache read · cache write 5m · 1h (raw)</td><td>{[bank.creditedCounts.input, bank.creditedCounts.output, bank.creditedCounts.cacheRead, bank.creditedCounts.cacheWrite5m, bank.creditedCounts.cacheWrite1h].map(fmtTokens).join(" · ")}</td></tr>
@@ -82,6 +83,32 @@ function BankTab({ tab, bank, fin, rev, onChange, onReload }: ViewProps) {
         <Donate onChange={onChange} />
       </>}
     </>
+  );
+}
+
+/**
+ * "Operating reserve: 500,000 (left above it: N)" (1:1 mt_lb7tm75jgb): the part of the balance exploration and grant
+ * funding can't claim, so 1:1s, meetings and directed work keep running. An admin edits it here (PUT /api/town/operating-reserve).
+ */
+function OperatingReserveRow({ bank, onChange }: { bank: Bank; onChange: () => void }) {
+  const admin = useTown((s) => !!s.me?.isAdmin);
+  const reserve = bank.reserveTokens ?? 0;
+  const [editing, setEditing] = useState<number | null>(null);
+  const above = bank.balanceTokens - reserve;
+  return (
+    <tr title="Exploration and grant funding can't claim these tokens; 1:1s, meetings, manage and directed sessions still draw on them, down to 0">
+      <td>Operating reserve (kept for 1:1s, meetings and directed work)</td>
+      <td>
+        {editing === null ? <>
+          <b>{reserve.toLocaleString("en-US")}</b> <span className="muted">(left above it: {above.toLocaleString("en-US")})</span>
+          {admin ? <> <button type="button" className="btn sm" onClick={() => setEditing(reserve)}>Edit</button></> : null}
+        </> : <>
+          <NumberInput aria-label="Operating reserve in tokens" min={0} step={50_000} value={editing} onChange={setEditing} style={{ width: 120 }} />
+          {" "}<Act small tone="primary" run={async () => { await api().setOperatingReserve(editing); setEditing(null); onChange(); }}>Save</Act>
+          {" "}<button type="button" className="btn sm" onClick={() => setEditing(null)}>Cancel</button>
+        </>}
+      </td>
+    </tr>
   );
 }
 
