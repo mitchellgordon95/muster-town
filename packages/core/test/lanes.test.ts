@@ -212,7 +212,7 @@ describe("goal-directed budgets: the 100% checkpoint", () => {
     expect(world.grants.require(full.id).status).toBe("checkpoint");
   });
 
-  it("checkpoint_grant sets all the grant's open KRs up to claimed (or one with keyResultId); the checkpoint session's rollup links itself and lands in the Town Hall in-tray", async () => {
+  it("checkpoint_grant sets the status of the grant's key results up to claimed; the checkpoint session's rollup links itself and lands in the Town Hall in-tray", async () => {
     const { world, mei, noor, fund, spend } = setup();
     const g = fund(4_000_000, KRS);
     const krs = g.keyResults;
@@ -461,8 +461,11 @@ describe("goal-directed budgets: human-directed work (1:1 mt_ryw7ejayvu)", () =>
     expect((await world.verbs.assign(mei, { ...base(mei.id), lane: "directed", sourceId: m.id })).lane).toBe("directed");
   });
 
-  it("directed work may name a gap but no key result; a grant proposal later doesn't hold it", async () => {
+  it("exploration names a gap and directed work may; neither names a key result", async () => {
     const { world, mei, admin } = setup();
+    await expect(world.verbs.assign(mei, { ...base(mei.id), lane: "exploration" })).rejects.toThrow(/names a goal gap/);
+    const ex = await world.verbs.assign(mei, { ...base(mei.id), lane: "exploration", gap: "nobody reads the board" });
+    expect(world.assignments.require(ex.assignmentId)).toMatchObject({ lane: "exploration", gap: "nobody reads the board", keyResultId: null, grantId: null });
     const flag = world.ops.plantFlag(admin, LAB, "Look at the banner");
     const r = await world.verbs.assign(mei, { ...base(mei.id), lane: "directed", sourceId: flag.id, gap: "the banner says nothing" });
     const a = world.assignments.require(r.assignmentId);

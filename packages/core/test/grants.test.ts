@@ -76,12 +76,10 @@ describe("grants service", () => {
     expect(() => world.grantDesk.decide(admin, g.id, { action: "fund" })).toThrow(/funded grant/);
   });
 
-  it("reject closes the proposal, archives its key results and frees the slot", () => {
+  it("reject closes the proposal and frees the slot", () => {
     const { world, manager, admin, draft } = setup();
     const g = world.grantDesk.propose(manager, draft(KRS).id);
     expect(world.grantDesk.decide(admin, g.id, { action: "reject", note: "not now" }).status).toBe("rejected");
-    for (const k of world.grantDesk.keyResultsOf(g.id)) expect(k.archivedAt).toBeTruthy();
-    expect(world.grantDesk.keyResultsOf(g.id)).toHaveLength(2);
     expect(world.grantDesk.propose(manager, draft().id).status).toBe("proposed");
   });
 
@@ -116,6 +114,19 @@ describe("grants service", () => {
     expect(world.grantDesk.liveGrantOf(first.keyResultId!)?.id).toBe(first.id);
     world.grantDesk.decide(admin, first.id, { action: "cut" });
     expect(world.grantDesk.liveGrantOf(first.keyResultId!)).toBeUndefined();
+  });
+
+  it("rejecting a proposal archives its key results; close_grant claims every open one", () => {
+    const { world, manager, admin, draft } = setup();
+    const rejected = world.grantDesk.propose(manager, draft(KRS).id);
+    world.grantDesk.decide(admin, rejected.id, { action: "reject", note: "not now" });
+    expect(world.grantDesk.keyResultsOf(rejected.id).map((k) => [k.status, !!k.archivedAt, k.statusNote])).toEqual([["not-started", true, `grant ${rejected.id} rejected`], ["not-started", true, `grant ${rejected.id} rejected`]]);
+    const g = world.grantDesk.decide(admin, world.grantDesk.propose(manager, draft(KRS).id).id, { action: "fund" });
+    const [k0, k1] = g.keyResults;
+    world.grantDesk.updateKeyResult(admin, k1!.id, { status: "missed" }); // already marked: not open, left alone
+    world.grantDesk.closeDone(manager, g.id, { note: "the banner shows it" });
+    expect(world.keyResults.require(k0!.id)).toMatchObject({ status: "claimed", statusNote: "the banner shows it" });
+    expect(world.keyResults.require(k1!.id).status).toBe("missed");
   });
 
   it("refuses adjust to tokens at or below the grant's spend", () => {
@@ -165,7 +176,7 @@ describe("grants service", () => {
     expect(world.grantDesk.close(admin, g.id, { outcome: "met" })).toMatchObject({ status: "closed", outcome: "met" });
   });
 
-  it("a grant's key results: only humans (or the building's own manager agent) edit the words; manager sets status up to claimed, only funders set or undo met / missed", () => {
+  it("a grant's key results: the manager sets status up to claimed, only funders set or undo met / missed; an open grant's can't be deleted", () => {
     const { world, manager, admin, draft } = setup();
     const d = draft(KRS);
     const krs = d.keyResults;
@@ -185,8 +196,17 @@ describe("grants service", () => {
     expect(world.grantDesk.board(LAB)).toMatchObject({ blocked: null, grants: [{ id: g.id, keyResults: [{ id: kr.id }, { id: krs[1]!.id, grantId: g.id }] }] });
   });
 
-  it("a grant without key results can't be proposed or funded", () => {
+  it("a grant carries its own key results under its goal; one with none can't be proposed or funded", () => {
     const { world, manager, admin, draft } = setup();
+    const child = world.goalTree.create(admin, { parentId: world.goalTree.attachmentOf(LAB), text: "A child goal" });
+    const filed = world.grantDesk.create(manager, LAB, { goalId: child.id, keyResults: [{ ...KRS[0]!, due: "2026-12-31" }, KRS[1]!], objective: "o", stopCondition: "s", askTokens: 1000 });
+    expect(world.grants.require(filed.id)).toMatchObject({ goalId: child.id, keyResultId: filed.keyResults[0]!.id });
+    expect(world.grantDesk.get(filed.id).keyResults.map((k) => [k.text, k.howToCheck, k.due, k.grantId, k.goalId])).toEqual([
+      [KRS[0]!.text, KRS[0]!.howToCheck, "2026-12-31", filed.id, child.id], [KRS[1]!.text, KRS[1]!.howToCheck, null, filed.id, child.id],
+    ]);
+    // moving the grant to another goal moves its key results with it
+    world.grantDesk.update(manager, filed.id, { goalId: world.goalTree.attachmentOf(LAB) });
+    expect(world.grantDesk.keyResultsOf(filed.id).map((k) => k.goalId)).toEqual([world.goalTree.attachmentOf(LAB), world.goalTree.attachmentOf(LAB)]);
     const g = draft();
     for (const k of world.grantDesk.keyResultsOf(g.id)) world.keyResults.delete(k.id);
     expect(() => world.grantDesk.propose(manager, g.id)).toThrow(/1-5 key results/);

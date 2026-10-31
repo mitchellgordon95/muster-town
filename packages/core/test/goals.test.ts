@@ -85,6 +85,16 @@ describe("the town goal tree (docs/goals.md, step 1)", () => {
     expect(world.keyResults.require(mine.id).archivedAt).toBeNull();
   });
 
+  it("the goal tree lists only archived key results; open ones live on grants", () => {
+    const { world, admin, tree, labGoal } = setup();
+    const open = grantKr(world, labGoal.id, "Still being worked");
+    const done = grantKr(world, labGoal.id, "Already met");
+    world.grantDesk.updateKeyResult(admin, done.id, { status: "met" });
+    const node = tree.tree().children.flatMap((c) => c.children).find((c) => c.id === labGoal.id)!;
+    expect(node.keyResults.map((k) => k.id)).toEqual([done.id]);
+    expect(world.grantDesk.get(open.grantId!).keyResults.map((k) => k.id)).toEqual([open.id]);
+  });
+
   it("owners (humans) inherit down the tree, edit and fund in their subtree only; routing ends at the owner", () => {
     const { world, admin, mei, tree, labGoal, otherGoal } = setup();
     const lena = createUser(world, "Lena").user;
