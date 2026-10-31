@@ -6,6 +6,10 @@
  * intact database. Retention: the newest 48 hourly objects plus the newest object of each of the last 30 days, and the
  * last local copy. Its state is one row (migrations 039, 072) that `GET /api/health` shows read-only. Without the five env
  * vars it is inert: `backup: null`.
+ *
+ * Two guards (grant gr_z2v838adk9): a town that has never made a copy refuses to upload while the bucket holds copies (an
+ * empty town on a new volume would otherwise become the newest copy and, 48 h later, prune every good one: restore first,
+ * restore.ts), and a run never replaces an object that is already in the bucket.
  */
 import { integrityCheck, sealCopy, type DB } from "@muster-town/core";
 import { createHash } from "node:crypto";
@@ -23,8 +27,11 @@ export { signV4 } from "./sigv4.ts";
 export interface BackupView { lastAt: string | null; verifiedAt: string | null; bytes: number | null; dest: string; error: string | null }
 
 const BACKUP_ENV = ["BUCKET_NAME", "AWS_ENDPOINT_URL_S3", "AWS_ACCESS_KEY_ID", "AWS_SECRET_ACCESS_KEY", "MUSTER_TOWN_BACKUP_KEY"] as const;
+/** the error a fresh town's run stores (health backup.error; the monitor's backup metric is red on it) */
+export const FRESH_TOWN = "fresh town; restore first";
+
 /** object keys: `town/<date>T<HH>.db.gz.enc` (hourly); `town/<date>.db.gz.enc` are the nightly objects from before 2026-11-01 */
-const OBJECT_PREFIX = "town/";
+export const OBJECT_PREFIX = "town/";
 /** retention: the newest this many hourly objects... */
 const KEEP_HOURLY = 48;
 /** ...plus the newest object of each of the newest this many days */
@@ -79,6 +86,19 @@ export function msUntilNextRun(from: Date): number {
   return next.getTime() - from.getTime();
 }
 
+/** The bucket and the file key from the five env vars, or the names of those missing or malformed (then s3 and key are null). */
+export function backupTargetFromEnv(env: Record<string, string | undefined>, fetchFn?: typeof fetch): { s3: S3 | null; key: Buffer | null; missing: string[] } {
+  const missing: string[] = BACKUP_ENV.filter((k) => !env[k]?.trim());
+  let key: Buffer | null = null;
+  try { key = backupKeyFrom(env.MUSTER_TOWN_BACKUP_KEY); } catch (e) { missing.push(`MUSTER_TOWN_BACKUP_KEY (${(e as Error).message})`); }
+  const s3 = missing.length ? null : new S3({
+    endpoint: env.AWS_ENDPOINT_URL_S3!.trim(),
+    bucket: env.BUCKET_NAME!.trim(),
+    creds: { accessKeyId: env.AWS_ACCESS_KEY_ID!.trim(), secretAccessKey: env.AWS_SECRET_ACCESS_KEY!.trim(), region: env.AWS_REGION?.trim() || "auto" },
+  }, fetchFn);
+  return { s3, key: s3 ? key : null, missing };
+}
+
 export class BackupJob {
   private readonly s3: S3 | null;
   private readonly key: Buffer | null;
@@ -90,18 +110,9 @@ export class BackupJob {
   private readonly log: Pick<Console, "log" | "warn">;
 
   constructor(private opts: BackupJobOptions) {
-    const env = opts.env ?? process.env;
     this.now = opts.now ?? (() => new Date());
     this.log = opts.log ?? console;
-    this.missing = BACKUP_ENV.filter((k) => !env[k]?.trim());
-    let key: Buffer | null = null;
-    try { key = backupKeyFrom(env.MUSTER_TOWN_BACKUP_KEY); } catch (e) { this.missing.push(`MUSTER_TOWN_BACKUP_KEY (${(e as Error).message})`); }
-    this.key = key;
-    this.s3 = this.missing.length ? null : new S3({
-      endpoint: env.AWS_ENDPOINT_URL_S3!.trim(),
-      bucket: env.BUCKET_NAME!.trim(),
-      creds: { accessKeyId: env.AWS_ACCESS_KEY_ID!.trim(), secretAccessKey: env.AWS_SECRET_ACCESS_KEY!.trim(), region: env.AWS_REGION?.trim() || "auto" },
-    }, opts.fetchFn);
+    ({ s3: this.s3, key: this.key, missing: this.missing } = backupTargetFromEnv(opts.env ?? process.env, opts.fetchFn));
   }
 
   /** false without the five env vars: nothing runs and health shows `backup: null` */
@@ -172,6 +183,10 @@ export class BackupJob {
     const at = this.now();
     const key = objectKey(at);
     const stamp = at.toISOString().slice(0, 13);
+    // the guards, before anything is copied or uploaded: a refused run uploads nothing and prunes nothing
+    const copies = (await this.s3!.list(OBJECT_PREFIX)).filter((k) => parseObjectKey(k));
+    if (!this.state().lastAt && copies.length) throw new Error(`${FRESH_TOWN}: this town has never made a copy but the bucket holds ${copies.length} (newest ${copies.at(-1)}); deploy/README.md "Recover"`);
+    if (copies.includes(key)) throw new Error(`${key} is already in the bucket; a run never replaces an object`);
     mkdirSync(this.opts.dir, { recursive: true });
     const localCopy = join(this.opts.dir, `town-${stamp}.db`);
     const tmp = `${localCopy}.tmp`;
