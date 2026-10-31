@@ -148,7 +148,7 @@ export function goalProposalVerb(action: string, dest: string | null, hangs = fa
   return dest ? ` is retired; its open key results and attached buildings go under ${dest}` : hangs ? " is retired, but no sibling is named for what hangs under it" : " is retired; nothing open hangs under it";
 }
 
-/** A manager's goal proposal (propose_goal / propose_key_result): Accept, Edit and accept, or Cut, as in the goal editor. */
+/** A manager's goal proposal (propose_goal): Accept, Edit and accept, or Cut, as in the goal editor. */
 function goalProposalSlide(world: World, p: GoalProposalView): Draft {
   const tree = world.goalTree;
   const node = tree.nodeOfProposal(p);
