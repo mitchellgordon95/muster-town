@@ -35,7 +35,7 @@ describe("startup reconcile", () => {
     try {
       expect(rt.reconciled.orphanedSessions).toEqual([s.id]);
       expect(rt.reconciled.requeuedAssignments).toEqual([asg.id]);
-      expect(world.sessions.require(s.id)).toMatchObject({ status: "error", error: "orphaned at restart" });
+      expect(world.sessions.require(s.id)).toMatchObject({ status: "interrupted", error: "cut by restart" });
       expect(world.assignments.require(asg.id).status).toBe("pending");
       expect(world.agents.require(mei.id)).toMatchObject({ status: "idle", currentAssignmentId: null });
     } finally {

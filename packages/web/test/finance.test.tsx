@@ -5,6 +5,7 @@ import { donationNote, FINANCE_TERMS, flyCheckLine, flyWindowTotals, inputName, 
 import { BANK_TABS } from "@muster-town/schema";
 import { BankView } from "../src/panels/BankPanel";
 import { BankFreeTokens, freeBreakdown } from "../src/panels/FreeTokens";
+import { claimedTokens } from "../src/format";
 
 // the live shape: 1,000 received, 1,100 used (200 overdrawn), 50 expired, 50 left
 const f: Finance = {
@@ -61,7 +62,7 @@ describe("finance page", () => {
   });
   it("ends every tab with the Terms block, above the footer, defining each term the page uses (kr_zjawesqcyp)", () => {
     const all = { spend: sp, sources: src, fly };
-    expect(FINANCE_TERMS.map(([t]) => t)).toEqual(["Adjusted token (adj. token)", "Expiring and permanent", "Overdrawn", "Held", "Free tokens", "Earmark", "Exploration cap", "Not funded", "Grant"]);
+    expect(FINANCE_TERMS.map(([t]) => t)).toEqual(["Adjusted token (adj. token)", "Expiring and permanent", "Overdrawn", "Held", "Claimed", "Free tokens", "Earmark", "Exploration cap", "Not funded", "Grant"]);
     for (const t of BANK_TABS) {
       const html = tabOf(t, all);
       expect(html, t).toContain("Terms used on this page");
@@ -184,6 +185,7 @@ describe("finance page: free tokens", () => {
   });
   it("shows the town-wide free tokens with each term", () => {
     const html = renderToStaticMarkup(<BankFreeTokens free={free} />);
+    expect(claimedTokens(free)).toBe(750);
     for (const s of [">Free tokens<", "general balance", "earmarks at or above", "less funded grants&#x27; remaining", "−500", "less reservations", "<b>250</b>"]) expect(html).toContain(s);
   });
 });

@@ -298,6 +298,8 @@ textarea[data-drop="over"] { outline: 2px dashed var(--accent, #7aa2ff); outline
 .md a { color: var(--accent); }
 .doc-id { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 0.9em; }
 .grant-id { color: var(--accent); }
+/* an id labelled by name (an agent, building, meeting, key result) reads as a word, not code */
+.doc-id.named { font-family: inherit; font-size: inherit; }
 .grant-row .grant-id { margin-left: auto; }
 .grant-panel .grant-row { cursor: default; }
 .grant-history { list-style: none; padding: 0; margin: 0; display: grid; gap: 4px; font-size: 12.5px; }
@@ -715,6 +717,8 @@ div.spend-row > .muted { font-size: 11.5px; }
 .goal-grant { font-size: 11px; }
 .goal-kr-text { flex: 1; min-width: 160px; }
 .goal-kr-acts { display: inline-flex; gap: 4px; }
+/* the key result a kr_ link opened the tree at */
+.goal-kr.focus { outline: 2px solid var(--accent); outline-offset: 2px; border-radius: 4px; }
 .goal-detail { display: flex; flex-direction: column; gap: 8px; }
 .goal-path { font-size: 12px; }
 .goal-meta { font-size: 12px; }

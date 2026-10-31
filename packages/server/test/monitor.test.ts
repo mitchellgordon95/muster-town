@@ -406,8 +406,10 @@ describe("monitor counters", () => {
       "INSERT INTO sessions (id, agentId, purpose, status, model, startedAt, endedAt) VALUES (?, ?, 'work', ?, 'm', ?, ?)",
     ).run(id, agentId, status, new Date(now - 60 * MIN).toISOString(), minAgo == null ? null : new Date(now - minAgo * MIN).toISOString());
     add("se_a", "error", 5); add("se_b", "error", 20); add("se_c", "done", 10); add("se_d", "error", 40); add("se_e", "running", null);
+    // sessions a restart cut end `interrupted` (core reconcile): they end, but never count as failed
+    add("se_f", "interrupted", 2); add("se_g", "interrupted", 3); add("se_h", "interrupted", 4);
     const p = processProbes(s.world, "/nonexistent", () => null, new Counters(() => now));
-    expect(p.sessions(now)).toEqual({ failed15: 1, ended30: 3, failed30: 2 });
+    expect(p.sessions(now)).toEqual({ failed15: 1, ended30: 6, failed30: 2 });
     p.close();
   });
 

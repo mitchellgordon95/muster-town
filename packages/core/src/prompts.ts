@@ -85,7 +85,7 @@ export function recentWorkBlock(world: World, agentId: string, opts: { limit?: n
  * The system prompt of a work session. \`memory\` is the agent's "## What you know" + "## Your log" block
  * (\`memoryBlock\`); \`team\` the manager's "## Your team" block (\`teamBlock\`), only for the building's manager agent.
  */
-export function workSystemPrompt(agent: Agent, building: Building, town: Town, opts: { desk?: boolean; memory?: string; team?: string; skills?: string; keyResults?: string; townBoard?: string; purpose?: string } = {}): string {
+export function workSystemPrompt(agent: Agent, building: Building, town: Town, opts: { desk?: boolean; memory?: string; team?: string; skills?: string; keyResults?: string; townBoard?: string; buildings?: string; purpose?: string } = {}): string {
   return `You are ${agent.name}, a resident of the ${building.name} of ${town.name}. ${OWNERSHIP}
 Town goal: ${town.goal || "(none set)"}
 Building goal: ${opts.purpose ?? (building.goal || "(none set)")}${opts.keyResults ? `\n${opts.keyResults}` : ""}
@@ -99,7 +99,7 @@ ${REPORT_FORMAT}
 
 You have about ${building.maxTurnsPerSession} turns; budget them. ${opts.desk
     ? "You work at your own desk: a private sandbox computer with your home directory (/home/agent), a shell, Python with the usual scientific libraries, and the web. Files you keep there persist between sessions; the town library is still where shared work goes."
-    : "Your only tools are the town tools (mcp__town__*), WebSearch and WebFetch."}${opts.townBoard ? `\n\n${opts.townBoard}` : ""}${standingRules(building)}${opts.skills ? `\n\n${opts.skills}` : ""}${opts.team ? `\n\n${opts.team}` : ""}
+    : "Your only tools are the town tools (mcp__town__*), WebSearch and WebFetch."}${opts.buildings ? `\n\n${opts.buildings}` : ""}${opts.townBoard ? `\n\n${opts.townBoard}` : ""}${standingRules(building)}${opts.skills ? `\n\n${opts.skills}` : ""}${opts.team ? `\n\n${opts.team}` : ""}
 
 ${opts.memory ?? ""}`;
 }
@@ -108,7 +108,7 @@ ${opts.memory ?? ""}`;
  * The memory and team blocks for an agent's work session (the manager agent of a building gets the team), and in
  * goal-directed buildings the Key results block for `assignment`'s session.
  */
-export function sessionMemory(world: World, agent: Agent, building: Building, assignment?: Assignment | null): { memory: string; team?: string; keyResults?: string; townBoard?: string; purpose: string } {
+export function sessionMemory(world: World, agent: Agent, building: Building, assignment?: Assignment | null): { memory: string; team?: string; keyResults?: string; townBoard?: string; buildings: string; purpose: string } {
   const manager = building.managerAgentId === agent.id && building.kind !== "town-hall";
   const keyResults = keyResultsBlock(world, building, assignment);
   const grants = manager ? managerGrantsBlock(world, building) : "";
@@ -117,7 +117,19 @@ export function sessionMemory(world: World, agent: Agent, building: Building, as
   // then the building's topic index
   const index = agent.forkOf ? "" : topicIndexBlock(world, building.id);
   const memory = agent.forkOf ? forkMemoryBlock(world, agent, assignment) : `${memoryBlock(world, agent.id)}${index ? `\n\n${index}` : ""}`;
-  return { memory, purpose: world.goalTree.purposeOf(building) || "(none set)", ...(townBoard ? { townBoard } : {}), ...(manager ? { team: `${teamBlock(world, building, agent.id)}\n\n${managerIntrayBlock(world, building, agent.id)}${grants ? `\n\n${grants}` : ""}` } : {}), ...(keyResults ? { keyResults } : {}) };
+  return { memory, purpose: world.goalTree.purposeOf(building) || "(none set)", buildings: buildingsLine(world, building), ...(townBoard ? { townBoard } : {}), ...(manager ? { team: `${teamBlock(world, building, agent.id)}\n\n${managerIntrayBlock(world, building, agent.id)}${grants ? `\n\n${grants}` : ""}` } : {}), ...(keyResults ? { keyResults } : {}) };
+}
+
+/**
+ * "Other buildings" (presence, 1:1 mt_3jtclcoxl2): every other building's name and id and its manager's name and id,
+ * one line, so a session (a fork too) never searches docs to find a manager. \`town\` says who is in each now.
+ */
+export function buildingsLine(world: World, building: Building): string {
+  const rows = world.buildings.all().filter((b) => b.id !== building.id).map((b) => {
+    const m = b.managerAgentId ? world.agents.get(b.managerAgentId) : undefined;
+    return `${b.name} (${b.id}) → ${m ? `${m.name} (${m.id})` : "no manager"}`;
+  });
+  return `Other buildings (building → manager; \`tell\` the manager or the building id, \`town\` shows who is in each now): ${rows.length ? rows.join("; ") : "none"}.`;
 }
 
 /**

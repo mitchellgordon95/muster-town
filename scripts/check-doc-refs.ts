@@ -13,6 +13,8 @@
 //            UI buttons in human prose.
 //   tests    (docs/invariants/*.md) each `- Test: `<file>` › `<it text>`` line: the file exists and contains the it (or test) text
 //            verbatim, so renaming a cited test fails the check. Each invariants doc cites at least one test.
+// It also holds docs/manual.md to its word cap (MANUAL_CAP): over the cap it fails with the count, the overage and the
+// largest sections, so the trim happens in the same change; under it, a warning once fewer than 50 words are left.
 import { execFileSync } from "node:child_process";
 import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
 import { dirname, join, normalize } from "node:path";
@@ -31,6 +33,10 @@ const CITATION = /^\s*- Test: `([^`]+)` › `([^`]+)`\s*$/;
 // paths the reader is told to create (README, "Start your own collective")
 const EXAMPLES = [/^collectives\/garden(\/|$)/];
 const EXT = /\.(md|ts|tsx|js|mjs|json|sh|toml|ya?ml|lock|html|css|sql|txt)$/;
+// the manual is read by people in one sitting: it stays under this many words (the web manual sheet splits it at h2)
+const MANUAL = "docs/manual.md";
+const MANUAL_CAP = 1900;
+const HEADROOM_WARN = 50;
 
 const topLevel = new Set(readdirSync(ROOT));
 const rootScripts = scriptsOf(".");
@@ -133,10 +139,30 @@ function checkDoc(file: string, withVerbs: boolean): Problem[] {
   return problems;
 }
 
+const words = (text: string) => text.split(/\s+/).filter(Boolean).length;
+
+/** The manual's word count against MANUAL_CAP: the failure line (with the overage and the five largest h2 sections) or null. */
+function checkManualCap(): string | null {
+  const md = readFileSync(join(ROOT, MANUAL), "utf8");
+  const count = words(md);
+  if (count <= MANUAL_CAP) {
+    const left = MANUAL_CAP - count;
+    if (left < HEADROOM_WARN) console.error(`${MANUAL}: ${count}/${MANUAL_CAP} words, only ${left} left under the cap: trim before adding to it`);
+    else console.log(`${MANUAL}: ${count}/${MANUAL_CAP} words`);
+    return null;
+  }
+  const sections = md.split(/^## +/m).slice(1).map((p) => {
+    const nl = p.indexOf("\n");
+    return { title: (nl < 0 ? p : p.slice(0, nl)).trim(), words: words(nl < 0 ? "" : p.slice(nl + 1)) };
+  });
+  const largest = sections.sort((a, b) => b.words - a.words).slice(0, 5).map((s) => `${s.title} ${s.words}`).join(", ");
+  return `${MANUAL}: ${count} words, ${count - MANUAL_CAP} over the ${MANUAL_CAP}-word cap. Largest sections: ${largest}. Trim it in this change.`;
+}
+
 const problems = DOCS.flatMap((d) => checkDoc(d.file, d.verbs));
 for (const p of problems) console.error(`${p.file}:${p.line}: ${p.kind} \`${p.ref}\` doesn't exist`);
-if (problems.length) {
-  console.error(`\n${problems.length} broken reference(s). Fix the doc (or the code) in this change; see scripts/check-doc-refs.ts for what counts.`);
-  process.exit(1);
-}
+if (problems.length) console.error(`\n${problems.length} broken reference(s). Fix the doc (or the code) in this change; see scripts/check-doc-refs.ts for what counts.`);
+const cap = checkManualCap();
+if (cap) console.error(cap);
+if (problems.length || cap) process.exit(1);
 console.log(`doc references ok: ${DOCS.map((d) => d.file).join(", ")}`);

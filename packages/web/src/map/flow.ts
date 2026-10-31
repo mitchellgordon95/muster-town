@@ -7,7 +7,7 @@
  */
 import type { Place, SnapshotBuilding } from "@muster-town/schema";
 import type { Bank } from "../api";
-import { fmtTokens } from "../format";
+import { claimedTokens, fmtTokens } from "../format";
 import { roundRect } from "./overlay";
 import { T } from "./sprites";
 
@@ -215,7 +215,7 @@ export function drawFlow(g: CanvasRenderingContext2D, now: number, flow: Flow, b
 
   // title card
   const lines: [string, string][] = bank
-    ? [[`${fmtTokens(bank.balanceTokens)} adj. tokens in the Bank`, `${fmtTokens(bank.expiringTokens)} expire today · ${fmtTokens(bank.durableTokens)} durable · ${fmtTokens(bank.heldTokens)} held by buildings · Esc to return`]]
+    ? [[`${fmtTokens(bank.balanceTokens)} adj. tokens in the Bank`, `${bank.free ? fmtTokens(claimedTokens(bank.free)) : "…"} claimed · ${bank.free ? fmtTokens(bank.free.freeTokens) : "…"} free · Esc to return`]]
     : [[flow.error ? "Couldn't read the Bank" : "Reading the Bank…", flow.error ?? "Esc to return"]];
   const [t1, t2] = lines[0];
   const hint = bank && !flows.some((f) => (f.s?.pct ?? 0) > 0) ? "No building draws on the Bank yet" : t2;
@@ -232,15 +232,13 @@ export function drawFlow(g: CanvasRenderingContext2D, now: number, flow: Flow, b
   g.textAlign = "left"; g.globalAlpha = 1;
 }
 
-/** The Bank's legend, anchored at its bottom-right corner (x, y): the balance, then the town-wide free tokens. */
+/** The Bank's legend, anchored at its bottom-right corner (x, y): the balance, then what is claimed town-wide and what is still free. */
 function drawLegend(g: CanvasRenderingContext2D, bank: Bank, x: number, y: number, alpha: number) {
   const rows: [string, string][] = [
     ["Balance", fmtTokens(bank.balanceTokens)],
-    ["Expire today", fmtTokens(bank.expiringTokens)],
-    ["Durable", fmtTokens(bank.durableTokens)],
-    ["Held by buildings", fmtTokens(bank.heldTokens)],
+    ["Claimed", bank.free ? fmtTokens(claimedTokens(bank.free)) : "…"],
+    ["Free", bank.free ? fmtTokens(bank.free.freeTokens) : "…"],
   ];
-  if (bank.free) rows.push(["Free tokens", fmtTokens(bank.free.freeTokens)]);
   const RH = 20, PAD = 12, HEAD = 26;
   g.font = `700 12px ${FONT}`;
   const nameW = Math.max(...rows.map((r) => g.measureText(r[0]).width));
