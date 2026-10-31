@@ -94,3 +94,17 @@ export function moveTargets(root: GoalTreeNode, id: string): { node: GoalTreeNod
   const mine = node ? subtreeIds(node) : new Set<string>();
   return treeRows(root, false).filter((r) => !mine.has(r.node.id) && r.node.id !== node?.parentId);
 }
+
+/** The tree rows with collapsed goals' subtrees left out (the editor's expand/collapse). */
+export function visibleRows(root: GoalTreeNode, retired: boolean, collapsed: ReadonlySet<string>, depth = 0): { node: GoalTreeNode; depth: number }[] {
+  if (root.status === "retired" && !retired) return [];
+  const below = collapsed.has(root.id) ? [] : root.children.flatMap((c) => visibleRows(c, retired, collapsed, depth + 1));
+  return [{ node: root, depth }, ...below];
+}
+
+/** A tree node at a glance: its open key results, how many are funded and past due, and the nearest open due date. */
+export function nodeGlance(node: Pick<GoalTreeNode, "keyResults">, today: string): { open: number; funded: number; late: number; nextDue: string | null } {
+  const open = node.keyResults.filter((k) => !isArchived(k));
+  const dues = open.map((k) => k.due).filter((d): d is string => !!d).sort();
+  return { open: open.length, funded: open.filter((k) => !!k.grantId).length, late: open.filter((k) => pastDue(k, today)).length, nextDue: dues[0] ?? null };
+}

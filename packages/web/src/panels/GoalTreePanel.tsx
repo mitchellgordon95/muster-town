@@ -4,17 +4,18 @@
  * History, Subtree, Spend and Queue tabs; marking one missed asks why and queues its postmortem) and the managers' open proposals (Accept, Edit and accept, Cut). Humans with `goals.edit`
  * at a node (admins anywhere, an owner in their subtree) edit it; everyone else reads the same tree.
  */
-import { useEffect, useState, type ReactNode } from "react";
+import { useEffect, useState, type CSSProperties, type ReactNode } from "react";
+import { createPortal } from "react-dom";
 import { ROOT_GOAL_ID, type FunderWeek, type GoalChangeView, type GoalTreeNode, type KeyResultStatus } from "@muster-town/schema";
 import { api, type GoalProposalView } from "../api";
 import { store, useTown } from "../state";
-import { Glyph, PanelShell } from "./PanelShell";
+import { Glyph } from "./PanelShell";
 import { GoalSpendTab } from "./GoalSpendTab";
 import { FUNDED, treeScope } from "./funderFilter";
 import { openDocLink } from "./Markdown";
 import { QueueTab } from "./QueueTab";
 import { krStatusLabel, krTone } from "./keyResults";
-import { allBuildings, archivedLine, buildingScope, canEditGoal, findGoal, isArchived, moveTargets, pastDue, pathTo, retirePlan, subtreeIds, treeRows, type TreeKr } from "./goalTree";
+import { allBuildings, archivedLine, buildingScope, canEditGoal, findGoal, isArchived, moveTargets, nodeGlance, pastDue, pathTo, retirePlan, subtreeIds, treeRows, visibleRows, type TreeKr } from "./goalTree";
 import { Act, Empty, ErrorLine, Feed, Field, Loading, Pill, Section, Tabs, nameOf, useLoad } from "./ui";
 
 const today = () => new Date().toISOString().slice(0, 10);
@@ -37,12 +38,19 @@ async function planWith(goalId?: string): Promise<void> {
   store.open({ kind: "meeting", id: m.id });
 }
 
-export function GoalTreePanel({ goalId }: { goalId?: string }) {
+/**
+ * The goal tree editor: a large sheet over the map (not the side panel), the tree on the left and the selected goal on
+ * the right. It stays open while a link opens the side panel beside it (a grant, a building, the Planner's 1:1), so
+ * Mitchell can talk to the Planner while he edits; its × (or Esc with no side panel open) closes it.
+ */
+export function GoalTreePanel({ goalId, onClose }: { goalId?: string; onClose: () => void }) {
   const rev = useGoalRev();
   const me = useMe();
   const [retired, setRetired] = useState(false);
   const [filter, setFilter] = useState("");
-  const [selected, setSelected] = useState<string | null>(goalId ?? null);
+  const [showKrs, setShowKrs] = useState(true);
+  const [collapsed, setCollapsed] = useState<ReadonlySet<string>>(new Set());
+  const [selected, setSelected] = useState<string>(goalId ?? ROOT_GOAL_ID);
   const [bump, setBump] = useState(0);
   const tree = useLoad(() => retired ? api().goalTreeWithRetired() : api().goalTree(), [rev, retired, bump]);
   const proposals = useLoad(() => api().goalProposals("open"), [rev, bump]);
@@ -52,60 +60,124 @@ export function GoalTreePanel({ goalId }: { goalId?: string }) {
   const reload = () => setBump((n) => n + 1);
   const root = tree.data;
   const anyEdit = me.townWide || (!!root && !!me.userId && treeRows(root, false).some((r) => r.node.ownerId === me.userId));
-  const node = root && selected ? findGoal(root, selected) : null;
-  return (
-    <PanelShell icon={<Glyph kind="goals" />} title="Goal tree" subtitle={anyEdit ? "The town's goals: edit, add key results, decide proposals" : "The town's goals and key results (read-only)"}
-      actions={anyEdit ? <Act small run={() => planWith(selected ?? undefined)} title="Open a 1:1 with the Planner: it drafts proposals you accept or cut">Plan with an agent</Act> : undefined}>
-      <ErrorLine error={tree.error ?? proposals.error} />
-      {!root ? <Loading /> : <>
-        {proposals.data?.length ? <Proposals root={root} list={proposals.data} me={me} onDone={reload} /> : null}
-        {node ? <GoalDetail key={node.id} root={root} node={node} me={me} onSelect={setSelected} onDone={reload} />
-          : <Section title="Tree" right={<span className="goal-tree-tools">
-              <select aria-label="Building filter" value={filter} onChange={(e) => setFilter(e.target.value)}>
-                <option value="">All buildings</option>
-                {isFunder ? <option value={FUNDED}>Funded by me</option> : null}
-                {allBuildings(root).map((b) => <option key={b.id} value={b.id}>{b.name}</option>)}
-              </select>
-              <label className="check"><input type="checkbox" checked={retired} onChange={(e) => setRetired(e.target.checked)} /> Show retired</label>
-            </span>}>
-            <TreeList root={root} retired={retired} filter={filter} funded={funder.data} onSelect={setSelected} canPlan={anyEdit} />
-          </Section>}
-      </>}
-    </PanelShell>
+  const node = root ? findGoal(root, selected) ?? root : null;
+  // Esc closes the sheet only when no side panel sits beside it (the app's own Esc closes that panel first)
+  useEffect(() => {
+    const key = (e: KeyboardEvent) => {
+      const el = document.activeElement as HTMLElement | null;
+      if (e.key !== "Escape" || store.state.panel || (el && (el.tagName === "TEXTAREA" || el.tagName === "INPUT" || el.tagName === "SELECT"))) return;
+      onClose();
+    };
+    window.addEventListener("keydown", key, true);
+    return () => window.removeEventListener("keydown", key, true);
+  }, [onClose]);
+  const toggle = (id: string) => setCollapsed((c) => { const n = new Set(c); if (n.has(id)) n.delete(id); else n.add(id); return n; });
+  const select = (id: string | null) => {
+    const to = id ?? ROOT_GOAL_ID;
+    setSelected(to);
+    if (root) setCollapsed((c) => { const n = new Set(c); for (const g of pathTo(root, to).slice(0, -1)) n.delete(g.id); return n; });
+  };
+  const byNode = new Map<string, number>();
+  if (root) for (const p of proposals.data ?? []) { const id = proposalNode(root, p).id; byNode.set(id, (byNode.get(id) ?? 0) + 1); }
+  return createPortal(
+    <div className="ge-wrap" onMouseDown={(e) => { if (e.target === e.currentTarget) onClose(); }}>
+      <div className="ge" role="dialog" aria-label="Goal tree">
+        <header className="ge-head">
+          <div className="panel-icon"><Glyph kind="goals" /></div>
+          <div className="who">
+            <div className="who-title">Goal tree</div>
+            <div className="who-sub">{anyEdit ? "The town's goals and key results: pick one to edit it, add under it or decide its proposals" : "The town's goals and key results (read-only)"}</div>
+          </div>
+          {anyEdit ? <Act small tone="primary" run={() => planWith(node?.id)} title="Open your 1:1 with the Planner beside the tree: it drafts proposals you accept or cut here">Talk to the Planner</Act> : null}
+          <button className="close" title="Close (Esc)" aria-label="Close" onClick={onClose}>×</button>
+        </header>
+        <ErrorLine error={tree.error ?? proposals.error} />
+        {!root || !node ? <Loading /> : (
+          <div className="ge-body">
+            <nav className="ge-tree" aria-label="Goals">
+              <div className="ge-tools">
+                <select aria-label="Building filter" value={filter} onChange={(e) => setFilter(e.target.value)}>
+                  <option value="">All buildings</option>
+                  {isFunder ? <option value={FUNDED}>Funded by me</option> : null}
+                  {allBuildings(root).map((b) => <option key={b.id} value={b.id}>{b.name}</option>)}
+                </select>
+                <label className="check"><input type="checkbox" checked={showKrs} onChange={(e) => setShowKrs(e.target.checked)} /> Key results</label>
+                <label className="check"><input type="checkbox" checked={retired} onChange={(e) => setRetired(e.target.checked)} /> Retired</label>
+              </div>
+              <TreeList root={root} retired={retired} filter={filter} funded={funder.data} selected={node.id} collapsed={collapsed} showKrs={showKrs} proposals={byNode}
+                onSelect={select} onToggle={toggle} />
+            </nav>
+            <main className="ge-detail">
+              <GoalDetail key={node.id} root={root} node={node} me={me} onSelect={select} onDone={reload}
+                proposals={(proposals.data ?? []).filter((p) => node.id === ROOT_GOAL_ID || subtreeIds(node).has(proposalNode(root, p).id))} />
+            </main>
+          </div>
+        )}
+      </div>
+    </div>,
+    document.body,
   );
 }
 
-function TreeList({ root, retired, filter, funded, onSelect, canPlan }: { root: GoalTreeNode; retired: boolean; filter: string; funded?: FunderWeek | null; onSelect: (id: string) => void; canPlan: boolean }) {
+type TreeProps = { root: GoalTreeNode; retired: boolean; filter: string; funded?: FunderWeek | null; selected: string; collapsed: ReadonlySet<string>; showKrs: boolean; proposals: Map<string, number>; onSelect: (id: string) => void; onToggle: (id: string) => void };
+
+/** The tree as nodes: a chevron, the goal's words, its buildings, owner, open key results at a glance (funded, late, next due) and waiting proposals. */
+function TreeList({ root, retired, filter, funded, selected, collapsed, showKrs, proposals, onSelect, onToggle }: TreeProps) {
   const scope = filter === FUNDED ? treeScope(root, funded) : filter ? buildingScope(root, filter) : null;
+  const now = today();
   return (
-    <ul className="goal-tree">
-      {treeRows(root, retired).map(({ node, depth }) => (
-        <li key={node.id} className={`goal-row ${scope && !scope.has(node.id) ? "dim" : ""} ${node.status === "retired" ? "retired" : ""}`} style={{ paddingLeft: depth * 14 }}>
-          <div className="goal-row-head">
-            <button className="link goal-text" onClick={() => onSelect(node.id)} title={node.text}>{node.id === ROOT_GOAL_ID ? <b>{node.text}</b> : node.text}</button>
-            {node.ownerId ? <Pill title={`Owner: ${node.owner.name}`}>{node.owner.name}</Pill> : null}
-            {node.status === "retired" ? <Pill tone="bad">retired</Pill> : null}
-            {node.buildings.map((b) => <button key={b.id} className="chip" title={`${b.name} is attached here`} onClick={() => store.open({ kind: "building", id: b.id })}>{b.name}</button>)}
-            {canPlan && node.status === "active" ? <Act small run={() => planWith(node.id)} title="Plan this goal with the Planner">Plan</Act> : null}
-          </div>
-          <KrLines krs={node.keyResults} />
-        </li>
-      ))}
+    <ul className="ge-nodes">
+      {visibleRows(root, retired, collapsed).map(({ node, depth }) => {
+        const g = nodeGlance(node, now);
+        const krs = showKrs ? node.keyResults.filter((k) => !isArchived(k)) : [];
+        const kids = node.children.some((c) => retired || c.status !== "retired");
+        const open = !collapsed.has(node.id);
+        const waiting = proposals.get(node.id) ?? 0;
+        return (
+          <li key={node.id} className={`ge-node ${node.id === selected ? "on" : ""} ${scope && !scope.has(node.id) ? "dim" : ""} ${node.status === "retired" ? "retired" : ""}`} style={{ "--depth": depth } as CSSProperties}>
+            <div className="ge-node-row">
+              {kids || krs.length ? <button className="ge-chev" aria-label={open ? "Collapse" : "Expand"} aria-expanded={open} onClick={() => onToggle(node.id)}>{open ? "▾" : "▸"}</button> : <span className="ge-chev" />}
+              <button className="ge-node-main" onClick={() => onSelect(node.id)} title={node.text}>
+                <span className={`ge-node-text ${node.id === ROOT_GOAL_ID ? "root" : ""}`}>{node.text}</span>
+                <span className="ge-node-meta">
+                  {node.buildings.map((b) => <span key={b.id} className="ge-tag building" title={`${b.name} is attached here`}>{b.name}</span>)}
+                  {node.ownerId ? <span className="ge-tag" title={`Owner: ${node.owner.name}`}>👤 {node.owner.name}</span> : null}
+                  {node.status === "retired" ? <span className="ge-tag bad">retired</span> : null}
+                  {g.open ? <span className="ge-tag" title={`${g.open} open key result${g.open === 1 ? "" : "s"}, ${g.funded} funded`}>{g.open} KR · {g.funded} funded</span> : null}
+                  {g.late ? <span className="ge-tag warn" title="Open key results past their due date">{g.late} late</span> : g.nextDue ? <span className="ge-tag" title="The nearest open due date">due {g.nextDue}</span> : null}
+                  {waiting ? <span className="ge-tag prop" title="Open proposals waiting for a decision here">{waiting} proposal{waiting === 1 ? "" : "s"}</span> : null}
+                </span>
+              </button>
+            </div>
+            {open && krs.length ? <ul className="ge-krs">{krs.map((k) => (
+              <li key={k.id}>
+                <button className="ge-kr" onClick={() => onSelect(node.id)} title={`${krStatusLabel(k.status as KeyResultStatus)}: ${k.text}`}>
+                  <span className={`ge-dot st-${k.status}`} />
+                  <span className="ge-kr-text">{k.text}</span>
+                  {k.due ? <span className={`goal-due ${pastDue(k, now) ? "late" : ""}`}>{k.due.slice(5)}</span> : null}
+                  <span className={`ge-kr-grant ${k.grantId ? "funded" : ""}`}>{k.grantId ? "funded" : "open"}</span>
+                </button>
+              </li>
+            ))}</ul> : null}
+          </li>
+        );
+      })}
     </ul>
   );
 }
 
-function KrLines({ krs, actions }: { krs: TreeKr[]; actions?: (k: TreeKr) => ReactNode }) {
+/** A goal's key results; `cards` (the editor's detail) shows each whole with its how-to-check, else one line each. */
+function KrLines({ krs, actions, cards }: { krs: TreeKr[]; actions?: (k: TreeKr) => ReactNode; cards?: boolean }) {
   const open = krs.filter((k) => !isArchived(k));
   const done = archivedLine(krs);
   const [showDone, setShowDone] = useState(false);
   const line = (k: TreeKr) => (
-    <li key={k.id} className="goal-kr">
+    <li key={k.id} className={`goal-kr ${cards ? "ge-kr-card" : ""}`}>
       <Pill tone={krTone(k.status as KeyResultStatus)}>{krStatusLabel(k.status as KeyResultStatus)}</Pill>
       {k.underReviewSince ? <Pill tone="warn" title={`A "Change this goal" put it under review on ${k.underReviewSince.slice(0, 10)}: its grant keeps running until a human decides`}>under review</Pill> : null}
       {k.due ? <span className={`goal-due ${pastDue(k, today()) ? "late" : ""}`} title={pastDue(k, today()) ? "Past due" : "Due"}>{k.due}</span> : null}
       {k.grantId ? <button className="link goal-grant" onClick={() => store.open({ kind: "grant", id: k.grantId! })}>funded</button> : !isArchived(k) ? <span className="muted goal-grant">open</span> : null}
-      <span className="goal-kr-text" title={k.howToCheck ? `How to check: ${k.howToCheck}` : undefined}>{k.text}</span>
+      <span className="goal-kr-text" title={k.howToCheck && !cards ? `How to check: ${k.howToCheck}` : undefined}>{k.text}{cards && k.howToCheck ? <span className="ge-check">How to check: {k.howToCheck}</span> : null}</span>
       {k.status === "missed" ? k.postmortemDocId
         ? <button className="link goal-postmortem" onClick={() => void openDocLink(k.postmortemDocId!)} title="The postmortem: what we planned, what happened, what we'd do differently">postmortem</button>
         : <span className="muted goal-postmortem" title="A postmortem assignment is queued on the building; its report links here">postmortem pending</span> : null}
@@ -122,7 +194,7 @@ function KrLines({ krs, actions }: { krs: TreeKr[]; actions?: (k: TreeKr) => Rea
   );
 }
 
-function GoalDetail({ root, node, me, onSelect, onDone }: { root: GoalTreeNode; node: GoalTreeNode; me: { userId: string | null; townWide: boolean }; onSelect: (id: string | null) => void; onDone: () => void }) {
+function GoalDetail({ root, node, me, proposals, onSelect, onDone }: { root: GoalTreeNode; node: GoalTreeNode; me: { userId: string | null; townWide: boolean }; proposals: GoalProposalView[]; onSelect: (id: string | null) => void; onDone: () => void }) {
   const can = canEditGoal(node, me) && node.status === "active";
   const path = pathTo(root, node.id);
   const [tab, setTab] = useState("History");
@@ -134,27 +206,30 @@ function GoalDetail({ root, node, me, onSelect, onDone }: { root: GoalTreeNode; 
   const mark = (k: TreeKr, status: KeyResultStatus) => api().updateKeyResult(k.id, { status }).then(onDone);
   // marking missed (or archiving an under-review one) asks for a line on why: it files the postmortem's source
   const [missing, setMissing] = useState<{ k: TreeKr; archive: boolean } | null>(null);
+  const tool = (f: typeof form, label: string, title?: string, tone = "") => <button className={`btn sm ${tone} ${form === f ? "on" : ""}`} aria-pressed={form === f} title={title} onClick={() => setForm(form === f ? "" : f)}>{label}</button>;
   return (
     <div className="goal-detail">
-      <div className="goal-path">
-        <button className="link" onClick={() => onSelect(null)}>← Tree</button>
-        {path.slice(0, -1).map((g) => <span key={g.id}> › <button className="link" onClick={() => onSelect(g.id)}>{clip(g.text, 40)}</button></span>)}
-      </div>
-      <div className="goal-card"><span>{node.id === ROOT_GOAL_ID ? "Town goal (the root)" : node.status === "retired" ? "Retired goal" : "Goal"}</span>{node.text}</div>
-      <div className="muted goal-meta">
-        Owner: <b>{node.owner.name}</b>{node.ownerId ? "" : node.owner.goalId === node.id ? "" : ` (from "${clip(findGoal(root, node.owner.goalId)?.text ?? node.owner.goalId, 40)}")`}
-        {node.buildings.length ? <> · Attached: {node.buildings.map((b) => <button key={b.id} className="chip" onClick={() => store.open({ kind: "building", id: b.id })}>{b.name}</button>)}</> : null}
+      {path.length > 1 ? <div className="goal-path">
+        {path.slice(0, -1).map((g, i) => <span key={g.id}>{i ? " › " : ""}<button className="link" onClick={() => onSelect(g.id)}>{clip(g.text, 40)}</button></span>)}
+      </div> : null}
+      <div className="ge-goal">
+        <span>{node.id === ROOT_GOAL_ID ? "Town goal (the root)" : node.status === "retired" ? "Retired goal" : "Goal"}</span>
+        <h2>{node.text}</h2>
+        <div className="muted goal-meta">
+          Owner: <b>{node.owner.name}</b>{node.ownerId ? "" : node.owner.goalId === node.id ? "" : ` (from "${clip(findGoal(root, node.owner.goalId)?.text ?? node.owner.goalId, 40)}")`}
+          {node.buildings.length ? <> · Attached: {node.buildings.map((b) => <button key={b.id} className="chip" onClick={() => store.open({ kind: "building", id: b.id })}>{b.name}</button>)}</> : null}
+        </div>
       </div>
       {can ? (
-        <div className="goal-actions decide-footer">
-          <button className="btn sm" onClick={() => setForm(form === "edit" ? "" : "edit")}>Edit</button>
-          <button className="btn sm" onClick={() => setForm(form === "goal" ? "" : "goal")}>Add goal</button>
-          <button className="btn sm" onClick={() => setForm(form === "kr" ? "" : "kr")}>Add key result</button>
-          {node.parentId ? <button className="btn sm" onClick={() => setForm(form === "move" ? "" : "move")}>Move</button> : null}
-          <button className="btn sm" onClick={() => setForm(form === "owner" ? "" : "owner")}>Owner</button>
-          {node.parentId ? <button className="btn sm bad" onClick={() => setForm(form === "retire" ? "" : "retire")}>Retire</button> : null}
-          {!open ? <button className="btn sm" onClick={() => setForm(form === "change" ? "" : "change")} title="X → Y: the buildings under it prepare, then a planning meeting decides what goes underneath">Change this goal</button> : null}
-          <Act small run={() => planWith(node.id)} title="Open a 1:1 with the Planner about this goal">Plan with an agent</Act>
+        <div className="ge-toolbar" role="toolbar" aria-label="Change this goal">
+          {tool("edit", "Edit words")}
+          {tool("goal", "+ Goal under it")}
+          {tool("kr", "+ Key result")}
+          {node.parentId ? tool("move", "Move") : null}
+          {tool("owner", "Owner")}
+          {!open ? tool("change", "Change this goal", "X → Y: the buildings under it prepare, then a planning meeting decides what goes underneath") : null}
+          <span className="ge-toolbar-gap" />
+          {node.parentId ? tool("retire", "Retire", undefined, "bad") : null}
         </div>
       ) : <div className="muted goal-meta">{node.status === "retired" ? `Retired${node.retiredNote ? `: ${node.retiredNote}` : "."}` : me.userId ? "Only an admin or this goal's owner edits it; managers propose with propose_goal." : "Sign in to see what you can change."}</div>}
       {open ? <ChangeBanner c={open} /> : null}
@@ -165,16 +240,14 @@ function GoalDetail({ root, node, me, onSelect, onDone }: { root: GoalTreeNode; 
       {form === "move" ? <MoveForm root={root} node={node} onDone={done} /> : null}
       {form === "owner" ? <OwnerForm node={node} me={me} onDone={done} /> : null}
       {form === "retire" ? <RetireForm root={root} node={node} onDone={() => { done(); onSelect(node.parentId); }} /> : null}
-      <Section title="Key results">
-        {node.keyResults.length ? <KrLines krs={node.keyResults} actions={can ? (k) => isArchived(k) ? null : k.underReviewSince ? <ReviewActs root={root} k={k} onDone={onDone} onArchive={() => setMissing({ k, archive: true })} /> : <span className="goal-kr-acts">
+      {proposals.length ? <Proposals root={root} list={proposals} me={me} onDone={onDone} here={node.id === ROOT_GOAL_ID ? null : node.text} /> : null}
+      <Section title={`Key results (${node.keyResults.filter((k) => !isArchived(k)).length})`}>
+        {node.keyResults.length ? <KrLines krs={node.keyResults} cards actions={can ? (k) => isArchived(k) ? null : k.underReviewSince ? <ReviewActs root={root} k={k} onDone={onDone} onArchive={() => setMissing({ k, archive: true })} /> : <span className="goal-kr-acts">
           <Act small tone="ok" run={() => mark(k, "met")} title="A human marks it met: it archives under this goal">Met</Act>
           <button className="btn sm bad" onClick={() => setMissing({ k, archive: false })} title="A human marks it missed: it archives under this goal and a postmortem is queued">Missed</button>
-        </span> : undefined} /> : <Empty>No key results under this goal{can ? ": add a dated one above." : "."}</Empty>}
+        </span> : undefined} /> : <Empty>No key results under this goal{can ? ": add a dated one with + Key result." : "."}</Empty>}
         {missing ? <MissedForm key={missing.k.id} k={missing.k} archive={missing.archive} onCancel={() => setMissing(null)} onDone={() => { setMissing(null); onDone(); }} /> : null}
       </Section>
-      {node.children.length ? <Section title="Goals under it">
-        <ul className="goal-tree">{node.children.map((c) => <li key={c.id} className="goal-row"><button className="link" onClick={() => onSelect(c.id)}>{c.text}</button></li>)}</ul>
-      </Section> : null}
       <Tabs tabs={[{ id: "History", label: "History" }, { id: "Subtree", label: "Subtree" }, { id: "Spend", label: "Spend" }, { id: "Queue", label: "Queue" }]} active={tab} onChange={setTab} />
       {tab === "History" ? <History id={node.id} /> : tab === "Spend" ? <GoalSpendTab goalId={node.id} /> : tab === "Queue" ? <QueueTab goalId={node.id} /> : <Subtree node={node} />}
     </div>
@@ -391,9 +464,9 @@ export function proposalNode(root: GoalTreeNode, p: Pick<GoalProposalView, "targ
   return at ?? (p.parentId ? findGoal(root, p.parentId) : null) ?? root;
 }
 
-function Proposals({ root, list, me, onDone }: { root: GoalTreeNode; list: GoalProposalView[]; me: { userId: string | null; townWide: boolean }; onDone: () => void }) {
+function Proposals({ root, list, me, here, onDone }: { root: GoalTreeNode; list: GoalProposalView[]; me: { userId: string | null; townWide: boolean }; here: string | null; onDone: () => void }) {
   return (
-    <Section title={`Proposals (${list.length})`}>
+    <Section title={`Proposals waiting${here ? " here and below" : ""} (${list.length})`}>
       <div className="goal-proposals">{list.map((p) => <ProposalCard key={p.id} root={root} p={p} me={me} onDone={onDone} />)}</div>
     </Section>
   );

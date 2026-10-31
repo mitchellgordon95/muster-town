@@ -762,3 +762,53 @@ div.spend-row > .muted { font-size: 11.5px; }
 .queue-card-meta { display: flex; flex-wrap: wrap; gap: 4px; align-items: center; margin-top: 2px; font-size: 11px; }
 .queue-card-held { font-size: 11px; font-style: italic; }
 .goal-postmortem { font-size: 11px; margin-left: 4px; }
+/* the goal tree editor: a sheet over the map, left of any side panel; tree nodes on the left, the selected goal on the right */
+.ge-wrap { position: fixed; top: 0; bottom: 0; left: 0; right: var(--panel-w, 0px); z-index: 30; display: flex; align-items: stretch; justify-content: center; padding: 20px; background: rgba(10,11,16,.55); }
+.ge { width: min(1280px, 100%); display: flex; flex-direction: column; background: var(--panel); border: 1px solid var(--line-2); border-radius: 10px; box-shadow: 0 12px 48px rgba(0,0,0,.55); overflow: hidden; }
+.ge-head { display: flex; align-items: center; gap: 12px; padding: 10px 14px; border-bottom: 1px solid var(--line); background: var(--panel-2); }
+.ge-head .who { flex: 1; min-width: 0; }
+.ge-body { flex: 1; min-height: 0; display: grid; grid-template-columns: minmax(300px, 44%) 1fr; }
+.ge-tree { overflow: auto; border-right: 1px solid var(--line); padding: 8px 8px 24px; overscroll-behavior: contain; }
+.ge-detail { overflow: auto; padding: 14px 18px 28px; overscroll-behavior: contain; }
+.ge-tools { display: flex; gap: 10px; align-items: center; padding: 2px 4px 8px; position: sticky; top: -8px; background: var(--panel); z-index: 1; }
+.ge-tools select { width: auto; max-width: 170px; padding: 4px 6px; font-size: 12px; }
+.ge-nodes { list-style: none; margin: 0; padding: 0; }
+.ge-node { padding-left: calc(var(--depth, 0) * 16px); }
+.ge-node.dim { opacity: .35; }
+.ge-node-row { display: flex; align-items: flex-start; gap: 2px; }
+.ge-chev { flex: none; width: 18px; height: 26px; line-height: 26px; background: none; border: none; color: var(--muted); cursor: pointer; padding: 0; font-size: 14px; }
+.ge-chev:hover { color: var(--text); }
+.ge-node-main { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 3px; text-align: left; background: none; border: 1px solid transparent; border-radius: 6px; padding: 4px 7px; color: var(--text); cursor: pointer; font: inherit; }
+.ge-node-main:hover { background: #222534; }
+.ge-node.on > .ge-node-row .ge-node-main { background: #1f2c40; border-color: #34507a; }
+.ge-node-text { font-size: 13px; line-height: 1.35; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+.ge-node-text.root { font-weight: 700; }
+.ge-node.retired .ge-node-text { text-decoration: line-through; color: var(--muted); }
+.ge-node-meta { display: flex; flex-wrap: wrap; gap: 4px; }
+.ge-node-meta:empty { display: none; }
+.ge-tag { font-size: 10.5px; line-height: 16px; padding: 0 6px; border-radius: 8px; background: #262a38; color: var(--muted); white-space: nowrap; }
+.ge-tag.building { background: #24324a; color: #b9d6ff; }
+.ge-tag.warn { background: #3d3418; color: var(--warn); }
+.ge-tag.bad { background: #3d1f22; color: var(--bad); }
+.ge-tag.prop { background: #3b2f12; color: var(--gold); font-weight: 700; }
+.ge-krs { list-style: none; margin: 0 0 4px 24px; padding: 0 0 0 8px; border-left: 1px solid var(--line); }
+.ge-kr { width: 100%; display: flex; align-items: center; gap: 6px; background: none; border: none; color: var(--text); text-align: left; padding: 2px 4px; border-radius: 4px; cursor: pointer; font-size: 12px; }
+.ge-kr:hover { background: #222534; }
+.ge-kr-text { flex: 1; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; color: #c9cbd8; }
+.ge-kr-grant { font-size: 10.5px; color: var(--faint); width: 40px; text-align: right; }
+.ge-kr-grant.funded { color: var(--ok); }
+.ge-dot { flex: none; width: 8px; height: 8px; border-radius: 50%; background: #7a7f99; }
+.ge-dot.st-on-track { background: var(--accent); } .ge-dot.st-at-risk, .ge-dot.st-claimed { background: var(--warn); } .ge-dot.st-met { background: var(--ok); } .ge-dot.st-missed { background: var(--bad); }
+.ge .decide-footer { border-top: none; padding-top: 2px; margin: 4px 0 0; gap: 6px; }
+.ge .decide-footer .btn, .ge .decide-footer .btn.sm { flex: none; padding: 4px 12px; font-size: 13px; min-height: 0; }
+.ge-goal { background: #1d2a1f; border: 1px solid #2c4430; border-radius: var(--r); padding: 10px 13px; display: flex; flex-direction: column; gap: 4px; }
+.ge-goal > span { font-size: 10px; text-transform: uppercase; letter-spacing: .08em; color: var(--ok); font-weight: 700; }
+.ge-goal h2 { margin: 0; font-size: 16px; line-height: 1.35; font-weight: 600; }
+.ge-toolbar { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
+.ge-toolbar .btn.on { border-color: var(--accent); color: var(--accent); }
+.ge-toolbar-gap { flex: 1; }
+.ge-kr-card { border: 1px solid var(--line); border-radius: var(--r); padding: 7px 9px; font-size: 13px; }
+.ge-kr-card .goal-kr-text { order: 10; flex-basis: 100%; }
+.ge-kr-card .goal-kr-acts { margin-left: auto; }
+.ge-check { display: block; color: var(--muted); font-size: 12px; margin-top: 2px; }
+@media (max-width: 760px) { .ge-wrap { padding: 0; right: 0; } .ge { border-radius: 0; } .ge-body { grid-template-columns: 1fr; grid-template-rows: 40% 1fr; } .ge-tree { border-right: none; border-bottom: 1px solid var(--line); } }
