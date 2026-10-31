@@ -68,12 +68,12 @@ There is a new place in the Town Hall, the **Goal tree** (a wall chart by the in
 
 **What.** Building organization on the map is **generated from the goal tree, roads and all**. Nobody places buildings by hand.
 
-- **The Town Hall sits at the root.** The Bank stands beside it, as today.
-- **Each goal node is a plaza**: a small square of road with a signpost carrying the goal's text. It is a place (`plaza:<goalId>`), so agents can `go` there.
-- **A road runs from a node's plaza to each child's plaza.** The roads are the tree's edges and nothing else: the trunk rows (`ROAD_Y`) go.
-- **A building stands at the node it is attached to**, its door on that plaza. Several buildings on one goal ring its plaza.
-- **Walking from the Town Hall to a building walks down the tree**: root plaza → Fund → "Someone other than Mitchell can fund…" → the Workshop. A resident going to the Town Hall walks up it.
-- **Archived KRs and retired goals don't draw.** KRs are not on the map at all; a goal's plaza signpost can show "3 open KRs".
+- **The Town Hall sits at the root**, above the main street; the Bank stands below it, at the street's west end.
+- **Only goals with a building under them draw** (Mitchell, 1:1 mt_wql34b8gkl: "we don't need an empty lot for every unassigned goal"). The goal tree at the Town Hall still lists every goal. A goal with no building of its own and one drawn child folds into that child, so a chain of goals is one step, not a long walk.
+- **No plaza per building**: a building stands right on its parent goal's street, its door on it, one tile of grass between neighbours ("pack the buildings together so that it actually feels like a town").
+- **A goal with drawn children gets a street** one row below its parent's, joined by a one-tile drop, with a signpost carrying the goal's text beside the drop. Its children's buildings and blocks hang off that street. The goal is a place (`plaza:<goalId>`, on its street below the signpost; for a goal without drawn children, its first building's doorstep), so agents can `go` there.
+- **Walking from the Town Hall to a building walks down the tree**: main street → the drop to a goal's street → the door.
+- **Archived KRs and retired goals don't draw.** KRs are not on the map at all.
 
 **What goes.** Human drag placement on the planning side bar goes: no dragging buildings, no drawing new ones on grass, no drag-resize. Today's free placement plus derived roads (PR #83, `road.ts` `deriveRoads`, `layout.ts` `computeLayout`, `plan.ts` `validatePlan`) becomes **the renderer for the tree layout**: a new `treeLayout(goals, buildings)` computes every lot and plaza, and the existing code draws the grid and checks it. `deriveRoads` changes from "each door to the nearest road" to "each plaza to its parent's plaza, each door to its own plaza", with the same Dijkstra and turn cost.
 
@@ -86,13 +86,13 @@ There is a new place in the Town Hall, the **Goal tree** (a wall chart by the in
 **Consequences.**
 
 - **Exactly one attachment per building.** A building can stand in only one place. This replaces "a building attaches to one or more subtrees" everywhere in this doc, and it fits the rule that a building is never unattached.
-- **A stable, seeded layout.** Adding a sibling must not shuffle existing buildings. Children are laid out in a fixed order (`position`, then `createdAt`), never re-sorted. Each node's band keeps room for one more child, so most additions move nothing; when the room runs out, only the bands after it shift, and order never changes. The same tree always gives the same map (no randomness, or a seed stored with the town).
+- **A stable, packed layout.** Children are laid out in a fixed order (`position`, then `createdAt`), never re-sorted. Blocks sit side by side with one tile of grass between them (no slack bands since 1:1 mt_wql34b8gkl), so adding a building shifts only the blocks after it, right and in order; bodies inside follow their desks. The same tree always gives the same map (no randomness).
 - **Map bounds.** A wide or deep tree can outgrow today's limits (`MAX_TOWN_X` 240, `MAX_TOWN_Y`). The layout grows the map rather than refusing; those constants become derived.
 
 **Open (for Mitchell).**
 
-1. **What an empty goal node looks like**, one with no building attached anywhere under it: an empty plaza with its signpost (my suggestion, so the gap is visible), or nothing drawn until a building attaches.
-2. **Long walks on deep trees.** Walking is free in tokens but not in time, and a building six levels down is a long walk from the Town Hall. Options: shorter roads with depth, folding a chain of single-child goals into one plaza, or leaving it (the walk *is* the distance in the org).
+1. ~~What an empty goal node looks like~~: answered in 1:1 mt_wql34b8gkl, nothing draws until a building attaches.
+2. ~~Long walks on deep trees~~: answered in 1:1 mt_wql34b8gkl by packing; a chain of goals with no buildings folds into one step. The overall shape (tree, radial, plazas grouping related buildings) is for the vision doc.
 
 **Build.** Step 2, right after the core (see Build order).
 

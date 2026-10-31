@@ -2,15 +2,15 @@ import { BANK_FIXTURES, BANK_LOT, type Building, type Lot, type Tile } from "@mu
 import type { TreeLayout } from "./tree.ts";
 
 /**
- * Which wall a building's door is in. The map is the goal tree (tree.ts): a lab hangs below its goal's plaza, so its door
- * is in the top wall and its room is laid out mirrored; the Town Hall stands above the root plaza, its door in the bottom wall.
+ * Which wall a building's door is in. The map is the goal tree (tree.ts): a lab hangs below a street, so its door is in
+ * the top wall and its room is laid out mirrored; the Town Hall stands above the main street, its door in the bottom wall.
  */
 export const facesNorth = (kind: Building["kind"]) => kind !== "town-hall";
 
 /** The door tile: top middle for a lab, bottom middle for the Town Hall. */
 export const doorOf = (lot: Lot, kind: Building["kind"]) => ({ x: lot.x + Math.floor(lot.w / 2), y: facesNorth(kind) ? lot.y : lot.y + lot.h - 1 });
 
-/** The tile just outside the door: on its goal's plaza. */
+/** The tile just outside the door: on the street. */
 export const doorstepOf = (lot: Lot, kind: Building["kind"]): Tile => {
   const d = doorOf(lot, kind);
   return { x: d.x, y: facesNorth(kind) ? d.y - 1 : d.y + 1 };
@@ -22,48 +22,42 @@ const DIRS = [[0, 1], [0, -1], [1, 0], [-1, 0]] as const;
 const DOWN = 0, UP = 1;
 
 export interface Roads {
-  /** every road tile: the plazas and the tree's edges between them */
+  /** every road tile: the streets and the drops between them */
   tiles: Tile[];
-  /** per door (building id; the Bank's is `bank`): the road from its doorstep to its plaza, first tile first; empty when the doorstep is on it */
+  /** per door (building id; the Bank's is `bank`): the road from its doorstep to the nearest street, first tile first; empty when the doorstep is on one */
   routes: Map<string, Tile[]>;
   /** doors no road can reach (empty on any map treeLayout makes) */
   unreached: string[];
 }
 
 /**
- * The road layer, derived from the tree layout alone (nothing is stored): every plaza strip and every edge of the
- * tree (treeLayout's `edges`) is road; then each door gets a road from its doorstep to its own plaza (the Bank's to
- * the root's), found by a grid router that never enters a lot, a signpost or another plaza and prefers straight
- * segments (a turn costs TURN steps). treeLayout puts every doorstep on its plaza, so those are empty. Deterministic.
+ * The road layer, derived from the tree layout alone (nothing is stored): every street and every drop (treeLayout's
+ * `edges`) is road; then each door gets a road from its doorstep to the nearest road, found by a grid router that never
+ * enters a lot or a signpost and prefers straight segments (a turn costs TURN steps). treeLayout puts every doorstep on a
+ * street, so those are empty. Deterministic.
  */
-export function deriveRoads(lots: { id: string; kind: Building["kind"]; lot: Lot }[], tree: Pick<TreeLayout, "plazas" | "edges" | "standsAt">, w: number, h: number): Roads {
-  const road = new Uint8Array(w * h), blocked = new Uint8Array(w * h), plazaOf = new Int32Array(w * h);
+export function deriveRoads(lots: { id: string; kind: Building["kind"]; lot: Lot }[], tree: Pick<TreeLayout, "plazas" | "edges">, w: number, h: number): Roads {
+  const road = new Uint8Array(w * h), blocked = new Uint8Array(w * h);
   const inside = (x: number, y: number) => x >= 0 && y >= 0 && x < w && y < h;
-  const fill = (l: Lot, a: Uint8Array | Int32Array, v: number) => {
+  const fill = (l: Lot, a: Uint8Array, v: number) => {
     for (let y = Math.max(0, l.y); y < Math.min(h, l.y + l.h); y++) for (let x = Math.max(0, l.x); x < Math.min(w, l.x + l.w); x++) a[y * w + x] = v;
   };
   for (const { lot } of lots) fill(lot, blocked, 1);
   fill(BANK_LOT, blocked, 1);
-  const index = new Map(tree.plazas.map((p, i) => [p.goalId, i]));
-  tree.plazas.forEach((p, i) => {
-    fill(p.rect, road, 1);
-    fill(p.rect, plazaOf, i + 1);
-    if (inside(p.sign.x, p.sign.y)) blocked[p.sign.y * w + p.sign.x] = 1;
-  });
+  for (const p of tree.plazas) {
+    if (p.street) fill(p.street, road, 1);
+    if (p.sign && inside(p.sign.x, p.sign.y)) blocked[p.sign.y * w + p.sign.x] = 1;
+  }
   for (const e of tree.edges.values()) for (const t of e) if (inside(t.x, t.y)) road[t.y * w + t.x] = 1;
   const routes = new Map<string, Tile[]>(), unreached: string[] = [];
-  const go = (id: string, from: Tile, dir: number, plaza: number | undefined) => {
-    if (plaza === undefined) { unreached.push(id); return; }
-    const target = new Uint8Array(w * h), wall = blocked.slice();
-    for (let i = 0; i < w * h; i++) { if (plazaOf[i] === plaza + 1) target[i] = 1; else if (plazaOf[i]) wall[i] = 1; }
-    const r = route(from, dir, w, h, target, wall);
+  const go = (id: string, from: Tile, dir: number) => {
+    const r = route(from, dir, w, h, road.slice(), blocked);
     if (!r) { unreached.push(id); return; }
     for (const t of r) road[t.y * w + t.x] = 1;
     routes.set(id, r);
   };
-  const root = tree.plazas.find((p) => !p.parentId);
-  for (const b of lots) go(b.id, doorstepOf(b.lot, b.kind), facesNorth(b.kind) ? UP : DOWN, index.get(tree.standsAt.get(b.id) ?? root?.goalId ?? ""));
-  go("bank", { x: BANK_LOT.x + BANK_FIXTURES.door.x, y: BANK_LOT.y - 1 }, UP, root && index.get(root.goalId));
+  for (const b of lots) go(b.id, doorstepOf(b.lot, b.kind), facesNorth(b.kind) ? UP : DOWN);
+  go("bank", { x: BANK_LOT.x + BANK_FIXTURES.door.x, y: BANK_LOT.y - 1 }, UP);
   const tiles: Tile[] = [];
   for (let i = 0; i < w * h; i++) if (road[i]) tiles.push({ x: i % w, y: Math.floor(i / w) });
   return { tiles, routes, unreached: unreached.sort() };

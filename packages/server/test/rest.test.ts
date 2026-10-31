@@ -469,8 +469,8 @@ describe("the map is the goal tree (docs/goals.md, build step 2)", () => {
     const lot = world.buildings.require("carbon-cycle").lot!;
     const attach = await json(app, "PATCH", "/api/buildings/carbon-cycle", { headers: auth, body: { goalId: id } });
     expect(attach.status).toBe(200);
-    const plaza = world.layout.plazas.find((p) => p.goalId === id)!;
-    expect(world.buildings.require("carbon-cycle").lot!.y).toBe(plaza.rect.y + plaza.rect.h);
+    const plaza = world.layout.requirePlace(`plaza:${id}`);
+    expect(world.buildings.require("carbon-cycle").lot!.y).toBe(plaza.pos.y + 1); // on the street, its goal's place on its doorstep
     expect(world.buildings.require("carbon-cycle").lot).not.toEqual(lot);
     const desks = await json(app, "PATCH", "/api/buildings/carbon-cycle", { headers: auth, body: { headcount: 9 } });
     expect(desks.status).toBe(200);
