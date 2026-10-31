@@ -283,7 +283,7 @@ function PoolLine({ b }: { b: SnapshotBuilding }) {
     <div className="muted goal-meta pool-line">
       <span className="pool-swatch" style={{ background: poolColor(bank, row.poolId) }} /> Pool: <b>{row.poolName}</b>{" "}
       {row.poolGoalId
-        ? <>(from goal <button className="link" title={row.poolGoalText ?? undefined} onClick={() => store.open({ kind: "goals", id: row.poolGoalId! })}>{goalShortName(row.poolGoalText ?? row.poolGoalId)}</button>)</>
+        ? <span>(from goal <button className="link" title={row.poolGoalText ?? undefined} onClick={() => store.open({ kind: "goals", id: row.poolGoalId! })}>{goalShortName(row.poolGoalText ?? row.poolGoalId)}</button>)</span>
         : <>(no goal above it sets one)</>}
     </div>
   );
