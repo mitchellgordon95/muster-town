@@ -2054,10 +2054,12 @@ export type DeskBriefIsAView = Assert<DeskBrief extends z.input<typeof DeskBrief
 /** POST /api/agents/me/activity → 204 */
 export const DeskActivityInput = z.object({
   session: Id,
-  kind: z.enum(["tool", "thought", "status"]),
+  /** `usage`: the session's cumulative usage so far (desk UsageMeter), booked by the Bank as the session runs */
+  kind: z.enum(["tool", "thought", "status", "usage"]),
   tool: z.string().optional(),
   input: z.unknown().optional(),
   text: z.string().optional(),
+  usage: z.object({ counts: TokenCounts, byModel: z.record(z.string(), TokenCounts).default({}) }).optional(),
 });
 export type DeskActivityInput = z.infer<typeof DeskActivityInput>;
 

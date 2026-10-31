@@ -4,7 +4,7 @@ import type { Meeting, VerbName } from "@muster-town/schema";
 import { recentWorkBlock } from "@muster-town/core";
 import { facilitateMaterial, meetingContextBlock, facilitatePrompt, facilitateSystemPrompt, lastMeetingFor, meetingReplyPrompt, meetingReplySystemPrompt, summaryPrompt, summarySystemPrompt } from "@muster-town/core";
 import { oneShot } from "./sdk.ts";
-import { chargeUsage, fundingFor, homeOf, runAgentSession, type Ctx } from "./session.ts";
+import { chargeUsage, endAndCharge, fundingFor, homeOf, runAgentSession, type Ctx } from "./session.ts";
 import { latestReport } from "./work.ts";
 
 export const COLLECTING_MS = 3 * 60_000;
@@ -118,9 +118,7 @@ async function replyInMeeting(ctx: Ctx, meetingId: string, agentId: string): Pro
         catch (e) { error = e instanceof Error ? e.message : String(e); }
       } else if (!said) error ??= "empty reply";
       const status = out.stopped ? "interrupted" : error ? "error" : "done";
-      const session = world.ops.endSession(out.session.id, { status, counts: out.counts, byModel: out.byModel, costUsd: out.costUsd, turns: out.turns, error, sdkSessionId: out.sdkSessionId });
-      chargeUsage(world, agentId, out, allocationId, session.model);
-      return session;
+      return endAndCharge(world, out.session.id, out, { status, error, sdkSessionId: out.sdkSessionId }, allocationId);
     },
   }).catch((e) => console.log("[runtime] meeting reply failed:", e));
 }

@@ -205,6 +205,22 @@ describe("runSession", () => {
     expect(town.ends[0]).toMatchObject({ session: "s1", error: "Claude Code process exited with code 1" });
   });
 
+  it("posts its running usage for the Bank to book, and a session that dies before its result still ends with every call (1:1 mt_x40qq8poc3 decision 2)", async () => {
+    town.briefs.set("s1", brief("s1"));
+    const call = (id: string, output: number, cacheRead: number) => ({ type: "assistant", session_id: "sdk-1", message: { id, model: "m", content: [{ type: "text", text: id }], usage: { input_tokens: 1, output_tokens: output, cache_read_input_tokens: cacheRead } } });
+    const sdk = fakeSdk(async function* () {
+      yield call("msg_1", 100, 5000);
+      yield call("msg_1", 100, 5000); // the same call's next block: counted once
+      yield call("msg_2", 50, 7000);
+      throw new Error("Claude Code process exited with code 1");
+    });
+    const code = await runSession("s1", deps(sdk, { usageMs: 0 }));
+    expect(code).toBe(EXIT_ERROR);
+    const posts = town.activity.filter((a) => a.kind === "usage");
+    expect(posts.map((p) => p.usage?.counts.output)).toEqual([100, 150]);
+    expect(town.ends[0]).toMatchObject({ tokens: 12_152, counts: { input: 2, output: 150, cacheRead: 12_000, cacheWrite5m: 0, cacheWrite1h: 0 }, byModel: { m: { input: 2, output: 150, cacheRead: 12_000 } } });
+  });
+
   it("brief 403 → session-end with error, exit 1", async () => {
     const sdk = fakeSdk(async function* () { /* never */ });
     const code = await runSession("nope", deps(sdk));

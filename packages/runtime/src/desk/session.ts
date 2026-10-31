@@ -8,7 +8,7 @@ import { AppError, codeWorkspace, deskPreset, REPO_TOKEN_SECRET, type World } fr
 import { townEnvBoth, type AllocationAuth, type DeskActivityInput, type DesksConfig, type Session } from "@muster-town/schema";
 import { describeTool } from "../describe.ts";
 import { assertOneCredential, credentialEnv, InputChannel } from "../sdk.ts";
-import { clipJson, clipThought, fundedBy, fundingFor, fundingForSession, homeOf, type Ctx, type Funding, type LiveSession } from "../session.ts";
+import { bookRunning, clipJson, clipThought, fundedBy, fundingFor, fundingForSession, homeOf, type Ctx, type Funding, type LiveSession } from "../session.ts";
 import { finishWorkSession, preflightWork, walkToDesk } from "../work.ts";
 import { DESK_BIN, type DeskBackend } from "./backend.ts";
 
@@ -194,7 +194,10 @@ export function onDeskActivity(ctx: Ctx, agentId: string, input: DeskActivityInp
   if (s.status !== "running") throw new AppError("conflict", `Session ${s.id} is ${s.status}.`);
   const bid = homeOf(world, agentId);
   const base = { sessionId: s.id, purpose: s.purpose, backend: s.backend };
-  if (input.kind === "tool") {
+  if (input.kind === "usage") {
+    // the desk's cumulative usage so far: booked now, on the allocation the session was handed (1:1 mt_x40qq8poc3 decision 2)
+    if (input.usage) bookRunning(world, s.id, input.usage, ctx.deskAllocations.get(s.id) ?? null);
+  } else if (input.kind === "tool") {
     const tool = input.tool ?? "tool";
     world.events.append({ type: "agent.tool", agentId, buildingId: bid, text: describeTool(world, tool, input.input), payload: { ...base, tool, input: clipJson(input.input) } });
     const live = ctx.live.get(agentId);

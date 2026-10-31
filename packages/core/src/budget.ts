@@ -24,6 +24,11 @@ export interface ChargePrice {
   model?: string | null; byModel?: Record<string, TokenCounts> | null;
   /** the session's grant: when it names its own Bank input (`fundedWith`, member funding), that input pays first */
   grantId?: string | null;
+  /**
+   * A booking while the session still runs (1:1 mt_x40qq8poc3 decision 2): debited like any charge, but the
+   * out-of-budget check (event, statuses) waits for the session's end, so a working agent isn't flipped mid-session.
+   */
+  running?: boolean;
 }
 
 const SKIP_STATUSES = new Set(["stopped", "banned"]);
@@ -295,7 +300,7 @@ export class Budget {
       this.emitBuilding(bid);
     }
     let exhausted: ChargeResult["exhausted"] = null;
-    if (bid) {
+    if (bid && !price.running) {
       const b = this.repos.buildings.require(bid, "building");
       if (this.remaining(bid) <= 0) {
         exhausted = "building";

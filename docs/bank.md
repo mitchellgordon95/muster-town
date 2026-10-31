@@ -28,7 +28,7 @@ The desk (`packages/desk/src/run.ts`) and host sessions (`packages/runtime/src/s
 - `modelUsage` doesn't split cache writes by TTL. The split comes from `usage.cache_creation` (`ephemeral_5m_input_tokens`, `ephemeral_1h_input_tokens`), applied as a ratio to each model's cache writes. When it's missing or zero, all cache writes count as 5m.
 - when there's no `modelUsage`, from `usage`: `input_tokens`, `output_tokens`, `cache_read_input_tokens`, `cache_creation_input_tokens`, under the model `unknown`.
 
-The desk posts `counts` and `byModel` with `tokens` (their sum) to `POST /api/agents/me/session-end`. An older desk that posts only `tokens` is handled by the back-fill rule below.
+The desk posts `counts` and `byModel` with `tokens` (their sum) to `POST /api/agents/me/session-end`, and its cumulative usage so far as `usage` activity once a minute while it runs (the Bank debits a session as it runs; the session row's counters are always what was debited, docs/invariants/bank.md 13). An older desk that posts only `tokens` is handled by the back-fill rule below.
 
 ## Back-fill rule (history and bare totals)
 
