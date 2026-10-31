@@ -267,7 +267,6 @@ export function managerIntrayBlock(world: World, building: Building, managerId: 
   const lastRollup = world.docs.first("type = 'report' AND authorId = ? AND tags LIKE '%\"rollup\"%'", [managerId], "ORDER BY createdAt DESC, rowid DESC");
   const sinceLast = lastRollup ? `${relativeTime(lastRollup.createdAt, now)} ("${oneLine(lastRollup.title, 80)}", ${lastRollup.id}, decision ${lastRollup.decision ?? "?"})` : "never";
   const decidedSince = world.docs.count("type = 'report' AND buildingId = ? AND decision != 'pending' AND decidedAt > ?", [building.id, lastRollup?.createdAt ?? ""]);
-  const krWrites = world.grantDesk.writtenSinceRollup(managerId, building.id);
   const lanes = { exploration: world.grantDesk.exploration(building.id), directed: world.grantDesk.directed(building.id) };
   return `## Your in-tray (you work it; Mitchell doesn't see these reports)
 ${rows.length ? rows.join("\n") : "(empty)"}
@@ -279,8 +278,7 @@ Rollups are how Mitchell hears from you: \`submit_report\` with \`rollup: true\`
 - \`## Decided\`: one line per covered report (id → decision).
 - \`## Key results\`: a table, one row per funded grant's key result (status, spent / granted), plus today's spend by lane: exploration ${tok(lanes.exploration.spentTodayTokens)} tokens (free under your goal: ${tok(lanes.exploration.freeTokens)}), directed ${tok(lanes.directed.spentTodayTokens)} tokens.
 - \`## Needs from Mitchell\`: ${ROLLUP_NEEDS_RULE} "Nothing needed" is valid.
-A rollup without the four headings, or whose Needs names a grant proposal, outbox request or rollup already waiting for Mitchell, is refused; a Shipped item without the three labels is filed with a warning. Roll up when something new is live (a commit went live since your last rollup) and the reports that cover it are decided, or when a covered report hit an escalation criterion; keep at least ${ROLLUP_MIN_GAP_HOURS} h since your last rollup (escalations excepted) so a run of small PRs lands as one item; nothing happened → no rollup. ${liveLine(world, lastRollup?.createdAt, now)}. Last rollup: ${sinceLast}; reports decided since: ${decidedSince}.${krWrites.length ? `
-Key results you wrote since then (changes a key result, so roll up; your rollup lists them for you): ${krWrites.map((w) => `${w.action} ${w.keyResultId} "${oneLine(w.text, 80)}"`).join("; ")}.` : ""}`;
+A rollup without the four headings, or whose Needs names a grant proposal, outbox request or rollup already waiting for Mitchell, is refused; a Shipped item without the three labels is filed with a warning. Roll up when something new is live (a commit went live since your last rollup) and the reports that cover it are decided, or when a covered report hit an escalation criterion; keep at least ${ROLLUP_MIN_GAP_HOURS} h since your last rollup (escalations excepted) so a run of small PRs lands as one item; nothing happened → no rollup. ${liveLine(world, lastRollup?.createdAt, now)}. Last rollup: ${sinceLast}; reports decided since: ${decidedSince}.`;
 }
 
 /**

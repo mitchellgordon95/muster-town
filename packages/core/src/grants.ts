@@ -187,6 +187,13 @@ export class Grants {
     if (n >= MAX_KEY_RESULTS_PER_OBJECTIVE) throw new AppError("conflict", `Objective ${objectiveId} already has ${n} key results (at most ${MAX_KEY_RESULTS_PER_OBJECTIVE}).`);
   }
 
+  /** The live (funded or checkpoint) grant a key result belongs to, if any. */
+  liveGrantOf(keyResultId: string): Grant | undefined {
+    const grantId = this.world.keyResults.get(keyResultId)?.grantId;
+    const g = grantId ? this.world.grants.get(grantId) : undefined;
+    return g && LIVE.includes(g.status) ? g : undefined;
+  }
+
   /**
    * A goal-directed building is never blocked for want of key results any more (docs/how-work-gets-done.md §4): they
    * belong to grants, and a building with no funded grant explores or idles (its stoplight is grey). Kept as the hook

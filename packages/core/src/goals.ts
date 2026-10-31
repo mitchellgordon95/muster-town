@@ -1,5 +1,5 @@
 import {
-  CreateGoalInput, CreateTreeKeyResultInput, DecideGoalProposalInput, ProposeGoalInput, ROOT_GOAL_ID, RetireGoalInput, UpdateGoalInput,
+  CreateGoalInput, DecideGoalProposalInput, ProposeGoalInput, ROOT_GOAL_ID, RetireGoalInput, UpdateGoalInput,
   Event, type Building, type Goal, type GoalFunding, type GoalProposal, type KeyResult,
 } from "@muster-town/schema";
 import { sendMessage } from "./domain.ts";
@@ -338,33 +338,6 @@ export class Goals {
     return next;
   }
 
-  /** A dated key result under a goal (`goals.edit` there). `buildingId`: the building it is for (default: the first attached in its path). */
-  addKeyResult(actor: Actor, goalId: string, input: CreateTreeKeyResultInput): KeyResult {
-    const inp = CreateTreeKeyResultInput.parse(input);
-    const g = this.requireActive(goalId);
-    this.requireEdit(actor, g.id);
-    this.requireSources(inp.sourceDocIds);
-    const buildingId = inp.buildingId ?? this.buildingNear(g.id);
-    if (!buildingId) throw badRequest("No building is attached at or above this goal: give buildingId (the building it is for).");
-    return this.createKr(actor, { goalId: g.id, buildingId, text: inp.text, howToCheck: inp.howToCheck, due: inp.due, sourceDocIds: inp.sourceDocIds });
-  }
-
-  private createKr(actor: Actor, f: { goalId: string; buildingId: string; text: string; howToCheck: string; due: string | null; sourceDocIds: string[] }): KeyResult {
-    const b = this.world.buildings.require(f.buildingId, "building");
-    const by = actor ? holderOf(actor) : null;
-    const last = this.world.keyResults.first("buildingId = ?", [b.id], "ORDER BY position DESC");
-    const kr = this.world.keyResults.upsert({
-      id: newId("kr"), buildingId: b.id, position: last ? last.position + 1 : 0, text: f.text, howToCheck: f.howToCheck, status: "not-started", statusNote: "", statusBy: null,
-      createdBy: by?.id ?? null, editedBy: null, sourceDocIds: f.sourceDocIds, objectiveId: this.world.objectives.get(f.goalId) ? f.goalId : null,
-      goalId: f.goalId, due: f.due, archivedAt: null, underReviewSince: null, postmortemDocId: null, updatedAt: nowIso(),
-    });
-    this.world.events.append({
-      type: "kr.created", agentId: actor?.id ?? null, buildingId: b.id, text: `Key result under "${clip(this.get(f.goalId)?.text ?? "", 60)}": ${kr.text}`,
-      payload: { keyResultId: kr.id, by: by?.id ?? "system", byKind: by?.kind ?? "system", text: kr.text, howToCheck: kr.howToCheck, sourceDocIds: kr.sourceDocIds, goalId: f.goalId, due: f.due },
-    });
-    return kr;
-  }
-
   /** The first building attached at the goal or the nearest goal above it. */
   private buildingNear(goalId: string): string | null {
     for (const g of this.ancestors(goalId)) {
@@ -405,9 +378,7 @@ export class Goals {
         this.requireActive(inp.parentId);
         break;
       case "add-kr":
-        if (!inp.parentId || !inp.text || !inp.howToCheck || !inp.due) throw badRequest("add-kr needs parentId (its goal), text, howToCheck and due (YYYY-MM-DD).");
-        this.requireActive(inp.parentId);
-        break;
+        throw badRequest("Key results belong to grants now (docs/how-work-gets-done.md §4): propose a grant with its own keyResults (propose_grant).");
       case "edit":
         if (!inp.targetId || !Object.keys(fields).length) throw badRequest("edit needs targetId (a goal or key result) and the new text (and for a key result howToCheck or due).");
         if (!kr) this.requireActive(inp.targetId);
@@ -476,7 +447,7 @@ export class Goals {
     const sources = p.sourceDocIds.filter((d) => { const doc = this.world.docs.get(d); return doc && doc.state !== "draft"; });
     switch (p.action) {
       case "add-goal": return this.create(actor, { parentId: p.parentId!, text: f.text, sourceDocIds: sources }).id;
-      case "add-kr": return this.createKr(actor, { goalId: this.requireActive(p.parentId!).id, buildingId: p.buildingId ?? this.buildingNear(p.parentId!) ?? "", text: f.text, howToCheck: f.howToCheck, due: f.due ?? null, sourceDocIds: sources }).id;
+      case "add-kr": throw badRequest("Key results belong to grants now (docs/how-work-gets-done.md §4): cut this proposal; its building proposes a grant with the key result instead.");
       case "edit":
         if (kr) return this.world.grantDesk.updateKeyResult(null, kr.id, { ...(f.text && { text: f.text }), ...(f.howToCheck && { howToCheck: f.howToCheck }), ...(f.due && { due: f.due }) }).id;
         return this.update(actor, p.targetId!, { text: f.text }).id;
