@@ -476,7 +476,7 @@ export class Goals {
     return next;
   }
 
-  // ---- history (the editor's History tab: the event log is the audit trail) ----
+  // ---- history (GET /api/goals/:id/history, for agents: the event log is the audit trail; the web shows none since mt_n25udpflus decision 5) ----
   /**
    * A goal's history, newest first: its own goal.* events, its key results' kr.* events, buildings attached to or moved
    * off it, and goal proposals that name it. No audit table: these are the event log's rows.

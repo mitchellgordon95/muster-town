@@ -3,7 +3,7 @@ import { renderToStaticMarkup } from "react-dom/server";
 import type { GoalSpend, IntrayRoute, ReviewSlide } from "@muster-town/schema";
 import { ReviewAsDeckButton, mineOnly } from "../src/panels/Places";
 import { SlideDecision, mineSlides } from "../src/panels/ReviewDeck";
-import { laneLine, seriesBars } from "../src/panels/GoalSpendTab";
+import { laneLine, seriesBars } from "../src/panels/GoalSpend";
 
 vi.mock("../src/panels/Markdown", () => ({ Markdown: ({ text }: { text: string }) => <div className="md">{text}</div>, DocText: ({ text }: { text: string }) => <span>{text}</span> }));
 
@@ -37,7 +37,7 @@ describe("Town Hall in-tray: Mine / All and goal proposals (docs/goals.md step 4
   });
 });
 
-describe("the goal Spend tab's helpers", () => {
+describe("the Bank's Spend by goal helpers", () => {
   it("lanes biggest first, empty lanes left out; bars scale to the biggest bucket", () => {
     expect(laneLine({ grant: 1_200_000, exploration: 0, directed: 300_000, none: 0 })).toMatch(/^grant .* · directed /);
     expect(laneLine({ grant: 0, exploration: 0, directed: 0, none: 0 })).toBe("nothing");

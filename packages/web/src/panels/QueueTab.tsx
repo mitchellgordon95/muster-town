@@ -1,8 +1,8 @@
 /**
  * The Queue tab (docs/goals.md "Kanban: the queue as a board", build step 6): a building's assignments as four columns,
- * Queued / Held / Running / Done, on the building panel (GET /api/buildings/:id/queue) and on a goal node, where every
- * building attached in the subtree gets a swimlane (GET /api/goals/:id/queue). Read-only: the queue order is the
- * manager's, and the Running header's desks are the WIP limit the scheduler already keeps.
+ * Queued / Held / Running / Done, on the building panel (GET /api/buildings/:id/queue). Only buildings have one
+ * (1:1 mt_n25udpflus decision 5 dropped the goal node's). Read-only: the queue order is the manager's, and the Running
+ * header's desks are the WIP limit the scheduler already keeps.
  */
 import { useState } from "react";
 import type { QueueBoard, QueueCard, QueueLane } from "@muster-town/schema";
@@ -24,24 +24,23 @@ export function columnHeader(lane: QueueLane, col: (typeof COLUMNS)[number]["id"
   return col === "running" ? `${label} ${lane.running.length} / ${lane.desks} desk${lane.desks === 1 ? "" : "s"}` : `${label} ${lane[col].length}`;
 }
 
-export function QueueTab({ goalId, buildingId }: { goalId?: string; buildingId?: string }) {
+export function QueueTab({ buildingId }: { buildingId: string }) {
   const rev = useTown((s) => s.rev);
-  const r = useLoad<QueueBoard>(() => goalId ? api().goalQueue(goalId) : api().buildingQueue(buildingId!), [goalId, buildingId, rev]);
+  const r = useLoad<QueueBoard>(() => api().buildingQueue(buildingId), [buildingId, rev]);
   const d = r.data;
   return (
     <div className="queue-board">
       <div className="muted">The queue as a board, read-only: the manager orders it; the desks are the limit on Running.</div>
       <ErrorLine error={r.error} />
-      {!d ? (r.loading ? <Loading /> : null) : !d.lanes.length ? <Empty>No building is attached under this goal.</Empty>
-        : d.lanes.map((lane) => <Lane key={lane.buildingId} lane={lane} title={!!goalId} />)}
+      {!d ? (r.loading ? <Loading /> : null) : !d.lanes.length ? <Empty>No queue here.</Empty>
+        : d.lanes.map((lane) => <Lane key={lane.buildingId} lane={lane} />)}
     </div>
   );
 }
 
-export function Lane({ lane, title }: { lane: QueueLane; title: boolean }) {
+export function Lane({ lane }: { lane: QueueLane }) {
   return (
     <div className="queue-lane">
-      {title ? <button className="link queue-lane-name" onClick={() => store.open({ kind: "building", id: lane.buildingId })}>{lane.buildingName}</button> : null}
       <div className="queue-cols">
         {COLUMNS.map((c) => (
           <div key={c.id} className={`queue-col ${c.id === "running" && lane.running.length >= lane.desks ? "full" : ""}`}>

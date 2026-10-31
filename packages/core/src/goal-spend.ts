@@ -4,7 +4,7 @@ import { funderWeights } from "./funders.ts";
 import type { World } from "./world.ts";
 
 /**
- * A goal's Spend tab (docs/goals.md "Spend tab", build step 4): its subtree's spend over a window, read from the
+ * Spend by goal (docs/goals.md "Spend by goal", build step 4; the Bank's Spending tab): its subtree's spend over a window, read from the
  * sessions table only. Nothing here reads or writes the Bank's ledgers: each session is priced the way GET
  * /api/finance/spend prices it (adjusted output tokens, `adjustedOfUsage`), so the two views agree.
  *

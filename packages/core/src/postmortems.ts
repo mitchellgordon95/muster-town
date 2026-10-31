@@ -58,7 +58,7 @@ export function linkPostmortem(world: World, asg: Assignment | undefined, report
   const kr = world.keyResults.get(tag.slice("postmortem-of:".length));
   if (!kr || kr.postmortemDocId) return;
   world.docs.upsert({ ...report, tags: [...new Set([...report.tags, "postmortem", tag])], updatedAt: nowIso() });
-  // updatedAt stays: it dates the missed mark (the Spend tab's results window)
+  // updatedAt stays: it dates the missed mark (the Spend by goal results window)
   world.keyResults.upsert({ ...kr, postmortemDocId: report.id });
   world.events.append({ type: "kr.updated", agentId: report.authorKind === "agent" ? report.authorId : null, buildingId: kr.buildingId, text: `Postmortem filed on a missed key result: ${kr.text}`, payload: { keyResultId: kr.id, status: kr.status, from: kr.status, postmortemDocId: report.id, by: report.authorId, byKind: report.authorKind, edited: false } });
 }
