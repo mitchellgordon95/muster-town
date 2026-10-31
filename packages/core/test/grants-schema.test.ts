@@ -88,7 +88,7 @@ describe("building budget settings", () => {
     const resident = world.agents.first("homeBuildingId = ? AND kind = 'resident'", [LAB])!;
     world.permissions.grant(resident, buildingRoleId(LAB, "manager"));
     expect(() => world.ops.updateBuilding(resident, LAB, { explorationTokensPerDay: 9_000_000 })).toThrow(/building.fund/);
-    expect(world.ops.updateBuilding(resident, LAB, { goal: "new goal" }).goal).toBe("new goal");
+    expect(world.ops.updateBuilding(resident, LAB, { name: "Renamed" }).name).toBe("Renamed");
     void by; void World;
   });
 });

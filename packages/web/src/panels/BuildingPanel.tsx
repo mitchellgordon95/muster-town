@@ -1,4 +1,4 @@
-/** Building panel (E at the door): overview, goals, grants and schedule (labs; GoalsTab.tsx), settings (managers: building fields). No Members tab (flag dc_v7ejy1j5ri): managers and roles live on the planning desk (Managers, Roles); live forks show on the map. Board, filing cabinet and in-tray are places; the collective's secrets are a planning-desk tab. */
+/** Building panel (E at the door): overview, goals, grants and schedule (labs; GoalsTab.tsx), settings (managers: name, the goal it is attached to, desks, manager; 1:1 mt_n25udpflus decision 3: a building is a thin layer on the goal tree). No Members tab (flag dc_v7ejy1j5ri): roles live on the planning desk; live forks show on the map. Board, filing cabinet and in-tray are places; the collective's secrets are a planning-desk tab. */
 import { isFork } from "../forks";
 import { useEffect, useMemo, useState, type ReactNode } from "react";
 import { DEFAULT_POOL_ID, MAX_HEADCOUNT, ROOT_GOAL_ID, type Schedule, type SnapshotBuilding, type Workspace } from "@muster-town/schema";
@@ -16,6 +16,7 @@ import { UNBLOCK_LINE, blockedLabel } from "./keyResults";
 import { GoalTabsSummary, GoalsTab, GrantsTab } from "./GoalsTab";
 import { GoalPicker, goalPath, useGoalTree } from "./GoalPicker";
 import { findGoal } from "./goalTree";
+import { purposeOf } from "../purpose";
 
 /** "Reports to: <owner> via <goal>" (docs/goals.md "Owners on nodes"): the attachment's effective owner; the goal opens the Town Hall goal tree. */
 function ReportsTo({ b }: { b: SnapshotBuilding }) {
@@ -75,10 +76,10 @@ function Overview({ b }: { b: SnapshotBuilding }) {
   const hasCabinet = places.some((p) => p.id === `cabinet:${b.id}`);
   const hasTray = places.some((p) => p.id === `intray:${b.id}`);
   const hasRoom = places.some((p) => p.id === `meeting-room:${b.id}`);
+  const purpose = purposeOf(b, places);
   return (
     <>
-      {b.goal ? <div className="goal-card"><span>Goal</span>{b.goal}</div> : null}
-      {b.description ? <p className="direction">{b.description}</p> : null}
+      {purpose ? <div className="goal-card"><span>Goal</span>{purpose}</div> : null}
       {blockedLabel(b) ? (
         <div className="kr-blocked"><Pill tone="bad">{blockedLabel(b)}</Pill> {UNBLOCK_LINE}
           {store.can("building.manage", b.id) ? <> <button className="link" onClick={() => store.open({ kind: "building", id: b.id, tab: "Goals" })}>Write them in Goals →</button></> : null}
@@ -170,12 +171,16 @@ export function ScheduledList({ b }: { b: SnapshotBuilding }) {
 }
 
 export function Settings({ b }: { b: SnapshotBuilding }) {
-  const [f, setF] = useState({ goal: b.goal, description: b.description, model: b.model, cheapModel: b.cheapModel, maxTurnsPerSession: b.maxTurnsPerSession, managerAgentId: b.managerAgentId, codeAccess: b.codeAccess });
+  const [f, setF] = useState({ name: b.name, model: b.model, cheapModel: b.cheapModel, maxTurnsPerSession: b.maxTurnsPerSession, managerAgentId: b.managerAgentId, codeAccess: b.codeAccess });
   const [daily, setDaily] = useState(toMillions(b.dailyTokensPerAgent));
   const dailyTokens = fromMillions(daily);
   // Desks sets the building's size on the map (drawn from the goal tree) and its daily cap: town.manage_buildings
   const [desks, setDesks] = useState(b.headcount);
   const canDesks = b.kind === "lab" && store.can("town.manage_buildings");
+  // the goal it is attached to: goals.edit (admins, or the goal's owner) on both ends; never unset
+  const root = useGoalTree();
+  const [goalId, setGoalId] = useState(b.goalId ?? ROOT_GOAL_ID);
+  const canAttach = b.kind === "lab" && store.can("goals.edit");
   const agents = useTown((s) => s.agents);
   const repo = useTown((s) => s.town?.workspace);
   const named = useMemo(() => Object.values(agents).filter((a) => a.kind === "resident" && !isFork(a) && a.homeBuildingId === b.id).sort((x, y) => x.name.localeCompare(y.name)), [agents, b.id]);
@@ -183,14 +188,20 @@ export function Settings({ b }: { b: SnapshotBuilding }) {
   return (<>
     <Section title="Building">
     <form className="form" onSubmit={(e) => e.preventDefault()}>
-      <Field label="Goal"><textarea rows={2} value={f.goal} onChange={(e) => set("goal", e.target.value)} /></Field>
-      <Field label="Description"><textarea rows={3} value={f.description} onChange={(e) => set("description", e.target.value)} /></Field>
+      <Field label="Name" hint="Optional. Leave it blank and the building is named after its goal's short text (again on every save left blank); a name you type stays.">
+        <input value={f.name} maxLength={80} placeholder="defaults to the goal's short text" onChange={(e) => set("name", e.target.value)} />
+      </Field>
+      {b.kind !== "town-hall" ? (
+        <Field label="Attached to" hint={`${goalPath(root, goalId)}. The goal is the building's purpose: it stands at that goal's plaza on the map, and its work (grants, exploration) names open key results in that goal's subtree.${canAttach ? "" : " Changing it takes goals.edit on both goals (an admin or the goal's owner)."}`}>
+          <GoalPicker value={goalId} onChange={setGoalId} disabled={!canAttach} />
+        </Field>
+      ) : null}
       <Field label="Desks" hint={`The building's size on the map follows its desks (the map is drawn from the goal tree; a full lab adds one when a fork needs it). This also sets the daily cap (daily budget / agent × desks).${canDesks ? "" : " Changing it takes town.manage_buildings."}`}>
         {canDesks
           ? <span><input type="number" min={1} max={MAX_HEADCOUNT} value={desks} onChange={(e) => setDesks(Math.max(1, Math.min(MAX_HEADCOUNT, Math.floor(Number(e.target.value)) || 1)))} /> {b.lot ? `${b.lot.w}×${b.lot.h} now` : ""}</span>
           : <span>{b.lot ? `${b.lot.w}×${b.lot.h} · ` : ""}{b.headcount} desk{b.headcount === 1 ? "" : "s"}</span>}
       </Field>
-      <Field label="Manager" hint="The building's one named agent: it works the in-tray (its forks' reports), facilitates meetings and wears the ★ badge; queued work runs on its forks; its rollups go to the Town Hall in-tray. None: you work the in-tray.">
+      <Field label="Manager" hint="Every building made at the planning desk gets its manager when it is built: one named agent at a desk. It works the in-tray (its forks' reports), facilitates meetings and wears the ★ badge; queued work runs on its forks; its rollups go to the Town Hall in-tray. None: you work the in-tray.">
         <select value={f.managerAgentId ?? ""} onChange={(e) => set("managerAgentId", e.target.value || null)}>
           <option value="">none</option>
           {named.map((a) => <option key={a.id} value={a.id} disabled={a.status === "stopped" || a.status === "banned"}>{a.name}{a.status === "stopped" || a.status === "banned" ? ` (${a.status})` : ""}</option>)}
@@ -210,39 +221,22 @@ export function Settings({ b }: { b: SnapshotBuilding }) {
         <span className="check"><input type="checkbox" checked={f.codeAccess} disabled={!repo && !f.codeAccess} onChange={(e) => set("codeAccess", e.target.checked)} /> {repo ? <>Work on <code>{repoLabel(repo)}</code></> : "No collective repo"}</span>
       </Field>
       <div className="actions"><Act tone="primary" disabled={!(dailyTokens > 0)} title={dailyTokens > 0 ? undefined : "Daily budget must be above 0" } run={async () => {
-        await api().updateBuilding(b.id, { ...f, dailyTokensPerAgent: dailyTokens, ...(canDesks && desks !== b.headcount ? { headcount: desks } : {}) });
+        const { name, ...rest } = f;
+        const next = await api().updateBuilding(b.id, {
+          ...rest, dailyTokensPerAgent: dailyTokens,
+          ...(name.trim() !== b.name ? { name: name.trim() } : {}),
+          ...(canAttach && goalId !== (b.goalId ?? ROOT_GOAL_ID) ? { goalId } : {}),
+          ...(canDesks && desks !== b.headcount ? { headcount: desks } : {}),
+        });
+        set("name", next.name);
         store.toast("Settings saved", "ok");
       }}>Save settings</Act></div>
     </form>
     </Section>
     {b.kind === "town-hall" ? <Section title="Dashboard"><p className="direction">The town goal is three KPIs, Fund, Join and Trust, with every building's objectives under them. <button className="link" onClick={() => store.open({ kind: "dashboard" })}>Open the dashboard</button></p></Section> : null}
-    {b.kind !== "town-hall" ? <AttachedTo b={b} /> : null}
     <PoolPicker b={b} />
     {b.kind !== "town-hall" && store.can("building.fund", b.id) ? <ExplorationBudget b={b} /> : null}
   </>);
-}
-
-/**
- * The goal of the town tree this building is attached to (docs/goals.md): its subtree is what its work may name. Never
- * empty. Admins change it here (a goal's owner can too; the server checks goals.edit on both ends).
- */
-function AttachedTo({ b }: { b: SnapshotBuilding }) {
-  const root = useGoalTree();
-  const [goalId, setGoalId] = useState(b.goalId ?? ROOT_GOAL_ID);
-  const can = store.can("goals.edit");
-  return (
-    <Section title="Attached to">
-      <form className="form" onSubmit={(e) => e.preventDefault()}>
-        <Field label="Goal" hint={`${goalPath(root, b.goalId ?? ROOT_GOAL_ID)}. A building is attached to exactly one goal: it stands at that goal's plaza on the map, and its work (grants, exploration) names open key results in that goal's subtree.`}>
-          <GoalPicker value={goalId} onChange={setGoalId} disabled={!can} />
-        </Field>
-        {can ? <div className="actions"><Act tone="primary" disabled={goalId === (b.goalId ?? ROOT_GOAL_ID)} run={async () => {
-          await api().updateBuilding(b.id, { goalId });
-          store.toast(`${b.name} attached to ${goalPath(root, goalId)}`, "ok");
-        }}>Attach</Act></div> : null}
-      </form>
-    </Section>
-  );
 }
 
 /** The exploration allowance (docs/goal-directed-budgets.md); every lab is goal-directed and runs on forks. Humans who can fund only: a manager agent can't change its own budget. */

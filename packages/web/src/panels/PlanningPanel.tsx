@@ -1,24 +1,21 @@
-/** Planning desk (Town Hall): create buildings, each building's one named manager (admins pick it here; 1:1 mt_wngibcr98b decision 1: no standing residents; flag dc_v7ejy1j5ri: buildings and managers are managed here, no building Members tab), roles (town and building scoped), secrets (admins: the collective's secrets and grants, docs/secrets.md), export. Donating and Bank pools live at the Bank. */
-import { isFork } from "../forks";
+/** Planning desk (Town Hall): create buildings and list them (each opens its building's Settings: name, the goal it is attached to, desks, manager; 1:1 mt_n25udpflus decision 3: building settings leave the planning desk), roles (town and building scoped), secrets (admins: the collective's secrets and grants, docs/secrets.md), system. Donating and Bank pools live at the Bank. */
 import { useMemo, useState } from "react";
 import { api, API_BASE, tokenStore } from "../api";
 import { store, useTown } from "../state";
 import { Glyph, PanelShell } from "./PanelShell";
 import { SecretsTab } from "./Secrets";
-import { GoalPicker } from "./GoalPicker";
-import { NEW_LAB_LOT, ROOT_GOAL_ID, desksForLot, type SnapshotBuilding } from "@muster-town/schema";
-import { Act, Empty, ErrorLine, Field, Loading, Pill, Section, StatusPill, nameOf, useLoad } from "./ui";
-import { portraitUrl } from "../map/sprites";
+import { GoalPicker, goalPath, useGoalTree } from "./GoalPicker";
+import { NEW_LAB_LOT, ROOT_GOAL_ID, desksForLot } from "@muster-town/schema";
+import { Act, Empty, ErrorLine, Field, Loading, Pill, Section, nameOf, useLoad } from "./ui";
 
 export function PlanningPanel({ tab }: { tab?: string }) {
   const me = useTown((s) => s.me);
-  const tabs = ["Buildings", "Managers", "Roles", ...(me?.isAdmin ? ["Secrets"] : []), "System"];
+  const tabs = ["Buildings", "Roles", ...(me?.isAdmin ? ["Secrets"] : []), "System"];
   return (
     <PanelShell icon={<Glyph kind="planning" />} title="Planning desk" subtitle={me ? `Signed in as ${me.user.name}${me.isAdmin ? " · admin" : ""}` : "Read-only · sign in to plan"} tabs={tabs} initialTab={tab && tabs.includes(tab) ? tab : "Buildings"}>
       {(t) => (
         <>
           {t === "Buildings" ? <Buildings /> : null}
-          {t === "Managers" ? <Managers /> : null}
           {t === "Roles" ? <RolesTab /> : null}
           {t === "Secrets" ? <SecretsTab /> : null}
           {t === "System" ? <System /> : null}
@@ -28,87 +25,43 @@ export function PlanningPanel({ tab }: { tab?: string }) {
   );
 }
 
+/** Every building (each opens its own panel on Settings, where its name, goal, desks and manager are set) and the form for a new one. */
 export function Buildings() {
   const buildings = useTown((s) => s.buildings);
+  const agents = useTown((s) => s.agents);
+  const root = useGoalTree();
   const [name, setName] = useState("");
-  const [goal, setGoal] = useState("");
   const [goalId, setGoalId] = useState(ROOT_GOAL_ID);
   const can = store.can("town.manage_buildings");
   return (
     <>
-      <p className="direction">To move, resize or draw buildings, use the town map table in the Town Hall (walk up and press E, or click it).</p>
+      <p className="direction">A building is a thin layer on the goal tree: the goal it is attached to, its desks, an optional name and its manager. Open one to change them in its Settings. To move or draw buildings, use the town map table in the Town Hall.</p>
       <Section title="Buildings">
         {buildings.map((b) => (
-          <button key={b.id} className="doc-row" onClick={() => store.open({ kind: "building", id: b.id })}>
+          <button key={b.id} className="doc-row" title="Open its Settings" onClick={() => store.open({ kind: "building", id: b.id, tab: "Settings" })}>
             <div className="doc-row-title">{b.name}</div>
-            <div className="doc-row-meta"><span>{b.kind} · {b.headcount} desks</span></div>
+            <div className="doc-row-meta">
+              <span>{b.kind === "town-hall" ? "Town Hall" : goalPath(root, b.goalId ?? ROOT_GOAL_ID)}</span>
+              <span>{b.headcount} desk{b.headcount === 1 ? "" : "s"}{b.kind !== "town-hall" ? ` · ${b.managerAgentId ? `★ ${agents[b.managerAgentId]?.name ?? "manager"}` : "no manager"}` : ""}</span>
+            </div>
           </button>
         ))}
       </Section>
       {can ? (
         <Section title="New building">
           <form className="form" onSubmit={(e) => e.preventDefault()}>
-            <Field label="Name"><input value={name} onChange={(e) => setName(e.target.value)} placeholder="e.g. Ocean Alkalinity Lab" /></Field>
-            <Field label="Purpose"><textarea rows={2} value={goal} onChange={(e) => setGoal(e.target.value)} placeholder="What should this building figure out?" /></Field>
-            <Field label="Goal" hint="The goal of the town goal tree it attaches to: its work names open key results under that goal. Default: the root (the town goal). Change it later in the building's Settings."><GoalPicker value={goalId} onChange={setGoalId} /></Field>
-            <Field label="Desks" hint={`A new building gets ${desksForLot(NEW_LAB_LOT)} desks; change them in its Settings (its size on the map follows them, and it stands at the goal you pick). Code access is on when the collective has a repo; its agents push code only if the host has Docker and a Claude token in the collective's .env (README, Run it).`}><span>{NEW_LAB_LOT.w}×{NEW_LAB_LOT.h} · {desksForLot(NEW_LAB_LOT)} desks</span></Field>
-            <div className="actions"><Act tone="primary" disabled={!name.trim()} run={async () => {
-              const b = await api().createBuilding({ name: name.trim(), goal: goal.trim(), goalId });
-              setName(""); setGoal(""); setGoalId(ROOT_GOAL_ID);
+            <Field label="Goal" hint="The goal of the town goal tree it attaches to: that goal is its purpose, and its work names open key results under it. Default: the root (the town goal). Change it later in the building's Settings."><GoalPicker value={goalId} onChange={setGoalId} /></Field>
+            <Field label="Name" hint="Optional: blank names it after the goal's short text."><input value={name} maxLength={80} onChange={(e) => setName(e.target.value)} placeholder="defaults to the goal's short text" /></Field>
+            <Field label="Desks" hint={`A new building gets ${desksForLot(NEW_LAB_LOT)} desks and its manager (a named agent at one of them); change both in its Settings. Code access is on when the collective has a repo; its agents push code only if the host has Docker and a Claude token in the collective's .env (README, Run it).`}><span>{NEW_LAB_LOT.w}×{NEW_LAB_LOT.h} · {desksForLot(NEW_LAB_LOT)} desks</span></Field>
+            <div className="actions"><Act tone="primary" run={async () => {
+              const b = await api().createBuilding({ ...(name.trim() ? { name: name.trim() } : {}), goalId });
+              setName(""); setGoalId(ROOT_GOAL_ID);
               store.toast(`${b.name} is under construction`, "ok");
             }}>Create building</Act></div>
           </form>
         </Section>
       ) : <Empty>You need town.manage_buildings to create buildings.</Empty>}
     </>
-  );
-}
-
-/** Each building's one named manager (its queued work runs on forks of it); no roster to add to or dismiss from. Holders of building.manage pick it here. */
-function Managers() {
-  const all = useTown((s) => s.buildings);
-  const agents = useTown((s) => s.agents);
-  useTown((s) => s.me);
-  const labs = useMemo(() => all.filter((b) => b.kind !== "town-hall"), [all]);
-  return (
-    <>
-      <p className="direction">Every building has one named manager; its queued work runs on forks of it, which you see working on the map.</p>
-      {labs.map((b) => {
-        const a = b.managerAgentId ? agents[b.managerAgentId] : undefined;
-        const forks = Object.values(agents).filter((x) => isFork(x) && x.forkOf === a?.id && x.status !== "retired").length;
-        return (
-          <Section key={b.id} title={b.name}>
-            {!a ? <Empty>No manager agent: humans work its in-tray.</Empty> : (
-              <button className="member" onClick={() => store.open({ kind: "agent", id: a.id })}>
-                <img src={portraitUrl(a.sprite, 2)} alt="" />
-                <div><b>{a.name}</b><span>{forks ? `${forks} fork${forks === 1 ? "" : "s"} working` : "Manager"}</span></div>
-                <StatusPill status={a.status} />
-              </button>
-            )}
-            {store.can("building.manage", b.id) ? <ManagerPicker key={b.managerAgentId ?? ""} b={b} /> : null}
-          </Section>
-        );
-      })}
-    </>
-  );
-}
-
-/** Change a building's manager: its named (non-fork) agents, or none (humans work the in-tray). */
-function ManagerPicker({ b }: { b: SnapshotBuilding }) {
-  const agents = useTown((s) => s.agents);
-  const named = useMemo(() => Object.values(agents).filter((a) => a.kind === "resident" && !isFork(a) && a.homeBuildingId === b.id).sort((x, y) => x.name.localeCompare(y.name)), [agents, b.id]);
-  const [v, setV] = useState(b.managerAgentId ?? "");
-  return (
-    <div className="inline-form">
-      <select aria-label={`${b.name} manager`} value={v} onChange={(e) => setV(e.target.value)}>
-        <option value="">none (humans work the in-tray)</option>
-        {named.map((a) => <option key={a.id} value={a.id} disabled={a.status === "stopped" || a.status === "banned"}>{a.name}{a.status === "stopped" || a.status === "banned" ? ` (${a.status})` : ""}</option>)}
-      </select>
-      <Act small disabled={v === (b.managerAgentId ?? "")} run={async () => {
-        await api().updateBuilding(b.id, { managerAgentId: v || null });
-        store.toast(`${b.name}: manager ${v ? `set to ${agents[v]?.name ?? v}` : "removed"}`, "ok");
-      }}>Set manager</Act>
-    </div>
   );
 }
 

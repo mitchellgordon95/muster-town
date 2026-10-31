@@ -175,8 +175,8 @@ describe("bank", () => {
     expect(world.bank.draw("carbon-cycle", mei.id, 50)).toBe(0);
     expect(world.bank.available("carbon-cycle").durable).toBe(350);
     // null = back to General
-    world.ops.updateBuilding(admin, "carbon-cycle", { poolId: null, goal: "g" });
-    expect(world.buildings.require("carbon-cycle")).toMatchObject({ poolId: "general", goal: "g" });
+    world.ops.updateBuilding(admin, "carbon-cycle", { poolId: null, name: "Carbon" });
+    expect(world.buildings.require("carbon-cycle")).toMatchObject({ poolId: "general", name: "Carbon" });
     expect(world.events.list({ types: ["bank.pool"] }).length).toBeGreaterThanOrEqual(3);
   });
 

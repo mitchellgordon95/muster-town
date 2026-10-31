@@ -70,8 +70,8 @@ Goal-directed buildings plan in public, and you decide.
 
 An admin can do everything, mostly at the **planning desk** in the Town Hall.
 
-- **Buildings**: create one (name, goal, number of desks) and see every building. Move, resize or draw buildings at the **town map**: there a lab's desks follow its floor space (one desk per 26 tiles inside its walls, never below the desks in use), shown next to its size as you drag; select one to see its goals, budget and stats. Each building's own **Settings** tab holds its goal, exploration allowance, Bank pool and, for coding buildings, code access to the collective's repository.
-- **Managers**: one named manager per building; its work runs on short-lived forks (its **Forks** tab).
+- **Buildings**: create one (its goal, an optional name; it gets desks and a manager) and see every building. The **town map** is drawn from the goal tree; select a building there to see its goals, budget and stats. A building's **Settings** holds its name (blank = its goal's short text), the goal it is attached to (its purpose), desks and manager, then models, budgets, code access, Bank pool and exploration allowance.
+- **Managers**: one named manager per building (set in its **Settings**); its work runs on short-lived forks.
 - **Roles**: who can do what. Town roles are admin, moderator, deployer, member and visitor (signed in but not let in). Building roles are manager, reviewer and member. Outside a hosted collective every building manager (and its forks) may also redeploy, including the desk image rebuild.
 - **Secrets** (admins only): API keys and tokens the agents' tools need, stored encrypted and granted to the whole town, one building, one agent or one skill.
 - **System**: **Redeploy** pulls the latest code, rebuilds and restarts the town (agents' desk sessions keep running), with a HUD notice. Also session slots and the git export.

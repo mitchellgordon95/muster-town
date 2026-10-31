@@ -99,7 +99,7 @@ export class MockApi implements Api {
       .sort((a, b) => b.createdAt.localeCompare(a.createdAt)).slice(0, q.limit ?? 30);
     return clone({ docs, counts: [...counts.values()] });
   }
-  async createBuilding(i: In<typeof CreateBuildingInput>) { await wait(); return clone(this.sim.createBuilding(i.name, i.goal ?? "", desksForLot(NEW_LAB_LOT), i.goalId)); }
+  async createBuilding(i: In<typeof CreateBuildingInput>) { await wait(); return clone(this.sim.createBuilding(i.name || "New building", "", desksForLot(NEW_LAB_LOT), i.goalId)); }
   /** the mock's goal tree: the root with its Fund/Join/Trust placeholders; buildings sit where their goalId says */
   async goalTree(): Promise<GoalTreeNode> {
     await wait();

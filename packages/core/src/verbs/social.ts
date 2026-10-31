@@ -37,7 +37,7 @@ export async function look(world: World, me: Agent, _input: VerbIn<"look">): Pro
     (p.kind === "desk" && !p.id.startsWith("desk:free:") && mine(p)));
   return {
     me: { id: me.id, name: me.name, status: me.status, buildingId: me.buildingId, place: place?.id ?? null, pos: me.pos },
-    building: here ? { id: here.id, name: here.name, goal: here.goal } : null,
+    building: here ? { id: here.id, name: here.name, goal: world.goalTree.purposeOf(here) } : null,
     nearby: nearbyAgents(world, me).map((a) => ({ id: a.id, name: a.name, kind: a.kind, status: a.status, activity: a.activity, distance: a.distance })),
     notices: {
       unread: world.messages.count("toId = ? AND readAt IS NULL", [me.id]),

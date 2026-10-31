@@ -83,7 +83,7 @@ export function exportWorld(world: World, dirIn: string): ExportResult {
   for (const b of buildings) {
     write(join("buildings", b.id, "building.json"), JSON.stringify(b, null, 2) + "\n");
     const dir = posix.join("buildings", b.id);
-    write(posix.join(dir, "README.md"), indexPage(world, `# ${b.name}\n\n${b.goal ? `Goal: ${b.goal}\n\n` : ""}Published docs (the board and the filing cabinet), newest first. Drafts are private and not exported.`, dir, docs.filter((x) => x.path.startsWith(dir + "/"))));
+    write(posix.join(dir, "README.md"), indexPage(world, `# ${b.name}\n\n${world.goalTree.purposeOf(b) ? `Goal: ${world.goalTree.purposeOf(b)}\n\n` : ""}Published docs (the board and the filing cabinet), newest first. Drafts are private and not exported.`, dir, docs.filter((x) => x.path.startsWith(dir + "/"))));
   }
   const library = docs.filter((x) => x.path.startsWith("library/"));
   write("library/README.md", indexPage(world, "# Library\n\nDocs promoted to the town library, newest first.", "library", library));
