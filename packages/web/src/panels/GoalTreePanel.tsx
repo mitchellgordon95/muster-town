@@ -17,7 +17,7 @@ import { openDocLink } from "./Markdown";
 import { openPlanner } from "./oneOnOne";
 import { krStatusLabel, krTone } from "./keyResults";
 import { allBuildings, archivedLine, buildingScope, canEditGoal, deskWord, findGoal, isArchived, moveTargets, nodeGlance, pastDue, pathTo, proposalVerb, retireMoves, retirePlan, subtreeDesks, subtreeIds, treeRows, visibleRows, type TreeKr } from "./goalTree";
-import { Act, Empty, ErrorLine, Field, Loading, MTokensInput, Pill, Section, fmtTokens, nameOf, useLoad } from "./ui";
+import { Act, Empty, ErrorLine, Field, Loading, MTokensInput, Pill, Section, fmtTokens, nameOf, timeAgo, useLoad } from "./ui";
 import { fromMillions, toMillions } from "../format";
 import { FreeTokensLine, capText } from "./FreeTokens";
 
@@ -146,7 +146,7 @@ function TreeList({ root, retired, filter, funded, selected, collapsed, showKrs,
                 <span className="ge-node-meta">
                   {node.status === "retired" ? null : <span className={`ge-tag desks ${d.desks ? "" : "none"}`} title={d.desks ? `${deskWord(d.desks)} work this goal (the headcount of every building attached here or below), ${d.inUse} in use now` : "No building is attached here or below: nobody works this goal"}>{deskWord(d.desks)}</span>}
                   {node.buildings.map((b) => <span key={b.id} className="ge-tag building" title={`${b.name} is attached here`}>{b.name}</span>)}
-                  {node.ownerId ? <span className="ge-tag" title={`Owner: ${node.owner.name}`}>👤 {node.owner.name}</span> : null}
+                  {node.ownerId ? <span className="ge-tag" title={`Captain: ${node.owner.name}`}>👤 {node.owner.name}</span> : null}
                   {node.status === "retired" ? <span className="ge-tag bad">retired</span> : null}
                   {g.open ? <span className="ge-tag" title={`${g.open} open key result${g.open === 1 ? "" : "s"}, ${g.funded} funded`}>{g.open} KR · {g.funded} funded</span> : null}
                   {g.late ? <span className="ge-tag warn" title="Open key results past their due date">{g.late} late</span> : g.nextDue ? <span className="ge-tag" title="The nearest open due date">due {g.nextDue}</span> : null}
@@ -221,7 +221,7 @@ function GoalDetail({ root, node, me, proposals, focusKr, onSelect, onDone }: { 
         <span>{node.id === ROOT_GOAL_ID ? "Town goal (the root)" : node.status === "retired" ? "Retired goal" : "Goal"}</span>
         <h2>{node.text}</h2>
         <div className="muted goal-meta">
-          Owner: <b>{node.owner.name}</b>{node.ownerId ? "" : node.owner.goalId === node.id ? "" : ` (from "${clip(findGoal(root, node.owner.goalId)?.text ?? node.owner.goalId, 40)}")`}
+          Captain: <b>{node.owner.name}</b>{node.ownerId ? "" : node.owner.goalId === node.id ? "" : ` (from "${clip(findGoal(root, node.owner.goalId)?.text ?? node.owner.goalId, 40)}")`}
           {node.buildings.length ? <> · Attached: {node.buildings.map((b) => <button key={b.id} className="chip" title={`${deskWord(b.headcount)}, ${b.inUse} in use now`} onClick={() => store.open({ kind: "building", id: b.id })}>{b.name} · {deskWord(b.headcount)}</button>)}</> : null}
         </div>
         <DeskLine node={node} />
@@ -231,19 +231,18 @@ function GoalDetail({ root, node, me, proposals, focusKr, onSelect, onDone }: { 
         <div className="ge-toolbar" role="toolbar" aria-label="Change this goal">
           {tool("edit", "Edit words")}
           {tool("goal", "+ Goal under it")}
-          {tool("kr", "+ Key result")}
           {node.parentId ? tool("move", "Move") : null}
-          {tool("owner", "Owner")}
+          {tool("owner", "Captain")}
           {!open ? tool("change", "Change this goal", "X → Y: the buildings under it prepare, then a planning meeting decides what goes underneath") : null}
           <span className="ge-toolbar-gap" />
           {node.parentId ? tool("retire", "Retire", undefined, "bad") : null}
         </div>
-      ) : <div className="muted goal-meta">{node.status === "retired" ? `Retired${node.retiredNote ? `: ${node.retiredNote}` : "."}` : me.userId ? "Only an admin or this goal's owner edits it; managers propose with propose_goal." : "Sign in to see what you can change."}</div>}
+      ) : <div className="muted goal-meta">{node.status === "retired" ? `Retired${node.retiredNote ? `: ${node.retiredNote}` : "."}` : me.userId ? "Only an admin or this goal's captain edits it; managers propose with propose_goal." : "Sign in to see what you can change."}</div>}
+      {!can && me.userId && node.status === "active" && node.id !== ROOT_GOAL_ID ? <AskToCaptain node={node} userId={me.userId} /> : null}
       {open ? <ChangeBanner c={open} /> : null}
       {form === "change" ? <ChangeForm node={node} onDone={done} /> : null}
       {form === "edit" ? <EditForm node={node} onDone={done} /> : null}
       {form === "goal" ? <AddGoalForm parent={node} onDone={(id) => { done(); onSelect(id); }} /> : null}
-      {form === "kr" ? <AddKrForm root={root} node={node} onDone={done} /> : null}
       {form === "move" ? <MoveForm root={root} node={node} onDone={done} /> : null}
       {form === "owner" ? <OwnerForm node={node} me={me} onDone={done} /> : null}
       {form === "retire" ? <RetireForm root={root} node={node} onDone={() => { done(); onSelect(node.parentId); }} /> : null}
@@ -326,7 +325,7 @@ function MissedForm({ k, archive, onCancel, onDone }: { k: TreeKr; archive: bool
 /**
  * Funding (docs/how-work-gets-done.md §7, §8): the free tokens under this goal with their sum, and its exploration cap
  * per day, set here or inherited from the nearest goal above that sets one (none = uncapped). The cap is a human
- * funder's with goals.edit here (an admin or the goal's owner); blank = inherit.
+ * funder's with goals.edit here (an admin or the goal's captain); blank = inherit.
  */
 function FundingBlock({ root, node, can, onDone }: { root: GoalTreeNode; node: GoalTreeNode; can: boolean; onDone: () => void }) {
   const [cap, setCap] = useState(node.exploreCapTokensPerDay == null ? "" : toMillions(node.exploreCapTokensPerDay));
@@ -415,26 +414,6 @@ function AddGoalForm({ parent, onDone }: { parent: GoalTreeNode; onDone: (id: st
   );
 }
 
-function AddKrForm({ root, node, onDone }: { root: GoalTreeNode; node: GoalTreeNode; onDone: () => void }) {
-  const [text, setText] = useState(""), [check, setCheck] = useState(""), [due, setDue] = useState("");
-  // the building it is for: one attached here or above (default: the nearest, which the server also picks)
-  const near = pathTo(root, node.id).reverse().flatMap((g) => g.buildings);
-  const [buildingId, setBuildingId] = useState("");
-  return (
-    <div className="goal-form">
-      <Field label="Key result" hint="A concrete thing in the live town by a date."><textarea rows={2} maxLength={300} value={text} onChange={(e) => setText(e.target.value)} /></Field>
-      <Field label="How to check" hint="Where a human looks and what they'd see."><textarea rows={2} maxLength={300} value={check} onChange={(e) => setCheck(e.target.value)} /></Field>
-      <Field label="Due"><input type="date" value={due} onChange={(e) => setDue(e.target.value)} /></Field>
-      {near.length > 1 ? <Field label="For building"><select value={buildingId} onChange={(e) => setBuildingId(e.target.value)}>
-        <option value="">{near[0].name} (nearest)</option>
-        {near.slice(1).map((b) => <option key={b.id} value={b.id}>{b.name}</option>)}
-      </select></Field> : null}
-      <Act small tone="primary" disabled={!text.trim() || !check.trim() || !due}
-        run={() => api().addTreeKeyResult(node.id, { text: text.trim(), howToCheck: check.trim(), due, ...(buildingId ? { buildingId } : {}) }).then(onDone)}>Add key result</Act>
-    </div>
-  );
-}
-
 function MoveForm({ root, node, onDone }: { root: GoalTreeNode; node: GoalTreeNode; onDone: () => void }) {
   const targets = moveTargets(root, node.id);
   const [to, setTo] = useState("");
@@ -451,7 +430,41 @@ function MoveForm({ root, node, onDone }: { root: GoalTreeNode; node: GoalTreeNo
   );
 }
 
-/** Owners are humans (docs/goals.md "Owners on nodes"): any user who holds a role, or me; empty = inherit from above. */
+/**
+ * "Ask to captain this goal" (gr_bwm0iz7rwl): a member who can't edit this goal asks to become its captain (its owner).
+ * The ask waits in the Town Hall in-tray for the goal's current captain or an admin; once asked, it says so instead.
+ */
+function AskToCaptain({ node, userId }: { node: GoalTreeNode; userId: string }) {
+  const member = useTown((s) => !!s.me?.canInteract);
+  const asks = useLoad(() => api().captainRequests(node.id), [node.id]);
+  const [open, setOpen] = useState(false), [note, setNote] = useState("");
+  const mine = asks.data?.find((r) => r.userId === userId);
+  if (!member) return <div className="muted goal-meta captain-ask">Want to captain this goal? Ask to join first (the card on the map): members can ask to captain a goal.</div>;
+  if (mine) return <div className="muted goal-meta captain-ask">You asked to captain this goal {timeAgo(mine.createdAt)}. It is in the Town Hall in-tray for {mine.captainName} to accept or decline.</div>;
+  const ask = async () => {
+    await api().askToCaptain(node.id, note.trim() || undefined);
+    store.toast(`Asked to captain "${node.text}": ${node.owner.name} ${node.owner.userId ? "decides" : "decide"} from the Town Hall in-tray.`, "ok");
+    setOpen(false); setNote(""); asks.reload();
+  };
+  return (
+    <div className="captain-ask">
+      {open ? (
+        <div className="goal-form">
+          <Field label="Why you (optional)" hint={`The captain steers this goal: its in-tray items route to them, and they fund, counter or reject grants and write key results under it. ${node.owner.name} ${node.owner.userId ? "decides" : "decide"}.`}>
+            <textarea rows={2} maxLength={280} autoFocus placeholder="One line on what you'd steer it toward" value={note} onChange={(e) => setNote(e.target.value)} />
+          </Field>
+          <div className="actions">
+            <button className="btn sm" onClick={() => setOpen(false)}>Cancel</button>
+            <Act small tone="primary" run={ask}>Ask</Act>
+          </div>
+        </div>
+      ) : <button className="btn sm primary" onClick={() => setOpen(true)} title="Ask the goal's current captain (or an admin) to make you its captain">Ask to captain this goal</button>}
+      <ErrorLine error={asks.error} />
+    </div>
+  );
+}
+
+/** Captains are humans (docs/goals.md "Captains on nodes"): any user who holds a role, or me; empty = inherit from above. */
 function OwnerForm({ node, me, onDone }: { node: GoalTreeNode; me: { userId: string | null }; onDone: () => void }) {
   const roles = useLoad(() => api().roles(), []);
   const ids = [...new Set([...(me.userId ? [me.userId] : []), ...(roles.data?.memberships ?? []).filter((m) => m.holderKind === "user").map((m) => m.holderId), ...(node.ownerId ? [node.ownerId] : [])])];
@@ -459,14 +472,14 @@ function OwnerForm({ node, me, onDone }: { node: GoalTreeNode; me: { userId: str
   useEffect(() => setOwner(node.ownerId ?? ""), [node.ownerId]);
   return (
     <div className="goal-form">
-      <Field label="Owner" hint="The owner edits this goal and everything under it, and decides and funds grants there.">
+      <Field label="Captain" hint="The captain edits this goal and everything under it, and decides and funds grants there.">
         <select value={owner} onChange={(e) => setOwner(e.target.value)}>
           <option value="">{node.parentId ? "Nobody here (inherit from above)" : "The town admins"}</option>
           {ids.map((id) => <option key={id} value={id}>{nameOf(id)}</option>)}
         </select>
       </Field>
       <ErrorLine error={roles.error} />
-      <Act small tone="primary" disabled={owner === (node.ownerId ?? "")} run={() => api().updateGoal(node.id, { ownerId: owner || null }).then(onDone)}>Set owner</Act>
+      <Act small tone="primary" disabled={owner === (node.ownerId ?? "")} run={() => api().updateGoal(node.id, { ownerId: owner || null }).then(onDone)}>Set captain</Act>
     </div>
   );
 }

@@ -115,7 +115,8 @@ describe("WAKE_RULES: each of the old onEvent branches is one rule, first match 
     for (const d of intrayOf(world, lab.id)) await world.verbs.review(admin.id, { docId: d.id, decision: "approve" });
     const mei = env.by("Mei");
     world.ops.updateBuilding(admin, lab.id, { managerAgentId: mei.id });
-    const kr = world.grantDesk.createKeyResult(admin, lab.id, { text: "Visitors can read the goal", howToCheck: "Open the board" });
+    const kr = world.keyResults.require(world.grantDesk.create(admin, lab.id, { keyResults: [{ text: "Visitors can read the goal", howToCheck: "Open the board" }], objective: "o", stopCondition: "s", askTokens: 1000 }).keyResultId!);
+    world.grantDesk.updateKeyResult(admin, kr.id, { status: "on-track" });
     await settle(); await runtime.whenIdle();
     const rows = () => world.docs.where("authorId = 'system' AND buildingId = ? AND type = 'report' AND tags LIKE '%manager-intray%'", [lab.id]);
     const manages = () => world.sessions.where("agentId = ? AND purpose = 'manage'", [mei.id]);

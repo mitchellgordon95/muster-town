@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { docIdParts, docIdsIn, isGrantId, markdownHtml } from "../src/panels/Markdown";
+import { docIdParts, docIdsIn, idLabel, isGrantId, markdownHtml, rememberAssignmentTitle } from "../src/panels/Markdown";
 
 describe("markdownHtml", () => {
   it("keeps a single newline as a soft wrap by default (docs)", () => {
@@ -49,5 +49,15 @@ describe("docIdsIn", () => {
   });
   it("lists docs only: a grant id has no title to preview", () => {
     expect(docIdsIn("gr_jqsqra0dlx and dc_k955hun6c4")).toEqual(["dc_k955hun6c4"]);
+  });
+});
+
+describe("idLabel", () => {
+  it("labels a past meeting or an assignment the store doesn't hold by its fetched title", () => {
+    expect(idLabel("mt_pastmeet01")).toBeNull();
+    rememberAssignmentTitle("mt_pastmeet01", "1:1: Mitchell and Cleo");
+    rememberAssignmentTitle("as_otherwork1", "Bank interior redesign");
+    expect(idLabel("mt_pastmeet01")).toBe("1:1: Mitchell and Cleo");
+    expect(idLabel("as_otherwork1")).toBe("Bank interior redesign");
   });
 });

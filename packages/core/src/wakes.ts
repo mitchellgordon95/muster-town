@@ -13,6 +13,7 @@ import { createAssignment, createDoc, managerAgentOf, moveToFront } from "./doma
 import { DIRECTED } from "./lanes.ts";
 import { nowIso } from "./util.ts";
 import type { World } from "./world.ts";
+import { stamp } from "./time.ts";
 
 const RULE = "manager-intray";
 
@@ -31,7 +32,7 @@ export function managerIntrayRow(world: World, e: Event): Doc | null {
     type: "report", state: "building", decision: "pending", buildingId: building.id, authorId: "system", authorKind: "user",
     tags: [RULE, key], title: row.title.slice(0, 200),
     body: [
-      `Written by the town: ${row.what} (event ${e.id}, ${e.ts.slice(0, 16).replace("T", " ")} UTC).`,
+      `Written by the town: ${row.what} (event ${e.id}, ${stamp(e.ts)}).`,
       `## Summary\n\n${row.summary}`,
       "Acknowledge it with `review` approve once you've taken it in; give any work it calls for with `assign`.",
     ].join("\n\n"),
@@ -94,8 +95,8 @@ function humanName(world: World, e: Event): string | null {
 }
 
 const grantLine = (world: World, g: Grant) => {
-  const kr = g.keyResultId ? world.keyResults.get(g.keyResultId) : undefined;
-  return `Status ${g.status}; ${fmt(world.grantDesk.view(g).spentTokens)} of ${fmt(g.grantTokens ?? 0)} tokens spent; key result ${kr ? `${kr.id} [${kr.status}] ${kr.text}` : "(none named)"}.`;
+  const krs = world.grantDesk.keyResultsOf(g.id);
+  return `Status ${g.status}; ${fmt(world.grantDesk.view(g).spentTokens)} of ${fmt(g.grantTokens ?? 0)} tokens spent; key results ${krs.length ? krs.map((k) => `${k.id} [${k.status}] ${k.text}`).join("; ") : "(none)"}.`;
 };
 
 const fmt = (n: number) => n.toLocaleString("en-US");

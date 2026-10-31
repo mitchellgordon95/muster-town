@@ -12,8 +12,8 @@ function setup() {
   const manager = world.agents.first("homeBuildingId = ? AND kind != 'human'", [LAB])!;
   world.permissions.grant(manager, buildingRoleId(LAB, "manager"));
   world.buildings.patch(LAB, { managerAgentId: manager.id });
-  const kr = world.grantDesk.createKeyResult(admin, LAB, { text: "Visitors can read the goal", howToCheck: "Open the board" });
-  const g = world.grantDesk.create(manager, LAB, { keyResultId: kr.id, objective: "Goal on the board", approach: "a line", stopCondition: "two tries", askTokens: 10_000_000, testingPlan: [] });
+  const g = world.grantDesk.create(manager, LAB, { keyResults: [{ text: "Visitors can read the goal", howToCheck: "Open the board" }], objective: "Goal on the board", approach: "a line", stopCondition: "two tries", askTokens: 10_000_000 });
+  const kr = world.keyResults.require(g.keyResultId!);
   const funded = world.grantDesk.decide(admin, world.grantDesk.propose(manager, g.id).id, { action: "fund" });
   world.grants.patch(funded.id, { status: "checkpoint", checkpointsDone: [0.5] });
   const last = (type: string): Event => world.events.list({ buildingId: LAB, types: [type as never], limit: 1000 }).at(-1)!;
@@ -44,20 +44,16 @@ describe("manager in-tray rows for grant and key-result events (docs/wakes.md st
     expect(rows()).toHaveLength(0);
   });
 
-  it("a cut grant and a human's key-result edits each write a row; the manager's own edits and status marks don't", () => {
+  it("a cut grant and a human's key-result edit each write a row; the manager's own status marks don't", () => {
     const { world, admin, manager, kr, grant, last, rows } = setup();
     world.grantDesk.decide(admin, grant.id, { action: "cut", note: "not worth it" });
     expect(managerIntrayRow(world, last("grant.closed"))!.title).toBe(`Grant ${grant.id} cut`);
     world.grantDesk.updateKeyResult(admin, kr.id, { text: "Visitors can read the goal in one glance" });
     expect(managerIntrayRow(world, last("kr.updated"))!.title).toMatch(new RegExp(`^Key result ${kr.id} edited by `));
-    world.grantDesk.createKeyResult(admin, LAB, { text: "Second", howToCheck: "Look" });
-    expect(managerIntrayRow(world, last("kr.created"))!.body).toContain("How to check: Look");
-    // the manager (an agent) writing or marking a key result is not a human event
+    // the manager (an agent) marking a key result is not a human event
     world.grantDesk.updateKeyResult(manager, kr.id, { status: "on-track" });
     expect(managerIntrayRow(world, last("kr.updated"))).toBeNull();
-    world.grantDesk.createKeyResult(manager, LAB, { text: "Third", howToCheck: "Look again", sourceDocIds: [] });
-    expect(managerIntrayRow(world, last("kr.created"))).toBeNull();
-    expect(rows()).toHaveLength(3);
+    expect(rows()).toHaveLength(2);
   });
 
   it("re-marking a key result with its current status and no note is a no-op: no kr.updated, no row", () => {

@@ -9,7 +9,7 @@ import { authStore } from "../auth/auth";
 import { T, CHAR_W, CHAR_H, charSheet, outlineSheet, tiles, HUMAN_SPRITE } from "./sprites";
 import { layoutEdit, type LayoutDraft } from "./layoutEdit";
 import { openTownPlanning, townPlan, type PlanDraft } from "./townPlan";
-import { bubbleFor, buildingBudgetLine, drawBadge, drawFlag, drawBankSign, drawBlockLine, drawBubble, drawGoalSign, drawLabel, drawPill, drawSign, drawTip, residentBudgetLine, type Bubble } from "./overlay";
+import { bubbleFor, buildingBudgetLine, drawBadge, drawFlag, drawBankSign, drawBlockLine, drawBubble, drawGoalSign, drawLabel, drawPill, drawSign, drawTip, layoutBubbles, measureBubble, residentBudgetLine, type Bubble } from "./overlay";
 import { blockedByRedeploy } from "../redeploy";
 import { scheduleTipRow, scheduleTipTitle } from "../format";
 import { api } from "../api";
@@ -117,6 +117,8 @@ export class MapRenderer {
   hoverSign: string | null = null;
   /** the red "blocked N" badges (agent id per box), and the one under the mouse (its reasons show as a hover card) */
   private blockHits: { id: string; x: number; y: number; w: number; h: number }[] = [];
+  /** This frame's speech and activity bubbles, canvas CSS px (what the bubble layout test reads). */
+  bubbleBoxes: { id: string; x: number; y: number; w: number; h: number }[] = [];
   hoverBlock: string | null = null;
   /** The badge whose reasons card a tap opened (touch has no hover); a second tap on it opens the queue. */
   tapTip: string | null = null;
@@ -704,13 +706,25 @@ export class MapRenderer {
       const b = d.a ? bubbleFor(d.a, said, now) : said && now - said.at < 7000 ? { text: said.text, tone: "speech" as const } : null;
       if (b) bubbles.push({ d, b });
     }
-    // speech on top of status bubbles, the targeted agent on top of everything
-    const rank = (x: { d: { id: string }; b: Bubble }) => (x.d.id === targetId ? 2 : 0) + (x.b.tone === "speech" ? 1 : 0);
-    bubbles.sort((p, q) => rank(p) - rank(q));
-    for (const { d, b: bubble } of bubbles) {
-      const p = toScreen(d.x, d.y - d.h);
-      if (p.x < -200 || p.x > cw + 200 || p.y < -100 || p.y > ch + 200) continue;
-      drawBubble(g, p.x, p.y, bubble, d.id === targetId || d.id === this.hoverId);
+    // lay them out most important first (the targeted agent, the hovered one, then speech), so those move least:
+    // each fully on screen, off the HUD card, the minimap and any other bubble (kr_aba1s2qx7p)
+    const rank = (x: { d: { id: string }; b: Bubble }) => (x.d.id === targetId ? 4 : 0) + (x.d.id === this.hoverId ? 2 : 0) + (x.b.tone === "speech" ? 1 : 0);
+    bubbles.sort((p, q) => rank(q) - rank(p));
+    const at = this.canvas.getBoundingClientRect();
+    const avoid = [...document.querySelectorAll(".hud, .minimap")].map((e) => e.getBoundingClientRect())
+      .filter((r) => r.width > 0 && r.height > 0).map((r) => ({ x: r.left - at.left, y: r.top - at.top, w: r.width, h: r.height }));
+    const sized = bubbles.map(({ d, b }) => {
+      const p = toScreen(d.x, d.y - d.h), full = d.id === targetId || d.id === this.hoverId;
+      return { d, b, p, ...measureBubble(g, b, full) };
+    });
+    const boxes = layoutBubbles(sized.map(({ p, w, h }) => ({ ax: p.x, ay: p.y, w, h })), { x: 0, y: 0, w: viewW, h: ch }, avoid);
+    this.bubbleBoxes = [];
+    // drawn least important first, so the targeted agent's tail sits on top
+    for (let i = sized.length - 1; i >= 0; i--) {
+      const box = boxes[i], { d, b, p, lines } = sized[i];
+      if (!box) continue;
+      drawBubble(g, p.x, p.y, b, lines, box);
+      this.bubbleBoxes.push({ id: d.id, ...box });
     }
     // each building's schedule board (a calendar on its back wall, baked into the world): its active schedules as
     // marks on the page and a count pip, a white outline on hover; hover lists them, click opens the Schedule tab.

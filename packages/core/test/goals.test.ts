@@ -24,6 +24,12 @@ function setup() {
   return { ...s, mei, tree, labGoal, otherGoal, other };
 }
 
+/** A draft grant of the lab filed against `goalId`; returns its (first) key result. */
+function grantKr(world: ReturnType<typeof seededWorld>["world"], goalId: string, text = "k") {
+  const g = world.grantDesk.create(null, LAB, { goalId, keyResults: [{ text, howToCheck: "h", due }], objective: "o", approach: "a", stopCondition: "s", askTokens: 1000 });
+  return world.keyResults.require(g.keyResultId!);
+}
+
 describe("the town goal tree (docs/goals.md, step 1)", () => {
   it("one root with Fund/Join/Trust placeholders; every building is attached, new ones at the root by default", () => {
     const { world, tree, labGoal, other, otherGoal } = setup();
@@ -58,18 +64,18 @@ describe("the town goal tree (docs/goals.md, step 1)", () => {
     expect(world.events.list({ types: ["goal.attached"] }).some((e) => e.payload.goalId === otherGoal.id)).toBe(true);
   });
 
-  it("Goals.inScope: grants and exploration name an open key result in the building's subtree", async () => {
-    const { world, admin, tree, labGoal, otherGoal, other, by } = setup();
+  it("Goals.inScope: a grant is filed against a goal in the building's subtree and its key results are in scope; exploration names a gap", async () => {
+    const { world, admin, tree, labGoal, otherGoal, by } = setup();
     const sub = tree.create(admin, { parentId: labGoal.id, text: "Every grant shows its sessions" });
-    const mine = tree.addKeyResult(admin, sub.id, { text: "Grant panel lists sessions", howToCheck: "Open a grant", due, buildingId: LAB });
-    const theirs = tree.addKeyResult(admin, otherGoal.id, { text: "First look has a brief", howToCheck: "Connect an agent", due, buildingId: other.id });
-    expect(mine.due).toBe(due);
-    expect(tree.inScope(LAB, mine.id)).toBe(true);
-    expect(tree.inScope(LAB, theirs.id)).toBe(false);
     const plan = { objective: "o", approach: "a", stopCondition: "s", askTokens: 1000 };
-    expect(world.grantDesk.create(null, LAB, { ...plan, keyResultId: mine.id }).keyResultId).toBe(mine.id);
-    expect(() => world.grantDesk.create(null, LAB, { ...plan, keyResultId: theirs.id })).toThrow(/not in Carbon Cycle Lab's subtree/);
-    expect(() => world.ops.createWork(admin, by("Noor").id, { title: "x", lane: "exploration", keyResultId: theirs.id })).toThrow(/subtree/);
+    const g = world.grantDesk.create(null, LAB, { ...plan, goalId: sub.id, keyResults: [{ text: "Grant panel lists sessions", howToCheck: "Open a grant", due }] });
+    const mine = world.keyResults.require(g.keyResultId!);
+    expect(mine).toMatchObject({ due, goalId: sub.id, grantId: g.id, buildingId: LAB });
+    expect(world.grants.require(g.id).goalId).toBe(sub.id);
+    expect(tree.inScope(LAB, mine.id)).toBe(true);
+    expect(world.grantDesk.create(null, LAB, { ...plan, keyResults: [{ text: "k", howToCheck: "h" }] }).goalId).toBe(labGoal.id);
+    expect(() => world.grantDesk.create(null, LAB, { ...plan, goalId: otherGoal.id, keyResults: [{ text: "k", howToCheck: "h" }] })).toThrow(/goal or under it/);
+    expect(() => world.ops.createWork(admin, by("Noor").id, { title: "x", lane: "exploration" })).toThrow(/gap/);
     // met archives it under its goal: out of scope, the goal stays
     world.grantDesk.updateKeyResult(admin, mine.id, { status: "met" });
     expect(world.keyResults.require(mine.id).archivedAt).toBeTruthy();
@@ -79,20 +85,30 @@ describe("the town goal tree (docs/goals.md, step 1)", () => {
     expect(world.keyResults.require(mine.id).archivedAt).toBeNull();
   });
 
+  it("the goal tree lists only archived key results; open ones live on grants", () => {
+    const { world, admin, tree, labGoal } = setup();
+    const open = grantKr(world, labGoal.id, "Still being worked");
+    const done = grantKr(world, labGoal.id, "Already met");
+    world.grantDesk.updateKeyResult(admin, done.id, { status: "met" });
+    const node = tree.tree().children.flatMap((c) => c.children).find((c) => c.id === labGoal.id)!;
+    expect(node.keyResults.map((k) => k.id)).toEqual([done.id]);
+    expect(world.grantDesk.get(open.grantId!).keyResults.map((k) => k.id)).toEqual([open.id]);
+  });
+
   it("owners (humans) inherit down the tree, edit and fund in their subtree only; routing ends at the owner", () => {
     const { world, admin, mei, tree, labGoal, otherGoal } = setup();
     const lena = createUser(world, "Lena").user;
     const lenaAv = world.ops.ensureAvatar(lena.id);
-    expect(() => tree.update(admin, labGoal.id, { ownerId: mei.id })).toThrow(/Owners are humans/);
+    expect(() => tree.update(admin, labGoal.id, { ownerId: mei.id })).toThrow(/Captains are humans/);
     tree.update(admin, labGoal.id, { ownerId: lena.id });
     const sub = tree.create(lenaAv, { parentId: labGoal.id, text: "Lena's sub-goal" });
     expect(tree.ownerOf(sub.id)).toEqual({ goalId: labGoal.id, userId: lena.id });
     expect(tree.ownerOf(otherGoal.id)).toEqual({ goalId: "gl_town", userId: null });
-    expect(() => tree.create(lenaAv, { parentId: otherGoal.id, text: "no" })).toThrow(/owner of/);
-    expect(() => tree.update(lenaAv, labGoal.id, { ownerId: null })).toThrow(/owner of/); // the goal above isn't hers
+    expect(() => tree.create(lenaAv, { parentId: otherGoal.id, text: "no" })).toThrow(/captain of/);
+    expect(() => tree.update(lenaAv, labGoal.id, { ownerId: null })).toThrow(/captain of/); // the goal above isn't hers
     // she decides and funds a grant whose key result sits in her subtree
-    const kr = tree.addKeyResult(lenaAv, sub.id, { text: "k", howToCheck: "h", due, buildingId: LAB });
-    const g = world.grantDesk.create(null, LAB, { keyResultId: kr.id, objective: "o", approach: "a", stopCondition: "s", askTokens: 1000 });
+    const g = world.grantDesk.create(null, LAB, { goalId: sub.id, keyResults: [{ text: "k", howToCheck: "h", due }], objective: "o", approach: "a", stopCondition: "s", askTokens: 1000 });
+    const kr = world.keyResults.require(g.keyResultId!);
     world.grantDesk.propose(null, g.id);
     expect(tree.route({ grantId: g.id })).toEqual({ goalId: labGoal.id, userId: lena.id });
     expect(tree.route({ buildingId: LAB })).toEqual({ goalId: labGoal.id, userId: lena.id });
@@ -103,7 +119,7 @@ describe("the town goal tree (docs/goals.md, step 1)", () => {
 
   it("retire moves open key results and attached buildings to a sibling, or is refused", () => {
     const { world, admin, tree, labGoal } = setup();
-    const kr = tree.addKeyResult(admin, labGoal.id, { text: "k", howToCheck: "h", due, buildingId: LAB });
+    const kr = grantKr(world, labGoal.id);
     expect(() => tree.retire(admin, labGoal.id)).toThrow(/orphan 1 open key result .* and 1 attached building/);
     expect(() => tree.retire(admin, labGoal.id, { moveTo: "gl_join" })).toThrow(/not a sibling/);
     const sib = tree.create(admin, { parentId: "gl_trust", text: "Sibling" });
@@ -114,16 +130,14 @@ describe("the town goal tree (docs/goals.md, step 1)", () => {
     expect(() => tree.retire(admin, "gl_town")).toThrow(/root/);
   });
 
-  it("managers propose (propose_goal / propose_key_result); a human accepts or cuts; outside the subtree is flagged", async () => {
+  it("managers propose (propose_goal); add-kr is refused (key results belong to grants); a human accepts or cuts; outside the subtree is flagged", async () => {
     const { world, admin, mei, tree, labGoal, otherGoal } = setup();
-    const r = await world.verbs.propose_key_result(mei, { text: "Deck shows sessions", howToCheck: "Open the deck", due, why: "funders asked" });
-    expect(r.proposal).toMatchObject({ action: "add-kr", status: "open", outsideScope: false });
-    expect(() => tree.decideProposal(mei, r.proposal.id, { action: "accept" })).toThrow(/Only a human/);
-    const acc = tree.decideProposal(admin, r.proposal.id, { action: "accept" });
-    const kr = world.keyResults.require(acc.resultId!);
-    expect(kr).toMatchObject({ goalId: labGoal.id, buildingId: LAB, due, text: "Deck shows sessions" });
+    expect(() => tree.propose(mei, { action: "add-kr", parentId: labGoal.id, text: "Deck shows sessions", howToCheck: "Open the deck", due, why: "funders asked" })).toThrow(/belong to grants/);
+    expect(world.verbs).not.toHaveProperty("propose_key_result");
+    const kr = grantKr(world, labGoal.id, "Deck shows sessions");
     const out = await world.verbs.propose_goal(mei, { action: "add-goal", parentId: otherGoal.id, text: "x", why: "y" });
     expect(out.proposal.outsideScope).toBe(true);
+    expect(() => tree.decideProposal(mei, out.proposal.id, { action: "accept" })).toThrow(/Only a human/);
     const cut = tree.decideProposal(admin, out.proposal.id, { action: "cut", note: "not ours" });
     expect(cut.status).toBe("cut");
     expect(world.messages.first("toId = ? AND body LIKE '%not ours%'", [mei.id])).toBeTruthy();
@@ -134,13 +148,13 @@ describe("the town goal tree (docs/goals.md, step 1)", () => {
     expect(world.keyResults.require(kr.id).goalId).toBe(g.resultId);
   });
 
-  it("the old objectives and set_key_result keep working on the tree", async () => {
+  it("the old objectives keep working on the tree: a grant filed against one puts its key results under it", async () => {
     const { world, admin, labGoal } = setup();
     const o = world.grantDesk.createObjective(admin, LAB, { text: "An objective", kpi: "trust" });
     expect(world.goalTree.get(o.id)).toMatchObject({ parentId: labGoal.id, text: "An objective" });
-    const kr = world.grantDesk.createKeyResult(admin, LAB, { text: "k", howToCheck: "h", objectiveId: o.id });
+    const kr = grantKr(world, o.id);
     expect(kr.goalId).toBe(o.id);
-    const loose = world.grantDesk.createKeyResult(admin, LAB, { text: "k2", howToCheck: "h" });
+    const loose = world.keyResults.require(world.grantDesk.create(null, LAB, { keyResults: [{ text: "k2", howToCheck: "h" }], objective: "o", stopCondition: "s", askTokens: 1000 }).keyResultId!);
     expect(loose.goalId).toBe(labGoal.id);
     expect(world.grantDesk.keyResults(LAB).map((k) => k.id)).toEqual([kr.id, loose.id]);
   });
@@ -156,14 +170,15 @@ describe("the goal editor (docs/goals.md, step 3)", () => {
     expect(g.tiles[(p.pos.y - 1) * g.w + p.pos.x]).toBe(TILE.GOAL_CHART);
   });
   it("a goal's History tab: its own edits, its key results, attachments and proposals, newest first; not its siblings'", () => {
-    const { admin, tree, labGoal, otherGoal } = setup();
+    const { world, admin, tree, labGoal, otherGoal } = setup();
     tree.update(admin, labGoal.id, { text: "A funder sees every token" });
-    const kr = tree.addKeyResult(admin, labGoal.id, { text: "The Bank counts every token type", howToCheck: "GET /api/health", due });
+    const kr = grantKr(world, labGoal.id, "The Bank counts every token type");
+    world.grantDesk.updateKeyResult(admin, kr.id, { status: "on-track" });
     tree.update(admin, otherGoal.id, { text: "Someone else's goal" });
     const child = tree.create(admin, { parentId: labGoal.id, text: "A child goal" });
     const types = tree.history(labGoal.id).map((e) => e.type);
     expect(types[0]).toBe("goal.created");
-    expect(types).toEqual(expect.arrayContaining(["goal.edited", "kr.created", "goal.attached", "goal.created"]));
+    expect(types).toEqual(expect.arrayContaining(["goal.edited", "kr.updated", "goal.attached", "goal.created"]));
     const texts = tree.history(labGoal.id).map((e) => e.text).join("\n");
     expect(texts).not.toMatch(/Someone else's goal/);
     expect(texts).toMatch(new RegExp(kr.text));

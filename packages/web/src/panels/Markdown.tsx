@@ -116,21 +116,23 @@ function loadKrTexts(): Promise<void> {
   }, () => undefined);
   return krLoad;
 }
-/** Assignment titles by id, for labelling as_ links: the store's assignments first, else fetched (GET /api/assignments/:id) once per id a text cites. */
-const asTitles = new Map<string, string>();
-const asAsked = new Set<string>();
-const AS_ID_RE = /\bas_[a-z0-9]{10}\b/g;
-/** An assignment card that loaded tells the labels its title. */
+/** Assignment and meeting titles by id, for labelling as_ and mt_ links the store doesn't hold (past meetings, other buildings' work): fetched (GET /api/assignments/:id, /api/meetings/:id) once per id a text cites. */
+const fetchedTitles = new Map<string, string>();
+const titleAsked = new Set<string>();
+const FETCH_ID_RE = /\b(?:as|mt)_[a-z0-9]{10}\b/g;
+/** An assignment card or meeting that loaded tells the labels its title. */
 export function rememberAssignmentTitle(id: string, title: string) {
-  if (asTitles.get(id) === title) return;
-  asTitles.set(id, title);
+  if (fetchedTitles.get(id) === title) return;
+  fetchedTitles.set(id, title);
   for (const f of krListeners) f();
 }
-function loadAssignmentTitles(text: string) {
-  const want = [...new Set(text.match(AS_ID_RE) ?? [])].filter((id) => !asAsked.has(id) && !asTitles.has(id) && !store.state.assignments[id]);
+function loadFetchedTitles(text: string) {
+  const s = store.state;
+  const want = [...new Set(text.match(FETCH_ID_RE) ?? [])].filter((id) => !titleAsked.has(id) && !fetchedTitles.has(id) && !(id.startsWith("as_") ? s.assignments[id] : s.meetings[id]));
   for (const id of want) {
-    asAsked.add(id);
-    api().assignmentCard(id).then((a) => rememberAssignmentTitle(id, a.title), () => undefined);
+    titleAsked.add(id);
+    const title = id.startsWith("as_") ? api().assignmentCard(id).then((a) => a.title) : api().meeting(id).then((m) => m.title);
+    title.then((t) => rememberAssignmentTitle(id, t), () => undefined);
   }
 }
 
@@ -138,13 +140,13 @@ function loadAssignmentTitles(text: string) {
 function useIdLabels(text: string): number {
   const [kr, setKr] = useState(0);
   const cites = text.includes("kr_");
-  const citesAs = text.includes("as_");
+  const citesAs = text.includes("as_") || text.includes("mt_");
   useEffect(() => {
     if (!cites && !citesAs) return;
     const f = () => setKr((n) => n + 1);
     krListeners.add(f);
     if (cites) void loadKrTexts();
-    if (citesAs) loadAssignmentTitles(text);
+    if (citesAs) loadFetchedTitles(text);
     return () => { krListeners.delete(f); };
   }, [cites, citesAs, text]);
   const known = useTown((s) => s.buildings.length + Object.keys(s.agents).length + Object.keys(s.meetings).length);
@@ -159,9 +161,9 @@ export function idLabel(id: string): string | null {
   switch (id.slice(0, 2)) {
     case "ag": return s.agents[id]?.name ?? store.names.get(id) ?? null;
     case "bl": return s.buildings.find((b) => b.id === id)?.name ?? null;
-    case "mt": return s.meetings[id]?.title ?? null;
+    case "mt": { const t = s.meetings[id]?.title ?? fetchedTitles.get(id); return t ? clipLabel(t) : null; }
     case "kr": { const t = krTexts.get(id); return t ? clipLabel(t) : null; }
-    case "as": { const t = s.assignments[id]?.title ?? asTitles.get(id); return t ? clipLabel(t) : null; }
+    case "as": { const t = s.assignments[id]?.title ?? fetchedTitles.get(id); return t ? clipLabel(t) : null; }
     default: return null;
   }
 }
@@ -171,7 +173,7 @@ function idTitle(id: string, label: string | null): string | undefined {
   const what: Record<string, string> = { gr: "grant", mt: "meeting", ag: "agent", bl: "building", kr: "key result", mf: "picture or video: opens the file", as: "assignment", se: "session" };
   if (id.startsWith("dc_")) return store.state.docs[id]?.title;
   if (id.startsWith("kr_") && krTexts.get(id)) return `key result ${id}: ${krTexts.get(id)}`;
-  if (id.startsWith("as_") && label) return `assignment ${id}: ${store.state.assignments[id]?.title ?? asTitles.get(id)}`;
+  if (id.startsWith("as_") && label) return `assignment ${id}: ${store.state.assignments[id]?.title ?? fetchedTitles.get(id)}`;
   return label ? `${what[id.slice(0, 2)]} ${id}` : what[id.slice(0, 2)];
 }
 

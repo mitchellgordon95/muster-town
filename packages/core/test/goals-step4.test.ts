@@ -24,9 +24,8 @@ describe("the in-tray and the deck (docs/goals.md, step 4)", () => {
     const { world, mei, admin } = setup();
     const th = world.buildings.first("kind = 'town-hall'")!;
     const before = intrayCount(world, th.id);
-    const r = await world.verbs.propose_key_result(mei, { text: "Deck shows sessions", howToCheck: "Open the deck", due, why: "funders asked" });
-    const kr = world.goalTree.addKeyResult(admin, world.goalTree.attachmentOf(LAB), { text: "k", howToCheck: "h", due, buildingId: LAB });
-    const g = world.grantDesk.create(null, LAB, { keyResultId: kr.id, objective: "o", approach: "a", stopCondition: "s", askTokens: 1000 });
+    const r = await world.verbs.propose_goal(mei, { action: "add-goal", parentId: world.goalTree.attachmentOf(LAB), text: "Deck shows sessions", why: "funders asked" });
+    const g = world.grantDesk.create(null, LAB, { keyResults: [{ text: "k", howToCheck: "h", due }], objective: "o", approach: "a", stopCondition: "s", askTokens: 1000 });
     world.grantDesk.propose(null, g.id);
     expect(townHallIntray(world).goalProposals.map((p) => p.id)).toEqual([r.proposal.id]);
     expect(intrayCount(world, th.id)).toBe(before + 2);
@@ -36,7 +35,7 @@ describe("the in-tray and the deck (docs/goals.md, step 4)", () => {
     expect(kinds.indexOf("proposal")).toBeLessThan(kinds.indexOf("goal-proposal"));
     const slide = deck.slides.find((s) => s.kind === "goal-proposal")!;
     expect(slide).toMatchObject({ itemId: r.proposal.id, group: 4, buildingId: LAB });
-    expect(slide.text).toMatch(/add a key result.*Deck shows sessions/);
+    expect(slide.text).toMatch(/add a goal.*Deck shows sessions/);
     world.goalTree.decideProposal(admin, r.proposal.id, { action: "cut", note: "no" });
     expect(townHallIntray(world).goalProposals).toEqual([]);
     expect(reviewDeck(world).slides.some((s) => s.kind === "goal-proposal")).toBe(false);
@@ -45,7 +44,7 @@ describe("the in-tray and the deck (docs/goals.md, step 4)", () => {
   it("move and retire slides say what happens in the card's words; a retire names the buildings and key results that move", async () => {
     const { world, mei, admin, tree, labGoal, otherGoal } = setup();
     const sib = tree.create(admin, { parentId: "gl_trust", text: "Anyone can check the ledger" });
-    tree.addKeyResult(admin, labGoal.id, { text: "Grant pages show sessions", howToCheck: "h", due, buildingId: LAB });
+    world.grantDesk.create(null, LAB, { goalId: labGoal.id, keyResults: [{ text: "Grant pages show sessions", howToCheck: "h", due }], objective: "o", stopCondition: "s", askTokens: 1000 });
     const mv = await world.verbs.propose_goal(mei, { action: "move", targetId: labGoal.id, parentId: otherGoal.id, why: "fits better" });
     const rt = await world.verbs.propose_goal(mei, { action: "retire", targetId: labGoal.id, parentId: sib.id, why: "done" });
     const text = (id: string) => reviewDeck(world).slides.find((s) => s.itemId === id)!.text;
@@ -65,14 +64,12 @@ describe("the in-tray and the deck (docs/goals.md, step 4)", () => {
     const lena = createUser(world, "Lena").user;
     const lenaAv = world.ops.ensureAvatar(lena.id);
     tree.update(admin, labGoal.id, { ownerId: lena.id });
-    const krLab = tree.addKeyResult(admin, labGoal.id, { text: "lab kr", howToCheck: "h", due, buildingId: LAB });
-    const krOther = tree.addKeyResult(admin, otherGoal.id, { text: "other kr", howToCheck: "h", due, buildingId: other.id });
     const plan = { objective: "o", approach: "a", stopCondition: "s", askTokens: 1000 };
-    const gLab = world.grantDesk.create(null, LAB, { ...plan, keyResultId: krLab.id });
-    const gOther = world.grantDesk.create(null, other.id, { ...plan, keyResultId: krOther.id });
+    const gLab = world.grantDesk.create(null, LAB, { ...plan, goalId: labGoal.id, keyResults: [{ text: "lab kr", howToCheck: "h", due }] });
+    const gOther = world.grantDesk.create(null, other.id, { ...plan, goalId: otherGoal.id, keyResults: [{ text: "other kr", howToCheck: "h", due }] });
     world.grantDesk.propose(null, gLab.id);
     world.grantDesk.propose(null, gOther.id);
-    const p = (await world.verbs.propose_key_result(mei, { text: "x", howToCheck: "y", due, why: "z" })).proposal;
+    const p = (await world.verbs.propose_goal(mei, { action: "add-goal", parentId: labGoal.id, text: "x", why: "z" })).proposal;
     const items = townHallIntray(world);
     const forLena = intrayRoutes(world, lenaAv, items);
     expect(forLena.defaultView).toBe("mine");
@@ -150,8 +147,8 @@ describe("the Spend tab (docs/goals.md \"Spend tab\", step 4): read-only, from s
 
   it("over the world: reads sessions, writes nothing to the Bank", () => {
     const { world, admin, labGoal, mei } = setup();
-    const kr = world.goalTree.addKeyResult(admin, labGoal.id, { text: "k", howToCheck: "h", due, buildingId: LAB });
-    const g = world.grantDesk.create(null, LAB, { keyResultId: kr.id, objective: "o", approach: "a", stopCondition: "s", askTokens: 100000 });
+    const g = world.grantDesk.create(null, LAB, { goalId: labGoal.id, keyResults: [{ text: "k", howToCheck: "h", due }], objective: "o", approach: "a", stopCondition: "s", askTokens: 100000 });
+    const kr = world.keyResults.require(g.keyResultId!);
     world.grantDesk.propose(null, g.id);
     world.grantDesk.decide(admin, g.id, { action: "fund" });
     const agent = mei;

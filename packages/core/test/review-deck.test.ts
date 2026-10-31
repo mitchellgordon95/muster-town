@@ -16,10 +16,10 @@ function setup() {
   const { world, admin } = s;
   const manager = world.agents.first("homeBuildingId = ? AND kind != 'human'", [LAB])!;
   world.permissions.grant(manager, buildingRoleId(LAB, "manager"));
-  const krs = KRS.map((k) => world.grantDesk.createKeyResult(admin, LAB, k));
-  const proposal = (kr = krs[0]!.id, extra: { picture?: string; whatYoudSee?: string } = {}) => world.grantDesk.propose(manager, world.grantDesk.create(manager, LAB, {
-    keyResultId: kr, objective: `Plan for ${kr}`, approach: "a banner line", stopCondition: "two failed tries", askTokens: 1_000_000,
-    testingPlan: [{ text: "Banner shows Usage", howToCheck: "Open the lab banner" }], ...extra,
+  const krs = KRS;
+  const proposal = (i = 0, extra: { picture?: string; whatYoudSee?: string } = {}) => world.grantDesk.propose(manager, world.grantDesk.create(manager, LAB, {
+    keyResults: [KRS[i]!, { text: "Banner shows Usage", howToCheck: "Open the lab banner" }], objective: `Plan for KR ${i}`, approach: "a banner line", stopCondition: "two failed tries", askTokens: 1_000_000,
+    ...extra,
   }).id);
   const rollup = (calls: string[], createdAt: string, decided?: { decision: "approve"; note: string }) => createDoc(world, {
     type: "report", title: `Rollup ${createdAt.slice(11, 16)}`, body: rollupBody(calls), authorId: manager.id, authorKind: "agent", buildingId: LAB, state: "building",
@@ -35,7 +35,7 @@ describe("review deck (GET /api/review-deck)", () => {
   it("slide 1 is the state of the town; proposals oldest first; rollup items with a real call one slide each; None-only rollups collapse into For the record", () => {
     const { world, proposal, rollup } = setup();
     const g1 = proposal();
-    const g2 = proposal(world.grantDesk.keyResults(LAB)[1]!.id, { whatYoudSee: "The board shows Usage", picture: undefined });
+    const g2 = proposal(1, { whatYoudSee: "The board shows Usage", picture: undefined });
     const r1 = rollup(["Fund the next step?", "None"], ago(3));
     const r2 = rollup(["None", "**None.**"], ago(2));
     const deck = reviewDeck(world);
@@ -65,7 +65,7 @@ describe("review deck (GET /api/review-deck)", () => {
     const r1 = rollup(["Merge it?"], ago(5));
     const r2 = rollup(["Pick A or B?"], ago(4));
     // a funded grant held at its checkpoint
-    const held = proposal(krs[1]!.id);
+    const held = proposal(1);
     world.grantDesk.decide(admin, held.id, { action: "fund", tokens: 1_000_000 });
     world.grants.patch(held.id, { status: "checkpoint", history: [...world.grants.require(held.id).history, { at: nowIso(), byId: "system", byKind: "agent", action: "checkpoint", tokens: null, note: "" }] });
     park(r2.id); park(r2.id); park(p1.id);
@@ -102,7 +102,7 @@ describe("review deck (GET /api/review-deck)", () => {
     expect(os).toMatchObject({ kind: "report", docIds: [other.id] });
     expect(os.history).toBe(`In 1:1 ${m.id}: "Build the review deck"`);
     // a fresh proposal with no human entry has no history line
-    const fresh = proposal(world.grantDesk.keyResults(LAB)[1]!.id);
+    const fresh = proposal(1);
     const fs = ours(reviewDeck(world)).find((s) => s.grantId === fresh.id)!;
     expect(fs.history).toBe("");
     expect(fs.text).not.toMatch(/History:/);
@@ -125,7 +125,7 @@ describe("review deck (GET /api/review-deck)", () => {
     const { world, manager, krs } = setup();
     const approach = `${"Step one adds a Goals tab next to Tab. ".repeat(24)}The last words stay.`;
     expect(approach.length).toBeGreaterThan(900);
-    const r = await world.verbs.propose_grant(manager, { keyResultId: krs[0]!.id, objective: "Long approach", stopCondition: "done", askTokens: 100_000, testingPlan: [], findingsDocIds: [], approach, note: "" });
+    const r = await world.verbs.propose_grant(manager, { keyResults: [krs[0]!], objective: "Long approach", stopCondition: "done", askTokens: 100_000, findingsDocIds: [], approach, note: "" });
     const s = ours(reviewDeck(world)).find((x) => x.grantId === r.grantId)!;
     expect(s.text).toContain(approach.trim());
     expect(s.text).not.toMatch(/…/);
@@ -134,7 +134,7 @@ describe("review deck (GET /api/review-deck)", () => {
   it("propose_grant stores picture and whatYoudSee; the proposal slide shows the picture when the media exists", async () => {
     const { world, manager, krs } = setup();
     const media = world.media.put(manager.id, "image/png", Buffer.from("89504e470d0a1a0a0000000d49484452", "hex"));
-    const r = await world.verbs.propose_grant(manager, { keyResultId: krs[0]!.id, objective: "With a picture", stopCondition: "done", askTokens: 100_000, picture: media.id, whatYoudSee: "The in-tray shows it", testingPlan: [], findingsDocIds: [], approach: "", note: "" });
+    const r = await world.verbs.propose_grant(manager, { keyResults: [krs[0]!], objective: "With a picture", stopCondition: "done", askTokens: 100_000, picture: media.id, whatYoudSee: "The in-tray shows it", findingsDocIds: [], approach: "", note: "" });
     expect(world.grants.require(r.grantId)).toMatchObject({ picture: media.id, whatYoudSee: "The in-tray shows it" });
     const s = ours(reviewDeck(world)).find((x) => x.grantId === r.grantId)!;
     expect(s.pictures[0]!.src).toBe(media.url);
@@ -145,7 +145,7 @@ describe("review deck (GET /api/review-deck)", () => {
     const media = world.media.put(manager.id, "image/png", Buffer.from("89504e470d0a1a0a0000000d49484452", "hex"));
     const design = createDoc(world, { type: "note", title: "design", body: "Paste gives `![alt](/api/media/mf_….png)`:\n![alt](/api/media/mf_….png)\n![gone](/api/media/mf_nope.png)", authorId: manager.id, authorKind: "agent", buildingId: LAB, state: "building" });
     const shot = createDoc(world, { type: "note", title: "shot", body: `![the deck](${media.url})`, authorId: manager.id, authorKind: "agent", buildingId: LAB, state: "building" });
-    const plan = (findingsDocIds: string[]) => world.grantDesk.propose(manager, world.grantDesk.create(manager, LAB, { keyResultId: krs[0]!.id, objective: `Plan ${findingsDocIds.length}`, approach: "", stopCondition: "done", askTokens: 1000, testingPlan: [], findingsDocIds }).id);
+    const plan = (findingsDocIds: string[]) => world.grantDesk.propose(manager, world.grantDesk.create(manager, LAB, { keyResults: [krs[0]!], objective: `Plan ${findingsDocIds.length}`, approach: "", stopCondition: "done", askTokens: 1000, findingsDocIds }).id);
     const without = plan([design.id]);
     const withShot = plan([design.id, shot.id]);
     const slides = reviewDeck(world).slides;

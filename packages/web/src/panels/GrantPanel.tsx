@@ -28,11 +28,11 @@ export function GrantPanel({ id }: { id: string }) {
             <GrantRow grant={g} onDecided={r.reload} onOpenDoc={(docId) => store.open({ kind: "library", docId })} />
             {g.approach ? <Section title="Approach"><div className="asg-desc"><DocText text={g.approach} /></div></Section> : null}
             {g.testingPlan.length ? (
-              <Section title="Testing plan">
+              <Section title="Testing plan (from before key results moved onto grants)">
                 <ul className="kr-list">{g.testingPlan.map((t, i) => <li key={i}>{t.text}<div className="muted kr-check">How to check: {t.howToCheck}</div></li>)}</ul>
               </Section>
             ) : null}
-            {g.keyResult ? <Section title="Key result"><div>{g.keyResult.text}</div><div className="muted kr-check">How to check: {g.keyResult.howToCheck}</div>{g.keyResult.statusNote ? <div className="muted">{g.keyResult.status.replace(/-/g, " ")}: <DocText text={g.keyResult.statusNote} /></div> : null}</Section> : null}
+            {g.keyResults.some((k) => k.statusNote) ? <Section title="Key result notes"><ul className="kr-list">{g.keyResults.filter((k) => k.statusNote).map((k) => <li key={k.id}>{k.text}<div className="muted">{k.status.replace(/-/g, " ")}: <DocText text={k.statusNote} /></div></li>)}</ul></Section> : null}
             {g.findingsDocIds.length ? <Section title="Findings it draws on"><ul className="kr-list">{g.findingsDocIds.map((d) => <li key={d}><FindingLink id={d} /></li>)}</ul></Section> : null}
             <History grant={g} />
             <div className="actions">

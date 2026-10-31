@@ -1,6 +1,6 @@
 /** HUD (top-left town card: name, goal, status counts, notices), interaction hint, say box, toasts. */
-import { useMemo, useState, type ReactNode, type RefObject } from "react";
-import type { AgentStatus, AuthMe } from "@muster-town/schema";
+import { useEffect, useMemo, useState, type ReactNode, type RefObject } from "react";
+import type { AccessRequestView, AgentStatus, AuthMe } from "@muster-town/schema";
 import { store, useTown, type PanelRef } from "./state";
 import { STATUS_COLOR } from "./map/overlay";
 import { iconUrl, type IconKind } from "./map/sprites";
@@ -8,6 +8,7 @@ import type { Target } from "./map/renderer";
 import { api, isMock } from "./api";
 import { dockerDown, effectiveRedeploy, fundingAlert, redeployLine, redeployTone, slotsFull } from "./redeploy";
 import { joinMeeting } from "./panels/Places";
+import { Act, timeAgo } from "./panels/ui";
 import { SignInButtons, signOut, useAuth } from "./auth/auth";
 import { mapRenderer } from "./map/MapCanvas";
 import { whoIsHere } from "./whoIsHere";
@@ -21,9 +22,24 @@ const PHONE = typeof matchMedia === "function" && matchMedia("(max-width: 760px)
 
 const ORDER: AgentStatus[] = ["working", "in-meeting", "walking", "idle", "out-of-budget", "offline", "stopped", "banned"];
 
-interface Notice { key: string; icon: IconKind; text: ReactNode; cta: string; tone: "warn" | "meet" | "ok" | "bad"; go: () => void }
+interface Notice { key: string; icon: IconKind; text: ReactNode; cta: string; tone: "warn" | "meet" | "ok" | "bad"; go: () => void; hint?: string; actions?: { label: string; primary?: boolean; run: () => Promise<unknown> }[] }
 
 function walkOrOpen(placeId: string, panel: PanelRef) { if (!store.walkTo(placeId, panel)) store.open(panel); }
+
+let guestCardCounted = false;
+
+/** An admin's pending join requests, refetched when the Town Hall in-tray count moves (an ask or a decision). */
+function usePendingAccess(admin: boolean, townHallCount: number | undefined): { rows: AccessRequestView[]; reload: () => void } {
+  const [rows, setRows] = useState<AccessRequestView[]>([]);
+  const [n, setN] = useState(0);
+  useEffect(() => {
+    if (!admin) { setRows([]); return; }
+    let live = true;
+    api().accessRequests().then((r) => { if (live) setRows(r); }, () => {});
+    return () => { live = false; };
+  }, [admin, townHallCount, n]);
+  return useMemo(() => ({ rows, reload: () => setN((x) => x + 1) }), [rows]);
+}
 
 export function Hud({ onPasteToken, onHelp }: { onPasteToken?: () => void; onHelp?: () => void }) {
   const town = useTown((s) => s.town);
@@ -36,10 +52,14 @@ export function Hud({ onPasteToken, onHelp }: { onPasteToken?: () => void; onHel
   const health = useTown((s) => s.health);
   const redeployLive = useTown((s) => s.redeployLive);
   const auth = useAuth();
+  const access = usePendingAccess(!!me?.isAdmin, buildings.find((b) => b.kind === "town-hall")?.intray);
   // a guest keeps the card open: it holds Sign in (it is already kept short on a phone, styles.css .hud.guest)
   // (null until toggled: sign-in state can settle after the first render)
   const [toggled, setCollapsed] = useState<boolean | null>(null);
   const collapsed = toggled ?? (PHONE && !auth.guest);
+  // the join funnel (gr_fibsfwr4tz step 3): count the guest card once per page load, the first time it is on screen
+  const cardShown = !!town && !collapsed && (auth.guest || me?.canInteract === false);
+  useEffect(() => { if (cardShown && !guestCardCounted) { guestCardCounted = true; api().countGuestCardView().catch(() => {}); } }, [cardShown]);
   const counts = useMemo(() => {
     const c = new Map<AgentStatus, number>();
     for (const a of Object.values(agents)) if (a.kind === "resident" || a.kind === "visitor") c.set(a.status, (c.get(a.status) ?? 0) + 1);
@@ -95,6 +115,21 @@ export function Hud({ onPasteToken, onHelp }: { onPasteToken?: () => void; onHel
         go: () => walkOrOpen("planning-desk", { kind: "planning", tab: "System" }),
       });
     }
+    // someone asked to join (gr_fibsfwr4tz step 2): one line each for an admin, so a request never waits unseen behind the badge
+    for (const r of access.rows) {
+      const who = r.githubLogin ? `@${r.githubLogin}` : r.name;
+      const decide = async (grant: boolean) => {
+        await api().decideAccess(r.id, grant);
+        store.toast(grant ? `${who} is in: they can now talk, message agents and write.` : `Declined ${who}. They can ask again tomorrow.`, "ok");
+        access.reload();
+      };
+      out.push({
+        key: `access:${r.id}`, icon: "intray", tone: "warn", cta: "",
+        text: <><b>{who}</b> asked to join ({timeAgo(r.createdAt)})</>, hint: r.message ? `"${r.message}"` : undefined,
+        go: () => walkOrOpen("intray:town-hall", { kind: "intray", id: "town-hall" }),
+        actions: [{ label: "Let in", primary: true, run: () => decide(true) }, { label: "Decline", run: () => decide(false) }],
+      });
+    }
     // in-trays I work: buildings without a manager agent, and the Town Hall (rollups, proposals, checkpoints).
     // A building whose manager agent works its in-tray doesn't notify humans (town hall 2026-10-24, decision 1d).
     for (const b of buildings) {
@@ -126,7 +161,7 @@ export function Hud({ onPasteToken, onHelp }: { onPasteToken?: () => void; onHel
     }
     return out;
     // `me` changes permissions
-  }, [buildings, meetings, me, events, agents, health, redeployLive]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [buildings, meetings, me, events, agents, health, redeployLive, access]); // eslint-disable-line react-hooks/exhaustive-deps
   if (!town) return null;
   return (
     <div className={`hud ${collapsed ? "collapsed" : ""} ${auth.guest ? "guest" : ""}`}>
@@ -183,7 +218,12 @@ export function Hud({ onPasteToken, onHelp }: { onPasteToken?: () => void; onHel
           {notices.length ? (
             <div className="hud-block hud-notices">
               <div className="hud-label">Notices</div>
-              {notices.map((n) => (
+              {notices.map((n) => n.actions ? (
+                <div key={n.key} className={`hud-row ${n.tone} with-actions`} title={n.hint}>
+                  <img className="px" src={iconUrl(n.icon)} alt="" /><span className="notice-text">{n.text}</span>
+                  {n.actions.map((a) => <Act key={a.label} small tone={a.primary ? "primary" : undefined} run={a.run}>{a.label}</Act>)}
+                </div>
+              ) : (
                 <button key={n.key} className={`hud-row ${n.tone}`} onClick={n.go}>
                   <img className="px" src={iconUrl(n.icon)} alt="" /><span className="notice-text">{n.text}</span><em>{n.cta}</em>
                 </button>

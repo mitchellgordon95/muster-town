@@ -94,7 +94,7 @@ export class Reorgs {
   /** "Plan with an agent": open (or return to) the human's 1:1 with the Planner, about `goalId` when started from a goal. */
   openPlanner(human: Agent, goalId?: string): Meeting {
     if (goalId) this.world.goalTree.require(goalId);
-    if (!this.canPlan(human, goalId)) throw forbidden("goals.edit", "Only an admin or a goal's owner plans with the Planner.");
+    if (!this.canPlan(human, goalId)) throw forbidden("goals.edit", "Only an admin or a goal's captain plans with the Planner.");
     const planner = this.ensurePlanner();
     const m = createOneOnOne(this.world, human, TOWN_HALL_ID, { agentId: planner.id, goalId });
     if (this.canRun() || m.transcript.some((u) => u.text === PLANNER_UNPAID)) return m;
@@ -294,7 +294,7 @@ ${krs}`;
     const walk = (n: GoalNode, depth: number) => {
       const pad = "  ".repeat(depth);
       const done = n.keyResults.filter((k) => !isOpenKr(k)).length;
-      lines.push(`${pad}- ${n.id} "${oneLine(n.text, 140)}" (owner ${n.owner.name}${n.buildings.length ? `; attached: ${n.buildings.map((b) => b.name).join(", ")}` : ""}${done ? `; ${done} archived key results` : ""})`);
+      lines.push(`${pad}- ${n.id} "${oneLine(n.text, 140)}" (captain ${n.owner.name}${n.buildings.length ? `; attached: ${n.buildings.map((b) => b.name).join(", ")}` : ""}${done ? `; ${done} archived key results` : ""})`);
       for (const k of n.keyResults.filter(isOpenKr)) lines.push(`${pad}  · ${k.id} [${k.status}${k.due ? `, due ${k.due}` : ", no date"}${k.underReviewSince ? ", under review" : ""}${k.grantId ? `, grant ${k.grantId}` : ", no grant"}] ${oneLine(k.text, 140)}`);
       for (const c of n.children) walk(c, depth + 1);
     };

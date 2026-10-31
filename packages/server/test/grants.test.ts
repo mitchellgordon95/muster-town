@@ -21,28 +21,20 @@ describe("grants routes", () => {
     const mgr = { authorization: `Bearer ${world.tokens.getOrCreate("agent", manager.id)}` };
     const stranger = { authorization: `Bearer ${world.ops.createUser("Stranger").token}` };
 
-    // goal key results: only a human with building.manage writes them
-    expect((await json(app, "POST", `/api/buildings/${LAB}/key-results`, { headers: mgr, body: KRS[0] })).status).toBe(403);
-    expect((await json(app, "POST", `/api/buildings/${LAB}/key-results`, { headers: stranger, body: KRS[0] })).status).toBe(403);
-    const krs: string[] = [];
-    for (const k of KRS) {
-      const r = await json(app, "POST", `/api/buildings/${LAB}/key-results`, { headers: auth, body: k });
-      expect(r.status).toBe(201);
-      krs.push(r.body.keyResult.id);
-    }
-    expect((await json(app, "GET", `/api/buildings/${LAB}/key-results`)).body).toMatchObject({ blocked: null, keyResults: [{ id: krs[0], grantId: null }, { id: krs[1] }] });
-    expect((await json(app, "GET", `/api/buildings/${LAB}`)).body).toMatchObject({ blocked: null, keyResults: [{ id: krs[0] }, { id: krs[1] }] });
+    // goal key results are gone: key results belong to grants (docs/how-work-gets-done.md §4)
+    expect((await json(app, "POST", `/api/buildings/${LAB}/key-results`, { headers: auth, body: KRS[0] })).status).toBe(404);
 
-    // create: needs auth and building.manage; bad input is a 400; it names one goal key result
-    const body = { keyResultId: krs[0], objective: "Visitors can tell what the lab is for", approach: "a banner line", stopCondition: "two failed tries", askTokens: 10_000_000, testingPlan: KRS };
+    // create: needs auth and building.manage; bad input is a 400; it carries its own 1-5 key results
+    const body = { objective: "Visitors can tell what the lab is for", approach: "a banner line", stopCondition: "two failed tries", askTokens: 10_000_000, keyResults: KRS };
     expect((await json(app, "POST", `/api/buildings/${LAB}/grants`, { body })).status).toBe(401);
     expect((await json(app, "POST", `/api/buildings/${LAB}/grants`, { headers: stranger, body })).status).toBe(403);
-    expect((await json(app, "POST", `/api/buildings/${LAB}/grants`, { headers: mgr, body: { ...body, keyResultId: undefined } })).status).toBe(400);
-    expect((await json(app, "POST", `/api/buildings/${LAB}/grants`, { headers: mgr, body: { ...body, keyResultId: "kr_nope" } })).status).toBe(400);
+    expect((await json(app, "POST", `/api/buildings/${LAB}/grants`, { headers: mgr, body: { ...body, keyResults: [] } })).status).toBe(400);
+    expect((await json(app, "POST", `/api/buildings/${LAB}/grants`, { headers: mgr, body: { ...body, goalId: "gl_nope" } })).status).toBe(400);
     const created = await json(app, "POST", `/api/buildings/${LAB}/grants`, { headers: mgr, body });
     expect(created.status).toBe(201);
     const id = created.body.grant.id as string;
-    expect(created.body.grant).toMatchObject({ status: "draft", spentTokens: 0, keyResultId: krs[0], keyResult: { id: krs[0] }, approach: "a banner line", testingPlan: KRS });
+    expect(created.body.grant).toMatchObject({ status: "draft", spentTokens: 0, approach: "a banner line", keyResults: KRS.map((k) => ({ ...k, grantId: id })) });
+    const krs: string[] = created.body.grant.keyResults.map((k: { id: string }) => k.id);
 
     // drafts: hidden from the public, visible to the manager and funders
     expect((await json(app, "GET", `/api/buildings/${LAB}/grants`)).body.grants).toHaveLength(0);
@@ -84,7 +76,7 @@ describe("grants routes", () => {
     expect((await json(app, "DELETE", `/api/key-results/${krs[0]}`, { headers: auth })).status).toBe(409);
 
     // key results: the manager claims, only a funder marks met
-    const kr = funded.body.grant.keyResult.id as string;
+    const kr = funded.body.grant.keyResults[0].id as string;
     const claimed = await json(app, "PATCH", `/api/key-results/${kr}`, { headers: mgr, body: { status: "claimed", note: "see the banner" } });
     expect(claimed.body.keyResult).toMatchObject({ status: "claimed", statusNote: "see the banner" });
     expect((await json(app, "PATCH", `/api/key-results/${kr}`, { headers: mgr, body: { status: "met" } })).status).toBe(403);
@@ -96,11 +88,11 @@ describe("grants routes", () => {
     expect(closed.body.grant).toMatchObject({ status: "closed", outcome: "met" });
     expect((await json(app, "POST", `/api/grants/${id}/close`, { headers: auth, body: { outcome: "met" } })).status).toBe(409);
 
-    // the goal's last key results go: the building is blocked, on GET /api/buildings/:id and the Town Hall in-tray
+    // a closed grant's key results can be deleted by a human only; the building is never blocked for having none
     expect((await json(app, "DELETE", `/api/key-results/${krs[1]}`, { headers: mgr })).status).toBe(403);
     for (const k of krs) expect((await json(app, "DELETE", `/api/key-results/${k}`, { headers: auth })).status).toBe(200);
-    expect((await json(app, "GET", `/api/buildings/${LAB}`)).body).toMatchObject({ blocked: "blocked: no key results to work toward", keyResults: [] });
-    expect((await json(app, "GET", `/api/buildings/town-hall/intray`)).body.blocked).toEqual([expect.objectContaining({ buildingId: LAB })]);
+    expect((await json(app, "GET", `/api/buildings/${LAB}`)).body).toMatchObject({ blocked: null });
+    expect((await json(app, "GET", `/api/buildings/town-hall/intray`)).body.blocked).toEqual([]);
 
     expect((await json(app, "GET", `/api/grants/gr_missing`)).status).toBe(404);
     expect((await json(app, "GET", `/api/buildings/nowhere/grants`)).status).toBe(404);
