@@ -20,6 +20,7 @@ export { Secrets, REPO_TOKEN_SECRET, dataKeyFrom, encryptSecret, decryptSecret }
 export { townKpis, kpiByKey, KPI_WEEKS, JOIN_RETURN_DAYS } from "./kpis.ts";
 export { Goals, type GoalNode, type GoalProposalView } from "./goals.ts";
 export { Streams } from "./streams.ts";
+export { funderWeek, funderWeights } from "./funders.ts";
 export { Reorgs, REORG_PREP_MS, PLANNER_TITLE, PLANNER_UNPAID } from "./goal-changes.ts";
 export { Grants, quarterOf, type ObjectiveView, type ObjectiveTree, EXPLORATION_SHARE, CHECKPOINTS, BLOCKED_NO_KRS, type ExplorationBudget, type DirectedBudget, type GrantBoard, type GoalKeyResult, type BlockedBuilding } from "./grants.ts";
 export { BANK_ACCOUNTING, Bank, NO_KEY_HOLD, NO_TOKEN_HOLD, NoCredential, TOKEN_PRICES, type Credential, adjustedOfUsage, booked, sliceBooked, type Booked, adjustedOutputTokens, listCostUsd, sessionView, tokenPrices, tokenWeights, type BankContributor, type BankSummary } from "./bank.ts";

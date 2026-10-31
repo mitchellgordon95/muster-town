@@ -130,3 +130,7 @@ Decided in docs/goals.md "Streams" (1:1 mt_529jbnwvmi), go-ahead in 1:1 mt_cz11a
 - **Idle alert**: the runtime tick (`Streams.tick`) tells an earmark's donor, by an in-town message to their avatar, when no session has drawn on it for 7 days (once per 7 days; reason: below one session, or no session in scope). No email or SMS (1:1 mt_kh0zaqui0w).
 - **GET /api/bank/streams** (public): every live input and every earmark with its balance, whether it covers a session, days to cover, last draw and idle reason, plus `expectedSessionTokens`. The Bank panel's "Tokens & sources" tab shows it as Streams.
 - **Not yet**: pools going away, free funds replacing the exploration allowance, the desk's per-session key cap, and the key's own `dailyLimitTokens` (a daily key's `tokens` is its daily amount today).
+
+## The funder filter (goal tree step 8)
+
+Read-only: it books nothing. Core `funders.ts` (`funderWeek`, `funderWeights`) attributes each session in a window by the credential it ran on: a donated api-key input (`credentialInputId`) or a grant's own input (`fundedWith`) makes it **literal** for that donor, whole; any other session is **pooled**, and a subscription donor's share of it is their subscription credits in the window ÷ everyone's (`Bank.creditsSince`). `GET /api/funders/:userId/week` (`me`; sign-in required) and `GET /api/goals/:id/spend?funder=me` read it; the Town Hall in-tray's "Funded by me" view, the deck's "Your week as a funder" slide and the goal tree's filter show it (docs/goals.md build step 8).

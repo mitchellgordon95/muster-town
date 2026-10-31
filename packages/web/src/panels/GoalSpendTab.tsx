@@ -6,7 +6,7 @@
 import { useState } from "react";
 import type { GoalSpend, SpendByLane } from "@muster-town/schema";
 import { api } from "../api";
-import { store } from "../state";
+import { store, useTown } from "../state";
 import { ADJ, ADJ_HINT, Empty, ErrorLine, Loading, Pill, fmtTokens, useLoad } from "./ui";
 
 export const SPEND_WINDOWS = [7, 30, 90] as const;
@@ -27,17 +27,21 @@ export function seriesBars(s: GoalSpend["series"]): { start: string; tokens: num
 
 export function GoalSpendTab({ goalId }: { goalId: string }) {
   const [days, setDays] = useState<number>(7);
-  const r = useLoad(() => api().goalSpend(goalId, days), [goalId, days]);
+  // the funder filter (goal tree step 8): a signed-in human narrows the tab to what their own Bank inputs paid for
+  const signedIn = useTown((s) => !!s.me);
+  const [mine, setMine] = useState(false);
+  const r = useLoad(() => api().goalSpend(goalId, days, signedIn && mine ? "me" : undefined), [goalId, days, signedIn && mine]);
   const d = r.data;
   return (
     <div className="goal-spend">
       <div className="goal-spend-head">
         <span className="muted">Last</span>
         {SPEND_WINDOWS.map((w) => <button key={w} className={`btn sm ${w === days ? "primary" : ""}`} onClick={() => setDays(w)}>{w} days</button>)}
+        {signedIn ? <label className="check" title="Only the sessions your Bank inputs paid for: whole on your key, your pro rata share of the subscription week"><input type="checkbox" checked={mine} onChange={(e) => setMine(e.target.checked)} /> Funded by me</label> : null}
         <span className="muted" title={ADJ_HINT}>from session rows, in {ADJ}; read-only</span>
       </div>
       <ErrorLine error={r.error} />
-      {!d ? (r.loading ? <Loading /> : null) : !d.sessions ? <Empty>No sessions worked on this goal or anything under it in the last {d.days} days.</Empty> : <>
+      {!d ? (r.loading ? <Loading /> : null) : !d.sessions ? <Empty>{mine ? `None of your money paid for work on this goal or anything under it in the last ${d.days} days.` : `No sessions worked on this goal or anything under it in the last ${d.days} days.`}</Empty> : <>
         <div className="goal-spend-total"><b>{fmtTokens(d.total)}</b> {ADJ} over {d.sessions} session{d.sessions === 1 ? "" : "s"} <span className="muted">· {laneLine(d.byLane)}</span></div>
         <div className="goal-spend-bars" aria-label={`Spend by ${d.seriesUnit}`}>
           {seriesBars(d.series).map((b) => (

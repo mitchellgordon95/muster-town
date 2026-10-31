@@ -3,7 +3,7 @@
  * the filing cabinet, the schedule board and the mod station (Town Hall). Donating is at the Bank (BankFunding.tsx).
  */
 import { useEffect, useMemo, useState } from "react";
-import { BOARD_TYPES, DocType, type AccessRequestView, type Doc, type GrantView, type IntrayRoute, type Meeting } from "@muster-town/schema";
+import { BOARD_TYPES, DocType, type AccessRequestView, type Doc, type FunderWeek, type GrantView, type IntrayRoute, type Meeting } from "@muster-town/schema";
 import { api, type Board, type GoalProposalView, type Intray, type ReportChain } from "../api";
 import { forkTip } from "../forks";
 import { UNBLOCK_LINE, unfundableReason } from "./keyResults";
@@ -22,10 +22,12 @@ import { MediaThumb } from "./MediaThumb";
 import { canOneOnOne, grantTalkTarget, openOneOnOne } from "./oneOnOne";
 import { RollupCards, rollupCardsOf } from "./RollupCards";
 import { ReviewDeckView } from "./ReviewDeck";
+import { fundedOnly, isFunder, type IntrayView } from "./funderFilter";
 import { GoalProposalItem } from "./GoalTreePanel";
 
 /** The Town Hall in-tray's "Mine / All" (docs/goals.md step 4): under Mine, only the items routed to the viewer. */
-export function mineOnly<T extends { id: string }>(items: T[], routes: Record<string, IntrayRoute>, view: "mine" | "all"): T[] {
+export function mineOnly<T extends { id: string }>(items: T[], routes: Record<string, IntrayRoute>, view: IntrayView, funder?: FunderWeek | null): T[] {
+  if (view === "funded") return funder ? fundedOnly(items, routes, funder) : items;
   return view === "all" ? items : items.filter((x) => routes[x.id]?.mine);
 }
 
@@ -40,16 +42,20 @@ export function IntrayPanel({ buildingId }: { buildingId: string }) {
   const list = useLoad(() => api().intray(buildingId), [buildingId, b?.intray, rev]);
   const [openId, setOpenId] = useState<string | null>(null);
   const [asDeck, setAsDeck] = useState(false);
-  const [viewPick, setView] = useState<"mine" | "all" | null>(null);
+  const [viewPick, setView] = useState<IntrayView | null>(null);
   const signedIn = useTown((s) => !!s.me);
   const canReview = store.can("building.review", buildingId);
   const routes = list.data?.routes ?? {};
   const isHall = b?.kind === "town-hall";
-  const view = signedIn && isHall ? viewPick ?? list.data?.defaultView ?? "all" : "all";
+  // the funder filter (goal tree step 8): only a signed-in human with a Bank input gets "Funded by me"
+  const funderLoad = useLoad(() => signedIn && isHall ? api().funderWeek().catch(() => null) : Promise.resolve(null), [signedIn, isHall, b?.intray]);
+  const funder = isFunder(funderLoad.data) ? funderLoad.data : null;
+  const picked = viewPick === "funded" && !funder ? null : viewPick;
+  const view = signedIn && isHall ? picked ?? list.data?.defaultView ?? "all" : "all";
   const allReports = useMemo(() => [...(list.data?.reports ?? [])].sort((x, y) => x.createdAt.localeCompare(y.createdAt)), [list.data]);
-  const reports = isHall ? mineOnly(allReports, routes, view) : allReports;
-  const grants = mineOnly(list.data?.grants ?? [], routes, view);
-  const goalProposals = mineOnly(list.data?.goalProposals ?? [], routes, view);
+  const reports = isHall ? mineOnly(allReports, routes, view, funder) : allReports;
+  const grants = mineOnly(list.data?.grants ?? [], routes, view, funder);
+  const goalProposals = mineOnly(list.data?.goalProposals ?? [], routes, view, funder);
   const hidden = isHall ? allReports.length + (list.data?.grants?.length ?? 0) + (list.data?.goalProposals?.length ?? 0) - reports.length - grants.length - goalProposals.length : 0;
   useEffect(() => { if (list.data) store.putDocs(list.data.reports); }, [list.data]);
   const stored = useTown((s) => (openId ? s.docs[openId] : undefined));
@@ -68,12 +74,12 @@ export function IntrayPanel({ buildingId }: { buildingId: string }) {
       {open ? (
         <DocView doc={open} review onBack={() => setOpenId(null)} backLabel={asDeck ? "Review deck" : "In-tray"} onDecided={() => { setOpenId(null); list.reload(); }} />
       ) : hall && asDeck ? (
-        <ReviewDeckView grants={grants} reports={reports} goalProposals={goalProposals} view={view} onClose={() => setAsDeck(false)} onDecided={list.reload} onOpenDoc={openDoc} />
+        <ReviewDeckView grants={grants} reports={reports} goalProposals={goalProposals} view={view} funder={funder} onClose={() => setAsDeck(false)} onDecided={list.reload} onOpenDoc={openDoc} />
       ) : (
         <>
           {!canReview && !hall ? <div className="callout">You can read the in-tray. Decisions are for the building's manager and reviewer.</div> : null}
           {manager && !hall ? <div className="callout">★ {manager.name}, the building's manager, works this in-tray and rolls up to the Town Hall in-tray. You can still decide here.</div> : null}
-          {hall ? <ReviewAsDeckButton count={count} onOpen={() => setAsDeck(true)} view={signedIn ? { view, hidden, set: setView } : undefined} /> : null}
+          {hall ? <ReviewAsDeckButton count={count} onOpen={() => setAsDeck(true)} view={signedIn ? { view, hidden, set: setView, funder: !!funder } : undefined} /> : null}
           <ErrorLine error={list.error} />
           {list.loading && !list.data ? <Loading /> : hall ? (
             <TownHallIntray reports={reports} grants={grants} goalProposals={goalProposals} routes={routes} access={access} blocked={list.data?.blocked ?? []} onOpen={openDoc} onDecided={list.reload} />
@@ -89,16 +95,17 @@ export function IntrayPanel({ buildingId }: { buildingId: string }) {
 }
 
 /** The Town Hall in-tray header's "Review as deck": the in-tray as slides (design dc_y7a8g257of §2). */
-export function ReviewAsDeckButton({ count, onOpen, view }: { count: number; onOpen: () => void; view?: { view: "mine" | "all"; hidden: number; set: (v: "mine" | "all") => void } }) {
+export function ReviewAsDeckButton({ count, onOpen, view }: { count: number; onOpen: () => void; view?: { view: IntrayView; hidden: number; set: (v: IntrayView) => void; funder?: boolean } }) {
   return (
     <div className="intray-head actions">
       <button className="btn sm primary" onClick={onOpen} title="One slide per pending decision, blocking-most first, with the decision buttons on each slide (← → to move)">▶ Review as deck</button>
-      <span className="muted">{count ? `${count} waiting: slide 1 is the state of the town` : "slide 1 is the state of the town"}</span>
+      <span className="muted">{view?.view === "funded" ? `${count} under the goals your money reached: slide 1 is your week as a funder` : count ? `${count} waiting: slide 1 is the state of the town` : "slide 1 is the state of the town"}</span>
       {view ? (
         <span className="intray-view" role="group" aria-label="Show">
           <button className={`btn sm ${view.view === "mine" ? "primary" : ""}`} onClick={() => view.set("mine")} title="Items routed to you: the goals you own (an admin's: the town admins' root)">Mine</button>
           <button className={`btn sm ${view.view === "all" ? "primary" : ""}`} onClick={() => view.set("all")} title="Everything waiting in the Town Hall">All</button>
-          {view.view === "mine" && view.hidden ? <span className="muted">{view.hidden} more under All</span> : null}
+          {view.funder ? <button className={`btn sm ${view.view === "funded" ? "primary" : ""}`} onClick={() => view.set("funded")} title="What your Bank inputs paid for this week, and the items under the goals your money reached">Funded by me</button> : null}
+          {view.view !== "all" && view.hidden ? <span className="muted">{view.hidden} more under All</span> : null}
         </span>
       ) : null}
     </div>

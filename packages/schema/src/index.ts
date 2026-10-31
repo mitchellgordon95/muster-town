@@ -1124,6 +1124,51 @@ export interface BankStreams {
   streams: BankStream[];
 }
 
+/**
+ * The funder filter (docs/goals.md "Funder attribution", goal tree build step 8): one funder's week, read from session
+ * rows and the Bank's inputs and credits (nothing is booked). A key donor gets the literal story (the sessions that ran on
+ * their key, or on a grant they funded from their own input); a subscription donor gets the pro rata story (their share
+ * of the week's subscription credits, applied to the week's sessions that ran on no donated key).
+ */
+export interface FunderSessionLine {
+  sessionId: string; at: string; purpose: string;
+  /** adjusted output tokens: the whole session (literal), or the funder's share of it (pro rata) */
+  tokens: number;
+  assignmentId: string | null; title: string;
+  buildingId: string | null; buildingName: string | null;
+  goalId: string | null; keyResultId: string | null; keyResultText: string | null;
+  reportId: string | null; reportTitle: string | null;
+  /** the funder's input it ran on (literal); null for a pro rata line */
+  inputId: string | null;
+}
+export interface FunderStreamLine {
+  inputId: string; label: string; source: "subscription" | "api-key"; story: "literal" | "pro-rata";
+  goalId: string | null; goalPath: string | null; balance: number; cancelledAt: string | null;
+  /** what it credited in the window (adjusted output tokens) */
+  creditedTokens: number;
+  /** literal streams: the sessions that ran on it in the window and their adjusted output tokens */
+  sessions: number; tokens: number;
+}
+export interface FunderWeek {
+  userId: string; userName: string; days: number; from: string; to: string;
+  streams: FunderStreamLine[];
+  literal: { tokens: number; sessions: FunderSessionLine[] };
+  proRata: {
+    /** the funder's subscription credits in the window ÷ everyone's (0 when either is 0) */
+    share: number; yourCreditedTokens: number; poolCreditedTokens: number;
+    /** the window's sessions that ran on no donated key: their count and adjusted output tokens */
+    poolSessions: number; poolTokens: number;
+    /** share × poolTokens */
+    tokens: number;
+    /** what the pooled week bought, by assignment (tokens = the funder's share), biggest first */
+    byAssignment: FunderSessionLine[];
+  };
+  /** the goals the funder's money reached: earmarked subtrees and the goals of their literal sessions (deck and tree filter) */
+  goalIds: string[];
+  /** a pro rata share reaches every goal: the deck and the tree are not narrowed */
+  everything: boolean;
+}
+
 /** One row of a goal's Spend tab: adjusted output tokens and session count, split by lane ("none" = no lane recorded). */
 export interface SpendByLane { grant: number; exploration: number; directed: number; none: number }
 /**
@@ -2179,5 +2224,6 @@ export { toJsonSchema } from "./json-schema.ts";
 export * from "./tokens.ts";
 export * from "./rollup.ts";
 export * from "./deck.ts";
+export * from "./funders.ts";
 export * from "./desks.ts";
 export { townEnv, townEnvBoth, ENV_PREFIX, OLD_ENV_PREFIX, type TownEnvName } from "./env.ts";
