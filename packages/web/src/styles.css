@@ -727,6 +727,7 @@ div.spend-row > .muted { font-size: 11.5px; }
 .goal-detail { display: flex; flex-direction: column; gap: 8px; }
 .goal-path { font-size: 12px; }
 .goal-meta { font-size: 12px; }
+.captain-ask { margin: 6px 0; }
 .goal-actions { display: flex; gap: 6px; flex-wrap: wrap; }
 .goal-form { border: 1px solid #2a2d3a; border-radius: var(--r); padding: 8px 10px; display: flex; flex-direction: column; gap: 6px; }
 .goal-proposals { display: flex; flex-direction: column; gap: 8px; }

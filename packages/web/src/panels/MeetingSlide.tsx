@@ -74,7 +74,7 @@ export function MeetingSlide({ m }: { m: Meeting & { deck: NonNullable<Meeting["
       <ErrorLine error={deck.error} />
       {deck.loading && !deck.data ? <Loading /> : deck.data ? (
         <PresentedSlide title={deck.data.title} slides={deck.data.slides} n={m.deck.slide} presenter={presenter} go={go}>
-          {review && live && slide && intray.data ? <SlideDecision key={slide.key} slide={slide} n={clampSlide(m.deck.slide, reviewSlides.length)} grants={intray.data.grants} reports={intray.data.reports} goalProposals={intray.data.goalProposals} routes={intray.data.routes} onDecided={() => { deck.reload(); intray.reload(); }} onOpenDoc={openDoc} meetingId={m.id} /> : null}
+          {review && live && slide && intray.data ? <SlideDecision key={slide.key} slide={slide} n={clampSlide(m.deck.slide, reviewSlides.length)} grants={intray.data.grants} reports={intray.data.reports} goalProposals={intray.data.goalProposals} captains={intray.data.captains} routes={intray.data.routes} onDecided={() => { deck.reload(); intray.reload(); }} onOpenDoc={openDoc} meetingId={m.id} /> : null}
         </PresentedSlide>
       ) : null}
       {go && live ? <div className="deck-help muted">← → or space to move the slide for everyone · <button className="link" onClick={() => api().presentMeeting(m.id, null).then((x) => store.putMeeting(x), (e: Error) => store.toast(e.message, "bad"))}>Stop presenting</button></div> : null}
