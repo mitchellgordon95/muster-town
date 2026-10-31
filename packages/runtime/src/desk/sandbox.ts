@@ -71,6 +71,8 @@ export class SandboxBackend implements DeskBackend {
   private readonly heartbeatMs: number;
   private readonly active = new Map<string, number>();
   private readonly idleTimers = new Map<string, ReturnType<typeof setTimeout>>();
+  /** removals in flight (e.g. a desk left on an old image, removed once its session ended): `ensure` waits for one before it looks */
+  private readonly removing = new Map<string, Promise<void>>();
   private readonly slotOf: SlotResolver;
   private readonly sizeFor: SandboxBackendOptions["sizeFor"];
 
@@ -101,6 +103,7 @@ export class SandboxBackend implements DeskBackend {
     const name = desk.sandboxName;
     let createdMs: number | undefined;
     this.cancelIdleStop(name);
+    await this.removing.get(name);
     const sized = this.api.resize ? this.sizeFor?.() : undefined;
     let found = await this.api.find(name);
     if (found?.state === "error") {
@@ -177,21 +180,21 @@ export class SandboxBackend implements DeskBackend {
 
   async remove(agentId: string, opts: { purge?: boolean } = {}): Promise<void> {
     if (this.deskOf(agentId).slot) return; // a fork's sandbox is its slot's, shared by the forks after it
-    const name = this.sandboxName(agentId);
-    this.cancelIdleStop(name);
-    try {
-      await this.api.remove(name, { volume: opts.purge ? this.volumeName(agentId) : undefined });
-    } catch (e) {
-      console.warn(`[runtime] removing sandbox ${name} failed: ${e instanceof Error ? e.message : String(e)}`);
-    }
+    await this.removal(this.sandboxName(agentId), opts.purge ? this.volumeName(agentId) : undefined);
   }
 
   async removeSandbox(name: string): Promise<void> {
     if (this.active.has(name)) return;
+    await this.removal(name);
+  }
+
+  private async removal(name: string, volume?: string): Promise<void> {
     this.cancelIdleStop(name);
-    try { await this.api.remove(name, {}); } catch (e) {
+    const p = this.api.remove(name, { volume }).catch((e) => {
       console.warn(`[runtime] removing sandbox ${name} failed: ${e instanceof Error ? e.message : String(e)}`);
-    }
+    }).finally(() => { if (this.removing.get(name) === p) this.removing.delete(name); });
+    this.removing.set(name, p);
+    await p;
   }
 
   private cancelIdleStop(name: string): void {

@@ -140,13 +140,13 @@ export function relayWake(world: World, from: Agent, told: Event): Assignment | 
 // ---- step 5: the leftover gaps (docs/wakes.md §4 step 5) ----
 
 /** Whether the agent has a live work session: the runtime's view when it has one, else a running work Session row. */
-function isWorking(world: World, agentId: string): boolean {
+export function isWorking(world: World, agentId: string): boolean {
   const viaHost = world.host.isWorking?.(agentId);
   return viaHost ?? world.sessions.count("agentId = ? AND status = 'running' AND purpose = 'work'", [agentId]) > 0;
 }
 
 /** Interrupt the agent's running session the way a human's message does: in-process if the runtime holds it, else queued for its desk. */
-function interruptNow(world: World, agentId: string, text: string, from: string): void {
+export function interruptNow(world: World, agentId: string, text: string, from: string): void {
   if (!world.host.interrupt?.(agentId, text, from, true)) world.ops.enqueueInterrupt(agentId, text, from, true);
 }
 

@@ -64,18 +64,18 @@ describe("finance page", () => {
 // (pre-conversion pricing) and a not-funded row of −20
 const sp: FinanceSpend = {
   used: 1100, sessionsTotal: 1150, unattributed: 0, weightMismatch: 30, convertedAt: "2026-10-27T00:00:24.000Z", notFunded: 20, at: "2026-10-28T16:31:50.056Z",
-  weightMismatchNote: "Sessions ended before the Bank's conversion to adjusted tokens (2026-10-27 00:00Z) are counted here at their own model's weights; the Bank booked them with no model, at Opus weights. The difference is pricing, not spend: nothing went unpaid.",
+  weightMismatchNote: "Sessions that ended before the Bank switched to adjusted tokens (2026-10-27 00:00Z) are priced here at their own model's rate and in the Bank at one rate for every model. The difference is pricing, not spend: nothing went unpaid.",
   rows: [
     { kind: "building", id: "workshop", name: "Town Workshop", tokens: 900, share: 0.8182, sessions: 9, children: [
-      { kind: "grant", id: "gr_a", name: "Refactor the Bank", tokens: 500, share: 0.4545, sessions: 4, children: [
+      { kind: "grant", id: "gr_a", name: "Refactor the Bank…", objective: "Refactor the Bank: one ledger for every debit", tokens: 500, share: 0.4545, sessions: 4, children: [
         { kind: "assignment", id: "as_a", name: "Step 1: the ledger", tokens: 500, share: 0.4545, sessions: 4 }] },
-      { kind: "no-grant", id: null, name: "No grant (exploration, directed and earlier work)", tokens: 300, share: 0.2727, sessions: 3, children: [
+      { kind: "no-grant", id: null, name: "Not under a grant: work a human asked for, the building's own daily allowance, and sessions from before grants existed", tokens: 300, share: 0.2727, sessions: 3, children: [
         { kind: "assignment", id: "as_b", name: "Explore the map", tokens: 300, share: 0.2727, sessions: 3 }] },
-      { kind: "no-assignment", id: null, name: "Manager sessions, no assignment", tokens: 100, share: 0.0909, sessions: 2 },
+      { kind: "no-assignment", id: null, name: "The manager's own sessions: reading reports, running meetings and replying (no assignment)", tokens: 100, share: 0.0909, sessions: 2 },
     ] },
     { kind: "building", id: "bl_b", name: "Bank Transparency", tokens: 250, share: 0.2273, sessions: 2 },
-    { kind: "weight-mismatch", id: null, name: "Weight mismatch: sessions before the Bank's conversion to adjusted tokens, counted here at their own model's weights but booked by the Bank at Opus weights", tokens: -30, share: -0.0273, sessions: 12 },
-    { kind: "not-funded", id: null, name: "Not funded: session spend beyond what the Bank and donations paid for", tokens: -20, share: -0.0182, sessions: 0 },
+    { kind: "weight-mismatch", id: null, name: "Priced differently before the switch to adjusted tokens (nothing went unpaid)", tokens: -30, share: -0.0273, sessions: 12 },
+    { kind: "not-funded", id: null, name: "Not funded: work sessions the Bank never charged", tokens: -20, share: -0.0182, sessions: 0 },
   ],
   check: { ok: true, diff: 0, identity: "buildings + unattributed − weight mismatch − not funded = used" },
 };
@@ -94,8 +94,11 @@ describe("finance page: spending", () => {
   });
   it("renders building → grant → assignment with the synthetic rows, collapsible", () => {
     const html = page({ spend: sp });
-    for (const s of ["Spending", "Town Workshop", "900", "81.8%", "Refactor the Bank", "Step 1: the ledger", "No grant", "Manager sessions, no assignment", "Weight mismatch", "-30", "12 sessions", "The difference is pricing, not spend", "Not funded", "-20", "never charged to the Bank or a donation", "✓ Adds up: the rows sum to used", "/api/finance/spend"]) expect(html).toContain(s);
+    for (const s of ["Spending", "Town Workshop", "900", "81.8%", "Refactor the Bank…", "Step 1: the ledger", "Not under a grant", "The manager&#x27;s own sessions", "Priced differently before the switch to adjusted tokens", "-30", "12 sessions", "The difference is pricing, not spend", "Not funded", "-20", "never charged to the Bank or a donation", "✓ Adds up: the rows sum to used", "/api/finance/spend"]) expect(html).toContain(s);
     expect(html).toContain("<details");
+    // a grant row links to its grant page, with the full objective on hover
+    expect(html).toContain(`<a class="spend-grant" href="#/grant/gr_a" title="Refactor the Bank: one ledger for every debit">Refactor the Bank…</a>`);
+    for (const s of ["Weight mismatch", "Opus weights", "exploration", "directed", "migration"]) expect(html).not.toContain(s);
     expect(page({ spend: { ...sp, check: { ...sp.check, ok: false, diff: 3 } } })).toContain("✗ Does not add up (off by 3)");
   });
   it("leaves the section out when the spend can't be loaded", () => {

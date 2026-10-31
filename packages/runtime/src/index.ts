@@ -461,8 +461,39 @@ export function startRuntime(opts: RuntimeOptions): Runtime {
     }
   }
 
+  /**
+   * Desks a desk-image redeploy kept because a session was on them (table stale_desks): they still run the old image. Once
+   * no session is on one (its session ended, adopted or not), remove its Machine, home volume kept, so its next session
+   * starts on a fresh one from the new image. Never touches a desk with a session running or starting (1:1 mt_cvxnqawx7h).
+   */
+  function recreateStaleDesks(): void {
+    const b = orphanKiller;
+    if (!b?.remove && !b?.removeSandbox) return;
+    const rows = world.db.prepare("SELECT key, buildingId, n FROM stale_desks").all() as { key: string; buildingId: string | null; n: number | null }[];
+    for (const r of rows) {
+      const slot = r.buildingId !== null;
+      const busy = slot
+        ? !!world.db.prepare("SELECT 1 FROM desks WHERE buildingId = ? AND n = ?").get(r.buildingId, r.n)
+        : ctx.live.has(r.key) || starting.has(r.key) || reaping.has(r.key);
+      if (busy) continue;
+      world.db.prepare("DELETE FROM stale_desks WHERE key = ?").run(r.key);
+      const name = slot ? r.key : world.nameOf(r.key);
+      // a resident waits for its desk's removal like for an orphan's kill: its next session then creates the fresh one
+      if (!slot) reaping.add(r.key);
+      const removal = slot ? b.removeSandbox?.(r.key) : b.remove?.(r.key);
+      void track(Promise.resolve(removal).then(() => {
+        world.events.append({ type: "system", text: `Recreating ${name}'s desk on the new desk image: its session ended, so its old-image Machine was removed (home volume kept)`, payload: { staleDesk: r.key } });
+      }).catch(log(`recreate stale desk ${name}`)).finally(() => {
+        if (slot) return;
+        reaping.delete(r.key);
+        if (!stopped) scheduleWork();
+      }));
+    }
+  }
+
   function scheduleWork(): void {
     watchAdopted();
+    recreateStaleDesks();
     sweepForks();
     if (draining) return;
     const held: string[] = [];
@@ -621,15 +652,22 @@ export function startRuntime(opts: RuntimeOptions): Runtime {
       const removed: string[] = [], kept: string[] = [];
       const b = dockerProbe;
       if (!b?.remove || !sandboxProvider) return { removed, kept };
+      // every desk is either removed now or kept busy (and so still on the old image): the busy ones are recreated once free (recreateStaleDesks)
+      world.db.prepare("DELETE FROM stale_desks").run();
+      const markStale = world.db.prepare("INSERT OR REPLACE INTO stale_desks (key, buildingId, n, at) VALUES (?, ?, ?, ?)");
       for (const a of world.agents.where("kind = 'resident' AND forkOf IS NULL")) {
-        if (ctx.live.has(a.id) || starting.has(a.id)) { kept.push(a.name); continue; }
+        if (ctx.live.has(a.id) || starting.has(a.id)) { kept.push(a.name); markStale.run(a.id, null, null, nowIso()); continue; }
         await b.remove(a.id); // the Machine only: the home volume stays
         removed.push(a.name);
       }
       // forks' desk slots: a slot whose desk a fork holds is in use (its session may be starting)
       if (b.removeSandbox) {
         for (const slot of deskSlotRows(world)) {
-          if (world.db.prepare("SELECT 1 FROM desks WHERE buildingId = ? AND n = ?").get(slot.buildingId, slot.n)) { kept.push(slot.sandboxName); continue; }
+          if (world.db.prepare("SELECT 1 FROM desks WHERE buildingId = ? AND n = ?").get(slot.buildingId, slot.n)) {
+            kept.push(slot.sandboxName);
+            markStale.run(slot.sandboxName, slot.buildingId, slot.n, nowIso());
+            continue;
+          }
           await b.removeSandbox(slot.sandboxName);
           removed.push(slot.sandboxName);
         }
