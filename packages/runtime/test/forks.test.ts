@@ -1,5 +1,5 @@
 /** Manager forks step 2 (dc_mymt27yz25 §2, §5.3): the scheduler spawns forks from the building queue, retires them at session end, routes messages. */
-import { describe, expect, test } from "vitest";
+import { describe, expect, test, vi } from "vitest";
 import { buildingQueue, updateBuilding } from "@muster-town/core";
 import type { DeskBackend } from "../src/index.ts";
 import { callVerb, init, result, setup, type FakeSession } from "./helpers.ts";
@@ -137,6 +137,39 @@ describe("manager forks: spawn and retire", () => {
   });
 });
 
+describe("manager forks: a stale desk slot (image redeploy kept it busy)", () => {
+  test("the slot of a fork the sweep retires is removed before the next fork takes the same desk in that pass", async () => {
+    const removed: string[] = [];
+    const desk: DeskBackend = {
+      kind: "docker",
+      available: async () => true,
+      ensure: async (a) => ({ name: `desk-${a.id}`, agentId: a.id }),
+      // the next fork's session runs until the test ends
+      exec: () => {
+        let done!: (code: number) => void;
+        const exited = new Promise<number>((r) => { done = r; });
+        return { wait: () => exited, kill: () => done(143) };
+      },
+      remove: async () => {},
+      removeSandbox: async (name: string) => { removed.push(name); },
+    };
+    const { world, runtime, lab, queue } = forkSetup(async function* () { yield init(); yield result(1, 0); }, { spare: 1, backend: desk });
+    const a = await queue("Was running through the image redeploy");
+    const { forkManager } = await import("@muster-town/core");
+    // as if adopted after the restart: its session has ended, so this pass's sweep retires it, frees its desk and requeues its work
+    const { fork, desk: n } = forkManager(world, lab.id, a);
+    world.db.prepare("INSERT INTO stale_desks (key, buildingId, n, at) VALUES (?, ?, ?, ?)").run("desk-slot-stale", lab.id, n, new Date().toISOString());
+    await runtime.tickOnce();
+    expect(world.agents.require(fork.id).status).toBe("retired");
+    // the next fork takes the same (only) desk in that pass
+    const next = world.events.recent({ limit: 200 }).filter((e) => e.type === "agent.forked").at(-1)!;
+    expect(next.agentId).not.toBe(fork.id);
+    expect((next.payload as { desk: number }).desk).toBe(n);
+    await vi.waitFor(() => expect(removed).toEqual(["desk-slot-stale"]));
+    expect(world.db.prepare("SELECT COUNT(*) AS c FROM stale_desks").get()).toEqual({ c: 0 });
+  });
+});
+
 describe("manager forks: messages", () => {
   test("a human's message to a live fork interrupts it; after it retires, messages reach the manager", async () => {
     let forkId = "";
@@ -193,6 +226,76 @@ describe("manager forks: messages", () => {
   });
 });
 
+
+describe("manager forks: stop_fork (agent teams step 4)", () => {
+  const stopEvents = (world: ReturnType<typeof forkSetup>["world"], forkId: string) =>
+    world.events.list({ agentId: forkId, types: ["system"], payloadKey: "stopFork" }).map((e) => e.payload.stopFork);
+
+  test("the manager asks a live fork to stop: it is interrupted, files its report and retires; no hard stop", async () => {
+    let forkId = "";
+    const { world, runtime, mei, clock, queue } = forkSetup(async function* (s) {
+      yield init();
+      forkId = s.agentId!;
+      const got = await s.next();
+      expect(got).toContain("Mei asks you to stop now: Mitchell changed plans");
+      expect(got).toContain("submit_report");
+      yield* callVerb(s, "submit_report", { ...REPORT, verdict: "continue" });
+      yield result(100, 0.01);
+    });
+    const a = await queue("Long job");
+    await runtime.tickOnce();
+    for (let i = 0; i < 50 && !forkId; i++) await new Promise((r) => setTimeout(r, 10));
+    // only someone with building.assign on the fork's building; not the fork itself
+    const other = world.agents.where("kind = 'resident' AND status != 'retired' AND id NOT IN (?, ?)", [mei.id, forkId])[0]!;
+    await expect(world.verbs.stop_fork(other.id, { forkId })).rejects.toThrow(/manager or a reviewer/);
+    await expect(world.verbs.stop_fork(forkId, { forkId })).rejects.toThrow(/stop yourself/);
+    const r = await world.verbs.stop_fork(mei.id, { assignmentId: a, reason: "Mitchell changed plans" });
+    expect(r.forkId).toBe(forkId);
+    // asking twice keeps the first deadline and sends no second interrupt
+    expect((await world.verbs.stop_fork(mei.id, { forkId })).deadline).toBe(r.deadline);
+    expect(world.events.list({ agentId: forkId, types: ["system"] }).filter((e) => e.payload.interrupt)).toHaveLength(1);
+    await runtime.whenIdle();
+    expect(world.agents.require(forkId).status).toBe("retired");
+    expect(world.assignments.require(a).status).toBe("done");
+    const s = world.sessions.first("agentId = ? AND purpose = 'work'", [forkId])!;
+    expect(world.docs.require(s.reportId!).title).toBe("Done");
+    // past the deadline the tick finds nothing to stop
+    clock.t = Date.parse(r.deadline) + 1000;
+    await runtime.tickOnce();
+    expect(stopEvents(world, forkId)).toEqual(["requested"]);
+  });
+
+  test("a fork that hasn't filed its report by the deadline is stopped hard: fallback report, assignment cancelled, retired", async () => {
+    let forkId = "";
+    const { world, runtime, mei, clock, queue } = forkSetup(async function* (s) {
+      yield init();
+      forkId = s.agentId!;
+      await s.next(); // the stop request: ignored
+      await vi.waitFor(() => { if (!s.interrupted || world.agents.require(forkId).status !== "stopped") throw new Error("not yet"); }, { timeout: 2000 });
+      yield result(50, 0.001);
+    });
+    const a = await queue("Stubborn job");
+    await runtime.tickOnce();
+    for (let i = 0; i < 50 && !forkId; i++) await new Promise((r) => setTimeout(r, 10));
+    const r = await world.verbs.stop_fork(mei.id, { forkId });
+    expect(Date.parse(r.deadline) - Date.now()).toBeGreaterThan(4.9 * 60_000);
+    // before the deadline: nothing
+    clock.t = Date.parse(r.deadline) - 1000;
+    await runtime.tickOnce();
+    expect(world.agents.require(forkId).status).toBe("working");
+    clock.t = Date.parse(r.deadline) + 1000;
+    await runtime.tickOnce();
+    await runtime.whenIdle();
+    expect(stopEvents(world, forkId)).toEqual(["requested", "hard"]);
+    const s = world.sessions.first("agentId = ? AND purpose = 'work'", [forkId])!;
+    expect(s.status).toBe("interrupted");
+    expect(world.docs.require(s.reportId!)).toMatchObject({ title: expect.stringContaining("Session ended without a report"), decision: "stop" });
+    expect(world.assignments.require(a).status).toBe("cancelled");
+    expect(world.agents.require(forkId).status).toBe("retired");
+    // a retired fork can't be asked again
+    await expect(world.verbs.stop_fork(mei.id, { forkId })).rejects.toThrow(/retired/);
+  });
+});
 
 describe("manager forks: a desk that fails at startup", () => {
   test("after 2 forks in a row whose desk fails before a session exists, the work waits 10 min (waitFor.after), the manager is told, and the retire reason carries the error", async () => {

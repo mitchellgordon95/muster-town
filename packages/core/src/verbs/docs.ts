@@ -266,7 +266,8 @@ export async function submit_report(world: World, me: Agent, input: VerbIn<"subm
   const townHall = isManager && !!input.rollup;
   const manager = townHall ? undefined : managerAgentOf(world, building);
   const sourceIds = input.provenance?.sourceIds ?? [];
-  const session = world.sessions.first("agentId = ? AND status = 'running'", [me.id], "ORDER BY startedAt DESC");
+  // a work session's report even while a 1:1 runs beside it (that conversation can't submit one: runtime ALONGSIDE_VERBS)
+  const session = world.sessions.first("agentId = ? AND status = 'running'", [me.id], "ORDER BY (purpose = 'work') DESC, startedAt DESC");
   const assignmentId = me.currentAssignmentId ?? session?.assignmentId ?? undefined;
   const current = assignmentId ? world.assignments.get(assignmentId) : undefined;
   // goal-directed budgets: the rollup of a checkpoint assignment is the grant's checkpoint report (a grant may have no reports yet)

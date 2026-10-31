@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { renderToStaticMarkup } from "react-dom/server";
 import type { Finance, FinanceFly, FinancePools, FinanceSources, FinanceSpend } from "../src/api";
-import { donationNote, flyCheckLine, flyWindowTotals, inputName, overdrawnParts, poolsBalanceLine, poolsDrawsLine, sourcesCheckLine, pct, runwayDays, spendCheckLine, sumCheckLine, type FinanceData } from "../src/panels/BankFinance";
+import { donationNote, FINANCE_TERMS, flyCheckLine, flyWindowTotals, inputName, overdrawnParts, poolsBalanceLine, poolsDrawsLine, sourcesCheckLine, pct, runwayDays, spendCheckLine, sumCheckLine, type FinanceData } from "../src/panels/BankFinance";
 import { BANK_TABS } from "@muster-town/schema";
 import { BankView } from "../src/panels/BankPanel";
 
@@ -19,12 +19,12 @@ const page = (fin: Partial<FinanceData>) => BANK_TABS.map((t) => tabOf(t, fin)).
 
 describe("finance page", () => {
   it("says the four figures add up, overdrawn included", () => {
-    expect(sumCheckLine(f)).toEqual({ ok: true, text: "Adds up: used 1,100 + expired 50 + left 50 = 1,200; total 1,000 + overdrawn 200 = 1,200" });
+    expect(sumCheckLine(f)).toEqual({ ok: true, text: "The server checked that used 1,100 + expired 50 + left 50 equals total 1,000 + overdrawn 200 (1,200)." });
   });
   it("says clearly when the sum check fails", () => {
     const bad = sumCheckLine({ ...f, left: 70, sumCheck: { ...f.sumCheck, ok: false, diff: 20 } });
     expect(bad.ok).toBe(false);
-    expect(bad.text).toMatch(/^Does not add up \(off by 20\)/);
+    expect(bad.text).toBe("Does not add up (off by 20): used 1,100 + expired 50 + left 70 comes to 1,220, but total 1,000 + overdrawn 200 comes to 1,200.");
   });
   it("gives the runway at the trailing burn, none without a burn", () => {
     expect(runwayDays(f)).toBe(2);
@@ -35,12 +35,12 @@ describe("finance page", () => {
     expect(parts.map((p) => p.key)).toEqual(["durableOvershoot", "subscriptionOverdrawn", "allocationOverspent"]);
     expect(parts.reduce((s, p) => s + p.tokens, 0)).toBe(f.overdrawn);
     const html = page({});
-    for (const s of ["overshoot debt", "120", "subscription credits drawn past their size", "switch to adj. tokens on 2026-10-27", "Fable sessions drew on credits sized in raw tokens", "spent past their size"]) expect(html).toContain(s);
-    expect(html).not.toContain("credits since deleted");
+    for (const s of ["sessions that ran past the permanent tokens the Bank had", "120", "subscription credits drawn past their size", "switch to adj. tokens on 2026-10-27", "Fable sessions drew on credits sized in raw tokens", "spent past their size"]) expect(html).toContain(s);
+    expect(html).not.toContain("drawn from credits since deleted");
   });
   it("renders the unit line, total, used, expired, left and the projection on the Bank page, with the footer", () => {
     const html = page({});
-    for (const s of ["the unit the town pays for AI model work in", "A ✓ line under a section means", "Balance", "Total received", "1,000", "Used", "1,100", "Expired", "Left", "Overdrawn", "✓ Adds up", "20 / day", "average of the last 7 days", "600", "As of 2026-10-27 19:00 UTC", "GET /api/bank", "/api/finance"]) expect(html).toContain(s);
+    for (const s of ["the unit the town pays for AI model work in", "A ✓ line under a section means", "Balance", "Total received", "1,000", "Used", "1,100", "Expired", "Left", "Overdrawn", "✓ The server checked that used 1,100", "20 / day", "average of the last 7 days", "600", "As of 2026-10-27 19:00 UTC", "GET /api/bank", "/api/finance"]) expect(html).toContain(s);
     expect(page({ f: { ...f, sumCheck: { ...f.sumCheck, ok: false, diff: 5 } } })).toContain("✗ Does not add up (off by 5)");
   });
   it("splits the page into tabs, each a thing in the Bank's room, each ending with its sources (1:1 mt_ew2d0mm7h9)", () => {
@@ -57,6 +57,22 @@ describe("finance page", () => {
     }
     const ov = tabOf("Overview", all);
     expect(ov.indexOf(">Balance<")).toBeLessThan(ov.indexOf(">Next 30 days<"));
+  });
+  it("ends every tab with the Terms block, above the footer, defining each term the page uses (kr_zjawesqcyp)", () => {
+    const all = { spend: sp, sources: src, poolsFin: fp, fly };
+    expect(FINANCE_TERMS.map(([t]) => t)).toEqual(["Adjusted token (adj. token)", "Expiring and permanent", "Overdrawn", "Held", "Daily allowance", "Not funded", "Grant"]);
+    for (const t of BANK_TABS) {
+      const html = tabOf(t, all);
+      expect(html, t).toContain("Terms used on this page");
+      for (const [term] of FINANCE_TERMS) expect(html, `${t}: ${term}`).toContain(`<dt><b>${term}</b></dt>`);
+      expect(html.indexOf("Terms used on this page"), t).toBeLessThan(html.indexOf("As of 2026-10-27"));
+    }
+    expect(tabOf("Overview", {})).toContain("1 adj. token ≈ 30 raw tokens on Opus, 24 on Fable");
+  });
+  it("uses no internal names anywhere on the page", () => {
+    const html = page({ spend: sp, sources: src, poolsFin: fp, fly });
+    for (const s of ["Weight mismatch", "weight mismatch", "Opus weights", "migration", "overshoot"]) expect(html).not.toContain(s);
+    expect(html).not.toMatch(/\blanes?\b/i);
   });
 });
 
@@ -82,11 +98,11 @@ const sp: FinanceSpend = {
 
 describe("finance page: spending", () => {
   it("says the top-level rows sum to used, and by how much they miss when they don't", () => {
-    expect(spendCheckLine(sp)).toEqual({ ok: true, text: "Adds up: the rows sum to used, 1,100" });
+    expect(spendCheckLine(sp)).toEqual({ ok: true, text: "The server checked that the building rows, plus usage no session recorded, less the pricing difference and the unfunded part, equal used 1,100." });
     expect(sp.rows.reduce((s, r) => s + r.tokens, 0)).toBe(sp.used);
     const bad = spendCheckLine({ ...sp, check: { ...sp.check, ok: false, diff: 7 } });
     expect(bad.ok).toBe(false);
-    expect(bad.text).toBe("Does not add up (off by 7): the rows sum to 1,100, used is 1,100");
+    expect(bad.text).toBe("Does not add up (off by 7): the rows come to 1,100, but used is 1,100.");
   });
   it("formats shares as percentages, negative for not funded", () => {
     expect(pct(0.8182)).toBe("81.8%");
@@ -94,7 +110,7 @@ describe("finance page: spending", () => {
   });
   it("renders building → grant → assignment with the synthetic rows, collapsible", () => {
     const html = page({ spend: sp });
-    for (const s of ["Spending", "Town Workshop", "900", "81.8%", "Refactor the Bank…", "Step 1: the ledger", "Not under a grant", "The manager&#x27;s own sessions", "Priced differently before the switch to adjusted tokens", "-30", "12 sessions", "The difference is pricing, not spend", "Not funded", "-20", "never charged to the Bank or a donation", "✓ Adds up: the rows sum to used", "/api/finance/spend"]) expect(html).toContain(s);
+    for (const s of ["Spending", "Town Workshop", "900", "81.8%", "Refactor the Bank…", "Step 1: the ledger", "Not under a grant", "The manager&#x27;s own sessions", "Priced differently before the switch to adjusted tokens", "-30", "12 sessions", "The difference is pricing, not spend", "Not funded", "-20", "never charged to the Bank or a donation", "even after the pricing difference above", "✓ The server checked that the building rows", "/api/finance/spend"]) expect(html).toContain(s);
     expect(html).toContain("<details");
     // a grant row links to its grant page, with the full objective on hover
     expect(html).toContain(`<a class="spend-grant" href="#/grant/gr_a" title="Refactor the Bank: one ledger for every debit">Refactor the Bank…</a>`);
@@ -133,19 +149,19 @@ describe("finance page: sources", () => {
     expect(donationNote(src.donations[1])).toBe("counted at what it spent (size 90)");
   });
   it("checks the subtotals against total received and the Tokens total", () => {
-    expect(sourcesCheckLine(src)).toEqual({ ok: true, text: "Adds up: credited 800 + donated 200 = 1,000, the Tokens section's total" });
+    expect(sourcesCheckLine(src)).toEqual({ ok: true, text: "The server checked that credited 800 + donated 200 equals total received 1,000, the same as the Tokens total." });
     expect(sourcesCheckLine({ ...src, sumCheck: { ...src.sumCheck, ok: false, diff: 4 } }).text).toMatch(/^Does not add up \(off by 4\)/);
     const off = sourcesCheckLine({ ...src, financeTotal: 990, matchesFinance: false });
-    expect(off).toEqual({ ok: false, text: "Does not match the Tokens total (off by 10): credited 800 + donated 200 = 1,000, Tokens total 990" });
+    expect(off).toEqual({ ok: false, text: "Does not match the Tokens total (off by 10): credited 800 + donated 200 comes to 1,000, but the Tokens total is 990." });
   });
   it("renders each input with its dated credits behind a toggle, each donation, the subtotals and the checked total, above Spending", () => {
     const html = page({ spend: sp, sources: src });
     for (const s of ["Sources", "What the town received and from whom", "Mitchell&#x27;s Max plan", "subscription · daily", '<span class="day">2026-10-20 →</span> <span class="day">2026-10-27</span>', "600",
       "API key from Kelly", "cancelled", "Cancelled 2026-10-25", "permanent", "expires 2026-10-21 00:00", "50 expired undrawn",
       "For the map", "to Town Workshop", "from Ravi", "to Bank Transparency", "counted at what it spent (size 90)", "2026-10-23",
-      "Credited through the Bank", "800", "Donated to buildings", "Total received", "✓ Adds up: credited 800 + donated 200 = 1,000", "/api/finance/sources"]) expect(html).toContain(s);
+      "Credited through the Bank", "800", "Donated to buildings", "Total received", "✓ The server checked that credited 800 + donated 200 equals total received 1,000", "/api/finance/sources"]) expect(html).toContain(s);
     // the credits sit inside the input's <details>, after its <summary>
-    const first = html.slice(html.indexOf("<details"), html.indexOf("</details>"));
+    const at = html.indexOf("<details", html.indexOf(">Sources<")), first = html.slice(at, html.indexOf("</details>", at));
     expect(first).toContain("<summary>");
     expect(first.slice(first.indexOf("</summary>"))).toContain("expires 2026-10-21 00:00");
     expect(html.indexOf("Sources")).toBeLessThan(html.indexOf("Spending"));
@@ -177,24 +193,25 @@ const fp: FinancePools = {
 
 describe("finance page: pools", () => {
   it("checks the pools against the Bank balance and the building draws against the Bank debits", () => {
-    expect(poolsBalanceLine(fp)).toEqual({ ok: true, text: "Adds up: pools left 110 − overdrawn 120 + unshared 10 = 0; Bank balance 120 − overshoot 120 = 0" });
-    expect(poolsDrawsLine(fp)).toEqual({ ok: true, text: "Adds up: building draws = pool draws = Bank debits = 950" });
+    expect(poolsBalanceLine(fp)).toEqual({ ok: true, text: "The server checked that what the pools have left, 110, less what they are overdrawn, 120, plus the unshared 10, equals the Bank balance, 120, less what it is overdrawn, 120 (0)." });
+    expect(poolsDrawsLine(fp)).toEqual({ ok: true, text: "The server checked that what the buildings drew equals what the pools paid out and what the Bank debited: 950." });
   });
   it("says by how much a failing check misses", () => {
     const bad: FinancePools = { ...fp, usedBank: 960, sumCheck: { ...fp.sumCheck, drawsOk: false, drawsDiff: 20, balanceOk: false, balanceDiff: 7, ok: false } };
-    expect(poolsDrawsLine(bad)).toEqual({ ok: false, text: "Does not add up (off by 20): building draws 950, pool draws 950, Bank debits 960" });
-    expect(poolsBalanceLine(bad).text).toMatch(/^Does not add up \(off by 7\): pools left 110/);
+    expect(poolsDrawsLine(bad)).toEqual({ ok: false, text: "Does not add up (off by 20): the buildings drew 950, the pools paid out 950, the Bank debited 960." });
+    expect(poolsBalanceLine(bad).text).toMatch(/^Does not add up \(off by 7\): what the pools have left, 110, .* comes to 0, but the Bank balance, 120, .* comes to 0\.$/);
     const html = page({ poolsFin: bad });
     expect(html).toContain("✗ Does not add up (off by 20)");
     expect(html).toContain("✗ Does not add up (off by 7)");
   });
   it("renders each pool with its share and left, an overdrawn pool's debt on its own row, then each building, between Sources and Spending", () => {
     const html = page({ spend: sp, sources: src, poolsFin: fp });
-    for (const s of ["Pool balances", "General", "70%", "Labs", "30%", "Town Workshop, Town Hall", "General overdrawn: permanent tokens drawn past its share", "−120", "Unshared", "Bank balance less overshoot",
-      "✓ Adds up: pools left 110", "Drawn from pools", "800", "drawn all time 800", "permanent 60", "donated 150", "held 130", "exploration 40,000 / day", "25,000", "draws nothing from the Bank", "✓ Adds up: building draws = pool draws = Bank debits = 950", "/api/finance/pools"]) expect(html).toContain(s);
+    for (const s of ["Pool balances", "General", "70%", "Labs", "30%", "Town Workshop, Town Hall", "General overdrawn: permanent tokens drawn past its share", "−120", "Unshared", "Bank balance less what is overdrawn",
+      "✓ The server checked that what the pools have left, 110", "Drawn from pools", "800", "drawn all time 800", "permanent 60", "donated 150", "held 130", "allowance 40,000 / day", "25,000", "draws nothing from the Bank",
+      "unspent allowance does not carry over", "Held tokens are the unspent part of donations made straight to a building", "funded only by donations made to it", "✓ The server checked that what the buildings drew", "/api/finance/pools"]) expect(html).toContain(s);
     expect(html).toContain('class="spend-row finance-overdrawn pool-overdrawn"');
-    expect(html.indexOf("Credited through the Bank")).toBeLessThan(html.indexOf("Bank balance less overshoot"));
-    expect(html.indexOf("Bank balance less overshoot")).toBeLessThan(html.indexOf("Spending"));
+    expect(html.indexOf("Credited through the Bank")).toBeLessThan(html.indexOf("Bank balance less what is overdrawn"));
+    expect(html.indexOf("Bank balance less what is overdrawn")).toBeLessThan(html.indexOf("Spending"));
     expect(page({ poolsFin: { ...fp, pools: [{ ...fp.pools[1] }] } })).not.toContain("pool-overdrawn");
   });
   it("leaves the section out when the pools can't be loaded", () => {
@@ -232,7 +249,7 @@ describe("finance page: hosting (Fly.io)", () => {
     expect(flyWindowTotals(fly, 99).days).toBe(10);
   });
   it("says the Fly figures add up, and what misses when they don't", () => {
-    expect(flyCheckLine(fly)).toEqual({ ok: true, text: "Adds up: every day's desks + town Machine = its total, and the buildings' desk time sums to the days' (83 h)" });
+    expect(flyCheckLine(fly)).toEqual({ ok: true, text: "The server checked that each day's desks + town Machine equals that day's total, and that the buildings' desk time adds up to the days' (83 h)." });
     expect(flyCheckLine({ ...fly, sumCheck: { ...fly.sumCheck, ok: false, buildingsOk: false, diff: 1_800_000 } }).text).toBe("Does not add up: the buildings' desk time misses the days' by 30 min");
     expect(flyCheckLine({ ...fly, sumCheck: { ...fly.sumCheck, ok: false, daysOk: false, diff: 0.000002 } }).text).toContain("misses its total by $0.000002");
   });
@@ -240,7 +257,7 @@ describe("finance page: hosting (Fly.io)", () => {
     const html = page({ fly });
     for (const s of ["Hosting (Fly.io)", "in US dollars", "not Fly&#x27;s bill", "Today (so far)", "$1.20", "$0.11", "$1.31", "Last 7 days", "Last 10 days (2026-10-20 → 2026-10-29)", "Daily desk cap", "$10.00 per day · today under the cap",
       "shared-cpu-2x, 2 GB: $0.0186/h ($13.39 per 30 days)", "Desk time, last 10 days", "83 h over 25 sessions", "3 timed from start and end", "Town Workshop", "60 h · 20 sessions", "$1.12", "Bank Transparency", "$0.42", "Desks, last 10 days", "$1.53",
-      "Not counted: Volume storage", "How this is estimated", "✓ Adds up: every day", "(Hosting in US dollars)", "/api/finance/fly", "Hosting (Fly.io), in its own tab, is in US dollars"]) expect(html).toContain(s);
+      "Not counted: Volume storage", "How this is estimated", "✓ The server checked that each day", "(Hosting in US dollars)", "/api/finance/fly", "Hosting (Fly.io), in its own tab, is in US dollars"]) expect(html).toContain(s);
   });
   it("says so when nothing is on Fly or no cap is set", () => {
     const html = page({ fly: { ...fly, rates: { ...fly.rates, desk: null, town: null }, desksBackend: "docker", townOnFly: false, today: { ...fly.today, capUsdPerDay: null, underCap: null } } });

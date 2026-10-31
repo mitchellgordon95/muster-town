@@ -6,7 +6,7 @@ import { existsSync, readdirSync, readFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
 import type { DesksConfig } from "@muster-town/schema";
-import { adjustedOfUsage, AppError, booked, NoCredential, type Booked, type Credential, type Funding, type World } from "@muster-town/core";
+import { adjustedOfUsage, AppError, booked, NoCredential, resultLine, type Booked, type Credential, type Funding, type World } from "@muster-town/core";
 import { countsOf, mergeUsage, rawTokens, splitRaw, subTokens, UsageMeter, VERB_NAMES, ZERO_TOKENS, type AllocationAuth, type Session, type TokenUsage, type VerbName } from "@muster-town/schema";
 import { describeTool } from "./describe.ts";
 import { assertNoEnvCredentials, blocksOf, InputChannel, noUsage, sessionEnv, usageOf, type LooseMessage, type Options, type QueryHandle, type Sdk, type Usage } from "./sdk.ts";
@@ -20,6 +20,8 @@ export interface Ctx {
   sdk: Sdk;
   /** live work and manage sessions by agentId (host ones take interrupts directly; desk ones hold the exec child) */
   live: Map<string, LiveSession>;
+  /** host conversation sessions (a human's 1:1) running alongside the agent's live work session, by agentId: one per agent */
+  talking: Map<string, LiveSession>;
   /** live facilitate sessions by agentId: the redeploy drain waits for them too (a restart mid-meeting orphans the facilitator) */
   facilitating: Map<string, LiveSession>;
   /** desk sessions' funding allocation, by sessionId (charged in finishWorkSession) */
@@ -72,6 +74,8 @@ export interface SessionSpec {
   verbs?: VerbName[];
   /** after a turn with no input pending, keep waiting for more input instead of ending (manage sessions with an open 1:1) */
   keepOpen?: () => boolean;
+  /** a conversation running alongside the agent's live work session: registered in `ctx.talking`, not `ctx.live` */
+  alongside?: boolean;
   /** work sessions: ends the session instead of the default endSession + charge (see finishWorkSession) */
   finish?: (out: SessionOutcome, allocationId: string | null) => Promise<Session>;
 }
@@ -270,7 +274,9 @@ export async function runAgentSession(ctx: Ctx, spec: SessionSpec): Promise<Sess
   const session = world.ops.startSession(agent.id, { purpose: spec.purpose, model: spec.model, assignmentId: spec.assignmentId ?? null, meetingId: spec.meetingId ?? null, backend: "host", funding: funding.auth, inputId: funding.inputId ?? null, credentialInputId: funding.credential.inputId });
   const live: LiveSession = { kind: "host", agentId: agent.id, sessionId: session.id, purpose: spec.purpose, input: new InputChannel(), q: null, reportSubmitted: false, stopped: false };
   // work and manage sessions take interrupts and count as the agent's live session (scheduler, redeploy drain, abort)
-  if (spec.purpose === "work" || spec.purpose === "manage") ctx.live.set(agent.id, live);
+  // (a 1:1 alongside a work session is the agent's conversation: `ctx.talking`, so it never holds the work lock)
+  if (spec.alongside) ctx.talking.set(agent.id, live);
+  else if (spec.purpose === "work" || spec.purpose === "manage") ctx.live.set(agent.id, live);
   else if (spec.purpose === "facilitate") ctx.facilitating.set(agent.id, live);
   const emit = (type: "agent.tool" | "agent.thought" | "system", text: string, payload: Record<string, unknown> = {}) =>
     world.events.append({ type, agentId: agent.id, buildingId: bid, text, payload: { sessionId: session.id, purpose: spec.purpose, ...payload } });
@@ -304,7 +310,7 @@ export async function runAgentSession(ctx: Ctx, spec: SessionSpec): Promise<Sess
       if (m.type === "assistant") {
         for (const b of blocksOf(m)) {
           if (b.type === "tool_use" && b.name) {
-            emit("agent.tool", describeTool(world, b.name, b.input), { tool: b.name, input: clipJson(b.input) });
+            emit("agent.tool", describeTool(world, b.name, b.input), { tool: b.name, input: clipJson(b.input), ...(b.id ? { toolUseId: b.id } : {}) });
             if (live.reportSubmitted && ++toolsAfterReport > 2) void q.interrupt?.().catch(() => undefined);
           } else if (b.type === "text" && b.text?.trim()) {
             const t = b.text.trim();
@@ -312,6 +318,9 @@ export async function runAgentSession(ctx: Ctx, spec: SessionSpec): Promise<Sess
             emit("agent.thought", clipThought(t));
           }
         }
+      } else if (m.type === "user") {
+        // each call's outcome, one line, for the manager's `fork_status`
+        for (const b of blocksOf(m)) if (b.type === "tool_result" && b.tool_use_id) world.toolResults.record(session.id, b.tool_use_id, resultLine(b.content), !!b.is_error);
       } else if (m.type === "result") {
         usage = usageOf(m);
         if (typeof m.result === "string" && m.result.trim()) finalText = m.result.trim();
@@ -333,6 +342,7 @@ export async function runAgentSession(ctx: Ctx, spec: SessionSpec): Promise<Sess
   } finally {
     live.input.close();
     if (ctx.live.get(agent.id) === live) ctx.live.delete(agent.id);
+    if (ctx.talking.get(agent.id) === live) ctx.talking.delete(agent.id);
     if (ctx.facilitating.get(agent.id) === live) ctx.facilitating.delete(agent.id);
   }
   if (!live.reportSubmitted && world.sessions.get(session.id)?.reportId) live.reportSubmitted = true;

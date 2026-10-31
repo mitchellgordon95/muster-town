@@ -199,9 +199,11 @@ export function onDeskActivity(ctx: Ctx, agentId: string, input: DeskActivityInp
     if (input.usage) bookRunning(world, s.id, input.usage, ctx.deskAllocations.get(s.id) ?? null);
   } else if (input.kind === "tool") {
     const tool = input.tool ?? "tool";
-    world.events.append({ type: "agent.tool", agentId, buildingId: bid, text: describeTool(world, tool, input.input), payload: { ...base, tool, input: clipJson(input.input) } });
+    world.events.append({ type: "agent.tool", agentId, buildingId: bid, text: describeTool(world, tool, input.input), payload: { ...base, tool, input: clipJson(input.input), ...(input.toolUseId ? { toolUseId: input.toolUseId } : {}) } });
     const live = ctx.live.get(agentId);
     if (live?.sessionId === s.id && tool === "mcp__town__submit_report") live.reportSubmitted = true;
+  } else if (input.kind === "result") {
+    if (input.toolUseId) world.toolResults.record(s.id, input.toolUseId, input.text ?? "", !!input.isError);
   } else if (input.kind === "thought") {
     const t = (input.text ?? "").trim();
     if (t) world.events.append({ type: "agent.thought", agentId, buildingId: bid, text: clipThought(t), payload: base });

@@ -5,7 +5,8 @@
  */
 import { Agent, type Assignment, type Building } from "@muster-town/schema";
 import { AppError, badRequest } from "./errors.ts";
-import { buildingQueue, managerAgentOf } from "./domain.ts";
+import { buildingQueue, homeOf, managerAgentOf } from "./domain.ts";
+import { interruptNow, isWorking } from "./wakes.ts";
 import { familyCap } from "./budget.ts";
 import { sessionView } from "./bank.ts";
 export { familyCap };
@@ -285,4 +286,59 @@ export function forksOf(world: World, managerId: string): { live: ForkSummary[];
   const retired = world.agents.where(`forkOf = ? AND status = 'retired' AND ${started}`, [managerId], "ORDER BY createdAt DESC, rowid DESC LIMIT 50");
   const { n: notStarted } = world.db.prepare(`SELECT COUNT(*) AS n FROM agents WHERE forkOf = ? AND status = 'retired' AND NOT ${started}`).get(managerId) as { n: number };
   return { live: live.map((a) => forkSummary(world, a)!), retired: retired.map((a) => forkSummary(world, a)!), notStarted, family: familySpend(world, managerId) };
+}
+
+// ---- stop_fork (agent teams step 4, dc_i7ji4xacd9): ask a live fork to wrap up, hard stop after a timeout ----
+
+/** How long a fork asked to stop has to file its report before the town stops its session (agent teams step 4). */
+export const STOP_FORK_TIMEOUT_MS = 5 * 60_000;
+
+/**
+ * `stop_fork` (manager/reviewer: building.assign on the fork's building): interrupt a fork's running work session with
+ * "finish this step, write your pages, submit_report now", and log the request with its deadline. `stopOverdueForks`
+ * stops the session hard if no report has landed by then (the stopped path writes the "Session ended without a report"
+ * report and cancels the assignment). Asking twice for one session keeps the first deadline.
+ */
+export function requestForkStop(world: World, me: Agent, input: { forkId?: string; assignmentId?: string; reason?: string }, now = new Date()) {
+  if (!!input.forkId === !!input.assignmentId) throw badRequest("Give forkId (a live fork) or assignmentId (the assignment it is running), not both.");
+  const forkId = input.forkId ?? world.assignments.require(input.assignmentId!, "assignment").agentId;
+  const fork = world.agents.require(forkId, "agent");
+  if (!fork.forkOf) throw badRequest(`${fork.name} is not a fork; stop_fork stops forks only.`);
+  if (fork.id === me.id) throw badRequest("You can't stop yourself: submit_report ends your session.");
+  const bid = homeOf(fork);
+  if (!bid || !world.permissions.can(me, "building.assign", bid)) throw new AppError("forbidden", `Only the manager or a reviewer of ${fork.name}'s building can stop it (building.assign).`);
+  if (fork.status === "retired" || fork.status === "stopped" || fork.status === "banned") throw new AppError("conflict", `${fork.name} is ${fork.status}.`);
+  const session = world.sessions.first("agentId = ? AND status = 'running' AND purpose = 'work'", [fork.id], "ORDER BY startedAt DESC, rowid DESC");
+  if (!session || !isWorking(world, fork.id)) throw new AppError("conflict", `${fork.name} has no running work session.`);
+  if (input.assignmentId && session.assignmentId !== input.assignmentId) throw new AppError("conflict", `${fork.name} is not running ${input.assignmentId} now (it is on ${session.assignmentId ?? "no assignment"}).`);
+  const prior = world.events.list({ agentId: fork.id, types: ["system"], payloadKey: "stopFork", desc: true, limit: 20 })
+    .find((e) => e.payload.stopFork === "requested" && e.payload.sessionId === session.id);
+  if (prior) return { forkId: fork.id, sessionId: session.id, deadline: String(prior.payload.deadline), note: `${fork.name} was already asked to stop; the hard stop stays at ${String(prior.payload.deadline).slice(11, 16)} UTC.` };
+  const deadline = new Date(now.getTime() + STOP_FORK_TIMEOUT_MS).toISOString();
+  const at = `${deadline.slice(11, 16)} UTC`;
+  const reason = (input.reason ?? "").trim();
+  interruptNow(world, fork.id, `${me.name} asks you to stop now${reason ? `: ${reason}` : "."}\n\nDon't start anything new. Finish the step you are on (leave the code committed and pushed if you changed any), update the topic pages and log lines for what you learnt, then call submit_report right away: say what is done and what is not, and put what the next session needs in Findings (verdict continue if the work is unfinished). If you have not submitted by ${at} (${STOP_FORK_TIMEOUT_MS / 60_000} min), the town stops your session and files a fallback report.`, me.name);
+  world.events.append({ type: "system", agentId: fork.id, buildingId: bid, text: `${me.name} asked ${fork.name} to wrap up and file its report (hard stop at ${at})${reason ? `: ${reason.slice(0, 160)}` : ""}`, payload: { stopFork: "requested", forkId: fork.id, sessionId: session.id, assignmentId: session.assignmentId, by: me.id, reason: reason || null, deadline } });
+  return { forkId: fork.id, sessionId: session.id, deadline, note: `${fork.name} was interrupted: finish its step, write its pages and submit_report. If no report by ${at}, the town stops it and files "Session ended without a report"; either way the fork retires and its report reaches your in-tray.` };
+}
+
+/**
+ * The runtime's tick: forks asked to stop (`requestForkStop`, last day) whose deadline passed and whose session is still
+ * running are stopped hard (`stopAgent` → the waker aborts the session → fallback report, assignment cancelled → retired).
+ * A fork that filed its report but is still running past the deadline is stopped too. Returns the forks stopped.
+ */
+export function stopOverdueForks(world: World, now = new Date()): string[] {
+  const since = new Date(now.getTime() - 24 * 3600_000).toISOString();
+  const stopped: string[] = [];
+  for (const e of world.events.list({ types: ["system"], payloadKey: "stopFork", from: since, limit: 500 })) {
+    if (e.payload.stopFork !== "requested" || Date.parse(String(e.payload.deadline)) > now.getTime()) continue;
+    const fork = world.agents.get(String(e.payload.forkId));
+    const session = world.sessions.get(String(e.payload.sessionId));
+    if (!fork || session?.status !== "running" || fork.status === "retired" || fork.status === "stopped" || fork.status === "banned") continue;
+    const by = world.agents.get(String(e.payload.by))?.name ?? "its manager";
+    world.events.append({ type: "system", agentId: fork.id, buildingId: homeOf(fork), text: `${fork.name} ${session.reportId ? "filed its report but was still running" : "did not file its report"} ${STOP_FORK_TIMEOUT_MS / 60_000} min after ${by} asked it to stop: session stopped`, payload: { stopFork: "hard", forkId: fork.id, sessionId: session.id, assignmentId: session.assignmentId, by: e.payload.by, reportId: session.reportId ?? null, requestEventId: e.id } });
+    world.ops.stopAgent(null, fork.id);
+    stopped.push(fork.id);
+  }
+  return stopped;
 }

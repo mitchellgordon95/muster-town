@@ -78,7 +78,9 @@ describe("runSession", () => {
     expect(sdk.sessions[0]!.received).toEqual(["Do the assignment."]);
 
     expect(town.activity).toContainEqual({ session: "s1", kind: "thought", text: "Looking at the data." });
-    expect(town.activity).toContainEqual({ session: "s1", kind: "tool", tool: "Bash", input: { command: "ls" } });
+    expect(town.activity).toContainEqual(expect.objectContaining({ session: "s1", kind: "tool", tool: "Bash", input: { command: "ls" } }));
+    // each tool call names its tool_use id and its result follows as one line (the manager's fork_status)
+    expect(town.activity.filter((a) => a.kind === "result").every((a) => typeof a.toolUseId === "string")).toBe(true);
     const report = town.activity.find((a) => a.tool === "mcp__town__submit_report")!;
     expect((report.input as { body: string }).body.length).toBeLessThan(1100);
 

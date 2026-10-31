@@ -290,7 +290,7 @@ function TalkAboutGrant({ grant: g }: { grant: GrantView }) {
   const me = useTown((s) => s.me);
   const t = grantTalkTarget(g.proposedBy, g.buildingId, agents, buildings);
   if (!me || !t || !canOneOnOne(g.buildingId)) return null;
-  return <span className="talk-author"><Act small tone="primary" run={() => openOneOnOne(g.buildingId, { grantId: g.id })} title={`Open a 1:1 with ${t.name} about this grant and its key result`}>Talk to {t.name}</Act></span>;
+  return <span className="talk-author"><Act tone="primary" run={() => openOneOnOne(g.buildingId, { grantId: g.id })} title={`Open a 1:1 with ${t.name} about this grant and its key result`}>Talk to {t.name}</Act></span>;
 }
 
 /**
@@ -336,6 +336,9 @@ export function GrantRow({ grant: g, onDecided, onOpenDoc, deckSlide, meetingId,
     store.toast("Grant closed: the unspent tokens are back in the Bank", "ok");
     onDecided();
   };
+  // Talk to and the decision buttons sit together under the grant, big (Mitchell's flag dc_4uiv48047s)
+  const talk = <TalkAboutGrant grant={g} />;
+  const footer = <div className="actions decide-footer">{talk}</div>;
   const pct = g.grantTokens ? Math.min(100, Math.round((g.spentTokens / g.grantTokens) * 100)) : 0;
   return (
     <div className="doc-row intray-row grant-row">
@@ -345,7 +348,6 @@ export function GrantRow({ grant: g, onDecided, onOpenDoc, deckSlide, meetingId,
         <span>{timeAgo(g.updatedAt)}</span>
         <Pill tone={checkpoint ? "warn" : g.status === "rejected" ? "bad" : g.status === "countered" || g.status === "draft" || g.status === "closed" ? "" : "ok"}>{g.status}</Pill>
         <GrantLink id={g.id} />
-        <TalkAboutGrant grant={g} />
       </div>
       <div className="doc-row-title">{g.objective}</div>
       <RoutedTo route={route} />
@@ -366,23 +368,24 @@ export function GrantRow({ grant: g, onDecided, onOpenDoc, deckSlide, meetingId,
       {toMark ? (canFund ? (
         <div className="grant-decide">
           <div className="grant-inputs"><Field label="Note"><input value={note} placeholder="optional" onChange={(e) => setNote(e.target.value)} /></Field></div>
-          <div className="actions">
+          <div className="actions decide-footer">
             <Act small tone="ok" run={mark("met")}>Mark key result met</Act>
             <Act small tone="bad" run={mark("missed")}>Mark missed</Act>
+            {talk}
           </div>
         </div>
-      ) : <div className="muted">Closed as done: a human with building.fund marks its key result met or missed.</div>) : g.status === "funded" && canFund ? (<>
+      ) : <><div className="muted">Closed as done: a human with building.fund marks its key result met or missed.</div>{footer}</>) : g.status === "funded" && canFund ? (<>
         <div className="muted">{grantSettledLine(g)}</div>
         <div className="grant-decide">
           <div className="grant-inputs"><Field label="Note"><input value={note} placeholder="the evidence the work is done" onChange={(e) => setNote(e.target.value)} /></Field></div>
-          <div className="actions"><Act small disabled={!note.trim()} run={close} title="Close it as done now; the unspent tokens return to the Bank">Close grant</Act></div>
+          <div className="actions decide-footer"><Act small disabled={!note.trim()} run={close} title="Close it as done now; the unspent tokens return to the Bank">Close grant</Act>{talk}</div>
         </div>
       </>) : g.status === "countered" ? (
-        <div className="muted">Countered: waiting for {manager ? `★ ${manager.name}` : "the manager"} to revise and propose again.</div>
+        <><div className="muted">Countered: waiting for {manager ? `★ ${manager.name}` : "the manager"} to revise and propose again.</div>{footer}</>
       ) : !decidable ? (
-        <div className="muted">{grantSettledLine(g)}</div>
+        <><div className="muted">{grantSettledLine(g)}</div>{footer}</>
       ) : !canFund && !memberFund ? (
-        <div className="muted">Funding decisions are for humans with building.fund, the owner of its key result's goal, or anyone with a Bank input that has tokens left.</div>
+        <><div className="muted">Funding decisions are for humans with building.fund, the owner of its key result's goal, or anyone with a Bank input that has tokens left.</div>{footer}</>
       ) : (<>
         {unfundableReason(g) ? <div className="kr-blocked">{unfundableReason(g)}</div> : null}
         <div className="grant-decide">
@@ -398,7 +401,7 @@ export function GrantRow({ grant: g, onDecided, onOpenDoc, deckSlide, meetingId,
             ) : null}
             <Field label="Note"><input value={note} placeholder={checkpoint ? "optional" : memberFund ? "optional" : "required to counter"} onChange={(e) => setNote(e.target.value)} /></Field>
           </div>
-          <div className="actions">
+          <div className="actions decide-footer">
             {checkpoint ? <>
               <Act small tone="ok" run={decide("continue", "Grant continued")}>Continue</Act>
               <Act small disabled={!tokensOk} run={decide("adjust", "Grant adjusted")} title="Set the grant to the token field">Adjust</Act>
@@ -410,6 +413,7 @@ export function GrantRow({ grant: g, onDecided, onOpenDoc, deckSlide, meetingId,
                 <Act small tone="bad" run={decide("reject", "Proposal rejected")}>Reject</Act>
               </> : null}
             </>}
+            {talk}
           </div>
         </div>
       </>)}

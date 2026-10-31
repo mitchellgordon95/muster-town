@@ -43,6 +43,13 @@ export interface RunDeps {
 }
 
 /** Keep tool inputs postable: long strings (file bodies, heredocs) are clipped. */
+/** A tool_result's content (string or text blocks): its first non-empty line, ≤ 160 chars. */
+function resultText(content: unknown): string {
+  const all = typeof content === "string" ? content : Array.isArray(content) ? content.map((c) => (typeof c?.text === "string" ? c.text : "")).join("\n") : "";
+  const line = all.split("\n").map((l) => l.trim()).find(Boolean) ?? "";
+  return line.length > 160 ? line.slice(0, 159) + "…" : line;
+}
+
 function clipInput(v: unknown, depth = 0): unknown {
   if (typeof v === "string") return v.length > INPUT_STRING_CHARS ? v.slice(0, INPUT_STRING_CHARS) + "…" : v;
   if (depth > 4 || v === null || typeof v !== "object") return v;
@@ -273,7 +280,7 @@ export async function runSession(sessionId: string, deps: RunDeps): Promise<numb
           if (m.type === "assistant") {
             for (const b of blocksOf(m)) {
               if (b.type === "tool_use" && b.name) {
-                post({ kind: "tool", tool: b.name, input: clipInput(b.input ?? {}) });
+                post({ kind: "tool", tool: b.name, input: clipInput(b.input ?? {}), ...(b.id ? { toolUseId: b.id } : {}) });
                 if (b.name === SUBMIT_REPORT && b.id) reportCalls.add(b.id);
                 if (reportSubmitted && ++toolsAfterReport > 2) void query.interrupt?.().catch(() => undefined);
               } else if (b.type === "text" && b.text?.trim()) {
@@ -285,6 +292,8 @@ export async function runSession(sessionId: string, deps: RunDeps): Promise<numb
             }
           } else if (m.type === "user") {
             for (const b of blocksOf(m)) {
+              // each call's outcome, one line, for the manager's `fork_status`
+              if (b.type === "tool_result" && b.tool_use_id) post({ kind: "result", toolUseId: b.tool_use_id, text: resultText(b.content), isError: !!b.is_error });
               if (b.type === "tool_result" && b.tool_use_id && reportCalls.has(b.tool_use_id) && !b.is_error && !reportSubmitted) {
                 reportSubmitted = true;
                 log("report submitted");
