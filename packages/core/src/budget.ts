@@ -398,7 +398,7 @@ export class Budget {
   summary(): BudgetSummary {
     return {
       buildings: this.repos.buildings.all().map((b) => {
-        const spentUsd = this.repos.allocations.where("buildingId = ?", [b.id]).reduce((s, a) => s + a.spentUsd, 0);
+        const spentUsd = this.repos.allocations.sum("spentUsd", "buildingId = ?", [b.id]);
         return { buildingId: b.id, name: b.name, ...this.of(b.id), spentUsd };
       }),
       users: this.repos.users.all().map((u) => ({ userId: u.id, name: u.name, donatedTokens: u.donatedTokens })),

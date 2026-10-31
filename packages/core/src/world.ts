@@ -280,7 +280,7 @@ export class World {
     if (!actor || this.permissions.can(actor, "goals.edit")) return true;
     if (holderOf(actor).kind !== "user") return false;
     const id = holderOf(actor).id;
-    return this.goals.where("status = 'active'").some((g) => g.ownerId === id);
+    return this.goals.exists("status = 'active' AND ownerId = ?", [id]);
   }
   /**
    * Pick the shape the map draws the goal tree in (`PUT /api/town/map-layout`, 1:1 mt_q10xf3bkoq): town-wide, for everyone.

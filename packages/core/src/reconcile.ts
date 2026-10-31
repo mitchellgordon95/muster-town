@@ -27,9 +27,26 @@ export interface ReconcileResult {
 
 const round = (n: number): number => Math.round(n * 100) / 100;
 
-/** Whether the day's reconciliation already ran (one `system` event per day, "Bank reconciliation for <day>…"). */
+/** The `meta` marker: the latest UTC day the reconciliation is done for (ran, or had no sessions to check). */
+export const RECONCILED_MARKER = "reconciledThrough";
+
+/** Remember that `day` is done (the marker only moves forward). */
+export function markReconciled(world: World, day: string): void {
+  const cur = world.town.marker(RECONCILED_MARKER);
+  if (!cur || cur < day) world.town.setMarker(RECONCILED_MARKER, day);
+}
+
+/**
+ * Whether the day's reconciliation already ran. The runtime asks every tick, so it reads the `meta` marker; only when
+ * the marker is behind does it look for the day's `system` event ("Bank reconciliation for <day>…", a scan of every
+ * system event) and, if found, moves the marker so the scan runs at most once (post-mortem 2026-10-31 suggestion 3).
+ */
 export function reconciled(world: World, day: string): boolean {
-  return world.events.list({ types: ["system"], textLike: `Bank reconciliation for ${day}%`, limit: 1 }).length > 0;
+  const through = world.town.marker(RECONCILED_MARKER);
+  if (through && through >= day) return true;
+  if (!world.events.list({ types: ["system"], textLike: `Bank reconciliation for ${day}%`, limit: 1 }).length) return false;
+  markReconciled(world, day);
+  return true;
 }
 
 /** Reconcile one UTC day and log the result (`system` event; `alert: funding-reconcile` when something is unexplained). */
@@ -58,5 +75,6 @@ export function reconcileFunding(world: World, day: string): ReconcileResult {
   ].filter((p): p is string => !!p);
   const text = `Bank reconciliation for ${day}: ${sessions.length} sessions, Bank api-key $${result.apiKeyUsd.toFixed(2)}, subscription $${result.subscriptionUsd.toFixed(2)}, donor keys $${result.donorKeyUsd.toFixed(2)}${problems.length ? `. ALERT: ${problems.join("; ")}` : ". OK"}`;
   world.events.append({ type: "system", text, payload: { reconcile: day, ...result, ...(ok ? {} : { alert: "funding-reconcile" }) } });
+  markReconciled(world, day);
   return result;
 }

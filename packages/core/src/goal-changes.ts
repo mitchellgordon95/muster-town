@@ -88,7 +88,7 @@ export class Reorgs {
     if (this.world.permissions.can(actor, "goals.edit") || this.world.permissions.can(actor, "meeting.facilitate", TOWN_HALL_ID)) return true;
     if (goalId) return this.world.goalTree.canEdit(actor, goalId);
     const uid = holderOf(actor).id;
-    return this.world.goals.where("ownerId = ?", [uid]).length > 0;
+    return this.world.goals.exists("ownerId = ?", [uid]);
   }
 
   /** "Plan with an agent": open (or return to) the human's 1:1 with the Planner, about `goalId` when started from a goal. */
