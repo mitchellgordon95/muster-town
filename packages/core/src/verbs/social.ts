@@ -5,6 +5,8 @@ import { notifyMentions } from "../mentions.ts";
 import { actOrigin } from "../origin.ts";
 import { interruptNow, isWorking, relayWake } from "../wakes.ts";
 import { requestForkStop } from "../forks.ts";
+import { liveForks } from "../forks.ts";
+import { oneLine } from "../text.ts";
 import { chebyshev, newId, nowIso } from "../util.ts";
 import type { World } from "../world.ts";
 import type { VerbIn } from "./types.ts";
@@ -48,7 +50,36 @@ export async function look(world: World, me: Agent, _input: VerbIn<"look">): Pro
       ...digestFor(world, me),
     },
     places: visible.map((p) => ({ id: p.id, name: p.name, kind: p.kind })),
+    town: `${world.buildings.count()} buildings in town: \`town\` lists them with their managers and who is in each now.`,
   };
+}
+
+/** How many names `town` lists per building before it just counts the rest. */
+const TOWN_HERE_MAX = 12;
+
+/**
+ * \`town\` (presence, 1:1 mt_3jtclcoxl2): the directory an agent otherwise had to dig out of docs. One row per building
+ * (the Town Hall first): its id, its manager (the Town Hall's is the Planner), the goal it is attached to, its live forks
+ * and who stands in it now; then everyone in a meeting. Read-only, every agent.
+ */
+export async function town(world: World, _me: Agent, input: VerbIn<"town">) {
+  const present = world.agents.where("status NOT IN ('banned','retired','offline')");
+  const forks = liveForks(world);
+  const q = input.query?.toLowerCase();
+  const rows = world.buildings.all().sort((a, b) => Number(b.kind === "town-hall") - Number(a.kind === "town-hall")).map((b) => {
+    const mgr = b.managerAgentId ? world.agents.get(b.managerAgentId) : undefined;
+    const here = present.filter((a) => a.buildingId === b.id);
+    return {
+      id: b.id, name: b.name, kind: b.kind,
+      manager: mgr ? { id: mgr.id, name: mgr.name, status: mgr.status } : null,
+      goal: oneLine(world.goalTree.purposeOf(b), 160),
+      liveForks: mgr ? forks.filter((f) => f.forkOf === mgr.id).length : 0,
+      here: here.slice(0, TOWN_HERE_MAX).map((a) => ({ id: a.id, name: a.name, kind: a.kind, status: a.status })),
+      ...(here.length > TOWN_HERE_MAX ? { more: here.length - TOWN_HERE_MAX } : {}),
+    };
+  }).filter((r) => !q || [r.id, r.name, r.manager?.id, r.manager?.name].some((x) => x?.toLowerCase().includes(q)));
+  const inMeetings = present.filter((a) => a.status === "in-meeting").map((a) => ({ id: a.id, name: a.name, kind: a.kind, buildingId: a.buildingId }));
+  return { buildings: rows, inMeetings, note: "Reach a manager with `tell` (its agent id, or the building id); `go` door:<buildingId> walks there; `board` buildingId reads its FYIs." };
 }
 
 /** v1.4: a visitor's first look after coming back from offline carries what arrived while it was away. */
@@ -88,8 +119,11 @@ export async function stop_fork(world: World, me: Agent, input: VerbIn<"stop_for
 }
 
 export async function tell(world: World, me: Agent, input: VerbIn<"tell">) {
-  let to = world.agents.get(input.to);
-  if (!to) throw new AppError("not_found", `No agent with id ${input.to}.`);
+  // a building id reaches its manager (presence, 1:1 mt_3jtclcoxl2)
+  const building = world.agents.get(input.to) ? undefined : world.buildings.get(input.to);
+  if (building && !building.managerAgentId) throw new AppError("not_found", `The ${building.name} has no manager; \`town\` lists who is in it.`);
+  let to = world.agents.get(building?.managerAgentId ?? input.to);
+  if (!to) throw new AppError("not_found", `No agent or building with id ${input.to}. \`town\` lists buildings and their managers.`);
   // manager forks: a retired fork's mail goes to its manager (the manager itself is told the fork is gone)
   let forwardedFrom: string | undefined;
   if (to.forkOf && to.status === "retired") {

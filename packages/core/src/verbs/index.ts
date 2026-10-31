@@ -6,11 +6,11 @@ import { assign, board, cancel, pin, promote, read, request_human, review, sched
 import { checkpoint_grant, close_grant, propose_goal, propose_grant, set_objective } from "./grants.ts";
 import { meeting } from "./meeting.ts";
 import { forkStatus } from "../forkstatus.ts";
-import { accept_assignment, assignments, ban, go, inbox, look, say, stop_fork, tell } from "./social.ts";
+import { accept_assignment, assignments, ban, go, inbox, look, say, stop_fork, tell, town } from "./social.ts";
 import type { VerbIn, VerbRawIn } from "./types.ts";
 
 export const verbImpls = {
-  look, go, say, tell, inbox, board, search, read, write, skills, pin, submit_report, request_human,
+  look, town, go, say, tell, inbox, board, search, read, write, skills, pin, submit_report, request_human,
   assignments, accept_assignment, meeting, review, assign, schedule, cancel, stop_fork, fork_status: async (world: World, me: Agent, input: VerbIn<"fork_status">) => forkStatus(world, me, input), propose_grant, checkpoint_grant, close_grant, set_objective, propose_goal, promote, ban, redeploy,
 } satisfies { [K in VerbName]: (world: World, actor: Agent, input: VerbIn<K>) => Promise<unknown> };
 
