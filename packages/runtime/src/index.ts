@@ -16,7 +16,7 @@ import { advanceCollecting, facilitate, newMeetingState, onMeetingMention, onMee
 import { hostedEnv, InputChannel, realSdk, type Sdk } from "./sdk.ts";
 import { fundingForSession, type Ctx } from "./session.ts";
 import { reconcileDue } from "./reconcile.ts";
-export { fetchConsoleCost, reconcileDue } from "./reconcile.ts";
+export { reconcileDue } from "./reconcile.ts";
 import { abortWork, finishWorkSession, interrupt, runWorkSession, type WorkOutcome } from "./work.ts";
 import { startWaker } from "./waker.ts";
 
@@ -545,7 +545,6 @@ export function startRuntime(opts: RuntimeOptions): Runtime {
     try { scheduleMeetings(t); } catch (e) { log("meetings")(e); }
     try { checkWaits(world, d); } catch (e) { log("waits")(e); }
     try { fireSchedules(world, d); } catch (e) { log("schedules")(e); }
-    try { closeQuietOneOnOnes(ctx); } catch (e) { log("quiet 1:1s")(e); }
     try { world.reorgs.tick(d); } catch (e) { log("reorgs")(e); }
     try { walkIdleHome(world, t); } catch (e) { log("walk home")(e); }
     try { for (const b of world.buildings.all()) world.grantDesk.syncBlocked(b.id); } catch (e) { log("blocked buildings")(e); }
@@ -558,6 +557,8 @@ export function startRuntime(opts: RuntimeOptions): Runtime {
     // startup and managers whose work session just ended: in-trays with reports no manage session has seen yet.
     // Before scheduleWork, so a manager's in-tray goes ahead of its own queued work (it registers as live right away).
     try { wakeManagers(); } catch (e) { log("manager sessions")(e); }
+    // after wakeManagers: a 1:1 whose agent's work just ended gets its answer session before it can count as quiet
+    try { closeQuietOneOnOnes(ctx); } catch (e) { log("quiet 1:1s")(e); }
     try { scheduleWork(); } catch (e) { log("work")(e); }
   }
 
