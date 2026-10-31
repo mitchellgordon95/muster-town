@@ -65,8 +65,10 @@ export interface RuntimeOptions {
   killGraceMs?: number;
   /** how often a running session's usage is booked, in ms (default USAGE_BOOK_MS, a minute; tests: 0 = every message) */
   usageBookMs?: number;
-  /** how long an adopted desk session may stay silent before it counts as lost (tests). Default ADOPTED_SILENT_MS. */
+  /** how long an adopted desk session may stay silent before it counts as lost while other desks reach the town (tests). Default ADOPTED_SILENT_MS. */
   adoptedSilentMs?: number;
+  /** how long an adopted desk session may stay silent before it counts as lost even when no desk reaches the town (tests). Default ADOPTED_LOST_MS. */
+  adoptedLostMs?: number;
   /** redeploy knobs (tests inject the command runner and `exit`; never the real process.exit) */
   redeploy?: Pick<RedeployDeps, "run" | "exit" | "exitDelayMs" | "drainTimeoutMs" | "drainPollMs" | "againDelayMs" | "drainWrapUpMs" | "drainMeetingMs" | "drainManageMs">;
   /** the docker desk backend probed when `desks.backend` is auto/docker (tests inject a fake); default a DockerBackend */
@@ -82,8 +84,18 @@ export interface RuntimeOptions {
   prChecks?: Pick<PrPollerDeps, "fetch" | "everyMs">;
 }
 
-/** An adopted desk session that neither polls control nor posts activity for this long has lost its desk: it is ended and re-queued. */
+/**
+ * An adopted desk session that neither polls control nor posts activity for this long, while other desks are reaching the town
+ * (one was heard within DESKS_HEARD_MS), has lost its desk: it is ended and re-queued.
+ */
 export const ADOPTED_SILENT_MS = 5 * 60_000;
+/**
+ * When no desk at all reaches the town, the silence is the town's (10-31 21:17–21:40Z: muster.town timed out from every desk
+ * while the process ran, and the 5-min rule cut 7 live sessions): an adopted session is only counted lost after this long.
+ */
+export const ADOPTED_LOST_MS = 30 * 60_000;
+/** some desk (any running desk session's control poll or activity) was heard this recently: the town is reachable from desks */
+export const DESKS_HEARD_MS = 60_000;
 
 /** Work sessions a hosted collective runs at once (host sessions only: town tools + web, no shell). */
 export const HOSTED_MAX_RUNNING = 1;
@@ -185,6 +197,12 @@ export function startRuntime(opts: RuntimeOptions): Runtime {
   // their desks, so adopt them (a live entry with no child, alive while the desk polls control) instead of orphaning them.
   /** adopted desk sessions: when each last polled control or posted activity (ms) */
   const adoptedSeen = new Map<string, number>();
+  /** when any desk session last polled control or posted activity (ms; 0 = none since this server started) */
+  let deskHeardAt = 0;
+  const heardDesk = (sessionId: string) => {
+    deskHeardAt = now().getTime();
+    if (adoptedSeen.has(sessionId)) adoptedSeen.set(sessionId, deskHeardAt);
+  };
   const adopted: string[] = [];
   if (!hosted) {
     for (const sid of takeAdoptable(ctx.repoRoot, dockerSafe(collectiveSlug))) {
@@ -452,15 +470,18 @@ export function startRuntime(opts: RuntimeOptions): Runtime {
 
   /**
    * Adopted desk sessions: forget one whose session ended (its desk posted session-end); end one whose desk went silent
-   * (no control poll or activity for ADOPTED_SILENT_MS) as lost, booking nothing, and put its assignment back in the queue.
+   * (no control poll or activity for ADOPTED_SILENT_MS while other desks are heard, or ADOPTED_LOST_MS when none is) as lost,
+   * booking nothing, and put its assignment back in the queue.
    */
   function watchAdopted(): void {
     const t = now().getTime();
+    const desksReachUs = t - deskHeardAt < DESKS_HEARD_MS;
+    const silentMs = desksReachUs ? (opts.adoptedSilentMs ?? ADOPTED_SILENT_MS) : (opts.adoptedLostMs ?? ADOPTED_LOST_MS);
     for (const [agentId, l] of [...ctx.live]) {
       if (!l.adopted) continue;
       const s = world.sessions.get(l.sessionId);
       if (s?.status !== "running") { ctx.live.delete(agentId); adoptedSeen.delete(l.sessionId); continue; }
-      if (t - (adoptedSeen.get(l.sessionId) ?? t) < (opts.adoptedSilentMs ?? ADOPTED_SILENT_MS)) continue;
+      if (t - (adoptedSeen.get(l.sessionId) ?? t) < silentMs) continue;
       adoptedSeen.delete(l.sessionId);
       dropLive(agentId, "desk lost after restart");
       const asg = s.assignmentId ? world.assignments.get(s.assignmentId) : undefined;
@@ -791,7 +812,7 @@ export function startRuntime(opts: RuntimeOptions): Runtime {
     whenIdle,
     isWorking: (agentId) => ctx.live.has(agentId) || starting.has(agentId),
     onDeskActivity: (agentId, input) => {
-      if (adoptedSeen.has(input.session)) adoptedSeen.set(input.session, now().getTime());
+      heardDesk(input.session);
       onDeskActivity(ctx, agentId, input);
     },
     finishWorkSession: async (sessionId, outcome) => {
@@ -801,7 +822,7 @@ export function startRuntime(opts: RuntimeOptions): Runtime {
       if (l?.adopted && l.sessionId === sessionId) { ctx.live.delete(ended.agentId); adoptedSeen.delete(sessionId); }
       return ended;
     },
-    deskSeen: (_agentId, sessionId) => { if (adoptedSeen.has(sessionId)) adoptedSeen.set(sessionId, now().getTime()); },
+    deskSeen: (_agentId, sessionId) => heardDesk(sessionId),
     backend: () => backendReady.then((b) => b.kind),
     async onAgentRetired(agentId, o = {}) {
       abortWork(ctx, agentId, 0);
