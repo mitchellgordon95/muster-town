@@ -239,8 +239,17 @@ ${CHAIN_PLAN_RULE}`;
 /** Why a manager escalates instead of deciding: the four criteria of docs/waterfall.md §3.1. */
 export const ESCALATION_CRITERIA = `Decide yourself unless the decision (a) changes the building goal or a key result, (b) spends money outside a funded grant or the exploration allowance, (c) needs a human in the real world (\`request_human\`), or (d) the report's author asks for something only a human can give (merge rights, a secret, a credential, a decision Mitchell reserved). Those go into your next rollup's "Needs from Mitchell", never to Mitchell directly, unless they already have a channel: an outbox request or a grant proposal reaches him on its own, so leave it out of Needs.`;
 
-/** How often a manager rolls up, docs/waterfall.md §3.2. */
-export const ROLLUP_RULE_HOURS = 24;
+/** The least time between two rollups, so a run of small PRs lands as one item (docs/waterfall.md §3.2; 1:1 mt_7mhv73quu3). */
+export const ROLLUP_MIN_GAP_HOURS = 4;
+
+/** "Live: fa73e88 since 07:12Z (newer than your last rollup)": what the running server is, for the rollup rule. */
+function liveLine(world: World, lastRollupAt: string | undefined, now: number): string {
+  const { commit, startedAt } = world.host;
+  if (!commit) return "Live: unknown (no runtime)";
+  const since = startedAt ? ` since ${startedAt.slice(11, 16)}Z ${startedAt.slice(0, 10)}, ${relativeTime(startedAt, now)}` : "";
+  const newer = !startedAt ? "" : !lastRollupAt ? " (no rollup yet)" : startedAt > lastRollupAt ? " (newer than your last rollup)" : " (already live at your last rollup)";
+  return `Live: ${commit.slice(0, 7)}${since}${newer}`;
+}
 
 /**
  * "## Your in-tray" for a building's manager agent: its forks' (and its own) pending reports it works, the decision verbs,
@@ -270,7 +279,7 @@ Rollups are how Mitchell hears from you: \`submit_report\` with \`rollup: true\`
 - \`## Decided\`: one line per covered report (id → decision).
 - \`## Key results\`: a table, one row per funded grant's key result (status, spent / granted), plus today's spend by lane: exploration ${tok(lanes.exploration.spentTodayTokens)} / ${tok(lanes.exploration.allowanceTokens)} tokens, directed ${tok(lanes.directed.spentTodayTokens)} tokens.
 - \`## Needs from Mitchell\`: ${ROLLUP_NEEDS_RULE} "Nothing needed" is valid.
-A rollup without the four headings, or whose Needs names a grant proposal, outbox request or rollup already waiting for Mitchell, is refused; a Shipped item without the three labels is filed with a warning. Roll up when a covered report hit an escalation criterion, or when ${ROLLUP_RULE_HOURS} h have passed since your last rollup and something was decided; nothing happened → no rollup. Last rollup: ${sinceLast}; reports decided since: ${decidedSince}.${krWrites.length ? `
+A rollup without the four headings, or whose Needs names a grant proposal, outbox request or rollup already waiting for Mitchell, is refused; a Shipped item without the three labels is filed with a warning. Roll up when something new is live (a commit went live since your last rollup) and the reports that cover it are decided, or when a covered report hit an escalation criterion; keep at least ${ROLLUP_MIN_GAP_HOURS} h since your last rollup (escalations excepted) so a run of small PRs lands as one item; nothing happened → no rollup. ${liveLine(world, lastRollup?.createdAt, now)}. Last rollup: ${sinceLast}; reports decided since: ${decidedSince}.${krWrites.length ? `
 Key results you wrote since then (changes a key result, so roll up; your rollup lists them for you): ${krWrites.map((w) => `${w.action} ${w.keyResultId} "${oneLine(w.text, 80)}"`).join("; ")}.` : ""}`;
 }
 
@@ -283,7 +292,7 @@ export function managePrompt(building: Building, fresh: Doc[], nameOf: (id: stri
   return `This is a team-lead session, not a work session: you have no assignment. It started because ${fresh.some((d) => d.type === "flag") ? "items" : "reports"} landed in the ${building.name} in-tray ("## Your in-tray" above):
 ${rows || "(see the in-tray)"}
 
-\`read\` each report and decide it with \`review\` (a flag: continue or redirect queues it to the building); give follow-up work with \`assign\` when a decision alone doesn't say it. You can't do the work yourself here (no code or web tools). A manager does only decisions and rollups here: any task that appears (verifying, writing, fixing, checking something live) becomes an assignment the moment it appears: \`assign\` without agentId puts it on the building queue, where a fork of you runs it; independent tasks are separate \`assign\`s and run on forks in parallel. Drop queued work that is no longer needed with \`cancel\`. Work for a later time (a check at 20:00, a nightly job) goes on the building's schedule with \`schedule\` (runsAt, optional repeat), not on the queue now: it lands on the building queue when it fires. The default is to delegate; assign a task to yourself (\`assign\` with your own agent id) only when it is small, blocking, or needs your manager permissions: it runs as a normal work session and its report lands back in this in-tray for you to decide and fold into your rollup. One rollup per day, or sooner on escalation. If more reports land while you work, they arrive as messages in this session; decide them too or leave them for later.
+\`read\` each report and decide it with \`review\` (a flag: continue or redirect queues it to the building); give follow-up work with \`assign\` when a decision alone doesn't say it. You can't do the work yourself here (no code or web tools). A manager does only decisions and rollups here: any task that appears (verifying, writing, fixing, checking something live) becomes an assignment the moment it appears: \`assign\` without agentId puts it on the building queue, where a fork of you runs it; independent tasks are separate \`assign\`s and run on forks in parallel. Drop queued work that is no longer needed with \`cancel\`. Work for a later time (a check at 20:00, a nightly job) goes on the building's schedule with \`schedule\` (runsAt, optional repeat), not on the queue now: it lands on the building queue when it fires. The default is to delegate; assign a task to yourself (\`assign\` with your own agent id) only when it is small, blocking, or needs your manager permissions: it runs as a normal work session and its report lands back in this in-tray for you to decide and fold into your rollup. Roll up when something new is live and decided (at least ${ROLLUP_MIN_GAP_HOURS} h apart), or sooner on escalation. If more reports land while you work, they arrive as messages in this session; decide them too or leave them for later.
 
 End the session in one of two ways. If a rollup is due (the rule in "## Your in-tray"), \`submit_report\` with \`rollup: true\` and the covered reports' ids in provenance.sourceIds. Otherwise don't call \`submit_report\` at all: just stop, and the session ends quietly (an idle building is silent). The "Finish with submit_report" rule above is for work sessions, not this one.`;
 }
