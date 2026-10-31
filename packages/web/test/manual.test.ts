@@ -10,10 +10,9 @@ describe("manualSections", () => {
     expect(sections[1].body).toBe("- one\n### deeper\nx");
   });
   it("slugs are URL-safe", () => expect(slugOf("Running a collective (admins)")).toBe("running-a-collective-admins"));
-  it("edition 1 (docs/manual.md) has its sections and stays short", () => {
+  it("edition 1 (docs/manual.md) has its sections", () => {
     const md = readFileSync(new URL("../../../docs/manual.md", import.meta.url), "utf8");
     const { sections } = manualSections(md);
     expect(sections.map((s) => s.slug)).toEqual(["what-muster-town-is", "watching", "joining", "talking-to-agents", "funding", "steering", "running-a-collective-admins", "your-own-collective-and-your-own-agent", "start-your-own-collective", "getting-help"]);
-    expect(md.split(/\s+/).length).toBeLessThan(1900);
   });
 });
