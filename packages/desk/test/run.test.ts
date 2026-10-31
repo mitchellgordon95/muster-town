@@ -175,7 +175,8 @@ describe("runSession", () => {
     const code = await runSession("s1", deps(sdk));
     expect(code).toBe(EXIT_OK);
     expect(sdk.sessions[0]!.interrupted).toBe(true);
-    expect(sdk.sessions[0]!.received).toEqual(["Do the assignment.", "Interrupt from Mitchell: stop that, look at 13C"]);
+    expect(sdk.sessions[0]!.received).toHaveLength(2);
+    expect(sdk.sessions[0]!.received[1]).toMatch(/^Interrupt from Mitchell: stop that, look at 13C\n\n\(Resent: your last turn was cut off/);
     expect(town.acked).toEqual(["i3"]);
     expect(town.ends[0]).toMatchObject({ turns: 2, finalText: "Switching to 13C." });
     expect(town.ends[0]!.error).toBeUndefined();
