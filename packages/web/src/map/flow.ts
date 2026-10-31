@@ -44,7 +44,7 @@ export { fitZoom } from "./overview";
 export const widthFor = (pct: number) => 2 + Math.sqrt(Math.max(0, pct) / 100) * 20;
 
 /** A building on the map: whether it draws from the Bank and its (even) slice of the one balance. */
-export interface BankLink { pct: number; draws: boolean }
+interface BankLink { pct: number; draws: boolean }
 
 /**
  * Each building's slice of the Bank: the one balance split evenly between the buildings that draw (an

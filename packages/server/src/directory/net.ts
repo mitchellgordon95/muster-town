@@ -49,7 +49,7 @@ export function blockedAddress(address: string): boolean {
   return BLOCKED.check(a, v === 4 ? "ipv4" : "ipv6");
 }
 
-export type LookupAll = (host: string) => Promise<{ address: string; family: number }[]>;
+type LookupAll = (host: string) => Promise<{ address: string; family: number }[]>;
 const realLookupAll: LookupAll = (host) => dnsLookup(host, { all: true, verbatim: true });
 
 export interface SafeGetOptions {
@@ -63,7 +63,7 @@ export interface SafeGetOptions {
 export interface SafeResponse { status: number; body: string }
 export type Fetcher = (url: string, opts: SafeGetOptions) => Promise<SafeResponse>;
 
-export const USER_AGENT = "muster.town-directory/1 (+https://muster.town)";
+const USER_AGENT = "muster.town-directory/1 (+https://muster.town)";
 
 /**
  * GET an https URL on the public internet only: every address the host resolves to is checked inside the socket's `lookup`, so DNS
@@ -112,7 +112,7 @@ export const safeGet: Fetcher = (url, opts) => new Promise<SafeResponse>((resolv
   req.on("error", (e) => finish(e));
 });
 
-export type TxtResult = { result: "pass" } | { result: "none"; error: string } | { result: "error"; error: string };
+type TxtResult = { result: "pass" } | { result: "none"; error: string } | { result: "error"; error: string };
 export type TxtResolver = (name: string) => Promise<string[][]>;
 
 /** The default resolver: 3 s per try, 2 tries (design §2). */

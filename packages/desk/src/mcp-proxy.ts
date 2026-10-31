@@ -13,7 +13,7 @@ import type { AddressInfo } from "node:net";
 import { RESTART_BACKOFF_MS, restarting } from "./restart.ts";
 
 /** Town tools that change nothing (inbox only marks messages read): resent even when a cut call may have run. */
-export const READ_ONLY_TOOLS = new Set(["look", "town", "read", "search", "board", "inbox", "assignments", "skills"]);
+const READ_ONLY_TOOLS = new Set(["look", "town", "read", "search", "board", "inbox", "assignments", "skills"]);
 
 /** Request headers passed on to the town (the rest are hop-by-hop or the proxy's own). */
 const FORWARD = ["authorization", "content-type", "accept", "mcp-protocol-version", "mcp-session-id", "last-event-id"];
@@ -23,7 +23,7 @@ const BACK = ["content-type", "mcp-session-id", "mcp-protocol-version"];
 export const MAYBE_RAN = "The town restarted during this call, so it may or may not have happened. Check with look, read, inbox or search before repeating it (a repeated write files a second doc unless you pass its id).";
 export const GAVE_UP = "The town is restarting and did not answer for several minutes. Try this call again in a minute.";
 
-export interface McpProxyOptions {
+interface McpProxyOptions {
   /** the town's MCP endpoint, e.g. https://muster.town/workshop/mcp */
   target: string;
   fetch?: typeof fetch;

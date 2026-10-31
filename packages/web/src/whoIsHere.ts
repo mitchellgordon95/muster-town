@@ -5,9 +5,9 @@
  */
 import type { Agent } from "@muster-town/schema";
 
-export const HUMAN_ACTIVE_MS = 10 * 60_000;
+const HUMAN_ACTIVE_MS = 10 * 60_000;
 
-export interface WhoIsHere { working: Agent[]; resting: number; humans: number }
+interface WhoIsHere { working: Agent[]; resting: number; humans: number }
 
 export function whoIsHere(agents: Record<string, Agent>, now = Date.now()): WhoIsHere {
   const all = Object.values(agents);

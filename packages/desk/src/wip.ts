@@ -13,9 +13,9 @@ import { promisify } from "node:util";
 
 const exec = promisify(execFile);
 
-export const WIP_PUSH_MS = 10 * 60_000;
+const WIP_PUSH_MS = 10 * 60_000;
 
-export const wipRef = (branch: string) => `refs/wip/${branch}`;
+const wipRef = (branch: string) => `refs/wip/${branch}`;
 
 /**
  * Push the working tree's uncommitted changes to refs/wip/<branch>. Returns the pushed commit, or null when there was

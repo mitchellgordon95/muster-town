@@ -17,7 +17,7 @@ import { openDocLink } from "./Markdown";
 import { openPlanner } from "./oneOnOne";
 import { krStatusLabel, krTone } from "./keyResults";
 import { allBuildings, archivedLine, buildingScope, canEditGoal, deskWord, findGoal, isArchived, moveTargets, nodeGlance, pastDue, pathTo, proposalVerb, retireMoves, retirePlan, subtreeDesks, subtreeIds, treeRows, visibleRows, type TreeKr } from "./goalTree";
-import { Act, Empty, ErrorLine, Field, Loading, MTokensInput, Pill, Section, fmtTokens, nameOf, useLoad } from "./ui";
+import { Act, Empty, ErrorLine, Field, Loading, MTokensInput, Pill, Section, fmtTokens, nameOf, timeAgo, useLoad } from "./ui";
 import { fromMillions, toMillions } from "../format";
 import { FreeTokensLine, capText } from "./FreeTokens";
 
@@ -231,7 +231,6 @@ function GoalDetail({ root, node, me, proposals, focusKr, onSelect, onDone }: { 
         <div className="ge-toolbar" role="toolbar" aria-label="Change this goal">
           {tool("edit", "Edit words")}
           {tool("goal", "+ Goal under it")}
-          {tool("kr", "+ Key result")}
           {node.parentId ? tool("move", "Move") : null}
           {tool("owner", "Captain")}
           {!open ? tool("change", "Change this goal", "X → Y: the buildings under it prepare, then a planning meeting decides what goes underneath") : null}
@@ -239,11 +238,11 @@ function GoalDetail({ root, node, me, proposals, focusKr, onSelect, onDone }: { 
           {node.parentId ? tool("retire", "Retire", undefined, "bad") : null}
         </div>
       ) : <div className="muted goal-meta">{node.status === "retired" ? `Retired${node.retiredNote ? `: ${node.retiredNote}` : "."}` : me.userId ? "Only an admin or this goal's captain edits it; managers propose with propose_goal." : "Sign in to see what you can change."}</div>}
+      {!can && me.userId && node.status === "active" && node.id !== ROOT_GOAL_ID ? <AskToCaptain node={node} userId={me.userId} /> : null}
       {open ? <ChangeBanner c={open} /> : null}
       {form === "change" ? <ChangeForm node={node} onDone={done} /> : null}
       {form === "edit" ? <EditForm node={node} onDone={done} /> : null}
       {form === "goal" ? <AddGoalForm parent={node} onDone={(id) => { done(); onSelect(id); }} /> : null}
-      {form === "kr" ? <AddKrForm root={root} node={node} onDone={done} /> : null}
       {form === "move" ? <MoveForm root={root} node={node} onDone={done} /> : null}
       {form === "owner" ? <OwnerForm node={node} me={me} onDone={done} /> : null}
       {form === "retire" ? <RetireForm root={root} node={node} onDone={() => { done(); onSelect(node.parentId); }} /> : null}
@@ -415,26 +414,6 @@ function AddGoalForm({ parent, onDone }: { parent: GoalTreeNode; onDone: (id: st
   );
 }
 
-function AddKrForm({ root, node, onDone }: { root: GoalTreeNode; node: GoalTreeNode; onDone: () => void }) {
-  const [text, setText] = useState(""), [check, setCheck] = useState(""), [due, setDue] = useState("");
-  // the building it is for: one attached here or above (default: the nearest, which the server also picks)
-  const near = pathTo(root, node.id).reverse().flatMap((g) => g.buildings);
-  const [buildingId, setBuildingId] = useState("");
-  return (
-    <div className="goal-form">
-      <Field label="Key result" hint="A concrete thing in the live town by a date."><textarea rows={2} maxLength={300} value={text} onChange={(e) => setText(e.target.value)} /></Field>
-      <Field label="How to check" hint="Where a human looks and what they'd see."><textarea rows={2} maxLength={300} value={check} onChange={(e) => setCheck(e.target.value)} /></Field>
-      <Field label="Due"><input type="date" value={due} onChange={(e) => setDue(e.target.value)} /></Field>
-      {near.length > 1 ? <Field label="For building"><select value={buildingId} onChange={(e) => setBuildingId(e.target.value)}>
-        <option value="">{near[0].name} (nearest)</option>
-        {near.slice(1).map((b) => <option key={b.id} value={b.id}>{b.name}</option>)}
-      </select></Field> : null}
-      <Act small tone="primary" disabled={!text.trim() || !check.trim() || !due}
-        run={() => api().addTreeKeyResult(node.id, { text: text.trim(), howToCheck: check.trim(), due, ...(buildingId ? { buildingId } : {}) }).then(onDone)}>Add key result</Act>
-    </div>
-  );
-}
-
 function MoveForm({ root, node, onDone }: { root: GoalTreeNode; node: GoalTreeNode; onDone: () => void }) {
   const targets = moveTargets(root, node.id);
   const [to, setTo] = useState("");
@@ -447,6 +426,40 @@ function MoveForm({ root, node, onDone }: { root: GoalTreeNode; node: GoalTreeNo
         </select>
       </Field>
       <Act small tone="primary" disabled={!to} run={() => api().updateGoal(node.id, { parentId: to }).then(onDone)}>Move</Act>
+    </div>
+  );
+}
+
+/**
+ * "Ask to captain this goal" (gr_bwm0iz7rwl): a member who can't edit this goal asks to become its captain (its owner).
+ * The ask waits in the Town Hall in-tray for the goal's current captain or an admin; once asked, it says so instead.
+ */
+function AskToCaptain({ node, userId }: { node: GoalTreeNode; userId: string }) {
+  const member = useTown((s) => !!s.me?.canInteract);
+  const asks = useLoad(() => api().captainRequests(node.id), [node.id]);
+  const [open, setOpen] = useState(false), [note, setNote] = useState("");
+  const mine = asks.data?.find((r) => r.userId === userId);
+  if (!member) return <div className="muted goal-meta captain-ask">Want to captain this goal? Ask to join first (the card on the map): members can ask to captain a goal.</div>;
+  if (mine) return <div className="muted goal-meta captain-ask">You asked to captain this goal {timeAgo(mine.createdAt)}. It is in the Town Hall in-tray for {mine.captainName} to accept or decline.</div>;
+  const ask = async () => {
+    await api().askToCaptain(node.id, note.trim() || undefined);
+    store.toast(`Asked to captain "${node.text}": ${node.owner.name} ${node.owner.userId ? "decides" : "decide"} from the Town Hall in-tray.`, "ok");
+    setOpen(false); setNote(""); asks.reload();
+  };
+  return (
+    <div className="captain-ask">
+      {open ? (
+        <div className="goal-form">
+          <Field label="Why you (optional)" hint={`The captain steers this goal: its in-tray items route to them, and they fund, counter or reject grants and write key results under it. ${node.owner.name} ${node.owner.userId ? "decides" : "decide"}.`}>
+            <textarea rows={2} maxLength={280} autoFocus placeholder="One line on what you'd steer it toward" value={note} onChange={(e) => setNote(e.target.value)} />
+          </Field>
+          <div className="actions">
+            <button className="btn sm" onClick={() => setOpen(false)}>Cancel</button>
+            <Act small tone="primary" run={ask}>Ask</Act>
+          </div>
+        </div>
+      ) : <button className="btn sm primary" onClick={() => setOpen(true)} title="Ask the goal's current captain (or an admin) to make you its captain">Ask to captain this goal</button>}
+      <ErrorLine error={asks.error} />
     </div>
   );
 }

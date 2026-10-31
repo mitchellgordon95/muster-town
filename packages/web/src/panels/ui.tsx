@@ -1,7 +1,6 @@
 /** Small shared UI pieces for panels. */
 import { useCallback, useEffect, useRef, useState, type InputHTMLAttributes, type ReactNode } from "react";
-import type { Event } from "@muster-town/schema";
-import { store, useTown } from "../state";
+import { store } from "../state";
 import { api } from "../api";
 
 export function timeAgo(iso: string | null | undefined): string {
@@ -24,7 +23,7 @@ export function dayClock(iso: string): string {
 }
 import { ADJ, ADJ_HINT } from "../format";
 import { clipText } from "./showMore";
-export { ADJ, ADJ_HINT, breakdownTitle, fmtTokens, fromMillions, toMillions } from "../format";
+export { ADJ, ADJ_HINT, breakdownTitle, fmtTokens, fromMillions,  } from "../format";
 export const usd = (n: number) => `$${n.toFixed(2)}`;
 
 export function Pill({ tone, children, title }: { tone?: string; children: ReactNode; title?: string }) {
@@ -126,30 +125,6 @@ export function NumberInput({ value, onChange, min, max, ...rest }: { value: num
 }
 export function KV({ items }: { items: [string, ReactNode][] }) {
   return <dl className="kv">{items.map(([k, v]) => <div key={k}><dt>{k}</dt><dd>{v}</dd></div>)}</dl>;
-}
-
-const EVENT_TONE: Partial<Record<Event["type"], string>> = {
-  "agent.tool": "tool", "agent.thought": "thought", "agent.said": "said", "agent.told": "said", "agent.status": "status",
-  "doc.created": "doc", "doc.decision": "status", "session.started": "status", "session.ended": "status", "budget.exhausted": "bad",
-  "meeting.utterance": "said", "meeting.phase": "status",
-};
-export function Feed({ events, empty = "Nothing yet.", showWho }: { events: Event[]; empty?: string; showWho?: boolean }) {
-  const agents = useTown((s) => s.agents);
-  const ref = useRef<HTMLDivElement>(null);
-  const stick = useRef(true);
-  useEffect(() => { const el = ref.current; if (el && stick.current) el.scrollTop = el.scrollHeight; }, [events.length]);
-  if (!events.length) return <Empty>{empty}</Empty>;
-  return (
-    <div className="feed" ref={ref} onScroll={(e) => { const el = e.currentTarget; stick.current = el.scrollHeight - el.scrollTop - el.clientHeight < 40; }}>
-      {events.map((e) => (
-        <div key={e.id} className={`ev ${EVENT_TONE[e.type] ?? ""}`}>
-          <time title={e.ts}>{dayClock(e.ts)}</time>
-          {showWho && e.agentId ? <b>{agents[e.agentId]?.name ?? "?"}</b> : null}
-          <span>{e.text}</span>
-        </div>
-      ))}
-    </div>
-  );
 }
 
 export function nameOf(id: string | null | undefined): string {

@@ -11,7 +11,7 @@ import type { DeskSize } from "@muster-town/core";
 import type { LineSink } from "./backend.ts";
 import { shq, type SandboxApi, type SandboxInfo } from "./sandbox.ts";
 
-export interface FlyOptions {
+interface FlyOptions {
   app: string;
   /** an app-scoped deploy token, sent as-is in the Authorization header */
   token: string;

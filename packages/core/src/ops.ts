@@ -20,7 +20,7 @@ export interface ThreadMessage { id: string; fromId: string; toId: string; from:
 const warnedModels = new Set<string>();
 
 
-export interface StartNextResult { assignment: Assignment; agent: Agent; when: "now" | "after-current" }
+interface StartNextResult { assignment: Assignment; agent: Agent; when: "now" | "after-current" }
 
 export type RequestAction = "claim" | "done" | "delete";
 /** `null` actor = system (scheduler/runtime): no permission checks. */
@@ -251,7 +251,7 @@ export class Ops {
     const a = createAssignment(this.world, {
       agentId, title: inp.title ?? "Check in", description: inp.description ?? CHECK_IN,
       createdBy: actor ? this.world.holderOf(actor) : { kind: "system", id: "system" }, waitFor,
-      lane: { lane: inp.lane, grantId: inp.grantId, keyResultId: inp.keyResultId, gap: inp.gap, sourceId: inp.sourceId },
+      lane: { lane: inp.lane, grantId: inp.grantId, gap: inp.gap, sourceId: inp.sourceId },
     });
     if (agent.status === "stopped") this.world.setStatus(agentId, "idle");
     return a;

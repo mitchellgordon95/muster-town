@@ -6,7 +6,7 @@ import { World } from "@muster-town/core";
 /** The subscription token the test Bank holds (the Bank is the only place a credential lives; nothing comes from the env). */
 export const TEST_TOKEN = "sk-ant-oat01-test-subscription-token";
 /** Give a seeded world's Bank its subscription credential without crediting it (first renewal far off), so the money model is untouched. */
-export function seedCredential(world: World, adminId: string): void {
+function seedCredential(world: World, adminId: string): void {
   world.bank.addInput(adminId, { label: "Test subscription", source: "subscription", model: "claude-sonnet-5-5", tokens: 1, recurrence: "daily", weeklyCapTokens: 1, nextCreditAt: "2099-01-01T00:00:00.000Z", token: TEST_TOKEN });
 }
 /** Free tokens for exploration (it is held only when none are free): one far-off-expiring credit on the test subscription. */
@@ -72,7 +72,7 @@ let n = 0;
 export const init = () => ({ type: "system", subtype: "init", session_id: "sdk-session-1", tools: [] });
 export const text = (t: string) => ({ type: "assistant", session_id: "sdk-session-1", message: { content: [{ type: "text", text: t }] } });
 export const toolUse = (name: string, input: unknown, id = `tu_${++n}`) => ({ type: "assistant", session_id: "sdk-session-1", message: { content: [{ type: "tool_use", id, name, input }] } });
-export const toolResult = (id: string, content: unknown, isError = false) => ({ type: "user", message: { role: "user", content: [{ type: "tool_result", tool_use_id: id, content: JSON.stringify(content), is_error: isError }] } });
+const toolResult = (id: string, content: unknown, isError = false) => ({ type: "user", message: { role: "user", content: [{ type: "tool_result", tool_use_id: id, content: JSON.stringify(content), is_error: isError }] } });
 export const result = (tokens: number, costUsd: number, finalText = "done") => ({
   type: "result", subtype: "success", is_error: false, result: finalText, num_turns: 4, total_cost_usd: costUsd, session_id: "sdk-session-1",
   usage: { input_tokens: tokens, output_tokens: 0 },

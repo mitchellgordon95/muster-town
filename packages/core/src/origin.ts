@@ -21,7 +21,7 @@ export function meetingOrigin(m: Meeting): Origin | null {
 }
 
 /** The origin of the agent's acting session: its most recently started running session (null = none or no origin). */
-export function sessionOrigin(world: World, agentId: string): Origin | null {
+function sessionOrigin(world: World, agentId: string): Origin | null {
   return world.sessions.first("agentId = ? AND status = 'running'", [agentId], "ORDER BY startedAt DESC, rowid DESC")?.origin ?? null;
 }
 

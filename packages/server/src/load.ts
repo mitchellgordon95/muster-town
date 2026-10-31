@@ -1,7 +1,7 @@
 import { monitorEventLoopDelay, type IntervalHistogram } from "node:perf_hooks";
 
 /** Read-only load figures for `GET /api/health` (`load`): event-loop lag, resident memory, open WebSocket clients. */
-export interface LoadSnapshot {
+interface LoadSnapshot {
   /** p99 event-loop delay over the last completed 10 s window (ms, sampling interval subtracted: idle reads 0); 0 until a window has closed */
   lagMs: number;
   /** process RSS in MiB */

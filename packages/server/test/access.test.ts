@@ -92,6 +92,21 @@ describe("who may interact", () => {
     expect(soon.body.error).toMatch(/Not this time/);
   });
 
+  it("GET /api/access-requests: pending rows for an admin only (the HUD notice)", async () => {
+    const { app, world, auth, visitor, by } = await setup();
+    await json(app, "POST", "/api/access-requests", { headers: visitor, body: { message: "hi" } });
+    expect((await json(app, "GET", "/api/access-requests")).status).toBe(401);
+    expect((await json(app, "GET", "/api/access-requests", { headers: visitor })).status).toBe(403);
+    const resident = { authorization: `Bearer ${world.tokens.getOrCreate("agent", by("Tomas").id)}` };
+    expect((await json(app, "GET", "/api/access-requests", { headers: resident })).status).toBe(403);
+    const list = await json(app, "GET", "/api/access-requests", { headers: auth });
+    expect(list.status).toBe(200);
+    expect(list.body.access).toHaveLength(1);
+    expect(list.body.access[0]).toMatchObject({ name: "Octo", status: "pending", message: "hi" });
+    await json(app, "POST", `/api/access-requests/${list.body.access[0].id}/decide`, { headers: auth, body: { grant: false } });
+    expect((await json(app, "GET", "/api/access-requests", { headers: auth })).body.access).toHaveLength(0);
+  });
+
   it("WS: a visitor's move gets an error frame", async () => {
     const { app, visitor } = await setup();
     await app.listen({ port: 0, host: "127.0.0.1" });
@@ -107,5 +122,23 @@ describe("who may interact", () => {
     ws.send(JSON.stringify({ type: "human.move", x: 1, y: 1 }));
     expect((await waitFor((m) => m.type === "error")).message).toMatch(/Ask for access first/);
     ws.close();
+  });
+
+  it("join funnel: a public GET with the shape; the guest card's view ping works for a guest and a visitor", async () => {
+    const { app, auth, visitor } = await setup();
+    const before = (await json(app, "GET", "/api/join-funnel")).body;
+    expect(before).toMatchObject({ days: 30, totals: { guestCardViews: expect.any(Number), signIns: expect.any(Number), asked: expect.any(Number), letIn: expect.any(Number), declined: expect.any(Number) } });
+    expect(before.collectives).toHaveLength(1);
+    expect((await json(app, "POST", "/api/join-funnel/view")).status).toBe(200);
+    expect((await json(app, "POST", "/api/join-funnel/view", { headers: visitor })).status).toBe(200);
+    const asked = await json(app, "POST", "/api/access-requests", { headers: visitor, body: {} });
+    await json(app, "POST", `/api/access-requests/${asked.body.accessRequest.id}/decide`, { headers: auth, body: { grant: false } });
+    const after = (await json(app, "GET", "/api/join-funnel")).body;
+    expect(after.totals.guestCardViews).toBe(before.totals.guestCardViews + 2);
+    expect(after.totals.asked).toBe(before.totals.asked + 1);
+    expect(after.totals.declined).toBe(before.totals.declined + 1);
+    expect(after.decisions).toBe(before.decisions + 1);
+    expect(after.medianDecisionMs).toEqual(expect.any(Number));
+    expect(after.collectives[0].totals).toEqual(after.totals);
   });
 });

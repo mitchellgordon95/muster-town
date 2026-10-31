@@ -10,9 +10,9 @@
 import { SPEND_LIMIT, type Event } from "@muster-town/schema";
 import { stamp } from "./time.ts";
 
-export const DEATH_WINDOW_DAYS = 7;
+const DEATH_WINDOW_DAYS = 7;
 /** days of `bank.cap` events the learned cap looks back over */
-export const CAP_LOOKBACK_DAYS = 14;
+const CAP_LOOKBACK_DAYS = 14;
 /** ended sessions the typical session size is the median of */
 export const TYPICAL_SESSIONS = 50;
 /** before 119bd70 the desk only echoed the SDK's cap result as a thought: "You've hit your org's monthly spend limit · resets …" */
@@ -68,7 +68,7 @@ export const median = (xs: number[]): number | null => {
 };
 
 /** One `bank.cap` event's facts: its UTC day and the subscription's adjusted spend when it hit. */
-export interface CapPoint { day: string; subscriptionAdjustedToday: number }
+interface CapPoint { day: string; subscriptionAdjustedToday: number }
 
 /** The learned daily cap: per UTC day the lowest spend a cap hit at, then the median over the last 14 days up to `today`; null with no cap seen. */
 export function learnedCap(points: CapPoint[], today: string): { cap: number; days: number } | null {

@@ -256,7 +256,7 @@ const EXCERPT_CHARS = 400;
  * grant or agent id, or a town page name. Doc title and opening are kept as said, so the line reads the same after
  * the doc changes. Drafts are refused: the room couldn't open them.
  */
-export function resolveAttachment(world: World, attach: string): MeetingAttachment {
+function resolveAttachment(world: World, attach: string): MeetingAttachment {
   const ref = attach.trim();
   const media = /^(?:\/api\/media\/)?(mf_[a-z0-9]{10})(?:\.[a-z0-9]+)?$/.exec(ref);
   if (media) {
@@ -367,7 +367,7 @@ export function currentSlide(world: World, m: Pick<Meeting, "deck">): CurrentSli
 }
 
 /** Who may present or move slides: the meeting's facilitator, whoever may run it (meeting.facilitate), or any human. */
-export function canPresent(world: World, actor: Agent, m: Meeting): boolean {
+function canPresent(world: World, actor: Agent, m: Meeting): boolean {
   return actor.kind === "human" || canFacilitate(world, actor, m);
 }
 
@@ -478,7 +478,7 @@ export function humanStillTalking(world: World, m: Meeting, now = Date.now()): b
   return !!last && now - Date.parse(last.at) < HUMAN_QUIET_MS;
 }
 
-export function canFacilitate(world: World, actor: Agent, m: Meeting): boolean {
+function canFacilitate(world: World, actor: Agent, m: Meeting): boolean {
   return m.facilitatorId === actor.id || world.permissions.can(actor, "meeting.facilitate", m.buildingId ?? TOWN_HALL_ID);
 }
 
@@ -542,7 +542,7 @@ function decideNow(world: World, actor: Agent | null, meetingId: string, decisio
         applyDecision(world, pending.id, "approve", `Superseded by a decision in meeting "${m.title}": ${d.text.split("\n")[0].slice(0, 160)}`, by);
       }
       const a = createAssignment(world, { agentId: out.assigneeId, title, description: `${d.text}\n\nDecided in meeting "${m.title}".`, createdBy: by, fromMeetingId: m.id, waitFor: d.waitFor ? validateWait(world, d.waitFor) : null,
-        lane: { lane: d.lane, grantId: d.grantId, keyResultId: d.keyResultId, gap: d.gap, sourceId: d.sourceId } });
+        lane: { lane: d.lane, grantId: d.grantId, gap: d.gap, sourceId: d.sourceId } });
       if (world.agents.get(out.assigneeId)?.status === "stopped") world.setStatus(out.assigneeId, "idle", `${world.nameOf(out.assigneeId)} was resumed by a decision in "${m.title}"`);
       out = { ...out, assignmentId: a.id };
     }
@@ -562,7 +562,7 @@ function decideNow(world: World, actor: Agent | null, meetingId: string, decisio
 }
 
 /** How long after a meeting closes the facilitator may still record decisions. */
-export const DECIDE_GRACE_MS = 5 * 60_000;
+const DECIDE_GRACE_MS = 5 * 60_000;
 
 /**
  * End: write the meeting-notes doc (filed in the building's filing cabinet, not its board; town-hall → library), phase done.

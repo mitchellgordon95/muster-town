@@ -95,6 +95,19 @@ What the server enforces (step 1 and 3, with tests):
 - `GET /<slug>/api/health` and the Bank page show "funded by API key" or "no key" for the collective, never the host's
   funding.
 
+**Hosted collectives run on Anthropic API keys only (Mitchell, 1:1 mt_p3ge56kg03, 2026-10-31).** Anthropic's terms
+reserve Claude subscription (OAuth) credentials for the subscriber's own use of Claude Code; a service that runs agents
+for other people must use API keys (the findings below), and running strangers' collectives on a subscription risks the
+account being banned. So only the Workshop (the root app) and a self-hosted town (its own server, its own Bank) may run
+on a subscription. In a hosted World (`world.host.hosted`, set by the hub) this is enforced at every layer, not only by
+the API's refusal: `Bank.addInput` refuses a subscription input, `Bank.subscriptionCredential()` returns null even for a
+stray row, `Budget.fundingFor` never returns a subscription funding (where a subscription would pay it runs on the Bank's
+API key, else throws `NoCredential` with `HOSTED_KEY_ONLY_HOLD`, "A hosted collective runs on an Anthropic API key only;
+add one at the Bank"), the runtime's `sessionEnv`, `oneShot` and `deskEnv` refuse to put `CLAUDE_CODE_OAUTH_TOKEN` in a
+hosted session's env (`assertHostedCredential`), and the Donate form offers no subscription source there. Tests: core
+`bank.test.ts` "a hosted collective never runs on a subscription", runtime `hosted.test.ts` (stray subscription input),
+`secrets.test.ts`, web `hostedDonate.test.tsx`.
+
 ## Claude credentials for hosted collectives: what Anthropic allows (checked 2026-10-27)
 
 Primary sources, all read on 2026-10-27:

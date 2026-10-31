@@ -7,7 +7,6 @@ function lab() {
   const s = seededWorld();
   const { world, seed } = s;
   const b = createBuilding(world, { name: "Forky", headcount: 5, model: "claude-opus-5-5", cheapModel: "claude-haiku-5-5" }, seed.admin.id);
-  world.grantDesk.createKeyResult(s.admin, b.id, { text: "Forks work", howToCheck: "Run the tests" }); // a key result, so the lab isn't blocked
   const pix = createResident(world, { buildingId: b.id, name: "Pix" });
   createResident(world, { buildingId: b.id, name: "Ann" });
   updateBuilding(world, b.id, { managerAgentId: pix.id });

@@ -16,14 +16,14 @@ import { CliError, DEFAULT_URL, writeProfile } from "./profile.ts";
 export const LOGIN_PROFILE = "user";
 const DEVICE_GRANT = "urn:ietf:params:oauth:grant-type:device_code";
 
-export interface LoginDeps {
+interface LoginDeps {
   fetch?: typeof fetch;
   sleep?: (ms: number) => Promise<void>;
   print?: (s: string) => void;
   githubUrl?: string;
 }
 
-export interface LoginResult { user: User; path: string; profile: string }
+interface LoginResult { user: User; path: string; profile: string }
 
 async function githubPost<T>(f: typeof fetch, url: string, body: Record<string, string>): Promise<T> {
   let res: Response;

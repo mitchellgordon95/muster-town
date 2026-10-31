@@ -33,7 +33,7 @@ export const TOWN_HALL_FIXTURES = {
 } as const;
 
 export { labSize };
-export function sizeFor(b: Building): { w: number; h: number } {
+function sizeFor(b: Building): { w: number; h: number } {
   return b.kind === "town-hall" ? { ...TOWN_HALL_SIZE } : labSize(b.headcount);
 }
 export interface DeskSlot { buildingId: string; n: number; pos: Tile; agentId: string | null }
@@ -189,7 +189,7 @@ function bankRoom(set: (x: number, y: number, t: number) => void, places: Place[
  * Walkable tiles touching a table (4-neighbours), so each attendee gets their own.
  * `first` (the meeting-room place) leads; the rest go nearest-first, then top-to-bottom, left-to-right.
  */
-export function seatsAround(grid: Grid, table: Tile[], first: Tile): Tile[] {
+function seatsAround(grid: Grid, table: Tile[], first: Tile): Tile[] {
   const key = (t: Tile) => `${t.x},${t.y}`;
   const onTable = new Set(table.map(key));
   const out = new Map<string, Tile>();

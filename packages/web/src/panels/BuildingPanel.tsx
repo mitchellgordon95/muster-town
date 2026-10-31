@@ -53,7 +53,7 @@ export function BuildingPanel({ id, tab }: { id: string; tab?: string }) {
 }
 
 /** Walk the avatar to a place and open its panel; falls back to just opening the panel. */
-export function walk(placeId: string, panel: Parameters<typeof store.open>[0]) {
+function walk(placeId: string, panel: Parameters<typeof store.open>[0]) {
   if (!store.walkTo(placeId, panel ?? undefined)) store.open(panel);
 }
 
@@ -144,7 +144,7 @@ function createsLabel(x: Schedule, b: SnapshotBuilding): ReactNode {
 }
 
 /** The building's Schedule tab (GET /api/scheduled): timed jobs that live on the building; each run goes to whoever is around. The schedule board on the map opens it. */
-export function ScheduledList({ b }: { b: SnapshotBuilding }) {
+function ScheduledList({ b }: { b: SnapshotBuilding }) {
   const all = useTown((s) => s.scheduled);
   const assignments = useTown((s) => s.assignments);
   useTown((s) => s.me);

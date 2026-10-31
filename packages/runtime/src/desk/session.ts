@@ -7,7 +7,7 @@ import { execFileSync } from "node:child_process";
 import { AppError, codeWorkspace, deskPreset, REPO_TOKEN_SECRET, type World } from "@muster-town/core";
 import { townEnvBoth, type AllocationAuth, type DeskActivityInput, type DesksConfig, type Session } from "@muster-town/schema";
 import { describeTool } from "../describe.ts";
-import { assertOneCredential, credentialEnv, InputChannel } from "../sdk.ts";
+import { assertHostedCredential, assertOneCredential, credentialEnv, InputChannel } from "../sdk.ts";
 import { bookRunning, clipJson, clipThought, fundedBy, fundingFor, fundingForSession, homeOf, type Ctx, type Funding, type LiveSession } from "../session.ts";
 import { finishWorkSession, preflightWork, walkToDesk } from "../work.ts";
 import { DESK_BIN, type DeskBackend } from "./backend.ts";
@@ -19,7 +19,7 @@ export interface DeskSessionOptions {
 
 let ghCache: { token: string | null } | null = null;
 /** `gh auth token` on the host, cached for the process. Never logged. */
-export function ghCliToken(): string | null {
+function ghCliToken(): string | null {
   if (ghCache) return ghCache.token;
   try {
     const t = execFileSync("gh", ["auth", "token"], { stdio: ["ignore", "pipe", "ignore"], timeout: 10_000 }).toString().trim();
@@ -84,7 +84,9 @@ export function deskEnv(ctx: Ctx, session: Session, opts: DeskSessionOptions = {
     ...(agent.forkOf ? gitIdentityEnv(agent.name) : {}),
   };
   Object.assign(env, grantedSecrets(ctx, session, building.id));
-  const auth = deskAuth(funding ?? fundingFor(world, agent.id));
+  const f = funding ?? fundingFor(world, agent.id);
+  assertHostedCredential(f.credential, !!ctx.hosted || world.bank.hosted()); // a hosted collective's desk never gets a subscription token
+  const auth = deskAuth(f);
   Object.assign(env, auth.env);
   env.DESK_AUTH = auth.mode; // a label, not a secret: the desk logs it
   console.log(`[runtime] ${agent.name} session ${session.id} auth: ${auth.mode}`);
@@ -98,7 +100,7 @@ export function deskEnv(ctx: Ctx, session: Session, opts: DeskSessionOptions = {
 }
 
 /** Git author and committer for `name` (as the desk's workspace setup writes into a checkout: `<slug>@muster-town.local`). */
-export function gitIdentityEnv(name: string): Record<string, string> {
+function gitIdentityEnv(name: string): Record<string, string> {
   const email = `${name.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "") || "agent"}@muster-town.local`;
   return { GIT_AUTHOR_NAME: name, GIT_AUTHOR_EMAIL: email, GIT_COMMITTER_NAME: name, GIT_COMMITTER_EMAIL: email };
 }

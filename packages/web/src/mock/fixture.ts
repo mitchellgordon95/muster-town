@@ -138,9 +138,9 @@ const asg = (a: Omit<Assignment, keyof typeof asgBase | "position"> & Partial<As
 const grantBase = { outcome: null, findingsDocIds: [] as string[], checkpointsDone: [] as number[], checkpointDocId: null as string | null, fundedBy: null as string | null, fundedWith: null as string | null, fundedAt: null as string | null, closedAt: null, spentTokens: 0, approach: "", picture: null as string | null, whatYoudSee: "" };
 type Kr = NonNullable<GrantView["keyResult"]>;
 const kr = (buildingId: string, position: number, text: string, howToCheck: string, status: Kr["status"] = "not-started"): Kr =>
-  ({ id: `kr_${buildingId}_${position}`, buildingId, position, text, howToCheck, status, statusNote: "", statusBy: null, createdBy: "us_mitchell", editedBy: null, sourceDocIds: [], objectiveId: null, goalId: "gl_town", due: null, archivedAt: null, underReviewSince: null, postmortemDocId: null, updatedAt: ago(30) });
-/** A grant names one goal key result; the rest of what it promised is its testing plan. */
-const plan = (k: Kr, ...rest: Kr[]) => ({ keyResultId: k.id, keyResult: k, testingPlan: rest.map(({ text, howToCheck }) => ({ text, howToCheck })) });
+  ({ id: `kr_${buildingId}_${position}`, buildingId, position, text, howToCheck, status, statusNote: "", statusBy: null, createdBy: "us_mitchell", editedBy: null, sourceDocIds: [], objectiveId: null, goalId: "gl_town", grantId: null, due: null, archivedAt: null, underReviewSince: null, postmortemDocId: null, updatedAt: ago(30) });
+/** A grant carries its own key results (docs/how-work-gets-done.md §4); the first is its keyResultId. */
+const plan = (k: Kr, ...rest: Kr[]) => ({ goalId: "gl_town", keyResultId: k.id, keyResult: k, keyResults: [k, ...rest], testingPlan: [] });
 /** Grants waiting for a human (Town Hall in-tray): a proposal and a checkpoint. */
 export const grants: GrantView[] = [
   {

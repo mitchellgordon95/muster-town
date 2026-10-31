@@ -95,8 +95,8 @@ function humanName(world: World, e: Event): string | null {
 }
 
 const grantLine = (world: World, g: Grant) => {
-  const kr = g.keyResultId ? world.keyResults.get(g.keyResultId) : undefined;
-  return `Status ${g.status}; ${fmt(world.grantDesk.view(g).spentTokens)} of ${fmt(g.grantTokens ?? 0)} tokens spent; key result ${kr ? `${kr.id} [${kr.status}] ${kr.text}` : "(none named)"}.`;
+  const krs = world.grantDesk.keyResultsOf(g.id);
+  return `Status ${g.status}; ${fmt(world.grantDesk.view(g).spentTokens)} of ${fmt(g.grantTokens ?? 0)} tokens spent; key results ${krs.length ? krs.map((k) => `${k.id} [${k.status}] ${k.text}`).join("; ") : "(none)"}.`;
 };
 
 const fmt = (n: number) => n.toLocaleString("en-US");
@@ -161,7 +161,7 @@ const already = (world: World, agentId: string, key: string) => !!world.assignme
 
 const firstLine = (s: string, n = 80) => { const f = s.trim().split("\n")[0].trim(); return f.length > n ? f.slice(0, n - 1) + "…" : f; };
 
-export type StepFiveWake = { kind: "interrupt"; agentId: string } | { kind: "assignment"; agentId: string; assignment: Assignment } | null;
+type StepFiveWake = { kind: "interrupt"; agentId: string } | { kind: "assignment"; agentId: string; assignment: Assignment } | null;
 
 /** Rule `request-answer`: the line that makes the wake for `doc.updated` event `eventId` to `agentId` unique. */
 export const requestAnswerKey = (eventId: number | string, agentId: string) => `wake:request-answer:${eventId}:${agentId}`;

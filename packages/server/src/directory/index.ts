@@ -15,24 +15,24 @@ const MIN = 60_000;
 const HOUR = 60 * MIN;
 const DAY = 24 * HOUR;
 /** listed only if seen within this window */
-export const SEEN_WINDOW_MS = DAY;
+const SEEN_WINDOW_MS = DAY;
 /** a pending row older than this is replaced with a fresh token on register (step 2's checker deletes it) */
-export const PENDING_TTL_MS = 7 * DAY;
+const PENDING_TTL_MS = 7 * DAY;
 /** the list query is memoized this long */
-export const LIST_CACHE_MS = MIN;
+const LIST_CACHE_MS = MIN;
 /** in-memory and per process (one Machine; a restart resets them, which is acceptable) */
 export const LIMITS = { registerPerIpPerDay: 10, pendingPerIp: 5, newPerDay: 200, maxVerified: 500, maxPending: 200, verifyPerIpPerHour: 30 };
 /** a pending row is checked at these offsets from createdAt, then daily */
-export const PENDING_SCHEDULE_MS = [MIN, 5 * MIN, 15 * MIN, HOUR, 6 * HOUR];
+const PENDING_SCHEDULE_MS = [MIN, 5 * MIN, 15 * MIN, HOUR, 6 * HOUR];
 /** verified rows are re-checked every hour ± this */
-export const RECHECK_JITTER_MS = 10 * MIN;
+const RECHECK_JITTER_MS = 10 * MIN;
 /** a verified row unseen this long is deleted (it can register again) */
-export const UNSEEN_TTL_MS = 7 * DAY;
+const UNSEEN_TTL_MS = 7 * DAY;
 /** POST /verify runs at most one check per host in this window (later calls get the last result) */
-export const VERIFY_WINDOW_MS = MIN;
-export const TICK_MS = 5 * MIN;
-export const TICK_ROWS = 20;
-export const TICK_CONCURRENCY = 4;
+const VERIFY_WINDOW_MS = MIN;
+const TICK_MS = 5 * MIN;
+const TICK_ROWS = 20;
+const TICK_CONCURRENCY = 4;
 const FETCH = { timeoutMs: 5000 };
 
 /**
@@ -49,7 +49,7 @@ export function directoryEnabled(flag: string | undefined, publicUrl: string | u
   }
 }
 
-export interface DirectoryOptions {
+interface DirectoryOptions {
   world: World;
   now?: () => number;
   /** the header the client IP comes from (`fly-client-ip` behind Fly's proxy, which overwrites it); else the socket address */
@@ -61,7 +61,7 @@ export interface DirectoryOptions {
   random?: () => number;
 }
 
-export interface CheckResult {
+interface CheckResult {
   host: string;
   status: "pending" | "verified";
   proof: "txt" | "well-known" | null;
@@ -70,9 +70,9 @@ export interface CheckResult {
   lastError: string | null;
 }
 
-export interface DirectoryView { verified: number; listed: number; pending: number; lastTickAt: string | null }
+interface DirectoryView { verified: number; listed: number; pending: number; lastTickAt: string | null }
 
-export interface Registration {
+interface Registration {
   host: string;
   token: string;
   status: "pending" | "verified";
@@ -88,7 +88,7 @@ interface FullRow extends Row { proof: "txt" | "well-known" | null; proofMisses:
 
 const iso = (ms: number) => new Date(ms).toISOString();
 /** a stranger's text shown on muster.town: control characters out, whitespace collapsed, length-capped (the tile escapes HTML) */
-export function cleanText(v: unknown, max: number): string {
+function cleanText(v: unknown, max: number): string {
   return typeof v === "string" ? v.replace(/[\u0000-\u001f\u007f-\u009f]/g, " ").replace(/\s+/g, " ").trim().slice(0, max) : "";
 }
 

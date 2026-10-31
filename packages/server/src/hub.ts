@@ -18,10 +18,10 @@ export interface HubCollective {
 }
 
 /** Path segments a hosted collective can't take: the Workshop's own routes and the homepage's. */
-export const RESERVED_SLUGS = new Set(RESERVED);
+const RESERVED_SLUGS = new Set(RESERVED);
 
 /** What the API key starts a collective with: about $20 of Opus output at list price; the admin changes it at the Bank. */
-export const STARTER_KEY_TOKENS = 1_000_000;
+const STARTER_KEY_TOKENS = 1_000_000;
 
 /**
  * `POST /api/collectives`: the slug defaults to the name's (`slugify`); `apiKey` (optional, an Anthropic Console key,
@@ -36,7 +36,7 @@ export const CreateCollectiveInput = z.object({
 export type CreateCollectiveInput = z.infer<typeof CreateCollectiveInput>;
 
 /** Builds the Fastify app that serves one hosted World under `/<slug>` (main.ts and tests pass `buildApp`). */
-export type MountHosted = (world: World, row: HubCollective, dir: string) => Promise<FastifyInstance>;
+type MountHosted = (world: World, row: HubCollective, dir: string) => Promise<FastifyInstance>;
 
 interface Mounted { row: HubCollective; world: World; app: FastifyInstance }
 

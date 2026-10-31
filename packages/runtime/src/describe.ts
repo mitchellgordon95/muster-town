@@ -6,7 +6,7 @@ const clip = (s: unknown, n = 80) => {
   return t.length > n ? t.slice(0, n - 1) + "…" : t;
 };
 
-export function hostOf(url: unknown): string {
+function hostOf(url: unknown): string {
   try { return new URL(String(url)).hostname.replace(/^www\./, ""); } catch { return clip(url, 40); }
 }
 
@@ -16,6 +16,13 @@ function placeName(world: World, to: string): string {
   const a = world.agents.get(to);
   return a ? a.name : to;
 }
+
+const REVIEW: Record<string, string> = {
+  approve: "Approving a report",
+  continue: "Approving a report and its next step",
+  redirect: "Redirecting a report's next step",
+  stop: "Stopping an agent after a report",
+};
 
 export function describeTool(world: World, name: string, input: unknown): string {
   const i = (input ?? {}) as Record<string, unknown>;
@@ -36,7 +43,11 @@ export function describeTool(world: World, name: string, input: unknown): string
       const d = world.docs.get(String(i.id ?? ""));
       return d ? `Reading "${clip(d.title, 60)}"` : `Reading doc ${clip(i.id, 20)}`;
     }
-    case "write": return `Writing ${String(i.type ?? "note")} "${clip(i.title, 60)}"`;
+    case "write": {
+      if (i.type === "log") return "Writing a log line";
+      if (i.type === "wiki") return `Updating page "${clip(i.title, 60)}"`;
+      return `Writing ${String(i.type ?? "note")} "${clip(i.title, 60)}"`;
+    }
     case "submit_report": return `Submitting report: ${clip(i.title, 60)}`;
     case "request_human": return `Asking humans for help: ${clip(i.title, 60)}`;
     case "assignments": return "Checking assignments";
@@ -50,8 +61,10 @@ export function describeTool(world: World, name: string, input: unknown): string
       if (a === "summary") return "Submitting a meeting summary";
       return "Checking the meeting";
     }
-    case "review": return `Reviewing a report: ${String(i.decision ?? "")}`;
-    case "assign": return `Assigning work to ${world.nameOf(String(i.agentId ?? ""))}`;
+    case "review": return REVIEW[String(i.decision)] ?? "Reviewing a report";
+    case "assign": return i.agentId
+      ? `Assigning work to ${world.nameOf(String(i.agentId))}: ${clip(i.title, 60)}`
+      : `Queuing work: ${clip(i.title, 60)}`;
     case "cancel": return i.scheduleId ? "Cancelling a schedule" : "Cancelling a queued assignment";
     case "fork_status": return `Checking on ${world.nameOf(String(i.forkId ?? "")) || "a fork"}`;
     case "stop_fork": return `Asking ${i.forkId ? world.nameOf(String(i.forkId)) : "a fork"} to wrap up and stop`;
@@ -61,8 +74,6 @@ export function describeTool(world: World, name: string, input: unknown): string
     case "close_grant": return "Closing a grant as done";
     case "set_objective": return i.id ? "Editing an objective" : `Writing an objective: ${clip(i.text, 60)}`;
     case "propose_goal": return `Proposing a goal change (${i.action})`;
-    case "propose_key_result": return i.id ? "Proposing a key result edit" : `Proposing a key result: ${clip(i.text, 60)}`;
-    case "set_key_result": return i.id ? "Editing a key result" : `Writing a key result: ${clip(i.text, 60)}`;
     case "promote": return `Promoting a doc to the ${i.state === "library" ? "library" : "board"}`;
     case "ban": return `Banning ${world.nameOf(String(i.agentId ?? ""))}`;
     default: return `Using ${verb}`;

@@ -108,7 +108,9 @@ export function Donate({ onChange }: { onChange: () => void }) {
   const [recurrence, setRecurrence] = useState<BankRecurrence>("once");
   const [weeklyCap, setWeeklyCap] = useState("10");
   const [model, setModel] = useState("claude-opus-5-5");
-  // a hosted collective (served at /<slug>/) runs on API keys only: no subscription source
+  // a hosted collective (served at /<slug>/; its health says its funding) runs on API keys only: no subscription source
+  // anywhere in this form (Anthropic's subscription terms; the API refuses one too). The Workshop and self-hosted towns keep it.
+  const hosted = useTown((s) => s.health?.funding) != null || !!API_BASE;
   const [picked, setAuth] = useState<AllocationAuth>(API_BASE ? "api-key" : "subscription");
   const [goalId, setGoalId] = useState("");
   const streams = useLoad(() => api().bankStreams(), []);
@@ -117,9 +119,9 @@ export function Donate({ onChange }: { onChange: () => void }) {
   const admin = me.isAdmin;
   const bank = to === "bank";
   const building = buildings.find((x) => x.id === to);
-  const sub = bank && source === "subscription";
+  const sub = bank && source === "subscription" && !hosted;
   // only admins fund a building with the town's own credentials; everyone else gives their own key
-  const auth: AllocationAuth = admin ? picked : "donor-key";
+  const auth: AllocationAuth = admin ? (hosted && picked === "subscription" ? "api-key" : picked) : "donor-key";
   const n = fromMillions(tokens);
   const cap = fromMillions(weeklyCap);
   const amountOk = Number.isFinite(n) && n >= 1;
@@ -134,7 +136,7 @@ export function Donate({ onChange }: { onChange: () => void }) {
     if (bank) {
       await api().addBankInput({
         label: label.trim() || (sub ? `${me.user.name}'s subscription` : `${me.user.name}'s API key`),
-        source, model, tokens: n, recurrence: sub ? "daily" : recurrence,
+        source: sub ? "subscription" : "api-key", model, tokens: n, recurrence: sub ? "daily" : recurrence,
         weeklyCapTokens: sub ? cap : undefined, apiKey: sub ? undefined : apiKey.trim(), token: sub ? apiKey.trim() : undefined,
         goalId: !sub && goalId ? goalId : undefined,
       });
@@ -163,7 +165,7 @@ export function Donate({ onChange }: { onChange: () => void }) {
         </div>
         <div className="row2">
           {bank ? <>
-            {admin && !API_BASE ? (
+            {admin && !hosted ? (
               <Field label="Source">
                 <select value={source} onChange={(e) => setSource(e.target.value as "api-key" | "subscription")}>
                   <option value="api-key">API key</option>
@@ -181,7 +183,7 @@ export function Donate({ onChange }: { onChange: () => void }) {
           </> : <>
             <Field label="Paid by">
               <select value={auth} onChange={(e) => setAuth(e.target.value as AllocationAuth)}>
-                {admin && !API_BASE ? <option value="subscription">Subscription (monthly allowance)</option> : null}
+                {admin && !hosted ? <option value="subscription">Subscription (monthly allowance)</option> : null}
                 {admin ? <option value="api-key">API key (one-time buffer)</option> : null}
                 <option value="donor-key">My own API key</option>
               </select>

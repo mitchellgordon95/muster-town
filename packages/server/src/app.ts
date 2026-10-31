@@ -1,4 +1,4 @@
-import { AppError, canInteract, isAppError, type World } from "@muster-town/core";
+import { AppError, canInteract, countFunnel, isAppError, joinFunnel, sumFunnels, type World } from "@muster-town/core";
 import cors from "@fastify/cors";
 import fastifyStatic from "@fastify/static";
 import websocket from "@fastify/websocket";
@@ -32,7 +32,7 @@ import { wsRoutes } from "./ws.ts";
 
 export const DEFAULT_WEB_DIST = resolve(dirname(fileURLToPath(import.meta.url)), "../../web/dist");
 /** The Muster Town skill a stranger's own agent reads (served at `/skill.md`, so no repo clone is needed). */
-export const SKILL_FILE = resolve(dirname(fileURLToPath(import.meta.url)), "../../../skills/muster-town/SKILL.md");
+const SKILL_FILE = resolve(dirname(fileURLToPath(import.meta.url)), "../../../skills/muster-town/SKILL.md");
 
 export interface BuildAppOptions {
   world: World;
@@ -64,7 +64,7 @@ export interface BuildAppOptions {
 
 const API_PREFIXES = ["/api", "/ws", "/mcp", "/auth"];
 /** Active hosted collectives one GitHub user may own (a town admin: no cap). */
-export const HOSTED_PER_PERSON = 1;
+const HOSTED_PER_PERSON = 1;
 
 /** The Fastify app (not listening). Tests use `app.inject`; `main.ts` calls `listen`. */
 export async function buildApp(opts: BuildAppOptions): Promise<FastifyInstance> {
@@ -185,6 +185,16 @@ export async function buildApp(opts: BuildAppOptions): Promise<FastifyInstance> 
   }
   if (prefix) await app.register(routes, { prefix });
   else await routes(app);
+
+  // The join funnel (grant gr_fibsfwr4tz step 3): public counts only, never who. The guest card pings `view` once per load;
+  // the root's GET also lists every hosted collective, so their strangers are rows too.
+  app.post(`${prefix}/api/join-funnel/view`, async () => { countFunnel(opts.world, "guestCardViews"); return { counted: true }; });
+  app.get(`${prefix}/api/join-funnel`, async () => {
+    const own = { slug: prefix ? prefix.slice(1) : opts.collective ?? "workshop", world: opts.world };
+    const hosted = prefix ? [] : (opts.hub?.list("active") ?? []).flatMap((h) => { const w = opts.hub!.world(h.slug); return w ? [{ slug: h.slug, world: w }] : []; });
+    const all = [own, ...hosted];
+    return { ...sumFunnels(all.map((c) => c.world)), collectives: all.map((c) => ({ slug: c.slug, ...joinFunnel(c.world) })) };
+  });
 
   // Serve the client dynamically (wildcard): a rebuild after startup must be served without a restart.
   // index.html is never cached so a stale page can't point at an asset hash that no longer exists.

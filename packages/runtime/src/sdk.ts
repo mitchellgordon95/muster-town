@@ -3,7 +3,7 @@
  * (so interrupts arrive as the next user message), usage accounting, and a one-shot helper.
  */
 import { addUsage, rawTokens, sdkTokenCounts, ZERO_TOKENS, type TokenUsage } from "@muster-town/schema";
-import type { Credential } from "@muster-town/core";
+import { HOSTED_KEY_ONLY_HOLD, type Credential } from "@muster-town/core";
 import type { Options, SDKUserMessage } from "@anthropic-ai/claude-agent-sdk";
 import { mkdirSync } from "node:fs";
 import { join } from "node:path";
@@ -160,12 +160,22 @@ export function assertOneCredential(env: Record<string, string | undefined>): vo
 
 
 /**
+ * A hosted collective's session runs on an Anthropic API key only (Anthropic's subscription terms; Mitchell, 1:1
+ * mt_p3ge56kg03): its env never carries `CLAUDE_CODE_OAUTH_TOKEN`. `Budget.fundingFor` already refuses; this is the
+ * check on the env that leaves the host. Throws for a subscription credential when `hosted`.
+ */
+export function assertHostedCredential(credential: Pick<Credential, "kind">, hosted: boolean): void {
+  if (hosted && credential.kind === "subscription") throw new Error(HOSTED_KEY_ONLY_HOLD);
+}
+
+/**
  * Environment for a host session: an allowlist of the host env (never `{...process.env}`, which holds host secrets:
  * the admin and deploy tokens, OAuth client secret, data key, DESK_ENV_*), which may hold no credential of its own
  * (`assertNoEnvCredentials`), plus exactly one model credential: the Bank's, from the session's funding.
  */
-export function sessionEnv(credential: Credential, hostEnv: NodeJS.ProcessEnv = process.env): Record<string, string> {
+export function sessionEnv(credential: Credential, hostEnv: NodeJS.ProcessEnv = process.env, hosted = false): Record<string, string> {
   assertNoEnvCredentials(hostEnv);
+  assertHostedCredential(credential, hosted);
   const env: Record<string, string> = {};
   for (const [k, v] of Object.entries(hostEnv)) {
     if (v !== undefined && (SESSION_ENV_NAMES.has(k) || SESSION_ENV_PREFIXES.some((p) => k.startsWith(p)))) env[k] = v;
@@ -193,7 +203,7 @@ export function hostedEnv(dir: string, hostEnv: NodeJS.ProcessEnv = process.env)
 const HOSTED_DROP = new Set(["HOME", "USERPROFILE", "APPDATA", "LOCALAPPDATA"]);
 
 /** One call, no tools: returns the final text and usage. `credential`: the Bank's, from the funding; `env`: the host env to allowlist from (a hosted runtime's own). */
-export async function oneShot(sdk: Sdk, opts: { model: string; system: string; prompt: string; credential: Credential; env?: NodeJS.ProcessEnv }): Promise<Usage & { text: string; error: string | null }> {
+export async function oneShot(sdk: Sdk, opts: { model: string; system: string; prompt: string; credential: Credential; env?: NodeJS.ProcessEnv; hosted?: boolean }): Promise<Usage & { text: string; error: string | null }> {
   let text = "";
   let usage: Usage = noUsage();
   let error: string | null = null;
@@ -209,7 +219,7 @@ export async function oneShot(sdk: Sdk, opts: { model: string; system: string; p
         maxTurns: 1,
         settingSources: [],
         persistSession: false,
-        env: sessionEnv(opts.credential, opts.env),
+        env: sessionEnv(opts.credential, opts.env, opts.hosted),
       },
     });
     for await (const raw of q) {

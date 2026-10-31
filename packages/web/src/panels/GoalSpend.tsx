@@ -11,7 +11,7 @@ import { store, useTown } from "../state";
 import { GoalPicker } from "./GoalPicker";
 import { ADJ, ADJ_HINT, Empty, ErrorLine, Loading, Pill, Section, fmtTokens, useLoad } from "./ui";
 
-export const SPEND_WINDOWS = [7, 30, 90] as const;
+const SPEND_WINDOWS = [7, 30, 90] as const;
 const LANES: { id: keyof SpendByLane; label: string }[] = [
   { id: "grant", label: "grant" }, { id: "exploration", label: "exploration" }, { id: "directed", label: "directed" }, { id: "none", label: "no lane" },
 ];

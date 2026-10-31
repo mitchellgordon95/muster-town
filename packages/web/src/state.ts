@@ -19,9 +19,9 @@ import { redirectPanel } from "./panels/room";
  */
 export type PanelKind = "agent" | "building" | "connect" | "library" | "outbox" | "meeting" | "intray" | "board" | "cabinet" | "planning" | "schedule" | "mod" | "bank" | "admin" | "grant" | "manual" | "dashboard" | "goals" | "assignment" | "session";
 export interface PanelRef { kind: PanelKind; id?: string; docId?: string; tab?: string }
-export interface Toast { id: number; text: string; tone: "info" | "ok" | "bad"; panel?: PanelRef }
+interface Toast { id: number; text: string; tone: "info" | "ok" | "bad"; panel?: PanelRef }
 
-export interface TownState {
+interface TownState {
   conn: "connecting" | "open" | "closed";
   me: AuthMe | null;
   town: Town | null;
@@ -299,8 +299,6 @@ export function useTown<T>(selector: (s: TownState) => T): T {
   const get = () => selector(store.state);
   return useSyncExternalStore(store.subscribe, get, get); // the server snapshot is the same store (static renders in tests)
 }
-
-export function placeAt(places: Place[], id: string) { return places.find((p) => p.id === id); }
 
 /** True when `a` is the manager its home building's settings name. */
 export function isManager(a: Pick<Agent, "id" | "homeBuildingId">, buildings: SnapshotBuilding[] = store.state.buildings): boolean {
