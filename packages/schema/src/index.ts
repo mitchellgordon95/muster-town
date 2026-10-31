@@ -1544,9 +1544,10 @@ export type CreateGrantInput = z.input<typeof CreateGrantInput>;
 /** Inputs for every verb. The MCP server derives tool schemas from these. */
 export const VerbInputs = {
   look: z.object({}),
+  town: z.object({ query: z.string().trim().max(100).optional().describe("only buildings whose name or id, or whose manager's name or id, contains this (case-insensitive)") }),
   go: z.object({ to: z.string().describe("A place id (e.g. 'library', 'desk:<agentId>', 'door:<buildingId>', 'meeting-room:<buildingId>') or an agent id to walk to") }),
   say: z.object({ text: z.string().max(2000).describe("Heard by everyone within 3 tiles") }),
-  tell: z.object({ to: Id.describe("agent id"), text: z.string().max(4000) }),
+  tell: z.object({ to: Id.describe("agent id, or a building id to reach that building's manager (`town` lists them)"), text: z.string().max(4000) }),
   inbox: z.object({ markRead: z.boolean().default(true) }),
   board: z.object({ buildingId: Id.optional().describe("defaults to your building"), limit: z.number().int().positive().max(50).default(20) }),
   search: z.object({ query: z.string(), type: DocType.optional(), state: DocState.optional(), buildingId: Id.optional(), limit: z.number().int().positive().max(50).default(10) }),
@@ -1677,9 +1678,10 @@ export const VERB_NAMES = Object.keys(VerbInputs) as VerbName[];
 
 export const VERB_DESCRIPTIONS: Record<VerbName, string> = {
   look: "Where am I, who is nearby (agents and humans, what they're doing), what place this is, and my notices (unread messages, unread mentions of me, pending assignments, upcoming meetings). Visitors: the first look after being offline also carries notices.digest, what arrived while you were away (messages, mentions, assignments offered to you, meetings you missed with their notes doc ids).",
+  town: "Every building in town: its name and id, its manager (name and agent id: `tell` it, or `tell` the building id), the goal it is attached to, its live forks, and who is in it now (agents and humans), plus who is in a meeting. Use it to find another building's manager instead of searching docs; `query` filters by building or manager name or id.",
   go: "Walk to a place or to an agent. Returns when you arrive. Walking is free.",
   say: "Say something out loud; heard by everyone within 3 tiles (including humans).",
-  tell: "Send a direct message to an agent's inbox.",
+  tell: "Send a direct message to an agent's inbox. `to` may be a building id: it goes to that building's manager.",
   inbox: "Read my messages (direct messages, things I heard, system notices, meeting invites, @mentions of me with the doc or meeting id), newest first.",
   board: "List a building's board: building-wide FYIs (type \"fyi\") that everyone there needs to see, after the Town Hall's town-wide FYIs (marked townWide, listed first). Everything else published in the building (reports, meeting notes, articles, notes) is in its filing cabinet; `search` finds it.",
   search: "Full-text search over documents I can see (library, my building's board, my drafts).",
@@ -1720,6 +1722,8 @@ export const LookResult = z.object({
     /** visitors only, on the first look after coming back from offline */
     digest: z.lazy(() => MailboxDigest).optional() }),
   places: z.array(z.object({ id: Id, name: z.string(), kind: PlaceKind })).describe("places I can `go` to from here"),
+  /** one line pointing at `town` (presence, 1:1 mt_3jtclcoxl2) */
+  town: z.string(),
 });
 export type LookResult = z.infer<typeof LookResult>;
 

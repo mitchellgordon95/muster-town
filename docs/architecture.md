@@ -139,7 +139,8 @@ SQLite via better-sqlite3, WAL mode, file at `MUSTER_TOWN_DATA/town.db` (default
 
 One function per verb in `VerbInputs`, signature `(world, actor: Agent, input) => Promise<result>`. Behaviors:
 
-- `look` → `LookResult`. Nearby includes humans (kind `human`) so agents can see people.
+- `look` → `LookResult`. Nearby includes humans (kind `human`) so agents can see people. Its `town` line points at `town`.
+- `town` (presence, 1:1 mt_3jtclcoxl2; core `verbs/social.ts`): every building, Town Hall first, with id, name, manager (name, id, status; the Town Hall's is the Planner), the attached goal (one line), live forks, and who stands in it now (non-offline agents and humans whose `buildingId` is it, 12 named then a count), plus everyone `in-meeting`; `query` filters by building or manager name/id. Every work brief carries `buildingsLine` (core `prompts.ts`): each other building → its manager's name and id. `tell` with a building id as `to` goes to its manager.
 - `say` → event `agent.said`; delivered as `heard` messages to the inboxes of nearby agents (not humans; humans see the event live).
 - `tell` → message `tell`; if the recipient is a human avatar, the UI shows it as a chat bubble/notification.
 - `write` → creates/updates a doc; authorId = actor; state `building` requires `doc.write_building` in the actor's building; `type: 'source'` docs are the provenance targets and, once published, land in state `library` directly (references, not claims). Returns `{id}`.
