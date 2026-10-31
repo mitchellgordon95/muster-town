@@ -3,7 +3,7 @@
  * muster.town, prove control (TXT or `/.well-known/muster-town`), and verified towns seen in the last 24 h are listed.
  * Step 1: register + list. Step 2: check (TXT, then well-known, then the town's health + collectives), verify, the checker
  * (`start()`: pending schedule, hourly re-check, two-miss delist, 7-day expiry), admin removal + block list, the health section.
- * Rows live in `directory_towns` (migration 059) in the town's own db, so the nightly backup covers them.
+ * Rows live in `directory_towns` (migration 059) in the town's own db, so the hourly backup covers them.
  * Only built where MUSTER_TOWN_DIRECTORY=on (main.ts); the clock is injectable for tests (the Monitor pattern).
  */
 import { AppError, type World } from "@muster-town/core";
