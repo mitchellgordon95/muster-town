@@ -340,7 +340,7 @@ export class Goals {
   }
 
   // ---- proposals (managers and their forks; a human accepts or cuts) ----
-  /** `propose_goal` / `propose_key_result`: a change to the tree for a human to accept or cut. A newer one on the same target supersedes the older. */
+  /** `propose_goal`: a change to the tree for a human to accept or cut. A newer one on the same target supersedes the older. */
   propose(actor: Actor, input: ProposeGoalInput): GoalProposalView {
     const inp = ProposeGoalInput.parse(input);
     const by = actor ? holderOf(actor) : { kind: "user" as const, id: "system" };

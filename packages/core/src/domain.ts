@@ -358,7 +358,7 @@ export function townHallIntray(world: World): { reports: Doc[]; grants: GrantVie
   return { reports: th ? intrayOf(world, th.id) : [], grants: grantsAwaitingDecision(world), goalProposals: world.goalTree.listProposals({ status: "open" }), access: pendingAccessRequests(world), blocked: world.grantDesk.blockedBuildings() };
 }
 
-/** Open goal proposals (propose_goal / propose_key_result): Town Hall in-tray items a human accepts or cuts (docs/goals.md step 4). */
+/** Open goal proposals (propose_goal): Town Hall in-tray items a human accepts or cuts (docs/goals.md step 4). */
 const openGoalProposals = (world: World) => world.goalProposals.count("status = 'open'");
 
 /** In-tray size as the badge shows it: pending items of that in-tray (the Town Hall's counts its grants and access requests too). */
