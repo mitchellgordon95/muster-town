@@ -120,6 +120,8 @@ credential to switch to inside itself (1:1 mt_x40qq8poc3). A `bank.hold` event i
 
 ## Funding streams and the draw order (goal tree step 7)
 
+> Superseded by [how-work-gets-done.md](how-work-gets-done.md) §7: pools are deleted (one balance + earmarks + draw order); free tokens and exploration reservations replace the pool and the exploration allowance.
+
 Decided in docs/goals.md "Streams" (1:1 mt_529jbnwvmi), go-ahead in 1:1 mt_cz11aqe81a. Migration 064 adds `bank_inputs.goalId` and `idleNotifiedAt`.
 
 - **An earmark** is an api-key input with a `goalId` (POST /api/bank/inputs `goalId`; the Donate form's "Earmark for"). It pays only for sessions whose work sits in that goal's subtree. The general balance never sees it: `Bank.live()` and the durable debits exclude earmarked credits, and the general key picks (`liveApiKeyInput`, `fallbackInput`, `fundingFor`) skip earmarked inputs. A subscription can't be earmarked.
