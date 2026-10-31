@@ -9,15 +9,13 @@ import type { EventType } from "./events.ts";
 import { AppError, badRequest, forbidden, notFound } from "./errors.ts";
 import type { Actor } from "./ops.ts";
 import { DIRECTED } from "./lanes.ts";
+import { goalFunding } from "./free-tokens.ts";
 import { holderOf } from "./permissions.ts";
-import { BUDGET_POLICY } from "./policy.ts";
 import { queuePostmortem } from "./postmortems.ts";
 import { whereOf } from "./table.ts";
 import { newId, nowIso } from "./util.ts";
 import type { World } from "./world.ts";
 
-/** Default exploration allowance: this share of the building's pool's daily inflow (BUDGET_POLICY, open question 1). */
-export const EXPLORATION_SHARE = BUDGET_POLICY.explorationShare;
 /**
  * Spend fractions at which a funded grant pauses for a human checkpoint: only 100% ("a grant is good for the number
  * granted", Mitchell, town hall mt_rjhwj2qggm). The 50% one is gone; `releaseHalfway` frees grants it still holds.
@@ -30,7 +28,12 @@ const TERMINAL: GrantStatus[] = ["closed", "rejected"];
 /** Why a goal-directed building is blocked (shown on GET /api/buildings/:id, the board and the Town Hall in-tray). */
 export const BLOCKED_NO_KRS = "blocked: no key results to work toward";
 
-export interface ExplorationBudget { allowanceTokens: number; spentTodayTokens: number }
+/**
+ * Today's exploration of a building (docs/how-work-gets-done.md §8): no allowance. What it spent today, the free tokens
+ * under its goal (exploration's only money gate) and the optional cap inherited from its goal (null = uncapped) with what
+ * the capping goal's subtree spent on exploration today.
+ */
+export interface ExplorationBudget { spentTodayTokens: number; freeTokens: number; cap: { tokensPerDay: number; goalId: string; spentTodayTokens: number } | null }
 /** A goal key result with the live (funded or checkpoint) grant working on it, if any. */
 /** A goal key result as the API returns it: the live grant on it, and the names of who wrote / last edited it (null = unknown or never). */
 export type GoalKeyResult = KeyResult & { grantId: string | null; createdByName: string | null; editedByName: string | null };
@@ -119,7 +122,7 @@ export class Grants {
     // an objective is a goal of the town tree with the same id, under the building's attachment (docs/goals.md)
     this.world.goals.upsert({
       id: o.id, parentId: this.world.goalTree.attachmentOf(b), position: o.position, text: o.text, ownerId: null, status: "active", retiredAt: null, retiredBy: null, retiredNote: "",
-      createdBy: o.createdBy, editedBy: null, sourceDocIds: o.sourceDocIds, poolId: null, explorationTokensPerDay: null, createdAt: o.updatedAt, updatedAt: o.updatedAt,
+      createdBy: o.createdBy, editedBy: null, sourceDocIds: o.sourceDocIds, exploreCapTokensPerDay: null, createdAt: o.updatedAt, updatedAt: o.updatedAt,
     });
     this.world.events.append({
       type: "objective.created", agentId: actor?.id ?? null, buildingId, text: `${b.name} objective: ${o.text}`,
@@ -266,15 +269,13 @@ ${open.map((g) => `The open proposal ${g.id} ("${g.objective}")`).join("; ")} na
     return !actor || this.world.permissions.can(actor, "building.manage", buildingId) || this.world.permissions.can(actor, "building.fund", buildingId);
   }
 
-  /** Today's (UTC) exploration spend of the building's residents against its allowance. */
+  /** Today's (UTC) exploration of the building: its spend, the free tokens under its goal, and the optional cap. */
   exploration(buildingId: string): ExplorationBudget {
     const b = this.world.buildings.require(buildingId, "building");
-    const pool = this.world.bank.poolOf(b.id).id;
-    const split = BUDGET_POLICY.explorationSplitAcrossPool ? Math.max(1, this.world.bank.buildingsIn(pool).filter((x) => x.kind !== "town-hall").length) : 1;
-    // the attached goal's budget, inherited down the tree; the Town Hall explores nothing
-    const set = this.world.bank.fundingAt(this.world.goalTree.attachmentOf(b)).exploration;
-    const allowanceTokens = b.kind === "town-hall" ? 0 : set?.tokensPerDay ?? Math.floor(this.world.bank.poolDailyInflow(pool) * EXPLORATION_SHARE / split);
-    return { allowanceTokens, spentTodayTokens: this.laneSpentToday(buildingId, "exploration") };
+    const goalId = this.world.goalTree.attachmentOf(b);
+    const f = goalFunding(this.world, goalId);
+    const cap = f.exploreCap ? { ...f.exploreCap, spentTodayTokens: f.exploreSpentTodayTokens } : null;
+    return { spentTodayTokens: this.laneSpentToday(buildingId, "exploration"), freeTokens: f.free.freeTokens, cap };
   }
 
   /** Today's (UTC) directed spend of the building's residents (1:1 mt_ryw7ejayvu: its own bucket, next to exploration). */
@@ -284,8 +285,8 @@ ${open.map((g) => `The open proposal ${g.id} ("${g.objective}")`).join("; ")} na
   }
 
   /** Session tokens in one lane of the building's residents since 00:00 UTC. */
-  private laneSpentToday(buildingId: string, lane: "exploration" | "directed"): number {
-    const day = new Date(); day.setUTCHours(0, 0, 0, 0);
+  laneSpentToday(buildingId: string, lane: "exploration" | "directed", now = new Date()): number {
+    const day = new Date(now); day.setUTCHours(0, 0, 0, 0);
     return this.adjustedSum(this.world.sessions.where(
       "lane = ? AND startedAt >= ? AND agentId IN (SELECT id FROM agents WHERE homeBuildingId = ?)", [lane, day.toISOString(), buildingId]));
   }

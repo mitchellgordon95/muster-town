@@ -62,36 +62,33 @@ describe("goal-directed budgets, step 1 foundation", () => {
     expect(world.sessions.sum("tokens", "grantId = ?", [g.id])).toBe(3500);
   });
 
-  it("a pool's daily inflow is its share of the Bank's recurring inputs", () => {
+  it("the daily inflow is the Bank's recurring inputs per day", () => {
     const { world, seed } = seededWorld();
     world.bank.addInput(seed.admin.id, { label: "Sub", source: "subscription", token: "sk-ant-oat01-test-token", model: "m", tokens: 20_000_000, recurrence: "daily", weeklyCapTokens: 140_000_000 });
     expect(world.bank.dailyInflow()).toBe(20_000_000);
-    expect(world.bank.poolDailyInflow("general")).toBe(20_000_000);
   });
 });
 
-describe("goal budget settings (the exploration budget lives on the goal)", () => {
-  it("a new building's goal sets no exploration budget: the default allowance", () => {
+describe("goal budget settings (the optional exploration cap lives on the goal)", () => {
+  it("a new building's goal sets no exploration cap: uncapped", () => {
     const { world, admin } = seededWorld();
     const b = world.ops.createBuilding(admin, { name: "New lab" });
-    expect(world.bank.fundingOf(b.id).exploration).toBeNull();
+    expect(world.grantDesk.exploration(b.id).cap).toBeNull();
   });
 
-  it("explorationTokensPerDay on a goal needs a human funder: an admin or the goal's owner yes, an agent manager no", () => {
+  it("exploreCapTokensPerDay on a goal needs a human funder: an admin or the goal's owner yes, an agent manager no", () => {
     const { world, admin } = seededWorld();
     const goal = world.goalTree.create(null, { parentId: "gl_town", text: "Owned" });
     world.goalTree.attach(null, LAB, goal.id);
     const owner = world.ops.createUser("Owner").user;
     world.goalTree.update(admin, goal.id, { ownerId: owner.id });
     const avatar = world.ops.ensureAvatar(owner.id);
-    expect(world.goalTree.update(avatar, goal.id, { explorationTokensPerDay: 1_500_000 }).explorationTokensPerDay).toBe(1_500_000);
-    expect(world.grantDesk.exploration(LAB).allowanceTokens).toBe(1_500_000);
+    expect(world.goalTree.update(avatar, goal.id, { exploreCapTokensPerDay: 1_500_000 }).exploreCapTokensPerDay).toBe(1_500_000);
+    expect(world.grantDesk.exploration(LAB).cap).toEqual({ tokensPerDay: 1_500_000, goalId: goal.id, spentTodayTokens: 0 });
     const resident = world.agents.first("homeBuildingId = ? AND kind = 'resident'", [LAB])!;
     world.permissions.grant(resident, buildingRoleId(LAB, "manager"));
-    expect(() => world.goalTree.update(resident, goal.id, { explorationTokensPerDay: 9_000_000 })).toThrow(/owner of|building.fund/);
-    // the owner can't set the pool: that is an admin's call
-    expect(() => world.goalTree.update(avatar, goal.id, { poolId: "general" })).toThrow(/admin/);
-    expect(world.events.list({ types: ["goal.edited"] }).some((e) => e.payload.goalId === goal.id && e.payload.explorationTokensPerDay === 1_500_000)).toBe(true);
+    expect(() => world.goalTree.update(resident, goal.id, { exploreCapTokensPerDay: 9_000_000 })).toThrow(/owner of|building.fund/);
+    expect(world.events.list({ types: ["goal.edited"] }).some((e) => e.payload.goalId === goal.id && e.payload.exploreCapTokensPerDay === 1_500_000)).toBe(true);
     void World;
   });
 });

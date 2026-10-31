@@ -1,16 +1,14 @@
 /**
  * Bank sections (panel kind `bank`): the top contributors, the one Donate form (to the Bank or to one building),
- * each building's allocations, the inputs that fund the Bank, and the accounting pools. Token amounts are typed in
+ * each building's allocations, the inputs that fund the Bank, and its funding streams. Token amounts are typed in
  * millions (MTokensInput) and sent as whole tokens.
  */
 import { useState } from "react";
 import type { AllocationAuth, BankRecurrence, BankStreams, GoalTreeNode } from "@muster-town/schema";
 import { api, API_BASE, type Bank } from "../api";
 import { store, useTown } from "../state";
-import { fmtPct, poolColor } from "../pools";
 import { SignInNote } from "../auth/auth";
 import { ADJ, ADJ_HINT, Act, Empty, Field, Loading, MTokensInput, Pill, Section, breakdownTitle, fmtTokens, fromMillions, timeAgo, useLoad } from "./ui";
-import { goalShortName } from "../purpose";
 
 interface Props { bank: Bank; onChange: () => void }
 
@@ -94,7 +92,7 @@ function flatGoals(n: GoalTreeNode | null, depth = 0): { id: string; text: strin
 
 /**
  * The one donation form. "To" picks the target: the Bank (an API key, once or recurring, shared by every building
- * through the pools; the owner can add their subscription, daily with a weekly cap) or one building (an allocation
+ * through the one balance; the owner can add their subscription, daily with a weekly cap) or one building (an allocation
  * it alone draws on, paid by the owner's subscription, the town's API key or the donor's own key). Amounts are typed
  * in millions and sent as whole tokens.
  */
@@ -153,7 +151,7 @@ export function Donate({ onChange }: { onChange: () => void }) {
     <Section title="Donate">
       <form className="form" onSubmit={(e) => e.preventDefault()}>
         <div className="row2">
-          <Field label="To" hint={bank ? "Shared by every building, split between the pools." : `Held by ${building?.name ?? "this building"} alone.`}>
+          <Field label="To" hint={bank ? "Shared by every building: the one balance they all draw on." : `Held by ${building?.name ?? "this building"} alone.`}>
             <select value={to} onChange={(e) => setTo(e.target.value)}>
               <option value="bank">The Bank (every building)</option>
               {buildings.map((x) => <option key={x.id} value={x.id}>{x.name}</option>)}
@@ -210,7 +208,7 @@ export function Donate({ onChange }: { onChange: () => void }) {
         ) : null}
         {needsKey && !sub ? <KeyLimitNote /> : null}
         {warning ? <div className="foot-note warn" role="status">⚠ {warning}</div> : null}
-        <div className="foot-note">{bank ? (sub ? "Subscription tokens expire at each daily renewal; buildings spend them first." : "Credited to the Bank and split between the pools by their %.") : AUTH_HINT[auth]}</div>
+        <div className="foot-note">{bank ? (sub ? "Subscription tokens expire at each daily renewal; buildings spend them first." : "Credited to the Bank's balance; every building draws on it.") : AUTH_HINT[auth]}</div>
         <div className="actions"><Act tone="primary" disabled={!ready} run={submit}>{bank ? "Donate to the Bank" : `Fund ${building?.name ?? "building"}`}</Act></div>
       </form>
     </Section>
@@ -337,105 +335,6 @@ export function BankStreamsSection({ rev }: { rev?: number }) {
           </tbody>
         </table>
       )}
-    </Section>
-  );
-}
-
-/**
- * Accounting pools: each pool is a slice of the Bank that its buildings share, first come first served. An admin
- * creates, renames and deletes pools no goal names, and sets a pool's % (or clears it back to an equal split of what's
- * left). Which pool a building draws from is set on goals (the goal tree's Funding block), inherited down the tree:
- * the table lists the goals each pool funds and so its buildings (the Town Hall too: it draws like any building).
- */
-export function BankPools({ bank, onChange }: Props) {
-  const isAdmin = useTown((s) => !!s.me?.isAdmin);
-  const [edit, setEdit] = useState<Record<string, { name: string; pct: string }>>({});
-  const [name, setName] = useState("");
-  const [pct, setPct] = useState("");
-  const labs = [...bank.buildings].sort((a, b) => a.name.localeCompare(b.name));
-  const cancel = (id: string) => setEdit(({ [id]: _, ...rest }) => rest);
-  const save = async (id: string, input: { name?: string; pct?: number | null }) => { await api().updateBankPool(id, input); cancel(id); onChange(); };
-  return (
-    <Section title="Pools">
-      <table className="table pools-table">
-        <thead><tr><th>Pool</th><th>Share</th><th title="What its buildings can still draw today, first come first served">Can draw</th><th title="The goals that set this pool, and the buildings attached at or under them">Funds goals → buildings</th>{isAdmin ? <th /> : null}</tr></thead>
-        <tbody>
-          {bank.pools.map((p) => {
-            const draft = edit[p.id];
-            const members = p.buildings;
-            const badPct = !!draft && draft.pct !== "" && (+draft.pct < 0 || +draft.pct > 100);
-            return (
-              <tr key={p.id}>
-                <td>
-                  <span className="pool-swatch" style={{ background: poolColor(bank, p.id) }} />
-                  {draft ? <input className="pool-name-input" value={draft.name} maxLength={80} autoFocus onChange={(e) => setEdit({ ...edit, [p.id]: { ...draft, name: e.target.value } })} />
-                    : <b>{p.name}</b>}
-                  {p.isDefault ? <span className="muted" title="Buildings under no goal that sets a pool draw from General. It can't be deleted."> (default)</span> : null}
-                </td>
-                <td>
-                  {draft
-                    ? <input className="pct-input" type="number" min={0} max={100} step={1} value={draft.pct} placeholder="auto" title="Leave blank for an equal split of what's left" onChange={(e) => setEdit({ ...edit, [p.id]: { ...draft, pct: e.target.value } })} />
-                    : <>{fmtPct(p.pct)} {p.explicit ? null : <span className="muted" title="No set share: splits what's left equally with the other pools that have buildings">(auto)</span>}</>}
-                </td>
-                <td title={`${fmtTokens(p.expiringTokens)} expiring today · ${fmtTokens(p.durableTokens)} permanent`}>{fmtTokens(p.expiringTokens + Math.max(0, p.durableTokens))}</td>
-                <td className="pool-members">{/* goal names are inline <a>s, not buttons: a button wraps as a block and strands the ", " on a line of its own */}
-                  {p.goals.map((g, i) => <span key={g.goalId}>{i ? ", " : null}<a className="link" href="#" title={g.text} onClick={(e) => { e.preventDefault(); store.open({ kind: "goals", id: g.goalId }); }}>{goalShortName(g.text)}</a></span>)}
-                  {p.isDefault ? <span className="muted">{p.goals.length ? " and " : ""}every goal that sets none</span> : !p.goals.length ? <span className="muted">no goal</span> : null}
-                  {" → "}{members.length ? members.map((b) => b.name).join(", ") : <span className="muted">no building</span>}
-                </td>
-                {isAdmin ? (
-                  <td className="actions">
-                    {draft ? <>
-                      <Act small tone="primary" disabled={!draft.name.trim() || badPct}
-                        run={() => save(p.id, { name: draft.name.trim(), pct: draft.pct === "" ? null : +draft.pct })}>Save</Act>
-                      <button type="button" className="btn sm" onClick={() => cancel(p.id)}>Cancel</button>
-                    </> : <>
-                      <button type="button" className="btn sm" onClick={() => setEdit({ ...edit, [p.id]: { name: p.name, pct: p.explicit ? String(p.pct) : "" } })}>Edit</button>
-                      {p.explicit ? <Act small run={() => save(p.id, { pct: null })} title="Back to an equal split of what's left">Auto</Act> : null}
-                      {!p.isDefault && !p.goals.length
-                        ? <Act small tone="bad" run={async () => { await api().deleteBankPool(p.id); store.toast(`Deleted ${p.name}`, "ok"); onChange(); }}>Delete</Act>
-                        : null}
-                    </>}
-                  </td>
-                ) : null}
-              </tr>
-            );
-          })}
-        </tbody>
-      </table>
-      {isAdmin ? (
-        <div className="inline-form pool-new">
-          <input value={name} maxLength={80} onChange={(e) => setName(e.target.value)} placeholder="New pool name" />
-          <input className="pct-input" type="number" min={0} max={100} step={1} value={pct} onChange={(e) => setPct(e.target.value)} placeholder="auto %" title="Leave blank for an equal split of what's left" />
-          <Act small tone="primary" disabled={!name.trim() || (pct !== "" && (+pct < 0 || +pct > 100))} run={async () => {
-            await api().createBankPool({ name: name.trim(), pct: pct === "" ? null : +pct });
-            store.toast(`Created ${name.trim()}`, "ok");
-            setName(""); setPct("");
-            onChange();
-          }}>Create pool</Act>
-        </div>
-      ) : null}
-      <h4 className="sub-head">Buildings</h4>
-      <table className="table">
-        <thead><tr><th>Building</th><th>Pool</th><th title="Unspent adj. tokens donated straight to this building">Held</th></tr></thead>
-        <tbody>
-          {labs.map((r) => (
-            <tr key={r.buildingId}>
-              <td>{r.name}</td>
-              <td>
-                <span className="pool-pick">
-                  <span className="pool-swatch" style={{ background: poolColor(bank, r.poolId) }} />
-                  {r.poolGoalId
-                    ? <button className="link" title={`From goal ${r.poolGoalText ?? r.poolGoalId}`} onClick={() => store.open({ kind: "goals", id: r.poolGoalId! })}>{r.poolName}</button>
-                    : r.poolName}
-                </span>
-              </td>
-              <td title={r.heldByAuth ? `${fmtTokens(r.heldByAuth.subscription)} subscription · ${fmtTokens(r.heldByAuth.apiKey)} API key · ${fmtTokens(r.heldByAuth.donorKey)} donors' keys` : undefined}>{fmtTokens(r.heldTokens)}</td>
-            </tr>
-          ))}
-        </tbody>
-      </table>
-      <div className="foot-note">Pools without a set share split what's left equally; an empty pool gets nothing. Buildings in a pool share it first come first served. Set shares can add up to 100% at most. An admin sets a goal's pool in the goal tree (Funding); it takes effect at once for every building under it, and what a building already drew stays charged to its old pool.</div>
     </Section>
   );
 }

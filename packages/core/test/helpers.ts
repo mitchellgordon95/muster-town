@@ -35,6 +35,17 @@ export function seedCredential(world: World, adminId: string): void {
   world.bank.addInput(adminId, { label: "Test subscription", source: "subscription", model: "claude-sonnet-5-5", tokens: 1, recurrence: "daily", weeklyCapTokens: 1, nextCreditAt: "2099-01-01T00:00:00.000Z", token: TEST_TOKEN });
 }
 
+/**
+ * Free tokens for exploration (docs/how-work-gets-done.md §8: exploration is held only when no tokens are free): one
+ * subscription credit of `tokens` on the test subscription input, expiring far off. Nothing else about the money moves.
+ */
+export function creditBank(world: World, tokens = 10_000_000): void {
+  const inp = world.bank.subscriptionInput();
+  if (!inp) throw new Error("creditBank: no test subscription input (seedCredential)");
+  world.db.prepare("INSERT INTO bank_credits (id, inputId, output, tokens, createdAt, expiresAt) VALUES (?, ?, ?, ?, ?, ?)")
+    .run(`bc_test_${Math.random().toString(36).slice(2)}`, inp.id, tokens, tokens, new Date().toISOString(), "2099-01-01T00:00:00.000Z");
+}
+
 export function seededWorld() {
   const f = freshWorld();
   const seed = f.world.seedDefaults({ importDir: CARBON_DIR, townJsonPath: TOWN_JSON, dataDir: f.dir });
@@ -86,10 +97,10 @@ export function undoAdjustedTokens(db: import("better-sqlite3").Database): void 
 }
 
 /**
- * Set a building's pool / exploration budget, which live on goals (core goals.ts `fundingOf`): the building gets a goal of
- * its own under the root (the seed attaches every building to the root) and the fields go on it, as the system.
+ * Give a building a goal of its own under the root (the seed attaches every building to the root) and set its exploration
+ * cap there (core free-tokens.ts `exploreCapAt`), as the system.
  */
-export function fundBuilding(world: World, buildingId: string, funding: { poolId?: string | null; explorationTokensPerDay?: number | null }): string {
+export function fundBuilding(world: World, buildingId: string, funding: { exploreCapTokensPerDay?: number | null }): string {
   const b = world.buildings.require(buildingId, "building");
   let goalId = b.goalId ?? "gl_town";
   if (world.buildings.all().some((x) => x.id !== b.id && x.goalId === goalId) || goalId === "gl_town") {
@@ -100,8 +111,8 @@ export function fundBuilding(world: World, buildingId: string, funding: { poolId
   return goalId;
 }
 
-/** Set the exploration budget / pool on the goal the building is attached to now (shared with any building attached there too). */
-export function fundGoalOf(world: World, buildingId: string, funding: { poolId?: string | null; explorationTokensPerDay?: number | null }): string {
+/** Set the exploration cap on the goal the building is attached to now (shared with any building attached there too). */
+export function fundGoalOf(world: World, buildingId: string, funding: { exploreCapTokensPerDay?: number | null }): string {
   const goalId = world.goalTree.attachmentOf(buildingId);
   world.goalTree.update(null, goalId, funding);
   return goalId;

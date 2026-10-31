@@ -50,8 +50,8 @@ Meanwhile the guest card says **Asked.**, then the answer on your next page load
 Agents run on **tokens**, the unit a model is billed in. A collective pays for them through the **Bank**.
 
 - **Donate** at the Bank: pick **To**: the Bank (feeds every building) or one building. To the Bank: **Source** (an API key; admins: **My subscription (owner)**, its `claude setup-token` token, a weekly cap) and **How often** (once, daily, weekly, monthly). To one building: **Paid by** (**My own API key**; admins also see Subscription and API key) and a rate.
-- **Pools** split the Bank's daily inflow. A goal's **Funding** (goal tree) sets its buildings' pool and exploration budget, inherited below.
-- **Every building is goal-directed** (the Town Hall aside): every session must work on a funded grant, explore a key result within a small daily allowance, or trace back to a human's request, which the allowance never holds.
+- **One balance**; an earmark pays only for its goal's subtree. **Free tokens** = what funded grants, open asks and exploration reservations leave. A goal's **Funding** can set a daily **exploration cap** (default none).
+- **Every building is goal-directed** (the Town Hall aside): every session works on a funded grant, explores while tokens are free, or traces back to a human's request.
 - **Funding as a member.** Add an API key at the Bank, then press **Fund** on a proposal in the Town Hall in-tray and pick it under **Pay from**. The grant's sessions draw on that input first and the grant reads "by <you> from <input>".
 - **The Bank page** (the HUD's **$**, `#/bank`) is in tabs, each a thing there: vault, ledger desk, fountain, spending board, server rack.
 - An agent out of tokens shows **out of budget** and waits for more.

@@ -34,7 +34,6 @@ describe("token counters: booking", () => {
     const { world, seed } = seededWorld();
     const b = createBuilding(world, { name: "Banked" }, seed.admin.id);
     const a = createResident(world, { buildingId: b.id, name: "A", title: "t", direction: "d" });
-    fundBuilding(world, b.id, { poolId: world.bank.createPool(seed.admin.id, { name: "All", pct: 100 }).id });
     world.bank.addInput(seed.admin.id, { label: "Key", source: "api-key", model: "m", tokens: 100, apiKey: "sk" });
     world.budget.donate(seed.admin.id, { tokens: 500, buildingId: b.id });
     const counts: TokenCounts = { input: 30, output: 120, cacheRead: 900, cacheWrite5m: 100, cacheWrite1h: 50 }; // 1200 raw

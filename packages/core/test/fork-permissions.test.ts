@@ -1,7 +1,7 @@
 /** Forks step 2 friction 1 (dc_6tsgcif8r1): a live fork of the manager inherits town.redeploy and the Town Hall board; nothing else. */
 import { describe, expect, it, vi } from "vitest";
 import { canPostTownBoard, createBuilding, createDoc, createResident, forkManager, retireFork, townRoleId, updateBuilding } from "../src/index.ts";
-import { seededWorld } from "./helpers.ts";
+import { creditBank, seededWorld } from "./helpers.ts";
 
 const TOWN_HALL_ID = "town-hall";
 
@@ -13,7 +13,7 @@ function forkLab() {
   const pix = createResident(world, { buildingId: b.id, name: "Pix", sprite: 5 });
   const ann = createResident(world, { buildingId: b.id, name: "Ann" });
   updateBuilding(world, b.id, { managerAgentId: pix.id });
-  world.buildings.upsert({ ...world.buildings.require(b.id), explorationTokensPerDay: 10_000_000 });
+  creditBank(world);
   world.budget.donate(seed.admin.id, { tokens: 1_000_000, buildingId: b.id });
   const manager = world.agents.require(pix.id);
   world.permissions.grant(manager, townRoleId("deployer"));

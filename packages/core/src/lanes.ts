@@ -94,16 +94,16 @@ export function isCheckpointAssignment(a: Pick<Assignment, "lane" | "grantId" | 
 
 /**
  * Why the lane gate holds this assignment now, or null (the gate half of `Budget.canStart`). The Town Hall: never.
- * grant → the grant is funded (its checkpoint assignment also runs at checkpoint); exploration → the building's
- * exploration spend today is under its allowance; directed → never the allowance, but one naming a key result stops
- * once a grant proposal names that key result (its default stop condition).
+ * grant → the grant is funded (its checkpoint assignment also runs at checkpoint); exploration → there are free tokens
+ * under the building's goal and the optional exploration cap it inherits isn't reached (docs/how-work-gets-done.md §8);
+ * directed → never held for money, but one naming a key result stops once a grant proposal names that key result.
  */
 export function laneHold(world: World, a: Assignment): string | null {
   return laneBlock(world, a)?.reason ?? null;
 }
 
-/** `laneHold` with what it is: the grant hold (and its grant), the reservation hold, the spent exploration allowance, or directed work done (a grant proposal names its key result). */
-export function laneBlock(world: World, a: Assignment): { kind: "grant" | "reserved" | "exploration" | "done"; reason: string; grantId?: string; used?: number; allowance?: number } | null {
+/** `laneHold` with what it is: the grant hold (and its grant), the reservation hold, exploration with no free tokens or at its cap, or directed work done (a grant proposal names its key result). */
+export function laneBlock(world: World, a: Assignment): { kind: "grant" | "reserved" | "exploration" | "done"; reason: string; grantId?: string; used?: number; cap?: number } | null {
   const building = world.buildings.get(a.buildingId);
   if (!laneGated(building)) return null;
   if (a.lane === "grant") {
@@ -120,9 +120,12 @@ export function laneBlock(world: World, a: Assignment): { kind: "grant" | "reser
   }
   if (a.lane === "exploration") {
     const e = world.grantDesk.exploration(a.buildingId);
-    if (e.spentTodayTokens >= e.allowanceTokens) return { kind: "exploration", used: e.spentTodayTokens, allowance: e.allowanceTokens, reason: `held: exploration allowance spent today (${fmt(e.spentTodayTokens)} / ${fmt(e.allowanceTokens)} tokens)` };
+    if (e.freeTokens <= 0) return { kind: "exploration", reason: "held: no free tokens under its goal (funded grants, open proposals and reservations claim the whole balance)" };
+    if (e.cap && e.cap.spentTodayTokens >= e.cap.tokensPerDay) {
+      return { kind: "exploration", used: e.cap.spentTodayTokens, cap: e.cap.tokensPerDay, reason: `held: exploration cap reached today (${fmt(e.cap.spentTodayTokens)} / ${fmt(e.cap.tokensPerDay)} tokens, set on goal ${e.cap.goalId})` };
+    }
   }
-  // directed work is never held by the allowance; one naming a key result runs until a grant proposal names it
+  // directed work is never held for money; one naming a key result runs until a grant proposal names it
   if (a.lane === "directed" && a.keyResultId) {
     const g = world.grants.first("keyResultId = ? AND status NOT IN ('draft', 'rejected')", [a.keyResultId], "ORDER BY createdAt");
     if (g) return { kind: "done", grantId: g.id, reason: `held: done once a grant proposal names its key result (${g.id}, ${g.status})` };

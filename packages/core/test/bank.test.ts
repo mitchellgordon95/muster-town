@@ -1,7 +1,6 @@
 import { describe, expect, it } from "vitest";
-import Database from "better-sqlite3";
-import { createBuilding, createResident, World } from "../src/index.ts";
-import { fundBuilding, seededWorld } from "./helpers.ts";
+import { createBuilding, createResident } from "../src/index.ts";
+import { seededWorld } from "./helpers.ts";
 
 const T0 = new Date("2026-10-20T12:00:00.000Z");
 const at = (days: number) => new Date(T0.getTime() + days * 86_400_000);
@@ -64,89 +63,36 @@ describe("bank", () => {
     expect(() => world.bank.cancelInput(b.id, inp.id)).toThrow(/owner/);
   });
 
-  it("pools split the Bank equally unless an admin sets a share; explicit shares can't pass 100%; empty pools get nothing", () => {
-    const { world, seed } = seededWorld();
-    const other = world.ops.createUser("Other").user;
-    const lab2 = createBuilding(world, { name: "Lab 2" }, seed.admin.id);
-    const pct = (id: string) => world.bank.shares().get(id)!;
-    // everyone starts in General
-    expect(world.bank.listPools().map((p) => p.id)).toEqual(["general"]);
-    expect(pct("general")).toEqual({ pct: 100, explicit: false });
-    expect(() => world.bank.createPool(other.id, { name: "Nope" })).toThrow(/admin/);
-    const p = world.bank.createPool(seed.admin.id, { name: "Labs" });
-    expect(pct(p.id)).toEqual({ pct: 0, explicit: false }); // empty
-    fundBuilding(world, lab2.id, { poolId: p.id });
-    expect(pct("general")).toEqual({ pct: 50, explicit: false });
-    expect(pct(p.id)).toEqual({ pct: 50, explicit: false });
-    expect(() => world.bank.updatePool(other.id, p.id, { pct: 10 })).toThrow(/admin/);
-    world.bank.updatePool(seed.admin.id, p.id, { pct: 70 });
-    expect(pct(p.id)).toEqual({ pct: 70, explicit: true });
-    expect(pct("general").pct).toBe(30);
-    expect(() => world.bank.updatePool(seed.admin.id, "general", { pct: 40 })).toThrow(/30%/);
-    expect(() => world.bank.createPool(seed.admin.id, { name: "Big", pct: 31 })).toThrow(/30%/);
-    world.bank.updatePool(seed.admin.id, p.id, { pct: null, name: "Labs 2" });
-    expect(pct(p.id)).toEqual({ pct: 50, explicit: false });
-    expect(world.bank.listPools().find((x) => x.id === p.id)!.name).toBe("Labs 2");
-  });
-
-  it("a pool holding only the Town Hall gets an auto share like any pool with a building; an empty pool gets none (1:1 mt_cz11aqe81a)", () => {
-    const { world, seed } = seededWorld();
-    const p = world.bank.createPool(seed.admin.id, { name: "Labs" });
-    for (const b of world.buildings.all().filter((x) => x.kind !== "town-hall")) fundBuilding(world, b.id, { poolId: p.id });
-    expect(world.bank.shares().get("general")).toEqual({ pct: 50, explicit: false });
-    expect(world.bank.shares().get(p.id)).toEqual({ pct: 50, explicit: false });
-    const empty = world.bank.createPool(seed.admin.id, { name: "Empty" });
-    expect(world.bank.shares().get(empty.id)).toEqual({ pct: 0, explicit: false });
-  });
-
-  it("a pool can be deleted only when no goal names it; General never", () => {
-    const { world, seed } = seededWorld();
-    const p = world.bank.createPool(seed.admin.id, { name: "Temp" });
-    const goalId = fundBuilding(world, "carbon-cycle", { poolId: p.id });
-    expect(() => world.bank.deletePool(seed.admin.id, p.id)).toThrow(/1 goal/);
-    expect(() => world.bank.deletePool(seed.admin.id, "general")).toThrow(/default/);
-    fundBuilding(world, "carbon-cycle", { poolId: null });
-    expect(world.goals.require(goalId).poolId).toBeNull();
-    expect(world.bank.poolOf("carbon-cycle").id).toBe("general");
-    world.bank.deletePool(seed.admin.id, p.id);
-    expect(world.bank.listPools().map((x) => x.id)).toEqual(["general"]);
-    expect(() => fundBuilding(world, "carbon-cycle", { poolId: p.id })).toThrow(/pool/);
-  });
-
-  it("a building draws its pool's share: expiring subscription credits first, then durable; expiring ones don't roll over", () => {
+  it("every building draws the one general balance: expiring subscription credits first, then durable; expiring ones don't roll over", () => {
     const { world, seed } = seededWorld();
     const lab2 = createBuilding(world, { name: "Lab 2" }, seed.admin.id);
-    const quarter = world.bank.createPool(seed.admin.id, { name: "Quarter", pct: 25 });
-    fundBuilding(world, "carbon-cycle", { poolId: quarter.id });
     world.bank.addInput(seed.admin.id, { label: "Max plan", source: "subscription", token: "sk-ant-oat01-test-token", model: "m", tokens: 4000, recurrence: "daily", weeklyCapTokens: 100_000 }, T0);
     world.bank.addInput(seed.admin.id, { label: "Key", source: "api-key", model: "m", tokens: 8000, apiKey: "sk" }, T0);
     const now = at(0.5);
-    expect(world.bank.available("carbon-cycle", now)).toEqual({ expiring: 1000, durable: 2000 });
-    expect(world.bank.available(lab2.id, now)).toEqual({ expiring: 3000, durable: 6000 });
+    expect(world.bank.available("carbon-cycle", now)).toEqual({ expiring: 4000, durable: 8000 });
+    expect(world.bank.available(lab2.id, now)).toEqual({ expiring: 4000, durable: 8000 });
+    expect(world.bank.available("no-such-building", now)).toEqual({ expiring: 0, durable: 0 });
     expect(world.bank.fundingFor("carbon-cycle", now)).toEqual({ kind: "expiring" });
     const mei = world.agents.first("name = 'Mei'")!;
-    expect(world.bank.draw("carbon-cycle", mei.id, 1500, { now })).toBe(0);
-    expect(world.bank.available("carbon-cycle", now)).toEqual({ expiring: 0, durable: 1500 });
+    expect(world.bank.draw("carbon-cycle", mei.id, 5000, { now })).toBe(0);
+    expect(world.bank.available(lab2.id, now)).toEqual({ expiring: 0, durable: 7000 });
     const key = world.bank.summary().inputs.find((i) => i.label === "Key")!;
     expect(world.bank.fundingFor("carbon-cycle", now)).toEqual({ kind: "durable", inputId: key.id });
-    // no hard stop: an overshoot goes negative and the share is paid back from later credits
-    expect(world.bank.draw("carbon-cycle", mei.id, 2000, { now })).toBe(500);
+    // no hard stop: an overshoot goes negative and is paid back from later credits
+    expect(world.bank.draw("carbon-cycle", mei.id, 7500, { now })).toBe(500);
     expect(world.bank.draw("carbon-cycle", mei.id, 500, { now, overshoot: true })).toBe(0);
     expect(world.bank.available("carbon-cycle", now)).toEqual({ expiring: 0, durable: -500 });
     expect(world.bank.remaining("carbon-cycle", now)).toBe(0);
     expect(world.bank.fundingFor("carbon-cycle", now)).toBeNull();
-    // the day-0 subscription credit expires at the next renewal; lab 2's unused 3000 is gone
-    expect(world.bank.available(lab2.id, at(1))).toEqual({ expiring: 0, durable: 6000 });
-    expect(world.bank.balance(at(1))).toBe(5500); // 8000 durable less carbon-cycle's 2500
+    // the day-0 subscription credit expires at the next renewal; the next day's credit is new
     world.bank.creditDue(at(1));
-    expect(world.bank.available(lab2.id, at(1.5))).toEqual({ expiring: 3000, durable: 6000 });
+    expect(world.bank.available(lab2.id, at(1.5))).toEqual({ expiring: 4000, durable: -500 });
   });
 
-  it("buildings in one pool share it first come first served; the Town Hall in General draws like any building", () => {
+  it("buildings share the balance first come first served; the Town Hall draws like any building", () => {
     const { world, seed } = seededWorld();
     const lab2 = createBuilding(world, { name: "Lab 2" }, seed.admin.id);
     world.bank.addInput(seed.admin.id, { label: "Key", source: "api-key", model: "m", tokens: 1000, apiKey: "sk" }, T0);
-    // carbon-cycle, lab 2 and the Town Hall are all in General, which has 100%
     expect(world.bank.available("carbon-cycle")).toEqual({ expiring: 0, durable: 1000 });
     expect(world.bank.available(lab2.id)).toEqual({ expiring: 0, durable: 1000 });
     expect(world.bank.available("town-hall")).toEqual({ expiring: 0, durable: 1000 });
@@ -158,53 +104,21 @@ describe("bank", () => {
     expect(world.bank.remaining("carbon-cycle")).toBe(0);
   });
 
-  it("setting a goal's pool moves its buildings at once; admin only; the building PATCH no longer takes a pool", () => {
-    const { world, seed, by, admin } = seededWorld();
-    const lab2 = createBuilding(world, { name: "Lab 2" }, seed.admin.id);
-    const goalId = fundBuilding(world, "carbon-cycle", {});
-    world.bank.addInput(seed.admin.id, { label: "Key", source: "api-key", model: "m", tokens: 1000, apiKey: "sk" }, T0);
-    const solo = world.bank.createPool(seed.admin.id, { name: "Solo", pct: 40 });
-    const mei = world.agents.first("name = 'Mei'")!;
-    world.bank.draw("carbon-cycle", mei.id, 500); // General (60%): 600 → 100 left
-    expect(world.bank.available(lab2.id).durable).toBe(100);
-    // a manager (not admin) can't set a goal's pool
-    expect(() => world.goalTree.update(by("Moss"), goalId, { poolId: solo.id })).toThrow(/admin|goals.edit/);
-    expect(world.goalTree.update(admin, goalId, { poolId: solo.id }).poolId).toBe(solo.id);
-    // its next draw is from Solo; what it drew stays charged to General
-    expect(world.bank.available("carbon-cycle").durable).toBe(400);
-    expect(world.bank.available(lab2.id).durable).toBe(100);
-    expect(world.bank.draw("carbon-cycle", mei.id, 50)).toBe(0);
-    expect(world.bank.available("carbon-cycle").durable).toBe(350);
-    // null = inherit (the root sets none: General)
-    world.goalTree.update(admin, goalId, { poolId: null });
-    expect(world.bank.poolOf("carbon-cycle").id).toBe("general");
-    expect(world.events.list({ types: ["bank.pool"] }).filter((e) => e.payload.goalId === goalId)).toHaveLength(2);
-    // the goal's History shows the pool changes
-    expect(world.goalTree.history(goalId).filter((e) => e.type === "bank.pool")).toHaveLength(2);
-  });
-
-  it("the summary reports pools and a per-building view derived from its pool", () => {
+  it("the summary shows each building's view of the one balance", () => {
     const { world, seed } = seededWorld();
     const lab2 = createBuilding(world, { name: "Lab 2" }, seed.admin.id);
     world.bank.addInput(seed.admin.id, { label: "Key", source: "api-key", model: "m", tokens: 1000, apiKey: "sk" }, T0);
-    const p = world.bank.createPool(seed.admin.id, { name: "Third", pct: 33.333 });
-    const lab2Goal = fundBuilding(world, lab2.id, { poolId: p.id });
     const s = world.bank.summary();
-    expect(s.pools).toEqual([
-      { id: "general", name: "General", pct: 66.67, explicit: false, isDefault: true, buildings: expect.arrayContaining([{ buildingId: "carbon-cycle", name: expect.any(String) }, { buildingId: "town-hall", name: expect.any(String) }]), goals: [], expiringTokens: 0, durableTokens: 666 },
-      { id: p.id, name: "Third", pct: 33.33, explicit: true, isDefault: false, buildings: [{ buildingId: lab2.id, name: "Lab 2" }], goals: [{ goalId: lab2Goal, text: "Lab 2's own goal" }], expiringTokens: 0, durableTokens: 333 },
-    ]);
-    expect(s.buildings.find((b) => b.buildingId === lab2.id)).toMatchObject({ poolId: p.id, poolName: "Third", poolGoalId: lab2Goal, pct: 33.33, explicit: true, durableTokens: 333 });
-    expect(s.buildings.find((b) => b.buildingId === "carbon-cycle")).toMatchObject({ poolId: "general", poolName: "General", pct: 66.67, explicit: false, durableTokens: 666 });
-    expect(s.buildings.find((b) => b.buildingId === "town-hall")).toMatchObject({ poolId: "general", pct: 66.67, durableTokens: 666 });
+    expect(s).not.toHaveProperty("pools");
+    expect(s.buildings.find((b) => b.buildingId === lab2.id)).toEqual({ buildingId: lab2.id, name: "Lab 2", expiringTokens: 0, durableTokens: 1000, heldTokens: 0, heldByAuth: { subscription: 0, apiKey: 0, donorKey: 0 } });
+    expect(s.free).toMatchObject({ goalId: "gl_town", generalTokens: 1000, freeTokens: 1000 });
   });
 
-  it("charge draws from the pool share before the building's allocations and keeps the building able to start", () => {
+  it("charge draws from the general balance before the building's allocations and keeps the building able to start", () => {
     const { world, seed } = seededWorld();
     const b = createBuilding(world, { name: "Banked" }, seed.admin.id);
     const a = createResident(world, { buildingId: b.id, name: "A", title: "t", direction: "d" });
     expect(world.budget.canStart(a.id)).toBe(false);
-    fundBuilding(world, b.id, { poolId: world.bank.createPool(seed.admin.id, { name: "All", pct: 100 }).id });
     world.bank.addInput(seed.admin.id, { label: "Key", source: "api-key", model: "m", tokens: 1000, apiKey: "sk" });
     expect(world.budget.of(b.id)).toMatchObject({ remainingTokens: 1000, bankTokens: 1000 });
     expect(world.budget.canStart(a.id)).toBe(true);
@@ -254,97 +168,16 @@ describe("bank", () => {
   });
 });
 
-describe("accounting pools migration (023)", () => {
-  it("puts every building in General; a building with an explicit share gets its own pool with that %, and keeps its debits", () => {
-    const { world, dbPath, seed } = seededWorld();
-    const lab2 = createBuilding(world, { name: "Lab 2" }, seed.admin.id);
-    world.close();
-    // rewrite into the pre-023 shape: per-building shares, no pools
-    const db = new Database(dbPath);
-    db.exec("DROP TABLE bank_pools; DROP INDEX bank_debits_pool; ALTER TABLE bank_debits DROP COLUMN poolId; ALTER TABLE buildings DROP COLUMN poolId");
-    db.exec("CREATE TABLE bank_shares (buildingId TEXT PRIMARY KEY, pct REAL NOT NULL)");
-    db.prepare("INSERT INTO bank_shares (buildingId, pct) VALUES ('carbon-cycle', 40)").run();
-    db.prepare("INSERT INTO bank_debits (id, buildingId, agentId, creditId, output, createdAt) VALUES ('bd_1', 'carbon-cycle', 'ag_x', NULL, 10, ?)").run(T0.toISOString());
-    db.prepare("DELETE FROM schema_version WHERE version = 23").run();
-    db.close();
-
-    const w = World.open(dbPath);
-    try {
-      expect(w.bank.listPools()).toMatchObject([{ id: "general", name: "General", pct: null }, { id: "pool-carbon-cycle", pct: 40 }]);
-      expect(w.buildings.require(lab2.id).poolId).toBe("general");
-      expect(w.buildings.require("town-hall").poolId).toBe("general");
-      expect(w.buildings.require("carbon-cycle").poolId).toBe("pool-carbon-cycle");
-      expect(w.bank.shares().get("general")).toEqual({ pct: 60, explicit: false });
-      expect(w.buildings.all().every((b) => b.poolId)).toBe(true);
-    } finally {
-      w.close();
-    }
-    const after = new Database(dbPath);
-    expect(after.prepare("SELECT poolId FROM bank_debits WHERE id = 'bd_1'").get()).toEqual({ poolId: "pool-carbon-cycle" });
-    expect(after.prepare("SELECT name FROM sqlite_master WHERE name = 'bank_shares'").get()).toBeUndefined();
-    after.close();
-  });
-
-  it("on a fresh town, General exists and new buildings join it", () => {
+describe("pools deleted (migration 067)", () => {
+  it("leaves the pools-era tables and columns in place, read by nothing; debits still get the old column's default", () => {
     const { world, seed } = seededWorld();
-    const lab = createBuilding(world, { name: "New" }, seed.admin.id);
-    expect(world.bank.poolOf(lab.id)).toMatchObject({ id: "general", name: "General" });
-    expect(world.bank.summary().pools.map((p) => p.id)).toEqual(["general"]);
-  });
-});
-
-describe("pool and exploration budget move to the goal (migration 065)", () => {
-  it("back-fills each lab's pool and allowance onto its attached goal; the first building by createdAt wins a disagreement, which is logged", () => {
-    const { world, dbPath, seed } = seededWorld();
-    const lab2 = createBuilding(world, { name: "Lab 2" }, seed.admin.id);
-    const lab3 = createBuilding(world, { name: "Lab 3" }, seed.admin.id);
-    const p = world.bank.createPool(seed.admin.id, { name: "Labs" });
-    const g = world.goalTree.create(null, { parentId: "gl_town", text: "Shared goal" });
-    world.goalTree.attach(null, lab2.id, g.id);
-    world.goalTree.attach(null, lab3.id, g.id);
-    world.close();
-    // the pre-065 shape: funding on the buildings
-    const db = new Database(dbPath);
-    db.exec("ALTER TABLE goals DROP COLUMN poolId; ALTER TABLE goals DROP COLUMN explorationTokensPerDay; DELETE FROM schema_version WHERE version = 65");
-    db.prepare("UPDATE buildings SET createdAt = ?, poolId = ?, explorationTokensPerDay = 7000 WHERE id = ?").run("2026-10-01T00:00:00.000Z", p.id, lab2.id);
-    db.prepare("UPDATE buildings SET createdAt = ?, poolId = 'general', explorationTokensPerDay = NULL WHERE id = ?").run("2026-10-02T00:00:00.000Z", lab3.id);
-    db.prepare("UPDATE buildings SET poolId = ? WHERE id = 'town-hall'").run(p.id); // the Town Hall is not back-filled
-    db.close();
-
-    const w = World.open(dbPath);
-    try {
-      expect(w.goals.require(g.id)).toMatchObject({ poolId: p.id, explorationTokensPerDay: 7000 });
-      expect(w.goals.require("gl_town")).toMatchObject({ poolId: null, explorationTokensPerDay: null });
-      expect(w.bank.poolOf(lab3.id).id).toBe(p.id);
-      expect(w.bank.poolOf("town-hall").id).toBe("general");
-      expect(w.grantDesk.exploration(lab3.id).allowanceTokens).toBe(7000);
-      const conflicts = w.events.list({ types: ["bank.pool"] }).filter((e) => e.payload.backfillConflict);
-      expect(conflicts.map((e) => e.buildingId)).toEqual([lab3.id]);
-      expect(w.goalTree.history(g.id).some((e) => e.type === "goal.edited" && e.payload.backfill)).toBe(true);
-    } finally {
-      w.close();
-    }
-  });
-
-  it("a building inherits the nearest goal up the tree that sets a pool or an exploration budget", () => {
-    const { world, seed, admin } = seededWorld();
-    const p = world.bank.createPool(seed.admin.id, { name: "Fund" });
-    const top = world.goalTree.create(null, { parentId: "gl_town", text: "Top" });
-    const mid = world.goalTree.create(null, { parentId: top.id, text: "Mid" });
-    const leaf = world.goalTree.create(null, { parentId: mid.id, text: "Leaf" });
-    world.goalTree.attach(null, "carbon-cycle", leaf.id);
-    expect(world.bank.poolOf("carbon-cycle").id).toBe("general");
-    world.goalTree.update(admin, top.id, { poolId: p.id, explorationTokensPerDay: 5000 });
-    expect(world.bank.fundingOf("carbon-cycle")).toEqual({ pool: { poolId: p.id, goalId: top.id }, exploration: { tokensPerDay: 5000, goalId: top.id } });
-    expect(world.bank.poolOf("carbon-cycle").id).toBe(p.id);
-    expect(world.bank.buildingsIn(p.id).map((b) => b.id)).toEqual(["carbon-cycle"]);
-    expect(world.grantDesk.exploration("carbon-cycle").allowanceTokens).toBe(5000);
-    // the nearer goal wins
-    world.goalTree.update(admin, mid.id, { explorationTokensPerDay: 300 });
-    expect(world.grantDesk.exploration("carbon-cycle").allowanceTokens).toBe(300);
-    expect(world.goalTree.tree().children.find((c) => c.id === top.id)!.children[0].funding.exploration).toEqual({ tokensPerDay: 300, goalId: mid.id });
-    // the Town Hall keeps its special case: no exploration, even under a goal that sets one
-    world.goalTree.update(admin, "gl_town", { explorationTokensPerDay: 999 });
-    expect(world.grantDesk.exploration("town-hall").allowanceTokens).toBe(0);
+    world.bank.addInput(seed.admin.id, { label: "Key", source: "api-key", model: "m", tokens: 1000, apiKey: "sk" }, T0);
+    world.bank.draw("carbon-cycle", world.agents.first("name = 'Mei'")!.id, 10);
+    const cols = (t: string) => (world.db.prepare(`PRAGMA table_info(${t})`).all() as { name: string }[]).map((c) => c.name);
+    expect(cols("goals")).toEqual(expect.arrayContaining(["poolId", "explorationTokensPerDay", "exploreCapTokensPerDay"]));
+    expect(cols("buildings")).toEqual(expect.arrayContaining(["poolId", "explorationTokensPerDay"]));
+    expect(world.db.prepare("SELECT COUNT(*) AS n FROM bank_pools").get()).toEqual({ n: 1 });
+    expect(world.db.prepare("SELECT DISTINCT poolId FROM bank_debits").all()).toEqual([{ poolId: "general" }]);
+    expect(world.bankReservations.all()).toEqual([]);
   });
 });

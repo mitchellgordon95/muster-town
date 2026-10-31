@@ -5,17 +5,14 @@
  * overdrawn) and under the overdrawn figure its parts (overdrawnBreakdown, dc_4exx02zf9g), which sum to it; the 30-day
  * projection and the trailing burn it rests on. Sources (gr_gbpbbwy9b8 step 2) from GET /api/finance/sources: each Bank input
  * (open it for its dated credits) and each direct donation, the two subtotals and Total received, checked against /api/finance
- * `total`. Pool balances (gr_mijwhoiy2f step 2) from GET /api/finance/pools: each pool's share, what it has left (expiring
- * today, permanent) and drew, its overdrawn debt on its own row, checked against the Bank balance; then each building's draws,
- * donations, held tokens and exploration allowance, its draws checked against the Bank's debits. Spending (gr_8gtgmd828o step 2)
+ * `total`. Spending (gr_8gtgmd828o step 2)
  * from GET /api/finance/spend: `used` by building → grant → assignment, each level collapsible, with the no-grant, no-assignment
  * and unattributed, weight-mismatch (pre-conversion pricing, not spend; step 2b) and not-funded rows that make the top level
  * sum to `used`. Hosting (Fly.io) from GET /api/finance/fly (1:1 mt_s6f8mvjw9h): what the desks' Machines and the town Machine
  * cost in dollars, today and over the window, per building, estimated from desk sessions' wall time at Fly's list prices; the
  * daily desk cap when one is set. The Bank page opens from the Bank on the map, the HUD's "$", `#/bank` or the old `#/finance`.
  */
-import { api, type Finance, type FinanceFly, type FinancePools, type FinanceSources, type FinanceSpend, type SpendNode } from "../api";
-import type { ReactNode } from "react";
+import { api, type Finance, type FinanceFly, type FinanceSources, type FinanceSpend, type SpendNode } from "../api";
 import { ADJ, ADJ_HINT, Section, useLoad } from "./ui";
 
 const n = (x: number) => Math.round(x).toLocaleString("en-US");
@@ -173,86 +170,7 @@ export function SourcesView({ s }: { s: FinanceSources }) {
   );
 }
 
-/** The pools' balance check in words: pools left − overdrawn + unshared vs the Bank balance − what it is overdrawn (overshoot). */
-export function poolsBalanceLine(fp: FinancePools): { ok: boolean; text: string } {
-  const lhs = fp.poolsLeftTokens - fp.poolsOverdrawnTokens + fp.unsharedTokens, rhs = fp.balanceTokens - fp.overshootTokens;
-  const pools = `what the pools have left, ${n(fp.poolsLeftTokens)}, less what they are overdrawn, ${n(fp.poolsOverdrawnTokens)}${fp.unsharedTokens ? `, plus the unshared ${n(fp.unsharedTokens)}` : ""}`;
-  const bank = `the Bank balance, ${n(fp.balanceTokens)}${fp.overshootTokens ? `, less what it is overdrawn, ${n(fp.overshootTokens)}` : ""}`;
-  return fp.sumCheck.balanceOk
-    ? { ok: true, text: `The server checked that ${pools}, equals ${bank} (${n(rhs)}).` }
-    : { ok: false, text: `Does not add up (off by ${n(fp.sumCheck.balanceDiff)}): ${pools}, comes to ${n(lhs)}, but ${bank}, comes to ${n(rhs)}.` };
-}
-
-/** The draws check in words: Σ building draws and Σ pool draws vs every Bank debit. */
-export function poolsDrawsLine(fp: FinancePools): { ok: boolean; text: string } {
-  const b = fp.buildings.reduce((s, x) => s + x.drawn, 0), p = fp.pools.reduce((s, x) => s + x.drawn, 0);
-  return fp.sumCheck.drawsOk
-    ? { ok: true, text: `The server checked that what the buildings drew equals what the pools paid out and what the Bank debited: ${n(fp.usedBank)}.` }
-    : { ok: false, text: `Does not add up (off by ${n(fp.sumCheck.drawsDiff)}): the buildings drew ${n(b)}, the pools paid out ${n(p)}, the Bank debited ${n(fp.usedBank)}.` };
-}
-
 const Check = ({ c }: { c: { ok: boolean; text: string } }) => <div className={c.ok ? "finance-check ok" : "error-line"} role="status">{c.ok ? "✓ " : "✗ "}{c.text}</div>;
-
-/** A label and its number, never broken apart. */
-const Pair = ({ children }: { children: ReactNode }) => <span className="nowrap">{children}</span>;
-
-const Total = ({ label, tokens }: { label: string; tokens: number }) => (
-  <div className="spend-row"><span className="spend-line"><span className="spend-name"><b>{label}</b></span><span className="spend-tokens"><b>{n(tokens)}</b></span></span></div>
-);
-
-export function PoolsView({ fp }: { fp: FinancePools }) {
-  return (
-    <Section title="Pool balances">
-      <p className="muted">Each pool owns its share of every Bank credit; its buildings draw from it first come, first served. Left ({ADJ}) splits into expiring (subscription tokens: what is not used before the daily renewal is lost) and permanent (API-key tokens: kept until used).</p>
-      <div className="spend-tree">
-        {fp.pools.map((p) => (
-          <div key={p.id ?? "deleted"} className="pool-group">
-            <div className="spend-row spend-building" title={p.buildings.length ? `Buildings: ${p.buildings.map((b) => b.name).join(", ")}` : (p.id ?? undefined)}>
-              <span className="spend-line">
-                <span className="spend-name"><b>{p.name}</b>{p.buildings.length ? <span className="muted"> · {p.buildings.map((b) => b.name).join(", ")}</span> : null}</span>
-                <span className="spend-share">{p.id ? `${p.pct}%` : "—"}</span>
-                <span className="spend-tokens">{n(p.left)}</span>
-              </span>
-              <div className="muted"><Pair>expiring {n(p.expiringLeft)}</Pair> · <Pair>permanent {n(p.durableLeft)}</Pair> · <Pair>drawn all time {n(p.drawn)}</Pair></div>
-            </div>
-            {p.overdrawn ? (
-              <div className="spend-row finance-overdrawn pool-overdrawn" title="Sessions ran past the permanent tokens in the pool's share: a debt, paid back from later API-key credits">
-                <span className="spend-line"><span className="spend-name">{p.name} overdrawn: permanent tokens drawn past its share</span><span className="spend-tokens">−{n(p.overdrawn)}</span></span>
-              </div>
-            ) : null}
-          </div>
-        ))}
-        {fp.unsharedTokens ? (
-          <div className="spend-row" title="Credit tokens no pool owns: shares under 100% and rounding">
-            <span className="spend-line"><span className="spend-name">Unshared: tokens no pool owns</span><span className="spend-share">{fp.sharedPct < 100 ? `${Math.round((100 - fp.sharedPct) * 100) / 100}%` : ""}</span><span className="spend-tokens">{n(fp.unsharedTokens)}</span></span>
-          </div>
-        ) : null}
-        <Total label="Bank balance less what is overdrawn" tokens={fp.poolsLeftTokens - fp.poolsOverdrawnTokens + fp.unsharedTokens} />
-      </div>
-      <Check c={poolsBalanceLine(fp)} />
-      <p className="muted">What each building drew from its pool, all time; under it, donations straight to it, what of them it still holds, and its daily allowance.</p>
-      <p className="muted">
-        A building&apos;s daily allowance (allowance N / day) is the most it may spend each day on work no grant covers and no human asked for:
-        a tenth of its pool&apos;s daily credits unless set for that building. It is a limit, not tokens set aside; it renews at 00:00 UTC and unspent
-        allowance does not carry over. Held tokens are the unspent part of donations made straight to a building: only that building can spend them.
-        A building that draws nothing from the Bank is funded only by donations made to it.
-      </p>
-      <div className="spend-tree">
-        {fp.buildings.map((b) => (
-          <div key={b.id ?? "deleted"} className="spend-row" title={b.id ?? undefined}>
-            <span className="spend-line">
-              <span className="spend-name">{b.name}{b.poolName ? <span className="muted"> · {b.poolName}</span> : null}</span>
-              <span className="spend-tokens">{n(b.drawn)}</span>
-            </span>
-            <div className="muted">{b.drawsFromBank ? <><Pair>donated {n(b.donated)}</Pair> · <Pair>held {n(b.held)}</Pair> · <Pair>allowance {n(b.explorationTokensPerDay)} / day</Pair></> : b.id ? "draws nothing from the Bank" : "debits of buildings since deleted"}</div>
-          </div>
-        ))}
-        <Total label="Drawn from pools" tokens={fp.buildings.reduce((s, b) => s + b.drawn, 0)} />
-      </div>
-      <Check c={poolsDrawsLine(fp)} />
-    </Section>
-  );
-}
 
 /** Dollars: cents for amounts, four places for an hourly rate. */
 export const usd = (x: number, places = 2) => `$${x.toFixed(places)}`;
@@ -375,17 +293,17 @@ export function ProjectionView({ f }: { f: Finance }) {
 }
 
 /** What the Bank page's finance sections show: `f` from GET /api/finance, the rest null when its endpoint couldn't be loaded. */
-export interface FinanceData { f: Finance; spend: FinanceSpend | null; sources: FinanceSources | null; poolsFin: FinancePools | null; fly: FinanceFly | null }
+export interface FinanceData { f: Finance; spend: FinanceSpend | null; sources: FinanceSources | null; fly: FinanceFly | null }
 
-/** The five finance endpoints in parallel; only GET /api/finance is required (`error`), the others leave their section out. */
+/** The four finance endpoints in parallel; only GET /api/finance is required (`error`), the others leave their section out. */
 export function useFinance(): { data: FinanceData | null; error: string | null; loading: boolean } {
-  const d = useLoad(() => Promise.all([api().finance(), api().financeSpend().catch(() => null), api().financeSources().catch(() => null), api().financePools().catch(() => null), api().financeFly().catch(() => null)]), []);
-  return { data: d.data ? { f: d.data[0], spend: d.data[1], sources: d.data[2], poolsFin: d.data[3], fly: d.data[4] } : null, error: d.error, loading: d.loading };
+  const d = useLoad(() => Promise.all([api().finance(), api().financeSpend().catch(() => null), api().financeSources().catch(() => null), api().financeFly().catch(() => null)]), []);
+  return { data: d.data ? { f: d.data[0], spend: d.data[1], sources: d.data[2], fly: d.data[3] } : null, error: d.error, loading: d.loading };
 }
 
 /** The footer: when the figures were read and which endpoints they came from. */
-export const FinanceFooter = ({ f, spend, sources, poolsFin, fly }: FinanceData) => (
-  <p className="muted">As of {f.at.slice(0, 16).replace("T", " ")} UTC · in adjusted output tokens{fly ? " (Hosting in US dollars)" : ""} · from <code>GET /api/bank</code>, <code>/api/finance</code>{sources ? <>, <code>/api/finance/sources</code></> : null}{poolsFin ? <>, <code>/api/finance/pools</code></> : null}{spend ? <>, <code>/api/finance/spend</code></> : null}{fly ? <> and <code>/api/finance/fly</code></> : null}</p>
+export const FinanceFooter = ({ f, spend, sources, fly }: FinanceData) => (
+  <p className="muted">As of {f.at.slice(0, 16).replace("T", " ")} UTC · in adjusted output tokens{fly ? " (Hosting in US dollars)" : ""} · from <code>GET /api/bank</code>, <code>/api/finance</code>{sources ? <>, <code>/api/finance/sources</code></> : null}{spend ? <>, <code>/api/finance/spend</code></> : null}{fly ? <> and <code>/api/finance/fly</code></> : null}</p>
 );
 
 /** Every term the Bank page uses, in plain words (kr_zjawesqcyp): one list a stranger can read, at the foot of every tab. */
@@ -394,7 +312,9 @@ export const FINANCE_TERMS: [term: string, meaning: string][] = [
   ["Expiring and permanent", "Subscription tokens are credited each day and expire at the next renewal if nobody used them. API-key tokens are permanent: kept until used."],
   ["Overdrawn", "Tokens spent past what was received. Its parts: sessions that ran past the permanent tokens the Bank had (a debt, paid back from later API-key credits); subscription credits drawn past their size when the Bank switched to adjusted tokens on 2026-10-27; draws on credits since deleted; and donations a building spent past their size."],
   ["Held", "The unspent part of donations made straight to a building: only that building can spend them."],
-  ["Daily allowance", "The most a building may spend each day on work no grant covers and no human asked for. It renews at 00:00 UTC; unspent allowance does not carry over."],
+  ["Free tokens", "What exploration (work no grant covers and no human asked for) may still claim: the general balance plus any earmarks at or above a goal, less funded grants' remaining tokens, open proposals' asks and open reservations. Never below zero; at zero nothing new is explored there."],
+  ["Earmark", "A Bank input given for one goal: it pays only for work under that goal, nearest earmark first."],
+  ["Exploration cap", "An optional limit on what exploration under a goal may spend per UTC day, inherited down the tree; on the top goal it is town-wide. None set: uncapped."],
   ["Not funded", "Work sessions the Bank never charged: tokens a session used that no Bank credit or donation paid for."],
   ["Grant", "Tokens a human approves for one building to reach one dated, checkable target; each grant's row opens the grant's page."],
 ];

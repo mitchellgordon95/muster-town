@@ -32,7 +32,8 @@ describe("migration 037: the Bank in adjusted output tokens (Bank grant step 3)"
       const g = w.grants.require("gr_iq5m7dug56");
       expect(g).toMatchObject({ askTokens: 800_000, grantTokens: 800_000, checkpointsDone: [0.5] });
       expect(g.history.map((h) => h.tokens)).toEqual([800_000, null]);
-      expect(w.buildings.require(lab.id)).toMatchObject({ dailyTokensPerAgent: 333_333, explorationTokensPerDay: 100_000 });
+      expect(w.buildings.require(lab.id)).toMatchObject({ dailyTokensPerAgent: 333_333 });
+      expect(row("buildings", lab.id)).toMatchObject({ explorationTokensPerDay: 100_000 }); // the column stays, read by nothing (migration 067)
       // ledger rows: tokens is the booked adjusted figure, the raw total stays alongside
       expect(row("bank_credits", "bc_1")).toMatchObject({ tokens: 1000, rawTokens: 30_000 });
       expect(row("bank_debits", "bd_1")).toMatchObject({ tokens: 99, rawTokens: 3000 });

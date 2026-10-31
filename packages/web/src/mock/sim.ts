@@ -139,7 +139,7 @@ export class Sim {
       family: [m, ...all].reduce((f, a) => a ? { ...f, today: f.today + a.spentTokensToday, forksToday: f.forksToday + (a.forkOf ? a.spentTokensToday : 0), total: f.total + a.spentTokensTotal, usdTotal: f.usdTotal + a.spentUsdTotal } : f, { today: 0, forksToday: 0, cap: b ? b.dailyTokensPerAgent * b.headcount : 0, total: 0, usdTotal: 0, forks: all.length }),
     };
   }
-  /** The budget part of GET /api/buildings/:id/board, as core's Grants.board (exploration spend is the fixture's). */
+  /** The budget part of GET /api/buildings/:id/board, as core's Grants.board (exploration spend is the fixture's; MockApi.board fills in free tokens and the cap). */
   grantBoard(buildingId: string) {
     const b = this.buildings.find((x) => x.id === buildingId);
     const of = (g: GrantView) => g.buildingId === buildingId;
@@ -147,7 +147,7 @@ export class Sim {
     const proposals = [...this.grants.values()].filter((g) => of(g) && (g.status === "proposed" || g.status === "countered")).sort((x, y) => y.updatedAt.localeCompare(x.updatedAt));
     const keyResults = this.goalKeyResults(buildingId);
     const blocked = !!b && b.kind !== "town-hall" && !keyResults.length && !grants.length ? BLOCKED_NO_KRS : null;
-    return { goal: b?.goal ?? "", keyResults, objectives: this.objectiveTree(buildingId), blocked, stoplight: this.stoplight(buildingId), grants, proposals, exploration: { allowanceTokens: b?.explorationTokensPerDay ?? 0, spentTodayTokens: F.explorationSpentToday[buildingId] ?? 0 } };
+    return { goal: b?.goal ?? "", keyResults, objectives: this.objectiveTree(buildingId), blocked, stoplight: this.stoplight(buildingId), grants, proposals, exploration: { spentTodayTokens: F.explorationSpentToday[buildingId] ?? 0, freeTokens: 0, cap: null as { tokensPerDay: number; goalId: string; spentTodayTokens: number } | null } };
   }
   /** The building's stoplight, as core's Grants.stoplight: null for the Town Hall. */
   stoplight(buildingId: string): Stoplight | null {

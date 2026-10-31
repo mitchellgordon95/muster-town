@@ -313,7 +313,7 @@ function drawSignTip(g: CanvasRenderingContext2D, x: number, y: number, light: S
 const SANS = "ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, sans-serif";
 /**
  * The Bank's marquee, hung outside its front (bottom edge at y): the town's tokens in big gold digits, split into
- * today's expiring daily allowance, the Bank's permanent pool, and what buildings hold from direct donations.
+ * today's expiring daily allowance, the Bank's permanent (durable) tokens, and what buildings hold from direct donations.
  * `bank` null = not loaded yet.
  */
 /** The Bank's marquee. `x, y` is its bottom centre, or with `right` its right edge and vertical middle. */
@@ -352,7 +352,7 @@ export function drawBankSign(g: CanvasRenderingContext2D, x: number, y: number, 
   const gold = g.createLinearGradient(0, sy + 25, 0, sy + 57);
   gold.addColorStop(0, "#fff1b0"); gold.addColorStop(0.5, "#f2c94c"); gold.addColorStop(1, "#c8921c");
   g.fillStyle = gold; g.fillText(total, x, sy + 25);
-  // the pools side by side, with a rule between each
+  // the parts side by side, with a rule between each
   const cols = parts.length;
   g.strokeStyle = "rgba(242,201,76,.3)";
   for (let i = 1; i < cols; i++) { const lx = Math.round(sx + (w * i) / cols) + 0.5; g.beginPath(); g.moveTo(lx, sy + 66); g.lineTo(lx, sy + h - 10); g.stroke(); }

@@ -66,7 +66,7 @@ export function blockedBy(world: World, a: Assignment, at: Date = new Date()): B
     return { kind: "grant", targetId: hold.grantId ?? null, ...townHall, text: `done: grant proposal ${hold.grantId} names its key result` };
   }
   if (hold.kind === "exploration") {
-    return { kind: "exploration", targetId: a.buildingId, ...townHall, text: `exploration allowance spent (${short(hold.used ?? 0)} of ${short(hold.allowance ?? 0)} today, resets at 00:00 UTC)` };
+    return { kind: "exploration", targetId: a.buildingId, ...townHall, text: hold.cap !== undefined ? `exploration cap reached (${short(hold.used ?? 0)} of ${short(hold.cap)} today, resets at 00:00 UTC)` : "no free tokens under its goal" };
   }
   return { kind: "reserved", targetId: a.buildingId, ...townHall, text: "the building's tokens are reserved for its funded grants" };
 }

@@ -11,7 +11,6 @@ describe("bank invariants", () => {
     const { world, seed } = seededWorld();
     const b = createBuilding(world, { name: "Banked" }, seed.admin.id);
     const a = createResident(world, { buildingId: b.id, name: "A", title: "t", direction: "d" });
-    fundBuilding(world, b.id, { poolId: world.bank.createPool(seed.admin.id, { name: "All", pct: 100 }).id });
     world.bank.addInput(seed.admin.id, { label: "Key", source: "api-key", model: "m", tokens: 1000, apiKey: "sk" });
     const alloc = world.budget.donate(seed.admin.id, { tokens: 500, buildingId: b.id });
     const sum = (sql: string) => (world.db.prepare(sql).get(b.id) as { t: number | null }).t ?? 0;
@@ -54,7 +53,6 @@ describe("bank invariants", () => {
     const { world, seed } = seededWorld();
     const b = createBuilding(world, { name: "Banked" }, seed.admin.id);
     const a = createResident(world, { buildingId: b.id, name: "A", title: "t", direction: "d" });
-    fundBuilding(world, b.id, { poolId: world.bank.createPool(seed.admin.id, { name: "All", pct: 100 }).id });
     world.bank.addInput(seed.admin.id, { label: "Key", source: "api-key", model: "m", tokens: 1000, apiKey: "sk" }, T0);
     expect(world.bank.draw(b.id, a.id, 1500, { overshoot: true, now: T0 })).toBe(0);
     expect(world.bank.available(b.id, T0)).toEqual({ expiring: 0, durable: -500 });

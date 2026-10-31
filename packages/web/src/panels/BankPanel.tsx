@@ -1,8 +1,8 @@
 /**
  * The Bank (south of the road; also the HUD's "$", `#/bank` and the old `#/finance`): the town's tokens (1:1 mt_ew2d0mm7h9),
  * public, in tabs, each a thing in the Bank's room (BANK_FIXTURES: walk up or tap it to open its tab). Overview (the vault):
- * Balance, Next 30 days, top contributors, Donate. Tokens & sources (ledger desk): Tokens, Bank inputs, Sources. Pools
- * (fountain): the pools and their balances. Spending (spending board): building funding, Spending, Spend by goal (a
+ * Balance (with the town-wide free tokens), Next 30 days, top contributors, Donate. Tokens & sources (ledger desk): Tokens,
+ * Bank inputs, Sources. Free tokens (fountain): every goal's free tokens and exploration cap. Spending (spending board): building funding, Spending, Spend by goal (a
  * goal's subtree from session rows; 1:1 mt_n25udpflus decision 5), drift, out-of-tokens deaths and the cap. Hosting (server rack): Fly.io in dollars. The funding sections are BankFunding's, the finance ones
  * BankFinance's, each over its own endpoint.
  */
@@ -11,8 +11,9 @@ import { BANK_TABS } from "@muster-town/schema";
 import { api, type Bank } from "../api";
 import { store, useTown } from "../state";
 import { Glyph, PanelShell } from "./PanelShell";
-import { BankContributors, BankInputs, BankPools, BankStreamsSection, BuildingFunding, Donate } from "./BankFunding";
-import { FinanceFooter, FinanceIntro, FinanceTerms, FlyView, PoolsView, ProjectionView, SourcesView, SpendingView, TokensView, useFinance, type FinanceData } from "./BankFinance";
+import { BankContributors, BankInputs, BankStreamsSection, BuildingFunding, Donate } from "./BankFunding";
+import { FinanceFooter, FinanceIntro, FinanceTerms, FlyView, ProjectionView, SourcesView, SpendingView, TokensView, useFinance, type FinanceData } from "./BankFinance";
+import { BankFreeTokens, FreeTokensTree } from "./FreeTokens";
 import { SpendByGoal } from "./GoalSpend";
 import { ADJ, ErrorLine, Loading, Section, breakdownTitle, fmtTokens } from "./ui";
 
@@ -52,12 +53,7 @@ function BankTab({ tab, bank, fin, rev, onChange, onReload }: ViewProps) {
       {fin?.sources ? <SourcesView s={fin.sources} /> : null}
     </>
   );
-  if (tab === "Pools") return (
-    <>
-      {bank ? <BankPools bank={bank} onChange={onReload} /> : null}
-      {fin?.poolsFin ? <PoolsView fp={fin.poolsFin} /> : null}
-    </>
-  );
+  if (tab === "Free tokens") return <FreeTokensTree />;
   if (tab === "Spending") return <BankSpending bank={bank} fin={fin} rev={rev} />;
   if (tab === "Hosting") return fin?.fly ? <FlyView fly={fin.fly} /> : <p className="muted">No hosting figures yet.</p>;
   return (
@@ -69,7 +65,7 @@ function BankTab({ tab, bank, fin, rev, onChange, onReload }: ViewProps) {
             <thead><tr><th /><th>{ADJ}</th></tr></thead>
             <tbody>
               <tr><td>Town total (Bank + held by buildings)</td><td><b>{bank.townTokens.toLocaleString("en-US")}</b></td></tr>
-              <tr><td>In the Bank (split between pools)</td><td>{bank.balanceTokens.toLocaleString("en-US")}</td></tr>
+              <tr><td>In the Bank (one balance every building draws on)</td><td>{bank.balanceTokens.toLocaleString("en-US")}</td></tr>
               <tr><td>Expires today (daily allowance, no rollover)</td><td>{bank.expiringTokens.toLocaleString("en-US")}</td></tr>
               <tr><td>Permanent (stays until spent)</td><td>{bank.durableTokens.toLocaleString("en-US")}</td></tr>
               <tr><td>Held by buildings (donated to one building)</td><td>{bank.heldTokens.toLocaleString("en-US")}</td></tr>
@@ -84,6 +80,7 @@ function BankTab({ tab, bank, fin, rev, onChange, onReload }: ViewProps) {
           </table>
         )}
       </Section>
+      {bank?.free ? <BankFreeTokens free={bank.free} /> : null}
       {fin ? <ProjectionView f={fin.f} /> : null}
       {bank && <>
         <BankContributors bank={bank} />

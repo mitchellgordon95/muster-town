@@ -2,7 +2,7 @@
 import { describe, expect, it } from "vitest";
 import { createBuilding, createResident, fireSchedules, nextOccurrence, scheduleTaker, teamBlock, updateBuilding } from "../src/index.ts";
 import { World } from "../src/index.ts";
-import { seededWorld } from "./helpers.ts";
+import { creditBank, seededWorld } from "./helpers.ts";
 
 const H = 3_600_000;
 
@@ -15,7 +15,7 @@ function lab() {
   const pix = createResident(world, { buildingId: b.id, name: "Pix", sprite: 5 });
   const ann = createResident(world, { buildingId: b.id, name: "Ann" });
   updateBuilding(world, b.id, { managerAgentId: pix.id });
-  world.goals.patch(world.goalTree.attachmentOf(b.id), { explorationTokensPerDay: 10_000_000 });
+  creditBank(world);
   const me = () => world.agents.require(pix.id);
   const made = (bid = b.id) => world.assignments.where("buildingId = ?", [bid]);
   return { ...s, b, pix: me(), ann, me, made };

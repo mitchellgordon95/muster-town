@@ -1,12 +1,12 @@
 import {
   CreateGoalInput, CreateTreeKeyResultInput, DecideGoalProposalInput, ProposeGoalInput, ROOT_GOAL_ID, RetireGoalInput, UpdateGoalInput,
-  Event, type Building, type Goal, type GoalProposal, type KeyResult,
+  Event, type Building, type Goal, type GoalFunding, type GoalProposal, type KeyResult,
 } from "@muster-town/schema";
 import { sendMessage } from "./domain.ts";
+import { freeTokensAll, goalFunding } from "./free-tokens.ts";
 import { AppError, badRequest, forbidden } from "./errors.ts";
 import type { Actor } from "./ops.ts";
 import { holderOf, type Holder } from "./permissions.ts";
-import type { Repos } from "./store.ts";
 import { newId, nowIso } from "./util.ts";
 import type { World } from "./world.ts";
 
@@ -17,38 +17,10 @@ export interface GoalNode extends Goal {
   /** attached here: `headcount` = the building's desks (docs/goals.md "Effort steering is desks"), `inUse` = desks seated now */
   buildings: { id: string; name: string; headcount: number; inUse: number }[];
   keyResults: (KeyResult & { grantId: string | null })[];
-  /** the effective funding (own `poolId` / `explorationTokensPerDay` are on the goal itself; null there = inherited) */
+  /** the effective exploration cap (own `exploreCapTokensPerDay` is on the goal itself; null there = inherited) and the free tokens under it */
   funding: GoalFunding;
   children: GoalNode[];
 }
-/**
- * The funding a goal's buildings inherit (docs/goals.md "Pool and exploration budget on the goal"): the nearest
- * ancestor-or-self goal that sets a pool (one that still exists), and the nearest that sets an exploration budget.
- * null = none up the tree: the pool is General, the allowance the policy default (policy.ts, 10% of the pool's inflow).
- */
-export interface GoalFunding {
-  pool: { poolId: string; goalId: string } | null;
-  exploration: { tokensPerDay: number; goalId: string } | null;
-}
-
-/** `GoalFunding` at a goal; walks up `parentId` (cycle-safe). */
-export function fundingAt(repos: Pick<Repos, "goals" | "bankPools">, goalId: string): GoalFunding {
-  const out: GoalFunding = { pool: null, exploration: null };
-  const seen = new Set<string>();
-  for (let g = repos.goals.get(goalId); g && !seen.has(g.id); g = g.parentId ? repos.goals.get(g.parentId) : undefined) {
-    seen.add(g.id);
-    if (!out.pool && g.poolId && repos.bankPools.get(g.poolId)) out.pool = { poolId: g.poolId, goalId: g.id };
-    if (!out.exploration && g.explorationTokensPerDay !== null) out.exploration = { tokensPerDay: g.explorationTokensPerDay, goalId: g.id };
-    if (out.pool && out.exploration) break;
-  }
-  return out;
-}
-
-/** `GoalFunding` of a building: its attached goal's (the root when not attached yet). */
-export function fundingOf(repos: Pick<Repos, "goals" | "bankPools" | "buildings">, buildingId: string): GoalFunding {
-  return fundingAt(repos, repos.buildings.get(buildingId)?.goalId ?? ROOT_GOAL_ID);
-}
-
 /** A proposal as the API returns it: flagged when it reaches outside the proposing building's subtree. */
 export type GoalProposalView = GoalProposal & { proposedByName: string; outsideScope: boolean };
 
@@ -217,12 +189,13 @@ export class Goals {
       if (!names.has(id)) names.set(id, this.world.users.get(id)?.name ?? id);
       return names.get(id)!;
     };
+    const free = freeTokensAll(this.world);
     const node = (g: Goal, inherited: { goalId: string; userId: string | null }): GoalNode => {
       const owner = g.ownerId ? { goalId: g.id, userId: g.ownerId } : inherited;
       const kids = (byParent.get(g.id) ?? []).sort((a, b) => a.position - b.position || a.createdAt.localeCompare(b.createdAt));
       return {
         ...g, owner: { ...owner, name: ownerName(owner.userId) }, buildings: attached.get(g.id) ?? [], keyResults: krs.get(g.id) ?? [],
-        funding: this.world.bank.fundingAt(g.id), children: kids.map((c) => node(c, owner)),
+        funding: goalFunding(this.world, g.id, free.get(g.id)), children: kids.map((c) => node(c, owner)),
       };
     };
     return node(this.root(), { goalId: ROOT_GOAL_ID, userId: null });
@@ -239,7 +212,7 @@ export class Goals {
     const by = actor ? holderOf(actor).id : null;
     const g = this.world.goals.upsert({
       id: newId("gl"), parentId: parent.id, position: inp.position ?? (last ? last.position + 1 : 0), text: inp.text, ownerId: null, status: "active",
-      retiredAt: null, retiredBy: null, retiredNote: "", createdBy: by, editedBy: null, sourceDocIds: inp.sourceDocIds, poolId: null, explorationTokensPerDay: null, createdAt: now, updatedAt: now,
+      retiredAt: null, retiredBy: null, retiredNote: "", createdBy: by, editedBy: null, sourceDocIds: inp.sourceDocIds, exploreCapTokensPerDay: null, createdAt: now, updatedAt: now,
     });
     this.event("goal.created", actor, `Goal added under "${clip(parent.text, 60)}": ${g.text}`, { goalId: g.id, parentId: parent.id, text: g.text });
     return g;
@@ -269,18 +242,17 @@ export class Goals {
       const name = inp.ownerId ? this.world.users.get(inp.ownerId)!.name : "(inherited)";
       this.event("goal.owned", actor, `${name} owns "${clip(next.text, 80)}"`, { goalId: g.id, ownerId: inp.ownerId, fromOwnerId: g.ownerId });
     }
-    // the funding the buildings under it inherit (1:1 mt_n25udpflus decision 3): the pool is an admin's call (the Bank's
-    // shares), the exploration budget a human funder's with goals.edit here: a manager agent can't raise its own allowance
-    if (inp.poolId !== undefined && inp.poolId !== g.poolId) next = this.world.bank.setGoalPool(actor ? holderOf(actor) : null, next, inp.poolId);
-    if (inp.explorationTokensPerDay !== undefined && inp.explorationTokensPerDay !== g.explorationTokensPerDay) {
+    // the exploration cap the buildings under it inherit (docs/how-work-gets-done.md §8): a human funder's with goals.edit
+    // here (an admin or the goal's owner); a manager agent can't change its own exploration
+    if (inp.exploreCapTokensPerDay !== undefined && inp.exploreCapTokensPerDay !== g.exploreCapTokensPerDay) {
       this.requireEdit(actor, g.id);
-      if (actor && !this.world.permissions.can(actor, "building.fund") && !this.owns(actor, g.id)) throw forbidden("building.fund", "Only a human funder (an admin or the goal's owner) can set an exploration budget.");
-      next = this.world.goals.upsert({ ...next, explorationTokensPerDay: inp.explorationTokensPerDay, editedBy: by, updatedAt: nowIso() });
-      const v = inp.explorationTokensPerDay;
-      this.event("goal.edited", actor, `Exploration budget on "${clip(next.text, 80)}": ${v === null ? "inherited" : `${v.toLocaleString("en-US")} tokens/day`}`,
-        { goalId: g.id, explorationTokensPerDay: v, fromExplorationTokensPerDay: g.explorationTokensPerDay });
+      if (actor && !this.world.permissions.can(actor, "building.fund") && !this.owns(actor, g.id)) throw forbidden("building.fund", "Only a human funder (an admin or the goal's owner) can set an exploration cap.");
+      next = this.world.goals.upsert({ ...next, exploreCapTokensPerDay: inp.exploreCapTokensPerDay, editedBy: by, updatedAt: nowIso() });
+      const v = inp.exploreCapTokensPerDay;
+      this.event("goal.edited", actor, `Exploration cap on "${clip(next.text, 80)}": ${v === null ? "inherited" : `${v.toLocaleString("en-US")} tokens/day`}`,
+        { goalId: g.id, exploreCapTokensPerDay: v, fromExploreCapTokensPerDay: g.exploreCapTokensPerDay });
     }
-    if (next === g) throw badRequest("Nothing to change: give text, position, parentId, ownerId, sourceDocIds, poolId or explorationTokensPerDay.");
+    if (next === g) throw badRequest("Nothing to change: give text, position, parentId, ownerId, sourceDocIds or exploreCapTokensPerDay.");
     return next;
   }
 
@@ -555,7 +527,7 @@ export class Goals {
   ensure(): void {
     if (!this.get(ROOT_GOAL_ID)) {
       const now = nowIso();
-      this.world.goals.upsert({ id: ROOT_GOAL_ID, parentId: null, position: 0, text: this.world.town.get().goal || "The town goal", ownerId: null, status: "active", retiredAt: null, retiredBy: null, retiredNote: "", createdBy: null, editedBy: null, sourceDocIds: [], poolId: null, explorationTokensPerDay: null, createdAt: now, updatedAt: now });
+      this.world.goals.upsert({ id: ROOT_GOAL_ID, parentId: null, position: 0, text: this.world.town.get().goal || "The town goal", ownerId: null, status: "active", retiredAt: null, retiredBy: null, retiredNote: "", createdBy: null, editedBy: null, sourceDocIds: [], exploreCapTokensPerDay: null, createdAt: now, updatedAt: now });
     }
     for (const b of this.world.buildings.where("goalId IS NULL OR goalId NOT IN (SELECT id FROM goals)")) this.world.buildings.upsert({ ...b, goalId: ROOT_GOAL_ID });
   }

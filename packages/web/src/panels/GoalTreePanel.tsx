@@ -19,7 +19,7 @@ import { krStatusLabel, krTone } from "./keyResults";
 import { allBuildings, archivedLine, buildingScope, canEditGoal, deskWord, findGoal, isArchived, moveTargets, nodeGlance, pastDue, pathTo, proposalVerb, retireMoves, retirePlan, subtreeDesks, subtreeIds, treeRows, visibleRows, type TreeKr } from "./goalTree";
 import { Act, Empty, ErrorLine, Field, Loading, MTokensInput, Pill, Section, fmtTokens, nameOf, useLoad } from "./ui";
 import { fromMillions, toMillions } from "../format";
-import { goalShortName } from "../purpose";
+import { FreeTokensLine, capText } from "./FreeTokens";
 
 const today = () => new Date().toISOString().slice(0, 10);
 const clip = (s: string, n = 70) => s.length > n ? `${s.slice(0, n - 1)}…` : s;
@@ -317,42 +317,31 @@ function MissedForm({ k, archive, onCancel, onDone }: { k: TreeKr; archive: bool
 }
 
 /**
- * Funding (1:1 mt_n25udpflus decision 3): the pool the buildings under this goal draw from and their exploration budget
- * per day, set here or inherited from the nearest goal above that sets one. The pool is an admin's call; the budget a
- * human funder's with goals.edit here (an admin or the goal's owner).
+ * Funding (docs/how-work-gets-done.md §7, §8): the free tokens under this goal with their sum, and its exploration cap
+ * per day, set here or inherited from the nearest goal above that sets one (none = uncapped). The cap is a human
+ * funder's with goals.edit here (an admin or the goal's owner); blank = inherit.
  */
 function FundingBlock({ root, node, can, onDone }: { root: GoalTreeNode; node: GoalTreeNode; can: boolean; onDone: () => void }) {
-  const bank = useTown((s) => s.bank);
-  const isAdmin = useTown((s) => !!s.me?.isAdmin);
-  useEffect(() => { if (!bank) api().bank().then((next) => store.set({ bank: next }), () => undefined); }, [bank]);
-  const [explore, setExplore] = useState(node.explorationTokensPerDay == null ? "" : toMillions(node.explorationTokensPerDay));
-  useEffect(() => setExplore(node.explorationTokensPerDay == null ? "" : toMillions(node.explorationTokensPerDay)), [node.id, node.explorationTokensPerDay]);
+  const [cap, setCap] = useState(node.exploreCapTokensPerDay == null ? "" : toMillions(node.exploreCapTokensPerDay));
+  useEffect(() => setCap(node.exploreCapTokensPerDay == null ? "" : toMillions(node.exploreCapTokensPerDay)), [node.id, node.exploreCapTokensPerDay]);
   if (node.status === "retired") return null;
-  const { pool, exploration } = node.funding;
-  const above = node.parentId ? findGoal(root, node.parentId)?.funding.pool ?? null : null;
-  const poolName = (id: string) => bank?.pools.find((p) => p.id === id)?.name ?? id;
-  const from = (goalId: string) => <span className="muted"> (inherited from <button className="link" title={findGoal(root, goalId)?.text} onClick={() => store.open({ kind: "goals", id: goalId })}>{goalShortName(findGoal(root, goalId)?.text ?? goalId)}</button>)</span>;
-  const reload = () => { onDone(); api().bank().then((next) => store.set({ bank: next }), () => undefined); };
-  const next = explore.trim() === "" ? null : Math.max(0, fromMillions(explore) || 0);
+  const { exploreCap } = node.funding;
+  const above = node.parentId ? findGoal(root, node.parentId)?.funding.exploreCap ?? null : null;
+  const next = cap.trim() === "" ? null : Math.max(0, fromMillions(cap) || 0);
   return (
     <div className="ge-funding">
       <div className="ge-funding-row">
-        <span className="ge-funding-label">Pool</span>
-        {isAdmin && bank ? (
-          <select value={node.poolId ?? ""} onChange={(e) => api().updateGoal(node.id, { poolId: e.target.value || null }).then(reload, (err) => store.toast((err as Error).message, "bad"))}>
-            <option value="">Inherit: {above ? poolName(above.poolId) : "General"}</option>
-            {bank.pools.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
-          </select>
-        ) : <b>{pool ? poolName(pool.poolId) : "General"}</b>}
-        {pool && pool.goalId !== node.id ? from(pool.goalId) : !pool ? <span className="muted"> (no goal above sets one)</span> : null}
+        <span className="ge-funding-label">Free tokens</span>
+        <FreeTokensLine free={node.funding.free} />
       </div>
       <div className="ge-funding-row">
-        <span className="ge-funding-label">Exploration / day</span>
+        <span className="ge-funding-label">Exploration cap</span>
         {can ? <>
-          <MTokensInput value={explore} placeholder={exploration ? toMillions(exploration.tokensPerDay) : "default"} onChange={setExplore} />
-          <Act small tone="primary" disabled={next === node.explorationTokensPerDay} run={() => api().updateGoal(node.id, { explorationTokensPerDay: next }).then(onDone)}>Save</Act>
-        </> : <b>{exploration ? fmtTokens(exploration.tokensPerDay) : "default"}</b>}
-        {exploration && exploration.goalId !== node.id ? from(exploration.goalId) : !exploration ? <span className="muted"> (10% of the pool's daily inflow, per building)</span> : null}
+          <MTokensInput value={cap} placeholder={above ? toMillions(above.tokensPerDay) : "none"} onChange={setCap} />
+          <span className="muted">/ day</span>
+          <Act small tone="primary" disabled={next === node.exploreCapTokensPerDay} title="Blank = inherit from the goal above (none set anywhere = uncapped)" run={() => api().updateGoal(node.id, { exploreCapTokensPerDay: next }).then(onDone)}>Save</Act>
+        </> : null}
+        <span className={exploreCap ? undefined : "muted"}>{can && exploreCap?.goalId === node.id ? `${fmtTokens(node.funding.exploreSpentTodayTokens)} used today` : capText(node, root)}</span>
       </div>
     </div>
   );

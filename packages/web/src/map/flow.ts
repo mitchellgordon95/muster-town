@@ -1,14 +1,13 @@
 /**
- * The Bank's town map. Using it zooms the camera out to the whole town and shows the accounting pools: each
- * building's lot is tinted with its pool's colour, and coins stream from the Bank to every building along arcs
- * in that colour, each as wide (and as busy) as the building's slice of its pool (the pool's % split between
- * its buildings). A legend lists each pool's name, %, and what it can still draw today, then the Bank's totals.
- * The renderer owns the camera; this file only draws, in screen space, over the dimmed town.
+ * The Bank's town map. Using it zooms the camera out to the whole town and shows the one balance every building
+ * draws from (docs/how-work-gets-done.md §7): each drawing building's lot is tinted gold, and coins stream from the
+ * Bank to it along an arc, all the same width since the balance is shared first come first served. A legend lists
+ * the Bank's totals and the town-wide free tokens. The renderer owns the camera; this file only draws, in screen
+ * space, over the dimmed town.
  */
 import type { Place, SnapshotBuilding } from "@muster-town/schema";
 import type { Bank } from "../api";
 import { fmtTokens } from "../format";
-import { fmtPct, poolColor } from "../pools";
 import { roundRect } from "./overlay";
 import { T } from "./sprites";
 
@@ -44,23 +43,20 @@ export { fitZoom } from "./overview";
 /** Line width (screen px) for a share: 100% is a fat river, a sliver still shows. */
 export const widthFor = (pct: number) => 2 + Math.sqrt(Math.max(0, pct) / 100) * 20;
 
-/** A building on the map: its pool, the pool's colour, and its slice of the Bank. */
-export interface PoolLink { poolId: string; poolName: string; color: string; pct: number; draws: boolean }
+/** A building on the map: whether it draws from the Bank and its (even) slice of the one balance. */
+export interface BankLink { pct: number; draws: boolean }
 
 /**
- * Each building's pool and its slice of the Bank: the pool's % split evenly between the pool's buildings that
- * draw (an approximation: inside a pool it's first come first served). Buildings the summary doesn't know yet
- * are left out.
+ * Each building's slice of the Bank: the one balance split evenly between the buildings that draw (an
+ * approximation: it's first come first served). Buildings the summary doesn't know yet are left out.
  */
-export function poolLinks(bank: Bank, buildings: Pick<SnapshotBuilding, "id" | "kind">[]): Map<string, PoolLink> {
+export function bankLinks(bank: Bank, buildings: Pick<SnapshotBuilding, "id" | "kind">[]): Map<string, BankLink> {
   const known = new Set(buildings.map((b) => b.id));
-  const drawing = (poolId: string) => bank.buildings.filter((r) => r.poolId === poolId && known.has(r.buildingId)).length;
-  const out = new Map<string, PoolLink>();
+  const n = bank.buildings.filter((r) => known.has(r.buildingId)).length;
+  const out = new Map<string, BankLink>();
   for (const r of bank.buildings) {
-    const pool = bank.pools.find((p) => p.id === r.poolId);
     const draws = known.has(r.buildingId);
-    const pct = draws && pool ? pool.pct / Math.max(1, drawing(pool.id)) : 0;
-    out.set(r.buildingId, { poolId: r.poolId, poolName: r.poolName, color: poolColor(bank, r.poolId), pct, draws });
+    out.set(r.buildingId, { pct: draws ? 100 / Math.max(1, n) : 0, draws });
   }
   return out;
 }
@@ -139,21 +135,21 @@ export function drawFlow(g: CanvasRenderingContext2D, now: number, flow: Flow, b
   const src = flowSource(places, buildings);
   const centre = (b: SnapshotBuilding): Pt | null => b.lot ? toScreen((b.lot.x + b.lot.w / 2) * T, (b.lot.y + b.lot.h / 2) * T) : null;
   const from = src ? toScreen(src.at.x, src.at.y) : null;
-  const links = bank ? poolLinks(bank, buildings) : new Map<string, PoolLink>();
+  const links = bank ? bankLinks(bank, buildings) : new Map<string, BankLink>();
   const flows = buildings
     .filter((b) => b.id !== src?.skip && b.lot)
     .map((b) => ({ b, s: links.get(b.id), at: centre(b)!, foot: toScreen((b.lot!.x + b.lot!.w / 2) * T, (b.lot!.y + b.lot!.h) * T) }))
     .sort((p, q) => (q.s?.pct ?? 0) - (p.s?.pct ?? 0));
 
   if (from && bank) {
-    // the lots, tinted and outlined in their pool's colour (one the Bank summary doesn't know yet, dashed grey)
+    // the lots, tinted and outlined in gold (one the Bank summary doesn't know yet, dashed grey)
     for (const { b, s } of flows) {
       const l = b.lot!;
       const p = toScreen(l.x * T, l.y * T), q = toScreen((l.x + l.w) * T, (l.y + l.h) * T);
       const on = !!s?.draws;
       roundRect(g, p.x - 3, p.y - 3, q.x - p.x + 6, q.y - p.y + 6, 6);
-      if (on) { g.fillStyle = rgba(s!.color, 0.22 * ease); g.fill(); }
-      g.strokeStyle = on ? rgba(s!.color, 0.9 * ease) : `rgba(200,200,220,${0.25 * ease})`;
+      if (on) { g.fillStyle = rgba(GOLD, 0.22 * ease); g.fill(); }
+      g.strokeStyle = on ? rgba(GOLD, 0.9 * ease) : `rgba(200,200,220,${0.25 * ease})`;
       g.lineWidth = on ? 2.5 : 1;
       g.setLineDash(on ? [] : [4, 4]);
       g.stroke();
@@ -168,12 +164,12 @@ export function drawFlow(g: CanvasRenderingContext2D, now: number, flow: Flow, b
       const cut = pts.slice(0, Math.max(2, acc.findIndex((d) => d >= shown) + 1 || pts.length));
       const path = () => { g.beginPath(); cut.forEach((p, i) => (i ? g.lineTo(p.x, p.y) : g.moveTo(p.x, p.y))); };
       g.lineCap = "round"; g.lineJoin = "round";
-      // glow, body (gold at the Bank, the pool's colour where it lands), then a bright marching core for the direction
-      g.save(); g.shadowColor = rgba(s.color, 0.8); g.shadowBlur = 14;
-      g.strokeStyle = rgba(s.color, 0.45); g.lineWidth = w + 4; path(); g.stroke();
+      // glow, body (pale gold at the Bank, gold where it lands), then a bright marching core for the direction
+      g.save(); g.shadowColor = rgba(GOLD, 0.8); g.shadowBlur = 14;
+      g.strokeStyle = rgba(GOLD, 0.45); g.lineWidth = w + 4; path(); g.stroke();
       g.restore();
       const grad = g.createLinearGradient(from.x, from.y, at.x, at.y);
-      grad.addColorStop(0, "#ffe9a3"); grad.addColorStop(0.55, s.color); grad.addColorStop(1, s.color);
+      grad.addColorStop(0, "#ffe9a3"); grad.addColorStop(0.55, GOLD); grad.addColorStop(1, GOLD);
       g.strokeStyle = grad; g.lineWidth = w; path(); g.stroke();
       g.strokeStyle = "rgba(255,250,230,.75)"; g.lineWidth = Math.max(1, w * 0.18);
       g.setLineDash([2, 10]); g.lineDashOffset = -now / 1000 * COIN_SPEED; path(); g.stroke();
@@ -196,9 +192,10 @@ export function drawFlow(g: CanvasRenderingContext2D, now: number, flow: Flow, b
     g.beginPath(); g.arc(from.x, from.y, 9, 0, Math.PI * 2); g.fill(); g.stroke();
     g.fillStyle = INK; g.font = `800 11px ${FONT}`; g.textAlign = "center"; g.textBaseline = "middle";
     g.fillText("¤", from.x, from.y + 0.5); g.textAlign = "left";
-    // labels under each building, clear of the rivers that land on its middle: name, then its pool
+    // labels under each building, clear of the rivers that land on its middle: name, then what it holds
     for (const { b, s, foot } of flows) {
-      label(g, foot.x, foot.y + 44, b.name, s ? (s.draws ? s.poolName : "draws nothing from the Bank") : "…", s?.draws ? s.color : null);
+      const row = bank.buildings.find((r) => r.buildingId === b.id);
+      label(g, foot.x, foot.y + 44, b.name, s && row ? (s.draws ? `draws on the Bank${row.heldTokens ? ` · holds ${fmtTokens(row.heldTokens)}` : ""}` : "draws nothing from the Bank") : "…", s?.draws ? GOLD : null);
     }
     drawLegend(g, bank, right - 16, ch - 16, ease);
   }
@@ -208,7 +205,7 @@ export function drawFlow(g: CanvasRenderingContext2D, now: number, flow: Flow, b
     ? [[`${fmtTokens(bank.balanceTokens)} adj. tokens in the Bank`, `${fmtTokens(bank.expiringTokens)} expire today · ${fmtTokens(bank.durableTokens)} durable · ${fmtTokens(bank.heldTokens)} held by buildings · Esc to return`]]
     : [[flow.error ? "Couldn't read the Bank" : "Reading the Bank…", flow.error ?? "Esc to return"]];
   const [t1, t2] = lines[0];
-  const hint = bank && !flows.some((f) => (f.s?.pct ?? 0) > 0) ? "No pool has a share of the Bank yet" : t2;
+  const hint = bank && !flows.some((f) => (f.s?.pct ?? 0) > 0) ? "No building draws on the Bank yet" : t2;
   g.font = `800 18px ${FONT}`;
   const w1 = g.measureText(t1).width;
   g.font = `12px ${FONT}`;
@@ -222,42 +219,30 @@ export function drawFlow(g: CanvasRenderingContext2D, now: number, flow: Flow, b
   g.textAlign = "left"; g.globalAlpha = 1;
 }
 
-/** The pools legend, anchored at its bottom-right corner (x, y): a row per pool, then the Bank's totals. */
+/** The Bank's legend, anchored at its bottom-right corner (x, y): the balance, then the town-wide free tokens. */
 function drawLegend(g: CanvasRenderingContext2D, bank: Bank, x: number, y: number, alpha: number) {
-  const rows = bank.pools.map((p) => {
-    const n = p.buildings.length;
-    return {
-      color: poolColor(bank, p.id), name: p.name,
-      pct: `${fmtPct(p.pct)}${p.explicit ? "" : " auto"}`,
-      left: `${fmtTokens(p.expiringTokens + Math.max(0, p.durableTokens))} left today`,
-      sub: `${n} building${n === 1 ? "" : "s"}`,
-    };
-  });
-  const foot = `Bank ${fmtTokens(bank.balanceTokens)} · ${fmtTokens(bank.expiringTokens)} expire today · ${fmtTokens(bank.heldTokens)} held`;
-  const RH = 34, PAD = 12, HEAD = 26, FOOT = 26;
+  const rows: [string, string][] = [
+    ["Balance", fmtTokens(bank.balanceTokens)],
+    ["Expire today", fmtTokens(bank.expiringTokens)],
+    ["Durable", fmtTokens(bank.durableTokens)],
+    ["Held by buildings", fmtTokens(bank.heldTokens)],
+  ];
+  if (bank.free) rows.push(["Free tokens", fmtTokens(bank.free.freeTokens)]);
+  const RH = 20, PAD = 12, HEAD = 26;
   g.font = `700 12px ${FONT}`;
-  const nameW = Math.max(60, ...rows.map((r) => g.measureText(r.name).width));
-  g.font = `11px ${FONT}`;
-  const pctW = Math.max(...rows.map((r) => g.measureText(r.pct).width), 30);
-  const leftW = Math.max(...rows.map((r) => g.measureText(r.left).width), 40);
-  const footW = g.measureText(foot).width;
-  const w = Math.max(PAD + 16 + nameW + 14 + pctW + 14 + leftW + PAD, footW + PAD * 2), h = HEAD + rows.length * RH + FOOT;
+  const nameW = Math.max(...rows.map((r) => g.measureText(r[0]).width));
+  const valW = Math.max(...rows.map((r) => g.measureText(r[1]).width));
+  const w = PAD + nameW + 24 + valW + PAD, h = HEAD + rows.length * RH + PAD / 2;
   const bx = Math.round(x - w), by = Math.round(y - h);
   g.globalAlpha = alpha;
   g.fillStyle = "rgba(20,21,28,.92)"; g.strokeStyle = "rgba(242,201,76,.5)"; g.lineWidth = 1.5;
   roundRect(g, bx, by, w, h, 10); g.fill(); g.stroke();
   g.textBaseline = "middle"; g.textAlign = "left";
-  g.font = `800 12px ${FONT}`; g.fillStyle = GOLD; g.fillText("POOLS", bx + PAD, by + 15);
-  rows.forEach((r, i) => {
-    const ry = by + HEAD + i * RH;
-    g.fillStyle = r.color; roundRect(g, bx + PAD, ry + 4, 10, 10, 3); g.fill();
-    g.font = `700 12px ${FONT}`; g.fillStyle = r.color; g.fillText(r.name, bx + PAD + 16, ry + 9);
-    g.font = `11px ${FONT}`; g.fillStyle = "#a9a6b8"; g.fillText(r.sub, bx + PAD + 16, ry + 23);
-    g.font = `700 12px ${FONT}`; g.fillStyle = "#e8e2cc"; g.fillText(r.pct, bx + PAD + 16 + nameW + 14, ry + 9);
-    g.textAlign = "right"; g.font = `11px ${FONT}`; g.fillStyle = "#e8e2cc"; g.fillText(r.left, bx + w - PAD, ry + 9); g.textAlign = "left";
+  g.font = `800 12px ${FONT}`; g.fillStyle = GOLD; g.fillText("THE BANK", bx + PAD, by + 15);
+  rows.forEach(([name, val], i) => {
+    const ry = by + HEAD + i * RH + RH / 2;
+    g.font = `11px ${FONT}`; g.fillStyle = "#a9a6b8"; g.fillText(name, bx + PAD, ry);
+    g.textAlign = "right"; g.font = `700 12px ${FONT}`; g.fillStyle = i === 4 ? GOLD : "#e8e2cc"; g.fillText(val, bx + w - PAD, ry); g.textAlign = "left";
   });
-  g.strokeStyle = "rgba(242,201,76,.25)"; g.lineWidth = 1;
-  g.beginPath(); g.moveTo(bx + PAD, by + h - FOOT); g.lineTo(bx + w - PAD, by + h - FOOT); g.stroke();
-  g.font = `11px ${FONT}`; g.fillStyle = GOLD; g.fillText(foot, bx + PAD, by + h - FOOT / 2);
   g.globalAlpha = 1;
 }
