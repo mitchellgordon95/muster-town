@@ -57,19 +57,19 @@ export interface FinanceSpend {
    * `notFunded` by building, from the usage ledger (gr_wp2rg302qu, rule from dc_cvp89lj91o): a usage row on or after the
    * first Bank debit with no debit for the same agent within NOT_FUNDED_MATCH_MS of it. Before PR #131 (2026-10-31
    * 00:36Z) `chargeUsage` recorded usage without a debit when the building had nothing left. Sorted by tokens desc; a
-   * usage row with no building is the "unattributed" row (buildingId null). A heuristic: see `notFundedSplitCheck`.
+   * usage row with no building is the "unattributed" row (buildingId null). A heuristic: see `notFundedSplitCheck`. Each building's rows are netted against what its allocations (donations) spent: Budget.charge with an allocation draws no Bank debit.
    */
   notFundedSplit: NotFundedBuilding[];
   /** the latest unpaid usage row's createdAt (when the unpaid usage stopped); null when there is none */
   notFundedLastAt: string | null;
   /**
-   * An estimate (≈57k on 2026-10-28, dc_7u3s419dv0): the part of the unpaid usage a donation straight to the building
-   * (an Allocation, which is spent with no Bank debit) may have paid for: Σ over buildings of min(what the building's
-   * allocations spent, the building's unpaid tokens). An allocation's spend is not dated per row, so this is an upper bound.
+   * What donations straight to a building paid of its undebited usage rows, already taken out of `notFundedSplit` (an
+   * Allocation is spent with no Bank debit, Budget.charge): Σ over buildings of min(what the building's allocations
+   * spent, the building's undebited tokens). An allocation's spend is not dated per row, so this is an estimate.
    */
   notFundedAllocationPaid: number;
   /** the split's sum vs `notFunded` (the exact ledger number, left untouched): ok when they are equal */
-  notFundedSplitCheck: { sum: number; notFunded: number; ok: boolean };
+  notFundedSplitCheck: { sum: number; notFunded: number; ok: boolean; reason?: string };
   /** buildings by tokens, then an unattributed row, a negative weight-mismatch row and a negative "Not funded" row when non-zero: these rows sum to `used` */
   rows: SpendNode[];
   /** the rows' sum vs used; ok when they match exactly */
@@ -101,6 +101,8 @@ export const UNATTRIBUTED = "Usage from before sessions carried counters (before
 export const WEIGHT_MISMATCH = "Priced differently before the switch to adjusted tokens (nothing went unpaid)";
 export const NOT_FUNDED = "Not funded: work sessions the Bank never charged";
 export const NOT_FUNDED_UNATTRIBUTED = "unattributed";
+/** why the split by building can differ from notFunded (shown instead of a bare "these differ") */
+export const NOT_FUNDED_SPLIT_REASON = "Not funded is a net total (what sessions counted, less everything paid), so a session paid more than it counted cancels part of it; the split by building counts each undebited usage row in full, after what donations to that building paid, so it is an estimate that can come out higher.";
 /** a usage row counts as paid when a Bank debit for the same agent lies within this many ms of it (dc_cvp89lj91o) */
 export const NOT_FUNDED_MATCH_MS = 2_000;
 
@@ -186,10 +188,17 @@ export function notFundedUsage(inp: Pick<SpendInputs, "usage" | "debits" | "allo
     g.tokens += u.tokens;
     if (t > last) { last = t; lastAt = u.createdAt; }
   }
-  const split = [...groups.values()].sort((a, b) => b.tokens - a.tokens);
+  // usage a donation to the building paid (Budget.charge with an allocation draws no Bank debit, budget.ts charge): net
+  // each building's unmatched rows against what its allocations spent, so those rows no longer count as unpaid
   const allocated = new Map<string, number>();
   for (const a of inp.allocations ?? []) allocated.set(a.buildingId, (allocated.get(a.buildingId) ?? 0) + a.spentTokens);
-  const allocationPaid = split.reduce((t, g) => t + (g.buildingId ? Math.min(allocated.get(g.buildingId) ?? 0, g.tokens) : 0), 0);
+  let allocationPaid = 0;
+  const netted = new Set<NotFundedBuilding>();
+  for (const g of groups.values()) {
+    const paid = g.buildingId ? Math.min(allocated.get(g.buildingId) ?? 0, g.tokens) : 0;
+    if (paid) { g.tokens -= paid; allocationPaid += paid; netted.add(g); }
+  }
+  const split = [...groups.values()].filter((g) => g.tokens > 0 || !netted.has(g)).sort((a, b) => b.tokens - a.tokens);
   return { split, lastAt, allocationPaid };
 }
 
@@ -261,7 +270,7 @@ export function financeSpend(inp: SpendInputs, used: number, now = new Date()): 
     weightMismatchNote: `Sessions that ended before the Bank switched to adjusted tokens (${converted}) are priced here at their own model's rate and in the Bank at one rate for every model. The difference is pricing, not spend: nothing went unpaid.`,
     convertedAt: inp.convertedAt, notFunded,
     notFundedSplit: nf.split, notFundedLastAt: nf.lastAt, notFundedAllocationPaid: nf.allocationPaid,
-    notFundedSplitCheck: { sum: splitSum, notFunded, ok: splitSum === notFunded },
+    notFundedSplitCheck: splitSum === notFunded ? { sum: splitSum, notFunded, ok: true } : { sum: splitSum, notFunded, ok: false, reason: NOT_FUNDED_SPLIT_REASON },
     rows,
     check: { ok: diff === 0, diff, identity: SPEND_IDENTITY },
     at: now.toISOString(),

@@ -58,10 +58,10 @@ export function spendCheckLine(sp: FinanceSpend): { ok: boolean; text: string } 
  * The Not funded row's note (gr_wp2rg302qu step 2), from GET /api/finance/spend's own fields: what the row is, why (sessions
  * the runtime skipped the debit for before PR #131; rule dc_cvp89lj91o), when it stopped (`notFundedLastAt`), the split by
  * building (`notFundedSplit`, largest first) and that it is written off. When the split's sum differs from `notFunded` both
- * are shown and the note says so; the allocation estimate only when it is above 0.
+ * are shown: with the server's `reason` as a plain line, else as a red \"These differ\" line; what donations paid only when above 0.
  */
 export function notFundedNote(sp: Pick<FinanceSpend, "notFunded" | "notFundedSplit" | "notFundedLastAt" | "notFundedAllocationPaid" | "notFundedSplitCheck">): {
-  lines: string[]; split: { name: string; tokens: number; usageRows: number }[]; differ: string | null; after: string[];
+  lines: string[]; split: { name: string; tokens: number; usageRows: number }[]; differ: string | null; reason: string | null; after: string[];
 } {
   const split = [...(sp.notFundedSplit ?? [])].sort((a, b) => b.tokens - a.tokens)
     .map((b) => ({ name: b.buildingId === null ? "unattributed" : b.buildingName, tokens: b.tokens, usageRows: b.usageRows }));
@@ -71,16 +71,19 @@ export function notFundedNote(sp: Pick<FinanceSpend, "notFunded" | "notFundedSpl
     `Why: before PR #131 (chargeUsage) the runtime skipped the debit for some sessions. That is fixed. A usage row counts as unpaid when no debit for the same agent lies within 2 seconds of it.`,
     sp.notFundedLastAt ? `No new unpaid usage since ${sp.notFundedLastAt.slice(0, 10)}.` : `No usage row is unpaid by that rule.`,
   ];
-  const differ = c && !c.ok
+  const reason = c && !c.ok && c.reason
+    ? `The rows by building come to ${n(c.sum)} ${ADJ} and Not funded to ${n(c.notFunded)} ${ADJ}. ${c.reason}`
+    : null;
+  const differ = c && !c.ok && !reason
     ? `These differ: the rows by building come to ${n(c.sum)} ${ADJ}, but Not funded is ${n(c.notFunded)} ${ADJ}. Not funded is exact (what sessions counted, less what was paid); the split by building is an estimate by the 2-second rule.`
     : null;
   const after = [`Written off: not charged to any building. The Bank's balance already reflects the real spend.`];
-  if (sp.notFundedAllocationPaid > 0) after.push(`Up to ${n(sp.notFundedAllocationPaid)} ${ADJ} of the rows by building may have been covered by donations to those buildings (an upper bound).`);
-  return { lines, split, differ, after };
+  if (sp.notFundedAllocationPaid > 0) after.push(`Donations straight to those buildings paid ${n(sp.notFundedAllocationPaid)} ${ADJ} of their undebited usage (a donation is spent without a Bank debit); that part is left out of the rows by building.`);
+  return { lines, split, differ, reason, after };
 }
 
 function NotFundedNote({ sp }: { sp: FinanceSpend }) {
-  const { lines, split, differ, after } = notFundedNote(sp);
+  const { lines, split, differ, reason, after } = notFundedNote(sp);
   return (
     <div className="muted not-funded-note">
       {lines.map((l) => <p key={l}>{l}</p>)}
@@ -93,6 +96,7 @@ function NotFundedNote({ sp }: { sp: FinanceSpend }) {
         </>
       ) : null}
       {differ ? <p className="error-line">{differ}</p> : null}
+      {reason ? <p>{reason}</p> : null}
       {after.map((l) => <p key={l}>{l}</p>)}
     </div>
   );
