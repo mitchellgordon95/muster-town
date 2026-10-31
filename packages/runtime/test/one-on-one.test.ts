@@ -2,7 +2,7 @@ import { describe, expect, test, vi } from "vitest";
 import { intrayOf } from "@muster-town/core";
 import { HostBackend, startRuntime, type CmdResult, type CommandRunner, type RuntimeOptions } from "../src/index.ts";
 import { drainNudgeOneOnOne } from "../src/redeploy.ts";
-import { callVerb, deferred, fakeSdk, init, result, setup, type Script } from "./helpers.ts";
+import { callVerb, deferred, fakeSdk, init, result, setup, text, type Script } from "./helpers.ts";
 
 const until = async (ok: () => boolean) => { for (let i = 0; i < 200 && !ok(); i++) await new Promise((r) => setTimeout(r, 5)); expect(ok()).toBe(true); };
 
@@ -178,6 +178,56 @@ describe("the manager's 1:1", () => {
     expect(world.sessions.require(talk.id).reportId).toBeNull();
     // each session booked on its own
     expect(world.sessions.require(talk.id).tokens).toBeGreaterThan(0);
+  });
+
+  test("a 1:1 opened mid team-lead session cuts its turn short and is answered before the pending batch; a note says so; a later line cuts in again (1:1 mt_q10xf3bkoq decision 2)", async () => {
+    const deciding = deferred();
+    const cut = { id: "" };
+    const waitCut = async (s: { interrupted: boolean }) => { await vi.waitFor(() => { if (!s.interrupted) throw new Error("not yet"); }, { timeout: 2000 }); s.interrupted = false; };
+    const aborted = { type: "result", subtype: "error_during_execution", is_error: true, errors: ["interrupted"], num_turns: 1, total_cost_usd: 0, session_id: "sdk-session-1", queued_turn_count: 1 };
+    const env = await managed(async function* (s) {
+      yield init();
+      expect(s.received[0]).not.toMatch(/mt_[a-z0-9]+/); // the in-tray prompt
+      const docId = s.received[0].match(/(dc_[a-z0-9]+)/)![1];
+      yield text("Reading the Ocean sink report before I decide it.");
+      deciding.resolve();
+      await waitCut(s);
+      yield aborted;
+      const opened = (await s.next())!;
+      const mid = opened.match(/(mt_[a-z0-9]+)/)![1];
+      expect(opened).toContain("cut short");
+      expect(s.world.docs.require(docId).decidedAt ?? null).toBeNull(); // answered before the batch it was on
+      yield* callVerb(s, "meeting", { meetingId: mid, action: "speak", text: "Hi, deciding reports. What do you need?" });
+      yield text("Back to the in-tray.");
+      cut.id = mid;
+      await waitCut(s);
+      yield aborted;
+      expect(await s.next()).toContain("Approve it");
+      yield* callVerb(s, "meeting", { meetingId: mid, action: "speak", text: "Approving it now." });
+      yield* callVerb(s, "review", { docId, decision: "approve" });
+      yield result(200, 0.02);
+      expect(await s.next()).toContain("is over");
+      yield result(250, 0.03);
+    });
+    const { world, runtime, sdk, by, lab, admin } = env;
+    const mei = by("Mei"), noor = by("Noor");
+    await world.verbs.submit_report(noor, { title: "Ocean sink", body: "## Findings\n2.9 GtC/yr", verdict: "continue" });
+    await deciding.promise;
+    const lead = world.sessions.first("agentId = ? AND status = 'running' AND purpose = 'manage'", [mei.id])!;
+    expect(lead.meetingId).toBeNull();
+    const m = world.ops.openOneOnOne(admin, lab.id);
+    await until(() => world.meetings.require(m.id).transcript.some((u) => u.speakerId === mei.id));
+    expect(sdk.sessions).toHaveLength(1); // no second session
+    expect(world.meetings.require(m.id).transcript[0]).toMatchObject({ speakerKind: "system", text: "Mei is in a team-lead session; it answers between steps." });
+    await until(() => cut.id === m.id);
+    world.ops.meetingSay(admin, m.id, "Approve it");
+    await until(() => world.meetings.require(m.id).transcript.some((u) => u.text === "Approving it now."));
+    expect(world.meetings.require(m.id).transcript.filter((u) => u.speakerKind === "system")).toHaveLength(1); // one note per 1:1
+    expect(world.events.list({ agentId: mei.id, types: ["system"] }).filter((e) => e.payload.interrupt && e.payload.now)).toHaveLength(2);
+    world.ops.endMeeting(admin, m.id);
+    await runtime.whenIdle();
+    expect(world.sessions.require(lead.id)).toMatchObject({ status: "done", error: null });
+    expect(world.agents.require(mei.id).status).toBe("idle");
   });
 
   test("a tell to yourself outside a 1:1 beside your work is refused", async () => {
