@@ -348,7 +348,7 @@ export function intrayOf(world: World, buildingId: string): Doc[] {
  */
 export function grantsAwaitingDecision(world: World): GrantView[] {
   return world.grants.where(
-    `status IN (${GRANT_INTRAY_STATUSES.map((s) => `'${s}'`).join(", ")}) OR (status = 'closed' AND outcome = 'done' AND keyResultId IN (SELECT id FROM key_results WHERE status = 'claimed'))`,
+    `status IN (${GRANT_INTRAY_STATUSES.map((s) => `'${s}'`).join(", ")}) OR (status = 'closed' AND outcome = 'done' AND EXISTS (SELECT 1 FROM key_results k WHERE k.grantId = grants.id AND k.status = 'claimed'))`,
     [], "ORDER BY updatedAt, rowid",
   ).map((g) => world.grantDesk.view(g));
 }

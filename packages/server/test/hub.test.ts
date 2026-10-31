@@ -45,6 +45,12 @@ describe("the hub", () => {
     expect((await json(app, "GET", "/demo/api/health")).body.hosted).toBeUndefined();
     expect((await json(app, "GET", "/api/health")).body.hosted).toEqual({ count: 1 });
     expect((await json(app, "GET", "/demo/api/nope")).status).toBe(404);
+    // the join funnel: the root lists every collective, a hosted one only itself
+    await json(app, "POST", "/demo/api/join-funnel/view");
+    const funnel = (await json(app, "GET", "/api/join-funnel")).body;
+    expect(funnel.collectives.map((c: { slug: string }) => c.slug)).toEqual(["workshop", "demo"]);
+    expect(funnel.collectives[1].totals.guestCardViews).toBe(1);
+    expect((await json(app, "GET", "/demo/api/join-funnel")).body.collectives.map((c: { slug: string }) => c.slug)).toEqual(["demo"]);
 
     // tokens are per World: the Workshop admin's token means nothing at /demo
     expect((await json(app, "GET", "/api/me", { headers: admin })).status).toBe(200);

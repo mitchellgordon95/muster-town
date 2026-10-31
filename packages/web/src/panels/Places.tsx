@@ -347,9 +347,10 @@ export function GrantRow({ grant: g, onDecided, onOpenDoc, deckSlide, meetingId,
   const manager = useTown((s) => { const b = s.buildings.find((x) => x.id === g.buildingId); return b?.managerAgentId ? s.agents[b.managerAgentId] : undefined; });
   const author = useTown((s) => s.agents[g.proposedBy]);
   const checkpoint = g.status === "checkpoint";
-  // the manager closed it early as done (close_grant): a human marks its key result met or missed
+  // the manager closed it early as done (close_grant): a human marks each of its claimed key results met or missed
   const closedDone = g.status === "closed" && g.outcome === "done";
-  const toMark = closedDone && g.keyResult?.status === "claimed";
+  const krs = g.keyResults.length ? g.keyResults : g.keyResult ? [g.keyResult] : [];
+  const toMark = closedDone && krs.some((k) => k.status === "claimed");
   const unspent = Math.max(0, (g.grantTokens ?? 0) - g.spentTokens);
   const ceiling = checkpoint ? g.grantTokens ?? g.askTokens : g.askTokens;
   const [tokens, setTokens] = useState(toMillions(ceiling));
@@ -371,8 +372,8 @@ export function GrantRow({ grant: g, onDecided, onOpenDoc, deckSlide, meetingId,
     store.toast(msg, "ok");
     onDecided();
   };
-  const mark = (status: "met" | "missed") => async () => {
-    await api().updateKeyResult(g.keyResultId!, { status, note });
+  const mark = (id: string, status: "met" | "missed") => async () => {
+    await api().updateKeyResult(id, { status, note });
     store.toast(`Key result marked ${status}`, "ok");
     onDecided();
   };
@@ -405,7 +406,18 @@ export function GrantRow({ grant: g, onDecided, onOpenDoc, deckSlide, meetingId,
         {g.checkpointDocId ? <button className="link" onClick={() => onOpenDoc(g.checkpointDocId!)}>{closedDone ? "close report" : "checkpoint report"}</button> : null}
       </div>
       <ul className="grant-krs">
-        {g.keyResult ? <li key={g.keyResult.id}><b>Key result:</b> {g.keyResult.text} <span className="muted">· {g.keyResult.status.replace(/-/g, " ")}</span></li> : <li className="muted">No goal key result named yet</li>}
+        {krs.length ? krs.map((k, i) => (
+          <li key={k.id}>
+            <b>Key result{krs.length > 1 ? ` ${i + 1}` : ""}:</b> {k.text} <span className="muted">· {k.status.replace(/-/g, " ")}{k.due ? ` · due ${k.due}` : ""}</span>
+            <div className="muted kr-check">How to check: {k.howToCheck}</div>
+            {toMark && canFund && k.status === "claimed" ? (
+              <div className="actions">
+                <Act small tone="ok" run={mark(k.id, "met")}>Mark {krs.length > 1 ? "met" : "key result met"}</Act>
+                <Act small tone="bad" run={mark(k.id, "missed")}>Mark missed</Act>
+              </div>
+            ) : null}
+          </li>
+        )) : <li className="muted">No key results yet</li>}
         {g.testingPlan.map((t, i) => <li key={i} className="muted">Test: {t.text}</li>)}
       </ul>
       <div className="intray-proposal">Stop when: {g.stopCondition}</div>
@@ -413,13 +425,9 @@ export function GrantRow({ grant: g, onDecided, onOpenDoc, deckSlide, meetingId,
       {toMark ? (canFund ? (
         <div className="grant-decide">
           <div className="grant-inputs"><Field label="Note"><input value={note} placeholder="optional" onChange={(e) => setNote(e.target.value)} /></Field></div>
-          <div className="actions decide-footer">
-            <Act small tone="ok" run={mark("met")}>Mark key result met</Act>
-            <Act small tone="bad" run={mark("missed")}>Mark missed</Act>
-            {talk}
-          </div>
+          <div className="actions decide-footer">{talk}</div>
         </div>
-      ) : <><div className="muted">Closed as done: a human with building.fund marks its key result met or missed.</div>{footer}</>) : g.status === "funded" && canFund ? (<>
+      ) : <><div className="muted">Closed as done: a human with building.fund marks each key result met or missed.</div>{footer}</>) : g.status === "funded" && canFund ? (<>
         <div className="muted">{grantSettledLine(g)}</div>
         <div className="grant-decide">
           <div className="grant-inputs"><Field label="Note"><input value={note} placeholder="optional: the evidence the work is done" onChange={(e) => setNote(e.target.value)} /></Field></div>
@@ -430,7 +438,7 @@ export function GrantRow({ grant: g, onDecided, onOpenDoc, deckSlide, meetingId,
       ) : !decidable ? (
         <><div className="muted">{grantSettledLine(g)}</div>{footer}</>
       ) : !canFund && !memberFund ? (
-        <><div className="muted">Funding decisions are for humans with building.fund, the captain of its key result's goal, or anyone with a Bank input that has tokens left.</div>{footer}</>
+        <><div className="muted">Funding decisions are for humans with building.fund, the captain of its goal, or anyone with a Bank input that has tokens left.</div>{footer}</>
       ) : (<>
         {unfundableReason(g) ? <div className="kr-blocked">{unfundableReason(g)}</div> : null}
         <div className="grant-decide">

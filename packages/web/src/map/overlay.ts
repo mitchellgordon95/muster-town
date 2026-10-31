@@ -329,14 +329,14 @@ export function drawSign(g: CanvasRenderingContext2D, x: number, y: number, name
   return { x: cx - 17, y: rodY - 5, w: w + 34, h: y - rodY + 5 };
 }
 
-const LAMP: Record<Stoplight["light"], string> = { red: "#ff5f5f", yellow: "#ffcf5e", green: "#6fdc8c" };
-/** A traffic-light housing with its top-left at (x, y): three lamps, red over yellow over green, only `light` lit (with a glow). */
+const LAMP: Record<"yellow" | "green", string> = { yellow: "#ffcf5e", green: "#6fdc8c" };
+/** A two-lamp housing with its top-left at (x, y): yellow (a grant held at its checkpoint) over green (a funded grant runs); grey = both dark. */
 export function drawStoplight(g: CanvasRenderingContext2D, x: number, y: number, light: Stoplight["light"]) {
-  const w = 16, h = 38;
+  const w = 16, h = 27;
   g.fillStyle = "#0d0e13"; g.strokeStyle = "#000"; g.lineWidth = 1.5;
   roundRect(g, x, y, w, h, 5); g.fill(); g.stroke(); g.lineWidth = 1;
   g.fillStyle = "#2a2d3a"; g.fillRect(x + 3, y + 2, w - 6, 1); // a highlight on the housing's top edge
-  (["red", "yellow", "green"] as const).forEach((k, i) => {
+  (["yellow", "green"] as const).forEach((k, i) => {
     const cy = y + 7.5 + i * 11.5, on = k === light;
     g.beginPath(); g.arc(x + w / 2, cy, 4.4, 0, Math.PI * 2);
     if (on) { g.save(); g.shadowColor = LAMP[k]; g.shadowBlur = 9; g.fillStyle = LAMP[k]; g.fill(); g.restore(); }
@@ -348,17 +348,18 @@ export function drawStoplight(g: CanvasRenderingContext2D, x: number, y: number,
 function drawSignTip(g: CanvasRenderingContext2D, x: number, y: number, light: Stoplight) {
   g.font = BFONT;
   const label = stoplightLabel(light.light);
+  const tint = light.light === "grey" ? "#a4a6b4" : LAMP[light.light];
   const lines = wrapText(g, `${label}: ${light.reason}`, 260);
   const lh = 14, padX = 8, padY = 5;
   const w = Math.max(...lines.map((l) => g.measureText(l).width)) + padX * 2, h = lines.length * lh + padY * 2;
   const bx = Math.round(x - w / 2), by = Math.round(y - h);
-  g.fillStyle = "rgba(20,21,28,.94)"; g.strokeStyle = LAMP[light.light]; g.lineWidth = 1.5;
+  g.fillStyle = "rgba(20,21,28,.94)"; g.strokeStyle = tint; g.lineWidth = 1.5;
   roundRect(g, bx, by, w, h, 5); g.fill(); g.stroke(); g.lineWidth = 1;
   // a small stem down to the rod
-  g.fillStyle = LAMP[light.light]; g.fillRect(Math.round(x) - 1, by + h, 2, 4);
+  g.fillStyle = tint; g.fillRect(Math.round(x) - 1, by + h, 2, 4);
   g.textBaseline = "top"; g.textAlign = "left";
   lines.forEach((l, i) => {
-    g.fillStyle = i === 0 ? LAMP[light.light] : "#f6e7c8";
+    g.fillStyle = i === 0 ? tint : "#f6e7c8";
     if (i === 0) { g.fillText(label + ":", bx + padX, by + padY); g.fillStyle = "#f6e7c8"; g.fillText(l.slice(label.length + 1), bx + padX + g.measureText(label + ":").width, by + padY); }
     else g.fillText(l, bx + padX, by + padY + i * lh);
   });

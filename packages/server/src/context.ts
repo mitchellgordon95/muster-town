@@ -147,7 +147,9 @@ export const INTERACT_ALLOWLIST = new Set(["POST /auth/logout", "POST /api/auth/
   // Start a collective (docs/hosted-collectives.md step 3): a stranger signed in with GitHub, before anyone lets them in
   "POST /api/collectives",
   // the self-hosted towns directory (design dc_d6chojzl2a): no account, no approval
-  "POST /api/directory/register", "POST /api/directory/verify"]);
+  "POST /api/directory/register", "POST /api/directory/verify",
+  // the join funnel's guest-card view count (gr_fibsfwr4tz step 3): it is the card a visitor sees
+  "POST /api/join-funnel/view"]);
 export const ASK_FIRST = "Ask for access first: you can watch and read, but taking part needs an admin to let you in (Ask to join on the guest card).";
 
 export function adminToken(world: World): string | null {

@@ -14,8 +14,7 @@ describe("GET /api/review-deck", () => {
     const { world, app, auth } = s;
     const manager = world.agents.first("homeBuildingId = ? AND kind != 'human'", [LAB])!;
     world.permissions.grant(manager, buildingRoleId(LAB, "manager"));
-    const kr = (await json(app, "POST", `/api/buildings/${LAB}/key-results`, { headers: auth, body: { text: "A banner line", howToCheck: "Open the banner" } })).body.keyResult.id;
-    const r = await world.verbs.propose_grant(manager, { keyResultId: kr, objective: "Banner", stopCondition: "done", askTokens: 100_000, whatYoudSee: "The banner says it", testingPlan: [], findingsDocIds: [], approach: "", note: "" });
+    const r = await world.verbs.propose_grant(manager, { keyResults: [{ text: "A banner line", howToCheck: "Open the banner" }], objective: "Banner", stopCondition: "done", askTokens: 100_000, whatYoudSee: "The banner says it", findingsDocIds: [], approach: "", note: "" });
     const deck = await json(app, "GET", "/api/review-deck");
     expect(deck.status).toBe(200);
     expect(deck.body.slides[0]).toMatchObject({ key: "town", kind: "town" });
@@ -35,8 +34,7 @@ describe("GET /api/review-deck", () => {
     const { world, app, auth } = s;
     const manager = world.agents.first("homeBuildingId = ? AND kind != 'human'", [LAB])!;
     world.permissions.grant(manager, buildingRoleId(LAB, "manager"));
-    const kr = (await json(app, "POST", `/api/buildings/${LAB}/key-results`, { headers: auth, body: { text: "A banner line", howToCheck: "Open the banner" } })).body.keyResult.id;
-    const r = await world.verbs.propose_grant(manager, { keyResultId: kr, objective: "Banner", stopCondition: "done", askTokens: 100_000, testingPlan: [], findingsDocIds: [], approach: "", note: "" });
+    const r = await world.verbs.propose_grant(manager, { keyResults: [{ text: "A banner line", howToCheck: "Open the banner" }], objective: "Banner", stopCondition: "done", askTokens: 100_000, findingsDocIds: [], approach: "", note: "" });
     const called = await json(app, "POST", "/api/meetings", { headers: auth, body: { kind: "in-tray-review", buildingId: null, startNow: true, brings: { mode: "nothing", text: "" }, askHumans: true, deck: { docId: "review-deck" } } });
     expect(called.status).toBe(201);
     const id = called.body.meeting.id;

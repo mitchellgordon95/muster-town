@@ -6,14 +6,14 @@ Citation format: the same as in [grants.md](grants.md): a `- Test:` line with th
 
 ## Invariants
 
-1. **In a lab, agent-made work has a lane, and directed work cites a human source.** An agent must say `grant` (a grant of the building) or `exploration` (a goal key result or a gap); it creates `directed` work only with a `sourceId` that a human wrote or took part in. Humans may still create directed work. A continuation inherits its lane. Only the Town Hall keeps "no lane = directed".
+1. **In a lab, agent-made work has a lane, and directed work cites a human source.** An agent must say `grant` (a grant of the building) or `exploration` (a gap); it creates `directed` work only with a `sourceId` that a human wrote or took part in. Humans may still create directed work. A continuation inherits its lane. Only the Town Hall keeps "no lane = directed".
    - Test: `packages/core/test/lanes.test.ts` › `goal-directed: agents must say grant or exploration; fields are validated; humans may still create directed work`
    - Test: `packages/core/test/lanes.test.ts` › `an agent creates directed work only when it cites a human source; it is stored and never held by the allowance`
    - Test: `packages/core/test/lanes.test.ts` › `every lab is lane-gated, even one created without budgetMode or with a stale open row; the Town Hall never is`
 2. **Grant-lane work can't name a closed, rejected or draft grant.** `resolveLane` refuses them, because no work may be charged to them. A proposed or countered grant is accepted, but the lane gate holds the work until the grant is funded.
    - Test: `packages/core/test/lanes.test.ts` › `a grant assignment can't name a closed, rejected or draft grant; proposed, funded and checkpoint ones are accepted (and the gate holds the unfunded)`
-3. **Exploration can't name a key result that has a funded grant.** That work goes in the grant lane.
-   - Test: `packages/core/test/lanes.test.ts` › `goal-directed: agents must say grant or exploration; fields are validated; humans may still create directed work`
+3. **Exploration and directed work name no key result** (key results belong to grants, docs/how-work-gets-done.md §4): exploration names a gap, directed work may. Grant-lane work stores its grant's first key result.
+   - Test: `packages/core/test/lanes.test.ts` › `exploration names a gap and directed work may; neither names a key result`
 4. **A session copies its lane and `grantId` from its assignment when it starts**, so a grant's spend (summed from sessions) counts exactly the work done in its lane.
    - Test: `packages/core/test/lanes.test.ts` › `a session copies lane and grantId from its assignment at start`
 5. **The lane gate holds, it never cancels.** A held assignment stays `pending` with a `heldReason`, and work queued behind it still starts. Exploration is held only when no tokens are free under the building's goal or the goal's optional exploration cap is reached today (no allowance: docs/how-work-gets-done.md §8); directed work never is; the Town Hall never holds on lanes.
@@ -21,8 +21,8 @@ Citation format: the same as in [grants.md](grants.md): a `- Test:` line with th
    - Test: `packages/core/test/lanes.test.ts` › `exploration is held with no free tokens, or once its goal's optional cap is reached today; uncapped by default; directed is never held`
    - Test: `packages/core/test/lanes.test.ts` › `the Town Hall never holds on lanes; a lab does`
    - Test: `packages/core/test/blockers.test.ts` › `lane holds point at the Town Hall in-tray: grant at checkpoint, exploration at its goal's cap (used of cap, reset time)`
-6. **Directed work that names a key result stops once a grant proposal names that key result.**
-   - Test: `packages/core/test/lanes.test.ts` › `directed work naming a key result runs until a grant proposal names it`
+6. **Directed work is never held for money** (the rule that stopped directed work once a grant proposal named its key result went with goal key results, migration 069).
+   - Test: `packages/core/test/lanes.test.ts` › `exploration is held with no free tokens, or once its goal's optional cap is reached today; uncapped by default; directed is never held`
 7. **`waitFor` holds the start.** The scheduler skips a waiting assignment until its wait is met. A wait still unmet after 24 h is cancelled into the in-tray, and a chain parks at most 3 times in a row.
    - Test: `packages/core/test/waits.test.ts` › `the scheduler skips a waiting assignment until checkWaits finds it met; then it unblocks with an event`
    - Test: `packages/core/test/waits.test.ts` › `a wait unmet after 24 h is cancelled into the in-tray; Continue there queues it again without the wait`
@@ -35,8 +35,6 @@ Citation format: the same as in [grants.md](grants.md): a `- Test:` line with th
    - Test: `packages/core/test/assignment-queue.test.ts` › `new assignments get epoch-ms positions; the next pending orders by position, then createdAt, rowid`
    - Test: `packages/core/test/manager-verbs.test.ts` › `assign: no agentId = the building queue; agentId = the manager itself or a visitor, never another named agent`
    - Test: `packages/core/test/assignment-queue.test.ts` › `cancelAssignment: pending only; active, done and cancelled refuse`
-9. **A key result named by exploration or directed work is open and in the building's subtree of the town goal tree** (`Goals.inScope`, docs/goals.md): not met, missed or archived, and under the goal the building is attached to.
-   - Test: `packages/core/test/goals.test.ts` › `Goals.inScope: grants and exploration name an open key result in the building's subtree`
 
 ## How it connects
 

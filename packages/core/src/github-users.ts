@@ -1,5 +1,6 @@
 import type { User } from "@muster-town/schema";
 import { createUser } from "./entities.ts";
+import { countFunnel } from "./join-funnel.ts";
 import { townRoleId } from "./permissions.ts";
 import type { World } from "./world.ts";
 
@@ -42,6 +43,7 @@ export function upsertGithubUser(world: World, gh: GithubProfile, opts: { admins
     const holder = { kind: "user" as const, id: user.id };
     world.permissions.grant(holder, townRoleId("visitor"));
     if (isAdmin) world.permissions.grant(holder, townRoleId("admin"));
+    if (created) countFunnel(world, "signIns");
     if (created || linked) {
       world.events.append({ type: "system", text: created ? `${user.name} signed in with GitHub (@${gh.login})` : `${user.name} linked GitHub account @${gh.login}`, payload: { userId: user.id, githubLogin: gh.login } });
     }

@@ -1,4 +1,4 @@
-import { CaptainDecisionInput, CaptainRequestInput, ChangeGoalInput, CreateGoalInput, CreateTreeKeyResultInput, ReviewKeyResultInput, DecideGoalProposalInput, GoalProposalStatus, ProposeGoalInput, RetireGoalInput, UpdateGoalInput } from "@muster-town/schema";
+import { CaptainDecisionInput, CaptainRequestInput, ChangeGoalInput, CreateGoalInput, ReviewKeyResultInput, DecideGoalProposalInput, GoalProposalStatus, ProposeGoalInput, RetireGoalInput, UpdateGoalInput } from "@muster-town/schema";
 import { buildingBoard, decideCaptain, goalBoard, goalFunding, pendingCaptainRequests, requestCaptain, worldGoalSpend } from "@muster-town/core";
 import type { FastifyInstance } from "fastify";
 import { z } from "zod";
@@ -70,9 +70,6 @@ export async function goalRoutes(app: FastifyInstance) {
   });
 
   app.post<{ Params: Params }>("/api/goals/:id/retire", async (req) => ({ goal: tree.retire(actorOf(world, req), req.params.id, parse(RetireGoalInput, req.body)) }));
-
-  app.post<{ Params: Params }>("/api/goals/:id/key-results", async (req, reply) =>
-    reply.code(201).send({ keyResult: tree.addKeyResult(actorOf(world, req), req.params.id, parse(CreateTreeKeyResultInput, req.body)) }));
 
   /** The building's one attachment (also PATCH /api/buildings/:id with goalId). */
   app.put<{ Params: Params }>("/api/buildings/:id/goal", async (req) => ({ building: tree.attach(actorOf(world, req), req.params.id, parse(AttachInput, req.body).goalId) }));
