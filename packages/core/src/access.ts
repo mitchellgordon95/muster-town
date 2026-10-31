@@ -8,6 +8,7 @@ import type { AccessRequest, AccessRequestView } from "@muster-town/schema";
 import { AppError, badRequest } from "./errors.ts";
 import { townRoleId, type Holder } from "./permissions.ts";
 import type { Agent } from "@muster-town/schema";
+import { countFunnel, countFunnelDecision } from "./join-funnel.ts";
 import { newId, nowIso } from "./util.ts";
 import type { World } from "./world.ts";
 
@@ -33,7 +34,10 @@ export function requestAccess(world: World, userId: string, message = ""): Acces
   if (last?.status === "declined" && last.decidedAt && Date.now() - Date.parse(last.decidedAt) < ASK_AGAIN_MS) {
     throw new AppError("conflict", `Not this time. You can ask again after ${new Date(Date.parse(last.decidedAt) + ASK_AGAIN_MS).toISOString()}.`);
   }
-  const req = world.accessRequests.upsert({ id: newId("ar"), userId, message: message.trim().slice(0, 140), status: "pending", decidedBy: null, createdAt: nowIso(), decidedAt: null });
+  const req = world.transaction(() => {
+    countFunnel(world, "asked");
+    return world.accessRequests.upsert({ id: newId("ar"), userId, message: message.trim().slice(0, 140), status: "pending", decidedBy: null, createdAt: nowIso(), decidedAt: null });
+  });
   const who = user.githubLogin ? `@${user.githubLogin}` : user.name;
   world.events.append({ type: "system", text: `${who} asked to join${req.message ? `: "${req.message}"` : ""}`, payload: { accessRequestId: req.id, userId } });
   emitTownHall(world);
@@ -51,7 +55,9 @@ export function decideAccess(world: World, actor: Holder | Agent, id: string, gr
       world.permissions.ensureTownRoles();
       world.permissions.grant({ kind: "user", id: req.userId }, townRoleId("member"));
     }
-    return world.accessRequests.upsert({ ...req, status: grant ? "granted" : "declined", decidedBy: decider, decidedAt: nowIso() });
+    const decidedAt = nowIso();
+    countFunnelDecision(world, grant, Date.parse(decidedAt) - Date.parse(req.createdAt));
+    return world.accessRequests.upsert({ ...req, status: grant ? "granted" : "declined", decidedBy: decider, decidedAt });
   });
   const user = world.users.get(req.userId);
   const who = user?.githubLogin ? `@${user.githubLogin}` : user?.name ?? req.userId;
