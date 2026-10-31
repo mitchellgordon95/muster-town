@@ -2,6 +2,7 @@ import { describe, expect, test, vi } from "vitest";
 import { sessionView, type World } from "@muster-town/core";
 import type { Agent, DeskActivityInput } from "@muster-town/schema";
 import type { DeskBackend, DeskChild, DeskHandle } from "../src/index.ts";
+import { chargeUsage } from "../src/session.ts";
 import { callVerb, init, setup } from "./helpers.ts";
 
 // 1:1 mt_x40qq8poc3 decision 2, (b) + (c): the Bank debits a session as it runs, and every token of a session counts
@@ -189,5 +190,22 @@ describe("desk sessions post usage as they run, and every exit path books it (c)
     await r.running;
     expect(debited(r.world, bid) - before).toBe(adjusted(r.world, sid));
     expect(r.world.bank.spend().notFunded).toBe(notFunded);
+  });
+});
+
+describe("the Town Hall draws nothing from the Bank", () => {
+  test("its usage with nothing of its own left is recorded alone: no Bank debit, no budget.exhausted, nobody flipped out-of-budget", () => {
+    const s = setup(async function* () { yield init(); });
+    const th = s.world.buildings.first("kind = 'town-hall'")!;
+    const noor = s.by("Noor");
+    s.world.agents.patch(noor.id, { homeBuildingId: th.id, buildingId: th.id });
+    expect(s.world.budget.remaining(th.id)).toBeLessThanOrEqual(0);
+    const events = s.world.events.list({ types: ["budget.exhausted"] }).length;
+    const before = s.world.agents.require(noor.id).spentTokensTotal;
+    chargeUsage(s.world, noor.id, { tokens: 0, counts: { input: 10, output: 500, cacheRead: 1000, cacheWrite5m: 0, cacheWrite1h: 0 }, costUsd: 0.05 }, null, OPUS);
+    expect(s.world.agents.require(noor.id).spentTokensTotal).toBeGreaterThan(before);
+    expect(debited(s.world, th.id)).toBe(0);
+    expect(s.world.events.list({ types: ["budget.exhausted"] }).length).toBe(events);
+    expect(s.world.agents.require(noor.id).status).not.toBe("out-of-budget");
   });
 });

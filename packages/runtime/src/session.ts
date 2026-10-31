@@ -103,8 +103,9 @@ export function chargeUsage(world: World, agentId: string, u: Pick<Usage, "token
 /**
  * Debit an already booked amount (adjusted output tokens + counters) to the agent's home building. Every token is
  * debited (1:1 mt_x40qq8poc3 decision 2): a building with nothing left overshoots its last source (Budget.charge, no
- * hard stop) instead of the usage going unbooked (the Spending tab's "Not funded"). Only an agent with no building
- * (nothing to draw from) is recorded on the agent and the usage ledger alone. Never throws.
+ * hard stop) instead of the usage going unbooked (the Spending tab's "Not funded"). Only an agent with no building, or
+ * a Town Hall with nothing of its own left (it draws nothing from the Bank), is recorded on the agent and the usage
+ * ledger alone. Never throws.
  */
 export function chargeBooked(world: World, agentId: string, b: Booked, usd: number, allocationId?: string | null, grantId?: string | null): void {
   if (b.tokens <= 0 && rawTokens(b.counts) <= 0 && usd <= 0) return;
@@ -116,8 +117,12 @@ export function chargeBooked(world: World, agentId: string, b: Booked, usd: numb
 }
 
 function debit(world: World, agentId: string, b: Booked, usd: number, allocationId?: string | null, grantId?: string | null, running = false): void {
-  if (homeOf(world, agentId)) world.budget.charge(agentId, b, usd, allocationId ?? undefined, { grantId: grantId ?? null, running });
-  else world.budget.recordUsage(agentId, b, usd);
+  const bid = homeOf(world, agentId);
+  // the Town Hall draws nothing from the Bank: with nothing of its own left, its usage is recorded alone (as before),
+  // so its residents aren't flipped out-of-budget by a building that never had a Bank share
+  const usageOnly = !bid || (world.buildings.get(bid)?.kind === "town-hall" && !allocationId && world.budget.remaining(bid) <= 0);
+  if (usageOnly) world.budget.recordUsage(agentId, b, usd);
+  else world.budget.charge(agentId, b, usd, allocationId ?? undefined, { grantId: grantId ?? null, running });
 }
 
 /** How often a running session's usage is booked (host loop and desk posts): once a minute. */

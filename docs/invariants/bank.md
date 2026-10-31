@@ -64,6 +64,7 @@ What must always hold where tokens come from and where they go: the Bank (`packa
     - Test: `packages/runtime/test/running-debit.test.ts` › `a spend-limit death with a smaller (or no) figure than was posted never books less than the posts`
     - Test: `packages/runtime/test/running-debit.test.ts` › `a restart orphans the session: its row keeps what was booked and the debits still match`
     - Test: `packages/runtime/test/running-debit.test.ts` › `a building with nothing left is still debited (overshoot), so the Spending tab's Not funded doesn't grow`
+    - Test: `packages/runtime/test/running-debit.test.ts` › `its usage with nothing of its own left is recorded alone: no Bank debit, no budget.exhausted, nobody flipped out-of-budget`
     - Test: `packages/desk/test/run.test.ts` › `posts its running usage for the Bank to book, and a session that dies before its result still ends with every call (1:1 mt_x40qq8poc3 decision 2)`
 
 ## How it connects
