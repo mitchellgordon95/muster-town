@@ -99,6 +99,7 @@ describe("FlyApi", () => {
     await a.create({ name: "desk-c-ag_1", labels: {}, volume: "deskhome-ag_1", mountPath: "/home/agent" });
     const fork = f.reqs.find((r) => r.method === "POST" && r.path === "/volumes")!;
     expect(fork.body).toMatchObject({ name: "deskhome_ag_1", region: "ewr", source_volume_id: "vol_old", compute: { cpu_kind: "performance", cpus: 1, memory_mb: 2048 } });
+    expect(fork.body).not.toHaveProperty("size_gb");
     const tries = f.reqs.filter((r) => r.method === "POST" && r.path === "/machines").map((r) => r.body.config.mounts[0].volume);
     expect(tries).toEqual(["vol_old", "vol_2"]);
 
