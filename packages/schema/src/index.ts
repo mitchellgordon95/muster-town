@@ -53,6 +53,14 @@ export type BuildingDefaults = z.infer<typeof BuildingDefaults>;
 export const TownDefaultsPatch = BuildingDefaults.partial().refine((p) => Object.values(p).some((v) => v !== undefined), "give at least one default");
 export type TownDefaultsPatch = z.infer<typeof TownDefaultsPatch>;
 
+/**
+ * The shape the map draws the goal tree in (core world/tree.ts; 1:1 mt_q10xf3bkoq): first-level goals as fountain plazas
+ * with streets below, the plain packed tree, or spokes round the Town Hall. Town-wide: admins and goal owners pick it
+ * on the town map; a new collective starts with "fountain".
+ */
+export const MapLayout = z.enum(["fountain", "tree", "radial"]);
+export type MapLayout = z.infer<typeof MapLayout>;
+
 export const Town = z.object({
   name: z.string(),
   goal: z.string(),
@@ -62,6 +70,8 @@ export const Town = z.object({
   workspace: Workspace.optional(),
   /** the collective's defaults for every building (stored; `TownMeta.defaults()` fills the gaps); PUT /api/town/defaults sets them */
   defaults: BuildingDefaults.partial().optional(),
+  /** how the map draws the goal tree; PUT /api/town/map-layout (an admin or a goal owner) sets it */
+  mapLayout: MapLayout.default("fountain"),
 });
 export type Town = z.infer<typeof Town>;
 
@@ -1874,6 +1884,8 @@ export const TILE = {
   SIGNPOST: 26,
   /** the Town Hall goal tree: a wall chart on its back wall (place `goal-tree`: opens the goal editor) */
   GOAL_CHART: 27,
+  /** the fountain in the middle of a first-level goal's plaza (map shape "fountain"; not walkable) */
+  FOUNTAIN: 28,
 } as const;
 /**
  * The Bank: a fixed landmark (not a building row, so it never takes a budget share) at the west end of the main street,

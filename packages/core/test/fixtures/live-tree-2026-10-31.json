@@ -1,0 +1,196 @@
+{
+ "note": "GET /api/goals and /api/town on muster.town, 2026-10-31 ~19:50Z: 20 goals, 7 buildings",
+ "goals": [
+  {
+   "id": "gl_town",
+   "parentId": null,
+   "text": "Make Muster Town something strangers can fund, join, and trust",
+   "position": 0,
+   "createdAt": "2026-10-30T21:02:16.396Z"
+  },
+  {
+   "id": "gl_fund",
+   "parentId": "gl_town",
+   "text": "Collectively funded: anyone can put tokens behind a goal, see what it will cost before they do, and choose who pays.",
+   "position": 0,
+   "createdAt": "2026-10-30T21:02:16.396Z"
+  },
+  {
+   "id": "ob_qieolu8bvs",
+   "parentId": "gl_fund",
+   "text": "Someone other than Mitchell can fund a building's key result end to end.",
+   "position": 0,
+   "createdAt": "2026-10-27T07:00:48.532Z"
+  },
+  {
+   "id": "gl_join",
+   "parentId": "gl_town",
+   "text": "Steer (goal-directed): a human can own a piece of the goal tree and steer autonomous, budget-aware work toward it through goals, grants, report review and meetings, starting from their first visit.",
+   "position": 1,
+   "createdAt": "2026-10-30T21:02:16.396Z"
+  },
+  {
+   "id": "gl_jktf4bngcu",
+   "parentId": "gl_join",
+   "text": "A signed-in stranger can start their own collective from the web at muster.town/<name> in minutes, with no clone and no server of their own.",
+   "position": 0,
+   "createdAt": "2026-10-31T04:14:51.787Z"
+  },
+  {
+   "id": "ob_508f35a2m4",
+   "parentId": "gl_join",
+   "text": "A stranger who arrives can understand the town and finish useful work in their first session without help.",
+   "position": 1,
+   "createdAt": "2026-10-27T07:00:47.684Z"
+  },
+  {
+   "id": "gl_bl_hzjw0z0zlz",
+   "parentId": "gl_join",
+   "text": "Minimize confusion when joining a Muster Town through UX design",
+   "position": 2,
+   "createdAt": "2026-10-20T20:38:27.239Z"
+  },
+  {
+   "id": "gl_bl_t7slw19vgg",
+   "parentId": "gl_join",
+   "text": "Make Muster Town beautiful and intuitive",
+   "position": 3,
+   "createdAt": "2026-10-29T23:20:10.898Z"
+  },
+  {
+   "id": "gl_trust",
+   "parentId": "gl_town",
+   "text": "Publicly legible and reliable: anyone can check what the town did, why, and what each token bought, and the town stays up as it grows.",
+   "position": 2,
+   "createdAt": "2026-10-30T21:02:16.396Z"
+  },
+  {
+   "id": "gl_5koas412u9",
+   "parentId": "gl_trust",
+   "text": "Anyone can see where a collective's tokens come from (each source, amount, date), how they are split into pools and buildings, how many are used, left and projected, and where they were spent (by building, grant and assignment).",
+   "position": 0,
+   "createdAt": "2026-10-31T04:14:46.860Z"
+  },
+  {
+   "id": "gl_65fywzdb9y",
+   "parentId": "gl_trust",
+   "text": "The town survives failure and load: the live world is backed up off-site nightly with a tested restore, we know how much traffic one server sustains and its first bottlenecks, and there is a written path to scale past them.",
+   "position": 1,
+   "createdAt": "2026-10-31T04:14:48.511Z"
+  },
+  {
+   "id": "ob_kdym3851tm",
+   "parentId": "gl_trust",
+   "text": "Anyone can host a Muster Town on their own hardware and register its DNS name with our directory, so self-hosted towns are listed alongside muster.town.",
+   "position": 2,
+   "createdAt": "2026-10-29T04:23:18.156Z"
+  },
+  {
+   "id": "ob_s7jsvvoe5p",
+   "parentId": "gl_trust",
+   "text": "A funder can see exactly what every token bought: the Bank counts each token type and every grant shows its sessions and their cost.",
+   "position": 3,
+   "createdAt": "2026-10-27T07:00:46.086Z"
+  },
+  {
+   "id": "gl_bl_xvgnd1fvh6",
+   "parentId": "gl_trust",
+   "text": "Host Muster Town at muster.town",
+   "position": 4,
+   "createdAt": "2026-10-20T21:31:43.838Z"
+  },
+  {
+   "id": "ob_648ua06ht0",
+   "parentId": "gl_bl_xvgnd1fvh6",
+   "text": "Prod watches muster.town and alerts Mitchell outside the town (email and SMS) before a human notices a problem.",
+   "position": 0,
+   "createdAt": "2026-10-28T17:51:39.784Z"
+  },
+  {
+   "id": "gl_bl_vef3v0oux0",
+   "parentId": "gl_trust",
+   "text": "Users can review a collective's finances at a glance",
+   "position": 5,
+   "createdAt": "2026-10-27T05:42:06.807Z"
+  },
+  {
+   "id": "gl_bl_vd69s5a1nh",
+   "parentId": "gl_trust",
+   "text": "Avoid toil and bugs through proactive code management",
+   "position": 6,
+   "createdAt": "2026-10-27T05:50:00.101Z"
+  },
+  {
+   "id": "ob_6j8s2588lp",
+   "parentId": "gl_bl_vd69s5a1nh",
+   "text": "Build times are fast and observable: the full check (docs, dead code, typecheck, tests) runs in minutes on a desk and in CI, and anyone can see how long each step takes and when it gets slower.",
+   "position": 0,
+   "createdAt": "2026-10-29T03:45:11.208Z"
+  },
+  {
+   "id": "gl_i9gm1fodgo",
+   "parentId": "gl_bl_vd69s5a1nh",
+   "text": "The code stays legible: architecture and invariants docs match the code (each invariant named by a test), and recurring sweeps remove dead code and pull repeated patterns into core subsystems.",
+   "position": 1,
+   "createdAt": "2026-10-31T04:14:53.531Z"
+  }
+ ],
+ "buildings": [
+  {
+   "id": "town-hall",
+   "kind": "town-hall",
+   "name": "Town Hall",
+   "goalId": "gl_town",
+   "createdAt": "2026-10-20T00:16:54.304Z",
+   "headcount": 1
+  },
+  {
+   "id": "workshop",
+   "kind": "lab",
+   "name": "Town Workshop",
+   "goalId": "gl_join",
+   "createdAt": "2026-10-20T00:16:54.305Z",
+   "headcount": 5
+  },
+  {
+   "id": "bl_hzjw0z0zlz",
+   "kind": "lab",
+   "name": "Onboarding",
+   "goalId": "gl_bl_hzjw0z0zlz",
+   "createdAt": "2026-10-20T20:38:27.239Z",
+   "headcount": 3
+  },
+  {
+   "id": "bl_xvgnd1fvh6",
+   "kind": "lab",
+   "name": "Prod",
+   "goalId": "gl_bl_xvgnd1fvh6",
+   "createdAt": "2026-10-20T21:31:43.838Z",
+   "headcount": 2
+  },
+  {
+   "id": "bl_vef3v0oux0",
+   "kind": "lab",
+   "name": "Bank Transparency",
+   "goalId": "gl_bl_vef3v0oux0",
+   "createdAt": "2026-10-27T05:42:06.807Z",
+   "headcount": 2
+  },
+  {
+   "id": "bl_vd69s5a1nh",
+   "kind": "lab",
+   "name": "Code Legibility and Maintenance",
+   "goalId": "gl_bl_vd69s5a1nh",
+   "createdAt": "2026-10-27T05:50:00.101Z",
+   "headcount": 2
+  },
+  {
+   "id": "bl_t7slw19vgg",
+   "kind": "lab",
+   "name": "UI / UX",
+   "goalId": "gl_bl_t7slw19vgg",
+   "createdAt": "2026-10-29T23:20:10.898Z",
+   "headcount": 3
+  }
+ ]
+}
