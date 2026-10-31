@@ -20,6 +20,8 @@ export interface Ctx {
   sdk: Sdk;
   /** live work and manage sessions by agentId (host ones take interrupts directly; desk ones hold the exec child) */
   live: Map<string, LiveSession>;
+  /** host conversation sessions (a human's 1:1) running alongside the agent's live work session, by agentId: one per agent */
+  talking: Map<string, LiveSession>;
   /** live facilitate sessions by agentId: the redeploy drain waits for them too (a restart mid-meeting orphans the facilitator) */
   facilitating: Map<string, LiveSession>;
   /** desk sessions' funding allocation, by sessionId (charged in finishWorkSession) */
@@ -72,6 +74,8 @@ export interface SessionSpec {
   verbs?: VerbName[];
   /** after a turn with no input pending, keep waiting for more input instead of ending (manage sessions with an open 1:1) */
   keepOpen?: () => boolean;
+  /** a conversation running alongside the agent's live work session: registered in `ctx.talking`, not `ctx.live` */
+  alongside?: boolean;
   /** work sessions: ends the session instead of the default endSession + charge (see finishWorkSession) */
   finish?: (out: SessionOutcome, allocationId: string | null) => Promise<Session>;
 }
@@ -269,7 +273,9 @@ export async function runAgentSession(ctx: Ctx, spec: SessionSpec): Promise<Sess
   const session = world.ops.startSession(agent.id, { purpose: spec.purpose, model: spec.model, assignmentId: spec.assignmentId ?? null, meetingId: spec.meetingId ?? null, backend: "host", funding: funding.auth, inputId: funding.inputId ?? null, credentialInputId: funding.credential.inputId });
   const live: LiveSession = { kind: "host", agentId: agent.id, sessionId: session.id, purpose: spec.purpose, input: new InputChannel(), q: null, reportSubmitted: false, stopped: false };
   // work and manage sessions take interrupts and count as the agent's live session (scheduler, redeploy drain, abort)
-  if (spec.purpose === "work" || spec.purpose === "manage") ctx.live.set(agent.id, live);
+  // (a 1:1 alongside a work session is the agent's conversation: `ctx.talking`, so it never holds the work lock)
+  if (spec.alongside) ctx.talking.set(agent.id, live);
+  else if (spec.purpose === "work" || spec.purpose === "manage") ctx.live.set(agent.id, live);
   else if (spec.purpose === "facilitate") ctx.facilitating.set(agent.id, live);
   const emit = (type: "agent.tool" | "agent.thought" | "system", text: string, payload: Record<string, unknown> = {}) =>
     world.events.append({ type, agentId: agent.id, buildingId: bid, text, payload: { sessionId: session.id, purpose: spec.purpose, ...payload } });
@@ -332,6 +338,7 @@ export async function runAgentSession(ctx: Ctx, spec: SessionSpec): Promise<Sess
   } finally {
     live.input.close();
     if (ctx.live.get(agent.id) === live) ctx.live.delete(agent.id);
+    if (ctx.talking.get(agent.id) === live) ctx.talking.delete(agent.id);
     if (ctx.facilitating.get(agent.id) === live) ctx.facilitating.delete(agent.id);
   }
   if (!live.reportSubmitted && world.sessions.get(session.id)?.reportId) live.reportSubmitted = true;

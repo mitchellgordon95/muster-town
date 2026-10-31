@@ -481,7 +481,8 @@ export class Ops {
       wallMs: Number.isFinite(wallMs) ? Math.round(wallMs) : null, cpuMs: result.cpuMs ?? null, stealMs: result.stealMs ?? null,
     });
     const agent = this.world.agents.require(s.agentId, "agent");
-    if (agent.status === "working") this.world.setStatus(agent.id, "idle");
+    // a 1:1 answered beside a work session ends while the work goes on (and vice versa): idle only when neither runs
+    if (agent.status === "working" && !this.world.sessions.count("agentId = ? AND status = 'running' AND purpose IN ('work', 'manage')", [agent.id])) this.world.setStatus(agent.id, "idle");
     clearAgentDrafting(this.world, agent.id);
     this.world.events.append({ type: "session.ended", agentId: agent.id, buildingId: homeOf(agent), text: `${agent.name}'s ${s.purpose} session ended (${result.status})`, payload: { sessionId, status: result.status, model: session.model, tokens: session.tokens, ...countsOf(session), ...(result.byModel ? { byModel: result.byModel } : {}), adjustedOutputTokens: sessionView(session).adjustedOutputTokens, costUsd: session.costUsd, turns: session.turns, reportId: session.reportId, error: session.error, ...(agent.forkOf ? { forkOf: agent.forkOf } : {}) } });
     // Bank step 4: a subscription-cap death (the desk's SPEND_LIMIT, or an error that reads like one) → bank.cap

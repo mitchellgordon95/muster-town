@@ -123,42 +123,67 @@ describe("the manager's 1:1", () => {
     expect(world.sessions.first("agentId = ? AND purpose = 'manage'", [mei.id])).toMatchObject({ status: "done" });
   });
 
-  test("an agent busy in a work session: the 1:1 says why it's silent, isn't closed as quiet, and is answered once the work ends", async () => {
+  test("an agent in a work session answers its 1:1 beside it, hands the human's request to the work by telling itself, and the work goes on", async () => {
     const work = deferred();
     const env = await managed(async function* (s) {
       yield init();
       if (s.agentId !== s.world.agents.first("name = 'Noor'")!.id) { yield result(50, 0.01); return; } // Mei's in-tray
       const mid = s.received[0].match(/(mt_[a-z0-9]+)/)?.[1];
-      if (!mid || !s.received[0].includes("1:1")) { await work.promise; yield* callVerb(s, "submit_report", { title: "Done", body: "## Findings\nok", verdict: "stop" }); yield result(100, 0.01); return; }
-      yield* callVerb(s, "meeting", { meetingId: mid, action: "speak", text: "Sorry, I was busy. Here now." });
+      if (!mid || !s.received[0].includes("1:1")) {
+        // the work session (mid-turn): the human's request arrives from its 1:1 as an interrupt
+        expect(await s.next()).toContain("Treat it as direction from Mitchell");
+        await work.promise;
+        yield* callVerb(s, "submit_report", { title: "Done", body: "## Findings\nok", verdict: "stop" });
+        yield result(100, 0.01);
+        return;
+      }
+      expect(s.received[0]).toContain("## What you are doing now");
+      expect(s.received[0]).toContain('"Measure the growth rate"');
+      yield* callVerb(s, "meeting", { meetingId: mid, action: "speak", text: "I'm measuring the growth rate. What do you need?" });
       yield result(100, 0.01);
+      expect(await s.next()).toContain("use the 2025 data");
+      yield* callVerb(s, "tell", { to: s.agentId!, text: "Use the 2025 data, not 2024." });
+      yield* callVerb(s, "meeting", { meetingId: mid, action: "speak", text: "Passed it to my work session." });
+      yield result(120, 0.01);
       expect(await s.next()).toContain("is over");
       yield result(150, 0.02);
     });
-    const { world, runtime, sdk, by, lab, admin, clock } = env;
+    const { world, runtime, sdk, by, lab, admin } = env;
     const noor = by("Noor");
     const asg = world.ops.createWork(null, noor.id, { title: "Measure the growth rate" });
+    const noorSessions = () => sdk.sessions.filter((x) => x.agentId === noor.id);
     const running = runtime.runWorkSession(noor.id, asg.id);
-    await until(() => sdk.sessions.length === 1);
+    await until(() => noorSessions().length === 1);
     const m = world.ops.openOneOnOne(admin, lab.id, { agentId: noor.id });
     world.ops.meetingSay(admin, m.id, "hello?");
-    await until(() => world.meetings.require(m.id).transcript.some((u) => u.speakerKind === "system"));
-    await runtime.tickOnce();
-    const notices = world.meetings.require(m.id).transcript.filter((u) => u.speakerKind === "system");
-    expect(notices).toHaveLength(1); // once per busy session, not per wake
-    expect(notices[0].text).toContain('Noor is in a work session ("Measure the growth rate") and answers here when it ends.');
-    const noorSessions = () => sdk.sessions.filter((x) => x.agentId === noor.id).length;
-    expect(noorSessions()).toBe(1); // only the work session: the 1:1 waits for it
-    clock.t = Date.now() + 21 * 60_000;
-    await runtime.tickOnce();
-    expect(world.meetings.require(m.id).phase).toBe("discussing"); // the human's line still waits on Noor
-    clock.t = Date.now(); // session start times are wall-clock too
+    await until(() => world.meetings.require(m.id).transcript.some((u) => u.speakerId === noor.id));
+    expect(noorSessions()).toHaveLength(2); // the work and, beside it, the 1:1
+    expect(noorSessions()[1].options.disallowedTools).toContain("mcp__town__submit_report");
+    expect(world.meetings.require(m.id).transcript.filter((u) => u.speakerKind === "system")).toHaveLength(0); // no "busy" notice
+    const talk = world.sessions.first("agentId = ? AND status = 'running' AND purpose = 'manage'", [noor.id])!;
+    expect(talk.meetingId).toBe(m.id);
+    expect(world.sessions.first("agentId = ? AND status = 'running' AND purpose = 'work'", [noor.id])).toBeTruthy();
+
+    world.ops.meetingSay(admin, m.id, "Please use the 2025 data");
+    await until(() => world.meetings.require(m.id).transcript.some((u) => u.text === "Passed it to my work session."));
+    await until(() => noorSessions()[0].received.some((t) => t.includes("Use the 2025 data, not 2024.") && t.includes(m.id)));
     work.resolve();
     await running;
-    await runtime.tickOnce();
-    await until(() => world.meetings.require(m.id).transcript.some((u) => u.speakerId === noor.id));
+    expect(world.sessions.require(talk.id).status).toBe("running"); // the 1:1 outlives the work
+    expect(world.sessions.first("agentId = ? AND purpose = 'work'", [noor.id])!.reportId).not.toBeNull(); // the report is the work's
     world.ops.endMeeting(admin, m.id);
     await runtime.whenIdle();
+    expect(world.sessions.require(talk.id).status).toBe("done");
+    expect(world.agents.require(noor.id).status).toBe("idle");
+    expect(world.sessions.require(talk.id).reportId).toBeNull();
+    // each session booked on its own
+    expect(world.sessions.require(talk.id).tokens).toBeGreaterThan(0);
+  });
+
+  test("a tell to yourself outside a 1:1 beside your work is refused", async () => {
+    const env = await managed(async function* (s) { yield init(); yield result(50, 0.01); });
+    const noor = env.by("Noor");
+    await expect(env.world.verbs.tell(noor.id, { to: noor.id, text: "hi" })).rejects.toThrow(/can't tell yourself/);
   });
 
   test("a redeploy doesn't silence the 1:1: the manager keeps answering, the restart posts a notice, and a new session answers what it missed", async () => {
