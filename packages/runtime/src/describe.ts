@@ -25,6 +25,7 @@ export function describeTool(world: World, name: string, input: unknown): string
   if (!verb) return describeBuiltin(name, i);
   switch (verb) {
     case "look": return "Looking around";
+    case "town": return "Looking up the town's buildings";
     case "go": return `Walking to ${placeName(world, String(i.to ?? ""))}`;
     case "say": return `Saying: ${clip(i.text)}`;
     case "tell": return `Messaging ${world.nameOf(String(i.to ?? ""))}`;
