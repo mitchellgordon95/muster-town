@@ -20,7 +20,7 @@ export interface ThreadMessage { id: string; fromId: string; toId: string; from:
 const warnedModels = new Set<string>();
 
 
-export interface StartNextResult { assignment: Assignment; agent: Agent; when: "now" | "after-current" }
+interface StartNextResult { assignment: Assignment; agent: Agent; when: "now" | "after-current" }
 
 export type RequestAction = "claim" | "done" | "delete";
 /** `null` actor = system (scheduler/runtime): no permission checks. */

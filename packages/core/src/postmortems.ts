@@ -44,7 +44,7 @@ export function queuePostmortem(world: World, actor: Actor, kr: KeyResult, why: 
   return createAssignment(world, {
     agentId: mgr.id, queue: "building", buildingId: bid, createdBy: by.kind === "agent" ? { kind: "system", id: "system" } : by,
     title: `Postmortem on ${kr.id}: ${clip(kr.text, 80)}`,
-    description: `A human marked the key result "${kr.text}" (${kr.id}${goal ? `, under the goal "${goal.text}" (${goal.id})` : ""}) missed. Their note ${note.id} says why: ${line}\n\nWrite the postmortem: what we planned, what happened, what we'd do differently, and whether the goal needs a new key result (if it does, propose it with propose_key_result and name it in the report). One screen. No new work: read the grant, its reports and the event log, then submit one report. Its report links back to the key result as its postmortem.`,
+    description: `A human marked the key result "${kr.text}" (${kr.id}${goal ? `, under the goal "${goal.text}" (${goal.id})` : ""}) missed. Their note ${note.id} says why: ${line}\n\nWrite the postmortem: what we planned, what happened, what we'd do differently, and whether the goal needs a new key result (if it does, propose a grant that carries it with propose_grant and its keyResults, naming the missed key result ${kr.id} in its note, and name the proposal in the report). One screen. No new work: read the grant, its reports and the event log, then submit one report. Its report links back to the key result as its postmortem.`,
     lane: { lane: "directed", sourceId: note.id },
   });
 }

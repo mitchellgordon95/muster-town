@@ -13,18 +13,18 @@ export interface DeskSize { cpuKind: "shared" | "performance"; cpus: number; mem
 export const DESK_FALLBACK_SIZE: DeskSize = { ...DESK_LEGACY_SIZE };
 
 /** The desk size the config asks for (unset fields: FlyApi's defaults, performance-1x 2048 MB). */
-export const configuredDeskSize = (desks: Pick<DesksConfig, "cpuKind" | "cpus" | "memoryMb">): DeskSize => ({
+const configuredDeskSize = (desks: Pick<DesksConfig, "cpuKind" | "cpus" | "memoryMb">): DeskSize => ({
   cpuKind: desks.cpuKind ?? DESK_MACHINE_DEFAULTS.cpuKind, cpus: desks.cpus ?? DESK_MACHINE_DEFAULTS.cpus, memoryMb: desks.memoryMb ?? DESK_MACHINE_DEFAULTS.memoryMb,
 });
 
 export type SizedSession = Pick<Session, "cpuKind" | "cpus" | "memoryMb">;
 /** The size a desk session ran on: its recorded one, else shared-cpu-2x (every desk before migration 060). */
-export const sessionDeskSize = (s: SizedSession): DeskSize =>
+const sessionDeskSize = (s: SizedSession): DeskSize =>
   s.cpuKind && s.cpus && s.memoryMb ? { cpuKind: s.cpuKind, cpus: s.cpus, memoryMb: s.memoryMb } : DESK_FALLBACK_SIZE;
 
 /** "performance-1x", "shared-cpu-2x" */
 export const deskPreset = (z: DeskSize) => `${z.cpuKind === "shared" ? "shared-cpu" : "performance"}-${z.cpus}x`;
-export const deskUsdPerHour = (z: DeskSize) => flyRate(z.cpuKind, z.cpus, z.memoryMb)?.usdPerHour ?? 0;
+const deskUsdPerHour = (z: DeskSize) => flyRate(z.cpuKind, z.cpus, z.memoryMb)?.usdPerHour ?? 0;
 
 export interface DeskBill {
   /** "YYYY-MM-DD", UTC */

@@ -1,8 +1,8 @@
-import { ChangeGoalInput, CreateGoalInput, ReviewKeyResultInput, DecideGoalProposalInput, GoalProposalStatus, ProposeGoalInput, RetireGoalInput, UpdateGoalInput } from "@muster-town/schema";
-import { buildingBoard, goalBoard, goalFunding, worldGoalSpend } from "@muster-town/core";
+import { CaptainDecisionInput, CaptainRequestInput, ChangeGoalInput, CreateGoalInput, ReviewKeyResultInput, DecideGoalProposalInput, GoalProposalStatus, ProposeGoalInput, RetireGoalInput, UpdateGoalInput } from "@muster-town/schema";
+import { buildingBoard, decideCaptain, goalBoard, goalFunding, pendingCaptainRequests, requestCaptain, worldGoalSpend } from "@muster-town/core";
 import type { FastifyInstance } from "fastify";
 import { z } from "zod";
-import { actorOf, funderOf, parse, type Params } from "../context.ts";
+import { actorOf, funderOf, parse, requireUser, type Params } from "../context.ts";
 
 const TreeQuery = z.object({ retired: z.enum(["0", "1"]).optional() });
 const ProposalsQuery = z.object({ status: GoalProposalStatus.optional(), buildingId: z.string().optional() });
@@ -53,8 +53,23 @@ export async function goalRoutes(app: FastifyInstance) {
 
   app.patch<{ Params: Params }>("/api/goals/:id", async (req) => ({ goal: tree.update(actorOf(world, req), req.params.id, parse(UpdateGoalInput, req.body)) }));
 
-  app.post<{ Params: Params }>("/api/goals/:id/retire", async (req) => ({ goal: tree.retire(actorOf(world, req), req.params.id, parse(RetireGoalInput, req.body)) }));
+  // "Ask to captain this goal" (gr_bwm0iz7rwl): a member asks; the goal's current captain (or an admin) decides. The
+  // pending requests are also Town Hall in-tray items (`captains` on GET /api/buildings/town-hall/intray, routed there).
+  app.post<{ Params: Params }>("/api/goals/:id/captain-requests", async (req, reply) => {
+    const user = requireUser(req);
+    const input = parse(CaptainRequestInput, req.body ?? {});
+    return reply.code(201).send({ captainRequest: requestCaptain(world, user.id, req.params.id, input.note ?? "") });
+  });
+  app.get<{ Params: Params }>("/api/goals/:id/captain-requests", async (req) => {
+    tree.require(req.params.id);
+    return { captainRequests: pendingCaptainRequests(world).filter((r) => r.goalId === req.params.id) };
+  });
+  app.post<{ Params: Params }>("/api/captain-requests/:id/decide", async (req) => {
+    const input = parse(CaptainDecisionInput, req.body);
+    return { captainRequest: decideCaptain(world, actorOf(world, req), req.params.id, input.action === "accept", input.note ?? "") };
+  });
 
+  app.post<{ Params: Params }>("/api/goals/:id/retire", async (req) => ({ goal: tree.retire(actorOf(world, req), req.params.id, parse(RetireGoalInput, req.body)) }));
 
   /** The building's one attachment (also PATCH /api/buildings/:id with goalId). */
   app.put<{ Params: Params }>("/api/buildings/:id/goal", async (req) => ({ building: tree.attach(actorOf(world, req), req.params.id, parse(AttachInput, req.body).goalId) }));

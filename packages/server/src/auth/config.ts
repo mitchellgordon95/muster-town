@@ -26,8 +26,8 @@ export interface AuthSettings {
   hosted?: { slug: string; ownerGithubId: string | null } | null;
 }
 
-export const GITHUB_URL = "https://github.com";
-export const GITHUB_API_URL = "https://api.github.com";
+const GITHUB_URL = "https://github.com";
+const GITHUB_API_URL = "https://api.github.com";
 
 export function defaultAuthSettings(over: Partial<AuthSettings> = {}): AuthSettings {
   return {
@@ -38,7 +38,7 @@ export function defaultAuthSettings(over: Partial<AuthSettings> = {}): AuthSetti
 }
 
 /** `<dataDir>/session-secret`, created once (mode 600) when `MUSTER_TOWN_SESSION_SECRET` (or the old `AGENT_TOWN_SESSION_SECRET`) is unset. */
-export function sessionSecretFile(dataDir: string): string {
+function sessionSecretFile(dataDir: string): string {
   const path = join(dataDir, "session-secret");
   if (existsSync(path)) {
     const s = readFileSync(path, "utf8").trim();

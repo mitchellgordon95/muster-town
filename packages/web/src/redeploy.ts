@@ -5,7 +5,7 @@
  */
 import type { Event, RedeployLive, RedeployRun } from "@muster-town/schema";
 
-export interface RedeployStatus extends RedeployRun { at: number; eventId: number; text: string }
+interface RedeployStatus extends RedeployRun { at: number; eventId: number; text: string }
 
 /** How long a finished (or failed, or interrupted) redeploy stays on the HUD. */
 export const SHOW_FINISHED_MS = 10 * 60_000;

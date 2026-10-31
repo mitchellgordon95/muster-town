@@ -1,5 +1,5 @@
 /** The operating manual split at its h2 headings: the sheet's table of contents and the `/#/manual/<section>` slugs. */
-export interface ManualSection { title: string; slug: string; body: string }
+interface ManualSection { title: string; slug: string; body: string }
 
 export const slugOf = (title: string) => title.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "");
 

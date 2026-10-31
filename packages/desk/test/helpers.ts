@@ -81,7 +81,7 @@ export function brief(sessionId: string, over: Partial<DeskBrief> = {}): DeskBri
 }
 
 // ---- fake SDK ----
-export interface FakeSession {
+interface FakeSession {
   params: QueryParams;
   received: string[];
   interrupted: boolean;
@@ -89,7 +89,7 @@ export interface FakeSession {
   interruptedSignal: Promise<void>;
 }
 /** One turn per user message; yields that turn's messages. A result is appended automatically unless the turn yields one. */
-export type Turn = (s: FakeSession, text: string, turn: number) => AsyncGenerator<unknown, void, unknown>;
+type Turn = (s: FakeSession, text: string, turn: number) => AsyncGenerator<unknown, void, unknown>;
 
 export const result = (turns: number, extra: Record<string, unknown> = {}) => ({
   type: "result", subtype: "success", session_id: "sdk-1", is_error: false, num_turns: turns, result: "",

@@ -20,7 +20,7 @@ export function docExportPath(d: Doc): string | null {
   return posix.join("buildings", d.buildingId ?? "town-hall", "docs", d.type, file);
 }
 
-export function meetingExportPath(m: Meeting): string {
+function meetingExportPath(m: Meeting): string {
   return posix.join("meetings", m.createdAt.slice(0, 7), `${m.createdAt.slice(0, 10)}-${slugify(m.title)}-${m.id.slice(-8)}.md`);
 }
 

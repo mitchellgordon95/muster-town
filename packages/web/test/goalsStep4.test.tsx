@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 import { renderToStaticMarkup } from "react-dom/server";
-import type { GoalSpend, IntrayRoute, ReviewSlide } from "@muster-town/schema";
+import type { CaptainRequestView, GoalSpend, IntrayRoute, ReviewSlide } from "@muster-town/schema";
 import { ReviewAsDeckButton, mineOnly } from "../src/panels/Places";
 import { SlideDecision, mineSlides } from "../src/panels/ReviewDeck";
 import { laneLine, seriesBars } from "../src/panels/GoalSpend";
@@ -34,6 +34,19 @@ describe("Town Hall in-tray: Mine / All and goal proposals (docs/goals.md step 4
   it("a goal proposal slide whose proposal was decided says so", () => {
     const html = renderToStaticMarkup(<SlideDecision slide={s("goal-proposal:gp_z", "gp_z", { kind: "goal-proposal", group: 4 })} n={2} grants={[]} reports={[]} goalProposals={[]} onDecided={() => undefined} onOpenDoc={() => undefined} />);
     expect(html).toContain("Already decided");
+  });
+
+  it("a captain slide (gr_bwm0iz7rwl) carries Accept / Decline for whoever the route lets decide; the others see who decides", () => {
+    const req: CaptainRequestView = { id: "cr_1", goalId: "gl_x", userId: "us_ana", note: "I run this", status: "pending", decidedBy: null, decisionNote: "", createdAt: new Date().toISOString(), decidedAt: null, name: "Ana", githubLogin: "ana", avatarUrl: null, goalText: "Grant pages show sessions", captainId: null, captainName: "the town admins" };
+    const slide = s("captain:cr_1", "cr_1", { kind: "captain", group: 4 });
+    const yes = renderToStaticMarkup(<SlideDecision slide={slide} n={2} grants={[]} reports={[]} captains={[req]} routes={{ cr_1: route(true) }} onDecided={() => undefined} onOpenDoc={() => undefined} />);
+    expect(yes).toContain("@ana</b> asks to captain");
+    expect(yes).toContain("Accept");
+    expect(yes).toContain("Decline");
+    const no = renderToStaticMarkup(<SlideDecision slide={slide} n={2} grants={[]} reports={[]} captains={[req]} routes={{ cr_1: route(false) }} onDecided={() => undefined} onOpenDoc={() => undefined} />);
+    expect(no).not.toContain("Accept");
+    expect(no).toContain("Captained today by the town admins");
+    expect(renderToStaticMarkup(<SlideDecision slide={slide} n={2} grants={[]} reports={[]} captains={[]} onDecided={() => undefined} onOpenDoc={() => undefined} />)).toContain("Already decided");
   });
 });
 

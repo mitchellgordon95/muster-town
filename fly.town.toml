@@ -44,5 +44,7 @@ primary_region = "iad"
     grace_period = "240s" # the first boot copies the checkout onto the volume (about a minute)
 
 [[vm]]
-  size = "shared-cpu-2x"
+  # dedicated core: on shared-cpu-2x the host burned its burst balance (hourly backup + ~40 redeploys on 2026-10-31), was throttled to
+  # the 2-vCPU baseline (~12 % of a core, 85-90 % steal) and stopped answering /api/health: 503 at the edge. Same as the desks (README).
+  size = "performance-1x"
   memory = "2gb"

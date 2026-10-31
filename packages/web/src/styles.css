@@ -97,6 +97,8 @@ kbd { font-family: var(--mono); font-size: 11px; background: #2a2d3a; border: 1p
 .hud-row .notice-text { color: var(--text); white-space: normal; line-height: 1.3; }
 .hud-row .notice-text b { color: var(--text); }
 .hud-row.warn { border-color: #4a4226; }
+.hud-row.with-actions { cursor: default; }
+.hud-row.with-actions .btn { flex: none; }
 .hud-row.meet em { color: var(--meet); }
 .hud-row.ok { border-color: #2f5c3f; }
 .hud-row.ok em { color: #6fdc8c; }
@@ -204,8 +206,7 @@ kbd { font-family: var(--mono); font-size: 11px; background: #2a2d3a; border: 1p
 .foot-note { color: var(--faint); font-size: 12px; margin-top: 14px; }
 .foot-note.warn { color: var(--warn); font-weight: 600; }
 
-/* feed */
-.feed { font-family: var(--mono); font-size: 12px; max-height: 420px; overflow: auto; border: 1px solid var(--line); border-radius: var(--r); background: #15161e; }
+/* event lines */
 .ev { display: flex; gap: 8px; padding: 4px 9px; border-bottom: 1px solid #21232e; color: var(--muted); }
 .ev:last-child { border-bottom: none; }
 .ev time { color: var(--faint); flex: none; }
@@ -726,6 +727,7 @@ div.spend-row > .muted { font-size: 11.5px; }
 .goal-detail { display: flex; flex-direction: column; gap: 8px; }
 .goal-path { font-size: 12px; }
 .goal-meta { font-size: 12px; }
+.captain-ask { margin: 6px 0; }
 .goal-actions { display: flex; gap: 6px; flex-wrap: wrap; }
 .goal-form { border: 1px solid #2a2d3a; border-radius: var(--r); padding: 8px 10px; display: flex; flex-direction: column; gap: 6px; }
 .goal-proposals { display: flex; flex-direction: column; gap: 8px; }

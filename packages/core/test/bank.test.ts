@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { createBuilding, createResident } from "../src/index.ts";
+import { createBuilding, createResident, HOSTED_KEY_ONLY_HOLD, NoCredential } from "../src/index.ts";
 import { seededWorld } from "./helpers.ts";
 
 const T0 = new Date("2026-10-20T12:00:00.000Z");
@@ -179,5 +179,40 @@ describe("pools deleted (migration 067)", () => {
     expect(world.db.prepare("SELECT COUNT(*) AS n FROM bank_pools").get()).toEqual({ n: 1 });
     expect(world.db.prepare("SELECT DISTINCT poolId FROM bank_debits").all()).toEqual([{ poolId: "general" }]);
     expect(world.bankReservations.all()).toEqual([]);
+  });
+});
+
+// Mitchell, 1:1 mt_p3ge56kg03: only the Workshop and self-hosted towns run on a Claude subscription (Anthropic's terms)
+describe("a hosted collective never runs on a subscription", () => {
+  const sub = { label: "Max plan", source: "subscription" as const, model: "m", tokens: 5_000_000, recurrence: "daily" as const, weeklyCapTokens: 35_000_000, token: "sk-ant-oat01-stray" };
+  it("refuses to fund a session on a stray subscription input and says to add an API key", () => {
+    const { world, seed, by } = seededWorld(); // its Bank holds the test subscription input
+    world.bank.addInput(seed.admin.id, sub); // credited: today's expiring share would pay
+    world.host.hosted = true;
+    const lab = by("Noor").buildingId!;
+    expect(() => world.budget.fundingFor(lab)).toThrow(NoCredential);
+    expect(() => world.budget.fundingFor(lab)).toThrow(HOSTED_KEY_ONLY_HOLD);
+    expect(world.budget.credentialHold(lab)).toBe(HOSTED_KEY_ONLY_HOLD);
+    expect(world.bank.subscriptionCredential()).toBeNull();
+    expect(() => world.bank.townCredential()).toThrow(HOSTED_KEY_ONLY_HOLD);
+    expect(() => world.bank.addInput(seed.admin.id, sub)).toThrow(HOSTED_KEY_ONLY_HOLD);
+  });
+  it("runs on the Bank's API key where the subscription would pay", () => {
+    const { world, seed, by } = seededWorld();
+    world.bank.addInput(seed.admin.id, sub);
+    const key = world.bank.addInput(seed.admin.id, { label: "Owner key", source: "api-key", model: "m", tokens: 1_000_000, recurrence: "once", apiKey: "sk-ant-api03-owner" } as never);
+    world.host.hosted = true;
+    const lab = by("Noor").buildingId!;
+    const f = world.budget.fundingFor(lab);
+    expect(f.auth).toBe("api-key");
+    expect(f.credential).toMatchObject({ kind: "api-key", inputId: key.id });
+    expect(world.bank.townCredential().kind).toBe("api-key");
+  });
+  it("the Workshop (not hosted) is unchanged: it runs on its subscription", () => {
+    const { world, seed, by } = seededWorld();
+    world.bank.addInput(seed.admin.id, sub);
+    const f = world.budget.fundingFor(by("Noor").buildingId!);
+    expect(f.auth).toBe("subscription");
+    expect(f.credential.kind).toBe("subscription");
   });
 });

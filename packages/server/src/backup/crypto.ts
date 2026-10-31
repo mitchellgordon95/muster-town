@@ -5,7 +5,7 @@
  */
 import { createCipheriv, createDecipheriv, randomBytes } from "node:crypto";
 
-export const BACKUP_AAD = "muster-town backup v1";
+const BACKUP_AAD = "muster-town backup v1";
 
 /** 32 bytes from base64 or hex; null when unset or blank; throws when malformed. */
 export function backupKeyFrom(raw: string | undefined): Buffer | null {

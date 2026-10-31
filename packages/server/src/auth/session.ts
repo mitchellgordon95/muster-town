@@ -4,19 +4,19 @@ import type { FastifyRequest } from "fastify";
 import type { Auth } from "../context.ts";
 import type { AuthSettings } from "./config.ts";
 
-export const SESSION_MAX_AGE_S = 30 * 24 * 3600;
-export const STATE_MAX_AGE_S = 600;
+const SESSION_MAX_AGE_S = 30 * 24 * 3600;
+const STATE_MAX_AGE_S = 600;
 
 const b64 = (s: string | Buffer) => Buffer.from(s).toString("base64url");
 const mac = (secret: string, data: string) => createHmac("sha256", secret).update(data).digest("base64url");
 
 /** `<payload>.<hmac>` with a base64url JSON payload. */
-export function sign(secret: string, payload: object): string {
+function sign(secret: string, payload: object): string {
   const p = b64(JSON.stringify(payload));
   return `${p}.${mac(secret, p)}`;
 }
 
-export function unsign<T>(secret: string, value: string | undefined): T | null {
+function unsign<T>(secret: string, value: string | undefined): T | null {
   if (!value) return null;
   const i = value.lastIndexOf(".");
   if (i <= 0) return null;
@@ -25,7 +25,7 @@ export function unsign<T>(secret: string, value: string | undefined): T | null {
   try { return JSON.parse(Buffer.from(p, "base64url").toString("utf8")) as T; } catch { return null; }
 }
 
-export function parseCookies(header: string | undefined): Record<string, string> {
+function parseCookies(header: string | undefined): Record<string, string> {
   const out: Record<string, string> = {};
   for (const part of (header ?? "").split(";")) {
     const i = part.indexOf("=");
@@ -41,19 +41,19 @@ export function parseCookies(header: string | undefined): Record<string, string>
  * Cookies aren't port-scoped, so collectives on different localhost ports would overwrite each other's session:
  * the name carries the public URL's port when it has one (`at_session_4322`), else plain `at_session`.
  */
-export function sessionCookieName(publicUrl: string): string {
+function sessionCookieName(publicUrl: string): string {
   try { const port = new URL(publicUrl).port; return port ? `at_session_${port}` : "at_session"; } catch { return "at_session"; }
 }
-export const stateCookieName = (publicUrl: string) => sessionCookieName(publicUrl).replace("at_session", "at_oauth_state");
+const stateCookieName = (publicUrl: string) => sessionCookieName(publicUrl).replace("at_session", "at_oauth_state");
 
-export function cookie(name: string, value: string, o: { maxAge: number; path?: string; secure?: boolean }): string {
+function cookie(name: string, value: string, o: { maxAge: number; path?: string; secure?: boolean }): string {
   return [`${name}=${encodeURIComponent(value)}`, `Path=${o.path ?? "/"}`, `Max-Age=${o.maxAge}`, "HttpOnly", "SameSite=Lax", ...(o.secure ? ["Secure"] : [])].join("; ");
 }
 
-export const isSecure = (s: AuthSettings) => s.publicUrl.startsWith("https:");
+const isSecure = (s: AuthSettings) => s.publicUrl.startsWith("https:");
 
 /** `userId` is the root World's user; `gh` (GitHub sign-ins) is what a hosted World resolves the visitor by. */
-export interface SessionPayload { userId: string; iat: number; gh?: GithubProfile }
+interface SessionPayload { userId: string; iat: number; gh?: GithubProfile }
 
 export function sessionCookie(s: AuthSettings, userId: string, now = Date.now(), gh?: GithubProfile): string {
   const payload: SessionPayload = { userId, iat: Math.floor(now / 1000), ...(gh ? { gh: { id: gh.id, login: gh.login, name: gh.name ?? null, avatarUrl: gh.avatarUrl ?? null } } : {}) };

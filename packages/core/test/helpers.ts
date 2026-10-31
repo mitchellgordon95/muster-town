@@ -7,7 +7,7 @@ import { World } from "../src/index.ts";
 
 export const REPO_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "../../..");
 export const CARBON_DIR = join(REPO_ROOT, "buildings/carbon-cycle");
-export const TOWN_JSON = join(REPO_ROOT, "town.json");
+const TOWN_JSON = join(REPO_ROOT, "town.json");
 
 const cleanups: (() => void)[] = [];
 afterEach(() => { while (cleanups.length) cleanups.pop()!(); });
@@ -29,9 +29,9 @@ export function freshWorld(): { world: World; dir: string; dbPath: string } {
 
 /** Seeded world with the Carbon Cycle Lab imported. */
 /** The subscription token the test Bank holds (the Bank is the only place a credential lives; nothing comes from the env). */
-export const TEST_TOKEN = "sk-ant-oat01-test-subscription-token";
+const TEST_TOKEN = "sk-ant-oat01-test-subscription-token";
 /** Give the seeded world's Bank its subscription credential without crediting it (first renewal far off), so the money model is untouched. */
-export function seedCredential(world: World, adminId: string): void {
+function seedCredential(world: World, adminId: string): void {
   world.bank.addInput(adminId, { label: "Test subscription", source: "subscription", model: "claude-sonnet-5-5", tokens: 1, recurrence: "daily", weeklyCapTokens: 1, nextCreditAt: "2099-01-01T00:00:00.000Z", token: TEST_TOKEN });
 }
 

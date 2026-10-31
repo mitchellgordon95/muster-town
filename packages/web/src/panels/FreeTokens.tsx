@@ -11,7 +11,7 @@ import { findGoal, treeRows } from "./goalTree";
 import { ADJ, Empty, Loading, Section, fmtTokens, useLoad } from "./ui";
 
 /** The free-tokens sum as signed terms: general + earmarks at or above − funded grants' remaining − open asks − reservations. */
-export function freeTerms(f: FreeTokens): [label: string, tokens: number][] {
+function freeTerms(f: FreeTokens): [label: string, tokens: number][] {
   return [
     ["general balance", f.generalTokens],
     ["earmarks at or above", f.earmarkTokens],

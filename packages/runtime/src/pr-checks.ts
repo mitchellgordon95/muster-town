@@ -7,7 +7,7 @@
 import type { PrChecks, World } from "@muster-town/core";
 
 /** How often pending PR waits are re-read from GitHub. */
-export const PR_POLL_MS = 60_000;
+const PR_POLL_MS = 60_000;
 
 /** A check suite or run conclusion that counts as passed; anything else (failure, cancelled, timed_out, …) failed. */
 const OK = new Set(["success", "neutral", "skipped"]);
@@ -30,7 +30,7 @@ export interface PrPollerDeps {
   log?: (msg: string) => void;
 }
 
-export interface PrPoller {
+interface PrPoller {
   /** the last read of this PR (world.host.prChecks) */
   get(pr: number): PrChecks | undefined;
   /** re-read every PR a pending wait names, at most once per `everyMs` (the runtime's tick calls it) */

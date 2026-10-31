@@ -1,4 +1,4 @@
-import { AppError, BANK_ACCOUNTING, deskPreset, deskSizeFor, type World, buildingStats, accessContext, accessRequestOf, boardWithTownDocs, canInteract, decideAccess, deskSlotRows, requestAccess, sessionView, setDeskSlot, cabinetCounts, cabinetDocs, reportChains, reviewDeck, presentedReviewDeck, intrayRoutes, funderWeek } from "@muster-town/core";
+import { AppError, BANK_ACCOUNTING, deskPreset, deskSizeFor, type World, buildingStats, accessContext, accessRequestOf, boardWithTownDocs, canInteract, decideAccess, pendingAccessRequests, deskSlotRows, requestAccess, sessionView, setDeskSlot, cabinetCounts, cabinetDocs, reportChains, reviewDeck, presentedReviewDeck, intrayRoutes, funderWeek } from "@muster-town/core";
 import { funderSlide, AccessDecisionInput, AccessRequestInput, AddBankInput, CreateBuildingInput, DesksPatch, MapLayout, TownDefaultsPatch, DocType, DonateInput, LayoutInput, Membership, PlantFlagInput, RedeployInput, UpdateBuildingInput, apiKeyProblem, townEnv, REVIEW_DECK_ID, type AccessRequest, type AuthMe, type RedeployLive } from "@muster-town/schema";
 import type { FastifyInstance, FastifyRequest } from "fastify";
 import { brotliDecompressSync } from "node:zlib";
@@ -81,6 +81,12 @@ export async function townRoutes(app: FastifyInstance) {
     const user = requireUser(req);
     const input = parse(AccessRequestInput, req.body);
     return { accessRequest: requestAccess(world, user.id, input.message ?? "") };
+  });
+
+  // pending requests for the admin's HUD notice (gr_fibsfwr4tz step 2): only who may decide them (`town.manage_roles`)
+  app.get("/api/access-requests", async (req) => {
+    world.permissions.require(actorOf(world, req), "town.manage_roles");
+    return { access: pendingAccessRequests(world) };
   });
 
   app.post<{ Params: Params }>("/api/access-requests/:id/decide", async (req) => {
@@ -471,7 +477,7 @@ function accessView(world: World, r: AccessRequest | null): AuthMe["accessReques
 }
 
 /** GET /api/health `desks`: the desk size new sessions get and today's desk bill against the town-wide cap (gr_uhh6u39vv9 step 3). */
-export function desksHealth(world: World) {
+function desksHealth(world: World) {
   const desks = world.desksConfig();
   const bill = world.deskBill();
   return { backend: desks.backend, size: deskPreset(deskSizeFor(desks, bill).size), billCapUsd: bill.capUsd, billTodayUsd: bill.todayUsd, billPct: bill.pct, overCap: bill.overCap, day: bill.day };

@@ -62,10 +62,10 @@ export interface LiveSession {
 export const TOWN_TOOLS = VERB_NAMES.map((v) => `mcp__town__${v}`);
 export const WEB_TOOLS = ["WebSearch", "WebFetch"];
 export const DISALLOWED_TOOLS = ["Bash", "Read", "Write", "Edit", "Glob", "Grep", "Task", "Agent"];
-export const THOUGHT_CHARS = 200;
+const THOUGHT_CHARS = 200;
 export const clipThought = (t: string) => (t.length > THOUGHT_CHARS ? t.slice(0, THOUGHT_CHARS - 1) + "…" : t);
 
-export interface SessionSpec {
+interface SessionSpec {
   agentId: string;
   purpose: Session["purpose"];
   model: string;
@@ -88,7 +88,7 @@ export interface SessionSpec {
   /** work sessions: ends the session instead of the default endSession + charge (see finishWorkSession) */
   finish?: (out: SessionOutcome, allocationId: string | null) => Promise<Session>;
 }
-export interface SessionOutcome extends Usage {
+interface SessionOutcome extends Usage {
   sdkSessionId: string | null;
   session: Session;
   finalText: string;
@@ -120,7 +120,7 @@ export function chargeUsage(world: World, agentId: string, u: Pick<Usage, "token
  * building (1:1 mt_cz11aqe81a). Only an agent with no building is recorded on the agent and the usage ledger alone.
  * Never throws.
  */
-export function chargeBooked(world: World, agentId: string, b: Booked, usd: number, allocationId?: string | null, grantId?: string | null, inputId?: string | null): void {
+function chargeBooked(world: World, agentId: string, b: Booked, usd: number, allocationId?: string | null, grantId?: string | null, inputId?: string | null): void {
   if (b.tokens <= 0 && rawTokens(b.counts) <= 0 && usd <= 0) return;
   try {
     debit(world, agentId, b, usd, allocationId, grantId, false, inputId);
@@ -136,7 +136,7 @@ function debit(world: World, agentId: string, b: Booked, usd: number, allocation
 }
 
 /** How often a running session's usage is booked (host loop and desk posts): once a minute. */
-export const USAGE_BOOK_MS = 60_000;
+const USAGE_BOOK_MS = 60_000;
 
 /** What the Bank has booked for a session so far: its row's counters, written as it runs and at its end. */
 const bookedOf = (s: Session): TokenUsage => ({ counts: countsOf(s), byModel: s.byModel ?? {} });
@@ -147,7 +147,7 @@ const bookedOf = (s: Session): TokenUsage => ({ counts: countsOf(s), byModel: s.
  * ends (report, error, spend limit, kill, lost desk, restart) its debits add up to its row: the running bookings plus
  * the final true-up.
  */
-export function settleUsage(world: World, sessionId: string, seen: TokenUsage | null): Booked {
+function settleUsage(world: World, sessionId: string, seen: TokenUsage | null): Booked {
   const s = world.sessions.require(sessionId, "session");
   const before = bookedOf(s);
   if (!seen) return { tokens: 0, counts: { ...ZERO_TOKENS } };
@@ -193,7 +193,7 @@ export function endAndCharge(world: World, sessionId: string, usage: Pick<Usage,
 }
 
 /** A session's final usage: the result message's when it covers what the meter saw, else the meter's (mergeUsage). */
-export function finalUsage(meter: UsageMeter, u: Usage): Usage {
+function finalUsage(meter: UsageMeter, u: Usage): Usage {
   const m = mergeUsage(meter.usage(), u);
   return { ...u, tokens: rawTokens(m.counts), counts: m.counts, byModel: m.byModel };
 }
@@ -245,7 +245,7 @@ export function townOptions(ctx: Ctx, spec: SessionSpec, credential: Credential)
     allowedTools: [...townTools, ...(spec.web ? WEB_TOOLS : []), ...readTools],
     disallowedTools: [...DISALLOWED_TOOLS.filter((t) => !readTools.includes(t)), ...(spec.web ? [] : WEB_TOOLS), ...TOWN_TOOLS.filter((t) => !townTools.includes(t))],
     settingSources: [],
-    env: sessionEnv(credential, ctx.env),
+    env: sessionEnv(credential, ctx.env, !!ctx.hosted || !!ctx.world?.host?.hosted),
     ...(spec.code ? { cwd: spec.code.dir, hooks: { PreToolUse: codeGuard(spec.code.dir) } } : {}),
     ...(spec.resume ? { resume: spec.resume } : {}),
   };
@@ -270,7 +270,7 @@ export function findSdkTranscript(claudeDir: string, sdkSessionId: string): Buff
 export const claudeDirOf = (ctx: Ctx): string => ctx.claudeDir ?? (process.env.CLAUDE_CONFIG_DIR || join(homedir(), ".claude"));
 
 /** Keep a host session's transcript in the town (docs/transcripts.md). Best effort: a failure is logged, never thrown. */
-export function keepHostTranscript(ctx: Ctx, session: Session, sdkSessionId: string | null): void {
+function keepHostTranscript(ctx: Ctx, session: Session, sdkSessionId: string | null): void {
   if (!sdkSessionId) return;
   try {
     const raw = findSdkTranscript(claudeDirOf(ctx), sdkSessionId);

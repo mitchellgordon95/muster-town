@@ -28,7 +28,7 @@ export function forkTip(a: Pick<Agent, "forkOf"> | null | undefined, nameOf: (id
 
 /** The ghost's opacity: 0.6 (offline is 0.4, stopped 0.55), faded in over 400 ms from its first frame on the map. */
 export const GHOST_ALPHA = 0.6;
-export const GHOST_FADE_MS = 400;
+const GHOST_FADE_MS = 400;
 export function ghostAlpha(sinceMs: number): number {
   return GHOST_ALPHA * Math.max(0, Math.min(1, sinceMs / GHOST_FADE_MS));
 }

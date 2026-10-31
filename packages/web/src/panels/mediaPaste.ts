@@ -8,7 +8,7 @@ import { useRef, useState, type ClipboardEvent, type Dispatch, type DragEvent, t
 import { api } from "../api";
 import { store } from "../state";
 
-export const MEDIA_MIME = ["image/png", "image/jpeg", "image/gif", "image/webp", "video/webm", "video/mp4"];
+const MEDIA_MIME = ["image/png", "image/jpeg", "image/gif", "image/webp", "video/webm", "video/mp4"];
 const MAX_BYTES = 8 * 1024 * 1024;
 
 const mediaFiles = (list: FileList | null | undefined): File[] => [...(list ?? [])].filter((f) => MEDIA_MIME.includes(f.type));

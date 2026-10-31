@@ -22,7 +22,7 @@ export const MEETING_REPLY_MAX_TURNS = 4;
  */
 export const SUMMARY_MODEL = "claude-sonnet-5-5";
 
-export interface MeetingState {
+interface MeetingState {
   /** meetingId → when collecting began (ms) */
   collectingSince: Map<string, number>;
   summarized: Set<string>;
@@ -50,7 +50,7 @@ async function summarize(ctx: Ctx, m: Meeting, agentId: string): Promise<void> {
   catch (e) { if (e instanceof NoCredential) return; throw e; }
   const session = world.ops.startSession(agentId, { purpose: "summary", model, meetingId: m.id });
   const events = world.events.recent({ agentId, limit: 20 });
-  const out = await oneShot(ctx.sdk, { model, system: summarySystemPrompt(agent, m.brings), prompt: summaryPrompt(m, latestReport(ctx, agentId), events, recentWorkBlock(world, agentId, { short: true, readHint: false }), lastMeetingFor(world, m, agentId), meetingContextBlock(world, agent, m)), credential: funding.credential, env: ctx.env });
+  const out = await oneShot(ctx.sdk, { model, system: summarySystemPrompt(agent, m.brings), prompt: summaryPrompt(m, latestReport(ctx, agentId), events, recentWorkBlock(world, agentId, { short: true, readHint: false }), lastMeetingFor(world, m, agentId), meetingContextBlock(world, agent, m)), credential: funding.credential, env: ctx.env, hosted: !!ctx.hosted || world.bank.hosted() });
   const text = out.text.split("\n").map((l) => l.trim()).filter(Boolean).slice(0, 3).join("\n");
   let error = out.error;
   if (text && !error) { // a failed call's text is its error message ("Not logged in"), not a summary

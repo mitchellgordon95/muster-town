@@ -34,7 +34,7 @@ export class OverviewCam {
 }
 
 export interface OverviewDot { x: number; y: number; color: string; me?: boolean }
-export interface OverviewOpts {
+interface OverviewOpts {
   /** people (world px, at their feet) */
   dots?: OverviewDot[];
   /** a rectangle in world px to outline, e.g. what the main view shows */

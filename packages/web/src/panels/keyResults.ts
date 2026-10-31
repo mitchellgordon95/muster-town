@@ -31,7 +31,7 @@ export function objectiveLine(o: Pick<ObjectiveView, "kpiName" | "horizon">): st
 export const krStatusLabel = (s: KeyResultStatus) => s.replace(/-/g, " ");
 
 /** The statuses a holder may set: `fund` holders judge met / missed; managers (and `manage` holders) go up to claimed. */
-export const KR_STATUSES: KeyResultStatus[] = ["not-started", "on-track", "at-risk", "claimed", "met", "missed"];
+const KR_STATUSES: KeyResultStatus[] = ["not-started", "on-track", "at-risk", "claimed", "met", "missed"];
 export function settableStatuses(canFund: boolean): KeyResultStatus[] {
   return canFund ? KR_STATUSES : KR_STATUSES.filter((s) => s !== "met" && s !== "missed");
 }

@@ -2117,6 +2117,36 @@ export type AccessRequestView = AccessRequest & { name: string; githubLogin: str
 export const AccessRequestInput = z.object({ message: z.string().trim().max(140).optional() });
 export const AccessDecisionInput = z.object({ grant: z.boolean() });
 
+// ---------- captain requests (a member asks to captain a goal; the node's current captain decides) ----------
+export const CaptainRequestStatus = z.enum(["pending", "accepted", "declined"]);
+/**
+ * "Ask to captain this goal" (grant gr_bwm0iz7rwl, kr_j1w17nw178): a member asks to become a goal's captain (its
+ * `ownerId`). The request routes to the goal's current captain (inherited down the tree; the town admins at the root);
+ * accepting sets `ownerId`. One pending request per (goal, user).
+ */
+export const CaptainRequest = z.object({
+  id: Id,
+  goalId: Id,
+  userId: Id,
+  /** optional one line: why they'd captain it */
+  note: z.string().max(280).default(""),
+  status: CaptainRequestStatus.default("pending"),
+  decidedBy: Id.nullable().default(null),
+  /** the decider's optional one line back */
+  decisionNote: z.string().max(280).default(""),
+  createdAt: z.string(),
+  decidedAt: z.string().nullable().default(null),
+});
+export type CaptainRequest = z.infer<typeof CaptainRequest>;
+/** A Town Hall in-tray row: the request plus who asked, the goal's words and who decides it now. */
+export type CaptainRequestView = CaptainRequest & {
+  name: string; githubLogin: string | null; avatarUrl: string | null; goalText: string;
+  /** the goal's current captain (its own or inherited): null = the town admins */
+  captainId: string | null; captainName: string;
+};
+export const CaptainRequestInput = z.object({ note: z.string().trim().max(280).optional() });
+export const CaptainDecisionInput = z.object({ action: z.enum(["accept", "decline"]), note: z.string().trim().max(280).optional() });
+
 export const AuthMe = z.object({
   user: User, roles: z.array(Role), avatarAgentId: Id.nullable(), isAdmin: z.boolean(),
   /** holds `town.interact`: may move, talk and write; false = read-only until an admin lets them in */

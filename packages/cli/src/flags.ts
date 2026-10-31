@@ -6,8 +6,8 @@ import { Command, Option } from "commander";
 import { readFileSync } from "node:fs";
 import { CliError } from "./profile.ts";
 
-export type FieldKind = "string" | "number" | "boolean" | "enum" | "array" | "json";
-export interface FieldSpec {
+type FieldKind = "string" | "number" | "boolean" | "enum" | "array" | "json";
+interface FieldSpec {
   key: string;
   flag: string;
   kind: FieldKind;

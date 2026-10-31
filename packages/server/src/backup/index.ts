@@ -22,19 +22,19 @@ export { signV4 } from "./sigv4.ts";
 /** What `GET /api/health` shows: never the key or the bucket credentials. */
 export interface BackupView { lastAt: string | null; verifiedAt: string | null; bytes: number | null; dest: string; error: string | null }
 
-export const BACKUP_ENV = ["BUCKET_NAME", "AWS_ENDPOINT_URL_S3", "AWS_ACCESS_KEY_ID", "AWS_SECRET_ACCESS_KEY", "MUSTER_TOWN_BACKUP_KEY"] as const;
+const BACKUP_ENV = ["BUCKET_NAME", "AWS_ENDPOINT_URL_S3", "AWS_ACCESS_KEY_ID", "AWS_SECRET_ACCESS_KEY", "MUSTER_TOWN_BACKUP_KEY"] as const;
 /** object keys: `town/<date>T<HH>.db.gz.enc` (hourly); `town/<date>.db.gz.enc` are the nightly objects from before 2026-11-01 */
-export const OBJECT_PREFIX = "town/";
+const OBJECT_PREFIX = "town/";
 /** retention: the newest this many hourly objects... */
-export const KEEP_HOURLY = 48;
+const KEEP_HOURLY = 48;
 /** ...plus the newest object of each of the newest this many days */
-export const KEEP_DAILY = 30;
+const KEEP_DAILY = 30;
 /** the boot catch-up runs when the last copy is older than this (or there is none) */
-export const STALE_MS = 60 * 60 * 1000;
+const STALE_MS = 60 * 60 * 1000;
 /** the boot catch-up waits this long so startup (seed, runtime) is done first */
 const BOOT_DELAY_MS = 30_000;
 
-export interface BackupJobOptions {
+interface BackupJobOptions {
   db: DB;
   /** where the local copies go (e.g. /data/workshop/backups) */
   dir: string;
@@ -46,7 +46,7 @@ export interface BackupJobOptions {
 
 interface StateRow { lastAt: string | null; verifiedAt: string | null; bytes: number | null; key: string | null; error: string | null; errorAt: string | null }
 
-export interface BackupRunResult { key: string; bytes: number; rawBytes: number; deleted: string[]; localCopy: string }
+interface BackupRunResult { key: string; bytes: number; rawBytes: number; deleted: string[]; localCopy: string }
 
 /** The key for an hour (UTC): `town/2026-10-27T04.db.gz.enc`. Keys sort by time, a nightly `town/<date>.db.gz.enc` before that date's hours. */
 export const objectKey = (d: Date) => `${OBJECT_PREFIX}${d.toISOString().slice(0, 13)}.db.gz.enc`;

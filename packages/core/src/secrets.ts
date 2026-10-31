@@ -51,7 +51,7 @@ export function decryptSecret(key: Buffer, name: string, blob: string): string {
 interface Row { name: string; ciphertext: string | null; grants: string; updatedAt: string; updatedBy: string | null }
 
 /** How a secret reached a session: a town-wide grant, its building, itself, or a skill pinned for it. */
-export type SecretVia = "town" | "building" | "agent" | "skill";
+type SecretVia = "town" | "building" | "agent" | "skill";
 
 export class Secrets {
   /** `dataKey` reads the host key each call (default: MUSTER_TOWN_DATA_KEY from the env). */

@@ -510,6 +510,6 @@ export class Sim {
 }
 
 /** Closed early as done by the manager (close_grant) and its key result still claimed: a human marks it met or missed. */
-export function awaitingMark(g: GrantView): boolean {
+function awaitingMark(g: GrantView): boolean {
   return g.status === "closed" && g.outcome === "done" && g.keyResult?.status === "claimed";
 }

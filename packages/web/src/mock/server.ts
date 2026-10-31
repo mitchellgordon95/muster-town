@@ -1,5 +1,5 @@
 /** `Api` implemented against the in-memory Sim. Same interface as HttpApi, so every panel works offline. */
-import type { AccessRequest, AccessRequestView, Agent, Assignment, AssignmentCard, AuthMe, BlockedAssignment, BlockedBy, BuildingStats, Schedule, Building, Doc, Event, Meeting, Membership, MapLayout, RedeployLive, ReviewDeck, ReviewSlide } from "@muster-town/schema";
+import type { AccessRequest, AccessRequestView, CaptainRequest, CaptainRequestView, Agent, Assignment, AssignmentCard, AuthMe, BlockedAssignment, BlockedBy, BuildingStats, Schedule, Building, Doc, Event, Meeting, Membership, MapLayout, RedeployLive, ReviewDeck, ReviewSlide } from "@muster-town/schema";
 import { BuildingDefaults, NEW_LAB_LOT, REVIEW_DECK_ID, desksForLot, funderSlide, parseDeck } from "@muster-town/schema";
 import { BACKFILL, BOARD_TYPES, KPI_FRAMING, ZERO_TOKENS, addTokens, backfillFamily, splitRaw, type FreeTokens, type GoalTreeNode, type GoalSpend, type QueueBoard, type FunderWeek } from "@muster-town/schema";
 import type { Api, AgentDetail, AllocationRow, Bank, Budget, Finance, FinanceFly, FinanceSources, FinanceSpend, Cabinet, CabinetQuery, DocQuery, EventQuery, In, LayoutPreview, FunderWeekView, JoinFunnelView, RoomLayout, RequestAction, SessionDetail, Snapshot, Socket, SocketHandlers, ThreadMessage, WriteDocInput } from "../api";
@@ -48,6 +48,24 @@ export class MockApi implements Api {
   /** who may interact (dc_f0cumcfubk): one stranger already waiting in the Town Hall in-tray; `?as=visitor` can ask too */
   private access: AccessRequestView[] = [{ id: "ar_octo", userId: "us_octo", message: "I'd like to help with the onboarding copy", status: "pending", decidedBy: null, createdAt: new Date(Date.now() - 40 * 60_000).toISOString(), decidedAt: null, name: "Octo Cat", githubLogin: "octocat", avatarUrl: null }];
 
+  /** "Ask to captain this goal" (gr_bwm0iz7rwl): Octo already asks to captain Trust */
+  private captains: CaptainRequestView[] = [{ id: "cr_octo", goalId: "gl_trust", userId: "us_octo", note: "I review finance pages for a living", status: "pending", decidedBy: null, decisionNote: "", createdAt: new Date(Date.now() - 25 * 60_000).toISOString(), decidedAt: null, name: "Octo Cat", githubLogin: "octocat", avatarUrl: null, goalText: "Trust", captainId: null, captainName: "the town admins" }];
+  async askToCaptain(goalId: string, note = ""): Promise<CaptainRequest> {
+    await wait(120);
+    if (this.captains.some((r) => r.goalId === goalId && r.userId === "us_guest" && r.status === "pending")) throw new ApiError("You already asked to captain this goal; it is waiting for a decision.", "conflict", 409);
+    const r: CaptainRequestView = { id: `cr_${Date.now().toString(36)}`, goalId, userId: "us_guest", note: note.trim().slice(0, 280), status: "pending", decidedBy: null, decisionNote: "", createdAt: new Date().toISOString(), decidedAt: null, name: "Guest", githubLogin: "guest", avatarUrl: null, goalText: goalId, captainId: null, captainName: "the town admins" };
+    this.captains.push(r);
+    return clone(r);
+  }
+  async captainRequests(goalId: string) { await wait(); return clone(this.captains.filter((r) => r.goalId === goalId && r.status === "pending")); }
+  async decideCaptain(id: string, action: "accept" | "decline", note = ""): Promise<CaptainRequest> {
+    await wait(120);
+    const r = this.need(this.captains.find((x) => x.id === id), "captain request");
+    if (r.status !== "pending") throw new ApiError(`This request was already ${r.status}.`, "conflict", 409);
+    Object.assign(r, { status: action === "accept" ? "accepted" : "declined", decidedBy: "us_mitchell", decisionNote: note, decidedAt: new Date().toISOString() });
+    return clone(r);
+  }
+
   async devAdminToken() { return "mock-admin-token"; }
   async requestAccess(message: string): Promise<AccessRequest> {
     await wait(120);
@@ -64,10 +82,16 @@ export class MockApi implements Api {
     Object.assign(r, { status: grant ? "granted" : "declined", decidedBy: "us_mitchell", decidedAt: new Date().toISOString() });
     return clone(r);
   }
+  async accessRequests(): Promise<AccessRequestView[]> {
+    await wait(60);
+    return clone(this.access.filter((r) => r.status === "pending"));
+  }
   async me(): Promise<AuthMe> {
     await wait(60);
-    // `?as=visitor` signs in as a plain visitor so read-only views can be checked
-    if (new URLSearchParams(location.search).get("as") === "visitor") {
+    // `?as=visitor` signs in as a plain visitor so read-only views can be checked; `?as=member` as a let-in member (Ask to captain)
+    const as = new URLSearchParams(location.search).get("as");
+    if (as === "member") return clone({ user: { ...this.sim.users[0], id: "us_guest", name: "Guest", githubLogin: "guest" }, roles: [], avatarAgentId: "ag_me", isAdmin: false, canInteract: true, accessRequest: null });
+    if (as === "visitor") {
       const mine = [...this.access].reverse().find((r) => r.userId === "us_guest");
       return clone({ user: { ...this.sim.users[0], id: "us_guest", name: "Guest", githubLogin: "guest" }, roles: this.sim.roles.filter((r) => r.id === "rl_visitor"), avatarAgentId: "ag_me", isAdmin: false,
         canInteract: mine?.status === "granted", accessRequest: mine ? { status: mine.status, message: mine.message, decidedAt: mine.decidedAt, deciders: [this.sim.users[0].name], typicalWaitMs: null } : null });
@@ -183,7 +207,7 @@ export class MockApi implements Api {
   async intray(buildingId: string) {
     await wait();
     const b = this.need(this.sim.buildings.find((x) => x.id === buildingId), "building");
-    return clone({ ...this.sim.intray(buildingId), access: b.kind === "town-hall" ? this.access.filter((r) => r.status === "pending") : [] });
+    return clone({ ...this.sim.intray(buildingId), access: b.kind === "town-hall" ? this.access.filter((r) => r.status === "pending") : [], captains: b.kind === "town-hall" ? this.captains.filter((r) => r.status === "pending") : [] });
   }
   /** A small stand-in for the server's review deck (core/src/review-deck.ts): slide 1, one slide per grant or report. */
   async reviewDeck(): Promise<ReviewDeck> {
@@ -907,4 +931,4 @@ export class MockApi implements Api {
     };
   }
 }
-export type { Doc };
+;

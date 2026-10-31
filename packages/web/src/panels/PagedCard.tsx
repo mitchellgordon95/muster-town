@@ -17,7 +17,7 @@ export const Head = ({ pre, big, sub }: { pre: string; big: string; sub: string 
   <><span className="hiw-pre">{pre}</span><h2>{big}</h2><p className="hiw-sub">{sub}</p></>
 );
 
-export interface CardButton { label: string; onClick: () => void }
+interface CardButton { label: string; onClick: () => void }
 
 /** `last` decides the last page's buttons (the one next step); earlier pages end on Next. */
 export function PagedCard({ label, pages, onClose, last }: {
