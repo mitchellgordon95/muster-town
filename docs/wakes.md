@@ -37,7 +37,7 @@ Everything else lands in the **inbox** (`sendMessage`). The inbox never wakes an
 | `grant.countered`, `grant.rejected` | manager | Q: a directed assignment ("Answer the counter on X" with the note / "Grant X rejected: read the note"), plus the inbox `system` line (`notifyManager`) | — |
 | cut, or a human closes a grant | manager | T: a town-written in-tray row "Grant X cut" (`managerIntrayRow`), plus the inbox `system` line (`notifyManager`) | — |
 | `grant.checkpoint` (100% spent) | manager | Q: a front-of-queue "Write the checkpoint" assignment | — |
-| `kr.created` / `kr.updated` / `kr.deleted` by a human | manager | T: a town-written in-tray row "Key result X written/edited/marked S/removed by Mitchell" (`managerIntrayRow`); `syncBlocked` as before. The manager's own KR writes and status marks write none | — |
+| `kr.created` / `kr.updated` / `kr.deleted` by a human | manager | T: a town-written in-tray row "Key result X written/edited/marked S/moved/removed by Mitchell" (`managerIntrayRow`; a goal-tree move says moved, not "marked" with the unchanged status); `syncBlocked` as before. The manager's own KR writes and status marks write none; re-marking the current status with no new note is a no-op (no event) | — |
 | Lab becomes blocked (no KRs, no funded grant) | manager | Q: a "Get human decisions" assignment (grants.ts:110) | — |
 | `waitFor` met (deploy, assignment, decision, after) | the parked assignee | Q: `checkWaits` on the tick clears the wait. After 24 h, T gets a `wait-expired` report | — |
 | Redeploy | running agents; parked work | I (notice); Q for `deploy` waits; T resumes the 1:1 (meetings.md §6) | — |

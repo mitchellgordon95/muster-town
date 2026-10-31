@@ -720,6 +720,8 @@ Key result (on the building goal): ${kr}${k ? "; it has no funded grant now, so 
     const edited = Object.keys(words).length > 0;
     const moved = inp.objectiveId !== undefined && inp.objectiveId !== kr.objectiveId;
     if (!inp.status && !edited && !moved) throw badRequest("Nothing to change: give status, text, howToCheck, sourceDocIds or objectiveId.");
+    // re-marking the current status with no new note changes nothing: no write, no kr.updated, no manager wake
+    if (inp.status === kr.status && !edited && !moved && (!inp.note.trim() || inp.note === kr.statusNote)) return kr;
     if (edited || moved) {
       this.requireWriter(actor, this.world.buildings.require(kr.buildingId, "building"));
       if (inp.sourceDocIds) this.requireSources(inp.sourceDocIds);

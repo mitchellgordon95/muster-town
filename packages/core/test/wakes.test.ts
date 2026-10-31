@@ -60,6 +60,29 @@ describe("manager in-tray rows for grant and key-result events (docs/wakes.md st
     expect(rows()).toHaveLength(3);
   });
 
+  it("re-marking a key result with its current status and no note is a no-op: no kr.updated, no row", () => {
+    const { world, admin, kr, rows } = setup();
+    const count = () => world.events.list({ buildingId: LAB, types: ["kr.updated"], limit: 1000 }).length;
+    const before = count();
+    expect(world.grantDesk.updateKeyResult(admin, kr.id, { status: kr.status })).toEqual(world.keyResults.get(kr.id));
+    expect(count()).toBe(before);
+    // the same status with a new note is evidence: a real update
+    world.grantDesk.updateKeyResult(admin, kr.id, { status: kr.status, note: "still on it" });
+    expect(count()).toBe(before + 1);
+    expect(world.keyResults.get(kr.id)!.statusNote).toBe("still on it");
+    expect(rows()).toHaveLength(0);
+  });
+
+  it("a key result moved in the goal tree says moved, not marked with its unchanged status (events 69772, 69781)", () => {
+    const { world, admin, kr, last } = setup();
+    const to = world.goalTree.create(admin, { parentId: "gl_join", text: "Somewhere else" });
+    world.goalTree.moveKr(admin, world.keyResults.get(kr.id)!, to.id);
+    const row = managerIntrayRow(world, last("kr.updated"))!;
+    expect(row.title).toMatch(new RegExp(`^Key result ${kr.id} moved by `));
+    expect(row.body).toContain(`Now under goal ${to.id}: Somewhere else`);
+    expect(row.body).toContain("Status unchanged");
+  });
+
   it("a building without an agent manager gets no row (a human works its in-tray)", () => {
     const { world, admin, kr, last, rows } = setup();
     world.buildings.patch(LAB, { managerAgentId: null });

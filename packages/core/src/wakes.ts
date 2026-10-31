@@ -69,6 +69,11 @@ function describe(world: World, e: Event): { title: string; what: string; summar
       const o = typeof p.objectiveId === "string" ? world.objectives.get(p.objectiveId) : undefined;
       verb = "moved"; detail = o ? `Now under objective ${o.id}: ${o.text}` : "Now under no objective (Unsorted).";
     }
+    else if (p.edited !== true && typeof p.goalId === "string" && p.status === p.from) {
+      // a goal-tree move (an accepted move proposal, a retired goal's key results): the status did not change
+      const to = world.goals.get(p.goalId), from = typeof p.fromGoalId === "string" ? world.goals.get(p.fromGoalId) : undefined;
+      verb = "moved"; detail = `Now under goal ${p.goalId}: ${to?.text ?? ""}${from ? `\nWas under goal ${from.id}: ${from.text}` : ""}\nStatus unchanged (${String(p.status)}).`;
+    }
     else if (p.edited === true) { verb = "edited"; detail = `Was: ${String(p.fromText ?? "")}\nNow: ${text}\nHow to check: ${kr?.howToCheck ?? ""}`; }
     else { verb = `marked ${String(p.status)}`; detail = `Status ${String(p.from)} → ${String(p.status)}${kr?.statusNote ? `: ${kr.statusNote}` : ""}`; }
     return {
