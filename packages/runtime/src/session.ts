@@ -83,6 +83,8 @@ export interface SessionSpec {
   alongside?: boolean;
   /** read the town's code: Read, Grep and Glob over this snapshot (its dir is the cwd; a guard denies paths outside it) */
   code?: CodeCheckout | null;
+  /** continue this SDK session (its JSONL under the claude dir) instead of starting a new one: a team-lead session cut by a restart (manage.ts `resumableManage`) */
+  resume?: string | null;
   /** work sessions: ends the session instead of the default endSession + charge (see finishWorkSession) */
   finish?: (out: SessionOutcome, allocationId: string | null) => Promise<Session>;
 }
@@ -245,6 +247,7 @@ export function townOptions(ctx: Ctx, spec: SessionSpec, credential: Credential)
     settingSources: [],
     env: sessionEnv(credential, ctx.env),
     ...(spec.code ? { cwd: spec.code.dir, hooks: { PreToolUse: codeGuard(spec.code.dir) } } : {}),
+    ...(spec.resume ? { resume: spec.resume } : {}),
   };
 }
 
@@ -263,11 +266,14 @@ export function findSdkTranscript(claudeDir: string, sdkSessionId: string): Buff
   return null;
 }
 
+/** Where host sessions' SDK transcripts live: the hosted collective's CLAUDE_CONFIG_DIR, else the server's. */
+export const claudeDirOf = (ctx: Ctx): string => ctx.claudeDir ?? (process.env.CLAUDE_CONFIG_DIR || join(homedir(), ".claude"));
+
 /** Keep a host session's transcript in the town (docs/transcripts.md). Best effort: a failure is logged, never thrown. */
 export function keepHostTranscript(ctx: Ctx, session: Session, sdkSessionId: string | null): void {
   if (!sdkSessionId) return;
   try {
-    const raw = findSdkTranscript(ctx.claudeDir ?? (process.env.CLAUDE_CONFIG_DIR || join(homedir(), ".claude")), sdkSessionId);
+    const raw = findSdkTranscript(claudeDirOf(ctx), sdkSessionId);
     if (raw?.length) ctx.world.transcripts.put(session, raw, { compressed: false, source: "host" });
   } catch (e) {
     ctx.world.events.append({ type: "system", agentId: session.agentId, text: `Transcript for session ${session.id} not kept: ${e instanceof Error ? e.message : String(e)}`.slice(0, 300), payload: { transcript: false, sessionId: session.id } });
@@ -311,7 +317,11 @@ export async function runAgentSession(ctx: Ctx, spec: SessionSpec): Promise<Sess
     live.q = q;
     for await (const raw of q) {
       const m = raw as LooseMessage;
-      if (m.session_id && !sdkSessionId) sdkSessionId = m.session_id;
+      if (m.session_id && !sdkSessionId) {
+        sdkSessionId = m.session_id;
+        // on the row now, not only at the end: a restart that cuts the session leaves it there to resume from
+        try { world.sessions.patch(session.id, { sdkSessionId }); } catch (e) { console.log("[runtime] sdkSessionId:", e instanceof Error ? e.message : e); }
+      }
       if (meter.observe(m) && Date.now() - bookedAt >= bookMs) {
         bookedAt = Date.now();
         bookRunning(world, session.id, meter.usage(), funding.allocationId);
