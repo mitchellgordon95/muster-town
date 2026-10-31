@@ -70,6 +70,9 @@ Side effect: setting `[[vm]] size` in `fly.town.toml` left `main` red for a few 
    `stopOverdueForks` (remember "done for day X" in `meta` instead of scanning `system` events every 5 s), and the
    `/api/kpis` route (eight full `events` joins per request). The server still reads 15 MB/s after the fix: cheap
    now, not free.
+   *Done (item 3 PR):* `Table.exists`; core test `aggregates-in-sql.test.ts` fails on a row load reduced to a number
+   or a boolean (allowlist with reasons); `walkIdleHome` reads newest-first and stops at the 2-minute edge;
+   `reconcileDue` and `stopOverdueForks` read `meta` markers; `/api/kpis` runs its Join scan once per request.
 4. **An index on `events(ts)`** (or `(type, ts)`): every "since" query on events walks an index that has no time in
    it and loads rows to test `ts`. One migration.
 5. **Make the health check honest.** Serve `/api/health` without touching the database, raise the check timeout to
