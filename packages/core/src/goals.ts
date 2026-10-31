@@ -1,5 +1,5 @@
 import {
-  CreateGoalInput, CreateTreeKeyResultInput, DecideGoalProposalInput, ProposeGoalInput, ROOT_GOAL_ID, RetireGoalInput, UpdateGoalInput,
+  CreateGoalInput, DecideGoalProposalInput, ProposeGoalInput, ROOT_GOAL_ID, RetireGoalInput, UpdateGoalInput,
   Event, type Building, type Goal, type GoalFunding, type GoalProposal, type KeyResult,
 } from "@muster-town/schema";
 import { sendMessage } from "./domain.ts";
@@ -104,24 +104,6 @@ export class Goals {
     return !!kr && isOpenKr(kr) && !!kr.goalId && this.scopeOf(buildingId).has(kr.goalId);
   }
 
-  /** `inScope` that explains a refusal; returns the key result. */
-  requireInScope(buildingId: string, krId: string): KeyResult {
-    const kr = this.world.keyResults.get(krId);
-    if (!kr) throw badRequest(`${krId} is not a key result of the town goal tree.`);
-    if (!isOpenKr(kr)) throw badRequest(`Key result ${krId} is ${kr.status === "met" || kr.status === "missed" ? kr.status : "archived"}: work names an open key result.`);
-    if (!kr.goalId || !this.scopeOf(buildingId).has(kr.goalId)) {
-      const b = this.world.buildings.get(buildingId);
-      throw badRequest(`Key result ${krId} is not in ${b?.name ?? buildingId}'s subtree (attached to "${clip(this.get(this.attachmentOf(buildingId))?.text ?? "", 80)}"): it sits under "${clip(kr.goalId ? this.get(kr.goalId)?.text ?? kr.goalId : "no goal", 80)}".`);
-    }
-    return kr;
-  }
-
-  /** Does the building's subtree hold an open key result? (A goal-directed building without one, and without a funded grant, is blocked.) */
-  hasOpenKr(buildingId: string): boolean {
-    const scope = this.scopeOf(buildingId);
-    return this.world.keyResults.where("goalId IS NOT NULL AND archivedAt IS NULL AND status NOT IN ('met', 'missed')").some((k) => scope.has(k.goalId!));
-  }
-
   // ---- owners ----
   /** The effective owner of a goal: its own, else the nearest owned ancestor's; `userId` null = the town admins (the root). */
   ownerOf(goalId: string): { goalId: string; userId: string | null } {
@@ -149,7 +131,7 @@ export class Goals {
   }
 
   /**
-   * Where a Town Hall item routes (docs/goals.md "Routing"): a grant proposal or checkpoint to its key result's goal, a
+   * Where a Town Hall item routes (docs/goals.md "Routing"): a grant proposal or checkpoint to its goal, a
    * goal proposal to its target or parent, a rollup to the building's attachment; the item goes to that goal's owner.
    */
   route(item: { grantId?: string; proposalId?: string; buildingId?: string }): { goalId: string; userId: string | null } {
@@ -157,7 +139,7 @@ export class Goals {
     if (item.grantId) {
       const g = this.world.grants.get(item.grantId);
       const kr = g?.keyResultId ? this.world.keyResults.get(g.keyResultId) : undefined;
-      goalId = kr?.goalId ?? (g ? this.attachmentOf(g.buildingId) : ROOT_GOAL_ID);
+      goalId = g?.goalId ?? kr?.goalId ?? (g ? this.attachmentOf(g.buildingId) : ROOT_GOAL_ID);
     } else if (item.proposalId) {
       const p = this.world.goalProposals.get(item.proposalId);
       goalId = (p && this.nodeOfProposal(p)) ?? ROOT_GOAL_ID;
@@ -174,9 +156,9 @@ export class Goals {
       if (!g.parentId || (!opts.retired && g.status === "retired")) continue;
       byParent.set(g.parentId, [...(byParent.get(g.parentId) ?? []), g]);
     }
-    const live = new Map(this.world.grants.where("status IN ('funded', 'checkpoint') AND keyResultId IS NOT NULL", [], "ORDER BY fundedAt, rowid").map((g) => [g.keyResultId!, g.id]));
-    const krs = new Map<string, (KeyResult & { grantId: string | null })[]>();
-    for (const k of this.world.keyResults.where("goalId IS NOT NULL", [], "ORDER BY position, rowid")) krs.set(k.goalId!, [...(krs.get(k.goalId!) ?? []), { ...k, grantId: live.get(k.id) ?? null }]);
+    // goals keep no open key results (docs/how-work-gets-done.md §4): only the archived ones of their grants, as history
+    const krs = new Map<string, KeyResult[]>();
+    for (const k of this.world.keyResults.where("goalId IS NOT NULL AND (archivedAt IS NOT NULL OR status IN ('met', 'missed'))", [], "ORDER BY position, rowid")) krs.set(k.goalId!, [...(krs.get(k.goalId!) ?? []), k]);
     // desks are the steer (docs/goals.md "Effort steering is desks"): each building's headcount and the desks seated now
     const attached = new Map<string, GoalNode["buildings"]>();
     for (const b of this.world.buildings.all()) {
@@ -348,33 +330,6 @@ export class Goals {
     return next;
   }
 
-  /** A dated key result under a goal (`goals.edit` there). `buildingId`: the building it is for (default: the first attached in its path). */
-  addKeyResult(actor: Actor, goalId: string, input: CreateTreeKeyResultInput): KeyResult {
-    const inp = CreateTreeKeyResultInput.parse(input);
-    const g = this.requireActive(goalId);
-    this.requireEdit(actor, g.id);
-    this.requireSources(inp.sourceDocIds);
-    const buildingId = inp.buildingId ?? this.buildingNear(g.id);
-    if (!buildingId) throw badRequest("No building is attached at or above this goal: give buildingId (the building it is for).");
-    return this.createKr(actor, { goalId: g.id, buildingId, text: inp.text, howToCheck: inp.howToCheck, due: inp.due, sourceDocIds: inp.sourceDocIds });
-  }
-
-  private createKr(actor: Actor, f: { goalId: string; buildingId: string; text: string; howToCheck: string; due: string | null; sourceDocIds: string[] }): KeyResult {
-    const b = this.world.buildings.require(f.buildingId, "building");
-    const by = actor ? holderOf(actor) : null;
-    const last = this.world.keyResults.first("buildingId = ?", [b.id], "ORDER BY position DESC");
-    const kr = this.world.keyResults.upsert({
-      id: newId("kr"), buildingId: b.id, position: last ? last.position + 1 : 0, text: f.text, howToCheck: f.howToCheck, status: "not-started", statusNote: "", statusBy: null,
-      createdBy: by?.id ?? null, editedBy: null, sourceDocIds: f.sourceDocIds, objectiveId: this.world.objectives.get(f.goalId) ? f.goalId : null,
-      goalId: f.goalId, due: f.due, archivedAt: null, underReviewSince: null, postmortemDocId: null, updatedAt: nowIso(),
-    });
-    this.world.events.append({
-      type: "kr.created", agentId: actor?.id ?? null, buildingId: b.id, text: `Key result under "${clip(this.get(f.goalId)?.text ?? "", 60)}": ${kr.text}`,
-      payload: { keyResultId: kr.id, by: by?.id ?? "system", byKind: by?.kind ?? "system", text: kr.text, howToCheck: kr.howToCheck, sourceDocIds: kr.sourceDocIds, goalId: f.goalId, due: f.due },
-    });
-    return kr;
-  }
-
   /** The first building attached at the goal or the nearest goal above it. */
   private buildingNear(goalId: string): string | null {
     for (const g of this.ancestors(goalId)) {
@@ -415,9 +370,7 @@ export class Goals {
         this.requireActive(inp.parentId);
         break;
       case "add-kr":
-        if (!inp.parentId || !inp.text || !inp.howToCheck || !inp.due) throw badRequest("add-kr needs parentId (its goal), text, howToCheck and due (YYYY-MM-DD).");
-        this.requireActive(inp.parentId);
-        break;
+        throw badRequest("Key results belong to grants now (docs/how-work-gets-done.md §4): propose a grant with its own keyResults (propose_grant).");
       case "edit":
         if (!inp.targetId || !Object.keys(fields).length) throw badRequest("edit needs targetId (a goal or key result) and the new text (and for a key result howToCheck or due).");
         if (!kr) this.requireActive(inp.targetId);
@@ -486,7 +439,7 @@ export class Goals {
     const sources = p.sourceDocIds.filter((d) => { const doc = this.world.docs.get(d); return doc && doc.state !== "draft"; });
     switch (p.action) {
       case "add-goal": return this.create(actor, { parentId: p.parentId!, text: f.text, sourceDocIds: sources }).id;
-      case "add-kr": return this.createKr(actor, { goalId: this.requireActive(p.parentId!).id, buildingId: p.buildingId ?? this.buildingNear(p.parentId!) ?? "", text: f.text, howToCheck: f.howToCheck, due: f.due ?? null, sourceDocIds: sources }).id;
+      case "add-kr": throw badRequest("Key results belong to grants now (docs/how-work-gets-done.md §4): cut this proposal; its building proposes a grant with the key result instead.");
       case "edit":
         if (kr) return this.world.grantDesk.updateKeyResult(null, kr.id, { ...(f.text && { text: f.text }), ...(f.howToCheck && { howToCheck: f.howToCheck }), ...(f.due && { due: f.due }) }).id;
         return this.update(actor, p.targetId!, { text: f.text }).id;

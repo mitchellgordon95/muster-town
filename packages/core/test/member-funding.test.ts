@@ -10,15 +10,14 @@ function setup(memberTokens = 50_000) {
   const { world, admin } = s;
   const manager = world.agents.first("homeBuildingId = ? AND kind != 'human'", [LAB])!;
   world.permissions.grant(manager, buildingRoleId(LAB, "manager"));
-  const kr = world.grantDesk.createKeyResult(admin, LAB, { text: "A visitor can read the banner", howToCheck: "Open the lab" });
-  const g = world.grantDesk.create(manager, LAB, { keyResultId: kr.id, objective: "Banner", approach: "a line", stopCondition: "two tries", askTokens: 20_000, testingPlan: [] });
+  const g = world.grantDesk.create(manager, LAB, { keyResults: [{ text: "A visitor can read the banner", howToCheck: "Open the lab" }], objective: "Banner", approach: "a line", stopCondition: "two tries", askTokens: 20_000 });
   world.grantDesk.propose(manager, g.id);
   const user = world.ops.createUser("Member").user;
   const member = world.ops.ensureAvatar(user.id);
   const input = world.bank.addInput(user.id, { label: "Member key", source: "api-key", model: "m", tokens: memberTokens, apiKey: "sk-member" } as never);
   // the town's own input keeps the pool funded
   world.bank.addInput(admin.ownerUserId!, { label: "Town key", source: "api-key", model: "m", tokens: 1_000_000, apiKey: "sk-town" } as never);
-  return { ...s, manager, kr, g, user, member, input };
+  return { ...s, manager, g, user, member, input };
 }
 
 describe("member funding (fundWith)", () => {
@@ -77,9 +76,9 @@ describe("member funding (fundWith)", () => {
   });
 
   it("what an input already owes another live grant counts against it", () => {
-    const { world, g, member, manager, kr, input } = setup(30_000);
+    const { world, g, member, manager, input } = setup(30_000);
     world.grantDesk.decide(member, g.id, { action: "fund", fundWith: input.id });
-    const g2 = world.grantDesk.create(manager, LAB, { keyResultId: kr.id, objective: "Banner 2", approach: "a line", stopCondition: "two tries", askTokens: 20_000, testingPlan: [] });
+    const g2 = world.grantDesk.create(manager, LAB, { keyResults: [{ text: "A second banner", howToCheck: "Open the lab" }], objective: "Banner 2", approach: "a line", stopCondition: "two tries", askTokens: 20_000 });
     world.grantDesk.propose(manager, g2.id);
     expect(() => world.grantDesk.decide(member, g2.id, { action: "fund", fundWith: input.id })).toThrow(/can pay 10,000 more tokens \(after 20,000 it owes other grants\)/);
   });

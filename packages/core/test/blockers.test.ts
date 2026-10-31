@@ -71,12 +71,11 @@ describe("blockedBy", () => {
   it("lane holds point at the Town Hall in-tray: grant at checkpoint, exploration at its goal's cap (used of cap, reset time)", () => {
     const { world, by, admin } = seededWorld();
     const mei = by("Mei"), noor = by("Noor");
-    const kr = world.grantDesk.createKeyResult(admin, LAB, { text: "A visitor sees the spend", howToCheck: "Open the banner" });
     world.ops.updateBuilding(admin, LAB, { managerAgentId: mei.id });
     fundGoalOf(world, LAB, { exploreCapTokensPerDay: 6_385_714 });
     creditBank(world, 20_000_000);
     world.permissions.grant({ kind: "agent", id: mei.id }, buildingRoleId(LAB, "manager"));
-    const g = world.grantDesk.decide(admin, world.grantDesk.propose(mei, world.grantDesk.create(mei, LAB, { keyResultId: kr.id, objective: "o", stopCondition: "s", askTokens: 1_000_000 }).id).id, { action: "fund" });
+    const g = world.grantDesk.decide(admin, world.grantDesk.propose(mei, world.grantDesk.create(mei, LAB, { keyResults: [{ text: "A visitor sees the spend", howToCheck: "Open the banner" }], objective: "o", stopCondition: "s", askTokens: 1_000_000 }).id).id, { action: "fund" });
     const grantWork = world.ops.createWork(admin, noor.id, { title: "Grant step", lane: "grant", grantId: g.id });
     const ex = world.ops.createWork(admin, noor.id, { title: "Explore", lane: "exploration", gap: "gap" });
     expect(blockedBy(world, grantWork)).toBeNull();

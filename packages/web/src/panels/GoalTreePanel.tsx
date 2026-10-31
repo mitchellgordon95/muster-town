@@ -231,7 +231,6 @@ function GoalDetail({ root, node, me, proposals, focusKr, onSelect, onDone }: { 
         <div className="ge-toolbar" role="toolbar" aria-label="Change this goal">
           {tool("edit", "Edit words")}
           {tool("goal", "+ Goal under it")}
-          {tool("kr", "+ Key result")}
           {node.parentId ? tool("move", "Move") : null}
           {tool("owner", "Captain")}
           {!open ? tool("change", "Change this goal", "X → Y: the buildings under it prepare, then a planning meeting decides what goes underneath") : null}
@@ -243,7 +242,6 @@ function GoalDetail({ root, node, me, proposals, focusKr, onSelect, onDone }: { 
       {form === "change" ? <ChangeForm node={node} onDone={done} /> : null}
       {form === "edit" ? <EditForm node={node} onDone={done} /> : null}
       {form === "goal" ? <AddGoalForm parent={node} onDone={(id) => { done(); onSelect(id); }} /> : null}
-      {form === "kr" ? <AddKrForm root={root} node={node} onDone={done} /> : null}
       {form === "move" ? <MoveForm root={root} node={node} onDone={done} /> : null}
       {form === "owner" ? <OwnerForm node={node} me={me} onDone={done} /> : null}
       {form === "retire" ? <RetireForm root={root} node={node} onDone={() => { done(); onSelect(node.parentId); }} /> : null}
@@ -411,26 +409,6 @@ function AddGoalForm({ parent, onDone }: { parent: GoalTreeNode; onDone: (id: st
     <div className="goal-form">
       <Field label={`A goal under "${clip(parent.text, 50)}"`} hint="A standing direction, never met. Key results under it are the dated, checkable claims."><textarea rows={2} maxLength={300} value={text} onChange={(e) => setText(e.target.value)} /></Field>
       <Act small tone="primary" disabled={!text.trim()} run={() => api().createGoal({ parentId: parent.id, text: text.trim() }).then((g) => onDone(g.id))}>Add goal</Act>
-    </div>
-  );
-}
-
-function AddKrForm({ root, node, onDone }: { root: GoalTreeNode; node: GoalTreeNode; onDone: () => void }) {
-  const [text, setText] = useState(""), [check, setCheck] = useState(""), [due, setDue] = useState("");
-  // the building it is for: one attached here or above (default: the nearest, which the server also picks)
-  const near = pathTo(root, node.id).reverse().flatMap((g) => g.buildings);
-  const [buildingId, setBuildingId] = useState("");
-  return (
-    <div className="goal-form">
-      <Field label="Key result" hint="A concrete thing in the live town by a date."><textarea rows={2} maxLength={300} value={text} onChange={(e) => setText(e.target.value)} /></Field>
-      <Field label="How to check" hint="Where a human looks and what they'd see."><textarea rows={2} maxLength={300} value={check} onChange={(e) => setCheck(e.target.value)} /></Field>
-      <Field label="Due"><input type="date" value={due} onChange={(e) => setDue(e.target.value)} /></Field>
-      {near.length > 1 ? <Field label="For building"><select value={buildingId} onChange={(e) => setBuildingId(e.target.value)}>
-        <option value="">{near[0].name} (nearest)</option>
-        {near.slice(1).map((b) => <option key={b.id} value={b.id}>{b.name}</option>)}
-      </select></Field> : null}
-      <Act small tone="primary" disabled={!text.trim() || !check.trim() || !due}
-        run={() => api().addTreeKeyResult(node.id, { text: text.trim(), howToCheck: check.trim(), due, ...(buildingId ? { buildingId } : {}) }).then(onDone)}>Add key result</Act>
     </div>
   );
 }

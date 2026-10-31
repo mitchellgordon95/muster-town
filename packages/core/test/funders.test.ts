@@ -17,7 +17,7 @@ function setup() {
   const { world, admin } = s;
   const manager = world.agents.first("homeBuildingId = ? AND kind != 'human'", [LAB])!;
   const child = world.goalTree.create(admin, { parentId: world.goalTree.attachmentOf(LAB), text: "Child goal" });
-  const kr = world.goalTree.addKeyResult(admin, child.id, { text: "A thing", howToCheck: "Look", due: "2026-12-31" } as never);
+  const kr = world.keyResults.require(world.grantDesk.create(admin, LAB, { goalId: child.id, keyResults: [{ text: "A thing", howToCheck: "Look", due: "2026-12-31" }], objective: "o", stopCondition: "s", askTokens: 1000 }).keyResultId!);
   const townKey = world.bank.addInput(admin.ownerUserId!, { label: "Town key", source: "api-key", model: "m", tokens: 1_000_000, apiKey: "sk-town" } as never);
   const sub = world.bank.addInput(admin.ownerUserId!, { label: "Max plan", source: "subscription", model: "claude-opus-5-5", tokens: 500_000, recurrence: "daily", weeklyCapTokens: 3_500_000, token: TOKEN } as never);
   const donor = world.ops.createUser("Donor").user;

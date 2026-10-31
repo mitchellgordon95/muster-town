@@ -542,7 +542,7 @@ function decideNow(world: World, actor: Agent | null, meetingId: string, decisio
         applyDecision(world, pending.id, "approve", `Superseded by a decision in meeting "${m.title}": ${d.text.split("\n")[0].slice(0, 160)}`, by);
       }
       const a = createAssignment(world, { agentId: out.assigneeId, title, description: `${d.text}\n\nDecided in meeting "${m.title}".`, createdBy: by, fromMeetingId: m.id, waitFor: d.waitFor ? validateWait(world, d.waitFor) : null,
-        lane: { lane: d.lane, grantId: d.grantId, keyResultId: d.keyResultId, gap: d.gap, sourceId: d.sourceId } });
+        lane: { lane: d.lane, grantId: d.grantId, gap: d.gap, sourceId: d.sourceId } });
       if (world.agents.get(out.assigneeId)?.status === "stopped") world.setStatus(out.assigneeId, "idle", `${world.nameOf(out.assigneeId)} was resumed by a decision in "${m.title}"`);
       out = { ...out, assignmentId: a.id };
     }

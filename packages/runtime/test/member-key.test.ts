@@ -11,10 +11,8 @@ function setup() {
   for (const a of world.allocations.where("buildingId = ?", [bid])) world.budget.retire(a.id);
   const manager = world.agents.first("homeBuildingId = ? AND kind != 'human'", [bid])!;
   world.permissions.grant(manager, buildingRoleId(bid, "manager"));
-  // one key result per grant: a key result has at most one live grant
   const mk = () => {
-    const kr = world.grantDesk.createKeyResult(admin, bid, { text: "A banner", howToCheck: "Open the lab" });
-    const g = world.grantDesk.create(manager, bid, { keyResultId: kr.id, objective: "Banner", approach: "a line", stopCondition: "two tries", askTokens: 20_000, testingPlan: [] });
+    const g = world.grantDesk.create(manager, bid, { keyResults: [{ text: "A banner", howToCheck: "Open the lab" }], objective: "Banner", approach: "a line", stopCondition: "two tries", askTokens: 20_000 });
     world.grantDesk.propose(manager, g.id);
     return g;
   };
