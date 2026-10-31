@@ -2,14 +2,14 @@
  * The review deck (design dc_y7a8g257of §2, gr_jh0lu0w6yj step 4): "Review as deck" in the Town Hall in-tray opens
  * GET /api/review-deck in the slide viewer. Slide 1 is the state of the town, then one slide per pending decision,
  * blocking-most first. The decision buttons under each slide are the in-tray's own (GrantRow; the report's Talk to
- * and reply box; Approve all on "For the record"), sent with `deckSlide`. Deciding moves on to the next item's slide.
+ * and Archive; Approve all on "For the record"), sent with `deckSlide`. Deciding moves on to the next item's slide.
  */
 import { useEffect, useRef, useState, type KeyboardEvent } from "react";
 import { REVIEW_DECK_ID, type Doc, type GrantView, type IntrayRoute, type ReviewSlide } from "@muster-town/schema";
 import { api, type GoalProposalView } from "../api";
 import { store } from "../state";
 import { DeckSlides, clampSlide, slideForKey } from "./DeckView";
-import { ReplyBox, TalkToAuthor } from "./DocView";
+import { ReportActions } from "./DocView";
 import { GrantRow } from "./Places";
 import { GoalProposalItem } from "./GoalTreePanel";
 import { PresentButtons } from "./MeetingSlide";
@@ -68,8 +68,7 @@ export function SlideDecision({ slide, n, grants, reports, goalProposals = [], r
   if (!doc) return docId ? <div className="review-decide muted">Already decided.</div> : null;
   return (
     <div className="review-decide">
-      <div className="actions"><TalkToAuthor doc={doc} /><button className="link" onClick={() => onOpenDoc(doc.id)}>Open the report</button></div>
-      <ReplyBox doc={doc} onDone={onDecided} deckSlide={n} meetingId={meetingId} />
+      <ReportActions doc={doc} onDone={onDecided} deckSlide={n} meetingId={meetingId}><button className="link" onClick={() => onOpenDoc(doc.id)}>Open the report</button></ReportActions>
     </div>
   );
 }

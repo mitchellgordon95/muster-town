@@ -1,6 +1,6 @@
 /** One document: metadata, provenance, markdown, and the actions the viewer is permitted to take. */
 import { forkTip } from "../forks";
-import { useState } from "react";
+import { useState, type ReactNode } from "react";
 import type { Doc } from "@muster-town/schema";
 import { api } from "../api";
 import { store, useTown } from "../state";
@@ -38,7 +38,7 @@ export function needOf(body: string): string | null {
   return line ?? null;
 }
 
-/** Pill label: a decided report with a reply note reads "replied". */
+/** Pill label: a decided report with a note (a reply, before replies were removed) reads "replied". */
 export function decisionLabel(doc: Pick<Doc, "decision" | "decisionNote">): string {
   if (!doc.decision) return "";
   if (doc.decision === "approve") return doc.decisionNote ? "replied" : "archived";
@@ -46,30 +46,22 @@ export function decisionLabel(doc: Pick<Doc, "decision" | "decisionNote">): stri
 }
 
 /**
- * Reports as replies: one text box, one button. The reply is appended to the report, mentions the author, and
- * becomes the author's next assignment. "merge" tells the author to merge its PR. Empty = archive.
+ * A report's Archive (Mitchell, 1:1 mt_cz11aqe81a: after reading a report you talk to its author or archive it; there
+ * is no reply). Archive acknowledges the report (decision "approve", no assignment) and it leaves the in-tray.
  */
-export function ReplyBox({ doc, onDone, deckSlide, meetingId }: { doc: Doc; onDone?: () => void; deckSlide?: number; meetingId?: string }) {
-  const [text, setText] = useState("");
-  const media = useMediaPaste(setText);
-  const empty = !text.trim();
-  const author = nameOf(doc.authorId);
-  const send = async () => {
-    const r = empty ? await api().archive(doc.id, deckSlide, meetingId) : await api().reply(doc.id, text.trim(), deckSlide, meetingId);
+export function ArchiveButton({ doc, onDone, deckSlide, meetingId }: { doc: Doc; onDone?: () => void; deckSlide?: number; meetingId?: string }) {
+  const archive = async () => {
+    const r = await api().archive(doc.id, deckSlide, meetingId);
     store.putDocs([r.doc]);
-    store.toast(empty ? "Archived." : r.assignment ? `Reply sent. ${author} picks it up next.` : `Reply recorded. ${author} gets no new assignment.`, "ok");
-    setText("");
+    store.toast("Archived.", "ok");
     onDone?.();
   };
-  return (
-    <div className="reply-box">
-      <textarea {...media.props} rows={3} placeholder={'Reply… ("merge" tells the author to merge; paste or drop a screenshot; leave empty to archive)'} value={text} onChange={(e) => setText(e.target.value)}
-        onKeyDown={(e) => { if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) { e.preventDefault(); void send().catch((err) => store.toast(String((err as Error).message ?? err), "bad")); } }} />
-      <div className="actions">
-        <Act tone={empty ? "ok" : "primary"} disabled={media.uploading > 0} run={send} title={empty ? "Mark handled. No assignment is created." : `Append your reply to the report and give it to ${author} as the next assignment`}>{empty ? "Archive" : "Send reply"}</Act>
-      </div>
-    </div>
-  );
+  return <Act small tone="ok" run={archive} title="Mark it handled: it leaves the in-tray. No assignment is created.">Archive</Act>;
+}
+
+/** A pending report's two actions: Talk to the author (a 1:1) and Archive. */
+export function ReportActions({ doc, onDone, deckSlide, meetingId, children }: { doc: Doc; onDone?: () => void; deckSlide?: number; meetingId?: string; children?: ReactNode }) {
+  return <div className="actions report-actions"><TalkToAuthor doc={doc} /><ArchiveButton doc={doc} onDone={onDone} deckSlide={deckSlide} meetingId={meetingId} />{children}</div>;
 }
 
 /**
@@ -123,7 +115,7 @@ export function TalkToAuthor({ doc }: { doc: Doc }) {
   );
 }
 
-/** `review`: show the reply box under the body (only the in-tray passes it). */
+/** `review`: a pending report gets Talk to + Archive, a flag its decide box (only the in-tray passes it). */
 export function DocView({ doc: initial, onBack, backLabel = "Back", review, onDecided }: { doc: Doc; onBack?: () => void; backLabel?: string; review?: boolean; onDecided?: () => void }) {
   const live = useTown((s) => s.docs[initial.id]);
   const doc = live && live.updatedAt >= initial.updatedAt ? live : initial;
@@ -149,12 +141,13 @@ export function DocView({ doc: initial, onBack, backLabel = "Back", review, onDe
       {doc.decisionNote && !doc.body.includes("## Reply from") ? <div className="callout"><b>{nameOf(doc.decidedBy)}:</b> {doc.decisionNote}</div> : null}
       <div className="actions">
         <TalkToAuthor doc={doc} />
+        {canReview && doc.type === "report" ? <ArchiveButton doc={doc} onDone={onDecided} /> : null}
         {canPromote && doc.state === "draft" ? <Act small run={run(() => api().promote(doc.id, "building"), "Published to the board")}>Publish to board</Act> : null}
         {canPromote && doc.state === "building" ? <Act small run={run(() => api().promote(doc.id, "library"), "Promoted to the library")}>Promote to library</Act> : null}
       </div>
       {doc.type === "deck" ? <DeckView id={doc.id} body={doc.body} /> : cards ? <RollupCards parsed={cards} full /> : <Markdown text={doc.type === "skill" ? doc.body.replace(/^---\r?\n[\s\S]*?\r?\n---[ \t]*\r?\n?/, "") : stripLeadingH1(doc.body)} />}
       {doc.type === "skill" ? <SkillDetails doc={doc} /> : null}
-      {canReview ? doc.type === "flag" ? <FlagDecideBox doc={doc} onDone={onDecided} /> : <ReplyBox doc={doc} onDone={onDecided} /> : null}
+      {canReview && doc.type === "flag" ? <FlagDecideBox doc={doc} onDone={onDecided} /> : null}
       {sources.length || doc.provenance.urls.length ? (
         <div className="provenance">
           <h4>Provenance</h4>

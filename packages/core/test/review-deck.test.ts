@@ -107,7 +107,7 @@ describe("review deck (GET /api/review-deck)", () => {
     expect(fs.text).not.toMatch(/History:/);
   });
 
-  it("a decision made on a slide carries payload.deckSlide (grant decide and report reply/archive)", () => {
+  it("a decision made on a slide carries payload.deckSlide (grant decide and report archive)", () => {
     const { world, admin, proposal, rollup } = setup();
     const g = proposal();
     world.grantDesk.decide(admin, g.id, { action: "reject", deckSlide: 3 });
@@ -116,7 +116,7 @@ describe("review deck (GET /api/review-deck)", () => {
     world.ops.archiveReport(admin, r.id, { deckSlide: 4 });
     expect(world.events.list({ types: ["doc.decision"] }).at(-1)!.payload).toMatchObject({ docId: r.id, deckSlide: 4 });
     const r2 = rollup(["Go?"], ago(1));
-    world.ops.replyToReport(admin, r2.id, "yes");
+    world.ops.archiveReport(admin, r2.id);
     expect(world.events.list({ types: ["doc.decision"] }).at(-1)!.payload).not.toHaveProperty("deckSlide");
   });
 
