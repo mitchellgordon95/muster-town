@@ -474,6 +474,14 @@ export function startRuntime(opts: RuntimeOptions): Runtime {
    * no session is on one (its session ended, adopted or not), remove its Machine, home volume kept, so its next session
    * starts on a fresh one from the new image. Never touches a desk with a session running or starting (1:1 mt_cvxnqawx7h).
    */
+  /**
+   * A fork holds this desk slot (its session may be starting). Only forks count: a building's manager also holds a desk
+   * (usually 0) as its seat, but its sessions never run in the slot's sandbox, so it never keeps the slot busy (Nell ms_a6dshs7urq).
+   */
+  function forkHoldsDesk(buildingId: string, n: number): boolean {
+    return !!world.db.prepare("SELECT 1 FROM desks d JOIN agents a ON a.id = d.agentId WHERE d.buildingId = ? AND d.n = ? AND a.forkOf IS NOT NULL").get(buildingId, n);
+  }
+
   function recreateStaleDesks(): void {
     const b = orphanKiller;
     if (!b?.remove && !b?.removeSandbox) return;
@@ -481,7 +489,7 @@ export function startRuntime(opts: RuntimeOptions): Runtime {
     for (const r of rows) {
       const slot = r.buildingId !== null;
       const busy = slot
-        ? !!world.db.prepare("SELECT 1 FROM desks WHERE buildingId = ? AND n = ?").get(r.buildingId, r.n)
+        ? forkHoldsDesk(r.buildingId!, r.n!)
         : ctx.live.has(r.key) || starting.has(r.key) || reaping.has(r.key);
       if (busy) continue;
       world.db.prepare("DELETE FROM stale_desks WHERE key = ?").run(r.key);
@@ -679,7 +687,7 @@ export function startRuntime(opts: RuntimeOptions): Runtime {
       // forks' desk slots: a slot whose desk a fork holds is in use (its session may be starting)
       if (b.removeSandbox) {
         for (const slot of deskSlotRows(world)) {
-          if (world.db.prepare("SELECT 1 FROM desks WHERE buildingId = ? AND n = ?").get(slot.buildingId, slot.n)) {
+          if (forkHoldsDesk(slot.buildingId, slot.n)) {
             kept.push(slot.sandboxName);
             markStale.run(slot.sandboxName, slot.buildingId, slot.n, nowIso());
             continue;
