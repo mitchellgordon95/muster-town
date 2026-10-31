@@ -9,11 +9,12 @@ import { FORK_MANAGER_WIKI_CAP, forkMemoryBlock, memoryBlock, teamBlock, topicIn
 import { skillsBlock } from "./skills.ts";
 import { townBoardDocs } from "./verbs/docs.ts";
 import { TOWN_HALL_ID } from "./world/layout.ts";
-import { docGist, NEED, oneLine, relativeTime, sectionOf, trunc } from "./text.ts";
+import { docGist, NEED, oneLine, sectionOf, trunc } from "./text.ts";
+import { clockLine, fromNow, stamp, whenFor } from "./time.ts";
 import type { World } from "./world.ts";
 import { EXPLORE_CEILING_SHARE } from "./explore.ts";
 
-export { docGist, relativeTime, sectionOf } from "./text.ts";
+export { docGist, sectionOf } from "./text.ts";
 
 /** What an agent does when started without a task. */
 export const CHECK_IN = "No specific task. Check your inbox and the board; if something needs you, do it. If nothing does, submit a short report saying so: don't invent work.";
@@ -68,7 +69,7 @@ export function recentWorkBlock(world: World, agentId: string, opts: { limit?: n
   const where = "authorId = ? AND type NOT IN ('notebook', 'wiki', 'log') AND NOT (type = 'report' AND title LIKE ?) AND (sessionId IS NULL OR sessionId != ?)";
   const params = [agentId, `${FALLBACK_REPORT_PREFIX}%`, opts.excludeSessionId ?? ""];
   const docs = world.docs.where(where, params, `ORDER BY updatedAt DESC, rowid DESC LIMIT ${Math.max(1, Math.floor(limit))}`);
-  const lines = docs.map((d) => `- ${d.type} "${d.title}" (${d.id}, ${relativeTime(d.updatedAt, now)}): ${docGist(d)}`);
+  const lines = docs.map((d) => `- ${d.type} "${d.title}" (${d.id}, ${fromNow(d.updatedAt, now)}): ${docGist(d)}`);
   const out = [`## Your recent work`, lines.join("\n") || "(you haven't written anything yet)"];
   if (!opts.short) {
     const last = world.docs.first(`${where} AND type = 'report'`, params, "ORDER BY createdAt DESC, rowid DESC");
@@ -85,8 +86,9 @@ export function recentWorkBlock(world: World, agentId: string, opts: { limit?: n
  * The system prompt of a work session. \`memory\` is the agent's "## What you know" + "## Your log" block
  * (\`memoryBlock\`); \`team\` the manager's "## Your team" block (\`teamBlock\`), only for the building's manager agent.
  */
-export function workSystemPrompt(agent: Agent, building: Building, town: Town, opts: { desk?: boolean; memory?: string; team?: string; skills?: string; keyResults?: string; townBoard?: string; buildings?: string; purpose?: string } = {}): string {
+export function workSystemPrompt(agent: Agent, building: Building, town: Town, opts: { desk?: boolean; memory?: string; team?: string; skills?: string; keyResults?: string; townBoard?: string; buildings?: string; purpose?: string; now?: number } = {}): string {
   return `You are ${agent.name}, a resident of the ${building.name} of ${town.name}. ${OWNERSHIP}
+${clockLine(opts.now)}
 Town goal: ${town.goal || "(none set)"}
 Building goal: ${opts.purpose ?? (building.goal || "(none set)")}${opts.keyResults ? `\n${opts.keyResults}` : ""}
 Your agent id: ${agent.id}. Your building id: ${building.id}.
@@ -177,7 +179,7 @@ export function keyResultsBlock(world: World, building: Building, assignment?: A
   walk(at, "");
   const owner = tree.ownerOf(at);
   const ownerName = owner.userId ? world.users.get(owner.userId)?.name ?? owner.userId : "the town admins";
-  const attached = `Attached to: ${tree.pathText(at)} (owner: ${ownerName}). Work names an open key result in this subtree.${met || missed ? ` Archived: ${met} met, ${missed} missed.` : ""}`;
+  const attached = `Attached to: ${tree.pathText(at)} (captain: ${ownerName}). Work names an open key result in this subtree.${met || missed ? ` Archived: ${met} met, ${missed} missed.` : ""}`;
   const orphans = board.grants.filter((g) => !g.keyResultId).map((g) => `- grant ${g.id} "${oneLine(g.objective, 120)}" names no key result`);
   const krText = (id: string | null) => { const k = id ? world.keyResults.get(id) : undefined; return k ? `${k.id} "${oneLine(k.text, 120)}"` : id ?? ""; };
   const lane = !assignment ? "" : assignment.lane === "grant"
@@ -210,7 +212,7 @@ export function explorerBrief(world: World, building: Building, assignment: Assi
     `Pick ONE direction under the goal (the goal, its key results and the grants above; don't duplicate an open proposal), investigate it this session (the live town, the code, the web), and end with ONE grant proposal: \`propose_grant\` with keyResultId (an open key result of the goal above with no funded grant; if none fits your direction, write it first with \`set_key_result\`: text, howToCheck, your findings doc as sourceDocIds), objective, approach, stopCondition, askTokens and a testingPlan of 2-4 lines (text, howToCheck); your findings doc in findingsDocIds. It goes straight to the Town Hall in-tray and credits ${building.name}. If nothing is worth a grant, propose nothing and say why in a short report. Then \`submit_report\` (verdict stop).`,
     rollups.length ? `The building's last rollups: ${rollups.map((d) => `${d.id} "${oneLine(d.title, 100)}" (${d.createdAt.slice(0, 10)})`).join("; ")}. \`read\` them for what shipped and what Mitchell asked.` : "The building has no rollup yet.",
     open.length ? `Open proposals under this goal: ${open.map((g) => `${g.id} "${oneLine(g.objective, 100)}" (${g.status}, asks ${tok(g.askTokens)})`).join("; ")}.` : "No proposal is open under this goal.",
-    recent.length ? `The building's last day: ${recent.map((e) => `${e.ts.slice(11, 16)}Z ${oneLine(e.text, 120)}`).join(" · ")}` : "",
+    recent.length ? `The building's last day: ${recent.map((e) => `${stamp(e.ts)} ${oneLine(e.text, 120)}`).join(" · ")}` : "",
   ].filter(Boolean).join("\n");
 }
 
@@ -220,7 +222,7 @@ export function managerGrantsBlock(world: World, building: Building): string {
   const open = world.grants.where("buildingId = ? AND status IN ('proposed', 'countered')", [building.id], "ORDER BY createdAt, rowid");
   const blocked = world.grantDesk.blocked(building);
   return `## Grants (this building is goal-directed)
-The town has one goal tree (docs/goals.md): your building is attached to one goal, and your subtree is that goal and every goal under it; key results are dated leaves under a goal, and work (grants, exploration) names an open key result in your subtree. Admins and a goal's owner edit the tree; you propose changes with \`propose_goal\` (add, edit, move or retire a goal, promote a key result) and \`propose_key_result\` (goalId, text, howToCheck, due), and a human accepts or cuts each. Your building's objectives are goals of the tree with the same ids. Until the Town Hall goal editor lands you also write directly, as before: when a meeting or your 1:1 with Mitchell settles one, \`set_objective\` (text, kpi, sourceDocIds; id to edit) and \`set_key_result\` (text, howToCheck, sourceDocIds = the meeting notes or report it comes from, objectiveId = the objective it serves; id to edit one or move it). Your next rollup lists every key result you wrote, appended for you, so Mitchell can keep or cut it; only a human marks one met or missed, or deletes it. A grant is the plan for one of them: \`propose_grant\` with its keyResultId, an objective, the approach, a stop condition, a token ask and optionally a testing plan (text + howToCheck lines: how the work will be checked). Funding it runs the plan.
+The town has one goal tree (docs/goals.md): your building is attached to one goal, and your subtree is that goal and every goal under it; key results are dated leaves under a goal, and work (grants, exploration) names an open key result in your subtree. Admins and a goal's captain (the human who owns it) edit the tree; you propose changes with \`propose_goal\` (add, edit, move or retire a goal, promote a key result) and \`propose_key_result\` (goalId, text, howToCheck, due), and a human accepts or cuts each. Your building's objectives are goals of the tree with the same ids. Until the Town Hall goal editor lands you also write directly, as before: when a meeting or your 1:1 with Mitchell settles one, \`set_objective\` (text, kpi, sourceDocIds; id to edit) and \`set_key_result\` (text, howToCheck, sourceDocIds = the meeting notes or report it comes from, objectiveId = the objective it serves; id to edit one or move it). Your next rollup lists every key result you wrote, appended for you, so Mitchell can keep or cut it; only a human marks one met or missed, or deletes it. A grant is the plan for one of them: \`propose_grant\` with its keyResultId, an objective, the approach, a stop condition, a token ask and optionally a testing plan (text + howToCheck lines: how the work will be checked). Funding it runs the plan.
 Every \`assign\` names its lane: "grant" with the grantId of a funded grant (its key result is implied), or "exploration" with the keyResultId of a goal key result that has no funded grant, or a gap (one sentence on what is missing between the goal and the live town). Work that traces to a human ask is "directed": give lane "directed" with sourceId = the human-authored source it comes from (a meeting with a human or its notes, a flag, a human-report, a human's tell); \`review\` continue/redirect and meeting decisions take the same lane fields. Directed work is never held for money (it is metered on its own: "Directed today"); naming a keyResultId (or a gap) says what it is for, and with a key result it runs until a grant proposal names it. Without a human source you can't create directed work: unguided exploration runs on the free tokens under your goal (the Bank's balance and earmarks less funded grants' remaining, open proposals' asks and reservations), with no daily allowance; a human may set an exploration cap on a goal. Assignments whose grant is at checkpoint, or exploration with no free tokens or past its goal's cap, stay pending (held), never cancelled.
 ${blocked ? `This building is ${blocked}: write key results for the goal with \`set_key_result\` once a meeting or your 1:1 has settled them (or propose them in a rollup).\n` : ""}${open.length ? `Open proposals (several can be open at once, each decided on its own): ${open.map((g) => `${g.id} (${g.status})${g.keyResultId ? "" : ", naming no key result yet"}${g.status === "countered" ? `; it is your move: answer the counter with \`propose_grant\` and grantId ${g.id} (the revised plan rewrites it under the same id)` : "; a human decides it in the Town Hall in-tray"}`).join("; ")}. Another key result without a funded grant can get its own proposal now.` : "No proposal is open. Explorers propose on their own: the runtime's explore tick reserves a chunk and queues an explorer on an idle desk while tokens are free under your goal, and its proposal goes straight to the Town Hall in-tray."}
 A human's decision on your proposal wakes you with an assignment: funded → "Grant … funded: assign its first step or take it yourself" (lane grant, the plan in it; nothing runs until its steps are assignments), countered → "Answer the counter on …" (re-propose with \`propose_grant\`), rejected → "Grant … rejected: read the note". When a grant reaches 100% of its tokens (the only checkpoint; it runs to its full number before that) you get a "Write the checkpoint for …" assignment: \`checkpoint_grant\` (its key result's status up to claimed, with evidence), then \`submit_report\` with \`rollup: true\`; it lands in the Town Hall in-tray linked to the grant. When a grant's work is done before its tokens are (its key result can be claimed with evidence a human can check), close it yourself with \`close_grant\` (grantId, the evidence as note), then \`submit_report\` with \`rollup: true\`: it closes as done, the unspent tokens return to the Bank, and a human marks the key result met or missed from the Town Hall in-tray. Use \`checkpoint_grant\` only when the grant is held at its 100% checkpoint and the work is not done.`;
@@ -277,11 +279,11 @@ export const ESCALATION_CRITERIA = `Decide yourself unless the decision (a) chan
 /** The least time between two rollups, so a run of small PRs lands as one item (docs/waterfall.md §3.2; 1:1 mt_7mhv73quu3). */
 export const ROLLUP_MIN_GAP_HOURS = 4;
 
-/** "Live: fa73e88 since 07:12Z (newer than your last rollup)": what the running server is, for the rollup rule. */
+/** "Live: fa73e88 since 2026-10-31 07:12 UTC (4 h ago) (newer than your last rollup)": what the running server is, for the rollup rule. */
 function liveLine(world: World, lastRollupAt: string | undefined, now: number): string {
   const { commit, startedAt } = world.host;
   if (!commit) return "Live: unknown (no runtime)";
-  const since = startedAt ? ` since ${startedAt.slice(11, 16)}Z ${startedAt.slice(0, 10)}, ${relativeTime(startedAt, now)}` : "";
+  const since = startedAt ? ` since ${whenFor(startedAt, "agent", now)}` : "";
   const newer = !startedAt ? "" : !lastRollupAt ? " (no rollup yet)" : startedAt > lastRollupAt ? " (newer than your last rollup)" : " (already live at your last rollup)";
   return `Live: ${commit.slice(0, 7)}${since}${newer}`;
 }
@@ -294,13 +296,13 @@ function liveLine(world: World, lastRollupAt: string | undefined, now: number): 
 export function managerIntrayBlock(world: World, building: Building, managerId: string, now = Date.now()): string {
   const pending = intrayOf(world, building.id);
   const rows = pending.map((d) => {
-    if (d.type === "flag") return `- ${d.id} FLAG by ${world.nameOf(d.authorId)} (${relativeTime(d.createdAt, now)})${flagWhere(d)}: ${oneLine(d.body, 200)}`;
+    if (d.type === "flag") return `- ${d.id} FLAG by ${world.nameOf(d.authorId)} (${fromNow(d.createdAt, now)})${flagWhere(d)}: ${oneLine(d.body, 200)}`;
     const need = sectionOf(d.body, NEED);
-    return `- ${d.id} "${oneLine(d.title, 100)}" by ${world.nameOf(d.authorId)} (verdict ${d.verdict ?? "?"}, ${relativeTime(d.createdAt, now)}${d.tags.includes("parked") ? ", parked" : ""})${need ? `: needs: ${oneLine(need, 160)}` : ""}`;
+    return `- ${d.id} "${oneLine(d.title, 100)}" by ${world.nameOf(d.authorId)} (verdict ${d.verdict ?? "?"}, ${fromNow(d.createdAt, now)}${d.tags.includes("parked") ? ", parked" : ""})${need ? `: needs: ${oneLine(need, 160)}` : ""}`;
   });
   const flags = pending.some((d) => d.type === "flag");
   const lastRollup = world.docs.first("type = 'report' AND authorId = ? AND tags LIKE '%\"rollup\"%'", [managerId], "ORDER BY createdAt DESC, rowid DESC");
-  const sinceLast = lastRollup ? `${relativeTime(lastRollup.createdAt, now)} ("${oneLine(lastRollup.title, 80)}", ${lastRollup.id}, decision ${lastRollup.decision ?? "?"})` : "never";
+  const sinceLast = lastRollup ? `${fromNow(lastRollup.createdAt, now)} ("${oneLine(lastRollup.title, 80)}", ${lastRollup.id}, decision ${lastRollup.decision ?? "?"})` : "never";
   const decidedSince = world.docs.count("type = 'report' AND buildingId = ? AND decision != 'pending' AND decidedAt > ?", [building.id, lastRollup?.createdAt ?? ""]);
   const krWrites = world.grantDesk.writtenSinceRollup(managerId, building.id);
   const lanes = { exploration: world.grantDesk.exploration(building.id), directed: world.grantDesk.directed(building.id) };
@@ -347,16 +349,17 @@ export function managerNewReport(d: Doc, nameOf: (id: string) => string): string
 }
 
 /** The manager's 1:1 (docs/waterfall.md §3.4): a human opened it; their messages stream into this session. */
-export function oneOnOnePrompt(meeting: Meeting, nameOf: (id: string) => string, decisions?: string): string {
+export function oneOnOnePrompt(meeting: Meeting, nameOf: (id: string) => string, decisions?: string, now = Date.now()): string {
   const who = meeting.withUserId ? nameOf(meeting.withUserId) : "A human";
-  const transcript = meeting.transcript.map((u) => `- ${nameOf(u.speakerId)}: ${u.text}`).join("\n");
+  const transcript = meeting.transcript.map((u) => `- ${stamp(u.at)} ${nameOf(u.speakerId)}: ${u.text}`).join("\n");
   // a pick-up: the human spoke after the manager's last line (its previous session was cut, e.g. by a redeploy's restart)
   const lastMine = meeting.transcript.map((u) => u.speakerId).lastIndexOf(meeting.facilitatorId ?? "");
   const missed = meeting.transcript.slice(lastMine + 1).filter((u) => u.speakerKind === "user");
   const pickUp = lastMine >= 0 && missed.length
-    ? `\nYour previous session in this 1:1 was cut off (a server restart or a redeploy) and ${missed.length === 1 ? "this line after your last reply is" : `these ${missed.length} lines after your last reply are`} still unanswered:\n${missed.map((u) => `- ${nameOf(u.speakerId)}: ${u.text}`).join("\n")}\nAnswer ${missed.length === 1 ? "it" : "them"} now, in one reply: say in a few words that you're back after the restart, don't greet again or repeat what you already said.\n`
+    ? `\nYour previous session in this 1:1 was cut off (a server restart or a redeploy) and ${missed.length === 1 ? "this line after your last reply is" : `these ${missed.length} lines after your last reply are`} still unanswered:\n${missed.map((u) => `- ${stamp(u.at)} ${nameOf(u.speakerId)}: ${u.text}`).join("\n")}\nAnswer ${missed.length === 1 ? "it" : "them"} now, in one reply: say in a few words that you're back after the restart, don't greet again or repeat what you already said.\n`
     : "";
   return `${who} opened a 1:1 with you: meeting ${meeting.id}. This is a conversation, not a work session: you have no assignment.
+${clockLine(now)}
 ${transcript ? `\nSo far:\n${transcript}\n${pickUp}` : `\nThey haven't said anything yet; greet them in one line and ask what they need.\n`}
 Answer with the \`meeting\` tool, action "speak", meetingId ${meeting.id}: short, plain, concrete. Their next messages arrive here as messages in this session, so don't \`listen\`; after you've spoken, stop and wait. When you agree on work, record it with action "decide" (a decision with an assigneeId becomes that agent's assignment, yours if you take it), or \`assign\` it if you manage the building; say who and what in the meeting too. If they opened it about a doc, its id is in their first line: \`read\` it before you answer. If they opened it about a grant, their first line names it (gr_…) and its key result. You can't do the work yourself here (no code or web tools). The human ends the 1:1, not you, and there is no report: don't call \`submit_report\` (the "Finish with submit_report" rule above is for work sessions).${decisions ? `\n\n${decisions}` : ""}`;
 }
@@ -371,15 +374,15 @@ export function alongsideWorkBlock(world: World, m: Meeting, agentId: string, wo
   const asg = work?.assignmentId ? world.assignments.get(work.assignmentId) : undefined;
   const doing = asg ? `"${oneLine(asg.title, 160)}" (${asg.id})` : "work with no assignment";
   return `## What you are doing now
-Your ${work?.backend === "docker" ? "desk" : "work"} session is running right now, on ${doing}, started ${work ? relativeTime(work.startedAt, Date.now()) : "just now"}. It keeps running: this conversation is a second session beside it, so answer ${who} here without waiting for the work to end. Answer "what are you working on" from this and your recent work below.
+Your ${work?.backend === "docker" ? "desk" : "work"} session is running right now, on ${doing}, started ${work ? fromNow(work.startedAt) : "just now"}. It keeps running: this conversation is a second session beside it, so answer ${who} here without waiting for the work to end. Answer "what are you working on" from this and your recent work below.
 If ${who} asks for something that work session should act on (change course, add or drop something, stop), \`tell\` yourself (your own id, ${agentId}) with the request in their words: it reaches the running work session at once as direction from ${who}, citing this meeting. Then say in the 1:1 that you passed it on. Work you agree that is separate from it you record with meeting "decide" as before. This session can't \`submit_report\` or \`accept_assignment\`: those belong to the work session.
 
 ${recentWorkBlock(world, agentId, { readHint: false })}`;
 }
 
-/** A human's line in the 1:1, streamed into the manager's session. */
-export function oneOnOneUtterance(meeting: Meeting, speaker: string, text: string): string {
-  return `${speaker} said in the 1:1 (${meeting.id}): ${text}\n\nAnswer with meeting "speak", then stop and wait.`;
+/** A human's line in the 1:1, streamed into the manager's session, with the server's stamp on it (the agent's only clock). */
+export function oneOnOneUtterance(meeting: Meeting, speaker: string, text: string, at?: string): string {
+  return `${speaker} said in the 1:1 (${meeting.id})${at ? ` at ${stamp(at)}` : ""}: ${text}\n\nAnswer with meeting "speak", then stop and wait.`;
 }
 
 /** The human ended the 1:1 (or it went quiet and the town closed it). */
@@ -404,9 +407,9 @@ export function humanDecisionsBlock(world: World, meeting: Pick<Meeting, "id" | 
   const since = last?.endedAt ?? "";
   const where = meeting.buildingId ? "phase = 'done' AND endedAt > ? AND id != ? AND buildingId = ?" : "phase = 'done' AND endedAt > ? AND id != ?";
   const ms = world.meetings.where(where, [since, meeting.id, ...scopeArgs], "ORDER BY endedAt, rowid").filter((m) => hadHuman(m) && m.decisions.some((d) => !d.supersededBy));
-  const lines = ms.flatMap((m) => m.decisions.flatMap((d, i) => d.supersededBy ? [] : [`- ${m.id} ${m.kind} ${(m.endedAt ?? m.createdAt).slice(0, 16).replace("T", " ")}Z${!m.buildingId ? "" : meeting.buildingId ? "" : ` (${world.buildings.get(m.buildingId)?.name ?? m.buildingId})`} #${i + 1}: ${oneLine(d.text, 300)}`]));
+  const lines = ms.flatMap((m) => m.decisions.flatMap((d, i) => d.supersededBy ? [] : [`- ${m.id} ${m.kind} ${stamp(m.endedAt ?? m.createdAt)}${!m.buildingId ? "" : meeting.buildingId ? "" : ` (${world.buildings.get(m.buildingId)?.name ?? m.buildingId})`} #${i + 1}: ${oneLine(d.text, 300)}`]));
   const shown = lines.slice(-limit);
-  const head = `## Decisions from meetings with a human since the last ${meeting.kind}${last ? ` (${last.id}, ${since.slice(0, 16).replace("T", " ")}Z)` : ""}${meeting.buildingId ? "" : ", every building"}`;
+  const head = `## Decisions from meetings with a human since the last ${meeting.kind}${last ? ` (${last.id}, ${stamp(since)})` : ""}${meeting.buildingId ? "" : ", every building"}`;
   return `${head}\n${shown.length ? `${lines.length > shown.length ? `(the latest ${shown.length} of ${lines.length})\n` : ""}${shown.join("\n")}` : "(none)"}`;
 }
 
@@ -435,7 +438,7 @@ export function meetingContextBlock(world: World, agent: Agent, meeting: Pick<Me
       const text = p.body.trim();
       const room = Math.min(WIKI_PAGE_CAP, budget - used);
       if (room < 300) break;
-      body.push(`### ${p.title} (${p.id}, updated ${relativeTime(p.updatedAt, now)})\n${text.length > room ? `${text.slice(0, room)}\n…(cut: page is ${text.length} chars; \`read\` ${p.id} for the rest)` : text}`);
+      body.push(`### ${p.title} (${p.id}, updated ${fromNow(p.updatedAt, now)})\n${text.length > room ? `${text.slice(0, room)}\n…(cut: page is ${text.length} chars; \`read\` ${p.id} for the rest)` : text}`);
       used += Math.min(text.length, room);
     }
     const rest = pages.length - body.length;
@@ -475,7 +478,7 @@ ${lastBlock}
 My latest report: ${lastReport ? `"${lastReport.title}" (decision ${lastReport.decision ?? "?"})\n${trunc(lastReport.body, 4000)}` : "(none yet)"}
 ${recentWork ? `\n${recentWork}\n` : ""}
 My recent activity:
-${events.map((e) => `- ${e.ts.slice(0, 16)} ${e.text}`).join("\n") || "(none)"}${context ? `\n\n${context}` : ""}`;
+${events.map((e) => `- ${stamp(e.ts)} ${e.text}`).join("\n") || "(none)"}${context ? `\n\n${context}` : ""}`;
 }
 
 export function facilitateSystemPrompt(facilitator: Agent, building: Building | undefined, town: Town, context?: string): string {
@@ -562,6 +565,7 @@ export function meetingReplySystemPrompt(agent: Agent): string {
 export function meetingReplyPrompt(meeting: Meeting, nameOf: (id: string) => string, ctx: { assignment: Assignment | undefined; lastReport: Doc | undefined; events: Event[]; recentWork?: string }): string {
   const transcript = meeting.transcript.slice(-20).map((u) => `- ${nameOf(u.speakerId)}: ${u.text}`).join("\n");
   return `Meeting: ${meeting.title} (${meeting.kind}, meetingId ${meeting.id}). Agenda: ${meeting.agenda || "(none)"}
+${clockLine()}
 
 Transcript (latest last; answer the latest message that addresses you):
 ${transcript || "(empty)"}
@@ -571,7 +575,7 @@ My current assignment: ${ctx.assignment ? `${ctx.assignment.title} (${ctx.assign
 My latest report: ${ctx.lastReport ? `"${ctx.lastReport.title}" (decision ${ctx.lastReport.decision ?? "?"})\n${trunc(ctx.lastReport.body, 3000)}` : "(none yet)"}
 ${ctx.recentWork ? `\n${ctx.recentWork}\n` : ""}
 My recent activity:
-${ctx.events.map((e) => `- ${e.ts.slice(0, 16)} ${e.text}`).join("\n") || "(none)"}`;
+${ctx.events.map((e) => `- ${stamp(e.ts)} ${e.text}`).join("\n") || "(none)"}`;
 }
 
 export function fallbackReportBody(finalText: string, error: string | null, assignment: Assignment | undefined): string {

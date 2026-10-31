@@ -489,7 +489,7 @@ describe("desk slots (manager forks step 7, volume adoption)", () => {
 });
 
 describe("the map's shape (1:1 mt_q10xf3bkoq)", () => {
-  it("a new collective starts as fountain plazas; an admin or a goal owner picks the shape for everyone (PUT /api/town/map-layout), redrawn at once and logged", async () => {
+  it("a new collective starts as fountain plazas; an admin or a goal captain picks the shape for everyone (PUT /api/town/map-layout), redrawn at once and logged", async () => {
     const { app, world, auth } = await setup();
     expect((await json(app, "GET", "/api/town")).body.town.mapLayout).toBe("fountain");
     const fountain = world.layout.grid;

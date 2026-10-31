@@ -83,13 +83,13 @@ describe("the town goal tree (docs/goals.md, step 1)", () => {
     const { world, admin, mei, tree, labGoal, otherGoal } = setup();
     const lena = createUser(world, "Lena").user;
     const lenaAv = world.ops.ensureAvatar(lena.id);
-    expect(() => tree.update(admin, labGoal.id, { ownerId: mei.id })).toThrow(/Owners are humans/);
+    expect(() => tree.update(admin, labGoal.id, { ownerId: mei.id })).toThrow(/Captains are humans/);
     tree.update(admin, labGoal.id, { ownerId: lena.id });
     const sub = tree.create(lenaAv, { parentId: labGoal.id, text: "Lena's sub-goal" });
     expect(tree.ownerOf(sub.id)).toEqual({ goalId: labGoal.id, userId: lena.id });
     expect(tree.ownerOf(otherGoal.id)).toEqual({ goalId: "gl_town", userId: null });
-    expect(() => tree.create(lenaAv, { parentId: otherGoal.id, text: "no" })).toThrow(/owner of/);
-    expect(() => tree.update(lenaAv, labGoal.id, { ownerId: null })).toThrow(/owner of/); // the goal above isn't hers
+    expect(() => tree.create(lenaAv, { parentId: otherGoal.id, text: "no" })).toThrow(/captain of/);
+    expect(() => tree.update(lenaAv, labGoal.id, { ownerId: null })).toThrow(/captain of/); // the goal above isn't hers
     // she decides and funds a grant whose key result sits in her subtree
     const kr = tree.addKeyResult(lenaAv, sub.id, { text: "k", howToCheck: "h", due, buildingId: LAB });
     const g = world.grantDesk.create(null, LAB, { keyResultId: kr.id, objective: "o", approach: "a", stopCondition: "s", askTokens: 1000 });

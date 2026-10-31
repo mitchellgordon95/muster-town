@@ -49,10 +49,10 @@ describe("the rollup format (1:1 mt_vcn0e66r1t)", () => {
       .rejects.toThrow(/Missing: ## Key results, ## Needs from Mitchell/);
     const old = await world.verbs.submit_report(mei, { title: "Old", body: OLD, verdict: "stop", rollup: true, provenance: prov });
     expect(old).not.toHaveProperty("warnings");
-    expect(old.note).not.toMatch(/Format warnings/);
+    expect(old.note).not.toMatch(/Warnings/);
     const bare = await world.verbs.submit_report(mei, { title: "Bare", body: "## Shipped\n1. Thing\nIt shipped.\n## Decided\nx\n## Key results\nx\n## Needs from Mitchell\nNothing needed.", verdict: "stop", rollup: true, provenance: prov });
     expect(bare.warnings).toEqual([`Shipped item 1 ("Thing") lacks **What it is:**, **What you'd see:**, **Your call:**`]);
-    expect(bare.note).toMatch(/Format warnings \(filed anyway/);
+    expect(bare.note).toMatch(/Warnings \(filed anyway/);
     expect(world.docs.require(bare.id).tags).toContain("rollup");
     const good = await world.verbs.submit_report(mei, { title: "Good", body: ROLLUP, verdict: "stop", rollup: true, provenance: prov });
     expect(good).not.toHaveProperty("warnings");

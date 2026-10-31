@@ -35,7 +35,7 @@ describe("meeting sessions load the full context", () => {
     const th2 = world.ops.createMeeting(admin, { kind: "town-hall", buildingId: null, startNow: true });
     const sys = facilitateSystemPrompt(pix, undefined, world.town.get(), meetingContextBlock(world, pix, world.meetings.require(th2.id)));
     expect(sys).toContain("Forks stay on for the Workshop");
-    expect(sys).toContain(`${oo.id} one-on-one 2026-10-28 19:06Z (Ctx Lab) #1`);
+    expect(sys).toContain(`${oo.id} one-on-one 2026-10-28 19:06 UTC (Ctx Lab) #1`);
     expect(sys).toContain(`since the last town-hall (${th1.id}`);
     expect(sys).not.toContain("Decided before the town hall");
     expect(sys).not.toContain("Old town-hall decision");
@@ -70,7 +70,7 @@ describe("meeting sessions load the full context", () => {
     const system = workSystemPrompt(pix, b, world.town.get(), sessionMemory(world, pix, b));
     expect(system).toContain(`"Live checks" (${tp}`);
     const prompt = oneOnOnePrompt(oo, (id) => world.nameOf(id), humanDecisionsBlock(world, oo));
-    expect(prompt).toContain(`${standup.id} standup 2026-10-28 11:00Z #1: Deck before forms`);
+    expect(prompt).toContain(`${standup.id} standup 2026-10-28 11:00 UTC #1: Deck before forms`);
   });
 
   it("topic page bodies share the wiki budget forks use (WIKI_TOTAL_CAP): a full wiki leaves room only for the index", async () => {

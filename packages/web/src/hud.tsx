@@ -169,7 +169,7 @@ export function Hud({ onPasteToken, onHelp }: { onPasteToken?: () => void; onHel
                 </div>
               ) : null}
               {auth.guest || !me ? <>
-                <div className="guest-text"><b>Watch first:</b> {TOUCH ? "tap" : "click"} any agent to see what they're doing. Sign in to talk, review and join meetings.</div>
+                <div className="guest-text"><b>Watch first:</b> {TOUCH ? "tap" : "click"} any agent to see what they're doing. Sign in to ask to join; an admin lets you in.</div>
                 <SignInButtons onPasteToken={onPasteToken} compact />
               </> : <AskToJoin me={me} />}
             </div>
@@ -214,7 +214,7 @@ function AskToJoin({ me }: { me: AuthMe }) {
   const [busy, setBusy] = useState(false);
   const req = me.accessRequest;
   const declined = req?.status === "declined" && !!req.decidedAt && Date.now() - Date.parse(req.decidedAt) < ASK_AGAIN_MS;
-  if (req?.status === "pending") return <div className="guest-text"><b>Asked.</b> An admin decides; you'll see the answer here.</div>;
+  if (req?.status === "pending") return <div className="guest-text"><b>Asked.</b> {decidersLine(req.deciders)} The answer shows on this card, now or next time you open the town. {waitLine(req.typicalWaitMs)}</div>;
   if (declined) return <div className="guest-text"><b>Not this time.</b> You can keep watching, and ask again tomorrow.</div>;
   const ask = async () => {
     setBusy(true);
@@ -230,6 +230,22 @@ function AskToJoin({ me }: { me: AuthMe }) {
       <button className="btn primary" type="submit" disabled={busy}>Ask to join</button>
     </form>
   );
+}
+
+/** "Mitchell (the admin) decides." from /api/me; more than two admins, or none named, reads "An admin decides." */
+export function decidersLine(names: string[] = []): string {
+  if (names.length === 1) return `${names[0]} (the admin) decides.`;
+  if (names.length === 2) return `${names[0]} or ${names[1]} (an admin) decides.`;
+  return "An admin decides.";
+}
+
+/** The median wait over every decided request (core accessContext); before the first decision there is no typical wait to promise. */
+export function waitLine(ms: number | null = null): string {
+  if (ms == null) return "No request has been decided yet, so there's no typical wait.";
+  const h = ms / 3600_000;
+  if (h < 1) return "Requests are usually decided within an hour.";
+  if (h < 36) return `Requests usually take about ${Math.round(h)} hour${Math.round(h) === 1 ? "" : "s"}.`;
+  return `Requests usually take about ${Math.round(h / 24)} days.`;
 }
 
 export function Hint({ target, saying, canFlag }: { target: Target | null; saying: boolean; canFlag?: boolean }) {

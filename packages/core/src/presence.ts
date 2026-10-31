@@ -13,6 +13,7 @@ import type { Agent, Assignment, MailboxDigest, Mailbox, Tile } from "@muster-to
 import { createDoc, setAssignmentStatus } from "./domain.ts";
 import { nowIso } from "./util.ts";
 import type { World } from "./world.ts";
+import { stamp } from "./time.ts";
 
 export const STAMP_EVERY_MS = 10_000;
 export const OFFLINE_AFTER_MS = 90_000;
@@ -159,7 +160,7 @@ export class Presence {
           authorId: a.agentId, authorKind: "agent", assignmentId: a.id, tags: ["offer-expired"],
           title: `${name} didn't pick up: ${a.title}`,
           body: [
-            `Written by the town, not by ${name}: this assignment was offered to ${name} (a visitor) on ${a.createdAt.slice(0, 16).replace("T", " ")} UTC and nobody accepted it within 24 hours, so the offer was cancelled.`,
+            `Written by the town, not by ${name}: this assignment was offered to ${name} (a visitor) on ${stamp(a.createdAt)} and nobody accepted it within 24 hours, so the offer was cancelled.`,
             `## Summary\n\nOffer expired: ${a.title}`,
             `## The offer\n\n${a.description}`,
             `## Proposal for next session\n\n${a.title}`,

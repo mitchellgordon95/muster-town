@@ -11,6 +11,7 @@ import { sessionView } from "./bank.ts";
 import { buildingRoleId } from "./permissions.ts";
 import { newId, nowIso } from "./util.ts";
 import type { World } from "./world.ts";
+import { stamp } from "./time.ts";
 
 /** The models a building's fork may run on: its work model and its cheap model. */
 export function forkModels(b: Building): string[] {
@@ -309,9 +310,9 @@ export function requestForkStop(world: World, me: Agent, input: { forkId?: strin
   if (input.assignmentId && session.assignmentId !== input.assignmentId) throw new AppError("conflict", `${fork.name} is not running ${input.assignmentId} now (it is on ${session.assignmentId ?? "no assignment"}).`);
   const prior = world.events.list({ agentId: fork.id, types: ["system"], payloadKey: "stopFork", desc: true, limit: 20 })
     .find((e) => e.payload.stopFork === "requested" && e.payload.sessionId === session.id);
-  if (prior) return { forkId: fork.id, sessionId: session.id, deadline: String(prior.payload.deadline), note: `${fork.name} was already asked to stop; the hard stop stays at ${String(prior.payload.deadline).slice(11, 16)} UTC.` };
+  if (prior) return { forkId: fork.id, sessionId: session.id, deadline: String(prior.payload.deadline), note: `${fork.name} was already asked to stop; the hard stop stays at ${stamp(String(prior.payload.deadline))}.` };
   const deadline = new Date(now.getTime() + STOP_FORK_TIMEOUT_MS).toISOString();
-  const at = `${deadline.slice(11, 16)} UTC`;
+  const at = stamp(deadline);
   const reason = (input.reason ?? "").trim();
   interruptNow(world, fork.id, `${me.name} asks you to stop now${reason ? `: ${reason}` : "."}\n\nDon't start anything new. Finish the step you are on (leave the code committed and pushed if you changed any), update the topic pages and log lines for what you learnt, then call submit_report right away: say what is done and what is not, and put what the next session needs in Findings (verdict continue if the work is unfinished). If you have not submitted by ${at} (${STOP_FORK_TIMEOUT_MS / 60_000} min), the town stops your session and files a fallback report.`, me.name);
   world.events.append({ type: "system", agentId: fork.id, buildingId: bid, text: `${me.name} asked ${fork.name} to wrap up and file its report (hard stop at ${at})${reason ? `: ${reason.slice(0, 160)}` : ""}`, payload: { stopFork: "requested", forkId: fork.id, sessionId: session.id, assignmentId: session.assignmentId, by: me.id, reason: reason || null, deadline } });

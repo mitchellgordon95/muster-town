@@ -59,7 +59,10 @@ describe("who may interact", () => {
     expect(asked.body.accessRequest).toMatchObject({ status: "pending", message: "help with the onboarding" });
     const again = await json(app, "POST", "/api/access-requests", { headers: visitor, body: {} });
     expect(again.body.accessRequest.id).toBe(asked.body.accessRequest.id);
-    expect((await json(app, "GET", "/api/me", { headers: visitor })).body.accessRequest).toMatchObject({ status: "pending" });
+    const pending = (await json(app, "GET", "/api/me", { headers: visitor })).body.accessRequest;
+    // the pending card names who decides and promises no wait before the first decision
+    expect(pending).toMatchObject({ status: "pending", typicalWaitMs: null });
+    expect(pending.deciders.length).toBeGreaterThan(0);
 
     const tray = await json(app, "GET", `/api/buildings/${th.id}/intray`, { headers: auth });
     expect(tray.body.access).toHaveLength(1);
@@ -73,6 +76,7 @@ describe("who may interact", () => {
     expect(ok.body.accessRequest.status).toBe("granted");
     expect((await json(app, "POST", `/api/access-requests/${id}/decide`, { headers: auth, body: { grant: false } })).status).toBe(409);
     expect((await json(app, "GET", "/api/me", { headers: visitor })).body).toMatchObject({ canInteract: true, accessRequest: { status: "granted" } });
+    expect((await json(app, "GET", "/api/me", { headers: visitor })).body.accessRequest.typicalWaitMs).toBeGreaterThanOrEqual(0);
     expect((await json(app, "GET", `/api/buildings/${th.id}/intray`, { headers: auth })).body.access).toHaveLength(0);
     expect((await json(app, "POST", "/api/access-requests", { headers: visitor, body: {} })).status).toBe(409);
   });

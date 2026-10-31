@@ -109,24 +109,75 @@ export function drawLabel(g: CanvasRenderingContext2D, x: number, y: number, nam
   g.textAlign = "left";
 }
 
-/** Bubble whose tail points at (x, y) = just above the head. */
-export function drawBubble(g: CanvasRenderingContext2D, x: number, y: number, b: Bubble, full: boolean) {
+export interface Rect { x: number; y: number; w: number; h: number }
+
+const LH = 14, PADX = 7, PADY = 5, TAIL = 7, EDGE = 4, GAP = 3;
+
+/** A bubble's wrapped lines and its box size: hovered or selected (`full`) shows the whole text, never cut. */
+export function measureBubble(g: CanvasRenderingContext2D, b: Bubble, full: boolean): { lines: string[]; w: number; h: number } {
   g.font = BFONT;
   const maxW = full ? 210 : 150;
-  const lines = wrap(g, b.text, maxW, full ? Infinity : 2); // hovered or selected: the whole text, never cut
-  const lh = 14, padX = 7, padY = 5;
-  const w = Math.min(maxW, Math.max(...lines.map((l) => g.measureText(l).width))) + padX * 2;
-  const h = lines.length * lh + padY * 2;
-  const bx = Math.round(x - w / 2), by = Math.round(y - h - 7);
+  const lines = wrap(g, b.text, maxW, full ? Infinity : 2);
+  const w = Math.ceil(Math.min(maxW, Math.max(...lines.map((l) => g.measureText(l).width))) + PADX * 2);
+  return { lines, w, h: lines.length * LH + PADY * 2 };
+}
+
+const hits = (a: Rect, b: Rect) => a.x < b.x + b.w && b.x < a.x + a.w && a.y < b.y + b.h && b.y < a.y + a.h;
+
+/**
+ * Where each bubble goes this frame (kr_aba1s2qx7p): wanted centred above its agent's head (ax, ay); kept fully
+ * inside `view`, off every `avoid` rect (the HUD card, the minimap) and off every bubble placed before it, moving
+ * as little as it can. Earlier items win, so pass the most important first. null: the agent's head is off screen or
+ * under an `avoid` rect, or no free spot was found; that bubble isn't drawn this frame.
+ */
+export function layoutBubbles(items: { ax: number; ay: number; w: number; h: number }[], view: Rect, avoid: Rect[]): (Rect | null)[] {
+  const placed: Rect[] = [];
+  const inView = (r: Rect) => r.x >= view.x + EDGE && r.y >= view.y + EDGE && r.x + r.w <= view.x + view.w - EDGE && r.y + r.h <= view.y + view.h - EDGE;
+  const free = (r: Rect) => inView(r) && !avoid.some((o) => hits(r, o)) && !placed.some((o) => hits(r, o));
+  return items.map(({ ax, ay, w, h }) => {
+    const head = { x: ax, y: ay, w: 1, h: 1 };
+    if (!hits(head, { ...view, y: view.y - 24, h: view.h + 24 }) || avoid.some((o) => hits(head, o))) return null;
+    const clampX = (x: number) => Math.max(view.x + EDGE, Math.min(view.x + view.w - EDGE - w, x));
+    const clampY = (y: number) => Math.max(view.y + EDGE, Math.min(view.y + view.h - EDGE - h, y));
+    const want = { x: Math.round(ax - w / 2), y: Math.round(ay - h - TAIL) };
+    // candidate spots: the wanted one clamped, and beside each thing in the way (above, below, left, right of it)
+    const xs = [want.x], ys = [want.y];
+    for (const o of [...avoid, ...placed]) { xs.push(o.x - w - GAP, o.x + o.w + GAP); ys.push(o.y - h - GAP, o.y + o.h + GAP); }
+    let best: Rect | null = null, cost = Infinity;
+    for (const x0 of xs) for (const y0 of ys) {
+      const r = { x: Math.round(clampX(x0)), y: Math.round(clampY(y0)), w, h };
+      // vertical moves cost a little more than sideways ones, so a bubble prefers to stay at its agent's height
+      const c = Math.abs(r.x - want.x) + 1.2 * Math.abs(r.y - want.y);
+      if (c < cost && free(r)) { best = r; cost = c; }
+    }
+    if (best) placed.push(best);
+    return best;
+  });
+}
+
+/** Bubble in `box` (from layoutBubbles), its tail pointing at (x, y) = just above the agent's head. */
+export function drawBubble(g: CanvasRenderingContext2D, x: number, y: number, b: Bubble, lines: string[], box: Rect) {
+  const { x: bx, y: by, w, h } = box;
   const c = TONE[b.tone];
+  g.font = BFONT;
   g.fillStyle = c.bg; g.strokeStyle = c.border; g.lineWidth = 1;
   roundRect(g, bx + 0.5, by + 0.5, w, h, 6); g.fill(); g.stroke();
-  g.beginPath(); g.moveTo(x - 5, by + h); g.lineTo(x, by + h + 6); g.lineTo(x + 5, by + h); g.closePath();
-  g.fill();
-  g.beginPath(); g.moveTo(x - 5, by + h + 0.5); g.lineTo(x, by + h + 6.5); g.lineTo(x + 5, by + h + 0.5); g.stroke();
-  g.fillStyle = c.bg; g.fillRect(x - 4, by + h - 1, 8, 2);
+  // the tail: a wedge from the side of the box facing the agent to the agent, however far layout moved the box
+  const tx = Math.max(bx + 8, Math.min(bx + w - 8, x)), ty = Math.max(by + 8, Math.min(by + h - 8, y));
+  const side = y >= by + h ? "bottom" : y <= by ? "top" : x <= bx ? "left" : x >= bx + w ? "right" : null;
+  if (side) {
+    const [p, q, e] = side === "bottom" ? [[tx - 5, by + h], [tx + 5, by + h], [0, 1]]
+      : side === "top" ? [[tx - 5, by + 0.5], [tx + 5, by + 0.5], [0, -1]]
+      : side === "left" ? [[bx + 0.5, ty - 5], [bx + 0.5, ty + 5], [-1, 0]]
+      : [[bx + w, ty - 5], [bx + w, ty + 5], [1, 0]];
+    g.beginPath(); g.moveTo(p[0], p[1]); g.lineTo(x, y); g.lineTo(q[0], q[1]); g.closePath(); g.fill();
+    g.beginPath(); g.moveTo(p[0] + e[0] * 0.5, p[1] + e[1] * 0.5); g.lineTo(x, y); g.lineTo(q[0] + e[0] * 0.5, q[1] + e[1] * 0.5); g.stroke();
+    // hide the box's border under the wedge's base
+    g.fillStyle = c.bg;
+    if (e[0] === 0) g.fillRect(tx - 4, (e[1] > 0 ? by + h : by + 0.5) - 1, 8, 2); else g.fillRect((e[0] > 0 ? bx + w : bx + 0.5) - 1, ty - 4, 2, 8);
+  }
   g.fillStyle = c.fg; g.textBaseline = "top";
-  lines.forEach((l, i) => g.fillText(l, bx + padX, by + padY + i * lh + 1));
+  lines.forEach((l, i) => g.fillText(l, bx + PADX, by + PADY + i * LH + 1));
 }
 
 /** Count badge (the in-tray on a manager's desk; "×N" over stacked bodies), centred at (x, y). */
