@@ -34,6 +34,9 @@ export class Permissions {
   /** `hosted`: whether this World is a hosted collective (docs/hosted-collectives.md); managers there never redeploy. */
   constructor(private repos: Repos, private hosted: () => boolean = () => false) {}
 
+  /** Whether this World is a hosted collective (served by the hub at `/<slug>/`): it runs on Anthropic API keys only. */
+  isHosted(): boolean { return this.hosted(); }
+
   /** Roles held directly (a human avatar's are its user's). Inherited permissions are not roles: see `effective`. */
   rolesOf(holder: Holder | Agent): Role[] {
     return this.heldRoles(holderOf(this.resolve(holder)));

@@ -47,3 +47,23 @@ describe("Bash bubbles read as plain words, never the raw command", () => {
     }
   });
 });
+
+describe("town tool bubbles read as plain words", () => {
+  const world = { nameOf: (id: string) => (id === "ag_1" ? "Teo 2" : id), docs: new Map() } as never;
+  const town = (verb: string, input: unknown) => describeTool(world, `mcp__town__${verb}`, input);
+
+  it("names queued work instead of a dangling 'to'", () => {
+    expect(town("assign", { title: "Fix the bubbles" })).toBe("Queuing work: Fix the bubbles");
+    expect(town("assign", { agentId: "ag_1", title: "Fix the bubbles" })).toBe("Assigning work to Teo 2: Fix the bubbles");
+  });
+
+  it("says what a review decision does", () => {
+    expect(town("review", { decision: "approve" })).toBe("Approving a report");
+    expect(town("review", { decision: "redirect" })).toBe("Redirecting a report's next step");
+  });
+
+  it("doesn't echo the log's placeholder title", () => {
+    expect(town("write", { type: "log", title: "log" })).toBe("Writing a log line");
+    expect(town("write", { type: "wiki", title: "Readable bubbles" })).toBe('Updating page "Readable bubbles"');
+  });
+});

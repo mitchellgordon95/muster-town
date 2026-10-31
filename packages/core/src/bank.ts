@@ -264,6 +264,13 @@ export class NoCredential extends AppError {
 }
 /** Why work is held when the Bank holds no credential at all (a hosted collective before its owner adds a key, a fresh town). */
 export const NO_KEY_HOLD = "No credential in the Bank yet: add your Claude subscription token or an Anthropic API key at the Bank";
+/**
+ * Why a hosted collective's work is held when its Bank has no API key: a hosted collective (served by the hub at
+ * `/<slug>/`) runs on Anthropic API keys only, never on a Claude subscription, because Anthropic's subscription terms
+ * don't cover running other people's collectives on one (Mitchell, 1:1 mt_p3ge56kg03). Only the Workshop and
+ * self-hosted towns may run on a subscription.
+ */
+export const HOSTED_KEY_ONLY_HOLD = "A hosted collective runs on an Anthropic API key only; add one at the Bank";
 /** Why work is held when the subscription would pay but its input has no token. */
 export const NO_TOKEN_HOLD = "The subscription input has no token: cancel it and add one with the token from `claude setup-token` at the Bank";
 /** A live input holding its credential (`hasApiKey`: an api-key input's key, a subscription input's token), oldest first. */
@@ -284,6 +291,8 @@ export function percentile(xs: number[], p: number): number {
 
 export class Bank {
   constructor(private repos: Repos, private events: EventLog, private permissions: Permissions) {}
+  /** A hosted collective (served by the hub at `/<slug>/`): API keys only, never a subscription (`HOSTED_KEY_ONLY_HOLD`). */
+  hosted(): boolean { return this.permissions.isHosted(); }
   /** the town-wide free tokens (set by the World: they need grants and the goal tree; core free-tokens.ts) */
   freeTokens?: () => FreeTokens;
 
@@ -295,6 +304,7 @@ export class Bank {
     const inp = AddBankInput.parse(input);
     const user = this.repos.users.require(userId, "user");
     if (inp.source === "subscription") {
+      if (this.permissions.isHosted()) throw badRequest(HOSTED_KEY_ONLY_HOLD);
       if (!this.permissions.isAdmin({ kind: "user", id: userId })) throw forbidden("town.allocate_budget", "Only the town owner can add a subscription.");
       if (inp.recurrence !== "daily") throw badRequest("A subscription credits daily.");
       if (!inp.weeklyCapTokens) throw badRequest("A subscription needs weeklyCapTokens.");
@@ -381,6 +391,7 @@ export class Bank {
 
   /** The subscription's credential (its input's OAuth token), or null when no live subscription input holds one. */
   subscriptionCredential(): Credential | null {
+    if (this.permissions.isHosted()) return null; // a hosted collective never runs on a subscription, even a stray input's
     const inp = this.subscriptionInput();
     const secret = inp ? this.apiKeyFor(inp.id) : null;
     return inp && secret ? { kind: "subscription", secret, inputId: inp.id } : null;
@@ -394,10 +405,10 @@ export class Bank {
     return secret ? { kind: "api-key", secret, inputId: inp.id } : null;
   }
 
-  /** The town's one credential for a session no building funds (summaries): the subscription's, else an API key's. Throws `NoCredential`. */
+  /** The town's one credential for a session no building funds (summaries): the subscription's, else an API key's (a hosted collective: an API key's only). Throws `NoCredential`. */
   townCredential(): Credential {
     const c = this.subscriptionCredential() ?? this.apiKeyCredential();
-    if (!c) throw new NoCredential();
+    if (!c) throw new NoCredential(this.permissions.isHosted() ? HOSTED_KEY_ONLY_HOLD : undefined);
     return c;
   }
 

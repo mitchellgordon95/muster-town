@@ -55,6 +55,11 @@ describe("sessionEnv (host sessions)", () => {
     expect(sessionEnv(sub, host)).toEqual({ PATH: "/bin", HOME: "/h", LC_ALL: "C", CLAUDE_CODE_OAUTH_TOKEN: "oat" });
     expect(sessionEnv(key, host)).toEqual({ PATH: "/bin", HOME: "/h", LC_ALL: "C", ANTHROPIC_API_KEY: "sk-donor" });
   });
+  test("a hosted collective's session env never carries a subscription token (1:1 mt_p3ge56kg03); the Workshop's may", () => {
+    expect(() => sessionEnv(sub, host, true)).toThrow(/runs on an Anthropic API key only/);
+    expect(sessionEnv(key, host, true)).toEqual({ PATH: "/bin", HOME: "/h", LC_ALL: "C", ANTHROPIC_API_KEY: "sk-donor" });
+    expect(sessionEnv(sub, host, false).CLAUDE_CODE_OAUTH_TOKEN).toBe("oat");
+  });
   test("a credential in the host env is a second auth source and a hard failure (post-mortem 2026-10-30: the env's key was billed for eight days)", () => {
     for (const k of ["CLAUDE_CODE_OAUTH_TOKEN", "ANTHROPIC_API_KEY", "ANTHROPIC_AUTH_TOKEN"]) {
       const env = { ...host, [k]: "x" } as NodeJS.ProcessEnv;

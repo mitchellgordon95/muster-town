@@ -17,6 +17,13 @@ function placeName(world: World, to: string): string {
   return a ? a.name : to;
 }
 
+const REVIEW: Record<string, string> = {
+  approve: "Approving a report",
+  continue: "Approving a report and its next step",
+  redirect: "Redirecting a report's next step",
+  stop: "Stopping an agent after a report",
+};
+
 export function describeTool(world: World, name: string, input: unknown): string {
   const i = (input ?? {}) as Record<string, unknown>;
   if (name === "WebSearch") return `Searching the web: ${clip(i.query)}`;
@@ -36,7 +43,11 @@ export function describeTool(world: World, name: string, input: unknown): string
       const d = world.docs.get(String(i.id ?? ""));
       return d ? `Reading "${clip(d.title, 60)}"` : `Reading doc ${clip(i.id, 20)}`;
     }
-    case "write": return `Writing ${String(i.type ?? "note")} "${clip(i.title, 60)}"`;
+    case "write": {
+      if (i.type === "log") return "Writing a log line";
+      if (i.type === "wiki") return `Updating page "${clip(i.title, 60)}"`;
+      return `Writing ${String(i.type ?? "note")} "${clip(i.title, 60)}"`;
+    }
     case "submit_report": return `Submitting report: ${clip(i.title, 60)}`;
     case "request_human": return `Asking humans for help: ${clip(i.title, 60)}`;
     case "assignments": return "Checking assignments";
@@ -50,8 +61,10 @@ export function describeTool(world: World, name: string, input: unknown): string
       if (a === "summary") return "Submitting a meeting summary";
       return "Checking the meeting";
     }
-    case "review": return `Reviewing a report: ${String(i.decision ?? "")}`;
-    case "assign": return `Assigning work to ${world.nameOf(String(i.agentId ?? ""))}`;
+    case "review": return REVIEW[String(i.decision)] ?? "Reviewing a report";
+    case "assign": return i.agentId
+      ? `Assigning work to ${world.nameOf(String(i.agentId))}: ${clip(i.title, 60)}`
+      : `Queuing work: ${clip(i.title, 60)}`;
     case "cancel": return i.scheduleId ? "Cancelling a schedule" : "Cancelling a queued assignment";
     case "fork_status": return `Checking on ${world.nameOf(String(i.forkId ?? "")) || "a fork"}`;
     case "stop_fork": return `Asking ${i.forkId ? world.nameOf(String(i.forkId)) : "a fork"} to wrap up and stop`;
