@@ -30,7 +30,7 @@ import { radialLayout } from "./radial.ts";
 /** Grass between two neighbouring buildings or blocks. */
 const GAP = 1;
 /** Grass around the town. */
-export const MARGIN = 2;
+const MARGIN = 2;
 /** A fountain plaza ("fountain" shape): rows tall, and its least width right of the drop. */
 const PLAZA_H = 3, PLAZA_W = 11;
 
