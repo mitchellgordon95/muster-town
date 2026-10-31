@@ -127,7 +127,7 @@ function handOff(world: World, me: Agent, text: string) {
   const itext = `${human} asked for this in your 1:1 (meeting ${talk.meetingId}); your conversation session there passed it on:\n\n${text}\n\nTreat it as direction from ${human}.`;
   // kept in the inbox too, like a human's own message, so the work session finds it there after the interrupt
   const msg = sendMessage(world, { kind: "tell", fromId: me.id, fromKind: "agent", toId: me.id, body: itext, origin: talk.origin ?? null });
-  if (!world.host.interrupt?.(me.id, itext, from, true)) world.ops.enqueueInterrupt(me.id, itext, from, true);
+  interruptNow(world, me.id, itext, from);
   return { sent: true, to: me.id, messageId: msg.id, assignmentId: undefined, note: `Passed to your running work session (${work.id}) as direction from ${human}.` };
 }
 
