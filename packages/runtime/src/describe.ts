@@ -82,7 +82,8 @@ export function describeTool(world: World, name: string, input: unknown): string
 
 /** Desk sessions use Claude Code's built-in tools; make them read like activity, not tool names. */
 function describeBuiltin(name: string, i: Record<string, unknown>): string {
-  const file = (p: unknown) => String(p ?? "").replace(/^\/home\/agent\/work\/[^/]+\//, "").slice(-60);
+  // The file's name only: a stranger reads "Editing overlay.ts", not a path.
+  const file = (p: unknown) => clip(String(p ?? "").split("/").filter(Boolean).pop() ?? "a file", 60);
   switch (name) {
     case "Bash": {
       if (typeof i.description === "string" && i.description.trim()) return `Running: ${clip(i.description, 70)}`;

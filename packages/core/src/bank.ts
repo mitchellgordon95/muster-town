@@ -2,7 +2,7 @@ import { AddBankInput, ZERO_TOKENS, addTokens, oauthTokenProblem, countsOf, rawP
 import { CAP_THOUGHT, TYPICAL_SESSIONS, capReason, countDeaths, learnedCap, median, nearCap, type BankDeaths } from "./caps.ts";
 import { driftRows, parseResetsAt, previousUtcDay, utcDay, type DriftRow } from "./drift.ts";
 import { AppError, badRequest, forbidden } from "./errors.ts";
-import { townFinance, type FinanceSummary } from "./finance.ts";
+import { dailyInflowOf, townFinance, type FinanceSummary } from "./finance.ts";
 import { townSpend, type FinanceSpend } from "./finance-spend.ts";
 import { townSources, type FinanceSources } from "./finance-sources.ts";
 import { townFly, type FinanceFly, type FlyInputs } from "./finance-fly.ts";
@@ -691,11 +691,7 @@ export class Bank {
 
   /** Expected tokens per day from active recurring inputs (monthly counts as 30 days; a subscription at most its weekly cap / 7). */
   dailyInflow(): number {
-    return Math.round(this.repos.bankInputs.all().reduce((s, i) => {
-      if (i.cancelledAt || i.recurrence === "once") return s;
-      const perDay = i.tokens / DAYS_PER[i.recurrence];
-      return s + (i.weeklyCapTokens ? Math.min(perDay, i.weeklyCapTokens / 7) : perDay);
-    }, 0));
+    return dailyInflowOf(this.repos.bankInputs.all());
   }
 
   /** GET /api/finance: received, used, expired, left, overdrawn and a 30-day projection (finance.ts). */
