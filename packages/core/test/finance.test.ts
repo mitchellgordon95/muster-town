@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { financeSummary, type FinanceInputs } from "../src/index.ts";
+import { dailyInflowOf, financeSummary, type FinanceInputs } from "../src/index.ts";
 import { seededWorld } from "./helpers.ts";
 
 const T0 = new Date("2026-10-20T12:00:00.000Z");
@@ -11,7 +11,7 @@ describe("financeSummary (GET /api/finance)", () => {
   it("is all zeros with an ok sum check on an empty town", () => {
     const f = financeSummary(none, T0);
     expect(f).toMatchObject({ total: 0, used: 0, expired: 0, left: 0, overdrawn: 0, sumCheck: { ok: true, diff: 0 } });
-    expect(f.projection).toEqual({ days: 30, trailingDailyBurn: 0, burnDays: 1, projectedUse30d: 0 });
+    expect(f.projection).toEqual({ days: 30, trailingDailyBurn: 0, burnDays: 1, projectedUse30d: 0, dailyInflow: 0, netDailyBurn: 0, projectedInflow30d: 0, runwayDays: null, runway: "no-usage" });
   });
 
   it("a subscription credit partly drawn is left until it expires, then its undrawn rest is expired", () => {
@@ -69,13 +69,52 @@ describe("financeSummary (GET /api/finance)", () => {
     const young = financeSummary({ ...none, usage: [
       { tokens: 600, createdAt: iso(-2.5) }, { tokens: 300, createdAt: iso(-1) },
     ] }, T0);
-    expect(young.projection).toEqual({ days: 30, trailingDailyBurn: 300, burnDays: 3, projectedUse30d: 9000 });
+    expect(young.projection).toMatchObject({ days: 30, trailingDailyBurn: 300, burnDays: 3, projectedUse30d: 9000 });
     // older history: only the last 7 days count, averaged over 7
     const old = financeSummary({ ...none, usage: [
       { tokens: 99_999, createdAt: iso(-20) }, { tokens: 700, createdAt: iso(-6) }, { tokens: 700, createdAt: iso(-0.1) },
     ] }, T0);
     expect(old.projection).toMatchObject({ trailingDailyBurn: 200, burnDays: 7, projectedUse30d: 6000 });
     expect(old.usageLedger).toBe(101_399);
+  });
+
+  describe("runway nets the daily inflow against the burn (gr_rdzg83m0al)", () => {
+    type In = NonNullable<FinanceInputs["bankInputs"]>[number];
+    const inp = (o: Partial<In>): In => ({ tokens: 0, recurrence: "daily", weeklyCapTokens: null, cancelledAt: null, ...o });
+    // 7 days of 1,000/day burn, 10,000 left in a durable credit
+    const base: FinanceInputs = {
+      ...none,
+      credits: [{ id: "c1", tokens: 10_000, expiresAt: null }],
+      usage: Array.from({ length: 7 }, (_, d) => ({ tokens: 1000, createdAt: iso(-d - 0.5) })),
+    };
+
+    it("covered: inflow above the burn leaves runwayDays null and netDailyBurn negative", () => {
+      const p = financeSummary({ ...base, bankInputs: [inp({ tokens: 1500 })] }, T0).projection;
+      expect(p).toMatchObject({ trailingDailyBurn: 1000, dailyInflow: 1500, netDailyBurn: -500, projectedInflow30d: 45_000, runwayDays: null, runway: "covered" });
+      // inflow exactly equal to the burn is covered too
+      expect(financeSummary({ ...base, bankInputs: [inp({ tokens: 1000 })] }, T0).projection.runway).toBe("covered");
+    });
+
+    it("short: inflow below the burn lasts floor(left / (burn − inflow)) days", () => {
+      const p = financeSummary({ ...base, bankInputs: [inp({ tokens: 700 })] }, T0).projection;
+      expect(p).toMatchObject({ dailyInflow: 700, netDailyBurn: 300, runwayDays: 33, runway: "days" }); // floor(10000 / 300)
+      expect(financeSummary(base, T0).projection).toMatchObject({ dailyInflow: 0, netDailyBurn: 1000, runwayDays: 10, runway: "days" });
+    });
+
+    it("no usage in the window: runway \"no-usage\", whatever comes in", () => {
+      const p = financeSummary({ ...base, usage: [], bankInputs: [inp({ tokens: 700 })] }, T0).projection;
+      expect(p).toMatchObject({ trailingDailyBurn: 0, dailyInflow: 700, netDailyBurn: -700, runwayDays: null, runway: "no-usage" });
+    });
+
+    it("counts active recurring inputs only, monthly as 30 days, a subscription at most its weekly cap / 7", () => {
+      expect(dailyInflowOf([
+        inp({ tokens: 700, recurrence: "weekly" }),                   // 100
+        inp({ tokens: 3000, recurrence: "monthly" }),                 // 100
+        inp({ tokens: 9999, recurrence: "once" }),                    // 0
+        inp({ tokens: 9999, cancelledAt: iso(-1) }),                  // 0
+        inp({ tokens: 1000, weeklyCapTokens: 2100 }),                 // min(1000, 300) = 300
+      ])).toBe(500);
+    });
   });
 
   it("balances on a real Bank: subscription credit, overshoot past the durable share, a donation", () => {
