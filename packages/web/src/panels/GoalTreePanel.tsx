@@ -18,6 +18,7 @@ import { krStatusLabel, krTone } from "./keyResults";
 import { allBuildings, archivedLine, buildingScope, canEditGoal, deskWord, findGoal, isArchived, moveTargets, nodeGlance, pastDue, pathTo, proposalVerb, retireMoves, retirePlan, subtreeDesks, subtreeIds, treeRows, visibleRows, type TreeKr } from "./goalTree";
 import { Act, Empty, ErrorLine, Field, Loading, MTokensInput, Pill, Section, fmtTokens, nameOf, useLoad } from "./ui";
 import { fromMillions, toMillions } from "../format";
+import { goalShortName } from "../purpose";
 
 const today = () => new Date().toISOString().slice(0, 10);
 const clip = (s: string, n = 70) => s.length > n ? `${s.slice(0, n - 1)}…` : s;
@@ -335,7 +336,7 @@ function FundingBlock({ root, node, can, onDone }: { root: GoalTreeNode; node: G
   const { pool, exploration } = node.funding;
   const above = node.parentId ? findGoal(root, node.parentId)?.funding.pool ?? null : null;
   const poolName = (id: string) => bank?.pools.find((p) => p.id === id)?.name ?? id;
-  const from = (goalId: string) => <span className="muted"> (inherited from <button className="link" onClick={() => store.open({ kind: "goals", id: goalId })}>{clip(findGoal(root, goalId)?.text ?? goalId, 40)}</button>)</span>;
+  const from = (goalId: string) => <span className="muted"> (inherited from <button className="link" title={findGoal(root, goalId)?.text} onClick={() => store.open({ kind: "goals", id: goalId })}>{goalShortName(findGoal(root, goalId)?.text ?? goalId)}</button>)</span>;
   const reload = () => { onDone(); api().bank().then((next) => store.set({ bank: next }), () => undefined); };
   const next = explore.trim() === "" ? null : Math.max(0, fromMillions(explore) || 0);
   return (
