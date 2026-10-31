@@ -22,7 +22,7 @@ export const MEETING_REPLY_MAX_TURNS = 4;
  */
 export const SUMMARY_MODEL = "claude-sonnet-5-5";
 
-export interface MeetingState {
+interface MeetingState {
   /** meetingId → when collecting began (ms) */
   collectingSince: Map<string, number>;
   summarized: Set<string>;

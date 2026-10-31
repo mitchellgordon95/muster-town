@@ -250,13 +250,13 @@ function timeWarn(body: string): { warnings?: string[] } {
 type KrWrite = ReturnType<World["grantDesk"]["writtenSince"]>[number];
 
 /** The rollup section listing them (appended by `submit_report`), each with its id, so Mitchell can keep or cut it. */
-export function krWritesSection(writes: KrWrite[]): string {
+function krWritesSection(writes: KrWrite[]): string {
   const rows = writes.map((w) => `- ${w.action} ${w.keyResultId}: "${w.text}" (how to check: ${w.howToCheck || "?"}${w.sourceDocIds.length ? `; from ${w.sourceDocIds.join(", ")}` : ""})`);
   return `## Key results I wrote (keep or cut: Building → Settings → Key results)\n${rows.join("\n")}`;
 }
 
 /** How many times in a row one piece of work may park itself (`submit_report` resumeWhen) before a human must decide. */
-export const MAX_PARKS = 3;
+const MAX_PARKS = 3;
 
 export async function submit_report(world: World, me: Agent, input: VerbIn<"submit_report">) {
   if (me.kind === "human") throw badRequest("Humans don't submit reports.");

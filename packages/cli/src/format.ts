@@ -9,7 +9,7 @@ const one = (s: unknown, n = 100) => {
 };
 
 /** Generic fallback: YAML-ish, multi-line strings indented. */
-export function dump(v: unknown, indent = ""): string {
+function dump(v: unknown, indent = ""): string {
   if (v === null || v === undefined) return `${indent}(nothing)`;
   if (typeof v !== "object") return indent + String(v);
   const lines: string[] = [];

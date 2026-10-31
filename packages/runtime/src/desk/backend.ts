@@ -95,7 +95,7 @@ export const realDockerRunner: DockerRunner = {
   },
 };
 
-export interface DockerBackendOptions {
+interface DockerBackendOptions {
   /** collective slug, part of the container name: desk-<collective>-<agentId> */
   collective: string;
   image?: string;

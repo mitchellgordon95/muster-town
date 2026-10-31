@@ -12,7 +12,7 @@ export function rollupCardsOf(doc: { body: string; tags: string[] }): ParsedRoll
   return rollupHasCards(p) ? p : null;
 }
 
-export function RollupCard({ item, n }: { item: RollupItem; n: number }) {
+function RollupCard({ item, n }: { item: RollupItem; n: number }) {
   const none = /^none\b/i.test(item.yourCall.trim());
   return (
     <div className="rollup-card">

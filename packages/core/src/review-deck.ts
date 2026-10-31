@@ -20,7 +20,7 @@ const H = 3_600_000;
 const FLAG_AFTER_MS = 2 * H;
 const fmt = (n: number) => n >= 1_000_000 ? `${(n / 1_000_000).toFixed(2).replace(/\.?0+$/, "")}M` : n >= 1000 ? `${Math.round(n / 1000)}k` : String(n);
 import { waitedFor } from "./time.ts";
-export { waitedFor };
+;
 const KR_LIGHT: Record<string, string> = { "not-started": "⚪", "on-track": "🟢", "at-risk": "🟡", claimed: "🔵", met: "✅", missed: "❌" };
 const PILLAR: Record<string, string> = { gl_fund: "Fund", gl_join: "Steer", gl_trust: "Trust" };
 const LIGHT: Record<string, string> = { green: "🟢", yellow: "🟡", red: "🔴" };
@@ -140,7 +140,7 @@ function grantSlide(world: World, g: GrantView, now: Date): Draft {
 const GOAL_ACTION: Record<string, string> = { "add-goal": "add a goal", "add-kr": "add a key result", edit: "edit", move: "move", retire: "retire a goal", promote: "promote a key result to a goal" };
 
 /** The words after a move or retire proposal's old text, as the goal editor's card says them (web goalTree proposalVerb). */
-export function goalProposalVerb(action: string, dest: string | null, hangs = false): string {
+function goalProposalVerb(action: string, dest: string | null, hangs = false): string {
   if (action === "move") return dest ? ` moves under ${dest}` : "";
   if (action !== "retire") return "";
   return dest ? ` is retired; its open key results and attached buildings go under ${dest}` : hangs ? " is retired, but no sibling is named for what hangs under it" : " is retired; nothing open hangs under it";
@@ -282,7 +282,7 @@ function townSlide(world: World, now: Date, decisions: number, oldest: string | 
 const DOC_PAST: Record<string, string> = { approve: "approved", continue: "continued", redirect: "redirected", stop: "stopped" };
 
 /** What became of a pinned slide's item once it left the in-tray: "cut", "funded", "approved", "met"… ("decided" when unknown). */
-export function decidedLabel(world: World, p: PinnedSlide): string {
+function decidedLabel(world: World, p: PinnedSlide): string {
   const grantId = p.grantId ?? (p.itemId?.startsWith("gr_") ? p.itemId : undefined);
   if (grantId) {
     const g = world.grants.get(grantId);

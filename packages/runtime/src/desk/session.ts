@@ -19,7 +19,7 @@ export interface DeskSessionOptions {
 
 let ghCache: { token: string | null } | null = null;
 /** `gh auth token` on the host, cached for the process. Never logged. */
-export function ghCliToken(): string | null {
+function ghCliToken(): string | null {
   if (ghCache) return ghCache.token;
   try {
     const t = execFileSync("gh", ["auth", "token"], { stdio: ["ignore", "pipe", "ignore"], timeout: 10_000 }).toString().trim();
@@ -98,7 +98,7 @@ export function deskEnv(ctx: Ctx, session: Session, opts: DeskSessionOptions = {
 }
 
 /** Git author and committer for `name` (as the desk's workspace setup writes into a checkout: `<slug>@muster-town.local`). */
-export function gitIdentityEnv(name: string): Record<string, string> {
+function gitIdentityEnv(name: string): Record<string, string> {
   const email = `${name.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "") || "agent"}@muster-town.local`;
   return { GIT_AUTHOR_NAME: name, GIT_AUTHOR_EMAIL: email, GIT_COMMITTER_NAME: name, GIT_COMMITTER_EMAIL: email };
 }

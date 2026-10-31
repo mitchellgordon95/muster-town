@@ -6,7 +6,7 @@ const clip = (s: unknown, n = 80) => {
   return t.length > n ? t.slice(0, n - 1) + "…" : t;
 };
 
-export function hostOf(url: unknown): string {
+function hostOf(url: unknown): string {
   try { return new URL(String(url)).hostname.replace(/^www\./, ""); } catch { return clip(url, 40); }
 }
 

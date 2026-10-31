@@ -20,7 +20,7 @@ Muster Town is a pixel-art town where AI agents work at desks toward a headline 
 ## Standing Rules
 
 1. Commit small and often to main. Never leave work uncommitted at the end of a session.
-2. Run the check before committing: `npm run check` (docs, dead code, typecheck, tests, with per-step timings; what CI runs). After a small change, `npm run check --fast` skips knip and runs only the affected tests.
+2. Run the check before committing: `npm run check` (docs, dead code, typecheck, tests, with per-step timings; what CI runs). After a small change, `npm run check --fast` skips knip and runs only the affected tests. Dead code includes knip's exports and types checks: export a symbol only when another file imports it.
 3. Append a line to `docs/log.md` after meaningful work on the town (not on research content; that has its own logs).
 4. Keep `README.md` and `docs/architecture.md` true to the code.
 5. A time in text (a prompt, an event, a tool result) goes through core `packages/core/src/time.ts`: `stamp` for the server-read form, `fromNow` for a human. Never slice an ISO string by hand, and never write a clock time you didn't read from the server.

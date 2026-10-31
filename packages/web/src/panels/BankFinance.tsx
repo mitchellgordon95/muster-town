@@ -99,7 +99,7 @@ function NotFundedNote({ sp }: { sp: FinanceSpend }) {
 }
 
 /** The note under a synthetic row; the weight-mismatch one is the API's own line, the not-funded one `notFundedNote`. */
-export const spendNotes = (sp: FinanceSpend): Partial<Record<SpendNode["kind"], ReactNode>> => ({
+const spendNotes = (sp: FinanceSpend): Partial<Record<SpendNode["kind"], ReactNode>> => ({
   "unattributed": "Paid for from the Bank or donations but not traceable to any one work session: work from before sessions counted their own tokens.",
   "weight-mismatch": sp.weightMismatchNote,
   "not-funded": <NotFundedNote sp={sp} />,
@@ -218,7 +218,7 @@ export function SourcesView({ s }: { s: FinanceSources }) {
 const Check = ({ c }: { c: { ok: boolean; text: string } }) => <div className={c.ok ? "finance-check ok" : "error-line"} role="status">{c.ok ? "✓ " : "✗ "}{c.text}</div>;
 
 /** Dollars: cents for amounts, four places for an hourly rate. */
-export const usd = (x: number, places = 2) => `$${x.toFixed(places)}`;
+const usd = (x: number, places = 2) => `$${x.toFixed(places)}`;
 const hours = (ms: number) => { const h = ms / 3_600_000; return h >= 10 ? `${Math.round(h)} h` : h >= 1 ? `${h.toFixed(1)} h` : `${Math.round(ms / 60_000)} min`; };
 
 /** Desk, town and total dollars over the newest `n` days of the window (today included). */

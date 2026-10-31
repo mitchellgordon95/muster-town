@@ -50,7 +50,7 @@ export function tokenPrices(model: string | null | undefined): { family: string;
   return { ...(hit ?? FALLBACK_PRICE), known: !!hit };
 }
 
-export const isKnownModel = (model: string | null | undefined): boolean => tokenPrices(model).known;
+const isKnownModel = (model: string | null | undefined): boolean => tokenPrices(model).known;
 
 /** Each counter's weight in output tokens: its list price over the model's output price (output itself is 1). */
 export function tokenWeights(model: string | null | undefined): TokenCounts {
@@ -126,7 +126,7 @@ export function sliceBooked(from: Booked, part: number): Booked {
 const DAYS_PER: Record<Exclude<BankRecurrence, "once">, number> = { daily: 1, weekly: 7, monthly: 30 };
 
 /** A building's view of the Bank. */
-export interface BankBuildingShare {
+interface BankBuildingShare {
   buildingId: string;
   name: string;
   /** what the building can still draw: the general balance (one balance, no pools) */
@@ -139,7 +139,7 @@ export interface BankBuildingShare {
 }
 
 /** Unspent allocation tokens by funding mode. */
-export interface HeldByAuth { subscription: number; apiKey: number; donorKey: number }
+interface HeldByAuth { subscription: number; apiKey: number; donorKey: number }
 
 /** Someone who has put tokens into the town: through Bank inputs, or donated straight to a building. */
 export interface BankContributor {
@@ -191,7 +191,7 @@ export interface BankSummary {
 }
 
 /** The subscription cap as the Bank has learned it from `bank.cap` events (GET /api/bank `cap`). */
-export interface BankCapState {
+interface BankCapState {
   /** the subscription input (null when there is none) */
   inputId: string | null;
   /** learned daily cap in adjusted output tokens; null = no cap seen yet (then nothing is held) */
@@ -217,7 +217,7 @@ export interface BankCapState {
 }
 
 /** The latest drift run: its UTC day, the per-model rows over all buildings, and the per-building rows. */
-export interface BankDrift {
+interface BankDrift {
   day: string;
   ranAt: string;
   models: DriftRow[];
@@ -225,7 +225,7 @@ export interface BankDrift {
 }
 
 /** Where a building's next draw comes from: today's subscription share (the server's own login), or an API key's input. */
-export type BankFunding = { kind: "expiring" } | { kind: "durable"; inputId: string | null };
+type BankFunding = { kind: "expiring" } | { kind: "durable"; inputId: string | null };
 
 
 /** The next renewal after `from`: one period later (a month is a calendar month). */

@@ -21,7 +21,7 @@ export function meetingHadHuman(m: Meeting): boolean {
  * (or its notes), a doc a human wrote (a flag, a human-report, ...), or a
  * human's tell. (A report a human replied to was one until replies were removed, 1:1 mt_cz11aqe81a.) Anything else is refused.
  */
-export function humanSource(world: World, sourceId: string): string {
+function humanSource(world: World, sourceId: string): string {
   const meeting = world.meetings.get(sourceId);
   if (meeting) {
     if (!meetingHadHuman(meeting)) throw badRequest(`Meeting ${sourceId} had no human in it: it isn't a human source for directed work.`);

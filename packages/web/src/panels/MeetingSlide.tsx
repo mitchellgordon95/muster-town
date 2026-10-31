@@ -98,7 +98,7 @@ function useNarrow(): boolean {
 }
 
 /** Live meetings a signed-in human can present in (not 1:1s), newest first. */
-export function useLiveMeetings(): Meeting[] {
+function useLiveMeetings(): Meeting[] {
   const meetings = useTown((s) => s.meetings);
   const me = useTown((s) => s.me);
   return useMemo(() => (me ? Object.values(meetings).filter((m) => (m.phase === "collecting" || m.phase === "discussing") && m.kind !== "one-on-one").sort((a, b) => (b.startedAt ?? b.createdAt).localeCompare(a.startedAt ?? a.createdAt)) : []), [meetings, me]);

@@ -12,7 +12,7 @@ export type IntrayView = "mine" | "all" | "funded";
 export const isFunder = (w: FunderWeek | null | undefined): w is FunderWeek => !!w && w.streams.length > 0;
 
 /** The goals the funder's money reached; null = every goal (a pro rata share reaches the whole pooled week). */
-export function fundedGoals(w: FunderWeek): Set<string> | null {
+function fundedGoals(w: FunderWeek): Set<string> | null {
   return w.everything ? null : new Set(w.goalIds);
 }
 

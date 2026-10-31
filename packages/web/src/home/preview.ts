@@ -15,7 +15,7 @@ interface Feed { world: World | null; snap: Snapshot | null; canvases: Set<HTMLC
 const feeds = new Map<string, Feed>();
 
 /** Who is working right now (agents only; people and idle bodies aren't counted). */
-export const workingCount = (snap: Snapshot) => snap.agents.filter((a) => a.kind !== "human" && a.status === "working").length;
+const workingCount = (snap: Snapshot) => snap.agents.filter((a) => a.kind !== "human" && a.status === "working").length;
 
 function draw(c: HTMLCanvasElement, f: Feed) {
   const { world, snap } = f;

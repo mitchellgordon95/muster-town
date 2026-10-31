@@ -7,7 +7,7 @@ import type {
   ReviewDeck, BankStreams, FunderWeek, ReviewSlide,
   CreateObjectiveInput, UpdateObjectiveInput, Objective, KpiKey, KpiView,
   AccessRequest, AccessRequestView, Agent, Allocation, Assignment, AssignmentCard, AuthMe, BlockedAssignment, BuildingStats, Schedule, RedeployLive, Building, BuildingDefaults, ClientMessage, MapLayout, DesksConfig, Doc, Event, Lot, Meeting, Place, Role, Membership, SessionSlots, Tile,
-  ServerMessage, SessionView, TokenCounts, Town, CreateBuildingInput, UpdateBuildingInput, RegisterVisitorInput,
+  ServerMessage, SessionView, TokenCounts, CreateBuildingInput, UpdateBuildingInput, RegisterVisitorInput,
   ReviewInput, PinSkillInput, SkillPinView, SkillView, PutSecretInput, SecretView, WorkInput, DonateInput, AddBankInput, BankInput, CreateMeetingInput, DocState, DocType, Mailbox, Permission, DecideGrantInput, CloseGrantInput, GrantView, KeyResult, CreateKeyResultInput, UpdateKeyResultInput, Stoplight,
   GoalTreeNode, Goal, GoalProposal, GoalSpend, QueueBoard, IntrayRoutes, CreateGoalInput, UpdateGoalInput, RetireGoalInput, CreateTreeKeyResultInput, DecideGoalProposalInput, ChangeGoalInput, ReviewKeyResultInput, GoalChangeView, FreeTokens,
 } from "@muster-town/schema";
@@ -243,7 +243,7 @@ export interface BankCapState {
   typicalSession: number | null; held: boolean; reason: string | null; resetsAt: string;
 }
 /** One drift row (core's DriftRow): ratio = adjusted output tokens × output list price / the SDK's costUsd */
-export interface DriftRow {
+interface DriftRow {
   day: string; model: string | null; building: string | null; sessions: number; backfilled: number;
   adjustedOutputTokens: number; adjustedUsd: number; costUsd: number; ratio: number | null;
 }
@@ -543,7 +543,7 @@ function qs(q: object): string {
   return s ? `?${s}` : "";
 }
 
-export class HttpApi implements Api {
+class HttpApi implements Api {
   readonly mock = false;
   constructor(private token: () => string | null) {}
 
@@ -775,4 +775,4 @@ export function api(): Api {
   return instance;
 }
 
-export type { Town, Place };
+export type { Place };

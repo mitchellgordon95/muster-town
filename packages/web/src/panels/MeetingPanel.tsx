@@ -206,7 +206,7 @@ function useDrafting(meetingId: string, live: boolean): { id: string; name: stri
   return who;
 }
 
-export function writingLine(names: string[]): string {
+function writingLine(names: string[]): string {
   if (names.length === 1) return `${names[0]} is writing…`;
   return `${names.slice(0, -1).join(", ")} and ${names[names.length - 1]} are writing…`;
 }

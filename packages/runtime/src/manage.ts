@@ -12,9 +12,9 @@ import { codeBlock } from "./code.ts";
 import { claudeDirOf, findSdkTranscript, homeOf, runAgentSession, type Ctx, type LiveSession } from "./session.ts";
 
 /** A 1:1 beside a work session can do anything a manage session can except what belongs to the work: its report and assignment. */
-export const ALONGSIDE_VERBS: VerbName[] = VERB_NAMES.filter((v) => v !== "submit_report" && v !== "accept_assignment");
+const ALONGSIDE_VERBS: VerbName[] = VERB_NAMES.filter((v) => v !== "submit_report" && v !== "accept_assignment");
 
-export interface ManageState {
+interface ManageState {
   /** report ids already offered to a manage session (in-memory: a restart offers the in-tray again, once) */
   offered: Set<string>;
   /** 1:1 meetingId → the manage session it's fed into and how much of its transcript that session has seen */
@@ -27,7 +27,7 @@ export interface ManageState {
 export const newManageState = (): ManageState => ({ offered: new Set(), fed: new Map(), busyNoticed: new Map(), leading: new Set() });
 
 /** A 1:1 nobody spoke in for this long (and nobody is typing in) is closed by the town. */
-export const ONE_ON_ONE_QUIET_MS = 20 * 60_000;
+const ONE_ON_ONE_QUIET_MS = 20 * 60_000;
 
 /** The manager's open 1:1s. */
 export const openOneOnOnes = (world: World, managerId: string): Meeting[] =>
@@ -37,7 +37,7 @@ export const openOneOnOnes = (world: World, managerId: string): Meeting[] =>
 export const RESUME_WINDOW_MS = 2 * 60 * 60_000;
 
 /** A team-lead session a restart cut, to resume: its row and the SDK session to continue. */
-export interface ResumableManage { sessionId: string; sdkSessionId: string }
+interface ResumableManage { sessionId: string; sdkSessionId: string }
 
 /**
  * The manager's team-lead session to resume (gr_w9ue1k1p0c): its latest manage session, if a restart cut it (status
@@ -57,7 +57,7 @@ export function resumableManage(world: World, agentId: string, claudeDir: string
 export const resumePrompt = (cut: ResumableManage): string =>
   `The server restarted (a redeploy) and cut this team-lead session (${cut.sessionId}); it resumes here. Check whether the step you were on when it was cut finished (e.g. \`read\` the report to see if your decision landed) and redo it if not, then carry on with your in-tray where you left off. End as before: a rollup only if one is due, else just stop.`;
 
-export interface ManageGate {
+interface ManageGate {
   /** no new sessions (a redeploy is draining) */
   draining(): boolean;
   /** the agent's work session is starting */
@@ -235,7 +235,7 @@ export function closeQuietOneOnOnes(ctx: Ctx): void {
  * open 1:1s `talks` (the first is the prompt; the rest and the reports arrive as the next messages). Resolves with the
  * ended session.
  */
-export async function runManageSession(ctx: Ctx, st: ManageState, agentId: string, fresh: Doc[], talks: Meeting[] = [], work?: LiveSession, resume?: ResumableManage | null): Promise<Session> {
+async function runManageSession(ctx: Ctx, st: ManageState, agentId: string, fresh: Doc[], talks: Meeting[] = [], work?: LiveSession, resume?: ResumableManage | null): Promise<Session> {
   const { world } = ctx;
   const agent = world.agents.require(agentId, "agent");
   const building = world.buildings.require(homeOf(world, agentId)!, "building");

@@ -36,7 +36,7 @@ const INTERACT_PX = 26;
 const bname = (p: Place) => store.state.buildings.find((b) => b.id === p.buildingId)?.name ?? "the building";
 const BANK_VERB: Record<string, string> = { "Tokens & sources": "Open", "Free tokens": "Look into", Spending: "Read", Hosting: "Check" };
 /** Every panel is a place: what E opens when you stand at each place kind. */
-export const PLACE_PANEL: Partial<Record<Place["kind"], (p: Place) => PanelRef & { verb: string }>> = {
+const PLACE_PANEL: Partial<Record<Place["kind"], (p: Place) => PanelRef & { verb: string }>> = {
   board: (p) => ({ kind: "board", id: p.buildingId ?? undefined, verb: `Read the ${bname(p)} board` }),
   cabinet: (p) => ({ kind: "cabinet", id: p.buildingId ?? undefined, verb: `Open the ${bname(p)} filing cabinet` }),
   intray: (p) => {
@@ -61,7 +61,7 @@ export const PLACE_PANEL: Partial<Record<Place["kind"], (p: Place) => PanelRef &
 };
 
 /** What E (or a tap) does at a place, or null for places with nothing to do there (the plaza, the bench, desks: their agent is the target). */
-export function placeTarget(p: Place): Target | null {
+function placeTarget(p: Place): Target | null {
   if (p.kind === "bank-map") return { label: "Look at the town map", panel: { kind: "building", id: p.buildingId ?? undefined }, action: "flow" };
   if (p.kind === "town-map") return { label: "Plan the town", panel: { kind: "planning" }, action: "plan" };
   const f = PLACE_PANEL[p.kind]; if (!f) return null;

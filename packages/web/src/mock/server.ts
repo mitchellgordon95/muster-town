@@ -902,4 +902,4 @@ export class MockApi implements Api {
     };
   }
 }
-export type { Doc };
+;

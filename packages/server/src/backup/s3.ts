@@ -1,7 +1,7 @@
 /** The S3 calls the backup job needs (put, list, delete) and the restore needs (get), path-style against `AWS_ENDPOINT_URL_S3`, signed with sigv4.ts. */
 import { awsEncode, signV4, type SigV4Credentials } from "./sigv4.ts";
 
-export interface S3Target { endpoint: string; bucket: string; creds: SigV4Credentials }
+interface S3Target { endpoint: string; bucket: string; creds: SigV4Credentials }
 
 /** `fetch` is injectable for tests (default: global fetch). */
 export class S3 {

@@ -32,7 +32,7 @@ import { wsRoutes } from "./ws.ts";
 
 export const DEFAULT_WEB_DIST = resolve(dirname(fileURLToPath(import.meta.url)), "../../web/dist");
 /** The Muster Town skill a stranger's own agent reads (served at `/skill.md`, so no repo clone is needed). */
-export const SKILL_FILE = resolve(dirname(fileURLToPath(import.meta.url)), "../../../skills/muster-town/SKILL.md");
+const SKILL_FILE = resolve(dirname(fileURLToPath(import.meta.url)), "../../../skills/muster-town/SKILL.md");
 
 export interface BuildAppOptions {
   world: World;
@@ -64,7 +64,7 @@ export interface BuildAppOptions {
 
 const API_PREFIXES = ["/api", "/ws", "/mcp", "/auth"];
 /** Active hosted collectives one GitHub user may own (a town admin: no cap). */
-export const HOSTED_PER_PERSON = 1;
+const HOSTED_PER_PERSON = 1;
 
 /** The Fastify app (not listening). Tests use `app.inject`; `main.ts` calls `listen`. */
 export async function buildApp(opts: BuildAppOptions): Promise<FastifyInstance> {

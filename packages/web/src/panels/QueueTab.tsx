@@ -19,7 +19,7 @@ const COLUMNS: { id: "queued" | "held" | "running" | "done"; label: string }[] =
 export const DONE_SHOWN = 10;
 
 /** "Running 3 / 6 desks": the column header, with the WIP limit on Running. */
-export function columnHeader(lane: QueueLane, col: (typeof COLUMNS)[number]["id"]): string {
+function columnHeader(lane: QueueLane, col: (typeof COLUMNS)[number]["id"]): string {
   const label = COLUMNS.find((c) => c.id === col)!.label;
   return col === "running" ? `${label} ${lane.running.length} / ${lane.desks} desk${lane.desks === 1 ? "" : "s"}` : `${label} ${lane[col].length}`;
 }

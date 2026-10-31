@@ -6,7 +6,7 @@ export const T = 16;
 export const CHAR_W = 12, CHAR_H = 16;
 
 /** Draw ASCII pixel art onto a canvas, frames side by side. `.` is transparent. */
-export function pixelCanvas(frames: string[][], palette: Record<string, string>): HTMLCanvasElement {
+function pixelCanvas(frames: string[][], palette: Record<string, string>): HTMLCanvasElement {
   const h = frames[0].length, w = frames[0][0].length;
   const c = document.createElement("canvas");
   c.width = w * frames.length; c.height = h;
@@ -24,7 +24,7 @@ const TYPE = [...HEAD, "..SBBBBBBS..", "..SBBBBBBS..", "..BBBBBBBB..", "...BBBBB
 const WALK = [...HEAD, "..BBBBBBBB..", "..SBBBBBBS..", "..SBBBBBBS..", "...BBBBBB...", "...PPPPPP...", "..PP....PP..", "..PP....PP..", "..FF....FF..", "............"];
 
 const SKIN = ["#f1c9a5", "#c68642", "#f6d7bd", "#8d5524", "#e0ac69"];
-export const PALETTES: Record<string, string>[] = [
+const PALETTES: Record<string, string>[] = [
   { H: "#3b2a22", B: "#c94f4f", P: "#2d3550", S: SKIN[0] }, // 0 librarian
   { H: "#1c1c1c", B: "#4f8fc9", P: "#2f2f3a", S: SKIN[1] },
   { H: "#d9a441", B: "#5aa66b", P: "#3a3a4a", S: SKIN[0] },
@@ -430,7 +430,7 @@ export function drawBankMap(g: CanvasRenderingContext2D, px: number, py: number)
 }
 
 /** The Town Hall map table, 5 x 2 tiles (TILE.TOWN_MAP; place `town-map` opens town planning): one sheet, each tile draws its slice. */
-export const TOWN_MAP_SIZE = { w: 5, h: 2 } as const;
+const TOWN_MAP_SIZE = { w: 5, h: 2 } as const;
 let townMapSheet: HTMLCanvasElement | null = null;
 function townMapArt(): HTMLCanvasElement {
   if (townMapSheet) return townMapSheet;

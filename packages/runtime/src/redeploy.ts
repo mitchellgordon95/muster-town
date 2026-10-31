@@ -141,7 +141,7 @@ export function drainNudge(requester: boolean): string {
 }
 
 /** How long the drain waits on team-lead (manage) sessions by default. */
-export const DRAIN_MANAGE_MS = 8 * 60_000;
+const DRAIN_MANAGE_MS = 8 * 60_000;
 
 /** What the drain tells a team-lead session it waits on: wrap up (stop_fork's words); if cut anyway, it resumes after the restart. */
 export function drainNudgeManage(): string {
@@ -572,7 +572,7 @@ export function imageTags(image: string): string[] {
 }
 
 /** `docker ps` argv listing a collective's desks as `<name>\t<agentId>`, once per label prefix (docker ANDs label filters, so one query can't OR them). */
-export function deskListArgs(collective: string): string[][] {
+function deskListArgs(collective: string): string[][] {
   return DESK_LABEL_PREFIXES.map((p) => ["ps", "-a", "--filter", `label=${p}.collective=${collective}`, "--filter", `label=${p}.desk=1`,
     "--format", `{{.Names}}\t{{.Label "${p}.agent"}}`]);
 }

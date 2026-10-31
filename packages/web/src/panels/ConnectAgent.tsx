@@ -12,7 +12,7 @@ import { store, useTown } from "../state";
 import { PanelShell } from "./PanelShell";
 
 /** Where a stranger reads how a connected agent works: the skill as the town serves it (server `GET /skill.md`). */
-export const SKILL_PATH = "/skill.md";
+const SKILL_PATH = "/skill.md";
 
 /** The one command that connects Claude Code to this town over MCP. */
 export function mcpAddLine(origin: string, token: string): string {
@@ -24,14 +24,14 @@ export function defaultAgentName(me: AuthMe | null): string {
   return who === "My" ? "My Claude" : `${who}'s Claude`;
 }
 
-export type ConnectStep = "sign-in" | "ask" | "form";
+type ConnectStep = "sign-in" | "ask" | "form";
 /** What the panel shows: guests sign in first; a signed-in person who may not act yet asks to join first. */
 export function connectStep(guest: boolean, me: AuthMe | null): ConnectStep {
   if (guest || !me) return "sign-in";
   return me.canInteract === false ? "ask" : "form";
 }
 
-export interface Registered { name: string; token: string; line: string }
+interface Registered { name: string; token: string; line: string }
 /** Register the visitor and build what the panel shows once. */
 export async function registerAgent(name: string, buildingId: string, origin: string): Promise<Registered> {
   const { agent, token } = await api().registerVisitor({ name: name.trim(), ...(buildingId ? { buildingId } : {}) });
@@ -52,7 +52,7 @@ export function TokenOnce({ done, onCopy }: { done: Registered; onCopy?: () => v
   );
 }
 
-export function ConnectAgentBody() {
+function ConnectAgentBody() {
   const auth = useAuth();
   const me = useTown((s) => s.me);
   const buildings = useTown((s) => s.buildings);

@@ -16,4 +16,4 @@ export async function redeploy(world: World, me: Agent, input: VerbIn<"redeploy"
 }
 
 /** Told to an agent that redeploys from inside its own work session. */
-export const REDEPLOY_NOTE = "The server restarts as soon as no host session is running (it waits up to 3 min for those); a desk work session like most agents' keeps running through the restart and the next server adopts it. Still never wait or poll for the new build in this session: say in your report which commit should be live, submit the report, and verify on your next session.";
+const REDEPLOY_NOTE = "The server restarts as soon as no host session is running (it waits up to 3 min for those); a desk work session like most agents' keeps running through the restart and the next server adopts it. Still never wait or poll for the new build in this session: say in your report which commit should be live, submit the report, and verify on your next session.";
