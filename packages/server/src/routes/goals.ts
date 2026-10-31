@@ -1,5 +1,5 @@
 import { ChangeGoalInput, CreateGoalInput, CreateTreeKeyResultInput, ReviewKeyResultInput, DecideGoalProposalInput, GoalProposalStatus, ProposeGoalInput, RetireGoalInput, UpdateGoalInput } from "@muster-town/schema";
-import { buildingBoard, goalBoard, worldGoalSpend } from "@muster-town/core";
+import { buildingBoard, goalBoard, goalFunding, worldGoalSpend } from "@muster-town/core";
 import type { FastifyInstance } from "fastify";
 import { z } from "zod";
 import { actorOf, funderOf, parse, type Params } from "../context.ts";
@@ -29,7 +29,7 @@ export async function goalRoutes(app: FastifyInstance) {
       owner: { ...owner, name: owner.userId ? world.users.get(owner.userId)?.name ?? owner.userId : "the town admins" },
       children: tree.children(goal.id), keyResults: world.keyResults.where("goalId = ?", [goal.id], "ORDER BY position, rowid"),
       buildings: world.buildings.where("goalId = ?", [goal.id], "ORDER BY createdAt, rowid").map((b) => ({ id: b.id, name: b.name })),
-      funding: world.bank.fundingAt(goal.id),
+      funding: goalFunding(world, goal.id),
     };
   });
 

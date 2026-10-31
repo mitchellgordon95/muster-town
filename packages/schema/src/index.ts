@@ -250,10 +250,6 @@ export const Building = z.object({
   managerAgentId: Id.nullable().default(null),
   /** residents get code tools on the collective's repo (`Town.workspace`) during work sessions */
   codeAccess: z.boolean().default(false),
-  /** Unused since migration 065: the pool is the attached goal's (`Goal.poolId`, inherited down the tree; core goals.ts `fundingOf`). Kept so the migration is additive. */
-  poolId: Id.nullable().default(null),
-  /** Unused since migration 065: the exploration allowance is the attached goal's (`Goal.explorationTokensPerDay`, inherited). Kept so the migration is additive. */
-  explorationTokensPerDay: z.number().int().nonnegative().nullable().default(null),
   /** Unused: nothing reads it since the `open` mode was removed (every lab is lane-gated, the Town Hall never is; core/src/lanes.ts `laneGated`). Kept with `open` in the enum because migration 025 wrote `open` on old rows; dropping the column is a later migration. */
   budgetMode: z.enum(["open", "goal-directed"]).default("goal-directed"),
   /** goal-directed: since when the building is blocked (its goal has no key results and it has no funded grant); null = not blocked. The manager is woken once per blocked transition. */
@@ -340,21 +336,41 @@ export type BankInput = z.infer<typeof BankInput>;
 /** One credit from an input into the Bank. A subscription's credit expires a day later (no rollover); an API key's is durable (`expiresAt` null). */
 export const BankCredit = z.object({ id: Id, inputId: Id, ...TOKEN_COUNTS_SHAPE, rawTokens: z.number().int().nonnegative().default(0), tokens: z.number().int().nonnegative().default(0), createdAt: Iso, expiresAt: Iso.nullable().default(null) });
 export type BankCredit = z.infer<typeof BankCredit>;
-/** The collective's default pool: every building without a `poolId` draws from it. It can't be deleted. */
-export const DEFAULT_POOL_ID = "general";
-/**
- * An accounting pool: a group of buildings that share one slice of the Bank, first come first served.
- * `pct` is an explicit % of the Bank; pools without one split what's left equally.
- */
-export const BankPool = z.object({ id: Id, name: z.string().min(1).max(80), pct: z.number().min(0).max(100).nullable().default(null), createdAt: Iso });
-export type BankPool = z.infer<typeof BankPool>;
 /**
  * Tokens a building's session drew from the Bank: from an expiring credit (`creditId`), else from the durable credits.
- * `poolId` is the pool it drew from (what the pool's share is charged against); `buildingId` is who spent it.
- * `inputId` / `grantId`: set when a grant's own input paid (member funding: the grant's `fundedWith`), not for pool draws.
+ * `buildingId` is who spent it. `inputId` / `grantId`: set when a stream paid by name (a grant's own input, an earmark),
+ * not for draws on the general balance. (The `poolId` column of the pools era stays in the table, read by nothing:
+ * pools were deleted, docs/how-work-gets-done.md §7.)
  */
-export const BankDebit = z.object({ id: Id, buildingId: Id, poolId: Id, agentId: Id, creditId: Id.nullable().default(null), inputId: Id.nullable().default(null), grantId: Id.nullable().default(null), ...TOKEN_COUNTS_SHAPE, rawTokens: z.number().int().nonnegative().default(0), tokens: z.number().int().nonnegative().default(0), createdAt: Iso });
+export const BankDebit = z.object({ id: Id, buildingId: Id, agentId: Id, creditId: Id.nullable().default(null), inputId: Id.nullable().default(null), grantId: Id.nullable().default(null), ...TOKEN_COUNTS_SHAPE, rawTokens: z.number().int().nonnegative().default(0), tokens: z.number().int().nonnegative().default(0), createdAt: Iso });
 export type BankDebit = z.infer<typeof BankDebit>;
+/**
+ * A claim on free tokens for one exploration session (docs/how-work-gets-done.md §3, §7): open while `closedAt` is null,
+ * then `spentTokens` is what the session spent and the rest went back. Empty until the declarative explore step uses it.
+ */
+export const BankReservation = z.object({
+  id: Id, goalId: Id, buildingId: Id, assignmentId: Id.nullable().default(null), tokens: z.number().int().nonnegative(),
+  openedAt: Iso, closedAt: Iso.nullable().default(null), spentTokens: z.number().int().nonnegative().nullable().default(null),
+});
+export type BankReservation = z.infer<typeof BankReservation>;
+/**
+ * Free tokens under a goal (core free-tokens.ts; docs/how-work-gets-done.md §7): what exploration may still claim. Claims
+ * (funded grants' remaining, open proposals' asks, open reservations) are paid by the nearest earmark above their goal
+ * first, then the general balance, so `free` = what is left of the general balance + of the earmarks at or above the goal.
+ */
+export interface FreeTokens {
+  goalId: string;
+  /** the general balance (every credit not earmarked) */
+  generalTokens: number;
+  /** balances of the live earmarks at or above the goal */
+  earmarkTokens: number;
+  /** town-wide claims (on the general balance and on the earmarks above the goal) */
+  fundedRemainingTokens: number;
+  openAsksTokens: number;
+  reservedTokens: number;
+  /** what the claims leave of general + those earmarks, never below 0 */
+  freeTokens: number;
+}
 /** One charge of model usage: who spent it and which building it counts for (the agent's home). The usage ledger behind tokensToday / tokensAllTime. */
 export const UsageEntry = z.object({ id: Id, agentId: Id, buildingId: Id.nullable().default(null), ...TOKEN_COUNTS_SHAPE, rawTokens: z.number().int().nonnegative().default(0), tokens: z.number().int().nonnegative().default(0), usd: z.number().nonnegative().default(0), createdAt: Iso });
 export type UsageEntry = z.infer<typeof UsageEntry>;
@@ -1001,7 +1017,7 @@ export const Grant = z.object({
   proposedBy: Id,
   /** a user id; never an agent */
   fundedBy: Id.nullable().default(null),
-  /** the Bank input that pays its sessions first (a member funding it with their own input); null = the building's pool */
+  /** the Bank input that pays its sessions first (a member funding it with their own input); null = the draw order (earmark, then the general balance) */
   fundedWith: Id.nullable().default(null),
   fundedAt: Iso.nullable().default(null),
   closedAt: Iso.nullable().default(null),
@@ -1069,10 +1085,12 @@ export const Goal = z.object({
   createdBy: Id.nullable().default(null),
   editedBy: Id.nullable().default(null),
   sourceDocIds: z.array(Id).default([]),
-  /** the Bank pool the buildings attached here (and below, unless a goal under it sets its own) draw from; null = inherit (the root's null = General) */
-  poolId: Id.nullable().default(null),
-  /** goal-directed budgets: exploration tokens per day for each building attached here or below; null = inherit (none set up the tree = 10% of the pool's daily inflow) */
-  explorationTokensPerDay: z.number().int().nonnegative().nullable().default(null),
+  /**
+   * Optional cap on exploration under this goal: the most its subtree may spend on exploration per UTC day (sessions in
+   * lane exploration plus reservations opened today); null = inherit, and none set up the tree = uncapped. The root's is
+   * the town-wide cap (docs/how-work-gets-done.md §8). (The `poolId` and `explorationTokensPerDay` columns stay, read by nothing.)
+   */
+  exploreCapTokensPerDay: z.number().int().nonnegative().nullable().default(null),
   createdAt: Iso,
   updatedAt: Iso,
 });
@@ -1111,10 +1129,17 @@ export interface GoalTreeNode {
   /** `headcount` = the building's desks (its subtree's concurrency), `inUse` = desks seated right now */
   buildings: { id: string; name: string; headcount: number; inUse: number }[];
   keyResults: { id: string; text: string; howToCheck: string; status: string; due: string | null; archivedAt: string | null; buildingId: string; grantId: string | null; underReviewSince?: string | null; postmortemDocId?: string | null }[];
-  /** set on this goal (null = inherited); `funding` is the effective value and the goal it comes from (null = none up the tree: General / the default allowance) */
-  poolId: string | null; explorationTokensPerDay: number | null;
-  funding: { pool: { poolId: string; goalId: string } | null; exploration: { tokensPerDay: number; goalId: string } | null };
+  /** set on this goal (null = inherited); `funding.exploreCap` is the effective cap and the goal it comes from (null = uncapped), `funding.free` the free tokens under it */
+  exploreCapTokensPerDay: number | null;
+  funding: GoalFunding;
   children: GoalTreeNode[];
+}
+/** A goal's funding as GET /api/goals shows it (core goals.ts `fundingAt` + free-tokens.ts). */
+export interface GoalFunding {
+  exploreCap: { tokensPerDay: number; goalId: string } | null;
+  /** exploration spent today by the buildings at or under the capping goal (0 with no cap) */
+  exploreSpentTodayTokens: number;
+  free: FreeTokens;
 }
 /**
  * Where a Town Hall item routes, as one viewer sees it (docs/goals.md "Routing", build step 4): the goal it belongs to,
@@ -1127,7 +1152,7 @@ export interface IntrayRoutes { routes: Record<string, IntrayRoute>; defaultView
 
 /**
  * One Bank stream (GET /api/bank/streams, goal tree step 7): an input and how it is drawn. `goalId` null = the general
- * balance (the pools draw on it anonymously, so `lastDrawAt` is only known for an earmark or a grant's own input).
+ * balance (general draws are anonymous, so `lastDrawAt` is only known for an earmark or a grant's own input).
  */
 export interface BankStream {
   inputId: string; label: string; userId: string; userName: string; source: "subscription" | "api-key";
@@ -1244,12 +1269,12 @@ export const CreateGoalInput = z.object({
 export type CreateGoalInput = z.input<typeof CreateGoalInput>;
 /**
  * PATCH /api/goals/:id: words, order, parent (a move) or owner (a user id; null = inherit); the funding the buildings
- * under it inherit: `poolId` (an admin; null = inherit) and `explorationTokensPerDay` (a human with goals.edit there; null = inherit).
+ * under it inherit: `exploreCapTokensPerDay` (a human funder with goals.edit there; null = inherit, none = uncapped).
  */
 export const UpdateGoalInput = z.object({
   text: z.string().trim().min(1).max(300).optional(), position: z.number().int().optional(), parentId: Id.optional(),
   ownerId: Id.nullable().optional(), sourceDocIds: z.array(Id).optional(),
-  poolId: Id.nullable().optional(), explorationTokensPerDay: z.number().int().nonnegative().nullable().optional(),
+  exploreCapTokensPerDay: z.number().int().nonnegative().nullable().optional(),
 });
 export type UpdateGoalInput = z.input<typeof UpdateGoalInput>;
 /** POST /api/goals/:id/retire: open key results and attached buildings under it move to `moveTo` (a sibling); without one it is refused while any remain. */
@@ -1836,7 +1861,7 @@ export const BANK_FIXTURES = {
   map: { x: 14, y: 2 }, mapStand: { x: 14, y: 3 },
   stations: [
     { slug: "ledger", tab: "Tokens & sources", name: "Ledger desk", tile: TILE.BANK_LEDGER, cells: [{ x: 2, y: 2 }, { x: 3, y: 2 }], stand: { x: 2, y: 3 } },
-    { slug: "pools", tab: "Pools", name: "Pools fountain", tile: TILE.BANK_FOUNTAIN, cells: [{ x: 2, y: 5 }, { x: 3, y: 5 }], stand: { x: 2, y: 6 } },
+    { slug: "free", tab: "Free tokens", name: "Fountain", tile: TILE.BANK_FOUNTAIN, cells: [{ x: 2, y: 5 }, { x: 3, y: 5 }], stand: { x: 2, y: 6 } },
     { slug: "spending", tab: "Spending", name: "Spending board", tile: TILE.BANK_SPENDING, cells: [{ x: 11, y: 2 }], stand: { x: 11, y: 3 } },
     { slug: "hosting", tab: "Hosting", name: "Server rack", tile: TILE.BANK_SERVER, cells: [{ x: 14, y: 5 }], stand: { x: 14, y: 6 } },
   ],
@@ -1870,7 +1895,7 @@ export const CreateBuildingInput = Building.pick({ headcount: true, meetings: tr
     name: z.string().trim().max(80).optional().describe("blank or missing = the attached goal's short text"),
     goalId: Id.optional().describe("the goal of the town tree it attaches to (default: the root); never unset"),
   });
-/** The pool and the exploration budget are the attached goal's, not the building's (PATCH /api/goals/:id). */
+/** The exploration cap is the attached goal's, not the building's (PATCH /api/goals/:id). */
 export const UpdateBuildingInput = CreateBuildingInput.partial();
 /** PATCH /api/grants/:id while draft / countered. `testingPlan` replaces the list. */
 export const UpdateGrantInput = CreateGrantInput.partial().extend({ note: z.string().max(2000).optional() });
@@ -1957,12 +1982,6 @@ export const AddBankInput = z.object({
   goalId: Id.nullable().optional(),
 });
 export type AddBankInput = z.input<typeof AddBankInput>;
-/** POST /api/bank/pools (admin). `pct` null or left out: the pool splits what's left equally with the others. */
-export const CreateBankPoolInput = z.object({ name: z.string().trim().min(1).max(80), pct: z.number().min(0).max(100).nullable().default(null) });
-export type CreateBankPoolInput = z.input<typeof CreateBankPoolInput>;
-/** PATCH /api/bank/pools/:id (admin). */
-export const UpdateBankPoolInput = z.object({ name: z.string().trim().min(1).max(80).optional(), pct: z.number().min(0).max(100).nullable().optional() });
-export type UpdateBankPoolInput = z.input<typeof UpdateBankPoolInput>;
 export const CreateMeetingInput = z.object({ kind: MeetingKind.exclude(["one-on-one"]), buildingId: Id.nullable(), title: z.string().optional(), scheduledAt: Iso.optional(),
   /** a string, or agenda items (stored as numbered lines; blank items dropped) */
   agenda: z.union([z.string(), z.array(z.string())]).optional(), startNow: z.boolean().default(false),

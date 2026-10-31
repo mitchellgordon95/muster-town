@@ -16,11 +16,11 @@ Citation format: the same as in [grants.md](grants.md): a `- Test:` line with th
    - Test: `packages/core/test/lanes.test.ts` › `goal-directed: agents must say grant or exploration; fields are validated; humans may still create directed work`
 4. **A session copies its lane and `grantId` from its assignment when it starts**, so a grant's spend (summed from sessions) counts exactly the work done in its lane.
    - Test: `packages/core/test/lanes.test.ts` › `a session copies lane and grantId from its assignment at start`
-5. **The lane gate holds, it never cancels.** A held assignment stays `pending` with a `heldReason`, and work queued behind it still starts. Exploration is held once the building's exploration spend today reaches its allowance; directed work never is; the Town Hall never holds on lanes.
+5. **The lane gate holds, it never cancels.** A held assignment stays `pending` with a `heldReason`, and work queued behind it still starts. Exploration is held only when no tokens are free under the building's goal or the goal's optional exploration cap is reached today (no allowance: docs/how-work-gets-done.md §8); directed work never is; the Town Hall never holds on lanes.
    - Test: `packages/core/test/lanes.test.ts` › `a grant task is held while its grant is at checkpoint (stays pending, with a reason); work behind it still starts`
-   - Test: `packages/core/test/lanes.test.ts` › `exploration is held once the building's exploration spend today reaches its allowance; directed is not`
+   - Test: `packages/core/test/lanes.test.ts` › `exploration is held with no free tokens, or once its goal's optional cap is reached today; uncapped by default; directed is never held`
    - Test: `packages/core/test/lanes.test.ts` › `the Town Hall never holds on lanes; a lab does`
-   - Test: `packages/core/test/blockers.test.ts` › `lane holds point at the Town Hall in-tray: grant at checkpoint, exploration allowance spent (used of allowance, reset time)`
+   - Test: `packages/core/test/blockers.test.ts` › `lane holds point at the Town Hall in-tray: grant at checkpoint, exploration at its goal's cap (used of cap, reset time)`
 6. **Directed work that names a key result stops once a grant proposal names that key result.**
    - Test: `packages/core/test/lanes.test.ts` › `directed work naming a key result runs until a grant proposal names it`
 7. **`waitFor` holds the start.** The scheduler skips a waiting assignment until its wait is met. A wait still unmet after 24 h is cancelled into the in-tray, and a chain parks at most 3 times in a row.

@@ -9,6 +9,13 @@ export const TEST_TOKEN = "sk-ant-oat01-test-subscription-token";
 export function seedCredential(world: World, adminId: string): void {
   world.bank.addInput(adminId, { label: "Test subscription", source: "subscription", model: "claude-sonnet-5-5", tokens: 1, recurrence: "daily", weeklyCapTokens: 1, nextCreditAt: "2099-01-01T00:00:00.000Z", token: TEST_TOKEN });
 }
+/** Free tokens for exploration (it is held only when none are free): one far-off-expiring credit on the test subscription. */
+export function creditBank(world: World, tokens = 10_000_000): void {
+  const inp = world.bank.subscriptionInput();
+  if (!inp) throw new Error("creditBank: no test subscription input (seedCredential)");
+  world.db.prepare("INSERT INTO bank_credits (id, inputId, output, tokens, createdAt, expiresAt) VALUES (?, ?, ?, ?, ?, ?)")
+    .run(`bc_test_${Math.random().toString(36).slice(2)}`, inp.id, tokens, tokens, new Date().toISOString(), "2099-01-01T00:00:00.000Z");
+}
 import type { VerbName } from "@muster-town/schema";
 import { HostBackend, startRuntime, type RuntimeOptions, type Runtime, type Sdk } from "../src/index.ts";
 import type { Options, SDKUserMessage } from "../src/sdk.ts";

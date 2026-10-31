@@ -1,8 +1,7 @@
 /** Building panel (E at the door): overview, goals, grants and schedule (labs; GoalsTab.tsx), settings (managers: name, the goal it is attached to, desks, manager; 1:1 mt_n25udpflus decision 3: a building is a thin layer on the goal tree). No Members tab (flag dc_v7ejy1j5ri): roles live on the planning desk; live forks show on the map. Board, filing cabinet and in-tray are places; the collective's secrets are a planning-desk tab. */
 import { isFork } from "../forks";
-import { useEffect, useMemo, useState, type ReactNode } from "react";
+import { useMemo, useState, type ReactNode } from "react";
 import { BuildingDefaults, MAX_HEADCOUNT, ROOT_GOAL_ID, type Schedule, type SnapshotBuilding, type Workspace } from "@muster-town/schema";
-import { poolColor } from "../pools";
 import { api } from "../api";
 import { store, useTown } from "../state";
 import { Glyph, PanelShell } from "./PanelShell";
@@ -16,7 +15,7 @@ import { UNBLOCK_LINE, blockedLabel } from "./keyResults";
 import { GoalTabsSummary, GoalsTab, GrantsTab } from "./GoalsTab";
 import { GoalPicker, goalPath, useGoalTree } from "./GoalPicker";
 import { findGoal } from "./goalTree";
-import { goalShortName, purposeOf } from "../purpose";
+import { purposeOf } from "../purpose";
 
 /** "Owner: <owner>" (docs/goals.md "Owners on nodes"): the attachment's effective owner, once; the goal card above already says the goal, so only a link to it in the Town Hall goal tree follows. */
 function GoalOwner({ b }: { b: SnapshotBuilding }) {
@@ -86,7 +85,6 @@ function Overview({ b }: { b: SnapshotBuilding }) {
         </div>
       ) : null}
       {b.kind !== "town-hall" ? <GoalOwner b={b} /> : null}
-      <PoolLine b={b} />
       {b.kind !== "town-hall" ? <GoalTabsSummary b={b} /> : null}
       {hasBoard || hasTray || hasRoom ? (
         <div className="walk-links">
@@ -275,21 +273,5 @@ function CollectiveDefaults() {
         }}>Save for every building</Act></div>
       </form>
     </Section>
-  );
-}
-
-/** "Pool: X (from goal Y)": the pool is the attached goal's, inherited down the tree; set it on the goal (the Town Hall goal tree, Funding). */
-function PoolLine({ b }: { b: SnapshotBuilding }) {
-  const bank = useTown((s) => s.bank);
-  useEffect(() => { if (!bank) api().bank().then((next) => store.set({ bank: next }), () => undefined); }, [bank]);
-  const row = bank?.buildings.find((x) => x.buildingId === b.id);
-  if (!bank || !row) return null;
-  return (
-    <div className="muted goal-meta pool-line">
-      <span className="pool-swatch" style={{ background: poolColor(bank, row.poolId) }} /> Pool: <b>{row.poolName}</b>{" "}
-      {row.poolGoalId
-        ? <span>(from goal <button className="link" title={row.poolGoalText ?? undefined} onClick={() => store.open({ kind: "goals", id: row.poolGoalId! })}>{goalShortName(row.poolGoalText ?? row.poolGoalId)}</button>)</span>
-        : <>(no goal above it sets one)</>}
-    </div>
   );
 }

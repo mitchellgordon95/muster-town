@@ -1,9 +1,10 @@
 import { describe, expect, it } from "vitest";
 import { renderToStaticMarkup } from "react-dom/server";
-import type { Finance, FinanceFly, FinancePools, FinanceSources, FinanceSpend } from "../src/api";
-import { donationNote, FINANCE_TERMS, flyCheckLine, flyWindowTotals, inputName, overdrawnParts, poolsBalanceLine, poolsDrawsLine, sourcesCheckLine, pct, runwayDays, spendCheckLine, sumCheckLine, type FinanceData } from "../src/panels/BankFinance";
+import type { Finance, FinanceFly, FinanceSources, FinanceSpend } from "../src/api";
+import { donationNote, FINANCE_TERMS, flyCheckLine, flyWindowTotals, inputName, overdrawnParts, sourcesCheckLine, pct, runwayDays, spendCheckLine, sumCheckLine, type FinanceData } from "../src/panels/BankFinance";
 import { BANK_TABS } from "@muster-town/schema";
 import { BankView } from "../src/panels/BankPanel";
+import { BankFreeTokens, freeBreakdown } from "../src/panels/FreeTokens";
 
 // the live shape: 1,000 received, 1,100 used (200 overdrawn), 50 expired, 50 left
 const f: Finance = {
@@ -13,7 +14,7 @@ const f: Finance = {
 };
 const noop = () => undefined;
 /** One tab of the Bank page before GET /api/bank answers (a stranger, signed out), with these finance sections. */
-const tabOf = (tab: string, fin: Partial<FinanceData>) => renderToStaticMarkup(<BankView tab={tab} bank={null} fin={{ f, spend: null, sources: null, poolsFin: null, fly: null, ...fin }} rev={0} onChange={noop} onReload={noop} />);
+const tabOf = (tab: string, fin: Partial<FinanceData>) => renderToStaticMarkup(<BankView tab={tab} bank={null} fin={{ f, spend: null, sources: null, fly: null, ...fin }} rev={0} onChange={noop} onReload={noop} />);
 /** Every tab of the Bank page, in order. */
 const page = (fin: Partial<FinanceData>) => BANK_TABS.map((t) => tabOf(t, fin)).join("");
 
@@ -44,10 +45,10 @@ describe("finance page", () => {
     expect(page({ f: { ...f, sumCheck: { ...f.sumCheck, ok: false, diff: 5 } } })).toContain("✗ Does not add up (off by 5)");
   });
   it("splits the page into tabs, each a thing in the Bank's room, each ending with its sources (1:1 mt_ew2d0mm7h9)", () => {
-    expect([...BANK_TABS]).toEqual(["Overview", "Tokens & sources", "Pools", "Spending", "Hosting"]);
-    const all = { spend: sp, sources: src, poolsFin: fp, fly };
+    expect([...BANK_TABS]).toEqual(["Overview", "Tokens & sources", "Free tokens", "Spending", "Hosting"]);
+    const all = { spend: sp, sources: src, fly };
     const has: Record<string, string[]> = {
-      Overview: ["Balance", "Next 30 days"], "Tokens & sources": ["Tokens", "Sources"], Pools: ["Pool balances"], Spending: ["Spending"], Hosting: ["Hosting (Fly.io)"],
+      Overview: ["Balance", "Next 30 days"], "Tokens & sources": ["Tokens", "Sources"], "Free tokens": ["Free tokens by goal"], Spending: ["Spending"], Hosting: ["Hosting (Fly.io)"],
     };
     for (const t of BANK_TABS) {
       const html = tabOf(t, all);
@@ -59,8 +60,8 @@ describe("finance page", () => {
     expect(ov.indexOf(">Balance<")).toBeLessThan(ov.indexOf(">Next 30 days<"));
   });
   it("ends every tab with the Terms block, above the footer, defining each term the page uses (kr_zjawesqcyp)", () => {
-    const all = { spend: sp, sources: src, poolsFin: fp, fly };
-    expect(FINANCE_TERMS.map(([t]) => t)).toEqual(["Adjusted token (adj. token)", "Expiring and permanent", "Overdrawn", "Held", "Daily allowance", "Not funded", "Grant"]);
+    const all = { spend: sp, sources: src, fly };
+    expect(FINANCE_TERMS.map(([t]) => t)).toEqual(["Adjusted token (adj. token)", "Expiring and permanent", "Overdrawn", "Held", "Free tokens", "Earmark", "Exploration cap", "Not funded", "Grant"]);
     for (const t of BANK_TABS) {
       const html = tabOf(t, all);
       expect(html, t).toContain("Terms used on this page");
@@ -70,7 +71,7 @@ describe("finance page", () => {
     expect(tabOf("Overview", {})).toContain("1 adj. token ≈ 30 raw tokens on Opus, 24 on Fable");
   });
   it("uses no internal names anywhere on the page", () => {
-    const html = page({ spend: sp, sources: src, poolsFin: fp, fly });
+    const html = page({ spend: sp, sources: src, fly });
     for (const s of ["Weight mismatch", "weight mismatch", "Opus weights", "migration", "overshoot"]) expect(html).not.toContain(s);
     expect(html).not.toMatch(/\blanes?\b/i);
   });
@@ -114,7 +115,9 @@ describe("finance page: spending", () => {
     expect(html).toContain("<details");
     // a grant row links to its grant page, with the full objective on hover
     expect(html).toContain(`<a class="spend-grant" href="#/grant/gr_a" title="Refactor the Bank: one ledger for every debit">Refactor the Bank…</a>`);
-    for (const s of ["Weight mismatch", "Opus weights", "exploration", "directed", "migration"]) expect(html).not.toContain(s);
+    // no lane names in the section itself (the Terms block names exploration: free tokens are what it may claim)
+    const section = html.slice(html.indexOf("<h3>Spending</h3>"), html.indexOf("</section>", html.indexOf("<h3>Spending</h3>")));
+    for (const s of ["Weight mismatch", "Opus weights", "exploration", "directed", "migration"]) expect(section).not.toContain(s);
     expect(page({ spend: { ...sp, check: { ...sp.check, ok: false, diff: 3 } } })).toContain("✗ Does not add up (off by 3)");
   });
   it("leaves the section out when the spend can't be loaded", () => {
@@ -172,50 +175,16 @@ describe("finance page: sources", () => {
   });
 });
 
-// GET /api/finance/pools: General (70%) overdrawn by 120 permanent, Labs (30%), 10 unshared (rounding); 950 drawn, all of it by buildings
-const fp: FinancePools = {
-  pools: [
-    { id: "general", name: "General", pct: 70, explicit: false, isDefault: true, buildings: [{ id: "workshop", name: "Town Workshop" }, { id: "town-hall", name: "Town Hall" }],
-      expiringLeft: 30, durableLeft: 0, left: 30, overdrawn: 120, drawn: 800, dailyInflowTokens: 210 },
-    { id: "pl_labs", name: "Labs", pct: 30, explicit: true, isDefault: false, buildings: [{ id: "bl_b", name: "Bank Transparency" }],
-      expiringLeft: 20, durableLeft: 60, left: 80, overdrawn: 0, drawn: 150, dailyInflowTokens: 90 },
-  ],
-  buildings: [
-    { id: "workshop", name: "Town Workshop", poolId: "general", poolName: "General", drawsFromBank: true, drawn: 800, drawnSubscription: 600, drawnDurable: 200, drawnMemberFunded: 0, donated: 150, donationsSpent: 20, held: 130, explorationTokensPerDay: 40000 },
-    { id: "bl_b", name: "Bank Transparency", poolId: "pl_labs", poolName: "Labs", drawsFromBank: true, drawn: 150, drawnSubscription: 150, drawnDurable: 0, drawnMemberFunded: 0, donated: 50, donationsSpent: 50, held: 0, explorationTokensPerDay: 25000 },
-    { id: "town-hall", name: "Town Hall", poolId: "general", poolName: "General", drawsFromBank: false, drawn: 0, drawnSubscription: 0, drawnDurable: 0, drawnMemberFunded: 0, donated: 0, donationsSpent: 0, held: 0, explorationTokensPerDay: 0 },
-  ],
-  sharedPct: 100, balanceTokens: 120, overshootTokens: 120, poolsLeftTokens: 110, poolsOverdrawnTokens: 120, unsharedTokens: 10,
-  usedBank: 950, donatedTokens: 200, heldTokens: 130,
-  sumCheck: { drawsOk: true, drawsDiff: 0, balanceOk: true, balanceDiff: 0, ok: true, identities: { draws: "Σ building draws = Σ pool draws = Bank debits", balance: "Σ pools left − Σ pools overdrawn + unshared = Bank balance − overshoot" } },
-  at: "2026-10-29T04:00:00.000Z",
-};
-
-describe("finance page: pools", () => {
-  it("checks the pools against the Bank balance and the building draws against the Bank debits", () => {
-    expect(poolsBalanceLine(fp)).toEqual({ ok: true, text: "The server checked that what the pools have left, 110, less what they are overdrawn, 120, plus the unshared 10, equals the Bank balance, 120, less what it is overdrawn, 120 (0)." });
-    expect(poolsDrawsLine(fp)).toEqual({ ok: true, text: "The server checked that what the buildings drew equals what the pools paid out and what the Bank debited: 950." });
+// GET /api/bank's town-wide free tokens: 900 general + 100 earmarked, less 500 funded remaining, 200 asked, 50 reserved
+const free = { goalId: "gl_town", generalTokens: 900, earmarkTokens: 100, fundedRemainingTokens: 500, openAsksTokens: 200, reservedTokens: 50, freeTokens: 250 };
+describe("finance page: free tokens", () => {
+  it("writes the free-tokens sum, leaving out terms that are zero", () => {
+    expect(freeBreakdown(free)).toBe("general balance 900 + earmarks at or above 100 − funded grants' remaining 500 − open proposals' asks 200 − reservations 50");
+    expect(freeBreakdown({ ...free, earmarkTokens: 0, reservedTokens: 0 })).toBe("general balance 900 − funded grants' remaining 500 − open proposals' asks 200");
   });
-  it("says by how much a failing check misses", () => {
-    const bad: FinancePools = { ...fp, usedBank: 960, sumCheck: { ...fp.sumCheck, drawsOk: false, drawsDiff: 20, balanceOk: false, balanceDiff: 7, ok: false } };
-    expect(poolsDrawsLine(bad)).toEqual({ ok: false, text: "Does not add up (off by 20): the buildings drew 950, the pools paid out 950, the Bank debited 960." });
-    expect(poolsBalanceLine(bad).text).toMatch(/^Does not add up \(off by 7\): what the pools have left, 110, .* comes to 0, but the Bank balance, 120, .* comes to 0\.$/);
-    const html = page({ poolsFin: bad });
-    expect(html).toContain("✗ Does not add up (off by 20)");
-    expect(html).toContain("✗ Does not add up (off by 7)");
-  });
-  it("renders each pool with its share and left, an overdrawn pool's debt on its own row, then each building, between Sources and Spending", () => {
-    const html = page({ spend: sp, sources: src, poolsFin: fp });
-    for (const s of ["Pool balances", "General", "70%", "Labs", "30%", "Town Workshop, Town Hall", "General overdrawn: permanent tokens drawn past its share", "−120", "Unshared", "Bank balance less what is overdrawn",
-      "✓ The server checked that what the pools have left, 110", "Drawn from pools", "800", "drawn all time 800", "permanent 60", "donated 150", "held 130", "allowance 40,000 / day", "25,000", "draws nothing from the Bank",
-      "unspent allowance does not carry over", "Held tokens are the unspent part of donations made straight to a building", "funded only by donations made to it", "✓ The server checked that what the buildings drew", "/api/finance/pools"]) expect(html).toContain(s);
-    expect(html).toContain('class="spend-row finance-overdrawn pool-overdrawn"');
-    expect(html.indexOf("Credited through the Bank")).toBeLessThan(html.indexOf("Bank balance less what is overdrawn"));
-    expect(html.indexOf("Bank balance less what is overdrawn")).toBeLessThan(html.indexOf("Spending"));
-    expect(page({ poolsFin: { ...fp, pools: [{ ...fp.pools[1] }] } })).not.toContain("pool-overdrawn");
-  });
-  it("leaves the section out when the pools can't be loaded", () => {
-    expect(page({})).not.toContain("Drawn from pools");
+  it("shows the town-wide free tokens with each term", () => {
+    const html = renderToStaticMarkup(<BankFreeTokens free={free} />);
+    for (const s of [">Free tokens<", "general balance", "earmarks at or above", "less funded grants&#x27; remaining", "−500", "less reservations", "<b>250</b>"]) expect(html).toContain(s);
   });
 });
 

@@ -4,7 +4,7 @@ import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 import { CHAIN_PLAN_RULE, RESIDENT_NAMES, buildingQueue, chainBlock, createAssignment, createDoc, createBuilding, createResident, forkManager, forkSummary, forksOf, familySpend, reportChain, reportChains, nextStartable, retireFork, suggestResidentName, teamBlock, updateBuilding, workPrompt } from "../src/index.ts";
-import { seededWorld } from "./helpers.ts";
+import { creditBank, seededWorld } from "./helpers.ts";
 
 const CHAINS_SQL = readFileSync(join(dirname(fileURLToPath(import.meta.url)), "..", "migrations", "049_assignment_chains.sql"), "utf8");
 
@@ -17,7 +17,7 @@ function forkLab(opts: { daily?: number } = {}) {
   const pix = createResident(world, { buildingId: b.id, name: "Pix", sprite: 5 });
   const ann = createResident(world, { buildingId: b.id, name: "Ann" });
   updateBuilding(world, b.id, { managerAgentId: pix.id });
-  world.goals.patch(world.goalTree.attachmentOf(b.id), { explorationTokensPerDay: 10_000_000 }); // labs are lane-gated: queued exploration needs an allowance
+  creditBank(world); // labs are lane-gated: queued exploration needs free tokens
   world.budget.donate(seed.admin.id, { tokens: 1_000_000, buildingId: b.id });
   const queue = async (title: string, extra: { model?: string } = {}) => (await world.verbs.assign(world.agents.require(pix.id), { title, description: "d", gap: "test gap", ...extra })).assignmentId;
   return { ...s, b: world.buildings.require(b.id), pix: world.agents.require(pix.id), ann, queue };

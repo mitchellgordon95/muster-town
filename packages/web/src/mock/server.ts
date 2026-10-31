@@ -1,21 +1,22 @@
 /** `Api` implemented against the in-memory Sim. Same interface as HttpApi, so every panel works offline. */
 import type { AccessRequest, AccessRequestView, Agent, Assignment, AuthMe, BlockedAssignment, BlockedBy, BuildingStats, Schedule, Building, Doc, Event, Meeting, Membership, RedeployLive, ReviewDeck, ReviewSlide } from "@muster-town/schema";
 import { BuildingDefaults, NEW_LAB_LOT, REVIEW_DECK_ID, desksForLot, funderSlide, parseDeck } from "@muster-town/schema";
-import { BACKFILL, BOARD_TYPES, KPI_FRAMING, DEFAULT_POOL_ID, ZERO_TOKENS, addTokens, backfillFamily, splitRaw, type BankPool, type GoalTreeNode, type GoalSpend, type QueueBoard, type FunderWeek } from "@muster-town/schema";
-import type { Api, AgentDetail, AllocationRow, Bank, Budget, Finance, FinanceFly, FinancePools, FinanceSources, FinanceSpend, Cabinet, CabinetQuery, DocQuery, EventQuery, In, LayoutPreview, FunderWeekView, RoomLayout, RequestAction, Snapshot, Socket, SocketHandlers, ThreadMessage, WriteDocInput } from "../api";
+import { BACKFILL, BOARD_TYPES, KPI_FRAMING, ZERO_TOKENS, addTokens, backfillFamily, splitRaw, type FreeTokens, type GoalTreeNode, type GoalSpend, type QueueBoard, type FunderWeek } from "@muster-town/schema";
+import type { Api, AgentDetail, AllocationRow, Bank, Budget, Finance, FinanceFly, FinanceSources, FinanceSpend, Cabinet, CabinetQuery, DocQuery, EventQuery, In, LayoutPreview, FunderWeekView, RoomLayout, RequestAction, Snapshot, Socket, SocketHandlers, ThreadMessage, WriteDocInput } from "../api";
 import { ApiError } from "../api";
 import type { BankStreams, PinSkillInput, PutSecretInput, SecretView, SkillPinView, SkillView } from "@muster-town/schema";
-import type { CreateBuildingInput, UpdateBuildingInput, RegisterVisitorInput, ReviewInput, WorkInput, DonateInput, CreateMeetingInput, DocState, AddBankInput, BankInput, CreateBankPoolInput, UpdateBankPoolInput, DecideGrantInput, CloseGrantInput, CreateKeyResultInput, UpdateKeyResultInput, CreateObjectiveInput, UpdateObjectiveInput } from "@muster-town/schema";
+import type { CreateBuildingInput, UpdateBuildingInput, RegisterVisitorInput, ReviewInput, WorkInput, DonateInput, CreateMeetingInput, DocState, AddBankInput, BankInput, DecideGrantInput, CloseGrantInput, CreateKeyResultInput, UpdateKeyResultInput, CreateObjectiveInput, UpdateObjectiveInput } from "@muster-town/schema";
 import { Sim, newId, spent } from "./sim";
-import { kpis as kpisFixture, memoryDocs } from "./fixture";
+import { explorationSpentToday, kpis as kpisFixture, memoryDocs } from "./fixture";
 import manualMd from "../../../../docs/manual.md?raw";
 
 const wait = (ms = 120) => new Promise((r) => setTimeout(r, ms));
 const now = () => new Date().toISOString();
 const clone = <T,>(x: T): T => JSON.parse(JSON.stringify(x));
 
-/** the mock tree's exploration budgets set on a goal (tokens/day), inherited one level down */
-const MOCK_EXPLORATION: Record<string, number> = { gl_town: 3_000_000 };
+/** the mock tree's exploration caps set on a goal (tokens/day), inherited one level down; the root's is town-wide */
+const MOCK_CAP: Record<string, number> = { gl_town: 3_000_000 };
+const F_SPENT_TODAY = () => Object.values(explorationSpentToday).reduce((s, n) => s + n, 0);
 
 export class MockApi implements Api {
   readonly mock = true;
@@ -86,7 +87,11 @@ export class MockApi implements Api {
     const fyis = (bid: string) => [...this.sim.docs.values()].filter((d) => d.buildingId === bid && d.state === "building" && BOARD_TYPES.includes(d.type)).sort((a, b) => b.updatedAt.localeCompare(a.updatedAt)).slice(0, limit);
     const hall = this.sim.buildings.find((b) => b.kind === "town-hall");
     const town = hall && hall.id !== buildingId ? fyis(hall.id).map((d) => ({ ...d, townWide: true })) : [];
-    return clone({ docs: [...town, ...fyis(buildingId)], ...this.sim.grantBoard(buildingId) });
+    const b = this.sim.buildings.find((x) => x.id === buildingId);
+    const board = this.sim.grantBoard(buildingId), goalId = b?.goalId ?? "gl_town";
+    const cap = this.capAt(goalId);
+    const exploration = { ...board.exploration, freeTokens: this.free(goalId).freeTokens, cap: cap ? { ...cap, spentTodayTokens: F_SPENT_TODAY() } : null };
+    return clone({ docs: [...town, ...fyis(buildingId)], ...board, exploration });
   }
   async cabinet(buildingId: string, q: CabinetQuery = {}) {
     await wait();
@@ -103,14 +108,29 @@ export class MockApi implements Api {
     return clone({ docs, counts: [...counts.values()] });
   }
   async createBuilding(i: In<typeof CreateBuildingInput>) { await wait(); return clone(this.sim.createBuilding(i.name || "New building", "", desksForLot(NEW_LAB_LOT), i.goalId)); }
-  /** the mock's goal tree: the root with its Fund/Join/Trust placeholders (the root sets an exploration budget its children inherit); buildings sit where their goalId says */
+  /** the nearest goal at or above (one level: the mock tree is flat) that sets an exploration cap; null = uncapped */
+  private capAt(goalId: string): { tokensPerDay: number; goalId: string } | null {
+    return [goalId, "gl_town"].map((g) => MOCK_CAP[g] ? { tokensPerDay: MOCK_CAP[g], goalId: g } : null).find(Boolean) ?? null;
+  }
+  /** Free tokens under a goal, like core free-tokens.ts: the general balance + earmarks at or above it, less every live grant's remaining and open ask (no reservations in the toy) */
+  private free(goalId: string): FreeTokens {
+    const live = this.bankInputs.filter((i) => !i.cancelledAt);
+    const generalTokens = live.filter((i) => !i.goalId).reduce((s, i) => s + i.creditedTokens, 0);
+    const earmarkTokens = live.filter((i) => i.goalId === goalId || i.goalId === "gl_town").reduce((s, i) => s + i.creditedTokens, 0);
+    const grants = [...this.sim.grants.values()];
+    const fundedRemainingTokens = grants.filter((g) => g.status === "funded" || g.status === "checkpoint").reduce((s, g) => s + Math.max(0, (g.grantTokens ?? 0) - g.spentTokens), 0);
+    const openAsksTokens = grants.filter((g) => g.status === "proposed" || g.status === "countered").reduce((s, g) => s + g.askTokens, 0);
+    const freeTokens = Math.max(0, generalTokens + earmarkTokens - fundedRemainingTokens - openAsksTokens);
+    return { goalId, generalTokens, earmarkTokens, fundedRemainingTokens, openAsksTokens, reservedTokens: 0, freeTokens };
+  }
+  /** the mock's goal tree: the root with its Fund/Join/Trust placeholders (the root sets an exploration cap its children inherit); buildings sit where their goalId says */
   async goalTree(): Promise<GoalTreeNode> {
     await wait();
     const owner = { goalId: "gl_town", userId: null, name: "the town admins" };
     const node = (id: string, parentId: string | null, text: string, children: GoalTreeNode[] = []): GoalTreeNode => ({
       id, parentId, text, status: "active", ownerId: null, owner, keyResults: [], children,
-      poolId: null, explorationTokensPerDay: MOCK_EXPLORATION[id] ?? null,
-      funding: { pool: null, exploration: [id, parentId].map((g) => g && MOCK_EXPLORATION[g] ? { tokensPerDay: MOCK_EXPLORATION[g], goalId: g } : null).find(Boolean) ?? null },
+      exploreCapTokensPerDay: MOCK_CAP[id] ?? null,
+      funding: { exploreCap: this.capAt(id), exploreSpentTodayTokens: F_SPENT_TODAY(), free: this.free(id) },
       buildings: this.sim.buildings.filter((b) => (b.goalId ?? "gl_town") === id).map((b) => ({ id: b.id, name: b.name, headcount: b.headcount, inUse: Math.min(b.headcount, [...this.sim.agents.values()].filter((a) => a.homeBuildingId === b.id && a.status === "working").length) })),
     });
     return clone(node("gl_town", null, this.sim.town.goal || "The town goal", [node("gl_fund", "gl_town", "Fund"), node("gl_join", "gl_town", "Join"), node("gl_trust", "gl_town", "Trust")]));
@@ -573,15 +593,16 @@ export class MockApi implements Api {
     });
     return { buildings, users: this.sim.users.map((u) => ({ userId: u.id, name: u.name, donated: u.donatedTokens })) };
   }
-  // a toy Bank: every input credits its tokens once, right away; subscriptions are the expiring pool
-  // one member input with balance: the in-tray's Fund offers "Pay from" it (member funding)
+  // a toy Bank: every input credits its tokens once, right away; subscriptions are the expiring part
+  // the owner's daily subscription (the general balance free tokens come from), and one member input with balance: the
+  // in-tray's Fund offers "Pay from" it (member funding)
   private bankInputs: BankInput[] = [{
+    id: "bi_mitchell_max", userId: "us_mitchell", label: "Mitchell's Max plan", source: "subscription", model: "claude-opus-5-5", tokens: 20_000_000, recurrence: "daily",
+    weeklyCapTokens: 120_000_000, nextCreditAt: null, creditedTokens: 20_000_000, hasApiKey: true, cancelledAt: null, createdAt: now(), goalId: null, idleNotifiedAt: null,
+  }, {
     id: "bi_mitchell_key", userId: "us_mitchell", label: "Mitchell's API key", source: "api-key", model: "claude-sonnet-5-5", tokens: 3_000_000, recurrence: "once",
     weeklyCapTokens: null, nextCreditAt: null, creditedTokens: 3_000_000, hasApiKey: true, cancelledAt: null, createdAt: now(), goalId: null, idleNotifiedAt: null,
   }];
-  // accounting pools: buildings without a poolId are in General; pools without a pct split what's left equally
-  private bankPools: BankPool[] = [{ id: DEFAULT_POOL_ID, name: "General", pct: null, createdAt: now() }];
-  private poolOf(b: Building) { return this.bankPools.some((p) => p.id === b.poolId) ? b.poolId! : DEFAULT_POOL_ID; }
   // a toy finance summary over the toy Bank: nothing expired or overdrawn, a flat burn
   async finance(): Promise<Finance> {
     const b = await this.bank();
@@ -625,8 +646,6 @@ export class MockApi implements Api {
       sumCheck: { ok: true, diff: 0, identity: "credits + donations = total received" }, financeTotal: total, matchesFinance: totalReceived === total, at: now(),
     };
   }
-  // the toy's pools from its bank(): nothing drawn (the toy Bank never debits), so left is each pool's share and nothing is overdrawn;
-  // a flat toy exploration allowance per building that draws
   async bankStreams(): Promise<BankStreams> {
     await wait();
     return {
@@ -636,32 +655,6 @@ export class MockApi implements Api {
         goalId: i.goalId ?? null, goalPath: i.goalId, balance: i.creditedTokens, coversSession: i.creditedTokens >= 120_000,
         daysToCover: null, lastDrawAt: null, idle: null, cancelledAt: i.cancelledAt, createdAt: i.createdAt,
       })),
-    };
-  }
-  async financePools(): Promise<FinancePools> {
-    const b = await this.bank();
-    const pools: FinancePools["pools"] = b.pools.map((p) => ({
-      id: p.id, name: p.name, pct: p.pct, explicit: p.explicit, isDefault: p.isDefault, buildings: p.buildings.map((x) => ({ id: x.buildingId, name: x.name })),
-      expiringLeft: p.expiringTokens, durableLeft: Math.max(0, p.durableTokens), left: p.expiringTokens + Math.max(0, p.durableTokens), overdrawn: Math.max(0, -p.durableTokens),
-      drawn: 0, dailyInflowTokens: Math.floor(b.dailyInflowTokens * p.pct / 100),
-    }));
-    const buildings: FinancePools["buildings"] = this.sim.buildings.map((x) => {
-      const al = this.sim.allocations.filter((a) => a.buildingId === x.id);
-      const pool = pools.find((p) => p.id === this.poolOf(x))!;
-      return {
-        id: x.id, name: x.name, poolId: pool.id, poolName: pool.name, drawsFromBank: true, drawn: 0, drawnSubscription: 0, drawnDurable: 0, drawnMemberFunded: 0,
-        donated: al.reduce((s, a) => s + (a.retired ? Math.min(a.tokens, a.spentTokens) : a.tokens), 0), donationsSpent: al.reduce((s, a) => s + a.spentTokens, 0),
-        held: al.reduce((s, a) => s + (a.retired ? 0 : Math.max(0, a.tokens - a.spentTokens)), 0), explorationTokensPerDay: x.kind === "town-hall" ? 0 : 50_000,
-      };
-    });
-    const poolsLeftTokens = pools.reduce((s, p) => s + p.left, 0), poolsOverdrawnTokens = pools.reduce((s, p) => s + p.overdrawn, 0);
-    const unsharedTokens = b.balanceTokens - poolsLeftTokens + poolsOverdrawnTokens;
-    return {
-      pools, buildings, sharedPct: pools.reduce((s, p) => s + p.pct, 0), balanceTokens: b.balanceTokens, overshootTokens: 0,
-      poolsLeftTokens, poolsOverdrawnTokens, unsharedTokens, usedBank: 0,
-      donatedTokens: buildings.reduce((s, x) => s + x.donated, 0), heldTokens: buildings.reduce((s, x) => s + x.held, 0),
-      sumCheck: { drawsOk: true, drawsDiff: 0, balanceOk: true, balanceDiff: 0, ok: true, identities: { draws: "Σ building draws = Σ pool draws = Bank debits", balance: "Σ pools left − Σ pools overdrawn + unshared = Bank balance − overshoot" } },
-      at: now(),
     };
   }
   // the toy runs on no Fly Machine: desks and the town are unpriced, so every Fly line is $0 over an empty 7-day window
@@ -685,17 +678,6 @@ export class MockApi implements Api {
     const live = this.bankInputs.filter((i) => !i.cancelledAt);
     const expiringTokens = live.filter((i) => i.source === "subscription").reduce((s, i) => s + i.creditedTokens, 0);
     const durableTokens = this.bankInputs.filter((i) => i.source === "api-key").reduce((s, i) => s + i.creditedTokens, 0);
-    const members = (poolId: string) => this.sim.buildings.filter((b) => this.poolOf(b) === poolId);
-    // like core: only a pool with a building gets an auto share
-    const draws = (poolId: string) => members(poolId).length > 0;
-    const used = this.bankPools.reduce((s, p) => s + (p.pct ?? 0), 0);
-    const auto = this.bankPools.filter((p) => p.pct === null && draws(p.id));
-    const pctOf = (p: BankPool) => p.pct ?? (draws(p.id) ? Math.max(0, 100 - used) / auto.length : 0);
-    const pools = this.bankPools.map((p) => ({
-      id: p.id, name: p.name, pct: Math.round(pctOf(p) * 100) / 100, explicit: p.pct !== null, isDefault: p.id === DEFAULT_POOL_ID,
-      buildings: members(p.id).map((b) => ({ buildingId: b.id, name: b.name })), goals: [],
-      expiringTokens: Math.floor(expiringTokens * pctOf(p) / 100), durableTokens: Math.floor(durableTokens * pctOf(p) / 100),
-    }));
     const key = { subscription: "subscription", "api-key": "apiKey", "donor-key": "donorKey" } as const;
     const heldOf = (bid?: string) => {
       const h = { subscription: 0, apiKey: 0, donorKey: 0 };
@@ -705,13 +687,8 @@ export class MockApi implements Api {
     const sum = (h: { subscription: number; apiKey: number; donorKey: number }) => h.subscription + h.apiKey + h.donorKey;
     const heldByAuth = heldOf();
     const heldTokens = sum(heldByAuth);
-    const buildings = this.sim.buildings.map((b) => {
-      const pool = pools.find((p) => p.id === this.poolOf(b))!;
-      return {
-        buildingId: b.id, name: b.name, poolId: pool.id, poolName: pool.name, poolGoalId: null, poolGoalText: null, pct: pool.pct, explicit: pool.explicit,
-        expiringTokens: pool.expiringTokens, durableTokens: pool.durableTokens, heldTokens: sum(heldOf(b.id)), heldByAuth: heldOf(b.id),
-      };
-    });
+    // one balance: every building sees all of it
+    const buildings = this.sim.buildings.map((b) => ({ buildingId: b.id, name: b.name, expiringTokens, durableTokens, heldTokens: sum(heldOf(b.id)), heldByAuth: heldOf(b.id) }));
     const contributors = this.sim.users.map((u) => {
       const bankTokens = this.bankInputs.filter((i) => i.userId === u.id).reduce((s, i) => s + i.creditedTokens, 0);
       return { userId: u.id, name: u.name, tokens: bankTokens + u.donatedTokens, bankTokens, donatedTokens: u.donatedTokens };
@@ -725,7 +702,7 @@ export class MockApi implements Api {
       creditedCounts: inputs.reduce((s, i) => addTokens(s, i.creditedCounts), { ...ZERO_TOKENS }),
       adjustedCreditedTokens: inputs.reduce((s, i) => s + i.adjustedCreditedTokens, 0),
       inputs,
-      pools, buildings, contributors,
+      buildings, contributors, free: this.free("gl_town"),
     });
   }
   async addBankInput(i: In<typeof AddBankInput>) {
@@ -744,32 +721,6 @@ export class MockApi implements Api {
     if (!i) throw new ApiError("No such input", "not_found", 404);
     Object.assign(i, { cancelledAt: now(), hasApiKey: false });
     return clone(i);
-  }
-  private checkPct(poolId: string | null, pct: number | null | undefined) {
-    if (pct === null || pct === undefined) return;
-    const others = this.bankPools.filter((p) => p.id !== poolId).reduce((s, p) => s + (p.pct ?? 0), 0);
-    if (others + pct > 100) throw new ApiError(`Shares would add up to ${others + pct}%; the most this pool can have is ${100 - others}%.`, "bad_request", 400);
-  }
-  async createBankPool(i: In<typeof CreateBankPoolInput>) {
-    await wait();
-    this.checkPct(null, i.pct);
-    this.bankPools.push({ id: newId("pl"), name: i.name, pct: i.pct ?? null, createdAt: now() });
-    return this.bank();
-  }
-  async updateBankPool(id: string, i: In<typeof UpdateBankPoolInput>) {
-    await wait();
-    const p = this.need(this.bankPools.find((x) => x.id === id), "pool");
-    this.checkPct(id, i.pct);
-    if (i.name !== undefined) p.name = i.name;
-    if (i.pct !== undefined) p.pct = i.pct;
-    return this.bank();
-  }
-  async deleteBankPool(id: string) {
-    await wait();
-    if (id === DEFAULT_POOL_ID) throw new ApiError("General is the default pool; it can't be deleted.", "bad_request", 400);
-    if (this.sim.buildings.some((b) => this.poolOf(b) === id)) throw new ApiError("The pool still funds goals; set them to another pool first.", "bad_request", 400);
-    this.bankPools = this.bankPools.filter((p) => p.id !== id);
-    return this.bank();
   }
   async exportNow() { await wait(400); this.sim.event("export.done", null, "Exported town to git", {}, null); return "a1b2c3d"; }
   /** the mock runtime's live redeploy view (GET /api/admin/redeploy) */

@@ -28,7 +28,7 @@ describe("the town map is drawn from the goal tree (docs/goals.md \"The map is t
 
 describe("Desks is the size setting", () => {
   const b = { id: "bl_x", name: "Ocean Lab", kind: "lab", headcount: 5, lot: { x: 10, y: 20, w: 15, h: 12 }, goal: "", description: "", model: "m", cheapModel: "c",
-    maxTurnsPerSession: 80, dailyTokensPerAgent: 2_000_000, managerAgentId: null, codeAccess: false, poolId: null } as never;
+    maxTurnsPerSession: 80, dailyTokensPerAgent: 2_000_000, managerAgentId: null, codeAccess: false } as never;
   it("New building: no desks input, the default count", () => {
     vi.spyOn(store, "can").mockReturnValue(true);
     const html = renderToStaticMarkup(<Buildings />);
@@ -49,7 +49,7 @@ describe("Desks is the size setting", () => {
 
 describe("building settings are a thin layer on goals (1:1 mt_n25udpflus decision 3)", () => {
   const b = { id: "bl_x", name: "Ocean Lab", kind: "lab", headcount: 5, lot: { x: 10, y: 20, w: 15, h: 12 }, goal: "old text", description: "old description", model: "m", cheapModel: "c",
-    maxTurnsPerSession: 80, dailyTokensPerAgent: 2_000_000, managerAgentId: null, codeAccess: false, poolId: null, goalId: "gl_town" } as never;
+    maxTurnsPerSession: 80, dailyTokensPerAgent: 2_000_000, managerAgentId: null, codeAccess: false, goalId: "gl_town" } as never;
   it("Settings: Name (optional), Attached to, Desks, Manager in one form; no goal or description text", () => {
     store.state = { ...store.state, buildings: [b] };
     vi.spyOn(store, "can").mockReturnValue(true);

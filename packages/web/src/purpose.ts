@@ -10,7 +10,7 @@ export function purposeOf(b: Pick<Building, "goalId" | "goal">, places: readonly
 }
 
 /**
- * A goal's short name for one-line places ("Pool: General (from goal X)"): the text before its first colon when that is
+ * A goal's short name for one-line places ("Exploration cap: 5k / day (from goal X)"): the text before its first colon when that is
  * short enough, else its first ~40 characters cut at a word with "…". Callers put the full text in a title tooltip.
  */
 export function goalShortName(text: string, max = 40): string {

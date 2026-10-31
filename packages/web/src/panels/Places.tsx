@@ -274,7 +274,7 @@ function grantSettledLine(g: GrantView): string {
   }
 }
 
-/** " by Ada from Ada's key": who funded a member-funded grant and with which Bank input (pool-funded grants: ""). */
+/** " by Ada from Ada's key": who funded a member-funded grant and with which Bank input (grants paid by the Bank: ""). */
 function funderLine(g: GrantView): string {
   return g.fundedWith ? ` by ${g.fundedByName ?? nameOf(g.fundedBy ?? "")} from ${g.fundedWithLabel ?? g.fundedWith}` : "";
 }
@@ -319,7 +319,7 @@ export function GrantRow({ grant: g, onDecided, onOpenDoc, deckSlide, meetingId,
   // building.fund, or (step 4) the owner of the key result's goal, as the in-tray's route says (Grants.canFund)
   const canFund = store.can("building.fund", g.buildingId) || !!canDecide;
   const decidable = g.status === "proposed" || checkpoint;
-  // member funding: any human may fund a proposal from their own Bank input with balance; "" = the pool (building.fund)
+  // member funding: any human may fund a proposal from their own Bank input with balance; "" = the Bank (building.fund)
   const myInputs = useMyFundingInputs(g.status === "proposed");
   const [fundWith, setFundWith] = useState("");
   const from = canFund ? fundWith : fundWith || myInputs[0]?.id || "";
@@ -401,7 +401,7 @@ export function GrantRow({ grant: g, onDecided, onOpenDoc, deckSlide, meetingId,
             {!checkpoint && myInputs.length > 0 ? (
               <Field label="Pay from">
                 <select value={from} onChange={(e) => setFundWith(e.target.value)} aria-label="Pay from">
-                  {canFund ? <option value="">The Bank pool</option> : null}
+                  {canFund ? <option value="">The Bank</option> : null}
                   {myInputs.map((i) => <option key={i.id} value={i.id}>{i.label}: {fmtTokens(i.balanceTokens ?? 0)} left</option>)}
                 </select>
               </Field>

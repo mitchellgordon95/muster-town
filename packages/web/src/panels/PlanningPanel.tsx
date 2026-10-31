@@ -1,4 +1,4 @@
-/** Planning desk (Town Hall): create buildings and list them (each opens its building's Settings: name, the goal it is attached to, desks, manager; 1:1 mt_n25udpflus decision 3: building settings leave the planning desk), roles (town and building scoped), secrets (admins: the collective's secrets and grants, docs/secrets.md), system. Donating and Bank pools live at the Bank. */
+/** Planning desk (Town Hall): create buildings and list them (each opens its building's Settings: name, the goal it is attached to, desks, manager; 1:1 mt_n25udpflus decision 3: building settings leave the planning desk), roles (town and building scoped), secrets (admins: the collective's secrets and grants, docs/secrets.md), system. Donating lives at the Bank. */
 import { useMemo, useState } from "react";
 import { api, API_BASE, tokenStore } from "../api";
 import { store, useTown } from "../state";

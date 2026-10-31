@@ -1,8 +1,9 @@
 import { ToolResults } from "./forkstatus.ts";
-import { mapFlagOf, townEnv, type Agent, type AgentStatus, type Building, type BuildingDefaults, type DesksConfig, type RedeployLive, type RedeployResult, type ServerMessage, type Tile } from "@muster-town/schema";
+import { ROOT_GOAL_ID, mapFlagOf, townEnv, type Agent, type AgentStatus, type Building, type BuildingDefaults, type DesksConfig, type RedeployLive, type RedeployResult, type ServerMessage, type Tile } from "@muster-town/schema";
 import { Bank } from "./bank.ts";
 import { Budget } from "./budget.ts";
 import { Goals } from "./goals.ts";
+import { freeTokens } from "./free-tokens.ts";
 import { Reorgs } from "./goal-changes.ts";
 import { Streams } from "./streams.ts";
 import { Grants } from "./grants.ts";
@@ -116,6 +117,8 @@ export class World {
   readonly keyResults: Repos["keyResults"];
   readonly objectives: Repos["objectives"];
   readonly goals: Repos["goals"];
+  /** exploration reservations (docs/how-work-gets-done.md §7): empty until the declarative explore step opens them */
+  readonly bankReservations: Repos["bankReservations"];
   readonly goalProposals: Repos["goalProposals"];
   readonly goalChanges: Repos["goalChanges"];
   readonly kpis: Repos["kpis"];
@@ -141,7 +144,7 @@ export class World {
     this.places = repos.places; this.docs = repos.docs; this.assignments = repos.assignments;
     this.messages = repos.messages; this.meetings = repos.meetings; this.sessions = repos.sessions;
     this.interrupts = repos.interrupts;
-    this.grants = repos.grants; this.schedules = repos.schedules; this.keyResults = repos.keyResults; this.objectives = repos.objectives; this.goals = repos.goals; this.goalProposals = repos.goalProposals; this.goalChanges = repos.goalChanges; this.kpis = repos.kpis; this.accessRequests = repos.accessRequests; this.skillPins = repos.skillPins;
+    this.grants = repos.grants; this.schedules = repos.schedules; this.keyResults = repos.keyResults; this.objectives = repos.objectives; this.goals = repos.goals; this.bankReservations = repos.bankReservations; this.goalProposals = repos.goalProposals; this.goalChanges = repos.goalChanges; this.kpis = repos.kpis; this.accessRequests = repos.accessRequests; this.skillPins = repos.skillPins;
     this.tokens = repos.tokens; this.town = repos.town;
     this.events = new EventLog(db, this.changes);
     this.permissions = new Permissions(repos, () => !!this.host.hosted);
@@ -158,6 +161,7 @@ export class World {
     this.streams = new Streams(this);
     this.budget.gate = (a) => laneHold(this, a);
     this.budget.afterCharge = (bid) => this.grantDesk.checkpoints(bid);
+    this.bank.freeTokens = () => freeTokens(this, ROOT_GOAL_ID);
     this.skills = new Skills(this);
     this.secrets = new Secrets(this);
     this.media = new Media(this);

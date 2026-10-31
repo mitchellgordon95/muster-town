@@ -75,7 +75,7 @@ export class Reorgs {
     if (th && th.managerAgentId !== planner.id) this.world.buildings.upsert({ ...th, managerAgentId: planner.id });
   }
 
-  /** Can the Planner start a session now? The Town Hall draws from its pool like any building (`Budget.canStart`). */
+  /** Can the Planner start a session now? The Town Hall draws from the general balance like any building (`Budget.canStart`). */
   canRun(): boolean {
     const p = this.planner();
     return !!p && p.status !== "stopped" && this.world.budget.canStart(p.id);

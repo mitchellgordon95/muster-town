@@ -20,7 +20,9 @@ describe("board key-results view", () => {
     expect(ws.goal).toMatch(/Muster Town/);
     expect(ws.grants.map((g) => [g.id, g.status])).toEqual([["gr_hud", "checkpoint"], ["gr_tour", "funded"]]);
     expect(ws.proposals.map((p) => p.id)).toEqual(["gr_cli"]);
-    expect(ws.exploration).toEqual({ allowanceTokens: 3_000_000, spentTodayTokens: 1_150_000 });
+    // no allowance: the root's town-wide cap with today's use, and the free tokens under the building's goal
+    expect(ws.exploration).toMatchObject({ spentTodayTokens: 1_150_000, cap: { tokensPerDay: 3_000_000, goalId: "gl_town", spentTodayTokens: 1_150_000 } });
+    expect(ws.exploration.freeTokens).toBeGreaterThan(0);
     const carbon = await api.board("bl_carbon");
     expect(carbon.grants).toEqual([]);
     expect(Array.isArray(carbon.docs)).toBe(true);

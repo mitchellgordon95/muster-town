@@ -158,11 +158,10 @@ describe("Plan with an agent (docs/goals.md, step 5)", () => {
     expect(world.buildings.require("town-hall").managerAgentId).toBe(planner.id);
   });
 
-  it("the Town Hall draws from the Bank like any building: the Planner runs, and its session debits the Town Hall's pool (1:1 mt_cz11aqe81a)", () => {
+  it("the Town Hall draws from the Bank like any building: the Planner runs, and its session debits the general balance (1:1 mt_cz11aqe81a)", () => {
     const { world, admin, goal, seed } = setup();
     world.bank.addInput(seed.admin.id, { label: "Key", source: "api-key", model: "m", tokens: 10_000, apiKey: "sk" });
-    // the Town Hall sits in General with the other buildings and sees the same share
-    expect(world.bank.poolOf("town-hall").id).toBe("general");
+    // one balance: the Town Hall sees what every building sees
     expect(world.bank.available("town-hall")).toEqual(world.bank.available(LAB));
     expect(world.bank.remaining("town-hall")).toBeGreaterThan(0);
     const m = world.reorgs.openPlanner(admin, goal.id);

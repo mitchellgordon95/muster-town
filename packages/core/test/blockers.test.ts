@@ -1,7 +1,7 @@
 /** Why a queued assignment can't start (Mitchell's 1:1 mt_ryw7ejayvu): blockedBy on each, townBlocked for the map. */
 import { describe, expect, it } from "vitest";
 import { blockedBy, buildingRoleId, buildingStats, newId, nowIso, createSchedule, townBlocked, waitsOnTime } from "../src/index.ts";
-import { fundGoalOf, seededWorld } from "./helpers.ts";
+import { creditBank, fundGoalOf, seededWorld } from "./helpers.ts";
 
 const LAB = "carbon-cycle";
 const REPORT = "## What I did\nx\n\n## Findings\ny\n\n## What I need from you\nNothing needed.";
@@ -68,12 +68,13 @@ describe("blockedBy", () => {
     expect(buildingStats(world, "town-hall").assignments).toEqual({ running: 0, queued: 0, blocked: 0, scheduled: 0 });
   });
 
-  it("lane holds point at the Town Hall in-tray: grant at checkpoint, exploration allowance spent (used of allowance, reset time)", () => {
+  it("lane holds point at the Town Hall in-tray: grant at checkpoint, exploration at its goal's cap (used of cap, reset time)", () => {
     const { world, by, admin } = seededWorld();
     const mei = by("Mei"), noor = by("Noor");
     const kr = world.grantDesk.createKeyResult(admin, LAB, { text: "A visitor sees the spend", howToCheck: "Open the banner" });
     world.ops.updateBuilding(admin, LAB, { managerAgentId: mei.id });
-    fundGoalOf(world, LAB, { explorationTokensPerDay: 6_385_714 });
+    fundGoalOf(world, LAB, { exploreCapTokensPerDay: 6_385_714 });
+    creditBank(world, 20_000_000);
     world.permissions.grant({ kind: "agent", id: mei.id }, buildingRoleId(LAB, "manager"));
     const g = world.grantDesk.decide(admin, world.grantDesk.propose(mei, world.grantDesk.create(mei, LAB, { keyResultId: kr.id, objective: "o", stopCondition: "s", askTokens: 1_000_000 }).id).id, { action: "fund" });
     const grantWork = world.ops.createWork(admin, noor.id, { title: "Grant step", lane: "grant", grantId: g.id });
@@ -88,7 +89,7 @@ describe("blockedBy", () => {
     });
     const th = world.buildings.first("kind = 'town-hall'")!;
     expect(blockedBy(world, grantWork)).toEqual({ kind: "grant", targetId: g.id, placeId: `intray:${th.id}`, text: `grant ${g.id} at checkpoint` });
-    expect(blockedBy(world, ex)).toEqual({ kind: "exploration", targetId: LAB, placeId: `intray:${th.id}`, text: "exploration allowance spent (9.4M of 6.4M today, resets at 00:00 UTC)" });
+    expect(blockedBy(world, ex)).toEqual({ kind: "exploration", targetId: LAB, placeId: `intray:${th.id}`, text: "exploration cap reached (9.4M of 6.4M today, resets at 00:00 UTC)" });
     // read-only: the stored heldReason is the scheduler's, not touched here
     expect(world.assignments.require(ex.id).heldReason).toBeNull();
   });
