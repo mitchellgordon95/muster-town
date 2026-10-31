@@ -376,8 +376,7 @@ export class MockApi implements Api {
   }
   async review(docId: string, i: In<typeof ReviewInput>) { await wait(); return clone(this.sim.review(docId, i.decision, i.note ?? "", i.assigneeId)); }
   async plantFlag(buildingId: string, text: string) { await wait(); this.need(this.sim.buildings.find((b) => b.id === buildingId), "building"); return clone(this.sim.plantFlag(buildingId, text)); }
-  async reply(docId: string, text: string) { await wait(); this.need(this.sim.docs.get(docId), "doc"); return clone(this.sim.reply(docId, text)); }
-  async archive(docId: string) { return this.reply(docId, ""); }
+  async archive(docId: string) { await wait(); this.need(this.sim.docs.get(docId), "doc"); return clone(this.sim.archive(docId)); }
   async uploadMedia(file: Blob, alt = "") {
     await wait(400);
     const id = newId("mf");
@@ -393,10 +392,10 @@ export class MockApi implements Api {
     const need = /^##+\s*What I need from you[^\n]*\n+([^\n]+)/im.exec(d.body)?.[1]?.trim();
     const pr = /PR #(\d+)/.exec(d.body)?.[1];
     const q = question.toLowerCase();
-    if (pr && /pr|pull|merge/.test(q)) return `${who} opened PR #${pr}. Reply "merge" and ${who} will ready and squash-merge it next session, then report back.`;
+    if (pr && /pr|pull|merge/.test(q)) return `${who} opened PR #${pr}. Talk to ${who} to have it merged.`;
     if (/need|want|ask/.test(q)) return need ? `${who} says: "${need}"` : `The report doesn't have a "What I need from you" section.`;
     const findings = /^##+\s*Findings[^\n]*\n+([^\n]+)/im.exec(d.body)?.[1]?.trim();
-    return findings ? `The main finding: ${findings.replace(/^-\s*/, "")}` : `I can only see the report text, and it doesn't say. Ask ${who} in a reply.`;
+    return findings ? `The main finding: ${findings.replace(/^-\s*/, "")}` : `I can only see the report text, and it doesn't say. Talk to ${who}.`;
   }
   async promote(docId: string, state: DocState) {
     await wait();

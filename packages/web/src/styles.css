@@ -736,9 +736,11 @@ div.spend-row > .muted { font-size: 11.5px; }
 .goal-spend-table th, .goal-spend-table td { text-align: left; padding: 2px 4px; border-bottom: 1px solid rgba(255,255,255,.08); }
 .intray-view { display: inline-flex; gap: 4px; margin-left: 8px; }
 /* the Queue tab (kanban, docs/goals.md build step 6): four columns per building swimlane */
-.queue-board { display: flex; flex-direction: column; gap: 10px; font-size: 12px; }
+.queue-board { display: flex; flex-direction: column; gap: 10px; font-size: 12px; container-type: inline-size; }
 .queue-lane-name { font-weight: 600; margin-bottom: 4px; }
 .queue-cols { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 6px; align-items: start; }
+/* a narrow panel (the default side panel is ~428 px) stacks the columns Queued, Held, Running, Done one under another */
+@container (max-width: 700px) { .queue-cols { grid-template-columns: minmax(0, 1fr); } }
 .queue-col { display: flex; flex-direction: column; gap: 4px; padding: 4px; border-radius: 4px; background: var(--panel-2); min-height: 40px; min-width: 0; }
 .queue-col.full .queue-col-head { color: var(--warn); }
 .queue-col-head { font-weight: 600; font-size: 11px; }

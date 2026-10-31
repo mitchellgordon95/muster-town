@@ -429,8 +429,6 @@ export interface Api {
   review(docId: string, input: In<typeof ReviewInput>): Promise<Doc>;
   /** POST /api/buildings/:id/flags — plant a flag (a short request) in a building; it lands in the manager's in-tray as a pending `flag` doc */
   plantFlag(buildingId: string, text: string): Promise<Doc>;
-  /** POST /api/docs/:id/reply — the reply becomes the author's next assignment; empty text archives */
-  reply(docId: string, text: string, deckSlide?: number, meetingId?: string): Promise<{ doc: Doc; assignment: Assignment | null }>;
   /** Upload one image or video as the signed-in human (docs/multimedia.md); returns its paste-ready markdown. */
   uploadMedia(file: Blob, alt?: string): Promise<UploadedMedia>;
   /** POST /api/docs/:id/archive — acknowledge with no reply */
@@ -671,7 +669,6 @@ export class HttpApi implements Api {
   async editBoardNote(id: string, i: { title: string; body: string }) { return unwrap<Doc>(await this.call("PATCH", `/api/docs/${id}`, i), "doc"); }
   async review(id: string, i: In<typeof ReviewInput>) { return unwrap<Doc>(await this.post(`/api/docs/${id}/review`, i), "doc"); }
   async plantFlag(buildingId: string, text: string) { return unwrap<Doc>(await this.post(`/api/buildings/${buildingId}/flags`, { text }), "doc"); }
-  reply(id: string, text: string, deckSlide?: number, meetingId?: string) { return this.post<{ doc: Doc; assignment: Assignment | null }>(`/api/docs/${id}/reply`, { text, ...(deckSlide ? { deckSlide } : {}), ...(meetingId ? { meetingId } : {}) }); }
   /** Open a session transcript (docs/transcripts.md) in a new tab: fetched with the bearer token, shown as text. */
   async openTranscript(url: string) {
     const tab = window.open("", "_blank");

@@ -1,5 +1,5 @@
 import { AppError, canSeeDoc, findManual, revisionsOf, searchDocs, editBoardNote, unpublishTownFyi, whereOf } from "@muster-town/core";
-import { CreateMeetingInput, DocState, DocType, MeetingPhase, MeetingPresentInput, MeetingSayInput, ReplyInput, ReviewInput, VerbInputs } from "@muster-town/schema";
+import { CreateMeetingInput, DocState, DocType, MeetingPhase, MeetingPresentInput, MeetingSayInput, ArchiveInput, ReviewInput, VerbInputs } from "@muster-town/schema";
 import type { FastifyInstance } from "fastify";
 import { z } from "zod";
 import { actorOf, parse, requireAuth, viewerId, type Params } from "../context.ts";
@@ -60,20 +60,12 @@ export async function docRoutes(app: FastifyInstance) {
     };
   });
 
-  /** Reports as replies: one text box, one button. → { doc, assignment | null }. Empty text = archive. */
-  app.post<{ Params: Params }>("/api/docs/:id/reply", async (req) => {
-    const { text, deckSlide, meetingId } = parse(ReplyInput, req.body);
-    const actor = actorOf(world, req);
-    const r = world.ops.replyToReport(actor, req.params.id, text, { deckSlide });
-    if (meetingId) world.ops.slideReplyDecision(actor, meetingId, req.params.id, text);
-    return r;
-  });
-
+  /** Archive a report (its only other action is Talk to the author, 1:1 mt_cz11aqe81a). → { doc, assignment: null }. */
   app.post<{ Params: Params }>("/api/docs/:id/archive", async (req) => {
-    const { deckSlide, meetingId } = parse(ReplyInput, req.body ?? {});
+    const { deckSlide, meetingId } = parse(ArchiveInput, req.body ?? {});
     const actor = actorOf(world, req);
     const r = world.ops.archiveReport(actor, req.params.id, { deckSlide });
-    if (meetingId) world.ops.slideReplyDecision(actor, meetingId, req.params.id, "");
+    if (meetingId) world.ops.slideArchiveDecision(actor, meetingId, req.params.id);
     return r;
   });
 

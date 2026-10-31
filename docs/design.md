@@ -147,6 +147,8 @@ Awaiting Mitchell: container runtime choice, API key, go-ahead.
 
 ## Design review 4 — reports as replies (2026-10-20, from Mitchell's rant)
 
+_Superseded 2026-10-31 (1:1 mt_cz11aqe81a): the reply box is gone. A report's two actions are Talk to the author (a 1:1) and Archive._
+
 Mitchell, after using the workshop for an hour: the report format is weird (decision at top, body far below, findings then proposal); reports are too long; every agent proposes a tiny next step to keep going, which is wrong, "if you're done with your work, just be done"; reviewing should be one text box and one button; every report ends with "what I need from you"; typing "merge" and hitting go should tag the author who picks it up; the four decision buttons are confusing; reports should just be markdown with frontmatter, not database columns; he should be able to chat with someone while reviewing (not necessarily the author, who may be busy); reports should have an archive button; the main thing that stopped him was being unable to get agents to merge PRs and stop proposing follow-up work; residents should not start with titles (a "backend" worker declared something done because the backend part was done).
 
 Decisions (agent, agreed in chat):

@@ -5,6 +5,7 @@ import { store } from "../src/state";
 import { DocView } from "../src/panels/DocView";
 import { grantTalkTarget, talkTarget } from "../src/panels/oneOnOne";
 import { GrantRow } from "../src/panels/Places";
+import { SlideDecision } from "../src/panels/ReviewDeck";
 
 // sprites draw on a canvas and grant links read location, which node lacks
 vi.mock("../src/map/sprites", async (orig) => ({ ...(await orig<object>()), portraitUrl: () => "", iconUrl: () => "" }));
@@ -42,6 +43,23 @@ describe("a report's Talk to <author> (1:1 mt_uf1bwd3exq)", () => {
     // signed out: no button
     store.state = { ...store.state, me: null };
     expect(renderToStaticMarkup(<DocView doc={report("ag_lena")} />)).not.toContain("Talk to");
+  });
+
+  it("a pending report's actions are exactly Talk to <author> and Archive, no Reply (1:1 mt_cz11aqe81a); a decided one has no Archive", () => {
+    store.state = { ...store.state, agents: AGENTS, buildings: BUILDINGS as never, me: { isAdmin: true, roles: [], user: { id: "us_m" } } as never };
+    const card = renderToStaticMarkup(<DocView doc={report("ag_lena")} review />);
+    expect(card).toContain("Talk to Lena");
+    expect(card).toContain(">Archive<");
+    expect(card).not.toMatch(/reply/i);
+    expect(card).not.toContain("<textarea");
+    const slide = { key: "r", kind: "report", itemId: "dc_rep", docIds: ["dc_rep"], title: "Layer A", text: "" } as never;
+    const deck = renderToStaticMarkup(<SlideDecision slide={slide} n={2} grants={[]} reports={[report("ag_lena")]} onDecided={() => undefined} onOpenDoc={() => undefined} />);
+    expect(deck).toContain("Talk to Lena");
+    expect(deck).toContain(">Archive<");
+    expect(deck).not.toMatch(/reply/i);
+    const decided = renderToStaticMarkup(<DocView doc={{ ...report("ag_lena"), decision: "approve" }} review />);
+    expect(decided).not.toContain(">Archive<");
+    expect(decided).not.toMatch(/reply/i);
   });
 
   it("every agent-authored doc type gets the button, a human's doc doesn't, and a grant row gets Talk to <manager> (1:1 mt_u6euky43hg)", () => {

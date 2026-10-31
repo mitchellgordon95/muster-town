@@ -132,23 +132,17 @@ describe("buildings & agents", () => {
   });
 });
 
-describe("reports as replies", () => {
-  it("reply (text → assignment), archive (no assignment), permission checks; ask is 503 without a runtime", async () => {
+describe("reports: Talk to the author and Archive", () => {
+  it("archive (no assignment), permission checks; the reply route is gone; ask is 404", async () => {
     const { app, auth, by, world } = await setup();
     const mei = by("Mei");
     const mk = async (title: string) => (await world.verbs.submit_report(mei, { title, body: "## What I need from you\nMerge PR #3.", verdict: "continue" })).id;
     const a = await mk("A"), b = await mk("B");
     const tomas = { authorization: `Bearer ${world.tokens.getOrCreate("agent", by("Tomas").id)}` };
-    expect((await json(app, "POST", `/api/docs/${a}/reply`, { headers: tomas, body: { text: "hi" } })).status).toBe(403);
     expect((await json(app, "POST", `/api/docs/${a}/archive`, { headers: tomas })).status).toBe(403);
-    expect((await json(app, "POST", `/api/docs/${a}/reply`, { body: { text: "hi" } })).status).toBe(401);
-
-    const r = await json(app, "POST", `/api/docs/${a}/reply`, { headers: auth, body: { text: "merge" } });
-    expect(r.status).toBe(200);
-    expect(r.body.doc).toMatchObject({ id: a, decision: "approve", decisionNote: "merge" });
-    expect(r.body.doc.body).toContain("## Reply from");
-    expect(r.body.assignment).toMatchObject({ agentId: mei.id, title: "Reply on: A", fromReportId: a });
-    expect(r.body.assignment.description).toContain("gh pr merge");
+    expect((await json(app, "POST", `/api/docs/${a}/archive`, {})).status).toBe(401);
+    expect((await json(app, "POST", `/api/docs/${a}/reply`, { headers: auth, body: { text: "merge" } })).status).toBe(404);
+    expect((await json(app, "POST", `/api/docs/${a}/archive`, { headers: auth })).body.doc).toMatchObject({ id: a, decision: "approve" });
 
     const arc = await json(app, "POST", `/api/docs/${b}/archive`, { headers: auth });
     expect(arc.status).toBe(200);
