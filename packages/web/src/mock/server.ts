@@ -750,6 +750,8 @@ export class MockApi implements Api {
         b = { kind: "decision", targetId: w.decision, placeId: `intray:${d?.buildingId ?? a.buildingId}`, text: `waits for a decision on "${d?.title ?? w.decision}"` };
       } else if ("deploy" in w) {
         b = { kind: "deploy", targetId: w.deploy, placeId: `door:${a.buildingId}`, text: w.deploy === "next" ? "waits for the next redeploy" : `waits for deploy ${w.deploy.slice(0, 7)} (live is mock)` };
+      } else if ("pr" in w) {
+        b = { kind: "pr", targetId: String(w.pr), placeId: `door:${a.buildingId}`, text: `waiting on PR #${w.pr} checks: ${Math.round((Date.now() - Date.parse(a.createdAt)) / 60_000)} min so far (mock)` };
       } else continue; // a time: parked work resumes by itself, not blocked
       (out[a.agentId] ??= []).push({ assignmentId: a.id, title: a.title, blockedBy: b });
     }

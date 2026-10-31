@@ -32,6 +32,23 @@ import { Movement } from "./world/movement.ts";
 
 export type SnapshotMessage = Extract<ServerMessage, { type: "snapshot" }>;
 
+/**
+ * A pull request's CI as last read from GitHub: `pending` while a check on its head commit is queued or running (or none
+ * has registered yet), `passed`/`failed` once every check finished, `merged`/`closed` when the PR is no longer open.
+ */
+export interface PrChecks {
+  state: "pending" | "passed" | "failed" | "merged" | "closed";
+  /** the head commit the checks ran on */
+  sha: string | null;
+  /** checks finished / all checks on that commit */
+  done: number;
+  total: number;
+  /** names of the failed checks (state failed) */
+  failed?: string[];
+  /** when this was read (ISO) */
+  checkedAt: string;
+}
+
 /** Host-side hooks the runtime fills in; core verbs call them when present. */
 export interface HostHooks {
   /** Pull main, reinstall, rebuild, restart (runtime/redeploy.ts). A request while one runs joins it: `{ queued: true }`. */
@@ -46,6 +63,11 @@ export interface HostHooks {
   startedAt?: string;
   /** Whether the live commit contains `sha` (`git merge-base --is-ancestor`). Without it, `deploy` waits never hold. */
   isLive?(sha: string): boolean;
+  /**
+   * The last GitHub read of a pull request's CI (runtime/pr-checks.ts polls the PRs that `{pr}` waits name, about once a
+   * minute). Undefined = not read yet; without it, `pr` waits never hold (and expire after 24 h).
+   */
+  prChecks?(pr: number): PrChecks | undefined;
   /** The runtime's live redeploy state (`GET /api/admin/redeploy`). */
   redeployStatus?(): RedeployLive;
   /** The runtime's last docker probe: false while docker is down (code desks can't start). Unset = not probed. */
