@@ -5,14 +5,11 @@ import type { EventLog } from "./events.ts";
 import type { Repos } from "./store.ts";
 import { type Emitter, newId, nowIso } from "./util.ts";
 
-/** Manager forks: the family's daily cap, dailyTokensPerAgent × headcount, counted on the manager's row (`familySpentToday`). */
-export const familyCap = (b: Building): number => b.dailyTokensPerAgent * b.headcount;
-
 export interface ChargeResult {
   agent: Agent;
   allocation: Allocation | null;
   /** set when this charge exhausted something */
-  exhausted: null | "agent-daily" | "building";
+  exhausted: null | "building";
 }
 export interface BudgetSummary {
   buildings: { buildingId: string; name: string; allocatedTokens: number; spentTokens: number; spentUsd: number; remainingTokens: number }[];
@@ -221,7 +218,7 @@ export class Budget {
   }
 
   /**
-   * Whether a resident may start a session now (daily allowance and building budget) and, with `assignment`, whether
+   * Whether a resident may start a session now (building budget; no per-agent or family daily cap since 2026-10-31) and, with `assignment`, whether
    * the lane gate lets that assignment run (goal-directed buildings: grant funded, exploration allowance left). The one
    * check the scheduler and work sessions use. A held assignment stays pending; its `heldReason` says why.
    */
@@ -234,22 +231,9 @@ export class Budget {
       if (assignment) this.holdReason(assignment);
       return false;
     }
-    const b = this.repos.buildings.require(bid, "building");
-    if (!(this.withinDaily(a, b) && this.remaining(bid) > 0)) return false;
+    if (this.remaining(bid) <= 0) return false;
     if (!assignment) return this.capHold(bid) === null;
     return this.holdReason(assignment) === null;
-  }
-
-  /**
-   * The daily cap. A fork is checked against its family (the manager's `familySpentToday`, its own sessions plus today's
-   * forks', under dailyTokensPerAgent × headcount) instead of its own row, which starts at 0; any other agent against
-   * its own dailyTokensPerAgent, and a building's manager against its family too.
-   */
-  private withinDaily(a: Agent, b: Building): boolean {
-    const root = a.forkOf ? this.repos.agents.get(a.forkOf) : a;
-    const familyOk = !root || root.familySpentToday < familyCap(b);
-    if (a.forkOf) return familyOk;
-    return a.spentTokensToday < b.dailyTokensPerAgent && (b.managerAgentId !== a.id || familyOk);
   }
 
   /**
@@ -316,15 +300,6 @@ export class Budget {
         for (const r of this.repos.agents.where("homeBuildingId = ? AND kind = 'resident'", [bid])) {
           if (!SKIP_STATUSES.has(r.status) && r.status !== "out-of-budget") this.setStatus(r, "out-of-budget");
         }
-      } else if (agent.kind === "resident" && agent.forkOf && !this.withinDaily(agent, b)) {
-        const root = this.repos.agents.require(agent.forkOf, "agent");
-        exhausted = "agent-daily";
-        this.events.append({ type: "budget.exhausted", buildingId: bid, agentId: agent.id, text: `${root.name} and forks used today's ${familyCap(b).toLocaleString("en-US")} adj. tokens`, payload: { scope: "family", forkOf: root.id, familySpentToday: root.familySpentToday } });
-        if (!SKIP_STATUSES.has(agent.status)) agent = this.setStatus(agent, "out-of-budget");
-      } else if (agent.kind === "resident" && !agent.forkOf && agent.spentTokensToday >= b.dailyTokensPerAgent) {
-        exhausted = "agent-daily";
-        this.events.append({ type: "budget.exhausted", buildingId: bid, agentId: agent.id, text: `${agent.name} used today's ${b.dailyTokensPerAgent.toLocaleString("en-US")} adj. tokens`, payload: { scope: "agent", spentTokensToday: agent.spentTokensToday } });
-        if (!SKIP_STATUSES.has(agent.status)) agent = this.setStatus(agent, "out-of-budget");
       }
     }
     return { agent: this.repos.agents.require(agent.id), allocation, exhausted };
@@ -345,7 +320,7 @@ export class Budget {
     return n;
   }
 
-  /** Out-of-budget residents that can start again (the daily cap or the building's budget was raised) go idle. Returns how many. */
+  /** Out-of-budget residents that can start again (the building's budget was raised) go idle. Returns how many. */
   resumeEligible(buildingId?: string): number {
     let n = 0;
     for (const r of this.repos.agents.where("kind = 'resident' AND status = 'out-of-budget'", [])) {
@@ -375,7 +350,7 @@ export class Budget {
     this.events.append({ type: "allocation.created", buildingId: b.id, text: `${user.name} donated ${inp.tokens.toLocaleString("en-US")} adj. tokens to ${b.name}${what}`, payload: { allocationId: allocation.id, userId, tokens: inp.tokens, auth, label } });
     // resume residents that were blocked only by the building budget
     for (const r of this.repos.agents.where("homeBuildingId = ? AND status = 'out-of-budget'", [b.id])) {
-      if (r.spentTokensToday < b.dailyTokensPerAgent) this.setStatus(r, "idle");
+      this.setStatus(r, "idle");
     }
     return allocation;
   }

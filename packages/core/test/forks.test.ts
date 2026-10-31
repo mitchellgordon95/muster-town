@@ -1,4 +1,4 @@
-/** Manager forks step 1 (dc_mymt27yz25): the building queue, forkManager / retireFork, fork names, chainId and the family daily cap. */
+/** Manager forks step 1 (dc_mymt27yz25): the building queue, forkManager / retireFork, fork names, chainId and family spend (the family daily cap was deleted 2026-10-31). */
 import { readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -157,33 +157,29 @@ describe("manager forks: chainId", () => {
   });
 });
 
-describe("manager forks: the family daily cap", () => {
-  it("forks count against the manager's family (dailyTokensPerAgent × headcount), the manager's own sessions included", async () => {
-    const { world, pix, b, queue } = forkLab({ daily: 100 }); // family cap 300
+describe("manager forks: family spend, no daily cap (1:1 mt_q10xf3bkoq)", () => {
+  it("forks add to the manager's familySpentToday, but neither the family nor the manager is held by it", async () => {
+    const { world, pix, b, queue } = forkLab({ daily: 100 }); // the old family cap would have been 300
     const a1 = await queue("One");
     const { fork } = forkManager(world, b.id, a1);
     world.budget.charge(pix.id, 90, 0);
     expect(world.agents.require(pix.id).familySpentToday).toBe(90);
-    expect(world.budget.charge(fork.id, 150, 0).exhausted).toBeNull(); // over its own 100: forks aren't capped per agent
-    expect(world.agents.require(pix.id).familySpentToday).toBe(240);
+    expect(world.budget.charge(fork.id, 400, 0).exhausted).toBeNull();
+    expect(world.agents.require(pix.id).familySpentToday).toBe(490);
     expect(world.agents.require(fork.id).familySpentToday).toBe(0);
     expect(world.budget.canStart(fork.id)).toBe(true);
-    const r = world.budget.charge(fork.id, 60, 0);
-    expect(r.exhausted).toBe("agent-daily");
-    expect(world.events.list({ types: ["budget.exhausted"] }).at(-1)!.payload).toMatchObject({ scope: "family", forkOf: pix.id, familySpentToday: 300 });
-    expect(world.budget.canStart(fork.id)).toBe(false);
-    // the manager is held by its family cap too (its own 90 is under 100)
-    expect(world.budget.canStart(pix.id)).toBe(false);
+    expect(world.budget.canStart(pix.id)).toBe(true);
+    expect(world.events.list({ types: ["budget.exhausted"] })).toHaveLength(0);
     world.budget.resetDaily();
     expect(world.agents.require(pix.id).familySpentToday).toBe(0);
-    expect(world.budget.canStart(pix.id)).toBe(true);
   });
 
-  it("a named resident other than the manager is capped per agent; its spend isn't the manager's family", () => {
+  it("a named resident other than the manager has no per-agent cap; its spend isn't the manager's family", () => {
     const { world, pix, ann } = forkLab({ daily: 100 });
     world.budget.charge(ann.id, 250, 0);
+    expect(world.agents.require(pix.id).familySpentToday).toBe(0);
     expect(world.budget.canStart(pix.id)).toBe(true);
-    expect(world.budget.canStart(ann.id)).toBe(false);
+    expect(world.budget.canStart(ann.id)).toBe(true);
   });
 });
 
@@ -257,15 +253,15 @@ describe("manager forks: what the web shows (step 5)", () => {
     const f2 = forkManager(world, b.id, a2).fork;
     const set = world.db.prepare("UPDATE agents SET spentTokensToday = ?, spentTokensTotal = ?, spentUsdTotal = ? WHERE id = ?");
     set.run(100, 1000, 1.5, pix.id); set.run(0, 400, 0.5, f1.id); set.run(30, 30, 0.25, f2.id); set.run(7, 7, 7, ann.id);
-    expect(familySpend(world, pix.id)).toEqual({ today: 130, forksToday: 30, cap: 3000, total: 1430, usdTotal: 2.25, forks: 2 });
-    expect(forksOf(world, pix.id).family).toEqual({ today: 130, forksToday: 30, cap: 3000, total: 1430, usdTotal: 2.25, forks: 2 });
+    expect(familySpend(world, pix.id)).toEqual({ today: 130, forksToday: 30, total: 1430, usdTotal: 2.25, forks: 2 });
+    expect(forksOf(world, pix.id).family).toEqual({ today: 130, forksToday: 30, total: 1430, usdTotal: 2.25, forks: 2 });
     // forks keep their own rows: the sum reads them, it books nothing
     expect(world.agents.require(f2.id).spentTokensTotal).toBe(30);
-    expect(familySpend(world, ann.id)).toEqual({ today: 7, forksToday: 0, cap: 3000, total: 7, usdTotal: 7, forks: 0 });
+    expect(familySpend(world, ann.id)).toEqual({ today: 7, forksToday: 0, total: 7, usdTotal: 7, forks: 0 });
   });
 
   it("a retired fork's booked spend stays in the family's today, and forks that died before a session don't crowd the retired list (as_v969ocjeol)", async () => {
-    const { world, pix, b, queue } = forkLab(); // family cap 3 × 1000
+    const { world, pix, b, queue } = forkLab();
     const a1 = await queue("Worked");
     const f1 = forkManager(world, b.id, a1).fork;
     world.ops.startSession(f1.id, { purpose: "work", model: "m", assignmentId: a1 });
@@ -279,7 +275,7 @@ describe("manager forks: what the web shows (step 5)", () => {
     }
     expect(world.agents.require(pix.id).familySpentToday).toBe(290);
     const list = forksOf(world, pix.id);
-    expect(list.family).toMatchObject({ today: 290, forksToday: 250, cap: 3000, forks: 4 });
+    expect(list.family).toMatchObject({ today: 290, forksToday: 250, forks: 4 });
     expect(list.family.today).toBe(world.agents.require(pix.id).familySpentToday);
     expect(list.retired.map((f) => f.agent.id)).toEqual([f1.id]);
     expect(list.notStarted).toBe(3);

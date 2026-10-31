@@ -212,7 +212,7 @@ export class Goals {
     const by = actor ? holderOf(actor).id : null;
     const g = this.world.goals.upsert({
       id: newId("gl"), parentId: parent.id, position: inp.position ?? (last ? last.position + 1 : 0), text: inp.text, ownerId: null, status: "active",
-      retiredAt: null, retiredBy: null, retiredNote: "", createdBy: by, editedBy: null, sourceDocIds: inp.sourceDocIds, exploreCapTokensPerDay: null, createdAt: now, updatedAt: now,
+      retiredAt: null, retiredBy: null, retiredNote: "", createdBy: by, editedBy: null, sourceDocIds: inp.sourceDocIds, exploreCapTokensPerDay: null, explore: null, exploreChunkTokens: null, createdAt: now, updatedAt: now,
     });
     this.event("goal.created", actor, `Goal added under "${clip(parent.text, 60)}": ${g.text}`, { goalId: g.id, parentId: parent.id, text: g.text });
     return g;
@@ -252,7 +252,17 @@ export class Goals {
       this.event("goal.edited", actor, `Exploration cap on "${clip(next.text, 80)}": ${v === null ? "inherited" : `${v.toLocaleString("en-US")} tokens/day`}`,
         { goalId: g.id, exploreCapTokensPerDay: v, fromExploreCapTokensPerDay: g.exploreCapTokensPerDay });
     }
-    if (next === g) throw badRequest("Nothing to change: give text, position, parentId, ownerId, sourceDocIds or exploreCapTokensPerDay.");
+    // the explore rule (docs/how-work-gets-done.md §3): on/off and the chunk, set where the cap is (same funders)
+    for (const key of ["explore", "exploreChunkTokens"] as const) {
+      const v = inp[key];
+      if (v === undefined || v === g[key]) continue;
+      this.requireEdit(actor, g.id);
+      if (actor && !this.world.permissions.can(actor, "building.fund") && !this.owns(actor, g.id)) throw forbidden("building.fund", "Only a human funder (an admin or the goal's owner) can set the explore rule.");
+      next = this.world.goals.upsert({ ...next, [key]: v, editedBy: by, updatedAt: nowIso() });
+      const what = key === "explore" ? `Exploration ${v === null ? "inherited" : v ? "on" : "off"}` : `Exploration chunk ${v === null ? "inherited" : `${(v as number).toLocaleString("en-US")} tokens`}`;
+      this.event("goal.edited", actor, `${what} on "${clip(next.text, 80)}"`, { goalId: g.id, [key]: v, [`from${key[0].toUpperCase()}${key.slice(1)}`]: g[key] });
+    }
+    if (next === g) throw badRequest("Nothing to change: give text, position, parentId, ownerId, sourceDocIds, exploreCapTokensPerDay, explore or exploreChunkTokens.");
     return next;
   }
 
@@ -527,7 +537,7 @@ export class Goals {
   ensure(): void {
     if (!this.get(ROOT_GOAL_ID)) {
       const now = nowIso();
-      this.world.goals.upsert({ id: ROOT_GOAL_ID, parentId: null, position: 0, text: this.world.town.get().goal || "The town goal", ownerId: null, status: "active", retiredAt: null, retiredBy: null, retiredNote: "", createdBy: null, editedBy: null, sourceDocIds: [], exploreCapTokensPerDay: null, createdAt: now, updatedAt: now });
+      this.world.goals.upsert({ id: ROOT_GOAL_ID, parentId: null, position: 0, text: this.world.town.get().goal || "The town goal", ownerId: null, status: "active", retiredAt: null, retiredBy: null, retiredNote: "", createdBy: null, editedBy: null, sourceDocIds: [], exploreCapTokensPerDay: null, explore: null, exploreChunkTokens: null, createdAt: now, updatedAt: now });
     }
     for (const b of this.world.buildings.where("goalId IS NULL OR goalId NOT IN (SELECT id FROM goals)")) this.world.buildings.upsert({ ...b, goalId: ROOT_GOAL_ID });
   }

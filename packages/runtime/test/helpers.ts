@@ -16,7 +16,7 @@ export function creditBank(world: World, tokens = 10_000_000): void {
   world.db.prepare("INSERT INTO bank_credits (id, inputId, output, tokens, createdAt, expiresAt) VALUES (?, ?, ?, ?, ?, ?)")
     .run(`bc_test_${Math.random().toString(36).slice(2)}`, inp.id, tokens, tokens, new Date().toISOString(), "2099-01-01T00:00:00.000Z");
 }
-import type { VerbName } from "@muster-town/schema";
+import { ROOT_GOAL_ID, type VerbName } from "@muster-town/schema";
 import { HostBackend, startRuntime, type RuntimeOptions, type Runtime, type Sdk } from "../src/index.ts";
 import type { Options, SDKUserMessage } from "../src/sdk.ts";
 
@@ -98,6 +98,8 @@ export function setup(script: Script, extra: Partial<RuntimeOptions> = {}) {
   const world = World.open(":memory:");
   const seed = world.seedDefaults({ importDir: join(ROOT, "buildings/carbon-cycle"), townJsonPath: join(ROOT, "town.json") });
   if (!extra.hosted) seedCredential(world, seed.admin.id); // a hosted collective's Bank starts empty ("No credential yet")
+  // the explore tick (docs/how-work-gets-done.md §3) would queue explorers on every idle desk: off unless a test turns it on
+  world.goals.patch(ROOT_GOAL_ID, { explore: false });
   const sdk = fakeSdk(world, script);
   const clock = { t: new Date("2026-10-19T10:00:00Z").getTime() };
   const runtime: Runtime = startRuntime({ world, mcpUrl: "http://127.0.0.1:4321/mcp", sdk, intervalMs: 0, exportDir: false, now: () => new Date(clock.t), deskBackend: new HostBackend(), ...extra });

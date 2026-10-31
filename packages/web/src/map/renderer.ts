@@ -660,10 +660,9 @@ export class MapRenderer {
       const isMe = d.id === "__me";
       const name = isMe ? (authStore.get().guest ? "You (guest)" : "You") : d.a!.name;
       const hl = d.id === targetId || d.id === this.hoverId;
-      const home = d.a?.homeBuildingId ? s.buildings.find((b) => b.id === d.a!.homeBuildingId) : undefined;
       const st = stacks.get(d.id);
       const fork = !isMe && d.a?.forkN ? { n: d.a.forkN, tint: buildingTint(d.a.homeBuildingId ?? d.a.buildingId) } : null;
-      drawLabel(g, p.x, p.y + 3 + (st?.k ?? 0) * 30, fork ? forkLabel(d.a!).base : name, d.a?.status ?? "idle", hl, isMe, d.a && !isMe && !authStore.get().guest ? residentBudgetLine(d.a, home?.dailyTokensPerAgent) : null, !!d.a && isManager(d.a, s.buildings), fork);
+      drawLabel(g, p.x, p.y + 3 + (st?.k ?? 0) * 30, fork ? forkLabel(d.a!).base : name, d.a?.status ?? "idle", hl, isMe, d.a && !isMe && !authStore.get().guest ? residentBudgetLine(d.a) : null, !!d.a && isManager(d.a, s.buildings), fork);
       // held by a draining redeploy: its next session starts after the restart
       if (!isMe && blocked.has(d.id)) { const q = toScreen(d.x + d.w / 2 - 2, d.y - d.h + 4); drawPill(g, q.x, q.y, "⟳ redeploy"); }
       if (!isMe) this.hitboxes.push({ id: d.id, x: p.x - d.w * z / 2, y: p.y - d.h * z, w: d.w * z, h: d.h * z + 31 });

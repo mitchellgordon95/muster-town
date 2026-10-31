@@ -119,6 +119,31 @@ describe("SandboxBackend", () => {
     expect(f.calls).toContain("stop desk-c-a");
   });
 
+  test("an exec that fails (-1, not killed) stops the sandbox at once and logs it; a killed one waits for the idle stop", async () => {
+    vi.useFakeTimers();
+    const events: string[] = [];
+    const failed = fakeApi({ fail: "exec timed out" });
+    const b = new SandboxBackend({ api: failed.api, collective: "c", idleStopMs: 60_000, onEvent: (t) => events.push(t) });
+    expect(await b.exec({ name: "desk-c-a", agentId: "a" }, ["x"], {}).wait()).toBe(-1);
+    await vi.advanceTimersByTimeAsync(0);
+    expect(failed.calls).toContain("stop desk-c-a");
+    expect(events).toEqual(["Desk desk-c-a stopped after exec failure"]);
+    await b.ensure({ id: "a" } as Agent, building); // the next session starts the stopped desk again
+    expect(failed.calls.filter((c) => c === "stop desk-c-a").length).toBe(1);
+
+    const killed = fakeApi(); // run() blocks until finish()
+    const k = new SandboxBackend({ api: { ...killed.api, async run(_n, _c, _l, signal) { await new Promise<void>((r) => signal?.addEventListener("abort", () => r())); return -1; } }, collective: "c", idleStopMs: 60_000, onEvent: (t) => events.push(t) });
+    const child = k.exec({ name: "desk-c-b", agentId: "b" }, ["x"], {});
+    await vi.advanceTimersByTimeAsync(0);
+    child.kill();
+    expect(await child.wait()).toBe(-1);
+    await vi.advanceTimersByTimeAsync(1000);
+    expect(killed.calls).not.toContain("stop desk-c-b");
+    expect(events.length).toBe(1);
+    await vi.advanceTimersByTimeAsync(60_000);
+    expect(killed.calls).toContain("stop desk-c-b");
+  });
+
   test("a heartbeat pings the sandbox while a session runs", async () => {
     vi.useFakeTimers();
     const f = fakeApi(); // run() blocks until finish()

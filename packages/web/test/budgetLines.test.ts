@@ -18,12 +18,11 @@ describe("map budget lines", () => {
     expect(buildingBudgetLine(undefined)).toBeNull();
     expect(buildingBudgetLine(bb({}))).toBeNull();
   });
-  it("resident: today's tokens and what's left of the daily allowance, never negative", () => {
-    expect(residentBudgetLine(agent({ spentTokensToday: 412_000 }), 2_000_000)).toBe("412k today · 1.6M left");
-    expect(residentBudgetLine(agent({ spentTokensToday: 2_500_000 }), 2_000_000)).toBe("2.5M today · 0 left");
+  it("resident: today's tokens only (no per-agent daily cap)", () => {
+    expect(residentBudgetLine(agent({ spentTokensToday: 412_000 }))).toBe("412k today");
+    expect(residentBudgetLine(agent({ spentTokensToday: 2_500_000 }))).toBe("2.5M today");
   });
-  it("resident: nothing for services, humans, or without a home building", () => {
-    expect(residentBudgetLine(agent({ kind: "service" }), 2_000_000)).toBeNull();
-    expect(residentBudgetLine(agent({}), undefined)).toBeNull();
+  it("resident: nothing for services or humans", () => {
+    expect(residentBudgetLine(agent({ kind: "service" }))).toBeNull();
   });
 });

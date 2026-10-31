@@ -20,7 +20,7 @@ describe("countDeaths (Bank grant step 5)", () => {
       ev("session.ended", "2026-10-25T22:18:01.000Z", "Kelly's work session ended (error)", { sessionId: "se_1", error: CAP_MSG }),
       ev("agent.thought", "2026-10-24T23:57:00.000Z", CAP_MSG, { sessionId: "se_2" }),
       ev("session.ended", "2026-10-22T10:00:00.000Z", "Root's work session ended (error)", { sessionId: "se_3", error: "usage limit reached" }),
-      // budget.exhausted: every event counts (agent-daily and building)
+      // budget.exhausted: every event counts (old agent-daily ones and building)
       ...[20, 21, 25, 26].map((d) => ev("budget.exhausted", `2026-10-${d}T12:00:00.000Z`, "Lab has run out of budget", { scope: d % 2 ? "building" : "agent" })),
       // not deaths: older than 7 days, an ordinary error, Pix's own thought about the limit
       ev("bank.cap", "2026-10-19T22:00:00.000Z", "old cap", { sessionId: "se_old" }),

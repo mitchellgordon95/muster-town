@@ -3,7 +3,7 @@
  * managers' team-lead sessions over the in-tray, meeting summaries + facilitation, interrupts, scheduler,
  * startup reconcile, dismissal (onAgentRetired), host redeploy (v1.3).
  */
-import { AppError, checkWaits, deskSizeFor, fireSchedules, setAssignmentStatus, codeWorkspace, deskSlotRows, forkableQueue, forkDeskSlot, forkManager, freeDesks, liveForks, meetingNotice, walkIdleHome, nextStartable, nowIso, PRESENCE_TICK_MS, retireFork, sendMessage, stopOverdueForks, slugify, syncManagerRoles, type World } from "@muster-town/core";
+import { AppError, checkWaits, deskSizeFor, exploreTick, fireSchedules, setAssignmentStatus, codeWorkspace, deskSlotRows, forkableQueue, forkDeskSlot, forkManager, freeDesks, liveForks, meetingNotice, walkIdleHome, nextStartable, nowIso, PRESENCE_TICK_MS, retireFork, sendMessage, stopOverdueForks, slugify, syncManagerRoles, type World } from "@muster-town/core";
 import { DesksConfig, type Agent, type Assignment, type Building, type DeskActivityInput, type RedeployResult, type Session } from "@muster-town/schema";
 import { codeSource } from "./code.ts";
 import { DockerBackend, dockerSafe, HostBackend, type DeskBackend, type SlotResolver, type WorkBackend } from "./desk/backend.ts";
@@ -226,6 +226,7 @@ export function startRuntime(opts: RuntimeOptions): Runtime {
       slotOf,
       // performance-1x, or shared-cpu-2x once today's desk bill reached desks.billCapUsd (gr_uhh6u39vv9 step 3); read live, so PUT /api/town/desks applies at once
       sizeFor: () => deskSizeFor(desks, world.deskBill()),
+      onEvent: (text, payload) => { world.events.append({ type: "system", text, payload }); },
     });
   };
   const dockerProbe: DeskBackend | null = desks.backend === "host" ? null : opts.dockerProbe
@@ -596,6 +597,8 @@ export function startRuntime(opts: RuntimeOptions): Runtime {
     try { stopOverdueForks(world, d); } catch (e) { log("stop forks")(e); }
     if (ctx.code) void track(ctx.code.fresh()).catch(log("code checkout"));
     try { fireSchedules(world, d); } catch (e) { log("schedules")(e); }
+    // declarative exploration (docs/how-work-gets-done.md §3): reserve a chunk and queue an explorer where a desk is idle
+    try { exploreTick(world, d); } catch (e) { log("explore")(e); }
     try { world.reorgs.tick(d); } catch (e) { log("reorgs")(e); }
     try { walkIdleHome(world, t); } catch (e) { log("walk home")(e); }
     try { for (const b of world.buildings.all()) world.grantDesk.syncBlocked(b.id); } catch (e) { log("blocked buildings")(e); }

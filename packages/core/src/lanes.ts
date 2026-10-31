@@ -119,6 +119,8 @@ export function laneBlock(world: World, a: Assignment): { kind: "grant" | "reser
     return { kind: "reserved", reason: "held: the building's tokens are reserved for its funded grants" };
   }
   if (a.lane === "exploration") {
+    // the explore tick's explorer runs on its own reservation (it already passed the free-tokens and cap checks)
+    if (a.reservationId && world.bankReservations.get(a.reservationId)?.closedAt === null) return null;
     const e = world.grantDesk.exploration(a.buildingId);
     if (e.freeTokens <= 0) return { kind: "exploration", reason: "held: no free tokens under its goal (funded grants, open proposals and reservations claim the whole balance)" };
     if (e.cap && e.cap.spentTodayTokens >= e.cap.tokensPerDay) {
