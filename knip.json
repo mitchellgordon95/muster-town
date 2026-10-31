@@ -7,7 +7,7 @@
       "ignoreBinaries": ["scripts/serve.sh"]
     },
     "packages/server": {
-      "entry": ["src/main.ts", "src/index.ts"]
+      "entry": ["src/main.ts", "src/index.ts", "src/backup/worker.ts"]
     },
     "packages/desk": {
       "entry": ["src/cli.ts", "src/index.ts"],

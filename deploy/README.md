@@ -74,9 +74,12 @@ the same day. Still open:
   than 1 h (`packages/server/src/backup/`): `db.backup()` to `/data/workshop/backups/town-<date>T<HH>.db` (SQLite's online backup API, WAL-safe),
   sealed to one file and `integrity_check`ed, gzipped, encrypted (AES-256-GCM, iv[12] | tag[16] | ciphertext, AAD `muster-town backup v1`) and PUT
   as `town/<YYYY-MM-DD>T<HH>.db.gz.enc`, signed with a small SigV4 signer (no SDK). Worst case, a dead volume loses about 1 h of town state.
+  The whole run (copy, checks, streamed gzip, encrypt, upload, verify, prune) runs in a `worker_threads` worker (`worker.ts`) with its own
+  database connection, so it never blocks the event loop that serves HTTP (post-mortem docs/postmortem-2026-10-31-cpu-throttle-503.md).
   (Objects named `town/<YYYY-MM-DD>.db.gz.enc` are the nightly copies from before 2026-11-01; restore reads both.)
 - **Verification:** after each PUT the job downloads the object back, decrypts and gunzips it with the restore path's code (`crypto.ts`, `s3.ts`),
-  checks it is byte for byte the uploaded copy and runs `integrity_check` on it. Only then does the run count: `lastAt` and `verifiedAt` move
+  checks it is byte for byte (sha256) the copy that passed `integrity_check`; the 04:00 UTC run also writes the download out and runs
+  `integrity_check` on it. Only then does the run count: `lastAt` and `verifiedAt` move
   and old objects are pruned. A failure (upload or verification) is logged as `[backup] failed: ...` and kept as `backup.error`
   (`verify town/... failed: ...` for a bad read-back); `lastAt` stays, nothing is pruned, and it never stops the server.
 - **Destination:** the Tigris bucket `fly storage create -a muster-town` makes for the muster-town app (same Fly bill, free tier at this size,
