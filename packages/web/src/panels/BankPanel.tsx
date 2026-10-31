@@ -12,7 +12,7 @@ import { api, type Bank } from "../api";
 import { store, useTown } from "../state";
 import { Glyph, PanelShell } from "./PanelShell";
 import { BankContributors, BankInputs, BankPools, BuildingFunding, Donate } from "./BankFunding";
-import { FinanceFooter, FinanceIntro, FlyView, PoolsView, ProjectionView, SourcesView, SpendingView, TokensView, useFinance, type FinanceData } from "./BankFinance";
+import { FinanceFooter, FinanceIntro, FinanceTerms, FlyView, PoolsView, ProjectionView, SourcesView, SpendingView, TokensView, useFinance, type FinanceData } from "./BankFinance";
 import { ADJ, ErrorLine, Loading, Section, breakdownTitle, fmtTokens } from "./ui";
 
 /** Refetch the summary the sign and these sections read. */
@@ -37,9 +37,9 @@ export function BankPanel({ tab }: { tab?: string }) {
 
 type ViewProps = { tab: string; bank: Bank | null; fin: FinanceData | null; rev: number; onChange: () => void; onReload: () => void };
 
-/** One tab of the page given its data: `bank` from GET /api/bank (null until loaded), `fin` the finance endpoints (null until loaded); each tab ends with where its numbers come from. */
+/** One tab of the page given its data: `bank` from GET /api/bank (null until loaded), `fin` the finance endpoints (null until loaded); each tab ends with the Terms block and where its numbers come from. */
 export function BankView(props: ViewProps) {
-  return <><BankTab {...props} />{props.fin ? <FinanceFooter {...props.fin} /> : null}</>;
+  return <><BankTab {...props} /><FinanceTerms />{props.fin ? <FinanceFooter {...props.fin} /> : null}</>;
 }
 
 function BankTab({ tab, bank, fin, rev, onChange, onReload }: ViewProps) {

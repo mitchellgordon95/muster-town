@@ -23,8 +23,10 @@ const n = (x: number) => Math.round(x).toLocaleString("en-US");
 /** The sum check in words: what the four figures add up to, and by how much it misses when it does. */
 export function sumCheckLine(f: Finance): { ok: boolean; text: string } {
   const lhs = f.used + f.expired + f.left, rhs = f.total + f.overdrawn;
-  const sum = `used ${n(f.used)} + expired ${n(f.expired)} + left ${n(f.left)} = ${n(lhs)}; total ${n(f.total)}${f.overdrawn ? ` + overdrawn ${n(f.overdrawn)}` : ""} = ${n(rhs)}`;
-  return f.sumCheck.ok ? { ok: true, text: `Adds up: ${sum}` } : { ok: false, text: `Does not add up (off by ${n(f.sumCheck.diff)}): ${sum}` };
+  const used = `used ${n(f.used)} + expired ${n(f.expired)} + left ${n(f.left)}`, total = `total ${n(f.total)}${f.overdrawn ? ` + overdrawn ${n(f.overdrawn)}` : ""}`;
+  return f.sumCheck.ok
+    ? { ok: true, text: `The server checked that ${used} equals ${total} (${n(rhs)}).` }
+    : { ok: false, text: `Does not add up (off by ${n(f.sumCheck.diff)}): ${used} comes to ${n(lhs)}, but ${total} comes to ${n(rhs)}.` };
 }
 
 /** Days the tokens left last at the trailing burn (null when nothing is being used). */
@@ -35,11 +37,11 @@ export function overdrawnParts(f: Finance): { key: string; label: string; tokens
   const b = f.overdrawnBreakdown;
   if (!b) return [];
   return [
-    { key: "durableOvershoot", label: "permanent pools drawn past their credits (overshoot debt)", tokens: b.durableOvershoot },
+    { key: "durableOvershoot", label: "sessions that ran past the permanent tokens the Bank had (a debt, paid back from later API-key credits)", tokens: b.durableOvershoot },
     { key: "subscriptionOverdrawn", label: "subscription credits drawn past their size", tokens: b.subscriptionOverdrawn,
       note: "Left over from the Bank's switch to adj. tokens on 2026-10-27: before it, Fable sessions drew on credits sized in raw tokens, and converting those credits left the draws past their new size." },
     { key: "deletedCreditDebits", label: "drawn from credits since deleted", tokens: b.deletedCreditDebits },
-    { key: "allocationOverspent", label: "donations to buildings spent past their size", tokens: b.allocationOverspent },
+    { key: "allocationOverspent", label: "donations to buildings spent past their size (a building used more than was donated to it)", tokens: b.allocationOverspent },
   ].filter((p) => p.tokens > 0);
 }
 
@@ -50,15 +52,15 @@ export const pct = (share: number) => `${(share * 100).toFixed(1)}%`;
 export function spendCheckLine(sp: FinanceSpend): { ok: boolean; text: string } {
   const sum = sp.rows.reduce((t, r) => t + r.tokens, 0);
   return sp.check.ok
-    ? { ok: true, text: `Adds up: the rows sum to used, ${n(sp.used)}` }
-    : { ok: false, text: `Does not add up (off by ${n(sp.check.diff)}): the rows sum to ${n(sum)}, used is ${n(sp.used)}` };
+    ? { ok: true, text: `The server checked that the building rows, plus usage no session recorded, less the pricing difference and the unfunded part, equal used ${n(sp.used)}.` }
+    : { ok: false, text: `Does not add up (off by ${n(sp.check.diff)}): the rows come to ${n(sum)}, but used is ${n(sp.used)}.` };
 }
 
 /** The note under a synthetic row; the weight-mismatch one is the API's own line. */
 export const spendNotes = (sp: Pick<FinanceSpend, "weightMismatchNote">): Partial<Record<SpendNode["kind"], string>> => ({
   "unattributed": "Paid for from the Bank or donations but not traceable to any one work session: work from before sessions counted their own tokens.",
   "weight-mismatch": sp.weightMismatchNote,
-  "not-funded": "Work sessions that were never charged to the Bank or a donation: the sessions counted more than was paid for, even after the weight mismatch above. Taken off here so the rows sum to Used, which counts only what was paid.",
+  "not-funded": "Work sessions that were never charged to the Bank or a donation: the sessions counted more than was paid for, even after the pricing difference above. Taken off here so the rows sum to Used, which counts only what was paid.",
 });
 
 function SpendRow({ node, notes }: { node: SpendNode; notes: Partial<Record<SpendNode["kind"], string>> }) {
@@ -108,10 +110,10 @@ export const donationNote = (d: SourceDonationRow) => (d.retired || d.tokens < d
 
 /** The sources check in words: the subtotals vs Total received, and Total received vs the Tokens section's total. */
 export function sourcesCheckLine(s: FinanceSources): { ok: boolean; text: string } {
-  const sum = `credited ${n(s.creditedTokens)} + donated ${n(s.donatedTokens)} = ${n(s.creditedTokens + s.donatedTokens)}`;
-  if (!s.sumCheck.ok) return { ok: false, text: `Does not add up (off by ${n(s.sumCheck.diff)}): ${sum}, total received ${n(s.totalReceived)}` };
-  if (!s.matchesFinance) return { ok: false, text: `Does not match the Tokens total (off by ${n(s.totalReceived - s.financeTotal)}): ${sum}, Tokens total ${n(s.financeTotal)}` };
-  return { ok: true, text: `Adds up: ${sum}, the Tokens section's total` };
+  const sum = `credited ${n(s.creditedTokens)} + donated ${n(s.donatedTokens)}`;
+  if (!s.sumCheck.ok) return { ok: false, text: `Does not add up (off by ${n(s.sumCheck.diff)}): ${sum} comes to ${n(s.creditedTokens + s.donatedTokens)}, but total received is ${n(s.totalReceived)}.` };
+  if (!s.matchesFinance) return { ok: false, text: `Does not match the Tokens total (off by ${n(s.totalReceived - s.financeTotal)}): ${sum} comes to ${n(s.totalReceived)}, but the Tokens total is ${n(s.financeTotal)}.` };
+  return { ok: true, text: `The server checked that ${sum} equals total received ${n(s.totalReceived)}, the same as the Tokens total.` };
 }
 
 function SourceInputLine({ i }: { i: SourceInputRow }) {
@@ -171,19 +173,22 @@ export function SourcesView({ s }: { s: FinanceSources }) {
   );
 }
 
-/** The pools' balance check in words: pools left − overdrawn + unshared vs the Bank balance − overshoot. */
+/** The pools' balance check in words: pools left − overdrawn + unshared vs the Bank balance − what it is overdrawn (overshoot). */
 export function poolsBalanceLine(fp: FinancePools): { ok: boolean; text: string } {
   const lhs = fp.poolsLeftTokens - fp.poolsOverdrawnTokens + fp.unsharedTokens, rhs = fp.balanceTokens - fp.overshootTokens;
-  const pools = `pools left ${n(fp.poolsLeftTokens)} − overdrawn ${n(fp.poolsOverdrawnTokens)}${fp.unsharedTokens ? ` + unshared ${n(fp.unsharedTokens)}` : ""} = ${n(lhs)}`;
-  const bank = `Bank balance ${n(fp.balanceTokens)}${fp.overshootTokens ? ` − overshoot ${n(fp.overshootTokens)}` : ""} = ${n(rhs)}`;
-  return fp.sumCheck.balanceOk ? { ok: true, text: `Adds up: ${pools}; ${bank}` } : { ok: false, text: `Does not add up (off by ${n(fp.sumCheck.balanceDiff)}): ${pools}; ${bank}` };
+  const pools = `what the pools have left, ${n(fp.poolsLeftTokens)}, less what they are overdrawn, ${n(fp.poolsOverdrawnTokens)}${fp.unsharedTokens ? `, plus the unshared ${n(fp.unsharedTokens)}` : ""}`;
+  const bank = `the Bank balance, ${n(fp.balanceTokens)}${fp.overshootTokens ? `, less what it is overdrawn, ${n(fp.overshootTokens)}` : ""}`;
+  return fp.sumCheck.balanceOk
+    ? { ok: true, text: `The server checked that ${pools}, equals ${bank} (${n(rhs)}).` }
+    : { ok: false, text: `Does not add up (off by ${n(fp.sumCheck.balanceDiff)}): ${pools}, comes to ${n(lhs)}, but ${bank}, comes to ${n(rhs)}.` };
 }
 
 /** The draws check in words: Σ building draws and Σ pool draws vs every Bank debit. */
 export function poolsDrawsLine(fp: FinancePools): { ok: boolean; text: string } {
   const b = fp.buildings.reduce((s, x) => s + x.drawn, 0), p = fp.pools.reduce((s, x) => s + x.drawn, 0);
-  const sum = `building draws ${n(b)}, pool draws ${n(p)}, Bank debits ${n(fp.usedBank)}`;
-  return fp.sumCheck.drawsOk ? { ok: true, text: `Adds up: building draws = pool draws = Bank debits = ${n(fp.usedBank)}` } : { ok: false, text: `Does not add up (off by ${n(fp.sumCheck.drawsDiff)}): ${sum}` };
+  return fp.sumCheck.drawsOk
+    ? { ok: true, text: `The server checked that what the buildings drew equals what the pools paid out and what the Bank debited: ${n(fp.usedBank)}.` }
+    : { ok: false, text: `Does not add up (off by ${n(fp.sumCheck.drawsDiff)}): the buildings drew ${n(b)}, the pools paid out ${n(p)}, the Bank debited ${n(fp.usedBank)}.` };
 }
 
 const Check = ({ c }: { c: { ok: boolean; text: string } }) => <div className={c.ok ? "finance-check ok" : "error-line"} role="status">{c.ok ? "✓ " : "✗ "}{c.text}</div>;
@@ -211,7 +216,7 @@ export function PoolsView({ fp }: { fp: FinancePools }) {
               <div className="muted"><Pair>expiring {n(p.expiringLeft)}</Pair> · <Pair>permanent {n(p.durableLeft)}</Pair> · <Pair>drawn all time {n(p.drawn)}</Pair></div>
             </div>
             {p.overdrawn ? (
-              <div className="spend-row finance-overdrawn pool-overdrawn" title="Permanent tokens drawn past the pool's share (overshoot debt), paid back from later API-key credits">
+              <div className="spend-row finance-overdrawn pool-overdrawn" title="Sessions ran past the permanent tokens in the pool's share: a debt, paid back from later API-key credits">
                 <span className="spend-line"><span className="spend-name">{p.name} overdrawn: permanent tokens drawn past its share</span><span className="spend-tokens">−{n(p.overdrawn)}</span></span>
               </div>
             ) : null}
@@ -222,10 +227,16 @@ export function PoolsView({ fp }: { fp: FinancePools }) {
             <span className="spend-line"><span className="spend-name">Unshared: tokens no pool owns</span><span className="spend-share">{fp.sharedPct < 100 ? `${Math.round((100 - fp.sharedPct) * 100) / 100}%` : ""}</span><span className="spend-tokens">{n(fp.unsharedTokens)}</span></span>
           </div>
         ) : null}
-        <Total label="Bank balance less overshoot" tokens={fp.poolsLeftTokens - fp.poolsOverdrawnTokens + fp.unsharedTokens} />
+        <Total label="Bank balance less what is overdrawn" tokens={fp.poolsLeftTokens - fp.poolsOverdrawnTokens + fp.unsharedTokens} />
       </div>
       <Check c={poolsBalanceLine(fp)} />
-      <p className="muted">What each building drew from its pool, all time; under it, donations straight to it, what of them it still holds, and today&apos;s exploration allowance.</p>
+      <p className="muted">What each building drew from its pool, all time; under it, donations straight to it, what of them it still holds, and its daily allowance.</p>
+      <p className="muted">
+        A building&apos;s daily allowance (allowance N / day) is the most it may spend each day on work no grant covers and no human asked for:
+        a tenth of its pool&apos;s daily credits unless set for that building. It is a limit, not tokens set aside; it renews at 00:00 UTC and unspent
+        allowance does not carry over. Held tokens are the unspent part of donations made straight to a building: only that building can spend them.
+        A building that draws nothing from the Bank is funded only by donations made to it.
+      </p>
       <div className="spend-tree">
         {fp.buildings.map((b) => (
           <div key={b.id ?? "deleted"} className="spend-row" title={b.id ?? undefined}>
@@ -233,7 +244,7 @@ export function PoolsView({ fp }: { fp: FinancePools }) {
               <span className="spend-name">{b.name}{b.poolName ? <span className="muted"> · {b.poolName}</span> : null}</span>
               <span className="spend-tokens">{n(b.drawn)}</span>
             </span>
-            <div className="muted">{b.drawsFromBank ? <><Pair>donated {n(b.donated)}</Pair> · <Pair>held {n(b.held)}</Pair> · <Pair>exploration {n(b.explorationTokensPerDay)} / day</Pair></> : b.id ? "draws nothing from the Bank" : "debits of buildings since deleted"}</div>
+            <div className="muted">{b.drawsFromBank ? <><Pair>donated {n(b.donated)}</Pair> · <Pair>held {n(b.held)}</Pair> · <Pair>allowance {n(b.explorationTokensPerDay)} / day</Pair></> : b.id ? "draws nothing from the Bank" : "debits of buildings since deleted"}</div>
           </div>
         ))}
         <Total label="Drawn from pools" tokens={fp.buildings.reduce((s, b) => s + b.drawn, 0)} />
@@ -257,7 +268,7 @@ export function flyWindowTotals(fly: Pick<FinanceFly, "days">, n: number): { day
 /** The Fly check in words: each day's desk + town = total, and the buildings' desk time = the days'. */
 export function flyCheckLine(fly: Pick<FinanceFly, "sumCheck" | "totals">): { ok: boolean; text: string } {
   const c = fly.sumCheck;
-  if (c.ok) return { ok: true, text: `Adds up: every day's desks + town Machine = its total, and the buildings' desk time sums to the days' (${hours(fly.totals.deskMs)})` };
+  if (c.ok) return { ok: true, text: `The server checked that each day's desks + town Machine equals that day's total, and that the buildings' desk time adds up to the days' (${hours(fly.totals.deskMs)}).` };
   return { ok: false, text: c.daysOk ? `Does not add up: the buildings' desk time misses the days' by ${hours(Math.abs(c.diff))}` : `Does not add up: a day's desks + town Machine misses its total by ${usd(Math.abs(c.diff), 6)}` };
 }
 
@@ -334,7 +345,7 @@ export function TokensView({ f }: { f: Finance }) {
           <tr><td>Used</td><td><b>{n(f.used)}</b></td></tr>
           <tr title="Daily subscription tokens that renewed before they were drawn"><td>Expired (not drawn before renewal)</td><td>{n(f.expired)}</td></tr>
           <tr><td>Left</td><td><b>{n(f.left)}</b></td></tr>
-          {f.overdrawn ? <tr className="finance-overdrawn" title="Usage past what was received: overshoot debt, carried against future permanent credits"><td>Overdrawn (used past what was received)</td><td>{n(f.overdrawn)}</td></tr> : null}
+          {f.overdrawn ? <tr className="finance-overdrawn" title="Spent past what was received; the lines under it say where"><td>Overdrawn (used past what was received)</td><td>{n(f.overdrawn)}</td></tr> : null}
           {overdrawnParts(f).map((p) => (
             <tr key={p.key} className="sub-row"><td>{p.label}{p.note ? <div className="muted">{p.note}</div> : null}</td><td>{n(p.tokens)}</td></tr>
           ))}
@@ -375,4 +386,23 @@ export function useFinance(): { data: FinanceData | null; error: string | null; 
 /** The footer: when the figures were read and which endpoints they came from. */
 export const FinanceFooter = ({ f, spend, sources, poolsFin, fly }: FinanceData) => (
   <p className="muted">As of {f.at.slice(0, 16).replace("T", " ")} UTC · in adjusted output tokens{fly ? " (Hosting in US dollars)" : ""} · from <code>GET /api/bank</code>, <code>/api/finance</code>{sources ? <>, <code>/api/finance/sources</code></> : null}{poolsFin ? <>, <code>/api/finance/pools</code></> : null}{spend ? <>, <code>/api/finance/spend</code></> : null}{fly ? <> and <code>/api/finance/fly</code></> : null}</p>
+);
+
+/** Every term the Bank page uses, in plain words (kr_zjawesqcyp): one list a stranger can read, at the foot of every tab. */
+export const FINANCE_TERMS: [term: string, meaning: string][] = [
+  ["Adjusted token (adj. token)", "The unit every amount is in, except Hosting (US dollars): one output token counts 1, and input and cached tokens count at their lower price. 1 adj. token ≈ 30 raw tokens on Opus, 24 on Fable."],
+  ["Expiring and permanent", "Subscription tokens are credited each day and expire at the next renewal if nobody used them. API-key tokens are permanent: kept until used."],
+  ["Overdrawn", "Tokens spent past what was received. Its parts: sessions that ran past the permanent tokens the Bank had (a debt, paid back from later API-key credits); subscription credits drawn past their size when the Bank switched to adjusted tokens on 2026-10-27; draws on credits since deleted; and donations a building spent past their size."],
+  ["Held", "The unspent part of donations made straight to a building: only that building can spend them."],
+  ["Daily allowance", "The most a building may spend each day on work no grant covers and no human asked for. It renews at 00:00 UTC; unspent allowance does not carry over."],
+  ["Not funded", "Work sessions the Bank never charged: tokens a session used that no Bank credit or donation paid for."],
+  ["Grant", "Tokens a human approves for one building to reach one dated, checkable target; each grant's row opens the grant's page."],
+];
+
+/** The Terms block: FINANCE_TERMS as a definition list, closed until opened. */
+export const FinanceTerms = () => (
+  <details className="finance-terms">
+    <summary className="muted">Terms used on this page</summary>
+    <dl className="muted">{FINANCE_TERMS.map(([t, d]) => <div key={t}><dt><b>{t}</b></dt><dd>{d}</dd></div>)}</dl>
+  </details>
 );
