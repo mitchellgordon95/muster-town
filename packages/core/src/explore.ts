@@ -9,7 +9,6 @@
  */
 import type { Assignment, BankReservation, Building } from "@muster-town/schema";
 import { buildingQueue, createAssignment, managerAgentOf } from "./domain.ts";
-import { familyCap } from "./budget.ts";
 import { sessionView } from "./bank.ts";
 import { exploreCapAt, exploreRuleAt, exploreSpentToday, freeTokensAll } from "./free-tokens.ts";
 import { freeDesks } from "./forks.ts";
@@ -42,7 +41,7 @@ export function exploreBlock(world: World, b: Building, now = new Date(), free =
   if (!rule.on) return `exploration is off (set on goal ${rule.onFrom})`;
   const manager = managerAgentOf(world, b);
   if (!manager || manager.status === "banned" || manager.status === "retired") return "no manager to fork";
-  if (world.budget.remaining(b.id) <= 0 || manager.familySpentToday >= familyCap(b)) return "the building's budget for today is spent";
+  if (world.budget.remaining(b.id) <= 0) return "the building's budget is spent";
   if (freeDesks(world, b) <= 0) return "no free desk";
   if (world.bankReservations.first("buildingId = ? AND closedAt IS NULL", [b.id])) return "an explorer of this building is still open";
   if (buildingQueue(world, b.id).some((a) => !a.waitFor && !a.offered && world.budget.holdReason(a) === null)) return "other work is queued for its desks";
