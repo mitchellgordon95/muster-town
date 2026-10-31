@@ -44,8 +44,8 @@ export function exploreBlock(world: World, b: Building, now = new Date(), free =
   if (!manager || manager.status === "banned" || manager.status === "retired") return "no manager to fork";
   if (world.budget.remaining(b.id) <= 0 || manager.familySpentToday >= familyCap(b)) return "the building's budget for today is spent";
   if (freeDesks(world, b) <= 0) return "no free desk";
-  if (buildingQueue(world, b.id).some((a) => !a.waitFor && !a.offered && world.budget.holdReason(a) === null)) return "other work is queued for its desks";
   if (world.bankReservations.first("buildingId = ? AND closedAt IS NULL", [b.id])) return "an explorer of this building is still open";
+  if (buildingQueue(world, b.id).some((a) => !a.waitFor && !a.offered && world.budget.holdReason(a) === null)) return "other work is queued for its desks";
   const last = world.bankReservations.first("buildingId = ?", [b.id], "ORDER BY openedAt DESC");
   if (last && now.getTime() - Date.parse(last.openedAt) < EXPLORE_MIN_GAP_MS) return `the last explorer started under ${EXPLORE_MIN_GAP_MS / 60_000} min ago`;
   if (world.grants.first("buildingId = ? AND status IN ('proposed', 'countered')", [b.id])) return "a proposal of this building is open and undecided";
