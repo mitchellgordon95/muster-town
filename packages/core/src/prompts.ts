@@ -317,6 +317,22 @@ ${transcript ? `\nSo far:\n${transcript}\n${pickUp}` : `\nThey haven't said anyt
 Answer with the \`meeting\` tool, action "speak", meetingId ${meeting.id}: short, plain, concrete. Their next messages arrive here as messages in this session, so don't \`listen\`; after you've spoken, stop and wait. When you agree on work, record it with action "decide" (a decision with an assigneeId becomes that agent's assignment, yours if you take it), or \`assign\` it if you manage the building; say who and what in the meeting too. If they opened it about a doc, its id is in their first line: \`read\` it before you answer. If they opened it about a grant, their first line names it (gr_…) and its key result. You can't do the work yourself here (no code or web tools). The human ends the 1:1, not you, and there is no report: don't call \`submit_report\` (the "Finish with submit_report" rule above is for work sessions).${decisions ? `\n\n${decisions}` : ""}`;
 }
 
+/**
+ * A 1:1 answered beside the agent's live work session (1:1 mt_ufwllf4wmt decision 1): what that session is doing, the
+ * agent's recent work (its wiki and log are in the system prompt), and how to hand the human's request to it: a \`tell\`
+ * to itself reaches the work session as direction from the human (core/src/verbs/social.ts tell).
+ */
+export function alongsideWorkBlock(world: World, m: Meeting, agentId: string, work: { assignmentId?: string | null; startedAt: string; backend?: string | null } | undefined): string {
+  const who = m.withUserId ? world.nameOf(m.withUserId) : "the human";
+  const asg = work?.assignmentId ? world.assignments.get(work.assignmentId) : undefined;
+  const doing = asg ? `"${oneLine(asg.title, 160)}" (${asg.id})` : "work with no assignment";
+  return `## What you are doing now
+Your ${work?.backend === "docker" ? "desk" : "work"} session is running right now, on ${doing}, started ${work ? relativeTime(work.startedAt, Date.now()) : "just now"}. It keeps running: this conversation is a second session beside it, so answer ${who} here without waiting for the work to end. Answer "what are you working on" from this and your recent work below.
+If ${who} asks for something that work session should act on (change course, add or drop something, stop), \`tell\` yourself (your own id, ${agentId}) with the request in their words: it reaches the running work session at once as direction from ${who}, citing this meeting. Then say in the 1:1 that you passed it on. Work you agree that is separate from it you record with meeting "decide" as before. This session can't \`submit_report\` or \`accept_assignment\`: those belong to the work session.
+
+${recentWorkBlock(world, agentId, { readHint: false })}`;
+}
+
 /** A human's line in the 1:1, streamed into the manager's session. */
 export function oneOnOneUtterance(meeting: Meeting, speaker: string, text: string): string {
   return `${speaker} said in the 1:1 (${meeting.id}): ${text}\n\nAnswer with meeting "speak", then stop and wait.`;

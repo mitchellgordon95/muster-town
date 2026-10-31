@@ -27,7 +27,7 @@ export { goalSpend, worldGoalSpend, type GoalSpendInputs } from "./goal-spend.ts
 export { buildingBoard, goalBoard, queueLane, QUEUE_DONE_MS } from "./kanban.ts";
 export { linkPostmortem, postmortemBuilding, postmortemNote, postmortemTag, queuePostmortem } from "./postmortems.ts";
 export { intrayRoutes } from "./intray-routes.ts";
-export { bankConvertedAt, countersSince, financeSpend, ledgerBookedBeforeConversion, townSpend, NO_ASSIGNMENT, NO_BUILDING, NO_GRANT, NOT_FUNDED, SPEND_IDENTITY, UNATTRIBUTED, WEIGHT_MISMATCH, type FinanceSpend, type SpendInputs, type SpendKind, type SpendNode } from "./finance-spend.ts";
+export { bankConvertedAt, countersSince, financeSpend, grantTitle, ledgerBookedBeforeConversion, townSpend, NO_ASSIGNMENT, NO_BUILDING, NO_GRANT, NOT_FUNDED, SPEND_IDENTITY, UNATTRIBUTED, WEIGHT_MISMATCH, type FinanceSpend, type SpendInputs, type SpendKind, type SpendNode } from "./finance-spend.ts";
 export { financeSources, townSources, DELETED_INPUT, SOURCES_IDENTITY, type FinanceSources, type SourceCredit, type SourceDonation, type SourceInput, type SourcesInputs } from "./finance-sources.ts";
 export { financeFly, flyRate, townFly, DESK_MACHINE_DEFAULTS, FLY_IDENTITY, FLY_NOT_COUNTED, FLY_PRICES, TOWN_MACHINE, type FinanceFly, type FlyBuilding, type FlyDay, type FlyDayBuilding, type FlyInputs, type FlyRate } from "./finance-fly.ts";
 export { deskPreset, deskSizeFor, DESK_FALLBACK_SIZE, type DeskBill, type DeskSize } from "./desk-bill.ts";
@@ -35,7 +35,7 @@ export { financePools, townPools, DELETED_BUILDING, DELETED_POOL, POOLS_BALANCE_
 export { Ops, type Actor, type MessageAgentOptions, type MessageAgentResult, type RequestAction, type ThreadMessage } from "./ops.ts";
 export { createBuilding, STARTER_MANAGER_MODEL, updateBuilding, syncManagerRoles, createResident, registerVisitor, ensureAvatar, createUser, createServiceAgent, createTownModerator, updateFurniture, followRelayout } from "./entities.ts";
 export { RESIDENT_NAMES, suggestResidentName } from "./names.ts";
-export { forkManager, retireFork, nextForkN, familyCap, forkModels, checkForkModel, forkableQueue, freeDesks, liveForks, chainDesk, deskSlotRow, deskSlotRows, setDeskSlot, forkDeskSlot, type DeskSlotRow, forkSummary, forksOf, familySpend, type FamilySpend, reportChain, reportChains, type ForkSummary, type ReportChain } from "./forks.ts";
+export { forkManager, retireFork, nextForkN, familyCap, forkModels, checkForkModel, forkableQueue, freeDesks, liveForks, chainDesk, deskSlotRow, deskSlotRows, setDeskSlot, forkDeskSlot, type DeskSlotRow, forkSummary, forksOf, familySpend, type FamilySpend, reportChain, reportChains, requestForkStop, stopOverdueForks, STOP_FORK_TIMEOUT_MS, type ForkSummary, type ReportChain } from "./forks.ts";
 export { decisionKey, decisionWakes, managerIntrayRow, mentionKey, mentionWake, relayKey, relayWake, RELAY_MAX_AGE_MS, RELAY_MAX_HOPS, requestAnswerKey, requestAnswerWake, wakeKey } from "./wakes.ts";
 export { checkWaits, describeWait, validateWait, waitMet } from "./waits.ts";
 export { blockedBy, buildingStats, waitsOnTime, townBlocked } from "./blockers.ts";
