@@ -52,7 +52,7 @@ const errMsg = (e: unknown) => (e instanceof Error ? e.message : String(e));
 
 /** An error that means the subscription is out of quota for now (the desk then fails over to the API key once). */
 export { SPEND_LIMIT };
-/** The API key to fail over to (both spellings for one release). Never passed to Claude Code itself. */
+/** Where a runtime from before 2026-10-30 put a failover key: dropped, never passed to Claude Code; a desk runs on one credential, start to end. */
 export const FALLBACK_KEY_ENVS = ["AGENT_TOWN_FALLBACK_API_KEY", "MUSTER_TOWN_FALLBACK_API_KEY"] as const;
 const FUNDING = new Set(["subscription", "api-key", "donor-key"]);
 type FundingMode = "subscription" | "api-key" | "donor-key";
@@ -61,30 +61,24 @@ type FundingMode = "subscription" | "api-key" | "donor-key";
  * Env for the Claude Code process the SDK spawns. The runtime hands a desk exactly one model credential (`DESK_AUTH`
  * labels it): subscription → `CLAUDE_CODE_OAUTH_TOKEN`; api-key / donor-key → `ANTHROPIC_API_KEY`. Both at once is a
  * hard failure (Claude Code would bill the key and the town would record the subscription: post-mortem 2026-10-30).
- * The fallback key is never passed on; it comes back as `fallbackKey`. Values are secrets: never log them.
+ * A failover key from an old runtime is dropped: the session runs on its one credential to the end, and when it dies on
+ * the subscription's cap the *next* session is the one that runs on the key (1:1 mt_x40qq8poc3). Values are secrets: never log them.
  */
-export function sessionEnv(env: NodeJS.ProcessEnv): { env: Record<string, string>; auth: string; fallbackKey: string | null } {
+export function sessionEnv(env: NodeJS.ProcessEnv): { env: Record<string, string>; auth: string } {
   const out: Record<string, string> = {};
   for (const [k, v] of Object.entries(env)) if (typeof v === "string") out[k] = v;
-  let fallbackKey: string | null = null;
-  for (const k of FALLBACK_KEY_ENVS) { fallbackKey ??= out[k] || null; delete out[k]; }
+  for (const k of FALLBACK_KEY_ENVS) delete out[k];
   const label = env.DESK_AUTH && env.DESK_AUTH !== "none" ? env.DESK_AUTH : null;
   const creds = ["CLAUDE_CODE_OAUTH_TOKEN", "ANTHROPIC_API_KEY", "ANTHROPIC_AUTH_TOKEN"].filter((k) => out[k]);
   if (creds.length > 1) throw new Error(`${creds.join(" and ")} are both set: a desk runs on one model credential`);
-  if (out.CLAUDE_CODE_OAUTH_TOKEN) return { env: out, auth: label ?? "subscription token", fallbackKey };
-  if (out.ANTHROPIC_API_KEY) return { env: out, auth: label ?? "api key", fallbackKey: null };
+  if (out.CLAUDE_CODE_OAUTH_TOKEN) return { env: out, auth: label ?? "subscription token" };
+  if (out.ANTHROPIC_API_KEY) return { env: out, auth: label ?? "api key" };
   throw new Error("no model credential: the town hands a desk CLAUDE_CODE_OAUTH_TOKEN or ANTHROPIC_API_KEY from its Bank");
-}
-
-/** The SDK env for the failover rerun: the fallback API key, no subscription token. */
-export function failoverEnv(base: Record<string, string>, key: string): Record<string, string> {
-  const { CLAUDE_CODE_OAUTH_TOKEN: _t, ...rest } = base;
-  return { ...rest, ANTHROPIC_API_KEY: key };
 }
 
 /**
  * The JSONL the Agent SDK wrote for each of `sdkSessionIds` (`<claudeDir>/projects/<cwd slug>/<id>.jsonl`), joined in
- * order (a failover rerun is a second SDK session), or null when none is on disk.
+ * order, or null when none is on disk.
  */
 export function readTranscript(claudeDir: string, sdkSessionIds: string[]): Buffer | null {
   const root = join(claudeDir, "projects");
@@ -113,15 +107,14 @@ export async function runSession(sessionId: string, deps: RunDeps): Promise<numb
   let finalText = "";
   let error: string | null = null;
   let sdkSessionId: string | null = null;
-  /** every SDK session this town session ran (two after a failover), for the transcript upload */
+  /** every SDK session this town session ran, for the transcript upload */
   const sdkSessionIds: string[] = [];
   let reportSubmitted = false;
   let stopped = false;
-  /** the session hit the subscription's limit and reran on the fallback API key */
-  let fellBack = false;
-  /** the SDK's message when a result read as SPEND_LIMIT: posted at session end so the server logs `bank.cap` */
+  /** the SDK's message when a result read as SPEND_LIMIT: posted at session end so the server logs `bank.cap` (the next session then runs on the Bank's key) */
   let spendLimit: string | null = null;
-  let fundingUsed: FundingMode | null = env.DESK_AUTH && FUNDING.has(env.DESK_AUTH) ? env.DESK_AUTH as FundingMode : null;
+  /** the funding label the runtime handed over: echoed back as the desk's claim, which the Bank checks against what it booked */
+  const fundingUsed: FundingMode | null = env.DESK_AUTH && FUNDING.has(env.DESK_AUTH) ? env.DESK_AUTH as FundingMode : null;
   /** wall, CPU and steal over the session (gr_uhh6u39vv9), from the Machine's /proc/stat */
   const perf = startPerf(deps.readProcStat);
 
@@ -138,13 +131,12 @@ export async function runSession(sessionId: string, deps: RunDeps): Promise<numb
       ...(finalText ? { finalText } : {}),
       ...(error && !stopped ? { error } : {}),
       ...(fundingUsed ? { fundingUsed } : {}),
-      ...(fellBack ? { fallback: true } : {}),
       ...(spendLimit ? { spendLimit } : {}),
       ...perf.finish(),
     };
     try {
       await town.sessionEnd(body);
-      log(`session-end posted (tokens ${body.tokens}, turns ${body.turns}, report ${reportSubmitted ? "yes" : "no"}${stopped ? ", stopped" : ""}${fellBack ? ", API-key fallback" : ""})`);
+      log(`session-end posted (tokens ${body.tokens}, turns ${body.turns}, report ${reportSubmitted ? "yes" : "no"}${stopped ? ", stopped" : ""})`);
     } catch (e) {
       log(`session-end failed: ${errMsg(e)}`);
     }
@@ -250,7 +242,7 @@ export async function runSession(sessionId: string, deps: RunDeps): Promise<numb
     const se = sessionEnv(env);
     log(`auth: ${se.auth}`);
 
-    /** one run of the whole session (the failover reruns it); returns the error text a limit check reads */
+    /** the one run of the session; returns the error text the limit check reads */
     const attempt = async (sdkEnv: Record<string, string>, prior: Usage): Promise<string> => {
       input = new InputChannel();
       input.push(brief.prompt);
@@ -314,18 +306,12 @@ export async function runSession(sessionId: string, deps: RunDeps): Promise<numb
     };
 
     const detail = await attempt(se.env, usage);
-    if (error && !stopped && SPEND_LIMIT.test(`${error} ${detail}`)) spendLimit = (detail.trim() || error).replace(/\s+/g, " ").trim().slice(0, 2000);
-    // ---- failover: the subscription hit its spend limit → rerun the session once on the API key ----
-    if (error && !stopped && !reportSubmitted && se.fallbackKey && SPEND_LIMIT.test(`${error} ${detail}`)) {
-      log("subscription limit hit; retrying on the API key");
-      post({ kind: "status", text: "Switching to API-key funding (subscription limit)" });
-      await flush();
-      fellBack = true;
-      fundingUsed = "api-key";
-      error = null;
-      finalText = "";
-      sdkSessionId = null;
-      await attempt(failoverEnv(se.env, se.fallbackKey), usage);
+    // the subscription's spend limit: no rerun on another key inside this session (one credential per session); the
+    // server logs `bank.cap` from `spendLimit` and hands the next session the Bank's API key instead
+    if (error && !stopped && SPEND_LIMIT.test(`${error} ${detail}`)) {
+      spendLimit = (detail.trim() || error).replace(/\s+/g, " ").trim().slice(0, 2000);
+      log("subscription limit hit; the session ends here and the next one runs on the Bank's API key");
+      post({ kind: "status", text: "Subscription limit hit: ending; the next session runs on the API key" });
     }
   } catch (e) {
     error = errMsg(e);

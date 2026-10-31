@@ -438,12 +438,14 @@ export class Ops {
   }
 
   /** Runtime: a session starts. Work sessions activate the assignment and set status `working`; manage sessions set `working` too. */
-  startSession(agentId: string, opts: { purpose: Session["purpose"]; model: string; assignmentId?: string | null; meetingId?: string | null; backend?: Session["backend"]; funding?: Session["funding"]; inputId?: string | null; size?: Pick<Session, "cpuKind" | "cpus" | "memoryMb"> | null }): Session {
+  startSession(agentId: string, opts: { purpose: Session["purpose"]; model: string; assignmentId?: string | null; meetingId?: string | null; backend?: Session["backend"]; funding?: Session["funding"]; inputId?: string | null; credentialInputId?: string | null; size?: Pick<Session, "cpuKind" | "cpus" | "memoryMb"> | null }): Session {
     const agent = this.world.agents.require(agentId, "agent");
     const session = this.world.sessions.upsert({
       id: newId("se"), agentId, assignmentId: opts.assignmentId ?? null, meetingId: opts.meetingId ?? null, purpose: opts.purpose, backend: opts.backend ?? "host",
       status: "running", model: opts.model, sdkSessionId: null, tokens: 0, costUsd: 0, turns: 0, reportId: null, error: null, startedAt: nowIso(), endedAt: null,
       funding: opts.funding ?? null,
+      // the Bank input whose credential the session was handed (post-mortem 2026-10-30): booked at start, never from the desk's word
+      credentialInputId: opts.credentialInputId ?? null,
       // the desk Machine size it runs on (gr_uhh6u39vv9 step 3); null for host sessions and docker desks
       cpuKind: opts.size?.cpuKind ?? null, cpus: opts.size?.cpus ?? null, memoryMb: opts.size?.memoryMb ?? null,
       // goal-directed budgets: the session spends in its assignment's lane (a grant's spend is the sum of its sessions)
@@ -463,7 +465,7 @@ export class Ops {
     // member funding: `inputId` names the grant's own api-key input the session runs on (the Bank debits it first)
     const input = opts.inputId ? this.world.bank.input(opts.inputId) : undefined;
     const by = input ? `${input.label}'s API key` : opts.funding === "subscription" ? "subscription" : opts.funding === "donor-key" ? "a donor's API key" : "API key";
-    this.world.events.append({ type: "session.started", agentId, buildingId: homeOf(agent), text: `${agent.name} started a ${opts.purpose} session${opts.funding ? ` (funded by ${by})` : ""}`, payload: { sessionId: session.id, purpose: opts.purpose, assignmentId: opts.assignmentId ?? null, model: opts.model, backend: session.backend, funding: opts.funding ?? null, inputId: opts.inputId ?? null, grantId: session.grantId ?? null, origin: session.origin ?? null, ...(agent.forkOf ? { forkOf: agent.forkOf } : {}) } });
+    this.world.events.append({ type: "session.started", agentId, buildingId: homeOf(agent), text: `${agent.name} started a ${opts.purpose} session${opts.funding ? ` (funded by ${by})` : ""}`, payload: { sessionId: session.id, purpose: opts.purpose, assignmentId: opts.assignmentId ?? null, model: opts.model, backend: session.backend, funding: opts.funding ?? null, inputId: opts.inputId ?? null, credentialInputId: opts.credentialInputId ?? null, grantId: session.grantId ?? null, origin: session.origin ?? null, ...(agent.forkOf ? { forkOf: agent.forkOf } : {}) } });
     return session;
   }
 

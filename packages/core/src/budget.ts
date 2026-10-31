@@ -49,9 +49,11 @@ export function startOfLocalDay(d: Date): string {
 export interface Funding {
   allocationId: string | null;
   auth: AllocationAuth;
+  /**
+   * The one credential the session runs on. Never a second one for failover: a session that dies on the subscription's
+   * cap logs `bank.cap`, and the *next* session picks a different credential (`failoverFunding`) until the cap resets.
+   */
   credential: Credential;
-  /** subscription funding: what a desk fails over to at the plan's spend limit, when the Bank owns a key for it (never the host's) */
-  fallback?: { allocationId: string | null; credential: Credential };
   /** member funding: the grant's own api-key input the session runs on */
   inputId?: string;
 }
@@ -77,14 +79,31 @@ export class Budget {
   }
 
   /**
+   * What a subscription-funded building runs on while the subscription is capped (`Bank.capState().cappedAt`): the first
+   * donor-key allocation with tokens left, on its donor's key; else the keyed api-key input's own key, booked to the
+   * first api-key allocation with tokens left or to the Bank share. Null when the Bank owns no key for it. One
+   * credential, like every funding: the failover is the next session's different pick, never a second key in one.
+   */
+  failoverFunding(buildingId: string, now = new Date()): Funding | null {
+    const fb = this.fallbackAllocation(buildingId);
+    const donor = fb ? this.apiKeyFor(fb) : null;
+    if (fb && donor) return { allocationId: fb.id, auth: "donor-key", credential: { kind: "api-key", secret: donor, inputId: null } };
+    const input = this.bank.fallbackInput(buildingId, now);
+    const credential = input ? this.bank.apiKeyCredential(input.id) : null;
+    return credential ? { allocationId: fb?.id ?? null, auth: "api-key", credential } : null;
+  }
+
+  /**
    * The Bank's one answer to "what runs this session, and who pays": the building's subscription allocations → its Bank
    * share (today's subscription share on the subscription input's token; the durable share on the keyed api-key input)
    * → donor-key allocations (the donor's key) → api-key allocations (the keyed api-key input, else the subscription) →
    * nothing funds the building: the town's credential, charged to no allocation (chat, summaries; work is gated by
    * `canStart`). A grant funded from a member's own input (`fundedWith`) runs on that input's key first. Retired
-   * allocations are never picked. A subscription funding carries a `fallback` only when the Bank owns a key for it: a
-   * donor-key allocation's, or the api-key input's own. Throws `NoCredential` when the Bank holds nothing that can run
-   * it: the host env is never consulted (post-mortem 2026-10-30).
+   * allocations are never picked. Exactly one credential, always (post-mortem 2026-10-30, 1:1 mt_x40qq8poc3): while the
+   * subscription is capped (a `bank.cap` whose reset is still ahead) a subscription-funded session runs on the failover
+   * instead (`failoverFunding`, when the Bank owns a key: a donor-key allocation's or the api-key input's own) and is
+   * booked to it; there is no second key inside a session. Throws `NoCredential` when the Bank holds nothing that can
+   * run it: the host env is never consulted.
    */
   fundingFor(buildingId: string, opts: { grant?: { id: string; fundedWith: string | null } | null; now?: Date } = {}): Funding {
     const now = opts.now ?? new Date();
@@ -92,17 +111,13 @@ export class Budget {
     const gi = bank.grantKeyInput(opts.grant, now);
     const own = gi ? bank.apiKeyCredential(gi.id) : null;
     if (gi && own) return { allocationId: null, auth: "api-key", credential: own, inputId: gi.id };
-    const withFallback = (f: Funding): Funding => {
-      const fb = this.fallbackAllocation(buildingId);
-      const donor = fb ? this.apiKeyFor(fb) : null;
-      const input = bank.fallbackInput(buildingId, now);
-      const credential: Credential | null = donor ? { kind: "api-key", secret: donor, inputId: null } : input ? bank.apiKeyCredential(input.id) : null;
-      return credential ? { ...f, fallback: { allocationId: fb?.id ?? null, credential } } : f;
-    };
     const subscription = (allocationId: string | null): Funding => {
+      // capped right now: the next session is the failover (the Bank's key), not the subscription's token
+      const failover = bank.capState(now).cappedAt ? this.failoverFunding(buildingId, now) : null;
+      if (failover) return failover;
       const credential = bank.subscriptionCredential();
       if (!credential) throw new NoCredential(this.repos.bankInputs.first("source = 'subscription' AND cancelledAt IS NULL", []) ? NO_TOKEN_HOLD : undefined);
-      return withFallback({ allocationId, auth: "subscription", credential });
+      return { allocationId, auth: "subscription", credential };
     };
     /** an api-key share or allocation: the keyed api-key input, else the subscription (recorded as such) */
     const keyed = (allocationId: string | null, credential: Credential | null): Funding =>

@@ -114,4 +114,6 @@ reset that already passed today) funded by the subscription. The typical session
 50 ended sessions that used tokens. When spend ≥ learned cap − typical session, a building whose next session would run on
 the subscription and has no fallback (no donor-key / api-key allocation, no API-key Bank input) holds new starts:
 assignments stay pending with `heldReason` "near the subscription cap (…), resets at …" and the map shows it. With a
-fallback nothing is held; the session fails over as before. A `bank.hold` event is logged once per day when it first applies.
+fallback nothing is held: sessions keep starting, and once one dies on the cap (`bank.cap`, `capState().cappedAt`) the
+next sessions run on the fallback credential until the reset (`Budget.failoverFunding`); a session never carries a second
+credential to switch to inside itself (1:1 mt_x40qq8poc3). A `bank.hold` event is logged once per day when it first applies.

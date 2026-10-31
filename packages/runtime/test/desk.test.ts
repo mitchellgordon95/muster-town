@@ -2,7 +2,7 @@ import { EventEmitter } from "node:events";
 import { PassThrough } from "node:stream";
 import { afterEach, describe, expect, test, vi } from "vitest";
 import type { Agent, Building } from "@muster-town/schema";
-import { deskAuth, DockerBackend, fundingFor, type DeskBackend, type DeskChild, type DeskHandle, type DockerRunner, type RunResult, type SpawnedChild } from "../src/index.ts";
+import { assertOneCredential, deskAuth, DockerBackend, fundingFor, type DeskBackend, type DeskChild, type DeskHandle, type DockerRunner, type RunResult, type SpawnedChild } from "../src/index.ts";
 import { killTreeCommand } from "../src/desk/backend.ts";
 import { result, setup, TEST_TOKEN } from "./helpers.ts";
 import { NO_KEY_HOLD, type Credential } from "@muster-town/core";
@@ -224,15 +224,14 @@ describe("desk work sessions", () => {
   });
 });
 
-describe("deskAuth (the Bank's one credential, the fallback key beside the subscription only)", () => {
+describe("deskAuth (the Bank's one credential, nothing beside it)", () => {
   const sub: Credential = { kind: "subscription", secret: "oat", inputId: "bi_sub" };
   const key: Credential = { kind: "api-key", secret: "sk-bank", inputId: "bi_key" };
-  test("exactly one credential var, from the funding; nothing from the host env", () => {
+  test("exactly one credential var, from the funding; nothing from the host env, no fallback key", () => {
     expect(deskAuth({ auth: "donor-key", credential: { kind: "api-key", secret: "donor", inputId: null } })).toEqual({ mode: "donor-key", env: { ANTHROPIC_API_KEY: "donor" } });
     expect(deskAuth({ auth: "subscription", credential: sub })).toEqual({ mode: "subscription", env: { CLAUDE_CODE_OAUTH_TOKEN: "oat" } });
-    expect(deskAuth({ auth: "subscription", credential: sub, fallback: { allocationId: "al_1", credential: key } }))
-      .toEqual({ mode: "subscription", env: { CLAUDE_CODE_OAUTH_TOKEN: "oat", AGENT_TOWN_FALLBACK_API_KEY: "sk-bank" } });
     expect(deskAuth({ auth: "api-key", credential: key })).toEqual({ mode: "api-key", env: { ANTHROPIC_API_KEY: "sk-bank" } });
+    for (const f of [{ auth: "subscription" as const, credential: sub }, { auth: "api-key" as const, credential: key }]) expect(() => assertOneCredential(deskAuth(f).env)).not.toThrow();
   });
 });
 
@@ -252,11 +251,20 @@ describe("desk funding and failover charging", () => {
     return { ...s, sub, buffer };
   }
 
-  test("fundingFor: subscription first (on the Bank's token) with the keyed allocation as fallback; retired allocations are skipped", () => {
+  test("fundingFor: subscription first (on the Bank's token), one credential; retired allocations are skipped", () => {
     const { world, by, sub, buffer } = funded();
-    expect(fundingFor(world, by("Noor").id)).toEqual({ allocationId: sub.id, auth: "subscription", credential: SUB, fallback: { allocationId: buffer.id, credential: { kind: "api-key", secret: "sk-buffer", inputId: null } } });
+    expect(fundingFor(world, by("Noor").id)).toEqual({ allocationId: sub.id, auth: "subscription", credential: SUB });
     world.budget.retire(sub.id);
     expect(fundingFor(world, by("Noor").id)).toEqual({ allocationId: buffer.id, auth: "donor-key", credential: { kind: "api-key", secret: "sk-buffer", inputId: null } });
+  });
+
+  test("fundingFor while the subscription is capped: the next session runs on the keyed allocation (its donor's key), booked to it", () => {
+    const { world, by, lab, buffer } = funded();
+    const noor = by("Noor");
+    const s = world.ops.startSession(noor.id, { purpose: "work", model: "m", funding: "subscription" });
+    world.ops.endSession(s.id, { status: "error", error: "You've hit your org's monthly spend limit · resets 8:50pm (UTC)" });
+    expect(world.budget.failoverFunding(lab.id)).toEqual({ allocationId: buffer.id, auth: "donor-key", credential: { kind: "api-key", secret: "sk-buffer", inputId: null } });
+    expect(fundingFor(world, noor.id)).toEqual({ allocationId: buffer.id, auth: "donor-key", credential: { kind: "api-key", secret: "sk-buffer", inputId: null } });
   });
 
   test("fundingFor: an api-key allocation without a keyed input is no fallback and runs on the subscription; no credential in the Bank holds everything (post-mortem 2026-10-30)", () => {
@@ -271,24 +279,28 @@ describe("desk funding and failover charging", () => {
     expect(world.budget.canStart(by("Noor").id)).toBe(false);
   });
 
-  test("the desk env carries the token and the fallback key; session row and status say how it's funded", async () => {
+  test("the desk env carries exactly one credential (the token) and no fallback key; the session row books the credential handed out", async () => {
     const { world, runtime, desk, by } = funded();
     const noor = by("Noor");
     const asg = world.ops.createWork(null, noor.id, {});
     void runtime.runWorkSession(noor.id, asg.id);
     await vi.waitFor(() => expect(desk.execs).toHaveLength(1));
     const env = desk.execs[0].env;
-    expect(env).toMatchObject({ CLAUDE_CODE_OAUTH_TOKEN: TEST_TOKEN, AGENT_TOWN_FALLBACK_API_KEY: "sk-buffer", DESK_AUTH: "subscription" });
+    expect(env).toMatchObject({ CLAUDE_CODE_OAUTH_TOKEN: TEST_TOKEN, DESK_AUTH: "subscription" });
     expect(env.ANTHROPIC_API_KEY).toBeUndefined();
+    expect(env.AGENT_TOWN_FALLBACK_API_KEY).toBeUndefined();
+    expect(Object.keys(env).filter((k) => /OAUTH_TOKEN|API_KEY|AUTH_TOKEN/.test(k))).toEqual(["CLAUDE_CODE_OAUTH_TOKEN"]);
+    expect(() => assertOneCredential(env)).not.toThrow();
     const sid = desk.execs[0].argv[3];
     expect(world.sessions.require(sid).funding).toBe("subscription");
+    expect(world.sessions.require(sid).credentialInputId).toBe(world.bank.subscriptionInput()!.id);
     expect(world.events.list({ agentId: noor.id, types: ["session.started"] }).at(-1)!.text).toContain("(funded by subscription)");
     expect(world.events.list({ agentId: noor.id, types: ["agent.activity"] }).map((e) => e.text)).toContain("Starting work (funded by subscription)");
     desk.execs[0].exit(1);
     await runtime.whenIdle();
   });
 
-  test("session-end with fallback charges the fallback allocation and marks the session api-key", async () => {
+  test("the Bank books what it handed out, not the desk's word: a desk claiming api-key (or an old image's in-session failover) is an alert, the session stays subscription", async () => {
     const { world, runtime, desk, by, sub, buffer } = funded();
     const noor = by("Noor");
     const asg = world.ops.createWork(null, noor.id, {});
@@ -296,18 +308,18 @@ describe("desk funding and failover charging", () => {
     await vi.waitFor(() => expect(desk.execs).toHaveLength(1));
     const sid = desk.execs[0].argv[3];
     const ended = await runtime.finishWorkSession(sid, { tokens: 700, costUsd: 0.2, turns: 2, reportSubmitted: false, finalText: "x", fundingUsed: "api-key", fallback: true });
-    expect(ended.funding).toBe("api-key");
-    expect(world.allocations.require(buffer.id).spentTokens).toBe(23);
-    expect(world.allocations.require(sub.id).spentTokens).toBe(0);
-    // never silent: a system alert names the session and what paid
-    const alert = world.events.list({ types: ["system"] }).find((e) => (e.payload as { alert?: string }).alert === "funding-failover")!;
-    expect(alert.text).toContain("finished on the API key (API-key buffer)");
-    expect(alert.payload).toMatchObject({ sessionId: sid, allocationId: buffer.id });
+    expect(ended.funding).toBe("subscription");
+    expect(world.allocations.require(sub.id).spentTokens).toBe(23);
+    expect(world.allocations.require(buffer.id).spentTokens).toBe(0);
+    // never silent: a system alert names the session, the claim and what was handed out
+    const alert = world.events.list({ types: ["system"] }).find((e) => (e.payload as { alert?: string }).alert === "funding-mismatch")!;
+    expect(alert.text).toContain("after an in-session failover, but the Bank handed it subscription");
+    expect(alert.payload).toMatchObject({ sessionId: sid, handedOut: "subscription", claimed: "api-key", fallback: true });
     desk.execs[0].exit(0);
     await running;
   });
 
-  test("without a fallback the subscription allocation is charged", async () => {
+  test("a desk echoing the funding it was handed is no alert; the subscription allocation is charged", async () => {
     const { world, runtime, desk, by, sub, buffer } = funded();
     const noor = by("Noor");
     const asg = world.ops.createWork(null, noor.id, {});
@@ -317,6 +329,7 @@ describe("desk funding and failover charging", () => {
     expect(ended.funding).toBe("subscription");
     expect(world.allocations.require(sub.id).spentTokens).toBe(10);
     expect(world.allocations.require(buffer.id).spentTokens).toBe(0);
+    expect(world.events.list({ types: ["system"] }).some((e) => (e.payload as { alert?: string }).alert === "funding-mismatch")).toBe(false);
     desk.execs[0].exit(0);
     await running;
   });

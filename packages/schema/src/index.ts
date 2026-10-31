@@ -1253,8 +1253,13 @@ export const Session = z.object({
   error: z.string().nullable().default(null),
   startedAt: Iso,
   endedAt: Iso.nullable().default(null),
-  /** how the session was paid for (a desk that fails over from the subscription ends as `api-key`) */
+  /** how the session was paid for: the credential the Bank handed out at start (exactly one per session; a cap death makes the *next* session pick differently) */
   funding: AllocationAuth.nullish(),
+  /**
+   * The Bank input whose credential the session ran on (migration 062; post-mortem 2026-10-30): the subscription input
+   * for a token, the api-key input for its key; null for a donor's key (`users.apiKey`) or a session from before 062.
+   */
+  credentialInputId: Id.nullish(),
   /** goal-directed budgets: the spend lane, copied from the assignment at start (null = before lanes existed) */
   lane: SpendLane.nullish(),
   /** the grant this session's tokens count against (a grant's spend is the sum over its sessions) */

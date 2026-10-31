@@ -4,7 +4,7 @@ import { newId, nowIso } from "@muster-town/core";
 import type { Session } from "@muster-town/schema";
 import { grantedSecrets } from "../src/index.ts";
 import { gitAuthEnv, repoToken } from "../src/desk/session.ts";
-import { assertNoEnvCredentials, sessionEnv } from "../src/sdk.ts";
+import { assertNoEnvCredentials, assertOneCredential, sessionEnv } from "../src/sdk.ts";
 import type { Credential } from "@muster-town/core";
 import type { Ctx } from "../src/session.ts";
 import { result, setup } from "./helpers.ts";
@@ -63,5 +63,14 @@ describe("sessionEnv (host sessions)", () => {
     }
     expect(() => assertNoEnvCredentials({ ...host, CLAUDE_CODE_OAUTH_TOKEN: "t", ANTHROPIC_API_KEY: "k" } as NodeJS.ProcessEnv)).toThrow(/CLAUDE_CODE_OAUTH_TOKEN and ANTHROPIC_API_KEY are set/);
     expect(() => assertNoEnvCredentials(host)).not.toThrow();
+  });
+  test("every session env carries exactly one credential variable: two, none, or a failover key beside one is a hard failure (1:1 mt_x40qq8poc3)", () => {
+    expect(() => assertOneCredential({ CLAUDE_CODE_OAUTH_TOKEN: "t" })).not.toThrow();
+    expect(() => assertOneCredential({ ANTHROPIC_API_KEY: "k", PATH: "/bin" })).not.toThrow();
+    expect(() => assertOneCredential({ CLAUDE_CODE_OAUTH_TOKEN: "t", ANTHROPIC_API_KEY: "k" })).toThrow(/exactly one model credential, not CLAUDE_CODE_OAUTH_TOKEN and ANTHROPIC_API_KEY/);
+    expect(() => assertOneCredential({ CLAUDE_CODE_OAUTH_TOKEN: "t", AGENT_TOWN_FALLBACK_API_KEY: "k" })).toThrow(/not CLAUDE_CODE_OAUTH_TOKEN and AGENT_TOWN_FALLBACK_API_KEY/);
+    expect(() => assertOneCredential({ MUSTER_TOWN_FALLBACK_API_KEY: "k" })).toThrow(/exactly one/);
+    expect(() => assertOneCredential({ PATH: "/bin" })).toThrow(/this env has none/);
+    expect(sessionEnv(sub, host)).toEqual({ PATH: "/bin", HOME: "/h", LC_ALL: "C", CLAUDE_CODE_OAUTH_TOKEN: "oat" });
   });
 });
