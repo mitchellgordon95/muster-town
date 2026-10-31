@@ -24,7 +24,7 @@ export { funderWeek, funderWeights } from "./funders.ts";
 export { Reorgs, REORG_PREP_MS, PLANNER_TITLE, PLANNER_UNPAID } from "./goal-changes.ts";
 export { Grants, quarterOf, type ObjectiveView, type ObjectiveTree, CHECKPOINTS, type ExplorationBudget, type DirectedBudget, type GrantBoard, type GoalKeyResult, type BlockedBuilding } from "./grants.ts";
 export { BANK_ACCOUNTING, Bank, HOSTED_KEY_ONLY_HOLD, NO_KEY_HOLD, NO_TOKEN_HOLD, NoCredential, TOKEN_PRICES, type Credential, adjustedOfUsage, booked, sliceBooked, type Booked, adjustedOutputTokens, listCostUsd, sessionView, tokenPrices, tokenWeights, type BankContributor, type BankSummary } from "./bank.ts";
-export { financeSummary, townFinance, FINANCE_BURN_DAYS, FINANCE_PROJECTION_DAYS, type FinanceInputs, type FinanceSummary, type OverdrawnBreakdown } from "./finance.ts";
+export { dailyInflowOf, financeSummary, townFinance, FINANCE_BURN_DAYS, FINANCE_PROJECTION_DAYS, type FinanceInputs, type FinanceSummary, type OverdrawnBreakdown } from "./finance.ts";
 export { goalSpend, worldGoalSpend, type GoalSpendInputs } from "./goal-spend.ts";
 export { buildingBoard, goalBoard, queueLane, QUEUE_DONE_MS } from "./kanban.ts";
 export { linkPostmortem, postmortemBuilding, postmortemNote, postmortemTag, queuePostmortem } from "./postmortems.ts";
