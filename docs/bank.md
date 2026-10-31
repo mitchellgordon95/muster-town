@@ -120,19 +120,18 @@ credential to switch to inside itself (1:1 mt_x40qq8poc3). A `bank.hold` event i
 
 ## Funding streams and the draw order (goal tree step 7)
 
-> Superseded by [how-work-gets-done.md](how-work-gets-done.md) §7: pools are deleted (one balance + earmarks + draw order); free tokens and exploration reservations replace the pool and the exploration allowance.
-
 Decided in docs/goals.md "Streams" (1:1 mt_529jbnwvmi), go-ahead in 1:1 mt_cz11aqe81a. Migration 064 adds `bank_inputs.goalId` and `idleNotifiedAt`.
 
 - **An earmark** is an api-key input with a `goalId` (POST /api/bank/inputs `goalId`; the Donate form's "Earmark for"). It pays only for sessions whose work sits in that goal's subtree. The general balance never sees it: `Bank.live()` and the durable debits exclude earmarked credits, and the general key picks (`liveApiKeyInput`, `fallbackInput`, `fundingFor`) skip earmarked inputs. A subscription can't be earmarked.
-- **Draw order at session start** (`runtime fundingForSession` → `Budget.fundingFor`): the grant's own input (`fundedWith`), then `Streams.pick`: walking up from the work's goal (its grant's or named key result's goal, else the building's attachment, Spend by goal's attribution), the first goal with a live keyed earmark whose balance covers one expected session, oldest first; then the general balance. One credential per session: the earmark's key runs it.
+- **Draw order at session start** (`runtime fundingForSession` → `Budget.fundingFor`): the grant's own input (`fundedWith`), then `Streams.pick`: walking up from the work's goal (its grant's `goalId`, else an old grant's or named key result's goal, else the building's attachment, Spend by goal's attribution), the first goal with a live keyed earmark whose balance covers one expected session, oldest first; then the general balance. One credential per session: the earmark's key runs it.
 - **Charging**: the session's `credentialInputId`, when it is an earmark, pays first (`Bank.drawFromStream`, debits name the input); what it can't pay goes to the general balance. Nothing is held.
 - **Expected session** (`Bank.expectedSession`): the p90 of work sessions that ended in the last 7 days, the building's when it has 5 or more, else the town's, else 120,000. An earmark below it is never picked; it accrues.
 - **Small-donation warning**: the Donate form (web `smallDonationWarning`) warns when an amount is below that p90, with the days a recurring one needs to accrue one session. A warning, not a gate.
 - **Idle alert**: the runtime tick (`Streams.tick`) tells an earmark's donor, by an in-town message to their avatar, when no session has drawn on it for 7 days (once per 7 days; reason: below one session, or no session in scope). No email or SMS (1:1 mt_kh0zaqui0w).
 - **GET /api/bank/streams** (public): every live input and every earmark with its balance, whether it covers a session, days to cover, last draw and idle reason, plus `expectedSessionTokens`. The Bank panel's "Tokens & sources" tab shows it as Streams.
-- **Pools are deleted, free tokens and an optional exploration cap** (how-work-gets-done.md build step 1, as_1nuoiauxlw, migration 067): one general balance every building draws; free tokens per goal and the cap are in docs/goals.md "Free tokens and the optional exploration cap".
-- **Not yet**: exploration reservations being opened (the table exists, empty), the desk's per-session key cap, and the key's own `dailyLimitTokens` (a daily key's `tokens` is its daily amount today).
+- **One balance** (how-work-gets-done.md §7; PR #169, migration 067): pools are deleted, every building draws the general balance. Free tokens per goal and the optional exploration cap are in docs/goals.md "Free tokens and the optional exploration cap".
+- **Exploration reservations** (how-work-gets-done.md §3; PR #173, migration 068): the runtime tick's explore step opens a `bank_reservations` row (one chunk, 100,000 by default) per explorer; while open it claims its tokens less what its sessions spent, and it closes once its assignment ends (core `explore.ts`).
+- **Not yet**: the desk's per-session key cap, and the key's own `dailyLimitTokens` (a daily key's `tokens` is its daily amount today).
 
 ## The funder filter (goal tree step 8)
 

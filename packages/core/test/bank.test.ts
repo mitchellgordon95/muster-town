@@ -40,6 +40,35 @@ describe("bank", () => {
     expect(world.bank.summary().dailyInflowTokens).toBe(0);
   });
 
+  it("a recurring api-key input limited to N credits counts them down, then stops renewing but stays listed", () => {
+    const { world } = seededWorld();
+    const u = world.ops.createUser("U").user;
+    // N = 1 behaves like once
+    const one = world.bank.addInput(u.id, { label: "Try", source: "api-key", model: "m", tokens: 500, recurrence: "daily", times: 1, apiKey: "k1" }, T0);
+    expect(one).toMatchObject({ creditedTokens: 500, nextCreditAt: null, creditsTotal: 1, creditsLeft: 0, cancelledAt: null });
+    expect(world.bank.summary().dailyInflowTokens).toBe(0);
+    // N = 3 daily: the credit at add time is 1 of 3
+    const three = world.bank.addInput(u.id, { label: "Three days", source: "api-key", model: "m", tokens: 3000, recurrence: "daily", times: 3, apiKey: "k3" }, T0);
+    expect(three).toMatchObject({ creditedTokens: 3000, creditsTotal: 3, creditsLeft: 2 });
+    // inflow counts only the 2 credits still due in the 30-day window: 2 × 3000 / 30
+    expect(world.bank.summary().dailyInflowTokens).toBe(200);
+    expect(world.bank.finance().projection).toMatchObject({ dailyInflow: 200, projectedInflow30d: 6000 });
+    expect(world.bank.creditDue(at(1))).toBe(3000);
+    expect(world.bank.input(three.id)).toMatchObject({ creditsLeft: 1 });
+    expect(world.bank.summary().dailyInflowTokens).toBe(100);
+    expect(world.bank.creditDue(at(2))).toBe(3000);
+    expect(world.bank.input(three.id)).toMatchObject({ creditsLeft: 0, nextCreditAt: null, cancelledAt: null, creditedTokens: 9000 });
+    expect(world.bank.creditDue(at(3))).toBe(0);
+    expect(world.bank.creditDue(at(30))).toBe(0);
+    expect(world.bank.summary().dailyInflowTokens).toBe(0);
+    expect(world.bank.summary().inputs.map((i) => i.id)).toContain(three.id);
+    // a long limit counts no more than the window holds; until cancelled is unchanged
+    world.bank.addInput(u.id, { label: "Many", source: "api-key", model: "m", tokens: 30, recurrence: "daily", times: 100, apiKey: "k4" }, at(30));
+    world.bank.addInput(u.id, { label: "Forever", source: "api-key", model: "m", tokens: 70, recurrence: "weekly", apiKey: "k5" }, at(30));
+    expect(world.bank.summary().dailyInflowTokens).toBe(40);
+    expect(() => world.bank.addInput(u.id, { label: "Bad", source: "api-key", model: "m", tokens: 1, times: 2, apiKey: "k6" }, T0)).toThrow(/recurring/);
+  });
+
   it("a subscription is admin-only and credits min(daily quota, weekly cap left) each day", () => {
     const { world, seed } = seededWorld();
     const other = world.ops.createUser("Other").user;

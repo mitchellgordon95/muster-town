@@ -71,6 +71,25 @@ export function KeyLimitNote() {
 const DAYS_PER: Record<BankRecurrence, number | null> = { once: null, daily: 1, weekly: 7, monthly: 30 };
 
 /**
+ * The Donate form's live total for a recurring key limited to `times` credits (Mitchell, 1:1 mt_p3ge56kg03): "3 × 1,000,000
+ * = 3,000,000 adj. tokens over 3 days". The first credit is made when the input is added; null when the numbers aren't valid.
+ */
+export function timesTotalLine(tokens: number, times: number, recurrence: BankRecurrence): string | null {
+  if (recurrence === "once" || !Number.isFinite(tokens) || tokens < 1 || !Number.isInteger(times) || times < 1) return null;
+  const fmt = (x: number) => Math.round(x).toLocaleString("en-US");
+  const unit = PER[recurrence];
+  return `${times} × ${fmt(tokens)} = ${fmt(tokens * times)} ${ADJ} over ${times} ${unit}${times === 1 ? "" : "s"}`;
+}
+
+/** "2 of 3 credits left, next on 2026-11-02" for an input limited to N credits; "all 3 credits made" once done; null = until cancelled. */
+export function creditsLeftLine(i: { creditsTotal?: number | null; creditsLeft?: number | null; nextCreditAt?: string | null; cancelledAt?: string | null }): string | null {
+  if (i.creditsTotal == null || i.creditsLeft == null) return null;
+  if (i.creditsLeft === 0) return `all ${i.creditsTotal} credit${i.creditsTotal === 1 ? "" : "s"} made`;
+  const next = !i.cancelledAt && i.nextCreditAt ? `, next on ${i.nextCreditAt.slice(0, 10)}` : "";
+  return `${i.creditsLeft} of ${i.creditsTotal} credits left${next}`;
+}
+
+/**
  * The small-donation warning (goal tree step 7, docs/goals.md "Sessions and keys"): one key runs a whole session, so a
  * donation below one expected session (the p90 of the last 7 days' work sessions) never runs one alone; a recurring one
  * accrues until it covers one. A warning, not a gate. Null when it covers one, or the size isn't known yet.
@@ -106,6 +125,9 @@ export function Donate({ onChange }: { onChange: () => void }) {
   const [rate, setRate] = useState(loadRate);
   const [source, setSource] = useState<"api-key" | "subscription">("api-key");
   const [recurrence, setRecurrence] = useState<BankRecurrence>("once");
+  // "until I cancel" (default) or a number of credits: a donor can try the town for a few days first
+  const [limited, setLimited] = useState(false);
+  const [times, setTimes] = useState("3");
   const [weeklyCap, setWeeklyCap] = useState("10");
   const [model, setModel] = useState("claude-opus-5-5");
   // a hosted collective (served at /<slug>/; its health says its funding) runs on API keys only: no subscription source
@@ -128,9 +150,12 @@ export function Donate({ onChange }: { onChange: () => void }) {
   // every Bank input carries its credential (an API key, or the subscription's token): the Bank is the only place one lives
   const needsKey = bank ? true : auth === "donor-key";
   const keyOk = !needsKey || !!apiKey.trim() || (!bank && !!me.user.hasApiKey);
+  const timesN = Math.floor(Number(times));
+  const limit = bank && !sub && recurrence !== "once" && limited;
+  const timesOk = !limit || (Number.isInteger(timesN) && timesN >= 1 && timesN <= 1000);
   const warning = smallDonationWarning(n, sub ? "daily" : bank ? recurrence : "once", streams.data);
   const goals = flatGoals(tree.data);
-  const ready = amountOk && keyOk && (bank ? !sub || (Number.isFinite(cap) && cap >= 1) : !!building);
+  const ready = amountOk && keyOk && timesOk && (bank ? !sub || (Number.isFinite(cap) && cap >= 1) : !!building);
   const saveRate = (v: number) => { setRate(v); try { if (v > 0) localStorage.setItem(RATE_KEY, String(v)); } catch { /* private window */ } };
   const submit = async () => {
     if (bank) {
@@ -138,9 +163,9 @@ export function Donate({ onChange }: { onChange: () => void }) {
         label: label.trim() || (sub ? `${me.user.name}'s subscription` : `${me.user.name}'s API key`),
         source: sub ? "subscription" : "api-key", model, tokens: n, recurrence: sub ? "daily" : recurrence,
         weeklyCapTokens: sub ? cap : undefined, apiKey: sub ? undefined : apiKey.trim(), token: sub ? apiKey.trim() : undefined,
-        goalId: !sub && goalId ? goalId : undefined,
+        goalId: !sub && goalId ? goalId : undefined, times: limit ? timesN : undefined,
       });
-      store.toast(`Added ${fmtTokens(n)} ${ADJ}${sub || recurrence !== "once" ? ` ${sub ? "daily" : recurrence}` : ""} to the Bank`, "ok");
+      store.toast(`Added ${fmtTokens(n)} ${ADJ}${sub || recurrence !== "once" ? ` ${sub ? "daily" : recurrence}` : ""}${limit ? `, ${timesN} times` : ""} to the Bank`, "ok");
     } else {
       const fallback = auth === "subscription" ? `${me.user.name}'s Claude subscription` : auth === "api-key" ? "API-key buffer" : `${me.user.name}'s API key`;
       await api().donate({ tokens: n, buildingId: to, auth, label: label.trim() || fallback, apiKey: auth === "donor-key" ? apiKey.trim() || undefined : undefined });
@@ -191,6 +216,20 @@ export function Donate({ onChange }: { onChange: () => void }) {
             <Field label={`Rate ($ per 1M ${ADJ})`}><input type="number" min={0.01} step={0.25} value={rate} onChange={(e) => saveRate(+e.target.value)} /></Field>
           </>}
         </div>
+        {bank && !sub && recurrence !== "once" ? (
+          <div className="row2">
+            <Field label="For how long" hint="Try the town for a few credits before committing more; you can cancel any time either way.">
+              <select value={limited ? "times" : "cancel"} onChange={(e) => setLimited(e.target.value === "times")}>
+                <option value="cancel">Until I cancel</option><option value="times">A number of times</option>
+              </select>
+            </Field>
+            {limited ? (
+              <Field label="Times (the first credit is now)" hint={timesTotalLine(n, timesN, recurrence) ?? "A whole number from 1 to 1,000."}>
+                <input type="number" min={1} max={1000} step={1} value={times} onChange={(e) => setTimes(e.target.value)} aria-label="Number of credits" />
+              </Field>
+            ) : null}
+          </div>
+        ) : null}
         <div className="row2">
           <Field label="Label (optional)"><input value={label} onChange={(e) => setLabel(e.target.value)} placeholder={bank ? (sub ? "Max plan" : "My key") : auth === "subscription" ? "Mitchell's Claude subscription, October" : auth === "api-key" ? "API-key buffer" : "My key"} /></Field>
           {bank ? <Field label="Model"><input value={model} onChange={(e) => setModel(e.target.value)} /></Field> : null}
@@ -291,7 +330,7 @@ export function BankInputs({ bank, onChange }: Props) {
               <tr key={i.id} className={i.cancelledAt ? "muted" : undefined}>
                 <td>{i.label} {i.source === "subscription" ? <Pill tone="warn">expires daily</Pill> : null}</td>
                 <td>{i.userName}</td>
-                <td>{fmtTokens(i.tokens)} {i.recurrence === "once" ? "once" : `/ ${PER[i.recurrence]}`}</td>
+                <td>{fmtTokens(i.tokens)} {i.recurrence === "once" ? "once" : `/ ${PER[i.recurrence]}`}{creditsLeftLine(i) ? <div className="muted">{creditsLeftLine(i)}</div> : null}</td>
                 <td title={breakdownTitle(i.creditedCounts)}>{fmtTokens(i.creditedTokens)}{i.cancelledAt ? <> · cancelled {timeAgo(i.cancelledAt)}</> : null}</td>
                 <td>{!i.cancelledAt && me && (me.isAdmin || me.user.id === i.userId)
                   ? <Act small tone="bad" run={async () => { await api().cancelBankInput(i.id); store.toast(`Cancelled ${i.label}`, "ok"); onChange(); }}>Cancel</Act>

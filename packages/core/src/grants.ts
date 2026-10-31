@@ -749,7 +749,7 @@ ${krs}
   /** Only a human (`building.manage`) deletes a key result. */
   private requireHuman(actor: Actor, buildingId: string, verb: string): void {
     if (!actor) return;
-    if (actor.kind !== "human") throw forbidden("building.manage", `Only a human ${verb} a key result of the goal.`);
+    if (actor.kind !== "human") throw forbidden("building.manage", `Only a human ${verb} a grant's key result.`);
     this.world.permissions.require(actor, "building.manage", buildingId);
   }
 
