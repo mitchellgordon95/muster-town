@@ -1,3 +1,4 @@
+import { ROOT_GOAL_ID } from "@muster-town/schema";
 /** Manager forks step 2 (dc_mymt27yz25 §2, §5.3): the scheduler spawns forks from the building queue, retires them at session end, routes messages. */
 import { describe, expect, test, vi } from "vitest";
 import { buildingQueue, updateBuilding } from "@muster-town/core";
@@ -297,5 +298,26 @@ describe("manager forks: a desk that fails at startup", () => {
     await pass(runtime);
     expect(forked()).toHaveLength(3);
     expect(world.assignments.require(a)).toMatchObject({ status: "pending", waitFor: null });
+  });
+});
+
+describe("declarative exploration: the explore tick (docs/how-work-gets-done.md §3)", () => {
+  test("with the rule on and a free desk, the tick reserves a chunk and a fork runs the explorer; its reservation closes when it files", async () => {
+    const { world, runtime } = forkSetup(async function* (s) {
+      yield init();
+      yield* callVerb(s, "submit_report", REPORT);
+      yield result(100, 0.01);
+    });
+    world.goals.patch(ROOT_GOAL_ID, { explore: null });
+    await pass(runtime);
+    const r = world.bankReservations.first("1 = 1")!;
+    expect(r).toMatchObject({ tokens: 100_000 });
+    const a = world.assignments.require(r.assignmentId!);
+    expect(a).toMatchObject({ lane: "exploration", reservationId: r.id });
+    expect(world.events.recent({ limit: 200 }).some((e) => e.type === "agent.forked" && e.payload.assignmentId === a.id)).toBe(true);
+    await pass(runtime);
+    expect(world.assignments.require(a.id).status).toBe("done");
+    expect(world.bankReservations.require(r.id).closedAt).not.toBeNull();
+    expect(world.events.recent({ limit: 200 }).map((e) => e.type)).toEqual(expect.arrayContaining(["exploration.reserved", "exploration.started", "exploration.closed"]));
   });
 });

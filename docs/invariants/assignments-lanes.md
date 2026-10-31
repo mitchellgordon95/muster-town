@@ -39,6 +39,6 @@ Citation format: the same as in [grants.md](grants.md): a `- Test:` line with th
 
 ## How it connects
 
-- **Grants → the gate.** `resolveLane` and `laneBlock` read the grant's status (funded runs; checkpoint holds all but the manager's checkpoint assignment; anything else holds or is refused) and the exploration allowance from `Grants.exploration`. Grant decisions write assignments back into this subsystem. See [grants.md](grants.md).
+- **Grants → the gate.** `resolveLane` and `laneBlock` read the grant's status (funded runs; checkpoint holds all but the manager's checkpoint assignment; anything else holds or is refused) and exploration's free tokens and optional cap from `Grants.exploration` (an explorer the explore tick queued runs on its own open reservation, `assignments.reservationId`, core explore.ts). Grant decisions write assignments back into this subsystem. See [grants.md](grants.md).
 - **Bank and budget → the gate.** `laneBlock` is the lane half of `Budget.canStart`; the other half is the building's remaining tokens (no daily caps since 2026-10-31; `packages/core/src/budget.ts`). `nextStartable` returns only an assignment that `canStart` allows.
 - **Runtime and wakes.** The runtime starts only what `nextStartable` returns, and the wakes create pending assignments here (a human's tell, a relayed @mention, a decision). See [runtime-wakes.md](runtime-wakes.md).
