@@ -150,11 +150,13 @@ export class Goals {
 
   /**
    * Where a Town Hall item routes (docs/goals.md "Routing"): a grant proposal or checkpoint to its key result's goal, a
-   * goal proposal to its target or parent, a rollup to the building's attachment; the item goes to that goal's owner.
+   * goal proposal to its target or parent, a rollup to the building's attachment, a captain request to its goal; the item
+   * goes to that goal's owner.
    */
-  route(item: { grantId?: string; proposalId?: string; buildingId?: string }): { goalId: string; userId: string | null } {
+  route(item: { grantId?: string; proposalId?: string; buildingId?: string; goalId?: string }): { goalId: string; userId: string | null } {
     let goalId: string = ROOT_GOAL_ID;
-    if (item.grantId) {
+    if (item.goalId && this.get(item.goalId)) goalId = item.goalId;
+    else if (item.grantId) {
       const g = this.world.grants.get(item.grantId);
       const kr = g?.keyResultId ? this.world.keyResults.get(g.keyResultId) : undefined;
       goalId = kr?.goalId ?? (g ? this.attachmentOf(g.buildingId) : ROOT_GOAL_ID);
@@ -218,6 +220,19 @@ export class Goals {
     return g;
   }
 
+  /**
+   * Set a goal's own owner (its captain; null = inherited) and post `goal.owned`. The callers check who may: `update`
+   * (goals.edit on the goal above) and an accepted captain request (captain.ts, the node's current captain or an admin).
+   */
+  setOwner(actor: Actor, g: Goal, ownerId: string | null): Goal {
+    if (g.id === ROOT_GOAL_ID) throw badRequest("The root is owned by the town admins.");
+    if (ownerId && !this.world.users.get(ownerId)) throw badRequest(`Owners are humans: ${ownerId} is not a user id.`);
+    const next = this.world.goals.upsert({ ...g, ownerId, editedBy: actor ? holderOf(actor).id : null, updatedAt: nowIso() });
+    const name = ownerId ? this.world.users.get(ownerId)!.name : "(inherited)";
+    this.event("goal.owned", actor, `${name} owns "${clip(next.text, 80)}"`, { goalId: g.id, ownerId, fromOwnerId: g.ownerId });
+    return next;
+  }
+
   /** Words, order, a move (parentId) or the owner (ownerId: a user; set by an admin or the owner of a goal above it). */
   update(actor: Actor, id: string, input: UpdateGoalInput): Goal {
     const inp = UpdateGoalInput.parse(input);
@@ -237,10 +252,7 @@ export class Goals {
       if (g.id === ROOT_GOAL_ID) throw badRequest("The root is owned by the town admins.");
       // owners set owners below them: the goal above must be theirs
       this.requireEdit(actor, g.parentId!);
-      if (inp.ownerId && !this.world.users.get(inp.ownerId)) throw badRequest(`Owners are humans: ${inp.ownerId} is not a user id.`);
-      next = this.world.goals.upsert({ ...next, ownerId: inp.ownerId, editedBy: by, updatedAt: nowIso() });
-      const name = inp.ownerId ? this.world.users.get(inp.ownerId)!.name : "(inherited)";
-      this.event("goal.owned", actor, `${name} owns "${clip(next.text, 80)}"`, { goalId: g.id, ownerId: inp.ownerId, fromOwnerId: g.ownerId });
+      next = this.setOwner(actor, next, inp.ownerId);
     }
     // the exploration cap the buildings under it inherit (docs/how-work-gets-done.md §8): a human funder's with goals.edit
     // here (an admin or the goal's owner); a manager agent can't change its own exploration
