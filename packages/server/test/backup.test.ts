@@ -1,5 +1,6 @@
 import Database from "better-sqlite3";
 import { integrityCheck, migrate, openDb } from "@muster-town/core";
+import { randomBytes } from "node:crypto";
 import { createServer, type Server } from "node:http";
 import { mkdtempSync, readdirSync, rmSync } from "node:fs";
 import type { AddressInfo } from "node:net";
@@ -267,6 +268,33 @@ describe("the job", () => {
     expect(failed.lastAt).toBe("2026-10-28T04:00:00.000Z");
     expect(failed.error).toMatch(/fetch failed|ECONNREFUSED|S3 PUT/);
     expect(logs.some((l) => l.startsWith("[backup] failed:"))).toBe(true);
+    db.close();
+  });
+
+  it("runs in a worker thread: the main thread's timers keep firing during a run on a seeded database", async () => {
+    const objects = new Map<string, Buffer>();
+    const s3 = await fakeS3(objects);
+    const db = openDb(join(tmp, "loop.db"));
+    db.exec("CREATE TABLE blobs (id INTEGER PRIMARY KEY, b BLOB)");
+    const ins = db.prepare("INSERT INTO blobs (b) VALUES (?)");
+    db.transaction(() => { for (let i = 0; i < 2000; i++) ins.run(randomBytes(10_000)); })(); // ~20 MB that gzip cannot shrink
+    const now = new Date("2026-11-01T04:00:00Z"); // the nightly hour: the deep check runs too
+    const logs: string[] = [];
+    const job = new BackupJob({ db, dir: join(tmp, "loop"), env: s3.env, now: () => now, log: { log: (m: string) => logs.push(m), warn: (m: string) => logs.push(m) } });
+    let last = performance.now();
+    let maxGap = 0;
+    const tick = setInterval(() => { const t = performance.now(); maxGap = Math.max(maxGap, t - last); last = t; }, 5);
+    const started = performance.now();
+    const r = await job.run();
+    const took = performance.now() - started;
+    clearInterval(tick);
+    expect(r?.key).toBe("town/2026-11-01T04.db.gz.enc");
+    expect(r!.rawBytes).toBeGreaterThan(20_000_000);
+    expect(logs.some((l) => l.includes("(download integrity_checked)"))).toBe(true);
+    expect(job.snapshot()).toMatchObject({ lastAt: now.toISOString(), verifiedAt: now.toISOString(), error: null });
+    expect(took).toBeGreaterThan(100); // the run is long enough for a blocked loop to show
+    expect(maxGap).toBeLessThan(100);
+    s3.close();
     db.close();
   });
 

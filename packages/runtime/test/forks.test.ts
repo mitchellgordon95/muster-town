@@ -259,6 +259,35 @@ describe("manager forks: stop_fork (agent teams step 4)", () => {
     // a retired fork can't be asked again
     await expect(world.verbs.stop_fork(mei.id, { forkId })).rejects.toThrow(/retired/);
   });
+
+  test("the tick reads pending stops from meta, not the system events; a request from before the marker existed is seeded once", async () => {
+    let forkId = "";
+    const { world, runtime, mei, clock, queue } = forkSetup(async function* (s) {
+      yield init();
+      forkId = s.agentId!;
+      await s.next();
+      await vi.waitFor(() => { if (!s.interrupted || world.agents.require(forkId).status !== "stopped") throw new Error("not yet"); }, { timeout: 2000 });
+      yield result(50, 0.001);
+    });
+    await queue("Stubborn job from before the deploy");
+    await runtime.tickOnce();
+    for (let i = 0; i < 50 && !forkId; i++) await new Promise((r) => setTimeout(r, 10));
+    const r = await world.verbs.stop_fork(mei.id, { forkId });
+    const pending = () => JSON.parse(world.town.marker("pendingForkStops") ?? "null") as { forkId: string; deadline: string }[] | null;
+    expect(pending()).toEqual([expect.objectContaining({ forkId, deadline: r.deadline })]);
+    // as if the request was made by the old code (no marker yet): the first tick seeds it from the last day's events
+    world.db.prepare("DELETE FROM meta WHERE key = 'marker:pendingForkStops'").run();
+    clock.t = Date.parse(r.deadline) - 1000;
+    await runtime.tickOnce();
+    expect(pending()).toEqual([expect.objectContaining({ forkId, deadline: r.deadline })]);
+    clock.t = Date.parse(r.deadline) + 1000;
+    await runtime.tickOnce();
+    await runtime.whenIdle();
+    expect(stopEvents(world, forkId)).toEqual(["requested", "hard"]);
+    expect(world.agents.require(forkId).status).toBe("retired");
+    // done with: the list is empty, so later ticks read one meta row and stop
+    expect(pending()).toEqual([]);
+  });
 });
 
 describe("manager forks: a desk that fails at startup", () => {

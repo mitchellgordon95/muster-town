@@ -23,6 +23,13 @@ describe("reconcileDue (once per UTC day, for the day before; the Bank checks on
     expect(r).toEqual({ day: yesterday.slice(0, 10), sessions: 1, subscriptionUsd: 0, apiKeyUsd: 0.5, donorKeyUsd: 0, unlisted: [], mismatches: 0, ok: true });
     expect(await reconcileDue(ctx, now)).toBeNull();
     expect(world.events.list({ types: ["system"], textLike: "Bank reconciliation%" })).toHaveLength(1);
+    // the day is remembered in meta, so the next ticks read one row instead of scanning the system events
+    expect(world.town.marker("reconciledThrough")).toBe(yesterday.slice(0, 10));
+    // a town reconciled by the old code (event, no marker): the first tick finds the event once and sets the marker
+    world.db.prepare("DELETE FROM meta WHERE key = 'marker:reconciledThrough'").run();
+    expect(await reconcileDue(ctx, now)).toBeNull();
+    expect(world.town.marker("reconciledThrough")).toBe(yesterday.slice(0, 10));
+    expect(world.events.list({ types: ["system"], textLike: "Bank reconciliation%" })).toHaveLength(1);
     world.close();
   });
 
