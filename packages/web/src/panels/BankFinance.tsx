@@ -312,6 +312,7 @@ export const FINANCE_TERMS: [term: string, meaning: string][] = [
   ["Expiring and permanent", "Subscription tokens are credited each day and expire at the next renewal if nobody used them. API-key tokens are permanent: kept until used."],
   ["Overdrawn", "Tokens spent past what was received. Its parts: sessions that ran past the permanent tokens the Bank had (a debt, paid back from later API-key credits); subscription credits drawn past their size when the Bank switched to adjusted tokens on 2026-10-27; draws on credits since deleted; and donations a building spent past their size."],
   ["Held", "The unspent part of donations made straight to a building: only that building can spend them."],
+  ["Claimed", "Tokens already promised: funded grants' remaining tokens, open grant proposals' asks and open exploration reservations. Claimed tokens are still in the Bank but no new work may count on them."],
   ["Free tokens", "What exploration (work no grant covers and no human asked for) may still claim: the general balance plus any earmarks at or above a goal, less funded grants' remaining tokens, open proposals' asks and open reservations. Never below zero; at zero nothing new is explored there."],
   ["Earmark", "A Bank input given for one goal: it pays only for work under that goal, nearest earmark first."],
   ["Exploration cap", "An optional limit on what exploration under a goal may spend per UTC day, inherited down the tree; on the top goal it is town-wide. None set: uncapped."],
