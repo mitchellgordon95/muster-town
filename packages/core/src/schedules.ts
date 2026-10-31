@@ -202,7 +202,7 @@ export function fireSchedules(world: World, at: Date = new Date()): { fired: Ass
       a = world.transaction(() => {
         const made = createAssignment(world, {
           agentId: taker.agentId, title: s.title, description: s.description, createdBy: { kind: "system", id: s.id }, buildingId: b.id,
-          lane: { lane: s.lane ?? undefined, grantId: s.grantId ?? undefined, keyResultId: s.keyResultId ?? undefined, gap: s.gap ?? undefined, sourceId: s.sourceId ?? undefined },
+          lane: { lane: s.lane ?? undefined, grantId: s.grantId ?? undefined, gap: s.gap ?? undefined, sourceId: s.sourceId ?? undefined },
           origin: s.origin, queue: taker.queue, model: taker.queue === "building" ? s.model : null,
         });
         return s.pages.length ? world.assignments.patch(made.id, { pages: s.pages }) : made;

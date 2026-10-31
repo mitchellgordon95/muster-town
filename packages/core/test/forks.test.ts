@@ -13,7 +13,6 @@ function forkLab(opts: { daily?: number } = {}) {
   const s = seededWorld();
   const { world, seed } = s;
   const b = createBuilding(world, { name: "Forky", headcount: 3, dailyTokensPerAgent: opts.daily ?? 1000, model: "claude-opus-5-5", cheapModel: "claude-haiku-5-5" }, seed.admin.id);
-  world.grantDesk.createKeyResult(s.admin, b.id, { text: "Forks work", howToCheck: "Run the tests" }); // a key result, so the lab isn't blocked
   const pix = createResident(world, { buildingId: b.id, name: "Pix", sprite: 5 });
   const ann = createResident(world, { buildingId: b.id, name: "Ann" });
   updateBuilding(world, b.id, { managerAgentId: pix.id });

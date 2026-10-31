@@ -3,7 +3,7 @@ import { AppError } from "../errors.ts";
 import type { World } from "../world.ts";
 import { redeploy } from "./admin.ts";
 import { assign, board, cancel, pin, promote, read, request_human, review, schedule, search, skills, submit_report, write } from "./docs.ts";
-import { checkpoint_grant, close_grant, propose_goal, propose_grant, propose_key_result, set_key_result, set_objective } from "./grants.ts";
+import { checkpoint_grant, close_grant, propose_goal, propose_grant, set_objective } from "./grants.ts";
 import { meeting } from "./meeting.ts";
 import { forkStatus } from "../forkstatus.ts";
 import { accept_assignment, assignments, ban, go, inbox, look, say, stop_fork, tell } from "./social.ts";
@@ -11,7 +11,7 @@ import type { VerbIn, VerbRawIn } from "./types.ts";
 
 export const verbImpls = {
   look, go, say, tell, inbox, board, search, read, write, skills, pin, submit_report, request_human,
-  assignments, accept_assignment, meeting, review, assign, schedule, cancel, stop_fork, fork_status: async (world: World, me: Agent, input: VerbIn<"fork_status">) => forkStatus(world, me, input), propose_grant, checkpoint_grant, close_grant, set_key_result, set_objective, propose_goal, propose_key_result, promote, ban, redeploy,
+  assignments, accept_assignment, meeting, review, assign, schedule, cancel, stop_fork, fork_status: async (world: World, me: Agent, input: VerbIn<"fork_status">) => forkStatus(world, me, input), propose_grant, checkpoint_grant, close_grant, set_objective, propose_goal, promote, ban, redeploy,
 } satisfies { [K in VerbName]: (world: World, actor: Agent, input: VerbIn<K>) => Promise<unknown> };
 
 export type VerbResult<K extends VerbName> = Awaited<ReturnType<(typeof verbImpls)[K]>>;

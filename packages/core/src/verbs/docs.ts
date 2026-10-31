@@ -240,14 +240,6 @@ export async function write(world: World, me: Agent, input: VerbIn<"write">) {
   return { id: doc.id, state: doc.state };
 }
 
-type KrWrite = ReturnType<World["grantDesk"]["writtenSince"]>[number];
-
-/** The rollup section listing them (appended by `submit_report`), each with its id, so Mitchell can keep or cut it. */
-export function krWritesSection(writes: KrWrite[]): string {
-  const rows = writes.map((w) => `- ${w.action} ${w.keyResultId}: "${w.text}" (how to check: ${w.howToCheck || "?"}${w.sourceDocIds.length ? `; from ${w.sourceDocIds.join(", ")}` : ""})`);
-  return `## Key results I wrote (keep or cut: Building → Settings → Key results)\n${rows.join("\n")}`;
-}
-
 /** How many times in a row one piece of work may park itself (`submit_report` resumeWhen) before a human must decide. */
 export const MAX_PARKS = 3;
 
@@ -277,12 +269,10 @@ export async function submit_report(world: World, me: Agent, input: VerbIn<"subm
     ? world.grants.where("buildingId = ? AND status = 'closed' AND outcome = 'done' AND checkpointDocId IS NULL AND closedAt >= ?", [bid!, session.startedAt])
       .filter((g) => g.history.at(-1)?.byId === me.id)
     : [];
-  // a manager's rollup lists every key result it wrote or edited since its last rollup, so a human can cut it (1:1 mt_ayi4y9ybyj)
-  const krWrites = input.rollup && isManager ? world.grantDesk.writtenSinceRollup(me.id, bid!) : [];
   if (unhomedVisitor && !bid) throw badRequest("The town has no Town Hall to file a visitor report in.");
   if (input.rollup) {
     if (!isManager) throw badRequest("Only a building's manager agent submits rollups.");
-    if (!sourceIds.length && !checkpointGrantId && !closedGrants.length && !krWrites.length) throw badRequest("A rollup lists the reports it covers in provenance.sourceIds.");
+    if (!sourceIds.length && !checkpointGrantId && !closedGrants.length) throw badRequest("A rollup lists the reports it covers in provenance.sourceIds.");
     for (const id of sourceIds) {
       const d = world.docs.get(id);
       if (!d || d.type !== "report" || d.buildingId !== bid) throw badRequest(`Rollup source ${id} is not a report of your building.`);
@@ -313,8 +303,7 @@ export async function submit_report(world: World, me: Agent, input: VerbIn<"subm
   }
   const owner = unhomedVisitor && me.ownerUserId ? world.users.get(me.ownerUserId)?.name ?? null : null;
   const filed = format ? withNeedsLine(input.body, rollupWaitingLine(world, bid!)) : input.body;
-  const body = krWrites.length ? `${filed.trimEnd()}\n\n${krWritesSection(krWrites)}`
-    : unhomedVisitor ? `${input.body.trimEnd()}\n\n_Visitor report from ${me.name}${owner ? `, ${owner}'s agent` : ""}; it has no home building._` : filed;
+  const body = unhomedVisitor ? `${input.body.trimEnd()}\n\n_Visitor report from ${me.name}${owner ? `, ${owner}'s agent` : ""}; it has no home building._` : filed;
   return world.transaction(() => {
     const doc = createDoc(world, {
       type: "report", state: "building", title: input.title, body, verdict: input.verdict, decision: "pending",
@@ -391,7 +380,7 @@ function rollupWaitingLine(world: World, buildingId: string): string {
 
 /** The lane fields of a verb input (`assign`, `review`), or undefined when none is given (a continuation inherits). */
 const laneOf = (i: LaneFields): LaneFields | undefined =>
-  i.lane || i.grantId || i.keyResultId || i.gap || i.sourceId ? { lane: i.lane, grantId: i.grantId, keyResultId: i.keyResultId, gap: i.gap, sourceId: i.sourceId } : undefined;
+  i.lane || i.grantId || i.gap || i.sourceId ? { lane: i.lane, grantId: i.grantId, gap: i.gap, sourceId: i.sourceId } : undefined;
 
 export async function review(world: World, me: Agent, input: VerbIn<"review">) {
   const doc = requirePendingReport(world, input.docId);
@@ -452,8 +441,8 @@ export async function schedule(world: World, me: Agent, input: VerbIn<"schedule"
   if (scheduleId) {
     const sc = world.schedules.require(scheduleId, "schedule");
     if (sc.buildingId !== bid) throw forbidden("building.assign");
-    const { lane, grantId, keyResultId, gap, sourceId, ...edit } = rest;
-    if (lane || grantId || keyResultId || gap || sourceId) throw badRequest("A schedule keeps its lane: `cancel` it with scheduleId and schedule it again in the new lane.");
+    const { lane, grantId, gap, sourceId, ...edit } = rest;
+    if (lane || grantId || gap || sourceId) throw badRequest("A schedule keeps its lane: `cancel` it with scheduleId and schedule it again in the new lane.");
     const e = editSchedule(world, me, sc.id, { ...edit, ...(paused !== undefined ? { paused } : {}) });
     return { scheduleId: e.id, nextRunAt: e.nextRunAt, repeat: describeRepeat(e), ...(e.endsAt ? { endsAt: e.endsAt } : {}), paused: e.paused, runs: e.runs };
   }
