@@ -101,9 +101,9 @@ describe("work session", () => {
     expect(world.events.list({ agentId: tomas.id, types: ["system"] }).some((e) => e.payload.fallback)).toBe(true);
   });
 
-  test("budget exhaustion from usage sets out-of-budget and blocks the scheduler", async () => {
+  test("building exhaustion from usage sets out-of-budget and blocks the scheduler (no per-agent daily cap)", async () => {
     const { world, runtime, sdk, by, lab } = setup(happyWork);
-    world.setTownDefaults({ dailyTokensPerAgent: 500 });
+    for (const a of world.allocations.where("buildingId = ?", [lab.id])) world.allocations.upsert({ ...a, spentTokens: a.tokens - 500 });
     const mei = by("Mei");
     const asg = world.ops.createWork(null, mei.id, {});
     await runtime.runWorkSession(mei.id, asg.id);

@@ -7,9 +7,7 @@ import { Agent, type Assignment, type Building } from "@muster-town/schema";
 import { AppError, badRequest } from "./errors.ts";
 import { buildingQueue, homeOf, managerAgentOf } from "./domain.ts";
 import { interruptNow, isWorking } from "./wakes.ts";
-import { familyCap } from "./budget.ts";
 import { sessionView } from "./bank.ts";
-export { familyCap };
 import { buildingRoleId } from "./permissions.ts";
 import { newId, nowIso } from "./util.ts";
 import type { World } from "./world.ts";
@@ -42,7 +40,7 @@ export function nextForkN(world: World, managerId: string): number {
 export function forkableQueue(world: World, b: Building): Assignment[] {
   const manager = managerAgentOf(world, b);
   if (!manager || manager.status === "banned" || manager.status === "retired") return [];
-  if (world.budget.remaining(b.id) <= 0 || manager.familySpentToday >= familyCap(b)) return [];
+  if (world.budget.remaining(b.id) <= 0) return [];
   return buildingQueue(world, b.id).filter((a) => !a.waitFor && !a.offered && world.budget.holdReason(a) === null);
 }
 
@@ -260,19 +258,17 @@ export function forkSummary(world: World, fork: Agent): ForkSummary | null {
 
 /**
  * What a manager and all its forks (live and retired) spent, summed from the rows the Bank books; a read-side sum only.
- * `forksToday` is the forks' part of `today`; `cap` is the family's daily cap (familyCap of the manager's building, 0 without one).
+ * `forksToday` is the forks' part of `today` (no daily cap since 2026-10-31).
  * A fork's spend is booked when its session ends, so a running fork adds nothing yet.
  */
-export interface FamilySpend { today: number; forksToday: number; cap: number; total: number; usdTotal: number; forks: number }
+export interface FamilySpend { today: number; forksToday: number; total: number; usdTotal: number; forks: number }
 
 /** Design note §7 "rollups by family": the manager's own spend plus every fork's, today and all-time, in adjusted tokens. */
 export function familySpend(world: World, managerId: string): FamilySpend {
   const r = world.db.prepare(
     "SELECT COALESCE(SUM(spentTokensToday), 0) AS today, COALESCE(SUM(CASE WHEN forkOf IS NOT NULL THEN spentTokensToday ELSE 0 END), 0) AS forksToday, COALESCE(SUM(spentTokensTotal), 0) AS total, COALESCE(SUM(spentUsdTotal), 0) AS usd, COALESCE(SUM(forkOf IS NOT NULL), 0) AS forks FROM agents WHERE id = ? OR forkOf = ?",
   ).get(managerId, managerId) as { today: number; forksToday: number; total: number; usd: number; forks: number };
-  const m = world.agents.get(managerId);
-  const b = m ? world.buildings.get(m.homeBuildingId ?? m.buildingId ?? "") : undefined;
-  return { today: r.today, forksToday: r.forksToday, cap: b ? familyCap(b) : 0, total: r.total, usdTotal: r.usd, forks: r.forks };
+  return { today: r.today, forksToday: r.forksToday, total: r.total, usdTotal: r.usd, forks: r.forks };
 }
 
 /**
