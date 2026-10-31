@@ -103,12 +103,18 @@ describe("monitor thresholds", () => {
     expect(m.view().alerts[0]!.level).toBe("red");
   });
 
-  it("backup: yellow on error, red when the last copy is older than 26 h", async () => {
+  it("backup: yellow on error or a copy older than 2 h, red when older than 6 h (hourly copies)", async () => {
     const { r, m, step } = await setup();
-    r.state.backup = { lastAt: new Date(r.now() - 2 * 3600_000).toISOString(), bytes: 1, dest: "s3://b/", error: "boom" };
+    r.state.backup = { lastAt: new Date(r.now() - 1.5 * 3600_000).toISOString(), verifiedAt: null, bytes: 1, dest: "s3://b/", error: null };
+    await step(1);
+    expect(m.view().alerts).toEqual([]);
+    r.state.backup = { lastAt: new Date(r.now() - 0.5 * 3600_000).toISOString(), verifiedAt: null, bytes: 1, dest: "s3://b/", error: "verify town/x failed: boom" };
     await step(1);
     expect(m.view().alerts).toMatchObject([{ key: "backup", level: "yellow" }]);
-    r.state.backup = { lastAt: new Date(r.now() - 27 * 3600_000).toISOString(), bytes: 1, dest: "s3://b/", error: null };
+    r.state.backup = { lastAt: new Date(r.now() - 3 * 3600_000).toISOString(), verifiedAt: null, bytes: 1, dest: "s3://b/", error: null };
+    await step(1);
+    expect(m.view().alerts).toMatchObject([{ key: "backup", level: "yellow" }]);
+    r.state.backup = { lastAt: new Date(r.now() - 7 * 3600_000).toISOString(), verifiedAt: null, bytes: 1, dest: "s3://b/", error: null };
     await step(1);
     expect(m.view().alerts).toMatchObject([{ key: "backup", level: "red" }]);
   });
