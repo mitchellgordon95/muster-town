@@ -50,9 +50,8 @@ What must always hold where tokens come from and where they go: the Bank (`packa
    - Test: `packages/core/test/reconcile.test.ts` › `an api-key session on a key the Bank doesn't list, or a desk's funding claim that didn't match, is an alert`
    - Test: `packages/runtime/test/reconcile.test.ts` › `a fresh town with no sessions yesterday stays quiet; a day with a session is reconciled once`
    - Test: `packages/runtime/test/reconcile.test.ts` › `the reconciliation never leaves the town: no fetch, no Console or Admin API URL, no secret read (Mitchell, 2026-10-31)`
-11. **Exhaustion stops new starts and is undone only by new tokens.** When a building's budget or an agent's daily allowance runs out, `out-of-budget` is set once with one `budget.exhausted` event. A new donation, `resetDaily` or a raised cap resumes work.
-   - Test: `packages/core/test/budget.test.ts` › `daily exhaustion → out-of-budget + event; resetDaily resumes`
-   - Test: `packages/core/test/budget.test.ts` › `raising the collective's daily budget un-blocks a resident that hit the old one`
+11. **Exhaustion stops new starts and is undone only by new tokens.** When a building's budget runs out, `out-of-budget` is set once with one `budget.exhausted` event. A new donation resumes work. There is no per-agent or family daily cap (deleted 2026-10-31, 1:1 mt_q10xf3bkoq): `dailyTokensPerAgent` is read by nothing.
+   - Test: `packages/core/test/budget.test.ts` › `no per-agent daily cap (1:1 mt_q10xf3bkoq): a resident past dailyTokensPerAgent keeps starting; resetDaily zeroes today`
    - Test: `packages/core/test/budget.test.ts` › `building exhaustion stops all residents until a new donation; allocations are charged in draw order (donor key before the town key)`
 12. **The cap hold applies only within one typical session of the learned subscription cap, with one `bank.hold` event per day.** If no cap has been seen, nothing is held.
     - Test: `packages/core/test/caps.test.ts` › `holds once today's spend is within one typical session of the cap; no cap = no hold`

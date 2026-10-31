@@ -49,10 +49,10 @@ export function buildingBudgetLine(budget: BuildingBudget | undefined): string |
   return [used, left].filter(Boolean).join(" · ") || null;
 }
 
-/** Budget line under a resident's name: today's tokens and what's left of the daily allowance. */
-export function residentBudgetLine(a: Agent, dailyTokensPerAgent: number | undefined): string | null {
-  if (a.kind !== "resident" || !dailyTokensPerAgent) return null;
-  return `${fmtTokens(a.spentTokensToday)} today · ${fmtTokens(Math.max(0, dailyTokensPerAgent - a.spentTokensToday))} left`;
+/** Budget line under a resident's name: today's tokens (no per-agent daily cap since 2026-10-31). */
+export function residentBudgetLine(a: Agent): string | null {
+  if (a.kind !== "resident") return null;
+  return `${fmtTokens(a.spentTokensToday)} today`;
 }
 
 function wrap(g: CanvasRenderingContext2D, text: string, maxW: number, maxLines: number): string[] {

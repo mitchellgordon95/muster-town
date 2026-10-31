@@ -8,7 +8,7 @@ Citation format: the same as in [grants.md](grants.md): a `- Test:` line with th
 
 1. **Only the scheduler starts work, and never past `Budget.canStart`.** A wake writes a pending assignment or kicks a starter; the starter asks `canStart` (lane gate, budget, caps). An assignment that `canStart` refuses stays pending with its `heldReason` across ticks, and starts on the first tick after the gate opens. Budget exhaustion blocks the scheduler the same way.
    - Test: `packages/runtime/test/queue.test.ts` › `a tick never starts an assignment that canStart refuses: a lane-held one stays pending with its reason and starts once the gate opens`
-   - Test: `packages/runtime/test/work.test.ts` › `budget exhaustion from usage sets out-of-budget and blocks the scheduler`
+   - Test: `packages/runtime/test/work.test.ts` › `building exhaustion from usage sets out-of-budget and blocks the scheduler (no per-agent daily cap)`
 2. **A durable wake writes state only under a unique wakeKey**, so a replay or a double delivery writes nothing.
    - Test: `packages/runtime/test/waker.test.ts` › `live events run their rule once; the cursor passes a durable one once it has run; a restart replays nothing twice`
    - Test: `packages/core/test/wakes-relay.test.ts` › `a later tell for the same human merges into the pending one; replaying the event is a no-op`
