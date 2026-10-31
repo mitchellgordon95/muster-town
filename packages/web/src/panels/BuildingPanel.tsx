@@ -11,7 +11,7 @@ import { Meter } from "./AgentPanel";
 import { ADJ, Act, Empty, Field, KV, MTokensInput, NumberInput, Pill, Section, fmtTokens, usd, useLoad } from "./ui";
 import { fromMillions, repeatLabel, runsAtLabel, toMillions } from "../format";
 import { layoutEdit } from "../map/layoutEdit";
-import { canOneOnOne, openOneOnOne } from "./oneOnOne";
+import { canOneOnOne, openOneOnOne, openPlanner } from "./oneOnOne";
 import { UNBLOCK_LINE, blockedLabel } from "./keyResults";
 import { GoalTabsSummary, GoalsTab, GrantsTab } from "./GoalsTab";
 import { GoalPicker, goalPath, useGoalTree } from "./GoalPicker";
@@ -103,6 +103,9 @@ function Overview({ b }: { b: SnapshotBuilding }) {
       {b.kind !== "town-hall" && b.managerAgentId && agents[b.managerAgentId] && canOneOnOne(b.id) ? (
         <div className="actions"><Act tone="primary" run={() => openOneOnOne(b.id)}>Talk to ★ {agents[b.managerAgentId].name}</Act></div>
       ) : null}
+      {b.kind === "town-hall" && b.managerAgentId && agents[b.managerAgentId] && (store.can("goals.edit") || canOneOnOne(b.id)) ? (
+        <div className="actions"><Act tone="primary" run={() => openPlanner()}>Talk to ★ {agents[b.managerAgentId].name}</Act></div>
+      ) : null}
       {store.can("building.manage", b.id) && !api().mock ? (
         <div className="walk-links">
           <button className="walk-link" onClick={() => layoutEdit.start(b.id).catch((e) => store.toast((e as Error).message, "bad"))}>
@@ -120,7 +123,9 @@ function Overview({ b }: { b: SnapshotBuilding }) {
           ["Collective defaults", defaultsLine(b, repo)],
           ["Desks", `${members.length} / ${b.headcount}`],
           ["In-tray", b.managerAgentId ? `worked by ★ ${agents[b.managerAgentId]?.name ?? "the manager agent"}` : "worked by you (no manager agent)"],
-        ] : []) as [string, ReactNode][],
+        ] : [
+          ["Manager", b.managerAgentId && agents[b.managerAgentId] ? <>★ {agents[b.managerAgentId].name}: the planning agent. It answers 1:1s and facilitates reorg meetings; the in-tray is the humans'.</> : "the Planner, once someone plans with it"],
+        ]) as [string, ReactNode][],
       ]} />
     </>
   );
@@ -205,12 +210,12 @@ export function Settings({ b }: { b: SnapshotBuilding }) {
           ? <span><input type="number" min={1} max={MAX_HEADCOUNT} value={desks} onChange={(e) => setDesks(Math.max(1, Math.min(MAX_HEADCOUNT, Math.floor(Number(e.target.value)) || 1)))} /> {b.lot ? `${b.lot.w}×${b.lot.h} now` : ""}</span>
           : <span>{b.lot ? `${b.lot.w}×${b.lot.h} · ` : ""}{b.headcount} desk{b.headcount === 1 ? "" : "s"}</span>}
       </Field>
-      <Field label="Manager" hint="Every building made at the planning desk gets its manager when it is built: one named agent at a desk. It works the in-tray (its forks' reports), facilitates meetings and wears the ★ badge; queued work runs on its forks; its rollups go to the Town Hall in-tray. None: you work the in-tray.">
+      {b.kind !== "town-hall" ? <Field label="Manager" hint="Every building made at the planning desk gets its manager when it is built: one named agent at a desk. It works the in-tray (its forks' reports), facilitates meetings and wears the ★ badge; queued work runs on its forks; its rollups go to the Town Hall in-tray. None: you work the in-tray.">
         <select value={f.managerAgentId ?? ""} onChange={(e) => set("managerAgentId", e.target.value || null)}>
           <option value="">none</option>
           {named.map((a) => <option key={a.id} value={a.id} disabled={a.status === "stopped" || a.status === "banned"}>{a.name}{a.status === "stopped" || a.status === "banned" ? ` (${a.status})` : ""}</option>)}
         </select>
-      </Field>
+      </Field> : null}
       <div className="actions"><Act tone="primary" run={async () => {
         const { name, ...rest } = f;
         const next = await api().updateBuilding(b.id, {

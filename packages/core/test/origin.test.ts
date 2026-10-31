@@ -11,20 +11,19 @@ function setup() {
 }
 
 describe("origin", () => {
-  it("a human's tell is stamped (hops 0, via its own message); its Message-from assignment and session inherit it", async () => {
-    const { world, mei, userId, admin } = setup();
-    world.ops.updateBuilding(admin, "carbon-cycle", { managerAgentId: null });
-    const r = await world.ops.messageAgent(userId, mei.id, "Check 2010", { isWorking: () => false });
+  it("a human's tell is stamped (hops 0, via its own message); a human's assignment and its session carry an origin", async () => {
+    const { world, mei, userId } = setup();
+    const avatar = world.ops.ensureAvatar(userId);
+    const r = await world.verbs.tell(avatar, { to: mei.id, text: "Check 2010" });
     const msg = world.messages.require(r.messageId);
     expect(msg.origin).toMatchObject({ userId, via: msg.id, hops: 0 });
-    const a = world.assignments.require(r.assignmentId!);
-    expect(a.origin).toEqual(msg.origin);
-    const s = world.ops.startSession(mei.id, { purpose: "work", model: "m", assignmentId: a.id });
-    expect(s.origin).toEqual(msg.origin);
     const told = world.events.recent({ limit: 20 }).find((e) => e.type === "agent.told")!;
     expect(told.payload.origin).toEqual(msg.origin);
+    const a = createAssignment(world, { agentId: mei.id, title: "Check 2010", description: "x", createdBy: { kind: "user", id: userId } });
+    const s = world.ops.startSession(mei.id, { purpose: "work", model: "m", assignmentId: a.id });
+    expect(s.origin).toEqual(a.origin);
     const started = world.events.recent({ limit: 20 }).find((e) => e.type === "session.started")!;
-    expect(started.payload.origin).toEqual(msg.origin);
+    expect(started.payload.origin).toEqual(a.origin);
   });
 
   it("an agent relays its session's origin with hops + 1 through tell, assign and @mentions; without one it carries none", async () => {

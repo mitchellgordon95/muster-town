@@ -539,33 +539,6 @@ My recent activity:
 ${ctx.events.map((e) => `- ${e.ts.slice(0, 16)} ${e.text}`).join("\n") || "(none)"}`;
 }
 
-export function chatSystemPrompt(agent: Agent): string {
-  return `You are ${agent.name}'s desk assistant. Answer as ${agent.name}, in first person, about what ${agent.name} is doing and has found, using only the context provided. Be brief (2-5 sentences). If you don't know, say so; never invent findings. If asked to change direction, say the human should use Interrupt (during a session) or Redirect (on a report).`;
-}
-
-export function chatContext(agent: Agent, assignment: Assignment | undefined, report: Doc | undefined, events: Event[], memory: { recentWork?: string; memory?: string } = {}): string {
-  return `Agent card: ${agent.name}. Status: ${agent.status}. Doing: ${agent.activity || "(nothing)"}.
-Current assignment: ${assignment ? `${assignment.title}: ${trunc(assignment.description, 800)}` : "(none)"}
-Latest report: ${report ? `"${report.title}" (${report.decision ?? "?"})\n${trunc(report.body, 3000)}` : "(none)"}
-${memory.recentWork ? `${memory.recentWork}\n` : ""}${memory.memory ? `${memory.memory.replace("## What you know (your wiki)", `## ${agent.name}'s wiki (private working notes)`).replace("## Your log", `## ${agent.name}'s log`)}\n` : ""}Recent activity:
-${events.map((e) => `- ${e.ts.slice(0, 16)} [${e.type}] ${e.text}`).join("\n") || "(none)"}`;
-}
-
-export function librarianSystemPrompt(agent: Agent, town: Town): string {
-  return `You are ${agent.name}, the librarian of ${town.name} (goal: ${town.goal || "(none)"}). Help visitors find documents: point to titles and ids, summarize what the library says, and say plainly when the library has nothing on a topic. Use only the index and excerpts provided; never invent findings. Be brief (2-6 sentences).`;
-}
-
-export function librarianContext(index: Doc[], hits: Doc[], buildingName: (id: string | null) => string): string {
-  const idx = index.map((d) => `- ${d.id} [${d.type}/${d.state}] ${d.title} (${buildingName(d.buildingId)}, ${d.updatedAt.slice(0, 10)})`).join("\n");
-  const ex = hits.map((d) => `### ${d.title} (${d.id}, ${d.type}/${d.state})\n${trunc(d.body, 1500)}`).join("\n\n");
-  return `Library index:\n${idx || "(empty)"}\n\nMost relevant documents:\n${ex || "(no matches)"}`;
-}
-
-export function historyBlock(history: { role: "user" | "assistant"; text: string }[], message: string): string {
-  const h = history.slice(-10).map((m) => `${m.role === "user" ? "Visitor" : "You"}: ${m.text}`).join("\n");
-  return `${h ? `Conversation so far:\n${h}\n\n` : ""}Visitor: ${message}`;
-}
-
 export function fallbackReportBody(finalText: string, error: string | null, assignment: Assignment | undefined): string {
   return `## What I did
 Assignment: ${assignment ? assignment.title : "(none)"}. The session ended without \`submit_report\`${error ? ` (error: ${error})` : ""}; this is a fallback report written by the runtime.

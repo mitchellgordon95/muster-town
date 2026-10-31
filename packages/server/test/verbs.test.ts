@@ -3,6 +3,7 @@ import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
 import type { AddressInfo } from "node:net";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { sendMessage } from "@muster-town/core";
 import { json, seededApp } from "./helpers.ts";
 
 let ctx: Awaited<ReturnType<typeof seededApp>>;
@@ -77,9 +78,8 @@ describe("v1.4 generic verbs endpoint", () => {
     // the snapshot carries status and lastSeenAt
     const town = await json<{ agents: { id: string; status: string; lastSeenAt: string | null }[] }>(ctx.app, "GET", "/api/town");
     expect(town.body.agents.find((a) => a.id === agentId)).toMatchObject({ status: "offline", lastSeenAt: before });
-    // a human's message waits in the mailbox
-    const sent = await json(ctx.app, "POST", `/api/agents/${agentId}/message`, { headers: ctx.auth, body: { text: "ping" } });
-    expect(sent.body).toMatchObject({ mode: "queued" });
+    // a message sent while offline waits in the mailbox
+    sendMessage(ctx.world, { kind: "system", fromId: "system", fromKind: "system", toId: agentId, body: "ping" });
     const detail = await json(ctx.app, "GET", `/api/agents/${agentId}`, { headers: ctx.auth });
     expect(detail.body.mailbox).toEqual({ unread: 1, mentions: 0, offered: 0 });
 

@@ -188,61 +188,6 @@ describe("manager forks: a stale desk slot (image redeploy kept it busy)", () =>
   });
 });
 
-describe("manager forks: messages", () => {
-  test("a human's message to a live fork interrupts it; after it retires, messages reach the manager", async () => {
-    let forkId = "";
-    const { world, runtime, mei, seed, queue } = forkSetup(async function* (s) {
-      yield init();
-      forkId = s.agentId!;
-      const got = await s.next();
-      expect(got).toContain("Please also check B");
-      yield* callVerb(s, "submit_report", REPORT);
-      yield result(100, 0.01);
-    });
-    await queue("Interruptible");
-    await runtime.tickOnce();
-    for (let i = 0; i < 50 && !forkId; i++) await new Promise((r) => setTimeout(r, 10));
-    const r = await world.ops.messageAgent(seed.admin.id, forkId, "Please also check B");
-    expect(r.mode).toBe("interrupted");
-    await runtime.whenIdle();
-    expect(world.agents.require(forkId).status).toBe("retired");
-    const after = await world.ops.messageAgent(seed.admin.id, forkId, "One more thing");
-    const msg = world.messages.require(after.messageId);
-    expect(msg.toId).toBe(mei.id);
-    expect(msg.body).toContain("after its session ended");
-    expect(msg.body).toContain("One more thing");
-  });
-
-  test("the manager's tell to a live fork interrupts it mid-session and stays in its inbox; another building's agent only reaches the inbox", async () => {
-    let forkId = "";
-    const { world, runtime, mei, queue } = forkSetup(async function* (s) {
-      yield init();
-      forkId = s.agentId!;
-      const got = await s.next();
-      expect(got).toContain("Mei told you");
-      expect(got).toContain("Also cover C");
-      yield* callVerb(s, "submit_report", REPORT);
-      yield result(100, 0.01);
-    });
-    await queue("Redirectable");
-    await runtime.tickOnce();
-    for (let i = 0; i < 50 && !forkId; i++) await new Promise((r) => setTimeout(r, 10));
-    // a resident whose home is another building: its tell only reaches the inbox
-    const other = world.agents.where("kind = 'resident' AND status != 'retired' AND id != ?", [mei.id])[0]!;
-    world.agents.upsert({ ...other, homeBuildingId: "town-hall", buildingId: "town-hall" });
-    const interrupts = () => world.events.list({ agentId: forkId, types: ["system"] }).filter((e) => e.payload.interrupt);
-    const out = await world.verbs.tell(other.id, { to: forkId, text: "From elsewhere" }) as { messageId: string };
-    expect(world.messages.require(out.messageId).toId).toBe(forkId);
-    expect(interrupts()).toHaveLength(0);
-    const r = await world.verbs.tell(mei.id, { to: forkId, text: "Also cover C" }) as { note?: string; messageId: string };
-    expect(r.note).toContain("delivered as an interrupt");
-    expect(world.messages.require(r.messageId).toId).toBe(forkId);
-    expect(interrupts()).toHaveLength(1);
-    expect(interrupts()[0]!.payload.now).toBe(true);
-    await runtime.whenIdle();
-    expect(world.agents.require(forkId).status).toBe("retired");
-  });
-});
 
 
 describe("manager forks: stop_fork (agent teams step 4)", () => {

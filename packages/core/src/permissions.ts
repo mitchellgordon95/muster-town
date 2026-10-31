@@ -111,10 +111,10 @@ export class Permissions {
     return this.repos.agents.get(agent.forkOf) ?? null;
   }
 
-  /** A live agent named some building's manager (`managerAgentId`). */
+  /** A live agent named some lab's manager (`managerAgentId`; the Town Hall's, the Planner, doesn't count). */
   private managesABuilding(agent: Agent): boolean {
     if (agent.status === "retired" || agent.status === "banned" || agent.forkOf) return false;
-    return !!this.repos.buildings.first("managerAgentId = ?", [agent.id]);
+    return !!this.repos.buildings.first("managerAgentId = ? AND kind != 'town-hall'", [agent.id]);
   }
 
   private inherits(agent: Agent): boolean {

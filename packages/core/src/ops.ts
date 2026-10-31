@@ -14,21 +14,11 @@ import { walkHome } from "./home.ts";
 import { requestAnswerWake } from "./wakes.ts";
 import type { World } from "./world.ts";
 
-export interface MessageAgentOptions {
-  /** interrupt a working agent now (default true); false leaves the message in its inbox */
-  now?: boolean;
-  /** live-session check (default `world.host.isWorking`, else a running work Session row) */
-  isWorking?: (agentId: string) => boolean;
-  /** in-process delivery (default `world.host.interrupt`); false/absent → queued for the desk */
-  interrupt?: (agentId: string, text: string, from: string, now: boolean) => boolean | Promise<boolean>;
-}
-export interface MessageAgentResult { mode: "interrupted" | "queued" | "started"; messageId: string; assignmentId?: string }
 export interface ThreadMessage { id: string; fromId: string; toId: string; from: string; mine: boolean; body: string; at: string }
 
 /** Models already warned about this process (Bank step 2: an unknown model is priced as Opus 5.5). */
 const warnedModels = new Set<string>();
 
-const messageTail = (avatarId: string) => `\n\nReply to them first with \`tell\` (their avatar id is ${avatarId}), keep it short, then do what the message asks. If it asks you to delegate and you hold the assign permission, use \`assign\`. If it is just a conversation, reply and finish with a short report ending "Nothing needed".`;
 
 export interface StartNextResult { assignment: Assignment; agent: Agent; when: "now" | "after-current" }
 
@@ -341,73 +331,7 @@ export class Ops {
     });
   }
 
-  // ---- talk: a human messages an agent ----
-  /**
-   * POST /api/agents/:id/message. The text lands in the agent's inbox as a `tell` from the user's avatar (so `look`
-   * counts it like any colleague's message). Then:
-   * - live work session + `now` → interrupt (in-process via `interrupt`/`world.host.interrupt`, else queued for the desk);
-   * - live + !now → nothing more: the agent reads it at its next `inbox`/`look`;
-   * - not working (stopped → revived) → a `Message from …` assignment at the front of the queue, so the scheduler
-   *   starts a session for it next (a still-pending one from the same user gets the new text appended, and moves to the front);
-   * - out of budget → the same assignment, mode `queued` (it starts when budget returns).
-   */
-  async messageAgent(userId: string, agentId: string, text: string, opts: MessageAgentOptions = {}): Promise<MessageAgentResult> {
-    const body = text.trim();
-    if (!body) throw badRequest("Message is empty.");
-    const user = this.world.users.require(userId, "user");
-    const avatar = this.ensureAvatar(userId);
-    const agent = this.world.agents.require(agentId, "agent");
-    const isWorking = opts.isWorking ?? this.world.host.isWorking?.bind(this.world.host);
-    const workingNow = (id: string) => isWorking ? isWorking(id) : this.world.sessions.count("agentId = ? AND status = 'running' AND purpose = 'work'", [id]) > 0;
-    // manager forks: a live fork takes the message as an interrupt; once its session is over it goes to the manager
-    if (agent.forkOf && (agent.status === "retired" || !workingNow(agent.id))) {
-      return this.messageAgent(userId, agent.forkOf, `(Sent to ${agent.name}, your fork, after its session ended: it reaches you as its manager.)\n\n${body}`, opts);
-    }
-    if (agent.status === "banned" || agent.status === "retired") throw new AppError("conflict", `${agent.name} is ${agent.status === "retired" ? "dismissed" : "banned"}.`);
-    if (agent.kind !== "resident" && agent.kind !== "visitor") throw badRequest(`${agent.name} isn't a resident or visitor; only they can be messaged.`);
-    // the manager is a building's conversational surface: residents work from assignments and don't take messages
-    if (agent.kind === "resident" && !agent.forkOf) {
-      const b = this.world.buildings.get(homeOf(agent) ?? "");
-      const mgr = b?.managerAgentId ? this.world.agents.get(b.managerAgentId) : undefined;
-      if (b && mgr && mgr.id !== agent.id && mgr.status !== "retired" && mgr.status !== "banned") {
-        throw new AppError("conflict", `${agent.name} doesn't take messages: residents of the ${b.name} work from assignments. Talk to ${mgr.name}, its manager, who turns requests into assignments; or give ${agent.name} an assignment directly.`);
-      }
-    }
-    const msgId = newId("ms");
-    const origin = humanOrigin(userId, msgId);
-    const msg = sendMessage(this.world, { id: msgId, kind: "tell", fromId: avatar.id, fromKind: "agent", toId: agent.id, body, origin });
-    this.world.events.append({ type: "agent.told", agentId: avatar.id, buildingId: avatar.buildingId, text: `${user.name} → ${agent.name}: ${body.slice(0, 200)}`, payload: { to: agent.id, toId: agent.id, toKind: agent.kind, messageId: msg.id, text: body, fromUser: userId, origin } });
-    // v1.4: a visitor's loop runs outside the town: the message waits in its mailbox (inbox, look notices, digest)
-    if (agent.kind === "visitor") return { mode: "queued", messageId: msg.id };
-
-    const working = workingNow(agent.id);
-    if (working) {
-      if (opts.now === false) return { mode: "queued", messageId: msg.id };
-      const itext = `${user.name} messaged you (it is also in your inbox):\n\n${body}\n\nReply to them first with \`tell\` (their avatar id is ${avatar.id}).`;
-      const deliver = opts.interrupt ?? this.world.host.interrupt?.bind(this.world.host);
-      const delivered = deliver ? await deliver(agent.id, itext, user.name, true) : false;
-      if (!delivered) this.enqueueInterrupt(agent.id, itext, user.name, true);
-      return { mode: "interrupted", messageId: msg.id };
-    }
-
-    if (agent.status === "stopped") this.world.setStatus(agent.id, "idle", `${agent.name} was woken by a message from ${user.name}`);
-    const prefix = `Message from ${user.name}: `;
-    const pending = this.world.assignments.first("agentId = ? AND status = 'pending' AND createdBy = ? AND title LIKE ?", [agent.id, userId, `${prefix}%`], "ORDER BY createdAt DESC, rowid DESC");
-    let assignment: Assignment;
-    if (pending) {
-      assignment = this.world.assignments.upsert({ ...pending, description: pending.description.replace(/\n\nReply to them first[\s\S]*$/, "") + `\n\nThen they added:\n\n${body}` + messageTail(avatar.id), updatedAt: nowIso() });
-      assignment = moveToFront(this.world, assignment.id);
-    } else {
-      const first = body.split("\n")[0].trim();
-      assignment = createAssignment(this.world, {
-        agentId: agent.id, title: prefix + (first.length > 80 ? first.slice(0, 79) + "…" : first),
-        description: `${user.name} messaged you:\n\n${body}` + messageTail(avatar.id),
-        createdBy: { kind: "user", id: userId }, front: true, origin,
-      });
-    }
-    return { mode: this.world.budget.canStart(agent.id) ? "started" : "queued", messageId: msg.id, assignmentId: assignment.id };
-  }
-
+  // ---- talk: the tells between a human and an agent ----
   /** GET /api/agents/:id/thread: `tell`s between the agent and the user's avatar, both directions, oldest first (last `limit`). */
   thread(agentId: string, userId: string, limit = 200): ThreadMessage[] {
     const agent = this.world.agents.require(agentId, "agent");

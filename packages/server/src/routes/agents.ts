@@ -1,8 +1,8 @@
 import { AppError, blockedBy, forkSummary, forksOf, canInteract, logOf, sessionView, townBlocked, townSchedules, buildingSchedules, createSchedule, cancelSchedule, editSchedule, actOrigin, topicsOf, wikiOf, type World } from "@muster-town/core";
-import { AgentModelPatch, AgentPermissionsPatch, ChatInput, Event, InterruptInput, MessageAgentInput, RegisterVisitorInput, WorkInput, type Agent, type Session } from "@muster-town/schema";
+import { AgentModelPatch, AgentPermissionsPatch, Event, InterruptInput, RegisterVisitorInput, WorkInput, type Agent, type Session } from "@muster-town/schema";
 import type { FastifyInstance, FastifyRequest } from "fastify";
 import { z } from "zod";
-import { actorOf, ASK_FIRST, parse, requireAuth, requireUser, type Params } from "../context.ts";
+import { actorOf, ASK_FIRST, parse, requireUser, type Params } from "../context.ts";
 
 /** Events belonging to a session: the agent's events between its start and end. */
 function sessionTranscript(world: World, s: Session): Event[] {
@@ -10,11 +10,6 @@ function sessionTranscript(world: World, s: Session): Event[] {
     "SELECT * FROM events WHERE agentId = ? AND ts >= ? AND (? IS NULL OR ts <= ?) ORDER BY id ASC LIMIT 2000",
   ).all(s.agentId, s.startedAt, s.endedAt, s.endedAt) as Record<string, unknown>[];
   return rows.map((r) => Event.parse({ ...r, payload: JSON.parse(String(r.payload ?? "{}")) }));
-}
-
-function runtimeOr503(app: FastifyInstance) {
-  if (!app.runtime) throw new AppError("internal", "runtime not available", 503);
-  return app.runtime;
 }
 
 export async function agentRoutes(app: FastifyInstance) {
@@ -160,17 +155,6 @@ export async function agentRoutes(app: FastifyInstance) {
     return { ok: true, result: result ?? null };
   });
 
-  /**
-   * Talk to an agent (any signed-in user). The text becomes a `tell` from the user's avatar. A working agent is
-   * interrupted (`now`, default true) or finds it in its inbox; an idle/stopped one gets a `Message from …` assignment.
-   * → { mode: 'interrupted' | 'queued' | 'started', messageId, assignmentId? }
-   */
-  app.post<{ Params: Params }>("/api/agents/:id/message", async (req) => {
-    const user = requireUser(req);
-    const { text, now } = parse(MessageAgentInput, req.body);
-    return world.ops.messageAgent(user.id, req.params.id, text, { now });
-  });
-
   /** The `tell`s between this agent and the user's avatar, oldest first (last 200). `?userId=` defaults to the caller (another user's needs admin). → { messages } */
   app.get<{ Params: Params }>("/api/agents/:id/thread", async (req) => {
     const { userId } = parse(z.object({ userId: z.string().optional() }), req.query);
@@ -178,16 +162,6 @@ export async function agentRoutes(app: FastifyInstance) {
     const uid = userId ?? me.id;
     if (uid !== me.id && !world.permissions.isAdmin(world.ops.ensureAvatar(me.id))) throw new AppError("forbidden", "You can only read your own threads.");
     return { messages: world.ops.thread(req.params.id, uid) };
-  });
-
-  app.post<{ Params: Params }>("/api/agents/:id/chat", async (req) => {
-    requireAuth(req);
-    const input = parse(ChatInput, req.body);
-    const agent = world.agents.require(req.params.id, "agent");
-    // residents aren't a conversational surface: their wiki says what they know, their manager takes requests
-    if (agent.kind === "resident") throw new AppError("conflict", `${agent.name} doesn't take questions. Their wiki (Memory tab) says what they know; their building's manager takes requests.`);
-    const r = await runtimeOr503(app).chat(agent.id, input);
-    return { reply: typeof r === "string" ? r : r.reply };
   });
 
   app.post<{ Params: Params }>("/api/agents/:id/stop", async (req) => {
