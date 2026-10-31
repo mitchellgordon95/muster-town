@@ -313,6 +313,8 @@ export interface Api {
   /** a signed-in visitor asks to join (dc_f0cumcfubk); an admin decides from the Town Hall in-tray */
   requestAccess(message: string): Promise<AccessRequest>;
   decideAccess(id: string, grant: boolean): Promise<AccessRequest>;
+  /** pending requests, oldest first: admins only (the HUD notice) */
+  accessRequests(): Promise<AccessRequestView[]>;
   town(): Promise<Snapshot>;
   events(q: EventQuery): Promise<Event[]>;
   // buildings
@@ -582,6 +584,7 @@ export class HttpApi implements Api {
   me() { return this.get<AuthMe>("/api/me"); }
   async requestAccess(message: string) { return unwrap<AccessRequest>(await this.post("/api/access-requests", { message }), "accessRequest"); }
   async decideAccess(id: string, grant: boolean) { return unwrap<AccessRequest>(await this.post(`/api/access-requests/${id}/decide`, { grant }), "accessRequest"); }
+  async accessRequests() { return unwrap<AccessRequestView[]>(await this.get("/api/access-requests"), "access"); }
   async town() { return { type: "snapshot", ...(await this.get<Omit<Snapshot, "type">>("/api/town")) } as Snapshot; }
   async events(q: EventQuery) { return unwrap<Event[]>(await this.get(`/api/events${qs(q)}`), "events"); }
   async board(id: string, limit = 30) {

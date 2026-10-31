@@ -64,6 +64,10 @@ export class MockApi implements Api {
     Object.assign(r, { status: grant ? "granted" : "declined", decidedBy: "us_mitchell", decidedAt: new Date().toISOString() });
     return clone(r);
   }
+  async accessRequests(): Promise<AccessRequestView[]> {
+    await wait(60);
+    return clone(this.access.filter((r) => r.status === "pending"));
+  }
   async me(): Promise<AuthMe> {
     await wait(60);
     // `?as=visitor` signs in as a plain visitor so read-only views can be checked
