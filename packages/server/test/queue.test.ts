@@ -96,4 +96,18 @@ describe("assignment queue routes", () => {
     expect((await json(app, "POST", `/api/agents/${mei.id}/queue`, { headers: auth, body: { order: [b.id] } })).status).toBe(200);
     expect((await json(app, "POST", "/api/assignments/as_missing/cancel", { headers: auth })).status).toBe(404);
   });
+
+  it("GET /api/assignments/:id: a guest reads the card (title, lane, agent, sessions) without its creator or origin; unknown is 404", async () => {
+    const { app, world, mei, add } = await setup();
+    const run = add("Run it");
+    world.ops.startSession(mei.id, { purpose: "work", model: "m", assignmentId: run.id });
+    const r = await json(app, "GET", `/api/assignments/${run.id}`);
+    expect(r.status).toBe(200);
+    expect(r.body.assignment).toMatchObject({ id: run.id, title: "Run it", agentId: mei.id, agentName: "Mei", status: "active" });
+    expect(r.body.assignment.sessions).toHaveLength(1);
+    expect(r.body.assignment.sessions[0]).toMatchObject({ status: "running", endedAt: null });
+    expect(r.body.assignment).not.toHaveProperty("createdBy");
+    expect(r.body.assignment).not.toHaveProperty("origin");
+    expect((await json(app, "GET", "/api/assignments/as_zzzzzzzzzz")).status).toBe(404);
+  });
 });

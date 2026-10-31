@@ -1,4 +1,4 @@
-import { BANK_FIXTURES, BANK_LOT, type Building, type Lot, type Tile } from "@muster-town/schema";
+import { BANK_FIXTURES, type Building, type Lot, type Tile } from "@muster-town/schema";
 import type { TreeLayout } from "./tree.ts";
 
 /**
@@ -36,18 +36,20 @@ export interface Roads {
  * enters a lot or a signpost and prefers straight segments (a turn costs TURN steps). treeLayout puts every doorstep on a
  * street, so those are empty. Deterministic.
  */
-export function deriveRoads(lots: { id: string; kind: Building["kind"]; lot: Lot }[], tree: Pick<TreeLayout, "plazas" | "edges">, w: number, h: number): Roads {
+export function deriveRoads(lots: { id: string; kind: Building["kind"]; lot: Lot }[], tree: Pick<TreeLayout, "plazas" | "edges" | "bank">, w: number, h: number): Roads {
   const road = new Uint8Array(w * h), blocked = new Uint8Array(w * h);
   const inside = (x: number, y: number) => x >= 0 && y >= 0 && x < w && y < h;
   const fill = (l: Lot, a: Uint8Array, v: number) => {
     for (let y = Math.max(0, l.y); y < Math.min(h, l.y + l.h); y++) for (let x = Math.max(0, l.x); x < Math.min(w, l.x + l.w); x++) a[y * w + x] = v;
   };
   for (const { lot } of lots) fill(lot, blocked, 1);
-  fill(BANK_LOT, blocked, 1);
+  fill(tree.bank, blocked, 1);
   for (const p of tree.plazas) {
     if (p.street) fill(p.street, road, 1);
     if (p.sign && inside(p.sign.x, p.sign.y)) blocked[p.sign.y * w + p.sign.x] = 1;
   }
+  // a fountain stands in its plaza: no road, and no route through it
+  for (const p of tree.plazas) if (p.fountain) { fill(p.fountain, road, 0); fill(p.fountain, blocked, 1); }
   for (const e of tree.edges.values()) for (const t of e) if (inside(t.x, t.y)) road[t.y * w + t.x] = 1;
   const routes = new Map<string, Tile[]>(), unreached: string[] = [];
   const go = (id: string, from: Tile, dir: number) => {
@@ -56,15 +58,16 @@ export function deriveRoads(lots: { id: string; kind: Building["kind"]; lot: Lot
     for (const t of r) road[t.y * w + t.x] = 1;
     routes.set(id, r);
   };
-  for (const b of lots) go(b.id, doorstepOf(b.lot, b.kind), facesNorth(b.kind) ? UP : DOWN);
-  go("bank", { x: BANK_LOT.x + BANK_FIXTURES.door.x, y: BANK_LOT.y - 1 }, UP);
+  // in id order, so the roads don't depend on the order the buildings arrive in
+  for (const b of [...lots].sort((x, y) => x.id.localeCompare(y.id))) go(b.id, doorstepOf(b.lot, b.kind), facesNorth(b.kind) ? UP : DOWN);
+  go("bank", { x: tree.bank.x + BANK_FIXTURES.door.x, y: tree.bank.y - 1 }, UP);
   const tiles: Tile[] = [];
   for (let i = 0; i < w * h; i++) if (road[i]) tiles.push({ x: i % w, y: Math.floor(i / w) });
   return { tiles, routes, unreached: unreached.sort() };
 }
 
 /** Cheapest walk from `from` (leaving in direction `dir`) to a target tile, over unblocked tiles; the target tile itself excluded. */
-function route(from: Tile, dir: number, w: number, h: number, road: Uint8Array, blocked: Uint8Array): Tile[] | null {
+export function route(from: Tile, dir: number, w: number, h: number, road: Uint8Array, blocked: Uint8Array): Tile[] | null {
   const inside = (x: number, y: number) => x >= 0 && y >= 0 && x < w && y < h;
   if (!inside(from.x, from.y) || blocked[from.y * w + from.x]) return null;
   if (road[from.y * w + from.x]) return [];

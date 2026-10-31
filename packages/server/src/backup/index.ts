@@ -4,7 +4,7 @@
  * API (WAL-safe), checks the copy, gzips and encrypts it (crypto.ts), PUTs it to the S3 bucket `fly storage create`
  * configured as `town/<YYYY-MM-DD>T<HH>.db.gz.enc`, then downloads it back and checks that it decrypts to the same,
  * intact database. Retention: the newest 48 hourly objects plus the newest object of each of the last 30 days, and the
- * last local copy. Its state is one row (migrations 039, 069) that `GET /api/health` shows read-only. Without the five env
+ * last local copy. Its state is one row (migrations 039, 072) that `GET /api/health` shows read-only. Without the five env
  * vars it is inert: `backup: null`.
  */
 import { integrityCheck, sealCopy, type DB } from "@muster-town/core";

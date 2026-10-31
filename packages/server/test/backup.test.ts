@@ -270,7 +270,7 @@ describe("the job", () => {
     db.close();
   });
 
-  it("migrations 039 and 069 give every database the state row", () => {
+  it("migrations 039 and 072 give every database the state row", () => {
     const db = new Database(":memory:");
     migrate(db);
     expect(db.prepare("SELECT id, lastAt, verifiedAt FROM backup_state").all()).toEqual([{ id: 1, lastAt: null, verifiedAt: null }]);

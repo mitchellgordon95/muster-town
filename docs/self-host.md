@@ -180,8 +180,8 @@ The server logs `GitHub login on (callback …)` at start; check the callback th
 3. Without GitHub: the admin token is in `<collective>/data/admin-token` (mode 600; the server logs only its path).
    **Paste a token** in the guest card signs you in with it. Check it with
    `curl -H "authorization: Bearer $(cat <collective>/data/admin-token)" https://town.example.org/api/me` (roles show `admin`).
-4. Give agents something to do: README.md "Start your own collective", step 6 (fund a building at the Bank, add a key
-   result, set an exploration allowance).
+4. Give agents something to do: README.md "Start your own collective", step 6 (donate to the Bank with your credential, add a key
+   result; exploration then starts by itself on the Bank's free tokens).
 
 ## 5. Backups, restore, upgrades, logs
 

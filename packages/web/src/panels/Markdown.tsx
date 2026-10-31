@@ -74,15 +74,15 @@ function inlineMedia(root: Element) {
 /**
  * The ids that open something (kr_utx7pmv1yk "No dead ids"): a doc (library), a grant or proposal (grant panel), a meeting
  * (meeting panel), an agent, a building, a key result (the goal tree at its goal, the key result highlighted) and an uploaded
- * picture or video (`mf_`: the file itself). Each is the prefix + 10 lowercase alphanumerics, as the server mints them.
- * as_ (assignments) and se_ (sessions) have no panel yet: step 2 of the grant adds them here.
+ * picture or video (`mf_`: the file itself), an assignment (its card) and a session (its panel). Each is the prefix + 10
+ * lowercase alphanumerics, as the server mints them.
  */
-const LINK_KINDS = ["dc", "gr", "mt", "ag", "bl", "kr", "mf"] as const;
+const LINK_KINDS = ["dc", "gr", "mt", "ag", "bl", "kr", "mf", "as", "se"] as const;
 const LINK_ID_RE = new RegExp(`\\b(?:${LINK_KINDS.join("|")})_[a-z0-9]{10}\\b`, "g");
 /** A doc id alone, for places that want docs only (the say-box preview by title). */
 const DOC_ID_RE = /\bdc_[a-z0-9]{10}\b/g;
 /** The id a link target names, bare or `doc:`-prefixed, with any path in front (media links are plain URLs and open as files). */
-const LINK_TARGET_RE = /^(?:doc:)?((?:dc|gr|mt|ag|bl|kr)_[a-z0-9]{10})$/;
+const LINK_TARGET_RE = /^(?:doc:)?((?:dc|gr|mt|ag|bl|kr|as|se)_[a-z0-9]{10})$/;
 
 export const isGrantId = (id: string) => id.startsWith("gr_");
 /** Ids with a shareable hash URL (`/#/doc/<id>`, `/#/grant/<id>`, `/#/meeting/<id>`, …): every linkable id but media, which is its own URL. */
@@ -116,17 +116,37 @@ function loadKrTexts(): Promise<void> {
   }, () => undefined);
   return krLoad;
 }
+/** Assignment titles by id, for labelling as_ links: the store's assignments first, else fetched (GET /api/assignments/:id) once per id a text cites. */
+const asTitles = new Map<string, string>();
+const asAsked = new Set<string>();
+const AS_ID_RE = /\bas_[a-z0-9]{10}\b/g;
+/** An assignment card that loaded tells the labels its title. */
+export function rememberAssignmentTitle(id: string, title: string) {
+  if (asTitles.get(id) === title) return;
+  asTitles.set(id, title);
+  for (const f of krListeners) f();
+}
+function loadAssignmentTitles(text: string) {
+  const want = [...new Set(text.match(AS_ID_RE) ?? [])].filter((id) => !asAsked.has(id) && !asTitles.has(id) && !store.state.assignments[id]);
+  for (const id of want) {
+    asAsked.add(id);
+    api().assignmentCard(id).then((a) => rememberAssignmentTitle(id, a.title), () => undefined);
+  }
+}
+
 /** Re-renders once the key result texts arrive when `text` cites one (and, for any text, as agents and buildings load), so its links get their names. */
 function useIdLabels(text: string): number {
   const [kr, setKr] = useState(0);
   const cites = text.includes("kr_");
+  const citesAs = text.includes("as_");
   useEffect(() => {
-    if (!cites) return;
+    if (!cites && !citesAs) return;
     const f = () => setKr((n) => n + 1);
     krListeners.add(f);
-    void loadKrTexts();
+    if (cites) void loadKrTexts();
+    if (citesAs) loadAssignmentTitles(text);
     return () => { krListeners.delete(f); };
-  }, [cites]);
+  }, [cites, citesAs, text]);
   const known = useTown((s) => s.buildings.length + Object.keys(s.agents).length + Object.keys(s.meetings).length);
   return kr * 100000 + known;
 }
@@ -141,20 +161,22 @@ export function idLabel(id: string): string | null {
     case "bl": return s.buildings.find((b) => b.id === id)?.name ?? null;
     case "mt": return s.meetings[id]?.title ?? null;
     case "kr": { const t = krTexts.get(id); return t ? clipLabel(t) : null; }
+    case "as": { const t = s.assignments[id]?.title ?? asTitles.get(id); return t ? clipLabel(t) : null; }
     default: return null;
   }
 }
 
 /** The tooltip of an id link: what it opens, and the id when the label is a name. */
 function idTitle(id: string, label: string | null): string | undefined {
-  const what: Record<string, string> = { gr: "grant", mt: "meeting", ag: "agent", bl: "building", kr: "key result", mf: "picture or video: opens the file" };
+  const what: Record<string, string> = { gr: "grant", mt: "meeting", ag: "agent", bl: "building", kr: "key result", mf: "picture or video: opens the file", as: "assignment", se: "session" };
   if (id.startsWith("dc_")) return store.state.docs[id]?.title;
   if (id.startsWith("kr_") && krTexts.get(id)) return `key result ${id}: ${krTexts.get(id)}`;
+  if (id.startsWith("as_") && label) return `assignment ${id}: ${store.state.assignments[id]?.title ?? asTitles.get(id)}`;
   return label ? `${what[id.slice(0, 2)]} ${id}` : what[id.slice(0, 2)];
 }
 
 /** The shareable URL of an id (`/#/doc/<id>`, `/#/grant/<id>`, `/#/meeting/<id>`, `/#/agent/<id>`, `/#/building/<id>`, `/#/kr/<id>`), or the media file. */
-const KIND_HASH: Record<string, string> = { dc: "doc", gr: "grant", mt: "meeting", ag: "agent", bl: "building", kr: "kr" };
+const KIND_HASH: Record<string, string> = { dc: "doc", gr: "grant", mt: "meeting", ag: "agent", bl: "building", kr: "kr", as: "assignment", se: "session" };
 const urlOf = (id: string) => id.startsWith("gr_") ? grantUrl(id) : id.startsWith("dc_") ? docUrl(id) : hasHash(id) ? `${location.origin}${location.pathname}#/${KIND_HASH[id.slice(0, 2)]}/${id}` : mediaUrl(id);
 const mediaUrl = (id: string) => `${API_BASE}/api/media/${id}`;
 
@@ -166,6 +188,8 @@ export function openIdLink(id: string) {
     case "ag_": return store.open({ kind: "agent", id });
     case "bl_": return store.open({ kind: "building", id });
     case "kr_": return store.open({ kind: "goals", id });
+    case "as_": return store.open({ kind: "assignment", id });
+    case "se_": return store.open({ kind: "session", id });
     case "mf_": { window.open(mediaUrl(id), "_blank", "noopener"); return; }
     default: void openDocLink(id);
   }
@@ -193,8 +217,7 @@ export function DocText({ text, newTab }: { text: string; newTab?: boolean }) {
   );
 }
 
-/** One id as a link (panels that show a single id: a fork's assignment, a schedule's lane). An as_ or se_ id stays plain text
- * until it is added to LINK_KINDS and openIdLink (grant gr_seh9d840jo step 2: an assignment card, a session panel). */
+/** One id as a link (panels that show a single id: a fork's assignment and session, a schedule's lane, an assignment card's fields). */
 export function IdLink({ id }: { id: string }) {
   return <DocText text={id} />;
 }
