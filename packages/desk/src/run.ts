@@ -11,7 +11,7 @@ import { mergeUsage, rawTokens, SPEND_LIMIT, townEnv, UsageMeter } from "@muster
 import type { DeskActivityInput, DeskBriefView, DeskSessionEndInput, DeskWorkspace } from "@muster-town/schema";
 import { blocksOf, InputChannel, noUsage, plusUsage, usageOf, type LooseMessage, type Options, type QueryHandle, type Sdk, type Usage } from "./sdk.ts";
 import { startMcpProxy, type McpProxy } from "./mcp-proxy.ts";
-import type { TownClient } from "./town.ts";
+import { TownError, type TownClient } from "./town.ts";
 import { setupWorkspace } from "./workspace.ts";
 import { startPerf } from "./perf.ts";
 import { startWipPusher } from "./wip.ts";
@@ -212,6 +212,13 @@ export async function runSession(sessionId: string, deps: RunDeps): Promise<numb
   };
 
   // ---- 8. control polling ----
+  const stop = async (why: string) => {
+    if (stopped) return;
+    stopped = true;
+    log(why);
+    input.close();
+    await q?.interrupt?.().catch(() => undefined);
+  };
   let polling: Promise<void> | null = null;
   const pollControl = (): Promise<void> => {
     if (polling) return polling;
@@ -230,14 +237,12 @@ export async function runSession(sessionId: string, deps: RunDeps): Promise<numb
             await q?.interrupt?.().catch(() => undefined);
           }
         }
-        if (c.stop && !stopped) {
-          stopped = true;
-          log("stop requested");
-          input.close();
-          await q?.interrupt?.().catch(() => undefined);
-        }
+        if (c.stop) await stop("stop requested");
       } catch (e) {
-        log(`control poll failed: ${errMsg(e)}`);
+        // 401/403: the town revoked this desk's token (it ended the session and retired the agent, e.g. "desk lost after
+        // restart"), so no answer will ever say stop: stop now instead of running on unseen (10-31: se_3hmusx6j1e ran 25 min)
+        if (e instanceof TownError && (e.status === 401 || e.status === 403)) await stop(`the town no longer accepts this desk's token (${e.status}): stopping`);
+        else log(`control poll failed: ${errMsg(e)}`);
       } finally {
         polling = null;
       }
