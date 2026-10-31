@@ -1,8 +1,8 @@
 /** `Api` implemented against the in-memory Sim. Same interface as HttpApi, so every panel works offline. */
-import type { AccessRequest, AccessRequestView, Agent, Assignment, AuthMe, BlockedAssignment, BlockedBy, BuildingStats, Schedule, Building, Doc, Event, Meeting, Membership, RedeployLive, ReviewDeck, ReviewSlide } from "@muster-town/schema";
+import type { AccessRequest, AccessRequestView, Agent, Assignment, AssignmentCard, AuthMe, BlockedAssignment, BlockedBy, BuildingStats, Schedule, Building, Doc, Event, Meeting, Membership, MapLayout, RedeployLive, ReviewDeck, ReviewSlide } from "@muster-town/schema";
 import { BuildingDefaults, NEW_LAB_LOT, REVIEW_DECK_ID, desksForLot, funderSlide, parseDeck } from "@muster-town/schema";
 import { BACKFILL, BOARD_TYPES, KPI_FRAMING, ZERO_TOKENS, addTokens, backfillFamily, splitRaw, type FreeTokens, type GoalTreeNode, type GoalSpend, type QueueBoard, type FunderWeek } from "@muster-town/schema";
-import type { Api, AgentDetail, AllocationRow, Bank, Budget, Finance, FinanceFly, FinanceSources, FinanceSpend, Cabinet, CabinetQuery, DocQuery, EventQuery, In, LayoutPreview, FunderWeekView, RoomLayout, RequestAction, Snapshot, Socket, SocketHandlers, ThreadMessage, WriteDocInput } from "../api";
+import type { Api, AgentDetail, AllocationRow, Bank, Budget, Finance, FinanceFly, FinanceSources, FinanceSpend, Cabinet, CabinetQuery, DocQuery, EventQuery, In, LayoutPreview, FunderWeekView, RoomLayout, RequestAction, SessionDetail, Snapshot, Socket, SocketHandlers, ThreadMessage, WriteDocInput } from "../api";
 import { ApiError } from "../api";
 import type { BankStreams, PinSkillInput, PutSecretInput, SecretView, SkillPinView, SkillView } from "@muster-town/schema";
 import type { CreateBuildingInput, UpdateBuildingInput, RegisterVisitorInput, ReviewInput, WorkInput, DonateInput, CreateMeetingInput, DocState, AddBankInput, BankInput, DecideGrantInput, CloseGrantInput, CreateKeyResultInput, UpdateKeyResultInput, CreateObjectiveInput, UpdateObjectiveInput } from "@muster-town/schema";
@@ -269,6 +269,23 @@ export class MockApi implements Api {
     const since = d.currentSession?.startedAt ?? new Date(Date.now() - 90 * 60_000).toISOString();
     return { session: d.currentSession, transcript: clone(this.sim.events.filter((e) => e.agentId === id && e.ts >= since)) };
   }
+  async assignmentCard(id: string): Promise<AssignmentCard> {
+    await wait(60);
+    const a = this.need(this.sim.assignments.get(id), "assignment");
+    const agent = this.sim.agents.get(a.agentId);
+    const live = agent?.status === "working" && agent.currentAssignmentId === a.id;
+    return {
+      id: a.id, title: a.title, description: a.description, status: a.status, lane: a.lane, grantId: a.grantId, keyResultId: a.keyResultId, gap: a.gap, sourceId: a.sourceId,
+      agentId: a.agentId, agentName: agent?.name ?? null, buildingId: a.buildingId, buildingName: this.sim.buildings.find((b) => b.id === a.buildingId)?.name ?? null,
+      reportId: a.reportId, fromReportId: a.fromReportId, fromMeetingId: a.fromMeetingId, fromAssignmentId: a.fromAssignmentId, chainId: a.chainId,
+      heldReason: a.heldReason, createdAt: a.createdAt, updatedAt: a.updatedAt,
+      sessions: live ? [{ id: `se_${a.agentId}`, status: "running", startedAt: new Date(Date.now() - 15 * 60_000).toISOString(), endedAt: null, adjustedOutputTokens: 0, turns: 12, reportId: null }] : [],
+    };
+  }
+  async sessionById(id: string): Promise<SessionDetail> {
+    const d = await this.agent(this.need(id.startsWith("se_") ? id.slice(3) : undefined, "session"));
+    return { session: this.need(d.currentSession ?? undefined, "session"), transcript: null };
+  }
   async work(id: string, i: In<typeof WorkInput>) { await wait(); return clone(this.sim.startWork(id, i.title, i.description)); }
   async interrupt(id: string, text: string, now = false) {
     await wait();
@@ -332,6 +349,12 @@ export class MockApi implements Api {
     const n = this.sim.newAssignment(agent.id, { title: a.title, description: a.description, fromReportId: a.fromReportId, fromAssignmentId: a.id, front });
     window.setTimeout(() => this.sim.runNext(agent.id), 1200);
     return clone({ assignment: n, agent });
+  }
+
+  async setMapLayout(layout: MapLayout) {
+    await wait();
+    this.sim.town.mapLayout = layout;
+    return clone({ mapLayout: layout });
   }
 
   async setTownDefaults(patch: Partial<BuildingDefaults>) {
@@ -624,7 +647,7 @@ export class MockApi implements Api {
   async financeSpend(): Promise<FinanceSpend> {
     const { used } = await this.finance();
     const rows: FinanceSpend["rows"] = used ? [{ kind: "unattributed", id: null, name: "Unattributed (usage no session counts)", tokens: used, share: 1, sessions: 0 }] : [];
-    return { used, sessionsTotal: 0, unattributed: used, weightMismatch: 0, weightMismatchNote: "The toy Bank was born adjusted: no pre-conversion sessions.", convertedAt: null, notFunded: 0, rows, check: { ok: true, diff: 0, identity: "buildings + unattributed − weight mismatch − not funded = used" }, at: now() };
+    return { used, sessionsTotal: 0, unattributed: used, weightMismatch: 0, weightMismatchNote: "The toy Bank was born adjusted: no pre-conversion sessions.", convertedAt: null, notFunded: 0, notFundedSplit: [], notFundedLastAt: null, notFundedAllocationPaid: 0, notFundedSplitCheck: { sum: 0, notFunded: 0, ok: true }, rows, check: { ok: true, diff: 0, identity: "buildings + unattributed − weight mismatch − not funded = used" }, at: now() };
   }
   // the toy's sources, counted like its finance(): each live input credited once at creation, each donation at its size
   async financeSources(): Promise<FinanceSources> {
@@ -750,6 +773,8 @@ export class MockApi implements Api {
         b = { kind: "decision", targetId: w.decision, placeId: `intray:${d?.buildingId ?? a.buildingId}`, text: `waits for a decision on "${d?.title ?? w.decision}"` };
       } else if ("deploy" in w) {
         b = { kind: "deploy", targetId: w.deploy, placeId: `door:${a.buildingId}`, text: w.deploy === "next" ? "waits for the next redeploy" : `waits for deploy ${w.deploy.slice(0, 7)} (live is mock)` };
+      } else if ("pr" in w) {
+        b = { kind: "pr", targetId: String(w.pr), placeId: `door:${a.buildingId}`, text: `waiting on PR #${w.pr} checks: ${Math.round((Date.now() - Date.parse(a.createdAt)) / 60_000)} min so far (mock)` };
       } else continue; // a time: parked work resumes by itself, not blocked
       (out[a.agentId] ??= []).push({ assignmentId: a.id, title: a.title, blockedBy: b });
     }

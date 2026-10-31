@@ -69,7 +69,7 @@ export class WorldMap {
       occupancy.get(r.buildingId)!.set(r.n, r.agentId);
     }
     const names = new Map(this.repos.agents.all().map((a) => [a.id, a.name]));
-    return computeLayout(buildings, this.repos.goals.where("status = 'active'"), occupancy, names);
+    return computeLayout(buildings, this.repos.goals.where("status = 'active'"), occupancy, names, this.repos.town.get().mapLayout);
   }
 
   /** The building's movable pieces, each with its default and current anchor (lot-relative). */

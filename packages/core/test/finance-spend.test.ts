@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { countersSince, createBuilding, createResident, financeSpend, grantTitle, ledgerBookedBeforeConversion, NO_ASSIGNMENT, NO_BUILDING, NO_GRANT, UNATTRIBUTED, WEIGHT_MISMATCH, type SpendInputs, type SpendNode } from "../src/index.ts";
+import { countersSince, createBuilding, createResident, financeSpend, grantTitle, ledgerBookedBeforeConversion, NO_ASSIGNMENT, notFundedUsage, NO_BUILDING, NO_GRANT, UNATTRIBUTED, WEIGHT_MISMATCH, type SpendInputs, type SpendNode } from "../src/index.ts";
 import { seededWorld } from "./helpers.ts";
 
 const T0 = new Date("2026-10-28T12:00:00.000Z");
@@ -117,6 +117,44 @@ describe("financeSpend (GET /api/finance/spend)", () => {
     const h = financeSpend({ ...inp, convertedAt: null }, 4_900, T0);
     expect(h).toMatchObject({ weightMismatch: 0, notFunded: 700, check: { ok: true, diff: 0 } });
     expect(h.rows.map((r) => r.kind)).toEqual(["building", "not-funded"]);
+  });
+
+  it("splits 'not funded' by building from usage rows with no debit for the same agent within 2 s (dc_cvp89lj91o)", () => {
+    const at = (iso: string, ms = 0) => new Date(Date.parse(iso) + ms).toISOString();
+    const D0 = "2026-10-29T10:00:00.000Z";
+    const u = (agentId: string, buildingId: string | null, tokens: number, createdAt: string) => ({ agentId, buildingId, tokens, createdAt });
+    const usage = [
+      u("ag_asha", "bank", 999, at(D0, -60_000)), // before the first debit: ignored
+      u("ag_asha", "bank", 300, at(D0, 10_000)), // debit 0.35 s later: paid
+      u("ag_asha", "bank", 100, at(D0, 20_000)), // nearest debit 5 s away: unpaid
+      u("ag_asha", "bank", 50, at(D0, 30_000)), // only another agent's debit at the same time: unpaid
+      u("ag_lab", "lab", 70, at(D0, 40_000)), // no debit at all: unpaid
+      u("ag_lab", "lab", 30, "2026-10-30T23:59:00.000Z"), // the last unpaid row
+      u("ag_librarian", null, 0, at(D0, 50_000)), // no building: the unattributed row
+    ];
+    const debits = [
+      { agentId: "ag_asha", createdAt: D0 },
+      { agentId: "ag_asha", createdAt: at(D0, 10_350) },
+      { agentId: "ag_asha", createdAt: at(D0, 25_000) },
+      { agentId: "ag_nell", createdAt: at(D0, 30_000) },
+    ];
+    // a donation to Lab spent 60: it may have paid that much of Lab's 100 unpaid
+    const allocations = [{ buildingId: "lab", spentTokens: 60 }, { buildingId: "elsewhere", spentTokens: 500 }];
+    // sessions 1,150 vs used 900: notFunded 250, and the split sums to it
+    const f = financeSpend({ ...base, usage, debits, allocations }, 900, T0);
+    expect(f).toMatchObject({ notFunded: 250, check: { ok: true, diff: 0 }, notFundedLastAt: "2026-10-30T23:59:00.000Z", notFundedAllocationPaid: 60, notFundedSplitCheck: { sum: 250, notFunded: 250, ok: true } });
+    expect(f.notFundedSplit).toEqual([
+      { buildingId: "bank", buildingName: "Bank Transparency", usageRows: 2, tokens: 150 },
+      { buildingId: "lab", buildingName: "Lab", usageRows: 2, tokens: 100 },
+      { buildingId: null, buildingName: "unattributed", usageRows: 1, tokens: 0 },
+    ]);
+    // the ledger number stays exact and untouched: a split that differs is shown, not fudged
+    const g = financeSpend({ ...base, usage, debits, allocations }, 1_000, T0);
+    expect(g).toMatchObject({ notFunded: 150, check: { ok: true, diff: 0 }, notFundedSplitCheck: { sum: 250, notFunded: 150, ok: false } });
+    // a donation larger than the building's unpaid usage covers at most that usage
+    expect(notFundedUsage({ usage, debits, allocations: [{ buildingId: "lab", spentTokens: 1_000 }], buildings: base.buildings }).allocationPaid).toBe(100);
+    // no ledgers: an empty split that matches a zero notFunded
+    expect(financeSpend(base, 1_500, T0)).toMatchObject({ notFundedSplit: [], notFundedLastAt: null, notFundedAllocationPaid: 0, notFundedSplitCheck: { sum: 0, notFunded: 0, ok: true } });
   });
 
   it("names a grant row by its objective's first clause, at most 60 characters, and carries the full objective", () => {

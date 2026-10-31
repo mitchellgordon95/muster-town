@@ -53,6 +53,31 @@ describe("assignments that wait (P1)", () => {
     await expect(world.verbs.assign(admin, { agentId: mei.id, title: "x", description: "d", waitFor: { deploy: "not a sha" } as never })).rejects.toMatchObject({ code: "bad_request" });
   });
 
+  it("pr waits (forks park on CI, mt_3jtclcoxl2): hold while the checks run, release when they pass or fail; none without a runtime; the parked submit_report takes {pr}", async () => {
+    const { world, by, admin } = seededWorld();
+    const mei = by("Mei"), noor = by("Noor");
+    const ci = world.ops.createWork(admin, mei.id, { title: "Merge #179", waitFor: { pr: 179 } });
+    expect(world.assignments.require(ci.id).waitFor).toEqual({ pr: 179 });
+    expect(checkWaits(world).unblocked).toEqual([]); // no runtime reading GitHub: never holds
+    let state: "pending" | "passed" | "failed" = "pending";
+    world.host.prChecks = (n) => n === 179 ? { state, sha: "449b6e5", done: state === "pending" ? 1 : 2, total: 2, ...(state === "failed" ? { failed: ["check"] } : {}), checkedAt: new Date().toISOString() } : undefined;
+    expect(checkWaits(world).unblocked).toEqual([]);
+    expect(blockedBy(world, world.assignments.require(ci.id))).toMatchObject({ kind: "pr", targetId: "179", text: "waiting on PR #179 checks: 0 min so far (1 of 2 done)" });
+    expect(blockedBy(world, world.assignments.require(ci.id), new Date(Date.now() + 6 * 60_000))?.text).toMatch(/^waiting on PR #179 checks: 6 min so far/);
+    state = "failed";
+    expect(checkWaits(world).unblocked.map((a) => a.id)).toEqual([ci.id]);
+    expect(world.events.recent({ limit: 5 }).some((e) => e.text === `Mei's "Merge #179" unblocked: PR #179's checks to finish (failed: check) happened`)).toBe(true);
+
+    // a fork parks its own work on its PR's checks
+    const work = world.ops.createWork(admin, noor.id, { title: "Ship it" });
+    world.ops.startSession(noor.id, { purpose: "work", model: "m", assignmentId: work.id });
+    await world.verbs.submit_report(noor, { title: "Pushed, parked on CI", body: REPORT, verdict: "continue", resumeWhen: { pr: 180 }, next: "Merge #180 or fix it" });
+    const cont = world.assignments.first("fromAssignmentId = ? AND parked IS NOT NULL", [work.id])!;
+    expect(cont.waitFor).toEqual({ pr: 180 });
+    expect(blockedBy(world, cont)?.text).toBe("waiting on PR #180 checks: 0 min so far (not read from GitHub yet)");
+    await expect(world.verbs.assign(admin, { agentId: mei.id, title: "x", description: "d", waitFor: { pr: 0 } as never })).rejects.toMatchObject({ code: "bad_request" });
+  });
+
   it("a wait unmet after 24 h is cancelled into the in-tray; Continue there queues it again without the wait", async () => {
     const { world, by, admin } = seededWorld();
     const mei = by("Mei");
