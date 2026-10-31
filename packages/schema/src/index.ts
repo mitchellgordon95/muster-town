@@ -54,8 +54,9 @@ export const TownDefaultsPatch = BuildingDefaults.partial().refine((p) => Object
 export type TownDefaultsPatch = z.infer<typeof TownDefaultsPatch>;
 
 /**
- * The shape the map draws the goal tree in (core world/tree.ts; 1:1 mt_q10xf3bkoq): first-level goals as fountain plazas
- * with streets below, the plain packed tree, or spokes round the Town Hall. Town-wide: admins and goal captains pick it
+ * The shape the map draws the goal tree in (core world/tree.ts; 1:1 mt_q10xf3bkoq): "fountain" is a planned town (a square
+ * with the Town Hall and a fountain, a main street, each first-level goal a district on its own cross street; 1:1
+ * mt_3ldf9p5av1), "tree" the plain packed tree, "radial" spokes round the Town Hall. Town-wide: admins and goal captains pick it
  * on the town map; a new collective starts with "fountain".
  */
 export const MapLayout = z.enum(["fountain", "tree", "radial"]);
@@ -1884,8 +1885,10 @@ export const TILE = {
   SIGNPOST: 26,
   /** the Town Hall goal tree: a wall chart on its back wall (place `goal-tree`: opens the goal editor) */
   GOAL_CHART: 27,
-  /** the fountain in the middle of a first-level goal's plaza (map shape "fountain"; not walkable) */
+  /** the fountain in the middle of the town square (map shape "fountain"; a block of tiles, not walkable) */
   FOUNTAIN: 28,
+  /** the town square's paving (walkable), and the town's decor on it and on the grass (not walkable) */
+  PAVING: 29, TREE: 30, LAMP: 31, FLOWERS: 32,
 } as const;
 /**
  * The Bank: a fixed landmark (not a building row, so it never takes a budget share) at the west end of the main street,
@@ -1928,7 +1931,7 @@ export function bankPlaces(x0: number, y0: number): Place[] {
     { id: "bank-map", kind: "bank-map", name: "Bank town map", buildingId: null, pos: { x: x0 + F.mapStand.x, y: y0 + F.mapStand.y } },
   ];
 }
-export const WALKABLE = new Set<number>([TILE.GRASS, TILE.PATH, TILE.FLOOR, TILE.DOOR]);
+export const WALKABLE = new Set<number>([TILE.GRASS, TILE.PATH, TILE.FLOOR, TILE.DOOR, TILE.PAVING]);
 
 // ---------- REST payloads ----------
 /**

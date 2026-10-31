@@ -24,7 +24,7 @@ describe("furniture", () => {
   });
 
   it("a human manager moves the board; the place, the grid and the body standing there follow", () => {
-    const { world, admin, by } = seededWorld();
+    const { world, admin, by } = seededWorld("tree");
     const lot = world.buildings.require("carbon-cycle").lot!;
     const oldBoard = world.layout.requirePlace("board:carbon-cycle").pos;
     const ravi = by("Ravi");
@@ -45,7 +45,7 @@ describe("furniture", () => {
   });
 
   it("a resident at their desk moves with it; the Town Hall is editable too", () => {
-    const { world, admin, by } = seededWorld();
+    const { world, admin, by } = seededWorld("tree");
     const ravi = by("Ravi");
     const desk = world.layout.deskOf(ravi.id)!;
     const slot = world.layout.deskSlots("carbon-cycle").find((s) => s.agentId === ravi.id)!;
@@ -64,7 +64,7 @@ describe("furniture", () => {
   });
 
   it("only humans with building.manage may edit; illegal rooms are refused and dry runs save nothing", () => {
-    const { world, admin, by } = seededWorld();
+    const { world, admin, by } = seededWorld("tree");
     const moss = by("Moss");
     expect(() => world.ops.updateFurniture(moss, "carbon-cycle", { plant: { x: 2, y: 4 } })).toThrow(/Only humans/);
     const nobody = world.ops.ensureAvatar(world.ops.createUser("Nobody").user.id);
@@ -79,7 +79,7 @@ describe("furniture", () => {
   });
 
   it("a stored spot that becomes illegal falls back to the default; legal ones survive a bigger lot", () => {
-    const { world, admin, seed } = seededWorld();
+    const { world, admin, seed } = seededWorld("tree");
     const b = createBuilding(world, { name: "Small", headcount: 1 }, seed.admin.id);
     const back = b.lot!.h - 1;
     world.ops.updateFurniture(admin, b.id, { plant: { x: 3, y: 3 }, board: { x: 1, y: back } });
