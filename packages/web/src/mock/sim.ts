@@ -476,36 +476,15 @@ export class Sim {
     return d;
   }
 
-  /**
-   * Reports as replies: the reply is appended as a dated section, the author gets a mention and a `Reply on: …`
-   * assignment (merge replies prefixed with the merge instruction). Empty text = archive.
-   */
-  reply(docId: string, raw: string): { doc: Doc; assignment: Assignment | null } {
+  /** Archive a report (1:1 mt_cz11aqe81a: its only other action is Talk to the author): acknowledged, no assignment. */
+  archive(docId: string): { doc: Doc; assignment: Assignment | null } {
     const d = this.docs.get(docId)!;
-    const text = raw.trim();
-    if (!text && d.decision && d.decision !== "pending") return { doc: d, assignment: null };
-    const t = new Date();
-    const p2 = (n: number) => String(n).padStart(2, "0");
-    const stamp = `${t.getFullYear()}-${p2(t.getMonth() + 1)}-${p2(t.getDate())} ${p2(t.getHours())}:${p2(t.getMinutes())}`;
-    Object.assign(d, {
-      body: text ? `${d.body.replace(/\s+$/, "")}\n\n## Reply from Mitchell (${stamp})\n\n${text}\n` : d.body,
-      decision: "approve", decisionNote: text || undefined, decidedBy: "us_mitchell", decidedAt: now(),
-    });
+    if (d.decision && d.decision !== "pending") return { doc: d, assignment: null };
+    Object.assign(d, { decision: "approve", decidedBy: "us_mitchell", decidedAt: now() });
     this.putDoc(d);
-    const a = this.agents.get(d.authorId);
-    this.event("doc.decision", d.authorId, text ? `Mitchell replied to "${d.title}": ${text.slice(0, 80)}` : `Archived: "${d.title}"`, { docId, decision: "approve", reply: !!text }, d.buildingId);
+    this.event("doc.decision", d.authorId, `Archived: "${d.title}"`, { docId, decision: "approve" }, d.buildingId);
     this.emitBuilding(d.buildingId);
-    if (!text || !a) return { doc: d, assignment: null };
-    this.event("agent.mentioned", a.id, `Mitchell replied to your report "${d.title}": ${text.slice(0, 200)}`, { docId }, d.buildingId);
-    if (a.status === "retired" || a.status === "banned") return { doc: d, assignment: null };
-    const merge = /^merge\b/i.test(text) ? "Merge your pull request for this report (gh pr ready <n> && gh pr merge <n> --squash --delete-branch), confirm the merge, and report back with \"Nothing needed\" unless something failed.\n\n" : "";
-    const asg = this.newAssignment(a.id, {
-      title: `Reply on: ${d.title}`.slice(0, 120), fromReportId: d.id,
-      description: `${merge}Mitchell's reply: ${text}\n\nThe report: ${d.title} (doc ${d.id}). Read it with \`read\`, do what the reply asks, and finish with a report whose last section says what you need next or "Nothing needed".`,
-    });
-    if (a.status === "stopped") this.patchAgent(a.id, { status: "idle" });
-    window.setTimeout(() => this.runNext(a.id), 2500);
-    return { doc: d, assignment: asg };
+    return { doc: d, assignment: null };
   }
 
   /** POST /api/agents/:id/ban (town.ban). */
