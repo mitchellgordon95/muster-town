@@ -384,8 +384,8 @@ export function GrantRow({ grant: g, onDecided, onOpenDoc, deckSlide, meetingId,
       ) : <><div className="muted">Closed as done: a human with building.fund marks its key result met or missed.</div>{footer}</>) : g.status === "funded" && canFund ? (<>
         <div className="muted">{grantSettledLine(g)}</div>
         <div className="grant-decide">
-          <div className="grant-inputs"><Field label="Note"><input value={note} placeholder="the evidence the work is done" onChange={(e) => setNote(e.target.value)} /></Field></div>
-          <div className="actions decide-footer"><Act small disabled={!note.trim()} run={close} title="Close it as done now; the unspent tokens return to the Bank">Close grant</Act>{talk}</div>
+          <div className="grant-inputs"><Field label="Note"><input value={note} placeholder="optional: the evidence the work is done" onChange={(e) => setNote(e.target.value)} /></Field></div>
+          <div className="actions decide-footer"><Act small run={close} title="Close it as done now; the unspent tokens return to the Bank">Close grant</Act>{talk}</div>
         </div>
       </>) : g.status === "countered" ? (
         <><div className="muted">Countered: waiting for {manager ? `★ ${manager.name}` : "the manager"} to revise and propose again.</div>{footer}</>

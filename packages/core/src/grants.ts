@@ -477,7 +477,9 @@ ${open.map((g) => `The open proposal ${g.id} ("${g.objective}")`).join("; ")} na
     if (actor && !this.world.permissions.can(actor, "building.manage", g.buildingId) && !this.canFund(actor, g)) throw forbidden("building.manage");
     if (TERMINAL.includes(g.status)) throw new AppError("conflict", `This grant is already ${g.status}.`);
     this.requireStatus(g, LIVE, "closed as done");
-    const note = (input.note ?? "").trim();
+    // a human may leave the note blank (Mitchell, 1:1 mt_kdsxeqo6ot): the key result's claimed note still names who closed it
+    const human = actor?.kind === "human";
+    const note = (input.note ?? "").trim() || (human ? `Closed as done by ${this.world.nameOf(actor.id)} from the Town Hall.` : "");
     if (!note) throw badRequest("Give the evidence that the work is done (note).");
     if (input.reportId) {
       const d = this.world.docs.get(input.reportId);
@@ -492,7 +494,7 @@ ${open.map((g) => `The open proposal ${g.id} ("${g.objective}")`).join("; ")} na
         `${note} (spent ${fmt(spentTokens)} of ${fmt(grantTokens)}; ${returned})`);
       if (g.keyResultId) this.updateKeyResult(actor, g.keyResultId, { status: "claimed", note });
       this.event("grant.closed", next, actor, `Closed (done): ${next.objective}; ${returned}`, { outcome: "done", spentTokens, grantTokens, unspentTokens });
-      this.notifyFunders(next, actor, `The manager closed the grant "${next.objective}" as done: ${note} It spent ${fmt(spentTokens)} of ${fmt(grantTokens)} tokens and ${returned}. Mark its key result met or missed in the Town Hall in-tray.`);
+      this.notifyFunders(next, actor, `${human ? this.world.nameOf(actor.id) : "The manager"} closed the grant "${next.objective}" as done: ${note} It spent ${fmt(spentTokens)} of ${fmt(grantTokens)} tokens and ${returned}. Mark its key result met or missed in the Town Hall in-tray.`);
       return this.view(next);
     });
   }
