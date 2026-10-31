@@ -5,13 +5,15 @@ import type { World } from "../world.ts";
 import type { VerbIn } from "./types.ts";
 
 /**
- * `propose_grant` (the manager): create the draft and propose it in one call; it lands in the Town Hall in-tray. A
+ * `propose_grant` (the manager, or a fork of it on the manager's behalf): create the draft and propose it in one call; it lands in the Town Hall in-tray. A
  * building can have several proposals open at once (1:1 mt_akz25kqo2q). With `grantId` the call answers a counter: it
  * rewrites that countered proposal with the given plan and re-proposes it under the same id (work queued on it stays
  * attached). Without one it is a new proposal. It is filed against a goal and carries its own key results
  * (docs/how-work-gets-done.md §4).
  */
-export async function propose_grant(world: World, me: Agent, input: VerbIn<"propose_grant">) {
+export async function propose_grant(world: World, caller: Agent, input: VerbIn<"propose_grant">) {
+  // a fork of the manager (an explorer, docs/how-work-gets-done.md §3) proposes for its building as its manager
+  const me = world.permissions.managerOfFork(caller) ?? caller;
   const bid = homeOf(me);
   if (!bid) throw badRequest("You have no building to propose a grant for.");
   const { note, grantId, ...fields } = input;
@@ -29,6 +31,10 @@ export async function propose_grant(world: World, me: Agent, input: VerbIn<"prop
     const draft = world.grantDesk.create(me, bid, fields);
     return world.grantDesk.propose(me, draft.id, note);
   });
+  const asg = caller.currentAssignmentId ? world.assignments.get(caller.currentAssignmentId) : undefined;
+  if (asg?.reservationId) {
+    world.events.append({ type: "exploration.proposed", agentId: caller.id, buildingId: bid, text: `${caller.name}'s exploration ended in a proposal: ${g.objective.slice(0, 120)}`, payload: { reservationId: asg.reservationId, assignmentId: asg.id, grantId: g.id, keyResultId: g.keyResultId, askTokens: g.askTokens } });
+  }
   const others = world.grants.count("buildingId = ? AND id != ? AND status IN ('proposed', 'countered')", [bid, g.id]);
   return {
     grantId: g.id, status: g.status, goalId: g.goalId, keyResults: g.keyResults.map((k) => ({ id: k.id, text: k.text, due: k.due })),

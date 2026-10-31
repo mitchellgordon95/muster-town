@@ -143,14 +143,15 @@ describe("manager team-lead session", () => {
     await world.verbs.submit_report(by("Noor").id, report("Growth rate"));
     await runtime.whenIdle();
     expect(sdk.sessions).toHaveLength(0);
-    // out of budget: still nothing
+    // the building is out of budget: still nothing
     world.setStatus(mei.id, "idle");
-    world.agents.patch(mei.id, { spentTokensToday: env.lab.dailyTokensPerAgent });
+    const allocs = world.allocations.where("buildingId = ?", [env.lab.id]);
+    for (const a of allocs) world.allocations.upsert({ ...a, spentTokens: a.tokens });
     expect(world.budget.canStart(mei.id)).toBe(false);
     await runtime.tickOnce();
     await runtime.whenIdle();
     expect(sdk.sessions).toHaveLength(0);
-    world.agents.patch(mei.id, { spentTokensToday: 0 });
+    for (const a of allocs) world.allocations.upsert(a);
     world.setStatus(mei.id, "idle");
     await runtime.tickOnce();
     await runtime.whenIdle();

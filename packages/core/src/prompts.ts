@@ -11,6 +11,7 @@ import { townBoardDocs } from "./verbs/docs.ts";
 import { TOWN_HALL_ID } from "./world/layout.ts";
 import { docGist, NEED, oneLine, relativeTime, sectionOf, trunc } from "./text.ts";
 import type { World } from "./world.ts";
+import { EXPLORE_CEILING_SHARE } from "./explore.ts";
 
 export { docGist, relativeTime, sectionOf } from "./text.ts";
 
@@ -172,12 +173,34 @@ export function keyResultsBlock(world: World, building: Building, assignment?: A
   const lane = !assignment ? "" : assignment.lane === "grant"
     ? `This session: grant ${assignment.grantId}${assignment.keyResultId ? ` (first key result ${krText(assignment.keyResultId)})` : " (the checkpoint)"}.`
     : assignment.lane === "exploration"
-      ? `This session: exploration on gap: ${oneLine(assignment.gap ?? "", 300)}. Its report is a findings note for the manager's next proposal.`
+      ? assignment.reservationId ? explorerBrief(world, building, assignment) : `This session: exploration on gap: ${oneLine(assignment.gap ?? "", 300)}. Its report is a findings note for the manager's next proposal.`
       : `This session: directed (a human asked for it${assignment.sourceId ? `: ${assignment.sourceId}` : " directly"})${assignment.gap ? `, on gap: ${oneLine(assignment.gap, 300)}` : ""}.`;
   return `Goals and grants (this building is goal-directed: every session runs in a lane, grant, exploration or directed):
 ${attached}
 ${lines.join("\n")}${ideas.length ? `\nIdeas left from the old goal key results (dropped when key results merged into grants; a grant proposal can take one up): ${ideas.map((k) => `"${oneLine(k.text, 120)}"`).join("; ")}` : ""}
 Exploration today: ${tok(board.exploration.spentTodayTokens)} tokens (no allowance: held only when no tokens are free under the goal${board.exploration.cap ? ` or the cap of ${tok(board.exploration.cap.tokensPerDay)} / day set on goal ${board.exploration.cap.goalId} is reached, ${tok(board.exploration.cap.spentTodayTokens)} used` : ""}). Free tokens under the goal: ${tok(board.exploration.freeTokens)}. Directed today: ${tok(board.directed.spentTodayTokens)} tokens (a human asked; never held for money).${lane ? `\n${lane}` : ""}`;
+}
+
+/**
+ * The explorer's brief (docs/how-work-gets-done.md §3): a session the runtime's explore tick queued on a reserved chunk.
+ * Around the goal block above it adds the building's last 3 rollups, the open proposals under its goal, and a digest of
+ * the building's recent events; then the one instruction: pick one direction, end with one grant proposal or a note why not.
+ */
+export function explorerBrief(world: World, building: Building, assignment: Assignment): string {
+  const r = assignment.reservationId ? world.bankReservations.get(assignment.reservationId) : undefined;
+  const at = world.goalTree.attachmentOf(building);
+  const under = world.goalTree.subtreeIds(at);
+  const rollups = world.docs.where("type = 'report' AND buildingId = ? AND tags LIKE '%\"rollup\"%'", [building.id], "ORDER BY createdAt DESC, rowid DESC LIMIT 3");
+  const open = world.grants.where("status IN ('proposed', 'countered')", [], "ORDER BY createdAt DESC").filter((g) => { const b = world.buildings.get(g.buildingId); return under.has(g.goalId ?? (b ? world.goalTree.attachmentOf(b) : "")); });
+  const day = new Date(Date.now() - 24 * 3600_000).toISOString();
+  const recent = world.events.list({ buildingId: building.id, from: day, types: ["doc.decision", "assignment.status", "exploration.proposed", "exploration.closed"], desc: true, limit: 12 });
+  return [
+    `This session: exploration. The town's explore tick reserved ${tok(r?.tokens ?? 0)} tokens (${assignment.reservationId}) under goal ${at} because a desk here was idle and tokens were free. Your sessions draw on that chunk; you are asked to wrap up at ${Math.round(EXPLORE_CEILING_SHARE * 100)}% of it, and what you don't spend returns.`,
+    `Pick ONE direction under the goal (the goal, its grants and their key results above, and the ideas left from the old goal key results; don't duplicate an open proposal), investigate it this session (the live town, the code, the web), and end with ONE grant proposal: \`propose_grant\` with goalId (this goal or one under it), keyResults (1-5, each text, howToCheck and a due date: what a human checks in the live town to call the work done), objective, approach, stopCondition and askTokens; your findings doc in findingsDocIds. It goes straight to the Town Hall in-tray and credits ${building.name}. If nothing is worth a grant, propose nothing and say why in a short report. Then \`submit_report\` (verdict stop).`,
+    rollups.length ? `The building's last rollups: ${rollups.map((d) => `${d.id} "${oneLine(d.title, 100)}" (${d.createdAt.slice(0, 10)})`).join("; ")}. \`read\` them for what shipped and what Mitchell asked.` : "The building has no rollup yet.",
+    open.length ? `Open proposals under this goal: ${open.map((g) => `${g.id} "${oneLine(g.objective, 100)}" (${g.status}, asks ${tok(g.askTokens)})`).join("; ")}.` : "No proposal is open under this goal.",
+    recent.length ? `The building's last day: ${recent.map((e) => `${e.ts.slice(11, 16)}Z ${oneLine(e.text, 120)}`).join(" · ")}` : "",
+  ].filter(Boolean).join("\n");
 }
 
 /** Goal-directed buildings: how the manager works with grants and their key results (`assign` lanes, `propose_grant`, `checkpoint_grant`). */
@@ -187,7 +210,7 @@ export function managerGrantsBlock(world: World, building: Building): string {
   return `## Grants (this building is goal-directed)
 The town has one goal tree (docs/goals.md): your building is attached to one goal, and your subtree is that goal and every goal under it. Admins and a goal's owner edit the tree; you propose changes with \`propose_goal\` (add, edit, move or retire a goal), and a human accepts or cuts each. Your building's objectives are goals of the tree with the same ids (\`set_objective\`). Key results belong to grants (docs/how-work-gets-done.md §4): a grant is filed against a goal in your subtree and carries its own 1-5 key results, each something a human can check in the live town by a date. \`propose_grant\` with goalId (default your building's goal), keyResults (text, howToCheck, due), an objective, the approach, a stop condition and a token ask. Funding it runs the plan; only a human marks a key result met or missed, on the grant.
 Every \`assign\` names its lane: "grant" with the grantId of a funded grant (its key results are implied), or "exploration" with a gap (one sentence on what is missing between the goal and the live town). Work that traces to a human ask is "directed": give lane "directed" with sourceId = the human-authored source it comes from (a meeting with a human or its notes, a flag, a human-report, a human's tell); \`review\` continue/redirect and meeting decisions take the same lane fields. Directed work is never held for money (it is metered on its own: "Directed today"); a gap says what it is for. Without a human source you can't create directed work: unguided exploration runs on the free tokens under your goal (the Bank's balance and earmarks less funded grants' remaining, open proposals' asks and reservations), with no daily allowance; a human may set an exploration cap on a goal. Assignments whose grant is at checkpoint, or exploration with no free tokens or past its goal's cap, stay pending (held), never cancelled.
-${open.length ? `Open proposals (several can be open at once, each decided on its own): ${open.map((g) => `${g.id} (${g.status})${g.status === "countered" ? `; it is your move: answer the counter with \`propose_grant\` and grantId ${g.id} (the revised plan, key results included, rewrites it under the same id)` : "; a human decides it in the Town Hall in-tray"}`).join("; ")}. Another plan can get its own proposal now.` : "No proposal is open: if exploration findings are in, draft one with `propose_grant` (findings reports in findingsDocIds)."}
+${open.length ? `Open proposals (several can be open at once, each decided on its own): ${open.map((g) => `${g.id} (${g.status})${g.status === "countered" ? `; it is your move: answer the counter with \`propose_grant\` and grantId ${g.id} (the revised plan, key results included, rewrites it under the same id)` : "; a human decides it in the Town Hall in-tray"}`).join("; ")}. Another plan can get its own proposal now.` : "No proposal is open. Explorers propose on their own: the runtime's explore tick reserves a chunk and queues an explorer on an idle desk while tokens are free under your goal, and its proposal goes straight to the Town Hall in-tray."}
 A human's decision on your proposal wakes you with an assignment: funded → "Grant … funded: assign its first step or take it yourself" (lane grant, the plan in it; nothing runs until its steps are assignments), countered → "Answer the counter on …" (re-propose with \`propose_grant\`), rejected → "Grant … rejected: read the note". When a grant reaches 100% of its tokens (the only checkpoint; it runs to its full number before that) you get a "Write the checkpoint for …" assignment: \`checkpoint_grant\` (the status of its key results up to claimed, all or one at a time, with evidence), then \`submit_report\` with \`rollup: true\`; it lands in the Town Hall in-tray linked to the grant. When a grant's work is done before its tokens are (its key results can be claimed with evidence a human can check), close it yourself with \`close_grant\` (grantId, the evidence as note), then \`submit_report\` with \`rollup: true\`: it closes as done, the unspent tokens return to the Bank, and a human marks each key result met or missed from the Town Hall in-tray. Use \`checkpoint_grant\` only when the grant is held at its 100% checkpoint and the work is not done.`;
 }
 

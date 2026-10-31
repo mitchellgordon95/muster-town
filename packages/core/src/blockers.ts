@@ -49,11 +49,8 @@ export function blockedBy(world: World, a: Assignment, at: Date = new Date()): B
   if (agent && !world.budget.canStart(agent.id)) {
     const b = world.buildings.get(agent.homeBuildingId ?? agent.buildingId ?? "");
     const cap = b ? world.budget.capHold(b.id, at) : null;
-    if (cap && agent.spentTokensToday < b!.dailyTokensPerAgent && world.budget.remaining(b!.id) > 0) return { kind: "budget", targetId: b!.id, placeId: "bank", text: cap };
-    const text = b && agent.spentTokensToday >= b.dailyTokensPerAgent
-      ? `out of budget: ${agent.name} used ${short(agent.spentTokensToday)} of ${short(b.dailyTokensPerAgent)} tokens today`
-      : `out of budget: ${b?.name ?? "the building"} has no tokens left`;
-    return { kind: "budget", targetId: b?.id ?? null, placeId: "bank", text };
+    if (cap && world.budget.remaining(b!.id) > 0) return { kind: "budget", targetId: b!.id, placeId: "bank", text: cap };
+    return { kind: "budget", targetId: b?.id ?? null, placeId: "bank", text: `out of budget: ${b?.name ?? "the building"} has no tokens left` };
   }
   const hold = laneBlock(world, a);
   if (!hold) return null;

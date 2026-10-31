@@ -1,5 +1,6 @@
-import { ROOT_GOAL_ID, type FreeTokens, type GoalFunding } from "@muster-town/schema";
+import { ROOT_GOAL_ID, type ExploreRule, type FreeTokens, type GoalFunding } from "@muster-town/schema";
 import type { Repos } from "./store.ts";
+import { reservationLeft } from "./explore.ts";
 import type { World } from "./world.ts";
 
 /**
@@ -21,6 +22,22 @@ export function exploreCapAt(goals: Repos["goals"], goalId: string): { tokensPer
   return null;
 }
 
+/** The root's explore rule when nothing up the tree sets one (docs/how-work-gets-done.md §3): on, 100,000-token chunks. */
+export const EXPLORE_CHUNK_TOKENS = 100_000;
+
+/** The explore rule in effect at a goal: each of on/off and the chunk from the nearest ancestor-or-self that sets it (null = the root default). */
+export function exploreRuleAt(goals: Repos["goals"], goalId: string): ExploreRule {
+  const rule: ExploreRule = { on: true, onFrom: null, chunkTokens: EXPLORE_CHUNK_TOKENS, chunkFrom: null };
+  let onSet = false, chunkSet = false;
+  const seen = new Set<string>();
+  for (let g = goals.get(goalId); g && !seen.has(g.id) && !(onSet && chunkSet); g = g.parentId ? goals.get(g.parentId) : undefined) {
+    seen.add(g.id);
+    if (!onSet && g.explore !== null) { rule.on = g.explore; rule.onFrom = g.id; onSet = true; }
+    if (!chunkSet && g.exploreChunkTokens !== null) { rule.chunkTokens = g.exploreChunkTokens; rule.chunkFrom = g.id; chunkSet = true; }
+  }
+  return rule;
+}
+
 /** One claim on the Bank: the goal its work sits on and its tokens. */
 interface Claim { goalId: string; tokens: number; kind: "funded" | "ask" | "reserved" }
 
@@ -35,7 +52,11 @@ function claims(world: World): Claim[] {
   for (const g of world.grants.where("status IN ('proposed', 'countered')")) {
     if (g.askTokens > 0) out.push({ goalId: nodeOf(g), tokens: g.askTokens, kind: "ask" });
   }
-  for (const r of world.bankReservations.where("closedAt IS NULL")) out.push({ goalId: r.goalId, tokens: r.tokens, kind: "reserved" });
+  // an open reservation claims what its sessions haven't spent yet (they draw on it first; their spend is already off the balance)
+  for (const r of world.bankReservations.where("closedAt IS NULL")) {
+    const left = reservationLeft(world, r);
+    if (left > 0) out.push({ goalId: r.goalId, tokens: left, kind: "reserved" });
+  }
   return out;
 }
 
@@ -86,19 +107,19 @@ export function freeTokens(world: World, goalId: string, now = new Date()): Free
   return all.get(goalId) ?? { ...all.get(ROOT_GOAL_ID)!, goalId };
 }
 
-/** Exploration spent today (UTC) under a goal: lane-exploration sessions of the buildings attached at or under it, plus reservations opened today there. */
+/** Exploration spent today (UTC) under a goal: lane-exploration sessions of the buildings attached at or under it, plus the open reservations opened today there (a closed one's spend is in its sessions). */
 export function exploreSpentToday(world: World, goalId: string, now = new Date()): number {
   const day = new Date(now); day.setUTCHours(0, 0, 0, 0);
   const under = world.goalTree.subtreeIds(goalId);
   const buildings = world.buildings.all().filter((b) => under.has(world.goalTree.attachmentOf(b))).map((b) => b.id);
   let spent = 0;
   for (const b of buildings) spent += world.grantDesk.laneSpentToday(b, "exploration", now);
-  for (const r of world.bankReservations.where("openedAt >= ?", [day.toISOString()])) if (under.has(r.goalId)) spent += r.tokens;
+  for (const r of world.bankReservations.where("openedAt >= ? AND closedAt IS NULL", [day.toISOString()])) if (under.has(r.goalId)) spent += r.tokens;
   return spent;
 }
 
-/** A goal's funding as GET /api/goals shows it: the effective exploration cap (and what it has used today) and the free tokens. */
+/** A goal's funding as GET /api/goals shows it: the effective explore rule and exploration cap (and what it has used today) and the free tokens. */
 export function goalFunding(world: World, goalId: string, free?: FreeTokens, now = new Date()): GoalFunding {
   const exploreCap = exploreCapAt(world.goals, goalId);
-  return { exploreCap, exploreSpentTodayTokens: exploreCap ? exploreSpentToday(world, exploreCap.goalId, now) : 0, free: free ?? freeTokens(world, goalId, now) };
+  return { exploreCap, explore: exploreRuleAt(world.goals, goalId), exploreSpentTodayTokens: exploreCap ? exploreSpentToday(world, exploreCap.goalId, now) : 0, free: free ?? freeTokens(world, goalId, now) };
 }

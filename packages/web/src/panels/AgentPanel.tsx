@@ -109,7 +109,7 @@ function ForksTab({ managerId }: { managerId: string }) {
   return (
     <>
       <ErrorLine error={list.error} />
-      {family ? <KV items={[["With forks", <>today {fmtTokens(family.today)}{family.cap ? <> / {fmtTokens(family.cap)} <Meter v={family.today / family.cap} /></> : null} (forks {fmtTokens(family.forksToday)}) · total {fmtTokens(family.total)} {ADJ} · {usd(family.usdTotal)} ({family.forks} fork{family.forks === 1 ? "" : "s"})</>]]} /> : null}
+      {family ? <KV items={[["With forks", <>today {fmtTokens(family.today)} (forks {fmtTokens(family.forksToday)}) · total {fmtTokens(family.total)} {ADJ} · {usd(family.usdTotal)} ({family.forks} fork{family.forks === 1 ? "" : "s"})</>]]} /> : null}
       <Section title={<>Live <Pill>{live.length}</Pill></>}>{live.length ? <div className="doc-list">{live.map(row)}</div> : <Empty>No fork is working now.</Empty>}</Section>
       <Section title={<>Retired <Pill>{retired.length}</Pill></>}>{retired.length ? <div className="doc-list">{retired.map(row)}</div> : <Empty>No fork has finished yet. With forks on, the building's queued work runs on forks of its manager.</Empty>}{list.data?.notStarted ? <div className="muted">{list.data.notStarted} more retired before a session started (desk failed at startup; nothing spent), not listed.</div> : null}</Section>
     </>
@@ -259,14 +259,12 @@ function TalkTab({ agent }: { agent: Agent }) {
     return out.sort((a, b) => (a.ts < b.ts ? -1 : a.ts > b.ts ? 1 : 0));
   }, [th.data, s.data, events, agent.id, avatarId]);
   const building = store.state.buildings.find((b) => b.id === agent.homeBuildingId);
-  const daily = building?.dailyTokensPerAgent ?? 0;
   const sess = s.data?.session;
   // a manager's spend with its forks (design note §7): the Bank books each fork on its own row, this sums them
   const family = useLoad(() => isManager ? api().forks(agent.id).then((f) => f.family ?? null) : Promise.resolve(null), [agent.id, isManager, agent.spentTokensTotal]);
   const fam = family.data && family.data.forks > 0 ? family.data : null;
-  // a fork is capped by its family, not by its own row (booked only when its session ends): show the manager's family count
+  // a fork's own row is booked only when its session ends: show the manager's family count too
   const root = useTown((st) => (agent.forkOf ? st.agents[agent.forkOf] : undefined));
-  const famCap = daily && building ? daily * building.headcount : 0;
   const canControl = !isHuman && !isService && (store.can("building.assign", agent.homeBuildingId) || agent.ownerUserId === me?.user.id);
   return (
     <div className="chat-wrap">
@@ -279,12 +277,12 @@ function TalkTab({ agent }: { agent: Agent }) {
       ) : !isHuman && !isService ? (
         <KV items={[
           ["Model", sess?.model ?? agent.model ?? building?.model ?? "default"],
-          agent.forkOf ? ["Today", <span title={`${root?.name ?? "The manager"} and its forks share one daily cap (dailyTokensPerAgent × headcount). A fork's spend is booked when its session ends.`}>
-            family {fmtTokens(root?.familySpentToday ?? 0)}{famCap ? <> / {fmtTokens(famCap)} <Meter v={(root?.familySpentToday ?? 0) / famCap} /></> : null} · this fork {agent.status === "retired" || agent.spentTokensToday ? fmtTokens(agent.spentTokensToday) : "books at session end"}
+          agent.forkOf ? ["Today", <span title={`${root?.name ?? "The manager"} and its forks, today. A fork's spend is booked when its session ends.`}>
+            family {fmtTokens(root?.familySpentToday ?? 0)} · this fork {agent.status === "retired" || agent.spentTokensToday ? fmtTokens(agent.spentTokensToday) : "books at session end"}
           </span>]
-          : ["Today", <>{fmtTokens(agent.spentTokensToday)}{daily ? <> / {fmtTokens(daily)} <Meter v={agent.spentTokensToday / daily} /></> : null}</>],
+          : ["Today", fmtTokens(agent.spentTokensToday)],
           ["Total", `${fmtTokens(agent.spentTokensTotal)} ${ADJ} · ${usd(agent.spentUsdTotal)}`],
-          ...(fam ? [["With forks", <span title={`${agent.name} and ${fam.forks} fork${fam.forks === 1 ? "" : "s"} (live and retired); each fork keeps its own row`}>today {fmtTokens(fam.today)}{fam.cap ? <> / {fmtTokens(fam.cap)} <Meter v={fam.today / fam.cap} /></> : null} (forks {fmtTokens(fam.forksToday)}) · total {fmtTokens(fam.total)} {ADJ} · {usd(fam.usdTotal)}</span>] as [string, ReactNode]] : []),
+          ...(fam ? [["With forks", <span title={`${agent.name} and ${fam.forks} fork${fam.forks === 1 ? "" : "s"} (live and retired); each fork keeps its own row`}>today {fmtTokens(fam.today)} (forks {fmtTokens(fam.forksToday)}) · total {fmtTokens(fam.total)} {ADJ} · {usd(fam.usdTotal)}</span>] as [string, ReactNode]] : []),
           ...(sess ? [["Session", <><Pill tone={sess.status === "running" ? "ok" : sess.status === "error" ? "bad" : ""}>{sess.status}</Pill> {sess.purpose} · started {timeAgo(sess.startedAt)} · {sess.turns} turns · <span title={breakdownTitle(sess)}>{fmtTokens(sess.adjustedOutputTokens ?? 0)} {ADJ}</span> · {usd(sess.costUsd)}{s.data?.transcriptFile ? <> · <a href={s.data.transcriptFile.url} title={`${s.data.transcriptFile.lines} lines · kept until ${s.data.transcriptFile.expiresAt.slice(0, 10)}`} onClick={(e) => { e.preventDefault(); void api().openTranscript?.(s.data!.transcriptFile!.url).catch((err: Error) => store.toast(err.message, "bad")); }}>transcript</a></> : null}</>] as [string, ReactNode]] : [["Last active", timeAgo(agent.lastActiveAt)] as [string, ReactNode]]),
         ]} />
       ) : null}

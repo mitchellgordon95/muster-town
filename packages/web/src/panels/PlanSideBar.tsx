@@ -9,7 +9,6 @@ import { api } from "../api";
 import { townPlan } from "../map/townPlan";
 import { purposeOf } from "../purpose";
 import { store, useTown } from "../state";
-import { Meter } from "./AgentPanel";
 import { goalPath, useGoalTree } from "./GoalPicker";
 import { useGoalData } from "./GoalsTab";
 import { grantGroups, grantSpendLine } from "./keyResults";
@@ -56,12 +55,12 @@ function AttachedLine({ b }: { b: SnapshotBuilding }) {
   );
 }
 
-/** Spend today against the family's daily cap (dailyTokensPerAgent × desks), what's left to draw, the funded and held grants. */
+/** Spend today, what's left to draw, the funded and held grants. */
 function PlanBudget({ b }: { b: SnapshotBuilding }) {
   const { grants } = useGoalData(b.id);
   const { funded, settled } = grantGroups(grants.data ?? []);
   const held = settled.filter((g) => g.status === "checkpoint");
-  const cap = b.dailyTokensPerAgent * b.headcount, today = b.budget?.tokensToday ?? 0;
+  const today = b.budget?.tokensToday ?? 0;
   const row = (g: (typeof funded)[number]) => (
     <div key={g.id} className="doc-row">
       <b>{g.objective || g.id}</b>
@@ -71,7 +70,7 @@ function PlanBudget({ b }: { b: SnapshotBuilding }) {
   return (
     <Section title="Budget">
       <KV items={[
-        ["Today", <><b>{fmtTokens(today)}</b> of {fmtTokens(cap)} {ADJ} <Meter v={cap ? today / cap : 0} /></>],
+        ["Today", <><b>{fmtTokens(today)}</b> {ADJ}</>],
         ["Left to draw", b.budget ? `${fmtTokens(b.budget.remainingTokens)} ${ADJ}` : "—"],
         ["All-time", b.budget ? `${fmtTokens(b.budget.tokensAllTime)} ${ADJ}` : "—"],
       ]} />

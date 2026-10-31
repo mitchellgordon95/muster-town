@@ -7,7 +7,7 @@ import { PlanSideBar } from "../src/panels/PlanSideBar";
 vi.mock("../src/map/sprites", async (orig) => ({ ...(await orig<object>()), portraitUrl: () => "", iconUrl: () => "" }));
 
 describe("town planning's side bar (Mitchell, mt_xywhisvdcm decision 12)", () => {
-  it("a selected lab shows its goal, what it is attached to (no goal editing: the map is the tree), Budget (today of the daily cap) and Stats", () => {
+  it("a selected lab shows its goal, what it is attached to (no goal editing: the map is the tree), Budget (today, no daily cap) and Stats", () => {
     const b = { id: "bl_x", name: "Ocean Lab", kind: "lab", goal: "Measure ocean heat uptake well enough to fund", headcount: 4, dailyTokensPerAgent: 1_000_000,
       budget: { allocatedTokens: 0, spentTokens: 0, remainingTokens: 2_000_000, bankTokens: 2_000_000, tokensToday: 500_000, tokensAllTime: 9_000_000 } };
     store.state = { ...store.state, buildings: [b] as never };
@@ -17,7 +17,8 @@ describe("town planning's side bar (Mitchell, mt_xywhisvdcm decision 12)", () =>
     expect(html).toContain("Attached to");
     expect(html).not.toContain("Objectives and key results");
     expect(html).toContain("Budget");
-    expect(html).toMatch(/500k<\/b> of 4(\.0)?M/);
+    expect(html).toMatch(/500k<\/b> adj. tokens/);
+    expect(html).not.toMatch(/500k<\/b> of /);
     expect(html).toContain("Stats");
     expect(renderToStaticMarkup(<PlanSideBar id="bl_gone" />)).toBe("");
   });

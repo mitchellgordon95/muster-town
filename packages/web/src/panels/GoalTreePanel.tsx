@@ -341,6 +341,35 @@ function FundingBlock({ root, node, can, onDone }: { root: GoalTreeNode; node: G
         </> : null}
         <span className={exploreCap ? undefined : "muted"}>{can && exploreCap?.goalId === node.id ? `${fmtTokens(node.funding.exploreSpentTodayTokens)} used today` : capText(node, root)}</span>
       </div>
+      <ExploreRow node={node} can={can} onDone={onDone} />
+    </div>
+  );
+}
+
+/**
+ * The explore rule (docs/how-work-gets-done.md §3): whether the runtime's tick starts explorers under this goal and the
+ * chunk each reserves, set here or inherited (the root's default: on, 100k). Same editors as the cap.
+ */
+function ExploreRow({ node, can, onDone }: { node: GoalTreeNode; can: boolean; onDone: () => void }) {
+  const rule = node.funding.explore;
+  const [chunk, setChunk] = useState(node.exploreChunkTokens == null ? "" : toMillions(node.exploreChunkTokens));
+  useEffect(() => setChunk(node.exploreChunkTokens == null ? "" : toMillions(node.exploreChunkTokens)), [node.id, node.exploreChunkTokens]);
+  const nextChunk = chunk.trim() === "" ? null : Math.max(10_000, Math.round((fromMillions(chunk) || 0)));
+  const from = (id: string | null) => id === node.id ? "set here" : id ? "inherited" : "default";
+  return (
+    <div className="ge-funding-row">
+      <span className="ge-funding-label">Exploration</span>
+      {can ? <>
+        <select value={node.explore == null ? "" : node.explore ? "on" : "off"} onChange={(e) => void api().updateGoal(node.id, { explore: e.target.value === "" ? null : e.target.value === "on" }).then(onDone)}>
+          <option value="">inherit ({rule.on ? "on" : "off"})</option>
+          <option value="on">on</option>
+          <option value="off">off</option>
+        </select>
+        <MTokensInput value={chunk} placeholder={toMillions(rule.chunkTokens)} onChange={setChunk} />
+        <span className="muted">/ explorer</span>
+        <Act small tone="primary" disabled={nextChunk === node.exploreChunkTokens} title="Blank = inherit the chunk from the goal above (default 100k)" run={() => api().updateGoal(node.id, { exploreChunkTokens: nextChunk }).then(onDone)}>Save</Act>
+      </> : null}
+      <span className="muted">{rule.on ? `on (${from(rule.onFrom)}): idle desks start explorers of ${fmtTokens(rule.chunkTokens)} tokens (${from(rule.chunkFrom)})` : `off (${from(rule.onFrom)})`}</span>
     </div>
   );
 }

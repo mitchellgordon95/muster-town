@@ -738,6 +738,8 @@ export const Assignment = z.object({
   queue: AssignmentQueue.default("agent"),
   /** building-queue work: the model its fork runs on (one the building allows: model or cheapModel); null = the building's model */
   model: z.string().nullable().default(null),
+  /** declarative exploration: the Bank reservation (bank_reservations) the runtime's explore tick opened for it; its sessions draw on it first */
+  reservationId: Id.nullable().default(null),
   /** manager forks: topic pages (doc ids, at most 3) the manager attached for its fork's memory block */
   pages: z.array(Id).max(3).optional(),
   createdAt: Iso,
@@ -1096,6 +1098,10 @@ export const Goal = z.object({
    * the town-wide cap (docs/how-work-gets-done.md §8). (The `poolId` and `explorationTokensPerDay` columns stay, read by nothing.)
    */
   exploreCapTokensPerDay: z.number().int().nonnegative().nullable().default(null),
+  /** the explore rule (docs/how-work-gets-done.md §3), inherited down the tree (null = inherit; the root's null = on): whether the runtime tick starts explorers for buildings attached at or under it */
+  explore: z.boolean().nullable().default(null),
+  /** the tokens one explorer reserves (inherited; the root's null = EXPLORE_CHUNK_TOKENS, 100,000) */
+  exploreChunkTokens: z.number().int().positive().nullable().default(null),
   createdAt: Iso,
   updatedAt: Iso,
 });
@@ -1136,12 +1142,19 @@ export interface GoalTreeNode {
   keyResults: { id: string; text: string; howToCheck: string; status: string; due: string | null; archivedAt: string | null; buildingId: string; grantId: string | null; underReviewSince?: string | null; postmortemDocId?: string | null }[];
   /** set on this goal (null = inherited); `funding.exploreCap` is the effective cap and the goal it comes from (null = uncapped), `funding.free` the free tokens under it */
   exploreCapTokensPerDay: number | null;
+  /** the explore rule set on this goal (null = inherited); `funding.explore` is the effective one */
+  explore: boolean | null;
+  exploreChunkTokens: number | null;
   funding: GoalFunding;
   children: GoalTreeNode[];
 }
 /** A goal's funding as GET /api/goals shows it (core goals.ts `fundingAt` + free-tokens.ts). */
+/** The explore rule in effect at a goal (core free-tokens.ts `exploreRuleAt`). */
+export interface ExploreRule { on: boolean; onFrom: string | null; chunkTokens: number; chunkFrom: string | null }
 export interface GoalFunding {
   exploreCap: { tokensPerDay: number; goalId: string } | null;
+  /** the effective explore rule (docs/how-work-gets-done.md §3): on/off and the chunk, each with the goal it comes from (null = the root's default) */
+  explore: ExploreRule;
   /** exploration spent today by the buildings at or under the capping goal (0 with no cap) */
   exploreSpentTodayTokens: number;
   free: FreeTokens;
@@ -1280,6 +1293,8 @@ export const UpdateGoalInput = z.object({
   text: z.string().trim().min(1).max(300).optional(), position: z.number().int().optional(), parentId: Id.optional(),
   ownerId: Id.nullable().optional(), sourceDocIds: z.array(Id).optional(),
   exploreCapTokensPerDay: z.number().int().nonnegative().nullable().optional(),
+  explore: z.boolean().nullable().optional(),
+  exploreChunkTokens: z.number().int().min(10_000).max(2_000_000).nullable().optional(),
 });
 export type UpdateGoalInput = z.input<typeof UpdateGoalInput>;
 /** POST /api/goals/:id/retire: open key results and attached buildings under it move to `moveTo` (a sibling); without one it is refused while any remain. */
@@ -1471,6 +1486,7 @@ export const EventType = z.enum([
   "agent.tool", "agent.thought", "agent.banned", "agent.retired", "agent.forked", "agent.mentioned",
   "doc.created", "doc.updated", "doc.state", "doc.decision",
   "assignment.created", "assignment.status", "assignment.delegated", "schedule.created", "schedule.fired", "schedule.skipped", "schedule.edited", "schedule.ended",
+  "exploration.reserved", "exploration.started", "exploration.proposed", "exploration.closed",
   "meeting.created", "meeting.phase", "meeting.utterance", "meeting.decisions", "meeting.slide",
   "session.started", "session.ended",
   "building.created", "building.updated", "building.layout", "town.plan", "allocation.created", "budget.exhausted", "bank.input", "bank.credited", "bank.debited", "bank.converted", "bank.share", "bank.pool", "bank.drift", "bank.cap", "bank.hold",

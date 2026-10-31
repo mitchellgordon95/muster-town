@@ -14,6 +14,7 @@ import { startMcpProxy, type McpProxy } from "./mcp-proxy.ts";
 import type { TownClient } from "./town.ts";
 import { setupWorkspace } from "./workspace.ts";
 import { startPerf } from "./perf.ts";
+import { startWipPusher } from "./wip.ts";
 
 export const EXIT_OK = 0;
 export const EXIT_ERROR = 1;
@@ -40,6 +41,8 @@ export interface RunDeps {
   mcpBackoffMs?: number[];
   /** the /proc/stat reading (tests); default reads /proc/stat */
   readProcStat?: () => { cpu: number; steal: number } | null;
+  /** how often uncommitted work is pushed to refs/wip/<branch> (tests; 0 = never); default WIP_PUSH_MS */
+  wipPushMs?: number;
 }
 
 /** Keep tool inputs postable: long strings (file bodies, heredocs) are clipped. */
@@ -245,6 +248,7 @@ export async function runSession(sessionId: string, deps: RunDeps): Promise<numb
 
   let cwd = homedir();
   let proxy: McpProxy | null = null;
+  let stopWip: (() => void) | null = null;
   try {
     // ---- 5. workspace ----
     if (brief.workspace) {
@@ -253,6 +257,8 @@ export async function runSession(sessionId: string, deps: RunDeps): Promise<numb
         setupWorkspace(ws, { ghToken: env.GH_TOKEN || undefined, agentName: b.agent.name, log }));
       cwd = setup(brief.workspace, brief);
       log(`workspace ready: ${cwd} on ${brief.workspace.branch}`);
+      // uncommitted work survives a desk that freezes or is lost: pushed to refs/wip/<branch> every 10 min (wip.ts)
+      if (env.GH_TOKEN && deps.wipPushMs !== 0) stopWip = startWipPusher(cwd, brief.workspace.branch, { everyMs: deps.wipPushMs, log, env });
     }
 
     // ---- 6. query ----
@@ -368,6 +374,7 @@ export async function runSession(sessionId: string, deps: RunDeps): Promise<numb
   } finally {
     clearInterval(controlTimer);
     clearInterval(flushTimer);
+    stopWip?.();
     input.close();
     await proxy?.close();
     await polling;

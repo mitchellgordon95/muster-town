@@ -129,12 +129,12 @@ export class Sim {
   }
   forksOf(managerId: string) {
     const all = [...this.agents.values()].filter((a) => a.forkOf === managerId);
-    const m = this.agents.get(managerId), b = this.buildings.find((x) => x.id === m?.homeBuildingId);
+    const m = this.agents.get(managerId);
     return {
       live: all.filter((a) => a.status !== "retired").sort((x, y) => (x.forkN ?? 0) - (y.forkN ?? 0)).map((a) => this.forkSummary(a)!),
       retired: all.filter((a) => a.status === "retired").sort((x, y) => y.createdAt.localeCompare(x.createdAt)).slice(0, 50).map((a) => this.forkSummary(a)!),
       notStarted: 0,
-      family: [m, ...all].reduce((f, a) => a ? { ...f, today: f.today + a.spentTokensToday, forksToday: f.forksToday + (a.forkOf ? a.spentTokensToday : 0), total: f.total + a.spentTokensTotal, usdTotal: f.usdTotal + a.spentUsdTotal } : f, { today: 0, forksToday: 0, cap: b ? b.dailyTokensPerAgent * b.headcount : 0, total: 0, usdTotal: 0, forks: all.length }),
+      family: [m, ...all].reduce((f, a) => a ? { ...f, today: f.today + a.spentTokensToday, forksToday: f.forksToday + (a.forkOf ? a.spentTokensToday : 0), total: f.total + a.spentTokensTotal, usdTotal: f.usdTotal + a.spentUsdTotal } : f, { today: 0, forksToday: 0, total: 0, usdTotal: 0, forks: all.length }),
     };
   }
   /** The budget part of GET /api/buildings/:id/board, as core's Grants.board (exploration spend is the fixture's; MockApi.board fills in free tokens and the cap). */
@@ -358,7 +358,7 @@ export class Sim {
     const asg = this.putAssignment({
       id: newId("as"), agentId, buildingId: a.homeBuildingId ?? "bl_carbon", title: f.title, description: f.description,
       status: "pending", createdBy: f.by ?? "us_mitchell", createdByKind: "user", fromMeetingId: null, fromReportId: f.fromReportId ?? null, reportId: null,
-      fromAssignmentId: f.fromAssignmentId ?? null, lane: "directed", grantId: null, keyResultId: null, gap: null, sourceId: null, heldReason: null, origin: null, chainId: null, queue: "agent", model: null, position: f.front && q.length ? q[0].position - 1 : Date.now(), createdAt: now(), updatedAt: now(),
+      fromAssignmentId: f.fromAssignmentId ?? null, lane: "directed", grantId: null, keyResultId: null, gap: null, sourceId: null, heldReason: null, origin: null, chainId: null, queue: "agent", model: null, reservationId: null, position: f.front && q.length ? q[0].position - 1 : Date.now(), createdAt: now(), updatedAt: now(),
     });
     this.event("assignment.created", agentId, `Assignment for ${a.name}: ${asg.title}`, { assignmentId: asg.id }, a.homeBuildingId);
     return asg;
