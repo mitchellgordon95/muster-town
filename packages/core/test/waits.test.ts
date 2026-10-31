@@ -1,7 +1,7 @@
 /** Waiting design P1/P2: assignments that wait on a dependency, and agents parking their own work (submit_report resumeWhen). */
 import { describe, expect, it } from "vitest";
 import { WAIT_TTL_MS } from "@muster-town/schema";
-import { checkWaits, nextPending, setAssignmentStatus } from "../src/index.ts";
+import { blockedBy, checkWaits, nextPending, setAssignmentStatus } from "../src/index.ts";
 import { seededWorld } from "./helpers.ts";
 
 const REPORT = "## What I did\nx\n\n## Findings\ny\n\n## What I need from you\nNothing needed.";
@@ -117,6 +117,35 @@ describe("parking your own work (P2)", () => {
     const e = await parkedRun({ deploy: "next" });
     await e.world.verbs.review(e.admin, { docId: e.res.id, decision: "stop" });
     expect(e.world.assignments.require(e.res.nextAssignmentId!).status).toBe("cancelled");
+  });
+
+  it("a wait on an assignment holds through its parked chain: released by the last continuation's done, or by a cancel", async () => {
+    const { world, mei, work, res, admin, by } = await parkedRun({ deploy: "next" });
+    const waiter = world.ops.createWork(admin, by("Noor").id, { title: "Step 3", waitFor: { assignment: work.id } });
+    // work is done but parked: the wait holds, and the blocker names the continuation
+    expect(world.assignments.require(work.id).status).toBe("done");
+    expect(checkWaits(world).unblocked).toEqual([]);
+    expect(blockedBy(world, world.assignments.require(waiter.id))).toMatchObject({ kind: "assignment", targetId: res.nextAssignmentId });
+    // the continuation runs and parks again: still held
+    let cur = world.assignments.require(res.nextAssignmentId!);
+    world.assignments.upsert({ ...cur, waitFor: null });
+    world.ops.startSession(mei.id, { purpose: "work", model: "m", assignmentId: cur.id });
+    expect(checkWaits(world).unblocked).toEqual([]);
+    const r2 = await world.verbs.submit_report(world.agents.require(mei.id), { title: "R2", body: REPORT, verdict: "continue", resumeWhen: { deploy: "next" } });
+    expect(checkWaits(world).unblocked).toEqual([]);
+    // the last continuation ends done without parking: released
+    cur = world.assignments.require(r2.nextAssignmentId!);
+    world.assignments.upsert({ ...cur, waitFor: null });
+    world.ops.startSession(mei.id, { purpose: "work", model: "m", assignmentId: cur.id });
+    await world.verbs.submit_report(world.agents.require(mei.id), { title: "Done", body: REPORT, verdict: "stop" });
+    expect(checkWaits(world).unblocked.map((a) => a.id)).toEqual([waiter.id]);
+
+    // a cancelled continuation (Stop in the in-tray) releases too
+    const c = await parkedRun({ deploy: "next" });
+    const w2 = c.world.ops.createWork(c.admin, c.by("Noor").id, { title: "Step 3", waitFor: { assignment: c.work.id } });
+    expect(checkWaits(c.world).unblocked).toEqual([]);
+    await c.world.verbs.review(c.admin, { docId: c.res.id, decision: "stop" });
+    expect(checkWaits(c.world).unblocked.map((a) => a.id)).toEqual([w2.id]);
   });
 
   it("a chain parks at most 3 times in a row", async () => {
