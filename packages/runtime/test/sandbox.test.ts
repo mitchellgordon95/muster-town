@@ -154,6 +154,20 @@ describe("SandboxBackend", () => {
     expect(f.calls).toEqual(["remove desk-c-ag_1 -", "remove desk-c-ag_1 deskhome-ag_1"]);
   });
 
+  test("ensure waits for a removal in flight, then creates a fresh desk", async () => {
+    const f = fakeApi();
+    let done!: () => void;
+    f.api.remove = async (name) => { f.calls.push(`remove ${name}`); await new Promise<void>((r) => { done = r; }); f.calls.push("removed"); };
+    const b = new SandboxBackend({ api: f.api, collective: "c" });
+    const removing = b.removeSandbox("desk-c-ag_abc123");
+    const ensured = b.ensure(agent, building);
+    await new Promise((r) => setTimeout(r, 10));
+    expect(f.calls).toEqual(["remove desk-c-ag_abc123"]);
+    done();
+    await Promise.all([removing, ensured]);
+    expect(f.calls).toEqual(["remove desk-c-ag_abc123", "removed", "find desk-c-ag_abc123", "create"]);
+  });
+
   test("available() is false when the provider throws", async () => {
     const api = { ...fakeApi().api, available: async () => { throw new Error("down"); } };
     expect(await new SandboxBackend({ api, collective: "c" }).available()).toBe(false);

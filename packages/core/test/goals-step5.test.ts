@@ -40,7 +40,7 @@ describe("Change this goal (docs/goals.md, step 5)", () => {
     const planner = world.reorgs.planner()!;
     expect(planner).toMatchObject({ name: "Planner", homeBuildingId: "town-hall", kind: "resident" });
     const m = world.meetings.require(c.meetingId!);
-    // the Town Hall draws nothing from the Bank, so the Planner can't run here: the manager in the room facilitates
+    // the Bank is empty, so the Planner can't run here: the manager in the room facilitates
     expect(world.reorgs.canRun()).toBe(false);
     expect(m).toMatchObject({ kind: "planning", buildingId: null, phase: "scheduled", facilitatorId: mei.id, attendeeIds: [planner.id, mei.id], scheduledAt: c.meetingDeadline });
     expect(c.prep).toEqual([expect.objectContaining({ buildingId: LAB, status: "waiting" })]);
@@ -112,7 +112,7 @@ describe("Plan with an agent (docs/goals.md, step 5)", () => {
     const planner = world.reorgs.planner()!;
     expect(m).toMatchObject({ kind: "one-on-one", buildingId: "town-hall", facilitatorId: planner.id, phase: "discussing" });
     expect(m.transcript[0].text).toContain(`(${goal.id})`);
-    // it can't run yet (the Town Hall draws nothing from the Bank): the 1:1 says so, once
+    // an empty Bank: it can't run, and the 1:1 says so, once
     expect(m.transcript[1]).toMatchObject({ speakerKind: "system", text: PLANNER_UNPAID });
     // the same 1:1 comes back, and neither line is repeated
     expect(world.reorgs.openPlanner(admin, goal.id).id).toBe(m.id);
@@ -134,5 +134,26 @@ describe("Plan with an agent (docs/goals.md, step 5)", () => {
     world.verbs.meeting(planner, { meetingId: m.id, action: "speak", text: "Drafted it.", attach: p.proposal.id });
     expect(world.meetings.require(m.id).transcript.at(-1)?.attachment).toMatchObject({ kind: "page", ref: `goal-proposal:${p.proposal.id}` });
     expect(world.reorgs.plannerBrief(world.meetings.require(world.ops.openOneOnOne(admin, "carbon-cycle", { agentId: mei.id }).id))).toBeNull();
+  });
+
+  it("the Town Hall draws from the Bank like any building: the Planner runs, and its session debits the Town Hall's pool (1:1 mt_cz11aqe81a)", () => {
+    const { world, admin, goal, seed } = setup();
+    world.bank.addInput(seed.admin.id, { label: "Key", source: "api-key", model: "m", tokens: 10_000, apiKey: "sk" });
+    // the Town Hall sits in General with the other buildings and sees the same share
+    expect(world.bank.poolOf("town-hall").id).toBe("general");
+    expect(world.bank.available("town-hall")).toEqual(world.bank.available(LAB));
+    expect(world.bank.remaining("town-hall")).toBeGreaterThan(0);
+    const m = world.reorgs.openPlanner(admin, goal.id);
+    const planner = world.reorgs.planner()!;
+    expect(world.reorgs.canRun()).toBe(true);
+    expect(m.transcript.some((u) => u.text === PLANNER_UNPAID)).toBe(false);
+    // a Planner session books to the Town Hall's pool, as a Workshop session books to its own
+    const before = world.bank.available("town-hall").durable;
+    world.budget.charge(planner.id, 400, 0);
+    expect(world.bank.available("town-hall").durable).toBe(before - 400);
+    expect(world.bank.available(LAB).durable).toBe(before - 400); // same pool, first come first served
+    // and a reorg meeting is facilitated by the Planner, not the fallback manager
+    const c = world.reorgs.file(admin, goal.id, { toText: "Y", why: "w" });
+    expect(world.meetings.require(c.meetingId!).facilitatorId).toBe(planner.id);
   });
 });

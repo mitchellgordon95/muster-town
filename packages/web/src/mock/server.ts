@@ -653,12 +653,11 @@ export class MockApi implements Api {
     }));
     const buildings: FinancePools["buildings"] = this.sim.buildings.map((x) => {
       const al = this.sim.allocations.filter((a) => a.buildingId === x.id);
-      const draws = x.kind !== "town-hall";
       const pool = pools.find((p) => p.id === this.poolOf(x))!;
       return {
-        id: x.id, name: x.name, poolId: pool.id, poolName: pool.name, drawsFromBank: draws, drawn: 0, drawnSubscription: 0, drawnDurable: 0, drawnMemberFunded: 0,
+        id: x.id, name: x.name, poolId: pool.id, poolName: pool.name, drawsFromBank: true, drawn: 0, drawnSubscription: 0, drawnDurable: 0, drawnMemberFunded: 0,
         donated: al.reduce((s, a) => s + (a.retired ? Math.min(a.tokens, a.spentTokens) : a.tokens), 0), donationsSpent: al.reduce((s, a) => s + a.spentTokens, 0),
-        held: al.reduce((s, a) => s + (a.retired ? 0 : Math.max(0, a.tokens - a.spentTokens)), 0), explorationTokensPerDay: draws ? 50_000 : 0,
+        held: al.reduce((s, a) => s + (a.retired ? 0 : Math.max(0, a.tokens - a.spentTokens)), 0), explorationTokensPerDay: x.kind === "town-hall" ? 0 : 50_000,
       };
     });
     const poolsLeftTokens = pools.reduce((s, p) => s + p.left, 0), poolsOverdrawnTokens = pools.reduce((s, p) => s + p.overdrawn, 0);
@@ -693,8 +692,8 @@ export class MockApi implements Api {
     const expiringTokens = live.filter((i) => i.source === "subscription").reduce((s, i) => s + i.creditedTokens, 0);
     const durableTokens = this.bankInputs.filter((i) => i.source === "api-key").reduce((s, i) => s + i.creditedTokens, 0);
     const members = (poolId: string) => this.sim.buildings.filter((b) => this.poolOf(b) === poolId);
-    // like core: only a pool with a building that can draw (not just the Town Hall) gets an auto share
-    const draws = (poolId: string) => members(poolId).some((b) => b.kind !== "town-hall");
+    // like core: only a pool with a building gets an auto share
+    const draws = (poolId: string) => members(poolId).length > 0;
     const used = this.bankPools.reduce((s, p) => s + (p.pct ?? 0), 0);
     const auto = this.bankPools.filter((p) => p.pct === null && draws(p.id));
     const pctOf = (p: BankPool) => p.pct ?? (draws(p.id) ? Math.max(0, 100 - used) / auto.length : 0);
@@ -714,10 +713,9 @@ export class MockApi implements Api {
     const heldTokens = sum(heldByAuth);
     const buildings = this.sim.buildings.map((b) => {
       const pool = pools.find((p) => p.id === this.poolOf(b))!;
-      const draws = b.kind !== "town-hall";
       return {
-        buildingId: b.id, name: b.name, poolId: pool.id, poolName: pool.name, pct: draws ? pool.pct : 0, explicit: pool.explicit,
-        expiringTokens: draws ? pool.expiringTokens : 0, durableTokens: draws ? pool.durableTokens : 0, heldTokens: sum(heldOf(b.id)), heldByAuth: heldOf(b.id),
+        buildingId: b.id, name: b.name, poolId: pool.id, poolName: pool.name, pct: pool.pct, explicit: pool.explicit,
+        expiringTokens: pool.expiringTokens, durableTokens: pool.durableTokens, heldTokens: sum(heldOf(b.id)), heldByAuth: heldOf(b.id),
       };
     });
     const contributors = this.sim.users.map((u) => {

@@ -3,7 +3,7 @@ import { AppError, badRequest, forbidden } from "../errors.ts";
 import { homeOf, pickUpFlag, sendMessage, setAssignmentStatus } from "../domain.ts";
 import { notifyMentions } from "../mentions.ts";
 import { actOrigin } from "../origin.ts";
-import { relayWake } from "../wakes.ts";
+import { interruptNow, isWorking, relayWake } from "../wakes.ts";
 import { chebyshev, newId, nowIso } from "../util.ts";
 import type { World } from "../world.ts";
 import type { VerbIn } from "./types.ts";
@@ -100,6 +100,11 @@ export async function tell(world: World, me: Agent, input: VerbIn<"tell">) {
   const told = world.events.append({ type: "agent.told", agentId: me.id, buildingId: me.buildingId, text: `${me.name} → ${to.name}: ${text.slice(0, 200)}`, payload: { to: to.id, toId: to.id, toKind: to.kind, messageId: msg.id, text, origin, ...(forwardedFrom ? { forwardedFrom: input.to } : {}) } });
   // the recipient already has the message; third parties named with @Name get a mention
   notifyMentions(world, me, input.text, { where: `a message to ${to.name}`, buildingId: me.buildingId, skip: [to.id] });
+  // agent teams step 1 (dc_i7ji4xacd9): a live fork takes a tell from its own building (its manager, a sibling fork, a resident) mid-session, like a human's message
+  if (to.forkOf && to.status !== "retired" && homeOf(me) === homeOf(to) && isWorking(world, to.id)) {
+    interruptNow(world, to.id, `${me.name} told you (it is also in your inbox):\n\n${text}\n\nIf it asks for an answer, reply with \`tell\` (id ${me.id}).`, me.name);
+    return { sent: true, to: to.id, messageId: msg.id, note: `${to.name} is in a work session: delivered as an interrupt, it sees it now.` };
+  }
   // wakes step 2: a tell that traces to a human queues work for an idle resident
   const woke = relayWake(world, me, told);
   if (woke) return { sent: true, to: to.id, messageId: msg.id, assignmentId: woke.id, note: `${to.name} was ${to.status}: it traces to ${world.nameOf(woke.origin!.userId)}, so the town queued "${woke.title}" (${woke.id}) for ${to.name}.` };

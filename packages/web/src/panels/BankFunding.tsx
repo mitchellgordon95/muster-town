@@ -270,15 +270,14 @@ export function BankInputs({ bank, onChange }: Props) {
 /**
  * Accounting pools: each pool is a slice of the Bank that its buildings share, first come first served. An admin
  * creates, renames and deletes (empty) pools, sets a pool's % (or clears it back to an equal split of what's
- * left) and moves buildings between pools. The Town Hall draws nothing from the Bank, so it isn't listed.
+ * left) and moves buildings between pools (the Town Hall too: it draws like any building).
  */
 export function BankPools({ bank, onChange }: Props) {
   const isAdmin = useTown((s) => !!s.me?.isAdmin);
   const [edit, setEdit] = useState<Record<string, { name: string; pct: string }>>({});
   const [name, setName] = useState("");
   const [pct, setPct] = useState("");
-  const halls = new Set(useTown((s) => s.buildings).filter((b) => b.kind === "town-hall").map((b) => b.id));
-  const labs = bank.buildings.filter((b) => !halls.has(b.buildingId)).sort((a, b) => a.name.localeCompare(b.name));
+  const labs = [...bank.buildings].sort((a, b) => a.name.localeCompare(b.name));
   const cancel = (id: string) => setEdit(({ [id]: _, ...rest }) => rest);
   const save = async (id: string, input: { name?: string; pct?: number | null }) => { await api().updateBankPool(id, input); cancel(id); onChange(); };
   const move = async (buildingId: string, poolId: string) => {
@@ -293,7 +292,7 @@ export function BankPools({ bank, onChange }: Props) {
         <tbody>
           {bank.pools.map((p) => {
             const draft = edit[p.id];
-            const members = p.buildings.filter((b) => !halls.has(b.buildingId));
+            const members = p.buildings;
             const badPct = !!draft && draft.pct !== "" && (+draft.pct < 0 || +draft.pct > 100);
             return (
               <tr key={p.id}>
