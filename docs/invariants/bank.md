@@ -51,7 +51,7 @@ What must always hold where tokens come from and where they go: the Bank (`packa
    - Test: `packages/runtime/test/reconcile.test.ts` › `the reconciliation never leaves the town: no fetch, no Console or Admin API URL, no secret read (Mitchell, 2026-10-31)`
 11. **Exhaustion stops new starts and is undone only by new tokens.** When a building's budget or an agent's daily allowance runs out, `out-of-budget` is set once with one `budget.exhausted` event. A new donation, `resetDaily` or a raised cap resumes work.
    - Test: `packages/core/test/budget.test.ts` › `daily exhaustion → out-of-budget + event; resetDaily resumes`
-   - Test: `packages/core/test/budget.test.ts` › `raising the building's daily cap un-blocks a resident that hit the old one`
+   - Test: `packages/core/test/budget.test.ts` › `raising the collective's daily budget un-blocks a resident that hit the old one`
    - Test: `packages/core/test/budget.test.ts` › `building exhaustion stops all residents until a new donation; allocations are charged in draw order (donor key before the town key)`
 12. **The cap hold applies only within one typical session of the learned subscription cap, with one `bank.hold` event per day.** If no cap has been seen, nothing is held.
     - Test: `packages/core/test/caps.test.ts` › `holds once today's spend is within one typical session of the cap; no cap = no hold`

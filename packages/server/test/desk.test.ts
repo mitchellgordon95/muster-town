@@ -83,7 +83,7 @@ describe("agent-scoped desk API", () => {
     expect((await json(app, "GET", "/api/agents/me/brief", { headers: as(agent) })).status).toBe(400);
   });
 
-  it("the Settings Code access checkbox (PATCH codeAccess) gives an existing building the collective repo on its next session, and takes it away", async () => {
+  it("the collective defaults' Code access (PUT /api/town/defaults) gives an existing building the collective repo on its next session, and takes it away", async () => {
     const { app, as, admin, world, desk, runtime, by } = await setup();
     world.town.set({ workspace: { path: "/tmp/repo", repoUrl: "git@github.com:o/r.git", base: "main", branchPrefix: "agent", tools: [] } });
     world.buildings.upsert({ ...world.buildings.require("carbon-cycle"), codeAccess: false }); // an existing building from before 022
@@ -99,12 +99,17 @@ describe("agent-scoped desk API", () => {
       return res.body;
     };
     expect((await brief()).workspace).toBeUndefined();
-    const on = await json(app, "PATCH", "/api/buildings/carbon-cycle", { headers: admin, body: { codeAccess: true } });
+    // a building no longer sets it on its own: PATCH ignores the field
+    expect((await json(app, "PATCH", "/api/buildings/carbon-cycle", { headers: admin, body: { codeAccess: true } })).body.building.codeAccess).toBe(false);
+    expect((await json(app, "PUT", "/api/town/defaults", { headers: as(by("Noor")), body: { codeAccess: true } })).status).toBe(403);
+    const on = await json(app, "PUT", "/api/town/defaults", { headers: admin, body: { codeAccess: true } });
     expect(on.status).toBe(200);
-    expect(on.body.building.codeAccess).toBe(true);
+    expect(on.body.defaults.codeAccess).toBe(true);
+    expect(on.body.buildings.find((b: { id: string }) => b.id === "carbon-cycle").codeAccess).toBe(true);
     expect((await json(app, "GET", "/api/town")).body.buildings.find((b: { id: string }) => b.id === "carbon-cycle").codeAccess).toBe(true);
     expect((await brief()).workspace).toMatchObject({ repoUrl: "https://github.com/o/r.git", base: "main" });
-    expect((await json(app, "PATCH", "/api/buildings/carbon-cycle", { headers: admin, body: { codeAccess: false } })).body.building.codeAccess).toBe(false);
+    expect((await json(app, "PUT", "/api/town/defaults", { headers: admin, body: { codeAccess: false } })).body.defaults.codeAccess).toBe(false);
+    expect((await json(app, "PUT", "/api/town/defaults", { headers: admin, body: {} })).status).toBe(400);
     expect((await brief()).workspace).toBeUndefined();
   });
 

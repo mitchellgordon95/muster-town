@@ -8,6 +8,10 @@
     "base": "main",
     "branchPrefix": "agent"
   },
+  "defaults": {
+    "maxTurnsPerSession": 120,
+    "codeAccess": true
+  },
   "moderators": [
     {
       "name": "Harbor",
@@ -20,8 +24,6 @@
       "name": "Town Workshop",
       "goal": "Ship improvements to Muster Town as small, reviewed pull requests",
       "description": "The building that works on Muster Town itself. Its one named manager hands out the work and its forks (copies of the manager, one per assignment) do it, each at a desk (a sandbox container) with a clone of this repo on its own branch: they run typecheck and tests, open PRs against main and merge their own green PRs. Read docs/design.md for what the town is for, docs/architecture.md for how it is built, and docs/log.md for what happened recently.",
-      "maxTurnsPerSession": 120,
-      "codeAccess": true,
       "residents": [
         {
           "name": "Pix",

@@ -1,5 +1,5 @@
 import { AppError, BANK_ACCOUNTING, deskPreset, deskSizeFor, type World, buildingStats, accessRequestOf, boardWithTownDocs, canInteract, decideAccess, deskSlotRows, requestAccess, sessionView, setDeskSlot, cabinetCounts, cabinetDocs, reportChains, reviewDeck, presentedReviewDeck, intrayRoutes, funderWeek } from "@muster-town/core";
-import { funderSlide, AccessDecisionInput, AccessRequestInput, AddBankInput, CreateBankPoolInput, CreateBuildingInput, DesksPatch, UpdateBankPoolInput, DocType, DonateInput, LayoutInput, Membership, PlantFlagInput, RedeployInput, UpdateBuildingInput, apiKeyProblem, townEnv, REVIEW_DECK_ID, type AccessRequest, type AuthMe, type RedeployLive } from "@muster-town/schema";
+import { funderSlide, AccessDecisionInput, AccessRequestInput, AddBankInput, CreateBankPoolInput, CreateBuildingInput, DesksPatch, TownDefaultsPatch, UpdateBankPoolInput, DocType, DonateInput, LayoutInput, Membership, PlantFlagInput, RedeployInput, UpdateBuildingInput, apiKeyProblem, townEnv, REVIEW_DECK_ID, type AccessRequest, type AuthMe, type RedeployLive } from "@muster-town/schema";
 import type { FastifyInstance, FastifyRequest } from "fastify";
 import { brotliDecompressSync } from "node:zlib";
 import { z } from "zod";
@@ -218,6 +218,16 @@ export async function townRoutes(app: FastifyInstance) {
     world.permissions.requireAdmin({ kind: "user", id: user.id }, "Only an admin can change the host's session slots.");
     const desks = world.setDesksConfig(parse(DesksPatch, req.body));
     return { desks, slots: world.host.slots?.() ?? null };
+  });
+
+  /**
+   * The collective defaults (admin; 1:1 mt_n25udpflus decision 3): model, cheap model, max turns, daily budget per agent
+   * and code access for every building. Saving writes them through to every lab. → { defaults, buildings }
+   */
+  app.put("/api/town/defaults", async (req) => {
+    const user = requireUser(req);
+    world.permissions.requireAdmin({ kind: "user", id: user.id }, "Only an admin can change the collective defaults.");
+    return world.setTownDefaults(parse(TownDefaultsPatch, req.body), world.ops.ensureAvatar(user.id).id);
   });
 
   /**

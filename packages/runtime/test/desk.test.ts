@@ -201,7 +201,7 @@ describe("desk work sessions", () => {
   test("buildings with code access get GH_TOKEN; the host backend won't schedule them", async () => {
     const { world, runtime, desk, by, lab } = deskSetup();
     world.town.set({ workspace: { path: ".", repoUrl: "git@github.com:o/agent-town.git", base: "main", branchPrefix: "agent", tools: [] } });
-    world.ops.updateBuilding(null, lab.id, { codeAccess: true });
+    world.setTownDefaults({ codeAccess: true });
     const noor = by("Noor");
     const asg = world.ops.createWork(null, noor.id, {});
     void runtime.runWorkSession(noor.id, asg.id);
@@ -212,7 +212,7 @@ describe("desk work sessions", () => {
 
     const host = setup(async function* () { yield result(1, 0); });
     host.world.town.set({ workspace: { path: ".", base: "main", branchPrefix: "agent", tools: [] } });
-    host.world.ops.updateBuilding(null, host.lab.id, { codeAccess: true });
+    host.world.setTownDefaults({ codeAccess: true });
     const warn = vi.spyOn(console, "warn").mockImplementation(() => undefined);
     host.world.ops.createWork(null, host.by("Noor").id, {});
     await host.runtime.tickOnce();

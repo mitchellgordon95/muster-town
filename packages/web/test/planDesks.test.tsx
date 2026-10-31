@@ -62,6 +62,20 @@ describe("building settings are a thin layer on goals (1:1 mt_n25udpflus decisio
     expect(html).not.toContain("<textarea");
     expect(html).not.toContain("old description");
     expect(html).not.toContain(">Attach<"); // the attachment is saved with the form, no own section and button
+    for (const gone of ["Model", "Cheap model", "Daily budget / agent", "Max turns / session", "Code access"]) expect(html).not.toContain(`>${gone}<`);
+  });
+  it("Town Hall Settings: admins get the Collective defaults form, which names the buildings a save would change", () => {
+    const hall = { ...(b as object), id: "town-hall", name: "Town Hall", kind: "town-hall" } as never;
+    store.state = { ...store.state, buildings: [b, hall], town: { name: "T", goal: "", tagline: "", defaults: { model: "claude-opus-5-5", dailyTokensPerAgent: 1_000_000 } }, me: { isAdmin: true } as never };
+    vi.spyOn(store, "can").mockReturnValue(true);
+    const html = renderToStaticMarkup(<Settings b={hall} />);
+    expect(html).toContain("Collective defaults");
+    expect(html).toContain("Saving applies them to every building at once");
+    expect(html).toContain("value=\"claude-opus-5-5\"");
+    expect(html).toContain("Saving changes Ocean Lab"); // it runs on m / 2M now
+    expect(renderToStaticMarkup(<Settings b={b} />)).not.toContain("Collective defaults");
+    store.state = { ...store.state, me: { isAdmin: false } as never };
+    expect(renderToStaticMarkup(<Settings b={hall} />)).not.toContain("Collective defaults");
   });
   it("Planning desk: a new building is goal, optional name, desks; each building opens its Settings", () => {
     vi.spyOn(store, "can").mockReturnValue(true);
