@@ -355,6 +355,10 @@ export const BankInput = z.object({
   goalId: Id.nullable().default(null),
   /** when the donor was last told no session has drawn on this earmark for 7 days (in-town notice; null = never) */
   idleNotifiedAt: Iso.nullable().default(null),
+  /** a recurring api-key input limited to N credits (migration 074): N, the credit made when it was added counting as 1; null = until cancelled */
+  creditsTotal: z.number().int().positive().nullable().default(null),
+  /** credits still due of creditsTotal; at 0 it stops renewing (nextCreditAt null) and stays listed; null = until cancelled */
+  creditsLeft: z.number().int().nonnegative().nullable().default(null),
 });
 export type BankInput = z.infer<typeof BankInput>;
 /** One credit from an input into the Bank. A subscription's credit expires a day later (no rollover); an API key's is durable (`expiresAt` null). */
@@ -2029,6 +2033,8 @@ export const AddBankInput = z.object({
   token: z.string().min(1).optional(),
   /** api-key inputs: earmark the stream for a goal node (docs/goals.md "Streams"); left out = the general balance */
   goalId: Id.nullable().optional(),
+  /** recurring api-key inputs: credit this many times in all (the first credit counts as 1), then stop; left out = until cancelled */
+  times: z.number().int().positive().max(1000).optional(),
 });
 export type AddBankInput = z.input<typeof AddBankInput>;
 export const CreateMeetingInput = z.object({ kind: MeetingKind.exclude(["one-on-one"]), buildingId: Id.nullable(), title: z.string().optional(), scheduledAt: Iso.optional(),

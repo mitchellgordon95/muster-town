@@ -173,6 +173,8 @@ export interface FinanceSources {
   inputs: {
     id: string | null; label: string; source: "api-key" | "subscription" | null; recurrence: "once" | "daily" | "weekly" | "monthly" | null;
     who: string; createdAt: string | null; cancelledAt: string | null;
+    /** a recurring input limited to N credits (null or absent = until cancelled); nextCreditAt null = none due */
+    creditsTotal?: number | null; creditsLeft?: number | null; nextCreditAt?: string | null;
     tokens: number; firstAt: string | null; lastAt: string | null; expiredTokens: number; credits: SourceCredit[];
   }[];
   donations: {

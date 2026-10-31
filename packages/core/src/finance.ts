@@ -9,12 +9,16 @@ const DAYS_PER = { daily: 1, weekly: 7, monthly: 30 } as const;
 
 /**
  * Expected adjusted tokens per day from the active recurring Bank inputs (monthly counts as 30 days; a subscription at
- * most its weekly cap / 7), rounded. Cancelled and once-only inputs count 0. Bank.dailyInflow and the finance
- * projection both use this, so GET /api/bank `dailyInflowTokens` and GET /api/finance `projection.dailyInflow` match.
+ * most its weekly cap / 7), rounded. Cancelled and once-only inputs count 0. An input limited to N credits counts only
+ * the credits still due inside the 30-day projection: min(creditsLeft, 30 / period) × tokens / 30 (a daily key with 2
+ * credits left adds 2 × tokens to the next 30 days). Bank.dailyInflow and the finance projection both use this, so
+ * GET /api/bank `dailyInflowTokens` and GET /api/finance `projection.dailyInflow` match.
  */
-export function dailyInflowOf(inputs: Pick<BankInput, "tokens" | "recurrence" | "weeklyCapTokens" | "cancelledAt">[]): number {
+export function dailyInflowOf(inputs: (Pick<BankInput, "tokens" | "recurrence" | "weeklyCapTokens" | "cancelledAt"> & { creditsLeft?: number | null })[]): number {
   return Math.round(inputs.reduce((s, i) => {
     if (i.cancelledAt || i.recurrence === "once") return s;
+    const periods = FINANCE_PROJECTION_DAYS / DAYS_PER[i.recurrence];
+    if (i.creditsLeft != null) return s + Math.min(i.creditsLeft, periods) * i.tokens / FINANCE_PROJECTION_DAYS;
     const perDay = i.tokens / DAYS_PER[i.recurrence];
     return s + (i.weeklyCapTokens ? Math.min(perDay, i.weeklyCapTokens / 7) : perDay);
   }, 0));

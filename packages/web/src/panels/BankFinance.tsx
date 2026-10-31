@@ -15,6 +15,7 @@
 import { api, type Finance, type FinanceFly, type FinanceSources, type FinanceSpend, type SpendNode } from "../api";
 import type { ReactNode } from "react";
 import { ADJ, ADJ_HINT, Section, useLoad } from "./ui";
+import { creditsLeftLine } from "./BankFunding";
 
 const n = (x: number) => Math.round(x).toLocaleString("en-US");
 
@@ -174,7 +175,7 @@ export function sourcesCheckLine(s: FinanceSources): { ok: boolean; text: string
 }
 
 function SourceInputLine({ i }: { i: SourceInputRow }) {
-  const meta = [i.source ? SOURCE_NAME[i.source] : null, i.recurrence, i.who && i.label ? `from ${i.who}` : null, i.cancelledAt ? "cancelled" : null].filter(Boolean).join(" · ");
+  const meta = [i.source ? SOURCE_NAME[i.source] : null, i.recurrence, creditsLeftLine(i), i.who && i.label ? `from ${i.who}` : null, i.cancelledAt ? "cancelled" : null].filter(Boolean).join(" · ");
   const title = i.cancelledAt ? `Cancelled ${day(i.cancelledAt)}` : (i.id ?? undefined);
   const line = (
     <span className="spend-line" title={title}>
