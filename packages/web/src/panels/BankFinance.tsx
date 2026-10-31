@@ -64,7 +64,9 @@ export const spendNotes = (sp: Pick<FinanceSpend, "weightMismatchNote">): Partia
 function SpendRow({ node, notes }: { node: SpendNode; notes: Partial<Record<SpendNode["kind"], string>> }) {
   const line = (
     <span className="spend-line">
-      <span className="spend-name" title={node.id ?? node.name}>{node.name}{node.sessions ? <span className="muted"> · {n(node.sessions)} session{node.sessions === 1 ? "" : "s"}</span> : null}</span>
+      <span className="spend-name" title={node.id ?? node.name}>{node.kind === "grant" && node.id
+        ? <a className="spend-grant" href={`#/grant/${node.id}`} title={node.objective ?? node.name}>{node.name}</a>
+        : node.name}{node.sessions ? <span className="muted"> · {n(node.sessions)} session{node.sessions === 1 ? "" : "s"}</span> : null}</span>
       <span className="spend-tokens">{n(node.tokens)}</span>
       <span className="spend-share muted">{pct(node.share)}</span>
     </span>
