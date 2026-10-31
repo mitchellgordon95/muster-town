@@ -636,7 +636,7 @@ export function startRuntime(opts: RuntimeOptions): Runtime {
     }
   }
   /** Forget the agent's live session (killing its child, if any) and end its running work/manage Session row as orphaned. */
-  function dropLive(agentId: string, error: string): void {
+  function dropLive(agentId: string, error: string, status: "error" | "interrupted" = "error"): void {
     const l = ctx.live.get(agentId);
     if (l) { abortWork(ctx, agentId, 0); ctx.live.delete(agentId); }
     starting.delete(agentId);
@@ -644,7 +644,7 @@ export function startRuntime(opts: RuntimeOptions): Runtime {
     const talk = ctx.talking.get(agentId)?.sessionId;
     for (const s of world.sessions.where("agentId = ? AND status = 'running' AND purpose IN ('work', 'manage')", [agentId])) {
       if (s.id === talk) continue;
-      try { world.ops.endSession(s.id, { status: "error", error }); } catch (e) { log("end orphaned session")(e); }
+      try { world.ops.endSession(s.id, { status, error }); } catch (e) { log("end orphaned session")(e); }
     }
   }
   /** The agent's live session is a meeting: only a facilitation, or the manager's session while a 1:1 of theirs is open. */
@@ -708,7 +708,8 @@ export function startRuntime(opts: RuntimeOptions): Runtime {
     quiesce: async () => { await world.host.quiesce?.(30_000); },
     inMeeting: (agentId) => inMeetingSession(agentId),
     beforeRestart: (head) => postRestartNotices(head),
-    drop: (agentId) => dropLive(agentId, "orphaned: redeploy drain found it stuck"),
+    // the redeploy cut it: interrupted, not a failure (the `sessions` alert counts only `error`)
+    drop: (agentId) => dropLive(agentId, "cut by redeploy: drain found it stuck", "interrupted"),
     // host sessions take it on their input; desk sessions through the interrupt queue (next control poll);
     // a facilitator is told to close the meeting (and only that: no work interrupt is queued for an agent that is only facilitating)
     nudge: (agentId, text) => {

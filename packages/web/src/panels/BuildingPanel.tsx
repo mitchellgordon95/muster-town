@@ -16,6 +16,7 @@ import { GoalTabsSummary, GoalsTab, GrantsTab } from "./GoalsTab";
 import { GoalPicker, goalPath, useGoalTree } from "./GoalPicker";
 import { findGoal } from "./goalTree";
 import { purposeOf } from "../purpose";
+import { IdLink } from "./Markdown";
 
 /** "Owner: <owner>" (docs/goals.md "Owners on nodes"): the attachment's effective owner, once; the goal card above already says the goal, so only a link to it in the Town Hall goal tree follows. */
 function GoalOwner({ b }: { b: SnapshotBuilding }) {
@@ -137,9 +138,9 @@ function defaultsLine(b: SnapshotBuilding, repo: Workspace | undefined): ReactNo
 }
 
 /** What a fire creates, in words: its lane and who takes it ("exploration · the building queue (a fork runs it)"). */
-function createsLabel(x: Schedule, b: SnapshotBuilding): string {
-  const lane = x.lane === "grant" ? `grant ${x.grantId}` : x.lane === "exploration" ? `exploration${x.keyResultId ? ` ${x.keyResultId}` : ""}` : "directed";
-  return `${lane} · ${b.managerAgentId ? "the building queue (a fork runs it)" : "nobody (no manager agent)"}`;
+function createsLabel(x: Schedule, b: SnapshotBuilding): ReactNode {
+  const lane = x.lane === "grant" ? <>grant {x.grantId ? <IdLink id={x.grantId} /> : null}</> : x.lane === "exploration" ? <>exploration{x.keyResultId ? <> <IdLink id={x.keyResultId} /></> : null}</> : "directed";
+  return <>{lane} · {b.managerAgentId ? "the building queue (a fork runs it)" : "nobody (no manager agent)"}</>;
 }
 
 /** The building's Schedule tab (GET /api/scheduled): timed jobs that live on the building; each run goes to whoever is around. The schedule board on the map opens it. */
