@@ -93,6 +93,29 @@ describe("redeploy without draining", () => {
     expect(s.world.events.recent({ limit: 50 }).filter((e) => e.type === "session.ended" && (e.payload as { sessionId?: string }).sessionId === s.session.id)).toHaveLength(1);
   });
 
+  test("a desk an image redeploy kept busy (stale_desks) is removed once its adopted session ends, never while it runs", async () => {
+    const s = await running();
+    s.runtime.redeploy({ image: false, requestedBy: "Noor" });
+    await vi.waitFor(() => expect(s.exit).toHaveBeenCalledWith(75), { timeout: 15_000 });
+    // what the image redeploy's recreateDesks records for a resident whose session it found running
+    s.world.db.prepare("INSERT INTO stale_desks (key, buildingId, n, at) VALUES (?, NULL, NULL, ?)").run(s.noor.id, new Date().toISOString());
+    const desk = new FakeDesk();
+    const removed: string[] = [];
+    Object.assign(desk, { remove: async (agentId: string) => { removed.push(agentId); } });
+    const next = restart(s, { deskBackend: desk });
+    expect(next.adopted).toEqual([s.session.id]);
+    await next.tickOnce();
+    expect(removed).toEqual([]);
+    await next.finishWorkSession(s.session.id, { counts: { input: 10, output: 500, cacheRead: 0, cacheWrite5m: 0, cacheWrite1h: 0 }, turns: 4 });
+    await next.tickOnce();
+    await vi.waitFor(() => expect(removed).toEqual([s.noor.id]));
+    expect(s.world.db.prepare("SELECT COUNT(*) AS c FROM stale_desks").get()).toEqual({ c: 0 });
+    await vi.waitFor(() => expect(s.world.events.recent({ limit: 50 }).some((e) => (e.payload as { staleDesk?: string }).staleDesk === s.noor.id)).toBe(true));
+    // drained once: later passes don't remove it again
+    await next.tickOnce();
+    expect(removed).toHaveLength(1);
+  });
+
   test("an adopted desk that goes silent is ended as lost and its assignment re-queued", async () => {
     const s = await running();
     s.runtime.redeploy({ image: false, requestedBy: "Noor" });
