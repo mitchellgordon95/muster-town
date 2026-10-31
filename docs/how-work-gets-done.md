@@ -220,7 +220,7 @@ Related buildings share a plaza because they share a top-level goal. Walking fro
 
 ## 11. Build order
 
-Each step is one PR, with tests and docs, merged green and redeployed by the Workshop under the merge rules (dc_vzqoh7ppen). Migrations are additive (new tables, new nullable columns, back-fills); their numbers are checked against main's highest right before merging (065 on 2026-10-31). Steps 1–3 touch the Bank, and Mitchell's go-ahead in mt_wql34b8gkl ("go ahead and do all the things") is the sign-off for them.
+Each step is one PR, with tests and docs, merged green and redeployed by the Workshop under the merge rules (dc_vzqoh7ppen). Migrations are additive (new tables, new nullable columns, back-fills); their numbers are checked against main's highest right before merging (066 on 2026-10-31). Steps 1–3 touch the Bank, and Mitchell's go-ahead in mt_wql34b8gkl ("go ahead and do all the things") is the sign-off for them.
 
 1. **Free tokens (read-only).** Core `Bank.freeTokens(goalId)` per §7, from the balance, earmarks, funded grants' remaining and open proposals' asks. It is shown in the goal tree's Funding block and in `GET /api/goals/:id`. No migration, no behaviour change.
 2. **Reservations and the explore rule.** A migration adds `bank_reservations` and nullable `goals.explore`, `goals.exploreChunkTokens`, `goals.exploreCapTokensPerDay`, inherited through `fundingAt`. The root back-fills on / 100,000 / none. The runtime tick's explore step (§3) does its work; the desk cap is the chunk; the reservation closes at session end. Exploration assignments name a `goalId`. Free tokens subtract open reservations.
