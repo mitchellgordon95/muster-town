@@ -38,6 +38,21 @@ export function describeWait(world: World, w: WaitFor): string {
   return `${w.after.slice(0, 16).replace("T", " ")} UTC`;
 }
 
+/**
+ * The last assignment of `a`'s park chain: follow each park continuation (`parked`, `fromAssignmentId` = the one that
+ * parked) to the newest. A `{assignment}` wait reads this one, so it holds while the work is parked (done with a pending
+ * or running continuation) and releases once the chain ends done without a continuation, or cancelled.
+ */
+export function chainTip(world: World, a: Assignment): Assignment {
+  const seen = new Set([a.id]);
+  for (let cur = a; ;) {
+    const next = world.assignments.first("fromAssignmentId = ? AND parked IS NOT NULL", [cur.id], "ORDER BY createdAt DESC, rowid DESC");
+    if (!next || seen.has(next.id)) return cur;
+    seen.add(next.id);
+    cur = next;
+  }
+}
+
 /** Whether the wait holds now. `deploy` needs the runtime (`world.host`): without one it never holds (and expires). */
 export function waitMet(world: World, a: Assignment, at: Date = new Date()): boolean {
   const w = a.waitFor;
@@ -48,7 +63,9 @@ export function waitMet(world: World, a: Assignment, at: Date = new Date()): boo
   }
   if ("assignment" in w) {
     const dep = world.assignments.get(w.assignment);
-    return !dep || dep.status === "done" || dep.status === "cancelled";
+    if (!dep) return true;
+    const tip = chainTip(world, dep);
+    return tip.status === "done" || tip.status === "cancelled";
   }
   if ("decision" in w) {
     const d = world.docs.get(w.decision);

@@ -8,7 +8,7 @@ import { QUEUE_ORDER, type Assignment, type BlockedAssignment, type BlockedBy, t
 import { isTownHallItem } from "./domain.ts";
 import { laneBlock } from "./lanes.ts";
 import { truncate } from "./util.ts";
-import { waitMet } from "./waits.ts";
+import { chainTip, waitMet } from "./waits.ts";
 import type { World } from "./world.ts";
 
 /** 9,387,488 → "9.4M", 512,000 → "512k" */
@@ -32,7 +32,9 @@ export function blockedBy(world: World, a: Assignment, at: Date = new Date()): B
       return { kind: "deploy", targetId: w.deploy, placeId: `door:${a.buildingId}`, text: `waits for ${w.deploy === "next" ? "the next redeploy" : `deploy ${w.deploy.slice(0, 7)}`}${live}` };
     }
     if ("assignment" in w) {
-      const dep = world.assignments.get(w.assignment);
+      // a parked dependency: point at its continuation, the work that still has to finish
+      const found = world.assignments.get(w.assignment);
+      const dep = found && chainTip(world, found);
       return dep
         ? { kind: "assignment", targetId: dep.id, agentId: dep.agentId, text: `waits on assignment "${truncate(dep.title, 80)}" (${world.nameOf(dep.agentId)})` }
         : { kind: "assignment", targetId: w.assignment, text: `waits on assignment ${w.assignment}` };
