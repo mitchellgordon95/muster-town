@@ -1,5 +1,5 @@
 import {
-  Agent, CreateBuildingInput, ROOT_GOAL_ID, CreateResidentInput, RegisterVisitorInput,
+  Agent, CreateBuildingInput, patchOf, ROOT_GOAL_ID, CreateResidentInput, RegisterVisitorInput,
   type Building, type BuildingDefaults, type Lot, type Tile, type User,
 } from "@muster-town/schema";
 import { AppError, badRequest } from "./errors.ts";
@@ -98,7 +98,7 @@ type SpecText = { goal?: string; description?: string } & Partial<BuildingDefaul
  */
 export function updateBuilding(world: World, id: string, patch: Partial<In<typeof CreateBuildingInput>>, actor: Actor = null): Building {
   const cur = world.buildings.require(id, "building");
-  const p = CreateBuildingInput.partial().parse(patch);
+  const p = patchOf(CreateBuildingInput).parse(patch);
   if (p.name === "") p.name = world.goalTree.defaultName(p.goalId ?? world.goalTree.attachmentOf(cur));
   if (p.headcount !== undefined) {
     if (p.headcount > MAX_HEADCOUNT) throw badRequest(`headcount must be <= ${MAX_HEADCOUNT}`);
