@@ -9,7 +9,7 @@ import { api, type AgentPermissionsView, type ForkSummary, type ThreadMessage } 
 import { forkTip } from "../forks";
 import { store, useTown, roleOf } from "../state";
 import { PanelShell } from "./PanelShell";
-import { DocText, Markdown } from "./Markdown";
+import { DocText, IdLink, Markdown } from "./Markdown";
 import { ADJ, Act, Empty, ErrorLine, KV, Loading, Pill, Section, ShowMore, StatusPill, breakdownTitle, clock, fmtTokens, nameOf, timeAgo, usd, useLoad } from "./ui";
 import { portraitUrl } from "../map/sprites";
 import { SignInNote } from "../auth/auth";
@@ -77,7 +77,7 @@ function ForkTab({ fork, loading }: { fork?: ForkSummary; loading: boolean }) {
     <Section title="Fork">
       <KV items={[
         ["Fork of", <button className="link" onClick={() => store.open({ kind: "agent", id: fork.agent.forkOf! })}>{fork.forkOfName}</button>],
-        ["Assignment", fork.assignmentId ? <>{fork.assignmentTitle} <span className="muted">({fork.assignmentId})</span></> : "none"],
+        ["Assignment", fork.assignmentId ? <>{fork.assignmentTitle} <span className="muted">(<IdLink id={fork.assignmentId} />)</span></> : "none"],
         ...(fork.chainId ? [["Chain", <Pill tone="neutral">chain {fork.chainId} · hop {fork.hop}</Pill>] as [string, ReactNode]] : []),
         ["Session", fork.sessionId ? <>{fork.sessionId} · {fork.tokens || fork.agent.status === "retired" ? <>{fmtTokens(fork.tokens)} {ADJ}</> : "running (tokens book when it ends)"}{fmtPerf(fork) ? <> · {fmtPerf(fork)}</> : null}{fork.transcript ? <> · <TranscriptLink sessionId={fork.sessionId} /></> : null}</> : "not started"],
         ["Report", fork.reportId ? <button className="link" onClick={() => openDoc(fork.reportId!)}>{fork.reportTitle ?? fork.reportId}</button> : fork.agent.status === "retired" ? "none" : "not yet"],
