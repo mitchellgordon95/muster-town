@@ -1,21 +1,15 @@
 /**
  * Daily funding reconciliation (post-mortem 2026-10-30 "still open" 1, asked for in 1:1 mt_x40qq8poc3). Once a day,
- * for the UTC day before, the Bank checks that every session ran on a credential it lists, that no desk claimed a
- * different funding than it was handed, and (with the org's Admin API key in the collective secrets, `ANTHROPIC_ADMIN_KEY`)
- * that the Console's spend for the day is explained by the Bank's api-key spend. Anything unexplained is an in-town
- * alert: a `system` event with `alert: funding-reconcile` (the HUD shows it for a day). Pure over the world; the runtime
- * fetches the Console report and calls `reconcileFunding`.
+ * for the UTC day before, the Bank checks itself against its own session records: every api-key session ran on a
+ * credential the Bank lists, and no desk claimed a different funding than it was handed. Anything unexplained is an
+ * in-town alert: a `system` event with `alert: funding-reconcile` (the HUD shows it for a day). Pure over the world;
+ * the runtime calls `reconcileFunding` once per day. The check never leaves the town: it reads no Anthropic Console
+ * or Admin API and needs no secret (Mitchell, 2026-10-31, reply to dc_wc1aa3wi9i: the project does not touch anyone's
+ * Console).
  */
 import type { World } from "./world.ts";
 
-/** The collective secret (Town Hall → Secrets) holding the org's Admin API key (`sk-ant-admin…`) for the Console cost report. */
-export const ADMIN_KEY_SECRET = "ANTHROPIC_ADMIN_KEY";
-/** Console spend the Bank's api-key spend doesn't explain is tolerated up to the larger of this and 10% of the Bank's figure (list vs billed price). */
-export const RECONCILE_TOLERANCE_USD = 1;
 const DAY_MS = 86_400_000;
-
-/** The Console's cost for the day (USD), or why it couldn't be read. */
-export type ConsoleCost = { usd: number } | { error: string } | null;
 
 export interface ReconcileResult {
   day: string;
@@ -28,11 +22,6 @@ export interface ReconcileResult {
   unlisted: string[];
   /** desks that claimed a different funding than they were handed (`alert: funding-mismatch` events of the day) */
   mismatches: number;
-  /** the Console's USD for the day; null = no Admin key, or the report failed (`consoleError`) */
-  consoleUsd: number | null;
-  consoleError: string | null;
-  /** Console spend past the Bank's api-key spend and the tolerance; null without a Console figure */
-  unexplainedUsd: number | null;
   ok: boolean;
 }
 
@@ -43,11 +32,8 @@ export function reconciled(world: World, day: string): boolean {
   return world.events.list({ types: ["system"], textLike: `Bank reconciliation for ${day}%`, limit: 1 }).length > 0;
 }
 
-/**
- * Reconcile one UTC day and log the result (`system` event; `alert: funding-reconcile` when something is unexplained).
- * `console`: the Console's cost for the day from the Admin API (the runtime fetches it), an error, or null without a key.
- */
-export function reconcileFunding(world: World, day: string, console: ConsoleCost): ReconcileResult {
+/** Reconcile one UTC day and log the result (`system` event; `alert: funding-reconcile` when something is unexplained). */
+export function reconcileFunding(world: World, day: string): ReconcileResult {
   const from = `${day}T00:00:00.000Z`, to = new Date(Date.parse(from) + DAY_MS).toISOString();
   const sessions = world.sessions.where("status != 'running' AND endedAt >= ? AND endedAt < ?", [from, to]);
   let subscriptionUsd = 0, apiKeyUsd = 0, donorKeyUsd = 0;
@@ -64,19 +50,13 @@ export function reconcileFunding(world: World, day: string, console: ConsoleCost
     } else subscriptionUsd += s.costUsd;
   }
   const mismatches = world.events.list({ types: ["system"], from, limit: 5000 }).filter((e) => e.ts < to && e.payload.alert === "funding-mismatch").length;
-  const consoleUsd = console && "usd" in console ? round(console.usd) : null;
-  const consoleError = console && "error" in console ? console.error : null;
-  const tolerance = Math.max(RECONCILE_TOLERANCE_USD, 0.1 * apiKeyUsd);
-  const unexplainedUsd = consoleUsd === null ? null : round(Math.max(0, consoleUsd - apiKeyUsd - tolerance));
-  const ok = unlisted.length === 0 && mismatches === 0 && !(unexplainedUsd && unexplainedUsd > 0);
-  const result: ReconcileResult = { day, sessions: sessions.length, subscriptionUsd: round(subscriptionUsd), apiKeyUsd: round(apiKeyUsd), donorKeyUsd: round(donorKeyUsd), unlisted, mismatches, consoleUsd, consoleError, unexplainedUsd, ok };
-  const consoleLine = consoleUsd !== null ? `Console $${consoleUsd.toFixed(2)}` : consoleError ? `Console report failed (${consoleError.slice(0, 120)})` : `no ${ADMIN_KEY_SECRET} secret, Console not checked`;
+  const ok = unlisted.length === 0 && mismatches === 0;
+  const result: ReconcileResult = { day, sessions: sessions.length, subscriptionUsd: round(subscriptionUsd), apiKeyUsd: round(apiKeyUsd), donorKeyUsd: round(donorKeyUsd), unlisted, mismatches, ok };
   const problems = [
-    unexplainedUsd ? `$${unexplainedUsd.toFixed(2)} of Console spend the Bank cannot account for` : null,
     unlisted.length ? `${unlisted.length} api-key session(s) on a key the Bank does not list` : null,
     mismatches ? `${mismatches} desk(s) claimed a funding they were not handed` : null,
   ].filter((p): p is string => !!p);
-  const text = `Bank reconciliation for ${day}: ${sessions.length} sessions, Bank api-key $${result.apiKeyUsd.toFixed(2)}, subscription $${result.subscriptionUsd.toFixed(2)}, donor keys $${result.donorKeyUsd.toFixed(2)}; ${consoleLine}${problems.length ? `. ALERT: ${problems.join("; ")}` : ". OK"}`;
+  const text = `Bank reconciliation for ${day}: ${sessions.length} sessions, Bank api-key $${result.apiKeyUsd.toFixed(2)}, subscription $${result.subscriptionUsd.toFixed(2)}, donor keys $${result.donorKeyUsd.toFixed(2)}${problems.length ? `. ALERT: ${problems.join("; ")}` : ". OK"}`;
   world.events.append({ type: "system", text, payload: { reconcile: day, ...result, ...(ok ? {} : { alert: "funding-reconcile" }) } });
   return result;
 }
