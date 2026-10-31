@@ -13,7 +13,7 @@ import type { AddressInfo } from "node:net";
 import { RESTART_BACKOFF_MS, restarting } from "./restart.ts";
 
 /** Town tools that change nothing (inbox only marks messages read): resent even when a cut call may have run. */
-export const READ_ONLY_TOOLS = new Set(["look", "read", "search", "board", "inbox", "assignments", "skills"]);
+export const READ_ONLY_TOOLS = new Set(["look", "town", "read", "search", "board", "inbox", "assignments", "skills"]);
 
 /** Request headers passed on to the town (the rest are hop-by-hop or the proxy's own). */
 const FORWARD = ["authorization", "content-type", "accept", "mcp-protocol-version", "mcp-session-id", "last-event-id"];
