@@ -244,16 +244,58 @@ export function drawPill(g: CanvasRenderingContext2D, x: number, y: number, text
  * A goal's signpost label (docs/goals.md "The map is the tree"): the goal's words on a wooden board, bottom-left at
  * (x, y), cut to `max` px wide (the full words are in the place's name).
  */
-export function drawGoalSign(g: CanvasRenderingContext2D, x: number, y: number, text: string, max = 220) {
+export function drawGoalSign(g: CanvasRenderingContext2D, x: number, y: number, text: string, max = 220): number {
   g.font = "700 10px ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, sans-serif";
   let t = text;
   if (g.measureText(t).width > max) { while (t.length > 1 && g.measureText(`${t}…`).width > max) t = t.slice(0, -1); t = `${t.trimEnd()}…`; }
-  const w = g.measureText(t).width + 10, h = 15;
+  const w = g.measureText(t).width + 10, h = GOAL_SIGN_H;
   const bx = Math.round(x), by = Math.round(y - h);
   g.fillStyle = "#8a5a2b"; g.strokeStyle = "#3b2410"; g.lineWidth = 2;
   roundRect(g, bx, by, w, h, 3); g.stroke(); g.fill();
   g.fillStyle = "#fff4dc"; g.textBaseline = "middle";
   g.fillText(t, bx + 5, by + h / 2 + 0.5);
+  return bx + w;
+}
+
+export const GOAL_SIGN_H = 15;
+const SIGN_MIN = 24;
+
+/**
+ * Where each goal's sign label goes this frame (kr_c3c7651d18, "no map sign is hidden"): wanted with its left edge
+ * at its signpost (x) and its bottom at y (moved down inside the view at the top edge); slid right so it starts on screen, clear of every `avoid` rect on its row
+ * (the HUD card, the minimap) and of the label before it on that row; its width (`max`, before the text is cut with
+ * "…") stops short of the next signpost on the row, the next `avoid` rect and the view's right edge. `measure(i, x, y, max)` draws
+ * a label and returns its right edge. null: the post is off screen or no room is left on its row.
+ */
+export function placeGoalSigns(items: { x: number; y: number; max: number }[], view: Rect, avoid: Rect[], measure: (i: number, x: number, y: number, max: number) => number): ({ x: number; y: number; max: number } | null)[] {
+  const out: ({ x: number; y: number; max: number } | null)[] = items.map(() => null);
+  const order = items.map((_, i) => i).sort((a, b) => items[a].y - items[b].y || items[a].x - items[b].x);
+  let row = NaN, after = -Infinity;
+  for (const i of order) {
+    const { x: px, y, max } = items[i];
+    if (y !== row) { row = y; after = -Infinity; }
+    if (y < view.y || y - GOAL_SIGN_H > view.y + view.h || px > view.x + view.w) continue;
+    // a post at the top edge keeps its label just inside the view
+    const bottom = Math.max(y, view.y + EDGE + GOAL_SIGN_H), top = bottom - GOAL_SIGN_H;
+    const onRow = avoid.filter((o) => top < o.y + o.h && o.y < bottom);
+    let x = Math.max(px, view.x + EDGE, after + GAP * 2);
+    for (let moved = true; moved;) {
+      moved = false;
+      for (const o of onRow) if (x < o.x + o.w && o.x < x + SIGN_MIN) { x = o.x + o.w + GAP * 2; moved = true; }
+    }
+    // the next signpost on the row, if its label can still start there (one hidden under the HUD slides after this one)
+    const next = Math.min(...items.filter((o) => o.y === y && o.x > px && o.x > x + SIGN_MIN + 16).map((o) => o.x));
+    const wall = Math.min(view.x + view.w - EDGE, ...onRow.filter((o) => o.x >= x).map((o) => o.x - GAP * 2));
+    const want = Math.min(max, next - x - 16);
+    // squeezed by the right edge or the minimap: slide back left (still clear of the label before it and the HUD) for room
+    const back = Math.max(after + GAP * 2, wall - 10 - want);
+    if (wall - x - 10 < want && back < x && !onRow.some((o) => back < o.x + o.w && o.x < x)) x = back;
+    const room = Math.min(want, wall - x - 10);
+    if (room < SIGN_MIN) continue;
+    out[i] = { x, y: bottom, max: room };
+    after = measure(i, x, bottom, room);
+  }
+  return out;
 }
 
 /** Break `text` into lines no wider than `max` px in the current font (a single over-long word gets its own line). */
