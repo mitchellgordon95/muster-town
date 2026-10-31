@@ -33,7 +33,7 @@ describe("in-tray", () => {
 describe("DELETE /api/agents/:id", () => {
   it("needs building.manage; dismisses, calls the runtime hook, hides the agent from the snapshot", async () => {
     const retired: { id: string; purge?: boolean }[] = [];
-    const runtime: RuntimeHooks = { chat: async () => "", interrupt: () => false, onAgentRetired: (id, o) => { retired.push({ id, purge: o?.purge }); } };
+    const runtime: RuntimeHooks = { interrupt: () => false, onAgentRetired: (id, o) => { retired.push({ id, purge: o?.purge }); } };
     const { app, auth, world, by } = await setup(runtime);
     const mei = by("Mei");
     const meiToken = world.tokens.getOrCreate("agent", mei.id);

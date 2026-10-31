@@ -1,6 +1,6 @@
 /**
- * Agent panel: status, model, budget; tabs Talk (live activity; a message box only for the building's manager agent,
- * the one resident humans talk to) | Assignments | Memory (the resident's wiki pages and log: what it knows and did).
+ * Agent panel: status, model, budget; tabs Talk (live activity and tells; a building's manager agent is talked to in a
+ * 1:1) | Assignments | Memory (the resident's wiki pages and log: what it knows and did).
  * Reports live in the in-tray and library.
  */
 import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
@@ -14,12 +14,9 @@ import { ADJ, Act, Empty, ErrorLine, KV, Loading, Pill, Section, ShowMore, Statu
 import { portraitUrl } from "../map/sprites";
 import { SignInNote } from "../auth/auth";
 import { slotsFull } from "../redeploy";
-import { canOneOnOne, openOneOnOne } from "./oneOnOne";
-import { useMediaPaste } from "./mediaPaste";
+import { canOneOnOne, openOneOnOne, openPlanner } from "./oneOnOne";
 import { fmtPerf, runsAtLabel } from "../format";
 
-type Msg = { role: "user" | "assistant"; text: string; ts: string };
-const chats = new Map<string, Msg[]>();
 
 export function AgentPanel({ id, tab }: { id: string; tab?: string }) {
   const live = useTown((s) => s.agents[id]);
@@ -35,7 +32,7 @@ export function AgentPanel({ id, tab }: { id: string; tab?: string }) {
   const fork = detail.data?.agent.id === id ? detail.data.fork : undefined;
   // a fork has no private memory (it writes topic pages); a building's manager gets its Forks tab
   const tabs = agent.forkOf ? ["Fork", "Talk", "Assignments"]
-    : agent.kind === "resident" ? ["Talk", "Assignments", "Memory", ...(building?.managerAgentId === agent.id ? ["Forks"] : [])]
+    : agent.kind === "resident" ? ["Talk", "Assignments", "Memory", ...(building?.managerAgentId === agent.id && building.kind !== "town-hall" ? ["Forks"] : [])]
     : agent.kind === "visitor" ? ["Talk", "Assignments"] : ["Talk"];
   const mailbox = detail.data?.agent.id === id ? detail.data.mailbox : undefined;
   const role = [roleOf(agent) || agent.kind, building?.name].filter(Boolean).join(" · ");
@@ -220,11 +217,8 @@ function Presence({ agent, mailbox }: { agent: Agent; mailbox?: { unread: number
 
 /**
  * Talk: the agent's live session activity (tool calls, thoughts, status) in a muted style, like a Claude Code
- * transcript, with your messages and its `tell`s back as a chat thread where messaging is possible. Residents work
- * from assignments and don't take messages; the one exception is the building's manager agent, the building's
- * conversational surface: idle → a message starts its session; working → it interrupts now (toggle on) or waits in
- * the inbox for the next pause. A building without a manager agent keeps direct messages. "Ask" (service agents) is
- * a read-only quick question to a cheap-model proxy.
+ * transcript, with the `tell`s between it and you as a chat thread. Humans talk to a building's manager agent in a 1:1
+ * (the Town Hall's is the Planner, its "Plan with an agent" 1:1); other residents work from assignments.
  */
 function TalkTab({ agent }: { agent: Agent }) {
   const events = useTown((s) => s.events);
@@ -233,15 +227,17 @@ function TalkTab({ agent }: { agent: Agent }) {
   const isService = agent.kind === "service", isHuman = agent.kind === "human", isVisitor = agent.kind === "visitor";
   const home = useTown((s) => s.buildings.find((b) => b.id === agent.homeBuildingId));
   const manager = useTown((s) => (home?.managerAgentId ? s.agents[home.managerAgentId] : undefined));
-  /** a resident other than its building's manager agent: no messages, its manager takes requests */
+  /** a resident other than its building's manager agent: its manager takes requests */
   const viaManager = agent.kind === "resident" && !!manager && manager.id !== agent.id && manager.status !== "retired" && manager.status !== "banned";
   const isManager = agent.kind === "resident" && manager?.id === agent.id;
-  const talkable = (agent.kind === "resident" || isVisitor) && !viaManager && agent.status !== "retired" && agent.status !== "banned" && !!me;
+  // the Town Hall's manager is the Planner: its 1:1 is "Plan with an agent" (an admin, or a goal's owner)
+  const townHall = home?.kind === "town-hall";
+  const canTalk = townHall ? store.can("goals.edit") || canOneOnOne(home?.id) : canOneOnOne(home?.id);
+  /** the tells between the agent and my avatar (an agent may `tell` me; nothing here sends one) */
+  const threaded = (agent.kind === "resident" || isVisitor) && !!me;
   const working = agent.status === "working";
   const s = useLoad(() => (isHuman || isService ? Promise.resolve(null) : api().session(agent.id)), [agent.id, working]);
-  const th = useLoad(() => (talkable ? api().thread(agent.id) : Promise.resolve([] as ThreadMessage[])), [agent.id, talkable]);
-  const [log, setLog] = useState<Msg[]>(() => chats.get(agent.id) ?? []);
-  useEffect(() => { chats.set(agent.id, log); }, [log, agent.id]);
+  const th = useLoad(() => (threaded ? api().thread(agent.id) : Promise.resolve([] as ThreadMessage[])), [agent.id, threaded]);
   const timeline = useMemo(() => {
     const out: Item[] = [];
     // the thread: fetched, plus `agent.told` events between the agent and my avatar as they stream in
@@ -260,9 +256,8 @@ function TalkTab({ agent }: { agent: Agent }) {
       }
       if (e.agentId === agent.id) out.push({ kind: "ev", ts: e.ts, ev: e });
     }
-    for (const m of log) out.push({ kind: "ask", ts: m.ts, msg: m });
     return out.sort((a, b) => (a.ts < b.ts ? -1 : a.ts > b.ts ? 1 : 0));
-  }, [th.data, s.data, events, agent.id, avatarId, log]);
+  }, [th.data, s.data, events, agent.id, avatarId]);
   const building = store.state.buildings.find((b) => b.id === agent.homeBuildingId);
   const daily = building?.dailyTokensPerAgent ?? 0;
   const sess = s.data?.session;
@@ -295,9 +290,9 @@ function TalkTab({ agent }: { agent: Agent }) {
       ) : null}
       {agent.activity ? <div className="now"><span className="dot" /> {agent.activity}</div> : null}
       {agent.status === "stopped" && canControl ? (
-        <div className="callout">{agent.name} is stopped. A message wakes them, or <Act small run={async () => { await api().resume(agent.id); store.toast(`${agent.name} is idle again`, "ok"); }}>Resume</Act> without one.</div>
+        <div className="callout">{agent.name} is stopped. <Act small run={async () => { await api().resume(agent.id); store.toast(`${agent.name} is idle again`, "ok"); }}>Resume</Act> to let them take work again.</div>
       ) : null}
-      <Timeline items={timeline} agentName={agent.name} empty={isService ? `Ask ${agent.name} where to find something in the library.` : isVisitor && talkable ? `No messages yet. What you send waits in ${agent.name}'s inbox until their session reads it.` : talkable ? `Say something to ${agent.name}. They reply here.` : `${agent.name} hasn't done anything yet.`} />
+      <Timeline items={timeline} agentName={agent.name} empty={isService ? `${agent.name} keeps the library: browse it for what the town has written.` : `${agent.name} hasn't done anything yet.`} />
       {viaManager && manager ? (
         <div className="callout via-manager">
           <span>{agent.name} works from assignments and doesn't take messages. The Memory tab says what they know.</span>
@@ -305,20 +300,22 @@ function TalkTab({ agent }: { agent: Agent }) {
             : <button type="button" className="btn sm primary" onClick={() => store.open({ kind: "agent", id: manager.id, tab: "Talk" })}>Talk to ★ {manager.name}</button>}
           {working && canControl ? <Act small tone="bad" run={async () => { await api().stop(agent.id); store.toast(`${agent.name} stopped`, "ok"); }}>Stop</Act> : null}
         </div>
-      ) : isHuman ? null : !me ? <SignInNote to={`talk to ${agent.name}`} /> : isManager && canOneOnOne(home?.id) ? (
+      ) : isHuman || isService ? null : !me ? <SignInNote to={`talk to ${agent.name}`} /> : isManager && canTalk ? (
         <div className="callout via-manager">
-          <span>{agent.name} is {home!.name}'s manager. Talk in a 1:1: they answer as you go and can assign the work you agree on.</span>
-          <Act small tone="primary" run={() => openOneOnOne(home!.id)}>Talk to ★ {agent.name}</Act>
+          <span>{agent.name} is {home!.name}'s {townHall ? "manager, the planning agent" : "manager"}. Talk in a 1:1: they answer as you go and can {townHall ? "draft the goal-tree proposals you agree on" : "assign the work you agree on"}.</span>
+          <Act small tone="primary" run={() => townHall ? openPlanner() : openOneOnOne(home!.id)}>Talk to ★ {agent.name}</Act>
+          {working && canControl ? <Act small tone="bad" run={async () => { await api().stop(agent.id); store.toast(`${agent.name} stopped`, "ok"); }}>Stop</Act> : null}
         </div>
-      ) : <Composer agent={agent} talkable={talkable} canControl={canControl} outOfBudget={agent.status === "out-of-budget" || (daily > 0 && agent.spentTokensToday >= daily)} log={log} setLog={setLog} />}
+      ) : working && canControl ? (
+        <div className="actions"><Act small tone="bad" run={async () => { await api().stop(agent.id); store.toast(`${agent.name} stopped`, "ok"); }}>Stop</Act></div>
+      ) : null}
     </div>
   );
 }
 
 type Item =
   | { kind: "ev"; ts: string; ev: Event }
-  | { kind: "tell"; ts: string; mine: boolean; text: string; key: string }
-  | { kind: "ask"; ts: string; msg: Msg };
+  | { kind: "tell"; ts: string; mine: boolean; text: string; key: string };
 
 const EVENT_TONE: Partial<Record<Event["type"], string>> = {
   "agent.tool": "tool", "agent.thought": "thought", "agent.said": "said", "agent.told": "said", "agent.status": "status",
@@ -329,7 +326,7 @@ const EVENT_TONE: Partial<Record<Event["type"], string>> = {
 function Timeline({ items, empty, agentName }: { items: Item[]; empty: string; agentName: string }) {
   const end = useRef<HTMLDivElement>(null);
   useEffect(() => {
-    // pin to the bottom of the panel's scroller (the sticky composer sits below the last line)
+    // pin to the bottom of the panel's scroller (the callout sits below the last line)
     let el: HTMLElement | null = end.current?.parentElement ?? null;
     while (el && !(el.scrollHeight > el.clientHeight && /auto|scroll/.test(getComputedStyle(el).overflowY))) el = el.parentElement;
     if (el) el.scrollTop = el.scrollHeight; else end.current?.scrollIntoView({ block: "end" });
@@ -337,9 +334,8 @@ function Timeline({ items, empty, agentName }: { items: Item[]; empty: string; a
   if (!items.length) return <Empty>{empty}</Empty>;
   return (
     <div className="chat timeline talk">
-      {items.map((it, i) => {
+      {items.map((it) => {
         if (it.kind === "tell") return <div key={it.key} className={`msg ${it.mine ? "me" : "them"}`}><Markdown text={it.text} className="bubble" breaks /><small>{it.mine ? "you" : agentName} · {clock(it.ts)}</small></div>;
-        if (it.kind === "ask") return <div key={`a${i}`} className={`msg ask ${it.msg.role === "user" ? "me" : "them"}`}><Markdown text={it.msg.text} className="bubble" breaks /><small>{it.msg.role === "user" ? "quick question" : "desk assistant (read-only)"} · {clock(it.ts)}</small></div>;
         const e = it.ev, p = (e.payload ?? {}) as { interrupt?: boolean; now?: boolean; text?: string; sessionId?: string | null };
         if (p.interrupt) {
           const note = p.now ? "interrupted the current turn" : p.sessionId === null ? "waiting for the next session" : "queued for the next turn";
@@ -357,67 +353,6 @@ function Timeline({ items, empty, agentName }: { items: Item[]; empty: string; a
   );
 }
 
-function Composer({ agent, talkable, canControl, outOfBudget, log, setLog }: { agent: Agent; talkable: boolean; canControl: boolean; outOfBudget: boolean; log: Msg[]; setLog: (f: (l: Msg[]) => Msg[]) => void }) {
-  const [text, setText] = useState("");
-  const media = useMediaPaste(setText);
-  const [busy, setBusy] = useState(false);
-  const [now, setNow] = useState(true);
-  const [asking, setAsking] = useState(!talkable);
-  useEffect(() => { if (!talkable) setAsking(true); }, [talkable]);
-  const working = agent.status === "working";
-  const stamp = () => new Date().toISOString();
-  const ask = async (q: string) => {
-    const history = log.slice(-10).map(({ role, text }) => ({ role, text }));
-    setLog((l) => [...l, { role: "user", text: q, ts: stamp() }]);
-    try { const reply = await api().chat(agent.id, { message: q, history }); setLog((l) => [...l, { role: "assistant", text: reply, ts: stamp() }]); }
-    catch (e) { setLog((l) => [...l, { role: "assistant", text: `(couldn't reach ${agent.name}'s desk assistant: ${(e as Error).message})`, ts: stamp() }]); }
-  };
-  const send = async () => {
-    const q = text.trim(); if (!q || busy) return;
-    setBusy(true);
-    try {
-      if (asking) { setText(""); await ask(q); return; }
-      // your message comes back over the stream as an `agent.told` event and lands in the thread
-      const r = await api().message(agent.id, q, now);
-      setText("");
-      if (r.mode === "queued" && agent.kind === "visitor") store.toast(agent.status === "offline" ? `${agent.name} is offline: it waits in their mailbox` : `In ${agent.name}'s inbox: they'll see it on their next look`, "ok");
-      else if (r.mode === "queued") store.toast(outOfBudget ? `${agent.name} is out of budget: they'll read it when budget returns` : `${agent.name} will see it at their next pause`, "ok");
-    } catch (e) { store.toast((e as Error).message || "Request failed", "bad"); }
-    finally { setBusy(false); }
-  };
-  const visitor = agent.kind === "visitor";
-  // residents aren't a conversational surface (the server refuses the proxy for them); the quick question is for service agents and visitors
-  const canAsk = talkable && agent.kind !== "resident";
-  const status = asking ? `Quick question: ${agent.kind === "service" ? agent.name : `${agent.name}'s desk assistant`} answers from their activity and reports. It can't act.`
-    : visitor ? (agent.status === "offline" ? "offline: your message waits in their mailbox" : "Online: your message lands in their inbox; they see it on their next look.")
-    : outOfBudget ? "Out of budget: queued until budget returns."
-    : working ? (now ? "Working: your message interrupts now." : "Working: your message waits for the next pause.")
-    : agent.status === "stopped" ? "stopped: your message starts a session with it next"
-    : "Idle: your message starts a session.";
-  const placeholder = asking ? `Ask ${agent.kind === "service" ? agent.name : "a quick question"}…` : `Message ${agent.name}…`;
-  return (
-    <form className="chatbar composer" onSubmit={(e) => { e.preventDefault(); void send(); }}>
-      <div className="talk-status">{status}</div>
-      <textarea {...media.props} rows={2} value={text} placeholder={placeholder} onChange={(e) => setText(e.target.value)}
-        onKeyDown={(e) => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); void send(); } }} />
-      <div className="composer-actions">
-        {canAsk ? (
-          <button type="button" className="link talk-ask" onClick={() => setAsking((a) => !a)}>
-            {asking ? `Back to messaging ${agent.name}` : "Ask (quick question, read-only)"}
-          </button>
-        ) : null}
-        <span className="grow" />
-        {talkable && !asking && !visitor ? (
-          <label className={`talk-now ${working ? "" : "off"}`} title="Only matters while the agent is working: on stops the current turn, off leaves it in their inbox">
-            <input type="checkbox" checked={now} onChange={(e) => setNow(e.target.checked)} /> interrupt now
-          </label>
-        ) : null}
-        {working && canControl ? <Act small tone="bad" run={async () => { await api().stop(agent.id); store.toast(`${agent.name} stopped`, "ok"); }}>Stop</Act> : null}
-        <button className="btn primary" disabled={busy || !text.trim() || media.uploading > 0}>{busy ? <span className="spin" /> : null}{asking ? "Ask" : "Send"}</button>
-      </div>
-    </form>
-  );
-}
 
 /**
  * Memory: what the resident knows (its wiki, one private page per topic, rewritten before each report) and what it did

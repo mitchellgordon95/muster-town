@@ -13,7 +13,7 @@ that is already running. Today there are four kinds of wake, each wired separate
 - **M, meetings.** `meeting.created`/`meeting.phase` start summary and facilitation sessions. An @mention in a live
   meeting by the facilitator or a human starts a reply session (`onMeetingMention`).
 - **I, interrupts.** These go to a session that is already running: a human's message to a working agent
-  (`ops.messageAgent`) and the redeploy notice (runtime/index.ts ~445).
+  (the old `ops.messageAgent`, removed by 1:1 mt_wql34b8gkl) and the redeploy notice (runtime/index.ts ~445).
 
 Everything else lands in the **inbox** (`sendMessage`). The inbox never wakes anyone (it is seen at the next `look`).
 
@@ -31,7 +31,7 @@ Everything else lands in the **inbox** (`sendMessage`). The inbox never wakes an
 | @mention in a meeting, by the facilitator or a human | the mentioned attendee | M (reply session, capped) | — |
 | @mention in a doc, `say` or `tell` | mentioned agent | inbox only without a human origin; with one, step 5 rule `mention` queues a directed assignment for an idle resident | — |
 | `tell`, agent → agent | recipient | inbox only without a human origin (the sender gets `idleNote`); with one, step 2 `relayWake` | — |
-| Human message to a resident | resident | I if it is working; else Q (a "Message from X" assignment at the front of the queue) | Refused for residents of a building with a manager (ops.ts:400), on purpose: the manager is the building's conversational surface. Visitors get it queued |
+| Human message to a resident (removed: 1:1 mt_wql34b8gkl; humans use 1:1s) | resident | I if it is working; else Q (a "Message from X" assignment at the front of the queue) | Refused for residents of a building with a manager (ops.ts:400), on purpose: the manager is the building's conversational surface. Visitors get it queued |
 | `grant.funded` by **fund** | manager | Q: a front-of-queue grant-lane assignment "Grant X funded: assign its first step or take it yourself" with the plan (`Grants.decisionAssignment`, 2026-10-26) | — |
 | `grant.funded` by continue or adjust | manager; held grant work | T: a town-written in-tray row "Grant X continued/adjusted: N tokens" (`managerIntrayRow`, core/src/wakes.ts); held grant-lane work is released by the lane gate on the next tick | — |
 | `grant.countered`, `grant.rejected` | manager | Q: a directed assignment ("Answer the counter on X" with the note / "Grant X rejected: read the note"), plus the inbox `system` line (`notifyManager`) | — |
@@ -128,7 +128,7 @@ become a rule later if it is touched anyway.
 ## 4. Build order (each step: tests, docs, main)
 
 1. **Origin, recorded only** — done 2026-10-27 (migration 041, core/src/origin.ts). `origin {userId, via, hops, at}` on
-   messages, assignments and sessions (JSON columns). Stamped (hops 0): a human's tell (`messageAgent` or a human's
+   messages, assignments and sessions (JSON columns). Stamped (hops 0): a human's tell (a human's
    avatar's `tell`, via the message id), an assignment a human creates (`createdBy` a user: assign, review, decisions;
    via its meeting or report), work from a human-written doc (a flag; via the doc), a decision in a meeting a human took
    part in (via the meeting: the 1:1's human, else the last human who spoke). A session takes its assignment's origin,
@@ -142,7 +142,7 @@ become a rule later if it is touched anyway.
    queue (sourceId = `origin.via`, origin copied). Later tells for the same human and path merge into it while it is
    pending. The description carries `wake:relay:<eventId>:<agentId>`, so a replay is a no-op. A busy recipient, a tell
    with no origin, or one past the caps stays inbox only (`idleNote`). `canStart` stays the gate. No migration. A
-   human's REST tell (`messageAgent`, hop 0) already did this. Tests: core test/wakes-relay.test.ts.
+   human's REST tell (the removed `messageAgent`, hop 0) used to do this. Tests: core test/wakes-relay.test.ts.
 3. **Manager wakes on grant and KR events** — done 2026-10-26. Grant decisions as assignments (Mitchell's ask, 1:1
    mt_f45m8hbmct: `Grants.decisionAssignment`, the same hook as the checkpoint assignment; fund → grant lane, counter /
    reject → directed). The rest (continue, adjust, cut or close by a human, and a human's `kr.created` / `kr.updated` /

@@ -1,11 +1,10 @@
 /**
  * @muster-town/runtime — resident work sessions (Claude Agent SDK over the town MCP endpoint),
- * managers' team-lead sessions over the in-tray, meeting summaries + facilitation, proxy chat, interrupts, scheduler,
+ * managers' team-lead sessions over the in-tray, meeting summaries + facilitation, interrupts, scheduler,
  * startup reconcile, dismissal (onAgentRetired), host redeploy (v1.3).
  */
 import { AppError, checkWaits, deskSizeFor, fireSchedules, setAssignmentStatus, codeWorkspace, deskSlotRows, forkableQueue, forkDeskSlot, forkManager, freeDesks, liveForks, meetingNotice, walkIdleHome, nextStartable, nowIso, PRESENCE_TICK_MS, retireFork, sendMessage, stopOverdueForks, slugify, syncManagerRoles, type World } from "@muster-town/core";
-import { DesksConfig, type Agent, type Assignment, type Building, type ChatInput, type DeskActivityInput, type RedeployResult, type Session } from "@muster-town/schema";
-import { chat } from "./chat.ts";
+import { DesksConfig, type Agent, type Assignment, type Building, type DeskActivityInput, type RedeployResult, type Session } from "@muster-town/schema";
 import { codeSource } from "./code.ts";
 import { DockerBackend, dockerSafe, HostBackend, type DeskBackend, type SlotResolver, type WorkBackend } from "./desk/backend.ts";
 import { FlyApi } from "./desk/fly.ts";
@@ -90,7 +89,6 @@ export const FORK_STARTUP_BACKOFF_MS = 10 * 60_000;
 
 export interface Runtime {
   stop(): Promise<void>;
-  chat(agentId: string, input: (typeof ChatInput)["_input"]): Promise<{ reply: string }>;
   /** Deliver `text` as the next user message of the agent's running work session. False if none. */
   interrupt(agentId: string, text: string, from?: string, now?: boolean): Promise<boolean>;
   /** Meeting entered collecting (or scheduled → collecting): run attendees' summaries. */
@@ -768,7 +766,6 @@ export function startRuntime(opts: RuntimeOptions): Runtime {
       // the redeployer runs in the background and writes events: it must be done before the caller closes the DB
       await Promise.all([whenIdle(), redeployer?.stop()]);
     },
-    chat: (agentId, input) => chat(ctx, agentId, input),
     interrupt: async (agentId, text, from, now) => interrupt(ctx, agentId, text, from, now),
     onMeetingStart: (meetingId) => track(onMeetingStart(ctx, mst, meetingId)),
     runWorkSession: (agentId, assignmentId) => startWork(agentId, assignmentId),

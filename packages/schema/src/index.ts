@@ -1930,12 +1930,9 @@ export const AgentModelPatch = z.object({ model: z.string().trim().min(1).nullab
 export const ReviewInput = z.object({ decision: ReviewDecision, note: z.string().default(""), assigneeId: Id.optional(), waitFor: WaitFor.optional() });
 /** POST /api/buildings/:id/flags: a human plants a flag (a short request) in a building; it lands in the manager's in-tray. */
 export const PlantFlagInput = z.object({ text: z.string().trim().min(1).max(2000) });
-export const ChatInput = z.object({ message: z.string(), history: z.array(z.object({ role: z.enum(["user", "assistant"]), text: z.string() })).default([]) });
 /** POST /api/docs/:id/archive: the slide and meeting it was decided on, if any. */
 export const ArchiveInput = z.object({ deckSlide: z.number().int().positive().optional(), meetingId: Id.optional() });
 export const InterruptInput = z.object({ text: z.string(), now: z.boolean().optional() });
-/** POST /api/agents/:id/message: a human messages an agent (a `tell` from their avatar). `now` (default true) interrupts a working agent; false leaves it in the inbox. */
-export const MessageAgentInput = z.object({ text: z.string().trim().min(1), now: z.boolean().default(true) });
 export const WorkInput = z.object({ title: z.string().optional(), description: z.string().optional(), waitFor: WaitFor.optional(), ...LaneFields.shape });
 /**
  * POST /api/donate. `auth` defaults to donor-key when the donor gives (or has stored) their own key, else api-key.

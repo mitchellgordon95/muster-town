@@ -295,10 +295,11 @@ function decideFlag(world: World, flag: Doc, decision: ReviewDecision, note: str
 /**
  * The building's manager agent, if it can work: the resident set as `managerAgentId` unless it is stopped, banned or
  * retired. A building with one has its in-tray worked by the manager; otherwise humans holding `building.review` do
- * (town hall 2026-10-24, decision 1a: no review-policy setting).
+ * (town hall 2026-10-24, decision 1a: no review-policy setting). Never the Town Hall's: its manager is the Planner
+ * (`Reorgs.ensurePlanner`), which only answers 1:1s and facilitates reorgs; the Town Hall in-tray is the humans'.
  */
 export function managerAgentOf(world: World, building: Building | undefined): Agent | undefined {
-  if (!building?.managerAgentId) return undefined;
+  if (!building?.managerAgentId || building.kind === "town-hall") return undefined;
   const a = world.agents.get(building.managerAgentId);
   return a && a.kind !== "human" && a.status !== "stopped" && a.status !== "banned" && a.status !== "retired" ? a : undefined;
 }

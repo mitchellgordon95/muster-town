@@ -77,9 +77,11 @@ function seedManager(world: World, buildingId: string): void {
 /**
  * A building's `managerAgentId` (the meeting facilitator) holds that building's `manager` role too, so naming a manager
  * also grants the permissions (assign, review, ...). Grant-only and idempotent: a previous manager keeps a role that was given by hand.
+ * Not the Town Hall's (the Planner): it reviews nothing there.
  */
 export function syncManagerRoles(world: World): void {
   for (const b of world.buildings.all()) {
+    if (b.kind === "town-hall") continue;
     const m = b.managerAgentId && world.agents.get(b.managerAgentId);
     const roleId = buildingRoleId(b.id, "manager");
     if (m && world.permissions.agentsWithRole(roleId).indexOf(m.id) < 0 && world.permissions.rolesForBuilding(b.id).some((r) => r.id === roleId)) world.permissions.grant(m, roleId);

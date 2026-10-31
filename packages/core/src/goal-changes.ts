@@ -45,10 +45,14 @@ export class Reorgs {
     return !!p && (a.id === p.id || a.forkOf === p.id);
   }
 
-  /** The Planner, created on first use: a Town Hall resident seated at a free mod-station seat (else by the door). */
+  /**
+   * The Planner, created on first use: a Town Hall resident seated at a free mod-station seat (else by the door), and
+   * the Town Hall's manager (`managerAgentId`; Mitchell, 1:1 mt_wql34b8gkl). It manages in name only: `managerAgentOf`
+   * leaves the Town Hall out, so its in-tray stays the humans' and the Planner only answers 1:1s and facilitates reorgs.
+   */
   ensurePlanner(): Agent {
     const have = this.planner();
-    if (have) return have;
+    if (have) { this.seatAsManager(have); return have; }
     const th = this.world.buildings.require(TOWN_HALL_ID, "building");
     return this.world.transaction(() => {
       const id = newId("ag");
@@ -60,8 +64,15 @@ export class Reorgs {
       try { agent = this.world.agents.patch(id, { pos: this.world.layout.claimDesk(th.id, id).pos }); }
       catch (e) { if (!(e instanceof AppError) || e.code !== "conflict") throw e; }
       this.world.events.append({ type: "agent.created", agentId: id, buildingId: th.id, text: `${agent.name} (the planning agent) joined the Town Hall`, payload: { kind: "resident", planner: true } });
+      this.seatAsManager(agent);
       return agent;
     });
+  }
+
+  /** Name the Planner the Town Hall's manager unless it already is. */
+  private seatAsManager(planner: Agent): void {
+    const th = this.world.buildings.get(TOWN_HALL_ID);
+    if (th && th.managerAgentId !== planner.id) this.world.buildings.upsert({ ...th, managerAgentId: planner.id });
   }
 
   /** Can the Planner start a session now? The Town Hall draws from its pool like any building (`Budget.canStart`). */
