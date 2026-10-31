@@ -647,6 +647,7 @@ textarea[data-drop="over"] { outline: 2px dashed var(--accent, #7aa2ff); outline
 .kr-move { margin-left: auto; max-width: 180px; }
 .kr-hint { font-size: 12px; margin: 2px 0 6px; }
 .kpi-tiles { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: var(--gap); margin-top: 8px; }
+.join-funnel { margin-top: 8px; font-size: 12px; line-height: 1.5; }
 .kpi-tile { background: var(--panel-2); border: 1px solid var(--line); border-radius: var(--r); padding: 10px; }
 .kpi-name { font-weight: 600; }
 .kpi-value { font-size: 28px; font-weight: 700; line-height: 1.1; color: var(--text); }

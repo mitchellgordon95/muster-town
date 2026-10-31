@@ -1,5 +1,5 @@
 /** HUD (top-left town card: name, goal, status counts, notices), interaction hint, say box, toasts. */
-import { useMemo, useState, type ReactNode, type RefObject } from "react";
+import { useEffect, useMemo, useState, type ReactNode, type RefObject } from "react";
 import type { AgentStatus, AuthMe } from "@muster-town/schema";
 import { store, useTown, type PanelRef } from "./state";
 import { STATUS_COLOR } from "./map/overlay";
@@ -25,6 +25,8 @@ interface Notice { key: string; icon: IconKind; text: ReactNode; cta: string; to
 
 function walkOrOpen(placeId: string, panel: PanelRef) { if (!store.walkTo(placeId, panel)) store.open(panel); }
 
+let guestCardCounted = false;
+
 export function Hud({ onPasteToken, onHelp }: { onPasteToken?: () => void; onHelp?: () => void }) {
   const town = useTown((s) => s.town);
   const agents = useTown((s) => s.agents);
@@ -40,6 +42,9 @@ export function Hud({ onPasteToken, onHelp }: { onPasteToken?: () => void; onHel
   // (null until toggled: sign-in state can settle after the first render)
   const [toggled, setCollapsed] = useState<boolean | null>(null);
   const collapsed = toggled ?? (PHONE && !auth.guest);
+  // the join funnel (gr_fibsfwr4tz step 3): count the guest card once per page load, the first time it is on screen
+  const cardShown = !!town && !collapsed && (auth.guest || me?.canInteract === false);
+  useEffect(() => { if (cardShown && !guestCardCounted) { guestCardCounted = true; api().countGuestCardView().catch(() => {}); } }, [cardShown]);
   const counts = useMemo(() => {
     const c = new Map<AgentStatus, number>();
     for (const a of Object.values(agents)) if (a.kind === "resident" || a.kind === "visitor") c.set(a.status, (c.get(a.status) ?? 0) + 1);

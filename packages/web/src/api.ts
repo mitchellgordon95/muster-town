@@ -8,8 +8,8 @@ import type {
   CreateObjectiveInput, UpdateObjectiveInput, Objective, KpiKey, KpiView,
   AccessRequest, AccessRequestView, Agent, Allocation, Assignment, AssignmentCard, AuthMe, BlockedAssignment, BuildingStats, Schedule, RedeployLive, Building, BuildingDefaults, ClientMessage, MapLayout, DesksConfig, Doc, Event, Lot, Meeting, Place, Role, Membership, SessionSlots, Tile,
   ServerMessage, SessionView, TokenCounts, CreateBuildingInput, UpdateBuildingInput, RegisterVisitorInput,
-  ReviewInput, PinSkillInput, SkillPinView, SkillView, PutSecretInput, SecretView, WorkInput, DonateInput, AddBankInput, BankInput, CreateMeetingInput, DocState, DocType, Mailbox, Permission, DecideGrantInput, CloseGrantInput, GrantView, KeyResult, CreateKeyResultInput, UpdateKeyResultInput, Stoplight,
-  GoalTreeNode, Goal, GoalProposal, GoalSpend, QueueBoard, IntrayRoutes, CreateGoalInput, UpdateGoalInput, RetireGoalInput, CreateTreeKeyResultInput, DecideGoalProposalInput, ChangeGoalInput, ReviewKeyResultInput, GoalChangeView, FreeTokens,
+  ReviewInput, PinSkillInput, SkillPinView, SkillView, PutSecretInput, SecretView, WorkInput, DonateInput, AddBankInput, BankInput, CreateMeetingInput, DocState, DocType, Mailbox, Permission, DecideGrantInput, CloseGrantInput, GrantView, KeyResult, UpdateKeyResultInput, Stoplight,
+  GoalTreeNode, Goal, GoalProposal, GoalSpend, QueueBoard, IntrayRoutes, CreateGoalInput, UpdateGoalInput, RetireGoalInput, DecideGoalProposalInput, ChangeGoalInput, ReviewKeyResultInput, GoalChangeView, FreeTokens,
 } from "@muster-town/schema";
 
 export type In<T extends z.ZodTypeAny> = z.input<T>;
@@ -268,6 +268,12 @@ export type GoalKeyResult = KeyResult & { grantId: string | null; createdByName?
 export type ObjectiveView = Objective & { kpi: KpiKey | null; kpiName: string | null; keyResults: GoalKeyResult[]; createdByName?: string | null; editedByName?: string | null };
 /** GET /api/buildings/:id/objectives: the objectives with their key results, then the key results under none. */
 export interface ObjectiveTree { objectives: ObjectiveView[]; unsorted: GoalKeyResult[] }
+/** GET /api/join-funnel (gr_fibsfwr4tz step 3): the last 30 days summed over every collective, counts only. */
+export interface JoinFunnelView {
+  days: number; from: string; to: string; decisions: number; medianDecisionMs: number | null;
+  totals: { guestCardViews: number; signIns: number; asked: number; letIn: number; declined: number };
+}
+
 /** GET /api/kpis: the framing, the town KPIs with live values, and every goal-directed building's objectives. */
 export interface KpisView { framing: string; kpis: KpiView[]; buildings: (ObjectiveTree & { buildingId: string; name: string; goal: string })[] }
 /** GET /api/buildings/:id/key-results */
@@ -329,7 +335,6 @@ export interface Api {
   createGoal(input: In<typeof CreateGoalInput>): Promise<Goal>;
   updateGoal(id: string, input: In<typeof UpdateGoalInput>): Promise<Goal>;
   retireGoal(id: string, input: In<typeof RetireGoalInput>): Promise<Goal>;
-  addTreeKeyResult(goalId: string, input: In<typeof CreateTreeKeyResultInput>): Promise<KeyResult>;
   goalProposals(status?: GoalProposal["status"]): Promise<GoalProposalView[]>;
   decideGoalProposal(id: string, input: In<typeof DecideGoalProposalInput>): Promise<GoalProposalView>;
   /** "Change this goal" (the reorg, docs/goals.md step 5): file X → Y, list a goal's changes, decide an under-review key result. */
@@ -358,8 +363,6 @@ export interface Api {
   closeGrant(id: string, input: In<typeof CloseGrantInput>): Promise<GrantView>;
   /** GET /api/buildings/:id/key-results: the goal's key results (with the live grant on each) and the blocked reason */
   keyResults(buildingId: string): Promise<KeyResultsView>;
-  /** POST /api/buildings/:id/key-results (a human with building.manage writes the goal's key results) */
-  createKeyResult(buildingId: string, input: In<typeof CreateKeyResultInput>): Promise<KeyResult>;
   /** PATCH /api/key-results/:id: text / howToCheck (human, building.manage); status (manager up to claimed, building.fund for met / missed) */
   updateKeyResult(id: string, input: In<typeof UpdateKeyResultInput>): Promise<KeyResult>;
   /** DELETE /api/key-results/:id (409 while a draft, open or live grant names it) */
@@ -374,6 +377,10 @@ export interface Api {
   deleteObjective(id: string): Promise<void>;
   /** GET /api/kpis: the town dashboard */
   kpis(): Promise<KpisView>;
+  /** GET /api/join-funnel: the dashboard's join funnel row */
+  joinFunnel(): Promise<JoinFunnelView>;
+  /** POST /api/join-funnel/view: the guest card was shown (once per page load) */
+  countGuestCardView(): Promise<void>;
   /** a signed-in person registers their own agent (Claude Code over MCP); the token is returned once */
   registerVisitor(input: In<typeof RegisterVisitorInput>): Promise<{ agent: Agent; token: string }>;
   /** town.ban */
@@ -596,7 +603,6 @@ class HttpApi implements Api {
   async createGoal(i: In<typeof CreateGoalInput>) { return unwrap<Goal>(await this.post("/api/goals", i), "goal"); }
   async updateGoal(id: string, i: In<typeof UpdateGoalInput>) { return unwrap<Goal>(await this.call("PATCH", `/api/goals/${id}`, i), "goal"); }
   async retireGoal(id: string, i: In<typeof RetireGoalInput>) { return unwrap<Goal>(await this.post(`/api/goals/${id}/retire`, i), "goal"); }
-  async addTreeKeyResult(goalId: string, i: In<typeof CreateTreeKeyResultInput>) { return unwrap<KeyResult>(await this.post(`/api/goals/${goalId}/key-results`, i), "keyResult"); }
   async goalProposals(status?: GoalProposal["status"]) { return (await this.get<{ proposals?: GoalProposalView[] }>(`/api/goal-proposals${qs({ status })}`)).proposals ?? []; }
   async decideGoalProposal(id: string, i: In<typeof DecideGoalProposalInput>) { return unwrap<GoalProposalView>(await this.post(`/api/goal-proposals/${id}/decide`, i), "proposal"); }
   async changeGoal(id: string, i: In<typeof ChangeGoalInput>) { return unwrap<GoalChangeView>(await this.post(`/api/goals/${id}/change`, i), "change"); }
@@ -619,7 +625,6 @@ class HttpApi implements Api {
     const r = await this.get<Partial<KeyResultsView>>(`/api/buildings/${buildingId}/key-results`);
     return { keyResults: r.keyResults ?? [], blocked: r.blocked ?? null };
   }
-  async createKeyResult(buildingId: string, i: In<typeof CreateKeyResultInput>) { return unwrap<KeyResult>(await this.post(`/api/buildings/${buildingId}/key-results`, i), "keyResult"); }
   async updateKeyResult(id: string, i: In<typeof UpdateKeyResultInput>) { return unwrap<KeyResult>(await this.call("PATCH", `/api/key-results/${id}`, i), "keyResult"); }
   async deleteKeyResult(id: string) { await this.call("DELETE", `/api/key-results/${id}`); }
   objectives(buildingId: string) { return this.get<ObjectiveTree>(`/api/buildings/${buildingId}/objectives`); }
@@ -627,6 +632,8 @@ class HttpApi implements Api {
   async updateObjective(id: string, i: In<typeof UpdateObjectiveInput>) { return unwrap<Objective>(await this.call("PATCH", `/api/objectives/${id}`, i), "objective"); }
   async deleteObjective(id: string) { await this.call("DELETE", `/api/objectives/${id}`); }
   kpis() { return this.get<KpisView>("/api/kpis"); }
+  joinFunnel() { return this.get<JoinFunnelView>("/api/join-funnel"); }
+  async countGuestCardView() { await this.post("/api/join-funnel/view"); }
   registerVisitor(i: In<typeof RegisterVisitorInput>) { return this.post<{ agent: Agent; token: string }>("/api/agents/visitors", i); }
   async ban(id: string, reason: string) { return unwrap<Agent>(await this.post(`/api/agents/${id}/ban`, { reason }), "agent"); }
   agent(id: string) { return this.get<AgentDetail>(`/api/agents/${id}`); }

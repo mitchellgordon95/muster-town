@@ -1,10 +1,10 @@
 import Database from "better-sqlite3";
-import { readFileSync } from "node:fs";
+import { copyFileSync, mkdirSync, readdirSync, readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
-import { World, buildingRoleId, migrateRoles, newId, nowIso, townRoleId } from "../src/index.ts";
-import { freshWorld, seededWorld } from "./helpers.ts";
+import { World, buildingRoleId, migrate, migrateRoles, newId, nowIso, townRoleId } from "../src/index.ts";
+import { freshWorld, seededWorld, tempDir } from "./helpers.ts";
 
 const LAB = "carbon-cycle";
 
@@ -119,5 +119,42 @@ describe("migration 032: key results move onto the building goal", () => {
     expect(db.prepare("SELECT COUNT(*) AS n FROM key_results").get()).toEqual({ n: 0 });
     expect((db.prepare("PRAGMA table_info(key_results)").all() as { name: string }[]).map((c) => c.name)).toContain("buildingId");
     expect((db.prepare("PRAGMA table_info(buildings)").all() as { name: string }[]).map((c) => c.name)).toContain("blockedAt");
+  });
+
+  it("migration 069: grants carry their key results; open goal key results with no open grant are dropped", () => {
+    const dir = tempDir(), migrations = join(dir, "migrations");
+    mkdirSync(migrations);
+    const all = join(dirname(fileURLToPath(import.meta.url)), "..", "migrations");
+    for (const f of readdirSync(all).filter((f) => f.endsWith(".sql") && Number(f.slice(0, 3)) <= 68)) copyFileSync(join(all, f), join(migrations, f));
+    const db = new Database(join(dir, "town.db"));
+    migrate(db, migrations);
+    const now = "2026-10-30T00:00:00.000Z";
+    db.prepare("INSERT INTO buildings (id, name, kind, headcount, createdAt, goalId) VALUES ('bl_a', 'Lab A', 'lab', 3, ?, 'gl_town')").run(now);
+    const kr = db.prepare("INSERT INTO key_results (id, buildingId, position, text, howToCheck, status, goalId, updatedAt) VALUES (?, 'bl_a', ?, ?, 'h', ?, 'gl_town', ?)");
+    kr.run("kr_named", 0, "Named by a funded grant", "on-track", now);
+    kr.run("kr_orphan", 1, "Nobody works on it", "not-started", now);
+    kr.run("kr_met", 2, "Done long ago", "met", now);
+    const grant = db.prepare("INSERT INTO grants (id, buildingId, keyResultId, objective, stopCondition, askTokens, status, testingPlan, proposedBy, createdAt, updatedAt) VALUES (?, 'bl_a', ?, ?, 's', 1000, ?, ?, 'ag_x', ?, ?)");
+    grant.run("gr_live", "kr_named", "Live plan", "funded", JSON.stringify([{ text: "Banner shows Usage", howToCheck: "Open the banner" }]), now, now);
+    grant.run("gr_bare", null, "A plan with no key result", "proposed", "[]", now, now);
+    const asg = db.prepare("INSERT INTO assignments (id, agentId, buildingId, title, description, status, createdBy, createdByKind, createdAt, updatedAt, lane, keyResultId, grantId) VALUES (?, 'ag_x', 'bl_a', 't', 'd', ?, 'system', 'system', ?, ?, ?, ?, ?)");
+    asg.run("as_e", "pending", now, now, "exploration", "kr_orphan", null);
+    asg.run("as_g", "pending", now, now, "grant", "kr_named", "gr_live");
+    copyFileSync(join(all, "069_grants_carry_key_results.sql"), join(migrations, "069_grants_carry_key_results.sql"));
+    migrate(db, migrations);
+    const krs = db.prepare("SELECT id, text, howToCheck, grantId, goalId, status, archivedAt IS NOT NULL AS archived, statusNote FROM key_results ORDER BY position, rowid").all() as Record<string, unknown>[];
+    // the funded grant keeps its key result and gains its testing plan line as a second one
+    expect(krs.filter((k) => k.grantId === "gr_live").map((k) => [k.text, k.howToCheck, k.archived])).toEqual([["Named by a funded grant", "h", 0], ["Banner shows Usage", "Open the banner", 0]]);
+    expect(db.prepare("SELECT goalId, keyResultId, testingPlan FROM grants WHERE id = 'gr_live'").get()).toEqual({ goalId: "gl_town", keyResultId: "kr_named", testingPlan: "[]" });
+    // an open grant with none gets one from its objective
+    const bare = db.prepare("SELECT keyResultId FROM grants WHERE id = 'gr_bare'").get() as { keyResultId: string };
+    expect(krs.find((k) => k.id === bare.keyResultId)).toMatchObject({ text: "A plan with no key result", howToCheck: "s", grantId: "gr_bare", archived: 0 });
+    // the orphan open KR is dropped (archived, text kept); a met one is left as it was
+    expect(krs.find((k) => k.id === "kr_orphan")).toMatchObject({ grantId: null, archived: 1, status: "not-started", statusNote: expect.stringMatching(/^dropped when key results merged into grants/) });
+    expect(krs.find((k) => k.id === "kr_met")).toMatchObject({ status: "met", statusNote: "" });
+    // exploration that named it keeps its words as a gap; grant work keeps its key result
+    expect(db.prepare("SELECT id, keyResultId, gap FROM assignments ORDER BY id").all()).toEqual([
+      { id: "as_e", keyResultId: null, gap: "Nobody works on it" }, { id: "as_g", keyResultId: "kr_named", gap: null },
+    ]);
   });
 });

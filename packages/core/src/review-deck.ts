@@ -107,25 +107,27 @@ function card(fields: { whatItIs: string; whatYoudSee: string; picture: { alt: s
 
 function grantSlide(world: World, g: GrantView, now: Date): Draft {
   const b = world.buildings.get(g.buildingId)?.name ?? g.buildingId;
-  const kr = g.keyResult ? `Key result ${g.keyResult.id}: ${g.keyResult.text}` : "No key result named yet";
-  const testing = g.testingPlan.map((t) => t.howToCheck).join(" · ");
+  // the grant's own key results (docs/how-work-gets-done.md §4): what the human funds and later marks met or missed
+  const krs = g.keyResults.length ? g.keyResults : g.keyResult ? [g.keyResult] : [];
+  const kr = krs.length ? `Key results: ${krs.map((k, i) => `${i + 1}) ${k.text}${k.due ? ` (due ${k.due})` : ""}${k.status !== "not-started" ? ` [${k.status}]` : ""}`).join(" · ")}` : "No key results yet";
+  const testing = [...g.testingPlan.map((t) => t.howToCheck), ...krs.map((k) => k.howToCheck)].join(" · ");
   const base = { itemId: g.id, buildingId: g.buildingId, grantId: g.id, history: grantHistoryLine(world, g, now) };
   if (g.status === "checkpoint") {
     const pct = g.grantTokens ? Math.round((g.spentTokens / g.grantTokens) * 100) : 0;
     const at = [...g.history].reverse().find((h) => h.action === "checkpoint")?.at ?? g.updatedAt;
     return { ...base, kind: "checkpoint", group: 1, since: at, title: `${b}: checkpoint held — ${g.objective}`, body: card({
       whatItIs: `${g.objective} (${g.id}). ${kr}. Its grant work is stopped until you decide.`,
-      whatYoudSee: testing || g.keyResult?.howToCheck || "",
+      whatYoudSee: testing,
       picture: proposalPicture(world, g),
       yourCall: `Spent ${fmt(g.spentTokens)} of ${fmt(g.grantTokens ?? 0)} adjusted tokens (${pct}%). Continue, adjust (top up) or cut.${g.checkpointDocId ? ` Checkpoint report ${g.checkpointDocId}.` : ""}`,
     }) };
   }
   if (g.status === "closed") {
-    return { ...base, kind: "close", group: 6, since: g.closedAt ?? g.updatedAt, title: `${b}: closed as done — mark the key result`, body: card({
+    return { ...base, kind: "close", group: 6, since: g.closedAt ?? g.updatedAt, title: `${b}: closed as done — mark ${krs.length === 1 ? "the key result" : "its key results"}`, body: card({
       whatItIs: `${g.objective} (${g.id}). ${kr}.`,
-      whatYoudSee: g.keyResult?.statusNote || g.keyResult?.howToCheck || "",
+      whatYoudSee: krs.find((k) => k.statusNote)?.statusNote || testing,
       picture: proposalPicture(world, g),
-      yourCall: `Mark the key result met or missed (spent ${fmt(g.spentTokens)} of ${fmt(g.grantTokens ?? 0)}).${g.checkpointDocId ? ` Close report ${g.checkpointDocId}.` : ""}`,
+      yourCall: `Mark ${krs.length === 1 ? "the key result" : "each key result"} met or missed (spent ${fmt(g.spentTokens)} of ${fmt(g.grantTokens ?? 0)}).${g.checkpointDocId ? ` Close report ${g.checkpointDocId}.` : ""}`,
     }) };
   }
   const at = [...g.history].reverse().find((h) => h.action === "propose")?.at ?? g.updatedAt;
@@ -254,7 +256,7 @@ function townSlide(world: World, now: Date, decisions: number, oldest: string | 
   const directed = lanes.reduce((s, l) => s + l.directed.spentTodayTokens, 0);
   const rows = world.buildings.where("kind != 'town-hall'", [], "ORDER BY rowid").map((b) => {
     const light = world.grantDesk.stoplight(b);
-    const krs = world.grantDesk.keyResults(b.id);
+    const krs = world.grantDesk.keyResults(b.id).filter((k) => !k.archivedAt && k.status !== "met" && k.status !== "missed");
     return `| ${b.name} | ${light ? LIGHT[light.light] ?? "" : ""} | ${krs.length ? krs.map((k) => `${KR_LIGHT[k.status] ?? "⚪"} ${k.status.replace(/-/g, " ")}`).join(" · ") : "_none_"} |`;
   });
   // desks are the steer (docs/goals.md "Effort steering is desks"): each pillar's subtree headcount (mt_n25udpflus decision 3)
@@ -287,8 +289,8 @@ function decidedLabel(world: World, p: PinnedSlide): string {
   if (grantId) {
     const g = world.grants.get(grantId);
     if (g && p.kind === "close") {
-      const kr = g.keyResultId ? world.keyResults.get(g.keyResultId) : undefined;
-      if (kr && (kr.status === "met" || kr.status === "missed")) return `key result marked ${kr.status}`;
+      const krs = world.grantDesk.keyResultsOf(g.id);
+      if (krs.length && krs.every((k) => k.status === "met" || k.status === "missed")) return krs.length === 1 ? `key result marked ${krs[0]!.status}` : `key results marked ${krs.map((k) => k.status).join(", ")}`;
     }
     const e = g ? [...g.history].reverse().find((h) => h.byKind === "user") : undefined;
     if (e) return ACTION_PAST[e.action] ?? e.action;
