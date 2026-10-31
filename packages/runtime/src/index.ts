@@ -226,6 +226,7 @@ export function startRuntime(opts: RuntimeOptions): Runtime {
       slotOf,
       // performance-1x, or shared-cpu-2x once today's desk bill reached desks.billCapUsd (gr_uhh6u39vv9 step 3); read live, so PUT /api/town/desks applies at once
       sizeFor: () => deskSizeFor(desks, world.deskBill()),
+      onEvent: (text, payload) => { world.events.append({ type: "system", text, payload }); },
     });
   };
   const dockerProbe: DeskBackend | null = desks.backend === "host" ? null : opts.dockerProbe
