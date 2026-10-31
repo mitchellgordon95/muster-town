@@ -180,6 +180,9 @@ export interface BankSummary {
   buildings: BankBuildingShare[];
   /** free tokens town-wide (the root's: docs/how-work-gets-done.md §7); null when the Bank runs without a world (tests) */
   free: FreeTokens | null;
+  /** the town's operating reserve (free.reserveTokens; 0 without a world) and the town-wide free tokens (free.freeTokens) */
+  reserveTokens: number;
+  freeTokens: number;
   /** top contributors by tokens given, most first (zero-token users left out) */
   contributors: BankContributor[];
   /** Bank step 4: the latest drift run (adjusted output tokens × output list price vs the SDK's costUsd); null before the first */
@@ -745,6 +748,7 @@ export class Bank {
     }
     const sum = (h?: HeldByAuth) => (h ? h.subscription + h.apiKey + h.donorKey : 0);
     const heldTokens = sum(total);
+    const free = this.freeTokens?.() ?? null;
     return {
       balanceTokens: totals.expiring + totals.durable,
       heldTokens,
@@ -765,7 +769,9 @@ export class Bank {
           expiringTokens: a.expiring, durableTokens: a.durable, heldTokens: sum(held.get(b.id)), heldByAuth: held.get(b.id) ?? { subscription: 0, apiKey: 0, donorKey: 0 },
         };
       }),
-      free: this.freeTokens?.() ?? null,
+      free,
+      reserveTokens: free?.reserveTokens ?? 0,
+      freeTokens: free?.freeTokens ?? 0,
       contributors: this.contributors(),
       drift: this.latestDrift(),
       deaths: this.deaths(now),

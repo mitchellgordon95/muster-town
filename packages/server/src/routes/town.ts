@@ -228,6 +228,17 @@ export async function townRoutes(app: FastifyInstance) {
   });
 
   /**
+   * The operating reserve (admin; 1:1 mt_lb7tm75jgb): `{tokens}` of the general balance that exploration and grant funding
+   * can't claim; 1:1s, meetings, manage and directed sessions still draw on it. → { operatingReserveTokens, free }
+   */
+  app.put("/api/town/operating-reserve", async (req) => {
+    const user = requireUser(req);
+    world.permissions.requireAdmin({ kind: "user", id: user.id }, "Only an admin can change the operating reserve.");
+    const { tokens } = parse(z.object({ tokens: z.number().int().nonnegative() }), req.body);
+    return { operatingReserveTokens: world.setOperatingReserve(tokens, world.ops.ensureAvatar(user.id).id), free: world.bank.freeTokens?.() ?? null };
+  });
+
+  /**
    * The map's shape, town-wide (1:1 mt_q10xf3bkoq): `{layout: "fountain" | "tree" | "radial"}`, by an admin or a goal
    * owner. Redraws the map for everyone at once. → { mapLayout }
    */

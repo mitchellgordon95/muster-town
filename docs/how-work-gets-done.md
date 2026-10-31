@@ -154,11 +154,14 @@ Built and unchanged (`docs/waterfall.md`, `docs/invariants/grants.md`):
 
 ```
 free(goal) = general balance
+           − the operating reserve             (town setting, default 500,000)
            + earmarks at or above goal (balances)
            − funded grants' remaining tokens   (whole town; under goal for earmarks)
            − open proposals' asks              (likewise)
            − open exploration reservations     (likewise)
 ```
+
+**The operating reserve.** **Mitchell said** (mt_lb7tm75jgb): "i urgently need an operational budget reserve of like 500k. so that way even if grants and exploration burn through the rest, i can still do 1:1s and stuff". The town setting `operatingReserveTokens` (default 500,000; an admin edits it on the Bank's Overview or `PUT /api/town/operating-reserve`) comes off the general balance before any claim, never below 0; earmarks are untouched. So exploration never reserves it, and funding a grant (a human too; a reserve of 0 turns the check off; member funding from the funder's own input skips it) is refused when its tokens are more than what is free under its goal besides its own ask. Sessions don't read free tokens: 1:1s, meetings, manage and directed sessions keep drawing the balance down to 0.
 
 Funded grants, proposals and reservations under *other* goals still claim the general balance, because it is shared. An earmark only counts toward the goals under it, and only the claims under it reduce it. Free tokens can't go below zero. At zero, the tick starts nothing under that goal.
 
