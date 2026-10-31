@@ -1,5 +1,5 @@
 import {
-  AccessRequest, Agent, Allocation, Assignment, BankCredit, BankDebit, BankInput, BankReservation, Building, BuildingDefaults, DesksConfig, Doc, Goal, GoalChange, GoalProposal, Grant, Interrupt, KeyResult, Kpi, Objective, Meeting, Membership, Message, Place, Role, Schedule, Session, SkillPin, Town, UsageEntry, User,
+  AccessRequest, Agent, Allocation, CaptainRequest, Assignment, BankCredit, BankDebit, BankInput, BankReservation, Building, BuildingDefaults, DesksConfig, Doc, Goal, GoalChange, GoalProposal, Grant, Interrupt, KeyResult, Kpi, Objective, Meeting, Membership, Message, Place, Role, Schedule, Session, SkillPin, Town, UsageEntry, User,
   type ServerMessage, type TokenCountKind, type TokenCounts,
 } from "@muster-town/schema";
 import type { DB } from "./db.ts";
@@ -170,6 +170,7 @@ export function createRepos(db: DB, changes: Emitter<ServerMessage>) {
     goalChanges: new Table<GoalChange>(db, "goal_changes", GoalChange),
     kpis: new Table<Kpi>(db, "kpis", Kpi),
     accessRequests: new Table<AccessRequest>(db, "access_requests", AccessRequest),
+    captainRequests: new Table<CaptainRequest>(db, "goal_captain_requests", CaptainRequest),
     skillPins: new Table<SkillPin>(db, "skill_pins", SkillPin, { bool: ["byHuman"] }),
     interrupts: new Table<Interrupt>(db, "interrupts", Interrupt, { bool: ["now"] }),
     tokens: new Tokens(db),

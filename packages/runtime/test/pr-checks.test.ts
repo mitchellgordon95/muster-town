@@ -8,7 +8,7 @@ const SHA = "449b6e5aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
 /** A fake GitHub: one open PR #179 whose checks the test moves along. */
 function fakeGitHub() {
   const gh = {
-    pr: { state: "open", merged: false, head: { sha: SHA } },
+    pr: { state: "open", merged: false, mergeable: null as boolean | null, head: { sha: SHA } },
     // render/vercel-style apps that never report: queued forever with no runs (must be ignored)
     suites: [{ status: "queued", conclusion: null, latest_check_runs_count: 0 }, { status: "in_progress", conclusion: null, latest_check_runs_count: 1 }] as { status: string; conclusion: string | null; latest_check_runs_count: number }[],
     runs: [{ name: "check", status: "in_progress", conclusion: null }] as { name: string; status: string; conclusion: string | null }[],
@@ -74,7 +74,7 @@ describe("PR checks poller", () => {
     await p.poll();
     expect(p.get(179)).toMatchObject({ state: "failed", failed: ["check"] });
 
-    gh.pr = { state: "closed", merged: true, head: { sha: SHA } };
+    gh.pr = { state: "closed", merged: true, mergeable: null, head: { sha: SHA } };
     await p.poll();
     expect(p.get(179)?.state).toBe("merged");
 
@@ -83,5 +83,21 @@ describe("PR checks poller", () => {
     await p.poll();
     expect(gh.calls).toEqual([]);
     expect(p.get(179)).toBeUndefined();
+  });
+
+  it("a PR that conflicts with its base never gets CI: no suite with runs + mergeable false = failed, not a 24 h hold", async () => {
+    const { world, a } = worldWithWait();
+    const { gh, fetch } = fakeGitHub();
+    let t = 0;
+    const p = createPrPoller(world, { repoUrl: () => "https://github.com/mitchellgordon95/agent-town", token: () => null, fetch, now: () => new Date(t += 60_000) });
+    world.host.prChecks = (n) => p.get(n);
+    gh.suites = [gh.suites[0]];
+    gh.runs = [];
+    await p.poll();
+    expect(p.get(179)?.state).toBe("pending"); // mergeable still being computed
+    gh.pr.mergeable = false;
+    await p.poll();
+    expect(p.get(179)).toMatchObject({ state: "failed", failed: ["merge conflict: CI did not run"] });
+    expect(checkWaits(world).unblocked.map((x) => x.id)).toEqual([a.id]);
   });
 });

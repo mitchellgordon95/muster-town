@@ -3,14 +3,14 @@
  * on every GET /api/review-deck (zero tokens, always current). Slide 1 is the state of the town; then one slide per
  * pending decision, blocking-most first:
  *   1. checkpoint grants held · 2. blocked buildings · 3. items work is parked on (most waiters first) ·
- *   4. grant proposals, oldest first, then goal proposals (docs/goals.md step 4) · 5. rollups with a real "Your call" (one slide per such item), and other reports ·
+ *   4. grant proposals, oldest first, then goal proposals (docs/goals.md step 4) and asks to captain a goal · 5. rollups with a real "Your call" (one slide per such item), and other reports ·
  *   6. grants closed as done whose key result needs met or missed · then one "For the record" slide for rollups whose
  *   every call is None.
  * Each slide says how long it has waited and how many assignments are parked on it, and carries one history line when
  * one applies (a grant's last human entry; the building's previous rollup decision; a meeting with a human its
  * provenance names).
  */
-import { ROOT_GOAL_ID, isNoCall, parseRollup, type Doc, type GrantView, type Meeting, type PinnedSlide, type ReviewDeck, type ReviewSlide, type ReviewSlideKind, type RollupItem } from "@muster-town/schema";
+import { ROOT_GOAL_ID, isNoCall, parseRollup, type CaptainRequestView, type Doc, type GrantView, type Meeting, type PinnedSlide, type ReviewDeck, type ReviewSlide, type ReviewSlideKind, type RollupItem } from "@muster-town/schema";
 import { grantsAwaitingDecision, townHallIntray } from "./domain.ts";
 import { freeTokens } from "./free-tokens.ts";
 import type { GoalNode, GoalProposalView } from "./goals.ts";
@@ -19,14 +19,8 @@ import type { World } from "./world.ts";
 const H = 3_600_000;
 const FLAG_AFTER_MS = 2 * H;
 const fmt = (n: number) => n >= 1_000_000 ? `${(n / 1_000_000).toFixed(2).replace(/\.?0+$/, "")}M` : n >= 1000 ? `${Math.round(n / 1000)}k` : String(n);
-/** "4.1 h", "2.3 d", "12 min" */
-export function waitedFor(sinceIso: string | null, now: Date): string {
-  if (!sinceIso) return "";
-  const ms = Math.max(0, now.getTime() - Date.parse(sinceIso));
-  if (ms < H) return `${Math.max(1, Math.round(ms / 60_000))} min`;
-  if (ms < 48 * H) return `${(ms / H).toFixed(1)} h`;
-  return `${(ms / (24 * H)).toFixed(1)} d`;
-}
+import { waitedFor } from "./time.ts";
+export { waitedFor };
 const KR_LIGHT: Record<string, string> = { "not-started": "⚪", "on-track": "🟢", "at-risk": "🟡", claimed: "🔵", met: "✅", missed: "❌" };
 const PILLAR: Record<string, string> = { gl_fund: "Fund", gl_join: "Steer", gl_trust: "Trust" };
 const LIGHT: Record<string, string> = { green: "🟢", yellow: "🟡", red: "🔴" };
@@ -113,25 +107,27 @@ function card(fields: { whatItIs: string; whatYoudSee: string; picture: { alt: s
 
 function grantSlide(world: World, g: GrantView, now: Date): Draft {
   const b = world.buildings.get(g.buildingId)?.name ?? g.buildingId;
-  const kr = g.keyResult ? `Key result ${g.keyResult.id}: ${g.keyResult.text}` : "No key result named yet";
-  const testing = g.testingPlan.map((t) => t.howToCheck).join(" · ");
+  // the grant's own key results (docs/how-work-gets-done.md §4): what the human funds and later marks met or missed
+  const krs = g.keyResults.length ? g.keyResults : g.keyResult ? [g.keyResult] : [];
+  const kr = krs.length ? `Key results: ${krs.map((k, i) => `${i + 1}) ${k.text}${k.due ? ` (due ${k.due})` : ""}${k.status !== "not-started" ? ` [${k.status}]` : ""}`).join(" · ")}` : "No key results yet";
+  const testing = [...g.testingPlan.map((t) => t.howToCheck), ...krs.map((k) => k.howToCheck)].join(" · ");
   const base = { itemId: g.id, buildingId: g.buildingId, grantId: g.id, history: grantHistoryLine(world, g, now) };
   if (g.status === "checkpoint") {
     const pct = g.grantTokens ? Math.round((g.spentTokens / g.grantTokens) * 100) : 0;
     const at = [...g.history].reverse().find((h) => h.action === "checkpoint")?.at ?? g.updatedAt;
     return { ...base, kind: "checkpoint", group: 1, since: at, title: `${b}: checkpoint held — ${g.objective}`, body: card({
       whatItIs: `${g.objective} (${g.id}). ${kr}. Its grant work is stopped until you decide.`,
-      whatYoudSee: testing || g.keyResult?.howToCheck || "",
+      whatYoudSee: testing,
       picture: proposalPicture(world, g),
       yourCall: `Spent ${fmt(g.spentTokens)} of ${fmt(g.grantTokens ?? 0)} adjusted tokens (${pct}%). Continue, adjust (top up) or cut.${g.checkpointDocId ? ` Checkpoint report ${g.checkpointDocId}.` : ""}`,
     }) };
   }
   if (g.status === "closed") {
-    return { ...base, kind: "close", group: 6, since: g.closedAt ?? g.updatedAt, title: `${b}: closed as done — mark the key result`, body: card({
+    return { ...base, kind: "close", group: 6, since: g.closedAt ?? g.updatedAt, title: `${b}: closed as done — mark ${krs.length === 1 ? "the key result" : "its key results"}`, body: card({
       whatItIs: `${g.objective} (${g.id}). ${kr}.`,
-      whatYoudSee: g.keyResult?.statusNote || g.keyResult?.howToCheck || "",
+      whatYoudSee: krs.find((k) => k.statusNote)?.statusNote || testing,
       picture: proposalPicture(world, g),
-      yourCall: `Mark the key result met or missed (spent ${fmt(g.spentTokens)} of ${fmt(g.grantTokens ?? 0)}).${g.checkpointDocId ? ` Close report ${g.checkpointDocId}.` : ""}`,
+      yourCall: `Mark ${krs.length === 1 ? "the key result" : "each key result"} met or missed (spent ${fmt(g.spentTokens)} of ${fmt(g.grantTokens ?? 0)}).${g.checkpointDocId ? ` Close report ${g.checkpointDocId}.` : ""}`,
     }) };
   }
   const at = [...g.history].reverse().find((h) => h.action === "propose")?.at ?? g.updatedAt;
@@ -185,6 +181,21 @@ function goalProposalSlide(world: World, p: GoalProposalView): Draft {
   };
 }
 
+/** A member asks to captain a goal (gr_bwm0iz7rwl): Accept or Decline, decided by the goal's current captain or an admin. */
+function captainSlide(world: World, r: CaptainRequestView): Draft {
+  const who = r.githubLogin ? `@${r.githubLogin}` : r.name;
+  return {
+    kind: "captain", group: 4, itemId: r.id, buildingId: null, since: r.createdAt, history: "",
+    title: `${who} asks to captain a goal`,
+    body: card({
+      whatItIs: `${who} asks to captain "${oneLine(r.goalText)}" (${r.goalId}, request ${r.id}).${r.note ? ` Why: "${oneLine(r.note)}"` : ""}`,
+      whatYoudSee: `Accepting makes ${who} the goal's captain: the Goal tree shows them as its captain, its in-tray items route to them (their Mine view), and they can fund, counter or reject grants and write key results under it.`,
+      picture: null,
+      yourCall: `Accept or decline (a declined member may ask again). Today the goal is captained by ${r.captainName}.`,
+    }),
+  };
+}
+
 /** The deck for `now`. Pure over the world: the same in-tray gives the same slides. */
 export function reviewDeck(world: World, now = new Date()): ReviewDeck {
   const intray = townHallIntray(world);
@@ -197,6 +208,7 @@ export function reviewDeck(world: World, now = new Date()): ReviewDeck {
     drafts.push(grantSlide(world, g, now));
   }
   for (const p of intray.goalProposals) drafts.push(goalProposalSlide(world, p));
+  for (const r of intray.captains) drafts.push(captainSlide(world, r));
   for (const x of intray.blocked) {
     drafts.push({ kind: "blocked", group: 2, itemId: x.buildingId, buildingId: x.buildingId, since: x.since, history: "", title: `${x.name}: blocked`, body: card({
       whatItIs: `${x.name} has no key results to work toward and no funded grant, so none of its work can be funded.`,
@@ -227,7 +239,7 @@ export function reviewDeck(world: World, now = new Date()): ReviewDeck {
   const waitersOf = (d: Draft) => (d.itemId ? waiters.get(d.itemId) ?? 0 : 0) + (d.grantId ? waiters.get(world.grants.get(d.grantId)?.checkpointDocId ?? "") ?? 0 : 0);
   for (const d of drafts) if (d.group > 3 && waitersOf(d) > 0) d.group = 3;
   const t = (s: string | null) => (s ? Date.parse(s) : 0);
-  const goalLast = (d: Draft) => (d.kind === "goal-proposal" ? 1 : 0);
+  const goalLast = (d: Draft) => (d.kind === "goal-proposal" || d.kind === "captain" ? 1 : 0);
   drafts.sort((a, b) => a.group - b.group || (a.group === 3 ? waitersOf(b) - waitersOf(a) : 0) || goalLast(a) - goalLast(b) || t(a.since) - t(b.since) || (a.keySuffix ?? "").localeCompare(b.keySuffix ?? ""));
 
   const slides: ReviewSlide[] = [];
@@ -260,7 +272,7 @@ function townSlide(world: World, now: Date, decisions: number, oldest: string | 
   const directed = lanes.reduce((s, l) => s + l.directed.spentTodayTokens, 0);
   const rows = world.buildings.where("kind != 'town-hall'", [], "ORDER BY rowid").map((b) => {
     const light = world.grantDesk.stoplight(b);
-    const krs = world.grantDesk.keyResults(b.id);
+    const krs = world.grantDesk.keyResults(b.id).filter((k) => !k.archivedAt && k.status !== "met" && k.status !== "missed");
     return `| ${b.name} | ${light ? LIGHT[light.light] ?? "" : ""} | ${krs.length ? krs.map((k) => `${KR_LIGHT[k.status] ?? "⚪"} ${k.status.replace(/-/g, " ")}`).join(" · ") : "_none_"} |`;
   });
   // desks are the steer (docs/goals.md "Effort steering is desks"): each pillar's subtree headcount (mt_n25udpflus decision 3)
@@ -293,8 +305,8 @@ export function decidedLabel(world: World, p: PinnedSlide): string {
   if (grantId) {
     const g = world.grants.get(grantId);
     if (g && p.kind === "close") {
-      const kr = g.keyResultId ? world.keyResults.get(g.keyResultId) : undefined;
-      if (kr && (kr.status === "met" || kr.status === "missed")) return `key result marked ${kr.status}`;
+      const krs = world.grantDesk.keyResultsOf(g.id);
+      if (krs.length && krs.every((k) => k.status === "met" || k.status === "missed")) return krs.length === 1 ? `key result marked ${krs[0]!.status}` : `key results marked ${krs.map((k) => k.status).join(", ")}`;
     }
     const e = g ? [...g.history].reverse().find((h) => h.byKind === "user") : undefined;
     if (e) return ACTION_PAST[e.action] ?? e.action;
@@ -303,6 +315,10 @@ export function decidedLabel(world: World, p: PinnedSlide): string {
   if (p.kind === "goal-proposal" && p.itemId) {
     const gp = world.goalProposals.get(p.itemId);
     if (gp) return gp.status === "superseded" ? "superseded by a newer proposal" : gp.status;
+  }
+  if (p.kind === "captain" && p.itemId) {
+    const cr = world.captainRequests.get(p.itemId);
+    if (cr) return cr.status;
   }
   const doc = p.docIds?.[0] ? world.docs.get(p.docIds[0]) : null;
   if (doc) return doc.decision && doc.decision !== "pending" ? DOC_PAST[doc.decision] ?? doc.decision : "archived";

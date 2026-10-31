@@ -97,6 +97,8 @@ kbd { font-family: var(--mono); font-size: 11px; background: #2a2d3a; border: 1p
 .hud-row .notice-text { color: var(--text); white-space: normal; line-height: 1.3; }
 .hud-row .notice-text b { color: var(--text); }
 .hud-row.warn { border-color: #4a4226; }
+.hud-row.with-actions { cursor: default; }
+.hud-row.with-actions .btn { flex: none; }
 .hud-row.meet em { color: var(--meet); }
 .hud-row.ok { border-color: #2f5c3f; }
 .hud-row.ok em { color: #6fdc8c; }
@@ -648,6 +650,7 @@ textarea[data-drop="over"] { outline: 2px dashed var(--accent, #7aa2ff); outline
 .kr-move { margin-left: auto; max-width: 180px; }
 .kr-hint { font-size: 12px; margin: 2px 0 6px; }
 .kpi-tiles { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: var(--gap); margin-top: 8px; }
+.join-funnel { margin-top: 8px; font-size: 12px; line-height: 1.5; }
 .kpi-tile { background: var(--panel-2); border: 1px solid var(--line); border-radius: var(--r); padding: 10px; }
 .kpi-name { font-weight: 600; }
 .kpi-value { font-size: 28px; font-weight: 700; line-height: 1.1; color: var(--text); }
@@ -725,6 +728,7 @@ div.spend-row > .muted { font-size: 11.5px; }
 .goal-detail { display: flex; flex-direction: column; gap: 8px; }
 .goal-path { font-size: 12px; }
 .goal-meta { font-size: 12px; }
+.captain-ask { margin: 6px 0; }
 .goal-actions { display: flex; gap: 6px; flex-wrap: wrap; }
 .goal-form { border: 1px solid #2a2d3a; border-radius: var(--r); padding: 8px 10px; display: flex; flex-direction: column; gap: 6px; }
 .goal-proposals { display: flex; flex-direction: column; gap: 8px; }

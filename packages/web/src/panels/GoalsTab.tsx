@@ -4,7 +4,7 @@
  * in Settings) and Grants (every grant of the building, decided in the Town Hall in-tray). The board is notes only.
  */
 import { useEffect, useState, type ReactNode } from "react";
-import { MAX_KEY_RESULTS_PER_OBJECTIVE, MAX_OBJECTIVES, type GrantView, type KeyResultStatus, type KpiKey, type SnapshotBuilding } from "@muster-town/schema";
+import { MAX_OBJECTIVES, type GrantView, type KeyResultStatus, type KpiKey, type SnapshotBuilding } from "@muster-town/schema";
 import { api, type GoalKeyResult, type ObjectiveView, type SpendNode } from "../api";
 import { store, useTown } from "../state";
 import { Act, ADJ, Empty, ErrorLine, Field, Loading, Pill, Section, fmtTokens, timeAgo, useLoad } from "./ui";
@@ -193,12 +193,10 @@ function KeyResultsEditor({ b, right }: { b: SnapshotBuilding; right?: ReactNode
           <ObjectiveRow n={i + 1} o={o} canWrite={human} onChanged={tree.reload} />
           <ol className="kr-editor">{o.keyResults.map(row)}</ol>
           {o.keyResults.length < 2 ? <div className="muted kr-hint">Aim for 2 to 4 key results under each objective.</div> : null}
-          {human && o.keyResults.length < MAX_KEY_RESULTS_PER_OBJECTIVE ? <AddKeyResult buildingId={b.id} objectiveId={o.id} n={all.length + 1} onChanged={tree.reload} /> : null}
         </div>
       ))}
       {objectives.length && unsorted.length ? <div className="kr-objective-head muted">Not under an objective yet: move each under one</div> : null}
       {unsorted.length ? <ol className="kr-editor">{unsorted.map(row)}</ol> : null}
-      {human && !objectives.length ? <AddKeyResult buildingId={b.id} objectiveId={null} n={all.length + 1} onChanged={tree.reload} /> : null}
       {human && objectives.length < MAX_OBJECTIVES ? <AddObjective buildingId={b.id} n={objectives.length + 1} onChanged={tree.reload} /> : null}
     </Section>
   );
@@ -255,22 +253,6 @@ function AddObjective({ buildingId, n, onChanged }: { buildingId: string; n: num
         store.toast("Objective added: put key results under it", "ok");
         onChanged();
       }}>Add objective</Act></div>
-    </form>
-  );
-}
-
-function AddKeyResult({ buildingId, objectiveId, n, onChanged }: { buildingId: string; objectiveId: string | null; n: number; onChanged: () => void }) {
-  const [draft, setDraft] = useState({ text: "", howToCheck: "" });
-  return (
-    <form className="form kr-add" onSubmit={(e) => e.preventDefault()}>
-      <Field label={`Key result ${n}`}><input value={draft.text} maxLength={300} placeholder="Something a human can check in the live town" onChange={(e) => setDraft({ ...draft, text: e.target.value })} /></Field>
-      <Field label="How to check"><input value={draft.howToCheck} maxLength={300} placeholder="Where to look and what you'd see" onChange={(e) => setDraft({ ...draft, howToCheck: e.target.value })} /></Field>
-      <div className="actions"><Act tone="primary" disabled={!draft.text.trim() || !draft.howToCheck.trim()} run={async () => {
-        await api().createKeyResult(buildingId, { text: draft.text.trim(), howToCheck: draft.howToCheck.trim(), objectiveId });
-        setDraft({ text: "", howToCheck: "" });
-        store.toast("Key result added", "ok");
-        onChanged();
-      }}>Add key result</Act></div>
     </form>
   );
 }

@@ -66,7 +66,7 @@ export function parseDeck(body: string): ParsedDeck {
  * plus what its decision buttons need. Slide 1 is the state of the town; then one slide per pending decision,
  * blocking-most first; rollups with no call collapse into one closing "For the record" slide.
  */
-export type ReviewSlideKind = "town" | "checkpoint" | "blocked" | "proposal" | "goal-proposal" | "rollup" | "report" | "close" | "record" | "funder";
+export type ReviewSlideKind = "town" | "checkpoint" | "blocked" | "proposal" | "goal-proposal" | "captain" | "rollup" | "report" | "close" | "record" | "funder";
 export interface ReviewSlide extends DeckSlide {
   /** stable across reloads: what the viewer moves to after a decision */
   key: string;

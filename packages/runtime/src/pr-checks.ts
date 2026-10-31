@@ -60,7 +60,7 @@ export function createPrPoller(world: World, deps: PrPollerDeps): PrPoller {
 
   async function read(pr: number): Promise<PrChecks> {
     const checkedAt = now().toISOString();
-    const p = await gh<{ state: string; merged?: boolean; merged_at?: string | null; head: { sha: string } }>(`/pulls/${pr}`);
+    const p = await gh<{ state: string; merged?: boolean; merged_at?: string | null; mergeable?: boolean | null; head: { sha: string } }>(`/pulls/${pr}`);
     const sha = p.head.sha;
     if (p.state !== "open") return { state: p.merged || p.merged_at ? "merged" : "closed", sha, done: 0, total: 0, checkedAt };
     const hit = finished.get(sha);
@@ -72,6 +72,9 @@ export function createPrPoller(world: World, deps: PrPollerDeps): PrPoller {
     const failed = runs.filter((r) => r.status === "completed" && !OK.has(r.conclusion ?? "")).map((r) => r.name);
     // a suite completes only when its whole workflow did (jobs that `need` another may not have a run yet)
     const complete = suites.length > 0 && suites.every((s) => s.status === "completed") && done === runs.length;
+    // a PR that conflicts with its base gets no pull_request run at all (PR #194, 2026-10-31): fail it rather than hold 24 h.
+    // `mergeable` is null while GitHub computes it; not cached, since merging main in moves the head anyway
+    if (!suites.length && p.mergeable === false) return { state: "failed", sha, done: 0, total: 0, failed: ["merge conflict: CI did not run"], checkedAt };
     if (!complete) return { state: "pending", sha, done, total: runs.length, checkedAt };
     const bad = failed.length > 0 || suites.some((s) => !OK.has(s.conclusion ?? ""));
     const out = { state: bad ? "failed" as const : "passed" as const, sha, done, total: runs.length, ...(bad ? { failed } : {}) };

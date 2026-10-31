@@ -17,8 +17,8 @@ function setup() {
   const tree = world.goalTree;
   const goal = tree.create(admin, { parentId: "gl_trust", text: "A funder sees what every token bought" });
   tree.attach(admin, LAB, goal.id);
-  const kr = tree.addKeyResult(admin, goal.id, { text: "Grant panel lists sessions", howToCheck: "Open a grant", due, buildingId: LAB });
-  const g = world.grantDesk.create(null, LAB, { keyResultId: kr.id, objective: "o", approach: "a", stopCondition: "s", askTokens: 1000 });
+  const g = world.grantDesk.create(null, LAB, { goalId: goal.id, keyResults: [{ text: "Grant panel lists sessions", howToCheck: "Open a grant", due }], objective: "o", approach: "a", stopCondition: "s", askTokens: 1000 });
+  const kr = world.keyResults.require(g.keyResultId!);
   world.grantDesk.propose(null, g.id);
   world.grantDesk.decide(admin, g.id, { action: "fund" });
   return { ...s, mei, tree, goal, kr, grant: g };
@@ -87,11 +87,12 @@ describe("Change this goal (docs/goals.md, step 5)", () => {
   it("proposals carry reorgId; under-review key results are kept, moved or archived by a human", async () => {
     const { world, admin, mei, goal, kr, tree } = setup();
     const other = createBuilding(world, { name: "Other", goalId: goal.id }, null);
-    const k2 = tree.addKeyResult(admin, goal.id, { text: "k2", howToCheck: "h", due, buildingId: other.id });
-    const k3 = tree.addKeyResult(admin, goal.id, { text: "k3", howToCheck: "h", due, buildingId: LAB });
+    const krOf = (buildingId: string, text: string) => world.keyResults.require(world.grantDesk.create(null, buildingId, { goalId: goal.id, keyResults: [{ text, howToCheck: "h", due }], objective: "o", stopCondition: "s", askTokens: 1000 }).keyResultId!);
+    const k2 = krOf(other.id, "k2");
+    const k3 = krOf(LAB, "k3");
     const c = world.reorgs.file(admin, goal.id, { toText: "Y words", why: "w" });
     expect(c.prep.find((p) => p.buildingId === other.id)?.status).toBe("no-manager");
-    const r = await world.verbs.propose_key_result(mei, { text: "New KR", howToCheck: "h", due, why: "fits Y", reorgId: c.id });
+    const r = await world.verbs.propose_goal(mei, { action: "add-goal", parentId: goal.id, text: "New goal", why: "fits Y", reorgId: c.id });
     expect(world.goalProposals.require(r.proposal.id).reorgId).toBe(c.id);
     await expect(world.verbs.propose_goal(mei, { action: "add-goal", parentId: goal.id, text: "x", why: "y", reorgId: "gc_nope" })).rejects.toThrow(/not a "Change this goal"/);
     expect(world.reorgs.view(world.reorgs.get(c.id)!).proposals).toEqual([r.proposal.id]);
@@ -131,7 +132,7 @@ describe("Plan with an agent (docs/goals.md, step 5)", () => {
     expect(world.ops.openOneOnOne(admin, "town-hall").id).toBe(m.id);
     expect(() => world.ops.openOneOnOne(admin, "town-hall", { agentId: world.agents.first("kind = 'service'")!.id })).toThrow();
     const stranger = world.ops.ensureAvatar(createUser(world, "Stranger").user.id);
-    expect(() => world.reorgs.openPlanner(stranger, goal.id)).toThrow(/Only an admin or a goal's owner/);
+    expect(() => world.reorgs.openPlanner(stranger, goal.id)).toThrow(/Only an admin or a goal's captain/);
     const p = await world.verbs.propose_goal(planner, { action: "add-goal", parentId: goal.id, text: "Sub-goal", why: "drafted with the human" });
     expect(world.goalProposals.require(p.proposal.id)).toMatchObject({ buildingId: null, proposedBy: planner.id });
     // a proposal can be presented in the 1:1 as a card

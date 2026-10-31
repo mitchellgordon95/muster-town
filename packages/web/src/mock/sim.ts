@@ -1,5 +1,5 @@
 /** In-memory town for VITE_MOCK=1: holds state, animates it, and implements actions locally. */
-import type { Agent, Allocation, Assignment, Building, CreateKeyResultInput, CreateObjectiveInput, Objective, UpdateObjectiveInput, DecideGrantInput, CloseGrantInput, Doc, Event, GrantView, KeyResult, Meeting, Membership, Role, ServerMessage, Stoplight, UpdateKeyResultInput } from "@muster-town/schema";
+import type { Agent, Allocation, Assignment, Building, CreateObjectiveInput, Objective, UpdateObjectiveInput, DecideGrantInput, CloseGrantInput, Doc, Event, GrantView, KeyResult, Meeting, Membership, Role, ServerMessage, Stoplight, UpdateKeyResultInput } from "@muster-town/schema";
 import { BUILTIN_ROLES, stoplightOf } from "@muster-town/schema";
 import type { ForkSummary, GoalKeyResult, ObjectiveTree, ReportChain, Snapshot } from "../api";
 import * as F from "./fixture";
@@ -7,8 +7,6 @@ import { bfs, computeLayout, type Layout } from "./layout";
 
 const clone = <T,>(x: T): T => JSON.parse(JSON.stringify(x));
 const now = () => new Date().toISOString();
-/** core's BLOCKED_NO_KRS */
-const BLOCKED_NO_KRS = "blocked: no key results to work toward";
 let seq = 0;
 export const newId = (p: string) => `${p}_${Date.now().toString(36)}${(++seq).toString(36)}`;
 /** an allocation's spend by kind (the mock books it all as cache reads); spentTokens is their sum */
@@ -146,14 +144,14 @@ export class Sim {
     const grants = [...this.grants.values()].filter((g) => of(g) && (g.status === "funded" || g.status === "checkpoint")).sort((x, y) => (x.fundedAt ?? "").localeCompare(y.fundedAt ?? ""));
     const proposals = [...this.grants.values()].filter((g) => of(g) && (g.status === "proposed" || g.status === "countered")).sort((x, y) => y.updatedAt.localeCompare(x.updatedAt));
     const keyResults = this.goalKeyResults(buildingId);
-    const blocked = !!b && b.kind !== "town-hall" && !keyResults.length && !grants.length ? BLOCKED_NO_KRS : null;
+    const blocked = null as string | null; // as core: key results belong to grants, so no building is blocked for having none (docs/how-work-gets-done.md §4)
     return { goal: b?.goal ?? "", keyResults, objectives: this.objectiveTree(buildingId), blocked, stoplight: this.stoplight(buildingId), grants, proposals, exploration: { spentTodayTokens: F.explorationSpentToday[buildingId] ?? 0, freeTokens: 0, cap: null as { tokensPerDay: number; goalId: string; spentTodayTokens: number } | null } };
   }
   /** The building's stoplight, as core's Grants.stoplight: null for the Town Hall. */
   stoplight(buildingId: string): Stoplight | null {
     const b = this.buildings.find((x) => x.id === buildingId);
     if (!b || b.kind === "town-hall") return null;
-    return stoplightOf(this.goalKeyResults(buildingId), [...this.grants.values()].filter((g) => g.buildingId === buildingId && (g.status === "funded" || g.status === "checkpoint")));
+    return stoplightOf([...this.grants.values()].filter((g) => g.buildingId === buildingId && (g.status === "funded" || g.status === "checkpoint")));
   }
   /** An agent's or user's name (core's World.nameOf), null for none. */
   private nameOf(id: string | null): string | null {
@@ -163,7 +161,7 @@ export class Sim {
   /** GET /api/buildings/:id/key-results: the goal's key results in order, each with the live grant naming it. */
   goalKeyResults(buildingId: string): GoalKeyResult[] {
     const live = new Map([...this.grants.values()].filter((g) => g.keyResultId && (g.status === "funded" || g.status === "checkpoint")).map((g) => [g.keyResultId!, g.id]));
-    return [...this.keyResults.values()].filter((k) => k.buildingId === buildingId).sort((a, b) => a.position - b.position).map((k) => ({ ...k, grantId: live.get(k.id) ?? null, createdByName: this.nameOf(k.createdBy), editedByName: this.nameOf(k.editedBy) }));
+    return [...this.keyResults.values()].filter((k) => k.buildingId === buildingId).sort((a, b) => a.position - b.position).map((k) => ({ ...k, grantId: k.grantId ?? live.get(k.id) ?? null, createdByName: this.nameOf(k.createdBy), editedByName: this.nameOf(k.editedBy) }));
   }
   /** GET /api/buildings/:id/objectives, as core's Grants.objectiveTree. */
   objectiveTree(buildingId: string): ObjectiveTree {
@@ -193,16 +191,6 @@ export class Sim {
   deleteObjective(id: string): void {
     if ([...this.keyResults.values()].some((k) => k.objectiveId === id)) throw new Error("Key results hang off this objective: move them first.");
     this.objectives.delete(id);
-  }
-  /** POST /api/buildings/:id/key-results (only a human writes them; the mock's user is one). */
-  createKeyResult(buildingId: string, i: CreateKeyResultInput): KeyResult {
-    const b = this.buildings.find((x) => x.id === buildingId);
-    if (!b) throw new Error(`building not found: ${buildingId}`);
-    const last = Math.max(-1, ...this.goalKeyResults(buildingId).map((k) => k.position));
-    const k: KeyResult = { id: newId("kr"), buildingId, position: last + 1, text: i.text.trim(), howToCheck: i.howToCheck.trim(), status: "not-started", statusNote: "", statusBy: null, createdBy: "us_mitchell", editedBy: null, sourceDocIds: i.sourceDocIds ?? [], objectiveId: i.objectiveId ?? null, goalId: b.goalId, due: i.due ?? null, archivedAt: null, underReviewSince: null, postmortemDocId: null, updatedAt: now() };
-    this.keyResults.set(k.id, k);
-    this.event("kr.created", null, `${b.name} key result: ${k.text}`, { keyResultId: k.id }, buildingId);
-    return k;
   }
   /** PATCH /api/key-results/:id: words and / or status (the mock skips the status permission split). */
   updateKeyResult(id: string, i: UpdateKeyResultInput): KeyResult {

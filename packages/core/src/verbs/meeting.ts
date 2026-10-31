@@ -1,5 +1,6 @@
 import type { Agent, Meeting } from "@muster-town/schema";
 import { AppError, badRequest } from "../errors.ts";
+import { guessedTimesWarning } from "../time.ts";
 import { agentsDrafting, attachmentLine, clearAgentDrafting, currentSlide, endMeeting, humanStillTalking, humanTyping, meetingDecide, meetingSpeak, noteAgentDrafting, setMeetingPhase } from "../meetings.ts";
 import type { World } from "../world.ts";
 import type { VerbIn } from "./types.ts";
@@ -53,7 +54,9 @@ export async function meeting(world: World, me: Agent, input: VerbIn<"meeting">)
     {
       const said = meetingSpeak(world, me, m.id, input.text ?? "", input.attach);
       const a = said.transcript[said.transcript.length - 1]?.attachment;
-      return a ? { ok: true, presented: attachmentLine(a) } : { ok: true };
+      // a guessed clock time in the line is posted anyway, with the warning back to the speaker (core/time.ts)
+      const warn = guessedTimesWarning(input.text ?? "");
+      return { ok: true, ...(a ? { presented: attachmentLine(a) } : {}), ...(warn ? { warnings: [warn] } : {}) };
     }
     case "listen": {
       let map = cursors.get(world);

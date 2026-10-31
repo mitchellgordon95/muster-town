@@ -35,7 +35,7 @@ export function PlanToolbar({ inset = 0 }: { inset?: number }) {
   );
 }
 
-/** The map's shape: town-wide, so an admin or a goal owner picks it and everyone sees it (server: World.canSetMapLayout). */
+/** The map's shape: town-wide, so an admin or a goal captain picks it and everyone sees it (server: World.canSetMapLayout). */
 function ShapePicker() {
   const shape = useTown((s) => s.town?.mapLayout ?? "fountain");
   const me = useTown((s) => s.me);
@@ -51,7 +51,7 @@ function ShapePicker() {
     <div className="plan-shape" role="radiogroup" aria-label="The map's shape">
       <span className="muted">Shape</span>
       {SHAPES.map((s) => (
-        <button key={s.id} role="radio" aria-checked={s.id === shape} className={`btn${s.id === shape ? " on" : ""}`} disabled={!canPick || busy} title={canPick ? `${s.label}: ${s.hint}. Changes the map for everyone.` : `${s.label}: ${s.hint}. An admin or a goal owner picks the shape.`} onClick={() => pick(s.id)}>
+        <button key={s.id} role="radio" aria-checked={s.id === shape} className={`btn${s.id === shape ? " on" : ""}`} disabled={!canPick || busy} title={canPick ? `${s.label}: ${s.hint}. Changes the map for everyone.` : `${s.label}: ${s.hint}. An admin or a goal captain picks the shape.`} onClick={() => pick(s.id)}>
           {s.label}
         </button>
       ))}
