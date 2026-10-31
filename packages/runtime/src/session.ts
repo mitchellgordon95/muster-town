@@ -55,6 +55,8 @@ export interface LiveSession {
   child?: { kill(): void };
   /** desk sessions the previous server left running at its redeploy restart: no child here; alive while the desk polls control */
   adopted?: boolean;
+  /** host sessions: between turns, waiting on its input (a pushed message starts the next turn; no need to cut one short) */
+  idle?: boolean;
 }
 
 export const TOWN_TOOLS = VERB_NAMES.map((v) => `mcp__town__${v}`);
@@ -315,6 +317,7 @@ export async function runAgentSession(ctx: Ctx, spec: SessionSpec): Promise<Sess
         bookRunning(world, session.id, meter.usage(), funding.allocationId);
       }
       if (m.type === "assistant") {
+        live.idle = false;
         for (const b of blocksOf(m)) {
           if (b.type === "tool_use" && b.name) {
             emit("agent.tool", describeTool(world, b.name, b.input), { tool: b.name, input: clipJson(b.input), ...(b.id ? { toolUseId: b.id } : {}) });
@@ -338,6 +341,7 @@ export async function runAgentSession(ctx: Ctx, spec: SessionSpec): Promise<Sess
           live.input.close();
           break;
         }
+        live.idle = live.input.pending === 0;
       }
       if (!live.reportSubmitted && world.sessions.get(session.id)?.reportId) {
         live.reportSubmitted = true;
