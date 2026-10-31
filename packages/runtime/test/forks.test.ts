@@ -168,6 +168,23 @@ describe("manager forks: a stale desk slot (image redeploy kept it busy)", () =>
     await vi.waitFor(() => expect(removed).toEqual(["desk-slot-stale"]));
     expect(world.db.prepare("SELECT COUNT(*) AS c FROM stale_desks").get()).toEqual({ c: 0 });
   });
+  test("the manager's own desk is never kept busy: a stale row for its seat clears on the next pass (Nell ms_a6dshs7urq)", async () => {
+    const removed: string[] = [];
+    const desk: DeskBackend = {
+      kind: "docker",
+      available: async () => true,
+      ensure: async (a) => ({ name: `desk-${a.id}`, agentId: a.id }),
+      exec: () => ({ wait: async () => 0, kill: () => {} }),
+      remove: async () => {},
+      removeSandbox: async (name: string) => { removed.push(name); },
+    };
+    const { world, runtime, lab, mei } = forkSetup(async function* () { yield init(); yield result(1, 0); }, { backend: desk });
+    const seat = world.db.prepare("SELECT n FROM desks WHERE agentId = ?").get(mei.id) as { n: number };
+    world.db.prepare("INSERT INTO stale_desks (key, buildingId, n, at) VALUES (?, ?, ?, ?)").run("desk-slot-seat", lab.id, seat.n, new Date().toISOString());
+    await runtime.tickOnce();
+    await vi.waitFor(() => expect(removed).toEqual(["desk-slot-seat"]));
+    expect(world.db.prepare("SELECT COUNT(*) AS c FROM stale_desks").get()).toEqual({ c: 0 });
+  });
 });
 
 describe("manager forks: messages", () => {

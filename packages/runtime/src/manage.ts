@@ -8,6 +8,7 @@
 import { alongsideWorkBlock, endMeeting, humanDecisionsBlock, humanTyping, intrayOf, managePrompt, managerAgentOf, managerNewReport, meetingNotice, oneOnOneEnded, oneOnOnePrompt, oneOnOneUtterance, sessionMemory, skillsBlock, workSystemPrompt, type World } from "@muster-town/core";
 import type { Agent, Doc, Meeting, Session } from "@muster-town/schema";
 import { VERB_NAMES, type VerbName } from "@muster-town/schema";
+import { codeBlock } from "./code.ts";
 import { homeOf, runAgentSession, type Ctx, type LiveSession } from "./session.ts";
 
 /** A 1:1 beside a work session can do anything a manage session can except what belongs to the work: its report and assignment. */
@@ -187,11 +188,15 @@ export async function runManageSession(ctx: Ctx, st: ManageState, agentId: strin
   const building = world.buildings.require(homeOf(world, agentId)!, "building");
   const nameOf = world.nameOf.bind(world);
   const [first, ...more] = talks;
+  // the snapshot as it is now (the runtime tick keeps it within minutes of main; the session never waits on a fetch)
+  const code = ctx.code?.current() ?? null;
   const run = runAgentSession(ctx, {
     agentId, purpose: "manage", model: agent.model ?? building.model, maxTurns: building.maxTurnsPerSession, web: false, meetingId: first?.id ?? null,
     // beside a work session: its own registry slot, and no verbs that act for the work (its report, its assignment)
     ...(work ? { alongside: true, verbs: ALONGSIDE_VERBS } : {}),
-    system: workSystemPrompt(agent, building, world.town.get(), { ...sessionMemory(world, agent, building), skills: skillsBlock(world.skills.forAgent(agentId)) }),
+    system: [workSystemPrompt(agent, building, world.town.get(), { ...sessionMemory(world, agent, building), skills: skillsBlock(world.skills.forAgent(agentId)) }), code ? codeBlock(code) : ""].filter(Boolean).join("\n\n"),
+    // main's code, read-only (Read, Grep, Glob): the manager reads before it answers how something works
+    ...(code ? { code } : {}),
     prompt: first ? oneOnOnePrompt(first, nameOf, talkBlocks(world, first, agentId, work)) : managePrompt(building, fresh, nameOf),
     keepOpen: () => openOneOnOnes(world, agentId).length > 0,
   });

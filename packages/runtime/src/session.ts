@@ -8,6 +8,7 @@ import { join } from "node:path";
 import type { DesksConfig } from "@muster-town/schema";
 import { adjustedOfUsage, AppError, booked, NoCredential, resultLine, type Booked, type Credential, type Funding, type World } from "@muster-town/core";
 import { countsOf, mergeUsage, rawTokens, splitRaw, subTokens, UsageMeter, VERB_NAMES, ZERO_TOKENS, type AllocationAuth, type Session, type TokenUsage, type VerbName } from "@muster-town/schema";
+import { CODE_TOOLS, codeGuard, type CodeCheckout, type CodeSource } from "./code.ts";
 import { describeTool } from "./describe.ts";
 import { assertNoEnvCredentials, blocksOf, InputChannel, noUsage, sessionEnv, usageOf, type LooseMessage, type Options, type QueryHandle, type Sdk, type Usage } from "./sdk.ts";
 
@@ -34,6 +35,8 @@ export interface Ctx {
   env?: NodeJS.ProcessEnv;
   /** a hosted collective's runtime: its own Bank only (no subscription inputs), in a scrubbed env (`hostedEnv`) */
   hosted?: boolean;
+  /** the read-only snapshot of main manage sessions read (code.ts); absent = no code tools */
+  code?: CodeSource;
   /** register background work so tests (and stop()) can await it */
   track<T>(p: Promise<T>): Promise<T>;
 }
@@ -76,6 +79,8 @@ export interface SessionSpec {
   keepOpen?: () => boolean;
   /** a conversation running alongside the agent's live work session: registered in `ctx.talking`, not `ctx.live` */
   alongside?: boolean;
+  /** read the town's code: Read, Grep and Glob over this snapshot (its dir is the cwd; a guard denies paths outside it) */
+  code?: CodeCheckout | null;
   /** work sessions: ends the session instead of the default endSession + charge (see finishWorkSession) */
   finish?: (out: SessionOutcome, allocationId: string | null) => Promise<Session>;
 }
@@ -224,18 +229,20 @@ export function fundedBy(auth: AllocationAuth | null | undefined): string {
 export function townOptions(ctx: Ctx, spec: SessionSpec, credential: Credential): Options {
   const token = ctx.world.tokens.getOrCreate("agent", spec.agentId);
   const townTools = spec.verbs ? spec.verbs.map((v) => `mcp__town__${v}`) : TOWN_TOOLS;
+  const readTools: string[] = spec.code ? [...CODE_TOOLS] : [];
   return {
     model: spec.model,
     maxTurns: spec.maxTurns,
     systemPrompt: { type: "preset", preset: "claude_code", append: spec.system },
     mcpServers: { town: { type: "http", url: ctx.mcpUrl, headers: { Authorization: `Bearer ${token}` }, alwaysLoad: true } },
     // `tools` is the built-in tool set available to the session; `allowedTools` only auto-approves within it.
-    // In-process sessions never get code tools: code work happens in desks (docker backend).
-    tools: spec.web ? WEB_TOOLS : [],
-    allowedTools: [...townTools, ...(spec.web ? WEB_TOOLS : [])],
-    disallowedTools: [...DISALLOWED_TOOLS, ...(spec.web ? [] : WEB_TOOLS), ...TOWN_TOOLS.filter((t) => !townTools.includes(t))],
+    // In-process sessions never edit or run code (that happens in desks); a manage session may read it (code.ts).
+    tools: [...(spec.web ? WEB_TOOLS : []), ...readTools],
+    allowedTools: [...townTools, ...(spec.web ? WEB_TOOLS : []), ...readTools],
+    disallowedTools: [...DISALLOWED_TOOLS.filter((t) => !readTools.includes(t)), ...(spec.web ? [] : WEB_TOOLS), ...TOWN_TOOLS.filter((t) => !townTools.includes(t))],
     settingSources: [],
     env: sessionEnv(credential, ctx.env),
+    ...(spec.code ? { cwd: spec.code.dir, hooks: { PreToolUse: codeGuard(spec.code.dir) } } : {}),
   };
 }
 
