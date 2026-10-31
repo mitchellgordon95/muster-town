@@ -1,7 +1,7 @@
 /** Resident work sessions (host backend + shared end-of-session logic), interrupts, and reviewer sessions over the in-tray. */
 import { AppError, NoCredential, type World, appendAgentLog, chainBlock, codeWorkspace, createDoc, fallbackReportBody, FALLBACK_REPORT_PREFIX, latestReportOf, recentWorkBlock, sessionMemory, sessionView, setAssignmentStatus, skillsBlock, workPrompt, workSystemPrompt } from "@muster-town/core";
 import { countsOf, rawTokens, splitRaw, type Agent, type AllocationAuth, type Assignment, type Building, type Doc, type Session, type TokenCounts } from "@muster-town/schema";
-import { chargeUsage, fundingFor, homeOf, runAgentSession, type Ctx } from "./session.ts";
+import { chargeUsage, fundedBy, fundingFor, homeOf, runAgentSession, type Ctx } from "./session.ts";
 
 /** The allocation a session of this agent would be charged to now, or null (also when the Bank holds no credential: the spend is still recorded). */
 function allocationOf(world: World, agentId: string): string | null {
@@ -85,9 +85,9 @@ export interface WorkOutcome {
   reportSubmitted?: boolean;
   /** the runtime aborted it (agent stopped/banned/retired or runtime shutdown) */
   stopped?: boolean;
-  /** what actually paid for it (desk session-end) */
+  /** what the desk says paid for it (desk session-end): checked against what the Bank handed out, never booked on its own */
   fundingUsed?: AllocationAuth;
-  /** the desk failed over from the subscription to the fallback API key: charge the fallback allocation */
+  /** an old desk image's in-session failover claim (no runtime hands out a fallback key since 2026-10-30): a mismatch, alerted */
   fallback?: boolean;
   /** the SDK's message when the desk classified a result as SPEND_LIMIT (core logs `bank.cap`) */
   spendLimit?: string;
@@ -139,14 +139,14 @@ export async function finishWorkSession(ctx: Ctx, sessionId: string, o: WorkOutc
     }
   }
   const status: Exclude<Session["status"], "running"> = stopped ? "interrupted" : error ? "error" : "done";
-  const funding = o.fundingUsed ?? (o.fallback ? "api-key" : undefined);
-  // a failover is never silent: the HUD shows the latest one (`alert: funding-failover`), the log keeps them all
-  if (o.fallback) {
-    const fbAlloc = ctx.deskFallbacks.get(sessionId) ?? (bid ? world.budget.fallbackAllocation(bid)?.id ?? null : null);
-    const paidBy = fbAlloc ? world.allocations.get(fbAlloc)?.label ?? "an API-key allocation" : "the Bank's API-key input";
-    world.events.append({ type: "system", agentId, buildingId: bid, text: `${agentNow.name}'s session hit the subscription's limit and finished on the API key (${paidBy})`, payload: { alert: "funding-failover", sessionId, allocationId: fbAlloc, costUsd: usage.costUsd } });
+  // The Bank books the credential it handed out (session.funding, set at start from the Funding the env was built from),
+  // never the desk's word: a desk claiming it ran on something else, or an old image's in-session failover, is an alert
+  // (`alert: funding-mismatch`, shown in the HUD for a day), and the session stays booked as handed out (1:1 mt_x40qq8poc3).
+  const claimed = o.fundingUsed ?? (o.fallback ? "api-key" : null);
+  if (o.fallback || (claimed && session.funding && claimed !== session.funding)) {
+    world.events.append({ type: "system", agentId, buildingId: bid, text: `${agentNow.name}'s desk says its session ran ${fundedBy(claimed)}${o.fallback ? " after an in-session failover" : ""}, but the Bank handed it ${session.funding ? fundedBy(session.funding).replace(/^funded by /, "") : "nothing"}: booked as handed out; check the desk image`, payload: { alert: "funding-mismatch", sessionId, handedOut: session.funding ?? null, claimed, fallback: !!o.fallback, costUsd: usage.costUsd } });
   }
-  const ended = world.ops.endSession(sessionId, { status, counts, byModel: o.byModel, costUsd: usage.costUsd, turns: usage.turns, error, sdkSessionId: o.sdkSessionId ?? null, funding, spendLimit: o.spendLimit ?? null, wallMs: o.wallMs, cpuMs: o.cpuMs, stealMs: o.stealMs });
+  const ended = world.ops.endSession(sessionId, { status, counts, byModel: o.byModel, costUsd: usage.costUsd, turns: usage.turns, error, sdkSessionId: o.sdkSessionId ?? null, spendLimit: o.spendLimit ?? null, wallMs: o.wallMs, cpuMs: o.cpuMs, stealMs: o.stealMs });
   // stamp the session's usage onto the report it produced (submitted or fallback), in adjusted output tokens (Bank step 3)
   const adjusted = sessionView(ended).adjustedOutputTokens;
   const report = ended.reportId ? world.docs.get(ended.reportId) : undefined;
@@ -161,13 +161,10 @@ export async function finishWorkSession(ctx: Ctx, sessionId: string, o: WorkOutc
       appendAgentLog(world, agentNow, `${what}: ${status}${rep}, ${adjusted.toLocaleString("en-US")} adj. tokens`);
     } catch (e) { console.warn(`[runtime] log line for ${agentNow.name}: ${e instanceof Error ? e.message : String(e)}`); }
   }
-  // the allocation that actually funded it: the fallback one when the desk failed over from the subscription
-  const charged = o.fallback
-    ? ctx.deskFallbacks.get(sessionId) ?? (bid ? world.budget.fallbackAllocation(bid)?.id ?? null : null)
-    : allocationId !== undefined ? allocationId : ctx.deskAllocations.has(sessionId) ? ctx.deskAllocations.get(sessionId) ?? null : allocationOf(world, agentId);
+  // the allocation the session was handed at start (the Bank's pick), whatever the desk reported
+  const charged = allocationId !== undefined ? allocationId : ctx.deskAllocations.has(sessionId) ? ctx.deskAllocations.get(sessionId) ?? null : allocationOf(world, agentId);
   chargeUsage(world, agentId, { ...usage, byModel: o.byModel ?? undefined }, charged, ended.model, ended.grantId);
   ctx.deskAllocations.delete(sessionId);
-  ctx.deskFallbacks.delete(sessionId);
   return ended;
 }
 

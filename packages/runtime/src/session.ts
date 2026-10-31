@@ -25,7 +25,6 @@ export interface Ctx {
   /** desk sessions' funding allocation, by sessionId (charged in finishWorkSession) */
   deskAllocations: Map<string, string | null>;
   /** desk sessions' fallback allocation (charged instead when the desk failed over to the API key), by sessionId */
-  deskFallbacks: Map<string, string | null>;
   /** where host sessions' Agent SDK writes its JSONL (tests; a hosted runtime's own config dir); default $CLAUDE_CONFIG_DIR or ~/.claude */
   claudeDir?: string;
   /** the host env funding and sessions allowlist from (a hosted runtime's scrubbed `hostedEnv`); default process.env */
@@ -194,7 +193,7 @@ export async function runAgentSession(ctx: Ctx, spec: SessionSpec): Promise<Sess
   const bid = homeOf(world, agent.id);
   const funding = fundingForSession(world, agent.id, spec.assignmentId);
   assertNoEnvCredentials(ctx.env); // a credential in the host env is a second auth source: refuse before a session row exists
-  const session = world.ops.startSession(agent.id, { purpose: spec.purpose, model: spec.model, assignmentId: spec.assignmentId ?? null, meetingId: spec.meetingId ?? null, backend: "host", funding: funding.auth, inputId: funding.inputId ?? null });
+  const session = world.ops.startSession(agent.id, { purpose: spec.purpose, model: spec.model, assignmentId: spec.assignmentId ?? null, meetingId: spec.meetingId ?? null, backend: "host", funding: funding.auth, inputId: funding.inputId ?? null, credentialInputId: funding.credential.inputId });
   const live: LiveSession = { kind: "host", agentId: agent.id, sessionId: session.id, purpose: spec.purpose, input: new InputChannel(), q: null, reportSubmitted: false, stopped: false };
   // work and manage sessions take interrupts and count as the agent's live session (scheduler, redeploy drain, abort)
   if (spec.purpose === "work" || spec.purpose === "manage") ctx.live.set(agent.id, live);

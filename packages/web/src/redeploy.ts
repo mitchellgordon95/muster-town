@@ -103,11 +103,14 @@ export function dockerDown(events: Event[], health: { docker: boolean } | null):
   return health ? !health.docker : false;
 }
 
-/** The latest `alert: funding-failover` system event of the last day (a desk hit the subscription's limit and finished on an API key), or null. */
-export function fundingFailover(events: Event[], now = Date.now()): Event | null {
+/** System events the Bank raises about credentials (post-mortem 2026-10-30): an old desk's in-session failover, a desk claiming a funding it was not handed, a day's spend the Bank can't explain. */
+const FUNDING_ALERTS = new Set(["funding-failover", "funding-mismatch", "funding-reconcile"]);
+
+/** The latest funding alert of the last day (`alert: funding-failover | funding-mismatch | funding-reconcile`), or null. */
+export function fundingAlert(events: Event[], now = Date.now()): Event | null {
   for (let i = events.length - 1; i >= 0; i--) {
     const e = events[i];
-    if (e.type !== "system" || (e.payload as { alert?: unknown }).alert !== "funding-failover") continue;
+    if (e.type !== "system" || !FUNDING_ALERTS.has(String((e.payload as { alert?: unknown }).alert))) continue;
     return now - Date.parse(e.ts) < 24 * 3600_000 ? e : null;
   }
   return null;

@@ -142,6 +142,21 @@ export function assertNoEnvCredentials(env: NodeJS.ProcessEnv = process.env): vo
 /** The env var Claude Code reads a credential of this kind from. */
 export const credentialEnv = (c: Credential): Record<string, string> => (c.kind === "subscription" ? { CLAUDE_CODE_OAUTH_TOKEN: c.secret } : { ANTHROPIC_API_KEY: c.secret });
 
+/** Env vars a desk used to take a failover key from (until 2026-10-30): a second credential in one session, never handed out again. */
+export const FALLBACK_KEY_ENVS = ["AGENT_TOWN_FALLBACK_API_KEY", "MUSTER_TOWN_FALLBACK_API_KEY"] as const;
+
+/**
+ * The invariant every session env (host `sessionEnv`, desk `deskEnv`) is checked against before a session starts: exactly
+ * one model credential variable, and no failover key beside it (1:1 mt_x40qq8poc3: two credentials in one session is how
+ * the town mis-booked $290; a failover is the next session's different pick, `Budget.failoverFunding`). Throws otherwise.
+ */
+export function assertOneCredential(env: Record<string, string | undefined>): void {
+  const set = [...CREDENTIAL_ENVS, ...FALLBACK_KEY_ENVS].filter((k) => env[k]);
+  if (set.length !== 1 || !(CREDENTIAL_ENVS as readonly string[]).includes(set[0]!)) {
+    throw new Error(`a session runs on exactly one model credential, ${set.length ? `not ${set.join(" and ")}` : "and this env has none"}: the Bank hands out one, a failover is the next session's`);
+  }
+}
+
 
 
 /**
@@ -155,7 +170,9 @@ export function sessionEnv(credential: Credential, hostEnv: NodeJS.ProcessEnv = 
   for (const [k, v] of Object.entries(hostEnv)) {
     if (v !== undefined && (SESSION_ENV_NAMES.has(k) || SESSION_ENV_PREFIXES.some((p) => k.startsWith(p)))) env[k] = v;
   }
-  return { ...env, ...credentialEnv(credential) };
+  const out = { ...env, ...credentialEnv(credential) };
+  assertOneCredential(out);
+  return out;
 }
 
 /**

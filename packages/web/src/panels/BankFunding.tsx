@@ -54,6 +54,21 @@ const AUTH_HINT: Record<AllocationAuth, string> = {
   "donor-key": "Runs on the donor's own Anthropic API key.",
 };
 
+/** The Console page where a monthly spend limit is set on a workspace (limits are per workspace, not per key). */
+export const CONSOLE_WORKSPACES_URL = "https://platform.claude.com/settings/workspaces";
+
+/**
+ * One line under a pasted API key, before the donor gives it: cap it in the Anthropic Console first. Guidance, not a
+ * gate: the form still donates without it. Spend limits are set per workspace (Default has none), so say so.
+ */
+export function KeyLimitNote() {
+  return (
+    <div className="foot-note">
+      Before you donate, set a monthly spend limit in the Anthropic Console on the workspace this key is in (<a href={CONSOLE_WORKSPACES_URL} target="_blank" rel="noopener noreferrer">Workspaces</a>, then the workspace, then Spend limits). The Default workspace can't have one, so put the key in a workspace of its own first.
+    </div>
+  );
+}
+
 /**
  * The one donation form. "To" picks the target: the Bank (an API key, once or recurring, shared by every building
  * through the pools; the owner can add their subscription, daily with a weekly cap) or one building (an allocation
@@ -156,6 +171,7 @@ export function Donate({ onChange }: { onChange: () => void }) {
             <input type="password" autoComplete="off" value={apiKey} onChange={(e) => setApiKey(e.target.value)} placeholder={sub ? "sk-ant-oat…" : "sk-ant-api…"} />
           </Field>
         ) : null}
+        {needsKey && !sub ? <KeyLimitNote /> : null}
         <div className="foot-note">{bank ? (sub ? "Subscription tokens expire at each daily renewal; buildings spend them first." : "Credited to the Bank and split between the pools by their %.") : AUTH_HINT[auth]}</div>
         <div className="actions"><Act tone="primary" disabled={!ready} run={submit}>{bank ? "Donate to the Bank" : `Fund ${building?.name ?? "building"}`}</Act></div>
       </form>

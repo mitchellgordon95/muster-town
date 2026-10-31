@@ -15,6 +15,8 @@ import { closeQuietOneOnOnes, newManageState, openOneOnOnes, wakeManager } from 
 import { advanceCollecting, facilitate, newMeetingState, onMeetingMention, onMeetingStart } from "./meetings.ts";
 import { hostedEnv, InputChannel, realSdk, type Sdk } from "./sdk.ts";
 import { fundingForSession, type Ctx } from "./session.ts";
+import { reconcileDue } from "./reconcile.ts";
+export { fetchConsoleCost, reconcileDue } from "./reconcile.ts";
 import { abortWork, finishWorkSession, interrupt, runWorkSession, type WorkOutcome } from "./work.ts";
 import { startWaker } from "./waker.ts";
 
@@ -23,12 +25,12 @@ export { prompts } from "@muster-town/core";
 export { FlyApi } from "./desk/fly.ts";
 export { SandboxBackend, type SandboxApi } from "./desk/sandbox.ts";
 export { DockerBackend, HostBackend, realDockerRunner, type DeskBackend, type DeskChild, type DeskHandle, type DockerRunner, type RunResult, type SpawnedChild, type WorkBackend, type LineSink } from "./desk/backend.ts";
-export { deskAuth, deskEnv, grantedSecrets, portOf, FALLBACK_KEY_ENV, type DeskAuthMode, type DeskSessionOptions } from "./desk/session.ts";
+export { deskAuth, deskEnv, grantedSecrets, portOf, type DeskAuthMode, type DeskSessionOptions } from "./desk/session.ts";
 export { fundingFor, fundingForSession, fundedBy, type Funding } from "./session.ts";
 export { type WorkOutcome } from "./work.ts";
 export { ruleFor, startWaker, WAKE_RULES, type WakeCtx, type WakeRule, type Waker } from "./waker.ts";
 export { adoptPath, ADOPT_MAX_AGE_MS, takeAdoptable, isTerminalRedeployEvent, makeRedeployer, realCommandRunner, RESTART_EXIT_CODE, STUCK_POLLS, type CmdResult, type CommandRunner, type RedeployDeps, type RedeployRequest, type Redeployer } from "./redeploy.ts";
-export { assertNoEnvCredentials, CREDENTIAL_ENVS, credentialEnv, hostedEnv, InputChannel, oneShot, realSdk, usageOf, userMessage, type QueryHandle, type QueryParams, type Sdk } from "./sdk.ts";
+export { assertNoEnvCredentials, assertOneCredential, CREDENTIAL_ENVS, credentialEnv, FALLBACK_KEY_ENVS, hostedEnv, InputChannel, oneShot, realSdk, usageOf, userMessage, type QueryHandle, type QueryParams, type Sdk } from "./sdk.ts";
 export { DISALLOWED_TOOLS, TOWN_TOOLS, WEB_TOOLS } from "./session.ts";
 export { COLLECTING_MS, MEETING_REPLIES_MAX, MEETING_REPLY_MAX_TURNS, MEETING_REPLY_VERBS, SUMMARY_MODEL } from "./meetings.ts";
 
@@ -138,7 +140,7 @@ export function startRuntime(opts: RuntimeOptions): Runtime {
   };
   const hosted = opts.hosted ?? null;
   const desks = DesksConfig.parse({ ...world.desksConfig(), ...opts.desks, ...(hosted ? { backend: "host" } : {}) });
-  const ctx: Ctx = { world, mcpUrl: opts.mcpUrl, repoRoot: opts.repoRoot ?? process.cwd(), desks, now, sdk: opts.sdk ?? realSdk, live: new Map(), facilitating: new Map(), deskAllocations: new Map(), deskFallbacks: new Map(), track };
+  const ctx: Ctx = { world, mcpUrl: opts.mcpUrl, repoRoot: opts.repoRoot ?? process.cwd(), desks, now, sdk: opts.sdk ?? realSdk, live: new Map(), facilitating: new Map(), deskAllocations: new Map(), track };
   if (hosted) {
     const env = hostedEnv(hosted.dir);
     Object.assign(ctx, { env, hosted: true, claudeDir: env.CLAUDE_CONFIG_DIR });
@@ -180,7 +182,6 @@ export function startRuntime(opts: RuntimeOptions): Runtime {
       try {
         const funding = fundingForSession(world, s.agentId, s.assignmentId);
         ctx.deskAllocations.set(s.id, funding.allocationId);
-        ctx.deskFallbacks.set(s.id, funding.fallback?.allocationId ?? null);
       } catch (e) { console.log("[runtime] adopt funding:", e instanceof Error ? e.message : e); }
       adoptedSeen.set(s.id, now().getTime());
       adopted.push(s.id);
@@ -535,6 +536,8 @@ export function startRuntime(opts: RuntimeOptions): Runtime {
     }
     try { world.bank.creditDue(d); } catch (e) { log("bank")(e); }
     try { world.bank.driftDue(d); } catch (e) { log("bank drift")(e); }
+    // post-mortem 2026-10-30: once a day, the day before's funding against the Bank's books and the Console (alert when unexplained)
+    void track(reconcileDue(ctx, d)).catch(log("bank reconcile"));
     if (t - lastPresence >= PRESENCE_TICK_MS) { lastPresence = t; presenceTick(); }
     try { world.budget.resumeEligible(); } catch (e) { log("budget resume")(e); }
     try { scheduleMeetings(t); } catch (e) { log("meetings")(e); }

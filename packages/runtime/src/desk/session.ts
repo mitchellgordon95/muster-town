@@ -7,7 +7,7 @@ import { execFileSync } from "node:child_process";
 import { AppError, codeWorkspace, deskPreset, REPO_TOKEN_SECRET, type World } from "@muster-town/core";
 import { townEnvBoth, type AllocationAuth, type DeskActivityInput, type DesksConfig, type Session } from "@muster-town/schema";
 import { describeTool } from "../describe.ts";
-import { credentialEnv, InputChannel } from "../sdk.ts";
+import { assertOneCredential, credentialEnv, InputChannel } from "../sdk.ts";
 import { clipJson, clipThought, fundedBy, fundingFor, fundingForSession, homeOf, type Ctx, type Funding, type LiveSession } from "../session.ts";
 import { finishWorkSession, preflightWork, walkToDesk } from "../work.ts";
 import { DESK_BIN, type DeskBackend } from "./backend.ts";
@@ -42,18 +42,14 @@ export function portOf(mcpUrl: string): string {
 
 export type DeskAuthMode = AllocationAuth;
 
-/** The env var carrying the API key a desk fails over to when the subscription hits its spend limit. */
-export const FALLBACK_KEY_ENV = "AGENT_TOWN_FALLBACK_API_KEY";
-
 /**
- * Credentials for a desk session from its funding: exactly one, the Bank's. Subscription → `CLAUDE_CODE_OAUTH_TOKEN`
- * (the subscription input's token), plus the fallback key in AGENT_TOWN_FALLBACK_API_KEY when the Bank owns one for it.
- * Donor-key / api-key → `ANTHROPIC_API_KEY`. Nothing comes from the host env. Values are secrets: never log them.
+ * The credential for a desk session from its funding: exactly one, the Bank's, and no failover key beside it (a session
+ * that dies on the subscription's cap makes the next session pick differently: `Budget.failoverFunding`). Subscription →
+ * `CLAUDE_CODE_OAUTH_TOKEN` (the subscription input's token); donor-key / api-key → `ANTHROPIC_API_KEY`. Nothing comes
+ * from the host env. Values are secrets: never log them.
  */
-export function deskAuth(funding: Pick<Funding, "auth" | "credential" | "fallback">): { mode: DeskAuthMode; env: Record<string, string> } {
-  const env = credentialEnv(funding.credential);
-  if (funding.credential.kind === "subscription" && funding.fallback) env[FALLBACK_KEY_ENV] = funding.fallback.credential.secret;
-  return { mode: funding.auth, env };
+export function deskAuth(funding: Pick<Funding, "auth" | "credential">): { mode: DeskAuthMode; env: Record<string, string> } {
+  return { mode: funding.auth, env: credentialEnv(funding.credential) };
 }
 
 /**
@@ -91,12 +87,13 @@ export function deskEnv(ctx: Ctx, session: Session, opts: DeskSessionOptions = {
   const auth = deskAuth(funding ?? fundingFor(world, agent.id));
   Object.assign(env, auth.env);
   env.DESK_AUTH = auth.mode; // a label, not a secret: the desk logs it
-  console.log(`[runtime] ${agent.name} session ${session.id} auth: ${auth.mode}${auth.env[FALLBACK_KEY_ENV] ? " (API-key fallback ready)" : ""}`);
+  console.log(`[runtime] ${agent.name} session ${session.id} auth: ${auth.mode}`);
   if (codeWorkspace(world.town.get(), building)) {
     const gh = opts.ghToken ? opts.ghToken() : repoToken(world, ctx.desks.ghToken);
     if (gh) env.GH_TOKEN = gh;
     else console.warn(`[runtime] ${agent.name} session ${session.id}: no GH_TOKEN for the desk (${noRepoTokenReason(ctx.desks.ghToken)}); cloning a private repo and pushing will fail`);
   }
+  assertOneCredential(env); // the invariant, checked on the env that leaves the host: one credential, no failover key
   return env;
 }
 
@@ -156,14 +153,13 @@ export async function runDeskSession(ctx: Ctx, backend: DeskBackend, starting: S
     }
     const funding = fundingForSession(world, agentId, assignmentId);
     const mode = funding.auth;
-    session = world.ops.startSession(agentId, { purpose: "work", model: agent.model ?? building.model, assignmentId, backend: "docker", funding: mode, inputId: funding.inputId ?? null, size: handle.size ?? null });
+    session = world.ops.startSession(agentId, { purpose: "work", model: agent.model ?? building.model, assignmentId, backend: "docker", funding: mode, inputId: funding.inputId ?? null, credentialInputId: funding.credential.inputId, size: handle.size ?? null });
     if (handle.sizeFallback && handle.size) {
       // gr_uhh6u39vv9 step 3: past the town-wide desk bill cap a session still starts, on the cheaper size
       const bill = world.deskBill();
       world.events.append({ type: "system", agentId, buildingId: building.id, text: `Desk bill cap reached ($${bill.todayUsd.toFixed(2)} of $${bill.capUsd}/day): ${agent.name}'s session runs on ${deskPreset(handle.size)} instead`, payload: { deskBillCap: true, sessionId: session.id, size: handle.size, todayUsd: bill.todayUsd, capUsd: bill.capUsd } });
     }
     ctx.deskAllocations.set(session.id, funding.allocationId);
-    ctx.deskFallbacks.set(session.id, funding.fallback?.allocationId ?? null);
     world.events.append({ type: "agent.activity", agentId, buildingId: building.id, text: `Starting work (${fundedBy(mode)})`, payload: { sessionId: session.id, purpose: "work", backend: "docker", funding: mode } });
     const argv = [DESK_BIN, "run", "--session", session.id];
     const child = backend.exec(handle, argv, deskEnv(ctx, session, opts, funding), (stream, line) => {
