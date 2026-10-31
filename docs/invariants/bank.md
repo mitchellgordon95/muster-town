@@ -32,6 +32,10 @@ What must always hold where tokens come from and where they go: the Bank (`packa
    - Test: `packages/core/test/bank.test.ts` › `leaves the pools-era tables and columns in place, read by nothing; debits still get the old column's default`
 7a. **Free tokens: claims are paid where their sessions would draw.** Funded grants' remaining, open proposals' asks and open reservations each consume the nearest earmark above their goal first, then the shared general balance; free tokens under a goal = what is left of the general balance + of the earmarks at or above it, never below 0.
    - Test: `packages/core/test/free-tokens.test.ts` › `claims are paid by the nearest earmark above their goal first, then the general balance, which every goal shares`
+7c. **The operating reserve (town `operatingReserveTokens`, 1:1 mt_lb7tm75jgb) is never free: it comes off the general balance before any claim; grant funding past what is free is refused while it is above 0; sessions still draw on it.**
+   - Test: `packages/core/test/free-tokens.test.ts` › `comes off the general balance before any claim; earmarks are untouched; never below 0`
+   - Test: `packages/core/test/free-tokens.test.ts` › `funding a grant (or topping one up) is refused when it would dip into the reserve; a reserve of 0 keeps the old rule`
+   - Test: `packages/core/test/free-tokens.test.ts` › `directed work, 1:1s and meetings still draw on the balance below the reserve`
 7b. **An exploration reservation claims its chunk less what its sessions spent while it is open, and closes (the rest returns) once its assignment is no longer pending or active** (the reservations table, `packages/core/src/explore.ts`, migration 068).
    - Test: `packages/core/test/explore.test.ts` › `the tick reserves one chunk and queues one explorer on the building queue; the reservation claims free tokens`
    - Test: `packages/core/test/explore.test.ts` › `closes the reservation when its work ends (spent booked, rest returns), then waits 30 min before the next explorer`
