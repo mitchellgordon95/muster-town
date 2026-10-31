@@ -84,8 +84,10 @@ export class MockApi implements Api {
   }
   async me(): Promise<AuthMe> {
     await wait(60);
-    // `?as=visitor` signs in as a plain visitor so read-only views can be checked
-    if (new URLSearchParams(location.search).get("as") === "visitor") {
+    // `?as=visitor` signs in as a plain visitor so read-only views can be checked; `?as=member` as a let-in member (Ask to captain)
+    const as = new URLSearchParams(location.search).get("as");
+    if (as === "member") return clone({ user: { ...this.sim.users[0], id: "us_guest", name: "Guest", githubLogin: "guest" }, roles: [], avatarAgentId: "ag_me", isAdmin: false, canInteract: true, accessRequest: null });
+    if (as === "visitor") {
       const mine = [...this.access].reverse().find((r) => r.userId === "us_guest");
       return clone({ user: { ...this.sim.users[0], id: "us_guest", name: "Guest", githubLogin: "guest" }, roles: this.sim.roles.filter((r) => r.id === "rl_visitor"), avatarAgentId: "ag_me", isAdmin: false,
         canInteract: mine?.status === "granted", accessRequest: mine ? { status: mine.status, message: mine.message, decidedAt: mine.decidedAt } : null });
