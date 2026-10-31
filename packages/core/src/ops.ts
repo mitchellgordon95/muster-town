@@ -57,25 +57,17 @@ export class Ops {
     return createBuilding(this.world, { ...input, headcount: input.headcount ?? desksForLot(NEW_LAB_LOT) }, creator?.kind === "user" ? creator.id : null, { starterResidents: true });
   }
   /**
-   * `poolId` (admin only) moves the building to another Bank pool at once; the rest needs building.manage.
-   * `headcount` (Desks) sets the building's size on the map, which is drawn from the goal tree, and its daily cap
-   * (daily budget / agent × desks): `town.manage_buildings`, the permission that covered resizing on the map table.
+   * The rest needs building.manage. `headcount` (Desks) sets the building's size on the map, which is drawn from the goal
+   * tree, and its daily cap (daily budget / agent × desks): `town.manage_buildings`, the permission that covered resizing on
+   * the map table. The pool and the exploration budget are the attached goal's (PATCH /api/goals/:id).
    */
   updateBuilding(actor: Actor, id: string, patch: (typeof UpdateBuildingInput)["_input"]) {
-    const { poolId, explorationTokensPerDay, goalId, ...rest } = patch;
+    const { goalId, ...rest } = patch;
     if (actor && rest.headcount !== undefined) this.world.permissions.require(actor, "town.manage_buildings");
-    const budget = { ...(explorationTokensPerDay !== undefined && { explorationTokensPerDay }) };
-    const other = Object.keys(rest).length || (poolId === undefined && goalId === undefined && !Object.keys(budget).length);
+    const other = Object.keys(rest).length || goalId === undefined;
     if (actor && other) this.world.permissions.require(actor, "building.manage", id);
-    // goal-directed budget settings are a human's call: a manager agent can't raise its own allowance
-    if (actor && Object.keys(budget).length) this.world.permissions.require(actor, "building.fund", id);
-    if (poolId !== undefined) this.world.bank.setBuildingPool(actor, id, poolId);
     // the goal it is attached to: goals.edit (admins, or the owner) on both the old and the new goal, never unset
     if (goalId !== undefined) this.world.goalTree.attach(actor, id, goalId);
-    if (Object.keys(budget).length) {
-      const b = this.world.buildings.upsert({ ...this.world.buildings.require(id, "building"), ...budget });
-      this.world.events.append({ type: "building.updated", buildingId: id, text: `${b.name} budget settings updated`, payload: { fields: Object.keys(budget) } });
-    }
     const updated = other ? updateBuilding(this.world, id, rest) : this.world.buildings.require(id, "building");
     this.world.budget.resumeEligible(id); // a raised dailyTokensPerAgent un-blocks residents that hit the old cap
     return updated;

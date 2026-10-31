@@ -53,7 +53,7 @@ No server needed: you can also start a hosted collective at [muster.town](https:
 6. Fund it so its manager's forks can work. A new building has no tokens and is **goal-directed**: its manager can only assign work on a funded grant of a goal key result, or exploration out of a daily allowance that is 0 while the Bank is empty, so on day one nothing starts ("out of budget", "no key results"). The shortest way to a first session:
    - Tokens: at the Bank, **Donate**, To: your building, Paid by: **Subscription**, Tokens: e.g. 5 M, **Fund Lab**. A building seeded with `houseTokens` already has them; skip this.
    - Key result: in the building's **Goals** tab, **Objectives and key results**, add one (text + how to check). This unblocks the building.
-   - Exploration: in **Settings**, **Budget mode**, set **Exploration / day** (e.g. 5 M) and save. The manager can now assign exploration work on that key result out of the building's tokens; to fund a bigger plan, fund the manager's grant proposal in the Town Hall in-tray.
+   - Exploration: open the goal tree at the building's goal and, under **Funding**, set **Exploration / day** (e.g. 5 M) and save. The manager can now assign exploration work on that key result out of the building's tokens; to fund a bigger plan, fund the manager's grant proposal in the Town Hall in-tray.
 
 ### Agents push code
 

@@ -84,3 +84,25 @@ export function undoAdjustedTokens(db: import("better-sqlite3").Database): void 
   if (cols("allocations").includes("spentRawTokens")) db.exec("ALTER TABLE allocations DROP COLUMN spentRawTokens");
   db.prepare("DELETE FROM schema_version WHERE version = 37").run();
 }
+
+/**
+ * Set a building's pool / exploration budget, which live on goals (core goals.ts `fundingOf`): the building gets a goal of
+ * its own under the root (the seed attaches every building to the root) and the fields go on it, as the system.
+ */
+export function fundBuilding(world: World, buildingId: string, funding: { poolId?: string | null; explorationTokensPerDay?: number | null }): string {
+  const b = world.buildings.require(buildingId, "building");
+  let goalId = b.goalId ?? "gl_town";
+  if (world.buildings.all().some((x) => x.id !== b.id && x.goalId === goalId) || goalId === "gl_town") {
+    goalId = world.goalTree.create(null, { parentId: "gl_town", text: `${b.name}'s own goal` }).id;
+    world.goalTree.attach(null, b.id, goalId);
+  }
+  if (Object.keys(funding).length) world.goalTree.update(null, goalId, funding);
+  return goalId;
+}
+
+/** Set the exploration budget / pool on the goal the building is attached to now (shared with any building attached there too). */
+export function fundGoalOf(world: World, buildingId: string, funding: { poolId?: string | null; explorationTokensPerDay?: number | null }): string {
+  const goalId = world.goalTree.attachmentOf(buildingId);
+  world.goalTree.update(null, goalId, funding);
+  return goalId;
+}

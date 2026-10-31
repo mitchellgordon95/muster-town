@@ -17,7 +17,7 @@ function forkLab(opts: { daily?: number } = {}) {
   const pix = createResident(world, { buildingId: b.id, name: "Pix", sprite: 5 });
   const ann = createResident(world, { buildingId: b.id, name: "Ann" });
   updateBuilding(world, b.id, { managerAgentId: pix.id });
-  world.buildings.upsert({ ...world.buildings.require(b.id), explorationTokensPerDay: 10_000_000 }); // labs are lane-gated: queued exploration needs an allowance
+  world.goals.patch(world.goalTree.attachmentOf(b.id), { explorationTokensPerDay: 10_000_000 }); // labs are lane-gated: queued exploration needs an allowance
   world.budget.donate(seed.admin.id, { tokens: 1_000_000, buildingId: b.id });
   const queue = async (title: string, extra: { model?: string } = {}) => (await world.verbs.assign(world.agents.require(pix.id), { title, description: "d", gap: "test gap", ...extra })).assignmentId;
   return { ...s, b: world.buildings.require(b.id), pix: world.agents.require(pix.id), ann, queue };

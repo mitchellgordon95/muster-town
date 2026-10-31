@@ -1,4 +1,5 @@
 import { DEFAULT_POOL_ID, type Allocation, type BankCredit, type BankDebit, type BankPool, type Building } from "@muster-town/schema";
+import { fundingOf } from "./goals.ts";
 import type { Repos } from "./store.ts";
 
 /**
@@ -92,6 +93,7 @@ export interface FinancePools {
 
 export interface PoolsInputs {
   pools: Pick<BankPool, "id" | "name" | "createdAt">[];
+  /** `poolId`: the effective pool (the attached goal's, inherited; null = General) */
   buildings: Pick<Building, "id" | "name" | "kind" | "poolId">[];
   /** Bank.shares(): effective % per pool */
   shares: Map<string, { pct: number; explicit: boolean }>;
@@ -217,7 +219,8 @@ export function financePools(inp: PoolsInputs, now = new Date()): FinancePools {
 export function townPools(repos: Repos, bank: { shares(): Map<string, { pct: number; explicit: boolean }>; dailyInflow(): number }, allowance: (buildingId: string) => number, now = new Date()): FinancePools {
   return financePools({
     pools: repos.bankPools.all(),
-    buildings: repos.buildings.all(),
+    // the pool a building draws from is its attached goal's, inherited down the tree
+    buildings: repos.buildings.all().map((b) => ({ ...b, poolId: fundingOf(repos, b.id).pool?.poolId ?? null })),
     shares: bank.shares(),
     credits: repos.bankCredits.all(),
     debits: repos.bankDebits.all(),

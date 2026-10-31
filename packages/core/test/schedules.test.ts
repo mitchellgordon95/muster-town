@@ -15,7 +15,7 @@ function lab() {
   const pix = createResident(world, { buildingId: b.id, name: "Pix", sprite: 5 });
   const ann = createResident(world, { buildingId: b.id, name: "Ann" });
   updateBuilding(world, b.id, { managerAgentId: pix.id });
-  world.buildings.upsert({ ...world.buildings.require(b.id), explorationTokensPerDay: 10_000_000 });
+  world.goals.patch(world.goalTree.attachmentOf(b.id), { explorationTokensPerDay: 10_000_000 });
   const me = () => world.agents.require(pix.id);
   const made = (bid = b.id) => world.assignments.where("buildingId = ?", [bid]);
   return { ...s, b, pix: me(), ann, me, made };

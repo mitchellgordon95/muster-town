@@ -41,7 +41,8 @@ describe("fork_status", () => {
     const mei = by("Mei");
     meiId = mei.id;
     updateBuilding(world, lab.id, { managerAgentId: mei.id });
-    world.buildings.upsert({ ...world.buildings.require(lab.id), explorationTokensPerDay: 10_000_000, headcount: world.layout.deskCount(lab.id) + 2 });
+    world.goals.patch(world.goalTree.attachmentOf(lab.id), { explorationTokensPerDay: 10_000_000 });
+    world.buildings.upsert({ ...world.buildings.require(lab.id), headcount: world.layout.deskCount(lab.id) + 2 });
     const { assignmentId } = await world.verbs.assign(world.agents.require(mei.id), { title: "Fix the thing", description: "Do it.", gap: "test gap" });
     await runtime.tickOnce();
     await runtime.whenIdle();

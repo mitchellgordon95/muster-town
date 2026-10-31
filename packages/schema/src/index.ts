@@ -250,9 +250,9 @@ export const Building = z.object({
   managerAgentId: Id.nullable().default(null),
   /** residents get code tools on the collective's repo (`Town.workspace`) during work sessions */
   codeAccess: z.boolean().default(false),
-  /** the Bank pool this building draws from; null = the collective's default pool, General (`DEFAULT_POOL_ID`) */
+  /** Unused since migration 065: the pool is the attached goal's (`Goal.poolId`, inherited down the tree; core goals.ts `fundingOf`). Kept so the migration is additive. */
   poolId: Id.nullable().default(null),
-  /** goal-directed budgets: tokens per day for exploration work; null = 10% of its pool's daily inflow */
+  /** Unused since migration 065: the exploration allowance is the attached goal's (`Goal.explorationTokensPerDay`, inherited). Kept so the migration is additive. */
   explorationTokensPerDay: z.number().int().nonnegative().nullable().default(null),
   /** Unused: nothing reads it since the `open` mode was removed (every lab is lane-gated, the Town Hall never is; core/src/lanes.ts `laneGated`). Kept with `open` in the enum because migration 025 wrote `open` on old rows; dropping the column is a later migration. */
   budgetMode: z.enum(["open", "goal-directed"]).default("goal-directed"),
@@ -1069,6 +1069,10 @@ export const Goal = z.object({
   createdBy: Id.nullable().default(null),
   editedBy: Id.nullable().default(null),
   sourceDocIds: z.array(Id).default([]),
+  /** the Bank pool the buildings attached here (and below, unless a goal under it sets its own) draw from; null = inherit (the root's null = General) */
+  poolId: Id.nullable().default(null),
+  /** goal-directed budgets: exploration tokens per day for each building attached here or below; null = inherit (none set up the tree = 10% of the pool's daily inflow) */
+  explorationTokensPerDay: z.number().int().nonnegative().nullable().default(null),
   createdAt: Iso,
   updatedAt: Iso,
 });
@@ -1107,6 +1111,9 @@ export interface GoalTreeNode {
   /** `headcount` = the building's desks (its subtree's concurrency), `inUse` = desks seated right now */
   buildings: { id: string; name: string; headcount: number; inUse: number }[];
   keyResults: { id: string; text: string; howToCheck: string; status: string; due: string | null; archivedAt: string | null; buildingId: string; grantId: string | null; underReviewSince?: string | null; postmortemDocId?: string | null }[];
+  /** set on this goal (null = inherited); `funding` is the effective value and the goal it comes from (null = none up the tree: General / the default allowance) */
+  poolId: string | null; explorationTokensPerDay: number | null;
+  funding: { pool: { poolId: string; goalId: string } | null; exploration: { tokensPerDay: number; goalId: string } | null };
   children: GoalTreeNode[];
 }
 /**
@@ -1235,10 +1242,14 @@ export const CreateGoalInput = z.object({
   parentId: Id, text: z.string().trim().min(1).max(300), sourceDocIds: z.array(Id).default([]), position: z.number().int().optional(),
 });
 export type CreateGoalInput = z.input<typeof CreateGoalInput>;
-/** PATCH /api/goals/:id: words, order, parent (a move) or owner (a user id; null = inherit). */
+/**
+ * PATCH /api/goals/:id: words, order, parent (a move) or owner (a user id; null = inherit); the funding the buildings
+ * under it inherit: `poolId` (an admin; null = inherit) and `explorationTokensPerDay` (a human with goals.edit there; null = inherit).
+ */
 export const UpdateGoalInput = z.object({
   text: z.string().trim().min(1).max(300).optional(), position: z.number().int().optional(), parentId: Id.optional(),
   ownerId: Id.nullable().optional(), sourceDocIds: z.array(Id).optional(),
+  poolId: Id.nullable().optional(), explorationTokensPerDay: z.number().int().nonnegative().nullable().optional(),
 });
 export type UpdateGoalInput = z.input<typeof UpdateGoalInput>;
 /** POST /api/goals/:id/retire: open key results and attached buildings under it move to `moveTo` (a sibling); without one it is refused while any remain. */
@@ -1859,14 +1870,8 @@ export const CreateBuildingInput = Building.pick({ headcount: true, meetings: tr
     name: z.string().trim().max(80).optional().describe("blank or missing = the attached goal's short text"),
     goalId: Id.optional().describe("the goal of the town tree it attaches to (default: the root); never unset"),
   });
-/**
- * `poolId` moves the building to another Bank pool at once (admin only; null = General). `explorationTokensPerDay`
- * and `forks` need `building.fund` (a human), so a manager agent can't raise its own allowance.
- */
-export const UpdateBuildingInput = CreateBuildingInput.partial().extend({
-  poolId: Id.nullable().optional(),
-  explorationTokensPerDay: z.number().int().nonnegative().nullable().optional(),
-});
+/** The pool and the exploration budget are the attached goal's, not the building's (PATCH /api/goals/:id). */
+export const UpdateBuildingInput = CreateBuildingInput.partial();
 /** PATCH /api/grants/:id while draft / countered. `testingPlan` replaces the list. */
 export const UpdateGrantInput = CreateGrantInput.partial().extend({ note: z.string().max(2000).optional() });
 export type UpdateGrantInput = z.input<typeof UpdateGrantInput>;

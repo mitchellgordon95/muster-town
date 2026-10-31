@@ -1,4 +1,4 @@
-import { AddBankInput, CreateBankPoolInput, DEFAULT_POOL_ID, UpdateBankPoolInput, ZERO_TOKENS, addTokens, oauthTokenProblem, countsOf, rawPerAdjusted, rawTokens, sliceTokens, splitRaw, subTokens, type TokenCounts, type BankCredit, type BankInput, type BankPool, type BankRecurrence, type Agent, type Building, type Session, type SessionView } from "@muster-town/schema";
+import { AddBankInput, CreateBankPoolInput, DEFAULT_POOL_ID, type Goal, UpdateBankPoolInput, ZERO_TOKENS, addTokens, oauthTokenProblem, countsOf, rawPerAdjusted, rawTokens, sliceTokens, splitRaw, subTokens, type TokenCounts, type BankCredit, type BankInput, type BankPool, type BankRecurrence, type Agent, type Building, type Session, type SessionView } from "@muster-town/schema";
 import { CAP_THOUGHT, TYPICAL_SESSIONS, capReason, countDeaths, learnedCap, median, nearCap, type BankDeaths } from "./caps.ts";
 import { driftRows, parseResetsAt, previousUtcDay, utcDay, type DriftRow } from "./drift.ts";
 import { AppError, badRequest, forbidden } from "./errors.ts";
@@ -8,6 +8,7 @@ import { townSources, type FinanceSources } from "./finance-sources.ts";
 import { townPools, type FinancePools } from "./finance-pools.ts";
 import { townFly, type FinanceFly, type FlyInputs } from "./finance-fly.ts";
 import type { EventLog } from "./events.ts";
+import { fundingAt, fundingOf, type GoalFunding } from "./goals.ts";
 import type { Holder, Permissions } from "./permissions.ts";
 import type { Repos } from "./store.ts";
 import { newId, nowIso } from "./util.ts";
@@ -137,6 +138,8 @@ export interface BankPoolSummary {
   /** true for General, the default pool (can't be deleted) */
   isDefault: boolean;
   buildings: { buildingId: string; name: string }[];
+  /** the goals that set this pool themselves (their buildings, and those under them, draw from it); General also funds every goal that inherits none */
+  goals: { goalId: string; text: string }[];
   /** what the pool's buildings can still draw, shared first come first served: today's subscription share (spent first), then API-key */
   expiringTokens: number;
   durableTokens: number;
@@ -148,6 +151,9 @@ export interface BankBuildingShare {
   name: string;
   poolId: string;
   poolName: string;
+  /** the goal it inherits its pool from (its attachment or one above it); null = none sets one: General */
+  poolGoalId: string | null;
+  poolGoalText: string | null;
   /** its pool's effective % of the Bank */
   pct: number;
   /** its pool's share is explicit */
@@ -558,10 +564,20 @@ export class Bank {
     return this.repos.bankPools.all("ORDER BY (id = 'general') DESC, createdAt, rowid");
   }
 
-  /** The pool a building draws from (General when it has none, or its pool is gone). */
+  /** The funding a goal's buildings inherit: the nearest goal up the tree that sets a pool / an exploration budget. */
+  fundingAt(goalId: string): GoalFunding { return fundingAt(this.repos, goalId); }
+  /** The same for a building: its attached goal's. */
+  fundingOf(buildingId: string): GoalFunding { return fundingOf(this.repos, buildingId); }
+
+  /** The pool a building draws from: its attached goal's, inherited down the tree (General when none sets one). */
   poolOf(buildingId: string): BankPool {
-    const b = this.repos.buildings.get(buildingId);
-    return (b?.poolId && this.repos.bankPools.get(b.poolId)) || this.repos.bankPools.require(DEFAULT_POOL_ID, "pool");
+    const id = this.fundingOf(buildingId).pool?.poolId;
+    return (id && this.repos.bankPools.get(id)) || this.repos.bankPools.require(DEFAULT_POOL_ID, "pool");
+  }
+
+  /** Goals that set this pool themselves (the buildings under them draw from it unless a goal below sets another). */
+  goalsIn(poolId: string): Goal[] {
+    return this.repos.goals.where("poolId = ?", [poolId], "ORDER BY createdAt, rowid");
   }
 
   /** Buildings in a pool (those with no pool count as General). */
@@ -625,22 +641,26 @@ export class Bank {
     this.requireAdmin(userId, "delete a pool");
     const pool = this.repos.bankPools.require(poolId, "pool");
     if (poolId === DEFAULT_POOL_ID) throw badRequest("General is the default pool; it can't be deleted.");
-    const n = this.buildingsIn(poolId).length;
-    if (n) throw badRequest(`${pool.name} still has ${n} building${n === 1 ? "" : "s"}; move them out first.`);
+    const n = this.goalsIn(poolId).length;
+    if (n) throw badRequest(`${pool.name} still funds ${n} goal${n === 1 ? "" : "s"}; set them to another pool first.`);
     this.repos.bankPools.delete(poolId);
     this.events.append({ type: "bank.pool", text: `Bank pool ${pool.name} was deleted`, payload: { poolId, deleted: true } });
   }
 
-  /** Move a building to a pool (null: General), effective at once. Admin only (`by` null: the system). */
-  setBuildingPool(by: Holder | Agent | string | null, buildingId: string, poolId: string | null): Building {
+  /**
+   * Set the pool a goal funds its buildings from (null: inherit from the goal above; the root's null = General), effective
+   * at once for every building attached at or under it that doesn't sit under a goal with its own. Admin only (`by` null: the system).
+   */
+  setGoalPool(by: Holder | Agent | string | null, goal: Goal, poolId: string | null): Goal {
     if (by !== null) {
       const holder = typeof by === "string" ? { kind: "user" as const, id: by } : by;
-      if (!this.permissions.isAdmin(holder)) throw forbidden("town.allocate_budget", "Only an admin can move a building between pools.");
+      if (!this.permissions.isAdmin(holder)) throw forbidden("town.allocate_budget", "Only an admin can set the pool a goal draws from.");
     }
-    const b = this.repos.buildings.require(buildingId, "building");
-    const pool = this.repos.bankPools.require(poolId ?? DEFAULT_POOL_ID, "pool");
-    const updated = this.repos.buildings.upsert({ ...b, poolId: pool.id });
-    this.events.append({ type: "bank.pool", buildingId, text: `${b.name} now draws from the ${pool.name} pool`, payload: { buildingId, poolId: pool.id } });
+    const pool = poolId === null ? null : this.repos.bankPools.require(poolId, "pool");
+    const updated = this.repos.goals.upsert({ ...goal, poolId: pool?.id ?? null, updatedAt: nowIso() });
+    const effective = this.repos.bankPools.get(this.fundingAt(goal.id).pool?.poolId ?? DEFAULT_POOL_ID);
+    const text = pool ? `"${goal.text.slice(0, 80)}" now draws from the ${pool.name} pool` : `"${goal.text.slice(0, 80)}" now inherits its pool (${effective?.name ?? "General"})`;
+    this.events.append({ type: "bank.pool", text, payload: { goalId: goal.id, poolId: pool?.id ?? null, fromPoolId: goal.poolId } });
     return updated;
   }
 
@@ -884,14 +904,16 @@ export class Bank {
         const s = shares.get(p.id) ?? { pct: 0, explicit: false };
         const a = this.poolAvailable(p.id, now);
         const buildings = this.buildingsIn(p.id).map((b) => ({ buildingId: b.id, name: b.name }));
-        return { id: p.id, name: p.name, pct: round(s.pct), explicit: s.explicit, isDefault: p.id === DEFAULT_POOL_ID, buildings, expiringTokens: a.expiring, durableTokens: a.durable };
+        const goals = this.goalsIn(p.id).filter((g) => g.status === "active").map((g) => ({ goalId: g.id, text: g.text }));
+        return { id: p.id, name: p.name, pct: round(s.pct), explicit: s.explicit, isDefault: p.id === DEFAULT_POOL_ID, buildings, goals, expiringTokens: a.expiring, durableTokens: a.durable };
       }),
       buildings: this.repos.buildings.all().map((b) => {
         const pool = this.poolOf(b.id);
+        const from = this.fundingOf(b.id).pool?.goalId ?? null;
         const s = shares.get(pool.id) ?? { pct: 0, explicit: false };
         const a = this.available(b.id, now);
         return {
-          buildingId: b.id, name: b.name, poolId: pool.id, poolName: pool.name, pct: round(s.pct), explicit: s.explicit,
+          buildingId: b.id, name: b.name, poolId: pool.id, poolName: pool.name, poolGoalId: from, poolGoalText: from ? this.repos.goals.get(from)?.text ?? null : null, pct: round(s.pct), explicit: s.explicit,
           expiringTokens: a.expiring, durableTokens: a.durable, heldTokens: sum(held.get(b.id)), heldByAuth: held.get(b.id) ?? { subscription: 0, apiKey: 0, donorKey: 0 },
         };
       }),

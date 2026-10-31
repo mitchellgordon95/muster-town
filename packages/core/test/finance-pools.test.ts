@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { createBuilding, DELETED_BUILDING, DELETED_POOL, financePools, type PoolsInputs } from "../src/index.ts";
-import { seededWorld } from "./helpers.ts";
+import { fundBuilding, seededWorld } from "./helpers.ts";
 
 const T0 = new Date("2026-10-20T12:00:00.000Z");
 const iso = (days: number) => new Date(T0.getTime() + days * 86_400_000).toISOString();
@@ -84,7 +84,7 @@ describe("financePools (GET /api/finance/pools)", () => {
     const now = new Date();
     const lab2 = createBuilding(world, { name: "Lab 2" }, seed.admin.id);
     const labs = world.bank.createPool(seed.admin.id, { name: "Labs", pct: 25 });
-    world.bank.setBuildingPool(seed.admin.id, "carbon-cycle", labs.id);
+    fundBuilding(world, "carbon-cycle", { poolId: labs.id });
     world.bank.addInput(seed.admin.id, { label: "Max plan", source: "subscription", token: "sk-ant-oat01-test-token", model: "m", tokens: 4000, recurrence: "daily", weeklyCapTokens: 100_000 }, now);
     world.bank.addInput(seed.admin.id, { label: "Key", source: "api-key", model: "m", tokens: 8000, apiKey: "sk" }, now);
     const mei = world.agents.first("name = 'Mei'")!;

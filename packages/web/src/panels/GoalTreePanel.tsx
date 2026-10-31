@@ -16,7 +16,8 @@ import { FUNDED, treeScope } from "./funderFilter";
 import { openDocLink } from "./Markdown";
 import { krStatusLabel, krTone } from "./keyResults";
 import { allBuildings, archivedLine, buildingScope, canEditGoal, deskWord, findGoal, isArchived, moveTargets, nodeGlance, pastDue, pathTo, proposalVerb, retireMoves, retirePlan, subtreeDesks, subtreeIds, treeRows, visibleRows, type TreeKr } from "./goalTree";
-import { Act, Empty, ErrorLine, Field, Loading, Pill, Section, nameOf, useLoad } from "./ui";
+import { Act, Empty, ErrorLine, Field, Loading, MTokensInput, Pill, Section, fmtTokens, nameOf, useLoad } from "./ui";
+import { fromMillions, toMillions } from "../format";
 
 const today = () => new Date().toISOString().slice(0, 10);
 const clip = (s: string, n = 70) => s.length > n ? `${s.slice(0, n - 1)}…` : s;
@@ -221,6 +222,7 @@ function GoalDetail({ root, node, me, proposals, onSelect, onDone }: { root: Goa
           {node.buildings.length ? <> · Attached: {node.buildings.map((b) => <button key={b.id} className="chip" title={`${deskWord(b.headcount)}, ${b.inUse} in use now`} onClick={() => store.open({ kind: "building", id: b.id })}>{b.name} · {deskWord(b.headcount)}</button>)}</> : null}
         </div>
         <DeskLine node={node} />
+        <FundingBlock root={root} node={node} can={can} onDone={onDone} />
       </div>
       {can ? (
         <div className="ge-toolbar" role="toolbar" aria-label="Change this goal">
@@ -314,6 +316,48 @@ function MissedForm({ k, archive, onCancel, onDone }: { k: TreeKr; archive: bool
         <Act small tone="bad" disabled={!why.trim()} run={run}>{archive ? "Archive as missed" : "Mark missed"}</Act>
         <button className="btn sm" onClick={onCancel}>Cancel</button>
       </span>
+    </div>
+  );
+}
+
+/**
+ * Funding (1:1 mt_n25udpflus decision 3): the pool the buildings under this goal draw from and their exploration budget
+ * per day, set here or inherited from the nearest goal above that sets one. The pool is an admin's call; the budget a
+ * human funder's with goals.edit here (an admin or the goal's owner).
+ */
+function FundingBlock({ root, node, can, onDone }: { root: GoalTreeNode; node: GoalTreeNode; can: boolean; onDone: () => void }) {
+  const bank = useTown((s) => s.bank);
+  const isAdmin = useTown((s) => !!s.me?.isAdmin);
+  useEffect(() => { if (!bank) api().bank().then((next) => store.set({ bank: next }), () => undefined); }, [bank]);
+  const [explore, setExplore] = useState(node.explorationTokensPerDay == null ? "" : toMillions(node.explorationTokensPerDay));
+  useEffect(() => setExplore(node.explorationTokensPerDay == null ? "" : toMillions(node.explorationTokensPerDay)), [node.id, node.explorationTokensPerDay]);
+  if (node.status === "retired") return null;
+  const { pool, exploration } = node.funding;
+  const above = node.parentId ? findGoal(root, node.parentId)?.funding.pool ?? null : null;
+  const poolName = (id: string) => bank?.pools.find((p) => p.id === id)?.name ?? id;
+  const from = (goalId: string) => <span className="muted"> (inherited from <button className="link" onClick={() => store.open({ kind: "goals", id: goalId })}>{clip(findGoal(root, goalId)?.text ?? goalId, 40)}</button>)</span>;
+  const reload = () => { onDone(); api().bank().then((next) => store.set({ bank: next }), () => undefined); };
+  const next = explore.trim() === "" ? null : Math.max(0, fromMillions(explore) || 0);
+  return (
+    <div className="ge-funding">
+      <div className="ge-funding-row">
+        <span className="ge-funding-label">Pool</span>
+        {isAdmin && bank ? (
+          <select value={node.poolId ?? ""} onChange={(e) => api().updateGoal(node.id, { poolId: e.target.value || null }).then(reload, (err) => store.toast((err as Error).message, "bad"))}>
+            <option value="">Inherit: {above ? poolName(above.poolId) : "General"}</option>
+            {bank.pools.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
+          </select>
+        ) : <b>{pool ? poolName(pool.poolId) : "General"}</b>}
+        {pool && pool.goalId !== node.id ? from(pool.goalId) : !pool ? <span className="muted"> (no goal above sets one)</span> : null}
+      </div>
+      <div className="ge-funding-row">
+        <span className="ge-funding-label">Exploration / day</span>
+        {can ? <>
+          <MTokensInput value={explore} placeholder={exploration ? toMillions(exploration.tokensPerDay) : "default"} onChange={setExplore} />
+          <Act small tone="primary" disabled={next === node.explorationTokensPerDay} run={() => api().updateGoal(node.id, { explorationTokensPerDay: next }).then(onDone)}>Save</Act>
+        </> : <b>{exploration ? fmtTokens(exploration.tokensPerDay) : "default"}</b>}
+        {exploration && exploration.goalId !== node.id ? from(exploration.goalId) : !exploration ? <span className="muted"> (10% of the pool's daily inflow, per building)</span> : null}
+      </div>
     </div>
   );
 }

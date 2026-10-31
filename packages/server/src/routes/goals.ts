@@ -29,6 +29,7 @@ export async function goalRoutes(app: FastifyInstance) {
       owner: { ...owner, name: owner.userId ? world.users.get(owner.userId)?.name ?? owner.userId : "the town admins" },
       children: tree.children(goal.id), keyResults: world.keyResults.where("goalId = ?", [goal.id], "ORDER BY position, rowid"),
       buildings: world.buildings.where("goalId = ?", [goal.id], "ORDER BY createdAt, rowid").map((b) => ({ id: b.id, name: b.name })),
+      funding: world.bank.fundingAt(goal.id),
     };
   });
 

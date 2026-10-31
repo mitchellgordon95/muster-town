@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { buildingRoleId, newId, nowIso } from "../src/index.ts";
 import { GrantStatus, stoplightOf } from "@muster-town/schema";
-import { seededWorld } from "./helpers.ts";
+import { fundGoalOf, seededWorld } from "./helpers.ts";
 
 const LAB = "carbon-cycle";
 const KRS = [
@@ -203,7 +203,7 @@ describe("grants service", () => {
     expect(wakes()).toHaveLength(1);
     expect(wakes()[0]).toMatchObject({ lane: "directed", createdBy: "system", status: "pending" });
     world.grantDesk.syncBlocked(LAB);
-    world.ops.updateBuilding(admin, LAB, { explorationTokensPerDay: 5 });
+    fundGoalOf(world, LAB, { explorationTokensPerDay: 5 });
     expect(wakes()).toHaveLength(1); // no loop while it stays blocked
     expect(world.ops.townHallIntray().blocked).toEqual([expect.objectContaining({ buildingId: LAB, reason: "blocked: no key results to work toward" })]);
     world.grantDesk.createKeyResult(admin, LAB, KRS[0]!);
@@ -239,7 +239,7 @@ describe("grants service", () => {
     const inflow = world.bank.poolDailyInflow(world.bank.poolOf(LAB).id);
     expect(world.grantDesk.exploration(LAB)).toEqual({ allowanceTokens: Math.floor(inflow * 0.1), spentTodayTokens: 0 });
     charge(draft().id, 300_000, "exploration");
-    world.ops.updateBuilding(admin, LAB, { explorationTokensPerDay: 1_000_000 });
+    fundGoalOf(world, LAB, { explorationTokensPerDay: 1_000_000 });
     expect(world.grantDesk.exploration(LAB)).toEqual({ allowanceTokens: 1_000_000, spentTodayTokens: 300_000 });
   });
 });

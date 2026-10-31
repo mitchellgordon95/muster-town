@@ -1,7 +1,7 @@
 /** Why a queued assignment can't start (Mitchell's 1:1 mt_ryw7ejayvu): blockedBy on each, townBlocked for the map. */
 import { describe, expect, it } from "vitest";
 import { blockedBy, buildingRoleId, buildingStats, newId, nowIso, createSchedule, townBlocked, waitsOnTime } from "../src/index.ts";
-import { seededWorld } from "./helpers.ts";
+import { fundGoalOf, seededWorld } from "./helpers.ts";
 
 const LAB = "carbon-cycle";
 const REPORT = "## What I did\nx\n\n## Findings\ny\n\n## What I need from you\nNothing needed.";
@@ -72,7 +72,8 @@ describe("blockedBy", () => {
     const { world, by, admin } = seededWorld();
     const mei = by("Mei"), noor = by("Noor");
     const kr = world.grantDesk.createKeyResult(admin, LAB, { text: "A visitor sees the spend", howToCheck: "Open the banner" });
-    world.ops.updateBuilding(admin, LAB, { managerAgentId: mei.id, explorationTokensPerDay: 6_385_714 });
+    world.ops.updateBuilding(admin, LAB, { managerAgentId: mei.id });
+    fundGoalOf(world, LAB, { explorationTokensPerDay: 6_385_714 });
     world.permissions.grant({ kind: "agent", id: mei.id }, buildingRoleId(LAB, "manager"));
     const g = world.grantDesk.decide(admin, world.grantDesk.propose(mei, world.grantDesk.create(mei, LAB, { keyResultId: kr.id, objective: "o", stopCondition: "s", askTokens: 1_000_000 }).id).id, { action: "fund" });
     const grantWork = world.ops.createWork(admin, noor.id, { title: "Grant step", lane: "grant", grantId: g.id });

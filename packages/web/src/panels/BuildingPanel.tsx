@@ -1,14 +1,14 @@
 /** Building panel (E at the door): overview, goals, grants and schedule (labs; GoalsTab.tsx), settings (managers: name, the goal it is attached to, desks, manager; 1:1 mt_n25udpflus decision 3: a building is a thin layer on the goal tree). No Members tab (flag dc_v7ejy1j5ri): roles live on the planning desk; live forks show on the map. Board, filing cabinet and in-tray are places; the collective's secrets are a planning-desk tab. */
 import { isFork } from "../forks";
 import { useEffect, useMemo, useState, type ReactNode } from "react";
-import { BuildingDefaults, DEFAULT_POOL_ID, MAX_HEADCOUNT, ROOT_GOAL_ID, type Schedule, type SnapshotBuilding, type Workspace } from "@muster-town/schema";
-import { fmtPct, poolColor } from "../pools";
+import { BuildingDefaults, MAX_HEADCOUNT, ROOT_GOAL_ID, type Schedule, type SnapshotBuilding, type Workspace } from "@muster-town/schema";
+import { poolColor } from "../pools";
 import { api } from "../api";
 import { store, useTown } from "../state";
 import { Glyph, PanelShell } from "./PanelShell";
 import { QueueTab } from "./QueueTab";
 import { Meter } from "./AgentPanel";
-import { ADJ, Act, Empty, Field, KV, Loading, MTokensInput, NumberInput, Pill, Section, fmtTokens, usd, useLoad } from "./ui";
+import { ADJ, Act, Empty, Field, KV, MTokensInput, NumberInput, Pill, Section, fmtTokens, usd, useLoad } from "./ui";
 import { fromMillions, repeatLabel, runsAtLabel, toMillions } from "../format";
 import { layoutEdit } from "../map/layoutEdit";
 import { canOneOnOne, openOneOnOne } from "./oneOnOne";
@@ -86,6 +86,7 @@ function Overview({ b }: { b: SnapshotBuilding }) {
         </div>
       ) : null}
       {b.kind !== "town-hall" ? <GoalOwner b={b} /> : null}
+      <PoolLine b={b} />
       {b.kind !== "town-hall" ? <GoalTabsSummary b={b} /> : null}
       {hasBoard || hasTray || hasRoom ? (
         <div className="walk-links">
@@ -225,8 +226,6 @@ export function Settings({ b }: { b: SnapshotBuilding }) {
     </Section>
     {b.kind === "town-hall" && admin ? <CollectiveDefaults /> : null}
     {b.kind === "town-hall" ? <Section title="Dashboard"><p className="direction">The town goal is three KPIs, Fund, Join and Trust, with every building's objectives under them. <button className="link" onClick={() => store.open({ kind: "dashboard" })}>Open the dashboard</button></p></Section> : null}
-    <PoolPicker b={b} />
-    {b.kind !== "town-hall" && store.can("building.fund", b.id) ? <ExplorationBudget b={b} /> : null}
   </>);
 }
 
@@ -274,60 +273,20 @@ function CollectiveDefaults() {
   );
 }
 
-/** The exploration allowance (docs/goal-directed-budgets.md); every lab is goal-directed and runs on forks. Humans who can fund only: a manager agent can't change its own budget. */
-function ExplorationBudget({ b }: { b: SnapshotBuilding }) {
-  const [explore, setExplore] = useState(b.explorationTokensPerDay == null ? "" : toMillions(b.explorationTokensPerDay));
+/** "Pool: X (from goal Y)": the pool is the attached goal's, inherited down the tree; set it on the goal (the Town Hall goal tree, Funding). */
+function PoolLine({ b }: { b: SnapshotBuilding }) {
+  const bank = useTown((s) => s.bank);
+  useEffect(() => { if (!bank) api().bank().then((next) => store.set({ bank: next }), () => undefined); }, [bank]);
+  const row = bank?.buildings.find((x) => x.buildingId === b.id);
+  if (!bank || !row) return null;
   return (
-    <Section title="Exploration budget">
-      <form className="form" onSubmit={(e) => e.preventDefault()}>
-        <Field label="Exploration / day" hint="Leave blank for the default: 10% of the pool's daily inflow.">
-          <MTokensInput value={explore} placeholder="default" onChange={setExplore} />
-        </Field>
-        <div className="actions"><Act tone="primary" run={async () => {
-          await api().updateBuilding(b.id, { explorationTokensPerDay: explore.trim() === "" ? null : Math.max(0, fromMillions(explore) || 0) });
-          store.toast(`${b.name} exploration budget saved`, "ok");
-        }}>Save exploration budget</Act></div>
-      </form>
-    </Section>
+    <div className="muted goal-meta pool-line">
+      <span className="pool-swatch" style={{ background: poolColor(bank, row.poolId) }} /> Pool: <b>{row.poolName}</b>{" "}
+      {row.poolGoalId
+        ? <>(from goal <button className="link" onClick={() => store.open({ kind: "goals", id: row.poolGoalId! })}>{clipText(row.poolGoalText ?? row.poolGoalId, 60)}</button>)</>
+        : <>(no goal above it sets one)</>}
+    </div>
   );
 }
 
-/** The Bank pool this building draws from. Only an admin can move it; the move takes effect at once. */
-function PoolPicker({ b }: { b: SnapshotBuilding }) {
-  const bank = useTown((s) => s.bank);
-  const isAdmin = useTown((s) => !!s.me?.isAdmin);
-  const row = bank?.buildings.find((x) => x.buildingId === b.id);
-  const poolId = row?.poolId ?? b.poolId ?? DEFAULT_POOL_ID;
-  const reload = () => api().bank().then((next) => store.set({ bank: next }), () => undefined);
-  useEffect(() => { if (!bank) reload(); }, [bank]);
-  const others = (members: { buildingId: string }[]) => {
-    const n = members.filter((m) => m.buildingId !== b.id).length;
-    return n ? `shared with ${n} other building${n === 1 ? "" : "s"}` : "all for this building";
-  };
-  return (
-    <Section title="Bank pool">
-      {!bank ? <Loading /> : (
-        <form className="form" onSubmit={(e) => e.preventDefault()}>
-          <Field label="Pool" hint={isAdmin
-            ? "Buildings in a pool share its % of the Bank, first come first served. Moving takes effect at once; what this building already drew stays charged to its old pool. Create and size pools at the Bank."
-            : "Buildings in a pool share its % of the Bank, first come first served. Only an admin can move a building to another pool."}>
-            <span className="pool-pick">
-              <span className="pool-swatch" style={{ background: poolColor(bank, poolId) }} />
-              <select value={poolId} disabled={!isAdmin} onChange={async (e) => {
-                const next = e.target.value;
-                try {
-                  await api().setBuildingPool(b.id, next);
-                  store.toast(`${b.name} now draws from ${bank.pools.find((p) => p.id === next)?.name ?? "the pool"}`, "ok");
-                } catch (err) { store.toast((err as Error).message, "bad"); }
-                reload();
-              }}>
-                {bank.pools.map((p) => <option key={p.id} value={p.id}>{p.name} · {fmtPct(p.pct)}{p.explicit ? "" : " (auto)"}</option>)}
-              </select>
-            </span>
-          </Field>
-          {row ? <div className="foot-note">The pool can still draw {fmtTokens(row.expiringTokens + Math.max(0, row.durableTokens))} today ({fmtTokens(row.expiringTokens)} expiring, {fmtTokens(row.durableTokens)} permanent), {others(bank.pools.find((p) => p.id === poolId)?.buildings ?? [])}.</div> : null}
-        </form>
-      )}
-    </Section>
-  );
-}
+const clipText = (t: string, n: number) => t.length > n ? `${t.slice(0, n - 1)}…` : t;

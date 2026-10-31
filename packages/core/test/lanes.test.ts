@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import { buildingRoleId, createAssignment, createBuilding, keyResultsBlock, newId, nextStartable, nowIso, sessionMemory, workSystemPrompt } from "../src/index.ts";
 import { laneBlock, resolveLane } from "../src/lanes.ts";
 import { BUDGET_POLICY } from "../src/policy.ts";
-import { seededWorld } from "./helpers.ts";
+import { fundGoalOf, seededWorld } from "./helpers.ts";
 
 const LAB = "carbon-cycle";
 const KRS = [
@@ -103,7 +103,7 @@ describe("goal-directed budgets: lanes on assignments", () => {
 describe("goal-directed budgets: the canStart gate", () => {
   it("a grant task is held while its grant is at checkpoint (stays pending, with a reason); work behind it still starts", () => {
     const { world, admin, noor, fund } = setup();
-    world.ops.updateBuilding(admin, LAB, { explorationTokensPerDay: 1_000_000 }); // the seeded pool has no daily inflow
+    fundGoalOf(world, LAB, { explorationTokensPerDay: 1_000_000 }); // the seeded pool has no daily inflow
     const g = fund();
     const held = world.ops.createWork(admin, noor.id, { title: "kr", lane: "grant", grantId: g.id });
     const ex = world.ops.createWork(admin, noor.id, { title: "explore", lane: "exploration", gap: "no gap sentence yet" });
@@ -121,7 +121,7 @@ describe("goal-directed budgets: the canStart gate", () => {
 
   it("exploration is held once the building's exploration spend today reaches its allowance; directed is not", () => {
     const { world, admin, noor, spend } = setup();
-    world.ops.updateBuilding(admin, LAB, { explorationTokensPerDay: 1000 });
+    fundGoalOf(world, LAB, { explorationTokensPerDay: 1000 });
     const ex = world.ops.createWork(admin, noor.id, { title: "explore", lane: "exploration", gap: "gap" });
     const dir = world.ops.createWork(admin, noor.id, { title: "directed" });
     expect(world.budget.canStart(noor.id, ex)).toBe(true);
@@ -130,14 +130,14 @@ describe("goal-directed budgets: the canStart gate", () => {
     expect(world.assignments.require(ex.id).heldReason).toMatch(/^held: exploration allowance spent today \(1,000 \/ 1,000 tokens\)/);
     expect(world.budget.canStart(noor.id, dir)).toBe(true);
     // the default allowance (null) is 10% of the pool's daily inflow
-    world.ops.updateBuilding(admin, LAB, { explorationTokensPerDay: null });
+    fundGoalOf(world, LAB, { explorationTokensPerDay: null });
     const pool = world.bank.poolOf(LAB).id;
     expect(world.grantDesk.exploration(LAB).allowanceTokens).toBe(Math.floor(world.bank.poolDailyInflow(pool) * BUDGET_POLICY.explorationShare));
   });
 
   it("the Town Hall never holds on lanes; a lab does", () => {
     const { world, admin, noor, spend } = setup();
-    world.ops.updateBuilding(admin, LAB, { explorationTokensPerDay: 1 });
+    fundGoalOf(world, LAB, { explorationTokensPerDay: 1 });
     const ex = world.ops.createWork(admin, noor.id, { title: "explore", lane: "exploration", gap: "gap" });
     spend(noor.id, 50, "exploration");
     expect(laneBlock(world, ex)?.kind).toBe("exploration");
@@ -410,7 +410,7 @@ describe("goal-directed budgets: human-directed work (1:1 mt_ryw7ejayvu)", () =>
     const a = world.assignments.require(r.assignmentId);
     expect(a).toMatchObject({ lane: "directed", sourceId: flag.id, gap: "the banner is unreadable", keyResultId: null });
     // the exploration allowance doesn't hold it; its spend lands in the directed bucket
-    world.ops.updateBuilding(admin, LAB, { explorationTokensPerDay: 1000 });
+    fundGoalOf(world, LAB, { explorationTokensPerDay: 1000 });
     spend(mei.id, 1000, "exploration");
     expect(world.budget.canStart(mei.id, a)).toBe(true);
     world.sessions.upsert({ ...world.sessions.where("agentId = ?", [mei.id])[0]!, id: newId("se"), lane: "directed" });
