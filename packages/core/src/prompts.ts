@@ -133,7 +133,7 @@ export function townBoardBlock(world: World, limit = 10): string {
 
 const tok = (n: number) => n.toLocaleString("en-US");
 
-/** The ideas an explorer may turn into a grant: open key results dropped when key results merged into grants (migration 068). */
+/** The ideas an explorer may turn into a grant: open key results dropped when key results merged into grants (migration 069). */
 const DROPPED_KR_NOTE = "dropped when key results merged into grants";
 
 /**

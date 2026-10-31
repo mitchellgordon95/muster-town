@@ -85,7 +85,7 @@ export class Grants {
 
   /**
    * The key results in the building's subtree of the town goal tree (docs/goals.md), in order: its grants' (open and
-   * archived, each with its `grantId`) and the archived ones written on goals before migration 068.
+   * archived, each with its `grantId`) and the archived ones written on goals before migration 069.
    */
   keyResults(buildingId: string): GoalKeyResult[] {
     return this.world.goalTree.keyResultsInScope(buildingId).map((k) => ({

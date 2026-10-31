@@ -19,9 +19,9 @@ The first code span is the test file. The second is the `it` text, copied exactl
 3. **A grant's spend is derived from the sessions that carry its `grantId` and is never stored.**
    - Test: `packages/core/test/grants.test.ts` › `spend is derived from sessions; checkpoint decisions continue / adjust / cut`
    - Test: `packages/core/test/grants-schema.test.ts` › `grants, key results, and the new building/session columns round-trip; spend derives from sessions`
-4. **A grant is filed against a goal in its building's subtree and carries 1–5 key results of its own (`key_results.grantId`); one with none can't be proposed or funded** (docs/how-work-gets-done.md §4, migration 068). Its first key result is its `keyResultId`.
+4. **A grant is filed against a goal in its building's subtree and carries 1–5 key results of its own (`key_results.grantId`); one with none can't be proposed or funded** (docs/how-work-gets-done.md §4, migration 069). Its first key result is its `keyResultId`.
    - Test: `packages/core/test/grants.test.ts` › `a grant carries its own key results under its goal; one with none can't be proposed or funded`
-   - Test: `packages/core/test/grants-schema.test.ts` › `migration 068: grants carry their key results; open goal key results with no open grant are dropped`
+   - Test: `packages/core/test/grants-schema.test.ts` › `migration 069: grants carry their key results; open goal key results with no open grant are dropped`
 5. **The 100% checkpoint fires once per `grantTokens` value and holds the grant. While it is held, only the manager's checkpoint assignment runs on it.**
    - Test: `packages/core/test/lanes.test.ts` › `a charge that reaches 100% holds the grant once and gives the manager the checkpoint assignment, which may run`
    - Test: `packages/core/test/lanes.test.ts` › `a grant task is held while its grant is at checkpoint (stays pending, with a reason); work behind it still starts`

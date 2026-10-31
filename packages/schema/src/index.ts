@@ -979,7 +979,7 @@ export const GrantHistoryEntry = z.object({
   note: z.string().default(""),
 });
 export type GrantHistoryEntry = z.infer<typeof GrantHistoryEntry>;
-/** One line of a grant's testing plan (grants from before key results merged into grants, migration 068; read-only now). */
+/** One line of a grant's testing plan (grants from before key results merged into grants, migration 069; read-only now). */
 export const TestingPlanItem = z.object({ text: z.string().trim().min(1).max(300), howToCheck: z.string().trim().min(1).max(300) });
 export type TestingPlanItem = z.infer<typeof TestingPlanItem>;
 /**
@@ -990,14 +990,14 @@ export type TestingPlanItem = z.infer<typeof TestingPlanItem>;
 export const Grant = z.object({
   id: Id,
   buildingId: Id,
-  /** the goal it is filed against (null only on grants from before migration 068 whose building had no goal) */
+  /** the goal it is filed against (null only on grants from before migration 069 whose building had no goal) */
   goalId: Id.nullable().default(null),
   /** its first key result (all of them: `GrantView.keyResults`); null only on grants from before migration 032 */
   keyResultId: Id.nullable().default(null),
   objective: z.string().min(1).max(300),
   /** how: the approach the plan takes */
   approach: z.string().max(2000).default(""),
-  /** grants from before migration 068 only: how the work would be checked (open grants' lines became key results) */
+  /** grants from before migration 069 only: how the work would be checked (open grants' lines became key results) */
   testingPlan: z.array(TestingPlanItem).default([]),
   /** when to stop even if tokens remain */
   stopCondition: z.string().min(1).max(500),
@@ -1035,7 +1035,7 @@ export type KeyResultStatus = z.infer<typeof KeyResultStatus>;
  * A key result of a grant (docs/how-work-gets-done.md §4): something a human can check in the live town, by a date. The
  * manager writes them in its grant proposal and sets status up to `claimed` (`checkpoint_grant`, `close_grant`);
  * `met` / `missed` only users with `building.fund`, on the grant. Goals keep none open: a goal holds only the archived
- * key results of its grants (and those dropped by migration 068) as history.
+ * key results of its grants (and those dropped by migration 069) as history.
  */
 export const KeyResult = z.object({
   id: Id,
@@ -1055,7 +1055,7 @@ export const KeyResult = z.object({
   objectiveId: Id.nullable().default(null),
   /** the goal of the town goal tree it sits under (its grant's goal); `buildingId` is the building that proposed it */
   goalId: Id.nullable().default(null),
-  /** the grant it belongs to (null: written on a goal before migration 068) */
+  /** the grant it belongs to (null: written on a goal before migration 069) */
   grantId: Id.nullable().default(null),
   /** the date it is due (YYYY-MM-DD); null on key results from before the tree */
   due: z.string().nullable().default(null),

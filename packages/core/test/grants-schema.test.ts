@@ -121,11 +121,11 @@ describe("migration 032: key results move onto the building goal", () => {
     expect((db.prepare("PRAGMA table_info(buildings)").all() as { name: string }[]).map((c) => c.name)).toContain("blockedAt");
   });
 
-  it("migration 068: grants carry their key results; open goal key results with no open grant are dropped", () => {
+  it("migration 069: grants carry their key results; open goal key results with no open grant are dropped", () => {
     const dir = tempDir(), migrations = join(dir, "migrations");
     mkdirSync(migrations);
     const all = join(dirname(fileURLToPath(import.meta.url)), "..", "migrations");
-    for (const f of readdirSync(all).filter((f) => f.endsWith(".sql") && Number(f.slice(0, 3)) <= 67)) copyFileSync(join(all, f), join(migrations, f));
+    for (const f of readdirSync(all).filter((f) => f.endsWith(".sql") && Number(f.slice(0, 3)) <= 68)) copyFileSync(join(all, f), join(migrations, f));
     const db = new Database(join(dir, "town.db"));
     migrate(db, migrations);
     const now = "2026-10-30T00:00:00.000Z";
@@ -140,7 +140,7 @@ describe("migration 032: key results move onto the building goal", () => {
     const asg = db.prepare("INSERT INTO assignments (id, agentId, buildingId, title, description, status, createdBy, createdByKind, createdAt, updatedAt, lane, keyResultId, grantId) VALUES (?, 'ag_x', 'bl_a', 't', 'd', ?, 'system', 'system', ?, ?, ?, ?, ?)");
     asg.run("as_e", "pending", now, now, "exploration", "kr_orphan", null);
     asg.run("as_g", "pending", now, now, "grant", "kr_named", "gr_live");
-    copyFileSync(join(all, "068_grants_carry_key_results.sql"), join(migrations, "068_grants_carry_key_results.sql"));
+    copyFileSync(join(all, "069_grants_carry_key_results.sql"), join(migrations, "069_grants_carry_key_results.sql"));
     migrate(db, migrations);
     const krs = db.prepare("SELECT id, text, howToCheck, grantId, goalId, status, archivedAt IS NOT NULL AS archived, statusNote FROM key_results ORDER BY position, rowid").all() as Record<string, unknown>[];
     // the funded grant keeps its key result and gains its testing plan line as a second one

@@ -21,7 +21,7 @@ Citation format: the same as in [grants.md](grants.md): a `- Test:` line with th
    - Test: `packages/core/test/lanes.test.ts` › `exploration is held with no free tokens, or once its goal's optional cap is reached today; uncapped by default; directed is never held`
    - Test: `packages/core/test/lanes.test.ts` › `the Town Hall never holds on lanes; a lab does`
    - Test: `packages/core/test/blockers.test.ts` › `lane holds point at the Town Hall in-tray: grant at checkpoint, exploration at its goal's cap (used of cap, reset time)`
-6. **Directed work is never held for money** (the rule that stopped directed work once a grant proposal named its key result went with goal key results, migration 068).
+6. **Directed work is never held for money** (the rule that stopped directed work once a grant proposal named its key result went with goal key results, migration 069).
    - Test: `packages/core/test/lanes.test.ts` › `exploration is held with no free tokens, or once its goal's optional cap is reached today; uncapped by default; directed is never held`
 7. **`waitFor` holds the start.** The scheduler skips a waiting assignment until its wait is met. A wait still unmet after 24 h is cancelled into the in-tray, and a chain parks at most 3 times in a row.
    - Test: `packages/core/test/waits.test.ts` › `the scheduler skips a waiting assignment until checkWaits finds it met; then it unblocks with an event`
