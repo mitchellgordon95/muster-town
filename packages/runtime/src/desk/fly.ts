@@ -137,11 +137,12 @@ export class FlyApi implements SandboxApi {
       } catch (e) {
         // the host holding the volume is full (412 volume_placement_capacity, seen after an image redeploy removed idle
         // desks): fork the home onto another host and use that. The source stays (the fork may hydrate from it);
-        // `volumes` returns the newest first and `remove` deletes every copy.
+        // `volumes` returns the newest first and `remove` deletes every copy. A fork takes its source's size: Fly
+        // refuses size_gb on one (400 "setting size_gb for volume forks is not currently supported").
         if (!forked && /volume_placement_capacity/.test(String(e))) {
           forked = true;
           vol = (await this.req<FlyVolume>("POST", "/volumes", {
-            name: volName, region: vol.region ?? o.region, size_gb: o.volumeGb, source_volume_id: vol.id,
+            name: volName, region: vol.region ?? o.region, source_volume_id: vol.id,
             compute: { cpu_kind: size.cpuKind, cpus: size.cpus, memory_mb: size.memoryMb },
           })).body;
           continue;
