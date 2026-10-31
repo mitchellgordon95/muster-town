@@ -159,9 +159,10 @@ function oneOnOneTarget(world: World, authorId: string): { agent: Agent; via: "f
  */
 export function createOneOnOne(world: World, human: Agent, buildingId: string, opts: { agentId?: string; docId?: string; grantId?: string; goalId?: string } = {}): Meeting {
   const b = world.buildings.require(buildingId, "building");
-  // the Town Hall has no manager; its one agent to plan with is the Planner ("Plan with an agent", docs/goals.md)
+  // the Town Hall's manager is the Planner, its one agent to talk to ("Plan with an agent", docs/goals.md)
   const townHall = b.id === TOWN_HALL_ID || b.kind === "town-hall";
-  if (townHall && (!opts.agentId || !world.reorgs.isPlanner(world.agents.get(opts.agentId) ?? null))) throw badRequest("The Town Hall has no manager agent to talk to; plan with the Planner from the Goal tree.");
+  if (townHall && !opts.agentId) opts = { ...opts, agentId: world.reorgs.ensurePlanner().id };
+  if (townHall && !world.reorgs.isPlanner(world.agents.get(opts.agentId!) ?? null)) throw badRequest("At the Town Hall you talk to the Planner, its manager: plan with it from the Goal tree.");
   if (townHall ? !world.reorgs.canPlan(human, opts.goalId) : !world.permissions.can(human, "meeting.facilitate", b.id) && !world.permissions.can(human, "building.review", b.id)) throw forbidden("meeting.facilitate");
   const h = world.holderOf(human);
   if (h.kind !== "user") throw badRequest("Only humans open a 1:1.");
@@ -174,7 +175,7 @@ export function createOneOnOne(world: World, human: Agent, buildingId: string, o
   if (grant && !opts.agentId) {
     const proposer = oneOnOneTarget(world, grant.proposedBy)?.agent;
     target = proposer && (proposer.homeBuildingId ?? proposer.buildingId) === b.id ? proposer : managerAgentOf(world, b);
-    if (!target) throw new AppError("conflict", `${b.name} has no manager agent; send a message instead.`);
+    if (!target) throw new AppError("conflict", `${b.name} has no manager agent to talk to.`);
   } else if (opts.agentId) {
     const t = oneOnOneTarget(world, opts.agentId);
     if (!t) throw new AppError("conflict", `${world.nameOf(opts.agentId)} can't take a 1:1 and ${b.name} has no manager agent; reply to the report instead.`);
@@ -182,7 +183,7 @@ export function createOneOnOne(world: World, human: Agent, buildingId: string, o
     if ((target.homeBuildingId ?? target.buildingId) !== b.id) throw badRequest(`${target.name} doesn't work in ${b.name}.`);
   } else {
     target = managerAgentOf(world, b);
-    if (!target) throw new AppError("conflict", `${b.name} has no manager agent; send a message instead.`);
+    if (!target) throw new AppError("conflict", `${b.name} has no manager agent to talk to.`);
   }
   const open = world.meetings.where("kind = 'one-on-one' AND facilitatorId = ? AND withUserId = ? AND phase = 'discussing'", [target.id, h.id]);
   const goal = opts.goalId ? world.goals.get(opts.goalId) : undefined;

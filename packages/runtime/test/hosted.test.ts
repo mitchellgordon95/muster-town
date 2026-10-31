@@ -38,7 +38,7 @@ function hosted() {
 }
 
 describe("hosted runtime", () => {
-  test("no key yet: work is held (not failed), nothing reaches the SDK, chat says why", async () => {
+  test("no key yet: work is held (not failed), nothing reaches the SDK", async () => {
     const { world, runtime, sdk, by } = hosted();
     const noor = by("Noor");
     const asg = world.ops.createWork(null, noor.id, { title: "Look around" });
@@ -47,8 +47,6 @@ describe("hosted runtime", () => {
     await runtime.tickOnce();
     await runtime.whenIdle();
     await expect(runtime.runWorkSession(noor.id, asg.id)).rejects.toThrow(NO_KEY_HOLD);
-    const reply = await runtime.chat(noor.id, { message: "hi", history: [] });
-    expect(reply.reply).toContain(NO_KEY_HOLD);
     expect(sdk.sessions).toHaveLength(0);
     expect(world.assignments.get(asg.id)!.status).toBe("pending");
     expect(world.agents.get(noor.id)!.status).toBe("idle");

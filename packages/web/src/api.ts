@@ -8,7 +8,7 @@ import type {
   CreateObjectiveInput, UpdateObjectiveInput, Objective, KpiKey, KpiView,
   AccessRequest, AccessRequestView, Agent, Allocation, Assignment, AuthMe, BlockedAssignment, BuildingStats, Schedule, RedeployLive, Building, BuildingDefaults, ClientMessage, DesksConfig, Doc, Event, Lot, Meeting, Place, Role, Membership, SessionSlots, Tile,
   ServerMessage, SessionView, TokenCounts, Town, CreateBuildingInput, UpdateBuildingInput, RegisterVisitorInput,
-  ReviewInput, PinSkillInput, SkillPinView, SkillView, PutSecretInput, SecretView, ChatInput, WorkInput, DonateInput, AddBankInput, BankInput, CreateBankPoolInput, UpdateBankPoolInput, CreateMeetingInput, DocState, DocType, Mailbox, Permission, DecideGrantInput, CloseGrantInput, GrantView, KeyResult, CreateKeyResultInput, UpdateKeyResultInput, Stoplight,
+  ReviewInput, PinSkillInput, SkillPinView, SkillView, PutSecretInput, SecretView, WorkInput, DonateInput, AddBankInput, BankInput, CreateBankPoolInput, UpdateBankPoolInput, CreateMeetingInput, DocState, DocType, Mailbox, Permission, DecideGrantInput, CloseGrantInput, GrantView, KeyResult, CreateKeyResultInput, UpdateKeyResultInput, Stoplight,
   GoalTreeNode, Goal, GoalProposal, GoalSpend, QueueBoard, IntrayRoutes, CreateGoalInput, UpdateGoalInput, RetireGoalInput, CreateTreeKeyResultInput, DecideGoalProposalInput, ChangeGoalInput, ReviewKeyResultInput, GoalChangeView,
 } from "@muster-town/schema";
 
@@ -77,11 +77,9 @@ export interface AgentPermissionsView {
   /** the caller is the owner, an admin or a manager of its home building: may pick its model */
   canSetModel?: boolean;
 }
-/** POST /api/agents/:id/message result: how the message reached the agent. */
 /** GET /api/funders/:userId/week: the funder's window and the review deck's slide 1 for it (goal tree step 8) */
 export type FunderWeekView = FunderWeek & { slide: ReviewSlide };
 export interface StartNextResult { assignment: Assignment; agent: Agent; when: "now" | "after-current" }
-export interface MessageResult { mode: "interrupted" | "queued" | "started"; messageId: string; assignmentId?: string }
 /** One `tell` between an agent and your avatar (GET /api/agents/:id/thread). */
 export interface ThreadMessage { id: string; fromId: string; toId: string; from: string; mine: boolean; body: string; at: string }
 /** `POST /api/media`: the stored file and the markdown to cite it with. */
@@ -410,9 +408,6 @@ export interface Api {
   work(id: string, input: In<typeof WorkInput>): Promise<Assignment | null>;
   /** Message the agent's session: queued for the next turn boundary, or `now` to stop the current turn first. */
   interrupt(id: string, text: string, now?: boolean): Promise<void>;
-  chat(id: string, input: In<typeof ChatInput>): Promise<string>;
-  /** Talk: a `tell` from your avatar. Idle → starts a session; working → interrupts (`now`) or waits in the inbox. */
-  message(id: string, text: string, now?: boolean): Promise<MessageResult>;
   /** The `tell`s between the agent and your avatar, oldest first. */
   thread(id: string): Promise<ThreadMessage[]>;
   stop(id: string): Promise<void>;
@@ -661,8 +656,6 @@ export class HttpApi implements Api {
   session(id: string) { return this.get<{ session: SessionView | null; transcript: Event[]; transcriptFile?: { url: string; bytes: number; lines: number; expiresAt: string } | null }>(`/api/agents/${id}/session`); }
   async work(id: string, i: In<typeof WorkInput>) { return unwrap<Assignment | null>(await this.post(`/api/agents/${id}/work`, i), "assignment"); }
   async interrupt(id: string, text: string, now = false) { await this.post(`/api/agents/${id}/interrupt`, { text, now }); }
-  async chat(id: string, i: In<typeof ChatInput>) { return (await this.post<{ reply: string }>(`/api/agents/${id}/chat`, i)).reply; }
-  message(id: string, text: string, now = true) { return this.post<MessageResult>(`/api/agents/${id}/message`, { text, now }); }
   async thread(id: string) { return (await this.get<{ messages: ThreadMessage[] }>(`/api/agents/${id}/thread`)).messages; }
   async stop(id: string) { await this.post(`/api/agents/${id}/stop`); }
   async resume(id: string) { await this.post(`/api/agents/${id}/resume`); }

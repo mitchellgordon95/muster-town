@@ -117,7 +117,7 @@ async function main() {
     app.runtime = await runtimeMod.startRuntime({ world, mcpUrl: `${url}/mcp`, repoRoot: REPO_ROOT, collective: basename(COLLECTIVE_DIR), codeDir: join(REPO_ROOT, ".tmp", "code-main") });
     console.log("[server] runtime started");
   } catch (e) {
-    console.warn(`[server] runtime not started (${e instanceof Error ? e.message : String(e)}); chat/interrupt return 503`);
+    console.warn(`[server] runtime not started (${e instanceof Error ? e.message : String(e)}); interrupts queue for the desk`);
   }
   // the hosted collectives opened at boot mounted before the URL was known
   for (const r of hub.list("active")) {

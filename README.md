@@ -120,7 +120,7 @@ buildings/carbon-cycle/   v0 building folder (the git export format)
 packages/schema           Zod schemas: world state, documents, events, verbs, API payloads
 packages/core             SQLite store, world (grid, layout, pathfinding, tick), verbs, permissions, budgets, export/import
 packages/server           Fastify HTTP + WebSocket API, MCP endpoint, seed, entry point
-packages/runtime          desk scheduler and backends (Docker/host), meetings, proxy chat
+packages/runtime          desk scheduler and backends (Docker/host), meetings
 packages/desk             agent host that runs a work session inside a desk container (+ Dockerfile)
 packages/web              React + Canvas 2D client
 packages/cli              `muster-town` CLI for visitors (register your own Claude Code as an agent)

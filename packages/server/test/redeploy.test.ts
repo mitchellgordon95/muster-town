@@ -11,7 +11,7 @@ describe("POST /api/admin/redeploy", () => {
     const calls: { image: boolean; requestedBy: string }[] = [];
     let running = false;
     const t = await seededApp({ runtime: {
-      chat: async () => "", interrupt: async () => undefined,
+      interrupt: async () => undefined,
       redeploy: (o) => { calls.push(o); if (running) return { running: true }; running = true; return { started: true }; },
     } });
     close = t.close;

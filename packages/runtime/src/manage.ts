@@ -54,7 +54,7 @@ export function wakeManager(ctx: Ctx, st: ManageState, gate: ManageGate, buildin
   const { world } = ctx;
   const building = world.buildings.get(buildingId);
   if (!building) return [];
-  // the Town Hall has no manager: only its residents' 1:1s (the Planner's "Plan with an agent") are answered
+  // the Town Hall's manager (the Planner) has no in-tray to work: only its 1:1s ("Plan with an agent") are answered, below
   const mgr = building.kind === "town-hall" ? undefined : managerAgentOf(world, building);
   const out: Promise<Session>[] = [];
   const add = (p: Promise<Session> | null) => { if (p) out.push(p); };

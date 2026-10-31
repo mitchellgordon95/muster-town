@@ -1,5 +1,7 @@
 import { describe, expect, it } from "vitest";
-import { PLANNER_UNPAID, REORG_PREP_MS, buildingRoleId, createBuilding, createUser, facilitateMaterial, setMeetingPhase, endMeeting } from "../src/index.ts";
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
+import { PLANNER_UNPAID, REORG_PREP_MS, buildingRoleId, createBuilding, createUser, facilitateMaterial, intrayWorker, managerAgentOf, setMeetingPhase, endMeeting } from "../src/index.ts";
 import { seededWorld } from "./helpers.ts";
 
 const LAB = "carbon-cycle";
@@ -125,7 +127,9 @@ describe("Plan with an agent (docs/goals.md, step 5)", () => {
     expect(world.reorgs.openPlanner(admin, "gl_fund").id).toBe(m.id);
     expect(world.reorgs.plannerBrief(world.meetings.require(m.id))).toContain(`under the goal they started from (gl_fund)`);
     // only the Planner at the Town Hall; members without goals.edit can't plan
-    expect(() => world.ops.openOneOnOne(admin, "town-hall")).toThrow(/no manager agent/);
+    // the Town Hall's 1:1 is the Planner's (its manager): the same one; no other Town Hall agent takes one
+    expect(world.ops.openOneOnOne(admin, "town-hall").id).toBe(m.id);
+    expect(() => world.ops.openOneOnOne(admin, "town-hall", { agentId: world.agents.first("kind = 'service'")!.id })).toThrow();
     const stranger = world.ops.ensureAvatar(createUser(world, "Stranger").user.id);
     expect(() => world.reorgs.openPlanner(stranger, goal.id)).toThrow(/Only an admin or a goal's owner/);
     const p = await world.verbs.propose_goal(planner, { action: "add-goal", parentId: goal.id, text: "Sub-goal", why: "drafted with the human" });
@@ -134,6 +138,24 @@ describe("Plan with an agent (docs/goals.md, step 5)", () => {
     world.verbs.meeting(planner, { meetingId: m.id, action: "speak", text: "Drafted it.", attach: p.proposal.id });
     expect(world.meetings.require(m.id).transcript.at(-1)?.attachment).toMatchObject({ kind: "page", ref: `goal-proposal:${p.proposal.id}` });
     expect(world.reorgs.plannerBrief(world.meetings.require(world.ops.openOneOnOne(admin, "carbon-cycle", { agentId: mei.id }).id))).toBeNull();
+  });
+
+  it("the Planner is the Town Hall's manager in name only: no manager agent for the in-tray, no manager role (1:1 mt_wql34b8gkl)", () => {
+    const { world } = setup();
+    const planner = world.reorgs.ensurePlanner();
+    const th = world.buildings.require("town-hall");
+    expect(th.managerAgentId).toBe(planner.id);
+    expect(managerAgentOf(world, th)).toBeUndefined();
+    expect(intrayWorker(world, th)).toBe("human");
+    expect(world.permissions.can(planner, "building.review", "town-hall")).toBe(false);
+    expect(world.permissions.can(planner, "town.redeploy")).toBe(false);
+    // a Town Hall whose Planner predates it (prod): migration 066 back-fills, and ensurePlanner seats it too
+    world.buildings.upsert({ ...th, managerAgentId: null });
+    world.db.exec(readFileSync(join(import.meta.dirname, "..", "migrations", "066_planner_manages_town_hall.sql"), "utf8"));
+    expect(world.buildings.require("town-hall").managerAgentId).toBe(planner.id);
+    world.buildings.upsert({ ...world.buildings.require("town-hall"), managerAgentId: null });
+    expect(world.reorgs.ensurePlanner().id).toBe(planner.id);
+    expect(world.buildings.require("town-hall").managerAgentId).toBe(planner.id);
   });
 
   it("the Town Hall draws from the Bank like any building: the Planner runs, and its session debits the Town Hall's pool (1:1 mt_cz11aqe81a)", () => {
