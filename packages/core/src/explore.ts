@@ -87,6 +87,8 @@ function closeReservations(world: World, now: Date): BankReservation[] {
   for (const r of world.bankReservations.where("closedAt IS NULL")) {
     const a = r.assignmentId ? world.assignments.get(r.assignmentId) : undefined;
     if (a && (a.status === "pending" || a.status === "active")) continue;
+    // a session that started and ended between two ticks still gets its `exploration.started`
+    if (a && world.sessions.count("assignmentId = ?", [a.id])) markStarted(world, r, a);
     const spent = r.assignmentId ? assignmentSpent(world, r.assignmentId) : 0;
     const c = world.bankReservations.upsert({ ...r, closedAt: now.toISOString(), spentTokens: spent });
     world.events.append({
@@ -99,15 +101,18 @@ function closeReservations(world: World, now: Date): BankReservation[] {
   return closed;
 }
 
+/** `exploration.started`, once per reservation. */
+function markStarted(world: World, r: BankReservation, a: Assignment): void {
+  if (world.db.prepare("SELECT 1 FROM events WHERE type = 'exploration.started' AND json_extract(payload, '$.reservationId') = ? LIMIT 1").get(r.id)) return;
+  world.events.append({ type: "exploration.started", agentId: a.agentId, buildingId: r.buildingId, text: `${world.nameOf(a.agentId)} started exploring (${r.tokens.toLocaleString("en-US")}-token chunk ${r.id})`, payload: { reservationId: r.id, assignmentId: a.id, goalId: r.goalId } });
+}
+
 /** `exploration.started` once per reservation (its assignment went active); the wrap-up ask once its session nears the chunk. */
 function watchExplorers(world: World): void {
   for (const r of world.bankReservations.where("closedAt IS NULL AND assignmentId IS NOT NULL")) {
     const a = world.assignments.get(r.assignmentId!);
     if (a?.status !== "active") continue;
-    const seen = (type: string) => !!world.db.prepare("SELECT 1 FROM events WHERE type = ? AND json_extract(payload, '$.reservationId') = ? LIMIT 1").get(type, r.id);
-    if (!seen("exploration.started")) {
-      world.events.append({ type: "exploration.started", agentId: a.agentId, buildingId: r.buildingId, text: `${world.nameOf(a.agentId)} started exploring (${r.tokens.toLocaleString("en-US")}-token chunk ${r.id})`, payload: { reservationId: r.id, assignmentId: a.id, goalId: r.goalId } });
-    }
+    markStarted(world, r, a);
     const spent = assignmentSpent(world, a.id);
     if (spent >= EXPLORE_CEILING_SHARE * r.tokens && !world.db.prepare("SELECT 1 FROM events WHERE type = 'system' AND json_extract(payload, '$.exploreCeiling') = ? LIMIT 1").get(r.id)) {
       interruptNow(world, a.agentId, `You have used ${spent.toLocaleString("en-US")} of the ${r.tokens.toLocaleString("en-US")} tokens reserved for this exploration. Don't start anything new: file your grant proposal now (\`propose_grant\`), or if nothing is worth a grant say why, then \`submit_report\`.`, "The explore tick");
