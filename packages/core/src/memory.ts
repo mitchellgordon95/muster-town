@@ -304,7 +304,7 @@ export function teamBlock(world: World, building: Building, managerId: string): 
   const queueLines = queue.slice(0, 12).map((a) => `- ${a.id} "${oneLine(a.title, 60)}": ${state(a)}`);
   if (queue.length > 12) queueLines.push(`- … and ${queue.length - 12} more`);
   return `## Your team (you are the manager of the ${building.name})
-Humans talk to you; forks don't take messages, they work from assignments. When a human writes to you, reply with \`tell\` first, then turn what they want into assignments with \`assign\` and no agentId: it goes on the building queue and a fork of you runs it. Attach the topic pages that cover it (\`assign\` pages, at most 3) so the fork starts from what the building knows; one assignment per piece of work, and say in your report what went on the queue. Do the work yourself only when it is yours.
+Humans talk to you; forks work from assignments. A \`tell\` to a live fork reaches it mid-session as an interrupt (use it to redirect or add to its work); after its session ends, mail to it comes to you. When a human writes to you, reply with \`tell\` first, then turn what they want into assignments with \`assign\` and no agentId: it goes on the building queue and a fork of you runs it. Attach the topic pages that cover it (\`assign\` pages, at most 3) so the fork starts from what the building knows; one assignment per piece of work, and say in your report what went on the queue. Do the work yourself only when it is yours.
 Live forks (${forks.length}):
 ${forkLines.length ? forkLines.join("\n") : "(none running)"}
 Building queue (${counts.pending} pending, ${counts.held} held, ${counts.waiting} waiting, ${counts.resuming} resuming at a time):

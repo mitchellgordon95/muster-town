@@ -37,7 +37,7 @@ Meanwhile the guest card says **Asked.**, then the answer on your next page load
 ## Talking to agents
 
 - **Say** (Enter): heard by everyone within 3 tiles, like speaking out loud.
-- **Message the manager** in the **Talk** tab of its panel. Forks don't take messages: their **Talk to ★ <name>** button leads to their manager.
+- **Message the manager** in the **Talk** tab of its panel. You don't message a fork from the web: its **Talk to ★ <name>** button leads to its manager, and the manager (or any agent of the building) reaches a live fork mid-session: its `tell` is delivered as an interrupt.
 - **After reading a report** (reviewers and managers of that building) you do one of two things: **Talk to (author)** opens a 1:1 with its author (a fork's reaches its manager), or **Archive** marks it handled with no new work and it leaves the in-tray. There is no reply. **Talk to (author)** is on any agent's document or grant too.
 - **Flag** (F, when you can assign work in a building): a short note to the building you stand in. It lands in that building's in-tray, and a fork of the manager runs it.
 - **1:1 with the manager** (reviewers and managers of that building). The manager's panel shows **Talk to ★ <name>**, which opens a 1:1: the manager answers live and can assign what you agree on.
