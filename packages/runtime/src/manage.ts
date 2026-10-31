@@ -5,9 +5,13 @@
  * only when one is due; otherwise it ends without a report. Reports that land and the human's 1:1 lines are streamed
  * into it, so it keeps the context of what it already decided; while a 1:1 is open it stays open between turns.
  */
-import { endMeeting, humanDecisionsBlock, humanTyping, intrayOf, managePrompt, managerAgentOf, managerNewReport, meetingNotice, oneOnOneEnded, oneOnOnePrompt, oneOnOneUtterance, sessionMemory, skillsBlock, workSystemPrompt, type World } from "@muster-town/core";
+import { alongsideWorkBlock, endMeeting, humanDecisionsBlock, humanTyping, intrayOf, managePrompt, managerAgentOf, managerNewReport, meetingNotice, oneOnOneEnded, oneOnOnePrompt, oneOnOneUtterance, sessionMemory, skillsBlock, workSystemPrompt, type World } from "@muster-town/core";
 import type { Agent, Doc, Meeting, Session } from "@muster-town/schema";
-import { homeOf, runAgentSession, type Ctx } from "./session.ts";
+import { VERB_NAMES, type VerbName } from "@muster-town/schema";
+import { homeOf, runAgentSession, type Ctx, type LiveSession } from "./session.ts";
+
+/** A 1:1 beside a work session can do anything a manage session can except what belongs to the work: its report and assignment. */
+export const ALONGSIDE_VERBS: VerbName[] = VERB_NAMES.filter((v) => v !== "submit_report" && v !== "accept_assignment");
 
 export interface ManageState {
   /** report ids already offered to a manage session (in-memory: a restart offers the in-tray again, once) */
@@ -72,39 +76,52 @@ export function wakeManager(ctx: Ctx, st: ManageState, gate: ManageGate, buildin
   return out;
 }
 
-/** One agent's turn of `wakeManager`: feed its live manage session, or start one over `fresh` reports and its open 1:1s. */
+/**
+ * One agent's turn of `wakeManager`: feed its live conversation, or start one over `fresh` reports and its open 1:1s.
+ * The conversation is its manage session, or, while a work session (host or desk) is live, a 1:1-only session alongside
+ * it in `ctx.talking` (1:1 mt_ufwllf4wmt decision 1): a human gets an answer while the work keeps going.
+ */
 function wakeTalker(ctx: Ctx, st: ManageState, gate: ManageGate, agent: Agent, fresh: Doc[]): Promise<Session> | null {
   const { world } = ctx;
   const nameOf = world.nameOf.bind(world);
   const talks = openOneOnOnes(world, agent.id);
   const live = ctx.live.get(agent.id);
-  const feedable = !!live && live.purpose === "manage" && live.kind === "host" && !live.stopped && !live.reportSubmitted && !live.input.closed;
+  const side = ctx.talking.get(agent.id);
+  // the session this agent's conversation goes into: the one alongside its work, else its own manage session
+  const talker = side ?? (live?.purpose === "manage" && live.kind === "host" ? live : undefined);
+  const feedable = !!talker && !talker.stopped && !talker.reportSubmitted && !talker.input.closed;
   // 1:1s this session was fed that have since ended: tell it, so it can still record decisions, then let it end
   for (const [mid, f] of [...st.fed]) {
-    if (!live || live.sessionId !== f.sessionId) continue;
+    if (!talker || talker.sessionId !== f.sessionId) continue;
     const m = world.meetings.get(mid);
     if (m && m.phase === "discussing") continue;
     st.fed.delete(mid);
-    if (m && feedable) live.input.push(oneOnOneEnded(m));
+    if (m && feedable) talker.input.push(oneOnOneEnded(m));
   }
-  if (live) {
-    // a work session (or a desk) is busy: the tick offers these once it has ended; meanwhile the human is told why it's
-    // silent (Mitchell's 1:1 with Nell mt_v79lzn92wk got no answer and no word while her desk session ran)
-    if (!feedable) { noticeBusy(ctx, st, agent, live.sessionId, talks); return null; }
+  if (talker) {
+    // a conversation that is closing ends first; the next tick starts a fresh one if a 1:1 is still open
+    if (!feedable) return null;
     // while draining the session keeps answering its 1:1s (the drain waits on it only briefly, then the restart cuts it
-    // and a new session resumes the 1:1 from its transcript; docs/meetings.md §6); new reports wait for the new server
+    // and a new session resumes the 1:1 from its transcript; docs/meetings.md §6); new reports wait for the new server,
+    // and for the end of a conversation held alongside work (it takes 1:1s only)
     if (gate.draining() && !talks.length) return null;
-    for (const d of gate.draining() ? [] : fresh) if (live.input.push(managerNewReport(d, nameOf))) st.offered.add(d.id);
+    for (const d of gate.draining() || side ? [] : fresh) if (talker.input.push(managerNewReport(d, nameOf))) st.offered.add(d.id);
     for (const m of talks) {
       const f = st.fed.get(m.id);
-      if (f?.sessionId !== live.sessionId) {
-        if (live.input.push(oneOnOnePrompt(m, nameOf, talkBlocks(world, m)))) st.fed.set(m.id, { sessionId: live.sessionId, idx: m.transcript.length });
+      if (f?.sessionId !== talker.sessionId) {
+        if (talker.input.push(oneOnOnePrompt(m, nameOf, talkBlocks(world, m, agent.id, side ? live : undefined)))) st.fed.set(m.id, { sessionId: talker.sessionId, idx: m.transcript.length });
         continue;
       }
-      for (const u of m.transcript.slice(f.idx)) if (u.speakerId !== agent.id && u.speakerKind !== "system") live.input.push(oneOnOneUtterance(m, nameOf(u.speakerId), u.text));
+      for (const u of m.transcript.slice(f.idx)) if (u.speakerId !== agent.id && u.speakerKind !== "system") talker.input.push(oneOnOneUtterance(m, nameOf(u.speakerId), u.text));
       f.idx = m.transcript.length;
     }
     return null;
+  }
+  if (live) {
+    // a work session (host or desk) is live: a human's 1:1 is answered beside it, never after it. Its reports wait.
+    if (!talks.length) return null;
+    if (!world.budget.canStart(agent.id)) { noticeBusy(ctx, st, agent, live.sessionId, talks); return null; }
+    return runManageSession(ctx, st, agent.id, [], talks, live);
   }
   if (!fresh.length && !talks.length) return null;
   // a 1:1 starts even while a redeploy drains (a human is waiting; the drain doesn't hold for it), in-tray work doesn't
@@ -114,7 +131,7 @@ function wakeTalker(ctx: Ctx, st: ManageState, gate: ManageGate, agent: Agent, f
   return runManageSession(ctx, st, agent.id, offer, talks);
 }
 
-/** Tell each open 1:1 (once per busy session) that its agent is in another session and answers when that ends. */
+/** Tell each open 1:1 (once per busy session) that its agent is in a work session and answers when that ends (it can't start a conversation beside it: the Bank holds it). */
 function noticeBusy(ctx: Ctx, st: ManageState, agent: Agent, sessionId: string, talks: Meeting[]): void {
   const { world } = ctx;
   for (const m of talks) {
@@ -126,15 +143,20 @@ function noticeBusy(ctx: Ctx, st: ManageState, agent: Agent, sessionId: string, 
   }
 }
 
-/** A 1:1 whose last word is the human's while its agent is busy in a work session: it waits for that session to end. */
+/** A 1:1 whose last word is the human's while its agent is busy in a work session with no conversation beside it: it waits for that session to end. */
 const awaitingBusyAgent = (ctx: Ctx, m: Meeting): boolean => {
+  if (ctx.talking.has(m.facilitatorId ?? "")) return false;
   const live = ctx.live.get(m.facilitatorId ?? "");
   const last = [...m.transcript].reverse().find((u) => u.speakerKind !== "system");
   return !!live && live.purpose !== "manage" && !!last && last.speakerId !== m.facilitatorId;
 };
 
-/** What a 1:1's prompt carries after the conversation: the human's past decisions, and the Planner's brief in a Planner 1:1. */
-const talkBlocks = (world: World, m: Meeting): string => [humanDecisionsBlock(world, m), world.reorgs.plannerBrief(m)].filter(Boolean).join("\n\n");
+/**
+ * What a 1:1's prompt carries after the conversation: the human's past decisions, the Planner's brief in a Planner 1:1,
+ * and, beside a live work session, what that session is doing and how to hand it the human's request.
+ */
+const talkBlocks = (world: World, m: Meeting, agentId?: string, work?: LiveSession): string =>
+  [humanDecisionsBlock(world, m), world.reorgs.plannerBrief(m), agentId && work ? alongsideWorkBlock(world, m, agentId, world.sessions.get(work.sessionId)) : ""].filter(Boolean).join("\n\n");
 
 /**
  * Close 1:1s nobody spoke in for ONE_ON_ONE_QUIET_MS (nobody typing either). The phase event wakes the manager to wrap up.
@@ -145,8 +167,8 @@ export function closeQuietOneOnOnes(ctx: Ctx): void {
   const { world } = ctx;
   const now = ctx.now().getTime();
   for (const m of world.meetings.where("kind = 'one-on-one' AND phase = 'discussing'")) {
-    // quiet since the last line, or since the agent's manage session started (woken late, after a work session ended)
-    const live = ctx.live.get(m.facilitatorId ?? "");
+    // quiet since the last line, or since the agent's conversation started (woken late, after a work session ended)
+    const live = ctx.talking.get(m.facilitatorId ?? "") ?? ctx.live.get(m.facilitatorId ?? "");
     const started = live?.purpose === "manage" ? Date.parse(world.sessions.get(live.sessionId)?.startedAt ?? "") || 0 : 0;
     const last = Math.max(Date.parse(m.transcript.at(-1)?.at ?? m.startedAt ?? m.createdAt), started);
     if (now - last < ONE_ON_ONE_QUIET_MS || humanTyping(world, m.id, now) || awaitingBusyAgent(ctx, m)) continue;
@@ -159,7 +181,7 @@ export function closeQuietOneOnOnes(ctx: Ctx): void {
  * open 1:1s `talks` (the first is the prompt; the rest and the reports arrive as the next messages). Resolves with the
  * ended session.
  */
-export async function runManageSession(ctx: Ctx, st: ManageState, agentId: string, fresh: Doc[], talks: Meeting[] = []): Promise<Session> {
+export async function runManageSession(ctx: Ctx, st: ManageState, agentId: string, fresh: Doc[], talks: Meeting[] = [], work?: LiveSession): Promise<Session> {
   const { world } = ctx;
   const agent = world.agents.require(agentId, "agent");
   const building = world.buildings.require(homeOf(world, agentId)!, "building");
@@ -167,15 +189,17 @@ export async function runManageSession(ctx: Ctx, st: ManageState, agentId: strin
   const [first, ...more] = talks;
   const run = runAgentSession(ctx, {
     agentId, purpose: "manage", model: agent.model ?? building.model, maxTurns: building.maxTurnsPerSession, web: false, meetingId: first?.id ?? null,
+    // beside a work session: its own registry slot, and no verbs that act for the work (its report, its assignment)
+    ...(work ? { alongside: true, verbs: ALONGSIDE_VERBS } : {}),
     system: workSystemPrompt(agent, building, world.town.get(), { ...sessionMemory(world, agent, building), skills: skillsBlock(world.skills.forAgent(agentId)) }),
-    prompt: first ? oneOnOnePrompt(first, nameOf, talkBlocks(world, first)) : managePrompt(building, fresh, nameOf),
+    prompt: first ? oneOnOnePrompt(first, nameOf, talkBlocks(world, first, agentId, work)) : managePrompt(building, fresh, nameOf),
     keepOpen: () => openOneOnOnes(world, agentId).length > 0,
   });
   // runAgentSession registered the live session before its first await: queue what the prompt didn't cover
-  const live = ctx.live.get(agentId);
+  const live = work ? ctx.talking.get(agentId) : ctx.live.get(agentId);
   if (live && first) {
     for (const m of talks) st.fed.set(m.id, { sessionId: live.sessionId, idx: m.transcript.length });
-    for (const m of more) live.input.push(oneOnOnePrompt(m, nameOf, talkBlocks(world, m)));
+    for (const m of more) live.input.push(oneOnOnePrompt(m, nameOf, talkBlocks(world, m, agentId, work)));
     for (const d of fresh) live.input.push(managerNewReport(d, nameOf));
   }
   const out = await run;

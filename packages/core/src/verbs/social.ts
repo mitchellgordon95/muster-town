@@ -91,7 +91,7 @@ export async function tell(world: World, me: Agent, input: VerbIn<"tell">) {
     forwardedFrom = to.name;
     to = world.agents.require(to.forkOf, "agent");
   }
-  if (to.id === me.id) throw badRequest("You can't tell yourself.");
+  if (to.id === me.id) return handOff(world, me, input.text);
   const text = forwardedFrom ? `(To ${forwardedFrom}, your fork, after its session ended: it reaches you as its manager.)\n\n${input.text}` : input.text;
   // wakes step 1: a human's avatar stamps its own tell; an agent passes on its session's human origin (hops + 1)
   const id = newId("ms");
@@ -105,6 +105,25 @@ export async function tell(world: World, me: Agent, input: VerbIn<"tell">) {
   if (woke) return { sent: true, to: to.id, messageId: msg.id, assignmentId: woke.id, note: `${to.name} was ${to.status}: it traces to ${world.nameOf(woke.origin!.userId)}, so the town queued "${woke.title}" (${woke.id}) for ${to.name}.` };
   const note = [forwardedFrom && `${forwardedFrom} has retired (forks live for one session); delivered to ${to.name}, its manager.`, idleNote(world, me, to)].filter(Boolean).join(" ");
   return { sent: true, to: to.id, messageId: msg.id, ...(note && { note }) };
+}
+
+/**
+ * A tell to yourself from a 1:1 answered beside your running work session (1:1 mt_ufwllf4wmt decision 1): the human's
+ * request reaches the work session at once, the way their own mid-session message would (an interrupt: in-process for a
+ * host session, queued for a desk's next control poll), as direction from the human, citing the meeting.
+ */
+function handOff(world: World, me: Agent, text: string) {
+  const work = world.sessions.first("agentId = ? AND status = 'running' AND purpose = 'work'", [me.id], "ORDER BY startedAt DESC, rowid DESC");
+  const talk = world.sessions.first("agentId = ? AND status = 'running' AND purpose = 'manage' AND meetingId IS NOT NULL", [me.id], "ORDER BY startedAt DESC, rowid DESC");
+  if (!work || !talk?.meetingId) throw badRequest("You can't tell yourself. (Only a 1:1 answered beside your running work session hands a request to that session this way.)");
+  const m = world.meetings.get(talk.meetingId);
+  const human = m?.withUserId ? world.nameOf(m.withUserId) : "A human";
+  const from = `${human} (via your 1:1 ${talk.meetingId})`;
+  const itext = `${human} asked for this in your 1:1 (meeting ${talk.meetingId}); your conversation session there passed it on:\n\n${text}\n\nTreat it as direction from ${human}.`;
+  // kept in the inbox too, like a human's own message, so the work session finds it there after the interrupt
+  const msg = sendMessage(world, { kind: "tell", fromId: me.id, fromKind: "agent", toId: me.id, body: itext, origin: talk.origin ?? null });
+  if (!world.host.interrupt?.(me.id, itext, from, true)) world.ops.enqueueInterrupt(me.id, itext, from, true);
+  return { sent: true, to: me.id, messageId: msg.id, assignmentId: undefined, note: `Passed to your running work session (${work.id}) as direction from ${human}.` };
 }
 
 /** A tell with no human origin (or past the hop cap / 24 h) never starts work: for a resident with no live session (idle, stopped, out of budget) it waits unseen, so say so. */

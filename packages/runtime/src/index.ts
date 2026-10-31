@@ -142,7 +142,7 @@ export function startRuntime(opts: RuntimeOptions): Runtime {
   };
   const hosted = opts.hosted ?? null;
   const desks = DesksConfig.parse({ ...world.desksConfig(), ...opts.desks, ...(hosted ? { backend: "host" } : {}) });
-  const ctx: Ctx = { world, mcpUrl: opts.mcpUrl, repoRoot: opts.repoRoot ?? process.cwd(), desks, now, sdk: opts.sdk ?? realSdk, live: new Map(), facilitating: new Map(), deskAllocations: new Map(), track, ...(opts.usageBookMs !== undefined ? { usageBookMs: opts.usageBookMs } : {}) };
+  const ctx: Ctx = { world, mcpUrl: opts.mcpUrl, repoRoot: opts.repoRoot ?? process.cwd(), desks, now, sdk: opts.sdk ?? realSdk, live: new Map(), talking: new Map(), facilitating: new Map(), deskAllocations: new Map(), track, ...(opts.usageBookMs !== undefined ? { usageBookMs: opts.usageBookMs } : {}) };
   if (hosted) {
     const env = hostedEnv(hosted.dir);
     Object.assign(ctx, { env, hosted: true, claudeDir: env.CLAUDE_CONFIG_DIR });
@@ -586,12 +586,16 @@ export function startRuntime(opts: RuntimeOptions): Runtime {
     const l = ctx.live.get(agentId);
     if (l) { abortWork(ctx, agentId, 0); ctx.live.delete(agentId); }
     starting.delete(agentId);
+    // (a 1:1 answered beside the work is its own session: it isn't orphaned with it)
+    const talk = ctx.talking.get(agentId)?.sessionId;
     for (const s of world.sessions.where("agentId = ? AND status = 'running' AND purpose IN ('work', 'manage')", [agentId])) {
+      if (s.id === talk) continue;
       try { world.ops.endSession(s.id, { status: "error", error }); } catch (e) { log("end orphaned session")(e); }
     }
   }
   /** The agent's live session is a meeting: only a facilitation, or the manager's session while a 1:1 of theirs is open. */
   function inMeetingSession(agentId: string): boolean {
+    if (ctx.talking.has(agentId)) return true;
     const l = ctx.live.get(agentId);
     if (l) return l.purpose === "manage" && openOneOnOnes(world, agentId).length > 0;
     return ctx.facilitating.has(agentId) && !starting.has(agentId);
@@ -638,7 +642,7 @@ export function startRuntime(opts: RuntimeOptions): Runtime {
     isWorking: (agentId) => ctx.live.has(agentId) || starting.has(agentId),
     // facilitations count too, but only for drainMeetingMs: then the notice goes into the meeting and it resumes after the restart (docs/meetings.md §6).
     // Desk work sessions don't: they keep running through the restart and the next server adopts them (`adoptable`).
-    working: () => { pruneLive(); return [...new Set([...[...ctx.live.values()].filter((l) => l.kind !== "desk").map((l) => l.agentId), ...starting, ...ctx.facilitating.keys()])]; },
+    working: () => { pruneLive(); return [...new Set([...[...ctx.live.values()].filter((l) => l.kind !== "desk").map((l) => l.agentId), ...starting, ...ctx.facilitating.keys(), ...ctx.talking.keys()])]; },
     adoptable: () => { pruneLive(); return [...ctx.live.values()].filter((l) => l.kind === "desk" && !l.stopped).map((l) => l.sessionId); },
     quiesce: async () => { await world.host.quiesce?.(30_000); },
     inMeeting: (agentId) => inMeetingSession(agentId),
@@ -647,6 +651,9 @@ export function startRuntime(opts: RuntimeOptions): Runtime {
     // host sessions take it on their input; desk sessions through the interrupt queue (next control poll);
     // a facilitator is told to close the meeting (and only that: no work interrupt is queued for an agent that is only facilitating)
     nudge: (agentId, text) => {
+      // a 1:1 beside a work session keeps answering; the work (a desk keeps running through the restart) isn't nudged for it
+      const talk = ctx.talking.get(agentId);
+      if (talk) { if (!talk.stopped) talk.input.push(drainNudgeOneOnOne()); if (ctx.live.get(agentId)?.kind !== "host") return; }
       const l = ctx.live.get(agentId);
       if (l?.purpose === "manage" && openOneOnOnes(world, agentId).length) { if (!l.stopped) l.input.push(drainNudgeOneOnOne()); return; }
       const fac = ctx.facilitating.get(agentId);
@@ -697,6 +704,7 @@ export function startRuntime(opts: RuntimeOptions): Runtime {
       if (timer) clearInterval(timer);
       waker.stop();
       for (const id of [...ctx.live.keys()]) abortWork(ctx, id);
+      for (const t of ctx.talking.values()) { t.stopped = true; t.input.close(); void t.q?.interrupt?.()?.catch(() => undefined); }
       // the redeployer runs in the background and writes events: it must be done before the caller closes the DB
       await Promise.all([whenIdle(), redeployer?.stop()]);
     },
