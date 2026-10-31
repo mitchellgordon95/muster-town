@@ -126,7 +126,7 @@ function wakeTalker(ctx: Ctx, st: ManageState, gate: ManageGate, agent: Agent, f
         continue;
       }
       let said = false;
-      for (const u of m.transcript.slice(f.idx)) if (u.speakerId !== agent.id && u.speakerKind !== "system") said = talker.input.push(oneOnOneUtterance(m, nameOf(u.speakerId), u.text) + (busy ? `\n\n${RESUME_IN_TRAY}` : "")) || said;
+      for (const u of m.transcript.slice(f.idx)) if (u.speakerId !== agent.id && u.speakerKind !== "system") said = talker.input.push(oneOnOneUtterance(m, nameOf(u.speakerId), u.text, u.at) + (busy ? `\n\n${RESUME_IN_TRAY}` : "")) || said;
       f.idx = m.transcript.length;
       if (said && busy) cutIn(ctx, talker, `a line in 1:1 ${m.id}`);
     }

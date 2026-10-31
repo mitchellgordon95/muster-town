@@ -9,6 +9,7 @@ import { createDoc, setAssignmentStatus } from "./domain.ts";
 import { AppError } from "./errors.ts";
 import { nowIso, truncate } from "./util.ts";
 import type { World } from "./world.ts";
+import { stamp } from "./time.ts";
 
 /** Parse and check a wait at the point it is set: the thing waited on must exist; `after` at most 24 h ahead. */
 export function validateWait(world: World, raw: unknown): WaitFor {
@@ -35,7 +36,7 @@ export function describeWait(world: World, w: WaitFor): string {
     const d = world.docs.get(w.decision);
     return d ? `a decision on "${truncate(d.title, 60)}"` : `a decision on ${w.decision}`;
   }
-  return `${w.after.slice(0, 16).replace("T", " ")} UTC`;
+  return stamp(w.after);
 }
 
 /**
@@ -93,7 +94,7 @@ export function checkWaits(world: World, at: Date = new Date()): { unblocked: As
           authorId: a.agentId, authorKind: "agent", assignmentId: a.id, tags: ["wait-expired"],
           title: `${name}'s assignment never unblocked: ${a.title}`,
           body: [
-            `Written by the town, not by ${name}: this assignment was queued on ${a.createdAt.slice(0, 16).replace("T", " ")} UTC waiting on ${what}, which didn't happen within 24 hours, so it was cancelled.`,
+            `Written by the town, not by ${name}: this assignment was queued on ${stamp(a.createdAt)} waiting on ${what}, which didn't happen within 24 hours, so it was cancelled.`,
             `## Summary\n\nWait expired: ${a.title}`,
             `## The assignment\n\n${a.description}`,
             `## Proposal for next session\n\n${a.title}`,
