@@ -108,9 +108,26 @@ export function fakeSdk(turn: Turn): Sdk & { sessions: FakeSession[] } {
       sessions.push(s);
       // like the real SDK, interrupt() aborts only the current turn; queued user messages still run after it
       let abort = false;
+      // like the real SDK, the prompt stream is read eagerly: a pushed message leaves the desk's channel at once
+      const taken: SDKUserMessage[] = [];
+      let wake = null as (() => void) | null;
+      let ended = false as boolean;
+      void (async () => {
+        for await (const msg of params.prompt as AsyncIterable<SDKUserMessage>) { taken.push(msg); wake?.(); }
+        ended = true; wake?.();
+      })();
+      const prompts = async function* () {
+        for (;;) {
+          const m = taken.shift();
+          if (m) { yield m; continue; }
+          if (ended) return;
+          await new Promise<void>((r) => { wake = r; });
+          wake = null;
+        }
+      };
       const gen = (async function* () {
         let n = 0;
-        for await (const msg of params.prompt as AsyncIterable<SDKUserMessage>) {
+        for await (const msg of prompts()) {
           const text = String(msg.message.content);
           s.received.push(text);
           n++;
@@ -121,8 +138,10 @@ export function fakeSdk(turn: Turn): Sdk & { sessions: FakeSession[] } {
             yield m;
             if (abort) break;
           }
-          if (abort) { yield result(n, { subtype: "error_during_execution", is_error: true, errors: ["interrupted"] }); continue; }
-          if (!sawResult) yield result(n);
+          // what production showed (10-31): an interrupt crossing a running turn drops the prompt that turn took in, and the
+          // aborted result reports nothing queued
+          if (abort) { taken.splice(0); yield result(n, { subtype: "error_during_execution", is_error: true, errors: ["interrupted"], queued_turn_count: 0 }); continue; }
+          if (!sawResult) yield result(n, { queued_turn_count: taken.length });
         }
       })();
       return {

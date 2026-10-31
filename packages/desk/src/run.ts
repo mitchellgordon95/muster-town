@@ -196,6 +196,17 @@ export async function runSession(sessionId: string, deps: RunDeps): Promise<numb
 
   let input = new InputChannel();
   let q: QueryHandle | null = null;
+  // The real SDK reads the prompt stream eagerly: a pushed message leaves `input` at once, so `input.pending` can't
+  // tell whether one more turn follows. Track it here instead.
+  /** a message was pushed after the last result: the SDK owes us another turn */
+  let pushedSinceResult = false;
+  /** interrupts whose turn we cut short with interrupt(): the abort can drop them, so they are resent after its result */
+  let cutOff: string[] = [];
+  const deliver = (text: string): boolean => {
+    if (!input.push(text)) return false;
+    pushedSinceResult = true;
+    return true;
+  };
 
   // ---- 8. control polling ----
   let polling: Promise<void> | null = null;
@@ -206,11 +217,15 @@ export async function runSession(sessionId: string, deps: RunDeps): Promise<numb
         const c = await town.control(sessionId);
         if (c.interrupts.length) {
           for (const i of c.interrupts) {
-            if (input.push(`Interrupt from ${i.from}: ${i.text}`)) log(`interrupt from ${i.from} injected`);
+            if (deliver(`Interrupt from ${i.from}: ${i.text}`)) log(`interrupt from ${i.from} injected`);
           }
           await town.ack(c.interrupts.map((i) => i.id));
-          // "send now": abort the current turn; the SDK keeps the queued message and runs it next
-          if (c.interrupts.some((i) => i.now) && !stopped) await q?.interrupt?.().catch(() => undefined);
+          // "send now": abort the current turn. The SDK may already have taken the message into that turn, in which case
+          // the abort drops it and the result reports nothing queued: the message is resent after the aborted turn's result.
+          if (c.interrupts.some((i) => i.now) && !stopped) {
+            cutOff.push(...c.interrupts.map((i) => `Interrupt from ${i.from}: ${i.text}`));
+            await q?.interrupt?.().catch(() => undefined);
+          }
         }
         if (c.stop && !stopped) {
           stopped = true;
@@ -263,6 +278,8 @@ export async function runSession(sessionId: string, deps: RunDeps): Promise<numb
     const attempt = async (sdkEnv: Record<string, string>, prior: Usage): Promise<string> => {
       input = new InputChannel();
       input.push(brief.prompt);
+      pushedSinceResult = false;
+      cutOff = [];
       log(`query: model ${options.model}, maxTurns ${options.maxTurns}, cwd ${cwd}`);
       const query = sdk.query({ prompt: input, options: { ...options, env: sdkEnv } });
       q = query;
@@ -311,8 +328,17 @@ export async function runSession(sessionId: string, deps: RunDeps): Promise<numb
             detail = m.is_error ? `${error} ${typeof m.result === "string" ? m.result : ""} ${finalText}` : "";
             log(`turn done (${usage.turns} turns, ${usage.tokens} tokens${m.is_error ? `, ${m.subtype ?? "error"}` : ""})`);
             // between turns: pick up queued interrupts / stop before deciding whether to finish
+            if (polling) await polling; // a poll already in flight counts as part of the turn just ended
+            pushedSinceResult = false;
+            const resend = cutOff;
+            cutOff = [];
             if (!stopped && !reportSubmitted) await pollControl();
-            if (stopped || reportSubmitted || (input.pending === 0 && !(m.queued_turn_count && m.queued_turn_count > 0))) {
+            // a turn we aborted for an interrupt: resend it so the session goes on (a session cut off mid-call used to end here as an error)
+            if (resend.length && !stopped && !reportSubmitted && !pushedSinceResult) {
+              deliver(`${resend.join("\n\n")}\n\n(Resent: your last turn was cut off to deliver this. If you already acted on it, don't act twice; carry on with your assignment.)`);
+              log("interrupted turn ended; interrupt resent");
+            }
+            if (stopped || reportSubmitted || (!pushedSinceResult && input.pending === 0 && !(m.queued_turn_count && m.queued_turn_count > 0))) {
               input.close();
               break;
             }
