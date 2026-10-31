@@ -1,4 +1,4 @@
-import { BuildingDefaults, CollectiveConfig, Town, type Doc, townEnv, type Agent, type Building, DesksConfig, type User, type Workspace } from "@muster-town/schema";
+import { BuildingDefaults, CollectiveConfig, Town, type Doc, townEnv, type Agent, type Building, DesksConfig, patchOf, type User, type Workspace } from "@muster-town/schema";
 import { execFileSync } from "node:child_process";
 import { createHash } from "node:crypto";
 import { chmodSync, existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
@@ -136,7 +136,7 @@ export function seedManual(world: World, path: string | undefined, authorId: str
 function spelledDefaults(collectivePath: string | undefined): Partial<BuildingDefaults> {
   if (!collectivePath || !existsSync(collectivePath)) return {};
   const raw = (JSON.parse(readFileSync(collectivePath, "utf8")) as { defaults?: unknown }).defaults;
-  return raw ? BuildingDefaults.partial().parse(raw) : {};
+  return raw ? patchOf(BuildingDefaults).parse(raw) : {};
 }
 
 /**
@@ -161,7 +161,7 @@ export function seedDefaults(world: World, opts: SeedOptions = {}): SeedResult {
     // so the file is where it changes (KR 2: the tagline says what the place is in plain words)
     if (opts.townJsonPath && existsSync(opts.townJsonPath)) {
       const raw = JSON.parse(readFileSync(opts.townJsonPath, "utf8")) as Record<string, unknown>;
-      const copy = Town.partial().parse({ name: raw.name, goal: raw.goal, tagline: raw.tagline, goalNote: raw.goalNote });
+      const copy = patchOf(Town).parse({ name: raw.name, goal: raw.goal, tagline: raw.tagline, goalNote: raw.goalNote });
       const changed = Object.fromEntries(Object.entries(copy).filter(([k, v]) => v !== undefined && v !== town[k as keyof Town]));
       if (Object.keys(changed).length) world.town.set(changed);
     }
@@ -169,7 +169,7 @@ export function seedDefaults(world: World, opts: SeedOptions = {}): SeedResult {
     // via PUT /api/town/desks) keep their stored value. Without this, backend/snapshot/townUrl could never change after the seed.
     if (opts.collectivePath && existsSync(opts.collectivePath)) {
       const spelled = (JSON.parse(readFileSync(opts.collectivePath, "utf8")) as { desks?: Partial<DesksConfig> }).desks;
-      if (spelled && Object.keys(spelled).length) world.town.setDesks({ ...world.town.desks(), ...DesksConfig.partial().parse(spelled) });
+      if (spelled && Object.keys(spelled).length) world.town.setDesks({ ...world.town.desks(), ...patchOf(DesksConfig).parse(spelled) });
     }
     // the collective defaults (1:1 mt_n25udpflus decision 3), once: a town from before them takes its oldest lab's values,
     // with collective.json `defaults` on top; nothing is written through (each building keeps its values until an admin saves them)
@@ -194,7 +194,7 @@ export function seedDefaults(world: World, opts: SeedOptions = {}): SeedResult {
     let town: Partial<Town> = { name: "Muster Town", goal: "", tagline: "publicly legible, collectively funded agent town for climate science" };
     if (opts.townJsonPath && existsSync(opts.townJsonPath)) {
       const raw = JSON.parse(readFileSync(opts.townJsonPath, "utf8")) as Record<string, unknown>;
-      town = { ...town, ...Town.partial().parse({ name: raw.name, goal: raw.goal, tagline: raw.tagline, goalNote: raw.goalNote }) };
+      town = { ...town, ...patchOf(Town).parse({ name: raw.name, goal: raw.goal, tagline: raw.tagline, goalNote: raw.goalNote }) };
     }
     // collective.json `defaults` before any building is made: every building copies them
     world.town.set({ ...town, defaults: spelledDefaults(opts.collectivePath) });
