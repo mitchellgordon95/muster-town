@@ -763,7 +763,7 @@ Key result (on the building goal): ${kr}${k ? "; it has no funded grant now, so 
   private requireWriter(actor: Actor, b: Building, what = "key results"): void {
     if (!actor) return;
     if (actor.kind !== "human") {
-      if (b.managerAgentId === actor.id) return;
+      if (b.managerAgentId === actor.id && b.kind !== "town-hall") return;
       throw forbidden("building.manage", `Only a human or ${b.name}'s manager writes its goal's ${what}.`);
     }
     this.world.permissions.require(actor, "building.manage", b.id);

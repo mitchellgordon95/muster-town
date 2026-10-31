@@ -142,21 +142,6 @@ describe("assignment queue", () => {
     expect(world.ops.cancelAssignment(admin, b.id).status).toBe("cancelled");
   });
 
-  it("a message to a stopped agent with a backlog goes to the front and runs next", async () => {
-    const { world, admin, mei, add, userId, titles } = setup();
-    add("Old 1"); add("Old 2");
-    world.ops.stopAgent(admin, mei.id);
-    const r = await world.ops.messageAgent(userId, mei.id, "Do this first", { isWorking: () => false });
-    expect(nextPending(world, mei.id)!.id).toBe(r.assignmentId);
-    expect(titles().slice(1)).toEqual(["Old 1", "Old 2"]);
-    expect(world.agents.require(mei.id).status).toBe("idle");
-    // a follow-up merges into it and it stays first, even after something else jumped ahead
-    const jump = add("Jumper"); world.ops.moveToFront(jump.id);
-    const r2 = await world.ops.messageAgent(userId, mei.id, "and this", { isWorking: () => false });
-    expect(r2.assignmentId).toBe(r.assignmentId);
-    expect(nextPending(world, mei.id)!.id).toBe(r.assignmentId);
-  });
-
   it("migration 011 backfills position from createdAt (epoch ms)", () => {
     const all = join(dirname(fileURLToPath(import.meta.url)), "..", "migrations");
     const dir = mkdtempSync(join(tmpdir(), "mig-q-"));

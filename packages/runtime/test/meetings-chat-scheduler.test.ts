@@ -229,56 +229,6 @@ describe("questioning attendees", () => {
   });
 });
 
-describe("proxy chat", () => {
-  test("resident answers in first person with cheapModel and no tools", async () => {
-    const { world, runtime, sdk, by, lab } = setup(async function* () {
-      yield text("I'm measuring the CO2 growth rate.");
-      yield result(40, 0.0005, "I'm measuring the CO2 growth rate.");
-    });
-    const noor = by("Noor");
-    const r = await runtime.chat(noor.id, { message: "What are you doing?", history: [{ role: "user", text: "hi" }, { role: "assistant", text: "hello" }] });
-    expect(r.reply).toBe("I'm measuring the CO2 growth rate.");
-    const s = sdk.sessions[0];
-    expect(systemOf(s)).toContain("Noor's desk assistant");
-    expect(s.options.model).toBe(lab.cheapModel);
-    expect(s.options.tools).toEqual([]);
-    expect(s.options.maxTurns).toBe(1);
-    expect(s.received[0]).toContain("Visitor: What are you doing?");
-    // booked as adjusted output tokens (docs/bank.md): the fake reports 20 input + 20 output on claude-opus-5-5
-    // ($4 / $20 per MTok = $480e-6), expressed in the session model's (haiku-5-5, $0.5 per MTok) output tokens = 960
-    expect(world.agents.require(noor.id).spentTokensToday).toBe(960);
-  });
-
-  test("the proxy sees the agent's recent work and wiki", async () => {
-    const { world, runtime, sdk, by } = setup(async function* () { yield result(10, 0.0001, "ok"); });
-    const noor = by("Noor");
-    await world.verbs.write(noor.id, { type: "wiki", title: "Airborne fraction", body: "Picked the 10-year mean.", state: "draft" });
-    await world.verbs.write(noor.id, { type: "note", title: "Dashboard number", body: "0.44 ± 0.03", state: "building" });
-    await runtime.chat(noor.id, { message: "Which number did you pick?" });
-    const ctx = sdk.sessions[0].received[0];
-    expect(ctx).toContain("## Your recent work");
-    expect(ctx).toContain('note "Dashboard number"');
-    expect(ctx).toContain("## Noor's wiki (private working notes)");
-    expect(ctx).toContain("### Airborne fraction");
-    expect(ctx).toContain("Picked the 10-year mean.");
-  });
-
-  test("librarian answers from the library index and search hits", async () => {
-    const { world, runtime, sdk, seed } = setup(async function* () {
-      yield result(40, 0.0005, "See the Global Carbon Budget source card.");
-    });
-    // the librarian lives at the Town Hall, which draws from the Bank like any building: give the Bank tokens
-    world.bank.addInput(seed.admin.id, { label: "Key", source: "api-key", model: "m", tokens: 10_000_000, apiKey: "sk" });
-    const lib = world.docs.first("state = 'library'")!;
-    const r = await runtime.chat(seed.ada!.id, { message: lib.title });
-    expect(r.reply).toBe("See the Global Carbon Budget source card.");
-    expect(systemOf(sdk.sessions[0])).toContain("librarian");
-    expect(sdk.sessions[0].received[0]).toContain("Library index:");
-    expect(sdk.sessions[0].received[0]).toContain(lib.id);
-    expect(world.events.list({ types: ["budget.exhausted"] })).toHaveLength(0);
-  });
-});
-
 describe("scheduler", () => {
   test("tickOnce starts a session for an idle resident with a pending assignment, once", async () => {
     const gate = deferred();

@@ -2,10 +2,10 @@
 import type { AccessRequest, AccessRequestView, Agent, Assignment, AuthMe, BlockedAssignment, BlockedBy, BuildingStats, Schedule, Building, Doc, Event, Meeting, Membership, RedeployLive, ReviewDeck, ReviewSlide } from "@muster-town/schema";
 import { BuildingDefaults, NEW_LAB_LOT, REVIEW_DECK_ID, desksForLot, funderSlide, parseDeck } from "@muster-town/schema";
 import { BACKFILL, BOARD_TYPES, KPI_FRAMING, DEFAULT_POOL_ID, ZERO_TOKENS, addTokens, backfillFamily, splitRaw, type BankPool, type GoalTreeNode, type GoalSpend, type QueueBoard, type FunderWeek } from "@muster-town/schema";
-import type { Api, AgentDetail, AllocationRow, Bank, Budget, Finance, FinanceFly, FinancePools, FinanceSources, FinanceSpend, Cabinet, CabinetQuery, DocQuery, EventQuery, In, LayoutPreview, FunderWeekView, MessageResult, RoomLayout, RequestAction, Snapshot, Socket, SocketHandlers, ThreadMessage, WriteDocInput } from "../api";
+import type { Api, AgentDetail, AllocationRow, Bank, Budget, Finance, FinanceFly, FinancePools, FinanceSources, FinanceSpend, Cabinet, CabinetQuery, DocQuery, EventQuery, In, LayoutPreview, FunderWeekView, RoomLayout, RequestAction, Snapshot, Socket, SocketHandlers, ThreadMessage, WriteDocInput } from "../api";
 import { ApiError } from "../api";
 import type { BankStreams, PinSkillInput, PutSecretInput, SecretView, SkillPinView, SkillView } from "@muster-town/schema";
-import type { CreateBuildingInput, UpdateBuildingInput, RegisterVisitorInput, ReviewInput, ChatInput, WorkInput, DonateInput, CreateMeetingInput, DocState, AddBankInput, BankInput, CreateBankPoolInput, UpdateBankPoolInput, DecideGrantInput, CloseGrantInput, CreateKeyResultInput, UpdateKeyResultInput, CreateObjectiveInput, UpdateObjectiveInput } from "@muster-town/schema";
+import type { CreateBuildingInput, UpdateBuildingInput, RegisterVisitorInput, ReviewInput, WorkInput, DonateInput, CreateMeetingInput, DocState, AddBankInput, BankInput, CreateBankPoolInput, UpdateBankPoolInput, DecideGrantInput, CloseGrantInput, CreateKeyResultInput, UpdateKeyResultInput, CreateObjectiveInput, UpdateObjectiveInput } from "@muster-town/schema";
 import { Sim, newId, spent } from "./sim";
 import { kpis as kpisFixture, memoryDocs } from "./fixture";
 import manualMd from "../../../../docs/manual.md?raw";
@@ -258,60 +258,7 @@ export class MockApi implements Api {
     if (!working) return;
     setTimeout(() => this.sim.event("agent.thought", id, `Noted, ${text.length > 40 ? "adjusting course" : `"${text}"`}. I'll fold that into this session.`), now ? 800 : 4000);
   }
-  async chat(id: string, i: In<typeof ChatInput>) {
-    await wait(700);
-    const a = this.need(this.sim.agents.get(id), "agent");
-    if (a.kind === "service") {
-      const q = i.message.toLowerCase();
-      const STOP = new Set(["have", "anything", "what", "about", "there", "does", "with", "that", "this", "where", "which", "know"]);
-      const words = q.replace(/[^a-z0-9\s]/g, " ").split(/\s+/).filter((w) => w.length > 3 && !STOP.has(w));
-      const hits = [...this.sim.docs.values()].filter((d) => d.state === "library" && words.some((w) => (d.title + d.body).toLowerCase().includes(w))).slice(0, 3);
-      return hits.length ? `I found ${hits.length} in the library: ${hits.map((d) => `"${d.title}"`).join(", ")}. Open the Library tab to read them.` : `Nothing in the library matches that yet. The closest thing is "GCB 2025 ESSD", our main source for the carbon budget.`;
-    }
-    const asg = a.currentAssignmentId ? this.sim.assignments.get(a.currentAssignmentId) : null;
-    if (/redirect|instead|change|switch/.test(i.message.toLowerCase())) return `I can't change direction from chat. Message me from the Talk tab, or Redirect on my report at the in-tray.`;
-    if (a.status === "working") return `I'm working on "${asg?.title}". Right now: ${a.activity.toLowerCase()}. I expect to submit a report in a few minutes.`;
-    const pending = [...this.sim.docs.values()].find((d) => d.type === "report" && d.authorId === a.id && d.decision === "pending");
-    if (pending) return `My last report, "${pending.title}", is in the in-tray on the manager's desk. I'm idle until someone gives me an assignment.`;
-    return `I'm ${a.status} at my desk. My standing direction: ${a.direction.split(":")[0]}. Message me from the Talk tab and I'll get going.`;
-  }
   private tells: { id: string; fromId: string; toId: string; body: string; at: string }[] = [];
-  private tell(fromId: string, toId: string, body: string, extra: Record<string, unknown> = {}) {
-    const m = { id: newId("ms"), fromId, toId, body, at: now() };
-    this.tells.push(m);
-    const from = this.sim.agents.get(fromId), to = this.sim.agents.get(toId);
-    this.sim.event("agent.told", fromId, `${from?.name ?? "Someone"} → ${to?.name ?? "someone"}: ${body.slice(0, 200)}`, { to: toId, toId, messageId: m.id, text: body, ...extra }, from?.homeBuildingId ?? null);
-    return m;
-  }
-  async message(id: string, raw: string, nowFlag = true): Promise<MessageResult> {
-    await wait();
-    const a = this.need(this.sim.agents.get(id), "agent");
-    const text = raw.trim();
-    if (!text) throw new ApiError("Message is empty.", "bad_request", 400);
-    const m = this.tell("ag_me", id, text, { fromUser: "us_mitchell" });
-    // v1.4: a visitor's loop runs outside the town: the message waits in its mailbox
-    if (a.kind === "visitor") { this.unread.set(id, (this.unread.get(id) ?? 0) + 1); return { mode: "queued", messageId: m.id }; }
-    const wasWorking = a.status === "working";
-    // scripted reply: a short `tell` back, then (idle) the session runs as usual
-    const reply = (ms: number) => setTimeout(() => this.tell(id, "ag_me", /\?\s*$/.test(text)
-      ? `Good question. I'll check the cabinet and the GCB source, then report back in this session.`
-      : `Got it, thanks. I'll ${wasWorking ? "fold that into what I'm doing now" : "start on it right away"}.`), ms);
-    if (a.status === "working") {
-      if (!nowFlag) return { mode: "queued", messageId: m.id };
-      this.sim.event("system", id, `Interrupt for ${a.name}: ${text}`, { interrupt: true, text, now: true, sessionId: `se_${id}` });
-      setTimeout(() => this.sim.event("agent.thought", id, "A message from Mitchell. Replying first, then adjusting course."), 700);
-      reply(1500);
-      return { mode: "interrupted", messageId: m.id };
-    }
-    if (a.status === "stopped") this.sim.patchAgent(id, { status: "idle" });
-    const first = text.split("\n")[0];
-    // the message goes to the front of the queue, so it runs next even with a backlog
-    const asg = this.sim.newAssignment(id, { title: `Message from Mitchell: ${first.length > 80 ? first.slice(0, 79) + "…" : first}`, description: `Mitchell messaged you:\n\n${text}`, front: true });
-    this.sim.runNext(id);
-    setTimeout(() => this.sim.event("agent.tool", id, "inbox · 1 unread", { tool: "inbox" }), 600);
-    reply(1600);
-    return { mode: "started", messageId: m.id, assignmentId: asg.id };
-  }
   async thread(id: string): Promise<ThreadMessage[]> {
     await wait(60);
     return this.tells.filter((m) => (m.fromId === "ag_me" && m.toId === id) || (m.fromId === id && m.toId === "ag_me"))

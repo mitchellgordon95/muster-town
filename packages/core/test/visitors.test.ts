@@ -181,14 +181,6 @@ describe("v1.4 visitors: assignments are offers", () => {
     expect(world.presence.expireOffers(new Date(Date.now() + 2 * OFFER_TTL_MS))).toEqual([]);
   });
 
-  it("a human's message to a visitor waits in its mailbox (no assignment)", async () => {
-    const { world, seed } = seededWorld();
-    const v = world.ops.registerVisitor(seed.admin.id, { name: "V" }).agent;
-    const r = await world.ops.messageAgent(seed.admin.id, v.id, "are you there?");
-    expect(r.mode).toBe("queued");
-    expect(r.assignmentId).toBeUndefined();
-    expect(world.presence.mailbox(v.id).unread).toBe(1);
-  });
 });
 
 describe("visitor reports reach a human (dc_04i3sll7q5)", () => {

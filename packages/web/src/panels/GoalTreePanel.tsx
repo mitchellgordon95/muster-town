@@ -14,6 +14,7 @@ import { store, useTown } from "../state";
 import { Glyph } from "./PanelShell";
 import { FUNDED, treeScope } from "./funderFilter";
 import { openDocLink } from "./Markdown";
+import { openPlanner } from "./oneOnOne";
 import { krStatusLabel, krTone } from "./keyResults";
 import { allBuildings, archivedLine, buildingScope, canEditGoal, deskWord, findGoal, isArchived, moveTargets, nodeGlance, pastDue, pathTo, proposalVerb, retireMoves, retirePlan, subtreeDesks, subtreeIds, treeRows, visibleRows, type TreeKr } from "./goalTree";
 import { Act, Empty, ErrorLine, Field, Loading, MTokensInput, Pill, Section, fmtTokens, nameOf, useLoad } from "./ui";
@@ -33,12 +34,6 @@ function useMe(): { userId: string | null; townWide: boolean } {
   return { userId: me?.user.id ?? null, townWide: store.can("goals.edit") };
 }
 
-/** "Plan with an agent" (docs/goals.md "The planning agent"): open (or return to) my 1:1 with the Planner, about `goalId`. */
-async function planWith(goalId?: string): Promise<void> {
-  const m = await api().openPlanner(goalId);
-  store.putMeeting(m);
-  store.open({ kind: "meeting", id: m.id });
-}
 
 /**
  * The goal tree editor: a large sheet over the map (not the side panel), the tree on the left and the selected goal on
@@ -90,7 +85,7 @@ export function GoalTreePanel({ goalId, onClose }: { goalId?: string; onClose: (
             <div className="who-title">Goal tree</div>
             <div className="who-sub">{anyEdit ? "The town's goals and key results: pick one to edit it, add under it or decide its proposals" : "The town's goals and key results (read-only)"}</div>
           </div>
-          {anyEdit ? <Act small tone="primary" run={() => planWith(node?.id)} title="Open your 1:1 with the Planner beside the tree: it drafts proposals you accept or cut here">Talk to the Planner</Act> : null}
+          {anyEdit ? <Act small tone="primary" run={() => openPlanner(node?.id)} title="Open your 1:1 with the Planner beside the tree: it drafts proposals you accept or cut here">Talk to the Planner</Act> : null}
           <button className="close" title="Close (Esc)" aria-label="Close" onClick={onClose}>×</button>
         </header>
         <ErrorLine error={tree.error ?? proposals.error} />
