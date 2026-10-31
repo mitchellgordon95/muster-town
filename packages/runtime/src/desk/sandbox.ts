@@ -54,6 +54,8 @@ export interface SandboxBackendOptions {
   slotOf?: SlotResolver;
   /** the size the next session's sandbox gets (the configured one, or the desk bill cap's fallback); unset = the provider's default */
   sizeFor?: () => { size: DeskSize; fallback: boolean };
+  /** a desk event worth the town's event log (e.g. a frozen desk stopped after an exec failure) */
+  onEvent?: (text: string, payload: Record<string, unknown>) => void;
 }
 
 export const SANDBOX_HOME = "/home/agent";
@@ -75,6 +77,9 @@ export class SandboxBackend implements DeskBackend {
   private readonly removing = new Map<string, Promise<void>>();
   private readonly slotOf: SlotResolver;
   private readonly sizeFor: SandboxBackendOptions["sizeFor"];
+  private readonly onEvent: NonNullable<SandboxBackendOptions["onEvent"]>;
+  /** stops in flight after an exec failure: `ensure` waits for one so it starts a stopped desk, not a stopping one */
+  private readonly stopping = new Map<string, Promise<void>>();
 
   constructor(opts: SandboxBackendOptions) {
     this.api = opts.api;
@@ -83,6 +88,7 @@ export class SandboxBackend implements DeskBackend {
     this.heartbeatMs = opts.heartbeatMs ?? 5 * 60_000;
     this.slotOf = opts.slotOf ?? (() => null);
     this.sizeFor = opts.sizeFor;
+    this.onEvent = opts.onEvent ?? (() => {});
   }
 
   sandboxName(agentId: string): string { return `desk-${this.collective}-${dockerSafe(agentId)}`; }
@@ -104,6 +110,7 @@ export class SandboxBackend implements DeskBackend {
     let createdMs: number | undefined;
     this.cancelIdleStop(name);
     await this.removing.get(name);
+    await this.stopping.get(name);
     const sized = this.api.resize ? this.sizeFor?.() : undefined;
     let found = await this.api.find(name);
     if (found?.state === "error") {
@@ -151,11 +158,17 @@ export class SandboxBackend implements DeskBackend {
         onLine?.("stderr", `sandbox exec failed: ${e instanceof Error ? e.message : String(e)}`);
         return -1;
       } finally {
-        console.log(`[sandbox ${name}] process ended (exit ${code}) after ${Math.round((Date.now() - startedAt) / 1000)}s; stopping the sandbox in ${Math.round(this.idleStopMs / 1000)}s unless it is used again`);
+        // -1 without a kill means the provider couldn't reach the desk (exec threw, or its polls kept failing): the guest is
+        // likely frozen, and the next fork would die on it too (dc_y06ztrv3a8: desk 1 hung 19 min, five sessions lost).
+        // Stop it now rather than in idleStopMs: the next ensure() starts it fresh.
+        const frozen = code === -1 && !abort.signal.aborted;
+        console.log(`[sandbox ${name}] process ended (exit ${code}) after ${Math.round((Date.now() - startedAt) / 1000)}s; ${frozen ? "exec failed: stopping the sandbox now" : `stopping the sandbox in ${Math.round(this.idleStopMs / 1000)}s unless it is used again`}`);
         if (heartbeat) clearInterval(heartbeat);
-        void this.api.quick(name, `rm -f ${envFile}`, 10).catch(() => {});
+        if (!frozen) void this.api.quick(name, `rm -f ${envFile}`, 10).catch(() => {});
         const left = (this.active.get(name) ?? 1) - 1;
-        if (left <= 0) { this.active.delete(name); this.scheduleIdleStop(name); } else this.active.set(name, left);
+        if (left <= 0) this.active.delete(name); else this.active.set(name, left);
+        if (frozen) this.stopNow(name, handle.agentId);
+        else if (left <= 0) this.scheduleIdleStop(name);
       }
     })();
     return {
@@ -200,6 +213,17 @@ export class SandboxBackend implements DeskBackend {
   private cancelIdleStop(name: string): void {
     const t = this.idleTimers.get(name);
     if (t) { clearTimeout(t); this.idleTimers.delete(name); }
+  }
+
+  /** Stop a desk whose exec failed (a frozen guest), whatever else runs in it: those sessions are stuck on it too. */
+  private stopNow(name: string, agentId: string): void {
+    this.cancelIdleStop(name);
+    if (this.stopping.has(name)) return;
+    this.onEvent(`Desk ${name} stopped after exec failure`, { desk: name, agentId, deskStopped: "exec-failure" });
+    const p = this.api.stop(name)
+      .catch((e) => console.warn(`[runtime] stopping sandbox ${name} after exec failure failed: ${e instanceof Error ? e.message : String(e)}`))
+      .finally(() => { if (this.stopping.get(name) === p) this.stopping.delete(name); });
+    this.stopping.set(name, p);
   }
 
   private scheduleIdleStop(name: string): void {
