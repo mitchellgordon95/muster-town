@@ -147,9 +147,9 @@ describe("finance page: spending", () => {
     expect(note.differ).toBe("These differ: the rows by building come to 4,392,841 adj. tokens, but Not funded is 195,957 adj. tokens. Not funded is exact (what sessions counted, less what was paid); the split by building is an estimate by the 2-second rule.");
     expect(note.after).toEqual([
       "Written off: not charged to any building. The Bank's balance already reflects the real spend.",
-      "Up to 4,269,596 adj. tokens of the rows by building may have been covered by donations to those buildings (an upper bound)."]);
+      "Donations straight to those buildings paid 4,269,596 adj. tokens of their undebited usage (a donation is spent without a Bank debit); that part is left out of the rows by building."]);
     const html = page({ spend: live });
-    for (const s of ["Town Workshop: 4,269,596 adj. tokens (5 usage rows)", "Prod: 123,238 adj. tokens (3 usage rows)", "unattributed: 7 adj. tokens (1 usage row)", "No new unpaid usage since 2026-10-26.", "These differ", "Written off: not charged to any building", "an upper bound"]) expect(html).toContain(s);
+    for (const s of ["Town Workshop: 4,269,596 adj. tokens (5 usage rows)", "Prod: 123,238 adj. tokens (3 usage rows)", "unattributed: 7 adj. tokens (1 usage row)", "No new unpaid usage since 2026-10-26.", "These differ", "Written off: not charged to any building", "left out of the rows by building"]) expect(html).toContain(s);
     expect(html.indexOf("Town Workshop: 4,269,596")).toBeLessThan(html.indexOf("Prod: 123,238"));
     // when the split adds up and no donation could have paid: no "differ" line, no allocation line
     const ok = notFundedNote(sp);
@@ -157,6 +157,10 @@ describe("finance page: spending", () => {
     expect(ok.after).toEqual(["Written off: not charged to any building. The Bank's balance already reflects the real spend."]);
     expect(ok.lines).toContain("No new unpaid usage since 2026-10-28.");
     expect(page({ spend: sp })).not.toContain("These differ");
+    // with the server's reason: a plain line instead of the red one
+    const why = notFundedNote({ ...live, notFundedSplitCheck: { sum: 658807, notFunded: 195957, ok: false, reason: "Because." } });
+    expect(why.differ).toBeNull();
+    expect(why.reason).toBe("The rows by building come to 658,807 adj. tokens and Not funded to 195,957 adj. tokens. Because.");
   });
   it("leaves the section out when the spend can't be loaded", () => {
     expect(page({})).not.toContain("Spending");
