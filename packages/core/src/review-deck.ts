@@ -19,14 +19,8 @@ import type { World } from "./world.ts";
 const H = 3_600_000;
 const FLAG_AFTER_MS = 2 * H;
 const fmt = (n: number) => n >= 1_000_000 ? `${(n / 1_000_000).toFixed(2).replace(/\.?0+$/, "")}M` : n >= 1000 ? `${Math.round(n / 1000)}k` : String(n);
-/** "4.1 h", "2.3 d", "12 min" */
-export function waitedFor(sinceIso: string | null, now: Date): string {
-  if (!sinceIso) return "";
-  const ms = Math.max(0, now.getTime() - Date.parse(sinceIso));
-  if (ms < H) return `${Math.max(1, Math.round(ms / 60_000))} min`;
-  if (ms < 48 * H) return `${(ms / H).toFixed(1)} h`;
-  return `${(ms / (24 * H)).toFixed(1)} d`;
-}
+import { waitedFor } from "./time.ts";
+export { waitedFor };
 const KR_LIGHT: Record<string, string> = { "not-started": "⚪", "on-track": "🟢", "at-risk": "🟡", claimed: "🔵", met: "✅", missed: "❌" };
 const PILLAR: Record<string, string> = { gl_fund: "Fund", gl_join: "Steer", gl_trust: "Trust" };
 const LIGHT: Record<string, string> = { green: "🟢", yellow: "🟡", red: "🔴" };

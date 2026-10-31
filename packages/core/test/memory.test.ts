@@ -24,10 +24,10 @@ describe("recent-work block", () => {
     const b = recentWorkBlock(world, noor.id, { now });
     const lines = b.split("\n").filter((l) => l.startsWith("- "));
     expect(lines).toHaveLength(3);
-    expect(lines[0]).toMatch(/^- article "Airborne fraction" \(dc_[\w-]+, 30m ago\): The airborne fraction is x+…$/);
+    expect(lines[0]).toMatch(/^- article "Airborne fraction" \(dc_[\w-]+, 30 min ago\): The airborne fraction is x+…$/);
     expect(lines[0].length).toBeLessThan(220);
-    expect(lines[1]).toMatch(/^- report "Growth rate" \(dc_[\w-]+, 2h ago\): Decide whether to use the 10-year mean\.$/);
-    expect(lines[2]).toMatch(/^- note "Old note" \(dc_[\w-]+, 10h ago\): First real line of the note\.$/);
+    expect(lines[1]).toMatch(/^- report "Growth rate" \(dc_[\w-]+, 2 h ago\): Decide whether to use the 10-year mean\.$/);
+    expect(lines[2]).toMatch(/^- note "Old note" \(dc_[\w-]+, 10 h ago\): First real line of the note\.$/);
     expect(b).not.toContain(FALLBACK_REPORT_PREFIX);
     expect(b).not.toContain("notebook");
     expect(b).not.toContain("Mei's note");
@@ -91,7 +91,7 @@ describe("memory: wiki + log", () => {
     const log = logOf(world, noor.id)!;
     expect(log).toMatchObject({ title: `${noor.name}'s log`, state: "draft" });
     expect(log.body.split("\n")).toHaveLength(2);
-    expect(log.body).toMatch(/^- \d{4}-\d{2}-\d{2} \d{2}:\d{2} Decided: NOAA GML\n- \d{4}-\d{2}-\d{2} \d{2}:\d{2} Shipped PR #3 second line folded$/);
+    expect(log.body).toMatch(/^- \d{4}-\d{2}-\d{2} \d{2}:\d{2} UTC Decided: NOAA GML\n- \d{4}-\d{2}-\d{2} \d{2}:\d{2} UTC Shipped PR #3 second line folded$/);
     await expect(world.verbs.write(noor.id, { id: log.id, type: "note", title: "t", body: "b", state: "draft" })).rejects.toThrow(/log/);
     const who = { id: noor.id, kind: "agent" as const, name: noor.name, buildingId: noor.homeBuildingId, agentId: noor.id };
     for (let i = 0; i < 600; i++) appendLog(world, who, `line ${i}`);

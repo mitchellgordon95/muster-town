@@ -13,6 +13,7 @@ import { createAssignment, createDoc, managerAgentOf, moveToFront } from "./doma
 import { DIRECTED } from "./lanes.ts";
 import { nowIso } from "./util.ts";
 import type { World } from "./world.ts";
+import { stamp } from "./time.ts";
 
 const RULE = "manager-intray";
 
@@ -31,7 +32,7 @@ export function managerIntrayRow(world: World, e: Event): Doc | null {
     type: "report", state: "building", decision: "pending", buildingId: building.id, authorId: "system", authorKind: "user",
     tags: [RULE, key], title: row.title.slice(0, 200),
     body: [
-      `Written by the town: ${row.what} (event ${e.id}, ${e.ts.slice(0, 16).replace("T", " ")} UTC).`,
+      `Written by the town: ${row.what} (event ${e.id}, ${stamp(e.ts)}).`,
       `## Summary\n\n${row.summary}`,
       "Acknowledge it with `review` approve once you've taken it in; give any work it calls for with `assign`.",
     ].join("\n\n"),
