@@ -21,8 +21,10 @@ export interface ManageState {
   fed: Map<string, { sessionId: string; idx: number }>;
   /** 1:1 meetingId → the busy session already announced in it (one "busy" notice per 1:1 per session) */
   busyNoticed: Map<string, string>;
+  /** manage sessions given in-tray reports (team-lead work): a 1:1 fed into one cuts its current turn short (interrupt now) */
+  leading: Set<string>;
 }
-export const newManageState = (): ManageState => ({ offered: new Set(), fed: new Map(), busyNoticed: new Map() });
+export const newManageState = (): ManageState => ({ offered: new Set(), fed: new Map(), busyNoticed: new Map(), leading: new Set() });
 
 /** A 1:1 nobody spoke in for this long (and nobody is typing in) is closed by the town. */
 export const ONE_ON_ONE_QUIET_MS = 20 * 60_000;
@@ -106,15 +108,27 @@ function wakeTalker(ctx: Ctx, st: ManageState, gate: ManageGate, agent: Agent, f
     // and a new session resumes the 1:1 from its transcript; docs/meetings.md §6); new reports wait for the new server,
     // and for the end of a conversation held alongside work (it takes 1:1s only)
     if (gate.draining() && !talks.length) return null;
-    for (const d of gate.draining() || side ? [] : fresh) if (talker.input.push(managerNewReport(d, nameOf))) st.offered.add(d.id);
+    for (const d of gate.draining() || side ? [] : fresh) if (talker.input.push(managerNewReport(d, nameOf))) { st.offered.add(d.id); st.leading.add(talker.sessionId); }
+    // its team-lead session is mid-turn deciding reports: the human's 1:1 cuts that turn short and is answered at once
+    // (1:1 mt_q10xf3bkoq decision 2), instead of waiting for the end of a batch of tool calls; no second session
+    const busy = !side && st.leading.has(talker.sessionId) && !talker.idle;
     for (const m of talks) {
       const f = st.fed.get(m.id);
       if (f?.sessionId !== talker.sessionId) {
-        if (talker.input.push(oneOnOnePrompt(m, nameOf, talkBlocks(world, m, agent.id, side ? live : undefined)))) st.fed.set(m.id, { sessionId: talker.sessionId, idx: m.transcript.length });
+        const prompt = oneOnOnePrompt(m, nameOf, talkBlocks(world, m, agent.id, side ? live : undefined));
+        if (talker.input.push(busy ? `${oneOnOneCutIn(m)}\n\n${prompt}\n\n${RESUME_IN_TRAY}` : prompt)) {
+          st.fed.set(m.id, { sessionId: talker.sessionId, idx: m.transcript.length });
+          if (busy) {
+            if (st.busyNoticed.get(m.id) !== talker.sessionId) { st.busyNoticed.set(m.id, talker.sessionId); meetingNotice(world, m.id, `${agent.name} is in a team-lead session; it answers between steps.`); }
+            cutIn(ctx, talker, `1:1 ${m.id} opened`);
+          }
+        }
         continue;
       }
-      for (const u of m.transcript.slice(f.idx)) if (u.speakerId !== agent.id && u.speakerKind !== "system") talker.input.push(oneOnOneUtterance(m, nameOf(u.speakerId), u.text));
+      let said = false;
+      for (const u of m.transcript.slice(f.idx)) if (u.speakerId !== agent.id && u.speakerKind !== "system") said = talker.input.push(oneOnOneUtterance(m, nameOf(u.speakerId), u.text) + (busy ? `\n\n${RESUME_IN_TRAY}` : "")) || said;
       f.idx = m.transcript.length;
+      if (said && busy) cutIn(ctx, talker, `a line in 1:1 ${m.id}`);
     }
     return null;
   }
@@ -130,6 +144,19 @@ function wakeTalker(ctx: Ctx, st: ManageState, gate: ManageGate, agent: Agent, f
   const offer = gate.draining() ? [] : fresh;
   for (const d of offer) st.offered.add(d.id);
   return runManageSession(ctx, st, agent.id, offer, talks);
+}
+
+/** What a team-lead session cut short by a 1:1 is told before the 1:1's prompt. */
+const oneOnOneCutIn = (m: Meeting): string =>
+  `A human opened a 1:1 (${m.id}) while you were deciding reports: your current step was cut short so you answer them at once.`;
+/** A team-lead session cut short by a 1:1 answers, then resumes its in-tray rather than stopping to wait. */
+const RESUME_IN_TRAY = `This cut your in-tray work short. After you've spoken in the 1:1, go back to deciding your in-tray reports where you left off (check whether the step that was cut finished; redo it if not) instead of stopping to wait: the human's next line interrupts you again.`;
+
+/** Cut the live session's current turn short (interrupt now): the message just pushed runs next. Logged like any interrupt. */
+function cutIn(ctx: Ctx, l: LiveSession, why: string): void {
+  const a = ctx.world.agents.get(l.agentId);
+  ctx.world.events.append({ type: "system", agentId: l.agentId, buildingId: a ? a.homeBuildingId ?? a.buildingId : null, text: `Interrupt for ${a?.name ?? l.agentId}: ${why}`, payload: { sessionId: l.sessionId, interrupt: true, now: true } });
+  void l.q?.interrupt?.()?.catch(() => undefined);
 }
 
 /** Tell each open 1:1 (once per busy session) that its agent is in a work session and answers when that ends (it can't start a conversation beside it: the Bank holds it). */
@@ -207,7 +234,9 @@ export async function runManageSession(ctx: Ctx, st: ManageState, agentId: strin
     for (const m of more) live.input.push(oneOnOnePrompt(m, nameOf, talkBlocks(world, m, agentId, work)));
     for (const d of fresh) live.input.push(managerNewReport(d, nameOf));
   }
+  if (live && fresh.length) st.leading.add(live.sessionId);
   const out = await run;
+  if (live) st.leading.delete(live.sessionId);
   // no fallback report for this purpose: an idle building is silent; the event log says what the session did
   const s = out.session;
   const decided = world.docs.count("type = 'report' AND decidedBy = ? AND decidedAt >= ?", [agentId, s.startedAt]);
