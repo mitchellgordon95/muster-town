@@ -111,7 +111,6 @@ export class MockApi implements Api {
     return clone(node("gl_town", null, this.sim.town.goal || "The town goal", [node("gl_fund", "gl_town", "Fund"), node("gl_join", "gl_town", "Join"), node("gl_trust", "gl_town", "Trust")]));
   } // desks follow floor space: a sent headcount is ignored
   async goalTreeWithRetired() { return this.goalTree(); }
-  async goalHistory(): Promise<Event[]> { await wait(); return []; }
   async goalSpend(id: string, days = 7): Promise<GoalSpend> {
     await wait();
     const z = { grant: 0, exploration: 0, directed: 0, none: 0 };
@@ -137,7 +136,6 @@ export class MockApi implements Api {
     };
     return clone({ ...week, slide: funderSlide(week) });
   }
-  async goalQueue(): Promise<QueueBoard> { await wait(); return { lanes: [], at: new Date().toISOString() }; }
   async buildingQueue(id: string): Promise<QueueBoard> {
     await wait();
     const b = this.sim.buildings.find((x) => x.id === id);

@@ -1,8 +1,10 @@
 /**
  * The Town Hall goal editor (docs/goals.md "The Town Hall goal editor", build step 3): the whole town goal tree, a
  * node's detail (edit, add a goal or a dated key result, move, owner, retire with move-to-sibling, mark met/missed;
- * History, Subtree, Spend and Queue tabs; marking one missed asks why and queues its postmortem) and the managers' open proposals (Accept, Edit and accept, Cut). Humans with `goals.edit`
- * at a node (admins anywhere, an owner in their subtree) edit it; everyone else reads the same tree.
+ * marking one missed asks why and queues its postmortem) and the managers' open proposals (Accept, Edit and accept, Cut). Humans with `goals.edit`
+ * at a node (admins anywhere, an owner in their subtree) edit it; everyone else reads the same tree. The detail has no
+ * tabs (1:1 mt_n25udpflus decision 5): a goal's spend is the Bank's "Spend by goal" (Spending tab), the queue is each
+ * building panel's Queue tab, and the goal event log is for agents (GET /api/goals/:id/history), not shown here.
  */
 import { useEffect, useState, type CSSProperties, type ReactNode } from "react";
 import { createPortal } from "react-dom";
@@ -10,13 +12,11 @@ import { ROOT_GOAL_ID, type FunderWeek, type GoalChangeView, type GoalTreeNode, 
 import { api, type GoalProposalView } from "../api";
 import { store, useTown } from "../state";
 import { Glyph } from "./PanelShell";
-import { GoalSpendTab } from "./GoalSpendTab";
 import { FUNDED, treeScope } from "./funderFilter";
 import { openDocLink } from "./Markdown";
-import { QueueTab } from "./QueueTab";
 import { krStatusLabel, krTone } from "./keyResults";
 import { allBuildings, archivedLine, buildingScope, canEditGoal, findGoal, isArchived, moveTargets, nodeGlance, pastDue, pathTo, retirePlan, subtreeIds, treeRows, visibleRows, type TreeKr } from "./goalTree";
-import { Act, Empty, ErrorLine, Feed, Field, Loading, Pill, Section, Tabs, nameOf, useLoad } from "./ui";
+import { Act, Empty, ErrorLine, Field, Loading, Pill, Section, nameOf, useLoad } from "./ui";
 
 const today = () => new Date().toISOString().slice(0, 10);
 const clip = (s: string, n = 70) => s.length > n ? `${s.slice(0, n - 1)}…` : s;
@@ -197,7 +197,6 @@ function KrLines({ krs, actions, cards }: { krs: TreeKr[]; actions?: (k: TreeKr)
 function GoalDetail({ root, node, me, proposals, onSelect, onDone }: { root: GoalTreeNode; node: GoalTreeNode; me: { userId: string | null; townWide: boolean }; proposals: GoalProposalView[]; onSelect: (id: string | null) => void; onDone: () => void }) {
   const can = canEditGoal(node, me) && node.status === "active";
   const path = pathTo(root, node.id);
-  const [tab, setTab] = useState("History");
   const [form, setForm] = useState<"" | "edit" | "goal" | "kr" | "move" | "owner" | "retire" | "change">("");
   const rev = useGoalRev();
   const changes = useLoad(() => api().goalChanges({ goalId: node.id, open: true }), [node.id, rev]);
@@ -248,8 +247,6 @@ function GoalDetail({ root, node, me, proposals, onSelect, onDone }: { root: Goa
         </span> : undefined} /> : <Empty>No key results under this goal{can ? ": add a dated one with + Key result." : "."}</Empty>}
         {missing ? <MissedForm key={missing.k.id} k={missing.k} archive={missing.archive} onCancel={() => setMissing(null)} onDone={() => { setMissing(null); onDone(); }} /> : null}
       </Section>
-      <Tabs tabs={[{ id: "History", label: "History" }, { id: "Subtree", label: "Subtree" }, { id: "Spend", label: "Spend" }, { id: "Queue", label: "Queue" }]} active={tab} onChange={setTab} />
-      {tab === "History" ? <History id={node.id} /> : tab === "Spend" ? <GoalSpendTab goalId={node.id} /> : tab === "Queue" ? <QueueTab goalId={node.id} /> : <Subtree node={node} />}
     </div>
   );
 }
@@ -314,39 +311,6 @@ function MissedForm({ k, archive, onCancel, onDone }: { k: TreeKr; archive: bool
         <Act small tone="bad" disabled={!why.trim()} run={run}>{archive ? "Archive as missed" : "Mark missed"}</Act>
         <button className="btn sm" onClick={onCancel}>Cancel</button>
       </span>
-    </div>
-  );
-}
-
-function History({ id }: { id: string }) {
-  const rev = useGoalRev();
-  const h = useLoad(() => api().goalHistory(id), [id, rev]);
-  if (h.loading && !h.data) return <Loading />;
-  return <><ErrorLine error={h.error} /><Feed events={[...(h.data ?? [])].reverse()} empty="No changes recorded yet." /></>;
-}
-
-/** The owner's view (docs/goals.md "Owners on nodes"): the buildings attached below, open key results by due date, and the funded ones. */
-function Subtree({ node }: { node: GoalTreeNode }) {
-  const below = (n: GoalTreeNode): GoalTreeNode[] => [n, ...n.children.flatMap(below)];
-  const nodes = below(node);
-  const open = nodes.flatMap((n) => n.keyResults.filter((k) => !isArchived(k)).map((k) => ({ k, goal: n })))
-    .sort((a, b) => (a.k.due ?? "9999").localeCompare(b.k.due ?? "9999"));
-  const buildings = nodes.flatMap((n) => n.buildings);
-  return (
-    <div className="goal-subtree">
-      <Section title={`Buildings (${buildings.length})`}>
-        {buildings.length ? <div>{buildings.map((b) => <button key={b.id} className="chip" onClick={() => store.open({ kind: "building", id: b.id })}>{b.name}</button>)}</div> : <Empty>No building is attached here or below.</Empty>}
-      </Section>
-      <Section title={`Open key results by due date (${open.length})`}>
-        {open.length ? <ul className="goal-krs">{open.map(({ k, goal }) => (
-          <li key={k.id} className="goal-kr">
-            <span className={`goal-due ${pastDue(k, today()) ? "late" : ""}`}>{k.due ?? "no date"}</span>
-            <Pill tone={krTone(k.status as KeyResultStatus)}>{krStatusLabel(k.status as KeyResultStatus)}</Pill>
-            {k.grantId ? <button className="link goal-grant" onClick={() => store.open({ kind: "grant", id: k.grantId! })}>funded</button> : <span className="muted goal-grant">open</span>}
-            <span className="goal-kr-text">{k.text} <span className="muted">· {clip(goal.text, 40)}</span></span>
-          </li>
-        ))}</ul> : <Empty>No open key results here or below.</Empty>}
-      </Section>
     </div>
   );
 }

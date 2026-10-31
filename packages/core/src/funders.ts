@@ -60,7 +60,7 @@ function attribute(world: World, userId: string, days: number, now: Date): Attri
 }
 
 /**
- * Per session, the part of it the funder paid (1 = literal, `share` = pooled): the Spend tab's "Funded by me" filter.
+ * Per session, the part of it the funder paid (1 = literal, `share` = pooled): the Bank's Spend by goal "Funded by me" filter.
  * A session that is both (a grant funded from the funder's own subscription input) counts whole.
  */
 export function funderWeights(world: World, userId: string, days = 7, now = new Date()): Map<string, number> {

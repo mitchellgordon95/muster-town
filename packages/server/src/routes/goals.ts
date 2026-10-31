@@ -32,17 +32,17 @@ export async function goalRoutes(app: FastifyInstance) {
     };
   });
 
-  /** The goal's history, newest first (the editor's History tab): goal, key result, attachment and proposal events. */
+  /** The goal's history, newest first (for agents: the Planner's digest and the API; not shown in the web, 1:1 mt_n25udpflus decision 5): goal, key result, attachment and proposal events. */
   app.get<{ Params: Params }>("/api/goals/:id/history", async (req) => ({ events: tree.history(req.params.id) }));
 
-  /** The goal's Spend tab: its subtree's spend from session rows, by lane, building, key result and day or week (read-only; no Bank read or write). */
+  /** The Bank's "Spend by goal": the goal's subtree spend from session rows, by lane, building, key result and day or week (read-only; no Bank read or write). */
   // `?funder=me` (or a user id; signed in): only what that funder's money paid for (the funder filter, build step 8)
   app.get<{ Params: Params }>("/api/goals/:id/spend", async (req) => {
     const q = parse(SpendQuery, req.query);
     return worldGoalSpend(world, req.params.id, q.days, new Date(), q.funder ? funderOf(req, q.funder) : null);
   });
 
-  /** The goal's Queue tab (build step 6): the kanban of every building attached in its subtree, one swimlane each (read-only). */
+  /** The goal's queue (build step 6, API only since decision 5 of mt_n25udpflus: the web shows queues per building): the kanban of every building attached in its subtree, one swimlane each (read-only). */
   app.get<{ Params: Params }>("/api/goals/:id/queue", async (req) => goalBoard(world, req.params.id));
 
   /** The building's Queue tab: its kanban, Queued / Held / Running / Done, WIP = its desks (read-only). */

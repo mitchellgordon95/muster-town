@@ -1,13 +1,15 @@
 /**
- * A goal's Spend tab (docs/goals.md "Spend tab", build step 4): the subtree's spend over a window, from session rows
+ * Spend by goal (docs/goals.md "Spend by goal", build step 4; a section of the Bank's Spending tab since 1:1
+ * mt_n25udpflus decision 5 took it off the goal tree): a goal's subtree spend over a window, from session rows
  * (GET /api/goals/:id/spend), by lane, by day or week, by building and by key result, next to the key results met or
- * missed in the same window. Read-only: nothing here touches the Bank.
+ * missed in the same window. Read-only: nothing here touches the Bank's books.
  */
 import { useState } from "react";
-import type { GoalSpend, SpendByLane } from "@muster-town/schema";
+import { ROOT_GOAL_ID, type GoalSpend, type SpendByLane } from "@muster-town/schema";
 import { api } from "../api";
 import { store, useTown } from "../state";
-import { ADJ, ADJ_HINT, Empty, ErrorLine, Loading, Pill, fmtTokens, useLoad } from "./ui";
+import { GoalPicker } from "./GoalPicker";
+import { ADJ, ADJ_HINT, Empty, ErrorLine, Loading, Pill, Section, fmtTokens, useLoad } from "./ui";
 
 export const SPEND_WINDOWS = [7, 30, 90] as const;
 const LANES: { id: keyof SpendByLane; label: string }[] = [
@@ -25,7 +27,17 @@ export function seriesBars(s: GoalSpend["series"]): { start: string; tokens: num
   return s.map((b) => ({ start: b.start, tokens: b.tokens, pct: Math.round((b.tokens / max) * 100) }));
 }
 
-export function GoalSpendTab({ goalId }: { goalId: string }) {
+/** The Bank's "Spend by goal" section: pick a goal (the root by default), then its subtree's spend. */
+export function SpendByGoal() {
+  const [goalId, setGoalId] = useState<string>(ROOT_GOAL_ID);
+  return (
+    <Section title="Spend by goal" right={<GoalPicker value={goalId} onChange={setGoalId} />}>
+      <GoalSpendView goalId={goalId} />
+    </Section>
+  );
+}
+
+function GoalSpendView({ goalId }: { goalId: string }) {
   const [days, setDays] = useState<number>(7);
   // the funder filter (goal tree step 8): a signed-in human narrows the tab to what their own Bank inputs paid for
   const signedIn = useTown((s) => !!s.me);
@@ -38,7 +50,7 @@ export function GoalSpendTab({ goalId }: { goalId: string }) {
         <span className="muted">Last</span>
         {SPEND_WINDOWS.map((w) => <button key={w} className={`btn sm ${w === days ? "primary" : ""}`} onClick={() => setDays(w)}>{w} days</button>)}
         {signedIn ? <label className="check" title="Only the sessions your Bank inputs paid for: whole on your key, your pro rata share of the subscription week"><input type="checkbox" checked={mine} onChange={(e) => setMine(e.target.checked)} /> Funded by me</label> : null}
-        <span className="muted" title={ADJ_HINT}>from session rows, in {ADJ}; read-only</span>
+        <span className="muted" title={ADJ_HINT}>this goal and everything under it, from session rows, in {ADJ}; read-only</span>
       </div>
       <ErrorLine error={r.error} />
       {!d ? (r.loading ? <Loading /> : null) : !d.sessions ? <Empty>{mine ? `None of your money paid for work on this goal or anything under it in the last ${d.days} days.` : `No sessions worked on this goal or anything under it in the last ${d.days} days.`}</Empty> : <>

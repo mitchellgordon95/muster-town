@@ -17,7 +17,7 @@ const DAYS_PER: Record<BankInput["recurrence"], number | null> = { once: null, d
 export class Streams {
   constructor(private world: World) {}
 
-  /** The goal a session's work sits on, the same attribution as the Spend tab: its grant's or named key result's goal, else its building's attachment. */
+  /** The goal a session's work sits on, the same attribution as the Bank's Spend by goal: its grant's or named key result's goal, else its building's attachment. */
   nodeOf(a: Pick<Assignment, "buildingId" | "grantId" | "keyResultId"> | null | undefined, buildingId: string): string {
     const grant = a?.grantId ? this.world.grants.get(a.grantId) : undefined;
     const krId = grant?.keyResultId ?? a?.keyResultId ?? null;

@@ -337,15 +337,13 @@ export interface Api {
   updateBuilding(id: string, input: In<typeof UpdateBuildingInput>): Promise<Building>;
   /** GET /api/goals: the town goal tree from the root (docs/goals.md) */
   goalTree(): Promise<GoalTreeNode>;
-  /** The goal editor (docs/goals.md "The Town Hall goal editor"): GET /api/goals?retired=1, a goal's history, and the edits (`goals.edit`). */
+  /** The goal editor (docs/goals.md "The Town Hall goal editor"): GET /api/goals?retired=1 and the edits (`goals.edit`). A goal's history (GET /api/goals/:id/history) is for agents, not shown in the web. */
   goalTreeWithRetired(): Promise<GoalTreeNode>;
-  goalHistory(id: string): Promise<Event[]>;
   /** `funder`: "me" (signed in) = only what my money paid for (the funder filter, goal tree step 8) */
   goalSpend(id: string, days?: number, funder?: string): Promise<GoalSpend>;
   /** GET /api/funders/:userId/week: one funder's window ("me" = the signed-in human; guests get 401) and the deck's slide 1 for it */
   funderWeek(userId?: string, days?: number): Promise<FunderWeekView>;
-  /** the kanban: a goal's subtree (one swimlane per attached building) or one building */
-  goalQueue(id: string): Promise<QueueBoard>;
+  /** the kanban: one building's queue as a board (the building panel's Queue tab) */
   buildingQueue(id: string): Promise<QueueBoard>;
   createGoal(input: In<typeof CreateGoalInput>): Promise<Goal>;
   updateGoal(id: string, input: In<typeof UpdateGoalInput>): Promise<Goal>;
@@ -615,10 +613,8 @@ export class HttpApi implements Api {
   async updateBuilding(id: string, i: In<typeof UpdateBuildingInput>) { return unwrap<Building>(await this.call("PATCH", `/api/buildings/${id}`, i), "building"); }
   async goalTree() { return (await this.get<{ root: GoalTreeNode }>("/api/goals")).root; }
   async goalTreeWithRetired() { return (await this.get<{ root: GoalTreeNode }>("/api/goals?retired=1")).root; }
-  async goalHistory(id: string) { return (await this.get<{ events?: Event[] }>(`/api/goals/${id}/history`)).events ?? []; }
   goalSpend(id: string, days = 7, funder?: string) { return this.get<GoalSpend>(`/api/goals/${id}/spend${qs({ days: String(days), funder })}`); }
   funderWeek(userId = "me", days = 7) { return this.get<FunderWeekView>(`/api/funders/${userId}/week${qs({ days: String(days) })}`); }
-  goalQueue(id: string) { return this.get<QueueBoard>(`/api/goals/${id}/queue`); }
   buildingQueue(id: string) { return this.get<QueueBoard>(`/api/buildings/${id}/queue`); }
   async createGoal(i: In<typeof CreateGoalInput>) { return unwrap<Goal>(await this.post("/api/goals", i), "goal"); }
   async updateGoal(id: string, i: In<typeof UpdateGoalInput>) { return unwrap<Goal>(await this.call("PATCH", `/api/goals/${id}`, i), "goal"); }
