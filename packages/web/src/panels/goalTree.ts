@@ -108,3 +108,26 @@ export function nodeGlance(node: Pick<GoalTreeNode, "keyResults">, today: string
   const dues = open.map((k) => k.due).filter((d): d is string => !!d).sort();
   return { open: open.length, funded: open.filter((k) => !!k.grantId).length, late: open.filter((k) => pastDue(k, today)).length, nextDue: dues[0] ?? null };
 }
+
+/**
+ * What a move or retire proposal does, in words (the card and core review-deck's goalProposalSlide say the same):
+ * "<old> moves under <dest>", "<old> is retired; its open key results and attached buildings go under <dest>", or
+ * "<old> is retired; nothing open hangs under it". Null for the other actions.
+ */
+export function proposalVerb(action: string, dest: string | null, hangs = false): { verb: string; dest: string | null } | null {
+  if (action === "move") return dest ? { verb: "moves under", dest } : null;
+  if (action !== "retire") return null;
+  if (dest) return { verb: "is retired; its open key results and attached buildings go under", dest };
+  return { verb: hangs ? "is retired, but no sibling is named for what hangs under it" : "is retired; nothing open hangs under it", dest: null };
+}
+
+/**
+ * The lines a retire confirmation names: each attached building and each open key result that moves to `dest`
+ * ("Town Workshop moves under Steer…"). Empty when nothing moves; a confirmation is asked only when a building does.
+ */
+export function retireMoves(plan: Pick<ReturnType<typeof retirePlan>, "openKrs" | "buildings">, dest: string): { buildings: string[]; krs: string[] } {
+  return {
+    buildings: plan.buildings.map((b) => `${b.name} moves under ${dest}`),
+    krs: plan.openKrs.map((k) => `Key result "${k.text}" moves under ${dest}`),
+  };
+}

@@ -15,7 +15,7 @@ import { FUNDED, treeScope } from "./funderFilter";
 import { openDocLink } from "./Markdown";
 import { QueueTab } from "./QueueTab";
 import { krStatusLabel, krTone } from "./keyResults";
-import { allBuildings, archivedLine, buildingScope, canEditGoal, findGoal, isArchived, moveTargets, nodeGlance, pastDue, pathTo, retirePlan, subtreeIds, treeRows, visibleRows, type TreeKr } from "./goalTree";
+import { allBuildings, archivedLine, buildingScope, canEditGoal, findGoal, isArchived, moveTargets, nodeGlance, pastDue, pathTo, proposalVerb, retireMoves, retirePlan, subtreeIds, treeRows, visibleRows, type TreeKr } from "./goalTree";
 import { Act, Empty, ErrorLine, Feed, Field, Loading, Pill, Section, Tabs, nameOf, useLoad } from "./ui";
 
 const today = () => new Date().toISOString().slice(0, 10);
@@ -430,7 +430,11 @@ function OwnerForm({ node, me, onDone }: { node: GoalTreeNode; me: { userId: str
 function RetireForm({ root, node, onDone }: { root: GoalTreeNode; node: GoalTreeNode; onDone: () => void }) {
   const plan = retirePlan(root, node.id);
   const [to, setTo] = useState(""), [note, setNote] = useState("");
+  const [confirm, setConfirm] = useState(false);
   const mustMove = plan.openKrs.length + plan.buildings.length > 0;
+  const retire = () => api().retireGoal(node.id, { ...(to ? { moveTo: to } : {}), note }).then(onDone);
+  const dest = plan.siblings.find((s) => s.id === to);
+  if (confirm && dest) return <RetireConfirm goal={node.text} plan={plan} dest={dest.text} confirmLabel="Retire goal" onConfirm={retire} onCancel={() => setConfirm(false)} />;
   return (
     <div className="goal-form">
       {mustMove ? <>
@@ -447,7 +451,31 @@ function RetireForm({ root, node, onDone }: { root: GoalTreeNode; node: GoalTree
         </Field>
       </> : <div className="muted">Nothing open hangs here: retiring it just hides it behind "Show retired". Its archived key results stay under it.</div>}
       <Field label="Why (optional)"><input value={note} maxLength={2000} onChange={(e) => setNote(e.target.value)} /></Field>
-      <Act small tone="bad" disabled={mustMove && !to} run={() => api().retireGoal(node.id, { ...(to ? { moveTo: to } : {}), note }).then(onDone)}>Retire goal</Act>
+      {plan.buildings.length && dest ? <button className="btn sm bad" onClick={() => setConfirm(true)}>Retire goal…</button>
+        : <Act small tone="bad" disabled={mustMove && !to} run={retire}>Retire goal</Act>}
+    </div>
+  );
+}
+
+/**
+ * Asked before a retire runs when a building is attached in the goal's subtree (the Retire form and accepting a retire
+ * proposal, in the editor and the review deck): names each building and open key result that moves, and says that a
+ * building is never archived here (core Goals.retire refuses to orphan one and moves it instead).
+ */
+export function RetireConfirm({ goal, plan, dest, confirmLabel, onConfirm, onCancel }: { goal: string; plan: Pick<ReturnType<typeof retirePlan>, "openKrs" | "buildings">; dest: string; confirmLabel: string; onConfirm: () => Promise<unknown>; onCancel: () => void }) {
+  const moves = retireMoves(plan, clip(dest, 80));
+  return (
+    <div className="goal-form retire-confirm" role="alertdialog" aria-label="Confirm retire">
+      <b>Retire "{clip(goal, 80)}"?</b>
+      <ul className="goal-krs">
+        {moves.buildings.map((t) => <li key={t} className="goal-kr"><b>{t}</b></li>)}
+        {moves.krs.map((t) => <li key={t} className="goal-kr">{t}</li>)}
+      </ul>
+      <div className="muted">A building is never archived here; it moves, and its work keeps running under the new goal.</div>
+      <div className="goal-actions">
+        <Act small tone="bad" run={onConfirm}>{confirmLabel}</Act>
+        <button className="btn sm" onClick={onCancel}>Cancel</button>
+      </div>
     </div>
   );
 }
@@ -472,10 +500,10 @@ function Proposals({ root, list, me, here, onDone }: { root: GoalTreeNode; list:
   );
 }
 
-function ProposalCard({ root, p, me, onDone }: { root: GoalTreeNode; p: GoalProposalView; me: { userId: string | null; townWide: boolean }; onDone: () => void }) {
+export function ProposalCard({ root, p, me, onDone }: { root: GoalTreeNode; p: GoalProposalView; me: { userId: string | null; townWide: boolean }; onDone: () => void }) {
   const node = proposalNode(root, p);
   const can = canEditGoal(node, me);
-  const [mode, setMode] = useState<"" | "edit" | "cut">("");
+  const [mode, setMode] = useState<"" | "edit" | "cut" | "confirm">("");
   const [text, setText] = useState(p.fields.text ?? ""), [check, setCheck] = useState(p.fields.howToCheck ?? ""), [due, setDue] = useState(p.fields.due ?? "");
   const [note, setNote] = useState("");
   const target = p.targetId ? findGoal(root, p.targetId) : null;
@@ -484,22 +512,27 @@ function ProposalCard({ root, p, me, onDone }: { root: GoalTreeNode; p: GoalProp
   const parent = p.parentId ? findGoal(root, p.parentId) : null;
   const where = pathTo(root, node.id).map((g) => clip(g.text, 30)).join(" › ");
   const isKr = p.action === "add-kr" || !!targetKr;
+  const plan = p.action === "retire" && target ? retirePlan(root, target.id) : null;
+  const words = proposalVerb(p.action, parent?.text ?? null, !!plan && plan.openKrs.length + plan.buildings.length > 0);
+  const accept = () => api().decideGoalProposal(p.id, { action: "accept" }).then(onDone);
   return (
     <div className={`goal-proposal ${p.outsideScope ? "outside" : ""}`}>
       <div className="goal-proposal-head"><Pill tone="warn">{ACTION[p.action]}</Pill> <b>{p.proposedByName}</b>{p.buildingId ? <span className="muted"> · {store.state.buildings.find((b) => b.id === p.buildingId)?.name ?? p.buildingId}</span> : null}{p.outsideScope ? <Pill tone="bad" title="Outside the proposing building's subtree">outside its subtree</Pill> : null}</div>
       <div className="muted goal-path">{where}</div>
       {old && p.fields.text && p.fields.text !== old ? <div className="goal-diff"><s>{old}</s> → <b>{p.fields.text}</b></div>
-        : old ? <div className="goal-diff">{old}{(p.action === "move" || p.action === "retire") && parent ? <> → <b>{parent.text}</b></> : null}</div>
+        : old ? <div className="goal-diff">{old}{words ? <> <span className="muted">{words.verb}</span>{words.dest ? <> <b>{words.dest}</b></> : null}</> : null}</div>
         : <div className="goal-diff"><b>{p.fields.text}</b></div>}
       {p.fields.howToCheck ? <div className="muted">How to check: {p.fields.howToCheck}</div> : null}
       {p.fields.due ? <div className="muted">Due: {p.fields.due}</div> : null}
       <div className="goal-why">Why: {p.why}</div>
       {can ? <>
         <div className="goal-actions decide-footer">
-          <Act small tone="ok" run={() => api().decideGoalProposal(p.id, { action: "accept" }).then(onDone)}>Accept</Act>
+          {plan?.buildings.length && parent ? <button className="btn sm ok" onClick={() => setMode(mode === "confirm" ? "" : "confirm")}>Accept…</button>
+            : <Act small tone="ok" run={accept}>Accept</Act>}
           {p.fields.text || isKr ? <button className="btn sm" onClick={() => setMode(mode === "edit" ? "" : "edit")}>Edit and accept</button> : null}
           <button className="btn sm bad" onClick={() => setMode(mode === "cut" ? "" : "cut")}>Cut</button>
         </div>
+        {mode === "confirm" && plan && parent ? <RetireConfirm goal={old ?? ""} plan={plan} dest={parent.text} confirmLabel="Accept and retire" onConfirm={accept} onCancel={() => setMode("")} /> : null}
         {mode === "edit" ? <div className="goal-form">
           <Field label="Words"><textarea rows={2} maxLength={300} value={text} onChange={(e) => setText(e.target.value)} /></Field>
           {isKr ? <><Field label="How to check"><textarea rows={2} maxLength={300} value={check} onChange={(e) => setCheck(e.target.value)} /></Field>

@@ -1,7 +1,9 @@
 import { describe, expect, it } from "vitest";
 import type { GoalTreeNode } from "@muster-town/schema";
-import { archivedLine, buildingScope, canEditGoal, moveTargets, nodeGlance, pastDue, pathTo, retirePlan, treeRows, visibleRows } from "../src/panels/goalTree";
-import { proposalNode } from "../src/panels/GoalTreePanel";
+import { archivedLine, buildingScope, canEditGoal, moveTargets, nodeGlance, pastDue, pathTo, proposalVerb, retireMoves, retirePlan, treeRows, visibleRows } from "../src/panels/goalTree";
+import { renderToStaticMarkup } from "react-dom/server";
+import type { GoalProposalView } from "../src/api";
+import { ProposalCard, RetireConfirm, proposalNode } from "../src/panels/GoalTreePanel";
 import { clock, dayClock } from "../src/panels/ui";
 
 const kr = (id: string, status: string, due: string | null = "2026-12-01", archivedAt: string | null = null) =>
@@ -55,6 +57,35 @@ describe("the Town Hall goal editor (docs/goals.md, step 3)", () => {
     expect(targets).not.toContain("gl_fund");
     expect(targets).not.toContain("gl_town"); // already its parent
     expect(targets).toContain("gl_c");
+  });
+
+  it("move and retire cards say what happens: moves under, is retired and what goes where (mt_n25udpflus)", () => {
+    expect(proposalVerb("move", "Steer")).toEqual({ verb: "moves under", dest: "Steer" });
+    expect(proposalVerb("retire", "Steer")).toEqual({ verb: "is retired; its open key results and attached buildings go under", dest: "Steer" });
+    expect(proposalVerb("retire", null)).toEqual({ verb: "is retired; nothing open hangs under it", dest: null });
+    expect(proposalVerb("retire", null, true)!.verb).toMatch(/no sibling is named/);
+    expect(proposalVerb("edit", "Steer")).toBeNull();
+    expect(retireMoves(retirePlan(sample(), "gl_a"), "gl_b")).toEqual({ buildings: ["Workshop moves under gl_b"], krs: ['Key result "kr1" moves under gl_b'] });
+  });
+
+  it("a retire with a building attached asks to confirm, naming each building; one without accepts at once", () => {
+    const me = { userId: "u_mitchell", townWide: true };
+    const p = (over: Partial<GoalProposalView>): GoalProposalView => ({ id: "gp_1", action: "retire", targetId: "gl_a", parentId: "gl_b", fields: {}, why: "done", proposedBy: "ag_x", buildingId: null, reorgId: null, sourceDocIds: [], status: "open", decidedBy: null, decidedAt: null, note: "", resultId: null, createdAt: "2026-10-31T00:00:00Z", proposedByName: "Pix", outsideScope: false, ...over });
+    const card = (over: Partial<GoalProposalView>) => renderToStaticMarkup(<ProposalCard root={sample()} p={p(over)} me={me} onDone={() => {}} />);
+    const retire = card({});
+    expect(retire).toContain("gl_a <span class=\"muted\">is retired; its open key results and attached buildings go under</span> <b>gl_b</b>");
+    expect(retire).toContain("Accept…"); // opens the confirmation instead of accepting
+    expect(card({ action: "move", targetId: "gl_b", parentId: "gl_c" })).toContain("gl_b <span class=\"muted\">moves under</span> <b>gl_c</b>");
+    expect(card({ action: "move", targetId: "gl_b", parentId: "gl_c" })).not.toContain("→");
+    expect(card({ targetId: "gl_b", parentId: null })).toContain("is retired; nothing open hangs under it");
+    expect(card({ targetId: "gl_b", parentId: null })).not.toContain("Accept…");
+    const plan = retirePlan(sample(), "gl_a");
+    const confirm = renderToStaticMarkup(<RetireConfirm goal="gl_a" plan={plan} dest="Steer (goal-directed)" confirmLabel="Accept and retire" onConfirm={async () => {}} onCancel={() => {}} />);
+    expect(confirm).toContain("Workshop moves under Steer (goal-directed)");
+    expect(confirm).toContain("Key result &quot;kr1&quot; moves under Steer (goal-directed)");
+    expect(confirm).toContain("A building is never archived here; it moves");
+    expect(confirm).toContain("Accept and retire");
+    expect(confirm).toContain("Cancel");
   });
 
   it("the building filter covers the building's attachment and everything under it", () => {
