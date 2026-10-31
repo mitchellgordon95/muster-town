@@ -4,13 +4,13 @@
  * `/#/connect` opens "Connect your agent" (the README's Bring your own agent section links it).
  * `/#/bank` opens the Bank page (tokens received, used and left, their sources, free tokens, spending and hosting in dollars; public).
  * `/#/finance`, the old Finance page's hash, opens the Bank too (1:1 mt_ew2d0mm7h9: one Bank page).
- * `/#/meeting/<id>`, `/#/agent/<id>`, `/#/building/<id>` open that panel and `/#/kr/<id>` the goal tree at that key result: an id link
+ * `/#/meeting/<id>`, `/#/agent/<id>`, `/#/building/<id>`, `/#/assignment/<id>`, `/#/session/<id>` open that panel and `/#/kr/<id>` the goal tree at that key result: an id link
  * in a live meeting opens one in a new tab (Markdown `newTab`). They are read on load and on a hash change; the address bar doesn't follow those panels.
  * `/#/manual` opens the operating manual (the HUD's "?"), `/#/manual/<section>` at that section.
  */
 import { store, type PanelRef } from "./state";
 
-const DOC_HASH = /^#\/(doc|grant)\/([A-Za-z0-9_]+)(?:\/(\d+))?$|^#\/(connect|bank|finance)$|^#\/(manual)(?:\/([a-z0-9-]+))?$|^#\/(meeting|agent|building|kr)\/([a-z]{2}_[a-z0-9]{10})$/;
+const DOC_HASH = /^#\/(doc|grant)\/([A-Za-z0-9_]+)(?:\/(\d+))?$|^#\/(connect|bank|finance)$|^#\/(manual)(?:\/([a-z0-9-]+))?$|^#\/(meeting|agent|building|kr|assignment|session)\/([a-z]{2}_[a-z0-9]{10})$/;
 
 /** True when the page was opened on a shared doc or grant link. */
 export const isDocHash = () => DOC_HASH.test(location.hash);
@@ -39,7 +39,7 @@ const hashOf = (p: PanelRef | null): string => p?.kind === "library" && p.docId 
 function openFromHash() {
   const m = DOC_HASH.exec(location.hash);
   if (!m) return;
-  const want: PanelRef = m[7] ? { kind: m[7] === "kr" ? "goals" : m[7] as "meeting" | "agent" | "building", id: m[8] } : m[5] ? { kind: "manual", ...(m[6] ? { id: m[6] } : {}) } : m[4] ? { kind: m[4] === "connect" ? "connect" : "bank" } : m[1] === "grant" ? { kind: "grant", id: m[2] } : { kind: "library", docId: m[2] };
+  const want: PanelRef = m[7] ? { kind: m[7] === "kr" ? "goals" : m[7] as "meeting" | "agent" | "building" | "assignment" | "session", id: m[8] } : m[5] ? { kind: "manual", ...(m[6] ? { id: m[6] } : {}) } : m[4] ? { kind: m[4] === "connect" ? "connect" : "bank" } : m[1] === "grant" ? { kind: "grant", id: m[2] } : { kind: "library", docId: m[2] };
   if (m[4] === "finance") history.replaceState(null, "", "#/bank"); // the old Finance page's hash: its sections are on the Bank page now
   // a deck's slide hash (`/<n>`) is the deck viewer's to follow; it doesn't reopen the panel showing that deck
   if (m[1] === "doc" && m[2] === shownDeck) return;
