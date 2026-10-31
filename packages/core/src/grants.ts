@@ -706,7 +706,7 @@ ${krs}
       // a human who can fund the building, or the owner of the key result's goal (docs/goals.md "Captains on nodes")
       if (judged) {
         if (!this.world.permissions.can(actor, "building.fund", kr.buildingId) && !(kr.goalId && this.world.goalTree.owns(actor, kr.goalId))) throw forbidden("building.fund");
-      } else if (!this.canManage(actor, kr.buildingId)) throw forbidden("building.manage");
+      } else if (!this.canManage(actor, kr.buildingId) && !this.managesGrantOf(actor, kr)) throw forbidden("building.manage");
       // a human marking it missed says why: the line is the postmortem's source (docs/goals.md "Postmortems on missed KRs")
       if (inp.status === "missed" && kr.status !== "missed" && actor.kind === "human" && !inp.note.trim()) throw badRequest("Say why it was missed (note): the line files the postmortem's source.");
     }
@@ -730,6 +730,16 @@ ${krs}
   }
 
   // ---- helpers ----
+  /**
+   * The manager of the grant that carries a key result sets its status (up to `claimed`) even when the key result sits under another
+   * building (a grant filed against a goal outside its building, or a goal key result folded into a grant: gr_mjr7nb438v, a Workshop
+   * grant on Onboarding's kr_hee2pa2d5r, whose checkpoint was refused on 2026-10-31).
+   */
+  private managesGrantOf(actor: Actor, kr: KeyResult): boolean {
+    const g = kr.grantId ? this.world.grants.get(kr.grantId) : undefined;
+    return !!g && this.canManage(actor, g.buildingId);
+  }
+
   /** A grant's key results as brief lines: id, status, words, how to check, due. */
   private krLines(g: Grant): string {
     const krs = this.keyResultsOf(g.id);
