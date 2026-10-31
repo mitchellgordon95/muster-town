@@ -5,7 +5,7 @@
  * only when one is due; otherwise it ends without a report. Reports that land and the human's 1:1 lines are streamed
  * into it, so it keeps the context of what it already decided; while a 1:1 is open it stays open between turns.
  */
-import { endMeeting, humanDecisionsBlock, humanTyping, intrayOf, managePrompt, managerAgentOf, managerNewReport, oneOnOneEnded, oneOnOnePrompt, oneOnOneUtterance, sessionMemory, skillsBlock, workSystemPrompt, type World } from "@muster-town/core";
+import { endMeeting, humanDecisionsBlock, humanTyping, intrayOf, managePrompt, managerAgentOf, managerNewReport, meetingNotice, oneOnOneEnded, oneOnOnePrompt, oneOnOneUtterance, sessionMemory, skillsBlock, workSystemPrompt, type World } from "@muster-town/core";
 import type { Agent, Doc, Meeting, Session } from "@muster-town/schema";
 import { homeOf, runAgentSession, type Ctx } from "./session.ts";
 
@@ -14,8 +14,10 @@ export interface ManageState {
   offered: Set<string>;
   /** 1:1 meetingId → the manage session it's fed into and how much of its transcript that session has seen */
   fed: Map<string, { sessionId: string; idx: number }>;
+  /** 1:1 meetingId → the busy session already announced in it (one "busy" notice per 1:1 per session) */
+  busyNoticed: Map<string, string>;
 }
-export const newManageState = (): ManageState => ({ offered: new Set(), fed: new Map() });
+export const newManageState = (): ManageState => ({ offered: new Set(), fed: new Map(), busyNoticed: new Map() });
 
 /** A 1:1 nobody spoke in for this long (and nobody is typing in) is closed by the town. */
 export const ONE_ON_ONE_QUIET_MS = 20 * 60_000;
@@ -66,6 +68,7 @@ export function wakeManager(ctx: Ctx, st: ManageState, gate: ManageGate, buildin
     const m = world.meetings.get(mid);
     if (m?.buildingId === building.id && m.phase !== "discussing" && ![...ctx.live.values()].some((l) => l.sessionId === f.sessionId)) st.fed.delete(mid);
   }
+  for (const mid of [...st.busyNoticed.keys()]) if (world.meetings.get(mid)?.phase !== "discussing") st.busyNoticed.delete(mid);
   return out;
 }
 
@@ -85,8 +88,9 @@ function wakeTalker(ctx: Ctx, st: ManageState, gate: ManageGate, agent: Agent, f
     if (m && feedable) live.input.push(oneOnOneEnded(m));
   }
   if (live) {
-    // a work session (or a desk) is busy: the tick offers these once it has ended
-    if (!feedable) return null;
+    // a work session (or a desk) is busy: the tick offers these once it has ended; meanwhile the human is told why it's
+    // silent (Mitchell's 1:1 with Nell mt_v79lzn92wk got no answer and no word while her desk session ran)
+    if (!feedable) { noticeBusy(ctx, st, agent, live.sessionId, talks); return null; }
     // while draining the session keeps answering its 1:1s (the drain waits on it only briefly, then the restart cuts it
     // and a new session resumes the 1:1 from its transcript; docs/meetings.md §6); new reports wait for the new server
     if (gate.draining() && !talks.length) return null;
@@ -110,16 +114,42 @@ function wakeTalker(ctx: Ctx, st: ManageState, gate: ManageGate, agent: Agent, f
   return runManageSession(ctx, st, agent.id, offer, talks);
 }
 
+/** Tell each open 1:1 (once per busy session) that its agent is in another session and answers when that ends. */
+function noticeBusy(ctx: Ctx, st: ManageState, agent: Agent, sessionId: string, talks: Meeting[]): void {
+  const { world } = ctx;
+  for (const m of talks) {
+    if (st.busyNoticed.get(m.id) === sessionId) continue;
+    st.busyNoticed.set(m.id, sessionId);
+    const asg = world.sessions.get(sessionId)?.assignmentId;
+    const title = asg ? world.assignments.get(asg)?.title : undefined;
+    meetingNotice(world, m.id, `${agent.name} is in a work session${title ? ` ("${title.length > 80 ? title.slice(0, 79) + "…" : title}")` : ""} and answers here when it ends.`);
+  }
+}
+
+/** A 1:1 whose last word is the human's while its agent is busy in a work session: it waits for that session to end. */
+const awaitingBusyAgent = (ctx: Ctx, m: Meeting): boolean => {
+  const live = ctx.live.get(m.facilitatorId ?? "");
+  const last = [...m.transcript].reverse().find((u) => u.speakerKind !== "system");
+  return !!live && live.purpose !== "manage" && !!last && last.speakerId !== m.facilitatorId;
+};
+
 /** What a 1:1's prompt carries after the conversation: the human's past decisions, and the Planner's brief in a Planner 1:1. */
 const talkBlocks = (world: World, m: Meeting): string => [humanDecisionsBlock(world, m), world.reorgs.plannerBrief(m)].filter(Boolean).join("\n\n");
 
-/** Close 1:1s nobody spoke in for ONE_ON_ONE_QUIET_MS (nobody typing either). The phase event wakes the manager to wrap up. */
+/**
+ * Close 1:1s nobody spoke in for ONE_ON_ONE_QUIET_MS (nobody typing either). The phase event wakes the manager to wrap up.
+ * A 1:1 whose human line waits on an agent busy in a work session stays open; once the work ends the tick (which runs this
+ * after `wakeManager`) starts the answering session, and the quiet clock restarts from that session's start.
+ */
 export function closeQuietOneOnOnes(ctx: Ctx): void {
   const { world } = ctx;
   const now = ctx.now().getTime();
   for (const m of world.meetings.where("kind = 'one-on-one' AND phase = 'discussing'")) {
-    const last = Date.parse(m.transcript.at(-1)?.at ?? m.startedAt ?? m.createdAt);
-    if (now - last < ONE_ON_ONE_QUIET_MS || humanTyping(world, m.id, now)) continue;
+    // quiet since the last line, or since the agent's manage session started (woken late, after a work session ended)
+    const live = ctx.live.get(m.facilitatorId ?? "");
+    const started = live?.purpose === "manage" ? Date.parse(world.sessions.get(live.sessionId)?.startedAt ?? "") || 0 : 0;
+    const last = Math.max(Date.parse(m.transcript.at(-1)?.at ?? m.startedAt ?? m.createdAt), started);
+    if (now - last < ONE_ON_ONE_QUIET_MS || humanTyping(world, m.id, now) || awaitingBusyAgent(ctx, m)) continue;
     endMeeting(world, null, m.id, `Quiet for ${ONE_ON_ONE_QUIET_MS / 60_000} minutes; closed by the town.`, { kind: "system", id: "quiet-1:1" });
   }
 }
