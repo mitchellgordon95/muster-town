@@ -1,5 +1,5 @@
 /** `Api` implemented against the in-memory Sim. Same interface as HttpApi, so every panel works offline. */
-import type { AccessRequest, AccessRequestView, Agent, Assignment, AssignmentCard, AuthMe, BlockedAssignment, BlockedBy, BuildingStats, Schedule, Building, Doc, Event, Meeting, Membership, RedeployLive, ReviewDeck, ReviewSlide } from "@muster-town/schema";
+import type { AccessRequest, AccessRequestView, Agent, Assignment, AssignmentCard, AuthMe, BlockedAssignment, BlockedBy, BuildingStats, Schedule, Building, Doc, Event, Meeting, Membership, MapLayout, RedeployLive, ReviewDeck, ReviewSlide } from "@muster-town/schema";
 import { BuildingDefaults, NEW_LAB_LOT, REVIEW_DECK_ID, desksForLot, funderSlide, parseDeck } from "@muster-town/schema";
 import { BACKFILL, BOARD_TYPES, KPI_FRAMING, ZERO_TOKENS, addTokens, backfillFamily, splitRaw, type FreeTokens, type GoalTreeNode, type GoalSpend, type QueueBoard, type FunderWeek } from "@muster-town/schema";
 import type { Api, AgentDetail, AllocationRow, Bank, Budget, Finance, FinanceFly, FinanceSources, FinanceSpend, Cabinet, CabinetQuery, DocQuery, EventQuery, In, LayoutPreview, FunderWeekView, RoomLayout, RequestAction, SessionDetail, Snapshot, Socket, SocketHandlers, ThreadMessage, WriteDocInput } from "../api";
@@ -349,6 +349,12 @@ export class MockApi implements Api {
     return clone({ assignment: n, agent });
   }
 
+  async setMapLayout(layout: MapLayout) {
+    await wait();
+    this.sim.town.mapLayout = layout;
+    return clone({ mapLayout: layout });
+  }
+
   async setTownDefaults(patch: Partial<BuildingDefaults>) {
     await wait();
     const defaults = BuildingDefaults.parse({ codeAccess: !!this.sim.town.workspace, ...this.sim.town.defaults, ...patch });
@@ -635,11 +641,23 @@ export class MockApi implements Api {
       sumCheck: { ok: diff === 0, diff, identity: "used + expired + left = total + overdrawn" }, at: now(),
     };
   }
-  // the toy has no sessions table: all of `used` is one unattributed row
+  // the toy has no sessions table: all of `used` (and a toy unpaid part) is one building row
   async financeSpend(): Promise<FinanceSpend> {
     const { used } = await this.finance();
-    const rows: FinanceSpend["rows"] = used ? [{ kind: "unattributed", id: null, name: "Unattributed (usage no session counts)", tokens: used, share: 1, sessions: 0 }] : [];
-    return { used, sessionsTotal: 0, unattributed: used, weightMismatch: 0, weightMismatchNote: "The toy Bank was born adjusted: no pre-conversion sessions.", convertedAt: null, notFunded: 0, notFundedSplit: [], notFundedLastAt: null, notFundedAllocationPaid: 0, notFundedSplitCheck: { sum: 0, notFunded: 0, ok: true }, rows, check: { ok: true, diff: 0, identity: "buildings + unattributed − weight mismatch − not funded = used" }, at: now() };
+    // sessions counted past what was paid: one building row and a toy not-funded row (so the Spending tab shows its note,
+    // split two buildings and the unattributed part, summing to it exactly); with a not-funded row nothing is unattributed
+    const notFunded = used ? 1_200 : 0;
+    const notFundedSplit: FinanceSpend["notFundedSplit"] = notFunded ? [
+      { buildingId: "workshop", buildingName: "Town Workshop", usageRows: 3, tokens: 800 },
+      { buildingId: "bl_research", buildingName: "Research", usageRows: 2, tokens: 300 },
+      { buildingId: null, buildingName: "unattributed", usageRows: 1, tokens: 100 },
+    ] : [];
+    const share = (t: number) => (used ? t / used : 0);
+    const rows: FinanceSpend["rows"] = used ? [
+      { kind: "building", id: "workshop", name: "Town Workshop", tokens: used + notFunded, share: share(used + notFunded), sessions: 1 },
+      { kind: "not-funded", id: null, name: "Not funded: work sessions the Bank never charged", tokens: -notFunded, share: share(-notFunded), sessions: 0 },
+    ] : [];
+    return { used, sessionsTotal: used + notFunded, unattributed: 0, weightMismatch: 0, weightMismatchNote: "The toy Bank was born adjusted: no pre-conversion sessions.", convertedAt: null, notFunded, notFundedSplit, notFundedLastAt: notFunded ? "2026-10-26T22:52:13.738Z" : null, notFundedAllocationPaid: notFunded ? 300 : 0, notFundedSplitCheck: { sum: notFunded, notFunded, ok: true }, rows, check: { ok: true, diff: 0, identity: "buildings + unattributed − weight mismatch − not funded = used" }, at: now() };
   }
   // the toy's sources, counted like its finance(): each live input credited once at creation, each donation at its size
   async financeSources(): Promise<FinanceSources> {
@@ -765,6 +783,8 @@ export class MockApi implements Api {
         b = { kind: "decision", targetId: w.decision, placeId: `intray:${d?.buildingId ?? a.buildingId}`, text: `waits for a decision on "${d?.title ?? w.decision}"` };
       } else if ("deploy" in w) {
         b = { kind: "deploy", targetId: w.deploy, placeId: `door:${a.buildingId}`, text: w.deploy === "next" ? "waits for the next redeploy" : `waits for deploy ${w.deploy.slice(0, 7)} (live is mock)` };
+      } else if ("pr" in w) {
+        b = { kind: "pr", targetId: String(w.pr), placeId: `door:${a.buildingId}`, text: `waiting on PR #${w.pr} checks: ${Math.round((Date.now() - Date.parse(a.createdAt)) / 60_000)} min so far (mock)` };
       } else continue; // a time: parked work resumes by itself, not blocked
       (out[a.agentId] ??= []).push({ assignmentId: a.id, title: a.title, blockedBy: b });
     }

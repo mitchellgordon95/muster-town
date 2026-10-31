@@ -15,6 +15,7 @@ import { closeQuietOneOnOnes, newManageState, openOneOnOnes, wakeManager } from 
 import { advanceCollecting, facilitate, newMeetingState, onMeetingMention, onMeetingStart } from "./meetings.ts";
 import { hostedEnv, InputChannel, realSdk, type Sdk } from "./sdk.ts";
 import { fundingForSession, type Ctx } from "./session.ts";
+import { createPrPoller, type PrPollerDeps } from "./pr-checks.ts";
 import { reconcileDue } from "./reconcile.ts";
 export { reconcileDue } from "./reconcile.ts";
 import { abortWork, finishWorkSession, interrupt, runWorkSession, type WorkOutcome } from "./work.ts";
@@ -77,6 +78,8 @@ export interface RuntimeOptions {
    * key, token or ~/.claude) and run on its own API key only; in-process sessions only (no desks), HOSTED_MAX_RUNNING at a time; no redeploy.
    */
   hosted?: { dir: string };
+  /** `{pr}` wait polling (tests inject fetch, everyMs) */
+  prChecks?: Pick<PrPollerDeps, "fetch" | "everyMs">;
 }
 
 /** An adopted desk session that neither polls control nor posts activity for this long has lost its desk: it is ended and re-queued. */
@@ -155,6 +158,8 @@ export function startRuntime(opts: RuntimeOptions): Runtime {
     ctx.code = codeSource(ctx.repoRoot, opts.codeDir, { gitEnv: () => gitAuthEnv(world, desks.ghToken) });
     void track(ctx.code.fresh());
   }
+  // `{pr}` waits: the PR's checks as last read from GitHub (pr-checks.ts), polled from the tick about once a minute
+  const prPoller = createPrPoller(world, { repoUrl: () => world.town.get().workspace?.repoUrl, token: () => repoToken(world, desks.ghToken), now, log: (m) => console.warn(`[runtime] ${m}`), ...opts.prChecks });
   // a collective with a repo whose desks get no GitHub token: private clones and pushes fail at the first work session, so say so at boot
   if (world.town.get().workspace?.repoUrl && !opts.deskOptions?.ghToken && desks.backend !== "host" && !repoToken(world, desks.ghToken)) {
     console.warn(`[runtime] WARNING: the collective has a repo but no GitHub token for it (${noRepoTokenReason(desks.ghToken)}): desks can't clone or push a private repo and redeploy can't pull one. Set the GH_TOKEN secret at the Town Hall.`);
@@ -595,6 +600,7 @@ export function startRuntime(opts: RuntimeOptions): Runtime {
     if (t - lastPresence >= PRESENCE_TICK_MS) { lastPresence = t; presenceTick(); }
     try { world.budget.resumeEligible(); } catch (e) { log("budget resume")(e); }
     try { scheduleMeetings(t); } catch (e) { log("meetings")(e); }
+    void track(prPoller.poll()).catch(log("pr checks"));
     try { checkWaits(world, d); } catch (e) { log("waits")(e); }
     try { stopOverdueForks(world, d); } catch (e) { log("stop forks")(e); }
     if (ctx.code) void track(ctx.code.fresh()).catch(log("code checkout"));
@@ -755,6 +761,8 @@ export function startRuntime(opts: RuntimeOptions): Runtime {
     return v;
   };
   world.host.isLive = hostIsLive;
+  const hostPrChecks = (pr: number) => prPoller.get(pr);
+  world.host.prChecks = hostPrChecks;
 
   return {
     async stop() {
@@ -767,6 +775,7 @@ export function startRuntime(opts: RuntimeOptions): Runtime {
       if (commit && world.host.commit === commit) delete world.host.commit;
       if (world.host.startedAt === bootIso) delete world.host.startedAt;
       if (world.host.isLive === hostIsLive) delete world.host.isLive;
+      if (world.host.prChecks === hostPrChecks) delete world.host.prChecks;
       if (timer) clearInterval(timer);
       waker.stop();
       for (const id of [...ctx.live.keys()]) abortWork(ctx, id);
