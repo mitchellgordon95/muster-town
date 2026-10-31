@@ -103,7 +103,7 @@ describe("work session", () => {
 
   test("budget exhaustion from usage sets out-of-budget and blocks the scheduler", async () => {
     const { world, runtime, sdk, by, lab } = setup(happyWork);
-    world.ops.updateBuilding(null, lab.id, { dailyTokensPerAgent: 500 });
+    world.setTownDefaults({ dailyTokensPerAgent: 500 });
     const mei = by("Mei");
     const asg = world.ops.createWork(null, mei.id, {});
     await runtime.runWorkSession(mei.id, asg.id);

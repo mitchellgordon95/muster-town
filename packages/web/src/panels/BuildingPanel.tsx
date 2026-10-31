@@ -1,7 +1,7 @@
 /** Building panel (E at the door): overview, goals, grants and schedule (labs; GoalsTab.tsx), settings (managers: name, the goal it is attached to, desks, manager; 1:1 mt_n25udpflus decision 3: a building is a thin layer on the goal tree). No Members tab (flag dc_v7ejy1j5ri): roles live on the planning desk; live forks show on the map. Board, filing cabinet and in-tray are places; the collective's secrets are a planning-desk tab. */
 import { isFork } from "../forks";
 import { useEffect, useMemo, useState, type ReactNode } from "react";
-import { DEFAULT_POOL_ID, MAX_HEADCOUNT, ROOT_GOAL_ID, type Schedule, type SnapshotBuilding, type Workspace } from "@muster-town/schema";
+import { BuildingDefaults, DEFAULT_POOL_ID, MAX_HEADCOUNT, ROOT_GOAL_ID, type Schedule, type SnapshotBuilding, type Workspace } from "@muster-town/schema";
 import { fmtPct, poolColor } from "../pools";
 import { api } from "../api";
 import { store, useTown } from "../state";
@@ -116,15 +116,20 @@ function Overview({ b }: { b: SnapshotBuilding }) {
             : row && row.allocated > 0 ? <>{fmtTokens(row.allocated - row.spent)} left of {fmtTokens(row.allocated)} <Meter v={row.spent / row.allocated} /></>
             : budget.loading ? "…" : "nothing to draw"],
           ["Spent", row?.spentUsd !== undefined ? usd(row.spentUsd) : "—"],
-          ["Models", `${b.model} · cheap: ${b.cheapModel}`],
-          ["Daily / agent", `${fmtTokens(b.dailyTokensPerAgent)} ${ADJ}`],
+          ["Collective defaults", defaultsLine(b, repo)],
           ["Desks", `${members.length} / ${b.headcount}`],
           ["In-tray", b.managerAgentId ? `worked by ★ ${agents[b.managerAgentId]?.name ?? "the manager agent"}` : "worked by you (no manager agent)"],
-          ...(b.codeAccess && repo ? [["Code", <>the collective repo <code>{repoLabel(repo)}</code></>] as [string, ReactNode]] : []),
         ] : []) as [string, ReactNode][],
       ]} />
     </>
   );
+}
+
+/** The collective defaults as this building runs them (read-only here; an admin sets them in the Town Hall's Settings). */
+function defaultsLine(b: SnapshotBuilding, repo: Workspace | undefined): ReactNode {
+  return <span title="Set for every building at once in the Town Hall's Settings (admins)">
+    {b.model} · cheap: {b.cheapModel} · {fmtTokens(b.dailyTokensPerAgent)} {ADJ} / agent / day · {b.maxTurnsPerSession} turns{b.codeAccess && repo ? <> · code on <code>{repoLabel(repo)}</code></> : " · no code access"}
+  </span>;
 }
 
 /** What a fire creates, in words: its lane and who takes it ("exploration · the building queue (a fork runs it)"). */
@@ -171,9 +176,7 @@ export function ScheduledList({ b }: { b: SnapshotBuilding }) {
 }
 
 export function Settings({ b }: { b: SnapshotBuilding }) {
-  const [f, setF] = useState({ name: b.name, model: b.model, cheapModel: b.cheapModel, maxTurnsPerSession: b.maxTurnsPerSession, managerAgentId: b.managerAgentId, codeAccess: b.codeAccess });
-  const [daily, setDaily] = useState(toMillions(b.dailyTokensPerAgent));
-  const dailyTokens = fromMillions(daily);
+  const [f, setF] = useState({ name: b.name, managerAgentId: b.managerAgentId });
   // Desks sets the building's size on the map (drawn from the goal tree) and its daily cap: town.manage_buildings
   const [desks, setDesks] = useState(b.headcount);
   const canDesks = b.kind === "lab" && store.can("town.manage_buildings");
@@ -182,7 +185,7 @@ export function Settings({ b }: { b: SnapshotBuilding }) {
   const [goalId, setGoalId] = useState(b.goalId ?? ROOT_GOAL_ID);
   const canAttach = b.kind === "lab" && store.can("goals.edit");
   const agents = useTown((s) => s.agents);
-  const repo = useTown((s) => s.town?.workspace);
+  const admin = useTown((s) => !!s.me?.isAdmin);
   const named = useMemo(() => Object.values(agents).filter((a) => a.kind === "resident" && !isFork(a) && a.homeBuildingId === b.id).sort((x, y) => x.name.localeCompare(y.name)), [agents, b.id]);
   const set = <K extends keyof typeof f>(k: K, v: (typeof f)[K]) => setF((x) => ({ ...x, [k]: v }));
   return (<>
@@ -196,7 +199,7 @@ export function Settings({ b }: { b: SnapshotBuilding }) {
           <GoalPicker value={goalId} onChange={setGoalId} disabled={!canAttach} />
         </Field>
       ) : null}
-      <Field label="Desks" hint={`The building's size on the map follows its desks (the map is drawn from the goal tree; a full lab adds one when a fork needs it). This also sets the daily cap (daily budget / agent × desks).${canDesks ? "" : " Changing it takes town.manage_buildings."}`}>
+      <Field label="Desks" hint={`The building's size on the map follows its desks (the map is drawn from the goal tree; a full lab adds one when a fork needs it). This also sets the daily cap (the collective's daily budget / agent × desks).${canDesks ? "" : " Changing it takes town.manage_buildings."}`}>
         {canDesks
           ? <span><input type="number" min={1} max={MAX_HEADCOUNT} value={desks} onChange={(e) => setDesks(Math.max(1, Math.min(MAX_HEADCOUNT, Math.floor(Number(e.target.value)) || 1)))} /> {b.lot ? `${b.lot.w}×${b.lot.h} now` : ""}</span>
           : <span>{b.lot ? `${b.lot.w}×${b.lot.h} · ` : ""}{b.headcount} desk{b.headcount === 1 ? "" : "s"}</span>}
@@ -207,23 +210,10 @@ export function Settings({ b }: { b: SnapshotBuilding }) {
           {named.map((a) => <option key={a.id} value={a.id} disabled={a.status === "stopped" || a.status === "banned"}>{a.name}{a.status === "stopped" || a.status === "banned" ? ` (${a.status})` : ""}</option>)}
         </select>
       </Field>
-      <div className="row2">
-        <Field label="Model"><input value={f.model} onChange={(e) => set("model", e.target.value)} /></Field>
-        <Field label="Cheap model"><input value={f.cheapModel} onChange={(e) => set("cheapModel", e.target.value)} /></Field>
-      </div>
-      <div className="row2">
-        <Field label="Daily budget / agent"><MTokensInput value={daily} onChange={setDaily} /></Field>
-        <Field label="Max turns / session" hint="Safety rail"><NumberInput min={1} value={f.maxTurnsPerSession} onChange={(n) => set("maxTurnsPerSession", n)} /></Field>
-      </div>
-      <Field label="Code access" hint={repo
-        ? "The manager and its forks work on the collective's repo, each on its own branch. Every building shares this one repo; it's set for the whole collective. Needs Docker and a Claude token in the collective's .env on the host (README, Run it)."
-        : "This collective has no repo yet (collective.json `workspace`), so there is nothing to give code access to."}>
-        <span className="check"><input type="checkbox" checked={f.codeAccess} disabled={!repo && !f.codeAccess} onChange={(e) => set("codeAccess", e.target.checked)} /> {repo ? <>Work on <code>{repoLabel(repo)}</code></> : "No collective repo"}</span>
-      </Field>
-      <div className="actions"><Act tone="primary" disabled={!(dailyTokens > 0)} title={dailyTokens > 0 ? undefined : "Daily budget must be above 0" } run={async () => {
+      <div className="actions"><Act tone="primary" run={async () => {
         const { name, ...rest } = f;
         const next = await api().updateBuilding(b.id, {
-          ...rest, dailyTokensPerAgent: dailyTokens,
+          ...rest,
           ...(name.trim() !== b.name ? { name: name.trim() } : {}),
           ...(canAttach && goalId !== (b.goalId ?? ROOT_GOAL_ID) ? { goalId } : {}),
           ...(canDesks && desks !== b.headcount ? { headcount: desks } : {}),
@@ -233,10 +223,55 @@ export function Settings({ b }: { b: SnapshotBuilding }) {
       }}>Save settings</Act></div>
     </form>
     </Section>
+    {b.kind === "town-hall" && admin ? <CollectiveDefaults /> : null}
     {b.kind === "town-hall" ? <Section title="Dashboard"><p className="direction">The town goal is three KPIs, Fund, Join and Trust, with every building's objectives under them. <button className="link" onClick={() => store.open({ kind: "dashboard" })}>Open the dashboard</button></p></Section> : null}
     <PoolPicker b={b} />
     {b.kind !== "town-hall" && store.can("building.fund", b.id) ? <ExplorationBudget b={b} /> : null}
   </>);
+}
+
+/**
+ * The collective defaults (1:1 mt_n25udpflus decision 3): model, cheap model, daily budget per agent, max turns and code
+ * access for every building at once (PUT /api/town/defaults, admins). Saving writes them through to every lab.
+ */
+function CollectiveDefaults() {
+  const town = useTown((s) => s.town);
+  const buildings = useTown((s) => s.buildings);
+  const labs = useMemo(() => buildings.filter((x) => x.kind === "lab"), [buildings]);
+  const repo = town?.workspace;
+  const d = BuildingDefaults.parse({ codeAccess: !!repo, ...town?.defaults });
+  const [f, setF] = useState({ model: d.model, cheapModel: d.cheapModel, maxTurnsPerSession: d.maxTurnsPerSession, codeAccess: d.codeAccess });
+  const [daily, setDaily] = useState(toMillions(d.dailyTokensPerAgent));
+  const dailyTokens = fromMillions(daily);
+  const set = <K extends keyof typeof f>(k: K, v: (typeof f)[K]) => setF((x) => ({ ...x, [k]: v }));
+  const next = { ...f, dailyTokensPerAgent: dailyTokens };
+  const differ = labs.filter((x) => (Object.keys(next) as (keyof typeof next)[]).some((k) => x[k] !== next[k]));
+  return (
+    <Section title="Collective defaults">
+      <form className="form" onSubmit={(e) => e.preventDefault()}>
+        <p className="direction">Every building runs on these. Saving applies them to every building at once; desks are the only setting a building keeps for itself.</p>
+        <div className="row2">
+          <Field label="Model"><input value={f.model} onChange={(e) => set("model", e.target.value)} /></Field>
+          <Field label="Cheap model" hint="Proxy chat"><input value={f.cheapModel} onChange={(e) => set("cheapModel", e.target.value)} /></Field>
+        </div>
+        <div className="row2">
+          <Field label="Daily budget / agent" hint="A manager and its forks share this × desks"><MTokensInput value={daily} onChange={setDaily} /></Field>
+          <Field label="Max turns / session" hint="Safety rail"><NumberInput min={1} value={f.maxTurnsPerSession} onChange={(n) => set("maxTurnsPerSession", n)} /></Field>
+        </div>
+        <Field label="Code access" hint={repo
+          ? "Managers and their forks work on the collective's repo, each on its own branch. Needs Docker and a Claude token in the collective's .env on the host (README, Run it)."
+          : "This collective has no repo yet (collective.json `workspace`), so there is nothing to give code access to."}>
+          <span className="check"><input type="checkbox" checked={f.codeAccess} disabled={!repo && !f.codeAccess} onChange={(e) => set("codeAccess", e.target.checked)} /> {repo ? <>Work on <code>{repoLabel(repo)}</code></> : "No collective repo"}</span>
+        </Field>
+        {differ.length ? <p className="direction">Saving changes {differ.map((x) => x.name).join(", ")} (they run on other values now).</p> : null}
+        <div className="actions"><Act tone="primary" disabled={!(dailyTokens > 0) || !f.model.trim() || !f.cheapModel.trim()} title={dailyTokens > 0 ? undefined : "Daily budget must be above 0"} run={async () => {
+          const r = await api().setTownDefaults(next);
+          if (town) store.set({ town: { ...town, defaults: r.defaults } });
+          store.toast(`Collective defaults saved for ${r.buildings.length} building${r.buildings.length === 1 ? "" : "s"}`, "ok");
+        }}>Save for every building</Act></div>
+      </form>
+    </Section>
+  );
 }
 
 /** The exploration allowance (docs/goal-directed-budgets.md); every lab is goal-directed and runs on forks. Humans who can fund only: a manager agent can't change its own budget. */

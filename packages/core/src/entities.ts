@@ -1,6 +1,6 @@
 import {
   Agent, CreateBuildingInput, ROOT_GOAL_ID, CreateResidentInput, RegisterVisitorInput,
-  type Building, type Lot, type Tile, type User,
+  type Building, type BuildingDefaults, type Lot, type Tile, type User,
 } from "@muster-town/schema";
 import { AppError, badRequest } from "./errors.ts";
 import { buildingRoleId, townRoleId } from "./permissions.ts";
@@ -22,7 +22,8 @@ export function createUser(world: World, name: string, opts: { id?: string } = {
 
 /**
  * Create a building: built-in building roles (manager/reviewer/member), creator gets `manager`,
- * lot assigned, `building.created` event. It gets code access to the collective repo when the town has one, unless told otherwise.
+ * lot assigned, `building.created` event. It copies the collective defaults (model, cheap model, max turns, daily budget,
+ * code access: `TownMeta.defaults()`).
  */
 export function createBuilding(
   world: World,
@@ -33,6 +34,10 @@ export function createBuilding(
   const inp = CreateBuildingInput.parse(input);
   // goal/description text only from old specs (seed, import-v0); the API and UI set the attachment instead
   const text = { goal: input.goal ?? "", description: input.description ?? "" };
+  // model, cheap model, max turns, daily budget and code access are the collective's defaults (PUT /api/town/defaults);
+  // an old spec's per-building value still wins at seed, and the Town Hall never gets code access
+  const own = Object.fromEntries(DEFAULT_KEYS.flatMap((k) => input[k] === undefined ? [] : [[k, input[k]]]));
+  const defaults: BuildingDefaults = { ...world.town.defaults(), ...own, ...(opts.kind === "town-hall" ? { codeAccess: false } : {}) };
   if (inp.managerAgentId) throw badRequest("A new building has no residents yet; set its manager after they join.");
   if ((inp.headcount ?? 6) > MAX_HEADCOUNT) throw badRequest(`headcount must be <= ${MAX_HEADCOUNT}`);
   const id = opts.id ?? newId("bl");
@@ -44,7 +49,7 @@ export function createBuilding(
   if (!goal || goal.status !== "active") throw badRequest(`${goalId} is not an active goal of the town tree.`);
   return world.transaction(() => {
     const building = world.buildings.upsert({
-      ...inp, ...text, name: inp.name || world.goalTree.defaultName(goalId), goalId, codeAccess: inp.codeAccess ?? (opts.kind !== "town-hall" && !!world.town.get().workspace), id, kind: opts.kind ?? "lab", createdAt: nowIso(), createdBy: creatorUserId ?? undefined, ...(opts.lot ? { lot: opts.lot } : {}),
+      ...inp, ...text, ...defaults, name: inp.name || world.goalTree.defaultName(goalId), goalId, id, kind: opts.kind ?? "lab", createdAt: nowIso(), createdBy: creatorUserId ?? undefined, ...(opts.lot ? { lot: opts.lot } : {}),
     } as Building);
     world.permissions.ensureTownRoles();
     world.permissions.ensureBuildingRoles(id);
@@ -81,8 +86,9 @@ export function syncManagerRoles(world: World): void {
   }
 }
 
-/** Goal and description text of an old spec (collective.json, v0 import); not part of the API. */
-type SpecText = { goal?: string; description?: string };
+const DEFAULT_KEYS = ["model", "cheapModel", "maxTurnsPerSession", "dailyTokensPerAgent", "codeAccess"] as const;
+/** What only old specs (collective.json buildings, import-v0) still set per building, not part of the API: goal/description text and the collective defaults' fields. */
+type SpecText = { goal?: string; description?: string } & Partial<BuildingDefaults>;
 
 /**
  * Update building settings (validated); re-lots if headcount grew. A blank name re-derives from the attachment (the new

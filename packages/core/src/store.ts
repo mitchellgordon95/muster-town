@@ -1,5 +1,5 @@
 import {
-  AccessRequest, Agent, Allocation, Assignment, BankCredit, BankDebit, BankInput, BankPool, Building, DesksConfig, Doc, Goal, GoalChange, GoalProposal, Grant, Interrupt, KeyResult, Kpi, Objective, Meeting, Membership, Message, Place, Role, Schedule, Session, SkillPin, Town, UsageEntry, User,
+  AccessRequest, Agent, Allocation, Assignment, BankCredit, BankDebit, BankInput, BankPool, Building, BuildingDefaults, DesksConfig, Doc, Goal, GoalChange, GoalProposal, Grant, Interrupt, KeyResult, Kpi, Objective, Meeting, Membership, Message, Place, Role, Schedule, Session, SkillPin, Town, UsageEntry, User,
   type ServerMessage, type TokenCountKind, type TokenCounts,
 } from "@muster-town/schema";
 import type { DB } from "./db.ts";
@@ -111,6 +111,15 @@ export class TownMeta {
   }
   isSet(): boolean {
     return !!this.db.prepare("SELECT 1 FROM meta WHERE key = 'town'").get();
+  }
+  /** The collective's defaults for every building (stored in the town row; gaps from `BuildingDefaults`, code access on when there's a repo). */
+  defaults(): BuildingDefaults {
+    const t = this.get();
+    return BuildingDefaults.parse({ codeAccess: !!t.workspace, ...t.defaults });
+  }
+  /** Whether the defaults were ever stored (seed, boot back-fill or PUT /api/town/defaults). */
+  hasDefaults(): boolean {
+    return !!this.get().defaults;
   }
   /** The runtime Waker's cursor: the last event id it has handled (docs/wakes.md §4 step 4); null before its first boot. */
   wakeCursor(): number | null {

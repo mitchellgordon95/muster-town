@@ -1,5 +1,5 @@
 import { ToolResults } from "./forkstatus.ts";
-import { mapFlagOf, townEnv, type Agent, type AgentStatus, type DesksConfig, type RedeployLive, type RedeployResult, type ServerMessage, type Tile } from "@muster-town/schema";
+import { mapFlagOf, townEnv, type Agent, type AgentStatus, type Building, type BuildingDefaults, type DesksConfig, type RedeployLive, type RedeployResult, type ServerMessage, type Tile } from "@muster-town/schema";
 import { Bank } from "./bank.ts";
 import { Budget } from "./budget.ts";
 import { Goals } from "./goals.ts";
@@ -243,6 +243,22 @@ export class World {
     const what = [given.maxRunning !== undefined ? `Session slots set to ${desks.maxRunning}` : null, given.billCapUsd !== undefined ? `Desk bill cap set to $${desks.billCapUsd}/day` : null].filter(Boolean).join("; ");
     this.events.append({ type: "system", text: what || "Desk settings saved", payload: { desks: true, maxRunning: desks.maxRunning, billCapUsd: desks.billCapUsd } });
     return desks;
+  }
+
+  /**
+   * Save the collective defaults (`PUT /api/town/defaults`, 1:1 mt_n25udpflus decision 3) and write them through to every
+   * lab, so the Building columns stay the effective values every reader uses. The Town Hall keeps its own (no code access).
+   */
+  setTownDefaults(patch: Partial<BuildingDefaults>, by: string | null = null): { defaults: BuildingDefaults; buildings: Building[] } {
+    const given = Object.fromEntries(Object.entries(patch).filter(([, v]) => v !== undefined)) as Partial<BuildingDefaults>;
+    return this.transaction(() => {
+      this.town.set({ defaults: { ...this.town.defaults(), ...given } });
+      const defaults = this.town.defaults();
+      const buildings = this.buildings.all().filter((b) => b.kind === "lab").map((b) => this.buildings.upsert({ ...b, ...defaults }));
+      this.events.append({ type: "system", agentId: by, text: `Collective defaults saved (${Object.keys(given).join(", ")}) for ${buildings.length} building${buildings.length === 1 ? "" : "s"}`, payload: { townDefaults: true, fields: Object.keys(given), defaults } });
+      for (const b of buildings) this.budget.resumeEligible(b.id); // a raised daily budget un-blocks residents that hit the old cap
+      return { defaults, buildings };
+    });
   }
 
   /**

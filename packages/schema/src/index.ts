@@ -32,6 +32,27 @@ export const Workspace = z.object({
 });
 export type Workspace = z.infer<typeof Workspace>;
 
+/**
+ * Collective defaults (1:1 mt_n25udpflus decision 3): the model, cheap model, max turns, daily budget per agent and code
+ * access are one collective setting, not building settings. `PUT /api/town/defaults` (admin) saves them and writes them
+ * through to every lab, so the Building columns hold the effective values its readers use; desks stay per building.
+ */
+export const BuildingDefaults = z.object({
+  /** model for resident work sessions; cheapModel for summaries/proxy chat */
+  model: z.string().trim().min(1).default("claude-opus-5-5"),
+  cheapModel: z.string().trim().min(1).default("claude-haiku-5-5"),
+  /** safety rail per work session, not a design parameter */
+  maxTurnsPerSession: z.number().int().positive().max(1000).default(80),
+  /** tokens each resident may spend per day (a manager's family: this × desks) */
+  dailyTokensPerAgent: z.number().int().positive().default(350_000),
+  /** residents get code tools on the collective's repo (`Town.workspace`); default: on when the collective has one */
+  codeAccess: z.boolean().default(false),
+});
+export type BuildingDefaults = z.infer<typeof BuildingDefaults>;
+/** `PUT /api/town/defaults` (admin): the keys to change. */
+export const TownDefaultsPatch = BuildingDefaults.partial().refine((p) => Object.values(p).some((v) => v !== undefined), "give at least one default");
+export type TownDefaultsPatch = z.infer<typeof TownDefaultsPatch>;
+
 export const Town = z.object({
   name: z.string(),
   goal: z.string(),
@@ -39,6 +60,8 @@ export const Town = z.object({
   goalNote: z.string().optional(),
   /** the collective's repo; every building with `codeAccess` works on it (there are no per-building repos) */
   workspace: Workspace.optional(),
+  /** the collective's defaults for every building (stored; `TownMeta.defaults()` fills the gaps); PUT /api/town/defaults sets them */
+  defaults: BuildingDefaults.partial().optional(),
 });
 export type Town = z.infer<typeof Town>;
 
@@ -1828,9 +1851,10 @@ export const WALKABLE = new Set<number>([TILE.GRASS, TILE.PATH, TILE.FLOOR, TILE
 /**
  * A building is a thin layer on the goal tree (1:1 mt_n25udpflus decision 3): its purpose is the goal it is attached to,
  * so there is no goal or description text to set (the columns stay for old rows and collective.json imports). A blank
- * or missing name is the goal's short text (core `Goals.defaultName`); a name typed by hand stays.
+ * or missing name is the goal's short text (core `Goals.defaultName`); a name typed by hand stays. Model, cheap model,
+ * max turns, daily budget per agent and code access are the collective's (`BuildingDefaults`, PUT /api/town/defaults), not per building.
  */
-export const CreateBuildingInput = Building.pick({ headcount: true, model: true, cheapModel: true, maxTurnsPerSession: true, dailyTokensPerAgent: true, meetings: true, rules: true, codeAccess: true, managerAgentId: true }).partial()
+export const CreateBuildingInput = Building.pick({ headcount: true, meetings: true, rules: true, managerAgentId: true }).partial()
   .extend({
     name: z.string().trim().max(80).optional().describe("blank or missing = the attached goal's short text"),
     goalId: Id.optional().describe("the goal of the town tree it attaches to (default: the root); never unset"),
