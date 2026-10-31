@@ -13,6 +13,7 @@
  * daily desk cap when one is set. The Bank page opens from the Bank on the map, the HUD's "$", `#/bank` or the old `#/finance`.
  */
 import { api, type Finance, type FinanceFly, type FinanceSources, type FinanceSpend, type SpendNode } from "../api";
+import type { ReactNode } from "react";
 import { ADJ, ADJ_HINT, Section, useLoad } from "./ui";
 
 const n = (x: number) => Math.round(x).toLocaleString("en-US");
@@ -53,14 +54,58 @@ export function spendCheckLine(sp: FinanceSpend): { ok: boolean; text: string } 
     : { ok: false, text: `Does not add up (off by ${n(sp.check.diff)}): the rows come to ${n(sum)}, but used is ${n(sp.used)}.` };
 }
 
-/** The note under a synthetic row; the weight-mismatch one is the API's own line. */
-export const spendNotes = (sp: Pick<FinanceSpend, "weightMismatchNote">): Partial<Record<SpendNode["kind"], string>> => ({
+/**
+ * The Not funded row's note (gr_wp2rg302qu step 2), from GET /api/finance/spend's own fields: what the row is, why (sessions
+ * the runtime skipped the debit for before PR #131; rule dc_cvp89lj91o), when it stopped (`notFundedLastAt`), the split by
+ * building (`notFundedSplit`, largest first) and that it is written off. When the split's sum differs from `notFunded` both
+ * are shown and the note says so; the allocation estimate only when it is above 0.
+ */
+export function notFundedNote(sp: Pick<FinanceSpend, "notFunded" | "notFundedSplit" | "notFundedLastAt" | "notFundedAllocationPaid" | "notFundedSplitCheck">): {
+  lines: string[]; split: { name: string; tokens: number; usageRows: number }[]; differ: string | null; after: string[];
+} {
+  const split = [...(sp.notFundedSplit ?? [])].sort((a, b) => b.tokens - a.tokens)
+    .map((b) => ({ name: b.buildingId === null ? "unattributed" : b.buildingName, tokens: b.tokens, usageRows: b.usageRows }));
+  const c = sp.notFundedSplitCheck;
+  const lines = [
+    `Usage the Bank never debited: work sessions ran, but no debit was recorded for them, so no Bank credit or donation paid for them. Taken off here so the rows sum to Used, which counts only what was paid.`,
+    `Why: before PR #131 (chargeUsage) the runtime skipped the debit for some sessions. That is fixed. A usage row counts as unpaid when no debit for the same agent lies within 2 seconds of it.`,
+    sp.notFundedLastAt ? `No new unpaid usage since ${sp.notFundedLastAt.slice(0, 10)}.` : `No usage row is unpaid by that rule.`,
+  ];
+  const differ = c && !c.ok
+    ? `These differ: the rows by building come to ${n(c.sum)} ${ADJ}, but Not funded is ${n(c.notFunded)} ${ADJ}. Not funded is exact (what sessions counted, less what was paid); the split by building is an estimate by the 2-second rule.`
+    : null;
+  const after = [`Written off: not charged to any building. The Bank's balance already reflects the real spend.`];
+  if (sp.notFundedAllocationPaid > 0) after.push(`Up to ${n(sp.notFundedAllocationPaid)} ${ADJ} of the rows by building may have been covered by donations to those buildings (an upper bound).`);
+  return { lines, split, differ, after };
+}
+
+function NotFundedNote({ sp }: { sp: FinanceSpend }) {
+  const { lines, split, differ, after } = notFundedNote(sp);
+  return (
+    <div className="muted not-funded-note">
+      {lines.map((l) => <p key={l}>{l}</p>)}
+      {split.length ? (
+        <>
+          <p>By building (usage rows with no debit):</p>
+          <ul className="not-funded-split">
+            {split.map((b) => <li key={b.name}>{b.name}: {n(b.tokens)} {ADJ} ({n(b.usageRows)} usage row{b.usageRows === 1 ? "" : "s"})</li>)}
+          </ul>
+        </>
+      ) : null}
+      {differ ? <p className="error-line">{differ}</p> : null}
+      {after.map((l) => <p key={l}>{l}</p>)}
+    </div>
+  );
+}
+
+/** The note under a synthetic row; the weight-mismatch one is the API's own line, the not-funded one `notFundedNote`. */
+export const spendNotes = (sp: FinanceSpend): Partial<Record<SpendNode["kind"], ReactNode>> => ({
   "unattributed": "Paid for from the Bank or donations but not traceable to any one work session: work from before sessions counted their own tokens.",
   "weight-mismatch": sp.weightMismatchNote,
-  "not-funded": "Work sessions that were never charged to the Bank or a donation: the sessions counted more than was paid for, even after the pricing difference above. Taken off here so the rows sum to Used, which counts only what was paid.",
+  "not-funded": <NotFundedNote sp={sp} />,
 });
 
-function SpendRow({ node, notes }: { node: SpendNode; notes: Partial<Record<SpendNode["kind"], string>> }) {
+function SpendRow({ node, notes }: { node: SpendNode; notes: Partial<Record<SpendNode["kind"], ReactNode>> }) {
   const line = (
     <span className="spend-line">
       <span className="spend-name" title={node.id ?? node.name}>{node.kind === "grant" && node.id
@@ -71,7 +116,7 @@ function SpendRow({ node, notes }: { node: SpendNode; notes: Partial<Record<Spen
     </span>
   );
   const note = notes[node.kind];
-  if (!node.children?.length) return <div className={`spend-row spend-${node.kind}`}>{line}{note ? <div className="muted">{note}</div> : null}</div>;
+  if (!node.children?.length) return <div className={`spend-row spend-${node.kind}`}>{line}{note ? (typeof note === "string" ? <div className="muted">{note}</div> : note) : null}</div>;
   return (
     <details className={`spend-row spend-${node.kind}`}>
       <summary>{line}</summary>

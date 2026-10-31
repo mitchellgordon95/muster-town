@@ -643,11 +643,23 @@ export class MockApi implements Api {
       sumCheck: { ok: diff === 0, diff, identity: "used + expired + left = total + overdrawn" }, at: now(),
     };
   }
-  // the toy has no sessions table: all of `used` is one unattributed row
+  // the toy has no sessions table: all of `used` (and a toy unpaid part) is one building row
   async financeSpend(): Promise<FinanceSpend> {
     const { used } = await this.finance();
-    const rows: FinanceSpend["rows"] = used ? [{ kind: "unattributed", id: null, name: "Unattributed (usage no session counts)", tokens: used, share: 1, sessions: 0 }] : [];
-    return { used, sessionsTotal: 0, unattributed: used, weightMismatch: 0, weightMismatchNote: "The toy Bank was born adjusted: no pre-conversion sessions.", convertedAt: null, notFunded: 0, notFundedSplit: [], notFundedLastAt: null, notFundedAllocationPaid: 0, notFundedSplitCheck: { sum: 0, notFunded: 0, ok: true }, rows, check: { ok: true, diff: 0, identity: "buildings + unattributed − weight mismatch − not funded = used" }, at: now() };
+    // sessions counted past what was paid: one building row and a toy not-funded row (so the Spending tab shows its note,
+    // split two buildings and the unattributed part, summing to it exactly); with a not-funded row nothing is unattributed
+    const notFunded = used ? 1_200 : 0;
+    const notFundedSplit: FinanceSpend["notFundedSplit"] = notFunded ? [
+      { buildingId: "workshop", buildingName: "Town Workshop", usageRows: 3, tokens: 800 },
+      { buildingId: "bl_research", buildingName: "Research", usageRows: 2, tokens: 300 },
+      { buildingId: null, buildingName: "unattributed", usageRows: 1, tokens: 100 },
+    ] : [];
+    const share = (t: number) => (used ? t / used : 0);
+    const rows: FinanceSpend["rows"] = used ? [
+      { kind: "building", id: "workshop", name: "Town Workshop", tokens: used + notFunded, share: share(used + notFunded), sessions: 1 },
+      { kind: "not-funded", id: null, name: "Not funded: work sessions the Bank never charged", tokens: -notFunded, share: share(-notFunded), sessions: 0 },
+    ] : [];
+    return { used, sessionsTotal: used + notFunded, unattributed: 0, weightMismatch: 0, weightMismatchNote: "The toy Bank was born adjusted: no pre-conversion sessions.", convertedAt: null, notFunded, notFundedSplit, notFundedLastAt: notFunded ? "2026-10-26T22:52:13.738Z" : null, notFundedAllocationPaid: notFunded ? 300 : 0, notFundedSplitCheck: { sum: notFunded, notFunded, ok: true }, rows, check: { ok: true, diff: 0, identity: "buildings + unattributed − weight mismatch − not funded = used" }, at: now() };
   }
   // the toy's sources, counted like its finance(): each live input credited once at creation, each donation at its size
   async financeSources(): Promise<FinanceSources> {
