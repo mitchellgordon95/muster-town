@@ -12,6 +12,8 @@ export async function seededApp(opts: { runtime?: RuntimeHooks | null; dev?: boo
   const seed = world.seedDefaults({ importDir: join(REPO_ROOT, "buildings/carbon-cycle"), townJsonPath: join(REPO_ROOT, "town.json") });
   // the Bank is the only place a credential lives: give the test town its subscription token (never credited: first renewal far off)
   world.bank.addInput(seed.admin.id, { label: "Test subscription", source: "subscription", model: "claude-sonnet-5-5", tokens: 1, recurrence: "daily", weeklyCapTokens: 1, nextCreditAt: "2099-01-01T00:00:00.000Z", token: "sk-ant-oat01-test-subscription-token" });
+  // test Banks hold thousands of tokens: no operating reserve unless a test sets one (rest.test.ts "the operating reserve")
+  world.town.set({ operatingReserveTokens: 0 });
   const app = await buildApp({ world, dev: opts.dev ?? true, runtime: opts.runtime ?? null, webDist: false, healthRefreshMs: opts.healthRefreshMs });
   const auth = { authorization: `Bearer ${seed.adminToken}` };
   const by = (name: string) => world.agents.first("name = ?", [name])!;

@@ -75,6 +75,9 @@ export type TownDefaultsPatch = z.infer<typeof TownDefaultsPatch>;
 export const MapLayout = z.enum(["fountain", "tree", "radial"]);
 export type MapLayout = z.infer<typeof MapLayout>;
 
+/** The operating reserve a town starts with (1:1 mt_lb7tm75jgb). */
+export const OPERATING_RESERVE_TOKENS = 500_000;
+
 export const Town = z.object({
   name: z.string(),
   goal: z.string(),
@@ -86,6 +89,12 @@ export const Town = z.object({
   defaults: patchOf(BuildingDefaults).optional(),
   /** how the map draws the goal tree; PUT /api/town/map-layout (an admin or a goal captain) sets it */
   mapLayout: MapLayout.default("fountain"),
+  /**
+   * The operating reserve (1:1 mt_lb7tm75jgb): tokens of the general balance that free tokens leave out, so exploration and
+   * grant funding can't claim them; 1:1s, meetings, manage and directed sessions still draw on the whole balance.
+   * PUT /api/town/operating-reserve (an admin) sets it.
+   */
+  operatingReserveTokens: z.number().int().nonnegative().default(OPERATING_RESERVE_TOKENS),
 });
 export type Town = z.infer<typeof Town>;
 
@@ -390,13 +399,15 @@ export interface FreeTokens {
   goalId: string;
   /** the general balance (every credit not earmarked) */
   generalTokens: number;
+  /** the town's operating reserve, kept out of the general balance before any claim (never claimable; sessions still draw on it) */
+  reserveTokens: number;
   /** balances of the live earmarks at or above the goal */
   earmarkTokens: number;
   /** town-wide claims (on the general balance and on the earmarks above the goal) */
   fundedRemainingTokens: number;
   openAsksTokens: number;
   reservedTokens: number;
-  /** what the claims leave of general + those earmarks, never below 0 */
+  /** what the claims leave of (general − reserve) + those earmarks, never below 0 */
   freeTokens: number;
 }
 /** One charge of model usage: who spent it and which building it counts for (the agent's home). The usage ledger behind tokensToday / tokensAllTime. */
