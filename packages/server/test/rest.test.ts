@@ -85,8 +85,8 @@ describe("buildings & agents", () => {
 
     const detail = await json(app, "GET", `/api/agents/${r.body.agent.id}`);
     expect(detail.body).toMatchObject({ agent: { id: r.body.agent.id }, currentSession: null, latestReport: null });
-    // its only queued work is the system's "no key results" ask, which goes to the manager
-    expect(detail.body.assignments.map((a: { createdBy: string }) => a.createdBy)).toEqual(["system"]);
+    // no queued work: a building with no grant is not blocked (key results belong to grants), so nothing wakes the manager
+    expect(detail.body.assignments).toEqual([]);
 
     const patched = await json(app, "PATCH", `/api/buildings/${bid}`, { headers: auth, body: { name: "Ocean Heat Lab" } });
     expect(patched.body.building.name).toBe("Ocean Heat Lab");
