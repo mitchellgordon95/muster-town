@@ -17,7 +17,7 @@ import { openDocLink } from "./Markdown";
 import { openPlanner } from "./oneOnOne";
 import { krStatusLabel, krTone } from "./keyResults";
 import { allBuildings, archivedLine, buildingScope, canEditGoal, deskWord, findGoal, isArchived, moveTargets, nodeGlance, pastDue, pathTo, proposalVerb, retireMoves, retirePlan, subtreeDesks, subtreeIds, treeRows, visibleRows, type TreeKr } from "./goalTree";
-import { Act, Empty, ErrorLine, Field, Loading, MTokensInput, Pill, Section, fmtTokens, nameOf, useLoad } from "./ui";
+import { Act, Empty, ErrorLine, Field, Loading, MTokensInput, Pill, Section, fmtTokens, nameOf, timeAgo, useLoad } from "./ui";
 import { fromMillions, toMillions } from "../format";
 import { FreeTokensLine, capText } from "./FreeTokens";
 
@@ -238,6 +238,7 @@ function GoalDetail({ root, node, me, proposals, focusKr, onSelect, onDone }: { 
           {node.parentId ? tool("retire", "Retire", undefined, "bad") : null}
         </div>
       ) : <div className="muted goal-meta">{node.status === "retired" ? `Retired${node.retiredNote ? `: ${node.retiredNote}` : "."}` : me.userId ? "Only an admin or this goal's captain edits it; managers propose with propose_goal." : "Sign in to see what you can change."}</div>}
+      {!can && me.userId && node.status === "active" && node.id !== ROOT_GOAL_ID ? <AskToCaptain node={node} userId={me.userId} /> : null}
       {open ? <ChangeBanner c={open} /> : null}
       {form === "change" ? <ChangeForm node={node} onDone={done} /> : null}
       {form === "edit" ? <EditForm node={node} onDone={done} /> : null}
@@ -425,6 +426,40 @@ function MoveForm({ root, node, onDone }: { root: GoalTreeNode; node: GoalTreeNo
         </select>
       </Field>
       <Act small tone="primary" disabled={!to} run={() => api().updateGoal(node.id, { parentId: to }).then(onDone)}>Move</Act>
+    </div>
+  );
+}
+
+/**
+ * "Ask to captain this goal" (gr_bwm0iz7rwl): a member who can't edit this goal asks to become its captain (its owner).
+ * The ask waits in the Town Hall in-tray for the goal's current captain or an admin; once asked, it says so instead.
+ */
+function AskToCaptain({ node, userId }: { node: GoalTreeNode; userId: string }) {
+  const member = useTown((s) => !!s.me?.canInteract);
+  const asks = useLoad(() => api().captainRequests(node.id), [node.id]);
+  const [open, setOpen] = useState(false), [note, setNote] = useState("");
+  const mine = asks.data?.find((r) => r.userId === userId);
+  if (!member) return <div className="muted goal-meta captain-ask">Want to captain this goal? Ask to join first (the card on the map): members can ask to captain a goal.</div>;
+  if (mine) return <div className="muted goal-meta captain-ask">You asked to captain this goal {timeAgo(mine.createdAt)}. It is in the Town Hall in-tray for {mine.captainName} to accept or decline.</div>;
+  const ask = async () => {
+    await api().askToCaptain(node.id, note.trim() || undefined);
+    store.toast(`Asked to captain "${node.text}": ${node.owner.name} ${node.owner.userId ? "decides" : "decide"} from the Town Hall in-tray.`, "ok");
+    setOpen(false); setNote(""); asks.reload();
+  };
+  return (
+    <div className="captain-ask">
+      {open ? (
+        <div className="goal-form">
+          <Field label="Why you (optional)" hint={`The captain steers this goal: its in-tray items route to them, and they fund, counter or reject grants and write key results under it. ${node.owner.name} ${node.owner.userId ? "decides" : "decide"}.`}>
+            <textarea rows={2} maxLength={280} autoFocus placeholder="One line on what you'd steer it toward" value={note} onChange={(e) => setNote(e.target.value)} />
+          </Field>
+          <div className="actions">
+            <button className="btn sm" onClick={() => setOpen(false)}>Cancel</button>
+            <Act small tone="primary" run={ask}>Ask</Act>
+          </div>
+        </div>
+      ) : <button className="btn sm primary" onClick={() => setOpen(true)} title="Ask the goal's current captain (or an admin) to make you its captain">Ask to captain this goal</button>}
+      <ErrorLine error={asks.error} />
     </div>
   );
 }
