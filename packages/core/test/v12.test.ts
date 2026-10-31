@@ -158,7 +158,7 @@ describe("reconcile", () => {
     const s2 = world.ops.startSession(noor.id, { purpose: "work", model: "m", assignmentId: a2.id });
     const r = world.ops.reconcile([noor.id]); // Noor's child is live, Mei's isn't
     expect(r.orphanedSessions).toEqual([s1.id]);
-    expect(world.sessions.require(s1.id)).toMatchObject({ status: "error", error: "orphaned at restart" });
+    expect(world.sessions.require(s1.id)).toMatchObject({ status: "interrupted", error: "cut by restart" });
     expect(world.assignments.require(a1.id).status).toBe("pending");
     expect(world.agents.require(mei.id)).toMatchObject({ status: "idle", currentAssignmentId: null });
     expect(world.sessions.require(s2.id).status).toBe("running");

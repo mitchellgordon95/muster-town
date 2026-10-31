@@ -169,7 +169,7 @@ describe("desk sessions post usage as they run, and every exit path books it (c)
     const sid = await r.started;
     r.post(sid, usagePost(20, 600, 25_000));
     r.world.ops.reconcile([]);
-    expect(r.world.sessions.require(sid)).toMatchObject({ status: "error", error: "orphaned at restart", output: 600, cacheRead: 25_000 });
+    expect(r.world.sessions.require(sid)).toMatchObject({ status: "interrupted", error: "cut by restart", output: 600, cacheRead: 25_000 });
     expect(r.paid()).toBe(adjusted(r.world, sid));
     r.desk.execs[0].exit(1);
     await r.running;
