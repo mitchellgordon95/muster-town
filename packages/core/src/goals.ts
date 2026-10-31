@@ -104,24 +104,6 @@ export class Goals {
     return !!kr && isOpenKr(kr) && !!kr.goalId && this.scopeOf(buildingId).has(kr.goalId);
   }
 
-  /** `inScope` that explains a refusal; returns the key result. */
-  requireInScope(buildingId: string, krId: string): KeyResult {
-    const kr = this.world.keyResults.get(krId);
-    if (!kr) throw badRequest(`${krId} is not a key result of the town goal tree.`);
-    if (!isOpenKr(kr)) throw badRequest(`Key result ${krId} is ${kr.status === "met" || kr.status === "missed" ? kr.status : "archived"}: work names an open key result.`);
-    if (!kr.goalId || !this.scopeOf(buildingId).has(kr.goalId)) {
-      const b = this.world.buildings.get(buildingId);
-      throw badRequest(`Key result ${krId} is not in ${b?.name ?? buildingId}'s subtree (attached to "${clip(this.get(this.attachmentOf(buildingId))?.text ?? "", 80)}"): it sits under "${clip(kr.goalId ? this.get(kr.goalId)?.text ?? kr.goalId : "no goal", 80)}".`);
-    }
-    return kr;
-  }
-
-  /** Does the building's subtree hold an open key result? (A goal-directed building without one, and without a funded grant, is blocked.) */
-  hasOpenKr(buildingId: string): boolean {
-    const scope = this.scopeOf(buildingId);
-    return this.world.keyResults.where("goalId IS NOT NULL AND archivedAt IS NULL AND status NOT IN ('met', 'missed')").some((k) => scope.has(k.goalId!));
-  }
-
   // ---- owners ----
   /** The effective owner of a goal: its own, else the nearest owned ancestor's; `userId` null = the town admins (the root). */
   ownerOf(goalId: string): { goalId: string; userId: string | null } {
@@ -149,7 +131,7 @@ export class Goals {
   }
 
   /**
-   * Where a Town Hall item routes (docs/goals.md "Routing"): a grant proposal or checkpoint to its key result's goal, a
+   * Where a Town Hall item routes (docs/goals.md "Routing"): a grant proposal or checkpoint to its goal, a
    * goal proposal to its target or parent, a rollup to the building's attachment; the item goes to that goal's owner.
    */
   route(item: { grantId?: string; proposalId?: string; buildingId?: string }): { goalId: string; userId: string | null } {
@@ -157,7 +139,7 @@ export class Goals {
     if (item.grantId) {
       const g = this.world.grants.get(item.grantId);
       const kr = g?.keyResultId ? this.world.keyResults.get(g.keyResultId) : undefined;
-      goalId = kr?.goalId ?? (g ? this.attachmentOf(g.buildingId) : ROOT_GOAL_ID);
+      goalId = g?.goalId ?? kr?.goalId ?? (g ? this.attachmentOf(g.buildingId) : ROOT_GOAL_ID);
     } else if (item.proposalId) {
       const p = this.world.goalProposals.get(item.proposalId);
       goalId = (p && this.nodeOfProposal(p)) ?? ROOT_GOAL_ID;
@@ -174,9 +156,9 @@ export class Goals {
       if (!g.parentId || (!opts.retired && g.status === "retired")) continue;
       byParent.set(g.parentId, [...(byParent.get(g.parentId) ?? []), g]);
     }
-    const live = new Map(this.world.grants.where("status IN ('funded', 'checkpoint') AND keyResultId IS NOT NULL", [], "ORDER BY fundedAt, rowid").map((g) => [g.keyResultId!, g.id]));
-    const krs = new Map<string, (KeyResult & { grantId: string | null })[]>();
-    for (const k of this.world.keyResults.where("goalId IS NOT NULL", [], "ORDER BY position, rowid")) krs.set(k.goalId!, [...(krs.get(k.goalId!) ?? []), { ...k, grantId: live.get(k.id) ?? null }]);
+    // goals keep no open key results (docs/how-work-gets-done.md §4): only the archived ones of their grants, as history
+    const krs = new Map<string, KeyResult[]>();
+    for (const k of this.world.keyResults.where("goalId IS NOT NULL AND (archivedAt IS NOT NULL OR status IN ('met', 'missed'))", [], "ORDER BY position, rowid")) krs.set(k.goalId!, [...(krs.get(k.goalId!) ?? []), k]);
     // desks are the steer (docs/goals.md "Effort steering is desks"): each building's headcount and the desks seated now
     const attached = new Map<string, GoalNode["buildings"]>();
     for (const b of this.world.buildings.all()) {

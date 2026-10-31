@@ -94,8 +94,8 @@ function humanName(world: World, e: Event): string | null {
 }
 
 const grantLine = (world: World, g: Grant) => {
-  const kr = g.keyResultId ? world.keyResults.get(g.keyResultId) : undefined;
-  return `Status ${g.status}; ${fmt(world.grantDesk.view(g).spentTokens)} of ${fmt(g.grantTokens ?? 0)} tokens spent; key result ${kr ? `${kr.id} [${kr.status}] ${kr.text}` : "(none named)"}.`;
+  const krs = world.grantDesk.keyResultsOf(g.id);
+  return `Status ${g.status}; ${fmt(world.grantDesk.view(g).spentTokens)} of ${fmt(g.grantTokens ?? 0)} tokens spent; key results ${krs.length ? krs.map((k) => `${k.id} [${k.status}] ${k.text}`).join("; ") : "(none)"}.`;
 };
 
 const fmt = (n: number) => n.toLocaleString("en-US");
