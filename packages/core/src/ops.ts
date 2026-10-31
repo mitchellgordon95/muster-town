@@ -5,7 +5,7 @@ import { createBuilding, createResident, createUser, ensureAvatar, registerVisit
 import type { Furniture } from "./world/furniture.ts";
 import { AppError, badRequest, forbidden } from "./errors.ts";
 import { agentsDrafting, clearAgentDrafting, createMeeting, createOneOnOne, endMeeting, meetingDecide, meetingSpeak, noteHumanTyping, presentSlide, recordSlideDecision, setMeetingPhase } from "./meetings.ts";
-import { replyToReport, type ReplyResult } from "./reply.ts";
+import { archiveReport, type ArchiveResult } from "./archive.ts";
 import { newId, nowIso } from "./util.ts";
 import { humanOrigin, meetingOrigin } from "./origin.ts";
 import { sessionView, unknownModels } from "./bank.ts";
@@ -208,18 +208,13 @@ export class Ops {
   }
 
   /**
-   * POST /api/docs/:id/reply. Needs building.review on the report's building (or admin). Appends a dated
-   * "Reply from" section, acknowledges the report, and (non-empty text) mentions the author and gives it a
-   * `Reply on: …` assignment (`fromReportId` set). Empty text = archive.
+   * POST /api/docs/:id/archive (1:1 mt_cz11aqe81a: a report's actions are Talk to the author and Archive). Needs
+   * building.review on the report's building (or admin). Acknowledges the report; no assignment.
    */
-  replyToReport(actor: Actor, docId: string, text: string, opts: { deckSlide?: number } = {}): ReplyResult {
+  archiveReport(actor: Actor, docId: string, opts: { deckSlide?: number } = {}): ArchiveResult {
     const doc = this.world.docs.require(docId, "doc");
     if (actor && !this.world.permissions.isAdmin(actor) && !this.world.permissions.can(actor, "building.review", doc.buildingId)) throw forbidden("building.review");
-    return replyToReport(this.world, actor, docId, text, opts);
-  }
-  /** POST /api/docs/:id/archive: a reply with no text (acknowledge, no assignment). */
-  archiveReport(actor: Actor, docId: string, opts: { deckSlide?: number } = {}): ReplyResult {
-    return this.replyToReport(actor, docId, "", opts);
+    return archiveReport(this.world, actor, docId, opts);
   }
 
   // ---- reconcile (runtime startup) ----
@@ -611,11 +606,10 @@ export class Ops {
     const past: Record<string, string> = { fund: "funded", counter: "countered", reject: "rejected", continue: "continued", adjust: "adjusted", cut: "cut" };
     return recordSlideDecision(this.world, meetingId, `${actor?.name ?? "The town"} ${past[action] ?? action} ${grantId}${g ? ` "${g.objective}"` : ""}`);
   }
-  /** A report replied to or archived on a slide presented in a live meeting: also one of the meeting's decisions. */
-  slideReplyDecision(actor: Actor, meetingId: string, docId: string, text: string): Meeting | null {
+  /** A report archived on a slide presented in a live meeting: also one of the meeting's decisions. */
+  slideArchiveDecision(actor: Actor, meetingId: string, docId: string): Meeting | null {
     const d = this.world.docs.get(docId);
-    const what = `${docId}${d ? ` "${d.title}"` : ""}`;
-    return recordSlideDecision(this.world, meetingId, text.trim() ? `${actor?.name ?? "The town"} replied to ${what}: ${text.trim()}` : `${actor?.name ?? "The town"} approved ${what}`);
+    return recordSlideDecision(this.world, meetingId, `${actor?.name ?? "The town"} archived ${docId}${d ? ` "${d.title}"` : ""}`);
   }
   /** POST /meetings/:id/typing: a human has an unsent message in the say box; agents may not end the meeting meanwhile. */
   meetingTyping(actor: Agent, meetingId: string): void {

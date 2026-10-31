@@ -18,8 +18,8 @@ export function meetingHadHuman(m: Meeting): boolean {
 
 /**
  * Validate a directed assignment's human source (1:1 mt_ryw7ejayvu) and return its id: a meeting a human took part in
- * (or its notes), a doc a human wrote (a flag, a human-report, ...), a rollup or report a human decided with a reply,
- * or a human's tell. Anything else is refused.
+ * (or its notes), a doc a human wrote (a flag, a human-report, ...), or a
+ * human's tell. (A report a human replied to was one until replies were removed, 1:1 mt_cz11aqe81a.) Anything else is refused.
  */
 export function humanSource(world: World, sourceId: string): string {
   const meeting = world.meetings.get(sourceId);
@@ -33,12 +33,11 @@ export function humanSource(world: World, sourceId: string): string {
     return sourceId;
   }
   const doc = world.docs.get(sourceId);
-  if (!doc) throw badRequest(`Unknown source ${sourceId}: give the id of a meeting with a human, its notes, a flag, a human-report, a rollup a human replied to, or a human's tell.`);
+  if (!doc) throw badRequest(`Unknown source ${sourceId}: give the id of a meeting with a human, its notes, a flag, a human-report, or a human's tell.`);
   if (doc.authorKind === "user") return sourceId;
   const notesOf = doc.type === "meeting-notes" ? world.meetings.first("notesDocId = ?", [doc.id]) : undefined;
   if (notesOf && meetingHadHuman(notesOf)) return sourceId;
-  if (doc.decidedBy && world.users.get(doc.decidedBy) && doc.decisionNote) return sourceId;
-  throw badRequest(`${doc.id} ("${doc.title}") isn't human-authored: directed work cites meeting notes of a meeting with a human, a flag, a human-report, a rollup a human replied to, or a human's tell.`);
+  throw badRequest(`${doc.id} ("${doc.title}") isn't human-authored: directed work cites meeting notes of a meeting with a human, a flag, a human-report, or a human's tell.`);
 }
 
 /**

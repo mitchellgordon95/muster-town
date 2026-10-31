@@ -41,7 +41,7 @@ the live town.
 ## Humans: paste or drop (step 2a)
 
 A signed-in human can paste (Ctrl/Cmd+V) or drag a PNG/JPEG/GIF/WebP/WebM/MP4 into the boxes that write a doc body
-or a message: the report reply box, a flag (planting it, and the decide note), a human report in the outbox, meeting
+or a message: a flag (planting it, and the decide note), a human report in the outbox, meeting
 chat and the message box to an agent (`panels/mediaPaste.ts`). It uploads through the same `POST /api/media` with the
 browser session cookie (same limits and magic-byte checks; uploader = the human's avatar; a visitor not yet let in
 gets 403), an `![Uploading …]()` placeholder holds the spot, and the returned markdown replaces it. Send is disabled
