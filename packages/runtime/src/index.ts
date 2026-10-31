@@ -493,8 +493,10 @@ export function startRuntime(opts: RuntimeOptions): Runtime {
 
   function scheduleWork(): void {
     watchAdopted();
-    recreateStaleDesks();
+    // after the sweep: an adopted fork whose session ended is retired there, and spawnForks below may hand its desk to the
+    // next fork in the same pass, so the stale check must see the slot in that gap (10-31: Workshop slots 2 and 4 missed it)
     sweepForks();
+    recreateStaleDesks();
     if (draining) return;
     const held: string[] = [];
     // sessions this pass started (startWork registers them as `starting` only after its first await)

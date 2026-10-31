@@ -137,6 +137,39 @@ describe("manager forks: spawn and retire", () => {
   });
 });
 
+describe("manager forks: a stale desk slot (image redeploy kept it busy)", () => {
+  test("the slot of a fork the sweep retires is removed before the next fork takes the same desk in that pass", async () => {
+    const removed: string[] = [];
+    const desk: DeskBackend = {
+      kind: "docker",
+      available: async () => true,
+      ensure: async (a) => ({ name: `desk-${a.id}`, agentId: a.id }),
+      // the next fork's session runs until the test ends
+      exec: () => {
+        let done!: (code: number) => void;
+        const exited = new Promise<number>((r) => { done = r; });
+        return { wait: () => exited, kill: () => done(143) };
+      },
+      remove: async () => {},
+      removeSandbox: async (name: string) => { removed.push(name); },
+    };
+    const { world, runtime, lab, queue } = forkSetup(async function* () { yield init(); yield result(1, 0); }, { spare: 1, backend: desk });
+    const a = await queue("Was running through the image redeploy");
+    const { forkManager } = await import("@muster-town/core");
+    // as if adopted after the restart: its session has ended, so this pass's sweep retires it, frees its desk and requeues its work
+    const { fork, desk: n } = forkManager(world, lab.id, a);
+    world.db.prepare("INSERT INTO stale_desks (key, buildingId, n, at) VALUES (?, ?, ?, ?)").run("desk-slot-stale", lab.id, n, new Date().toISOString());
+    await runtime.tickOnce();
+    expect(world.agents.require(fork.id).status).toBe("retired");
+    // the next fork takes the same (only) desk in that pass
+    const next = world.events.recent({ limit: 200 }).filter((e) => e.type === "agent.forked").at(-1)!;
+    expect(next.agentId).not.toBe(fork.id);
+    expect((next.payload as { desk: number }).desk).toBe(n);
+    await vi.waitFor(() => expect(removed).toEqual(["desk-slot-stale"]));
+    expect(world.db.prepare("SELECT COUNT(*) AS c FROM stale_desks").get()).toEqual({ c: 0 });
+  });
+});
+
 describe("manager forks: messages", () => {
   test("a human's message to a live fork interrupts it; after it retires, messages reach the manager", async () => {
     let forkId = "";
