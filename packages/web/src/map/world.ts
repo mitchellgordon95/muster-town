@@ -2,7 +2,7 @@
 import { BANK_FIXTURES, BANK_LOT, TILE, WALKABLE } from "@muster-town/schema";
 import type { Building, Place } from "@muster-town/schema";
 import type { Grid } from "../api";
-import { T, tiles, drawTable, drawCounter, drawDoor, drawManagerDesk, drawChair, drawBoard, drawCabinet, drawSchedule, drawWallSchedule, drawGoalChart, drawBench, drawVault, drawGold, drawPillar, drawBankMap, drawTownMap, drawSpendingBoard, drawBankFountain, drawBankLedger, drawBankServer, drawPlazaFountain, drawSignpost } from "./sprites";
+import { T, tiles, drawTable, drawCounter, drawDoor, drawManagerDesk, drawChair, drawBoard, drawCabinet, drawSchedule, drawWallSchedule, drawGoalChart, drawBench, drawVault, drawGold, drawPillar, drawBankMap, drawTownMap, drawSpendingBoard, drawBankFountain, drawBankLedger, drawBankServer, drawGrandFountain, drawSignpost, drawTree, drawLamp, drawFlowers } from "./sprites";
 
 type Lot = { x: number; y: number; w: number; h: number };
 
@@ -97,6 +97,19 @@ export class World {
     return { x, y };
   }
 
+  /** The town's decor and the square's fountain stand outside every building. */
+  private outdoors(x: number, y: number): boolean {
+    const k = this.at(x, y);
+    return k === TILE.LAMP || k === TILE.FLOWERS || k === TILE.BENCH || k === TILE.FOUNTAIN;
+  }
+  private nextTo(x: number, y: number, k: number): boolean {
+    return [[1, 0], [-1, 0], [0, 1], [0, -1]].some(([dx, dy]) => this.at(x + dx, y + dy) === k);
+  }
+  /** On the square: paving itself, or decor with paving beside it. */
+  private paved(x: number, y: number): boolean {
+    return this.at(x, y) === TILE.PAVING || this.nextTo(x, y, TILE.PAVING);
+  }
+
   private bake() {
     const g = this.bitmap.getContext("2d")!;
     g.imageSmoothingEnabled = false;
@@ -108,8 +121,9 @@ export class World {
         const bank = this.inBank(x, y);
         const floor = bank ? tl.marble : b?.kind === "town-hall" ? tl.stone : tl.wood;
         // ground under furniture
-        if (k === TILE.GRASS || k === TILE.SIGNPOST || k === TILE.PLANT && !b) g.drawImage(tl.grass, px, py);
-        else if (k === TILE.PATH || k === TILE.FOUNTAIN) g.drawImage(tl.path, px, py);
+        if (k === TILE.GRASS || k === TILE.SIGNPOST || k === TILE.TREE || k === TILE.PLANT && !b) g.drawImage(tl.grass, px, py);
+        else if (k === TILE.PATH) g.drawImage(tl.path, px, py);
+        else if (k === TILE.PAVING || k === TILE.FOUNTAIN || !b && !bank && this.outdoors(x, y)) g.drawImage(this.paved(x, y) ? tl.paving : this.nextTo(x, y, TILE.PATH) ? tl.path : tl.grass, px, py);
         else if (k !== TILE.WALL && k !== TILE.BOARD && k !== TILE.SCHEDULE_BOARD && k !== TILE.GOAL_CHART) g.drawImage(floor, px, py);
         switch (k) {
           case TILE.WALL: {
@@ -144,7 +158,16 @@ export class World {
           case TILE.GOAL_CHART: g.drawImage(tl.wallFace, px, py); drawGoalChart(g, px, py); break;
           case TILE.BANK_MAP: drawBankMap(g, px, py); break;
           case TILE.SIGNPOST: drawSignpost(g, px, py); break;
-          case TILE.FOUNTAIN: drawPlazaFountain(g, px, py, { l: this.at(x - 1, y) === k, r: this.at(x + 1, y) === k }); break;
+          case TILE.FOUNTAIN: {
+            let ix = 0, iy = 0;
+            while (this.at(x - ix - 1, y) === k) ix++;
+            while (this.at(x, y - iy - 1) === k) iy++;
+            drawGrandFountain(g, px, py, ix, iy);
+            break;
+          }
+          case TILE.TREE: drawTree(g, px, py, (x * 7 + y * 3) % 5 === 0); break;
+          case TILE.LAMP: drawLamp(g, px, py); break;
+          case TILE.FLOWERS: drawFlowers(g, px, py, { l: this.at(x - 1, y) === k, r: this.at(x + 1, y) === k }); break;
           case TILE.BANK_SPENDING: drawSpendingBoard(g, px, py); break;
           case TILE.BANK_SERVER: drawBankServer(g, px, py); break;
           case TILE.BANK_FOUNTAIN: drawBankFountain(g, px, py, { l: this.at(x - 1, y) === k, r: this.at(x + 1, y) === k }); break;

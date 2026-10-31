@@ -3,6 +3,7 @@ import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { afterEach } from "vitest";
+import type { MapLayout } from "@muster-town/schema";
 import { World } from "../src/index.ts";
 
 export const REPO_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "../../..");
@@ -46,9 +47,11 @@ export function creditBank(world: World, tokens = 10_000_000): void {
     .run(`bc_test_${Math.random().toString(36).slice(2)}`, inp.id, tokens, tokens, new Date().toISOString(), "2099-01-01T00:00:00.000Z");
 }
 
-export function seededWorld() {
+/** `shape`: draw the map in that shape instead of a new town's ("fountain"), for tests about one shape's geometry. */
+export function seededWorld(shape?: MapLayout) {
   const f = freshWorld();
   const seed = f.world.seedDefaults({ importDir: CARBON_DIR, townJsonPath: TOWN_JSON, dataDir: f.dir });
+  if (shape) { f.world.town.set({ mapLayout: shape }); f.world.layout.rebuild(); }
   seedCredential(f.world, seed.admin.id);
   const by = (name: string) => f.world.agents.first("name = ?", [name])!;
   return { ...f, seed, by, admin: f.world.ops.ensureAvatar(seed.admin.id) };

@@ -71,7 +71,7 @@ export {
   computeLayout, labSize, tileAt, TOWN_HALL_ID, TOWN_HALL_SIZE, MAX_HEADCOUNT, MOD_SEATS, TOWN_HALL_FIXTURES,
   type Grid, type DeskSlot, type LayoutResult,
 } from "./world/layout.ts";
-export { deriveRoads, doorOf, doorstepOf, facesNorth, type Roads } from "./world/road.ts";
+export { defaultSide, deriveRoads, doorOf, doorstepOf, type Roads, type Side } from "./world/road.ts";
 export { treeLayout, type TreeLayout, type TreeGoal, type TreeBuilding, type Plaza } from "./world/tree.ts";
 export { findPath, isWalkable, nearestWalkable } from "./world/path.ts";
 export { piecesFor, validateLayout, resolveFurniture, movedOnly, type Piece, type Furniture, type LayoutError } from "./world/furniture.ts";

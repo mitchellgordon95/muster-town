@@ -82,6 +82,12 @@ export function portraitUrl(i: number, scale = 3): string {
 const grid16 = (f: (x: number, y: number) => string) => Array.from({ length: T }, (_, y) => Array.from({ length: T }, (_, x) => f(x, y)).join(""));
 const GRASS = grid16((x, y) => ((x === 3 && y === 11) || (x === 12 && y === 4) ? "h" : (x * 7 + y * 13) % 11 === 0 ? "g" : "G"));
 const PATH = grid16((x, y) => ((x * 5 + y * 3) % 9 === 0 ? "p" : (x * 11 + y * 7) % 23 === 0 ? "q" : "P"));
+/** The town square: warm cobbles in a running bond, mortar lines between, the odd darker stone. */
+const PAVING = grid16((x, y) => {
+  const row = y >> 2, off = row % 2 ? 3 : 0;
+  if (y % 4 === 3 || (x + off) % 6 === 5) return "j";
+  return ((((x + off) / 6) | 0) * 5 + row * 3) % 7 === 0 ? "k" : y % 4 === 0 ? "J" : "i";
+});
 const WOOD = grid16((x, y) => (y % 8 === 7 || (x + (y < 8 ? 0 : 8)) % 16 === 15 ? "f" : "F"));
 const STONE = grid16((x, y) => (x % 8 === 7 || y % 8 === 7 ? "n" : ((x >> 3) + (y >> 3)) % 2 ? "N" : "o"));
 const WALL_FACE = grid16((x, y) => (y === 0 ? "w" : y > 12 ? "x" : (x + (y % 4 < 2 ? 0 : 4)) % 8 === 7 || y % 4 === 1 ? "m" : "W"));
@@ -120,7 +126,7 @@ const PAL: Record<string, string> = {
   W: "#4d5370", w: "#2e3248", m: "#3f4460", x: "#3a3f58", u: "#30344a", v: "#383c54",
   M: "#2a2d3a", s: "#5fb4ff", S: "#cfe9ff", D: "#6b4a2b", d: "#8a6236", K: "#2a2d3a", c: "#e8e2d0",
   B: "#5a3d22", r: "#c94f4f", b: "#4f8fc9", L: "#3f8f4f", l: "#6fbf6f", t: "#6b4a2b", O: "#a0522d",
-  Y: "#e8b840", y: "#b8862a",
+  Y: "#e8b840", y: "#b8862a", i: "#cdbfa6", J: "#ddd1bb", j: "#a3967f", k: "#bfae92",
 };
 /** The Bank: the same wall art in gold, and a cream marble floor with gold inlay. */
 const GOLD_PAL = { ...PAL, W: "#d9a92c", w: "#6e4f0e", m: "#b3851a", x: "#8f6a12", u: "#e8bf3f", v: "#f7dc78" };
@@ -149,7 +155,7 @@ export function tiles(): Record<string, HTMLCanvasElement> {
   };
   tileCache = {
     grass: pixelCanvas([GRASS], PAL), path: pixelCanvas([PATH], PAL), wood: pixelCanvas([WOOD], PAL),
-    stone: pixelCanvas([STONE], PAL), wallFace: pixelCanvas([WALL_FACE], PAL), wallTop: pixelCanvas([WALL_TOP], PAL),
+    stone: pixelCanvas([STONE], PAL), paving: pixelCanvas([PAVING], PAL), wallFace: pixelCanvas([WALL_FACE], PAL), wallTop: pixelCanvas([WALL_TOP], PAL),
     deskL: half(0), deskR: half(T), deskPlain: plainDesk(deskSheet), shelf: pixelCanvas([SHELF], PAL), plant: pixelCanvas([PLANT], PLANT_PAL),
     goldFace: pixelCanvas([WALL_FACE], GOLD_PAL), goldTop: pixelCanvas([WALL_TOP], GOLD_PAL), marble: pixelCanvas([MARBLE], MARBLE_PAL),
   };
@@ -268,20 +274,6 @@ export function drawBankFountain(g: CanvasRenderingContext2D, px: number, py: nu
   if (n.l) { // the spout rises from the middle seam
     g.fillStyle = "#f5f0e2"; g.fillRect(px - 1, py, 2, 6);
     g.fillStyle = "#9fd0f2"; g.fillRect(px - 2, py + 1, 1, 4); g.fillRect(px + 1, py + 1, 1, 4);
-  }
-}
-/** A plaza's fountain (map shape "fountain"), two tiles on the path: a stone basin, water, and a spout from the middle seam. */
-export function drawPlazaFountain(g: CanvasRenderingContext2D, px: number, py: number, n: { l: boolean; r: boolean }) {
-  g.fillStyle = "rgba(0,0,0,.2)"; g.fillRect(px, py + 13, T, 3);
-  g.fillStyle = "#9c9486"; g.fillRect(px, py + 3, T, 11);
-  g.fillStyle = "#c9c1ae"; g.fillRect(px, py + 3, T, 2);
-  if (!n.l) { g.fillStyle = "#7d766a"; g.fillRect(px, py + 3, 2, 11); }
-  if (!n.r) { g.fillStyle = "#7d766a"; g.fillRect(px + T - 2, py + 3, 2, 11); }
-  g.fillStyle = "#3d7fc4"; g.fillRect(px + (n.l ? 0 : 2), py + 5, T - (n.l ? 0 : 2) - (n.r ? 0 : 2), 7);
-  g.fillStyle = "#7fb6e8"; g.fillRect(px + (n.l ? 2 : 4), py + 7, 4, 1); g.fillRect(px + 9, py + 9, 3, 1);
-  if (n.l) {
-    g.fillStyle = "#c9c1ae"; g.fillRect(px - 1, py - 2, 2, 8);
-    g.fillStyle = "#cfe8fa"; g.fillRect(px - 3, py - 3, 1, 5); g.fillRect(px + 2, py - 3, 1, 5); g.fillRect(px - 1, py - 4, 2, 2);
   }
 }
 /** The Bank's ledger desk (Tokens & sources tab), two tiles: a dark-wood desk with an open ledger and a quill; each tile draws its half. */
@@ -509,4 +501,68 @@ export function iconUrl(kind: IconKind): string {
   const url = c.toDataURL();
   iconCache.set(kind, url);
   return url;
+}
+
+// ---------- the town's dressing (map shape "fountain": core world/square.ts) ----------
+/** A round-crowned tree on the grass: its crown spills up over the tile above (tiles are drawn top to bottom). */
+export function drawTree(g: CanvasRenderingContext2D, px: number, py: number, alt: boolean) {
+  g.fillStyle = "rgba(0,0,0,.22)"; g.fillRect(px + 2, py + 12, 12, 3);
+  g.fillStyle = "#6b4a2b"; g.fillRect(px + 7, py + 7, 3, 8);
+  g.fillStyle = "#57391f"; g.fillRect(px + 9, py + 7, 1, 8);
+  const [dark, mid, light] = alt ? ["#2f6e3a", "#3f8f4f", "#6fbf6f"] : ["#356b2c", "#4c8a3a", "#86c25a"];
+  g.fillStyle = dark; g.fillRect(px + 1, py - 4, 14, 12); g.fillRect(px + 3, py - 6, 10, 16);
+  g.fillStyle = mid; g.fillRect(px + 2, py - 5, 11, 10); g.fillRect(px + 4, py - 6, 7, 13);
+  g.fillStyle = light; g.fillRect(px + 4, py - 4, 4, 3); g.fillRect(px + 3, py - 2, 2, 2); g.fillRect(px + 9, py - 3, 2, 1);
+  if (alt) { g.fillStyle = "#e86a6a"; g.fillRect(px + 10, py, 2, 2); g.fillRect(px + 5, py + 3, 2, 2); g.fillRect(px + 11, py - 4, 1, 1); }
+}
+/** A street lamp: an iron post with a warm lantern, its glow on the ground. */
+export function drawLamp(g: CanvasRenderingContext2D, px: number, py: number) {
+  g.fillStyle = "rgba(255,214,120,.18)"; g.fillRect(px + 2, py + 11, 12, 4);
+  g.fillStyle = "rgba(0,0,0,.25)"; g.fillRect(px + 6, py + 14, 5, 2);
+  g.fillStyle = "#2a2d3a"; g.fillRect(px + 7, py - 2, 2, 16); g.fillRect(px + 5, py + 13, 6, 2);
+  g.fillStyle = "#2a2d3a"; g.fillRect(px + 4, py - 8, 8, 7);
+  g.fillStyle = "#ffe08a"; g.fillRect(px + 5, py - 7, 6, 5);
+  g.fillStyle = "#fff6cf"; g.fillRect(px + 6, py - 6, 2, 2);
+  g.fillStyle = "#3a3f58"; g.fillRect(px + 3, py - 9, 10, 2); g.fillRect(px + 6, py - 11, 4, 2);
+}
+/** A flower bed: a low stone kerb round soil and mixed blooms. */
+export function drawFlowers(g: CanvasRenderingContext2D, px: number, py: number, n: { l: boolean; r: boolean }) {
+  g.fillStyle = "#8f8370"; g.fillRect(px, py + 4, T, 11);
+  g.fillStyle = "#6b4a2b"; g.fillRect(px + (n.l ? 0 : 1), py + 5, T - (n.l ? 0 : 1) - (n.r ? 0 : 1), 9);
+  g.fillStyle = "#3f8f4f"; for (let x = 1; x < T; x += 3) g.fillRect(px + x, py + 6 + (x % 2), 2, 6);
+  const blooms = ["#f2c94c", "#e86a6a", "#f5f0e2", "#b26fd1", "#e86a6a", "#f2c94c"];
+  for (let i = 0; i < 6; i++) { g.fillStyle = blooms[(i + px / T) % blooms.length | 0]; g.fillRect(px + 1 + i * 2.5, py + 5 + ((i * 7) % 5), 2, 2); }
+  g.fillStyle = "#a89c87"; g.fillRect(px, py + 4, T, 1);
+}
+let fountainCache: HTMLCanvasElement | null = null;
+/** The town square's fountain, three tiles by three: a round stone basin, water, a tiered spout in the middle. */
+function grandFountain(): HTMLCanvasElement {
+  if (fountainCache) return fountainCache;
+  const c = document.createElement("canvas"); c.width = 3 * T; c.height = 3 * T;
+  const g = c.getContext("2d")!;
+  const disc = (cx: number, cy: number, r: number, color: string) => {
+    g.fillStyle = color;
+    for (let y = -r; y <= r; y++) { const dx = Math.floor(Math.sqrt(r * r - y * y)); g.fillRect(cx - dx, cy + y, 2 * dx + 1, 1); }
+  };
+  disc(24, 27, 22, "rgba(0,0,0,.2)");
+  disc(24, 25, 22, "#7d766a");
+  disc(24, 24, 22, "#c9c1ae");
+  disc(24, 24, 19, "#9c9486");
+  disc(24, 25, 18, "#2f6fae");
+  disc(24, 25, 16, "#3d7fc4");
+  g.fillStyle = "#7fb6e8"; g.fillRect(12, 18, 6, 1); g.fillRect(30, 30, 5, 1); g.fillRect(14, 32, 4, 1); g.fillRect(31, 17, 4, 1);
+  // ripples round the middle, the tiered spout, its spray
+  g.fillStyle = "#9fd0f2"; g.fillRect(16, 25, 2, 1); g.fillRect(31, 25, 2, 1); g.fillRect(23, 33, 3, 1);
+  disc(24, 25, 6, "#7d766a"); disc(24, 24, 6, "#c9c1ae"); disc(24, 24, 4, "#5fb4ff");
+  g.fillStyle = "#c9c1ae"; g.fillRect(22, 12, 5, 12);
+  g.fillStyle = "#e3dccb"; g.fillRect(22, 12, 2, 12);
+  disc(24, 12, 3, "#c9c1ae"); disc(24, 11, 2, "#5fb4ff");
+  g.fillStyle = "#cfe8fa"; g.fillRect(23, 3, 3, 8); g.fillRect(20, 5, 2, 6); g.fillRect(27, 5, 2, 6); g.fillRect(18, 9, 1, 4); g.fillRect(30, 9, 1, 4);
+  g.fillStyle = "#ffffff"; g.fillRect(24, 3, 1, 4);
+  fountainCache = c;
+  return c;
+}
+/** One tile of the square's fountain: (ix, iy) is the tile's place in its 3×3 block. */
+export function drawGrandFountain(g: CanvasRenderingContext2D, px: number, py: number, ix: number, iy: number) {
+  g.drawImage(grandFountain(), ix * T, iy * T, T, T, px, py, T, T);
 }
