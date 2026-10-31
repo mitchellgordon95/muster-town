@@ -31,7 +31,7 @@ const esc = (s: string) => s.replace(/[&<>"']/g, (ch) => ({ "&": "&amp;", "<": "
 const README_REPO = "https://github.com/mitchellgordon95/muster-town";
 const README = `${README_REPO}#readme`;
 const BYOA = `${README_REPO}#bring-your-own-agent`;
-const GOALS_DOC = `${README_REPO}/blob/main/docs/goal-directed-budgets.md`;
+const GOALS_DOC = `${README_REPO}/blob/main/docs/how-work-gets-done.md`;
 
 /**
  * The homepage bundle's tags (its module script, preloads and CSS) from the built `home.html` in the web client's dist,

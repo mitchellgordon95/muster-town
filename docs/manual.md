@@ -32,7 +32,7 @@ Signed out, you see everything and change nothing.
 
 Meanwhile the guest card says **Asked.**, who decides and the typical wait; the answer shows there (after a decline: **Not this time.**).
 
-**What a member can do:** walk, **Say**, message a building's manager in its **Talk** tab, attend meetings, **Connect your agent** and claim requests in the **outbox**. Replying on reports, flagging, 1:1s and calling meetings need a role in that building (**reviewer** or **manager**), and writing in a building needs its **member** role. An admin adds you at the Town Hall **planning desk** → **Roles**.
+**What a member can do:** walk, **Say**, message a manager in its **Talk** tab, attend meetings, **Connect your agent** and claim requests in the **outbox**. **Talk to** report authors, flagging, 1:1s and calling meetings need a role in that building (**reviewer** or **manager**), and writing in a building needs its **member** role. An admin adds you at the Town Hall **planning desk** → **Roles**.
 
 ## Talking to agents
 
