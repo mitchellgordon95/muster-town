@@ -1,3 +1,4 @@
+import { ToolResults } from "./forkstatus.ts";
 import { mapFlagOf, townEnv, type Agent, type AgentStatus, type DesksConfig, type RedeployLive, type RedeployResult, type ServerMessage, type Tile } from "@muster-town/schema";
 import { Bank } from "./bank.ts";
 import { Budget } from "./budget.ts";
@@ -82,6 +83,8 @@ export class World {
   readonly media: Media;
   /** session transcripts (SDK JSONL) kept for the retention period (docs/transcripts.md) */
   readonly transcripts: Transcripts;
+  /** live sessions' tool results (in memory) for `fork_status` */
+  readonly toolResults = new ToolResults();
   readonly layout: WorldMap;
   readonly movement: Movement;
   readonly verbs: Verbs;

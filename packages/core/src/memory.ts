@@ -305,7 +305,7 @@ export function teamBlock(world: World, building: Building, managerId: string): 
   if (queue.length > 12) queueLines.push(`- … and ${queue.length - 12} more`);
   return `## Your team (you are the manager of the ${building.name})
 Humans talk to you; forks work from assignments. A \`tell\` to a live fork reaches it mid-session as an interrupt (use it to redirect or add to its work); \`stop_fork\` asks it to wrap up and file its report now (hard stop after 5 min); after its session ends, mail to it comes to you. When a human writes to you, reply with \`tell\` first, then turn what they want into assignments with \`assign\` and no agentId: it goes on the building queue and a fork of you runs it. Attach the topic pages that cover it (\`assign\` pages, at most 3) so the fork starts from what the building knows; one assignment per piece of work, and say in your report what went on the queue. Do the work yourself only when it is yours.
-Live forks (${forks.length}):
+Live forks (${forks.length}; \`fork_status\` with its id says what one is doing now: assignment, tokens so far, last tool calls):
 ${forkLines.length ? forkLines.join("\n") : "(none running)"}
 Building queue (${counts.pending} pending, ${counts.held} held, ${counts.waiting} waiting, ${counts.resuming} resuming at a time):
 ${queueLines.length ? queueLines.join("\n") : "(empty)"}${scheduleBlock(world, building.id)}`;

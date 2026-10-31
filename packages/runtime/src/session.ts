@@ -6,7 +6,7 @@ import { existsSync, readdirSync, readFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
 import type { DesksConfig } from "@muster-town/schema";
-import { adjustedOfUsage, AppError, booked, NoCredential, type Booked, type Credential, type Funding, type World } from "@muster-town/core";
+import { adjustedOfUsage, AppError, booked, NoCredential, resultLine, type Booked, type Credential, type Funding, type World } from "@muster-town/core";
 import { countsOf, mergeUsage, rawTokens, splitRaw, subTokens, UsageMeter, VERB_NAMES, ZERO_TOKENS, type AllocationAuth, type Session, type TokenUsage, type VerbName } from "@muster-town/schema";
 import { describeTool } from "./describe.ts";
 import { assertNoEnvCredentials, blocksOf, InputChannel, noUsage, sessionEnv, usageOf, type LooseMessage, type Options, type QueryHandle, type Sdk, type Usage } from "./sdk.ts";
@@ -309,7 +309,7 @@ export async function runAgentSession(ctx: Ctx, spec: SessionSpec): Promise<Sess
       if (m.type === "assistant") {
         for (const b of blocksOf(m)) {
           if (b.type === "tool_use" && b.name) {
-            emit("agent.tool", describeTool(world, b.name, b.input), { tool: b.name, input: clipJson(b.input) });
+            emit("agent.tool", describeTool(world, b.name, b.input), { tool: b.name, input: clipJson(b.input), ...(b.id ? { toolUseId: b.id } : {}) });
             if (live.reportSubmitted && ++toolsAfterReport > 2) void q.interrupt?.().catch(() => undefined);
           } else if (b.type === "text" && b.text?.trim()) {
             const t = b.text.trim();
@@ -317,6 +317,9 @@ export async function runAgentSession(ctx: Ctx, spec: SessionSpec): Promise<Sess
             emit("agent.thought", clipThought(t));
           }
         }
+      } else if (m.type === "user") {
+        // each call's outcome, one line, for the manager's `fork_status`
+        for (const b of blocksOf(m)) if (b.type === "tool_result" && b.tool_use_id) world.toolResults.record(session.id, b.tool_use_id, resultLine(b.content), !!b.is_error);
       } else if (m.type === "result") {
         usage = usageOf(m);
         if (typeof m.result === "string" && m.result.trim()) finalText = m.result.trim();
