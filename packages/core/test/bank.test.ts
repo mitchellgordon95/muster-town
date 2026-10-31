@@ -89,12 +89,14 @@ describe("bank", () => {
     expect(world.bank.listPools().find((x) => x.id === p.id)!.name).toBe("Labs 2");
   });
 
-  it("a pool holding only the Town Hall gets no auto share (the Town Hall draws nothing)", () => {
+  it("a pool holding only the Town Hall gets an auto share like any pool with a building; an empty pool gets none (1:1 mt_cz11aqe81a)", () => {
     const { world, seed } = seededWorld();
     const p = world.bank.createPool(seed.admin.id, { name: "Labs" });
     for (const b of world.buildings.all().filter((x) => x.kind !== "town-hall")) world.bank.setBuildingPool(seed.admin.id, b.id, p.id);
-    expect(world.bank.shares().get("general")).toEqual({ pct: 0, explicit: false });
-    expect(world.bank.shares().get(p.id)).toEqual({ pct: 100, explicit: false });
+    expect(world.bank.shares().get("general")).toEqual({ pct: 50, explicit: false });
+    expect(world.bank.shares().get(p.id)).toEqual({ pct: 50, explicit: false });
+    const empty = world.bank.createPool(seed.admin.id, { name: "Empty" });
+    expect(world.bank.shares().get(empty.id)).toEqual({ pct: 0, explicit: false });
   });
 
   it("a pool can be deleted only when empty; General never", () => {
@@ -139,17 +141,17 @@ describe("bank", () => {
     expect(world.bank.available(lab2.id, at(1.5))).toEqual({ expiring: 3000, durable: 6000 });
   });
 
-  it("buildings in one pool share it first come first served; the Town Hall in General draws nothing", () => {
+  it("buildings in one pool share it first come first served; the Town Hall in General draws like any building", () => {
     const { world, seed } = seededWorld();
     const lab2 = createBuilding(world, { name: "Lab 2" }, seed.admin.id);
     world.bank.addInput(seed.admin.id, { label: "Key", source: "api-key", model: "m", tokens: 1000, apiKey: "sk" }, T0);
     // carbon-cycle, lab 2 and the Town Hall are all in General, which has 100%
     expect(world.bank.available("carbon-cycle")).toEqual({ expiring: 0, durable: 1000 });
     expect(world.bank.available(lab2.id)).toEqual({ expiring: 0, durable: 1000 });
-    expect(world.bank.available("town-hall")).toEqual({ expiring: 0, durable: 0 });
-    expect(world.bank.draw("town-hall", "x", 100)).toBe(100);
+    expect(world.bank.available("town-hall")).toEqual({ expiring: 0, durable: 1000 });
+    expect(world.bank.draw("town-hall", "x", 100)).toBe(0);
     const mei = world.agents.first("name = 'Mei'")!;
-    expect(world.bank.draw("carbon-cycle", mei.id, 700)).toBe(0);
+    expect(world.bank.draw("carbon-cycle", mei.id, 600)).toBe(0);
     expect(world.bank.available(lab2.id)).toEqual({ expiring: 0, durable: 300 });
     expect(world.bank.draw(lab2.id, mei.id, 500)).toBe(200);
     expect(world.bank.remaining("carbon-cycle")).toBe(0);
@@ -191,7 +193,7 @@ describe("bank", () => {
     ]);
     expect(s.buildings.find((b) => b.buildingId === lab2.id)).toMatchObject({ poolId: p.id, poolName: "Third", pct: 33.33, explicit: true, durableTokens: 333 });
     expect(s.buildings.find((b) => b.buildingId === "carbon-cycle")).toMatchObject({ poolId: "general", poolName: "General", pct: 66.67, explicit: false, durableTokens: 666 });
-    expect(s.buildings.find((b) => b.buildingId === "town-hall")).toMatchObject({ poolId: "general", pct: 0, durableTokens: 0 });
+    expect(s.buildings.find((b) => b.buildingId === "town-hall")).toMatchObject({ poolId: "general", pct: 66.67, durableTokens: 666 });
   });
 
   it("charge draws from the pool share before the building's allocations and keeps the building able to start", () => {

@@ -148,7 +148,7 @@ export interface BankBuildingShare {
   name: string;
   poolId: string;
   poolName: string;
-  /** its pool's effective % of the Bank (0 for the Town Hall, which draws nothing from the Bank) */
+  /** its pool's effective % of the Bank */
   pct: number;
   /** its pool's share is explicit */
   explicit: boolean;
@@ -487,8 +487,7 @@ export class Bank {
 
   /**
    * Effective % of the Bank per pool. Explicit shares (admin-set) come first; pools without one split what's
-   * left equally. A pool without an explicit share and with no building that can draw (empty, or only the
-   * Town Hall) gets nothing, so no share sits unused.
+   * left equally. A pool without an explicit share and with no building gets nothing, so no share sits unused.
    */
   shares(): Map<string, { pct: number; explicit: boolean }> {
     const out = new Map<string, { pct: number; explicit: boolean }>();
@@ -496,7 +495,7 @@ export class Bank {
     const rest: string[] = [];
     for (const p of this.listPools()) {
       if (p.pct !== null) { out.set(p.id, { pct: p.pct, explicit: true }); used += p.pct; }
-      else if (this.buildingsIn(p.id).some((b) => b.kind !== "town-hall")) rest.push(p.id);
+      else if (this.buildingsIn(p.id).length) rest.push(p.id);
       else out.set(p.id, { pct: 0, explicit: false });
     }
     const each = rest.length ? Math.max(0, 100 - used) / rest.length : 0;
@@ -561,11 +560,12 @@ export class Bank {
     return updated;
   }
 
-  /** The pool a building may draw from, or null: the Town Hall draws nothing from the Bank (only its own allocations). */
+  /**
+   * The pool a building may draw from, or null for an unknown building. The Town Hall draws like any building (its pool,
+   * else General): it pays the Planner (1:1 mt_cz11aqe81a).
+   */
   private drawPool(buildingId: string): BankPool | null {
-    const b = this.repos.buildings.get(buildingId);
-    if (!b || b.kind === "town-hall") return null;
-    return this.poolOf(buildingId);
+    return this.repos.buildings.get(buildingId) ? this.poolOf(buildingId) : null;
   }
 
   /**
@@ -793,11 +793,10 @@ export class Bank {
       }),
       buildings: this.repos.buildings.all().map((b) => {
         const pool = this.poolOf(b.id);
-        const draws = !!this.drawPool(b.id);
         const s = shares.get(pool.id) ?? { pct: 0, explicit: false };
         const a = this.available(b.id, now);
         return {
-          buildingId: b.id, name: b.name, poolId: pool.id, poolName: pool.name, pct: draws ? round(s.pct) : 0, explicit: s.explicit,
+          buildingId: b.id, name: b.name, poolId: pool.id, poolName: pool.name, pct: round(s.pct), explicit: s.explicit,
           expiringTokens: a.expiring, durableTokens: a.durable, heldTokens: sum(held.get(b.id)), heldByAuth: held.get(b.id) ?? { subscription: 0, apiKey: 0, donorKey: 0 },
         };
       }),
