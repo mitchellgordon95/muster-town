@@ -52,6 +52,7 @@ describe("bank", () => {
     expect(world.bank.creditDue(at(3))).toBe(0);
     expect(world.bank.creditDue(at(7.5))).toBe(400); // day-0 and day-1 credits fell out of the window
     expect(world.bank.summary().dailyInflowTokens).toBe(143); // min(400, 1000/7)
+    expect(world.bank.finance().projection.dailyInflow).toBe(world.bank.summary().dailyInflowTokens); // one rule for both endpoints
   });
 
   it("api-key inputs need a key; only the owner or an admin can cancel", () => {

@@ -106,7 +106,7 @@ export const FLY_PRICES = {
 } as const;
 
 /** The town Machine as fly.town.toml `[[vm]]` sizes it (a core test pins this to the file). */
-export const TOWN_MACHINE = { cpuKind: "shared", cpus: 2, memoryMb: 2048 } as const;
+export const TOWN_MACHINE = { cpuKind: "performance", cpus: 1, memoryMb: 2048 } as const;
 /** The desk Machine defaults of runtime/desk/fly.ts (FlyApi), used when desks config leaves a field unset (performance-1x since gr_uhh6u39vv9 step 3). */
 export const DESK_MACHINE_DEFAULTS = { cpuKind: "performance", cpus: 1, memoryMb: 2048 } as const;
 /** What a desk session without a recorded size (before migration 060) ran on. */
