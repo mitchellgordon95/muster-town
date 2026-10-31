@@ -5,15 +5,16 @@
  * configured as `town/<YYYY-MM-DD>T<HH>.db.gz.enc`, then downloads it back and checks that it decrypts to the same,
  * intact database. Retention: the newest 48 hourly objects plus the newest object of each of the last 30 days, and the
  * last local copy. Its state is one row (migrations 039, 072) that `GET /api/health` shows read-only. Without the five env
- * vars it is inert: `backup: null`.
+ * vars it is inert: `backup: null`. The synchronous CPU work (integrity_check, gzip, encryption, hashing) runs in a worker
+ * thread (work.ts): on the main thread it stalled the event loop for seconds every hour.
  */
-import { integrityCheck, sealCopy, type DB } from "@muster-town/core";
-import { createHash } from "node:crypto";
-import { mkdirSync, readdirSync, readFileSync, renameSync, rmSync, statSync, writeFileSync } from "node:fs";
+import type { DB } from "@muster-town/core";
+import { mkdirSync, readdirSync, renameSync, rmSync } from "node:fs";
 import { join } from "node:path";
-import { gunzipSync, gzipSync } from "node:zlib";
-import { backupKeyFrom, decryptBackup, encryptBackup } from "./crypto.ts";
+import { Worker } from "node:worker_threads";
+import { backupKeyFrom } from "./crypto.ts";
 import { S3 } from "./s3.ts";
+import type { Work, WorkResult } from "./work.ts";
 
 export { backupKeyFrom, decryptBackup, encryptBackup } from "./crypto.ts";
 export { S3 } from "./s3.ts";
@@ -176,18 +177,18 @@ export class BackupJob {
     const localCopy = join(this.opts.dir, `town-${stamp}.db`);
     const tmp = `${localCopy}.tmp`;
     rmSync(tmp, { force: true });
-    // the online backup API copies committed pages only and restarts on a concurrent write: safe with WAL and writers
-    await this.opts.db.backup(tmp);
-    // one self-contained file (no -wal/-shm beside it), then integrity_check
-    const check = sealCopy(tmp);
+    // in a worker thread: the online backup API (committed pages only, restarts on a concurrent write: safe with WAL and
+    // writers) from a second connection, then one self-contained file (no -wal/-shm beside it), integrity_check, gzip, encrypt
+    const src = this.opts.db.memory ? null : this.opts.db.name;
+    if (!src) await this.opts.db.backup(tmp);
+    const packed = await inWorker({ op: "pack", src, file: tmp, key: this.key! }) as Extract<WorkResult, { op: "pack" }>;
     for (const side of ["-wal", "-shm"]) rmSync(tmp + side, { force: true });
-    if (check !== "ok") { rmSync(tmp, { force: true }); throw new Error(`integrity_check on the copy failed: ${check}`); }
+    if (packed.check !== "ok") { rmSync(tmp, { force: true }); throw new Error(`integrity_check on the copy failed: ${packed.check}`); }
     renameSync(tmp, localCopy);
-    const raw = readFileSync(localCopy);
-    const blob = encryptBackup(this.key!, gzipSync(raw, { level: 6 }));
+    const blob = packed.blob!;
     await this.s3!.put(key, blob);
     // a run that cannot read its own object back fails here: no lastAt, the error on health, and nothing is pruned
-    await this.verify(key, raw);
+    await this.verify(key, packed.rawBytes!, packed.sha!);
     // retention: 48 hourly + the newest of each of 30 days (keysToDelete); only after this run's object is verified
     const deleted: string[] = [];
     for (const old of keysToDelete(await this.s3!.list(OBJECT_PREFIX))) { await this.s3!.delete(old); deleted.push(old); }
@@ -195,27 +196,34 @@ export class BackupJob {
     for (const f of readdirSync(this.opts.dir)) {
       if (/^town-\d{4}-\d{2}-\d{2}(T\d{2})?\.db(\.tmp(-wal|-shm)?|\.verify)?$/.test(f) && f !== `town-${stamp}.db`) rmSync(join(this.opts.dir, f), { force: true });
     }
-    return { key, bytes: blob.byteLength, rawBytes: statSync(localCopy).size, deleted, localCopy };
+    return { key, bytes: blob.byteLength, rawBytes: packed.rawBytes!, deleted, localCopy };
   }
 
   /**
    * Verify-by-download: GET the object back, decrypt and gunzip it (the restore path's crypto.ts / s3.ts), and check that it is
    * byte for byte the copy that was uploaded and passes integrity_check. Throws `verify <key> failed: ...` otherwise.
    */
-  private async verify(key: string, raw: Buffer): Promise<void> {
+  private async verify(key: string, rawBytes: number, sha: string): Promise<void> {
     const file = join(this.opts.dir, `town-${key.slice(OBJECT_PREFIX.length).replace(/\.gz\.enc$/, "")}.verify`);
     try {
       const blob = new Uint8Array(await (await this.s3!.get(key)).arrayBuffer());
-      const plain = gunzipSync(decryptBackup(this.key!, blob));
-      const sha = (b: Uint8Array) => createHash("sha256").update(b).digest("hex");
-      if (plain.byteLength !== raw.byteLength || sha(plain) !== sha(raw)) throw new Error(`the download is not the uploaded copy (${plain.byteLength} vs ${raw.byteLength} bytes)`);
-      writeFileSync(file, plain);
-      const check = integrityCheck(file);
-      if (check !== "ok") throw new Error(`integrity_check: ${check}`);
+      const { check } = await inWorker({ op: "verify", file, key: this.key!, blob, rawBytes, sha });
+      if (check !== "ok") throw new Error(check);
     } catch (e) {
       throw new Error(`verify ${key} failed: ${e instanceof Error ? e.message : String(e)}`);
     } finally {
       rmSync(file, { force: true });
     }
   }
+}
+
+/** Run one `Work` in a fresh worker thread (work.ts); rejects when it throws or dies. */
+function inWorker(work: Work): Promise<WorkResult> {
+  return new Promise((resolve, reject) => {
+    const w = new Worker(new URL("./work.ts", import.meta.url), { workerData: work });
+    let done = false;
+    w.once("message", (r: WorkResult) => { done = true; resolve(r); });
+    w.once("error", (e) => { done = true; reject(e); });
+    w.once("exit", (code) => { if (!done) reject(new Error(`backup worker exited with code ${code} before answering`)); });
+  });
 }
