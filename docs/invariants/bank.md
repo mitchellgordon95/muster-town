@@ -27,10 +27,10 @@ What must always hold where tokens come from and where they go: the Bank (`packa
 6. **There is no hard stop, and every balance shown is floored at 0.** A session may overshoot: the pool's durable share goes negative, and that debt is paid back from the next credits before anything new can be spent. `balance`, `remaining`, the summary's `balanceTokens` and finance `left` never go below 0. The debt shows as `overdrawn`, and `fundingFor` returns null while the share is at or below 0.
    - Test: `packages/core/test/bank-invariants.test.ts` › `balances shown are floored at 0 after an overshoot; the debt stays in the pool's durable share and the next credit pays it back first`
    - Test: `packages/core/test/bank.test.ts` › `a building draws its pool's share: expiring subscription credits first, then durable; expiring ones don't roll over`
-7. **Pool shares never pass 100%, and the Town Hall draws nothing.** Pools without an explicit share split what the explicit shares leave. An empty pool gets nothing, and buildings in a pool share it first come, first served.
+7. **Pool shares never pass 100%, and the Town Hall draws like any building.** Pools without an explicit share split what the explicit shares leave. An empty pool gets nothing, and buildings in a pool (the Town Hall included, 1:1 mt_cz11aqe81a) share it first come, first served.
    - Test: `packages/core/test/bank.test.ts` › `pools split the Bank equally unless an admin sets a share; explicit shares can't pass 100%; empty pools get nothing`
-   - Test: `packages/core/test/bank.test.ts` › `a pool holding only the Town Hall gets no auto share (the Town Hall draws nothing)`
-   - Test: `packages/core/test/bank.test.ts` › `buildings in one pool share it first come first served; the Town Hall in General draws nothing`
+   - Test: `packages/core/test/bank.test.ts` › `a pool holding only the Town Hall gets an auto share like any pool with a building; an empty pool gets none (1:1 mt_cz11aqe81a)`
+   - Test: `packages/core/test/bank.test.ts` › `buildings in one pool share it first come first served; the Town Hall in General draws like any building`
 8. **Funding order is fixed: a member-funded grant's own input first, then subscription, the building's Bank share, donor-key, and api-key.** Every session runs on exactly one credential the Bank holds (a subscription input's token, an api-key input's key, a donor's key); a Bank with none holds the work, and a credential in the host env is a hard failure (post-mortem 2026-10-30).
    - Test: `packages/core/test/member-funding.test.ts` › `a session on the grant is paid from the input first, then the pool; each debit names the input`
    - Test: `packages/core/test/budget.test.ts` › `funding order: subscription → donor-key → api-key; the fallback is the first donor-key / api-key allocation`
@@ -64,7 +64,7 @@ What must always hold where tokens come from and where they go: the Bank (`packa
     - Test: `packages/runtime/test/running-debit.test.ts` › `a spend-limit death with a smaller (or no) figure than was posted never books less than the posts`
     - Test: `packages/runtime/test/running-debit.test.ts` › `a restart orphans the session: its row keeps what was booked and the debits still match`
     - Test: `packages/runtime/test/running-debit.test.ts` › `a building with nothing left is still debited (overshoot), so the Spending tab's Not funded doesn't grow`
-    - Test: `packages/runtime/test/running-debit.test.ts` › `its usage with nothing of its own left is recorded alone: no Bank debit, no budget.exhausted, nobody flipped out-of-budget`
+    - Test: `packages/runtime/test/running-debit.test.ts` › `its residents' usage is debited to its pool (General): no usage-only path, nobody flipped out-of-budget while the pool has tokens`
     - Test: `packages/desk/test/run.test.ts` › `posts its running usage for the Bank to book, and a session that dies before its result still ends with every call (1:1 mt_x40qq8poc3 decision 2)`
 
 ## How it connects

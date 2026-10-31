@@ -34,7 +34,7 @@ const fixture: PoolsInputs = {
     { buildingId: "b1", tokens: 300, spentTokens: 200, retired: true },
   ],
   dailyInflowTokens: 1000,
-  allowance: (id) => (id === "b1" ? 70 : 30),
+  allowance: (id) => (id === "b1" ? 70 : id === "town-hall" ? 0 : 30), // like Grants.exploration: the Town Hall has no exploration
 };
 
 describe("financePools (GET /api/finance/pools)", () => {
@@ -45,6 +45,7 @@ describe("financePools (GET /api/finance/pools)", () => {
       ["labs", 40, 400, 0, 400, 200, 600, 400],
     ]);
     expect(p.pools[0]!.buildings.map((b) => b.id)).toEqual(["town-hall", "b1"]);
+    expect(p.buildings.every((b) => b.drawsFromBank)).toBe(true); // the Town Hall draws like any building
     expect(p.buildings.map((b) => [b.id, b.drawn, b.drawnSubscription, b.drawnDurable, b.drawnMemberFunded, b.donated, b.donationsSpent, b.held, b.explorationTokensPerDay])).toEqual([
       ["town-hall", 0, 0, 0, 0, 0, 0, 0, 0],
       ["b1", 650, 550, 100, 50, 700, 300, 400, 70],

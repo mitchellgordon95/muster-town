@@ -44,7 +44,7 @@ export interface PoolBuildingRow {
   name: string;
   poolId: string | null;
   poolName: string;
-  /** false for the Town Hall (and the deleted-building row): it draws nothing from the Bank */
+  /** false only for the deleted-building row (every building, the Town Hall too, draws from its pool) */
   drawsFromBank: boolean;
   /** Σ its Bank debits */
   drawn: number;
@@ -169,9 +169,8 @@ export function financePools(inp: PoolsInputs, now = new Date()): FinancePools {
     const mine = inp.debits.filter((d) => d.buildingId === b.id);
     const allocs = inp.allocations.filter((a) => a.buildingId === b.id);
     const pid = poolOf(b);
-    const draws = b.kind !== "town-hall";
     return {
-      id: b.id, name: b.name, poolId: pid, poolName: poolName.get(pid) ?? pid, drawsFromBank: draws,
+      id: b.id, name: b.name, poolId: pid, poolName: poolName.get(pid) ?? pid, drawsFromBank: true,
       drawn: mine.reduce((s, d) => s + d.tokens, 0),
       drawnSubscription: mine.reduce((s, d) => s + (isDurable(d) ? 0 : d.tokens), 0),
       drawnDurable: mine.reduce((s, d) => s + (isDurable(d) ? d.tokens : 0), 0),
@@ -179,7 +178,7 @@ export function financePools(inp: PoolsInputs, now = new Date()): FinancePools {
       donated: allocs.reduce((s, a) => s + (a.retired ? Math.min(a.tokens, a.spentTokens) : a.tokens), 0),
       donationsSpent: allocs.reduce((s, a) => s + a.spentTokens, 0),
       held: allocs.reduce((s, a) => s + (a.retired ? 0 : Math.max(0, a.tokens - a.spentTokens)), 0),
-      explorationTokensPerDay: draws ? inp.allowance(b.id) : 0,
+      explorationTokensPerDay: inp.allowance(b.id),
     };
   });
   const orphan = inp.debits.filter((d) => !buildingIds.has(d.buildingId));

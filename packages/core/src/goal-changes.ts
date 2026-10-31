@@ -16,8 +16,8 @@ export const REORG_PREP_MS = 24 * 60 * 60_000;
 export const PLANNER_TITLE = "Planner";
 const PLANNER_DIRECTION = "The town's planning agent: drafts goal-tree changes as proposals a human accepts or cuts (it never edits the tree) and facilitates the reorg meetings of \"Change this goal\".";
 
-/** Posted in a Planner 1:1 when the Planner can't start a session (the Town Hall draws nothing from the Bank until docs/goals.md step 7). */
-export const PLANNER_UNPAID = "The Planner can't start a session yet: it lives at the Town Hall, and the Town Hall draws nothing from the Bank (paying the Planner is Bank work, docs/goals.md step 7, waiting on Mitchell). Your lines are kept; it answers once it can run.";
+/** Posted in a Planner 1:1 when the Planner can't start a session: the Town Hall draws from the Bank like any building, so only an empty Bank (or a used-up share or daily cap) stops it. */
+export const PLANNER_UNPAID = "The Planner can't start a session right now: the Bank has nothing the Town Hall can draw (no credential, or its share is used up for today). Your lines are kept; it answers once it can run.";
 
 const isOpenKr = (k: KeyResult) => !k.archivedAt && k.status !== "met" && k.status !== "missed";
 const clip = (s: string, n: number) => (s.length > n ? `${s.slice(0, n - 1)}…` : s);
@@ -64,7 +64,7 @@ export class Reorgs {
     });
   }
 
-  /** Can the Planner start a session now? The Town Hall draws nothing from the Bank (bank.ts drawPool), so only its own allocations pay. */
+  /** Can the Planner start a session now? The Town Hall draws from its pool like any building (`Budget.canStart`). */
   canRun(): boolean {
     const p = this.planner();
     return !!p && p.status !== "stopped" && this.world.budget.canStart(p.id);

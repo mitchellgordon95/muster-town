@@ -267,6 +267,8 @@ describe("proxy chat", () => {
     const { world, runtime, sdk, seed } = setup(async function* () {
       yield result(40, 0.0005, "See the Global Carbon Budget source card.");
     });
+    // the librarian lives at the Town Hall, which draws from the Bank like any building: give the Bank tokens
+    world.bank.addInput(seed.admin.id, { label: "Key", source: "api-key", model: "m", tokens: 10_000_000, apiKey: "sk" });
     const lib = world.docs.first("state = 'library'")!;
     const r = await runtime.chat(seed.ada!.id, { message: lib.title });
     expect(r.reply).toBe("See the Global Carbon Budget source card.");
