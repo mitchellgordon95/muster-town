@@ -371,6 +371,9 @@ describe("meetings, roles, budget, events, human moves", () => {
     const finance = await json(app, "GET", "/api/finance");
     expect(finance.status).toBe(200);
     expect(finance.body).toMatchObject({ credited: 2000, leftBank: 2000, overdrawn: 0, projection: { days: 30 }, sumCheck: { ok: true, diff: 0 } });
+    expect(finance.body.free).toMatchObject({ goalId: "gl_town" });
+    expect(typeof finance.body.free.freeTokens).toBe("number");
+    expect(finance.body).not.toHaveProperty("pools");
     const sources = await json(app, "GET", "/api/finance/sources");
     expect(sources.status).toBe(200);
     expect(sources.body).toMatchObject({ creditedTokens: 2000, totalReceived: finance.body.total, financeTotal: finance.body.total, matchesFinance: true, sumCheck: { ok: true, diff: 0 } });

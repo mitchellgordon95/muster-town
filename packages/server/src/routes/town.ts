@@ -367,7 +367,8 @@ export async function townRoutes(app: FastifyInstance) {
   // ---- bank ----
   app.get("/api/bank", async () => world.bank.summary());
   // public, read-only: total received, used, expired, left, overdrawn and a 30-day projection (docs/bank.md "Finance")
-  app.get("/api/finance", async () => world.bank.finance());
+  // `free`: the town-wide free tokens (docs/how-work-gets-done.md §7; core free-tokens.ts), the one number exploration reads
+  app.get("/api/finance", async () => ({ ...world.bank.finance(), free: world.bank.freeTokens?.() ?? null }));
   // public, read-only: `used` by building → grant → assignment from the sessions table; rows sum to used (gr_8gtgmd828o)
   app.get("/api/finance/spend", async () => world.bank.spend());
   app.get("/api/finance/sources", async () => world.bank.sources());
