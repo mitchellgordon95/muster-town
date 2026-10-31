@@ -1,5 +1,5 @@
 import { ToolResults } from "./forkstatus.ts";
-import { ROOT_GOAL_ID, mapFlagOf, townEnv, type Agent, type AgentStatus, type Building, type BuildingDefaults, type DesksConfig, type RedeployLive, type RedeployResult, type ServerMessage, type Tile } from "@muster-town/schema";
+import { ROOT_GOAL_ID, mapFlagOf, townEnv, type Agent, type AgentStatus, type Building, type BuildingDefaults, type DesksConfig, type MapLayout, type RedeployLive, type RedeployResult, type ServerMessage, type Tile } from "@muster-town/schema";
 import { Bank } from "./bank.ts";
 import { Budget } from "./budget.ts";
 import { Goals } from "./goals.ts";
@@ -15,7 +15,7 @@ import { deskBillToday, type BillSession, type DeskBill } from "./desk-bill.ts";
 import { EventLog } from "./events.ts";
 import { exportWorld, importExport, type ExportResult } from "./export.ts";
 import { importV0, type ImportV0Options, type ImportV0Result } from "./import-v0.ts";
-import { Ops } from "./ops.ts";
+import { Ops, type Actor } from "./ops.ts";
 import { holderOf, Permissions, type Holder } from "./permissions.ts";
 import { Presence } from "./presence.ts";
 import { Secrets } from "./secrets.ts";
@@ -28,6 +28,9 @@ import { Emitter } from "./util.ts";
 import { makeVerbs, type Verbs } from "./verbs/index.ts";
 import { WorldMap } from "./world/map.ts";
 import { followRelayout } from "./entities.ts";
+import { forbidden } from "./errors.ts";
+
+const MAP_LAYOUT_WORDS: Record<MapLayout, string> = { fountain: "fountain plazas", tree: "a plain tree", radial: "spokes round the Town Hall" };
 import { Movement } from "./world/movement.ts";
 
 export type SnapshotMessage = Extract<ServerMessage, { type: "snapshot" }>;
@@ -247,6 +250,27 @@ export class World {
     const what = [given.maxRunning !== undefined ? `Session slots set to ${desks.maxRunning}` : null, given.billCapUsd !== undefined ? `Desk bill cap set to $${desks.billCapUsd}/day` : null].filter(Boolean).join("; ");
     this.events.append({ type: "system", text: what || "Desk settings saved", payload: { desks: true, maxRunning: desks.maxRunning, billCapUsd: desks.billCapUsd } });
     return desks;
+  }
+
+  /** Who may pick the map's shape: an admin (`goals.edit` town-wide) or a human who owns a goal of this town. */
+  canSetMapLayout(actor: Actor): boolean {
+    if (!actor || this.permissions.can(actor, "goals.edit")) return true;
+    if (holderOf(actor).kind !== "user") return false;
+    const id = holderOf(actor).id;
+    return this.goals.where("status = 'active'").some((g) => g.ownerId === id);
+  }
+  /**
+   * Pick the shape the map draws the goal tree in (`PUT /api/town/map-layout`, 1:1 mt_q10xf3bkoq): town-wide, for everyone.
+   * Redraws the map at once (bodies follow, like a tree edit) and logs it.
+   */
+  setMapLayout(layout: MapLayout, actor: Actor): MapLayout {
+    if (!this.canSetMapLayout(actor)) throw forbidden("goals.edit", "Only an admin or a goal owner can change the map's shape.");
+    const was = this.town.get().mapLayout;
+    if (was === layout) return layout;
+    this.town.set({ mapLayout: layout });
+    this.layout.rebuild();
+    this.events.append({ type: "system", agentId: actor?.id ?? null, text: `The map is now drawn as ${MAP_LAYOUT_WORDS[layout]} (was ${MAP_LAYOUT_WORDS[was]})`, payload: { mapLayout: layout, from: was } });
+    return layout;
   }
 
   /**

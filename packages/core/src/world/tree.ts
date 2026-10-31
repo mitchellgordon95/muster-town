@@ -1,4 +1,5 @@
-import { BANK_LOT, ROOT_GOAL_ID, type Lot, type Tile } from "@muster-town/schema";
+import { BANK_LOT, ROOT_GOAL_ID, type Lot, type MapLayout, type Tile } from "@muster-town/schema";
+import { radialLayout } from "./radial.ts";
 
 /**
  * The map is the goal tree (docs/goals.md "The map is the tree", build step 2). Nobody places buildings: `treeLayout`
@@ -17,13 +18,21 @@ import { BANK_LOT, ROOT_GOAL_ID, type Lot, type Tile } from "@muster-town/schema
  * - Blocks sit side by side with one tile of grass between them, so adding a building shifts the blocks after it
  *   (right, keeping order); nothing before it moves.
  *
+ * Three shapes of the same tree, a town-wide setting (`town.mapLayout`, 1:1 mt_q10xf3bkoq; mocks dc_fvgi5nq36j):
+ * - "tree": the packed layout above.
+ * - "fountain": the same, but each first-level goal's street is a plaza (PLAZA_H rows, at least PLAZA_W wide) with a
+ *   fountain in its middle row; its children's buildings and streets hang off the plaza's bottom row (its rim).
+ * - "radial": the Town Hall in the middle and each first-level goal a spoke (radial.ts).
+ *
  * Pure: the same tree always gives the same map.
  */
 
 /** Grass between two neighbouring buildings or blocks. */
 const GAP = 1;
 /** Grass around the town. */
-const MARGIN = 2;
+export const MARGIN = 2;
+/** A fountain plaza ("fountain" shape): rows tall, and its least width right of the drop. */
+const PLAZA_H = 3, PLAZA_W = 11;
 
 export interface TreeGoal { id: string; parentId: string | null; text: string; position: number; createdAt: string }
 export interface TreeBuilding { id: string; kind: "lab" | "town-hall"; goalId?: string | null; createdAt: string; size: { w: number; h: number } }
@@ -40,6 +49,8 @@ export interface Plaza {
   street: Lot | null;
   /** its signpost: directly above `pos` (the web finds it there); null for a goal with no drawn children */
   sign: Tile | null;
+  /** the fountain in the middle of a fountain plaza (not walkable); null elsewhere */
+  fountain: Lot | null;
 }
 export interface TreeLayout {
   lots: Map<string, Lot>;
@@ -48,6 +59,8 @@ export interface TreeLayout {
   plazas: Plaza[];
   /** per junction goal: the road dropping from its parent's street to its own */
   edges: Map<string, Tile[]>;
+  /** the Bank's lot: always right below the Town Hall */
+  bank: Lot;
   w: number;
   h: number;
 }
@@ -55,7 +68,7 @@ export interface TreeLayout {
 const byOrder = <T extends { createdAt: string; id: string }>(a: T & { position?: number }, b: T & { position?: number }) =>
   (a.position ?? 0) - (b.position ?? 0) || a.createdAt.localeCompare(b.createdAt) || a.id.localeCompare(b.id);
 
-export function treeLayout(goals: TreeGoal[], buildings: TreeBuilding[]): TreeLayout {
+export function treeLayout(goals: TreeGoal[], buildings: TreeBuilding[], shape: MapLayout = "tree"): TreeLayout {
   const ids = new Set(goals.map((g) => g.id));
   const root = goals.find((g) => g.id === ROOT_GOAL_ID) ?? goals.find((g) => !g.parentId) ?? { id: ROOT_GOAL_ID, parentId: null, text: "", position: 0, createdAt: "" };
   const kids = new Map<string, TreeGoal[]>();
@@ -93,12 +106,19 @@ export function treeLayout(goals: TreeGoal[], buildings: TreeBuilding[]): TreeLa
     return out;
   };
 
+  if (shape === "radial") return radialLayout({ root, hall, labs, drawnKids, standsAt });
+
+  /** a fountain plaza: a first-level goal's street in the "fountain" shape */
+  const fat = (depth: number) => shape === "fountain" && depth === 1;
   const rowW = (list: TreeBuilding[]) => list.reduce((s, b, i) => s + b.size.w + (i ? GAP : 0), 0);
-  const kidsW = (id: string) => drawnKids(id).reduce((s, c, i) => s + blockW(c.id) + (i ? GAP : 0), 0);
+  const kidsW = (id: string, depth: number) => {
+    const w = drawnKids(id).reduce((s, c, i) => s + blockW(c.id, depth + 1) + (i ? GAP : 0), 0);
+    return fat(depth) ? Math.max(w, PLAZA_W) : w;
+  };
   /** a block: the goal's own buildings, then (with drawn children) the drop and its street over the children's blocks */
-  const blockW = (id: string): number => {
+  const blockW = (id: string, depth: number): number => {
     const own = rowW(labs(id));
-    return drawnKids(id).length ? own + (own ? GAP : 0) + 1 + kidsW(id) : own;
+    return drawnKids(id).length ? own + (own ? GAP : 0) + 1 + kidsW(id, depth) : own;
   };
 
   const lots = new Map<string, Lot>();
@@ -111,14 +131,17 @@ export function treeLayout(goals: TreeGoal[], buildings: TreeBuilding[]): TreeLa
     const children = drawnKids(g.id);
     if (!children.length) {
       const first = lots.get(labs(g.id)[0].id)!;
-      plazas.push({ goalId: g.id, parentId, text: g.text, depth, pos: { x: first.x + Math.floor(first.w / 2), y }, street: null, sign: null });
+      plazas.push({ goalId: g.id, parentId, text: g.text, depth, pos: { x: first.x + Math.floor(first.w / 2), y }, street: null, sign: null, fountain: null });
       return;
     }
-    const drop = cx, sy = y + 2;
+    const drop = cx, sy = y + 2, sh = fat(depth) ? PLAZA_H : 1, sw = x + blockW(g.id, depth) - drop;
     edges.set(g.id, [{ x: drop, y: y + 1 }]);
-    plazas.push({ goalId: g.id, parentId, text: g.text, depth, pos: { x: drop + 1, y: sy }, street: { x: drop, y: sy, w: x + blockW(g.id) - drop, h: 1 }, sign: { x: drop + 1, y: y + 1 } });
+    // a fountain plaza's fountain: two tiles in its middle row, centred
+    const fountain = sh > 1 ? { x: drop + Math.floor(sw / 2), y: sy + 1, w: 2, h: 1 } : null;
+    plazas.push({ goalId: g.id, parentId, text: g.text, depth, pos: { x: drop + 1, y: sy }, street: { x: drop, y: sy, w: sw, h: sh }, sign: { x: drop + 1, y: y + 1 }, fountain });
+    // the children hang off the street's bottom row (a plaza's rim)
     let kx = drop + 1;
-    for (const c of children) { place(c, g.id, depth + 1, kx, sy); kx += blockW(c.id) + GAP; }
+    for (const c of children) { place(c, g.id, depth + 1, kx, sy + sh - 1); kx += blockW(c.id, depth + 1) + GAP; }
   };
 
   // the root: the Town Hall above the main street, the Bank below it, then the root's own buildings and its children's blocks
@@ -128,15 +151,15 @@ export function treeLayout(goals: TreeGoal[], buildings: TreeBuilding[]): TreeLa
   if (hall) lots.set(hall.id, hallLot);
   let cx = BANK_LOT.x + Math.max(BANK_LOT.w, hallSize.w) + GAP;
   for (const b of labs(root.id)) { lots.set(b.id, { x: cx, y: sy + 1, w: b.size.w, h: b.size.h }); cx += b.size.w + GAP; }
-  for (const c of drawnKids(root.id)) { place(c, root.id, 1, cx, sy); cx += blockW(c.id) + GAP; }
+  for (const c of drawnKids(root.id)) { place(c, root.id, 1, cx, sy); cx += blockW(c.id, 1) + GAP; }
   const sign = { x: hallLot.x + hallLot.w + 1, y: sy - 1 };
   const x0 = BANK_LOT.x - 1;
-  plazas.unshift({ goalId: root.id, parentId: null, text: root.text, depth: 0, pos: { x: sign.x, y: sy }, street: { x: x0, y: sy, w: Math.max(cx, sign.x + 2) - x0, h: 1 }, sign });
+  plazas.unshift({ goalId: root.id, parentId: null, text: root.text, depth: 0, pos: { x: sign.x, y: sy }, street: { x: x0, y: sy, w: Math.max(cx, sign.x + 2) - x0, h: 1 }, sign, fountain: null });
+  return finish({ lots, standsAt, plazas, edges, bank: { ...BANK_LOT } });
+}
 
-  const rects = [...lots.values(), BANK_LOT as Lot, ...plazas.flatMap((p) => (p.street ? [p.street] : []))];
-  return {
-    lots, standsAt, plazas, edges,
-    w: Math.max(...rects.map((r) => r.x + r.w)) + MARGIN,
-    h: Math.max(...rects.map((r) => r.y + r.h)) + MARGIN,
-  };
+/** The map's size: everything drawn, plus MARGIN of grass. */
+export function finish(t: Omit<TreeLayout, "w" | "h">): TreeLayout {
+  const rects = [...t.lots.values(), t.bank, ...t.plazas.flatMap((p) => (p.street ? [p.street] : [])), ...[...t.edges.values()].flat().map((e) => ({ ...e, w: 1, h: 1 }))];
+  return { ...t, w: Math.max(...rects.map((r) => r.x + r.w)) + MARGIN, h: Math.max(...rects.map((r) => r.y + r.h)) + MARGIN };
 }

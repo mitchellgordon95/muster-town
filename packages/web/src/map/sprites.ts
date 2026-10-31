@@ -270,6 +270,20 @@ export function drawBankFountain(g: CanvasRenderingContext2D, px: number, py: nu
     g.fillStyle = "#9fd0f2"; g.fillRect(px - 2, py + 1, 1, 4); g.fillRect(px + 1, py + 1, 1, 4);
   }
 }
+/** A plaza's fountain (map shape "fountain"), two tiles on the path: a stone basin, water, and a spout from the middle seam. */
+export function drawPlazaFountain(g: CanvasRenderingContext2D, px: number, py: number, n: { l: boolean; r: boolean }) {
+  g.fillStyle = "rgba(0,0,0,.2)"; g.fillRect(px, py + 13, T, 3);
+  g.fillStyle = "#9c9486"; g.fillRect(px, py + 3, T, 11);
+  g.fillStyle = "#c9c1ae"; g.fillRect(px, py + 3, T, 2);
+  if (!n.l) { g.fillStyle = "#7d766a"; g.fillRect(px, py + 3, 2, 11); }
+  if (!n.r) { g.fillStyle = "#7d766a"; g.fillRect(px + T - 2, py + 3, 2, 11); }
+  g.fillStyle = "#3d7fc4"; g.fillRect(px + (n.l ? 0 : 2), py + 5, T - (n.l ? 0 : 2) - (n.r ? 0 : 2), 7);
+  g.fillStyle = "#7fb6e8"; g.fillRect(px + (n.l ? 2 : 4), py + 7, 4, 1); g.fillRect(px + 9, py + 9, 3, 1);
+  if (n.l) {
+    g.fillStyle = "#c9c1ae"; g.fillRect(px - 1, py - 2, 2, 8);
+    g.fillStyle = "#cfe8fa"; g.fillRect(px - 3, py - 3, 1, 5); g.fillRect(px + 2, py - 3, 1, 5); g.fillRect(px - 1, py - 4, 2, 2);
+  }
+}
 /** The Bank's ledger desk (Tokens & sources tab), two tiles: a dark-wood desk with an open ledger and a quill; each tile draws its half. */
 export function drawBankLedger(g: CanvasRenderingContext2D, px: number, py: number, n: { l: boolean; r: boolean }) {
   g.fillStyle = "#3b2414"; g.fillRect(px, py + 6, T, 8);

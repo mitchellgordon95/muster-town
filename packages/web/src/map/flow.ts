@@ -105,10 +105,21 @@ function coin(g: CanvasRenderingContext2D, p: Pt, r: number, spin: number) {
   g.fillRect(p.x - w * 0.35, p.y - r * 0.45, Math.max(1, w * 0.3), Math.max(1, r * 0.3));
 }
 
-function label(g: CanvasRenderingContext2D, x: number, y: number, title: string, sub: string, color: string | null) {
+/** `text` cut with an ellipsis to `max` px in the current font. */
+function fit(g: CanvasRenderingContext2D, text: string, max: number): string {
+  if (g.measureText(text).width <= max) return text;
+  let t = text;
+  while (t.length > 1 && g.measureText(`${t}…`).width > max) t = t.slice(0, -1);
+  return `${t.trimEnd()}…`;
+}
+
+/** A building's label, at most `max` px wide (its lot's width on screen, so neighbours' labels never overlap). */
+function label(g: CanvasRenderingContext2D, x: number, y: number, title0: string, sub0: string, color: string | null, max = Infinity) {
   g.font = `700 12px ${FONT}`;
+  const title = fit(g, title0, Math.max(24, max - 16));
   const tw = g.measureText(title).width;
   g.font = `11px ${FONT}`;
+  const sub = fit(g, sub0, Math.max(24, max - 16));
   const sw = g.measureText(sub).width;
   const w = Math.max(tw, sw) + 16, h = 34, bx = Math.round(x - w / 2), by = Math.round(y - h);
   g.fillStyle = "rgba(20,21,28,.9)";
@@ -195,7 +206,9 @@ export function drawFlow(g: CanvasRenderingContext2D, now: number, flow: Flow, b
     // labels under each building, clear of the rivers that land on its middle: name, then what it holds
     for (const { b, s, foot } of flows) {
       const row = bank.buildings.find((r) => r.buildingId === b.id);
-      label(g, foot.x, foot.y + 44, b.name, s && row ? (s.draws ? `draws on the Bank${row.heldTokens ? ` · holds ${fmtTokens(row.heldTokens)}` : ""}` : "draws nothing from the Bank") : "…", s?.draws ? GOLD : null);
+      // as wide as the lot plus the grass to its neighbour (core tree.ts GAP): labels side by side never overlap
+      const max = toScreen((b.lot!.x + b.lot!.w + 1) * T, 0).x - toScreen(b.lot!.x * T, 0).x - 4;
+      label(g, foot.x, foot.y + 44, b.name, s && row ? (s.draws ? `draws on the Bank${row.heldTokens ? ` · holds ${fmtTokens(row.heldTokens)}` : ""}` : "draws nothing from the Bank") : "…", s?.draws ? GOLD : null, max);
     }
     drawLegend(g, bank, right - 16, ch - 16, ease);
   }
