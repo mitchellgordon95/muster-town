@@ -650,10 +650,14 @@ export class MockApi implements Api {
   // in-tray's Fund offers "Pay from" it (member funding)
   private bankInputs: BankInput[] = [{
     id: "bi_mitchell_max", userId: "us_mitchell", label: "Mitchell's Max plan", source: "subscription", model: "claude-opus-5-5", tokens: 20_000_000, recurrence: "daily",
-    weeklyCapTokens: 120_000_000, nextCreditAt: null, creditedTokens: 20_000_000, hasApiKey: true, cancelledAt: null, createdAt: now(), goalId: null, idleNotifiedAt: null,
+    weeklyCapTokens: 120_000_000, nextCreditAt: null, creditedTokens: 20_000_000, hasApiKey: true, cancelledAt: null, createdAt: now(), goalId: null, idleNotifiedAt: null, creditsTotal: null, creditsLeft: null,
   }, {
     id: "bi_mitchell_key", userId: "us_mitchell", label: "Mitchell's API key", source: "api-key", model: "claude-sonnet-5-5", tokens: 3_000_000, recurrence: "once",
-    weeklyCapTokens: null, nextCreditAt: null, creditedTokens: 3_000_000, hasApiKey: true, cancelledAt: null, createdAt: now(), goalId: null, idleNotifiedAt: null,
+    weeklyCapTokens: null, nextCreditAt: null, creditedTokens: 3_000_000, hasApiKey: true, cancelledAt: null, createdAt: now(), goalId: null, idleNotifiedAt: null, creditsTotal: null, creditsLeft: null,
+  }, {
+    // a donor trying the town for three days first (1:1 mt_p3ge56kg03): credit 1 of 3 made, 2 still due
+    id: "bi_ada_trial", userId: "us_mitchell", label: "Ada's trial key", source: "api-key", model: "claude-opus-5-5", tokens: 1_000_000, recurrence: "daily",
+    weeklyCapTokens: null, nextCreditAt: new Date(Date.now() + 86_400_000).toISOString(), creditedTokens: 1_000_000, hasApiKey: true, cancelledAt: null, createdAt: now(), goalId: null, idleNotifiedAt: null, creditsTotal: 3, creditsLeft: 2,
   }];
   // a toy finance summary over the toy Bank: nothing expired or overdrawn, a flat burn
   async finance(): Promise<Finance> {
@@ -700,7 +704,7 @@ export class MockApi implements Api {
     const name = (id: string) => this.sim.users.find((u) => u.id === id)?.name ?? "";
     const inputs: FinanceSources["inputs"] = this.bankInputs.filter((i) => !i.cancelledAt).map((i) => ({
       id: i.id, label: i.label, source: i.source, recurrence: i.recurrence, who: name(i.userId), createdAt: i.createdAt, cancelledAt: i.cancelledAt,
-      tokens: i.creditedTokens, firstAt: i.createdAt, lastAt: i.createdAt, expiredTokens: 0,
+      creditsTotal: i.creditsTotal, creditsLeft: i.creditsLeft, nextCreditAt: i.nextCreditAt, tokens: i.creditedTokens, firstAt: i.createdAt, lastAt: i.createdAt, expiredTokens: 0,
       credits: [{ id: `${i.id}_c1`, createdAt: i.createdAt, expiresAt: null, tokens: i.creditedTokens, expiredTokens: 0 }],
     }));
     const donations: FinanceSources["donations"] = this.sim.allocations.map((a) => ({
@@ -763,7 +767,9 @@ export class MockApi implements Api {
     }).filter((c) => c.tokens > 0).sort((a, b) => b.tokens - a.tokens);
     // the back-fill split prices at exactly raw / ratio (docs/bank.md), so the mock's adjusted figure is that ratio
     const inputs = this.bankInputs.map((i) => ({ ...i, userName: this.sim.users.find((u) => u.id === i.userId)?.name ?? i.userId, creditedCounts: splitRaw(i.creditedTokens, i.model), adjustedCreditedTokens: Math.round(i.creditedTokens / BACKFILL[backfillFamily(i.model)].ratio), debitedTokens: 0, balanceTokens: i.cancelledAt ? 0 : i.creditedTokens }));
-    const dailyInflowTokens = live.reduce((s, i) => s + (i.recurrence === "daily" ? i.tokens : i.recurrence === "weekly" ? i.tokens / 7 : i.recurrence === "monthly" ? i.tokens / 30 : 0), 0);
+    // core dailyInflowOf's rule: an input limited to N credits counts only those still due in the next 30 days
+    const perDay = (i: BankInput) => (i.recurrence === "daily" ? i.tokens : i.recurrence === "weekly" ? i.tokens / 7 : i.recurrence === "monthly" ? i.tokens / 30 : 0);
+    const dailyInflowTokens = Math.round(live.reduce((s, i) => s + (i.creditsLeft != null && i.recurrence !== "once" ? Math.min(i.creditsLeft * i.tokens / 30, perDay(i)) : perDay(i)), 0));
     return clone({
       balanceTokens: expiringTokens + durableTokens, expiringTokens, durableTokens, heldTokens, heldByAuth, townTokens: expiringTokens + durableTokens + heldTokens, dailyInflowTokens: Math.round(dailyInflowTokens),
       creditedTokens: this.bankInputs.reduce((s, i) => s + i.creditedTokens, 0),
@@ -777,7 +783,9 @@ export class MockApi implements Api {
     await wait();
     const input: BankInput = {
       id: newId("bi"), userId: "us_mitchell", label: i.label, source: i.source, model: i.model, tokens: i.tokens, recurrence: i.recurrence ?? "once",
-      weeklyCapTokens: i.weeklyCapTokens ?? null, nextCreditAt: null, creditedTokens: i.tokens, hasApiKey: !!(i.apiKey || i.token), cancelledAt: null, createdAt: now(), goalId: i.goalId ?? null, idleNotifiedAt: null,
+      weeklyCapTokens: i.weeklyCapTokens ?? null, creditedTokens: i.tokens, hasApiKey: !!(i.apiKey || i.token), cancelledAt: null, createdAt: now(), goalId: i.goalId ?? null, idleNotifiedAt: null,
+      creditsTotal: i.times ?? null, creditsLeft: i.times != null ? i.times - 1 : null,
+      nextCreditAt: i.recurrence && i.recurrence !== "once" && i.times !== 1 ? new Date(Date.now() + 86_400_000 * ({ daily: 1, weekly: 7, monthly: 30 } as const)[i.recurrence]).toISOString() : null,
     };
     this.bankInputs.push(input);
     this.sim.event("bank.input", null, `Mitchell added ${i.label} to the Bank`, {}, null);
