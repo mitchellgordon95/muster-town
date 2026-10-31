@@ -37,7 +37,7 @@ describe("flyRate (Fly list prices)", () => {
   it("sizes the town Machine as fly.town.toml does", () => {
     const toml = readFileSync(join(REPO_ROOT, "fly.town.toml"), "utf8");
     const size = /size\s*=\s*"([^"]+)"/.exec(toml)![1]!, mem = /memory\s*=\s*"(\d+)gb"/.exec(toml)![1]!;
-    expect(size).toBe(`${TOWN_MACHINE.cpuKind === "shared" ? "shared-cpu" : "performance"}-${TOWN_MACHINE.cpus}x`);
+    expect(size).toBe(`${(TOWN_MACHINE.cpuKind as string) === "shared" ? "shared-cpu" : "performance"}-${TOWN_MACHINE.cpus}x`);
     expect(Number(mem) * 1024).toBe(TOWN_MACHINE.memoryMb);
     expect(FLY_PRICES.presets[size]).toBeDefined();
   });
