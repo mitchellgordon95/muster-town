@@ -6,12 +6,13 @@ import { flyMachineName, flyVolumeName, POLL_CHUNK } from "../src/desk/fly.ts";
 interface Req { method: string; path: string; body: any }
 
 /** An in-memory Machines API: `exec` answers come from `execAnswers` (in order), everything else is canned. */
-function fakeFly(opts: { startFails?: number; machines?: any[]; volumes?: any[] } = {}) {
+function fakeFly(opts: { startFails?: number; placementFails?: number; machines?: any[]; volumes?: any[] } = {}) {
   const reqs: Req[] = [];
   const machines: any[] = opts.machines ?? [];
   const volumes: any[] = opts.volumes ?? [];
   const execAnswers: ((cmd: string[]) => { stdout?: string; stderr?: string; exit_code?: number })[] = [];
   let startFails = opts.startFails ?? 0;
+  let placementFails = opts.placementFails ?? 0;
   const fetchFn = (async (url: string, init: RequestInit = {}) => {
     const path = new URL(url).pathname.replace("/v1/apps/muster-desks", "") + new URL(url).search;
     const method = init.method ?? "GET";
@@ -20,7 +21,8 @@ function fakeFly(opts: { startFails?: number; machines?: any[]; volumes?: any[] 
     const reply = (status: number, json: unknown) => ({ ok: status < 400, status, text: async () => JSON.stringify(json) }) as Response;
     if (method === "GET" && path === "/machines") return reply(200, machines);
     if (method === "GET" && path === "/volumes") return reply(200, volumes);
-    if (method === "POST" && path === "/volumes") { const v = { id: "vol_1", state: "created", ...body }; volumes.push(v); return reply(201, v); }
+    if (method === "POST" && path === "/volumes") { const v = { id: `vol_${volumes.length + 1}`, state: "created", ...body }; volumes.push(v); return reply(201, v); }
+    if (method === "POST" && path === "/machines" && placementFails-- > 0) return reply(412, { error: `insufficient resources to create new machine with existing volume '${body.config.mounts[0].volume}'`, status: "volume_placement_capacity" });
     if (method === "POST" && path === "/machines") { const m = { id: "m_1", state: "created", name: body.name }; machines.push(m); return reply(200, m); }
     if (path.includes("/wait")) return reply(200, { ok: true });
     if (path.endsWith("/start")) { if (startFails-- > 0) return reply(412, { error: "failed_precondition: machine still stopping" }); return reply(200, { ok: true }); }
@@ -89,6 +91,31 @@ describe("FlyApi", () => {
     const m = f.reqs.find((r) => r.method === "POST" && r.path === "/machines")!;
     expect(m.body.config.mounts[0].volume).toBe("vol_old");
     expect(m.body.region).toBe("ewr");
+  });
+
+  test("create forks the home volume onto another host when the volume's host is full, and remove deletes both", async () => {
+    const f = fakeFly({ placementFails: 1, volumes: [{ id: "vol_old", name: "deskhome_ag_1", state: "created", region: "ewr", created_at: "2026-10-01T00:00:00Z" }] });
+    const a = api(f, { region: "iad" });
+    await a.create({ name: "desk-c-ag_1", labels: {}, volume: "deskhome-ag_1", mountPath: "/home/agent" });
+    const fork = f.reqs.find((r) => r.method === "POST" && r.path === "/volumes")!;
+    expect(fork.body).toMatchObject({ name: "deskhome_ag_1", region: "ewr", source_volume_id: "vol_old", compute: { cpu_kind: "performance", cpus: 1, memory_mb: 2048 } });
+    const tries = f.reqs.filter((r) => r.method === "POST" && r.path === "/machines").map((r) => r.body.config.mounts[0].volume);
+    expect(tries).toEqual(["vol_old", "vol_2"]);
+
+    // the next create (after an image redeploy) picks the fork, the newest copy
+    f.volumes[1].created_at = "2026-10-31T20:00:00Z";
+    f.machines.length = 0;
+    await a.create({ name: "desk-c-ag_1", labels: {}, volume: "deskhome-ag_1", mountPath: "/home/agent" });
+    expect(f.reqs.filter((r) => r.method === "POST" && r.path === "/machines").at(-1)!.body.config.mounts[0].volume).toBe("vol_2");
+
+    await a.remove("desk-c-ag_1", { volume: "deskhome-ag_1" });
+    expect(f.reqs.filter((r) => r.method === "DELETE" && r.path.startsWith("/volumes/")).map((r) => r.path).sort()).toEqual(["/volumes/vol_2", "/volumes/vol_old"]);
+  });
+
+  test("create forks at most once: a second placement failure is thrown", async () => {
+    const f = fakeFly({ placementFails: 2, volumes: [{ id: "vol_old", name: "deskhome_ag_1", state: "created" }] });
+    await expect(api(f).create({ name: "desk-c-ag_1", labels: {}, volume: "deskhome-ag_1", mountPath: "/home/agent" })).rejects.toThrow(/volume_placement_capacity/);
+    expect(f.reqs.filter((r) => r.method === "POST" && r.path === "/volumes")).toHaveLength(1);
   });
 
   test("find maps Machine states", async () => {
