@@ -14,9 +14,10 @@ import { redirectPanel } from "./panels/room";
  * Every panel is a place: walk up and press E. `intray`/`board`/`cabinet` take a building id; the Town Hall places
  * the old `#/finance` opens it too; its `tab` is the thing in its room you used, BANK_FIXTURES). `admin` is the old name for `planning`.
  * the old `#/finance` opens it too). `admin` is the old name for `planning`.
- * `grant` is the one panel without a place: a grant or proposal (`gr_…`), reached from any link to its id.
+ * `grant`, `assignment` and `session` are the panels without a place: a grant or proposal (`gr_…`), an assignment card (`as_…`)
+ * and a session (`se_…`), reached from any link to its id.
  */
-export type PanelKind = "agent" | "building" | "connect" | "library" | "outbox" | "meeting" | "intray" | "board" | "cabinet" | "planning" | "schedule" | "mod" | "bank" | "admin" | "grant" | "manual" | "dashboard" | "goals";
+export type PanelKind = "agent" | "building" | "connect" | "library" | "outbox" | "meeting" | "intray" | "board" | "cabinet" | "planning" | "schedule" | "mod" | "bank" | "admin" | "grant" | "manual" | "dashboard" | "goals" | "assignment" | "session";
 export interface PanelRef { kind: PanelKind; id?: string; docId?: string; tab?: string }
 export interface Toast { id: number; text: string; tone: "info" | "ok" | "bad"; panel?: PanelRef }
 

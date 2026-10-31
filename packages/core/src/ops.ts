@@ -201,8 +201,8 @@ export class Ops {
 
   // ---- reconcile (runtime startup) ----
   /**
-   * After a restart: running Session rows whose agent has no live child (not in `liveAgentIds`) end with
-   * `error: 'orphaned at restart'`; `active` assignments whose agent then has no running session go back to `pending`.
+   * After a restart: running Session rows whose agent has no live child (not in `liveAgentIds`) end `interrupted` with
+   * `error: 'cut by restart'` (the restart cut them, they didn't fail: the `sessions` alert counts only `error`); `active` assignments whose agent then has no running session go back to `pending`.
    */
   reconcile(liveAgentIds: Iterable<string> = []): { orphanedSessions: string[]; requeuedAssignments: string[] } {
     const live = new Set(liveAgentIds);
@@ -211,7 +211,7 @@ export class Ops {
     this.world.transaction(() => {
       for (const s of this.world.sessions.where("status = 'running'")) {
         if (live.has(s.agentId)) continue;
-        this.endSession(s.id, { status: "error", error: "orphaned at restart" });
+        this.endSession(s.id, { status: "interrupted", error: "cut by restart" });
         orphanedSessions.push(s.id);
       }
       // visitors hold their active assignment across restarts (their loop runs outside the town)

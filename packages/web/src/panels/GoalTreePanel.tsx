@@ -6,7 +6,7 @@
  * tabs (1:1 mt_n25udpflus decision 5): a goal's spend is the Bank's "Spend by goal" (Spending tab), the queue is each
  * building panel's Queue tab, and the goal event log is for agents (GET /api/goals/:id/history), not shown here.
  */
-import { useEffect, useState, type CSSProperties, type ReactNode } from "react";
+import { useEffect, useRef, useState, type CSSProperties, type ReactNode } from "react";
 import { createPortal } from "react-dom";
 import { ROOT_GOAL_ID, type FunderWeek, type GoalChangeView, type GoalTreeNode, type KeyResultStatus } from "@muster-town/schema";
 import { api, type GoalProposalView } from "../api";
@@ -41,6 +41,8 @@ function useMe(): { userId: string | null; townWide: boolean } {
  * Mitchell can talk to the Planner while he edits; its × (or Esc with no side panel open) closes it.
  */
 export function GoalTreePanel({ goalId, onClose }: { goalId?: string; onClose: () => void }) {
+  // a key result id (a kr_ link in a doc) opens the tree at its goal with that key result highlighted
+  const focusKr = goalId?.startsWith("kr_") ? goalId : null;
   const rev = useGoalRev();
   const me = useMe();
   const [retired, setRetired] = useState(false);
@@ -58,6 +60,10 @@ export function GoalTreePanel({ goalId, onClose }: { goalId?: string; onClose: (
   const root = tree.data;
   const anyEdit = me.townWide || (!!root && !!me.userId && treeRows(root, false).some((r) => r.node.ownerId === me.userId));
   const node = root ? findGoal(root, selected) ?? root : null;
+  useEffect(() => {
+    const at = root && focusKr ? krGoal(root, focusKr) : null;
+    if (at) select(at.id);
+  }, [root?.id, focusKr]);
   // Esc closes the sheet only when no side panel sits beside it (the app's own Esc closes that panel first)
   useEffect(() => {
     const key = (e: KeyboardEvent) => {
@@ -105,7 +111,7 @@ export function GoalTreePanel({ goalId, onClose }: { goalId?: string; onClose: (
                 onSelect={select} onToggle={toggle} />
             </nav>
             <main className="ge-detail">
-              <GoalDetail key={node.id} root={root} node={node} me={me} onSelect={select} onDone={reload}
+              <GoalDetail key={node.id} root={root} node={node} me={me} focusKr={focusKr} onSelect={select} onDone={reload}
                 proposals={(proposals.data ?? []).filter((p) => node.id === ROOT_GOAL_ID || subtreeIds(node).has(proposalNode(root, p).id))} />
             </main>
           </div>
@@ -166,12 +172,13 @@ function TreeList({ root, retired, filter, funded, selected, collapsed, showKrs,
 }
 
 /** A goal's key results; `cards` (the editor's detail) shows each whole with its how-to-check, else one line each. */
-function KrLines({ krs, actions, cards }: { krs: TreeKr[]; actions?: (k: TreeKr) => ReactNode; cards?: boolean }) {
+function KrLines({ krs, actions, cards, focus }: { krs: TreeKr[]; actions?: (k: TreeKr) => ReactNode; cards?: boolean; focus?: string | null }) {
   const open = krs.filter((k) => !isArchived(k));
   const done = archivedLine(krs);
-  const [showDone, setShowDone] = useState(false);
+  const [showDone, setShowDone] = useState(() => krs.some((k) => k.id === focus && isArchived(k)));
+  const scrolled = useRef(false);
   const line = (k: TreeKr) => (
-    <li key={k.id} className={`goal-kr ${cards ? "ge-kr-card" : ""}`}>
+    <li key={k.id} className={`goal-kr ${cards ? "ge-kr-card" : ""} ${k.id === focus ? "focus" : ""}`} ref={k.id === focus ? (el) => { if (el && !scrolled.current) { scrolled.current = true; el.scrollIntoView({ block: "center" }); } } : undefined}>
       <Pill tone={krTone(k.status as KeyResultStatus)}>{krStatusLabel(k.status as KeyResultStatus)}</Pill>
       {k.underReviewSince ? <Pill tone="warn" title={`A "Change this goal" put it under review on ${k.underReviewSince.slice(0, 10)}: its grant keeps running until a human decides`}>under review</Pill> : null}
       {k.due ? <span className={`goal-due ${pastDue(k, today()) ? "late" : ""}`} title={pastDue(k, today()) ? "Past due" : "Due"}>{k.due}</span> : null}
@@ -193,7 +200,7 @@ function KrLines({ krs, actions, cards }: { krs: TreeKr[]; actions?: (k: TreeKr)
   );
 }
 
-function GoalDetail({ root, node, me, proposals, onSelect, onDone }: { root: GoalTreeNode; node: GoalTreeNode; me: { userId: string | null; townWide: boolean }; proposals: GoalProposalView[]; onSelect: (id: string | null) => void; onDone: () => void }) {
+function GoalDetail({ root, node, me, proposals, focusKr, onSelect, onDone }: { root: GoalTreeNode; node: GoalTreeNode; me: { userId: string | null; townWide: boolean }; proposals: GoalProposalView[]; focusKr?: string | null; onSelect: (id: string | null) => void; onDone: () => void }) {
   const can = canEditGoal(node, me) && node.status === "active";
   const path = pathTo(root, node.id);
   const [form, setForm] = useState<"" | "edit" | "goal" | "kr" | "move" | "owner" | "retire" | "change">("");
@@ -242,7 +249,7 @@ function GoalDetail({ root, node, me, proposals, onSelect, onDone }: { root: Goa
       {form === "retire" ? <RetireForm root={root} node={node} onDone={() => { done(); onSelect(node.parentId); }} /> : null}
       {proposals.length ? <Proposals root={root} list={proposals} me={me} onDone={onDone} here={node.id === ROOT_GOAL_ID ? null : node.text} /> : null}
       <Section title={`Key results (${node.keyResults.filter((k) => !isArchived(k)).length})`}>
-        {node.keyResults.length ? <KrLines krs={node.keyResults} cards actions={can ? (k) => isArchived(k) ? null : k.underReviewSince ? <ReviewActs root={root} k={k} onDone={onDone} onArchive={() => setMissing({ k, archive: true })} /> : <span className="goal-kr-acts">
+        {node.keyResults.length ? <KrLines krs={node.keyResults} cards focus={focusKr} actions={can ? (k) => isArchived(k) ? null : k.underReviewSince ? <ReviewActs root={root} k={k} onDone={onDone} onArchive={() => setMissing({ k, archive: true })} /> : <span className="goal-kr-acts">
           <Act small tone="ok" run={() => mark(k, "met")} title="A human marks it met: it archives under this goal">Met</Act>
           <button className="btn sm bad" onClick={() => setMissing({ k, archive: false })} title="A human marks it missed: it archives under this goal and a postmortem is queued">Missed</button>
         </span> : undefined} /> : <Empty>No key results under this goal{can ? ": add a dated one with + Key result." : "."}</Empty>}
@@ -519,13 +526,15 @@ export function RetireConfirm({ goal, plan, dest, confirmLabel, onConfirm, onCan
 
 const ACTION: Record<GoalProposalView["action"], string> = { "add-goal": "New goal", "add-kr": "New key result", edit: "Edit", move: "Move", retire: "Retire", promote: "Promote to a goal" };
 
+/** The goal a key result hangs under, or null. */
+function krGoal(root: GoalTreeNode, id: string): GoalTreeNode | null {
+  const walk = (n: GoalTreeNode): GoalTreeNode | null => n.keyResults.some((k) => k.id === id) ? n : n.children.map(walk).find(Boolean) ?? null;
+  return walk(root);
+}
+
 /** The goal (in the tree) a proposal belongs to, as core Goals.nodeOfProposal: its target goal or key result's goal, else where it goes. */
 export function proposalNode(root: GoalTreeNode, p: Pick<GoalProposalView, "targetId" | "parentId" | "action">): GoalTreeNode {
-  const krGoal = (id: string): GoalTreeNode | null => {
-    const walk = (n: GoalTreeNode): GoalTreeNode | null => n.keyResults.some((k) => k.id === id) ? n : n.children.map(walk).find(Boolean) ?? null;
-    return walk(root);
-  };
-  const at = p.targetId ? findGoal(root, p.targetId) ?? krGoal(p.targetId) : null;
+  const at = p.targetId ? findGoal(root, p.targetId) ?? krGoal(root, p.targetId) : null;
   return at ?? (p.parentId ? findGoal(root, p.parentId) : null) ?? root;
 }
 

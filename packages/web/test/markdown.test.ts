@@ -24,9 +24,19 @@ describe("docIdParts", () => {
   });
   it("splits grant ids out too, so a proposal can be clicked through from a report or chat", () => {
     expect(docIdParts("fund gr_jqsqra0dlx (see dc_k955hun6c4)")).toEqual(["fund ", { id: "gr_jqsqra0dlx" }, " (see ", { id: "dc_k955hun6c4" }, ")"]);
-    expect(docIdParts("gr_short and ag_s1n1xknj8n stay text")).toEqual(["gr_short and ag_s1n1xknj8n stay text"]);
+    expect(docIdParts("gr_short and as_short stay text")).toEqual(["gr_short and as_short stay text"]);
     expect(isGrantId("gr_jqsqra0dlx")).toBe(true);
     expect(isGrantId("dc_k955hun6c4")).toBe(false);
+  });
+});
+
+describe("docIdParts: every id with a panel (kr_utx7pmv1yk)", () => {
+  it("splits meeting, agent, building, key result and media ids out", () => {
+    const parts = docIdParts("mt_aaaaaaaaaa ag_bbbbbbbbbb bl_cccccccccc kr_dddddddddd mf_eeeeeeeeee");
+    expect(parts.filter((p) => typeof p !== "string")).toEqual([{ id: "mt_aaaaaaaaaa" }, { id: "ag_bbbbbbbbbb" }, { id: "bl_cccccccccc" }, { id: "kr_dddddddddd" }, { id: "mf_eeeeeeeeee" }]);
+  });
+  it("splits assignment and session ids out (step 2: an assignment card, a session panel)", () => {
+    expect(docIdParts("as_aaaaaaaaaa se_bbbbbbbbbb")).toEqual([{ id: "as_aaaaaaaaaa" }, " ", { id: "se_bbbbbbbbbb" }]);
   });
 });
 

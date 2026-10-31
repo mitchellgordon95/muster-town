@@ -30,7 +30,7 @@ export const WORLD_RULES = `How the town works:
 - Skills (docs of type "skill") are reusable how-tos, some with bundled scripts: \`skills\` lists the ones you can use and \`read\` loads one. When you work out a method others could reuse, write it as a skill (\`write\` type "skill", a SKILL.md body).
 - ${WIKI_HOWTO}
 - Finish with \`submit_report\`. It is mandatory, it must be your last action, and your session ends after it. The report goes to your manager's in-tray and you go idle; you work again when someone gives you an assignment.
-- You can't wait inside a session: when your turn ends, the session ends, and background tasks, timers and monitors won't wake you. If you can't finish because you're waiting on something, park the work: \`submit_report\` with \`resumeWhen\` (\`{deploy: "<your commit sha>"}\` once you've pushed and need it live, \`{assignment: id}\` for a colleague's work, \`{decision: reportId}\` for a review, \`{after: iso}\`) and \`next\` (one line); your continuation then starts by itself when that holds. \`GET /api/health\` gives the live server's \`commit\`; a change is live when \`git merge-base --is-ancestor <sha> <commit>\` succeeds.`;
+- You can't wait inside a session: when your turn ends, the session ends, and background tasks, timers and monitors won't wake you. If you can't finish because you're waiting on something, park the work: \`submit_report\` with \`resumeWhen\` (\`{deploy: "<your commit sha>"}\` once you've pushed and need it live, \`{assignment: id}\` for a colleague's work, \`{decision: reportId}\` for a review, \`{pr: <number>}\` for your pull request's CI checks to finish (passed or failed: the town watches them, so never guess an \`{after}\` time for CI), \`{after: iso}\` for a real time) and \`next\` (one line); your continuation then starts by itself when that holds. \`GET /api/health\` gives the live server's \`commit\`; a change is live when \`git merge-base --is-ancestor <sha> <commit>\` succeeds.`;
 
 export const RESEARCH_RULES = `Research rules:
 - Sources first: primary sources (agency data, IPCC, Global Carbon Budget, peer-reviewed papers) over secondary. Cite every source you rely on in provenance.
@@ -85,7 +85,7 @@ export function recentWorkBlock(world: World, agentId: string, opts: { limit?: n
  * The system prompt of a work session. \`memory\` is the agent's "## What you know" + "## Your log" block
  * (\`memoryBlock\`); \`team\` the manager's "## Your team" block (\`teamBlock\`), only for the building's manager agent.
  */
-export function workSystemPrompt(agent: Agent, building: Building, town: Town, opts: { desk?: boolean; memory?: string; team?: string; skills?: string; keyResults?: string; townBoard?: string; purpose?: string } = {}): string {
+export function workSystemPrompt(agent: Agent, building: Building, town: Town, opts: { desk?: boolean; memory?: string; team?: string; skills?: string; keyResults?: string; townBoard?: string; buildings?: string; purpose?: string } = {}): string {
   return `You are ${agent.name}, a resident of the ${building.name} of ${town.name}. ${OWNERSHIP}
 Town goal: ${town.goal || "(none set)"}
 Building goal: ${opts.purpose ?? (building.goal || "(none set)")}${opts.keyResults ? `\n${opts.keyResults}` : ""}
@@ -99,7 +99,7 @@ ${REPORT_FORMAT}
 
 You have about ${building.maxTurnsPerSession} turns; budget them. ${opts.desk
     ? "You work at your own desk: a private sandbox computer with your home directory (/home/agent), a shell, Python with the usual scientific libraries, and the web. Files you keep there persist between sessions; the town library is still where shared work goes."
-    : "Your only tools are the town tools (mcp__town__*), WebSearch and WebFetch."}${opts.townBoard ? `\n\n${opts.townBoard}` : ""}${standingRules(building)}${opts.skills ? `\n\n${opts.skills}` : ""}${opts.team ? `\n\n${opts.team}` : ""}
+    : "Your only tools are the town tools (mcp__town__*), WebSearch and WebFetch."}${opts.buildings ? `\n\n${opts.buildings}` : ""}${opts.townBoard ? `\n\n${opts.townBoard}` : ""}${standingRules(building)}${opts.skills ? `\n\n${opts.skills}` : ""}${opts.team ? `\n\n${opts.team}` : ""}
 
 ${opts.memory ?? ""}`;
 }
@@ -108,7 +108,7 @@ ${opts.memory ?? ""}`;
  * The memory and team blocks for an agent's work session (the manager agent of a building gets the team), and in
  * goal-directed buildings the Key results block for `assignment`'s session.
  */
-export function sessionMemory(world: World, agent: Agent, building: Building, assignment?: Assignment | null): { memory: string; team?: string; keyResults?: string; townBoard?: string; purpose: string } {
+export function sessionMemory(world: World, agent: Agent, building: Building, assignment?: Assignment | null): { memory: string; team?: string; keyResults?: string; townBoard?: string; buildings: string; purpose: string } {
   const manager = building.managerAgentId === agent.id && building.kind !== "town-hall";
   const keyResults = keyResultsBlock(world, building, assignment);
   const grants = manager ? managerGrantsBlock(world, building) : "";
@@ -117,7 +117,19 @@ export function sessionMemory(world: World, agent: Agent, building: Building, as
   // then the building's topic index
   const index = agent.forkOf ? "" : topicIndexBlock(world, building.id);
   const memory = agent.forkOf ? forkMemoryBlock(world, agent, assignment) : `${memoryBlock(world, agent.id)}${index ? `\n\n${index}` : ""}`;
-  return { memory, purpose: world.goalTree.purposeOf(building) || "(none set)", ...(townBoard ? { townBoard } : {}), ...(manager ? { team: `${teamBlock(world, building, agent.id)}\n\n${managerIntrayBlock(world, building, agent.id)}${grants ? `\n\n${grants}` : ""}` } : {}), ...(keyResults ? { keyResults } : {}) };
+  return { memory, purpose: world.goalTree.purposeOf(building) || "(none set)", buildings: buildingsLine(world, building), ...(townBoard ? { townBoard } : {}), ...(manager ? { team: `${teamBlock(world, building, agent.id)}\n\n${managerIntrayBlock(world, building, agent.id)}${grants ? `\n\n${grants}` : ""}` } : {}), ...(keyResults ? { keyResults } : {}) };
+}
+
+/**
+ * "Other buildings" (presence, 1:1 mt_3jtclcoxl2): every other building's name and id and its manager's name and id,
+ * one line, so a session (a fork too) never searches docs to find a manager. \`town\` says who is in each now.
+ */
+export function buildingsLine(world: World, building: Building): string {
+  const rows = world.buildings.all().filter((b) => b.id !== building.id).map((b) => {
+    const m = b.managerAgentId ? world.agents.get(b.managerAgentId) : undefined;
+    return `${b.name} (${b.id}) → ${m ? `${m.name} (${m.id})` : "no manager"}`;
+  });
+  return `Other buildings (building → manager; \`tell\` the manager or the building id, \`town\` shows who is in each now): ${rows.length ? rows.join("; ") : "none"}.`;
 }
 
 /**
@@ -582,7 +594,7 @@ export function workshopPrompt(ws: { dir: string; branch: string; base: string }
 You can edit the ${repoName} repository. Your own checkout is at ${ws.dir} on branch \`${ws.branch}\` (forked from \`${ws.base}\`); it is your current working directory. Nobody else edits it. Rules:
 - Read the repo's AGENTS.md and CLAUDE.md first, then the files you need. Keep the change small and complete.
 - Run \`npm run typecheck\` and the relevant package's tests before you commit. Don't commit broken code.
-- Commit with a clear message, then \`git push -u origin ${ws.branch}\` and open a draft pull request with \`gh pr create --draft --fill\` (base ${ws.base}). Put the PR URL in your report.
+- Commit with a clear message, then \`git push -u origin ${ws.branch}\` and open a draft pull request with \`gh pr create --draft --fill\` (base ${ws.base}). Put the PR URL in your report. To wait for its CI, park with \`submit_report\` \`resumeWhen: {pr: <number>}\`: you resume when its checks pass or fail.
 - Never force-push, never rewrite history, never run destructive commands.
 - If you call \`redeploy\`, your session keeps running through the restart (a town call in the few seconds the server is down is retried for you). Never wait or poll for the new build in the same session: say which commit should be live in your report, submit it, and verify next time.
 - The town library is still where you write source cards and notes; your report must say what changed, how you verified it, and link the PR.`;

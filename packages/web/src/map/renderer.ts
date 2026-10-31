@@ -615,7 +615,7 @@ export class MapRenderer {
       for (const b of s.buildings) {
         if (!b.lot) continue;
         const p = toScreen(b.lot.x * T, b.lot.y * T);
-        drawPill(g, p.x, p.y - 3, b.name);
+        drawPill(g, p.x, p.y - 3, b.name, Math.max(30, toScreen((b.lot.x + b.lot.w) * T, 0).x - p.x));
       }
       return;
     }

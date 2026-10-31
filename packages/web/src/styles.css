@@ -130,6 +130,8 @@ kbd { font-family: var(--mono); font-size: 11px; background: #2a2d3a; border: 1p
 .layout-bar-title span { color: var(--muted); }
 .layout-bar-errors { color: #ff8a8a; font-size: 12px; }
 .layout-bar-actions { display: flex; gap: 6px; flex-wrap: wrap; }
+.plan-shape { display: flex; gap: 6px; align-items: center; flex-wrap: wrap; font-size: 12px; }
+.plan-shape .btn.on { border-color: var(--accent); color: var(--accent); }
 .plan-form { display: flex; gap: 6px; flex-wrap: wrap; align-items: center; font-size: 12px; }
 .plan-form input, .plan-form select { width: auto; padding: 5px 8px; }
 .plan-form .grow { flex: 1 1 150px; min-width: 0; }
@@ -296,6 +298,8 @@ textarea[data-drop="over"] { outline: 2px dashed var(--accent, #7aa2ff); outline
 .md a { color: var(--accent); }
 .doc-id { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 0.9em; }
 .grant-id { color: var(--accent); }
+/* an id labelled by name (an agent, building, meeting, key result) reads as a word, not code */
+.doc-id.named { font-family: inherit; font-size: inherit; }
 .grant-row .grant-id { margin-left: auto; }
 .grant-panel .grant-row { cursor: default; }
 .grant-history { list-style: none; padding: 0; margin: 0; display: grid; gap: 4px; font-size: 12.5px; }
@@ -713,6 +717,8 @@ div.spend-row > .muted { font-size: 11.5px; }
 .goal-grant { font-size: 11px; }
 .goal-kr-text { flex: 1; min-width: 160px; }
 .goal-kr-acts { display: inline-flex; gap: 4px; }
+/* the key result a kr_ link opened the tree at */
+.goal-kr.focus { outline: 2px solid var(--accent); outline-offset: 2px; border-radius: 4px; }
 .goal-detail { display: flex; flex-direction: column; gap: 8px; }
 .goal-path { font-size: 12px; }
 .goal-meta { font-size: 12px; }

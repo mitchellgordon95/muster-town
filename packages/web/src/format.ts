@@ -95,3 +95,8 @@ export function fromMillions(s: string): number {
   const t = s.replace(/[,_\s]/g, "");
   return t === "" ? NaN : Math.round(Number(t) * 1e6);
 }
+
+/** Tokens already claimed town-wide (GET /api/bank `free`): open reservations + open proposals' asks + funded grants' remaining. */
+export function claimedTokens(f: { reservedTokens: number; openAsksTokens: number; fundedRemainingTokens: number }): number {
+  return f.reservedTokens + f.openAsksTokens + f.fundedRemainingTokens;
+}

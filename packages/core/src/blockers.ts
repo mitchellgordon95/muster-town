@@ -39,6 +39,12 @@ export function blockedBy(world: World, a: Assignment, at: Date = new Date()): B
         ? { kind: "assignment", targetId: dep.id, agentId: dep.agentId, text: `waits on assignment "${truncate(dep.title, 80)}" (${world.nameOf(dep.agentId)})` }
         : { kind: "assignment", targetId: w.assignment, text: `waits on assignment ${w.assignment}` };
     }
+    if ("pr" in w) {
+      const mins = Math.max(0, Math.round((at.getTime() - Date.parse(a.createdAt)) / 60_000));
+      const c = world.host.prChecks?.(w.pr);
+      const progress = !world.host.prChecks ? " (no runtime watching GitHub)" : !c ? " (not read from GitHub yet)" : c.total ? ` (${c.done} of ${c.total} done)` : " (no checks registered yet)";
+      return { kind: "pr", targetId: String(w.pr), placeId: `door:${a.buildingId}`, text: `waiting on PR #${w.pr} checks: ${mins} min so far${progress}` };
+    }
     if ("decision" in w) {
       const d = world.docs.get(w.decision);
       const tray = d?.buildingId ? (isTownHallItem(world, d) ? townHall : { placeId: `intray:${d.buildingId}` }) : townHall;

@@ -5,6 +5,7 @@ import { donationNote, FINANCE_TERMS, flyCheckLine, flyWindowTotals, inputName, 
 import { BANK_TABS } from "@muster-town/schema";
 import { BankView } from "../src/panels/BankPanel";
 import { BankFreeTokens, freeBreakdown } from "../src/panels/FreeTokens";
+import { claimedTokens } from "../src/format";
 
 // the live shape: 1,000 received, 1,100 used (200 overdrawn), 50 expired, 50 left
 const f: Finance = {
@@ -61,7 +62,7 @@ describe("finance page", () => {
   });
   it("ends every tab with the Terms block, above the footer, defining each term the page uses (kr_zjawesqcyp)", () => {
     const all = { spend: sp, sources: src, fly };
-    expect(FINANCE_TERMS.map(([t]) => t)).toEqual(["Adjusted token (adj. token)", "Expiring and permanent", "Overdrawn", "Held", "Free tokens", "Earmark", "Exploration cap", "Not funded", "Grant"]);
+    expect(FINANCE_TERMS.map(([t]) => t)).toEqual(["Adjusted token (adj. token)", "Expiring and permanent", "Overdrawn", "Held", "Claimed", "Free tokens", "Earmark", "Exploration cap", "Not funded", "Grant"]);
     for (const t of BANK_TABS) {
       const html = tabOf(t, all);
       expect(html, t).toContain("Terms used on this page");
@@ -81,6 +82,8 @@ describe("finance page", () => {
 // (pre-conversion pricing) and a not-funded row of −20
 const sp: FinanceSpend = {
   used: 1100, sessionsTotal: 1150, unattributed: 0, weightMismatch: 30, convertedAt: "2026-10-27T00:00:24.000Z", notFunded: 20, at: "2026-10-28T16:31:50.056Z",
+  notFundedSplit: [{ buildingId: "workshop", buildingName: "Town Workshop", usageRows: 2, tokens: 20 }], notFundedLastAt: "2026-10-28T10:00:00.000Z",
+  notFundedAllocationPaid: 0, notFundedSplitCheck: { sum: 20, notFunded: 20, ok: true },
   weightMismatchNote: "Sessions that ended before the Bank switched to adjusted tokens (2026-10-27 00:00Z) are priced here at their own model's rate and in the Bank at one rate for every model. The difference is pricing, not spend: nothing went unpaid.",
   rows: [
     { kind: "building", id: "workshop", name: "Town Workshop", tokens: 900, share: 0.8182, sessions: 9, children: [
@@ -184,6 +187,7 @@ describe("finance page: free tokens", () => {
   });
   it("shows the town-wide free tokens with each term", () => {
     const html = renderToStaticMarkup(<BankFreeTokens free={free} />);
+    expect(claimedTokens(free)).toBe(750);
     for (const s of [">Free tokens<", "general balance", "earmarks at or above", "less funded grants&#x27; remaining", "−500", "less reservations", "<b>250</b>"]) expect(html).toContain(s);
   });
 });

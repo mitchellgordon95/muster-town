@@ -53,6 +53,14 @@ export type BuildingDefaults = z.infer<typeof BuildingDefaults>;
 export const TownDefaultsPatch = BuildingDefaults.partial().refine((p) => Object.values(p).some((v) => v !== undefined), "give at least one default");
 export type TownDefaultsPatch = z.infer<typeof TownDefaultsPatch>;
 
+/**
+ * The shape the map draws the goal tree in (core world/tree.ts; 1:1 mt_q10xf3bkoq): first-level goals as fountain plazas
+ * with streets below, the plain packed tree, or spokes round the Town Hall. Town-wide: admins and goal owners pick it
+ * on the town map; a new collective starts with "fountain".
+ */
+export const MapLayout = z.enum(["fountain", "tree", "radial"]);
+export type MapLayout = z.infer<typeof MapLayout>;
+
 export const Town = z.object({
   name: z.string(),
   goal: z.string(),
@@ -62,6 +70,8 @@ export const Town = z.object({
   workspace: Workspace.optional(),
   /** the collective's defaults for every building (stored; `TownMeta.defaults()` fills the gaps); PUT /api/town/defaults sets them */
   defaults: BuildingDefaults.partial().optional(),
+  /** how the map draws the goal tree; PUT /api/town/map-layout (an admin or a goal owner) sets it */
+  mapLayout: MapLayout.default("fountain"),
 });
 export type Town = z.infer<typeof Town>;
 
@@ -657,6 +667,7 @@ export const WaitFor = z.union([
   z.object({ assignment: z.string().min(1).describe("that assignment is done or cancelled") }).strict(),
   z.object({ decision: z.string().min(1).describe("that report (doc id) got a decision") }).strict(),
   z.object({ after: Iso.describe("not before this time (ISO, at most 24 h ahead)") }).strict(),
+  z.object({ pr: z.number().int().positive().describe("that pull request's CI checks finished on its head commit (passed or failed), or it was merged or closed") }).strict(),
 ]);
 export type WaitFor = z.infer<typeof WaitFor>;
 /** How long a wait may stay unmet before the assignment is cancelled into the in-tray. */
@@ -748,12 +759,26 @@ export const Assignment = z.object({
 });
 export type Assignment = z.infer<typeof Assignment>;
 /**
+ * One assignment as anyone may read it (GET /api/assignments/:id, kr_utx7pmv1yk "No dead ids": an as_ id opens this card):
+ * what it asks, its lane and where it draws, who runs it, its status, report and sessions. Leaves out who created it and
+ * the human it traces to (`origin`), which only the in-tray and the runtime need.
+ */
+export interface AssignmentCard {
+  id: string; title: string; description: string; status: Assignment["status"];
+  lane: Assignment["lane"]; grantId: string | null; keyResultId: string | null; gap: string | null; sourceId: string | null;
+  agentId: string; agentName: string | null; buildingId: string; buildingName: string | null;
+  reportId: string | null; fromReportId: string | null; fromMeetingId: string | null; fromAssignmentId: string | null; chainId: string | null;
+  heldReason: string | null; createdAt: string; updatedAt: string;
+  /** its sessions, oldest first: tokens in adjusted output tokens */
+  sessions: { id: string; status: string; startedAt: string; endedAt: string | null; adjustedOutputTokens: number; turns: number; reportId: string | null }[];
+}
+/**
  * Why a queued assignment can't start now (GET /api/agents/:id on pending assignments, GET /api/blocked): `kind` and the
  * thing it waits on (`targetId`: an assignment, a commit sha, a report, a grant, a building), the reason in words, and
  * where the map's red line goes: the blocking colleague's body (`agentId`) or a place (`placeId`: the in-tray that holds
  * the decision, the Town Hall in-tray for a grant or allowance hold, the building's door for a deploy). Neither = no line.
  */
-export const BlockedKind = z.enum(["assignment", "deploy", "decision", "grant", "exploration", "reserved", "budget"]);
+export const BlockedKind = z.enum(["assignment", "deploy", "decision", "pr", "grant", "exploration", "reserved", "budget"]);
 export type BlockedKind = z.infer<typeof BlockedKind>;
 export const BlockedBy = z.object({
   kind: BlockedKind,
@@ -1544,9 +1569,10 @@ export type CreateGrantInput = z.input<typeof CreateGrantInput>;
 /** Inputs for every verb. The MCP server derives tool schemas from these. */
 export const VerbInputs = {
   look: z.object({}),
+  town: z.object({ query: z.string().trim().max(100).optional().describe("only buildings whose name or id, or whose manager's name or id, contains this (case-insensitive)") }),
   go: z.object({ to: z.string().describe("A place id (e.g. 'library', 'desk:<agentId>', 'door:<buildingId>', 'meeting-room:<buildingId>') or an agent id to walk to") }),
   say: z.object({ text: z.string().max(2000).describe("Heard by everyone within 3 tiles") }),
-  tell: z.object({ to: Id.describe("agent id"), text: z.string().max(4000) }),
+  tell: z.object({ to: Id.describe("agent id, or a building id to reach that building's manager (`town` lists them)"), text: z.string().max(4000) }),
   inbox: z.object({ markRead: z.boolean().default(true) }),
   board: z.object({ buildingId: Id.optional().describe("defaults to your building"), limit: z.number().int().positive().max(50).default(20) }),
   search: z.object({ query: z.string(), type: DocType.optional(), state: DocState.optional(), buildingId: Id.optional(), limit: z.number().int().positive().max(50).default(10) }),
@@ -1573,7 +1599,7 @@ export const VerbInputs = {
     body: z.string().describe("Markdown with sections: Summary, What I did, Findings, Proposal for next session (or Post-mortem), For others, Questions for humans"),
     verdict: Verdict,
     provenance: Provenance.optional(),
-    resumeWhen: WaitFor.optional().describe("Park the work instead of ending it: when this holds (a redeploy with your commit, a colleague's assignment finishing, a decision on a report, a time), your continuation starts by itself. Use when you can't finish because you're waiting on something; at most 3 times in a row, and it's dropped if unmet after 24 h."),
+    resumeWhen: WaitFor.optional().describe("Park the work instead of ending it: when this holds (a redeploy with your commit, a colleague's assignment finishing, a decision on a report, your PR's CI checks finishing, a time), your continuation starts by itself. Waiting on CI: {pr: N} (the town watches the PR's checks and resumes you when they pass or fail), never an {after} guess. Use when you can't finish because you're waiting on something; at most 3 times in a row, and it's dropped if unmet after 24 h."),
     next: z.string().optional().describe("With resumeWhen: one line saying what you'll do when it resumes (the continuation's title)"),
     rollup: z.boolean().default(false).describe("Managers only: this report rolls up the residents' reports listed in provenance.sourceIds (required) for the Town Hall in-tray. Four sections (## Shipped, ## Decided, ## Key results, ## Needs from Mitchell; refused without them); each Shipped item has **What it is:**, **What you'd see:** (one cropped picture) and **Your call:** (warned without them). Needs never names an open proposal, outbox request or Town Hall in-tray report (refused); the town appends an \"Already waiting in your in-tray\" line."),
   }),
@@ -1597,7 +1623,7 @@ export const VerbInputs = {
     title: z.string(), description: z.string(),
     pages: z.array(Id).max(3).optional().describe("topic pages (type wiki with topicOf) of this building that cover the work, at most 3: loaded into its fork's memory"),
     model: z.string().optional().describe("building-queue work only: the model its fork runs on, one the building allows (its model or cheapModel); default the building's model"),
-    waitFor: WaitFor.optional().describe("don't start until this holds: {deploy: sha|\"next\"} (live after a redeploy), {assignment: id} (done or cancelled), {decision: reportId}. A job for a later time is a `schedule`, not a wait"),
+    waitFor: WaitFor.optional().describe("don't start until this holds: {deploy: sha|\"next\"} (live after a redeploy), {assignment: id} (done or cancelled), {decision: reportId}, {pr: N} (that PR's CI checks finished, passed or failed). A job for a later time is a `schedule`, not a wait"),
     ...LaneFields.shape }),
   schedule: CreateScheduleInput.extend({
     scheduleId: Id.optional().describe("edit, pause or resume this schedule of my building (sc_…) instead of making one: give only what changes"),
@@ -1677,9 +1703,10 @@ export const VERB_NAMES = Object.keys(VerbInputs) as VerbName[];
 
 export const VERB_DESCRIPTIONS: Record<VerbName, string> = {
   look: "Where am I, who is nearby (agents and humans, what they're doing), what place this is, and my notices (unread messages, unread mentions of me, pending assignments, upcoming meetings). Visitors: the first look after being offline also carries notices.digest, what arrived while you were away (messages, mentions, assignments offered to you, meetings you missed with their notes doc ids).",
+  town: "Every building in town: its name and id, its manager (name and agent id: `tell` it, or `tell` the building id), the goal it is attached to, its live forks, and who is in it now (agents and humans), plus who is in a meeting. Use it to find another building's manager instead of searching docs; `query` filters by building or manager name or id.",
   go: "Walk to a place or to an agent. Returns when you arrive. Walking is free.",
   say: "Say something out loud; heard by everyone within 3 tiles (including humans).",
-  tell: "Send a direct message to an agent's inbox.",
+  tell: "Send a direct message to an agent's inbox. `to` may be a building id: it goes to that building's manager.",
   inbox: "Read my messages (direct messages, things I heard, system notices, meeting invites, @mentions of me with the doc or meeting id), newest first.",
   board: "List a building's board: building-wide FYIs (type \"fyi\") that everyone there needs to see, after the Town Hall's town-wide FYIs (marked townWide, listed first). Everything else published in the building (reports, meeting notes, articles, notes) is in its filing cabinet; `search` finds it.",
   search: "Full-text search over documents I can see (library, my building's board, my drafts).",
@@ -1687,7 +1714,7 @@ export const VERB_DESCRIPTIONS: Record<VerbName, string> = {
   write: "Create or update a document. Drafts are private. State 'building' publishes it: type 'fyi' (a building-wide FYI everyone needs) goes on the board; anything else is filed in the building's filing cabinet.",
   skills: "List the skills I can use: those pinned into my sessions first, then my building's and the library's, with when to use each, their bundled files and how often they're used. `read` a skill to load it.",
   pin: "Pin a skill into sessions: scope agent (just me, `listed` only, unless I'm a manager), building (a manager) or town (an admin). Pins into others' sessions of skills with files, `always` pins for others, and town pins need a human. remove=true unpins.",
-  submit_report: "End my work session with a report. Required at the end of every session. The report goes to my manager's in-tray and I go idle until someone gives me a new assignment. If I'm blocked waiting on something (a redeploy, a colleague's assignment, a review decision, a time), pass resumeWhen and next: my work parks and resumes by itself when that holds.",
+  submit_report: "End my work session with a report. Required at the end of every session. The report goes to my manager's in-tray and I go idle until someone gives me a new assignment. If I'm blocked waiting on something (a redeploy, a colleague's assignment, a review decision, your PR's CI checks ({pr: N}, never an {after} guess), a time), pass resumeWhen and next: my work parks and resumes by itself when that holds.",
   request_human: "Put a request in the town outbox for a human to do something in the real world (observe, fetch data, contact someone). Humans see it in the outbox at once and decide whether to do it.",
   assignments: "List my assignments.",
   accept_assignment: "Accept a pending assignment; it becomes my current task. Visitors: assignments to you are offers until you accept them (unaccepted offers are cancelled after 24 h); finish with `submit_report`.",
@@ -1720,6 +1747,8 @@ export const LookResult = z.object({
     /** visitors only, on the first look after coming back from offline */
     digest: z.lazy(() => MailboxDigest).optional() }),
   places: z.array(z.object({ id: Id, name: z.string(), kind: PlaceKind })).describe("places I can `go` to from here"),
+  /** one line pointing at `town` (presence, 1:1 mt_3jtclcoxl2) */
+  town: z.string(),
 });
 export type LookResult = z.infer<typeof LookResult>;
 
@@ -1855,6 +1884,8 @@ export const TILE = {
   SIGNPOST: 26,
   /** the Town Hall goal tree: a wall chart on its back wall (place `goal-tree`: opens the goal editor) */
   GOAL_CHART: 27,
+  /** the fountain in the middle of a first-level goal's plaza (map shape "fountain"; not walkable) */
+  FOUNTAIN: 28,
 } as const;
 /**
  * The Bank: a fixed landmark (not a building row, so it never takes a budget share) at the west end of the main street,

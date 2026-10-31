@@ -1,6 +1,6 @@
 /** Screen-space text: name labels and bubbles, drawn crisp on top of the scaled pixel layer. */
 import type { Agent, BuildingBudget, Stoplight } from "@muster-town/schema";
-import { fmtTokens, stoplightLabel } from "../format";
+import { claimedTokens, fmtTokens, stoplightLabel } from "../format";
 
 export const STATUS_COLOR: Record<string, string> = {
   idle: "#9a9db3", walking: "#7cc4ff", working: "#6fdc8c", "in-meeting": "#c79bff",
@@ -176,8 +176,11 @@ export function drawBlockLine(g: CanvasRenderingContext2D, a: { x: number; y: nu
 }
 
 /** Small amber pill (e.g. "⟳ redeploy") whose bottom-left sits at (x, y): an agent held by a draining redeploy. */
-export function drawPill(g: CanvasRenderingContext2D, x: number, y: number, text: string) {
+export function drawPill(g: CanvasRenderingContext2D, x: number, y: number, text0: string, max = Infinity) {
   g.font = "700 9px ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, sans-serif";
+  // cut to `max` px (a building's width on screen), so neighbours' names don't overlap
+  let text = text0;
+  if (g.measureText(text).width + 10 > max) { while (text.length > 1 && g.measureText(`${text}…`).width + 10 > max) text = text.slice(0, -1); text = `${text.trimEnd()}…`; }
   const w = g.measureText(text).width + 10, h = 13;
   const bx = Math.round(x), by = Math.round(y - h);
   g.fillStyle = "#ffcf5e"; g.strokeStyle = "#14151c"; g.lineWidth = 2;
@@ -312,18 +315,18 @@ function drawSignTip(g: CanvasRenderingContext2D, x: number, y: number, light: S
 
 const SANS = "ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, sans-serif";
 /**
- * The Bank's marquee, hung outside its front (bottom edge at y): the town's tokens in big gold digits, split into
- * today's expiring daily allowance, the Bank's permanent (durable) tokens, and what buildings hold from direct donations.
- * `bank` null = not loaded yet.
+ * The Bank's marquee, hung outside its front (bottom edge at y): the town's tokens in big gold digits, then what is
+ * claimed (open reservations + open proposals' asks + funded grants' remaining) and what is still free to claim.
+ * `bank` null = not loaded yet; `bank.free` null = the server has no free-tokens figure ("…").
  */
 /** The Bank's marquee. `x, y` is its bottom centre, or with `right` its right edge and vertical middle. */
-export function drawBankSign(g: CanvasRenderingContext2D, x: number, y: number, bank: { townTokens: number; expiringTokens: number; durableTokens: number; heldTokens: number } | null, now: number, align: "center" | "left" = "center") {
+export function drawBankSign(g: CanvasRenderingContext2D, x: number, y: number, bank: { townTokens: number; free?: { reservedTokens: number; openAsksTokens: number; fundedRemainingTokens: number; freeTokens: number } | null } | null, now: number, align: "center" | "left" = "center") {
   const n = (v: number) => v.toLocaleString("en-US");
   const total = bank ? n(bank.townTokens) : "…";
+  const free = bank?.free ?? null;
   const parts = [
-    { label: "EXPIRES TODAY", value: bank ? n(bank.expiringTokens) : "…", color: "#ffb26b" },
-    { label: "PERMANENT", value: bank ? n(bank.durableTokens) : "…", color: "#9ff0b4" },
-    { label: "HELD BY BUILDINGS", value: bank ? n(bank.heldTokens) : "…", color: "#9fd4ff" },
+    { label: "CLAIMED", value: free ? n(claimedTokens(free)) : "…", color: "#ffb26b" },
+    { label: "FREE", value: free ? n(free.freeTokens) : "…", color: "#9ff0b4" },
   ];
   g.font = `800 30px ${SANS}`;
   const tw = g.measureText(total).width;
