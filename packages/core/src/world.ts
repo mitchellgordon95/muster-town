@@ -297,6 +297,18 @@ export class World {
   }
 
   /**
+   * Set the operating reserve (`PUT /api/town/operating-reserve`, an admin; 1:1 mt_lb7tm75jgb): tokens of the general
+   * balance free tokens leave out, so exploration and grant funding can't claim them. The caller checks admin. Logs it.
+   */
+  setOperatingReserve(tokens: number, by: string | null = null): number {
+    const was = this.town.get().operatingReserveTokens;
+    if (was === tokens) return tokens;
+    this.town.set({ operatingReserveTokens: tokens });
+    this.events.append({ type: "system", agentId: by, text: `Operating reserve set to ${tokens.toLocaleString("en-US")} tokens (was ${was.toLocaleString("en-US")})`, payload: { operatingReserveTokens: tokens, from: was } });
+    return tokens;
+  }
+
+  /**
    * Save the collective defaults (`PUT /api/town/defaults`, 1:1 mt_n25udpflus decision 3) and write them through to every
    * lab, so the Building columns stay the effective values every reader uses. The Town Hall keeps its own (no code access).
    */
