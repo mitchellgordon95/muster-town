@@ -46,3 +46,31 @@ describe("Desks is the size setting", () => {
     expect(html).not.toMatch(/<input[^>]*type="number"[^>]*value="5"/);
   });
 });
+
+describe("building settings are a thin layer on goals (1:1 mt_n25udpflus decision 3)", () => {
+  const b = { id: "bl_x", name: "Ocean Lab", kind: "lab", headcount: 5, lot: { x: 10, y: 20, w: 15, h: 12 }, goal: "old text", description: "old description", model: "m", cheapModel: "c",
+    maxTurnsPerSession: 80, dailyTokensPerAgent: 2_000_000, managerAgentId: null, codeAccess: false, poolId: null, goalId: "gl_town" } as never;
+  it("Settings: Name (optional), Attached to, Desks, Manager in one form; no goal or description text", () => {
+    store.state = { ...store.state, buildings: [b] };
+    vi.spyOn(store, "can").mockReturnValue(true);
+    const html = renderToStaticMarkup(<Settings b={b} />);
+    const at = (label: string) => html.indexOf(`>${label}<`);
+    expect(at("Name")).toBeGreaterThan(-1);
+    expect([at("Name"), at("Attached to"), at("Desks"), at("Manager")]).toEqual([...[at("Name"), at("Attached to"), at("Desks"), at("Manager")]].sort((x, y) => x - y));
+    expect(html).toContain("placeholder=\"defaults to the goal&#x27;s short text\"");
+    expect(html).toContain("gets its manager when it is built");
+    expect(html).not.toContain("<textarea");
+    expect(html).not.toContain("old description");
+    expect(html).not.toContain(">Attach<"); // the attachment is saved with the form, no own section and button
+  });
+  it("Planning desk: a new building is goal, optional name, desks; each building opens its Settings", () => {
+    vi.spyOn(store, "can").mockReturnValue(true);
+    store.state = { ...store.state, buildings: [b] };
+    const html = renderToStaticMarkup(<Buildings />);
+    expect(html).not.toContain("Purpose");
+    expect(html).not.toContain("<textarea");
+    expect(html).toContain("Open its Settings");
+    expect(html).toContain("Optional: blank names it after the goal");
+    expect(html).not.toMatch(/<button[^>]*disabled[^>]*>Create building/);
+  });
+});

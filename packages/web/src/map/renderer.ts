@@ -18,6 +18,7 @@ import { fitZoom, quickWalkGoal } from "./overview";
 import { avatarSize } from "./avatarSize";
 import { stackBodies } from "./stacks";
 import { whoIsHere } from "../whoIsHere";
+import { purposeOf } from "../purpose";
 import { TILE, bankTabOf } from "@muster-town/schema";
 import { GHOST_ALPHA, buildingTint, forkLabel, forkTip, ghostAlpha } from "../forks";
 
@@ -641,7 +642,7 @@ export class MapRenderer {
     for (const b of s.buildings) {
       if (!b.lot) continue;
       const p = toScreen((b.lot.x + b.lot.w / 2) * T, b.lot.y * T - 3);
-      const sub = b.kind === "town-hall" ? (s.town?.name ?? "") : b.goal;
+      const sub = b.kind === "town-hall" ? (s.town?.name ?? "") : purposeOf(b, s.places);
       if (p.x > -300 && p.x < cw + 300 && p.y > -40 && p.y < ch + 60) this.signHits.push({ id: b.id, ...drawSign(g, p.x, p.y, b.name, sub, authStore.get().guest ? null : buildingBudgetLine(b.budget), b.id === this.hoverSign, b.stoplight) });
     }
     // the Bank's marquee stands on the grass left of the Bank, past the root's trunk road: above the Bank there are only

@@ -26,11 +26,13 @@ export function createUser(world: World, name: string, opts: { id?: string } = {
  */
 export function createBuilding(
   world: World,
-  input: In<typeof CreateBuildingInput>,
+  input: In<typeof CreateBuildingInput> & SpecText,
   creatorUserId: string | null,
   opts: { id?: string; kind?: Building["kind"]; lot?: Lot; starterResidents?: boolean } = {},
 ): Building {
   const inp = CreateBuildingInput.parse(input);
+  // goal/description text only from old specs (seed, import-v0); the API and UI set the attachment instead
+  const text = { goal: input.goal ?? "", description: input.description ?? "" };
   if (inp.managerAgentId) throw badRequest("A new building has no residents yet; set its manager after they join.");
   if ((inp.headcount ?? 6) > MAX_HEADCOUNT) throw badRequest(`headcount must be <= ${MAX_HEADCOUNT}`);
   const id = opts.id ?? newId("bl");
@@ -42,7 +44,7 @@ export function createBuilding(
   if (!goal || goal.status !== "active") throw badRequest(`${goalId} is not an active goal of the town tree.`);
   return world.transaction(() => {
     const building = world.buildings.upsert({
-      ...inp, goalId, codeAccess: inp.codeAccess ?? (opts.kind !== "town-hall" && !!world.town.get().workspace), id, kind: opts.kind ?? "lab", createdAt: nowIso(), createdBy: creatorUserId ?? undefined, ...(opts.lot ? { lot: opts.lot } : {}),
+      ...inp, ...text, name: inp.name || world.goalTree.defaultName(goalId), goalId, codeAccess: inp.codeAccess ?? (opts.kind !== "town-hall" && !!world.town.get().workspace), id, kind: opts.kind ?? "lab", createdAt: nowIso(), createdBy: creatorUserId ?? undefined, ...(opts.lot ? { lot: opts.lot } : {}),
     } as Building);
     world.permissions.ensureTownRoles();
     world.permissions.ensureBuildingRoles(id);
@@ -79,10 +81,17 @@ export function syncManagerRoles(world: World): void {
   }
 }
 
-/** Update building settings (validated); re-lots if headcount grew. */
+/** Goal and description text of an old spec (collective.json, v0 import); not part of the API. */
+type SpecText = { goal?: string; description?: string };
+
+/**
+ * Update building settings (validated); re-lots if headcount grew. A blank name re-derives from the attachment (the new
+ * one when `goalId` moves in the same patch); a typed name stays.
+ */
 export function updateBuilding(world: World, id: string, patch: Partial<In<typeof CreateBuildingInput>>, actor: Actor = null): Building {
   const cur = world.buildings.require(id, "building");
   const p = CreateBuildingInput.partial().parse(patch);
+  if (p.name === "") p.name = world.goalTree.defaultName(p.goalId ?? world.goalTree.attachmentOf(cur));
   if (p.headcount !== undefined) {
     if (p.headcount > MAX_HEADCOUNT) throw badRequest(`headcount must be <= ${MAX_HEADCOUNT}`);
     const used = world.layout.deskCount(id);

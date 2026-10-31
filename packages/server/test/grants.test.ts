@@ -62,7 +62,7 @@ describe("grants routes", () => {
     const board = await json(app, "GET", `/api/buildings/${LAB}/board`);
     expect(board.status).toBe(200);
     expect(board.body).toHaveProperty("docs");
-    expect(board.body.goal).toBe(world.buildings.require(LAB, "building").goal);
+    expect(board.body.goal).toBe(world.goalTree.purposeOf(world.buildings.require(LAB, "building")));
     expect(board.body.proposals.map((p: { id: string }) => p.id)).toEqual([id]);
     expect(board.body.grants).toEqual([]);
     expect(board.body.exploration).toMatchObject({ spentTodayTokens: 0 });

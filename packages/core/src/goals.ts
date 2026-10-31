@@ -71,6 +71,19 @@ export class Goals {
     return (building?.goalId && this.get(building.goalId) ? building.goalId : ROOT_GOAL_ID);
   }
 
+  /** A building's purpose: the text of the goal it is attached to (1:1 mt_n25udpflus decision 3: the stored `goal` text is no longer edited; old rows without a goal tree fall back to it). */
+  purposeOf(b: Building): string {
+    return this.get(this.attachmentOf(b))?.text ?? b.goal;
+  }
+
+  /** The name a building gets when none is typed: its goal's short text (at most 40 characters, cut at a word). */
+  defaultName(goalId: string): string {
+    const text = this.get(goalId)?.text.trim().replace(/\s+/g, " ") || "New building";
+    if (text.length <= 40) return text;
+    const cut = text.slice(0, 39);
+    return `${(cut.lastIndexOf(" ") > 20 ? cut.slice(0, cut.lastIndexOf(" ")) : cut).replace(/[\s,;:.(-]+$/, "")}…`;
+  }
+
   /** The building's subtree: its attachment and everything under it. */
   scopeOf(buildingId: string): Set<string> {
     return this.subtreeIds(this.attachmentOf(buildingId));

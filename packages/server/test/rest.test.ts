@@ -58,14 +58,20 @@ describe("buildings & agents", () => {
     // Desks is the size setting (the map is drawn from the goal tree): the lot follows the headcount (labSize)
     expect(b.body.building).toMatchObject({ name: "Ocean Lab", kind: "lab", headcount: 20, lot: { w: 15, h: 27 } });
     const bid = b.body.building.id;
+    // no goal text: the attached goal is its purpose (1:1 mt_n25udpflus decision 3); a sent one is ignored
+    expect(b.body.building.goal).toBe("");
     const repatched = await json(app, "PATCH", `/api/buildings/${bid}`, { headers: auth, body: { headcount: 12, goal: "Ocean heat content" } });
     expect(repatched.status).toBe(200);
-    expect(repatched.body.building).toMatchObject({ goal: "Ocean heat content", headcount: 12, lot: { w: 15, h: 18 } });
+    expect(repatched.body.building).toMatchObject({ goal: "", headcount: 12, lot: { w: 15, h: 18 } });
     const only = await json(app, "PATCH", `/api/buildings/${bid}`, { headers: auth, body: { headcount: 1 } });
     expect(only.status).toBe(200);
     expect(only.body.building).toMatchObject({ headcount: 1, lot: { w: 13, h: 9 } });
 
-    const bad = await json(app, "POST", "/api/buildings", { headers: auth, body: { goal: "no name" } });
+    // the name is optional: blank = the goal's short text
+    const unnamed = await json(app, "POST", "/api/buildings", { headers: auth, body: {} });
+    expect(unnamed.status).toBe(201);
+    expect(unnamed.body.building.name).toBe(world.goalTree.defaultName("gl_town"));
+    const bad = await json(app, "POST", "/api/buildings", { headers: auth, body: { name: "x".repeat(81) } });
     expect(bad.status).toBe(400);
     expect(bad.body.code).toBe("bad_request");
 
@@ -82,8 +88,8 @@ describe("buildings & agents", () => {
     // its only queued work is the system's "no key results" ask, which goes to the manager
     expect(detail.body.assignments.map((a: { createdBy: string }) => a.createdBy)).toEqual(["system"]);
 
-    const patched = await json(app, "PATCH", `/api/buildings/${bid}`, { headers: auth, body: { goal: "Ocean heat content" } });
-    expect(patched.body.building.goal).toBe("Ocean heat content");
+    const patched = await json(app, "PATCH", `/api/buildings/${bid}`, { headers: auth, body: { name: "Ocean Heat Lab" } });
+    expect(patched.body.building.name).toBe("Ocean Heat Lab");
 
     // a fresh non-admin user cannot create buildings
     const { token } = world.ops.createUser("Guest");

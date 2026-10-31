@@ -92,7 +92,7 @@ describe("board key-results view", () => {
 
   it("mock: a lab with no key results and no live grant is blocked", async () => {
     const api = new MockApi();
-    const b = await api.createBuilding({ name: "Empty", goal: "Nothing yet", headcount: 2 });
+    const b = await api.createBuilding({ name: "Empty", headcount: 2 });
     expect((await api.board(b.id)).blocked).toMatch(/no key results/);
     await api.createKeyResult(b.id, { text: "One", howToCheck: "Look" });
     expect((await api.board(b.id)).blocked).toBeNull();

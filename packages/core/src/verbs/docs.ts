@@ -28,7 +28,7 @@ export async function board(world: World, me: Agent, input: VerbIn<"board">) {
   if (!bid) throw badRequest("You're not in a building; pass buildingId.");
   const b = world.buildings.require(bid, "building");
   const docs = boardWithTownDocs(world, bid, input.limit);
-  return { building: { id: b.id, name: b.name, goal: b.goal }, docs: docs.map((d) => ({ ...summarizeDoc(world, d), ...(d.townWide ? { townWide: true, from: "Town Hall" } : {}) })) };
+  return { building: { id: b.id, name: b.name, goal: world.goalTree.purposeOf(b) }, docs: docs.map((d) => ({ ...summarizeDoc(world, d), ...(d.townWide ? { townWide: true, from: "Town Hall" } : {}) })) };
 }
 
 const BOARD_SQL = BOARD_TYPES.map((t) => `'${t}'`).join(", ");

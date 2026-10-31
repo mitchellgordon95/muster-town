@@ -1825,8 +1825,16 @@ export function bankPlaces(x0: number, y0: number): Place[] {
 export const WALKABLE = new Set<number>([TILE.GRASS, TILE.PATH, TILE.FLOOR, TILE.DOOR]);
 
 // ---------- REST payloads ----------
-export const CreateBuildingInput = Building.pick({ name: true, goal: true, description: true, headcount: true, model: true, cheapModel: true, maxTurnsPerSession: true, dailyTokensPerAgent: true, meetings: true, rules: true, codeAccess: true, managerAgentId: true }).partial({ goal: true, description: true, headcount: true, model: true, cheapModel: true, maxTurnsPerSession: true, dailyTokensPerAgent: true, meetings: true, rules: true, codeAccess: true, managerAgentId: true })
-  .extend({ goalId: Id.optional().describe("the goal of the town tree it attaches to (default: the root); never unset") });
+/**
+ * A building is a thin layer on the goal tree (1:1 mt_n25udpflus decision 3): its purpose is the goal it is attached to,
+ * so there is no goal or description text to set (the columns stay for old rows and collective.json imports). A blank
+ * or missing name is the goal's short text (core `Goals.defaultName`); a name typed by hand stays.
+ */
+export const CreateBuildingInput = Building.pick({ headcount: true, model: true, cheapModel: true, maxTurnsPerSession: true, dailyTokensPerAgent: true, meetings: true, rules: true, codeAccess: true, managerAgentId: true }).partial()
+  .extend({
+    name: z.string().trim().max(80).optional().describe("blank or missing = the attached goal's short text"),
+    goalId: Id.optional().describe("the goal of the town tree it attaches to (default: the root); never unset"),
+  });
 /**
  * `poolId` moves the building to another Bank pool at once (admin only; null = General). `explorationTokensPerDay`
  * and `forks` need `building.fund` (a human), so a manager agent can't raise its own allowance.

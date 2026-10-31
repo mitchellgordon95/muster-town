@@ -170,7 +170,7 @@ export async function facilitate(ctx: Ctx, st: MeetingState, meetingId: string):
     try {
       await runAgentSession(ctx, {
         agentId: fac.id, purpose: "facilitate", model, maxTurns: FACILITATE_MAX_TURNS, web: false, meetingId: m.id,
-        system: facilitateSystemPrompt(fac, bid, world.town.get(), meetingContextBlock(world, fac, m)), prompt: facilitatePrompt(m, (id) => world.nameOf(id), facilitateMaterial(world, m)),
+        system: facilitateSystemPrompt(fac, bid && { ...bid, goal: world.goalTree.purposeOf(bid) }, world.town.get(), meetingContextBlock(world, fac, m)), prompt: facilitatePrompt(m, (id) => world.nameOf(id), facilitateMaterial(world, m)),
       });
     } catch (e) {
       console.log("[runtime] facilitation failed:", e);

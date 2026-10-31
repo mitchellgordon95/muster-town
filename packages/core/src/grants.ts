@@ -240,7 +240,7 @@ export class Grants {
     createAssignment(this.world, {
       agentId: manager.id, buildingId: b.id, front: true, createdBy: { kind: "system", id: "system" }, laneOverride: DIRECTED,
       title: `Get human decisions: ${b.name} is ${BLOCKED_NO_KRS}`.slice(0, 160),
-      description: `${b.name} is goal-directed, but its goal ("${b.goal || "(none set)"}") has no key results and it has no funded grant, so there is nothing to explore against or implement. A human writes the goal's key results (Building → Settings), and so do you for ${b.name}.
+      description: `${b.name} is goal-directed, but its goal ("${this.world.goalTree.purposeOf(b) || "(none set)"}") has no key results and it has no funded grant, so there is nothing to explore against or implement. A human writes the goal's key results (Building → Settings), and so do you for ${b.name}.
 
 1. Draft 2-3 key results for the goal, each something a human can check in the live town, with a how-to-check line. Draw on the building's reports and exploration findings.
 2. Settle them with Mitchell in your next 1:1 or a meeting, then write each with \`set_key_result\` (sourceDocIds: the meeting notes or report it comes from). Your next rollup lists them so Mitchell can keep or cut them. If you can't meet, put them in a rollup (\`submit_report\` with \`rollup: true\`; Needs from Mitchell: "Approve these key results for ${b.name}'s goal, or tell me what to change").
@@ -302,7 +302,7 @@ ${open.map((g) => `The open proposal ${g.id} ("${g.objective}")`).join("; ")} na
     const open = this.world.grants.where(`buildingId = ? AND status IN ('proposed', 'countered')`, [buildingId], "ORDER BY updatedAt DESC, rowid DESC");
     const keyResults = this.keyResults(buildingId);
     return {
-      goal: b.goal, keyResults, objectives: this.objectiveTree(buildingId, keyResults), blocked: this.blocked(b), stoplight: this.stoplight(b),
+      goal: this.world.goalTree.purposeOf(b), keyResults, objectives: this.objectiveTree(buildingId, keyResults), blocked: this.blocked(b), stoplight: this.stoplight(b),
       grants: live.map((g) => this.view(g)), proposals: open.map((g) => this.view(g)), exploration: this.exploration(buildingId), directed: this.directed(buildingId),
     };
   }

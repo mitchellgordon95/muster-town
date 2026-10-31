@@ -7,6 +7,7 @@
 import { ROOT_GOAL_ID, type SnapshotBuilding } from "@muster-town/schema";
 import { api } from "../api";
 import { townPlan } from "../map/townPlan";
+import { purposeOf } from "../purpose";
 import { store, useTown } from "../state";
 import { Meter } from "./AgentPanel";
 import { goalPath, useGoalTree } from "./GoalPicker";
@@ -17,7 +18,9 @@ import { ADJ, ErrorLine, KV, Loading, Pill, Section, fmtTokens, timeAgo, useLoad
 
 export function PlanSideBar({ id }: { id: string }) {
   const b = useTown((s) => s.buildings.find((x) => x.id === id));
+  const places = useTown((s) => s.places);
   if (!b) return null;
+  const purpose = purposeOf(b, places);
   const lab = b.kind !== "town-hall";
   return (
     <>
@@ -30,7 +33,7 @@ export function PlanSideBar({ id }: { id: string }) {
         <button className="close" title="Deselect" aria-label="Deselect" onClick={() => townPlan.select(null)}>×</button>
       </header>
       <div className="panel-body">
-        {b.goal ? <div className="goal-card"><span>Goal</span>{b.goal}</div> : null}
+        {purpose ? <div className="goal-card"><span>Goal</span>{purpose}</div> : null}
         <AttachedLine b={b} />
         {lab ? <PlanBudget b={b} /> : null}
         <PlanStats b={b} />
