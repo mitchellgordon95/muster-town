@@ -1,5 +1,5 @@
 import { AppError, blockedBy, forkSummary, forksOf, canInteract, logOf, sessionView, townBlocked, townSchedules, buildingSchedules, createSchedule, cancelSchedule, editSchedule, actOrigin, topicsOf, wikiOf, type World } from "@muster-town/core";
-import { AgentModelPatch, AgentPermissionsPatch, Event, InterruptInput, RegisterVisitorInput, WorkInput, type Agent, type Session } from "@muster-town/schema";
+import { AgentModelPatch, AgentPermissionsPatch, Event, InterruptInput, RegisterVisitorInput, WorkInput, type Agent, type AssignmentCard, type Session } from "@muster-town/schema";
 import type { FastifyInstance, FastifyRequest } from "fastify";
 import { z } from "zod";
 import { actorOf, ASK_FIRST, parse, requireUser, type Params } from "../context.ts";
@@ -180,6 +180,21 @@ export async function agentRoutes(app: FastifyInstance) {
     const { order } = parse(z.object({ order: z.array(z.string()) }), req.body);
     const assignments = world.ops.reorderQueue(actorOf(world, req), req.params.id, order);
     return { assignments, agent: world.agents.require(req.params.id, "agent") };
+  });
+
+  /** One assignment as a card anyone may read (an as_ id link opens it): AssignmentCard, without its creator or origin. → { assignment } */
+  app.get<{ Params: Params }>("/api/assignments/:id", async (req): Promise<{ assignment: AssignmentCard }> => {
+    const a = world.assignments.require(req.params.id, "assignment");
+    const sessions = world.sessions.where("assignmentId = ?", [a.id], "ORDER BY startedAt, rowid").map((s) => {
+      const v = sessionView(s);
+      return { id: v.id, status: v.status, startedAt: v.startedAt, endedAt: v.endedAt, adjustedOutputTokens: v.adjustedOutputTokens, turns: v.turns, reportId: v.reportId };
+    });
+    return { assignment: {
+      id: a.id, title: a.title, description: a.description, status: a.status, lane: a.lane, grantId: a.grantId, keyResultId: a.keyResultId, gap: a.gap, sourceId: a.sourceId,
+      agentId: a.agentId, agentName: world.agents.get(a.agentId)?.name ?? null, buildingId: a.buildingId, buildingName: world.buildings.get(a.buildingId)?.name ?? null,
+      reportId: a.reportId, fromReportId: a.fromReportId, fromMeetingId: a.fromMeetingId, fromAssignmentId: a.fromAssignmentId, chainId: a.chainId,
+      heldReason: a.heldReason, createdAt: a.createdAt, updatedAt: a.updatedAt, sessions,
+    } };
   });
 
   /** Run this pending assignment next. A stopped agent is resumed. → { assignment, agent, when: 'now' | 'after-current' } */

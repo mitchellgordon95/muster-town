@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 import { renderToStaticMarkup } from "react-dom/server";
-import type { Agent, SnapshotBuilding } from "@muster-town/schema";
-import { DocText, IdLink } from "../src/panels/Markdown";
+import type { Agent, Assignment, SnapshotBuilding } from "@muster-town/schema";
+import { DocText, IdLink, openIdLink } from "../src/panels/Markdown";
 import { store } from "../src/state";
 
 // kr_utx7pmv1yk "No dead ids": every id with a panel is a link, labelled by name where the client knows it
@@ -35,7 +35,14 @@ describe("id links in plain text", () => {
     expect(renderToStaticMarkup(<DocText text="ag_bbbbbbbbbb" newTab />)).toContain("#/agent/ag_bbbbbbbbbb");
   });
 
-  it("IdLink keeps an assignment id as text until step 2 gives it a card", () => {
-    expect(renderToStaticMarkup(<IdLink id="as_ffffffffff" />)).toBe("as_ffffffffff");
+  it("links assignments by title (from the store) and sessions by id; both open their panels", () => {
+    store.set({ assignments: { as_ffffffffff: { id: "as_ffffffffff", title: "No dead ids, step 2" } as Assignment } });
+    const html = renderToStaticMarkup(<IdLink id="as_ffffffffff" />);
+    expect(html).toContain('title="assignment as_ffffffffff: No dead ids, step 2" href="as_ffffffffff">No dead ids, step 2</a>');
+    expect(renderToStaticMarkup(<DocText text="ran in se_gggggggggg" />)).toContain('<a class="doc-id" title="session" href="se_gggggggggg">se_gggggggggg</a>');
+    openIdLink("as_ffffffffff");
+    expect(store.state.panel).toMatchObject({ kind: "assignment", id: "as_ffffffffff" });
+    openIdLink("se_gggggggggg");
+    expect(store.state.panel).toMatchObject({ kind: "session", id: "se_gggggggggg" });
   });
 });

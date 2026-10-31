@@ -158,7 +158,7 @@ town people can sign in to; everything else is optional.
 | `MUSTER_TOWN_REPO` | path B only: the git URL the container sets as `origin` on every boot, so the town's redeploy pulls from it (default `https://github.com/mitchellgordon95/muster-town.git`; set your fork's). Path A keeps the checkout's own `origin` | `deploy/fly/entrypoint.sh` |
 | `MUSTER_TOWN_DEPLOY_BRANCH` | the branch the town's redeploy pulls (default `main`; `prod` is the last commit that passed CI) | `packages/runtime/src/redeploy.ts` |
 | `GH_TOKEN` | host fallback repo token for desks when `desks.ghToken` is `env` (better: a `GH_TOKEN` collective secret at the Town Hall, docs/secrets.md) | `packages/runtime/src/desk/session.ts` |
-| `BUCKET_NAME`, `AWS_ENDPOINT_URL_S3`, `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`, `MUSTER_TOWN_BACKUP_KEY` (+ optional `AWS_REGION`, default `auto`) | the nightly off-site backup (section 5); all five or it is off | `packages/server/src/backup/index.ts` |
+| `BUCKET_NAME`, `AWS_ENDPOINT_URL_S3`, `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`, `MUSTER_TOWN_BACKUP_KEY` (+ optional `AWS_REGION`, default `auto`) | the hourly off-site backup (section 5); all five or it is off | `packages/server/src/backup/index.ts` |
 | `MUSTER_TOWN_DEV` | dev only: hands the admin token to any browser that asks. Never set it on a public box | `packages/server/src/main.ts` |
 
 **Fly-only, leave unset:** `FLY_API_TOKEN`, `FLY_APP`, `FLY_DESKS_ACCESS_TOKEN` and `desks.backend: "fly"` run each agent
@@ -180,17 +180,19 @@ The server logs `GitHub login on (callback …)` at start; check the callback th
 3. Without GitHub: the admin token is in `<collective>/data/admin-token` (mode 600; the server logs only its path).
    **Paste a token** in the guest card signs you in with it. Check it with
    `curl -H "authorization: Bearer $(cat <collective>/data/admin-token)" https://town.example.org/api/me` (roles show `admin`).
-4. Give agents something to do: README.md "Start your own collective", step 6 (fund a building at the Bank, add a key
-   result, set an exploration allowance).
+4. Give agents something to do: README.md "Start your own collective", step 6 (donate to the Bank with your credential, add a key
+   result; exploration then starts by itself on the Bank's free tokens).
 
 ## 5. Backups, restore, upgrades, logs
 
-**Backups.** With the five backup variables set, the server copies `town.db` every night at 04:17 UTC (and at boot when
-the last copy is over 24 h old): SQLite's online backup, `integrity_check`, gzip, AES-256-GCM under
+**Backups.** With the five backup variables set, the server copies `town.db` every hour on the hour (and at boot when
+the last copy is over 1 h old): SQLite's online backup, `integrity_check`, gzip, AES-256-GCM under
 `MUSTER_TOWN_BACKUP_KEY` (`openssl rand -base64 32`; keep it in a password manager, losing it loses every copy), PUT to
-`<bucket>/town/<YYYY-MM-DD>.db.gz.enc` on an S3-compatible store with path-style URLs (muster.town uses Tigris; AWS S3,
-Cloudflare R2, Backblaze B2 or MinIO should work but are untested). 30 daily objects are kept, plus the last local copy in
-`<collective>/backups/`. `GET /api/health` shows `backup: {lastAt, bytes, dest, error}`, or `backup: null` while it is off.
+`<bucket>/town/<YYYY-MM-DD>T<HH>.db.gz.enc` on an S3-compatible store with path-style URLs (muster.town uses Tigris; AWS S3,
+Cloudflare R2, Backblaze B2 or MinIO should work but are untested). Each upload is then downloaded back, decrypted,
+gunzipped, compared with the copy and `integrity_check`ed; a failed check is a failed run. Kept: the newest 48 hourly
+objects plus the newest object of each of the last 30 days, and the last local copy in `<collective>/backups/`.
+`GET /api/health` shows `backup: {lastAt, verifiedAt, bytes, dest, error}`, or `backup: null` while it is off.
 Without the variables there is no backup at all: at least run `sqlite3 <data>/town.db ".backup /somewhere/town.db"`
 nightly from cron. Back up `MUSTER_TOWN_DATA_KEY` too.
 

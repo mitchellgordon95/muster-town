@@ -1,7 +1,8 @@
-import { BANK_FIXTURES, BANK_LOT, bankPlaces, labSize, MAX_HEADCOUNT, TILE, WALKABLE, type Building, type Lot, type Place, type Tile } from "@muster-town/schema";
+import { BANK_FIXTURES, bankPlaces, labSize, MAX_HEADCOUNT, TILE, WALKABLE, type Building, type Lot, type Place, type Tile } from "@muster-town/schema";
 import { piecesFor, resolveFurniture } from "./furniture.ts";
 import { deriveRoads, doorOf } from "./road.ts";
 import { treeLayout, type Plaza, type TreeGoal } from "./tree.ts";
+import type { MapLayout } from "@muster-town/schema";
 
 /** Row-major tile grid, same shape as the WS snapshot's `grid`. */
 export interface Grid { w: number; h: number; tiles: number[] }
@@ -41,6 +42,8 @@ export interface LayoutResult {
   /** every building's lot, as the tree puts it */
   lots: Map<string, Lot>;
   plazas: Plaza[];
+  /** the Bank's lot (below the Town Hall; where depends on the shape) */
+  bank: Lot;
   places: Place[];
   /** standing tiles for every desk, by building */
   desks: Map<string, DeskSlot[]>;
@@ -54,8 +57,8 @@ export interface LayoutResult {
  * Build the tile grid and places from the goal tree (`treeLayout` decides every lot and plaza; a building's stored lot
  * is not read) and desk occupancy. `occupancy`: buildingId -> (deskIndex -> agentId); `names`: agentId -> name.
  */
-export function computeLayout(buildings: Building[], goals: TreeGoal[], occupancy: Map<string, Map<number, string>>, names: Map<string, string>): LayoutResult {
-  const tree = treeLayout(goals, buildings.map((b) => ({ id: b.id, kind: b.kind, goalId: b.goalId, createdAt: b.createdAt, size: sizeFor(b) })));
+export function computeLayout(buildings: Building[], goals: TreeGoal[], occupancy: Map<string, Map<number, string>>, names: Map<string, string>, shape: MapLayout = "tree"): LayoutResult {
+  const tree = treeLayout(goals, buildings.map((b) => ({ id: b.id, kind: b.kind, goalId: b.goalId, createdAt: b.createdAt, size: sizeFor(b) })), shape);
   const lots = buildings.filter((b) => tree.lots.has(b.id)).map((b) => ({ ...b, lot: tree.lots.get(b.id)! }));
   const { w, h } = tree;
   const hall = lots.find((b) => b.kind === "town-hall");
@@ -72,11 +75,12 @@ export function computeLayout(buildings: Building[], goals: TreeGoal[], occupanc
   for (const t of roads.tiles) set(t.x, t.y, TILE.PATH);
   for (const p of tree.plazas) {
     if (p.sign) set(p.sign.x, p.sign.y, TILE.SIGNPOST);
+    if (p.fountain) for (let x = p.fountain.x; x < p.fountain.x + p.fountain.w; x++) set(x, p.fountain.y, TILE.FOUNTAIN);
     places.push({ id: `plaza:${p.goalId}`, kind: "plaza", name: p.text || "Goal", buildingId: null, pos: p.pos });
     // the root keeps its old id too: the town's meeting point (presence, arrivals), on the main street by the Town Hall's door
     if (!p.parentId) places.push({ id: "plaza", kind: "plaza", name: "Plaza", buildingId: null, pos: hall ? { x: doorOf(hall.lot, hall.kind).x - 2, y: p.pos.y } : p.pos });
   }
-  bankRoom(set, places);
+  bankRoom(set, places, tree.bank);
 
   for (const b of lots) {
     const { x: x0, y: y0, w: bw, h: bh } = b.lot;
@@ -154,12 +158,12 @@ export function computeLayout(buildings: Building[], goals: TreeGoal[], occupanc
     const room = places.find((p) => p.id === id)!.pos;
     seats.set(id, seatsAround(grid, table, room));
   }
-  return { grid, lots: tree.lots, plazas: tree.plazas, places, desks, doors, seats };
+  return { grid, lots: tree.lots, plazas: tree.plazas, bank: tree.bank, places, desks, doors, seats };
 }
 
-/** The Bank (fixed lot below the main street): gold walls are the renderer's job; here the room, its door, the vault and the stations, and their places. */
-function bankRoom(set: (x: number, y: number, t: number) => void, places: Place[]) {
-  const { x: x0, y: y0, w: bw, h: bh } = BANK_LOT, F = BANK_FIXTURES;
+/** The Bank (right below the Town Hall): gold walls are the renderer's job; here the room, its door, the vault and the stations, and their places. */
+function bankRoom(set: (x: number, y: number, t: number) => void, places: Place[], lot: Lot) {
+  const { x: x0, y: y0, w: bw, h: bh } = lot, F = BANK_FIXTURES;
   for (let y = 0; y < bh; y++) for (let x = 0; x < bw; x++) {
     const edge = x === 0 || y === 0 || x === bw - 1 || y === bh - 1;
     set(x0 + x, y0 + y, edge ? TILE.WALL : TILE.FLOOR);

@@ -13,6 +13,7 @@ import { MAX_ATTACHED_PAGES } from "./memory.ts";
 import type { Holder } from "./permissions.ts";
 import { newId, truncate } from "./util.ts";
 import type { World } from "./world.ts";
+import { stamp } from "./time.ts";
 
 const HOUR = 3_600_000, DAY = 24 * HOUR;
 /** A repeating schedule ends by default this long after it is made, and at most MAX_SCHEDULE_DAYS out. */
@@ -106,7 +107,7 @@ export function createSchedule(world: World, buildingId: string, by: Holder, raw
     pages, model, origin, status: "active", endedReason: null, lastRunAt: null, lastAssignmentId: null, runs: 0,
     createdBy: by.id, createdByKind: by.kind === "agent" ? "agent" : "user", createdAt: ts, updatedAt: ts,
   });
-  world.events.append({ type: "schedule.created", buildingId: b.id, text: `${world.nameOf(by.id)} scheduled "${truncate(s.title, 80)}" in ${b.name}: ${describeRepeat(s)}, next ${s.nextRunAt!.slice(0, 16).replace("T", " ")} UTC`, payload: { scheduleId: s.id, nextRunAt: s.nextRunAt, ...rep, endsAt, lane: s.lane } });
+  world.events.append({ type: "schedule.created", buildingId: b.id, text: `${world.nameOf(by.id)} scheduled "${truncate(s.title, 80)}" in ${b.name}: ${describeRepeat(s)}, next ${stamp(s.nextRunAt!)}`, payload: { scheduleId: s.id, nextRunAt: s.nextRunAt, ...rep, endsAt, lane: s.lane } });
   return s;
 }
 
@@ -156,7 +157,7 @@ export function editSchedule(world: World, actor: Agent, id: string, raw: unknow
     ...(input.model !== undefined ? { model: input.model ? checkForkModel(world.buildings.require(s.buildingId, "building"), input.model) : null } : {}),
   });
   const what = input.paused !== undefined && input.paused !== s.paused ? (input.paused ? "paused" : "resumed") : "edited";
-  world.events.append({ type: "schedule.edited", buildingId: s.buildingId, text: `${actor.name} ${what} schedule "${truncate(e.title, 80)}": ${describeRepeat(e)}${e.paused ? ", paused" : `, next ${e.nextRunAt!.slice(0, 16).replace("T", " ")} UTC`}`, payload: { scheduleId: s.id, changed, paused: e.paused, nextRunAt: e.nextRunAt } });
+  world.events.append({ type: "schedule.edited", buildingId: s.buildingId, text: `${actor.name} ${what} schedule "${truncate(e.title, 80)}": ${describeRepeat(e)}${e.paused ? ", paused" : `, next ${stamp(e.nextRunAt!)}`}`, payload: { scheduleId: s.id, changed, paused: e.paused, nextRunAt: e.nextRunAt } });
   return e;
 }
 
@@ -215,7 +216,7 @@ export function fireSchedules(world: World, at: Date = new Date()): { fired: Ass
         type: "report", state: "building", decision: "pending", buildingId: b.id, authorId: manager.id, authorKind: "agent", tags: ["schedule-ended"],
         title: `Schedule ended: ${s.title}`,
         body: [
-          `Written by the town: the schedule "${s.title}" (${s.id}, ${describeRepeat(s)}) was due at ${s.nextRunAt!.slice(0, 16).replace("T", " ")} UTC but its lane no longer holds, so it ended without creating work: ${e.message}`,
+          `Written by the town: the schedule "${s.title}" (${s.id}, ${describeRepeat(s)}) was due at ${stamp(s.nextRunAt!)} but its lane no longer holds, so it ended without creating work: ${e.message}`,
           `## The work it created\n\n${s.description}`,
           "Acknowledge to drop it, or schedule it again in a lane that holds.",
         ].join("\n\n"),

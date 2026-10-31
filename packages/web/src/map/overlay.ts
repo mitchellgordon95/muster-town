@@ -227,8 +227,11 @@ export function drawBlockLine(g: CanvasRenderingContext2D, a: { x: number; y: nu
 }
 
 /** Small amber pill (e.g. "⟳ redeploy") whose bottom-left sits at (x, y): an agent held by a draining redeploy. */
-export function drawPill(g: CanvasRenderingContext2D, x: number, y: number, text: string) {
+export function drawPill(g: CanvasRenderingContext2D, x: number, y: number, text0: string, max = Infinity) {
   g.font = "700 9px ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, sans-serif";
+  // cut to `max` px (a building's width on screen), so neighbours' names don't overlap
+  let text = text0;
+  if (g.measureText(text).width + 10 > max) { while (text.length > 1 && g.measureText(`${text}…`).width + 10 > max) text = text.slice(0, -1); text = `${text.trimEnd()}…`; }
   const w = g.measureText(text).width + 10, h = 13;
   const bx = Math.round(x), by = Math.round(y - h);
   g.fillStyle = "#ffcf5e"; g.strokeStyle = "#14151c"; g.lineWidth = 2;

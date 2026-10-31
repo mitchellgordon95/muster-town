@@ -9,11 +9,12 @@ import { createDoc, setAssignmentStatus } from "./domain.ts";
 import { AppError } from "./errors.ts";
 import { nowIso, truncate } from "./util.ts";
 import type { World } from "./world.ts";
+import { stamp } from "./time.ts";
 
 /** Parse and check a wait at the point it is set: the thing waited on must exist; `after` at most 24 h ahead. */
 export function validateWait(world: World, raw: unknown): WaitFor {
   const p = WaitFor.safeParse(raw);
-  if (!p.success) throw new AppError("bad_request", `waitFor: expected {deploy: sha|"next"}, {assignment: id}, {decision: reportId} or {after: iso} (${p.error.issues[0]?.message ?? "invalid"}).`);
+  if (!p.success) throw new AppError("bad_request", `waitFor: expected {deploy: sha|"next"}, {assignment: id}, {decision: reportId}, {pr: number} or {after: iso} (${p.error.issues[0]?.message ?? "invalid"}).`);
   const w = p.data;
   if ("assignment" in w) world.assignments.require(w.assignment, "assignment");
   if ("decision" in w) {
@@ -35,7 +36,12 @@ export function describeWait(world: World, w: WaitFor): string {
     const d = world.docs.get(w.decision);
     return d ? `a decision on "${truncate(d.title, 60)}"` : `a decision on ${w.decision}`;
   }
-  return `${w.after.slice(0, 16).replace("T", " ")} UTC`;
+  if ("pr" in w) {
+    const c = world.host.prChecks?.(w.pr);
+    const how = c && c.state !== "pending" ? ` (${c.state}${c.failed?.length ? `: ${c.failed.join(", ")}` : ""})` : "";
+    return `PR #${w.pr}'s checks to finish${how}`;
+  }
+  return stamp(w.after);
 }
 
 /**
@@ -53,7 +59,10 @@ export function chainTip(world: World, a: Assignment): Assignment {
   }
 }
 
-/** Whether the wait holds now. `deploy` needs the runtime (`world.host`): without one it never holds (and expires). */
+/**
+ * Whether the wait holds now. `deploy` and `pr` need the runtime (`world.host`): without one they never hold (and expire).
+ * A `pr` wait holds once the PR's checks all finished, passed or failed (the parked work reads which), or it is closed.
+ */
 export function waitMet(world: World, a: Assignment, at: Date = new Date()): boolean {
   const w = a.waitFor;
   if (!w) return true;
@@ -70,6 +79,10 @@ export function waitMet(world: World, a: Assignment, at: Date = new Date()): boo
   if ("decision" in w) {
     const d = world.docs.get(w.decision);
     return !d || (!!d.decision && d.decision !== "pending");
+  }
+  if ("pr" in w) {
+    const c = world.host.prChecks?.(w.pr);
+    return !!c && c.state !== "pending";
   }
   return Date.parse(w.after) <= at.getTime();
 }
@@ -93,7 +106,7 @@ export function checkWaits(world: World, at: Date = new Date()): { unblocked: As
           authorId: a.agentId, authorKind: "agent", assignmentId: a.id, tags: ["wait-expired"],
           title: `${name}'s assignment never unblocked: ${a.title}`,
           body: [
-            `Written by the town, not by ${name}: this assignment was queued on ${a.createdAt.slice(0, 16).replace("T", " ")} UTC waiting on ${what}, which didn't happen within 24 hours, so it was cancelled.`,
+            `Written by the town, not by ${name}: this assignment was queued on ${stamp(a.createdAt)} waiting on ${what}, which didn't happen within 24 hours, so it was cancelled.`,
             `## Summary\n\nWait expired: ${a.title}`,
             `## The assignment\n\n${a.description}`,
             `## Proposal for next session\n\n${a.title}`,

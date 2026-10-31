@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { renderToStaticMarkup } from "react-dom/server";
 import type { Finance, FinanceFly, FinanceSources, FinanceSpend } from "../src/api";
-import { donationNote, FINANCE_TERMS, flyCheckLine, flyWindowTotals, inputName, overdrawnParts, sourcesCheckLine, pct, runwayDays, spendCheckLine, sumCheckLine, type FinanceData } from "../src/panels/BankFinance";
+import { donationNote, FINANCE_TERMS, flyCheckLine, flyWindowTotals, inputName, notFundedNote, overdrawnParts, sourcesCheckLine, pct, runwayDays, spendCheckLine, sumCheckLine, type FinanceData } from "../src/panels/BankFinance";
 import { BANK_TABS } from "@muster-town/schema";
 import { BankView } from "../src/panels/BankPanel";
 import { BankFreeTokens, freeBreakdown } from "../src/panels/FreeTokens";
@@ -82,6 +82,8 @@ describe("finance page", () => {
 // (pre-conversion pricing) and a not-funded row of −20
 const sp: FinanceSpend = {
   used: 1100, sessionsTotal: 1150, unattributed: 0, weightMismatch: 30, convertedAt: "2026-10-27T00:00:24.000Z", notFunded: 20, at: "2026-10-28T16:31:50.056Z",
+  notFundedSplit: [{ buildingId: "workshop", buildingName: "Town Workshop", usageRows: 2, tokens: 20 }], notFundedLastAt: "2026-10-28T10:00:00.000Z",
+  notFundedAllocationPaid: 0, notFundedSplitCheck: { sum: 20, notFunded: 20, ok: true },
   weightMismatchNote: "Sessions that ended before the Bank switched to adjusted tokens (2026-10-27 00:00Z) are priced here at their own model's rate and in the Bank at one rate for every model. The difference is pricing, not spend: nothing went unpaid.",
   rows: [
     { kind: "building", id: "workshop", name: "Town Workshop", tokens: 900, share: 0.8182, sessions: 9, children: [
@@ -112,7 +114,7 @@ describe("finance page: spending", () => {
   });
   it("renders building → grant → assignment with the synthetic rows, collapsible", () => {
     const html = page({ spend: sp });
-    for (const s of ["Spending", "Town Workshop", "900", "81.8%", "Refactor the Bank…", "Step 1: the ledger", "Not under a grant", "The manager&#x27;s own sessions", "Priced differently before the switch to adjusted tokens", "-30", "12 sessions", "The difference is pricing, not spend", "Not funded", "-20", "never charged to the Bank or a donation", "even after the pricing difference above", "✓ The server checked that the building rows", "/api/finance/spend"]) expect(html).toContain(s);
+    for (const s of ["Spending", "Town Workshop", "900", "81.8%", "Refactor the Bank…", "Step 1: the ledger", "Not under a grant", "The manager&#x27;s own sessions", "Priced differently before the switch to adjusted tokens", "-30", "12 sessions", "The difference is pricing, not spend", "Not funded", "-20", "Usage the Bank never debited", "Written off: not charged to any building", "✓ The server checked that the building rows", "/api/finance/spend"]) expect(html).toContain(s);
     expect(html).toContain("<details");
     // a grant row links to its grant page, with the full objective on hover
     expect(html).toContain(`<a class="spend-grant" href="#/grant/gr_a" title="Refactor the Bank: one ledger for every debit">Refactor the Bank…</a>`);
@@ -120,6 +122,34 @@ describe("finance page: spending", () => {
     const section = html.slice(html.indexOf("<h3>Spending</h3>"), html.indexOf("</section>", html.indexOf("<h3>Spending</h3>")));
     for (const s of ["Weight mismatch", "Opus weights", "exploration", "directed", "migration"]) expect(section).not.toContain(s);
     expect(page({ spend: { ...sp, check: { ...sp.check, ok: false, diff: 3 } } })).toContain("✗ Does not add up (off by 3)");
+  });
+  it("explains the Not funded row from the live fields: cause, stop date, split by building, write-off", () => {
+    // the live shape on 2026-10-31: the split by the 2-second rule does not sum to notFunded
+    const live = { ...sp, notFunded: 195957, notFundedLastAt: "2026-10-26T22:52:13.738Z", notFundedAllocationPaid: 4269596,
+      notFundedSplit: [
+        { buildingId: "bl_xvgnd1fvh6", buildingName: "Prod", usageRows: 3, tokens: 123238 },
+        { buildingId: "workshop", buildingName: "Town Workshop", usageRows: 5, tokens: 4269596 },
+        { buildingId: null, buildingName: "unattributed", usageRows: 1, tokens: 7 },
+      ],
+      notFundedSplitCheck: { sum: 4392841, notFunded: 195957, ok: false } };
+    const note = notFundedNote(live);
+    expect(note.split).toEqual([
+      { name: "Town Workshop", tokens: 4269596, usageRows: 5 }, { name: "Prod", tokens: 123238, usageRows: 3 }, { name: "unattributed", tokens: 7, usageRows: 1 }]);
+    expect(note.lines.join(" ")).toContain("before PR #131 (chargeUsage) the runtime skipped the debit");
+    expect(note.lines).toContain("No new unpaid usage since 2026-10-26.");
+    expect(note.differ).toBe("These differ: the rows by building come to 4,392,841 adj. tokens, but Not funded is 195,957 adj. tokens. Not funded is exact (what sessions counted, less what was paid); the split by building is an estimate by the 2-second rule.");
+    expect(note.after).toEqual([
+      "Written off: not charged to any building. The Bank's balance already reflects the real spend.",
+      "Up to 4,269,596 adj. tokens of the rows by building may have been covered by donations to those buildings (an upper bound)."]);
+    const html = page({ spend: live });
+    for (const s of ["Town Workshop: 4,269,596 adj. tokens (5 usage rows)", "Prod: 123,238 adj. tokens (3 usage rows)", "unattributed: 7 adj. tokens (1 usage row)", "No new unpaid usage since 2026-10-26.", "These differ", "Written off: not charged to any building", "an upper bound"]) expect(html).toContain(s);
+    expect(html.indexOf("Town Workshop: 4,269,596")).toBeLessThan(html.indexOf("Prod: 123,238"));
+    // when the split adds up and no donation could have paid: no "differ" line, no allocation line
+    const ok = notFundedNote(sp);
+    expect(ok.differ).toBeNull();
+    expect(ok.after).toEqual(["Written off: not charged to any building. The Bank's balance already reflects the real spend."]);
+    expect(ok.lines).toContain("No new unpaid usage since 2026-10-28.");
+    expect(page({ spend: sp })).not.toContain("These differ");
   });
   it("leaves the section out when the spend can't be loaded", () => {
     expect(page({})).not.toContain("Spending");

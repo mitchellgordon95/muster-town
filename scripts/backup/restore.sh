@@ -1,5 +1,5 @@
 #!/bin/sh
-# Restore drill for the off-site backup (grant gr_jkorz4f49a; deploy/README.md "Backups"): take one nightly object the server wrote
+# Restore drill for the off-site backup (grant gr_jkorz4f49a; deploy/README.md "Backups"): take one object the server wrote
 # (town/<date>.db.gz.enc: gzip(town.db), AES-256-GCM under MUSTER_TOWN_BACKUP_KEY), turn it back into a database, check it, and boot a
 # scratch town from it on Fly to prove the copy is a town, not just a file. The live town (muster-town) is never touched: this script
 # refuses that app name, and the scratch app gets none of the live secrets (a fresh random data key, no Claude token, no GitHub, no desks).
@@ -88,7 +88,7 @@ else
   for v in BUCKET_NAME AWS_ENDPOINT_URL_S3 AWS_ACCESS_KEY_ID AWS_SECRET_ACCESS_KEY; do eval "[ -n \"\${$v:-}\" ]" || { echo "$v is not set (the bucket credentials fly storage create set on muster-town)"; exit 2; }; done
   if [ "$OBJECT" = latest ]; then
     OBJECT="$($HELPER list | tail -n 1)"
-    [ -n "$OBJECT" ] || { say "the bucket $BUCKET_NAME has no town/<date>.db.gz.enc object yet"; exit 1; }
+    [ -n "$OBJECT" ] || { say "the bucket $BUCKET_NAME has no town/<date>T<HH>.db.gz.enc object yet"; exit 1; }
     say "newest object: $OBJECT"
   fi
   NAME="$(basename "$OBJECT")"

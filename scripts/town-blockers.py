@@ -6,7 +6,7 @@ Usage (on a desk or any shell with the town token):
 
 It pages GET /api/events?since=<id>&limit=500 forward from the cache (or from the start the first time), keeps the cache,
 and prints one markdown table per blocker: redeploy drains, decisions waiting on a human, assignments waiting on a
-redeploy or a colleague, budgets exhausted. Timed jobs are building schedules (Mitchell, 1:1 mt_w7z9k1z112), not
+redeploy, a colleague or a PR's CI checks ({pr}: a real blocker row, unlike {after}), budgets exhausted. Timed jobs are building schedules (Mitchell, 1:1 mt_w7z9k1z112), not
 blockers: the "Scheduled, not a blocker" line under section 3 reads them from GET /api/scheduled and the schedule.fired
 events; parked work resuming at a time (resumeWhen {after}) is left out of the blocker rows and "Pending now". The Workshop manager pastes the tables into the "Town blockers" topic page at
 every rollup. Every number is derived only from the events named in the code below; nothing is estimated.
@@ -122,7 +122,7 @@ by = collections.defaultdict(list)
 for w in waits: by[w[1]].append(w[0])
 print("\n## 3. Assignments waiting before they start\n")
 print("| Waiting on | Started | Wait median | p90 | max |\n|---|---|---|---|---|")
-for k in ("deploy", "assignment", "decision", "none"):
+for k in ("deploy", "assignment", "decision", "pr", "none"):
     xs = by.get(k, [])
     if xs: print(f"| {k} | {len(xs)} | {med(xs):.0f} min | {pct(xs, .9):.0f} min | {mx(xs) / 60:.1f} h |")
 # a time is by design: parked work whose resume time is still ahead is not counted as waiting

@@ -13,7 +13,8 @@ import { AppError } from "./errors.ts";
 import { waitsOnTime } from "./blockers.ts";
 import { describeRepeat } from "./schedules.ts";
 import { reportChain } from "./forks.ts";
-import { docGist, ftsQuery, oneLine, relativeTime } from "./text.ts";
+import { docGist, ftsQuery, oneLine } from "./text.ts";
+import { fromNow, stamp } from "./time.ts";
 import { nowIso } from "./util.ts";
 import type { World } from "./world.ts";
 
@@ -125,7 +126,7 @@ export function writeTopicPage(world: World, agent: Agent, buildingId: string, t
 
 /** "- "title" (id, age): gist" for one topic page. */
 function topicLine(p: Doc, now: number): string {
-  return `- "${p.title}" (${p.id}, ${relativeTime(p.updatedAt, now)}): ${oneLine(docGist(p), 80)}`;
+  return `- "${p.title}" (${p.id}, ${fromNow(p.updatedAt, now)}): ${oneLine(docGist(p), 80)}`;
 }
 
 /**
@@ -166,7 +167,7 @@ export function forkMemoryBlock(world: World, fork: Agent, assignment?: Assignme
   const out: string[] = [];
   let used = 0;
   // (1) what the manager knows
-  const own = wikiOf(world, manager.id).map((p) => `### ${p.title} (updated ${relativeTime(p.updatedAt, now)})\n${p.body.trim()}`).join("\n\n");
+  const own = wikiOf(world, manager.id).map((p) => `### ${p.title} (updated ${fromNow(p.updatedAt, now)})\n${p.body.trim()}`).join("\n\n");
   const ownShown = own.length > managerCap ? `${own.slice(0, managerCap)}\n…(${manager.name}'s wiki is ${own.length.toLocaleString("en-US")} chars; cut at ${managerCap.toLocaleString("en-US")}. It is ${manager.name}'s, read-only for you.)` : own;
   out.push(`## What ${manager.name} knows (${manager.name}'s private wiki; read-only)\n${ownShown || "(no pages)"}`);
   used += Math.min(own.length, managerCap);
@@ -180,7 +181,7 @@ export function forkMemoryBlock(world: World, fork: Agent, assignment?: Assignme
       const room = Math.min(pageCap, Math.max(0, totalCap - used));
       if (room < 200) { out.push(`- "${p.title}" (${p.id}): \`read\` it`); continue; }
       const shown = body.length > room ? `${body.slice(0, room)}\n…(page is ${body.length} chars; \`read\` ${p.id} for the rest)` : body;
-      out.push(`\n### ${p.title} (${p.id}, updated ${relativeTime(p.updatedAt, now)})\n${shown}`);
+      out.push(`\n### ${p.title} (${p.id}, updated ${fromNow(p.updatedAt, now)})\n${shown}`);
       used += Math.min(body.length, room);
     }
   }
@@ -220,9 +221,9 @@ export function logOf(world: World, authorId: string): Doc | undefined {
   return world.docs.first("authorId = ? AND type = 'log'", [authorId], "ORDER BY createdAt ASC, rowid ASC");
 }
 
-/** `- 2026-10-23 03:55 <text>` */
+/** `- 2026-10-23 03:55 UTC <text>` */
 export function logLine(text: string, now = Date.now()): string {
-  return `- ${new Date(now).toISOString().slice(0, 16).replace("T", " ")} ${oneLine(text, 400)}`;
+  return `- ${stamp(now)} ${oneLine(text, 400)}`;
 }
 
 /** Append one dated line to the author's log (created on first use); keeps the last LOG_MAX_LINES. */
@@ -263,10 +264,10 @@ export function memoryBlock(world: World, authorId: string, opts: { now?: number
       const body = p.body.trim();
       if (used + Math.min(body.length, pageCap) <= totalCap) {
         const shown = body.length > pageCap ? `${body.slice(0, pageCap)}\n…(page is ${body.length} chars; \`read\` ${p.id} for the rest, and shorten it)` : body;
-        out.push(`\n### ${p.title} (${p.id}, updated ${relativeTime(p.updatedAt, now)})\n${shown}`);
+        out.push(`\n### ${p.title} (${p.id}, updated ${fromNow(p.updatedAt, now)})\n${shown}`);
         used += Math.min(body.length, pageCap);
       } else {
-        listed.push(`- "${p.title}" (${p.id}, ${relativeTime(p.updatedAt, now)}): ${docGist(p)}`);
+        listed.push(`- "${p.title}" (${p.id}, ${fromNow(p.updatedAt, now)}): ${docGist(p)}`);
       }
     }
     if (listed.length) out.push(`\nOther pages (\`read\` the ones that matter):\n${listed.join("\n")}`);
@@ -298,7 +299,7 @@ export function teamBlock(world: World, building: Building, managerId: string): 
   });
   const queue = buildingQueue(world, building.id);
   const kind = (a: Assignment) => a.heldReason ? "held" : waitsOnTime(a) ? "resuming" : a.waitFor ? "waiting" : "pending";
-  const state = (a: Assignment) => ({ held: `held: ${oneLine(a.heldReason ?? "", 60)}`, resuming: `resumes at ${waitsOnTime(a)?.slice(0, 16).replace("T", " ")} UTC`, waiting: `waiting: ${oneLine(JSON.stringify(a.waitFor), 60)}`, pending: "pending" })[kind(a)];
+  const state = (a: Assignment) => ({ held: `held: ${oneLine(a.heldReason ?? "", 60)}`, resuming: `resumes at ${stamp(waitsOnTime(a)!)}`, waiting: `waiting: ${oneLine(JSON.stringify(a.waitFor), 60)}`, pending: "pending" })[kind(a)];
   const counts = { pending: 0, held: 0, waiting: 0, resuming: 0 };
   for (const a of queue) counts[kind(a)]++;
   const queueLines = queue.slice(0, 12).map((a) => `- ${a.id} "${oneLine(a.title, 60)}": ${state(a)}`);
@@ -315,5 +316,5 @@ ${queueLines.length ? queueLines.join("\n") : "(empty)"}${scheduleBlock(world, b
 export function scheduleBlock(world: World, buildingId: string): string {
   const rows = world.schedules.where("buildingId = ? AND status = 'active'", [buildingId], "ORDER BY nextRunAt LIMIT 10");
   if (!rows.length) return "";
-  return `\nSchedules (${rows.length} active; each fire creates one assignment for whoever is around; \`cancel\` scheduleId stops one):\n${rows.map((s) => `- ${s.id} "${oneLine(s.title, 60)}": ${s.paused ? "PAUSED, " : ""}next ${s.nextRunAt?.slice(0, 16).replace("T", " ")} UTC, ${describeRepeat(s)}${s.endsAt ? ` until ${s.endsAt.slice(0, 10)}` : ""}, ${s.runs} run(s)`).join("\n")}`;
+  return `\nSchedules (${rows.length} active; each fire creates one assignment for whoever is around; \`cancel\` scheduleId stops one):\n${rows.map((s) => `- ${s.id} "${oneLine(s.title, 60)}": ${s.paused ? "PAUSED, " : ""}next ${s.nextRunAt ? stamp(s.nextRunAt) : "—"}, ${describeRepeat(s)}${s.endsAt ? ` until ${s.endsAt.slice(0, 10)}` : ""}, ${s.runs} run(s)`).join("\n")}`;
 }

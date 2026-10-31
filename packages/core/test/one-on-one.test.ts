@@ -59,7 +59,7 @@ describe("the manager's 1:1", () => {
     const after = world.meetings.require(m.id);
     expect(after.transcript.at(-2)).toMatchObject({ speakerId: "system", speakerKind: "system" });
     const p = oneOnOnePrompt(after, nameOf);
-    expect(p).toContain("- Town: Mei's reply is waiting on a redeploy");
+    expect(p).toMatch(/- \d{4}-\d{2}-\d{2} \d{2}:\d{2} UTC Town: Mei's reply is waiting on a redeploy/);
     const missed = p.split("these 2 lines after your last reply are still unanswered:\n")[1];
     expect(missed).toMatch(/^- .+: Second question\?\n- .+: hello\?\nAnswer them now/);
     expect(missed).not.toContain("First question?");
