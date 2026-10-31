@@ -8,7 +8,7 @@ const overlap = (a: { x: number; y: number; w: number; h: number }, b: typeof a)
 
 describe("layout", () => {
   it("the Bank sits below the root plaza, clear of every lot, with its counter reachable from the plaza", () => {
-    const { world, seed } = seededWorld();
+    const { world, seed } = seededWorld("tree");
     for (let i = 0; i < 4; i++) createBuilding(world, { name: `Lab ${i}`, headcount: 6 }, seed.admin.id);
     const { grid } = world.layout;
     // its doorstep is on the root plaza
@@ -41,7 +41,7 @@ describe("layout", () => {
   });
 
   it("every lab gets a schedule board on its back wall (the bottom one: its door is in the top wall), off the desks, reachable from its door", () => {
-    const { world, seed } = seededWorld();
+    const { world, seed } = seededWorld("tree");
     for (const n of [1, 4, 9, MAX_HEADCOUNT]) createBuilding(world, { name: `Lab ${n}`, headcount: n }, seed.admin.id);
     const { grid, places } = world.layout;
     const at = (x: number, y: number) => grid.tiles[y * grid.w + x];
@@ -64,7 +64,7 @@ describe("layout", () => {
   });
 
   it("lots never overlap and stay inside the grid, for many buildings of mixed sizes", () => {
-    const { world, seed } = seededWorld();
+    const { world, seed } = seededWorld("tree");
     for (let i = 0; i < 7; i++) createBuilding(world, { name: `Lab ${i}`, headcount: [1, 4, 9, 12, 6, 2, MAX_HEADCOUNT][i] }, seed.admin.id);
     const bs = world.buildings.all();
     expect(bs).toHaveLength(9);

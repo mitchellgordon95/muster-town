@@ -30,7 +30,7 @@ import { WorldMap } from "./world/map.ts";
 import { followRelayout } from "./entities.ts";
 import { forbidden } from "./errors.ts";
 
-const MAP_LAYOUT_WORDS: Record<MapLayout, string> = { fountain: "fountain plazas", tree: "a plain tree", radial: "spokes round the Town Hall" };
+const MAP_LAYOUT_WORDS: Record<MapLayout, string> = { fountain: "a town round a square", tree: "a plain tree", radial: "spokes round the Town Hall" };
 import { Movement } from "./world/movement.ts";
 
 export type SnapshotMessage = Extract<ServerMessage, { type: "snapshot" }>;

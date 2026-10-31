@@ -422,6 +422,8 @@ describe("meetings, roles, budget, events, human moves", () => {
 describe("edit layout", () => {
   it("anyone reads the furniture; a human manager dry-runs and saves; agent tokens are refused", async () => {
     const { app, world, auth } = await setup();
+    // the plain tree: labs hang below their goal's street, doors in their top wall
+    world.town.set({ mapLayout: "tree" }); world.layout.rebuild();
     const room = await json(app, "GET", "/api/buildings/carbon-cycle/layout");
     expect(room.status).toBe(200);
     expect(room.body.pieces.map((p: any) => p.key)).toEqual(expect.arrayContaining(["board", "desk:0", "meeting", "cabinet"]));
@@ -446,6 +448,8 @@ describe("edit layout", () => {
 describe("the map is the goal tree (docs/goals.md, build step 2)", () => {
   it("no plan route; attaching a building draws its goal, its place on the building's doorstep; Desks resizes it (town.manage_buildings), agent tokens 403", async () => {
     const { app, world, auth } = await setup();
+    // the plain tree: labs hang below their goal's street, doors in their top wall
+    world.town.set({ mapLayout: "tree" }); world.layout.rebuild();
     expect((await json(app, "PUT", "/api/town/plan", { headers: auth, body: { lots: {} } })).status).toBe(404);
     const goal = await json(app, "POST", "/api/goals", { headers: auth, body: { parentId: "gl_town", text: "A goal with a plaza" } });
     expect(goal.status).toBe(201);
