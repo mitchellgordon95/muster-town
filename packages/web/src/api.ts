@@ -137,6 +137,14 @@ export interface FinanceSpend {
   /** pre-conversion sessions priced at their own model here vs at Opus weights in the Bank's ledger: pricing, not spend */
   weightMismatch: number; weightMismatchNote: string; convertedAt: string | null;
   notFunded: number;
+  /** `notFunded` by building from usage rows with no Bank debit for the same agent within 2 s (dc_cvp89lj91o), tokens desc; buildingId null = "unattributed" */
+  notFundedSplit: { buildingId: string | null; buildingName: string; usageRows: number; tokens: number }[];
+  /** the latest unpaid usage row's time (when it stopped); null when none */
+  notFundedLastAt: string | null;
+  /** an estimate: the part of it a donation straight to the building may have paid for */
+  notFundedAllocationPaid: number;
+  /** the split's sum vs `notFunded` (exact); ok when equal */
+  notFundedSplitCheck: { sum: number; notFunded: number; ok: boolean };
   rows: SpendNode[];
   check: { ok: boolean; diff: number; identity: string };
   at: string;
