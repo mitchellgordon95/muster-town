@@ -5,7 +5,7 @@ Machines in the `muster-desks` app (below). The older single-VPS procedure furth
 alternative; that box was deleted.
 
 ## Prod on Fly.io
-- **The town:** app `muster-town`, one Machine (`shared-cpu-2x`, 2 GB, region `iad`) with a 10 GB volume `town_data` at `/data`.
+- **The town:** app `muster-town`, one Machine (`performance-1x`, 2 GB, region `iad`; shared-cpu-2x throttled to ~12 % of a core on 2026-10-31 and 503ed) with a 10 GB volume `town_data` at `/data`.
   SQLite is a single writer, so never more than one Machine (`fly deploy --ha=false`). There is no Postgres. Fly takes daily volume snapshots (5 kept).
 - **What's on the volume:** `/data/repo` is the live checkout (code only) and `/data/workshop/{data,export}` is the town's state (`town.db`,
   `admin-token`, `session-secret`, the export mirror), set by `MUSTER_TOWN_DATA`/`MUSTER_TOWN_EXPORT` in `fly.town.toml`. The state is deliberately
