@@ -317,7 +317,7 @@ const SANS = "ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, sans-se
  * `bank` null = not loaded yet.
  */
 /** The Bank's marquee. `x, y` is its bottom centre, or with `right` its right edge and vertical middle. */
-export function drawBankSign(g: CanvasRenderingContext2D, x: number, y: number, bank: { townTokens: number; expiringTokens: number; durableTokens: number; heldTokens: number } | null, now: number, right = false) {
+export function drawBankSign(g: CanvasRenderingContext2D, x: number, y: number, bank: { townTokens: number; expiringTokens: number; durableTokens: number; heldTokens: number } | null, now: number, align: "center" | "left" = "center") {
   const n = (v: number) => v.toLocaleString("en-US");
   const total = bank ? n(bank.townTokens) : "…";
   const parts = [
@@ -332,7 +332,7 @@ export function drawBankSign(g: CanvasRenderingContext2D, x: number, y: number, 
   const title = "THE BANK · ADJ. TOKENS AVAILABLE TO THE TOWN";
   g.font = `800 11px ${SANS}`;
   const w = Math.round(Math.max(tw + 48, colW * parts.length + 16, g.measureText(title).width + 32, 240)), h = 112;
-  const sx = Math.round(right ? x - w : x - w / 2), sy = Math.round(right ? y - h / 2 : y - h);
+  const sx = Math.round(align === "left" ? x : x - w / 2), sy = Math.round(align === "left" ? y - h / 2 : y - h);
   x = sx + w / 2;
   // dark plate, double gold border with a slow shimmer running round it
   const grad = g.createLinearGradient(sx, sy, sx, sy + h);

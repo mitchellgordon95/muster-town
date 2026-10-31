@@ -44,15 +44,9 @@ export class World {
     return !!l && x >= l.x && y >= l.y && x < l.x + l.w && y < l.y + l.h;
   }
 
-  /** The signpost tile of a goal's plaza (place `plaza:<goalId>`, standing on the strip's bottom row): at the end of the strip's top row. */
+  /** The signpost of a goal (place `plaza:<goalId>`, on its street): the tile right above it; a goal without one (no drawn children) has none. */
   signpostOf(p: Place): { x: number; y: number } | null {
-    const y = p.pos.y - 1;
-    for (let x = p.pos.x; x < this.w; x++) {
-      const k = this.at(x, y);
-      if (k === TILE.SIGNPOST) return { x, y };
-      if (k !== TILE.PATH) return null;
-    }
-    return null;
+    return this.at(p.pos.x, p.pos.y - 1) === TILE.SIGNPOST ? { x: p.pos.x, y: p.pos.y - 1 } : null;
   }
 
   /** Pixel offset for a body standing at (x,y): agents at a desk sit tucked under it, centred on the 2-tile desk. */

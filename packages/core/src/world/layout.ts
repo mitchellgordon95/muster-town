@@ -67,15 +67,14 @@ export function computeLayout(buildings: Building[], goals: TreeGoal[], occupanc
   /** meeting-room place id -> its table tiles (seats are computed once the grid is complete) */
   const tables = new Map<string, Tile[]>();
 
-  // the roads (the plazas and the tree's edges between them), then a signpost and a place per plaza
+  // the roads (the streets and the drops between them), then a place per drawn goal and a signpost per junction
   const roads = deriveRoads(lots, tree, w, h);
   for (const t of roads.tiles) set(t.x, t.y, TILE.PATH);
   for (const p of tree.plazas) {
-    set(p.sign.x, p.sign.y, TILE.SIGNPOST);
-    const pos = { x: p.rect.x + 1, y: p.rect.y + 1 };
-    places.push({ id: `plaza:${p.goalId}`, kind: "plaza", name: p.text || "Goal", buildingId: null, pos });
-    // the root's plaza keeps its old id too: the town's meeting point (presence, arrivals)
-    if (!p.parentId) places.push({ id: "plaza", kind: "plaza", name: "Plaza", buildingId: null, pos: hall ? { x: doorOf(hall.lot, hall.kind).x - 2, y: p.rect.y } : pos });
+    if (p.sign) set(p.sign.x, p.sign.y, TILE.SIGNPOST);
+    places.push({ id: `plaza:${p.goalId}`, kind: "plaza", name: p.text || "Goal", buildingId: null, pos: p.pos });
+    // the root keeps its old id too: the town's meeting point (presence, arrivals), on the main street by the Town Hall's door
+    if (!p.parentId) places.push({ id: "plaza", kind: "plaza", name: "Plaza", buildingId: null, pos: hall ? { x: doorOf(hall.lot, hall.kind).x - 2, y: p.pos.y } : p.pos });
   }
   bankRoom(set, places);
 
@@ -158,7 +157,7 @@ export function computeLayout(buildings: Building[], goals: TreeGoal[], occupanc
   return { grid, lots: tree.lots, plazas: tree.plazas, places, desks, doors, seats };
 }
 
-/** The Bank (fixed lot south of the road): gold walls are the renderer's job; here the room, its door, the vault and the stations, and their places. */
+/** The Bank (fixed lot below the main street): gold walls are the renderer's job; here the room, its door, the vault and the stations, and their places. */
 function bankRoom(set: (x: number, y: number, t: number) => void, places: Place[]) {
   const { x: x0, y: y0, w: bw, h: bh } = BANK_LOT, F = BANK_FIXTURES;
   for (let y = 0; y < bh; y++) for (let x = 0; x < bw; x++) {
