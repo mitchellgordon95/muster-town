@@ -39,7 +39,7 @@ export { createBuilding, STARTER_MANAGER_MODEL, updateBuilding, syncManagerRoles
 export { RESIDENT_NAMES, suggestResidentName } from "./names.ts";
 export { forkManager, retireFork, nextForkN, familyCap, forkModels, checkForkModel, forkableQueue, freeDesks, liveForks, chainDesk, deskSlotRow, deskSlotRows, setDeskSlot, forkDeskSlot, type DeskSlotRow, forkSummary, forksOf, familySpend, type FamilySpend, reportChain, reportChains, requestForkStop, stopOverdueForks, STOP_FORK_TIMEOUT_MS, type ForkSummary, type ReportChain } from "./forks.ts";
 export { decisionKey, decisionWakes, managerIntrayRow, mentionKey, mentionWake, relayKey, relayWake, RELAY_MAX_AGE_MS, RELAY_MAX_HOPS, requestAnswerKey, requestAnswerWake, wakeKey } from "./wakes.ts";
-export { checkWaits, describeWait, validateWait, waitMet } from "./waits.ts";
+export { chainTip, checkWaits, describeWait, validateWait, waitMet } from "./waits.ts";
 export { blockedBy, buildingStats, waitsOnTime, townBlocked } from "./blockers.ts";
 export { attachablePages, buildingSchedules, cancelSchedule, createSchedule, describeRepeat, editSchedule, endSchedule, fireSchedules, nextOccurrence, scheduleTaker, townSchedules, DEFAULT_SCHEDULE_DAYS, MAX_SCHEDULE_DAYS } from "./schedules.ts";
 export { Presence, STAMP_EVERY_MS, OFFLINE_AFTER_MS, PRESENCE_TICK_MS, OFFER_TTL_MS, type TouchResult } from "./presence.ts";
