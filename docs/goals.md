@@ -124,6 +124,8 @@ The Town Hall in-tray stays one queue: each human sees **"Mine"** (items routed 
 
 The building panel's Overview names the owner once ("Owner: <owner>", linking to the goal in the tree) under the goal card, since the attached goal is the building's purpose.
 
+**Asking to captain a goal** (built: grant gr_bwm0iz7rwl, kr_j1w17nw178; "captain" is the word humans see for the owner). A signed-in member (`town.interact`) who can't edit a goal presses **Ask to captain this goal** in its detail in the goal tree, with an optional line on why. The ask (`goal_captain_requests`, ids `cr_`, migration 071) is a Town Hall in-tray item, counted in the badge, with its own section ("Asking to captain a goal") and a review-deck slide. It routes like everything else here: to the goal's current captain (its own or inherited), or the town admins. Whoever holds `goals.edit` at the goal (that captain, a captain above, an admin) presses **Accept**, which sets `ownerId` through the same path as the Owner tool and posts `goal.owned`, or **Decline**, which changes nothing; the member may ask again. One pending ask per goal and member; the root can't be asked for. API: `POST/GET /api/goals/:id/captain-requests`, `POST /api/captain-requests/:id/decide` (`accept` | `decline`).
+
 **Lanes, grants, Bank.** No Bank change. Ownership routes review and scopes `goals.edit` and grant funding; a grant an owner funds draws from the Bank as any funded grant does.
 
 ## "Change this goal" (the reorg)

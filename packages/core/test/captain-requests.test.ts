@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { decideCaptain, intrayCount, intrayRoutes, pendingCaptainRequests, requestCaptain, townHallIntray, townRoleId } from "../src/index.ts";
+import { decideCaptain, intrayCount, intrayRoutes, pendingCaptainRequests, requestCaptain, reviewDeck, townHallIntray, townRoleId } from "../src/index.ts";
 import { seededWorld } from "./helpers.ts";
 
 // "Ask to captain this goal" (grant gr_bwm0iz7rwl, kr_j1w17nw178): a member asks, the goal's current captain decides.
@@ -72,5 +72,17 @@ describe("captain requests (gr_bwm0iz7rwl)", () => {
     expect(decideCaptain(world, admin, r.id, false).status).toBe("declined");
     expect(world.goalTree.require(child.id).ownerId).toBeNull();
     expect(requestCaptain(world, ana.user.id, child.id).status).toBe("pending");
+  });
+
+  it("is one review-deck slide with the goal, the requester, why and who decides; gone once decided", () => {
+    const { world, ana, admin, child } = setup();
+    const r = requestCaptain(world, ana.user.id, child.id, "I run this work");
+    const slide = reviewDeck(world).slides.find((s) => s.kind === "captain");
+    expect(slide).toMatchObject({ key: `captain:${r.id}`, itemId: r.id, group: 4 });
+    expect(slide!.text).toContain('Ana asks to captain "Grant pages show sessions"');
+    expect(slide!.text).toContain('Why: "I run this work"');
+    expect(slide!.text).toContain("captained by the town admins");
+    decideCaptain(world, admin, r.id, true);
+    expect(reviewDeck(world).slides.some((s) => s.kind === "captain")).toBe(false);
   });
 });
