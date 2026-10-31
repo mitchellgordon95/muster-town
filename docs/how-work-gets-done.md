@@ -14,7 +14,7 @@ Three voices, kept apart:
 
 ```
  humans own and edit the goal tree  ──────────────────────────────┐
-        │  (owners, the Planner at hand, "Change this goal")       │
+        │  (captains, the Planner at hand, "Change this goal")       │
         ▼                                                          │
  the tick sees free tokens + an idle desk under a goal             │
         │  reserves one chunk (100k), starts one exploration       │
@@ -43,7 +43,7 @@ This is mostly built (goal tree steps 1–8, `docs/goals.md`) and does not chang
 
 - **One tree**, rooted at the town goal, edited at the Town Hall's Goal tree. Depth is unbounded, and every building is attached to exactly one node.
 - **Humans edit it; managers propose.** **Mitchell said** (mt_a3nvwfawer): "tree edits i think are definitely intended for humans, although (similar to any other org) managers can propose goals and KRs to bring to a meeting".
-- **Owners.** A human can own a node, and everything below rolls up to them: they decide and fund grants in their subtree, and the Town Hall items there go to their in-tray ("Mine"). **Mitchell said**: "maybe humans get assigned to nodes in the goal tree? and everything below rolls up to them? then we get an implicit org structure". Owners are humans only for now (mt_kh0zaqui0w).
+- **Captains.** A human can captain a node, and everything below rolls up to them: they decide and fund grants in their subtree, and the Town Hall items there go to their in-tray ("Mine"). **Mitchell said**: "maybe humans get assigned to nodes in the goal tree? and everything below rolls up to them? then we get an implicit org structure". Captains are humans only for now (mt_kh0zaqui0w).
 - **The Planner at hand.** "Plan with an agent" opens a 1:1 with the Planner, which has the tree, the event digest and the rollups loaded and drafts proposals for the human to accept or cut. **Mitchell said**: "a thing we need to solve is having agents at hand to get information, help articulate and plan the goals". Since mt_wql34b8gkl decision 1, the Planner is the Town Hall's manager.
 - **Reorgs.** "Change this goal" (X → Y) sends every manager under the node a prep assignment and opens a planning meeting when the prep reports are in, or after 24 h. It is the one scheduled meeting kind. **Mitchell said**: "come to the meeting having reviewed your work and have proposals for what should happen underneath".
 
@@ -80,7 +80,7 @@ At most one exploration starts per building per tick. Over successive ticks a bu
 
 **The chunk is the session's ceiling.** The desk gets the chunk as its cap (the same per-session cap mechanism the key streams need, `docs/goals.md` "Sessions and keys"), so the fork stops cleanly and files before the chunk runs out. **When the session ends, the reservation closes**: what was spent is booked as exploration on the goal (Spend by goal already attributes by `goalId`), and **what is unspent returns** to free tokens. A session that dies without a report closes its reservation the same way.
 
-**Where the output goes.** The proposal goes straight to the Town Hall in-tray and the review deck, routed to the goal's owner as proposals already are. The fork's report goes to its manager's in-tray as any report does, and the manager folds it into the next rollup. **The manager isn't woken to start anything.** The "quiet-building wake" Pix floated in mt_wql34b8gkl is not needed.
+**Where the output goes.** The proposal goes straight to the Town Hall in-tray and the review deck, routed to the goal's captain as proposals already are. The fork's report goes to its manager's in-tray as any report does, and the manager folds it into the next rollup. **The manager isn't woken to start anything.** The "quiet-building wake" Pix floated in mt_wql34b8gkl is not needed.
 
 **What stays.** Directed work (a human asked) is unchanged and never waits for free tokens. Managers can still `assign` exploration with a goal or gap; that assignment draws a reservation like the tick's does.
 
@@ -116,7 +116,7 @@ At most one exploration starts per building per tick. Over successive ticks a bu
 
 ## 5. The review: fund, counter or reject
 
-Built (the deck, kr_2qg0ayfs1j; owners' "Mine"; the funder filter) and unchanged, except that proposals now arrive from the tick's explorers and not only when a human asked.
+Built (the deck, kr_2qg0ayfs1j; captains' "Mine"; the funder filter) and unchanged, except that proposals now arrive from the tick's explorers and not only when a human asked.
 
 **Mitchell said** (mt_529jbnwvmi): "i actually really like reviewing the grants, i think that's one part i would keep: human review of grants." **No grant starts itself.**
 
@@ -174,7 +174,7 @@ Funded grants, proposals and reservations under *other* goals still claim the ge
 
 - **No allowance.** The per-building daily exploration allowance goes (`explorationTokensPerDay`, `EXPLORATION_SHARE`, `grantDesk.exploration`, "held: exploration allowance spent today"). So does the separate directed bucket's role as a counterweight to it (directed spend is still metered and shown).
 - **Concurrency = desks; money = free tokens.** Nothing else limits exploration.
-- **An optional cap** (`exploreCapTokensPerDay`) on any goal, inherited down: the sum of reservations opened today under that goal can't pass it. On the root it is the town-wide cap. Only a human with `goals.edit` and funding rights there (an admin or the goal's owner) sets it, as with today's exploration setting.
+- **An optional cap** (`exploreCapTokensPerDay`) on any goal, inherited down: the sum of reservations opened today under that goal can't pass it. On the root it is the town-wide cap. Only a human with `goals.edit` and funding rights there (an admin or the goal's captain) sets it, as with today's exploration setting.
 - **Switching off** is the same setting: `explore: off` on a goal stops new explorations under it. Running ones finish.
 - **The daily caps are gone** (1:1 mt_q10xf3bkoq, 2026-10-31): the per-agent cap (`dailyTokensPerAgent`) and the fork-family cap (× headcount) no longer hold any work; desks, free tokens, the optional exploration cap and grant totals are the only gates. The column stays, read by nothing.
 

@@ -145,7 +145,7 @@ export class Goals {
   }
 
   requireEdit(actor: Actor, goalId: string): void {
-    if (!this.canEdit(actor, goalId)) throw forbidden("goals.edit", `Only an admin or the owner of "${clip(this.get(goalId)?.text ?? goalId, 80)}" (or a goal above it) can change it; managers propose with propose_goal.`);
+    if (!this.canEdit(actor, goalId)) throw forbidden("goals.edit", `Only an admin or the captain of "${clip(this.get(goalId)?.text ?? goalId, 80)}" (or a goal above it) can change it; managers propose with propose_goal.`);
   }
 
   /**
@@ -225,11 +225,11 @@ export class Goals {
    * (goals.edit on the goal above) and an accepted captain request (captain.ts, the node's current captain or an admin).
    */
   setOwner(actor: Actor, g: Goal, ownerId: string | null): Goal {
-    if (g.id === ROOT_GOAL_ID) throw badRequest("The root is owned by the town admins.");
-    if (ownerId && !this.world.users.get(ownerId)) throw badRequest(`Owners are humans: ${ownerId} is not a user id.`);
+    if (g.id === ROOT_GOAL_ID) throw badRequest("The town admins captain the root.");
+    if (ownerId && !this.world.users.get(ownerId)) throw badRequest(`Captains are humans: ${ownerId} is not a user id.`);
     const next = this.world.goals.upsert({ ...g, ownerId, editedBy: actor ? holderOf(actor).id : null, updatedAt: nowIso() });
     const name = ownerId ? this.world.users.get(ownerId)!.name : "(inherited)";
-    this.event("goal.owned", actor, `${name} owns "${clip(next.text, 80)}"`, { goalId: g.id, ownerId, fromOwnerId: g.ownerId });
+    this.event("goal.owned", actor, `${name} captains "${clip(next.text, 80)}"`, { goalId: g.id, ownerId, fromOwnerId: g.ownerId });
     return next;
   }
 
@@ -249,7 +249,7 @@ export class Goals {
     }
     if (inp.parentId !== undefined && inp.parentId !== g.parentId) next = this.move(actor, next, inp.parentId);
     if (inp.ownerId !== undefined && inp.ownerId !== g.ownerId) {
-      if (g.id === ROOT_GOAL_ID) throw badRequest("The root is owned by the town admins.");
+      if (g.id === ROOT_GOAL_ID) throw badRequest("The town admins captain the root.");
       // owners set owners below them: the goal above must be theirs
       this.requireEdit(actor, g.parentId!);
       next = this.setOwner(actor, next, inp.ownerId);
@@ -258,7 +258,7 @@ export class Goals {
     // here (an admin or the goal's owner); a manager agent can't change its own exploration
     if (inp.exploreCapTokensPerDay !== undefined && inp.exploreCapTokensPerDay !== g.exploreCapTokensPerDay) {
       this.requireEdit(actor, g.id);
-      if (actor && !this.world.permissions.can(actor, "building.fund") && !this.owns(actor, g.id)) throw forbidden("building.fund", "Only a human funder (an admin or the goal's owner) can set an exploration cap.");
+      if (actor && !this.world.permissions.can(actor, "building.fund") && !this.owns(actor, g.id)) throw forbidden("building.fund", "Only a human funder (an admin or the goal's captain) can set an exploration cap.");
       next = this.world.goals.upsert({ ...next, exploreCapTokensPerDay: inp.exploreCapTokensPerDay, editedBy: by, updatedAt: nowIso() });
       const v = inp.exploreCapTokensPerDay;
       this.event("goal.edited", actor, `Exploration cap on "${clip(next.text, 80)}": ${v === null ? "inherited" : `${v.toLocaleString("en-US")} tokens/day`}`,
@@ -269,7 +269,7 @@ export class Goals {
       const v = inp[key];
       if (v === undefined || v === g[key]) continue;
       this.requireEdit(actor, g.id);
-      if (actor && !this.world.permissions.can(actor, "building.fund") && !this.owns(actor, g.id)) throw forbidden("building.fund", "Only a human funder (an admin or the goal's owner) can set the explore rule.");
+      if (actor && !this.world.permissions.can(actor, "building.fund") && !this.owns(actor, g.id)) throw forbidden("building.fund", "Only a human funder (an admin or the goal's captain) can set the explore rule.");
       next = this.world.goals.upsert({ ...next, [key]: v, editedBy: by, updatedAt: nowIso() });
       const what = key === "explore" ? `Exploration ${v === null ? "inherited" : v ? "on" : "off"}` : `Exploration chunk ${v === null ? "inherited" : `${(v as number).toLocaleString("en-US")} tokens`}`;
       this.event("goal.edited", actor, `${what} on "${clip(next.text, 80)}"`, { goalId: g.id, [key]: v, [`from${key[0].toUpperCase()}${key.slice(1)}`]: g[key] });

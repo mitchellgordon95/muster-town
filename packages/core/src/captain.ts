@@ -1,6 +1,6 @@
 /**
  * "Ask to captain this goal" (grant gr_bwm0iz7rwl, kr_j1w17nw178). A goal's captain is its `ownerId` (docs/goals.md
- * "Owners on nodes"; "captain" is the word humans see). A member (`town.interact`) asks to captain a goal; the request
+ * "Captains on nodes"; "captain" is the word humans see). A member (`town.interact`) asks to captain a goal; the request
  * waits in the Town Hall in-tray, routed to the goal's current captain (its own, else inherited from the nearest
  * captained ancestor; the town admins at the root). That captain, an admin, or a captain higher up (`goals.edit` at the
  * goal) accepts, which sets `ownerId` through `Goals.setOwner` (the same path as the Captain tool), or declines.

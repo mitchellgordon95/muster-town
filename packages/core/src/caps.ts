@@ -8,6 +8,7 @@
  * Pure functions; Bank wires them to the event log and the sessions.
  */
 import { SPEND_LIMIT, type Event } from "@muster-town/schema";
+import { stamp } from "./time.ts";
 
 export const DEATH_WINDOW_DAYS = 7;
 /** days of `bank.cap` events the learned cap looks back over */
@@ -89,5 +90,5 @@ export function nearCap(spentToday: number, cap: number | null, typical: number 
 /** The hold's reason, as shown on held assignments and the map. */
 export function capReason(spentToday: number, cap: number, resetsAt: string): string {
   const m = (n: number) => `${(n / 1e6).toFixed(1)}M`;
-  return `near the subscription cap (${m(spentToday)} of ~${m(cap)} adj. tokens today), resets at ${resetsAt.slice(0, 16).replace("T", " ")} UTC`;
+  return `near the subscription cap (${m(spentToday)} of ~${m(cap)} adj. tokens today), resets at ${stamp(resetsAt)}`;
 }
