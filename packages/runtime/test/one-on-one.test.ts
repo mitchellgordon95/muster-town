@@ -2,7 +2,7 @@ import { describe, expect, test, vi } from "vitest";
 import { intrayOf } from "@muster-town/core";
 import { HostBackend, startRuntime, type CmdResult, type CommandRunner, type RuntimeOptions } from "../src/index.ts";
 import { drainNudgeOneOnOne } from "../src/redeploy.ts";
-import { callVerb, fakeSdk, init, result, setup, type Script } from "./helpers.ts";
+import { callVerb, deferred, fakeSdk, init, result, setup, type Script } from "./helpers.ts";
 
 const until = async (ok: () => boolean) => { for (let i = 0; i < 200 && !ok(); i++) await new Promise((r) => setTimeout(r, 5)); expect(ok()).toBe(true); };
 
@@ -121,6 +121,44 @@ describe("the manager's 1:1", () => {
     await runtime.whenIdle();
     expect(world.meetings.require(m.id).phase).toBe("done");
     expect(world.sessions.first("agentId = ? AND purpose = 'manage'", [mei.id])).toMatchObject({ status: "done" });
+  });
+
+  test("an agent busy in a work session: the 1:1 says why it's silent, isn't closed as quiet, and is answered once the work ends", async () => {
+    const work = deferred();
+    const env = await managed(async function* (s) {
+      yield init();
+      if (s.agentId !== s.world.agents.first("name = 'Noor'")!.id) { yield result(50, 0.01); return; } // Mei's in-tray
+      const mid = s.received[0].match(/(mt_[a-z0-9]+)/)?.[1];
+      if (!mid || !s.received[0].includes("1:1")) { await work.promise; yield* callVerb(s, "submit_report", { title: "Done", body: "## Findings\nok", verdict: "stop" }); yield result(100, 0.01); return; }
+      yield* callVerb(s, "meeting", { meetingId: mid, action: "speak", text: "Sorry, I was busy. Here now." });
+      yield result(100, 0.01);
+      expect(await s.next()).toContain("is over");
+      yield result(150, 0.02);
+    });
+    const { world, runtime, sdk, by, lab, admin, clock } = env;
+    const noor = by("Noor");
+    const asg = world.ops.createWork(null, noor.id, { title: "Measure the growth rate" });
+    const running = runtime.runWorkSession(noor.id, asg.id);
+    await until(() => sdk.sessions.length === 1);
+    const m = world.ops.openOneOnOne(admin, lab.id, { agentId: noor.id });
+    world.ops.meetingSay(admin, m.id, "hello?");
+    await until(() => world.meetings.require(m.id).transcript.some((u) => u.speakerKind === "system"));
+    await runtime.tickOnce();
+    const notices = world.meetings.require(m.id).transcript.filter((u) => u.speakerKind === "system");
+    expect(notices).toHaveLength(1); // once per busy session, not per wake
+    expect(notices[0].text).toContain('Noor is in a work session ("Measure the growth rate") and answers here when it ends.');
+    const noorSessions = () => sdk.sessions.filter((x) => x.agentId === noor.id).length;
+    expect(noorSessions()).toBe(1); // only the work session: the 1:1 waits for it
+    clock.t = Date.now() + 21 * 60_000;
+    await runtime.tickOnce();
+    expect(world.meetings.require(m.id).phase).toBe("discussing"); // the human's line still waits on Noor
+    clock.t = Date.now(); // session start times are wall-clock too
+    work.resolve();
+    await running;
+    await runtime.tickOnce();
+    await until(() => world.meetings.require(m.id).transcript.some((u) => u.speakerId === noor.id));
+    world.ops.endMeeting(admin, m.id);
+    await runtime.whenIdle();
   });
 
   test("a redeploy doesn't silence the 1:1: the manager keeps answering, the restart posts a notice, and a new session answers what it missed", async () => {
