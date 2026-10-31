@@ -12,6 +12,10 @@ alternative; that box was deleted.
   outside the checkout so nothing done to `/data/repo` can touch it (the entrypoint moves it out once on a town deployed before this split).
   The image (`deploy/fly/Dockerfile`) is only the runtime plus a baked copy of the checkout for the first boot. `deploy/fly/entrypoint.sh` is the
   supervisor: it restarts the server when it exits 75, so the town's own `redeploy` (git pull, install, build, drain) keeps working unchanged.
+  Each start runs `deploy/fly/start-server.sh` from the checkout (so a redeploy can change it; the entrypoint itself changes only with an image
+  deploy): `node packages/server/dist/main.js`, the server prebuilt by `packages/server/build.mjs` (esbuild; the redeploy's "build server" step,
+  about 1 s), when `dist/BUILD_HEAD` matches HEAD; else it builds it first, and falls back to `npx tsx` on the sources if that fails. Prebuilt,
+  a boot takes about a third of the CPU tsx did (docs/postmortem-2026-10-31-cpu-throttle-503.md suggestion 6). Dev and `scripts/serve.sh` keep tsx.
   On every boot it sets `origin` to `MUSTER_TOWN_REPO` (default `https://github.com/mitchellgordon95/muster-town.git`, what muster.town uses;
   a town built from a fork sets its fork's URL in `[env]`).
 - **Config:** `fly.town.toml` (env, volume, health check). Desk backend and callback URL come from `MUSTER_TOWN_DESKS` (JSON) in its `[env]`,
@@ -34,6 +38,9 @@ alternative; that box was deleted.
   nobody waits on a PR review; what they can't do is take the town down with a commit that fails its own tests. The `redeploy` verb and the
   planning desk button still work (they also pull `prod`), for a redeploy without a new commit. Rollback: `git revert` on main and let CI
   ship it; emergency: point `prod` at the last good sha and redeploy. A red run leaves the live town where it was and shows in the Actions tab.
+  CI asks for fewer restarts than pushes (the redeploy tool and the planning desk button are unchanged): no redeploy when everything since the live
+  commit is under `docs/` (except `docs/manual.md`, which the server serves), `.github/` or a top-level `*.md`; and at most one CI restart per 15 min
+  (when the server started less than 15 min ago the promote job waits out the rest; a newer push cancels the waiting run and redeploys its own commit).
 - **Drain policy:** the drain holds new work sessions and waits up to 30 min for running *work* sessions (a restart would orphan
   them; at startup the orphans are stopped and their assignments re-queued). A *meeting* session (a facilitation, or the manager answering a 1:1)
   holds it only 2 min (`drainMeetingMs`): a human can talk for an hour, so the deploy does not block on a meeting. Instead: post the notice,
