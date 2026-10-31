@@ -68,7 +68,7 @@ export interface RedeployDeps {
   blocked?(): string[];
   /** hold (true) or release (false) the scheduler's new work sessions while draining */
   hold?(on: boolean): void;
-  /** how long the drain waits for host sessions before restarting anyway (sessions still running are orphaned and re-queued at startup). Default 3 min. */
+  /** how long the drain waits for host sessions before restarting anyway (sessions still running are cut and re-queued at startup). Default 3 min; team-lead sessions get `drainManageMs`. */
   drainTimeoutMs?: number;
   /** drain poll period. Default 5000. */
   drainPollMs?: number;
@@ -92,6 +92,14 @@ export interface RedeployDeps {
   inMeeting?(agentId: string): boolean;
   /** how long the drain waits on meeting sessions. Default 2 min. */
   drainMeetingMs?: number;
+  /**
+   * Whether the agent's live session is a team-lead (manage) session working its in-tray. The drain waits for those up to
+   * `drainManageMs` (longer than `drainTimeoutMs`: CI deploys aren't urgent, and a cut one is resumed, not redone) and
+   * nudges them with `drainNudgeManage`. Default: none are.
+   */
+  isManage?(agentId: string): boolean;
+  /** how long the drain waits on team-lead sessions. Default 8 min (DRAIN_MANAGE_MS). */
+  drainManageMs?: number;
   /** called just before the exit (with the commit going live): post the restart notice into live meetings. Default: none. */
   beforeRestart?(head: string | null): void;
   run?: CommandRunner;
@@ -130,6 +138,14 @@ export function isTerminalRedeployEvent(e: Pick<Event, "payload">): boolean {
 /** What the drain tells a session it waits on. */
 export function drainNudge(requester: boolean): string {
   return `${requester ? "The redeploy you requested" : "A redeploy"} is waiting for your work session to end before it restarts the server. The new build cannot go live while you are running, so do not wait or poll for it: finish the step you are on, push, say in your report which commit should be live, submit the report, and stop. Verify on your next session.`;
+}
+
+/** How long the drain waits on team-lead (manage) sessions by default. */
+export const DRAIN_MANAGE_MS = 8 * 60_000;
+
+/** What the drain tells a team-lead session it waits on: wrap up (stop_fork's words); if cut anyway, it resumes after the restart. */
+export function drainNudgeManage(): string {
+  return `A redeploy is waiting (up to ${Math.round(DRAIN_MANAGE_MS / 60_000)} min) for this team-lead session to end before it restarts the server: finish the step you are on, write your pages, and end the session (submit_report only if a rollup is due). Don't start on new in-tray reports: they wait for the new server. If the restart cuts you anyway, this session resumes after it from where you stopped.`;
 }
 
 /** What the drain tells a facilitator it waits on: close a meeting no human is in; otherwise carry on, it resumes after the restart. */
@@ -290,33 +306,50 @@ export function makeRedeployer(deps: RedeployDeps): Redeployer {
     const working = () => deps.working?.() ?? [];
     const names = (ids: string[]) => ids.map((id) => deps.world.agents.get(id)?.name ?? id).join(", ");
     const timeoutMs = deps.drainTimeoutMs ?? 3 * 60_000;
+    const manageMs = Math.max(timeoutMs, deps.drainManageMs ?? DRAIN_MANAGE_MS);
+    const isManage = (id: string) => { try { return !!deps.isManage?.(id); } catch { return false; } };
     const blocked = () => deps.blocked?.() ?? [];
     let left = working();
     if (left.length) {
       run_ = { ...run_, state: "scheduled", working: left, blocked: blocked() };
       const requester = left.find((id) => deps.world.agents.get(id)?.name === o.requestedBy);
-      say(`Redeploy: draining, waiting for ${left.length} session(s) to end: ${names(left)} (up to ${Math.round(timeoutMs / 60_000)} min)${requester ? `; ${o.requestedBy} requested it and is still running, so it waits for them too` : ""}`, { step: "drain", phase: "start", working: left, ...(requester ? { requester } : {}) });
+      say(`Redeploy: draining, waiting for ${left.length} session(s) to end: ${names(left)} (up to ${Math.round((left.some(isManage) ? manageMs : timeoutMs) / 60_000)} min)${requester ? `; ${o.requestedBy} requested it and is still running, so it waits for them too` : ""}`, { step: "drain", phase: "start", working: left, ...(requester ? { requester } : {}) });
       // each session waited on is told once, so nobody sits polling for a restart that waits on them
       const nudged = new Set<string>();
       const nudge = (ids: string[]) => {
         for (const id of ids) {
           if (nudged.has(id)) continue;
           nudged.add(id);
-          try { deps.nudge?.(id, drainNudge(id === requester)); } catch (e) { console.log("[runtime] drain nudge:", e instanceof Error ? e.message : e); }
+          try { deps.nudge?.(id, isManage(id) ? drainNudgeManage() : drainNudge(id === requester)); } catch (e) { console.log("[runtime] drain nudge:", e instanceof Error ? e.message : e); }
         }
       };
       nudge(left);
-      const until = Date.now() + timeoutMs;
+      const start = Date.now();
+      const until = start + timeoutMs;
+      /** team-lead sessions are waited on longer; the others only until `until` */
+      const manageUntil = start + manageMs;
+      const deadline = () => (left.some(isManage) ? manageUntil : until);
+      /** sessions past `until` the drain stopped waiting for while it waits on team-lead sessions: cut by the restart */
+      const overdue = new Set<string>();
       const meetingsUntil = Date.now() + (deps.drainMeetingMs ?? 2 * 60_000);
       /** meeting sessions the drain stopped waiting for: they are cut by the restart and resume after it */
       const cut = new Set<string>();
       /** consecutive polls each agent was seen not `working`, and since when */
       const idle = new Map<string, { polls: number; since: number }>();
       const dropped = new Set<string>();
-      while (left.length && Date.now() < until) {
-        await new Promise<void>((r) => setTimeout(r, Math.min(deps.drainPollMs ?? 5000, Math.max(1, until - Date.now()))));
+      while (left.length && Date.now() < deadline()) {
+        await new Promise<void>((r) => setTimeout(r, Math.min(deps.drainPollMs ?? 5000, Math.max(1, deadline() - Date.now()))));
         halt();
-        left = working().filter((id) => !dropped.has(id) && !cut.has(id));
+        left = working().filter((id) => !dropped.has(id) && !cut.has(id) && !overdue.has(id));
+        // past the usual wait only team-lead sessions hold the restart (up to drainManageMs)
+        if (Date.now() >= until) {
+          const other = left.filter((id) => !isManage(id));
+          if (other.length && left.some(isManage)) {
+            for (const id of other) overdue.add(id);
+            left = left.filter((id) => !overdue.has(id));
+            say(`Redeploy: not waiting longer for ${names(other)}; still waiting for team-lead session(s): ${names(left)}`, { step: "drain", phase: "drain", overdue: other });
+          }
+        }
         // a meeting doesn't hold the deploy: past its grace, post the notice, restart, resume (a human may talk for an hour)
         if (Date.now() >= meetingsUntil) {
           const meeting = left.filter((id) => { try { return !!deps.inMeeting?.(id); } catch { return false; } });
@@ -351,8 +384,9 @@ export function makeRedeployer(deps: RedeployDeps): Redeployer {
           say(`Redeploy: still waiting for ${left.length} session(s): ${names(left)}${now.length ? `; holding work for ${names(now)}` : ""}`, { step: "drain", phase: "wait" });
         }
       }
-      say(left.length ? `Redeploy: drain timed out, restarting anyway; still running (stopped and re-queued at startup): ${names(left)}` : "Redeploy: drain … ok (no sessions running)",
-        { step: "drain", phase: "end", ok: !left.length, working: left });
+      const late = [...overdue, ...left];
+      say(late.length ? `Redeploy: drain timed out, restarting anyway; still running (stopped and re-queued at startup): ${names(late)}` : "Redeploy: drain … ok (no sessions running)",
+        { step: "drain", phase: "end", ok: !late.length, working: late });
     }
 
     // (e2) pull again: the sessions just drained usually pushed on their way out. A failed pull keeps the preflight's

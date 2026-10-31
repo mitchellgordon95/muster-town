@@ -26,6 +26,7 @@ import { GoalTreePanel } from "./panels/GoalTreePanel";
 import { DashboardPanel } from "./panels/DashboardPanel";
 import { BankPanel } from "./panels/BankPanel";
 import { GrantPanel } from "./panels/GrantPanel";
+import { AssignmentPanel, SessionPanel } from "./panels/WorkPanels";
 import { HowItWorks, howItWorksSeen } from "./panels/HowItWorks";
 import { ManualSheet } from "./panels/Manual";
 import { isDocHash, startDocRoutes } from "./route";
@@ -194,6 +195,8 @@ function PanelHost({ panel }: { panel: PanelRef }) {
     case "dashboard": return <DashboardPanel />;
     case "goals": return null; // a sheet over the map that stays open beside the side panel (App)
     case "grant": return <GrantPanel key={panel.id} id={panel.id!} />;
+    case "assignment": return <AssignmentPanel key={panel.id} id={panel.id!} />;
+    case "session": return <SessionPanel key={panel.id} id={panel.id!} />;
     case "schedule": return <SchedulePanel />;
     case "mod": return <ModStationPanel />;
     case "manual": return null; // a paper sheet over the town, not a side panel (App)

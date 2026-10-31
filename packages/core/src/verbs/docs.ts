@@ -20,6 +20,7 @@ import { describeWait, validateWait } from "../waits.ts";
 import type { World } from "../world.ts";
 import { TOWN_HALL_ID } from "../world/layout.ts";
 import type { VerbIn } from "./types.ts";
+import { guessedTimesWarning } from "../time.ts";
 
 const WRITE_FORBIDDEN_TYPES = new Set<Doc["type"]>(["report", "request", "human-report", "meeting-notes"]);
 
@@ -187,15 +188,15 @@ export async function write(world: World, me: Agent, input: VerbIn<"write">) {
       if (topicOf !== homeOf(me)) throw badRequest(`\`topicOf\` is your building id (${homeOf(me) ?? "you have none"}): topic pages belong to the building you work in.`);
       if (!canWriteTopic(world, me, topicOf)) throw forbidden("building.manage", "Only the building's manager and its forks write its topic pages. Write a private page (leave topicOf out), or put it in your report.");
       const { doc, created } = writeTopicPage(world, me, topicOf, input.title, input.body, input.id);
-      return { id: doc.id, state: doc.state, topicOf, note: created ? `Topic page "${doc.title}" created in ${world.buildings.get(topicOf)?.name ?? topicOf} (everyone there reads it; its manager and forks rewrite it).` : `Topic page "${doc.title}" rewritten; the old version is kept as a revision.` };
+      return { id: doc.id, state: doc.state, topicOf, ...timeWarn(input.body), note: created ? `Topic page "${doc.title}" created in ${world.buildings.get(topicOf)?.name ?? topicOf} (everyone there reads it; its manager and forks rewrite it).` : `Topic page "${doc.title}" rewritten; the old version is kept as a revision.` };
     }
     if (me.forkOf) throw new AppError("forbidden", "forks write topic pages (topicOf) or skills");
     const { doc, created } = writeWikiPage(world, ownerOf(me, holder), input.title, input.body, input.id);
-    return { id: doc.id, state: doc.state, note: created ? `Wiki page "${doc.title}" created (private; shown to you at the start of every session).` : `Wiki page "${doc.title}" rewritten.` };
+    return { id: doc.id, state: doc.state, ...timeWarn(input.body), note: created ? `Wiki page "${doc.title}" created (private; shown to you at the start of every session).` : `Wiki page "${doc.title}" rewritten.` };
   }
   if (input.type === "log") {
     const doc = appendAgentLog(world, me, input.body);
-    return { id: doc.id, state: doc.state, note: me.forkOf ? `Logged in ${world.nameOf(me.forkOf)}'s log.` : "Logged." };
+    return { id: doc.id, state: doc.state, ...timeWarn(input.body), note: me.forkOf ? `Logged in ${world.nameOf(me.forkOf)}'s log.` : "Logged." };
   }
   if (input.files && input.type !== "skill") throw badRequest("`files` are only for skills (type \"skill\").");
   // a skill's title is its SKILL.md name (validated, unique town-wide)
@@ -220,7 +221,7 @@ export async function write(world: World, me: Agent, input: VerbIn<"write">) {
     world.events.append({ type: "doc.updated", agentId: holder.kind === "agent" ? me.id : null, buildingId: doc.buildingId, text: `${me.name} updated "${doc.title}"`, payload: { docId: doc.id } });
     // only newly added mentions notify; a draft being published notifies everyone it mentions
     if (doc.state !== "draft") notifyMentions(world, me, `${doc.title}\n${doc.body}`, { where: docWhere(doc), docId: doc.id, buildingId: doc.buildingId }, cur.state !== "draft" ? `${cur.title}\n${cur.body}` : undefined);
-    return { id: doc.id, state: doc.state, ...(doc.type === "skill" ? { files: world.skills.files(doc.id).map((f) => f.path) } : {}) };
+    return { id: doc.id, state: doc.state, ...timeWarn(input.body), ...(doc.type === "skill" ? { files: world.skills.files(doc.id).map((f) => f.path) } : {}) };
   }
   // Source cards are references, not claims: once published they go straight to the library so every building can cite them.
   const state = input.type === "source" && input.state === "building" ? "library" : input.state;
@@ -234,10 +235,16 @@ export async function write(world: World, me: Agent, input: VerbIn<"write">) {
   });
   if (doc.state !== "draft") notifyMentions(world, me, `${doc.title}\n${doc.body}`, { where: docWhere(doc), docId: doc.id, buildingId: doc.buildingId });
   if (doc.type === "skill") {
-    return { id: doc.id, state: doc.state, name: doc.title, files: world.skills.files(doc.id).map((f) => f.path),
+    return { id: doc.id, state: doc.state, name: doc.title, files: world.skills.files(doc.id).map((f) => f.path), ...timeWarn(input.body),
       note: doc.state === "draft" ? "Skill saved as a draft (only you see it). `pin` it into your own sessions, or write it again with state \"building\" to share it in your building." : "Skill published in your building. A manager can `promote` it to the library (town-wide) and `pin` it." };
   }
-  return { id: doc.id, state: doc.state };
+  return { id: doc.id, state: doc.state, ...timeWarn(input.body) };
+}
+
+/** `warnings` for a body with guessed clock times (core/time.ts), spread into a verb's result; nothing when clean. */
+function timeWarn(body: string): { warnings?: string[] } {
+  const w = guessedTimesWarning(body);
+  return w ? { warnings: [w] } : {};
 }
 
 type KrWrite = ReturnType<World["grantDesk"]["writtenSince"]>[number];
@@ -291,7 +298,7 @@ export async function submit_report(world: World, me: Agent, input: VerbIn<"subm
   // the rollup format (1:1 mt_vcn0e66r1t): the four headings are required; a Shipped item without its labels is only warned
   const format = input.rollup ? parseRollup(input.body) : null;
   if (format?.missingSections.length) throw badRequest(`A rollup has four sections: ## Shipped, ## Decided, ## Key results, ## Needs from Mitchell. Missing: ${format.missingSections.map((s) => `## ${s}`).join(", ")}.`);
-  const formatWarnings = format ? rollupWarnings(format) : [];
+  const formatWarnings = [...(format ? rollupWarnings(format) : []), ...(timeWarn(input.body).warnings ?? [])];
   // Needs from Mitchell carries only what has no other channel (1:1 mt_uf1bwd3exq): naming an item that already waits
   // for a human in the Town Hall in-tray or the outbox is refused; the town lists those itself (rollupWaitingLine)
   if (format) {
@@ -302,7 +309,7 @@ export async function submit_report(world: World, me: Agent, input: VerbIn<"subm
     const needs = rollupNeedsCount(input.body);
     if (needs > ROLLUP_MAX_NEEDS) formatWarnings.push(`${needs} Needs items; keep it to ${ROLLUP_MAX_NEEDS}`);
   }
-  const formatNote = formatWarnings.length ? ` Format warnings (filed anyway; unlabelled Shipped items show as plain text instead of cards): ${formatWarnings.join("; ")}. Next rollup: each Shipped item gets **What it is:**, **What you'd see:** (one cropped picture) and **Your call:**; Needs keeps to ${ROLLUP_MAX_NEEDS} items.` : "";
+  const formatNote = formatWarnings.length ? ` Warnings (filed anyway${format ? "; unlabelled Shipped items show as plain text instead of cards" : ""}): ${formatWarnings.join("; ")}.${format ? ` Next rollup: each Shipped item gets **What it is:**, **What you'd see:** (one cropped picture) and **Your call:**; Needs keeps to ${ROLLUP_MAX_NEEDS} items.` : ""}` : "";
   // P2: park instead of ending: the continuation waits for `resumeWhen` and then starts by itself (at most MAX_PARKS in a row)
   const resumeWhen = input.resumeWhen ? validateWait(world, input.resumeWhen) : null;
   const parks = (current?.parked ?? 0) + 1;

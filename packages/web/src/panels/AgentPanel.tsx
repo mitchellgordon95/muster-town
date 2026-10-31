@@ -64,7 +64,7 @@ export function AgentPanel({ id, tab }: { id: string; tab?: string }) {
 }
 
 /** The transcript link for a session (GET /api/sessions/:id/transcript; admins, the building's managers and the agent). */
-function TranscriptLink({ sessionId }: { sessionId: string }) {
+export function TranscriptLink({ sessionId }: { sessionId: string }) {
   const url = `/api/sessions/${sessionId}/transcript`;
   return <a href={url} onClick={(e) => { e.preventDefault(); void api().openTranscript?.(url).catch((err: Error) => store.toast(err.message, "bad")); }}>transcript</a>;
 }
@@ -79,7 +79,7 @@ function ForkTab({ fork, loading }: { fork?: ForkSummary; loading: boolean }) {
         ["Fork of", <button className="link" onClick={() => store.open({ kind: "agent", id: fork.agent.forkOf! })}>{fork.forkOfName}</button>],
         ["Assignment", fork.assignmentId ? <>{fork.assignmentTitle} <span className="muted">(<IdLink id={fork.assignmentId} />)</span></> : "none"],
         ...(fork.chainId ? [["Chain", <Pill tone="neutral">chain {fork.chainId} · hop {fork.hop}</Pill>] as [string, ReactNode]] : []),
-        ["Session", fork.sessionId ? <>{fork.sessionId} · {fork.tokens || fork.agent.status === "retired" ? <>{fmtTokens(fork.tokens)} {ADJ}</> : "running (tokens book when it ends)"}{fmtPerf(fork) ? <> · {fmtPerf(fork)}</> : null}{fork.transcript ? <> · <TranscriptLink sessionId={fork.sessionId} /></> : null}</> : "not started"],
+        ["Session", fork.sessionId ? <><IdLink id={fork.sessionId} /> · {fork.tokens || fork.agent.status === "retired" ? <>{fmtTokens(fork.tokens)} {ADJ}</> : "running (tokens book when it ends)"}{fmtPerf(fork) ? <> · {fmtPerf(fork)}</> : null}{fork.transcript ? <> · <TranscriptLink sessionId={fork.sessionId} /></> : null}</> : "not started"],
         ["Report", fork.reportId ? <button className="link" onClick={() => openDoc(fork.reportId!)}>{fork.reportTitle ?? fork.reportId}</button> : fork.agent.status === "retired" ? "none" : "not yet"],
         ...(fork.pagesEdited.length ? [["Topic pages", <>{fork.pagesEdited.map((p, i) => <span key={p.id}>{i ? ", " : ""}<button className="link" onClick={() => openDoc(p.id)}>{p.title}</button></span>)}</>] as [string, ReactNode]] : []),
         ["Status", fork.agent.status === "retired" ? `retired ${timeAgo(fork.agent.lastActiveAt ?? fork.agent.createdAt)}` : <StatusPill status={fork.agent.status} />],
@@ -483,6 +483,7 @@ function waitLabel(w: NonNullable<Assignment["waitFor"]>): string {
   if ("deploy" in w) return w.deploy === "next" ? "next redeploy" : `redeploy with ${w.deploy.slice(0, 7)}`;
   if ("assignment" in w) return `assignment ${w.assignment} to finish`;
   if ("decision" in w) return `decision on ${w.decision}`;
+  if ("pr" in w) return `PR #${w.pr} checks`;
   return `until ${runsAtLabel(w.after)}`;
 }
 

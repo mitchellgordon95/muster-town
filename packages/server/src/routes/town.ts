@@ -1,5 +1,5 @@
-import { AppError, BANK_ACCOUNTING, deskPreset, deskSizeFor, type World, buildingStats, accessRequestOf, boardWithTownDocs, canInteract, decideAccess, deskSlotRows, requestAccess, sessionView, setDeskSlot, cabinetCounts, cabinetDocs, reportChains, reviewDeck, presentedReviewDeck, intrayRoutes, funderWeek } from "@muster-town/core";
-import { funderSlide, AccessDecisionInput, AccessRequestInput, AddBankInput, CreateBuildingInput, DesksPatch, TownDefaultsPatch, DocType, DonateInput, LayoutInput, Membership, PlantFlagInput, RedeployInput, UpdateBuildingInput, apiKeyProblem, townEnv, REVIEW_DECK_ID, type AccessRequest, type AuthMe, type RedeployLive } from "@muster-town/schema";
+import { AppError, BANK_ACCOUNTING, deskPreset, deskSizeFor, type World, buildingStats, accessContext, accessRequestOf, boardWithTownDocs, canInteract, decideAccess, deskSlotRows, requestAccess, sessionView, setDeskSlot, cabinetCounts, cabinetDocs, reportChains, reviewDeck, presentedReviewDeck, intrayRoutes, funderWeek } from "@muster-town/core";
+import { funderSlide, AccessDecisionInput, AccessRequestInput, AddBankInput, CreateBuildingInput, DesksPatch, MapLayout, TownDefaultsPatch, DocType, DonateInput, LayoutInput, Membership, PlantFlagInput, RedeployInput, UpdateBuildingInput, apiKeyProblem, townEnv, REVIEW_DECK_ID, type AccessRequest, type AuthMe, type RedeployLive } from "@muster-town/schema";
 import type { FastifyInstance, FastifyRequest } from "fastify";
 import { brotliDecompressSync } from "node:zlib";
 import { z } from "zod";
@@ -72,7 +72,7 @@ export async function townRoutes(app: FastifyInstance) {
       avatarAgentId: world.ops.ensureAvatar(user.id).id,
       isAdmin: world.permissions.isAdmin(holder),
       canInteract: canInteract(world, user.id),
-      accessRequest: accessView(accessRequestOf(world, user.id)),
+      accessRequest: accessView(world, accessRequestOf(world, user.id)),
     };
   });
 
@@ -218,6 +218,16 @@ export async function townRoutes(app: FastifyInstance) {
     world.permissions.requireAdmin({ kind: "user", id: user.id }, "Only an admin can change the host's session slots.");
     const desks = world.setDesksConfig(parse(DesksPatch, req.body));
     return { desks, slots: world.host.slots?.() ?? null };
+  });
+
+  /**
+   * The map's shape, town-wide (1:1 mt_q10xf3bkoq): `{layout: "fountain" | "tree" | "radial"}`, by an admin or a goal
+   * owner. Redraws the map for everyone at once. → { mapLayout }
+   */
+  app.put("/api/town/map-layout", async (req) => {
+    const user = requireUser(req);
+    const { layout } = parse(z.object({ layout: MapLayout }), req.body);
+    return { mapLayout: world.setMapLayout(layout, world.ops.ensureAvatar(user.id)) };
   });
 
   /**
@@ -456,8 +466,8 @@ export async function townRoutes(app: FastifyInstance) {
   });
 }
 
-function accessView(r: AccessRequest | null): AuthMe["accessRequest"] {
-  return r ? { status: r.status, message: r.message, decidedAt: r.decidedAt } : null;
+function accessView(world: World, r: AccessRequest | null): AuthMe["accessRequest"] {
+  return r ? { status: r.status, message: r.message, decidedAt: r.decidedAt, ...accessContext(world) } : null;
 }
 
 /** GET /api/health `desks`: the desk size new sessions get and today's desk bill against the town-wide cap (gr_uhh6u39vv9 step 3). */

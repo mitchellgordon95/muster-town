@@ -487,3 +487,30 @@ describe("desk slots (manager forks step 7, volume adoption)", () => {
     expect((await json(app, "GET", "/api/buildings/carbon-cycle/desk-slots")).status).toBe(401);
   });
 });
+
+describe("the map's shape (1:1 mt_q10xf3bkoq)", () => {
+  it("a new collective starts as fountain plazas; an admin or a goal owner picks the shape for everyone (PUT /api/town/map-layout), redrawn at once and logged", async () => {
+    const { app, world, auth } = await setup();
+    expect((await json(app, "GET", "/api/town")).body.town.mapLayout).toBe("fountain");
+    const fountain = world.layout.grid;
+    const { user, token } = world.ops.createUser("Octo");
+    world.permissions.grant({ kind: "user", id: user.id }, townRoleId("member"));
+    const octo = { authorization: `Bearer ${token}` };
+    expect((await json(app, "PUT", "/api/town/map-layout", { body: { layout: "tree" } })).status).toBe(401);
+    expect((await json(app, "PUT", "/api/town/map-layout", { headers: octo, body: { layout: "tree" } })).status).toBe(403);
+    // owning any goal of the town is enough
+    const goal = world.goals.first("parentId IS NOT NULL")!;
+    world.goals.upsert({ ...goal, ownerId: user.id });
+    const radial = await json(app, "PUT", "/api/town/map-layout", { headers: octo, body: { layout: "radial" } });
+    expect(radial.status).toBe(200);
+    expect(radial.body).toEqual({ mapLayout: "radial" });
+    expect(world.town.get().mapLayout).toBe("radial");
+    expect(world.layout.grid).not.toEqual(fountain);
+    expect(world.events.recent({ limit: 20 }).some((e) => (e.payload as { mapLayout?: string }).mapLayout === "radial")).toBe(true);
+    expect((await json(app, "GET", "/api/town")).body.town.mapLayout).toBe("radial");
+    expect((await json(app, "PUT", "/api/town/map-layout", { headers: auth, body: { layout: "tree" } })).body.mapLayout).toBe("tree");
+    expect((await json(app, "PUT", "/api/town/map-layout", { headers: auth, body: { layout: "hex" } })).status).toBe(400);
+    const moss = world.agents.first("name = 'Moss'")!;
+    expect((await json(app, "PUT", "/api/town/map-layout", { headers: { authorization: `Bearer ${world.tokens.getOrCreate("agent", moss.id)}` }, body: { layout: "radial" } })).status).toBe(403);
+  });
+});

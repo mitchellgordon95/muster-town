@@ -15,6 +15,7 @@ import { closeQuietOneOnOnes, newManageState, openOneOnOnes, wakeManager } from 
 import { advanceCollecting, facilitate, newMeetingState, onMeetingMention, onMeetingStart } from "./meetings.ts";
 import { hostedEnv, InputChannel, realSdk, type Sdk } from "./sdk.ts";
 import { fundingForSession, type Ctx } from "./session.ts";
+import { createPrPoller, type PrPollerDeps } from "./pr-checks.ts";
 import { reconcileDue } from "./reconcile.ts";
 export { reconcileDue } from "./reconcile.ts";
 import { abortWork, finishWorkSession, interrupt, runWorkSession, type WorkOutcome } from "./work.ts";
@@ -36,6 +37,8 @@ export { COLLECTING_MS, MEETING_REPLIES_MAX, MEETING_REPLY_MAX_TURNS, MEETING_RE
 
 export interface RuntimeOptions {
   world: World;
+  /** where host sessions' SDK transcripts live (tests); default CLAUDE_CONFIG_DIR, else ~/.claude */
+  claudeDir?: string;
   /** the server's MCP endpoint, e.g. http://127.0.0.1:4321/mcp */
   mcpUrl: string;
   /** scheduler clock (tests inject one) */
@@ -65,7 +68,7 @@ export interface RuntimeOptions {
   /** how long an adopted desk session may stay silent before it counts as lost (tests). Default ADOPTED_SILENT_MS. */
   adoptedSilentMs?: number;
   /** redeploy knobs (tests inject the command runner and `exit`; never the real process.exit) */
-  redeploy?: Pick<RedeployDeps, "run" | "exit" | "exitDelayMs" | "drainTimeoutMs" | "drainPollMs" | "againDelayMs" | "drainWrapUpMs" | "drainMeetingMs">;
+  redeploy?: Pick<RedeployDeps, "run" | "exit" | "exitDelayMs" | "drainTimeoutMs" | "drainPollMs" | "againDelayMs" | "drainWrapUpMs" | "drainMeetingMs" | "drainManageMs">;
   /** the docker desk backend probed when `desks.backend` is auto/docker (tests inject a fake); default a DockerBackend */
   dockerProbe?: DeskBackend;
   /** minimum time between docker probes (re-probe while on the host fallback; liveness check while on docker). Default 30000. */
@@ -75,6 +78,8 @@ export interface RuntimeOptions {
    * key, token or ~/.claude) and run on its own API key only; in-process sessions only (no desks), HOSTED_MAX_RUNNING at a time; no redeploy.
    */
   hosted?: { dir: string };
+  /** `{pr}` wait polling (tests inject fetch, everyMs) */
+  prChecks?: Pick<PrPollerDeps, "fetch" | "everyMs">;
 }
 
 /** An adopted desk session that neither polls control nor posts activity for this long has lost its desk: it is ended and re-queued. */
@@ -143,7 +148,7 @@ export function startRuntime(opts: RuntimeOptions): Runtime {
   };
   const hosted = opts.hosted ?? null;
   const desks = DesksConfig.parse({ ...world.desksConfig(), ...opts.desks, ...(hosted ? { backend: "host" } : {}) });
-  const ctx: Ctx = { world, mcpUrl: opts.mcpUrl, repoRoot: opts.repoRoot ?? process.cwd(), desks, now, sdk: opts.sdk ?? realSdk, live: new Map(), talking: new Map(), facilitating: new Map(), deskAllocations: new Map(), track, ...(opts.usageBookMs !== undefined ? { usageBookMs: opts.usageBookMs } : {}) };
+  const ctx: Ctx = { world, mcpUrl: opts.mcpUrl, repoRoot: opts.repoRoot ?? process.cwd(), desks, now, sdk: opts.sdk ?? realSdk, live: new Map(), talking: new Map(), facilitating: new Map(), deskAllocations: new Map(), track, ...(opts.usageBookMs !== undefined ? { usageBookMs: opts.usageBookMs } : {}), ...(opts.claudeDir ? { claudeDir: opts.claudeDir } : {}) };
   if (hosted) {
     const env = hostedEnv(hosted.dir);
     Object.assign(ctx, { env, hosted: true, claudeDir: env.CLAUDE_CONFIG_DIR });
@@ -153,6 +158,8 @@ export function startRuntime(opts: RuntimeOptions): Runtime {
     ctx.code = codeSource(ctx.repoRoot, opts.codeDir, { gitEnv: () => gitAuthEnv(world, desks.ghToken) });
     void track(ctx.code.fresh());
   }
+  // `{pr}` waits: the PR's checks as last read from GitHub (pr-checks.ts), polled from the tick about once a minute
+  const prPoller = createPrPoller(world, { repoUrl: () => world.town.get().workspace?.repoUrl, token: () => repoToken(world, desks.ghToken), now, log: (m) => console.warn(`[runtime] ${m}`), ...opts.prChecks });
   // a collective with a repo whose desks get no GitHub token: private clones and pushes fail at the first work session, so say so at boot
   if (world.town.get().workspace?.repoUrl && !opts.deskOptions?.ghToken && desks.backend !== "host" && !repoToken(world, desks.ghToken)) {
     console.warn(`[runtime] WARNING: the collective has a repo but no GitHub token for it (${noRepoTokenReason(desks.ghToken)}): desks can't clone or push a private repo and redeploy can't pull one. Set the GH_TOKEN secret at the Town Hall.`);
@@ -593,6 +600,7 @@ export function startRuntime(opts: RuntimeOptions): Runtime {
     if (t - lastPresence >= PRESENCE_TICK_MS) { lastPresence = t; presenceTick(); }
     try { world.budget.resumeEligible(); } catch (e) { log("budget resume")(e); }
     try { scheduleMeetings(t); } catch (e) { log("meetings")(e); }
+    void track(prPoller.poll()).catch(log("pr checks"));
     try { checkWaits(world, d); } catch (e) { log("waits")(e); }
     try { stopOverdueForks(world, d); } catch (e) { log("stop forks")(e); }
     if (ctx.code) void track(ctx.code.fresh()).catch(log("code checkout"));
@@ -707,6 +715,8 @@ export function startRuntime(opts: RuntimeOptions): Runtime {
     adoptable: () => { pruneLive(); return [...ctx.live.values()].filter((l) => l.kind === "desk" && !l.stopped).map((l) => l.sessionId); },
     quiesce: async () => { await world.host.quiesce?.(30_000); },
     inMeeting: (agentId) => inMeetingSession(agentId),
+    // a team-lead session working its in-tray (not one held open by a 1:1): the drain waits drainManageMs for it
+    isManage: (agentId) => { const l = ctx.live.get(agentId); return l?.kind === "host" && l.purpose === "manage" && !inMeetingSession(agentId); },
     beforeRestart: (head) => postRestartNotices(head),
     // the redeploy cut it: interrupted, not a failure (the `sessions` alert counts only `error`)
     drop: (agentId) => dropLive(agentId, "cut by redeploy: drain found it stuck", "interrupted"),
@@ -751,6 +761,8 @@ export function startRuntime(opts: RuntimeOptions): Runtime {
     return v;
   };
   world.host.isLive = hostIsLive;
+  const hostPrChecks = (pr: number) => prPoller.get(pr);
+  world.host.prChecks = hostPrChecks;
 
   return {
     async stop() {
@@ -763,6 +775,7 @@ export function startRuntime(opts: RuntimeOptions): Runtime {
       if (commit && world.host.commit === commit) delete world.host.commit;
       if (world.host.startedAt === bootIso) delete world.host.startedAt;
       if (world.host.isLive === hostIsLive) delete world.host.isLive;
+      if (world.host.prChecks === hostPrChecks) delete world.host.prChecks;
       if (timer) clearInterval(timer);
       waker.stop();
       for (const id of [...ctx.live.keys()]) abortWork(ctx, id);
