@@ -7,8 +7,6 @@ import { bfs, computeLayout, type Layout } from "./layout";
 
 const clone = <T,>(x: T): T => JSON.parse(JSON.stringify(x));
 const now = () => new Date().toISOString();
-/** core's BLOCKED_NO_KRS */
-const BLOCKED_NO_KRS = "blocked: no key results to work toward";
 let seq = 0;
 export const newId = (p: string) => `${p}_${Date.now().toString(36)}${(++seq).toString(36)}`;
 /** an allocation's spend by kind (the mock books it all as cache reads); spentTokens is their sum */
@@ -146,7 +144,7 @@ export class Sim {
     const grants = [...this.grants.values()].filter((g) => of(g) && (g.status === "funded" || g.status === "checkpoint")).sort((x, y) => (x.fundedAt ?? "").localeCompare(y.fundedAt ?? ""));
     const proposals = [...this.grants.values()].filter((g) => of(g) && (g.status === "proposed" || g.status === "countered")).sort((x, y) => y.updatedAt.localeCompare(x.updatedAt));
     const keyResults = this.goalKeyResults(buildingId);
-    const blocked = !!b && b.kind !== "town-hall" && !keyResults.length && !grants.length ? BLOCKED_NO_KRS : null;
+    const blocked = null as string | null; // as core: key results belong to grants, so no building is blocked for having none (docs/how-work-gets-done.md §4)
     return { goal: b?.goal ?? "", keyResults, objectives: this.objectiveTree(buildingId), blocked, stoplight: this.stoplight(buildingId), grants, proposals, exploration: { spentTodayTokens: F.explorationSpentToday[buildingId] ?? 0, freeTokens: 0, cap: null as { tokensPerDay: number; goalId: string; spentTodayTokens: number } | null } };
   }
   /** The building's stoplight, as core's Grants.stoplight: null for the Town Hall. */
