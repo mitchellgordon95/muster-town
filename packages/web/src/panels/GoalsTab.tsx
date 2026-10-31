@@ -25,10 +25,11 @@ const openTab = (id: string, tab: "Goals" | "Grants") => store.open({ kind: "bui
 export function GoalTabsSummary({ b }: { b: SnapshotBuilding }) {
   const { tree, grants } = useGoalData(b.id);
   const g = grants.data ?? [];
+  const krIds = tree.data ? new Set([...tree.data.objectives.flatMap((o) => o.keyResults), ...tree.data.unsorted].map((k) => k.id)) : undefined;
   return (
     <div className="goal-tabs-summary">
       <button className="link" onClick={() => openTab(b.id, "Goals")}><b>Goals:</b> {tree.data ? goalsSummary(tree.data, g) : "…"} →</button>
-      <button className="link" onClick={() => openTab(b.id, "Grants")}><b>Grants:</b> {grants.data ? grantsSummary(g) : "…"} →</button>
+      <button className="link" onClick={() => openTab(b.id, "Grants")}><b>Grants:</b> {grants.data ? grantsSummary(g, krIds) : "…"} →</button>
     </div>
   );
 }

@@ -88,10 +88,16 @@ export function grantGroups<G extends Pick<GrantView, "status" | "createdAt" | "
   };
 }
 
-/** The Overview's Grants line: "1 proposal, 3 funded", plus ", 2 closed or held" when there are any. */
-export function grantsSummary(grants: Pick<GrantView, "status" | "createdAt" | "updatedAt" | "fundedAt">[]): string {
+/**
+ * The Overview's Grants line: "1 proposal, 3 funded", plus ", 2 closed or held" when there are any. Given the goal's key
+ * result ids (`krIds`), funded grants on key results outside them (named before the building moved to its goal) are
+ * called out, so the line can't read as contradicting the Goals line's "n funded" (which counts only the goal's own).
+ */
+export function grantsSummary(grants: Pick<GrantView, "keyResultId" | "status" | "createdAt" | "updatedAt" | "fundedAt">[], krIds?: ReadonlySet<string>): string {
   const { proposals, funded, settled } = grantGroups(grants);
-  return `${plural(proposals.length, "proposal")}, ${funded.length} funded${settled.length ? `, ${settled.length} closed or held` : ""}`;
+  const outside = krIds ? funded.filter((g) => !(g.keyResultId && krIds.has(g.keyResultId))).length : 0;
+  const where = outside ? ` (${outside === 1 ? `${funded.length === 1 ? "" : "1 "}on a key result` : `${outside === funded.length ? "all" : outside} on key results`} outside this goal)` : "";
+  return `${plural(proposals.length, "proposal")}, ${funded.length} funded${where}${settled.length ? `, ${settled.length} closed or held` : ""}`;
 }
 
 /** A grant's step assignments with their spend, from GET /api/finance/spend (building → grant → assignment). */

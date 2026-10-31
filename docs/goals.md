@@ -117,7 +117,7 @@ The Town Hall in-tray stays one queue: each human sees **"Mine"** (items routed 
 - grants with spend against their ceilings;
 - what is waiting on the owner.
 
-The building panel's Overview gains "Reports to: <owner> via <goal>".
+The building panel's Overview names the owner once ("Owner: <owner>", linking to the goal in the tree) under the goal card, since the attached goal is the building's purpose.
 
 **Lanes, grants, Bank.** No Bank change. Ownership routes review and scopes `goals.edit` and grant funding; a grant an owner funds draws from the Bank as any funded grant does.
 

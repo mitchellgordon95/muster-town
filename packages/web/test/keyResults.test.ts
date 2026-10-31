@@ -48,6 +48,12 @@ describe("board key-results view", () => {
     expect([proposals.map((x) => x.id), funded.map((x) => x.id), settled.map((x) => x.id)]).toEqual([["d", "b"], ["c"], ["e", "a", "h"]]);
     expect(grantsSummary(list)).toBe("2 proposals, 1 funded, 3 closed or held");
     expect(grantsSummary([g("b", "proposed", "3")])).toBe("1 proposal, 0 funded");
+    // funded grants on key results outside the goal (named before the building moved) are called out against the Goals line
+    const on = (id: string, kr: string) => ({ ...g(id, "funded", "2"), keyResultId: kr });
+    expect(grantsSummary([on("x", "kr_in"), on("y", "kr_old")], new Set(["kr_in"]))).toBe("0 proposals, 2 funded (1 on a key result outside this goal)");
+    expect(grantsSummary([on("x", "kr_old"), on("y", "kr_old2")], new Set(["kr_in"]))).toBe("0 proposals, 2 funded (all on key results outside this goal)");
+    expect(grantsSummary([on("x", "kr_old")], new Set())).toBe("0 proposals, 1 funded (on a key result outside this goal)");
+    expect(grantsSummary([on("x", "kr_in")], new Set(["kr_in"]))).toBe("0 proposals, 1 funded");
   });
   it("a grant's step assignments come from the finance spend tree (building → grant → assignment)", () => {
     const spend = { rows: [{ kind: "building", id: "b1", name: "B", tokens: 9, share: 1, sessions: 3, children: [

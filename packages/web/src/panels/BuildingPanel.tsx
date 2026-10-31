@@ -18,15 +18,15 @@ import { GoalPicker, goalPath, useGoalTree } from "./GoalPicker";
 import { findGoal } from "./goalTree";
 import { purposeOf } from "../purpose";
 
-/** "Reports to: <owner> via <goal>" (docs/goals.md "Owners on nodes"): the attachment's effective owner; the goal opens the Town Hall goal tree. */
-function ReportsTo({ b }: { b: SnapshotBuilding }) {
+/** "Owner: <owner>" (docs/goals.md "Owners on nodes"): the attachment's effective owner, once; the goal card above already says the goal, so only a link to it in the Town Hall goal tree follows. */
+function GoalOwner({ b }: { b: SnapshotBuilding }) {
   const root = useGoalTree();
   if (!root) return null;
   const goalId = b.goalId ?? ROOT_GOAL_ID;
   const node = findGoal(root, goalId);
   if (!node) return null;
   return (
-    <div className="muted goal-meta">Reports to <b>{node.owner.name}</b> via <button className="link" title={goalPath(root, goalId)} onClick={() => store.open({ kind: "goals", id: goalId })}>{node.text.length > 70 ? `${node.text.slice(0, 69)}…` : node.text}</button></div>
+    <div className="muted goal-meta">Owner: <b>{node.owner.name}</b> · <button className="link" title={goalPath(root, goalId)} onClick={() => store.open({ kind: "goals", id: goalId })}>in the goal tree →</button></div>
   );
 }
 
@@ -85,7 +85,7 @@ function Overview({ b }: { b: SnapshotBuilding }) {
           {store.can("building.manage", b.id) ? <> <button className="link" onClick={() => store.open({ kind: "building", id: b.id, tab: "Goals" })}>Write them in Goals →</button></> : null}
         </div>
       ) : null}
-      {b.kind !== "town-hall" ? <ReportsTo b={b} /> : null}
+      {b.kind !== "town-hall" ? <GoalOwner b={b} /> : null}
       <PoolLine b={b} />
       {b.kind !== "town-hall" ? <GoalTabsSummary b={b} /> : null}
       {hasBoard || hasTray || hasRoom ? (
