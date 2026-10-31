@@ -44,7 +44,7 @@ export { fitZoom } from "./overview";
 /** Line width (screen px) for a share: 100% is a fat river, a sliver still shows. */
 export const widthFor = (pct: number) => 2 + Math.sqrt(Math.max(0, pct) / 100) * 20;
 
-/** A building on the map: its pool, the pool's colour, and its slice of the Bank (0 for the Town Hall, which draws nothing). */
+/** A building on the map: its pool, the pool's colour, and its slice of the Bank. */
 export interface PoolLink { poolId: string; poolName: string; color: string; pct: number; draws: boolean }
 
 /**
@@ -53,12 +53,12 @@ export interface PoolLink { poolId: string; poolName: string; color: string; pct
  * are left out.
  */
 export function poolLinks(bank: Bank, buildings: Pick<SnapshotBuilding, "id" | "kind">[]): Map<string, PoolLink> {
-  const kind = new Map(buildings.map((b) => [b.id, b.kind]));
-  const drawing = (poolId: string) => bank.buildings.filter((r) => r.poolId === poolId && kind.get(r.buildingId) !== "town-hall").length;
+  const known = new Set(buildings.map((b) => b.id));
+  const drawing = (poolId: string) => bank.buildings.filter((r) => r.poolId === poolId && known.has(r.buildingId)).length;
   const out = new Map<string, PoolLink>();
   for (const r of bank.buildings) {
     const pool = bank.pools.find((p) => p.id === r.poolId);
-    const draws = kind.get(r.buildingId) !== "town-hall";
+    const draws = known.has(r.buildingId);
     const pct = draws && pool ? pool.pct / Math.max(1, drawing(pool.id)) : 0;
     out.set(r.buildingId, { poolId: r.poolId, poolName: r.poolName, color: poolColor(bank, r.poolId), pct, draws });
   }
@@ -146,7 +146,7 @@ export function drawFlow(g: CanvasRenderingContext2D, now: number, flow: Flow, b
     .sort((p, q) => (q.s?.pct ?? 0) - (p.s?.pct ?? 0));
 
   if (from && bank) {
-    // the lots, tinted and outlined in their pool's colour (the Town Hall, which draws nothing, dashed grey)
+    // the lots, tinted and outlined in their pool's colour (one the Bank summary doesn't know yet, dashed grey)
     for (const { b, s } of flows) {
       const l = b.lot!;
       const p = toScreen(l.x * T, l.y * T), q = toScreen((l.x + l.w) * T, (l.y + l.h) * T);
@@ -200,7 +200,7 @@ export function drawFlow(g: CanvasRenderingContext2D, now: number, flow: Flow, b
     for (const { b, s, foot } of flows) {
       label(g, foot.x, foot.y + 44, b.name, s ? (s.draws ? s.poolName : "draws nothing from the Bank") : "…", s?.draws ? s.color : null);
     }
-    drawLegend(g, bank, buildings, right - 16, ch - 16, ease);
+    drawLegend(g, bank, right - 16, ch - 16, ease);
   }
 
   // title card
@@ -223,10 +223,9 @@ export function drawFlow(g: CanvasRenderingContext2D, now: number, flow: Flow, b
 }
 
 /** The pools legend, anchored at its bottom-right corner (x, y): a row per pool, then the Bank's totals. */
-function drawLegend(g: CanvasRenderingContext2D, bank: Bank, buildings: SnapshotBuilding[], x: number, y: number, alpha: number) {
-  const halls = new Set(buildings.filter((b) => b.kind === "town-hall").map((b) => b.id));
+function drawLegend(g: CanvasRenderingContext2D, bank: Bank, x: number, y: number, alpha: number) {
   const rows = bank.pools.map((p) => {
-    const n = p.buildings.filter((b) => !halls.has(b.buildingId)).length;
+    const n = p.buildings.length;
     return {
       color: poolColor(bank, p.id), name: p.name,
       pct: `${fmtPct(p.pct)}${p.explicit ? "" : " auto"}`,

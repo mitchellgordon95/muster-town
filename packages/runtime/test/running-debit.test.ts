@@ -193,18 +193,18 @@ describe("desk sessions post usage as they run, and every exit path books it (c)
   });
 });
 
-describe("the Town Hall draws nothing from the Bank", () => {
-  test("its usage with nothing of its own left is recorded alone: no Bank debit, no budget.exhausted, nobody flipped out-of-budget", () => {
+describe("the Town Hall draws from the Bank like any building (1:1 mt_cz11aqe81a)", () => {
+  test("its residents' usage is debited to its pool (General): no usage-only path, nobody flipped out-of-budget while the pool has tokens", () => {
     const s = setup(async function* () { yield init(); });
+    s.world.bank.addInput(s.seed.admin.id, { label: "Key", source: "api-key", model: "m", tokens: 10_000_000, apiKey: "sk" });
     const th = s.world.buildings.first("kind = 'town-hall'")!;
     const noor = s.by("Noor");
     s.world.agents.patch(noor.id, { homeBuildingId: th.id, buildingId: th.id });
-    expect(s.world.budget.remaining(th.id)).toBeLessThanOrEqual(0);
+    expect(s.world.budget.remaining(th.id)).toBeGreaterThan(0);
     const events = s.world.events.list({ types: ["budget.exhausted"] }).length;
-    const before = s.world.agents.require(noor.id).spentTokensTotal;
     chargeUsage(s.world, noor.id, { tokens: 0, counts: { input: 10, output: 500, cacheRead: 1000, cacheWrite5m: 0, cacheWrite1h: 0 }, costUsd: 0.05 }, null, OPUS);
-    expect(s.world.agents.require(noor.id).spentTokensTotal).toBeGreaterThan(before);
-    expect(debited(s.world, th.id)).toBe(0);
+    expect(debited(s.world, th.id)).toBeGreaterThan(0);
+    expect(s.world.db.prepare("SELECT DISTINCT poolId FROM bank_debits WHERE buildingId = ?").all(th.id)).toEqual([{ poolId: "general" }]);
     expect(s.world.events.list({ types: ["budget.exhausted"] }).length).toBe(events);
     expect(s.world.agents.require(noor.id).status).not.toBe("out-of-budget");
   });

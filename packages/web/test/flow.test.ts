@@ -35,7 +35,8 @@ describe("Bank town map", () => {
       buildings: [row("town-hall", "general", "General"), row("lab", "pl_x", "Research"), row("lab2", "pl_x", "Research")],
     } as unknown as Bank;
     const links = poolLinks(bank, [hall, lab, lab2]);
-    expect(links.get("town-hall")).toMatchObject({ draws: false, pct: 0, color: POOL_COLORS[0] });
+    // the Town Hall draws like any building (1:1 mt_cz11aqe81a)
+    expect(links.get("town-hall")).toMatchObject({ draws: true, pct: 40, color: POOL_COLORS[0] });
     expect(links.get("lab")).toMatchObject({ draws: true, pct: 30, poolName: "Research", color: POOL_COLORS[1] });
     expect(links.get("lab2")!.pct).toBe(30);
   });

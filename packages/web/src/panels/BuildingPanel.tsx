@@ -217,7 +217,7 @@ export function Settings({ b }: { b: SnapshotBuilding }) {
     </Section>
     {b.kind === "town-hall" ? <Section title="Dashboard"><p className="direction">The town goal is three KPIs, Fund, Join and Trust, with every building's objectives under them. <button className="link" onClick={() => store.open({ kind: "dashboard" })}>Open the dashboard</button></p></Section> : null}
     {b.kind !== "town-hall" ? <AttachedTo b={b} /> : null}
-    {b.kind !== "town-hall" ? <PoolPicker b={b} /> : null}
+    <PoolPicker b={b} />
     {b.kind !== "town-hall" && store.can("building.fund", b.id) ? <ExplorationBudget b={b} /> : null}
   </>);
 }
@@ -267,14 +267,12 @@ function ExplorationBudget({ b }: { b: SnapshotBuilding }) {
 function PoolPicker({ b }: { b: SnapshotBuilding }) {
   const bank = useTown((s) => s.bank);
   const isAdmin = useTown((s) => !!s.me?.isAdmin);
-  const buildings = useTown((s) => s.buildings);
   const row = bank?.buildings.find((x) => x.buildingId === b.id);
   const poolId = row?.poolId ?? b.poolId ?? DEFAULT_POOL_ID;
   const reload = () => api().bank().then((next) => store.set({ bank: next }), () => undefined);
   useEffect(() => { if (!bank) reload(); }, [bank]);
-  // the Town Hall sits in General but draws nothing, so it doesn't count as sharing
   const others = (members: { buildingId: string }[]) => {
-    const n = members.filter((m) => m.buildingId !== b.id && buildings.find((x) => x.id === m.buildingId)?.kind !== "town-hall").length;
+    const n = members.filter((m) => m.buildingId !== b.id).length;
     return n ? `shared with ${n} other building${n === 1 ? "" : "s"}` : "all for this building";
   };
   return (
