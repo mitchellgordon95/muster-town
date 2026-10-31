@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { createBuilding, createResident } from "../src/index.ts";
-import { seededWorld } from "./helpers.ts";
+import { fundBuilding, seededWorld } from "./helpers.ts";
 
 // Invariants of the Bank and budget (docs/invariants/bank.md): conservation, renewal catch-up, the floor at 0.
 const T0 = new Date("2026-10-20T12:00:00.000Z");
@@ -11,7 +11,7 @@ describe("bank invariants", () => {
     const { world, seed } = seededWorld();
     const b = createBuilding(world, { name: "Banked" }, seed.admin.id);
     const a = createResident(world, { buildingId: b.id, name: "A", title: "t", direction: "d" });
-    world.bank.setBuildingPool(seed.admin.id, b.id, world.bank.createPool(seed.admin.id, { name: "All", pct: 100 }).id);
+    fundBuilding(world, b.id, { poolId: world.bank.createPool(seed.admin.id, { name: "All", pct: 100 }).id });
     world.bank.addInput(seed.admin.id, { label: "Key", source: "api-key", model: "m", tokens: 1000, apiKey: "sk" });
     const alloc = world.budget.donate(seed.admin.id, { tokens: 500, buildingId: b.id });
     const sum = (sql: string) => (world.db.prepare(sql).get(b.id) as { t: number | null }).t ?? 0;
@@ -54,7 +54,7 @@ describe("bank invariants", () => {
     const { world, seed } = seededWorld();
     const b = createBuilding(world, { name: "Banked" }, seed.admin.id);
     const a = createResident(world, { buildingId: b.id, name: "A", title: "t", direction: "d" });
-    world.bank.setBuildingPool(seed.admin.id, b.id, world.bank.createPool(seed.admin.id, { name: "All", pct: 100 }).id);
+    fundBuilding(world, b.id, { poolId: world.bank.createPool(seed.admin.id, { name: "All", pct: 100 }).id });
     world.bank.addInput(seed.admin.id, { label: "Key", source: "api-key", model: "m", tokens: 1000, apiKey: "sk" }, T0);
     expect(world.bank.draw(b.id, a.id, 1500, { overshoot: true, now: T0 })).toBe(0);
     expect(world.bank.available(b.id, T0)).toEqual({ expiring: 0, durable: -500 });

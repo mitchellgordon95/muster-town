@@ -14,6 +14,9 @@ const wait = (ms = 120) => new Promise((r) => setTimeout(r, ms));
 const now = () => new Date().toISOString();
 const clone = <T,>(x: T): T => JSON.parse(JSON.stringify(x));
 
+/** the mock tree's exploration budgets set on a goal (tokens/day), inherited one level down */
+const MOCK_EXPLORATION: Record<string, number> = { gl_town: 3_000_000 };
+
 export class MockApi implements Api {
   readonly mock = true;
   private sim = new Sim();
@@ -100,12 +103,14 @@ export class MockApi implements Api {
     return clone({ docs, counts: [...counts.values()] });
   }
   async createBuilding(i: In<typeof CreateBuildingInput>) { await wait(); return clone(this.sim.createBuilding(i.name || "New building", "", desksForLot(NEW_LAB_LOT), i.goalId)); }
-  /** the mock's goal tree: the root with its Fund/Join/Trust placeholders; buildings sit where their goalId says */
+  /** the mock's goal tree: the root with its Fund/Join/Trust placeholders (the root sets an exploration budget its children inherit); buildings sit where their goalId says */
   async goalTree(): Promise<GoalTreeNode> {
     await wait();
     const owner = { goalId: "gl_town", userId: null, name: "the town admins" };
     const node = (id: string, parentId: string | null, text: string, children: GoalTreeNode[] = []): GoalTreeNode => ({
       id, parentId, text, status: "active", ownerId: null, owner, keyResults: [], children,
+      poolId: null, explorationTokensPerDay: MOCK_EXPLORATION[id] ?? null,
+      funding: { pool: null, exploration: [id, parentId].map((g) => g && MOCK_EXPLORATION[g] ? { tokensPerDay: MOCK_EXPLORATION[g], goalId: g } : null).find(Boolean) ?? null },
       buildings: this.sim.buildings.filter((b) => (b.goalId ?? "gl_town") === id).map((b) => ({ id: b.id, name: b.name, headcount: b.headcount, inUse: Math.min(b.headcount, [...this.sim.agents.values()].filter((a) => a.homeBuildingId === b.id && a.status === "working").length) })),
     });
     return clone(node("gl_town", null, this.sim.town.goal || "The town goal", [node("gl_fund", "gl_town", "Fund"), node("gl_join", "gl_town", "Join"), node("gl_trust", "gl_town", "Trust")]));
@@ -741,7 +746,7 @@ export class MockApi implements Api {
     const pctOf = (p: BankPool) => p.pct ?? (draws(p.id) ? Math.max(0, 100 - used) / auto.length : 0);
     const pools = this.bankPools.map((p) => ({
       id: p.id, name: p.name, pct: Math.round(pctOf(p) * 100) / 100, explicit: p.pct !== null, isDefault: p.id === DEFAULT_POOL_ID,
-      buildings: members(p.id).map((b) => ({ buildingId: b.id, name: b.name })),
+      buildings: members(p.id).map((b) => ({ buildingId: b.id, name: b.name })), goals: [],
       expiringTokens: Math.floor(expiringTokens * pctOf(p) / 100), durableTokens: Math.floor(durableTokens * pctOf(p) / 100),
     }));
     const key = { subscription: "subscription", "api-key": "apiKey", "donor-key": "donorKey" } as const;
@@ -756,7 +761,7 @@ export class MockApi implements Api {
     const buildings = this.sim.buildings.map((b) => {
       const pool = pools.find((p) => p.id === this.poolOf(b))!;
       return {
-        buildingId: b.id, name: b.name, poolId: pool.id, poolName: pool.name, pct: pool.pct, explicit: pool.explicit,
+        buildingId: b.id, name: b.name, poolId: pool.id, poolName: pool.name, poolGoalId: null, poolGoalText: null, pct: pool.pct, explicit: pool.explicit,
         expiringTokens: pool.expiringTokens, durableTokens: pool.durableTokens, heldTokens: sum(heldOf(b.id)), heldByAuth: heldOf(b.id),
       };
     });
@@ -815,13 +820,9 @@ export class MockApi implements Api {
   async deleteBankPool(id: string) {
     await wait();
     if (id === DEFAULT_POOL_ID) throw new ApiError("General is the default pool; it can't be deleted.", "bad_request", 400);
-    if (this.sim.buildings.some((b) => this.poolOf(b) === id)) throw new ApiError("The pool still has buildings; move them out first.", "bad_request", 400);
+    if (this.sim.buildings.some((b) => this.poolOf(b) === id)) throw new ApiError("The pool still funds goals; set them to another pool first.", "bad_request", 400);
     this.bankPools = this.bankPools.filter((p) => p.id !== id);
     return this.bank();
-  }
-  async setBuildingPool(buildingId: string, poolId: string | null) {
-    this.need(this.bankPools.find((p) => p.id === (poolId ?? DEFAULT_POOL_ID)), "pool");
-    return this.updateBuilding(buildingId, { poolId });
   }
   async exportNow() { await wait(400); this.sim.event("export.done", null, "Exported town to git", {}, null); return "a1b2c3d"; }
   /** the mock runtime's live redeploy view (GET /api/admin/redeploy) */

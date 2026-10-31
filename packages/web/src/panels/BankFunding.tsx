@@ -342,8 +342,9 @@ export function BankStreamsSection({ rev }: { rev?: number }) {
 
 /**
  * Accounting pools: each pool is a slice of the Bank that its buildings share, first come first served. An admin
- * creates, renames and deletes (empty) pools, sets a pool's % (or clears it back to an equal split of what's
- * left) and moves buildings between pools (the Town Hall too: it draws like any building).
+ * creates, renames and deletes pools no goal names, and sets a pool's % (or clears it back to an equal split of what's
+ * left). Which pool a building draws from is set on goals (the goal tree's Funding block), inherited down the tree:
+ * the table lists the goals each pool funds and so its buildings (the Town Hall too: it draws like any building).
  */
 export function BankPools({ bank, onChange }: Props) {
   const isAdmin = useTown((s) => !!s.me?.isAdmin);
@@ -353,15 +354,10 @@ export function BankPools({ bank, onChange }: Props) {
   const labs = [...bank.buildings].sort((a, b) => a.name.localeCompare(b.name));
   const cancel = (id: string) => setEdit(({ [id]: _, ...rest }) => rest);
   const save = async (id: string, input: { name?: string; pct?: number | null }) => { await api().updateBankPool(id, input); cancel(id); onChange(); };
-  const move = async (buildingId: string, poolId: string) => {
-    await api().setBuildingPool(buildingId, poolId);
-    store.toast(`${bank.buildings.find((b) => b.buildingId === buildingId)?.name ?? "Building"} now draws from ${bank.pools.find((p) => p.id === poolId)?.name ?? "the pool"}`, "ok");
-    onChange();
-  };
   return (
     <Section title="Pools">
       <table className="table pools-table">
-        <thead><tr><th>Pool</th><th>Share</th><th title="What its buildings can still draw today, first come first served">Can draw</th><th>Buildings</th>{isAdmin ? <th /> : null}</tr></thead>
+        <thead><tr><th>Pool</th><th>Share</th><th title="What its buildings can still draw today, first come first served">Can draw</th><th title="The goals that set this pool, and the buildings attached at or under them">Funds goals → buildings</th>{isAdmin ? <th /> : null}</tr></thead>
         <tbody>
           {bank.pools.map((p) => {
             const draft = edit[p.id];
@@ -373,7 +369,7 @@ export function BankPools({ bank, onChange }: Props) {
                   <span className="pool-swatch" style={{ background: poolColor(bank, p.id) }} />
                   {draft ? <input className="pool-name-input" value={draft.name} maxLength={80} autoFocus onChange={(e) => setEdit({ ...edit, [p.id]: { ...draft, name: e.target.value } })} />
                     : <b>{p.name}</b>}
-                  {p.isDefault ? <span className="muted" title="Buildings without a pool draw from General. It can't be deleted."> (default)</span> : null}
+                  {p.isDefault ? <span className="muted" title="Buildings under no goal that sets a pool draw from General. It can't be deleted."> (default)</span> : null}
                 </td>
                 <td>
                   {draft
@@ -381,7 +377,11 @@ export function BankPools({ bank, onChange }: Props) {
                     : <>{fmtPct(p.pct)} {p.explicit ? null : <span className="muted" title="No set share: splits what's left equally with the other pools that have buildings">(auto)</span>}</>}
                 </td>
                 <td title={`${fmtTokens(p.expiringTokens)} expiring today · ${fmtTokens(p.durableTokens)} permanent`}>{fmtTokens(p.expiringTokens + Math.max(0, p.durableTokens))}</td>
-                <td className="pool-members">{members.length ? members.map((b) => b.name).join(", ") : <span className="muted">none</span>}</td>
+                <td className="pool-members">
+                  {p.goals.map((g, i) => <span key={g.goalId}>{i ? ", " : null}<button className="link" onClick={() => store.open({ kind: "goals", id: g.goalId })}>{clip(g.text, 50)}</button></span>)}
+                  {p.isDefault ? <span className="muted">{p.goals.length ? " and " : ""}every goal that sets none</span> : !p.goals.length ? <span className="muted">no goal</span> : null}
+                  {" → "}{members.length ? members.map((b) => b.name).join(", ") : <span className="muted">no building</span>}
+                </td>
                 {isAdmin ? (
                   <td className="actions">
                     {draft ? <>
@@ -391,7 +391,7 @@ export function BankPools({ bank, onChange }: Props) {
                     </> : <>
                       <button type="button" className="btn sm" onClick={() => setEdit({ ...edit, [p.id]: { name: p.name, pct: p.explicit ? String(p.pct) : "" } })}>Edit</button>
                       {p.explicit ? <Act small run={() => save(p.id, { pct: null })} title="Back to an equal split of what's left">Auto</Act> : null}
-                      {!p.isDefault && !p.buildings.length
+                      {!p.isDefault && !p.goals.length
                         ? <Act small tone="bad" run={async () => { await api().deleteBankPool(p.id); store.toast(`Deleted ${p.name}`, "ok"); onChange(); }}>Delete</Act>
                         : null}
                     </>}
@@ -424,11 +424,8 @@ export function BankPools({ bank, onChange }: Props) {
               <td>
                 <span className="pool-pick">
                   <span className="pool-swatch" style={{ background: poolColor(bank, r.poolId) }} />
-                  {isAdmin
-                    ? <select value={r.poolId} onChange={(e) => move(r.buildingId, e.target.value).catch((err) => store.toast((err as Error).message, "bad"))}>
-                        {bank.pools.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
-                      </select>
-                    : r.poolName}
+                  {r.poolName}
+                  {r.poolGoalId ? <span className="muted"> (from goal <button className="link" onClick={() => store.open({ kind: "goals", id: r.poolGoalId! })}>{clip(r.poolGoalText ?? r.poolGoalId, 40)}</button>)</span> : null}
                 </span>
               </td>
               <td title={r.heldByAuth ? `${fmtTokens(r.heldByAuth.subscription)} subscription · ${fmtTokens(r.heldByAuth.apiKey)} API key · ${fmtTokens(r.heldByAuth.donorKey)} donors' keys` : undefined}>{fmtTokens(r.heldTokens)}</td>
@@ -436,7 +433,9 @@ export function BankPools({ bank, onChange }: Props) {
           ))}
         </tbody>
       </table>
-      <div className="foot-note">Pools without a set share split what's left equally; an empty pool gets nothing. Buildings in a pool share it first come first served. Set shares can add up to 100% at most. A move takes effect at once; what a building already drew stays charged to its old pool.</div>
+      <div className="foot-note">Pools without a set share split what's left equally; an empty pool gets nothing. Buildings in a pool share it first come first served. Set shares can add up to 100% at most. An admin sets a goal's pool in the goal tree (Funding); it takes effect at once for every building under it, and what a building already drew stays charged to its old pool.</div>
     </Section>
   );
 }
+
+const clip = (t: string, n: number) => t.length > n ? `${t.slice(0, n - 1)}…` : t;

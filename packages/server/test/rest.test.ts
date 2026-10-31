@@ -402,14 +402,19 @@ describe("meetings, roles, budget, events, human moves", () => {
     expect(pool.status).toBe(201);
     expect((await json(app, "POST", "/api/bank/pools", { body: { name: "x" } })).status).toBe(401);
     const pid = pool.body.pool.id;
-    expect((await json(app, "PATCH", "/api/buildings/carbon-cycle", { headers: auth, body: { poolId: pid } })).body.building.poolId).toBe(pid);
+    // the pool is the attached goal's (inherited down the tree): carbon-cycle gets a goal of its own, then the goal the pool
+    const own = (await json(app, "POST", "/api/goals", { headers: auth, body: { parentId: "gl_town", text: "Carbon's goal" } })).body.goal.id;
+    await json(app, "PATCH", "/api/buildings/carbon-cycle", { headers: auth, body: { goalId: own } });
+    expect((await json(app, "PATCH", `/api/goals/${own}`, { headers: auth, body: { poolId: pid } })).body.goal.poolId).toBe(pid);
+    expect((await json(app, "GET", `/api/goals/${own}`)).body.funding.pool).toEqual({ poolId: pid, goalId: own });
     const moved = await json(app, "GET", "/api/bank");
-    expect(moved.body.buildings.find((b: any) => b.buildingId === "carbon-cycle")).toMatchObject({ poolId: pid, poolName: "Forty", pct: 40, explicit: true, durableTokens: 800 });
+    expect(moved.body.buildings.find((b: any) => b.buildingId === "carbon-cycle")).toMatchObject({ poolId: pid, poolName: "Forty", poolGoalId: own, pct: 40, explicit: true, durableTokens: 800 });
+    expect(moved.body.pools.find((p: any) => p.id === pid).goals).toEqual([{ goalId: own, text: "Carbon's goal" }]);
     expect((await json(app, "GET", "/api/bank/pools")).body.pools.find((p: any) => p.id === pid).buildings).toEqual([{ buildingId: "carbon-cycle", name: expect.any(String) }]);
     const renamed = await json(app, "PATCH", `/api/bank/pools/${pid}`, { headers: auth, body: { name: "Shared", pct: null } });
     expect(renamed.body.pool).toMatchObject({ name: "Shared", pct: null });
     expect((await json(app, "DELETE", `/api/bank/pools/${pid}`, { headers: auth })).status).toBe(400);
-    await json(app, "PATCH", "/api/buildings/carbon-cycle", { headers: auth, body: { poolId: null } });
+    await json(app, "PATCH", `/api/goals/${own}`, { headers: auth, body: { poolId: null } });
     expect((await json(app, "DELETE", `/api/bank/pools/${pid}`, { headers: auth })).body.bank.pools.map((p: any) => p.id)).toEqual(["general"]);
     expect((await json(app, "PUT", "/api/bank/shares/carbon-cycle", { headers: auth, body: { pct: 40 } })).status).toBe(404);
     expect(JSON.stringify(bank.body)).not.toContain("sk-secret");

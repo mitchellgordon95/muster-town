@@ -217,11 +217,13 @@ export interface BankPoolSummary {
   /** General, the default pool (can't be deleted) */
   isDefault: boolean;
   buildings: { buildingId: string; name: string }[];
+  /** the goals that set this pool (their buildings and those under them draw from it); General also funds every goal that inherits none */
+  goals: { goalId: string; text: string }[];
   /** what the pool's buildings can still draw, first come first served */
   expiringTokens: number; durableTokens: number;
 }
 /** A building's view of the Bank: its pool's % and what's left in that pool (0 for the Town Hall). */
-export interface BankBuildingShare { buildingId: string; name: string; poolId: string; poolName: string; pct: number; explicit: boolean; expiringTokens: number; durableTokens: number; heldTokens: number; heldByAuth?: HeldByAuth }
+export interface BankBuildingShare { buildingId: string; name: string; poolId: string; poolName: string; /** the goal it inherits its pool from; null = none sets one (General) */ poolGoalId: string | null; poolGoalText: string | null; pct: number; explicit: boolean; expiringTokens: number; durableTokens: number; heldTokens: number; heldByAuth?: HeldByAuth }
 export interface BankContributor { userId: string; name: string; tokens: number; bankTokens: number; donatedTokens: number }
 export interface Bank {
   balanceTokens: number;
@@ -503,8 +505,6 @@ export interface Api {
   updateBankPool(id: string, input: In<typeof UpdateBankPoolInput>): Promise<Bank>;
   /** only an empty pool; General can't be deleted */
   deleteBankPool(id: string): Promise<Bank>;
-  /** admin: move a building to a pool (null: General), effective at once (PATCH /api/buildings/:id {poolId}) */
-  setBuildingPool(buildingId: string, poolId: string | null): Promise<Building>;
   exportNow(): Promise<string | null>;
   /** v1.3: pull main, rebuild, restart (needs town.redeploy); progress arrives as `system` events */
   redeploy(image: boolean): Promise<{ started?: boolean; queued?: boolean; running?: boolean }>;
@@ -745,7 +745,6 @@ export class HttpApi implements Api {
   async createBankPool(i: In<typeof CreateBankPoolInput>) { return unwrap<Bank>(await this.post("/api/bank/pools", i), "bank"); }
   async updateBankPool(id: string, i: In<typeof UpdateBankPoolInput>) { return unwrap<Bank>(await this.call("PATCH", `/api/bank/pools/${id}`, i), "bank"); }
   async deleteBankPool(id: string) { return unwrap<Bank>(await this.call("DELETE", `/api/bank/pools/${id}`), "bank"); }
-  async setBuildingPool(buildingId: string, poolId: string | null) { return unwrap<Building>(await this.call("PATCH", `/api/buildings/${buildingId}`, { poolId }), "building"); }
   async exportNow() { return (await this.post<{ commit?: string | null }>("/api/export")).commit ?? null; }
   async redeploy(image: boolean) { return this.post<{ started?: boolean; queued?: boolean; running?: boolean }>("/api/admin/redeploy", { image }); }
   async redeployLive() { return this.get<RedeployLive>("/api/admin/redeploy"); }

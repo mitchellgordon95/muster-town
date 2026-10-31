@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { addTokens, rawTokens, sliceTokens, splitRaw, TOKEN_KINDS, type TokenCounts } from "@muster-town/schema";
 import { createBuilding, createResident, sessionView } from "../src/index.ts";
-import { seededWorld } from "./helpers.ts";
+import { fundBuilding, seededWorld } from "./helpers.ts";
 
 /** step 2's adjusted value for a back-filled row: output + cacheRead × (cache-read price / output price) */
 const adjusted = (c: TokenCounts, w: number) => c.output + c.cacheRead * w;
@@ -34,7 +34,7 @@ describe("token counters: booking", () => {
     const { world, seed } = seededWorld();
     const b = createBuilding(world, { name: "Banked" }, seed.admin.id);
     const a = createResident(world, { buildingId: b.id, name: "A", title: "t", direction: "d" });
-    world.bank.setBuildingPool(seed.admin.id, b.id, world.bank.createPool(seed.admin.id, { name: "All", pct: 100 }).id);
+    fundBuilding(world, b.id, { poolId: world.bank.createPool(seed.admin.id, { name: "All", pct: 100 }).id });
     world.bank.addInput(seed.admin.id, { label: "Key", source: "api-key", model: "m", tokens: 100, apiKey: "sk" });
     world.budget.donate(seed.admin.id, { tokens: 500, buildingId: b.id });
     const counts: TokenCounts = { input: 30, output: 120, cacheRead: 900, cacheWrite5m: 100, cacheWrite1h: 50 }; // 1200 raw

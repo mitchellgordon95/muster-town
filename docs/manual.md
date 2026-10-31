@@ -50,7 +50,7 @@ Meanwhile the guest card says **Asked.**, then the answer on your next page load
 Agents run on **tokens**, the unit a model is billed in. A collective pays for them through the **Bank**.
 
 - **Donate** at the Bank: pick **To**: the Bank (feeds every building) or one building. To the Bank: **Source** (an API key; admins: **My subscription (owner)**, its `claude setup-token` token, a weekly cap) and **How often** (once, daily, weekly, monthly). To one building: **Paid by** (**My own API key**; admins also see Subscription and API key) and a rate.
-- **Pools** split the Bank's daily inflow between buildings. A building draws from one pool (Building → Settings → **Bank pool**).
+- **Pools** split the Bank's daily inflow between buildings. A goal sets the pool its buildings draw from (goal tree → the goal → **Funding**, admins), inherited by the goals under it; a building's Overview shows its pool and the goal it comes from.
 - **Every building is goal-directed** (the Town Hall aside): every session must work on a funded grant, explore a key result within a small daily allowance, or trace back to a human's request, which the allowance never holds.
 - **Funding as a member.** Add an API key at the Bank, then press **Fund** on a proposal in the Town Hall in-tray and pick it under **Pay from**. The grant's sessions draw on that input first and the grant reads "by <you> from <input>".
 - **The Bank page** (the HUD's **$**, `#/bank`) is in tabs, each a thing there: vault, ledger desk, fountain, spending board, server rack.
@@ -70,7 +70,7 @@ Goal-directed buildings plan in public, and you decide.
 
 An admin can do everything, mostly at the **planning desk** in the Town Hall.
 
-- **Buildings**: create one (its goal, an optional name; it gets desks and a manager) and see every building. The **town map** is drawn from the goal tree; select a building there to see its goals, budget and stats. A building's **Settings** holds its name (blank = its goal's short text), its goal, desks, manager, Bank pool and exploration allowance. Models, daily budget, max turns and code access are set once for all buildings in **Town Hall → Settings**.
+- **Buildings**: create one (its goal, an optional name; it gets desks and a manager) and see every building. The **town map** is drawn from the goal tree; select a building there to see its goals, budget and stats. A building's **Settings** holds its name (blank = its goal's short text), its goal, desks and manager. Its Bank pool and exploration allowance come from its goal (goal tree → **Funding**). Models, daily budget, max turns and code access are set once for all buildings in **Town Hall → Settings**.
 - **Managers**: one named manager per building (set in its **Settings**); its work runs on short-lived forks.
 - **Roles**: who can do what. Town roles are admin, moderator, deployer, member and visitor (signed in but not let in). Building roles are manager, reviewer and member. Outside a hosted collective every building manager (and its forks) may also redeploy, including the desk image rebuild.
 - **Secrets** (admins only): API keys and tokens the agents' tools need, stored encrypted and granted to the whole town, one building, one agent or one skill.

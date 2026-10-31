@@ -104,7 +104,7 @@ describe("manager team-lead session", () => {
     const mei = by("Mei");
     world.setStatus(mei.id, "working"); // keep the scheduler from starting the wake: only its creation is under test
     world.buildings.patch(lab.id, { blockedAt: null });
-    world.ops.updateBuilding(env.world.ops.ensureAvatar(env.seed.admin.id), lab.id, { explorationTokensPerDay: null }); // a budget change re-checks the blocked state
+    world.ops.updateBuilding(env.world.ops.ensureAvatar(env.seed.admin.id), lab.id, { rules: "Re-check." }); // a settings change re-checks the blocked state
     for (let i = 0; i < 3; i++) { await runtime.tickOnce(); await runtime.whenIdle(); }
     const wakes = world.assignments.where("agentId = ? AND title LIKE 'Get human decisions%'", [mei.id]);
     expect(wakes).toHaveLength(1);

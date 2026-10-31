@@ -3,7 +3,7 @@
  * are one-line changes. The values are the design's defaults (waterfall §4, carried to step 5).
  */
 export const BUDGET_POLICY = {
-  /** Q1 exploration size: this share of the building's pool's daily inflow (a building's `explorationTokensPerDay` overrides it) */
+  /** Q1 exploration size: this share of the building's pool's daily inflow (a goal's `explorationTokensPerDay`, inherited down the tree, overrides it) */
   explorationShare: 0.1,
   /** Q1: false = the share is per building; true = split evenly across the buildings drawing on the pool */
   explorationSplitAcrossPool: false,

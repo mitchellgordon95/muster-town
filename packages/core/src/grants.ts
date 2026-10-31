@@ -119,7 +119,7 @@ export class Grants {
     // an objective is a goal of the town tree with the same id, under the building's attachment (docs/goals.md)
     this.world.goals.upsert({
       id: o.id, parentId: this.world.goalTree.attachmentOf(b), position: o.position, text: o.text, ownerId: null, status: "active", retiredAt: null, retiredBy: null, retiredNote: "",
-      createdBy: o.createdBy, editedBy: null, sourceDocIds: o.sourceDocIds, createdAt: o.updatedAt, updatedAt: o.updatedAt,
+      createdBy: o.createdBy, editedBy: null, sourceDocIds: o.sourceDocIds, poolId: null, explorationTokensPerDay: null, createdAt: o.updatedAt, updatedAt: o.updatedAt,
     });
     this.world.events.append({
       type: "objective.created", agentId: actor?.id ?? null, buildingId, text: `${b.name} objective: ${o.text}`,
@@ -271,8 +271,9 @@ ${open.map((g) => `The open proposal ${g.id} ("${g.objective}")`).join("; ")} na
     const b = this.world.buildings.require(buildingId, "building");
     const pool = this.world.bank.poolOf(b.id).id;
     const split = BUDGET_POLICY.explorationSplitAcrossPool ? Math.max(1, this.world.bank.buildingsIn(pool).filter((x) => x.kind !== "town-hall").length) : 1;
-    const allowanceTokens = b.explorationTokensPerDay ?? (b.kind === "town-hall" ? 0
-      : Math.floor(this.world.bank.poolDailyInflow(pool) * EXPLORATION_SHARE / split));
+    // the attached goal's budget, inherited down the tree; the Town Hall explores nothing
+    const set = this.world.bank.fundingAt(this.world.goalTree.attachmentOf(b)).exploration;
+    const allowanceTokens = b.kind === "town-hall" ? 0 : set?.tokensPerDay ?? Math.floor(this.world.bank.poolDailyInflow(pool) * EXPLORATION_SHARE / split);
     return { allowanceTokens, spentTodayTokens: this.laneSpentToday(buildingId, "exploration") };
   }
 
