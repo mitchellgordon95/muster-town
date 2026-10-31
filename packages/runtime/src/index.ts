@@ -36,6 +36,8 @@ export { COLLECTING_MS, MEETING_REPLIES_MAX, MEETING_REPLY_MAX_TURNS, MEETING_RE
 
 export interface RuntimeOptions {
   world: World;
+  /** where host sessions' SDK transcripts live (tests); default CLAUDE_CONFIG_DIR, else ~/.claude */
+  claudeDir?: string;
   /** the server's MCP endpoint, e.g. http://127.0.0.1:4321/mcp */
   mcpUrl: string;
   /** scheduler clock (tests inject one) */
@@ -65,7 +67,7 @@ export interface RuntimeOptions {
   /** how long an adopted desk session may stay silent before it counts as lost (tests). Default ADOPTED_SILENT_MS. */
   adoptedSilentMs?: number;
   /** redeploy knobs (tests inject the command runner and `exit`; never the real process.exit) */
-  redeploy?: Pick<RedeployDeps, "run" | "exit" | "exitDelayMs" | "drainTimeoutMs" | "drainPollMs" | "againDelayMs" | "drainWrapUpMs" | "drainMeetingMs">;
+  redeploy?: Pick<RedeployDeps, "run" | "exit" | "exitDelayMs" | "drainTimeoutMs" | "drainPollMs" | "againDelayMs" | "drainWrapUpMs" | "drainMeetingMs" | "drainManageMs">;
   /** the docker desk backend probed when `desks.backend` is auto/docker (tests inject a fake); default a DockerBackend */
   dockerProbe?: DeskBackend;
   /** minimum time between docker probes (re-probe while on the host fallback; liveness check while on docker). Default 30000. */
@@ -143,7 +145,7 @@ export function startRuntime(opts: RuntimeOptions): Runtime {
   };
   const hosted = opts.hosted ?? null;
   const desks = DesksConfig.parse({ ...world.desksConfig(), ...opts.desks, ...(hosted ? { backend: "host" } : {}) });
-  const ctx: Ctx = { world, mcpUrl: opts.mcpUrl, repoRoot: opts.repoRoot ?? process.cwd(), desks, now, sdk: opts.sdk ?? realSdk, live: new Map(), talking: new Map(), facilitating: new Map(), deskAllocations: new Map(), track, ...(opts.usageBookMs !== undefined ? { usageBookMs: opts.usageBookMs } : {}) };
+  const ctx: Ctx = { world, mcpUrl: opts.mcpUrl, repoRoot: opts.repoRoot ?? process.cwd(), desks, now, sdk: opts.sdk ?? realSdk, live: new Map(), talking: new Map(), facilitating: new Map(), deskAllocations: new Map(), track, ...(opts.usageBookMs !== undefined ? { usageBookMs: opts.usageBookMs } : {}), ...(opts.claudeDir ? { claudeDir: opts.claudeDir } : {}) };
   if (hosted) {
     const env = hostedEnv(hosted.dir);
     Object.assign(ctx, { env, hosted: true, claudeDir: env.CLAUDE_CONFIG_DIR });
@@ -707,6 +709,8 @@ export function startRuntime(opts: RuntimeOptions): Runtime {
     adoptable: () => { pruneLive(); return [...ctx.live.values()].filter((l) => l.kind === "desk" && !l.stopped).map((l) => l.sessionId); },
     quiesce: async () => { await world.host.quiesce?.(30_000); },
     inMeeting: (agentId) => inMeetingSession(agentId),
+    // a team-lead session working its in-tray (not one held open by a 1:1): the drain waits drainManageMs for it
+    isManage: (agentId) => { const l = ctx.live.get(agentId); return l?.kind === "host" && l.purpose === "manage" && !inMeetingSession(agentId); },
     beforeRestart: (head) => postRestartNotices(head),
     // the redeploy cut it: interrupted, not a failure (the `sessions` alert counts only `error`)
     drop: (agentId) => dropLive(agentId, "cut by redeploy: drain found it stuck", "interrupted"),

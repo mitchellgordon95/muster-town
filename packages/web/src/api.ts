@@ -6,7 +6,7 @@ import type { z } from "zod";
 import type {
   ReviewDeck, BankStreams, FunderWeek, ReviewSlide,
   CreateObjectiveInput, UpdateObjectiveInput, Objective, KpiKey, KpiView,
-  AccessRequest, AccessRequestView, Agent, Allocation, Assignment, AuthMe, BlockedAssignment, BuildingStats, Schedule, RedeployLive, Building, BuildingDefaults, ClientMessage, DesksConfig, Doc, Event, Lot, Meeting, Place, Role, Membership, SessionSlots, Tile,
+  AccessRequest, AccessRequestView, Agent, Allocation, Assignment, AssignmentCard, AuthMe, BlockedAssignment, BuildingStats, Schedule, RedeployLive, Building, BuildingDefaults, ClientMessage, DesksConfig, Doc, Event, Lot, Meeting, Place, Role, Membership, SessionSlots, Tile,
   ServerMessage, SessionView, TokenCounts, Town, CreateBuildingInput, UpdateBuildingInput, RegisterVisitorInput,
   ReviewInput, PinSkillInput, SkillPinView, SkillView, PutSecretInput, SecretView, WorkInput, DonateInput, AddBankInput, BankInput, CreateMeetingInput, DocState, DocType, Mailbox, Permission, DecideGrantInput, CloseGrantInput, GrantView, KeyResult, UpdateKeyResultInput, Stoplight,
   GoalTreeNode, Goal, GoalProposal, GoalSpend, QueueBoard, IntrayRoutes, CreateGoalInput, UpdateGoalInput, RetireGoalInput, DecideGoalProposalInput, ChangeGoalInput, ReviewKeyResultInput, GoalChangeView, FreeTokens,
@@ -15,6 +15,9 @@ import type {
 export type In<T extends z.ZodTypeAny> = z.input<T>;
 export type Snapshot = Extract<ServerMessage, { type: "snapshot" }>;
 export type Grid = Snapshot["grid"];
+
+/** GET /api/sessions/:id: the session and, for an admin, its building's manager or its agent, its kept transcript file. */
+export interface SessionDetail { session: SessionView; transcript: { url: string; bytes: number; lines: number; expiresAt: string } | null }
 
 export interface AgentDetail {
   agent: Agent;
@@ -137,6 +140,14 @@ export interface FinanceSpend {
   /** pre-conversion sessions priced at their own model here vs at Opus weights in the Bank's ledger: pricing, not spend */
   weightMismatch: number; weightMismatchNote: string; convertedAt: string | null;
   notFunded: number;
+  /** `notFunded` by building from usage rows with no Bank debit for the same agent within 2 s (dc_cvp89lj91o), tokens desc; buildingId null = "unattributed" */
+  notFundedSplit: { buildingId: string | null; buildingName: string; usageRows: number; tokens: number }[];
+  /** the latest unpaid usage row's time (when it stopped); null when none */
+  notFundedLastAt: string | null;
+  /** an estimate: the part of it a donation straight to the building may have paid for */
+  notFundedAllocationPaid: number;
+  /** the split's sum vs `notFunded` (exact); ok when equal */
+  notFundedSplitCheck: { sum: number; notFunded: number; ok: boolean };
   rows: SpendNode[];
   check: { ok: boolean; diff: number; identity: string };
   at: string;
@@ -372,6 +383,10 @@ export interface Api {
   /** null = its home building's model */
   setAgentModel(id: string, model: string | null): Promise<Pick<AgentDetail, "agent" | "effectivePermissions" | "permissions">>;
   session(id: string): Promise<{ session: SessionView | null; transcript: Event[]; transcriptFile?: { url: string; bytes: number; lines: number; expiresAt: string } | null }>;
+  /** One assignment as anyone may read it (an as_ id link's card). */
+  assignmentCard(id: string): Promise<AssignmentCard>;
+  /** One session by id (a se_ id link's panel); `transcript` (its kept file) only for those who may read it. */
+  sessionById(id: string): Promise<SessionDetail>;
   work(id: string, input: In<typeof WorkInput>): Promise<Assignment | null>;
   /** Message the agent's session: queued for the next turn boundary, or `now` to stop the current turn first. */
   interrupt(id: string, text: string, now?: boolean): Promise<void>;
@@ -612,6 +627,8 @@ export class HttpApi implements Api {
   setAgentPermissions(id: string, patch: { inheritsOwner?: boolean; deniedPermissions?: Permission[] }) { return this.call<Pick<AgentDetail, "agent" | "effectivePermissions" | "permissions">>("PATCH", `/api/agents/${id}/permissions`, patch); }
   setAgentModel(id: string, model: string | null) { return this.call<Pick<AgentDetail, "agent" | "effectivePermissions" | "permissions">>("PATCH", `/api/agents/${id}/model`, { model }); }
   session(id: string) { return this.get<{ session: SessionView | null; transcript: Event[]; transcriptFile?: { url: string; bytes: number; lines: number; expiresAt: string } | null }>(`/api/agents/${id}/session`); }
+  async assignmentCard(id: string) { return unwrap<AssignmentCard>(await this.get(`/api/assignments/${id}`), "assignment"); }
+  sessionById(id: string) { return this.get<SessionDetail>(`/api/sessions/${id}`); }
   async work(id: string, i: In<typeof WorkInput>) { return unwrap<Assignment | null>(await this.post(`/api/agents/${id}/work`, i), "assignment"); }
   async interrupt(id: string, text: string, now = false) { await this.post(`/api/agents/${id}/interrupt`, { text, now }); }
   async thread(id: string) { return (await this.get<{ messages: ThreadMessage[] }>(`/api/agents/${id}/thread`)).messages; }
