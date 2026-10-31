@@ -22,8 +22,12 @@ export function townKpis(world: World, now = Date.now()): { framing: string; kpi
     return { from: new Date(end - WEEK).toISOString(), to: new Date(end).toISOString() };
   });
   const owner = ownerCheck(world);
+  // Join's per-user active days come from one events ⋈ agents scan per request, shared by its KPI_WEEKS windows
+  // (it was one scan per window: eight full joins per GET /api/kpis, post-mortem 2026-10-31 suggestion 3)
+  let active: ActiveDays | undefined;
+  const activeDays = () => (active ??= activeDaysByUser(world));
   const kpis = world.kpis.all().sort((a, b) => a.position - b.position).map((k): KpiView => {
-    const weeks = windows.map((w) => measure(world, k.key, w, owner));
+    const weeks = windows.map((w) => measure(world, k.key, w, owner, activeDays));
     const last = weeks[weeks.length - 1], prev = weeks[weeks.length - 2];
     return { ...k, thisWeek: last.value, lastWeek: prev?.value ?? 0, weeks: weeks.map((w) => w.value), detail: last.detail };
   });
@@ -44,9 +48,22 @@ function ownerCheck(world: World): (userId: string | null | undefined) => boolea
   };
 }
 
-function measure(world: World, key: KpiKey, w: Window, isOwner: (id: string | null | undefined) => boolean): Week {
+type ActiveDays = Map<string, { day: string; ts: string }[]>;
+
+/** Each owned (non-fork) agent's owner → the days it was active, with the first event's ts on each. One scan of events. */
+function activeDaysByUser(world: World): ActiveDays {
+  const rows = world.db.prepare(
+    `SELECT a.ownerUserId AS userId, substr(e.ts, 1, 10) AS day, MIN(e.ts) AS ts FROM events e JOIN agents a ON a.id = e.agentId
+     WHERE a.ownerUserId IS NOT NULL AND a.forkOf IS NULL GROUP BY a.ownerUserId, day`,
+  ).all() as { userId: string; day: string; ts: string }[];
+  const seen: ActiveDays = new Map();
+  for (const r of rows) (seen.get(r.userId) ?? seen.set(r.userId, []).get(r.userId)!).push(r);
+  return seen;
+}
+
+function measure(world: World, key: KpiKey, w: Window, isOwner: (id: string | null | undefined) => boolean, activeDays: () => ActiveDays): Week {
   if (key === "fund") return fund(world, w, isOwner);
-  if (key === "join") return join(world, w, isOwner);
+  if (key === "join") return join(world, w, isOwner, activeDays());
   return trust(world, w, isOwner);
 }
 
@@ -69,13 +86,7 @@ function fund(world: World, w: Window, isOwner: (id: string | null | undefined) 
  * fell in the window and who were active again on a later day within JOIN_RETURN_DAYS. A fork's events don't count:
  * it copies its manager's ownerUserId, and a ghost doing building-queue work is not its owner coming back.
  */
-function join(world: World, w: Window, isOwner: (id: string | null | undefined) => boolean): Week {
-  const rows = world.db.prepare(
-    `SELECT a.ownerUserId AS userId, substr(e.ts, 1, 10) AS day, MIN(e.ts) AS ts FROM events e JOIN agents a ON a.id = e.agentId
-     WHERE a.ownerUserId IS NOT NULL AND a.forkOf IS NULL GROUP BY a.ownerUserId, day`,
-  ).all() as { userId: string; day: string; ts: string }[];
-  const seen = new Map<string, { day: string; ts: string }[]>();
-  for (const r of rows) (seen.get(r.userId) ?? seen.set(r.userId, []).get(r.userId)!).push(r);
+function join(world: World, w: Window, isOwner: (id: string | null | undefined) => boolean, seen: ActiveDays): Week {
   let arrived = 0, returned = 0;
   for (const u of world.users.all()) {
     if (isOwner(u.id)) continue;
