@@ -18,13 +18,29 @@ const ownsAny = (n: GoalTreeNode, userId: string): boolean => n.ownerId === user
 /** `inset` = the side bar's width: the toolbar centres on the map left of it. */
 export function PlanToolbar({ inset = 0 }: { inset?: number }) {
   const d = useTownPlan();
+  if (!d) return null;
+  const sel = d.selected ? store.state.buildings.find((b) => b.id === d.selected) : null;
+  return (
+    <div className="layout-bar" role="toolbar" aria-label="The town map" style={inset ? { left: `calc((100% - ${inset}px) / 2)`, maxWidth: `min(640px, calc(100% - ${inset}px - 24px))` } : undefined}>
+      <div className="layout-bar-title">
+        <b>The town map</b>
+        <span>Drawn from the goal tree: each goal is a plaza, each building stands at its goal. Click one; change its goal or desks in Settings.</span>
+      </div>
+      <ShapePicker />
+      {sel?.lot ? <div className="plan-selected"><b>{sel.name}</b> <span className="plan-size">{sel.lot.w}×{sel.lot.h} · {sel.headcount} desk{sel.headcount === 1 ? "" : "s"}</span></div> : null}
+      <div className="layout-bar-actions">
+        <button className="btn" onClick={() => townPlan.cancel()} title="Esc">Close</button>
+      </div>
+    </div>
+  );
+}
+
+/** The map's shape: town-wide, so an admin or a goal owner picks it and everyone sees it (server: World.canSetMapLayout). */
+function ShapePicker() {
   const shape = useTown((s) => s.town?.mapLayout ?? "fountain");
   const me = useTown((s) => s.me);
   const root = useGoalTree();
   const [busy, setBusy] = useState(false);
-  if (!d) return null;
-  const sel = d.selected ? store.state.buildings.find((b) => b.id === d.selected) : null;
-  // town-wide: an admin or a goal owner picks it, everyone sees it (server: World.canSetMapLayout)
   const canPick = store.can("goals.edit") || (!!me && !!root && ownsAny(root, me.user.id));
   const pick = (layout: MapLayout) => {
     if (layout === shape || busy) return;
@@ -32,23 +48,13 @@ export function PlanToolbar({ inset = 0 }: { inset?: number }) {
     api().setMapLayout(layout).then(() => store.onLayoutChanged?.(), (e: Error) => store.toast(e.message, "bad")).finally(() => setBusy(false));
   };
   return (
-    <div className="layout-bar" role="toolbar" aria-label="The town map" style={inset ? { left: `calc((100% - ${inset}px) / 2)`, maxWidth: `min(640px, calc(100% - ${inset}px - 24px))` } : undefined}>
-      <div className="layout-bar-title">
-        <b>The town map</b>
-        <span>Drawn from the goal tree: each goal is a plaza, each building stands at its goal. Click one; change its goal or desks in Settings.</span>
-      </div>
-      <div className="plan-shape" role="radiogroup" aria-label="The map's shape">
-        <span className="muted">Shape</span>
-        {SHAPES.map((s) => (
-          <button key={s.id} role="radio" aria-checked={s.id === shape} className={`btn${s.id === shape ? " on" : ""}`} disabled={!canPick || busy} title={canPick ? `${s.label}: ${s.hint}. Changes the map for everyone.` : `${s.label}: ${s.hint}. An admin or a goal owner picks the shape.`} onClick={() => pick(s.id)}>
-            {s.label}
-          </button>
-        ))}
-      </div>
-      {sel?.lot ? <div className="plan-selected"><b>{sel.name}</b> <span className="plan-size">{sel.lot.w}×{sel.lot.h} · {sel.headcount} desk{sel.headcount === 1 ? "" : "s"}</span></div> : null}
-      <div className="layout-bar-actions">
-        <button className="btn" onClick={() => townPlan.cancel()} title="Esc">Close</button>
-      </div>
+    <div className="plan-shape" role="radiogroup" aria-label="The map's shape">
+      <span className="muted">Shape</span>
+      {SHAPES.map((s) => (
+        <button key={s.id} role="radio" aria-checked={s.id === shape} className={`btn${s.id === shape ? " on" : ""}`} disabled={!canPick || busy} title={canPick ? `${s.label}: ${s.hint}. Changes the map for everyone.` : `${s.label}: ${s.hint}. An admin or a goal owner picks the shape.`} onClick={() => pick(s.id)}>
+          {s.label}
+        </button>
+      ))}
     </div>
   );
 }
