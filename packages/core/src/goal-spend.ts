@@ -1,5 +1,6 @@
 import { ROOT_GOAL_ID, type Assignment, type Building, type Grant, type GoalSpend, type KeyResult, type Session, type SpendByLane } from "@muster-town/schema";
 import { adjustedOfUsage } from "./bank.ts";
+import { funderWeights } from "./funders.ts";
 import type { World } from "./world.ts";
 
 /**
@@ -14,7 +15,7 @@ import type { World } from "./world.ts";
 export interface GoalSpendInputs {
   /** the goal and every goal under it (retired ones too: their past spend stays theirs) */
   subtree: Set<string>;
-  sessions: Pick<Session, "agentId" | "assignmentId" | "grantId" | "lane" | "model" | "input" | "output" | "cacheRead" | "cacheWrite5m" | "cacheWrite1h" | "byModel" | "startedAt" | "endedAt">[];
+  sessions: Pick<Session, "id" | "agentId" | "assignmentId" | "grantId" | "lane" | "model" | "input" | "output" | "cacheRead" | "cacheWrite5m" | "cacheWrite1h" | "byModel" | "startedAt" | "endedAt">[];
   assignments: Pick<Assignment, "id" | "buildingId" | "grantId" | "keyResultId" | "lane">[];
   agents: { id: string; buildingId: string | null; homeBuildingId?: string | null }[];
   buildings: Pick<Building, "id" | "name" | "goalId">[];
@@ -22,6 +23,8 @@ export interface GoalSpendInputs {
   keyResults: Pick<KeyResult, "id" | "text" | "goalId" | "status" | "updatedAt">[];
   /** the root's id: a building with no attachment hangs there */
   rootId: string;
+  /** the funder filter (build step 8): the part of each session one funder paid (1 = whole, a share = pro rata); sessions not in it are left out */
+  weights?: Map<string, number>;
 }
 
 const DAY = 86_400_000;
@@ -56,7 +59,9 @@ export function goalSpend(goalId: string, inp: GoalSpendInputs, days = 7, now = 
     const b = buildingId ? buildings.get(buildingId) : undefined;
     const node = kr?.goalId ?? b?.goalId ?? (b ? inp.rootId : null);
     if (!node || !inp.subtree.has(node)) continue;
-    const tokens = adjustedOfUsage(s.model, s, s.byModel);
+    const weight = inp.weights ? inp.weights.get(s.id) ?? 0 : 1;
+    if (!weight) continue;
+    const tokens = Math.round(adjustedOfUsage(s.model, s, s.byModel) * weight);
     const lane = (s.lane ?? a?.lane ?? "none") as keyof SpendByLane;
     out.total += tokens; out.sessions++; out.byLane[lane] += tokens;
     const i = Math.min(buckets - 1, Math.max(0, Math.floor((at - (to - buckets * step)) / step)));
@@ -81,8 +86,8 @@ export function goalSpend(goalId: string, inp: GoalSpendInputs, days = 7, now = 
   return out;
 }
 
-/** goalSpend over the world's tables (read-only). */
-export function worldGoalSpend(world: World, goalId: string, days = 7, now = new Date()): GoalSpend {
+/** goalSpend over the world's tables (read-only); `funderUserId`: only what that funder paid for (the funder filter, step 8). */
+export function worldGoalSpend(world: World, goalId: string, days = 7, now = new Date(), funderUserId?: string | null): GoalSpend {
   world.goalTree.require(goalId);
   const since = new Date(now.getTime() - days * DAY).toISOString();
   return goalSpend(goalId, {
@@ -94,5 +99,6 @@ export function worldGoalSpend(world: World, goalId: string, days = 7, now = new
     grants: world.grants.all(),
     keyResults: world.keyResults.all(),
     rootId: ROOT_GOAL_ID,
+    weights: funderUserId ? funderWeights(world, funderUserId, days, now) : undefined,
   }, days, now);
 }

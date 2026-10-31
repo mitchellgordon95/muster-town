@@ -5,11 +5,12 @@
  * at a node (admins anywhere, an owner in their subtree) edit it; everyone else reads the same tree.
  */
 import { useEffect, useState, type ReactNode } from "react";
-import { ROOT_GOAL_ID, type GoalChangeView, type GoalTreeNode, type KeyResultStatus } from "@muster-town/schema";
+import { ROOT_GOAL_ID, type FunderWeek, type GoalChangeView, type GoalTreeNode, type KeyResultStatus } from "@muster-town/schema";
 import { api, type GoalProposalView } from "../api";
 import { store, useTown } from "../state";
 import { Glyph, PanelShell } from "./PanelShell";
 import { GoalSpendTab } from "./GoalSpendTab";
+import { FUNDED, treeScope } from "./funderFilter";
 import { openDocLink } from "./Markdown";
 import { QueueTab } from "./QueueTab";
 import { krStatusLabel, krTone } from "./keyResults";
@@ -45,6 +46,9 @@ export function GoalTreePanel({ goalId }: { goalId?: string }) {
   const [bump, setBump] = useState(0);
   const tree = useLoad(() => retired ? api().goalTreeWithRetired() : api().goalTree(), [rev, retired, bump]);
   const proposals = useLoad(() => api().goalProposals("open"), [rev, bump]);
+  // the funder filter (goal tree step 8): a signed-in human with a Bank input can dim what their money didn't reach
+  const funder = useLoad(() => me.userId ? api().funderWeek().catch(() => null) : Promise.resolve(null), [me.userId]);
+  const isFunder = !!funder.data?.streams.length;
   const reload = () => setBump((n) => n + 1);
   const root = tree.data;
   const anyEdit = me.townWide || (!!root && !!me.userId && treeRows(root, false).some((r) => r.node.ownerId === me.userId));
@@ -59,19 +63,20 @@ export function GoalTreePanel({ goalId }: { goalId?: string }) {
           : <Section title="Tree" right={<span className="goal-tree-tools">
               <select aria-label="Building filter" value={filter} onChange={(e) => setFilter(e.target.value)}>
                 <option value="">All buildings</option>
+                {isFunder ? <option value={FUNDED}>Funded by me</option> : null}
                 {allBuildings(root).map((b) => <option key={b.id} value={b.id}>{b.name}</option>)}
               </select>
               <label className="check"><input type="checkbox" checked={retired} onChange={(e) => setRetired(e.target.checked)} /> Show retired</label>
             </span>}>
-            <TreeList root={root} retired={retired} filter={filter} onSelect={setSelected} canPlan={anyEdit} />
+            <TreeList root={root} retired={retired} filter={filter} funded={funder.data} onSelect={setSelected} canPlan={anyEdit} />
           </Section>}
       </>}
     </PanelShell>
   );
 }
 
-function TreeList({ root, retired, filter, onSelect, canPlan }: { root: GoalTreeNode; retired: boolean; filter: string; onSelect: (id: string) => void; canPlan: boolean }) {
-  const scope = filter ? buildingScope(root, filter) : null;
+function TreeList({ root, retired, filter, funded, onSelect, canPlan }: { root: GoalTreeNode; retired: boolean; filter: string; funded?: FunderWeek | null; onSelect: (id: string) => void; canPlan: boolean }) {
+  const scope = filter === FUNDED ? treeScope(root, funded) : filter ? buildingScope(root, filter) : null;
   return (
     <ul className="goal-tree">
       {treeRows(root, retired).map(({ node, depth }) => (

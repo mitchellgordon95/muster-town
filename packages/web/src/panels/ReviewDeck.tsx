@@ -6,7 +6,8 @@
  */
 import { useEffect, useRef, useState, type KeyboardEvent } from "react";
 import { REVIEW_DECK_ID, type Doc, type GrantView, type IntrayRoute, type ReviewSlide } from "@muster-town/schema";
-import { api, type GoalProposalView } from "../api";
+import { api, type FunderWeekView, type GoalProposalView } from "../api";
+import { fundedSlides, type IntrayView } from "./funderFilter";
 import { store } from "../state";
 import { DeckSlides, clampSlide, slideForKey } from "./DeckView";
 import { ReportActions } from "./DocView";
@@ -30,9 +31,10 @@ export function landingSlide(slides: ReviewSlide[], wantKey: string | null, n: n
 
 /**
  * "Mine" (docs/goals.md step 4): slide 1, the For the record slide and every slide whose item is routed to the viewer;
- * "All": every slide.
+ * "All": every slide. "Funded by me" (step 8): the funder's slide in place of slide 1, then the slides under the goals their money reached.
  */
-export function mineSlides(slides: ReviewSlide[], routes: Record<string, IntrayRoute>, view: "mine" | "all"): ReviewSlide[] {
+export function mineSlides(slides: ReviewSlide[], routes: Record<string, IntrayRoute>, view: IntrayView, funder?: FunderWeekView | null): ReviewSlide[] {
+  if (view === "funded") return funder ? fundedSlides(slides, routes, funder) : slides;
   if (view === "all") return slides;
   return slides.filter((s) => !s.itemId || s.kind === "record" || routes[s.grantId ?? s.docIds?.[0] ?? s.itemId]?.mine);
 }
@@ -73,18 +75,18 @@ export function SlideDecision({ slide, n, grants, reports, goalProposals = [], r
   );
 }
 
-export function ReviewDeckView({ grants, reports, goalProposals = [], view = "all", onClose, onDecided, onOpenDoc }: { grants: GrantView[]; reports: Doc[]; goalProposals?: GoalProposalView[]; view?: "mine" | "all"; onClose: () => void; onDecided: () => void; onOpenDoc: (id: string) => void }) {
+export function ReviewDeckView({ grants, reports, goalProposals = [], view = "all", funder, onClose, onDecided, onOpenDoc }: { grants: GrantView[]; reports: Doc[]; goalProposals?: GoalProposalView[]; view?: IntrayView; funder?: FunderWeekView | null; onClose: () => void; onDecided: () => void; onOpenDoc: (id: string) => void }) {
   // reload when the in-tray list changes (the badge moved: a rollup arrived, a grant closed), so slide 1 and the slides match the list
   const listKey = [...grants.map((g) => `${g.id}:${g.status}`), ...reports.map((d) => d.id), ...goalProposals.map((p) => p.id), view].join(",");
   const deck = useLoad(() => api().reviewDeck(), [listKey]);
   const routes = deck.data?.routes ?? {};
-  const slides = mineSlides(deck.data?.slides ?? [], routes, view);
+  const slides = mineSlides(deck.data?.slides ?? [], routes, view, funder);
   const [n, setN] = useState(1);
   const want = useRef<string | null>(null);
   const box = useRef<HTMLDivElement>(null);
   useEffect(() => { box.current?.focus({ preventScroll: true }); return () => setPanelFull(false); }, []);
   // the deck reloaded after a decision: land on the next item's slide
-  useEffect(() => { if (deck.data) { setN((cur) => landingSlide(mineSlides(deck.data!.slides, deck.data!.routes ?? {}, view), want.current, cur)); want.current = null; } }, [deck.data]);
+  useEffect(() => { if (deck.data) { setN((cur) => landingSlide(mineSlides(deck.data!.slides, deck.data!.routes ?? {}, view, funder), want.current, cur)); want.current = null; } }, [deck.data]);
   const go = (to: number) => setN(clampSlide(to, slides.length));
   const decided = () => { want.current = nextSlideKey(slides, n); onDecided(); deck.reload(); };
   const key = (e: KeyboardEvent<HTMLDivElement>) => {

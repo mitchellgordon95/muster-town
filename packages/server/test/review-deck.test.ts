@@ -55,3 +55,21 @@ describe("GET /api/review-deck", () => {
     expect(m.decisions.at(-1)!.text).toContain(`rejected ${r.grantId} "Banner" (on slide ${slide})`);
   });
 });
+
+describe("the funder filter (goal tree build step 8)", () => {
+  it("GET /api/funders/me/week: a guest gets 401, a signed-in human their week and its slide; ?funder=me narrows a Spend tab", async () => {
+    const s = await seededApp();
+    cleanups.push(s.close);
+    const { app, auth, world } = s;
+    expect((await json(app, "GET", "/api/funders/me/week")).status).toBe(401);
+    const r = await json(app, "GET", "/api/funders/me/week?days=7", { headers: auth });
+    expect(r.status).toBe(200);
+    expect(r.body).toMatchObject({ days: 7, slide: { kind: "funder", title: "Your week as a funder" } });
+    expect(r.body.streams.length).toBeGreaterThan(0);
+    const goal = world.goalTree.attachmentOf(LAB);
+    expect((await json(app, "GET", `/api/goals/${goal}/spend?funder=me`)).status).toBe(401);
+    const spend = await json(app, "GET", `/api/goals/${goal}/spend?funder=me`, { headers: auth });
+    expect(spend.status).toBe(200);
+    expect(spend.body.sessions).toBe(0);
+  });
+});

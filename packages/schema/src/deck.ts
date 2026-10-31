@@ -66,14 +66,14 @@ export function parseDeck(body: string): ParsedDeck {
  * plus what its decision buttons need. Slide 1 is the state of the town; then one slide per pending decision,
  * blocking-most first; rollups with no call collapse into one closing "For the record" slide.
  */
-export type ReviewSlideKind = "town" | "checkpoint" | "blocked" | "proposal" | "goal-proposal" | "rollup" | "report" | "close" | "record";
+export type ReviewSlideKind = "town" | "checkpoint" | "blocked" | "proposal" | "goal-proposal" | "rollup" | "report" | "close" | "record" | "funder";
 export interface ReviewSlide extends DeckSlide {
   /** stable across reloads: what the viewer moves to after a decision */
   key: string;
   kind: ReviewSlideKind;
   /** the decision the slide is for: a grant (gr_…), a goal proposal (gp_…), a report (dc_…) or a building id (blocked); null on slide 1 */
   itemId: string | null;
-  /** 1 checkpoint · 2 blocked · 3 work parked on it · 4 proposal (grant proposals, then goal proposals) · 5 rollup with a call (or another report) · 6 closed as done · 7 for the record; 0 = slide 1 */
+  /** 0 also = the funder slide (the funder filter's slide 1, goal tree step 8) · 1 checkpoint · 2 blocked · 3 work parked on it · 4 proposal (grant proposals, then goal proposals) · 5 rollup with a call (or another report) · 6 closed as done · 7 for the record; 0 = slide 1 */
   group: number;
   buildingId: string | null;
   /** when the item started waiting on a human (ISO), and how many assignments are parked on its decision */

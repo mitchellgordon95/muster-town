@@ -1,8 +1,8 @@
 /** `Api` implemented against the in-memory Sim. Same interface as HttpApi, so every panel works offline. */
 import type { AccessRequest, AccessRequestView, Agent, Assignment, AuthMe, BlockedAssignment, BlockedBy, BuildingStats, Schedule, Building, Doc, Event, Meeting, Membership, RedeployLive, ReviewDeck, ReviewSlide } from "@muster-town/schema";
-import { NEW_LAB_LOT, REVIEW_DECK_ID, desksForLot, parseDeck } from "@muster-town/schema";
-import { BACKFILL, BOARD_TYPES, KPI_FRAMING, DEFAULT_POOL_ID, ZERO_TOKENS, addTokens, backfillFamily, splitRaw, type BankPool, type GoalTreeNode, type GoalSpend, type QueueBoard } from "@muster-town/schema";
-import type { Api, AgentDetail, AllocationRow, Bank, Budget, Finance, FinanceFly, FinancePools, FinanceSources, FinanceSpend, Cabinet, CabinetQuery, DocQuery, EventQuery, In, LayoutPreview, MessageResult, RoomLayout, RequestAction, Snapshot, Socket, SocketHandlers, ThreadMessage, WriteDocInput } from "../api";
+import { NEW_LAB_LOT, REVIEW_DECK_ID, desksForLot, funderSlide, parseDeck } from "@muster-town/schema";
+import { BACKFILL, BOARD_TYPES, KPI_FRAMING, DEFAULT_POOL_ID, ZERO_TOKENS, addTokens, backfillFamily, splitRaw, type BankPool, type GoalTreeNode, type GoalSpend, type QueueBoard, type FunderWeek } from "@muster-town/schema";
+import type { Api, AgentDetail, AllocationRow, Bank, Budget, Finance, FinanceFly, FinancePools, FinanceSources, FinanceSpend, Cabinet, CabinetQuery, DocQuery, EventQuery, In, LayoutPreview, FunderWeekView, MessageResult, RoomLayout, RequestAction, Snapshot, Socket, SocketHandlers, ThreadMessage, WriteDocInput } from "../api";
 import { ApiError } from "../api";
 import type { BankStreams, PinSkillInput, PutSecretInput, SecretView, SkillPinView, SkillView } from "@muster-town/schema";
 import type { CreateBuildingInput, UpdateBuildingInput, RegisterVisitorInput, ReviewInput, ChatInput, WorkInput, DonateInput, CreateMeetingInput, DocState, AddBankInput, BankInput, CreateBankPoolInput, UpdateBankPoolInput, DecideGrantInput, CloseGrantInput, CreateKeyResultInput, UpdateKeyResultInput, CreateObjectiveInput, UpdateObjectiveInput } from "@muster-town/schema";
@@ -117,6 +117,25 @@ export class MockApi implements Api {
     const z = { grant: 0, exploration: 0, directed: 0, none: 0 };
     const now = Date.now();
     return { goalId: id, days, from: new Date(now - days * 86_400_000).toISOString(), to: new Date(now).toISOString(), total: 0, sessions: 0, byLane: z, series: [], seriesUnit: "day", byBuilding: [], byKeyResult: [], results: [] };
+  }
+  async funderWeek(userId = "me", days = 7): Promise<FunderWeekView> {
+    await wait();
+    const now = Date.now(), at = (h: number) => new Date(now - h * 3_600_000).toISOString();
+    const mine = this.bankInputs.filter((i) => !i.cancelledAt || i.goalId);
+    const key = mine.find((i) => i.source === "api-key");
+    const line = (h: number, tokens: number, title: string, building: string, kr: string | null): FunderWeek["literal"]["sessions"][number] => ({
+      sessionId: `se_toy${h}`, at: at(h), purpose: "work", tokens, assignmentId: `as_toy${h}`, title, buildingId: building, buildingName: this.sim.buildings.find((b) => b.id === building)?.name ?? building,
+      goalId: key?.goalId ?? "gl_town", keyResultId: kr, keyResultText: kr ? "Visitors finish a first task" : null, reportId: null, reportTitle: null, inputId: key?.id ?? null,
+    });
+    const literal = key ? [line(3, 84_000, "Draft the starter brief", this.sim.buildings[0]?.id ?? "workshop", "kr_toy"), line(27, 51_000, "Check the brief live", this.sim.buildings[0]?.id ?? "workshop", "kr_toy")] : [];
+    const week: FunderWeek = {
+      userId, userName: "Mitchell", days, from: new Date(now - days * 86_400_000).toISOString(), to: new Date(now).toISOString(),
+      streams: mine.map((i) => ({ inputId: i.id, label: i.label, source: i.source, story: i.source === "api-key" ? "literal" : "pro-rata", goalId: i.goalId ?? null, goalPath: i.goalId ?? null, balance: i.creditedTokens, cancelledAt: i.cancelledAt, creditedTokens: i.source === "subscription" ? 3_500_000 : 0, sessions: i === key ? literal.length : 0, tokens: i === key ? 135_000 : 0 })),
+      literal: { tokens: literal.reduce((n, l) => n + l.tokens, 0), sessions: literal },
+      proRata: { share: 0, yourCreditedTokens: 0, poolCreditedTokens: 0, poolSessions: 0, poolTokens: 0, tokens: 0, byAssignment: [] },
+      goalIds: key?.goalId ? [key.goalId] : [], everything: !key,
+    };
+    return clone({ ...week, slide: funderSlide(week) });
   }
   async goalQueue(): Promise<QueueBoard> { await wait(); return { lanes: [], at: new Date().toISOString() }; }
   async buildingQueue(id: string): Promise<QueueBoard> {

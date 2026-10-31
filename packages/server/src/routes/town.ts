@@ -1,9 +1,9 @@
-import { AppError, BANK_ACCOUNTING, deskPreset, deskSizeFor, type World, buildingStats, accessRequestOf, boardWithTownDocs, canInteract, decideAccess, deskSlotRows, requestAccess, sessionView, setDeskSlot, cabinetCounts, cabinetDocs, reportChains, reviewDeck, presentedReviewDeck, intrayRoutes } from "@muster-town/core";
-import { AccessDecisionInput, AccessRequestInput, AddBankInput, CreateBankPoolInput, CreateBuildingInput, DesksPatch, UpdateBankPoolInput, DocType, DonateInput, LayoutInput, Membership, PlantFlagInput, RedeployInput, UpdateBuildingInput, apiKeyProblem, townEnv, REVIEW_DECK_ID, type AccessRequest, type AuthMe, type RedeployLive } from "@muster-town/schema";
+import { AppError, BANK_ACCOUNTING, deskPreset, deskSizeFor, type World, buildingStats, accessRequestOf, boardWithTownDocs, canInteract, decideAccess, deskSlotRows, requestAccess, sessionView, setDeskSlot, cabinetCounts, cabinetDocs, reportChains, reviewDeck, presentedReviewDeck, intrayRoutes, funderWeek } from "@muster-town/core";
+import { funderSlide, AccessDecisionInput, AccessRequestInput, AddBankInput, CreateBankPoolInput, CreateBuildingInput, DesksPatch, UpdateBankPoolInput, DocType, DonateInput, LayoutInput, Membership, PlantFlagInput, RedeployInput, UpdateBuildingInput, apiKeyProblem, townEnv, REVIEW_DECK_ID, type AccessRequest, type AuthMe, type RedeployLive } from "@muster-town/schema";
 import type { FastifyInstance, FastifyRequest } from "fastify";
 import { brotliDecompressSync } from "node:zlib";
 import { z } from "zod";
-import { actorOf, adminToken, parse, requireAuth, requireUser, viewerOf, type Params } from "../context.ts";
+import { actorOf, adminToken, funderOf, parse, requireAuth, requireUser, viewerOf, type Params } from "../context.ts";
 
 const EventsQuery = z.object({
   since: z.coerce.number().int().nonnegative().optional(),
@@ -12,6 +12,7 @@ const EventsQuery = z.object({
   limit: z.coerce.number().int().positive().max(1000).default(100),
 });
 const SessionsQuery = z.object({ agentId: z.string().optional(), limit: z.coerce.number().int().positive().max(200).default(50) });
+const FunderQuery = z.object({ days: z.coerce.number().int().min(1).max(90).default(7) });
 const LimitQuery = z.object({ limit: z.coerce.number().int().positive().max(200).default(30) });
 const CabinetQuery = LimitQuery.extend({ type: DocType.optional(), authorId: z.string().optional() });
 /** A desk slot's sandbox (Machine or container) and home volume names (manager forks step 7, volume adoption). */
@@ -388,6 +389,16 @@ export async function townRoutes(app: FastifyInstance) {
   // public, read-only: every funding stream (earmarks too), what each can still pay, and the expected session size a key
   // stream must cover to be picked (goal tree step 7; the Donate form's small-donation warning reads it)
   app.get("/api/bank/streams", async () => world.streams.list());
+
+  /**
+   * The funder filter (docs/goals.md "Funder attribution", goal tree build step 8): one funder's window, read-only. The
+   * literal story (sessions on their key or their grant's input), the pro rata story (their share of the subscription
+   * week), the goals their money reached, and the deck's slide 1 for it. `me` = the signed-in human; guests get 401.
+   */
+  app.get<{ Params: { userId: string } }>("/api/funders/:userId/week", async (req) => {
+    const week = funderWeek(world, funderOf(req, req.params.userId), parse(FunderQuery, req.query).days);
+    return { ...week, slide: funderSlide(week) };
+  });
 
   // accounting pools: buildings join a pool (PATCH /api/buildings/:id {poolId}); pools get the % of the Bank
   app.get("/api/bank/pools", async () => ({ pools: world.bank.summary().pools }));

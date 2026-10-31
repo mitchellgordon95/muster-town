@@ -4,7 +4,7 @@
  */
 import type { z } from "zod";
 import type {
-  ReviewDeck, BankStreams,
+  ReviewDeck, BankStreams, FunderWeek, ReviewSlide,
   CreateObjectiveInput, UpdateObjectiveInput, Objective, KpiKey, KpiView,
   AccessRequest, AccessRequestView, Agent, Allocation, Assignment, AuthMe, BlockedAssignment, BuildingStats, Schedule, RedeployLive, Building, ClientMessage, DesksConfig, Doc, Event, Lot, Meeting, Place, Role, Membership, SessionSlots, Tile,
   ServerMessage, SessionView, TokenCounts, Town, CreateBuildingInput, UpdateBuildingInput, RegisterVisitorInput,
@@ -78,6 +78,8 @@ export interface AgentPermissionsView {
   canSetModel?: boolean;
 }
 /** POST /api/agents/:id/message result: how the message reached the agent. */
+/** GET /api/funders/:userId/week: the funder's window and the review deck's slide 1 for it (goal tree step 8) */
+export type FunderWeekView = FunderWeek & { slide: ReviewSlide };
 export interface StartNextResult { assignment: Assignment; agent: Agent; when: "now" | "after-current" }
 export interface MessageResult { mode: "interrupted" | "queued" | "started"; messageId: string; assignmentId?: string }
 /** One `tell` between an agent and your avatar (GET /api/agents/:id/thread). */
@@ -338,7 +340,10 @@ export interface Api {
   /** The goal editor (docs/goals.md "The Town Hall goal editor"): GET /api/goals?retired=1, a goal's history, and the edits (`goals.edit`). */
   goalTreeWithRetired(): Promise<GoalTreeNode>;
   goalHistory(id: string): Promise<Event[]>;
-  goalSpend(id: string, days?: number): Promise<GoalSpend>;
+  /** `funder`: "me" (signed in) = only what my money paid for (the funder filter, goal tree step 8) */
+  goalSpend(id: string, days?: number, funder?: string): Promise<GoalSpend>;
+  /** GET /api/funders/:userId/week: one funder's window ("me" = the signed-in human; guests get 401) and the deck's slide 1 for it */
+  funderWeek(userId?: string, days?: number): Promise<FunderWeekView>;
   /** the kanban: a goal's subtree (one swimlane per attached building) or one building */
   goalQueue(id: string): Promise<QueueBoard>;
   buildingQueue(id: string): Promise<QueueBoard>;
@@ -611,7 +616,8 @@ export class HttpApi implements Api {
   async goalTree() { return (await this.get<{ root: GoalTreeNode }>("/api/goals")).root; }
   async goalTreeWithRetired() { return (await this.get<{ root: GoalTreeNode }>("/api/goals?retired=1")).root; }
   async goalHistory(id: string) { return (await this.get<{ events?: Event[] }>(`/api/goals/${id}/history`)).events ?? []; }
-  goalSpend(id: string, days = 7) { return this.get<GoalSpend>(`/api/goals/${id}/spend${qs({ days: String(days) })}`); }
+  goalSpend(id: string, days = 7, funder?: string) { return this.get<GoalSpend>(`/api/goals/${id}/spend${qs({ days: String(days), funder })}`); }
+  funderWeek(userId = "me", days = 7) { return this.get<FunderWeekView>(`/api/funders/${userId}/week${qs({ days: String(days) })}`); }
   goalQueue(id: string) { return this.get<QueueBoard>(`/api/goals/${id}/queue`); }
   buildingQueue(id: string) { return this.get<QueueBoard>(`/api/buildings/${id}/queue`); }
   async createGoal(i: In<typeof CreateGoalInput>) { return unwrap<Goal>(await this.post("/api/goals", i), "goal"); }

@@ -79,7 +79,7 @@ describe("the Spend tab (docs/goals.md \"Spend tab\", step 4): read-only, from s
   const now = new Date("2026-10-30T12:00:00Z");
   const at = (h: number) => new Date(now.getTime() - h * 3_600_000).toISOString();
   const s = (id: string, o: Partial<GoalSpendInputs["sessions"][number]>): GoalSpendInputs["sessions"][number] =>
-    ({ agentId: "ag_a", assignmentId: null, grantId: null, lane: null, model: "claude-opus-4-5", input: 0, output: 1000, cacheRead: 0, cacheWrite5m: 0, cacheWrite1h: 0, byModel: null, startedAt: at(2), endedAt: at(1), ...o, ...(id ? {} : {}) });
+    ({ id, agentId: "ag_a", assignmentId: null, grantId: null, lane: null, model: "claude-opus-4-5", input: 0, output: 1000, cacheRead: 0, cacheWrite5m: 0, cacheWrite1h: 0, byModel: null, startedAt: at(2), endedAt: at(1), ...o });
   const inputs = (sessions: GoalSpendInputs["sessions"]): GoalSpendInputs => ({
     subtree: new Set(["gl_a", "gl_a1"]), rootId: "gl_town", sessions,
     assignments: [
@@ -121,6 +121,13 @@ describe("the Spend tab (docs/goals.md \"Spend tab\", step 4): read-only, from s
     const sub = goalSpend("gl_a1", { ...inputs([s("grant", { assignmentId: "as_g", grantId: "gr_1", lane: "grant" }), s("dir", { assignmentId: "as_d", lane: "directed" })]), subtree: new Set(["gl_a1"]) }, 30, now);
     expect(sub).toMatchObject({ sessions: 1, seriesUnit: "week" });
     expect(sub.series).toHaveLength(5);
+  });
+
+  it("the funder filter (step 8): weights keep only what one funder paid, scaled", () => {
+    const one = adjustedOfUsage("claude-opus-4-5", { output: 1000 });
+    const r = goalSpend("gl_a", { ...inputs([s("a", {}), s("b", {}), s("c", {})]), weights: new Map([["a", 1], ["b", 0.25]]) }, 7, now);
+    expect(r.sessions).toBe(2);
+    expect(r.total).toBe(one + Math.round(one * 0.25));
   });
 
   it("over the world: reads sessions, writes nothing to the Bank", () => {

@@ -370,6 +370,26 @@ export class Bank {
     return this.repos.bankInputs.get(inputId);
   }
 
+  /** The funder filter (goal tree step 8, read-only): every input a user added, live or not, oldest first. */
+  inputsOf(userId: string): BankInput[] {
+    return this.repos.bankInputs.where("userId = ?", [userId], "ORDER BY createdAt, rowid");
+  }
+
+  /** Every input of one source, live or not (the funder filter's pro rata share counts subscription credits). */
+  inputsOfSource(source: BankInput["source"]): BankInput[] {
+    return this.repos.bankInputs.where("source = ?", [source], "ORDER BY createdAt, rowid");
+  }
+
+  /** The ids of every api-key input, live or not: a session whose credential is one ran on a donated key (step 8). */
+  apiKeyInputIds(): Set<string> {
+    return new Set(this.inputsOfSource("api-key").map((i) => i.id));
+  }
+
+  /** Credits made after `since` (ISO), oldest first: the funder filter's pro rata share (read-only). */
+  creditsSince(since: string): BankCredit[] {
+    return this.repos.bankCredits.where("createdAt > ?", [since], "ORDER BY createdAt, rowid");
+  }
+
   /** Secret: the credential behind an input, if any (an api-key input's key, a subscription input's token). */
   apiKeyFor(inputId: string): string | null {
     return this.repos.bankInputs.getApiKey(inputId);

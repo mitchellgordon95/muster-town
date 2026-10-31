@@ -93,6 +93,16 @@ export function requireUser(req: FastifyRequest): User {
   return a.user;
 }
 
+/**
+ * The funder filter (goal tree step 8): whose money a request asks about. "me" = the signed-in human; another user id
+ * needs a sign-in too (a human or an agent; the Bank's streams are public, but guests see nothing new).
+ */
+export function funderOf(req: FastifyRequest, id: string): string {
+  if (id === "me") return requireUser(req).id;
+  requireAuth(req);
+  return id;
+}
+
 /** The agent that acts for this request: a user's avatar (permissions resolve to the user), or the agent itself. */
 export function actorOf(world: World, req: FastifyRequest): Agent {
   const a = requireAuth(req);
