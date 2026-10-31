@@ -100,18 +100,15 @@ describe("manager team-lead session", () => {
     expect(manages()).toHaveLength(2);
   });
 
-  test("a goal-directed building with no key results and no funded grant is blocked: the tick wakes its manager once", async () => {
-    const env = await managed(async function* () { yield init(); yield result(100, 0.01, "Drafting key results."); });
+  test("a goal-directed building with no funded grant is not blocked (key results belong to grants): the tick doesn't wake its manager", async () => {
+    const env = await managed(async function* () { yield init(); yield result(100, 0.01, "Nothing to do."); });
     const { world, runtime, by, lab } = env;
     const mei = by("Mei");
-    world.setStatus(mei.id, "working"); // keep the scheduler from starting the wake: only its creation is under test
+    world.setStatus(mei.id, "working"); // keep the scheduler from starting a wake: only its creation is under test
     world.buildings.patch(lab.id, { blockedAt: null });
-    world.ops.updateBuilding(env.world.ops.ensureAvatar(env.seed.admin.id), lab.id, { rules: "Re-check." }); // a settings change re-checks the blocked state
     for (let i = 0; i < 3; i++) { await runtime.tickOnce(); await runtime.whenIdle(); }
-    const wakes = world.assignments.where("agentId = ? AND title LIKE 'Get human decisions%'", [mei.id]);
-    expect(wakes).toHaveLength(1);
-    expect(wakes[0]!.description).toContain("rollup: true");
-    expect(world.buildings.require(lab.id).blockedAt).not.toBeNull();
+    expect(world.assignments.where("agentId = ? AND title LIKE 'Get human decisions%'", [mei.id])).toHaveLength(0);
+    expect(world.buildings.require(lab.id).blockedAt).toBeNull();
   });
 
   test("a rollup goes to the Town Hall and doesn't wake the manager again", async () => {
