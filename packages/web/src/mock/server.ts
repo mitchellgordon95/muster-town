@@ -1,8 +1,8 @@
 /** `Api` implemented against the in-memory Sim. Same interface as HttpApi, so every panel works offline. */
-import type { AccessRequest, AccessRequestView, Agent, Assignment, AuthMe, BlockedAssignment, BlockedBy, BuildingStats, Schedule, Building, Doc, Event, Meeting, Membership, RedeployLive, ReviewDeck, ReviewSlide } from "@muster-town/schema";
+import type { AccessRequest, AccessRequestView, Agent, Assignment, AssignmentCard, AuthMe, BlockedAssignment, BlockedBy, BuildingStats, Schedule, Building, Doc, Event, Meeting, Membership, RedeployLive, ReviewDeck, ReviewSlide } from "@muster-town/schema";
 import { BuildingDefaults, NEW_LAB_LOT, REVIEW_DECK_ID, desksForLot, funderSlide, parseDeck } from "@muster-town/schema";
 import { BACKFILL, BOARD_TYPES, KPI_FRAMING, ZERO_TOKENS, addTokens, backfillFamily, splitRaw, type FreeTokens, type GoalTreeNode, type GoalSpend, type QueueBoard, type FunderWeek } from "@muster-town/schema";
-import type { Api, AgentDetail, AllocationRow, Bank, Budget, Finance, FinanceFly, FinanceSources, FinanceSpend, Cabinet, CabinetQuery, DocQuery, EventQuery, In, LayoutPreview, FunderWeekView, RoomLayout, RequestAction, Snapshot, Socket, SocketHandlers, ThreadMessage, WriteDocInput } from "../api";
+import type { Api, AgentDetail, AllocationRow, Bank, Budget, Finance, FinanceFly, FinanceSources, FinanceSpend, Cabinet, CabinetQuery, DocQuery, EventQuery, In, LayoutPreview, FunderWeekView, RoomLayout, RequestAction, SessionDetail, Snapshot, Socket, SocketHandlers, ThreadMessage, WriteDocInput } from "../api";
 import { ApiError } from "../api";
 import type { BankStreams, PinSkillInput, PutSecretInput, SecretView, SkillPinView, SkillView } from "@muster-town/schema";
 import type { CreateBuildingInput, UpdateBuildingInput, RegisterVisitorInput, ReviewInput, WorkInput, DonateInput, CreateMeetingInput, DocState, AddBankInput, BankInput, DecideGrantInput, CloseGrantInput, CreateKeyResultInput, UpdateKeyResultInput, CreateObjectiveInput, UpdateObjectiveInput } from "@muster-town/schema";
@@ -268,6 +268,23 @@ export class MockApi implements Api {
     const d = await this.agent(id);
     const since = d.currentSession?.startedAt ?? new Date(Date.now() - 90 * 60_000).toISOString();
     return { session: d.currentSession, transcript: clone(this.sim.events.filter((e) => e.agentId === id && e.ts >= since)) };
+  }
+  async assignmentCard(id: string): Promise<AssignmentCard> {
+    await wait(60);
+    const a = this.need(this.sim.assignments.get(id), "assignment");
+    const agent = this.sim.agents.get(a.agentId);
+    const live = agent?.status === "working" && agent.currentAssignmentId === a.id;
+    return {
+      id: a.id, title: a.title, description: a.description, status: a.status, lane: a.lane, grantId: a.grantId, keyResultId: a.keyResultId, gap: a.gap, sourceId: a.sourceId,
+      agentId: a.agentId, agentName: agent?.name ?? null, buildingId: a.buildingId, buildingName: this.sim.buildings.find((b) => b.id === a.buildingId)?.name ?? null,
+      reportId: a.reportId, fromReportId: a.fromReportId, fromMeetingId: a.fromMeetingId, fromAssignmentId: a.fromAssignmentId, chainId: a.chainId,
+      heldReason: a.heldReason, createdAt: a.createdAt, updatedAt: a.updatedAt,
+      sessions: live ? [{ id: `se_${a.agentId}`, status: "running", startedAt: new Date(Date.now() - 15 * 60_000).toISOString(), endedAt: null, adjustedOutputTokens: 0, turns: 12, reportId: null }] : [],
+    };
+  }
+  async sessionById(id: string): Promise<SessionDetail> {
+    const d = await this.agent(this.need(id.startsWith("se_") ? id.slice(3) : undefined, "session"));
+    return { session: this.need(d.currentSession ?? undefined, "session"), transcript: null };
   }
   async work(id: string, i: In<typeof WorkInput>) { await wait(); return clone(this.sim.startWork(id, i.title, i.description)); }
   async interrupt(id: string, text: string, now = false) {
