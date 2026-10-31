@@ -16,6 +16,7 @@ import { FinanceFooter, FinanceIntro, FinanceTerms, FlyView, ProjectionView, Sou
 import { BankFreeTokens, FreeTokensTree } from "./FreeTokens";
 import { SpendByGoal } from "./GoalSpend";
 import { ADJ, ErrorLine, Loading, Section, breakdownTitle, fmtTokens } from "./ui";
+import { claimedTokens } from "../format";
 
 /** Refetch the summary the sign and these sections read. */
 const reload = () => { api().bank().then((bank) => store.set({ bank }), () => undefined); };
@@ -66,14 +67,8 @@ function BankTab({ tab, bank, fin, rev, onChange, onReload }: ViewProps) {
             <tbody>
               <tr><td>Town total (Bank + held by buildings)</td><td><b>{bank.townTokens.toLocaleString("en-US")}</b></td></tr>
               <tr><td>In the Bank (one balance every building draws on)</td><td>{bank.balanceTokens.toLocaleString("en-US")}</td></tr>
-              <tr><td>Expires today (daily allowance, no rollover)</td><td>{bank.expiringTokens.toLocaleString("en-US")}</td></tr>
-              <tr><td>Permanent (stays until spent)</td><td>{bank.durableTokens.toLocaleString("en-US")}</td></tr>
-              <tr><td>Held by buildings (donated to one building)</td><td>{bank.heldTokens.toLocaleString("en-US")}</td></tr>
-              {bank.heldByAuth ? <>
-                <tr className="sub-row"><td>of which subscription</td><td>{bank.heldByAuth.subscription.toLocaleString("en-US")}</td></tr>
-                <tr className="sub-row"><td>of which API key</td><td>{bank.heldByAuth.apiKey.toLocaleString("en-US")}</td></tr>
-                {bank.heldByAuth.donorKey ? <tr className="sub-row"><td>of which donors' own keys</td><td>{bank.heldByAuth.donorKey.toLocaleString("en-US")}</td></tr> : null}
-              </> : null}
+              <tr><td>Claimed (open reservations + open proposals&apos; asks + funded grants&apos; remaining)</td><td>{bank.free ? claimedTokens(bank.free).toLocaleString("en-US") : "…"}</td></tr>
+              <tr><td>Free (what exploration or a new grant may still claim)</td><td>{bank.free ? bank.free.freeTokens.toLocaleString("en-US") : "…"}</td></tr>
               <tr><td>Expected inflow per day</td><td>{fmtTokens(bank.dailyInflowTokens)}</td></tr>
               <tr className="sub-row" title={breakdownTitle(bank.creditedCounts)}><td>Credited so far: input · output · cache read · cache write 5m · 1h (raw)</td><td>{[bank.creditedCounts.input, bank.creditedCounts.output, bank.creditedCounts.cacheRead, bank.creditedCounts.cacheWrite5m, bank.creditedCounts.cacheWrite1h].map(fmtTokens).join(" · ")}</td></tr>
             </tbody>
