@@ -15,7 +15,7 @@ import { FUNDED, treeScope } from "./funderFilter";
 import { openDocLink } from "./Markdown";
 import { QueueTab } from "./QueueTab";
 import { krStatusLabel, krTone } from "./keyResults";
-import { allBuildings, archivedLine, buildingScope, canEditGoal, findGoal, isArchived, moveTargets, nodeGlance, pastDue, pathTo, proposalVerb, retireMoves, retirePlan, subtreeIds, treeRows, visibleRows, type TreeKr } from "./goalTree";
+import { allBuildings, archivedLine, buildingScope, canEditGoal, deskWord, findGoal, isArchived, moveTargets, nodeGlance, pastDue, pathTo, proposalVerb, retireMoves, retirePlan, subtreeDesks, subtreeIds, treeRows, visibleRows, type TreeKr } from "./goalTree";
 import { Act, Empty, ErrorLine, Feed, Field, Loading, Pill, Section, Tabs, nameOf, useLoad } from "./ui";
 
 const today = () => new Date().toISOString().slice(0, 10);
@@ -133,6 +133,7 @@ function TreeList({ root, retired, filter, funded, selected, collapsed, showKrs,
         const kids = node.children.some((c) => retired || c.status !== "retired");
         const open = !collapsed.has(node.id);
         const waiting = proposals.get(node.id) ?? 0;
+        const d = subtreeDesks(node);
         return (
           <li key={node.id} className={`ge-node ${node.id === selected ? "on" : ""} ${scope && !scope.has(node.id) ? "dim" : ""} ${node.status === "retired" ? "retired" : ""}`} style={{ "--depth": depth } as CSSProperties}>
             <div className="ge-node-row">
@@ -140,6 +141,7 @@ function TreeList({ root, retired, filter, funded, selected, collapsed, showKrs,
               <button className="ge-node-main" onClick={() => onSelect(node.id)} title={node.text}>
                 <span className={`ge-node-text ${node.id === ROOT_GOAL_ID ? "root" : ""}`}>{node.text}</span>
                 <span className="ge-node-meta">
+                  {node.status === "retired" ? null : <span className={`ge-tag desks ${d.desks ? "" : "none"}`} title={d.desks ? `${deskWord(d.desks)} work this goal (the headcount of every building attached here or below), ${d.inUse} in use now` : "No building is attached here or below: nobody works this goal"}>{deskWord(d.desks)}</span>}
                   {node.buildings.map((b) => <span key={b.id} className="ge-tag building" title={`${b.name} is attached here`}>{b.name}</span>)}
                   {node.ownerId ? <span className="ge-tag" title={`Owner: ${node.owner.name}`}>👤 {node.owner.name}</span> : null}
                   {node.status === "retired" ? <span className="ge-tag bad">retired</span> : null}
@@ -217,8 +219,9 @@ function GoalDetail({ root, node, me, proposals, onSelect, onDone }: { root: Goa
         <h2>{node.text}</h2>
         <div className="muted goal-meta">
           Owner: <b>{node.owner.name}</b>{node.ownerId ? "" : node.owner.goalId === node.id ? "" : ` (from "${clip(findGoal(root, node.owner.goalId)?.text ?? node.owner.goalId, 40)}")`}
-          {node.buildings.length ? <> · Attached: {node.buildings.map((b) => <button key={b.id} className="chip" onClick={() => store.open({ kind: "building", id: b.id })}>{b.name}</button>)}</> : null}
+          {node.buildings.length ? <> · Attached: {node.buildings.map((b) => <button key={b.id} className="chip" title={`${deskWord(b.headcount)}, ${b.inUse} in use now`} onClick={() => store.open({ kind: "building", id: b.id })}>{b.name} · {deskWord(b.headcount)}</button>)}</> : null}
         </div>
+        <DeskLine node={node} />
       </div>
       {can ? (
         <div className="ge-toolbar" role="toolbar" aria-label="Change this goal">
@@ -325,6 +328,18 @@ function History({ id }: { id: string }) {
   return <><ErrorLine error={h.error} /><Feed events={[...(h.data ?? [])].reverse()} empty="No changes recorded yet." /></>;
 }
 
+/** The desks working this goal: the subtree total (the root's is the town's), with what children add when they add any. */
+function DeskLine({ node }: { node: GoalTreeNode }) {
+  const d = subtreeDesks(node);
+  const own = node.buildings.reduce((n, b) => n + b.headcount, 0);
+  if (node.status === "retired") return null;
+  return (
+    <div className={`ge-desks ${d.desks ? "" : "none"}`}>
+      <b>{deskWord(d.desks)}</b> {d.desks ? <>{node.id === ROOT_GOAL_ID ? "in the town" : "work this goal"}{own && own < d.desks ? ` (${own} attached here, ${d.desks - own} below)` : ""} · {d.inUse} in use now</> : "· no building is attached here or below"}
+    </div>
+  );
+}
+
 /** The owner's view (docs/goals.md "Owners on nodes"): the buildings attached below, open key results by due date, and the funded ones. */
 function Subtree({ node }: { node: GoalTreeNode }) {
   const below = (n: GoalTreeNode): GoalTreeNode[] => [n, ...n.children.flatMap(below)];
@@ -335,7 +350,7 @@ function Subtree({ node }: { node: GoalTreeNode }) {
   return (
     <div className="goal-subtree">
       <Section title={`Buildings (${buildings.length})`}>
-        {buildings.length ? <div>{buildings.map((b) => <button key={b.id} className="chip" onClick={() => store.open({ kind: "building", id: b.id })}>{b.name}</button>)}</div> : <Empty>No building is attached here or below.</Empty>}
+        {buildings.length ? <div>{buildings.map((b) => <button key={b.id} className="chip" onClick={() => store.open({ kind: "building", id: b.id })}>{b.name} · {deskWord(b.headcount)}</button>)}</div> : <Empty>No building is attached here or below.</Empty>}
       </Section>
       <Section title={`Open key results by due date (${open.length})`}>
         {open.length ? <ul className="goal-krs">{open.map(({ k, goal }) => (

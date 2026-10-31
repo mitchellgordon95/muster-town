@@ -12,7 +12,7 @@
  */
 import { ROOT_GOAL_ID, isNoCall, parseRollup, type Doc, type GrantView, type Meeting, type PinnedSlide, type ReviewDeck, type ReviewSlide, type ReviewSlideKind, type RollupItem } from "@muster-town/schema";
 import { grantsAwaitingDecision, townHallIntray } from "./domain.ts";
-import type { GoalProposalView } from "./goals.ts";
+import type { GoalNode, GoalProposalView } from "./goals.ts";
 import type { World } from "./world.ts";
 
 const H = 3_600_000;
@@ -27,6 +27,7 @@ export function waitedFor(sinceIso: string | null, now: Date): string {
   return `${(ms / (24 * H)).toFixed(1)} d`;
 }
 const KR_LIGHT: Record<string, string> = { "not-started": "⚪", "on-track": "🟢", "at-risk": "🟡", claimed: "🔵", met: "✅", missed: "❌" };
+const PILLAR: Record<string, string> = { gl_fund: "Fund", gl_join: "Steer", gl_trust: "Trust" };
 const LIGHT: Record<string, string> = { green: "🟢", yellow: "🟡", red: "🔴" };
 const ACTION_PAST: Record<string, string> = { propose: "proposed", counter: "countered", fund: "funded", reject: "rejected", checkpoint: "held", continue: "continued", adjust: "adjusted", cut: "cut", close: "closed", edit: "edited" };
 /** Collapses whitespace to one line; never cuts (no-truncation rule): the slide scrolls. */
@@ -261,6 +262,10 @@ function townSlide(world: World, now: Date, decisions: number, oldest: string | 
     const krs = world.grantDesk.keyResults(b.id);
     return `| ${b.name} | ${light ? LIGHT[light.light] ?? "" : ""} | ${krs.length ? krs.map((k) => `${KR_LIGHT[k.status] ?? "⚪"} ${k.status.replace(/-/g, " ")}`).join(" · ") : "_none_"} |`;
   });
+  // desks are the steer (docs/goals.md "Effort steering is desks"): each pillar's subtree headcount (mt_n25udpflus decision 3)
+  const desks = (n: GoalNode): number => n.buildings.reduce((s, b) => s + b.headcount, 0) + n.children.reduce((s, c) => s + desks(c), 0);
+  const tree = world.goalTree.tree();
+  const pillars = [...tree.children.map((c) => `${PILLAR[c.id] ?? c.text.split(":")[0]!.slice(0, 30)} ${desks(c)}`), ...tree.buildings.length ? [`at the root ${desks({ ...tree, children: [] })}`] : []].join(" · ");
   const flags = world.docs.where("type = 'flag' AND decision = 'pending' AND createdAt < ?", [new Date(now.getTime() - FLAG_AFTER_MS).toISOString()], "ORDER BY createdAt");
   const flagLine = flags.length
     ? `⚑ Your flag${flags.length === 1 ? "" : "s"} still waiting on a manager: ${flags.map((f) => `${world.buildings.get(f.buildingId ?? "")?.name ?? "?"} "${oneLine(f.title)}" ${waitedFor(f.createdAt, now)}`).join("; ")}.`
@@ -269,6 +274,7 @@ function townSlide(world: World, now: Date, decisions: number, oldest: string | 
     "# Review deck: the state of the town",
     `**Bank:** ${fmt(bank)} adjusted tokens left · subscription spend today ${fmt(cap.spentToday)}${cap.learnedCap ? ` of a ${fmt(cap.learnedCap)} daily cap` : ""}${cap.held ? " (new starts held)" : ""}`,
     `**Spend today by lane:** exploration ${fmt(explSpent)} of ${fmt(explAllow)} allowance · directed ${fmt(directed)}`,
+    `**Desks by pillar:** ${pillars}`,
     `**${decisions} decision${decisions === 1 ? "" : "s"} below${oldest ? `, oldest waiting ${waitedFor(oldest, now)}` : ""}.**${asking ? ` ${asking} ${asking === 1 ? "person is" : "people are"} asking to join (in the in-tray list).` : ""}`,
     `| Building | Light | Key results |\n|---|---|---|\n${rows.join("\n")}`,
     flagLine,

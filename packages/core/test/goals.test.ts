@@ -37,6 +37,17 @@ describe("the town goal tree (docs/goals.md, step 1)", () => {
     expect(() => createBuilding(world, { name: "Nowhere", goalId: "gl_nope" }, null)).toThrow(/not an active goal/);
   });
 
+  it("each attached building carries its desks: headcount and the desks seated now (mt_n25udpflus decision 3)", () => {
+    const { world, admin, tree, labGoal, otherGoal, other } = setup();
+    world.ops.updateBuilding(admin, other.id, { headcount: 3 });
+    const root = tree.tree();
+    const at = (id: string) => root.children.flatMap((c) => c.children).find((c) => c.id === id)!;
+    expect(at(otherGoal.id).buildings).toEqual([{ id: other.id, name: "Other", headcount: 3, inUse: world.layout.deskCount(other.id) }]);
+    const lab = at(labGoal.id).buildings[0]!;
+    expect(lab.headcount).toBe(world.buildings.require(LAB).headcount);
+    expect(lab.inUse).toBe(Math.min(lab.headcount, world.layout.deskCount(LAB)));
+  });
+
   it("a building is never unattached: null is refused, attach is admin/owner only and logged", () => {
     const { world, admin, mei, tree, otherGoal } = setup();
     expect(() => world.ops.updateBuilding(admin, LAB, { goalId: null as never })).toThrow();

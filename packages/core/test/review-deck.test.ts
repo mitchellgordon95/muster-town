@@ -41,6 +41,7 @@ describe("review deck (GET /api/review-deck)", () => {
     const deck = reviewDeck(world);
     expect(deck.slides[0]).toMatchObject({ kind: "town", key: "town", group: 0 });
     expect(deck.slides[0]!.text).toMatch(/# Review deck: the state of the town/);
+    expect(deck.slides[0]!.text).toMatch(/\*\*Desks by pillar:\*\* Fund \d+ · Steer \d+ · Trust \d+/);
     expect(deck.slides[0]!.text).toMatch(/\*\*Bank:\*\*/);
     expect(deck.slides[0]!.text).toMatch(/4 decisions below, oldest waiting/);
     expect(deck.slides[0]!.text).toMatch(/\| .* \| [🟢🟡🔴] \| .*on track|not started/);

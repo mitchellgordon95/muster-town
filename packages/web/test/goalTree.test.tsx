@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { GoalTreeNode } from "@muster-town/schema";
-import { archivedLine, buildingScope, canEditGoal, moveTargets, nodeGlance, pastDue, pathTo, proposalVerb, retireMoves, retirePlan, treeRows, visibleRows } from "../src/panels/goalTree";
+import { archivedLine, buildingScope, canEditGoal, deskWord, moveTargets, nodeGlance, pastDue, pathTo, proposalVerb, retireMoves, retirePlan, subtreeDesks, treeRows, visibleRows } from "../src/panels/goalTree";
 import { renderToStaticMarkup } from "react-dom/server";
 import type { GoalProposalView } from "../src/api";
 import { ProposalCard, RetireConfirm, proposalNode } from "../src/panels/GoalTreePanel";
@@ -15,7 +15,7 @@ function goal(id: string, parentId: string | null, over: Partial<GoalTreeNode> =
 /** root › fund › (a [workshop, kr1 open, kr2 met], b), join (owned by u_ann) › c [kr3 missed] */
 function sample(): GoalTreeNode {
   const ann = { goalId: "gl_join", userId: "u_ann", name: "Ann" };
-  const a = goal("gl_a", "gl_fund", { buildings: [{ id: "workshop", name: "Workshop" }], keyResults: [kr("kr1", "on-track", "2026-10-01"), kr("kr2", "met")] });
+  const a = goal("gl_a", "gl_fund", { buildings: [{ id: "workshop", name: "Workshop", headcount: 6, inUse: 2 }], keyResults: [kr("kr1", "on-track", "2026-10-01"), kr("kr2", "met")] });
   const b = goal("gl_b", "gl_fund");
   const c = goal("gl_c", "gl_join", { owner: ann, keyResults: [kr("kr3", "missed")] });
   const old = goal("gl_old", "gl_join", { status: "retired", owner: ann });
@@ -114,6 +114,18 @@ describe("goal History stamps (Feed)", () => {
 });
 
 describe("the goal tree editor's nodes (UX pass dc_yn8gl1rmyt)", () => {
+  it("desks roll up: a node's desks are the headcount of every building attached at it or below; the root's are the town's", () => {
+    const root = sample();
+    const fund = root.children[0]!;
+    fund.buildings = [{ id: "bank", name: "Bank", headcount: 3, inUse: 0 }];
+    expect(subtreeDesks(fund.children[0]!)).toEqual({ desks: 6, inUse: 2 });
+    expect(subtreeDesks(fund.children[1]!)).toEqual({ desks: 0, inUse: 0 });
+    expect(subtreeDesks(fund)).toEqual({ desks: 9, inUse: 2 });
+    expect(subtreeDesks(root)).toEqual({ desks: 9, inUse: 2 });
+    expect(subtreeDesks(root.children[1]!)).toEqual({ desks: 0, inUse: 0 });
+    expect([deskWord(1), deskWord(0), deskWord(6)]).toEqual(["1 desk", "0 desks", "6 desks"]);
+  });
+
   it("collapsing a goal hides everything under it, not the goal itself", () => {
     const root = sample();
     expect(visibleRows(root, false, new Set()).map((r) => r.node.id)).toEqual(treeRows(root, false).map((r) => r.node.id));
