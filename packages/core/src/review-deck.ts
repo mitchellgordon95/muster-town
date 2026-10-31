@@ -143,6 +143,13 @@ function grantSlide(world: World, g: GrantView, now: Date): Draft {
 
 const GOAL_ACTION: Record<string, string> = { "add-goal": "add a goal", "add-kr": "add a key result", edit: "edit", move: "move", retire: "retire a goal", promote: "promote a key result to a goal" };
 
+/** The words after a move or retire proposal's old text, as the goal editor's card says them (web goalTree proposalVerb). */
+export function goalProposalVerb(action: string, dest: string | null, hangs = false): string {
+  if (action === "move") return dest ? ` moves under ${dest}` : "";
+  if (action !== "retire") return "";
+  return dest ? ` is retired; its open key results and attached buildings go under ${dest}` : hangs ? " is retired, but no sibling is named for what hangs under it" : " is retired; nothing open hangs under it";
+}
+
 /** A manager's goal proposal (propose_goal / propose_key_result): Accept, Edit and accept, or Cut, as in the goal editor. */
 function goalProposalSlide(world: World, p: GoalProposalView): Draft {
   const tree = world.goalTree;
@@ -152,16 +159,23 @@ function goalProposalSlide(world: World, p: GoalProposalView): Draft {
   const parent = p.parentId ? tree.get(p.parentId)?.text : undefined;
   const where = node ? tree.ancestors(node).reverse().map((g) => g.text).join(" › ") : "the tree";
   const b = p.buildingId ? world.buildings.get(p.buildingId)?.name ?? p.buildingId : "a human";
+  // a retire names what moves, so accepting from the deck is as informed as from the editor (which also asks to confirm)
+  const impact = p.action === "retire" && p.targetId && tree.get(p.targetId) ? tree.retireImpact(p.targetId) : null;
+  const hangs = !!impact && impact.attached.length + impact.open.length > 0;
   const change = old && p.fields.text && p.fields.text !== old ? `"${oneLine(old)}" → "${oneLine(p.fields.text)}"`
-    : old ? `"${oneLine(old)}"${parent && (p.action === "move" || p.action === "retire") ? ` → under "${oneLine(parent)}"` : ""}`
+    : old ? `"${oneLine(old)}"${goalProposalVerb(p.action, parent ? `"${oneLine(parent)}"` : null, hangs)}`
     : `"${oneLine(p.fields.text ?? "")}"${parent ? ` under "${oneLine(parent)}"` : ""}`;
+  const dest = parent ? `"${oneLine(parent)}"` : "a sibling (none named: accepting is refused)";
+  const moves = impact && hangs
+    ? ` What moves under ${dest}: ${[...impact.attached.map((x) => `building ${x.name}`), ...impact.open.map((k) => `key result "${oneLine(k.text)}"`)].join("; ")}. A building is never archived here; it moves.`
+    : "";
   const extra = [p.fields.howToCheck ? `How to check: ${oneLine(p.fields.howToCheck)}` : "", p.fields.due ? `Due ${p.fields.due}` : ""].filter(Boolean).join(" · ");
   const owner = tree.ownerOf(node ?? ROOT_GOAL_ID);
   return {
     kind: "goal-proposal", group: 4, itemId: p.id, buildingId: p.buildingId, since: p.createdAt, history: meetingLine(world, p.sourceDocIds),
     title: `${b}: goal proposal — ${GOAL_ACTION[p.action] ?? p.action}`,
     body: card({
-      whatItIs: `${p.proposedByName} proposes to ${GOAL_ACTION[p.action] ?? p.action}: ${change} (${p.id}).${p.outsideScope ? " Outside its building's subtree." : ""} Why: ${oneLine(p.why) || "_not given_"}`,
+      whatItIs: `${p.proposedByName} proposes to ${GOAL_ACTION[p.action] ?? p.action}: ${change} (${p.id}).${p.outsideScope ? " Outside its building's subtree." : ""} Why: ${oneLine(p.why) || "_not given_"}${moves}`,
       whatYoudSee: `In the Goal tree at ${where}.${extra ? ` ${extra}.` : ""}`,
       picture: null,
       yourCall: `Accept, edit and accept, or cut (a note goes back to the proposer). Routed to ${owner.userId ? world.users.get(owner.userId)?.name ?? owner.userId : "the town admins"}.`,

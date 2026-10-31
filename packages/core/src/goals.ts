@@ -243,14 +243,22 @@ export class Goals {
    * Retire a goal (and everything under it). Its open key results (with their grants) and the buildings attached under it
    * move to `moveTo`, a sibling; with any of them left and no sibling picked, it is refused, so nothing is orphaned.
    */
+  /** What retiring a goal moves: the open key results and the buildings attached anywhere in its subtree. */
+  retireImpact(id: string): { open: KeyResult[]; attached: Building[] } {
+    const sub = this.subtreeIds(id);
+    return {
+      open: this.world.keyResults.where("goalId IS NOT NULL").filter((k) => sub.has(k.goalId!) && isOpenKr(k)),
+      attached: this.world.buildings.all().filter((b) => sub.has(this.attachmentOf(b))),
+    };
+  }
+
   retire(actor: Actor, id: string, input: RetireGoalInput = {}): Goal {
     const inp = RetireGoalInput.parse(input);
     const g = this.requireActive(id);
     if (g.id === ROOT_GOAL_ID) throw badRequest("The root can't be retired.");
     this.requireEdit(actor, g.id);
     const sub = this.subtreeIds(g.id);
-    const open = this.world.keyResults.where("goalId IS NOT NULL").filter((k) => sub.has(k.goalId!) && isOpenKr(k));
-    const attached = this.world.buildings.all().filter((b) => sub.has(this.attachmentOf(b)));
+    const { open, attached } = this.retireImpact(g.id);
     let to: Goal | undefined;
     if (inp.moveTo) {
       to = this.requireActive(inp.moveTo);
