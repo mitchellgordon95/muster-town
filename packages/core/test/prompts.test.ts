@@ -48,6 +48,24 @@ describe("no forced next step", () => {
     expect(after).not.toContain(r.id);
     expect(after).toContain("reports decided since: 1");
   });
+  it("the rollup rule is 'something new is live and decided, at least 4 h apart' and names the live commit (1:1 mt_7mhv73quu3)", async () => {
+    const { world, by, admin } = seededWorld();
+    const mei = by("Mei");
+    const b = world.ops.updateBuilding(admin, "carbon-cycle", { managerAgentId: mei.id });
+    const now = Date.parse("2026-10-31T12:00:00Z");
+    expect(managerIntrayBlock(world, b, mei.id, now)).toContain("Live: unknown (no runtime).");
+    world.host.commit = "fa73e88aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
+    world.host.startedAt = "2026-10-31T07:12:00.000Z";
+    const block = managerIntrayBlock(world, b, mei.id, now);
+    expect(block).toMatch(/Roll up when something new is live .* and the reports that cover it are decided, or when a covered report hit an escalation criterion; keep at least 4 h since your last rollup/);
+    expect(block).not.toMatch(/24 h/);
+    expect(block).toContain("Live: fa73e88 since 07:12Z 2026-10-31, 4h ago (no rollup yet).");
+    const prov = { sourceIds: [(await world.verbs.submit_report(by("Noor"), { title: "x", body: "## What I did\nx", verdict: "stop" })).id], urls: [] };
+    await world.verbs.submit_report(mei, { title: "Rollup", body: "## Shipped\nNone.\n## Decided\nx\n## Key results\nx\n## Needs from Mitchell\nNothing needed.", verdict: "stop", rollup: true, provenance: prov });
+    expect(managerIntrayBlock(world, b, mei.id, now)).toContain("(already live at your last rollup).");
+    world.host.startedAt = new Date(Date.now() + 60_000).toISOString();
+    expect(managerIntrayBlock(world, b, mei.id, now)).toContain("(newer than your last rollup).");
+  }, 30_000);
   it("the team-lead session prompt keeps the manager to decisions and rollups: every task becomes an assignment, independent ones on forks in parallel, no reassign", () => {
     const { world } = seededWorld();
     const b = world.buildings.get("carbon-cycle")!;
@@ -60,7 +78,8 @@ describe("no forced next step", () => {
     expect(p).toMatch(/The default is to delegate; assign a task to yourself/);
     expect(p).toMatch(/small, blocking, or needs your manager permissions/);
     expect(p).toMatch(/lands back in this in-tray/);
-    expect(p).toMatch(/One rollup per day, or sooner on escalation/);
+    expect(p).toMatch(/Roll up when something new is live and decided \(at least 4 h apart\), or sooner on escalation/);
+    expect(p).not.toMatch(/One rollup per day/);
     expect(p).not.toMatch(/never your own next session/);
     const block = managerIntrayBlock(world, b, world.agents.first("name = 'Mei'")!.id);
     expect(block).toMatch(/Your own work reports .* land here too/);
