@@ -2,7 +2,7 @@ import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, test } from "vitest";
-import { NO_KEY_HOLD } from "@muster-town/core";
+import { HOSTED_KEY_ONLY_HOLD } from "@muster-town/core";
 import { HOSTED_MAX_RUNNING } from "../src/index.ts";
 import { callVerb, init, result, setup, TEST_TOKEN, type FakeSession } from "./helpers.ts";
 
@@ -43,10 +43,10 @@ describe("hosted runtime", () => {
     const noor = by("Noor");
     const asg = world.ops.createWork(null, noor.id, { title: "Look around" });
     expect(world.budget.canStart(noor.id, world.assignments.get(asg.id)!)).toBe(false);
-    expect(world.assignments.get(asg.id)!.heldReason).toBe(NO_KEY_HOLD);
+    expect(world.assignments.get(asg.id)!.heldReason).toBe(HOSTED_KEY_ONLY_HOLD);
     await runtime.tickOnce();
     await runtime.whenIdle();
-    await expect(runtime.runWorkSession(noor.id, asg.id)).rejects.toThrow(NO_KEY_HOLD);
+    await expect(runtime.runWorkSession(noor.id, asg.id)).rejects.toThrow(HOSTED_KEY_ONLY_HOLD);
     expect(sdk.sessions).toHaveLength(0);
     expect(world.assignments.get(asg.id)!.status).toBe("pending");
     expect(world.agents.get(noor.id)!.status).toBe("idle");
@@ -70,6 +70,35 @@ describe("hosted runtime", () => {
     expect(all).not.toContain(HOST_KEY);
     expect(all).not.toContain(HOST_TOKEN);
     expect(all).not.toContain("/root/.claude");
+  });
+
+  // Mitchell, 1:1 mt_p3ge56kg03: a hosted collective never runs on a subscription (Anthropic's subscription terms)
+  test("a stray subscription input: still held, says to add an API key; nothing reaches the SDK", async () => {
+    const { world, runtime, sdk, by, seed } = hosted();
+    world.host.hosted = false; // a row from before the API refused it (the API and Bank.addInput refuse one in a hosted World)
+    world.bank.addInput(seed.admin.id, { label: "Stray Max plan", source: "subscription", model: "m", tokens: 1_000_000, recurrence: "daily", weeklyCapTokens: 7_000_000, token: "sk-ant-oat01-stray" } as never);
+    world.host.hosted = true;
+    const noor = by("Noor");
+    const asg = world.ops.createWork(null, noor.id, { title: "Look around" });
+    expect(world.budget.canStart(noor.id, world.assignments.get(asg.id)!)).toBe(false);
+    expect(world.assignments.get(asg.id)!.heldReason).toBe(HOSTED_KEY_ONLY_HOLD);
+    await expect(runtime.runWorkSession(noor.id, asg.id)).rejects.toThrow(HOSTED_KEY_ONLY_HOLD);
+    expect(sdk.sessions).toHaveLength(0);
+  });
+
+  test("a stray subscription input beside the owner's key: the session runs on the key, no OAuth token in its env", async () => {
+    const { world, runtime, sdk, by, seed, addKey } = hosted();
+    world.host.hosted = false;
+    world.bank.addInput(seed.admin.id, { label: "Stray Max plan", source: "subscription", model: "m", tokens: 1_000_000, recurrence: "daily", weeklyCapTokens: 7_000_000, token: "sk-ant-oat01-stray" } as never);
+    world.host.hosted = true;
+    addKey();
+    const noor = by("Noor");
+    const session = await runtime.runWorkSession(noor.id, world.ops.createWork(null, noor.id, { title: "Look around" }).id);
+    expect(session.funding).toBe("api-key");
+    const env = sdk.sessions[0]!.options.env as Record<string, string>;
+    expect(env.ANTHROPIC_API_KEY).toBe(OWNER_KEY);
+    expect(env.CLAUDE_CODE_OAUTH_TOKEN).toBeUndefined();
+    expect(JSON.stringify(sdk.sessions.map((s) => s.options))).not.toContain("sk-ant-oat01-stray");
   });
 
   test("one session at a time, and no redeploy of the host", () => {

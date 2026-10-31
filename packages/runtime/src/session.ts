@@ -245,7 +245,7 @@ export function townOptions(ctx: Ctx, spec: SessionSpec, credential: Credential)
     allowedTools: [...townTools, ...(spec.web ? WEB_TOOLS : []), ...readTools],
     disallowedTools: [...DISALLOWED_TOOLS.filter((t) => !readTools.includes(t)), ...(spec.web ? [] : WEB_TOOLS), ...TOWN_TOOLS.filter((t) => !townTools.includes(t))],
     settingSources: [],
-    env: sessionEnv(credential, ctx.env),
+    env: sessionEnv(credential, ctx.env, !!ctx.hosted || !!ctx.world?.host?.hosted),
     ...(spec.code ? { cwd: spec.code.dir, hooks: { PreToolUse: codeGuard(spec.code.dir) } } : {}),
     ...(spec.resume ? { resume: spec.resume } : {}),
   };

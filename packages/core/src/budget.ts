@@ -1,5 +1,5 @@
 import { DonateInput, type TokenCounts, type Agent, type Allocation, type AllocationAuth, type Assignment, type Building, type BuildingBudget, type ServerMessage } from "@muster-town/schema";
-import { type Bank, type Booked, type Credential, NO_TOKEN_HOLD, NoCredential, booked } from "./bank.ts";
+import { type Bank, type Booked, type Credential, HOSTED_KEY_ONLY_HOLD, NO_TOKEN_HOLD, NoCredential, booked } from "./bank.ts";
 import { badRequest } from "./errors.ts";
 import type { EventLog } from "./events.ts";
 import type { Repos } from "./store.ts";
@@ -107,9 +107,18 @@ export class Budget {
    * subscription is capped (a `bank.cap` whose reset is still ahead) a subscription-funded session runs on the failover
    * instead (`failoverFunding`, when the Bank owns a key: a donor-key allocation's or the api-key input's own) and is
    * booked to it; there is no second key inside a session. Throws `NoCredential` when the Bank holds nothing that can
-   * run it: the host env is never consulted.
+   * run it: the host env is never consulted. A hosted collective never runs on a subscription (Anthropic's subscription
+   * terms; Mitchell, 1:1 mt_p3ge56kg03): where a subscription would pay it runs on the Bank's API key, else it throws
+   * `NoCredential(HOSTED_KEY_ONLY_HOLD)`, even when a stray subscription input exists.
    */
   fundingFor(buildingId: string, opts: { grant?: { id: string; fundedWith: string | null } | null; stream?: { id: string } | null; now?: Date } = {}): Funding {
+    const f = this.pickFunding(buildingId, opts);
+    // the last word on every path (failover included): a hosted World's session never carries a subscription token
+    if (this.bank.hosted() && (f.auth === "subscription" || f.credential.kind === "subscription")) throw new NoCredential(HOSTED_KEY_ONLY_HOLD);
+    return f;
+  }
+
+  private pickFunding(buildingId: string, opts: { grant?: { id: string; fundedWith: string | null } | null; stream?: { id: string } | null; now?: Date }): Funding {
     const now = opts.now ?? new Date();
     const bank = this.bank;
     const gi = bank.grantKeyInput(opts.grant, now);
@@ -122,6 +131,12 @@ export class Budget {
       // capped right now: the next session is the failover (the Bank's key), not the subscription's token
       const failover = bank.capState(now).cappedAt ? this.failoverFunding(buildingId, now) : null;
       if (failover) return failover;
+      if (bank.hosted()) {
+        // a hosted collective: the Bank's API key where the subscription would pay, never a subscription token
+        const key = bank.apiKeyCredential();
+        if (key) return { allocationId, auth: "api-key", credential: key };
+        throw new NoCredential(HOSTED_KEY_ONLY_HOLD);
+      }
       const credential = bank.subscriptionCredential();
       if (!credential) throw new NoCredential(this.repos.bankInputs.first("source = 'subscription' AND cancelledAt IS NULL", []) ? NO_TOKEN_HOLD : undefined);
       return { allocationId, auth: "subscription", credential };
