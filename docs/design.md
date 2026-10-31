@@ -182,7 +182,7 @@ Decisions:
 
 ### The manager and its forks (step 6; forks are the only mode since 1:1 mt_wngibcr98b)
 - The manager's "## Your team" lists live forks and the building queue (pending, held, waiting) instead of per-resident queues, and routes work by topic pages: `assign` with no agentId, pages ≤ 3. Counters that mean people (Join, the building's resident count, assignee pickers) count named residents only (`forkOf IS NULL`), so ghosts don't inflate them.
-- Ghost outline tint = a hue hashed from the building id (buildings have no stored colour). Retired forks are not in the snapshot; author lists use `GET /api/agents/:id`. The fork panel and the manager's Forks tab show what a fork did.
+- Ghost outline tint = a hue hashed from the building id (buildings have no stored colour). Retired forks are not in the snapshot; author lists use `GET /api/agents/:id`. The fork panel (its Details tab) and the manager's Helpers tab show what a fork did; every agent panel opens on a plain "Now: …" line.
 
 ## Design review 6 — the waterfall (2026-10-24, town hall, Mitchell + Pix)
 
