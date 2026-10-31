@@ -15,6 +15,7 @@ import { actOrigin } from "../origin.ts";
 import { ftsQuery } from "../text.ts";
 import { whereOf } from "../table.ts";
 import { nowIso } from "../util.ts";
+import { linkPostmortem } from "../postmortems.ts";
 import { describeWait, validateWait } from "../waits.ts";
 import type { World } from "../world.ts";
 import { TOWN_HALL_ID } from "../world/layout.ts";
@@ -330,6 +331,7 @@ export async function submit_report(world: World, me: Agent, input: VerbIn<"subm
     // a cancelled assignment (stopped/dismissed mid-session) stays cancelled; the report still lands
     const asg = assignmentId ? world.assignments.get(assignmentId) : undefined;
     if (asg && (asg.status === "pending" || asg.status === "active")) setAssignmentStatus(world, asg.id, "done", { reportId: doc.id });
+    linkPostmortem(world, asg, doc);
     if (session) world.sessions.upsert({ ...session, reportId: doc.id });
     world.agents.patch(me.id, { currentAssignmentId: null });
     let parked: { assignmentId: string; waitingOn: string } | null = null;

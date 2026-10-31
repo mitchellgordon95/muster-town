@@ -1075,7 +1075,7 @@ export interface GoalTreeNode {
   id: string; parentId: string | null; text: string; status: "active" | "retired"; ownerId: string | null; retiredNote?: string;
   owner: { goalId: string; userId: string | null; name: string };
   buildings: { id: string; name: string }[];
-  keyResults: { id: string; text: string; howToCheck: string; status: string; due: string | null; archivedAt: string | null; buildingId: string; grantId: string | null; underReviewSince?: string | null }[];
+  keyResults: { id: string; text: string; howToCheck: string; status: string; due: string | null; archivedAt: string | null; buildingId: string; grantId: string | null; underReviewSince?: string | null; postmortemDocId?: string | null }[];
   children: GoalTreeNode[];
 }
 /**
@@ -1105,6 +1105,24 @@ export interface GoalSpend {
   /** the subtree's key results marked met or missed inside the window */
   results: { id: string; text: string; status: "met" | "missed"; at: string }[];
 }
+/** One card of the kanban (docs/goals.md "Kanban: the queue as a board", build step 6): an assignment on a building's board. */
+export interface QueueCard {
+  id: string; title: string; lane: string; grantId: string | null; keyResultId: string | null;
+  agentId: string; agentName: string; status: string; createdAt: string; updatedAt: string;
+  /** Held: why the scheduler isn't starting it ("waits for a redeploy with 02f1bbe", "grant at checkpoint") */
+  heldReason: string | null;
+  /** Running: its live session's adjusted output tokens so far */
+  tokens: number | null;
+  /** Done: its report */
+  reportId: string | null;
+}
+/** One building's board: four columns, and its desks (the WIP limit: `headcount`). */
+export interface QueueLane {
+  buildingId: string; buildingName: string; desks: number;
+  queued: QueueCard[]; held: QueueCard[]; running: QueueCard[]; done: QueueCard[];
+}
+/** GET /api/buildings/:id/queue (one lane) and GET /api/goals/:id/queue (a lane per building attached in the subtree): read-only. */
+export interface QueueBoard { lanes: QueueLane[]; at: string }
 const Due = z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "a date YYYY-MM-DD");
 /** POST /api/goals: a child goal (`goals.edit` on the parent). */
 export const CreateGoalInput = z.object({

@@ -735,3 +735,16 @@ div.spend-row > .muted { font-size: 11.5px; }
 .goal-spend-table { width: 100%; border-collapse: collapse; }
 .goal-spend-table th, .goal-spend-table td { text-align: left; padding: 2px 4px; border-bottom: 1px solid rgba(255,255,255,.08); }
 .intray-view { display: inline-flex; gap: 4px; margin-left: 8px; }
+/* the Queue tab (kanban, docs/goals.md build step 6): four columns per building swimlane */
+.queue-board { display: flex; flex-direction: column; gap: 10px; font-size: 12px; }
+.queue-lane-name { font-weight: 600; margin-bottom: 4px; }
+.queue-cols { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 6px; }
+.queue-col { display: flex; flex-direction: column; gap: 4px; padding: 4px; border-radius: 4px; background: var(--panel-2); min-height: 40px; }
+.queue-col.full .queue-col-head { color: var(--warn); }
+.queue-col-head { font-weight: 600; font-size: 11px; }
+.queue-card { padding: 4px 6px; border-radius: 4px; background: var(--panel); border: 1px solid var(--line); overflow-wrap: anywhere; }
+.queue-card.cancelled { opacity: 0.6; }
+.queue-card-title { line-height: 1.25; }
+.queue-card-meta { display: flex; flex-wrap: wrap; gap: 4px; align-items: center; margin-top: 2px; font-size: 11px; }
+.queue-card-held { font-size: 11px; font-style: italic; }
+.goal-postmortem { font-size: 11px; margin-left: 4px; }

@@ -11,6 +11,7 @@ import type { Actor } from "./ops.ts";
 import { DIRECTED } from "./lanes.ts";
 import { holderOf } from "./permissions.ts";
 import { BUDGET_POLICY } from "./policy.ts";
+import { queuePostmortem } from "./postmortems.ts";
 import { whereOf } from "./table.ts";
 import { newId, nowIso } from "./util.ts";
 import type { World } from "./world.ts";
@@ -730,6 +731,8 @@ Key result (on the building goal): ${kr}${k ? "; it has no funded grant now, so 
       if (judged) {
         if (!this.world.permissions.can(actor, "building.fund", kr.buildingId) && !(kr.goalId && this.world.goalTree.owns(actor, kr.goalId))) throw forbidden("building.fund");
       } else if (!this.canManage(actor, kr.buildingId)) throw forbidden("building.manage");
+      // a human marking it missed says why: the line is the postmortem's source (docs/goals.md "Postmortems on missed KRs")
+      if (inp.status === "missed" && kr.status !== "missed" && actor.kind === "human" && !inp.note.trim()) throw badRequest("Say why it was missed (note): the line files the postmortem's source.");
     }
     const by = actor ? holderOf(actor) : null;
     const now = nowIso();
@@ -738,6 +741,7 @@ Key result (on the building goal): ${kr}${k ? "; it has no funded grant now, so 
     const status = inp.status ? { status: inp.status, statusNote: inp.note, statusBy: by?.id ?? "system", ...archive } : {};
     const tree = moved ? { objectiveId: inp.objectiveId ?? null, goalId: inp.objectiveId ?? this.world.goalTree.attachmentOf(kr.buildingId) } : {};
     const next = this.world.keyResults.upsert({ ...kr, ...words, ...(edited && { editedBy: by?.id ?? null }), ...tree, ...status, updatedAt: now });
+    if (inp.status === "missed" && kr.status !== "missed") queuePostmortem(this.world, actor, next, inp.note);
     this.world.events.append({
       type: "kr.updated", agentId: actor?.id ?? null, buildingId: kr.buildingId, text: inp.status ? `Key result ${inp.status}: ${next.text}` : edited ? `Key result edited: ${next.text}` : `Key result moved: ${next.text}`,
       payload: {

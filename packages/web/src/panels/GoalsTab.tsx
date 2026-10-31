@@ -74,8 +74,10 @@ export function GoalsTab({ b }: { b: SnapshotBuilding }) {
 function GoalRow({ n, kr, word, canFund, canDelete, onChanged }: { n: number; kr: GoalKeyResult; word: KrGrantWord; canFund: boolean; canDelete: boolean; onChanged: () => void }) {
   const judged = kr.status === "met" || kr.status === "missed";
   const mark = (status: KeyResultStatus) => async () => {
-    if (!window.confirm(`Mark key result ${n} ${status}?`)) return;
-    await api().updateKeyResult(kr.id, { status });
+    // missed asks why: the line is filed as the human's note and queues one postmortem (docs/goals.md "Postmortems on missed KRs")
+    const why = status === "missed" ? window.prompt(`Why was key result ${n} missed? One line: it queues a postmortem on the building.`)?.trim() : "";
+    if (status === "missed" ? !why : !window.confirm(`Mark key result ${n} ${status}?`)) return;
+    await api().updateKeyResult(kr.id, { status, note: why ?? "" });
     store.toast(`Key result ${n} is ${status}`, "ok");
     onChanged();
   };
@@ -89,6 +91,7 @@ function GoalRow({ n, kr, word, canFund, canDelete, onChanged }: { n: number; kr
       </div>
       <div className="muted kr-check">How to check: {kr.howToCheck}</div>
       {kr.statusNote ? <div className="muted kr-check">{krStatusLabel(kr.status)}: {kr.statusNote}</div> : null}
+      {kr.status === "missed" ? <div className="muted kr-check">{kr.postmortemDocId ? <button className="link" onClick={() => void openDocLink(kr.postmortemDocId!)}>Postmortem →</button> : "Postmortem pending: queued on the building that worked on it."}</div> : null}
       {(canFund && !judged) || canDelete ? (
         <div className="actions">
           {canFund && !judged ? <><Act small tone="ok" run={mark("met")}>Mark met</Act><Act small tone="warn" run={mark("missed")}>Mark missed</Act></> : null}

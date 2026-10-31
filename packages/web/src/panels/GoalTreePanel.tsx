@@ -1,7 +1,7 @@
 /**
  * The Town Hall goal editor (docs/goals.md "The Town Hall goal editor", build step 3): the whole town goal tree, a
  * node's detail (edit, add a goal or a dated key result, move, owner, retire with move-to-sibling, mark met/missed;
- * History and Subtree tabs) and the managers' open proposals (Accept, Edit and accept, Cut). Humans with `goals.edit`
+ * History, Subtree, Spend and Queue tabs; marking one missed asks why and queues its postmortem) and the managers' open proposals (Accept, Edit and accept, Cut). Humans with `goals.edit`
  * at a node (admins anywhere, an owner in their subtree) edit it; everyone else reads the same tree.
  */
 import { useEffect, useState, type ReactNode } from "react";
@@ -10,6 +10,8 @@ import { api, type GoalProposalView } from "../api";
 import { store, useTown } from "../state";
 import { Glyph, PanelShell } from "./PanelShell";
 import { GoalSpendTab } from "./GoalSpendTab";
+import { openDocLink } from "./Markdown";
+import { QueueTab } from "./QueueTab";
 import { krStatusLabel, krTone } from "./keyResults";
 import { allBuildings, archivedLine, buildingScope, canEditGoal, findGoal, isArchived, moveTargets, pastDue, pathTo, retirePlan, subtreeIds, treeRows, type TreeKr } from "./goalTree";
 import { Act, Empty, ErrorLine, Feed, Field, Loading, Pill, Section, Tabs, nameOf, useLoad } from "./ui";
@@ -99,6 +101,9 @@ function KrLines({ krs, actions }: { krs: TreeKr[]; actions?: (k: TreeKr) => Rea
       {k.due ? <span className={`goal-due ${pastDue(k, today()) ? "late" : ""}`} title={pastDue(k, today()) ? "Past due" : "Due"}>{k.due}</span> : null}
       {k.grantId ? <button className="link goal-grant" onClick={() => store.open({ kind: "grant", id: k.grantId! })}>funded</button> : !isArchived(k) ? <span className="muted goal-grant">open</span> : null}
       <span className="goal-kr-text" title={k.howToCheck ? `How to check: ${k.howToCheck}` : undefined}>{k.text}</span>
+      {k.status === "missed" ? k.postmortemDocId
+        ? <button className="link goal-postmortem" onClick={() => void openDocLink(k.postmortemDocId!)} title="The postmortem: what we planned, what happened, what we'd do differently">postmortem</button>
+        : <span className="muted goal-postmortem" title="A postmortem assignment is queued on the building; its report links here">postmortem pending</span> : null}
       {actions?.(k)}
     </li>
   );
@@ -122,6 +127,8 @@ function GoalDetail({ root, node, me, onSelect, onDone }: { root: GoalTreeNode; 
   const open = changes.data?.[0] ?? null;
   const done = () => { setForm(""); onDone(); };
   const mark = (k: TreeKr, status: KeyResultStatus) => api().updateKeyResult(k.id, { status }).then(onDone);
+  // marking missed (or archiving an under-review one) asks for a line on why: it files the postmortem's source
+  const [missing, setMissing] = useState<{ k: TreeKr; archive: boolean } | null>(null);
   return (
     <div className="goal-detail">
       <div className="goal-path">
@@ -154,16 +161,17 @@ function GoalDetail({ root, node, me, onSelect, onDone }: { root: GoalTreeNode; 
       {form === "owner" ? <OwnerForm node={node} me={me} onDone={done} /> : null}
       {form === "retire" ? <RetireForm root={root} node={node} onDone={() => { done(); onSelect(node.parentId); }} /> : null}
       <Section title="Key results">
-        {node.keyResults.length ? <KrLines krs={node.keyResults} actions={can ? (k) => isArchived(k) ? null : k.underReviewSince ? <ReviewActs root={root} k={k} onDone={onDone} /> : <span className="goal-kr-acts">
+        {node.keyResults.length ? <KrLines krs={node.keyResults} actions={can ? (k) => isArchived(k) ? null : k.underReviewSince ? <ReviewActs root={root} k={k} onDone={onDone} onArchive={() => setMissing({ k, archive: true })} /> : <span className="goal-kr-acts">
           <Act small tone="ok" run={() => mark(k, "met")} title="A human marks it met: it archives under this goal">Met</Act>
-          <Act small tone="bad" run={() => mark(k, "missed")} title="A human marks it missed: it archives under this goal">Missed</Act>
+          <button className="btn sm bad" onClick={() => setMissing({ k, archive: false })} title="A human marks it missed: it archives under this goal and a postmortem is queued">Missed</button>
         </span> : undefined} /> : <Empty>No key results under this goal{can ? ": add a dated one above." : "."}</Empty>}
+        {missing ? <MissedForm key={missing.k.id} k={missing.k} archive={missing.archive} onCancel={() => setMissing(null)} onDone={() => { setMissing(null); onDone(); }} /> : null}
       </Section>
       {node.children.length ? <Section title="Goals under it">
         <ul className="goal-tree">{node.children.map((c) => <li key={c.id} className="goal-row"><button className="link" onClick={() => onSelect(c.id)}>{c.text}</button></li>)}</ul>
       </Section> : null}
-      <Tabs tabs={[{ id: "History", label: "History" }, { id: "Subtree", label: "Subtree" }, { id: "Spend", label: "Spend" }]} active={tab} onChange={setTab} />
-      {tab === "History" ? <History id={node.id} /> : tab === "Spend" ? <GoalSpendTab goalId={node.id} /> : <Subtree node={node} />}
+      <Tabs tabs={[{ id: "History", label: "History" }, { id: "Subtree", label: "Subtree" }, { id: "Spend", label: "Spend" }, { id: "Queue", label: "Queue" }]} active={tab} onChange={setTab} />
+      {tab === "History" ? <History id={node.id} /> : tab === "Spend" ? <GoalSpendTab goalId={node.id} /> : tab === "Queue" ? <QueueTab goalId={node.id} /> : <Subtree node={node} />}
     </div>
   );
 }
@@ -199,7 +207,7 @@ function ChangeForm({ node, onDone }: { node: GoalTreeNode; onDone: () => void }
 }
 
 /** An under-review key result (a reorg): Keep (clears the flag), Move (to another goal), or Archive (as missed). */
-function ReviewActs({ root, k, onDone }: { root: GoalTreeNode; k: TreeKr; onDone: () => void }) {
+function ReviewActs({ root, k, onDone, onArchive }: { root: GoalTreeNode; k: TreeKr; onDone: () => void; onArchive: () => void }) {
   const [to, setTo] = useState("");
   const targets = treeRows(root, false).map((r) => r.node).filter((g) => !g.keyResults.some((x) => x.id === k.id));
   return (
@@ -210,8 +218,25 @@ function ReviewActs({ root, k, onDone }: { root: GoalTreeNode; k: TreeKr; onDone
         {targets.map((g) => <option key={g.id} value={g.id}>{clip(g.text, 50)}</option>)}
       </select>
       {to ? <Act small run={() => api().reviewKeyResult(k.id, { action: "move", goalId: to }).then(onDone)}>Move</Act> : null}
-      <Act small tone="bad" run={() => api().reviewKeyResult(k.id, { action: "archive" }).then(onDone)} title="Archive it as missed; its grant becomes a Cut candidate">Archive</Act>
+      <button className="btn sm bad" onClick={onArchive} title="Archive it as missed; its grant becomes a Cut candidate and a postmortem is queued">Archive</button>
     </span>
+  );
+}
+
+/** Missed (docs/goals.md "Postmortems on missed KRs"): the why-line is filed as the human's note, which queues one postmortem on the building. */
+function MissedForm({ k, archive, onCancel, onDone }: { k: TreeKr; archive: boolean; onCancel: () => void; onDone: () => void }) {
+  const [why, setWhy] = useState("");
+  const run = () => (archive ? api().reviewKeyResult(k.id, { action: "archive", note: why.trim() }) : api().updateKeyResult(k.id, { status: "missed", note: why.trim() })).then(onDone);
+  return (
+    <div className="goal-form">
+      <Field label={`Why was "${clip(k.text, 60)}" missed?`} hint="One line. It is filed as your note, and it queues one small postmortem on the building that worked on it; the report links back here.">
+        <textarea rows={2} maxLength={2000} value={why} onChange={(e) => setWhy(e.target.value)} />
+      </Field>
+      <span className="goal-kr-acts">
+        <Act small tone="bad" disabled={!why.trim()} run={run}>{archive ? "Archive as missed" : "Mark missed"}</Act>
+        <button className="btn sm" onClick={onCancel}>Cancel</button>
+      </span>
+    </div>
   );
 }
 

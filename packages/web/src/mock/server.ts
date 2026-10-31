@@ -1,7 +1,7 @@
 /** `Api` implemented against the in-memory Sim. Same interface as HttpApi, so every panel works offline. */
 import type { AccessRequest, AccessRequestView, Agent, Assignment, AuthMe, BlockedAssignment, BlockedBy, BuildingStats, Schedule, Building, Doc, Event, Meeting, Membership, RedeployLive, ReviewDeck, ReviewSlide } from "@muster-town/schema";
 import { NEW_LAB_LOT, REVIEW_DECK_ID, desksForLot, parseDeck } from "@muster-town/schema";
-import { BACKFILL, BOARD_TYPES, KPI_FRAMING, DEFAULT_POOL_ID, ZERO_TOKENS, addTokens, backfillFamily, splitRaw, type BankPool, type GoalTreeNode, type GoalSpend } from "@muster-town/schema";
+import { BACKFILL, BOARD_TYPES, KPI_FRAMING, DEFAULT_POOL_ID, ZERO_TOKENS, addTokens, backfillFamily, splitRaw, type BankPool, type GoalTreeNode, type GoalSpend, type QueueBoard } from "@muster-town/schema";
 import type { Api, AgentDetail, AllocationRow, Bank, Budget, Finance, FinanceFly, FinancePools, FinanceSources, FinanceSpend, Cabinet, CabinetQuery, DocQuery, EventQuery, In, LayoutPreview, MessageResult, RoomLayout, RequestAction, Snapshot, Socket, SocketHandlers, ThreadMessage, WriteDocInput } from "../api";
 import { ApiError } from "../api";
 import type { PinSkillInput, PutSecretInput, SecretView, SkillPinView, SkillView } from "@muster-town/schema";
@@ -117,6 +117,12 @@ export class MockApi implements Api {
     const z = { grant: 0, exploration: 0, directed: 0, none: 0 };
     const now = Date.now();
     return { goalId: id, days, from: new Date(now - days * 86_400_000).toISOString(), to: new Date(now).toISOString(), total: 0, sessions: 0, byLane: z, series: [], seriesUnit: "day", byBuilding: [], byKeyResult: [], results: [] };
+  }
+  async goalQueue(): Promise<QueueBoard> { await wait(); return { lanes: [], at: new Date().toISOString() }; }
+  async buildingQueue(id: string): Promise<QueueBoard> {
+    await wait();
+    const b = this.sim.buildings.find((x) => x.id === id);
+    return { lanes: b ? [{ buildingId: b.id, buildingName: b.name, desks: b.headcount, queued: [], held: [], running: [], done: [] }] : [], at: new Date().toISOString() };
   }
   async goalProposals() { await wait(); return []; }
   async createGoal(): Promise<never> { throw new ApiError("Editing the goal tree needs the real server.", "unsupported", 501); }
