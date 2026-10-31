@@ -4,7 +4,7 @@
  */
 const MEDIA_MD_RE = /!\[([^\]\n]*)\]\(((?:https?:\/\/[^\s)]+)?\/api\/media\/mf_[a-z0-9]{10}\.(png|jpg|gif|webp|webm|mp4))\)/g;
 
-export interface BodyMedia { url: string; alt: string; video: boolean }
+interface BodyMedia { url: string; alt: string; video: boolean }
 
 /** The town-hosted media a doc body cites, in order. */
 export function mediaOf(body: string): BodyMedia[] {

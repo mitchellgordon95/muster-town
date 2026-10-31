@@ -10,7 +10,7 @@ import { join } from "node:path";
 import { townEnv } from "@muster-town/schema";
 
 export const DEFAULT_URL = "http://localhost:4321";
-export const DEFAULT_PROFILE = "default";
+const DEFAULT_PROFILE = "default";
 
 export class CliError extends Error {
   constructor(message: string, readonly exitCode = 1) { super(message); }
@@ -18,7 +18,7 @@ export class CliError extends Error {
 
 const envHome = () => townEnv("HOME")?.trim() || null;
 /** Where profiles are written. */
-export const profileDir = () => envHome() || join(homedir(), ".muster-town");
+const profileDir = () => envHome() || join(homedir(), ".muster-town");
 /** The pre-rename directory, read when a profile isn't in profileDir() (none when the home is set by env). */
 const oldProfileDir = () => (envHome() ? null : join(homedir(), ".agent-town"));
 
@@ -28,14 +28,14 @@ function newProfilePath(name: string): string {
 }
 
 /** The profile's file: in profileDir(), or in the old ~/.agent-town if only that one exists. */
-export function profilePath(name: string): string {
+function profilePath(name: string): string {
   const p = newProfilePath(name);
   const old = oldProfileDir();
   return !existsSync(p) && old && existsSync(join(old, `${name}.env`)) ? join(old, `${name}.env`) : p;
 }
 
 /** Parse a dotenv-style file: KEY=VALUE lines, optional quotes and `export`, # comments. */
-export function parseEnv(text: string): Record<string, string> {
+function parseEnv(text: string): Record<string, string> {
   const out: Record<string, string> = {};
   for (const raw of text.split(/\r?\n/)) {
     const line = raw.trim();

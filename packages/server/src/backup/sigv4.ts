@@ -7,7 +7,7 @@ import { createHash, createHmac } from "node:crypto";
 
 export interface SigV4Credentials { accessKeyId: string; secretAccessKey: string; region: string; service?: string }
 
-export interface SigV4Request {
+interface SigV4Request {
   method: string;
   url: URL;
   /** headers to send besides host and x-amz-date (lower-case names; all of them are signed) */

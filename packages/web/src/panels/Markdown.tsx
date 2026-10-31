@@ -15,7 +15,7 @@ import { docUrl, grantUrl } from "../route";
 const ALLOWED = new Set(["P", "H1", "H2", "H3", "H4", "H5", "H6", "UL", "OL", "LI", "A", "EM", "STRONG", "CODE", "PRE", "BLOCKQUOTE", "TABLE", "THEAD", "TBODY", "TR", "TH", "TD", "HR", "BR", "DEL", "IMG", "INPUT", "SPAN", "DIV", "SUP", "SUB"]);
 const ATTRS = new Set(["href", "title", "src", "alt", "align", "type", "checked", "disabled"]);
 
-export function sanitize(html: string): string {
+function sanitize(html: string): string {
   const doc = new DOMParser().parseFromString(`<div>${html}</div>`, "text/html");
   const walk = (el: Element) => {
     for (const child of [...el.children]) {
@@ -253,7 +253,7 @@ function linkDocIds(root: Element) {
 const slug = (s: string) => s.toLowerCase().replace(/\.md$/, "").replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "");
 
 /** Find the doc a relative link points at: by id, by tag, by slug of the title, or by export filename `<slug>-<id8>`. */
-export function matchDoc(href: string, docs: Doc[]): Doc | null {
+function matchDoc(href: string, docs: Doc[]): Doc | null {
   const clean = decodeURIComponent(href.split("#")[0].split("?")[0]);
   const base = clean.split("/").filter(Boolean).pop() ?? "";
   if (!base) return null;

@@ -180,7 +180,7 @@ function idleNote(world: World, me: Agent, to: Agent): string | undefined {
   return `Delivered to ${to.name}'s inbox, but ${to.name} is ${to.status} and will not see it until a session starts: a \`tell\` does not start work. ${how}`;
 }
 
-export function formatMessage(world: World, m: Message) {
+function formatMessage(world: World, m: Message) {
   return { id: m.id, kind: m.kind, from: m.fromKind === "system" ? "system" : world.nameOf(m.fromId), fromId: m.fromId, body: m.body, meetingId: m.meetingId, docId: m.docId, at: m.createdAt,
     // wakes step 1: the human behind it ("for Mitchell, via ms_…, 1 hop")
     ...(m.origin ? { for: world.nameOf(m.origin.userId), origin: m.origin } : {}) };

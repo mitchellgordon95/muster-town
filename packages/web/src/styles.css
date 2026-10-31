@@ -206,8 +206,7 @@ kbd { font-family: var(--mono); font-size: 11px; background: #2a2d3a; border: 1p
 .foot-note { color: var(--faint); font-size: 12px; margin-top: 14px; }
 .foot-note.warn { color: var(--warn); font-weight: 600; }
 
-/* feed */
-.feed { font-family: var(--mono); font-size: 12px; max-height: 420px; overflow: auto; border: 1px solid var(--line); border-radius: var(--r); background: #15161e; }
+/* event lines */
 .ev { display: flex; gap: 8px; padding: 4px 9px; border-bottom: 1px solid #21232e; color: var(--muted); }
 .ev:last-child { border-bottom: none; }
 .ev time { color: var(--faint); flex: none; }

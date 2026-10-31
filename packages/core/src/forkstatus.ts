@@ -16,7 +16,7 @@ const PER_SESSION = 100;
 const SESSIONS = 200;
 
 /** First non-empty line of `s`, clipped. */
-export function firstLine(s: string, n = LINE_CHARS): string {
+function firstLine(s: string, n = LINE_CHARS): string {
   const line = s.split("\n").map((l) => l.trim()).find(Boolean) ?? "";
   return line.length > n ? line.slice(0, n - 1) + "…" : line;
 }
@@ -28,7 +28,7 @@ export function resultLine(content: unknown): string {
   return "";
 }
 
-export interface ToolResult { line: string; isError: boolean }
+interface ToolResult { line: string; isError: boolean }
 
 /** Live sessions' tool results by tool_use id: the newest PER_SESSION per session, the newest SESSIONS sessions. */
 export class ToolResults {

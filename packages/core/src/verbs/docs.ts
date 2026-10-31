@@ -248,7 +248,7 @@ function timeWarn(body: string): { warnings?: string[] } {
 }
 
 /** How many times in a row one piece of work may park itself (`submit_report` resumeWhen) before a human must decide. */
-export const MAX_PARKS = 3;
+const MAX_PARKS = 3;
 
 export async function submit_report(world: World, me: Agent, input: VerbIn<"submit_report">) {
   if (me.kind === "human") throw badRequest("Humans don't submit reports.");

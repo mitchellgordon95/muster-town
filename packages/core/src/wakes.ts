@@ -161,7 +161,7 @@ const already = (world: World, agentId: string, key: string) => !!world.assignme
 
 const firstLine = (s: string, n = 80) => { const f = s.trim().split("\n")[0].trim(); return f.length > n ? f.slice(0, n - 1) + "…" : f; };
 
-export type StepFiveWake = { kind: "interrupt"; agentId: string } | { kind: "assignment"; agentId: string; assignment: Assignment } | null;
+type StepFiveWake = { kind: "interrupt"; agentId: string } | { kind: "assignment"; agentId: string; assignment: Assignment } | null;
 
 /** Rule `request-answer`: the line that makes the wake for `doc.updated` event `eventId` to `agentId` unique. */
 export const requestAnswerKey = (eventId: number | string, agentId: string) => `wake:request-answer:${eventId}:${agentId}`;

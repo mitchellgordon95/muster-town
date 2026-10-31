@@ -43,7 +43,7 @@ export interface SandboxApi {
   remove(name: string, opts: { volume?: string }): Promise<void>;
 }
 
-export interface SandboxBackendOptions {
+interface SandboxBackendOptions {
   api: SandboxApi;
   collective: string;
   /** stop a sandbox this long after its last session ends (the provider bills while it runs) */
@@ -58,7 +58,7 @@ export interface SandboxBackendOptions {
   onEvent?: (text: string, payload: Record<string, unknown>) => void;
 }
 
-export const SANDBOX_HOME = "/home/agent";
+const SANDBOX_HOME = "/home/agent";
 
 export { shq };
 

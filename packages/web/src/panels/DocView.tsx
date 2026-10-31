@@ -14,12 +14,12 @@ import { RollupCards, rollupCardsOf } from "./RollupCards";
 import { DeckView } from "./DeckView";
 import { canOneOnOne, openOneOnOne, talkTarget } from "./oneOnOne";
 
-export const DECISION_TONE: Record<string, string> = { pending: "warn", approve: "ok", continue: "ok", redirect: "info", stop: "bad" };
+const DECISION_TONE: Record<string, string> = { pending: "warn", approve: "ok", continue: "ok", redirect: "info", stop: "bad" };
 /** How a decision reads on a pill. `approve` is "Acknowledge" in v1.2: no assignment follows. */
-export const DECISION_LABEL: Record<string, string> = { pending: "in the in-tray", approve: "acknowledged", continue: "continued", redirect: "redirected", stop: "stopped" };
+const DECISION_LABEL: Record<string, string> = { pending: "in the in-tray", approve: "acknowledged", continue: "continued", redirect: "redirected", stop: "stopped" };
 export const VERDICT_TONE: Record<string, string> = { continue: "ok", pivot: "info", stop: "bad" };
 
-export function DocMeta({ doc }: { doc: Doc }) {
+function DocMeta({ doc }: { doc: Doc }) {
   return (
     <div className="doc-meta">
       <Pill tone="type">{doc.type.replace(/-/g, " ")}</Pill>
@@ -39,7 +39,7 @@ export function needOf(body: string): string | null {
 }
 
 /** Pill label: a decided report with a note (a reply, before replies were removed) reads "replied". */
-export function decisionLabel(doc: Pick<Doc, "decision" | "decisionNote">): string {
+function decisionLabel(doc: Pick<Doc, "decision" | "decisionNote">): string {
   if (!doc.decision) return "";
   if (doc.decision === "approve") return doc.decisionNote ? "replied" : "archived";
   return DECISION_LABEL[doc.decision] ?? doc.decision;
@@ -49,7 +49,7 @@ export function decisionLabel(doc: Pick<Doc, "decision" | "decisionNote">): stri
  * A report's Archive (Mitchell, 1:1 mt_cz11aqe81a: after reading a report you talk to its author or archive it; there
  * is no reply). Archive acknowledges the report (decision "approve", no assignment) and it leaves the in-tray.
  */
-export function ArchiveButton({ doc, onDone, deckSlide, meetingId }: { doc: Doc; onDone?: () => void; deckSlide?: number; meetingId?: string }) {
+function ArchiveButton({ doc, onDone, deckSlide, meetingId }: { doc: Doc; onDone?: () => void; deckSlide?: number; meetingId?: string }) {
   const archive = async () => {
     const r = await api().archive(doc.id, deckSlide, meetingId);
     store.putDocs([r.doc]);
@@ -70,7 +70,7 @@ export function ReportActions({ doc, onDone, deckSlide, meetingId, children }: {
  * or "Handled" (approve). Normally the manager agent does this in its team-lead session (1:1 mt_wngibcr98b decision 1:
  * no residents to pick from).
  */
-export function FlagDecideBox({ doc, onDone }: { doc: Doc; onDone?: () => void }) {
+function FlagDecideBox({ doc, onDone }: { doc: Doc; onDone?: () => void }) {
   const manager = useTown((s) => {
     const b = s.buildings.find((x) => x.id === doc.buildingId);
     return b?.managerAgentId ? s.agents[b.managerAgentId] : undefined;
@@ -99,7 +99,7 @@ export function FlagDecideBox({ doc, onDone }: { doc: Doc; onDone?: () => void }
  * with the author, the doc presented as the first line. A fork's doc (or a gone author's) reaches its manager, and the
  * button says so. A human's doc has none.
  */
-export function TalkToAuthor({ doc }: { doc: Doc }) {
+function TalkToAuthor({ doc }: { doc: Doc }) {
   const agents = useTown((s) => s.agents);
   const buildings = useTown((s) => s.buildings);
   const me = useTown((s) => s.me);

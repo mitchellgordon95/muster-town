@@ -23,7 +23,7 @@ export async function runVerb(world: World, agentId: string, name: VerbName, inp
   return run(agentId, input ?? {});
 }
 
-export function verbListing(): VerbListing[] {
+function verbListing(): VerbListing[] {
   return VERB_NAMES.map((name) => ({ name, description: VERB_DESCRIPTIONS[name], inputSchema: toJsonSchema(VerbInputs[name]) }));
 }
 

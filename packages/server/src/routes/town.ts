@@ -477,7 +477,7 @@ function accessView(world: World, r: AccessRequest | null): AuthMe["accessReques
 }
 
 /** GET /api/health `desks`: the desk size new sessions get and today's desk bill against the town-wide cap (gr_uhh6u39vv9 step 3). */
-export function desksHealth(world: World) {
+function desksHealth(world: World) {
   const desks = world.desksConfig();
   const bill = world.deskBill();
   return { backend: desks.backend, size: deskPreset(deskSizeFor(desks, bill).size), billCapUsd: bill.capUsd, billTodayUsd: bill.todayUsd, billPct: bill.pct, overCap: bill.overCap, day: bill.day };

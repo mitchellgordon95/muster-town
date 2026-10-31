@@ -7,7 +7,7 @@ import { useSyncExternalStore } from "react";
 import type { AuthConfig } from "@muster-town/schema";
 import { API_BASE, isMock, tokenStore, WEB_ROOT } from "../api";
 
-export interface AuthState {
+interface AuthState {
   /** no token and no session: read-only */
   guest: boolean;
   /** the server offers "Sign in with GitHub" */

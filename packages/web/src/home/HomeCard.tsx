@@ -16,7 +16,7 @@ export function homeCardSeen(): boolean {
 export function markHomeCardSeen() { try { localStorage.setItem(SEEN_KEY, "1"); } catch { /* private window */ } }
 
 /** One square tile, the same markup the server renders behind the card (server/src/home.ts `tile`). */
-export function Tile({ c }: { c: HomeCollective }) {
+function Tile({ c }: { c: HomeCollective }) {
   const ref = useRef<HTMLCanvasElement>(null);
   useEffect(() => { if (ref.current && c.preview) mountPreview(ref.current, c.preview); }, [c.preview]);
   if (c.placeholder || !c.url) {

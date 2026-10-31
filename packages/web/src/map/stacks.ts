@@ -3,7 +3,7 @@
 /** world px between neighbours in a stack */
 export const STACK_SPREAD = 4;
 
-export interface Stacked { dx: number; k: number; n: number }
+interface Stacked { dx: number; k: number; n: number }
 
 /**
  * Per body (by id): its sideways offset in world px, its index in its tile's stack and the stack's size. Bodies are

@@ -79,7 +79,7 @@ export const WAKE_RULES: WakeRule[] = [
 
 export const ruleFor = (e: Event, world: World, rules: WakeRule[] = WAKE_RULES): WakeRule | undefined => rules.find((r) => r.match(e, world));
 
-export interface WakerDeps {
+interface WakerDeps {
   world: World;
   wake: WakeCtx;
   /** run `fn` after the current (possibly transactional) dispatch, tracked; resolves when it settled */

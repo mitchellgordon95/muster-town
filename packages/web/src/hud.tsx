@@ -268,14 +268,14 @@ function AskToJoin({ me }: { me: AuthMe }) {
 }
 
 /** "Mitchell (the admin) decides." from /api/me; more than two admins, or none named, reads "An admin decides." */
-export function decidersLine(names: string[] = []): string {
+function decidersLine(names: string[] = []): string {
   if (names.length === 1) return `${names[0]} (the admin) decides.`;
   if (names.length === 2) return `${names[0]} or ${names[1]} (an admin) decides.`;
   return "An admin decides.";
 }
 
 /** The median wait over every decided request (core accessContext); before the first decision there is no typical wait to promise. */
-export function waitLine(ms: number | null = null): string {
+function waitLine(ms: number | null = null): string {
   if (ms == null) return "No request has been decided yet, so there's no typical wait.";
   const h = ms / 3600_000;
   if (h < 1) return "Requests are usually decided within an hour.";

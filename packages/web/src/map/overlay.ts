@@ -257,7 +257,7 @@ export function drawGoalSign(g: CanvasRenderingContext2D, x: number, y: number, 
 }
 
 /** Break `text` into lines no wider than `max` px in the current font (a single over-long word gets its own line). */
-export function wrapText(g: CanvasRenderingContext2D, text: string, max: number): string[] {
+function wrapText(g: CanvasRenderingContext2D, text: string, max: number): string[] {
   const lines: string[] = [];
   let line = "";
   for (const word of text.split(/\s+/).filter(Boolean)) {
@@ -331,7 +331,7 @@ export function drawSign(g: CanvasRenderingContext2D, x: number, y: number, name
 
 const LAMP: Record<"yellow" | "green", string> = { yellow: "#ffcf5e", green: "#6fdc8c" };
 /** A two-lamp housing with its top-left at (x, y): yellow (a grant held at its checkpoint) over green (a funded grant runs); grey = both dark. */
-export function drawStoplight(g: CanvasRenderingContext2D, x: number, y: number, light: Stoplight["light"]) {
+function drawStoplight(g: CanvasRenderingContext2D, x: number, y: number, light: Stoplight["light"]) {
   const w = 16, h = 27;
   g.fillStyle = "#0d0e13"; g.strokeStyle = "#000"; g.lineWidth = 1.5;
   roundRect(g, x, y, w, h, 5); g.fill(); g.stroke(); g.lineWidth = 1;

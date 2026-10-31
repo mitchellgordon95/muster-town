@@ -17,7 +17,7 @@ export interface BudgetSummary {
 }
 
 /** How a charge's counters are priced: the session's model, and its per-model breakdown when it has one (Bank step 3). */
-export interface ChargePrice {
+interface ChargePrice {
   model?: string | null; byModel?: Record<string, TokenCounts> | null;
   /** the session's grant: when it names its own Bank input (`fundedWith`, member funding), that input pays first */
   grantId?: string | null;

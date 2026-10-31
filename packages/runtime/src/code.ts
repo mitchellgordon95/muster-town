@@ -15,7 +15,7 @@ import { realCommandRunner, type CommandRunner } from "./redeploy.ts";
 export const CODE_TOOLS = ["Read", "Grep", "Glob"] as const;
 
 /** The private ref main is fetched into: the shared checkout's own branches and origin/* are left alone. */
-export const CODE_REF = "refs/muster-town/code-main";
+const CODE_REF = "refs/muster-town/code-main";
 
 export interface CodeCheckout {
   /** absolute, real path of the snapshot */
@@ -55,7 +55,7 @@ export async function extractCheckout(repoRoot: string, dir: string, commit: str
   }
 }
 
-export interface CodeSourceOptions {
+interface CodeSourceOptions {
   run?: CommandRunner;
   /** the collective's repo token as git env (private repos); never logged */
   gitEnv?: () => Record<string, string>;
@@ -100,7 +100,7 @@ export function codeSource(repoRoot: string, dir: string, o: CodeSourceOptions =
 }
 
 /** Whether `p` (absolute, or relative to `dir`) resolves inside `dir`, following symlinks as far as they exist. */
-export function insideCheckout(dir: string, p: string): boolean {
+function insideCheckout(dir: string, p: string): boolean {
   let abs = isAbsolute(p) ? p : resolve(dir, p);
   // the deepest existing ancestor's real path, so a symlink inside the snapshot can't point out of it
   let tail = "";

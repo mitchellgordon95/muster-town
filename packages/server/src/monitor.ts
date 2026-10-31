@@ -15,10 +15,10 @@ import { statfsSync } from "node:fs";
 import { monitorEventLoopDelay, type IntervalHistogram } from "node:perf_hooks";
 import type { BackupView } from "./backup/index.ts";
 
-export type Level = "yellow" | "red";
+type Level = "yellow" | "red";
 
 /** One sample of a metric: its value, and whether the yellow / red condition holds right now (before any "for N min"). */
-export interface Reading {
+interface Reading {
   value: number; yellow: boolean; red: boolean;
   /** how many clean observations a reading under yellow counts toward CLEAR_AFTER (default 1; desk-steal: its sessions) */
   clean?: number;
@@ -28,7 +28,7 @@ export interface Reading {
  * A metric: a key, a reader (null = no data this sample: nothing changes), and how long each condition must hold
  * before it alerts. A step 2 counter (5xx, ws errors, session failures) plugs in as one more of these.
  */
-export interface Metric {
+interface Metric {
   key: string;
   /** shown in events and FYIs, e.g. "RSS 1700 MB" */
   describe(value: number): string;
@@ -41,8 +41,8 @@ export interface Metric {
   expireMs?: number;
 }
 
-export interface AlertView { key: string; level: Level; since: string; value: number }
-export interface MonitorView { lastSampleAt: string | null; alerts: AlertView[] }
+interface AlertView { key: string; level: Level; since: string; value: number }
+interface MonitorView { lastSampleAt: string | null; alerts: AlertView[] }
 
 interface OpenAlert extends AlertView {
   docId: string | null; notifiedAt: number; okCount: number;
@@ -52,14 +52,14 @@ interface OpenAlert extends AlertView {
 /** older rows also carry `sent` and `selfTestAt` from the removed server-side SMS/email path; ignored */
 interface Persisted { lastSampleAt: string | null; alerts: OpenAlert[] }
 
-export const SAMPLE_MS = 60_000;
+const SAMPLE_MS = 60_000;
 /** an alert clears after this many consecutive samples under yellow */
 export const CLEAR_AFTER = 5;
 /** a key that stays red re-alerts (event + FYI update) at most this often (6 h: hourly texts about one stuck alert were spam, Mitchell 10-30) */
 export const REALERT_MS = 6 * 60 * 60_000;
 const HOUR_MS = 60 * 60_000;
 /** a gap between samples longer than this writes a "monitor gap" event when sampling resumes */
-export const GAP_MS = 5 * 60_000;
+const GAP_MS = 5 * 60_000;
 const MIN = 60_000;
 const MB = 1024 * 1024;
 
@@ -89,13 +89,13 @@ export interface Probes {
 /** A finished desk session's steal share: stealMs / (cpuMs + stealMs), 0..1 (desk perf step 1, migration 056). */
 export interface DeskSession { id: string; endedAt: number; share: number }
 /** desk sessions shorter than this are ignored by `desk-steal` */
-export const DESK_MIN_WALL_MS = 5 * MIN;
+const DESK_MIN_WALL_MS = 5 * MIN;
 /** desk-steal thresholds (kr_4pf0n8q9jl step 2): red on one session at RED, or two within an hour at RED2; yellow at YELLOW */
-export const DESK_STEAL = { red: 0.5, red2: 0.35, yellow: 0.25 } as const;
+const DESK_STEAL = { red: 0.5, red2: 0.35, yellow: 0.25 } as const;
 
 /** Bucket width of `Counters`; the windows below are whole buckets. */
 const BUCKET_MS = 60_000;
-export const COUNT_WINDOW_MS = 5 * MIN;
+const COUNT_WINDOW_MS = 5 * MIN;
 
 /**
  * Event counters the HTTP and WebSocket layers bump (app.ts onResponse, ws.ts error / abnormal close): per-minute buckets,
@@ -178,14 +178,14 @@ export function defaultMetrics(p: Probes): Metric[] {
 }
 
 /** desk-bill thresholds (gr_uhh6u39vv9 step 3): yellow (in town) at half the daily cap, red at the cap */
-export const DESK_BILL = { yellow: 0.5, red: 1 } as const;
+const DESK_BILL = { yellow: 0.5, red: 1 } as const;
 
 /**
  * `desk-bill`: today's (UTC) desk bill as a % of `desks.billCapUsd` ($10/day, Mitchell in mt_s6f8mvjw9h). Yellow at 50 %;
  * red at 100 %, when new desk sessions already start on shared-cpu-2x (runtime, never refused). A red one re-alerts every
  * REALERT_MS while it holds; at the next UTC day the bill starts again from 0, so it clears CLEAR_AFTER samples later.
  */
-export function deskBillMetric(p: Pick<Probes, "deskBill">): Metric {
+function deskBillMetric(p: Pick<Probes, "deskBill">): Metric {
   return {
     key: "desk-bill", describe: (v) => `desk bill today ${v}% of the daily cap (new desk sessions run on shared-cpu-2x at 100%)`, yellowForMs: 0, redForMs: 0,
     read: (now) => {
@@ -207,7 +207,7 @@ export function deskBillMetric(p: Pick<Probes, "deskBill">): Metric {
 /** an open desk-steal alert clears after this long with no desk session ending (a stale reading must not stay red for days) */
 export const DESK_STEAL_EXPIRE_MS = 3 * HOUR_MS;
 
-export function deskStealMetric(p: Pick<Probes, "deskSessions">): Metric {
+function deskStealMetric(p: Pick<Probes, "deskSessions">): Metric {
   let cursor: number | null = null;
   return {
     key: "desk-steal", describe: (v) => `desk session steal ${v}% of cpu + steal`, yellowForMs: 0, redForMs: 0, cleanUnit: "desk sessions", expireMs: DESK_STEAL_EXPIRE_MS,
@@ -256,7 +256,7 @@ export function processProbes(world: World, dataDir: string, backup: () => Backu
   };
 }
 
-export interface MonitorOptions {
+interface MonitorOptions {
   world: World;
   metrics: Metric[];
   now?: () => number;

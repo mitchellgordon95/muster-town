@@ -104,7 +104,7 @@ export const PAST_MANUAL_EDITIONS = [
 const sha256 = (s: string) => createHash("sha256").update(s).digest("hex");
 
 /** Tag on the live manual naming the body the seed last wrote: `seeded:<first 16 hex of its sha256>`. */
-export const MANUAL_SEEDED_PREFIX = "seeded:";
+const MANUAL_SEEDED_PREFIX = "seeded:";
 const seededTag = (body: string) => MANUAL_SEEDED_PREFIX + sha256(body).slice(0, 16);
 
 /**

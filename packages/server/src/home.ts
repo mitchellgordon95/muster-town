@@ -37,7 +37,7 @@ const GOALS_DOC = `${README_REPO}/blob/main/docs/goal-directed-budgets.md`;
  * The homepage bundle's tags (its module script, preloads and CSS) from the built `home.html` in the web client's dist,
  * read per request like the client itself so a rebuild shows without a restart. None (a bare page) without a build.
  */
-export function homeBundleTags(dist: string | null): string {
+function homeBundleTags(dist: string | null): string {
   if (!dist) return "";
   const file = join(dist, "home.html");
   if (!existsSync(file)) return "";

@@ -297,7 +297,7 @@ function BuildingTag({ buildingId }: { buildingId: string | null }) {
 }
 
 /** The grant's id as a link into the grant panel (`/#/grant/<id>`, so it can be copied and pasted anywhere). */
-export function GrantLink({ id, className }: { id: string; className?: string }) {
+function GrantLink({ id, className }: { id: string; className?: string }) {
   return <a className={`doc-id grant-id ${className ?? ""}`} href={grantUrl(id)} title="Open this grant" onClick={(e) => { e.preventDefault(); store.open({ kind: "grant", id }); }}>{id}</a>;
 }
 
