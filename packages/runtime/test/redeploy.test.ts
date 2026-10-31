@@ -5,7 +5,7 @@ import { join } from "node:path";
 import { describe, expect, test, vi } from "vitest";
 import { townRoleId } from "@muster-town/core";
 import { makeRedeployer, type CmdResult, type CommandRunner, type RedeployDeps } from "../src/index.ts";
-import { imageTags } from "../src/redeploy.ts";
+import { drainNudge, drainNudgeManage, imageTags } from "../src/redeploy.ts";
 import { result, setup } from "./helpers.ts";
 
 const ok = (stdout = ""): CmdResult => ({ code: 0, stdout, stderr: "" });
@@ -218,6 +218,34 @@ describe("redeploy", () => {
     h.r.redeploy({ image: false, requestedBy: "Pix" });
     await h.r.done();
     expect(h.texts()).toContain("Redeploy: drain timed out, restarting anyway; still running (stopped and re-queued at startup): ag_9");
+    expect(h.exit).toHaveBeenCalledWith(75);
+  });
+
+  test("drain: a team-lead session gets drainManageMs (and the wrap-up nudge); other sessions only drainTimeoutMs", async () => {
+    let live = ["ag_lead", "ag_9"];
+    const nudges: [string, string][] = [];
+    const h = harness(base(), [], { working: () => live, isManage: (id) => id === "ag_lead", nudge: (id, t) => nudges.push([id, t]), drainTimeoutMs: 20, drainManageMs: 60_000 });
+    h.r.redeploy({ image: false, requestedBy: "Pix" });
+    await vi.waitFor(() => expect(h.texts().some((t) => t.startsWith("Redeploy: not waiting longer for ag_9; still waiting for team-lead session(s): ag_lead"))).toBe(true));
+    expect(h.texts().some((t) => t.startsWith("Redeploy: draining, waiting for 2 session(s) to end: ag_lead, ag_9 (up to 1 min)"))).toBe(true);
+    expect(nudges).toEqual([["ag_lead", drainNudgeManage()], ["ag_9", drainNudge(false)]]);
+    expect(drainNudgeManage()).toContain("finish the step you are on, write your pages");
+    // past drainTimeoutMs the team-lead session still holds the restart
+    await new Promise((r) => setTimeout(r, 40));
+    expect(h.exit).not.toHaveBeenCalled();
+    live = ["ag_9"]; // it ended; ag_9 (cut already) doesn't hold the restart again
+    await h.r.done();
+    expect(h.texts()).toContain("Redeploy: drain timed out, restarting anyway; still running (stopped and re-queued at startup): ag_9");
+    expect(h.exit).toHaveBeenCalledWith(75);
+  });
+
+  test("drain: a team-lead session still running at drainManageMs is cut by the restart (it resumes after it)", async () => {
+    const h = harness(base(), [], { working: () => ["ag_lead"], isManage: () => true, drainTimeoutMs: 5, drainManageMs: 30 });
+    const t0 = Date.now();
+    h.r.redeploy({ image: false, requestedBy: "Pix" });
+    await h.r.done();
+    expect(Date.now() - t0).toBeGreaterThanOrEqual(25);
+    expect(h.texts()).toContain("Redeploy: drain timed out, restarting anyway; still running (stopped and re-queued at startup): ag_lead");
     expect(h.exit).toHaveBeenCalledWith(75);
   });
 
