@@ -247,6 +247,7 @@ export class MockApi implements Api {
     return { days: 30, from, to, decisions: 1, medianDecisionMs: 3 * 3_600_000, totals: { guestCardViews: this.guestCardViews, signIns: 3, asked: 2, letIn: 1, declined: 0 } };
   }
   async countGuestCardView() { this.guestCardViews++; }
+  async dismiss(id: string, purge = false) { await wait(); this.sim.dismiss(id, purge); }
   async ban(id: string, reason: string) { await wait(); return clone(this.sim.ban(id, reason)); }
   async building(id: string) { await wait(); return clone(this.need(this.sim.buildings.find((x) => x.id === id), "building")); }
   async updateBuilding(id: string, i: In<typeof UpdateBuildingInput>) {
