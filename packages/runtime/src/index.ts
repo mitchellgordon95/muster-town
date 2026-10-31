@@ -6,6 +6,7 @@
 import { AppError, checkWaits, deskSizeFor, fireSchedules, setAssignmentStatus, codeWorkspace, deskSlotRows, forkableQueue, forkDeskSlot, forkManager, freeDesks, liveForks, meetingNotice, walkIdleHome, nextStartable, nowIso, PRESENCE_TICK_MS, retireFork, sendMessage, stopOverdueForks, slugify, syncManagerRoles, type World } from "@muster-town/core";
 import { DesksConfig, type Agent, type Assignment, type Building, type ChatInput, type DeskActivityInput, type RedeployResult, type Session } from "@muster-town/schema";
 import { chat } from "./chat.ts";
+import { codeSource } from "./code.ts";
 import { DockerBackend, dockerSafe, HostBackend, type DeskBackend, type SlotResolver, type WorkBackend } from "./desk/backend.ts";
 import { FlyApi } from "./desk/fly.ts";
 import { SandboxBackend } from "./desk/sandbox.ts";
@@ -48,6 +49,8 @@ export interface RuntimeOptions {
   repoRoot?: string;
   /** hourly git export target; false disables. Default: world.export() default dir. */
   exportDir?: string | false;
+  /** where the read-only snapshot of main goes (manage sessions read it, code.ts); absent = manage sessions get no code tools */
+  codeDir?: string;
   /** where work sessions run; default from `desks.backend` (auto → docker if `docker info` succeeds, else host) */
   deskBackend?: WorkBackend;
   /** overrides collective.json `desks` (as stored in the world at seed) */
@@ -146,6 +149,11 @@ export function startRuntime(opts: RuntimeOptions): Runtime {
   if (hosted) {
     const env = hostedEnv(hosted.dir);
     Object.assign(ctx, { env, hosted: true, claudeDir: env.CLAUDE_CONFIG_DIR });
+  }
+  // main's code for manage sessions to read: fetched now, then by the tick whenever the last fetch is 5 min old
+  if (opts.codeDir && !hosted) {
+    ctx.code = codeSource(ctx.repoRoot, opts.codeDir, { gitEnv: () => gitAuthEnv(world, desks.ghToken) });
+    void track(ctx.code.fresh());
   }
   // a collective with a repo whose desks get no GitHub token: private clones and pushes fail at the first work session, so say so at boot
   if (world.town.get().workspace?.repoUrl && !opts.deskOptions?.ghToken && desks.backend !== "host" && !repoToken(world, desks.ghToken)) {
@@ -580,6 +588,7 @@ export function startRuntime(opts: RuntimeOptions): Runtime {
     try { scheduleMeetings(t); } catch (e) { log("meetings")(e); }
     try { checkWaits(world, d); } catch (e) { log("waits")(e); }
     try { stopOverdueForks(world, d); } catch (e) { log("stop forks")(e); }
+    if (ctx.code) void track(ctx.code.fresh()).catch(log("code checkout"));
     try { fireSchedules(world, d); } catch (e) { log("schedules")(e); }
     try { world.reorgs.tick(d); } catch (e) { log("reorgs")(e); }
     try { walkIdleHome(world, t); } catch (e) { log("walk home")(e); }
