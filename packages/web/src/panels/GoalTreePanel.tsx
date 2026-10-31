@@ -141,7 +141,7 @@ function GoalDetail({ root, node, me, onSelect, onDone }: { root: GoalTreeNode; 
         {node.buildings.length ? <> · Attached: {node.buildings.map((b) => <button key={b.id} className="chip" onClick={() => store.open({ kind: "building", id: b.id })}>{b.name}</button>)}</> : null}
       </div>
       {can ? (
-        <div className="goal-actions">
+        <div className="goal-actions decide-footer">
           <button className="btn sm" onClick={() => setForm(form === "edit" ? "" : "edit")}>Edit</button>
           <button className="btn sm" onClick={() => setForm(form === "goal" ? "" : "goal")}>Add goal</button>
           <button className="btn sm" onClick={() => setForm(form === "kr" ? "" : "kr")}>Add key result</button>
@@ -417,7 +417,7 @@ function ProposalCard({ root, p, me, onDone }: { root: GoalTreeNode; p: GoalProp
       {p.fields.due ? <div className="muted">Due: {p.fields.due}</div> : null}
       <div className="goal-why">Why: {p.why}</div>
       {can ? <>
-        <div className="goal-actions">
+        <div className="goal-actions decide-footer">
           <Act small tone="ok" run={() => api().decideGoalProposal(p.id, { action: "accept" }).then(onDone)}>Accept</Act>
           {p.fields.text || isKr ? <button className="btn sm" onClick={() => setMode(mode === "edit" ? "" : "edit")}>Edit and accept</button> : null}
           <button className="btn sm bad" onClick={() => setMode(mode === "cut" ? "" : "cut")}>Cut</button>

@@ -77,4 +77,21 @@ describe("a report's Talk to <author> (1:1 mt_uf1bwd3exq)", () => {
     store.state = { ...store.state, me: null };
     expect(renderToStaticMarkup(<GrantRow grant={grant} onDecided={() => undefined} onOpenDoc={() => undefined} />)).not.toContain("Talk to");
   });
+
+  it("the buttons that act on a report or grant sit in a big footer after the body, not in the header (flag dc_4uiv48047s)", () => {
+    store.state = { ...store.state, agents: AGENTS, buildings: BUILDINGS as never, me: { isAdmin: true, roles: [], user: { id: "us_m" } } as never };
+    const card = renderToStaticMarkup(<DocView doc={report("ag_lena")} review />);
+    const body = card.indexOf("## Findings"), footer = card.indexOf("decide-footer");
+    expect(body).toBeGreaterThan(card.indexOf("doc-byline"));
+    expect(footer).toBeGreaterThan(body);
+    expect(card.indexOf("Talk to Lena")).toBeGreaterThan(footer);
+    expect(card.indexOf(">Archive<")).toBeGreaterThan(footer);
+    expect(card).not.toContain("btn primary sm");
+    const grant = { id: "gr_abc", buildingId: "workshop", keyResultId: "kr_1", keyResult: { id: "kr_1", text: "Deck review", status: "on-track" }, objective: "Review as deck", approach: "", testingPlan: [], stopCondition: "done", askTokens: 1000, grantTokens: null, status: "proposed", outcome: null, findingsDocIds: [], checkpointsDone: [], checkpointDocId: null, proposedBy: "ag_pix", fundedBy: null, fundedWith: null, fundedAt: null, closedAt: null, history: [], spentTokens: 0, createdAt: "2026-10-29T00:00:00Z", updatedAt: "2026-10-29T00:00:00Z" } as never;
+    const row = renderToStaticMarkup(<GrantRow grant={grant} onDecided={() => undefined} onOpenDoc={() => undefined} />);
+    const foot = row.indexOf("decide-footer");
+    expect(foot).toBeGreaterThan(row.indexOf("Stop when"));
+    expect(row.indexOf(">Fund</button>")).toBeGreaterThan(foot);
+    expect(row.indexOf("Talk to Pix")).toBeGreaterThan(foot);
+  });
 });
