@@ -16,7 +16,7 @@ describe("building tabs (Mitchell's flag dc_v7ejy1j5ri)", () => {
   it("a lab has a Schedule tab and no Members tab; the schedule is off the Overview", () => {
     setup();
     const overview = renderToStaticMarkup(<BuildingPanel id="bl_x" />);
-    expect(tabsOf(overview)).toEqual(["Overview", "Goals", "Grants", "Schedule"]);
+    expect(tabsOf(overview)).toEqual(["Overview", "Goals", "Grants", "Queue", "Schedule"]);
     expect(overview).not.toContain("Daily refresh");
     const schedule = renderToStaticMarkup(<BuildingPanel id="bl_x" tab="Schedule" />);
     expect(schedule).toContain("Daily refresh");

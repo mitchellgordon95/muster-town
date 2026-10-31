@@ -1,5 +1,5 @@
 import { ChangeGoalInput, CreateGoalInput, CreateTreeKeyResultInput, ReviewKeyResultInput, DecideGoalProposalInput, GoalProposalStatus, ProposeGoalInput, RetireGoalInput, UpdateGoalInput } from "@muster-town/schema";
-import { worldGoalSpend } from "@muster-town/core";
+import { buildingBoard, goalBoard, worldGoalSpend } from "@muster-town/core";
 import type { FastifyInstance } from "fastify";
 import { z } from "zod";
 import { actorOf, parse, type Params } from "../context.ts";
@@ -37,6 +37,12 @@ export async function goalRoutes(app: FastifyInstance) {
 
   /** The goal's Spend tab: its subtree's spend from session rows, by lane, building, key result and day or week (read-only; no Bank read or write). */
   app.get<{ Params: Params }>("/api/goals/:id/spend", async (req) => worldGoalSpend(world, req.params.id, parse(SpendQuery, req.query).days));
+
+  /** The goal's Queue tab (build step 6): the kanban of every building attached in its subtree, one swimlane each (read-only). */
+  app.get<{ Params: Params }>("/api/goals/:id/queue", async (req) => goalBoard(world, req.params.id));
+
+  /** The building's Queue tab: its kanban, Queued / Held / Running / Done, WIP = its desks (read-only). */
+  app.get<{ Params: Params }>("/api/buildings/:id/queue", async (req) => buildingBoard(world, req.params.id));
 
   app.post("/api/goals", async (req, reply) => reply.code(201).send({ goal: tree.create(actorOf(world, req), parse(CreateGoalInput, req.body)) }));
 

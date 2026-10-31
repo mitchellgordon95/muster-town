@@ -6,6 +6,7 @@ import { fmtPct, poolColor } from "../pools";
 import { api } from "../api";
 import { store, useTown } from "../state";
 import { Glyph, PanelShell } from "./PanelShell";
+import { QueueTab } from "./QueueTab";
 import { Meter } from "./AgentPanel";
 import { ADJ, Act, Empty, Field, KV, Loading, MTokensInput, NumberInput, Pill, Section, fmtTokens, usd, useLoad } from "./ui";
 import { fromMillions, repeatLabel, runsAtLabel, toMillions } from "../format";
@@ -33,7 +34,7 @@ export function BuildingPanel({ id, tab }: { id: string; tab?: string }) {
   useTown((s) => s.me); // re-render when my permissions change (store.can below)
   if (!b) return <PanelShell title="Unknown building"><Empty>No building with id {id}.</Empty></PanelShell>;
   const lab = b.kind !== "town-hall";
-  const tabs = ["Overview", ...(lab ? ["Goals", "Grants", "Schedule"] : []), ...(store.can("building.manage", id) ? ["Settings"] : [])];
+  const tabs = ["Overview", ...(lab ? ["Goals", "Grants", "Queue", "Schedule"] : []), ...(store.can("building.manage", id) ? ["Settings"] : [])];
   return (
     <PanelShell icon={<Glyph kind="building" />} title={b.name} subtitle={b.kind === "town-hall" ? "Town Hall" : "Lab"} tabs={tabs} initialTab={tab && tabs.includes(tab) ? tab : "Overview"}>
       {(t) => (
@@ -41,6 +42,7 @@ export function BuildingPanel({ id, tab }: { id: string; tab?: string }) {
           {t === "Overview" ? <Overview b={b} /> : null}
           {t === "Goals" ? <GoalsTab b={b} /> : null}
           {t === "Grants" ? <GrantsTab b={b} /> : null}
+          {t === "Queue" ? <QueueTab buildingId={b.id} /> : null}
           {t === "Schedule" ? <ScheduledList b={b} /> : null}
           {t === "Settings" ? <Settings b={b} /> : null}
         </>

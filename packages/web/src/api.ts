@@ -9,7 +9,7 @@ import type {
   AccessRequest, AccessRequestView, Agent, Allocation, Assignment, AuthMe, BlockedAssignment, BuildingStats, Schedule, RedeployLive, Building, ClientMessage, DesksConfig, Doc, Event, Lot, Meeting, Place, Role, Membership, SessionSlots, Tile,
   ServerMessage, SessionView, TokenCounts, Town, CreateBuildingInput, UpdateBuildingInput, RegisterVisitorInput,
   ReviewInput, PinSkillInput, SkillPinView, SkillView, PutSecretInput, SecretView, ChatInput, WorkInput, DonateInput, AddBankInput, BankInput, CreateBankPoolInput, UpdateBankPoolInput, CreateMeetingInput, DocState, DocType, Mailbox, Permission, DecideGrantInput, CloseGrantInput, GrantView, KeyResult, CreateKeyResultInput, UpdateKeyResultInput, Stoplight,
-  GoalTreeNode, Goal, GoalProposal, GoalSpend, IntrayRoutes, CreateGoalInput, UpdateGoalInput, RetireGoalInput, CreateTreeKeyResultInput, DecideGoalProposalInput, ChangeGoalInput, ReviewKeyResultInput, GoalChangeView,
+  GoalTreeNode, Goal, GoalProposal, GoalSpend, QueueBoard, IntrayRoutes, CreateGoalInput, UpdateGoalInput, RetireGoalInput, CreateTreeKeyResultInput, DecideGoalProposalInput, ChangeGoalInput, ReviewKeyResultInput, GoalChangeView,
 } from "@muster-town/schema";
 
 export type In<T extends z.ZodTypeAny> = z.input<T>;
@@ -336,6 +336,9 @@ export interface Api {
   goalTreeWithRetired(): Promise<GoalTreeNode>;
   goalHistory(id: string): Promise<Event[]>;
   goalSpend(id: string, days?: number): Promise<GoalSpend>;
+  /** the kanban: a goal's subtree (one swimlane per attached building) or one building */
+  goalQueue(id: string): Promise<QueueBoard>;
+  buildingQueue(id: string): Promise<QueueBoard>;
   createGoal(input: In<typeof CreateGoalInput>): Promise<Goal>;
   updateGoal(id: string, input: In<typeof UpdateGoalInput>): Promise<Goal>;
   retireGoal(id: string, input: In<typeof RetireGoalInput>): Promise<Goal>;
@@ -606,6 +609,8 @@ export class HttpApi implements Api {
   async goalTreeWithRetired() { return (await this.get<{ root: GoalTreeNode }>("/api/goals?retired=1")).root; }
   async goalHistory(id: string) { return (await this.get<{ events?: Event[] }>(`/api/goals/${id}/history`)).events ?? []; }
   goalSpend(id: string, days = 7) { return this.get<GoalSpend>(`/api/goals/${id}/spend${qs({ days: String(days) })}`); }
+  goalQueue(id: string) { return this.get<QueueBoard>(`/api/goals/${id}/queue`); }
+  buildingQueue(id: string) { return this.get<QueueBoard>(`/api/buildings/${id}/queue`); }
   async createGoal(i: In<typeof CreateGoalInput>) { return unwrap<Goal>(await this.post("/api/goals", i), "goal"); }
   async updateGoal(id: string, i: In<typeof UpdateGoalInput>) { return unwrap<Goal>(await this.call("PATCH", `/api/goals/${id}`, i), "goal"); }
   async retireGoal(id: string, i: In<typeof RetireGoalInput>) { return unwrap<Goal>(await this.post(`/api/goals/${id}/retire`, i), "goal"); }
