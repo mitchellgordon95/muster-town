@@ -96,7 +96,7 @@ const sp: FinanceSpend = {
     { kind: "building", id: "workshop", name: "Town Workshop", tokens: 900, share: 0.8182, sessions: 9, children: [
       { kind: "grant", id: "gr_a", name: "Refactor the Bank…", objective: "Refactor the Bank: one ledger for every debit", tokens: 500, share: 0.4545, sessions: 4, children: [
         { kind: "assignment", id: "as_a", name: "Step 1: the ledger", tokens: 500, share: 0.4545, sessions: 4 }] },
-      { kind: "no-grant", id: null, name: "Not under a grant: work a human asked for, the building's own daily allowance, and sessions from before grants existed", tokens: 300, share: 0.2727, sessions: 3, children: [
+      { kind: "no-grant", id: null, name: "Not under a grant: work a human asked for, work a building took up on its own, and sessions from before grants existed", tokens: 300, share: 0.2727, sessions: 3, children: [
         { kind: "assignment", id: "as_b", name: "Explore the map", tokens: 300, share: 0.2727, sessions: 3 }] },
       { kind: "no-assignment", id: null, name: "The manager's own sessions: reading reports, running meetings and replying (no assignment)", tokens: 100, share: 0.0909, sessions: 2 },
     ] },
