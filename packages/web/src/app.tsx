@@ -220,7 +220,8 @@ export function App() {
   const closeGoals = useCallback(() => { setGoals(null); if (store.state.panel?.kind === "goals") store.open(null); }, []);
   const panel = manual || open?.kind === "goals" ? null : open;
   // town planning: the selected building's side bar (goals, budget, stats) takes the panel's place
-  const planSel = useTownPlan()?.selected ?? null;
+  const plan = useTownPlan();
+  const planSel = plan?.selected ?? null;
   const buildings = useTown((s) => s.buildings);
   const planSide = !panel && planSel && planSel !== "new" && buildings.some((b) => b.id === planSel) ? planSel : null;
   const inset = panel || planSide ? 1 : 0;
@@ -287,7 +288,7 @@ export function App() {
       <Hud onPasteToken={() => setPhase({ k: "login" })} onHelp={() => store.open({ kind: "manual" })} />
       <Minimap />
       <div className="bottom" style={{ right: inset ? pw : 0 }}>
-        <Hint target={target} saying={saying || flagHere !== undefined} canFlag={canFlag && !guest} />
+        {plan ? null : <Hint target={target} saying={saying || flagHere !== undefined} canFlag={canFlag && !guest} />}
         {flagHere !== undefined && canFlag && !guest ? <div className="flag-box"><PlantFlag targets={flagTargets(buildings, canAssign, flagHere)} onClose={() => setFlagHere(undefined)} /></div> : null}
         {saying && !guest ? <SayBox inputRef={sayRef} onSend={say} onCancel={() => setSaying(false)} /> : null}
       </div>
