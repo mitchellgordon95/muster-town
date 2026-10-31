@@ -8,8 +8,8 @@ import type {
   CreateObjectiveInput, UpdateObjectiveInput, Objective, KpiKey, KpiView,
   AccessRequest, AccessRequestView, Agent, Allocation, Assignment, AuthMe, BlockedAssignment, BuildingStats, Schedule, RedeployLive, Building, BuildingDefaults, ClientMessage, DesksConfig, Doc, Event, Lot, Meeting, Place, Role, Membership, SessionSlots, Tile,
   ServerMessage, SessionView, TokenCounts, Town, CreateBuildingInput, UpdateBuildingInput, RegisterVisitorInput,
-  ReviewInput, PinSkillInput, SkillPinView, SkillView, PutSecretInput, SecretView, WorkInput, DonateInput, AddBankInput, BankInput, CreateBankPoolInput, UpdateBankPoolInput, CreateMeetingInput, DocState, DocType, Mailbox, Permission, DecideGrantInput, CloseGrantInput, GrantView, KeyResult, CreateKeyResultInput, UpdateKeyResultInput, Stoplight,
-  GoalTreeNode, Goal, GoalProposal, GoalSpend, QueueBoard, IntrayRoutes, CreateGoalInput, UpdateGoalInput, RetireGoalInput, CreateTreeKeyResultInput, DecideGoalProposalInput, ChangeGoalInput, ReviewKeyResultInput, GoalChangeView,
+  ReviewInput, PinSkillInput, SkillPinView, SkillView, PutSecretInput, SecretView, WorkInput, DonateInput, AddBankInput, BankInput, CreateMeetingInput, DocState, DocType, Mailbox, Permission, DecideGrantInput, CloseGrantInput, GrantView, KeyResult, CreateKeyResultInput, UpdateKeyResultInput, Stoplight,
+  GoalTreeNode, Goal, GoalProposal, GoalSpend, QueueBoard, IntrayRoutes, CreateGoalInput, UpdateGoalInput, RetireGoalInput, CreateTreeKeyResultInput, DecideGoalProposalInput, ChangeGoalInput, ReviewKeyResultInput, GoalChangeView, FreeTokens,
 } from "@muster-town/schema";
 
 export type In<T extends z.ZodTypeAny> = z.input<T>;
@@ -163,28 +163,6 @@ export interface FinanceSources {
   financeTotal: number; matchesFinance: boolean;
   at: string;
 }
-/**
- * `GET /api/finance/pools` (public) — core's FinancePools: how the Bank's tokens are divided into pools (each pool's % of
- * every credit, what it has left and any overdrawn debt) and what each building drew, was donated and holds. A synthetic
- * `id: null` row holds debits of deleted pools / buildings. Two checks: Σ building draws = Σ pool draws = Bank debits, and
- * Σ pools left − Σ pools overdrawn + unshared = Bank balance − overshoot.
- */
-export interface FinancePools {
-  pools: {
-    id: string | null; name: string; pct: number; explicit: boolean; isDefault: boolean; buildings: { id: string; name: string }[];
-    expiringLeft: number; durableLeft: number; left: number; overdrawn: number; drawn: number; dailyInflowTokens: number;
-  }[];
-  buildings: {
-    id: string | null; name: string; poolId: string | null; poolName: string; drawsFromBank: boolean;
-    drawn: number; drawnSubscription: number; drawnDurable: number; drawnMemberFunded: number;
-    donated: number; donationsSpent: number; held: number; explorationTokensPerDay: number;
-  }[];
-  sharedPct: number; balanceTokens: number; overshootTokens: number;
-  poolsLeftTokens: number; poolsOverdrawnTokens: number; unsharedTokens: number;
-  usedBank: number; donatedTokens: number; heldTokens: number;
-  sumCheck: { drawsOk: boolean; drawsDiff: number; balanceOk: boolean; balanceDiff: number; ok: boolean; identities: { draws: string; balance: string } };
-  at: string;
-}
 /** One Fly Machine size's list price in `GET /api/finance/fly`. */
 export interface FlyRate { preset: string; memoryMb: number; usdPerMonth: number; usdPerHour: number }
 /** A building's desk time and cost in `GET /api/finance/fly` (over the window, or within one day). */
@@ -207,22 +185,10 @@ export interface FinanceFly {
   sumCheck: { ok: boolean; diff: number; identity: string; daysOk: boolean; buildingsOk: boolean };
   at: string;
 }
-/** `GET /api/bank` — core's BankSummary: the accounting pools, the inputs, each building's view (from its pool), and the top contributors. */
-export interface BankPoolSummary {
-  id: string; name: string;
-  /** effective % of the Bank; `explicit` false = splits what's left equally with the other pools */
-  pct: number; explicit: boolean;
-  /** General, the default pool (can't be deleted) */
-  isDefault: boolean;
-  buildings: { buildingId: string; name: string }[];
-  /** the goals that set this pool (their buildings and those under them draw from it); General also funds every goal that inherits none */
-  goals: { goalId: string; text: string }[];
-  /** what the pool's buildings can still draw, first come first served */
-  expiringTokens: number; durableTokens: number;
-}
-/** A building's view of the Bank: its pool's % and what's left in that pool (0 for the Town Hall). */
-export interface BankBuildingShare { buildingId: string; name: string; poolId: string; poolName: string; /** the goal it inherits its pool from; null = none sets one (General) */ poolGoalId: string | null; poolGoalText: string | null; pct: number; explicit: boolean; expiringTokens: number; durableTokens: number; heldTokens: number; heldByAuth?: HeldByAuth }
+/** A building's view of the Bank: what's left of the one balance (0 for the Town Hall) and what it holds outside it. */
+export interface BankBuildingShare { buildingId: string; name: string; expiringTokens: number; durableTokens: number; heldTokens: number; heldByAuth?: HeldByAuth }
 export interface BankContributor { userId: string; name: string; tokens: number; bankTokens: number; donatedTokens: number }
+/** `GET /api/bank` — core's BankSummary: the one balance, the inputs, each building's view, the top contributors and the town-wide free tokens. */
 export interface Bank {
   balanceTokens: number;
   /** subscription tokens that expire at the next daily renewal */
@@ -246,8 +212,9 @@ export interface Bank {
   dailyInflowTokens: number;
   /** per input: `debitedTokens` (what grants it pays for drew by name) and `balanceTokens` (what it can still pay; member funding). Older servers leave them out. */
   inputs: (BankInput & { userName: string; creditedCounts: TokenCounts; adjustedCreditedTokens: number; debitedTokens?: number; balanceTokens?: number })[];
-  pools: BankPoolSummary[];
   buildings: BankBuildingShare[];
+  /** town-wide free tokens (the root goal's; docs/how-work-gets-done.md §7); null or left out by older servers */
+  free?: FreeTokens | null;
   contributors: BankContributor[];
   /** Bank step 4: the latest drift run (null before the first; older servers leave it out) */
   drift?: BankDrift | null;
@@ -294,6 +261,8 @@ export interface ObjectiveTree { objectives: ObjectiveView[]; unsorted: GoalKeyR
 export interface KpisView { framing: string; kpis: KpiView[]; buildings: (ObjectiveTree & { buildingId: string; name: string; goal: string })[] }
 /** GET /api/buildings/:id/key-results */
 export interface KeyResultsView { keyResults: GoalKeyResult[]; blocked: string | null }
+/** A building's exploration today (core grants.ts ExplorationBudget): spent today, free tokens under its goal, the cap over it (null = uncapped). */
+export interface ExplorationBudget { spentTodayTokens: number; freeTokens: number; cap: { tokensPerDay: number; goalId: string; spentTodayTokens: number } | null }
 /** GET /api/buildings/:id/board: the FYIs plus the budget part (core's GrantBoard; the Town Hall has no grants). */
 export interface Board {
   /** the Town Hall's FYIs first (townWide: true, on every building's board but the Town Hall's own), then the building's */
@@ -310,7 +279,8 @@ export interface Board {
   grants: GrantView[];
   /** open proposals (proposed or countered), newest first: several can be open at once */
   proposals: GrantView[];
-  exploration: { allowanceTokens: number; spentTodayTokens: number };
+  /** exploration today, the free tokens under the building's goal and the cap over it (null = uncapped) */
+  exploration: ExplorationBudget;
 }
 
 export interface WriteDocInput { type?: DocType; title: string; body: string; state?: "draft" | "building"; tags?: string[]; /** FYIs only: the board to post to ("town-hall" = a town-wide FYI) */ buildingId?: string }
@@ -487,19 +457,12 @@ export interface Api {
   financeSpend(): Promise<FinanceSpend>;
   /** public: where the tokens came from, per input (dated credits) and per donation; sums to /api/finance total */
   financeSources(): Promise<FinanceSources>;
-  /** public: the pools (share, left, overdrawn) and each building's draws, donations, held tokens and allowance */
-  financePools(): Promise<FinancePools>;
   /** public: the Fly.io hosting estimate per day and per building (desk sessions' wall time at list price + the town Machine) */
   financeFly(): Promise<FinanceFly>;
   /** public: every funding stream (earmarks too) and the expected session a key stream must cover (goal tree step 7) */
   bankStreams(): Promise<BankStreams>;
   addBankInput(input: In<typeof AddBankInput>): Promise<BankInput>;
   cancelBankInput(id: string): Promise<BankInput>;
-  /** admin: accounting pools (a pool's `pct` null = an equal split of what's left); returns the new Bank summary */
-  createBankPool(input: In<typeof CreateBankPoolInput>): Promise<Bank>;
-  updateBankPool(id: string, input: In<typeof UpdateBankPoolInput>): Promise<Bank>;
-  /** only an empty pool; General can't be deleted */
-  deleteBankPool(id: string): Promise<Bank>;
   exportNow(): Promise<string | null>;
   /** v1.3: pull main, rebuild, restart (needs town.redeploy); progress arrives as `system` events */
   redeploy(image: boolean): Promise<{ started?: boolean; queued?: boolean; running?: boolean }>;
@@ -599,7 +562,7 @@ export class HttpApi implements Api {
   async events(q: EventQuery) { return unwrap<Event[]>(await this.get(`/api/events${qs(q)}`), "events"); }
   async board(id: string, limit = 30) {
     const r = await this.get<Partial<Board>>(`/api/buildings/${id}/board${qs({ limit })}`);
-    return { docs: r.docs ?? [], goal: r.goal ?? "", keyResults: r.keyResults ?? [], objectives: r.objectives ?? { objectives: [], unsorted: r.keyResults ?? [] }, blocked: r.blocked ?? null, stoplight: r.stoplight ?? null, grants: r.grants ?? [], proposals: r.proposals ?? [], exploration: r.exploration ?? { allowanceTokens: 0, spentTodayTokens: 0 } };
+    return { docs: r.docs ?? [], goal: r.goal ?? "", keyResults: r.keyResults ?? [], objectives: r.objectives ?? { objectives: [], unsorted: r.keyResults ?? [] }, blocked: r.blocked ?? null, stoplight: r.stoplight ?? null, grants: r.grants ?? [], proposals: r.proposals ?? [], exploration: r.exploration ?? { spentTodayTokens: 0, freeTokens: 0, cap: null } };
   }
   async cabinet(id: string, q: CabinetQuery = {}) {
     const r = await this.get<Partial<Cabinet>>(`/api/buildings/${id}/cabinet${qs({ limit: 30, ...q })}`);
@@ -725,19 +688,15 @@ export class HttpApi implements Api {
   }
   async bank() {
     const r = await this.get<Bank>("/api/bank");
-    return { ...r, inputs: r.inputs ?? [], pools: r.pools ?? [], buildings: r.buildings ?? [], contributors: r.contributors ?? [] };
+    return { ...r, inputs: r.inputs ?? [], buildings: r.buildings ?? [], contributors: r.contributors ?? [] };
   }
   async finance() { return this.get<Finance>("/api/finance"); }
   async financeSpend() { return this.get<FinanceSpend>("/api/finance/spend"); }
   async financeSources() { return this.get<FinanceSources>("/api/finance/sources"); }
-  async financePools() { return this.get<FinancePools>("/api/finance/pools"); }
   async financeFly() { return this.get<FinanceFly>("/api/finance/fly"); }
   async bankStreams() { return this.get<BankStreams>("/api/bank/streams"); }
   async addBankInput(i: In<typeof AddBankInput>) { return unwrap<BankInput>(await this.post("/api/bank/inputs", i), "input"); }
   async cancelBankInput(id: string) { return unwrap<BankInput>(await this.call("DELETE", `/api/bank/inputs/${id}`), "input"); }
-  async createBankPool(i: In<typeof CreateBankPoolInput>) { return unwrap<Bank>(await this.post("/api/bank/pools", i), "bank"); }
-  async updateBankPool(id: string, i: In<typeof UpdateBankPoolInput>) { return unwrap<Bank>(await this.call("PATCH", `/api/bank/pools/${id}`, i), "bank"); }
-  async deleteBankPool(id: string) { return unwrap<Bank>(await this.call("DELETE", `/api/bank/pools/${id}`), "bank"); }
   async exportNow() { return (await this.post<{ commit?: string | null }>("/api/export")).commit ?? null; }
   async redeploy(image: boolean) { return this.post<{ started?: boolean; queued?: boolean; running?: boolean }>("/api/admin/redeploy", { image }); }
   async redeployLive() { return this.get<RedeployLive>("/api/admin/redeploy"); }

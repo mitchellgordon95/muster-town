@@ -1,5 +1,5 @@
 import { AppError, BANK_ACCOUNTING, deskPreset, deskSizeFor, type World, buildingStats, accessRequestOf, boardWithTownDocs, canInteract, decideAccess, deskSlotRows, requestAccess, sessionView, setDeskSlot, cabinetCounts, cabinetDocs, reportChains, reviewDeck, presentedReviewDeck, intrayRoutes, funderWeek } from "@muster-town/core";
-import { funderSlide, AccessDecisionInput, AccessRequestInput, AddBankInput, CreateBankPoolInput, CreateBuildingInput, DesksPatch, TownDefaultsPatch, UpdateBankPoolInput, DocType, DonateInput, LayoutInput, Membership, PlantFlagInput, RedeployInput, UpdateBuildingInput, apiKeyProblem, townEnv, REVIEW_DECK_ID, type AccessRequest, type AuthMe, type RedeployLive } from "@muster-town/schema";
+import { funderSlide, AccessDecisionInput, AccessRequestInput, AddBankInput, CreateBuildingInput, DesksPatch, TownDefaultsPatch, DocType, DonateInput, LayoutInput, Membership, PlantFlagInput, RedeployInput, UpdateBuildingInput, apiKeyProblem, townEnv, REVIEW_DECK_ID, type AccessRequest, type AuthMe, type RedeployLive } from "@muster-town/schema";
 import type { FastifyInstance, FastifyRequest } from "fastify";
 import { brotliDecompressSync } from "node:zlib";
 import { z } from "zod";
@@ -39,7 +39,7 @@ export async function townRoutes(app: FastifyInstance) {
    * billCapUsd, billTodayUsd, billPct, overCap, day}`, today's (UTC) desk bill at Fly list prices against the town-wide cap.
    */
   app.get("/api/health", async () => ({ ok: true, runtime: !!app.runtime, commit: world.host.commit ?? null, startedAt: world.host.startedAt ?? null, time: new Date().toISOString(), accounting: BANK_ACCOUNTING, load: app.load.snapshot(),
-    // goal-directed budgets: exploration (held at its allowance) and directed (a human asked; metered, never held) today
+    // goal-directed budgets: exploration (held only with no free tokens or at a goal's cap) and directed (a human asked; metered, never held) today
     budgets: world.grantDesk.laneBudgets(), backup: app.backup?.snapshot() ?? null, monitor: app.monitor?.view() ?? null, desks: desksHealth(world),
     // the root app (the Workshop) only: how many hosted collectives this process serves at /<slug>/
     ...(app.hub ? { hosted: { count: app.hub.count } } : {}),
@@ -371,8 +371,6 @@ export async function townRoutes(app: FastifyInstance) {
   // public, read-only: `used` by building → grant → assignment from the sessions table; rows sum to used (gr_8gtgmd828o)
   app.get("/api/finance/spend", async () => world.bank.spend());
   app.get("/api/finance/sources", async () => world.bank.sources());
-  // public, read-only: pools (share, left, overdrawn) and buildings (drawn, donated, held, allowance); gr_mijwhoiy2f
-  app.get("/api/finance/pools", async () => world.bank.pools((id) => world.grantDesk.exploration(id).allowanceTokens));
   // the Fly.io hosting estimate (Bank Transparency, 1:1 mt_s6f8mvjw9h): desks priced only on the fly backend, the town Machine only when the server runs on one;
   // the daily desk bill cap is Prod's desk-perf step 3 (gr_uhh6u39vv9): desks.billCapUsd, as health `desks` shows it
   app.get<{ Querystring: { days?: string } }>("/api/finance/fly", async (req) => {
@@ -410,32 +408,11 @@ export async function townRoutes(app: FastifyInstance) {
     return { ...week, slide: funderSlide(week) };
   });
 
-  // accounting pools: buildings join a pool (PATCH /api/buildings/:id {poolId}); pools get the % of the Bank
-  app.get("/api/bank/pools", async () => ({ pools: world.bank.summary().pools }));
-
   // Bank step 4: run the drift job by hand for a UTC day (default today so far); admins only
   app.post("/api/bank/drift", async (req) => {
     const user = requireUser(req);
     const day = String((req.body as { day?: unknown } | undefined)?.day ?? new Date().toISOString().slice(0, 10));
     return { rows: world.bank.runDriftByHand(user.id, day), bank: world.bank.summary() };
-  });
-
-  app.post("/api/bank/pools", async (req, reply) => {
-    const user = requireUser(req);
-    const pool = world.bank.createPool(user.id, parse(CreateBankPoolInput, req.body));
-    return reply.code(201).send({ pool, bank: world.bank.summary() });
-  });
-
-  app.patch<{ Params: Params }>("/api/bank/pools/:id", async (req) => {
-    const user = requireUser(req);
-    const pool = world.bank.updatePool(user.id, req.params.id, parse(UpdateBankPoolInput, req.body));
-    return { pool, bank: world.bank.summary() };
-  });
-
-  app.delete<{ Params: Params }>("/api/bank/pools/:id", async (req) => {
-    const user = requireUser(req);
-    world.bank.deletePool(user.id, req.params.id);
-    return { bank: world.bank.summary() };
   });
 
   // ---- export ----

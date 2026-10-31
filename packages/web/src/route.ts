@@ -2,7 +2,7 @@
  * Shareable URLs: `/#/doc/<id>` opens that doc in the library panel (`/#/doc/<id>/<n>`: a deck at slide n) and `/#/grant/<id>` opens that grant or
  * proposal; opening either puts its id in the address bar, so a link can be pasted into a report, chat or anywhere else.
  * `/#/connect` opens "Connect your agent" (the README's Bring your own agent section links it).
- * `/#/bank` opens the Bank page (tokens received, used and left, their sources, pools, spending and hosting in dollars; public).
+ * `/#/bank` opens the Bank page (tokens received, used and left, their sources, free tokens, spending and hosting in dollars; public).
  * `/#/finance`, the old Finance page's hash, opens the Bank too (1:1 mt_ew2d0mm7h9: one Bank page).
  * `/#/manual` opens the operating manual (the HUD's "?"), `/#/manual/<section>` at that section.
  */

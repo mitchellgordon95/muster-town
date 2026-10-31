@@ -143,7 +143,7 @@ The building panel's Overview names the owner once ("Owner: <owner>", linking to
 
 ## Finance: one balance, streams, desks (decided in 1:1 mt_529jbnwvmi, decision 1)
 
-**The tree says what matters; the Bank says how much there is.** The tree carries no money: no allocation by goal node, no budget tree, no `pct` on a goal. There is one Bank balance, and **Bank pools go** (`BankPool`, the `general` pool, a building's `poolId`). Nothing in the Bank needs to know about goals except an earmark's scope (below).
+**The tree says what matters; the Bank says how much there is.** The tree carries no money: no allocation by goal node, no budget tree, no `pct` on a goal. There is one Bank balance; **Bank pools are deleted** (built: as_1nuoiauxlw, migration 067; see "Free tokens" below). Nothing in the Bank needs to know about goals except an earmark's scope (below).
 
 **Human review of grants stays.** Buildings scout and propose; a human funds or cuts; funded grants run. No grant starts itself. Autonomy lives in the scouting, not in the spending.
 
@@ -155,21 +155,25 @@ The building panel's Overview names the owner once ("Owner: <owner>", linking to
 - **An earmark is a stream scoped to a goal node**: it only pays for sessions whose work sits in that node's subtree. A member funding one grant from their own input (gr_tvt32g9xly, `fundedWith`) is the narrowest case, a stream scoped to one grant.
 - **Draw order, not a split.** The Bank pays each session from the **narrowest matching stream** (grant, then the nearest earmarked goal above the session's KR or goal, walking up), **then the general balance**. A session matches through its lane, the same attribution Spend by goal uses. When an earmark runs dry, the work continues on the general balance; nothing is held.
 
-### Exploration: free funds instead of a per-building allowance
+### Free tokens and the optional exploration cap (built: how-work-gets-done.md build step 1, as_1nuoiauxlw)
 
-> Superseded by [how-work-gets-done.md](how-work-gets-done.md) §3, §7 and §8: exploration is a rule on the goal run by the tick in reserved chunks; free tokens count only what is in the Bank (no week horizon, open question); no allowance.
+> The design is [how-work-gets-done.md](how-work-gets-done.md) §7 and §8 (1:1 mt_wql34b8gkl, the Bank sign-off). It replaced "free funds" (no week horizon: only what is in the Bank now, §12 q4) and the interim "pool and exploration budget on the goal" (migration 065).
 
-**Free funds** = the balance + stream income over the planning horizon − funded grants' remaining tokens − open proposals' asks.
+**Pools are deleted.** One general balance (every credit not earmarked) that every building draws first come, first served (`Bank.available`, `drawTokens`); earmarks are the only per-subtree funding. Migration 067 is additive: `bank_pools`, `bank_debits.poolId`, `goals.poolId`, `goals.explorationTokensPerDay` and the buildings' copies stay, read by nothing. Gone from the code: `BankPool`, `DEFAULT_POOL_ID`, `Bank.listPools / poolOf / goalsIn / buildingsIn / shares / createPool / updatePool / deletePool / setGoalPool / poolAvailable / poolDailyInflow / pools`, core `finance-pools.ts`, `/api/bank/pools`, `/api/finance/pools`, the Bank's Pools tab, `goals.ts fundingAt / fundingOf`.
 
-- **The horizon is the week**: buildings propose against a week's income. **The day stays the ceiling unit**: the Bank's daily limits and a key's daily limit still apply.
-- **While free funds > 0**, buildings use their desks to scout (`exploration` lane, still naming an open KR in the subtree or a gap) and write proposals. **At zero, exploration stops** everywhere. Counting open proposals' asks makes the in-tray self-limiting: once the town has proposed as much as it can afford, the next move is the human's.
-- This **replaces the per-building exploration allowance** (`explorationTokensPerDay`, `grantDesk` exploration bucket). Desks, not a per-building share, decide how much each building can scout. Directed work is still never held by it.
+**Free tokens** (core `free-tokens.ts`: `freeTokens(world, goalId)`, `freeTokensAll(world)`), as coded:
 
-### Pool and exploration budget on the goal (interim step, 1:1 mt_n25udpflus decision 3)
+```
+claims  = funded/checkpoint grants' max(0, grantTokens − spent)   (goal: its key result's goal, else its building's attachment)
+        + proposed/countered grants' askTokens                     (same goal)
+        + open bank_reservations' tokens                           (their goalId)
+each claim is paid like its sessions would draw: the nearest earmark at or above its goal first (walking up), the rest by the general balance
+free(goal) = max(0, general balance − what the claims took from it) + what the claims left of the earmarks at or above goal
+```
 
-> Superseded by [how-work-gets-done.md](how-work-gets-done.md) §7 and §8: pools are deleted and the exploration allowance goes; the goal carries the explore rule (on/off, chunk, optional cap) instead.
+A funded grant's unspent tokens are its reservation (derived, as before). `bank_reservations` (goal, building, assignment, tokens, openedAt, closedAt, spentTokens) is empty until the declarative explore step (§3) opens them. Shown: `GET /api/goals` and `GET /api/goals/:id` `funding.free`, `GET /api/bank` `free` (the root's), the goal tree's Funding block, the Bank's Overview and its Free tokens tab (the fountain).
 
-Before pools go and free funds replace the allowance (neither is built), both settings moved from the building to the goal it is attached to: they are funding, so they belong on the tree. `Goal.poolId` and `Goal.explorationTokensPerDay` (migration 065, nullable: null = inherit). A building's pool is the nearest goal at or above its attachment that sets one, else General; its exploration allowance per day is the nearest goal that sets one, else the policy default (10% of its pool's daily inflow). One helper, core `goals.ts` `fundingAt` / `fundingOf`, used by `Bank.poolOf` (and so `buildingsIn`, the shares, `/api/finance/pools`) and `grantDesk.exploration`; the Town Hall keeps its special case (no exploration). `PATCH /api/goals/:id` takes `poolId` (an admin) and `explorationTokensPerDay` (`goals.edit` there plus a human funder: an admin or the goal's owner, never an agent); the building PATCH takes neither, and `Building.poolId` / `explorationTokensPerDay` stay as columns nobody reads. Changes log `bank.pool` / `goal.edited` with the `goalId`, so the goal's history shows them. The migration copied each lab's values onto its attached goal (the first building by createdAt wins; a building that disagreed is logged as a `bank.pool` event with `backfillConflict`). Web: the goal tree's node detail has a **Funding** block (pool select for admins, Exploration / day for those who can edit, "inherited from …" otherwise); the building Overview shows "Pool: X (from goal Y)"; the Bank's Pools tab lists the goals each pool funds and their buildings.
+**Exploration has no allowance.** `explorationTokensPerDay`, `EXPLORATION_SHARE` and the "exploration allowance spent today" hold are gone. Exploration is held only when the free tokens under the building's goal are 0 ("held: no free tokens under its goal") or an optional cap is reached: `Goal.exploreCapTokensPerDay` (null = inherit; none up the tree = uncapped; the root's is town-wide), set with `PATCH /api/goals/:id {exploreCapTokensPerDay}` by a human funder with `goals.edit` there (an admin or the goal's owner, never an agent); the cap counts today's (UTC) lane-exploration sessions of the buildings at or under the capping goal, plus reservations opened there today. Directed work is never held for money. The board's `exploration` is `{spentTodayTokens, freeTokens, cap}`.
 
 ### Sessions and keys
 
@@ -269,7 +273,7 @@ Cards show the title, lane chip, grant or KR, and age. The **WIP limit is the bu
 - **Building Goals tab**: a read-only view of the building's subtree(s), with "Edit at the Town Hall →" and a **Propose a key result** form for the manager. The KR editor, Mark met/missed and Delete move to the editor.
 - **Objectives become goals.** `set_objective` goes. `GET /api/buildings/:id/objectives` returns the subtree in the old shape for one release.
 - **`buildings.goal`** stays as the building's one-line **Purpose** (door, prompts).
-- **Bank pools and the per-building exploration allowance go** (build steps 7 and 8, Bank-gated). Until then they run as today.
+- **Bank pools and the per-building exploration allowance go**: done (how-work-gets-done.md build step 1, as_1nuoiauxlw; see "Free tokens and the optional exploration cap").
 - **Untouched**: grants, checkpoints, human review of grants, member funding (it becomes a grant-scoped stream in step 7), lanes' gate logic and the stoplight.
 
 ## Migration (one additive migration; its number is checked against main right before merging, 061 at the time of writing: main's highest is 060)

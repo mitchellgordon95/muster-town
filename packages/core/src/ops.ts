@@ -49,7 +49,7 @@ export class Ops {
   /**
    * The rest needs building.manage. `headcount` (Desks) sets the building's size on the map, which is drawn from the goal
    * tree, and its daily cap (daily budget / agent × desks): `town.manage_buildings`, the permission that covered resizing on
-   * the map table. The pool and the exploration budget are the attached goal's (PATCH /api/goals/:id).
+   * the map table. The exploration cap is the attached goal's (PATCH /api/goals/:id).
    */
   updateBuilding(actor: Actor, id: string, patch: (typeof UpdateBuildingInput)["_input"]) {
     const { goalId, ...rest } = patch;

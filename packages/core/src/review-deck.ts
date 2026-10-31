@@ -12,6 +12,7 @@
  */
 import { ROOT_GOAL_ID, isNoCall, parseRollup, type Doc, type GrantView, type Meeting, type PinnedSlide, type ReviewDeck, type ReviewSlide, type ReviewSlideKind, type RollupItem } from "@muster-town/schema";
 import { grantsAwaitingDecision, townHallIntray } from "./domain.ts";
+import { freeTokens } from "./free-tokens.ts";
 import type { GoalNode, GoalProposalView } from "./goals.ts";
 import type { World } from "./world.ts";
 
@@ -255,7 +256,7 @@ function townSlide(world: World, now: Date, decisions: number, oldest: string | 
   const cap = world.bank.capState(now);
   const lanes = world.grantDesk.laneBudgets();
   const explSpent = lanes.reduce((s, l) => s + l.exploration.spentTodayTokens, 0);
-  const explAllow = lanes.reduce((s, l) => s + l.exploration.allowanceTokens, 0);
+  const free = freeTokens(world, ROOT_GOAL_ID, now).freeTokens;
   const directed = lanes.reduce((s, l) => s + l.directed.spentTodayTokens, 0);
   const rows = world.buildings.where("kind != 'town-hall'", [], "ORDER BY rowid").map((b) => {
     const light = world.grantDesk.stoplight(b);
@@ -273,7 +274,7 @@ function townSlide(world: World, now: Date, decisions: number, oldest: string | 
   const text = [
     "# Review deck: the state of the town",
     `**Bank:** ${fmt(bank)} adjusted tokens left · subscription spend today ${fmt(cap.spentToday)}${cap.learnedCap ? ` of a ${fmt(cap.learnedCap)} daily cap` : ""}${cap.held ? " (new starts held)" : ""}`,
-    `**Spend today by lane:** exploration ${fmt(explSpent)} of ${fmt(explAllow)} allowance · directed ${fmt(directed)}`,
+    `**Spend today by lane:** exploration ${fmt(explSpent)} (no allowance; ${fmt(free)} free tokens) · directed ${fmt(directed)}`,
     `**Desks by pillar:** ${pillars}`,
     `**${decisions} decision${decisions === 1 ? "" : "s"} below${oldest ? `, oldest waiting ${waitedFor(oldest, now)}` : ""}.**${asking ? ` ${asking} ${asking === 1 ? "person is" : "people are"} asking to join (in the in-tray list).` : ""}`,
     `| Building | Light | Key results |\n|---|---|---|\n${rows.join("\n")}`,

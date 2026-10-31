@@ -203,7 +203,7 @@ describe("grants service", () => {
     expect(wakes()).toHaveLength(1);
     expect(wakes()[0]).toMatchObject({ lane: "directed", createdBy: "system", status: "pending" });
     world.grantDesk.syncBlocked(LAB);
-    fundGoalOf(world, LAB, { explorationTokensPerDay: 5 });
+    fundGoalOf(world, LAB, { exploreCapTokensPerDay: 5 });
     expect(wakes()).toHaveLength(1); // no loop while it stays blocked
     expect(world.ops.townHallIntray().blocked).toEqual([expect.objectContaining({ buildingId: LAB, reason: "blocked: no key results to work toward" })]);
     world.grantDesk.createKeyResult(admin, LAB, KRS[0]!);
@@ -233,13 +233,12 @@ describe("grants service", () => {
     expect(snap.filter((b) => b.id !== LAB).every((b) => b.stoplight === null)).toBe(true);
   });
 
-  it("exploration: 10% of the pool's daily inflow by default, or the building's setting; today's exploration sessions count", () => {
+  it("exploration: uncapped by default with the free tokens under the goal, or the goal's cap; today's exploration sessions count", () => {
     const { world, admin, draft, charge } = setup();
     world.bank.addInput(admin.ownerUserId!, { label: "sub", source: "api-key", apiKey: "sk-test", model: "m", tokens: 20_000_000, recurrence: "daily" } as never);
-    const inflow = world.bank.poolDailyInflow(world.bank.poolOf(LAB).id);
-    expect(world.grantDesk.exploration(LAB)).toEqual({ allowanceTokens: Math.floor(inflow * 0.1), spentTodayTokens: 0 });
+    expect(world.grantDesk.exploration(LAB)).toEqual({ spentTodayTokens: 0, freeTokens: 20_000_000, cap: null });
     charge(draft().id, 300_000, "exploration");
-    fundGoalOf(world, LAB, { explorationTokensPerDay: 1_000_000 });
-    expect(world.grantDesk.exploration(LAB)).toEqual({ allowanceTokens: 1_000_000, spentTodayTokens: 300_000 });
+    const goalId = fundGoalOf(world, LAB, { exploreCapTokensPerDay: 1_000_000 });
+    expect(world.grantDesk.exploration(LAB)).toMatchObject({ spentTodayTokens: 300_000, cap: { tokensPerDay: 1_000_000, goalId, spentTodayTokens: 300_000 } });
   });
 });

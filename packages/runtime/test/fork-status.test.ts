@@ -2,7 +2,7 @@
 import { describe, expect, test } from "vitest";
 import { updateBuilding, type ForkStatus } from "@muster-town/core";
 import { TOWN_TOOLS } from "../src/session.ts";
-import { callVerb, init, result, setup, toolUse } from "./helpers.ts";
+import { callVerb, creditBank, init, result, setup, toolUse } from "./helpers.ts";
 
 const REPORT = { title: "Done", verdict: "stop", body: "## What I did\nIt.\n\n## Findings\nIt works.\n\n## What I need from you\nNothing needed." };
 /** A tool_result as the SDK streams it: text content as given (the helper's toolResult JSON-encodes it). */
@@ -41,7 +41,7 @@ describe("fork_status", () => {
     const mei = by("Mei");
     meiId = mei.id;
     updateBuilding(world, lab.id, { managerAgentId: mei.id });
-    world.goals.patch(world.goalTree.attachmentOf(lab.id), { explorationTokensPerDay: 10_000_000 });
+    creditBank(world);
     world.buildings.upsert({ ...world.buildings.require(lab.id), headcount: world.layout.deskCount(lab.id) + 2 });
     const { assignmentId } = await world.verbs.assign(world.agents.require(mei.id), { title: "Fix the thing", description: "Do it.", gap: "test gap" });
     await runtime.tickOnce();

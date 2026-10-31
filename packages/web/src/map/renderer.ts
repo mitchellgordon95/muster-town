@@ -34,7 +34,7 @@ const SPEED = 5 * T; // px per second
 const ROUTE_SPEED = 11 * T;
 const INTERACT_PX = 26;
 const bname = (p: Place) => store.state.buildings.find((b) => b.id === p.buildingId)?.name ?? "the building";
-const BANK_VERB: Record<string, string> = { "Tokens & sources": "Open", Pools: "Look into", Spending: "Read", Hosting: "Check" };
+const BANK_VERB: Record<string, string> = { "Tokens & sources": "Open", "Free tokens": "Look into", Spending: "Read", Hosting: "Check" };
 /** Every panel is a place: what E opens when you stand at each place kind. */
 export const PLACE_PANEL: Partial<Record<Place["kind"], (p: Place) => PanelRef & { verb: string }>> = {
   board: (p) => ({ kind: "board", id: p.buildingId ?? undefined, verb: `Read the ${bname(p)} board` }),

@@ -255,7 +255,7 @@ export function drawSpendingBoard(g: CanvasRenderingContext2D, px: number, py: n
   for (const [x, h] of [[3, 5], [6, 3], [9, 6], [12, 2]]) g.fillRect(px + x, py + 9 - h, 2, h);
   g.fillStyle = "#f2c94c"; g.fillRect(px + 3, py + 9, 11, 1);
 }
-/** The Bank's pools fountain (Pools tab), two tiles: a marble basin of water with coins in it; each tile draws its half. */
+/** The Bank's fountain (Free tokens tab), two tiles: a marble basin of water with coins in it; each tile draws its half. */
 export function drawBankFountain(g: CanvasRenderingContext2D, px: number, py: number, n: { l: boolean; r: boolean }) {
   g.fillStyle = "rgba(0,0,0,.18)"; g.fillRect(px, py + 14, T, 2);
   g.fillStyle = "#d9cfb6"; g.fillRect(px, py + 4, T, 11);

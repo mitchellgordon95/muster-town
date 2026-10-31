@@ -25,14 +25,12 @@ function near(name: string, leftExpr: string, left: number, rightExpr: string, r
 }
 
 /** Every check, from the five bodies alone. */
-function checks(f: Json, s: Json, src: Json, p: Json, fly: Json): Check[] {
+function checks(f: Json, s: Json, src: Json, bank: Json, fly: Json): Check[] {
   const ob = f.overdrawnBreakdown ?? {};
   return [
     flag("finance sumCheck", f.sumCheck?.ok, `ok ${f.sumCheck?.ok}, diff ${fmt(f.sumCheck?.diff)} (${f.sumCheck?.identity})`),
     flag("spend check", s.check?.ok, `ok ${s.check?.ok}, diff ${fmt(s.check?.diff)} (${s.check?.identity})`),
     flag("sources sumCheck", src.sumCheck?.ok, `ok ${src.sumCheck?.ok}, diff ${fmt(src.sumCheck?.diff)} (${src.sumCheck?.identity})`),
-    flag("pools drawsOk", p.sumCheck?.drawsOk, `ok ${p.sumCheck?.drawsOk}, diff ${fmt(p.sumCheck?.drawsDiff)}`),
-    flag("pools balanceOk", p.sumCheck?.balanceOk, `ok ${p.sumCheck?.balanceOk}, diff ${fmt(p.sumCheck?.balanceDiff)}`),
     eq("finance identity", "used + expired + left", f.used + f.expired + f.left, "total + overdrawn", f.total + f.overdrawn),
     eq("overdrawn parts", "Σ overdrawnBreakdown",
       sum([ob.durableOvershoot, ob.subscriptionOverdrawn, ob.deletedCreditDebits, ob.allocationOverspent].map(Number)), "overdrawn", f.overdrawn),
@@ -40,10 +38,8 @@ function checks(f: Json, s: Json, src: Json, p: Json, fly: Json): Check[] {
     flag("sources matchesFinance", src.matchesFinance, `matchesFinance ${src.matchesFinance} (financeTotal ${fmt(src.financeTotal)})`),
     eq("sources expired", "sources.expiredTokens", src.expiredTokens, "finance.expired", f.expired),
     eq("spend used", "spend.used", s.used, "finance.used", f.used),
-    eq("pools usedBank", "pools.usedBank", p.usedBank, "finance.usedBank", f.usedBank),
-    eq("pools building draws", "Σ pools.buildings[].drawn", sum((p.buildings ?? []).map((b: Json) => b.drawn)), "pools.usedBank", p.usedBank),
-    eq("pools balance", "pools.balanceTokens", p.balanceTokens, "finance.leftBank", f.leftBank),
-    eq("pools overshoot", "pools.overshootTokens", p.overshootTokens, "finance durableOvershoot", ob.durableOvershoot),
+    // one balance (pools were deleted, migration 067): the Bank's balance is what finance says is left in it
+    eq("bank balance", "bank.balanceTokens", bank.balanceTokens, "finance.leftBank", f.leftBank),
     // Fly hosting (USD): the days' and the buildings' desk time agree, each day's desks + town = its total
     flag("fly sumCheck", fly.sumCheck?.ok, `ok ${fly.sumCheck?.ok}, diff ${fly.sumCheck?.diff} (${fly.sumCheck?.identity})`),
     eq("fly desk time", "Σ fly.days[].deskMs", sum((fly.days ?? []).map((d: Json) => d.deskMs)), "Σ fly.buildings[].deskMs", sum((fly.buildings ?? []).map((b: Json) => b.deskMs))),
@@ -62,14 +58,14 @@ async function main(): Promise<number> {
   let round = 0, bodies: Json[] = [], result: Check[] = [];
   while (round < 3) {
     round++;
-    bodies = await Promise.all(["/api/finance", "/api/finance/spend", "/api/finance/sources", "/api/finance/pools", "/api/finance/fly"].map(get));
-    const [f, s, src, p, fly] = bodies as [Json, Json, Json, Json, Json];
-    result = checks(f, s, src, p, fly);
+    bodies = await Promise.all(["/api/finance", "/api/finance/spend", "/api/finance/sources", "/api/bank", "/api/finance/fly"].map(get));
+    const [f, s, src, bank, fly] = bodies as [Json, Json, Json, Json, Json];
+    result = checks(f, s, src, bank, fly);
     if (result.every((c) => c.ok)) break;
   }
-  const [f, s, src, p, fly] = bodies as [Json, Json, Json, Json, Json];
+  const [f, s, src, , fly] = bodies as [Json, Json, Json, Json, Json];
   console.log(`${base}: commit ${String(health.commit).slice(0, 7)}${round > 1 ? `, round ${round} of 3` : ""}`);
-  console.log(`at: finance ${f.at}, spend ${s.at}, sources ${src.at}, pools ${p.at}, fly ${fly.at}`);
+  console.log(`at: finance ${f.at}, spend ${s.at}, sources ${src.at}, fly ${fly.at}`);
   console.log(`fly today ${fly.today?.day}: desks $${Number(fly.today?.deskUsd).toFixed(2)} + town $${Number(fly.today?.townUsd).toFixed(2)} = $${Number(fly.today?.totalUsd).toFixed(2)}; last ${fly.windowDays} days $${Number(fly.totals?.totalUsd).toFixed(2)} (desk time ${(Number(fly.totals?.deskMs) / 3_600_000).toFixed(1)} h, ${fly.totals?.sessions} sessions)`);
   for (const c of result) console.log(`${c.ok ? "✓" : "✗"} ${c.name}: ${c.line}`);
   const failed = result.filter((c) => !c.ok).length;

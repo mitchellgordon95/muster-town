@@ -2,7 +2,7 @@
 import { describe, expect, test, vi } from "vitest";
 import { buildingQueue, updateBuilding } from "@muster-town/core";
 import type { DeskBackend } from "../src/index.ts";
-import { callVerb, init, result, setup, type FakeSession } from "./helpers.ts";
+import { callVerb, creditBank, init, result, setup, type FakeSession } from "./helpers.ts";
 
 const REPORT = { title: "Done", verdict: "stop", body: "## What I did\nIt.\n\n## Findings\nThe plan: step A then B.\n\n## What I need from you\nNothing needed." };
 
@@ -19,8 +19,8 @@ function forkSetup(script: (s: FakeSession) => AsyncGenerator<unknown, void, unk
   meiId = mei.id;
   updateBuilding(world, lab.id, { managerAgentId: mei.id });
   const b = world.buildings.require(lab.id);
-  // labs are lane-gated: queued exploration needs an allowance
-  world.goals.patch(world.goalTree.attachmentOf(lab.id), { explorationTokensPerDay: 10_000_000 });
+  // labs are lane-gated: queued exploration needs free tokens
+  creditBank(world);
   world.buildings.upsert({ ...b, headcount: world.layout.deskCount(lab.id) + (opts.spare ?? 2) });
   const queue = async (title: string, extra: Record<string, unknown> = {}) =>
     (await world.verbs.assign(world.agents.require(mei.id), { title, description: "Do it.", gap: "test gap", ...extra })).assignmentId;
