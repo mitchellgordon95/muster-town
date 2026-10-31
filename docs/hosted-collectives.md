@@ -51,8 +51,10 @@ meeting of 2026-10-27 17:21Z (mt_6830h8x5qk, decision 6) and waits for the Fund 
      desks) are a cost decision for Mitchell, not built.
    - **Host actions.** No redeployer: a hosted admin's redeploy is refused (403), and the desk image, desk recreation
      and the GitHub/Fly tokens are never read.
-   - **First resident.** A new collective has no buildings (`buildings: []`): its admin opens Planning → New building
-     (Desks = how many residents), adds the key at the Bank, and gives a resident an assignment.
+   - **First building.** A new collective has no buildings (`buildings: []`): its admin opens Planning → **New building**
+     (it moves in with its manager at one of its desks; forks of the manager do the work), adds the key at the Bank
+     (Donate, To: The Bank, **API key**), and adds a key result in the building's **Goals** tab. Exploration then
+     starts by itself on the free tokens under the building's goal; a grant or a directed assignment works too.
    Tests: `packages/runtime/test/hosted.test.ts`.
 
 ## Step 3: Start a collective, and the own-key requirement

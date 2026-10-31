@@ -758,6 +758,20 @@ export const Assignment = z.object({
 });
 export type Assignment = z.infer<typeof Assignment>;
 /**
+ * One assignment as anyone may read it (GET /api/assignments/:id, kr_utx7pmv1yk "No dead ids": an as_ id opens this card):
+ * what it asks, its lane and where it draws, who runs it, its status, report and sessions. Leaves out who created it and
+ * the human it traces to (`origin`), which only the in-tray and the runtime need.
+ */
+export interface AssignmentCard {
+  id: string; title: string; description: string; status: Assignment["status"];
+  lane: Assignment["lane"]; grantId: string | null; keyResultId: string | null; gap: string | null; sourceId: string | null;
+  agentId: string; agentName: string | null; buildingId: string; buildingName: string | null;
+  reportId: string | null; fromReportId: string | null; fromMeetingId: string | null; fromAssignmentId: string | null; chainId: string | null;
+  heldReason: string | null; createdAt: string; updatedAt: string;
+  /** its sessions, oldest first: tokens in adjusted output tokens */
+  sessions: { id: string; status: string; startedAt: string; endedAt: string | null; adjustedOutputTokens: number; turns: number; reportId: string | null }[];
+}
+/**
  * Why a queued assignment can't start now (GET /api/agents/:id on pending assignments, GET /api/blocked): `kind` and the
  * thing it waits on (`targetId`: an assignment, a commit sha, a report, a grant, a building), the reason in words, and
  * where the map's red line goes: the blocking colleague's body (`agentId`) or a place (`placeId`: the in-tray that holds

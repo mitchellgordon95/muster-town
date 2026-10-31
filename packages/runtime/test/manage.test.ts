@@ -1,12 +1,17 @@
+import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { describe, expect, test } from "vitest";
-import { intrayOf, managerIntrayRow } from "@muster-town/core";
+import { intrayOf, managerIntrayRow, type World } from "@muster-town/core";
+import type { RuntimeOptions } from "../src/index.ts";
+import { RESUME_WINDOW_MS, resumableManage, resumePrompt } from "../src/manage.ts";
 import { callVerb, deferred, init, result, setup, type FakeSession, type Script } from "./helpers.ts";
 
 const report = (title: string) => ({ title, verdict: "stop" as const, body: "## What I did\nMeasured it.\n\n## Findings\n2.4 ± 0.1 ppm/yr.\n\n## What I need from you\nNothing needed." });
 
 /** Seeded lab (marked blocked already, so the blocked wake stays out of the way) with Mei as its manager agent and the seed's reports decided; `script` drives every SDK session. */
-async function managed(script: Script) {
-  const env = setup(script);
+async function managed(script: Script, extra: Partial<RuntimeOptions> = {}) {
+  const env = setup(script, extra);
   const admin = env.world.ops.ensureAvatar(env.seed.admin.id);
   for (const d of intrayOf(env.world, env.lab.id)) await env.world.verbs.review(admin.id, { docId: d.id, decision: "approve" });
   // a lab with no key results is blocked, which wakes the manager with work of its own once per transition: start it
@@ -180,5 +185,87 @@ describe("manager team-lead session", () => {
     expect(sdk.sessions[0].received[0]).toContain(own.id);
     expect(world.docs.require(own.id)).toMatchObject({ decision: "approve", decidedBy: mei.id });
     expect(intrayOf(world, lab.id)).toHaveLength(0);
+  });
+});
+
+/** A team-lead session of `agentId` that a restart cut (as reconcile ends it), with SDK session `sdk`; `jsonl` writes its transcript under `claudeDir`. */
+function cutManageSession(world: World, agentId: string, sdk: string, claudeDir: string, jsonl = true, error = "cut by restart") {
+  const s = world.ops.startSession(agentId, { purpose: "manage", model: "claude-opus-5-5" });
+  world.sessions.patch(s.id, { sdkSessionId: sdk });
+  world.ops.endSession(s.id, { status: "interrupted", error });
+  world.setStatus(agentId, "idle");
+  if (jsonl) {
+    mkdirSync(join(claudeDir, "projects", "-repo"), { recursive: true });
+    writeFileSync(join(claudeDir, "projects", "-repo", `${sdk}.jsonl`), "{}\n");
+  }
+  return world.sessions.require(s.id);
+}
+
+describe("a team-lead session cut by a restart resumes (gr_w9ue1k1p0c step 2)", () => {
+  test("resumableManage: interrupted by a restart + sdkSessionId + transcript → resume; no transcript, an error, a 1:1 or too old → fresh", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "claude-"));
+    const env = await managed(async function* () { yield init(); yield result(1, 0); });
+    const { world, by } = env;
+    const mei = by("Mei").id;
+    const now = () => new Date(Date.now() + 1000);
+    const cut = cutManageSession(world, mei, "sdk-cut-1", dir);
+    expect(resumableManage(world, mei, dir, now())).toEqual({ sessionId: cut.id, sdkSessionId: "sdk-cut-1" });
+    // the drain's stuck drop counts as a restart cut too
+    const dropped = cutManageSession(world, mei, "sdk-cut-2", dir, true, "cut by redeploy: drain found it stuck");
+    expect(resumableManage(world, mei, dir, now())).toEqual({ sessionId: dropped.id, sdkSessionId: "sdk-cut-2" });
+    expect(resumableManage(world, mei, dir, new Date(Date.now() + RESUME_WINDOW_MS + 60_000))).toBeNull();
+    cutManageSession(world, mei, "sdk-gone", dir, false);
+    expect(resumableManage(world, mei, dir, now())).toBeNull(); // transcript gone: fresh
+    const failed = cutManageSession(world, mei, "sdk-cut-3", dir);
+    world.sessions.patch(failed.id, { status: "error", error: "boom" });
+    expect(resumableManage(world, mei, dir, now())).toBeNull();
+    const s = world.ops.startSession(mei, { purpose: "manage", model: "m", meetingId: "mt_x" });
+    world.sessions.patch(s.id, { sdkSessionId: "sdk-cut-1" });
+    world.ops.endSession(s.id, { status: "interrupted", error: "cut by restart" });
+    expect(resumableManage(world, mei, dir, now())).toBeNull(); // a 1:1 resumes from its own transcript
+  });
+
+  test("the next tick resumes the cut session with the SDK `resume` option, once; its new row records the SDK session while it runs", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "claude-"));
+    const gate = deferred();
+    const env = await managed(async function* () { yield init(); await gate.promise; yield result(200, 0.02, "Picked up where I was cut."); }, { claudeDir: dir });
+    const { world, runtime, sdk, by, clock } = env;
+    const mei = by("Mei").id;
+    clock.t = Date.now() + 1000;
+    const cut = cutManageSession(world, mei, "sdk-cut-1", dir);
+    await runtime.tickOnce();
+    await new Promise((r) => setImmediate(r));
+    const mine = manageSessions(sdk.sessions, mei);
+    expect(mine).toHaveLength(1);
+    expect(mine[0].options.resume).toBe("sdk-cut-1");
+    expect(mine[0].received[0]).toBe(resumePrompt({ sessionId: cut.id, sdkSessionId: "sdk-cut-1" }));
+    const running = world.sessions.first("agentId = ? AND status = 'running'", [mei])!;
+    expect(running).toMatchObject({ purpose: "manage", sdkSessionId: "sdk-session-1" });
+    expect(world.events.list({ agentId: mei, limit: 200 }).some((e) => (e.payload as { resumedFrom?: string }).resumedFrom === cut.id)).toBe(true);
+    gate.resolve();
+    await runtime.whenIdle();
+    expect(world.sessions.require(running.id)).toMatchObject({ status: "done", tokens: 200 });
+    // resumed once: the next tick starts nothing (the in-tray is empty)
+    await runtime.tickOnce();
+    await runtime.whenIdle();
+    expect(manageSessions(sdk.sessions, mei)).toHaveLength(1);
+  });
+
+  test("no transcript: a fresh team-lead session works the in-tray (no resume)", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "claude-"));
+    const env = await managed(async function* () { yield init(); yield result(100, 0.01, "Decided."); }, { claudeDir: dir });
+    const { world, runtime, sdk, by, clock } = env;
+    const mei = by("Mei").id;
+    clock.t = Date.now() + 1000;
+    cutManageSession(world, mei, "sdk-gone", dir, false);
+    await runtime.tickOnce();
+    await runtime.whenIdle();
+    expect(manageSessions(sdk.sessions, mei)).toHaveLength(0); // nothing to resume, nothing in the in-tray
+    const r = await world.verbs.submit_report(by("Noor").id, report("Growth rate"));
+    await runtime.whenIdle();
+    const mine = manageSessions(sdk.sessions, mei);
+    expect(mine).toHaveLength(1);
+    expect(mine[0].options.resume).toBeUndefined();
+    expect(mine[0].received[0]).toContain(r.id);
   });
 });
