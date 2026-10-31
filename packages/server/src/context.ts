@@ -31,7 +31,14 @@ export interface RuntimeHooks {
   stop?(): Promise<unknown> | unknown;
   /** Shut down timers/sessions. */
   close?(): Promise<unknown> | unknown;
+  /** One scheduler pass (a hosted runtime has no timer: the host's TickRotation calls this). */
+  tickOnce?(): Promise<unknown>;
+  /** The last tick's phase timings and the last tick over 500 ms (post-mortem 2026-10-31 item 7): `GET /api/health` `load.tick`. */
+  tickStats?(): { last: TickStat | null; slow: TickStat | null };
 }
+
+/** One runtime tick's timings (runtime `TickTiming`): total ms of its synchronous phases, the slowest phase, each phase's ms. */
+export interface TickStat { at: string; ms: number; phase: string | null; phaseMs: number; phases: Record<string, number> }
 
 /** Who made the request. */
 export type Auth =
