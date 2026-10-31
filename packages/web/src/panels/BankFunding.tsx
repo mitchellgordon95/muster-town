@@ -10,6 +10,7 @@ import { store, useTown } from "../state";
 import { fmtPct, poolColor } from "../pools";
 import { SignInNote } from "../auth/auth";
 import { ADJ, ADJ_HINT, Act, Empty, Field, Loading, MTokensInput, Pill, Section, breakdownTitle, fmtTokens, fromMillions, timeAgo, useLoad } from "./ui";
+import { goalShortName } from "../purpose";
 
 interface Props { bank: Bank; onChange: () => void }
 
@@ -378,7 +379,7 @@ export function BankPools({ bank, onChange }: Props) {
                 </td>
                 <td title={`${fmtTokens(p.expiringTokens)} expiring today · ${fmtTokens(p.durableTokens)} permanent`}>{fmtTokens(p.expiringTokens + Math.max(0, p.durableTokens))}</td>
                 <td className="pool-members">
-                  {p.goals.map((g, i) => <span key={g.goalId}>{i ? ", " : null}<button className="link" onClick={() => store.open({ kind: "goals", id: g.goalId })}>{clip(g.text, 50)}</button></span>)}
+                  {p.goals.map((g, i) => <span key={g.goalId}>{i ? ", " : null}<button className="link" title={g.text} onClick={() => store.open({ kind: "goals", id: g.goalId })}>{goalShortName(g.text)}</button></span>)}
                   {p.isDefault ? <span className="muted">{p.goals.length ? " and " : ""}every goal that sets none</span> : !p.goals.length ? <span className="muted">no goal</span> : null}
                   {" → "}{members.length ? members.map((b) => b.name).join(", ") : <span className="muted">no building</span>}
                 </td>
@@ -425,7 +426,7 @@ export function BankPools({ bank, onChange }: Props) {
                 <span className="pool-pick">
                   <span className="pool-swatch" style={{ background: poolColor(bank, r.poolId) }} />
                   {r.poolName}
-                  {r.poolGoalId ? <span className="muted"> (from goal <button className="link" onClick={() => store.open({ kind: "goals", id: r.poolGoalId! })}>{clip(r.poolGoalText ?? r.poolGoalId, 40)}</button>)</span> : null}
+                  {r.poolGoalId ? <span className="muted"> (from goal <button className="link" title={r.poolGoalText ?? undefined} onClick={() => store.open({ kind: "goals", id: r.poolGoalId! })}>{goalShortName(r.poolGoalText ?? r.poolGoalId)}</button>)</span> : null}
                 </span>
               </td>
               <td title={r.heldByAuth ? `${fmtTokens(r.heldByAuth.subscription)} subscription · ${fmtTokens(r.heldByAuth.apiKey)} API key · ${fmtTokens(r.heldByAuth.donorKey)} donors' keys` : undefined}>{fmtTokens(r.heldTokens)}</td>
@@ -437,5 +438,3 @@ export function BankPools({ bank, onChange }: Props) {
     </Section>
   );
 }
-
-const clip = (t: string, n: number) => t.length > n ? `${t.slice(0, n - 1)}…` : t;

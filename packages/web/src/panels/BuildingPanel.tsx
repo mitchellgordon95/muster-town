@@ -16,7 +16,7 @@ import { UNBLOCK_LINE, blockedLabel } from "./keyResults";
 import { GoalTabsSummary, GoalsTab, GrantsTab } from "./GoalsTab";
 import { GoalPicker, goalPath, useGoalTree } from "./GoalPicker";
 import { findGoal } from "./goalTree";
-import { purposeOf } from "../purpose";
+import { goalShortName, purposeOf } from "../purpose";
 
 /** "Owner: <owner>" (docs/goals.md "Owners on nodes"): the attachment's effective owner, once; the goal card above already says the goal, so only a link to it in the Town Hall goal tree follows. */
 function GoalOwner({ b }: { b: SnapshotBuilding }) {
@@ -283,10 +283,8 @@ function PoolLine({ b }: { b: SnapshotBuilding }) {
     <div className="muted goal-meta pool-line">
       <span className="pool-swatch" style={{ background: poolColor(bank, row.poolId) }} /> Pool: <b>{row.poolName}</b>{" "}
       {row.poolGoalId
-        ? <>(from goal <button className="link" onClick={() => store.open({ kind: "goals", id: row.poolGoalId! })}>{clipText(row.poolGoalText ?? row.poolGoalId, 60)}</button>)</>
+        ? <>(from goal <button className="link" title={row.poolGoalText ?? undefined} onClick={() => store.open({ kind: "goals", id: row.poolGoalId! })}>{goalShortName(row.poolGoalText ?? row.poolGoalId)}</button>)</>
         : <>(no goal above it sets one)</>}
     </div>
   );
 }
-
-const clipText = (t: string, n: number) => t.length > n ? `${t.slice(0, n - 1)}…` : t;
