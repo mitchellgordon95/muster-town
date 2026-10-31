@@ -385,6 +385,10 @@ export async function townRoutes(app: FastifyInstance) {
     return { input: world.bank.cancelInput(user.id, req.params.id) };
   });
 
+  // public, read-only: every funding stream (earmarks too), what each can still pay, and the expected session size a key
+  // stream must cover to be picked (goal tree step 7; the Donate form's small-donation warning reads it)
+  app.get("/api/bank/streams", async () => world.streams.list());
+
   // accounting pools: buildings join a pool (PATCH /api/buildings/:id {poolId}); pools get the % of the Bank
   app.get("/api/bank/pools", async () => ({ pools: world.bank.summary().pools }));
 

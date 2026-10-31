@@ -4,7 +4,7 @@
  */
 import type { z } from "zod";
 import type {
-  ReviewDeck,
+  ReviewDeck, BankStreams,
   CreateObjectiveInput, UpdateObjectiveInput, Objective, KpiKey, KpiView,
   AccessRequest, AccessRequestView, Agent, Allocation, Assignment, AuthMe, BlockedAssignment, BuildingStats, Schedule, RedeployLive, Building, ClientMessage, DesksConfig, Doc, Event, Lot, Meeting, Place, Role, Membership, SessionSlots, Tile,
   ServerMessage, SessionView, TokenCounts, Town, CreateBuildingInput, UpdateBuildingInput, RegisterVisitorInput,
@@ -489,6 +489,8 @@ export interface Api {
   financePools(): Promise<FinancePools>;
   /** public: the Fly.io hosting estimate per day and per building (desk sessions' wall time at list price + the town Machine) */
   financeFly(): Promise<FinanceFly>;
+  /** public: every funding stream (earmarks too) and the expected session a key stream must cover (goal tree step 7) */
+  bankStreams(): Promise<BankStreams>;
   addBankInput(input: In<typeof AddBankInput>): Promise<BankInput>;
   cancelBankInput(id: string): Promise<BankInput>;
   /** admin: accounting pools (a pool's `pct` null = an equal split of what's left); returns the new Bank summary */
@@ -732,6 +734,7 @@ export class HttpApi implements Api {
   async financeSources() { return this.get<FinanceSources>("/api/finance/sources"); }
   async financePools() { return this.get<FinancePools>("/api/finance/pools"); }
   async financeFly() { return this.get<FinanceFly>("/api/finance/fly"); }
+  async bankStreams() { return this.get<BankStreams>("/api/bank/streams"); }
   async addBankInput(i: In<typeof AddBankInput>) { return unwrap<BankInput>(await this.post("/api/bank/inputs", i), "input"); }
   async cancelBankInput(id: string) { return unwrap<BankInput>(await this.call("DELETE", `/api/bank/inputs/${id}`), "input"); }
   async createBankPool(i: In<typeof CreateBankPoolInput>) { return unwrap<Bank>(await this.post("/api/bank/pools", i), "bank"); }

@@ -117,3 +117,16 @@ assignments stay pending with `heldReason` "near the subscription cap (…), res
 fallback nothing is held: sessions keep starting, and once one dies on the cap (`bank.cap`, `capState().cappedAt`) the
 next sessions run on the fallback credential until the reset (`Budget.failoverFunding`); a session never carries a second
 credential to switch to inside itself (1:1 mt_x40qq8poc3). A `bank.hold` event is logged once per day when it first applies.
+
+## Funding streams and the draw order (goal tree step 7)
+
+Decided in docs/goals.md "Streams" (1:1 mt_529jbnwvmi), go-ahead in 1:1 mt_cz11aqe81a. Migration 064 adds `bank_inputs.goalId` and `idleNotifiedAt`.
+
+- **An earmark** is an api-key input with a `goalId` (POST /api/bank/inputs `goalId`; the Donate form's "Earmark for"). It pays only for sessions whose work sits in that goal's subtree. The general balance never sees it: `Bank.live()` and the durable debits exclude earmarked credits, and the general key picks (`liveApiKeyInput`, `fallbackInput`, `fundingFor`) skip earmarked inputs. A subscription can't be earmarked.
+- **Draw order at session start** (`runtime fundingForSession` → `Budget.fundingFor`): the grant's own input (`fundedWith`), then `Streams.pick`: walking up from the work's goal (its grant's or named key result's goal, else the building's attachment, the Spend tab's attribution), the first goal with a live keyed earmark whose balance covers one expected session, oldest first; then the general balance (pools). One credential per session: the earmark's key runs it.
+- **Charging**: the session's `credentialInputId`, when it is an earmark, pays first (`Bank.drawFromStream`, debits name the input); what it can't pay goes to the general balance. Nothing is held.
+- **Expected session** (`Bank.expectedSession`): the p90 of work sessions that ended in the last 7 days, the building's when it has 5 or more, else the town's, else 120,000. An earmark below it is never picked; it accrues.
+- **Small-donation warning**: the Donate form (web `smallDonationWarning`) warns when an amount is below that p90, with the days a recurring one needs to accrue one session. A warning, not a gate.
+- **Idle alert**: the runtime tick (`Streams.tick`) tells an earmark's donor, by an in-town message to their avatar, when no session has drawn on it for 7 days (once per 7 days; reason: below one session, or no session in scope). No email or SMS (1:1 mt_kh0zaqui0w).
+- **GET /api/bank/streams** (public): every live input and every earmark with its balance, whether it covers a session, days to cover, last draw and idle reason, plus `expectedSessionTokens`. The Bank panel's "Tokens & sources" tab shows it as Streams.
+- **Not yet**: pools going away, free funds replacing the exploration allowance, the desk's per-session key cap, and the key's own `dailyLimitTokens` (a daily key's `tokens` is its daily amount today).
