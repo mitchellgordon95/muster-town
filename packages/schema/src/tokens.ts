@@ -145,6 +145,57 @@ export function addUsage(a: TokenUsage, b: TokenUsage): TokenUsage {
   return { counts: addTokens(a.counts, b.counts), byModel };
 }
 
+/** Counter by counter, the larger of two. */
+export function maxTokens(a: TokenCounts, b: TokenCounts): TokenCounts {
+  const out = { ...ZERO_TOKENS };
+  for (const k of TOKEN_KINDS) out[k] = Math.max(a[k], b[k]);
+  return out;
+}
+
+/**
+ * What a session has used, given what was already booked for it (`booked`, never taken back) and a newer reading
+ * (`seen`): the reading whole, with its per-model split, when it covers every booked counter (the normal case: the
+ * meter only grows, and a result message's cumulative `modelUsage` includes every call the meter saw); otherwise the
+ * larger of the two counter by counter, priced at the session's model (byModel empty).
+ */
+export function mergeUsage(booked: TokenUsage, seen: TokenUsage): TokenUsage {
+  if (TOKEN_KINDS.every((k) => seen.counts[k] >= booked.counts[k])) return { counts: countsOf(seen.counts), byModel: seen.byModel };
+  if (TOKEN_KINDS.every((k) => booked.counts[k] >= seen.counts[k])) return { counts: countsOf(booked.counts), byModel: booked.byModel };
+  return { counts: maxTokens(countsOf(booked.counts), countsOf(seen.counts)), byModel: {} };
+}
+
+/**
+ * A session's usage while it runs (1:1 mt_x40qq8poc3 decision 2: debit as the session runs), from the SDK's assistant
+ * messages: one API call per `message.id`, whose blocks repeat its usage, so each counter keeps its largest value per
+ * call; subagents' calls count too. The result message's cumulative figure is the true one at the end (`mergeUsage`);
+ * the meter is what a session that dies before its result still has.
+ */
+export class UsageMeter {
+  private calls = new Map<string, { model: string; counts: TokenCounts }>();
+  private anon = 0;
+
+  /** Read one SDK message; true when the usage grew. */
+  observe(m: { type?: string; message?: unknown }): boolean {
+    if (m.type !== "assistant" || !m.message || typeof m.message !== "object") return false;
+    const msg = m.message as { id?: unknown; model?: unknown; usage?: Record<string, unknown> };
+    if (!msg.usage) return false;
+    const c = sdkTokenCounts({ usage: msg.usage }).counts;
+    if (!rawTokens(c)) return false;
+    const id = typeof msg.id === "string" && msg.id ? msg.id : `#${this.anon++}`;
+    const prev = this.calls.get(id);
+    const counts = prev ? maxTokens(prev.counts, c) : c;
+    if (prev && TOKEN_KINDS.every((k) => counts[k] === prev.counts[k])) return false;
+    this.calls.set(id, { model: typeof msg.model === "string" && msg.model ? msg.model : "unknown", counts });
+    return true;
+  }
+
+  usage(): TokenUsage {
+    const byModel: Record<string, TokenCounts> = {};
+    for (const { model, counts } of this.calls.values()) byModel[model] = addTokens(byModel[model] ?? ZERO_TOKENS, counts);
+    return { counts: Object.values(byModel).reduce<TokenCounts>((s, c) => addTokens(s, c), { ...ZERO_TOKENS }), byModel };
+  }
+}
+
 /** A row whose counters are exactly the back-fill split of its raw total (no real breakdown): the drift job leaves it out. */
 export function isBackfilled(c: Partial<TokenCounts>, model?: string | null): boolean {
   const k = countsOf(c), raw = rawTokens(k);

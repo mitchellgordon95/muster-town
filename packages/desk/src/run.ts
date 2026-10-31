@@ -7,7 +7,7 @@ import { existsSync, readdirSync, readFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
 import { brotliCompressSync, constants } from "node:zlib";
-import { SPEND_LIMIT, townEnv } from "@muster-town/schema";
+import { mergeUsage, rawTokens, SPEND_LIMIT, townEnv, UsageMeter } from "@muster-town/schema";
 import type { DeskActivityInput, DeskBriefView, DeskSessionEndInput, DeskWorkspace } from "@muster-town/schema";
 import { blocksOf, InputChannel, noUsage, plusUsage, usageOf, type LooseMessage, type Options, type QueryHandle, type Sdk, type Usage } from "./sdk.ts";
 import { startMcpProxy, type McpProxy } from "./mcp-proxy.ts";
@@ -34,6 +34,8 @@ export interface RunDeps {
   setupWorkspace?: (ws: DeskWorkspace, brief: DeskBriefView) => string;
   controlIntervalMs?: number;
   flushMs?: number;
+  /** how often the running usage is posted for the Bank to book (tests); default USAGE_POST_MS */
+  usageMs?: number;
   /** the MCP proxy's waits while the town restarts (tests); default RESTART_BACKOFF_MS */
   mcpBackoffMs?: number[];
   /** the /proc/stat reading (tests); default reads /proc/stat */
@@ -96,6 +98,9 @@ export function readTranscript(claudeDir: string, sdkSessionIds: string[]): Buff
   return parts.length ? Buffer.concat(parts) : null;
 }
 
+/** How often a desk posts its running usage (the Bank debits it as the session runs, 1:1 mt_x40qq8poc3 decision 2). */
+export const USAGE_POST_MS = 60_000;
+
 export async function runSession(sessionId: string, deps: RunDeps): Promise<number> {
   const { town, sdk } = deps;
   const env = deps.env ?? process.env;
@@ -117,13 +122,18 @@ export async function runSession(sessionId: string, deps: RunDeps): Promise<numb
   const fundingUsed: FundingMode | null = env.DESK_AUTH && FUNDING.has(env.DESK_AUTH) ? env.DESK_AUTH as FundingMode : null;
   /** wall, CPU and steal over the session (gr_uhh6u39vv9), from the Machine's /proc/stat */
   const perf = startPerf(deps.readProcStat);
+  /** every API call's usage as it streams: posted every usageMs, and the floor of the session-end figure (a session that dies mid-turn has no result) */
+  const meter = new UsageMeter();
+  const usageMs = deps.usageMs ?? USAGE_POST_MS;
+  let usagePostedAt = Date.now();
 
   const endSession = async (): Promise<void> => {
+    const final = mergeUsage(meter.usage(), usage);
     const body: DeskSessionEndInput = {
       session: sessionId,
-      tokens: Math.round(usage.tokens),
-      counts: usage.counts,
-      byModel: usage.byModel,
+      tokens: Math.round(rawTokens(final.counts)),
+      counts: final.counts,
+      byModel: final.byModel,
       costUsd: usage.costUsd,
       turns: usage.turns,
       reportSubmitted,
@@ -256,6 +266,10 @@ export async function runSession(sessionId: string, deps: RunDeps): Promise<numb
         for await (const raw of query) {
           const m = raw as LooseMessage;
           if (m.session_id && !sdkSessionId) { sdkSessionId = m.session_id; sdkSessionIds.push(m.session_id); }
+          if (meter.observe(m) && Date.now() - usagePostedAt >= usageMs) {
+            usagePostedAt = Date.now();
+            post({ kind: "usage", usage: meter.usage() });
+          }
           if (m.type === "assistant") {
             for (const b of blocksOf(m)) {
               if (b.type === "tool_use" && b.name) {

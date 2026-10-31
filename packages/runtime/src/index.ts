@@ -58,6 +58,8 @@ export interface RuntimeOptions {
   deskOptions?: DeskSessionOptions;
   /** a stopped/banned agent's desk process gets this long to exit on its own before it is killed. Default 10000. */
   killGraceMs?: number;
+  /** how often a running session's usage is booked, in ms (default USAGE_BOOK_MS, a minute; tests: 0 = every message) */
+  usageBookMs?: number;
   /** how long an adopted desk session may stay silent before it counts as lost (tests). Default ADOPTED_SILENT_MS. */
   adoptedSilentMs?: number;
   /** redeploy knobs (tests inject the command runner and `exit`; never the real process.exit) */
@@ -140,7 +142,7 @@ export function startRuntime(opts: RuntimeOptions): Runtime {
   };
   const hosted = opts.hosted ?? null;
   const desks = DesksConfig.parse({ ...world.desksConfig(), ...opts.desks, ...(hosted ? { backend: "host" } : {}) });
-  const ctx: Ctx = { world, mcpUrl: opts.mcpUrl, repoRoot: opts.repoRoot ?? process.cwd(), desks, now, sdk: opts.sdk ?? realSdk, live: new Map(), facilitating: new Map(), deskAllocations: new Map(), track };
+  const ctx: Ctx = { world, mcpUrl: opts.mcpUrl, repoRoot: opts.repoRoot ?? process.cwd(), desks, now, sdk: opts.sdk ?? realSdk, live: new Map(), facilitating: new Map(), deskAllocations: new Map(), track, ...(opts.usageBookMs !== undefined ? { usageBookMs: opts.usageBookMs } : {}) };
   if (hosted) {
     const env = hostedEnv(hosted.dir);
     Object.assign(ctx, { env, hosted: true, claudeDir: env.CLAUDE_CONFIG_DIR });

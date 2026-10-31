@@ -6,8 +6,8 @@ import { existsSync, readdirSync, readFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
 import type { DesksConfig } from "@muster-town/schema";
-import { AppError, NoCredential, type Credential, type Funding, type World } from "@muster-town/core";
-import { rawTokens, splitRaw, VERB_NAMES, type AllocationAuth, type Session, type VerbName } from "@muster-town/schema";
+import { adjustedOfUsage, AppError, booked, NoCredential, type Booked, type Credential, type Funding, type World } from "@muster-town/core";
+import { countsOf, mergeUsage, rawTokens, splitRaw, subTokens, UsageMeter, VERB_NAMES, ZERO_TOKENS, type AllocationAuth, type Session, type TokenUsage, type VerbName } from "@muster-town/schema";
 import { describeTool } from "./describe.ts";
 import { assertNoEnvCredentials, blocksOf, InputChannel, noUsage, sessionEnv, usageOf, type LooseMessage, type Options, type QueryHandle, type Sdk, type Usage } from "./sdk.ts";
 
@@ -24,7 +24,8 @@ export interface Ctx {
   facilitating: Map<string, LiveSession>;
   /** desk sessions' funding allocation, by sessionId (charged in finishWorkSession) */
   deskAllocations: Map<string, string | null>;
-  /** desk sessions' fallback allocation (charged instead when the desk failed over to the API key), by sessionId */
+  /** how often a running session's usage is booked (bookRunning), in ms; default USAGE_BOOK_MS (tests: 0 = every message) */
+  usageBookMs?: number;
   /** where host sessions' Agent SDK writes its JSONL (tests; a hosted runtime's own config dir); default $CLAUDE_CONFIG_DIR or ~/.claude */
   claudeDir?: string;
   /** the host env funding and sessions allowlist from (a hosted runtime's scrubbed `hostedEnv`); default process.env */
@@ -89,27 +90,102 @@ export const homeOf = (world: World, agentId: string) => {
 };
 
 /**
- * Charge usage to the agent and (if its building has budget) an allocation. Never throws. Booked in adjusted output
- * tokens (Bank step 3): the counters priced at `model`'s list price, per model with `byModel` (the session's own figure).
+ * Charge usage to the agent and its home building. Never throws. Booked in adjusted output tokens (Bank step 3): the
+ * counters priced at `model`'s list price, per model with `byModel` (the session's own figure).
  */
 export function chargeUsage(world: World, agentId: string, u: Pick<Usage, "tokens" | "counts" | "costUsd"> & { byModel?: Usage["byModel"] }, allocationId?: string | null, model?: string | null, grantId?: string | null): void {
-  if (u.tokens <= 0 && u.costUsd <= 0) return;
   // the five counters when the SDK gave them; a bare raw total is split by the back-fill rule (docs/bank.md)
-  const counts = rawTokens(u.counts) > 0 ? u.counts : splitRaw(u.tokens, model);
-  const price = { model, byModel: rawTokens(u.counts) > 0 ? u.byModel : null, grantId: grantId ?? null };
+  const real = rawTokens(u.counts) > 0;
+  const counts = real ? u.counts : splitRaw(u.tokens, model);
+  chargeBooked(world, agentId, booked(counts, model, real ? u.byModel : null), u.costUsd, allocationId, grantId);
+}
+
+/**
+ * Debit an already booked amount (adjusted output tokens + counters) to the agent's home building. Every token is
+ * debited (1:1 mt_x40qq8poc3 decision 2): a building with nothing left overshoots its last source (Budget.charge, no
+ * hard stop) instead of the usage going unbooked (the Spending tab's "Not funded"). Only an agent with no building, or
+ * a Town Hall with nothing of its own left (it draws nothing from the Bank), is recorded on the agent and the usage
+ * ledger alone. Never throws.
+ */
+export function chargeBooked(world: World, agentId: string, b: Booked, usd: number, allocationId?: string | null, grantId?: string | null): void {
+  if (b.tokens <= 0 && rawTokens(b.counts) <= 0 && usd <= 0) return;
   try {
-    const bid = homeOf(world, agentId);
-    // a member-funded grant's own input can pay even when the building's pool is empty
-    const ownInput = grantId ? world.grants.get(grantId)?.fundedWith ?? null : null;
-    if (bid && (world.budget.remaining(bid) > 0 || ownInput)) {
-      world.budget.charge(agentId, counts, u.costUsd, allocationId ?? undefined, price);
-    } else {
-      // no allocation to draw from (e.g. Town Hall's librarian): record spend on the agent and in the usage ledger only
-      world.budget.recordUsage(agentId, counts, u.costUsd, price);
-    }
+    debit(world, agentId, b, usd, allocationId, grantId);
   } catch (e) {
     console.log("[runtime] charge failed:", e instanceof Error ? e.message : e);
   }
+}
+
+function debit(world: World, agentId: string, b: Booked, usd: number, allocationId?: string | null, grantId?: string | null, running = false): void {
+  const bid = homeOf(world, agentId);
+  // the Town Hall draws nothing from the Bank: with nothing of its own left, its usage is recorded alone (as before),
+  // so its residents aren't flipped out-of-budget by a building that never had a Bank share
+  const usageOnly = !bid || (world.buildings.get(bid)?.kind === "town-hall" && !allocationId && world.budget.remaining(bid) <= 0);
+  if (usageOnly) world.budget.recordUsage(agentId, b, usd);
+  else world.budget.charge(agentId, b, usd, allocationId ?? undefined, { grantId: grantId ?? null, running });
+}
+
+/** How often a running session's usage is booked (host loop and desk posts): once a minute. */
+export const USAGE_BOOK_MS = 60_000;
+
+/** What the Bank has booked for a session so far: its row's counters, written as it runs and at its end. */
+const bookedOf = (s: Session): TokenUsage => ({ counts: countsOf(s), byModel: s.byModel ?? {} });
+
+/**
+ * Bring a session's row up to `seen` (mergeUsage: never below what it already booked) and return the difference, the
+ * part still to debit, in adjusted output tokens. The row and the Bank's debits move together, so however a session
+ * ends (report, error, spend limit, kill, lost desk, restart) its debits add up to its row: the running bookings plus
+ * the final true-up.
+ */
+export function settleUsage(world: World, sessionId: string, seen: TokenUsage | null): Booked {
+  const s = world.sessions.require(sessionId, "session");
+  const before = bookedOf(s);
+  if (!seen) return { tokens: 0, counts: { ...ZERO_TOKENS } };
+  const after = mergeUsage(before, seen);
+  const byModel = Object.keys(after.byModel).length ? after.byModel : null;
+  world.sessions.patch(s.id, { ...after.counts, byModel });
+  const tokens = adjustedOfUsage(s.model, after.counts, byModel) - adjustedOfUsage(s.model, before.counts, s.byModel);
+  return { tokens: Math.max(0, tokens), counts: subTokens(after.counts, before.counts) };
+}
+
+/**
+ * Book a running session's usage so far (1:1 mt_x40qq8poc3 decision 2): the row moves up to `seen` and the difference
+ * is debited at once, in one transaction, so the Bank's next credential pick (Budget.fundingFor) sees the real balance.
+ * The out-of-budget check waits for the session's end. A session that already ended is left alone. Never throws.
+ */
+export function bookRunning(world: World, sessionId: string, seen: TokenUsage, allocationId: string | null): Booked | null {
+  try {
+    return world.transaction(() => {
+      const s = world.sessions.get(sessionId);
+      if (!s || s.status !== "running") return null;
+      const d = settleUsage(world, sessionId, seen);
+      if (d.tokens > 0 || rawTokens(d.counts) > 0) debit(world, s.agentId, d, 0, allocationId, s.grantId, true);
+      return d;
+    });
+  } catch (e) {
+    console.log("[runtime] running booking failed:", e instanceof Error ? e.message : e);
+    return null;
+  }
+}
+
+/**
+ * End a session and debit what its running bookings haven't: the row is settled to `usage` (settleUsage), ended
+ * (ops.endSession keeps the settled counters), then the rest is charged with the session's whole cost.
+ */
+export function endAndCharge(world: World, sessionId: string, usage: Pick<Usage, "counts" | "byModel" | "costUsd" | "turns">, end: Omit<Parameters<World["ops"]["endSession"]>[1], "counts" | "byModel" | "tokens" | "costUsd" | "turns">, allocationId: string | null | undefined): Session {
+  const rest = settleUsage(world, sessionId, { counts: usage.counts, byModel: usage.byModel ?? {} });
+  const settled = world.sessions.require(sessionId, "session");
+  // the settled per-model split rides on session.ended like before (endSession keeps the row's counters)
+  const byModel = settled.byModel && Object.keys(settled.byModel).length ? { byModel: settled.byModel } : {};
+  const ended = world.ops.endSession(sessionId, { ...end, ...byModel, costUsd: usage.costUsd, turns: usage.turns });
+  chargeBooked(world, ended.agentId, rest, usage.costUsd, allocationId, ended.grantId);
+  return ended;
+}
+
+/** A session's final usage: the result message's when it covers what the meter saw, else the meter's (mergeUsage). */
+export function finalUsage(meter: UsageMeter, u: Usage): Usage {
+  const m = mergeUsage(meter.usage(), u);
+  return { ...u, tokens: rawTokens(m.counts), counts: m.counts, byModel: m.byModel };
 }
 
 export type { Funding };
@@ -206,6 +282,10 @@ export async function runAgentSession(ctx: Ctx, spec: SessionSpec): Promise<Sess
   let error: string | null = null;
   let sdkSessionId: string | null = null;
   let toolsAfterReport = 0;
+  // debit as the session runs (1:1 mt_x40qq8poc3 decision 2): the meter's reading is booked at most every usageBookMs
+  const meter = new UsageMeter();
+  const bookMs = ctx.usageBookMs ?? USAGE_BOOK_MS;
+  let bookedAt = Date.now();
   live.input.push(spec.prompt);
   if (spec.purpose === "work") {
     // interrupts queued while the agent had no in-process session arrive right after the prompt
@@ -219,6 +299,10 @@ export async function runAgentSession(ctx: Ctx, spec: SessionSpec): Promise<Sess
     for await (const raw of q) {
       const m = raw as LooseMessage;
       if (m.session_id && !sdkSessionId) sdkSessionId = m.session_id;
+      if (meter.observe(m) && Date.now() - bookedAt >= bookMs) {
+        bookedAt = Date.now();
+        bookRunning(world, session.id, meter.usage(), funding.allocationId);
+      }
       if (m.type === "assistant") {
         for (const b of blocksOf(m)) {
           if (b.type === "tool_use" && b.name) {
@@ -256,13 +340,14 @@ export async function runAgentSession(ctx: Ctx, spec: SessionSpec): Promise<Sess
   if (!live.reportSubmitted && world.sessions.get(session.id)?.reportId) live.reportSubmitted = true;
 
   keepHostTranscript(ctx, session, sdkSessionId);
+  // a session that died before its result (or mid-turn) still counts every call the meter saw
+  usage = finalUsage(meter, usage);
   const outcome: SessionOutcome = { ...usage, sdkSessionId, session, finalText, error, reportSubmitted: live.reportSubmitted, stopped: live.stopped };
   if (spec.finish) {
     outcome.session = await spec.finish(outcome, funding.allocationId);
     return outcome;
   }
   const status: Exclude<Session["status"], "running"> = live.stopped ? "interrupted" : error ? "error" : "done";
-  outcome.session = world.ops.endSession(session.id, { status, counts: usage.counts, byModel: usage.byModel, costUsd: usage.costUsd, turns: usage.turns, error, sdkSessionId });
-  chargeUsage(world, agent.id, usage, funding.allocationId, outcome.session.model, outcome.session.grantId);
+  outcome.session = endAndCharge(world, session.id, usage, { status, error, sdkSessionId }, funding.allocationId);
   return outcome;
 }

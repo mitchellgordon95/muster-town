@@ -1,7 +1,7 @@
 /** Resident work sessions (host backend + shared end-of-session logic), interrupts, and reviewer sessions over the in-tray. */
 import { AppError, NoCredential, type World, appendAgentLog, chainBlock, codeWorkspace, createDoc, fallbackReportBody, FALLBACK_REPORT_PREFIX, latestReportOf, recentWorkBlock, sessionMemory, sessionView, setAssignmentStatus, skillsBlock, workPrompt, workSystemPrompt } from "@muster-town/core";
 import { countsOf, rawTokens, splitRaw, type Agent, type AllocationAuth, type Assignment, type Building, type Doc, type Session, type TokenCounts } from "@muster-town/schema";
-import { chargeUsage, fundedBy, fundingFor, homeOf, runAgentSession, type Ctx } from "./session.ts";
+import { endAndCharge, fundedBy, fundingFor, homeOf, runAgentSession, type Ctx } from "./session.ts";
 
 /** The allocation a session of this agent would be charged to now, or null (also when the Bank holds no credential: the spend is still recorded). */
 function allocationOf(world: World, agentId: string): string | null {
@@ -146,7 +146,11 @@ export async function finishWorkSession(ctx: Ctx, sessionId: string, o: WorkOutc
   if (o.fallback || (claimed && session.funding && claimed !== session.funding)) {
     world.events.append({ type: "system", agentId, buildingId: bid, text: `${agentNow.name}'s desk says its session ran ${fundedBy(claimed)}${o.fallback ? " after an in-session failover" : ""}, but the Bank handed it ${session.funding ? fundedBy(session.funding).replace(/^funded by /, "") : "nothing"}: booked as handed out; check the desk image`, payload: { alert: "funding-mismatch", sessionId, handedOut: session.funding ?? null, claimed, fallback: !!o.fallback, costUsd: usage.costUsd } });
   }
-  const ended = world.ops.endSession(sessionId, { status, counts, byModel: o.byModel, costUsd: usage.costUsd, turns: usage.turns, error, sdkSessionId: o.sdkSessionId ?? null, spendLimit: o.spendLimit ?? null, wallMs: o.wallMs, cpuMs: o.cpuMs, stealMs: o.stealMs });
+  // the allocation the session was handed at start (the Bank's pick), whatever the desk reported
+  const charged = allocationId !== undefined ? allocationId : ctx.deskAllocations.has(sessionId) ? ctx.deskAllocations.get(sessionId) ?? null : allocationOf(world, agentId);
+  // the row is settled to the desk's last word (or the host's), never below what the running bookings debited: a desk
+  // lost without a session-end, or a restart, still leaves every booked token on the row and in the Bank
+  const ended = endAndCharge(world, sessionId, { ...usage, byModel: o.byModel ?? {} }, { status, error, sdkSessionId: o.sdkSessionId ?? null, spendLimit: o.spendLimit ?? null, wallMs: o.wallMs, cpuMs: o.cpuMs, stealMs: o.stealMs }, charged);
   // stamp the session's usage onto the report it produced (submitted or fallback), in adjusted output tokens (Bank step 3)
   const adjusted = sessionView(ended).adjustedOutputTokens;
   const report = ended.reportId ? world.docs.get(ended.reportId) : undefined;
@@ -161,9 +165,6 @@ export async function finishWorkSession(ctx: Ctx, sessionId: string, o: WorkOutc
       appendAgentLog(world, agentNow, `${what}: ${status}${rep}, ${adjusted.toLocaleString("en-US")} adj. tokens`);
     } catch (e) { console.warn(`[runtime] log line for ${agentNow.name}: ${e instanceof Error ? e.message : String(e)}`); }
   }
-  // the allocation the session was handed at start (the Bank's pick), whatever the desk reported
-  const charged = allocationId !== undefined ? allocationId : ctx.deskAllocations.has(sessionId) ? ctx.deskAllocations.get(sessionId) ?? null : allocationOf(world, agentId);
-  chargeUsage(world, agentId, { ...usage, byModel: o.byModel ?? undefined }, charged, ended.model, ended.grantId);
   ctx.deskAllocations.delete(sessionId);
   return ended;
 }
