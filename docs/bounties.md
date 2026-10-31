@@ -30,7 +30,7 @@ collective's Bank. Collectives with an open bounty are not listed here.
 
 **Who posts: anyone signed in with GitHub (recommended).** This follows the rule for Start a collective
 (hosted-collectives.md, mt_6830h8x5qk): a bounty spends only the poster's own key, so nobody else's money is at risk.
-Limit: 3 open bounties per GitHub id, and a town admin has no cap (the same shape as `HOSTED_PER_PERSON`). 
+Limit: 3 open bounties per GitHub id, and a town admin has no cap (the same shape as `HOSTED_PER_PERSON`).
 
 **Fields** (a **Post a bounty** form on the Captains tab, a paper card like `StartCard`):
 - **Goal** (required, 300 chars at most). It becomes the root goal of the collective the bounty creates.
@@ -77,7 +77,7 @@ there. The homepage card shows the poster "N asks: review" as a link into that i
   collective moves to the Funding tab.
 
 **Why not attach the bounty to an existing collective.** That would put a stranger's key into another collective's
-Bank, controlled by that collective's admins instead of the captain.  A new collective keeps one key in one Bank with one
+Bank, controlled by that collective's admins instead of the captain. A new collective keeps one key in one Bank with one
 captain; `Hub.create`, `addInput`, `ownerId` and the in-tray already exist.
 
 ## 4. Data model and API
