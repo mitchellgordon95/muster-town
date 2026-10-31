@@ -5,7 +5,7 @@ Machines in the `muster-desks` app (below). The older single-VPS procedure furth
 alternative; that box was deleted.
 
 ## Prod on Fly.io
-- **The town:** app `muster-town`, one Machine (`shared-cpu-2x`, 2 GB, region `iad`) with a 10 GB volume `town_data` at `/data`.
+- **The town:** app `muster-town`, one Machine (`performance-1x`, 2 GB, region `iad`; shared-cpu-2x throttled to ~12 % of a core on 2026-10-31 and 503ed) with a 10 GB volume `town_data` at `/data`.
   SQLite is a single writer, so never more than one Machine (`fly deploy --ha=false`). There is no Postgres. Fly takes daily volume snapshots (5 kept).
 - **What's on the volume:** `/data/repo` is the live checkout (code only) and `/data/workshop/{data,export}` is the town's state (`town.db`,
   `admin-token`, `session-secret`, the export mirror), set by `MUSTER_TOWN_DATA`/`MUSTER_TOWN_EXPORT` in `fly.town.toml`. The state is deliberately
@@ -217,6 +217,20 @@ SMTP pair, so a box without a Gmail app password still gets SMS.
 Installed on Wright's box (`ubuntu-2gb-hil-1`, user `node`) 2026-10-28 from 49e2622, updated 2026-10-30 (7820226: change-only
 forwarding): all seven names set (the SMTP pair is the box's existing Gmail app password), dry run "ok (fails 0)", timer
 enabled. Updating it: re-run step 1.
+
+### Slow or 503 (post-mortem docs/postmortem-2026-10-31-cpu-throttle-503.md)
+
+- **503 with the Machine `started` and its check `critical`** (`fly status -a muster-town`): the process is alive but the loop is not
+  answering. Over `fly ssh console -a muster-town -C "sh -c 'head -1 /proc/stat; sleep 5; head -1 /proc/stat'"` the eighth
+  column is steal: growing ~100 ticks/s means the host is not getting its CPU (a shared size past its burst balance, or an
+  oversubscribed host). A restart boots into the same throttle; a dedicated core does not: `fly machine update <id>
+  -a muster-town --vm-size performance-1x --vm-memory 2048 --yes`, and keep `[[vm]]` in fly.town.toml and `TOWN_MACHINE`
+  (core finance-fly.ts, pinned by a test) in step.
+- **Slow with CPU to spare**: `GET /api/health` `load.lagMs` is the p99 loop stall per 10 s window; above ~500 ms, profile
+  the live server: upload `deploy/fly/profile-live.cjs` to the Machine (`fly ssh sftp shell`, or `echo <base64> | base64 -d`
+  into /tmp) and run `fly ssh console -a muster-town -C "node /tmp/profile-live.cjs"`. It opens Node's inspector on
+  localhost only, samples 20 s, prints self and inclusive time by function and file, and closes the inspector; the raw
+  profile is left at /tmp/town.cpuprofile. Look for `Table.where` and zod under a function that only needed a number.
 
 ### Self-hosted towns directory (grant gr_8cdix9mpye, design dc_d6chojzl2a)
 

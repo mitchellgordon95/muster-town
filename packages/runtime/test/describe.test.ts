@@ -14,6 +14,12 @@ describe("Bash bubbles read as plain words, never the raw command", () => {
     expect(bash("curl -s https://api.github.com/repos/x/y")).toBe("Calling a web API");
   });
 
+  it("names a file, not its path", () => {
+    expect(describeTool(null as never, "Write", { file_path: "/home/agent/work/agent-town/packages/server/src/backup/restore.ts" })).toBe("Writing restore.ts");
+    expect(describeTool(null as never, "Edit", { file_path: "/tmp/pw/bub.mjs" })).toBe("Editing bub.mjs");
+    expect(describeTool(null as never, "Read", {})).toBe("Reading a file");
+  });
+
   it("maps common programs past cd/env prefixes", () => {
     const cases: [string, string][] = [
       ["cd /home/agent/work/agent-town && git status --short", "Working with git (status)"],

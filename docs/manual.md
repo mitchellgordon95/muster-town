@@ -32,7 +32,7 @@ Signed out, you see everything and change nothing.
 
 The guest card says **Asked.**, who decides and the typical wait, then the answer (a decline: **Not this time.**).
 
-**What a member can do:** walk, **Say**, message a building's manager in its **Talk** tab, attend meetings, **Connect your agent**, claim requests in the **outbox**, and **Ask to captain** a goal in the goal tree (its captain decides in the Town Hall in-tray). Replying on reports, flagging, 1:1s and calling meetings need a role in that building (**reviewer** or **manager**), and writing in a building needs its **member** role. An admin adds you at the Town Hall **planning desk** → **Roles**.
+**What a member can do:** walk, **Say**, message a building's manager in its **Talk** tab, attend meetings, **Connect your agent**, claim requests in the **outbox**, and **Ask to captain** a goal in the goal tree (its captain decides in the Town Hall in-tray). **Talk to** report authors, flagging, 1:1s and calling meetings need a role in that building (**reviewer** or **manager**), and writing in a building needs its **member** role. An admin adds you at the Town Hall **planning desk** → **Roles**.
 
 ## Talking to agents
 
@@ -51,7 +51,7 @@ Agents run on **tokens**, the unit a model is billed in. A collective pays for t
 
 - **Donate** at the Bank: pick **To**: the Bank (feeds every building) or one building. To the Bank: **Source** (an API key; admins: **My subscription (owner)**, its `claude setup-token` token, a weekly cap) and **How often** (once, daily, weekly, monthly). To one building: **Paid by** (**My own API key**; admins also see Subscription and API key) and a rate.
 - **One balance**; an earmark pays only for its goal's subtree. **Free tokens** = what funded grants, open asks and exploration reservations leave.
-- **Every building is goal-directed** (the Town Hall aside): every session works on a funded grant, traces back to a human's request, or **explores**: an idle building with free tokens gets an explorer by itself on a reserved chunk (set in the goal's **Funding**: on/off, chunk 100k, optional daily cap), ending with one grant proposal.
+- **Every building is goal-directed** (the Town Hall aside): every session works on a funded grant, traces back to a human's request, or **explores**: an idle building with free tokens gets an explorer by itself on a reserved chunk (set in the goal's **Funding**: on/off, chunk 100k, optional daily cap), ending with one grant proposal in the Town Hall in-tray.
 - **Funding as a member.** Add an API key at the Bank, then press **Fund** on a proposal in the Town Hall in-tray and pick it under **Pay from**. Its sessions draw on that input first.
 - **The Bank page** (the HUD's **$**, `#/bank`) has tabs: vault, ledger desk, fountain, spending board, server rack.
 - An agent out of tokens shows **out of budget** and waits.
@@ -63,13 +63,13 @@ Goal-directed buildings plan in public, and you decide.
 - A **grant** is a plan filed against a goal: an objective, an approach, a stop condition, a token ask and its own **key results** (1 to 5), each something a person can see in the live town by a date, with a "how to check" line. Goals keep no key results of their own. The building's **Grants** tab lists them all. The manager proposes one; in the Town Hall in-tray you press **Fund**, **Counter** (change the tokens or terms, with a note) or **Reject**.
 - When a funded grant's tokens are spent, new work on it pauses and the manager files a **checkpoint**: its key results' status and the evidence. You press **Continue**, **Adjust** (more tokens, a new stop condition) or **Cut**. Only a human marks a key result **met** or **missed**, on the grant; the manager at most marks it **claimed**. A manager who finishes early closes the grant as done: unspent tokens return to the Bank and you mark each key result under **Closed as done** there.
 - **Rollups** are the manager's summaries for humans: what shipped (a card each: what it is, what you'd see with a picture, your call), what was decided, the key results, and what it needs from you that has no other channel, then what already waits in your in-tray. They arrive in the Town Hall in-tray and take replies. **Review as deck** shows the in-tray as slides, one decision each, most blocking first.
-- The building's **stoplight** (over the building on the map) is green when a funded grant runs, yellow when a grant waits at its checkpoint, and dark when it has no funded grant.
+- The building's **stoplight** (over the building on the map) is green when a funded grant runs, yellow when a grant waits at its checkpoint, and grey when it has no funded grant.
 
 ## Running a collective (admins)
 
 An admin can do everything, mostly at the **planning desk** in the Town Hall.
 
-- **Buildings**: create one (its goal, an optional name; it gets desks and a manager). The **town map** is drawn from the goal tree; select a building to see its goals, budget and stats. Admins and goal captains pick its **Shape**. A building's **Settings** holds its name (blank = its goal's short text), its goal, desks and manager. Models, daily budget, max turns and code access are set once for all buildings in **Town Hall → Settings**.
+- **Buildings**: create one (its goal, an optional name; it gets desks and a manager). The **town map** is drawn from the goal tree; select a building to see its goals, budget and stats. Admins and goal captains pick the map's **Shape**. A building's **Settings** holds its name (blank = its goal's short text), its goal, desks and manager. Models, daily budget, max turns and code access are set once for all buildings in **Town Hall → Settings**.
 - **Managers**: one named manager per building (set in its **Settings**); its work runs on short-lived forks.
 - **Roles**: who can do what. Town roles are admin, moderator, deployer, member and visitor (signed in but not let in). Building roles are manager, reviewer and member. Outside a hosted collective every building manager (and its forks) may also redeploy, including the desk image rebuild.
 - **Secrets** (admins only): API keys and tokens the agents' tools need, stored encrypted and granted to the whole town, one building, one agent or one skill.

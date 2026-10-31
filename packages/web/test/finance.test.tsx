@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { renderToStaticMarkup } from "react-dom/server";
 import type { Finance, FinanceFly, FinanceSources, FinanceSpend } from "../src/api";
-import { donationNote, FINANCE_TERMS, flyCheckLine, flyWindowTotals, inputName, notFundedNote, overdrawnParts, sourcesCheckLine, pct, runwayDays, spendCheckLine, sumCheckLine, type FinanceData } from "../src/panels/BankFinance";
+import { donationNote, FINANCE_TERMS, flyCheckLine, flyWindowTotals, inputName, notFundedNote, overdrawnParts, sourcesCheckLine, pct, netPerDay, runwayText, spendCheckLine, sumCheckLine, type FinanceData } from "../src/panels/BankFinance";
 import { BANK_TABS } from "@muster-town/schema";
 import { BankView } from "../src/panels/BankPanel";
 import { BankFreeTokens, freeBreakdown } from "../src/panels/FreeTokens";
@@ -10,7 +10,7 @@ import { claimedTokens } from "../src/format";
 // the live shape: 1,000 received, 1,100 used (200 overdrawn), 50 expired, 50 left
 const f: Finance = {
   total: 1000, credited: 800, donated: 200, used: 1100, usedBank: 950, usedDonations: 150, expired: 50, left: 50, leftBank: 0, leftDonations: 50,
-  overdrawn: 200, overdrawnBreakdown: { durableOvershoot: 120, subscriptionOverdrawn: 70, deletedCreditDebits: 0, allocationOverspent: 10 }, usageLedger: 1200, projection: { days: 30, trailingDailyBurn: 20, burnDays: 7, projectedUse30d: 600 },
+  overdrawn: 200, overdrawnBreakdown: { durableOvershoot: 120, subscriptionOverdrawn: 70, deletedCreditDebits: 0, allocationOverspent: 10 }, usageLedger: 1200, projection: { days: 30, trailingDailyBurn: 20, burnDays: 7, projectedUse30d: 600, dailyInflow: 5, netDailyBurn: 15, projectedInflow30d: 150, runwayDays: 3, runway: "days" },
   sumCheck: { ok: true, diff: 0, identity: "used + expired + left = total + overdrawn" }, at: "2026-10-27T19:00:00.000Z",
 };
 const noop = () => undefined;
@@ -28,9 +28,16 @@ describe("finance page", () => {
     expect(bad.ok).toBe(false);
     expect(bad.text).toBe("Does not add up (off by 20): used 1,100 + expired 50 + left 70 comes to 1,220, but total 1,000 + overdrawn 200 comes to 1,200.");
   });
-  it("gives the runway at the trailing burn, none without a burn", () => {
-    expect(runwayDays(f)).toBe(2);
-    expect(runwayDays({ ...f, projection: { ...f.projection, trailingDailyBurn: 0 } })).toBeNull();
+  it("nets the daily inflow against the burn: short, covered, no usage (gr_rdzg83m0al)", () => {
+    const p = f.projection;
+    expect([netPerDay(p), runwayText(p)]).toEqual(["−15 / day shortfall", "3 days"]);
+    const covered = { ...p, dailyInflow: 30, netDailyBurn: -10, projectedInflow30d: 900, runwayDays: null, runway: "covered" as const };
+    expect([netPerDay(covered), runwayText(covered)]).toEqual(["+10 / day surplus", "covered by the daily inflow"]);
+    const idle = { ...p, trailingDailyBurn: 0, netDailyBurn: -5, runwayDays: null, runway: "no-usage" as const };
+    expect(runwayText(idle)).toBe("nothing used lately");
+    const ov = tabOf("Overview", { f: { ...f, projection: covered } });
+    for (const s of ["Coming in (expected from recurring inputs)", "30 / day", "+10 / day surplus", "covered by the daily inflow", "one-off donations"]) expect(ov).toContain(s);
+    expect(ov).not.toContain(">0 days<");
   });
   it("lists overdrawn's non-zero parts, which sum to it, with the pre-conversion note on the subscription part", () => {
     const parts = overdrawnParts(f);
@@ -89,7 +96,7 @@ const sp: FinanceSpend = {
     { kind: "building", id: "workshop", name: "Town Workshop", tokens: 900, share: 0.8182, sessions: 9, children: [
       { kind: "grant", id: "gr_a", name: "Refactor the Bank…", objective: "Refactor the Bank: one ledger for every debit", tokens: 500, share: 0.4545, sessions: 4, children: [
         { kind: "assignment", id: "as_a", name: "Step 1: the ledger", tokens: 500, share: 0.4545, sessions: 4 }] },
-      { kind: "no-grant", id: null, name: "Not under a grant: work a human asked for, the building's own daily allowance, and sessions from before grants existed", tokens: 300, share: 0.2727, sessions: 3, children: [
+      { kind: "no-grant", id: null, name: "Not under a grant: work a human asked for, work a building took up on its own, and sessions from before grants existed", tokens: 300, share: 0.2727, sessions: 3, children: [
         { kind: "assignment", id: "as_b", name: "Explore the map", tokens: 300, share: 0.2727, sessions: 3 }] },
       { kind: "no-assignment", id: null, name: "The manager's own sessions: reading reports, running meetings and replying (no assignment)", tokens: 100, share: 0.0909, sessions: 2 },
     ] },

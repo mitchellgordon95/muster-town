@@ -40,6 +40,9 @@ function checks(f: Json, s: Json, src: Json, bank: Json, fly: Json): Check[] {
     eq("spend used", "spend.used", s.used, "finance.used", f.used),
     // one balance (pools were deleted, migration 067): the Bank's balance is what finance says is left in it
     eq("bank balance", "bank.balanceTokens", bank.balanceTokens, "finance.leftBank", f.leftBank),
+    // the runway nets one inflow rule (gr_rdzg83m0al): the Bank's expected inflow is the projection's
+    eq("daily inflow", "finance.projection.dailyInflow", f.projection?.dailyInflow, "bank.dailyInflowTokens", bank.dailyInflowTokens),
+    eq("net per day", "finance.projection.netDailyBurn", f.projection?.netDailyBurn, "trailingDailyBurn − dailyInflow", f.projection?.trailingDailyBurn - f.projection?.dailyInflow),
     // Fly hosting (USD): the days' and the buildings' desk time agree, each day's desks + town = its total
     flag("fly sumCheck", fly.sumCheck?.ok, `ok ${fly.sumCheck?.ok}, diff ${fly.sumCheck?.diff} (${fly.sumCheck?.identity})`),
     eq("fly desk time", "Σ fly.days[].deskMs", sum((fly.days ?? []).map((d: Json) => d.deskMs)), "Σ fly.buildings[].deskMs", sum((fly.buildings ?? []).map((b: Json) => b.deskMs))),
