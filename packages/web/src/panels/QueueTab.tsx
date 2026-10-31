@@ -4,6 +4,7 @@
  * building attached in the subtree gets a swimlane (GET /api/goals/:id/queue). Read-only: the queue order is the
  * manager's, and the Running header's desks are the WIP limit the scheduler already keeps.
  */
+import { useState } from "react";
 import type { QueueBoard, QueueCard, QueueLane } from "@muster-town/schema";
 import { api } from "../api";
 import { store, useTown } from "../state";
@@ -13,6 +14,9 @@ import { ADJ, Empty, ErrorLine, Loading, Pill, fmtTokens, timeAgo, useLoad } fro
 const COLUMNS: { id: "queued" | "held" | "running" | "done"; label: string }[] = [
   { id: "queued", label: "Queued" }, { id: "held", label: "Held" }, { id: "running", label: "Running" }, { id: "done", label: "Done (24 h)" },
 ];
+
+/** Done (24 h) shows its latest cards only (the API sends them newest first); a busy building has dozens a day. */
+export const DONE_SHOWN = 10;
 
 /** "Running 3 / 6 desks": the column header, with the WIP limit on Running. */
 export function columnHeader(lane: QueueLane, col: (typeof COLUMNS)[number]["id"]): string {
@@ -34,7 +38,7 @@ export function QueueTab({ goalId, buildingId }: { goalId?: string; buildingId?:
   );
 }
 
-function Lane({ lane, title }: { lane: QueueLane; title: boolean }) {
+export function Lane({ lane, title }: { lane: QueueLane; title: boolean }) {
   return (
     <div className="queue-lane">
       {title ? <button className="link queue-lane-name" onClick={() => store.open({ kind: "building", id: lane.buildingId })}>{lane.buildingName}</button> : null}
@@ -42,11 +46,23 @@ function Lane({ lane, title }: { lane: QueueLane; title: boolean }) {
         {COLUMNS.map((c) => (
           <div key={c.id} className={`queue-col ${c.id === "running" && lane.running.length >= lane.desks ? "full" : ""}`}>
             <div className="queue-col-head">{columnHeader(lane, c.id)}</div>
-            {lane[c.id].map((x) => <Card key={x.id} c={x} />)}
+            {c.id === "done" ? <DoneCards cards={lane.done} /> : lane[c.id].map((x) => <Card key={x.id} c={x} />)}
           </div>
         ))}
       </div>
     </div>
+  );
+}
+
+/** The latest DONE_SHOWN done cards, then "Show all (N)" / "Show latest 10"; Queued, Held and Running stay whole. */
+function DoneCards({ cards }: { cards: QueueCard[] }) {
+  const [all, setAll] = useState(false);
+  const shown = all ? cards : cards.slice(0, DONE_SHOWN);
+  return (
+    <>
+      {shown.map((x) => <Card key={x.id} c={x} />)}
+      {cards.length > DONE_SHOWN ? <button className="link queue-col-more" onClick={() => setAll(!all)}>{all ? `Show latest ${DONE_SHOWN}` : `Show all (${cards.length})`}</button> : null}
+    </>
   );
 }
 
