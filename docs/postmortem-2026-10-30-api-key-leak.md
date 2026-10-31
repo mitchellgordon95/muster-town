@@ -99,14 +99,15 @@ could drift again. Now (docs/invariants/bank.md 9 and 10):
   the same `Funding` the env was built from. A desk's session-end `fundingUsed` is checked, not booked: a claim that
   differs (or an old image's `fallback: true`) is `alert: funding-mismatch`.
 - **Daily reconciliation.** `reconcileDue` (runtime) → `reconcileFunding` (core `reconcile.ts`) once per UTC day for
-  the day before: unlisted api-key sessions, mismatches, and the Console's cost report (Admin API, raw HTTP, with the
-  collective secret `ANTHROPIC_ADMIN_KEY`) against the Bank's api-key spend (tolerance max($1, 10%)). One `system` event
-  per day; `alert: funding-reconcile` when unexplained. The HUD shows funding alerts for a day.
+  the day before: unlisted api-key sessions and mismatches, from the Bank's own session records. One `system` event
+  per day; `alert: funding-reconcile` when unexplained. The HUD shows funding alerts for a day. The check never reads
+  the Anthropic Console or Admin API (Mitchell, 2026-10-31: the project does not touch anyone's Console; the Console
+  half shipped on 10-31 and was removed the same day).
 
 ## Still open (proposals)
 
-1. ~~Reconcile against the Console.~~ Shipped above; it needs the Admin API key as the collective secret `ANTHROPIC_ADMIN_KEY`
-   (Town Hall → Secrets) to read the Console. Without it the in-town half runs and the daily event says the Console was not checked.
+1. ~~Reconcile against the Console.~~ Dropped: the project never touches anyone's Anthropic Console (Mitchell,
+   2026-10-31). The in-town half runs daily; the only outside ceiling on a key is the spend limit its owner sets.
 2. ~~Record the credential actually used.~~ Shipped above (`credentialInputId`). The SDK's `rate_limit_event` stream
    (docs/token-accounting-handoff.md) only arrives on subscription sessions, so its absence on a session that should be
    subscription-funded is still an unused signal.
