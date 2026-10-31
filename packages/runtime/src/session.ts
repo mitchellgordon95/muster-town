@@ -174,7 +174,10 @@ export function bookRunning(world: World, sessionId: string, seen: TokenUsage, a
  */
 export function endAndCharge(world: World, sessionId: string, usage: Pick<Usage, "counts" | "byModel" | "costUsd" | "turns">, end: Omit<Parameters<World["ops"]["endSession"]>[1], "counts" | "byModel" | "tokens" | "costUsd" | "turns">, allocationId: string | null | undefined): Session {
   const rest = settleUsage(world, sessionId, { counts: usage.counts, byModel: usage.byModel ?? {} });
-  const ended = world.ops.endSession(sessionId, { ...end, costUsd: usage.costUsd, turns: usage.turns });
+  const settled = world.sessions.require(sessionId, "session");
+  // the settled per-model split rides on session.ended like before (endSession keeps the row's counters)
+  const byModel = settled.byModel && Object.keys(settled.byModel).length ? { byModel: settled.byModel } : {};
+  const ended = world.ops.endSession(sessionId, { ...end, ...byModel, costUsd: usage.costUsd, turns: usage.turns });
   chargeBooked(world, ended.agentId, rest, usage.costUsd, allocationId, ended.grantId);
   return ended;
 }
