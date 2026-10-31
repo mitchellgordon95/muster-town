@@ -378,8 +378,8 @@ export function BankPools({ bank, onChange }: Props) {
                     : <>{fmtPct(p.pct)} {p.explicit ? null : <span className="muted" title="No set share: splits what's left equally with the other pools that have buildings">(auto)</span>}</>}
                 </td>
                 <td title={`${fmtTokens(p.expiringTokens)} expiring today · ${fmtTokens(p.durableTokens)} permanent`}>{fmtTokens(p.expiringTokens + Math.max(0, p.durableTokens))}</td>
-                <td className="pool-members">
-                  {p.goals.map((g, i) => <span key={g.goalId}>{i ? ", " : null}<button className="link" title={g.text} onClick={() => store.open({ kind: "goals", id: g.goalId })}>{goalShortName(g.text)}</button></span>)}
+                <td className="pool-members">{/* goal names are inline <a>s, not buttons: a button wraps as a block and strands the ", " on a line of its own */}
+                  {p.goals.map((g, i) => <span key={g.goalId}>{i ? ", " : null}<a className="link" href="#" title={g.text} onClick={(e) => { e.preventDefault(); store.open({ kind: "goals", id: g.goalId }); }}>{goalShortName(g.text)}</a></span>)}
                   {p.isDefault ? <span className="muted">{p.goals.length ? " and " : ""}every goal that sets none</span> : !p.goals.length ? <span className="muted">no goal</span> : null}
                   {" → "}{members.length ? members.map((b) => b.name).join(", ") : <span className="muted">no building</span>}
                 </td>
