@@ -17,7 +17,7 @@ import { GoalPicker, goalPath, useGoalTree } from "./GoalPicker";
 import { findGoal } from "./goalTree";
 import { purposeOf } from "../purpose";
 
-/** "Owner: <owner>" (docs/goals.md "Owners on nodes"): the attachment's effective owner, once; the goal card above already says the goal, so only a link to it in the Town Hall goal tree follows. */
+/** "Captain: <captain>" (docs/goals.md "Captains on nodes"): the attachment's effective owner, once; the goal card above already says the goal, so only a link to it in the Town Hall goal tree follows. */
 function GoalOwner({ b }: { b: SnapshotBuilding }) {
   const root = useGoalTree();
   if (!root) return null;
@@ -25,7 +25,7 @@ function GoalOwner({ b }: { b: SnapshotBuilding }) {
   const node = findGoal(root, goalId);
   if (!node) return null;
   return (
-    <div className="muted goal-meta">Owner: <b>{node.owner.name}</b> · <button className="link" title={goalPath(root, goalId)} onClick={() => store.open({ kind: "goals", id: goalId })}>in the goal tree →</button></div>
+    <div className="muted goal-meta">Captain: <b>{node.owner.name}</b> · <button className="link" title={goalPath(root, goalId)} onClick={() => store.open({ kind: "goals", id: goalId })}>in the goal tree →</button></div>
   );
 }
 
@@ -199,7 +199,7 @@ export function Settings({ b }: { b: SnapshotBuilding }) {
         <input value={f.name} maxLength={80} placeholder="defaults to the goal's short text" onChange={(e) => set("name", e.target.value)} />
       </Field>
       {b.kind !== "town-hall" ? (
-        <Field label="Attached to" hint={`${goalPath(root, goalId)}. The goal is the building's purpose: it stands at that goal's plaza on the map, and its work (grants, exploration) names open key results in that goal's subtree.${canAttach ? "" : " Changing it takes goals.edit on both goals (an admin or the goal's owner)."}`}>
+        <Field label="Attached to" hint={`${goalPath(root, goalId)}. The goal is the building's purpose: it stands at that goal's plaza on the map, and its work (grants, exploration) names open key results in that goal's subtree.${canAttach ? "" : " Changing it takes goals.edit on both goals (an admin or the goal's captain)."}`}>
           <GoalPicker value={goalId} onChange={setGoalId} disabled={!canAttach} />
         </Field>
       ) : null}

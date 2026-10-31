@@ -733,7 +733,7 @@ Key result (on the building goal): ${kr}${k ? "; it has no funded grant now, so 
     }
     if (actor && inp.status) {
       const judged = inp.status === "met" || inp.status === "missed" || kr.status === "met" || kr.status === "missed";
-      // a human who can fund the building, or the owner of the key result's goal (docs/goals.md "Owners on nodes")
+      // a human who can fund the building, or the owner of the key result's goal (docs/goals.md "Captains on nodes")
       if (judged) {
         if (!this.world.permissions.can(actor, "building.fund", kr.buildingId) && !(kr.goalId && this.world.goalTree.owns(actor, kr.goalId))) throw forbidden("building.fund");
       } else if (!this.canManage(actor, kr.buildingId)) throw forbidden("building.manage");
@@ -790,7 +790,7 @@ Key result (on the building goal): ${kr}${k ? "; it has no funded grant now, so 
     this.world.goalTree.requireInScope(buildingId, keyResultId);
   }
 
-  /** Who decides a grant: a human with `building.fund` on its building, or the owner of its key result's goal (docs/goals.md "Owners on nodes"). */
+  /** Who decides a grant: a human with `building.fund` on its building, or the owner of its key result's goal (docs/goals.md "Captains on nodes"). */
   canFund(actor: Actor, g: Grant): boolean {
     if (!actor || this.world.permissions.can(actor, "building.fund", g.buildingId)) return true;
     const kr = g.keyResultId ? this.world.keyResults.get(g.keyResultId) : undefined;
