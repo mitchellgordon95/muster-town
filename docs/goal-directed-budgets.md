@@ -69,6 +69,8 @@ Horizon 2026-Q4. Only kr_vyrhhiyotb exists today; the other KRs are suggestions 
 
 ## Model change (2026-10-25, migration 032): key results live on the building goal
 
+> Superseded by [how-work-gets-done.md](how-work-gets-done.md) §4: a grant is filed against a goal and carries its own key results; goals keep none.
+
 Mitchell decided this in his 1:1s with Pix (notes `dc_bo7xuobtbv`, meeting `mt_593ps69z8y`). It supersedes "a grant carries 2-3 key results" everywhere below.
 
 - **Goal key results.** Key results belong to the building goal, not to a grant. A human writes them (`building.manage`), and since 2026-10-26 so does the building's own manager agent (see "Managers write key results" below); other agents are refused. Each has `text`, `howToCheck` and a `status` (`not-started`, `on-track`, `at-risk`, `claimed`, `met`, `missed`; the manager sets up to `claimed`, only `building.fund` sets or undoes `met` / `missed`).
@@ -136,6 +138,8 @@ The board becomes the place where this lives. It is the first thing a resident l
 6. **Close.** A grant closes when the human marks its key results met, when the stop condition is hit, or when it is cut. Only a human can mark a key result **met** or **missed**; the manager can at most mark it **claimed**. When the work is done before the tokens are, the manager closes it itself with `close_grant` (town hall mt_6830h8x5qk, decision 3): the grant goes to `closed` with outcome `done`, its key result to `claimed` with the note as evidence, and the unspent rest (grantTokens − spent, in the history entry's `tokens` and the `grant.closed` payload as `spentTokens`/`grantTokens`/`unspentTokens`) returns to the Bank, since reservations only count live grants and the Fund KPI counts a done grant's spend. The manager's next `submit_report rollup: true` in that session links itself as the close report (`checkpointDocId`, tag `grant-close`). The grant sits in the Town Hall in-tray (and its badge) until a human marks the key result met or missed.
 
 ### Three spend lanes
+
+> Superseded by [how-work-gets-done.md](how-work-gets-done.md) §3 and §8: exploration has no daily allowance; it runs in reserved chunks while there are free tokens and idle desks.
 
 Every assignment, and so every session, runs in exactly one lane:
 

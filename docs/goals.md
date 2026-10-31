@@ -12,6 +12,8 @@ A note on scope. Mitchell observed that this is turning into an org/corporation 
 
 ## The model in one picture
 
+> Superseded by [how-work-gets-done.md](how-work-gets-done.md) §4: key results move from goals onto grants; goals keep none of their own.
+
 ```
 Make Muster Town something strangers can fund, join, and trust     (root goal, owner: Mitchell)  ← Town Hall
 ├─ Fund   (placeholder goal)
@@ -49,6 +51,8 @@ Everything is additive (see Migration). Ids stay stable: every `kr_…` keeps it
 **Grants** keep `keyResultId` and `buildingId`. Only the scope check changes. Today the KR must belong to the grant's building (`grants.ts` `requireGoalKeyResult`, `lanes.ts` `resolveLane`). After the switch, the KR must be **open (not archived) and in the building's subtree**: one helper, `Goals.inScope(buildingId, krId)`. The grant's building still does the work, and the Bank pays by draw order (see Finance).
 
 ## Who can change the tree
+
+> Superseded by [how-work-gets-done.md](how-work-gets-done.md) §4: `propose_key_result` and KR status on goals go; managers propose grants (with their key results) and goals.
 
 - **Humans with `goals.edit`** (town admins; Mitchell today) edit the tree anywhere: add, edit, move, retire, change (reorg), attach a building (move it to another goal), set owners, and mark KRs met or missed. A node's **owner** can do all of that inside the subtree they own, and also **decide and fund grants** there (see Owners). Owners are humans only for now.
 - **Managers and their forks propose** (they never own nodes for now). `set_objective` and `set_key_result` become `propose_goal` / `propose_key_result`. They take the same fields plus `why`, and an `id` proposes an edit. Each creates a `goal_proposals` row. A proposal outside the building's subtree is allowed but flagged.
@@ -153,6 +157,8 @@ The building panel's Overview names the owner once ("Owner: <owner>", linking to
 
 ### Exploration: free funds instead of a per-building allowance
 
+> Superseded by [how-work-gets-done.md](how-work-gets-done.md) §3, §7 and §8: exploration is a rule on the goal run by the tick in reserved chunks; free tokens count only what is in the Bank (no week horizon, open question); no allowance.
+
 **Free funds** = the balance + stream income over the planning horizon − funded grants' remaining tokens − open proposals' asks.
 
 - **The horizon is the week**: buildings propose against a week's income. **The day stays the ceiling unit**: the Bank's daily limits and a key's daily limit still apply.
@@ -160,6 +166,8 @@ The building panel's Overview names the owner once ("Owner: <owner>", linking to
 - This **replaces the per-building exploration allowance** (`explorationTokensPerDay`, `grantDesk` exploration bucket). Desks, not a per-building share, decide how much each building can scout. Directed work is still never held by it.
 
 ### Pool and exploration budget on the goal (interim step, 1:1 mt_n25udpflus decision 3)
+
+> Superseded by [how-work-gets-done.md](how-work-gets-done.md) §7 and §8: pools are deleted and the exploration allowance goes; the goal carries the explore rule (on/off, chunk, optional cap) instead.
 
 Before pools go and free funds replace the allowance (neither is built), both settings moved from the building to the goal it is attached to: they are funding, so they belong on the tree. `Goal.poolId` and `Goal.explorationTokensPerDay` (migration 065, nullable: null = inherit). A building's pool is the nearest goal at or above its attachment that sets one, else General; its exploration allowance per day is the nearest goal that sets one, else the policy default (10% of its pool's daily inflow). One helper, core `goals.ts` `fundingAt` / `fundingOf`, used by `Bank.poolOf` (and so `buildingsIn`, the shares, `/api/finance/pools`) and `grantDesk.exploration`; the Town Hall keeps its special case (no exploration). `PATCH /api/goals/:id` takes `poolId` (an admin) and `explorationTokensPerDay` (`goals.edit` there plus a human funder: an admin or the goal's owner, never an agent); the building PATCH takes neither, and `Building.poolId` / `explorationTokensPerDay` stay as columns nobody reads. Changes log `bank.pool` / `goal.edited` with the `goalId`, so the goal's history shows them. The migration copied each lab's values onto its attached goal (the first building by createdAt wins; a building that disagreed is logged as a `bank.pool` event with `backfillConflict`). Web: the goal tree's node detail has a **Funding** block (pool select for admins, Exploration / day for those who can edit, "inherited from …" otherwise); the building Overview shows "Pool: X (from goal Y)"; the Bank's Pools tab lists the goals each pool funds and their buildings.
 
@@ -186,6 +194,8 @@ The Bank's **Spend by goal** section (Spending tab; a tab on every node until 1:
 **Bank changes, gated on Mitchell** (town-wide rule dc_vzqoh7ppen): dropping pools, streams with scopes and the draw order, free funds replacing the exploration allowance, per-session key caps. They are build steps 7 and 8 below and wait for his yes on the code, even though the design is decided.
 
 ## How lanes map onto subtrees
+
+> Superseded by [how-work-gets-done.md](how-work-gets-done.md) §3 and §4: exploration names a goal, not a key result; "blocked: no KRs" and the KR stoplight go.
 
 | Lane | Today | After |
 |---|---|---|
