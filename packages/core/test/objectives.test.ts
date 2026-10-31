@@ -34,7 +34,7 @@ describe("objectives (1:1 mt_akz25kqo2q)", () => {
     expect(() => world.grantDesk.updateKeyResult(mei, more[3]!.id, { objectiveId: r.objective.id })).toThrow(/at most 4/);
     const tree = world.grantDesk.objectiveTree(LAB);
     expect(tree.objectives[0]!.keyResults.map((k) => k.id)[0]).toBe(old.id);
-    expect(tree.unsorted).toEqual([more[3]!.id]);
+    expect(tree.unsorted.map((k) => k.id)).toEqual([more[3]!.id]);
     // the move is an event a human can see; a move back to Unsorted works
     const ev = world.events.list({ types: ["kr.updated"], buildingId: LAB }).find((e) => e.payload.keyResultId === old.id)!;
     expect(ev.payload).toMatchObject({ objectiveId: r.objective.id, fromObjectiveId: null, edited: false });

@@ -123,7 +123,7 @@ describe("grants service", () => {
     expect(world.grantDesk.keyResultsOf(rejected.id).map((k) => [k.status, !!k.archivedAt, k.statusNote])).toEqual([["not-started", true, `grant ${rejected.id} rejected`], ["not-started", true, `grant ${rejected.id} rejected`]]);
     const g = world.grantDesk.decide(admin, world.grantDesk.propose(manager, draft(KRS).id).id, { action: "fund" });
     const [k0, k1] = g.keyResults;
-    world.grantDesk.updateKeyResult(admin, k1!.id, { status: "missed" }); // already marked: not open, left alone
+    world.grantDesk.updateKeyResult(admin, k1!.id, { status: "missed", note: "not shipped" }); // already marked: not open, left alone
     world.grantDesk.closeDone(manager, g.id, { note: "the banner shows it" });
     expect(world.keyResults.require(k0!.id)).toMatchObject({ status: "claimed", statusNote: "the banner shows it" });
     expect(world.keyResults.require(k1!.id).status).toBe("missed");

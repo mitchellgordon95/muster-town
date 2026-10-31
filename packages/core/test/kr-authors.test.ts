@@ -33,6 +33,9 @@ describe("managers write key results through their grants (docs/how-work-gets-do
     world.grantDesk.updateKeyResult(admin, kr.id, { text: "Sharper" });
     const view = world.grantDesk.keyResults(LAB).find((k) => k.id === kr.id)!;
     expect(view).toMatchObject({ createdByName: "Mei", editedByName: world.nameOf(admin.ownerUserId!) });
+    // a human deletes it only once its grant is closed
+    expect(() => world.grantDesk.deleteKeyResult(admin, kr.id)).toThrow(/close the grant first/);
+    world.grantDesk.decide(admin, r.grantId, { action: "reject", note: "not now" });
     world.grantDesk.deleteKeyResult(admin, kr.id);
     expect(world.keyResults.get(kr.id)).toBeUndefined();
   });
