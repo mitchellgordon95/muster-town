@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { GoalTreeNode } from "@muster-town/schema";
-import { archivedLine, buildingScope, canEditGoal, moveTargets, pastDue, pathTo, retirePlan, treeRows } from "../src/panels/goalTree";
+import { archivedLine, buildingScope, canEditGoal, moveTargets, nodeGlance, pastDue, pathTo, retirePlan, treeRows, visibleRows } from "../src/panels/goalTree";
 import { proposalNode } from "../src/panels/GoalTreePanel";
 import { clock, dayClock } from "../src/panels/ui";
 
@@ -79,5 +79,20 @@ describe("goal History stamps (Feed)", () => {
     expect(dayClock(a)).toMatch(/^10-26 /);
     expect(dayClock(b)).toMatch(/^10-29 /);
     expect(dayClock(b)).toContain(clock(b));
+  });
+});
+
+describe("the goal tree editor's nodes (UX pass dc_yn8gl1rmyt)", () => {
+  it("collapsing a goal hides everything under it, not the goal itself", () => {
+    const root = sample();
+    expect(visibleRows(root, false, new Set()).map((r) => r.node.id)).toEqual(treeRows(root, false).map((r) => r.node.id));
+    expect(visibleRows(root, false, new Set(["gl_fund"])).map((r) => r.node.id)).toEqual(["gl_town", "gl_fund", "gl_join", "gl_c"]);
+    expect(visibleRows(root, true, new Set(["gl_town"])).map((r) => r.node.id)).toEqual(["gl_town"]);
+  });
+
+  it("a node at a glance: open key results, funded, late and the nearest due date (archived ones left out)", () => {
+    const krs = [kr("k1", "on-track", "2026-10-01"), { ...kr("k2", "at-risk", "2026-12-01"), grantId: "gr_1" }, kr("k3", "met", "2026-09-01"), kr("k4", "not-started", null)];
+    expect(nodeGlance({ keyResults: krs }, "2026-10-30")).toEqual({ open: 3, funded: 1, late: 1, nextDue: "2026-10-01" });
+    expect(nodeGlance({ keyResults: [] }, "2026-10-30")).toEqual({ open: 0, funded: 0, late: 0, nextDue: null });
   });
 });

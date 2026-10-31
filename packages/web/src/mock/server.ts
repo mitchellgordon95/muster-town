@@ -152,7 +152,12 @@ export class MockApi implements Api {
   async changeGoal(): Promise<never> { throw new ApiError("Editing the goal tree needs the real server.", "unsupported", 501); }
   async goalChanges() { await wait(); return []; }
   async reviewKeyResult(): Promise<never> { throw new ApiError("Editing the goal tree needs the real server.", "unsupported", 501); }
-  async openPlanner(): Promise<never> { throw new ApiError("The Planner needs the real server.", "unsupported", 501); }
+  /** the mock has no Planner: the first building manager stands in, so the editor's "Talk to the Planner" opens a 1:1 beside it */
+  async openPlanner() {
+    const b = this.sim.buildings.find((x) => x.managerAgentId);
+    if (!b) throw new ApiError("The Planner needs the real server.", "unsupported", 501);
+    return this.openOneOnOne(b.id);
+  }
   async intray(buildingId: string) {
     await wait();
     const b = this.need(this.sim.buildings.find((x) => x.id === buildingId), "building");

@@ -57,17 +57,16 @@ Everything is additive (see Migration). Ids stay stable: every `kr_…` keeps it
 
 ## The Town Hall goal editor
 
-There is a new place in the Town Hall, the **Goal tree** (a wall chart by the in-tray). It opens a panel with three parts:
+There is a new place in the Town Hall, the **Goal tree** (a wall chart by the in-tray). It opens a large sheet over the map (not the side panel; UX pass dc_yn8gl1rmyt) with two columns:
 
-1. **Tree** (left). One line per row. A goal row shows its owner's avatar and its attached-building chips. A KR row shows its status pill, its due date (amber when past due), and a grant word (funded / proposed / open). Archived KRs collapse under their goal ("✓ 4 done, 1 missed"). Retired goals hide behind "Show retired". A building filter dims everything outside one building's subtree.
-2. **Node detail** (right). Admins and the node's owner get inline edit, Move, Retire or Mark met/missed, Attach a building, Owner, and **Change this goal**. Everyone else gets the same panel read-only. Its tabs:
+1. **Tree** (left). Each goal is a node: a chevron to collapse or expand it, its words (two lines at most), and tags at a glance: attached buildings, an explicit owner, "n KR · m funded", "n late" (or the nearest due date), and "n proposals" waiting there. Under an expanded node, its open KRs, one line each: a status dot, the words, the due date (amber when past due) and funded / open. The toolbar has a building filter (and Funded by me), a Key results toggle and Retired. Clicking a node or KR selects that goal.
+2. **Node detail** (right). The path, the goal's words, owner and attached buildings, then a toolbar for admins and the node's owner: Edit words, + Goal under it, + Key result, Move, Owner, Change this goal, Retire. Each opens its form in place. Then the **Proposals** waiting at this goal or below (all of them at the root), each with the change in context (the parent path, old → new, who proposed it and why) and **Accept**, **Edit and accept**, **Cut** (its note goes back to the proposer as a mention). The same proposals show in the in-tray and the review deck. Then the key results as cards (status, funded / open, due, the words, how to check; Met / Missed, or Keep / Move / Archive when under review). Everyone else gets the same detail read-only. Its tabs:
    - **History**: the node's events.
    - **Subtree**: the owner's view, see Owners.
    - **Spend**: read-only subtree spend from session bookings; see Finance.
    - **Queue**: the kanban view.
-3. **Proposals** (top strip). Each proposal shows the change in context: the parent path, old → new, who proposed it and why. Buttons: **Accept**, **Edit and accept**, **Cut** (its note goes back to the proposer as a mention). The same proposals show in the in-tray and the review deck.
 
-**Plan with an agent** (top right, and on every goal row) opens a 1:1 with Planner (below). Guests and members see the whole tree read-only. It is the town's public answer to "what is this place trying to do".
+**Talk to the Planner** (top right) opens the human's 1:1 with Planner (below) in the side panel, beside the sheet: the sheet stays open while the side panel shows a 1:1, a grant or a building opened from it. Its × closes it, and so does Esc when no side panel is open. Guests and members see the whole tree read-only. It is the town's public answer to "what is this place trying to do".
 
 ## The map is the tree (1:1 mt_kh0zaqui0w)
 

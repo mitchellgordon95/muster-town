@@ -192,7 +192,7 @@ function PanelHost({ panel }: { panel: PanelRef }) {
     // the Bank's tabs are things in its room (BANK_FIXTURES.stations); a tab deep-link re-lands per open
     case "bank": return <BankPanel key={panel.tab ? `${panel.tab}:${openSeq(panel)}` : ""} tab={panel.tab} />;
     case "dashboard": return <DashboardPanel />;
-    case "goals": return <GoalTreePanel key={panel.id ?? ""} goalId={panel.id} />;
+    case "goals": return null; // a sheet over the map that stays open beside the side panel (App)
     case "grant": return <GrantPanel key={panel.id} id={panel.id!} />;
     case "schedule": return <SchedulePanel />;
     case "mod": return <ModStationPanel />;
@@ -205,7 +205,17 @@ export function App() {
   const open = useTown((s) => s.panel);
   // the manual is a paper sheet over the town; the side panel and the map's inset ignore it
   const manual = open?.kind === "manual" ? open : null;
-  const panel = manual ? null : open;
+  // the goal tree editor is a sheet over the map too; it stays open while a link from it fills the side panel
+  // (a grant, a building, the Planner's 1:1) and closes when its own panel ref is closed or with its ×
+  const [goals, setGoals] = useState<PanelRef | null>(null);
+  const prevOpen = useRef(open);
+  useEffect(() => {
+    if (open?.kind === "goals") setGoals(open);
+    else if (!open && prevOpen.current?.kind === "goals") setGoals(null);
+    prevOpen.current = open;
+  }, [open]);
+  const closeGoals = useCallback(() => { setGoals(null); if (store.state.panel?.kind === "goals") store.open(null); }, []);
+  const panel = manual || open?.kind === "goals" ? null : open;
   // town planning: the selected building's side bar (goals, budget, stats) takes the panel's place
   const planSel = useTownPlan()?.selected ?? null;
   const buildings = useTown((s) => s.buildings);
@@ -285,6 +295,7 @@ export function App() {
       <Toasts />
       {help && ready ? <HowItWorks onClose={() => setHelp(false)} /> : null}
       {manual && ready ? <ManualSheet section={manual.id} /> : null}
+      {goals && ready ? <PanelBoundary key={`goals:${goals.id ?? ""}`}><GoalTreePanel goalId={goals.id} onClose={closeGoals} /></PanelBoundary> : null}
       {isMock ? <div className="mock-badge" title="VITE_MOCK=1: in-memory fake server">mock</div> : null}
     </div>
   );
