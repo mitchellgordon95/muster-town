@@ -27,8 +27,19 @@ export function sumCheckLine(f: Finance): { ok: boolean; text: string } {
     : { ok: false, text: `Does not add up (off by ${n(f.sumCheck.diff)}): ${used} comes to ${n(lhs)}, but ${total} comes to ${n(rhs)}.` };
 }
 
-/** Days the tokens left last at the trailing burn (null when nothing is being used). */
-export const runwayDays = (f: Finance): number | null => (f.projection.trailingDailyBurn > 0 ? Math.floor(f.left / f.projection.trailingDailyBurn) : null);
+/** Net per day in plain words: burn − inflow, a surplus when more comes in than is used, a shortfall when less does. */
+export function netPerDay(p: Finance["projection"]): string {
+  if (p.netDailyBurn < 0) return `+${n(-p.netDailyBurn)} / day surplus`;
+  if (p.netDailyBurn > 0) return `−${n(p.netDailyBurn)} / day shortfall`;
+  return "0 / day (inflow equals burn)";
+}
+
+/** How long the tokens left last, from the API's runway (gr_rdzg83m0al). */
+export function runwayText(p: Finance["projection"]): string {
+  if (p.runway === "covered") return "covered by the daily inflow";
+  if (p.runway === "no-usage" || p.runwayDays === null) return "nothing used lately";
+  return `${n(p.runwayDays)} day${p.runwayDays === 1 ? "" : "s"}`;
+}
 
 /** The non-zero parts of `overdrawn`, labelled, in a fixed order; they sum to `overdrawn`. */
 export function overdrawnParts(f: Finance): { key: string; label: string; tokens: number; note?: string }[] {
@@ -323,20 +334,21 @@ export function TokensView({ f }: { f: Finance }) {
   );
 }
 
-/** Next N days: the trailing burn, the projection at that rate and the runway. */
+/** Next N days: the trailing burn, the expected inflow, the net per day, the projection and the runway at the net rate. */
 export function ProjectionView({ f }: { f: Finance }) {
-  const runway = runwayDays(f);
   const p = f.projection;
   return (
     <Section title={`Next ${p.days} days`}>
       <table className="table">
         <tbody>
           <tr><td>Burn rate (average of the last {p.burnDays} day{p.burnDays === 1 ? "" : "s"})</td><td>{n(p.trailingDailyBurn)} / day</td></tr>
+          <tr><td>Coming in (expected from recurring inputs)</td><td>{n(p.dailyInflow)} / day</td></tr>
+          <tr><td>Net per day (burn − coming in)</td><td>{netPerDay(p)}</td></tr>
           <tr><td>Projected use, next {p.days} days at that rate</td><td><b>{n(p.projectedUse30d)}</b></td></tr>
-          <tr><td>Tokens left last at that rate</td><td>{runway === null ? "nothing used lately" : `${n(runway)} day${runway === 1 ? "" : "s"}`}</td></tr>
+          <tr><td>Tokens left last</td><td>{runwayText(p)}</td></tr>
         </tbody>
       </table>
-      <p className="muted">A straight line from the trailing burn: new credits, donations and renewals are not counted.</p>
+      <p className="muted">Coming in is what the active recurring Bank inputs are expected to credit per day (a subscription at most its weekly cap / 7); one-off donations and one-time inputs are not counted. Tokens left last is what is left divided by the net per day.</p>
     </Section>
   );
 }

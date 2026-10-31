@@ -668,7 +668,11 @@ export class MockApi implements Api {
     return {
       total, credited, donated, used, usedBank, usedDonations, expired: 0, left, leftBank, leftDonations, overdrawn: 0,
       overdrawnBreakdown: { durableOvershoot: 0, subscriptionOverdrawn: 0, deletedCreditDebits: 0, allocationOverspent: 0 }, usageLedger: used,
-      projection: { days: 30, trailingDailyBurn: burn, burnDays: 7, projectedUse30d: burn * 30 },
+      projection: (() => {
+        const inflow = b.dailyInflowTokens, net = burn - inflow;
+        const runway = burn === 0 ? "no-usage" as const : net <= 0 ? "covered" as const : "days" as const;
+        return { days: 30, trailingDailyBurn: burn, burnDays: 7, projectedUse30d: burn * 30, dailyInflow: inflow, netDailyBurn: net, projectedInflow30d: inflow * 30, runwayDays: runway === "days" ? Math.floor(left / net) : null, runway };
+      })(),
       sumCheck: { ok: diff === 0, diff, identity: "used + expired + left = total + overdrawn" }, at: now(),
     };
   }

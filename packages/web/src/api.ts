@@ -115,7 +115,17 @@ export interface Finance {
   overdrawnBreakdown: { durableOvershoot: number; subscriptionOverdrawn: number; deletedCreditDebits: number; allocationOverspent: number };
   /** the usage ledger's all-time total; can exceed `used` by usage nothing funds */
   usageLedger: number;
-  projection: { days: number; trailingDailyBurn: number; burnDays: number; projectedUse30d: number };
+  projection: {
+    days: number; trailingDailyBurn: number; burnDays: number; projectedUse30d: number;
+    /** expected tokens per day from active recurring inputs (= GET /api/bank dailyInflowTokens) */
+    dailyInflow: number;
+    /** trailingDailyBurn − dailyInflow; negative when the inflow covers the burn */
+    netDailyBurn: number;
+    projectedInflow30d: number;
+    /** floor(left / netDailyBurn); null when runway is "covered" or "no-usage" */
+    runwayDays: number | null;
+    runway: "covered" | "days" | "no-usage";
+  };
   sumCheck: { ok: boolean; diff: number; identity: string };
   at: string;
 }
