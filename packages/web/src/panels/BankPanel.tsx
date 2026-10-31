@@ -2,8 +2,8 @@
  * The Bank (south of the road; also the HUD's "$", `#/bank` and the old `#/finance`): the town's tokens (1:1 mt_ew2d0mm7h9),
  * public, in tabs, each a thing in the Bank's room (BANK_FIXTURES: walk up or tap it to open its tab). Overview (the vault):
  * Balance, Next 30 days, top contributors, Donate. Tokens & sources (ledger desk): Tokens, Bank inputs, Sources. Pools
- * (fountain): the pools and their balances. Spending (spending board): building funding, Spending, drift, out-of-tokens
- * deaths and the cap. Hosting (server rack): Fly.io in dollars. The funding sections are BankFunding's, the finance ones
+ * (fountain): the pools and their balances. Spending (spending board): building funding, Spending, Spend by goal (a
+ * goal's subtree from session rows; 1:1 mt_n25udpflus decision 5), drift, out-of-tokens deaths and the cap. Hosting (server rack): Fly.io in dollars. The funding sections are BankFunding's, the finance ones
  * BankFinance's, each over its own endpoint.
  */
 import { useState } from "react";
@@ -13,6 +13,7 @@ import { store, useTown } from "../state";
 import { Glyph, PanelShell } from "./PanelShell";
 import { BankContributors, BankInputs, BankPools, BankStreamsSection, BuildingFunding, Donate } from "./BankFunding";
 import { FinanceFooter, FinanceIntro, FinanceTerms, FlyView, PoolsView, ProjectionView, SourcesView, SpendingView, TokensView, useFinance, type FinanceData } from "./BankFinance";
+import { SpendByGoal } from "./GoalSpend";
 import { ADJ, ErrorLine, Loading, Section, breakdownTitle, fmtTokens } from "./ui";
 
 /** Refetch the summary the sign and these sections read. */
@@ -92,12 +93,13 @@ function BankTab({ tab, bank, fin, rev, onChange, onReload }: ViewProps) {
   );
 }
 
-/** The Spending tab: what each building was given and spent, then the Bank's health (drift, out-of-tokens deaths and the cap). */
+/** The Spending tab: what each building was given and spent, spend by goal, then the Bank's health (drift, out-of-tokens deaths and the cap). */
 function BankSpending({ bank, fin, rev }: { bank: Bank | null; fin: FinanceData | null; rev: number }) {
   return (
     <>
       {bank ? <BuildingFunding rev={rev} /> : null}
       {fin?.spend ? <SpendingView sp={fin.spend} /> : null}
+      <SpendByGoal />
       {bank?.drift && bank.drift.models.length ? (
         <Section title={`Drift (${bank.drift.day}, 24 h)`}>
           <p className="muted">Adjusted output tokens × output list price vs what the SDK says the sessions cost. Target 0.90–1.10.</p>

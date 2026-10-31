@@ -18,14 +18,14 @@ const titles = (html: string) => [...html.matchAll(/>Job (\d+)</g)].map((m) => N
 
 describe("Queue tab Done column (live check dc_7hi2zypctp: 43 done cards made the board ~9,600 px tall)", () => {
   it("shows the latest 10 done cards, the count in the header, and Show all (N)", () => {
-    const html = renderToStaticMarkup(<Lane lane={lane(43)} title={false} />);
+    const html = renderToStaticMarkup(<Lane lane={lane(43)} />);
     expect(DONE_SHOWN).toBe(10);
     expect(titles(html)).toEqual([0, 1, 2, 3, 4, 5, 6, 7, 8, 9]);
     expect(html).toContain("Done (24 h) 43");
     expect(html).toContain("Show all (43)");
   });
   it("keeps a short Done column whole with no toggle, and Queued is never capped", () => {
-    const html = renderToStaticMarkup(<Lane lane={lane(10, 15)} title={false} />);
+    const html = renderToStaticMarkup(<Lane lane={lane(10, 15)} />);
     expect(titles(html).filter((n) => n >= 100)).toHaveLength(15);
     expect(titles(html).filter((n) => n < 100)).toHaveLength(10);
     expect(html).not.toContain("Show all");

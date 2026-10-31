@@ -1,6 +1,6 @@
 /**
  * The funder filter (docs/goals.md "Funder attribution: one deck, two filters", goal tree build step 8): a signed-in
- * human who has put a Bank input in sees the Town Hall in-tray, the review deck, the goal tree and a goal's Spend tab
+ * human who has put a Bank input in sees the Town Hall in-tray, the review deck, the goal tree and the Bank's Spend by goal
  * narrowed to what their own money reached (GET /api/funders/me/week). Pure helpers; guests never load it.
  */
 import type { FunderWeek, GoalTreeNode, IntrayRoute, ReviewSlide } from "@muster-town/schema";

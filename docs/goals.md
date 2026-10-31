@@ -44,7 +44,7 @@ Everything is additive (see Migration). Ids stay stable: every `kr_…` keeps it
 - **`buildings.goalId`** (new nullable column; nullable only so the migration is additive): the one goal the building is **attached** to. **Every building has exactly one attachment** (1:1 mt_kh0zaqui0w): it is set at creation (default: the root), editable in building settings, and never unset; the service refuses a null. A building's **subtree** is its goal and everything under it. Several buildings may share a goal. One attachment is also what the map needs: a building stands in one place (§ "The map is the tree"). Attach changes are events (`goal.attached`), so no history table.
 - **`goal_proposals`** (new): `id` (`gp_…`), `action` (`add-goal` | `add-kr` | `edit` | `move` | `retire` | `promote`; promote turns a KR into a goal), `targetId`, `parentId`, `fields` (JSON), `why`, `proposedBy`, `buildingId`, `reorgId` (nullable), `sourceDocIds`, `status` (`open` | `accepted` | `cut` | `superseded`), `decidedBy/At`, `note`.
 - **`goal_changes`** (new, the reorg): see "Change this goal".
-- **History is the event log.** Every change appends an event with the actor and a before/after payload: `goal.created / edited / moved / retired / owned / changed`, `kr.created / updated / archived / under-review`, `goal.attached`, `goal.proposal`. The editor's History tab reads these events. There is no audit table.
+- **History is the event log.** Every change appends an event with the actor and a before/after payload: `goal.created / edited / moved / retired / owned / changed`, `kr.created / updated / archived / under-review`, `goal.attached`, `goal.proposal`. Agents read these events (`GET /api/goals/:id/history`, the Planner's event digest); the web shows no history, not even a "last changed" line (1:1 mt_n25udpflus decision 5: agents care about the changelog, humans don't). There is no audit table.
 
 **Grants** keep `keyResultId` and `buildingId`. Only the scope check changes. Today the KR must belong to the grant's building (`grants.ts` `requireGoalKeyResult`, `lanes.ts` `resolveLane`). After the switch, the KR must be **open (not archived) and in the building's subtree**: one helper, `Goals.inScope(buildingId, krId)`. The grant's building still does the work, and the Bank pays by draw order (see Finance).
 
@@ -60,11 +60,7 @@ Everything is additive (see Migration). Ids stay stable: every `kr_…` keeps it
 There is a new place in the Town Hall, the **Goal tree** (a wall chart by the in-tray). It opens a large sheet over the map (not the side panel; UX pass dc_yn8gl1rmyt) with two columns:
 
 1. **Tree** (left). Each goal is a node: a chevron to collapse or expand it, its words (two lines at most), and tags at a glance: attached buildings, an explicit owner, "n KR · m funded", "n late" (or the nearest due date), and "n proposals" waiting there. Under an expanded node, its open KRs, one line each: a status dot, the words, the due date (amber when past due) and funded / open. The toolbar has a building filter (and Funded by me), a Key results toggle and Retired. Clicking a node or KR selects that goal.
-2. **Node detail** (right). The path, the goal's words, owner and attached buildings, then a toolbar for admins and the node's owner: Edit words, + Goal under it, + Key result, Move, Owner, Change this goal, Retire. Each opens its form in place. Then the **Proposals** waiting at this goal or below (all of them at the root), each with the change in context (the parent path, old → new, who proposed it and why) and **Accept**, **Edit and accept**, **Cut** (its note goes back to the proposer as a mention). The same proposals show in the in-tray and the review deck. Then the key results as cards (status, funded / open, due, the words, how to check; Met / Missed, or Keep / Move / Archive when under review). Everyone else gets the same detail read-only. Its tabs:
-   - **History**: the node's events.
-   - **Subtree**: the owner's view, see Owners.
-   - **Spend**: read-only subtree spend from session bookings; see Finance.
-   - **Queue**: the kanban view.
+2. **Node detail** (right). The path, the goal's words, owner and attached buildings, then a toolbar for admins and the node's owner: Edit words, + Goal under it, + Key result, Move, Owner, Change this goal, Retire. Each opens its form in place. Then the **Proposals** waiting at this goal or below (all of them at the root), each with the change in context (the parent path, old → new, who proposed it and why) and **Accept**, **Edit and accept**, **Cut** (its note goes back to the proposer as a mention). The same proposals show in the in-tray and the review deck. Then the key results as cards (status, funded / open, due, the words, how to check; Met / Missed, or Keep / Move / Archive when under review). Everyone else gets the same detail read-only. The detail has no tabs (1:1 mt_n25udpflus decision 5 dropped History, Subtree, Spend and Queue): a goal's spend is the Bank's **Spend by goal** (Spending tab, see Finance), the queue is each building panel's **Queue** tab, and the goal's history is for agents through the API, not the UI.
 
 **Talk to the Planner** (top right) opens the human's 1:1 with Planner (below) in the side panel, beside the sheet: the sheet stays open while the side panel shows a 1:1, a grant or a building opened from it. Its × closes it, and so does Esc when no side panel is open. Guests and members see the whole tree read-only. It is the town's public answer to "what is this place trying to do".
 
@@ -114,7 +110,7 @@ The Town Hall in-tray stays one queue: each human sees **"Mine"** (items routed 
 
 **Permissions** (1:1 mt_kh0zaqui0w). An owner holds `goals.edit` scoped to their subtree: they can edit, accept proposals, mark met/missed, attach, and set owners below them. An owner also **decides and funds grants** whose KR sits in their subtree: `building.fund` scoped to the subtree, so funding is no longer admins-only. Funding by a plain member from their own input (kr_6f9c200vsx, gr_tvt32g9xly) is unchanged. Admins keep both powers everywhere.
 
-**UI.** The node page's **Subtree** tab is the owner's rollup of rollups:
+**UI** (as designed; the Subtree tab was built in step 3 and dropped in 1:1 mt_n25udpflus decision 5, so today the tree itself is the owner's view). The node page's **Subtree** tab was the owner's rollup of rollups:
 
 - every attached building's last rollup line and stoplight;
 - open KRs by due date;
@@ -153,7 +149,7 @@ The building panel's Overview gains "Reports to: <owner> via <goal>".
 
 - **A donation is a stream**: a lump sum, or N tokens a day; cash (a subscription or money) or an API key with a daily limit. Today's `BankInput` is nearly this already (`tokens`, `recurrence`, `weeklyCapTokens`, `hasApiKey`); a stream adds a nullable `goalId` and, for keys, `dailyLimitTokens`.
 - **An earmark is a stream scoped to a goal node**: it only pays for sessions whose work sits in that node's subtree. A member funding one grant from their own input (gr_tvt32g9xly, `fundedWith`) is the narrowest case, a stream scoped to one grant.
-- **Draw order, not a split.** The Bank pays each session from the **narrowest matching stream** (grant, then the nearest earmarked goal above the session's KR or goal, walking up), **then the general balance**. A session matches through its lane, the same attribution the Spend tab uses. When an earmark runs dry, the work continues on the general balance; nothing is held.
+- **Draw order, not a split.** The Bank pays each session from the **narrowest matching stream** (grant, then the nearest earmarked goal above the session's KR or goal, walking up), **then the general balance**. A session matches through its lane, the same attribution Spend by goal uses. When an earmark runs dry, the work continues on the general balance; nothing is held.
 
 ### Exploration: free funds instead of a per-building allowance
 
@@ -179,9 +175,9 @@ The building panel's Overview gains "Reports to: <owner> via <goal>".
 - **Same review deck** (kr_2qg0ayfs1j), different filter: "for funder X, this week".
 - **A held key is a stored secret** (`docs/secrets.md`): encrypted at rest, its usage shown to its donor, and revocable at any time; revocation stops new sessions on it, and a running session finishes under its cap.
 
-### Spend tab (read-only, no Bank change)
+### Spend by goal (read-only, no Bank change)
 
-Every node's **Spend** tab shows its subtree's spend, read from session bookings (`sessions.adjustedOutputTokens`, with lane, grant and KR), by week and by lane, next to the results: KRs met or missed over the same weeks. A session belongs to a node by its lane: `grant` → the grant's KR's goal; `exploration` or `directed` naming a KR or goal → that node; anything else → the building's attachment. It can ship with step 4.
+The Bank's **Spend by goal** section (Spending tab; a tab on every node until 1:1 mt_n25udpflus decision 5 moved it to the Bank) shows a goal's subtree spend, read from session bookings (`sessions.adjustedOutputTokens`, with lane, grant and KR), by week and by lane, next to the results: KRs met or missed over the same weeks. A session belongs to a node by its lane: `grant` → the grant's KR's goal; `exploration` or `directed` naming a KR or goal → that node; anything else → the building's attachment. It can ship with step 4.
 
 **Bank changes, gated on Mitchell** (town-wide rule dc_vzqoh7ppen): dropping pools, streams with scopes and the draw order, free funds replacing the exploration allowance, per-session key caps. They are build steps 7 and 8 below and wait for his yes on the code, even though the design is decided.
 
@@ -204,7 +200,7 @@ Every node's **Spend** tab shows its subtree's spend, read from session bookings
 
 **UI.** In the editor, the archived "✗ missed" row opens its postmortem. The report also reaches the manager's in-tray, as any report does. If it ends with a KR proposal, that proposal lands in the Proposals strip.
 
-**Lanes, grants, Bank.** The work is directed (a human marked it missed). Its spend shows in the node's Spend tab under the KR's goal. Nothing is queued for met KRs.
+**Lanes, grants, Bank.** The work is directed (a human marked it missed). Its spend shows in the Bank's Spend by goal under the KR's goal. Nothing is queued for met KRs.
 
 ## Skip-level 1:1s: dropped for now
 
@@ -221,7 +217,7 @@ Dropped in 1:1 mt_kh0zaqui0w: Mitchell 1:1s managers directly. A possible later 
 
 Cards show the title, lane chip, grant or KR, and age. The **WIP limit is the building's desks** (`headcount`; forks take free desks, `forks.ts` `freeDesks`). The Running column header reads "3 / 6 desks". Nothing is enforced that isn't already enforced.
 
-**Where.** A **Queue** tab on the building panel (beside Schedule), and the **Queue** tab on a goal node, which rolls the boards of every building attached in the subtree into one, with building swimlanes. The node board answers "what is happening under this goal right now" without opening a building. Read-only: there is no drag to reorder, since the queue order is the manager's.
+**Where.** A **Queue** tab on the building panel (beside Schedule). The goal node's Queue tab (every building attached in the subtree as a swimlane) was dropped in 1:1 mt_n25udpflus decision 5; `GET /api/goals/:id/queue` still answers it for agents. Read-only: there is no drag to reorder, since the queue order is the manager's.
 
 **Lanes, grants, Bank.** It is a view over `assignments`, with no schema change. Mitchell's caution applies: the board is a picture of the queue, not a ceremony. It has no sprints, no WIP policies beyond desks, and no standups. The morning and evening review with small assignments is the iteration.
 
@@ -304,7 +300,7 @@ The migration doesn't guess structure: no moving per-building goals under Fund/J
    - **Shipped (first part, Pix 1, as_3xd2xv78h1)**: earmarks (`bank_inputs.goalId`, migration 064), the draw order at session start (grant input → nearest earmark covering a session → general), charging the earmark first, `GET /api/bank/streams`, the Donate form's earmark picker and small-donation warning, and the 7-day idle notice to the donor (docs/bank.md "Funding streams and the draw order"). Still to do: pools go, free funds, the desk's key cap, `dailyLimitTokens`, usage shown to a key's donor.
 8. **The funder filter on the deck. Bank-gated with step 7** (it reads which stream paid each session): the literal story for key donors, the pro rata story for money donors. **Built** (as_uciill1new, 1:1 mt_cz11aqe81a): read-only, no migration, no Bank booking change. Core `packages/core/src/funders.ts` `funderWeek` reads session rows, Bank inputs and credits: a session that ran on a donated api-key input (`credentialInputId`, general or earmark), or on a grant funded from a member's own input (`fundedWith`), is **literal** for that input's donor, whole; every other session (a subscription, or nothing recorded) is **pooled**, and each subscription donor owns their share of it (their subscription credits in the window ÷ everyone's). `GET /api/funders/:userId/week?days=7` (`me` = the signed-in human; any other id needs a sign-in; guests 401) returns the streams, the literal sessions (assignment, building, KR, report), the pro rata share and what it bought by assignment, the goals the money reached (each earmark's subtree and each literal session's goal; a pro rata share reaches all) and the deck's slide 1 for it (schema `funderSlide`). Web: a signed-in human with a Bank input gets **Funded by me** beside Mine / All in the Town Hall in-tray: the list keeps the items routed under those goals, and the deck replaces the state of the town with "Your week as a funder"; the goal tree's filter gains "Funded by me" (dims what the money didn't reach); a goal's Spend tab gets a "Funded by me" box (`GET /api/goals/:id/spend?funder=me`: literal sessions whole, pooled ones at the share). Tests core `funders.test.ts`, `goals-step4.test.ts`; server `review-deck.test.ts`; web `funderFilter.test.tsx`. This closes the eight-step build order; step 7's rest (pools go, free funds, the desk's key cap, `dailyLimitTokens`, a key's usage shown to its donor) is still open.
 
-The read-only **Spend tab** (subtree spend from session bookings) ships with step 4. There is no allocation by node and no budget tree. "New dials" (the second pass's step 7) is dropped while KPIs are parked.
+The read-only **Spend tab** (subtree spend from session bookings) ships with step 4. Since 1:1 mt_n25udpflus decision 5 (as_n0aqnm802e) the node's four tabs are gone: Spend lives in the Bank's Spending tab as **Spend by goal** (`GoalSpend.tsx`, a goal picker over the same endpoint), Queue only on building panels, History and Subtree nowhere in the web. There is no allocation by node and no budget tree. "New dials" (the second pass's step 7) is dropped while KPIs are parked.
 
 ## UI inventory: every web surface the tree touches
 
@@ -320,16 +316,16 @@ From `packages/web/src` at main 5634e04. **Goes** = removed; **changes** = stays
 | Building settings (`BuildingPanel.tsx` Settings) | Goal line, Desks (read-only, "resize on the town map table"), Exploration / day, Pool | **Changes**: new **Attached to** control (never empty); Desks becomes editable and sets the size; Exploration / day and Pool go with steps 7-8 | 1, 2, 7 |
 | Building panel Overview (`BuildingPanel.tsx`) | "Write them in Goals →" | **Changes**: "Reports to: <owner> via <goal>", link to the goal at the Town Hall | 3 |
 | Building Goals tab (`GoalsTab.tsx`, `keyResults.ts`) | Write and edit objectives and KRs, Mark met/missed, Delete | **Changes**: read-only subtree view, "Edit at the Town Hall →", Propose a key result | 3 |
-| Goal tree editor (Town Hall wall chart) | — | **New**: tree, node detail (History, Subtree, Spend, Queue), Proposals strip, Plan with an agent | 3, 5, 6 |
+| Goal tree editor (Town Hall wall chart) | — | **New**: tree, node detail (its History, Subtree, Spend and Queue tabs were dropped in mt_n25udpflus decision 5), Proposals strip, Plan with an agent | 3, 5, 6 |
 | Town Hall in-tray (`Places.tsx`) | Rollups, grant proposals and checkpoints, KR mark met/missed on a closed grant | **Changes**: goal proposals, "Mine / All", under-review pills, retire/reorg items | 4, 5 |
 | Review deck (`ReviewDeck.tsx`, `DeckView.tsx`) | State of the town, one slide per pending decision | **Changes**: goal-proposal and reorg slides; no dial slides; the funder filter ("Funded by me": the funder's slide 1 and their items) | 4, 5, 8 |
 | Grant panel and grant cards (`GrantPanel.tsx`, in-tray `GrantRow`) | Shows the grant's key result | **Changes**: shows the KR's goal path from the root; "under review" pill | 4 |
 | Dashboard (`DashboardPanel.tsx`) | Three KPI tiles, then each building's objectives and KR statuses | **Changes**: the per-building objectives list becomes the tree (or a link to it); the KPI tiles stay, outside the tree, while KPIs are parked | 3 |
 | Bank panel (`BankPanel.tsx`, `BankFunding.tsx`) | Donate, allocations, inputs, accounting pools | **Changes**: pools and allocations go; inputs become streams with an optional goal scope; held keys show usage and Revoke; Donate warns "your key covers no whole session yet" | 7 |
 | Bank town map (`map/flow.ts`, place `bank-map`) | Lots tinted by pool, coin arcs sized by pool share | **Changes**: pools go, so it needs a new meaning (streams by scope) or it goes | 7 |
-| Finance panel (`FinancePanel.tsx`) | Totals, Sources, Pools, Spending by building | **Changes**: Pools section goes; Spending gains a by-goal view (the Spend tab's data) | 4, 7 |
+| Finance panel (`FinancePanel.tsx`) | Totals, Sources, Pools, Spending by building | **Changes**: Pools section goes; Spending gains a by-goal view (**built**: Spend by goal, mt_n25udpflus decision 5) | 4, 7 |
 | Meeting panel (`MeetingPanel.tsx`) | 1:1s and building meetings | **Changes**: reorg meetings (kind `planning`), Plan with an agent proposal cards; cadence meetings go | 5 |
-| Building Queue tab, goal Queue tab | — | **New**: kanban views | 6 |
+| Building Queue tab | — | **New**: kanban view (the goal Queue tab was built, then dropped in mt_n25udpflus decision 5) | 6 |
 
 Not touched: the Agent panel, the Library, Outbox, Manual and How it works (no objective or pool text found), Secrets, Skills, Connect your agent.
 
