@@ -279,6 +279,17 @@ describe("goal-directed budgets: the 100% checkpoint", () => {
     expect(sent.at(-1)).toBe(before - 1);
   });
 
+  it("a human's Close grant needs no note: the key result's claimed note names who closed it; the manager still gives one", async () => {
+    const { world, mei, admin, krs, fund } = setup();
+    const g = fund(1_000_000);
+    expect(() => world.grantDesk.close(mei, g.id, { outcome: "done", note: " " })).toThrow(/evidence/);
+    const r = world.grantDesk.close(admin, g.id, { outcome: "done" });
+    expect(r).toMatchObject({ status: "closed", outcome: "done", keyResult: { status: "claimed" } });
+    const note = `Closed as done by ${world.nameOf(admin.id)} from the Town Hall.`;
+    expect(world.keyResults.require(krs[0]!.id).statusNote).toBe(note);
+    expect(world.grants.require(g.id).history.at(-1)!.note).toMatch(/^Closed as done by .+ from the Town Hall\. \(spent 0 of 1,000,000/);
+  });
+
   it("propose_grant creates and proposes in one call; several proposals can be open per building", async () => {
     const { world, mei, admin, krs } = setup();
     const r = await world.verbs.propose_grant(mei, { keyResultId: krs[1]!.id, objective: "o", stopCondition: "s", askTokens: 1000, testingPlan: KRS });

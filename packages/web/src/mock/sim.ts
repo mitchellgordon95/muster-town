@@ -258,7 +258,7 @@ export class Sim {
     const g = this.grants.get(id);
     if (!g) throw new Error("grant not found");
     if (g.status !== "funded" && g.status !== "checkpoint") throw new Error(`This grant is ${g.status}.`);
-    const note = i.note ?? "";
+    const note = (i.note ?? "").trim() || (i.outcome === "done" ? "Closed as done by Mitchell from the Town Hall." : "");
     const unspent = Math.max(0, (g.grantTokens ?? 0) - g.spentTokens);
     Object.assign(g, { status: "closed", outcome: i.outcome, closedAt: now(), updatedAt: now() });
     g.history.push({ at: now(), byId: "us_mitchell", byKind: "user", action: "close", tokens: i.outcome === "done" ? unspent : null, note });
