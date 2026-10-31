@@ -61,9 +61,9 @@ describe("presentation mode", () => {
     world.ops.meetingPresent(admin, m.id, deck.id, 2);
     const r = createDoc(world, { type: "report", title: "Prod rollup", body: "# r", authorId: world.agents.all()[0]!.id, authorKind: "agent", buildingId: "carbon-cycle", state: "building", decision: "pending" } as never);
     world.ops.archiveReport(admin, r.id, { deckSlide: 2 });
-    world.ops.slideReplyDecision(admin, m.id, r.id, "");
+    world.ops.slideArchiveDecision(admin, m.id, r.id);
     const d = world.meetings.require(m.id).decisions.at(-1);
-    expect(d).toMatchObject({ text: `${admin.name} approved ${r.id} "Prod rollup" (on slide 2)`, assigneeId: null });
+    expect(d).toMatchObject({ text: `${admin.name} archived ${r.id} "Prod rollup" (on slide 2)`, assigneeId: null });
     const ev = world.events.recent({ limit: 200 }).find((e) => e.type === "meeting.decisions");
     expect(ev?.payload).toMatchObject({ meetingId: m.id, deckSlide: 2 });
     expect(world.events.recent({ limit: 200 }).find((e) => e.type === "doc.decision")?.payload).toMatchObject({ deckSlide: 2 });
