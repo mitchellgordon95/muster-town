@@ -12,7 +12,7 @@
  */
 import { ROOT_GOAL_ID, isNoCall, parseRollup, type Doc, type GrantView, type Meeting, type PinnedSlide, type ReviewDeck, type ReviewSlide, type ReviewSlideKind, type RollupItem } from "@muster-town/schema";
 import { grantsAwaitingDecision, townHallIntray } from "./domain.ts";
-import type { GoalProposalView } from "./goals.ts";
+import type { GoalNode, GoalProposalView } from "./goals.ts";
 import type { World } from "./world.ts";
 
 const H = 3_600_000;
@@ -27,6 +27,7 @@ export function waitedFor(sinceIso: string | null, now: Date): string {
   return `${(ms / (24 * H)).toFixed(1)} d`;
 }
 const KR_LIGHT: Record<string, string> = { "not-started": "⚪", "on-track": "🟢", "at-risk": "🟡", claimed: "🔵", met: "✅", missed: "❌" };
+const PILLAR: Record<string, string> = { gl_fund: "Fund", gl_join: "Steer", gl_trust: "Trust" };
 const LIGHT: Record<string, string> = { green: "🟢", yellow: "🟡", red: "🔴" };
 const ACTION_PAST: Record<string, string> = { propose: "proposed", counter: "countered", fund: "funded", reject: "rejected", checkpoint: "held", continue: "continued", adjust: "adjusted", cut: "cut", close: "closed", edit: "edited" };
 /** Collapses whitespace to one line; never cuts (no-truncation rule): the slide scrolls. */
@@ -143,6 +144,13 @@ function grantSlide(world: World, g: GrantView, now: Date): Draft {
 
 const GOAL_ACTION: Record<string, string> = { "add-goal": "add a goal", "add-kr": "add a key result", edit: "edit", move: "move", retire: "retire a goal", promote: "promote a key result to a goal" };
 
+/** The words after a move or retire proposal's old text, as the goal editor's card says them (web goalTree proposalVerb). */
+export function goalProposalVerb(action: string, dest: string | null, hangs = false): string {
+  if (action === "move") return dest ? ` moves under ${dest}` : "";
+  if (action !== "retire") return "";
+  return dest ? ` is retired; its open key results and attached buildings go under ${dest}` : hangs ? " is retired, but no sibling is named for what hangs under it" : " is retired; nothing open hangs under it";
+}
+
 /** A manager's goal proposal (propose_goal / propose_key_result): Accept, Edit and accept, or Cut, as in the goal editor. */
 function goalProposalSlide(world: World, p: GoalProposalView): Draft {
   const tree = world.goalTree;
@@ -152,16 +160,23 @@ function goalProposalSlide(world: World, p: GoalProposalView): Draft {
   const parent = p.parentId ? tree.get(p.parentId)?.text : undefined;
   const where = node ? tree.ancestors(node).reverse().map((g) => g.text).join(" › ") : "the tree";
   const b = p.buildingId ? world.buildings.get(p.buildingId)?.name ?? p.buildingId : "a human";
+  // a retire names what moves, so accepting from the deck is as informed as from the editor (which also asks to confirm)
+  const impact = p.action === "retire" && p.targetId && tree.get(p.targetId) ? tree.retireImpact(p.targetId) : null;
+  const hangs = !!impact && impact.attached.length + impact.open.length > 0;
   const change = old && p.fields.text && p.fields.text !== old ? `"${oneLine(old)}" → "${oneLine(p.fields.text)}"`
-    : old ? `"${oneLine(old)}"${parent && (p.action === "move" || p.action === "retire") ? ` → under "${oneLine(parent)}"` : ""}`
+    : old ? `"${oneLine(old)}"${goalProposalVerb(p.action, parent ? `"${oneLine(parent)}"` : null, hangs)}`
     : `"${oneLine(p.fields.text ?? "")}"${parent ? ` under "${oneLine(parent)}"` : ""}`;
+  const dest = parent ? `"${oneLine(parent)}"` : "a sibling (none named: accepting is refused)";
+  const moves = impact && hangs
+    ? ` What moves under ${dest}: ${[...impact.attached.map((x) => `building ${x.name}`), ...impact.open.map((k) => `key result "${oneLine(k.text)}"`)].join("; ")}. A building is never archived here; it moves.`
+    : "";
   const extra = [p.fields.howToCheck ? `How to check: ${oneLine(p.fields.howToCheck)}` : "", p.fields.due ? `Due ${p.fields.due}` : ""].filter(Boolean).join(" · ");
   const owner = tree.ownerOf(node ?? ROOT_GOAL_ID);
   return {
     kind: "goal-proposal", group: 4, itemId: p.id, buildingId: p.buildingId, since: p.createdAt, history: meetingLine(world, p.sourceDocIds),
     title: `${b}: goal proposal — ${GOAL_ACTION[p.action] ?? p.action}`,
     body: card({
-      whatItIs: `${p.proposedByName} proposes to ${GOAL_ACTION[p.action] ?? p.action}: ${change} (${p.id}).${p.outsideScope ? " Outside its building's subtree." : ""} Why: ${oneLine(p.why) || "_not given_"}`,
+      whatItIs: `${p.proposedByName} proposes to ${GOAL_ACTION[p.action] ?? p.action}: ${change} (${p.id}).${p.outsideScope ? " Outside its building's subtree." : ""} Why: ${oneLine(p.why) || "_not given_"}${moves}`,
       whatYoudSee: `In the Goal tree at ${where}.${extra ? ` ${extra}.` : ""}`,
       picture: null,
       yourCall: `Accept, edit and accept, or cut (a note goes back to the proposer). Routed to ${owner.userId ? world.users.get(owner.userId)?.name ?? owner.userId : "the town admins"}.`,
@@ -247,6 +262,10 @@ function townSlide(world: World, now: Date, decisions: number, oldest: string | 
     const krs = world.grantDesk.keyResults(b.id);
     return `| ${b.name} | ${light ? LIGHT[light.light] ?? "" : ""} | ${krs.length ? krs.map((k) => `${KR_LIGHT[k.status] ?? "⚪"} ${k.status.replace(/-/g, " ")}`).join(" · ") : "_none_"} |`;
   });
+  // desks are the steer (docs/goals.md "Effort steering is desks"): each pillar's subtree headcount (mt_n25udpflus decision 3)
+  const desks = (n: GoalNode): number => n.buildings.reduce((s, b) => s + b.headcount, 0) + n.children.reduce((s, c) => s + desks(c), 0);
+  const tree = world.goalTree.tree();
+  const pillars = [...tree.children.map((c) => `${PILLAR[c.id] ?? c.text.split(":")[0]!.slice(0, 30)} ${desks(c)}`), ...tree.buildings.length ? [`at the root ${desks({ ...tree, children: [] })}`] : []].join(" · ");
   const flags = world.docs.where("type = 'flag' AND decision = 'pending' AND createdAt < ?", [new Date(now.getTime() - FLAG_AFTER_MS).toISOString()], "ORDER BY createdAt");
   const flagLine = flags.length
     ? `⚑ Your flag${flags.length === 1 ? "" : "s"} still waiting on a manager: ${flags.map((f) => `${world.buildings.get(f.buildingId ?? "")?.name ?? "?"} "${oneLine(f.title)}" ${waitedFor(f.createdAt, now)}`).join("; ")}.`
@@ -255,6 +274,7 @@ function townSlide(world: World, now: Date, decisions: number, oldest: string | 
     "# Review deck: the state of the town",
     `**Bank:** ${fmt(bank)} adjusted tokens left · subscription spend today ${fmt(cap.spentToday)}${cap.learnedCap ? ` of a ${fmt(cap.learnedCap)} daily cap` : ""}${cap.held ? " (new starts held)" : ""}`,
     `**Spend today by lane:** exploration ${fmt(explSpent)} of ${fmt(explAllow)} allowance · directed ${fmt(directed)}`,
+    `**Desks by pillar:** ${pillars}`,
     `**${decisions} decision${decisions === 1 ? "" : "s"} below${oldest ? `, oldest waiting ${waitedFor(oldest, now)}` : ""}.**${asking ? ` ${asking} ${asking === 1 ? "person is" : "people are"} asking to join (in the in-tray list).` : ""}`,
     `| Building | Light | Key results |\n|---|---|---|\n${rows.join("\n")}`,
     flagLine,

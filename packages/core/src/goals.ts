@@ -13,7 +13,8 @@ import type { World } from "./world.ts";
 export interface GoalNode extends Goal {
   /** the effective owner: this goal's, else the nearest owned ancestor's (null = the town admins, the root's owners) */
   owner: { goalId: string; userId: string | null; name: string };
-  buildings: { id: string; name: string }[];
+  /** attached here: `headcount` = the building's desks (docs/goals.md "Effort steering is desks"), `inUse` = desks seated now */
+  buildings: { id: string; name: string; headcount: number; inUse: number }[];
   keyResults: (KeyResult & { grantId: string | null })[];
   children: GoalNode[];
 }
@@ -173,10 +174,11 @@ export class Goals {
     const live = new Map(this.world.grants.where("status IN ('funded', 'checkpoint') AND keyResultId IS NOT NULL", [], "ORDER BY fundedAt, rowid").map((g) => [g.keyResultId!, g.id]));
     const krs = new Map<string, (KeyResult & { grantId: string | null })[]>();
     for (const k of this.world.keyResults.where("goalId IS NOT NULL", [], "ORDER BY position, rowid")) krs.set(k.goalId!, [...(krs.get(k.goalId!) ?? []), { ...k, grantId: live.get(k.id) ?? null }]);
-    const attached = new Map<string, { id: string; name: string }[]>();
+    // desks are the steer (docs/goals.md "Effort steering is desks"): each building's headcount and the desks seated now
+    const attached = new Map<string, GoalNode["buildings"]>();
     for (const b of this.world.buildings.all()) {
       const at = this.attachmentOf(b);
-      attached.set(at, [...(attached.get(at) ?? []), { id: b.id, name: b.name }]);
+      attached.set(at, [...(attached.get(at) ?? []), { id: b.id, name: b.name, headcount: b.headcount, inUse: Math.min(b.headcount, this.world.layout.deskCount(b.id)) }]);
     }
     const names = new Map<string, string>();
     const ownerName = (id: string | null) => {
@@ -256,14 +258,22 @@ export class Goals {
    * Retire a goal (and everything under it). Its open key results (with their grants) and the buildings attached under it
    * move to `moveTo`, a sibling; with any of them left and no sibling picked, it is refused, so nothing is orphaned.
    */
+  /** What retiring a goal moves: the open key results and the buildings attached anywhere in its subtree. */
+  retireImpact(id: string): { open: KeyResult[]; attached: Building[] } {
+    const sub = this.subtreeIds(id);
+    return {
+      open: this.world.keyResults.where("goalId IS NOT NULL").filter((k) => sub.has(k.goalId!) && isOpenKr(k)),
+      attached: this.world.buildings.all().filter((b) => sub.has(this.attachmentOf(b))),
+    };
+  }
+
   retire(actor: Actor, id: string, input: RetireGoalInput = {}): Goal {
     const inp = RetireGoalInput.parse(input);
     const g = this.requireActive(id);
     if (g.id === ROOT_GOAL_ID) throw badRequest("The root can't be retired.");
     this.requireEdit(actor, g.id);
     const sub = this.subtreeIds(g.id);
-    const open = this.world.keyResults.where("goalId IS NOT NULL").filter((k) => sub.has(k.goalId!) && isOpenKr(k));
-    const attached = this.world.buildings.all().filter((b) => sub.has(this.attachmentOf(b)));
+    const { open, attached } = this.retireImpact(g.id);
     let to: Goal | undefined;
     if (inp.moveTo) {
       to = this.requireActive(inp.moveTo);

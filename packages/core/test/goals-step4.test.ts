@@ -42,6 +42,24 @@ describe("the in-tray and the deck (docs/goals.md, step 4)", () => {
     expect(reviewDeck(world).slides.some((s) => s.kind === "goal-proposal")).toBe(false);
   });
 
+  it("move and retire slides say what happens in the card's words; a retire names the buildings and key results that move", async () => {
+    const { world, mei, admin, tree, labGoal, otherGoal } = setup();
+    const sib = tree.create(admin, { parentId: "gl_trust", text: "Anyone can check the ledger" });
+    tree.addKeyResult(admin, labGoal.id, { text: "Grant pages show sessions", howToCheck: "h", due, buildingId: LAB });
+    const mv = await world.verbs.propose_goal(mei, { action: "move", targetId: labGoal.id, parentId: otherGoal.id, why: "fits better" });
+    const rt = await world.verbs.propose_goal(mei, { action: "retire", targetId: labGoal.id, parentId: sib.id, why: "done" });
+    const text = (id: string) => reviewDeck(world).slides.find((s) => s.itemId === id)!.text;
+    expect(text(mv.proposal.id)).toContain(`"A funder sees what every token bought" moves under "A stranger finishes useful work"`);
+    expect(text(mv.proposal.id)).not.toContain("→");
+    const r = text(rt.proposal.id);
+    expect(r).toContain(`is retired; its open key results and attached buildings go under "Anyone can check the ledger"`);
+    expect(r).toContain(`What moves under "Anyone can check the ledger": building ${world.buildings.require(LAB).name}; key result "Grant pages show sessions". A building is never archived here; it moves.`);
+    const empty = tree.create(admin, { parentId: "gl_trust", text: "Nothing here" });
+    const re = await world.verbs.propose_goal(mei, { action: "retire", targetId: empty.id, why: "unused" });
+    expect(text(re.proposal.id)).toContain(`"Nothing here" is retired; nothing open hangs under it`);
+    expect(text(re.proposal.id)).not.toContain("What moves");
+  });
+
   it("routes: Mine is what ends at the viewer (admins get the root's), an owner decides and funds in their subtree only", async () => {
     const { world, admin, mei, tree, labGoal, otherGoal, other } = setup();
     const lena = createUser(world, "Lena").user;

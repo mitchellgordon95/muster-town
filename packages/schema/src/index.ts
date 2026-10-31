@@ -1081,7 +1081,8 @@ export type GoalProposal = z.infer<typeof GoalProposal>;
 export interface GoalTreeNode {
   id: string; parentId: string | null; text: string; status: "active" | "retired"; ownerId: string | null; retiredNote?: string;
   owner: { goalId: string; userId: string | null; name: string };
-  buildings: { id: string; name: string }[];
+  /** `headcount` = the building's desks (its subtree's concurrency), `inUse` = desks seated right now */
+  buildings: { id: string; name: string; headcount: number; inUse: number }[];
   keyResults: { id: string; text: string; howToCheck: string; status: string; due: string | null; archivedAt: string | null; buildingId: string; grantId: string | null; underReviewSince?: string | null; postmortemDocId?: string | null }[];
   children: GoalTreeNode[];
 }
