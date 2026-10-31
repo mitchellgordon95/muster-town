@@ -4,6 +4,7 @@ import { homeOf, pickUpFlag, sendMessage, setAssignmentStatus } from "../domain.
 import { notifyMentions } from "../mentions.ts";
 import { actOrigin } from "../origin.ts";
 import { interruptNow, isWorking, relayWake } from "../wakes.ts";
+import { requestForkStop } from "../forks.ts";
 import { chebyshev, newId, nowIso } from "../util.ts";
 import type { World } from "../world.ts";
 import type { VerbIn } from "./types.ts";
@@ -79,6 +80,11 @@ export async function say(world: World, me: Agent, input: VerbIn<"say">) {
   for (const a of listeners) sendMessage(world, { kind: "heard", fromId: me.id, fromKind: "agent", toId: a.id, body: input.text });
   notifyMentions(world, me, input.text, { where: "speech", buildingId: me.buildingId });
   return { heardBy: listeners.map((a) => a.name) };
+}
+
+/** \`stop_fork\` (manager/reviewer): ask a live fork to wrap up and file its report now; hard stop after the timeout (forks.ts). */
+export async function stop_fork(world: World, me: Agent, input: VerbIn<"stop_fork">) {
+  return requestForkStop(world, me, input);
 }
 
 export async function tell(world: World, me: Agent, input: VerbIn<"tell">) {
