@@ -113,7 +113,8 @@ async function main() {
 
   try {
     if (!runtimeMod) throw new Error(runtimeError);
-    app.runtime = await runtimeMod.startRuntime({ world, mcpUrl: `${url}/mcp`, repoRoot: REPO_ROOT, collective: basename(COLLECTIVE_DIR) });
+    // the manager reads the live code (Read, Grep, Glob) from a snapshot under .tmp/ (gitignored)
+    app.runtime = await runtimeMod.startRuntime({ world, mcpUrl: `${url}/mcp`, repoRoot: REPO_ROOT, collective: basename(COLLECTIVE_DIR), codeDir: join(REPO_ROOT, ".tmp", "code-main") });
     console.log("[server] runtime started");
   } catch (e) {
     console.warn(`[server] runtime not started (${e instanceof Error ? e.message : String(e)}); chat/interrupt return 503`);
@@ -132,7 +133,7 @@ async function main() {
   process.on("SIGTERM", () => void shutdown("SIGTERM"));
 }
 
-type RuntimeModule = { startRuntime: (o: { world: World; mcpUrl: string; repoRoot: string; collective: string; exportDir?: string; hosted?: { dir: string } }) => RuntimeHooks | Promise<RuntimeHooks> };
+type RuntimeModule = { startRuntime: (o: { world: World; mcpUrl: string; repoRoot: string; collective: string; exportDir?: string; codeDir?: string; hosted?: { dir: string } }) => RuntimeHooks | Promise<RuntimeHooks> };
 let runtimeError = "";
 async function loadRuntime(): Promise<RuntimeModule | null> {
   try {
