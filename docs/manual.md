@@ -70,7 +70,7 @@ Goal-directed buildings plan in public, and you decide.
 
 An admin can do everything, mostly at the **planning desk** in the Town Hall.
 
-- **Buildings**: create one (its goal, an optional name; it gets desks and a manager). The **town map** is drawn from the goal tree; select a building to see its goals, budget and stats. Admins and goal owners pick its **Shape**. A building's **Settings** holds its name (blank = its goal's short text), its goal, desks and manager. Models, daily budget, max turns and code access are set once for all buildings in **Town Hall → Settings**.
+- **Buildings**: create one (its goal, an optional name; it gets desks and a manager). The **town map** is drawn from the goal tree; select a building to see its goals, budget and stats. Admins and goal captains pick its **Shape**. A building's **Settings** holds its name (blank = its goal's short text), its goal, desks and manager. Models, daily budget, max turns and code access are set once for all buildings in **Town Hall → Settings**.
 - **Managers**: one named manager per building (set in its **Settings**); its work runs on short-lived forks.
 - **Roles**: who can do what. Town roles are admin, moderator, deployer, member and visitor (signed in but not let in). Building roles are manager, reviewer and member. Outside a hosted collective every building manager (and its forks) may also redeploy, including the desk image rebuild.
 - **Secrets** (admins only): API keys and tokens the agents' tools need, stored encrypted and granted to the whole town, one building, one agent or one skill.

@@ -146,7 +146,7 @@ function TreeList({ root, retired, filter, funded, selected, collapsed, showKrs,
                 <span className="ge-node-meta">
                   {node.status === "retired" ? null : <span className={`ge-tag desks ${d.desks ? "" : "none"}`} title={d.desks ? `${deskWord(d.desks)} work this goal (the headcount of every building attached here or below), ${d.inUse} in use now` : "No building is attached here or below: nobody works this goal"}>{deskWord(d.desks)}</span>}
                   {node.buildings.map((b) => <span key={b.id} className="ge-tag building" title={`${b.name} is attached here`}>{b.name}</span>)}
-                  {node.ownerId ? <span className="ge-tag" title={`Owner: ${node.owner.name}`}>👤 {node.owner.name}</span> : null}
+                  {node.ownerId ? <span className="ge-tag" title={`Captain: ${node.owner.name}`}>👤 {node.owner.name}</span> : null}
                   {node.status === "retired" ? <span className="ge-tag bad">retired</span> : null}
                   {g.open ? <span className="ge-tag" title={`${g.open} open key result${g.open === 1 ? "" : "s"}, ${g.funded} funded`}>{g.open} KR · {g.funded} funded</span> : null}
                   {g.late ? <span className="ge-tag warn" title="Open key results past their due date">{g.late} late</span> : g.nextDue ? <span className="ge-tag" title="The nearest open due date">due {g.nextDue}</span> : null}
@@ -221,7 +221,7 @@ function GoalDetail({ root, node, me, proposals, focusKr, onSelect, onDone }: { 
         <span>{node.id === ROOT_GOAL_ID ? "Town goal (the root)" : node.status === "retired" ? "Retired goal" : "Goal"}</span>
         <h2>{node.text}</h2>
         <div className="muted goal-meta">
-          Owner: <b>{node.owner.name}</b>{node.ownerId ? "" : node.owner.goalId === node.id ? "" : ` (from "${clip(findGoal(root, node.owner.goalId)?.text ?? node.owner.goalId, 40)}")`}
+          Captain: <b>{node.owner.name}</b>{node.ownerId ? "" : node.owner.goalId === node.id ? "" : ` (from "${clip(findGoal(root, node.owner.goalId)?.text ?? node.owner.goalId, 40)}")`}
           {node.buildings.length ? <> · Attached: {node.buildings.map((b) => <button key={b.id} className="chip" title={`${deskWord(b.headcount)}, ${b.inUse} in use now`} onClick={() => store.open({ kind: "building", id: b.id })}>{b.name} · {deskWord(b.headcount)}</button>)}</> : null}
         </div>
         <DeskLine node={node} />
@@ -233,12 +233,12 @@ function GoalDetail({ root, node, me, proposals, focusKr, onSelect, onDone }: { 
           {tool("goal", "+ Goal under it")}
           {tool("kr", "+ Key result")}
           {node.parentId ? tool("move", "Move") : null}
-          {tool("owner", "Owner")}
+          {tool("owner", "Captain")}
           {!open ? tool("change", "Change this goal", "X → Y: the buildings under it prepare, then a planning meeting decides what goes underneath") : null}
           <span className="ge-toolbar-gap" />
           {node.parentId ? tool("retire", "Retire", undefined, "bad") : null}
         </div>
-      ) : <div className="muted goal-meta">{node.status === "retired" ? `Retired${node.retiredNote ? `: ${node.retiredNote}` : "."}` : me.userId ? "Only an admin or this goal's owner edits it; managers propose with propose_goal." : "Sign in to see what you can change."}</div>}
+      ) : <div className="muted goal-meta">{node.status === "retired" ? `Retired${node.retiredNote ? `: ${node.retiredNote}` : "."}` : me.userId ? "Only an admin or this goal's captain edits it; managers propose with propose_goal." : "Sign in to see what you can change."}</div>}
       {open ? <ChangeBanner c={open} /> : null}
       {form === "change" ? <ChangeForm node={node} onDone={done} /> : null}
       {form === "edit" ? <EditForm node={node} onDone={done} /> : null}
@@ -326,7 +326,7 @@ function MissedForm({ k, archive, onCancel, onDone }: { k: TreeKr; archive: bool
 /**
  * Funding (docs/how-work-gets-done.md §7, §8): the free tokens under this goal with their sum, and its exploration cap
  * per day, set here or inherited from the nearest goal above that sets one (none = uncapped). The cap is a human
- * funder's with goals.edit here (an admin or the goal's owner); blank = inherit.
+ * funder's with goals.edit here (an admin or the goal's captain); blank = inherit.
  */
 function FundingBlock({ root, node, can, onDone }: { root: GoalTreeNode; node: GoalTreeNode; can: boolean; onDone: () => void }) {
   const [cap, setCap] = useState(node.exploreCapTokensPerDay == null ? "" : toMillions(node.exploreCapTokensPerDay));
@@ -451,7 +451,7 @@ function MoveForm({ root, node, onDone }: { root: GoalTreeNode; node: GoalTreeNo
   );
 }
 
-/** Owners are humans (docs/goals.md "Owners on nodes"): any user who holds a role, or me; empty = inherit from above. */
+/** Captains are humans (docs/goals.md "Captains on nodes"): any user who holds a role, or me; empty = inherit from above. */
 function OwnerForm({ node, me, onDone }: { node: GoalTreeNode; me: { userId: string | null }; onDone: () => void }) {
   const roles = useLoad(() => api().roles(), []);
   const ids = [...new Set([...(me.userId ? [me.userId] : []), ...(roles.data?.memberships ?? []).filter((m) => m.holderKind === "user").map((m) => m.holderId), ...(node.ownerId ? [node.ownerId] : [])])];
@@ -459,14 +459,14 @@ function OwnerForm({ node, me, onDone }: { node: GoalTreeNode; me: { userId: str
   useEffect(() => setOwner(node.ownerId ?? ""), [node.ownerId]);
   return (
     <div className="goal-form">
-      <Field label="Owner" hint="The owner edits this goal and everything under it, and decides and funds grants there.">
+      <Field label="Captain" hint="The captain edits this goal and everything under it, and decides and funds grants there.">
         <select value={owner} onChange={(e) => setOwner(e.target.value)}>
           <option value="">{node.parentId ? "Nobody here (inherit from above)" : "The town admins"}</option>
           {ids.map((id) => <option key={id} value={id}>{nameOf(id)}</option>)}
         </select>
       </Field>
       <ErrorLine error={roles.error} />
-      <Act small tone="primary" disabled={owner === (node.ownerId ?? "")} run={() => api().updateGoal(node.id, { ownerId: owner || null }).then(onDone)}>Set owner</Act>
+      <Act small tone="primary" disabled={owner === (node.ownerId ?? "")} run={() => api().updateGoal(node.id, { ownerId: owner || null }).then(onDone)}>Set captain</Act>
     </div>
   );
 }

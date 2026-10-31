@@ -102,7 +102,7 @@ export function ReviewAsDeckButton({ count, onOpen, view }: { count: number; onO
       <span className="muted">{view?.view === "funded" ? `${count} under the goals your money reached: slide 1 is your week as a funder` : count ? `${count} waiting: slide 1 is the state of the town` : "slide 1 is the state of the town"}</span>
       {view ? (
         <span className="intray-view" role="group" aria-label="Show">
-          <button className={`btn sm ${view.view === "mine" ? "primary" : ""}`} onClick={() => view.set("mine")} title="Items routed to you: the goals you own (an admin's: the town admins' root)">Mine</button>
+          <button className={`btn sm ${view.view === "mine" ? "primary" : ""}`} onClick={() => view.set("mine")} title="Items routed to you: the goals you captain (an admin's: the town admins' root)">Mine</button>
           <button className={`btn sm ${view.view === "all" ? "primary" : ""}`} onClick={() => view.set("all")} title="Everything waiting in the Town Hall">All</button>
           {view.funder ? <button className={`btn sm ${view.view === "funded" ? "primary" : ""}`} onClick={() => view.set("funded")} title="What your Bank inputs paid for this week, and the items under the goals your money reached">Funded by me</button> : null}
           {view.view !== "all" && view.hidden ? <span className="muted">{view.hidden} more under All</span> : null}
@@ -392,7 +392,7 @@ export function GrantRow({ grant: g, onDecided, onOpenDoc, deckSlide, meetingId,
       ) : !decidable ? (
         <><div className="muted">{grantSettledLine(g)}</div>{footer}</>
       ) : !canFund && !memberFund ? (
-        <><div className="muted">Funding decisions are for humans with building.fund, the owner of its key result's goal, or anyone with a Bank input that has tokens left.</div>{footer}</>
+        <><div className="muted">Funding decisions are for humans with building.fund, the captain of its key result's goal, or anyone with a Bank input that has tokens left.</div>{footer}</>
       ) : (<>
         {unfundableReason(g) ? <div className="kr-blocked">{unfundableReason(g)}</div> : null}
         <div className="grant-decide">
