@@ -84,7 +84,7 @@ export class InputChannel implements AsyncIterable<SDKUserMessage> {
 }
 
 // ---- loose views of SDK messages (we only read a few fields) ----
-export interface ContentBlock { type: string; text?: string; name?: string; id?: string; input?: unknown; tool_use_id?: string; is_error?: boolean }
+export interface ContentBlock { type: string; text?: string; name?: string; id?: string; input?: unknown; tool_use_id?: string; is_error?: boolean; content?: unknown }
 export interface LooseMessage {
   type: string;
   subtype?: string;

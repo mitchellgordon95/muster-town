@@ -1451,6 +1451,11 @@ export const VerbInputs = {
     model: z.string().optional().describe("forks buildings: the model its fork runs on (the building's model or cheapModel)"),
   }),
   cancel: z.object({ assignmentId: Id.optional().describe("a queued (not started) assignment in my building"), scheduleId: Id.optional().describe("or a schedule of my building (sc_…): it stops firing") }),
+  fork_status: z.object({
+    forkId: Id.optional().describe("a fork of my building (its agent id, e.g. the id of \"Pix 4\")"),
+    assignmentId: Id.optional().describe("or the assignment it runs"),
+    limit: z.number().int().positive().max(40).default(10).describe("how many of its last tool calls (default 10)"),
+  }),
   propose_grant: CreateGrantInput.extend({
     note: z.string().max(2000).default("").describe("what the human should know when deciding"),
     grantId: Id.optional().describe("answer a counter: the countered proposal to rewrite with this plan and re-propose under its own id (leave it out for a new proposal)"),
@@ -1528,6 +1533,7 @@ export const VERB_DESCRIPTIONS: Record<VerbName, string> = {
   assign: "(manager/reviewer) Create an assignment for an agent in my building (with forks on, leave agentId out to queue it to the building). With waitFor it waits (e.g. for the next redeploy, or another assignment to finish) before it starts. In goal-directed buildings an agent must give lane grant (grantId of a funded grant; its key result is implied) or exploration (keyResultId of a goal key result with no funded grant, or gap), or directed when a human asked for it (sourceId: the human source; optionally keyResultId or gap, and then it runs until a grant proposal names that key result). Directed work is never held by the exploration allowance.",
   schedule: "(manager/reviewer) Put a timed job on my building's schedule: it runs at runsAt (once) or on a repeat (every N hours, or daily at UTC times) until an end. Nothing is pinned to an agent: each time it fires it creates one normal assignment on the building queue (a fork of the manager runs it), with the lane fields, pages and model given here (lanes as in assign, re-checked at every fire). Each fire is skipped (and logged) while the last fire's assignment is still queued or running; missed runs during downtime collapse into one. With scheduleId it edits, pauses (paused: true) or resumes (paused: false) one instead; `cancel` with scheduleId deletes it. Your own parked work still uses submit_report resumeWhen {after}.",
   cancel: "(manager/reviewer) Cancel a queued (not started) assignment in my building, or one of its schedules (scheduleId). Started assignments and other buildings' are refused.",
+  fork_status: "(manager/reviewer) What a fork of my building is doing right now (forkId or assignmentId): its assignment and lane, when its session started, adjusted tokens booked so far, and its last tool calls (default 10) with the first line of each input and a one-line result, plus its latest thought. Use it to answer \"what is Pix 4 doing?\".",
   propose_grant: "(manager) Propose a grant for my building in one call: the plan for one of the building goal's key results (keyResultId): an objective, the approach, a stop condition, a token ask, and optionally a testing plan (text + howToCheck lines). Funding it runs the plan. It goes to the Town Hall in-tray for a human to fund, counter or reject. A building can have several proposals open at once, each decided on its own. To answer a counter, pass its grantId: the new plan rewrites that proposal and re-proposes it under the same id.",
   checkpoint_grant: "(manager) File a grant's checkpoint: set the status of the grant's key result (on the building goal), at most claimed (only a human marks met or missed), with a note on the evidence; then submit_report with rollup: true, which links itself to the grant as its checkpoint report. The grant stays held until a human continues, adjusts or cuts it.",
   close_grant: "(manager) Close a funded grant early because its work is done: it closes as done, its key result goes to claimed with your note as the evidence, and the unspent tokens return to the Bank. Then submit_report with rollup: true (it links itself as the close report); a human marks the key result met or missed from the Town Hall in-tray. Use checkpoint_grant instead when the grant is held at its 100% checkpoint and the work is not done.",
@@ -2073,8 +2079,11 @@ export type DeskBriefIsAView = Assert<DeskBrief extends z.input<typeof DeskBrief
 export const DeskActivityInput = z.object({
   session: Id,
   /** `usage`: the session's cumulative usage so far (desk UsageMeter), booked by the Bank as the session runs */
-  kind: z.enum(["tool", "thought", "status", "usage"]),
+  /** `result`: a tool call's outcome (`toolUseId`, first line in `text`, `isError`), kept in memory for `fork_status` */
+  kind: z.enum(["tool", "thought", "status", "usage", "result"]),
   tool: z.string().optional(),
+  toolUseId: z.string().max(200).optional(),
+  isError: z.boolean().optional(),
   input: z.unknown().optional(),
   text: z.string().optional(),
   usage: z.object({ counts: TokenCounts, byModel: z.record(z.string(), TokenCounts).default({}) }).optional(),
