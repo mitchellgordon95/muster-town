@@ -21,7 +21,7 @@ export const doorOf = (lot: Lot, side: Side): Tile =>
 
 const STEP: Record<Side, Tile> = { n: { x: 0, y: -1 }, s: { x: 0, y: 1 }, w: { x: -1, y: 0 }, e: { x: 1, y: 0 } };
 /** One tile from `t` towards `side`. */
-export const stepOut = (t: Tile, side: Side): Tile => ({ x: t.x + STEP[side].x, y: t.y + STEP[side].y });
+const stepOut = (t: Tile, side: Side): Tile => ({ x: t.x + STEP[side].x, y: t.y + STEP[side].y });
 /** The tile just outside the door: on the street. */
 export const doorstepOf = (lot: Lot, side: Side): Tile => stepOut(doorOf(lot, side), side);
 /** The tile just inside the door. */

@@ -163,6 +163,11 @@ function dress(t: { hallLot: Lot; square: Lot; bank: Lot; fountain: Lot; mainY: 
     if (x >= sx - 1 && x <= sx + sw) continue;
     put(x, t.mainY - 1, TILE.LAMP); put(x, t.mainY + MAIN_H, TILE.LAMP);
   }
+  // a boulevard: a street tree halfway between each pair of lamps, on both sides
+  for (let x = t.mainX + 1 + LAMP_EVERY / 2; x < t.mainX + t.mainW; x += LAMP_EVERY) {
+    if (x >= sx - 1 && x <= sx + sw) continue;
+    put(x, t.mainY - 1, TILE.TREE); put(x, t.mainY + MAIN_H, TILE.TREE);
+  }
 
   // trees: on grass two tiles clear of every building and road, none touching another; a tree every few tiles
   const all = [...t.lots.values(), t.bank, t.square, { x: t.mainX, y: t.mainY, w: t.mainW, h: MAIN_H }];
@@ -179,7 +184,7 @@ function dress(t: { hallLot: Lot; square: Lot; bank: Lot; fountain: Lot; mainY: 
     return ((n ^ (n >>> 16)) >>> 0) % 100;
   };
   for (let y = y0; y < y1; y++) for (let x = x0; x < x1; x++) {
-    if (near.has(key(x, y)) || hash(x, y) >= 30) continue;
+    if (near.has(key(x, y)) || hash(x, y) >= 16) continue;
     let touching = false;
     for (let dy = -1; dy <= 1 && !touching; dy++) for (let dx = -1; dx <= 1; dx++) if (trees.has(key(x + dx, y + dy))) { touching = true; break; }
     if (touching) continue;
