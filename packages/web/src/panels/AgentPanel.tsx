@@ -483,6 +483,7 @@ function waitLabel(w: NonNullable<Assignment["waitFor"]>): string {
   if ("deploy" in w) return w.deploy === "next" ? "next redeploy" : `redeploy with ${w.deploy.slice(0, 7)}`;
   if ("assignment" in w) return `assignment ${w.assignment} to finish`;
   if ("decision" in w) return `decision on ${w.decision}`;
+  if ("pr" in w) return `PR #${w.pr} checks`;
   return `until ${runsAtLabel(w.after)}`;
 }
 
