@@ -192,9 +192,15 @@ kbd { font-family: var(--mono); font-size: 11px; background: #2a2d3a; border: 1p
 .rules-head b { color: var(--gold); }
 .rules-head span { color: var(--muted); font-size: 12px; flex: 1; }
 .rules-card .form textarea { font-family: var(--mono); font-size: 12.5px; }
-.now { display: flex; align-items: center; gap: 8px; font-size: 13px; color: var(--ok); background: #18241c; border: 1px solid #284232; border-radius: 6px; padding: 6px 10px; margin: 10px 0; }
-.now .dot { width: 7px; height: 7px; border-radius: 50%; background: var(--ok); animation: pulse 1.2s ease-in-out infinite; flex: none; }
 @keyframes pulse { 50% { opacity: .3; } }
+/* the agent panel's first line: what it's doing now, in plain words (panels/nowLine.ts) */
+.now-line { margin: 6px 0 2px; font-size: 13.5px; line-height: 1.4; color: var(--text, #e8e9f0); }
+.now-line.working .now-what { color: var(--ok); }
+.now-what { display: flex; align-items: baseline; gap: 7px; }
+.now-what .dot { width: 7px; height: 7px; border-radius: 50%; background: var(--ok); animation: pulse 1.2s ease-in-out infinite; flex: none; transform: translateY(-1px); }
+.now-task { color: var(--muted); font-size: 12.5px; margin-top: 2px; }
+.details-toggle { display: block; background: none; border: 0; padding: 2px 0; margin: 0 0 6px; color: var(--text, #e8e9f0); font: inherit; font-size: 12.5px; cursor: pointer; }
+.details-toggle:hover { text-decoration: underline; }
 .kv { display: grid; grid-template-columns: auto 1fr; gap: 5px 14px; margin: 0 0 6px; font-size: 13px; }
 .kv > div { display: contents; }
 .kv dt { color: var(--muted); }
