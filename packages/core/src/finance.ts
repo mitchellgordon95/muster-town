@@ -1,10 +1,24 @@
-import type { Allocation, BankCredit, BankDebit, UsageEntry } from "@muster-town/schema";
+import type { Allocation, BankCredit, BankDebit, BankInput, UsageEntry } from "@muster-town/schema";
 import type { Repos } from "./store.ts";
 
 const DAY_MS = 86_400_000;
 /** The trailing window the daily burn is averaged over, and how far the projection looks ahead. */
 export const FINANCE_BURN_DAYS = 7;
 export const FINANCE_PROJECTION_DAYS = 30;
+const DAYS_PER = { daily: 1, weekly: 7, monthly: 30 } as const;
+
+/**
+ * Expected adjusted tokens per day from the active recurring Bank inputs (monthly counts as 30 days; a subscription at
+ * most its weekly cap / 7), rounded. Cancelled and once-only inputs count 0. Bank.dailyInflow and the finance
+ * projection both use this, so GET /api/bank `dailyInflowTokens` and GET /api/finance `projection.dailyInflow` match.
+ */
+export function dailyInflowOf(inputs: Pick<BankInput, "tokens" | "recurrence" | "weeklyCapTokens" | "cancelledAt">[]): number {
+  return Math.round(inputs.reduce((s, i) => {
+    if (i.cancelledAt || i.recurrence === "once") return s;
+    const perDay = i.tokens / DAYS_PER[i.recurrence];
+    return s + (i.weeklyCapTokens ? Math.min(perDay, i.weeklyCapTokens / 7) : perDay);
+  }, 0));
+}
 
 /**
  * GET /api/finance: a collective's tokens at a glance (Bank Transparency grant gr_gi5jbgzv4k, step 1). Every figure is
@@ -42,6 +56,16 @@ export interface FinanceSummary {
     /** days the burn is averaged over: 7, or fewer (whole days, at least 1) when the ledger is younger than that */
     burnDays: number;
     projectedUse30d: number;
+    /** expected adjusted tokens credited per day by active recurring inputs (dailyInflowOf; equals GET /api/bank dailyInflowTokens); one-off donations are not counted */
+    dailyInflow: number;
+    /** trailingDailyBurn − dailyInflow: what `left` loses per day; negative when the inflow covers the burn */
+    netDailyBurn: number;
+    /** dailyInflow × days */
+    projectedInflow30d: number;
+    /** whole days `left` lasts at netDailyBurn (floor(left / netDailyBurn)); null when the runway is "covered" or "no-usage" */
+    runwayDays: number | null;
+    /** why runwayDays is what it is: "covered" (inflow ≥ burn), "no-usage" (no usage in the burn window), else "days" */
+    runway: "covered" | "days" | "no-usage";
   };
   /** used + expired + left − overdrawn vs total; ok when they match exactly */
   sumCheck: { ok: boolean; diff: number; identity: string };
@@ -65,6 +89,8 @@ export interface FinanceInputs {
   debits: Pick<BankDebit, "creditId" | "tokens">[];
   allocations: Pick<Allocation, "tokens" | "spentTokens" | "retired">[];
   usage: Pick<UsageEntry, "tokens" | "createdAt">[];
+  /** the Bank's inputs, for the projection's daily inflow (none: inflow 0) */
+  bankInputs?: Parameters<typeof dailyInflowOf>[0];
 }
 
 /**
@@ -124,11 +150,16 @@ export function financeSummary(inp: FinanceInputs, now = new Date()): FinanceSum
   const age = Number.isFinite(first) ? Math.ceil((now.getTime() - first) / DAY_MS) : 0;
   const burnDays = Math.min(FINANCE_BURN_DAYS, Math.max(1, age));
   const trailingDailyBurn = Math.round(recent / burnDays);
+  const dailyInflow = dailyInflowOf(inp.bankInputs ?? []);
+  const netDailyBurn = trailingDailyBurn - dailyInflow;
+  const runway = trailingDailyBurn === 0 ? "no-usage" : netDailyBurn <= 0 ? "covered" : "days";
+  const runwayDays = runway === "days" ? Math.floor(left / netDailyBurn) : null;
 
   const diff = used + expired + left - overdrawn - total;
   return {
     total, credited, donated, used, usedBank, usedDonations, expired, left, leftBank, leftDonations, overdrawn, overdrawnBreakdown: ob, usageLedger,
-    projection: { days: FINANCE_PROJECTION_DAYS, trailingDailyBurn, burnDays, projectedUse30d: trailingDailyBurn * FINANCE_PROJECTION_DAYS },
+    projection: { days: FINANCE_PROJECTION_DAYS, trailingDailyBurn, burnDays, projectedUse30d: trailingDailyBurn * FINANCE_PROJECTION_DAYS,
+      dailyInflow, netDailyBurn, projectedInflow30d: dailyInflow * FINANCE_PROJECTION_DAYS, runwayDays, runway },
     sumCheck: { ok: diff === 0, diff, identity: "used + expired + left = total + overdrawn" },
     at: iso,
   };
@@ -141,5 +172,6 @@ export function townFinance(repos: Repos, now = new Date()): FinanceSummary {
     debits: repos.bankDebits.all(),
     allocations: repos.allocations.all(),
     usage: repos.usage.all(),
+    bankInputs: repos.bankInputs.all(),
   }, now);
 }
