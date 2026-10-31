@@ -4,7 +4,7 @@
  * with the KPI each moves and its key results' statuses. KPIs are standing indicators, never met or missed.
  */
 import type { KpiView } from "@muster-town/schema";
-import { api } from "../api";
+import { API_BASE, api } from "../api";
 import { store } from "../state";
 import { Glyph, PanelShell } from "./PanelShell";
 import { krStatusLabel, krTone, objectiveLine } from "./keyResults";
@@ -20,6 +20,7 @@ export function DashboardPanel() {
         <Section title="Town goal">
           <p className="direction">{d.data.framing}</p>
           <div className="kpi-tiles">{d.data.kpis.map((k) => <KpiTile key={k.id} k={k} />)}</div>
+          <JoinFunnelRow />
         </Section>
         <Section title="Building objectives" right={<button className="link" onClick={() => store.open({ kind: "goals" })}>The goal tree →</button>}>
           {!d.data.buildings.length ? <Empty>No goal-directed buildings yet.</Empty> : null}
@@ -44,6 +45,21 @@ export function DashboardPanel() {
     </PanelShell>
   );
 }
+
+/** The join funnel (gr_fibsfwr4tz step 3): last 30 days over every collective, counts only, with a link to the JSON. */
+function JoinFunnelRow() {
+  const f = useLoad(() => api().joinFunnel(), []);
+  if (!f.data) return null;
+  const t = f.data.totals;
+  return (
+    <div className="muted join-funnel" title={`${f.data.from} to ${f.data.to} (UTC), ${API_BASE ? "this collective" : "every collective on this server"}`}>
+      <b>Join funnel ({f.data.days} days):</b> {t.guestCardViews} saw the card · {t.signIns} signed in · {t.asked} asked · {t.letIn} let in · {t.declined} declined · median wait {f.data.medianDecisionMs == null ? "none yet" : waitLabel(f.data.medianDecisionMs)}
+      {" "}<a href={`${API_BASE}/api/join-funnel`} target="_blank" rel="noreferrer">JSON</a>
+    </div>
+  );
+}
+
+const waitLabel = (ms: number) => ms < 3_600_000 ? `${Math.max(1, Math.round(ms / 60_000))} min` : ms < 2 * 86_400_000 ? `${Math.round(ms / 3_600_000)} h` : `${Math.round(ms / 86_400_000)} days`;
 
 /** One KPI: the name and measure, this week's value (big) against last week's, and the 8-week sparkline. */
 function KpiTile({ k }: { k: KpiView }) {

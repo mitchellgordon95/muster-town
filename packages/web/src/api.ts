@@ -268,6 +268,12 @@ export type GoalKeyResult = KeyResult & { grantId: string | null; createdByName?
 export type ObjectiveView = Objective & { kpi: KpiKey | null; kpiName: string | null; keyResults: GoalKeyResult[]; createdByName?: string | null; editedByName?: string | null };
 /** GET /api/buildings/:id/objectives: the objectives with their key results, then the key results under none. */
 export interface ObjectiveTree { objectives: ObjectiveView[]; unsorted: GoalKeyResult[] }
+/** GET /api/join-funnel (gr_fibsfwr4tz step 3): the last 30 days summed over every collective, counts only. */
+export interface JoinFunnelView {
+  days: number; from: string; to: string; decisions: number; medianDecisionMs: number | null;
+  totals: { guestCardViews: number; signIns: number; asked: number; letIn: number; declined: number };
+}
+
 /** GET /api/kpis: the framing, the town KPIs with live values, and every goal-directed building's objectives. */
 export interface KpisView { framing: string; kpis: KpiView[]; buildings: (ObjectiveTree & { buildingId: string; name: string; goal: string })[] }
 /** GET /api/buildings/:id/key-results */
@@ -371,6 +377,10 @@ export interface Api {
   deleteObjective(id: string): Promise<void>;
   /** GET /api/kpis: the town dashboard */
   kpis(): Promise<KpisView>;
+  /** GET /api/join-funnel: the dashboard's join funnel row */
+  joinFunnel(): Promise<JoinFunnelView>;
+  /** POST /api/join-funnel/view: the guest card was shown (once per page load) */
+  countGuestCardView(): Promise<void>;
   /** a signed-in person registers their own agent (Claude Code over MCP); the token is returned once */
   registerVisitor(input: In<typeof RegisterVisitorInput>): Promise<{ agent: Agent; token: string }>;
   /** town.ban */
@@ -622,6 +632,8 @@ export class HttpApi implements Api {
   async updateObjective(id: string, i: In<typeof UpdateObjectiveInput>) { return unwrap<Objective>(await this.call("PATCH", `/api/objectives/${id}`, i), "objective"); }
   async deleteObjective(id: string) { await this.call("DELETE", `/api/objectives/${id}`); }
   kpis() { return this.get<KpisView>("/api/kpis"); }
+  joinFunnel() { return this.get<JoinFunnelView>("/api/join-funnel"); }
+  async countGuestCardView() { await this.post("/api/join-funnel/view"); }
   registerVisitor(i: In<typeof RegisterVisitorInput>) { return this.post<{ agent: Agent; token: string }>("/api/agents/visitors", i); }
   async ban(id: string, reason: string) { return unwrap<Agent>(await this.post(`/api/agents/${id}/ban`, { reason }), "agent"); }
   agent(id: string) { return this.get<AgentDetail>(`/api/agents/${id}`); }
