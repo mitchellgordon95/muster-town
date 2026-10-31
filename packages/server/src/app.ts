@@ -60,6 +60,8 @@ export interface BuildAppOptions {
   directory?: Directory | null;
   /** a hosted collective's app: retire it (main.ts passes the hub's); `POST /<slug>/api/collective/retire`, its admins */
   retire?: (() => unknown) | null;
+  /** recompute `GET /api/health`'s database-backed figures this often and serve the cached copy (main.ts: 5000); 0 = per request (tests) */
+  healthRefreshMs?: number;
 }
 
 const API_PREFIXES = ["/api", "/ws", "/mcp", "/auth"];
@@ -79,6 +81,7 @@ export async function buildApp(opts: BuildAppOptions): Promise<FastifyInstance> 
   app.decorate("hub", opts.hub ?? null);
   app.decorate("directory", !opts.prefix ? opts.directory ?? null : null);
   app.decorate("exportDir", opts.exportDir ?? null);
+  app.decorate("healthRefreshMs", opts.healthRefreshMs ?? 0);
   app.decorateRequest("auth", null);
   const authSettings = defaultAuthSettings(opts.auth);
   const prefix = opts.prefix ?? "";

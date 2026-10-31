@@ -55,6 +55,8 @@ declare module "fastify" {
     directory: Directory | null;
     /** a hosted collective's export dir (null: env MUSTER_TOWN_EXPORT) */
     exportDir: string | null;
+    /** `GET /api/health`: refresh period of its database-backed figures (0 = per request) */
+    healthRefreshMs: number;
   }
   interface FastifyRequest {
     auth: Auth | null;

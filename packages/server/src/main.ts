@@ -31,6 +31,8 @@ assertNoEnvCredentials();
 const collectiveCfg = existsSync(COLLECTIVE_JSON) ? (JSON.parse(readFileSync(COLLECTIVE_JSON, "utf8")) as { port?: number; name?: string }) : {};
 const PORT = Number(process.env.PORT ?? collectiveCfg.port ?? 4321);
 const HOST = process.env.HOST ?? "0.0.0.0";
+/** `GET /api/health` recomputes its database-backed figures this often and serves the cached copy (503 post-mortem follow-up A) */
+const HEALTH_REFRESH_MS = 5_000;
 const DATA_DIR = resolve(REPO_ROOT, townEnv("DATA") ?? join(COLLECTIVE_DIR, "data"));
 // world.export() and the export route read it back through townEnv; set both names so either spelling sees it
 process.env.MUSTER_TOWN_EXPORT = process.env.AGENT_TOWN_EXPORT = resolve(REPO_ROOT, townEnv("EXPORT") ?? join(COLLECTIVE_DIR, "export"));
@@ -89,7 +91,7 @@ async function main() {
     const app = await buildApp({
       world: w, dev: DEV, runtime: null, prefix: `/${row.slug}`, exportDir: join(dir, "export"),
       auth: { ...auth, admins: [], hosted: { slug: row.slug, ownerGithubId: row.ownerGithubId } },
-      retire: (): unknown => hub.retire(row.slug),
+      retire: (): unknown => hub.retire(row.slug), healthRefreshMs: HEALTH_REFRESH_MS,
     });
     // retire and shutdown close the app before its World: stop the runtime first
     app.addHook("onClose", async () => { await (app.runtime?.close?.() ?? app.runtime?.stop?.()); });
@@ -98,7 +100,7 @@ async function main() {
   });
   await hub.openAll();
   console.log(`[server] hub ${HOSTED_DIR}: ${hub.count} hosted collective(s)${hub.count ? ": " + hub.list("active").map((r) => "/" + r.slug + "/").join(", ") : ""}`);
-  const app = await buildApp({ world, dev: DEV, auth, collective: basename(COLLECTIVE_DIR), backup, monitor, hub, directory });
+  const app = await buildApp({ world, dev: DEV, auth, collective: basename(COLLECTIVE_DIR), backup, monitor, hub, directory, healthRefreshMs: HEALTH_REFRESH_MS });
   await app.listen({ port: PORT, host: HOST });
   url = `http://localhost:${PORT}`;
   console.log(`[server] Muster Town at ${url} (dev=${DEV})`);
