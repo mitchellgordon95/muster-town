@@ -1,8 +1,8 @@
 /** Number formatting shared by panels and the map overlay. */
 
 /** The stoplight's label (board row, map banner tooltip): green Running, yellow Partly blocked, red Blocked. */
-export function stoplightLabel(light: "green" | "yellow" | "red"): string {
-  return light === "green" ? "Running" : light === "yellow" ? "Partly blocked" : "Blocked";
+export function stoplightLabel(light: "green" | "yellow" | "grey"): string {
+  return light === "green" ? "Running" : light === "yellow" ? "Held at a checkpoint" : "No funded grant";
 }
 
 /**

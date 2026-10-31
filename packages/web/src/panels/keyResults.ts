@@ -39,16 +39,16 @@ export function settableStatuses(canFund: boolean): KeyResultStatus[] {
 /** The short blocked label for a building's panel, map sign and the Town Hall in-tray. */
 export const BLOCKED_LABEL = "Blocked: no key results";
 /** Who unblocks a blocked building, and how. */
-export const UNBLOCK_LINE = "A human unblocks it by writing the goal's key results in Building → Goals → Edit, or the manager does with set_key_result once a meeting or the 1:1 settles them.";
+export const UNBLOCK_LINE = "Key results belong to grants now: the building's manager proposes a grant with its own key results, and a human funds it.";
 
 /** The blocked label when a lab is blocked (the server's `blockedAt`), else null. */
 export function blockedLabel(b: { kind: string; blockedAt?: string | null }): string | null {
   return b.kind !== "town-hall" && b.blockedAt ? BLOCKED_LABEL : null;
 }
 
-/** Why a proposal can't be funded yet (it names no goal key result), or null when it can. */
+/** Why a proposal can't be funded yet (it carries no key results), or null when it can. */
 export function unfundableReason(g: Pick<GrantView, "status" | "keyResult">): string | null {
-  return g.status === "proposed" && !g.keyResult ? "It names no goal key result, so it can't be funded: write the goal's key results, then counter it so the manager names one." : null;
+  return g.status === "proposed" && !g.keyResult ? "It carries no key results, so it can't be funded: counter it so the manager adds them." : null;
 }
 
 /** "Written by Pix, edited by Mitchell" for a goal key result (a manager writes its own building's too); null when unknown (older ones). */
