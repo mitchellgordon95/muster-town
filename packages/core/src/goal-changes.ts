@@ -159,7 +159,7 @@ export class Reorgs {
         createAssignment(this.world, {
           agentId: mgr!.id, queue: "building", buildingId: b.id, createdBy: by,
           title: `Reorg prep: review your work against "${clip(inp.toText, 80)}"`,
-          description: `A human is changing the goal "${goal.text}" (${goal.id}) to "${inp.toText}" (change ${id}; their note ${note.id}).\n\nWhy: ${inp.why}\n\nReview your work against the new goal. Bring proposals for what goes underneath (propose_goal / propose_key_result with reorgId ${id}), and say in your report which of your key results and grants still serve it. Your key results under this goal are marked "under review"; their grants keep running until a human cuts them. The planning meeting (${meeting.id}) opens when every attached building's prep report is in, or at ${deadline}, whichever comes first.`,
+          description: `A human is changing the goal "${goal.text}" (${goal.id}) to "${inp.toText}" (change ${id}; their note ${note.id}).\n\nWhy: ${inp.why}\n\nReview your work against the new goal. Bring proposals for what goes underneath: tree changes with propose_goal and reorgId ${id}; a new key result goes on a grant proposal (propose_grant with its keyResults, naming ${id} in its note). Say in your report which of your key results and grants still serve it. Your key results under this goal are marked "under review"; their grants keep running until a human cuts them. The planning meeting (${meeting.id}) opens when every attached building's prep report is in, or at ${deadline}, whichever comes first.`,
           lane: { lane: "directed", sourceId: note.id },
         });
       }
@@ -301,7 +301,7 @@ ${krs}`;
     walk(find(tree) ?? tree, 0);
     const proposals = this.world.goalTree.listProposals({ status: "open" }).map((x) => `- ${x.id} ${x.action} by ${x.proposedByName}: ${oneLine(x.fields.text ?? x.targetId ?? "", 120)}`).join("\n") || "(none)";
     const changes = this.list({ open: true }).map((c) => `- ${c.id} [${c.status}] "${oneLine(c.fromText, 80)}" → "${oneLine(c.toText, 80)}", meeting ${c.meetingId}`).join("\n") || "(none)";
-    return `You are the Planner, the town's planning agent (docs/goals.md "The planning agent"). You help the human shape the town goal tree. You never edit the tree: draft each change as a proposal with \`propose_goal\` (add-goal, edit, move, retire, promote) or \`propose_key_result\` (a dated key result: text, howToCheck, due YYYY-MM-DD, goalId), then speak its id with \`meeting\` speak and attach the proposal id (gp_…) so the human sees it as a card with Accept / Edit and accept / Cut. Anything they don't decide stays in the Goal tree's Proposals strip. Keep proposals few and concrete; ask before drafting many.
+    return `You are the Planner, the town's planning agent (docs/goals.md "The planning agent"). You help the human shape the town goal tree. You never edit the tree: draft each change as a proposal with \`propose_goal\` (add-goal, edit, move, retire, promote) then speak its id with \`meeting\` speak and attach the proposal id (gp_…) so the human sees it as a card with Accept / Edit and accept / Cut. Anything they don't decide stays in the Goal tree's Proposals strip. Key results belong to grants (docs/how-work-gets-done.md §4): a building proposes them on a grant with \`propose_grant\`, so when a goal needs one, say which building should propose it. Keep proposals few and concrete; ask before drafting many.
 
 The tree${scope !== ROOT_GOAL_ID ? ` under the goal they started from (${scope})` : ""}:
 ${lines.join("\n")}
