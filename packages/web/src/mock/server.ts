@@ -4,7 +4,7 @@ import { NEW_LAB_LOT, REVIEW_DECK_ID, desksForLot, parseDeck } from "@muster-tow
 import { BACKFILL, BOARD_TYPES, KPI_FRAMING, DEFAULT_POOL_ID, ZERO_TOKENS, addTokens, backfillFamily, splitRaw, type BankPool, type GoalTreeNode, type GoalSpend, type QueueBoard } from "@muster-town/schema";
 import type { Api, AgentDetail, AllocationRow, Bank, Budget, Finance, FinanceFly, FinancePools, FinanceSources, FinanceSpend, Cabinet, CabinetQuery, DocQuery, EventQuery, In, LayoutPreview, MessageResult, RoomLayout, RequestAction, Snapshot, Socket, SocketHandlers, ThreadMessage, WriteDocInput } from "../api";
 import { ApiError } from "../api";
-import type { PinSkillInput, PutSecretInput, SecretView, SkillPinView, SkillView } from "@muster-town/schema";
+import type { BankStreams, PinSkillInput, PutSecretInput, SecretView, SkillPinView, SkillView } from "@muster-town/schema";
 import type { CreateBuildingInput, UpdateBuildingInput, RegisterVisitorInput, ReviewInput, ChatInput, WorkInput, DonateInput, CreateMeetingInput, DocState, AddBankInput, BankInput, CreateBankPoolInput, UpdateBankPoolInput, DecideGrantInput, CloseGrantInput, CreateKeyResultInput, UpdateKeyResultInput, CreateObjectiveInput, UpdateObjectiveInput } from "@muster-town/schema";
 import { Sim, newId, spent } from "./sim";
 import { kpis as kpisFixture, memoryDocs } from "./fixture";
@@ -594,7 +594,7 @@ export class MockApi implements Api {
   // one member input with balance: the in-tray's Fund offers "Pay from" it (member funding)
   private bankInputs: BankInput[] = [{
     id: "bi_mitchell_key", userId: "us_mitchell", label: "Mitchell's API key", source: "api-key", model: "claude-sonnet-5-5", tokens: 3_000_000, recurrence: "once",
-    weeklyCapTokens: null, nextCreditAt: null, creditedTokens: 3_000_000, hasApiKey: true, cancelledAt: null, createdAt: now(),
+    weeklyCapTokens: null, nextCreditAt: null, creditedTokens: 3_000_000, hasApiKey: true, cancelledAt: null, createdAt: now(), goalId: null, idleNotifiedAt: null,
   }];
   // accounting pools: buildings without a poolId are in General; pools without a pct split what's left equally
   private bankPools: BankPool[] = [{ id: DEFAULT_POOL_ID, name: "General", pct: null, createdAt: now() }];
@@ -644,6 +644,17 @@ export class MockApi implements Api {
   }
   // the toy's pools from its bank(): nothing drawn (the toy Bank never debits), so left is each pool's share and nothing is overdrawn;
   // a flat toy exploration allowance per building that draws
+  async bankStreams(): Promise<BankStreams> {
+    await wait();
+    return {
+      expectedSessionTokens: 120_000, sampleSessions: 0, idleDays: 7,
+      streams: this.bankInputs.filter((i) => !i.cancelledAt || i.goalId).map((i) => ({
+        inputId: i.id, label: i.label, userId: i.userId, userName: "Mitchell", source: i.source, recurrence: i.recurrence, tokens: i.tokens,
+        goalId: i.goalId ?? null, goalPath: i.goalId, balance: i.creditedTokens, coversSession: i.creditedTokens >= 120_000,
+        daysToCover: null, lastDrawAt: null, idle: null, cancelledAt: i.cancelledAt, createdAt: i.createdAt,
+      })),
+    };
+  }
   async financePools(): Promise<FinancePools> {
     const b = await this.bank();
     const pools: FinancePools["pools"] = b.pools.map((p) => ({
@@ -738,7 +749,7 @@ export class MockApi implements Api {
     await wait();
     const input: BankInput = {
       id: newId("bi"), userId: "us_mitchell", label: i.label, source: i.source, model: i.model, tokens: i.tokens, recurrence: i.recurrence ?? "once",
-      weeklyCapTokens: i.weeklyCapTokens ?? null, nextCreditAt: null, creditedTokens: i.tokens, hasApiKey: !!(i.apiKey || i.token), cancelledAt: null, createdAt: now(),
+      weeklyCapTokens: i.weeklyCapTokens ?? null, nextCreditAt: null, creditedTokens: i.tokens, hasApiKey: !!(i.apiKey || i.token), cancelledAt: null, createdAt: now(), goalId: i.goalId ?? null, idleNotifiedAt: null,
     };
     this.bankInputs.push(input);
     this.sim.event("bank.input", null, `Mitchell added ${i.label} to the Bank`, {}, null);

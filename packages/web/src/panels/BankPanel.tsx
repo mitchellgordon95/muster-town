@@ -11,7 +11,7 @@ import { BANK_TABS } from "@muster-town/schema";
 import { api, type Bank } from "../api";
 import { store, useTown } from "../state";
 import { Glyph, PanelShell } from "./PanelShell";
-import { BankContributors, BankInputs, BankPools, BuildingFunding, Donate } from "./BankFunding";
+import { BankContributors, BankInputs, BankPools, BankStreamsSection, BuildingFunding, Donate } from "./BankFunding";
 import { FinanceFooter, FinanceIntro, FinanceTerms, FlyView, PoolsView, ProjectionView, SourcesView, SpendingView, TokensView, useFinance, type FinanceData } from "./BankFinance";
 import { ADJ, ErrorLine, Loading, Section, breakdownTitle, fmtTokens } from "./ui";
 
@@ -47,6 +47,7 @@ function BankTab({ tab, bank, fin, rev, onChange, onReload }: ViewProps) {
     <>
       {fin ? <TokensView f={fin.f} /> : null}
       {bank ? <BankInputs bank={bank} onChange={onReload} /> : null}
+      {bank ? <BankStreamsSection rev={bank.inputs.length} /> : null}
       {fin?.sources ? <SourcesView s={fin.sources} /> : null}
     </>
   );

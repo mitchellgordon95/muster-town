@@ -305,6 +305,13 @@ export const BankInput = z.object({
   hasApiKey: z.boolean().default(false),
   cancelledAt: Iso.nullable().default(null),
   createdAt: Iso,
+  /**
+   * Goal tree step 7 (docs/goals.md "Streams", migration 064): the goal node this stream is earmarked for. It pays only
+   * for sessions whose work sits in that node's subtree, and the general balance never draws on it. null = general.
+   */
+  goalId: Id.nullable().default(null),
+  /** when the donor was last told no session has drawn on this earmark for 7 days (in-town notice; null = never) */
+  idleNotifiedAt: Iso.nullable().default(null),
 });
 export type BankInput = z.infer<typeof BankInput>;
 /** One credit from an input into the Bank. A subscription's credit expires a day later (no rollover); an API key's is durable (`expiresAt` null). */
@@ -1087,6 +1094,36 @@ export interface IntrayRoute { goalId: string; ownerId: string | null; ownerName
 /** The in-tray's routes keyed by item id (grant, goal proposal or report), and the viewer's default list. */
 export interface IntrayRoutes { routes: Record<string, IntrayRoute>; defaultView: "mine" | "all" }
 
+/**
+ * One Bank stream (GET /api/bank/streams, goal tree step 7): an input and how it is drawn. `goalId` null = the general
+ * balance (the pools draw on it anonymously, so `lastDrawAt` is only known for an earmark or a grant's own input).
+ */
+export interface BankStream {
+  inputId: string; label: string; userId: string; userName: string; source: "subscription" | "api-key";
+  recurrence: "once" | "daily" | "weekly" | "monthly"; tokens: number;
+  goalId: string | null; goalPath: string | null;
+  /** adjusted output tokens it can still pay */
+  balance: number;
+  /** its balance covers one expected session (`expectedSessionTokens`): only then is its key picked at session start */
+  coversSession: boolean;
+  /** recurring and short of one session: days of income until it covers one (null = covers one now, or never accrues) */
+  daysToCover: number | null;
+  lastDrawAt: string | null;
+  /** an earmark with no draw for 7 days: why ("below one session" or "no session in scope"); null = drawn lately, or general */
+  idle: null | "below-one-session" | "no-session-in-scope";
+  cancelledAt: string | null; createdAt: string;
+}
+/** GET /api/bank/streams: every stream, and the session size a key stream must cover to be picked (the Donate warning reads it). */
+export interface BankStreams {
+  /** p90 of finished work sessions over the last 7 days, adjusted output tokens (a default when there are too few) */
+  expectedSessionTokens: number;
+  /** how many sessions that p90 is from (0 = the default) */
+  sampleSessions: number;
+  /** days without a draw before an earmark's donor is told */
+  idleDays: number;
+  streams: BankStream[];
+}
+
 /** One row of a goal's Spend tab: adjusted output tokens and session count, split by lane ("none" = no lane recorded). */
 export interface SpendByLane { grant: number; exploration: number; directed: number; none: number }
 /**
@@ -1836,6 +1873,8 @@ export const AddBankInput = z.object({
   apiKey: z.string().min(1).optional(),
   /** subscription inputs: the Claude Code OAuth token from `claude setup-token` (required): the Bank is the only place a credential lives */
   token: z.string().min(1).optional(),
+  /** api-key inputs: earmark the stream for a goal node (docs/goals.md "Streams"); left out = the general balance */
+  goalId: Id.nullable().optional(),
 });
 export type AddBankInput = z.input<typeof AddBankInput>;
 /** POST /api/bank/pools (admin). `pct` null or left out: the pool splits what's left equally with the others. */
