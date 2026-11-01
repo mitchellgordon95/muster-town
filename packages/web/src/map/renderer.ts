@@ -447,7 +447,7 @@ export class MapRenderer {
   private updateTarget() {
     const s = store.state;
     // nearest of agents and places wins, so standing on a place's spot (e.g. the mod station, next to the
-    // seated moderators) targets the place, and stepping toward an agent targets the agent
+    // seated residents) targets the place, and stepping toward an agent targets the agent
     const near: { d: number; t: Target }[] = [];
     for (const a of Object.values(s.agents)) {
       if (a.id === store.avatarId || a.status === "retired") continue;

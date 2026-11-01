@@ -137,7 +137,7 @@ describe("assignment queue", () => {
     expect(world.ops.reorderQueue(owner, mei.id, [b.id])[0].id).toBe(b.id);
 
     const rev = world.ops.ensureAvatar(world.ops.createUser("Rev").user.id);
-    world.ops.assignRole(admin, { roleId: buildingRoleId(mei.homeBuildingId!, "reviewer"), holderKind: "user", holderId: rev.ownerUserId! });
+    world.ops.assignRole(admin, { roleId: buildingRoleId(mei.homeBuildingId!, "manager"), holderKind: "user", holderId: rev.ownerUserId! });
     expect(world.ops.startNext(rev, a.id).assignment.id).toBe(a.id);
     expect(world.ops.cancelAssignment(admin, b.id).status).toBe("cancelled");
   });

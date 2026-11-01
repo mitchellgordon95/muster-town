@@ -68,7 +68,7 @@ export function computeLayout(buildings: Building[], agents: Agent[]): Layout {
       set(x0 + F.schedule.x, y0 + F.schedule.y, TILE.SCHEDULE);
       set(x0 + F.board.x, y0 + F.board.y, TILE.BOARD);
       for (const p of F.bench) set(x0 + p.x, y0 + p.y, TILE.BENCH);
-      // town moderators (Town Hall residents) sit at the mod station
+      // the Town Hall's residents (the Planner) sit at the mod station
       const mods = agents.filter((a) => a.homeBuildingId === b.id && a.kind === "resident" && a.status !== "retired");
       F.modSeats.forEach((p, n) => {
         const a = mods[n];

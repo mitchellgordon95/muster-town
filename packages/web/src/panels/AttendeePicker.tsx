@@ -20,7 +20,7 @@ export function AttendeePicker({ state }: { state: ReturnType<typeof useAttendee
   const box = (a: { id: string; name: string }) => (
     <label key={a.id} className="check"><input type="checkbox" checked={picked.has(a.id)} onChange={() => toggle(a.id)} /> {a.name}</label>
   );
-  const dflt = hall ? "managers, reviewers and moderators" : "this building's agents";
+  const dflt = hall ? "the buildings' managers" : "this building's agents";
   return (
     <details className="attendees">
       <summary>Invite: {picked.size ? `${picked.size} picked` : `default (${dflt})`}</summary>

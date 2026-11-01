@@ -1,5 +1,5 @@
 import { describe, expect, test, vi } from "vitest";
-import { callVerb, deferred, init, result, setup, TEST_TOKEN, text, toolUse, type FakeSession } from "./helpers.ts";
+import { callVerb, deferred, init, managerless, result, setup, TEST_TOKEN, text, toolUse, type FakeSession } from "./helpers.ts";
 
 const REPORT = { title: "Mauna Loa growth rate", verdict: "continue", body: "## Summary\nGrowth 2.4 ± 0.1 ppm/yr.\n\n## Proposal for next session\nHow does the 13C record attribute the rise?\nBecause attribution matters." };
 
@@ -198,6 +198,7 @@ describe("work session", () => {
 describe("waiting assignments", () => {
   test("the tick unblocks a met wait and the scheduler starts it; the runtime fills world.host for deploy waits", async () => {
     const { world, runtime, by } = setup(happyWork);
+    managerless(world);
     const noor = by("Noor");
     expect(world.host.startedAt).toBe("2026-10-19T10:00:00.000Z");
     expect(typeof world.host.isLive).toBe("function");

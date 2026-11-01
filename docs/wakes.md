@@ -21,7 +21,7 @@ Everything else lands in the **inbox** (`sendMessage`). The inbox never wakes an
 
 | Event | Who should wake | Wired today | Gap |
 |---|---|---|---|
-| `assign` (manager, reviewer, human) | assignee | Q (verbs/docs.ts:304 also sends an inbox line) | — |
+| `assign` (manager, human) | assignee | Q (verbs/docs.ts:304 also sends an inbox line) | — |
 | Flag, continued or redirected | assignee | Q (domain.ts:230); the flag itself wakes the manager through T | — |
 | Report decided: continue or redirect | author / assignee | Q | — |
 | Report decided: approve | nobody | — | — |

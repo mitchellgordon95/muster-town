@@ -4,8 +4,8 @@ import { createHash } from "node:crypto";
 import { chmodSync, existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { createDoc, updateDoc } from "./domain.ts";
-import { createBuilding, createResident, createServiceAgent, createTownModerator, createUser } from "./entities.ts";
-import { buildingRoleId, townRoleId } from "./permissions.ts";
+import { createBuilding, createUser, seedManager } from "./entities.ts";
+import { townRoleId } from "./permissions.ts";
 import { TOWN_HALL_ID } from "./world/layout.ts";
 import type { World } from "./world.ts";
 
@@ -24,7 +24,7 @@ export interface SeedOptions {
   dataDir?: string;
   /** house allocation for the imported lab (default 50M tokens) */
   houseTokens?: number;
-  /** path to collective.json; its buildings (imports, residents, workspaces, reviewers) and town moderators are created at seed */
+  /** path to collective.json; its buildings (imports, workspaces, each with its one manager) are created at seed */
   collectivePath?: string;
   /** the humans' operating manual (docs/manual.md): seeded as a Town Hall library article tagged `manual` when none exists */
   manualPath?: string;
@@ -35,20 +35,9 @@ export interface SeedResult {
   admin: User;
   adminToken: string;
   townHall: Building;
-  ada: Agent | null;
   lab: Building | null;
-  /** the first lab's reviewer agent (historically Moss) */
-  moss: Agent | null;
-  /** town moderators created at seed (none on an existing DB) */
-  moderators: Agent[];
-}
-
-const REVIEWER_DIRECTION = "Work this building's in-tray: check each report against the criteria (sources present, numbers carry units and uncertainty, the proposal is one concrete question, no duplication of the board) and decide: continue when the proposal should be the author's next assignment, approve to acknowledge without follow-up, redirect with a concrete note, stop when the direction is exhausted. Facilitate meetings.";
-
-/** The building's reviewer agent (role `reviewer`), if any. */
-function reviewerOf(world: World, buildingId: string): Agent | null {
-  const id = world.permissions.agentsWithRole(buildingRoleId(buildingId, "reviewer"))[0];
-  return id ? world.agents.get(id) ?? null : null;
+  /** the first lab's manager agent (the imported lab's is named Moss) */
+  manager: Agent | null;
 }
 
 /** `git -C <path> remote get-url origin`, or undefined when `path` isn't a git repo / has no origin. */
@@ -140,12 +129,11 @@ function spelledDefaults(collectivePath: string | undefined): Partial<BuildingDe
 }
 
 /**
- * Seed an empty town: town.json, admin user + token, built-in roles, Town Hall with Ada (service
- * librarian at the library), optional v0 lab import + Moss (reviewer) + house allocation; admin manages the lab;
- * collective.json buildings and town moderators (seated at the mod station).
+ * Seed an empty town: town.json, admin user + token, built-in roles, the Town Hall and its Planner, optional v0 lab
+ * import with its manager Moss + house allocation, and collective.json's buildings, each with its one named manager.
+ * The agents of a fresh town are exactly the Planner and one manager per lab (forks and visitors come later).
  * Re-running on a seeded DB returns the existing admin/token and creates no agents (it sets the collective repo
- * from collective.json if the town has none, backfills its repoUrl
- * and makes sure the built-in town roles, including v1.2's `moderator`, exist).
+ * from collective.json if the town has none, backfills its repoUrl and makes sure the built-in town roles exist).
  */
 export function seedDefaults(world: World, opts: SeedOptions = {}): SeedResult {
   const existing = world.users.first("1=1", [], "ORDER BY createdAt, rowid");
@@ -179,16 +167,12 @@ export function seedDefaults(world: World, opts: SeedOptions = {}): SeedResult {
       const fromLab = lab ? Object.fromEntries(keys.map((k) => [k, lab[k]])) : {};
       world.town.set({ defaults: BuildingDefaults.parse({ ...world.town.defaults(), ...fromLab, ...spelledDefaults(opts.collectivePath) }) });
     }
-    // v1.2: the town moderator role (no moderator agents are created in existing DBs)
     world.permissions.ensureTownRoles();
     const th = world.buildings.get(TOWN_HALL_ID) ?? world.buildings.first("kind = 'town-hall'")!;
     seedManual(world, opts.manualPath, existing.id);
     const lab = world.buildings.first("kind = 'lab'", [], "ORDER BY createdAt") ?? null;
-    return {
-      created: false, admin: existing, adminToken: world.tokens.getOrCreate("user", existing.id), townHall: th,
-      ada: world.agents.first("kind = 'service'") ?? null, lab,
-      moss: lab ? reviewerOf(world, lab.id) : null, moderators: [],
-    };
+    const manager = lab?.managerAgentId ? world.agents.get(lab.managerAgentId) ?? null : null;
+    return { created: false, admin: existing, adminToken: world.tokens.getOrCreate("user", existing.id), townHall: th, lab, manager };
   }
   const result = world.transaction(() => {
     let town: Partial<Town> = { name: "Muster Town", goal: "", tagline: "publicly legible, collectively funded agent town for climate science" };
@@ -206,16 +190,14 @@ export function seedDefaults(world: World, opts: SeedOptions = {}): SeedResult {
     const townHall = createBuilding(world, {
       name: "Town Hall", goal: world.town.get().goal, description: "Library, town map, outbox, and the town meeting room.", headcount: 1,
     }, admin.id, { id: TOWN_HALL_ID, kind: "town-hall" });
-    const ada = createServiceAgent(world, { name: "Ada", title: "Librarian", placeId: "library", sprite: 0 });
+    world.reorgs.ensurePlanner();
 
-    let lab: Building | null = null, moss: Agent | null = null;
+    let lab: Building | null = null, manager: Agent | null = null;
     if (opts.importDir && existsSync(join(opts.importDir, "building.json"))) {
       lab = world.importV0(opts.importDir, { creatorUserId: admin.id }).building;
-      moss = createResident(world, { buildingId: lab.id, name: "Moss", title: "Reviewer", sprite: 7, direction: REVIEWER_DIRECTION });
-      world.permissions.grant(moss, buildingRoleId(lab.id, "reviewer"));
+      manager = seedManager(world, lab.id, { name: "Moss", sprite: 7 });
       world.budget.donate(admin.id, { tokens: opts.houseTokens ?? HOUSE_BUDGET_TOKENS, buildingId: lab.id, label: HOUSE_LABEL });
     }
-    const moderators: Agent[] = [];
     if (opts.collectivePath && existsSync(opts.collectivePath)) {
       const rawCfg = JSON.parse(readFileSync(opts.collectivePath, "utf8")) as { desks?: Partial<DesksConfig> };
       const cfg = CollectiveConfig.parse(rawCfg);
@@ -231,32 +213,23 @@ export function seedDefaults(world: World, opts: SeedOptions = {}): SeedResult {
         } else {
           const id = spec.id ?? (spec.name ?? "building").toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "");
           b = createBuilding(world, {
-            name: spec.name ?? id, goal: spec.goal ?? "", description: spec.description ?? "", headcount: spec.headcount ?? Math.max(spec.residents.length + 1, 3),
+            name: spec.name ?? id, goal: spec.goal ?? "", description: spec.description ?? "", headcount: spec.headcount ?? 3,
             // old collective.json files still set these per building; new ones put them under `defaults`
             model: spec.model, cheapModel: spec.cheapModel, maxTurnsPerSession: spec.maxTurnsPerSession,
             dailyTokensPerAgent: spec.dailyTokensPerAgent, meetings: spec.meetings,
             codeAccess: spec.codeAccess,
           }, admin.id, { id });
-          spec.residents.forEach((r, i) => {
-            const a = createResident(world, { buildingId: b.id, name: r.name, title: r.title, direction: r.direction, sprite: r.sprite ?? (i + 1) % 7, model: r.model });
-            for (const role of r.townRoles ?? []) world.permissions.grant(a, `role:${role}`);
-          });
         }
-        if (spec.reviewer) {
-          const rev = createResident(world, {
-            buildingId: b.id, name: spec.reviewer.name, title: "Reviewer", sprite: spec.reviewer.sprite ?? 7,
-            direction: spec.reviewer.direction ?? REVIEWER_DIRECTION,
-          });
-          world.permissions.grant(rev, buildingRoleId(b.id, "reviewer"));
-          if (!moss) moss = rev;
-        }
+        // every lab gets its one named manager (collective.json `manager`, else town-named on the starter model)
+        const m = b.managerAgentId ? world.agents.get(b.managerAgentId) : seedManager(world, b.id, spec.manager);
+        if (m) for (const role of spec.manager?.townRoles ?? []) world.permissions.grant(m, `role:${role}`);
+        if (!manager && m) manager = m;
         if (spec.houseTokens) world.budget.donate(admin.id, { tokens: spec.houseTokens, buildingId: b.id, label: HOUSE_LABEL });
         if (!lab) lab = b;
       }
-      for (const m of cfg.moderators) moderators.push(createTownModerator(world, m));
     }
     world.events.append({ type: "system", text: "Town seeded", payload: { adminId: admin.id, labId: lab?.id ?? null } });
-    return { created: true, admin: world.users.require(admin.id), adminToken, townHall: world.buildings.require(townHall.id), ada, lab, moss, moderators };
+    return { created: true, admin: world.users.require(admin.id), adminToken, townHall: world.buildings.require(townHall.id), lab, manager };
   });
   seedManual(world, opts.manualPath, result.admin.id);
   if (opts.dataDir) {

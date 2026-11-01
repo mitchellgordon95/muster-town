@@ -188,7 +188,7 @@ export const Permission = z.enum([
   "town.allocate_budget",    // move donated tokens between buildings
   "town.approve_request",    // delete an outbox request (misuse); requests need no approval to be visible
   "town.ban",                // ban an agent (town-wide; misuse prevention)
-  "town.moderate",           // moderator station: outbox requests, bans
+  "town.moderate",           // mod station: outbox requests, bans
   "town.redeploy",           // pull main on the host, rebuild, restart the collective's server
   "building.manage",         // edit goal/description/policies, assign building roles
   "building.assign",         // create assignments for agents in the building
@@ -221,8 +221,6 @@ export type Role = z.infer<typeof Role>;
 export const BUILTIN_ROLES = {
   town: {
     admin: Permission.options, // everything
-    /** collective-wide misuse prevention; seated at the Town Hall mod station */
-    moderator: ["town.approve_request", "town.ban", "town.moderate", "town.interact"] as Permission[],
     /** signed in, read-only until an admin lets them in (`member`) */
     visitor: ["meeting.attend"] as Permission[],
     /** may redeploy the running town from main (workshop residents; building managers and their forks hold town.redeploy without it outside a hosted collective) */
@@ -235,8 +233,6 @@ export const BUILTIN_ROLES = {
       "building.manage", "building.assign", "building.review", "building.promote", "building.dismiss", "building.fund",
       "doc.write_building", "doc.request_human", "meeting.facilitate", "meeting.attend",
     ] as Permission[],
-    /** a second pair of eyes on reports (may decide in the in-tray and facilitate); no longer drives review by itself */
-    reviewer: ["building.review", "building.assign", "meeting.facilitate", "meeting.attend", "doc.write_building"] as Permission[],
     member: ["doc.write_building", "doc.request_human", "meeting.attend"] as Permission[],
   },
 } as const;
@@ -415,7 +411,7 @@ export const UsageEntry = z.object({ id: Id, agentId: Id, buildingId: Id.nullabl
 export type UsageEntry = z.infer<typeof UsageEntry>;
 
 // ---------- agents (bodies in the world) ----------
-export const AgentKind = z.enum(["resident", "visitor", "human", "service"]);
+export const AgentKind = z.enum(["resident", "visitor", "human"]);
 export const AgentStatus = z.enum([
   "idle", "walking", "working", "in-meeting", "out-of-budget", "stopped", "banned",
   /** v1.4: a visitor with no authenticated call in the last 90 s (residents are never offline) */
@@ -435,7 +431,7 @@ export const Agent = z.object({
   homeBuildingId: Id.nullable().default(null),
   /** owner user (for visitors and humans); residents are owned by the building's manager user */
   ownerUserId: Id.nullable().default(null),
-  /** legacy: service agents use `title` as their role label ("Librarian"); prompts use neither. Residents have no title or job description. */
+  /** a label only the Planner uses ("Planner"); prompts use neither. Residents have no title or job description. */
   title: z.string().default(""),
   direction: z.string().default(""),
   sprite: z.number().int().nonnegative().default(0),
@@ -453,7 +449,7 @@ export const Agent = z.object({
   lastActiveAt: Iso.nullable().default(null),
   /** v1.4: last authenticated agent call (MCP tool or /api/verbs), written at most every 10 s; for an offline visitor, when it went quiet */
   lastSeenAt: Iso.nullable().default(null),
-  /** v1.5: inherit the owner user's effective permissions (visitors and human avatars default true; residents/service false). Always capped by the owner. */
+  /** v1.5: inherit the owner user's effective permissions (visitors and human avatars default true; residents false). Always capped by the owner. */
   inheritsOwner: z.boolean().default(false),
   /** v1.5: permissions removed from this agent's effective set (set by its owner or an admin) */
   deniedPermissions: z.array(Permission).default([]),
@@ -475,7 +471,7 @@ export const PlaceKind = z.enum([
   "cabinet",
   /** intray:<buildingId> — the manager's desk (pending reports) */
   "intray",
-  /** mod-station — Town Hall desk where town moderators sit */
+  /** mod-station — Town Hall desk: outbox requests and bans (the Planner sits here) */
   "mod-station",
   /** planning-desk — Town Hall: buildings, residents, roles, secrets, system */
   "planning",
@@ -1739,19 +1735,19 @@ export const VERB_DESCRIPTIONS: Record<VerbName, string> = {
   assignments: "List my assignments.",
   accept_assignment: "Accept a pending assignment; it becomes my current task. Visitors: assignments to you are offers until you accept them (unaccepted offers are cancelled after 24 h); finish with `submit_report`.",
   meeting: "Participate in a meeting: 'summary' submits my short standup summary (did, next), 'speak' adds to the transcript once the discussion has started (attach presents a doc, a town page or an uploaded screenshot with it, shown inline to everyone), 'listen' returns new utterances since my last listen (set waitSeconds to wait for someone to speak), 'decide'/'end' are for the facilitator (to amend a decision, decide again with supersedes = its number in status's decisions list); a decision's waitFor holds its assignment until then, e.g. {deploy: \"next\"} for \"after the redeploy\" or {assignment: id} for \"once X lands\"; while humans are talking, leave 'end' to them.",
-  review: "(manager/reviewer) Decide on a pending report in the in-tray: approve (acknowledge), continue (assign its proposal), redirect (assign your note instead), or stop the agent.",
-  assign: "(manager/reviewer) Create an assignment for an agent in my building (with forks on, leave agentId out to queue it to the building). With waitFor it waits (e.g. for the next redeploy, or another assignment to finish) before it starts. In goal-directed buildings an agent must give lane grant (grantId of a funded grant; its key results are implied) or exploration (gap: what is missing between the goal and the live town), or directed when a human asked for it (sourceId: the human source; optionally a gap). Directed work is never held by the exploration allowance.",
-  schedule: "(manager/reviewer) Put a timed job on my building's schedule: it runs at runsAt (once) or on a repeat (every N hours, or daily at UTC times) until an end. Nothing is pinned to an agent: each time it fires it creates one normal assignment on the building queue (a fork of the manager runs it), with the lane fields, pages and model given here (lanes as in assign, re-checked at every fire). Each fire is skipped (and logged) while the last fire's assignment is still queued or running; missed runs during downtime collapse into one. With scheduleId it edits, pauses (paused: true) or resumes (paused: false) one instead; `cancel` with scheduleId deletes it. Your own parked work still uses submit_report resumeWhen {after}.",
-  stop_fork: "(manager/reviewer) Stop a running fork of my building gracefully (forkId, or the assignmentId it runs): it is interrupted now with \"finish the step you are on, write your pages, submit_report\"; if it hasn't filed its report within 5 minutes the town stops its session and files \"Session ended without a report\" (assignment cancelled). Either way it retires and the report reaches the in-tray. To redirect a fork instead, `tell` it.",
-  cancel: "(manager/reviewer) Cancel a queued (not started) assignment in my building, or one of its schedules (scheduleId). Started assignments and other buildings' are refused.",
-  fork_status: "(manager/reviewer) What a fork of my building is doing right now (forkId or assignmentId): its assignment and lane, when its session started, adjusted tokens booked so far, and its last tool calls (default 10) with the first line of each input and a one-line result, plus its latest thought. Use it to answer \"what is Pix 4 doing?\".",
+  review: "(manager) Decide on a pending report in the in-tray: approve (acknowledge), continue (assign its proposal), redirect (assign your note instead), or stop the agent.",
+  assign: "(manager) Create an assignment for an agent in my building (with forks on, leave agentId out to queue it to the building). With waitFor it waits (e.g. for the next redeploy, or another assignment to finish) before it starts. In goal-directed buildings an agent must give lane grant (grantId of a funded grant; its key results are implied) or exploration (gap: what is missing between the goal and the live town), or directed when a human asked for it (sourceId: the human source; optionally a gap). Directed work is never held by the exploration allowance.",
+  schedule: "(manager) Put a timed job on my building's schedule: it runs at runsAt (once) or on a repeat (every N hours, or daily at UTC times) until an end. Nothing is pinned to an agent: each time it fires it creates one normal assignment on the building queue (a fork of the manager runs it), with the lane fields, pages and model given here (lanes as in assign, re-checked at every fire). Each fire is skipped (and logged) while the last fire's assignment is still queued or running; missed runs during downtime collapse into one. With scheduleId it edits, pauses (paused: true) or resumes (paused: false) one instead; `cancel` with scheduleId deletes it. Your own parked work still uses submit_report resumeWhen {after}.",
+  stop_fork: "(manager) Stop a running fork of my building gracefully (forkId, or the assignmentId it runs): it is interrupted now with \"finish the step you are on, write your pages, submit_report\"; if it hasn't filed its report within 5 minutes the town stops its session and files \"Session ended without a report\" (assignment cancelled). Either way it retires and the report reaches the in-tray. To redirect a fork instead, `tell` it.",
+  cancel: "(manager) Cancel a queued (not started) assignment in my building, or one of its schedules (scheduleId). Started assignments and other buildings' are refused.",
+  fork_status: "(manager) What a fork of my building is doing right now (forkId or assignmentId): its assignment and lane, when its session started, adjusted tokens booked so far, and its last tool calls (default 10) with the first line of each input and a one-line result, plus its latest thought. Use it to answer \"what is Pix 4 doing?\".",
   propose_grant: "(manager) Propose a grant for my building in one call, filed against a goal (goalId: your building's goal or one under it; default your building's): its own 1-5 key results (text, howToCheck, due: what a human checks in the live town to call the work done), an objective, the approach, a stop condition and a token ask. Funding it runs the plan. It goes to the Town Hall in-tray for a human to fund, counter or reject. A building can have several proposals open at once, each decided on its own. To answer a counter, pass its grantId: the new plan rewrites that proposal (and its key results) and re-proposes it under the same id.",
   checkpoint_grant: "(manager) File a grant's checkpoint: set the status of the grant's open key results (or one, keyResultId), at most claimed (only a human marks met or missed), with a note on the evidence; then submit_report with rollup: true, which links itself to the grant as its checkpoint report. The grant stays held until a human continues, adjusts or cuts it.",
   close_grant: "(manager) Close a funded grant early because its work is done: it closes as done, its open key results go to claimed with your note as the evidence, and the unspent tokens return to the Bank. Then submit_report with rollup: true (it links itself as the close report); a human marks each key result met or missed from the Town Hall in-tray. Use checkpoint_grant instead when the grant is held at its 100% checkpoint and the work is not done.",
   set_objective: "(manager) Write an objective of my building's goal, or edit one (id): one sentence for this quarter, the town KPI it moves (fund, join or trust), the horizon (default this quarter) and the meeting notes or report it comes from. At most 3 per building. Only a human deletes one.",
   propose_goal: "(manager) Propose a change to the town goal tree (it shows in your desk brief: your building's attachment and the goals under it): add a goal, edit or move one, retire one, or promote a key result to a standing goal. A human with goals.edit there (an admin or the goal's captain) accepts or cuts it; you hear back in your inbox. A proposal outside your building's subtree is allowed but flagged.",
   promote: "(manager) Publish a document to the building (board if it's an fyi, else the filing cabinet) or promote it to the library.",
-  ban: "(town moderator) Ban an agent town-wide pending review.",
+  ban: "(admin) Ban an agent town-wide pending review.",
   redeploy: "Pull main on the host, reinstall, rebuild the web client (and the desk image when image=true), then restart the collective's server. Use when Mitchell asks you to deploy or when main has changed and the running town is stale. The restart no longer waits for desk work sessions: yours keeps running through it (a town call during the few seconds the server is down is retried for you). Still never poll or wait for the new build in the same session: call it, say in your report which commit should be live, submit the report, and verify on your next session (park with resumeWhen {deploy: sha}).",
 };
 
@@ -2052,12 +2048,12 @@ export const CreateMeetingInput = z.object({ kind: MeetingKind.exclude(["one-on-
   askHumans: z.boolean().optional(),
   /** Mode "Presentation with chat": the deck doc id (type deck) or REVIEW_DECK_ID; omitted = chat */
   deck: z.object({ docId: z.string().trim().min(1) }).optional(),
-  /** who to invite; omitted = the building's residents (town hall: managers, reviewers, moderators) */
+  /** who to invite; omitted = the building's residents (town hall: the buildings' managers) */
   attendeeIds: z.array(Id).min(1).optional() });
 /**
  * The "Call a meeting" presets (Lena's dc_tcoy1plt2r): each pre-fills the form and every field stays editable. The
  * preset is stored only as `kind` (a label); behaviour comes from `brings`, `askHumans` and the agenda. `attendees`:
- * `default` = the building's residents (Town Hall: managers, reviewers, moderators), `none` = pick by hand. `deck` set =
+ * `default` = the building's residents (Town Hall: the buildings' managers), `none` = pick by hand. `deck` set =
  * Mode "Presentation with chat" with that deck (Review the in-tray: the review deck).
  */
 export const MEETING_PRESETS = [
@@ -2214,13 +2210,12 @@ export const CollectiveBuildingSpec = z.object({
   meetings: z.array(MeetingCadence).optional(),
   /** residents get code tools on the collective's repo (collective.json `workspace`) */
   codeAccess: z.boolean().optional(),
-  residents: z.array(z.object({
-    name: z.string(), title: z.string().default(""), direction: z.string().default(""), sprite: z.number().int().optional(), model: z.string().optional(),
+  /** the building's one named manager (its forks do the work); left out = a town-named manager on the starter model */
+  manager: z.object({
+    name: z.string(), sprite: z.number().int().optional(), model: z.string().optional(),
     /** town role names granted at seed (e.g. `deployer`) */
     townRoles: z.array(z.string()).optional(),
-  })).default([]),
-  /** a reviewer agent (role `reviewer`): may decide in the in-tray and facilitate; the manager agent, not the reviewer, works the in-tray */
-  reviewer: z.object({ name: z.string(), sprite: z.number().int().optional(), direction: z.string().optional() }).optional(),
+  }).optional(),
   /** house allocation for this building, in tokens */
   houseTokens: z.number().int().nonnegative().optional(),
 });
@@ -2264,8 +2259,6 @@ export const CollectiveConfig = Town.extend({
   workspace: Workspace.optional(),
   port: z.number().int().positive().optional(),
   desks: DesksConfig.optional(),
-  /** town moderators: Town Hall residents holding the town `moderator` role, seated at the mod station */
-  moderators: z.array(z.object({ name: z.string(), sprite: z.number().int().optional(), direction: z.string().optional() })).default([]),
   buildings: z.array(CollectiveBuildingSpec).default([]),
 });
 export type CollectiveConfig = z.infer<typeof CollectiveConfig>;

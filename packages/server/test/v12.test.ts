@@ -1,5 +1,4 @@
 /** v1.2 server: in-tray route, DELETE agent (dismiss), town.ban, snapshot excludes retired + carries intray. */
-import { createTownModerator } from "@muster-town/core";
 import { afterEach, describe, expect, it } from "vitest";
 import type { RuntimeHooks } from "../src/context.ts";
 import { json, seededApp } from "./helpers.ts";
@@ -55,15 +54,14 @@ describe("DELETE /api/agents/:id", () => {
 });
 
 describe("ban", () => {
-  it("POST /api/agents/:id/ban needs town.ban (reviewer: 403; town moderator: ok)", async () => {
-    const { app, world, by } = await setup();
+  it("POST /api/agents/:id/ban needs town.ban (a manager: 403; admin: ok)", async () => {
+    const { app, auth, world, by } = await setup();
     const tomas = by("Tomas");
     const moss = world.tokens.getOrCreate("agent", by("Moss").id);
     const forbidden = await json(app, "POST", `/api/agents/${tomas.id}/ban`, { headers: { authorization: `Bearer ${moss}` }, body: { reason: "spam" } });
     expect(forbidden.status).toBe(403);
     expect(forbidden.body.error).toMatch(/town.ban/);
-    const wren = createTownModerator(world, { name: "Wren" });
-    const ok = await json(app, "POST", `/api/agents/${tomas.id}/ban`, { headers: { authorization: `Bearer ${world.tokens.getOrCreate("agent", wren.id)}` }, body: { reason: "spam" } });
+    const ok = await json(app, "POST", `/api/agents/${tomas.id}/ban`, { headers: auth, body: { reason: "spam" } });
     expect(ok.status).toBe(200);
     expect(ok.body.agent.status).toBe("banned");
   });

@@ -291,7 +291,7 @@ export function forksOf(world: World, managerId: string): { live: ForkSummary[];
 export const STOP_FORK_TIMEOUT_MS = 5 * 60_000;
 
 /**
- * `stop_fork` (manager/reviewer: building.assign on the fork's building): interrupt a fork's running work session with
+ * `stop_fork` (manager: building.assign on the fork's building): interrupt a fork's running work session with
  * "finish this step, write your pages, submit_report now", and log the request with its deadline. `stopOverdueForks`
  * stops the session hard if no report has landed by then (the stopped path writes the "Session ended without a report"
  * report and cancels the assignment). Asking twice for one session keeps the first deadline.
@@ -303,7 +303,7 @@ export function requestForkStop(world: World, me: Agent, input: { forkId?: strin
   if (!fork.forkOf) throw badRequest(`${fork.name} is not a fork; stop_fork stops forks only.`);
   if (fork.id === me.id) throw badRequest("You can't stop yourself: submit_report ends your session.");
   const bid = homeOf(fork);
-  if (!bid || !world.permissions.can(me, "building.assign", bid)) throw new AppError("forbidden", `Only the manager or a reviewer of ${fork.name}'s building can stop it (building.assign).`);
+  if (!bid || !world.permissions.can(me, "building.assign", bid)) throw new AppError("forbidden", `Only the manager of ${fork.name}'s building can stop it (building.assign).`);
   if (fork.status === "retired" || fork.status === "stopped" || fork.status === "banned") throw new AppError("conflict", `${fork.name} is ${fork.status}.`);
   const session = world.sessions.first("agentId = ? AND status = 'running' AND purpose = 'work'", [fork.id], "ORDER BY startedAt DESC, rowid DESC");
   if (!session || !isWorking(world, fork.id)) throw new AppError("conflict", `${fork.name} has no running work session.`);

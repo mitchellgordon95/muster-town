@@ -174,7 +174,7 @@ export class Permissions {
     this.repos.memberships.remove({ roleId, holderKind: h.kind, holderId: h.id });
   }
 
-  /** Agents (not users) holding a role, e.g. the building's moderator agent(s). */
+  /** Agents (not users) holding a role, e.g. the building's manager agent. */
   agentsWithRole(roleId: string): string[] {
     return this.repos.memberships.forRole(roleId).filter((m) => m.holderKind === "agent").map((m) => m.holderId);
   }

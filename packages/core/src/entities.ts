@@ -8,7 +8,7 @@ import { suggestResidentName } from "./names.ts";
 import { newId, nowIso } from "./util.ts";
 import type { Furniture } from "./world/furniture.ts";
 import type { Before, Moved } from "./world/map.ts";
-import { MAX_HEADCOUNT, TOWN_HALL_ID } from "./world/layout.ts";
+import { MAX_HEADCOUNT } from "./world/layout.ts";
 import { nearestWalkable } from "./world/path.ts";
 import type { Actor } from "./ops.ts";
 import type { World } from "./world.ts";
@@ -21,7 +21,7 @@ export function createUser(world: World, name: string, opts: { id?: string } = {
 }
 
 /**
- * Create a building: built-in building roles (manager/reviewer/member), creator gets `manager`,
+ * Create a building: built-in building roles (manager/member), creator gets `manager`,
  * lot assigned, `building.created` event. It copies the collective defaults (model, cheap model, max turns, daily budget,
  * code access: `TownMeta.defaults()`).
  */
@@ -29,7 +29,7 @@ export function createBuilding(
   world: World,
   input: In<typeof CreateBuildingInput> & SpecText,
   creatorUserId: string | null,
-  opts: { id?: string; kind?: Building["kind"]; lot?: Lot; starterResidents?: boolean } = {},
+  opts: { id?: string; kind?: Building["kind"]; lot?: Lot; starterResidents?: boolean; manager?: ManagerSpec } = {},
 ): Building {
   const inp = CreateBuildingInput.parse(input);
   // goal/description text only from old specs (seed, import-v0); the API and UI set the attachment instead
@@ -56,10 +56,13 @@ export function createBuilding(
     if (creatorUserId) world.permissions.grant({ kind: "user", id: creatorUserId }, buildingRoleId(id, "manager"));
     world.layout.rebuild();
     world.events.append({ type: "building.created", buildingId: id, text: `${building.name} was built`, payload: { createdBy: creatorUserId } });
-    if (opts.starterResidents && building.kind === "lab") seedManager(world, id);
+    if ((opts.starterResidents || opts.manager) && building.kind === "lab") seedManager(world, id, opts.manager);
     return world.buildings.require(id);
   });
 }
+
+/** A seeded manager's name, sprite and model (collective.json `manager`); left out = town-named, on the starter model. */
+type ManagerSpec = { name?: string; sprite?: number; model?: string };
 
 /** The model a new building's manager runs on (flag dc_knetp3kqnu); its forks inherit it. */
 export const STARTER_MANAGER_MODEL = "claude-fable-5-1";
@@ -68,10 +71,11 @@ export const STARTER_MANAGER_MODEL = "claude-fable-5-1";
  * A building made from the UI/API moves in its one named manager, town-named, on Fable, at a desk (1:1 mt_wngibcr98b
  * decision 1: no standing residents; its queued work runs on forks of the manager).
  */
-function seedManager(world: World, buildingId: string): void {
-  const manager = createResident(world, { buildingId, model: STARTER_MANAGER_MODEL });
+export function seedManager(world: World, buildingId: string, spec: ManagerSpec = {}): Agent {
+  const manager = createResident(world, { buildingId, name: spec.name, sprite: spec.sprite, model: spec.model ?? STARTER_MANAGER_MODEL });
   world.buildings.upsert({ ...world.buildings.require(buildingId), managerAgentId: manager.id });
   syncManagerRoles(world);
+  return world.agents.require(manager.id);
 }
 
 /**
@@ -194,26 +198,6 @@ export function createResident(world: World, input: In<typeof CreateResidentInpu
   });
 }
 
-/** A town moderator: a Town Hall resident holding the town `moderator` role, seated at the mod station. */
-export function createTownModerator(world: World, input: { name: string; sprite?: number; direction?: string; model?: string }): Agent {
-  const th = world.buildings.require(TOWN_HALL_ID, "building");
-  return world.transaction(() => {
-    const id = newId("ag");
-    world.agents.upsert(Agent.parse({
-      id, name: input.name, kind: "resident", buildingId: th.id, homeBuildingId: th.id, ownerUserId: th.createdBy ?? null,
-      title: "Moderator", sprite: input.sprite ?? 6, model: input.model ?? null,
-      direction: input.direction ?? "Collective-wide misuse prevention: delete outbox requests that misuse the town and ban agents that misuse the town. Every building keeps its own policies; you don't review research.",
-      pos: world.layout.door(th.id) ?? { x: 0, y: 0 }, status: "idle", createdAt: nowIso(),
-    }), { silent: true });
-    const desk = world.layout.claimDesk(th.id, id);
-    const agent = world.agents.patch(id, { pos: desk.pos });
-    world.permissions.ensureTownRoles();
-    world.permissions.grant(agent, townRoleId("moderator"));
-    world.events.append({ type: "agent.created", agentId: id, buildingId: th.id, text: `${agent.name} (town moderator) took a seat at the mod station`, payload: { kind: "resident", townModerator: true } });
-    return agent;
-  });
-}
-
 function spawnPoint(world: World, buildingId?: string | null): Tile {
   const p = (buildingId && world.layout.door(buildingId)) || world.layout.place("plaza")?.pos;
   return p ? { ...p } : { x: 1, y: world.layout.grid.h - 3 };
@@ -275,17 +259,5 @@ export function ensureAvatar(world: World, userId: string): Agent {
     pos: freeTileNear(world, spawnPoint(world)), createdAt: nowIso(),
   }));
   world.events.append({ type: "agent.created", agentId: agent.id, text: `${user.name} walked into town`, payload: { kind: "human", userId } });
-  return agent;
-}
-
-/** Ada-style service agent standing next to a place. */
-export function createServiceAgent(world: World, input: { name: string; title: string; placeId: string; sprite?: number; id?: string }): Agent {
-  const place = world.layout.requirePlace(input.placeId);
-  const pos = world.layout.isWalkable(place.pos.x + 1, place.pos.y) ? { x: place.pos.x + 1, y: place.pos.y } : place.pos;
-  const agent = world.agents.upsert(Agent.parse({
-    id: input.id ?? newId("ag"), name: input.name, kind: "service", buildingId: place.buildingId, homeBuildingId: place.buildingId ?? TOWN_HALL_ID,
-    title: input.title, sprite: input.sprite ?? 0, pos, createdAt: nowIso(),
-  }));
-  world.events.append({ type: "agent.created", agentId: agent.id, buildingId: agent.buildingId, text: `${agent.name} (${agent.title}) is at the ${place.name}`, payload: { kind: "service" } });
   return agent;
 }

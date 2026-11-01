@@ -11,12 +11,12 @@ export const TOWN_HALL_SIZE = { w: 17, h: 11 } as const;
 export { MAX_HEADCOUNT };
 
 export const TOWN_HALL_ID = "town-hall";
-/** Seats at the Town Hall mod station (town moderators' desks). */
+/** Seats at the Town Hall mod station (the Town Hall's desks; the Planner sits at one). */
 export const MOD_SEATS = 3;
 
 /** Town Hall fixtures, relative to its lot (17x11). Exported so tests and the web can reason about them. */
 export const TOWN_HALL_FIXTURES = {
-  /** mod station: desk tiles in the bottom-left; moderators sit on the row below */
+  /** mod station: desk tiles in the bottom-left; its seats are the row below */
   modDesk: [{ x: 2, y: 8 }, { x: 3, y: 8 }, { x: 4, y: 8 }],
   modSeats: [{ x: 2, y: 9 }, { x: 3, y: 9 }, { x: 4, y: 9 }],
   modStand: { x: 5, y: 8 },
@@ -114,7 +114,7 @@ export function computeLayout(buildings: Building[], goals: TreeGoal[], occupanc
     const occ = occupancy.get(b.id) ?? new Map<number, string>();
 
     if (b.kind === "town-hall") {
-      // mod-station seats are the Town Hall's desks (town moderators)
+      // mod-station seats are the Town Hall's desks (the Planner's)
       const seats: DeskSlot[] = Array.from({ length: MOD_SEATS }, (_, n) => ({ buildingId: b.id, n, pos: stand("mod-station", n), agentId: occ.get(n) ?? null }));
       desks.set(b.id, seats);
       for (const s of seats) {

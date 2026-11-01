@@ -113,7 +113,7 @@ export async function say(world: World, me: Agent, input: VerbIn<"say">) {
   return { heardBy: listeners.map((a) => a.name) };
 }
 
-/** \`stop_fork\` (manager/reviewer): ask a live fork to wrap up and file its report now; hard stop after the timeout (forks.ts). */
+/** \`stop_fork\` (manager): ask a live fork to wrap up and file its report now; hard stop after the timeout (forks.ts). */
 export async function stop_fork(world: World, me: Agent, input: VerbIn<"stop_fork">) {
   return requestForkStop(world, me, input);
 }
@@ -176,7 +176,7 @@ function idleNote(world: World, me: Agent, to: Agent): string | undefined {
   if (to.kind !== "resident" || !["idle", "stopped", "out-of-budget"].includes(to.status)) return undefined;
   const how = world.permissions.can(me, "building.assign", homeOf(to))
     ? `If it needs action, use \`assign\` to give ${to.name} the work.`
-    : `If it needs action, ask someone who can \`assign\` (a manager or reviewer of ${to.name}'s building).`;
+    : `If it needs action, ask someone who can \`assign\` (the manager of ${to.name}'s building).`;
   return `Delivered to ${to.name}'s inbox, but ${to.name} is ${to.status} and will not see it until a session starts: a \`tell\` does not start work. ${how}`;
 }
 
@@ -218,7 +218,7 @@ export async function accept_assignment(world: World, me: Agent, input: VerbIn<"
 export async function ban(world: World, me: Agent, input: VerbIn<"ban">) {
   const target = world.agents.require(input.agentId, "agent");
   const bid = homeOf(target);
-  // ban is a town-level act (moderators / admin)
+  // ban is a town-level act (admins)
   if (!world.permissions.can(me, "town.ban")) throw forbidden("town.ban");
   if (target.kind === "human") throw badRequest("Humans can't be banned with this verb.");
   if (target.status === "retired") throw badRequest(`${target.name} was dismissed.`);

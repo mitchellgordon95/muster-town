@@ -78,7 +78,7 @@ export function IntrayPanel({ buildingId }: { buildingId: string }) {
         <ReviewDeckView grants={grants} reports={reports} goalProposals={goalProposals} captains={captains} view={view} funder={funder} onClose={() => setAsDeck(false)} onDecided={list.reload} onOpenDoc={openDoc} />
       ) : (
         <>
-          {!canReview && !hall ? <div className="callout">You can read the in-tray. Decisions are for the building's manager and reviewer.</div> : null}
+          {!canReview && !hall ? <div className="callout">You can read the in-tray. Decisions are for the building's manager.</div> : null}
           {manager && !hall ? <div className="callout">★ {manager.name}, the building's manager, works this in-tray and rolls up to the Town Hall in-tray. You can still decide here.</div> : null}
           {hall ? <ReviewAsDeckButton count={count} onOpen={() => setAsDeck(true)} view={signedIn ? { view, hidden, set: setView, funder: !!funder } : undefined} /> : null}
           <ErrorLine error={list.error} />
@@ -833,7 +833,7 @@ export function ModStationPanel() {
   const canBan = store.can("town.ban");
   const tabs = ["Requests", "Bans"];
   return (
-    <PanelShell icon={<Glyph kind="mod" />} title="Mod station" subtitle={canRequests || canBan ? "Collective-wide misuse prevention" : `Read-only${me ? ` · ${me.user.name} isn't a moderator` : ""}`} tabs={tabs}>
+    <PanelShell icon={<Glyph kind="mod" />} title="Mod station" subtitle={canRequests || canBan ? "Collective-wide misuse prevention" : `Read-only${me ? ` · ${me.user.name} isn't an admin` : ""}`} tabs={tabs}>
       {(t) => (
         <>
           {t === "Requests" ? <ModRequests can={canRequests} /> : null}
@@ -888,7 +888,7 @@ function ModBans({ can }: { can: boolean }) {
             }}>Ban</Act></div>
           </form>
         </Section>
-      ) : <div className="callout">Banning needs the town moderator role.</div>}
+      ) : <div className="callout">Banning is for admins.</div>}
       <Section title="Recent bans">
         {!bans.length ? <Empty>No bans in the recent log.</Empty> : bans.map((e) => (
           <div key={e.id} className="ev bad"><time title={e.ts}>{timeAgo(e.ts)}</time><span>{e.text}</span></div>

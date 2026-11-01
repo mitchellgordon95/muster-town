@@ -1,4 +1,4 @@
-/** v1.2: dismiss, role migration from a v1.1 DB, places, reconcile, collective moderators. */
+/** v1.2: dismiss, role migration from a v1.1 DB, places, reconcile. */
 import Database from "better-sqlite3";
 import { BUILTIN_ROLES, Permission } from "@muster-town/schema";
 import { copyFileSync, mkdirSync, readdirSync, writeFileSync } from "node:fs";
@@ -71,38 +71,41 @@ describe("role migration (v1.1 DB)", () => {
     const member = db.prepare("INSERT INTO memberships (roleId, holderKind, holderId) VALUES (?, ?, ?)");
     member.run("role:admin", "user", "us_admin");
     member.run("role:carbon-cycle:moderator", "agent", "ag_moss");
+    db.prepare("INSERT INTO agents (id, name, kind, buildingId, homeBuildingId, title, pos, status, createdAt) VALUES ('ag_ada', 'Ada', 'service', ?, ?, 'Librarian', ?, 'idle', ?)").run(TOWN_HALL_ID, TOWN_HALL_ID, pos, now);
     expect((db.prepare("SELECT version FROM schema_version ORDER BY version").all() as { version: number }[]).map((r) => r.version)).toEqual([1, 2, 3, 4]);
     db.close();
     return dbPath;
   }
 
-  it("renames moderator → reviewer, fixes manager/admin permissions, creates the town moderator role, maps statuses and policy", () => {
+  it("drops the building moderator role and its memberships, fixes manager/admin permissions, retires the service agent, maps statuses and policy", () => {
     const dbPath = v11Db();
     const w = World.open(dbPath);
     try {
       expect(w.roles.get("role:carbon-cycle:moderator")).toBeUndefined();
-      const reviewer = w.roles.require(buildingRoleId("carbon-cycle", "reviewer"));
-      expect(reviewer).toMatchObject({ name: "reviewer", scope: "building", buildingId: "carbon-cycle", builtin: true, permissions: BUILTIN_ROLES.building.reviewer });
+      expect(w.roles.get("role:carbon-cycle:reviewer")).toBeUndefined();
+      expect(w.roles.get("role:moderator")).toBeUndefined();
       const moss = w.agents.first("name = 'Moss'")!;
-      expect(w.permissions.can(moss, "building.review", "carbon-cycle")).toBe(true);
+      expect(w.permissions.can(moss, "building.review", "carbon-cycle")).toBe(false);
+      expect(w.memberships.forHolder("agent", moss.id)).toEqual([]);
+      expect(w.agents.require("ag_ada")).toMatchObject({ kind: "resident", status: "retired" });
       const manager = w.roles.require(buildingRoleId("carbon-cycle", "manager")).permissions;
       expect(manager).toContain("building.dismiss");
       expect(manager).not.toContain("building.ban" as never);
       expect(w.roles.require(townRoleId("admin")).permissions.sort()).toEqual([...Permission.options].sort());
-      expect(w.roles.require(townRoleId("moderator")).permissions).toEqual(BUILTIN_ROLES.town.moderator);
       expect(w.agents.first("name = 'Ravi'")!.status).toBe("idle");
-      // the seed-on-open path creates no moderator agents in an existing DB
+      // the seed-on-open path creates no agents in an existing DB
       const before = w.agents.count();
       const res = w.seedDefaults({});
       expect(res.created).toBe(false);
-      expect(res.moss?.name).toBe("Moss");
+      expect(res.manager).toBeNull();
       expect(w.agents.count()).toBe(before);
     } finally {
       w.close();
     }
     // idempotent on the next open
     const w2 = World.open(dbPath);
-    expect(w2.roles.where("name = 'reviewer' AND buildingId = 'carbon-cycle'")).toHaveLength(1);
+    expect(w2.roles.where("name IN ('reviewer', 'moderator')")).toHaveLength(0);
+    expect(w2.agents.require("ag_ada").status).toBe("retired");
     w2.close();
   });
 });
@@ -163,29 +166,5 @@ describe("reconcile", () => {
     expect(world.agents.require(mei.id)).toMatchObject({ status: "idle", currentAssignmentId: null });
     expect(world.sessions.require(s2.id).status).toBe("running");
     expect(world.assignments.require(a2.id).status).toBe("active");
-  });
-});
-
-describe("collective moderators and reviewers", () => {
-  it("seeds town moderators at the mod station with the town moderator role; building reviewer gets the reviewer role", () => {
-    const { world } = freshWorld();
-    const dir = tempDir();
-    const cfg = join(dir, "collective.json");
-    writeFileSync(cfg, JSON.stringify({
-      name: "T", goal: "", moderators: [{ name: "Wren", sprite: 6 }],
-      buildings: [{ id: "lab", name: "Lab", residents: [{ name: "A", title: "x", direction: "y" }], reviewer: { name: "Keel" } }],
-    }));
-    const seed = world.seedDefaults({ collectivePath: cfg, townJsonPath: cfg });
-    const wren = seed.moderators[0]!;
-    expect(wren).toMatchObject({ name: "Wren", kind: "resident", homeBuildingId: TOWN_HALL_ID, sprite: 6, title: "Moderator" });
-    expect(world.permissions.can(wren, "town.ban")).toBe(true);
-    expect(world.permissions.can(wren, "town.moderate")).toBe(true);
-    const seat = world.layout.deskOf(wren.id)!;
-    expect(seat.buildingId).toBe(TOWN_HALL_ID);
-    expect(wren.pos).toEqual(seat.pos);
-    const stand = world.layout.requirePlace("mod-station").pos;
-    expect(Math.abs(seat.pos.x - stand.x) + Math.abs(seat.pos.y - stand.y)).toBeLessThanOrEqual(4);
-    const keel = world.agents.first("name = 'Keel'")!;
-    expect(world.memberships.forRole(buildingRoleId("lab", "reviewer")).map((m) => m.holderId)).toEqual([keel.id]);
   });
 });

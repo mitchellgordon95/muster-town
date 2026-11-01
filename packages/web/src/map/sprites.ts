@@ -25,7 +25,7 @@ const WALK = [...HEAD, "..BBBBBBBB..", "..SBBBBBBS..", "..SBBBBBBS..", "...BBBBB
 
 const SKIN = ["#f1c9a5", "#c68642", "#f6d7bd", "#8d5524", "#e0ac69"];
 const PALETTES: Record<string, string>[] = [
-  { H: "#3b2a22", B: "#c94f4f", P: "#2d3550", S: SKIN[0] }, // 0 librarian
+  { H: "#3b2a22", B: "#c94f4f", P: "#2d3550", S: SKIN[0] }, // 0 red
   { H: "#1c1c1c", B: "#4f8fc9", P: "#2f2f3a", S: SKIN[1] },
   { H: "#d9a441", B: "#5aa66b", P: "#3a3a4a", S: SKIN[0] },
   { H: "#2b2b2b", B: "#b26fd1", P: "#2d3550", S: SKIN[2] },
@@ -33,7 +33,7 @@ const PALETTES: Record<string, string>[] = [
   { H: "#c4553a", B: "#3fbfb0", P: "#2f2f3a", S: SKIN[0] },
   { H: "#6b4f3a", B: "#d85f8f", P: "#2d3550", S: SKIN[0] },
   { H: "#f0f0f0", B: "#ffffff", P: "#5b7aa6", S: SKIN[0] }, // 7 human player
-  { H: "#5b5f6b", B: "#7a8a6a", P: "#33363f", S: SKIN[4] }, // 8 moderator
+  { H: "#5b5f6b", B: "#7a8a6a", P: "#33363f", S: SKIN[4] }, // 8 grey
   { H: "#2a1d14", B: "#e86a3a", P: "#2f2f3a", S: SKIN[2] },
   { H: "#8a6236", B: "#6a7de0", P: "#3a3a4a", S: SKIN[1] },
   { H: "#101010", B: "#9ac23f", P: "#2d3550", S: SKIN[3] },

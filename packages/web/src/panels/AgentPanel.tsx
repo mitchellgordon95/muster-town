@@ -243,7 +243,7 @@ function TalkTab({ agent }: { agent: Agent }) {
   const events = useTown((s) => s.events);
   const me = useTown((s) => s.me);
   const avatarId = me?.avatarAgentId ?? null;
-  const isService = agent.kind === "service", isHuman = agent.kind === "human", isVisitor = agent.kind === "visitor";
+  const isHuman = agent.kind === "human", isVisitor = agent.kind === "visitor";
   const home = useTown((s) => s.buildings.find((b) => b.id === agent.homeBuildingId));
   const manager = useTown((s) => (home?.managerAgentId ? s.agents[home.managerAgentId] : undefined));
   /** a resident other than its building's manager agent: its manager takes requests */
@@ -255,7 +255,7 @@ function TalkTab({ agent }: { agent: Agent }) {
   /** the tells between the agent and my avatar (an agent may `tell` me; nothing here sends one) */
   const threaded = (agent.kind === "resident" || isVisitor) && !!me;
   const working = agent.status === "working";
-  const s = useLoad(() => (isHuman || isService ? Promise.resolve(null) : api().session(agent.id)), [agent.id, working]);
+  const s = useLoad(() => (isHuman ? Promise.resolve(null) : api().session(agent.id)), [agent.id, working]);
   const th = useLoad(() => (threaded ? api().thread(agent.id) : Promise.resolve([] as ThreadMessage[])), [agent.id, threaded]);
   const timeline = useMemo(() => {
     const out: Item[] = [];
@@ -284,16 +284,15 @@ function TalkTab({ agent }: { agent: Agent }) {
   const fam = family.data && family.data.forks > 0 ? family.data : null;
   // a fork's own row is booked only when its session ends: show the manager's family count too
   const root = useTown((st) => (agent.forkOf ? st.agents[agent.forkOf] : undefined));
-  const canControl = !isHuman && !isService && canControlAgent(agent);
+  const canControl = !isHuman && canControlAgent(agent);
   return (
     <div className="chat-wrap">
-      {isService ? <div className="actions"><button className="btn" onClick={() => store.open({ kind: "library" })}>Browse the library</button></div> : null}
       {isVisitor ? (
         <KV items={[
           ["Runs", "outside the town (its owner's Claude Code session), through the agent API"],
           ["Last call", agent.lastSeenAt ? `${timeAgo(agent.lastSeenAt)} · ${clock(agent.lastSeenAt)}` : "never"],
         ]} />
-      ) : !isHuman && !isService ? (
+      ) : !isHuman ? (
         <KV items={[
           ["Model", sess?.model ?? agent.model ?? building?.model ?? "default"],
           agent.forkOf ? ["Today", <span title={`${root?.name ?? "The manager"} and its forks, today. A fork's spend is booked when its session ends.`}>
@@ -309,7 +308,7 @@ function TalkTab({ agent }: { agent: Agent }) {
       {agent.status === "stopped" && canControl ? (
         <div className="callout">{agent.name} is stopped. <Act small run={async () => { await api().resume(agent.id); store.toast(`${agent.name} is idle again`, "ok"); }}>Resume</Act> to let them take work again.</div>
       ) : null}
-      <Timeline items={timeline} agentName={agent.name} empty={isService ? `${agent.name} keeps the library: browse it for what the town has written.` : `${agent.name} hasn't done anything yet.`} />
+      <Timeline items={timeline} agentName={agent.name} empty={`${agent.name} hasn't done anything yet.`} />
       {viaManager && manager ? (
         <div className="callout via-manager">
           <span>{agent.name} works from assignments and doesn't take messages. The Memory tab says what they know.</span>
@@ -317,7 +316,7 @@ function TalkTab({ agent }: { agent: Agent }) {
             : <button type="button" className="btn sm primary" onClick={() => store.open({ kind: "agent", id: manager.id, tab: "Talk" })}>Talk to ★ {manager.name}</button>}
           {working && canControl ? <Act small tone="bad" run={async () => { await api().stop(agent.id); store.toast(`${agent.name} stopped`, "ok"); }}>Stop</Act> : null}
         </div>
-      ) : isHuman || isService ? null : !me ? <SignInNote to={`talk to ${agent.name}`} /> : isManager && canTalk ? (
+      ) : isHuman ? null : !me ? <SignInNote to={`talk to ${agent.name}`} /> : isManager && canTalk ? (
         <div className="callout via-manager">
           <span>{agent.name} is {home!.name}'s {townHall ? "manager, the planning agent" : "manager"}. Talk in a 1:1: they answer as you go and can {townHall ? "draft the goal-tree proposals you agree on" : "assign the work you agree on"}.</span>
           <Act small tone="primary" run={() => townHall ? openPlanner() : openOneOnOne(home!.id)}>Talk to ★ {agent.name}</Act>

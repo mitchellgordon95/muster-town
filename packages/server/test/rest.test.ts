@@ -112,8 +112,7 @@ describe("buildings & agents", () => {
   it("the message and proxy-chat routes are gone (1:1 mt_wql34b8gkl); interrupt and meeting start call the runtime when attached", async () => {
     const off = await setup();
     const mei = off.by("Mei");
-    const ada = off.world.agents.first("kind = 'service'")!;
-    expect((await json(off.app, "POST", `/api/agents/${ada.id}/chat`, { headers: off.auth, body: { message: "hi" } })).status).toBe(404);
+    expect((await json(off.app, "POST", `/api/agents/${mei.id}/chat`, { headers: off.auth, body: { message: "hi" } })).status).toBe(404);
     expect((await json(off.app, "POST", `/api/agents/${mei.id}/message`, { headers: off.auth, body: { text: "hi" } })).status).toBe(404);
 
     const calls: unknown[] = [];

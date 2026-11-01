@@ -205,7 +205,7 @@ function AddHolder({ onAdd }: { onAdd: (kind: "agent" | "user", id: string) => P
     <div className="inline-form">
       <select value={v} onChange={(e) => setV(e.target.value)}>
         <option value="">Add holder…</option>
-        {Object.values(agents).filter((a) => a.kind !== "service").map((a) => (
+        {Object.values(agents).map((a) => (
           <option key={a.id} value={a.kind === "human" ? `user:${a.ownerUserId ?? a.id}` : `agent:${a.id}`}>{a.name}{a.kind === "human" ? " (human)" : ""}</option>
         ))}
       </select>
