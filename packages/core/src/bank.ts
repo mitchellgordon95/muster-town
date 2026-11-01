@@ -1,4 +1,5 @@
-import { AddBankInput, ZERO_TOKENS, addTokens, backfillFamily, oauthTokenProblem, countsOf, rawPerAdjusted, rawTokens, sliceTokens, splitRaw, subTokens, type TokenCounts, type BankCredit, type BankInput, type BankRecurrence, type FreeTokens, type Agent, type Session, type SessionView } from "@muster-town/schema";
+import { AddBankInput, ZERO_TOKENS, addTokens, backfillFamily, oauthTokenProblem, countsOf, rawPerAdjusted, rawTokens, sliceTokens, splitRaw, subTokens, type TokenCounts, type BankCredit, type BankInput, type CredentialLimit, type BankRecurrence, type FreeTokens, type Agent, type Session, type SessionView } from "@muster-town/schema";
+import { Availability, inForce, limitText } from "./availability.ts";
 import { CAP_THOUGHT, countDeaths, type BankDeaths } from "./caps.ts";
 import { driftRows, parseResetsAt, previousUtcDay, utcDay, type DriftRow } from "./drift.ts";
 import { AppError, badRequest, forbidden } from "./errors.ts";
@@ -199,7 +200,7 @@ export interface BankSummary {
   /** expected tokens per day from active recurring inputs (monthly counts as 30 days) */
   dailyInflowTokens: number;
   /** per input, also: `debitedTokens`, what grants it pays for drew from it by name; `balanceTokens`, inputBalance (member funding) */
-  inputs: (BankInput & { userName: string; creditedCounts: TokenCounts; adjustedCreditedTokens: number; debitedTokens: number; balanceTokens: number })[];
+  inputs: (BankInput & { userName: string; creditedCounts: TokenCounts; adjustedCreditedTokens: number; debitedTokens: number; balanceTokens: number; limits: BankLimitView[] })[];
   buildings: BankBuildingShare[];
   /** free tokens town-wide (the root's: docs/how-work-gets-done.md §7); null when the Bank runs without a world (tests) */
   free: FreeTokens | null;
@@ -215,6 +216,9 @@ export interface BankSummary {
   /** the subscription's observed cap: today's spend and whether a cap event's reset is still ahead (no learned cap, no hold) */
   cap: BankCapState;
 }
+
+/** An observed limit on an input as GET /api/bank shows it (availability.ts): in force now or not, and its words. */
+type BankLimitView = CredentialLimit & { inForce: boolean; text: string };
 
 /**
  * The subscription cap as observed from `bank.cap` events (GET /api/bank `cap`). Observed only: the Bank no longer learns
@@ -310,7 +314,12 @@ export function percentile(xs: number[], p: number): number {
 }
 
 export class Bank {
-  constructor(private repos: Repos, private events: EventLog, private permissions: Permissions) {}
+  /** what the provider actually serves, observed per input and model class (availability.ts) */
+  readonly availability: Availability;
+
+  constructor(private repos: Repos, private events: EventLog, private permissions: Permissions) {
+    this.availability = new Availability(repos, events);
+  }
   /** A hosted collective (served by the hub at `/<slug>/`): API keys only, never a subscription (`HOSTED_KEY_ONLY_HOLD`). */
   hosted(): boolean { return this.permissions.isHosted(); }
   /** the town-wide free tokens (set by the World: they need grants and the goal tree; core free-tokens.ts) */
@@ -392,6 +401,15 @@ export class Bank {
     return row;
   }
 
+  /** "Try now": clear an observed limit by hand (the input's owner or an admin), so the next session may try it. */
+  clearLimit(userId: string, limitId: string): CredentialLimit {
+    const l = this.repos.credentialLimits.require(limitId, "limit");
+    const inp = this.repos.bankInputs.get(l.inputId);
+    if (inp?.userId !== userId && !this.permissions.isAdmin({ kind: "user", id: userId })) throw forbidden("town.allocate_budget", "Only the input's owner or an admin can clear its limit.");
+    if (l.clearedAt) return l;
+    return this.availability.clear(l, new Date(), `${this.repos.users.get(userId)?.name ?? userId} cleared it by hand`);
+  }
+
   input(inputId: string): BankInput | undefined {
     return this.repos.bankInputs.get(inputId);
   }
@@ -435,8 +453,8 @@ export class Bank {
   }
 
   /** An api-key input's credential: `inputId`'s when it is live and holds its key, else the oldest live keyed api-key input's; null when none. */
-  apiKeyCredential(inputId?: string | null): Credential | null {
-    const inp = inputId ? this.repos.bankInputs.get(inputId) : this.liveApiKeyInput();
+  apiKeyCredential(inputId?: string | null, model?: string | null, now = new Date()): Credential | null {
+    const inp = inputId ? this.repos.bankInputs.get(inputId) : this.liveApiKeyInput(model, now);
     if (!inp || inp.source !== "api-key" || !inp.hasApiKey || inp.cancelledAt) return null;
     const secret = this.apiKeyFor(inp.id);
     return secret ? { kind: "api-key", secret, inputId: inp.id } : null;
@@ -613,14 +631,22 @@ export class Bank {
    * The API-key input a subscription-funded session can fail over to when the plan hits its spend limit:
    * the oldest live api-key input with a key, if the Bank still has durable tokens (else null).
    */
-  fallbackInput(buildingId: string, now = new Date()): BankInput | null {
+  fallbackInput(buildingId: string, now = new Date(), model?: string | null): BankInput | null {
     if (this.available(buildingId, now).durable <= 0) return null;
-    return this.repos.bankInputs.first(LIVE_KEYED, ["api-key"], "ORDER BY createdAt, rowid") ?? null;
+    return this.liveApiKeyInput(model, now);
   }
 
-  /** The oldest live api-key input that still has its key (a hosted collective without one is held: `NO_KEY_HOLD`). */
-  liveApiKeyInput(): BankInput | null {
-    return this.repos.bankInputs.first(LIVE_KEYED, ["api-key"], "ORDER BY createdAt, rowid") ?? null;
+  /** Every live input of `source` that holds its key (earmarks left out), oldest first, limited or not. */
+  keyedInputs(source: "api-key" | "subscription"): BankInput[] {
+    return this.repos.bankInputs.where(LIVE_KEYED, [source], "ORDER BY createdAt, rowid");
+  }
+
+  /**
+   * The oldest live api-key input that still has its key (a hosted collective without one is held: `NO_KEY_HOLD`). With
+   * `model`, the oldest one not limited for that model now (availability.ts); without, the oldest not limited for every model.
+   */
+  liveApiKeyInput(model?: string | null, now = new Date()): BankInput | null {
+    return this.keyedInputs("api-key").find((i) => this.availability.available(i.id, model, now)) ?? null;
   }
 
   /** Where the building's next session should be funded from, or null when the general balance is used up. */
@@ -628,8 +654,8 @@ export class Bank {
     const a = this.available(buildingId, now);
     if (a.expiring > 0) return { kind: "expiring" };
     if (a.durable <= 0) return null;
-    // the oldest live api-key input that still has its key
-    const input = this.liveApiKeyInput();
+    // the oldest live api-key input that still has its key and isn't limited for every model now
+    const input = this.liveApiKeyInput(null, now);
     return { kind: "durable", inputId: input?.id ?? null };
   }
 
@@ -763,7 +789,8 @@ export class Bank {
     const inputViews = inputs.map((i) => {
       const counts = countsOf(byInput.get(i.id) ?? ZERO_TOKENS);
       const debitedTokens = this.debited("inputId = ?", [i.id]);
-      return { ...i, userName: this.repos.users.get(i.userId)?.name ?? i.userId, creditedCounts: counts, adjustedCreditedTokens: adjustedOutputTokens(i.model, counts), debitedTokens, balanceTokens: this.inputBalance(i.id, now) };
+      const limits = this.availability.open(i.id).map((l) => ({ ...l, inForce: inForce(l, now), text: limitText(l, i.label) }));
+      return { ...i, userName: this.repos.users.get(i.userId)?.name ?? i.userId, creditedCounts: counts, adjustedCreditedTokens: adjustedOutputTokens(i.model, counts), debitedTokens, balanceTokens: this.inputBalance(i.id, now), limits };
     });
     const totals = this.totals(now);
     const held = new Map<string, HeldByAuth>();

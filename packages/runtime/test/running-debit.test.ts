@@ -137,7 +137,7 @@ describe("desk sessions post usage as they run, and every exit path books it (c)
     expect(r.paid()).toBeGreaterThan(0);
   });
 
-  test("a spend-limit death with a smaller (or no) figure than was posted never books less than the posts", async () => {
+  test("a spend-limit death with a smaller (or no) figure than was posted never books less than the posts; its assignment goes back to the front of the queue (no fallback report)", async () => {
     const r = deskRun("Tomas");
     const sid = await r.started;
     r.post(sid, usagePost(10, 900, 30_000));
@@ -149,7 +149,10 @@ describe("desk sessions post usage as they run, and every exit path books it (c)
     expect(ended).toMatchObject({ status: "error", output: 900, cacheRead: 30_000 });
     expect(r.paid()).toBe(posted);
     expect(r.paid()).toBe(adjusted(r.world, sid));
-    expect(r.world.docs.require(ended.reportId!).decision).toBe("pending"); // the fallback report
+    // the credential couldn't serve it: not the work's failure (availability.ts). Requeued, the limit recorded, no fallback report.
+    expect(ended.reportId ?? null).toBeNull();
+    expect(r.world.assignments.require(ended.assignmentId!).status).toBe("pending");
+    expect(r.world.bank.availability.open(ended.credentialInputId!)).toHaveLength(1);
   });
 
   test("a stopped (killed) desk is booked like any other", async () => {
