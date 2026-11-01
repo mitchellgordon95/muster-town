@@ -1,5 +1,5 @@
 import { execFileSync } from "node:child_process";
-import { existsSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
@@ -65,6 +65,34 @@ describe("setupWorkspace", () => {
     const dir = join(root, "fresh");
     setupWorkspace({ repoUrl: bare, base: "main", branch: "agent/ada/old", branchPrefix: "agent", dir }, { npmInstall: false });
     expect(existsSync(join(dir, "old.md"))).toBe(true);
+  });
+
+  it("moves a half-done merge aside when git stash refuses it, then checks out the session branch", () => {
+    const dir = join(root, "home", "work", "origin");
+    const ws = { repoUrl: bare, base: "main", branch: "agent/ada/one", branchPrefix: "agent", dir };
+    setupWorkspace(ws, { agentName: "Ada", npmInstall: false });
+    // a conflicting merge left unresolved, plus an untracked file: `git stash` answers "needs merge" (on stdout) and fails
+    writeFileSync(join(dir, "README.md"), "mine\n");
+    git(dir, "commit", "-am", "mine");
+    git(dir, "checkout", "-b", "other", "origin/main");
+    writeFileSync(join(dir, "README.md"), "theirs\n");
+    git(dir, "commit", "-am", "theirs");
+    git(dir, "checkout", "agent/ada/one");
+    expect(() => git(dir, "merge", "other")).toThrow();
+    writeFileSync(join(dir, "scratch.txt"), "keep me\n");
+
+    const logs: string[] = [];
+    setupWorkspace({ ...ws, branch: "agent/ada/two" }, { npmInstall: false, log: (l) => logs.push(l) });
+    expect(git(dir, "branch", "--show-current")).toBe("agent/ada/two");
+    expect(git(dir, "status", "--porcelain")).toBe("");
+    expect(existsSync(join(dir, ".git", "MERGE_HEAD"))).toBe(false);
+    const line = logs.find((l) => l.startsWith("git stash failed"));
+    // git versions word the refusal differently ("needs merge" or "could not write index")
+    expect(line).toMatch(/needs merge|could not write index/);
+    const backup = line!.match(/aside to (\S+) and reset/)![1];
+    expect(readFileSync(join(backup, "files", "scratch.txt"), "utf8")).toBe("keep me\n");
+    expect(readFileSync(join(backup, "files", "README.md"), "utf8")).toMatch(/<<<<<<<|mine|theirs/);
+    expect(readFileSync(join(backup, "README.txt"), "utf8")).toMatch(/UU README.md/);
   });
 
   it("names the missing GH_TOKEN when a private https repo asks for credentials", () => {

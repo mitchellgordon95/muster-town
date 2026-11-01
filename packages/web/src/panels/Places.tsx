@@ -3,7 +3,7 @@
  * the filing cabinet, the schedule board and the mod station (Town Hall). Donating is at the Bank (BankFunding.tsx).
  */
 import { useEffect, useMemo, useState } from "react";
-import { BOARD_TYPES, DocType, type AccessRequestView, type CaptainRequestView, type Doc, type FunderWeek, type GrantView, type IntrayRoute, type Meeting } from "@muster-town/schema";
+import { BOARD_TYPES, DocType, type AccessRequestView, type CaptainRequestView, type Doc, type ScheduleView, type FunderWeek, type GrantView, type IntrayRoute, type Meeting } from "@muster-town/schema";
 import { api, type Board, type GoalProposalView, type Intray, type ReportChain } from "../api";
 import { forkTip } from "../forks";
 import { UNBLOCK_LINE, unfundableReason } from "./keyResults";
@@ -57,7 +57,8 @@ export function IntrayPanel({ buildingId }: { buildingId: string }) {
   const grants = mineOnly(list.data?.grants ?? [], routes, view, funder);
   const goalProposals = mineOnly(list.data?.goalProposals ?? [], routes, view, funder);
   const captains = mineOnly(list.data?.captains ?? [], routes, view, funder);
-  const hidden = isHall ? allReports.length + (list.data?.grants?.length ?? 0) + (list.data?.goalProposals?.length ?? 0) + (list.data?.captains?.length ?? 0) - reports.length - grants.length - goalProposals.length - captains.length : 0;
+  const retainers = mineOnly(list.data?.retainers ?? [], routes, view, funder);
+  const hidden = isHall ? allReports.length + (list.data?.grants?.length ?? 0) + (list.data?.goalProposals?.length ?? 0) + (list.data?.captains?.length ?? 0) + (list.data?.retainers?.length ?? 0) - reports.length - grants.length - goalProposals.length - captains.length - retainers.length : 0;
   useEffect(() => { if (list.data) store.putDocs(list.data.reports); }, [list.data]);
   const stored = useTown((s) => (openId ? s.docs[openId] : undefined));
   const open = openId ? reports.find((d) => d.id === openId) ?? stored ?? null : null;
@@ -69,13 +70,13 @@ export function IntrayPanel({ buildingId }: { buildingId: string }) {
   const subtitle = hall ? "Town Hall · rollups, proposals and checkpoints for the humans" : `${b.name} · manager's desk · worked by ${manager ? `★ ${manager.name}` : "you"}`;
   const flags = reports.filter((d) => d.type === "flag").length;
   const access = list.data?.access ?? [];
-  const count = reports.length + grants.length + goalProposals.length + access.length + captains.length - flags;
+  const count = reports.length + grants.length + goalProposals.length + access.length + captains.length + retainers.filter((x) => x.retainer === "asked").length - flags;
   return (
     <PanelShell icon={<Glyph kind="intray" />} title={<>In-tray {count ? <Pill tone="warn" title="Reports, rollups and proposals waiting">{count}</Pill> : null}{flags ? <> <Pill tone="warn" title="Flags humans planted here, waiting for the manager to delegate">⚑ {flags}</Pill></> : null}</>} subtitle={subtitle}>
       {open ? (
         <DocView doc={open} review onBack={() => setOpenId(null)} backLabel={asDeck ? "Review deck" : "In-tray"} onDecided={() => { setOpenId(null); list.reload(); }} />
       ) : hall && asDeck ? (
-        <ReviewDeckView grants={grants} reports={reports} goalProposals={goalProposals} captains={captains} view={view} funder={funder} onClose={() => setAsDeck(false)} onDecided={list.reload} onOpenDoc={openDoc} />
+        <ReviewDeckView grants={grants} reports={reports} goalProposals={goalProposals} captains={captains} retainers={retainers} view={view} funder={funder} onClose={() => setAsDeck(false)} onDecided={list.reload} onOpenDoc={openDoc} />
       ) : (
         <>
           {!canReview && !hall ? <div className="callout">You can read the in-tray. Decisions are for the building's manager and reviewer.</div> : null}
@@ -83,7 +84,7 @@ export function IntrayPanel({ buildingId }: { buildingId: string }) {
           {hall ? <ReviewAsDeckButton count={count} onOpen={() => setAsDeck(true)} view={signedIn ? { view, hidden, set: setView, funder: !!funder } : undefined} /> : null}
           <ErrorLine error={list.error} />
           {list.loading && !list.data ? <Loading /> : hall ? (
-            <TownHallIntray reports={reports} grants={grants} goalProposals={goalProposals} routes={routes} access={access} captains={captains} blocked={list.data?.blocked ?? []} onOpen={openDoc} onDecided={list.reload} />
+            <TownHallIntray reports={reports} grants={grants} goalProposals={goalProposals} routes={routes} access={access} captains={captains} retainers={retainers} blocked={list.data?.blocked ?? []} onOpen={openDoc} onDecided={list.reload} />
           ) : !reports.length ? <Empty>The in-tray is empty. When the manager or a fork finishes a session, its report lands here and that agent goes idle; a flag you plant (F on the map) lands here too.</Empty> : (
             <div className="doc-list">
               {reports.map((d) => <IntrayRow key={d.id} doc={d} chain={list.data?.chains?.[d.id]} onOpen={() => setOpenId(d.id)} onOpenDoc={openDoc} />)}
@@ -103,7 +104,7 @@ export function ReviewAsDeckButton({ count, onOpen, view }: { count: number; onO
       <span className="muted">{view?.view === "funded" ? `${count} under the goals your money reached: slide 1 is your week as a funder` : count ? `${count} waiting: slide 1 is the state of the town` : "slide 1 is the state of the town"}</span>
       {view ? (
         <span className="intray-view" role="group" aria-label="Show">
-          <button className={`btn sm ${view.view === "mine" ? "primary" : ""}`} onClick={() => view.set("mine")} title="Items routed to you: the goals you captain (an admin's: the town admins' root)">Mine</button>
+          <button className={`btn sm ${view.view === "mine" ? "primary" : ""}`} onClick={() => view.set("mine")} title="Items routed to you: the goals you captain and everything under them">Mine</button>
           <button className={`btn sm ${view.view === "all" ? "primary" : ""}`} onClick={() => view.set("all")} title="Everything waiting in the Town Hall">All</button>
           {view.funder ? <button className={`btn sm ${view.view === "funded" ? "primary" : ""}`} onClick={() => view.set("funded")} title="What your Bank inputs paid for this week, and the items under the goals your money reached">Funded by me</button> : null}
           {view.view !== "all" && view.hidden ? <span className="muted">{view.hidden} more under All</span> : null}
@@ -159,7 +160,7 @@ export function PlantFlag({ targets, onClose }: { targets: { id: string; name: s
  * reports they cover), then the grants a human must decide: proposals (Fund / Counter / Reject) and checkpoints
  * (Continue / Adjust / Cut). Countered proposals wait on the manager and are shown without buttons.
  */
-function TownHallIntray({ reports, grants, goalProposals, routes, access, captains, blocked, onOpen, onDecided }: { reports: Doc[]; grants: GrantView[]; goalProposals: GoalProposalView[]; routes: Record<string, IntrayRoute>; access: AccessRequestView[]; captains: CaptainRequestView[]; blocked: NonNullable<Intray["blocked"]>; onOpen: (id: string) => void; onDecided: () => void }) {
+function TownHallIntray({ reports, grants, goalProposals, routes, access, captains, retainers, blocked, onOpen, onDecided }: { reports: Doc[]; grants: GrantView[]; goalProposals: GoalProposalView[]; routes: Record<string, IntrayRoute>; access: AccessRequestView[]; captains: CaptainRequestView[]; retainers: ScheduleView[]; blocked: NonNullable<Intray["blocked"]>; onOpen: (id: string) => void; onDecided: () => void }) {
   const proposals = grants.filter((g) => g.status === "proposed" || g.status === "countered");
   const checkpoints = grants.filter((g) => g.status === "checkpoint");
   const closes = grants.filter((g) => g.status === "closed");
@@ -188,16 +189,23 @@ function TownHallIntray({ reports, grants, goalProposals, routes, access, captai
       <div className="doc-list">{captains.map((r) => <CaptainRow key={r.id} req={r} route={routes[r.id]} onDecided={onDecided} />)}</div>
     </Section>
   ) : null;
+  // retainers: standing money for scheduled jobs (1:1 mt_cyd2t5ioob decision 2), kept apart from grant proposals
+  const retainerList = retainers.length ? (
+    <Section title={<>Retainers for scheduled jobs <Pill>{retainers.length}</Pill></>}>
+      <div className="doc-list">{retainers.map((x) => <RetainerRow key={x.id} x={x} route={routes[x.id]} onDecided={onDecided} />)}</div>
+    </Section>
+  ) : null;
   const goalList = goalProposals.length ? (
     <Section title={<>Goal proposals <Pill>{goalProposals.length}</Pill></>}>
       <div className="goal-proposals">{goalProposals.map((p) => <div key={p.id}><RoutedTo route={routes[p.id]} /><GoalProposalItem p={p} onDone={onDecided} /></div>)}</div>
     </Section>
   ) : null;
-  if (!reports.length && !grants.length && !goalProposals.length) return <>{asking}{captainList}{blockedList}{asking || captainList ? null : <Empty>The Town Hall in-tray is empty. Managers' rollups, checkpoint reports, visitor reports and escalations land here, with the grant proposals and checkpoints waiting for a human, and people asking to join or to captain a goal.</Empty>}</>;
+  if (!reports.length && !grants.length && !goalProposals.length) return <>{asking}{captainList}{retainerList}{blockedList}{asking || captainList || retainerList ? null : <Empty>The Town Hall in-tray is empty. Managers' rollups, checkpoint reports, visitor reports and escalations land here, with the grant proposals and checkpoints waiting for a human, and people asking to join or to captain a goal.</Empty>}</>;
   return (
     <>
       {asking}
       {captainList}
+      {retainerList}
       {blockedList}
       {reports.length ? (
         <Section title={<>Manager reports <Pill>{reports.length}</Pill></>}>
@@ -286,6 +294,56 @@ export function CaptainRow({ req, route, onDecided }: { req: CaptainRequestView;
           <Act small run={() => decide("decline")}>Decline</Act>
         </div>
       ) : <div className="doc-row-meta"><span className="muted">Captained today by {req.captainName}: they or an admin decide.</span></div>}
+    </div>
+  );
+}
+
+/**
+ * A building asks for a retainer for a scheduled job (1:1 mt_cyd2t5ioob decision 2): "Workshop asks for a retainer:
+ * <title>, N tokens × M runs to <date> = T". Approve (claimed in the Bank), Counter (note, per-run amount and/or end
+ * date; the manager's `schedule` edit asks again) or Reject. Countered ones wait on the manager and show no buttons.
+ */
+export function RetainerRow({ x, route, onDecided, deckSlide }: { x: ScheduleView; route?: IntrayRoute; onDecided: () => void; deckSlide?: number }) {
+  useTown((s) => s.me);
+  const canDecide = (route ? route.canDecide : store.can("building.fund", x.buildingId)) && x.retainer === "asked";
+  const [note, setNote] = useState("");
+  const [perRun, setPerRun] = useState("");
+  const [until, setUntil] = useState("");
+  const n = (t: number) => t.toLocaleString("en-US");
+  const decide = (action: "approve" | "counter" | "reject") => async () => {
+    const tokensPerRun = perRun ? Math.round(Number(perRun.replace(/[,_\s]/g, ""))) : undefined;
+    await api().decideRetainer(x.id, { action, note, ...(action === "counter" && tokensPerRun ? { tokensPerRun } : {}), ...(action === "counter" && until ? { until: new Date(`${until}T23:59:59Z`).toISOString() } : {}), ...(deckSlide ? { deckSlide } : {}) });
+    store.toast(action === "approve" ? `Retainer approved: ${n(x.askTokens)} tokens claimed in the Bank for "${x.title}".` : action === "counter" ? "Countered: the manager edits the schedule, which asks again." : "Retainer rejected: its runs stay held.", "ok");
+    onDecided();
+  };
+  return (
+    <div className="doc-row intray-row retainer-row">
+      <div className="intray-who">
+        <BuildingTag buildingId={x.buildingId} />
+        <b>{x.buildingName ?? x.buildingId}</b> asks for a retainer<span>{timeAgo(x.updatedAt)}</span>
+        <Pill tone={x.retainer === "asked" ? "warn" : ""}>{x.retainer === "asked" ? "retainer ask" : x.retainer}</Pill>
+      </div>
+      <div className="doc-row-title">{x.title}</div>
+      <RoutedTo route={route} />
+      <div className="doc-row-meta">
+        <span title="Bank tokens (Opus 5.5 output tokens)"><b>{n(x.tokensPerRun)}</b> tokens × {x.runsLeft} run{x.runsLeft === 1 ? "" : "s"}{x.endsAt ? ` to ${x.endsAt.slice(0, 10)}` : ""} = <b>{n(x.askTokens)}</b></span>
+        {x.drawnTokens ? <span>drawn so far {n(x.drawnTokens)}</span> : null}
+      </div>
+      {x.retainer === "countered" && x.retainerNote ? <div className="doc-row-meta"><span>{x.retainerNote} Waiting on the manager's edit.</span></div> : null}
+      {canDecide ? (
+        <>
+          <div className="retainer-counter">
+            <input placeholder="Note (why, or what to change)" value={note} onChange={(e) => setNote(e.target.value)} />
+            <input placeholder="Per run (counter)" inputMode="numeric" value={perRun} onChange={(e) => setPerRun(e.target.value)} />
+            <input type="date" title="End date (counter)" value={until} onChange={(e) => setUntil(e.target.value)} />
+          </div>
+          <div className="actions">
+            <Act small tone="primary" run={decide("approve")}>Approve</Act>
+            <Act small run={decide("counter")}>Counter</Act>
+            <Act small tone="bad" run={decide("reject")}>Reject</Act>
+          </div>
+        </>
+      ) : null}
     </div>
   );
 }

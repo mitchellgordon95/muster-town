@@ -315,7 +315,8 @@ export function requestForkStop(world: World, me: Agent, input: { forkId?: strin
   const at = stamp(deadline);
   const reason = (input.reason ?? "").trim();
   interruptNow(world, fork.id, `${me.name} asks you to stop now${reason ? `: ${reason}` : "."}\n\nDon't start anything new. Finish the step you are on (leave the code committed and pushed if you changed any), update the topic pages and log lines for what you learnt, then call submit_report right away: say what is done and what is not, and put what the next session needs in Findings (verdict continue if the work is unfinished). If you have not submitted by ${at} (${STOP_FORK_TIMEOUT_MS / 60_000} min), the town stops your session and files a fallback report.`, me.name);
-  world.events.append({ type: "system", agentId: fork.id, buildingId: bid, text: `${me.name} asked ${fork.name} to wrap up and file its report (hard stop at ${at})${reason ? `: ${reason.slice(0, 160)}` : ""}`, payload: { stopFork: "requested", forkId: fork.id, sessionId: session.id, assignmentId: session.assignmentId, by: me.id, reason: reason || null, deadline } });
+  const req = world.events.append({ type: "system", agentId: fork.id, buildingId: bid, text: `${me.name} asked ${fork.name} to wrap up and file its report (hard stop at ${at})${reason ? `: ${reason.slice(0, 160)}` : ""}`, payload: { stopFork: "requested", forkId: fork.id, sessionId: session.id, assignmentId: session.assignmentId, by: me.id, reason: reason || null, deadline } });
+  setPendingStops(world, [...pendingStops(world, now), { eventId: req.id, forkId: fork.id, sessionId: session.id, by: me.id, deadline }]);
   return { forkId: fork.id, sessionId: session.id, deadline, note: `${fork.name} was interrupted: finish its step, write its pages and submit_report. If no report by ${at}, the town stops it and files "Session ended without a report"; either way the fork retires and its report reaches your in-tray.` };
 }
 
@@ -325,17 +326,44 @@ export function requestForkStop(world: World, me: Agent, input: { forkId?: strin
  * A fork that filed its report but is still running past the deadline is stopped too. Returns the forks stopped.
  */
 export function stopOverdueForks(world: World, now = new Date()): string[] {
-  const since = new Date(now.getTime() - 24 * 3600_000).toISOString();
+  const pending = pendingStops(world, now);
+  if (!pending.length) return [];
   const stopped: string[] = [];
-  for (const e of world.events.list({ types: ["system"], payloadKey: "stopFork", from: since, limit: 500 })) {
-    if (e.payload.stopFork !== "requested" || Date.parse(String(e.payload.deadline)) > now.getTime()) continue;
-    const fork = world.agents.get(String(e.payload.forkId));
-    const session = world.sessions.get(String(e.payload.sessionId));
+  const left: PendingStop[] = [];
+  for (const p of pending) {
+    if (Date.parse(p.deadline) > now.getTime()) { left.push(p); continue; }
+    // past its deadline: stopped now or never (a session that is not running at the deadline never runs again)
+    const fork = world.agents.get(p.forkId);
+    const session = world.sessions.get(p.sessionId);
     if (!fork || session?.status !== "running" || fork.status === "retired" || fork.status === "stopped" || fork.status === "banned") continue;
-    const by = world.agents.get(String(e.payload.by))?.name ?? "its manager";
-    world.events.append({ type: "system", agentId: fork.id, buildingId: homeOf(fork), text: `${fork.name} ${session.reportId ? "filed its report but was still running" : "did not file its report"} ${STOP_FORK_TIMEOUT_MS / 60_000} min after ${by} asked it to stop: session stopped`, payload: { stopFork: "hard", forkId: fork.id, sessionId: session.id, assignmentId: session.assignmentId, by: e.payload.by, reportId: session.reportId ?? null, requestEventId: e.id } });
+    const by = world.agents.get(p.by)?.name ?? "its manager";
+    world.events.append({ type: "system", agentId: fork.id, buildingId: homeOf(fork), text: `${fork.name} ${session.reportId ? "filed its report but was still running" : "did not file its report"} ${STOP_FORK_TIMEOUT_MS / 60_000} min after ${by} asked it to stop: session stopped`, payload: { stopFork: "hard", forkId: fork.id, sessionId: session.id, assignmentId: session.assignmentId, by: p.by, reportId: session.reportId ?? null, requestEventId: p.eventId } });
     world.ops.stopAgent(null, fork.id);
     stopped.push(fork.id);
   }
+  setPendingStops(world, left);
   return stopped;
+}
+
+/** A `requestForkStop` waiting for its deadline, kept in `meta` so the 5 s tick reads one row, not the system events. */
+interface PendingStop { eventId: number; forkId: string; sessionId: string; by: string; deadline: string }
+const PENDING_STOPS_MARKER = "pendingForkStops";
+
+/**
+ * The stop requests waiting for their deadline. Before the marker was first written (a town that ran the old event
+ * scan), it is seeded once from the last day's `stopFork: "requested"` system events.
+ */
+function pendingStops(world: World, now: Date): PendingStop[] {
+  const raw = world.town.marker(PENDING_STOPS_MARKER);
+  if (raw !== null) return JSON.parse(raw) as PendingStop[];
+  const since = new Date(now.getTime() - 24 * 3600_000).toISOString();
+  const seeded = world.events.list({ types: ["system"], payloadKey: "stopFork", from: since, limit: 500 })
+    .filter((e) => e.payload.stopFork === "requested")
+    .map((e) => ({ eventId: e.id, forkId: String(e.payload.forkId), sessionId: String(e.payload.sessionId), by: String(e.payload.by), deadline: String(e.payload.deadline) }));
+  setPendingStops(world, seeded);
+  return seeded;
+}
+
+function setPendingStops(world: World, list: PendingStop[]): void {
+  world.town.setMarker(PENDING_STOPS_MARKER, JSON.stringify(list));
 }

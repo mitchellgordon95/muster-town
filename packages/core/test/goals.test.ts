@@ -3,7 +3,7 @@ import { copyFileSync, mkdirSync, readdirSync } from "node:fs";
 import { join } from "node:path";
 import { TILE, WALKABLE } from "@muster-town/schema";
 import { describe, expect, it } from "vitest";
-import { buildingRoleId, createBuilding, createUser, migrate } from "../src/index.ts";
+import { buildingRoleId, createBuilding, createUser, holderOf, migrate, townRoleId } from "../src/index.ts";
 import { seededWorld, tempDir } from "./helpers.ts";
 
 const LAB = "carbon-cycle";
@@ -95,6 +95,46 @@ describe("the town goal tree (docs/goals.md, step 1)", () => {
     expect(world.grantDesk.get(open.grantId!).keyResults.map((k) => k.id)).toEqual([open.id]);
   });
 
+  it("the root always has a captain: seeded with the first admin; only a town admin renames it (mt_cyd2t5ioob decisions 6, 7); it inherits down", () => {
+    const { world, admin, tree, labGoal } = setup();
+    const adminUser = holderOf(admin).id;
+    expect(tree.require("gl_town").ownerId).toBe(adminUser);
+    expect(tree.ownerOf("gl_trust")).toEqual({ goalId: "gl_town", userId: adminUser });
+    const mitch = createUser(world, "Mitch").user;
+    const lena = createUser(world, "Lena").user;
+    const lenaAv = world.ops.ensureAvatar(lena.id);
+    tree.update(admin, labGoal.id, { ownerId: lena.id });
+    expect(() => tree.update(lenaAv, "gl_town", { ownerId: lena.id })).toThrow(/town admin/);
+    tree.update(admin, "gl_town", { ownerId: mitch.id });
+    expect(tree.ownerOf("gl_town")).toEqual({ goalId: "gl_town", userId: mitch.id });
+    expect(tree.ownerOf("gl_trust")).toEqual({ goalId: "gl_town", userId: mitch.id });
+    expect(tree.ownerOf(labGoal.id)).toEqual({ goalId: labGoal.id, userId: lena.id });
+    expect(world.events.recent({ limit: 10 }).some((e) => e.type === "goal.owned" && (e.payload as { goalId?: string }).goalId === "gl_town")).toBe(true);
+    expect(() => tree.update(admin, "gl_town", { ownerId: null })).toThrow(/always has a captain/);
+    expect(tree.ownerOf("gl_town")).toEqual({ goalId: "gl_town", userId: mitch.id });
+  });
+
+  it("boot repairs a root with no captain: the earliest admin with a GitHub account, else the earliest admin; a placeholder passes to a GitHub admin", () => {
+    const { world, admin, tree } = setup();
+    const seeded = holderOf(admin).id;
+    world.db.prepare("UPDATE goals SET ownerId = NULL WHERE id = 'gl_town'").run();
+    expect(tree.ownerOf("gl_town").userId).toBe(seeded); // never null, even before the repair writes it
+    tree.ensure();
+    expect(tree.require("gl_town").ownerId).toBe(seeded);
+    // a founder signs in with GitHub and is made admin: the seeded placeholder (no GitHub account) hands the root over
+    const founder = createUser(world, "Founder").user;
+    world.users.upsert({ ...founder, githubId: 4242, githubLogin: "founder" });
+    world.permissions.grant({ kind: "user", id: founder.id }, townRoleId("admin"));
+    tree.ensureRootCaptain();
+    expect(tree.ownerOf("gl_trust")).toEqual({ goalId: "gl_town", userId: founder.id });
+    // a captain with a GitHub account is never replaced by the repair
+    const later = createUser(world, "Later").user;
+    world.users.upsert({ ...later, githubId: 4343, githubLogin: "later" });
+    world.permissions.grant({ kind: "user", id: later.id }, townRoleId("admin"));
+    tree.ensure();
+    expect(tree.require("gl_town").ownerId).toBe(founder.id);
+  });
+
   it("owners (humans) inherit down the tree, edit and fund in their subtree only; routing ends at the owner", () => {
     const { world, admin, mei, tree, labGoal, otherGoal } = setup();
     const lena = createUser(world, "Lena").user;
@@ -103,7 +143,7 @@ describe("the town goal tree (docs/goals.md, step 1)", () => {
     tree.update(admin, labGoal.id, { ownerId: lena.id });
     const sub = tree.create(lenaAv, { parentId: labGoal.id, text: "Lena's sub-goal" });
     expect(tree.ownerOf(sub.id)).toEqual({ goalId: labGoal.id, userId: lena.id });
-    expect(tree.ownerOf(otherGoal.id)).toEqual({ goalId: "gl_town", userId: null });
+    expect(tree.ownerOf(otherGoal.id)).toEqual({ goalId: "gl_town", userId: holderOf(admin).id });
     expect(() => tree.create(lenaAv, { parentId: otherGoal.id, text: "no" })).toThrow(/captain of/);
     expect(() => tree.update(lenaAv, labGoal.id, { ownerId: null })).toThrow(/captain of/); // the goal above isn't hers
     // she decides and funds a grant whose key result sits in her subtree

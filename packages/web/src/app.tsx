@@ -18,12 +18,12 @@ import { ConnectAgentPanel } from "./panels/ConnectAgent";
 import { BuildingPanel } from "./panels/BuildingPanel";
 import { LibraryPanel } from "./panels/LibraryPanel";
 import { OutboxPanel } from "./panels/OutboxPanel";
+import { StatsPanel } from "./panels/StatsPanel";
 import { MeetingPanel } from "./panels/MeetingPanel";
 import { PlanningPanel } from "./panels/PlanningPanel";
 import { BoardPanel, CabinetPanel, IntrayPanel, ModStationPanel, PlantFlag, SchedulePanel } from "./panels/Places";
 import { flagTargets } from "./panels/flag";
 import { GoalTreePanel } from "./panels/GoalTreePanel";
-import { DashboardPanel } from "./panels/DashboardPanel";
 import { BankPanel } from "./panels/BankPanel";
 import { GrantPanel } from "./panels/GrantPanel";
 import { AssignmentPanel, SessionPanel } from "./panels/WorkPanels";
@@ -184,6 +184,7 @@ function PanelHost({ panel }: { panel: PanelRef }) {
     case "connect": return <ConnectAgentPanel />;
     case "library": return <LibraryPanel docId={panel.docId} />;
     case "outbox": return <OutboxPanel />;
+    case "stats": return <StatsPanel />;
     case "meeting": return <MeetingPanel key={panel.id} id={panel.id} />;
     case "intray": return <IntrayPanel key={panel.id} buildingId={panel.id!} />;
     case "board": return <BoardPanel key={panel.id} buildingId={panel.id!} />;
@@ -192,7 +193,6 @@ function PanelHost({ panel }: { panel: PanelRef }) {
     case "planning": return <PlanningPanel tab={panel.tab} />;
     // the Bank's tabs are things in its room (BANK_FIXTURES.stations); a tab deep-link re-lands per open
     case "bank": return <BankPanel key={panel.tab ? `${panel.tab}:${openSeq(panel)}` : ""} tab={panel.tab} />;
-    case "dashboard": return <DashboardPanel />;
     case "goals": return null; // a sheet over the map that stays open beside the side panel (App)
     case "grant": return <GrantPanel key={panel.id} id={panel.id!} />;
     case "assignment": return <AssignmentPanel key={panel.id} id={panel.id!} />;
@@ -220,7 +220,8 @@ export function App() {
   const closeGoals = useCallback(() => { setGoals(null); if (store.state.panel?.kind === "goals") store.open(null); }, []);
   const panel = manual || open?.kind === "goals" ? null : open;
   // town planning: the selected building's side bar (goals, budget, stats) takes the panel's place
-  const planSel = useTownPlan()?.selected ?? null;
+  const plan = useTownPlan();
+  const planSel = plan?.selected ?? null;
   const buildings = useTown((s) => s.buildings);
   const planSide = !panel && planSel && planSel !== "new" && buildings.some((b) => b.id === planSel) ? planSel : null;
   const inset = panel || planSide ? 1 : 0;
@@ -287,7 +288,7 @@ export function App() {
       <Hud onPasteToken={() => setPhase({ k: "login" })} onHelp={() => store.open({ kind: "manual" })} />
       <Minimap />
       <div className="bottom" style={{ right: inset ? pw : 0 }}>
-        <Hint target={target} saying={saying || flagHere !== undefined} canFlag={canFlag && !guest} />
+        {plan ? null : <Hint target={target} saying={saying || flagHere !== undefined} canFlag={canFlag && !guest} />}
         {flagHere !== undefined && canFlag && !guest ? <div className="flag-box"><PlantFlag targets={flagTargets(buildings, canAssign, flagHere)} onClose={() => setFlagHere(undefined)} /></div> : null}
         {saying && !guest ? <SayBox inputRef={sayRef} onSend={say} onCancel={() => setSaying(false)} /> : null}
       </div>

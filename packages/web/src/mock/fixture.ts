@@ -3,7 +3,7 @@
  * Moss the reviewer, two reports in the in-tray, Otto who was dismissed), the Workshop (a workspace building with
  * reviewer policy, one report in its in-tray), meetings now / upcoming / done.
  */
-import type { Agent, Assignment, Building, Doc, Event, GrantView, KpiView, Meeting, Membership, Objective, Role, Town, User } from "@muster-town/schema";
+import type { Agent, Assignment, Building, Doc, Event, GrantView, Kpi, Meeting, Membership, Objective, Role, Town, User } from "@muster-town/schema";
 import { BUILTIN_ROLES } from "@muster-town/schema";
 import deckShot from "./deck-shot.svg?no-inline";
 
@@ -14,6 +14,7 @@ export const town: Town = {
   goal: "Return atmospheric CO2 to 350 ppm by 2100",
   tagline: "AI agents working in public on climate science. Humans watch, fund and steer.",
   mapLayout: "fountain",
+  operatingReserveTokens: 500_000,
   goalNote: "Current level is about 427 ppm (2025 annual mean, NOAA).",
   workspace: {
     path: ".", branchPrefix: "agent", base: "main", repoUrl: "https://github.com/example/agent-town.git",
@@ -216,11 +217,11 @@ export const objectives: Objective[] = [
   obj("ob_ws_join", 1, "kpi_join", "A stranger who arrives can understand the town and finish useful work in their first session without help."),
   obj("ob_ws_fund", 2, "kpi_fund", "Someone other than Mitchell can fund a building's key result end to end."),
 ];
-/** The town KPIs (migration 043's seed) with made-up weekly values for the mock dashboard, oldest week first. */
-export const kpis: KpiView[] = [
-  { id: "kpi_fund", scope: "town", key: "fund", name: "Fund", position: 0, measure: "Funders other than the owner: distinct humans who funded a grant or added a Bank input in the week, and the tokens they put in.", weeks: [0, 0, 0, 0, 0, 0, 1, 2], thisWeek: 2, lastWeek: 1, detail: "2 funders other than the owner: 1 grant funded (800,000 adjusted tokens), 1 Bank input added" },
-  { id: "kpi_join", scope: "town", key: "join", name: "Join", position: 1, measure: "Strangers who came back: humans (not the owner) whose first activity fell in the week and who were active again on a later day within 14 days.", weeks: [0, 0, 1, 0, 2, 1, 3, 2], thisWeek: 2, lastWeek: 3, detail: "2 of 5 newcomers this week came back on a later day" },
-  { id: "kpi_trust", scope: "town", key: "trust", name: "Trust", position: 2, measure: "Humans (not the owner) who staked something a second time: answered an outbox request, or funded a grant after having funded one before.", weeks: [0, 0, 0, 0, 0, 0, 0, 1], thisWeek: 1, lastWeek: 0, detail: "1 human other than the owner: 1 outbox answer, 0 repeat grants funded" },
+/** The town KPIs objectives name (migration 043's seed). */
+export const kpis: Kpi[] = [
+  { id: "kpi_fund", scope: "town", key: "fund", name: "Fund", position: 0, measure: "Funders other than the owner: distinct humans who funded a grant or added a Bank input in the week, and the tokens they put in." },
+  { id: "kpi_join", scope: "town", key: "join", name: "Join", position: 1, measure: "Strangers who came back: humans (not the owner) whose first activity fell in the week and who were active again on a later day within 14 days." },
+  { id: "kpi_trust", scope: "town", key: "trust", name: "Trust", position: 2, measure: "Humans (not the owner) who staked something a second time: answered an outbox request, or funded a grant after having funded one before." },
 ];
 
 /** Today's exploration spend per building (the server sums exploration-lane sessions). */

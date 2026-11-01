@@ -5,7 +5,7 @@
  */
 import { useSyncExternalStore } from "react";
 import { mapFlagOf, ServerMessage } from "@muster-town/schema";
-import type { Agent, Assignment, AuthMe, BlockedAssignment, Doc, Schedule, Event, MapFlag, Meeting, Permission, Place, SnapshotBuilding, Town, TownHealth } from "@muster-town/schema";
+import type { Agent, Assignment, AuthMe, BlockedAssignment, Doc, ScheduleView, Event, MapFlag, Meeting, Permission, Place, SnapshotBuilding, Town, TownHealth } from "@muster-town/schema";
 import type { Bank, Grid, Snapshot } from "./api";
 import { redeployStatus, type RedeployLiveAt } from "./redeploy";
 import { redirectPanel } from "./panels/room";
@@ -17,7 +17,7 @@ import { redirectPanel } from "./panels/room";
  * `grant`, `assignment` and `session` are the panels without a place: a grant or proposal (`gr_…`), an assignment card (`as_…`)
  * and a session (`se_…`), reached from any link to its id.
  */
-export type PanelKind = "agent" | "building" | "connect" | "library" | "outbox" | "meeting" | "intray" | "board" | "cabinet" | "planning" | "schedule" | "mod" | "bank" | "admin" | "grant" | "manual" | "dashboard" | "goals" | "assignment" | "session";
+export type PanelKind = "agent" | "building" | "connect" | "library" | "outbox" | "stats" | "meeting" | "intray" | "board" | "cabinet" | "planning" | "schedule" | "mod" | "bank" | "admin" | "grant" | "manual" | "goals" | "assignment" | "session";
 export interface PanelRef { kind: PanelKind; id?: string; docId?: string; tab?: string }
 interface Toast { id: number; text: string; tone: "info" | "ok" | "bad"; panel?: PanelRef }
 
@@ -52,7 +52,7 @@ interface TownState {
   /** `GET /api/blocked`: per agent, its queued assignments that can't start and why (queue rows, the map's blocked badges and red lines) */
   blocked: Record<string, BlockedAssignment[]>;
   /** `GET /api/scheduled`: every building's active schedules, soonest run first (the map's schedule boards) */
-  scheduled: Schedule[];
+  scheduled: ScheduleView[];
 }
 
 const MAX_EVENTS = 600;
@@ -286,9 +286,11 @@ export function isMyAccessDecision(e: Event, userId: string | undefined): boolea
   return !!userId && e.type === "system" && !!e.payload.accessRequestId && e.payload.userId === userId && typeof e.payload.granted === "boolean";
 }
 
-/** The toast for a change in `me` after a decision, or null when nothing changed (a stale event, a refetch of the same state). */
+/**
+ * The toast for a change in `me` after a decision, or null when nothing changed (a stale event, a refetch of the same
+ * state). Being let in has no toast: the HUD's one-time "You're in" card says it, live or on the next visit (youreIn.ts).
+ */
 export function accessDecisionToast(before: AuthMe | null, after: AuthMe): { text: string; tone: "ok" | "info" } | null {
-  if (before?.canInteract === false && after.canInteract) return { text: "You're in: an admin let you join. You can walk, talk and connect your agent now.", tone: "ok" };
   if (before?.accessRequest?.status === "pending" && after.accessRequest?.status === "declined") return { text: "Your request to join was declined this time. You can ask again tomorrow.", tone: "info" };
   return null;
 }

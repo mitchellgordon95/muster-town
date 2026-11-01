@@ -476,6 +476,19 @@ export class Sim {
   }
 
   /** POST /api/agents/:id/ban (town.ban). */
+  dismiss(agentId: string, purge: boolean) {
+    const a = this.agents.get(agentId);
+    if (!a) throw new Error("agent not found");
+    if (a.status === "retired") throw new Error(`${a.name} was already dismissed.`);
+    for (const x of this.assignments.values()) if (x.agentId === a.id && (x.status === "pending" || x.status === "active")) { x.status = "cancelled"; this.putAssignment(x); }
+    this.memberships = this.memberships.filter((m) => !(m.holderKind === "agent" && m.holderId === a.id));
+    this.sessionLeft.delete(a.id);
+    this.patchAgent(a.id, { status: "retired", activity: "", currentAssignmentId: null, currentMeetingId: null });
+    this.layout = computeLayout(this.buildings, [...this.agents.values()]);
+    this.event("agent.retired", a.id, `${a.name} was dismissed by Mitchell${purge ? " (desk volume deleted)" : ""}`, { purge }, a.homeBuildingId);
+    return a;
+  }
+
   ban(agentId: string, reason: string) {
     const a = this.agents.get(agentId);
     if (!a) throw new Error("agent not found");

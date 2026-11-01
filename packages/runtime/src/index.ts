@@ -3,7 +3,7 @@
  * managers' team-lead sessions over the in-tray, meeting summaries + facilitation, interrupts, scheduler,
  * startup reconcile, dismissal (onAgentRetired), host redeploy (v1.3).
  */
-import { AppError, checkWaits, deskSizeFor, exploreTick, fireSchedules, setAssignmentStatus, codeWorkspace, deskSlotRows, forkableQueue, forkDeskSlot, forkManager, freeDesks, liveForks, meetingNotice, walkIdleHome, nextStartable, nowIso, PRESENCE_TICK_MS, retireFork, sendMessage, stopOverdueForks, slugify, syncManagerRoles, type World } from "@muster-town/core";
+import { AppError, checkWaits, exportDoneEvent, deskSizeFor, exploreTick, fireSchedules, setAssignmentStatus, codeWorkspace, deskSlotRows, forkableQueue, forkDeskSlot, forkManager, freeDesks, liveForks, meetingNotice, walkIdleHome, nextStartable, nowIso, PRESENCE_TICK_MS, retireFork, sendMessage, stopOverdueForks, slugify, syncManagerRoles, type World } from "@muster-town/core";
 import { DesksConfig, type Agent, type Assignment, type Building, type DeskActivityInput, type RedeployResult, type Session } from "@muster-town/schema";
 import { codeSource } from "./code.ts";
 import { DockerBackend, dockerSafe, HostBackend, type DeskBackend, type SlotResolver, type WorkBackend } from "./desk/backend.ts";
@@ -65,8 +65,10 @@ export interface RuntimeOptions {
   killGraceMs?: number;
   /** how often a running session's usage is booked, in ms (default USAGE_BOOK_MS, a minute; tests: 0 = every message) */
   usageBookMs?: number;
-  /** how long an adopted desk session may stay silent before it counts as lost (tests). Default ADOPTED_SILENT_MS. */
+  /** how long an adopted desk session may stay silent before it counts as lost while other desks reach the town (tests). Default ADOPTED_SILENT_MS. */
   adoptedSilentMs?: number;
+  /** how long an adopted desk session may stay silent before it counts as lost even when no desk reaches the town (tests). Default ADOPTED_LOST_MS. */
+  adoptedLostMs?: number;
   /** redeploy knobs (tests inject the command runner and `exit`; never the real process.exit) */
   redeploy?: Pick<RedeployDeps, "run" | "exit" | "exitDelayMs" | "drainTimeoutMs" | "drainPollMs" | "againDelayMs" | "drainWrapUpMs" | "drainMeetingMs" | "drainManageMs">;
   /** the docker desk backend probed when `desks.backend` is auto/docker (tests inject a fake); default a DockerBackend */
@@ -82,8 +84,18 @@ export interface RuntimeOptions {
   prChecks?: Pick<PrPollerDeps, "fetch" | "everyMs">;
 }
 
-/** An adopted desk session that neither polls control nor posts activity for this long has lost its desk: it is ended and re-queued. */
+/**
+ * An adopted desk session that neither polls control nor posts activity for this long, while other desks are reaching the town
+ * (one was heard within DESKS_HEARD_MS), has lost its desk: it is ended and re-queued.
+ */
 export const ADOPTED_SILENT_MS = 5 * 60_000;
+/**
+ * When no desk at all reaches the town, the silence is the town's (10-31 21:17–21:40Z: muster.town timed out from every desk
+ * while the process ran, and the 5-min rule cut 7 live sessions): an adopted session is only counted lost after this long.
+ */
+export const ADOPTED_LOST_MS = 30 * 60_000;
+/** some desk (any running desk session's control poll or activity) was heard this recently: the town is reachable from desks */
+export const DESKS_HEARD_MS = 60_000;
 
 /** Work sessions a hosted collective runs at once (host sessions only: town tools + web, no shell). */
 export const HOSTED_MAX_RUNNING = 1;
@@ -102,6 +114,8 @@ export interface Runtime {
   runWorkSession(agentId: string, assignmentId: string): Promise<Session>;
   /** One scheduler pass. Starts sessions in the background (see whenIdle). */
   tickOnce(): Promise<void>;
+  /** The last tick's phase timings and the last tick over SLOW_TICK_MS (post-mortem 2026-10-31 item 7); null until one ran. */
+  tickStats(): { last: TickTiming | null; slow: TickTiming | null };
   /**
    * v1.4 presence pass (tickOnce runs it every 30 s): visitors with no call for 90 s go `offline`; offers to visitors
    * older than 24 h are cancelled with a note in the in-tray. Returns the agents marked offline and the offers expired.
@@ -133,6 +147,36 @@ export interface Runtime {
 }
 
 const HOUR_MS = 3_600_000;
+
+/** A tick that blocks the event loop longer than this logs one line naming its slowest phase (post-mortem 2026-10-31 item 7). */
+export const SLOW_TICK_MS = 500;
+
+/** One tick's timings: when it ran, its total (the sum of its synchronous phases, ms), its slowest phase and every phase's ms. */
+export interface TickTiming {
+  at: string;
+  ms: number;
+  phase: string | null;
+  phaseMs: number;
+  phases: Record<string, number>;
+}
+
+/** Rounds a tick's phase timings (ms, one decimal) and picks the slowest phase. */
+export function tickTiming(at: Date, raw: Record<string, number>): TickTiming {
+  const phases: Record<string, number> = {};
+  let ms = 0, phase: string | null = null, phaseMs = 0;
+  for (const [k, v] of Object.entries(raw)) {
+    ms += v;
+    phases[k] = Math.round(v * 10) / 10;
+    if (v > phaseMs) { phase = k; phaseMs = v; }
+  }
+  return { at: at.toISOString(), ms: Math.round(ms), phase, phaseMs: Math.round(phaseMs), phases };
+}
+
+/** The one log line for a slow tick: total, the phase that took it, then the next two. */
+export function slowTickLine(t: TickTiming): string {
+  const others = Object.entries(t.phases).filter(([k]) => k !== t.phase).sort((a, b) => b[1] - a[1]).slice(0, 2).map(([k, v]) => `${k} ${Math.round(v)} ms`);
+  return `[runtime] slow tick: ${t.ms} ms, ${t.phase ?? "?"} ${t.phaseMs} ms${others.length ? ` (then ${others.join(", ")})` : ""}`;
+}
 const localDate = (d: Date) => `${d.getFullYear()}-${d.getMonth() + 1}-${d.getDate()}`;
 const LIVE_PHASES = new Set(["scheduled", "collecting", "discussing"]);
 
@@ -171,6 +215,7 @@ export function startRuntime(opts: RuntimeOptions): Runtime {
   const startedAt = now().getTime();
   let lastDate = localDate(now());
   let lastExport = startedAt;
+  let exporting = false;
   let lastPresence = 0;
   let stopped = false;
   /** a redeploy is draining: no new work sessions */
@@ -185,6 +230,12 @@ export function startRuntime(opts: RuntimeOptions): Runtime {
   // their desks, so adopt them (a live entry with no child, alive while the desk polls control) instead of orphaning them.
   /** adopted desk sessions: when each last polled control or posted activity (ms) */
   const adoptedSeen = new Map<string, number>();
+  /** when any desk session last polled control or posted activity (ms; 0 = none since this server started) */
+  let deskHeardAt = 0;
+  const heardDesk = (sessionId: string) => {
+    deskHeardAt = now().getTime();
+    if (adoptedSeen.has(sessionId)) adoptedSeen.set(sessionId, deskHeardAt);
+  };
   const adopted: string[] = [];
   if (!hosted) {
     for (const sid of takeAdoptable(ctx.repoRoot, dockerSafe(collectiveSlug))) {
@@ -452,15 +503,18 @@ export function startRuntime(opts: RuntimeOptions): Runtime {
 
   /**
    * Adopted desk sessions: forget one whose session ended (its desk posted session-end); end one whose desk went silent
-   * (no control poll or activity for ADOPTED_SILENT_MS) as lost, booking nothing, and put its assignment back in the queue.
+   * (no control poll or activity for ADOPTED_SILENT_MS while other desks are heard, or ADOPTED_LOST_MS when none is) as lost,
+   * booking nothing, and put its assignment back in the queue.
    */
   function watchAdopted(): void {
     const t = now().getTime();
+    const desksReachUs = t - deskHeardAt < DESKS_HEARD_MS;
+    const silentMs = desksReachUs ? (opts.adoptedSilentMs ?? ADOPTED_SILENT_MS) : (opts.adoptedLostMs ?? ADOPTED_LOST_MS);
     for (const [agentId, l] of [...ctx.live]) {
       if (!l.adopted) continue;
       const s = world.sessions.get(l.sessionId);
       if (s?.status !== "running") { ctx.live.delete(agentId); adoptedSeen.delete(l.sessionId); continue; }
-      if (t - (adoptedSeen.get(l.sessionId) ?? t) < (opts.adoptedSilentMs ?? ADOPTED_SILENT_MS)) continue;
+      if (t - (adoptedSeen.get(l.sessionId) ?? t) < silentMs) continue;
       adoptedSeen.delete(l.sessionId);
       dropLive(agentId, "desk lost after restart");
       const asg = s.assignmentId ? world.assignments.get(s.assignmentId) : undefined;
@@ -576,52 +630,76 @@ export function startRuntime(opts: RuntimeOptions): Runtime {
     return { offline, expiredOffers };
   }
 
+  /** Post-mortem 2026-10-31 item 7: the last tick's phase timings, and the last tick over SLOW_TICK_MS (null until one). */
+  let lastTick: TickTiming | null = null;
+  let lastSlowTick: TickTiming | null = null;
+
+  function recordTick(d: Date, phases: Record<string, number>): void {
+    const timing = tickTiming(d, phases);
+    lastTick = timing;
+    if (timing.ms > SLOW_TICK_MS) { lastSlowTick = timing; console.warn(slowTickLine(timing)); }
+  }
+
+  /**
+   * One scheduler pass, each phase timed (ms). Only the synchronous part of a phase is timed (what blocks the event loop);
+   * the awaits on the desk backend are not. A tick over SLOW_TICK_MS logs one line naming the phase that took it.
+   * (One function with try/finally, not a wrapper: an extra await would let sessions started this pass run ahead of the caller.)
+   */
   async function tickOnce(): Promise<void> {
     if (stopped) return;
+    const phases: Record<string, number> = {};
     const d = now();
     const t = d.getTime();
-    if (localDate(d) !== lastDate) {
-      lastDate = localDate(d);
-      try { world.budget.resetDaily(); } catch (e) { log("daily reset")(e); }
-    }
-    if (opts.exportDir !== false && t - lastExport >= HOUR_MS) {
-      lastExport = t;
-      try {
-        const r = opts.exportDir ? world.export(opts.exportDir) : world.export();
-        world.events.append({ type: "export.done", text: r.changed ? `Exported the town (${r.commit?.slice(0, 7) ?? "no commit"})` : "Export: no changes", payload: { ...r } });
-      } catch (e) { log("export")(e); }
-    }
-    try { world.bank.creditDue(d); } catch (e) { log("bank")(e); }
-    try { world.bank.driftDue(d); } catch (e) { log("bank drift")(e); }
-    // goal tree step 7: an earmark with no draw for 7 days tells its donor (in town only)
-    try { world.streams.tick(d); } catch (e) { log("bank streams")(e); }
-    // post-mortem 2026-10-30: once a day, the day before's funding against the Bank's books and the Console (alert when unexplained)
-    void track(reconcileDue(ctx, d)).catch(log("bank reconcile"));
-    if (t - lastPresence >= PRESENCE_TICK_MS) { lastPresence = t; presenceTick(); }
-    try { world.budget.resumeEligible(); } catch (e) { log("budget resume")(e); }
-    try { scheduleMeetings(t); } catch (e) { log("meetings")(e); }
-    void track(prPoller.poll()).catch(log("pr checks"));
-    try { checkWaits(world, d); } catch (e) { log("waits")(e); }
-    try { stopOverdueForks(world, d); } catch (e) { log("stop forks")(e); }
-    if (ctx.code) void track(ctx.code.fresh()).catch(log("code checkout"));
-    try { fireSchedules(world, d); } catch (e) { log("schedules")(e); }
-    // declarative exploration (docs/how-work-gets-done.md §3): reserve a chunk and queue an explorer where a desk is idle
-    try { exploreTick(world, d); } catch (e) { log("explore")(e); }
-    try { world.reorgs.tick(d); } catch (e) { log("reorgs")(e); }
-    try { walkIdleHome(world, t); } catch (e) { log("walk home")(e); }
-    try { for (const b of world.buildings.all()) world.grantDesk.syncBlocked(b.id); } catch (e) { log("blocked buildings")(e); }
-    await backendReady;
-    if (stopped) return;
-    // docker liveness while on desks; the host fallback re-probes in scheduleWork/startWork
-    if (backend?.kind === "docker") await track(checkDocker()).catch(log("docker probe"));
-    else if (needsProbe()) await track(currentBackend()).catch(log("docker re-probe"));
-    if (stopped) return;
-    // startup and managers whose work session just ended: in-trays with reports no manage session has seen yet.
-    // Before scheduleWork, so a manager's in-tray goes ahead of its own queued work (it registers as live right away).
-    try { wakeManagers(); } catch (e) { log("manager sessions")(e); }
-    // after wakeManagers: a 1:1 whose agent's work just ended gets its answer session before it can count as quiet
-    try { closeQuietOneOnOnes(ctx); } catch (e) { log("quiet 1:1s")(e); }
-    try { scheduleWork(); } catch (e) { log("work")(e); }
+    try {
+      const timed = (name: string, fn: () => void, what = name) => {
+        const s = performance.now();
+        try { fn(); } catch (e) { log(what)(e); } finally { phases[name] = (phases[name] ?? 0) + performance.now() - s; }
+      };
+      if (localDate(d) !== lastDate) {
+        lastDate = localDate(d);
+        timed("dailyReset", () => world.budget.resetDaily(), "daily reset");
+      }
+      // the hourly export runs in a worker (503 post-mortem suggestion 2: ~2-3 s of reads, file writes and git at the live size);
+      // one at a time, and its one export.done is appended here when the worker answers
+      if (opts.exportDir !== false && !exporting && t - lastExport >= HOUR_MS) {
+        lastExport = t;
+        exporting = true;
+        timed("export", () => void track(world.exportOffThread(opts.exportDir || undefined))
+          .then((r) => { if (!stopped) world.events.append(exportDoneEvent(r)); }, log("export"))
+          .finally(() => { exporting = false; }));
+      }
+      timed("bankCredit", () => world.bank.creditDue(d), "bank");
+      timed("bankDrift", () => world.bank.driftDue(d), "bank drift");
+      // goal tree step 7: an earmark with no draw for 7 days tells its donor (in town only)
+      timed("streams", () => world.streams.tick(d), "bank streams");
+      // post-mortem 2026-10-30: once a day, the day before's funding against the Bank's books and the Console (alert when unexplained)
+      timed("reconcile", () => void track(reconcileDue(ctx, d)).catch(log("bank reconcile")), "bank reconcile");
+      if (t - lastPresence >= PRESENCE_TICK_MS) { lastPresence = t; timed("presence", () => void presenceTick()); }
+      timed("budgetResume", () => world.budget.resumeEligible(), "budget resume");
+      timed("meetings", () => scheduleMeetings(t));
+      timed("prChecks", () => void track(prPoller.poll()).catch(log("pr checks")), "pr checks");
+      timed("waits", () => checkWaits(world, d));
+      timed("stopForks", () => stopOverdueForks(world, d), "stop forks");
+      if (ctx.code) timed("code", () => void track(ctx.code!.fresh()).catch(log("code checkout")), "code checkout");
+      timed("schedules", () => fireSchedules(world, d));
+      // declarative exploration (docs/how-work-gets-done.md §3): reserve a chunk and queue an explorer where a desk is idle
+      timed("explore", () => exploreTick(world, d));
+      timed("reorgs", () => world.reorgs.tick(d));
+      timed("walkHome", () => walkIdleHome(world, t), "walk home");
+      timed("blocked", () => { for (const b of world.buildings.all()) world.grantDesk.syncBlocked(b.id); }, "blocked buildings");
+      await backendReady;
+      if (stopped) return;
+      // docker liveness while on desks; the host fallback re-probes in scheduleWork/startWork
+      if (backend?.kind === "docker") await track(checkDocker()).catch(log("docker probe"));
+      else if (needsProbe()) await track(currentBackend()).catch(log("docker re-probe"));
+      if (stopped) return;
+      // startup and managers whose work session just ended: in-trays with reports no manage session has seen yet.
+      // Before scheduleWork, so a manager's in-tray goes ahead of its own queued work (it registers as live right away).
+      timed("managers", () => wakeManagers(), "manager sessions");
+      // after wakeManagers: a 1:1 whose agent's work just ended gets its answer session before it can count as quiet
+      timed("quiet1on1", () => closeQuietOneOnOnes(ctx), "quiet 1:1s");
+      timed("work", () => scheduleWork());
+    } finally { recordTick(d, phases); }
   }
 
   const interval = opts.intervalMs ?? 5000;
@@ -787,11 +865,12 @@ export function startRuntime(opts: RuntimeOptions): Runtime {
     onMeetingStart: (meetingId) => track(onMeetingStart(ctx, mst, meetingId)),
     runWorkSession: (agentId, assignmentId) => startWork(agentId, assignmentId),
     tickOnce,
+    tickStats: () => ({ last: lastTick, slow: lastSlowTick }),
     presenceTick,
     whenIdle,
     isWorking: (agentId) => ctx.live.has(agentId) || starting.has(agentId),
     onDeskActivity: (agentId, input) => {
-      if (adoptedSeen.has(input.session)) adoptedSeen.set(input.session, now().getTime());
+      heardDesk(input.session);
       onDeskActivity(ctx, agentId, input);
     },
     finishWorkSession: async (sessionId, outcome) => {
@@ -801,7 +880,7 @@ export function startRuntime(opts: RuntimeOptions): Runtime {
       if (l?.adopted && l.sessionId === sessionId) { ctx.live.delete(ended.agentId); adoptedSeen.delete(sessionId); }
       return ended;
     },
-    deskSeen: (_agentId, sessionId) => { if (adoptedSeen.has(sessionId)) adoptedSeen.set(sessionId, now().getTime()); },
+    deskSeen: (_agentId, sessionId) => heardDesk(sessionId),
     backend: () => backendReady.then((b) => b.kind),
     async onAgentRetired(agentId, o = {}) {
       abortWork(ctx, agentId, 0);

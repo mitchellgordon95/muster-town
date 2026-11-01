@@ -12,6 +12,10 @@ alternative; that box was deleted.
   outside the checkout so nothing done to `/data/repo` can touch it (the entrypoint moves it out once on a town deployed before this split).
   The image (`deploy/fly/Dockerfile`) is only the runtime plus a baked copy of the checkout for the first boot. `deploy/fly/entrypoint.sh` is the
   supervisor: it restarts the server when it exits 75, so the town's own `redeploy` (git pull, install, build, drain) keeps working unchanged.
+  Each start runs `deploy/fly/start-server.sh` from the checkout (so a redeploy can change it; the entrypoint itself changes only with an image
+  deploy): `node packages/server/dist/main.js`, the server prebuilt by `packages/server/build.mjs` (esbuild; the redeploy's "build server" step,
+  about 1 s), when `dist/BUILD_HEAD` matches HEAD; else it builds it first, and falls back to `npx tsx` on the sources if that fails. Prebuilt,
+  a boot takes about a third of the CPU tsx did (docs/postmortem-2026-10-31-cpu-throttle-503.md suggestion 6). Dev and `scripts/serve.sh` keep tsx.
   On every boot it sets `origin` to `MUSTER_TOWN_REPO` (default `https://github.com/mitchellgordon95/muster-town.git`, what muster.town uses;
   a town built from a fork sets its fork's URL in `[env]`).
 - **Config:** `fly.town.toml` (env, volume, health check). Desk backend and callback URL come from `MUSTER_TOWN_DESKS` (JSON) in its `[env]`,
@@ -34,6 +38,9 @@ alternative; that box was deleted.
   nobody waits on a PR review; what they can't do is take the town down with a commit that fails its own tests. The `redeploy` verb and the
   planning desk button still work (they also pull `prod`), for a redeploy without a new commit. Rollback: `git revert` on main and let CI
   ship it; emergency: point `prod` at the last good sha and redeploy. A red run leaves the live town where it was and shows in the Actions tab.
+  CI asks for fewer restarts than pushes (the redeploy tool and the planning desk button are unchanged): no redeploy when everything since the live
+  commit is under `docs/` (except `docs/manual.md`, which the server serves), `.github/` or a top-level `*.md`; and at most one CI restart per 15 min
+  (when the server started less than 15 min ago the promote job waits out the rest; a newer push cancels the waiting run and redeploys its own commit).
 - **Drain policy:** the drain holds new work sessions and waits up to 30 min for running *work* sessions (a restart would orphan
   them; at startup the orphans are stopped and their assignments re-queued). A *meeting* session (a facilitation, or the manager answering a 1:1)
   holds it only 2 min (`drainMeetingMs`): a human can talk for an hour, so the deploy does not block on a meeting. Instead: post the notice,
@@ -49,6 +56,49 @@ alternative; that box was deleted.
 - **Logs:** `fly logs -a muster-town`. Shell: `fly ssh console -a muster-town`.
 - **GitHub sign-in:** the OAuth app's callback URL must include `https://muster.town/auth/github/callback`.
 - **Cost (estimate):** town Machine about $13/mo (24/7) + volume $1.50 + desk Machines per use; compare the old single-box plan in dc_gxtv36rbu6.
+
+### Recover (dead volume or host; grant gr_z2v838adk9)
+**When:** the Machine or its volume `town_data` is gone or unreadable (Fly reports the host down, the Machine can't start, `/data` is
+corrupt) and https://muster.town/api/health does not come back with a restart. Not for a bad commit (revert it, CI ships it) and not
+for restoring an older state onto a live town (that is "Migrate a town in" with `scripts/backup/restore.sh`'s `RESTORE.tgz`).
+Worst case it loses the state since the last hourly copy (health `backup.lastAt`, at most about 1 h).
+
+**The one command** (a human with flyctl logged in to the org, and GitHub access for the image build: git ssh or `GH_TOKEN`):
+```sh
+deploy/recover.sh                # dry run: prints every command, changes nothing
+deploy/recover.sh --yes          # does it; refuses while muster.town's health still answers ok
+```
+It creates a new 10 GB `town_data` volume in `iad` (the clock starts), destroys the old Machine (`--force`; the old volume and its
+snapshots are left alone), builds a fresh image from GitHub `prod` (`deploy/fly/build.sh`; `BRANCH=` to change) so the first boot
+runs code with the restore and the guard, checks the new Machine mounts the new volume, polls health until ok, and prints the time from
+"volume created" to "health ok", the server's `[restore] <key>: ok, N agents` line, the live agent count (`/api/town`) and newest doc
+(`sqlite3` over `fly ssh`), and, when the shell also has `MUSTER_TOWN_BACKUP_KEY` and the four bucket values, the same two numbers from
+that very key (`scripts/backup/restore.sh --local <key>`) with MATCH or MISMATCH. Its last line is a ready "Drill" row.
+On the new volume the entrypoint copies the image's checkout (about a minute), then the server finds no `town.db` and restores the newest
+good copy before it opens the world ("First-boot restore" under Backups); the copy carries `backup_state`, so the hourly copies go on.
+
+**What the guard does:** if the restore did not happen (bucket unreachable, no good copy, an image without the restore code), the server
+seeds an empty town, but an empty town never uploads over the good copies: every hourly run refuses with `backup.error`
+"fresh town; restore first: ..." on health and the monitor's `backup` metric red, and nothing is uploaded or pruned. Then: read
+`fly logs -a muster-town | grep '\[restore\]'`, fix the cause, delete `/data/workshop/data/town.db*` over `fly ssh console` and restart
+the Machine (the first-boot restore runs again), or put a `RESTORE.tgz` from `scripts/backup/restore.sh --local latest` in `/data`.
+After any restore people sign in again with GitHub (session-secret and admin-token are not in the copy; hosted collectives under
+`/data/hosted` are not in it either).
+
+**A drill on a throwaway app** (never on muster-town): `deploy/recover.sh --yes recover-drill` with the five backup values and a
+`FLY_API_TOKEN` for the org (`fly tokens create org -o personal -n recover-drill -x 24h`, revoked after) creates the app, stages those
+five plus a fresh `MUSTER_TOWN_DATA_KEY` (no GitHub, no desks), and deploys it with **`MUSTER_TOWN_RUNTIME=off`** (throwaway mode,
+`packages/server/src/throwaway.ts`): the restored `town.db` carries the Bank's Claude token, but the drill town starts no runtime (no
+sessions, desks, schedules or hourly export) and its backup is restore-only (the first-boot restore runs; it never uploads or prunes).
+Its boot log says `[server] runtime off (throwaway)`; its health shows `"throwaway": true` and `backup.mode: "restore-only"`. It still
+answers to the live login tokens while it runs, so the script destroys it at the end (`--keep` leaves it: then `fly apps destroy
+recover-drill --yes`). Run it from a `BRANCH` that has `throwaway.ts` (`git ls-tree <branch> packages/server/src/throwaway.ts`); any time of the hour works.
+
+**Drill** (step 3 fills this in from the script's last line):
+
+| volume created | health ok | elapsed | agent count | newest doc | copy |
+|---|---|---|---|---|---|
+| | | | | | |
 
 ### Throwaway for load tests (grant gr_wqnunw5yd8)
 Load never goes to muster.town. `deploy/fly/throwaway.sh` (needs `FLY_STRESS_TOKEN`, the Fly token Mitchell made for it, and `GH_TOKEN` to clone
@@ -74,9 +124,12 @@ the same day. Still open:
   than 1 h (`packages/server/src/backup/`): `db.backup()` to `/data/workshop/backups/town-<date>T<HH>.db` (SQLite's online backup API, WAL-safe),
   sealed to one file and `integrity_check`ed, gzipped, encrypted (AES-256-GCM, iv[12] | tag[16] | ciphertext, AAD `muster-town backup v1`) and PUT
   as `town/<YYYY-MM-DD>T<HH>.db.gz.enc`, signed with a small SigV4 signer (no SDK). Worst case, a dead volume loses about 1 h of town state.
+  The whole run (copy, checks, streamed gzip, encrypt, upload, verify, prune) runs in a `worker_threads` worker (`worker.ts`) with its own
+  database connection, so it never blocks the event loop that serves HTTP (post-mortem docs/postmortem-2026-10-31-cpu-throttle-503.md).
   (Objects named `town/<YYYY-MM-DD>.db.gz.enc` are the nightly copies from before 2026-11-01; restore reads both.)
 - **Verification:** after each PUT the job downloads the object back, decrypts and gunzips it with the restore path's code (`crypto.ts`, `s3.ts`),
-  checks it is byte for byte the uploaded copy and runs `integrity_check` on it. Only then does the run count: `lastAt` and `verifiedAt` move
+  checks it is byte for byte (sha256) the copy that passed `integrity_check`; the 04:00 UTC run also writes the download out and runs
+  `integrity_check` on it. Only then does the run count: `lastAt` and `verifiedAt` move
   and old objects are pruned. A failure (upload or verification) is logged as `[backup] failed: ...` and kept as `backup.error`
   (`verify town/... failed: ...` for a bad read-back); `lastAt` stays, nothing is pruned, and it never stops the server.
 - **Destination:** the Tigris bucket `fly storage create -a muster-town` makes for the muster-town app (same Fly bill, free tier at this size,
@@ -93,6 +146,18 @@ the same day. Still open:
   credentials), or `backup: null` while any of the five env vars is missing: the job is then off, with one boot warning naming them. Healthy:
   `lastAt` = `verifiedAt`, under ~70 min old, `error` null. The monitor's `backup` metric goes yellow on `error` or a copy older than 2 h, red
   older than 6 h.
+- **Guards** (grant gr_z2v838adk9): before any upload the job lists the bucket. A town that has never made a copy (`backup_state.lastAt`
+  null) **refuses to upload while the bucket holds copies**: `backup.error` "fresh town; restore first: ...", the monitor's `backup` metric
+  red, nothing uploaded or pruned, every hour until someone restores. A run **never replaces an object**: if this hour's key is already in
+  the bucket (another writer), the run fails with "... is already in the bucket" and the object stays.
+- **First-boot restore** (`packages/server/src/backup/restore.ts`, grant gr_z2v838adk9): a server that starts with **no `town.db`** and the five
+  backup env vars (a new volume) lists the bucket and makes `town.db` from the newest object that downloads, decrypts, gunzips and passes
+  `integrity_check`, skipping bad ones (`[restore] <key>: skipped (...)`, then `[restore] <key>: ok, N agents`), before the world is opened, so
+  it never seeds. The copy carries the dead town's `backup_state`, so the hourly copies continue. No env, an empty bucket, an unreachable one
+  or no good copy: it seeds a new town as before (and the guard keeps that town from uploading over the copies). `RESTORE.tgz` still wins:
+  the entrypoint unpacks it before the server starts. **Any app given the five secrets is a writer to the bucket unless it runs with
+  `MUSTER_TOWN_RUNTIME=off`** (throwaway mode: restore-only, never uploads or prunes; `recover.sh` sets it on a drill app). Without it a
+  drill app starts hourly copies and retention against the same bucket.
 - **Restore** (`scripts/backup/restore.sh`, with `scripts/backup/restore-helper.mjs` reusing the server's own cipher and signer; node >= 22.6, no npm install):
   ```sh
   # the five secrets in the environment: the four AWS_*/BUCKET_NAME values from `fly storage` (or `fly ssh console -a muster-town -C env`)
@@ -107,7 +172,8 @@ the same day. Still open:
   The decrypted copy (`~/.muster-restore/<stamp>/data/town.db`) and the scratch town hold every token of the live town in plaintext (`tokens`
   table): delete the directory and destroy the scratch app when done (the script does the latter unless `--keep`). The scratch app gets a
   fresh random `MUSTER_TOWN_DATA_KEY` and none of the live secrets, so the restored collective secrets are unreadable there and it can neither
-  spend tokens nor push to GitHub nor start desks. **Restoring onto muster-town itself** is the "Migrate a town in" path above with this
+  push to GitHub nor start desks; the restored Bank does carry the Claude token, so the script deploys it with `MUSTER_TOWN_RUNTIME=off`
+  (no runtime: it starts no sessions). **Restoring onto muster-town itself** is the "Migrate a town in" path above with this
   `RESTORE.tgz`: stop nothing (the entrypoint swaps the state at the next restart and keeps the replaced state beside it).
 - **Drill (2026-10-28, run by Mitchell with `scripts/backup/restore.sh`):** first backup on health `backup.lastAt` 2026-10-28T17:10:02.951Z,
   13,460,785 bytes to `fly.storage.tigris.dev/muster-town-backups/town/`; restored the one object `town/2026-10-28.db.gz.enc` onto the scratch app
@@ -149,6 +215,7 @@ cleared, and once when health itself is down.
 | `ws` | WebSocket errors and abnormal closes, last 5 min | > 20 | > 100 |
 | `sessions` | Claude sessions ending in `error` | ≥ 3 in 15 min | ≥ 50 % of the sessions that ended in 30 min (min 4) |
 | `desk-steal` | steal share (steal / (cpu + steal)) of desk sessions (not `host`) of ≥ 5 min that ended since the last sample | ≥ 25 % | one ≥ 50 %, or two ≥ 35 % within an hour |
+| `steal` | the host Machine's CPU steal: steal / (busy + steal) from /proc/stat between two samples (a minute under 3 s of busy + steal counts as clean; none off Linux) | > 25 % for 5 min | > 50 % for 3 min |
 | `desk-bill` | today's (UTC) desk bill at Fly list prices as a % of `desks.billCapUsd` (default $10/day) | ≥ 50 % | ≥ 100 % (new desk sessions already run on shared-cpu-2x) |
 
 **Desk size and the daily desk bill cap** (grant gr_uhh6u39vv9 step 3; Mitchell, 1:1 mt_s6f8mvjw9h). Desk Machines run on
@@ -215,6 +282,14 @@ enabled. Updating it: re-run step 1.
   oversubscribed host). A restart boots into the same throttle; a dedicated core does not: `fly machine update <id>
   -a muster-town --vm-size performance-1x --vm-memory 2048 --yes`, and keep `[[vm]]` in fly.town.toml and `TOWN_MACHINE`
   (core finance-fly.ts, pinned by a test) in step.
+- **The `steal` alert** (monitor, above) is this case seen from inside: its FYI says "host CPU throttled (steal N %)".
+  The `lag` alert usually goes red with it.
+- **Why the check is lenient** (follow-up A of the post-mortem): `GET /api/health` answers from memory. Its database
+  figures (`budgets`, `backup`, `desks`, `directory`, `funding`) are recomputed every 5 s (server `health-cache.ts`) and
+  `figuresAt` says when, so a slow or locked database can't make the check time out. The check's `timeout` is 10 s
+  (it was 5 s: under the 10-31 throttle the loop answered in 5-10 s and Fly marked a live process critical, which turned
+  slowness into 503s). `grace_period` 240 s already covers a restart, so there is no extra "booting" state. The check
+  settings reach the Machine only with an image deploy (`deploy/fly/build.sh`), not with the town's `redeploy`.
 - **Slow with CPU to spare**: `GET /api/health` `load.lagMs` is the p99 loop stall per 10 s window; above ~500 ms, profile
   the live server: upload `deploy/fly/profile-live.cjs` to the Machine (`fly ssh sftp shell`, or `echo <base64> | base64 -d`
   into /tmp) and run `fly ssh console -a muster-town -C "node /tmp/profile-live.cjs"`. It opens Node's inspector on

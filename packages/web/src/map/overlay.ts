@@ -371,8 +371,13 @@ const SANS = "ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, sans-se
  * claimed (open reservations + open proposals' asks + funded grants' remaining) and what is still free to claim.
  * `bank` null = not loaded yet; `bank.free` null = the server has no free-tokens figure ("…").
  */
-/** The Bank's marquee. `x, y` is its bottom centre, or with `right` its right edge and vertical middle. */
-export function drawBankSign(g: CanvasRenderingContext2D, x: number, y: number, bank: { townTokens: number; free?: { reservedTokens: number; openAsksTokens: number; fundedRemainingTokens: number; freeTokens: number } | null } | null, now: number, align: "center" | "left" = "center") {
+/** The Bank's marquee's height in screen px at full size. */
+export const BANK_SIGN_H = 112;
+/**
+ * The Bank's marquee. `x, y` is its bottom centre, or with `left` its left edge and vertical middle. `maxW` (screen px)
+ * shrinks it, about that anchor, to fit the clear ground it stands on (never under half size).
+ */
+export function drawBankSign(g: CanvasRenderingContext2D, x: number, y: number, bank: { townTokens: number; free?: { reservedTokens: number; openAsksTokens: number; fundedRemainingTokens: number; freeTokens: number } | null } | null, now: number, align: "center" | "left" = "center", maxW = Infinity) {
   const n = (v: number) => v.toLocaleString("en-US");
   const total = bank ? n(bank.townTokens) : "…";
   const free = bank?.free ?? null;
@@ -386,7 +391,10 @@ export function drawBankSign(g: CanvasRenderingContext2D, x: number, y: number, 
   const colW = Math.max(...parts.map((p) => g.measureText(p.value).width), 96) + 24;
   const title = "THE BANK · ADJ. TOKENS AVAILABLE TO THE TOWN";
   g.font = `800 11px ${SANS}`;
-  const w = Math.round(Math.max(tw + 48, colW * parts.length + 16, g.measureText(title).width + 32, 240)), h = 112;
+  const w = Math.round(Math.max(tw + 48, colW * parts.length + 16, g.measureText(title).width + 32, 240)), h = BANK_SIGN_H;
+  const k = Math.max(0.5, Math.min(1, maxW / w));
+  g.save();
+  if (k < 1) { g.translate(x, y); g.scale(k, k); x = 0; y = 0; }
   const sx = Math.round(align === "left" ? x : x - w / 2), sy = Math.round(align === "left" ? y - h / 2 : y - h);
   x = sx + w / 2;
   // dark plate, double gold border with a slow shimmer running round it
@@ -417,6 +425,7 @@ export function drawBankSign(g: CanvasRenderingContext2D, x: number, y: number, 
     g.font = `700 15px ${SANS}`; g.fillStyle = p.color; g.fillText(p.value, cx, sy + 81);
   });
   g.textAlign = "left";
+  g.restore();
 }
 
 /** A planted flag in world space: a pole whose foot is at (x, y) and a red pennant that flutters. */

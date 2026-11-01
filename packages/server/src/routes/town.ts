@@ -1,8 +1,9 @@
-import { AppError, BANK_ACCOUNTING, deskPreset, deskSizeFor, type World, buildingStats, accessContext, accessRequestOf, boardWithTownDocs, canInteract, decideAccess, pendingAccessRequests, deskSlotRows, requestAccess, sessionView, setDeskSlot, cabinetCounts, cabinetDocs, reportChains, reviewDeck, presentedReviewDeck, intrayRoutes, funderWeek } from "@muster-town/core";
+import { AppError, BANK_ACCOUNTING, BANK_MODEL, deskPreset, deskSizeFor, type World, buildingStats, accessContext, accessRequestOf, boardWithTownDocs, canInteract, decideAccess, pendingAccessRequests, deskSlotRows, requestAccess, sessionView, setDeskSlot, cabinetCounts, cabinetDocs, reportChains, reviewDeck, presentedReviewDeck, intrayRoutes, funderWeek } from "@muster-town/core";
 import { funderSlide, AccessDecisionInput, AccessRequestInput, AddBankInput, CreateBuildingInput, DesksPatch, MapLayout, TownDefaultsPatch, DocType, DonateInput, LayoutInput, Membership, PlantFlagInput, RedeployInput, UpdateBuildingInput, apiKeyProblem, townEnv, REVIEW_DECK_ID, type AccessRequest, type AuthMe, type RedeployLive } from "@muster-town/schema";
 import type { FastifyInstance, FastifyRequest } from "fastify";
 import { brotliDecompressSync } from "node:zlib";
 import { z } from "zod";
+import { HealthCache } from "../health-cache.ts";
 import { actorOf, adminToken, funderOf, parse, requireAuth, requireUser, viewerOf, type Params } from "../context.ts";
 
 const EventsQuery = z.object({
@@ -31,22 +32,40 @@ export async function townRoutes(app: FastifyInstance) {
 
   /**
    * `commit`: the git sha the running server started from (null without a runtime); `git merge-base --is-ancestor <sha> <commit>` says
-   * whether a change is live. `load` (read-only): `lagMs` p99 event-loop delay over the last 10 s window, `rssMb`, `wsClients` open now.
+   * whether a change is live. `load` (read-only): `lagMs` p99 event-loop delay over the last 10 s window, `rssMb`, `wsClients` open now,
+   * `tick` `{last, slow}`: the runtime's last tick and last tick over 500 ms, `{at, ms, phase, phaseMs, phases}` (null without a runtime).
    * `backup` (read-only): the off-site copy's `{lastAt, bytes, dest, error}`; null until the bucket and key are set
    * (deploy/README.md "Backups"). Never the key or the bucket credentials. `monitor` (read-only, null without one):
    * `{lastSampleAt, alerts: [{key, level, since, value}]}` (monitor.ts; the VPS pinger reads the red ones). `directory` (root app, only where the
    * directory is on): `{verified, listed, pending, lastTickAt}` (directory/index.ts). `desks` (gr_uhh6u39vv9 step 3): `{backend, size,
    * billCapUsd, billTodayUsd, billPct, overCap, day}`, today's (UTC) desk bill at Fly list prices against the town-wide cap.
+   * `throwaway: true` only on a drill town (MUSTER_TOWN_RUNTIME=off, throwaway.ts): `runtime` false, `backup.mode` "restore-only".
+   * `budgets`, `backup`, `desks`, `directory` and `funding` come from the database: with `healthRefreshMs` (main.ts, 5 s) they are
+   * cached and `figuresAt` is when they were computed; the route itself never touches SQLite (503 post-mortem follow-up A).
    */
-  app.get("/api/health", async () => ({ ok: true, runtime: !!app.runtime, commit: world.host.commit ?? null, startedAt: world.host.startedAt ?? null, time: new Date().toISOString(), accounting: BANK_ACCOUNTING, load: app.load.snapshot(),
+  // answers from memory: the database-backed figures are recomputed on a timer (health-cache.ts), so a slow or locked
+  // database never makes the Fly check or the pinger time out; `figuresAt` says how old they are
+  const figures = new HealthCache(() => ({
     // goal-directed budgets: exploration (held only with no free tokens or at a goal's cap) and directed (a human asked; metered, never held) today
-    budgets: world.grantDesk.laneBudgets(), backup: app.backup?.snapshot() ?? null, monitor: app.monitor?.view() ?? null, desks: desksHealth(world),
-    // the root app (the Workshop) only: how many hosted collectives this process serves at /<slug>/
-    ...(app.hub ? { hosted: { count: app.hub.count } } : {}),
+    budgets: world.grantDesk.laneBudgets(), backup: app.backup?.snapshot() ?? null, desks: desksHealth(world),
     // the self-hosted towns directory (root app where it's on): {verified, listed, pending, lastTickAt}
     ...(app.directory ? { directory: app.directory.view() } : {}),
     // a hosted collective: its own key or none (its agents are held), never the host's funding
-    ...(world.host.hosted ? { funding: world.bank.liveApiKeyInput() ? "api-key" : "none" } : {}) }));
+    ...(world.host.hosted ? { funding: world.bank.liveApiKeyInput() ? "api-key" : "none" } : {}),
+  }), app.healthRefreshMs, (e) => app.log.warn(`[health] figures refresh failed: ${e instanceof Error ? e.message : String(e)}`));
+  app.addHook("onClose", async () => figures.close());
+
+  app.get("/api/health", async () => {
+    const { figures: f, at } = figures.get();
+    const { budgets, backup, desks, ...rest } = f;
+    return { ok: true, runtime: !!app.runtime, commit: world.host.commit ?? null, startedAt: world.host.startedAt ?? null, time: new Date().toISOString(), accounting: BANK_ACCOUNTING, accountingModel: BANK_MODEL, load: { ...app.load.snapshot(), tick: app.runtime?.tickStats?.() ?? null },
+      budgets, backup, monitor: app.monitor?.view() ?? null, desks,
+      // the root app (the Workshop) only: how many hosted collectives this process serves at /<slug>/
+      ...(app.hub ? { hosted: { count: app.hub.count } } : {}),
+      // a drill town (MUSTER_TOWN_RUNTIME=off): no runtime, backup restore-only
+      ...(app.throwaway ? { throwaway: true } : {}),
+      ...rest, figuresAt: at };
+  });
 
   if (app.dev) {
     // only to a browser on this machine talking to the server directly: never through a proxy or tunnel
@@ -224,6 +243,17 @@ export async function townRoutes(app: FastifyInstance) {
     world.permissions.requireAdmin({ kind: "user", id: user.id }, "Only an admin can change the host's session slots.");
     const desks = world.setDesksConfig(parse(DesksPatch, req.body));
     return { desks, slots: world.host.slots?.() ?? null };
+  });
+
+  /**
+   * The operating reserve (admin; 1:1 mt_lb7tm75jgb): `{tokens}` of the general balance that exploration and grant funding
+   * can't claim; 1:1s, meetings, manage and directed sessions still draw on it. → { operatingReserveTokens, free }
+   */
+  app.put("/api/town/operating-reserve", async (req) => {
+    const user = requireUser(req);
+    world.permissions.requireAdmin({ kind: "user", id: user.id }, "Only an admin can change the operating reserve.");
+    const { tokens } = parse(z.object({ tokens: z.number().int().nonnegative() }), req.body);
+    return { operatingReserveTokens: world.setOperatingReserve(tokens, world.ops.ensureAvatar(user.id).id), free: world.bank.freeTokens?.() ?? null };
   });
 
   /**
@@ -473,7 +503,7 @@ export async function townRoutes(app: FastifyInstance) {
 }
 
 function accessView(world: World, r: AccessRequest | null): AuthMe["accessRequest"] {
-  return r ? { status: r.status, message: r.message, decidedAt: r.decidedAt, ...accessContext(world) } : null;
+  return r ? { status: r.status, message: r.message, decidedAt: r.decidedAt, ...accessContext(world), decidedByName: r.decidedBy ? world.nameOf(r.decidedBy) : null } : null;
 }
 
 /** GET /api/health `desks`: the desk size new sessions get and today's desk bill against the town-wide cap (gr_uhh6u39vv9 step 3). */

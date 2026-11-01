@@ -42,7 +42,7 @@ export function scheduleTipRow(x: { title: string; nextRunAt: string | null; eve
 /** The Bank's unit (step 3): every token figure is adjusted output tokens; this is its short label. */
 export const ADJ = "adj. tokens";
 /** What the unit means, for a hover title. */
-export const ADJ_HINT = "Adjusted output tokens: output + input, cache reads and cache writes (5m, 1h) weighted by their list price over the output price. 1 adj. token ≈ 30 raw tokens on Opus, 24 on Fable.";
+export const ADJ_HINT = "Adjusted output tokens: output + input, cache reads and cache writes (5m, 1h) weighted by their list price, counted in Opus 5.5 output tokens ($20 per million): a Fable 5.1 output token counts 2.5, a Haiku 5.5 one 0.025. 1 adj. token ≈ 30 raw tokens on Opus.";
 
 const COUNT_LABELS = [["input", "input"], ["output", "output"], ["cacheRead", "cache read"], ["cacheWrite5m", "cache write 5m"], ["cacheWrite1h", "cache write 1h"]] as const;
 
@@ -96,7 +96,7 @@ export function fromMillions(s: string): number {
   return t === "" ? NaN : Math.round(Number(t) * 1e6);
 }
 
-/** Tokens already claimed town-wide (GET /api/bank `free`): open reservations + open proposals' asks + funded grants' remaining. */
-export function claimedTokens(f: { reservedTokens: number; openAsksTokens: number; fundedRemainingTokens: number }): number {
-  return f.reservedTokens + f.openAsksTokens + f.fundedRemainingTokens;
+/** Tokens already claimed town-wide (GET /api/bank `free`): open reservations + open proposals' asks + funded grants' remaining + retainers. */
+export function claimedTokens(f: { reservedTokens: number; openAsksTokens: number; fundedRemainingTokens: number; retainerTokens?: number }): number {
+  return f.reservedTokens + f.openAsksTokens + f.fundedRemainingTokens + (f.retainerTokens ?? 0);
 }

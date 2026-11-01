@@ -278,6 +278,8 @@ export function makeRedeployer(deps: RedeployDeps): Redeployer {
         say(`Redeploy: npm install${label} … skipped (package-lock.json unchanged)`, { step: "npm install", phase: "end", ok: true, skipped: true });
       }
       if (!(await step(`build web${label}`, "npm", ["run", "build", "--workspace", "packages/web"], 600_000))) return false;
+      // the prebuilt server the Fly entrypoint starts (server/build.mjs, about a second): built before the drain, so a failure stops here
+      if (!(await step(`build server${label}`, "npm", ["run", "build", "--workspace", "packages/server"], 300_000))) return false;
       if (o.image && buildImage) {
         if (!(await step(`docker build desk image${label}`, "docker", ["build", ...imageTags(deps.image).flatMap((t) => ["-t", t]), "-f", "packages/desk/Dockerfile", "."], 3_600_000))) return false;
         imageBuilt = true;

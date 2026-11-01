@@ -67,7 +67,7 @@ Prices: `TOKEN_PRICES` in `core/src/bank.ts`, the one table (step 4's drift job 
 
 Haiku 5.5 over 100k-token prompts costs 5× every column, so its weights are the same. A bare alias (`opus`, `fable`, …) is the family's latest. An unknown or missing model is priced as Opus 5.5, and `session.ended` for an unknown model id posts one `system` event (`payload.warning: "unknown-model"`) per model per server process.
 
-A session with several models (a Fable session's Haiku subagent) keeps `byModel` (migration 035); each model's counters are priced at that model's list price and the sum is expressed in the session model's output tokens (`adjustedOfUsage`).
+A session with several models (a Fable session's Haiku subagent) keeps `byModel` (migration 035); each model's counters are priced at that model's list price and the sum is expressed in the unit model's output tokens (`adjustedOfUsage(model, counts, byModel, unit)`; the Bank's unit is Opus 5.5, see step 3).
 
 Where it shows (always next to `tokens` and the five counters):
 - `GET /api/sessions?agentId=&limit=` (new; newest first), `GET /api/agents/:id` `currentSession`, `GET /api/agents/:id/session`.
@@ -78,11 +78,13 @@ Calibration (2026-10-26, the last 50 `session.ended` with a `costUsd`, 16:41 to 
 
 ## The Bank counts adjusted output tokens (step 3)
 
-The unit is **adjusted output tokens** ("adj. tokens" in the web client): what the tokens cost, in the model's output tokens (step 2's `adjustedOutputTokens`). At the step-1 calibration 1 adj. token ≈ 30 raw tokens on Opus, 24 on Fable. `GET /api/health` says `accounting: "adjusted"` (`BANK_ACCOUNTING`, core `bank.ts`).
+The unit is **adjusted output tokens** ("adj. tokens" in the web client): what the tokens cost, in **Opus 5.5 output tokens** (`BANK_MODEL` in core `bank.ts`; 1:1 mt_cyd2t5ioob decision 1, 2026-11-01). Each model's counters are priced at its own list price and converted at Opus 5.5's output price, $20/MTok: a Fable 5.1 output token books as 2.5, a Haiku 5.5 one as 0.025, an Opus 5.5 one as 1. At the step-1 calibration 1 adj. token ≈ 30 raw tokens on Opus. `GET /api/health` says `accounting: "adjusted"` (`BANK_ACCOUNTING`) and `accountingModel: "claude-opus-5-5"`.
+
+Before 2026-11-01 a charge was booked in its session's own model's output tokens (a Haiku adj. token debited like a Fable one). Nothing stored was migrated: inputs, credits, grants, allocations, balances and every past ledger row stay as they were. Migration 076 adds `sessions.bankModel`: `claude-opus-5-5` on every session started since, NULL on older ones, which stay priced in their own model (`sessionTokens(s)`, the one figure grant, goal, finance and funder spend sum, so they keep matching the ledger). A session that was running across the deploy keeps its own model for its whole life. A credit of A adj. tokens is still entered as A, now meaning A Opus 5.5 output tokens.
 
 Entered and booked in it: Bank inputs (`tokens`, `weeklyCapTokens`, `creditedTokens`), donations and allocations (`tokens`, `spentTokens`), grant asks, grants and their history, a grant's spend and exploration spend (their sessions' `adjustedOutputTokens`, summed), building allowances (`dailyTokensPerAgent`, read by nothing since the daily caps were deleted 2026-10-31; `explorationTokensPerDay`, on goals since migration 065), agents' `spentTokensToday` / `spentTokensTotal`, users' `donatedTokens`, the usage ledger (tokens today / all time), Bank credits and debits, pool and building balances, and a report's stamped `tokens`. Sessions keep `tokens` raw (with `adjustedOutputTokens` derived).
 
-Booking (`booked` in core `bank.ts`): a charge's counters are priced at the session's model (per model with `byModel`), so a session's booked tokens equal its `adjustedOutputTokens`. A bare number is already adjusted; its counters are the back-fill split of the raw tokens it stands for (`n × 30` Opus, `n × 24` Fable). A credit of A adj. tokens books `tokens = A` with the back-fill split of `A × ratio`. A draw takes adjusted tokens from each credit and the same share of every counter (`sliceBooked`).
+Booking (`booked` in core `bank.ts`): a charge's counters are priced at the session's model (per model with `byModel`) and converted to Opus 5.5 output tokens, so a session's booked tokens equal its `adjustedOutputTokens` (`sessionTokens`). A bare number is already Bank tokens; its counters are the back-fill split of the raw tokens of the same cost (`n × 30` Opus, `n × 24 / 2.5` Fable). A credit of A adj. tokens books `tokens = A` with the back-fill split of `A × ratio`. A draw takes adjusted tokens from each credit and the same share of every counter (`sliceBooked`).
 
 The five counters stay alongside: ledger rows (`usage`, `bank_debits`, `bank_credits`) store `tokens` (adjusted) and the five counters, and `rawTokens` is their generated sum; an allocation stores `spentTokens` (adjusted) and the five `spent…` counters, `spentRawTokens` generated. `GET /api/bank` adds `rawCreditedTokens`; a grant view adds `spentCounts`. In the web client every token figure says "adj. tokens", and hovering the Bank balance, an input's credited figure, an allocation's spend, a grant's progress or a session shows the five counters and the raw total.
 
@@ -90,7 +92,7 @@ Conversion (migration `037_adjusted_tokens.sql`, once): every size above ÷30 (O
 
 Tests: `core/test/bank-adjusted.test.ts` (037), `core/test/token-counters.test.ts` (booking), `server/test/live.test.ts` (`accounting`), `server/test/desk.test.ts`, `server/test/adjusted.test.ts`.
 
-## Unexpected out-of-tokens deaths and the cap hold (step 5)
+## Unexpected out-of-tokens deaths (step 5)
 
 Code: `packages/core/src/caps.ts`; GET /api/bank `deaths` and `cap`; the Bank page's "Out-of-tokens deaths and the cap".
 
@@ -105,18 +107,15 @@ The Bank warns before neither, so every one is a death it did not predict. The c
 timestamp in the 7 days before now (rolling). Baseline: 7 in the week to 2026-10-26 by hand count; the event log itself
 shows 10 cap-death sessions and 12 `budget.exhausted` for 10-20..10-26. Target: 0.
 
-**The learned cap**: each `bank.cap` gives the subscription's adjusted spend that day when it hit
-(`subscriptionAdjustedToday`). Per UTC day take the lowest; the learned daily cap is the median of those over the last 14
-days. No cap event yet = "no cap seen" and nothing is held.
-
-**The hold**: today's subscription spend is the adjusted output tokens of sessions ended since 00:00 UTC (or since a cap
-reset that already passed today) funded by the subscription. The typical session is the median adjusted size of the last
-50 ended sessions that used tokens. When spend ≥ learned cap − typical session, a building whose next session would run on
-the subscription and has no fallback (no donor-key / api-key allocation, no API-key Bank input) holds new starts:
-assignments stay pending with `heldReason` "near the subscription cap (…), resets at …" and the map shows it. With a
-fallback nothing is held: sessions keep starting, and once one dies on the cap (`bank.cap`, `capState().cappedAt`) the
-next sessions run on the fallback credential until the reset (`Budget.failoverFunding`); a session never carries a second
-credential to switch to inside itself (1:1 mt_x40qq8poc3). A `bank.hold` event is logged once per day when it first applies.
+**No learned cap (removed 2026-11-01).** The Bank used to learn a "daily cap" from the adjusted spend at which sessions
+died on the subscription (`bank.cap`), and held every new subscription start near it. On 2026-11-01 one Fable session hit
+a Fable-only plan limit ("Switch to another model to continue"); the Bank learned an 8.7M daily cap from it and held all
+work, Opus included, for about 22 hours while 6.7M sat in the Bank. A limit inferred from where one session died is not a
+limit, so the learned cap and its hold are gone. `bank.cap` events are still logged and counted as deaths, and
+`capState().cappedAt` still marks the subscription capped until the reset in the cap message (or the next 00:00 UTC):
+while set, the next sessions run on a fallback credential if the Bank owns one (`Budget.failoverFunding`); a session never
+carries a second credential to switch to inside itself (1:1 mt_x40qq8poc3). The replacement is availability observed per
+credential and model ("Promised and available" below).
 
 ## Funding streams and the draw order (goal tree step 7)
 
@@ -136,3 +135,18 @@ Decided in docs/goals.md "Streams" (1:1 mt_529jbnwvmi), go-ahead in 1:1 mt_cz11a
 ## The funder filter (goal tree step 8)
 
 Read-only: it books nothing. Core `funders.ts` (`funderWeek`, `funderWeights`) attributes each session in a window by the credential it ran on: a donated api-key input (`credentialInputId`) or a grant's own input (`fundedWith`) makes it **literal** for that donor, whole; any other session is **pooled**, and a subscription donor's share of it is their subscription credits in the window ÷ everyone's (`Bank.creditsSince`). `GET /api/funders/:userId/week` (`me`; sign-in required) and `GET /api/goals/:id/spend?funder=me` read it; the Town Hall in-tray's "Funded by me" view, the deck's "Your week as a funder" slide and the goal tree's filter show it (docs/goals.md build step 8).
+
+## Retainers (1:1 mt_cyd2t5ioob decision 2)
+
+A retainer is standing money for a scheduled job, approved by a human in the Town Hall in-tray and claimed in the Bank; recurring jobs never draw on grants. A schedule carries `tokensPerRun` (Bank tokens, i.e. Opus 5.5 output tokens) and asks for tokensPerRun × runs left. While funded, it is the fourth claim on free tokens (after funded grants' remaining, open asks and reservations): `retainerTokens` = Σ over funded schedules of min(tokensPerRun × runs left, approved total − drawn), with `retainerJobs` counting them (core `free-tokens.ts`, `retainers.ts`). Its runs' sessions (lane `retainer`, sourceId = the schedule) are what it has **drawn**, derived like a grant's spend. Approving is refused (409) when the ask would dip into the operating reserve. Ending the schedule (cancel, last run, paused past its end) releases what it still claims. Rules in full: docs/how-work-gets-done.md §7a.
+
+## Cancelling an input (2026-11-01)
+
+Cancelling stops an input's future credits and forgets its key (`Bank.cancelInput`). What happens to the credit already
+paid in depends on the source:
+
+- **API key:** the credit stays. That money was paid in and the key's balance is the town's until it is spent.
+- **Subscription:** the live credit expires at once (`expiresAt` = the cancel time) and the `bank.input` event says how
+  many unspent tokens lapsed (`expiredTokens`). A subscription credit is quota the plan serves today, not money; before
+  this, replacing a 15M-a-day donation with a 2M one left the old day's 15M spendable until its renewal (the Bank read
+  6.7M right after Mitchell set 2M on 2026-11-01).

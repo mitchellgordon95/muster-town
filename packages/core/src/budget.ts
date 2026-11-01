@@ -249,25 +249,13 @@ export class Budget {
       return false;
     }
     if (this.remaining(bid) <= 0) return false;
-    if (!assignment) return this.capHold(bid) === null;
+    if (!assignment) return true;
     return this.holdReason(assignment) === null;
   }
 
-  /**
-   * Bank step 5: why new starts in the building are held near the subscription cap, or null. Only when its next session
-   * would run on the subscription and nothing can take the failover (no donor-key / api-key allocation, no API-key input):
-   * with a fallback the session fails over as before. No cap seen yet = no hold.
-   */
-  capHold(buildingId: string, now = new Date()): string | null {
-    const f = this.bank.fundingFor(buildingId, now);
-    const onSubscription = f ? f.kind === "expiring" : this.pickAllocation(buildingId)?.auth === "subscription";
-    if (!onSubscription || this.fallbackAllocation(buildingId) || this.bank.fallbackInput(buildingId, now)) return null;
-    return this.bank.capState(now).reason;
-  }
-
-  /** Why `assignment` is held (null = may run): the credential hold, the cap hold, else the lane gate; kept on the pending assignment as `heldReason`. */
+  /** Why `assignment` is held (null = may run): the credential hold, else the lane gate; kept on the pending assignment as `heldReason`. */
   holdReason(assignment: Assignment): string | null {
-    const reason = this.credentialHold(assignment.buildingId) ?? this.capHold(assignment.buildingId) ?? this.gate?.(assignment) ?? null;
+    const reason = this.credentialHold(assignment.buildingId) ?? this.gate?.(assignment) ?? null;
     const cur = this.repos.assignments.get(assignment.id);
     if (cur && cur.status === "pending" && (cur.heldReason ?? null) !== reason) this.repos.assignments.upsert({ ...cur, heldReason: reason });
     return reason;
@@ -398,7 +386,7 @@ export class Budget {
   summary(): BudgetSummary {
     return {
       buildings: this.repos.buildings.all().map((b) => {
-        const spentUsd = this.repos.allocations.where("buildingId = ?", [b.id]).reduce((s, a) => s + a.spentUsd, 0);
+        const spentUsd = this.repos.allocations.sum("spentUsd", "buildingId = ?", [b.id]);
         return { buildingId: b.id, name: b.name, ...this.of(b.id), spentUsd };
       }),
       users: this.repos.users.all().map((u) => ({ userId: u.id, name: u.name, donatedTokens: u.donatedTokens })),

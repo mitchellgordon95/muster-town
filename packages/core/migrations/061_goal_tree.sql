@@ -32,7 +32,7 @@ CREATE INDEX key_results_goal ON key_results(goalId);
 UPDATE roles SET permissions = json_insert(permissions, '$[#]', 'goals.edit')
   WHERE id = 'role:admin' AND NOT EXISTS (SELECT 1 FROM json_each(roles.permissions) WHERE value = 'goals.edit');
 
--- the root (the town goal; owned by the town admins: ownerId stays null) and its placeholder children (no dials)
+-- the root (the town goal; ownerId null here, back-filled with the first admin by migration 078) and its placeholder children (no dials)
 INSERT INTO goals (id, parentId, position, text, createdAt, updatedAt) VALUES
   ('gl_town', NULL, 0, COALESCE(NULLIF(json_extract((SELECT value FROM meta WHERE key = 'town'), '$.goal'), ''), 'The town goal'), strftime('%Y-%m-%dT%H:%M:%fZ', 'now'), strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
   ('gl_fund', 'gl_town', 0, 'Fund', strftime('%Y-%m-%dT%H:%M:%fZ', 'now'), strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),

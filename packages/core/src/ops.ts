@@ -8,7 +8,7 @@ import { agentsDrafting, clearAgentDrafting, createMeeting, createOneOnOne, endM
 import { archiveReport, type ArchiveResult } from "./archive.ts";
 import { newId, nowIso } from "./util.ts";
 import { humanOrigin, meetingOrigin } from "./origin.ts";
-import { sessionView, unknownModels } from "./bank.ts";
+import { BANK_MODEL, sessionView, unknownModels } from "./bank.ts";
 import { validateWait } from "./waits.ts";
 import { walkHome } from "./home.ts";
 import { requestAnswerWake } from "./wakes.ts";
@@ -260,14 +260,15 @@ export class Ops {
     const agent = this.world.agents.require(agentId, "agent");
     if (actor) this.requireAgentControl(actor, agent);
     this.world.movement.cancel(agentId, "Stopped.");
-    return this.world.setStatus(agentId, "stopped", `${agent.name} was stopped`);
+    return this.world.setStatus(agentId, "stopped", `${agent.name} was stopped`, { by: actor ? this.world.holderOf(actor) : { kind: "system", id: "system" } });
   }
   /** POST /agents/:id/resume: `stopped` → `idle` without creating an assignment. Pending assignments (if any) run as usual. */
   resumeAgent(actor: Actor, agentId: string): Agent {
     const agent = this.world.agents.require(agentId, "agent");
-    if (actor) this.requireAgentControl(actor, agent);
+    // the Planner: whoever plans with it (an admin, a goal's captain) may resume it; the Town Hall has no roles
+    if (actor && !(this.world.reorgs.isPlanner(agent) && this.world.reorgs.canPlan(actor))) this.requireAgentControl(actor, agent);
     if (agent.status !== "stopped") return agent;
-    return this.world.setStatus(agentId, "idle", `${agent.name} was resumed`);
+    return this.world.setStatus(agentId, "idle", `${agent.name} was resumed`, { by: actor ? this.world.holderOf(actor) : { kind: "system", id: "system" } });
   }
   // ---- the assignment queue ----
   // Pending assignments run in `position` order (then createdAt, rowid). Owner, building.assign or admin.
@@ -357,6 +358,7 @@ export class Ops {
       funding: opts.funding ?? null,
       // the Bank input whose credential the session was handed (post-mortem 2026-10-30): booked at start, never from the desk's word
       credentialInputId: opts.credentialInputId ?? null,
+      bankModel: BANK_MODEL,
       // the desk Machine size it runs on (gr_uhh6u39vv9 step 3); null for host sessions and docker desks
       cpuKind: opts.size?.cpuKind ?? null, cpus: opts.size?.cpus ?? null, memoryMb: opts.size?.memoryMb ?? null,
       // goal-directed budgets: the session spends in its assignment's lane (a grant's spend is the sum of its sessions)
@@ -543,7 +545,9 @@ export class Ops {
   endMeeting(actor: Actor, meetingId: string, closing?: string, cause?: string): Meeting {
     if (actor) {
       const m = this.world.meetings.require(meetingId, "meeting");
-      if (m.facilitatorId !== actor.id && !this.world.permissions.can(actor, "meeting.facilitate", m.buildingId ?? "town-hall") && !this.world.permissions.can(actor, "building.review", m.buildingId ?? "town-hall")) throw forbidden("meeting.facilitate");
+      // a 1:1's own human ends it, member or not (gr_58n37j410s)
+      const own = m.kind === "one-on-one" && !!m.withUserId && m.withUserId === this.world.holderOf(actor).id;
+      if (!own && m.facilitatorId !== actor.id && !this.world.permissions.can(actor, "meeting.facilitate", m.buildingId ?? "town-hall") && !this.world.permissions.can(actor, "building.review", m.buildingId ?? "town-hall")) throw forbidden("meeting.facilitate");
     }
     return endMeeting(this.world, null, meetingId, closing, actor ? this.world.holderOf(actor) : { kind: "system", id: cause ?? "town" });
   }

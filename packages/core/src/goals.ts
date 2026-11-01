@@ -6,14 +6,19 @@ import { sendMessage } from "./domain.ts";
 import { freeTokensAll, goalFunding } from "./free-tokens.ts";
 import { AppError, badRequest, forbidden } from "./errors.ts";
 import type { Actor } from "./ops.ts";
-import { holderOf, type Holder } from "./permissions.ts";
+import { holderOf, townRoleId, type Holder } from "./permissions.ts";
 import { newId, nowIso } from "./util.ts";
 import type { World } from "./world.ts";
 
+/** The root's words before the town has a goal (migration 061 and ensure()). */
+const ROOT_PLACEHOLDER = "The town goal";
+/** The Workshop's placeholder pillars that migration 061 seeds under every root (id, seeded words). */
+const PLACEHOLDER_PILLARS: [string, string][] = [["gl_fund", "Fund"], ["gl_join", "Join"], ["gl_trust", "Trust"]];
+
 /** A goal as GET /api/goals returns it: its path from the root, its effective owner, its children, key results and attached buildings. */
 export interface GoalNode extends Goal {
-  /** the effective owner: this goal's, else the nearest owned ancestor's (null = the town admins, the root's owners) */
-  owner: { goalId: string; userId: string | null; name: string };
+  /** the effective owner (captain): this goal's, else the nearest owned ancestor's; the root always has one */
+  owner: { goalId: string; userId: string; name: string };
   /** attached here: `headcount` = the building's desks (docs/goals.md "Effort steering is desks"), `inUse` = desks seated now */
   buildings: { id: string; name: string; headcount: number; inUse: number }[];
   keyResults: (KeyResult & { grantId: string | null })[];
@@ -105,10 +110,43 @@ export class Goals {
   }
 
   // ---- owners ----
-  /** The effective owner of a goal: its own, else the nearest owned ancestor's; `userId` null = the town admins (the root). */
-  ownerOf(goalId: string): { goalId: string; userId: string | null } {
+  /**
+   * The effective owner of a goal: its own, else the nearest owned ancestor's. The root always has a captain (seeded
+   * and repaired by `ensure()`), so this is always a user; a root without one (a town with no admin yet) throws.
+   */
+  ownerOf(goalId: string): { goalId: string; userId: string } {
     for (const g of this.ancestors(goalId)) if (g.ownerId) return { goalId: g.id, userId: g.ownerId };
-    return { goalId: ROOT_GOAL_ID, userId: null };
+    const userId = this.firstAdminId();
+    if (!userId) throw badRequest("The town goal has no captain: the town has no admin user yet.");
+    return { goalId: ROOT_GOAL_ID, userId };
+  }
+
+  /**
+   * The collective's first admin user, who captains the root when nobody else does: the earliest admin with a GitHub
+   * account (on muster.town, Mitchell; a hosted collective, its founder), else the earliest admin (a fresh seed's).
+   * Same rule as migration 078.
+   */
+  firstAdminId(): string | null {
+    const row = this.world.db.prepare(
+      `SELECT m.holderId AS id FROM memberships m JOIN users u ON u.id = m.holderId
+        WHERE m.roleId = ? AND m.holderKind = 'user' ORDER BY (u.githubId IS NULL), m.rowid LIMIT 1`,
+    ).get(townRoleId("admin")) as { id: string } | undefined;
+    return row?.id ?? null;
+  }
+
+  /**
+   * The root always has a captain (1:1 mt_cyd2t5ioob decision 7): a root with none gets the first admin. A root captained
+   * by an admin with no GitHub account (a seeded placeholder) passes to the first admin who has one, the hosted
+   * collective's founder. Idempotent; runs at boot, after seeding and when a hosted collective's founder is let in.
+   */
+  ensureRootCaptain(): void {
+    const root = this.get(ROOT_GOAL_ID);
+    if (!root) return;
+    const first = this.firstAdminId();
+    if (!first || root.ownerId === first) return;
+    const current = root.ownerId ? this.world.users.get(root.ownerId) : null;
+    if (current && (current.githubId != null || !this.world.users.get(first)?.githubId)) return;
+    this.setOwner(null, root, first);
   }
 
   /** Does the actor (a human, as its user) own the goal or one of its ancestors? Owners are humans only for now. */
@@ -135,7 +173,7 @@ export class Goals {
    * to its target or parent, a rollup to the building's attachment, a captain request to its goal; the item goes to that
    * goal's owner.
    */
-  route(item: { grantId?: string; proposalId?: string; buildingId?: string; goalId?: string }): { goalId: string; userId: string | null } {
+  route(item: { grantId?: string; proposalId?: string; buildingId?: string; goalId?: string }): { goalId: string; userId: string } {
     let goalId: string = ROOT_GOAL_ID;
     if (item.goalId && this.get(item.goalId)) goalId = item.goalId;
     else if (item.grantId) {
@@ -168,13 +206,12 @@ export class Goals {
       attached.set(at, [...(attached.get(at) ?? []), { id: b.id, name: b.name, headcount: b.headcount, inUse: Math.min(b.headcount, this.world.layout.deskCount(b.id)) }]);
     }
     const names = new Map<string, string>();
-    const ownerName = (id: string | null) => {
-      if (!id) return "the town admins";
+    const ownerName = (id: string) => {
       if (!names.has(id)) names.set(id, this.world.users.get(id)?.name ?? id);
       return names.get(id)!;
     };
     const free = freeTokensAll(this.world);
-    const node = (g: Goal, inherited: { goalId: string; userId: string | null }): GoalNode => {
+    const node = (g: Goal, inherited: { goalId: string; userId: string }): GoalNode => {
       const owner = g.ownerId ? { goalId: g.id, userId: g.ownerId } : inherited;
       const kids = (byParent.get(g.id) ?? []).sort((a, b) => a.position - b.position || a.createdAt.localeCompare(b.createdAt));
       return {
@@ -182,7 +219,7 @@ export class Goals {
         funding: goalFunding(this.world, g.id, free.get(g.id)), children: kids.map((c) => node(c, owner)),
       };
     };
-    return node(this.root(), { goalId: ROOT_GOAL_ID, userId: null });
+    return node(this.root(), this.ownerOf(ROOT_GOAL_ID));
   }
 
   // ---- editing (admins, or the owner within their subtree) ----
@@ -207,7 +244,6 @@ export class Goals {
    * (goals.edit on the goal above) and an accepted captain request (captain.ts, the node's current captain or an admin).
    */
   setOwner(actor: Actor, g: Goal, ownerId: string | null): Goal {
-    if (g.id === ROOT_GOAL_ID) throw badRequest("The town admins captain the root.");
     if (ownerId && !this.world.users.get(ownerId)) throw badRequest(`Captains are humans: ${ownerId} is not a user id.`);
     const next = this.world.goals.upsert({ ...g, ownerId, editedBy: actor ? holderOf(actor).id : null, updatedAt: nowIso() });
     const name = ownerId ? this.world.users.get(ownerId)!.name : "(inherited)";
@@ -231,9 +267,12 @@ export class Goals {
     }
     if (inp.parentId !== undefined && inp.parentId !== g.parentId) next = this.move(actor, next, inp.parentId);
     if (inp.ownerId !== undefined && inp.ownerId !== g.ownerId) {
-      if (g.id === ROOT_GOAL_ID) throw badRequest("The town admins captain the root.");
-      // owners set owners below them: the goal above must be theirs
-      this.requireEdit(actor, g.parentId!);
+      // owners set owners below them: the goal above must be theirs. The root has none above it: only a town-wide admin
+      // names its captain (1:1 mt_cyd2t5ioob decision 6: Mitchell captains the root); the root always has one (decision 7)
+      if (g.id === ROOT_GOAL_ID) {
+        if (actor && !this.world.permissions.can(actor, "goals.edit")) throw forbidden("goals.edit", "Only a town admin names the root's captain.");
+        if (!inp.ownerId) throw badRequest("The town goal always has a captain: name another one instead.");
+      } else this.requireEdit(actor, g.parentId!);
       next = this.setOwner(actor, next, inp.ownerId);
     }
     // the exploration cap the buildings under it inherit (docs/how-work-gets-done.md §8): a human funder's with goals.edit
@@ -498,13 +537,51 @@ export class Goals {
   }
 
   // ---- boot ----
-  /** Boot repair (idempotent): the root exists, and every building is attached (a null attachment goes to the root). */
+  /** Boot repair (idempotent): the root exists and has a captain, and every building is attached (a null attachment goes to the root). */
   ensure(): void {
     if (!this.get(ROOT_GOAL_ID)) {
       const now = nowIso();
-      this.world.goals.upsert({ id: ROOT_GOAL_ID, parentId: null, position: 0, text: this.world.town.get().goal || "The town goal", ownerId: null, status: "active", retiredAt: null, retiredBy: null, retiredNote: "", createdBy: null, editedBy: null, sourceDocIds: [], exploreCapTokensPerDay: null, explore: null, exploreChunkTokens: null, createdAt: now, updatedAt: now });
+      this.world.goals.upsert({ id: ROOT_GOAL_ID, parentId: null, position: 0, text: this.world.town.get().goal || ROOT_PLACEHOLDER, ownerId: null, status: "active", retiredAt: null, retiredBy: null, retiredNote: "", createdBy: null, editedBy: null, sourceDocIds: [], exploreCapTokensPerDay: null, explore: null, exploreChunkTokens: null, createdAt: now, updatedAt: now });
     }
     for (const b of this.world.buildings.where("goalId IS NULL OR goalId NOT IN (SELECT id FROM goals)")) this.world.buildings.upsert({ ...b, goalId: ROOT_GOAL_ID });
+    this.ensureRootCaptain();
+  }
+
+  /**
+   * The root carries the town goal: migration 061 runs before a fresh seed writes it, so a new collective's root reads
+   * the placeholder "The town goal"; the seed calls this to give it the town's goal (a hosted collective: the Start form's).
+   * Only the placeholder is replaced: a root anyone has worded stays.
+   */
+  ensureRootText(): void {
+    const root = this.get(ROOT_GOAL_ID);
+    const goal = this.world.town.get().goal.trim();
+    if (!root || !goal || root.text !== ROOT_PLACEHOLDER || root.editedBy) return;
+    this.world.goals.upsert({ ...root, text: goal.slice(0, 300), updatedAt: nowIso() });
+  }
+
+  /**
+   * A hosted collective's tree is its founder's (gr_5ltmbf3a2f): migration 061 seeds the Workshop's placeholder pillars
+   * (Fund, Join, Trust) into every database, so a hosted World deletes each one nobody has touched: still its seeded
+   * words, no captain, never edited, and nothing hangs on it (no child goal, building, key result, grant, proposal,
+   * goal change, captain request, earmarked Bank input or exploration claim). Idempotent; seedDefaults runs it on every
+   * boot of a hosted World (hub.open sets `hosted` first), never on the Workshop. Returns the ids it dropped.
+   */
+  dropPlaceholderPillars(): string[] {
+    const db = this.world.db;
+    const refs: [string, string][] = [
+      ["goals", "parentId"], ["buildings", "goalId"], ["key_results", "goalId"], ["grants", "goalId"],
+      ["goal_proposals", "targetId"], ["goal_proposals", "parentId"], ["goal_changes", "goalId"],
+      ["goal_captain_requests", "goalId"], ["bank_inputs", "goalId"], ["bank_reservations", "goalId"],
+    ];
+    const dropped: string[] = [];
+    for (const [id, text] of PLACEHOLDER_PILLARS) {
+      const g = this.get(id);
+      if (!g || g.parentId !== ROOT_GOAL_ID || g.text !== text || g.ownerId || g.editedBy) continue;
+      if (refs.some(([t, c]) => db.prepare(`SELECT 1 FROM ${t} WHERE ${c} = ? LIMIT 1`).get(id))) continue;
+      this.world.goals.delete(id);
+      dropped.push(id);
+    }
+    return dropped;
   }
 
   // ---- helpers ----

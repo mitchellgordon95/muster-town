@@ -9,7 +9,7 @@ import { authStore } from "../auth/auth";
 import { T, CHAR_W, CHAR_H, charSheet, outlineSheet, tiles, HUMAN_SPRITE } from "./sprites";
 import { layoutEdit, type LayoutDraft } from "./layoutEdit";
 import { openTownPlanning, townPlan, type PlanDraft } from "./townPlan";
-import { bubbleFor, buildingBudgetLine, drawBadge, drawFlag, drawBankSign, drawBlockLine, drawBubble, drawGoalSign, drawLabel, drawPill, drawSign, drawTip, layoutBubbles, measureBubble, residentBudgetLine, type Bubble } from "./overlay";
+import { BANK_SIGN_H, bubbleFor, buildingBudgetLine, drawBadge, drawFlag, drawBankSign, drawBlockLine, drawBubble, drawGoalSign, drawLabel, drawPill, drawSign, drawTip, layoutBubbles, measureBubble, residentBudgetLine, type Bubble } from "./overlay";
 import { blockedByRedeploy } from "../redeploy";
 import { scheduleTipRow, scheduleTipTitle } from "../format";
 import { api } from "../api";
@@ -51,6 +51,7 @@ const PLACE_PANEL: Partial<Record<Place["kind"], (p: Place) => PanelRef & { verb
   "goal-tree": () => ({ kind: "goals", verb: "Read the goal tree" }),
   library: () => ({ kind: "library", verb: "Browse the library" }),
   outbox: () => ({ kind: "outbox", verb: "Check the outbox" }),
+  stats: () => ({ kind: "stats", verb: "Read the user stats" }),
   // the vault opens Overview; each station its own tab (BANK_FIXTURES.stations)
   bank: (p) => {
     const tab = bankTabOf(p.id);
@@ -653,8 +654,14 @@ export class MapRenderer {
     // door on its paving: core/world/square.ts) it stands on the lawn right of the Bank
     if (w.bank) {
       const onSquare = w.at(w.bank.x + Math.floor(w.bank.w / 2), w.bank.y - 1) === TILE.PAVING;
-      const p = toScreen((w.bank.x + w.bank.w + (onSquare ? 1 : 2)) * T, (w.bank.y + (onSquare ? 3 : -7)) * T);
-      if (p.x > -600 && p.x < cw + 40 && p.y > -80 && p.y < ch + 80) drawBankSign(g, p.x, p.y, s.bank, now, "left");
+      const col = w.bank.x + w.bank.w + (onSquare ? 1 : 2), row = w.bank.y + (onSquare ? 3 : -7);
+      const p = toScreen(col * T, row * T);
+      // it stays on its grass at any zoom and in every shape: no wider than the tiles up to the next building's lot on
+      // the rows it covers (or the map's edge), less a tile of lawn
+      const half = BANK_SIGN_H / 2 / (T * z);
+      const ends = s.buildings.filter((b) => b.lot && b.lot.x >= col && b.lot.y < row + half && b.lot.y + b.lot.h > row - half).map((b) => b.lot!.x);
+      const clear = (Math.min(w.w, ...ends) - col - 1) * T * z;
+      if (p.x > -600 && p.x < cw + 40 && p.y > -80 && p.y < ch + 80) drawBankSign(g, p.x, p.y, s.bank, now, "left", clear);
     }
     this.hitboxes = [];
     const blocked = blockedByRedeploy(s.events);

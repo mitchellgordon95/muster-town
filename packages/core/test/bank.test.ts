@@ -246,3 +246,22 @@ describe("a hosted collective never runs on a subscription", () => {
     expect(f.credential.kind).toBe("subscription");
   });
 });
+
+describe("cancelling a subscription input (2026-11-01)", () => {
+  it("expires its live credit now: replacing a 15M/day donation with 2M/day leaves 2M, not 17M; an api-key's credit stays", () => {
+    const { world, seed } = seededWorld();
+    const sub = { source: "subscription" as const, token: "sk-ant-oat01-test-token", model: "claude-opus-5-5", recurrence: "daily" as const, weeklyCapTokens: 100_000_000 };
+    const big = world.bank.addInput(seed.admin.id, { ...sub, label: "Max plan", tokens: 15_000_000 }, T0);
+    const key = world.bank.addInput(seed.admin.id, { label: "Key", source: "api-key", model: "m", tokens: 1000, apiKey: "sk" }, T0);
+    const later = new Date(T0.getTime() + 3_600_000);
+    expect(world.bank.balance(later)).toBe(15_001_000);
+    world.bank.cancelInput(seed.admin.id, big.id, later);
+    world.bank.addInput(seed.admin.id, { ...sub, label: "Max plan", tokens: 2_000_000 }, later);
+    expect(world.bank.balance(new Date(later.getTime() + 1000))).toBe(2_001_000);
+    const ev = world.events.list({ types: ["bank.input"] }).find((e) => e.payload.cancelled);
+    expect(ev?.payload.expiredTokens).toBe(15_000_000);
+    expect(ev?.text).toMatch(/15,000,000 adj\. tokens of today's credit expired/);
+    world.bank.cancelInput(seed.admin.id, key.id, later);
+    expect(world.bank.balance(new Date(later.getTime() + 1000))).toBe(2_001_000);
+  });
+});

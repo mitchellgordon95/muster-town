@@ -520,3 +520,20 @@ describe("the map's shape (1:1 mt_q10xf3bkoq)", () => {
     expect((await json(app, "PUT", "/api/town/map-layout", { headers: { authorization: `Bearer ${world.tokens.getOrCreate("agent", moss.id)}` }, body: { layout: "radial" } })).status).toBe(403);
   });
 });
+
+describe("the operating reserve (1:1 mt_lb7tm75jgb)", () => {
+  it("an admin sets it (PUT /api/town/operating-reserve); GET /api/bank carries it and the free tokens it leaves; logged", async () => {
+    const { app, world, auth, seed } = await setup();
+    world.bank.addInput(seed.admin.id, { label: "Key", source: "api-key", model: "m", tokens: 2000, apiKey: "sk" });
+    const { token } = world.ops.createUser("Octo");
+    expect((await json(app, "PUT", "/api/town/operating-reserve", { body: { tokens: 500 } })).status).toBe(401);
+    expect((await json(app, "PUT", "/api/town/operating-reserve", { headers: { authorization: `Bearer ${token}` }, body: { tokens: 500 } })).status).toBe(403);
+    expect((await json(app, "PUT", "/api/town/operating-reserve", { headers: auth, body: { tokens: -1 } })).status).toBe(400);
+    const set = await json(app, "PUT", "/api/town/operating-reserve", { headers: auth, body: { tokens: 500 } });
+    expect(set.status).toBe(200);
+    expect(set.body).toMatchObject({ operatingReserveTokens: 500, free: { generalTokens: 2000, reserveTokens: 500, freeTokens: 1500 } });
+    expect((await json(app, "GET", "/api/bank")).body).toMatchObject({ balanceTokens: 2000, reserveTokens: 500, freeTokens: 1500 });
+    expect((await json(app, "GET", "/api/town")).body.town.operatingReserveTokens).toBe(500);
+    expect(world.events.recent({ limit: 20 }).some((e) => (e.payload as { operatingReserveTokens?: number }).operatingReserveTokens === 500)).toBe(true);
+  });
+});

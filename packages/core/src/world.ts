@@ -13,7 +13,7 @@ import { migrateRoles } from "./migrate-roles.ts";
 import { openDb, type DB } from "./db.ts";
 import { deskBillToday, type BillSession, type DeskBill } from "./desk-bill.ts";
 import { EventLog } from "./events.ts";
-import { exportWorld, importExport, type ExportResult } from "./export.ts";
+import { exportInWorker, exportWorld, importExport, worldSource, writeExport, type ExportResult } from "./export.ts";
 import { importV0, type ImportV0Options, type ImportV0Result } from "./import-v0.ts";
 import { Ops, type Actor } from "./ops.ts";
 import { holderOf, Permissions, type Holder } from "./permissions.ts";
@@ -125,6 +125,8 @@ export class World {
 
   // repositories
   readonly users: Repos["users"];
+  /** Bank inputs with their secret column (the Bank's API is `bank`; this is for the boot back-fill and tests) */
+  readonly bankInputs: Repos["bankInputs"];
   readonly roles: Repos["roles"];
   readonly memberships: Repos["memberships"];
   readonly buildings: Repos["buildings"];
@@ -165,7 +167,7 @@ export class World {
     // v1.2 roles split: data fix on every open (idempotent), before any role is parsed through the schema
     migrateRoles(db);
     const repos = createRepos(db, this.changes);
-    this.users = repos.users; this.roles = repos.roles; this.memberships = repos.memberships;
+    this.users = repos.users; this.bankInputs = repos.bankInputs; this.roles = repos.roles; this.memberships = repos.memberships;
     this.buildings = repos.buildings; this.allocations = repos.allocations; this.agents = repos.agents;
     this.places = repos.places; this.docs = repos.docs; this.assignments = repos.assignments;
     this.messages = repos.messages; this.meetings = repos.meetings; this.sessions = repos.sessions;
@@ -280,7 +282,7 @@ export class World {
     if (!actor || this.permissions.can(actor, "goals.edit")) return true;
     if (holderOf(actor).kind !== "user") return false;
     const id = holderOf(actor).id;
-    return this.goals.where("status = 'active'").some((g) => g.ownerId === id);
+    return this.goals.exists("status = 'active' AND ownerId = ?", [id]);
   }
   /**
    * Pick the shape the map draws the goal tree in (`PUT /api/town/map-layout`, 1:1 mt_q10xf3bkoq): town-wide, for everyone.
@@ -294,6 +296,18 @@ export class World {
     this.layout.rebuild();
     this.events.append({ type: "system", agentId: actor?.id ?? null, text: `The map is now drawn as ${MAP_LAYOUT_WORDS[layout]} (was ${MAP_LAYOUT_WORDS[was]})`, payload: { mapLayout: layout, from: was } });
     return layout;
+  }
+
+  /**
+   * Set the operating reserve (`PUT /api/town/operating-reserve`, an admin; 1:1 mt_lb7tm75jgb): tokens of the general
+   * balance free tokens leave out, so exploration and grant funding can't claim them. The caller checks admin. Logs it.
+   */
+  setOperatingReserve(tokens: number, by: string | null = null): number {
+    const was = this.town.get().operatingReserveTokens;
+    if (was === tokens) return tokens;
+    this.town.set({ operatingReserveTokens: tokens });
+    this.events.append({ type: "system", agentId: by, text: `Operating reserve set to ${tokens.toLocaleString("en-US")} tokens (was ${was.toLocaleString("en-US")})`, payload: { operatingReserveTokens: tokens, from: was } });
+    return tokens;
   }
 
   /**
@@ -339,11 +353,11 @@ export class World {
   }
 
   /** Set status (no-op if unchanged) and append `agent.status`. */
-  setStatus(agentId: string, status: AgentStatus, text?: string): Agent {
+  setStatus(agentId: string, status: AgentStatus, text?: string, extra: Record<string, unknown> = {}): Agent {
     const a = this.agents.require(agentId, "agent");
     if (a.status === status) return a;
     const updated = this.agents.upsert({ ...a, status });
-    this.events.append({ type: "agent.status", agentId, buildingId: a.homeBuildingId ?? a.buildingId, text: text ?? `${a.name} is ${status}`, payload: { status, from: a.status } });
+    this.events.append({ type: "agent.status", agentId, buildingId: a.homeBuildingId ?? a.buildingId, text: text ?? `${a.name} is ${status}`, payload: { ...extra, status, from: a.status } });
     return updated;
   }
 
@@ -426,6 +440,13 @@ export class World {
 
   export(dir = townEnv("EXPORT") ?? "./export"): ExportResult {
     return exportWorld(this, dir);
+  }
+  /**
+   * The hourly export off the event loop: a worker on its own read-only connection to this town's db file (an in-memory
+   * db has no file to share, so it runs here). Appends nothing: the runtime appends the one `export.done`.
+   */
+  async exportOffThread(dir = townEnv("EXPORT") ?? "./export"): Promise<ExportResult> {
+    return this.db.memory ? writeExport(worldSource(this), dir) : exportInWorker(this.db.name, dir);
   }
   importV0(dir: string, opts: ImportV0Options = {}): ImportV0Result {
     return importV0(this, dir, opts);

@@ -153,6 +153,11 @@ export class Table<T extends object, W extends object = T> {
     return (this.stmt(`SELECT COUNT(*) AS n FROM "${this.name}" WHERE ${where}`).get(...params) as { n: number }).n;
   }
 
+  /** Whether any row matches (`SELECT 1 … LIMIT 1`): use it, not `where(…).length > 0` or `where(…).some(…)`. */
+  exists(where = "1=1", params: unknown[] = []): boolean {
+    return this.stmt(`SELECT 1 FROM "${this.name}" WHERE ${where} LIMIT 1`).get(...params) !== undefined;
+  }
+
   /** SUM of a numeric column over the matching rows (0 when none). */
   sum(col: string, where = "1=1", params: unknown[] = []): number {
     return (this.stmt(`SELECT COALESCE(SUM("${col}"), 0) AS n FROM "${this.name}" WHERE ${where}`).get(...params) as { n: number }).n;

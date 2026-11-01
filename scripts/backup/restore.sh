@@ -2,7 +2,8 @@
 # Restore drill for the off-site backup (grant gr_jkorz4f49a; deploy/README.md "Backups"): take one object the server wrote
 # (town/<date>.db.gz.enc: gzip(town.db), AES-256-GCM under MUSTER_TOWN_BACKUP_KEY), turn it back into a database, check it, and boot a
 # scratch town from it on Fly to prove the copy is a town, not just a file. The live town (muster-town) is never touched: this script
-# refuses that app name, and the scratch app gets none of the live secrets (a fresh random data key, no Claude token, no GitHub, no desks).
+# refuses that app name, and the scratch app gets none of the live secrets (a fresh random data key, no GitHub, no desks). The restored
+# town.db does carry the Bank's Claude token, so the scratch app runs with MUSTER_TOWN_RUNTIME=off (server throwaway.ts): no sessions.
 #
 # Usage: scripts/backup/restore.sh [--local] [--keep] [--yes] <object|latest|file.db.gz.enc> [scratch-app]
 #        scripts/backup/restore.sh --destroy [scratch-app]
@@ -141,6 +142,7 @@ if ! health | grep -q '"ok":true'; then
   say "building the town image from GitHub ${BRANCH:-main} and deploying it to $APP (shared-cpu-1x / 1 GB)"
   REPO_URL="${REPO_URL:-https://x-access-token:${GH_TOKEN:?GH_TOKEN (repo read) is needed to clone the private repo}@github.com/mitchellgordon95/muster-town.git}" \
     "$REPO/deploy/fly/build.sh" "$APP" --yes --regions "$REGION" --vm-size shared-cpu-1x --vm-memory 1024 \
+      --env "MUSTER_TOWN_RUNTIME=off" \
       --env "MUSTER_TOWN_PUBLIC_URL=https://$HOST" \
       --env 'MUSTER_TOWN_DESKS={"backend":"docker","maxRunning":1}' \
       --env "FLY_APP=none"

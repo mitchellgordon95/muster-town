@@ -1,5 +1,5 @@
-import { AddBankInput, ZERO_TOKENS, addTokens, oauthTokenProblem, countsOf, rawPerAdjusted, rawTokens, sliceTokens, splitRaw, subTokens, type TokenCounts, type BankCredit, type BankInput, type BankRecurrence, type FreeTokens, type Agent, type Session, type SessionView } from "@muster-town/schema";
-import { CAP_THOUGHT, TYPICAL_SESSIONS, capReason, countDeaths, learnedCap, median, nearCap, type BankDeaths } from "./caps.ts";
+import { AddBankInput, ZERO_TOKENS, addTokens, backfillFamily, oauthTokenProblem, countsOf, rawPerAdjusted, rawTokens, sliceTokens, splitRaw, subTokens, type TokenCounts, type BankCredit, type BankInput, type BankRecurrence, type FreeTokens, type Agent, type Session, type SessionView } from "@muster-town/schema";
+import { CAP_THOUGHT, countDeaths, type BankDeaths } from "./caps.ts";
 import { driftRows, parseResetsAt, previousUtcDay, utcDay, type DriftRow } from "./drift.ts";
 import { AppError, badRequest, forbidden } from "./errors.ts";
 import { dailyInflowOf, townFinance, type FinanceSummary } from "./finance.ts";
@@ -15,6 +15,14 @@ const DAY_MS = 86_400_000;
 
 /** The unit every Bank figure is entered, booked and compared in (`GET /api/health` `accounting`): adjusted output tokens since step 3. */
 export const BANK_ACCOUNTING = "adjusted" as const;
+
+/**
+ * The Bank's standard accounting model (1:1 mt_cyd2t5ioob decision 1, `GET /api/health` `accountingModel`): every charge
+ * is booked in this model's output tokens. Each model's counters are priced at its own list price and converted at Opus
+ * 5.5's output price ($20/MTok): a Fable 5.1 output token books as 2.5, a Haiku 5.5 one as 0.025, an Opus 5.5 one as 1.
+ * Sessions from before migration 076 (`bankModel` NULL) stay booked in their own model's output tokens.
+ */
+export const BANK_MODEL = "claude-opus-5-5";
 
 /**
  * List prices in USD per million tokens, by model family (Bank grant step 2, gr_iq5m7dug56). The one table every
@@ -74,20 +82,31 @@ export function listCostUsd(model: string | null | undefined, counts: Partial<To
 }
 
 /**
- * A session's (or any usage's) adjusted output tokens in `model`'s output tokens. With a per-model breakdown each model's
- * counters are priced at that model's list price (a Fable session's Haiku subagent is priced as Haiku), then converted
- * at `model`'s output price; without one, all counters are `model`'s.
+ * A usage's adjusted output tokens in `unit`'s output tokens (default: `model`'s own). With a per-model breakdown each
+ * model's counters are priced at that model's list price (a Fable session's Haiku subagent is priced as Haiku); without
+ * one, all counters are `model`'s. The total is then converted at `unit`'s output price.
  */
-export function adjustedOfUsage(model: string | null | undefined, counts: Partial<TokenCounts>, byModel?: Record<string, TokenCounts> | null): number {
+export function adjustedOfUsage(model: string | null | undefined, counts: Partial<TokenCounts>, byModel?: Record<string, TokenCounts> | null, unit: string | null | undefined = model): number {
   const parts = byModel ? Object.entries(byModel) : [];
-  if (!parts.length) return adjustedOutputTokens(model, counts);
-  const out = tokenPrices(model).usdPerMTok.output;
-  return Math.round(parts.reduce((s, [m, c]) => s + listCostUsd(m, c), 0) * 1e6 / out);
+  if (!parts.length && tokenPrices(unit).family === tokenPrices(model).family) return adjustedOutputTokens(model, counts);
+  const usd = parts.length ? parts.reduce((s, [m, c]) => s + listCostUsd(m, c), 0) : listCostUsd(model, counts);
+  return Math.round(usd * 1e6 / tokenPrices(unit).usdPerMTok.output);
 }
 
-/** A session as the API serves it: `adjustedOutputTokens` next to the raw total and the five counters. */
+/** The model whose output tokens a session is booked in: `BANK_MODEL` since migration 076, its own model before. */
+export const bankModelOf = (s: Pick<Session, "model" | "bankModel">): string => s.bankModel ?? s.model;
+
+/**
+ * What the Bank booked for a session, in adjusted output tokens: the one figure grant spend, goal spend, finance spend,
+ * funders and caps sum. A session's ledger debits add up to it (runtime settleUsage).
+ */
+export function sessionTokens(s: Pick<Session, "model" | "bankModel" | "byModel"> & Partial<TokenCounts>): number {
+  return adjustedOfUsage(s.model, s, s.byModel, bankModelOf(s));
+}
+
+/** A session as the API serves it: `adjustedOutputTokens` (what the Bank booked, in `bankModel`'s output tokens) next to the raw total and the five counters. */
 export function sessionView(s: Session): SessionView {
-  return { ...s, adjustedOutputTokens: adjustedOfUsage(s.model, s, s.byModel) };
+  return { ...s, bankModel: bankModelOf(s), adjustedOutputTokens: sessionTokens(s) };
 }
 
 /** The model ids in a usage that `TOKEN_PRICES` doesn't know (priced as Opus 5.5; worth a warning). */
@@ -102,17 +121,21 @@ export function unknownModels(model: string | null | undefined, byModel?: Record
 export interface Booked { tokens: number; counts: TokenCounts }
 
 /**
- * A charge as the Bank books it. Counters are priced at `model`'s list price (per model with `byModel`); a bare number is
- * already adjusted output tokens, and its counters are the back-fill split of the raw tokens it stands for (docs/bank.md).
+ * A charge as the Bank books it, in `BANK_MODEL`'s output tokens. Counters are priced at `model`'s list price (per model
+ * with `byModel`) and converted at Opus 5.5's output price. A bare number is already Bank tokens; its counters are the
+ * back-fill split (docs/bank.md) of the raw tokens of `model` that cost the same: raw = n × rawPerAdjusted(model) ×
+ * Opus output price / the split family's output price (a Fable split of 1 Bank token is 24 / 2.5 = 9.6 raw).
  */
 export function booked(t: number | Partial<TokenCounts> | Booked, model?: string | null, byModel?: Record<string, TokenCounts> | null): Booked {
   if (typeof t === "number") {
     const tokens = Math.max(0, Math.round(t));
-    return { tokens, counts: splitRaw(tokens * rawPerAdjusted(model), model) };
+    const splitModel = backfillFamily(model) === "fable" ? model : BANK_MODEL;
+    const perBank = tokenPrices(BANK_MODEL).usdPerMTok.output / tokenPrices(splitModel).usdPerMTok.output;
+    return { tokens, counts: splitRaw(tokens * rawPerAdjusted(model) * perBank, model) };
   }
   if ("counts" in t && typeof (t as Booked).tokens === "number") return { tokens: Math.max(0, Math.round((t as Booked).tokens)), counts: countsOf((t as Booked).counts) };
   const counts = countsOf(t as Partial<TokenCounts>);
-  return { tokens: adjustedOfUsage(model, counts, byModel), counts };
+  return { tokens: adjustedOfUsage(model, counts, byModel, BANK_MODEL), counts };
 }
 
 /** `part` adjusted tokens out of a booking, with its counters sliced in the same proportion (sliceTokens). */
@@ -180,32 +203,29 @@ export interface BankSummary {
   buildings: BankBuildingShare[];
   /** free tokens town-wide (the root's: docs/how-work-gets-done.md §7); null when the Bank runs without a world (tests) */
   free: FreeTokens | null;
+  /** the town's operating reserve (free.reserveTokens; 0 without a world) and the town-wide free tokens (free.freeTokens) */
+  reserveTokens: number;
+  freeTokens: number;
   /** top contributors by tokens given, most first (zero-token users left out) */
   contributors: BankContributor[];
   /** Bank step 4: the latest drift run (adjusted output tokens × output list price vs the SDK's costUsd); null before the first */
   drift: BankDrift | null;
   /** Bank step 5: unexpected out-of-tokens deaths over the last 7 days (docs/bank.md) */
   deaths: BankDeaths;
-  /** Bank step 5: the subscription's learned daily cap and whether new subscription starts are held near it */
+  /** the subscription's observed cap: today's spend and whether a cap event's reset is still ahead (no learned cap, no hold) */
   cap: BankCapState;
 }
 
-/** The subscription cap as the Bank has learned it from `bank.cap` events (GET /api/bank `cap`). */
+/**
+ * The subscription cap as observed from `bank.cap` events (GET /api/bank `cap`). Observed only: the Bank no longer learns
+ * a daily cap from where sessions died or holds starts near one (removed 2026-11-01: one Fable-only limit froze the town).
+ */
 interface BankCapState {
   /** the subscription input (null when there is none) */
   inputId: string | null;
-  /** learned daily cap in adjusted output tokens; null = no cap seen yet (then nothing is held) */
-  learnedCap: number | null;
-  /** days with a cap event the learned cap is the median of */
-  days: number;
   /** the subscription's adjusted spend since today's window opened (00:00 UTC, or a cap reset that already passed today) */
   spentToday: number;
   windowStart: string;
-  /** median adjusted size of the last 50 ended sessions that used tokens (null with none) */
-  typicalSession: number | null;
-  /** new subscription-funded starts are held */
-  held: boolean;
-  reason: string | null;
   /** when the cap resets: the latest cap event's reset if still ahead, else the next 00:00 UTC */
   resetsAt: string;
   /**
@@ -348,14 +368,27 @@ export class Bank {
     return splitRaw(tokens * rawPerAdjusted(model), model);
   }
 
-  /** Stop an input's future credits and forget its key. Its owner or an admin. Past credits stay in the Bank. */
-  cancelInput(userId: string, inputId: string): BankInput {
+  /**
+   * Stop an input's future credits and forget its key. Its owner or an admin. An api-key input's past credits stay in the
+   * Bank (that money was paid in). A subscription's live credit expires now (2026-11-01): it is quota the plan serves today,
+   * so replacing a subscription donation with a smaller one must not leave the old day's credit spendable until its renewal.
+   */
+  cancelInput(userId: string, inputId: string, now = new Date()): BankInput {
     const inp = this.repos.bankInputs.require(inputId, "bank input");
     if (inp.userId !== userId && !this.permissions.isAdmin({ kind: "user", id: userId })) throw forbidden("town.allocate_budget", "Only the input's owner or an admin can cancel it.");
     if (inp.cancelledAt) return inp;
     this.repos.bankInputs.setApiKey(inputId, null);
-    const row = this.repos.bankInputs.upsert({ ...this.repos.bankInputs.require(inputId), nextCreditAt: null, cancelledAt: nowIso() });
-    this.events.append({ type: "bank.input", text: `${inp.label} was cancelled`, payload: { inputId, cancelled: true } });
+    const row = this.repos.bankInputs.upsert({ ...this.repos.bankInputs.require(inputId), nextCreditAt: null, cancelledAt: now.toISOString() });
+    let expiredTokens = 0;
+    if (inp.source === "subscription") {
+      for (const c of this.inputCredits(inputId, now)) {
+        if (!c.expiresAt) continue;
+        expiredTokens += Math.max(0, c.tokens - this.debited("creditId = ?", [c.id]));
+        this.repos.bankCredits.upsert({ ...c, expiresAt: now.toISOString() });
+      }
+    }
+    const lapsed = expiredTokens ? `; its unspent ${expiredTokens.toLocaleString("en-US")} adj. tokens of today's credit expired` : "";
+    this.events.append({ type: "bank.input", text: `${inp.label} was cancelled${lapsed}`, payload: { inputId, cancelled: true, expiredTokens } });
     return row;
   }
 
@@ -419,7 +452,7 @@ export class Bank {
   /** Tokens an input credited in the 7 days before `now`. */
   private creditedLastWeek(inputId: string, now: Date): number {
     const since = new Date(now.getTime() - 7 * DAY_MS).toISOString();
-    return this.repos.bankCredits.where("inputId = ? AND createdAt > ?", [inputId, since]).reduce((s, c) => s + c.tokens, 0);
+    return this.repos.bankCredits.sum("tokens", "inputId = ? AND createdAt > ?", [inputId, since]);
   }
 
   /**
@@ -490,7 +523,7 @@ export class Bank {
   expectedSession(buildingId?: string | null, now = new Date()): { tokens: number; sample: number } {
     const since = new Date(now.getTime() - 7 * DAY_MS).toISOString();
     const ended = this.repos.sessions.where("purpose = 'work' AND endedAt IS NOT NULL AND endedAt > ?", [since]);
-    const sizes = (rows: Session[]) => rows.map((s) => adjustedOfUsage(s.model, s, s.byModel)).filter((t) => t > 0);
+    const sizes = (rows: Session[]) => rows.map((s) => sessionTokens(s)).filter((t) => t > 0);
     if (buildingId) {
       const homes = new Set(this.repos.agents.where("homeBuildingId = ? OR buildingId = ?", [buildingId, buildingId]).map((a) => a.id));
       const own = sizes(ended.filter((s) => homes.has(s.agentId)));
@@ -745,6 +778,7 @@ export class Bank {
     }
     const sum = (h?: HeldByAuth) => (h ? h.subscription + h.apiKey + h.donorKey : 0);
     const heldTokens = sum(total);
+    const free = this.freeTokens?.() ?? null;
     return {
       balanceTokens: totals.expiring + totals.durable,
       heldTokens,
@@ -765,7 +799,9 @@ export class Bank {
           expiringTokens: a.expiring, durableTokens: a.durable, heldTokens: sum(held.get(b.id)), heldByAuth: held.get(b.id) ?? { subscription: 0, apiKey: 0, donorKey: 0 },
         };
       }),
-      free: this.freeTokens?.() ?? null,
+      free,
+      reserveTokens: free?.reserveTokens ?? 0,
+      freeTokens: free?.freeTokens ?? 0,
       contributors: this.contributors(),
       drift: this.latestDrift(),
       deaths: this.deaths(now),
@@ -773,7 +809,7 @@ export class Bank {
     };
   }
 
-  // ---- Bank step 5: deaths and the cap hold (caps.ts) ----
+  // ---- Bank step 5: deaths and the observed cap (caps.ts) ----
   /** Unexpected out-of-tokens deaths over the 7 days before `now` (definition in caps.ts and docs/bank.md). */
   deaths(now = new Date()): BankDeaths {
     const from = new Date(now.getTime() - 7 * DAY_MS).toISOString();
@@ -786,15 +822,12 @@ export class Bank {
   }
 
   private capCache: { at: number; state: BankCapState } | null = null;
-  /** the day the `bank.hold` event was last logged (once per day) */
-  private holdDay: string | null = null;
 
-  /** The learned subscription cap and whether starts are held near it; cached 30 s (recordCap clears it). */
+  /** The observed subscription cap: today's subscription spend and whether a cap is in force; cached 30 s (recordCap clears it). */
   capState(now = new Date()): BankCapState {
     if (this.capCache && now.getTime() - this.capCache.at >= 0 && now.getTime() - this.capCache.at < 30_000) return this.capCache.state;
     const today = utcDay(now);
     const caps = this.events.list({ types: ["bank.cap"], from: new Date(now.getTime() - 15 * DAY_MS).toISOString(), desc: true, limit: 5000 });
-    const learned = learnedCap(caps.map((e) => ({ day: String(e.payload.day ?? e.ts.slice(0, 10)), subscriptionAdjustedToday: Number(e.payload.subscriptionAdjustedToday ?? e.payload.adjustedSpendToday ?? 0) })), today);
     const midnight = `${today}T00:00:00.000Z`, nowIso = now.toISOString();
     const resets = caps.map((e) => e.payload.resetsAt).filter((r): r is string => typeof r === "string");
     // a cap that reset earlier today reopens the window; the next reset is the latest one still ahead, else next midnight
@@ -805,18 +838,10 @@ export class Bank {
     const cappedAt = caps.find((e) => (typeof e.payload.resetsAt === "string" ? e.payload.resetsAt > nowIso : e.ts >= windowStart))?.ts ?? null;
     let spentToday = 0;
     for (const s of this.repos.sessions.where("status != 'running' AND endedAt >= ?", [windowStart])) {
-      if (!s.funding || s.funding === "subscription") spentToday += adjustedOfUsage(s.model, s, s.byModel);
+      if (!s.funding || s.funding === "subscription") spentToday += sessionTokens(s);
     }
-    const recent = this.repos.sessions.where("status != 'running' AND tokens > 0", [], `ORDER BY endedAt DESC LIMIT ${TYPICAL_SESSIONS}`);
-    const typicalSession = median(recent.map((s) => adjustedOfUsage(s.model, s, s.byModel)));
-    const held = nearCap(spentToday, learned?.cap ?? null, typicalSession);
-    const reason = held && learned ? capReason(spentToday, learned.cap, resetsAt) : null;
     const inputId = this.repos.bankInputs.first("source = 'subscription' AND cancelledAt IS NULL", [], "ORDER BY createdAt, rowid")?.id ?? null;
-    const state: BankCapState = { inputId, learnedCap: learned?.cap ?? null, days: learned?.days ?? 0, spentToday, windowStart, typicalSession, held, reason, resetsAt, cappedAt };
-    if (held && this.holdDay !== today && !this.events.list({ types: ["bank.hold"], from: midnight, limit: 1 }).length) {
-      this.holdDay = today;
-      this.events.append({ type: "bank.hold", text: `Bank: new subscription starts held, ${reason}`, payload: { ...state } });
-    }
+    const state: BankCapState = { inputId, spentToday, windowStart, resetsAt, cappedAt };
     this.capCache = { at: now.getTime(), state };
     return state;
   }
@@ -874,17 +899,17 @@ export class Bank {
   /**
    * A session died on the subscription cap (the desk read the SDK's result as SPEND_LIMIT): log `bank.cap` with the UTC
    * day's spend so far, so the cap's real daily size is learned from where it hits. `adjustedSpendToday` sums each ended
-   * session's adjusted output tokens (in its own model's output tokens); `listUsdToday` is the same at list price.
+   * session's booked tokens (`sessionTokens`: Opus 5.5 output tokens since migration 076); `listUsdToday` is the same at list price.
    */
   recordCap(session: Session, buildingId: string | null, message: string, at = new Date()): void {
     const day = utcDay(at);
     const today = this.repos.sessions.where("status != 'running' AND endedAt >= ?", [`${day}T00:00:00.000Z`]);
     let adjustedSpendToday = 0, subscriptionAdjustedToday = 0, listUsdToday = 0;
     for (const s of today) {
-      const adj = adjustedOfUsage(s.model, s, s.byModel);
+      const adj = sessionTokens(s);
       adjustedSpendToday += adj;
       if (!s.funding || s.funding === "subscription" || s.id === session.id) subscriptionAdjustedToday += adj;
-      listUsdToday += (adj * tokenPrices(s.model).usdPerMTok.output) / 1e6;
+      listUsdToday += (adj * tokenPrices(bankModelOf(s)).usdPerMTok.output) / 1e6;
     }
     const input = this.repos.bankInputs.first("source = 'subscription' AND cancelledAt IS NULL", [], "ORDER BY createdAt, rowid")?.id ?? null;
     const resetsAt = parseResetsAt(message, at);

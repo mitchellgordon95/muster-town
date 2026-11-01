@@ -53,6 +53,8 @@ export function seededWorld(shape?: MapLayout) {
   const seed = f.world.seedDefaults({ importDir: CARBON_DIR, townJsonPath: TOWN_JSON, dataDir: f.dir });
   if (shape) { f.world.town.set({ mapLayout: shape }); f.world.layout.rebuild(); }
   seedCredential(f.world, seed.admin.id);
+  // test Banks hold thousands of tokens, not millions: no operating reserve unless a test sets one (free-tokens.test.ts)
+  f.world.town.set({ operatingReserveTokens: 0 });
   const by = (name: string) => f.world.agents.first("name = ?", [name])!;
   return { ...f, seed, by, admin: f.world.ops.ensureAvatar(seed.admin.id) };
 }

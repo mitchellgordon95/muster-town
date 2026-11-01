@@ -197,6 +197,18 @@ describe("runSession", () => {
     expect(town.ends[0]!.error).toBeUndefined();
   });
 
+  it("a control poll answered 401 (the town revoked the token: session cut, agent retired) stops the session instead of running on unseen", async () => {
+    town.briefs.set("s1", brief("s1"));
+    const sdk = fakeSdk(async function* (s) {
+      yield assistant({ type: "tool_use", id: "t1", name: "Bash", input: { command: "sleep 100" } });
+      town.revoked = true;
+      await Promise.race([s.interruptedSignal, sleep(5000)]);
+    });
+    const code = await runSession("s1", deps(sdk));
+    expect(sdk.sessions[0]!.interrupted).toBe(true);
+    expect(code).toBe(EXIT_STOPPED);
+  });
+
   it("reports SDK errors in session-end and exits 1", async () => {
     town.briefs.set("s1", brief("s1"));
     const sdk = fakeSdk(async function* () {

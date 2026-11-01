@@ -10,14 +10,23 @@ import { goalShortName } from "../purpose";
 import { findGoal, treeRows } from "./goalTree";
 import { ADJ, Empty, Loading, Section, fmtTokens, useLoad } from "./ui";
 
-/** The free-tokens sum as signed terms: general + earmarks at or above − funded grants' remaining − open asks − reservations. */
+const RETAINERS = "retainers";
+/** "Retainers: N tokens across M jobs" (1:1 mt_cyd2t5ioob decision 2): funded schedules' tokensPerRun × runs left, its own line on the Bank. */
+function retainersLine(f: Pick<FreeTokens, "retainerTokens" | "retainerJobs">): string {
+  const jobs = f.retainerJobs ?? 0;
+  return `Retainers: ${(f.retainerTokens ?? 0).toLocaleString("en-US")} tokens across ${jobs} job${jobs === 1 ? "" : "s"}`;
+}
+
+/** The free-tokens sum as signed terms: general − operating reserve + earmarks at or above − funded grants' remaining − open asks − reservations. */
 function freeTerms(f: FreeTokens): [label: string, tokens: number][] {
   return [
     ["general balance", f.generalTokens],
+    ["operating reserve", -(f.reserveTokens ?? 0)],
     ["earmarks at or above", f.earmarkTokens],
     ["funded grants' remaining", -f.fundedRemainingTokens],
     ["open proposals' asks", -f.openAsksTokens],
     ["reservations", -f.reservedTokens],
+    [RETAINERS, -(f.retainerTokens ?? 0)],
   ];
 }
 
@@ -52,7 +61,7 @@ export function BankFreeTokens({ free }: { free: FreeTokens }) {
     <Section title="Free tokens">
       <table className="table">
         <tbody>
-          {freeTerms(free).map(([label, t]) => <tr key={label} className="sub-row"><td>{t < 0 ? "less " : ""}{label}</td><td>{t < 0 ? "−" : ""}{Math.abs(t).toLocaleString("en-US")}</td></tr>)}
+          {freeTerms(free).map(([label, t]) => <tr key={label} className="sub-row"><td>{label === RETAINERS ? <span title="Standing money for scheduled jobs a human approved: tokens per run × runs left">less {retainersLine(free)}</span> : <>{t < 0 ? "less " : ""}{label}</>}</td><td>{t < 0 ? "−" : ""}{Math.abs(t).toLocaleString("en-US")}</td></tr>)}
           <tr><td>Free tokens: what exploration may still claim (never below 0)</td><td><b>{free.freeTokens.toLocaleString("en-US")}</b></td></tr>
         </tbody>
       </table>

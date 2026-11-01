@@ -93,18 +93,16 @@ const DEFAULT_KEYS = ["model", "cheapModel", "maxTurnsPerSession", "dailyTokensP
 type SpecText = { goal?: string; description?: string } & Partial<BuildingDefaults>;
 
 /**
- * Update building settings (validated); re-lots if headcount grew. A blank name re-derives from the attachment (the new
+ * Update building settings (validated); re-lots if headcount grew (a lowered one shrinks the lot only once desks free). A blank name re-derives from the attachment (the new
  * one when `goalId` moves in the same patch); a typed name stays.
  */
 export function updateBuilding(world: World, id: string, patch: Partial<In<typeof CreateBuildingInput>>, actor: Actor = null): Building {
   const cur = world.buildings.require(id, "building");
   const p = patchOf(CreateBuildingInput).parse(patch);
   if (p.name === "") p.name = world.goalTree.defaultName(p.goalId ?? world.goalTree.attachmentOf(cur));
-  if (p.headcount !== undefined) {
-    if (p.headcount > MAX_HEADCOUNT) throw badRequest(`headcount must be <= ${MAX_HEADCOUNT}`);
-    const used = world.layout.deskCount(id);
-    if (p.headcount < used) throw badRequest(`headcount ${p.headcount} is below the ${used} occupied desks`);
-  }
+  // a headcount below the desks in use is accepted: it caps the next fork (freeDesks), running forks keep their desks
+  // and the lab shrinks as they free (WorldMap `drawn`)
+  if (p.headcount !== undefined && p.headcount > MAX_HEADCOUNT) throw badRequest(`headcount must be <= ${MAX_HEADCOUNT}`);
   if (p.managerAgentId) {
     const a = world.agents.get(p.managerAgentId);
     if (!a || a.kind !== "resident" || a.homeBuildingId !== id || a.forkOf) throw badRequest("The manager must be a (named) resident of this building.");
@@ -180,7 +178,7 @@ export function createResident(world: World, input: In<typeof CreateResidentInpu
   if (b.kind !== "lab") throw badRequest("Residents live in labs.");
   return world.transaction(() => {
     const id = newId("ag");
-    const existing = world.agents.where("homeBuildingId = ? AND kind = 'resident' AND forkOf IS NULL", [b.id]).length;
+    const existing = world.agents.count("homeBuildingId = ? AND kind = 'resident' AND forkOf IS NULL", [b.id]);
     // insert first (desk names come from the agents table), then claim the desk and move the body there
     world.agents.upsert(Agent.parse({
       id, name: inp.name || suggestResidentName(world), kind: "resident", buildingId: b.id, homeBuildingId: b.id, ownerUserId: b.createdBy ?? null,
