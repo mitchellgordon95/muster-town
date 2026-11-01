@@ -54,6 +54,8 @@ declare module "fastify" {
     load: LoadMonitor;
     /** the off-site backup job (null in tests and without one): `GET /api/health` `backup` */
     backup: BackupJob | null;
+    /** a drill town (MUSTER_TOWN_RUNTIME=off, throwaway.ts): no runtime, backup restore-only; `GET /api/health` `throwaway: true` */
+    throwaway: boolean;
     /** the in-process monitor (null in tests and hosted collectives): `GET /api/health` `monitor`, `POST /api/admin/monitor/test` */
     monitor: Monitor | null;
     /** the hosted collectives (root app only; null in a hosted collective's app and without a hub) */
