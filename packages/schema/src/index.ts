@@ -2224,6 +2224,8 @@ export const AuthMe = z.object({
     deciders: z.array(z.string()).default([]),
     /** median time from asking to a decision over every decided request; null = none decided yet */
     typicalWaitMs: z.number().nullable().default(null),
+    /** who decided, by name (the "You're in" card says who let them in); null while pending */
+    decidedByName: z.string().nullable().default(null),
   }).nullable().default(null),
 });
 export type AuthMe = z.infer<typeof AuthMe>;

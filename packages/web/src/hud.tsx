@@ -12,6 +12,8 @@ import { Act, timeAgo } from "./panels/ui";
 import { SignInButtons, signOut, useAuth } from "./auth/auth";
 import { mapRenderer } from "./map/MapCanvas";
 import { whoIsHere } from "./whoIsHere";
+import { firstManagerBuilding, youreInDue, youreInLine } from "./youreIn";
+import "./panels/hiw.css";
 
 /** The Workshop lives under /workshop/ beside the collectives homepage at /; served at / there is nothing above it. */
 const HOMEPAGE = import.meta.env.BASE_URL !== "/" ? "/" : null;
@@ -71,10 +73,13 @@ export function Hud({ onPasteToken, onHelp }: { onPasteToken?: () => void; onHel
     const out: Notice[] = [];
     // a redeploy in flight (or just finished): everyone sees it, so nobody is surprised by the restart
     // a hosted collective without an API key of its own: its agents are held (docs/hosted-collectives.md, own-key block)
+    // its admin (the founder) sees it as the one next step: the first building is already there, only the key is missing
     if (health?.funding === "none") {
       out.push({
         key: "no-key", icon: "bank", tone: "warn", cta: "Bank →",
-        text: <><b>No key yet</b>: add your Anthropic API key at the Bank</>,
+        text: me?.isAdmin
+          ? <><b>Add your API key to start</b>: your agents wait until the Bank has one</>
+          : <><b>No key yet</b>: agents wait until an admin adds an Anthropic API key at the Bank</>,
         go: () => walkOrOpen("bank", { kind: "bank" }),
       });
     }
@@ -176,6 +181,7 @@ export function Hud({ onPasteToken, onHelp }: { onPasteToken?: () => void; onHel
         <span className={`conn ${conn}`} title={`Server: ${conn}${isMock ? " (mock)" : ""}`} />
         <button className="icon-btn" onClick={() => setCollapsed(!collapsed)} title={collapsed ? "Expand" : "Collapse"}>{collapsed ? "▾" : "▴"}</button>
       </div>
+      {!auth.guest && me ? <YoureIn me={me} collective={town.name} /> : null}
       {collapsed ? null : (
         <>
           <div className="goal" title={town.goalNote}><span>Goal</span>{town.goal}</div>
@@ -231,6 +237,35 @@ export function Hud({ onPasteToken, onHelp }: { onPasteToken?: () => void; onHel
           ) : null}
         </>
       )}
+    </div>
+  );
+}
+
+function localStore(): Storage | null { try { return typeof localStorage === "undefined" ? null : localStorage; } catch { return null; } }
+
+/**
+ * The one-time "You're in" card (gr_58n37j410s step 2): shown on the first visit after an admin let this person in,
+ * whether that happened while they were away or live (the decision refetches `me`). Two first steps; × hides it for
+ * good in this browser (youreIn.ts). It shows even on a collapsed HUD: a phone starts collapsed for members.
+ */
+function YoureIn({ me, collective }: { me: AuthMe; collective: string }) {
+  const buildings = useTown((s) => s.buildings);
+  const agents = useTown((s) => s.agents);
+  const [dismissed, setDismissed] = useState<string | null>(null);
+  const key = youreInDue(me, localStore());
+  if (!key || dismissed === key) return null;
+  const home = firstManagerBuilding(buildings);
+  const manager = home?.managerAgentId ? agents[home.managerAgentId] : undefined;
+  const dismiss = () => { try { localStore()?.setItem(key, new Date().toISOString()); } catch { /* private mode: hidden for this page only */ } setDismissed(key); };
+  return (
+    <div className="paper youre-in" role="status">
+      <button className="youre-in-x" onClick={dismiss} title="Dismiss" aria-label="Dismiss">×</button>
+      <h2>You're in</h2>
+      <p>{youreInLine(me, collective)} You can walk, talk and bring your own agent now.</p>
+      <div className="youre-in-steps">
+        {manager ? <button className="btn primary" onClick={() => store.open({ kind: "agent", id: manager.id, tab: "Talk" })}>Talk to ★ {manager.name}</button> : null}
+        <button className={`btn${manager ? "" : " primary"}`} onClick={() => store.open({ kind: "connect" })}>Connect your agent</button>
+      </div>
     </div>
   );
 }
