@@ -31,14 +31,15 @@ export async function townRoutes(app: FastifyInstance) {
 
   /**
    * `commit`: the git sha the running server started from (null without a runtime); `git merge-base --is-ancestor <sha> <commit>` says
-   * whether a change is live. `load` (read-only): `lagMs` p99 event-loop delay over the last 10 s window, `rssMb`, `wsClients` open now.
+   * whether a change is live. `load` (read-only): `lagMs` p99 event-loop delay over the last 10 s window, `rssMb`, `wsClients` open now,
+   * `tick` `{last, slow}`: the runtime's last tick and last tick over 500 ms, `{at, ms, phase, phaseMs, phases}` (null without a runtime).
    * `backup` (read-only): the off-site copy's `{lastAt, bytes, dest, error}`; null until the bucket and key are set
    * (deploy/README.md "Backups"). Never the key or the bucket credentials. `monitor` (read-only, null without one):
    * `{lastSampleAt, alerts: [{key, level, since, value}]}` (monitor.ts; the VPS pinger reads the red ones). `directory` (root app, only where the
    * directory is on): `{verified, listed, pending, lastTickAt}` (directory/index.ts). `desks` (gr_uhh6u39vv9 step 3): `{backend, size,
    * billCapUsd, billTodayUsd, billPct, overCap, day}`, today's (UTC) desk bill at Fly list prices against the town-wide cap.
    */
-  app.get("/api/health", async () => ({ ok: true, runtime: !!app.runtime, commit: world.host.commit ?? null, startedAt: world.host.startedAt ?? null, time: new Date().toISOString(), accounting: BANK_ACCOUNTING, load: app.load.snapshot(),
+  app.get("/api/health", async () => ({ ok: true, runtime: !!app.runtime, commit: world.host.commit ?? null, startedAt: world.host.startedAt ?? null, time: new Date().toISOString(), accounting: BANK_ACCOUNTING, load: { ...app.load.snapshot(), tick: app.runtime?.tickStats?.() ?? null },
     // goal-directed budgets: exploration (held only with no free tokens or at a goal's cap) and directed (a human asked; metered, never held) today
     budgets: world.grantDesk.laneBudgets(), backup: app.backup?.snapshot() ?? null, monitor: app.monitor?.view() ?? null, desks: desksHealth(world),
     // the root app (the Workshop) only: how many hosted collectives this process serves at /<slug>/
