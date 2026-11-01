@@ -95,6 +95,22 @@ describe("the town goal tree (docs/goals.md, step 1)", () => {
     expect(world.grantDesk.get(open.grantId!).keyResults.map((k) => k.id)).toEqual([open.id]);
   });
 
+  it("only a town admin names the root's captain (mt_cyd2t5ioob decision 6); it inherits down and null hands it back", () => {
+    const { world, admin, tree, labGoal } = setup();
+    const mitch = createUser(world, "Mitch").user;
+    const lena = createUser(world, "Lena").user;
+    const lenaAv = world.ops.ensureAvatar(lena.id);
+    tree.update(admin, labGoal.id, { ownerId: lena.id });
+    expect(() => tree.update(lenaAv, "gl_town", { ownerId: lena.id })).toThrow(/town admin/);
+    tree.update(admin, "gl_town", { ownerId: mitch.id });
+    expect(tree.ownerOf("gl_town")).toEqual({ goalId: "gl_town", userId: mitch.id });
+    expect(tree.ownerOf("gl_trust")).toEqual({ goalId: "gl_town", userId: mitch.id });
+    expect(tree.ownerOf(labGoal.id)).toEqual({ goalId: labGoal.id, userId: lena.id });
+    expect(world.events.recent({ limit: 10 }).some((e) => e.type === "goal.owned" && (e.payload as { goalId?: string }).goalId === "gl_town")).toBe(true);
+    tree.update(admin, "gl_town", { ownerId: null });
+    expect(tree.ownerOf("gl_town")).toEqual({ goalId: "gl_town", userId: null });
+  });
+
   it("owners (humans) inherit down the tree, edit and fund in their subtree only; routing ends at the owner", () => {
     const { world, admin, mei, tree, labGoal, otherGoal } = setup();
     const lena = createUser(world, "Lena").user;

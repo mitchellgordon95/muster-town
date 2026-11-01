@@ -72,7 +72,19 @@ export class WorldMap {
       occupancy.get(r.buildingId)!.set(r.n, r.agentId);
     }
     const names = new Map(this.repos.agents.all().map((a) => [a.id, a.name]));
-    return computeLayout(buildings, this.repos.goals.where("status = 'active'"), occupancy, names, this.repos.town.get().mapLayout);
+    return computeLayout(buildings.map((b) => this.drawn(b)), this.repos.goals.where("status = 'active'"), occupancy, names, this.repos.town.get().mapLayout);
+  }
+
+  /**
+   * The building as the map draws it. A headcount lowered below the desks in use (1:1 mt_cyd2t5ioob decision 5) caps
+   * new forks at once (forks.ts `freeDesks`) but never takes a desk from a running one: a lab keeps its lot and desk
+   * pieces up to its highest occupied desk, and shrinks as those desks free (releaseDesk rebuilds). Town Hall's
+   * size and seats don't follow its headcount.
+   */
+  private drawn(b: Building): Building {
+    if (b.kind !== "lab") return b;
+    const top = (this.db.prepare("SELECT MAX(n) AS n FROM desks WHERE buildingId = ?").get(b.id) as { n: number | null }).n;
+    return top != null && top >= b.headcount ? { ...b, headcount: top + 1 } : b;
   }
 
   /** The building's movable pieces, each with its default and current anchor (lot-relative). */
@@ -80,7 +92,7 @@ export class WorldMap {
     const b = this.repos.buildings.require(buildingId, "building");
     if (!b.lot) return { lot: undefined, pieces: [] };
     const side = this.sides.get(b.id);
-    const pieces = piecesFor(b.kind, b.headcount, b.lot, side);
+    const pieces = piecesFor(b.kind, this.drawn(b).headcount, b.lot, side);
     const { anchors } = resolveFurniture(b.kind, b.lot, pieces, b.furniture, side);
     return { lot: b.lot, pieces: pieces.map((p) => ({ ...p, current: anchors[p.key] ?? p.at })) };
   }

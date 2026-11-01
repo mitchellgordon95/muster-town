@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import type { GoalTreeNode } from "@muster-town/schema";
-import { archivedLine, buildingScope, canEditGoal, deskWord, moveTargets, nodeGlance, pastDue, pathTo, proposalVerb, retireMoves, retirePlan, subtreeDesks, treeRows, visibleRows } from "../src/panels/goalTree";
+import { archivedLine, buildingScope, canEditGoal, deskWord, moveTargets, nodeGlance, pastDue, pathTo, proposalVerb, retireMoves, retirePlan, subtreeDesks, treeRows } from "../src/panels/goalTree";
+import { BOX, deskTotal, fitView, layoutTree, revealBox, stepTree, zoomAt } from "../src/panels/goalCanvas";
 import { renderToStaticMarkup } from "react-dom/server";
 import type { GoalProposalView } from "../src/api";
 import { ProposalCard, RetireConfirm, proposalNode } from "../src/panels/GoalTreePanel";
@@ -126,11 +127,61 @@ describe("the goal tree editor's nodes (UX pass dc_yn8gl1rmyt)", () => {
     expect([deskWord(1), deskWord(0), deskWord(6)]).toEqual(["1 desk", "0 desks", "6 desks"]);
   });
 
-  it("collapsing a goal hides everything under it, not the goal itself", () => {
+  it("the canvas: root on top, children in rows below, no two boxes overlap; collapsing hides the subtree and counts it", () => {
     const root = sample();
-    expect(visibleRows(root, false, new Set()).map((r) => r.node.id)).toEqual(treeRows(root, false).map((r) => r.node.id));
-    expect(visibleRows(root, false, new Set(["gl_fund"])).map((r) => r.node.id)).toEqual(["gl_town", "gl_fund", "gl_join", "gl_c"]);
-    expect(visibleRows(root, true, new Set(["gl_town"])).map((r) => r.node.id)).toEqual(["gl_town"]);
+    const l = layoutTree(root, false, new Set());
+    const at = (id: string) => l.boxes.find((b) => b.node.id === id)!;
+    expect(l.boxes.map((b) => b.node.id)).toEqual(treeRows(root, false).map((r) => r.node.id));
+    expect(at("gl_town").y).toBe(0);
+    expect(at("gl_fund").y).toBe(BOX.h + BOX.gapY);
+    expect(at("gl_a").h).toBe(BOX.h + BOX.row); // one building
+    // a box grows a row per attached building past the first; its row lines up on the tallest
+    const two = { ...root, buildings: [{ id: "x", name: "X", headcount: 1, inUse: 0 }, { id: "y", name: "Y", headcount: 1, inUse: 0 }] };
+    expect(layoutTree(two, false, new Set()).boxes[1]!.y).toBe(BOX.h + 2 * BOX.row + BOX.gapY);
+    expect(at("gl_c").depth).toBe(2);
+    // the parent is centred over its children's row; siblings left to right
+    expect(at("gl_fund").x).toBe((at("gl_a").x + at("gl_b").x) / 2);
+    expect(at("gl_a").x).toBeLessThan(at("gl_b").x);
+    for (const a of l.boxes) for (const b of l.boxes) if (a !== b && a.y === b.y) expect(Math.abs(a.x - b.x)).toBeGreaterThanOrEqual(BOX.w + BOX.gapX);
+    expect(l.edges.map((e) => `${e.from}>${e.to}`)).toContain("gl_fund>gl_a");
+    expect(l.width).toBeGreaterThanOrEqual(3 * BOX.w);
+    // retired goals only behind the toggle
+    expect(layoutTree(root, true, new Set()).boxes.some((b) => b.node.id === "gl_old")).toBe(true);
+    const shut = layoutTree(root, false, new Set(["gl_fund"]));
+    expect(shut.boxes.map((b) => b.node.id)).toEqual(["gl_town", "gl_fund", "gl_join", "gl_c"]);
+    expect(shut.boxes.find((b) => b.node.id === "gl_fund")!.hidden).toBe(2);
+    expect(shut.boxes.find((b) => b.node.id === "gl_fund")!.kids).toBe(true);
+    expect(layoutTree(root, true, new Set(["gl_town"])).boxes.map((b) => b.node.id)).toEqual(["gl_town"]);
+  });
+
+  it("the canvas keys: up = parent, down = first child, left/right = the next box in the row; edges stay put", () => {
+    const l = layoutTree(sample(), false, new Set());
+    expect(stepTree(l, "gl_a", "ArrowUp")).toBe("gl_fund");
+    expect(stepTree(l, "gl_town", "ArrowUp")).toBe("gl_town");
+    expect(stepTree(l, "gl_fund", "ArrowDown")).toBe("gl_a");
+    expect(stepTree(l, "gl_b", "ArrowDown")).toBe("gl_b");
+    expect(stepTree(l, "gl_a", "ArrowRight")).toBe("gl_b");
+    expect(stepTree(l, "gl_b", "ArrowRight")).toBe("gl_c");
+    expect(stepTree(l, "gl_fund", "ArrowLeft")).toBe("gl_fund");
+  });
+
+  it("the canvas view: Fit frames the tree (never past 1:1), zoom keeps the point under the pointer, reveal centres an off-screen box", () => {
+    const l = layoutTree(sample(), false, new Set());
+    const v = fitView(l, 400, 300);
+    expect(v.k).toBeLessThan(1);
+    expect(v.x + l.width * v.k).toBeLessThanOrEqual(400);
+    expect(fitView(l, 5000, 5000).k).toBe(1);
+    const z = zoomAt({ x: 10, y: 20, k: 1 }, 2, 110, 120);
+    expect([(110 - z.x) / z.k, (120 - z.y) / z.k]).toEqual([100, 100]);
+    expect(zoomAt({ x: 0, y: 0, k: 1 }, 100, 0, 0).k).toBe(2);
+    expect(revealBox({ x: 0, y: 0, k: 1 }, { x: 10, y: 10, h: BOX.h }, 800, 600)).toBeNull();
+    expect(revealBox({ x: 0, y: 0, k: 1 }, { x: 2000, y: 10, h: BOX.h }, 800, 600)).toEqual({ k: 1, x: 400 - 2000 - BOX.w / 2, y: 300 - 10 - BOX.h / 2 });
+  });
+
+  it("desks changed in place on the canvas count in every total above them", () => {
+    const root = sample();
+    expect(deskTotal(root, new Map())).toBe(6);
+    expect(deskTotal(root, new Map([["workshop", 4]]))).toBe(4);
   });
 
   it("a node at a glance: open key results, funded, late and the nearest due date (archived ones left out)", () => {
