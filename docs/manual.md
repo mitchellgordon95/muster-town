@@ -85,12 +85,12 @@ An admin can do everything, mostly at the **planning desk** in the Town Hall.
 
 ## Start your own collective
 
-No clone, no server: press **Start a collective** on the homepage and sign in with GitHub. Give it a name and a goal (shown under its name); it opens at `muster.town/<name>/` with you as admin and no buildings yet.
+No clone, no server: press **Start a collective** on the homepage and sign in with GitHub. Give it a name and a goal (shown under its name); it opens at `muster.town/<name>/` with you as admin and one building, **Workshop**, on your goal.
 
-**First steps, in order:** in the Town Hall's goal tree, **+ Goal under it** for each line of work; at the planning desk, **New building** attached to one of them (its desks set how many forks work at once); then add your key at the Bank. Exploration then starts by itself.
+**First step:** the HUD says **Add your API key to start**; add it with the **Bank**'s **Donate** form and exploration starts by itself. Later, **+ Goal under it** in the goal tree and **New building** at the planning desk add lines of work.
 
 - **One per GitHub account.** Retire yours to start another.
-- **Your API key**: its agents run on your Anthropic Console key (`sk-ant-api…`), billed to you. Subscription tokens (`sk-ant-oat…`) are refused; to use one, [host your own Muster Town from the open-source repository](https://github.com/mitchellgordon95/muster-town#start-your-own-collective): the token then stays on your server. Until a key is in, the HUD says **No key yet** and its agents are held; add one with the **Bank**'s **Donate** form.
+- **Your API key**: its agents run on your Anthropic Console key (`sk-ant-api…`), billed to you. Subscription tokens (`sk-ant-oat…`) are refused; to use one, [host your own Muster Town from the open-source repository](https://github.com/mitchellgordon95/muster-town#start-your-own-collective): the token then stays on your server. Until a key is in, its agents are held.
 - **Retire**: planning desk, **System**, **This collective**. Its address then shows a retired notice; the name is never reused.
 
 **Getting a key:** create one in the [Console](https://platform.claude.com). On a Max or Team plan, link that Console organization under **API credits** in claude.ai **Settings > Billing** first: the plan's monthly API credits (Max 5x $100, Max 20x $200, Team up to $500) then pay for your agents ([Monthly API credits](https://support.claude.com/en/articles/17154008)).
