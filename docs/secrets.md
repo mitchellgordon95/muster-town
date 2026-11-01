@@ -28,6 +28,16 @@ Names are env-var style (`A-Z0-9_`, starting with a letter). Names the runtime s
 
 The Bank's credentials (`bank_inputs.apiKey`: an api-key input's key or a subscription input's OAuth token) and donors' keys (`users.apiKey`) are stored as the same `v1:` AES-256-GCM ciphertext under `MUSTER_TOWN_DATA_KEY`, with AAD `bank_inputs:<id>` / `users:<id>` so a value can't be moved to another row. `Users` and `BankInputs` in `packages/core/src/store.ts` are the only code that reads or writes the column (`setApiKey` encrypts, `getApiKey` decrypts); the Bank and `fundingFor` see plaintext only through them. At boot the server encrypts any plaintext rows in place (`[secrets] encrypted N bank inputs, M donor keys`; idempotent; hosted collectives too). A copy of town.db opened under another key (a drill town) reads these secrets as null, with one `[secrets] bank input <id> unusable` warning per row, so it can't spend the Bank's credentials. A self-hosted town without a data key keeps them in plaintext, with a warning, so its Bank still runs; setting a key encrypts them at the next boot.
 
+## Login tokens
+
+Login tokens (`tokens`: a browser's sign-in, the CLI's, an agent's) are stored as `sha256:<hex>` of the token, never the token (gr_6qlj35wnh3 step 3). The token is random (`at_` + 32 nanoid chars), so an unsalted hash is enough. `Tokens` in `packages/core/src/store.ts` is the only code that touches the table: `create` returns the plaintext once to whoever it is for and stores the hash; `resolve` hashes what it is shown. `openDb` hashes any plaintext row in place after the migrations (`[secrets] hashed N plaintext login tokens in place`; idempotent), and a plaintext row it hasn't reached still resolves once and is hashed then, so the change logs nobody out: a browser's cookie, the CLI and a running desk keep their tokens. A stored hash shown as a token never matches.
+
+**Agents get a token per session.** A hashed row can't be handed out again, so a desk session (`deskEnv`) and a host session (`townOptions`) each get their own token (`tokens.sessionId`, migration 079), revoked when the session ends (`ops.endSession`). Tokens issued before this change (one per agent, no session) keep working; retiring or dismissing an agent revokes all of its tokens as before.
+
+**The admin token** has `<data>/admin-token` as its source: at boot its hash is put in the table if missing, so the same token keeps working; with no file (a restored or recovered town: the file isn't in a copy) the server issues a new one and writes the file.
+
+**What a leaked copy of town.db gives:** hashes, which no endpoint accepts. A drill or recover town still answers to the live tokens' holders while it runs (it holds the same hashes), but whoever has the copy can't read a login out of it. Copies taken before the deploy of this change hold plaintext rows until retention deletes them (30 daily copies).
+
 ## API (collective admins: a human's user token or session; agent tokens get 403)
 
 - `GET /api/secrets` → `{secrets: [{name, grants: {buildings, agents, skills}, set, updatedAt, updatedBy}], keyConfigured}`. Never values.
@@ -44,4 +54,4 @@ A skill grant reaches every agent the skill is pinned for: a town-wide pin means
 
 ## Host sessions and the admin token
 
-Host-backend sessions (summaries, meetings, in-process work) get an allowlisted env (`runtime/src/sdk.ts`, `sessionEnv`: `PATH`, `HOME`, locale, proxies, CA certs, `CLAUDE_*`, `ANTHROPIC_*`), not `{...process.env}`. The admin token is written to `<data>/admin-token` (0600) and startup prints only its path.
+Host-backend sessions (summaries, meetings, in-process work) get an allowlisted env (`runtime/src/sdk.ts`, `sessionEnv`: `PATH`, `HOME`, locale, proxies, CA certs, `CLAUDE_*`, `ANTHROPIC_*`), not `{...process.env}`. The admin token is written to `<data>/admin-token` (0600) and startup prints only its path (see "Login tokens").

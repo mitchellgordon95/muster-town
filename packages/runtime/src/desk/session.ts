@@ -76,7 +76,7 @@ export function deskEnv(ctx: Ctx, session: Session, opts: DeskSessionOptions = {
     // both spellings for one release: the desk may run an image from before or after the rename
     // sandbox providers run desks off this host, so they call the town's public URL; docker desks use the host gateway
     ...townEnvBoth("URL", ctx.desks.townUrl?.replace(/\/+$/, "") ?? `http://host.docker.internal:${portOf(ctx.mcpUrl)}`),
-    ...townEnvBoth("TOKEN", world.tokens.getOrCreate("agent", agent.id)),
+    ...townEnvBoth("TOKEN", world.tokens.createForSession(agent.id, session.id)), // its own token, revoked at session end,
     DESK_MODEL: session.model,
     DESK_MAX_TURNS: String(building.maxTurnsPerSession),
     // a fork's desk slot is shared by the forks before and after it: its commits carry its own name, whatever the
