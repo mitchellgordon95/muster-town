@@ -208,6 +208,10 @@ export interface FinanceFly {
   windowDays: number; from: string; to: string;
   rates: { desk: FlyRate | null; town: FlyRate | null; extraRamUsdPerGbMonth: number; region: string; source: string; pricedAt: string };
   desksBackend: string; townOnFly: boolean; capUsdPerDay: number | null;
+  /** "host": a hosted collective, the server is run by muster.town (no town Machine cost, townUsd 0); "self": its own server */
+  townPaidBy: "self" | "host";
+  /** a hosted collective's creation (its first event); the window starts no earlier than that day. null = self-hosted */
+  createdAt: string | null;
   today: { day: string; deskUsd: number; townUsd: number; totalUsd: number; capUsdPerDay: number | null; underCap: boolean | null };
   days: { day: string; deskMs: number; deskUsd: number; townUsd: number; totalUsd: number; sessions: number; buildings: FlyBuilding[] }[];
   buildings: FlyBuilding[];

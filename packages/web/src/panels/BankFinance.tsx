@@ -265,39 +265,53 @@ export function flyWindowTotals(fly: Pick<FinanceFly, "days">, n: number): { day
 }
 
 /** The Fly check in words: each day's desk + town = total, and the buildings' desk time = the days'. */
-export function flyCheckLine(fly: Pick<FinanceFly, "sumCheck" | "totals">): { ok: boolean; text: string } {
+export function flyCheckLine(fly: Pick<FinanceFly, "sumCheck" | "totals"> & Partial<Pick<FinanceFly, "townPaidBy">>): { ok: boolean; text: string } {
   const c = fly.sumCheck;
+  if (c.ok && fly.townPaidBy === "host") return { ok: true, text: `The server checked that each day's desks equal that day's total, and that the buildings' desk time adds up to the days' (${hours(fly.totals.deskMs)}).` };
   if (c.ok) return { ok: true, text: `The server checked that each day's desks + town Machine equals that day's total, and that the buildings' desk time adds up to the days' (${hours(fly.totals.deskMs)}).` };
   return { ok: false, text: c.daysOk ? `Does not add up: the buildings' desk time misses the days' by ${hours(Math.abs(c.diff))}` : `Does not add up: a day's desks + town Machine misses its total by ${usd(Math.abs(c.diff), 6)}` };
 }
 
 const rateLine = (r: FinanceFly["rates"]["desk"]) => (r ? `${r.preset}, ${r.memoryMb >= 1024 ? `${r.memoryMb / 1024} GB` : `${r.memoryMb} MB`}: ${usd(r.usdPerHour, 4)}/h (${usd(r.usdPerMonth)} per 30 days)` : null);
 
+/** The window's label: "Last N days (from → to)", or for a hosted collective younger than the window "Since it was created (from → to)". */
+export function flyWindowLabel(fly: Pick<FinanceFly, "from" | "to" | "createdAt"> & { days: unknown[] }): string {
+  const created = fly.createdAt?.slice(0, 10);
+  return created && created === fly.from ? `Since it was created (${fly.from} → ${fly.to})` : `Last ${fly.days.length} days (${fly.from} → ${fly.to})`;
+}
+
+export const HOSTED_FLY_NOTE = "The server is run by muster.town; this collective pays only for its own desks.";
+
 export function FlyView({ fly }: { fly: FinanceFly }) {
   const week = flyWindowTotals(fly, 7), all = flyWindowTotals(fly, fly.days.length);
   const t = fly.today;
   const desk = rateLine(fly.rates.desk), town = rateLine(fly.rates.town);
+  // a hosted collective: the hub's town Machine is not its cost, so no Town Machine column or size row
+  const own = fly.townPaidBy !== "host";
+  const townCell = (x: number) => (own ? <td>{usd(x)}</td> : null);
+  const windowLabel = flyWindowLabel(fly);
   return (
     <Section title="Hosting (Fly.io)">
       <p className="muted">
         What the town's servers cost, in US dollars: an estimate from the town's own records at Fly's list prices ({fly.rates.region}, read {fly.rates.pricedAt}),
-        not Fly's bill. Each desk session runs on its own Machine for as long as it lasts; the town Machine runs all day.
+        not Fly's bill. Each desk session runs on its own Machine for as long as it lasts{own ? "; the town Machine runs all day" : ""}.
       </p>
+      {own ? null : <p className="fly-hosted">{HOSTED_FLY_NOTE}</p>}
       <table className="table finance-summary">
-        <thead><tr><th /><th>Desks</th><th>Town Machine</th><th>Total</th></tr></thead>
+        <thead><tr><th /><th>Desks</th>{own ? <th>Town Machine</th> : null}<th>Total</th></tr></thead>
         <tbody>
-          <tr title={`${t.day} UTC, so far`}><td>Today (so far)</td><td>{usd(t.deskUsd)}</td><td>{usd(t.townUsd)}</td><td><b>{usd(t.totalUsd)}</b></td></tr>
-          {all.days > 7 ? <tr><td>Last 7 days</td><td>{usd(week.deskUsd)}</td><td>{usd(week.townUsd)}</td><td><b>{usd(week.totalUsd)}</b></td></tr> : null}
-          <tr><td>Last {all.days} days ({fly.from} → {fly.to})</td><td>{usd(all.deskUsd)}</td><td>{usd(all.townUsd)}</td><td><b>{usd(all.totalUsd)}</b></td></tr>
+          <tr title={`${t.day} UTC, so far`}><td>Today (so far)</td><td>{usd(t.deskUsd)}</td>{townCell(t.townUsd)}<td><b>{usd(t.totalUsd)}</b></td></tr>
+          {all.days > 7 ? <tr><td>Last 7 days</td><td>{usd(week.deskUsd)}</td>{townCell(week.townUsd)}<td><b>{usd(week.totalUsd)}</b></td></tr> : null}
+          <tr><td>{windowLabel}</td><td>{usd(all.deskUsd)}</td>{townCell(all.townUsd)}<td><b>{usd(all.totalUsd)}</b></td></tr>
           <tr className="sub-row" title="A town-wide limit on what the desks may cost in one day (Prod's desk performance work); the desks stop moving to faster Machines past it">
-            <td>Daily desk cap</td><td colSpan={3}>{t.capUsdPerDay == null ? "none set" : `${usd(t.capUsdPerDay)} per day · today ${t.underCap ? "under" : "over"} the cap`}</td>
+            <td>Daily desk cap</td><td colSpan={own ? 3 : 2}>{t.capUsdPerDay == null ? "none set" : `${usd(t.capUsdPerDay)} per day · today ${t.underCap ? "under" : "over"} the cap`}</td>
           </tr>
         </tbody>
       </table>
       <table className="table">
         <tbody>
           <tr><td>Desk Machine size</td><td>{desk ?? (fly.desksBackend === "fly" ? "no list price for this size" : `desks are not on Fly (${fly.desksBackend}): desk time shown, $0`)}</td></tr>
-          <tr><td>Town Machine size</td><td>{town ?? "the server is not on a Fly Machine: $0"}</td></tr>
+          {own ? <tr><td>Town Machine size</td><td>{town ?? "the server is not on a Fly Machine: $0"}</td></tr> : null}
           <tr><td>Desk time, last {all.days} days</td><td>{hours(fly.totals.deskMs)} over {n(fly.totals.sessions)} session{fly.totals.sessions === 1 ? "" : "s"}{fly.totals.unmeasuredSessions ? <span className="muted"> · {n(fly.totals.unmeasuredSessions)} timed from start and end, not measured on the desk</span> : null}</td></tr>
         </tbody>
       </table>
