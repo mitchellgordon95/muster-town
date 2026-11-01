@@ -6,7 +6,7 @@ import { existsSync, readdirSync, readFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
 import type { DesksConfig } from "@muster-town/schema";
-import { adjustedOfUsage, AppError, booked, NoCredential, resultLine, type Booked, type Credential, type Funding, type World } from "@muster-town/core";
+import { sessionTokens, AppError, booked, NoCredential, resultLine, type Booked, type Credential, type Funding, type World } from "@muster-town/core";
 import { countsOf, mergeUsage, rawTokens, splitRaw, subTokens, UsageMeter, VERB_NAMES, ZERO_TOKENS, type AllocationAuth, type Session, type TokenUsage, type VerbName } from "@muster-town/schema";
 import { CODE_TOOLS, codeGuard, type CodeCheckout, type CodeSource } from "./code.ts";
 import { describeTool } from "./describe.ts";
@@ -154,7 +154,7 @@ function settleUsage(world: World, sessionId: string, seen: TokenUsage | null): 
   const after = mergeUsage(before, seen);
   const byModel = Object.keys(after.byModel).length ? after.byModel : null;
   world.sessions.patch(s.id, { ...after.counts, byModel });
-  const tokens = adjustedOfUsage(s.model, after.counts, byModel) - adjustedOfUsage(s.model, before.counts, s.byModel);
+  const tokens = sessionTokens({ ...s, ...after.counts, byModel }) - sessionTokens(s);
   return { tokens: Math.max(0, tokens), counts: subTokens(after.counts, before.counts) };
 }
 

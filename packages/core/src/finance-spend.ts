@@ -1,5 +1,5 @@
 import { countsOf, isBackfilled, rawTokens, splitRaw, type Agent, type Allocation, type Assignment, type BankDebit, type Building, type Grant, type Session, type UsageEntry } from "@muster-town/schema";
-import { adjustedOfUsage, adjustedOutputTokens } from "./bank.ts";
+import { adjustedOutputTokens, sessionTokens } from "./bank.ts";
 import type { EventLog } from "./events.ts";
 import { townFinance } from "./finance.ts";
 import type { Repos } from "./store.ts";
@@ -81,7 +81,7 @@ export interface FinanceSpend {
 export interface NotFundedBuilding { buildingId: string | null; buildingName: string; usageRows: number; tokens: number }
 
 export interface SpendInputs {
-  sessions: Pick<Session, "agentId" | "assignmentId" | "grantId" | "model" | "input" | "output" | "cacheRead" | "cacheWrite5m" | "cacheWrite1h" | "byModel" | "endedAt">[];
+  sessions: Pick<Session, "agentId" | "assignmentId" | "grantId" | "model" | "input" | "output" | "cacheRead" | "cacheWrite5m" | "cacheWrite1h" | "byModel" | "bankModel" | "endedAt">[];
   assignments: Pick<Assignment, "id" | "buildingId" | "grantId" | "title">[];
   agents: Pick<Agent, "id" | "buildingId">[];
   buildings: Pick<Building, "id" | "name">[];
@@ -221,7 +221,7 @@ export function financeSpend(inp: SpendInputs, used: number, now = new Date()): 
   const since = inp.convertedAt ? countersSince(inp.sessions) : null;
 
   for (const s of inp.sessions) {
-    const tokens = adjustedOfUsage(s.model, s, s.byModel);
+    const tokens = sessionTokens(s);
     if (inp.convertedAt && s.endedAt && s.endedAt < inp.convertedAt) {
       const d = tokens - ledgerBookedBeforeConversion(s, since);
       if (d) { weightMismatch += d; mismatched++; }
