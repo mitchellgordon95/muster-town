@@ -22,7 +22,7 @@ type Node = { id: string; ownerId: string | null; children: Node[] };
 const find = (n: Node, id: string): Node | undefined => n.id === id ? n : n.children.map((c) => find(c, id)).find(Boolean);
 
 describe("captain requests over HTTP", () => {
-  it("guest 401, visitor 403; a member asks → in-tray row for the admins → accept → GET /api/goals has ownerId", async () => {
+  it("guest 401, visitor 403; a member asks → in-tray row for the root's captain → accept → GET /api/goals has ownerId", async () => {
     const { app, auth, ana, vic, goal, th } = await setup();
     const url = `/api/goals/${goal.id}/captain-requests`;
     expect((await json(app, "POST", url, { body: {} })).status).toBe(401);
@@ -34,9 +34,12 @@ describe("captain requests over HTTP", () => {
     expect((await json(app, "POST", url, { headers: ana.headers, body: {} })).status).toBe(409);
     expect((await json(app, "GET", url)).body.captainRequests).toEqual([expect.objectContaining({ id, name: "Ana" })]);
 
+    const root = (await json(app, "GET", "/api/goals")).body.root as Node & { owner: { userId: string; name: string } };
+    expect(root.ownerId).toBeTruthy(); // the root always has a captain: the seeded admin
+    expect(root.owner).toMatchObject({ goalId: "gl_town", userId: root.ownerId });
     const tray = await json(app, "GET", `/api/buildings/${th.id}/intray`, { headers: auth });
-    expect(tray.body.captains).toEqual([expect.objectContaining({ id, goalId: goal.id, goalText: "Grant pages show sessions", name: "Ana", note: "I run this work", captainName: "the town admins" })]);
-    expect(tray.body.routes[id]).toMatchObject({ mine: true, canDecide: true, ownerName: "the town admins" });
+    expect(tray.body.captains).toEqual([expect.objectContaining({ id, goalId: goal.id, goalText: "Grant pages show sessions", name: "Ana", note: "I run this work", captainId: root.ownerId, captainName: root.owner.name })]);
+    expect(tray.body.routes[id]).toMatchObject({ mine: true, canDecide: true, ownerId: root.ownerId, ownerName: root.owner.name });
 
     expect((await json(app, "POST", `/api/captain-requests/${id}/decide`, { headers: ana.headers, body: { action: "accept" } })).status).toBe(403);
     const ok = await json(app, "POST", `/api/captain-requests/${id}/decide`, { headers: auth, body: { action: "accept", note: "yours" } });
@@ -45,6 +48,14 @@ describe("captain requests over HTTP", () => {
     const tree = (await json(app, "GET", "/api/goals")).body.root as Node;
     expect(find(tree, goal.id)?.ownerId).toBe(ana.user.id);
     expect((await json(app, "GET", `/api/buildings/${th.id}/intray`, { headers: auth })).body.captains).toEqual([]);
+  });
+
+  it("a member may ask to captain the root: it routes to the root's captain", async () => {
+    const { app, auth, ana, th } = await setup();
+    const asked = await json(app, "POST", "/api/goals/gl_town/captain-requests", { headers: ana.headers, body: {} });
+    expect(asked.status).toBe(201);
+    const tray = await json(app, "GET", `/api/buildings/${th.id}/intray`, { headers: auth });
+    expect(tray.body.routes[asked.body.captainRequest.id]).toMatchObject({ goalId: "gl_town", mine: true, canDecide: true });
   });
 
   it("decline leaves ownerId unset", async () => {

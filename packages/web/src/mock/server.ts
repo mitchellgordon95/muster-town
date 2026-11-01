@@ -49,11 +49,11 @@ export class MockApi implements Api {
   private access: AccessRequestView[] = [{ id: "ar_octo", userId: "us_octo", message: "I'd like to help with the onboarding copy", status: "pending", decidedBy: null, createdAt: new Date(Date.now() - 40 * 60_000).toISOString(), decidedAt: null, name: "Octo Cat", githubLogin: "octocat", avatarUrl: null }];
 
   /** "Ask to captain this goal" (gr_bwm0iz7rwl): Octo already asks to captain Trust */
-  private captains: CaptainRequestView[] = [{ id: "cr_octo", goalId: "gl_trust", userId: "us_octo", note: "I review finance pages for a living", status: "pending", decidedBy: null, decisionNote: "", createdAt: new Date(Date.now() - 25 * 60_000).toISOString(), decidedAt: null, name: "Octo Cat", githubLogin: "octocat", avatarUrl: null, goalText: "Trust", captainId: null, captainName: "the town admins" }];
+  private captains: CaptainRequestView[] = [{ id: "cr_octo", goalId: "gl_trust", userId: "us_octo", note: "I review finance pages for a living", status: "pending", decidedBy: null, decisionNote: "", createdAt: new Date(Date.now() - 25 * 60_000).toISOString(), decidedAt: null, name: "Octo Cat", githubLogin: "octocat", avatarUrl: null, goalText: "Trust", captainId: "us_mitchell", captainName: "Mitchell" }];
   async askToCaptain(goalId: string, note = ""): Promise<CaptainRequest> {
     await wait(120);
     if (this.captains.some((r) => r.goalId === goalId && r.userId === "us_guest" && r.status === "pending")) throw new ApiError("You already asked to captain this goal; it is waiting for a decision.", "conflict", 409);
-    const r: CaptainRequestView = { id: `cr_${Date.now().toString(36)}`, goalId, userId: "us_guest", note: note.trim().slice(0, 280), status: "pending", decidedBy: null, decisionNote: "", createdAt: new Date().toISOString(), decidedAt: null, name: "Guest", githubLogin: "guest", avatarUrl: null, goalText: goalId, captainId: null, captainName: "the town admins" };
+    const r: CaptainRequestView = { id: `cr_${Date.now().toString(36)}`, goalId, userId: "us_guest", note: note.trim().slice(0, 280), status: "pending", decidedBy: null, decisionNote: "", createdAt: new Date().toISOString(), decidedAt: null, name: "Guest", githubLogin: "guest", avatarUrl: null, goalText: goalId, captainId: "us_mitchell", captainName: "Mitchell" };
     this.captains.push(r);
     return clone(r);
   }
@@ -151,7 +151,7 @@ export class MockApi implements Api {
   /** the mock's goal tree: the root with its Fund/Join/Trust placeholders (the root sets an exploration cap its children inherit); buildings sit where their goalId says */
   async goalTree(): Promise<GoalTreeNode> {
     await wait();
-    const owner = { goalId: "gl_town", userId: null, name: "the town admins" };
+    const owner = { goalId: "gl_town", userId: "us_mitchell", name: "Mitchell" };
     const node = (id: string, parentId: string | null, text: string, children: GoalTreeNode[] = []): GoalTreeNode => ({
       id, parentId, text, status: "active", ownerId: null, owner, keyResults: [], children,
       exploreCapTokensPerDay: MOCK_CAP[id] ?? null, explore: null, exploreChunkTokens: null,
@@ -164,7 +164,7 @@ export class MockApi implements Api {
       node("gl_join", "gl_town", "Join", [node("gl_join_start", "gl_join", "A signed-in stranger can start their own collective from the web in minutes"), node("gl_join_first", "gl_join", "A stranger finishes useful work in their first session without help")]),
       node("gl_trust", "gl_town", "Trust", [node("gl_trust_up", "gl_trust", "The town stays up as it grows")]),
     ]);
-    root.ownerId = "us_mitchell"; root.owner = { goalId: "gl_town", userId: "us_mitchell", name: "Mitchell" };
+    root.ownerId = "us_mitchell";
     return clone(root);
   } // desks follow floor space: a sent headcount is ignored
   async goalTreeWithRetired() { return this.goalTree(); }

@@ -9,7 +9,7 @@ import { clock, dayClock } from "../src/panels/ui";
 
 const kr = (id: string, status: string, due: string | null = "2026-12-01", archivedAt: string | null = null) =>
   ({ id, text: id, howToCheck: "look", status, due, archivedAt, buildingId: "b", grantId: null });
-const admins = { goalId: "gl_town", userId: null, name: "the town admins" };
+const admins = { goalId: "gl_town", userId: "us_mitchell", name: "Mitchell" };
 function goal(id: string, parentId: string | null, over: Partial<GoalTreeNode> = {}): GoalTreeNode {
   return { id, parentId, text: id, status: "active", ownerId: null, owner: admins, buildings: [], keyResults: [], children: [], ...over };
 }
