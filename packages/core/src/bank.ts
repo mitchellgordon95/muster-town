@@ -368,14 +368,27 @@ export class Bank {
     return splitRaw(tokens * rawPerAdjusted(model), model);
   }
 
-  /** Stop an input's future credits and forget its key. Its owner or an admin. Past credits stay in the Bank. */
-  cancelInput(userId: string, inputId: string): BankInput {
+  /**
+   * Stop an input's future credits and forget its key. Its owner or an admin. An api-key input's past credits stay in the
+   * Bank (that money was paid in). A subscription's live credit expires now (2026-11-01): it is quota the plan serves today,
+   * so replacing a subscription donation with a smaller one must not leave the old day's credit spendable until its renewal.
+   */
+  cancelInput(userId: string, inputId: string, now = new Date()): BankInput {
     const inp = this.repos.bankInputs.require(inputId, "bank input");
     if (inp.userId !== userId && !this.permissions.isAdmin({ kind: "user", id: userId })) throw forbidden("town.allocate_budget", "Only the input's owner or an admin can cancel it.");
     if (inp.cancelledAt) return inp;
     this.repos.bankInputs.setApiKey(inputId, null);
-    const row = this.repos.bankInputs.upsert({ ...this.repos.bankInputs.require(inputId), nextCreditAt: null, cancelledAt: nowIso() });
-    this.events.append({ type: "bank.input", text: `${inp.label} was cancelled`, payload: { inputId, cancelled: true } });
+    const row = this.repos.bankInputs.upsert({ ...this.repos.bankInputs.require(inputId), nextCreditAt: null, cancelledAt: now.toISOString() });
+    let expiredTokens = 0;
+    if (inp.source === "subscription") {
+      for (const c of this.inputCredits(inputId, now)) {
+        if (!c.expiresAt) continue;
+        expiredTokens += Math.max(0, c.tokens - this.debited("creditId = ?", [c.id]));
+        this.repos.bankCredits.upsert({ ...c, expiresAt: now.toISOString() });
+      }
+    }
+    const lapsed = expiredTokens ? `; its unspent ${expiredTokens.toLocaleString("en-US")} adj. tokens of today's credit expired` : "";
+    this.events.append({ type: "bank.input", text: `${inp.label} was cancelled${lapsed}`, payload: { inputId, cancelled: true, expiredTokens } });
     return row;
   }
 

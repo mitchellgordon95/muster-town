@@ -92,7 +92,7 @@ Conversion (migration `037_adjusted_tokens.sql`, once): every size above ÷30 (O
 
 Tests: `core/test/bank-adjusted.test.ts` (037), `core/test/token-counters.test.ts` (booking), `server/test/live.test.ts` (`accounting`), `server/test/desk.test.ts`, `server/test/adjusted.test.ts`.
 
-## Unexpected out-of-tokens deaths and the cap hold (step 5)
+## Unexpected out-of-tokens deaths (step 5)
 
 Code: `packages/core/src/caps.ts`; GET /api/bank `deaths` and `cap`; the Bank page's "Out-of-tokens deaths and the cap".
 
@@ -139,3 +139,14 @@ Read-only: it books nothing. Core `funders.ts` (`funderWeek`, `funderWeights`) a
 ## Retainers (1:1 mt_cyd2t5ioob decision 2)
 
 A retainer is standing money for a scheduled job, approved by a human in the Town Hall in-tray and claimed in the Bank; recurring jobs never draw on grants. A schedule carries `tokensPerRun` (Bank tokens, i.e. Opus 5.5 output tokens) and asks for tokensPerRun × runs left. While funded, it is the fourth claim on free tokens (after funded grants' remaining, open asks and reservations): `retainerTokens` = Σ over funded schedules of min(tokensPerRun × runs left, approved total − drawn), with `retainerJobs` counting them (core `free-tokens.ts`, `retainers.ts`). Its runs' sessions (lane `retainer`, sourceId = the schedule) are what it has **drawn**, derived like a grant's spend. Approving is refused (409) when the ask would dip into the operating reserve. Ending the schedule (cancel, last run, paused past its end) releases what it still claims. Rules in full: docs/how-work-gets-done.md §7a.
+
+## Cancelling an input (2026-11-01)
+
+Cancelling stops an input's future credits and forgets its key (`Bank.cancelInput`). What happens to the credit already
+paid in depends on the source:
+
+- **API key:** the credit stays. That money was paid in and the key's balance is the town's until it is spent.
+- **Subscription:** the live credit expires at once (`expiresAt` = the cancel time) and the `bank.input` event says how
+  many unspent tokens lapsed (`expiredTokens`). A subscription credit is quota the plan serves today, not money; before
+  this, replacing a 15M-a-day donation with a 2M one left the old day's 15M spendable until its renewal (the Bank read
+  6.7M right after Mitchell set 2M on 2026-11-01).
