@@ -1,4 +1,4 @@
-import { AppError, BANK_ACCOUNTING, deskPreset, deskSizeFor, type World, buildingStats, accessContext, accessRequestOf, boardWithTownDocs, canInteract, decideAccess, pendingAccessRequests, deskSlotRows, requestAccess, sessionView, setDeskSlot, cabinetCounts, cabinetDocs, reportChains, reviewDeck, presentedReviewDeck, intrayRoutes, funderWeek } from "@muster-town/core";
+import { AppError, BANK_ACCOUNTING, BANK_MODEL, deskPreset, deskSizeFor, type World, buildingStats, accessContext, accessRequestOf, boardWithTownDocs, canInteract, decideAccess, pendingAccessRequests, deskSlotRows, requestAccess, sessionView, setDeskSlot, cabinetCounts, cabinetDocs, reportChains, reviewDeck, presentedReviewDeck, intrayRoutes, funderWeek } from "@muster-town/core";
 import { funderSlide, AccessDecisionInput, AccessRequestInput, AddBankInput, CreateBuildingInput, DesksPatch, MapLayout, TownDefaultsPatch, DocType, DonateInput, LayoutInput, Membership, PlantFlagInput, RedeployInput, UpdateBuildingInput, apiKeyProblem, townEnv, REVIEW_DECK_ID, type AccessRequest, type AuthMe, type RedeployLive } from "@muster-town/schema";
 import type { FastifyInstance, FastifyRequest } from "fastify";
 import { brotliDecompressSync } from "node:zlib";
@@ -57,7 +57,7 @@ export async function townRoutes(app: FastifyInstance) {
   app.get("/api/health", async () => {
     const { figures: f, at } = figures.get();
     const { budgets, backup, desks, ...rest } = f;
-    return { ok: true, runtime: !!app.runtime, commit: world.host.commit ?? null, startedAt: world.host.startedAt ?? null, time: new Date().toISOString(), accounting: BANK_ACCOUNTING, load: { ...app.load.snapshot(), tick: app.runtime?.tickStats?.() ?? null },
+    return { ok: true, runtime: !!app.runtime, commit: world.host.commit ?? null, startedAt: world.host.startedAt ?? null, time: new Date().toISOString(), accounting: BANK_ACCOUNTING, accountingModel: BANK_MODEL, load: { ...app.load.snapshot(), tick: app.runtime?.tickStats?.() ?? null },
       budgets, backup, monitor: app.monitor?.view() ?? null, desks,
       // the root app (the Workshop) only: how many hosted collectives this process serves at /<slug>/
       ...(app.hub ? { hosted: { count: app.hub.count } } : {}),

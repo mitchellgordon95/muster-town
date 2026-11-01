@@ -1,4 +1,4 @@
-import { AddBankInput, ZERO_TOKENS, addTokens, oauthTokenProblem, countsOf, rawPerAdjusted, rawTokens, sliceTokens, splitRaw, subTokens, type TokenCounts, type BankCredit, type BankInput, type BankRecurrence, type FreeTokens, type Agent, type Session, type SessionView } from "@muster-town/schema";
+import { AddBankInput, ZERO_TOKENS, addTokens, backfillFamily, oauthTokenProblem, countsOf, rawPerAdjusted, rawTokens, sliceTokens, splitRaw, subTokens, type TokenCounts, type BankCredit, type BankInput, type BankRecurrence, type FreeTokens, type Agent, type Session, type SessionView } from "@muster-town/schema";
 import { CAP_THOUGHT, TYPICAL_SESSIONS, capReason, countDeaths, learnedCap, median, nearCap, type BankDeaths } from "./caps.ts";
 import { driftRows, parseResetsAt, previousUtcDay, utcDay, type DriftRow } from "./drift.ts";
 import { AppError, badRequest, forbidden } from "./errors.ts";
@@ -15,6 +15,14 @@ const DAY_MS = 86_400_000;
 
 /** The unit every Bank figure is entered, booked and compared in (`GET /api/health` `accounting`): adjusted output tokens since step 3. */
 export const BANK_ACCOUNTING = "adjusted" as const;
+
+/**
+ * The Bank's standard accounting model (1:1 mt_cyd2t5ioob decision 1, `GET /api/health` `accountingModel`): every charge
+ * is booked in this model's output tokens. Each model's counters are priced at its own list price and converted at Opus
+ * 5.5's output price ($20/MTok): a Fable 5.1 output token books as 2.5, a Haiku 5.5 one as 0.025, an Opus 5.5 one as 1.
+ * Sessions from before migration 076 (`bankModel` NULL) stay booked in their own model's output tokens.
+ */
+export const BANK_MODEL = "claude-opus-5-5";
 
 /**
  * List prices in USD per million tokens, by model family (Bank grant step 2, gr_iq5m7dug56). The one table every
@@ -74,20 +82,31 @@ export function listCostUsd(model: string | null | undefined, counts: Partial<To
 }
 
 /**
- * A session's (or any usage's) adjusted output tokens in `model`'s output tokens. With a per-model breakdown each model's
- * counters are priced at that model's list price (a Fable session's Haiku subagent is priced as Haiku), then converted
- * at `model`'s output price; without one, all counters are `model`'s.
+ * A usage's adjusted output tokens in `unit`'s output tokens (default: `model`'s own). With a per-model breakdown each
+ * model's counters are priced at that model's list price (a Fable session's Haiku subagent is priced as Haiku); without
+ * one, all counters are `model`'s. The total is then converted at `unit`'s output price.
  */
-export function adjustedOfUsage(model: string | null | undefined, counts: Partial<TokenCounts>, byModel?: Record<string, TokenCounts> | null): number {
+export function adjustedOfUsage(model: string | null | undefined, counts: Partial<TokenCounts>, byModel?: Record<string, TokenCounts> | null, unit: string | null | undefined = model): number {
   const parts = byModel ? Object.entries(byModel) : [];
-  if (!parts.length) return adjustedOutputTokens(model, counts);
-  const out = tokenPrices(model).usdPerMTok.output;
-  return Math.round(parts.reduce((s, [m, c]) => s + listCostUsd(m, c), 0) * 1e6 / out);
+  if (!parts.length && tokenPrices(unit).family === tokenPrices(model).family) return adjustedOutputTokens(model, counts);
+  const usd = parts.length ? parts.reduce((s, [m, c]) => s + listCostUsd(m, c), 0) : listCostUsd(model, counts);
+  return Math.round(usd * 1e6 / tokenPrices(unit).usdPerMTok.output);
 }
 
-/** A session as the API serves it: `adjustedOutputTokens` next to the raw total and the five counters. */
+/** The model whose output tokens a session is booked in: `BANK_MODEL` since migration 076, its own model before. */
+export const bankModelOf = (s: Pick<Session, "model" | "bankModel">): string => s.bankModel ?? s.model;
+
+/**
+ * What the Bank booked for a session, in adjusted output tokens: the one figure grant spend, goal spend, finance spend,
+ * funders and caps sum. A session's ledger debits add up to it (runtime settleUsage).
+ */
+export function sessionTokens(s: Pick<Session, "model" | "bankModel" | "byModel"> & Partial<TokenCounts>): number {
+  return adjustedOfUsage(s.model, s, s.byModel, bankModelOf(s));
+}
+
+/** A session as the API serves it: `adjustedOutputTokens` (what the Bank booked, in `bankModel`'s output tokens) next to the raw total and the five counters. */
 export function sessionView(s: Session): SessionView {
-  return { ...s, adjustedOutputTokens: adjustedOfUsage(s.model, s, s.byModel) };
+  return { ...s, bankModel: bankModelOf(s), adjustedOutputTokens: sessionTokens(s) };
 }
 
 /** The model ids in a usage that `TOKEN_PRICES` doesn't know (priced as Opus 5.5; worth a warning). */
@@ -102,17 +121,21 @@ export function unknownModels(model: string | null | undefined, byModel?: Record
 export interface Booked { tokens: number; counts: TokenCounts }
 
 /**
- * A charge as the Bank books it. Counters are priced at `model`'s list price (per model with `byModel`); a bare number is
- * already adjusted output tokens, and its counters are the back-fill split of the raw tokens it stands for (docs/bank.md).
+ * A charge as the Bank books it, in `BANK_MODEL`'s output tokens. Counters are priced at `model`'s list price (per model
+ * with `byModel`) and converted at Opus 5.5's output price. A bare number is already Bank tokens; its counters are the
+ * back-fill split (docs/bank.md) of the raw tokens of `model` that cost the same: raw = n × rawPerAdjusted(model) ×
+ * Opus output price / the split family's output price (a Fable split of 1 Bank token is 24 / 2.5 = 9.6 raw).
  */
 export function booked(t: number | Partial<TokenCounts> | Booked, model?: string | null, byModel?: Record<string, TokenCounts> | null): Booked {
   if (typeof t === "number") {
     const tokens = Math.max(0, Math.round(t));
-    return { tokens, counts: splitRaw(tokens * rawPerAdjusted(model), model) };
+    const splitModel = backfillFamily(model) === "fable" ? model : BANK_MODEL;
+    const perBank = tokenPrices(BANK_MODEL).usdPerMTok.output / tokenPrices(splitModel).usdPerMTok.output;
+    return { tokens, counts: splitRaw(tokens * rawPerAdjusted(model) * perBank, model) };
   }
   if ("counts" in t && typeof (t as Booked).tokens === "number") return { tokens: Math.max(0, Math.round((t as Booked).tokens)), counts: countsOf((t as Booked).counts) };
   const counts = countsOf(t as Partial<TokenCounts>);
-  return { tokens: adjustedOfUsage(model, counts, byModel), counts };
+  return { tokens: adjustedOfUsage(model, counts, byModel, BANK_MODEL), counts };
 }
 
 /** `part` adjusted tokens out of a booking, with its counters sliced in the same proportion (sliceTokens). */
@@ -493,7 +516,7 @@ export class Bank {
   expectedSession(buildingId?: string | null, now = new Date()): { tokens: number; sample: number } {
     const since = new Date(now.getTime() - 7 * DAY_MS).toISOString();
     const ended = this.repos.sessions.where("purpose = 'work' AND endedAt IS NOT NULL AND endedAt > ?", [since]);
-    const sizes = (rows: Session[]) => rows.map((s) => adjustedOfUsage(s.model, s, s.byModel)).filter((t) => t > 0);
+    const sizes = (rows: Session[]) => rows.map((s) => sessionTokens(s)).filter((t) => t > 0);
     if (buildingId) {
       const homes = new Set(this.repos.agents.where("homeBuildingId = ? OR buildingId = ?", [buildingId, buildingId]).map((a) => a.id));
       const own = sizes(ended.filter((s) => homes.has(s.agentId)));
@@ -811,10 +834,10 @@ export class Bank {
     const cappedAt = caps.find((e) => (typeof e.payload.resetsAt === "string" ? e.payload.resetsAt > nowIso : e.ts >= windowStart))?.ts ?? null;
     let spentToday = 0;
     for (const s of this.repos.sessions.where("status != 'running' AND endedAt >= ?", [windowStart])) {
-      if (!s.funding || s.funding === "subscription") spentToday += adjustedOfUsage(s.model, s, s.byModel);
+      if (!s.funding || s.funding === "subscription") spentToday += sessionTokens(s);
     }
     const recent = this.repos.sessions.where("status != 'running' AND tokens > 0", [], `ORDER BY endedAt DESC LIMIT ${TYPICAL_SESSIONS}`);
-    const typicalSession = median(recent.map((s) => adjustedOfUsage(s.model, s, s.byModel)));
+    const typicalSession = median(recent.map((s) => sessionTokens(s)));
     const held = nearCap(spentToday, learned?.cap ?? null, typicalSession);
     const reason = held && learned ? capReason(spentToday, learned.cap, resetsAt) : null;
     const inputId = this.repos.bankInputs.first("source = 'subscription' AND cancelledAt IS NULL", [], "ORDER BY createdAt, rowid")?.id ?? null;
@@ -880,17 +903,17 @@ export class Bank {
   /**
    * A session died on the subscription cap (the desk read the SDK's result as SPEND_LIMIT): log `bank.cap` with the UTC
    * day's spend so far, so the cap's real daily size is learned from where it hits. `adjustedSpendToday` sums each ended
-   * session's adjusted output tokens (in its own model's output tokens); `listUsdToday` is the same at list price.
+   * session's booked tokens (`sessionTokens`: Opus 5.5 output tokens since migration 076); `listUsdToday` is the same at list price.
    */
   recordCap(session: Session, buildingId: string | null, message: string, at = new Date()): void {
     const day = utcDay(at);
     const today = this.repos.sessions.where("status != 'running' AND endedAt >= ?", [`${day}T00:00:00.000Z`]);
     let adjustedSpendToday = 0, subscriptionAdjustedToday = 0, listUsdToday = 0;
     for (const s of today) {
-      const adj = adjustedOfUsage(s.model, s, s.byModel);
+      const adj = sessionTokens(s);
       adjustedSpendToday += adj;
       if (!s.funding || s.funding === "subscription" || s.id === session.id) subscriptionAdjustedToday += adj;
-      listUsdToday += (adj * tokenPrices(s.model).usdPerMTok.output) / 1e6;
+      listUsdToday += (adj * tokenPrices(bankModelOf(s)).usdPerMTok.output) / 1e6;
     }
     const input = this.repos.bankInputs.first("source = 'subscription' AND cancelledAt IS NULL", [], "ORDER BY createdAt, rowid")?.id ?? null;
     const resetsAt = parseResetsAt(message, at);

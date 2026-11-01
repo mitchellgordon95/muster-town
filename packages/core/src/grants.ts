@@ -3,7 +3,7 @@ import {
   UpdateGrantInput, UpdateKeyResultInput, type GrantKeyResultInput, UpdateObjectiveInput, type KpiKey, type Objective,
   type Building, type Grant, type GrantHistoryEntry, type GrantStatus, type GrantView, type KeyResult, type Session, type Stoplight, type TokenCounts, ZERO_TOKENS, addTokens, stoplightOf, GrantKeyResultInput as GrantKrInput,
 } from "@muster-town/schema";
-import { adjustedOfUsage } from "./bank.ts";
+import { sessionTokens } from "./bank.ts";
 import { createAssignment, managerAgentOf, sendMessage } from "./domain.ts";
 import type { EventType } from "./events.ts";
 import { AppError, badRequest, forbidden, notFound } from "./errors.ts";
@@ -66,7 +66,7 @@ export class Grants {
   }
 
   private adjustedSum(sessions: Session[]): number {
-    return sessions.reduce((s, x) => s + adjustedOfUsage(x.model, x, x.byModel), 0);
+    return sessions.reduce((s, x) => s + sessionTokens(x), 0);
   }
 
   view(g: Grant): GrantView {
