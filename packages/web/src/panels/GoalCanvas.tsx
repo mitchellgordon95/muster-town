@@ -5,7 +5,10 @@
  * Drag a box onto another to move it there (the same rule and API as the Move form, after a confirm). Arrow keys walk
  * the tree, Enter opens the selection in the detail pane. An admin (town.manage_buildings) sets an attached building's
  * desks in place with the − / + beside it (mt_cyd2t5ioob decision 5): optimistic, reverted on error; a lower count
- * only caps the next fork, running ones keep their desks.
+ * only caps the next fork, running ones keep their desks. A goal with no building attached shows a + beside its desks
+ * tag instead (mt_n25udpflus decision 3: a building is a thin layer on a goal): one press makes a lab attached there,
+ * named after the goal, with 1 desk and its manager (the same POST /api/buildings the Planning desk uses), then the
+ * usual − / + for it.
  */
 import { useEffect, useLayoutEffect, useMemo, useRef, useState, type KeyboardEvent as RKeyboardEvent, type PointerEvent as RPointerEvent } from "react";
 import { MAX_HEADCOUNT, ROOT_GOAL_ID, type GoalTreeNode } from "@muster-town/schema";
@@ -23,14 +26,16 @@ type Props = {
   /** centre this goal when the canvas first shows (a ?goal= deep link, the Town Hall's link) */
   focusId?: string;
   canMove: (node: GoalTreeNode) => boolean;
-  onSelect: (id: string) => void; onToggle: (id: string) => void; onOpen: () => void; onMoved: () => void;
+  onSelect: (id: string) => void; onToggle: (id: string) => void; onOpen: () => void;
+  /** the tree changed on the server (a goal moved, a building made): reload it */
+  onChanged: () => void;
 };
 
 const today = () => new Date().toISOString().slice(0, 10);
 const clip = (s: string, n = 60) => s.length > n ? `${s.slice(0, n - 1)}…` : s;
 type Drag = { id: string; sx: number; sy: number; dx: number; dy: number; on: boolean; over: string | null };
 
-export function GoalCanvas({ root, retired, collapsed, selected, scope, proposals, focusId, canMove, onSelect, onToggle, onOpen, onMoved }: Props) {
+export function GoalCanvas({ root, retired, collapsed, selected, scope, proposals, focusId, canMove, onSelect, onToggle, onOpen, onChanged }: Props) {
   const layout = useMemo(() => layoutTree(root, retired, collapsed), [root, retired, collapsed]);
   const byId = useMemo(() => new Map(layout.boxes.map((b) => [b.node.id, b])), [layout]);
   const vp = useRef<HTMLDivElement>(null);
@@ -47,6 +52,16 @@ export function GoalCanvas({ root, retired, collapsed, selected, scope, proposal
     const put = (n: number | null) => setDesks((m) => { const x = new Map(m); if (n == null) x.delete(id); else x.set(id, n); return x; });
     put(to);
     api().updateBuilding(id, { headcount: to }).catch((e: Error) => { put(was); store.toast(e.message || "Couldn't change the desks", "bad"); });
+  };
+  // the goal a building is being made for (its + reads busy until the server answers)
+  const [making, setMaking] = useState<string | null>(null);
+  const build = (goalId: string) => {
+    if (making) return;
+    setMaking(goalId);
+    api().createBuilding({ goalId, headcount: 1 })
+      .then((b) => { store.toast(`${b.name} is under construction: 1 desk and its manager`, "ok"); onSelect(goalId); onChanged(); })
+      .catch((e: Error) => store.toast(e.message || "Couldn't add a building", "bad"))
+      .finally(() => setMaking(null));
   };
   const size = () => { const r = vp.current?.getBoundingClientRect(); return { w: r?.width ?? 0, h: r?.height ?? 0, left: r?.left ?? 0, top: r?.top ?? 0 }; };
   const fit = () => { const s = size(); setView(fitView(layout, s.w, s.h)); };
@@ -150,7 +165,7 @@ export function GoalCanvas({ root, retired, collapsed, selected, scope, proposal
           {layout.edges.map((l) => <path key={l.to} d={l.d} className={scope && !scope.has(l.to) ? "dim" : ""} />)}
         </svg>
         {layout.boxes.map((b) => <Box key={b.node.id} b={b} on={b.node.id === selected} dim={!!scope && !scope.has(b.node.id)} now={now}
-          proposals={proposals.get(b.node.id) ?? 0} desks={desks} onDesks={canDesks ? setHeadcount : null} drop={drag?.on && drag.over === b.node.id ? (dropOk(drag.id, b.node.id) ? "ok" : "no") : null}
+          proposals={proposals.get(b.node.id) ?? 0} desks={desks} onDesks={canDesks ? setHeadcount : null} onBuild={canDesks ? build : null} making={making === b.node.id} drop={drag?.on && drag.over === b.node.id ? (dropOk(drag.id, b.node.id) ? "ok" : "no") : null}
           lift={drag?.on && drag.id === b.node.id ? { x: drag.dx / v.k, y: drag.dy / v.k } : null}
           onSelect={() => { if (!dragged.current) onSelect(b.node.id); }} onToggle={() => onToggle(b.node.id)} />)}
       </div>
@@ -165,7 +180,7 @@ export function GoalCanvas({ root, retired, collapsed, selected, scope, proposal
           <div>Move <b>{clip(asked.node.text)}</b> under <b>{clip(asked.to.text)}</b>? Its key results, goals below and attached buildings move with it.</div>
           <div className="actions">
             <button className="btn sm" onClick={() => setAsk(null)}>Cancel</button>
-            <Act small tone="primary" run={() => api().updateGoal(asked.node!.id, { parentId: asked.to!.id }).then(() => { setAsk(null); onSelect(asked.node!.id); onMoved(); })}>Move</Act>
+            <Act small tone="primary" run={() => api().updateGoal(asked.node!.id, { parentId: asked.to!.id }).then(() => { setAsk(null); onSelect(asked.node!.id); onChanged(); })}>Move</Act>
           </div>
         </div>
       ) : null}
@@ -174,7 +189,7 @@ export function GoalCanvas({ root, retired, collapsed, selected, scope, proposal
 }
 
 /** One goal's box: its words (3 lines), the tags the outline showed, and the collapse handle under it. */
-function Box({ b, on, dim, now, proposals, desks, onDesks, drop, lift, onSelect, onToggle }: { b: Placed; on: boolean; dim: boolean; now: string; proposals: number; desks: ReadonlyMap<string, number>; onDesks: ((id: string, was: number, to: number) => void) | null; drop: "ok" | "no" | null; lift: { x: number; y: number } | null; onSelect: () => void; onToggle: () => void }) {
+function Box({ b, on, dim, now, proposals, desks, onDesks, onBuild, making, drop, lift, onSelect, onToggle }: { b: Placed; on: boolean; dim: boolean; now: string; proposals: number; desks: ReadonlyMap<string, number>; onDesks: ((id: string, was: number, to: number) => void) | null; onBuild: ((goalId: string) => void) | null; making: boolean; drop: "ok" | "no" | null; lift: { x: number; y: number } | null; onSelect: () => void; onToggle: () => void }) {
   const { node } = b;
   const g = nodeGlance(node, now), d = { desks: deskTotal(node, desks), inUse: subtreeDesks(node).inUse }, open = !b.hidden;
   const cls = ["gc-box", on && "on", dim && "dim", node.status === "retired" && "retired", node.id === ROOT_GOAL_ID && "root", drop && `drop-${drop}`, lift && "lift"].filter(Boolean).join(" ");
@@ -184,7 +199,12 @@ function Box({ b, on, dim, now, proposals, desks, onDesks, drop, lift, onSelect,
       onClick={onSelect}>
       <div className="gc-text">{node.text}</div>
       <div className="ge-node-meta">
-        {node.status === "retired" ? <span className="ge-tag bad">retired</span> : <span className={`ge-tag desks ${d.desks ? "" : "none"}`} title={d.desks ? `${deskWord(d.desks)} work this goal (the headcount of every building attached here or below), ${d.inUse} in use now` : "No building is attached here or below: nobody works this goal"}>{deskWord(d.desks)}</span>}
+        {node.status === "retired" ? <span className="ge-tag bad">retired</span> : <span className={`ge-tag desks ${d.desks ? "" : "none"} ${onBuild && !node.buildings.length ? "steps" : ""}`} title={d.desks ? `${deskWord(d.desks)} work this goal (the headcount of every building attached here or below), ${d.inUse} in use now` : "No building is attached here or below: nobody works this goal"}>
+          {deskWord(d.desks)}
+          {onBuild && !node.buildings.length ? <button className="gc-step" aria-label={`Add a building here: ${clip(node.text)}`} disabled={making}
+            title="Add a building attached to this goal: named after it, with 1 desk and its manager (the same as the Planning desk's New building); − / + beside it then set its desks"
+            onClick={(e) => { e.stopPropagation(); onBuild(node.id); }}>{making ? "…" : "+"}</button> : null}
+        </span>}
         {node.ownerId ? <span className="ge-tag captain" title={`Captain: ${node.owner.name} (set on this goal; goals below inherit it)`}>👤 {node.owner.name}</span> : null}
         {g.open ? <span className="ge-tag" title={`${g.open} open key result${g.open === 1 ? "" : "s"}, ${g.funded} funded`}>{g.open} KR · {g.funded} funded</span> : null}
         {g.late ? <span className="ge-tag warn" title="Open key results past their due date">{g.late} late</span> : g.nextDue ? <span className="ge-tag" title="The nearest open due date">due {g.nextDue}</span> : null}

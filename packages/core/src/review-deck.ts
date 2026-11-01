@@ -304,7 +304,7 @@ function townSlide(world: World, now: Date, decisions: number, oldest: string | 
     : "";
   const text = [
     "# Review deck: the state of the town",
-    `**Bank:** ${fmt(bank)} adjusted tokens left · subscription spend today ${fmt(cap.spentToday)}${cap.learnedCap ? ` of a ${fmt(cap.learnedCap)} daily cap` : ""}${cap.held ? " (new starts held)" : ""}`,
+    `**Bank:** ${fmt(bank)} adjusted tokens left · subscription spend today ${fmt(cap.spentToday)}${cap.cappedAt ? ` (capped, resets ${cap.resetsAt.slice(0, 16).replace("T", " ")} UTC)` : ""}`,
     `**Spend today by lane:** exploration ${fmt(explSpent)} (no allowance; ${fmt(free)} free tokens${reserve ? `, after a ${fmt(reserve)} operating reserve` : ""}) · directed ${fmt(directed)}`,
     `**Desks by pillar:** ${pillars || "_none yet_"}`,
     `**${decisions} decision${decisions === 1 ? "" : "s"} below${oldest ? `, oldest waiting ${waitedFor(oldest, now)}` : ""}.**${asking ? ` ${asking} ${asking === 1 ? "person is" : "people are"} asking to join (in the in-tray list).` : ""}`,
