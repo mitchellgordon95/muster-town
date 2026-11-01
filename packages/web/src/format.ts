@@ -42,7 +42,7 @@ export function scheduleTipRow(x: { title: string; nextRunAt: string | null; eve
 /** The Bank's unit (step 3): every token figure is adjusted output tokens; this is its short label. */
 export const ADJ = "adj. tokens";
 /** What the unit means, for a hover title. */
-export const ADJ_HINT = "Adjusted output tokens: output + input, cache reads and cache writes (5m, 1h) weighted by their list price, counted in Opus 5.5 output tokens ($20 per million): a Fable 5.1 output token counts 2.5, a Haiku 5.5 one 0.025. 1 adj. token ≈ 30 raw tokens on Opus.";
+export const ADJ_HINT = "Adjusted output tokens: output + input, cache reads and cache writes (5m, 1h) weighted by their list price, counted in Opus 5.5 output tokens ($20 per million): a Fable 5.1 output token counts 2.5, a Haiku 5.5 one 0.025. What one is made of (input, cache read, cache write, output over the last 7 days, updated daily) is on the Bank's Tokens & sources tab.";
 
 const COUNT_LABELS = [["input", "input"], ["output", "output"], ["cacheRead", "cache read"], ["cacheWrite5m", "cache write 5m"], ["cacheWrite1h", "cache write 1h"]] as const;
 

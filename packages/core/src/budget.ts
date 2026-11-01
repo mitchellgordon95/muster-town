@@ -256,7 +256,7 @@ export class Budget {
    */
   recordUsage(agentId: string, tokens: number | TokenCounts | Booked, usd: number, price: ChargePrice = {}): Agent {
     if ((typeof tokens === "number" && tokens < 0) || usd < 0) throw badRequest("usage must be non-negative");
-    const b = booked(tokens, price.model, price.byModel);
+    const b = booked(tokens, price.model, price.byModel, this.bank.mix());
     const t = b.tokens;
     const agent = this.repos.agents.require(agentId, "agent");
     const bid = agent.homeBuildingId ?? agent.buildingId;
@@ -320,7 +320,7 @@ export class Budget {
    */
   charge(agentId: string, tokens: number | TokenCounts | Booked, usd: number, allocationId?: string, price: ChargePrice = {}): ChargeResult {
     if ((typeof tokens === "number" && tokens < 0) || usd < 0) throw badRequest("charge must be non-negative");
-    const booking = booked(tokens, price.model, price.byModel);
+    const booking = booked(tokens, price.model, price.byModel, this.bank.mix());
     const t = booking.tokens;
     let agent = this.recordUsage(agentId, booking, usd);
     const bid = agent.homeBuildingId ?? agent.buildingId;

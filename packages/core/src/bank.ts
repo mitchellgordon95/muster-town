@@ -1,4 +1,4 @@
-import { AddBankInput, ZERO_TOKENS, addTokens, backfillFamily, oauthTokenProblem, countsOf, rawPerAdjusted, rawTokens, sliceTokens, splitRaw, subTokens, type TokenCounts, type BankCredit, type BankInput, type CredentialLimit, type BankRecurrence, type FreeTokens, type Agent, type Session, type SessionView } from "@muster-town/schema";
+import { AddBankInput, ZERO_TOKENS, addTokens, backfillFamily, oauthTokenProblem, countsOf, rawPerAdjusted, rawTokens, sliceTokens, splitByMix, splitRaw, subTokens, type TokenCounts, type TokenMix, type BankCredit, type BankInput, type CredentialLimit, type BankRecurrence, type FreeTokens, type Agent, type Session, type SessionView } from "@muster-town/schema";
 import { Availability, inForce, limitText } from "./availability.ts";
 import { CAP_THOUGHT, countDeaths, type BankDeaths } from "./caps.ts";
 import { driftRows, parseResetsAt, previousUtcDay, utcDay, type DriftRow } from "./drift.ts";
@@ -11,6 +11,7 @@ import type { EventLog } from "./events.ts";
 import type { Holder, Permissions } from "./permissions.ts";
 import type { Repos } from "./store.ts";
 import { newId, nowIso } from "./util.ts";
+import { computeTokenMix, mixWindow } from "./token-mix.ts";
 
 const DAY_MS = 86_400_000;
 
@@ -125,11 +126,13 @@ export interface Booked { tokens: number; counts: TokenCounts }
  * A charge as the Bank books it, in `BANK_MODEL`'s output tokens. Counters are priced at `model`'s list price (per model
  * with `byModel`) and converted at Opus 5.5's output price. A bare number is already Bank tokens; its counters are the
  * back-fill split (docs/bank.md) of the raw tokens of `model` that cost the same: raw = n × rawPerAdjusted(model) ×
- * Opus output price / the split family's output price (a Fable split of 1 Bank token is 24 / 2.5 = 9.6 raw).
+ * Opus output price / the split family's output price (a Fable split of 1 Bank token is 24 / 2.5 = 9.6 raw). With the
+ * Bank's adjusted-token `mix` (what the Bank passes since 1:1 mt_rbc3exb393) a bare number is split by the mix instead.
  */
-export function booked(t: number | Partial<TokenCounts> | Booked, model?: string | null, byModel?: Record<string, TokenCounts> | null): Booked {
+export function booked(t: number | Partial<TokenCounts> | Booked, model?: string | null, byModel?: Record<string, TokenCounts> | null, mix?: TokenMix | null): Booked {
   if (typeof t === "number") {
     const tokens = Math.max(0, Math.round(t));
+    if (mix) return { tokens, counts: splitByMix(tokens, mix) };
     const splitModel = backfillFamily(model) === "fable" ? model : BANK_MODEL;
     const perBank = tokenPrices(BANK_MODEL).usdPerMTok.output / tokenPrices(splitModel).usdPerMTok.output;
     return { tokens, counts: splitRaw(tokens * rawPerAdjusted(model) * perBank, model) };
@@ -209,6 +212,8 @@ export interface BankSummary {
   freeTokens: number;
   /** top contributors by tokens given, most first (zero-token users left out) */
   contributors: BankContributor[];
+  /** the adjusted-token mix: what 1 adj. token is made of over the last 7 days (core token-mix.ts) */
+  mix: TokenMix;
   /** Bank step 4: the latest drift run (adjusted output tokens × output list price vs the SDK's costUsd); null before the first */
   drift: BankDrift | null;
   /** Bank step 5: unexpected out-of-tokens deaths over the last 7 days (docs/bank.md) */
@@ -372,9 +377,42 @@ export class Bank {
     return this.repos.bankInputs.require(row.id, "bank input");
   }
 
-  /** The five counters behind a credit of `tokens` adjusted output tokens: the back-fill split of the raw tokens they stand for. */
-  private creditCounts(tokens: number, model: string): TokenCounts {
-    return splitRaw(tokens * rawPerAdjusted(model), model);
+  /** The five counters behind a credit of `tokens` adjusted output tokens: the raw tokens they stand for, split by the adjusted-token mix. */
+  private creditCounts(tokens: number, _model: string): TokenCounts {
+    return splitByMix(tokens, this.mix());
+  }
+
+  // ---- The adjusted-token mix (1:1 mt_rbc3exb393; core token-mix.ts) ----
+  private mixCache: TokenMix | null = null;
+
+  /** The one global adjusted-token mix (GET /api/bank and /api/finance `mix`). The first read back-fills it from the usage logs. */
+  mix(now = new Date()): TokenMix {
+    this.mixCache ??= this.repos.town.tokenMix();
+    return this.mixCache ?? this.refreshMix(now);
+  }
+
+  /** Recompute the mix from the last 7 full UTC days of ended sessions, store it and post one `bank.mix` event. */
+  refreshMix(now = new Date()): TokenMix {
+    const { from, to } = mixWindow(now);
+    const sessions = this.repos.sessions.where("status != 'running' AND endedAt >= ? AND endedAt < ?", [from, to]);
+    const mix = computeTokenMix(sessions, BANK_MODEL, tokenWeights(BANK_MODEL), now);
+    this.repos.town.setTokenMix(mix);
+    this.mixCache = mix;
+    const pct = (x: number) => `${(x * 100).toFixed(1)}%`;
+    const r = mix.rawShare;
+    this.events.append({
+      type: "bank.mix",
+      text: `Bank: 1 adj. token ≈ ${mix.rawPerAdjusted.toFixed(1)} raw tokens (${pct(r.input)} input, ${pct(r.cacheRead)} cache read, ${pct(r.cacheWrite5m + r.cacheWrite1h)} cache write, ${pct(r.output)} output) ${mix.source === "usage" ? `from ${mix.sessions} sessions, ${from.slice(0, 10)} to ${to.slice(0, 10)}` : "(no usage in the window: the step-1 calibration)"}`,
+      payload: { ...mix },
+    });
+    return mix;
+  }
+
+  /** Recompute the mix once per UTC day (the runtime calls this every tick). Returns the new mix, or null when today's is already stored. */
+  mixDue(now = new Date()): TokenMix | null {
+    const cur = this.mixCache ?? this.repos.town.tokenMix();
+    if (cur && cur.computedAt.slice(0, 10) === now.toISOString().slice(0, 10)) { this.mixCache = cur; return null; }
+    return this.refreshMix(now);
   }
 
   /**
@@ -719,7 +757,7 @@ export class Bank {
    * stop). A bare number is adjusted output tokens; see `drawTokens` for the counters.
    */
   draw(buildingId: string, agentId: string, tokens: number | TokenCounts | Booked, opts: { overshoot?: boolean; now?: Date } = {}): number {
-    return this.drawTokens(buildingId, agentId, booked(tokens), opts).tokens;
+    return this.drawTokens(buildingId, agentId, booked(tokens, undefined, undefined, this.mix()), opts).tokens;
   }
 
   /**
@@ -813,8 +851,8 @@ export class Bank {
   }
 
   /** GET /api/finance: received, used, expired, left, overdrawn and a 30-day projection (finance.ts). */
-  finance(now = new Date()): FinanceSummary {
-    return townFinance(this.repos, now);
+  finance(now = new Date()): FinanceSummary & { mix: TokenMix } {
+    return { ...townFinance(this.repos, now), mix: this.mix(now) };
   }
 
   /** GET /api/finance/spend: `used` by building → grant → assignment, from the sessions table (finance-spend.ts). */
@@ -884,6 +922,7 @@ export class Bank {
       freeTokens: free?.freeTokens ?? 0,
       contributors: this.contributors(),
       drift: this.latestDrift(),
+      mix: this.mix(now),
       deaths: this.deaths(now),
       cap: this.capState(now),
     };
