@@ -10,7 +10,7 @@ import { Meter } from "./AgentPanel";
 import { Act, Empty, Field, KV, NumberInput, Pill, Section, fmtTokens, usd, useLoad } from "./ui";
 import { repeatLabel, runsAtLabel } from "../format";
 import { layoutEdit } from "../map/layoutEdit";
-import { canOneOnOne, openOneOnOne, openPlanner } from "./oneOnOne";
+import { canOneOnOne, canTalkToManager, openOneOnOne, openPlanner } from "./oneOnOne";
 import { UNBLOCK_LINE, blockedLabel } from "./keyResults";
 import { GoalTabsSummary, GoalsTab, GrantsTab } from "./GoalsTab";
 import { GoalPicker, goalPath, useGoalTree } from "./GoalPicker";
@@ -99,7 +99,7 @@ function Overview({ b }: { b: SnapshotBuilding }) {
           {hasRoom ? <button className="walk-link" onClick={() => walk(`meeting-room:${b.id}`, { kind: "meeting", id: `room:${b.id}` })}><Glyph kind="meeting" /><span>Walk to the meeting table</span></button> : null}
         </div>
       ) : null}
-      {b.kind !== "town-hall" && b.managerAgentId && agents[b.managerAgentId] && canOneOnOne(b.id) ? (
+      {b.kind !== "town-hall" && b.managerAgentId && agents[b.managerAgentId] && canTalkToManager(b.id) ? (
         <div className="actions"><Act tone="primary" run={() => openOneOnOne(b.id)}>Talk to ★ {agents[b.managerAgentId].name}</Act></div>
       ) : null}
       {b.kind === "town-hall" && b.managerAgentId && agents[b.managerAgentId] && (store.can("goals.edit") || canOneOnOne(b.id)) ? (
