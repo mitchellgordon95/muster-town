@@ -383,6 +383,16 @@ textarea[data-drop="over"] { outline: 2px dashed var(--accent, #7aa2ff); outline
 .table { width: 100%; border-collapse: collapse; font-size: 12.5px; }
 .table th { text-align: left; color: var(--faint); font-weight: 600; padding: 4px 6px; border-bottom: 1px solid var(--line); }
 .table td { padding: 6px; border-bottom: 1px solid #23252f; }
+/* user stats (StatsPanel): the 30-day totals as a row of figures, then compact count tables */
+.stats-totals { display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px; margin: 0 0 8px; }
+.stats-total { display: flex; flex-direction: column; padding: 6px 8px; border: 1px solid var(--line); border-radius: 6px; }
+.stats-total b { font-size: 18px; color: var(--text); }
+.stats-total span { font-size: 11px; color: var(--muted); }
+.stats-table th.num, .stats-table td.num { text-align: right; font-variant-numeric: tabular-nums; }
+.stats-table td { padding: 4px 6px; }
+.stats-table td:first-child { white-space: nowrap; }
+.stats-scroll { overflow-x: auto; }
+.stats-table .faint { color: var(--faint); }
 
 /* library / outbox */
 .proposal { margin-bottom: 10px; }

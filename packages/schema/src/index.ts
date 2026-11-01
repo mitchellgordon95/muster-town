@@ -407,6 +407,9 @@ export interface FreeTokens {
   fundedRemainingTokens: number;
   openAsksTokens: number;
   reservedTokens: number;
+  /** retainers (1:1 mt_cyd2t5ioob decision 2): Σ over funded schedules of tokensPerRun × runs left, and how many jobs */
+  retainerTokens: number;
+  retainerJobs: number;
   /** what the claims leave of (general − reserve) + those earmarks, never below 0 */
   freeTokens: number;
 }
@@ -493,6 +496,8 @@ export const PlaceKind = z.enum([
   "bank",
   /** goal-tree — Town Hall: the goal tree wall chart; using it opens the goal editor (docs/goals.md "The Town Hall goal editor") */
   "goal-tree",
+  /** stats — Town Hall: the user stats stand beside the outbox; using it opens the join numbers (GET /api/join-funnel; 1:1 mt_ec2b7x80rg) */
+  "stats",
 ]);
 export type PlaceKind = z.infer<typeof PlaceKind>;
 export const Place = z.object({
@@ -721,8 +726,11 @@ export const AssignmentStatus = z.enum(["pending", "active", "done", "cancelled"
 /** Manager forks: whose queue an assignment is on (`building` = run by a fork of the building's manager). */
 export const AssignmentQueue = z.enum(["agent", "building"]);
 export type AssignmentQueue = z.infer<typeof AssignmentQueue>;
-/** Every session runs in one lane: work on a funded grant, goal-scoped exploration, or work a human asked for directly. */
-export const SpendLane = z.enum(["grant", "exploration", "directed"]);
+/**
+ * Every session runs in one lane: work on a funded grant, goal-scoped exploration, work a human asked for directly, or a
+ * run of a schedule on its retainer (1:1 mt_cyd2t5ioob decision 2: recurring jobs draw on standing money, never a grant).
+ */
+export const SpendLane = z.enum(["grant", "exploration", "directed", "retainer"]);
 export type SpendLane = z.infer<typeof SpendLane>;
 /**
  * The lane fields of `assign` and POST /api/agents/:id/work (docs/goal-directed-budgets.md). Left out: the lane of the
@@ -730,7 +738,7 @@ export type SpendLane = z.infer<typeof SpendLane>;
  * belong to grants (docs/how-work-gets-done.md §4), so other lanes name none.
  */
 export const LaneFields = z.object({
-  lane: SpendLane.optional().describe("grant (work on a funded grant), exploration (names a goal gap), directed (a human asked for it; an agent in a goal-directed building gives its human source in sourceId)"),
+  lane: SpendLane.optional().describe("grant (work on a funded grant), exploration (names a goal gap), directed (a human asked for it; an agent in a goal-directed building gives its human source in sourceId); retainer is a schedule's own (its runs carry it)"),
   grantId: Id.optional().describe("lane grant: the grant"),
   gap: z.string().trim().max(300).optional().describe("lane exploration: one sentence on what is missing between the goal and the live town (lane directed: optional, what the human asked about)"),
   sourceId: Id.optional().describe("lane directed: the human-authored source it traces to: a meeting with a human (mt_…) or its notes, a flag, a human-report, or a human's tell (ms_…)"),
@@ -806,7 +814,7 @@ export interface AssignmentCard {
  * where the map's red line goes: the blocking colleague's body (`agentId`) or a place (`placeId`: the in-tray that holds
  * the decision, the Town Hall in-tray for a grant or allowance hold, the building's door for a deploy). Neither = no line.
  */
-export const BlockedKind = z.enum(["assignment", "deploy", "decision", "pr", "grant", "exploration", "reserved", "budget"]);
+export const BlockedKind = z.enum(["assignment", "deploy", "decision", "pr", "grant", "exploration", "reserved", "budget", "retainer"]);
 export type BlockedKind = z.infer<typeof BlockedKind>;
 export const BlockedBy = z.object({
   kind: BlockedKind,
@@ -825,6 +833,8 @@ export interface BlockedAssignment { assignmentId: string; title: string; blocke
  * repeat it until `endsAt`. GET /api/scheduled lists the active ones, soonest first.
  */
 export const ScheduleStatus = z.enum(["active", "ended"]);
+export const RetainerStatus = z.enum(["none", "asked", "funded", "countered", "rejected", "ended"]);
+export type RetainerStatus = z.infer<typeof RetainerStatus>;
 export const Schedule = z.object({
   id: Id,
   buildingId: Id,
@@ -857,12 +867,34 @@ export const Schedule = z.object({
   /** the assignment its last fire created */
   lastAssignmentId: Id.nullable().default(null),
   runs: z.number().int().default(0),
+  /** retainer (1:1 mt_cyd2t5ioob decision 2): what one run may spend, in Bank tokens (Opus 5.5 output tokens); 0 = no retainer */
+  tokensPerRun: z.number().int().nonnegative().default(0),
+  /** the retainer's state: asked (waits on a human in the Town Hall in-tray), funded, countered, rejected, ended */
+  retainer: RetainerStatus.default("none"),
+  /** funded: the approved total (what it had drawn + tokensPerRun × runs left when approved); runs are held past it */
+  retainerTokens: z.number().int().nullable().default(null),
+  /** the last decision on the retainer: who (a user id), when, and the human's note (a counter's says what to change) */
+  retainerDecidedBy: Id.nullable().default(null),
+  retainerDecidedAt: Iso.nullable().default(null),
+  retainerNote: z.string().nullable().default(null),
   createdBy: Id,
   createdByKind: z.enum(["agent", "user"]),
   createdAt: Iso,
   updatedAt: Iso,
 });
 export type Schedule = z.infer<typeof Schedule>;
+/** A schedule as the API shows it: plus its retainer's runs left, ask (tokensPerRun × runs left), drawn so far and live claim on the Bank. */
+export interface ScheduleView extends Schedule { runsLeft: number; askTokens: number; drawnTokens: number; claimTokens: number; buildingName?: string }
+/** POST /api/schedules/:id/retainer: a human approves, counters (per-run amount and/or end date, with a note) or rejects a retainer ask. */
+export const RetainerDecisionInput = z.object({
+  action: z.enum(["approve", "counter", "reject"]),
+  note: z.string().max(2000).default(""),
+  tokensPerRun: z.number().int().positive().optional(),
+  until: Iso.optional(),
+  /** the review deck's slide (from 1) it was decided on; recorded as the event's payload.deckSlide */
+  deckSlide: z.number().int().positive().optional(),
+});
+export type RetainerDecisionInput = z.infer<typeof RetainerDecisionInput>;
 /** The repeat of a schedule (`assign … repeat`, POST /api/buildings/:id/schedules): every N hours or at UTC times of day, until a date. */
 export const ScheduleRepeat = z.object({
   everyHours: z.number().positive().max(24 * 7).optional().describe("repeat every N hours (at least 1)"),
@@ -876,6 +908,7 @@ export const CreateScheduleInput = LaneFields.extend({
   title: z.string().min(1), description: z.string().default(""),
   runsAt: Iso.optional(), repeat: ScheduleRepeat.optional(),
   pages: z.array(Id).max(3).optional(), model: z.string().optional(),
+  tokensPerRun: z.number().int().min(0).max(10_000_000).optional(),
 });
 export type CreateScheduleInput = z.infer<typeof CreateScheduleInput>;
 /** Edit a schedule (`schedule scheduleId`, POST /api/schedules/:id): what changes; a new repeat replaces the old one. */
@@ -884,6 +917,7 @@ export const EditScheduleInput = z.object({
   runsAt: Iso.optional(), repeat: ScheduleRepeat.nullable().optional(),
   pages: z.array(Id).max(3).optional(), model: z.string().nullable().optional(),
   paused: z.boolean().optional(),
+  tokensPerRun: z.number().int().min(0).max(10_000_000).optional(),
 }).strict();
 export type EditScheduleInput = z.infer<typeof EditScheduleInput>;
 /**
@@ -1535,7 +1569,7 @@ export const EventType = z.enum([
   "agent.created", "agent.moved", "agent.status", "agent.activity", "agent.said", "agent.told",
   "agent.tool", "agent.thought", "agent.banned", "agent.retired", "agent.forked", "agent.mentioned",
   "doc.created", "doc.updated", "doc.state", "doc.decision",
-  "assignment.created", "assignment.status", "assignment.delegated", "schedule.created", "schedule.fired", "schedule.skipped", "schedule.edited", "schedule.ended",
+  "assignment.created", "assignment.status", "assignment.delegated", "schedule.created", "schedule.fired", "schedule.skipped", "schedule.edited", "schedule.ended", "retainer.asked", "retainer.decided", "retainer.released",
   "exploration.reserved", "exploration.started", "exploration.proposed", "exploration.closed",
   "meeting.created", "meeting.phase", "meeting.utterance", "meeting.decisions", "meeting.slide",
   "session.started", "session.ended",
@@ -1670,6 +1704,7 @@ export const VerbInputs = {
     repeat: ScheduleRepeat.nullable().optional().describe("repeat it every N hours or every day at UTC times, until a date (default 14 days, at most 90) or for a number of times; left out = runs once (with scheduleId: replaces the repeat, null makes it a one-shot)"),
     pages: z.array(Id).max(3).optional().describe("topic pages of this building for its fork's memory, at most 3"),
     model: z.string().optional().describe("forks buildings: the model its fork runs on (the building's model or cheapModel)"),
+    tokensPerRun: z.number().int().min(0).max(10_000_000).optional().describe("its retainer: what one run may spend, in Bank tokens (Opus 5.5 output tokens). A repeating job needs one: a human approves tokensPerRun × runs left in the Town Hall in-tray before runs start; raising it or extending the end asks again. Answer a counter by editing it (scheduleId)"),
   }),
   cancel: z.object({ assignmentId: Id.optional().describe("a queued (not started) assignment in my building"), scheduleId: Id.optional().describe("or a schedule of my building (sc_…): it stops firing") }),
   fork_status: z.object({
@@ -1900,6 +1935,8 @@ export const TILE = {
   FOUNTAIN: 28,
   /** the town square's paving (walkable), and the town's decor on it and on the grass (not walkable) */
   PAVING: 29, TREE: 30, LAMP: 31, FLOWERS: 32,
+  /** the Town Hall's user stats stand (place `stats`): a bar chart on an easel beside the outbox; opens the join numbers */
+  STATS: 33,
 } as const;
 /**
  * The Bank: a fixed landmark (not a building row, so it never takes a budget share) at the west end of the main street,

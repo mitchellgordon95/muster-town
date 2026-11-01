@@ -181,6 +181,9 @@ export function seedDefaults(world: World, opts: SeedOptions = {}): SeedResult {
     }
     // v1.2: the town moderator role (no moderator agents are created in existing DBs)
     world.permissions.ensureTownRoles();
+    // a hosted collective's tree is its founder's: the Workshop's untouched placeholder pillars go (gr_5ltmbf3a2f)
+    world.goalTree.ensureRootText();
+    if (world.permissions.isHosted()) world.goalTree.dropPlaceholderPillars();
     const th = world.buildings.get(TOWN_HALL_ID) ?? world.buildings.first("kind = 'town-hall'")!;
     seedManual(world, opts.manualPath, existing.id);
     const lab = world.buildings.first("kind = 'lab'", [], "ORDER BY createdAt") ?? null;
@@ -201,7 +204,9 @@ export function seedDefaults(world: World, opts: SeedOptions = {}): SeedResult {
     world.permissions.ensureTownRoles();
     const { user: admin, token: adminToken } = createUser(world, opts.adminName ?? townEnv("ADMIN_NAME") ?? "Mitchell");
     world.permissions.grant({ kind: "user", id: admin.id }, townRoleId("admin"));
+    world.goalTree.ensureRootText();
     world.goalTree.ensureRootCaptain();
+    if (world.permissions.isHosted()) world.goalTree.dropPlaceholderPillars();
 
     const townHall = createBuilding(world, {
       name: "Town Hall", goal: world.town.get().goal, description: "Library, town map, outbox, and the town meeting room.", headcount: 1,

@@ -52,7 +52,7 @@ describe("schedules", () => {
   it("a repeat: next run after each fire, missed runs collapse into one, skipped while the last is queued, ends past its end", async () => {
     const { world, me, made } = lab();
     const t0 = Date.now();
-    const r = await world.verbs.schedule(me(), { title: "Every 6 h", description: "d", runsAt: new Date(t0 + H).toISOString(), repeat: { everyHours: 6, until: new Date(t0 + 30 * H).toISOString() }, gap: "g" });
+    const r = await world.verbs.schedule(me(), { title: "Every 6 h", description: "d", runsAt: new Date(t0 + H).toISOString(), repeat: { everyHours: 6, until: new Date(t0 + 30 * H).toISOString() }, tokensPerRun: 1000 });
     expect(r.repeat).toBe("every 6 h");
     // down for 14 h: one fire, the next run is the next step after now
     const f1 = fireSchedules(world, new Date(t0 + 15 * H)).fired;
@@ -74,7 +74,7 @@ describe("schedules", () => {
     await expect(world.verbs.schedule(me(), { title: "x", description: "d", gap: "g" })).rejects.toThrow(/runsAt/);
     await expect(world.verbs.schedule(me(), { title: "x", description: "d", gap: "g", runsAt: new Date(Date.now() + 100 * 24 * H).toISOString() })).rejects.toThrow(/90 days/);
     await expect(world.verbs.schedule(me(), { title: "x", description: "d", gap: "g", repeat: { everyHours: 2, dailyAt: ["08:00"] } })).rejects.toThrow(/not both/);
-    const r = await world.verbs.schedule(me(), { title: "Nightly check", description: "d", gap: "g", repeat: { dailyAt: ["20:00"] } });
+    const r = await world.verbs.schedule(me(), { title: "Nightly check", description: "d", tokensPerRun: 1000, repeat: { dailyAt: ["20:00"] } });
     expect(world.schedules.require(r.scheduleId).endsAt).toBeTruthy();
     expect(teamBlock(world, world.buildings.require(b.id), me().id)).toContain(`${r.scheduleId} "Nightly check"`);
     await expect(world.verbs.cancel(me(), { scheduleId: r.scheduleId })).resolves.toMatchObject({ status: "ended" });
@@ -98,7 +98,7 @@ describe("schedules", () => {
     const now = new Date();
     const day = Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate() + 1);
     const at = (h: number) => new Date(day + h * H);
-    const r = await world.verbs.schedule(me(), { title: "Deck sitting", description: "d", gap: "g", repeat: { dailyAt: ["20:00", "08:00"], times: 3 } });
+    const r = await world.verbs.schedule(me(), { title: "Deck sitting", description: "d", tokensPerRun: 1000, repeat: { dailyAt: ["20:00", "08:00"], times: 3 } });
     expect(r.repeat).toBe("daily 08:00, 20:00 UTC, 3 times");
     const s0 = world.schedules.require(r.scheduleId);
     // created now; move its first run to tomorrow 08:00 to keep the test on fixed times
@@ -121,7 +121,7 @@ describe("schedules", () => {
   it("step 2: pause keeps the next run but never fires; resume moves a passed run to the next occurrence; edit changes the repeat", async () => {
     const { world, b, me, made } = lab();
     const t0 = Date.now();
-    const r = await world.verbs.schedule(me(), { title: "Every 2 h", description: "d", gap: "g", runsAt: new Date(t0 + H).toISOString(), repeat: { everyHours: 2 } });
+    const r = await world.verbs.schedule(me(), { title: "Every 2 h", description: "d", tokensPerRun: 1000, runsAt: new Date(t0 + H).toISOString(), repeat: { everyHours: 2 } });
     await expect(world.verbs.schedule(me(), { scheduleId: r.scheduleId, paused: true })).resolves.toMatchObject({ paused: true });
     expect(fireSchedules(world, new Date(t0 + 4 * H)).fired).toEqual([]);
     expect(world.schedules.require(r.scheduleId)).toMatchObject({ paused: true, nextRunAt: new Date(t0 + H).toISOString(), status: "active" });
@@ -144,7 +144,7 @@ describe("schedules", () => {
   it("step 2: next run, pause and count survive a restart; missed runs catch up by at most one", async () => {
     const { world, dbPath, me } = lab();
     const t0 = Date.now();
-    const r = await world.verbs.schedule(me(), { title: "Hourly", description: "d", gap: "g", runsAt: new Date(t0 + H).toISOString(), repeat: { everyHours: 1, times: 5 } });
+    const r = await world.verbs.schedule(me(), { title: "Hourly", description: "d", tokensPerRun: 1000, runsAt: new Date(t0 + H).toISOString(), repeat: { everyHours: 1, times: 5 } });
     world.close();
     const w2 = World.open(dbPath);
     try {
