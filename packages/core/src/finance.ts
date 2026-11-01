@@ -1,4 +1,5 @@
-import type { Allocation, BankCredit, BankDebit, BankInput, UsageEntry } from "@muster-town/schema";
+import type { Allocation, BankCredit, BankDebit, BankInput, Session, TokenCounts, UsageEntry } from "@muster-town/schema";
+import { BANK_MODEL, bankModelOf, sessionTokens, tokenPrices } from "./bank.ts";
 import type { Repos } from "./store.ts";
 
 const DAY_MS = 86_400_000;
@@ -23,6 +24,28 @@ export function dailyInflowOf(inputs: (Pick<BankInput, "tokens" | "recurrence" |
     return s + (i.weeklyCapTokens ? Math.min(perDay, i.weeklyCapTokens / 7) : perDay);
   }, 0));
 }
+
+/** Dollars rounded to cents. */
+export const cents = (usd: number): number => Math.round(usd * 100) / 100;
+/** `tokens` of BANK_MODEL's output (Opus 5.5, $20 per million) at API list price, unrounded. */
+export const bankTokensUsd = (tokens: number): number => (tokens * tokenPrices(BANK_MODEL).usdPerMTok.output) / 1e6;
+/** A session's booked tokens (`sessionTokens`) at the list output price of the model it is booked in (`bankModelOf`), unrounded. */
+export const sessionListUsd = (s: FinanceSession): number => (sessionTokens(s) * tokenPrices(bankModelOf(s)).usdPerMTok.output) / 1e6;
+export type FinanceSession = Pick<Session, "model" | "bankModel" | "byModel"> & Partial<TokenCounts>;
+
+/**
+ * Dollars at API list price next to `used`, `left` and the projection's burn and inflow (gr_gmzli3f96j). Display only:
+ * nothing stores or charges them. A subscription pays a flat fee, so these are what the same usage would cost on an
+ * API key, not cash spent.
+ *
+ * `used` = Σ over the sessions table of each session's booked tokens × its booking model's output price (`bankModelOf`:
+ * Opus 5.5 at $20/M since migration 076; a pre-076 Fable session is booked in Fable output tokens, $50/M) + (`used` −
+ * Σ sessions' tokens) × $20/M. The second term is GET /api/finance/spend's unattributed − weight mismatch − not funded,
+ * priced at BANK_MODEL, so `usd.used` is the dollar twin of the spend identity and equals spend's `usd.used`; it is
+ * within cents of the sessions' list-price cost whenever the ledger and the sessions agree.
+ * `left`, `burnPerDay` and `inflowPerDay` are `left`, `projection.trailingDailyBurn` and `projection.dailyInflow` × $20/M.
+ */
+export interface FinanceUsd { used: number; left: number; burnPerDay: number; inflowPerDay: number; pricedAt: "api-list" }
 
 /**
  * GET /api/finance: a collective's tokens at a glance (Bank Transparency grant gr_gi5jbgzv4k, step 1). Every figure is
@@ -73,6 +96,8 @@ export interface FinanceSummary {
   };
   /** used + expired + left − overdrawn vs total; ok when they match exactly */
   sumCheck: { ok: boolean; diff: number; identity: string };
+  /** the same figures in dollars at API list price (FinanceUsd) */
+  usd: FinanceUsd;
   at: string;
 }
 
@@ -95,6 +120,8 @@ export interface FinanceInputs {
   usage: Pick<UsageEntry, "tokens" | "createdAt">[];
   /** the Bank's inputs, for the projection's daily inflow (none: inflow 0) */
   bankInputs?: Parameters<typeof dailyInflowOf>[0];
+  /** the sessions table, for `usd.used` (none: `used` is priced at BANK_MODEL) */
+  sessions?: FinanceSession[];
 }
 
 /**
@@ -159,12 +186,21 @@ export function financeSummary(inp: FinanceInputs, now = new Date()): FinanceSum
   const runway = trailingDailyBurn === 0 ? "no-usage" : netDailyBurn <= 0 ? "covered" : "days";
   const runwayDays = runway === "days" ? Math.floor(left / netDailyBurn) : null;
 
+  let sessionsTotal = 0, sessionsUsd = 0;
+  for (const s of inp.sessions ?? []) { sessionsTotal += sessionTokens(s); sessionsUsd += sessionListUsd(s); }
+  const usd: FinanceUsd = {
+    used: cents(sessionsUsd + bankTokensUsd(used - sessionsTotal)),
+    left: cents(bankTokensUsd(left)), burnPerDay: cents(bankTokensUsd(trailingDailyBurn)), inflowPerDay: cents(bankTokensUsd(dailyInflow)),
+    pricedAt: "api-list",
+  };
+
   const diff = used + expired + left - overdrawn - total;
   return {
     total, credited, donated, used, usedBank, usedDonations, expired, left, leftBank, leftDonations, overdrawn, overdrawnBreakdown: ob, usageLedger,
     projection: { days: FINANCE_PROJECTION_DAYS, trailingDailyBurn, burnDays, projectedUse30d: trailingDailyBurn * FINANCE_PROJECTION_DAYS,
       dailyInflow, netDailyBurn, projectedInflow30d: dailyInflow * FINANCE_PROJECTION_DAYS, runwayDays, runway },
     sumCheck: { ok: diff === 0, diff, identity: "used + expired + left = total + overdrawn" },
+    usd,
     at: iso,
   };
 }
@@ -177,5 +213,6 @@ export function townFinance(repos: Repos, now = new Date()): FinanceSummary {
     allocations: repos.allocations.all(),
     usage: repos.usage.all(),
     bankInputs: repos.bankInputs.all(),
+    sessions: repos.sessions.all(),
   }, now);
 }

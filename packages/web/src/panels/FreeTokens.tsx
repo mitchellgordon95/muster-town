@@ -11,7 +11,7 @@ import { findGoal, treeRows } from "./goalTree";
 import { ADJ, Empty, Loading, Section, fmtTokens, useLoad } from "./ui";
 
 const RETAINERS = "retainers";
-/** "Retainers: N tokens across M jobs" (1:1 mt_cyd2t5ioob decision 2): funded schedules' tokensPerRun × runs left, its own line on the Bank. */
+/** "Retainers: N tokens across M jobs" (1:1 mt_cyd2t5ioob decision 2): funded schedules' runs due within the lookahead (default 6 h), its own line on the Bank. */
 function retainersLine(f: Pick<FreeTokens, "retainerTokens" | "retainerJobs">): string {
   const jobs = f.retainerJobs ?? 0;
   return `Retainers: ${(f.retainerTokens ?? 0).toLocaleString("en-US")} tokens across ${jobs} job${jobs === 1 ? "" : "s"}`;
@@ -68,7 +68,7 @@ export function BankFreeTokens({ free }: { free: FreeTokens }) {
             <tr className="sub-row" title="Credit no session can draw on now: the input is broken, or its limit lasts past the credit's expiry (docs/bank.md, Promised and available)"><td>less unavailable now</td><td>−{unavailable.toLocaleString("en-US")}</td></tr>
             {(free.unavailable ?? []).map((u) => <tr key={u.inputId} className="sub-row muted"><td style={{ paddingLeft: 24 }}>{u.text}</td><td>−{u.tokens.toLocaleString("en-US")}</td></tr>)}
           </> : null}
-          {freeTerms(free).map(([label, t]) => <tr key={label} className="sub-row"><td>{label === RETAINERS ? <span title="Standing money for scheduled jobs a human approved: tokens per run × runs left">less {retainersLine(free)}</span> : <>{t < 0 ? "less " : ""}{label}</>}</td><td>{t < 0 ? "−" : ""}{Math.abs(t).toLocaleString("en-US")}</td></tr>)}
+          {freeTerms(free).map(([label, t]) => <tr key={label} className="sub-row"><td>{label === RETAINERS ? <span title="Standing money for scheduled jobs a human approved: tokens per run × the runs due within the lookahead (default 6 h), plus what a run under way may still spend">less {retainersLine(free)}</span> : <>{t < 0 ? "less " : ""}{label}</>}</td><td>{t < 0 ? "−" : ""}{Math.abs(t).toLocaleString("en-US")}</td></tr>)}
           <tr><td>Free tokens: what exploration may still claim (never below 0)</td><td><b>{free.freeTokens.toLocaleString("en-US")}</b></td></tr>
           {overdraft > 0 ? <>
             <tr title="Approved claims the usable balance doesn't cover, walked in order: retainers, funded grants by funding time, reservations. Work on a claim with nothing covered waits for funding."><td style={{ color: "#c0392b" }}>Overdraft: claimed, but not backed by anything usable</td><td style={{ color: "#c0392b" }}><b>{overdraft.toLocaleString("en-US")}</b></td></tr>

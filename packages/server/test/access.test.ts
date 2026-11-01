@@ -127,7 +127,7 @@ describe("who may interact", () => {
   it("join funnel: a public GET with the shape; the guest card's view ping works for a guest and a visitor", async () => {
     const { app, auth, visitor } = await setup();
     const before = (await json(app, "GET", "/api/join-funnel")).body;
-    expect(before).toMatchObject({ days: 30, totals: { guestCardViews: expect.any(Number), signIns: expect.any(Number), asked: expect.any(Number), letIn: expect.any(Number), declined: expect.any(Number) } });
+    expect(before).toMatchObject({ days: 30, totals: { guestCardViews: expect.any(Number), signIns: expect.any(Number), asked: expect.any(Number), letIn: expect.any(Number), declined: expect.any(Number), acted: expect.any(Number) } });
     expect(before.collectives).toHaveLength(1);
     expect((await json(app, "POST", "/api/join-funnel/view")).status).toBe(200);
     expect((await json(app, "POST", "/api/join-funnel/view", { headers: visitor })).status).toBe(200);

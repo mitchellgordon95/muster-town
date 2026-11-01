@@ -5,13 +5,16 @@
  * Town Hall in-tray. Each fire's assignment runs in lane "retainer" with sourceId = the schedule; its sessions book
  * against the schedule (drawn, derived from sessions like a grant's spend). Runs are held while the retainer is not
  * funded, or when one more run would pass the approved total; a run that reaches tokensPerRun is asked to wrap up.
- * A funded retainer is the Bank's fourth claim (free-tokens.ts): Σ tokensPerRun × runs left over funded schedules.
+ * A funded retainer is the Bank's fourth claim (free-tokens.ts). Since 2026-11-01 it claims only what is near: the runs
+ * due within the town's lookahead (default 6 h) plus what a run under way may still spend, never more than the approved
+ * total leaves (the approved total stays the ceiling). A run that comes due with nothing usable to run on (no credential
+ * for its model, or its claim fully overdrafted) is missed, not queued, and its manager hears once per streak.
  */
 import type { Agent, Assignment, RetainerDecisionInput, Schedule, ScheduleView } from "@muster-town/schema";
 import { sessionTokens } from "./bank.ts";
 import { managerAgentOf, sendMessage } from "./domain.ts";
 import { AppError, badRequest, forbidden } from "./errors.ts";
-import { freeTokens } from "./free-tokens.ts";
+import { claimShort, freeTokens } from "./free-tokens.ts";
 import { holderOf } from "./permissions.ts";
 import { nextOccurrence } from "./schedules.ts";
 import { stamp } from "./time.ts";
@@ -60,11 +63,57 @@ function runSpent(world: World, assignmentId: string): number {
   return world.sessions.where("assignmentId = ?", [assignmentId]).reduce((sum, x) => sum + sessionTokens(x), 0);
 }
 
-/** A funded retainer's claim on the Bank: tokensPerRun × runs left, never more than its approved total leaves. Else 0. */
+/** Runs due from the schedule's next run up to `until` (epoch ms), its end and `maxRuns` respected. A paused one fires none. */
+function runsDueBy(s: Timing, now: Date, until: number): number {
+  if (s.status === "ended" || !s.nextRunAt || s.paused || Date.parse(s.nextRunAt) > until) return 0;
+  const end = s.endsAt ? Math.min(until, Date.parse(s.endsAt)) : until;
+  return runsLeft({ ...s, endsAt: new Date(end).toISOString() }, now);
+}
+
+/**
+ * A funded retainer's claim on the Bank (Mitchell, 2026-11-01): the runs due within the town's lookahead
+ * (`retainerLookaheadHours`) × tokensPerRun, plus what each run already fired may still spend, never more than its
+ * approved total leaves. Else 0. A recurring job can't claim forever ahead; the approval is the ceiling, not the claim.
+ */
 function retainerClaim(world: World, s: Schedule, now = new Date(), drawn?: number): number {
   if (s.retainer !== "funded" || s.status !== "active") return 0;
   const left = Math.max(0, (s.retainerTokens ?? 0) - (drawn ?? retainerDrawn(world, s.id)));
-  return Math.min(retainerAsk(s, now), left);
+  const horizon = now.getTime() + world.town.get().retainerLookaheadHours * 3_600_000;
+  let underWay = 0;
+  for (const a of world.assignments.where("lane = 'retainer' AND sourceId = ? AND status IN ('pending', 'active')", [s.id])) {
+    underWay += Math.max(0, s.tokensPerRun - runSpent(world, a.id));
+  }
+  return Math.min(left, s.tokensPerRun * runsDueBy(s, now, horizon) + underWay);
+}
+
+/**
+ * Why a funded retainer's run, due now, can't run (null = it can): no credential serves its model (an observed limit,
+ * availability.ts), or the overdraft walk covers none of its claim. Such a run is missed, not queued (fireSchedules).
+ */
+export function retainerMissReason(world: World, s: Schedule, at = new Date()): string | null {
+  const b = world.buildings.get(s.buildingId);
+  if (!b) return null;
+  const cred = world.budget.credentialHold(b.id, at, { model: s.model ?? b.model });
+  if (cred) return cred;
+  const short = claimShort(world, s.id, at);
+  if (short && short.shortTokens >= short.tokens) return `overdrafted: the Bank's usable balance doesn't cover this run (${fmt(short.shortTokens)} tokens short)`;
+  return null;
+}
+
+/**
+ * A retainer run missed (`retainerMissReason`): logged as `schedule.skipped` with `missed: true`, and on the first miss of a
+ * streak its building's manager gets one message (later misses only count up on the schedule, `missedRuns`).
+ */
+export function missRetainerRun(world: World, s: Schedule, why: string, at = new Date()): void {
+  world.events.append({ type: "schedule.skipped", buildingId: s.buildingId, text: `Schedule "${truncate(s.title, 80)}" missed its run: ${why}`, payload: { scheduleId: s.id, missed: true, reason: why, streak: s.missedRuns + 1 } });
+  if (s.missedRuns > 0) return;
+  const b = world.buildings.get(s.buildingId);
+  const manager = b ? managerAgentOf(world, b) : undefined;
+  if (!manager) return;
+  sendMessage(world, {
+    kind: "system", fromId: "system", fromKind: "system", toId: manager.id,
+    body: `Your schedule "${s.title}" (${s.id}) missed its run at ${stamp(at.toISOString())}: ${why}. Runs that come due while this lasts are missed too (the schedule counts them); the first one that can run starts as usual. Nothing to do unless it keeps missing.`,
+  });
 }
 
 /** The goal a schedule's retainer is paid under: its building's attachment. */

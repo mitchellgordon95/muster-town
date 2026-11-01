@@ -42,7 +42,11 @@ describe("work session", () => {
 
     // options: MCP over http with the agent's bearer token, tool allow/deny lists, model, turns
     const opts = sdk.sessions[0].options;
-    expect(opts.mcpServers?.town).toMatchObject({ type: "http", url: "http://127.0.0.1:4321/mcp", headers: { Authorization: `Bearer ${world.tokens.getOrCreate("agent", noor.id)}` } });
+    expect(opts.mcpServers?.town).toMatchObject({ type: "http", url: "http://127.0.0.1:4321/mcp", headers: { Authorization: expect.stringMatching(/^Bearer at_/) } });
+    // the session's own token, revoked when it ended (docs/secrets.md "Login tokens")
+    const bearerTok = (opts.mcpServers!.town as { headers: Record<string, string> }).headers.Authorization.slice("Bearer ".length);
+    expect(world.tokens.resolve(bearerTok)).toBeUndefined();
+    expect(world.db.prepare("SELECT COUNT(*) AS n FROM tokens WHERE sessionId = ?").get(session.id)).toEqual({ n: 0 });
     expect(opts.allowedTools).toEqual(expect.arrayContaining(["mcp__town__look", "mcp__town__submit_report", "WebSearch", "WebFetch"]));
     expect(opts.disallowedTools).toEqual(expect.arrayContaining(["Bash", "Read", "Write", "Edit", "Glob", "Grep", "Task", "Agent"]));
     expect(opts.maxTurns).toBe(lab.maxTurnsPerSession);

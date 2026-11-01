@@ -680,6 +680,8 @@ textarea[data-drop="over"] { outline: 2px dashed var(--accent, #7aa2ff); outline
 .spend-name { flex: 1 1 auto; min-width: 0; overflow-wrap: anywhere; } /* basis auto: a one-line date range (Sources) shrinks to its min-content before the name does; with basis 0 the name got only the leftover and broke per character */
 .spend-tokens { text-align: right; min-width: 90px; font-variant-numeric: tabular-nums; }
 .spend-share { text-align: right; min-width: 48px; font-variant-numeric: tabular-nums; }
+.spend-usd { text-align: right; min-width: 64px; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.finance-usd { white-space: nowrap; }
 .spend-date { min-width: auto; } /* Sources dates: the column shrinks to one whole date, never below it; a range wraps after the arrow, never inside a date at its hyphens */
 .spend-date .day { white-space: nowrap; }
 .spend-children { margin-left: 4px; border-left: 1px solid var(--line); padding-left: 16px; }
