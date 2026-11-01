@@ -36,7 +36,7 @@ export const CreateCollectiveInput = z.object({
 export type CreateCollectiveInput = z.infer<typeof CreateCollectiveInput>;
 
 /** The building a new hosted collective starts with (docs/hosted-collectives.md step 5, "First building"). */
-export const FIRST_BUILDING_NAME = "Workshop";
+const FIRST_BUILDING_NAME = "Workshop";
 
 /**
  * A hosted collective works from its first visit: when its World has no building besides the Town Hall (a new one, or
@@ -45,7 +45,7 @@ export const FIRST_BUILDING_NAME = "Workshop";
  * It never comes back once made: buildings are never deleted, so this only fires on a World that never had one.
  * Code access follows the collective defaults (off in a hosted World) and its desks are the in-process host's.
  */
-export function ensureFirstBuilding(world: World): void {
+function ensureFirstBuilding(world: World): void {
   if (world.buildings.first("kind != 'town-hall'")) return;
   world.ops.createBuilding(null, { name: FIRST_BUILDING_NAME });
 }
