@@ -211,11 +211,11 @@ export function watchRetainerRuns(world: World): void {
 }
 
 /** Funded retainers' claims, town-wide: total and how many jobs (the Bank's "Retainers" line). */
-export function retainerClaims(world: World, now = new Date()): { goalId: string; tokens: number }[] {
-  const out: { goalId: string; tokens: number }[] = [];
+export function retainerClaims(world: World, now = new Date()): { goalId: string; tokens: number; id: string; title: string; at: string }[] {
+  const out: { goalId: string; tokens: number; id: string; title: string; at: string }[] = [];
   for (const s of world.schedules.where("status = 'active' AND retainer = 'funded'")) {
     const tokens = retainerClaim(world, s, now);
-    if (tokens > 0) out.push({ goalId: retainerGoalOf(world, s), tokens });
+    if (tokens > 0) out.push({ goalId: retainerGoalOf(world, s), tokens, id: s.id, title: s.title, at: s.retainerDecidedAt ?? s.createdAt });
   }
   return out;
 }

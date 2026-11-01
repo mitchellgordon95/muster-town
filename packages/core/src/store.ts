@@ -1,5 +1,5 @@
 import {
-  AccessRequest, Agent, Allocation, CaptainRequest, Assignment, BankCredit, BankDebit, BankInput, BankReservation, Building, BuildingDefaults, DesksConfig, Doc, Goal, GoalChange, GoalProposal, Grant, Interrupt, KeyResult, Kpi, Objective, Meeting, Membership, Message, Place, Role, Schedule, Session, SkillPin, Town, UsageEntry, User,
+  AccessRequest, Agent, Allocation, CaptainRequest, Assignment, BankCredit, CredentialLimit, BankDebit, BankInput, BankReservation, Building, BuildingDefaults, DesksConfig, Doc, Goal, GoalChange, GoalProposal, Grant, Interrupt, KeyResult, Kpi, Objective, Meeting, Membership, Message, Place, Role, Schedule, Session, SkillPin, Town, UsageEntry, User,
   townEnv, type ServerMessage, type TokenCountKind, type TokenCounts,
   type TokenMix,
 } from "@muster-town/schema";
@@ -227,6 +227,7 @@ export function createRepos(db: DB, changes: Emitter<ServerMessage>) {
     bankInputs: new BankInputs(db),
     bankCredits: new Table<BankCredit, Counted<BankCredit>>(db, "bank_credits", BankCredit),
     bankReservations: new Table<BankReservation>(db, "bank_reservations", BankReservation),
+    credentialLimits: new Table<CredentialLimit>(db, "credential_limits", CredentialLimit),
     bankDebits: new Table<BankDebit, Counted<BankDebit>>(db, "bank_debits", BankDebit),
     usage: new Table<UsageEntry, Counted<UsageEntry>>(db, "usage", UsageEntry),
     agents: new Table<Agent>(db, "agents", Agent, { json: ["pos", "deniedPermissions"], bool: ["inheritsOwner"] }, (agent) => changes.emit({ type: "agent", agent })),

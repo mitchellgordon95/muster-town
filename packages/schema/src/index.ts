@@ -390,6 +390,37 @@ export const BankReservation = z.object({
   openedAt: Iso, closedAt: Iso.nullable().default(null), spentTokens: z.number().int().nonnegative().nullable().default(null),
 });
 export type BankReservation = z.infer<typeof BankReservation>;
+
+/**
+ * Model classes availability is tracked by (core availability.ts): a plan can limit one model (Fable's weekly allowance)
+ * while others still run. `other` is any model none of these match.
+ */
+export const ModelClass = z.enum(["fable", "opus", "sonnet", "haiku", "other"]);
+export type ModelClass = z.infer<typeof ModelClass>;
+export function modelClass(model: string | null | undefined): ModelClass {
+  const m = (model ?? "").toLowerCase();
+  if (/fable|mythos/.test(m)) return "fable";
+  if (/opus/.test(m)) return "opus";
+  if (/sonnet/.test(m)) return "sonnet";
+  if (/haiku/.test(m)) return "haiku";
+  return "other";
+}
+/** What the provider said, by what it means for the credential (core availability.ts `classifyFailure`). */
+export const CredentialFailureKind = z.enum(["model-limit", "window", "billing", "auth"]);
+export type CredentialFailureKind = z.infer<typeof CredentialFailureKind>;
+/**
+ * An observed limit on one Bank input (migration 080; docs/bank.md "Promised and available"): the provider refused it,
+ * for one model class (`scope`) or for every model (`*`). In force until `until` (a reset the provider named) or, with
+ * no reset known, until `probeAt`, when one session may try again. A session that succeeds on the input and model
+ * clears it (`clearedAt`); one that fails again pushes `probeAt` out (`failures`). The Bank never predicts these.
+ */
+export const CredentialLimit = z.object({
+  id: Id, inputId: Id, scope: z.union([ModelClass, z.literal("*")]), kind: CredentialFailureKind,
+  reason: z.string(), until: Iso.nullable().default(null), probeAt: Iso.nullable().default(null),
+  failures: z.number().int().positive().default(1), sessionId: Id.nullable().default(null),
+  since: Iso, lastAt: Iso, clearedAt: Iso.nullable().default(null),
+});
+export type CredentialLimit = z.infer<typeof CredentialLimit>;
 /**
  * Free tokens under a goal (core free-tokens.ts; docs/how-work-gets-done.md §7): what exploration may still claim. Claims
  * (funded grants' remaining, open proposals' asks, open reservations) are paid by the nearest earmark above their goal
@@ -412,6 +443,22 @@ export interface FreeTokens {
   retainerJobs: number;
   /** what the claims leave of (general − reserve) + those earmarks, never below 0 */
   freeTokens: number;
+  /**
+   * Promised and available (docs/bank.md, 2026-11-01): `generalTokens` is what sessions can draw on now. `promisedTokens`
+   * is every live credit; `unavailableTokens` the part no session can draw on (a broken input, or a limit lasting past its
+   * credit's expiry), by input. Present only when something is unavailable (and left out by older servers).
+   */
+  promisedTokens?: number;
+  unavailableTokens?: number;
+  unavailable?: { inputId: string; label: string; tokens: number; text: string }[];
+  /**
+   * The overdraft walk: claims in order (retainers, funded grants by funding time, reservations, then asks) against the
+   * usable balance after the reserve. `overdrafted` lists the approved claims it doesn't fully cover; their sum is
+   * `overdraftTokens` (claimed, but not backed by anything usable). Asks are left out: they aren't promises yet. Present
+   * only when something is overdrafted.
+   */
+  overdraftTokens?: number;
+  overdrafted?: { kind: "funded" | "retainer" | "reserved"; id: string; title: string; tokens: number; shortTokens: number }[];
 }
 /** One charge of model usage: who spent it and which building it counts for (the agent's home). The usage ledger behind tokensToday / tokensAllTime. */
 export const UsageEntry = z.object({ id: Id, agentId: Id, buildingId: Id.nullable().default(null), ...TOKEN_COUNTS_SHAPE, rawTokens: z.number().int().nonnegative().default(0), tokens: z.number().int().nonnegative().default(0), usd: z.number().nonnegative().default(0), createdAt: Iso });
@@ -1573,7 +1620,7 @@ export const EventType = z.enum([
   "exploration.reserved", "exploration.started", "exploration.proposed", "exploration.closed",
   "meeting.created", "meeting.phase", "meeting.utterance", "meeting.decisions", "meeting.slide",
   "session.started", "session.ended",
-  "building.created", "building.updated", "building.layout", "town.plan", "allocation.created", "budget.exhausted", "bank.input", "bank.credited", "bank.debited", "bank.converted", "bank.share", "bank.pool", "bank.drift", "bank.mix", "bank.cap", "bank.hold",
+  "building.created", "building.updated", "building.layout", "town.plan", "allocation.created", "budget.exhausted", "bank.input", "bank.credited", "bank.debited", "bank.converted", "bank.share", "bank.pool", "bank.drift", "bank.mix", "bank.cap", "bank.hold", "bank.limit",
   "grant.created", "grant.updated", "grant.proposed", "grant.countered", "grant.funded", "grant.rejected", "grant.checkpoint", "grant.closed", "kr.updated", "kr.created", "kr.deleted", "objective.created", "objective.updated", "objective.deleted", "building.blocked",
   "goal.created", "goal.edited", "goal.moved", "goal.retired", "goal.owned", "goal.attached", "goal.proposal", "goal.changed", "kr.archived", "kr.under-review",
   "skill.used", "skill.pinned", "skill.unpinned",
@@ -2361,13 +2408,15 @@ export const DeskActivityInput = z.object({
   session: Id,
   /** `usage`: the session's cumulative usage so far (desk UsageMeter), booked by the Bank as the session runs */
   /** `result`: a tool call's outcome (`toolUseId`, first line in `text`, `isError`), kept in memory for `fork_status` */
-  kind: z.enum(["tool", "thought", "status", "usage", "result"]),
+  /** `rate-limit`: the SDK's `rate_limit_event` (`rateLimit`), the plan's word on its window (core availability.ts) */
+  kind: z.enum(["tool", "thought", "status", "usage", "result", "rate-limit"]),
   tool: z.string().optional(),
   toolUseId: z.string().max(200).optional(),
   isError: z.boolean().optional(),
   input: z.unknown().optional(),
   text: z.string().optional(),
   usage: z.object({ counts: TokenCounts, byModel: z.record(z.string(), TokenCounts).default({}) }).optional(),
+  rateLimit: z.object({ status: z.string().max(40).optional(), resetsAt: z.number().optional(), rateLimitType: z.string().max(60).optional() }).optional(),
 });
 export type DeskActivityInput = z.infer<typeof DeskActivityInput>;
 

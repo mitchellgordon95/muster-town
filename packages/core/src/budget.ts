@@ -1,4 +1,5 @@
 import { DonateInput, type TokenCounts, type Agent, type Allocation, type AllocationAuth, type Assignment, type Building, type BuildingBudget, type ServerMessage } from "@muster-town/schema";
+import { limitText } from "./availability.ts";
 import { type Bank, type Booked, type Credential, HOSTED_KEY_ONLY_HOLD, NO_TOKEN_HOLD, NoCredential, booked } from "./bank.ts";
 import { badRequest } from "./errors.ts";
 import type { EventLog } from "./events.ts";
@@ -64,6 +65,15 @@ export interface Funding {
   inputId?: string;
 }
 
+/** What `Budget.fundingFor` picks for: the session's model (availability is per model), a member-funded grant, an earmark. */
+interface FundingOpts {
+  grant?: { id: string; fundedWith: string | null } | null;
+  stream?: { id: string } | null;
+  /** the session's model; without it only every-model limits count */
+  model?: string | null;
+  now?: Date;
+}
+
 /** Donations, allocations, and charging. `world.budget`. */
 export class Budget {
   /** goal-directed budgets: the lane gate (`laneHold`, set by World): why an assignment is held, or null */
@@ -90,11 +100,11 @@ export class Budget {
    * first api-key allocation with tokens left or to the Bank share. Null when the Bank owns no key for it. One
    * credential, like every funding: the failover is the next session's different pick, never a second key in one.
    */
-  failoverFunding(buildingId: string, now = new Date()): Funding | null {
+  failoverFunding(buildingId: string, now = new Date(), model?: string | null): Funding | null {
     const fb = this.fallbackAllocation(buildingId);
     const donor = fb ? this.apiKeyFor(fb) : null;
     if (fb && donor) return { allocationId: fb.id, auth: "donor-key", credential: { kind: "api-key", secret: donor, inputId: null } };
-    const input = this.bank.fallbackInput(buildingId, now);
+    const input = this.bank.fallbackInput(buildingId, now, model);
     const credential = input ? this.bank.apiKeyCredential(input.id) : null;
     return credential ? { allocationId: fb?.id ?? null, auth: "api-key", credential } : null;
   }
@@ -113,43 +123,70 @@ export class Budget {
    * terms; Mitchell, 1:1 mt_p3ge56kg03): where a subscription would pay it runs on the Bank's API key, else it throws
    * `NoCredential(HOSTED_KEY_ONLY_HOLD)`, even when a stray subscription input exists.
    */
-  fundingFor(buildingId: string, opts: { grant?: { id: string; fundedWith: string | null } | null; stream?: { id: string } | null; now?: Date } = {}): Funding {
+  fundingFor(buildingId: string, opts: FundingOpts = {}): Funding {
     const f = this.pickFunding(buildingId, opts);
     // the last word on every path (failover included): a hosted World's session never carries a subscription token
     if (this.bank.hosted() && (f.auth === "subscription" || f.credential.kind === "subscription")) throw new NoCredential(HOSTED_KEY_ONLY_HOLD);
     return f;
   }
 
-  private pickFunding(buildingId: string, opts: { grant?: { id: string; fundedWith: string | null } | null; stream?: { id: string } | null; now?: Date }): Funding {
+  private pickFunding(buildingId: string, opts: FundingOpts): Funding {
     const now = opts.now ?? new Date();
     const bank = this.bank;
+    const model = opts.model ?? null;
+    /** the observed limit keeping an input from serving this session's model now (availability.ts), or null */
+    const limitOn = (inputId: string | null | undefined) => inputId ? bank.availability.limitFor(inputId, model, now) : null;
     const gi = bank.grantKeyInput(opts.grant, now);
-    const own = gi ? bank.apiKeyCredential(gi.id) : null;
-    if (gi && own) return { allocationId: null, auth: "api-key", credential: own, inputId: gi.id };
-    // goal tree step 7's draw order: the earmark Streams.pick chose (it covers a whole session), on its own key
-    const earmark = opts.stream ? bank.apiKeyCredential(opts.stream.id) : null;
+    if (gi) {
+      // a member's own input pays for the grant they funded: when it can't serve the model, the work waits (never the pool)
+      const lim = limitOn(gi.id);
+      if (lim) throw new NoCredential(limitText(lim, gi.label));
+      const own = bank.apiKeyCredential(gi.id);
+      if (own) return { allocationId: null, auth: "api-key", credential: own, inputId: gi.id };
+    }
+    // goal tree step 7's draw order: the earmark Streams.pick chose (it covers a whole session), on its own key; a limited earmark is skipped
+    const earmark = opts.stream && !limitOn(opts.stream.id) ? bank.apiKeyCredential(opts.stream.id) : null;
     if (earmark) return { allocationId: null, auth: "api-key", credential: earmark, inputId: opts.stream!.id };
     const subscription = (allocationId: string | null): Funding => {
-      // capped right now: the next session is the failover (the Bank's key), not the subscription's token
-      const failover = bank.capState(now).cappedAt ? this.failoverFunding(buildingId, now) : null;
-      if (failover) return failover;
       if (bank.hosted()) {
         // a hosted collective: the Bank's API key where the subscription would pay, never a subscription token
-        const key = bank.apiKeyCredential();
+        const key = bank.apiKeyCredential(null, model, now);
         if (key) return { allocationId, auth: "api-key", credential: key };
-        throw new NoCredential(HOSTED_KEY_ONLY_HOLD);
+        const any = bank.keyedInputs("api-key")[0];
+        const lim = any ? limitOn(any.id) : null;
+        throw new NoCredential(lim && any ? limitText(lim, any.label) : HOSTED_KEY_ONLY_HOLD);
+      }
+      // the subscription can't serve this model now (an observed limit): the next session runs on a key that can, if the
+      // Bank owns one; else the work waits with the limit's reason. The model is never switched.
+      const sub = bank.subscriptionInput();
+      const lim = sub ? limitOn(sub.id) : null;
+      if (sub && lim) {
+        const failover = this.failoverFunding(buildingId, now, model);
+        if (failover) return failover;
+        throw new NoCredential(limitText(lim, sub.label));
       }
       const credential = bank.subscriptionCredential();
       if (!credential) throw new NoCredential(this.repos.bankInputs.first("source = 'subscription' AND cancelledAt IS NULL", []) ? NO_TOKEN_HOLD : undefined);
       return { allocationId, auth: "subscription", credential };
     };
-    /** an api-key share or allocation: the keyed api-key input, else the subscription (recorded as such) */
-    const keyed = (allocationId: string | null, credential: Credential | null): Funding =>
-      credential ? { allocationId, auth: "api-key", credential } : subscription(allocationId);
+    /** an api-key share or allocation: the keyed api-key input (another one when it is limited for the model), else the subscription (recorded as such) */
+    const keyed = (allocationId: string | null, credential: Credential | null): Funding => {
+      if (credential && !limitOn(credential.inputId)) return { allocationId, auth: "api-key", credential };
+      const other = bank.apiKeyCredential(null, model, now);
+      if (other) return { allocationId, auth: "api-key", credential: other };
+      // every key is limited for this model and there is no subscription to run on: wait with the first key's reason
+      if (!bank.hosted() && !bank.subscriptionInput()) {
+        for (const i of bank.keyedInputs("api-key")) {
+          const lim = limitOn(i.id);
+          if (lim) throw new NoCredential(limitText(lim, i.label));
+        }
+      }
+      return subscription(allocationId);
+    };
     const sub = this.pickAllocation(buildingId, ["subscription"]);
     if (sub) return subscription(sub.id);
     const share = bank.fundingFor(buildingId, now);
-    if (share) return share.kind === "expiring" ? subscription(null) : keyed(null, bank.apiKeyCredential(share.inputId));
+    if (share) return share.kind === "expiring" ? subscription(null) : keyed(null, bank.apiKeyCredential(share.inputId, model, now));
     const alloc = this.pickAllocation(buildingId);
     if (alloc?.auth === "donor-key") {
       const key = this.apiKeyFor(alloc);
@@ -160,10 +197,21 @@ export class Budget {
     return { allocationId: null, auth: credential.kind, credential };
   }
 
-  /** Why nothing in the building may start (the Bank holds no credential that can run it), or null. */
-  credentialHold(buildingId: string, now = new Date()): string | null {
-    try { this.fundingFor(buildingId, { now }); return null; }
+  /**
+   * Why nothing in the building may start (the Bank holds no credential that can run it), or null. With `model`, for a
+   * session on that model: an observed limit on every credential that could pay for it holds it with the limit's reason.
+   */
+  credentialHold(buildingId: string, now = new Date(), opts: Omit<FundingOpts, "now"> = {}): string | null {
+    try { this.fundingFor(buildingId, { ...opts, now }); return null; }
     catch (e) { if (e instanceof NoCredential) return e.message; throw e; }
+  }
+
+  /** The model a session for `agentId` (on `assignment`, if given) would run on: a building-queue row's own model, else the agent's, else the building's. */
+  sessionModel(agentId: string | null, assignment?: Assignment | null): string | null {
+    const a = agentId ? this.repos.agents.get(agentId) : undefined;
+    const b = this.repos.buildings.get(assignment?.buildingId ?? a?.homeBuildingId ?? a?.buildingId ?? "");
+    if (assignment?.queue === "building") return assignment.model ?? b?.model ?? null;
+    return a?.model ?? b?.model ?? null;
   }
 
   /** Secret: the donor's Anthropic API key for a donor-key allocation (null for subscription / town api-key allocations). */
@@ -243,8 +291,9 @@ export class Budget {
     const a = this.repos.agents.require(agentId, "agent");
     const bid = a.homeBuildingId ?? a.buildingId;
     if (!bid) return false;
-    // nothing in the Bank can run it (a fresh town, a hosted collective before its owner adds a key): everything waits (the held assignment says why)
-    if (this.credentialHold(bid)) {
+    // nothing in the Bank can run it (a fresh town, a hosted collective before its owner adds a key, every credential
+    // limited for the agent's model): everything waits (the held assignment says why)
+    if (this.credentialHold(bid, new Date(), { model: this.sessionModel(agentId, assignment) })) {
       if (assignment) this.holdReason(assignment);
       return false;
     }
@@ -255,7 +304,8 @@ export class Budget {
 
   /** Why `assignment` is held (null = may run): the credential hold, else the lane gate; kept on the pending assignment as `heldReason`. */
   holdReason(assignment: Assignment): string | null {
-    const reason = this.credentialHold(assignment.buildingId) ?? this.gate?.(assignment) ?? null;
+    const grant = assignment.grantId ? this.repos.grants.get(assignment.grantId) ?? null : null;
+    const reason = this.credentialHold(assignment.buildingId, new Date(), { model: this.sessionModel(assignment.agentId, assignment), grant }) ?? this.gate?.(assignment) ?? null;
     const cur = this.repos.assignments.get(assignment.id);
     if (cur && cur.status === "pending" && (cur.heldReason ?? null) !== reason) this.repos.assignments.upsert({ ...cur, heldReason: reason });
     return reason;

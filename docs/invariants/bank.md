@@ -67,16 +67,40 @@ What must always hold where tokens come from and where they go: the Bank (`packa
     - Test: `packages/runtime/test/running-debit.test.ts` › `each new call is booked at once; the result trues up; debits = the session's usage; a repeated block counts once`
     - Test: `packages/runtime/test/running-debit.test.ts` › `a session that crashes mid-turn (no result) still counts and debits every call it made`
     - Test: `packages/runtime/test/running-debit.test.ts` › `a lost desk (exits with no session-end) keeps what its posts booked`
-    - Test: `packages/runtime/test/running-debit.test.ts` › `a spend-limit death with a smaller (or no) figure than was posted never books less than the posts`
+    - Test: `packages/runtime/test/running-debit.test.ts` › `a spend-limit death with a smaller (or no) figure than was posted never books less than the posts; its assignment goes back to the front of the queue (no fallback report)`
     - Test: `packages/runtime/test/running-debit.test.ts` › `a restart orphans the session: its row keeps what was booked and the debits still match`
     - Test: `packages/runtime/test/running-debit.test.ts` › `a building with nothing left is still debited (overshoot), so the Spending tab's Not funded doesn't grow`
     - Test: `packages/runtime/test/running-debit.test.ts` › `its residents' usage is debited to its pool (General): no usage-only path, nobody flipped out-of-budget while the pool has tokens`
     - Test: `packages/desk/test/run.test.ts` › `posts its running usage for the Bank to book, and a session that dies before its result still ends with every call (1:1 mt_x40qq8poc3 decision 2)`
+
+14. **Availability is observed per Bank input and model class, never predicted** (docs/bank.md "Promised and available"). A session's error that is about its credential records a limit on the input it ran on: one model class for a model limit, every model for a plan window, billing or auth. The limit holds until the reset the provider named, or until a probe time that backs off (1 h doubling to 24 h; 6 h doubling to 48 h for billing and auth). A session that succeeds on the input and model clears it. Errors that aren't about the credential (overloaded, a transient 429) record nothing.
+    - Test: `packages/core/test/availability.test.ts` › `reads what the provider said by what it means for the credential`
+    - Test: `packages/core/test/availability.test.ts` › `with no reset named, the next try backs off: 1 h doubling to 24 h for limits, 6 h doubling to 48 h for billing and auth`
+    - Test: `packages/core/test/availability.test.ts` › `an Opus success clears nothing for Fable; a Fable success (the probe) clears the Fable limit`
+    - Test: `packages/core/test/availability.test.ts` › `no reset known: after probeAt one session may try; failing again doubles the wait`
+    - Test: `packages/core/test/availability.test.ts` › `rate_limit_event: rejected records the named window with its reset; allowed clears it`
+15. **Dispatch never runs a session on a credential limited for its model, and never switches the model.** `Budget.fundingFor` takes the session's model. It skips a limited input for another credential that serves the same model, or holds the work with the limit's words (map line to the Bank). A building-queue row is checked on its own model, not its manager's.
+    - Test: `packages/core/test/availability.test.ts` › `a Fable limit holds Fable work with its reason; Opus work on the same subscription keeps running`
+    - Test: `packages/core/test/availability.test.ts` › `fails over only to a key that serves the same model; never to another model`
+    - Test: `packages/core/test/availability.test.ts` › `billing and auth: a broken key is skipped for every model and tried again after 6 h`
+    - Test: `packages/core/test/availability.test.ts` › `a plan window limits every model until the reset it names; then work runs again`
+    - Test: `packages/runtime/test/bank-fallback.test.ts` › `failover is the next session's pick: after a cap death the Bank hands out the api-key input's key (booked as api-key) until the cap resets; never two in one session (1:1 mt_x40qq8poc3)`
+16. **A session that dies on its credential doesn't fail its work.** Its assignment goes back to the front of the queue, with no fallback report, to be funded by another credential or to wait with the limit's reason.
+    - Test: `packages/runtime/test/running-debit.test.ts` › `a spend-limit death with a smaller (or no) figure than was posted never books less than the posts; its assignment goes back to the front of the queue (no fallback report)`
+17. **Cancelling a subscription input expires its live credit at once; an api-key input's credit stays.**
+    - Test: `packages/core/test/bank.test.ts` › `expires its live credit now: replacing a 15M/day donation with 2M/day leaves 2M, not 17M; an api-key's credit stays`
+
+18. **Claims are covered by the usable balance, not by every credit.** A broken input's remaining credit, and a subscription credit whose every-model limit outlasts it, are unavailable; a limit on one model or a reset before the credit's expiry leaves the credit usable.
+    - Test: `packages/core/test/overdraft.test.ts` › `a broken key's credit leaves the usable balance; a Fable-only limit doesn't; a reset before the credit's expiry doesn't`
+    - Test: `packages/core/test/overdraft.test.ts` › `a subscription credit counts only if its input can serve before the credit expires`
+19. **The overdraft walk covers claims in order, and funded work past the line waits.** Retainers, then funded grants by funding time, then reservations, then asks. Approved claims not fully covered are listed as overdrafted with their shortfall. A grant with nothing covered holds its grant-lane work at the Bank, and one straddling the line runs. An ask is never listed.
+    - Test: `packages/core/test/overdraft.test.ts` › `covers claims in order; past the line, funded work waits and the overdraft is shown; a grant straddling the line runs`
+    - Test: `packages/core/test/overdraft.test.ts` › `an open proposal's ask soaks up a shortfall first and is never listed as overdrafted`
 
 ## How it connects
 
 - **Runtime → Bank.** Before a session, `fundingFor` / `fundingForSession` (`packages/runtime/src/session.ts`) picks what pays (invariant 8). While it runs, `bookRunning` debits its usage so far; at its end, `endAndCharge` debits the rest through `Budget.charge` (invariants 1, 2 and 13).
 - **Budget → grants.** After every charge, `Budget.afterCharge` runs `Grants.checkpoints` for the building (wired in `packages/core/src/world.ts`). A grant whose spend (summed from its sessions) has reached its tokens is held at its checkpoint. See [grants.md](grants.md), invariant 5.
    - Test: `packages/core/test/lanes.test.ts` › `a charge that reaches 100% holds the grant once and gives the manager the checkpoint assignment, which may run`
-- **Budget → the lane gate.** `Budget.canStart` is the one check the scheduler uses. It checks the no-key hold and the building's remaining budget, then the cap hold (invariant 12), then the lane gate (`resolveLane` / `laneBlock` in `packages/core/src/lanes.ts`). The lane gate holds exploration only when no tokens are free under the building's goal or the goal's optional cap is reached (core `packages/core/src/free-tokens.ts`). A held assignment keeps its `heldReason`. Those rules are in [the assignments and lanes invariants doc](assignments-lanes.md).
+- **Budget → the lane gate.** `Budget.canStart` is the one check the scheduler uses. It checks the credential hold (no credential, or every one limited for the session's model: invariant 15) and the building's remaining budget, then the lane gate (`resolveLane` / `laneBlock` in `packages/core/src/lanes.ts`). The lane gate holds exploration only when no tokens are free under the building's goal or the goal's optional cap is reached (core `packages/core/src/free-tokens.ts`). A held assignment keeps its `heldReason`. Those rules are in [the assignments and lanes invariants doc](assignments-lanes.md).
    - Test: `packages/core/test/lanes.test.ts` › `exploration is held with no free tokens, or once its goal's optional cap is reached today; uncapped by default; directed is never held`

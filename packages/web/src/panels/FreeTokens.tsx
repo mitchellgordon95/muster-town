@@ -57,12 +57,23 @@ export function capText(node: Pick<GoalTreeNode, "id" | "funding">, root: GoalTr
 
 /** The Bank Overview's town-wide free tokens (GET /api/bank `free`, the root goal's): each term of the sum, then the total. */
 export function BankFreeTokens({ free }: { free: FreeTokens }) {
+  const unavailable = free.unavailableTokens ?? 0;
+  const overdraft = free.overdraftTokens ?? 0;
   return (
     <Section title="Free tokens">
       <table className="table">
         <tbody>
+          {unavailable > 0 ? <>
+            <tr className="sub-row" title="Every live credit: what the inputs promised"><td>promised by the inputs</td><td>{(free.promisedTokens ?? 0).toLocaleString("en-US")}</td></tr>
+            <tr className="sub-row" title="Credit no session can draw on now: the input is broken, or its limit lasts past the credit's expiry (docs/bank.md, Promised and available)"><td>less unavailable now</td><td>−{unavailable.toLocaleString("en-US")}</td></tr>
+            {(free.unavailable ?? []).map((u) => <tr key={u.inputId} className="sub-row muted"><td style={{ paddingLeft: 24 }}>{u.text}</td><td>−{u.tokens.toLocaleString("en-US")}</td></tr>)}
+          </> : null}
           {freeTerms(free).map(([label, t]) => <tr key={label} className="sub-row"><td>{label === RETAINERS ? <span title="Standing money for scheduled jobs a human approved: tokens per run × runs left">less {retainersLine(free)}</span> : <>{t < 0 ? "less " : ""}{label}</>}</td><td>{t < 0 ? "−" : ""}{Math.abs(t).toLocaleString("en-US")}</td></tr>)}
           <tr><td>Free tokens: what exploration may still claim (never below 0)</td><td><b>{free.freeTokens.toLocaleString("en-US")}</b></td></tr>
+          {overdraft > 0 ? <>
+            <tr title="Approved claims the usable balance doesn't cover, walked in order: retainers, funded grants by funding time, reservations. Work on a claim with nothing covered waits for funding."><td style={{ color: "#c0392b" }}>Overdraft: claimed, but not backed by anything usable</td><td style={{ color: "#c0392b" }}><b>{overdraft.toLocaleString("en-US")}</b></td></tr>
+            {(free.overdrafted ?? []).map((o) => <tr key={o.id} className="sub-row muted"><td style={{ paddingLeft: 24 }}>{o.kind === "funded" ? "grant" : o.kind} {o.title.slice(0, 80)}{o.shortTokens >= o.tokens ? " (waits)" : " (partly covered, runs)"}</td><td>{o.shortTokens.toLocaleString("en-US")} short</td></tr>)}
+          </> : null}
         </tbody>
       </table>
     </Section>

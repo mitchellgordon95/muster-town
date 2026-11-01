@@ -4,6 +4,8 @@ import { reservationLeft } from "./explore.ts";
 import { retainerClaims } from "./retainers.ts";
 import type { World } from "./world.ts";
 
+type OverdraftedClaim = NonNullable<FreeTokens["overdrafted"]>[number];
+
 /**
  * Free tokens and the exploration cap (docs/how-work-gets-done.md §7, §8; build step 1, as_1nuoiauxlw). There are no
  * Bank pools: one general balance, plus earmarks (a credit scoped to a goal's subtree). Four kinds of claim sit on them:
@@ -41,8 +43,16 @@ export function exploreRuleAt(goals: Repos["goals"], goalId: string): ExploreRul
   return rule;
 }
 
-/** One claim on the Bank: the goal its work sits on and its tokens. */
-interface Claim { goalId: string; tokens: number; kind: "funded" | "ask" | "reserved" | "retainer" }
+/** One claim on the Bank: the goal its work sits on, its tokens, and what it is (for the overdraft walk's order and its list). */
+interface Claim { goalId: string; tokens: number; kind: "funded" | "ask" | "reserved" | "retainer"; id: string; title: string; at: string }
+
+/**
+ * The overdraft walk's order (Mitchell, 2026-11-01): claims are covered by the usable balance first come, first served by
+ * urgency. Retainers first (their runs are due at a time), then funded grants by when they were funded, then open
+ * exploration reservations, then proposals' asks last (an ask is not yet a promise, so it soaks up a shortfall first).
+ */
+const ORDER: Record<Claim["kind"], number> = { retainer: 0, funded: 1, reserved: 2, ask: 3 };
+const byOrder = (a: Claim, b: Claim) => ORDER[a.kind] - ORDER[b.kind] || a.at.localeCompare(b.at) || a.id.localeCompare(b.id);
 
 /** The goal a grant's work sits on (its `goalId`, else its building's attachment): where its claim is paid from. */
 export function grantGoalOf(world: World, g: { buildingId: string; id: string }): string {
@@ -56,20 +66,20 @@ function claims(world: World, except?: string, now = new Date()): Claim[] {
   for (const g of world.grants.where("status IN ('funded', 'checkpoint')")) {
     if (g.id === except) continue;
     const left = Math.max(0, (g.grantTokens ?? 0) - world.grantDesk.spent(g.id));
-    if (left > 0) out.push({ goalId: nodeOf(g), tokens: left, kind: "funded" });
+    if (left > 0) out.push({ goalId: nodeOf(g), tokens: left, kind: "funded", id: g.id, title: g.objective, at: g.fundedAt ?? g.createdAt });
   }
   for (const g of world.grants.where("status IN ('proposed', 'countered')")) {
     if (g.id === except) continue;
-    if (g.askTokens > 0) out.push({ goalId: nodeOf(g), tokens: g.askTokens, kind: "ask" });
+    if (g.askTokens > 0) out.push({ goalId: nodeOf(g), tokens: g.askTokens, kind: "ask", id: g.id, title: g.objective, at: g.createdAt });
   }
   // an open reservation claims what its sessions haven't spent yet (they draw on it first; their spend is already off the balance)
   for (const r of world.bankReservations.where("closedAt IS NULL")) {
     const left = reservationLeft(world, r);
-    if (left > 0) out.push({ goalId: r.goalId, tokens: left, kind: "reserved" });
+    if (left > 0) out.push({ goalId: r.goalId, tokens: left, kind: "reserved", id: r.id, title: `exploration reservation ${r.id}`, at: r.openedAt });
   }
   // a funded retainer claims tokensPerRun × runs left (1:1 mt_cyd2t5ioob decision 2; retainers.ts)
   for (const c of retainerClaims(world, now)) out.push({ ...c, kind: "retainer" });
-  return out;
+  return out.sort(byOrder);
 }
 
 /**
@@ -85,11 +95,15 @@ export function freeTokensAll(world: World, now = new Date(), except?: string): 
     held.set(inp.goalId, (held.get(inp.goalId) ?? 0) + bank.inputBalance(inp.id, now));
   }
   const earmark = new Map(held);
-  const generalTokens = bank.balance(now);
+  // promised and available (docs/bank.md): claims are covered by what sessions can actually draw on, not by every credit
+  const promisedTokens = bank.balance(now);
+  const unavailable = bank.unavailable(now);
+  const generalTokens = Math.max(0, promisedTokens - unavailable.tokens);
   const reserveTokens = world.town.get().operatingReserveTokens;
   let general = generalTokens - reserveTokens;
   const totals = { funded: 0, ask: 0, reserved: 0, retainer: 0 };
   let retainerJobs = 0;
+  const overdrafted: OverdraftedClaim[] = [];
   for (const c of claims(world, except, now)) {
     totals[c.kind] += c.tokens;
     if (c.kind === "retainer") retainerJobs++;
@@ -102,8 +116,12 @@ export function freeTokensAll(world: World, now = new Date(), except?: string): 
       left -= take;
       if (left <= 0) break;
     }
+    // the walk: what the usable general balance (after the reserve) still covers of this claim, in order
+    const covered = Math.min(Math.max(0, general), left);
+    if (covered < left && c.kind !== "ask") overdrafted.push({ kind: c.kind, id: c.id, title: c.title, tokens: c.tokens, shortTokens: left - covered });
     general -= left;
   }
+  const overdraftTokens = overdrafted.reduce((s, o) => s + o.shortTokens, 0);
   const out = new Map<string, FreeTokens>();
   for (const g of world.goals.all()) {
     let earmarkTokens = 0, earmarkLeft = 0;
@@ -114,10 +132,32 @@ export function freeTokensAll(world: World, now = new Date(), except?: string): 
     out.set(g.id, {
       goalId: g.id, generalTokens, reserveTokens, earmarkTokens, fundedRemainingTokens: totals.funded, openAsksTokens: totals.ask, reservedTokens: totals.reserved,
       retainerTokens: totals.retainer, retainerJobs, freeTokens: Math.max(0, general) + earmarkLeft,
+      // shown only when they say something: some credit can't be drawn on, or approved claims aren't backed
+      ...(unavailable.tokens > 0 ? { promisedTokens, unavailableTokens: unavailable.tokens, unavailable: unavailable.inputs } : {}),
+      ...(overdraftTokens > 0 ? { overdraftTokens, overdrafted } : {}),
     });
   }
   return out;
 }
+
+/**
+ * The overdraft walk's verdict on one claim (a funded grant, a retainer, a reservation): how many of its tokens the usable
+ * balance doesn't cover, or 0. Its work holds only when none of it is covered (a claim straddling the line runs).
+ */
+export function claimShort(world: World, id: string, now = new Date()): { tokens: number; shortTokens: number } | null {
+  // the scheduler asks per held row every tick: one walk serves them all for a few seconds, until anything is logged
+  // (a credit, a limit, a funded or closed grant, a session's end all append an event)
+  const lastEvent = (world.db.prepare("SELECT MAX(id) AS id FROM events").get() as { id: number | null }).id ?? 0;
+  let c = walkCache.get(world);
+  if (!c || c.lastEvent !== lastEvent || Math.abs(now.getTime() - c.at) > WALK_TTL_MS) {
+    c = { at: now.getTime(), lastEvent, rows: freeTokensAll(world, now).get(ROOT_GOAL_ID)?.overdrafted ?? [] };
+    walkCache.set(world, c);
+  }
+  const o = c.rows.find((x) => x.id === id);
+  return o ? { tokens: o.tokens, shortTokens: o.shortTokens } : null;
+}
+const WALK_TTL_MS = 5_000;
+const walkCache = new WeakMap<World, { at: number; lastEvent: number; rows: OverdraftedClaim[] }>();
 
 /** Free tokens under one goal (`Bank.freeTokens` in the doc; a goal not in the tree counts as the root). */
 export function freeTokens(world: World, goalId: string, now = new Date(), except?: string): FreeTokens {

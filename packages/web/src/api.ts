@@ -236,7 +236,7 @@ export interface Bank {
   adjustedCreditedTokens: number;
   dailyInflowTokens: number;
   /** per input: `debitedTokens` (what grants it pays for drew by name) and `balanceTokens` (what it can still pay; member funding). Older servers leave them out. */
-  inputs: (BankInput & { userName: string; creditedCounts: TokenCounts; adjustedCreditedTokens: number; debitedTokens?: number; balanceTokens?: number })[];
+  inputs: (BankInput & { userName: string; creditedCounts: TokenCounts; adjustedCreditedTokens: number; debitedTokens?: number; balanceTokens?: number; limits?: BankLimit[] })[];
   buildings: BankBuildingShare[];
   /** town-wide free tokens (the root goal's; docs/how-work-gets-done.md §7); null or left out by older servers */
   free?: FreeTokens | null;
@@ -254,6 +254,11 @@ export interface Bank {
 export interface BankDeaths {
   since: string; capDeaths: number; exhausted: number; total: number;
   events: { ts: string; kind: "cap" | "exhausted"; agentId: string | null; buildingId: string | null; sessionId: string | null; text: string }[];
+}
+/** An observed limit on a Bank input (core availability.ts): a model or plan limit, billing, or auth; older servers leave them out. */
+export interface BankLimit {
+  id: string; inputId: string; scope: string; kind: "model-limit" | "window" | "billing" | "auth"; reason: string;
+  until: string | null; probeAt: string | null; failures: number; since: string; lastAt: string; inForce: boolean; text: string;
 }
 export interface BankCapState {
   inputId: string | null; spentToday: number; windowStart: string; resetsAt: string; cappedAt: string | null;
@@ -517,6 +522,8 @@ export interface Api {
   bankStreams(): Promise<BankStreams>;
   addBankInput(input: In<typeof AddBankInput>): Promise<BankInput>;
   cancelBankInput(id: string): Promise<BankInput>;
+  /** "Try now": clear an observed limit on a Bank input */
+  clearBankLimit(id: string): Promise<void>;
   exportNow(): Promise<string | null>;
   /** v1.3: pull main, rebuild, restart (needs town.redeploy); progress arrives as `system` events */
   redeploy(image: boolean): Promise<{ started?: boolean; queued?: boolean; running?: boolean }>;
@@ -761,6 +768,7 @@ class HttpApi implements Api {
   async bankStreams() { return this.get<BankStreams>("/api/bank/streams"); }
   async addBankInput(i: In<typeof AddBankInput>) { return unwrap<BankInput>(await this.post("/api/bank/inputs", i), "input"); }
   async cancelBankInput(id: string) { return unwrap<BankInput>(await this.call("DELETE", `/api/bank/inputs/${id}`), "input"); }
+  async clearBankLimit(id: string) { await this.post(`/api/bank/limits/${id}/clear`); }
   async exportNow() { return (await this.post<{ commit?: string | null }>("/api/export")).commit ?? null; }
   async redeploy(image: boolean) { return this.post<{ started?: boolean; queued?: boolean; running?: boolean }>("/api/admin/redeploy", { image }); }
   async redeployLive() { return this.get<RedeployLive>("/api/admin/redeploy"); }
