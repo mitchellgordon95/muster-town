@@ -171,7 +171,6 @@ export function Hud({ onPasteToken, onHelp }: { onPasteToken?: () => void; onHel
           <h1>{town.name}</h1>
         </div>
         {collapsed && notices.length ? <span className="notice-dot" title={`${notices.length} notice${notices.length === 1 ? "" : "s"}`}>{notices.length}</span> : null}
-        <button className="icon-btn dash-btn" onClick={() => store.open({ kind: "dashboard" })} title="Dashboard: the town KPIs (Fund, Join, Trust) and every building's objectives" aria-label="Dashboard">▤</button>
         <button className="icon-btn dash-btn" onClick={() => store.open({ kind: "bank" })} title="The Bank: tokens received, used and left, where they came from and went, and hosting in dollars" aria-label="The Bank">$</button>
         {onHelp ? <button className="icon-btn help-btn" onClick={onHelp} title="Operating manual" aria-label="Operating manual">?</button> : null}
         <span className={`conn ${conn}`} title={`Server: ${conn}${isMock ? " (mock)" : ""}`} />

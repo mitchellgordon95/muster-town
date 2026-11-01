@@ -5,7 +5,7 @@
 import type { z } from "zod";
 import type {
   ReviewDeck, BankStreams, FunderWeek, ReviewSlide,
-  CreateObjectiveInput, UpdateObjectiveInput, Objective, KpiKey, KpiView,
+  CreateObjectiveInput, UpdateObjectiveInput, Objective, KpiKey,
   AccessRequest, AccessRequestView, CaptainRequest, CaptainRequestView, Agent, Allocation, Assignment, AssignmentCard, AuthMe, BlockedAssignment, BuildingStats, ScheduleView, RedeployLive, Building, BuildingDefaults, ClientMessage, MapLayout, DesksConfig, Doc, Event, Lot, Meeting, Place, Role, Membership, SessionSlots, Tile,
   ServerMessage, SessionView, TokenCounts, CreateBuildingInput, UpdateBuildingInput, RegisterVisitorInput,
   ReviewInput, PinSkillInput, SkillPinView, SkillView, PutSecretInput, SecretView, WorkInput, DonateInput, AddBankInput, BankInput, CreateMeetingInput, DocState, DocType, Mailbox, Permission, DecideGrantInput, CloseGrantInput, GrantView, KeyResult, UpdateKeyResultInput, Stoplight,
@@ -289,8 +289,6 @@ export interface JoinFunnelView {
   totals: { guestCardViews: number; signIns: number; asked: number; letIn: number; declined: number };
 }
 
-/** GET /api/kpis: the framing, the town KPIs with live values, and every goal-directed building's objectives. */
-export interface KpisView { framing: string; kpis: KpiView[]; buildings: (ObjectiveTree & { buildingId: string; name: string; goal: string })[] }
 /** GET /api/buildings/:id/key-results */
 export interface KeyResultsView { keyResults: GoalKeyResult[]; blocked: string | null }
 /** A building's exploration today (core grants.ts ExplorationBudget): spent today, free tokens under its goal, the cap over it (null = uncapped). */
@@ -396,9 +394,7 @@ export interface Api {
   updateObjective(id: string, input: In<typeof UpdateObjectiveInput>): Promise<Objective>;
   /** DELETE /api/objectives/:id (409 while key results hang off it) */
   deleteObjective(id: string): Promise<void>;
-  /** GET /api/kpis: the town dashboard */
-  kpis(): Promise<KpisView>;
-  /** GET /api/join-funnel: the dashboard's join funnel row */
+  /** GET /api/join-funnel: the public join funnel counts */
   joinFunnel(): Promise<JoinFunnelView>;
   /** POST /api/join-funnel/view: the guest card was shown (once per page load) */
   countGuestCardView(): Promise<void>;
@@ -662,7 +658,6 @@ class HttpApi implements Api {
   async createObjective(buildingId: string, i: In<typeof CreateObjectiveInput>) { return unwrap<Objective>(await this.post(`/api/buildings/${buildingId}/objectives`, i), "objective"); }
   async updateObjective(id: string, i: In<typeof UpdateObjectiveInput>) { return unwrap<Objective>(await this.call("PATCH", `/api/objectives/${id}`, i), "objective"); }
   async deleteObjective(id: string) { await this.call("DELETE", `/api/objectives/${id}`); }
-  kpis() { return this.get<KpisView>("/api/kpis"); }
   joinFunnel() { return this.get<JoinFunnelView>("/api/join-funnel"); }
   async countGuestCardView() { await this.post("/api/join-funnel/view"); }
   registerVisitor(i: In<typeof RegisterVisitorInput>) { return this.post<{ agent: Agent; token: string }>("/api/agents/visitors", i); }

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { buildingRoleId, createUser, keyResultsBlock, quarterOf, townKpis } from "../src/index.ts";
+import { buildingRoleId, keyResultsBlock, quarterOf } from "../src/index.ts";
 import { seededWorld } from "./helpers.ts";
 
 const LAB = "carbon-cycle";
@@ -61,46 +61,5 @@ describe("objectives (1:1 mt_akz25kqo2q)", () => {
     expect(block).toContain("Attached to: ");
     expect(block).toMatch(new RegExp(`  Goal ${o.id}: Strangers can join\n    - grant ${g.id} [^\n]*\n        - ${g.keyResultId} \\[not-started\\] A visitor can see`));
     expect(block).toMatch(new RegExp(`Goal gl_town: [^\n]*\n  - grant ${loose.id} [^\n]*\n      - ${loose.keyResultId} \\[not-started\\] Loose one`));
-  });
-});
-
-describe("town KPIs", () => {
-  it("count strangers only: the owner's own actions don't move Fund, Join or Trust", () => {
-    const { world, admin } = setup();
-    const k0 = townKpis(world);
-    expect(k0.kpis.map((k) => [k.key, k.thisWeek, k.weeks.length])).toEqual([["fund", 0, 8], ["join", 0, 8], ["trust", 0, 8]]);
-    expect(k0.framing).toMatch(/fund, join, and trust/);
-    // a stranger arrives today, answers an outbox request and is active again two days later
-    const { user } = createUser(world, "Stranger");
-    const av = world.ops.ensureAvatar(user.id);
-    world.docs.upsert({ ...world.docs.first("1 = 1")!, id: "dc_answer1", type: "human-report", state: "library", authorId: user.id, authorKind: "user", title: "Re: x", body: "seen", createdAt: new Date().toISOString() });
-    // the owner answering doesn't count
-    world.docs.upsert({ ...world.docs.first("1 = 1")!, id: "dc_answer2", type: "human-report", state: "library", authorId: admin.ownerUserId!, authorKind: "user", title: "Re: y", body: "seen", createdAt: new Date().toISOString() });
-    world.events.append({ type: "agent.said", agentId: av.id, buildingId: null, text: "hi", payload: {} });
-    const later = Date.now() + 2 * 86_400_000;
-    world.db.prepare("INSERT INTO events (ts, type, agentId, buildingId, text, payload) VALUES (?, 'agent.said', ?, NULL, 'back', '{}')").run(new Date(later).toISOString(), av.id);
-    const k1 = townKpis(world, later + 1000);
-    const by = Object.fromEntries(k1.kpis.map((k) => [k.key, k]));
-    expect(by.trust!.thisWeek).toBe(1);
-    expect(by.trust!.detail).toMatch(/1 outbox answer/);
-    expect(by.join!.thisWeek).toBe(1);
-    expect(by.fund!.thisWeek).toBe(0);
-  });
-
-  it("Join skips fork events: a fork copies its manager's ownerUserId, but its work is not the owner coming back", () => {
-    const { world } = setup();
-    const { user } = createUser(world, "Stranger");
-    const av = world.ops.ensureAvatar(user.id);
-    world.agents.upsert({ ...av, id: "ag_fork1", name: `${av.name} 1`, forkOf: av.id, forkN: 1 }, { silent: true });
-    const later = Date.now() + 2 * 86_400_000;
-    const insert = world.db.prepare("INSERT INTO events (ts, type, agentId, buildingId, text, payload) VALUES (?, 'agent.said', ?, NULL, 'x', '{}')");
-    insert.run(new Date().toISOString(), "ag_fork1");
-    insert.run(new Date(later).toISOString(), "ag_fork1");
-    const join = () => townKpis(world, later + 1000).kpis.find((k) => k.key === "join")!;
-    expect(join().thisWeek).toBe(0);
-    expect(join().detail).toMatch(/0 of 1 newcomer/);
-    // the stranger's own avatar coming back on a later day does count
-    insert.run(new Date(later).toISOString(), av.id);
-    expect(join().thisWeek).toBe(1);
   });
 });

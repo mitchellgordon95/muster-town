@@ -992,7 +992,7 @@ export const MeetingDecision = z.object({
 });
 /**
  * What a speaker presents with an utterance (docs/meetings.md §8): a doc (title and opening lines kept as said), a town
- * page (`ref` bank, finance, dashboard, manual[/section], connect, grant:<id>, agent:<id>, building:<id>) or an uploaded
+ * page (`ref` bank, finance, manual[/section], connect, grant:<id>, agent:<id>, building:<id>) or an uploaded
  * image or video (`url` /api/media/…). The meeting panel shows it inline; the notes keep the reference.
  */
 export const MeetingAttachment = z.object({
@@ -1474,17 +1474,6 @@ export const Kpi = z.object({
   position: z.number().int(),
 });
 export type Kpi = z.infer<typeof Kpi>;
-/** GET /api/kpis: a KPI with its live value: the last 7 days, the 7 before, and 8 weekly points (oldest first). */
-export const KpiView = Kpi.extend({
-  thisWeek: z.number().nonnegative(),
-  lastWeek: z.number().nonnegative(),
-  weeks: z.array(z.number().nonnegative()),
-  /** one line on what this week's number is made of, e.g. "0 funders, 0 tokens" */
-  detail: z.string(),
-});
-export type KpiView = z.infer<typeof KpiView>;
-/** The framing the dashboard and the docs show above the KPI tiles. */
-export const KPI_FRAMING = "The town goal, \"Make Muster Town something strangers can fund, join, and trust\", is not a key result anyone meets: it is three standing indicators, Fund, Join and Trust, that should rise week over week. Every building objective names the one it moves; key results are how a building commits to moving it this quarter, and these numbers are how the town sees whether it moved.";
 /**
  * A grant as the API returns it: its key results (`keyResults`, in order; `keyResult` = the first, null if none) and derived spend. `spentTokens` is
  * adjusted output tokens (Bank step 3), like `askTokens` and `grantTokens`; `spentCounts` is the five counters behind it.
@@ -1688,7 +1677,7 @@ export const VerbInputs = {
     meetingId: Id,
     action: z.enum(["status", "summary", "speak", "listen", "decide", "end"]),
     text: z.string().optional(),
-    attach: z.string().optional().describe("speak only: present something with the line, shown inline in the meeting panel: a doc id (dc_…), an uploaded image or video (mf_… or its /api/media/… url), a grant (gr_…) or agent (ag_…), or a town page: bank, finance, dashboard, manual, connect, building:<id>"),
+    attach: z.string().optional().describe("speak only: present something with the line, shown inline in the meeting panel: a doc id (dc_…), an uploaded image or video (mf_… or its /api/media/… url), a grant (gr_…) or agent (ag_…), or a town page: bank, finance, manual, connect, building:<id>"),
     decisions: z.array(MeetingDecision).optional(),
     waitSeconds: z.number().int().min(0).max(120).optional().describe("listen only: wait up to this long for someone to speak (default 0 = return now)"),
   }),

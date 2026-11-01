@@ -4,11 +4,11 @@ Status: **steps 1a–c built** (7bef911, 2eae49f, 441a7f3: schema, `Grants` serv
 
 ## Objectives and KPIs (2026-10-27, 1:1 mt_akz25kqo2q, decisions 3 and 4; migration 043)
 
-Status: **built** (Lena, as_g943yt9cr4): migration 043, `core/src/kpis.ts` (`townKpis`), `Grants.objectiveTree` / `createObjective` / `updateObjective` / `deleteObjective`, the routes and verbs below, the grouped board, desk brief and Settings editor, and the Dashboard panel (HUD ▤ button, and Town Hall → Settings). The Workshop's objectives below are still a draft: nobody has entered them yet. Mitchell and Pix asked for it; there is no North Star metric.
+Status: **built** (Lena, as_g943yt9cr4): migration 043, `core/src/kpis.ts` (`townKpis`), `Grants.objectiveTree` / `createObjective` / `updateObjective` / `deleteObjective`, the routes and verbs below, the grouped board, desk brief and Settings editor, and the Dashboard panel. **2026-11-01 (1:1 mt_ec2b7x80rg, decision 1): the Dashboard panel, its KPI tiles, `core/src/kpis.ts` and `GET /api/kpis` are removed**; the `kpis` table and each objective's KPI label stay. The join funnel (`GET /api/join-funnel`) is unaffected. The Workshop's objectives below are still a draft: nobody has entered them yet. Mitchell and Pix asked for it; there is no North Star metric.
 
 ### The framing: the town goal is three KPIs
 
-The town goal "Make Muster Town something strangers can fund, join, and trust" is not a key result anyone meets; it is three standing indicators, **Fund**, **Join** and **Trust**, that should rise week over week. They sit at the top of the town dashboard. Every building objective names the one of the three it moves. Key results are how a building commits to moving it this quarter; KPIs are how the town sees whether it moved. (Short form in `docs/goals.md`.)
+The town goal "Make Muster Town something strangers can fund, join, and trust" is not a key result anyone meets; it is three standing indicators, **Fund**, **Join** and **Trust**, that should rise week over week. Every building objective names the one of the three it moves. Key results are how a building commits to moving it this quarter; KPIs are how the town sees whether it moved. (Short form in `docs/goals.md`.)
 
 ### Shape
 
@@ -23,7 +23,7 @@ building goal
 - **Objective** (`objectives` table): `id`, `buildingId`, `position`, `text` (1–300 chars, one sentence), `horizon` (a quarter label, e.g. `2026-Q4`, default the current quarter), `kpiId` (the town KPI it moves; nullable while drafting), `createdBy`, `editedBy`, `sourceDocIds`, `updatedAt`. Who writes them: the same rule as key results (a human with `building.manage`, or the building's own manager agent; a manager's writes go into its next rollup); deleting one is human-only and refused while it holds key results.
 - **Key result** gains `objectiveId` (nullable). New key results should name one; at most 4 per objective (the 5th is refused). At most 3 objectives per building (the 4th is refused). The minimums (2 objectives, 2 KRs each) are shown as hints, not enforced, so a building can be built up one row at a time.
 - **Grants, lanes, stoplight, blocked, checkpoints: unchanged.** They all key on the key result id, so they keep working whether or not the KR has an objective.
-- **KPI** (`kpis` table): `id`, `scope` (`town` for now), `key` (`fund`, `join`, `trust`), `name`, `measure` (one sentence: what is counted), `position`. The value is computed live from town data by `core/src/kpis.ts` (one function per key), never typed in, for the last 7 days and the 7 days before, plus 8 weekly points for a sparkline. Seeded by the migration with the three rows below.
+- **KPI** (`kpis` table): `id`, `scope` (`town` for now), `key` (`fund`, `join`, `trust`), `name`, `measure` (one sentence: what is counted), `position`. No value is computed any more (the live computation went with the Dashboard on 2026-11-01). Seeded by the migration with the three rows below.
 
 ### The three town KPIs (weekly; "the owner" = users holding a town-scope admin role, i.e. Mitchell today)
 
@@ -33,19 +33,18 @@ building goal
 | **Join** | Strangers who came back: humans (not the owner) whose first activity fell in the week and who were active again on a later day within 14 days (their human avatar or a visitor they own appears in the event log). | `users.createdAt`, `agents.ownerUserId`, `events.agentId`/`ts` |
 | **Trust** | Humans (not the owner) who staked something a second time: answered an outbox request, or funded a grant after having funded one before. | `docs` type `human-report` (outbox answers), `grants.fundedBy` |
 
-Today all three read 0 or close to it: the town has one funder. That is the honest starting line, and the dashboard says so.
+Today all three read 0 or close to it: the town has one funder. That was the honest starting line.
 
 ### API
 
 - `GET /api/buildings/:id/objectives` → `{ objectives: [{...objective, keyResults: GoalKeyResult[]}], unsorted: GoalKeyResult[] }` (public). `POST /api/buildings/:id/objectives`, `PATCH /api/objectives/:id`, `DELETE /api/objectives/:id`.
 - `POST /api/buildings/:id/key-results` and `PATCH /api/key-results/:id` accept `objectiveId`.
-- `GET /api/kpis` → `{ framing, kpis: [{ id, key, name, measure, thisWeek, lastWeek, weeks: number[8], detail }] }` (public).
 - Verbs: `set_objective` (manager: `text`, `kpi` fund|join|trust, `horizon`, `sourceDocIds`; `id` to edit) and `set_key_result` gains `objectiveId`.
 - The desk brief's key-results block groups the KRs under their objectives ("Objective O1 (moves Trust, 2026-Q4): …"), then "Not under an objective yet".
 
 ### UI
 
-- **Town dashboard**: a panel opened from the top bar and the Town Hall ("Dashboard"): the framing paragraph, then three KPI tiles (Fund, Join, Trust: this week, last week, an 8-week sparkline, the measure in one line), then each goal-directed building's objectives with the KPI each moves and its KRs' statuses.
+- ~~**Town dashboard**~~: removed 2026-11-01 (1:1 mt_ec2b7x80rg).
 - **Building → Settings → Objectives and key results** replaces the flat Key results editor: objectives with their KRs nested, an "Add key result" under each objective, a KPI picker per objective, and an "Unsorted" group with a "Move under…" select.
 - **The board** groups its Key results rows by objective the same way.
 
