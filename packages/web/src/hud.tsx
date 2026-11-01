@@ -248,7 +248,7 @@ function localStore(): Storage | null { try { return typeof localStorage === "un
  * whether that happened while they were away or live (the decision refetches `me`). Two first steps; × hides it for
  * good in this browser (youreIn.ts). It shows even on a collapsed HUD: a phone starts collapsed for members.
  */
-export function YoureIn({ me, collective }: { me: AuthMe; collective: string }) {
+function YoureIn({ me, collective }: { me: AuthMe; collective: string }) {
   const buildings = useTown((s) => s.buildings);
   const agents = useTown((s) => s.agents);
   const [dismissed, setDismissed] = useState<string | null>(null);
