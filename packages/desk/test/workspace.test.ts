@@ -87,7 +87,8 @@ describe("setupWorkspace", () => {
     expect(git(dir, "status", "--porcelain")).toBe("");
     expect(existsSync(join(dir, ".git", "MERGE_HEAD"))).toBe(false);
     const line = logs.find((l) => l.startsWith("git stash failed"));
-    expect(line).toMatch(/needs merge/);
+    // git versions word the refusal differently ("needs merge" or "could not write index")
+    expect(line).toMatch(/needs merge|could not write index/);
     const backup = line!.match(/aside to (\S+) and reset/)![1];
     expect(readFileSync(join(backup, "files", "scratch.txt"), "utf8")).toBe("keep me\n");
     expect(readFileSync(join(backup, "files", "README.md"), "utf8")).toMatch(/<<<<<<<|mine|theirs/);
