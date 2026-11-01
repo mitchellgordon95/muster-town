@@ -398,6 +398,8 @@ export class Ops {
       byModel: result.byModel && Object.keys(result.byModel).length ? result.byModel : s.byModel ?? null,
       wallMs: Number.isFinite(wallMs) ? Math.round(wallMs) : null, cpuMs: result.cpuMs ?? null, stealMs: result.stealMs ?? null,
     });
+    // the session's own login token dies with it (docs/secrets.md "Login tokens")
+    this.world.tokens.revokeSession(sessionId);
     const agent = this.world.agents.require(s.agentId, "agent");
     // a 1:1 answered beside a work session ends while the work goes on (and vice versa): idle only when neither runs
     if (agent.status === "working" && !this.world.sessions.count("agentId = ? AND status = 'running' AND purpose IN ('work', 'manage')", [agent.id])) this.world.setStatus(agent.id, "idle");

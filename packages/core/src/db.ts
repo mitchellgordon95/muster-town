@@ -2,6 +2,7 @@ import Database from "better-sqlite3";
 import { existsSync, mkdirSync, readdirSync, readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
+import { hashPlaintextTokens } from "./store.ts";
 
 export type DB = Database.Database;
 
@@ -17,6 +18,9 @@ export function openDb(path: string): DB {
   db.pragma("synchronous = NORMAL");
   db.pragma("busy_timeout = 5000");
   migrate(db);
+  // login tokens are stored hashed (docs/secrets.md "Login tokens"): hash any plaintext row left by an older server
+  const hashed = hashPlaintextTokens(db);
+  if (hashed) console.log(`[secrets] hashed ${hashed} plaintext login token${hashed === 1 ? "" : "s"} in place`);
   return db;
 }
 
