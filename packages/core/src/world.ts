@@ -125,6 +125,8 @@ export class World {
 
   // repositories
   readonly users: Repos["users"];
+  /** Bank inputs with their secret column (the Bank's API is `bank`; this is for the boot back-fill and tests) */
+  readonly bankInputs: Repos["bankInputs"];
   readonly roles: Repos["roles"];
   readonly memberships: Repos["memberships"];
   readonly buildings: Repos["buildings"];
@@ -165,7 +167,7 @@ export class World {
     // v1.2 roles split: data fix on every open (idempotent), before any role is parsed through the schema
     migrateRoles(db);
     const repos = createRepos(db, this.changes);
-    this.users = repos.users; this.roles = repos.roles; this.memberships = repos.memberships;
+    this.users = repos.users; this.bankInputs = repos.bankInputs; this.roles = repos.roles; this.memberships = repos.memberships;
     this.buildings = repos.buildings; this.allocations = repos.allocations; this.agents = repos.agents;
     this.places = repos.places; this.docs = repos.docs; this.assignments = repos.assignments;
     this.messages = repos.messages; this.meetings = repos.meetings; this.sessions = repos.sessions;

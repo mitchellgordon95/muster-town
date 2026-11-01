@@ -19,7 +19,7 @@ const RESERVED = /^(MUSTER_TOWN_|AGENT_TOWN_|DESK_|CLAUDE_|ANTHROPIC_|GH_|GITHUB
  */
 export const REPO_TOKEN_SECRET = "GH_TOKEN";
 
-const NO_KEY = "Secret values can't be stored: the host has no MUSTER_TOWN_DATA_KEY (32 bytes, base64 or hex; e.g. `openssl rand -base64 32`). The operator sets it in the server's env. Values are never stored in plaintext.";
+export const NO_DATA_KEY = "Secret values can't be stored: the host has no MUSTER_TOWN_DATA_KEY (32 bytes, base64 or hex; e.g. `openssl rand -base64 32`). The operator sets it in the server's env. Values are never stored in plaintext.";
 
 /** The host data key from `MUSTER_TOWN_DATA_KEY`: 32 bytes as 64 hex chars or base64. null when unset; throws when malformed. */
 export function dataKeyFrom(raw: string | undefined): Buffer | null {
@@ -62,9 +62,17 @@ export class Secrets {
     try { return !!dataKeyFrom(this.dataKey()); } catch { return false; }
   }
 
+  /**
+   * Boot back-fill (docs/secrets.md "Bank secrets at rest"): encrypt every plaintext Bank input secret and donor key in
+   * place under the data key. Idempotent; does nothing without a key. Returns the counts it converted.
+   */
+  encryptBankSecrets(): { inputs: number; donors: number } {
+    return { inputs: this.world.bankInputs.secret.encryptPlaintext(), donors: this.world.users.secret.encryptPlaintext() };
+  }
+
   private key(): Buffer {
     const k = dataKeyFrom(this.dataKey());
-    if (!k) throw new AppError("conflict", NO_KEY);
+    if (!k) throw new AppError("conflict", NO_DATA_KEY);
     return k;
   }
 
