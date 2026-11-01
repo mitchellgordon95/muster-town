@@ -5,7 +5,7 @@
  * only when one is due; otherwise it ends without a report. Reports that land and the human's 1:1 lines are streamed
  * into it, so it keeps the context of what it already decided; while a 1:1 is open it stays open between turns.
  */
-import { alongsideWorkBlock, endMeeting, humanDecisionsBlock, humanTyping, intrayOf, managePrompt, managerAgentOf, managerNewReport, meetingNotice, oneOnOneEnded, oneOnOnePrompt, oneOnOneUtterance, sessionMemory, skillsBlock, workSystemPrompt, type World } from "@muster-town/core";
+import { alongsideWorkBlock, endMeeting, oneOnOneMemberBlock, humanDecisionsBlock, humanTyping, intrayOf, managePrompt, managerAgentOf, managerNewReport, meetingNotice, oneOnOneEnded, oneOnOnePrompt, oneOnOneUtterance, sessionMemory, skillsBlock, workSystemPrompt, type World } from "@muster-town/core";
 import type { Agent, Doc, Meeting, Session } from "@muster-town/schema";
 import { VERB_NAMES, type VerbName } from "@muster-town/schema";
 import { codeBlock } from "./code.ts";
@@ -210,7 +210,7 @@ const awaitingBusyAgent = (ctx: Ctx, m: Meeting): boolean => {
  * and, beside a live work session, what that session is doing and how to hand it the human's request.
  */
 const talkBlocks = (world: World, m: Meeting, agentId?: string, work?: LiveSession): string =>
-  [humanDecisionsBlock(world, m), world.reorgs.plannerBrief(m), agentId && work ? alongsideWorkBlock(world, m, agentId, world.sessions.get(work.sessionId)) : ""].filter(Boolean).join("\n\n");
+  [oneOnOneMemberBlock(world, m), humanDecisionsBlock(world, m), world.reorgs.plannerBrief(m), agentId && work ? alongsideWorkBlock(world, m, agentId, world.sessions.get(work.sessionId)) : ""].filter(Boolean).join("\n\n");
 
 /**
  * Close 1:1s nobody spoke in for ONE_ON_ONE_QUIET_MS (nobody typing either). The phase event wakes the manager to wrap up.

@@ -35,6 +35,21 @@ export const CreateCollectiveInput = z.object({
 });
 export type CreateCollectiveInput = z.infer<typeof CreateCollectiveInput>;
 
+/** The building a new hosted collective starts with (docs/hosted-collectives.md step 5, "First building"). */
+const FIRST_BUILDING_NAME = "Workshop";
+
+/**
+ * A hosted collective works from its first visit: when its World has no building besides the Town Hall (a new one, or
+ * one started before this seed, e.g. Hollyville), it gets one goal-directed building on the root goal, the founder's,
+ * with its manager at a desk (forks of the manager do the work; the explore tick starts once there are free tokens).
+ * It never comes back once made: buildings are never deleted, so this only fires on a World that never had one.
+ * Code access follows the collective defaults (off in a hosted World) and its desks are the in-process host's.
+ */
+function ensureFirstBuilding(world: World): void {
+  if (world.buildings.first("kind != 'town-hall'")) return;
+  world.ops.createBuilding(null, { name: FIRST_BUILDING_NAME });
+}
+
 /** Builds the Fastify app that serves one hosted World under `/<slug>` (main.ts and tests pass `buildApp`). */
 type MountHosted = (world: World, row: HubCollective, dir: string) => Promise<FastifyInstance>;
 
@@ -160,6 +175,7 @@ export class Hub {
     const enc = world.secrets.encryptBankSecrets(); // docs/secrets.md "Bank secrets at rest": idempotent, nothing without a key
     if (enc.inputs || enc.donors) console.log(`[secrets] /${row.slug}/: encrypted ${enc.inputs} bank inputs, ${enc.donors} donor keys`);
     world.start(10);
+    ensureFirstBuilding(world);
     // the owner is this World's admin, also after a reopen (a first visit makes their user if there is none yet)
     const owner = row.ownerGithubId != null ? world.users.first("githubId = ?", [Number(row.ownerGithubId)]) : null;
     if (owner) { world.permissions.grant({ kind: "user", id: owner.id }, townRoleId("admin")); world.goalTree.ensureRootCaptain(); }
