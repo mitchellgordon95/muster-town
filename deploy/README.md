@@ -152,6 +152,7 @@ cleared, and once when health itself is down.
 | `ws` | WebSocket errors and abnormal closes, last 5 min | > 20 | > 100 |
 | `sessions` | Claude sessions ending in `error` | ≥ 3 in 15 min | ≥ 50 % of the sessions that ended in 30 min (min 4) |
 | `desk-steal` | steal share (steal / (cpu + steal)) of desk sessions (not `host`) of ≥ 5 min that ended since the last sample | ≥ 25 % | one ≥ 50 %, or two ≥ 35 % within an hour |
+| `steal` | the host Machine's CPU steal: steal / (busy + steal) from /proc/stat between two samples (a minute under 3 s of busy + steal counts as clean; none off Linux) | > 25 % for 5 min | > 50 % for 3 min |
 | `desk-bill` | today's (UTC) desk bill at Fly list prices as a % of `desks.billCapUsd` (default $10/day) | ≥ 50 % | ≥ 100 % (new desk sessions already run on shared-cpu-2x) |
 
 **Desk size and the daily desk bill cap** (grant gr_uhh6u39vv9 step 3; Mitchell, 1:1 mt_s6f8mvjw9h). Desk Machines run on
@@ -218,6 +219,14 @@ enabled. Updating it: re-run step 1.
   oversubscribed host). A restart boots into the same throttle; a dedicated core does not: `fly machine update <id>
   -a muster-town --vm-size performance-1x --vm-memory 2048 --yes`, and keep `[[vm]]` in fly.town.toml and `TOWN_MACHINE`
   (core finance-fly.ts, pinned by a test) in step.
+- **The `steal` alert** (monitor, above) is this case seen from inside: its FYI says "host CPU throttled (steal N %)".
+  The `lag` alert usually goes red with it.
+- **Why the check is lenient** (follow-up A of the post-mortem): `GET /api/health` answers from memory. Its database
+  figures (`budgets`, `backup`, `desks`, `directory`, `funding`) are recomputed every 5 s (server `health-cache.ts`) and
+  `figuresAt` says when, so a slow or locked database can't make the check time out. The check's `timeout` is 10 s
+  (it was 5 s: under the 10-31 throttle the loop answered in 5-10 s and Fly marked a live process critical, which turned
+  slowness into 503s). `grace_period` 240 s already covers a restart, so there is no extra "booting" state. The check
+  settings reach the Machine only with an image deploy (`deploy/fly/build.sh`), not with the town's `redeploy`.
 - **Slow with CPU to spare**: `GET /api/health` `load.lagMs` is the p99 loop stall per 10 s window; above ~500 ms, profile
   the live server: upload `deploy/fly/profile-live.cjs` to the Machine (`fly ssh sftp shell`, or `echo <base64> | base64 -d`
   into /tmp) and run `fly ssh console -a muster-town -C "node /tmp/profile-live.cjs"`. It opens Node's inspector on

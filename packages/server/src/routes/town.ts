@@ -3,6 +3,7 @@ import { funderSlide, AccessDecisionInput, AccessRequestInput, AddBankInput, Cre
 import type { FastifyInstance, FastifyRequest } from "fastify";
 import { brotliDecompressSync } from "node:zlib";
 import { z } from "zod";
+import { HealthCache } from "../health-cache.ts";
 import { actorOf, adminToken, funderOf, parse, requireAuth, requireUser, viewerOf, type Params } from "../context.ts";
 
 const EventsQuery = z.object({
@@ -38,16 +39,30 @@ export async function townRoutes(app: FastifyInstance) {
    * `{lastSampleAt, alerts: [{key, level, since, value}]}` (monitor.ts; the VPS pinger reads the red ones). `directory` (root app, only where the
    * directory is on): `{verified, listed, pending, lastTickAt}` (directory/index.ts). `desks` (gr_uhh6u39vv9 step 3): `{backend, size,
    * billCapUsd, billTodayUsd, billPct, overCap, day}`, today's (UTC) desk bill at Fly list prices against the town-wide cap.
+   * `budgets`, `backup`, `desks`, `directory` and `funding` come from the database: with `healthRefreshMs` (main.ts, 5 s) they are
+   * cached and `figuresAt` is when they were computed; the route itself never touches SQLite (503 post-mortem follow-up A).
    */
-  app.get("/api/health", async () => ({ ok: true, runtime: !!app.runtime, commit: world.host.commit ?? null, startedAt: world.host.startedAt ?? null, time: new Date().toISOString(), accounting: BANK_ACCOUNTING, load: { ...app.load.snapshot(), tick: app.runtime?.tickStats?.() ?? null },
+  // answers from memory: the database-backed figures are recomputed on a timer (health-cache.ts), so a slow or locked
+  // database never makes the Fly check or the pinger time out; `figuresAt` says how old they are
+  const figures = new HealthCache(() => ({
     // goal-directed budgets: exploration (held only with no free tokens or at a goal's cap) and directed (a human asked; metered, never held) today
-    budgets: world.grantDesk.laneBudgets(), backup: app.backup?.snapshot() ?? null, monitor: app.monitor?.view() ?? null, desks: desksHealth(world),
-    // the root app (the Workshop) only: how many hosted collectives this process serves at /<slug>/
-    ...(app.hub ? { hosted: { count: app.hub.count } } : {}),
+    budgets: world.grantDesk.laneBudgets(), backup: app.backup?.snapshot() ?? null, desks: desksHealth(world),
     // the self-hosted towns directory (root app where it's on): {verified, listed, pending, lastTickAt}
     ...(app.directory ? { directory: app.directory.view() } : {}),
     // a hosted collective: its own key or none (its agents are held), never the host's funding
-    ...(world.host.hosted ? { funding: world.bank.liveApiKeyInput() ? "api-key" : "none" } : {}) }));
+    ...(world.host.hosted ? { funding: world.bank.liveApiKeyInput() ? "api-key" : "none" } : {}),
+  }), app.healthRefreshMs, (e) => app.log.warn(`[health] figures refresh failed: ${e instanceof Error ? e.message : String(e)}`));
+  app.addHook("onClose", async () => figures.close());
+
+  app.get("/api/health", async () => {
+    const { figures: f, at } = figures.get();
+    const { budgets, backup, desks, ...rest } = f;
+    return { ok: true, runtime: !!app.runtime, commit: world.host.commit ?? null, startedAt: world.host.startedAt ?? null, time: new Date().toISOString(), accounting: BANK_ACCOUNTING, load: { ...app.load.snapshot(), tick: app.runtime?.tickStats?.() ?? null },
+      budgets, backup, monitor: app.monitor?.view() ?? null, desks,
+      // the root app (the Workshop) only: how many hosted collectives this process serves at /<slug>/
+      ...(app.hub ? { hosted: { count: app.hub.count } } : {}),
+      ...rest, figuresAt: at };
+  });
 
   if (app.dev) {
     // only to a browser on this machine talking to the server directly: never through a proxy or tunnel

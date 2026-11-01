@@ -11,7 +11,7 @@
  * `GET /api/health` shows `monitor` read-only; never a secret.
  */
 import { createDoc, TOWN_HALL_ID, updateDoc, type World } from "@muster-town/core";
-import { statfsSync } from "node:fs";
+import { readFileSync, statfsSync } from "node:fs";
 import { monitorEventLoopDelay, type IntervalHistogram } from "node:perf_hooks";
 import type { BackupView } from "./backup/index.ts";
 
@@ -84,6 +84,8 @@ export interface Probes {
   deskSessions(sinceMs: number): DeskSession[];
   /** today's (UTC) desk bill against the town-wide cap (World.deskBill); null = no cap */
   deskBill(now: number): { todayUsd: number; capUsd: number } | null;
+  /** the host's cumulative busy (user+nice+system) and steal jiffies from /proc/stat's `cpu` line; null off Linux or unreadable */
+  hostCpu(): { cpu: number; steal: number } | null;
 }
 
 /** A finished desk session's steal share: stealMs / (cpuMs + stealMs), 0..1 (desk perf step 1, migration 056). */
@@ -174,7 +176,37 @@ export function defaultMetrics(p: Probes): Metric[] {
       } },
     deskStealMetric(p),
     deskBillMetric(p),
+    hostStealMetric(p),
   ];
+}
+
+/** host steal thresholds (503 post-mortem 2026-10-31, follow-up A): share of busy + steal between two samples */
+const HOST_STEAL = { yellow: 0.25, red: 0.5 } as const;
+/** below this many busy + steal jiffies between samples (3 s of CPU a minute) the share is noise: the reading counts as clean */
+const HOST_STEAL_MIN_JIFFIES = 300;
+
+/**
+ * `steal`: the host Machine's CPU steal (docs/postmortem-2026-10-31-cpu-throttle-503.md) as a % of busy + steal between
+ * this sample and the last one, from /proc/stat. Yellow above 25 % for 5 min, red above 50 % for 3 min (the `lag` durations).
+ * Null on the first sample, off Linux, or when /proc/stat can't be read. An idle minute (under HOST_STEAL_MIN_JIFFIES) is clean.
+ */
+function hostStealMetric(p: Pick<Probes, "hostCpu">): Metric {
+  let prev: { cpu: number; steal: number } | null = null;
+  return {
+    key: "steal", describe: (v) => `host CPU throttled (steal ${v}%): see deploy/README.md "Slow or 503"`, yellowForMs: 5 * MIN, redForMs: 3 * MIN,
+    read: () => {
+      const cur = p.hostCpu();
+      const last = prev;
+      prev = cur;
+      if (!cur || !last) return null;
+      const cpu = Math.max(0, cur.cpu - last.cpu), steal = Math.max(0, cur.steal - last.steal);
+      const total = cpu + steal;
+      if (total <= 0) return { value: 0, yellow: false, red: false };
+      const share = steal / total;
+      const counts = total >= HOST_STEAL_MIN_JIFFIES;
+      return { value: Math.round(share * 100), yellow: counts && share > HOST_STEAL.yellow, red: counts && share > HOST_STEAL.red };
+    },
+  };
 }
 
 /** desk-bill thresholds (gr_uhh6u39vv9 step 3): yellow (in town) at half the daily cap, red at the cap */
@@ -252,8 +284,22 @@ export function processProbes(world: World, dataDir: string, backup: () => Backu
         ORDER BY endedAt`).all(new Date(sinceMs).toISOString(), DESK_MIN_WALL_MS) as { id: string; endedAt: string; cpuMs: number; stealMs: number }[])
       .map((r) => ({ id: r.id, endedAt: Date.parse(r.endedAt), share: r.stealMs / (r.cpuMs + r.stealMs) })),
     deskBill: (now) => { const b = world.deskBill(new Date(now)); return { todayUsd: b.todayUsd, capUsd: b.capUsd }; },
+    hostCpu: () => (process.platform === "linux" ? readHostCpu() : null),
     close: () => h.disable(),
   };
+}
+
+/** /proc/stat's aggregate `cpu` line (`cpu user nice system idle iowait irq softirq steal …`, jiffies) → busy and steal; the desk's perf.ts reads it the same way. */
+export function parseHostCpu(text: string): { cpu: number; steal: number } | null {
+  const f = (text.split("\n", 1)[0] ?? "").trim().split(/\s+/);
+  if (f[0] !== "cpu" || f.length < 9) return null;
+  const n = f.slice(1, 9).map(Number);
+  if (n.some((x) => !Number.isFinite(x))) return null;
+  return { cpu: n[0]! + n[1]! + n[2]!, steal: n[7]! };
+}
+
+function readHostCpu(): { cpu: number; steal: number } | null {
+  try { return parseHostCpu(readFileSync("/proc/stat", "utf8")); } catch { return null; }
 }
 
 interface MonitorOptions {
