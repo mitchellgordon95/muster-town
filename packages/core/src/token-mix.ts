@@ -1,7 +1,7 @@
 import { BACKFILL, TOKEN_KINDS, ZERO_TOKENS, addTokens, countsOf, isBackfilled, rawTokens, splitRaw, type TokenCountKind, type TokenCounts, type TokenMix } from "@muster-town/schema";
 
 /** The mix covers the last 7 full UTC days of usage and is recomputed once per UTC day (1:1 mt_rbc3exb393). */
-export const MIX_WINDOW_DAYS = 7;
+const MIX_WINDOW_DAYS = 7;
 const DAY_MS = 86_400_000;
 
 const LABEL: Record<TokenCountKind, string> = { input: "input", output: "output", cacheRead: "cache read", cacheWrite5m: "cache write (5 min)", cacheWrite1h: "cache write (1 h)" };
