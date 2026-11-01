@@ -422,7 +422,7 @@ export class Bank {
   /** Tokens an input credited in the 7 days before `now`. */
   private creditedLastWeek(inputId: string, now: Date): number {
     const since = new Date(now.getTime() - 7 * DAY_MS).toISOString();
-    return this.repos.bankCredits.where("inputId = ? AND createdAt > ?", [inputId, since]).reduce((s, c) => s + c.tokens, 0);
+    return this.repos.bankCredits.sum("tokens", "inputId = ? AND createdAt > ?", [inputId, since]);
   }
 
   /**

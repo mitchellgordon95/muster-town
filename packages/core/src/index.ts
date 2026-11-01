@@ -11,7 +11,7 @@ export { EventLog, type NewEvent, type EventQuery, type EventType } from "./even
 export { Permissions, holderOf, isAgent, townRoleId, buildingRoleId, type Holder, type BuildingRoleName, type TownRoleName } from "./permissions.ts";
 export { Budget, PLACEHOLDER_LABEL, startOfLocalDay, type ChargeResult, type BudgetSummary, type Funding } from "./budget.ts";
 export { previousUtcDay, utcDay } from "./drift.ts";
-export { reconcileFunding, reconciled, type ReconcileResult } from "./reconcile.ts";
+export { reconcileFunding, reconciled, RECONCILED_MARKER, type ReconcileResult } from "./reconcile.ts";
 export { Skills, parseSkillMd, skillsBlock, type SessionSkill, type SkillMd } from "./skills.ts";
 export { forkStatus, ToolResults, resultLine, inputLine, type ForkStatus, type ForkStatusCall } from "./forkstatus.ts";
 export { Transcripts, TRANSCRIPT_DEFAULT_DAYS, TRANSCRIPT_MAX_BYTES, TRANSCRIPT_MAX_UPLOAD, brotli, type TranscriptInfo } from "./transcripts.ts";

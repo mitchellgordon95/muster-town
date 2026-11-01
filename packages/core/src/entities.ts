@@ -180,7 +180,7 @@ export function createResident(world: World, input: In<typeof CreateResidentInpu
   if (b.kind !== "lab") throw badRequest("Residents live in labs.");
   return world.transaction(() => {
     const id = newId("ag");
-    const existing = world.agents.where("homeBuildingId = ? AND kind = 'resident' AND forkOf IS NULL", [b.id]).length;
+    const existing = world.agents.count("homeBuildingId = ? AND kind = 'resident' AND forkOf IS NULL", [b.id]);
     // insert first (desk names come from the agents table), then claim the desk and move the body there
     world.agents.upsert(Agent.parse({
       id, name: inp.name || suggestResidentName(world), kind: "resident", buildingId: b.id, homeBuildingId: b.id, ownerUserId: b.createdBy ?? null,

@@ -15,6 +15,7 @@ import { loadAuthSettings } from "./auth/index.ts";
 import { Hub } from "./hub.ts";
 import { Directory, directoryEnabled } from "./directory/index.ts";
 import { Counters, defaultMetrics, Monitor, processProbes } from "./monitor.ts";
+import { hostedTickCap, TickRotation } from "./ticks.ts";
 import { desksFromEnv, loadEnvFile } from "./env.ts";
 import type { RuntimeHooks } from "./context.ts";
 import type { FastifyInstance } from "fastify";
@@ -77,10 +78,15 @@ async function main() {
    * A hosted collective's runtime (step 5, docs/hosted-collectives.md): its own scrubbed env and claude dir, its own key only
    * (held "No key yet" without one), in-process sessions only, one at a time, its own export dir, no redeploy.
    */
+  /** post-mortem 2026-10-31 item 8: one timer ticks the hosted worlds round-robin, at most MUSTER_TOWN_HOSTED_TICK_CAP per 5 s */
+  const hostedTicks = new TickRotation({ cap: hostedTickCap(townEnv("HOSTED_TICK_CAP")) });
   const startHosted = async (app: FastifyInstance, w: World, slug: string, dir: string): Promise<void> => {
     if (!runtimeMod || !url || app.runtime) return;
     try {
-      app.runtime = await runtimeMod.startRuntime({ world: w, mcpUrl: `${url}/${slug}/mcp`, repoRoot: REPO_ROOT, collective: slug, exportDir: join(dir, "export"), hosted: { dir } });
+      // no timer of its own: the host's rotation ticks the hosted worlds one at a time, staggered and capped (ticks.ts)
+      const rt = await runtimeMod.startRuntime({ world: w, mcpUrl: `${url}/${slug}/mcp`, repoRoot: REPO_ROOT, collective: slug, exportDir: join(dir, "export"), hosted: { dir }, intervalMs: 0 });
+      app.runtime = rt;
+      if (rt.tickOnce) hostedTicks.add(slug, () => rt.tickOnce!());
     } catch (e) {
       console.warn(`[server] /${slug}/ runtime not started (${e instanceof Error ? e.message : String(e)})`);
     }
@@ -94,7 +100,7 @@ async function main() {
       retire: (): unknown => hub.retire(row.slug), healthRefreshMs: HEALTH_REFRESH_MS,
     });
     // retire and shutdown close the app before its World: stop the runtime first
-    app.addHook("onClose", async () => { await (app.runtime?.close?.() ?? app.runtime?.stop?.()); });
+    app.addHook("onClose", async () => { hostedTicks.remove(row.slug); await (app.runtime?.close?.() ?? app.runtime?.stop?.()); });
     await startHosted(app, w, row.slug, dir);
     return app;
   });
@@ -135,7 +141,7 @@ async function main() {
   process.on("SIGTERM", () => void shutdown("SIGTERM"));
 }
 
-type RuntimeModule = { startRuntime: (o: { world: World; mcpUrl: string; repoRoot: string; collective: string; exportDir?: string; codeDir?: string; hosted?: { dir: string } }) => RuntimeHooks | Promise<RuntimeHooks> };
+type RuntimeModule = { startRuntime: (o: { world: World; mcpUrl: string; repoRoot: string; collective: string; exportDir?: string; codeDir?: string; hosted?: { dir: string }; intervalMs?: number }) => RuntimeHooks | Promise<RuntimeHooks> };
 let runtimeError = "";
 async function loadRuntime(): Promise<RuntimeModule | null> {
   try {

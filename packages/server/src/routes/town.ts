@@ -32,7 +32,8 @@ export async function townRoutes(app: FastifyInstance) {
 
   /**
    * `commit`: the git sha the running server started from (null without a runtime); `git merge-base --is-ancestor <sha> <commit>` says
-   * whether a change is live. `load` (read-only): `lagMs` p99 event-loop delay over the last 10 s window, `rssMb`, `wsClients` open now.
+   * whether a change is live. `load` (read-only): `lagMs` p99 event-loop delay over the last 10 s window, `rssMb`, `wsClients` open now,
+   * `tick` `{last, slow}`: the runtime's last tick and last tick over 500 ms, `{at, ms, phase, phaseMs, phases}` (null without a runtime).
    * `backup` (read-only): the off-site copy's `{lastAt, bytes, dest, error}`; null until the bucket and key are set
    * (deploy/README.md "Backups"). Never the key or the bucket credentials. `monitor` (read-only, null without one):
    * `{lastSampleAt, alerts: [{key, level, since, value}]}` (monitor.ts; the VPS pinger reads the red ones). `directory` (root app, only where the
@@ -56,7 +57,7 @@ export async function townRoutes(app: FastifyInstance) {
   app.get("/api/health", async () => {
     const { figures: f, at } = figures.get();
     const { budgets, backup, desks, ...rest } = f;
-    return { ok: true, runtime: !!app.runtime, commit: world.host.commit ?? null, startedAt: world.host.startedAt ?? null, time: new Date().toISOString(), accounting: BANK_ACCOUNTING, load: app.load.snapshot(),
+    return { ok: true, runtime: !!app.runtime, commit: world.host.commit ?? null, startedAt: world.host.startedAt ?? null, time: new Date().toISOString(), accounting: BANK_ACCOUNTING, load: { ...app.load.snapshot(), tick: app.runtime?.tickStats?.() ?? null },
       budgets, backup, monitor: app.monitor?.view() ?? null, desks,
       // the root app (the Workshop) only: how many hosted collectives this process serves at /<slug>/
       ...(app.hub ? { hosted: { count: app.hub.count } } : {}),
