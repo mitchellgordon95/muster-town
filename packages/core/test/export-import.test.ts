@@ -2,7 +2,7 @@ import { execFileSync } from "node:child_process";
 import { existsSync, readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
-import { importV0, parseFrontmatter } from "../src/index.ts";
+import { importV0, newId, parseFrontmatter } from "../src/index.ts";
 import { exportLinks, importLinks } from "../src/export.ts";
 import { CARBON_DIR, freshWorld, seededWorld, tempDir } from "./helpers.ts";
 
@@ -86,6 +86,41 @@ describe("export", () => {
     expect(w2.layout.deskOf(by("Ravi").id)?.pos).toEqual(world.layout.deskOf(by("Ravi").id)?.pos);
     expect(counts.meetings).toBe(1);
   });
+
+  it("off the main thread: the worker writes the same tree as the in-process export and appends no event", async () => {
+    const { world, by } = seededWorld();
+    await world.verbs.request_human(by("Ingrid"), { title: "Field photo", body: "please" });
+    const inProcess = world.export(tempDir());
+    const done = () => world.events.list({ types: ["export.done"], limit: 100 }).length;
+    const before = done();
+    const off = await world.exportOffThread(tempDir());
+    expect(done()).toBe(before);
+    expect(off).toMatchObject({ changed: true, files: inProcess.files });
+    const tree = (r: { dir: string }) => execFileSync("git", ["rev-parse", "HEAD^{tree}"], { cwd: r.dir, encoding: "utf8" }).trim();
+    expect(tree(off)).toBe(tree(inProcess));
+    expect((await world.exportOffThread(off.dir)).changed).toBe(false);
+  });
+
+  it("off the main thread: a 5 ms timer never gaps 100 ms while a large town exports", async () => {
+    const { world } = seededWorld();
+    const tmpl = world.docs.first("state != 'draft'")!;
+    const body = "A report paragraph with words and a link dc_abcdefghij. ".repeat(50);
+    world.db.transaction(() => {
+      for (let i = 0; i < 400; i++) world.docs.upsert({ ...tmpl, id: newId("dc"), title: `Doc ${i}`, body, createdAt: new Date(Date.UTC(2026, 9, 20) + i * 600_000).toISOString() }, { silent: true });
+      for (let i = 0; i < 20_000; i++) world.events.append({ type: "agent.tool", text: `Reading files ${i}`, payload: { tool: "Bash", input: "x".repeat(300) } });
+    })();
+    let last = performance.now();
+    let maxGap = 0;
+    const tick = setInterval(() => { const t = performance.now(); maxGap = Math.max(maxGap, t - last); last = t; }, 5);
+    const started = performance.now();
+    const r = await world.exportOffThread(tempDir());
+    const took = performance.now() - started;
+    clearInterval(tick);
+    expect(r.changed).toBe(true);
+    expect(r.files).toBeGreaterThan(400);
+    expect(took).toBeGreaterThan(100); // long enough for a blocked loop to show
+    expect(maxGap).toBeLessThan(100);
+  }, 60_000);
 });
 
 describe("export links", () => {

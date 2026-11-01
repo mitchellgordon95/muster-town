@@ -57,6 +57,46 @@ alternative; that box was deleted.
 - **GitHub sign-in:** the OAuth app's callback URL must include `https://muster.town/auth/github/callback`.
 - **Cost (estimate):** town Machine about $13/mo (24/7) + volume $1.50 + desk Machines per use; compare the old single-box plan in dc_gxtv36rbu6.
 
+### Recover (dead volume or host; grant gr_z2v838adk9)
+**When:** the Machine or its volume `town_data` is gone or unreadable (Fly reports the host down, the Machine can't start, `/data` is
+corrupt) and https://muster.town/api/health does not come back with a restart. Not for a bad commit (revert it, CI ships it) and not
+for restoring an older state onto a live town (that is "Migrate a town in" with `scripts/backup/restore.sh`'s `RESTORE.tgz`).
+Worst case it loses the state since the last hourly copy (health `backup.lastAt`, at most about 1 h).
+
+**The one command** (a human with flyctl logged in to the org, and GitHub access for the image build: git ssh or `GH_TOKEN`):
+```sh
+deploy/recover.sh                # dry run: prints every command, changes nothing
+deploy/recover.sh --yes          # does it; refuses while muster.town's health still answers ok
+```
+It creates a new 10 GB `town_data` volume in `iad` (the clock starts), destroys the old Machine (`--force`; the old volume and its
+snapshots are left alone), builds a fresh image from GitHub `prod` (`deploy/fly/build.sh`; `BRANCH=` to change) so the first boot
+runs code with the restore and the guard, checks the new Machine mounts the new volume, polls health until ok, and prints the time from
+"volume created" to "health ok", the server's `[restore] <key>: ok, N agents` line, the live agent count (`/api/town`) and newest doc
+(`sqlite3` over `fly ssh`), and, when the shell also has `MUSTER_TOWN_BACKUP_KEY` and the four bucket values, the same two numbers from
+that very key (`scripts/backup/restore.sh --local <key>`) with MATCH or MISMATCH. Its last line is a ready "Drill" row.
+On the new volume the entrypoint copies the image's checkout (about a minute), then the server finds no `town.db` and restores the newest
+good copy before it opens the world ("First-boot restore" under Backups); the copy carries `backup_state`, so the hourly copies go on.
+
+**What the guard does:** if the restore did not happen (bucket unreachable, no good copy, an image without the restore code), the server
+seeds an empty town, but an empty town never uploads over the good copies: every hourly run refuses with `backup.error`
+"fresh town; restore first: ..." on health and the monitor's `backup` metric red, and nothing is uploaded or pruned. Then: read
+`fly logs -a muster-town | grep '\[restore\]'`, fix the cause, delete `/data/workshop/data/town.db*` over `fly ssh console` and restart
+the Machine (the first-boot restore runs again), or put a `RESTORE.tgz` from `scripts/backup/restore.sh --local latest` in `/data`.
+After any restore people sign in again with GitHub (session-secret and admin-token are not in the copy; hosted collectives under
+`/data/hosted` are not in it either).
+
+**A drill on a throwaway app** (never on muster-town): `deploy/recover.sh --yes recover-drill` with the five backup values and a
+`FLY_API_TOKEN` for the org (`fly tokens create org -o personal -n recover-drill -x 24h`, revoked after) creates the app, stages those
+five plus a fresh `MUSTER_TOWN_DATA_KEY` (no Claude token, no GitHub, no desks), runs the same steps and destroys the app at the end
+(`--keep` leaves it). **Start it right after a top of the hour:** an app with the backup secrets is a writer to the same bucket; if it
+is still up at the next top of the hour, it or muster.town fails with "... is already in the bucket".
+
+**Drill** (step 3 fills this in from the script's last line):
+
+| volume created | health ok | elapsed | agent count | newest doc | copy |
+|---|---|---|---|---|---|
+| | | | | | |
+
 ### Throwaway for load tests (grant gr_wqnunw5yd8)
 Load never goes to muster.town. `deploy/fly/throwaway.sh` (needs `FLY_STRESS_TOKEN`, the Fly token Mitchell made for it, and `GH_TOKEN` to clone
 the private repo) creates the app `muster-town-stress`: the same Dockerfile built from GitHub main, the same size and region as `fly.town.toml`,

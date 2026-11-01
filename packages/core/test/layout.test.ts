@@ -11,18 +11,20 @@ describe("layout", () => {
     const { world, seed } = seededWorld("tree");
     for (let i = 0; i < 4; i++) createBuilding(world, { name: `Lab ${i}`, headcount: 6 }, seed.admin.id);
     const { grid } = world.layout;
+    const vault = world.layout.requirePlace("bank").pos; // the Bank stands under the Town Hall, wherever the shape puts it
+    const BANK = { x: vault.x - 8, y: vault.y - 7, w: BANK_LOT.w, h: BANK_LOT.h };
     // its doorstep is on the root plaza
-    expect(grid.tiles[(BANK_LOT.y - 1) * grid.w + BANK_LOT.x + BANK_FIXTURES.door.x]).toBe(TILE.PATH);
-    expect(BANK_LOT.x + BANK_LOT.w).toBeLessThanOrEqual(grid.w);
-    expect(BANK_LOT.y + BANK_LOT.h).toBeLessThanOrEqual(grid.h);
-    for (const b of world.buildings.all()) expect(overlap(b.lot!, BANK_LOT), b.name).toBe(false);
+    expect(grid.tiles[(BANK.y - 1) * grid.w + BANK.x + BANK_FIXTURES.door.x]).toBe(TILE.PATH);
+    expect(BANK.x + BANK.w).toBeLessThanOrEqual(grid.w);
+    expect(BANK.y + BANK.h).toBeLessThanOrEqual(grid.h);
+    for (const b of world.buildings.all()) expect(overlap(b.lot!, BANK), b.name).toBe(false);
     const bank = world.layout.requirePlace("bank");
     expect(bank.kind).toBe("bank");
     expect(isWalkable(grid, bank.pos.x, bank.pos.y)).toBe(true);
     expect(findPath(grid, world.layout.requirePlace("plaza").pos, bank.pos)).not.toBeNull();
-    const at = (x: number, y: number) => grid.tiles[(BANK_LOT.y + y) * grid.w + BANK_LOT.x + x];
+    const at = (x: number, y: number) => grid.tiles[(BANK.y + y) * grid.w + BANK.x + x];
     expect(at(8, 8)).toBe(TILE.VAULT);
-    expect(bank.pos).toEqual({ x: BANK_LOT.x + 8, y: BANK_LOT.y + 7 }); // in front of the vault
+    expect(bank.pos).toEqual({ x: BANK.x + 8, y: BANK.y + 7 }); // in front of the vault
     const map = world.layout.requirePlace("bank-map");
     expect(at(14, 2)).toBe(TILE.BANK_MAP);
     expect(findPath(grid, bank.pos, map.pos)).not.toBeNull();
