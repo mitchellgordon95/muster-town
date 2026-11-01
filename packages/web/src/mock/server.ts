@@ -12,6 +12,8 @@ import manualMd from "../../../../docs/manual.md?raw";
 
 const wait = (ms = 120) => new Promise((r) => setTimeout(r, ms));
 const now = () => new Date().toISOString();
+/** toy dollars: Opus 5.5 output at $20 per million tokens, to the cent (core bankTokensUsd + cents) */
+const toyUsd = (tokens: number) => Math.round(tokens * 20 / 1e4) / 100;
 const clone = <T,>(x: T): T => JSON.parse(JSON.stringify(x));
 
 /** the mock tree's exploration caps set on a goal (tokens/day), inherited one level down; the root's is town-wide */
@@ -687,7 +689,10 @@ export class MockApi implements Api {
         const runway = burn === 0 ? "no-usage" as const : net <= 0 ? "covered" as const : "days" as const;
         return { days: 30, trailingDailyBurn: burn, burnDays: 7, projectedUse30d: burn * 30, dailyInflow: inflow, netDailyBurn: net, projectedInflow30d: inflow * 30, runwayDays: runway === "days" ? Math.floor(left / net) : null, runway };
       })(),
-      sumCheck: { ok: diff === 0, diff, identity: "used + expired + left = total + overdrawn" }, at: now(),
+      sumCheck: { ok: diff === 0, diff, identity: "used + expired + left = total + overdrawn" },
+      // the toy's sessions are all Opus-booked: every token at $20 per million
+      usd: { used: toyUsd(used), left: toyUsd(left), burnPerDay: toyUsd(burn), inflowPerDay: toyUsd(b.dailyInflowTokens), pricedAt: "api-list" },
+      at: now(),
     };
   }
   // the toy has no sessions table: all of `used` (and a toy unpaid part) is one building row
@@ -703,10 +708,12 @@ export class MockApi implements Api {
     ] : [];
     const share = (t: number) => (used ? t / used : 0);
     const rows: FinanceSpend["rows"] = used ? [
-      { kind: "building", id: "workshop", name: "Town Workshop", tokens: used + notFunded, share: share(used + notFunded), sessions: 1 },
-      { kind: "not-funded", id: null, name: "Not funded: work sessions the Bank never charged", tokens: -notFunded, share: share(-notFunded), sessions: 0 },
+      { kind: "building", id: "workshop", name: "Town Workshop", tokens: used + notFunded, share: share(used + notFunded), sessions: 1, usd: toyUsd(used + notFunded) },
+      { kind: "not-funded", id: null, name: "Not funded: work sessions the Bank never charged", tokens: -notFunded, share: share(-notFunded), sessions: 0, usd: toyUsd(-notFunded) },
     ] : [];
-    return { used, sessionsTotal: used + notFunded, unattributed: 0, weightMismatch: 0, weightMismatchNote: "The toy Bank was born adjusted: no pre-conversion sessions.", convertedAt: null, notFunded, notFundedSplit, notFundedLastAt: notFunded ? "2026-10-26T22:52:13.738Z" : null, notFundedAllocationPaid: notFunded ? 300 : 0, notFundedSplitCheck: { sum: notFunded, notFunded, ok: true }, rows, check: { ok: true, diff: 0, identity: "buildings + unattributed − weight mismatch − not funded = used" }, at: now() };
+    const usd = { used: toyUsd(used), sessionsTotal: toyUsd(used + notFunded), unattributed: 0, weightMismatch: 0, notFunded: toyUsd(notFunded) };
+    const usdDiff = Math.round((rows.reduce((s, r) => s + (r.usd ?? 0), 0) - usd.used) * 100) / 100;
+    return { used, sessionsTotal: used + notFunded, unattributed: 0, weightMismatch: 0, weightMismatchNote: "The toy Bank was born adjusted: no pre-conversion sessions.", convertedAt: null, notFunded, notFundedSplit, notFundedLastAt: notFunded ? "2026-10-26T22:52:13.738Z" : null, notFundedAllocationPaid: notFunded ? 300 : 0, notFundedSplitCheck: { sum: notFunded, notFunded, ok: true }, rows, check: { ok: true, diff: 0, identity: "buildings + unattributed − weight mismatch − not funded = used" }, usd, usdSumCheck: { ok: Math.abs(usdDiff) < 0.01, diff: usdDiff, identity: "buildings + unattributed − weight mismatch − not funded = used, in dollars at API list price" }, at: now() };
   }
   // the toy's sources, counted like its finance(): each live input credited once at creation, each donation at its size
   async financeSources(): Promise<FinanceSources> {

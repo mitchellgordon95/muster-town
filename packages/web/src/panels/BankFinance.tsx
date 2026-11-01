@@ -19,6 +19,14 @@ import { creditsLeftLine } from "./BankFunding";
 
 const n = (x: number) => Math.round(x).toLocaleString("en-US");
 
+/** Dollars to the cent with thousands separators; a minus sign for the rows taken off ("−$2.00"). */
+export const dollars = (x: number) => `${x < 0 ? "−" : ""}$${Math.abs(x).toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+/** A token figure's dollar twin at API list price, as shown after it: "≈ $1,234.56". */
+export const approxUsd = (x: number) => `≈ ${dollars(x)}`;
+/** The one footnote under every "≈ $" figure (gr_gmzli3f96j). */
+export const USD_NOTE = "Dollars are at API list price; a subscription pays a flat fee instead.";
+const Usd = ({ x }: { x: number | undefined }) => (x === undefined ? null : <span className="muted finance-usd"> {approxUsd(x)}</span>);
+
 /** The sum check in words: what the four figures add up to, and by how much it misses when it does. */
 export function sumCheckLine(f: Finance): { ok: boolean; text: string } {
   const lhs = f.used + f.expired + f.left, rhs = f.total + f.overdrawn;
@@ -64,6 +72,15 @@ export function spendCheckLine(sp: FinanceSpend): { ok: boolean; text: string } 
   return sp.check.ok
     ? { ok: true, text: `The server checked that the building rows, plus usage no session recorded, less the pricing difference and the unfunded part, equal used ${n(sp.used)}.` }
     : { ok: false, text: `Does not add up (off by ${n(sp.check.diff)}): the rows come to ${n(sum)}, but used is ${n(sp.used)}.` };
+}
+
+/** The dollar check in words: the top-level rows' dollars vs used dollars (`usdSumCheck`); null when the server sent no dollars. */
+export function spendUsdCheckLine(sp: FinanceSpend): { ok: boolean; text: string } | null {
+  if (!sp.usd || !sp.usdSumCheck) return null;
+  const sum = sp.rows.reduce((t, r) => t + (r.usd ?? 0), 0);
+  return sp.usdSumCheck.ok
+    ? { ok: true, text: `The server checked that the rows' dollars add up to the used dollars, ${dollars(sp.usd.used)} at API list price.` }
+    : { ok: false, text: `Dollars do not add up (off by ${dollars(sp.usdSumCheck.diff)}): the rows come to ${dollars(sum)}, but used is ${dollars(sp.usd.used)}.` };
 }
 
 /**
@@ -121,13 +138,14 @@ const spendNotes = (sp: FinanceSpend): Partial<Record<SpendNode["kind"], ReactNo
   "not-funded": <NotFundedNote sp={sp} />,
 });
 
-function SpendRow({ node, notes }: { node: SpendNode; notes: Partial<Record<SpendNode["kind"], ReactNode>> }) {
+function SpendRow({ node, notes, top = false }: { node: SpendNode; notes: Partial<Record<SpendNode["kind"], ReactNode>>; top?: boolean }) {
   const line = (
     <span className="spend-line">
       <span className="spend-name" title={node.id ?? node.name}>{node.kind === "grant" && node.id
         ? <a className="spend-grant" href={`#/grant/${node.id}`} title={node.objective ?? node.name}>{node.name}</a>
         : node.name}{node.sessions ? <span className="muted"> · {n(node.sessions)} session{node.sessions === 1 ? "" : "s"}</span> : null}</span>
       <span className="spend-tokens">{n(node.tokens)}</span>
+      {top && node.usd !== undefined ? <span className="spend-usd muted" title="At API list price">{dollars(node.usd)}</span> : null}
       <span className="spend-share muted">{pct(node.share)}</span>
     </span>
   );
@@ -142,15 +160,17 @@ function SpendRow({ node, notes }: { node: SpendNode; notes: Partial<Record<Spen
 }
 
 export function SpendingView({ sp }: { sp: FinanceSpend }) {
-  const check = spendCheckLine(sp);
+  const check = spendCheckLine(sp), usdCheck = spendUsdCheckLine(sp);
   const notes = spendNotes(sp);
   return (
     <Section title="Spending">
-      <p className="muted">Where the {n(sp.used)} used went: by building, then grant, then assignment ({ADJ}, share of used). Open a row for its parts.</p>
+      <p className="muted">Where the {n(sp.used)} used went{sp.usd ? <> ({approxUsd(sp.usd.used)})</> : null}: by building, then grant, then assignment ({ADJ}{sp.usd ? ", dollars" : ""}, share of used). Open a row for its parts.</p>
       <div className="spend-tree">
-        {sp.rows.map((r, i) => <SpendRow key={r.id ?? `${r.kind}-${i}`} node={r} notes={notes} />)}
+        {sp.rows.map((r, i) => <SpendRow key={r.id ?? `${r.kind}-${i}`} node={r} notes={notes} top />)}
       </div>
       <div className={check.ok ? "finance-check ok" : "error-line"} role="status">{check.ok ? "✓ " : "✗ "}{check.text}</div>
+      {usdCheck ? <Check c={usdCheck} /> : null}
+      {sp.usd ? <p className="muted finance-usd-note">{USD_NOTE} Each session is priced at the output price of the model its tokens are booked in (Opus 5.5, $20 per million, for every new session; older Fable sessions at Fable's $50 per million); rows with no session at $20 per million.</p> : null}
     </Section>
   );
 }
@@ -306,7 +326,7 @@ export const FinanceIntro = ({ hosting = false }: { hosting?: boolean }) => (
   <p className="muted finance-intro">
     Every amount here is in <abbr title={ADJ_HINT}>{ADJ}</abbr> (adjusted output tokens): the unit the town pays for AI model work in, where
     one Opus 5.5 output token counts 1, other models count at their price relative to it (Fable 2.5, Haiku 0.025), and input and cached tokens count at their lower price (1 adj. token ≈ 30 raw tokens on Opus).
-    {hosting ? " Hosting (Fly.io), in its own tab, is in US dollars." : ""} A ✓ line under a section means the server checked that its numbers add up; ✗ would say by how much they are off.
+    {hosting ? " Hosting (Fly.io), in its own tab, is in US dollars." : ""} A figure marked ≈ $ is the same tokens in dollars at API list price. A ✓ line under a section means the server checked that its numbers add up; ✗ would say by how much they are off.
   </p>
 );
 
@@ -321,9 +341,9 @@ export function TokensView({ f }: { f: Finance }) {
           <tr><td>Total received</td><td><b>{n(f.total)}</b></td></tr>
           <tr className="sub-row"><td>credited to the Bank (subscriptions, API keys)</td><td>{n(f.credited)}</td></tr>
           <tr className="sub-row"><td>donated straight to buildings</td><td>{n(f.donated)}</td></tr>
-          <tr><td>Used</td><td><b>{n(f.used)}</b></td></tr>
+          <tr><td>Used</td><td><b>{n(f.used)}</b><Usd x={f.usd?.used} /></td></tr>
           <tr title="Daily subscription tokens that renewed before they were drawn"><td>Expired (not drawn before renewal)</td><td>{n(f.expired)}</td></tr>
-          <tr><td>Left</td><td><b>{n(f.left)}</b></td></tr>
+          <tr><td>Left</td><td><b>{n(f.left)}</b><Usd x={f.usd?.left} /></td></tr>
           {f.overdrawn ? <tr className="finance-overdrawn" title="Spent past what was received; the lines under it say where"><td>Overdrawn (used past what was received)</td><td>{n(f.overdrawn)}</td></tr> : null}
           {overdrawnParts(f).map((p) => (
             <tr key={p.key} className="sub-row"><td>{p.label}{p.note ? <div className="muted">{p.note}</div> : null}</td><td>{n(p.tokens)}</td></tr>
@@ -331,25 +351,29 @@ export function TokensView({ f }: { f: Finance }) {
         </tbody>
       </table>
       <div className={check.ok ? "finance-check ok" : "error-line"} role="status">{check.ok ? "✓ " : "✗ "}{check.text}</div>
+      {f.usd ? <p className="muted finance-usd-note">{USD_NOTE}</p> : null}
     </Section>
   );
 }
 
-/** Next N days: the trailing burn, the expected inflow, the net per day, the projection and the runway at the net rate. */
+/** Next N days (on the Overview): used and left so far, the trailing burn, the expected inflow, the net per day, the projection and the runway at the net rate; used, left, burn and inflow with their "≈ $" twins and one footnote. */
 export function ProjectionView({ f }: { f: Finance }) {
   const p = f.projection;
   return (
     <Section title={`Next ${p.days} days`}>
       <table className="table">
         <tbody>
-          <tr><td>Burn rate (average of the last {p.burnDays} day{p.burnDays === 1 ? "" : "s"})</td><td>{n(p.trailingDailyBurn)} / day</td></tr>
-          <tr><td>Coming in (expected from recurring inputs)</td><td>{n(p.dailyInflow)} / day</td></tr>
+          <tr><td>Used so far</td><td>{n(f.used)}<Usd x={f.usd?.used} /></td></tr>
+          <tr><td>Left</td><td>{n(f.left)}<Usd x={f.usd?.left} /></td></tr>
+          <tr><td>Burn rate (average of the last {p.burnDays} day{p.burnDays === 1 ? "" : "s"})</td><td>{n(p.trailingDailyBurn)} / day<Usd x={f.usd?.burnPerDay} /></td></tr>
+          <tr><td>Coming in (expected from recurring inputs)</td><td>{n(p.dailyInflow)} / day<Usd x={f.usd?.inflowPerDay} /></td></tr>
           <tr><td>Net per day (burn − coming in)</td><td>{netPerDay(p)}</td></tr>
           <tr><td>Projected use, next {p.days} days at that rate</td><td><b>{n(p.projectedUse30d)}</b></td></tr>
           <tr><td>Tokens left last</td><td>{runwayText(p)}</td></tr>
         </tbody>
       </table>
       <p className="muted">Coming in is what the active recurring Bank inputs are expected to credit per day (a subscription at most its weekly cap / 7); one-off donations and one-time inputs are not counted. Tokens left last is what is left divided by the net per day.</p>
+      {f.usd ? <p className="muted finance-usd-note">{USD_NOTE}</p> : null}
     </Section>
   );
 }
@@ -379,6 +403,7 @@ export const FINANCE_TERMS: [term: string, meaning: string][] = [
   ["Earmark", "A Bank input given for one goal: it pays only for work under that goal, nearest earmark first."],
   ["Exploration cap", "An optional limit on what exploration under a goal may spend per UTC day, inherited down the tree; on the top goal it is town-wide. None set: uncapped."],
   ["Not funded", "Work sessions the Bank never charged: tokens a session used that no Bank credit or donation paid for."],
+  ["≈ $ (API list price)", "What the tokens would cost on an Anthropic API key at list price: each session at the output price of the model it is booked in (Opus 5.5, $20 per million, for every new session; older Fable sessions at $50 per million). A subscription pays a flat fee instead, so on a subscription-funded town this is not cash spent."],
   ["Grant", "Tokens a human approves for one building to reach one dated, checkable target; each grant's row opens the grant's page."],
 ];
 

@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { renderToStaticMarkup } from "react-dom/server";
 import type { Finance, FinanceFly, FinanceSources, FinanceSpend } from "../src/api";
-import { donationNote, FINANCE_TERMS, flyCheckLine, flyWindowTotals, inputName, notFundedNote, overdrawnParts, sourcesCheckLine, pct, netPerDay, runwayText, spendCheckLine, sumCheckLine, type FinanceData } from "../src/panels/BankFinance";
+import { approxUsd, dollars, donationNote, FINANCE_TERMS, spendUsdCheckLine, USD_NOTE, flyCheckLine, flyWindowTotals, inputName, notFundedNote, overdrawnParts, sourcesCheckLine, pct, netPerDay, runwayText, spendCheckLine, sumCheckLine, type FinanceData } from "../src/panels/BankFinance";
 import { BANK_TABS } from "@muster-town/schema";
 import { BankView } from "../src/panels/BankPanel";
 import { BankFreeTokens, freeBreakdown } from "../src/panels/FreeTokens";
@@ -69,7 +69,7 @@ describe("finance page", () => {
   });
   it("ends every tab with the Terms block, above the footer, defining each term the page uses (kr_zjawesqcyp)", () => {
     const all = { spend: sp, sources: src, fly };
-    expect(FINANCE_TERMS.map(([t]) => t)).toEqual(["Adjusted token (adj. token)", "Expiring and permanent", "Overdrawn", "Held", "Claimed", "Free tokens", "Earmark", "Exploration cap", "Not funded", "Grant"]);
+    expect(FINANCE_TERMS.map(([t]) => t)).toEqual(["Adjusted token (adj. token)", "Expiring and permanent", "Overdrawn", "Held", "Claimed", "Free tokens", "Earmark", "Exploration cap", "Not funded", "≈ $ (API list price)", "Grant"]);
     for (const t of BANK_TABS) {
       const html = tabOf(t, all);
       expect(html, t).toContain("Terms used on this page");
@@ -185,6 +185,34 @@ const src: FinanceSources = {
   creditedTokens: 800, donatedTokens: 200, totalReceived: 1000, expiredTokens: 50,
   sumCheck: { ok: true, diff: 0, identity: "credits + donations = total received" }, financeTotal: 1000, matchesFinance: true, at: "2026-10-29T00:00:00.000Z",
 };
+
+describe("finance page: dollars at API list price (gr_gmzli3f96j)", () => {
+  const usd = { used: 1234.5, left: 1, burnPerDay: 0.4, inflowPerDay: 0.1, pricedAt: "api-list" as const };
+  // the Spending rows' dollars: Workshop $18.00, Bank $5.00, less $0.60 and $0.40 = $22.00
+  const spUsd: FinanceSpend = { ...sp, usd: { used: 22, sessionsTotal: 23, unattributed: 0, weightMismatch: 0.6, notFunded: 0.4 },
+    usdSumCheck: { ok: true, diff: 0, identity: "buildings + unattributed − weight mismatch − not funded = used, in dollars at API list price" },
+    rows: sp.rows.map((r, i) => ({ ...r, usd: [18, 5, -0.6, -0.4][i] })) };
+  it("formats dollars with separators and a minus sign", () => {
+    expect([dollars(1234.5), dollars(-0.4), approxUsd(0.1)]).toEqual(["$1,234.50", "−$0.40", "≈ $0.10"]);
+  });
+  it("shows ≈ $ next to used, left, burn and coming in on the Overview, with one footnote", () => {
+    const ov = tabOf("Overview", { f: { ...f, usd } });
+    for (const s of ["Used so far", "≈ $1,234.50", "≈ $1.00", "≈ $0.40", "≈ $0.10", USD_NOTE]) expect(ov).toContain(s);
+    expect(ov.split(USD_NOTE).length - 1).toBe(1);
+    // a server without dollars: no ≈ $ and no footnote
+    const old = tabOf("Overview", {});
+    expect(old).not.toMatch(/≈ \$\d/);
+    expect(old).not.toContain(USD_NOTE);
+  });
+  it("shows each building's dollars on Spending with a ✓ line that they add up to the used dollars", () => {
+    expect(spendUsdCheckLine(spUsd)).toEqual({ ok: true, text: "The server checked that the rows' dollars add up to the used dollars, $22.00 at API list price." });
+    expect(spendUsdCheckLine(sp)).toBeNull();
+    const html = tabOf("Spending", { spend: spUsd });
+    for (const s of ["$18.00", "$5.00", "−$0.60", "✓ The server checked that the rows&#x27; dollars add up", "(≈ $22.00)", USD_NOTE]) expect(html).toContain(s);
+    const bad = spendUsdCheckLine({ ...spUsd, usdSumCheck: { ...spUsd.usdSumCheck!, ok: false, diff: 0.05 } })!;
+    expect(bad).toEqual({ ok: false, text: "Dollars do not add up (off by $0.05): the rows come to $22.00, but used is $22.00." });
+  });
+});
 
 describe("finance page: sources", () => {
   it("names inputs and notes donations counted under their size", () => {

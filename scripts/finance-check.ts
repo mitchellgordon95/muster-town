@@ -47,6 +47,11 @@ function checks(f: Json, s: Json, src: Json, bank: Json, fly: Json): Check[] {
     flag("fly sumCheck", fly.sumCheck?.ok, `ok ${fly.sumCheck?.ok}, diff ${fly.sumCheck?.diff} (${fly.sumCheck?.identity})`),
     eq("fly desk time", "Σ fly.days[].deskMs", sum((fly.days ?? []).map((d: Json) => d.deskMs)), "Σ fly.buildings[].deskMs", sum((fly.buildings ?? []).map((b: Json) => b.deskMs))),
     near("fly totals", "Σ fly.days[] (desk + town)", sum((fly.days ?? []).map((d: Json) => d.deskUsd + d.townUsd)), "fly.totals.totalUsd", Number(fly.totals?.totalUsd), 1e-4),
+    // dollars at API list price (gr_gmzli3f96j): one used figure on both endpoints, and the spend rows' dollars close
+    near("usd used", "finance.usd.used", Number(f.usd?.used), "spend.usd.used", Number(s.usd?.used), 0.01),
+    flag("usd sumCheck", s.usdSumCheck?.ok, `ok ${s.usdSumCheck?.ok}, diff ${s.usdSumCheck?.diff} (${s.usdSumCheck?.identity})`),
+    // the sessions' list-price cost, from the building rows (each session at its booking model's price): within a cent per row of spend.usd.sessionsTotal
+    near("usd sessions", "Σ spend building rows' usd", sum((s.rows ?? []).filter((r: Json) => r.kind === "building").map((r: Json) => Number(r.usd))), "spend.usd.sessionsTotal", Number(s.usd?.sessionsTotal), 0.005 * Math.max(2, (s.rows ?? []).length)),
   ];
 }
 
@@ -69,6 +74,7 @@ async function main(): Promise<number> {
   const [f, s, src, , fly] = bodies as [Json, Json, Json, Json, Json];
   console.log(`${base}: commit ${String(health.commit).slice(0, 7)}${round > 1 ? `, round ${round} of 3` : ""}`);
   console.log(`at: finance ${f.at}, spend ${s.at}, sources ${src.at}, fly ${fly.at}`);
+  console.log(`usd at API list price: used $${Number(f.usd?.used).toFixed(2)}, left $${Number(f.usd?.left).toFixed(2)}, burn $${Number(f.usd?.burnPerDay).toFixed(2)}/day, inflow $${Number(f.usd?.inflowPerDay).toFixed(2)}/day`);
   console.log(`fly today ${fly.today?.day}: desks $${Number(fly.today?.deskUsd).toFixed(2)} + town $${Number(fly.today?.townUsd).toFixed(2)} = $${Number(fly.today?.totalUsd).toFixed(2)}; last ${fly.windowDays} days $${Number(fly.totals?.totalUsd).toFixed(2)} (desk time ${(Number(fly.totals?.deskMs) / 3_600_000).toFixed(1)} h, ${fly.totals?.sessions} sessions)`);
   for (const c of result) console.log(`${c.ok ? "✓" : "✗"} ${c.name}: ${c.line}`);
   const failed = result.filter((c) => !c.ok).length;
