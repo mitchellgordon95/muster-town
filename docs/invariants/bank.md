@@ -90,6 +90,13 @@ What must always hold where tokens come from and where they go: the Bank (`packa
 17. **Cancelling a subscription input expires its live credit at once; an api-key input's credit stays.**
     - Test: `packages/core/test/bank.test.ts` › `expires its live credit now: replacing a 15M/day donation with 2M/day leaves 2M, not 17M; an api-key's credit stays`
 
+18. **Claims are covered by the usable balance, not by every credit.** A broken input's remaining credit, and a subscription credit whose every-model limit outlasts it, are unavailable; a limit on one model or a reset before the credit's expiry leaves the credit usable.
+    - Test: `packages/core/test/overdraft.test.ts` › `a broken key's credit leaves the usable balance; a Fable-only limit doesn't; a reset before the credit's expiry doesn't`
+    - Test: `packages/core/test/overdraft.test.ts` › `a subscription credit counts only if its input can serve before the credit expires`
+19. **The overdraft walk covers claims in order, and funded work past the line waits.** Retainers, then funded grants by funding time, then reservations, then asks. Approved claims not fully covered are listed as overdrafted with their shortfall. A grant with nothing covered holds its grant-lane work at the Bank, and one straddling the line runs. An ask is never listed.
+    - Test: `packages/core/test/overdraft.test.ts` › `covers claims in order; past the line, funded work waits and the overdraft is shown; a grant straddling the line runs`
+    - Test: `packages/core/test/overdraft.test.ts` › `an open proposal's ask soaks up a shortfall first and is never listed as overdrafted`
+
 ## How it connects
 
 - **Runtime → Bank.** Before a session, `fundingFor` / `fundingForSession` (`packages/runtime/src/session.ts`) picks what pays (invariant 8). While it runs, `bookRunning` debits its usage so far; at its end, `endAndCharge` debits the rest through `Budget.charge` (invariants 1, 2 and 13).

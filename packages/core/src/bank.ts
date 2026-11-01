@@ -581,6 +581,59 @@ export class Bank {
     return expiring + durable;
   }
 
+  /**
+   * Promised and available (docs/bank.md): the part of the general balance no session can draw on, by input, because
+   * the input can't serve any model before its credit runs out. A subscription credit counts as unavailable when an
+   * every-model limit on its input lasts past the credit's expiry (the quota is behind a reset that comes too late).
+   * A durable (api-key) credit counts as unavailable while its input is broken (billing, auth) or limited with no reset
+   * named; a limit with a named reset still counts (the money comes back). A limit on one model (Fable) changes nothing
+   * here: other models can still spend it. Durable figures are the input's credits less the debits that name it,
+   * capped by the durable balance (anonymous pool draws aren't attributed to an input).
+   */
+  unavailable(now = new Date()): { tokens: number; inputs: { inputId: string; label: string; tokens: number; text: string }[] } {
+    const iso = now.toISOString();
+    const out = new Map<string, { inputId: string; label: string; tokens: number; text: string }>();
+    let durableOut = 0;
+    for (const inp of this.repos.bankInputs.where("goalId IS NULL")) {
+      const lim = this.availability.limitFor(inp.id, null, now);
+      if (!lim) continue;
+      const ends = lim.until ?? lim.probeAt ?? iso;
+      const broken = lim.kind === "billing" || lim.kind === "auth" || !lim.until;
+      // expiring (subscription) credits whose expiry comes before the input can serve again
+      let tokens = 0;
+      for (const c of this.repos.bankCredits.where("inputId = ? AND expiresAt > ?", [inp.id, iso])) {
+        if (ends >= c.expiresAt!) tokens += Math.max(0, c.tokens - this.debited("creditId = ?", [c.id]));
+      }
+      // durable (api-key) credits of a broken input: what is left of them
+      if (broken) {
+        const credited = this.repos.bankCredits.sum("tokens", "inputId = ? AND expiresAt IS NULL", [inp.id]);
+        const durable = Math.max(0, credited - this.debited("inputId = ? AND creditId IN (SELECT id FROM bank_credits WHERE expiresAt IS NULL)", [inp.id]));
+        tokens += durable;
+        durableOut += durable;
+      }
+      if (tokens > 0) out.set(inp.id, { inputId: inp.id, label: inp.label, tokens, text: limitText(lim, inp.label) });
+    }
+    // anonymous pool draws may have spent a broken key's money: never more unavailable than the durable balance holds
+    const over = Math.max(0, durableOut - this.totals(now).durable);
+    let rows = [...out.values()];
+    if (over > 0) {
+      let cut = over;
+      rows = rows.map((r) => {
+        const inp = this.repos.bankInputs.get(r.inputId);
+        if (inp?.source !== "api-key" || cut <= 0) return r;
+        const take = Math.min(cut, r.tokens);
+        cut -= take;
+        return { ...r, tokens: r.tokens - take };
+      }).filter((r) => r.tokens > 0);
+    }
+    return { tokens: rows.reduce((s, r) => s + r.tokens, 0), inputs: rows };
+  }
+
+  /** The general balance sessions can actually draw on now: `balance` less `unavailable` (docs/bank.md "Promised and available"). */
+  usableBalance(now = new Date()): number {
+    return Math.max(0, this.balance(now) - this.unavailable(now).tokens);
+  }
+
   private live(now: Date): BankCredit[] {
     const iso = now.toISOString();
     return this.repos.bankCredits.where(`(expiresAt IS NULL OR expiresAt > ?) AND NOT ${EARMARKED}`, [iso], "ORDER BY expiresAt, createdAt, rowid");

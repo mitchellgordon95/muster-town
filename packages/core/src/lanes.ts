@@ -2,6 +2,7 @@ import type { Assignment, Building, LaneFields, Meeting } from "@muster-town/sch
 import { badRequest } from "./errors.ts";
 import type { Holder } from "./permissions.ts";
 import { BUDGET_POLICY } from "./policy.ts";
+import { claimShort } from "./free-tokens.ts";
 import { retainerHold } from "./retainers.ts";
 import type { World } from "./world.ts";
 
@@ -98,14 +99,22 @@ export function laneHold(world: World, a: Assignment): string | null {
 }
 
 /** `laneHold` with what it is: the grant hold (and its grant), the reservation hold, or exploration with no free tokens or at its cap. */
-export function laneBlock(world: World, a: Assignment): { kind: "grant" | "reserved" | "exploration" | "retainer"; reason: string; grantId?: string; used?: number; cap?: number } | null {
+export function laneBlock(world: World, a: Assignment): { kind: "grant" | "reserved" | "exploration" | "retainer" | "overdraft"; reason: string; grantId?: string; used?: number; cap?: number } | null {
   const building = world.buildings.get(a.buildingId);
   if (!laneGated(building)) return null;
   if (a.lane === "grant") {
     const g = a.grantId ? world.grants.get(a.grantId) : undefined;
     const grantId = a.grantId ?? undefined;
     if (!g) return { kind: "grant", grantId, reason: "held: its grant doesn't exist" };
-    if (g.status === "funded") return null;
+    if (g.status === "funded") {
+      // the overdraft walk (free-tokens.ts): a funded grant the usable balance doesn't cover at all waits for funding; one
+      // straddling the line runs. Claimed, not backed: a broken key or a late reset took the money it was promised.
+      const short = claimShort(world, g.id);
+      if (short && short.shortTokens >= short.tokens) {
+        return { kind: "overdraft", grantId, reason: `held: overdrafted, the Bank's usable balance doesn't cover grant ${g.id} (${fmt(short.shortTokens)} tokens short)` };
+      }
+      return null;
+    }
     if (g.status === "checkpoint") return isCheckpointAssignment(a) ? null : { kind: "grant", grantId, reason: "held: grant at checkpoint" };
     if (g.status === "proposed" || g.status === "countered" || g.status === "draft") return { kind: "grant", grantId, reason: "held: grant not funded yet" };
     return { kind: "grant", grantId, reason: `held: grant ${g.status}` };

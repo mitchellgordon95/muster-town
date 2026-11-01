@@ -443,6 +443,22 @@ export interface FreeTokens {
   retainerJobs: number;
   /** what the claims leave of (general − reserve) + those earmarks, never below 0 */
   freeTokens: number;
+  /**
+   * Promised and available (docs/bank.md, 2026-11-01): `generalTokens` is what sessions can draw on now. `promisedTokens`
+   * is every live credit; `unavailableTokens` the part no session can draw on (a broken input, or a limit lasting past its
+   * credit's expiry), by input. Present only when something is unavailable (and left out by older servers).
+   */
+  promisedTokens?: number;
+  unavailableTokens?: number;
+  unavailable?: { inputId: string; label: string; tokens: number; text: string }[];
+  /**
+   * The overdraft walk: claims in order (retainers, funded grants by funding time, reservations, then asks) against the
+   * usable balance after the reserve. `overdrafted` lists the approved claims it doesn't fully cover; their sum is
+   * `overdraftTokens` (claimed, but not backed by anything usable). Asks are left out: they aren't promises yet. Present
+   * only when something is overdrafted.
+   */
+  overdraftTokens?: number;
+  overdrafted?: { kind: "funded" | "retainer" | "reserved"; id: string; title: string; tokens: number; shortTokens: number }[];
 }
 /** One charge of model usage: who spent it and which building it counts for (the agent's home). The usage ledger behind tokensToday / tokensAllTime. */
 export const UsageEntry = z.object({ id: Id, agentId: Id, buildingId: Id.nullable().default(null), ...TOKEN_COUNTS_SHAPE, rawTokens: z.number().int().nonnegative().default(0), tokens: z.number().int().nonnegative().default(0), usd: z.number().nonnegative().default(0), createdAt: Iso });
