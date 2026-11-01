@@ -5,7 +5,7 @@
 // sources with tsx. Third-party packages stay external (node_modules, native better-sqlite3).
 //
 // Entry points: main.js (the server), runtime.js (loaded by main.ts through a variable specifier, see loadRuntime),
-// backup/worker.js (the backup worker_threads file). `splitting` puts code they share (core, schema) in common chunks, so a
+// backup/worker.js (the backup worker_threads file), export-worker.js (the hourly export's worker, core/src/export.ts). `splitting` puts code they share (core, schema) in common chunks, so a
 // module like core's World exists once, not once per entry. Every chunk sits at packages/server/dist, the same depth as a
 // package's src/, so `import.meta.url`-relative paths (web/dist, skills/, the repo root) resolve as they do from the sources;
 // core's migrations directory is found from either place (core/src/db.ts).
@@ -38,6 +38,7 @@ const result = await build({
     main: join(here, "src/main.ts"),
     runtime: join(pkgs, "runtime/src/index.ts"),
     "backup/worker": join(here, "src/backup/worker.ts"),
+    "export-worker": join(pkgs, "core/src/export-worker.ts"),
   },
   bundle: true,
   splitting: true,
