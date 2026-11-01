@@ -110,7 +110,7 @@ export function GoalTreePanel({ goalId, onClose }: { goalId?: string; onClose: (
               <GoalCanvas root={root} retired={retired} collapsed={collapsed} selected={node.id} proposals={byNode} focusId={goalId?.startsWith("kr_") ? undefined : goalId}
                 scope={filter === FUNDED ? treeScope(root, funder.data) : filter ? buildingScope(root, filter) : null}
                 canMove={(g) => !!g.parentId && g.status === "active" && canEditGoal(g, me)}
-                onSelect={select} onToggle={toggle} onMoved={reload}
+                onSelect={select} onToggle={toggle} onChanged={reload}
                 onOpen={() => { const el = detail.current; if (el) { el.scrollTop = 0; el.focus({ preventScroll: true }); } }} />
             </div>
             <main className="ge-detail" ref={detail} tabIndex={-1}>

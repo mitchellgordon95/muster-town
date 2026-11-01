@@ -248,7 +248,7 @@ export interface Bank {
   drift?: BankDrift | null;
   /** Bank step 5: unexpected out-of-tokens deaths, last 7 days (older servers leave it out) */
   deaths?: BankDeaths;
-  /** Bank step 5: the learned subscription cap and the hold near it (older servers leave it out) */
+  /** the subscription's observed cap (older servers leave it out) */
   cap?: BankCapState;
 }
 export interface BankDeaths {
@@ -256,8 +256,7 @@ export interface BankDeaths {
   events: { ts: string; kind: "cap" | "exhausted"; agentId: string | null; buildingId: string | null; sessionId: string | null; text: string }[];
 }
 export interface BankCapState {
-  inputId: string | null; learnedCap: number | null; days: number; spentToday: number; windowStart: string;
-  typicalSession: number | null; held: boolean; reason: string | null; resetsAt: string;
+  inputId: string | null; spentToday: number; windowStart: string; resetsAt: string; cappedAt: string | null;
 }
 /** One drift row (core's DriftRow): ratio = adjusted output tokens × output list price / the SDK's costUsd */
 interface DriftRow {
