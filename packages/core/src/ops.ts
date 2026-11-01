@@ -8,7 +8,7 @@ import { agentsDrafting, clearAgentDrafting, createMeeting, createOneOnOne, endM
 import { archiveReport, type ArchiveResult } from "./archive.ts";
 import { newId, nowIso } from "./util.ts";
 import { humanOrigin, meetingOrigin } from "./origin.ts";
-import { sessionView, unknownModels } from "./bank.ts";
+import { BANK_MODEL, sessionView, unknownModels } from "./bank.ts";
 import { validateWait } from "./waits.ts";
 import { walkHome } from "./home.ts";
 import { requestAnswerWake } from "./wakes.ts";
@@ -357,6 +357,7 @@ export class Ops {
       funding: opts.funding ?? null,
       // the Bank input whose credential the session was handed (post-mortem 2026-10-30): booked at start, never from the desk's word
       credentialInputId: opts.credentialInputId ?? null,
+      bankModel: BANK_MODEL,
       // the desk Machine size it runs on (gr_uhh6u39vv9 step 3); null for host sessions and docker desks
       cpuKind: opts.size?.cpuKind ?? null, cpus: opts.size?.cpus ?? null, memoryMb: opts.size?.memoryMb ?? null,
       // goal-directed budgets: the session spends in its assignment's lane (a grant's spend is the sum of its sessions)

@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { splitRaw, type TokenCounts } from "@muster-town/schema";
-import { adjustedOfUsage, adjustedOutputTokens, createBuilding, createResident, tokenPrices, tokenWeights } from "../src/index.ts";
+import { BANK_MODEL, adjustedOfUsage, adjustedOutputTokens, booked, createBuilding, createResident, listCostUsd, sessionTokens, sessionView, tokenPrices, tokenWeights } from "../src/index.ts";
 import { seededWorld } from "./helpers.ts";
 
 // Bank grant step 2: adjusted output tokens = output + Σ (list price / output price) × count, never stored.
@@ -41,6 +41,52 @@ describe("adjustedOutputTokens (Bank grant step 2)", () => {
     const fable = c({ output: 1_000, cacheRead: 100_000 }), haiku = c({ input: 2_000, output: 20 });
     // fable: 1000 + 500 = 1500; haiku: (2000 × $0.10 + 20 × $0.50) / $50 = 4.2 fable output tokens
     expect(adjustedOfUsage("claude-fable-5-1", c({ input: 2_000, output: 1_020, cacheRead: 100_000 }), { "claude-fable-5-1": fable, "claude-haiku-5-5": haiku })).toBe(1_504);
+  });
+
+  it("the Bank books every charge in Opus 5.5 output tokens (1:1 mt_cyd2t5ioob decision 1): Haiku 1/40, Fable 2.5×", () => {
+    expect(BANK_MODEL).toBe("claude-opus-5-5");
+    // Haiku 5.5's input, output and cache-write prices are 1/40 of Opus 5.5's (its cache read is 1/20), Sonnet 5.5's 1/2
+    const counts = c({ input: 10_000, output: 40_000, cacheWrite5m: 20_000, cacheWrite1h: 4_000 });
+    const opus = booked(counts, "claude-opus-5-5").tokens;
+    expect(opus).toBe(adjustedOutputTokens("claude-opus-5-5", counts)); // Opus books exactly as before
+    expect(booked(counts, "claude-haiku-5-5").tokens).toBe(Math.round(opus / 40));
+    expect(booked(counts, "claude-sonnet-5-5").tokens).toBe(Math.round(opus / 2));
+    // Fable's cache read is $0.25 vs Opus's $0.20 × 2.5 = $0.50, so check the output-only case for the plain 2.5×
+    expect(booked(c({ output: 40_000 }), "claude-fable-5-1").tokens).toBe(100_000);
+    expect(booked(c({ output: 40_000 }), "claude-haiku-5-5").tokens).toBe(1_000);
+    // every booking is the list cost at Opus 5.5's output price
+    const withReads = c({ ...counts, cacheRead: 1_000_000 });
+    for (const m of ["claude-fable-5-1", "claude-haiku-5-5", "claude-sonnet-5-5"]) expect(booked(withReads, m).tokens).toBe(Math.round(listCostUsd(m, withReads) * M / 20));
+    for (const m of ["claude-fable-5-1", "claude-haiku-5-5", "claude-sonnet-5-5"]) expect(booked(counts, m).tokens).toBe(Math.round(listCostUsd(m, counts) * M / 20));
+  });
+
+  it("byModel: same dollars, now in Opus output tokens; a bare number is Bank tokens with a same-cost back-fill split", () => {
+    const fable = c({ output: 1_000, cacheRead: 100_000 }), haiku = c({ input: 2_000, output: 20 });
+    const byModel = { "claude-fable-5-1": fable, "claude-haiku-5-5": haiku }, total = c({ input: 2_000, output: 1_020, cacheRead: 100_000 });
+    const old = adjustedOfUsage("claude-fable-5-1", total, byModel); // 1,504 Fable output tokens
+    const now = booked(total, "claude-fable-5-1", byModel).tokens;
+    // $0.0752 either way: 1,504 Fable output tokens × $50 ≈ 3,761 Opus output tokens × $20 (old was rounded first)
+    expect(Math.abs(now - old * 2.5)).toBeLessThanOrEqual(2);
+    expect(now).toBe(Math.round(listCostUsd("claude-fable-5-1", fable) * M / 20 + listCostUsd("claude-haiku-5-5", haiku) * M / 20));
+    // a bare number: counters whose Opus-priced cost is the number
+    const b = booked(1_000, "claude-fable-5-1");
+    expect(b.tokens).toBe(1_000);
+    expect(adjustedOfUsage("claude-fable-5-1", b.counts, null, BANK_MODEL)).toBeGreaterThanOrEqual(999);
+    expect(adjustedOfUsage("claude-fable-5-1", b.counts, null, BANK_MODEL)).toBeLessThanOrEqual(1_001);
+    expect(booked(1_000, "claude-opus-5-5").counts).toEqual(splitRaw(30_000, "claude-opus-5-5"));
+  });
+
+  it("a new session is booked in Opus 5.5 (bankModel); a session from before migration 076 keeps its own model", () => {
+    const { world, seed } = seededWorld();
+    const b = createBuilding(world, { name: "Lab" }, seed.admin.id);
+    const a = createResident(world, { buildingId: b.id, name: "A", title: "t", direction: "d" });
+    const s = world.ops.startSession(a.id, { purpose: "work", model: "claude-haiku-5-5" });
+    expect(s.bankModel).toBe(BANK_MODEL);
+    const ended = world.ops.endSession(s.id, { status: "done", counts: c({ output: 40_000 }) });
+    expect(sessionView(ended)).toMatchObject({ bankModel: BANK_MODEL, adjustedOutputTokens: 1_000 });
+    const legacy = { ...ended, bankModel: null };
+    expect(sessionTokens(legacy)).toBe(40_000);
+    expect(sessionView(legacy).bankModel).toBe("claude-haiku-5-5");
   });
 
   it("is derived on session.ended and stored nowhere; an unknown model gets one warning event", () => {

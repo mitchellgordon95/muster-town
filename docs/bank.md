@@ -67,7 +67,7 @@ Prices: `TOKEN_PRICES` in `core/src/bank.ts`, the one table (step 4's drift job 
 
 Haiku 5.5 over 100k-token prompts costs 5× every column, so its weights are the same. A bare alias (`opus`, `fable`, …) is the family's latest. An unknown or missing model is priced as Opus 5.5, and `session.ended` for an unknown model id posts one `system` event (`payload.warning: "unknown-model"`) per model per server process.
 
-A session with several models (a Fable session's Haiku subagent) keeps `byModel` (migration 035); each model's counters are priced at that model's list price and the sum is expressed in the session model's output tokens (`adjustedOfUsage`).
+A session with several models (a Fable session's Haiku subagent) keeps `byModel` (migration 035); each model's counters are priced at that model's list price and the sum is expressed in the unit model's output tokens (`adjustedOfUsage(model, counts, byModel, unit)`; the Bank's unit is Opus 5.5, see step 3).
 
 Where it shows (always next to `tokens` and the five counters):
 - `GET /api/sessions?agentId=&limit=` (new; newest first), `GET /api/agents/:id` `currentSession`, `GET /api/agents/:id/session`.
@@ -78,11 +78,13 @@ Calibration (2026-10-26, the last 50 `session.ended` with a `costUsd`, 16:41 to 
 
 ## The Bank counts adjusted output tokens (step 3)
 
-The unit is **adjusted output tokens** ("adj. tokens" in the web client): what the tokens cost, in the model's output tokens (step 2's `adjustedOutputTokens`). At the step-1 calibration 1 adj. token ≈ 30 raw tokens on Opus, 24 on Fable. `GET /api/health` says `accounting: "adjusted"` (`BANK_ACCOUNTING`, core `bank.ts`).
+The unit is **adjusted output tokens** ("adj. tokens" in the web client): what the tokens cost, in **Opus 5.5 output tokens** (`BANK_MODEL` in core `bank.ts`; 1:1 mt_cyd2t5ioob decision 1, 2026-11-01). Each model's counters are priced at its own list price and converted at Opus 5.5's output price, $20/MTok: a Fable 5.1 output token books as 2.5, a Haiku 5.5 one as 0.025, an Opus 5.5 one as 1. At the step-1 calibration 1 adj. token ≈ 30 raw tokens on Opus. `GET /api/health` says `accounting: "adjusted"` (`BANK_ACCOUNTING`) and `accountingModel: "claude-opus-5-5"`.
+
+Before 2026-11-01 a charge was booked in its session's own model's output tokens (a Haiku adj. token debited like a Fable one). Nothing stored was migrated: inputs, credits, grants, allocations, balances and every past ledger row stay as they were. Migration 076 adds `sessions.bankModel`: `claude-opus-5-5` on every session started since, NULL on older ones, which stay priced in their own model (`sessionTokens(s)`, the one figure grant, goal, finance and funder spend sum, so they keep matching the ledger). A session that was running across the deploy keeps its own model for its whole life. A credit of A adj. tokens is still entered as A, now meaning A Opus 5.5 output tokens.
 
 Entered and booked in it: Bank inputs (`tokens`, `weeklyCapTokens`, `creditedTokens`), donations and allocations (`tokens`, `spentTokens`), grant asks, grants and their history, a grant's spend and exploration spend (their sessions' `adjustedOutputTokens`, summed), building allowances (`dailyTokensPerAgent`, read by nothing since the daily caps were deleted 2026-10-31; `explorationTokensPerDay`, on goals since migration 065), agents' `spentTokensToday` / `spentTokensTotal`, users' `donatedTokens`, the usage ledger (tokens today / all time), Bank credits and debits, pool and building balances, and a report's stamped `tokens`. Sessions keep `tokens` raw (with `adjustedOutputTokens` derived).
 
-Booking (`booked` in core `bank.ts`): a charge's counters are priced at the session's model (per model with `byModel`), so a session's booked tokens equal its `adjustedOutputTokens`. A bare number is already adjusted; its counters are the back-fill split of the raw tokens it stands for (`n × 30` Opus, `n × 24` Fable). A credit of A adj. tokens books `tokens = A` with the back-fill split of `A × ratio`. A draw takes adjusted tokens from each credit and the same share of every counter (`sliceBooked`).
+Booking (`booked` in core `bank.ts`): a charge's counters are priced at the session's model (per model with `byModel`) and converted to Opus 5.5 output tokens, so a session's booked tokens equal its `adjustedOutputTokens` (`sessionTokens`). A bare number is already Bank tokens; its counters are the back-fill split of the raw tokens of the same cost (`n × 30` Opus, `n × 24 / 2.5` Fable). A credit of A adj. tokens books `tokens = A` with the back-fill split of `A × ratio`. A draw takes adjusted tokens from each credit and the same share of every counter (`sliceBooked`).
 
 The five counters stay alongside: ledger rows (`usage`, `bank_debits`, `bank_credits`) store `tokens` (adjusted) and the five counters, and `rawTokens` is their generated sum; an allocation stores `spentTokens` (adjusted) and the five `spent…` counters, `spentRawTokens` generated. `GET /api/bank` adds `rawCreditedTokens`; a grant view adds `spentCounts`. In the web client every token figure says "adj. tokens", and hovering the Bank balance, an input's credited figure, an allocation's spend, a grant's progress or a session shows the five counters and the raw total.
 
@@ -107,7 +109,7 @@ shows 10 cap-death sessions and 12 `budget.exhausted` for 10-20..10-26. Target: 
 
 **The learned cap**: each `bank.cap` gives the subscription's adjusted spend that day when it hit
 (`subscriptionAdjustedToday`). Per UTC day take the lowest; the learned daily cap is the median of those over the last 14
-days. No cap event yet = "no cap seen" and nothing is held.
+days. No cap event yet = "no cap seen" and nothing is held. Since 2026-11-01 (migration 076) spend and cap events are in Opus 5.5 output tokens; earlier `bank.cap` events summed each session in its own model, so a Fable-heavy day reads lower there than it would now.
 
 **The hold**: today's subscription spend is the adjusted output tokens of sessions ended since 00:00 UTC (or since a cap
 reset that already passed today) funded by the subscription. The typical session is the median adjusted size of the last

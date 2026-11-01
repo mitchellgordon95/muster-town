@@ -1494,6 +1494,11 @@ export const Session = z.object({
    * for a token, the api-key input for its key; null for a donor's key (`users.apiKey`) or a session from before 062.
    */
   credentialInputId: Id.nullish(),
+  /**
+   * The model whose output tokens the Bank books this session in (migration 076; 1:1 mt_cyd2t5ioob decision 1): Opus 5.5
+   * for every session since. NULL = a session from before 076, booked in its own model's output tokens.
+   */
+  bankModel: z.string().nullish(),
   /** goal-directed budgets: the spend lane, copied from the assignment at start (null = before lanes existed) */
   lane: SpendLane.nullish(),
   /** the grant this session's tokens count against (a grant's spend is the sum over its sessions) */

@@ -305,7 +305,7 @@ export function FlyView({ fly }: { fly: FinanceFly }) {
 export const FinanceIntro = ({ hosting = false }: { hosting?: boolean }) => (
   <p className="muted finance-intro">
     Every amount here is in <abbr title={ADJ_HINT}>{ADJ}</abbr> (adjusted output tokens): the unit the town pays for AI model work in, where
-    one output token counts 1 and input and cached tokens count at their lower price (1 adj. token ≈ 30 raw tokens on Opus, 24 on Fable).
+    one Opus 5.5 output token counts 1, other models count at their price relative to it (Fable 2.5, Haiku 0.025), and input and cached tokens count at their lower price (1 adj. token ≈ 30 raw tokens on Opus).
     {hosting ? " Hosting (Fly.io), in its own tab, is in US dollars." : ""} A ✓ line under a section means the server checked that its numbers add up; ✗ would say by how much they are off.
   </p>
 );
