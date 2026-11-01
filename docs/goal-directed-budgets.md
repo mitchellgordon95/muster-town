@@ -4,7 +4,7 @@ Status: **steps 1a–c built** (7bef911, 2eae49f, 441a7f3: schema, `Grants` serv
 
 ## Objectives and KPIs (2026-10-27, 1:1 mt_akz25kqo2q, decisions 3 and 4; migration 043)
 
-Status: **built** (Lena, as_g943yt9cr4): migration 043, `core/src/kpis.ts` (`townKpis`), `Grants.objectiveTree` / `createObjective` / `updateObjective` / `deleteObjective`, the routes and verbs below, the grouped board, desk brief and Settings editor, and the Dashboard panel. **2026-11-01 (1:1 mt_ec2b7x80rg, decision 1): the Dashboard panel, its KPI tiles, `core/src/kpis.ts` and `GET /api/kpis` are removed**; the `kpis` table and each objective's KPI label stay. The join funnel (`GET /api/join-funnel`) is unaffected. The Workshop's objectives below are still a draft: nobody has entered them yet. Mitchell and Pix asked for it; there is no North Star metric.
+Status: **built** (Lena, as_g943yt9cr4): migration 043, `core/src/kpis.ts` (`townKpis`), `Grants.objectiveTree` / `createObjective` / `updateObjective` / `deleteObjective`, the routes and verbs below, the grouped board, desk brief and Settings editor, and the Dashboard panel. **2026-11-01 (1:1 mt_ec2b7x80rg, decision 1): the Dashboard panel, its KPI tiles, `core/src/kpis.ts` and `GET /api/kpis` are removed**; the `kpis` table and each objective's KPI label stay. The join funnel (`GET /api/join-funnel`) is unaffected: its numbers (30-day totals, by day, per collective) are the Town Hall's **User stats** stand beside the outbox (`panels/StatsPanel.tsx`, decision 2). The Workshop's objectives below are still a draft: nobody has entered them yet. Mitchell and Pix asked for it; there is no North Star metric.
 
 ### The framing: the town goal is three KPIs
 
@@ -44,7 +44,7 @@ Today all three read 0 or close to it: the town has one funder. That was the hon
 
 ### UI
 
-- ~~**Town dashboard**~~: removed 2026-11-01 (1:1 mt_ec2b7x80rg).
+- ~~**Town dashboard**~~: removed 2026-11-01 (1:1 mt_ec2b7x80rg). The join numbers it showed are the Town Hall's **User stats** stand (place `stats`, `panels/StatsPanel.tsx`).
 - **Building → Settings → Objectives and key results** replaces the flat Key results editor: objectives with their KRs nested, an "Add key result" under each objective, a KPI picker per objective, and an "Unsorted" group with a "Move under…" select.
 - **The board** groups its Key results rows by objective the same way.
 

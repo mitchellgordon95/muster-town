@@ -12,6 +12,23 @@ describe("furniture", () => {
     expect(validateLayout("town-hall", TOWN_HALL_SIZE, piecesFor("town-hall", 3, TOWN_HALL_SIZE))).toEqual([]);
   });
 
+  it("the Town Hall's user stats stand sits beside a two-tile outbox counter; nothing else moved, every spot reachable (1:1 mt_ec2b7x80rg)", () => {
+    const pieces = piecesFor("town-hall", 3, TOWN_HALL_SIZE), by = new Map(pieces.map((p) => [p.key, p]));
+    expect(by.get("outbox")!.cells).toHaveLength(2);
+    expect(by.get("stats")).toMatchObject({ at: { x: 5, y: 6 }, cells: [{ dx: 0, dy: 0, tile: TILE.STATS }], stands: [{ x: 0, y: 1 }] });
+    expect(by.get("intray")!.at).toEqual({ x: 14, y: 9 });
+    const { world } = seededWorld();
+    const door = world.layout.door("town-hall")!;
+    for (const id of ["stats", "outbox", "intray:town-hall", "mod-station", "planning-desk", "visitor-bench", "library", "meeting-room:town-hall"]) {
+      const p = world.layout.requirePlace(id);
+      expect(isWalkable(world.layout.grid, p.pos.x, p.pos.y), id).toBe(true);
+      expect(findPath(world.layout.grid, door, p.pos), id).not.toBeNull();
+    }
+    const stats = world.layout.requirePlace("stats");
+    expect(stats.kind).toBe("stats");
+    expect(at(world, stats.pos.x, stats.pos.y - 1)).toBe(TILE.STATS);
+  });
+
   it("rejects pieces on the door, overlapping, off the floor, or walling off a stand tile", () => {
     const lot = labSize(6), pieces = piecesFor("lab", 6, lot), v = (f: Parameters<typeof validateLayout>[3]) => validateLayout("lab", lot, pieces, f);
     const door = Math.floor(lot.w / 2), desk0 = pieces.find((p) => p.key === "desk:0")!.at;

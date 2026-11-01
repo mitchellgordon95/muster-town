@@ -86,13 +86,15 @@ export function computeLayout(buildings: Building[], agents: Agent[]): Layout {
       );
       for (let x = 2; x <= 6; x++) set(x0 + x, y0 + 2, TILE.SHELF);
       for (let x = 10; x <= 14; x++) for (let y = 2; y <= 3; y++) set(x0 + x, y0 + y, TILE.TOWN_MAP);
-      for (let x = 2; x <= 5; x++) set(x0 + x, y0 + 6, TILE.COUNTER);
+      for (let x = 2; x <= 3; x++) set(x0 + x, y0 + 6, TILE.COUNTER);
+      set(x0 + 5, y0 + 6, TILE.STATS);
       for (let x = 10; x <= 13; x++) set(x0 + x, y0 + 6, TILE.TABLE);
       set(x0 + 1, y0 + 1, TILE.PLANT); set(x0 + bw - 2, y0 + 1, TILE.PLANT);
       places.push(
         { id: "library", kind: "library", name: "Library", buildingId: b.id, pos: { x: x0 + 4, y: y0 + 3 } },
         { id: "town-map", kind: "town-map", name: "Town map (town planning)", buildingId: b.id, pos: { x: x0 + 12, y: y0 + 4 } },
         { id: "outbox", kind: "outbox", name: "Outbox", buildingId: b.id, pos: { x: x0 + 3, y: y0 + 7 } },
+        { id: "stats", kind: "stats", name: "User stats (who saw the guest card, signed in, asked to join, was let in)", buildingId: b.id, pos: { x: x0 + 5, y: y0 + 7 } },
         { id: `meeting-room:${b.id}`, kind: "meeting-room", name: "Town Hall meeting room", buildingId: b.id, pos: { x: x0 + 11, y: y0 + 7 } },
         { id: "plaza", kind: "plaza", name: "Plaza", buildingId: null, pos: { x: door.x, y: roadY } },
       );
