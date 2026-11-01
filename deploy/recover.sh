@@ -6,10 +6,11 @@
 # Usage: deploy/recover.sh [--yes] [--keep] [APP]          APP default muster-town; any other name is a throwaway drill app
 #        deploy/recover.sh --compare <town.db> <agents> <newest-doc>   compare a local copy with given live numbers (no Fly)
 #   (no --yes)  dry run: print every command it would run, change nothing. Read them, then run again with --yes.
-#   --keep      a throwaway APP: leave it running at the end (default: destroy it; it is a writer to the live bucket, see below)
+#   --keep      a throwaway APP: leave it running at the end (default: destroy it; it holds a copy of every live token, see below)
 # What it does, in order (muster-town: refuses while https://muster.town/api/health still answers ok):
 #   1. throwaway APP only: create the app and stage its secrets: the five backup values from this shell's environment and a fresh
-#      random MUSTER_TOWN_DATA_KEY (no Claude token, no GitHub, no desks).
+#      random MUSTER_TOWN_DATA_KEY (no GitHub, no desks). Step 4 deploys it with MUSTER_TOWN_RUNTIME=off (server throwaway.ts): no
+#      runtime, so no sessions on the copy's Bank token, and a restore-only backup that never uploads to or prunes the live bucket.
 #   2. fly volumes create town_data (SIZE GB, default 10 like the live one; REGION default iad). "volume created" is timed from here.
 #   3. destroy the old Machine (--force: on a dead host it can't stop). The old volume is left alone (snapshots: fly volumes snapshots list).
 #   4. deploy/fly/build.sh APP: a fresh image from GitHub BRANCH (default prod, the last green commit), so the first boot runs code that
@@ -24,8 +25,9 @@
 #   GH_TOKEN (repo read) or git ssh access, for build.sh's clone; for a throwaway or for the copy comparison also BUCKET_NAME,
 #   AWS_ENDPOINT_URL_S3, AWS_ACCESS_KEY_ID, AWS_SECRET_ACCESS_KEY, MUSTER_TOWN_BACKUP_KEY. HOST overrides the health host
 #   (default muster.town for muster-town, else <APP>.fly.dev).
-# Drill trap: an app with the five backup secrets writes hourly copies to the same bucket. A throwaway must be gone before the next top of
-#   the hour (the script destroys it unless --keep), or muster.town's next run fails with "... is already in the bucket".
+# A throwaway runs no sessions and never writes to the bucket (MUSTER_TOWN_RUNTIME=off; health shows "throwaway": true and
+#   backup.mode "restore-only"), but its town.db is the live one: it answers to the live login tokens while it runs, so the script
+#   destroys it at the end unless --keep (then destroy it yourself: fly apps destroy APP --yes). Needs a BRANCH with throwaway.ts.
 set -eu
 
 HERE="$(cd "$(dirname "$0")" && pwd)"
@@ -56,7 +58,7 @@ YES=0; KEEP=0; APP=""
 for a in "$@"; do
   case "$a" in
     --yes) YES=1;; --keep) KEEP=1;;
-    -h|--help) sed -n '2,32p' "$0" | sed 's/^# \{0,1\}//'; exit 0;;
+    -h|--help) sed -n '2,30p' "$0" | sed 's/^# \{0,1\}//'; exit 0;;
     --*) echo "unknown flag $a"; exit 2;;
     *) [ -z "$APP" ] || { echo "too many arguments"; exit 2; }; APP="$a";;
   esac
@@ -113,7 +115,8 @@ for m in $OLD_MACHINES; do run "$FLY" machine destroy "$m" -a "$APP" --force; do
 # 4. a fresh image and one Machine on the new volume
 set -- "$APP" --yes --regions "$REGION"
 if [ "$LIVE" = 0 ]; then
-  set -- "$@" --env "MUSTER_TOWN_PUBLIC_URL=https://$HOST" --env 'MUSTER_TOWN_DESKS={"backend":"docker","maxRunning":1}' --env "FLY_APP=none"
+  # MUSTER_TOWN_RUNTIME=off: no sessions on the copy's Bank token, no writes to the live bucket (server throwaway.ts)
+  set -- "$@" --env "MUSTER_TOWN_RUNTIME=off" --env "MUSTER_TOWN_PUBLIC_URL=https://$HOST" --env 'MUSTER_TOWN_DESKS={"backend":"docker","maxRunning":1}' --env "FLY_APP=none"
 fi
 if [ -n "${GH_TOKEN:-}" ] && [ -z "${REPO_URL:-}" ]; then REPO_URL="https://x-access-token:$GH_TOKEN@github.com/mitchellgordon95/muster-town.git"; export REPO_URL; fi
 echo "+ BRANCH=$BRANCH $REPO/deploy/fly/build.sh $*"
@@ -164,8 +167,8 @@ else
 fi
 echo "drill row: | $CREATED | $OK_AT | $((ELAPSED / 60)) min $((ELAPSED % 60)) s | $LIVE_AGENTS | $LIVE_NEWEST | ${KEY:-?} |"
 
-# a throwaway is a writer to the live bucket: gone before the top of the hour
+# a throwaway holds every live token (it answers to the live login tokens while it runs): destroyed unless --keep
 if [ "$LIVE" = 0 ]; then
-  if [ "$KEEP" = 1 ]; then say "--keep: destroy $APP before the next top of the hour: $FLY apps destroy $APP --yes"
+  if [ "$KEEP" = 1 ]; then say "--keep: $APP left running; destroy it when done: $FLY apps destroy $APP --yes"
   else say "destroying $APP"; "$FLY" apps destroy "$APP" --yes; fi
 fi

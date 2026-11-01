@@ -62,6 +62,8 @@ export interface BuildAppOptions {
   retire?: (() => unknown) | null;
   /** recompute `GET /api/health`'s database-backed figures this often and serve the cached copy (main.ts: 5000); 0 = per request (tests) */
   healthRefreshMs?: number;
+  /** MUSTER_TOWN_RUNTIME=off (throwaway.ts): a drill town; `GET /api/health` says `throwaway: true` */
+  throwaway?: boolean;
 }
 
 const API_PREFIXES = ["/api", "/ws", "/mcp", "/auth"];
@@ -77,6 +79,7 @@ export async function buildApp(opts: BuildAppOptions): Promise<FastifyInstance> 
   const load = new LoadMonitor();
   app.decorate("load", load);
   app.decorate("backup", opts.backup ?? null);
+  app.decorate("throwaway", !!opts.throwaway);
   app.decorate("monitor", opts.monitor ?? null);
   app.decorate("hub", opts.hub ?? null);
   app.decorate("directory", !opts.prefix ? opts.directory ?? null : null);

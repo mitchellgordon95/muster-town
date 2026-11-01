@@ -87,9 +87,12 @@ After any restore people sign in again with GitHub (session-secret and admin-tok
 
 **A drill on a throwaway app** (never on muster-town): `deploy/recover.sh --yes recover-drill` with the five backup values and a
 `FLY_API_TOKEN` for the org (`fly tokens create org -o personal -n recover-drill -x 24h`, revoked after) creates the app, stages those
-five plus a fresh `MUSTER_TOWN_DATA_KEY` (no Claude token, no GitHub, no desks), runs the same steps and destroys the app at the end
-(`--keep` leaves it). **Start it right after a top of the hour:** an app with the backup secrets is a writer to the same bucket; if it
-is still up at the next top of the hour, it or muster.town fails with "... is already in the bucket".
+five plus a fresh `MUSTER_TOWN_DATA_KEY` (no GitHub, no desks), and deploys it with **`MUSTER_TOWN_RUNTIME=off`** (throwaway mode,
+`packages/server/src/throwaway.ts`): the restored `town.db` carries the Bank's Claude token, but the drill town starts no runtime (no
+sessions, desks, schedules or hourly export) and its backup is restore-only (the first-boot restore runs; it never uploads or prunes).
+Its boot log says `[server] runtime off (throwaway)`; its health shows `"throwaway": true` and `backup.mode: "restore-only"`. It still
+answers to the live login tokens while it runs, so the script destroys it at the end (`--keep` leaves it: then `fly apps destroy
+recover-drill --yes`). Run it from a `BRANCH` that has `throwaway.ts` (`git ls-tree <branch> packages/server/src/throwaway.ts`); any time of the hour works.
 
 **Drill** (step 3 fills this in from the script's last line):
 
@@ -152,8 +155,9 @@ the same day. Still open:
   `integrity_check`, skipping bad ones (`[restore] <key>: skipped (...)`, then `[restore] <key>: ok, N agents`), before the world is opened, so
   it never seeds. The copy carries the dead town's `backup_state`, so the hourly copies continue. No env, an empty bucket, an unreachable one
   or no good copy: it seeds a new town as before (and the guard keeps that town from uploading over the copies). `RESTORE.tgz` still wins:
-  the entrypoint unpacks it before the server starts. **Any app given the five secrets is a writer to the bucket:** a drill app restored this
-  way starts hourly copies and retention against the same bucket, so stop it before the next top of the hour or give it other credentials.
+  the entrypoint unpacks it before the server starts. **Any app given the five secrets is a writer to the bucket unless it runs with
+  `MUSTER_TOWN_RUNTIME=off`** (throwaway mode: restore-only, never uploads or prunes; `recover.sh` sets it on a drill app). Without it a
+  drill app starts hourly copies and retention against the same bucket.
 - **Restore** (`scripts/backup/restore.sh`, with `scripts/backup/restore-helper.mjs` reusing the server's own cipher and signer; node >= 22.6, no npm install):
   ```sh
   # the five secrets in the environment: the four AWS_*/BUCKET_NAME values from `fly storage` (or `fly ssh console -a muster-town -C env`)
@@ -168,7 +172,8 @@ the same day. Still open:
   The decrypted copy (`~/.muster-restore/<stamp>/data/town.db`) and the scratch town hold every token of the live town in plaintext (`tokens`
   table): delete the directory and destroy the scratch app when done (the script does the latter unless `--keep`). The scratch app gets a
   fresh random `MUSTER_TOWN_DATA_KEY` and none of the live secrets, so the restored collective secrets are unreadable there and it can neither
-  spend tokens nor push to GitHub nor start desks. **Restoring onto muster-town itself** is the "Migrate a town in" path above with this
+  push to GitHub nor start desks; the restored Bank does carry the Claude token, so the script deploys it with `MUSTER_TOWN_RUNTIME=off`
+  (no runtime: it starts no sessions). **Restoring onto muster-town itself** is the "Migrate a town in" path above with this
   `RESTORE.tgz`: stop nothing (the entrypoint swaps the state at the next restart and keeps the replaced state beside it).
 - **Drill (2026-10-28, run by Mitchell with `scripts/backup/restore.sh`):** first backup on health `backup.lastAt` 2026-10-28T17:10:02.951Z,
   13,460,785 bytes to `fly.storage.tigris.dev/muster-town-backups/town/`; restored the one object `town/2026-10-28.db.gz.enc` onto the scratch app

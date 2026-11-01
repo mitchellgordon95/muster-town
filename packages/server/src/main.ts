@@ -1,7 +1,7 @@
 /**
  * Process entry: open the world, seed if empty, start the tick, the HTTP/WS/MCP server, and the runtime.
  * Env (MUSTER_TOWN_<X>, or the old AGENT_TOWN_<X>): COLLECTIVE (collectives/workshop), DATA (<collective>/data),
- * EXPORT (<collective>/export), DEV, ADMIN_NAME. Plain PORT (collective.json port or 4321) and HOST (0.0.0.0).
+ * EXPORT (<collective>/export), DEV, ADMIN_NAME, RUNTIME (off = a throwaway drill town: throwaway.ts). Plain PORT (collective.json port or 4321) and HOST (0.0.0.0).
  */
 import { World } from "@muster-town/core";
 import { assertNoEnvCredentials } from "@muster-town/runtime";
@@ -18,6 +18,7 @@ import { Directory, directoryEnabled } from "./directory/index.ts";
 import { Counters, defaultMetrics, Monitor, processProbes } from "./monitor.ts";
 import { hostedTickCap, TickRotation } from "./ticks.ts";
 import { desksFromEnv, loadEnvFile } from "./env.ts";
+import { runtimeOff, startRuntimeUnlessOff } from "./throwaway.ts";
 import type { RuntimeHooks } from "./context.ts";
 import type { FastifyInstance } from "fastify";
 
@@ -41,6 +42,8 @@ process.env.MUSTER_TOWN_EXPORT = process.env.AGENT_TOWN_EXPORT = resolve(REPO_RO
 // opt-in only: dev mode hands the admin token to any local browser that asks (`npm run dev` sets it)
 /** the hosted collectives (docs/hosted-collectives.md): hub.db and one dir per collective, beside the Workshop's dir (/data/hosted on Fly) */
 const HOSTED_DIR = resolve(DATA_DIR, "../..", "hosted");
+/** MUSTER_TOWN_RUNTIME=off: a drill town restored from a copy runs no sessions and never writes to the bucket (throwaway.ts) */
+const RUNTIME_OFF = runtimeOff(townEnv("RUNTIME"));
 const DEV = ["1", "true", "yes"].includes((townEnv("DEV") ?? "").trim().toLowerCase());
 
 async function main() {
@@ -65,7 +68,7 @@ async function main() {
 
   const auth = loadAuthSettings({ dataDir: DATA_DIR, port: PORT });
   // off-site backup (deploy/README.md "Backups"): local copies beside the data dir (/data/workshop/backups on Fly); inert without the env
-  const backup = new BackupJob({ db: world.db, dir: resolve(DATA_DIR, "..", "backups") });
+  const backup = new BackupJob({ db: world.db, dir: resolve(DATA_DIR, "..", "backups"), restoreOnly: RUNTIME_OFF });
   // in-process monitor (dc_f2hpf9u1ya): town events + Prod FYIs; outside alerts come from the VPS pinger reading /api/health (deploy/pinger)
   const counters = new Counters();
   const probes = processProbes(world, DATA_DIR, () => backup.snapshot(), counters);
@@ -84,7 +87,7 @@ async function main() {
   /** post-mortem 2026-10-31 item 8: one timer ticks the hosted worlds round-robin, at most MUSTER_TOWN_HOSTED_TICK_CAP per 5 s */
   const hostedTicks = new TickRotation({ cap: hostedTickCap(townEnv("HOSTED_TICK_CAP")) });
   const startHosted = async (app: FastifyInstance, w: World, slug: string, dir: string): Promise<void> => {
-    if (!runtimeMod || !url || app.runtime) return;
+    if (RUNTIME_OFF || !runtimeMod || !url || app.runtime) return;
     try {
       // no timer of its own: the host's rotation ticks the hosted worlds one at a time, staggered and capped (ticks.ts)
       const rt = await runtimeMod.startRuntime({ world: w, mcpUrl: `${url}/${slug}/mcp`, repoRoot: REPO_ROOT, collective: slug, exportDir: join(dir, "export"), hosted: { dir }, intervalMs: 0 });
@@ -109,7 +112,7 @@ async function main() {
   });
   await hub.openAll();
   console.log(`[server] hub ${HOSTED_DIR}: ${hub.count} hosted collective(s)${hub.count ? ": " + hub.list("active").map((r) => "/" + r.slug + "/").join(", ") : ""}`);
-  const app = await buildApp({ world, dev: DEV, auth, collective: basename(COLLECTIVE_DIR), backup, monitor, hub, directory, healthRefreshMs: HEALTH_REFRESH_MS });
+  const app = await buildApp({ world, dev: DEV, auth, collective: basename(COLLECTIVE_DIR), backup, monitor, hub, directory, healthRefreshMs: HEALTH_REFRESH_MS, throwaway: RUNTIME_OFF });
   await app.listen({ port: PORT, host: HOST });
   url = `http://localhost:${PORT}`;
   console.log(`[server] Muster Town at ${url} (dev=${DEV})`);
@@ -123,10 +126,12 @@ async function main() {
   directory?.start();
 
   try {
-    if (!runtimeMod) throw new Error(runtimeError);
     // the manager reads the live code (Read, Grep, Glob) from a snapshot under .tmp/ (gitignored)
-    app.runtime = await runtimeMod.startRuntime({ world, mcpUrl: `${url}/mcp`, repoRoot: REPO_ROOT, collective: basename(COLLECTIVE_DIR), codeDir: join(REPO_ROOT, ".tmp", "code-main") });
-    console.log("[server] runtime started");
+    const rt = await startRuntimeUnlessOff(RUNTIME_OFF, async () => {
+      if (!runtimeMod) throw new Error(runtimeError);
+      return runtimeMod.startRuntime({ world, mcpUrl: `${url}/mcp`, repoRoot: REPO_ROOT, collective: basename(COLLECTIVE_DIR), codeDir: join(REPO_ROOT, ".tmp", "code-main") });
+    });
+    if (rt) { app.runtime = rt; console.log("[server] runtime started"); }
   } catch (e) {
     console.warn(`[server] runtime not started (${e instanceof Error ? e.message : String(e)}); interrupts queue for the desk`);
   }

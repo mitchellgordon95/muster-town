@@ -106,20 +106,20 @@ describe("monitor thresholds", () => {
 
   it("backup: yellow on error or a copy older than 2 h, red when older than 6 h (hourly copies) or a fresh town refuses", async () => {
     const { r, m, step } = await setup();
-    r.state.backup = { lastAt: new Date(r.now() - 1.5 * 3600_000).toISOString(), verifiedAt: null, bytes: 1, dest: "s3://b/", error: null };
+    r.state.backup = { lastAt: new Date(r.now() - 1.5 * 3600_000).toISOString(), verifiedAt: null, bytes: 1, dest: "s3://b/", error: null, mode: "hourly" };
     await step(1);
     expect(m.view().alerts).toEqual([]);
-    r.state.backup = { lastAt: new Date(r.now() - 0.5 * 3600_000).toISOString(), verifiedAt: null, bytes: 1, dest: "s3://b/", error: "verify town/x failed: boom" };
+    r.state.backup = { lastAt: new Date(r.now() - 0.5 * 3600_000).toISOString(), verifiedAt: null, bytes: 1, dest: "s3://b/", error: "verify town/x failed: boom", mode: "hourly" };
     await step(1);
     expect(m.view().alerts).toMatchObject([{ key: "backup", level: "yellow" }]);
-    r.state.backup = { lastAt: new Date(r.now() - 3 * 3600_000).toISOString(), verifiedAt: null, bytes: 1, dest: "s3://b/", error: null };
+    r.state.backup = { lastAt: new Date(r.now() - 3 * 3600_000).toISOString(), verifiedAt: null, bytes: 1, dest: "s3://b/", error: null, mode: "hourly" };
     await step(1);
     expect(m.view().alerts).toMatchObject([{ key: "backup", level: "yellow" }]);
     // a fresh town refusing to upload over the copies is red at once (gr_z2v838adk9)
-    r.state.backup = { lastAt: null, verifiedAt: null, bytes: null, dest: "s3://b/", error: "fresh town; restore first: the bucket holds 3" };
+    r.state.backup = { lastAt: null, verifiedAt: null, bytes: null, dest: "s3://b/", error: "fresh town; restore first: the bucket holds 3", mode: "hourly" };
     await step(1);
     expect(m.view().alerts).toMatchObject([{ key: "backup", level: "red" }]);
-    r.state.backup = { lastAt: new Date(r.now() - 7 * 3600_000).toISOString(), verifiedAt: null, bytes: 1, dest: "s3://b/", error: null };
+    r.state.backup = { lastAt: new Date(r.now() - 7 * 3600_000).toISOString(), verifiedAt: null, bytes: 1, dest: "s3://b/", error: null, mode: "hourly" };
     await step(1);
     expect(m.view().alerts).toMatchObject([{ key: "backup", level: "red" }]);
   });
