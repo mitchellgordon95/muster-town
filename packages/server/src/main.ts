@@ -11,6 +11,7 @@ import { basename, dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { buildApp } from "./app.ts";
 import { BackupJob } from "./backup/index.ts";
+import { restoreOnFirstBoot } from "./backup/restore.ts";
 import { loadAuthSettings } from "./auth/index.ts";
 import { Hub } from "./hub.ts";
 import { Directory, directoryEnabled } from "./directory/index.ts";
@@ -44,6 +45,8 @@ const DEV = ["1", "true", "yes"].includes((townEnv("DEV") ?? "").trim().toLowerC
 
 async function main() {
   mkdirSync(DATA_DIR, { recursive: true });
+  // a new volume with the backup env is a dead town's, not a new one: town.db from the newest good off-site copy before seeding
+  await restoreOnFirstBoot({ dbPath: join(DATA_DIR, "town.db") });
   const world = World.open(join(DATA_DIR, "town.db"));
   const seed = world.seedDefaults({
     adminName: townEnv("ADMIN_NAME"),

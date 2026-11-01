@@ -13,7 +13,7 @@
 import { createDoc, TOWN_HALL_ID, updateDoc, type World } from "@muster-town/core";
 import { readFileSync, statfsSync } from "node:fs";
 import { monitorEventLoopDelay, type IntervalHistogram } from "node:perf_hooks";
-import type { BackupView } from "./backup/index.ts";
+import { FRESH_TOWN, type BackupView } from "./backup/index.ts";
 
 type Level = "yellow" | "red";
 
@@ -157,7 +157,8 @@ export function defaultMetrics(p: Probes): Metric[] {
         if (!b) return null;
         const ageH = b.lastAt ? Math.round(((now - Date.parse(b.lastAt)) / HOUR_MS) * 10) / 10 : -1;
         // hourly copies (grant gr_ba0juhlm7n): two missed hours is yellow, six is red; a failed run or verification is yellow at once
-        return { value: ageH, yellow: b.error != null || ageH > 2, red: ageH > 6 };
+        // a fresh town refusing to upload over the copies (gr_z2v838adk9) is red at once: someone must restore it
+        return { value: ageH, yellow: b.error != null || ageH > 2, red: ageH > 6 || !!b.error?.startsWith(FRESH_TOWN) };
       } },
     // the windows are in the counters / the query, so these alert on the sample that crosses
     { key: "5xx", describe: (v) => `${v}% of HTTP responses were 5xx over 5 min`, yellowForMs: 0, redForMs: 0,

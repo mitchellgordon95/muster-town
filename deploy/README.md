@@ -103,6 +103,17 @@ the same day. Still open:
   credentials), or `backup: null` while any of the five env vars is missing: the job is then off, with one boot warning naming them. Healthy:
   `lastAt` = `verifiedAt`, under ~70 min old, `error` null. The monitor's `backup` metric goes yellow on `error` or a copy older than 2 h, red
   older than 6 h.
+- **Guards** (grant gr_z2v838adk9): before any upload the job lists the bucket. A town that has never made a copy (`backup_state.lastAt`
+  null) **refuses to upload while the bucket holds copies**: `backup.error` "fresh town; restore first: ...", the monitor's `backup` metric
+  red, nothing uploaded or pruned, every hour until someone restores. A run **never replaces an object**: if this hour's key is already in
+  the bucket (another writer), the run fails with "... is already in the bucket" and the object stays.
+- **First-boot restore** (`packages/server/src/backup/restore.ts`, grant gr_z2v838adk9): a server that starts with **no `town.db`** and the five
+  backup env vars (a new volume) lists the bucket and makes `town.db` from the newest object that downloads, decrypts, gunzips and passes
+  `integrity_check`, skipping bad ones (`[restore] <key>: skipped (...)`, then `[restore] <key>: ok, N agents`), before the world is opened, so
+  it never seeds. The copy carries the dead town's `backup_state`, so the hourly copies continue. No env, an empty bucket, an unreachable one
+  or no good copy: it seeds a new town as before (and the guard keeps that town from uploading over the copies). `RESTORE.tgz` still wins:
+  the entrypoint unpacks it before the server starts. **Any app given the five secrets is a writer to the bucket:** a drill app restored this
+  way starts hourly copies and retention against the same bucket, so stop it before the next top of the hour or give it other credentials.
 - **Restore** (`scripts/backup/restore.sh`, with `scripts/backup/restore-helper.mjs` reusing the server's own cipher and signer; node >= 22.6, no npm install):
   ```sh
   # the five secrets in the environment: the four AWS_*/BUCKET_NAME values from `fly storage` (or `fly ssh console -a muster-town -C env`)
