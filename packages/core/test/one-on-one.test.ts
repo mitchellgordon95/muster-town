@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { meetingNotice } from "../src/meetings.ts";
 import { oneOnOnePrompt } from "../src/prompts.ts";
-import { buildingRoleId } from "../src/index.ts";
+import { buildingRoleId, oneOnOneMemberBlock, townRoleId } from "../src/index.ts";
 import { seededWorld } from "./helpers.ts";
 
 describe("the manager's 1:1", () => {
@@ -121,5 +121,57 @@ describe("the manager's 1:1", () => {
     const other = world.buildings.first("id != ? AND kind != 'town-hall'", ["carbon-cycle"]);
     if (other) expect(() => world.ops.openOneOnOne(admin, other.id, { grantId })).toThrow(/another building/);
     expect(() => world.ops.openOneOnOne(admin, "carbon-cycle", { grantId: "gr_nope" })).toThrow(/not found|No grant|Grant/);
+  });
+});
+
+describe("a member's 1:1 with a manager (gr_58n37j410s step 1)", () => {
+  it("a let-in member opens the default 1:1 (not a target, not the Town Hall), one new 1:1 a UTC day; returning is allowed; admins uncapped", async () => {
+    const { world, by, admin } = seededWorld();
+    const mei = by("Mei");
+    world.ops.updateBuilding(admin, "carbon-cycle", { managerAgentId: mei.id });
+    const other = world.ops.createBuilding(admin, { name: "New lab" });
+    world.agents.patch(by("Noor").id, { homeBuildingId: other.id, buildingId: other.id });
+    world.ops.updateBuilding(admin, other.id, { managerAgentId: by("Noor").id });
+    const user = (name: string, role: "member" | "visitor") => {
+      const { user: u } = world.ops.createUser(name);
+      world.permissions.grant({ kind: "user", id: u.id }, townRoleId(role));
+      return world.ops.ensureAvatar(u.id);
+    };
+    const ana = user("Ana", "member");
+    const vic = user("Vic", "visitor");
+    // a visitor (not let in) can't
+    expect(() => world.ops.openOneOnOne(vic, "carbon-cycle")).toThrow(/meeting.facilitate/);
+    // a member: no doc/agent/grant targets, and not the Town Hall's Planner
+    const doc = world.docs.first("authorId = ?", [mei.id]) ?? world.docs.all()[0];
+    expect(() => world.ops.openOneOnOne(ana, "carbon-cycle", { agentId: mei.id })).toThrow(/As a member you talk to/);
+    if (doc) expect(() => world.ops.openOneOnOne(ana, "carbon-cycle", { docId: doc.id })).toThrow(/As a member you talk to/);
+    const th = world.buildings.first("kind = 'town-hall'")!;
+    expect(() => world.ops.openOneOnOne(ana, th.id)).toThrow();
+    // the default 1:1 with the manager
+    const m = world.ops.openOneOnOne(ana, "carbon-cycle");
+    expect(m).toMatchObject({ kind: "one-on-one", phase: "discussing", facilitatorId: mei.id, withUserId: world.holderOf(ana).id });
+    // the manager's prompt says who they are talking to; an admin's 1:1 has no such line
+    expect(oneOnOneMemberBlock(world, m)).toMatch(/new member of the town[\s\S]*not a human source for a directed assignment/);
+    expect(oneOnOneMemberBlock(world, world.ops.openOneOnOne(admin, "carbon-cycle"))).toBe("");
+    // they speak, the manager answers
+    world.ops.meetingSay(ana, m.id, "Hi, what does this building do?");
+    await world.verbs.meeting(mei, { meetingId: m.id, action: "speak", text: "We track the carbon cycle. Start with Connect your agent." });
+    // returning to the open one is not new
+    expect(world.ops.openOneOnOne(ana, "carbon-cycle").id).toBe(m.id);
+    // a second NEW 1:1 the same UTC day is refused, in any building, with a clear sentence (409 conflict)
+    let err: unknown;
+    try { world.ops.openOneOnOne(ana, other.id); } catch (e) { err = e; }
+    expect(err).toMatchObject({ code: "conflict" });
+    expect((err as Error).message).toMatch(/You already opened a 1:1 today; members get one new 1:1 a day/);
+    // the member ends their own 1:1; a new one the same day is still refused
+    expect(world.ops.endMeeting(ana, m.id).phase).toBe("done");
+    expect(() => world.ops.openOneOnOne(ana, "carbon-cycle")).toThrow(/one new 1:1 a day/);
+    // the next UTC day it opens (the count is from today's midnight)
+    world.meetings.upsert({ ...world.meetings.require(m.id), createdAt: "2000-01-01T12:00:00.000Z" });
+    expect(world.ops.openOneOnOne(ana, other.id).facilitatorId).toBe(by("Noor").id);
+    // admins are uncapped
+    world.ops.endMeeting(admin, world.ops.openOneOnOne(admin, "carbon-cycle").id);
+    world.ops.endMeeting(admin, world.ops.openOneOnOne(admin, "carbon-cycle").id);
+    expect(world.ops.openOneOnOne(admin, other.id).phase).toBe("discussing");
   });
 });
