@@ -9,7 +9,7 @@ import { clock, dayClock } from "../src/panels/ui";
 
 const kr = (id: string, status: string, due: string | null = "2026-12-01", archivedAt: string | null = null) =>
   ({ id, text: id, howToCheck: "look", status, due, archivedAt, buildingId: "b", grantId: null });
-const admins = { goalId: "gl_town", userId: null, name: "the town admins" };
+const admins = { goalId: "gl_town", userId: "us_mitchell", name: "Mitchell" };
 function goal(id: string, parentId: string | null, over: Partial<GoalTreeNode> = {}): GoalTreeNode {
   return { id, parentId, text: id, status: "active", ownerId: null, owner: admins, buildings: [], keyResults: [], children: [], ...over };
 }
@@ -174,6 +174,19 @@ describe("the goal tree editor's nodes (UX pass dc_yn8gl1rmyt)", () => {
     const z = zoomAt({ x: 10, y: 20, k: 1 }, 2, 110, 120);
     expect([(110 - z.x) / z.k, (120 - z.y) / z.k]).toEqual([100, 100]);
     expect(zoomAt({ x: 0, y: 0, k: 1 }, 100, 0, 0).k).toBe(2);
+    // Fit is not floored at the 25% minimum zoom: a 3000 px tree in the 320 px narrowest panel still fits whole, centred
+    for (const [vw, vh] of [[320, 500], [742, 600], [400, 120]] as const) {
+      const wide = { width: 3000, height: 400 }, f = fitView(wide, vw, vh);
+      expect(f.x).toBeGreaterThanOrEqual(0);
+      expect(f.x + wide.width * f.k).toBeLessThanOrEqual(vw + 1e-9);
+      expect(f.y + wide.height * f.k).toBeLessThanOrEqual(vh + 1e-9);
+      expect(f.x).toBeCloseTo((vw - wide.width * f.k) / 2);
+    }
+    expect(fitView({ width: 3000, height: 400 }, 320, 500).k).toBeLessThan(0.25);
+    // zooming out from below the minimum stays put; zooming in leaves it
+    expect(zoomAt({ x: 0, y: 0, k: 0.1 }, 0.5, 0, 0).k).toBe(0.1);
+    expect(zoomAt({ x: 0, y: 0, k: 0.1 }, 1.2, 0, 0).k).toBeCloseTo(0.12);
+    expect(zoomAt({ x: 0, y: 0, k: 0.3 }, 0.5, 0, 0).k).toBe(0.25);
     expect(revealBox({ x: 0, y: 0, k: 1 }, { x: 10, y: 10, h: BOX.h }, 800, 600)).toBeNull();
     expect(revealBox({ x: 0, y: 0, k: 1 }, { x: 2000, y: 10, h: BOX.h }, 800, 600)).toEqual({ k: 1, x: 400 - 2000 - BOX.w / 2, y: 300 - 10 - BOX.h / 2 });
   });
