@@ -1131,7 +1131,8 @@ export const GoalStatus = z.enum(["active", "retired"]);
 /**
  * A standing goal of the town tree: a direction, never met. One root (the town goal); any goal may have child goals
  * (depth unbounded); key results are dated leaves under a goal. `ownerId`: a human (user id) who edits and funds within
- * the subtree; null = the nearest owned ancestor's (the root's owner is the town admins).
+ * the subtree; null = the nearest owned ancestor's. The root always has one (seeded with the collective's first admin,
+ * migration 078), so every goal has a captain.
  */
 export const Goal = z.object({
   id: Id,
@@ -1215,10 +1216,11 @@ export interface GoalFunding {
 }
 /**
  * Where a Town Hall item routes, as one viewer sees it (docs/goals.md "Routing", build step 4): the goal it belongs to,
- * that goal's effective owner (null = the town admins), whether it is the viewer's ("Mine") and whether the viewer may
- * decide it (an admin anywhere; a goal's owner on grants and goal proposals in their subtree).
+ * that goal's effective owner (always a user: the root always has a captain), whether it is the viewer's ("Mine": the
+ * owner is the viewer, nothing else) and whether the viewer may decide it (an admin anywhere; a goal's owner on grants
+ * and goal proposals in their subtree).
  */
-export interface IntrayRoute { goalId: string; ownerId: string | null; ownerName: string; mine: boolean; canDecide: boolean }
+export interface IntrayRoute { goalId: string; ownerId: string; ownerName: string; mine: boolean; canDecide: boolean }
 /** The in-tray's routes keyed by item id (grant, goal proposal or report), and the viewer's default list. */
 export interface IntrayRoutes { routes: Record<string, IntrayRoute>; defaultView: "mine" | "all" }
 
@@ -2148,7 +2150,7 @@ export const AccessDecisionInput = z.object({ grant: z.boolean() });
 export const CaptainRequestStatus = z.enum(["pending", "accepted", "declined"]);
 /**
  * "Ask to captain this goal" (grant gr_bwm0iz7rwl, kr_j1w17nw178): a member asks to become a goal's captain (its
- * `ownerId`). The request routes to the goal's current captain (inherited down the tree; the town admins at the root);
+ * `ownerId`). The request routes to the goal's current captain (inherited down the tree; the root always has one);
  * accepting sets `ownerId`. One pending request per (goal, user).
  */
 export const CaptainRequest = z.object({
@@ -2168,8 +2170,8 @@ export type CaptainRequest = z.infer<typeof CaptainRequest>;
 /** A Town Hall in-tray row: the request plus who asked, the goal's words and who decides it now. */
 export type CaptainRequestView = CaptainRequest & {
   name: string; githubLogin: string | null; avatarUrl: string | null; goalText: string;
-  /** the goal's current captain (its own or inherited): null = the town admins */
-  captainId: string | null; captainName: string;
+  /** the goal's current captain (its own or inherited; the root always has one) */
+  captainId: string; captainName: string;
 };
 export const CaptainRequestInput = z.object({ note: z.string().trim().max(280).optional() });
 export const CaptainDecisionInput = z.object({ action: z.enum(["accept", "decline"]), note: z.string().trim().max(280).optional() });

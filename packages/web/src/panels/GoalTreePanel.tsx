@@ -397,14 +397,14 @@ function AskToCaptain({ node, userId }: { node: GoalTreeNode; userId: string }) 
   if (mine) return <div className="muted goal-meta captain-ask">You asked to captain this goal {timeAgo(mine.createdAt)}. It is in the Town Hall in-tray for {mine.captainName} to accept or decline.</div>;
   const ask = async () => {
     await api().askToCaptain(node.id, note.trim() || undefined);
-    store.toast(`Asked to captain "${node.text}": ${node.owner.name} ${node.owner.userId ? "decides" : "decide"} from the Town Hall in-tray.`, "ok");
+    store.toast(`Asked to captain "${node.text}": ${node.owner.name} decides from the Town Hall in-tray.`, "ok");
     setOpen(false); setNote(""); asks.reload();
   };
   return (
     <div className="captain-ask">
       {open ? (
         <div className="goal-form">
-          <Field label="Why you (optional)" hint={`The captain steers this goal: its in-tray items route to them, and they fund, counter or reject grants and write key results under it. ${node.owner.name} ${node.owner.userId ? "decides" : "decide"}.`}>
+          <Field label="Why you (optional)" hint={`The captain steers this goal: its in-tray items route to them, and they fund, counter or reject grants and write key results under it. ${node.owner.name} decides.`}>
             <textarea rows={2} maxLength={280} autoFocus placeholder="One line on what you'd steer it toward" value={note} onChange={(e) => setNote(e.target.value)} />
           </Field>
           <div className="actions">
@@ -418,7 +418,7 @@ function AskToCaptain({ node, userId }: { node: GoalTreeNode; userId: string }) 
   );
 }
 
-/** Captains are humans (docs/goals.md "Captains on nodes"): any user who holds a role, or me; empty = inherit from above. */
+/** Captains are humans (docs/goals.md "Captains on nodes"): any user who holds a role, or me; empty = inherit from above (not at the root: it always has a captain). */
 function OwnerForm({ node, me, onDone }: { node: GoalTreeNode; me: { userId: string | null }; onDone: () => void }) {
   const roles = useLoad(() => api().roles(), []);
   const ids = [...new Set([...(me.userId ? [me.userId] : []), ...(roles.data?.memberships ?? []).filter((m) => m.holderKind === "user").map((m) => m.holderId), ...(node.ownerId ? [node.ownerId] : [])])];
@@ -428,7 +428,7 @@ function OwnerForm({ node, me, onDone }: { node: GoalTreeNode; me: { userId: str
     <div className="goal-form">
       <Field label="Captain" hint="The captain edits this goal and everything under it, and decides and funds grants there.">
         <select value={owner} onChange={(e) => setOwner(e.target.value)}>
-          <option value="">{node.parentId ? "Nobody here (inherit from above)" : "The town admins"}</option>
+          {node.parentId ? <option value="">Nobody here (inherit from above)</option> : null}
           {ids.map((id) => <option key={id} value={id}>{nameOf(id)}</option>)}
         </select>
       </Field>
