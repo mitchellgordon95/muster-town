@@ -286,9 +286,11 @@ export function isMyAccessDecision(e: Event, userId: string | undefined): boolea
   return !!userId && e.type === "system" && !!e.payload.accessRequestId && e.payload.userId === userId && typeof e.payload.granted === "boolean";
 }
 
-/** The toast for a change in `me` after a decision, or null when nothing changed (a stale event, a refetch of the same state). */
+/**
+ * The toast for a change in `me` after a decision, or null when nothing changed (a stale event, a refetch of the same
+ * state). Being let in has no toast: the HUD's one-time "You're in" card says it, live or on the next visit (youreIn.ts).
+ */
 export function accessDecisionToast(before: AuthMe | null, after: AuthMe): { text: string; tone: "ok" | "info" } | null {
-  if (before?.canInteract === false && after.canInteract) return { text: "You're in: an admin let you join. You can walk, talk and connect your agent now.", tone: "ok" };
   if (before?.accessRequest?.status === "pending" && after.accessRequest?.status === "declined") return { text: "Your request to join was declined this time. You can ask again tomorrow.", tone: "info" };
   return null;
 }

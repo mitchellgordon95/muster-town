@@ -29,8 +29,8 @@ describe("a join request decided live (flag dc_1kylouq1l7)", () => {
     expect(calls).toBe(2);
   });
 
-  test("toasts only on a real change: let in, declined, or nothing", () => {
-    expect(accessDecisionToast(me(false, "pending"), me(true, "granted"))?.tone).toBe("ok");
+  test("toasts only on a decline; being let in is the HUD's You're in card, not a toast", () => {
+    expect(accessDecisionToast(me(false, "pending"), me(true, "granted"))).toBeNull();
     expect(accessDecisionToast(me(false, "pending"), me(false, "declined"))?.tone).toBe("info");
     expect(accessDecisionToast(me(true, "granted"), me(true, "granted"))).toBeNull();
     expect(accessDecisionToast(me(false, "declined"), me(false, "declined"))).toBeNull();
