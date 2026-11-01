@@ -2,6 +2,7 @@ import {
   AccessRequest, Agent, Allocation, CaptainRequest, Assignment, BankCredit, BankDebit, BankInput, BankReservation, Building, BuildingDefaults, DesksConfig, Doc, Goal, GoalChange, GoalProposal, Grant, Interrupt, KeyResult, Kpi, Objective, Meeting, Membership, Message, Place, Role, Schedule, Session, SkillPin, Town, UsageEntry, User,
   townEnv, type ServerMessage, type TokenCountKind, type TokenCounts,
 } from "@muster-town/schema";
+import { createHash } from "node:crypto";
 import type { DB } from "./db.ts";
 import { Table } from "./table.ts";
 import { Emitter, newToken, nowIso } from "./util.ts";
@@ -16,7 +17,8 @@ type Counted<T extends TokenCounts & { rawTokens: number }> = Derived<T, "rawTok
 /** A write to a session: its raw `tokens` total is derived from the five counters. */
 type SessionWrite = Derived<Session, "tokens" | TokenCountKind>;
 type SpentKind = "spentRawTokens" | "spentInput" | "spentOutput" | "spentCacheRead" | "spentCacheWrite5m" | "spentCacheWrite1h";
-export interface TokenRow { token: string; kind: TokenKind; id: string; createdAt: string }
+/** A login token row: `token` is its sha256 hash (`sha256:<hex>`), never the token; `sessionId` set for a per-session agent token. */
+export interface TokenRow { token: string; kind: TokenKind; id: string; createdAt: string; sessionId?: string | null }
 
 export class Memberships {
   constructor(private db: DB) {}
@@ -43,26 +45,82 @@ export class Memberships {
   }
 }
 
+/** The stored form of a login token (docs/secrets.md "Login tokens"): `sha256:<hex>`. Tokens are random (newToken), so unsalted is enough. */
+export function hashToken(token: string): string {
+  return `sha256:${createHash("sha256").update(token).digest("hex")}`;
+}
+const HASHED = "sha256:%";
+
+/**
+ * Hash every plaintext login token in place (the boot back-fill; openDb runs it after the migrations). Idempotent: a
+ * hashed row is left alone, so every token handed out before keeps working (it is hashed again when presented).
+ */
+export function hashPlaintextTokens(db: DB): number {
+  const rows = db.prepare("SELECT token FROM tokens WHERE token NOT LIKE ?").all(HASHED) as { token: string }[];
+  if (!rows.length) return 0;
+  const up = db.prepare("UPDATE OR IGNORE tokens SET token = ? WHERE token = ?");
+  db.transaction(() => { for (const r of rows) up.run(hashToken(r.token), r.token); })();
+  return rows.length;
+}
+
+/**
+ * Login tokens, stored hashed (sha256): the plaintext is returned once, to whoever the token is created for, and never
+ * read back. A session's own token (`createForSession`) is revoked when the session ends (ops.endSession).
+ */
 export class Tokens {
+  /** plaintext of the tokens this process issued through `getOrCreate`, by `kind:id` (a hashed row can't be read back) */
+  private issued = new Map<string, string>();
   constructor(private db: DB) {}
-  create(kind: TokenKind, id: string): string {
+  create(kind: TokenKind, id: string, sessionId: string | null = null): string {
     const token = newToken();
-    this.db.prepare("INSERT INTO tokens (token, kind, id, createdAt) VALUES (?, ?, ?, ?)").run(token, kind, id, nowIso());
+    this.db.prepare("INSERT INTO tokens (token, kind, id, createdAt, sessionId) VALUES (?, ?, ?, ?, ?)").run(hashToken(token), kind, id, nowIso(), sessionId);
     return token;
   }
-  /** Existing token for this holder, or a new one. */
+  /** A token for one session of an agent; revoked when that session ends (`revokeSession`). */
+  createForSession(agentId: string, sessionId: string): string {
+    return this.create("agent", agentId, sessionId);
+  }
+  /**
+   * The token this process issued for this holder, or a new one. Tokens are stored hashed, so one issued before a
+   * restart can't be handed out again: after a restart this issues a fresh token (the old ones keep working).
+   */
   getOrCreate(kind: TokenKind, id: string): string {
-    const row = this.db.prepare("SELECT token FROM tokens WHERE kind = ? AND id = ? ORDER BY createdAt LIMIT 1").get(kind, id) as { token: string } | undefined;
-    return row?.token ?? this.create(kind, id);
+    const key = `${kind}:${id}`;
+    const had = this.issued.get(key);
+    if (had && this.resolve(had)) return had;
+    const token = this.create(kind, id);
+    this.issued.set(key, token);
+    return token;
+  }
+  /**
+   * Make sure this plaintext token (e.g. the admin token file) resolves to this holder: its hash is inserted if missing.
+   * false when the token already belongs to someone else.
+   */
+  ensure(kind: TokenKind, id: string, token: string): boolean {
+    this.db.prepare("INSERT OR IGNORE INTO tokens (token, kind, id, createdAt) VALUES (?, ?, ?, ?)").run(hashToken(token), kind, id, nowIso());
+    const row = this.resolve(token);
+    return !!row && row.kind === kind && row.id === id;
   }
   resolve(token: string): TokenRow | undefined {
-    return this.db.prepare("SELECT * FROM tokens WHERE token = ?").get(token) as TokenRow | undefined;
+    const row = this.db.prepare("SELECT * FROM tokens WHERE token = ?").get(hashToken(token)) as TokenRow | undefined;
+    if (row) return row;
+    // a plaintext row the back-fill hasn't reached (written by an older process): hash it now. Never match a stored hash
+    // presented as the token itself, or a copy of the database would hand out logins.
+    const legacy = this.db.prepare("SELECT * FROM tokens WHERE token = ? AND token NOT LIKE ?").get(token, HASHED) as TokenRow | undefined;
+    if (!legacy) return undefined;
+    this.db.prepare("UPDATE OR IGNORE tokens SET token = ? WHERE token = ?").run(hashToken(token), token);
+    return { ...legacy, token: hashToken(token) };
   }
   revoke(token: string): void {
-    this.db.prepare("DELETE FROM tokens WHERE token = ?").run(token);
+    this.db.prepare("DELETE FROM tokens WHERE token IN (?, ?) AND (token = ? OR token NOT LIKE ?)").run(hashToken(token), token, hashToken(token), HASHED);
+  }
+  /** Revoke a session's own tokens (ops.endSession). Returns how many were removed. */
+  revokeSession(sessionId: string): number {
+    return this.db.prepare("DELETE FROM tokens WHERE sessionId = ?").run(sessionId).changes;
   }
   /** Revoke every token of a holder. Returns how many were removed. */
   revokeAll(kind: TokenKind, id: string): number {
+    for (const k of [...this.issued.keys()]) if (k === `${kind}:${id}`) this.issued.delete(k);
     return this.db.prepare("DELETE FROM tokens WHERE kind = ? AND id = ?").run(kind, id).changes;
   }
 }

@@ -230,8 +230,9 @@ export function fundedBy(auth: AllocationAuth | null | undefined): string {
   return auth === "subscription" ? "funded by subscription" : auth === "donor-key" ? "funded by a donor's API key" : auth === "api-key" ? "funded by API key" : "unfunded";
 }
 
-export function townOptions(ctx: Ctx, spec: SessionSpec, credential: Credential): Options {
-  const token = ctx.world.tokens.getOrCreate("agent", spec.agentId);
+export function townOptions(ctx: Ctx, spec: SessionSpec, credential: Credential, sessionId?: string): Options {
+  // the session's own token, revoked when it ends (docs/secrets.md "Login tokens")
+  const token = sessionId ? ctx.world.tokens.createForSession(spec.agentId, sessionId) : ctx.world.tokens.getOrCreate("agent", spec.agentId);
   const townTools = spec.verbs ? spec.verbs.map((v) => `mcp__town__${v}`) : TOWN_TOOLS;
   const readTools: string[] = spec.code ? [...CODE_TOOLS] : [];
   return {
@@ -313,7 +314,7 @@ export async function runAgentSession(ctx: Ctx, spec: SessionSpec): Promise<Sess
     if (queued.length) world.ops.ackInterrupts(queued.map((i) => i.id));
   }
   try {
-    const q = ctx.sdk.query({ prompt: live.input, options: townOptions(ctx, spec, funding.credential) });
+    const q = ctx.sdk.query({ prompt: live.input, options: townOptions(ctx, spec, funding.credential, session.id) });
     live.q = q;
     for await (const raw of q) {
       const m = raw as LooseMessage;
