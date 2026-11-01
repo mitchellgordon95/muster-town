@@ -183,5 +183,9 @@ describe("financeSpend (GET /api/finance/spend)", () => {
     expect(f.check).toMatchObject({ ok: true, diff: 0 });
     expect(sum(f.rows)).toBe(f.used);
     expect(f.rows.find((r) => r.id === b.id)!.children).toEqual([expect.objectContaining({ kind: "no-assignment", tokens: 800, sessions: 1 })]);
+    // dollars (gr_gmzli3f96j): the 800 Opus-booked tokens at $20/M, the same used dollars on both endpoints, the rows close
+    expect(f.rows.find((r) => r.id === b.id)!.usd).toBe(0.02);
+    expect(f.usd.used).toBe(world.bank.finance(T0).usd.used);
+    expect(f.usdSumCheck.ok).toBe(true);
   });
 });

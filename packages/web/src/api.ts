@@ -127,6 +127,8 @@ export interface Finance {
     runway: "covered" | "days" | "no-usage";
   };
   sumCheck: { ok: boolean; diff: number; identity: string };
+  /** dollars at API list price (display only): used = Σ sessions' list cost (each at its booking model's output price) + the rest at $20/M; left, burn and inflow at Opus 5.5's $20/M */
+  usd?: { used: number; left: number; burnPerDay: number; inflowPerDay: number; pricedAt: "api-list" };
   at: string;
 }
 /** One row of `GET /api/finance/spend`: a building, grant or assignment, or a synthetic row (no grant, no assignment, unattributed, weight mismatch, not funded). */
@@ -142,6 +144,8 @@ export interface SpendNode {
   /** tokens / used; negative for the weight-mismatch and not-funded rows */
   share: number;
   sessions: number;
+  /** the row's dollars at API list price, to the cent (optional here: a server older than the dollars sends none) */
+  usd?: number;
   children?: SpendNode[];
 }
 /** `GET /api/finance/spend` (public) — core's FinanceSpend: `used` by building → grant → assignment; the top-level rows sum to `used`. */
@@ -160,6 +164,10 @@ export interface FinanceSpend {
   notFundedSplitCheck: { sum: number; notFunded: number; ok: boolean; reason?: string };
   rows: SpendNode[];
   check: { ok: boolean; diff: number; identity: string };
+  /** the same in dollars at API list price; `used` equals GET /api/finance `usd.used` */
+  usd?: { used: number; sessionsTotal: number; unattributed: number; weightMismatch: number; notFunded: number };
+  /** the rows' dollars summed vs `usd.used` */
+  usdSumCheck?: { ok: boolean; diff: number; identity: string };
   at: string;
 }
 /** One dated credit of a Bank input in `GET /api/finance/sources`; `expiredTokens` is what expired undrawn (subscription credits only). */
