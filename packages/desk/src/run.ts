@@ -318,6 +318,10 @@ export async function runSession(sessionId: string, deps: RunDeps): Promise<numb
                 post({ kind: "thought", text: t.length > THOUGHT_CHARS ? t.slice(0, THOUGHT_CHARS - 1) + "…" : t });
               }
             }
+          } else if (m.type === "rate_limit_event") {
+            // the plan's word on the window (the server records or clears a limit on the Bank input, core availability.ts)
+            const info = (m as { rate_limit_info?: { status?: string; resetsAt?: number; rateLimitType?: string } }).rate_limit_info;
+            if (info) post({ kind: "rate-limit", rateLimit: { status: info.status, resetsAt: info.resetsAt, rateLimitType: info.rateLimitType } });
           } else if (m.type === "user") {
             for (const b of blocksOf(m)) {
               // each call's outcome, one line, for the manager's `fork_status`

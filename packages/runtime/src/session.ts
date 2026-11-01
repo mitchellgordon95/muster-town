@@ -204,10 +204,10 @@ export type { Funding };
  * Funding for an agent's next session: the Bank's one answer (`Budget.fundingFor`) for the agent's building. The host
  * env is never consulted; the Bank holding nothing that can run it throws `NoCredential` (post-mortem 2026-10-30).
  */
-export function fundingFor(world: World, agentId: string): Funding {
+export function fundingFor(world: World, agentId: string, model?: string | null): Funding {
   const bid = homeOf(world, agentId);
   if (!bid) throw new NoCredential(`${world.nameOf(agentId)} has no building to be funded through`);
-  return world.budget.fundingFor(bid);
+  return world.budget.fundingFor(bid, { model: model ?? world.budget.sessionModel(agentId) });
 }
 
 
@@ -222,7 +222,8 @@ export function fundingForSession(world: World, agentId: string, assignmentId: s
   if (!bid) throw new NoCredential(`${world.nameOf(agentId)} has no building to be funded through`);
   const asg = assignmentId ? world.assignments.get(assignmentId) : undefined;
   const grant = asg?.grantId ? world.grants.get(asg.grantId) ?? null : null;
-  return world.budget.fundingFor(bid, { grant, stream: world.streams.pick(asg, bid) });
+  // the model the session runs on: availability is per model, and a limited credential is never swapped for another model
+  return world.budget.fundingFor(bid, { grant, stream: world.streams.pick(asg, bid), model: world.budget.sessionModel(agentId, asg) });
 }
 
 /** "funded by subscription" / "funded by API key" / "funded by a donor's API key", for status lines. */
@@ -338,6 +339,14 @@ export async function runAgentSession(ctx: Ctx, spec: SessionSpec): Promise<Sess
             finalText = t;
             emit("agent.thought", clipThought(t));
           }
+        }
+      } else if (m.type === "rate_limit_event") {
+        // the plan's own word on the window this session runs in (availability.ts): rejected records a limit with its
+        // reset, allowed clears one. Only for a Bank input the session ran on.
+        const info = (m as { rate_limit_info?: { status?: string; resetsAt?: number; rateLimitType?: string } }).rate_limit_info;
+        if (info && funding.credential.inputId) {
+          try { world.bank.availability.observeRateLimit(funding.credential.inputId, info, session.id); }
+          catch (e) { console.warn(`[runtime] rate_limit_event: ${e instanceof Error ? e.message : e}`); }
         }
       } else if (m.type === "user") {
         // each call's outcome, one line, for the manager's `fork_status`

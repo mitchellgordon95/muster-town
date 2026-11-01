@@ -51,9 +51,14 @@ export function blockedBy(world: World, a: Assignment, at: Date = new Date()): B
       return { kind: "decision", targetId: w.decision, ...tray, text: `waits for a decision on ${d ? `"${truncate(d.title, 80)}"` : w.decision}` };
     }
   }
+  // no credential can run this row on its model now (an observed limit, availability.ts): the limit's reason, at the Bank.
+  // Checked per row: a building-queue row runs on a fork with its own model, so its manager being held says nothing about it.
+  const grant = a.grantId ? world.grants.get(a.grantId) ?? null : null;
+  const cred = world.budget.credentialHold(a.buildingId, at, { model: world.budget.sessionModel(a.agentId, a), grant });
+  if (cred) return { kind: "budget", targetId: a.buildingId, placeId: "bank", text: cred };
   const agent = world.agents.get(a.agentId);
-  if (agent && !world.budget.canStart(agent.id)) {
-    const b = world.buildings.get(agent.homeBuildingId ?? agent.buildingId ?? "");
+  if (agent && (a.queue === "building" ? world.budget.remaining(a.buildingId) <= 0 : !world.budget.canStart(agent.id))) {
+    const b = world.buildings.get(a.queue === "building" ? a.buildingId : agent.homeBuildingId ?? agent.buildingId ?? "");
     return { kind: "budget", targetId: b?.id ?? null, placeId: "bank", text: `out of budget: ${b?.name ?? "the building"} has no tokens left` };
   }
   const hold = laneBlock(world, a);

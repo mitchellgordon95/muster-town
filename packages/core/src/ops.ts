@@ -408,6 +408,14 @@ export class Ops {
     // Bank step 4: a subscription-cap death (the desk's SPEND_LIMIT, or an error that reads like one) → bank.cap
     const cap = result.spendLimit || (session.error && SPEND_LIMIT.test(session.error) ? session.error : null);
     if (cap) this.world.bank.recordCap(session, homeOf(agent), cap);
+    // promised and available (availability.ts): what the session's end says about the input it ran on. A failure that is
+    // about the credential (a model or plan limit, billing, auth) records a limit on that input and model; a session that
+    // finished with tokens shows the input serves the model, so its limits for it clear. Interrupted sessions say nothing.
+    if (session.credentialInputId && session.status !== "interrupted") {
+      const said = [result.spendLimit, session.error].filter(Boolean).join(" ");
+      const limit = said ? this.world.bank.availability.recordFailure({ inputId: session.credentialInputId, model: session.model, text: said, sessionId: session.id }) : null;
+      if (!limit && session.status === "done" && session.tokens > 0) this.world.bank.availability.recordSuccess(session.credentialInputId, session.model, new Date(), `${agent.name}'s session on ${session.model} succeeded`);
+    }
     // the body goes back to its desk unless it's in a meeting, walking or talking (flag dc_ihwq7bfi4o)
     walkHome(this.world, agent.id);
     // Bank step 2: a model the price table doesn't know is priced as Opus 5.5; say so once per model per process

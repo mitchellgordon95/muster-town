@@ -263,7 +263,7 @@ describe("desk funding and failover charging", () => {
   test("fundingFor while the subscription is capped: the next session runs on the keyed allocation (its donor's key), booked to it", () => {
     const { world, by, lab, buffer } = funded();
     const noor = by("Noor");
-    const s = world.ops.startSession(noor.id, { purpose: "work", model: "m", funding: "subscription" });
+    const s = world.ops.startSession(noor.id, { purpose: "work", model: "m", funding: "subscription", credentialInputId: world.bank.subscriptionInput()!.id });
     world.ops.endSession(s.id, { status: "error", error: "You've hit your org's monthly spend limit · resets 8:50pm (UTC)" });
     expect(world.budget.failoverFunding(lab.id)).toEqual({ allocationId: buffer.id, auth: "donor-key", credential: { kind: "api-key", secret: "sk-buffer", inputId: null } });
     expect(fundingFor(world, noor.id)).toEqual({ allocationId: buffer.id, auth: "donor-key", credential: { kind: "api-key", secret: "sk-buffer", inputId: null } });

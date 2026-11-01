@@ -829,6 +829,7 @@ export class MockApi implements Api {
     Object.assign(i, { cancelledAt: now(), hasApiKey: false });
     return clone(i);
   }
+  async clearBankLimit(_id: string) { await wait(); }
   async exportNow() { await wait(400); this.sim.event("export.done", null, "Exported town to git", {}, null); return "a1b2c3d"; }
   /** the mock runtime's live redeploy view (GET /api/admin/redeploy) */
   private live: RedeployLive = { running: false, phase: "idle", waitingFor: [], since: null };
