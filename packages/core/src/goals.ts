@@ -207,7 +207,6 @@ export class Goals {
    * (goals.edit on the goal above) and an accepted captain request (captain.ts, the node's current captain or an admin).
    */
   setOwner(actor: Actor, g: Goal, ownerId: string | null): Goal {
-    if (g.id === ROOT_GOAL_ID) throw badRequest("The town admins captain the root.");
     if (ownerId && !this.world.users.get(ownerId)) throw badRequest(`Captains are humans: ${ownerId} is not a user id.`);
     const next = this.world.goals.upsert({ ...g, ownerId, editedBy: actor ? holderOf(actor).id : null, updatedAt: nowIso() });
     const name = ownerId ? this.world.users.get(ownerId)!.name : "(inherited)";
@@ -231,9 +230,11 @@ export class Goals {
     }
     if (inp.parentId !== undefined && inp.parentId !== g.parentId) next = this.move(actor, next, inp.parentId);
     if (inp.ownerId !== undefined && inp.ownerId !== g.ownerId) {
-      if (g.id === ROOT_GOAL_ID) throw badRequest("The town admins captain the root.");
-      // owners set owners below them: the goal above must be theirs
-      this.requireEdit(actor, g.parentId!);
+      // owners set owners below them: the goal above must be theirs. The root has none above it: only a town-wide admin
+      // names its captain (1:1 mt_cyd2t5ioob decision 6: Mitchell captains the root); null hands it back to the admins
+      if (g.id === ROOT_GOAL_ID) {
+        if (actor && !this.world.permissions.can(actor, "goals.edit")) throw forbidden("goals.edit", "Only a town admin names the root's captain.");
+      } else this.requireEdit(actor, g.parentId!);
       next = this.setOwner(actor, next, inp.ownerId);
     }
     // the exploration cap the buildings under it inherit (docs/how-work-gets-done.md §8): a human funder's with goals.edit
