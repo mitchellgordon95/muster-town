@@ -10,6 +10,11 @@ import { holderOf, townRoleId, type Holder } from "./permissions.ts";
 import { newId, nowIso } from "./util.ts";
 import type { World } from "./world.ts";
 
+/** The root's words before the town has a goal (migration 061 and ensure()). */
+const ROOT_PLACEHOLDER = "The town goal";
+/** The Workshop's placeholder pillars that migration 061 seeds under every root (id, seeded words). */
+const PLACEHOLDER_PILLARS: [string, string][] = [["gl_fund", "Fund"], ["gl_join", "Join"], ["gl_trust", "Trust"]];
+
 /** A goal as GET /api/goals returns it: its path from the root, its effective owner, its children, key results and attached buildings. */
 export interface GoalNode extends Goal {
   /** the effective owner (captain): this goal's, else the nearest owned ancestor's; the root always has one */
@@ -536,10 +541,47 @@ export class Goals {
   ensure(): void {
     if (!this.get(ROOT_GOAL_ID)) {
       const now = nowIso();
-      this.world.goals.upsert({ id: ROOT_GOAL_ID, parentId: null, position: 0, text: this.world.town.get().goal || "The town goal", ownerId: null, status: "active", retiredAt: null, retiredBy: null, retiredNote: "", createdBy: null, editedBy: null, sourceDocIds: [], exploreCapTokensPerDay: null, explore: null, exploreChunkTokens: null, createdAt: now, updatedAt: now });
+      this.world.goals.upsert({ id: ROOT_GOAL_ID, parentId: null, position: 0, text: this.world.town.get().goal || ROOT_PLACEHOLDER, ownerId: null, status: "active", retiredAt: null, retiredBy: null, retiredNote: "", createdBy: null, editedBy: null, sourceDocIds: [], exploreCapTokensPerDay: null, explore: null, exploreChunkTokens: null, createdAt: now, updatedAt: now });
     }
     for (const b of this.world.buildings.where("goalId IS NULL OR goalId NOT IN (SELECT id FROM goals)")) this.world.buildings.upsert({ ...b, goalId: ROOT_GOAL_ID });
     this.ensureRootCaptain();
+  }
+
+  /**
+   * The root carries the town goal: migration 061 runs before a fresh seed writes it, so a new collective's root reads
+   * the placeholder "The town goal"; the seed calls this to give it the town's goal (a hosted collective: the Start form's).
+   * Only the placeholder is replaced: a root anyone has worded stays.
+   */
+  ensureRootText(): void {
+    const root = this.get(ROOT_GOAL_ID);
+    const goal = this.world.town.get().goal.trim();
+    if (!root || !goal || root.text !== ROOT_PLACEHOLDER || root.editedBy) return;
+    this.world.goals.upsert({ ...root, text: goal.slice(0, 300), updatedAt: nowIso() });
+  }
+
+  /**
+   * A hosted collective's tree is its founder's (gr_5ltmbf3a2f): migration 061 seeds the Workshop's placeholder pillars
+   * (Fund, Join, Trust) into every database, so a hosted World deletes each one nobody has touched: still its seeded
+   * words, no captain, never edited, and nothing hangs on it (no child goal, building, key result, grant, proposal,
+   * goal change, captain request, earmarked Bank input or exploration claim). Idempotent; seedDefaults runs it on every
+   * boot of a hosted World (hub.open sets `hosted` first), never on the Workshop. Returns the ids it dropped.
+   */
+  dropPlaceholderPillars(): string[] {
+    const db = this.world.db;
+    const refs: [string, string][] = [
+      ["goals", "parentId"], ["buildings", "goalId"], ["key_results", "goalId"], ["grants", "goalId"],
+      ["goal_proposals", "targetId"], ["goal_proposals", "parentId"], ["goal_changes", "goalId"],
+      ["goal_captain_requests", "goalId"], ["bank_inputs", "goalId"], ["bank_reservations", "goalId"],
+    ];
+    const dropped: string[] = [];
+    for (const [id, text] of PLACEHOLDER_PILLARS) {
+      const g = this.get(id);
+      if (!g || g.parentId !== ROOT_GOAL_ID || g.text !== text || g.ownerId || g.editedBy) continue;
+      if (refs.some(([t, c]) => db.prepare(`SELECT 1 FROM ${t} WHERE ${c} = ? LIMIT 1`).get(id))) continue;
+      this.world.goals.delete(id);
+      dropped.push(id);
+    }
+    return dropped;
   }
 
   // ---- helpers ----

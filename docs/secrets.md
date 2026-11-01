@@ -24,6 +24,10 @@ Names are env-var style (`A-Z0-9_`, starting with a letter). Names the runtime s
 
 **The repo token is the exception.** A collective secret named `GH_TOKEN` is the GitHub token for the collective's own repo (`workspace` in collective.json): a fine-grained token for that repo with Contents and Pull requests read/write. It is the one `GH_*` name the Town Hall accepts. Grants don't apply to it: every desk with code access gets it as `GH_TOKEN` (the repo is the collective's, and code access is the grant), and the town's own `redeploy` pulls with it (`Secrets.value`, read by the runtime; never logged). When the collective has none, the host fallback applies: `desks.ghToken` = `gh-cli` (`gh auth token` on the host), `env` (the host's `GH_TOKEN`), or `none`. The server warns at boot when a collective has a repo but no token from either source.
 
+## Bank secrets at rest
+
+The Bank's credentials (`bank_inputs.apiKey`: an api-key input's key or a subscription input's OAuth token) and donors' keys (`users.apiKey`) are stored as the same `v1:` AES-256-GCM ciphertext under `MUSTER_TOWN_DATA_KEY`, with AAD `bank_inputs:<id>` / `users:<id>` so a value can't be moved to another row. `Users` and `BankInputs` in `packages/core/src/store.ts` are the only code that reads or writes the column (`setApiKey` encrypts, `getApiKey` decrypts); the Bank and `fundingFor` see plaintext only through them. At boot the server encrypts any plaintext rows in place (`[secrets] encrypted N bank inputs, M donor keys`; idempotent; hosted collectives too). A copy of town.db opened under another key (a drill town) reads these secrets as null, with one `[secrets] bank input <id> unusable` warning per row, so it can't spend the Bank's credentials. A self-hosted town without a data key keeps them in plaintext, with a warning, so its Bank still runs; setting a key encrypts them at the next boot.
+
 ## API (collective admins: a human's user token or session; agent tokens get 403)
 
 - `GET /api/secrets` → `{secrets: [{name, grants: {buildings, agents, skills}, set, updatedAt, updatedBy}], keyConfigured}`. Never values.

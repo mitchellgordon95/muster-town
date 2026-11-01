@@ -5,7 +5,7 @@
  */
 import { useSyncExternalStore } from "react";
 import { mapFlagOf, ServerMessage } from "@muster-town/schema";
-import type { Agent, Assignment, AuthMe, BlockedAssignment, Doc, Schedule, Event, MapFlag, Meeting, Permission, Place, SnapshotBuilding, Town, TownHealth } from "@muster-town/schema";
+import type { Agent, Assignment, AuthMe, BlockedAssignment, Doc, ScheduleView, Event, MapFlag, Meeting, Permission, Place, SnapshotBuilding, Town, TownHealth } from "@muster-town/schema";
 import type { Bank, Grid, Snapshot } from "./api";
 import { redeployStatus, type RedeployLiveAt } from "./redeploy";
 import { redirectPanel } from "./panels/room";
@@ -17,7 +17,7 @@ import { redirectPanel } from "./panels/room";
  * `grant`, `assignment` and `session` are the panels without a place: a grant or proposal (`gr_…`), an assignment card (`as_…`)
  * and a session (`se_…`), reached from any link to its id.
  */
-export type PanelKind = "agent" | "building" | "connect" | "library" | "outbox" | "meeting" | "intray" | "board" | "cabinet" | "planning" | "schedule" | "mod" | "bank" | "admin" | "grant" | "manual" | "goals" | "assignment" | "session";
+export type PanelKind = "agent" | "building" | "connect" | "library" | "outbox" | "stats" | "meeting" | "intray" | "board" | "cabinet" | "planning" | "schedule" | "mod" | "bank" | "admin" | "grant" | "manual" | "goals" | "assignment" | "session";
 export interface PanelRef { kind: PanelKind; id?: string; docId?: string; tab?: string }
 interface Toast { id: number; text: string; tone: "info" | "ok" | "bad"; panel?: PanelRef }
 
@@ -52,7 +52,7 @@ interface TownState {
   /** `GET /api/blocked`: per agent, its queued assignments that can't start and why (queue rows, the map's blocked badges and red lines) */
   blocked: Record<string, BlockedAssignment[]>;
   /** `GET /api/scheduled`: every building's active schedules, soonest run first (the map's schedule boards) */
-  scheduled: Schedule[];
+  scheduled: ScheduleView[];
 }
 
 const MAX_EVENTS = 600;
