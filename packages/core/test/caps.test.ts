@@ -1,11 +1,11 @@
 import { describe, expect, it } from "vitest";
 import type { Event, TokenCounts } from "@muster-town/schema";
 import { createBuilding, createResident } from "../src/index.ts";
-import { capReason, countDeaths, learnedCap, median, nearCap } from "../src/caps.ts";
+import { countDeaths } from "../src/caps.ts";
 import { utcDay } from "../src/drift.ts";
 import { seededWorld } from "./helpers.ts";
 
-// Bank grant step 5: unexpected out-of-tokens deaths over 7 days, and the hold near the learned subscription cap.
+// Bank grant step 5: unexpected out-of-tokens deaths over 7 days. The learned-cap hold is gone (2026-11-01): a cap event never holds starts.
 const NOW = new Date("2026-10-26T23:00:00.000Z");
 let id = 0;
 const ev = (type: Event["type"], ts: string, text: string, payload: Record<string, unknown> = {}, agentId = "ag_x"): Event =>
@@ -35,31 +35,13 @@ describe("countDeaths (Bank grant step 5)", () => {
   });
 });
 
-describe("the cap hold (Bank grant step 5)", () => {
-  it("learned cap: per day the lowest cap hit, median over the last 14 days; none seen = null", () => {
-    expect(learnedCap([], "2026-10-26")).toBeNull();
-    const pts = [
-      { day: "2026-10-24", subscriptionAdjustedToday: 9_000_000 }, { day: "2026-10-24", subscriptionAdjustedToday: 8_000_000 },
-      { day: "2026-10-25", subscriptionAdjustedToday: 10_000_000 }, { day: "2026-10-20", subscriptionAdjustedToday: 12_000_000 },
-      { day: "2026-10-01", subscriptionAdjustedToday: 1_000 }, // older than 14 days
-    ];
-    expect(learnedCap(pts, "2026-10-26")).toEqual({ cap: 10_000_000, days: 3 });
-    expect(median([3, 1, 2, 10])).toBe(3);
-    expect(median([])).toBeNull();
-  });
-
-  it("holds once today's spend is within one typical session of the cap; no cap = no hold", () => {
-    expect(nearCap(9_000_000, 10_000_000, 1_000_000)).toBe(true);
-    expect(nearCap(8_999_999, 10_000_000, 1_000_000)).toBe(false);
-    expect(nearCap(50_000_000, null, 1_000_000)).toBe(false);
-    expect(nearCap(10_000_000, 10_000_000, null)).toBe(true);
-    expect(capReason(9_000_000, 10_000_000, "2026-10-26T20:50:00.000Z")).toBe("near the subscription cap (9.0M of ~10.0M adj. tokens today), resets at 2026-10-26 20:50 UTC");
-  });
-
-  it("Bank.capState and GET /api/bank: no cap seen → not held; a cap at today's spend → held with a reason, one bank.hold event", () => {
+describe("no learned cap (2026-11-01)", () => {
+  it("a cap event is observed (cappedAt, a death) but holds nothing: the assignment may still start, no bank.hold", () => {
     const { world, seed } = seededWorld();
     const b = createBuilding(world, { name: "Lab" }, seed.admin.id);
     const a = createResident(world, { buildingId: b.id, name: "A", title: "t", direction: "d" });
+    // the subscription is the only credential: the exact shape the old hold froze (no fallback key)
+    world.bank.addInput(seed.admin.id, { label: "Max plan", source: "subscription", token: "sk-ant-oat01-test-token", model: "claude-opus-5-5", tokens: 5_000_000, recurrence: "daily", weeklyCapTokens: 50_000_000 });
     const counts: TokenCounts = { input: 0, output: 100_000, cacheRead: 0, cacheWrite5m: 0, cacheWrite1h: 0 };
     for (let i = 0; i < 3; i++) {
       const s = world.ops.startSession(a.id, { purpose: "work", model: "claude-opus-5-5" });
@@ -67,18 +49,18 @@ describe("the cap hold (Bank grant step 5)", () => {
     }
     const t0 = new Date();
     const none = world.bank.summary();
-    expect(none.cap).toMatchObject({ learnedCap: null, held: false, reason: null, typicalSession: 100_000 });
+    expect(none.cap).toMatchObject({ cappedAt: null });
+    expect(none.cap).not.toHaveProperty("learnedCap");
     expect(none.cap.spentToday).toBe(300_000);
     expect(none.deaths).toMatchObject({ capDeaths: 0, total: 0 });
 
-    // a cap learned at 350k today: 300k spent ≥ 350k − 100k → held
+    // a cap event at today's spend: the old code learned a 350k daily cap from it and held every subscription start
     world.events.append({ type: "bank.cap", buildingId: b.id, text: "cap", payload: { sessionId: "se_x", day: utcDay(new Date()), subscriptionAdjustedToday: 350_000 } });
     const later = new Date(t0.getTime() + 31_000);
     const st = world.bank.capState(later);
-    expect(st).toMatchObject({ learnedCap: 350_000, days: 1, held: true });
-    expect(st.reason).toMatch(/^near the subscription cap/);
-    world.bank.capState(new Date(later.getTime() + 31_000));
-    expect(world.events.list({ types: ["bank.hold"] })).toHaveLength(1);
+    expect(st.cappedAt).toBeTruthy();
+    expect(world.budget.canStart(a.id)).toBe(true);
+    expect(world.events.list({ types: ["bank.hold"] })).toHaveLength(0);
     expect(world.bank.deaths(later)).toMatchObject({ capDeaths: 1, total: 1 });
   });
 });

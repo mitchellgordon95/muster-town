@@ -503,7 +503,7 @@ export async function townRoutes(app: FastifyInstance) {
 }
 
 function accessView(world: World, r: AccessRequest | null): AuthMe["accessRequest"] {
-  return r ? { status: r.status, message: r.message, decidedAt: r.decidedAt, ...accessContext(world) } : null;
+  return r ? { status: r.status, message: r.message, decidedAt: r.decidedAt, ...accessContext(world), decidedByName: r.decidedBy ? world.nameOf(r.decidedBy) : null } : null;
 }
 
 /** GET /api/health `desks`: the desk size new sessions get and today's desk bill against the town-wide cap (gr_uhh6u39vv9 step 3). */

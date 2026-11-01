@@ -545,7 +545,9 @@ export class Ops {
   endMeeting(actor: Actor, meetingId: string, closing?: string, cause?: string): Meeting {
     if (actor) {
       const m = this.world.meetings.require(meetingId, "meeting");
-      if (m.facilitatorId !== actor.id && !this.world.permissions.can(actor, "meeting.facilitate", m.buildingId ?? "town-hall") && !this.world.permissions.can(actor, "building.review", m.buildingId ?? "town-hall")) throw forbidden("meeting.facilitate");
+      // a 1:1's own human ends it, member or not (gr_58n37j410s)
+      const own = m.kind === "one-on-one" && !!m.withUserId && m.withUserId === this.world.holderOf(actor).id;
+      if (!own && m.facilitatorId !== actor.id && !this.world.permissions.can(actor, "meeting.facilitate", m.buildingId ?? "town-hall") && !this.world.permissions.can(actor, "building.review", m.buildingId ?? "town-hall")) throw forbidden("meeting.facilitate");
     }
     return endMeeting(this.world, null, meetingId, closing, actor ? this.world.holderOf(actor) : { kind: "system", id: cause ?? "town" });
   }
