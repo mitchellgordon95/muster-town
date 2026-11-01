@@ -12,6 +12,10 @@ alternative; that box was deleted.
   outside the checkout so nothing done to `/data/repo` can touch it (the entrypoint moves it out once on a town deployed before this split).
   The image (`deploy/fly/Dockerfile`) is only the runtime plus a baked copy of the checkout for the first boot. `deploy/fly/entrypoint.sh` is the
   supervisor: it restarts the server when it exits 75, so the town's own `redeploy` (git pull, install, build, drain) keeps working unchanged.
+  Each start runs `deploy/fly/start-server.sh` from the checkout (so a redeploy can change it; the entrypoint itself changes only with an image
+  deploy): `node packages/server/dist/main.js`, the server prebuilt by `packages/server/build.mjs` (esbuild; the redeploy's "build server" step,
+  about 1 s), when `dist/BUILD_HEAD` matches HEAD; else it builds it first, and falls back to `npx tsx` on the sources if that fails. Prebuilt,
+  a boot takes about a third of the CPU tsx did (docs/postmortem-2026-10-31-cpu-throttle-503.md suggestion 6). Dev and `scripts/serve.sh` keep tsx.
   On every boot it sets `origin` to `MUSTER_TOWN_REPO` (default `https://github.com/mitchellgordon95/muster-town.git`, what muster.town uses;
   a town built from a fork sets its fork's URL in `[env]`).
 - **Config:** `fly.town.toml` (env, volume, health check). Desk backend and callback URL come from `MUSTER_TOWN_DESKS` (JSON) in its `[env]`,
@@ -34,6 +38,9 @@ alternative; that box was deleted.
   nobody waits on a PR review; what they can't do is take the town down with a commit that fails its own tests. The `redeploy` verb and the
   planning desk button still work (they also pull `prod`), for a redeploy without a new commit. Rollback: `git revert` on main and let CI
   ship it; emergency: point `prod` at the last good sha and redeploy. A red run leaves the live town where it was and shows in the Actions tab.
+  CI asks for fewer restarts than pushes (the redeploy tool and the planning desk button are unchanged): no redeploy when everything since the live
+  commit is under `docs/` (except `docs/manual.md`, which the server serves), `.github/` or a top-level `*.md`; and at most one CI restart per 15 min
+  (when the server started less than 15 min ago the promote job waits out the rest; a newer push cancels the waiting run and redeploys its own commit).
 - **Drain policy:** the drain holds new work sessions and waits up to 30 min for running *work* sessions (a restart would orphan
   them; at startup the orphans are stopped and their assignments re-queued). A *meeting* session (a facilitation, or the manager answering a 1:1)
   holds it only 2 min (`drainMeetingMs`): a human can talk for an hour, so the deploy does not block on a meeting. Instead: post the notice,
@@ -74,9 +81,12 @@ the same day. Still open:
   than 1 h (`packages/server/src/backup/`): `db.backup()` to `/data/workshop/backups/town-<date>T<HH>.db` (SQLite's online backup API, WAL-safe),
   sealed to one file and `integrity_check`ed, gzipped, encrypted (AES-256-GCM, iv[12] | tag[16] | ciphertext, AAD `muster-town backup v1`) and PUT
   as `town/<YYYY-MM-DD>T<HH>.db.gz.enc`, signed with a small SigV4 signer (no SDK). Worst case, a dead volume loses about 1 h of town state.
+  The whole run (copy, checks, streamed gzip, encrypt, upload, verify, prune) runs in a `worker_threads` worker (`worker.ts`) with its own
+  database connection, so it never blocks the event loop that serves HTTP (post-mortem docs/postmortem-2026-10-31-cpu-throttle-503.md).
   (Objects named `town/<YYYY-MM-DD>.db.gz.enc` are the nightly copies from before 2026-11-01; restore reads both.)
 - **Verification:** after each PUT the job downloads the object back, decrypts and gunzips it with the restore path's code (`crypto.ts`, `s3.ts`),
-  checks it is byte for byte the uploaded copy and runs `integrity_check` on it. Only then does the run count: `lastAt` and `verifiedAt` move
+  checks it is byte for byte (sha256) the copy that passed `integrity_check`; the 04:00 UTC run also writes the download out and runs
+  `integrity_check` on it. Only then does the run count: `lastAt` and `verifiedAt` move
   and old objects are pruned. A failure (upload or verification) is logged as `[backup] failed: ...` and kept as `backup.error`
   (`verify town/... failed: ...` for a bad read-back); `lastAt` stays, nothing is pruned, and it never stops the server.
 - **Destination:** the Tigris bucket `fly storage create -a muster-town` makes for the muster-town app (same Fly bill, free tier at this size,
@@ -160,6 +170,7 @@ cleared, and once when health itself is down.
 | `ws` | WebSocket errors and abnormal closes, last 5 min | > 20 | > 100 |
 | `sessions` | Claude sessions ending in `error` | ≥ 3 in 15 min | ≥ 50 % of the sessions that ended in 30 min (min 4) |
 | `desk-steal` | steal share (steal / (cpu + steal)) of desk sessions (not `host`) of ≥ 5 min that ended since the last sample | ≥ 25 % | one ≥ 50 %, or two ≥ 35 % within an hour |
+| `steal` | the host Machine's CPU steal: steal / (busy + steal) from /proc/stat between two samples (a minute under 3 s of busy + steal counts as clean; none off Linux) | > 25 % for 5 min | > 50 % for 3 min |
 | `desk-bill` | today's (UTC) desk bill at Fly list prices as a % of `desks.billCapUsd` (default $10/day) | ≥ 50 % | ≥ 100 % (new desk sessions already run on shared-cpu-2x) |
 
 **Desk size and the daily desk bill cap** (grant gr_uhh6u39vv9 step 3; Mitchell, 1:1 mt_s6f8mvjw9h). Desk Machines run on
@@ -226,6 +237,14 @@ enabled. Updating it: re-run step 1.
   oversubscribed host). A restart boots into the same throttle; a dedicated core does not: `fly machine update <id>
   -a muster-town --vm-size performance-1x --vm-memory 2048 --yes`, and keep `[[vm]]` in fly.town.toml and `TOWN_MACHINE`
   (core finance-fly.ts, pinned by a test) in step.
+- **The `steal` alert** (monitor, above) is this case seen from inside: its FYI says "host CPU throttled (steal N %)".
+  The `lag` alert usually goes red with it.
+- **Why the check is lenient** (follow-up A of the post-mortem): `GET /api/health` answers from memory. Its database
+  figures (`budgets`, `backup`, `desks`, `directory`, `funding`) are recomputed every 5 s (server `health-cache.ts`) and
+  `figuresAt` says when, so a slow or locked database can't make the check time out. The check's `timeout` is 10 s
+  (it was 5 s: under the 10-31 throttle the loop answered in 5-10 s and Fly marked a live process critical, which turned
+  slowness into 503s). `grace_period` 240 s already covers a restart, so there is no extra "booting" state. The check
+  settings reach the Machine only with an image deploy (`deploy/fly/build.sh`), not with the town's `redeploy`.
 - **Slow with CPU to spare**: `GET /api/health` `load.lagMs` is the p99 loop stall per 10 s window; above ~500 ms, profile
   the live server: upload `deploy/fly/profile-live.cjs` to the Machine (`fly ssh sftp shell`, or `echo <base64> | base64 -d`
   into /tmp) and run `fly ssh console -a muster-town -C "node /tmp/profile-live.cjs"`. It opens Node's inspector on

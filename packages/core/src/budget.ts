@@ -30,7 +30,9 @@ interface ChargePrice {
   running?: boolean;
 }
 
-const SKIP_STATUSES = new Set(["stopped", "banned"]);
+// retired: a dismissed resident must never come back as out-of-budget, which the recovery sweeps turn into idle (2026-10-31: 7 dismissed
+// residents, Root, Sage, Keel and Lena among them, were revived that way when the workshop ran dry and the Bank was refilled)
+const SKIP_STATUSES = new Set(["stopped", "banned", "retired"]);
 
 /** Draw order: the subscription first, then donors' own keys, then the town's API key; oldest first within each. */
 const DRAW_ORDER = "ORDER BY CASE auth WHEN 'subscription' THEN 0 WHEN 'donor-key' THEN 1 ELSE 2 END, createdAt, rowid";
@@ -396,7 +398,7 @@ export class Budget {
   summary(): BudgetSummary {
     return {
       buildings: this.repos.buildings.all().map((b) => {
-        const spentUsd = this.repos.allocations.where("buildingId = ?", [b.id]).reduce((s, a) => s + a.spentUsd, 0);
+        const spentUsd = this.repos.allocations.sum("spentUsd", "buildingId = ?", [b.id]);
         return { buildingId: b.id, name: b.name, ...this.of(b.id), spentUsd };
       }),
       users: this.repos.users.all().map((u) => ({ userId: u.id, name: u.name, donatedTokens: u.donatedTokens })),

@@ -8,7 +8,8 @@ import type { World } from "./world.ts";
  * Bank pools: one general balance, plus earmarks (a credit scoped to a goal's subtree). Three kinds of claim sit on them:
  * funded grants' remaining tokens (granted − spent), open proposals' asks, and open exploration reservations. Each claim
  * is paid where its session would draw (the draw order): the nearest earmark walking up from its goal, then the general
- * balance. Free tokens under a goal = what the claims leave of the general balance + of the earmarks at or above it.
+ * balance. Free tokens under a goal = what the claims leave of the general balance less the operating reserve (town
+ * `operatingReserveTokens`, 1:1 mt_lb7tm75jgb: kept for 1:1s, meetings and directed work) + of the earmarks at or above it.
  * Read-only: nothing is stored but the reservations.
  */
 
@@ -41,15 +42,22 @@ export function exploreRuleAt(goals: Repos["goals"], goalId: string): ExploreRul
 /** One claim on the Bank: the goal its work sits on and its tokens. */
 interface Claim { goalId: string; tokens: number; kind: "funded" | "ask" | "reserved" }
 
-/** Every claim in the town: live grants' remaining, open proposals' asks, open reservations. */
-function claims(world: World): Claim[] {
+/** The goal a grant's work sits on (its `goalId`, else its building's attachment): where its claim is paid from. */
+export function grantGoalOf(world: World, g: { buildingId: string; id: string }): string {
+  return world.streams.nodeOf({ buildingId: g.buildingId, grantId: g.id, keyResultId: null }, g.buildingId);
+}
+
+/** Every claim in the town: live grants' remaining, open proposals' asks, open reservations (`except`: leave that grant's claim out). */
+function claims(world: World, except?: string): Claim[] {
   const out: Claim[] = [];
-  const nodeOf = (g: { buildingId: string; id: string }) => world.streams.nodeOf({ buildingId: g.buildingId, grantId: g.id, keyResultId: null }, g.buildingId);
+  const nodeOf = (g: { buildingId: string; id: string }) => grantGoalOf(world, g);
   for (const g of world.grants.where("status IN ('funded', 'checkpoint')")) {
+    if (g.id === except) continue;
     const left = Math.max(0, (g.grantTokens ?? 0) - world.grantDesk.spent(g.id));
     if (left > 0) out.push({ goalId: nodeOf(g), tokens: left, kind: "funded" });
   }
   for (const g of world.grants.where("status IN ('proposed', 'countered')")) {
+    if (g.id === except) continue;
     if (g.askTokens > 0) out.push({ goalId: nodeOf(g), tokens: g.askTokens, kind: "ask" });
   }
   // an open reservation claims what its sessions haven't spent yet (they draw on it first; their spend is already off the balance)
@@ -60,8 +68,11 @@ function claims(world: World): Claim[] {
   return out;
 }
 
-/** Free tokens under every goal in one pass (GET /api/goals, the Bank's Free tokens tab). Keys: goal ids. */
-export function freeTokensAll(world: World, now = new Date()): Map<string, FreeTokens> {
+/**
+ * Free tokens under every goal in one pass (GET /api/goals, the Bank's Free tokens tab). Keys: goal ids. `except`: a
+ * grant whose own claim is left out (funding it asks what is free besides it).
+ */
+export function freeTokensAll(world: World, now = new Date(), except?: string): Map<string, FreeTokens> {
   const bank = world.bank;
   // what each goal's own live earmarks hold, consumed by the claims under it nearest-first
   const held = new Map<string, number>();
@@ -71,9 +82,10 @@ export function freeTokensAll(world: World, now = new Date()): Map<string, FreeT
   }
   const earmark = new Map(held);
   const generalTokens = bank.balance(now);
-  let general = generalTokens;
+  const reserveTokens = world.town.get().operatingReserveTokens;
+  let general = generalTokens - reserveTokens;
   const totals = { funded: 0, ask: 0, reserved: 0 };
-  for (const c of claims(world)) {
+  for (const c of claims(world, except)) {
     totals[c.kind] += c.tokens;
     let left = c.tokens;
     for (const g of world.goalTree.ancestors(c.goalId)) {
@@ -94,7 +106,7 @@ export function freeTokensAll(world: World, now = new Date()): Map<string, FreeT
       earmarkLeft += earmark.get(a.id) ?? 0;
     }
     out.set(g.id, {
-      goalId: g.id, generalTokens, earmarkTokens, fundedRemainingTokens: totals.funded, openAsksTokens: totals.ask, reservedTokens: totals.reserved,
+      goalId: g.id, generalTokens, reserveTokens, earmarkTokens, fundedRemainingTokens: totals.funded, openAsksTokens: totals.ask, reservedTokens: totals.reserved,
       freeTokens: Math.max(0, general) + earmarkLeft,
     });
   }
@@ -102,8 +114,8 @@ export function freeTokensAll(world: World, now = new Date()): Map<string, FreeT
 }
 
 /** Free tokens under one goal (`Bank.freeTokens` in the doc; a goal not in the tree counts as the root). */
-export function freeTokens(world: World, goalId: string, now = new Date()): FreeTokens {
-  const all = freeTokensAll(world, now);
+export function freeTokens(world: World, goalId: string, now = new Date(), except?: string): FreeTokens {
+  const all = freeTokensAll(world, now, except);
   return all.get(goalId) ?? { ...all.get(ROOT_GOAL_ID)!, goalId };
 }
 

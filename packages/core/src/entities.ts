@@ -1,5 +1,5 @@
 import {
-  Agent, CreateBuildingInput, ROOT_GOAL_ID, CreateResidentInput, RegisterVisitorInput,
+  Agent, CreateBuildingInput, patchOf, ROOT_GOAL_ID, CreateResidentInput, RegisterVisitorInput,
   type Building, type BuildingDefaults, type Lot, type Tile, type User,
 } from "@muster-town/schema";
 import { AppError, badRequest } from "./errors.ts";
@@ -98,7 +98,7 @@ type SpecText = { goal?: string; description?: string } & Partial<BuildingDefaul
  */
 export function updateBuilding(world: World, id: string, patch: Partial<In<typeof CreateBuildingInput>>, actor: Actor = null): Building {
   const cur = world.buildings.require(id, "building");
-  const p = CreateBuildingInput.partial().parse(patch);
+  const p = patchOf(CreateBuildingInput).parse(patch);
   if (p.name === "") p.name = world.goalTree.defaultName(p.goalId ?? world.goalTree.attachmentOf(cur));
   if (p.headcount !== undefined) {
     if (p.headcount > MAX_HEADCOUNT) throw badRequest(`headcount must be <= ${MAX_HEADCOUNT}`);
@@ -180,7 +180,7 @@ export function createResident(world: World, input: In<typeof CreateResidentInpu
   if (b.kind !== "lab") throw badRequest("Residents live in labs.");
   return world.transaction(() => {
     const id = newId("ag");
-    const existing = world.agents.where("homeBuildingId = ? AND kind = 'resident' AND forkOf IS NULL", [b.id]).length;
+    const existing = world.agents.count("homeBuildingId = ? AND kind = 'resident' AND forkOf IS NULL", [b.id]);
     // insert first (desk names come from the agents table), then claim the desk and move the body there
     world.agents.upsert(Agent.parse({
       id, name: inp.name || suggestResidentName(world), kind: "resident", buildingId: b.id, homeBuildingId: b.id, ownerUserId: b.createdBy ?? null,

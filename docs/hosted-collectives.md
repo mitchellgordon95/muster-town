@@ -49,6 +49,10 @@ meeting of 2026-10-27 17:21Z (mt_6830h8x5qk, decision 6) and waits for the Fund 
      no hosted agent can read another collective's files or the host's. Code buildings are not scheduled.
      **One running session per hosted collective** (`HOSTED_MAX_RUNNING`). Per-collective containers (Fly Machine
      desks) are a cost decision for Mitchell, not built.
+   - **Ticks.** A hosted runtime has no timer of its own: the host ticks the hosted worlds round-robin from one timer
+     (`packages/server/src/ticks.ts`), one world every 5 s / N, so they never tick together. Past
+     `MUSTER_TOWN_HOSTED_TICK_CAP` worlds (default 10) each ticks less often (every 5 s × N / cap), logged once
+     (post-mortem 2026-10-31 item 8).
    - **Host actions.** No redeployer: a hosted admin's redeploy is refused (403), and the desk image, desk recreation
      and the GitHub/Fly tokens are never read.
    - **First building.** A new collective has no buildings (`buildings: []`): its admin opens Planning → **New building**

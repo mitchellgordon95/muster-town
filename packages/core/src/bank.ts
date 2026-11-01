@@ -180,6 +180,9 @@ export interface BankSummary {
   buildings: BankBuildingShare[];
   /** free tokens town-wide (the root's: docs/how-work-gets-done.md §7); null when the Bank runs without a world (tests) */
   free: FreeTokens | null;
+  /** the town's operating reserve (free.reserveTokens; 0 without a world) and the town-wide free tokens (free.freeTokens) */
+  reserveTokens: number;
+  freeTokens: number;
   /** top contributors by tokens given, most first (zero-token users left out) */
   contributors: BankContributor[];
   /** Bank step 4: the latest drift run (adjusted output tokens × output list price vs the SDK's costUsd); null before the first */
@@ -315,6 +318,7 @@ export class Bank {
     } else {
       if (!inp.apiKey) throw badRequest("An api-key input needs apiKey.");
       if (inp.token) throw badRequest("An api-key input doesn't take a subscription token.");
+      if (inp.times != null && inp.recurrence === "once") throw badRequest("A one-time input credits once: `times` is for a recurring input.");
       if (inp.apiKey.trim().startsWith("sk-ant-oat")) throw badRequest("That is a Claude subscription token: add it as a subscription input instead (the API checks a key's shape: `apiKeyProblem`).");
     }
     const goalId = inp.goalId ?? null;
@@ -325,16 +329,19 @@ export class Bank {
       if (!g || g.status !== "active") throw badRequest(`No active goal ${goalId} to earmark for.`);
     }
     const secret = inp.apiKey ?? inp.token ?? null;
+    if (inp.source === "subscription" && inp.times != null) throw badRequest("A subscription credits until cancelled: `times` is for an api-key input.");
     const next = inp.recurrence === "once" ? now : inp.nextCreditAt ? new Date(inp.nextCreditAt) : now;
+    const times = inp.times ?? null;
     let row = this.repos.bankInputs.upsert({
       id: newId("bi"), userId, label: inp.label, source: inp.source, model: inp.model, tokens: inp.tokens,
       recurrence: inp.recurrence, weeklyCapTokens: inp.weeklyCapTokens ?? null, nextCreditAt: next.toISOString(),
       creditedTokens: 0, hasApiKey: false, cancelledAt: null, createdAt: nowIso(), goalId, idleNotifiedAt: null,
+      creditsTotal: times, creditsLeft: times,
     });
     if (secret) row = this.repos.bankInputs.setApiKey(row.id, secret);
-    const what = inp.recurrence === "once" ? "once" : inp.recurrence;
+    const what = inp.recurrence === "once" ? "once" : times ? `${inp.recurrence}, ${times} time${times === 1 ? "" : "s"}` : inp.recurrence;
     const earmark = goalId ? `, earmarked for "${this.repos.goals.get(goalId)?.text.slice(0, 60) ?? goalId}"` : "";
-    this.events.append({ type: "bank.input", text: `${user.name} added ${inp.label} to the Bank (${inp.tokens.toLocaleString("en-US")} adj. tokens, ${what}${earmark})`, payload: { inputId: row.id, userId, source: inp.source, recurrence: inp.recurrence, tokens: inp.tokens, goalId, ...this.creditCounts(inp.tokens, inp.model), rawTokens: rawTokens(this.creditCounts(inp.tokens, inp.model)), adjustedOutputTokens: inp.tokens } });
+    this.events.append({ type: "bank.input", text: `${user.name} added ${inp.label} to the Bank (${inp.tokens.toLocaleString("en-US")} adj. tokens, ${what}${earmark})`, payload: { inputId: row.id, userId, source: inp.source, recurrence: inp.recurrence, tokens: inp.tokens, times, goalId, ...this.creditCounts(inp.tokens, inp.model), rawTokens: rawTokens(this.creditCounts(inp.tokens, inp.model)), adjustedOutputTokens: inp.tokens } });
     this.creditDue(now);
     return this.repos.bankInputs.require(row.id, "bank input");
   }
@@ -415,12 +422,13 @@ export class Bank {
   /** Tokens an input credited in the 7 days before `now`. */
   private creditedLastWeek(inputId: string, now: Date): number {
     const since = new Date(now.getTime() - 7 * DAY_MS).toISOString();
-    return this.repos.bankCredits.where("inputId = ? AND createdAt > ?", [inputId, since]).reduce((s, c) => s + c.tokens, 0);
+    return this.repos.bankCredits.sum("tokens", "inputId = ? AND createdAt > ?", [inputId, since]);
   }
 
   /**
    * Credit every input whose renewal is due (once per input per call; missed renewals while the
-   * server was down are not paid twice). A subscription credits min(tokens, weekly cap left).
+   * server was down are not paid twice). A subscription credits min(tokens, weekly cap left). An input limited to N
+   * credits (`creditsLeft`) counts each one down and stops renewing after the last (listed, not cancelled).
    * Returns the tokens credited.
    */
   creditDue(now = new Date()): number {
@@ -431,12 +439,13 @@ export class Bank {
       const amount = inp.source === "subscription"
         ? Math.max(0, Math.min(inp.tokens, (inp.weeklyCapTokens ?? 0) - this.creditedLastWeek(inp.id, now)))
         : inp.tokens;
+      const creditsLeft = inp.creditsLeft == null ? null : Math.max(0, inp.creditsLeft - 1);
       let next: Date | null = null;
-      if (inp.recurrence !== "once") {
+      if (inp.recurrence !== "once" && creditsLeft !== 0) {
         next = advance(due, inp.recurrence);
         while (next.getTime() <= now.getTime()) next = advance(next, inp.recurrence);
       }
-      this.repos.bankInputs.upsert({ ...inp, nextCreditAt: next?.toISOString() ?? null, creditedTokens: inp.creditedTokens + amount });
+      this.repos.bankInputs.upsert({ ...inp, nextCreditAt: next?.toISOString() ?? null, creditedTokens: inp.creditedTokens + amount, creditsLeft });
       if (amount <= 0) continue;
       // a subscription's credit lasts until its next daily renewal: unused quota doesn't roll over
       const expiresAt = inp.source === "subscription" ? next?.toISOString() ?? null : null;
@@ -739,6 +748,7 @@ export class Bank {
     }
     const sum = (h?: HeldByAuth) => (h ? h.subscription + h.apiKey + h.donorKey : 0);
     const heldTokens = sum(total);
+    const free = this.freeTokens?.() ?? null;
     return {
       balanceTokens: totals.expiring + totals.durable,
       heldTokens,
@@ -759,7 +769,9 @@ export class Bank {
           expiringTokens: a.expiring, durableTokens: a.durable, heldTokens: sum(held.get(b.id)), heldByAuth: held.get(b.id) ?? { subscription: 0, apiKey: 0, donorKey: 0 },
         };
       }),
-      free: this.freeTokens?.() ?? null,
+      free,
+      reserveTokens: free?.reserveTokens ?? 0,
+      freeTokens: free?.freeTokens ?? 0,
       contributors: this.contributors(),
       drift: this.latestDrift(),
       deaths: this.deaths(now),

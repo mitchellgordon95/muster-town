@@ -40,7 +40,7 @@ primary_region = "iad"
     method = "GET"
     path = "/api/health"
     interval = "30s"
-    timeout = "5s"
+    timeout = "10s" # a throttled host answered in 5-10 s and Fly cut it at 5 s (deploy/README.md "Slow or 503")
     grace_period = "240s" # the first boot copies the checkout onto the volume (about a minute)
 
 [[vm]]

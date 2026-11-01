@@ -30,7 +30,7 @@ import { WorldMap } from "./world/map.ts";
 import { followRelayout } from "./entities.ts";
 import { forbidden } from "./errors.ts";
 
-const MAP_LAYOUT_WORDS: Record<MapLayout, string> = { fountain: "fountain plazas", tree: "a plain tree", radial: "spokes round the Town Hall" };
+const MAP_LAYOUT_WORDS: Record<MapLayout, string> = { fountain: "a town round a square", tree: "a plain tree", radial: "spokes round the Town Hall" };
 import { Movement } from "./world/movement.ts";
 
 export type SnapshotMessage = Extract<ServerMessage, { type: "snapshot" }>;
@@ -280,7 +280,7 @@ export class World {
     if (!actor || this.permissions.can(actor, "goals.edit")) return true;
     if (holderOf(actor).kind !== "user") return false;
     const id = holderOf(actor).id;
-    return this.goals.where("status = 'active'").some((g) => g.ownerId === id);
+    return this.goals.exists("status = 'active' AND ownerId = ?", [id]);
   }
   /**
    * Pick the shape the map draws the goal tree in (`PUT /api/town/map-layout`, 1:1 mt_q10xf3bkoq): town-wide, for everyone.
@@ -294,6 +294,18 @@ export class World {
     this.layout.rebuild();
     this.events.append({ type: "system", agentId: actor?.id ?? null, text: `The map is now drawn as ${MAP_LAYOUT_WORDS[layout]} (was ${MAP_LAYOUT_WORDS[was]})`, payload: { mapLayout: layout, from: was } });
     return layout;
+  }
+
+  /**
+   * Set the operating reserve (`PUT /api/town/operating-reserve`, an admin; 1:1 mt_lb7tm75jgb): tokens of the general
+   * balance free tokens leave out, so exploration and grant funding can't claim them. The caller checks admin. Logs it.
+   */
+  setOperatingReserve(tokens: number, by: string | null = null): number {
+    const was = this.town.get().operatingReserveTokens;
+    if (was === tokens) return tokens;
+    this.town.set({ operatingReserveTokens: tokens });
+    this.events.append({ type: "system", agentId: by, text: `Operating reserve set to ${tokens.toLocaleString("en-US")} tokens (was ${was.toLocaleString("en-US")})`, payload: { operatingReserveTokens: tokens, from: was } });
+    return tokens;
   }
 
   /**

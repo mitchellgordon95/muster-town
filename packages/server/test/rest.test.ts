@@ -424,6 +424,8 @@ describe("meetings, roles, budget, events, human moves", () => {
 describe("edit layout", () => {
   it("anyone reads the furniture; a human manager dry-runs and saves; agent tokens are refused", async () => {
     const { app, world, auth } = await setup();
+    // the plain tree: labs hang below their goal's street, doors in their top wall
+    world.town.set({ mapLayout: "tree" }); world.layout.rebuild();
     const room = await json(app, "GET", "/api/buildings/carbon-cycle/layout");
     expect(room.status).toBe(200);
     expect(room.body.pieces.map((p: any) => p.key)).toEqual(expect.arrayContaining(["board", "desk:0", "meeting", "cabinet"]));
@@ -448,6 +450,8 @@ describe("edit layout", () => {
 describe("the map is the goal tree (docs/goals.md, build step 2)", () => {
   it("no plan route; attaching a building draws its goal, its place on the building's doorstep; Desks resizes it (town.manage_buildings), agent tokens 403", async () => {
     const { app, world, auth } = await setup();
+    // the plain tree: labs hang below their goal's street, doors in their top wall
+    world.town.set({ mapLayout: "tree" }); world.layout.rebuild();
     expect((await json(app, "PUT", "/api/town/plan", { headers: auth, body: { lots: {} } })).status).toBe(404);
     const goal = await json(app, "POST", "/api/goals", { headers: auth, body: { parentId: "gl_town", text: "A goal with a plaza" } });
     expect(goal.status).toBe(201);
@@ -514,5 +518,22 @@ describe("the map's shape (1:1 mt_q10xf3bkoq)", () => {
     expect((await json(app, "PUT", "/api/town/map-layout", { headers: auth, body: { layout: "hex" } })).status).toBe(400);
     const moss = world.agents.first("name = 'Moss'")!;
     expect((await json(app, "PUT", "/api/town/map-layout", { headers: { authorization: `Bearer ${world.tokens.getOrCreate("agent", moss.id)}` }, body: { layout: "radial" } })).status).toBe(403);
+  });
+});
+
+describe("the operating reserve (1:1 mt_lb7tm75jgb)", () => {
+  it("an admin sets it (PUT /api/town/operating-reserve); GET /api/bank carries it and the free tokens it leaves; logged", async () => {
+    const { app, world, auth, seed } = await setup();
+    world.bank.addInput(seed.admin.id, { label: "Key", source: "api-key", model: "m", tokens: 2000, apiKey: "sk" });
+    const { token } = world.ops.createUser("Octo");
+    expect((await json(app, "PUT", "/api/town/operating-reserve", { body: { tokens: 500 } })).status).toBe(401);
+    expect((await json(app, "PUT", "/api/town/operating-reserve", { headers: { authorization: `Bearer ${token}` }, body: { tokens: 500 } })).status).toBe(403);
+    expect((await json(app, "PUT", "/api/town/operating-reserve", { headers: auth, body: { tokens: -1 } })).status).toBe(400);
+    const set = await json(app, "PUT", "/api/town/operating-reserve", { headers: auth, body: { tokens: 500 } });
+    expect(set.status).toBe(200);
+    expect(set.body).toMatchObject({ operatingReserveTokens: 500, free: { generalTokens: 2000, reserveTokens: 500, freeTokens: 1500 } });
+    expect((await json(app, "GET", "/api/bank")).body).toMatchObject({ balanceTokens: 2000, reserveTokens: 500, freeTokens: 1500 });
+    expect((await json(app, "GET", "/api/town")).body.town.operatingReserveTokens).toBe(500);
+    expect(world.events.recent({ limit: 20 }).some((e) => (e.payload as { operatingReserveTokens?: number }).operatingReserveTokens === 500)).toBe(true);
   });
 });

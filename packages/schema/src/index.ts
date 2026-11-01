@@ -11,6 +11,19 @@ export const Id = z.string().min(1);
 export const Iso = z.string().datetime({ offset: true }).or(z.string().datetime());
 export const Tile = z.object({ x: z.number().int(), y: z.number().int() });
 export type Tile = z.infer<typeof Tile>;
+/**
+ * `o.partial()` for patches: a field left out stays out. zod 4's own `.partial()` keeps each field's `.default()`, so
+ * parsing `{}` would fill every defaulted field and a patch would reset them; this drops the defaults first.
+ */
+export function patchOf<S extends z.ZodRawShape>(o: z.ZodObject<S>): ReturnType<z.ZodObject<S>["partial"]> {
+  const shape: Record<string, z.ZodType> = {};
+  for (const [k, v] of Object.entries(o.shape) as [string, z.ZodType][]) {
+    let t = v;
+    while (t instanceof z.ZodDefault || t instanceof z.ZodPrefault) t = t.unwrap() as z.ZodType;
+    shape[k] = t.optional();
+  }
+  return o.extend(shape) as never;
+}
 
 // ---------- town ----------
 /** The collective's code repo: residents of buildings with code access edit it on a per-agent branch, with scoped tools. */
@@ -50,16 +63,20 @@ export const BuildingDefaults = z.object({
 });
 export type BuildingDefaults = z.infer<typeof BuildingDefaults>;
 /** `PUT /api/town/defaults` (admin): the keys to change. */
-export const TownDefaultsPatch = BuildingDefaults.partial().refine((p) => Object.values(p).some((v) => v !== undefined), "give at least one default");
+export const TownDefaultsPatch = patchOf(BuildingDefaults).refine((p) => Object.values(p).some((v) => v !== undefined), "give at least one default");
 export type TownDefaultsPatch = z.infer<typeof TownDefaultsPatch>;
 
 /**
- * The shape the map draws the goal tree in (core world/tree.ts; 1:1 mt_q10xf3bkoq): first-level goals as fountain plazas
- * with streets below, the plain packed tree, or spokes round the Town Hall. Town-wide: admins and goal captains pick it
+ * The shape the map draws the goal tree in (core world/tree.ts; 1:1 mt_q10xf3bkoq): "fountain" is a planned town (a square
+ * with the Town Hall and a fountain, a main street, each first-level goal a district on its own cross street; 1:1
+ * mt_3ldf9p5av1), "tree" the plain packed tree, "radial" spokes round the Town Hall. Town-wide: admins and goal captains pick it
  * on the town map; a new collective starts with "fountain".
  */
 export const MapLayout = z.enum(["fountain", "tree", "radial"]);
 export type MapLayout = z.infer<typeof MapLayout>;
+
+/** The operating reserve a town starts with (1:1 mt_lb7tm75jgb). */
+export const OPERATING_RESERVE_TOKENS = 500_000;
 
 export const Town = z.object({
   name: z.string(),
@@ -69,9 +86,15 @@ export const Town = z.object({
   /** the collective's repo; every building with `codeAccess` works on it (there are no per-building repos) */
   workspace: Workspace.optional(),
   /** the collective's defaults for every building (stored; `TownMeta.defaults()` fills the gaps); PUT /api/town/defaults sets them */
-  defaults: BuildingDefaults.partial().optional(),
+  defaults: patchOf(BuildingDefaults).optional(),
   /** how the map draws the goal tree; PUT /api/town/map-layout (an admin or a goal captain) sets it */
   mapLayout: MapLayout.default("fountain"),
+  /**
+   * The operating reserve (1:1 mt_lb7tm75jgb): tokens of the general balance that free tokens leave out, so exploration and
+   * grant funding can't claim them; 1:1s, meetings, manage and directed sessions still draw on the whole balance.
+   * PUT /api/town/operating-reserve (an admin) sets it.
+   */
+  operatingReserveTokens: z.number().int().nonnegative().default(OPERATING_RESERVE_TOKENS),
 });
 export type Town = z.infer<typeof Town>;
 
@@ -269,7 +292,7 @@ export const Building = z.object({
   /** tile rectangle on the town grid; assigned by the server if absent */
   lot: Lot.optional(),
   /** moved furniture: piece key (`board`, `desk:3`, `meeting`, …) -> anchor tile relative to the lot; absent = default spot */
-  furniture: z.record(z.object({ x: z.number().int(), y: z.number().int() })).default({}),
+  furniture: z.record(z.string(), z.object({ x: z.number().int(), y: z.number().int() })).default({}),
   createdAt: Iso,
   createdBy: Id.optional(),
 });
@@ -341,6 +364,10 @@ export const BankInput = z.object({
   goalId: Id.nullable().default(null),
   /** when the donor was last told no session has drawn on this earmark for 7 days (in-town notice; null = never) */
   idleNotifiedAt: Iso.nullable().default(null),
+  /** a recurring api-key input limited to N credits (migration 074): N, the credit made when it was added counting as 1; null = until cancelled */
+  creditsTotal: z.number().int().positive().nullable().default(null),
+  /** credits still due of creditsTotal; at 0 it stops renewing (nextCreditAt null) and stays listed; null = until cancelled */
+  creditsLeft: z.number().int().nonnegative().nullable().default(null),
 });
 export type BankInput = z.infer<typeof BankInput>;
 /** One credit from an input into the Bank. A subscription's credit expires a day later (no rollover); an API key's is durable (`expiresAt` null). */
@@ -372,13 +399,15 @@ export interface FreeTokens {
   goalId: string;
   /** the general balance (every credit not earmarked) */
   generalTokens: number;
+  /** the town's operating reserve, kept out of the general balance before any claim (never claimable; sessions still draw on it) */
+  reserveTokens: number;
   /** balances of the live earmarks at or above the goal */
   earmarkTokens: number;
   /** town-wide claims (on the general balance and on the earmarks above the goal) */
   fundedRemainingTokens: number;
   openAsksTokens: number;
   reservedTokens: number;
-  /** what the claims leave of general + those earmarks, never below 0 */
+  /** what the claims leave of (general − reserve) + those earmarks, never below 0 */
   freeTokens: number;
 }
 /** One charge of model usage: who spent it and which building it counts for (the agent's home). The usage ledger behind tokensToday / tokensAllTime. */
@@ -964,13 +993,13 @@ export const Meeting = z.object({
   attendeeIds: z.array(Id).default([]),
   /** the human's agenda items as numbered lines ("1. …"), or free text; "" = the facilitator proposes 2-4 items */
   agenda: z.string().default(""),
-  brings: MeetingBrings.default({}),
+  brings: MeetingBrings.prefault({}),
   /** the facilitator opens with "Decisions needed from the humans" (default: kind is town-hall) */
   askHumans: z.boolean().default(false),
   /** Presentation with chat: the deck shown above the chat, kept in sync (null = a chat meeting) */
   deck: MeetingDeck.nullable().default(null),
   /** attendeeId -> short standup summary (did / next / need) submitted before discussion */
-  summaries: z.record(z.string()).default({}),
+  summaries: z.record(z.string(), z.string()).default({}),
   transcript: z.array(MeetingUtterance).default([]),
   decisions: z.array(MeetingDecision).default([]),
   notesDocId: Id.nullable().default(null),
@@ -1531,7 +1560,7 @@ export const Event = z.object({
   buildingId: Id.nullable().default(null),
   /** short human-readable line, shown in activity feeds and bubbles */
   text: z.string(),
-  payload: z.record(z.unknown()).default({}),
+  payload: z.record(z.string(), z.unknown()).default({}),
 });
 export type Event = z.infer<typeof Event>;
 
@@ -1871,8 +1900,10 @@ export const TILE = {
   SIGNPOST: 26,
   /** the Town Hall goal tree: a wall chart on its back wall (place `goal-tree`: opens the goal editor) */
   GOAL_CHART: 27,
-  /** the fountain in the middle of a first-level goal's plaza (map shape "fountain"; not walkable) */
+  /** the fountain in the middle of the town square (map shape "fountain"; a block of tiles, not walkable) */
   FOUNTAIN: 28,
+  /** the town square's paving (walkable), and the town's decor on it and on the grass (not walkable) */
+  PAVING: 29, TREE: 30, LAMP: 31, FLOWERS: 32,
 } as const;
 /**
  * The Bank: a fixed landmark (not a building row, so it never takes a budget share) at the west end of the main street,
@@ -1915,7 +1946,7 @@ export function bankPlaces(x0: number, y0: number): Place[] {
     { id: "bank-map", kind: "bank-map", name: "Bank town map", buildingId: null, pos: { x: x0 + F.mapStand.x, y: y0 + F.mapStand.y } },
   ];
 }
-export const WALKABLE = new Set<number>([TILE.GRASS, TILE.PATH, TILE.FLOOR, TILE.DOOR]);
+export const WALKABLE = new Set<number>([TILE.GRASS, TILE.PATH, TILE.FLOOR, TILE.DOOR, TILE.PAVING]);
 
 // ---------- REST payloads ----------
 /**
@@ -1924,15 +1955,15 @@ export const WALKABLE = new Set<number>([TILE.GRASS, TILE.PATH, TILE.FLOOR, TILE
  * or missing name is the goal's short text (core `Goals.defaultName`); a name typed by hand stays. Model, cheap model,
  * max turns, daily budget per agent and code access are the collective's (`BuildingDefaults`, PUT /api/town/defaults), not per building.
  */
-export const CreateBuildingInput = Building.pick({ headcount: true, meetings: true, rules: true, managerAgentId: true }).partial()
+export const CreateBuildingInput = patchOf(Building.pick({ headcount: true, meetings: true, rules: true, managerAgentId: true }))
   .extend({
     name: z.string().trim().max(80).optional().describe("blank or missing = the attached goal's short text"),
     goalId: Id.optional().describe("the goal of the town tree it attaches to (default: the root); never unset"),
   });
 /** The exploration cap is the attached goal's, not the building's (PATCH /api/goals/:id). */
-export const UpdateBuildingInput = CreateBuildingInput.partial();
+export const UpdateBuildingInput = patchOf(CreateBuildingInput);
 /** PATCH /api/grants/:id while draft / countered. `keyResults` replaces the list. */
-export const UpdateGrantInput = CreateGrantInput.partial().extend({ note: z.string().max(2000).optional() });
+export const UpdateGrantInput = patchOf(CreateGrantInput).extend({ note: z.string().max(2000).optional() });
 export type UpdateGrantInput = z.input<typeof UpdateGrantInput>;
 /**
  * POST /api/grants/:id/decide (`building.fund`). On a proposed grant: fund (tokens default to the ask), counter
@@ -1975,7 +2006,7 @@ export type UpdateKeyResultInput = z.input<typeof UpdateKeyResultInput>;
 /** GET /api/buildings/:id/grants?status= */
 export const GrantsQuery = z.object({ status: GrantStatus.optional() });
 /** PUT /api/buildings/:id/layout: lot-relative anchors for moved pieces (left out = stays put); `dryRun` only checks it. */
-export const LayoutInput = z.object({ furniture: z.record(Tile), dryRun: z.boolean().default(false) });
+export const LayoutInput = z.object({ furniture: z.record(z.string(), Tile), dryRun: z.boolean().default(false) });
 /** core `createResident` (seed, v0 import, a new building's manager): `name` left out or blank = the town picks an unused one. No REST route since 1:1 mt_wngibcr98b decision 1. */
 export const CreateResidentInput = z.object({ buildingId: Id, name: z.string().trim().optional(), title: z.string().default(""), direction: z.string().default(""), sprite: z.number().int().optional(), model: z.string().optional() });
 export const RegisterVisitorInput = z.object({ name: z.string(), buildingId: Id.optional(), title: z.string().optional(),
@@ -2013,6 +2044,8 @@ export const AddBankInput = z.object({
   token: z.string().min(1).optional(),
   /** api-key inputs: earmark the stream for a goal node (docs/goals.md "Streams"); left out = the general balance */
   goalId: Id.nullable().optional(),
+  /** recurring api-key inputs: credit this many times in all (the first credit counts as 1), then stop; left out = until cancelled */
+  times: z.number().int().positive().max(1000).optional(),
 });
 export type AddBankInput = z.input<typeof AddBankInput>;
 export const CreateMeetingInput = z.object({ kind: MeetingKind.exclude(["one-on-one"]), buildingId: Id.nullable(), title: z.string().optional(), scheduledAt: Iso.optional(),

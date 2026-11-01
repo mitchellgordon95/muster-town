@@ -129,6 +129,14 @@ export class TownMeta {
   setWakeCursor(id: number): void {
     this.db.prepare("INSERT INTO meta (key, value) VALUES ('wakeCursor', ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value").run(JSON.stringify(id));
   }
+  /** A small runtime marker kept in `meta` under `key` (e.g. "the reconciliation ran for day X"), null when unset. */
+  marker(key: string): string | null {
+    const r = this.db.prepare("SELECT value FROM meta WHERE key = ?").get(`marker:${key}`) as { value: string } | undefined;
+    return r ? String(JSON.parse(r.value)) : null;
+  }
+  setMarker(key: string, value: string): void {
+    this.db.prepare("INSERT INTO meta (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value").run(`marker:${key}`, JSON.stringify(value));
+  }
   /** collective.json `desks` (stored at seed; defaults when absent). */
   desks(): DesksConfig {
     const r = this.db.prepare("SELECT value FROM meta WHERE key = 'desks'").get() as { value: string } | undefined;

@@ -16,6 +16,7 @@ import { loadAuthSettings } from "./auth/index.ts";
 import { Hub } from "./hub.ts";
 import { Directory, directoryEnabled } from "./directory/index.ts";
 import { Counters, defaultMetrics, Monitor, processProbes } from "./monitor.ts";
+import { hostedTickCap, TickRotation } from "./ticks.ts";
 import { desksFromEnv, loadEnvFile } from "./env.ts";
 import type { RuntimeHooks } from "./context.ts";
 import type { FastifyInstance } from "fastify";
@@ -32,6 +33,8 @@ assertNoEnvCredentials();
 const collectiveCfg = existsSync(COLLECTIVE_JSON) ? (JSON.parse(readFileSync(COLLECTIVE_JSON, "utf8")) as { port?: number; name?: string }) : {};
 const PORT = Number(process.env.PORT ?? collectiveCfg.port ?? 4321);
 const HOST = process.env.HOST ?? "0.0.0.0";
+/** `GET /api/health` recomputes its database-backed figures this often and serves the cached copy (503 post-mortem follow-up A) */
+const HEALTH_REFRESH_MS = 5_000;
 const DATA_DIR = resolve(REPO_ROOT, townEnv("DATA") ?? join(COLLECTIVE_DIR, "data"));
 // world.export() and the export route read it back through townEnv; set both names so either spelling sees it
 process.env.MUSTER_TOWN_EXPORT = process.env.AGENT_TOWN_EXPORT = resolve(REPO_ROOT, townEnv("EXPORT") ?? join(COLLECTIVE_DIR, "export"));
@@ -78,10 +81,15 @@ async function main() {
    * A hosted collective's runtime (step 5, docs/hosted-collectives.md): its own scrubbed env and claude dir, its own key only
    * (held "No key yet" without one), in-process sessions only, one at a time, its own export dir, no redeploy.
    */
+  /** post-mortem 2026-10-31 item 8: one timer ticks the hosted worlds round-robin, at most MUSTER_TOWN_HOSTED_TICK_CAP per 5 s */
+  const hostedTicks = new TickRotation({ cap: hostedTickCap(townEnv("HOSTED_TICK_CAP")) });
   const startHosted = async (app: FastifyInstance, w: World, slug: string, dir: string): Promise<void> => {
     if (!runtimeMod || !url || app.runtime) return;
     try {
-      app.runtime = await runtimeMod.startRuntime({ world: w, mcpUrl: `${url}/${slug}/mcp`, repoRoot: REPO_ROOT, collective: slug, exportDir: join(dir, "export"), hosted: { dir } });
+      // no timer of its own: the host's rotation ticks the hosted worlds one at a time, staggered and capped (ticks.ts)
+      const rt = await runtimeMod.startRuntime({ world: w, mcpUrl: `${url}/${slug}/mcp`, repoRoot: REPO_ROOT, collective: slug, exportDir: join(dir, "export"), hosted: { dir }, intervalMs: 0 });
+      app.runtime = rt;
+      if (rt.tickOnce) hostedTicks.add(slug, () => rt.tickOnce!());
     } catch (e) {
       console.warn(`[server] /${slug}/ runtime not started (${e instanceof Error ? e.message : String(e)})`);
     }
@@ -92,16 +100,16 @@ async function main() {
     const app = await buildApp({
       world: w, dev: DEV, runtime: null, prefix: `/${row.slug}`, exportDir: join(dir, "export"),
       auth: { ...auth, admins: [], hosted: { slug: row.slug, ownerGithubId: row.ownerGithubId } },
-      retire: (): unknown => hub.retire(row.slug),
+      retire: (): unknown => hub.retire(row.slug), healthRefreshMs: HEALTH_REFRESH_MS,
     });
     // retire and shutdown close the app before its World: stop the runtime first
-    app.addHook("onClose", async () => { await (app.runtime?.close?.() ?? app.runtime?.stop?.()); });
+    app.addHook("onClose", async () => { hostedTicks.remove(row.slug); await (app.runtime?.close?.() ?? app.runtime?.stop?.()); });
     await startHosted(app, w, row.slug, dir);
     return app;
   });
   await hub.openAll();
   console.log(`[server] hub ${HOSTED_DIR}: ${hub.count} hosted collective(s)${hub.count ? ": " + hub.list("active").map((r) => "/" + r.slug + "/").join(", ") : ""}`);
-  const app = await buildApp({ world, dev: DEV, auth, collective: basename(COLLECTIVE_DIR), backup, monitor, hub, directory });
+  const app = await buildApp({ world, dev: DEV, auth, collective: basename(COLLECTIVE_DIR), backup, monitor, hub, directory, healthRefreshMs: HEALTH_REFRESH_MS });
   await app.listen({ port: PORT, host: HOST });
   url = `http://localhost:${PORT}`;
   console.log(`[server] Muster Town at ${url} (dev=${DEV})`);
@@ -136,11 +144,12 @@ async function main() {
   process.on("SIGTERM", () => void shutdown("SIGTERM"));
 }
 
-type RuntimeModule = { startRuntime: (o: { world: World; mcpUrl: string; repoRoot: string; collective: string; exportDir?: string; codeDir?: string; hosted?: { dir: string } }) => RuntimeHooks | Promise<RuntimeHooks> };
+type RuntimeModule = { startRuntime: (o: { world: World; mcpUrl: string; repoRoot: string; collective: string; exportDir?: string; codeDir?: string; hosted?: { dir: string }; intervalMs?: number }) => RuntimeHooks | Promise<RuntimeHooks> };
 let runtimeError = "";
 async function loadRuntime(): Promise<RuntimeModule | null> {
   try {
-    const runtimePkg = "@muster-town/runtime"; // variable specifier: the server typechecks and runs without it
+    // variable specifier: the server typechecks and runs without it. The prebuilt server (build.mjs) ships it as dist/runtime.js.
+    const runtimePkg = import.meta.url.endsWith(".ts") ? "@muster-town/runtime" : "./runtime.js";
     const mod = (await import(runtimePkg)) as Partial<RuntimeModule>;
     if (typeof mod.startRuntime !== "function") throw new Error("@muster-town/runtime does not export startRuntime");
     return mod as RuntimeModule;

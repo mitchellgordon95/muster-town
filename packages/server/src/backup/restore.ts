@@ -11,7 +11,8 @@ import Database from "better-sqlite3";
 import { existsSync, renameSync, rmSync, writeFileSync } from "node:fs";
 import { gunzipSync } from "node:zlib";
 import { decryptBackup } from "./crypto.ts";
-import { backupTargetFromEnv, FRESH_TOWN, OBJECT_PREFIX, parseObjectKey } from "./index.ts";
+import { backupTargetFromEnv, FRESH_TOWN } from "./index.ts";
+import { OBJECT_PREFIX, parseObjectKey } from "./retention.ts";
 
 interface RestoreOptions {
   /** the town.db the world will open */

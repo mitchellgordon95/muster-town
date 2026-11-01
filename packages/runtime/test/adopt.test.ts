@@ -116,17 +116,40 @@ describe("redeploy without draining", () => {
     expect(removed).toHaveLength(1);
   });
 
-  test("an adopted desk that goes silent is ended as lost and its assignment re-queued", async () => {
+  test("an adopted desk that goes silent while other desks reach the town is ended as lost and its assignment re-queued", async () => {
     const s = await running();
     s.runtime.redeploy({ image: false, requestedBy: "Noor" });
     await vi.waitFor(() => expect(s.exit).toHaveBeenCalledWith(75), { timeout: 15_000 });
     const next = restart(s, { adoptedSilentMs: 60_000 });
     expect(next.adopted).toEqual([s.session.id]);
     s.clock.t += 61_000;
+    // another desk's control poll: the town is reachable, so this one's silence is its own
+    next.deskSeen("ag_other", "se_other");
     await next.tickOnce();
     expect(s.world.sessions.require(s.session.id)).toMatchObject({ status: "error", error: "desk lost after restart" });
     expect(s.world.assignments.require(s.asg.id).status).not.toBe("active");
     expect(s.world.events.recent({ limit: 50 }).some((e) => (e.payload as { adoptedLost?: boolean }).adoptedLost)).toBe(true);
+  });
+
+  test("when no desk reaches the town (its network is down), a silent adopted session is kept until ADOPTED_LOST_MS (10-31 21:30Z)", async () => {
+    const s = await running();
+    s.runtime.redeploy({ image: false, requestedBy: "Noor" });
+    await vi.waitFor(() => expect(s.exit).toHaveBeenCalledWith(75), { timeout: 15_000 });
+    const next = restart(s, { adoptedSilentMs: 60_000, adoptedLostMs: 600_000 });
+    // 9 min of silence from every desk: still running, its assignment still active
+    s.clock.t += 540_000;
+    await next.tickOnce();
+    expect(s.world.sessions.require(s.session.id).status).toBe("running");
+    expect(s.world.assignments.require(s.asg.id).status).toBe("active");
+    // its own control poll comes back once the town is reachable again: the clock restarts
+    next.deskSeen(s.noor.id, s.session.id);
+    s.clock.t += 120_000;
+    await next.tickOnce();
+    expect(s.world.sessions.require(s.session.id).status).toBe("running");
+    // silent past ADOPTED_LOST_MS with nobody heard: lost
+    s.clock.t += 600_000;
+    await next.tickOnce();
+    expect(s.world.sessions.require(s.session.id)).toMatchObject({ status: "error", error: "desk lost after restart" });
   });
 
   test("a server that starts without a hand-over (a crash) still orphans running desk sessions; a stale hand-over file is ignored", async () => {

@@ -157,7 +157,7 @@ export interface FinanceSpend {
   /** an estimate: the part of it a donation straight to the building may have paid for */
   notFundedAllocationPaid: number;
   /** the split's sum vs `notFunded` (exact); ok when equal */
-  notFundedSplitCheck: { sum: number; notFunded: number; ok: boolean };
+  notFundedSplitCheck: { sum: number; notFunded: number; ok: boolean; reason?: string };
   rows: SpendNode[];
   check: { ok: boolean; diff: number; identity: string };
   at: string;
@@ -173,6 +173,8 @@ export interface FinanceSources {
   inputs: {
     id: string | null; label: string; source: "api-key" | "subscription" | null; recurrence: "once" | "daily" | "weekly" | "monthly" | null;
     who: string; createdAt: string | null; cancelledAt: string | null;
+    /** a recurring input limited to N credits (null or absent = until cancelled); nextCreditAt null = none due */
+    creditsTotal?: number | null; creditsLeft?: number | null; nextCreditAt?: string | null;
     tokens: number; firstAt: string | null; lastAt: string | null; expiredTokens: number; credits: SourceCredit[];
   }[];
   donations: {
@@ -236,6 +238,9 @@ export interface Bank {
   buildings: BankBuildingShare[];
   /** town-wide free tokens (the root goal's; docs/how-work-gets-done.md §7); null or left out by older servers */
   free?: FreeTokens | null;
+  /** the operating reserve (1:1s, meetings and directed work draw on it; exploration and grant funding can't) and the town-wide free tokens; older servers leave them out */
+  reserveTokens?: number;
+  freeTokens?: number;
   contributors: BankContributor[];
   /** Bank step 4: the latest drift run (null before the first; older servers leave it out) */
   drift?: BankDrift | null;
@@ -400,6 +405,8 @@ export interface Api {
   /** a signed-in person registers their own agent (Claude Code over MCP); the token is returned once */
   registerVisitor(input: In<typeof RegisterVisitorInput>): Promise<{ agent: Agent; token: string }>;
   /** town.ban */
+  /** DELETE /api/agents/:id: dismiss (retire) a resident; purge also deletes its desk volume */
+  dismiss(id: string, purge?: boolean): Promise<void>;
   ban(id: string, reason: string): Promise<Agent>;
   agent(id: string): Promise<AgentDetail>;
   /** a manager's forks: live, then the last 50 retired */
@@ -434,6 +441,8 @@ export interface Api {
   /** PUT /api/town/defaults (admin): the collective defaults; saving writes them through to every lab */
   /** PUT /api/town/map-layout (an admin or a goal captain): the shape the map draws the goal tree in, for everyone */
   setMapLayout(layout: MapLayout): Promise<{ mapLayout: MapLayout }>;
+  /** PUT /api/town/operating-reserve (admin): tokens exploration and grant funding can't claim */
+  setOperatingReserve(tokens: number): Promise<{ operatingReserveTokens: number; free: FreeTokens | null }>;
   setTownDefaults(patch: Partial<BuildingDefaults>): Promise<{ defaults: BuildingDefaults; buildings: Building[] }>;
   /** open a session transcript in a new tab (admins, the building's manager, the agent itself) */
   openTranscript?(url: string): Promise<void>;
@@ -655,6 +664,7 @@ class HttpApi implements Api {
   joinFunnel() { return this.get<JoinFunnelView>("/api/join-funnel"); }
   async countGuestCardView() { await this.post("/api/join-funnel/view"); }
   registerVisitor(i: In<typeof RegisterVisitorInput>) { return this.post<{ agent: Agent; token: string }>("/api/agents/visitors", i); }
+  async dismiss(id: string, purge = false) { await this.call("DELETE", `/api/agents/${id}${purge ? "?purge=1" : ""}`); }
   async ban(id: string, reason: string) { return unwrap<Agent>(await this.post(`/api/agents/${id}/ban`, { reason }), "agent"); }
   agent(id: string) { return this.get<AgentDetail>(`/api/agents/${id}`); }
   forks(managerId: string) { return this.get<{ live: ForkSummary[]; retired: ForkSummary[]; notStarted?: number; family?: FamilySpend }>(`/api/agents/${managerId}/forks`); }
@@ -674,6 +684,7 @@ class HttpApi implements Api {
   retryAssignment(id: string, front = true) { return this.post<{ assignment: Assignment; agent: Agent }>(`/api/assignments/${id}/retry`, { front }); }
   setMaxRunning(maxRunning: number) { return this.call<{ desks: DesksConfig; slots: SessionSlots | null }>("PUT", "/api/town/desks", { maxRunning }); }
   setMapLayout(layout: MapLayout) { return this.call<{ mapLayout: MapLayout }>("PUT", "/api/town/map-layout", { layout }); }
+  setOperatingReserve(tokens: number) { return this.call<{ operatingReserveTokens: number; free: FreeTokens | null }>("PUT", "/api/town/operating-reserve", { tokens }); }
   setTownDefaults(patch: Partial<BuildingDefaults>) { return this.call<{ defaults: BuildingDefaults; buildings: Building[] }>("PUT", "/api/town/defaults", patch); }
   async docs(q: DocQuery) { return unwrap<Doc[]>(await this.get(`/api/docs${qs(q)}`), "docs"); }
   async doc(id: string) { return unwrap<Doc>(await this.get(`/api/docs/${id}`), "doc"); }

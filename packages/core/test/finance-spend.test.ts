@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { countersSince, createBuilding, createResident, financeSpend, grantTitle, ledgerBookedBeforeConversion, NO_ASSIGNMENT, notFundedUsage, NO_BUILDING, NO_GRANT, UNATTRIBUTED, WEIGHT_MISMATCH, type SpendInputs, type SpendNode } from "../src/index.ts";
+import { countersSince, createBuilding, createResident, financeSpend, grantTitle, ledgerBookedBeforeConversion, NO_ASSIGNMENT, notFundedUsage, NOT_FUNDED_SPLIT_REASON, NO_BUILDING, NO_GRANT, UNATTRIBUTED, WEIGHT_MISMATCH, type SpendInputs, type SpendNode } from "../src/index.ts";
 import { seededWorld } from "./helpers.ts";
 
 const T0 = new Date("2026-10-28T12:00:00.000Z");
@@ -138,21 +138,24 @@ describe("financeSpend (GET /api/finance/spend)", () => {
       { agentId: "ag_asha", createdAt: at(D0, 25_000) },
       { agentId: "ag_nell", createdAt: at(D0, 30_000) },
     ];
-    // a donation to Lab spent 60: it may have paid that much of Lab's 100 unpaid
+    // a donation to Lab spent 60 (no Bank debit): it paid 60 of Lab's 100 undebited, so the split counts 40
     const allocations = [{ buildingId: "lab", spentTokens: 60 }, { buildingId: "elsewhere", spentTokens: 500 }];
-    // sessions 1,150 vs used 900: notFunded 250, and the split sums to it
-    const f = financeSpend({ ...base, usage, debits, allocations }, 900, T0);
-    expect(f).toMatchObject({ notFunded: 250, check: { ok: true, diff: 0 }, notFundedLastAt: "2026-10-30T23:59:00.000Z", notFundedAllocationPaid: 60, notFundedSplitCheck: { sum: 250, notFunded: 250, ok: true } });
+    // sessions 1,150 vs used 960: notFunded 190, and the split sums to it
+    const f = financeSpend({ ...base, usage, debits, allocations }, 960, T0);
+    expect(f).toMatchObject({ notFunded: 190, check: { ok: true, diff: 0 }, notFundedLastAt: "2026-10-30T23:59:00.000Z", notFundedAllocationPaid: 60, notFundedSplitCheck: { sum: 190, notFunded: 190, ok: true } });
+    expect(f.notFundedSplitCheck.reason).toBeUndefined();
     expect(f.notFundedSplit).toEqual([
       { buildingId: "bank", buildingName: "Bank Transparency", usageRows: 2, tokens: 150 },
-      { buildingId: "lab", buildingName: "Lab", usageRows: 2, tokens: 100 },
+      { buildingId: "lab", buildingName: "Lab", usageRows: 2, tokens: 40 },
       { buildingId: null, buildingName: "unattributed", usageRows: 1, tokens: 0 },
     ]);
     // the ledger number stays exact and untouched: a split that differs is shown, not fudged
     const g = financeSpend({ ...base, usage, debits, allocations }, 1_000, T0);
-    expect(g).toMatchObject({ notFunded: 150, check: { ok: true, diff: 0 }, notFundedSplitCheck: { sum: 250, notFunded: 150, ok: false } });
-    // a donation larger than the building's unpaid usage covers at most that usage
-    expect(notFundedUsage({ usage, debits, allocations: [{ buildingId: "lab", spentTokens: 1_000 }], buildings: base.buildings }).allocationPaid).toBe(100);
+    expect(g).toMatchObject({ notFunded: 150, check: { ok: true, diff: 0 }, notFundedSplitCheck: { sum: 190, notFunded: 150, ok: false, reason: NOT_FUNDED_SPLIT_REASON } });
+    // a donation larger than the building's undebited usage pays at most that usage, and the building drops out
+    const all = notFundedUsage({ usage, debits, allocations: [{ buildingId: "lab", spentTokens: 1_000 }], buildings: base.buildings });
+    expect(all.allocationPaid).toBe(100);
+    expect(all.split.map((x) => x.buildingId)).toEqual(["bank", null]);
     // no ledgers: an empty split that matches a zero notFunded
     expect(financeSpend(base, 1_500, T0)).toMatchObject({ notFundedSplit: [], notFundedLastAt: null, notFundedAllocationPaid: 0, notFundedSplitCheck: { sum: 0, notFunded: 0, ok: true } });
   });
