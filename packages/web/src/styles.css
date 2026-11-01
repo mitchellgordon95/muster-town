@@ -768,7 +768,14 @@ div.spend-row > .muted { font-size: 11.5px; }
 .ge { width: min(1280px, 100%); display: flex; flex-direction: column; background: var(--panel); border: 1px solid var(--line-2); border-radius: 10px; box-shadow: 0 12px 48px rgba(0,0,0,.55); overflow: hidden; }
 .ge-head { display: flex; align-items: center; gap: 12px; padding: 10px 14px; border-bottom: 1px solid var(--line); background: var(--panel-2); }
 .ge-head .who { flex: 1; min-width: 0; }
-.ge-body { flex: 1; min-height: 0; display: grid; grid-template-columns: minmax(360px, 60%) 1fr; }
+.ge-body { flex: 1; min-height: 0; display: grid; grid-template-columns: minmax(360px, 60%) 0 1fr; }
+/* a dragged divider (GeDivider, panelResize.tsx): the detail keeps 320 px, the canvas 360 px, whatever the sheet's width */
+.ge-body.sized { grid-template-columns: minmax(0, 1fr) 0 max(320px, min(var(--ge-detail), calc(100% - 360px))); }
+.ge-divider { position: relative; z-index: 5; width: 0; cursor: col-resize; touch-action: none; }
+.ge-divider::before { content: ""; position: absolute; top: 0; bottom: 0; left: -4px; width: 8px; }
+.ge-divider::after { content: ""; position: absolute; top: 0; bottom: 0; left: -1px; width: 2px; background: transparent; transition: background .12s; }
+.ge-divider:hover::after, .ge-divider:focus-visible::after, .ge-divider.dragging::after { background: var(--accent, #7aa2ff); }
+.ge-divider:focus { outline: none; }
 .ge-tree { overflow: auto; border-right: 1px solid var(--line); padding: 8px 8px 24px; overscroll-behavior: contain; }
 /* the goal tree canvas (GoalCanvas.tsx): root at the top, children in rows below, elbow lines; drag to pan, wheel to zoom */
 .ge-tree.ge-canvas { overflow: hidden; padding: 0; display: flex; flex-direction: column; }
@@ -843,4 +850,4 @@ div.spend-row > .muted { font-size: 11.5px; }
 .ge-kr-card .goal-kr-text { order: 10; flex-basis: 100%; }
 .ge-kr-card .goal-kr-acts { margin-left: auto; }
 .ge-check { display: block; color: var(--muted); font-size: 12px; margin-top: 2px; }
-@media (max-width: 760px) { .ge-wrap { padding: 0; right: 0; } .ge { border-radius: 0; } .ge-body { grid-template-columns: 1fr; grid-template-rows: 40% 1fr; } .ge-tree { border-right: none; border-bottom: 1px solid var(--line); } }
+@media (max-width: 760px) { .ge-wrap { padding: 0; right: 0; } .ge { border-radius: 0; } .ge-body, .ge-body.sized { grid-template-columns: 1fr; grid-template-rows: 40% 1fr; } .ge-divider { display: none; } .ge-tree { border-right: none; border-bottom: 1px solid var(--line); } }

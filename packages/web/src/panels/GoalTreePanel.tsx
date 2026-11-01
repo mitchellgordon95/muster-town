@@ -21,6 +21,7 @@ import { Act, Empty, ErrorLine, Field, Loading, MTokensInput, Pill, Section, fmt
 import { fromMillions, toMillions } from "../format";
 import { FreeTokensLine, capText } from "./FreeTokens";
 import { GoalCanvas } from "./GoalCanvas";
+import { GeDivider, useGeDetailWidth } from "./panelResize";
 
 const today = () => new Date().toISOString().slice(0, 10);
 const clip = (s: string, n = 70) => s.length > n ? `${s.slice(0, n - 1)}…` : s;
@@ -52,6 +53,7 @@ export function GoalTreePanel({ goalId, onClose }: { goalId?: string; onClose: (
   const [selected, setSelected] = useState<string>(goalId ?? ROOT_GOAL_ID);
   const [bump, setBump] = useState(0);
   const detail = useRef<HTMLElement>(null);
+  const [detailW, setDetailW] = useGeDetailWidth();
   const tree = useLoad(() => retired ? api().goalTreeWithRetired() : api().goalTree(), [rev, retired, bump]);
   const proposals = useLoad(() => api().goalProposals("open"), [rev, bump]);
   // the funder filter (goal tree step 8): a signed-in human with a Bank input can dim what their money didn't reach
@@ -97,7 +99,7 @@ export function GoalTreePanel({ goalId, onClose }: { goalId?: string; onClose: (
         </header>
         <ErrorLine error={tree.error ?? proposals.error} />
         {!root || !node ? <Loading /> : (
-          <div className="ge-body">
+          <div className={detailW ? "ge-body sized" : "ge-body"} style={detailW ? { ["--ge-detail" as string]: `${detailW}px` } : undefined}>
             <div className="ge-tree ge-canvas" aria-label="Goals">
               <div className="ge-tools">
                 <select aria-label="Building filter" value={filter} onChange={(e) => setFilter(e.target.value)}>
@@ -113,6 +115,7 @@ export function GoalTreePanel({ goalId, onClose }: { goalId?: string; onClose: (
                 onSelect={select} onToggle={toggle} onMoved={reload}
                 onOpen={() => { const el = detail.current; if (el) { el.scrollTop = 0; el.focus({ preventScroll: true }); } }} />
             </div>
+            <GeDivider width={detailW} onResize={setDetailW} />
             <main className="ge-detail" ref={detail} tabIndex={-1}>
               <GoalDetail key={node.id} root={root} node={node} me={me} focusKr={focusKr} onSelect={select} onDone={reload}
                 proposals={(proposals.data ?? []).filter((p) => node.id === ROOT_GOAL_ID || subtreeIds(node).has(proposalNode(root, p).id))} />
