@@ -1,5 +1,5 @@
 import type { BankInput, FunderSessionLine, FunderStreamLine, FunderWeek, Session } from "@muster-town/schema";
-import { adjustedOfUsage } from "./bank.ts";
+import { sessionTokens } from "./bank.ts";
 import type { World } from "./world.ts";
 
 /**
@@ -92,7 +92,7 @@ function line(world: World, s: Session, tokens: number, inputId: string | null):
 export function funderWeek(world: World, userId: string, days = 7, now = new Date()): FunderWeek {
   const user = world.users.require(userId, "user");
   const a = attribute(world, userId, days, now);
-  const tok = (s: Session) => adjustedOfUsage(s.model, s, s.byModel);
+  const tok = (s: Session) => sessionTokens(s);
   const literal = a.literal.map(({ s, inputId }) => line(world, s, tok(s), inputId)).reverse();
   const streams: FunderStreamLine[] = a.inputs.map((i) => {
     const mineLines = literal.filter((l) => l.inputId === i.id);
