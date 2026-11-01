@@ -64,6 +64,12 @@ meeting of 2026-10-27 17:21Z (mt_6830h8x5qk, decision 6) and waits for the Fund 
      to the Bank (Donate, To: The Bank, **API key**); with a key the explore tick starts work on the free tokens under
      the root goal (a grant proposal in the Town Hall in-tray). More goals go under the root (Town Hall → **Goal tree**),
      more buildings through Planning → **New building**. Tests: `packages/server/test/hub-start.test.ts`, `packages/server/test/hub.test.ts`.
+     With a key, the first tick explores (kr_f722z9ut50): a Start key credits 1,000,000 tokens, less the 500,000
+     operating reserve leaves 500,000 free under the root, so the tick reserves one 100,000-token chunk, the Workshop's
+     manager-resident runs on the founder's key input (`funding` api-key, `credentialInputId` = that input) and its grant
+     proposal routes to the founder (the root's captain) in the Town Hall in-tray. A key added later at the Bank starts it on
+     the next tick. A key credit of 600,000 tokens or less leaves less than one chunk free: nothing explores (the Queue tab says
+     why). Test: `packages/server/test/hub-explore.test.ts`.
    Tests: `packages/runtime/test/hosted.test.ts`.
 
 ## Step 3: Start a collective, and the own-key requirement
