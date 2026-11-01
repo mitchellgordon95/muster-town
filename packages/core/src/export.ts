@@ -1,8 +1,12 @@
-import { Agent, Building, Doc, Meeting, Town, type Event } from "@muster-town/schema";
+import { Agent, Building, Doc, Meeting, ROOT_GOAL_ID, Town, type Event, type ServerMessage } from "@muster-town/schema";
 import { execFileSync } from "node:child_process";
 import { existsSync, mkdirSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { dirname, join, posix, resolve } from "node:path";
-import { parseFrontmatter, slugify, stringifyFrontmatter } from "./util.ts";
+import { Worker } from "node:worker_threads";
+import type { DB } from "./db.ts";
+import { EventLog } from "./events.ts";
+import { createRepos } from "./store.ts";
+import { Emitter, parseFrontmatter, slugify, stringifyFrontmatter } from "./util.ts";
 import type { World } from "./world.ts";
 
 export interface ExportResult { dir: string; commit: string | null; changed: boolean; files: number }
@@ -54,11 +58,90 @@ function git(cwd: string, args: string[]): string {
   return execFileSync("git", args, { cwd, stdio: ["ignore", "pipe", "pipe"], encoding: "utf8" }).trim();
 }
 
+/** What an export reads: the World's repos on the main thread, or a read-only connection of its own in the export worker. */
+export interface ExportSource {
+  town(): Town;
+  docs(): Doc[];
+  buildings(): Building[];
+  meetings(): Meeting[];
+  agents(): Agent[];
+  events(q: { since: number; limit: number }): Event[];
+  nameOf(id: string): string;
+  purposeOf(b: Building): string;
+}
+
+export function worldSource(world: World): ExportSource {
+  return {
+    town: () => world.town.get(),
+    docs: () => world.docs.all("ORDER BY createdAt, rowid"),
+    buildings: () => world.buildings.all(),
+    meetings: () => world.meetings.all("ORDER BY createdAt, rowid"),
+    agents: () => world.agents.all("ORDER BY createdAt, rowid"),
+    events: (q) => world.events.list(q),
+    nameOf: (id) => world.nameOf(id),
+    purposeOf: (b) => world.goalTree.purposeOf(b),
+  };
+}
+
 /**
- * Write the readable repo mirror and `git commit` it if anything changed.
+ * The same reads on a bare connection (the export worker opens town.db read-only): the repos only, no World (World's
+ * constructor writes: migrateRoles, the layout). nameOf and purposeOf repeat World.nameOf and Goals.purposeOf.
+ */
+export function dbSource(db: DB): ExportSource {
+  const changes = new Emitter<ServerMessage>(); // nothing is written, so nothing is emitted
+  const repos = createRepos(db, changes);
+  const events = new EventLog(db, changes);
+  return {
+    town: () => repos.town.get(),
+    docs: () => repos.docs.all("ORDER BY createdAt, rowid"),
+    buildings: () => repos.buildings.all(),
+    meetings: () => repos.meetings.all("ORDER BY createdAt, rowid"),
+    agents: () => repos.agents.all("ORDER BY createdAt, rowid"),
+    events: (q) => events.list(q),
+    nameOf: (id) => repos.agents.get(id)?.name ?? repos.users.get(id)?.name ?? (id === "system" ? "Town" : id),
+    purposeOf: (b) => (b.goalId ? repos.goals.get(b.goalId) : undefined)?.text ?? repos.goals.get(ROOT_GOAL_ID)?.text ?? b.goal,
+  };
+}
+
+/**
+ * Write the readable repo mirror, `git commit` it if anything changed and append `export.done`.
  * Never writes secrets (no users, tokens, or API keys). Drafts are not exported.
  */
-export function exportWorld(world: World, dirIn: string): ExportResult {
+export function exportWorld(world: World, dir: string): ExportResult {
+  const r = writeExport(worldSource(world), dir);
+  world.events.append(exportDoneEvent(r));
+  return r;
+}
+
+/** The one `export.done` event of a run (the runtime appends it when the worker answers). */
+export function exportDoneEvent(r: ExportResult) {
+  return { type: "export.done" as const, text: r.changed ? `Exported the town (${r.commit?.slice(0, 7) ?? "no commit"})` : "Export: no changes", payload: { ...r } };
+}
+
+/** the worker file: the source under tsx or vitest, dist/export-worker.js in the prebuilt server (server/build.mjs bundles it) */
+const WORKER_FILE = import.meta.url.endsWith(".ts") ? new URL("./export-worker.ts", import.meta.url) : new URL("./export-worker.js", import.meta.url);
+
+export type ExportWorkerMessage = { ok: true; result: ExportResult } | { ok: false; error: string };
+
+/**
+ * One export off the main thread (docs/postmortem-2026-10-31-cpu-throttle-503.md suggestion 2): a `worker_threads` worker opens
+ * `dbPath` read-only on its own connection and runs writeExport there, so the reads (~1 s at the live size), the ~1,600 file
+ * writes and git never block the event loop. Resolves with the worker's result; the caller appends `export.done`.
+ */
+export function exportInWorker(dbPath: string, dir: string): Promise<ExportResult> {
+  // the sources need tsx's loader in the worker (core uses TypeScript Node can't strip); tsx's own runs pass it down already
+  const needsTsx = WORKER_FILE.pathname.endsWith(".ts") && !process.execArgv.some((a) => a.includes("tsx"));
+  return new Promise((done, fail) => {
+    let settled = false;
+    const worker = new Worker(WORKER_FILE, { workerData: { exportRun: { dbPath, dir: resolve(dir) } }, ...(needsTsx ? { execArgv: [...process.execArgv, "--import", "tsx"] } : {}) });
+    worker.once("message", (m: ExportWorkerMessage) => { settled = true; if (m.ok) done(m.result); else fail(new Error(m.error)); });
+    worker.once("error", (e) => { if (!settled) { settled = true; fail(e); } });
+    worker.once("exit", (code) => { if (!settled) { settled = true; fail(new Error(`export worker exited with code ${code} before answering`)); } });
+  });
+}
+
+/** The export itself, without the event: synchronous file writes and git (the runtime runs it in a worker, export-worker.ts). */
+export function writeExport(src: ExportSource, dirIn: string): ExportResult {
   const dir = resolve(dirIn);
   mkdirSync(dir, { recursive: true });
   // regenerate everything except .git so moved/deleted docs disappear
@@ -70,8 +153,8 @@ export function exportWorld(world: World, dirIn: string): ExportResult {
     writeFileSync(p, content);
     files++;
   };
-  const town = world.town.get();
-  const docs = world.docs.all("ORDER BY createdAt, rowid").flatMap((d) => { const path = docExportPath(d); return path ? [{ d, path }] : []; });
+  const town = src.town();
+  const docs = src.docs().flatMap((d) => { const path = docExportPath(d); return path ? [{ d, path }] : []; });
   const pathById = new Map(docs.map((x) => [x.d.id, x.path]));
   write("town.json", JSON.stringify(town, null, 2) + "\n");
   for (const { d, path } of docs) {
@@ -79,14 +162,14 @@ export function exportWorld(world: World, dirIn: string): ExportResult {
     write(path, stringifyFrontmatter(front, exportLinks(body, path, (id) => pathById.get(id) ?? null)));
   }
   write("index.json", JSON.stringify(docs.map(({ d, path }) => ({ id: d.id, path, title: d.title, type: d.type, state: d.state, buildingId: d.buildingId, createdAt: d.createdAt })), null, 2) + "\n");
-  const buildings = world.buildings.all();
+  const buildings = src.buildings();
   for (const b of buildings) {
     write(join("buildings", b.id, "building.json"), JSON.stringify(b, null, 2) + "\n");
     const dir = posix.join("buildings", b.id);
-    write(posix.join(dir, "README.md"), indexPage(world, `# ${b.name}\n\n${world.goalTree.purposeOf(b) ? `Goal: ${world.goalTree.purposeOf(b)}\n\n` : ""}Published docs (the board and the filing cabinet), newest first. Drafts are private and not exported.`, dir, docs.filter((x) => x.path.startsWith(dir + "/"))));
+    write(posix.join(dir, "README.md"), indexPage(src, `# ${b.name}\n\n${src.purposeOf(b) ? `Goal: ${src.purposeOf(b)}\n\n` : ""}Published docs (the board and the filing cabinet), newest first. Drafts are private and not exported.`, dir, docs.filter((x) => x.path.startsWith(dir + "/"))));
   }
   const library = docs.filter((x) => x.path.startsWith("library/"));
-  write("library/README.md", indexPage(world, "# Library\n\nDocs promoted to the town library, newest first.", "library", library));
+  write("library/README.md", indexPage(src, "# Library\n\nDocs promoted to the town library, newest first.", "library", library));
   write("README.md", [
     `# ${town.name} — export`, "",
     "Generated by Muster Town from the live world (the server is the source of truth; this is its readable mirror). Docs link to each other by relative path; `index.json` maps every doc id (`dc_…`) to its file.", "",
@@ -101,16 +184,16 @@ export function exportWorld(world: World, dirIn: string): ExportResult {
     ...buildings.map((b) => `- [${b.name}](buildings/${b.id}/README.md): ${docs.filter((x) => x.path.startsWith(`buildings/${b.id}/`)).length} docs`),
     `- [Library](library/README.md): ${library.length} docs`, "",
   ].join("\n"));
-  for (const m of world.meetings.all("ORDER BY createdAt, rowid")) {
-    const name = (id: string) => world.nameOf(id);
+  for (const m of src.meetings()) {
+    const name = (id: string) => src.nameOf(id);
     const body = [`# ${m.title}`, "", ...m.transcript.map((u) => `- **${name(u.speakerId)}** (${u.at}): ${u.text}`)].join("\n");
     write(meetingExportPath(m), stringifyFrontmatter({ ...m }, body));
   }
-  write("agents.json", JSON.stringify(world.agents.all("ORDER BY createdAt, rowid"), null, 2) + "\n");
+  write("agents.json", JSON.stringify(src.agents(), null, 2) + "\n");
   const byDay = new Map<string, Event[]>();
   let since = 0;
   for (;;) {
-    const batch = world.events.list({ since, limit: 5000 });
+    const batch = src.events({ since, limit: 5000 });
     if (!batch.length) break;
     for (const e of batch) {
       since = e.id;
@@ -134,20 +217,19 @@ export function exportWorld(world: World, dirIn: string): ExportResult {
   } catch (e) {
     console.log("[core] export: git unavailable or failed:", (e as Error).message);
   }
-  world.events.append({ type: "export.done", text: changed ? `Exported the town (${commit?.slice(0, 7)})` : "Export: no changes", payload: { dir, commit, changed, files } });
   return { dir, commit, changed, files };
 }
 
 const LATEST = 30;
 /** A folder's README: per doc type, the latest docs as links (with id and author), then links to each month folder. */
-function indexPage(world: World, head: string, dir: string, docs: { d: Doc; path: string }[]): string {
+function indexPage(src: ExportSource, head: string, dir: string, docs: { d: Doc; path: string }[]): string {
   const out = [head, ""];
   const types = [...new Set(docs.map((x) => x.d.type))].sort();
   if (!types.length) out.push("Nothing published yet.", "");
   for (const type of types) {
     const of = docs.filter((x) => x.d.type === type).reverse();
     out.push(`## ${type} (${of.length})`, "");
-    for (const { d, path } of of.slice(0, LATEST)) out.push(`- ${d.createdAt.slice(0, 10)} [${d.title.replace(/[[\]]/g, "")}](${posix.relative(dir, path)}) \`${d.id}\` · ${world.nameOf(d.authorId)}`);
+    for (const { d, path } of of.slice(0, LATEST)) out.push(`- ${d.createdAt.slice(0, 10)} [${d.title.replace(/[[\]]/g, "")}](${posix.relative(dir, path)}) \`${d.id}\` · ${src.nameOf(d.authorId)}`);
     if (of.length > LATEST) {
       const months = [...new Set(of.map((x) => posix.dirname(posix.relative(dir, x.path))))];
       out.push("", `All by month: ${months.map((m) => `[${posix.basename(m)}](${m}/)`).join(" · ")}`);

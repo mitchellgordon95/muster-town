@@ -3,7 +3,7 @@
  * managers' team-lead sessions over the in-tray, meeting summaries + facilitation, interrupts, scheduler,
  * startup reconcile, dismissal (onAgentRetired), host redeploy (v1.3).
  */
-import { AppError, checkWaits, deskSizeFor, exploreTick, fireSchedules, setAssignmentStatus, codeWorkspace, deskSlotRows, forkableQueue, forkDeskSlot, forkManager, freeDesks, liveForks, meetingNotice, walkIdleHome, nextStartable, nowIso, PRESENCE_TICK_MS, retireFork, sendMessage, stopOverdueForks, slugify, syncManagerRoles, type World } from "@muster-town/core";
+import { AppError, checkWaits, exportDoneEvent, deskSizeFor, exploreTick, fireSchedules, setAssignmentStatus, codeWorkspace, deskSlotRows, forkableQueue, forkDeskSlot, forkManager, freeDesks, liveForks, meetingNotice, walkIdleHome, nextStartable, nowIso, PRESENCE_TICK_MS, retireFork, sendMessage, stopOverdueForks, slugify, syncManagerRoles, type World } from "@muster-town/core";
 import { DesksConfig, type Agent, type Assignment, type Building, type DeskActivityInput, type RedeployResult, type Session } from "@muster-town/schema";
 import { codeSource } from "./code.ts";
 import { DockerBackend, dockerSafe, HostBackend, type DeskBackend, type SlotResolver, type WorkBackend } from "./desk/backend.ts";
@@ -215,6 +215,7 @@ export function startRuntime(opts: RuntimeOptions): Runtime {
   const startedAt = now().getTime();
   let lastDate = localDate(now());
   let lastExport = startedAt;
+  let exporting = false;
   let lastPresence = 0;
   let stopped = false;
   /** a redeploy is draining: no new work sessions */
@@ -658,12 +659,14 @@ export function startRuntime(opts: RuntimeOptions): Runtime {
         lastDate = localDate(d);
         timed("dailyReset", () => world.budget.resetDaily(), "daily reset");
       }
-      if (opts.exportDir !== false && t - lastExport >= HOUR_MS) {
+      // the hourly export runs in a worker (503 post-mortem suggestion 2: ~2-3 s of reads, file writes and git at the live size);
+      // one at a time, and its one export.done is appended here when the worker answers
+      if (opts.exportDir !== false && !exporting && t - lastExport >= HOUR_MS) {
         lastExport = t;
-        timed("export", () => {
-          const r = opts.exportDir ? world.export(opts.exportDir) : world.export();
-          world.events.append({ type: "export.done", text: r.changed ? `Exported the town (${r.commit?.slice(0, 7) ?? "no commit"})` : "Export: no changes", payload: { ...r } });
-        });
+        exporting = true;
+        timed("export", () => void track(world.exportOffThread(opts.exportDir || undefined))
+          .then((r) => { if (!stopped) world.events.append(exportDoneEvent(r)); }, log("export"))
+          .finally(() => { exporting = false; }));
       }
       timed("bankCredit", () => world.bank.creditDue(d), "bank");
       timed("bankDrift", () => world.bank.driftDue(d), "bank drift");

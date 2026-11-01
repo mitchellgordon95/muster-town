@@ -13,7 +13,7 @@ import { migrateRoles } from "./migrate-roles.ts";
 import { openDb, type DB } from "./db.ts";
 import { deskBillToday, type BillSession, type DeskBill } from "./desk-bill.ts";
 import { EventLog } from "./events.ts";
-import { exportWorld, importExport, type ExportResult } from "./export.ts";
+import { exportInWorker, exportWorld, importExport, worldSource, writeExport, type ExportResult } from "./export.ts";
 import { importV0, type ImportV0Options, type ImportV0Result } from "./import-v0.ts";
 import { Ops, type Actor } from "./ops.ts";
 import { holderOf, Permissions, type Holder } from "./permissions.ts";
@@ -438,6 +438,15 @@ export class World {
 
   export(dir = townEnv("EXPORT") ?? "./export"): ExportResult {
     return exportWorld(this, dir);
+  }
+  /**
+   * The hourly export off the event loop: a worker on its own read-only connection to this town's db file (an in-memory
+   * db has no file to share, so it runs here). Appends nothing: the runtime appends the one `export.done`.
+   */
+  async exportOffThread(dir = townEnv("EXPORT") ?? "./export"): Promise<ExportResult> {
+    const file = this.db.name;
+    if (!file || file === ":memory:" || this.db.memory) return writeExport(worldSource(this), dir);
+    return exportInWorker(file, dir);
   }
   importV0(dir: string, opts: ImportV0Options = {}): ImportV0Result {
     return importV0(this, dir, opts);
