@@ -11,7 +11,7 @@ import { DocText, IdLink, rememberAssignmentTitle } from "./Markdown";
 import { Glyph, PanelShell } from "./PanelShell";
 import { ADJ, Empty, ErrorLine, KV, Loading, Section, StatusPill, dayClock, fmtTokens, timeAgo, useLoad } from "./ui";
 
-const LANE_WORDS = { grant: "grant", exploration: "exploration", directed: "directed (a human asked for it)" } as const;
+const LANE_WORDS = { grant: "grant", exploration: "exploration", directed: "directed (a human asked for it)", retainer: "retainer (a scheduled job's standing money)" } as const;
 
 /** When and how long: "Oct 31 20:36 · 42 min" (or "running for 12 min"). */
 function span(startedAt: string, endedAt: string | null): string {

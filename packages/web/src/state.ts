@@ -5,7 +5,7 @@
  */
 import { useSyncExternalStore } from "react";
 import { mapFlagOf, ServerMessage } from "@muster-town/schema";
-import type { Agent, Assignment, AuthMe, BlockedAssignment, Doc, Schedule, Event, MapFlag, Meeting, Permission, Place, SnapshotBuilding, Town, TownHealth } from "@muster-town/schema";
+import type { Agent, Assignment, AuthMe, BlockedAssignment, Doc, ScheduleView, Event, MapFlag, Meeting, Permission, Place, SnapshotBuilding, Town, TownHealth } from "@muster-town/schema";
 import type { Bank, Grid, Snapshot } from "./api";
 import { redeployStatus, type RedeployLiveAt } from "./redeploy";
 import { redirectPanel } from "./panels/room";
@@ -52,7 +52,7 @@ interface TownState {
   /** `GET /api/blocked`: per agent, its queued assignments that can't start and why (queue rows, the map's blocked badges and red lines) */
   blocked: Record<string, BlockedAssignment[]>;
   /** `GET /api/scheduled`: every building's active schedules, soonest run first (the map's schedule boards) */
-  scheduled: Schedule[];
+  scheduled: ScheduleView[];
 }
 
 const MAX_EVENTS = 600;
