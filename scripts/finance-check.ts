@@ -52,6 +52,24 @@ function checks(f: Json, s: Json, src: Json, bank: Json, fly: Json): Check[] {
     flag("usd sumCheck", s.usdSumCheck?.ok, `ok ${s.usdSumCheck?.ok}, diff ${s.usdSumCheck?.diff} (${s.usdSumCheck?.identity})`),
     // the sessions' list-price cost, from the building rows (each session at its booking model's price): within a cent per row of spend.usd.sessionsTotal
     near("usd sessions", "Σ spend building rows' usd", sum((s.rows ?? []).filter((r: Json) => r.kind === "building").map((r: Json) => Number(r.usd))), "spend.usd.sessionsTotal", Number(s.usd?.sessionsTotal), 0.005 * Math.max(2, (s.rows ?? []).length)),
+    // the adjusted-token mix (1:1 mt_rbc3exb393): its parts add up, it prices back to its adj. tokens, one record, updated daily
+    ...mixChecks(f.mix, bank.mix),
+  ];
+}
+
+const KINDS = ["input", "output", "cacheRead", "cacheWrite5m", "cacheWrite1h"] as const;
+function mixChecks(m: Json | undefined, bm: Json | undefined): Check[] {
+  if (!m) return [flag("mix present", false, "GET /api/finance has no mix")];
+  const counts = KINDS.map((k) => Number(m.counts?.[k]));
+  const weighted = sum(KINDS.map((k) => Number(m.weights?.[k]) * Number(m.counts?.[k])));
+  const ageH = (Date.now() - Date.parse(m.computedAt)) / 3_600_000;
+  return [
+    eq("mix counts", "Σ mix.counts", sum(counts), "mix.rawTokens", m.rawTokens),
+    flag("mix adjusted", Math.abs(weighted - m.adjustedTokens) <= 1, `Σ weight × count ${fmt(weighted)} = mix.adjustedTokens ${fmt(m.adjustedTokens)} (±1)`),
+    flag("mix raw per adj.", Math.abs(m.rawPerAdjusted * m.adjustedTokens / m.rawTokens - 1) < 1e-4, `rawPerAdjusted ${Number(m.rawPerAdjusted).toFixed(3)} = rawTokens / adjustedTokens`),
+    flag("mix shares", [m.rawShare, m.costShare].every((x: Json) => Math.abs(sum(KINDS.map((k) => Number(x?.[k]))) - 1) < 1e-9), `raw shares and cost shares each sum to 1`),
+    flag("mix one record", bm?.computedAt === m.computedAt, `bank.mix.computedAt ${bm?.computedAt} = finance.mix.computedAt ${m.computedAt}`),
+    flag("mix updated daily", ageH >= 0 && ageH < 26, `computed ${ageH.toFixed(1)} h ago (${m.source}, ${m.sessions} sessions, ${m.from?.slice(0, 10)} to ${m.to?.slice(0, 10)})`),
   ];
 }
 
@@ -76,6 +94,7 @@ async function main(): Promise<number> {
   console.log(`at: finance ${f.at}, spend ${s.at}, sources ${src.at}, fly ${fly.at}`);
   console.log(`usd at API list price: used $${Number(f.usd?.used).toFixed(2)}, left $${Number(f.usd?.left).toFixed(2)}, burn $${Number(f.usd?.burnPerDay).toFixed(2)}/day, inflow $${Number(f.usd?.inflowPerDay).toFixed(2)}/day`);
   console.log(`fly today ${fly.today?.day}: desks $${Number(fly.today?.deskUsd).toFixed(2)} + town $${Number(fly.today?.townUsd).toFixed(2)} = $${Number(fly.today?.totalUsd).toFixed(2)}; last ${fly.windowDays} days $${Number(fly.totals?.totalUsd).toFixed(2)} (desk time ${(Number(fly.totals?.deskMs) / 3_600_000).toFixed(1)} h, ${fly.totals?.sessions} sessions)`);
+  if (f.mix) console.log(`mix: 1 adj. token ≈ ${Number(f.mix.rawPerAdjusted).toFixed(1)} raw tokens, ${KINDS.map((k) => `${k} ${(f.mix.rawShare[k] * 100).toFixed(1)}%`).join(", ")} (${f.mix.formula})`);
   for (const c of result) console.log(`${c.ok ? "✓" : "✗"} ${c.name}: ${c.line}`);
   const failed = result.filter((c) => !c.ok).length;
   console.log(failed ? `${failed} of ${result.length} checks failed` : `all ${result.length} checks ✓`);

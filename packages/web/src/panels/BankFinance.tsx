@@ -13,6 +13,7 @@
  * daily desk cap when one is set. The Bank page opens from the Bank on the map, the HUD's "$", `#/bank` or the old `#/finance`.
  */
 import { api, type Finance, type FinanceFly, type FinanceSources, type FinanceSpend, type SpendNode } from "../api";
+import type { TokenMix } from "@muster-town/schema";
 import type { ReactNode } from "react";
 import { ADJ, ADJ_HINT, Section, useLoad } from "./ui";
 import { creditsLeftLine } from "./BankFunding";
@@ -339,10 +340,27 @@ export function FlyView({ fly }: { fly: FinanceFly }) {
 export const FinanceIntro = ({ hosting = false }: { hosting?: boolean }) => (
   <p className="muted finance-intro">
     Every amount here is in <abbr title={ADJ_HINT}>{ADJ}</abbr> (adjusted output tokens): the unit the town pays for AI model work in, where
-    one Opus 5.5 output token counts 1, other models count at their price relative to it (Fable 2.5, Haiku 0.025), and input and cached tokens count at their lower price (1 adj. token ≈ 30 raw tokens on Opus).
+    one Opus 5.5 output token counts 1, other models count at their price relative to it (Fable 2.5, Haiku 0.025), and input and cached tokens count at their lower price (what one is made of is under Tokens & sources, updated daily).
     {hosting ? " Hosting (Fly.io), in its own tab, is in US dollars." : ""} A figure marked ≈ $ is the same tokens in dollars at API list price. A ✓ line under a section means the server checked that its numbers add up; ✗ would say by how much they are off.
   </p>
 );
+
+const pct1 = (x: number) => `${(x * 100).toFixed(x > 0 && x < 0.01 ? 2 : 1)}%`;
+
+/**
+ * The adjusted-token mix in words (1:1 mt_rbc3exb393): what 1 adj. token is made of over the last 7 days, and the formula.
+ * Cache writes (5 min and 1 h) are one share.
+ */
+export function mixLine(m: TokenMix): { line: string; formula: string } {
+  const r = m.rawShare, cost = m.costShare;
+  const window = m.source === "usage"
+    ? `from the last ${m.windowDays} days of usage, ${m.sessions.toLocaleString("en-US")} sessions, updated daily; last ${m.computedAt.slice(0, 16).replace("T", " ")} UTC`
+    : `no usage in the last ${m.windowDays} days yet, so the first calibration; updated daily`;
+  return {
+    line: `1 adj. token ≈ ${m.rawPerAdjusted.toFixed(1)} raw tokens: ${pct1(r.input)} input, ${pct1(r.cacheRead)} cache read, ${pct1(r.cacheWrite5m + r.cacheWrite1h)} cache write, ${pct1(r.output)} output (${window}).`,
+    formula: `${m.formula}, each weight being that kind's list price over Opus 5.5's output price ($20 per million). Of what those tokens cost: ${pct1(cost.input)} input, ${pct1(cost.cacheRead)} cache read, ${pct1(cost.cacheWrite5m + cost.cacheWrite1h)} cache write, ${pct1(cost.output)} output. Where the Bank knows only an amount (a credit, a bare charge), it assumes this mix for the tokens behind it.`,
+  };
+}
 
 /** Tokens: total received, used, expired, left, overdrawn and its parts, with the sum check in words. */
 export function TokensView({ f }: { f: Finance }) {
@@ -365,6 +383,7 @@ export function TokensView({ f }: { f: Finance }) {
         </tbody>
       </table>
       <div className={check.ok ? "finance-check ok" : "error-line"} role="status">{check.ok ? "✓ " : "✗ "}{check.text}</div>
+      {f.mix ? (() => { const m = mixLine(f.mix); return <p className="muted token-mix" title={m.formula}>{m.line}<br /><small>{m.formula}</small></p>; })() : null}
       {f.usd ? <p className="muted finance-usd-note">{USD_NOTE}</p> : null}
     </Section>
   );
@@ -408,7 +427,7 @@ export const FinanceFooter = ({ f, spend, sources, fly }: FinanceData) => (
 
 /** Every term the Bank page uses, in plain words (kr_zjawesqcyp): one list a stranger can read, at the foot of every tab. */
 export const FINANCE_TERMS: [term: string, meaning: string][] = [
-  ["Adjusted token (adj. token)", "The unit every amount is in, except Hosting (US dollars): one output token counts 1, and input and cached tokens count at their lower price. 1 adj. token ≈ 30 raw tokens on Opus, 24 on Fable."],
+  ["Adjusted token (adj. token)", "The unit every amount is in, except Hosting (US dollars): one output token counts 1, and input and cached tokens count at their lower price. What one is made of (the share of input, cache read, cache write and output over the last 7 days, updated daily) is under Tokens & sources."],
   ["Expiring and permanent", "Subscription tokens are credited each day and expire at the next renewal if nobody used them. API-key tokens are permanent: kept until used."],
   ["Overdrawn", "Tokens spent past what was received. Its parts: sessions that ran past the permanent tokens the Bank had (a debt, paid back from later API-key credits); subscription credits drawn past their size when the Bank switched to adjusted tokens on 2026-10-27; draws on credits since deleted; and donations a building spent past their size."],
   ["Held", "The unspent part of donations made straight to a building: only that building can spend them."],

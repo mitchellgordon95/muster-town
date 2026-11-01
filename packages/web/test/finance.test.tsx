@@ -1,8 +1,8 @@
 import { describe, expect, it } from "vitest";
 import { renderToStaticMarkup } from "react-dom/server";
 import type { Finance, FinanceFly, FinanceSources, FinanceSpend } from "../src/api";
-import { approxUsd, dollars, donationNote, FINANCE_TERMS, spendUsdCheckLine, USD_NOTE, flyCheckLine, flyWindowLabel, flyWindowTotals, HOSTED_FLY_NOTE, inputName, notFundedNote, overdrawnParts, sourcesCheckLine, pct, netPerDay, runwayText, spendCheckLine, sumCheckLine, type FinanceData } from "../src/panels/BankFinance";
-import { BANK_TABS } from "@muster-town/schema";
+import { approxUsd, dollars, donationNote, FINANCE_TERMS, mixLine, spendUsdCheckLine, USD_NOTE, flyCheckLine, flyWindowLabel, flyWindowTotals, HOSTED_FLY_NOTE, inputName, notFundedNote, overdrawnParts, sourcesCheckLine, pct, netPerDay, runwayText, spendCheckLine, sumCheckLine, type FinanceData } from "../src/panels/BankFinance";
+import { BANK_TABS, type TokenMix } from "@muster-town/schema";
 import { BankView } from "../src/panels/BankPanel";
 import { BankFreeTokens, freeBreakdown } from "../src/panels/FreeTokens";
 import { claimedTokens } from "../src/format";
@@ -76,7 +76,25 @@ describe("finance page", () => {
       for (const [term] of FINANCE_TERMS) expect(html, `${t}: ${term}`).toContain(`<dt><b>${term}</b></dt>`);
       expect(html.indexOf("Terms used on this page"), t).toBeLessThan(html.indexOf("As of 2026-10-27"));
     }
-    expect(tabOf("Overview", {})).toContain("1 adj. token ≈ 30 raw tokens on Opus, 24 on Fable");
+    expect(tabOf("Overview", {})).toContain("What one is made of (the share of input, cache read, cache write and output over the last 7 days, updated daily) is under Tokens &amp; sources.");
+  });
+  it("Tokens & sources says what 1 adj. token is made of, from the stored mix, with the formula (1:1 mt_rbc3exb393)", () => {
+    const mix: TokenMix = {
+      unitModel: "claude-opus-5-5", weights: { input: 0.2, output: 1, cacheRead: 0.01, cacheWrite5m: 0.25, cacheWrite1h: 0.4 },
+      formula: "adj. tokens = output + 0.2 × input + 0.01 × cache read + 0.25 × cache write (5 min) + 0.4 × cache write (1 h)",
+      windowDays: 7, from: "2026-10-25T00:00:00.000Z", to: "2026-11-01T00:00:00.000Z", computedAt: "2026-11-01T00:00:12.000Z", source: "usage", sessions: 412,
+      counts: { input: 100_000, output: 10_000, cacheRead: 1_000_000, cacheWrite5m: 40_000, cacheWrite1h: 0 }, rawTokens: 1_150_000, adjustedTokens: 50_000, rawPerAdjusted: 23,
+      rawShare: { input: 100 / 1150, output: 10 / 1150, cacheRead: 1000 / 1150, cacheWrite5m: 40 / 1150, cacheWrite1h: 0 },
+      costShare: { input: 0.4, output: 0.2, cacheRead: 0.2, cacheWrite5m: 0.2, cacheWrite1h: 0 },
+    };
+    const m = mixLine(mix);
+    expect(m.line).toBe("1 adj. token ≈ 23.0 raw tokens: 8.7% input, 87.0% cache read, 3.5% cache write, 0.87% output (from the last 7 days of usage, 412 sessions, updated daily; last 2026-11-01 00:00 UTC).");
+    expect(m.formula).toContain("adj. tokens = output + 0.2 × input + 0.01 × cache read");
+    expect(m.formula).toContain("Of what those tokens cost: 40.0% input, 20.0% cache read, 20.0% cache write, 20.0% output.");
+    const html = renderToStaticMarkup(<BankView tab="Tokens & sources" bank={null} fin={{ f: { ...f, mix }, spend: null, sources: null, fly: null }} rev={0} onChange={noop} onReload={noop} />);
+    expect(html).toContain("1 adj. token ≈ 23.0 raw tokens: 8.7% input");
+    expect(tabOf("Tokens & sources", {})).not.toContain("1 adj. token ≈");
+    expect(mixLine({ ...mix, source: "calibration", sessions: 0 }).line).toContain("no usage in the last 7 days yet, so the first calibration");
   });
   it("uses no internal names anywhere on the page", () => {
     const html = page({ spend: sp, sources: src, fly });
