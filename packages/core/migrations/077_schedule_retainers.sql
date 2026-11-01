@@ -9,6 +9,9 @@ ALTER TABLE schedules ADD COLUMN retainerTokens INTEGER;
 ALTER TABLE schedules ADD COLUMN retainerDecidedBy TEXT;
 ALTER TABLE schedules ADD COLUMN retainerDecidedAt TEXT;
 ALTER TABLE schedules ADD COLUMN retainerNote TEXT;
--- a schedule may no longer be lane grant: live ones become retainers asking for approval (their per-run amount is set
--- by the manager's `schedule` edit, which asks again); ended ones keep their history
-UPDATE schedules SET lane = 'retainer', grantId = NULL, keyResultId = NULL, retainer = 'asked' WHERE lane = 'grant' AND status = 'active';
+-- a repeating schedule may no longer be lane grant: live ones become retainers waiting on their manager (countered, so the
+-- in-tray shows them without buttons): the manager's `schedule` edit sets tokensPerRun, which asks a human for approval.
+-- One-shots and ended ones keep their lane.
+UPDATE schedules SET lane = 'retainer', grantId = NULL, keyResultId = NULL, retainer = 'countered',
+  retainerNote = 'Moved off its grant (migration 077: recurring jobs run on retainers). The manager sets tokensPerRun with a `schedule` edit, which asks for approval.'
+  WHERE lane = 'grant' AND status = 'active' AND (everyMinutes IS NOT NULL OR dailyAt IS NOT NULL);

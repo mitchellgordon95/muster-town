@@ -116,14 +116,15 @@ export function createSchedule(world: World, buildingId: string, by: Holder, raw
 }
 
 /**
- * A schedule's lane (1:1 mt_cyd2t5ioob decision 2): never grant (grants are one-time); "retainer" when it asks for one
+ * A schedule's lane (1:1 mt_cyd2t5ioob decision 2): a repeat is never grant (grants are one-time); "retainer" when it asks for one
  * (tokensPerRun > 0, or lane retainer), and an agent's repeating job must (every recurring job needs a human's approval).
  * A retainer's runs get sourceId = the schedule when they fire. Other lanes are checked as `assign` checks them.
  */
 function scheduleLane(world: World, buildingId: string, by: Holder, input: CreateScheduleInput, repeating: boolean, tokensPerRun: number) {
-  if (input.lane === "grant" || input.grantId) throw badRequest("A schedule can't draw on a grant (grants are one-time work): give it a retainer instead (tokensPerRun: what one run may spend), which a human approves in the Town Hall in-tray.");
+  if (repeating && (input.lane === "grant" || input.grantId)) throw badRequest("A repeating job can't draw on a grant (grants are one-time work): give it a retainer instead (tokensPerRun: what one run may spend), which a human approves in the Town Hall in-tray. A one-shot may still run on a grant.");
   if (input.lane === "retainer" || tokensPerRun > 0) {
     if (input.lane && input.lane !== "retainer") throw badRequest(`tokensPerRun makes the schedule a retainer: leave lane out (or say "retainer"), not "${input.lane}".`);
+    if (input.grantId) throw badRequest("A retainer draws on its own approved money, not a grant: leave grantId out.");
     if (tokensPerRun <= 0) throw badRequest("A retainer names tokensPerRun: what one run may spend, in Bank tokens (Opus 5.5 output tokens).");
     return { lane: "retainer" as const, grantId: null, keyResultId: null, gap: input.gap?.trim() || null, sourceId: null };
   }

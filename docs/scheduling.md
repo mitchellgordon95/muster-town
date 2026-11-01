@@ -21,7 +21,7 @@ A **schedule** belongs to a building (table `schedules`, migration `057_schedule
 Status is `active` or `ended` with `endedReason` (`ran`, `past its end`, `ran N times`, `cancelled by …`, or the lane problem), plus
 `runs`, `lastRunAt`, `lastAssignmentId`.
 
-**Retainers** (1:1 mt_cyd2t5ioob decision 2): a schedule is never lane grant. A recurring job runs on a retainer: `tokensPerRun`
+**Retainers** (1:1 mt_cyd2t5ioob decision 2): a repeating schedule is never lane grant (a one-shot may be). A recurring job runs on a retainer: `tokensPerRun`
 (Bank tokens) asks for tokensPerRun × runs left in the Town Hall in-tray; each fire's assignment runs in lane `retainer`
 with `sourceId` = the schedule and is held until a human approves. Full rules: docs/how-work-gets-done.md §7a.
 

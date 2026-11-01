@@ -86,10 +86,7 @@ describe("schedules", () => {
   it("a lane that no longer holds ends the schedule with a town-written report in the in-tray", async () => {
     const { world, b, me, made, admin } = lab();
     const g = world.grantDesk.propose(admin, world.grantDesk.create(admin, b.id, { keyResults: [{ text: "Schedules work", howToCheck: "Run the tests" }], objective: "o", stopCondition: "s", askTokens: 1000 }).id);
-    // schedules can't be lane grant any more (retainers); a row from before migration 077 still ends cleanly when its grant goes
-    await expect(world.verbs.schedule(me(), { title: "Explore it", description: "d", lane: "grant", grantId: g.id, runsAt: new Date(Date.now() + H).toISOString() })).rejects.toThrow(/can't draw on a grant/);
-    const r = await world.verbs.schedule(me(), { title: "Explore it", description: "d", gap: "g", runsAt: new Date(Date.now() + H).toISOString() });
-    world.schedules.upsert({ ...world.schedules.require(r.scheduleId), lane: "grant", grantId: g.id, gap: null });
+    const r = await world.verbs.schedule(me(), { title: "Explore it", description: "d", lane: "grant", grantId: g.id, runsAt: new Date(Date.now() + H).toISOString() });
     world.grantDesk.decide(admin, g.id, { action: "reject", note: "no" }); // rejected: work can't be charged to it any more
     expect(fireSchedules(world, new Date(Date.now() + 2 * H)).fired).toEqual([]);
     expect(world.schedules.require(r.scheduleId).endedReason).toMatch(/lane no longer holds/);
