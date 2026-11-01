@@ -1,6 +1,7 @@
 import {
   AccessRequest, Agent, Allocation, CaptainRequest, Assignment, BankCredit, BankDebit, BankInput, BankReservation, Building, BuildingDefaults, DesksConfig, Doc, Goal, GoalChange, GoalProposal, Grant, Interrupt, KeyResult, Kpi, Objective, Meeting, Membership, Message, Place, Role, Schedule, Session, SkillPin, Town, UsageEntry, User,
   type ServerMessage, type TokenCountKind, type TokenCounts,
+  type TokenMix,
 } from "@muster-town/schema";
 import type { DB } from "./db.ts";
 import { Table } from "./table.ts";
@@ -136,6 +137,14 @@ export class TownMeta {
   }
   setMarker(key: string, value: string): void {
     this.db.prepare("INSERT INTO meta (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value").run(`marker:${key}`, JSON.stringify(value));
+  }
+  /** The adjusted-token mix (core token-mix.ts), one global row recomputed daily; null before its first run. */
+  tokenMix(): TokenMix | null {
+    const r = this.db.prepare("SELECT value FROM meta WHERE key = 'tokenMix'").get() as { value: string } | undefined;
+    return r ? (JSON.parse(r.value) as TokenMix) : null;
+  }
+  setTokenMix(mix: TokenMix): void {
+    this.db.prepare("INSERT INTO meta (key, value) VALUES ('tokenMix', ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value").run(JSON.stringify(mix));
   }
   /** collective.json `desks` (stored at seed; defaults when absent). */
   desks(): DesksConfig {

@@ -92,6 +92,18 @@ Conversion (migration `037_adjusted_tokens.sql`, once): every size above ÷30 (O
 
 Tests: `core/test/bank-adjusted.test.ts` (037), `core/test/token-counters.test.ts` (booking), `server/test/live.test.ts` (`accounting`), `server/test/desk.test.ts`, `server/test/adjusted.test.ts`.
 
+## The adjusted-token mix (1:1 mt_rbc3exb393, 2026-11-01)
+
+One global, daily-updated estimate of what an adj. token is made of. Code: `core/src/token-mix.ts` (`computeTokenMix`, pure), `Bank.mix()` / `refreshMix()` / `mixDue()` in `core/src/bank.ts`, the `TokenMix` type and `splitByMix` in `schema/src/tokens.ts`.
+
+- **Formula** (unchanged, exact; prices in the table above): adj. tokens = output + 0.2 × input + 0.01 × cache read + 0.25 × cache write (5 min) + 0.4 × cache write (1 h), each weight the kind's Opus 5.5 list price over its $20/MTok output price (other models: priced at their own list price, converted at $20/MTok). A session's real counters are always priced exactly; the mix never replaces the weights.
+- **The mix**: the five counters summed over every ended session (`status != 'running'`, `endedAt` in the window) of the last 7 full UTC days, back-filled and empty sessions left out. It stores `counts`, `rawTokens`, `adjustedTokens` (the counts at Opus 5.5 weights), `rawPerAdjusted` (raw / adjusted), `rawShare` and `costShare` per kind (each sums to 1), `formula`, `weights`, `windowDays`, `from`, `to`, `computedAt`, `sessions`, `source` (`usage`, or `calibration` when the window has no usage: the step-1 split, 30 raw per adj. token, output + cache read).
+- **Stored** in the `meta` table under key `tokenMix` (no migration). The first `mix()` read back-fills it from the existing sessions; the runtime calls `bank.mixDue()` every tick and it recomputes once per UTC day, posting one `bank.mix` event whose text reads "1 adj. token ≈ R raw tokens (x% input, y% cache read, z% cache write, w% output) from N sessions, from to to".
+- **Used** wherever the Bank has only a bare adjusted number and must say what tokens stand behind it: a Bank input's credits and the `bank.input` event (`creditCounts`), a bare-number charge or usage record (`Budget.charge` / `recordUsage` pass the mix to `booked`), a bare-number `Bank.draw`. They split `tokens × rawPerAdjusted` raw tokens in the mix's proportions (`splitByMix`, largest remainder), which prices back to the same adj. tokens. The back-fill rule above (`splitRaw`, 30 / 24) stays as the fixed rule for history and for a desk that posts only a raw total, so `isBackfilled` keeps recognising those rows; nothing stored is rewritten.
+- **Shown**: `GET /api/finance` and `GET /api/bank` carry `mix` (the same record). The Bank page's Tokens & sources tab, under the Tokens sum check, reads "1 adj. token ≈ R raw tokens: x% input, y% cache read, z% cache write, w% output (from the last 7 days of usage, N sessions, updated daily; last …)", with the formula and the cost shares under it (`mixLine`, web `BankFinance.tsx`). `npm run check:finance` checks Σ counts = rawTokens, Σ weight × count = adjustedTokens (±1), rawPerAdjusted = raw / adjusted, both share sets sum to 1, /api/bank and /api/finance carry the same record, and it was computed under 26 h ago.
+
+Tests: `core/test/token-mix.test.ts`, web `test/finance.test.tsx`.
+
 ## Unexpected out-of-tokens deaths and the cap hold (step 5)
 
 Code: `packages/core/src/caps.ts`; GET /api/bank `deaths` and `cap`; the Bank page's "Out-of-tokens deaths and the cap".
