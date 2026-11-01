@@ -176,7 +176,7 @@ function goalProposalSlide(world: World, p: GoalProposalView): Draft {
       whatItIs: `${p.proposedByName} proposes to ${GOAL_ACTION[p.action] ?? p.action}: ${change} (${p.id}).${p.outsideScope ? " Outside its building's subtree." : ""} Why: ${oneLine(p.why) || "_not given_"}${moves}`,
       whatYoudSee: `In the Goal tree at ${where}.${extra ? ` ${extra}.` : ""}`,
       picture: null,
-      yourCall: `Accept, edit and accept, or cut (a note goes back to the proposer). Routed to ${owner.userId ? world.users.get(owner.userId)?.name ?? owner.userId : "the town admins"}.`,
+      yourCall: `Accept, edit and accept, or cut (a note goes back to the proposer). Routed to ${world.users.get(owner.userId)?.name ?? owner.userId}.`,
     }),
   };
 }

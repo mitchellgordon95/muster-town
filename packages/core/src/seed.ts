@@ -201,6 +201,7 @@ export function seedDefaults(world: World, opts: SeedOptions = {}): SeedResult {
     world.permissions.ensureTownRoles();
     const { user: admin, token: adminToken } = createUser(world, opts.adminName ?? townEnv("ADMIN_NAME") ?? "Mitchell");
     world.permissions.grant({ kind: "user", id: admin.id }, townRoleId("admin"));
+    world.goalTree.ensureRootCaptain();
 
     const townHall = createBuilding(world, {
       name: "Town Hall", goal: world.town.get().goal, description: "Library, town map, outbox, and the town meeting room.", headcount: 1,

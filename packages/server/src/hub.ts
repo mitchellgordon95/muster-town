@@ -160,7 +160,7 @@ export class Hub {
     world.start(10);
     // the owner is this World's admin, also after a reopen (a first visit makes their user if there is none yet)
     const owner = row.ownerGithubId != null ? world.users.first("githubId = ?", [Number(row.ownerGithubId)]) : null;
-    if (owner) world.permissions.grant({ kind: "user", id: owner.id }, townRoleId("admin"));
+    if (owner) { world.permissions.grant({ kind: "user", id: owner.id }, townRoleId("admin")); world.goalTree.ensureRootCaptain(); }
     const app = await this.mount(world, row, dir);
     await app.ready();
     this.mounted.set(row.slug, { row, world, app });
