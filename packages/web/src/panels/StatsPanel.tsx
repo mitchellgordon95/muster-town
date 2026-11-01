@@ -15,6 +15,7 @@ export const COLUMNS: { key: keyof JoinFunnelCounts; label: string; what: string
   { key: "asked", label: "Asked", what: "requests to join (Ask to join on the guest card)" },
   { key: "letIn", label: "Let in", what: "requests an admin granted: the account became a member" },
   { key: "declined", label: "Declined", what: "requests an admin declined" },
+  { key: "acted", label: "Acted", what: "let-in members who then said something or wrote in a 1:1, each counted once" },
 ];
 
 /** A wait to decision, short: "40 s", "12 min", "3 h", "2 days". */
@@ -29,8 +30,8 @@ export function waitLabel(ms: number): string {
 export function byDay(f: JoinFunnelView): ({ day: string } & JoinFunnelCounts)[] {
   const m = new Map<string, { day: string } & JoinFunnelCounts>();
   for (const c of f.collectives) for (const d of c.daily) {
-    const row = m.get(d.day) ?? { day: d.day, guestCardViews: 0, signIns: 0, asked: 0, letIn: 0, declined: 0 };
-    for (const col of COLUMNS) row[col.key] += d[col.key];
+    const row = m.get(d.day) ?? { day: d.day, guestCardViews: 0, signIns: 0, asked: 0, letIn: 0, declined: 0, acted: 0 };
+    for (const col of COLUMNS) row[col.key] += d[col.key] ?? 0;
     m.set(d.day, row);
   }
   return [...m.values()].sort((a, b) => b.day.localeCompare(a.day));

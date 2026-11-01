@@ -256,7 +256,7 @@ export class MockApi implements Api {
     await wait();
     const day = (ago: number) => new Date(Date.now() - ago * 86_400_000).toISOString().slice(0, 10);
     const to = day(0), from = day(29);
-    const zero = { guestCardViews: 0, signIns: 0, asked: 0, letIn: 0, declined: 0 };
+    const zero = { guestCardViews: 0, signIns: 0, asked: 0, letIn: 0, declined: 0, acted: 0 };
     const workshop = [
       { ...zero, day: day(6), guestCardViews: 9, signIns: 1 },
       { ...zero, day: day(2), guestCardViews: 14, signIns: 1, asked: 1, letIn: 1 },

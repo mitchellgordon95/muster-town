@@ -283,7 +283,7 @@ export type ObjectiveView = Objective & { kpi: KpiKey | null; kpiName: string | 
 /** GET /api/buildings/:id/objectives: the objectives with their key results, then the key results under none. */
 export interface ObjectiveTree { objectives: ObjectiveView[]; unsorted: GoalKeyResult[] }
 /** The join funnel's counted steps (core join-funnel.ts FUNNEL_STEPS). */
-export interface JoinFunnelCounts { guestCardViews: number; signIns: number; asked: number; letIn: number; declined: number }
+export interface JoinFunnelCounts { guestCardViews: number; signIns: number; asked: number; letIn: number; declined: number; acted: number }
 /** One collective's funnel: the days with any count (UTC), its totals and its median wait to decision. */
 interface JoinFunnelCollective {
   slug: string; days: number; from: string; to: string; decisions: number; medianDecisionMs: number | null;

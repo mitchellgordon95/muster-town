@@ -1,4 +1,5 @@
 import { CreateMeetingInput, Meeting, REVIEW_DECK_ID, parseDeck, type Agent, type DeckSlide, type PinnedSlide, type MeetingAttachment } from "@muster-town/schema";
+import { countMemberAct } from "./access.ts";
 import { applyDecision, createAssignment, createDoc, managerAgentOf, sendMessage, setAssignmentStatus, updateDoc } from "./domain.ts";
 import { AppError, badRequest, forbidden, notFound } from "./errors.ts";
 import { buildingRoleId, townRoleId, type Holder } from "./permissions.ts";
@@ -345,6 +346,8 @@ export function meetingSpeak(world: World, actor: Agent, meetingId: string, text
   const updated = world.meetings.upsert({ ...m, transcript: [...m.transcript, { speakerId: h.id, speakerKind: h.kind, text, at: nowIso(), ...(attachment ? { attachment } : {}) }] });
   world.events.append({ type: "meeting.utterance", agentId: actor.kind === "human" ? null : actor.id, buildingId: m.buildingId, text: `${actor.name}: ${text.slice(0, 300)}`, payload: { meetingId: m.id, speakerId: h.id, speakerKind: h.kind, ...(attachment ? { attachment: { kind: attachment.kind, ref: attachment.ref } } : {}) } });
   if (actor.kind !== "human") clearAgentDrafting(world, actor.id, m.id);
+  // a let-in member's first 1:1 line counts once in the join funnel (gr_58n37j410s step 3); other meetings don't
+  if (m.kind === "one-on-one" && h.kind === "user") countMemberAct(world, h.id);
   notifyMentions(world, actor, text, { where: `meeting "${m.title}"`, meetingId: m.id, buildingId: m.buildingId });
   return updated;
 }

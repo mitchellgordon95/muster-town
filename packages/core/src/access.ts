@@ -20,6 +20,19 @@ export function accessRequestOf(world: World, userId: string): AccessRequest | n
   return world.accessRequests.first("userId = ?", [userId], "ORDER BY createdAt DESC, rowid DESC") ?? null;
 }
 
+/**
+ * The join funnel's "acted" step (gr_58n37j410s step 3): a let-in member's first Say or 1:1 line counts once. Only a
+ * user whose latest request was granted counts (admins who never asked have none); `actedAt` on that request marks it.
+ */
+export function countMemberAct(world: World, userId: string, now = Date.now()): boolean {
+  const req = accessRequestOf(world, userId);
+  if (req?.status !== "granted") return false;
+  const marked = world.db.prepare("UPDATE access_requests SET actedAt = ? WHERE id = ? AND actedAt IS NULL").run(new Date(now).toISOString(), req.id).changes;
+  if (!marked) return false;
+  countFunnel(world, "acted", now);
+  return true;
+}
+
 /** May this user act in the town (`town.interact`)? */
 export function canInteract(world: World, userId: string): boolean {
   return world.permissions.can({ kind: "user", id: userId }, "town.interact");

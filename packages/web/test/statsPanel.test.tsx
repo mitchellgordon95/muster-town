@@ -3,14 +3,14 @@ import { renderToStaticMarkup } from "react-dom/server";
 import type { JoinFunnelView } from "../src/api";
 import { byDay, COLUMNS, StatsView, waitLabel } from "../src/panels/StatsPanel";
 
-const zero = { guestCardViews: 0, signIns: 0, asked: 0, letIn: 0, declined: 0 };
+const zero = { guestCardViews: 0, signIns: 0, asked: 0, letIn: 0, declined: 0, acted: 0 };
 const one = (slug: string, daily: ({ day: string } & typeof zero)[], medianDecisionMs: number | null) => {
   const totals = Object.fromEntries(COLUMNS.map((c) => [c.key, daily.reduce((n, d) => n + d[c.key], 0)])) as typeof zero;
   return { slug, days: 30, from: "2026-10-03", to: "2026-11-01", daily, totals, decisions: medianDecisionMs == null ? 0 : 1, medianDecisionMs };
 };
 const workshop = one("workshop", [{ ...zero, day: "2026-10-29", guestCardViews: 12, signIns: 1 }, { ...zero, day: "2026-10-31", guestCardViews: 9 }], null);
 const holly = one("hollyville", [{ ...zero, day: "2026-10-29", signIns: 1, asked: 1, letIn: 1 }], 14_987);
-const root: JoinFunnelView = { days: 30, from: "2026-10-03", to: "2026-11-01", decisions: 1, medianDecisionMs: 14_987, totals: { guestCardViews: 21, signIns: 2, asked: 1, letIn: 1, declined: 0 }, collectives: [workshop, holly] };
+const root: JoinFunnelView = { days: 30, from: "2026-10-03", to: "2026-11-01", decisions: 1, medianDecisionMs: 14_987, totals: { guestCardViews: 21, signIns: 2, asked: 1, letIn: 1, declined: 0, acted: 0 }, collectives: [workshop, holly] };
 
 describe("user stats panel", () => {
   it("sums the collectives' days, newest first", () => {
