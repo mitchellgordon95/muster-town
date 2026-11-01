@@ -1,7 +1,7 @@
 /** Building panel (E at the door): overview, goals, grants and schedule (labs; GoalsTab.tsx), settings (managers: name, the goal it is attached to, desks, manager; 1:1 mt_n25udpflus decision 3: a building is a thin layer on the goal tree). No Members tab (flag dc_v7ejy1j5ri): roles live on the planning desk; live forks show on the map. Board, filing cabinet and in-tray are places; the collective's secrets are a planning-desk tab. */
 import { isFork } from "../forks";
 import { useMemo, useState, type ReactNode } from "react";
-import { BuildingDefaults, MAX_HEADCOUNT, ROOT_GOAL_ID, type Schedule, type SnapshotBuilding, type Workspace } from "@muster-town/schema";
+import { BuildingDefaults, MAX_HEADCOUNT, ROOT_GOAL_ID, type Schedule, type ScheduleView, type SnapshotBuilding, type Workspace } from "@muster-town/schema";
 import { api } from "../api";
 import { store, useTown } from "../state";
 import { Glyph, PanelShell } from "./PanelShell";
@@ -139,8 +139,21 @@ function defaultsLine(b: SnapshotBuilding, repo: Workspace | undefined): ReactNo
 
 /** What a fire creates, in words: its lane and who takes it ("exploration · the building queue (a fork runs it)"). */
 function createsLabel(x: Schedule, b: SnapshotBuilding): ReactNode {
-  const lane = x.lane === "grant" ? <>grant {x.grantId ? <IdLink id={x.grantId} /> : null}</> : x.lane === "exploration" ? <>exploration{x.keyResultId ? <> <IdLink id={x.keyResultId} /></> : null}</> : "directed";
+  const lane = x.lane === "retainer" ? "retainer" : x.lane === "grant" ? <>grant {x.grantId ? <IdLink id={x.grantId} /> : null}</> : x.lane === "exploration" ? <>exploration{x.keyResultId ? <> <IdLink id={x.keyResultId} /></> : null}</> : "directed";
   return <>{lane} · {b.managerAgentId ? "the building queue (a fork runs it)" : "nobody (no manager agent)"}</>;
+}
+
+const RETAINER_WORDS: Record<ScheduleView["retainer"], string> = { none: "none", asked: "asked: waits on a human in the Town Hall in-tray", funded: "approved", countered: "countered: waits on the manager", rejected: "rejected", ended: "ended" };
+
+/** A schedule's retainer on its card: per run, runs left, drawn (of the approved total) and its state. */
+function RetainerMeta({ x }: { x: ScheduleView }) {
+  const n = (t: number) => t.toLocaleString("en-US");
+  return (
+    <div className="doc-row-meta retainer-meta">
+      <span>retainer: {n(x.tokensPerRun)} per run · {x.runsLeft} run{x.runsLeft === 1 ? "" : "s"} left · drawn {n(x.drawnTokens ?? 0)}{x.retainerTokens ? ` of ${n(x.retainerTokens)}` : ""}</span>
+      <Pill tone={x.retainer === "funded" ? "ok" : x.retainer === "asked" || x.retainer === "countered" ? "warn" : undefined}>{RETAINER_WORDS[x.retainer] ?? x.retainer}</Pill>
+    </div>
+  );
 }
 
 /** The building's Schedule tab (GET /api/scheduled): timed jobs that live on the building; each run goes to whoever is around. The schedule board on the map opens it. */
@@ -156,7 +169,7 @@ function ScheduledList({ b }: { b: SnapshotBuilding }) {
       {!rows.length ? <Empty>Nothing scheduled. A manager adds a timed job with the <code>schedule</code> tool; each run goes to whoever is around.</Empty> : (
         <div className="doc-list">{rows.map((x) => {
           const last = x.lastAssignmentId ? assignments[x.lastAssignmentId] : undefined;
-          const swap = (y: Schedule) => store.set({ scheduled: store.state.scheduled.map((z) => z.id === y.id ? y : z) });
+          const swap = (y: ScheduleView) => store.set({ scheduled: store.state.scheduled.map((z) => z.id === y.id ? y : z) });
           return (
             <div key={x.id} className="doc-row" title={x.description}>
               <b>{x.title}</b> {x.paused ? <Pill tone="warn">paused</Pill> : null}
@@ -164,6 +177,7 @@ function ScheduledList({ b }: { b: SnapshotBuilding }) {
                 <span>next {x.paused ? "— (paused)" : x.nextRunAt ? runsAtLabel(x.nextRunAt) : "—"}</span>
                 <span>{repeatLabel(x)}{x.endsAt ? ` until ${x.endsAt.slice(0, 10)}` : ""}{x.runs ? ` · ran ${x.runs}×` : ""}</span>
               </div>
+              {x.lane === "retainer" ? <RetainerMeta x={x} /> : null}
               {x.lastAssignmentId ? <div className="doc-row-meta"><span>last fired: {last ? `"${last.title}" (${last.status === "pending" ? "queued" : last.status === "active" ? "running" : last.status})` : x.lastAssignmentId}{x.lastRunAt ? ` · ${runsAtLabel(x.lastRunAt)}` : ""}</span></div> : null}
               <div className="doc-row-meta">
                 <span>creates: {createsLabel(x, b)}</span>
