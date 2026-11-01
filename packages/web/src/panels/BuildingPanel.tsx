@@ -229,7 +229,6 @@ export function Settings({ b }: { b: SnapshotBuilding }) {
     </form>
     </Section>
     {b.kind === "town-hall" && admin ? <CollectiveDefaults /> : null}
-    {b.kind === "town-hall" ? <Section title="Dashboard"><p className="direction">The town goal is three KPIs, Fund, Join and Trust, with every building's objectives under them. <button className="link" onClick={() => store.open({ kind: "dashboard" })}>Open the dashboard</button></p></Section> : null}
   </>);
 }
 

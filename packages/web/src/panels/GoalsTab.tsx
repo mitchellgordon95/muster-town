@@ -203,7 +203,7 @@ function KeyResultsEditor({ b, right }: { b: SnapshotBuilding; right?: ReactNode
 }
 
 const KPI_OPTIONS: { key: KpiKey; name: string }[] = [{ key: "fund", name: "Fund" }, { key: "join", name: "Join" }, { key: "trust", name: "Trust" }];
-const KPI_FRAMING_SHORT = "The town goal is three standing KPIs, Fund, Join and Trust (the town Dashboard shows them).";
+const KPI_FRAMING_SHORT = "The town goal is three standing KPIs, Fund, Join and Trust.";
 
 /** One objective: its sentence, the KPI it moves and its quarter (humans edit), delete (refused while it holds key results). */
 function ObjectiveRow({ n, o, canWrite, onChanged }: { n: number; o: ObjectiveView; canWrite: boolean; onChanged: () => void }) {

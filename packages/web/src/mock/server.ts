@@ -1,13 +1,13 @@
 /** `Api` implemented against the in-memory Sim. Same interface as HttpApi, so every panel works offline. */
 import type { AccessRequest, AccessRequestView, CaptainRequest, CaptainRequestView, Agent, Assignment, AssignmentCard, AuthMe, BlockedAssignment, BlockedBy, BuildingStats, Schedule, Building, Doc, Event, Meeting, Membership, MapLayout, RedeployLive, ReviewDeck, ReviewSlide } from "@muster-town/schema";
 import { BuildingDefaults, NEW_LAB_LOT, REVIEW_DECK_ID, desksForLot, funderSlide, parseDeck } from "@muster-town/schema";
-import { BACKFILL, BOARD_TYPES, KPI_FRAMING, ZERO_TOKENS, addTokens, backfillFamily, splitRaw, type FreeTokens, type GoalTreeNode, type GoalSpend, type QueueBoard, type FunderWeek } from "@muster-town/schema";
+import { BACKFILL, BOARD_TYPES, ZERO_TOKENS, addTokens, backfillFamily, splitRaw, type FreeTokens, type GoalTreeNode, type GoalSpend, type QueueBoard, type FunderWeek } from "@muster-town/schema";
 import type { Api, AgentDetail, AllocationRow, Bank, Budget, Finance, FinanceFly, FinanceSources, FinanceSpend, Cabinet, CabinetQuery, DocQuery, EventQuery, In, LayoutPreview, FunderWeekView, JoinFunnelView, RoomLayout, RequestAction, SessionDetail, Snapshot, Socket, SocketHandlers, ThreadMessage, WriteDocInput } from "../api";
 import { ApiError } from "../api";
 import type { BankStreams, PinSkillInput, PutSecretInput, SecretView, SkillPinView, SkillView } from "@muster-town/schema";
 import type { CreateBuildingInput, UpdateBuildingInput, RegisterVisitorInput, ReviewInput, WorkInput, DonateInput, CreateMeetingInput, DocState, AddBankInput, BankInput, DecideGrantInput, CloseGrantInput, UpdateKeyResultInput, CreateObjectiveInput, UpdateObjectiveInput } from "@muster-town/schema";
 import { Sim, newId, spent } from "./sim";
-import { explorationSpentToday, kpis as kpisFixture, memoryDocs } from "./fixture";
+import { explorationSpentToday, memoryDocs } from "./fixture";
 import manualMd from "../../../../docs/manual.md?raw";
 
 const wait = (ms = 120) => new Promise((r) => setTimeout(r, ms));
@@ -158,7 +158,14 @@ export class MockApi implements Api {
       funding: { exploreCap: this.capAt(id), explore: { on: true, onFrom: null, chunkTokens: 100_000, chunkFrom: null }, exploreSpentTodayTokens: F_SPENT_TODAY(), free: this.free(id) },
       buildings: this.sim.buildings.filter((b) => (b.goalId ?? "gl_town") === id).map((b) => ({ id: b.id, name: b.name, headcount: b.headcount, inUse: Math.min(b.headcount, [...this.sim.agents.values()].filter((a) => a.homeBuildingId === b.id && a.status === "working").length) })),
     });
-    return clone(node("gl_town", null, this.sim.town.goal || "The town goal", [node("gl_fund", "gl_town", "Fund"), node("gl_join", "gl_town", "Join"), node("gl_trust", "gl_town", "Trust")]));
+    // a second level so the canvas shows grandchildren; the root has a captain of its own (Mitchell)
+    const root = node("gl_town", null, this.sim.town.goal || "The town goal", [
+      node("gl_fund", "gl_town", "Fund", [node("gl_fund_see", "gl_fund", "A funder sees what every token bought, per goal and per week")]),
+      node("gl_join", "gl_town", "Join", [node("gl_join_start", "gl_join", "A signed-in stranger can start their own collective from the web in minutes"), node("gl_join_first", "gl_join", "A stranger finishes useful work in their first session without help")]),
+      node("gl_trust", "gl_town", "Trust", [node("gl_trust_up", "gl_trust", "The town stays up as it grows")]),
+    ]);
+    root.ownerId = "us_mitchell"; root.owner = { goalId: "gl_town", userId: "us_mitchell", name: "Mitchell" };
+    return clone(root);
   } // desks follow floor space: a sent headcount is ignored
   async goalTreeWithRetired() { return this.goalTree(); }
   async goalSpend(id: string, days = 7): Promise<GoalSpend> {
@@ -236,11 +243,6 @@ export class MockApi implements Api {
   async createObjective(buildingId: string, i: In<typeof CreateObjectiveInput>) { await wait(); return clone(this.sim.createObjective(buildingId, i)); }
   async updateObjective(id: string, i: In<typeof UpdateObjectiveInput>) { await wait(); return clone(this.sim.updateObjective(id, i)); }
   async deleteObjective(id: string) { await wait(); this.sim.deleteObjective(id); }
-  async kpis() {
-    await wait();
-    const buildings = this.sim.buildings.filter((b) => b.kind !== "town-hall").map((b) => ({ buildingId: b.id, name: b.name, goal: b.goal, ...this.sim.objectiveTree(b.id) }));
-    return clone({ framing: KPI_FRAMING, kpis: kpisFixture, buildings });
-  }
   private guestCardViews = 41;
   async joinFunnel(): Promise<JoinFunnelView> {
     await wait();
