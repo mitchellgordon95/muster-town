@@ -1,12 +1,14 @@
 import { ROOT_GOAL_ID, type ExploreRule, type FreeTokens, type GoalFunding } from "@muster-town/schema";
 import type { Repos } from "./store.ts";
 import { reservationLeft } from "./explore.ts";
+import { retainerClaims } from "./retainers.ts";
 import type { World } from "./world.ts";
 
 /**
  * Free tokens and the exploration cap (docs/how-work-gets-done.md §7, §8; build step 1, as_1nuoiauxlw). There are no
- * Bank pools: one general balance, plus earmarks (a credit scoped to a goal's subtree). Three kinds of claim sit on them:
- * funded grants' remaining tokens (granted − spent), open proposals' asks, and open exploration reservations. Each claim
+ * Bank pools: one general balance, plus earmarks (a credit scoped to a goal's subtree). Four kinds of claim sit on them:
+ * funded grants' remaining tokens (granted − spent), open proposals' asks, open exploration reservations, and funded
+ * retainers (tokensPerRun × runs left of a schedule a human approved, retainers.ts). Each claim
  * is paid where its session would draw (the draw order): the nearest earmark walking up from its goal, then the general
  * balance. Free tokens under a goal = what the claims leave of the general balance less the operating reserve (town
  * `operatingReserveTokens`, 1:1 mt_lb7tm75jgb: kept for 1:1s, meetings and directed work) + of the earmarks at or above it.
@@ -40,7 +42,7 @@ export function exploreRuleAt(goals: Repos["goals"], goalId: string): ExploreRul
 }
 
 /** One claim on the Bank: the goal its work sits on and its tokens. */
-interface Claim { goalId: string; tokens: number; kind: "funded" | "ask" | "reserved" }
+interface Claim { goalId: string; tokens: number; kind: "funded" | "ask" | "reserved" | "retainer" }
 
 /** The goal a grant's work sits on (its `goalId`, else its building's attachment): where its claim is paid from. */
 export function grantGoalOf(world: World, g: { buildingId: string; id: string }): string {
@@ -48,7 +50,7 @@ export function grantGoalOf(world: World, g: { buildingId: string; id: string })
 }
 
 /** Every claim in the town: live grants' remaining, open proposals' asks, open reservations (`except`: leave that grant's claim out). */
-function claims(world: World, except?: string): Claim[] {
+function claims(world: World, except?: string, now = new Date()): Claim[] {
   const out: Claim[] = [];
   const nodeOf = (g: { buildingId: string; id: string }) => grantGoalOf(world, g);
   for (const g of world.grants.where("status IN ('funded', 'checkpoint')")) {
@@ -65,6 +67,8 @@ function claims(world: World, except?: string): Claim[] {
     const left = reservationLeft(world, r);
     if (left > 0) out.push({ goalId: r.goalId, tokens: left, kind: "reserved" });
   }
+  // a funded retainer claims tokensPerRun × runs left (1:1 mt_cyd2t5ioob decision 2; retainers.ts)
+  for (const c of retainerClaims(world, now)) out.push({ ...c, kind: "retainer" });
   return out;
 }
 
@@ -84,9 +88,11 @@ export function freeTokensAll(world: World, now = new Date(), except?: string): 
   const generalTokens = bank.balance(now);
   const reserveTokens = world.town.get().operatingReserveTokens;
   let general = generalTokens - reserveTokens;
-  const totals = { funded: 0, ask: 0, reserved: 0 };
-  for (const c of claims(world, except)) {
+  const totals = { funded: 0, ask: 0, reserved: 0, retainer: 0 };
+  let retainerJobs = 0;
+  for (const c of claims(world, except, now)) {
     totals[c.kind] += c.tokens;
+    if (c.kind === "retainer") retainerJobs++;
     let left = c.tokens;
     for (const g of world.goalTree.ancestors(c.goalId)) {
       const have = earmark.get(g.id) ?? 0;
@@ -107,7 +113,7 @@ export function freeTokensAll(world: World, now = new Date(), except?: string): 
     }
     out.set(g.id, {
       goalId: g.id, generalTokens, reserveTokens, earmarkTokens, fundedRemainingTokens: totals.funded, openAsksTokens: totals.ask, reservedTokens: totals.reserved,
-      freeTokens: Math.max(0, general) + earmarkLeft,
+      retainerTokens: totals.retainer, retainerJobs, freeTokens: Math.max(0, general) + earmarkLeft,
     });
   }
   return out;
