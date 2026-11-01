@@ -42,7 +42,7 @@ export function upsertGithubUser(world: World, gh: GithubProfile, opts: { admins
     user = world.users.upsert({ ...user, ...profile });
     const holder = { kind: "user" as const, id: user.id };
     world.permissions.grant(holder, townRoleId("visitor"));
-    if (isAdmin) world.permissions.grant(holder, townRoleId("admin"));
+    if (isAdmin) { world.permissions.grant(holder, townRoleId("admin")); world.goalTree.ensureRootCaptain(); }
     if (created) countFunnel(world, "signIns");
     if (created || linked) {
       world.events.append({ type: "system", text: created ? `${user.name} signed in with GitHub (@${gh.login})` : `${user.name} linked GitHub account @${gh.login}`, payload: { userId: user.id, githubLogin: gh.login } });

@@ -5,7 +5,7 @@ import { ReviewAsDeckButton, mineOnly } from "../src/panels/Places";
 import { mineSlides } from "../src/panels/ReviewDeck";
 import { fundedOnly, isFunder, treeScope } from "../src/panels/funderFilter";
 
-const route = (goalId: string): IntrayRoute => ({ goalId, ownerId: null, ownerName: "the town admins", mine: false, canDecide: false });
+const route = (goalId: string): IntrayRoute => ({ goalId, ownerId: "us_mitchell", ownerName: "Mitchell", mine: false, canDecide: false });
 const ROUTES: Record<string, IntrayRoute> = { gr_a: route("gl_child"), gr_b: route("gl_other"), dc_r: route("gl_child") };
 const s = (key: string, itemId: string | null, extra: Partial<ReviewSlide> = {}): ReviewSlide =>
   ({ key, itemId, kind: "rollup", group: 5, buildingId: null, since: null, waiters: 0, history: "", text: `## ${key}`, notes: "", title: key, pictures: [], ...extra });
