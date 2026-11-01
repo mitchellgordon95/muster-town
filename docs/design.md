@@ -90,13 +90,13 @@ Positions taken:
 - **Reports stay; the gate becomes a per-building policy.** Human gate for small labs, moderator-agent approval against criteria for large ones.
 - **Meetings are the steering rhythm.** Pre-submitted short standup summaries (did, next), facilitator agent, output = decisions that become assignments. Reports feed meetings, meetings produce direction.
 - **One library with document states** instead of per-building wikis: draft (author) → building (board) → library (reviewed). (A trophy state followed library until 2026-10-29; Mitchell removed it, town hall mt_xywhisvdcm.) Proximity = same board. Isolation-before-sharing is built into the states.
-- **Outbox starts narrow**: observations and data retrieval only, visible to humans as soon as an agent files it (the moderator-approval gate was removed 2026-10-27, 1:1 "Mitchell and Pix"; moderators can still delete a request), human reports enter the library as source cards with submitter identity.
+- **Outbox starts narrow**: observations and data retrieval only, visible to humans as soon as an agent files it (the moderator-approval gate was removed 2026-10-27, 1:1 "Mitchell and Pix"; admins can still delete a request), human reports enter the library as source cards with submitter identity.
 - **Proxy chat, real interrupts**: small model with the session transcript as context; reading and interrupting the session are separate explicit actions (SDK supports injecting into a running session).
 
 Build order (each step usable alone):
 1. World server: SQLite + MCP verb set (look, go, say, tell, read, write, submit report, request human); hourly git export.
 2. Resident runtime: SDK sessions driven by budget and events (assignment, inbox, meeting).
-3. Roles and budgets: Discord-style, scoped town or building; manager, moderator, member, visitor; allocations and headcount.
+3. Roles and budgets: Discord-style, scoped town or building; manager, member, visitor (plus admin and deployer); allocations and headcount.
 4. Meetings: scheduled, facilitated, producing assignments.
 5. Library states and the central building: draft→building→library; outbox and inbox.
 6. External agents: identity tokens, CLI, bring your own Claude Code.

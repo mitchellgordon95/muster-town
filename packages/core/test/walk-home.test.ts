@@ -66,7 +66,7 @@ describe("bodies go home (flag dc_ihwq7bfi4o)", () => {
     s.world.agents.patch(mei.id, { status: "idle" });
     expect(stayReason(s.world, noor.id)).toBe("talking");
     expect(stayReason(s.world, s.admin.id)).toBe("no body to move");
-    const visitor = s.world.agents.first("kind = 'visitor'") ?? s.world.agents.first("kind = 'service'");
+    const visitor = s.world.agents.first("kind = 'visitor'");
     if (visitor) expect(["no desk", "no body to move", "offline"].includes(stayReason(s.world, visitor.id) ?? "")).toBe(true);
   });
 

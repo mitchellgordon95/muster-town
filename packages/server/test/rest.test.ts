@@ -112,8 +112,7 @@ describe("buildings & agents", () => {
   it("the message and proxy-chat routes are gone (1:1 mt_wql34b8gkl); interrupt and meeting start call the runtime when attached", async () => {
     const off = await setup();
     const mei = off.by("Mei");
-    const ada = off.world.agents.first("kind = 'service'")!;
-    expect((await json(off.app, "POST", `/api/agents/${ada.id}/chat`, { headers: off.auth, body: { message: "hi" } })).status).toBe(404);
+    expect((await json(off.app, "POST", `/api/agents/${mei.id}/chat`, { headers: off.auth, body: { message: "hi" } })).status).toBe(404);
     expect((await json(off.app, "POST", `/api/agents/${mei.id}/message`, { headers: off.auth, body: { text: "hi" } })).status).toBe(404);
 
     const calls: unknown[] = [];
@@ -357,7 +356,7 @@ describe("meetings, roles, budget, events, human moves", () => {
     expect(roles.body.roles.length).toBeGreaterThan(0);
     expect(roles.body.memberships.length).toBeGreaterThan(0);
     const mei = by("Mei");
-    const m = { roleId: roles.body.roles.find((r: any) => r.name === "reviewer" && r.buildingId === "carbon-cycle").id, holderKind: "agent", holderId: mei.id };
+    const m = { roleId: roles.body.roles.find((r: any) => r.name === "manager" && r.buildingId === "carbon-cycle").id, holderKind: "agent", holderId: mei.id };
     expect((await json(app, "POST", "/api/roles/assign", { headers: auth, body: m })).status).toBe(200);
     expect((await json(app, "DELETE", "/api/roles/assign", { headers: auth, body: m })).status).toBe(200);
 

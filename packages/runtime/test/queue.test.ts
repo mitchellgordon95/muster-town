@@ -1,5 +1,5 @@
 import { describe, expect, test } from "vitest";
-import { callVerb, init, result, setup, type FakeSession } from "./helpers.ts";
+import { callVerb, init, managerless, result, setup, type FakeSession } from "./helpers.ts";
 
 async function* work(s: FakeSession) {
   yield init();
@@ -10,6 +10,7 @@ async function* work(s: FakeSession) {
 describe("session slots (desks.maxRunning)", () => {
   test("the scheduler never runs more sessions than the cap; held agents start on a later pass, with one notice each way", async () => {
     const { world, runtime, by } = setup(work);
+    managerless(world);
     world.setDesksConfig({ maxRunning: 1 });
     const mei = by("Mei"), noor = by("Noor");
     world.ops.createWork(null, mei.id, { title: "A" });
@@ -41,6 +42,7 @@ describe("session slots (desks.maxRunning)", () => {
 describe("scheduler queue order", () => {
   test("the scheduler starts the pending assignment with the lowest position, not the oldest", async () => {
     const { world, runtime, by } = setup(work);
+    managerless(world);
     const mei = by("Mei");
     const a = world.ops.createWork(null, mei.id, { title: "Oldest" });
     world.ops.createWork(null, mei.id, { title: "Middle" });
@@ -57,6 +59,7 @@ describe("scheduler queue order", () => {
 describe("the scheduler and the gate (Budget.canStart)", () => {
   test("a tick never starts an assignment that canStart refuses: a lane-held one stays pending with its reason and starts once the gate opens", async () => {
     const { world, runtime, by, seed, lab } = setup(work);
+    managerless(world);
     const admin = world.ops.ensureAvatar(seed.admin.id);
     const noor = by("Noor");
     const g = world.grantDesk.propose(admin, world.grantDesk.create(admin, lab.id, { keyResults: [{ text: "A visitor can see today's spend", howToCheck: "Open the banner" }], objective: "o", stopCondition: "s", askTokens: 1_000_000 }).id);

@@ -26,7 +26,7 @@ describe("agent permissions: inherit the owner, capped by the owner, with denies
     const plain = world.ops.createUser("Plain").user;
     world.permissions.grant({ kind: "user", id: plain.id }, townRoleId("visitor"));
     const v = world.ops.registerVisitor(plain.id, { name: "Plain's Claude" }).agent;
-    world.permissions.grant(v, buildingRoleId(LAB, "reviewer"));
+    world.permissions.grant(v, buildingRoleId(LAB, "manager"));
     world.permissions.grant(v, townRoleId("admin"));
     expect(world.permissions.can(v, "building.assign", LAB)).toBe(false);
     expect(world.permissions.can(v, "town.manage_roles")).toBe(false);
@@ -53,17 +53,13 @@ describe("agent permissions: inherit the owner, capped by the owner, with denies
     expect(world.agents.require(v.id)).toMatchObject({ inheritsOwner: false, deniedPermissions: ["building.assign"] }); // persisted
   });
 
-  it("residents don't inherit their (admin) owner; ownerless service agents use their own roles", () => {
+  it("residents don't inherit their (admin) owner", () => {
     const { world, by } = seededWorld();
     const mei = by("Mei");
     expect(mei.inheritsOwner).toBe(false);
     expect(world.permissions.can(mei, "town.manage_roles")).toBe(false);
     expect(world.permissions.can(mei, "doc.write_building", LAB)).toBe(true);
-    const ada = by("Ada");
-    expect(ada.ownerUserId).toBeNull();
-    expect(world.permissions.can(ada, "town.moderate")).toBe(false);
-    world.permissions.grant(ada, townRoleId("moderator"));
-    expect(world.permissions.can(ada, "town.moderate")).toBe(true);
+    expect(world.permissions.can(mei, "town.moderate")).toBe(false);
   });
 
   it("human avatars inherit their user and keep working", () => {

@@ -234,7 +234,7 @@ class Store {
     for (const d of list) docs[d.id] = d;
     this.set({ docs, ...this.flagsWith(list) });
   }
-  /** A doc was deleted (a moderator removed an outbox request): forget it and let lists refetch. */
+  /** A doc was deleted (an admin removed an outbox request): forget it and let lists refetch. */
   dropDoc(id: string) {
     const docs = { ...this.state.docs };
     delete docs[id];
@@ -305,5 +305,5 @@ export function isManager(a: Pick<Agent, "id" | "homeBuildingId">, buildings: Sn
   return !!a.homeBuildingId && buildings.some((b) => b.id === a.homeBuildingId && b.managerAgentId === a.id);
 }
 
-/** The label next to an agent's name: service agents keep theirs ("Librarian"); a building's manager reads "Manager"; other residents have none. */
-export const roleOf = (a: Pick<Agent, "id" | "kind" | "title" | "homeBuildingId">): string => (a.kind === "service" ? a.title : isManager(a) ? "Manager" : "");
+/** The label next to an agent's name: a building's manager reads "Manager"; other residents have none. */
+export const roleOf = (a: Pick<Agent, "id" | "kind" | "title" | "homeBuildingId">): string => (isManager(a) ? "Manager" : "");

@@ -61,7 +61,7 @@ export async function agentRoutes(app: FastifyInstance) {
   });
 
   const canSetModel = (req: FastifyRequest, agent: Agent): boolean => {
-    if (!req.auth || agent.kind === "human" || agent.kind === "service" || agent.status === "retired") return false;
+    if (!req.auth || agent.kind === "human" || agent.status === "retired") return false;
     const actor = actorOf(world, req);
     return !!actor && world.ops.canSetModel(actor, agent);
   };
@@ -228,7 +228,7 @@ export async function agentRoutes(app: FastifyInstance) {
     return { ...r, purge: p };
   });
 
-  /** Ban (town.ban: town moderators, admin). */
+  /** Ban (town.ban: admins). */
   app.post<{ Params: Params }>("/api/agents/:id/ban", async (req) => {
     const { reason } = parse(z.object({ reason: z.string().default("Banned by a human") }), req.body);
     await world.verbs.ban(actorOf(world, req), { agentId: req.params.id, reason });

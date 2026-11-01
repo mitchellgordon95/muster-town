@@ -468,7 +468,7 @@ export interface Api {
   secrets(): Promise<{ secrets: SecretView[]; keyConfigured: boolean }>;
   putSecret(name: string, input: In<typeof PutSecretInput>): Promise<SecretView>;
   deleteSecret(name: string): Promise<{ removed: boolean }>;
-  /** delete (moderators) resolves to null: the request is gone */
+  /** delete (admins) resolves to null: the request is gone */
   request(docId: string, action: RequestAction, body?: string): Promise<Doc | null>;
   // meetings
   meetings(q: { buildingId?: string; phase?: string }): Promise<Meeting[]>;

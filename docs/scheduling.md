@@ -41,7 +41,7 @@ Each fire is ordinary work that ends in a report the manager decides, so "nothin
 
 ## How it is made and seen
 
-- **Town tool** `schedule` (managers and reviewers, `building.assign`): title, description, `runsAt` and/or `repeat
+- **Town tool** `schedule` (managers, `building.assign`): title, description, `runsAt` and/or `repeat
   {everyHours | dailyAt, until, times}`, lane fields, pages, model. `schedule {scheduleId, …}` edits one (title,
   description, `runsAt`, a new `repeat` that replaces the old one or `null` for a one-shot, pages, model; the lane stays)
   and `paused: true|false` pauses or resumes it (a run that passed while paused is not fired late: a repeat moves to its

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { buildingRoleId, cabinetDocs, createBuilding, createResident, createTownModerator, extractProposal, intrayWorker, isTownHallItem, managerAgentOf, setAssignmentStatus, TOWN_HALL_ID } from "../src/index.ts";
+import { buildingRoleId, cabinetDocs, createBuilding, createResident, extractProposal, intrayWorker, isTownHallItem, managerAgentOf, setAssignmentStatus, TOWN_HALL_ID } from "../src/index.ts";
 import { seededWorld, tickUntil } from "./helpers.ts";
 import { RequestStatus } from "@muster-town/schema";
 
@@ -322,7 +322,7 @@ describe("request_human lifecycle", () => {
     expect((await world.verbs.inbox(ingrid, {})).messages.some((m) => m.body.includes(humanReport!.id))).toBe(true);
   });
 
-  it("only a moderator can delete a request; the requester is told", async () => {
+  it("only an admin can delete a request; the requester is told", async () => {
     const { world, by, seed } = seededWorld();
     const ingrid = by("Ingrid");
     const { id } = await world.verbs.request_human(ingrid, { title: "Spam", body: "x" });
@@ -366,18 +366,16 @@ describe("promote / ban", () => {
     const mei = by("Mei");
     const { id } = await world.verbs.write(mei, { title: "Synthesis", body: "b", state: "building" });
     await expect(world.verbs.promote(mei, { docId: id, state: "library" })).rejects.toMatchObject({ code: "forbidden" });
-    await expect(world.verbs.promote(by("Moss"), { docId: id, state: "library" })).rejects.toMatchObject({ code: "forbidden" }); // reviewers don't promote
     await world.verbs.promote(admin, { docId: id, state: "library" });
     expect(world.docs.require(id).state).toBe("library");
     expect("propose_trophy" in world.verbs).toBe(false);
     expect(world.layout.places.some((p) => p.id === "trophy-room")).toBe(false);
   });
 
-  it("ban needs town.ban (town moderator); marks the agent banned and blocks its verbs", async () => {
-    const { world, by } = seededWorld();
+  it("ban needs town.ban (admin); marks the agent banned and blocks its verbs", async () => {
+    const { world, by, admin } = seededWorld();
     await expect(world.verbs.ban(by("Moss"), { agentId: by("Tomas").id, reason: "spam" })).rejects.toMatchObject({ code: "forbidden", permission: "town.ban" });
-    const wren = createTownModerator(world, { name: "Wren" });
-    await world.verbs.ban(wren, { agentId: by("Tomas").id, reason: "spam" });
+    await world.verbs.ban(admin, { agentId: by("Tomas").id, reason: "spam" });
     expect(world.agents.require(by("Tomas").id).status).toBe("banned");
     await expect(world.verbs.look(by("Tomas"), {})).rejects.toMatchObject({ code: "forbidden" });
   });
@@ -390,6 +388,5 @@ describe("walk + verbs together", () => {
     const l = await world.verbs.look(by("Ravi"), {});
     expect(l.me.place).toBe("library");
     expect(l.building?.id).toBe("town-hall");
-    expect(l.nearby.map((n) => n.name)).toContain("Ada");
   });
 });
