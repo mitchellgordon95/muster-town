@@ -119,6 +119,10 @@ async function main() {
   // the token itself never goes to stdout (it would land in journald): seedDefaults wrote it to <data>/admin-token (0600)
   console.log(`[server] admin (${seed.admin.name}) token: in ${join(DATA_DIR, "admin-token")}`);
   console.log(world.secrets.keyConfigured() ? "[server] MUSTER_TOWN_DATA_KEY set: collective secrets can be stored" : "[server] no MUSTER_TOWN_DATA_KEY: collective secrets can't be stored (they are never kept in plaintext)");
+  if (world.secrets.keyConfigured()) {
+    const enc = world.secrets.encryptBankSecrets();
+    console.log(`[secrets] encrypted ${enc.inputs} bank inputs, ${enc.donors} donor keys`);
+  } else console.log("[secrets] no MUSTER_TOWN_DATA_KEY: Bank input secrets and donor keys stay in plaintext");
   console.log(auth.githubClientId ? `[server] GitHub login on (callback ${auth.publicUrl}/auth/github/callback; ${auth.admins.length} admin login(s))` : "[server] GitHub login off (no GITHUB_CLIENT_ID/GITHUB_CLIENT_SECRET); guests are read-only");
   console.log(`[server] MCP endpoint: ${url}/mcp (agent tokens only)`);
   backup.start();

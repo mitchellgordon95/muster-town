@@ -157,6 +157,8 @@ export class Hub {
     // own key only: the snapshot shows "No key yet" until the collective has an API key of its own
     world.host.hosted = true;
     world.seedDefaults({ adminName: "admin", townJsonPath: join(dir, "collective.json"), collectivePath: join(dir, "collective.json"), dataDir });
+    const enc = world.secrets.encryptBankSecrets(); // docs/secrets.md "Bank secrets at rest": idempotent, nothing without a key
+    if (enc.inputs || enc.donors) console.log(`[secrets] /${row.slug}/: encrypted ${enc.inputs} bank inputs, ${enc.donors} donor keys`);
     world.start(10);
     // the owner is this World's admin, also after a reopen (a first visit makes their user if there is none yet)
     const owner = row.ownerGithubId != null ? world.users.first("githubId = ?", [Number(row.ownerGithubId)]) : null;
