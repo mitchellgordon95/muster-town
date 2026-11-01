@@ -260,14 +260,15 @@ export class Ops {
     const agent = this.world.agents.require(agentId, "agent");
     if (actor) this.requireAgentControl(actor, agent);
     this.world.movement.cancel(agentId, "Stopped.");
-    return this.world.setStatus(agentId, "stopped", `${agent.name} was stopped`);
+    return this.world.setStatus(agentId, "stopped", `${agent.name} was stopped`, { by: actor ? this.world.holderOf(actor) : { kind: "system", id: "system" } });
   }
   /** POST /agents/:id/resume: `stopped` → `idle` without creating an assignment. Pending assignments (if any) run as usual. */
   resumeAgent(actor: Actor, agentId: string): Agent {
     const agent = this.world.agents.require(agentId, "agent");
-    if (actor) this.requireAgentControl(actor, agent);
+    // the Planner: whoever plans with it (an admin, a goal's captain) may resume it; the Town Hall has no roles
+    if (actor && !(this.world.reorgs.isPlanner(agent) && this.world.reorgs.canPlan(actor))) this.requireAgentControl(actor, agent);
     if (agent.status !== "stopped") return agent;
-    return this.world.setStatus(agentId, "idle", `${agent.name} was resumed`);
+    return this.world.setStatus(agentId, "idle", `${agent.name} was resumed`, { by: actor ? this.world.holderOf(actor) : { kind: "system", id: "system" } });
   }
   // ---- the assignment queue ----
   // Pending assignments run in `position` order (then createdAt, rowid). Owner, building.assign or admin.
