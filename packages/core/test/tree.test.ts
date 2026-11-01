@@ -60,12 +60,14 @@ describe("the map is the tree (docs/goals.md, build step 2)", () => {
       expect(p.pos).toEqual(doorstepOf(tree.lots.get(b.id)!, "n"));
     }
     // nothing overlaps: lots, the Bank, streets and signposts
-    const rects: [string, Lot][] = [...tree.lots.entries(), ["bank", BANK_LOT], ...streets.map((r, i): [string, Lot] => [`street ${i}`, r]),
+    const rects: [string, Lot][] = [...tree.lots.entries(), ["bank", tree.bank], ...streets.map((r, i): [string, Lot] => [`street ${i}`, r]),
       ...tree.plazas.flatMap((p): [string, Lot][] => (p.sign ? [[`sign:${p.goalId}`, { ...p.sign, w: 1, h: 1 }]] : []))];
     for (let i = 0; i < rects.length; i++) for (let j = i + 1; j < rects.length; j++) expect(overlap(rects[i][1], rects[j][1]), `${rects[i][0]} vs ${rects[j][0]}`).toBe(false);
-    // packed: one row of labs with a tile of grass between neighbours
+    // packed: one row of labs either side of the Bank, a tile of grass between neighbours
     const labs = buildings.filter((b) => b.kind === "lab").map((b) => tree.lots.get(b.id)!).sort((p, q) => p.x - q.x);
-    for (let i = 1; i < labs.length; i++) expect(labs[i].x - (labs[i - 1].x + labs[i - 1].w), `gap ${i}`).toBe(1);
+    const west = labs.filter((l) => l.x < tree.bank.x), east = labs.filter((l) => l.x > tree.bank.x);
+    expect(west.length && east.length).toBeTruthy();
+    for (const row of [west, east]) for (let i = 1; i < row.length; i++) expect(row[i].x - (row[i - 1].x + row[i - 1].w), `gap ${i}`).toBe(1);
     expect(tree.h).toBe(main.y + 1 + Math.max(BANK_LOT.h, ...labs.map((l) => l.h)) + 2);
   });
 
@@ -83,7 +85,8 @@ describe("the map is the tree (docs/goals.md, build step 2)", () => {
       const p = plaza.get(id)!, main = plaza.get(ROOT_GOAL_ID)!.street!;
       expect(p.street!.y, id).toBe(main.y + 2);
       expect(p.sign, id).toEqual({ x: p.pos.x, y: p.pos.y - 1 });
-      expect(tree.edges.get(id), id).toEqual([{ x: p.street!.x, y: main.y + 1 }]);
+      expect(tree.edges.get(id), id).toEqual([{ x: p.sign!.x - 1, y: main.y + 1 }]);
+      expect(p.sign!.x - 1 >= p.street!.x && p.sign!.x - 1 < p.street!.x + p.street!.w, id).toBe(true); // the drop lands on the street
     }
     const ws = plaza.get("gl_workshop")!.street!;
     expect(tree.lots.get("workshop")!.y).toBe(ws.y - 1); // the Workshop stands on the main street
@@ -97,9 +100,28 @@ describe("the map is the tree (docs/goals.md, build step 2)", () => {
     const tree = treeLayout(goals, buildings);
     // the web hangs the marquee from two columns right of the Bank, beside the Town Hall's rows (renderer.ts)
     const hall = tree.lots.get("town-hall")!;
-    const marquee: Lot = { x: BANK_LOT.x + BANK_LOT.w + 2, y: hall.y, w: 20, h: hall.h - 1 };
+    const marquee: Lot = { x: tree.bank.x + tree.bank.w + 2, y: hall.y, w: 20, h: hall.h - 1 };
     for (const [id, lot] of tree.lots) expect(overlap(lot, marquee), id).toBe(false);
     for (const p of tree.plazas) if (p.street) expect(overlap(p.street, marquee), p.goalId).toBe(false);
+  });
+
+  it("puts the Town Hall and the Bank in the top middle, the blocks split evenly either side (1:1 mt_cyd2t5ioob)", () => {
+    const { goals, buildings } = liveTree();
+    for (const shaped of [goals, goals.map((g) => (g.id === "gl_onboarding" || g.id === "gl_uiux" ? { ...g, parentId: "gl_workshop" } : g))]) {
+      const tree = treeLayout(shaped, buildings), hall = tree.lots.get("town-hall")!;
+      expect(Math.abs(hall.x + hall.w / 2 - tree.w / 2)).toBeLessThanOrEqual(2);
+      expect(tree.bank.x).toBe(hall.x);
+      expect(hall.y).toBeLessThanOrEqual(Math.min(...[...tree.lots.values()].map((l) => l.y)));
+      const labs = buildings.filter((b) => b.kind === "lab").map((b) => tree.lots.get(b.id)!);
+      expect(labs.some((l) => l.x + l.w <= hall.x) && labs.some((l) => l.x >= hall.x + hall.w)).toBe(true);
+    }
+    // a lone block under a goal's drop stands right of it; two split one each side, centred under the signpost
+    const pair = [...goals, { id: "gl_a", parentId: "gl_fund", text: "a", position: 0, createdAt: "" }, { id: "gl_b", parentId: "gl_fund", text: "b", position: 1, createdAt: "" }];
+    const two = treeLayout(pair, [...buildings, { id: "a", kind: "lab", goalId: "gl_a", createdAt: "", size: labSize(2) }, { id: "b", kind: "lab", goalId: "gl_b", createdAt: "", size: labSize(2) }]);
+    const fund = two.plazas.find((p) => p.goalId === "gl_fund")!, a = two.lots.get("a")!, b = two.lots.get("b")!;
+    expect(a.x + a.w).toBeLessThan(fund.sign!.x);
+    expect(b.x).toBe(fund.sign!.x);
+    expect(fund.sign!.x - 1 - (a.x + a.w)).toBe(1);
   });
 
   it("every place and every door reaches the Town Hall by road alone", () => {
@@ -111,16 +133,17 @@ describe("the map is the tree (docs/goals.md, build step 2)", () => {
     const hall = doorstepOf(tree.lots.get("town-hall")!, "s");
     for (const p of tree.plazas) expect(findPath(grid, hall, p.pos), p.goalId).not.toBeNull();
     for (const b of lots) expect(findPath(grid, hall, doorstepOf(b.lot, defaultSide(b.kind))), b.id).not.toBeNull();
-    expect(findPath(grid, hall, { x: BANK_LOT.x + BANK_FIXTURES.door.x, y: BANK_LOT.y - 1 })).not.toBeNull();
+    expect(findPath(grid, hall, { x: tree.bank.x + BANK_FIXTURES.door.x, y: tree.bank.y - 1 })).not.toBeNull();
   });
 
-  it("adding a building moves nothing before it, later blocks shift right in order; a deep chain stays on the map", () => {
+  it("adding a building keeps every lab's order and the Town Hall in the middle; a deep chain stays on the map", () => {
     const { goals, buildings } = liveTree();
     const before = treeLayout(goals, buildings);
     const more = [...goals, { id: "gl_new", parentId: "gl_workshop", text: "New", position: 9, createdAt: "2026-10-31T00:00:00.000Z" }];
     const after = treeLayout(more, [...buildings, { id: "new-lab", kind: "lab", goalId: "gl_new", createdAt: "2026-10-31T00:00:00.000Z", size: labSize(2) }]);
-    for (const id of ["town-hall", "workshop"]) expect(after.lots.get(id), id).toEqual(before.lots.get(id));
-    for (const id of ["onboarding", "prod", "bank-t", "code", "uiux"]) expect(after.lots.get(id)!.x).toBeGreaterThanOrEqual(before.lots.get(id)!.x);
+    const order = (t: ReturnType<typeof treeLayout>) => buildings.filter((b) => b.kind === "lab").map((b) => b.id).sort((p, q) => t.lots.get(p)!.x - t.lots.get(q)!.x);
+    expect(order(after)).toEqual(order(before));
+    for (const t of [before, after]) { const hall = t.lots.get("town-hall")!; expect(Math.abs(hall.x + hall.w / 2 - t.w / 2)).toBeLessThanOrEqual(2); }
     const chain: TreeGoal[] = [{ id: ROOT_GOAL_ID, parentId: null, text: "root", position: 0, createdAt: "" }];
     for (let i = 0; i < 8; i++) chain.push({ id: `g${i}`, parentId: chain[chain.length - 1].id, text: `g${i}`, position: 0, createdAt: "" });
     const deep = treeLayout(chain, [{ id: "deep", kind: "lab", goalId: "g7", createdAt: "", size: labSize(3) }]);
