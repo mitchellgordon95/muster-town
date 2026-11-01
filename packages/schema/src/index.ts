@@ -496,6 +496,8 @@ export const PlaceKind = z.enum([
   "bank",
   /** goal-tree — Town Hall: the goal tree wall chart; using it opens the goal editor (docs/goals.md "The Town Hall goal editor") */
   "goal-tree",
+  /** stats — Town Hall: the user stats stand beside the outbox; using it opens the join numbers (GET /api/join-funnel; 1:1 mt_ec2b7x80rg) */
+  "stats",
 ]);
 export type PlaceKind = z.infer<typeof PlaceKind>;
 export const Place = z.object({
@@ -1933,6 +1935,8 @@ export const TILE = {
   FOUNTAIN: 28,
   /** the town square's paving (walkable), and the town's decor on it and on the grass (not walkable) */
   PAVING: 29, TREE: 30, LAMP: 31, FLOWERS: 32,
+  /** the Town Hall's user stats stand (place `stats`): a bar chart on an easel beside the outbox; opens the join numbers */
+  STATS: 33,
 } as const;
 /**
  * The Bank: a fixed landmark (not a building row, so it never takes a budget share) at the west end of the main street,

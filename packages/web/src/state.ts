@@ -17,7 +17,7 @@ import { redirectPanel } from "./panels/room";
  * `grant`, `assignment` and `session` are the panels without a place: a grant or proposal (`gr_…`), an assignment card (`as_…`)
  * and a session (`se_…`), reached from any link to its id.
  */
-export type PanelKind = "agent" | "building" | "connect" | "library" | "outbox" | "meeting" | "intray" | "board" | "cabinet" | "planning" | "schedule" | "mod" | "bank" | "admin" | "grant" | "manual" | "goals" | "assignment" | "session";
+export type PanelKind = "agent" | "building" | "connect" | "library" | "outbox" | "stats" | "meeting" | "intray" | "board" | "cabinet" | "planning" | "schedule" | "mod" | "bank" | "admin" | "grant" | "manual" | "goals" | "assignment" | "session";
 export interface PanelRef { kind: PanelKind; id?: string; docId?: string; tab?: string }
 interface Toast { id: number; text: string; tone: "info" | "ok" | "bad"; panel?: PanelRef }
 

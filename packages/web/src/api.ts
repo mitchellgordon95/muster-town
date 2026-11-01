@@ -283,10 +283,18 @@ export type GoalKeyResult = KeyResult & { grantId: string | null; createdByName?
 export type ObjectiveView = Objective & { kpi: KpiKey | null; kpiName: string | null; keyResults: GoalKeyResult[]; createdByName?: string | null; editedByName?: string | null };
 /** GET /api/buildings/:id/objectives: the objectives with their key results, then the key results under none. */
 export interface ObjectiveTree { objectives: ObjectiveView[]; unsorted: GoalKeyResult[] }
-/** GET /api/join-funnel (gr_fibsfwr4tz step 3): the last 30 days summed over every collective, counts only. */
+/** The join funnel's counted steps (core join-funnel.ts FUNNEL_STEPS). */
+export interface JoinFunnelCounts { guestCardViews: number; signIns: number; asked: number; letIn: number; declined: number }
+/** One collective's funnel: the days with any count (UTC), its totals and its median wait to decision. */
+interface JoinFunnelCollective {
+  slug: string; days: number; from: string; to: string; decisions: number; medianDecisionMs: number | null;
+  daily: ({ day: string } & JoinFunnelCounts)[]; totals: JoinFunnelCounts;
+}
+/** GET /api/join-funnel (gr_fibsfwr4tz step 3): the last 30 days summed over every collective on this server (a hosted one: itself), counts only, then each collective. */
 export interface JoinFunnelView {
   days: number; from: string; to: string; decisions: number; medianDecisionMs: number | null;
-  totals: { guestCardViews: number; signIns: number; asked: number; letIn: number; declined: number };
+  totals: JoinFunnelCounts;
+  collectives: JoinFunnelCollective[];
 }
 
 /** GET /api/buildings/:id/key-results */

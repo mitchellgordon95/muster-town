@@ -251,8 +251,21 @@ export class MockApi implements Api {
   private guestCardViews = 41;
   async joinFunnel(): Promise<JoinFunnelView> {
     await wait();
-    const to = new Date().toISOString().slice(0, 10), from = new Date(Date.now() - 29 * 86_400_000).toISOString().slice(0, 10);
-    return { days: 30, from, to, decisions: 1, medianDecisionMs: 3 * 3_600_000, totals: { guestCardViews: this.guestCardViews, signIns: 3, asked: 2, letIn: 1, declined: 0 } };
+    const day = (ago: number) => new Date(Date.now() - ago * 86_400_000).toISOString().slice(0, 10);
+    const to = day(0), from = day(29);
+    const zero = { guestCardViews: 0, signIns: 0, asked: 0, letIn: 0, declined: 0 };
+    const workshop = [
+      { ...zero, day: day(6), guestCardViews: 9, signIns: 1 },
+      { ...zero, day: day(2), guestCardViews: 14, signIns: 1, asked: 1, letIn: 1 },
+      { ...zero, day: day(0), guestCardViews: this.guestCardViews - 23, asked: 1 },
+    ];
+    const hosted = [{ ...zero, day: day(2), guestCardViews: 4, signIns: 1, asked: 1, declined: 1 }];
+    const sum = (rows: typeof workshop) => Object.fromEntries((Object.keys(zero) as (keyof typeof zero)[]).map((k) => [k, rows.reduce((n, r) => n + r[k], 0)])) as typeof zero;
+    const collectives = [
+      { slug: "workshop", days: 30, from, to, daily: workshop, totals: sum(workshop), decisions: 1, medianDecisionMs: 3 * 3_600_000 },
+      { slug: "hollyville", days: 30, from, to, daily: hosted, totals: sum(hosted), decisions: 1, medianDecisionMs: 15_000 },
+    ];
+    return { days: 30, from, to, decisions: 2, medianDecisionMs: Math.round((3 * 3_600_000 + 15_000) / 2), totals: sum([...workshop, ...hosted]), collectives };
   }
   async countGuestCardView() { this.guestCardViews++; }
   async dismiss(id: string, purge = false) { await wait(); this.sim.dismiss(id, purge); }
