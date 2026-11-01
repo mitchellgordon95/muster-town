@@ -8,17 +8,22 @@ import { squareLayout } from "./square.ts";
  * computes every lot and street from the tree, and `computeLayout` draws them. Packed so it reads as a town
  * (Mitchell, 1:1 mt_wql34b8gkl): no lot for a goal without buildings, no plaza per building, one tile of grass between neighbours.
  *
- * - The Town Hall stands at the root, above the main street (a road one tile tall); the Bank (fixed, `BANK_LOT`) below it.
+ * - The Town Hall stands at the root in the middle of the town, above the main street (a road one tile tall); the Bank
+ *   right below it (`BANK_LOT`'s row and size, its column under the Town Hall).
  * - Only goals with a building somewhere under them draw. A goal with no building of its own and one drawn child folds
  *   into that child (a chain is one step, not a long walk); with two or more it is a junction.
  * - A building stands right on the street of its goal's parent, its door in its top wall on that street. A goal's own
  *   buildings come first, left to right in a fixed order (`position`, then `createdAt`, then id).
- * - A goal with drawn children gets a street of its own, one row below its parent's: a one-tile road drops from the parent's
- *   street right after the goal's own buildings, the street runs right from it, and the children's blocks hang off it.
+ * - Symmetric (1:1 mt_cyd2t5ioob): along the main street the root's buildings and its children's blocks keep that order
+ *   but split round the Town Hall and Bank so each side is about as wide (`halves`); the narrower side gets grass, so
+ *   the Town Hall stands in the middle of the map.
+ * - A goal with drawn children gets a street of its own, one row below its parent's, right after the goal's own
+ *   buildings: a one-tile road drops to it from the parent's street, and the children's blocks hang off it, split
+ *   round the drop the same way.
  *   Its signpost (TILE.SIGNPOST) stands beside the drop, the goal's place (`plaza:<goalId>`) on the street below it.
  *   A goal without children needs no signpost: its buildings' signs name it.
- * - Blocks sit side by side with one tile of grass between them, so adding a building shifts the blocks after it
- *   (right, keeping order); nothing before it moves.
+ * - Blocks sit side by side with one tile of grass between them; adding a building keeps every block's order (it can
+ *   move a block across the Town Hall or a drop when the balance shifts).
  *
  * Three shapes of the same tree, a town-wide setting (`town.mapLayout`, 1:1 mt_q10xf3bkoq; mocks dc_fvgi5nq36j):
  * - "tree": the packed layout above.
@@ -116,11 +121,13 @@ export function treeLayout(goals: TreeGoal[], buildings: TreeBuilding[], shape: 
   if (shape === "fountain") return squareLayout({ root, hall, labs, drawnKids, standsAt });
 
   const rowW = (list: TreeBuilding[]) => list.reduce((s, b, i) => s + b.size.w + (i ? GAP : 0), 0);
-  const kidsW = (id: string, depth: number) => drawnKids(id).reduce((s, c, i) => s + blockW(c.id, depth + 1) + (i ? GAP : 0), 0);
-  /** a block: the goal's own buildings, then (with drawn children) the drop and its street over the children's blocks */
-  const blockW = (id: string, depth: number): number => {
+  /** a block: the goal's own buildings, then (with drawn children) its street over the children's blocks, split round the drop */
+  const blockW = (id: string): number => {
     const own = rowW(labs(id));
-    return drawnKids(id).length ? own + (own ? GAP : 0) + 1 + kidsW(id, depth) : own;
+    const children = drawnKids(id);
+    if (!children.length) return own;
+    const [left, right] = halves(children.map((c) => blockW(c.id)));
+    return own + (own ? GAP : 0) + (left ? left + GAP : 0) + 1 + right;
   };
 
   const lots = new Map<string, Lot>();
@@ -136,26 +143,61 @@ export function treeLayout(goals: TreeGoal[], buildings: TreeBuilding[], shape: 
       plazas.push({ goalId: g.id, parentId, text: g.text, depth, pos: { x: first.x + Math.floor(first.w / 2), y }, street: null, sign: null, fountain: null });
       return;
     }
-    const drop = cx, sy = y + 2, sw = x + blockW(g.id, depth) - drop;
+    // the children's blocks hang off the street, as many tiles each side of the drop as the order allows
+    const widths = children.map((c) => blockW(c.id));
+    const [left, , k] = halves(widths);
+    const sx = cx, drop = sx + (left ? left + GAP : 0), sy = y + 2, sw = x + blockW(g.id) - sx;
     edges.set(g.id, [{ x: drop, y: y + 1 }]);
-    plazas.push({ goalId: g.id, parentId, text: g.text, depth, pos: { x: drop + 1, y: sy }, street: { x: drop, y: sy, w: sw, h: 1 }, sign: { x: drop + 1, y: y + 1 }, fountain: null });
-    // the children hang off the street
-    let kx = drop + 1;
-    for (const c of children) { place(c, g.id, depth + 1, kx, sy); kx += blockW(c.id, depth + 1) + GAP; }
+    plazas.push({ goalId: g.id, parentId, text: g.text, depth, pos: { x: drop + 1, y: sy }, street: { x: sx, y: sy, w: sw, h: 1 }, sign: { x: drop + 1, y: y + 1 }, fountain: null });
+    let kx = sx;
+    children.forEach((c, i) => {
+      if (i === k) kx = drop + 1;
+      place(c, g.id, depth + 1, kx, sy);
+      kx += widths[i] + GAP;
+    });
   };
 
-  // the root: the Town Hall above the main street, the Bank below it, then the root's own buildings and its children's blocks
+  // the root: the Town Hall in the middle above the main street, the Bank right below it; the root's own buildings and its
+  // children's blocks keep their order along the main street, split round the Bank so each side is about as wide
+  // (Mitchell, 1:1 mt_cyd2t5ioob: "the townhall and bank should be in the top middle"); the narrower side gets grass
   const hallSize = hall?.size ?? { w: 17, h: 11 };
-  const sy = BANK_LOT.y - 1;
-  const hallLot = { x: BANK_LOT.x, y: sy - hallSize.h, w: hallSize.w, h: hallSize.h };
+  const x0 = MARGIN - 1, sy = BANK_LOT.y - 1;
+  const items: { w: number; put: (x: number) => void }[] = [
+    ...labs(root.id).map((b) => ({ w: b.size.w, put: (x: number) => lots.set(b.id, { x, y: sy + 1, w: b.size.w, h: b.size.h }) })),
+    ...drawnKids(root.id).map((c) => ({ w: blockW(c.id), put: (x: number) => place(c, root.id, 1, x, sy) })),
+  ];
+  const [left, right, k] = halves(items.map((i) => i.w));
+  const core = Math.max(BANK_LOT.w, hallSize.w);
+  const side = Math.max(left, right) + GAP;
+  const mid = MARGIN + side; // the core's left edge
+  const hallLot = { x: mid + Math.floor((core - hallSize.w) / 2), y: sy - hallSize.h, w: hallSize.w, h: hallSize.h };
+  const bank = { ...BANK_LOT, x: hallLot.x + Math.floor((hallSize.w - BANK_LOT.w) / 2) };
   if (hall) lots.set(hall.id, hallLot);
-  let cx = BANK_LOT.x + Math.max(BANK_LOT.w, hallSize.w) + GAP;
-  for (const b of labs(root.id)) { lots.set(b.id, { x: cx, y: sy + 1, w: b.size.w, h: b.size.h }); cx += b.size.w + GAP; }
-  for (const c of drawnKids(root.id)) { place(c, root.id, 1, cx, sy); cx += blockW(c.id, 1) + GAP; }
+  let cx = mid - GAP - left;
+  items.forEach((it, i) => {
+    if (i === k) cx = mid + core + GAP;
+    it.put(cx);
+    cx += it.w + GAP;
+  });
   const sign = { x: hallLot.x + hallLot.w + 1, y: sy - 1 };
-  const x0 = BANK_LOT.x - 1;
-  plazas.unshift({ goalId: root.id, parentId: null, text: root.text, depth: 0, pos: { x: sign.x, y: sy }, street: { x: x0, y: sy, w: Math.max(cx, sign.x + 2) - x0, h: 1 }, sign, fountain: null });
-  return finish({ lots, standsAt, plazas, edges, bank: { ...BANK_LOT } });
+  // the main street runs the whole width, so the town reads the same either side of the Town Hall
+  const end = mid + core + side;
+  plazas.unshift({ goalId: root.id, parentId: null, text: root.text, depth: 0, pos: { x: sign.x, y: sy }, street: { x: x0, y: sy, w: Math.max(end + 1, sign.x + 2) - x0, h: 1 }, sign, fountain: null });
+  return finish({ lots, standsAt, plazas, edges, bank });
+}
+
+/**
+ * Split a row of widths, in order, into a left part (the first k) and a right part so the two are as even as can be
+ * (ties go right, so a lone block stands right of its drop). Widths include the grass between neighbours.
+ */
+function halves(widths: number[]): [left: number, right: number, k: number] {
+  const run = (a: number[]) => a.reduce((s, w, i) => s + w + (i ? GAP : 0), 0);
+  let best: [number, number, number] = [0, run(widths), 0];
+  for (let k = 1; k <= widths.length; k++) {
+    const l = run(widths.slice(0, k)), r = run(widths.slice(k));
+    if (Math.abs(l - r) < Math.abs(best[0] - best[1])) best = [l, r, k];
+  }
+  return best;
 }
 
 /** The map's size: everything drawn, plus MARGIN of grass. */
