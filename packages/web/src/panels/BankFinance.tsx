@@ -80,7 +80,7 @@ export function notFundedNote(sp: Pick<FinanceSpend, "notFunded" | "notFundedSpl
   const c = sp.notFundedSplitCheck;
   const lines = [
     `Usage the Bank never debited: work sessions ran, but no debit was recorded for them, so no Bank credit or donation paid for them. Taken off here so the rows sum to Used, which counts only what was paid.`,
-    `Why: before PR #131 (chargeUsage) the runtime skipped the debit for some sessions. That is fixed. A usage row counts as unpaid when no debit for the same agent lies within 2 seconds of it.`,
+    `Why: before PR #131 (chargeUsage) the runtime left some sessions' usage recorded but not charged. Fixed on 2026-10-31. A usage row counts as unpaid when no debit for the same agent lies within 2 seconds of it.`,
     sp.notFundedLastAt ? `No new unpaid usage since ${sp.notFundedLastAt.slice(0, 10)}.` : `No usage row is unpaid by that rule.`,
   ];
   const reason = c && !c.ok && c.reason

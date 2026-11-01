@@ -142,7 +142,7 @@ describe("finance page: spending", () => {
     const note = notFundedNote(live);
     expect(note.split).toEqual([
       { name: "Town Workshop", tokens: 4269596, usageRows: 5 }, { name: "Prod", tokens: 123238, usageRows: 3 }, { name: "unattributed", tokens: 7, usageRows: 1 }]);
-    expect(note.lines.join(" ")).toContain("before PR #131 (chargeUsage) the runtime skipped the debit");
+    expect(note.lines.join(" ")).toContain("before PR #131 (chargeUsage) the runtime left some sessions' usage recorded but not charged. Fixed on 2026-10-31.");
     expect(note.lines).toContain("No new unpaid usage since 2026-10-26.");
     expect(note.differ).toBe("These differ: the rows by building come to 4,392,841 adj. tokens, but Not funded is 195,957 adj. tokens. Not funded is exact (what sessions counted, less what was paid); the split by building is an estimate by the 2-second rule.");
     expect(note.after).toEqual([
