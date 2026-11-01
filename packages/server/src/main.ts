@@ -145,7 +145,8 @@ type RuntimeModule = { startRuntime: (o: { world: World; mcpUrl: string; repoRoo
 let runtimeError = "";
 async function loadRuntime(): Promise<RuntimeModule | null> {
   try {
-    const runtimePkg = "@muster-town/runtime"; // variable specifier: the server typechecks and runs without it
+    // variable specifier: the server typechecks and runs without it. The prebuilt server (build.mjs) ships it as dist/runtime.js.
+    const runtimePkg = import.meta.url.endsWith(".ts") ? "@muster-town/runtime" : "./runtime.js";
     const mod = (await import(runtimePkg)) as Partial<RuntimeModule>;
     if (typeof mod.startRuntime !== "function") throw new Error("@muster-town/runtime does not export startRuntime");
     return mod as RuntimeModule;
