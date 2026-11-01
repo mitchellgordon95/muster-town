@@ -153,6 +153,7 @@ describe("goal-directed budgets: the canStart gate", () => {
 describe("goal-directed budgets: the 100% checkpoint", () => {
   it("a grant at 60% spend creates no checkpoint assignment and is not held", () => {
     const { world, admin, mei, noor, fund, spend } = setup();
+    creditBank(world); // a funded grant runs only while the Bank's usable balance covers it (the overdraft walk)
     const g = fund(4_000_000);
     spend(noor.id, 2_400_000, "grant", g.id);
     world.budget.charge(noor.id, 0, 0);
@@ -196,6 +197,7 @@ describe("goal-directed budgets: the 100% checkpoint", () => {
 
   it("releaseHalfway frees a grant still held at the retired 50% checkpoint, once; a held 100% grant stays held", () => {
     const { world, admin, noor, fund, spend } = setup();
+    creditBank(world); // a funded grant runs only while the Bank's usable balance covers it (the overdraft walk)
     const g = fund(4_000_000);
     spend(noor.id, 2_100_000, "grant", g.id);
     world.grants.patch(g.id, { status: "checkpoint", checkpointsDone: [0.5] });
@@ -377,6 +379,7 @@ describe("goal-directed budgets: a decision on a proposal wakes the manager (1:1
     const { world, admin, mei } = setup();
     const g = propose(world, mei);
     expect(world.assignments.where("agentId = ? AND status = 'pending'", [mei.id])).toHaveLength(0);
+    creditBank(world); // a funded grant runs only while the Bank's usable balance covers it (the overdraft walk)
     world.grantDesk.decide(admin, g.id, { action: "fund", note: "go" });
     const [a, ...rest] = world.assignments.where("agentId = ? AND status = 'pending'", [mei.id]);
     expect(rest).toHaveLength(0);

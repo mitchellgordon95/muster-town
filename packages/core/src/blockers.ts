@@ -63,6 +63,9 @@ export function blockedBy(world: World, a: Assignment, at: Date = new Date()): B
   }
   const hold = laneBlock(world, a);
   if (!hold) return null;
+  if (hold.kind === "overdraft") {
+    return { kind: "budget", targetId: a.buildingId, placeId: "bank", text: hold.reason.replace(/^held: /, "") };
+  }
   if (hold.kind === "grant") {
     const g = hold.grantId ? world.grants.get(hold.grantId) : undefined;
     const state = !g ? "doesn't exist" : g.status === "checkpoint" ? "at checkpoint" : g.status === "proposed" || g.status === "countered" || g.status === "draft" ? "not funded yet" : g.status;
