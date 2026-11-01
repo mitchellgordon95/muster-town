@@ -62,7 +62,8 @@ meeting of 2026-10-27 17:21Z (mt_6830h8x5qk, decision 6) and waits for the Fund 
      (Hollyville) gets its building at the next boot; buildings are never deleted, so it never comes back once made.
      Without a key the founder's HUD shows one next step, **Add your API key to start** (`health.funding` = `none`),
      to the Bank (Donate, To: The Bank, **API key**); with a key the explore tick starts work on the free tokens under
-     the root goal. Tests: `packages/server/test/hub-start.test.ts`, `packages/server/test/hub.test.ts`.
+     the root goal (a grant proposal in the Town Hall in-tray). More goals go under the root (Town Hall → **Goal tree**),
+     more buildings through Planning → **New building**. Tests: `packages/server/test/hub-start.test.ts`, `packages/server/test/hub.test.ts`.
    Tests: `packages/runtime/test/hosted.test.ts`.
 
 ## Step 3: Start a collective, and the own-key requirement
