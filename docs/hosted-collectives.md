@@ -55,10 +55,14 @@ meeting of 2026-10-27 17:21Z (mt_6830h8x5qk, decision 6) and waits for the Fund 
      (post-mortem 2026-10-31 item 8).
    - **Host actions.** No redeployer: a hosted admin's redeploy is refused (403), and the desk image, desk recreation
      and the GitHub/Fly tokens are never read.
-   - **First building.** A new collective has no buildings (`buildings: []`): its admin opens Planning → **New building**
-     (it moves in with its manager at one of its desks; forks of the manager do the work), adds the key at the Bank
-     (Donate, To: The Bank, **API key**), and adds a key result in the building's **Goals** tab. Exploration then
-     starts by itself on the free tokens under the building's goal; a grant or a directed assignment works too.
+   - **First building.** Done 2026-11-01 (gr_5ltmbf3a2f, kr_god7otzibq): `hub.open` (`ensureFirstBuilding`, hub.ts)
+     gives a World with no building besides the Town Hall one goal-directed building, **Workshop**, on the root goal
+     (the founder's), made as Planning → New building makes one: its manager (forks do the work) at one of its desks,
+     code access off (the collective defaults). It runs on create and on every open, so a collective started before it
+     (Hollyville) gets its building at the next boot; buildings are never deleted, so it never comes back once made.
+     Without a key the founder's HUD shows one next step, **Add your API key to start** (`health.funding` = `none`),
+     to the Bank (Donate, To: The Bank, **API key**); with a key the explore tick starts work on the free tokens under
+     the root goal. Tests: `packages/server/test/hub-start.test.ts`, `packages/server/test/hub.test.ts`.
    Tests: `packages/runtime/test/hosted.test.ts`.
 
 ## Step 3: Start a collective, and the own-key requirement

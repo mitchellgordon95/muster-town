@@ -71,10 +71,13 @@ export function Hud({ onPasteToken, onHelp }: { onPasteToken?: () => void; onHel
     const out: Notice[] = [];
     // a redeploy in flight (or just finished): everyone sees it, so nobody is surprised by the restart
     // a hosted collective without an API key of its own: its agents are held (docs/hosted-collectives.md, own-key block)
+    // its admin (the founder) sees it as the one next step: the first building is already there, only the key is missing
     if (health?.funding === "none") {
       out.push({
         key: "no-key", icon: "bank", tone: "warn", cta: "Bank →",
-        text: <><b>No key yet</b>: add your Anthropic API key at the Bank</>,
+        text: me?.isAdmin
+          ? <><b>Add your API key to start</b>: your agents wait until the Bank has one</>
+          : <><b>No key yet</b>: agents wait until an admin adds an Anthropic API key at the Bank</>,
         go: () => walkOrOpen("bank", { kind: "bank" }),
       });
     }
