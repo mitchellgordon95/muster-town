@@ -687,7 +687,17 @@ export class MockApi implements Api {
         const runway = burn === 0 ? "no-usage" as const : net <= 0 ? "covered" as const : "days" as const;
         return { days: 30, trailingDailyBurn: burn, burnDays: 7, projectedUse30d: burn * 30, dailyInflow: inflow, netDailyBurn: net, projectedInflow30d: inflow * 30, runwayDays: runway === "days" ? Math.floor(left / net) : null, runway };
       })(),
-      sumCheck: { ok: diff === 0, diff, identity: "used + expired + left = total + overdrawn" }, at: now(),
+      sumCheck: { ok: diff === 0, diff, identity: "used + expired + left = total + overdrawn" },
+      // a toy adjusted-token mix (core token-mix.ts): 1.15M raw tokens = 50k adj. tokens at Opus 5.5 weights
+      mix: {
+        unitModel: "claude-opus-5-5", weights: { input: 0.2, output: 1, cacheRead: 0.01, cacheWrite5m: 0.25, cacheWrite1h: 0.4 },
+        formula: "adj. tokens = output + 0.2 × input + 0.01 × cache read + 0.25 × cache write (5 min) + 0.4 × cache write (1 h)",
+        windowDays: 7, from: new Date(Date.now() - 7 * 86_400_000).toISOString().slice(0, 10) + "T00:00:00.000Z", to: now().slice(0, 10) + "T00:00:00.000Z", computedAt: now(), source: "usage", sessions: 42,
+        counts: { input: 100_000, output: 10_000, cacheRead: 1_000_000, cacheWrite5m: 40_000, cacheWrite1h: 0 }, rawTokens: 1_150_000, adjustedTokens: 50_000, rawPerAdjusted: 23,
+        rawShare: { input: 100 / 1150, output: 10 / 1150, cacheRead: 1000 / 1150, cacheWrite5m: 40 / 1150, cacheWrite1h: 0 },
+        costShare: { input: 0.4, output: 0.2, cacheRead: 0.2, cacheWrite5m: 0.2, cacheWrite1h: 0 },
+      },
+      at: now(),
     };
   }
   // the toy has no sessions table: all of `used` (and a toy unpaid part) is one building row

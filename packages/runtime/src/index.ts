@@ -670,6 +670,7 @@ export function startRuntime(opts: RuntimeOptions): Runtime {
       }
       timed("bankCredit", () => world.bank.creditDue(d), "bank");
       timed("bankDrift", () => world.bank.driftDue(d), "bank drift");
+      timed("bankMix", () => world.bank.mixDue(d), "bank token mix");
       // goal tree step 7: an earmark with no draw for 7 days tells its donor (in town only)
       timed("streams", () => world.streams.tick(d), "bank streams");
       // post-mortem 2026-10-30: once a day, the day before's funding against the Bank's books and the Console (alert when unexplained)
