@@ -64,13 +64,31 @@ export function GoalCanvas({ root, retired, collapsed, selected, scope, proposal
       .finally(() => setMaking(null));
   };
   const size = () => { const r = vp.current?.getBoundingClientRect(); return { w: r?.width ?? 0, h: r?.height ?? 0, left: r?.left ?? 0, top: r?.top ?? 0 }; };
-  const fit = () => { const s = size(); setView(fitView(layout, s.w, s.h)); };
+  // the last view Fit made: while it is still the view, a pane resize (the editor's divider, the window) fits again
+  const fitted = useRef<View | null>(null);
+  const viewNow = useRef<View | null>(null);
+  viewNow.current = view;
+  const fitTo = (w: number, h: number) => { const f = fitView(layout, w, h); fitted.current = f; setView(f); };
+  const fit = () => { const s = size(); fitTo(s.w, s.h); };
 
   // first show: frame the whole tree, or centre the deep-linked goal at 1:1
   useLayoutEffect(() => {
     if (view || !layout.boxes.length) return;
     const s = size(), b = focusId && focusId !== ROOT_GOAL_ID ? byId.get(focusId) : null;
-    setView(b ? revealBox({ x: 0, y: 0, k: 1 }, b, s.w, s.h, true) : fitView(layout, s.w, s.h));
+    if (b) setView(revealBox({ x: 0, y: 0, k: 1 }, b, s.w, s.h, true)); else fitTo(s.w, s.h);
+  }, [layout]);
+  useEffect(() => {
+    const el = vp.current;
+    if (!el || typeof ResizeObserver === "undefined") return;
+    let { w: lw, h: lh } = size();
+    const ro = new ResizeObserver(() => {
+      const { w, h } = size();
+      if (w === lw && h === lh) return;
+      lw = w; lh = h;
+      if (viewNow.current && viewNow.current === fitted.current) fitTo(w, h);
+    });
+    ro.observe(el);
+    return () => ro.disconnect();
   }, [layout]);
   // a selection made elsewhere (the keyboard, the breadcrumb, a new goal) pans into view when it is off screen
   useEffect(() => {
