@@ -236,11 +236,16 @@ walk's result is cached for 5 s, and any new event invalidates it.
 
 ## Cancelling an input (2026-11-01)
 
-Cancelling stops an input's future credits and forgets its key (`Bank.cancelInput`). What happens to the credit already
-paid in depends on the source:
+Cancelling stops an input's future credits and forgets its key (`Bank.cancelInput`). Whatever it credited but nobody
+spent expires at once, and the `bank.input` event says how many tokens lapsed (`expiredTokens`). Spent tokens stay in the
+history. A credit is a promise backed only by the input's own credential, so once that is forgotten nothing can pay for
+the rest:
 
-- **API key:** the credit stays. That money was paid in and the key's balance is the town's until it is spent.
-- **Subscription:** the live credit expires at once (`expiresAt` = the cancel time) and the `bank.input` event says how
-  many unspent tokens lapsed (`expiredTokens`). A subscription credit is quota the plan serves today, not money; before
-  this, replacing a 15M-a-day donation with a 2M one left the old day's 15M spendable until its renewal (the Bank read
-  6.7M right after Mitchell set 2M on 2026-11-01).
+- **Subscription:** the live credit is today's plan quota (`expiresAt` = the cancel time). Before this, replacing a
+  15M-a-day donation with a 2M one left the old day's 15M spendable until its renewal (the Bank read 6.7M right after
+  Mitchell set 2M on 2026-11-01).
+- **API key:** the credit is what its donor agreed to be billed for, not money the town holds. Before this it stayed in
+  the shared balance after the key was forgotten, and other donors' keys (or the subscription) ended up paying for it.
+  Draws from the general balance don't name a credit, so the unspent rest is found oldest credit first (the Bank hands
+  out the oldest live key). Each affected credit is split into its spent part and a new row for the rest that expires
+  at the cancel time, so the finance identity counts the rest as `expired`.

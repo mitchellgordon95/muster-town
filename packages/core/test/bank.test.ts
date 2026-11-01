@@ -18,7 +18,8 @@ describe("bank", () => {
     expect(world.bank.summary().inputs.find((i) => i.id === inp.id)).toMatchObject({ userName: "Donor" });
     world.bank.cancelInput(donor.id, inp.id);
     expect(world.bank.apiKeyFor(inp.id)).toBeNull();
-    expect(world.bank.balance()).toBe(5000);
+    // nothing can pay for what it didn't spend once its key is forgotten: the rest expires (2026-11-01)
+    expect(world.bank.balance()).toBe(0);
     expect(world.events.list({ types: ["bank.credited"] })).toHaveLength(1);
   });
 
@@ -247,8 +248,8 @@ describe("a hosted collective never runs on a subscription", () => {
   });
 });
 
-describe("cancelling a subscription input (2026-11-01)", () => {
-  it("expires its live credit now: replacing a 15M/day donation with 2M/day leaves 2M, not 17M; an api-key's credit stays", () => {
+describe("cancelling an input (2026-11-01)", () => {
+  it("expires its live credit now: replacing a 15M/day donation with 2M/day leaves 2M, not 17M", () => {
     const { world, seed } = seededWorld();
     const sub = { source: "subscription" as const, token: "sk-ant-oat01-test-token", model: "claude-opus-5-5", recurrence: "daily" as const, weeklyCapTokens: 100_000_000 };
     const big = world.bank.addInput(seed.admin.id, { ...sub, label: "Max plan", tokens: 15_000_000 }, T0);
@@ -262,6 +263,28 @@ describe("cancelling a subscription input (2026-11-01)", () => {
     expect(ev?.payload.expiredTokens).toBe(15_000_000);
     expect(ev?.text).toMatch(/15,000,000 adj\. tokens of today's credit expired/);
     world.bank.cancelInput(seed.admin.id, key.id, later);
-    expect(world.bank.balance(new Date(later.getTime() + 1000))).toBe(2_001_000);
+    expect(world.bank.balance(new Date(later.getTime() + 1000))).toBe(2_000_000);
+  });
+
+  it("an API key's unspent credit expires too; the pool's draws spend the oldest key first; the finance identity holds", () => {
+    const { world, seed } = seededWorld();
+    const lab = createBuilding(world, { name: "Lab" }, seed.admin.id);
+    const agent = createResident(world, { buildingId: lab.id, name: "A", title: "t", direction: "d" });
+    const old = world.bank.addInput(seed.admin.id, { label: "Old key", source: "api-key", model: "m", tokens: 6_000, apiKey: "sk-old" }, T0);
+    const fresh = world.bank.addInput(seed.admin.id, { label: "New key", source: "api-key", model: "m", tokens: 4_000, apiKey: "sk-new" }, at(0.1));
+    // 7,000 drawn from the general balance (no credit named): the old key's 6,000, then 1,000 of the new one's
+    expect(world.bank.draw(lab.id, agent.id, 7_000, { now: at(0.2) })).toBe(0);
+    expect(world.bank.balance(at(0.3))).toBe(3_000);
+    // the old key is spent out: cancelling it lapses nothing
+    world.bank.cancelInput(seed.admin.id, old.id, at(0.3));
+    expect(world.bank.balance(at(0.4))).toBe(3_000);
+    // the new key's unspent 3,000 lapses with it
+    world.bank.cancelInput(seed.admin.id, fresh.id, at(0.5));
+    expect(world.bank.balance(at(0.6))).toBe(0);
+    const ev = world.events.list({ types: ["bank.input"] }).filter((e) => e.payload.cancelled).at(-1);
+    expect(ev?.payload.expiredTokens).toBe(3_000);
+    expect(ev?.text).toMatch(/unspent 3,000 adj\. tokens of credit expired/);
+    // the split keeps every total: 10,000 credited = 7,000 used + 3,000 expired + 0 left
+    expect(world.bank.finance(at(0.6))).toMatchObject({ credited: 10_000, usedBank: 7_000, expired: 3_000, leftBank: 0, sumCheck: { ok: true } });
   });
 });

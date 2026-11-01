@@ -416,9 +416,11 @@ export class Bank {
   }
 
   /**
-   * Stop an input's future credits and forget its key. Its owner or an admin. An api-key input's past credits stay in the
-   * Bank (that money was paid in). A subscription's live credit expires now (2026-11-01): it is quota the plan serves today,
-   * so replacing a subscription donation with a smaller one must not leave the old day's credit spendable until its renewal.
+   * Stop an input's future credits and forget its key. Its owner or an admin. What it credited but nobody spent expires
+   * now (2026-11-01, promised and available): a credit is a promise backed only by the input's own credential, so once its
+   * token or key is forgotten nothing can pay for the rest. A subscription's live credit is today's plan quota; an API
+   * key's is what its donor agreed to be billed for, and a cancelled key would otherwise leave tokens in the shared balance
+   * that other donors' keys end up paying for. Spent tokens stay in the history.
    */
   cancelInput(userId: string, inputId: string, now = new Date()): BankInput {
     const inp = this.repos.bankInputs.require(inputId, "bank input");
@@ -427,14 +429,13 @@ export class Bank {
     this.repos.bankInputs.setApiKey(inputId, null);
     const row = this.repos.bankInputs.upsert({ ...this.repos.bankInputs.require(inputId), nextCreditAt: null, cancelledAt: now.toISOString() });
     let expiredTokens = 0;
-    if (inp.source === "subscription") {
-      for (const c of this.inputCredits(inputId, now)) {
-        if (!c.expiresAt) continue;
-        expiredTokens += Math.max(0, c.tokens - this.debited("creditId = ?", [c.id]));
-        this.repos.bankCredits.upsert({ ...c, expiresAt: now.toISOString() });
-      }
+    for (const c of this.inputCredits(inputId, now)) {
+      if (!c.expiresAt) continue;
+      expiredTokens += Math.max(0, c.tokens - this.debited("creditId = ?", [c.id]));
+      this.repos.bankCredits.upsert({ ...c, expiresAt: now.toISOString() });
     }
-    const lapsed = expiredTokens ? `; its unspent ${expiredTokens.toLocaleString("en-US")} adj. tokens of today's credit expired` : "";
+    expiredTokens += this.lapseDurable(inp, now);
+    const lapsed = expiredTokens ? `; its unspent ${expiredTokens.toLocaleString("en-US")} adj. tokens of ${inp.source === "subscription" ? "today's credit" : "credit"} expired` : "";
     this.events.append({ type: "bank.input", text: `${inp.label} was cancelled${lapsed}`, payload: { inputId, cancelled: true, expiredTokens } });
     return row;
   }
@@ -446,6 +447,37 @@ export class Bank {
     if (inp?.userId !== userId && !this.permissions.isAdmin({ kind: "user", id: userId })) throw forbidden("town.allocate_budget", "Only the input's owner or an admin can clear its limit.");
     if (l.clearedAt) return l;
     return this.availability.clear(l, new Date(), `${this.repos.users.get(userId)?.name ?? userId} cleared it by hand`);
+  }
+
+  /**
+   * A cancelled input's durable (API-key) credits: split each into what was spent (stays durable) and its unspent rest, a
+   * new credit row that expires now, so the balance drops by exactly the rest and the finance identity counts it as
+   * expired. Draws from the general balance don't name a credit, so they are taken to spend the oldest credits first (the
+   * Bank hands out the oldest live key); an earmark's draws name their credits. Returns the tokens that lapsed.
+   */
+  private lapseDurable(inp: BankInput, now: Date): number {
+    const rows: { c: BankCredit; rest: number }[] = [];
+    if (inp.goalId) {
+      for (const c of this.repos.bankCredits.where("inputId = ? AND expiresAt IS NULL", [inp.id])) rows.push({ c, rest: Math.max(0, c.tokens - this.debited("creditId = ?", [c.id])) });
+    } else {
+      let anonymous = this.debited("creditId IS NULL", []);
+      for (const c of this.repos.bankCredits.where(`expiresAt IS NULL AND NOT ${EARMARKED}`, [], "ORDER BY createdAt, rowid")) {
+        const room = Math.max(0, c.tokens - this.debited("creditId = ?", [c.id]));
+        const take = Math.min(room, anonymous);
+        anonymous -= take;
+        if (c.inputId === inp.id) rows.push({ c, rest: room - take });
+      }
+    }
+    let lapsed = 0;
+    for (const { c, rest } of rows) {
+      if (rest <= 0) continue;
+      const part = sliceBooked({ tokens: c.tokens, counts: countsOf(c) }, rest);
+      const { rawTokens: _raw, ...kept } = c;
+      this.repos.bankCredits.upsert({ ...kept, ...subTokens(countsOf(c), part.counts), tokens: c.tokens - part.tokens });
+      this.repos.bankCredits.upsert({ id: newId("bc"), inputId: inp.id, ...part.counts, tokens: part.tokens, createdAt: c.createdAt, expiresAt: now.toISOString() });
+      lapsed += part.tokens;
+    }
+    return lapsed;
   }
 
   input(inputId: string): BankInput | undefined {

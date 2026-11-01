@@ -87,8 +87,9 @@ What must always hold where tokens come from and where they go: the Bank (`packa
     - Test: `packages/runtime/test/bank-fallback.test.ts` › `failover is the next session's pick: after a cap death the Bank hands out the api-key input's key (booked as api-key) until the cap resets; never two in one session (1:1 mt_x40qq8poc3)`
 16. **A session that dies on its credential doesn't fail its work.** Its assignment goes back to the front of the queue, with no fallback report, to be funded by another credential or to wait with the limit's reason.
     - Test: `packages/runtime/test/running-debit.test.ts` › `a spend-limit death with a smaller (or no) figure than was posted never books less than the posts; its assignment goes back to the front of the queue (no fallback report)`
-17. **Cancelling a subscription input expires its live credit at once; an api-key input's credit stays.**
-    - Test: `packages/core/test/bank.test.ts` › `expires its live credit now: replacing a 15M/day donation with 2M/day leaves 2M, not 17M; an api-key's credit stays`
+17. **Cancelling an input expires what it credited but nobody spent, at once.** That holds for a subscription's live credit and for an API key's unspent credit, found oldest credit first. The finance identity still holds.
+    - Test: `packages/core/test/bank.test.ts` › `expires its live credit now: replacing a 15M/day donation with 2M/day leaves 2M, not 17M`
+    - Test: `packages/core/test/bank.test.ts` › `an API key's unspent credit expires too; the pool's draws spend the oldest key first; the finance identity holds`
 
 18. **Claims are covered by the usable balance, not by every credit.** A broken input's remaining credit, and a subscription credit whose every-model limit outlasts it, are unavailable; a limit on one model or a reset before the credit's expiry leaves the credit usable.
     - Test: `packages/core/test/overdraft.test.ts` › `a broken key's credit leaves the usable balance; a Fable-only limit doesn't; a reset before the credit's expiry doesn't`
