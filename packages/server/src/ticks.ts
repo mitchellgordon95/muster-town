@@ -10,7 +10,7 @@
 /** Hosted worlds ticked at full rate before they slow down (env MUSTER_TOWN_HOSTED_TICK_CAP). */
 export const HOSTED_TICK_CAP = 10;
 /** A hosted runtime's tick period at or under the cap, as the Workshop's (runtime default 5000). */
-export const HOSTED_TICK_MS = 5000;
+const HOSTED_TICK_MS = 5000;
 
 /** The cap from its setting: a positive integer, else the default. */
 export function hostedTickCap(raw: string | undefined): number {
@@ -18,7 +18,7 @@ export function hostedTickCap(raw: string | undefined): number {
   return Number.isInteger(n) && n > 0 ? n : HOSTED_TICK_CAP;
 }
 
-export interface TickRotationOptions {
+interface TickRotationOptions {
   intervalMs?: number;
   cap?: number;
   log?: (line: string) => void;
