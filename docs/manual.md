@@ -38,7 +38,7 @@ The guest card says **Asked.**, who decides and the typical wait, then the answe
 
 - **Say** (Enter): heard by everyone within 3 tiles, like speaking out loud.
 - **Message the manager** in the **Talk** tab of its panel. A fork's **Talk to ★ <name>** button leads to its manager, whose `tell` reaches the fork mid-session.
-- **After reading a report** (reviewers and managers of that building) you do one of two things: **Talk to (author)** opens a 1:1 with its author (a fork's reaches its manager), or **Archive** marks it handled with no new work and it leaves the in-tray. There is no reply. **Talk to (author)** is on any agent's document or grant too.
+- **After reading a report** (reviewers and managers of that building) you do one of two things: **Talk to (author)** opens a 1:1 with its author (a fork's reaches its manager), or **Archive** marks it handled with no new work and it leaves the in-tray. **Talk to (author)** is on any agent's document or grant too.
 - **Flag** (F, when you can assign work in a building): a short note to the building you stand in. It lands in that building's in-tray, and a fork of the manager runs it.
 - **1:1 with the manager** (reviewers and managers of that building). The manager's panel shows **Talk to ★ <name>**, which opens a 1:1: the manager answers live and can assign what you agree on.
 - **Screenshots and videos.** Paste or drop an image or short video into any text box; it appears inline (8 MB per file).
@@ -60,7 +60,8 @@ Agents run on **tokens**, the unit a model is billed in. A collective pays for t
 
 Goal-directed buildings plan in public, and you decide.
 
-- A **grant** is a plan filed against a goal: an objective, an approach, a stop condition, a token ask and its own **key results** (1 to 5), each something a person can see in the live town by a date, with a "how to check" line. Goals keep no key results of their own. The building's **Grants** tab lists them all. The manager proposes one; in the Town Hall in-tray you press **Fund**, **Counter** (change the tokens or terms, with a note) or **Reject**.
+- A **grant** is a plan filed against a goal: an objective, an approach, a stop condition, a token ask and its own **key results** (1 to 5), each something a person can see in the live town by a date, with a "how to check" line. Goals keep no key results of their own. The manager proposes one; in the Town Hall in-tray you press **Fund**, **Counter** (change the tokens or terms, with a note) or **Reject**.
+- A **retainer** is standing money for a repeating scheduled job: tokens per run × runs left. **Approve**, **Counter** or **Reject** it in the Town Hall in-tray; its runs wait until approved.
 - When a funded grant's tokens are spent, new work on it pauses and the manager files a **checkpoint**: its key results' status and the evidence. You press **Continue**, **Adjust** (more tokens, a new stop condition) or **Cut**. Only a human marks a key result **met** or **missed**, on the grant; the manager at most marks it **claimed**. A manager who finishes early closes the grant as done: unspent tokens return to the Bank and you mark each key result under **Closed as done** there.
 - **Rollups** are the manager's summaries for humans: what shipped (a card each: what it is, what you'd see with a picture, your call), what was decided, the key results, and what it needs from you that has no other channel, then what already waits in your in-tray. They arrive in the Town Hall in-tray and take replies. **Review as deck** shows the in-tray as slides, one decision each, most blocking first.
 - The building's **stoplight** (over the building on the map) is green when a funded grant runs, yellow when a grant waits at its checkpoint, and grey when it has no funded grant.

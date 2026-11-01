@@ -14,6 +14,7 @@ import type { Holder } from "./permissions.ts";
 import { newId, truncate } from "./util.ts";
 import type { World } from "./world.ts";
 import { stamp } from "./time.ts";
+import { askRetainer, releaseRetainer, retainerAfterEdit, watchRetainerRuns } from "./retainers.ts";
 
 const HOUR = 3_600_000, DAY = 24 * HOUR;
 /** A repeating schedule ends by default this long after it is made, and at most MAX_SCHEDULE_DAYS out. */
@@ -97,7 +98,8 @@ export function createSchedule(world: World, buildingId: string, by: Holder, raw
   if (!next) throw badRequest("A schedule needs runsAt (when it runs), a repeat, or both.");
   next = checkRunsAt(next, at, input.runsAt);
   const endsAt = endOf(r, next, at);
-  const lane = resolveLane(world, b.id, by, input);
+  const tokensPerRun = input.tokensPerRun ?? 0;
+  const lane = scheduleLane(world, b.id, by, input, !!(rep.everyMinutes || rep.dailyAt), tokensPerRun);
   const pages = input.pages?.length ? attachablePages(world, b.id, input.pages) : [];
   const model = input.model ? checkForkModel(b, input.model) : null;
   const ts = at.toISOString();
@@ -105,17 +107,36 @@ export function createSchedule(world: World, buildingId: string, by: Holder, raw
     id: newId("sc"), buildingId: b.id, title: input.title, description: input.description, nextRunAt: next.toISOString(),
     ...rep, endsAt, paused: false, lane: lane.lane, grantId: lane.grantId, keyResultId: lane.keyResultId, gap: lane.gap, sourceId: lane.sourceId,
     pages, model, origin, status: "active", endedReason: null, lastRunAt: null, lastAssignmentId: null, runs: 0,
+    tokensPerRun, retainer: lane.lane === "retainer" ? "asked" : "none", retainerTokens: null, retainerDecidedBy: null, retainerDecidedAt: null, retainerNote: null,
     createdBy: by.id, createdByKind: by.kind === "agent" ? "agent" : "user", createdAt: ts, updatedAt: ts,
   });
-  world.events.append({ type: "schedule.created", buildingId: b.id, text: `${world.nameOf(by.id)} scheduled "${truncate(s.title, 80)}" in ${b.name}: ${describeRepeat(s)}, next ${stamp(s.nextRunAt!)}`, payload: { scheduleId: s.id, nextRunAt: s.nextRunAt, ...rep, endsAt, lane: s.lane } });
+  world.events.append({ type: "schedule.created", buildingId: b.id, text: `${world.nameOf(by.id)} scheduled "${truncate(s.title, 80)}" in ${b.name}: ${describeRepeat(s)}, next ${stamp(s.nextRunAt!)}`, payload: { scheduleId: s.id, nextRunAt: s.nextRunAt, ...rep, endsAt, lane: s.lane, tokensPerRun } });
+  if (s.retainer === "asked") askRetainer(world, s, "new schedule", at);
   return s;
+}
+
+/**
+ * A schedule's lane (1:1 mt_cyd2t5ioob decision 2): never grant (grants are one-time); "retainer" when it asks for one
+ * (tokensPerRun > 0, or lane retainer), and an agent's repeating job must (every recurring job needs a human's approval).
+ * A retainer's runs get sourceId = the schedule when they fire. Other lanes are checked as `assign` checks them.
+ */
+function scheduleLane(world: World, buildingId: string, by: Holder, input: CreateScheduleInput, repeating: boolean, tokensPerRun: number) {
+  if (input.lane === "grant" || input.grantId) throw badRequest("A schedule can't draw on a grant (grants are one-time work): give it a retainer instead (tokensPerRun: what one run may spend), which a human approves in the Town Hall in-tray.");
+  if (input.lane === "retainer" || tokensPerRun > 0) {
+    if (input.lane && input.lane !== "retainer") throw badRequest(`tokensPerRun makes the schedule a retainer: leave lane out (or say "retainer"), not "${input.lane}".`);
+    if (tokensPerRun <= 0) throw badRequest("A retainer names tokensPerRun: what one run may spend, in Bank tokens (Opus 5.5 output tokens).");
+    return { lane: "retainer" as const, grantId: null, keyResultId: null, gap: input.gap?.trim() || null, sourceId: null };
+  }
+  if (repeating && by.kind === "agent") throw badRequest("A repeating job runs on a retainer a human approves: give tokensPerRun (what one run may spend, in Bank tokens). It asks in the Town Hall in-tray; its runs start once approved.");
+  return resolveLane(world, buildingId, by, input);
 }
 
 /** End a schedule (cancelled, ran, past its end, lane gone): it never fires again. */
 export function endSchedule(world: World, id: string, reason: string, at: Date = new Date()): Schedule {
   const s = world.schedules.require(id, "schedule");
   if (s.status === "ended") return s;
-  const e = world.schedules.upsert({ ...s, status: "ended", endedReason: reason, nextRunAt: null, updatedAt: at.toISOString() });
+  releaseRetainer(world, s, reason, at);
+  const e = world.schedules.upsert({ ...world.schedules.require(id, "schedule"), status: "ended", endedReason: reason, nextRunAt: null, updatedAt: at.toISOString() });
   world.events.append({ type: "schedule.ended", buildingId: s.buildingId, text: `Schedule "${truncate(s.title, 80)}" ended: ${reason}`, payload: { scheduleId: s.id, reason, runs: s.runs } });
   return e;
 }
@@ -150,14 +171,19 @@ export function editSchedule(world: World, actor: Agent, id: string, raw: unknow
   const endsAt = input.repeat !== undefined ? endOf(input.repeat, next, at) : s.endsAt;
   if (rep.maxRuns && s.runs >= rep.maxRuns) throw badRequest(`repeat.times: it has already run ${s.runs} time(s); give more, or cancel it.`);
   const changed = Object.keys(input).filter((k) => k !== "paused" || input.paused !== s.paused);
+  if (input.tokensPerRun !== undefined && s.lane !== "retainer" && input.tokensPerRun > 0) throw badRequest(`Schedule "${s.title}" runs in lane ${s.lane ?? "directed"}, not on a retainer: cancel it and schedule it again with tokensPerRun.`);
+  if (input.tokensPerRun === 0 && s.lane === "retainer") throw badRequest("A retainer's tokensPerRun stays above 0: cancel the schedule to stop it.");
+  const draft: Schedule = { ...s, ...rep, endsAt, paused, nextRunAt: next.toISOString(), tokensPerRun: input.tokensPerRun ?? s.tokensPerRun };
+  const ret = retainerAfterEdit(s, draft, at);
   const e = world.schedules.upsert({
-    ...s, ...rep, endsAt, paused, nextRunAt: next.toISOString(), updatedAt: at.toISOString(),
+    ...draft, retainer: ret.retainer, updatedAt: at.toISOString(),
     ...(input.title !== undefined ? { title: input.title } : {}), ...(input.description !== undefined ? { description: input.description } : {}),
     ...(input.pages !== undefined ? { pages: attachablePages(world, s.buildingId, input.pages) } : {}),
     ...(input.model !== undefined ? { model: input.model ? checkForkModel(world.buildings.require(s.buildingId, "building"), input.model) : null } : {}),
   });
   const what = input.paused !== undefined && input.paused !== s.paused ? (input.paused ? "paused" : "resumed") : "edited";
-  world.events.append({ type: "schedule.edited", buildingId: s.buildingId, text: `${actor.name} ${what} schedule "${truncate(e.title, 80)}": ${describeRepeat(e)}${e.paused ? ", paused" : `, next ${stamp(e.nextRunAt!)}`}`, payload: { scheduleId: s.id, changed, paused: e.paused, nextRunAt: e.nextRunAt } });
+  world.events.append({ type: "schedule.edited", buildingId: s.buildingId, text: `${actor.name} ${what} schedule "${truncate(e.title, 80)}": ${describeRepeat(e)}${e.paused ? ", paused" : `, next ${stamp(e.nextRunAt!)}`}`, payload: { scheduleId: s.id, changed, paused: e.paused, nextRunAt: e.nextRunAt, tokensPerRun: e.tokensPerRun, retainer: e.retainer } });
+  if (ret.reask) askRetainer(world, e, ret.reask, at);
   return e;
 }
 
@@ -177,6 +203,9 @@ export function scheduleTaker(world: World, b: Building): { agentId: string; que
  */
 export function fireSchedules(world: World, at: Date = new Date()): { fired: Assignment[]; ended: Schedule[] } {
   const fired: Assignment[] = [], ended: Schedule[] = [];
+  watchRetainerRuns(world);
+  // a paused schedule past its end never fires again: end it, so its retainer's claim goes back to the Bank
+  for (const s of world.schedules.where("status = 'active' AND paused = 1 AND endsAt IS NOT NULL AND endsAt < ?", [at.toISOString()])) ended.push(endSchedule(world, s.id, "past its end (paused)", at));
   for (const s of world.schedules.where("status = 'active' AND paused = 0 AND nextRunAt <= ?", [at.toISOString()], "ORDER BY nextRunAt")) {
     const b = world.buildings.get(s.buildingId);
     if (!b) { ended.push(endSchedule(world, s.id, "its building is gone", at)); continue; }
@@ -203,7 +232,8 @@ export function fireSchedules(world: World, at: Date = new Date()): { fired: Ass
       a = world.transaction(() => {
         const made = createAssignment(world, {
           agentId: taker.agentId, title: s.title, description: s.description, createdBy: { kind: "system", id: s.id }, buildingId: b.id,
-          lane: { lane: s.lane ?? undefined, grantId: s.grantId ?? undefined, gap: s.gap ?? undefined, sourceId: s.sourceId ?? undefined },
+          // a retainer's run carries the schedule as its source: its sessions book against the schedule, never a grant
+          lane: s.lane === "retainer" ? { lane: "retainer", gap: s.gap ?? undefined, sourceId: s.id } : { lane: s.lane ?? undefined, grantId: s.grantId ?? undefined, gap: s.gap ?? undefined, sourceId: s.sourceId ?? undefined },
           origin: s.origin, queue: taker.queue, model: taker.queue === "building" ? s.model : null,
         });
         return s.pages.length ? world.assignments.patch(made.id, { pages: s.pages }) : made;

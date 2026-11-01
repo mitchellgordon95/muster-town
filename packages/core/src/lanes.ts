@@ -2,6 +2,7 @@ import type { Assignment, Building, LaneFields, Meeting } from "@muster-town/sch
 import { badRequest } from "./errors.ts";
 import type { Holder } from "./permissions.ts";
 import { BUDGET_POLICY } from "./policy.ts";
+import { retainerHold } from "./retainers.ts";
 import type { World } from "./world.ts";
 
 /** The lane part of an assignment. */
@@ -61,6 +62,12 @@ export function resolveLane(world: World, buildingId: string, createdBy: Holder 
     }
     return { ...DIRECTED, gap, sourceId };
   }
+  if (lane === "retainer") {
+    // a schedule's run (schedules.ts fireSchedules): the system creates it with sourceId = the schedule
+    const sc = input?.sourceId ? world.schedules.get(input.sourceId) : undefined;
+    if (createdBy.kind !== "system" || !sc || sc.buildingId !== buildingId) throw badRequest("Lane retainer belongs to a schedule's runs: put the recurring job on the building's schedule (`schedule` with tokensPerRun) and a human approves its retainer.");
+    return { lane, grantId: null, keyResultId: null, gap, sourceId: sc.id };
+  }
   if (lane === "exploration") {
     if (!gap) throw badRequest("An exploration assignment names a goal gap (gap: one sentence on what is missing between the goal and the live town).");
     return { lane, grantId: null, keyResultId: null, gap, sourceId: null };
@@ -84,14 +91,14 @@ export function isCheckpointAssignment(a: Pick<Assignment, "lane" | "grantId" | 
  * Why the lane gate holds this assignment now, or null (the gate half of `Budget.canStart`). The Town Hall: never.
  * grant → the grant is funded (its checkpoint assignment also runs at checkpoint); exploration → there are free tokens
  * under the building's goal and the optional exploration cap it inherits isn't reached (docs/how-work-gets-done.md §8);
- * directed → never held for money.
+ * directed → never held for money; retainer → its schedule's retainer is funded and one more run fits its approved total.
  */
 export function laneHold(world: World, a: Assignment): string | null {
   return laneBlock(world, a)?.reason ?? null;
 }
 
 /** `laneHold` with what it is: the grant hold (and its grant), the reservation hold, or exploration with no free tokens or at its cap. */
-export function laneBlock(world: World, a: Assignment): { kind: "grant" | "reserved" | "exploration"; reason: string; grantId?: string; used?: number; cap?: number } | null {
+export function laneBlock(world: World, a: Assignment): { kind: "grant" | "reserved" | "exploration" | "retainer"; reason: string; grantId?: string; used?: number; cap?: number } | null {
   const building = world.buildings.get(a.buildingId);
   if (!laneGated(building)) return null;
   if (a.lane === "grant") {
@@ -102,6 +109,11 @@ export function laneBlock(world: World, a: Assignment): { kind: "grant" | "reser
     if (g.status === "checkpoint") return isCheckpointAssignment(a) ? null : { kind: "grant", grantId, reason: "held: grant at checkpoint" };
     if (g.status === "proposed" || g.status === "countered" || g.status === "draft") return { kind: "grant", grantId, reason: "held: grant not funded yet" };
     return { kind: "grant", grantId, reason: `held: grant ${g.status}` };
+  }
+  if (a.lane === "retainer") {
+    // a schedule's run draws on its own approved retainer (already claimed in the Bank), so no other hold applies
+    const reason = retainerHold(world, a);
+    return reason ? { kind: "retainer", reason } : null;
   }
   if (BUDGET_POLICY.grantReservations && world.budget.remaining(a.buildingId) - reservedTokens(world, a.buildingId) <= 0) {
     return { kind: "reserved", reason: "held: the building's tokens are reserved for its funded grants" };

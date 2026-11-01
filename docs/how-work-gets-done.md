@@ -159,6 +159,7 @@ free(goal) = general balance
            − funded grants' remaining tokens   (whole town; under goal for earmarks)
            − open proposals' asks              (likewise)
            − open exploration reservations     (likewise)
+           − funded retainers (tokens per run × runs left; §7a)
 ```
 
 **The operating reserve.** **Mitchell said** (mt_lb7tm75jgb): "i urgently need an operational budget reserve of like 500k. so that way even if grants and exploration burn through the rest, i can still do 1:1s and stuff". The town setting `operatingReserveTokens` (default 500,000; an admin edits it on the Bank's Overview or `PUT /api/town/operating-reserve`) comes off the general balance before any claim, never below 0; earmarks are untouched. So exploration never reserves it, and funding a grant (a human too; a reserve of 0 turns the check off; member funding from the funder's own input skips it) is refused when its tokens are more than what is free under its goal besides its own ask. Sessions don't read free tokens: 1:1s, meetings, manage and directed sessions keep drawing the balance down to 0.
@@ -168,6 +169,19 @@ Funded grants, proposals and reservations under *other* goals still claim the ge
 - **Reservations** are Bank rows (`bank_reservations`: goal, building, assignment, tokens, opened, closed, spent). They are the only new Bank object. A funded grant's claim stays derived (`grantTokens − spent`), as it is today.
 
 **Open.** Whether free tokens should also count stream income over a horizon (a week), as `docs/goals.md` "Exploration: free funds" proposed, or only what is in the Bank now (§12 q4). This doc's formula uses only what is there now: a reservation must be backed by tokens that exist.
+
+## 7a. Retainers: standing money for scheduled jobs
+
+**Mitchell said** (1:1 mt_cyd2t5ioob decision 2): recurring scheduled jobs must not draw on grants (grants are one-time); every recurring job needs a human's approval, kept apart from grants, under the name "retainer".
+
+**Built** (core `retainers.ts`, migration 077):
+
+- A schedule carries `tokensPerRun` (Bank tokens: Opus 5.5 output tokens) and a retainer state: `none | asked | funded | countered | rejected | ended`. Its **ask** is tokensPerRun × runs left (a repeat counts its occurrences from the next run to `endsAt`, capped by `times`; a one-shot is 1).
+- **Lane.** A schedule is never lane grant (refused on create; migration 077 turned live ones into retainers, asked). An agent's repeating job must be a retainer. Each fire's assignment runs in lane **retainer** with `sourceId` = the schedule; its sessions book against the schedule (**drawn**, derived from sessions like a grant's spend). Nobody assigns lane retainer by hand.
+- **Holds.** A run is held ("retainer not approved") until the retainer is funded, and when drawn + tokensPerRun would pass the approved total. A run that reaches tokensPerRun is asked once to wrap up (the explorer's ceiling mechanism).
+- **Approval.** A schedule with tokensPerRun > 0 asks on creation: a Town Hall in-tray row in its own section ("Retainers for scheduled jobs": "Workshop asks for a retainer: <title>, N tokens × M runs to <date> = T") and a deck slide (kind `retainer`). A human with `building.fund` (or the goal's captain) presses **Approve** (refused 409 when the ask would dip into the operating reserve, the grants' rule), **Counter** (a note, a per-run amount and/or an end date; the manager answers with a `schedule` edit, which asks again) or **Reject**. The manager hears in their inbox. `POST /api/schedules/:id/retainer {action, note, tokensPerRun?, until?}`.
+- **The Bank's fourth claim.** A funded retainer claims tokensPerRun × runs left (never more than its approved total less drawn). GET /api/bank `free.retainerTokens` / `retainerJobs`; the Bank's Free tokens table shows "Retainers: N tokens across M jobs"; each Schedule card shows per run, runs left, drawn and the state.
+- **Re-ask and release.** Raising tokensPerRun or adding runs (a later end, more times) moves a funded retainer back to asked; lowering or shortening keeps it funded. Cancelling, the last run, or a paused schedule passing its end ends it and releases the unspent claim (`retainer.released` event).
 
 ## 8. Exploration is uncapped by default
 

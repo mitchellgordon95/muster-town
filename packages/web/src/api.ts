@@ -6,7 +6,7 @@ import type { z } from "zod";
 import type {
   ReviewDeck, BankStreams, FunderWeek, ReviewSlide,
   CreateObjectiveInput, UpdateObjectiveInput, Objective, KpiKey, KpiView,
-  AccessRequest, AccessRequestView, CaptainRequest, CaptainRequestView, Agent, Allocation, Assignment, AssignmentCard, AuthMe, BlockedAssignment, BuildingStats, Schedule, RedeployLive, Building, BuildingDefaults, ClientMessage, MapLayout, DesksConfig, Doc, Event, Lot, Meeting, Place, Role, Membership, SessionSlots, Tile,
+  AccessRequest, AccessRequestView, CaptainRequest, CaptainRequestView, Agent, Allocation, Assignment, AssignmentCard, AuthMe, BlockedAssignment, BuildingStats, ScheduleView, RedeployLive, Building, BuildingDefaults, ClientMessage, MapLayout, DesksConfig, Doc, Event, Lot, Meeting, Place, Role, Membership, SessionSlots, Tile,
   ServerMessage, SessionView, TokenCounts, CreateBuildingInput, UpdateBuildingInput, RegisterVisitorInput,
   ReviewInput, PinSkillInput, SkillPinView, SkillView, PutSecretInput, SecretView, WorkInput, DonateInput, AddBankInput, BankInput, CreateMeetingInput, DocState, DocType, Mailbox, Permission, DecideGrantInput, CloseGrantInput, GrantView, KeyResult, UpdateKeyResultInput, Stoplight,
   GoalTreeNode, Goal, GoalProposal, GoalSpend, QueueBoard, IntrayRoutes, CreateGoalInput, UpdateGoalInput, RetireGoalInput, DecideGoalProposalInput, ChangeGoalInput, ReviewKeyResultInput, GoalChangeView, FreeTokens,
@@ -274,7 +274,7 @@ export interface LayoutPreview { errors: { key: string | null; message: string }
 /** Town planning: the new building drawn on the map (name etc. as for createBuilding, plus its lot). */
 
 /** GET /api/buildings/:id/intray: `grants` (proposed, countered, checkpoint) only for the Town Hall */
-export interface Intray extends Partial<IntrayRoutes> { reports: Doc[]; chains?: Record<string, ReportChain>; grants: GrantView[]; goalProposals?: GoalProposalView[]; access?: AccessRequestView[]; captains?: CaptainRequestView[]; blocked?: { buildingId: string; name: string; reason: string; since: string | null }[] }
+export interface Intray extends Partial<IntrayRoutes> { reports: Doc[]; chains?: Record<string, ReportChain>; grants: GrantView[]; goalProposals?: GoalProposalView[]; access?: AccessRequestView[]; captains?: CaptainRequestView[]; retainers?: ScheduleView[]; blocked?: { buildingId: string; name: string; reason: string; since: string | null }[] }
 /** A goal key result with the live (funded or checkpoint) grant working on it, if any, and who wrote / last edited it (core's GoalKeyResult). */
 /** A goal proposal as GET /api/goal-proposals returns it (core GoalProposalView): flagged when outside the proposer's subtree. */
 export type GoalProposalView = GoalProposal & { proposedByName: string; outsideScope: boolean };
@@ -521,13 +521,15 @@ export interface Api {
   /** every agent's queued assignments that can't start, with the reason (GET /api/blocked): the map's blocked badges and red lines */
   blocked(): Promise<Record<string, BlockedAssignment[]>>;
   /** every building's active schedules, soonest run first (GET /api/scheduled): the map's schedule boards */
-  scheduled(): Promise<Schedule[]>;
+  scheduled(): Promise<ScheduleView[]>;
   /** a building's schedules, active then recently ended (GET /api/buildings/:id/schedules) */
-  buildingSchedules(buildingId: string): Promise<Schedule[]>;
+  buildingSchedules(buildingId: string): Promise<ScheduleView[]>;
   /** stop a schedule (POST /api/schedules/:id/cancel; building.assign) */
-  cancelSchedule(id: string): Promise<Schedule>;
+  cancelSchedule(id: string): Promise<ScheduleView>;
   /** edit, pause or resume a schedule (POST /api/schedules/:id; building.assign) */
-  editSchedule(id: string, patch: { paused?: boolean }): Promise<Schedule>;
+  editSchedule(id: string, patch: { paused?: boolean }): Promise<ScheduleView>;
+  /** a human decides a schedule's retainer ask (POST /api/schedules/:id/retainer; building.fund or the goal's captain) */
+  decideRetainer(id: string, input: { action: "approve" | "counter" | "reject"; note?: string; tokensPerRun?: number; until?: string; deckSlide?: number }): Promise<ScheduleView>;
   /** the building's work right now (GET /api/buildings/:id/stats): town planning's side bar */
   buildingStats(buildingId: string): Promise<BuildingStats>;
   health(): Promise<{ ok?: boolean; commit?: string | null }>;
@@ -643,7 +645,7 @@ class HttpApi implements Api {
   async saveLayout(id: string, furniture: Record<string, Tile>) { return unwrap<Building>(await this.call("PUT", `/api/buildings/${id}/layout`, { furniture }), "building"); }
   async intray(id: string) {
     const r = await this.get<Partial<Intray>>(`/api/buildings/${id}/intray`);
-    return { reports: r.reports ?? [], chains: r.chains ?? {}, grants: r.grants ?? [], goalProposals: r.goalProposals ?? [], access: r.access ?? [], captains: r.captains ?? [], blocked: r.blocked ?? [], routes: r.routes ?? {}, defaultView: r.defaultView ?? "all" };
+    return { reports: r.reports ?? [], chains: r.chains ?? {}, grants: r.grants ?? [], goalProposals: r.goalProposals ?? [], access: r.access ?? [], captains: r.captains ?? [], retainers: r.retainers ?? [], blocked: r.blocked ?? [], routes: r.routes ?? {}, defaultView: r.defaultView ?? "all" };
   }
   reviewDeck(meetingId?: string) { return this.get<ReviewDeck & Partial<IntrayRoutes>>(`/api/review-deck${qs({ meeting: meetingId })}`); }
   async grant(id: string) { return unwrap<GrantView>(await this.get(`/api/grants/${id}`), "grant"); }
@@ -762,10 +764,11 @@ class HttpApi implements Api {
   async retireCollective() { return this.post<{ retired: boolean; url: string }>("/api/collective/retire"); }
   async manual() { return this.get<{ doc: Doc; author: string }>("/api/manual"); }
   async blocked() { return (await this.get<{ agents?: Record<string, BlockedAssignment[]> }>("/api/blocked")).agents ?? {}; }
-  async scheduled() { return (await this.get<{ schedules?: Schedule[] }>("/api/scheduled")).schedules ?? []; }
-  async buildingSchedules(buildingId: string) { return (await this.get<{ schedules?: Schedule[] }>(`/api/buildings/${encodeURIComponent(buildingId)}/schedules`)).schedules ?? []; }
-  async cancelSchedule(id: string) { return (await this.post<{ schedule: Schedule }>(`/api/schedules/${encodeURIComponent(id)}/cancel`)).schedule; }
-  async editSchedule(id: string, patch: { paused?: boolean }) { return (await this.post<{ schedule: Schedule }>(`/api/schedules/${encodeURIComponent(id)}`, patch)).schedule; }
+  async scheduled() { return (await this.get<{ schedules?: ScheduleView[] }>("/api/scheduled")).schedules ?? []; }
+  async buildingSchedules(buildingId: string) { return (await this.get<{ schedules?: ScheduleView[] }>(`/api/buildings/${encodeURIComponent(buildingId)}/schedules`)).schedules ?? []; }
+  async cancelSchedule(id: string) { return (await this.post<{ schedule: ScheduleView }>(`/api/schedules/${encodeURIComponent(id)}/cancel`)).schedule; }
+  async editSchedule(id: string, patch: { paused?: boolean }) { return (await this.post<{ schedule: ScheduleView }>(`/api/schedules/${encodeURIComponent(id)}`, patch)).schedule; }
+  async decideRetainer(id: string, input: Parameters<Api["decideRetainer"]>[1]) { return (await this.post<{ schedule: ScheduleView }>(`/api/schedules/${encodeURIComponent(id)}/retainer`, input)).schedule; }
   async buildingStats(id: string) { return unwrap<BuildingStats>(await this.get(`/api/buildings/${id}/stats`), "stats"); }
 
   connect(h: SocketHandlers): Socket {

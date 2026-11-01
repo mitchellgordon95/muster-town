@@ -1,5 +1,6 @@
-import type { Agent, CaptainRequestView, Doc, GrantView, IntrayRoute, IntrayRoutes } from "@muster-town/schema";
+import type { Agent, CaptainRequestView, Doc, GrantView, IntrayRoute, IntrayRoutes, ScheduleView } from "@muster-town/schema";
 import { canDecideCaptain } from "./captain.ts";
+import { canDecideRetainer } from "./retainers.ts";
 import type { GoalProposalView } from "./goals.ts";
 import { holderOf } from "./permissions.ts";
 import type { World } from "./world.ts";
@@ -13,7 +14,7 @@ import type { World } from "./world.ts";
  * there (its current captain, a captain above, or an admin; captain.ts); reports by `building.review` on the Town Hall, as today.
  * Anonymous viewers get routes with nothing theirs and nothing decidable.
  */
-export function intrayRoutes(world: World, viewer: Agent | undefined, items: { grants: GrantView[]; goalProposals: GoalProposalView[]; reports: Doc[]; captains?: CaptainRequestView[] }): IntrayRoutes {
+export function intrayRoutes(world: World, viewer: Agent | undefined, items: { grants: GrantView[]; goalProposals: GoalProposalView[]; reports: Doc[]; captains?: CaptainRequestView[]; retainers?: ScheduleView[] }): IntrayRoutes {
   const human = viewer?.kind === "human" ? viewer : undefined;
   const user = human ? holderOf(human) : null;
   const userId = user?.kind === "user" ? user.id : null;
@@ -33,6 +34,8 @@ export function intrayRoutes(world: World, viewer: Agent | undefined, items: { g
     add(p.id, { proposalId: p.id }, !!human && (!node || world.goalTree.canEdit(human, node)));
   }
   for (const c of items.captains ?? []) add(c.id, { goalId: c.goalId }, canDecideCaptain(world, human, c.goalId));
+  // a retainer routes like its building's rollups (its attachment); decided by building.fund there or the goal's captain
+  for (const r of items.retainers ?? []) add(r.id, { buildingId: r.buildingId }, r.retainer === "asked" && canDecideRetainer(world, human, r));
   for (const d of items.reports) add(d.id, { buildingId: d.buildingId ?? undefined }, !!human && !!th && world.permissions.can(human, "building.review", th.id));
   // an owner who is not an admin starts on Mine; everyone else on All
   const ownsNode = !!userId && world.goals.count("ownerId = ? AND status = 'active'", [userId]) > 0;

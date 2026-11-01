@@ -48,6 +48,7 @@ export { upsertGithubUser, type GithubProfile, type GithubUpsertResult } from ".
 export { countFunnel, countFunnelDecision, joinFunnel, sumFunnels, FUNNEL_DAYS, FUNNEL_STEPS, type FunnelStep, type FunnelCounts, type FunnelDay, type JoinFunnel } from "./join-funnel.ts";
 export { requestAccess, decideAccess, pendingAccessRequests, pendingAccessCount, accessContext, accessRequestOf, canInteract, parseAccessMessage, ASK_AGAIN_MS } from "./access.ts";
 export { requestCaptain, decideCaptain, canDecideCaptain, pendingCaptainRequests, pendingCaptainCount } from "./captain.ts";
+export { decideRetainer, scheduleView } from "./retainers.ts";
 export { migrateRoles, type MigrateRolesResult } from "./migrate-roles.ts";
 export {
   applyDecision, createAssignment, createDoc, updateDoc, extractProposal, summarizeDoc, canSeeDoc, sendMessage,
