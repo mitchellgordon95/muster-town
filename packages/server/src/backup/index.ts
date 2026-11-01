@@ -25,7 +25,7 @@ export { S3 } from "./s3.ts";
 export { signV4 } from "./sigv4.ts";
 
 /** What `GET /api/health` shows: never the key or the bucket credentials. */
-export interface BackupView { lastAt: string | null; verifiedAt: string | null; bytes: number | null; dest: string; error: string | null }
+export interface BackupView { lastAt: string | null; verifiedAt: string | null; bytes: number | null; dest: string; error: string | null; mode: "hourly" | "restore-only" }
 
 const BACKUP_ENV = ["BUCKET_NAME", "AWS_ENDPOINT_URL_S3", "AWS_ACCESS_KEY_ID", "AWS_SECRET_ACCESS_KEY", "MUSTER_TOWN_BACKUP_KEY"] as const;
 /** the error a fresh town's run stores (health backup.error; the monitor's backup metric is red on it) */
@@ -46,6 +46,8 @@ interface BackupJobOptions {
   env?: Record<string, string | undefined>;
   now?: () => Date;
   log?: Pick<Console, "log" | "warn">;
+  /** a throwaway drill town (MUSTER_TOWN_RUNTIME=off, throwaway.ts): never runs, uploads or prunes; the first-boot restore is separate */
+  restoreOnly?: boolean;
 }
 
 interface StateRow { lastAt: string | null; verifiedAt: string | null; bytes: number | null; key: string | null; error: string | null; errorAt: string | null }
@@ -102,7 +104,7 @@ export class BackupJob {
   snapshot(): BackupView | null {
     if (!this.s3) return null;
     const s = this.state();
-    return { lastAt: s.lastAt, verifiedAt: s.verifiedAt, bytes: s.bytes, dest: this.s3.dest + OBJECT_PREFIX, error: s.error };
+    return { lastAt: s.lastAt, verifiedAt: s.verifiedAt, bytes: s.bytes, dest: this.s3.dest + OBJECT_PREFIX, error: s.error, mode: this.opts.restoreOnly ? "restore-only" : "hourly" };
   }
 
   /**
@@ -112,6 +114,10 @@ export class BackupJob {
   start(): void {
     if (!this.configured) {
       this.log.warn(`[backup] off: no off-site backup until ${this.missing.join(", ")} ${this.missing.length === 1 ? "is" : "are"} set in the server's env (deploy/README.md "Backups")`);
+      return;
+    }
+    if (this.opts.restoreOnly) {
+      this.log.log(`[backup] restore-only (throwaway): no copies are written to ${this.s3!.dest}${OBJECT_PREFIX}, none are deleted`);
       return;
     }
     const s = this.state();
@@ -137,9 +143,9 @@ export class BackupJob {
     this.timer = null;
   }
 
-  /** One run now (no-op when not configured; a run already in flight is returned instead of starting a second). Never throws. */
+  /** One run now (no-op when not configured or restore-only; a run already in flight is returned instead of starting a second). Never throws. */
   run(): Promise<BackupRunResult | null> {
-    if (!this.configured) return Promise.resolve(null);
+    if (!this.configured || this.opts.restoreOnly) return Promise.resolve(null);
     if (this.running) return this.running;
     this.running = this.runOnce().then((r) => {
       const at = this.now().toISOString();

@@ -39,6 +39,7 @@ export async function townRoutes(app: FastifyInstance) {
    * `{lastSampleAt, alerts: [{key, level, since, value}]}` (monitor.ts; the VPS pinger reads the red ones). `directory` (root app, only where the
    * directory is on): `{verified, listed, pending, lastTickAt}` (directory/index.ts). `desks` (gr_uhh6u39vv9 step 3): `{backend, size,
    * billCapUsd, billTodayUsd, billPct, overCap, day}`, today's (UTC) desk bill at Fly list prices against the town-wide cap.
+   * `throwaway: true` only on a drill town (MUSTER_TOWN_RUNTIME=off, throwaway.ts): `runtime` false, `backup.mode` "restore-only".
    * `budgets`, `backup`, `desks`, `directory` and `funding` come from the database: with `healthRefreshMs` (main.ts, 5 s) they are
    * cached and `figuresAt` is when they were computed; the route itself never touches SQLite (503 post-mortem follow-up A).
    */
@@ -61,6 +62,8 @@ export async function townRoutes(app: FastifyInstance) {
       budgets, backup, monitor: app.monitor?.view() ?? null, desks,
       // the root app (the Workshop) only: how many hosted collectives this process serves at /<slug>/
       ...(app.hub ? { hosted: { count: app.hub.count } } : {}),
+      // a drill town (MUSTER_TOWN_RUNTIME=off): no runtime, backup restore-only
+      ...(app.throwaway ? { throwaway: true } : {}),
       ...rest, figuresAt: at };
   });
 
