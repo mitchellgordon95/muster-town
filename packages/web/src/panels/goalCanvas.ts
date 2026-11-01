@@ -88,18 +88,20 @@ export function stepTree(layout: TreeLayout, id: string, key: "ArrowUp" | "Arrow
 
 export type View = { x: number; y: number; k: number };
 const ZOOM = { min: 0.25, max: 2 };
-const clampK = (k: number) => Math.min(ZOOM.max, Math.max(ZOOM.min, k));
 
-/** The view that frames the whole tree in a viewport (never zoomed past 1:1), with a margin. */
+/** The view that frames the whole tree in a viewport (never zoomed past 1:1), with a margin. Fit is not floored by
+ * the minimum zoom: a wide tree in a narrow pane gets whatever scale shows every box. */
 export function fitView(layout: Pick<TreeLayout, "width" | "height">, vw: number, vh: number, pad = 28): View {
   if (!layout.width || vw <= 0 || vh <= 0) return { x: pad, y: pad, k: 1 };
-  const k = clampK(Math.min(1, (vw - 2 * pad) / layout.width, (vh - 2 * pad) / layout.height));
-  return { x: (vw - layout.width * k) / 2, y: Math.max(pad, (vh - layout.height * k) / 2), k };
+  const m = Math.min(pad, vw / 8, vh / 8);
+  const k = Math.min(1, (vw - 2 * m) / layout.width, (vh - 2 * m) / layout.height);
+  return { x: (vw - layout.width * k) / 2, y: Math.max(m, (vh - layout.height * k) / 2), k };
 }
 
-/** Zooms by `factor` keeping the canvas point under (px, py) in the viewport where it is. */
+/** Zooms by `factor` keeping the canvas point under (px, py) in the viewport where it is. Below the minimum zoom
+ * (only Fit gets there) zooming out stays put rather than jumping back up to the minimum. */
 export function zoomAt(v: View, factor: number, px: number, py: number): View {
-  const k = clampK(v.k * factor);
+  const k = Math.min(ZOOM.max, Math.max(Math.min(ZOOM.min, v.k), v.k * factor));
   const f = k / v.k;
   return { k, x: px - (px - v.x) * f, y: py - (py - v.y) * f };
 }
