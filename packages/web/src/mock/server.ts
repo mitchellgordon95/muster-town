@@ -158,7 +158,14 @@ export class MockApi implements Api {
       funding: { exploreCap: this.capAt(id), explore: { on: true, onFrom: null, chunkTokens: 100_000, chunkFrom: null }, exploreSpentTodayTokens: F_SPENT_TODAY(), free: this.free(id) },
       buildings: this.sim.buildings.filter((b) => (b.goalId ?? "gl_town") === id).map((b) => ({ id: b.id, name: b.name, headcount: b.headcount, inUse: Math.min(b.headcount, [...this.sim.agents.values()].filter((a) => a.homeBuildingId === b.id && a.status === "working").length) })),
     });
-    return clone(node("gl_town", null, this.sim.town.goal || "The town goal", [node("gl_fund", "gl_town", "Fund"), node("gl_join", "gl_town", "Join"), node("gl_trust", "gl_town", "Trust")]));
+    // a second level so the canvas shows grandchildren; the root has a captain of its own (Mitchell)
+    const root = node("gl_town", null, this.sim.town.goal || "The town goal", [
+      node("gl_fund", "gl_town", "Fund", [node("gl_fund_see", "gl_fund", "A funder sees what every token bought, per goal and per week")]),
+      node("gl_join", "gl_town", "Join", [node("gl_join_start", "gl_join", "A signed-in stranger can start their own collective from the web in minutes"), node("gl_join_first", "gl_join", "A stranger finishes useful work in their first session without help")]),
+      node("gl_trust", "gl_town", "Trust", [node("gl_trust_up", "gl_trust", "The town stays up as it grows")]),
+    ]);
+    root.ownerId = "us_mitchell"; root.owner = { goalId: "gl_town", userId: "us_mitchell", name: "Mitchell" };
+    return clone(root);
   } // desks follow floor space: a sent headcount is ignored
   async goalTreeWithRetired() { return this.goalTree(); }
   async goalSpend(id: string, days = 7): Promise<GoalSpend> {

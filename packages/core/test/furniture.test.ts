@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { TILE } from "@muster-town/schema";
-import { createBuilding, findPath, updateBuilding, isWalkable, labSize, MAX_HEADCOUNT, piecesFor, TOWN_HALL_SIZE, validateLayout } from "../src/index.ts";
+import { createBuilding, findPath, freeDesks, updateBuilding, isWalkable, labSize, MAX_HEADCOUNT, piecesFor, TOWN_HALL_SIZE, validateLayout } from "../src/index.ts";
 import { seededWorld } from "./helpers.ts";
 
 const at = (world: ReturnType<typeof seededWorld>["world"], x: number, y: number) => world.layout.grid.tiles[y * world.layout.grid.w + x];
@@ -96,5 +96,41 @@ describe("furniture", () => {
     world.buildings.upsert({ ...now, furniture: { ...now.furniture, plant: { x: 2, y: 5 } } });
     world.layout.rebuild();
     expect(at(world, lot.x + 2, lot.y + 5)).toBe(TILE.FLOOR);
+  });
+
+  it("a headcount lowered below the desks in use is accepted: no new fork's desk, running ones keep theirs, the lab shrinks as they free (mt_cyd2t5ioob decision 5)", () => {
+    const { world, admin, seed } = seededWorld("tree");
+    const b = createBuilding(world, { name: "Busy", headcount: 4 }, seed.admin.id);
+    const before = world.buildings.require(b.id).lot!;
+    for (const id of ["ag_x1", "ag_x2", "ag_x3"]) world.layout.claimDesk(b.id, id);
+    // a moved desk 2 (occupied) keeps its stored spot through the lowering
+    const d2 = world.layout.pieces(b.id).pieces.find((p) => p.key === "desk:2");
+    updateBuilding(world, b.id, { headcount: 1 });
+    const low = world.buildings.require(b.id);
+    expect(low.headcount).toBe(1);
+    expect(freeDesks(world, low)).toBe(0);
+    expect(world.layout.deskCount(b.id)).toBe(3);
+    for (const id of ["ag_x1", "ag_x2", "ag_x3"]) expect(world.layout.deskOf(id)).toBeTruthy();
+    expect(world.layout.deskSlots(b.id)).toHaveLength(3);
+    expect(d2).toBeTruthy();
+    expect(world.layout.pieces(b.id).pieces.some((p) => p.key === "desk:2")).toBe(true);
+    // desks free one by one: the lab keeps its highest occupied desk, then shrinks to the headcount
+    world.layout.releaseDesk("ag_x2");
+    expect(world.layout.deskSlots(b.id)).toHaveLength(3);
+    world.layout.releaseDesk("ag_x3");
+    expect(world.layout.deskSlots(b.id)).toHaveLength(1);
+    expect(world.buildings.require(b.id).lot!.w * world.buildings.require(b.id).lot!.h).toBeLessThanOrEqual(before.w * before.h);
+    expect(world.layout.deskOf("ag_x1")).toBeTruthy();
+    void admin;
+  });
+
+  it("the Town Hall's headcount can be set below its seated mods without touching its room", () => {
+    const { world } = seededWorld("tree");
+    const th = world.buildings.all().find((x) => x.kind === "town-hall")!;
+    const lot = th.lot!;
+    for (const id of ["ag_m1", "ag_m2"]) world.layout.claimDesk(th.id, id);
+    updateBuilding(world, th.id, { headcount: 1 });
+    expect(world.layout.deskOf("ag_m2")).toBeTruthy();
+    expect(world.buildings.require(th.id).lot).toEqual(lot);
   });
 });
