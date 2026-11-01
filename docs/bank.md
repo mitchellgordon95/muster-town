@@ -107,18 +107,15 @@ The Bank warns before neither, so every one is a death it did not predict. The c
 timestamp in the 7 days before now (rolling). Baseline: 7 in the week to 2026-10-26 by hand count; the event log itself
 shows 10 cap-death sessions and 12 `budget.exhausted` for 10-20..10-26. Target: 0.
 
-**The learned cap**: each `bank.cap` gives the subscription's adjusted spend that day when it hit
-(`subscriptionAdjustedToday`). Per UTC day take the lowest; the learned daily cap is the median of those over the last 14
-days. No cap event yet = "no cap seen" and nothing is held. Since 2026-11-01 (migration 076) spend and cap events are in Opus 5.5 output tokens; earlier `bank.cap` events summed each session in its own model, so a Fable-heavy day reads lower there than it would now.
-
-**The hold**: today's subscription spend is the adjusted output tokens of sessions ended since 00:00 UTC (or since a cap
-reset that already passed today) funded by the subscription. The typical session is the median adjusted size of the last
-50 ended sessions that used tokens. When spend ≥ learned cap − typical session, a building whose next session would run on
-the subscription and has no fallback (no donor-key / api-key allocation, no API-key Bank input) holds new starts:
-assignments stay pending with `heldReason` "near the subscription cap (…), resets at …" and the map shows it. With a
-fallback nothing is held: sessions keep starting, and once one dies on the cap (`bank.cap`, `capState().cappedAt`) the
-next sessions run on the fallback credential until the reset (`Budget.failoverFunding`); a session never carries a second
-credential to switch to inside itself (1:1 mt_x40qq8poc3). A `bank.hold` event is logged once per day when it first applies.
+**No learned cap (removed 2026-11-01).** The Bank used to learn a "daily cap" from the adjusted spend at which sessions
+died on the subscription (`bank.cap`), and held every new subscription start near it. On 2026-11-01 one Fable session hit
+a Fable-only plan limit ("Switch to another model to continue"); the Bank learned an 8.7M daily cap from it and held all
+work, Opus included, for about 22 hours while 6.7M sat in the Bank. A limit inferred from where one session died is not a
+limit, so the learned cap and its hold are gone. `bank.cap` events are still logged and counted as deaths, and
+`capState().cappedAt` still marks the subscription capped until the reset in the cap message (or the next 00:00 UTC):
+while set, the next sessions run on a fallback credential if the Bank owns one (`Budget.failoverFunding`); a session never
+carries a second credential to switch to inside itself (1:1 mt_x40qq8poc3). The replacement is availability observed per
+credential and model ("Promised and available" below).
 
 ## Funding streams and the draw order (goal tree step 7)
 
