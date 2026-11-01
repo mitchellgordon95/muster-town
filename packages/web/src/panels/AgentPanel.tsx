@@ -233,7 +233,7 @@ function Presence({ agent, mailbox }: { agent: Agent; mailbox?: { unread: number
  * passes), and for the Planner anyone who plans with it (an admin or a goal's captain, server `Reorgs.canPlan`): the
  * Town Hall has no roles, so without this nobody but an admin could resume a stopped Planner (flag dc_roz7gfvzt2).
  */
-export function canControlAgent(agent: Agent): boolean {
+function canControlAgent(agent: Agent): boolean {
   if (store.can("building.assign", agent.homeBuildingId) || (!!agent.ownerUserId && agent.ownerUserId === store.state.me?.user.id)) return true;
   const home = store.state.buildings.find((b) => b.id === agent.homeBuildingId);
   return home?.kind === "town-hall" && home.managerAgentId === agent.id && !!store.state.me && (store.can("goals.edit") || canOneOnOne(home.id));
