@@ -61,6 +61,13 @@ export interface FinanceFly {
   /** what is and isn't priced, in words */
   desksBackend: DesksConfig["backend"];
   townOnFly: boolean;
+  /**
+   * "host" for a hosted collective (docs/hosted-collectives.md): the server is run by muster.town, so the town Machine is
+   * not this collective's cost and `townUsd` is 0 everywhere; "self" when the collective runs its own server.
+   */
+  townPaidBy: "self" | "host";
+  /** a hosted collective's creation (its first event's ts); the window starts no earlier than that day. null = self-hosted or unknown */
+  createdAt: string | null;
   /** the town-wide daily desk bill cap in USD (Prod's desk-perf step 3, health `desks.billCapUsd`); null = none set */
   capUsdPerDay: number | null;
   today: { day: string; deskUsd: number; townUsd: number; totalUsd: number; capUsdPerDay: number | null; underCap: boolean | null };
@@ -86,6 +93,10 @@ export interface FlyInputs {
   capUsdPerDay?: number | null;
   /** how many UTC days back from today (1..90) */
   windowDays?: number;
+  /** a hosted collective: the hub runs the server, so no town Machine cost (townPaidBy "host") */
+  hosted?: boolean;
+  /** a hosted collective's creation (ISO; its first event): the window starts no earlier than that UTC day */
+  createdAt?: string | null;
 }
 
 const DAY_MS = 86_400_000;
@@ -136,14 +147,18 @@ export function flyRate(cpuKind: "shared" | "performance", cpus: number, memoryM
 /** The pure aggregation behind GET /api/finance/fly. */
 export function financeFly(inp: FlyInputs, now = new Date()): FinanceFly {
   const nowMs = now.getTime();
-  const windowDays = Math.min(90, Math.max(1, Math.floor(inp.windowDays ?? 30)));
   const todayStart = startOfDay(nowMs);
+  const hosted = !!inp.hosted;
+  const createdMs = hosted && inp.createdAt ? new Date(inp.createdAt).getTime() : NaN;
+  // a hosted collective younger than the window: the window starts on its creation day (no days before it existed)
+  const sinceCreation = Number.isFinite(createdMs) ? Math.floor((todayStart - startOfDay(Math.min(createdMs, nowMs))) / DAY_MS) + 1 : Infinity;
+  const windowDays = Math.min(90, sinceCreation, Math.max(1, Math.floor(inp.windowDays ?? 30)));
   const fromMs = todayStart - (windowDays - 1) * DAY_MS;
   const desks = inp.desks;
   const deskRate = desks.backend === "fly"
     ? flyRate(desks.cpuKind ?? DESK_MACHINE_DEFAULTS.cpuKind, desks.cpus ?? DESK_MACHINE_DEFAULTS.cpus, desks.memoryMb ?? DESK_MACHINE_DEFAULTS.memoryMb)
     : null;
-  const townRate = inp.townOnFly ? flyRate(TOWN_MACHINE.cpuKind, TOWN_MACHINE.cpus, TOWN_MACHINE.memoryMb) : null;
+  const townRate = inp.townOnFly && !hosted ? flyRate(TOWN_MACHINE.cpuKind, TOWN_MACHINE.cpus, TOWN_MACHINE.memoryMb) : null;
   // each session at the size it ran on (recorded since migration 060; older ones ran on DESK_LEGACY_SIZE)
   const legacyRate = flyRate(DESK_LEGACY_SIZE.cpuKind, DESK_LEGACY_SIZE.cpus, DESK_LEGACY_SIZE.memoryMb);
   const sessionUsdPerMs = (s: FlyInputs["sessions"][number]) => desks.backend !== "fly" ? 0
@@ -223,7 +238,9 @@ export function financeFly(inp: FlyInputs, now = new Date()): FinanceFly {
     deskRate
       ? `Each desk session is priced at the Machine size it ran on (sessions cpuKind / cpus / memoryMb); sessions from before that was recorded ran on ${legacyRate?.preset} ${DESK_LEGACY_SIZE.memoryMb} MB ($${legacyRate?.usdPerHour.toFixed(4)}/h). New desks: ${deskRate.preset}, ${deskRate.memoryMb} MB, $${deskRate.usdPerHour.toFixed(4)}/h`
       : `Desks are not on Fly (desks.backend ${desks.backend}), so desk time is shown but costs $0 here`,
-    townRate
+    hosted
+      ? "The server is run by muster.town (the host), so this collective pays only for its own desks; no town Machine cost is counted"
+      : townRate
       ? `The town Machine (${townRate.preset}, ${townRate.memoryMb} MB, $${townRate.usdPerHour.toFixed(4)}/h) is counted for every hour of every day in the window; a restart or image deploy keeps it billed`
       : "The server is not on a Fly Machine, so no town Machine cost is counted",
     "A session's wall time is its recorded wallMs, else its row's endedAt − startedAt (a running session counts up to now); nothing before the window counts",
@@ -232,7 +249,8 @@ export function financeFly(inp: FlyInputs, now = new Date()): FinanceFly {
   return {
     windowDays, from: dayOf(fromMs), to: today.day,
     rates: { desk: deskRate, town: townRate, extraRamUsdPerGbMonth: FLY_PRICES.extraRamUsdPerGbMonth, region: FLY_PRICES.region, source: FLY_PRICES.source, pricedAt: FLY_PRICES.pricedAt },
-    desksBackend: desks.backend, townOnFly: inp.townOnFly, capUsdPerDay: cap,
+    desksBackend: desks.backend, townOnFly: inp.townOnFly && !hosted, townPaidBy: hosted ? "host" : "self",
+    createdAt: Number.isFinite(createdMs) ? new Date(createdMs).toISOString() : null, capUsdPerDay: cap,
     today: { day: today.day, deskUsd: today.deskUsd, townUsd: today.townUsd, totalUsd: today.totalUsd, capUsdPerDay: cap, underCap: cap == null ? null : today.deskUsd <= cap },
     days: dayRows, buildings,
     totals: { deskMs, deskHours: round(deskMs / 3_600_000, 2), deskUsd, townUsd, totalUsd, sessions, unmeasuredSessions: unmeasured },
@@ -242,8 +260,12 @@ export function financeFly(inp: FlyInputs, now = new Date()): FinanceFly {
   };
 }
 
-/** financeFly over the world's sessions (Bank.fly). */
-export function townFly(repos: Repos, desks: FlyInputs["desks"], townOnFly: boolean, o: { capUsdPerDay?: number | null; windowDays?: number } = {}, now = new Date()): FinanceFly {
+/**
+ * financeFly over the world's sessions (Bank.fly). `o.hosted` marks a hosted collective (World `host.hosted`, passed in
+ * rather than read from the env so this stays testable); `o.createdAt` is its creation, the ts of its first event
+ * (the World has no creation record of its own; the hub's `collectives.createdAt` lives outside it).
+ */
+export function townFly(repos: Repos, desks: FlyInputs["desks"], townOnFly: boolean, o: FlyOptions = {}, now = new Date()): FinanceFly {
   return financeFly({
     sessions: repos.sessions.all(),
     assignments: repos.assignments.all(),
@@ -252,3 +274,5 @@ export function townFly(repos: Repos, desks: FlyInputs["desks"], townOnFly: bool
     desks, townOnFly, ...o,
   }, now);
 }
+
+export interface FlyOptions { capUsdPerDay?: number | null; windowDays?: number; hosted?: boolean; createdAt?: string | null }

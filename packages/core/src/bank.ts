@@ -6,7 +6,7 @@ import { AppError, badRequest, forbidden } from "./errors.ts";
 import { dailyInflowOf, townFinance, type FinanceSummary } from "./finance.ts";
 import { townSpend, type FinanceSpend } from "./finance-spend.ts";
 import { townSources, type FinanceSources } from "./finance-sources.ts";
-import { townFly, type FinanceFly, type FlyInputs } from "./finance-fly.ts";
+import { townFly, type FinanceFly, type FlyInputs, type FlyOptions } from "./finance-fly.ts";
 import type { EventLog } from "./events.ts";
 import type { Holder, Permissions } from "./permissions.ts";
 import type { Repos } from "./store.ts";
@@ -866,8 +866,10 @@ export class Bank {
   }
 
   /** GET /api/finance/fly: the Fly.io hosting estimate per day (desk sessions' wall time at the desk size's list price + the town Machine) and per building (finance-fly.ts). */
-  fly(desks: FlyInputs["desks"], townOnFly: boolean, o: { capUsdPerDay?: number | null; windowDays?: number } = {}, now = new Date()): FinanceFly {
-    return townFly(this.repos, desks, townOnFly, o, now);
+  fly(desks: FlyInputs["desks"], townOnFly: boolean, o: Omit<FlyOptions, "createdAt"> = {}, now = new Date()): FinanceFly {
+    // a hosted collective's creation = its first event (the window starts no earlier than that day)
+    const createdAt = o.hosted ? this.events.list({ limit: 1 })[0]?.ts ?? null : null;
+    return townFly(this.repos, desks, townOnFly, { ...o, createdAt }, now);
   }
 
   summary(): BankSummary {

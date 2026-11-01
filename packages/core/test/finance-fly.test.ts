@@ -89,6 +89,36 @@ describe("financeFly (GET /api/finance/fly)", () => {
     expect(off.assumptions[0]).toContain("not on Fly");
     expect(off.sumCheck.ok).toBe(true);
   });
+  it("a self-hosted town pays for its own town Machine (townPaidBy self)", () => {
+    const self = financeFly(base, NOW);
+    expect(self).toMatchObject({ townPaidBy: "self", createdAt: null, townOnFly: true, windowDays: 3 });
+    expect(self.totals.townUsd).toBeGreaterThan(0);
+  });
+  it("a hosted collective: no town Machine (the host runs the server), window from its creation day", () => {
+    // created 10-28 15:00Z: the window is 10-28 .. 10-29 (2 days), not 3, and the town Machine is not counted even with townOnFly
+    const h = financeFly({ ...base, hosted: true, createdAt: "2026-10-28T15:00:00Z" }, NOW);
+    expect(h).toMatchObject({ townPaidBy: "host", townOnFly: false, createdAt: "2026-10-28T15:00:00.000Z", windowDays: 2, from: "2026-10-28", to: "2026-10-29" });
+    expect(h.rates.town).toBeNull();
+    expect(h.days.map((d) => d.townUsd)).toEqual([0, 0]);
+    expect(h.totals.townUsd).toBe(0);
+    expect(h.totals.deskMs).toBe(6.5 * H);
+    expect(h.totals.totalUsd).toBe(h.totals.deskUsd);
+    expect(h.assumptions[1]).toContain("run by muster.town");
+    expect(h.sumCheck.ok).toBe(true);
+    // older than the window: the window is unchanged; no createdAt: the asked window
+    expect(financeFly({ ...base, hosted: true, createdAt: "2026-09-01T00:00:00Z" }, NOW).windowDays).toBe(3);
+    expect(financeFly({ ...base, hosted: true }, NOW)).toMatchObject({ windowDays: 3, createdAt: null, townPaidBy: "host" });
+    // created today: one day
+    expect(financeFly({ ...base, hosted: true, createdAt: "2026-10-29T05:00:00Z" }, NOW).days).toHaveLength(1);
+  });
+  it("Bank.fly reads a hosted World's creation from its first event", () => {
+    const { world } = seededWorld();
+    const first = world.events.list({ limit: 1 })[0]!.ts;
+    const h = world.bank.fly({ backend: "fly" }, false, { hosted: true, windowDays: 30 });
+    expect(h).toMatchObject({ townPaidBy: "host", createdAt: new Date(first).toISOString() });
+    expect(h.from >= first.slice(0, 10)).toBe(true);
+    expect(world.bank.fly({ backend: "fly" }, true, {}).createdAt).toBeNull();
+  });
   it("clamps the window to 1..90 days", () => {
     expect(financeFly({ ...base, windowDays: 0 }, NOW).days).toHaveLength(1);
     expect(financeFly({ ...base, windowDays: 400 }, NOW).days).toHaveLength(90);

@@ -103,6 +103,9 @@ What the server enforces (step 1 and 3, with tests):
   not offered in a hosted collective: only `api-key` and `donor-key` inputs.
 - `GET /<slug>/api/health` and the Bank page show "funded by API key" or "no key" for the collective, never the host's
   funding.
+- The Bank's Hosting tab shows only the collective's own desks: the server is run by muster.town, so
+  `/<slug>/api/finance/fly` returns `townPaidBy: "host"` and `townUsd` 0, over a window that starts on the collective's
+  creation day (its first event).
 
 **Hosted collectives run on Anthropic API keys only (Mitchell, 1:1 mt_p3ge56kg03, 2026-10-31).** Anthropic's terms
 reserve Claude subscription (OAuth) credentials for the subscriber's own use of Claude Code; a service that runs agents

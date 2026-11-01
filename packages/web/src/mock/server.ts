@@ -783,7 +783,7 @@ export class MockApi implements Api {
     return {
       windowDays: 7, from: days[6]!.day, to: today,
       rates: { desk: null, town: null, extraRamUsdPerGbMonth: 6, region: "iad", source: "https://docs.fly.io/about/pricing", pricedAt: "2026-10-29" },
-      desksBackend: "host", townOnFly: false, capUsdPerDay: null,
+      desksBackend: "host", townOnFly: false, townPaidBy: "self", createdAt: null, capUsdPerDay: null,
       today: { day: today, deskUsd: 0, townUsd: 0, totalUsd: 0, capUsdPerDay: null, underCap: null },
       days, buildings: [], totals: { deskMs: 0, deskHours: 0, deskUsd: 0, townUsd: 0, totalUsd: 0, sessions: 0, unmeasuredSessions: 0 },
       notCounted: ["Volume storage, stopped Machines' root file systems and bandwidth"],

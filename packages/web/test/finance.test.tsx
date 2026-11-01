@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { renderToStaticMarkup } from "react-dom/server";
 import type { Finance, FinanceFly, FinanceSources, FinanceSpend } from "../src/api";
-import { approxUsd, dollars, donationNote, FINANCE_TERMS, mixLine, spendUsdCheckLine, USD_NOTE, flyCheckLine, flyWindowTotals, inputName, notFundedNote, overdrawnParts, sourcesCheckLine, pct, netPerDay, runwayText, spendCheckLine, sumCheckLine, type FinanceData } from "../src/panels/BankFinance";
+import { approxUsd, dollars, donationNote, FINANCE_TERMS, mixLine, spendUsdCheckLine, USD_NOTE, flyCheckLine, flyWindowLabel, flyWindowTotals, HOSTED_FLY_NOTE, inputName, notFundedNote, overdrawnParts, sourcesCheckLine, pct, netPerDay, runwayText, spendCheckLine, sumCheckLine, type FinanceData } from "../src/panels/BankFinance";
 import { BANK_TABS, type TokenMix } from "@muster-town/schema";
 import { BankView } from "../src/panels/BankPanel";
 import { BankFreeTokens, freeBreakdown } from "../src/panels/FreeTokens";
@@ -284,7 +284,7 @@ const flyDay = (day: string, deskMs: number, townUsd: number, buildings: Finance
 const fly: FinanceFly = {
   windowDays: 10, from: "2026-10-20", to: "2026-10-29",
   rates: { desk: rate, town: rate, extraRamUsdPerGbMonth: 6, region: "iad", source: "https://docs.fly.io/about/pricing", pricedAt: "2026-10-29" },
-  desksBackend: "fly", townOnFly: true, capUsdPerDay: 10,
+  desksBackend: "fly", townOnFly: true, townPaidBy: "self", createdAt: null, capUsdPerDay: 10,
   today: { day: "2026-10-29", deskUsd: 1.2, townUsd: 0.11, totalUsd: 1.31, capUsdPerDay: 10, underCap: true },
   days: [
     { ...flyDay("2026-10-29", 0, 0.11), deskUsd: 1.2, totalUsd: 1.31, deskMs: 64.5 * 3_600_000, sessions: 12 },
@@ -320,6 +320,26 @@ describe("finance page: hosting (Fly.io)", () => {
   it("says so when nothing is on Fly or no cap is set", () => {
     const html = page({ fly: { ...fly, rates: { ...fly.rates, desk: null, town: null }, desksBackend: "docker", townOnFly: false, today: { ...fly.today, capUsdPerDay: null, underCap: null } } });
     for (const s of ["desks are not on Fly (docker)", "the server is not on a Fly Machine: $0", "none set"]) expect(html).toContain(s);
+  });
+  it("a self-hosted town shows its own Town Machine", () => {
+    const html = page({ fly });
+    for (const s of ["Town Machine</th>", "Town Machine size", "the town Machine runs all day"]) expect(html).toContain(s);
+    expect(html).not.toContain(HOSTED_FLY_NOTE);
+  });
+  it("a hosted collective: no Town Machine column or size, the muster.town line, the window from its creation", () => {
+    const zero = (d: FinanceFly["days"][number]) => ({ ...d, townUsd: 0, totalUsd: d.deskUsd });
+    const days = fly.days.slice(0, 3).map(zero);
+    const hosted: FinanceFly = {
+      ...fly, townOnFly: false, townPaidBy: "host", createdAt: "2026-10-27T15:04:00.000Z", windowDays: 3, from: "2026-10-27", to: "2026-10-29",
+      rates: { ...fly.rates, town: null }, today: { ...fly.today, townUsd: 0, totalUsd: fly.today.deskUsd }, days,
+      totals: { ...fly.totals, townUsd: 0, totalUsd: fly.totals.deskUsd },
+    };
+    const html = page({ fly: hosted });
+    for (const s of [HOSTED_FLY_NOTE, "Since it was created (2026-10-27 → 2026-10-29)", "Desks</th><th>Total</th>", "✓ The server checked that each day&#x27;s desks equal that day&#x27;s total"]) expect(html).toContain(s);
+    for (const s of ["Town Machine</th>", "Town Machine size", "the town Machine runs all day", "$0.11"]) expect(html).not.toContain(s);
+    expect(flyWindowLabel(hosted)).toBe("Since it was created (2026-10-27 → 2026-10-29)");
+    // a hosted collective older than the window: the usual label
+    expect(flyWindowLabel({ ...hosted, createdAt: "2026-09-01T00:00:00.000Z" })).toBe("Last 3 days (2026-10-27 → 2026-10-29)");
   });
   it("leaves the section out when the endpoint can't be loaded", () => {
     expect(page({})).not.toContain("Hosting (Fly.io)");

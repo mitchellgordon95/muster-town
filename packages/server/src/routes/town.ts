@@ -431,7 +431,9 @@ export async function townRoutes(app: FastifyInstance) {
   app.get<{ Querystring: { days?: string } }>("/api/finance/fly", async (req) => {
     const desks = world.desksConfig();
     const days = req.query.days ? Number(req.query.days) : undefined;
-    return world.bank.fly(desks, !!process.env.FLY_APP_NAME, { capUsdPerDay: desks.billCapUsd, windowDays: Number.isFinite(days) ? days : undefined });
+    // a hosted collective does not pay for the hub's town Machine (muster.town runs the server): townPaidBy "host", window from its creation
+    const hosted = !!world.host.hosted;
+    return world.bank.fly(desks, !!process.env.FLY_APP_NAME && !hosted, { capUsdPerDay: desks.billCapUsd, windowDays: Number.isFinite(days) ? days : undefined, hosted });
   });
 
   app.post("/api/bank/inputs", async (req, reply) => {
